@@ -2,7 +2,7 @@
 
 Date created: June 15, 2026
 
-Last reconciled: July 22, 2026
+Last reconciled: August 5, 2026 (post-Refactor 90 implementation checkpoint)
 
 Status: active design plan. Same-device passkey Ed25519 sealing and rehydration,
 durable ECDSA material identity, and the current Email OTP wallet lifecycle have
@@ -13,18 +13,28 @@ production gates in [router-ab/ed25519-yao/implementation-plan.md](./router-ab/e
 
 ## Dependencies And Authority
 
-This plan owns passkey-controlled client custody. It supplies custody records
-and worker APIs consumed by:
+This plan owns passkey-controlled client custody. It consumes the completed
+Refactor 90 authorization, material-activation, hydration, and durable-owner
+contracts; it does not redefine or supply a second owner for those contracts.
+Its custody handles enter the canonical Refactor 90 activation boundary through
+typed material inputs. That boundary returns the exact
+`MpcMaterialActivationRef`; the custody handle never supplies or aliases it.
 
-- [refactor-90-modular-auth-capabilities-plan.md](./refactor-90-modular-auth-capabilities-plan.md)
-  for canonical active ECDSA capability manifests, browser persistence,
-  activation commits, hydration, and exact operation-lane selection;
-- [refactor-96-wallet-execution-lanes.md](./refactor-96-wallet-execution-lanes.md)
+The follow-on plans are:
+
+- [refactor-101-wallet-execution-lanes.md](./refactor-101-wallet-execution-lanes.md)
   for `WalletKey`, share-bearing execution lanes, and lane identity;
-- [refactor-97-share-rotation.md](./refactor-97-share-rotation.md) for
+- [refactor-102-share-rotation.md](./refactor-102-share-rotation.md) for
   curve-specific lane provisioning and refresh;
-- [refactor-98-device-linking.md](./refactor-98-device-linking.md) for physical
-  linked-device product flows.
+- [refactor-103-device-linking.md](./refactor-103-device-linking.md) for
+  physical linked-device product flows;
+- [refactor-104-agent-id-spending.md](./refactor-104-agent-id-spending.md) for
+  agent-key custody and delegated execution.
+
+Refactor 90 is the authority for canonical active ECDSA capability manifests,
+browser persistence, activation commits, hydration, and exact operation-lane
+selection. Its `R90-INV-009` and `R90-INV-013` rules govern every authorization
+and material handoff in this plan.
 
 The cryptographic authorities are:
 
@@ -80,15 +90,20 @@ lane holder share after this refactor.
 10. A synced passkey cold unlock reuses the same RP ID, credential ID, PRF,
     custody secret, and active envelope. It creates neither a replacement
     credential nor a recovery-code consumption.
-11. Refactor 95 owns portable encrypted custody and factor-specific unwrap.
+11. Refactor 100 owns portable encrypted custody and factor-specific unwrap.
     Refactor 90 owns the active local ECDSA manifest, encrypted role-local
-    material, activation journal, and post-effect hydration result. Neither
-    refactor may introduce a second owner for the other's state.
+    material, activation journal, and post-effect hydration result. Refactor
+    100 hands opened material into those canonical Refactor 90 boundaries and
+    never introduces a second owner for their state.
 12. ECDSA cold unlock and recovery preserve the registered public key, address,
     material owner, key slot, and participant binding. They may create a fresh
-    threshold session and server generation; an old grant, quota, bearer
-    credential, nonce, or threshold-session ID is never copied as durable key
-    identity.
+    threshold session and server generation. An old `AuthorizationGrantRef`,
+    `WalletSessionId`, `MpcWalletSigningQuotaId`, `AuthorizedOperationId`,
+    bearer credential, nonce, or `MpcMaterialActivationRef` is never copied as
+    a new durable identity. A `thresholdSessionId` may remain in an ECDSA
+    holder-share envelope as a curve-local protocol binding; it is never a
+    wallet-key, lane, or material identity and never replaces
+    `MpcMaterialActivationRef`.
 13. The current passkey-PRF-wrapped Ed25519 local-material record is a
     same-device continuity cache. It is never treated as the portable custody
     envelope, server source of truth, or random Client root defined by this
@@ -117,14 +132,18 @@ The local SDK already has the following lifecycle foundations:
   Wallet Session admission boundary;
 - Ed25519 warm-up is authorized by a server-verified signed Wallet Session, and
   registration derives the effective RP ID from the wallet iframe boundary;
-- one Wallet Session grant can bind an Ed25519 key and the exact ECDSA sessions
-  for Tempo and Arc/EVM under one shared budget;
+- one Wallet Session authorization (`AuthorizationGrantRef`, with its exact
+  `WalletSessionId` and `MpcWalletSigningQuotaId`) can bind an Ed25519 key and
+  the exact ECDSA sessions for Tempo and Arc/EVM under one shared budget;
 - Email OTP recovery-code backup, status, and rotation UX exists for the current
   enrollment-escrow model. Those codes do not yet open the wallet-scoped mixed
   custody envelope set defined here;
-- target custody-envelope record types and type fixtures exist, though they are
-  not wired into random-root registration, portable cold unlock, or
-  wallet-scoped recovery;
+- the current source has only the generic
+  `PasskeyHolderShareEnvelopeRecord` scaffold in
+  `packages/sdk-web/src/core/signingEngine/session/passkey/envelopes/holderShareEnvelope.ts`;
+  the explicit custody-secret union, envelope record union, and their type
+  fixtures below are pending and are not wired into random-root registration,
+  portable cold unlock, or wallet-scoped recovery;
 - linked-device operations remain fail closed.
 
 The current local Ed25519 envelope closes routine same-device continuity. It
@@ -145,7 +164,7 @@ target ECDSA:    random client root share -> passkey-sealed root envelope
 New registrations use random roots from their first ceremony. Since the project
 is in development, test wallets and obsolete persisted records are discarded
 when the new registration path lands. Any retained wallet requires an explicit
-identity-preserving protocol from Refactor 97; an envelope rewrite can never
+identity-preserving protocol from Refactor 102; an envelope rewrite can never
 silently change its public key or address.
 
 ## Custody Secret Taxonomy
@@ -198,6 +217,7 @@ type PasskeyCustodySecretBinding =
       laneId: SigningLaneId;
       laneShareEpoch: LaneShareEpoch;
       evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
+      // Protocol-session binding only; this is not a durable key or material identity.
       thresholdSessionId: ThresholdEcdsaSessionId;
       thresholdPublicKey33B64u: string;
       nearEd25519SigningKeyId?: never;
@@ -208,10 +228,23 @@ type PasskeyCustodySecretBinding =
 
 Owner registration and same-root recovery use the root branches. A physical
 linked-device lane may receive a lane-specific holder-share branch produced by
-the protocol in Refactor 97. Refactor 99 owns agent-key custody and any optional
-delegated-execution holder package; it cannot reuse passkey custody implicitly.
+the protocol in Refactor 102. Refactor 104 owns agent-key custody and any
+optional delegated-execution holder package; it cannot reuse passkey custody
+implicitly. The `thresholdSessionId` on an ECDSA holder-share branch is a
+curve-local protocol binding. It may rotate with the threshold protocol and
+never substitutes for wallet key, lane, `MpcMaterialActivationRef`, or any
+authorization identity.
 Builders must be branch-specific. Core code never constructs this union with a
 broad spread or an `as` cast.
+
+Passkey custody records carry no authorization identity. At execution,
+`R90-INV-009` admits one exact `AuthorizedOperation` from exactly one source:
+the reusable branch names an `AuthorizationGrantRef` and resolves its
+`WalletSessionId` and `MpcWalletSigningQuotaId`, while the step-up branch carries
+only verified evidence and its `AuthorizedOperationId`. Both branches resolve
+the exact `MpcMaterialActivationRef` independently. A recovery code and an
+opened custody handle are factors or material inputs; neither is an authorization
+grant, Wallet Session, quota, or operation identity.
 
 ## Passkey Envelope Records
 
@@ -259,8 +292,13 @@ type PasskeyCustodyEnvelopeRecord = {
 };
 ```
 
-The record stores ciphertext and public binding data. It cannot store a raw
-secret, PRF output, KEK, recovery code, or live capability handle.
+The record above is the target replacement for the current generic
+`PasskeyHolderShareEnvelopeRecord` scaffold. It stores ciphertext and public
+binding data. It cannot store a raw secret, PRF output, KEK, recovery code, or
+live capability handle. It also carries no `AuthorizationGrantRef`,
+`WalletSessionId`, `MpcWalletSigningQuotaId`, `AuthorizedOperationId`, or
+bearer-session identity; those values are resolved for an operation by the
+Refactor 90 boundary.
 
 The canonical portable envelope is stored server-side so a browser with no
 prior IndexedDB state can retrieve it after an exact WebAuthn assertion. The
@@ -345,6 +383,12 @@ Envelope AAD includes:
 - credential ID and RP ID;
 - envelope, KEK, and protocol versions.
 
+`MpcMaterialActivationRef` is bound when opened material enters the canonical
+activation boundary. It is deliberately separate from the envelope's stable
+custody binding so explicit material reactivation can mint a fresh activation
+ID without rewriting the wallet key or address. Authorization identities are
+never used as envelope AAD or custody locators.
+
 The worker recomputes AAD from parsed domain records. Callers cannot supply an
 arbitrary AAD blob.
 
@@ -360,13 +404,25 @@ arbitrary AAD blob.
 5. Execute the existing key-family registration protocols with those imported
    random roots.
 6. Verify the returned Ed25519 public key, ECDSA public key, EVM address,
-   participant bindings, threshold sessions, and wallet-level grant.
+   participant bindings, threshold sessions, and the Wallet Session
+   authorization (`AuthorizationGrantRef`, `WalletSessionId`, and
+   `MpcWalletSigningQuotaId`) established by the canonical Refactor 90 path.
 7. Seal every client root under the passkey KEK.
 8. Create the recovery envelope sets from the same roots.
-9. Commit wallet keys, lanes, envelopes, recovery sets, public capability
-   projections, and the Wallet Session grant through one journaled registration
-   commit. Server-held portable envelopes must be committed before registration
-   reports cross-device custody ready.
+9. Submit the registration effects to their canonical durable owners using one
+   exact registration correlation. Gateway D1 owns the product ceremony,
+   public wallet records, passkey-envelope metadata/ciphertext, recovery-set
+   metadata, activation results, Wallet Session authorization, quotas,
+   authorized operations, and authorization audit. Deriver A/B private D1 owns
+   role custody and one-use cryptographic state; SigningWorker private D1 owns
+   activated material, delivery, cryptographic effect deduplication,
+   presignature or Yao material consumption, and terminal response replay.
+   Router only forwards typed commands and owns no mutable registration state.
+   Each server effect is idempotent and queryable by its correlation and exact
+   receipt. After every required server receipt and activation read-back is
+   present, the browser performs one atomic IndexedDB finalization for local
+   envelopes, public projections, and lifecycle facts. Registration reports
+   cross-device custody ready only after that convergence.
 10. Zeroize root and PRF inputs on every exit.
 
 The Yao Client-root source becomes a precise union with a generated-random-root
@@ -382,9 +438,15 @@ branch. The PRF-derived-root branch is deleted when this flow lands.
 4. Convert opened material into opaque Rust/WASM handles:
    - an Ed25519 Yao Client capability or lane holder capability;
    - an ECDSA role-local client-root or holder-share capability.
-5. Resolve the exact Wallet Session, lane, key, participant, threshold-session,
-   budget, and expiry binding.
-6. Sign through the existing Router and SigningWorker path.
+5. Resolve authorization and material as separate identities. A reusable
+   operation resolves its `AuthorizationGrantRef` to the exact
+   `WalletSessionId` and `MpcWalletSigningQuotaId`; a step-up operation carries
+   verified evidence and its `AuthorizedOperationId` without a grant, Wallet
+   Session, or reusable quota. Independently resolve the lane, key,
+   participant, curve-local threshold-session binding, and exact
+   `MpcMaterialActivationRef`.
+6. Submit the admitted `AuthorizedOperation` and exact material activation
+   through the existing Router and SigningWorker path.
 
 Ordinary Ed25519 signing performs zero Yao evaluations and zero Deriver calls.
 Ordinary ECDSA signing performs no role-local root derivation after the live
@@ -411,10 +473,17 @@ device with no prior Seams IndexedDB state.
    binding before publication.
 6. Feed each verified capability into its canonical activation boundary. ECDSA
    uses the Refactor 90 activation journal and exact read-back path; Ed25519 uses
-   the corresponding Yao publication/durability boundary.
-7. Mint or activate fresh threshold sessions, grants, quotas, and server
-   generations where policy requires them. These rotating facts are never
-   recovered from the portable custody envelope.
+   the corresponding Yao publication/durability boundary. Ordinary hydration
+   preserves the current exact `MpcMaterialActivationRef`.
+7. Resolve operation authorization separately from material. A reusable
+   operation admits its `AuthorizationGrantRef`, `WalletSessionId`,
+   `MpcWalletSigningQuotaId`, and `AuthorizedOperationId`; a step-up operation
+   admits its `AuthorizedOperationId` from verified evidence and carries none of
+   those reusable identities. Threshold sessions, Wallet Sessions, quotas, and
+   server generations may rotate as protocol or authorization facts, but they
+   are never recovered from the portable custody envelope. Explicit material
+   reactivation is the exception: it creates a fresh `MpcMaterialActivationId`
+   and `MpcMaterialActivationRef` through the Refactor 90 activation journal.
 8. Report success only after exact canonical re-resolution is sign-ready for
    every requested capability. A partial mixed-wallet unlock cannot publish a
    shortcut ready record for its successful companion.
@@ -432,21 +501,32 @@ linking rather than changing the custody root.
 
 ## Credential-Replacement Recovery Flow
 
-1. Authorize the wallet recovery request with Email OTP, then supply one unused
-   recovery code as the custody-envelope unwrap factor.
+1. Authorize the wallet recovery request with Email OTP through the canonical
+   Refactor 90 admission boundary, then supply one unused recovery code as the
+   custody-envelope unwrap factor. The recovery code is a custody factor, not
+   an `AuthorizationGrantRef`, Wallet Session, quota, or operation identity.
 2. Reserve the recovery code and resolve its exact key manifest.
 3. Open every recovery-wrapped custody entry inside the recovery worker.
 4. Create the replacement passkey and its KEK.
 5. Run Ed25519 Yao same-root recovery for each Ed25519 root entry.
-6. Rebind and reactivate each ECDSA client-root entry while preserving the
-   threshold public key, address, material owner, key slot, participants, and
-   registered lifecycle identity. Activate a fresh threshold session and server
-   generation when required; do not copy the prior threshold-session ID, grant,
-   quota, bearer credential, or nonce state.
+6. Rebind and explicitly reactivate each ECDSA client-root entry while
+   preserving the threshold public key, address, material owner, key slot,
+   participants, and registered lifecycle identity. Explicit reactivation
+   creates a fresh `MpcMaterialActivationId` and `MpcMaterialActivationRef`
+   through the Refactor 90 activation journal. Activate a fresh threshold
+   session and server generation when required; do not copy the prior
+   threshold-session ID, `AuthorizationGrantRef`, `WalletSessionId`,
+   `MpcWalletSigningQuotaId`, `AuthorizedOperationId`, bearer credential, or
+   nonce state.
 7. Seal every custody entry under the replacement passkey KEK.
 8. Verify identity continuity for the complete manifest.
-9. Atomically activate the replacement envelope set, tombstone the prior
-   credential binding, and consume the recovery code.
+9. Apply the idempotent Gateway/worker server effects and query their exact
+   receipts. Gateway D1 consumes the reserved recovery code only after every
+   required activation receipt verifies. The browser then atomically finalizes
+   the replacement envelope set, prior-credential tombstone, and local
+   lifecycle facts in IndexedDB. Router remains a stateless forwarding
+   boundary; the server and browser commits converge by exact correlation and
+   do not pretend to be one transaction.
 10. Zeroize all opened recovery material.
 
 Recovery never creates a new wallet key, key-creation signer slot, registered
@@ -484,7 +564,7 @@ new matching SigningWorker or relayer material per lane
 new passkey envelopes on Device 2
 ```
 
-Refactor 97 owns the key-family provisioning ceremony. Refactor 98 owns the QR
+Refactor 102 owns the key-family provisioning ceremony. Refactor 103 owns the QR
 and product behavior.
 
 ## Credential And Device Management
@@ -493,7 +573,7 @@ and product behavior.
   handles.
 - Removing a synced passkey leaves the lane active when another active envelope
   protects the same custody secret.
-- Suspected plaintext exposure triggers lane refresh through Refactor 97.
+- Suspected plaintext exposure triggers lane refresh through Refactor 102.
 - Revoking a linked device revokes its enrollment and all child lanes. Owner
   lane envelopes remain active.
 - Credential replacement and device revocation are separate user operations.
@@ -553,8 +633,13 @@ root derivation after random-root registration lands.
 - [ ] Prove synced cold unlock uses the same credential and envelope without
       creating a credential or consuming a recovery code.
 - [ ] Hand verified ECDSA custody material to the Refactor 90 activation journal
-      and read-back path; do not write a second active ECDSA persistence record.
-- [ ] Bind handles to wallet key, lane, epoch, participant set, grant, and TTL.
+      and read-back path as an exact `MpcMaterialActivationRef`; do not write a
+      second active ECDSA persistence record.
+- [ ] Bind opaque material handles only to wallet key, lane, epoch, participant
+      set, exact material activation, and TTL. Compose the admitted reusable or
+      step-up authorization branch only in prepared operation state; no
+      authorization, Wallet Session, quota, or operation identity enters the
+      material handle.
 - [ ] Preserve zero-Deriver ordinary Ed25519 signing.
 - [ ] Preserve exact ECDSA public and material identity while allowing a fresh
       threshold session and server generation.
@@ -564,7 +649,9 @@ root derivation after random-root registration lands.
 - [x] Preserve the existing ten-code backup, status, and rotation UX for Email
       OTP enrollment escrow.
 - [ ] Bind ten single-use codes to the wallet-scoped mixed-custody envelope set.
-- [ ] Reuse the Email OTP authorization and Wallet Session admission boundary.
+- [ ] Reuse the Email OTP authorization and Refactor 90 Wallet Session/
+      `AuthorizedOperation` admission boundary; recovery-code custody remains
+      separate from authorization and quota.
 - [ ] Recover every key in the exact manifest before credential promotion.
 - [ ] Consume a recovery code only with the activation commit.
 
@@ -576,7 +663,7 @@ root derivation after random-root registration lands.
 
 ### Phase 6: Linked-Lane Integration
 
-- [ ] Accept Ed25519 and ECDSA lane holder material produced by Refactor 97.
+- [ ] Accept Ed25519 and ECDSA lane holder material produced by Refactor 102.
 - [ ] Seal linked-device holder material under Device 2's passkey KEK.
 - [ ] Return exact per-key delivery receipts and an aggregate manifest receipt.
 
@@ -645,8 +732,18 @@ Broad gate:
   AAD and all-or-nothing promotion.
 - Freeze the server-side passkey-envelope schema, revision/CAS rules, retention,
   authenticated retrieval result, and revocation behavior.
-- Freeze the exact ownership handoff from an opened Refactor 95 ECDSA custody
-  handle into the Refactor 90 activation input, commit journal, manifest
-  read-back, and hydration result.
-- Define the durable transaction boundary for wallet registration and recovery
-  across Router records, SigningWorker activation, and browser persistence.
+- Freeze the typed ownership handoff from an opened Refactor 100 ECDSA custody
+  handle into the Refactor 90 activation input, exact
+  `MpcMaterialActivationRef`, activation journal, manifest read-back, and
+  hydration result. Explicit material reactivation must allocate a fresh
+  activation ID; ordinary rehydration must preserve the current one.
+- Define the per-owner effects for wallet registration and recovery: Gateway D1
+  owns product ceremonies, passkey-envelope records, activation results,
+  Wallet Session authorization, quotas, authorized operations, and audit;
+  Deriver A/B private D1 owns role custody and one-use cryptographic state;
+  SigningWorker private D1 owns activated material, delivery, cryptographic
+  effect deduplication, presignature or Yao material consumption, and terminal
+  response replay; the browser owns atomic IndexedDB finalization; Router only
+  forwards typed commands. Every server effect is idempotent and queryable by
+  exact correlation and receipt. No distributed Router-owned commit or
+  cross-system transaction is required.

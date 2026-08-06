@@ -4,6 +4,8 @@ Date created: June 15, 2026
 
 Rewritten: July 22, 2026
 
+Last reconciled: August 5, 2026 (post-Refactor 90 implementation checkpoint)
+
 Status: active product plan. A dormant QR v4 parser and public API, React, and
 wallet-iframe UI shells exist. The exported link flow still uses a superseded QR
 shape and fails closed. Device linking, lane provisioning, signing admission,
@@ -28,8 +30,6 @@ It consumes:
 - [refactor-102-share-rotation.md](./refactor-102-share-rotation.md) for Yao
   Ed25519 recipient provisioning, ECDSA additive target-lane resharing,
   aggregate activation, refresh, and revocation.
-
-- [refactor-103-device-linking.md](./refactor-103-device-linking.md) for device linking
 
 [refactor-104-agent-id-spending.md](./refactor-104-agent-id-spending.md) owns
 agent identity and delegated spending. No agent identity, custody, mandate,
@@ -57,9 +57,13 @@ Revocation disables the device without affecting owner or unrelated lanes.
 2. The QR contains public bootstrap material only. It never contains wallet,
    account, share, root, recovery, PRF, KEK, Wallet Session, or export material.
 3. Owner approval binds the exact device, wallet, ordered wallet-key manifest,
-   permission, target lanes, participants, protocol versions, and expiry.
+   permission, target lanes, participants, protocol versions, and expiry. It
+   selects exactly one owner authorization source; a reusable owner Wallet
+   Session authorization and fresh step-up evidence are never combined.
 4. Every target lane remains unavailable until all child protocols and the
-   aggregate receipt commit.
+   aggregate receipt commit. Each admitted operation carries its own
+   `AuthorizedOperationId` and exact `MpcMaterialActivationRef`; neither ID
+   aliases the Wallet Session, enrollment, or device identity.
 5. Device 2 opens holder packages only inside the wallet worker and persists
    sealed custody envelopes plus public projections.
 6. The first release requires local user presence for every signature and
@@ -80,12 +84,13 @@ Revocation disables the device without affecting owner or unrelated lanes.
 
 - owns an active owner lane;
 - authenticates the linking operation with fresh user verification;
-- obtains authorization through the wallet iframe and server-verified Wallet
-  Session boundary;
+- obtains exactly one owner authorization source through the wallet iframe and
+  server-verified boundary: the existing owner Wallet Session authorization or
+  a verified step-up evidence set;
 - displays Device 2 identity, key coverage, permissions, expiry, and revocation
   consequences;
 - approves one exact enrollment transcript;
-- participates in holder-side provisioning required by Refactor 97.
+- participates in holder-side provisioning required by Refactor 102.
 
 Wallet Session JWTs remain inside the authenticated request boundary. QR
 payloads, public results, callbacks, and progress events never carry them.
@@ -100,16 +105,21 @@ payloads, public results, callbacks, and progress events never carry them.
 - stores sealed envelopes and public capability projections;
 - returns exact child and aggregate receipts.
 
-### Relay And Router
+### Gateway, Relay, And Router
 
-- store public link-session state, policy digests, ciphertext, and receipts;
-- atomically bind one authenticated owner and wallet to an unclaimed session;
-- authorize one exact wallet-key manifest;
-- coordinate curve-specific child protocols;
-- keep partial enrollments unavailable to signing;
-- fence cancellation, expiry, activation, and revocation;
-- never receive plaintext roots, holder shares, PRF output, KEKs, recovery
-  codes, Yao private outputs, or export-capable ECDSA shares.
+- Gateway D1 owns durable link-session claims, enrollment transcripts, policy
+  digests, child and aggregate receipts, activation results, and revocation
+  facts;
+- the relay carries public bootstrap data, ciphertext, and signed receipts;
+- Gateway D1 emits one internally authenticated typed command for each
+  curve-specific child protocol and aggregate effect;
+- Router validates and forwards those commands, coordinates role-local
+  execution, and keeps no ceremony, enrollment, activation, or revocation
+  ledger;
+- private Deriver and SigningWorker stores own role custody, activated
+  cryptographic material, delivery state, and one-use execution state;
+- no boundary receives plaintext roots, holder shares, PRF output, KEKs,
+  recovery codes, Yao private outputs, or export-capable ECDSA shares.
 
 ### Deriver A And Deriver B
 
@@ -227,11 +237,21 @@ type QrLinkedDeviceSessionPayloadV4 = {
   issuedAtMs: number;
   expiresAtMs: number;
 };
+
+type QrLinkedDevicePermissionRequest = {
+  kind: 'owner_equivalent_signing';
+  administrationScope: 'signing_only';
+  localUserPresence: 'required';
+};
 ```
 
 The parser validates the exact version and purpose, branded session identity,
 key encodings, permission branch, issue time, and expiry. It rejects unknown
-fields that could smuggle wallet or authorization state.
+fields that could smuggle wallet or authorization state. The first-release
+parser accepts only the `owner_equivalent_signing`/`signing_only` branch with
+required local presence. The dormant `device_management`, `full_owner_admin`,
+and `scoped_signing` v4 branches, including `mandatePolicyDigest`, are deleted
+at cutover rather than retained as compatibility paths.
 
 The current exported `DeviceLinkingQRData`, `linkDevice.ts`, and
 `scanDevice.ts` use a superseded payload with `sessionId`, optional
@@ -272,12 +292,16 @@ SSE plus POST is the preferred first transport:
    - target lane IDs and epochs;
    - permission-policy digest;
    - operation ID, idempotency key, protocol versions, and expiry.
-7. Send authorization and holder-side contributions through the authenticated
-   Router boundary.
+7. Select one exact owner authorization source and send authorization
+   and holder-side contributions through the Gateway boundary. Gateway emits
+   the internally authenticated Router command; Router remains stateless.
 
 A blockchain transaction is unnecessary. The link authorization uses the
-current Wallet Session, fresh passkey assertion, and worker-owned holder
-participation.
+existing owner Wallet Session authorization or one verified step-up evidence
+set.
+The fresh owner passkey assertion is evidence for the selected source. It never
+creates a second source. The resulting `AuthorizedOperationId` is independent
+of every target lane's `MpcMaterialActivationRef`.
 
 ## Device 2: Create Passkey And Receive Material
 
@@ -298,36 +322,103 @@ The worker rejects missing or duplicate keys, wrong public identity, recipient
 swap, transcript mismatch, stale session, unsupported protocol, and any package
 containing export authority.
 
+## Linked-Device Authorization Extension
+
+Refactor 90 currently implements only `WalletSessionAuthorization` as its
+`AuthorizationGrant` variant. This plan owns the linked-device extension and
+adds it to the shared authorization union only after its boundary parser,
+quota owner, and operation adapter are specified:
+
+```ts
+type LinkedDeviceWalletSessionAuthorizationRefV1 = {
+  kind: 'linked_device_wallet_session_authorization_v1';
+  authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+};
+
+type LinkedDeviceWalletSessionAuthorizationV1 = {
+  kind: 'linked_device_wallet_session_authorization_v1';
+  authorizationGrantRef: LinkedDeviceWalletSessionAuthorizationRefV1;
+  walletId: WalletId;
+  enrollmentId: LinkedDeviceEnrollmentId;
+  deviceId: LinkedDeviceId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
+  keyManifestDigestB64u: string;
+  permission: {
+    kind: 'owner_equivalent_signing';
+    administrationScope: 'signing_only';
+    localUserPresence: 'required';
+  };
+  revocationEpoch: number;
+  issuedAtMs: number;
+  expiresAtMs: number;
+};
+
+type AuthorizationGrant =
+  | WalletSessionAuthorization
+  | LinkedDeviceWalletSessionAuthorizationV1;
+
+type AuthorizationGrantRef =
+  | {
+      kind: 'wallet_session_authorization';
+      authorizationId: WalletSessionAuthorizationId;
+    }
+  | LinkedDeviceWalletSessionAuthorizationRefV1;
+
+type LinkedDeviceExecutionAdmission = {
+  authorizedOperation: Extract<AuthorizedOperation, { lifecycle: 'claimed' }>;
+  materialActivation: MpcMaterialActivationRef;
+};
+```
+
+The Gateway creates one linked-device Wallet Session and quota for the exact
+enrollment and key manifest. This plan adds the linked-device branch to the
+shared `AuthorizationGrantRef` and `AuthorizationGrant` unions while retaining
+the shared `OperationAuthorizationSource`: the reusable branch must resolve its
+reference to the linked-device authorization variant, while verified step-up
+remains the existing disjoint branch. Every signing admission creates one
+`AuthorizedOperationId` and carries the exact material activation reference
+separately. Wallet Session renewal may preserve that activation when all
+bindings still match. Session expiry or quota exhaustion rejects new admission
+and leaves sealed material and its activation intact until an explicit material
+lifecycle operation changes them.
+
 ## Aggregate Activation
 
-The Router activates the device only when:
+Gateway D1 accepts the activation result only when:
 
 - the delivered manifest equals the approved ordered manifest;
 - every child protocol is committed;
 - every target server or SigningWorker capability is ready;
 - every Device 2 receipt verifies;
 - the aggregate receipt covers the complete target set;
-- owner authorization and session are current;
-- no cancellation, expiry, or revocation fence is active.
+- the selected authorization source is current (with Wallet Session validity
+  checked only for the reusable branch);
+- no cancellation, expiry, or revocation fence is active;
+- every target lane has an exact `MpcMaterialActivationRef` bound to its key,
+  participant set, lifecycle binding, and SigningWorker.
 
-Activation marks the parent enrollment and every child lane active through one
-durable visibility commit. Device 2 then receives a Wallet Session grant bound
-to its exact enrollment and lanes.
+Gateway D1 records the parent enrollment, child lanes, and activation result in
+one durable visibility commit. Private worker stores activate the corresponding
+cryptographic material. Router records none of these facts. Device 2 then
+receives the linked-device Wallet Session authorization defined above, bound to
+its exact enrollment and lanes.
 
 ## First-Release Permission
 
 The first release supports exactly:
 
 ```text
-permission kind: owner_equivalent
+permission kind: owner_equivalent_signing
 administration scope: signing_only
 local user presence: required
 ```
 
-Device-management and account-administration scopes remain unavailable. A
-future scoped-device design requires its own explicit device principal,
-permission union, local-presence policy, and approval flow. It cannot reuse an
-agent authorization record.
+Device-management, full-owner-admin, and scoped-device branches remain
+unavailable and are removed from the dormant v4 parser. A future scoped-device
+design requires its own explicit device principal, permission union,
+local-presence policy, and approval flow. It cannot reuse an agent authorization
+record.
 
 ## Linked-Device Signing
 
@@ -337,12 +428,26 @@ For every signing request:
 2. Resolve the active parent device enrollment.
 3. Resolve the active child lane for the requested wallet key.
 4. Verify share epoch, revocation epoch, participants, and exact curve session.
-5. Verify Wallet Session audience, device binding, budget, and expiry.
+5. Verify one operation authorization source. The reusable branch must resolve
+   to the exact linked-device authorization, Wallet Session audience, device
+   binding, quota, and expiry; the verified-step-up branch carries none of
+   those reusable identities.
 6. Require local confirmation of the exact normalized intent.
 7. Verify the final unsigned transaction still matches that intent.
-8. Sign through the normal Client/SigningWorker or ECDSA threshold path.
-9. Consume budget and record device, lane, enrollment, and operation identity
-   exactly once.
+8. In Gateway D1, atomically create or replay one `AuthorizedOperation`, consume
+   applicable quota, and write audit linkage. A completed replay returns its
+   recorded result before any share or presignature work.
+9. For a newly claimed operation, construct `LinkedDeviceExecutionAdmission`
+   with the exact `MpcMaterialActivationRef`, then sign through the normal
+   Client/SigningWorker or ECDSA threshold path.
+10. Complete the authorized operation and record device, lane, enrollment,
+    authorization, and operation identity exactly once. Keep material activation
+    separate from every authorization identity.
+
+Wallet Session expiry or quota exhaustion rejects new admission while preserving
+sealed material, public capabilities, and the material activation. Explicit
+renewal or step-up can authorize a new operation; it never silently replaces
+the activation.
 
 Ed25519 signing performs zero Deriver calls. ECDSA signing consumes one-use
 presignature state and retains the same wallet public key and address as owner
@@ -357,8 +462,14 @@ One aggregate revocation operation:
 3. Stops queued and pending signing operations.
 4. Revokes every child lane and advances each lane revocation epoch.
 5. Disables matching SigningWorker and ECDSA relayer capabilities.
-6. Clears Device 2 Wallet Sessions, warm handles, and pending delivery state.
+6. Revokes Device 2 linked-device Wallet Sessions, warm handles, and pending
+   delivery state.
 7. Emits per-key and aggregate revocation receipts.
+
+Gateway D1 persists the revocation facts and receipts. Router only forwards the
+fenced command and response; private workers disable their role-local
+participants. Revocation preserves the material activation as an audit
+identity even when its server capability is disabled.
 
 Owner lanes and unrelated devices remain active. Confirmed compromise may later
 trigger server-share destruction evidence and refresh of remaining lanes.
@@ -402,16 +513,20 @@ Device management shows:
 - revocation action and consequences.
 
 Audit records enrollment, owner approval, protocol commitment, holder delivery,
-activation, signing admission, denial, budget consumption, suspension, expiry,
+activation, signing admission, denial, quota consumption, suspension, expiry,
 refresh, and revocation.
+
+Wallet Session expiry and quota exhaustion belong to the linked-device
+authorization projection. They deny new admission while the enrollment and
+material activation remain intact.
 
 ## Implementation Phases
 
 ### Phase 0: Readiness
 
-- [ ] Refactor 95 portable owner custody and recovery pass.
-- [ ] Refactor 96 wallet-key and linked-device lane records pass.
-- [ ] Refactor 97 target-lane protocols and aggregate activation pass.
+- [ ] Refactor 100 portable owner custody and recovery pass.
+- [ ] Refactor 101 wallet-key and linked-device lane records pass.
+- [ ] Refactor 102 target-lane protocols and aggregate activation pass.
 - [ ] Aggregate receipt, crash-recovery, and revocation stores exist.
 - [ ] Yao production remains gated exactly as documented.
 
@@ -430,7 +545,9 @@ refresh, and revocation.
 
 ### Phase 3: Signing And Revocation
 
-- [ ] Mint enrollment-bound Wallet Sessions.
+- [ ] Mint linked-device Wallet Session authorizations and their quotas.
+- [ ] Bind each admission to one `AuthorizedOperationId` and exact material
+      activation reference.
 - [ ] Require local user presence for every signature.
 - [ ] Route each key family through its normal signing path.
 - [ ] Implement immediate aggregate revocation.
@@ -451,6 +568,8 @@ Static fixtures prove:
 - active states require exact wallet and enrollment identity;
 - device records cannot carry agent identity, mandate, or custody fields;
 - device permission cannot grant delegated or recovery authority;
+- QR parsing rejects every dormant v4 permission branch and accepts only
+  `signing_only` with required local presence;
 - Ed25519 and ECDSA child results cannot be swapped;
 - success requires a nonempty exact lane manifest;
 - cancellation after output commitment cannot enter a precommit state.
@@ -459,6 +578,9 @@ Focused tests prove:
 
 - malformed, expired, replayed, and already-claimed QR sessions fail;
 - owner approval binds exact device, wallet, lanes, participants, and policy;
+- approval selects exactly one owner authorization source;
+- each admission has one `AuthorizedOperationId` and one independent
+  `MpcMaterialActivationRef`;
 - Device 2 creates no wallet before claim;
 - substituted or partial holder delivery fails before persistence;
 - mixed wallets remain inactive until all receipts verify;

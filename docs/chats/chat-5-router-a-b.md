@@ -94,7 +94,7 @@ Computing.
   - Four-worker local topology.
   - Local env templates, local SQLite storage, local HTTP service-binding
     transport, smoke flows, developer commands, and Cloudflare parity checks.
-- `docs/rotate-korg-secrets.md`
+- `docs/refactor-120-rotate-korg-secrets.md`
   - Updated direction to align with Router A/B operational rotation.
 - Follow-up refactor doc for extracting shared threshold-PRF/router-ab logic.
 
