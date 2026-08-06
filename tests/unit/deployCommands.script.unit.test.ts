@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
@@ -64,11 +64,17 @@ function expectOrdered(output: string, labels: readonly string[]): void {
 test('backend plan runs without deployment secrets and prints the complete lane order', () => {
   const result = runCommand(
     backendScript,
-    ['plan', '--target', 'staging'],
+    ['plan', '--lane', 'staging-testnet'],
     environmentWithoutDeploymentSecrets(),
   );
 
   expect(result.status).toBe(0);
+  expect(result.stdout).toContain('Backend deployment plan: staging-testnet');
+  expect(result.stdout).toContain('Release: staging');
+  expect(result.stdout).toContain('Network: testnet');
+  expect(result.stdout).toContain('Runtime profile: testnet_live_demo');
+  expect(result.stdout).toContain('Gateway origin: https://staging.api.seams.sh');
+  expect(result.stdout).toContain('Wallet origin: https://staging.sign.seams.sh');
   expect(result.stdout).not.toContain('plan-secret-value');
   expect(result.stdout).not.toContain('bootstrap Gateway tenant');
   expectOrdered(result.stdout, [
@@ -84,10 +90,34 @@ test('backend plan runs without deployment secrets and prints the complete lane 
   ]);
 });
 
+test('production-mainnet plan reports pending provisioning and blocks operations', () => {
+  const plan = runCommand(
+    backendScript,
+    ['plan', '--lane', 'production-mainnet'],
+    environmentWithoutDeploymentSecrets(),
+  );
+
+  expect(plan.status).toBe(0);
+  expect(plan.stdout).toContain('Backend deployment plan: production-mainnet');
+  expect(plan.stdout).toContain('Provisioning: pending');
+  expect(plan.stdout).toContain('Runtime profile: mainnet_service');
+  expect(plan.stdout).toContain('Required values:');
+
+  const preflight = runCommand(
+    backendScript,
+    ['preflight', '--lane', 'production-mainnet', '--component', 'gateway'],
+    environmentWithoutDeploymentSecrets(),
+  );
+  expectFailure(preflight, /pending provisioning/u);
+  expect(`${preflight.stdout}${preflight.stderr}`).not.toContain(
+    'CLOUDFLARE_API_TOKEN is required',
+  );
+});
+
 test('frontend plan runs without deployment secrets', () => {
   const result = runCommand(
     frontendScript,
-    ['plan', '--target', 'staging'],
+    ['plan', '--site', 'staging'],
     environmentWithoutDeploymentSecrets(),
   );
 
@@ -97,31 +127,42 @@ test('frontend plan runs without deployment secrets', () => {
 
 test('backend commands reject missing, unknown, and misplaced arguments', () => {
   expectFailure(runCommand(backendScript, []), /usage:.*deploy-backend/u);
-  expectFailure(runCommand(backendScript, ['unknown', '--target', 'staging']), /usage:/u);
-  expectFailure(runCommand(backendScript, ['plan']), /--target.*required/u);
+  expectFailure(runCommand(backendScript, ['unknown', '--lane', 'staging-testnet']), /usage:/u);
+  expectFailure(runCommand(backendScript, ['plan']), /--lane.*required/u);
+  expectFailure(runCommand(backendScript, ['plan', '--target', 'staging']), /usage:/u);
+  expectFailure(runCommand(backendScript, ['plan', '--lane', 'production']), /lane/u);
   expectFailure(
-    runCommand(backendScript, ['plan', '--target', 'staging', '--component', 'gateway']),
+    runCommand(backendScript, ['plan', '--lane', 'staging-testnet', '--component', 'gateway']),
     /--component.*not allowed|unexpected.*component/u,
   );
   expectFailure(
-    runCommand(backendScript, ['preflight', '--target', 'staging']),
+    runCommand(backendScript, ['preflight', '--lane', 'staging-testnet']),
     /--component.*required/u,
   );
   expectFailure(
-    runCommand(backendScript, ['preflight', '--target', 'staging', '--component', 'unknown']),
+    runCommand(backendScript, ['preflight', '--lane', 'staging-testnet', '--component', 'unknown']),
     /unknown component/u,
   );
   expectFailure(
-    runCommand(backendScript, ['deploy', '--target', 'staging', '--component', 'frontend']),
+    runCommand(backendScript, ['deploy', '--lane', 'staging-testnet', '--component', 'frontend']),
     /unknown component|backend component/u,
   );
+});
+
+test('backend commands reject a lane branch mismatch before deployment work', () => {
+  const result = runCommand(backendScript, ['smoke', '--lane', 'staging-testnet'], {
+    ...environmentWithoutDeploymentSecrets(),
+    GITHUB_REF: 'refs/heads/main',
+  });
+
+  expectFailure(result, /lane staging-testnet requires branch dev/u);
 });
 
 test('backend preflight validates one custody environment from JSON inventories', () => {
   const secretValue = 'inventory-secret-value';
   const result = runCommand(
     backendScript,
-    ['preflight', '--target', 'staging', '--component', 'signing-worker'],
+    ['preflight', '--lane', 'staging-testnet', '--component', 'signing-worker'],
     {
       ...environmentWithoutDeploymentSecrets(),
       DEPLOYMENT_SECRETS_JSON: JSON.stringify({
@@ -141,7 +182,7 @@ test('backend preflight validates one custody environment from JSON inventories'
   );
 
   expect(result.status).toBe(0);
-  expect(result.stdout).toContain('Preflight passed: staging/signing-worker');
+  expect(result.stdout).toContain('Preflight passed: staging-testnet/signing-worker');
   expect(`${result.stdout}${result.stderr}`).not.toContain(secretValue);
 });
 
@@ -149,7 +190,7 @@ test('backend preflight rejects a missing required secret without printing value
   const secretValue = 'inventory-secret-value';
   const result = runCommand(
     backendScript,
-    ['preflight', '--target', 'staging', '--component', 'signing-worker'],
+    ['preflight', '--lane', 'staging-testnet', '--component', 'signing-worker'],
     {
       ...environmentWithoutDeploymentSecrets(),
       DEPLOYMENT_SECRETS_JSON: JSON.stringify({
@@ -168,13 +209,31 @@ test('backend preflight rejects a missing required secret without printing value
 });
 
 test('frontend commands reject backend-only operations and extra component arguments', () => {
-  expectFailure(runCommand(frontendScript, ['migrate', '--target', 'staging']), /usage:/u);
-  expectFailure(runCommand(frontendScript, ['plan']), /--target.*required/u);
+  expectFailure(runCommand(frontendScript, ['migrate', '--site', 'staging']), /usage:/u);
+  expectFailure(runCommand(frontendScript, ['plan']), /--site.*required/u);
   expectFailure(
-    runCommand(frontendScript, ['plan', '--target', 'staging', '--component', 'gateway']),
+    runCommand(frontendScript, ['plan', '--site', 'staging', '--component', 'gateway']),
     /--component.*not allowed|unexpected.*component/u,
   );
-  expectFailure(runCommand(frontendScript, ['plan', '--target', 'development']), /target/u);
+  expectFailure(runCommand(frontendScript, ['plan', '--site', 'development']), /site/u);
+});
+
+test('frontend commands reject a site branch mismatch before deployment work', () => {
+  const result = runCommand(frontendScript, ['smoke', '--site', 'staging'], {
+    ...environmentWithoutDeploymentSecrets(),
+    GITHUB_REF: 'refs/heads/main',
+  });
+
+  expectFailure(result, /site staging requires branch dev/u);
+});
+
+test('frontend commands reject a site with pending lane provisioning before branch checks', () => {
+  const result = runCommand(frontendScript, ['smoke', '--site', 'production'], {
+    ...environmentWithoutDeploymentSecrets(),
+    GITHUB_REF: 'refs/heads/dev',
+  });
+
+  expectFailure(result, /pending lane provisioning.*production-mainnet/u);
 });
 
 test('backend workflows deploy independent workers concurrently before router', () => {
@@ -200,18 +259,27 @@ test('backend workflows deploy independent workers concurrently before router', 
     'smoke',
   ];
 
-  for (const target of ['staging', 'production']) {
+  const lanes = [
+    { id: 'staging-testnet', workflow: 'deploy-staging-backend.yml' },
+    { id: 'production-testnet', workflow: 'deploy-production-testnet-backend.yml' },
+    { id: 'production-mainnet', workflow: 'deploy-production-mainnet-backend.yml' },
+  ] as const;
+
+  for (const lane of lanes) {
     const result = runCommand(
       backendScript,
-      ['plan', '--target', target],
+      ['plan', '--lane', lane.id],
       environmentWithoutDeploymentSecrets(),
     );
     expect(result.status).toBe(0);
     expectOrdered(result.stdout, planLabels);
 
-    const workflow = parseYaml(
-      readFileSync(path.join(repoRoot, `.github/workflows/deploy-${target}-backend.yml`), 'utf8'),
-    ) as {
+    const workflowSource = readFileSync(
+      path.join(repoRoot, `.github/workflows/${lane.workflow}`),
+      'utf8',
+    );
+    const workflow = parseYaml(workflowSource) as {
+      env?: Readonly<Record<string, string>>;
       jobs: Record<
         string,
         { needs?: string | readonly string[]; env?: Readonly<Record<string, string>> }
@@ -224,6 +292,21 @@ test('backend workflows deploy independent workers concurrently before router', 
     };
 
     expect(Object.keys(workflow.jobs)).toEqual(workflowOrder);
+    expect(workflow.env?.DEPLOY_LANE).toBe(lane.id);
+    expect(workflowSource).toContain(`--lane "$DEPLOY_LANE"`);
+    expect(workflowSource).not.toContain('--target');
+    expect(workflowSource).toContain(
+      `test "$GITHUB_REF" = refs/heads/${lane.id === 'staging-testnet' ? 'dev' : 'main'}`,
+    );
+    const custodyPrefix =
+      lane.id === 'staging-testnet'
+        ? 'staging-'
+        : lane.id === 'production-testnet'
+          ? 'production-testnet-'
+          : 'production-';
+    for (const component of ['signing-worker', 'deriver-a', 'deriver-b', 'mpc-router', 'gateway']) {
+      expect(workflowSource).toContain(`${custodyPrefix}${component}`);
+    }
     expect(needsOf('build')).toEqual([]);
     expect(needsOf('preflight')).toContain('build');
     expect(needsOf('migrate')).toEqual(expect.arrayContaining(['preflight', 'build']));
@@ -237,17 +320,34 @@ test('backend workflows deploy independent workers concurrently before router', 
     ]);
     expect(needsOf('deploy_gateway')).toEqual(['deploy_router']);
   }
+
+  expect(existsSync(path.join(repoRoot, '.github/workflows/deploy-production-backend.yml'))).toBe(
+    false,
+  );
 });
 
 test('frontend workflows contain one environment-bound deployment job', () => {
-  for (const target of ['staging', 'production']) {
-    const workflow = parseYaml(
-      readFileSync(path.join(repoRoot, `.github/workflows/deploy-${target}-frontend.yml`), 'utf8'),
-    ) as {
+  for (const site of ['staging', 'production']) {
+    const workflowSource = readFileSync(
+      path.join(repoRoot, `.github/workflows/deploy-${site}-frontend.yml`),
+      'utf8',
+    );
+    const workflow = parseYaml(workflowSource) as {
+      env?: Readonly<Record<string, string>>;
       jobs: Record<string, { environment?: string }>;
     };
 
     expect(Object.keys(workflow.jobs)).toEqual(['deploy']);
-    expect(workflow.jobs.deploy.environment).toBe(target);
+    expect(workflow.jobs.deploy.environment).toBe(site);
+    expect(workflow.env?.DEPLOY_SITE).toBe(site);
+    expect(workflowSource).toContain('--site "$DEPLOY_SITE"');
+    expect(workflowSource).not.toContain('--target');
+    if (site === 'staging') {
+      expect(workflowSource).toContain('CF_PAGES_PROJECT_WALLET:');
+      expect(workflowSource).not.toContain('CF_PAGES_PROJECT_WALLET_TESTNET:');
+    } else {
+      expect(workflowSource).toContain('CF_PAGES_PROJECT_WALLET_TESTNET:');
+      expect(workflowSource).toContain('CF_PAGES_PROJECT_WALLET_MAINNET:');
+    }
   }
 });

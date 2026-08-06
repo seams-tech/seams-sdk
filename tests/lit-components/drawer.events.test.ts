@@ -19,6 +19,7 @@ test.describe('Lit component – drawer events', () => {
     // Mount the wrapper in drawer variant (renders <w3a-drawer> internally)
     await mountComponent(page, {
       tagName: WRAPPER_TAG,
+      attributes: { 'data-w3a-confirm-surface': 'standalone' },
       props: {
         variant: 'drawer',
         nearAccountId: 'demo.testnet',

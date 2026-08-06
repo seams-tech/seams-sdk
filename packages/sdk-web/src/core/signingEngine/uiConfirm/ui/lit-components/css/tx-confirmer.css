@@ -329,9 +329,34 @@ w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'] {
   max-inline-size: 26rem;
 }
 
+/* Keep compact modal surfaces at one width while details expand inside the card. */
+w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'][data-w3a-confirm-variant='modal'] {
+  inline-size: var(--w3a-modal__container-max-width, 26rem);
+  max-inline-size: 100%;
+  background: transparent;
+  outline: none;
+}
+
 w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'] w3a-modal-tx-confirmer {
   inline-size: max-content;
   max-inline-size: var(--w3a-modal__container-max-width, 26rem);
+}
+
+w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'][data-w3a-confirm-variant='modal']
+  w3a-modal-tx-confirmer {
+  inline-size: 100%;
+  max-inline-size: 100%;
+  background: transparent;
+  outline: none;
+}
+
+w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'][data-w3a-confirm-variant='modal']
+  w3a-modal-tx-confirmer
+  .modal-surface {
+  inline-size: 100%;
+  max-inline-size: 100%;
+  background: transparent;
+  outline: none;
 }
 
 w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'] w3a-drawer-tx-confirmer {
@@ -416,6 +441,12 @@ w3a-drawer-tx-confirmer[theme='light'] .modal-container-root {
   box-shadow:
     0 12px 24px rgba(0, 0, 0, 0.14),
     0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* The host dialog paints compact modal elevation outside the iframe bounds. */
+w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'][data-w3a-confirm-variant='modal']
+  .modal-container-root {
+  box-shadow: none;
 }
 
 @keyframes fadeIn {

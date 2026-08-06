@@ -44,6 +44,13 @@ const exportViewerMeasurementBindings = new WeakMap<
   UiConfirmSurfaceMeasurementBinding
 >();
 
+function exportViewerSurfacePresentation(
+  variant: UpsertExportViewerHostArgs['variant'] | undefined,
+  binding: UiConfirmSurfaceMeasurementBinding,
+): 'standalone' | 'wallet-iframe' {
+  return binding.kind === 'wallet_iframe' && variant === 'modal' ? 'wallet-iframe' : 'standalone';
+}
+
 function sameExportViewerMeasurementBinding(
   left: UiConfirmSurfaceMeasurementBinding | undefined,
   right: UiConfirmSurfaceMeasurementBinding,
@@ -76,7 +83,7 @@ function bindExportViewerMeasurementReporter(
 ): void {
   host.setAttribute(
     EXPORT_VIEWER_SURFACE_ATTR,
-    binding.kind === 'wallet_iframe' ? 'wallet-iframe' : 'standalone',
+    exportViewerSurfacePresentation(host.variant, binding),
   );
   if (sameExportViewerMeasurementBinding(exportViewerMeasurementBindings.get(host), binding)) {
     return;
@@ -145,9 +152,10 @@ export async function upsertExportViewerHost(
   let host = getMountedExportViewerHost();
   if (!host) {
     host = document.createElement(W3A_EXPORT_VIEWER_IFRAME_ID) as ExportViewerIframeElement;
+    host.variant = args.variant;
     host.setAttribute(
       EXPORT_VIEWER_SURFACE_ATTR,
-      args.surfaceMeasurementBinding.kind === 'wallet_iframe' ? 'wallet-iframe' : 'standalone',
+      exportViewerSurfacePresentation(args.variant, args.surfaceMeasurementBinding),
     );
     document.body.appendChild(host);
     if (args.onLifecycle) {

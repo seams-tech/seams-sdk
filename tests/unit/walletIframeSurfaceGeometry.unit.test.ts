@@ -36,6 +36,42 @@ test.describe('wallet iframe surface geometry', () => {
           widthCssPx: 416,
           heightCssPx: 400,
         });
+        const anchoredAuthMenu = geometry.anchorWalletIframeModalGeometry(
+          {
+            kind: 'centered_modal',
+            widthCssPx: 377,
+            heightCssPx: 390,
+            topCssPx: 189,
+            leftCssPx: 37,
+          },
+          {
+            widthCssPx: 451,
+            heightCssPx: 768,
+            offsetLeftCssPx: 0,
+            offsetTopCssPx: 0,
+          },
+          {
+            topCssPx: 600,
+            leftCssPx: 37,
+            widthCssPx: 377,
+            heightCssPx: 450,
+          },
+        );
+        const scrolledAnchoredAuthMenu = geometry.anchorWalletIframeModalGeometry(
+          anchoredAuthMenu,
+          {
+            widthCssPx: 451,
+            heightCssPx: 768,
+            offsetLeftCssPx: 0,
+            offsetTopCssPx: 0,
+          },
+          {
+            topCssPx: -120,
+            leftCssPx: 37,
+            widthCssPx: 377,
+            heightCssPx: 450,
+          },
+        );
         const measuredDrawer = geometry.measuredWalletIframeSurfaceGeometry(drawer, viewport, {
           widthCssPx: 700,
           heightCssPx: 900,
@@ -53,8 +89,23 @@ test.describe('wallet iframe surface geometry', () => {
           viewport: { ...viewport, widthCssPx: 300, heightCssPx: 500 },
           measurement: { kind: 'pending' },
         });
+        const smallDrawerViewport = geometry.resolveWalletIframeSurfaceGeometry({
+          presentation: drawer,
+          viewport: { ...viewport, widthCssPx: 300, heightCssPx: 500 },
+          measurement: { kind: 'pending' },
+        });
+        const smallMeasuredDrawer = geometry.resolveWalletIframeSurfaceGeometry({
+          presentation: drawer,
+          viewport: { ...viewport, widthCssPx: 300, heightCssPx: 500 },
+          measurement: { kind: 'measured', widthCssPx: 120, heightCssPx: 120 },
+        });
         const unavailable = geometry.resolveWalletIframeSurfaceGeometry({
           presentation: modal,
+          viewport,
+          measurement: { kind: 'unavailable' },
+        });
+        const unavailableDrawer = geometry.resolveWalletIframeSurfaceGeometry({
+          presentation: drawer,
           viewport,
           measurement: { kind: 'unavailable' },
         });
@@ -96,10 +147,15 @@ test.describe('wallet iframe surface geometry', () => {
           provisionalDrawer,
           measuredModal,
           measuredGrowingModal,
+          anchoredAuthMenu,
+          scrolledAnchoredAuthMenu,
           measuredDrawer,
           compactMeasuredDrawer,
           smallViewport,
+          smallDrawerViewport,
+          smallMeasuredDrawer,
           unavailable,
+          unavailableDrawer,
           parsed,
           rejected,
           extraKeyRejected,
@@ -122,10 +178,10 @@ test.describe('wallet iframe surface geometry', () => {
     expect(result.provisionalDrawer).toEqual({
       kind: 'provisional_bottom_drawer',
       edge: 'bottom',
-      widthCssPx: 384,
-      heightCssPx: 320,
-      topCssPx: 452,
-      leftCssPx: 330,
+      widthCssPx: 1024,
+      heightCssPx: 768,
+      topCssPx: 20,
+      leftCssPx: 10,
     });
     expect(result.measuredModal).toEqual({
       kind: 'centered_modal',
@@ -142,21 +198,29 @@ test.describe('wallet iframe surface geometry', () => {
       leftCssPx: 314,
     });
     expect(result.measuredGrowingModal.widthCssPx).toBeGreaterThan(360);
+    expect(result.anchoredAuthMenu).toEqual({
+      kind: 'centered_modal',
+      widthCssPx: 377,
+      heightCssPx: 390,
+      topCssPx: 600,
+      leftCssPx: 37,
+    });
+    expect(result.scrolledAnchoredAuthMenu.topCssPx).toBe(-120);
     expect(result.measuredDrawer).toEqual({
       kind: 'bottom_drawer',
       edge: 'bottom',
-      widthCssPx: 384,
-      heightCssPx: 736,
-      topCssPx: 36,
-      leftCssPx: 330,
+      widthCssPx: 1024,
+      heightCssPx: 768,
+      topCssPx: 20,
+      leftCssPx: 10,
     });
     expect(result.compactMeasuredDrawer).toEqual({
       kind: 'bottom_drawer',
       edge: 'bottom',
-      widthCssPx: 320,
-      heightCssPx: 240,
-      topCssPx: 532,
-      leftCssPx: 362,
+      widthCssPx: 1024,
+      heightCssPx: 768,
+      topCssPx: 20,
+      leftCssPx: 10,
     });
     expect(result.smallViewport).toEqual({
       kind: 'viewport_fallback',
@@ -166,6 +230,22 @@ test.describe('wallet iframe surface geometry', () => {
       topCssPx: 36,
       leftCssPx: 26,
     });
+    expect(result.smallDrawerViewport).toEqual({
+      kind: 'provisional_bottom_drawer',
+      edge: 'bottom',
+      widthCssPx: 300,
+      heightCssPx: 500,
+      topCssPx: 20,
+      leftCssPx: 10,
+    });
+    expect(result.smallMeasuredDrawer).toEqual({
+      kind: 'bottom_drawer',
+      edge: 'bottom',
+      widthCssPx: 300,
+      heightCssPx: 500,
+      topCssPx: 20,
+      leftCssPx: 10,
+    });
     expect(result.unavailable).toEqual({
       kind: 'viewport_fallback',
       reason: 'measurement_unavailable',
@@ -173,6 +253,14 @@ test.describe('wallet iframe surface geometry', () => {
       heightCssPx: 736,
       topCssPx: 36,
       leftCssPx: 26,
+    });
+    expect(result.unavailableDrawer).toEqual({
+      kind: 'bottom_drawer',
+      edge: 'bottom',
+      widthCssPx: 1024,
+      heightCssPx: 768,
+      topCssPx: 20,
+      leftCssPx: 10,
     });
     expect(result.parsed).toEqual(result.measuredModal);
     expect(result.rejected).toBeNull();

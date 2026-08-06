@@ -59,6 +59,10 @@ const PREFERENCES_PUSH_STUB = `
         const message = event.data || {};
         if (!message || typeof message !== 'object') return original && original(event);
         const { type, requestId } = message;
+        window.parent?.postMessage(
+          { type: 'TEST_PREFERENCE_TRACE', payload: { type, at: performance.now() } },
+          '*',
+        );
 
         if (type === 'PM_PREFETCH_BLOCKHEIGHT') {
           respond(requestId, undefined);
@@ -88,6 +92,12 @@ const PREFERENCES_PUSH_STUB = `
           if (themeMode === 'dark' || themeMode === 'light') {
             window.__lastSetTheme = themeMode;
           }
+          respond(requestId, undefined);
+          return;
+        }
+
+        if (type === 'PM_SIGN_DELEGATE_ACTION') {
+          window.parent?.postMessage({ type: 'TEST_SIGNING_SURFACE_STARTED' }, '*');
           respond(requestId, undefined);
           return;
         }
@@ -239,6 +249,115 @@ test.describe('Wallet iframe preferences sync', () => {
         m.includes('IndexedDB is disabled in this environment'),
     );
     expect(indexedDbNoise).toBeUndefined();
+  });
+
+  test('uses the mirrored wallet preference to present a drawer before dispatch', async ({
+    page,
+  }) => {
+    const seamsPath = SDK_ESM_PATHS.seamsWeb;
+    const result = await page.evaluate(
+      async ({ walletOrigin, seamsPath }) => {
+        const base =
+          window.location.origin === 'null' ? 'https://example.localhost' : window.location.origin;
+        const mod = await import(new URL(seamsPath, base).toString());
+        const { SeamsWeb } = mod as typeof import('@/SeamsWeb');
+        const seams = new SeamsWeb({
+          chains: [
+            {
+              network: 'near-testnet',
+              rpcUrl: 'https://test.rpc.fastnear.com',
+              explorerUrl: 'https://testnet.nearblocks.io',
+            },
+          ],
+          relayer: { url: 'http://localhost:3000' },
+          iframeWallet: {
+            walletOrigin,
+            walletServicePath: '/wallet-service',
+            sdkBasePath: '/sdk',
+          },
+        });
+
+        await seams.initWalletIframe();
+        const router = await (seams as any).walletIframe.requireRouter();
+        await router.setConfirmationConfig({ uiMode: 'drawer' });
+        void router
+          .post({
+            type: 'PM_SIGN_DELEGATE_ACTION',
+            payload: { walletId: 'alice.testnet', options: {} },
+          })
+          .catch(() => undefined);
+
+        await new Promise<void>((resolve) => {
+          const onStarted = (event: MessageEvent) => {
+            if (event.data?.type !== 'TEST_SIGNING_SURFACE_STARTED') return;
+            window.removeEventListener('message', onStarted);
+            resolve();
+          };
+          window.addEventListener('message', onStarted);
+        });
+
+        const state = router.getOverlayState();
+        router.dispose();
+        return { mode: state.mode };
+      },
+      { walletOrigin: WALLET_ORIGIN, seamsPath },
+    );
+
+    expect(result.mode).toBe('bottom_drawer');
+  });
+
+  test('dispatches a foreground request without a nested confirmation-config round trip', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(async ({ walletOrigin }) => {
+      const routerModule = await import(
+        '/_test-sdk/esm/SeamsWeb/walletIframe/client/router.js'
+      );
+      const router = new routerModule.WalletIframeRouter({
+        walletOrigin,
+        servicePath: '/wallet-service',
+        sdkBasePath: '/sdk',
+        relayer: { url: window.location.origin },
+        registration: {
+          projectEnvironmentId: 'proj_local:test',
+          publishableKey: 'pk_local',
+        },
+        requestTimeoutMs: 3_000,
+      });
+      await router.init();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const trace: Array<{ type: string; at: number }> = [];
+      const traceListener = (event: MessageEvent) => {
+        if (event.data?.type !== 'TEST_PREFERENCE_TRACE') return;
+        trace.push(event.data.payload);
+      };
+      window.addEventListener('message', traceListener);
+
+      // Exercise the missing-mirror branch directly. Initialization has already fetched the
+      // authoritative config, so foreground dispatch must not fetch it again.
+      (router as unknown as { mirroredConfirmationUiMode: null }).mirroredConfirmationUiMode =
+        null;
+      const started = new Promise<void>((resolve) => {
+        const listener = (event: MessageEvent) => {
+          if (event.data?.type !== 'TEST_SIGNING_SURFACE_STARTED') return;
+          window.removeEventListener('message', listener);
+          resolve();
+        };
+        window.addEventListener('message', listener);
+      });
+      const request = (router as unknown as { post: (envelope: unknown) => Promise<unknown> }).post({
+        type: 'PM_SIGN_DELEGATE_ACTION',
+        payload: { walletId: 'alice.testnet', options: {} },
+      });
+      await started;
+      await request;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      window.removeEventListener('message', traceListener);
+      router.dispose();
+      return trace.map((entry) => entry.type);
+    }, { walletOrigin: WALLET_ORIGIN });
+
+    expect(result).toEqual(['PM_SIGN_DELEGATE_ACTION']);
   });
 
   test('seams.setTheme forwards appearance updates to the wallet host', async ({ page }) => {

@@ -33,6 +33,7 @@ import {
   createWalletIframeSurfaceMeasurementReporter,
   type WalletIframeSurfaceMeasurementReporter,
 } from '@/SeamsWeb/walletIframe/host/lit-ui/surface-measurement-reporter';
+import { ensureExternalStyles } from './lit-components/css/css-loader';
 
 export type {
   ConfirmUIHandle,
@@ -125,6 +126,15 @@ async function ensureTxConfirmerElementDefined(): Promise<void> {
 
 export async function prewarmTxConfirmerUi(): Promise<void> {
   await ensureTxConfirmerElementDefined();
+  const root = typeof document === 'undefined' ? null : document.documentElement;
+  if (!root) return;
+  await Promise.all([
+    ensureExternalStyles(root, 'w3a-components.css', 'data-w3a-components-css'),
+    ensureExternalStyles(root, 'tx-tree.css', 'data-w3a-tx-tree-css'),
+    ensureExternalStyles(root, 'tx-confirmer.css', 'data-w3a-tx-confirmer-css'),
+    ensureExternalStyles(root, 'halo-border.css', 'data-w3a-halo-border-css'),
+    ensureExternalStyles(root, 'passkey-halo-loading.css', 'data-w3a-passkey-halo-loading-css'),
+  ]);
 }
 
 const DEFAULT_CONFIRM_APPEARANCE: AppearanceConfig = {
@@ -453,11 +463,14 @@ function applyConfirmSurfaceMode(
   element: HTMLElement,
   binding: UiConfirmSurfaceMeasurementBinding,
 ): void {
-  element.setAttribute(
-    CONFIRM_SURFACE_MODE_ATTR,
-    binding.kind === 'wallet_iframe' ? 'wallet-iframe' : 'standalone',
-  );
   const variant = (element as HostTxConfirmerElement).variant;
+  const surface =
+    binding.kind === 'wallet_iframe' && variant === 'drawer'
+      ? 'standalone'
+      : binding.kind === 'wallet_iframe'
+        ? 'wallet-iframe'
+        : 'standalone';
+  element.setAttribute(CONFIRM_SURFACE_MODE_ATTR, surface);
   if (variant) element.setAttribute('data-w3a-confirm-variant', variant);
 }
 
@@ -913,6 +926,12 @@ function mountHostElement({
   if (summary?.delegate && summary?.title == null) {
     element.title = 'Sign Delegate Action';
   }
+
+  // Set the surface mode before connecting the custom element. The wallet
+  // iframe host uses this attribute to hide provisional geometry; connecting
+  // first lets a synchronous render paint the standalone/default surface for
+  // one frame while the reporter is attached.
+  applyConfirmSurfaceMode(element, ctx.surfaceMeasurementBinding);
 
   const portal = ensureConfirmPortal();
   const wasEmpty = portal.childElementCount === 0;

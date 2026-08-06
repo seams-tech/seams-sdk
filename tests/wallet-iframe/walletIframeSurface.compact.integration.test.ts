@@ -169,6 +169,8 @@ async function readDialogGeometry(page: Page) {
       height: rect.height,
       top: rect.top,
       left: rect.left,
+      transitionDuration: getComputedStyle(dialog).transitionDuration,
+      transitionTimingFunction: getComputedStyle(dialog).transitionTimingFunction,
     };
   });
 }
@@ -257,6 +259,31 @@ test.describe('wallet iframe compact surface measurement routing', () => {
     await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
   });
 
+  test('keeps an unmeasured surface hidden through its initial paints', async ({ page }) => {
+    await startHostedAuthMenu(page, 'compact-initial-paint-session');
+
+    const initialPaint = await page.evaluate(() => {
+      const dialog = document.querySelector('dialog.w3a-wallet-overlay-dialog');
+      if (!(dialog instanceof HTMLDialogElement)) throw new Error('wallet overlay dialog missing');
+      return {
+        provisional: dialog.classList.contains('is-provisional'),
+        visibility: getComputedStyle(dialog).visibility,
+      };
+    });
+    expect(initialPaint).toEqual({ provisional: true, visibility: 'hidden' });
+
+    await page.waitForTimeout(150);
+    const settledPaint = await page.evaluate(() => {
+      const dialog = document.querySelector('dialog.w3a-wallet-overlay-dialog');
+      if (!(dialog instanceof HTMLDialogElement)) throw new Error('wallet overlay dialog missing');
+      return {
+        provisional: dialog.classList.contains('is-provisional'),
+        visibility: getComputedStyle(dialog).visibility,
+      };
+    });
+    expect(settledPaint).toEqual({ provisional: true, visibility: 'hidden' });
+  });
+
   test('ignores malformed, stale, and mismatched measurements before accepting a newer size', async ({
     page,
   }) => {
@@ -334,6 +361,38 @@ test.describe('wallet iframe compact surface measurement routing', () => {
     await waitForDialogGeometry(page, { width: 420, height: 430 });
     const acceptedGeometry = await readDialogGeometry(page);
     expect(acceptedGeometry.className).not.toContain('is-viewport-fallback');
+  });
+
+  test('animates the hosted auth menu between measured content heights', async ({ page }) => {
+    await startHostedAuthMenu(page, 'compact-height-animation-session');
+    await postSurfaceMeasurement(page, {
+      kind: 'measured_auth_menu_v1',
+      requestId: '__current__',
+      authMenuSessionId: '__current__',
+      sequence: 20,
+      widthCssPx: 420,
+      heightCssPx: 430,
+    });
+    await waitForDialogGeometry(page, { width: 420, height: 430 });
+
+    await postSurfaceMeasurement(page, {
+      kind: 'measured_auth_menu_v1',
+      requestId: '__current__',
+      authMenuSessionId: '__current__',
+      sequence: 21,
+      widthCssPx: 420,
+      heightCssPx: 255,
+    });
+    await page.waitForTimeout(60);
+
+    const resizingGeometry = await readDialogGeometry(page);
+    expect(resizingGeometry.height).toBeLessThan(430);
+    expect(resizingGeometry.height).toBeGreaterThan(255);
+    expect(resizingGeometry.transitionDuration).toContain('0.23s');
+    expect(resizingGeometry.transitionTimingFunction).toContain(
+      'cubic-bezier(0.34, 1.18, 0.64, 1)',
+    );
+    await waitForDialogGeometry(page, { width: 420, height: 255 });
   });
 
   test('does not let a stale measurement resize a replacement surface', async ({ page }) => {

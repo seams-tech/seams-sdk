@@ -236,9 +236,12 @@ export class WalletIframeCoordinator {
     return await router.getExactSessionState();
   }
 
-  async openHostedAuthMenu(request: HostedAuthMenuOpenRequest): Promise<HostedAuthMenuOutcome> {
+  async openHostedAuthMenu(
+    request: HostedAuthMenuOpenRequest,
+    anchorElement?: HTMLElement,
+  ): Promise<HostedAuthMenuOutcome> {
     const router = await this.requireRouter();
-    return await router.openHostedAuthMenu(request);
+    return await router.openHostedAuthMenu(request, anchorElement);
   }
 
   async cancelHostedAuthMenu(args: {

@@ -595,6 +595,92 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
     expect(result.outcome.message).not.toContain('missing canonical threshold ECDSA session');
   });
 
+  test('signTempo remains pending until explicit cancellation', async ({ page }) => {
+    const routerPath = SDK_ESM_PATHS.walletIframeRouter;
+    const result = await page.evaluate(
+      async ({ walletOrigin, routerPath, chainTarget, walletSession }) => {
+        const mod = await import(routerPath);
+        const { WalletIframeRouter } =
+          mod as typeof import('@/SeamsWeb/walletIframe/client/router');
+        const router = new WalletIframeRouter({
+          walletOrigin,
+          servicePath: '/wallet-service',
+          connectTimeoutMs: 3000,
+          requestTimeoutMs: 25,
+          debug: true,
+          sdkBasePath: '/sdk',
+        });
+        await router.init();
+
+        // Keep this test focused on the interactive request policy rather than config discovery.
+        (router as any).mirroredConfirmationUiMode = 'modal';
+        const nativeSetTimeout = window.setTimeout;
+        const timeoutDelays: number[] = [];
+        window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+          timeoutDelays.push(Number(timeout ?? 0));
+          return nativeSetTimeout(handler, timeout, ...args);
+        }) as typeof window.setTimeout;
+
+        try {
+          const signing = router
+            .signTempo({
+              walletSession,
+              chainTarget,
+              request: {
+                chain: 'evm',
+                kind: 'eip1559',
+                senderSignatureAlgorithm: 'secp256k1',
+                tx: {},
+              },
+            })
+            .then(
+              () => ({ ok: true as const, message: '' }),
+              (error: unknown) => ({
+                ok: false as const,
+                message: String((error as { message?: unknown })?.message || error || ''),
+              }),
+            );
+
+          const pendingStartedAt = Date.now();
+          while ((router as any).state.pending.size === 0 && Date.now() - pendingStartedAt < 1000) {
+            await new Promise<void>((resolve) => nativeSetTimeout(resolve, 10));
+          }
+          const pendingEntries = Array.from((router as any).state.pending.entries()) as Array<
+            [string, { requestType?: string }]
+          >;
+          const requestId = pendingEntries.find(
+            ([, pending]) => pending.requestType === 'PM_SIGN_TEMPO',
+          )?.[0];
+          if (!requestId) throw new Error('PM_SIGN_TEMPO request did not become pending');
+
+          const stillPendingAfterShortWait = await Promise.race([
+            signing.then(() => false),
+            new Promise<boolean>((resolve) => nativeSetTimeout(() => resolve(true), 100)),
+          ]);
+          const hasThirtySecondDeadline = timeoutDelays.some(
+            (delay) => delay >= 29_000 && delay <= 31_000,
+          );
+
+          await router.cancelRequest(requestId);
+          const outcome = await signing;
+          return { hasThirtySecondDeadline, stillPendingAfterShortWait, outcome };
+        } finally {
+          window.setTimeout = nativeSetTimeout;
+        }
+      },
+      {
+        walletOrigin: WALLET_ORIGIN,
+        routerPath,
+        chainTarget: ALICE_EVM_CHAIN_TARGET,
+        walletSession: ALICE_WALLET_SESSION,
+      },
+    );
+
+    expect(result.hasThirtySecondDeadline).toBe(false);
+    expect(result.stillPendingAfterShortWait).toBe(true);
+    expect(result.outcome).toEqual({ ok: false, message: 'Request cancelled.' });
+  });
+
   test('failed passkey unlock does not publish stale Email OTP login status', async ({ page }) => {
     await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
     await registerWalletServiceRoute(
