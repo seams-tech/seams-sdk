@@ -149,8 +149,8 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
 function setPrivateD1MigrationsDirectory(source, repoRoot, migrationsDirectory) {
   const expected = `migrations_dir = "migrations/${migrationsDirectory}"`;
   const matches = source.split(/\r?\n/).filter((line) => line === expected).length;
-  if (matches !== 2) {
-    throw new Error(`strict local Wrangler config must define ${expected} twice`);
+  if (matches === 0) {
+    throw new Error(`strict local Wrangler config must define ${expected}`);
   }
   const absoluteDirectory = path.join(
     repoRoot,
@@ -164,54 +164,62 @@ function setPrivateD1MigrationsDirectory(source, repoRoot, migrationsDirectory) 
 
 function applyRoleVars(source, role, env) {
   const internalSecretBinding = 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET';
-  let config = replaceTomlAssignment(
+  let config = setTomlSectionAssignment(
     source,
+    'vars',
     'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING',
     internalSecretBinding,
   );
   switch (role) {
     case 'router':
-      config = replaceTomlAssignment(config, 'ROUTER_JWT_ISSUER', env.sdkRouterUrl);
-      config = replaceTomlAssignment(config, 'ROUTER_JWT_AUDIENCE', 'router-ab');
-      config = replaceTomlAssignment(config, 'ROUTER_JWT_JWKS_JSON', env.ceremonyJwksJson);
+      config = setTomlSectionAssignment(config, 'vars', 'ROUTER_JWT_ISSUER', env.sdkRouterUrl);
+      config = setTomlSectionAssignment(config, 'vars', 'ROUTER_JWT_AUDIENCE', 'router-ab');
+      config = setTomlSectionAssignment(config, 'vars', 'ROUTER_JWT_JWKS_JSON', env.ceremonyJwksJson);
       return replaceTopologyPublicVars(config, env);
     case 'deriver-a':
-      config = replaceTomlAssignment(
+      config = setTomlSectionAssignment(
         config,
+        'vars',
         'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
         requiredEnv(env.routerEnv, 'DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY'),
       );
-      config = replaceTomlAssignment(
+      config = setTomlSectionAssignment(
         config,
+        'vars',
         'DERIVER_A_PEER_VERIFYING_KEY_HEX',
         localPeerVerifyingKeyHex(requiredEnv(env.deriverAEnv, 'DERIVER_A_PEER_SIGNING_KEY')),
       );
-      config = replaceTomlAssignment(
+      config = setTomlSectionAssignment(
         config,
+        'vars',
         'DERIVER_B_PEER_VERIFYING_KEY_HEX',
         localPeerVerifyingKeyHex(requiredEnv(env.deriverBEnv, 'DERIVER_B_PEER_SIGNING_KEY')),
       );
       return setPrivateD1Vars(config, 'DERIVER_ROLE_PRIVATE_D1', env.privateD1Keys.deriverA);
     case 'deriver-b':
-      config = replaceTomlAssignment(
+      config = setTomlSectionAssignment(
         config,
+        'vars',
         'DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY',
         requiredEnv(env.routerEnv, 'DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY'),
       );
-      config = replaceTomlAssignment(
+      config = setTomlSectionAssignment(
         config,
+        'vars',
         'DERIVER_A_PEER_VERIFYING_KEY_HEX',
         localPeerVerifyingKeyHex(requiredEnv(env.deriverAEnv, 'DERIVER_A_PEER_SIGNING_KEY')),
       );
-      config = replaceTomlAssignment(
+      config = setTomlSectionAssignment(
         config,
+        'vars',
         'DERIVER_B_PEER_VERIFYING_KEY_HEX',
         localPeerVerifyingKeyHex(requiredEnv(env.deriverBEnv, 'DERIVER_B_PEER_SIGNING_KEY')),
       );
       return setPrivateD1Vars(config, 'DERIVER_ROLE_PRIVATE_D1', env.privateD1Keys.deriverB);
     case 'signing-worker':
-      config = replaceTomlAssignment(
+      config = setTomlSectionAssignment(
         config,
+        'vars',
         'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
         requiredEnv(env.signingWorkerEnv, 'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY'),
       );
@@ -222,28 +230,33 @@ function applyRoleVars(source, role, env) {
 }
 
 function replaceTopologyPublicVars(source, env) {
-  let config = replaceTomlAssignment(
+  let config = setTomlSectionAssignment(
     source,
+    'vars',
     'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
     requiredEnv(env.routerEnv, 'DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY'),
   );
-  config = replaceTomlAssignment(
+  config = setTomlSectionAssignment(
     config,
+    'vars',
     'DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY',
     requiredEnv(env.routerEnv, 'DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY'),
   );
-  config = replaceTomlAssignment(
+  config = setTomlSectionAssignment(
     config,
+    'vars',
     'DERIVER_A_PEER_VERIFYING_KEY_HEX',
     localPeerVerifyingKeyHex(requiredEnv(env.deriverAEnv, 'DERIVER_A_PEER_SIGNING_KEY')),
   );
-  config = replaceTomlAssignment(
+  config = setTomlSectionAssignment(
     config,
+    'vars',
     'DERIVER_B_PEER_VERIFYING_KEY_HEX',
     localPeerVerifyingKeyHex(requiredEnv(env.deriverBEnv, 'DERIVER_B_PEER_SIGNING_KEY')),
   );
-  return replaceTomlAssignment(
+  return setTomlSectionAssignment(
     config,
+    'vars',
     'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
     requiredEnv(env.signingWorkerEnv, 'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY'),
   );
