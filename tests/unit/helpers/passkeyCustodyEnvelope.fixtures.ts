@@ -1,6 +1,8 @@
 import {
   PASSKEY_CUSTODY_ENVELOPE_VERSION_V1,
   PASSKEY_PRF_KEK_VERSION_V1,
+  parsePasskeyCustodyEnvelopeRecord,
+  type PasskeyCustodyEnvelopeRecord,
   type PasskeyCustodySecretKind,
 } from '@shared/passkey-custody';
 
@@ -20,6 +22,12 @@ export const DIGEST_B64U = 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA';
 export const ALT_DIGEST_B64U = 'ZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1-f4CBgoM';
 export const NONCE_12_B64U = 'AQIDBAUGBwgJCgsM';
 export const CIPHERTEXT_B64U = 'BwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2';
+/**
+ * SHA-256 over the decoded `CIPHERTEXT_B64U`. Envelopes must be internally
+ * consistent so they pass the server store's stored-ciphertext digest check;
+ * tests that want a corrupt row pass a mismatched digest explicitly.
+ */
+export const CIPHERTEXT_DIGEST_B64U = 'GDwUe-76hc4lJXJ3vyFwZWyL0jf_Kk8TXYlyKfS1vHE';
 export const ED25519_PUBLIC_KEY_B64U = 'MjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFE';
 export const SECP256K1_PUBLIC_KEY_B64U = 'AgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEi';
 export const ALT_SECP256K1_PUBLIC_KEY_B64U = 'AwkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJico';
@@ -110,7 +118,7 @@ export function rawPasskeyCustodyEnvelope(overrides: RawRecord = {}): RawRecord 
     envelopeRevision: 1,
     nonceB64u: NONCE_12_B64U,
     sealedCustodySecretB64u: CIPHERTEXT_B64U,
-    ciphertextDigestB64u: DIGEST_B64U,
+    ciphertextDigestB64u: CIPHERTEXT_DIGEST_B64U,
     aadHashB64u: ALT_DIGEST_B64U,
     lifecycle: rawActiveEnvelopeLifecycle(),
     createdAtMs: 1_000,
@@ -161,4 +169,12 @@ export function rawWalletRecoveryEnvelopeSet(overrides: RawRecord = {}): RawReco
     updatedAtMs: 2_000,
     ...overrides,
   };
+}
+
+/**
+ * A parsed envelope record. Built by running the raw shape through the real
+ * boundary parser, so a fixture can never encode a record the parser rejects.
+ */
+export function passkeyCustodyEnvelope(overrides: RawRecord = {}): PasskeyCustodyEnvelopeRecord {
+  return parsePasskeyCustodyEnvelopeRecord(rawPasskeyCustodyEnvelope(overrides));
 }
