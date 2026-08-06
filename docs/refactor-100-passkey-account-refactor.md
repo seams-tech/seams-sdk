@@ -644,8 +644,12 @@ root derivation after random-root registration lands.
       (`packages/sdk-server-ts/src/router/cloudflare/d1/passkeyCustody/`).
       Built on `CloudflareD1VersionedJsonRecordStore`; revoked rows are retained
       as credential tombstones and excluded from active retrieval.
-- [ ] Implement authenticated envelope retrieval that verifies the WebAuthn
-      assertion while keeping PRF output inside the secure worker.
+- [x] Implement authenticated envelope retrieval that verifies the WebAuthn
+      assertion while keeping PRF output inside the secure worker
+      (`packages/sdk-server-ts/src/router/domains/passkeyCustody/`). Retrieval
+      rejects an assertion that still carries any WebAuthn extension output
+      before verification runs, so a leaked PRF result fails loudly instead of
+      being silently sanitized and served.
 - [ ] Persist PRF support and WebAuthn backup observations without treating
       backup eligibility or backup state as proof of cross-device PRF
       continuity.
