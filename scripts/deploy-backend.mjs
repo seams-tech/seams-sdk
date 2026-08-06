@@ -27,8 +27,7 @@ const GATEWAY_BUILD_CONFIG = path.join(
   'generated',
   'gateway-build.jsonc',
 );
-const GATEWAY_CONFIG = path.join(GATEWAY_ROOT, '.wrangler', 'generated', 'gateway.jsonc');
-const GATEWAY_SECRETS = path.join(GATEWAY_ROOT, '.wrangler', 'generated', 'gateway-secrets.json');
+const GATEWAY_GENERATED_ROOT = path.join(GATEWAY_ROOT, '.wrangler', 'generated');
 const GATEWAY_BUNDLE = path.join(
   REPOSITORY_ROOT,
   '.release-artifacts',
@@ -64,24 +63,42 @@ const PRIVATE_D1_DEPLOYMENTS = Object.freeze({
   'signing-worker': Object.freeze({
     binding: 'SIGNING_WORKER_PRIVATE_DB',
     databaseIdEnvironment: 'SIGNING_WORKER_PRIVATE_D1_ID',
-    productionPlaceholder: '00000000-0000-0000-0000-0000000094c1',
-    stagingPlaceholder: '00000000-0000-0000-0000-0000000094c2',
+    placeholders: Object.freeze({
+      'staging-testnet': '__STAGING_TESTNET_SIGNING_WORKER_PRIVATE_D1_ID__',
+      'production-testnet': '__PRODUCTION_TESTNET_SIGNING_WORKER_PRIVATE_D1_ID__',
+      'production-mainnet': '__PRODUCTION_MAINNET_SIGNING_WORKER_PRIVATE_D1_ID__',
+    }),
   }),
   'deriver-a': Object.freeze({
     binding: 'DERIVER_ROLE_PRIVATE_DB',
     databaseIdEnvironment: 'DERIVER_A_PRIVATE_D1_ID',
-    productionPlaceholder: '00000000-0000-0000-0000-0000000094a1',
-    stagingPlaceholder: '00000000-0000-0000-0000-0000000094a2',
+    placeholders: Object.freeze({
+      'staging-testnet': '__STAGING_TESTNET_DERIVER_A_PRIVATE_D1_ID__',
+      'production-testnet': '__PRODUCTION_TESTNET_DERIVER_A_PRIVATE_D1_ID__',
+      'production-mainnet': '__PRODUCTION_MAINNET_DERIVER_A_PRIVATE_D1_ID__',
+    }),
   }),
   'deriver-b': Object.freeze({
     binding: 'DERIVER_ROLE_PRIVATE_DB',
     databaseIdEnvironment: 'DERIVER_B_PRIVATE_D1_ID',
-    productionPlaceholder: '00000000-0000-0000-0000-0000000094b1',
-    stagingPlaceholder: '00000000-0000-0000-0000-0000000094b2',
+    placeholders: Object.freeze({
+      'staging-testnet': '__STAGING_TESTNET_DERIVER_B_PRIVATE_D1_ID__',
+      'production-testnet': '__PRODUCTION_TESTNET_DERIVER_B_PRIVATE_D1_ID__',
+      'production-mainnet': '__PRODUCTION_MAINNET_DERIVER_B_PRIVATE_D1_ID__',
+    }),
   }),
 });
 
-main(process.argv.slice(2)).catch(handleFailure);
+if (isDirectInvocation()) {
+  main(process.argv.slice(2)).catch(handleFailure);
+}
+
+function isDirectInvocation() {
+  return (
+    process.argv[1] &&
+    path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))
+  );
+}
 
 async function main(args) {
   const options = parseArguments(args);
@@ -303,6 +320,7 @@ function writeGatewayBuildConfig(laneId) {
 }
 
 function preflightBackend(lane, component, environment = process.env) {
+  assertLaneResourceBindings(lane, component);
   const requiredNames = ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID'];
   requiredNames.push(...componentSecretNames(lane, component));
   for (const name of componentRuntimeRequirements(lane, component)) {
@@ -315,6 +333,115 @@ function preflightBackend(lane, component, environment = process.env) {
   requireEnvironmentValues(unique(requiredNames), environment);
   if (component === 'gateway') warnDisabledGatewayIntegrations(environment);
   process.stdout.write(`Preflight passed: ${lane.id}/${component}\n`);
+}
+
+function assertLaneResourceBindings(lane, component) {
+  if (component === 'gateway') return;
+  const resourceKey = {
+    'signing-worker': 'signingWorker',
+    'deriver-a': 'deriverA',
+    'deriver-b': 'deriverB',
+    router: 'router',
+  }[component];
+  if (!resourceKey) throw new Error(`Unsupported backend component: ${component}`);
+  const resource = lane.resources[resourceKey];
+  const configPath = path.resolve(REPOSITORY_ROOT, resource.configPath);
+  assertFile(configPath, `Wrangler config for ${resource.workerName}`);
+  const section = readWranglerWorkerSection(
+    fs.readFileSync(configPath, 'utf8'),
+    resource.deploymentEnvironment,
+  );
+  requireConfigLine(section, 'name', resource.workerName, `${lane.id}/${component} Worker`);
+  assertExpectedWorkerServices(lane, component, section);
+  assertExpectedPrivateD1Binding(lane, component, section);
+}
+
+function readWranglerWorkerSection(source, deploymentEnvironment) {
+  if (deploymentEnvironment.kind === 'default') {
+    return source.split(/\n\[env\./u, 1)[0];
+  }
+  const marker = `\n[env.${deploymentEnvironment.name}]`;
+  const start = source.indexOf(marker);
+  if (start < 0) {
+    throw new Error(`Wrangler config is missing [env.${deploymentEnvironment.name}]`);
+  }
+  const sectionStart = start + 1;
+  const end = source.indexOf('\n[env.', sectionStart);
+  return source.slice(sectionStart, end < 0 ? source.length : end);
+}
+
+function requireConfigLine(section, key, expected, label) {
+  const pattern = new RegExp(`^${key}\\s*=\\s*"([^"]+)"\\s*$`, 'mu');
+  const match = pattern.exec(section);
+  if (!match || match[1] !== expected) {
+    throw new Error(`${label} must bind ${key}=${expected}`);
+  }
+}
+
+export function assertExpectedWorkerServices(lane, component, section) {
+  const expectedServices = {
+    router: [
+      ['DERIVER_A', lane.resources.deriverA.workerName],
+      ['DERIVER_B', lane.resources.deriverB.workerName],
+      ['SIGNING_WORKER', lane.resources.signingWorker.workerName],
+    ],
+    'deriver-a': [['DERIVER_B', lane.resources.deriverB.workerName]],
+    'deriver-b': [['DERIVER_A', lane.resources.deriverA.workerName]],
+    'signing-worker': [],
+  }[component];
+  const serviceBindings = parseWranglerServiceBindings(section);
+  for (const [binding, service] of expectedServices) {
+    if (serviceBindings.get(binding) !== service) {
+      throw new Error(`${lane.id}/${component} must bind ${binding} to ${service}`);
+    }
+  }
+}
+
+export function parseWranglerServiceBindings(section) {
+  const headerPattern = /^\[\[(?:[^\r\n]+?\.)?services\]\][ \t]*$/gmu;
+  const headers = [...section.matchAll(headerPattern)];
+  const bindings = new Map();
+  for (let index = 0; index < headers.length; index += 1) {
+    const start = headers[index].index;
+    const end = headers[index + 1]?.index ?? section.length;
+    const block = section.slice(start, end);
+    const binding = /^binding\s*=\s*"([^"]+)"\s*$/mu.exec(block)?.[1];
+    const service = /^service\s*=\s*"([^"]+)"\s*$/mu.exec(block)?.[1];
+    if (!binding || !service) {
+      throw new Error('Wrangler service binding blocks must define binding and service');
+    }
+    if (bindings.has(binding)) {
+      throw new Error(`Wrangler service binding ${binding} is defined more than once`);
+    }
+    bindings.set(binding, service);
+  }
+  return bindings;
+}
+
+function assertExpectedPrivateD1Binding(lane, component, section) {
+  const deployment = PRIVATE_D1_DEPLOYMENTS[component];
+  if (!deployment) return;
+  const suffix = {
+    'staging-testnet': '-staging',
+    'production-testnet': '-testnet',
+    'production-mainnet': '',
+  }[lane.id];
+  const componentName =
+    component === 'signing-worker' ? 'signing-worker' : `deriver-${component.slice(-1)}`;
+  const expectedDatabaseName = `router-ab-${componentName}${suffix}-private`;
+  requireConfigLine(
+    section,
+    'database_name',
+    expectedDatabaseName,
+    `${lane.id}/${component} private D1`,
+  );
+  const expectedPlaceholder = deployment.placeholders[lane.id];
+  requireConfigLine(
+    section,
+    'database_id',
+    expectedPlaceholder,
+    `${lane.id}/${component} private D1`,
+  );
 }
 
 function warnDisabledGatewayIntegrations(environment) {
@@ -407,7 +534,8 @@ function componentRuntimeRequirements(lane, component) {
 
 function migrateBackend(lane) {
   requireEnvironmentValues(['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID']);
-  renderGatewayConfig(lane.id);
+  const gatewayConfig = gatewayConfigPath(lane.id);
+  renderGatewayConfig(lane.id, gatewayConfig);
   const migrations = [
     ['CONSOLE_DB', path.join(GATEWAY_ROOT, 'migrations', 'd1-console')],
     ['SIGNER_DB', path.join(GATEWAY_ROOT, '..', 'sdk-server-ts', 'migrations', 'd1-signer')],
@@ -421,7 +549,7 @@ function migrateBackend(lane) {
         '--database',
         database,
         '--config',
-        GATEWAY_CONFIG,
+        gatewayConfig,
         '--migrations-dir',
         migrationsDirectory,
         '--expected-fingerprint',
@@ -537,9 +665,11 @@ function deployMpcRouter(lane) {
 }
 
 function deployGateway(lane) {
-  renderGatewayConfig(lane.id);
+  const gatewayConfig = gatewayConfigPath(lane.id);
+  const gatewaySecrets = gatewaySecretsPath(lane.id);
+  renderGatewayConfig(lane.id, gatewayConfig);
   assertFile(GATEWAY_BUNDLE, 'Gateway build entry');
-  runCommand('node', ['scripts/write-gateway-secrets-file.mjs', '--output', GATEWAY_SECRETS], {
+  runCommand('node', ['scripts/write-gateway-secrets-file.mjs', '--output', gatewaySecrets], {
     cwd: GATEWAY_ROOT,
     env: buildEnvironment({ DEPLOYMENT_LANE: lane.id }),
   });
@@ -552,9 +682,9 @@ function deployGateway(lane) {
       GATEWAY_BUNDLE,
       '--no-bundle',
       '--config',
-      GATEWAY_CONFIG,
+      gatewayConfig,
       '--secrets-file',
-      GATEWAY_SECRETS,
+      gatewaySecrets,
       '--message',
       process.env.DEPLOY_SHA || `runtime-${lane.id}`,
     ],
@@ -577,9 +707,14 @@ function renderPrivateD1WorkerConfig(lane, resource, component) {
   if (!deployment) throw new Error(`Private D1 deployment is missing for ${component}`);
   const sourcePath = path.resolve(REPOSITORY_ROOT, resource.configPath);
   assertFile(sourcePath, `Wrangler config for ${resource.workerName}`);
-  const placeholder =
-    lane.release === 'staging' ? deployment.stagingPlaceholder : deployment.productionPlaceholder;
-  const databaseId = requireEnvironmentValue(deployment.databaseIdEnvironment);
+  const placeholder = deployment.placeholders[lane.id];
+  if (!placeholder) {
+    throw new Error(`Private D1 placeholder is missing for ${lane.id}/${component}`);
+  }
+  const databaseId = requireDatabaseId(
+    requireEnvironmentValue(deployment.databaseIdEnvironment),
+    deployment.databaseIdEnvironment,
+  );
   const source = fs.readFileSync(sourcePath, 'utf8');
   if (!source.includes(`database_id = "${placeholder}"`)) {
     throw new Error(`${sourcePath} is missing the ${lane.id} private D1 placeholder`);
@@ -594,6 +729,17 @@ function renderPrivateD1WorkerConfig(lane, resource, component) {
   );
   fs.writeFileSync(outputPath, rendered, { mode: 0o600 });
   return outputPath;
+}
+
+function requireDatabaseId(value, name) {
+  const normalized = String(value || '').trim();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(normalized)) {
+    throw new Error(`${name} must be a Cloudflare D1 database ID`);
+  }
+  if (/^0{8}-0{4}-0{4}-0{4}-0{12}$/u.test(normalized)) {
+    throw new Error(`${name} must not be all zeroes`);
+  }
+  return normalized;
 }
 
 function migratePrivateD1(resource, configPath, component) {
@@ -673,10 +819,18 @@ function isDashboardConsoleCorsPreflight(dashboardOrigin, response) {
   );
 }
 
-function renderGatewayConfig(laneId) {
+function gatewayConfigPath(laneId) {
+  return path.join(GATEWAY_GENERATED_ROOT, `gateway.${laneId}.jsonc`);
+}
+
+function gatewaySecretsPath(laneId) {
+  return path.join(GATEWAY_GENERATED_ROOT, `gateway-secrets.${laneId}.json`);
+}
+
+function renderGatewayConfig(laneId, outputPath) {
   runCommand(
     'node',
-    ['scripts/render-d1-gateway-config.mjs', '--lane', laneId, '--output', GATEWAY_CONFIG],
+    ['scripts/render-d1-gateway-config.mjs', '--lane', laneId, '--output', outputPath],
     { cwd: GATEWAY_ROOT },
   );
 }

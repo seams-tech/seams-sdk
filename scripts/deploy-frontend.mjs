@@ -14,6 +14,7 @@ const ROUTER_ROOT = path.join(REPOSITORY_ROOT, 'crates', 'router-ab-cloudflare')
 const SITE_ROOT = path.join(REPOSITORY_ROOT, 'apps', 'seams-site');
 const SITE_OUTPUT = path.join(SITE_ROOT, 'dist');
 const SDK_OUTPUT = path.join(REPOSITORY_ROOT, 'packages', 'sdk-web', 'dist');
+const DEFAULT_DOCS_ORIGIN = 'https://docs.localhost';
 const FRONTEND_SMOKE_PATHS = Object.freeze({
   site: ['/', '/sdk/workers/near-signer.worker.js'],
   wallet: [
@@ -81,24 +82,25 @@ function requireArgumentValue(args, index, name) {
 }
 
 function printPlan(site) {
-  const defaultLane = defaultFrontendLane(site);
   const lines = [
     `Frontend deployment plan: ${site.id}`,
     `Branch: ${site.branch}`,
     `Site: ${site.origin}`,
     `Default network: ${site.defaultNetwork}`,
     `Available networks: ${site.availableNetworks.join(', ')}`,
-    `Gateway (${defaultLane.network}): ${defaultLane.gatewayOrigin}`,
-    `Wallet (${defaultLane.network}): ${defaultLane.walletOrigin}`,
     `Pages project environment: ${site.pagesProjectEnv}`,
-    `Wallet Pages project environment (${defaultLane.network}): ${defaultLane.walletPagesProjectEnv}`,
+    ...site.lanes.flatMap((lane) => [
+      `Gateway (${lane.network}): ${lane.gatewayOrigin}`,
+      `Wallet (${lane.network}): ${lane.walletOrigin}`,
+      `Wallet Pages project environment (${lane.network}): ${lane.walletPagesProjectEnv}`,
+    ]),
     ...formatLaneProvisioning(site.lanes),
     '',
     'Order:',
     '  1. build production SDK and Pages output once',
     '  2. deploy the app Pages project',
-    '  3. deploy the wallet Pages project from the same output',
-    '  4. smoke app, SDK, wallet, and wallet-service endpoints',
+    '  3. deploy one wallet Pages project for every declared network',
+    '  4. smoke app, SDK, and every wallet origin',
   ];
   process.stdout.write(`${lines.join('\n')}\n`);
 }
@@ -132,28 +134,46 @@ function buildFrontend(site) {
 }
 
 function buildFrontendEnvironment(site) {
-  const lane = defaultFrontendLane(site);
   const environment = {
     ...process.env,
-    VITE_RELAYER_URL: lane.gatewayOrigin,
-    VITE_CONSOLE_BASE_URL: lane.gatewayOrigin,
-    VITE_WALLET_ORIGIN: lane.walletOrigin,
-    VITE_DOCS_ORIGIN: site.origin,
-    VITE_RP_ID_BASE: new URL(lane.walletOrigin).hostname,
-    VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID: lane.resources.signingWorker.workerName,
+    VITE_SITE_ID: site.id,
+    VITE_SITE_ORIGIN: site.origin,
+    VITE_DOCS_ORIGIN: String(process.env.VITE_DOCS_ORIGIN || '').trim() || DEFAULT_DOCS_ORIGIN,
   };
-  const required = [
-    'VITE_SEAMS_PROJECT_ENVIRONMENT_ID',
-    'VITE_SEAMS_PUBLISHABLE_KEY',
-    'VITE_NEAR_NETWORK',
-    'VITE_NEAR_RPC_URL',
-    'VITE_NEAR_EXPLORER',
-    'VITE_SIGNING_SESSION_PERSISTENCE_MODE',
-  ];
-  if (site.id === 'production' && !String(environment.VITE_NEAR_NETWORK || '').trim()) {
-    throw new Error('VITE_NEAR_NETWORK is required for production frontend builds');
+  for (const lane of site.lanes) {
+    const prefix = site.id === 'production' ? `VITE_${lane.network.toUpperCase()}_` : 'VITE_';
+    environment[`${prefix}RELAYER_URL`] = lane.gatewayOrigin;
+    environment[`${prefix}CONSOLE_BASE_URL`] = lane.gatewayOrigin;
+    environment[`${prefix}WALLET_ORIGIN`] = lane.walletOrigin;
+    environment[`${prefix}RP_ID_BASE`] = new URL(lane.walletOrigin).hostname;
+    environment[`${prefix}ROUTER_AB_NORMAL_SIGNING_WORKER_ID`] =
+      lane.resources.signingWorker.workerName;
+    if (site.id === 'staging') {
+      requireEnvironmentValues(
+        [
+          'VITE_SEAMS_PROJECT_ENVIRONMENT_ID',
+          'VITE_SEAMS_PUBLISHABLE_KEY',
+          'VITE_NEAR_NETWORK',
+          'VITE_NEAR_RPC_URL',
+          'VITE_NEAR_EXPLORER',
+          'VITE_SIGNING_SESSION_PERSISTENCE_MODE',
+        ],
+        environment,
+      );
+      continue;
+    }
+    requireEnvironmentValues(
+      [
+        `${prefix}SEAMS_PROJECT_ENVIRONMENT_ID`,
+        `${prefix}SEAMS_PUBLISHABLE_KEY`,
+        `${prefix}NEAR_NETWORK`,
+        `${prefix}NEAR_RPC_URL`,
+        `${prefix}NEAR_EXPLORER`,
+        `${prefix}SIGNING_SESSION_PERSISTENCE_MODE`,
+      ],
+      environment,
+    );
   }
-  requireEnvironmentValues(required, environment);
   return environment;
 }
 
@@ -176,8 +196,11 @@ function copyDirectory(source, destination) {
 
 function deployFrontend(site) {
   requireEnvironmentValues(['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID'], process.env);
-  const lane = defaultFrontendLane(site);
-  requireEnvironmentValues([site.pagesProjectEnv, lane.walletPagesProjectEnv], process.env);
+  const walletProjectEnvironments = site.lanes.map((lane) => lane.walletPagesProjectEnv);
+  requireEnvironmentValues(
+    [site.pagesProjectEnv, ...new Set(walletProjectEnvironments)],
+    process.env,
+  );
   assertDirectory(SITE_OUTPUT, 'Pages build output');
   const commonArguments = [
     'pages',
@@ -190,7 +213,9 @@ function deployFrontend(site) {
   const sourceSha = String(process.env.DEPLOY_SHA || '').trim();
   if (sourceSha) commonArguments.push('--commit-hash', sourceSha);
   deployPagesProject(commonArguments, process.env[site.pagesProjectEnv]);
-  deployPagesProject(commonArguments, process.env[lane.walletPagesProjectEnv]);
+  for (const lane of site.lanes) {
+    deployPagesProject(commonArguments, process.env[lane.walletPagesProjectEnv]);
+  }
   process.stdout.write(`Frontend deploy completed: ${site.id}\n`);
 }
 
@@ -210,28 +235,17 @@ async function smokeFrontend(site) {
 }
 
 function buildSmokeChecks(site) {
-  const lane = defaultFrontendLane(site);
   const checks = [];
   addSmokeChecks(checks, 'site', site.origin, FRONTEND_SMOKE_PATHS.site);
-  addSmokeChecks(checks, `wallet-${lane.network}`, lane.walletOrigin, FRONTEND_SMOKE_PATHS.wallet);
-  return checks;
-}
-
-function defaultFrontendLane(site) {
-  const lane = findLaneByNetwork(site.lanes, site.defaultNetwork);
-  if (!lane) {
-    throw new Error(
-      `frontend site ${site.id} has no lane for default network ${site.defaultNetwork}`,
+  for (const lane of site.lanes) {
+    addSmokeChecks(
+      checks,
+      `wallet-${lane.network}`,
+      lane.walletOrigin,
+      FRONTEND_SMOKE_PATHS.wallet,
     );
   }
-  return lane;
-}
-
-function findLaneByNetwork(lanes, network) {
-  for (const lane of lanes) {
-    if (lane.network === network) return lane;
-  }
-  return undefined;
+  return checks;
 }
 
 function assertSiteProvisioning(site) {

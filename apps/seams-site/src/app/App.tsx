@@ -1,5 +1,4 @@
 import React from 'react';
-import { SeamsWebProvider } from '@seams/sdk/react/provider';
 import { useTheme } from '@seams/sdk/react';
 
 import { Home2Page, HomePage } from '@/pages/home2/page';
@@ -20,16 +19,13 @@ import { useExportKeyCancelToast } from '@/shared/hooks/useExportKeyCancelToast'
 import { normalizePathname } from '@/app/router/siteRouting';
 import { SITE_APPEARANCE, SITE_THEME_TOKEN_OVERRIDES } from '@/context/siteThemeOverrides';
 import { FRONTEND_CONFIG } from '@/config';
+import {
+  FrontendRuntimeProvider,
+  FrontendSdkProvider,
+  useFrontendRuntime,
+} from '@/context/frontendRuntime';
 
 type ThemeTokens = ReturnType<typeof useTheme>['tokens'];
-
-const INTENDED_E2E_ECDSA_PRESIGNATURE_POOL = {
-  enabled: true,
-  targetDepth: 1,
-  lowWatermark: 0,
-  maxRefillInFlight: 1,
-  refillAttemptTimeoutMs: 30_000,
-} as const;
 
 function tokensToCssVars(tokens: ThemeTokens): Record<string, string> {
   const vars: Record<string, string> = {};
@@ -85,9 +81,17 @@ function usePathname(): string {
 }
 
 export const App: React.FC = () => {
+  return (
+    <FrontendRuntimeProvider>
+      <AppRuntimeBoundary />
+    </FrontendRuntimeProvider>
+  );
+};
+
+const AppRuntimeBoundary: React.FC = () => {
   const { theme, setTheme } = useSiteTheme();
   const pathname = usePathname();
-  const signingSessionPersistenceMode = FRONTEND_CONFIG.signingSessionPersistenceMode;
+  const runtime = useFrontendRuntime();
 
   const VitepressStateSync: React.FC = () => {
     useBodyLoginStateBridge();
@@ -136,43 +140,25 @@ export const App: React.FC = () => {
     );
   }
 
+  const dashboardRoute =
+    pathname === '/dashboard/login' ||
+    pathname === '/dashboard' ||
+    pathname.startsWith('/dashboard/') ||
+    pathname.startsWith('/platform/');
+  const sdkNetwork = dashboardRoute ? runtime.selectedNetwork : 'testnet';
+
   return (
-    <SeamsWebProvider
+    <FrontendSdkProvider
       eager
+      network={sdkNetwork}
+      appearance={SITE_APPEARANCE}
       theme={{ theme, setTheme, tokens: SITE_THEME_TOKEN_OVERRIDES }}
-      config={{
-        appearance: SITE_APPEARANCE,
-        iframeWallet: {
-          walletOrigin: FRONTEND_CONFIG.walletOrigin,
-          walletServicePath: FRONTEND_CONFIG.walletServicePath,
-          rpIdOverride: FRONTEND_CONFIG.rpIdBase,
-          sdkBasePath: FRONTEND_CONFIG.sdkBasePath,
-        },
-        signingSessionDefaults: {
-          ttlMs: FRONTEND_CONFIG.signingSessionDefaults.ttlMs,
-          remainingUses: FRONTEND_CONFIG.signingSessionDefaults.remainingUses,
-        },
-        signingSessionPersistenceMode,
-        ...(FRONTEND_CONFIG.routerAb ? { routerAb: FRONTEND_CONFIG.routerAb } : {}),
-        ...(FRONTEND_CONFIG.enableIntendedE2E
-          ? { routerAbEcdsaDerivationPresignaturePool: INTENDED_E2E_ECDSA_PRESIGNATURE_POOL }
-          : {}),
-        chains: FRONTEND_CONFIG.chains,
-        relayer: {
-          url: FRONTEND_CONFIG.relayerUrl!,
-        },
-        ...(FRONTEND_CONFIG.managedRegistration
-          ? {
-              registration: FRONTEND_CONFIG.managedRegistration,
-            }
-          : {}),
-      }}
     >
       <DocumentThemeTokenBridge />
       {page}
       <VitepressStateSync />
       <ToasterThemed />
-    </SeamsWebProvider>
+    </FrontendSdkProvider>
   );
 };
 

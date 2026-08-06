@@ -1,16 +1,15 @@
-import { FRONTEND_CONFIG } from '@/config';
+import { getActiveFrontendDeployment } from '@/context/frontendRuntime';
 
 export function resolveConsoleBaseUrl(): string {
-  const base = String(FRONTEND_CONFIG.consoleBaseUrl || FRONTEND_CONFIG.relayerUrl || '').trim();
+  const deployment = getActiveFrontendDeployment();
+  const base = String(deployment.consoleBaseUrl || deployment.relayerUrl || '').trim();
   return base.replace(/\/+$/, '');
 }
 
 export function requireConsoleBaseUrl(): string {
   const base = resolveConsoleBaseUrl();
   if (!base) {
-    throw new Error(
-      'Console API base URL is not configured (set VITE_CONSOLE_BASE_URL or VITE_RELAYER_URL).',
-    );
+    throw new Error('Console API base URL is not configured for the selected deployment.');
   }
   return base;
 }
@@ -88,7 +87,9 @@ export function normalizeConsoleFetchError(input: {
     return error instanceof Error ? error : new Error(String(error));
   }
 
-  const base = String(baseUrl || '').trim().replace(/\/+$/, '');
+  const base = String(baseUrl || '')
+    .trim()
+    .replace(/\/+$/, '');
   const requestPath = String(path || '').trim();
   const endpoint =
     base && requestPath
@@ -107,13 +108,9 @@ export function normalizeConsoleFetchError(input: {
   if (currentOrigin) hints.push(`dashboard origin: ${currentOrigin}`);
   if (endpointUrl?.origin) hints.push(`console origin: ${endpointUrl.origin}`);
   if (mixedContentBlocked) {
-    hints.push(
-      'mixed-content blocked: HTTPS dashboard cannot call an HTTP Console API origin',
-    );
+    hints.push('mixed-content blocked: HTTPS dashboard cannot call an HTTP Console API origin');
   }
-  hints.push(
-    'verify relay/console server is running and CORS allows the dashboard origin',
-  );
+  hints.push('verify relay/console server is running and CORS allows the dashboard origin');
 
   return new Error(
     `${operation} failed. Unable to reach Console API endpoint ${endpoint}. ${hints.join('; ')}.`,

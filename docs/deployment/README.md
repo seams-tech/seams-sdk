@@ -2,15 +2,15 @@
 
 This is the operational runbook for the SDK runtime, Cloudflare Pages sites,
 Router A/B Workers, Gateway, and their backing data services. The deployment
-surface has four hand-written workflows and two top-level deployment scripts.
+surface has five hand-written workflows and two top-level deployment scripts.
 
-The planned production testnet/mainnet topology and pipeline replacement are
-specified in
+The production testnet/mainnet topology and lane-aware pipeline are specified in
 [deployment-plan-5.md](deployment-plan-5.md).
 
 The operational pages below describe the deployment pipeline currently present
-in the repository. They remain authoritative until the corresponding phases of
-Deployment Plan 5 land.
+in the repository, including the production network selector and provisioning
+gates for the two production lanes. Deployment Plan 5 records the remaining
+resource provisioning and cutover work.
 
 ## Document map
 
@@ -22,8 +22,8 @@ Deployment Plan 5 land.
   reference.
 - [release.md](release.md): SDK release and hosted-surface release runbook.
 - [sdk.md](sdk.md): SDK package and runtime-asset deployment.
-- [deployment-plan-5.md](deployment-plan-5.md): planned three-backend-lane,
-  two-site topology and migration sequence.
+- [deployment-plan-5.md](deployment-plan-5.md): three-backend-lane, two-site
+  topology, migration sequence, and provisioning status.
 - [refactor-82-staging-log.md](refactor-82-staging-log.md): generated staging
   D1/DO evidence template still used by `d1:staging:runbook`.
 - [router-ab-cloudflare-env.example.yml](router-ab-cloudflare-env.example.yml):
@@ -35,12 +35,13 @@ Each deployment targets one complete lane. Backend and frontend lanes are
 independent and use the currently deployed version of the other lane during
 smoke checks.
 
-| Workflow                                           | Manual ref  | Automatic trigger | Scope                           |
-| -------------------------------------------------- | ----------- | ----------------- | ------------------------------- |
-| `.github/workflows/deploy-staging-backend.yml`     | `dev` only  | None              | Full staging backend lane       |
-| `.github/workflows/deploy-production-backend.yml`  | `main` only | None              | Full production backend lane    |
-| `.github/workflows/deploy-staging-frontend.yml`    | `dev` only  | None              | Staging app and wallet Pages    |
-| `.github/workflows/deploy-production-frontend.yml` | `main` only | None              | Production app and wallet Pages |
+| Workflow                                                  | Manual ref  | Automatic trigger | Scope                            |
+| --------------------------------------------------------- | ----------- | ----------------- | -------------------------------- |
+| `.github/workflows/deploy-staging-backend.yml`            | `dev` only  | None              | Staging testnet backend lane     |
+| `.github/workflows/deploy-production-testnet-backend.yml` | `main` only | None              | Production testnet backend lane  |
+| `.github/workflows/deploy-production-mainnet-backend.yml` | `main` only | None              | Production mainnet backend lane  |
+| `.github/workflows/deploy-staging-frontend.yml`           | `dev` only  | None              | Staging site and wallet Pages    |
+| `.github/workflows/deploy-production-frontend.yml`        | `main` only | None              | Production site and wallet Pages |
 
 The repository validation workflows remain separate. The deployment workflows
 use no `workflow_run` trigger and accept no arbitrary revision input. Every job
@@ -57,10 +58,18 @@ Normal promotion is:
 gh workflow run deploy-staging-backend.yml --ref dev
 gh workflow run deploy-staging-frontend.yml --ref dev
 
-# Production: merge an accepted change into protected main, then dispatch
-gh workflow run deploy-production-backend.yml --ref main
+# Production: merge an accepted change into protected main, then dispatch the
+# independent backend lane workflows and the shared frontend workflow.
+gh workflow run deploy-production-testnet-backend.yml --ref main
+gh workflow run deploy-production-mainnet-backend.yml --ref main
 gh workflow run deploy-production-frontend.yml --ref main
 ```
+
+The production backend workflows are present as independent lane entrypoints.
+Their plans are available immediately, while `production-testnet` and
+`production-mainnet` deployment operations remain gated until their fresh
+resources and identities are provisioned. Staging is the currently provisioned
+backend lane.
 
 There are no `source_sha`, artifact-run, release-set, or coordination-receipt
 inputs. A deployment always covers the whole lane; changed-file component
@@ -74,19 +83,21 @@ component operations:
 
 ```text
 scripts/deploy-backend.mjs
-  pnpm deploy:backend <plan|build|preflight|migrate|deploy|smoke> --target <staging|production>
+  pnpm deploy:backend <plan|build|preflight|migrate|deploy|smoke> --lane <staging-testnet|production-testnet|production-mainnet>
 
 scripts/deploy-frontend.mjs
-  pnpm deploy:frontend <plan|build|deploy|smoke> --target <staging|production>
+  pnpm deploy:frontend <plan|build|deploy|smoke> --site <staging|production>
 
 deployment/targets.json
-  target capabilities, resources, non-secret Gateway configuration, and secret ownership
+  release sites, backend lanes, capabilities, resources, provisioning state,
+  non-secret Gateway configuration, and secret ownership
 ```
 
 `plan` is the local review command. It needs no credentials, validates the
-target, and prints the complete ordered mutation sequence without changing a
-remote resource. `build` is also runnable locally and performs no remote
-mutation.
+lane or site identity, and prints the complete ordered sequence without
+changing a remote resource. Pending production lanes still produce plans with
+their required provisioning values. `build`, `preflight`, `migrate`, `deploy`,
+and `smoke` reject pending lanes before credential use or remote mutation.
 
 Backend `preflight`, `migrate`, and `deploy` are CI operations. Preflight is
 component-scoped and runs once per custody environment; every leg completes
@@ -96,7 +107,7 @@ environment. Frontend deploy and both lane smoke operations run in CI. No
 local command deploys a whole backend lane, and no process receives both
 Deriver A and Deriver B secrets.
 
-Target capabilities derive the Gateway secret requirement at runtime:
+Lane capabilities derive the Gateway secret requirement at runtime:
 
 - An enabled capability requires and uploads its declared secrets.
 - A disabled capability ignores those secrets and never uploads them.
@@ -110,16 +121,18 @@ This keeps configuration validation ahead of every remote mutation.
 
 ## Environments and custody
 
-The backend lane contains five separately bound component environments:
+The deployment topology contains three backend lanes, each with five
+separately bound component environments:
 
-| Environment               | Custody                                                              |
-| ------------------------- | -------------------------------------------------------------------- |
-| `<target>-signing-worker` | SigningWorker server-output private key                              |
-| `<target>-deriver-a`      | Deriver A root-share, envelope, and peer-signing secrets             |
-| `<target>-deriver-b`      | Deriver B root-share, envelope, and peer-signing secrets             |
-| `<target>-mpc-router`     | Router A/B internal service-auth secret                              |
-| `<target>-gateway`        | Gateway secrets and signing-session seal set                         |
-| `<target>`                | Cloudflare Pages credentials and public frontend build configuration |
+| Lane                 | Custody environment prefix | Resources                                      |
+| -------------------- | -------------------------- | ---------------------------------------------- |
+| `staging-testnet`    | `staging-*`                | Provisioned staging testnet resources          |
+| `production-testnet` | `production-testnet-*`     | Pending fresh testnet resources and identities |
+| `production-mainnet` | `production-*`             | Pending fresh mainnet resources and identities |
+
+The top-level `staging` and `production` GitHub Environments remain the two
+frontend release environments. They own Pages credentials and public build
+configuration; they do not own backend custody material.
 
 Deriver A and Deriver B secrets never share a job. The preflight matrix binds
 one custody environment per leg and checks its inventory against
@@ -131,13 +144,13 @@ environments own the frontend build variables and Pages credentials. See
 
 ### Backend
 
-The hand-written backend workflow makes this dependency order visible:
+Each hand-written backend workflow makes this dependency order visible:
 
 1. Build all backend components once in a clean workspace. The first build
    step rejects any branch other than `dev` for staging or `main` for
-   production.
-2. Complete every component-scoped preflight against the five existing custody
-   environments.
+   production and rejects pending lane provisioning.
+2. Complete every component-scoped preflight against the five custody
+   environments for that lane.
 3. Apply D1 migrations in order: console first, signer second. Migration
    fingerprints guard the operation.
 4. Validate and deploy SigningWorker, Deriver A, and Deriver B concurrently.
@@ -165,11 +178,13 @@ the frontend after either value changes.
 
 ### Frontend
 
-The frontend workflow has one environment-bound job. It validates its target,
+The frontend workflow has one environment-bound job. It validates its site,
 builds the site once, deploys the app and wallet Pages projects from that same
 workspace, and runs HTTP readiness, SDK asset, and compatibility smoke checks.
-It does not wait for the backend workflow, and the backend workflow does not
-wait for it.
+Staging can execute this path with its provisioned lane. Production plan output
+works while either backend lane is pending; production build/deploy/smoke is
+gated until both lanes are provisioned. The frontend workflow does not wait for
+the backend workflows, and the backend workflows do not wait for it.
 
 ## Same-run artifacts
 
@@ -221,12 +236,14 @@ last-write-wins. Do not treat a code rollback as a database rollback.
 
 ## Infrastructure and setup
 
-Before the first run, provision the target-specific GitHub environments and
-Cloudflare resources, populate [infra.md](infra.md), and validate the target
-with the local `plan` command. Keep staging and production D1 databases,
-Durable Object namespaces, Worker resources, Pages projects, and secrets
-separate. The target file is the checked-in source for capabilities, resources,
-and ownership; GitHub job YAML remains the explicit source for secret bindings.
+Before the first run, provision the lane-specific GitHub environments and
+Cloudflare resources, populate [infra.md](infra.md), and validate each lane or
+site with the local `plan` command. Staging testnet is provisioned. Production
+testnet and mainnet remain pending until fresh resources and identities are
+generated. Keep all three lanes' D1 databases, Durable Object namespaces,
+Worker resources, Pages projects, and secrets separate. The target file is the
+checked-in source for capabilities, resources, provisioning state, and
+ownership; GitHub job YAML remains the explicit source for secret bindings.
 
 For Router A/B configuration, use
 [router-ab-cloudflare-env.example.yml](router-ab-cloudflare-env.example.yml).
