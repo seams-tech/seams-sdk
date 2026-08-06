@@ -654,9 +654,12 @@ root derivation after random-root registration lands.
       rejects an assertion that still carries any WebAuthn extension output
       before verification runs, so a leaked PRF result fails loudly instead of
       being silently sanitized and served.
-- [ ] Persist PRF support and WebAuthn backup observations without treating
+- [x] Persist PRF support and WebAuthn backup observations without treating
       backup eligibility or backup state as proof of cross-device PRF
-      continuity.
+      continuity (`packages/shared-ts/src/passkey-custody/credentialObservations.ts`).
+      `resolveCrossDeviceCustodyReadiness` takes PRF support and the active
+      sealed envelope only; backup flags are not parameters, so a
+      "backed up therefore portable" conclusion cannot be written.
 - [x] Add AAD substitution and ciphertext tamper tests
       (`crates/signer-core/tests/passkey_custody_envelope.rs` and
       `crates/signer-core/tests/wallet_recovery_custody.rs`).
