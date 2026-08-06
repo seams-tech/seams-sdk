@@ -57,6 +57,21 @@ impl PasskeyCustodySecretKind {
             Self::EcdsaLaneHolderShare => "ecdsa_lane_holder_share_v1",
         }
     }
+
+    /// Parses the wire spelling shared with the TypeScript union. An unknown
+    /// kind is rejected rather than defaulted, so a new curve cannot silently
+    /// reuse another curve's custody purpose.
+    pub fn parse(value: &str) -> CoreResult<Self> {
+        match value {
+            "ed25519_yao_client_root_v1" => Ok(Self::Ed25519YaoClientRoot),
+            "ed25519_lane_holder_share_v1" => Ok(Self::Ed25519LaneHolderShare),
+            "ecdsa_client_root_share_v1" => Ok(Self::EcdsaClientRootShare),
+            "ecdsa_lane_holder_share_v1" => Ok(Self::EcdsaLaneHolderShare),
+            _ => Err(SignerCoreError::invalid_input(
+                "unknown passkey custody secret kind",
+            )),
+        }
+    }
 }
 
 /// Lane scope carried by every custody-secret branch.

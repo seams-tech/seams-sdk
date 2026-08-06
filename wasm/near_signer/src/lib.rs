@@ -7,6 +7,7 @@ mod error;
 mod fetch;
 mod handlers;
 mod logger;
+mod passkey_custody_wasm;
 #[cfg(test)]
 mod tests;
 mod threshold;
