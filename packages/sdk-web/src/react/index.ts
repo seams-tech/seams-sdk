@@ -105,6 +105,11 @@ export type {
 } from './hooks/useGoogleEmailOtpWalletAuth';
 export { useQRCamera, QRScanMode } from './hooks/useQRCamera';
 export type { UseQRCameraOptions, UseQRCameraReturn } from './hooks/useQRCamera';
+export { usePostfixPosition } from './components/SeamsAuthMenu/ui/usePostfixPosition';
+export type {
+  UsePostfixPositionOptions,
+  UsePostfixPositionReturn,
+} from './components/SeamsAuthMenu/ui/usePostfixPosition';
 export { TxExecutionStatus } from '../core/types/actions';
 
 ////////////////////////////
@@ -117,7 +122,25 @@ export type { QRCodeScannerProps } from './components/QRCodeScanner';
 export { ShowQRCode } from './components/ShowQRCode';
 export type { ShowQRCodeProps } from './components/ShowQRCode';
 // Sign Up / Sign In menu
-export { SeamsAuthMenu } from './components/SeamsAuthMenu/public';
+export { SeamsAuthMenu, SeamsAuthMenuSkeleton } from './components/SeamsAuthMenu/public';
+export type {
+  SeamsAuthMenuPasskeyLoginRequest,
+  SeamsAuthMenuProps,
+  SeamsAuthMenuRegistrationRequest,
+  SeamsAuthMenuSocialLoginArgs,
+  SeamsAuthMenuSocialLoginHandler,
+  SeamsAuthMenuSyncAccountRequest,
+} from './components/SeamsAuthMenu/public';
+export { AuthMenuMode, AuthMenuModeMap } from './components/SeamsAuthMenu/authMenuTypes';
+export type { AuthMenuModeLabel, AuthMenuHeadings } from './components/SeamsAuthMenu/authMenuTypes';
+// SSR-safe shell + explicit client entrypoints
+export {
+  SeamsAuthMenuClient,
+  SeamsAuthMenuSkeletonInner,
+  preloadSeamsAuthMenu,
+} from './components/SeamsAuthMenu';
+// Iframe-hosted successor retained alongside the embedded React menu for parity work.
+export { HostedSeamsAuthMenu } from './components/HostedSeamsAuthMenu/public';
 export type {
   HostedAuthMenuCopy,
   HostedAuthMenuCopyInput,
@@ -130,12 +153,8 @@ export type {
   HostedAuthMenuOutcome,
   HostedAuthMenuRegistrationAccountInput,
   HostedAuthMenuSessionId,
-  SeamsAuthMenuCopy,
-  SeamsAuthMenuMode,
-  SeamsAuthMenuOutcomeHandler,
-  SeamsAuthMenuProps,
-  SeamsAuthMenuRegistrationAccountInput,
-} from './components/SeamsAuthMenu/public';
+  HostedSeamsAuthMenuProps,
+} from './components/HostedSeamsAuthMenu/public';
 // Small SVG utility icon used in examples
 export { default as TouchIcon } from './components/AccountMenuButton/icons/TouchIcon';
 export { default as QRCodeIcon } from './components/QRCodeIcon';

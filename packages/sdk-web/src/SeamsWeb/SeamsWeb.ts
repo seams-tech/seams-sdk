@@ -839,8 +839,11 @@ export class SeamsWeb {
     return await this.walletIframe.getExactSessionState();
   }
 
-  async openHostedAuthMenu(request: HostedAuthMenuOpenRequest): Promise<HostedAuthMenuOutcome> {
-    return await this.walletIframe.openHostedAuthMenu(request);
+  async openHostedAuthMenu(
+    request: HostedAuthMenuOpenRequest,
+    anchorElement?: HTMLElement,
+  ): Promise<HostedAuthMenuOutcome> {
+    return await this.walletIframe.openHostedAuthMenu(request, anchorElement);
   }
 
   async cancelHostedAuthMenu(args: {

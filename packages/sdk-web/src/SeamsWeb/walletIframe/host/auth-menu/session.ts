@@ -6,6 +6,7 @@ import {
   type AuthMenuIntent,
   type AuthMenuGoogleLoginViewModel,
   type AuthMenuGoogleRegistrationViewModel,
+  type AuthMenuLinkDeviceViewModel,
   type AuthMenuViewModel,
   isAuthMenuIntent,
 } from '../lit-ui/auth-menu/auth-menu-domain';
@@ -49,6 +50,8 @@ import {
 } from './passkey';
 import { parseWalletId } from '@shared/utils/domainIds';
 import { createReadableWalletId } from '@shared/utils/registrationIntent';
+import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
+import type { StartDevice2LinkingFlowResults } from '@/core/types/linkDevice';
 
 type HostedPasskeyMenuPrepared = HostedPasskeyRegistrationPrepared | HostedPasskeyPrepared;
 
@@ -65,7 +68,7 @@ export type AuthMenuSessionIdentity = {
   readonly requestId: WalletIframeRequestId;
 };
 
-export type AuthMenuSessionState =
+type AuthMenuReturnState =
   | {
       readonly kind: 'preparing';
       readonly viewModel: AuthMenuViewModel;
@@ -94,6 +97,14 @@ export type AuthMenuSessionState =
       readonly kind: 'google_registration';
       readonly viewModel: AuthMenuGoogleRegistrationViewModel;
       readonly flow: GoogleEmailOtpWalletAuthRegistrationFlow;
+    };
+
+export type AuthMenuSessionState =
+  | AuthMenuReturnState
+  | {
+      readonly kind: 'link_device';
+      readonly viewModel: AuthMenuLinkDeviceViewModel;
+      readonly returnState: AuthMenuReturnState;
     }
   | {
       readonly kind: 'complete';
@@ -123,6 +134,10 @@ type PrepareLoginPasskey = (
   walletId: string | null,
   cancellation: Extract<WebAuthnPromptCancellation, { kind: 'abort_signal' }>,
 ) => Promise<HostedPasskeyMenuPrepared>;
+type StartDeviceLinking = (
+  onEvent: (event: LinkDeviceFlowEvent) => void,
+) => Promise<StartDevice2LinkingFlowResults>;
+type StopDeviceLinking = () => Promise<void>;
 
 const AUTH_MENU_TAG = 'seams-auth-menu-surface';
 
@@ -270,6 +285,23 @@ function errorMessage(error: unknown): string {
   return error instanceof Error && error.message.trim() ? error.message.trim() : String(error);
 }
 
+function linkDeviceViewModel(base: AuthMenuViewModel): AuthMenuLinkDeviceViewModel {
+  return {
+    kind: 'link_device',
+    appearance: base.appearance,
+    hostname: base.hostname,
+    closeLabel: base.closeLabel,
+    heading: 'Scan and Link Device',
+    subtitle: 'Scan to backup your other device.',
+    ctaLabel: '',
+    showProgress: base.showProgress,
+    enabledExternalProviders: base.enabledExternalProviders,
+    status: { kind: 'ready' },
+    mode: base.mode,
+    linkDevice: { kind: 'loading', message: 'Generating QR code...' },
+  };
+}
+
 export class AuthMenuSession {
   readonly identity: AuthMenuSessionIdentity;
   readonly request: HostedAuthMenuOpenRequest;
@@ -286,6 +318,8 @@ export class AuthMenuSession {
   private registrationCancellation: AbortController | null = null;
   private googleCancellation: AbortController | null = null;
   private beginGoogleEmailOtp: BeginGoogleEmailOtp;
+  private readonly startDeviceLinking: StartDeviceLinking;
+  private readonly stopDeviceLinking: StopDeviceLinking;
   private loginPreparation: PrepareLoginPasskey | null = null;
   private loginAccountOptions: readonly AuthMenuAccountOption[] = [];
   private selectedLoginWalletId: string | null = null;
@@ -293,6 +327,7 @@ export class AuthMenuSession {
   private measurementReporter: WalletIframeSurfaceMeasurementReporter | null = null;
   private preparationGeneration = 0;
   private googleGeneration = 0;
+  private deviceLinkGeneration = 0;
   private preparationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(args: {
@@ -301,6 +336,8 @@ export class AuthMenuSession {
     appearance: AppearanceConfig;
     hostname: string;
     beginGoogleEmailOtp: BeginGoogleEmailOtp;
+    startDeviceLinking: StartDeviceLinking;
+    stopDeviceLinking: StopDeviceLinking;
   }) {
     this.identity = {
       authMenuSessionId: args.request.authMenuSessionId,
@@ -308,6 +345,8 @@ export class AuthMenuSession {
     };
     this.request = args.request;
     this.beginGoogleEmailOtp = args.beginGoogleEmailOtp;
+    this.startDeviceLinking = args.startDeviceLinking;
+    this.stopDeviceLinking = args.stopDeviceLinking;
     this.stateValue = {
       kind: 'preparing',
       viewModel: createPreparingViewModel({
@@ -523,6 +562,10 @@ export class AuthMenuSession {
   }
 
   private invalidatePreparation(): void {
+    if (this.stateValue.kind === 'link_device') {
+      this.deviceLinkGeneration += 1;
+      void this.stopDeviceLinking().catch(() => {});
+    }
     this.clearPreparationExpiryTimer();
     this.preparationGeneration += 1;
     this.registrationCancellation?.abort();
@@ -745,6 +788,7 @@ export class AuthMenuSession {
         return this.stateValue.viewModel;
       case 'google_login':
       case 'google_registration':
+      case 'link_device':
         return this.stateValue.viewModel;
       case 'complete':
         throw new Error('Completed auth-menu session has no view model');
@@ -762,6 +806,12 @@ export class AuthMenuSession {
     switch (intent.kind) {
       case 'mode_selected':
         this.selectMode(intent.mode);
+        return;
+      case 'back':
+        this.back();
+        return;
+      case 'link_device_open':
+        this.openLinkDevice();
         return;
       case 'registration_reroll':
         this.rerollRegistrationWallet();
@@ -836,9 +886,17 @@ export class AuthMenuSession {
 
   private selectMode(mode: HostedAuthMenuMode): void {
     const state = this.stateValue;
-    if (state.kind === 'complete' || state.kind === 'performing') return;
+    if (state.kind === 'complete' || state.kind === 'performing' || state.kind === 'link_device') {
+      return;
+    }
     const currentViewModel = this.currentViewModel();
     if (currentViewModel.mode === mode) return;
+    this.showPasskeyMode(mode);
+  }
+
+  private showPasskeyMode(mode: HostedAuthMenuMode): void {
+    if (this.stateValue.kind === 'complete' || this.stateValue.kind === 'link_device') return;
+    const currentViewModel = this.currentViewModel();
     this.invalidatePreparation();
     this.externalAuthResolution = null;
     const nextViewModel = createPreparingViewModel({
@@ -859,6 +917,107 @@ export class AuthMenuSession {
           : nextViewModel,
     };
     this.preparePasskey = mode === 'login' ? this.prepareSelectedLogin : null;
+    this.updateElement();
+    this.startPasskeyPreparation();
+  }
+
+  private back(): void {
+    if (this.stateValue.kind === 'link_device') {
+      this.closeLinkDevice();
+      return;
+    }
+    if (
+      this.stateValue.kind === 'awaiting_external_auth' ||
+      this.stateValue.kind === 'google_login' ||
+      this.stateValue.kind === 'google_registration'
+    ) {
+      this.showPasskeyMode(this.stateValue.viewModel.mode);
+    }
+  }
+
+  private openLinkDevice(): void {
+    const state = this.stateValue;
+    if (
+      (state.kind !== 'preparing' && state.kind !== 'ready') ||
+      state.viewModel.kind !== 'passkey'
+    ) {
+      return;
+    }
+    const returnState: AuthMenuReturnState = {
+      kind: 'preparing',
+      viewModel: {
+        ...state.viewModel,
+        status: { kind: 'preparing', message: 'Preparing passkey' },
+      },
+    };
+    this.invalidatePreparation();
+    const generation = ++this.deviceLinkGeneration;
+    this.stateValue = {
+      kind: 'link_device',
+      returnState,
+      viewModel: linkDeviceViewModel(state.viewModel),
+    };
+    this.updateElement();
+    void this.startDeviceLinking(this.onLinkDeviceEvent.bind(this, generation))
+      .then(this.completeLinkDeviceOpen.bind(this, generation))
+      .catch(this.failLinkDeviceOpen.bind(this, generation));
+  }
+
+  private onLinkDeviceEvent(generation: number, event: LinkDeviceFlowEvent): void {
+    const state = this.stateValue;
+    if (generation !== this.deviceLinkGeneration || state.kind !== 'link_device') return;
+    const message = event.message?.trim();
+    if (!message) return;
+    const linkDevice =
+      state.viewModel.linkDevice.kind === 'ready'
+        ? { ...state.viewModel.linkDevice, message }
+        : { kind: 'loading' as const, message };
+    this.stateValue = {
+      ...state,
+      viewModel: { ...state.viewModel, linkDevice },
+    };
+    this.updateElement();
+  }
+
+  private completeLinkDeviceOpen(
+    generation: number,
+    result: StartDevice2LinkingFlowResults,
+  ): void {
+    const state = this.stateValue;
+    if (generation !== this.deviceLinkGeneration || state.kind !== 'link_device') return;
+    this.stateValue = {
+      ...state,
+      viewModel: {
+        ...state.viewModel,
+        linkDevice: {
+          kind: 'ready',
+          qrCodeDataURL: result.qrCodeDataURL,
+          message: 'Waiting for device to scan',
+        },
+      },
+    };
+    this.updateElement();
+  }
+
+  private failLinkDeviceOpen(generation: number, error: unknown): void {
+    const state = this.stateValue;
+    if (generation !== this.deviceLinkGeneration || state.kind !== 'link_device') return;
+    this.stateValue = {
+      ...state,
+      viewModel: {
+        ...state.viewModel,
+        linkDevice: { kind: 'error', message: errorMessage(error) },
+      },
+    };
+    this.updateElement();
+  }
+
+  private closeLinkDevice(): void {
+    const state = this.stateValue;
+    if (state.kind !== 'link_device') return;
+    this.deviceLinkGeneration += 1;
+    void this.stopDeviceLinking().catch(() => {});
+    this.stateValue = state.returnState;
     this.updateElement();
     this.startPasskeyPreparation();
   }

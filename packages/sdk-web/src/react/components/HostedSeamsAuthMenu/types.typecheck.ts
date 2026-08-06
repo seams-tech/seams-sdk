@@ -1,10 +1,10 @@
 import type {
   HostedAuthMenuExternalAuthEvidence,
   HostedAuthMenuExternalAuthRequest,
-  SeamsAuthMenuProps,
+  HostedSeamsAuthMenuProps,
 } from './types';
 
-const onOutcome: SeamsAuthMenuProps['onOutcome'] = (outcome) => {
+const onOutcome: HostedSeamsAuthMenuProps['onOutcome'] = (outcome) => {
   switch (outcome.kind) {
     case 'authenticated':
     case 'registered':
@@ -28,7 +28,7 @@ const externalAuthBroker = async (
   return { kind: 'cancelled', reason: 'user_cancelled' };
 };
 
-const validProps: SeamsAuthMenuProps = {
+const validProps: HostedSeamsAuthMenuProps = {
   initialMode: 'register',
   registrationAccountInput: 'sponsored_named_near_account',
   showRegistrationInput: true,
@@ -41,14 +41,14 @@ const validProps: SeamsAuthMenuProps = {
 };
 void validProps;
 
-const callbackProps: SeamsAuthMenuProps = {
+const callbackProps: HostedSeamsAuthMenuProps = {
   onOutcome,
   // @ts-expect-error React-era operation callbacks are removed from the public boundary.
   onLogin: async () => undefined,
 };
 void callbackProps;
 
-const domProps: SeamsAuthMenuProps = {
+const domProps: HostedSeamsAuthMenuProps = {
   onOutcome,
   // @ts-expect-error React elements, style objects, and class names cannot cross the iframe boundary.
   className: 'legacy-menu',

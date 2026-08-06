@@ -29,6 +29,7 @@ const W3A_LIT_HOST_SELECTORS = [
   'w3a-halo-border',
   'w3a-passkey-halo-loading',
   'w3a-export-key-viewer',
+  'seams-auth-menu-surface',
   /* host-document dialogs (plain DOM, not lit) that must follow the app
      palette, e.g. the email-OTP recovery codes backup dialog */
   '.w3a-host-themed-dialog',

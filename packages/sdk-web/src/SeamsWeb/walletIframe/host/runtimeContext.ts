@@ -132,6 +132,11 @@ function syncRuntimeContext(state: WalletHostRuntimeState): HostContext {
   return runtimeContext;
 }
 
+export function syncActiveWalletHostRuntimeConfig(state: WalletHostRuntimeState): void {
+  if (!runtimeContext || !state.walletConfigs) return;
+  syncRuntimeContext(state);
+}
+
 function installLitMounterOnce(ctx: HostContext, input: WalletHostRuntimeRequest): void {
   if (litMounterInstalled) return;
   litMounterInstalled = true;
