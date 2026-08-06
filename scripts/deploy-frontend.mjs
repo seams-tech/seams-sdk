@@ -5,7 +5,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { readDeploymentTarget } from './deployment-targets.mjs';
+import { readFrontendSite } from './deployment-targets.mjs';
 import { formatFailedCheck, isFailedCheck, runReadinessChecks } from './deployment-smoke.mjs';
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
@@ -28,19 +28,23 @@ main(process.argv.slice(2)).catch(handleFailure);
 
 async function main(args) {
   const options = parseArguments(args);
-  const target = readDeploymentTarget(options.target);
+  const site = readFrontendSite(options.site);
+  if (options.operation !== 'plan') {
+    assertSiteProvisioning(site);
+    assertDeploymentBranch(site);
+  }
   switch (options.operation) {
     case 'plan':
-      printPlan(options.target, target);
+      printPlan(site);
       return;
     case 'build':
-      buildFrontend(options.target, target);
+      buildFrontend(site);
       return;
     case 'deploy':
-      deployFrontend(options.target, target);
+      deployFrontend(site);
       return;
     case 'smoke':
-      await smokeFrontend(target);
+      await smokeFrontend(site);
       return;
     default:
       throw new Error(`Unsupported frontend operation: ${options.operation}`);
@@ -49,27 +53,25 @@ async function main(args) {
 
 function parseArguments(args) {
   const operation = String(args[0] || '').trim();
-  let targetName = '';
+  let siteId = '';
   for (let index = 1; index < args.length; index += 1) {
     const argument = args[index];
-    if (argument === '--target') {
-      targetName = requireArgumentValue(args, index, argument);
+    if (argument === '--site') {
+      siteId = requireArgumentValue(args, index, argument);
       index += 1;
       continue;
     }
     if (argument === '--component') {
       throw new Error('--component is not allowed for frontend operations');
     }
-    throw new Error('usage: deploy-frontend.mjs <plan|build|deploy|smoke> --target <target>');
+    throw new Error('usage: deploy-frontend.mjs <plan|build|deploy|smoke> --site <site>');
   }
   if (!['plan', 'build', 'deploy', 'smoke'].includes(operation)) {
-    throw new Error('usage: deploy-frontend.mjs <plan|build|deploy|smoke> --target <target>');
+    throw new Error('usage: deploy-frontend.mjs <plan|build|deploy|smoke> --site <site>');
   }
-  if (!targetName)
-    throw new Error(
-      '--target is required (usage: deploy-frontend.mjs <operation> --target <target>)',
-    );
-  return { operation, target: targetName };
+  if (!siteId)
+    throw new Error('--site is required (usage: deploy-frontend.mjs <operation> --site <site>)');
+  return { operation, site: siteId };
 }
 
 function requireArgumentValue(args, index, name) {
@@ -78,13 +80,19 @@ function requireArgumentValue(args, index, name) {
   return value;
 }
 
-function printPlan(targetName, target) {
+function printPlan(site) {
+  const defaultLane = defaultFrontendLane(site);
   const lines = [
-    `Frontend deployment plan: ${targetName}`,
-    `Branch: ${target.branch}`,
-    `Site: ${target.origins.site}`,
-    `Wallet: ${target.origins.wallet}`,
-    `Pages branch: ${target.resources.frontend.pagesBranch}`,
+    `Frontend deployment plan: ${site.id}`,
+    `Branch: ${site.branch}`,
+    `Site: ${site.origin}`,
+    `Default network: ${site.defaultNetwork}`,
+    `Available networks: ${site.availableNetworks.join(', ')}`,
+    `Gateway (${defaultLane.network}): ${defaultLane.gatewayOrigin}`,
+    `Wallet (${defaultLane.network}): ${defaultLane.walletOrigin}`,
+    `Pages project environment: ${site.pagesProjectEnv}`,
+    `Wallet Pages project environment (${defaultLane.network}): ${defaultLane.walletPagesProjectEnv}`,
+    ...formatLaneProvisioning(site.lanes),
     '',
     'Order:',
     '  1. build production SDK and Pages output once',
@@ -95,9 +103,23 @@ function printPlan(targetName, target) {
   process.stdout.write(`${lines.join('\n')}\n`);
 }
 
-function buildFrontend(targetName, target) {
+function formatLaneProvisioning(lanes) {
+  const lines = [];
+  for (const lane of lanes) {
+    if (lane.provisioning.kind === 'provisioned') {
+      lines.push(`Provisioning (${lane.id}): provisioned`);
+      continue;
+    }
+    lines.push(
+      `Provisioning (${lane.id}): pending (${lane.provisioning.requiredValues.join(', ')})`,
+    );
+  }
+  return lines;
+}
+
+function buildFrontend(site) {
   runCommand('pnpm', ['install', '--frozen-lockfile']);
-  const buildEnvironment = buildFrontendEnvironment(targetName, target);
+  const buildEnvironment = buildFrontendEnvironment(site);
   runCommand('pnpm', ['-C', 'packages/sdk-web', 'run', 'build:prod'], {
     env: buildEnvironment,
   });
@@ -109,15 +131,16 @@ function buildFrontend(targetName, target) {
   assertFile(path.join(SITE_OUTPUT, 'wallet-service', 'index.html'), 'wallet-service entry');
 }
 
-function buildFrontendEnvironment(targetName, target) {
+function buildFrontendEnvironment(site) {
+  const lane = defaultFrontendLane(site);
   const environment = {
     ...process.env,
-    VITE_RELAYER_URL: target.origins.gateway,
-    VITE_CONSOLE_BASE_URL: target.origins.gateway,
-    VITE_WALLET_ORIGIN: target.origins.wallet,
-    VITE_DOCS_ORIGIN: target.origins.site,
-    VITE_RP_ID_BASE: new URL(target.origins.wallet).hostname,
-    VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID: target.resources.signingWorker.workerName,
+    VITE_RELAYER_URL: lane.gatewayOrigin,
+    VITE_CONSOLE_BASE_URL: lane.gatewayOrigin,
+    VITE_WALLET_ORIGIN: lane.walletOrigin,
+    VITE_DOCS_ORIGIN: site.origin,
+    VITE_RP_ID_BASE: new URL(lane.walletOrigin).hostname,
+    VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID: lane.resources.signingWorker.workerName,
   };
   const required = [
     'VITE_SEAMS_PROJECT_ENVIRONMENT_ID',
@@ -127,7 +150,7 @@ function buildFrontendEnvironment(targetName, target) {
     'VITE_NEAR_EXPLORER',
     'VITE_SIGNING_SESSION_PERSISTENCE_MODE',
   ];
-  if (targetName === 'production' && !String(environment.VITE_NEAR_NETWORK || '').trim()) {
+  if (site.id === 'production' && !String(environment.VITE_NEAR_NETWORK || '').trim()) {
     throw new Error('VITE_NEAR_NETWORK is required for production frontend builds');
   }
   requireEnvironmentValues(required, environment);
@@ -151,24 +174,24 @@ function copyDirectory(source, destination) {
   runCommand('rsync', ['-a', '--delete', `${source}${path.sep}`, `${destination}${path.sep}`]);
 }
 
-function deployFrontend(targetName, target) {
+function deployFrontend(site) {
   requireEnvironmentValues(['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID'], process.env);
-  const frontend = target.resources.frontend;
-  requireEnvironmentValues([frontend.appProjectEnv, frontend.walletProjectEnv], process.env);
+  const lane = defaultFrontendLane(site);
+  requireEnvironmentValues([site.pagesProjectEnv, lane.walletPagesProjectEnv], process.env);
   assertDirectory(SITE_OUTPUT, 'Pages build output');
   const commonArguments = [
     'pages',
     'deploy',
     path.relative(ROUTER_ROOT, SITE_OUTPUT),
     '--branch',
-    frontend.pagesBranch,
+    site.branch,
     '--commit-dirty=false',
   ];
   const sourceSha = String(process.env.DEPLOY_SHA || '').trim();
   if (sourceSha) commonArguments.push('--commit-hash', sourceSha);
-  deployPagesProject(commonArguments, process.env[frontend.appProjectEnv]);
-  deployPagesProject(commonArguments, process.env[frontend.walletProjectEnv]);
-  process.stdout.write(`Frontend deploy completed: ${targetName}\n`);
+  deployPagesProject(commonArguments, process.env[site.pagesProjectEnv]);
+  deployPagesProject(commonArguments, process.env[lane.walletPagesProjectEnv]);
+  process.stdout.write(`Frontend deploy completed: ${site.id}\n`);
 }
 
 function deployPagesProject(commonArguments, projectName) {
@@ -176,8 +199,8 @@ function deployPagesProject(commonArguments, projectName) {
   runCommand('pnpm', args, { cwd: ROUTER_ROOT });
 }
 
-async function smokeFrontend(target) {
-  const checks = buildSmokeChecks(target);
+async function smokeFrontend(site) {
+  const checks = buildSmokeChecks(site);
   const results = await runReadinessChecks(checks);
   const failed = results.filter(isFailedCheck);
   process.stdout.write(`${JSON.stringify({ results })}\n`);
@@ -186,11 +209,64 @@ async function smokeFrontend(target) {
   }
 }
 
-function buildSmokeChecks(target) {
+function buildSmokeChecks(site) {
+  const lane = defaultFrontendLane(site);
   const checks = [];
-  addSmokeChecks(checks, 'site', target.origins.site, FRONTEND_SMOKE_PATHS.site);
-  addSmokeChecks(checks, 'wallet', target.origins.wallet, FRONTEND_SMOKE_PATHS.wallet);
+  addSmokeChecks(checks, 'site', site.origin, FRONTEND_SMOKE_PATHS.site);
+  addSmokeChecks(checks, `wallet-${lane.network}`, lane.walletOrigin, FRONTEND_SMOKE_PATHS.wallet);
   return checks;
+}
+
+function defaultFrontendLane(site) {
+  const lane = findLaneByNetwork(site.lanes, site.defaultNetwork);
+  if (!lane) {
+    throw new Error(
+      `frontend site ${site.id} has no lane for default network ${site.defaultNetwork}`,
+    );
+  }
+  return lane;
+}
+
+function findLaneByNetwork(lanes, network) {
+  for (const lane of lanes) {
+    if (lane.network === network) return lane;
+  }
+  return undefined;
+}
+
+function assertSiteProvisioning(site) {
+  const pending = pendingProvisioningLanes(site.lanes);
+  if (pending.length === 0) return;
+  const details = pending.map(formatPendingProvisioningLane).join('; ');
+  throw new Error(`frontend site ${site.id} has pending lane provisioning: ${details}`);
+}
+
+function pendingProvisioningLanes(lanes) {
+  const pending = [];
+  for (const lane of lanes) {
+    if (lane.provisioning.kind === 'pending') pending.push(lane);
+  }
+  return pending;
+}
+
+function formatPendingProvisioningLane(lane) {
+  return `${lane.id} (${lane.provisioning.requiredValues.join(', ')})`;
+}
+
+function assertDeploymentBranch(site) {
+  const ref = resolveDeploymentRef();
+  if (!ref) return;
+  const expectedRef = `refs/heads/${site.branch}`;
+  if (ref !== expectedRef) {
+    throw new Error(`site ${site.id} requires branch ${site.branch}; received ${ref}`);
+  }
+}
+
+function resolveDeploymentRef() {
+  const ref = String(process.env.GITHUB_REF || '').trim();
+  if (ref) return ref;
+  const branch = String(process.env.GITHUB_REF_NAME || '').trim();
+  return branch ? `refs/heads/${branch}` : '';
 }
 
 function addSmokeChecks(checks, surface, origin, requestPaths) {

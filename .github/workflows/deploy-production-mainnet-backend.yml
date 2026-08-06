@@ -1,4 +1,4 @@
-name: Deploy / staging-testnet / backend
+name: Deploy / production-mainnet / backend
 
 on:
   workflow_dispatch:
@@ -7,17 +7,17 @@ permissions:
   contents: read
 
 concurrency:
-  group: deployment-staging-testnet-backend
+  group: deployment-production-mainnet-backend
   cancel-in-progress: false
 
 env:
-  DEPLOY_LANE: staging-testnet
+  DEPLOY_LANE: production-mainnet
   DEPLOY_SHA: ${{ github.sha }}
   RUST_TOOLCHAIN: 1.96.0
 
 jobs:
   build:
-    name: Build / staging-testnet / backend
+    name: Build / production-mainnet / backend
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -25,8 +25,8 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
-      - name: Require dev branch
-        run: test "$GITHUB_REF" = refs/heads/dev
+      - name: Require main branch
+        run: test "$GITHUB_REF" = refs/heads/main
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
       - name: Setup Node
@@ -54,7 +54,7 @@ jobs:
       - name: Upload backend artifact
         uses: actions/upload-artifact@v7
         with:
-          name: backend-build-staging-testnet
+          name: backend-build-production-mainnet
           overwrite: true
           include-hidden-files: true
           retention-days: 30
@@ -65,7 +65,7 @@ jobs:
             packages/console-server-ts/.wrangler/generated
 
   preflight:
-    name: Preflight / staging-testnet / ${{ matrix.component }}
+    name: Preflight / production-mainnet / ${{ matrix.component }}
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -74,15 +74,15 @@ jobs:
       matrix:
         include:
           - component: signing-worker
-            environment: staging-signing-worker
+            environment: production-signing-worker
           - component: deriver-a
-            environment: staging-deriver-a
+            environment: production-deriver-a
           - component: deriver-b
-            environment: staging-deriver-b
+            environment: production-deriver-b
           - component: router
-            environment: staging-mpc-router
+            environment: production-mpc-router
           - component: gateway
-            environment: staging-gateway
+            environment: production-gateway
     environment:
       name: ${{ matrix.environment }}
     env:
@@ -101,18 +101,17 @@ jobs:
         run: node scripts/deploy-backend.mjs preflight --lane "$DEPLOY_LANE" --component "${{ matrix.component }}"
 
   migrate:
-    name: Migrate / staging-testnet / gateway
+    name: Migrate / production-mainnet / gateway
     needs:
       - preflight
       - build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
-      name: staging-gateway
+      name: production-gateway
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      RELAYER_PRIVATE_KEY: ${{ secrets.RELAYER_PRIVATE_KEY }}
     steps:
       - name: Checkout workflow revision
         uses: actions/checkout@v6
@@ -130,19 +129,19 @@ jobs:
       - name: Download backend artifact
         uses: actions/download-artifact@v8
         with:
-          name: backend-build-staging-testnet
+          name: backend-build-production-mainnet
       - name: Check Gateway build entry
         run: test -s .release-artifacts/gateway/payload/d1RouterApiWorker.js
       - name: Apply D1 migrations
         run: pnpm deploy:backend migrate --lane "$DEPLOY_LANE"
 
   deploy_signing_worker:
-    name: Deploy / staging-testnet / signing-worker
+    name: Deploy / production-mainnet / signing-worker
     needs: migrate
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: staging-signing-worker
+      name: production-signing-worker
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -170,19 +169,19 @@ jobs:
       - name: Download backend artifact
         uses: actions/download-artifact@v8
         with:
-          name: backend-build-staging-testnet
+          name: backend-build-production-mainnet
       - name: Check Signing Worker build entry
         run: test -s crates/router-ab-cloudflare/build/signing-worker/worker/shim.mjs
       - name: Deploy Signing Worker
         run: pnpm deploy:backend deploy --lane "$DEPLOY_LANE" --component signing-worker
 
   deploy_deriver_a:
-    name: Deploy / staging-testnet / deriver-a
+    name: Deploy / production-mainnet / deriver-a
     needs: migrate
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: staging-deriver-a
+      name: production-deriver-a
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -214,19 +213,19 @@ jobs:
       - name: Download backend artifact
         uses: actions/download-artifact@v8
         with:
-          name: backend-build-staging-testnet
+          name: backend-build-production-mainnet
       - name: Check Deriver A build entry
         run: test -s crates/router-ab-cloudflare/build/deriver-a/worker/shim.mjs
       - name: Deploy Deriver A
         run: pnpm deploy:backend deploy --lane "$DEPLOY_LANE" --component deriver-a
 
   deploy_deriver_b:
-    name: Deploy / staging-testnet / deriver-b
+    name: Deploy / production-mainnet / deriver-b
     needs: migrate
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: staging-deriver-b
+      name: production-deriver-b
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -258,19 +257,19 @@ jobs:
       - name: Download backend artifact
         uses: actions/download-artifact@v8
         with:
-          name: backend-build-staging-testnet
+          name: backend-build-production-mainnet
       - name: Check Deriver B build entry
         run: test -s crates/router-ab-cloudflare/build/deriver-b/worker/shim.mjs
       - name: Deploy Deriver B
         run: pnpm deploy:backend deploy --lane "$DEPLOY_LANE" --component deriver-b
 
   deploy_router:
-    name: Deploy / staging-testnet / router
+    name: Deploy / production-mainnet / router
     needs: [deploy_signing_worker, deploy_deriver_a, deploy_deriver_b]
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: staging-mpc-router
+      name: production-mpc-router
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -283,6 +282,7 @@ jobs:
       SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY }}
       DERIVER_A_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX }}
       DERIVER_B_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX }}
+      ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON: ${{ vars.ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON }}
     steps:
       - name: Checkout workflow revision
         uses: actions/checkout@v6
@@ -300,31 +300,30 @@ jobs:
       - name: Download backend artifact
         uses: actions/download-artifact@v8
         with:
-          name: backend-build-staging-testnet
+          name: backend-build-production-mainnet
       - name: Check Router build entry
         run: test -s crates/router-ab-cloudflare/build/router/worker/shim.mjs
       - name: Deploy Router
         run: pnpm deploy:backend deploy --lane "$DEPLOY_LANE" --component router
 
   deploy_gateway:
-    name: Deploy / staging-testnet / gateway
+    name: Deploy / production-mainnet / gateway
     needs: deploy_router
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment:
-      name: staging-gateway
+      name: production-gateway
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CONSOLE_INITIAL_OWNER_EMAIL: ${{ secrets.CONSOLE_INITIAL_OWNER_EMAIL }}
       RELAY_SESSION_HMAC_SECRET: ${{ secrets.RELAY_SESSION_HMAC_SECRET }}
       ACCOUNT_ID_DERIVATION_SECRET: ${{ secrets.ACCOUNT_ID_DERIVATION_SECRET }}
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
       ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: ${{ secrets.ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK }}
+      SPONSORED_EVM_EXECUTORS_JSON: ${{ secrets.SPONSORED_EVM_EXECUTORS_JSON }}
       STRIPE_API_SK: ${{ secrets.STRIPE_API_SK }}
       STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-      RELAYER_PRIVATE_KEY: ${{ secrets.RELAYER_PRIVATE_KEY }}
-      SPONSORED_EVM_EXECUTORS_JSON: ${{ secrets.SPONSORED_EVM_EXECUTORS_JSON }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       SIGNING_SESSION_SEAL_ROOT_SECRET_B64U: ${{ secrets.SIGNING_SESSION_SEAL_ROOT_SECRET_B64U }}
     steps:
       - name: Checkout workflow revision
@@ -343,7 +342,7 @@ jobs:
       - name: Download backend artifact
         uses: actions/download-artifact@v8
         with:
-          name: backend-build-staging-testnet
+          name: backend-build-production-mainnet
       - name: Check Gateway build entry
         run: test -s .release-artifacts/gateway/payload/d1RouterApiWorker.js
       - name: Deploy Gateway

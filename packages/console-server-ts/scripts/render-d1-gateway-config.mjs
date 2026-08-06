@@ -15,26 +15,38 @@ import {
   GATEWAY_WORKER_COMPATIBILITY_FLAGS,
   gatewayRuntimeProfileNearNetwork,
 } from './gateway-deployment-config.mjs';
-import { readDeploymentTarget } from '../../../scripts/deployment-targets.mjs';
+import { readBackendLane } from '../../../scripts/deployment-targets.mjs';
 
-const VALID_TARGETS = new Set(['staging', 'production']);
+const VALID_LANES = new Set(['staging-testnet', 'production-testnet', 'production-mainnet']);
 
 function main() {
   const options = parseArguments(process.argv.slice(2));
-  const deployment = readDeploymentTarget(options.target).gatewayDeploymentConfig;
+  const lane = readBackendLane(options.lane);
+  const deployment = requireProvisionedGatewayDeploymentConfig(options.lane, lane.provisioning);
   assertNearRelayerSecretConsistency(deployment.optional.nearRelayer);
   const config = buildConfig(deployment, process.cwd());
   writePrivateJson(options.output, config);
   process.stdout.write(`${path.resolve(process.cwd(), options.output)}\n`);
 }
 
+function requireProvisionedGatewayDeploymentConfig(laneId, provisioning) {
+  if (!provisioning || provisioning.kind !== 'provisioned') {
+    throw new Error(`backend lane ${laneId} has no provisioned Gateway deployment config`);
+  }
+  const deployment = provisioning.gatewayDeploymentConfig;
+  if (!deployment || typeof deployment !== 'object' || Array.isArray(deployment)) {
+    throw new Error(`backend lane ${laneId} has no provisioned Gateway deployment config`);
+  }
+  return deployment;
+}
+
 function parseArguments(args) {
-  let target = '';
+  let lane = '';
   let output = '';
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
-    if (argument === '--target') {
-      target = requireArgumentValue(args, index, argument);
+    if (argument === '--lane') {
+      lane = requireArgumentValue(args, index, argument);
       index += 1;
       continue;
     }
@@ -45,9 +57,11 @@ function parseArguments(args) {
     }
     throw new Error(`Unknown argument: ${argument}`);
   }
-  if (!VALID_TARGETS.has(target)) throw new Error('--target must be staging or production');
+  if (!VALID_LANES.has(lane)) {
+    throw new Error('--lane must be staging-testnet, production-testnet, or production-mainnet');
+  }
   if (!output) throw new Error('--output is required');
-  return { target, output };
+  return { lane, output };
 }
 
 function requireArgumentValue(args, index, name) {
@@ -121,7 +135,7 @@ function buildConfig(deployment, packageRoot) {
 }
 
 function buildWorkerVars(deployment) {
-  const production = deployment.target === 'production';
+  const production = deployment.lane !== 'staging-testnet';
   const implicitNearTestFunding =
     deployment.runtimeProfile.nearFunding.kind === 'implicit_account_relayer';
   const demoEmailOtpDelivery =
@@ -150,8 +164,7 @@ function buildWorkerVars(deployment) {
     RELAY_CORS_ORIGINS: deployment.origins.allowedCors.join(','),
     CONSOLE_BASE_URL: deployment.origins.allowedCors[0],
     SESSION_COOKIE_NAME: DEFAULT_SESSION_COOKIE_NAME,
-    SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION:
-      deployment.signingSessionSeal.currentKeyVersion,
+    SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION: deployment.signingSessionSeal.currentKeyVersion,
     SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS:
       deployment.signingSessionSeal.acceptedWarmKeyVersions.join(','),
     EMAIL_OTP_RUNTIME_PROFILE: deployment.runtimeProfile.kind,
