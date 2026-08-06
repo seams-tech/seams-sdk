@@ -2,42 +2,70 @@ import type { LaneShareEpoch, SigningLaneId, WalletKeyId } from '../signing-lane
 import type { WalletId } from '../utils/domainIds';
 import type { PasskeyCustodySecretKind } from '../passkey-custody';
 import type { DerivedWalletRecoveryKeyId } from './recoveryCodes';
-import type { WalletRecoveryEnvelopeEntry } from './walletRecoveryEnvelopeSet';
+import type {
+  WalletRecoveryEnvelopeEntry,
+  WalletRecoveryManifestKekWrap,
+} from './walletRecoveryEnvelopeSet';
 
 /**
- * KEK inputs for one entry in a wallet-scoped recovery envelope set.
+ * Frozen two-level recovery wrap:
  *
- * The recovery code protects the whole wallet key set, but each entry is
- * wrapped under its own KEK so per-entry AAD stays intact: a code that opens
- * the Ed25519 root entry cannot open the ECDSA entry by substitution. The
- * purpose is the custody-secret kind, matching the passkey KEK context.
+ *   recovery code --HKDF--> code KEK --opens--> manifest KEK
+ *   manifest KEK --HKDF--> entry KEK --opens--> one custody secret
+ *
+ * A recovery code never wraps a custody entry directly, so rotating codes
+ * rewraps only the 32-byte manifest KEK and never re-opens plaintext roots.
  */
-export type WalletRecoveryKekDerivationContext = {
-  kind: 'wallet_recovery_kek_derivation_context_v1';
+
+/** KEK inputs for one recovery code's wrap of the manifest KEK. */
+export type WalletRecoveryCodeKekDerivationContext = {
+  kind: 'wallet_recovery_code_kek_derivation_context_v1';
+  walletId: WalletId;
+  recoveryKeyId: DerivedWalletRecoveryKeyId;
+  purpose: 'wallet_recovery_manifest_kek';
+};
+
+/**
+ * KEK inputs for one entry's wrap under the manifest KEK. The purpose is the
+ * custody-secret kind, so an entry KEK that opens the Ed25519 root cannot open
+ * the ECDSA entry by substitution — per-entry AAD survives the manifest KEK.
+ */
+export type WalletRecoveryEntryKekDerivationContext = {
+  kind: 'wallet_recovery_entry_kek_derivation_context_v1';
   walletId: WalletId;
   walletKeyId: WalletKeyId;
   laneId: SigningLaneId;
   laneShareEpoch: LaneShareEpoch;
-  recoveryKeyId: DerivedWalletRecoveryKeyId;
   purpose: PasskeyCustodySecretKind;
 };
 
 /**
- * Derives the recovery KEK context from a parsed set entry, so a caller cannot
- * assemble a context that disagrees with the ciphertext it is about to open.
+ * Derives the code-level KEK context from a parsed manifest-KEK wrap, so a
+ * caller cannot assemble a context that disagrees with the wrap it opens.
  */
-export function buildWalletRecoveryKekDerivationContext(args: {
+export function buildWalletRecoveryCodeKekDerivationContext(args: {
   walletId: WalletId;
-  recoveryKeyId: DerivedWalletRecoveryKeyId;
-  entry: WalletRecoveryEnvelopeEntry;
-}): WalletRecoveryKekDerivationContext {
+  wrap: WalletRecoveryManifestKekWrap;
+}): WalletRecoveryCodeKekDerivationContext {
   return {
-    kind: 'wallet_recovery_kek_derivation_context_v1',
+    kind: 'wallet_recovery_code_kek_derivation_context_v1',
+    walletId: args.walletId,
+    recoveryKeyId: args.wrap.recoveryKeyId,
+    purpose: 'wallet_recovery_manifest_kek',
+  };
+}
+
+/** Derives the entry-level KEK context from a parsed set entry. */
+export function buildWalletRecoveryEntryKekDerivationContext(args: {
+  walletId: WalletId;
+  entry: WalletRecoveryEnvelopeEntry;
+}): WalletRecoveryEntryKekDerivationContext {
+  return {
+    kind: 'wallet_recovery_entry_kek_derivation_context_v1',
     walletId: args.walletId,
     walletKeyId: args.entry.walletKeyId,
     laneId: args.entry.laneId,
     laneShareEpoch: args.entry.laneShareEpoch,
-    recoveryKeyId: args.recoveryKeyId,
     purpose: args.entry.custodySecretKind,
   };
 }

@@ -56,12 +56,17 @@ export function parseDigestField(value: unknown, label: string): DigestB64u {
   }
 }
 
+// Frozen AEAD for every passkey custody wrap: ChaCha20Poly1305 (IETF) under an
+// HKDF-SHA256-derived key, matching EMAIL_OTP_RECOVERY_WRAP_ALG and the
+// Rust/WASM activated-Client seal.
+export const PASSKEY_CUSTODY_WRAP_ALG_V1 = 'chacha20poly1305-hkdf-sha256-v1' as const;
+export const PASSKEY_CUSTODY_WRAP_NONCE_LENGTH = 12 as const;
+export const PASSKEY_CUSTODY_WRAP_TAG_LENGTH = 16 as const;
+
 export function parseEnvelopeNonceB64u(value: unknown, label = 'nonceB64u'): EnvelopeNonceB64u {
   const decoded = requireCanonicalBase64Url(value, label);
-  // 96-bit AES-GCM/ChaCha20-Poly1305 nonces and 192-bit XChaCha20 nonces are
-  // both allowed until the AEAD decision in refactor-100 is frozen.
-  if (decoded.length !== 12 && decoded.length !== 24) {
-    throw new Error(`${label} must decode to a 12-byte or 24-byte AEAD nonce`);
+  if (decoded.length !== PASSKEY_CUSTODY_WRAP_NONCE_LENGTH) {
+    throw new Error(`${label} must decode to a 12-byte ChaCha20Poly1305 nonce`);
   }
   return value as EnvelopeNonceB64u;
 }
@@ -71,9 +76,7 @@ export function parseEnvelopeCiphertextB64u(
   label = 'ciphertextB64u',
 ): EnvelopeCiphertextB64u {
   const decoded = requireCanonicalBase64Url(value, label);
-  // Any AEAD under consideration appends at least a 16-byte tag, so a shorter
-  // value cannot be sealed ciphertext.
-  if (decoded.length < 17) {
+  if (decoded.length < PASSKEY_CUSTODY_WRAP_TAG_LENGTH + 1) {
     throw new Error(`${label} must decode to sealed ciphertext with an authentication tag`);
   }
   return value as EnvelopeCiphertextB64u;

@@ -52,12 +52,19 @@ export {
 
 export type {
   RecoveryCodeLifecycleState,
+  WalletRecoveryCodeKekDerivationContext,
+  WalletRecoveryEntryKekDerivationContext,
   WalletRecoveryEnvelopeEntry,
   WalletRecoveryEnvelopeSetRecord,
+  WalletRecoveryManifestKekWrap,
 } from '@shared/wallet-recovery';
 
 export {
+  buildWalletRecoveryCodeKekDerivationContext,
+  buildWalletRecoveryEntryKekDerivationContext,
   buildWalletRecoveryEnvelopeEntry,
   buildWalletRecoveryEnvelopeSetRecord,
+  buildWalletRecoveryManifestKekWrap,
+  hasOpenableRecoveryCodeWrap,
   parseWalletRecoveryEnvelopeSetRecord,
 } from '@shared/wallet-recovery';
