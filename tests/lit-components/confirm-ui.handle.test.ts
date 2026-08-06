@@ -23,6 +23,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const model = {
@@ -115,6 +116,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const contractAddress = '0xbb442b54c85efba2d7b81ea52990ad638cdba483';
@@ -260,6 +262,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const contractAddress = '0xbb442b54c85efba2d7b81ea52990ad638cdba483';
@@ -389,6 +392,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const models = [
@@ -522,6 +526,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const model = {
@@ -607,6 +612,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const model = {
@@ -698,6 +704,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const model = {
@@ -831,6 +838,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const model = {
@@ -912,6 +920,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const txSigningRequests = [
@@ -1031,6 +1040,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
           // Intentionally keep Arc as generic family fallback so chainId-specific override is testable.
           evmExplorerUrl: 'https://arc-explorer.example',
           chains: [
@@ -1145,6 +1155,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const handle = await mountConfirmUI({
@@ -1222,6 +1233,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const handle = await mountConfirmUI({
@@ -1314,6 +1326,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'bob.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const handle = await mountConfirmUI({
@@ -1366,6 +1379,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'carol.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const handle = await mountConfirmUI({

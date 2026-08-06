@@ -6,31 +6,27 @@
 
 seams-auth-menu-surface {
   display: block;
-  width: 100%;
-  height: 100%;
+  inline-size: max-content;
+  max-inline-size: 26rem;
   color: var(--w3a-colors-textPrimary, #f8fafc);
   font-family: var(--w3a-font-family, ui-sans-serif, system-ui, sans-serif);
 }
 
 .auth-menu-root {
   box-sizing: border-box;
-  min-height: 100%;
-  min-width: 100%;
-  position: fixed;
-  inset: 0;
-  padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))
-    max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
-  display: grid;
-  place-items: center;
-  background: rgba(11, 18, 32, 0.78);
-  background: color-mix(in srgb, var(--w3a-colors-colorBackground, #0b1220) 78%, transparent);
+  inline-size: max-content;
+  max-inline-size: 26rem;
+  padding: 0;
+  display: block;
+  background: transparent;
   color: var(--w3a-colors-textPrimary, #f8fafc);
   outline: none;
 }
 
 .auth-menu-card {
   box-sizing: border-box;
-  width: min(100%, 26rem);
+  inline-size: 26rem;
+  max-inline-size: 100%;
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
@@ -314,10 +310,6 @@ seams-auth-menu-surface {
 }
 
 @media (max-width: 28rem) {
-  .auth-menu-root {
-    place-items: end center;
-  }
-
   .auth-menu-card {
     border-radius: 1rem;
   }

@@ -4,6 +4,7 @@ import { __setWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode
 import type { AppearanceConfigInput, SeamsConfigsInput, ThemeMode } from '@/core/types/seams';
 import type { PMSetConfigPayload } from '../shared/messages';
 import type { SdkLifecycleEvent, SdkLifecycleEventListener } from '@/core/types/sdkSentEvents';
+import type { UiConfirmSurfaceMeasurementBinding } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { WalletSessionId } from '@/core/types/sdkSentEvents';
 import type { WalletId } from '@shared/utils/domainIds';
 import { isString } from '@shared/utils/validation';
@@ -242,6 +243,7 @@ export interface HostContext {
   lifecycleListener: SdkLifecycleEventListener | null;
   expiredSessionsByWallet: Map<WalletId, Set<WalletSessionId>>;
   onWindowMessage?: (e: MessageEvent) => void;
+  surfaceMeasurementBinding: UiConfirmSurfaceMeasurementBinding;
 }
 
 export function createHostContext(): HostContext {
@@ -257,6 +259,7 @@ export function createHostContext(): HostContext {
     lifecycleListener: null,
     expiredSessionsByWallet: new Map(),
     onWindowMessage: undefined,
+    surfaceMeasurementBinding: { kind: 'disabled' },
   };
 }
 

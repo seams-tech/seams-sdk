@@ -376,11 +376,6 @@ const emitWalletServiceStaticAssets = async (sdkRoot = process.cwd()): Promise<v
     path.join(sdkRoot, 'src/core/signingEngine/uiConfirm/ui/lit-components/css/export-iframe.css'),
     path.join(sdkDir, 'export-iframe.css'),
   );
-  copyIfMissing(
-    path.join(sdkRoot, 'src/SeamsWeb/walletIframe/client/overlay/overlay.css'),
-    path.join(sdkDir, 'overlay.css'),
-  );
-
   console.log('✅ Emitted /sdk wallet-shims.js, wallet-service.css, and auth-menu.css');
 };
 
@@ -486,6 +481,10 @@ const configs = [
       'src/core/signingEngine/session/persistence/sealedSessionStore.ts',
       // Keep worker-facing WASM wrapper exports stable for deep imports used by tests/tools.
       'src/core/signingEngine/chains/evm/evmCryptoWasm.ts',
+      // Keep compact wallet-iframe surface modules stable for deep imports used by tests/tools.
+      'src/SeamsWeb/walletIframe/client/surface/geometry.ts',
+      'src/SeamsWeb/walletIframe/host/lit-ui/surface-measurement-reporter.ts',
+      'src/SeamsWeb/walletIframe/host/lit-ui/auth-menu/seams-auth-menu-surface.ts',
     ],
     output: {
       dir: BUILD_PATHS.BUILD.ESM,

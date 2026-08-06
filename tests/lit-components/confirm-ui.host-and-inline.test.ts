@@ -52,6 +52,7 @@ test.describe('confirm-ui inline confirmer', () => {
               theme: 'dark',
             }),
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
           ...overrides,
         });
         const ctx = (window as any).ctxStub || ((window as any).ctxStub = buildCtxStub());
@@ -107,6 +108,7 @@ test.describe('confirm-ui inline confirmer', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
         const preparationHandle = await mountConfirmUI({
           ctx,
@@ -191,6 +193,7 @@ test.describe('confirm-ui inline confirmer', () => {
               theme: 'dark',
             }),
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
           ...overrides,
         });
         const ctx =
@@ -259,6 +262,7 @@ test.describe('confirm-ui inline confirmer', () => {
               theme: 'dark',
             }),
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
           ...overrides,
         });
         const ctx = (window as any).ctxStub || ((window as any).ctxStub = buildCtxStub());
@@ -316,6 +320,7 @@ test.describe('confirm-ui inline confirmer', () => {
               theme: 'dark',
             }),
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
           ...overrides,
         });
         const ctx = (window as any).ctxStub || ((window as any).ctxStub = buildCtxStub());
@@ -332,9 +337,7 @@ test.describe('confirm-ui inline confirmer', () => {
           nearAccountIdOverride: 'alice.testnet',
         });
 
-        await waitFor(
-          () => !!document.querySelector('.passkey-registration-confirm .btn-cancel'),
-        );
+        await waitFor(() => !!document.querySelector('.passkey-registration-confirm .btn-cancel'));
         const cancelButton = document.querySelector(
           '.passkey-registration-confirm .btn-cancel',
         ) as HTMLButtonElement | null;
@@ -358,14 +361,17 @@ test.describe('confirm-ui inline confirmer', () => {
     expect(result.confirmed).toBe(false);
   });
 
-  test('modal backdrop click resolves as cancel', async ({ page }) => {
+  test('surface binding keeps wallet overlays in the host and preserves standalone dismissal', async ({
+    page,
+  }) => {
     const result = await page.evaluate(
       async ({ securityContext, summary, waitForSource, paths }) => {
         const waitFor = eval(waitForSource) as typeof harnessWaitFor;
         const mod = await import(paths.confirmUi);
+        const events = await import(paths.events);
         const { awaitConfirmUIDecision } =
           mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
-        const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
+        const walletCtx = {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
             getConfirmationConfig: () => ({
@@ -375,12 +381,15 @@ test.describe('confirm-ui inline confirmer', () => {
               theme: 'dark',
             }),
           },
-          ...overrides,
-        });
-        const ctx = (window as any).ctxStub || ((window as any).ctxStub = buildCtxStub());
+          surfaceMeasurementBinding: {
+            kind: 'wallet_iframe',
+            requestId: 'request-a',
+            postMeasurement: () => undefined,
+          },
+        };
 
-        const decisionPromise = awaitConfirmUIDecision({
-          ctx: ctx as any,
+        const walletDecisionPromise = awaitConfirmUIDecision({
+          ctx: walletCtx as any,
           surface: { kind: 'mount_new' },
           summary,
           txSigningRequests: [],
@@ -390,15 +399,87 @@ test.describe('confirm-ui inline confirmer', () => {
           nearAccountIdOverride: 'alice.testnet',
         });
 
-        await waitFor(() => !!document.querySelector('w3a-modal-tx-confirmer'));
-        const modalEl = document.querySelector('w3a-modal-tx-confirmer') as any;
-        await waitFor(() => Boolean(modalEl && modalEl._backdropArmed === true));
-        const backdrop = modalEl?.querySelector?.('.modal-backdrop-blur') as HTMLElement | null;
-        backdrop?.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
+        await waitFor(
+          () =>
+            document
+              .getElementById('w3a-confirm-portal')
+              ?.firstElementChild?.getAttribute('data-w3a-confirm-surface') === 'wallet-iframe',
+        );
+        await waitFor(
+          () =>
+            !!document
+              .getElementById('w3a-confirm-portal')
+              ?.firstElementChild?.querySelector('w3a-modal-tx-confirmer'),
+        );
+        const walletHost = document.getElementById('w3a-confirm-portal')
+          ?.firstElementChild as HTMLElement | null;
+        const walletModal = walletHost?.querySelector('w3a-modal-tx-confirmer');
+        const walletHasStandaloneBackdrop = Boolean(
+          walletModal?.querySelector('.standalone-surface-backdrop'),
+        );
+        walletHost?.dispatchEvent(
+          new CustomEvent(events.WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
+            bubbles: true,
+            composed: true,
+          }),
+        );
+        const walletDecision = await walletDecisionPromise;
+        walletDecision.handle.close(false);
 
-        const { confirmed, handle } = await decisionPromise;
-        handle?.close?.(confirmed);
-        return { confirmed };
+        const standaloneCtx = {
+          userPreferencesManager: {
+            getCurrentWalletId: () => 'alice.testnet',
+            getConfirmationConfig: () => ({
+              uiMode: 'modal',
+              behavior: 'requireClick',
+              autoProceedDelay: 0,
+              theme: 'dark',
+            }),
+          },
+          surfaceMeasurementBinding: { kind: 'disabled' },
+        };
+        const standaloneDecisionPromise = awaitConfirmUIDecision({
+          ctx: standaloneCtx as any,
+          surface: { kind: 'mount_new' },
+          summary,
+          txSigningRequests: [],
+          securityContext: securityContext as any,
+          theme: 'dark',
+          uiMode: 'modal',
+          nearAccountIdOverride: 'alice.testnet',
+        });
+
+        await waitFor(
+          () =>
+            document
+              .getElementById('w3a-confirm-portal')
+              ?.firstElementChild?.getAttribute('data-w3a-confirm-surface') === 'standalone',
+        );
+        await waitFor(
+          () =>
+            !!document
+              .getElementById('w3a-confirm-portal')
+              ?.firstElementChild?.querySelector('.standalone-surface-backdrop'),
+        );
+        const standaloneHost = document.getElementById('w3a-confirm-portal')
+          ?.firstElementChild as HTMLElement | null;
+        const standaloneModal = standaloneHost?.querySelector('w3a-modal-tx-confirmer');
+        const standaloneBackdrop = standaloneModal?.querySelector(
+          '.standalone-surface-backdrop',
+        ) as HTMLElement | null;
+        standaloneBackdrop?.dispatchEvent(
+          new MouseEvent('click', { bubbles: true, composed: true }),
+        );
+
+        const standaloneDecision = await standaloneDecisionPromise;
+        standaloneDecision.handle.close(false);
+        return {
+          walletSurface: walletHost?.getAttribute('data-w3a-confirm-surface'),
+          walletHasStandaloneBackdrop,
+          standaloneSurface: standaloneHost?.getAttribute('data-w3a-confirm-surface'),
+          standaloneHasBackdrop: Boolean(standaloneBackdrop),
+          standaloneConfirmed: standaloneDecision.confirmed,
+        };
       },
       {
         securityContext: SECURITY_CONTEXT,
@@ -408,7 +489,13 @@ test.describe('confirm-ui inline confirmer', () => {
       },
     );
 
-    expect(result.confirmed).toBe(false);
+    expect(result).toEqual({
+      walletSurface: 'wallet-iframe',
+      walletHasStandaloneBackdrop: false,
+      standaloneSurface: 'standalone',
+      standaloneHasBackdrop: true,
+      standaloneConfirmed: false,
+    });
   });
 
   test('drawer confirm renders inline wrapper (no iframe fallback)', async ({ page }) => {
@@ -429,6 +516,7 @@ test.describe('confirm-ui inline confirmer', () => {
               theme: 'dark',
             }),
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
           ...overrides,
         });
         const ctx = (window as any).ctxStub || ((window as any).ctxStub = buildCtxStub());
@@ -493,6 +581,7 @@ test.describe('confirm-ui inline confirmer', () => {
               theme: 'dark',
             }),
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
           ...overrides,
         });
         const ctx = (window as any).ctxStub || ((window as any).ctxStub = buildCtxStub());
@@ -555,6 +644,7 @@ test.describe('confirm-ui inline confirmer', () => {
               theme: 'dark',
             }),
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
           ...overrides,
         });
         const ctx = (window as any).ctxStub || ((window as any).ctxStub = buildCtxStub());
@@ -632,6 +722,7 @@ test.describe('confirm-ui inline confirmer', () => {
               theme: 'dark',
             }),
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
           ...overrides,
         });
         const ctx = (window as any).ctxStub || ((window as any).ctxStub = buildCtxStub());

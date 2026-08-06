@@ -3,9 +3,11 @@ import {
   buildHostedAuthMenuOpenRequest,
   hostedAuthMenuExternalAuthRequestIdFromBoundary,
   hostedAuthMenuSessionIdFromBoundary,
+  parseWalletIframeSurfaceMeasurement,
   buildHostedAuthMenuCancelPayload,
   type HostedAuthMenuExternalAuthRequest,
   type HostedAuthMenuOutcome,
+  type WalletIframeSurfaceMeasurement,
 } from './messages';
 import { walletIframeRequestIdFromBoundary } from '@/core/types/walletIframeIdentity';
 import { parseWalletId } from '@shared/utils/domainIds';
@@ -44,6 +46,39 @@ const cancellation = buildHostedAuthMenuCancelPayload({
   reason: 'component_unmounted',
 });
 void cancellation;
+
+const measurement: WalletIframeSurfaceMeasurement = {
+  kind: 'measured_v1',
+  requestId,
+  sequence: 1,
+  widthCssPx: 320,
+  heightCssPx: 240,
+};
+void measurement;
+if (!parseWalletIframeSurfaceMeasurement(measurement)) {
+  throw new Error('Measurement fixture is invalid');
+}
+
+const authMeasurement: WalletIframeSurfaceMeasurement = {
+  kind: 'measured_auth_menu_v1',
+  requestId,
+  authMenuSessionId: sessionId,
+  sequence: 1,
+  widthCssPx: 320,
+  heightCssPx: 240,
+};
+void authMeasurement;
+
+// @ts-expect-error Generic measurements cannot carry an auth-menu session identity.
+const genericMeasurementWithSession: WalletIframeSurfaceMeasurement = {
+  kind: 'measured_v1',
+  requestId,
+  authMenuSessionId: sessionId,
+  sequence: 1,
+  widthCssPx: 320,
+  heightCssPx: 240,
+};
+void genericMeasurementWithSession;
 
 // @ts-expect-error Auth-menu control payloads require the original PM_OPEN request identity.
 buildHostedAuthMenuCancelPayload({

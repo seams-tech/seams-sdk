@@ -29,6 +29,7 @@ import type {
   WebAuthnRegistrationConfirmationSurface,
 } from './ports';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
+import type { UiConfirmSurfaceMeasurementBinding } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { AppearanceConfig, SeamsConfigsReadonly } from '@/core/types/seams';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 
@@ -119,6 +120,7 @@ export interface SeamsWebSigningSurface
   readonly seamsWebConfigs: SeamsConfigsReadonly;
   dispose(): void;
   setAppearance(appearance: AppearanceConfig): void;
+  setWalletIframeSurfaceMeasurementBinding(binding: UiConfirmSurfaceMeasurementBinding): void;
   getUserPreferences(): UserPreferencesManager;
 }
 

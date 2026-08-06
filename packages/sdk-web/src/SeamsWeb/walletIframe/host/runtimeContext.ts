@@ -4,6 +4,7 @@ import type {
   ParentToChildType,
   PreferencesChangedPayload,
   ProgressPayload,
+  WalletIframeSurfaceMeasurement,
 } from '../shared/messages';
 import { SeamsWeb } from '@/SeamsWeb';
 import type { SeamsConfigsInput } from '@/core/types/seams';
@@ -18,6 +19,11 @@ import {
 } from './context';
 import type { HandlerDeps, HandlerMap } from './handlers/walletIframeHandler.types';
 import type { SdkLifecycleEvent } from '@/core/types/sdkSentEvents';
+import {
+  walletIframeRequestIdFromBoundary,
+  type WalletIframeRequestId,
+} from '@/core/types/walletIframeIdentity';
+import type { UiConfirmSurfaceMeasurementBinding } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 
 export type WalletHostRuntimeState = {
   parentOrigin: string | null;
@@ -39,6 +45,78 @@ type HandlerFactory = (deps: HandlerDeps) => HandlerMap;
 let runtimeContext: HostContext | null = null;
 const handlerMaps = new Map<HandlerFactory, HandlerMap>();
 let litMounterInstalled = false;
+
+const FOREGROUND_CONFIRMATION_REQUEST_TYPES: ReadonlySet<ParentToChildType> = new Set([
+  'PM_REGISTER_WALLET',
+  'PM_ADD_WALLET_SIGNER',
+  'PM_SIGN_TX_WITH_ACTIONS',
+  'PM_SIGN_AND_SEND_TX',
+  'PM_EXECUTE_ACTION',
+  'PM_SIGN_DELEGATE_ACTION',
+  'PM_SIGN_NEP413',
+  'PM_UNLOCK',
+  'PM_SIGN_TEMPO',
+  'PM_ENROLL_EMAIL_OTP',
+  'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
+  'PM_SHOW_EMAIL_OTP_RECOVERY_CODES',
+  'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES',
+  'PM_SET_RECOVERY_EMAILS',
+  'PM_SYNC_ACCOUNT_FLOW',
+  'PM_EXPORT_KEYPAIR_UI',
+  'PM_DELETE_DEVICE_KEY',
+  'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA',
+  'PM_START_DEVICE2_LINKING_FLOW',
+]);
+
+function postSurfaceMeasurement(
+  input: WalletHostRuntimeRequest,
+  measurement: WalletIframeSurfaceMeasurement,
+): void {
+  input.post({ type: 'SURFACE_MEASUREMENT', payload: measurement });
+}
+
+function surfaceMeasurementBindingForRequest(
+  input: WalletHostRuntimeRequest,
+): { requestId: WalletIframeRequestId; binding: UiConfirmSurfaceMeasurementBinding } | null {
+  let requestId: WalletIframeRequestId;
+  try {
+    requestId = walletIframeRequestIdFromBoundary(input.req.requestId);
+  } catch {
+    return null;
+  }
+  return {
+    requestId,
+    binding: {
+      kind: 'wallet_iframe',
+      requestId,
+      postMeasurement: postSurfaceMeasurement.bind(null, input),
+    },
+  };
+}
+
+function isForegroundConfirmationRequest(input: WalletHostRuntimeRequest): boolean {
+  return FOREGROUND_CONFIRMATION_REQUEST_TYPES.has(input.req.type);
+}
+
+function clearSurfaceMeasurementBindingForRequest(
+  ctx: HostContext,
+  requestId: WalletIframeRequestId,
+): void {
+  const binding = ctx.surfaceMeasurementBinding;
+  if (binding.kind !== 'wallet_iframe' || binding.requestId !== requestId) return;
+  ctx.surfaceMeasurementBinding = { kind: 'disabled' };
+  ctx.seamsWeb?.setWalletIframeSurfaceMeasurementBinding({ kind: 'disabled' });
+}
+
+function assertForegroundSurfaceBindingAvailable(
+  ctx: HostContext,
+  requestId: WalletIframeRequestId,
+): void {
+  const binding = ctx.surfaceMeasurementBinding;
+  if (binding.kind === 'wallet_iframe' && binding.requestId !== requestId) {
+    throw new Error('A foreground confirmation surface is already active');
+  }
+}
 
 function syncRuntimeContext(state: WalletHostRuntimeState): HostContext {
   if (!runtimeContext) {
@@ -138,19 +216,33 @@ export async function handleWalletHostRuntimeRequestWithHandlers(
   createHandlers: HandlerFactory,
 ): Promise<void> {
   const ctx = syncRuntimeContext(input.state);
+  const foregroundBinding = isForegroundConfirmationRequest(input)
+    ? surfaceMeasurementBindingForRequest(input)
+    : null;
+  if (foregroundBinding) {
+    assertForegroundSurfaceBindingAvailable(ctx, foregroundBinding.requestId);
+    ctx.surfaceMeasurementBinding = foregroundBinding.binding;
+    ensureSeamsWeb(ctx).setWalletIframeSurfaceMeasurementBinding(foregroundBinding.binding);
+  }
   installLitMounterOnce(ctx, input);
 
-  let handlers = handlerMaps.get(createHandlers);
-  if (!handlers) {
-    handlers = createHandlers(buildHandlerDeps(ctx, input));
-    handlerMaps.set(createHandlers, handlers);
-  }
+  try {
+    let handlers = handlerMaps.get(createHandlers);
+    if (!handlers) {
+      handlers = createHandlers(buildHandlerDeps(ctx, input));
+      handlerMaps.set(createHandlers, handlers);
+    }
 
-  const handler = handlers[input.req.type as ParentToChildType] as unknown as
-    | ((r: ParentToChildEnvelope) => Promise<void>)
-    | undefined;
-  if (!handler) {
-    throw new Error(`Unsupported wallet iframe request type: ${input.req.type}`);
+    const handler = handlers[input.req.type as ParentToChildType] as unknown as
+      | ((r: ParentToChildEnvelope) => Promise<void>)
+      | undefined;
+    if (!handler) {
+      throw new Error(`Unsupported wallet iframe request type: ${input.req.type}`);
+    }
+    await handler(input.req);
+  } finally {
+    if (foregroundBinding) {
+      clearSurfaceMeasurementBindingForRequest(ctx, foregroundBinding.requestId);
+    }
   }
-  await handler(input.req);
 }
