@@ -719,9 +719,11 @@ exist in production; wiping dev wallets was approved August 7, 2026.
 
 - [x] Amend this plan for single-seed custody, parallel derivation, and
       factor-kind envelopes (this revision).
-- [ ] Replace Email OTP's chained derivations with parallel domain-separated
+- [x] Replace Email OTP's chained derivations with parallel domain-separated
       derivation from `secret32`; delete the chained paths and their v1
-      labels.
+      labels (`wasm/email_otp_runtime`, labels
+      `seams/email-otp/ecdsa-client-share/v2` and
+      `seams/email-otp/unlock-auth/v2`).
 - [ ] Collapse the custody-secret union's two owner root branches into one
       `wallet_custody_seed_v1` branch; lane holder-share branches unchanged.
 - [ ] Add the factor-kind union (`passkey` | `email_otp`) to the custody
