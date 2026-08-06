@@ -1223,7 +1223,7 @@ abort collection suite-wide, and one bad import takes the whole suite with it:
 | `listThresholdEcdsaRuntimeLanesForWallet` | `evmFamilyEcdsaIdentity`, `ecdsaExportEphemeralIsolation`, `walletRegistrationEcdsaRouterAbBootstrap` |
 | `getThresholdEcdsaKeyRefByKey` | `evmFamilyEcdsaIdentity` |
 | `consumeSingleUseEmailOtpEcdsaLane` | `signingPostSignPolicy`, `thresholdEcdsaEmailOtpConsumption` |
-| `clearThresholdEcdsaSessionRecordForExactIdentity` | `refactor92.invalidationIdempotency`, `signingSessionReadiness.clearGrant` |
+| `clearThresholdEcdsaSessionRecordForExactIdentity` | `walletSessionExpiry.invalidationIdempotency`, `signingSessionReadiness.clearGrant` |
 | `commitEmailOtpEcdsaLaneFromRecordForMaterial` | `emailOtpWalletSessionCoordinator` |
 | `isSigningSessionAuthUnavailableError` | `thresholdSigningSessionReadiness` |
 | `ROUTER_AB_ECDSA_DERIVATION_EXPORT_SHARE_PATH` | `router.routeDefinitions` |

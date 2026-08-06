@@ -19,9 +19,7 @@ const WALLET_ID = toWalletId('refactor-92-invalidation-wallet');
 const LANE = buildEd25519PasskeySigningLane({
   walletId: WALLET_ID,
   nearAccountId: toAccountId('refactor-92.testnet'),
-  nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
-    'refactor-92-invalidation-key',
-  ),
+  nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString('refactor-92-invalidation-key'),
   signerSlot: 1,
   auth: {
     kind: SIGNER_AUTH_METHODS.passkey,
@@ -30,9 +28,7 @@ const LANE = buildEd25519PasskeySigningLane({
   },
   walletSessionId: fixtureWalletSessionId('refactor-92-invalidation-wallet-session'),
   quotaId: fixtureQuotaId('refactor-92-invalidation-quota'),
-  thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
-    'refactor-92-invalidation-session',
-  ),
+  thresholdSessionId: SigningSessionIds.thresholdEd25519Session('refactor-92-invalidation-session'),
   storageSource: 'login',
 });
 

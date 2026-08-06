@@ -7,96 +7,123 @@ const IMPORT_PATHS = {
   signerSlot: '/_test-sdk/esm/core/signingEngine/webauthnAuth/device/signerSlot.js',
 } as const;
 
+/** Install one browser-side DB fixture so each scenario shares the same signer setup. */
+function installDeviceSelectionBrowserFixtures({ paths }: { paths: typeof IMPORT_PATHS }): void {
+  const globals = globalThis as typeof globalThis & {
+    __seamsDeviceSelectionFixtures?: {
+      createDb: (prefix?: string) => Promise<{
+        db: any;
+        activateSignerFixture: (input: any) => Promise<any>;
+        seedNearSigner: (input: {
+          nearAccountId: string;
+          signerSlot: number;
+          operationalPublicKey: string;
+          passkeyCredential: { id: string; rawId: string };
+          lastUpdated?: number;
+        }) => Promise<{ profileId: string; chainIdKey: string; accountAddress: string }>;
+      }>;
+    };
+  };
+  globals.__seamsDeviceSelectionFixtures = {
+    createDb: async (prefix = 'device_selection') => {
+      const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
+        await import(paths.unifiedDB);
+      const seamsWalletDB = new SeamsWalletDBManager();
+      seamsWalletDB.setDbName(createSeamsTestWalletDbName(`${prefix}_${crypto.randomUUID()}`));
+      const db = new UnifiedIndexedDBManager({ seamsWalletDB });
+      const activateSignerFixture = (input: any) => {
+        const signer: any = {
+          signerId: input.signerId,
+          signerType: input.signerType,
+          signerKind: input.signerKind,
+          signerAuthMethod: input.signerAuthMethod,
+          signerSource: input.signerSource,
+        };
+        if (input.signerKind === 'threshold-ed25519') {
+          signer.metadata = {
+            nearEd25519SigningKeyId:
+              input.nearEd25519SigningKeyId ||
+              `near-ed25519:${String(input.profileId || '')}:${String(input.signerSlot || '')}`,
+            ...(input.metadata || {}),
+          };
+        } else if (input.metadata) {
+          signer.metadata = input.metadata;
+        }
+        const request: any = {
+          account: {
+            profileId: input.profileId,
+            chainIdKey: input.chainIdKey,
+            accountAddress: input.accountAddress,
+            accountModel:
+              input.accountModel ||
+              (String(input.chainIdKey || '').startsWith('evm:')
+                ? 'threshold-ecdsa'
+                : 'near-native'),
+          },
+          signer,
+          activationPolicy: { mode: 'fail_if_occupied', signerSlot: input.signerSlot },
+        };
+        if (input.mutation) request.mutation = input.mutation;
+        return db.activateAccountSigner(request);
+      };
+      const seedNearSigner = async (input: {
+        nearAccountId: string;
+        signerSlot: number;
+        operationalPublicKey: string;
+        passkeyCredential: { id: string; rawId: string };
+        lastUpdated?: number;
+      }) => {
+        const accountAddress = String(input.nearAccountId || '')
+          .trim()
+          .toLowerCase();
+        const chainIdKey = accountAddress.endsWith('.testnet') ? 'near:testnet' : 'near:mainnet';
+        const profileId = `profile-near:${accountAddress}`;
+        await db.upsertProfile({
+          profileId,
+          defaultSignerSlot: input.signerSlot,
+          passkeyCredential: input.passkeyCredential,
+        });
+        await db.upsertChainAccount({
+          profileId,
+          chainIdKey,
+          accountAddress,
+          accountModel: 'near-native',
+          isPrimary: true,
+        });
+        await activateSignerFixture({
+          profileId,
+          chainIdKey,
+          accountAddress,
+          signerId: input.operationalPublicKey,
+          signerSlot: input.signerSlot,
+          signerType: 'threshold',
+          signerKind: 'threshold-ed25519',
+          signerAuthMethod: 'passkey',
+          signerSource: 'passkey_registration',
+          status: 'active',
+          mutation: { routeThroughOutbox: false },
+        });
+        return { profileId, chainIdKey, accountAddress };
+      };
+      return { db, activateSignerFixture, seedNearSigner };
+    },
+  };
+}
+
 test.describe('Seams wallet device selection', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page);
+    await page.evaluate(installDeviceSelectionBrowserFixtures, { paths: IMPORT_PATHS });
   });
 
   test('getLastLoggedInSignerSlot does not fall back to another account', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
-          await import(paths.unifiedDB);
         const { getLastLoggedInSignerSlot } = await import(paths.signerSlot);
 
-        const seamsWalletDB = new SeamsWalletDBManager();
-        seamsWalletDB.setDbName(
-          createSeamsTestWalletDbName(`device_selection_${crypto.randomUUID()}`),
-        );
-        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
-        const activateSignerFixture = (input: any) => {
-          const signer: any = {
-            signerId: input.signerId,
-            signerType: input.signerType,
-            signerKind: input.signerKind,
-            signerAuthMethod: input.signerAuthMethod,
-            signerSource: input.signerSource,
-          };
-          if (input.signerKind === 'threshold-ed25519') {
-            signer.metadata = {
-              nearEd25519SigningKeyId:
-                input.nearEd25519SigningKeyId ||
-                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
-              ...(input.metadata || {}),
-            };
-          } else if (input.metadata) {
-            signer.metadata = input.metadata;
-          }
-          const request: any = {
-            account: {
-              profileId: input.profileId,
-              chainIdKey: input.chainIdKey,
-              accountAddress: input.accountAddress,
-              accountModel:
-                input.accountModel ||
-                (String(input.chainIdKey || '').startsWith('evm:')
-                  ? 'threshold-ecdsa'
-                  : 'near-native'),
-            },
-            signer,
-            activationPolicy: { mode: 'fail_if_occupied', signerSlot: input.signerSlot },
-          };
-          if (input.mutation) request.mutation = input.mutation;
-          return db.activateAccountSigner(request);
-        };
-        const seedNearSigner = async (input: {
-          nearAccountId: string;
-          signerSlot: number;
-          operationalPublicKey: string;
-          passkeyCredential: { id: string; rawId: string };
-        }) => {
-          const accountAddress = String(input.nearAccountId || '')
-            .trim()
-            .toLowerCase();
-          const chainIdKey = accountAddress.endsWith('.testnet') ? 'near:testnet' : 'near:mainnet';
-          const profileId = `profile-near:${accountAddress}`;
-          await db.upsertProfile({
-            profileId,
-            defaultSignerSlot: input.signerSlot,
-            passkeyCredential: input.passkeyCredential,
-          });
-          await db.upsertChainAccount({
-            profileId,
-            chainIdKey,
-            accountAddress,
-            accountModel: 'near-native',
-            isPrimary: true,
-          });
-          await activateSignerFixture({
-            profileId,
-            chainIdKey,
-            accountAddress,
-            signerId: input.operationalPublicKey,
-            signerSlot: input.signerSlot,
-            signerType: 'threshold',
-            signerKind: 'threshold-ed25519',
-            signerAuthMethod: 'passkey',
-            signerSource: 'passkey_registration',
-            status: 'active',
-            mutation: { routeThroughOutbox: false },
-          });
-          return { profileId, chainIdKey, accountAddress };
-        };
+        const { db, seedNearSigner } = await (
+          globalThis as any
+        ).__seamsDeviceSelectionFixtures!.createDb();
         // Store a different account in DB (this will set lastUser to bob)
         await seedNearSigner({
           nearAccountId: 'bob.testnet',
@@ -132,87 +159,9 @@ test.describe('Seams wallet device selection', () => {
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
-          await import(paths.unifiedDB);
-
-        const seamsWalletDB = new SeamsWalletDBManager();
-        seamsWalletDB.setDbName(
-          createSeamsTestWalletDbName(`device_selection_${crypto.randomUUID()}`),
-        );
-        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
-        const activateSignerFixture = (input: any) => {
-          const signer: any = {
-            signerId: input.signerId,
-            signerType: input.signerType,
-            signerKind: input.signerKind,
-            signerAuthMethod: input.signerAuthMethod,
-            signerSource: input.signerSource,
-          };
-          if (input.signerKind === 'threshold-ed25519') {
-            signer.metadata = {
-              nearEd25519SigningKeyId:
-                input.nearEd25519SigningKeyId ||
-                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
-              ...(input.metadata || {}),
-            };
-          } else if (input.metadata) {
-            signer.metadata = input.metadata;
-          }
-          const request: any = {
-            account: {
-              profileId: input.profileId,
-              chainIdKey: input.chainIdKey,
-              accountAddress: input.accountAddress,
-              accountModel:
-                input.accountModel ||
-                (String(input.chainIdKey || '').startsWith('evm:')
-                  ? 'threshold-ecdsa'
-                  : 'near-native'),
-            },
-            signer,
-            activationPolicy: { mode: 'fail_if_occupied', signerSlot: input.signerSlot },
-          };
-          if (input.mutation) request.mutation = input.mutation;
-          return db.activateAccountSigner(request);
-        };
-        const seedNearSigner = async (input: {
-          nearAccountId: string;
-          signerSlot: number;
-          operationalPublicKey: string;
-          passkeyCredential: { id: string; rawId: string };
-        }) => {
-          const accountAddress = String(input.nearAccountId || '')
-            .trim()
-            .toLowerCase();
-          const chainIdKey = accountAddress.endsWith('.testnet') ? 'near:testnet' : 'near:mainnet';
-          const profileId = `profile-near:${accountAddress}`;
-          await db.upsertProfile({
-            profileId,
-            defaultSignerSlot: input.signerSlot,
-            passkeyCredential: input.passkeyCredential,
-          });
-          await db.upsertChainAccount({
-            profileId,
-            chainIdKey,
-            accountAddress,
-            accountModel: 'near-native',
-            isPrimary: true,
-          });
-          await activateSignerFixture({
-            profileId,
-            chainIdKey,
-            accountAddress,
-            signerId: input.operationalPublicKey,
-            signerSlot: input.signerSlot,
-            signerType: 'threshold',
-            signerKind: 'threshold-ed25519',
-            signerAuthMethod: 'passkey',
-            signerSource: 'passkey_registration',
-            status: 'active',
-            mutation: { routeThroughOutbox: false },
-          });
-          return { profileId, chainIdKey, accountAddress };
-        };
+        const { db, seedNearSigner } = await (
+          globalThis as any
+        ).__seamsDeviceSelectionFixtures!.createDb();
         // Store user records for both devices
         const context = await seedNearSigner({
           nearAccountId: 'carol.testnet',
@@ -280,89 +229,11 @@ test.describe('Seams wallet device selection', () => {
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
-          await import(paths.unifiedDB);
         const { getLastLoggedInSignerSlot } = await import(paths.signerSlot);
 
-        const seamsWalletDB = new SeamsWalletDBManager();
-        seamsWalletDB.setDbName(
-          createSeamsTestWalletDbName(`device_selection_${crypto.randomUUID()}`),
-        );
-        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
-        const activateSignerFixture = (input: any) => {
-          const signer: any = {
-            signerId: input.signerId,
-            signerType: input.signerType,
-            signerKind: input.signerKind,
-            signerAuthMethod: input.signerAuthMethod,
-            signerSource: input.signerSource,
-          };
-          if (input.signerKind === 'threshold-ed25519') {
-            signer.metadata = {
-              nearEd25519SigningKeyId:
-                input.nearEd25519SigningKeyId ||
-                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
-              ...(input.metadata || {}),
-            };
-          } else if (input.metadata) {
-            signer.metadata = input.metadata;
-          }
-          const request: any = {
-            account: {
-              profileId: input.profileId,
-              chainIdKey: input.chainIdKey,
-              accountAddress: input.accountAddress,
-              accountModel:
-                input.accountModel ||
-                (String(input.chainIdKey || '').startsWith('evm:')
-                  ? 'threshold-ecdsa'
-                  : 'near-native'),
-            },
-            signer,
-            activationPolicy: { mode: 'fail_if_occupied', signerSlot: input.signerSlot },
-          };
-          if (input.mutation) request.mutation = input.mutation;
-          return db.activateAccountSigner(request);
-        };
-        const seedNearSigner = async (input: {
-          nearAccountId: string;
-          signerSlot: number;
-          operationalPublicKey: string;
-          passkeyCredential: { id: string; rawId: string };
-          lastUpdated?: number;
-        }) => {
-          const accountAddress = String(input.nearAccountId || '')
-            .trim()
-            .toLowerCase();
-          const chainIdKey = accountAddress.endsWith('.testnet') ? 'near:testnet' : 'near:mainnet';
-          const profileId = `profile-near:${accountAddress}`;
-          await db.upsertProfile({
-            profileId,
-            defaultSignerSlot: input.signerSlot,
-            passkeyCredential: input.passkeyCredential,
-          });
-          await db.upsertChainAccount({
-            profileId,
-            chainIdKey,
-            accountAddress,
-            accountModel: 'near-native',
-            isPrimary: true,
-          });
-          await activateSignerFixture({
-            profileId,
-            chainIdKey,
-            accountAddress,
-            signerId: input.operationalPublicKey,
-            signerSlot: input.signerSlot,
-            signerType: 'threshold',
-            signerKind: 'threshold-ed25519',
-            signerAuthMethod: 'passkey',
-            signerSource: 'passkey_registration',
-            status: 'active',
-            mutation: { routeThroughOutbox: false },
-          });
-          return { profileId, chainIdKey, accountAddress };
-        };
+        const { db, seedNearSigner } = await (
+          globalThis as any
+        ).__seamsDeviceSelectionFixtures!.createDb();
         const getLastSelectedNearProjection = async () => {
           const lastProfileState = await db.getLastProfileState().catch(() => null);
           if (!lastProfileState?.profileId) return null;
@@ -449,89 +320,11 @@ test.describe('Seams wallet device selection', () => {
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
-          await import(paths.unifiedDB);
-
-        const seamsWalletDB = new SeamsWalletDBManager();
-        seamsWalletDB.setDbName(
-          createSeamsTestWalletDbName(`device_selection_${crypto.randomUUID()}`),
-        );
-        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
-        const activateSignerFixture = (input: any) => {
-          const signer: any = {
-            signerId: input.signerId,
-            signerType: input.signerType,
-            signerKind: input.signerKind,
-            signerAuthMethod: input.signerAuthMethod,
-            signerSource: input.signerSource,
-          };
-          if (input.signerKind === 'threshold-ed25519') {
-            signer.metadata = {
-              nearEd25519SigningKeyId:
-                input.nearEd25519SigningKeyId ||
-                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
-              ...(input.metadata || {}),
-            };
-          } else if (input.metadata) {
-            signer.metadata = input.metadata;
-          }
-          const request: any = {
-            account: {
-              profileId: input.profileId,
-              chainIdKey: input.chainIdKey,
-              accountAddress: input.accountAddress,
-              accountModel:
-                input.accountModel ||
-                (String(input.chainIdKey || '').startsWith('evm:')
-                  ? 'threshold-ecdsa'
-                  : 'near-native'),
-            },
-            signer,
-            activationPolicy: { mode: 'fail_if_occupied', signerSlot: input.signerSlot },
-          };
-          if (input.mutation) request.mutation = input.mutation;
-          return db.activateAccountSigner(request);
-        };
+        const { db, seedNearSigner } = await (
+          globalThis as any
+        ).__seamsDeviceSelectionFixtures!.createDb();
         const originA = 'https://app-a.example';
         const originB = 'https://app-b.example';
-        const seedNearSigner = async (input: {
-          nearAccountId: string;
-          signerSlot: number;
-          operationalPublicKey: string;
-          passkeyCredential: { id: string; rawId: string };
-        }) => {
-          const accountAddress = String(input.nearAccountId || '')
-            .trim()
-            .toLowerCase();
-          const chainIdKey = accountAddress.endsWith('.testnet') ? 'near:testnet' : 'near:mainnet';
-          const profileId = `profile-near:${accountAddress}`;
-          await db.upsertProfile({
-            profileId,
-            defaultSignerSlot: input.signerSlot,
-            passkeyCredential: input.passkeyCredential,
-          });
-          await db.upsertChainAccount({
-            profileId,
-            chainIdKey,
-            accountAddress,
-            accountModel: 'near-native',
-            isPrimary: true,
-          });
-          await activateSignerFixture({
-            profileId,
-            chainIdKey,
-            accountAddress,
-            signerId: input.operationalPublicKey,
-            signerSlot: input.signerSlot,
-            signerType: 'threshold',
-            signerKind: 'threshold-ed25519',
-            signerAuthMethod: 'passkey',
-            signerSource: 'passkey_registration',
-            status: 'active',
-            mutation: { routeThroughOutbox: false },
-          });
-          return { profileId };
-        };
         const getLastSelectedNearProjection = async () => {
           const lastProfileState = await db.getLastProfileState().catch(() => null);
           if (!lastProfileState?.profileId) return null;
@@ -590,87 +383,9 @@ test.describe('Seams wallet device selection', () => {
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
-          await import(paths.unifiedDB);
-
-        const seamsWalletDB = new SeamsWalletDBManager();
-        seamsWalletDB.setDbName(
-          createSeamsTestWalletDbName(`device_selection_${crypto.randomUUID()}`),
-        );
-        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
-        const activateSignerFixture = (input: any) => {
-          const signer: any = {
-            signerId: input.signerId,
-            signerType: input.signerType,
-            signerKind: input.signerKind,
-            signerAuthMethod: input.signerAuthMethod,
-            signerSource: input.signerSource,
-          };
-          if (input.signerKind === 'threshold-ed25519') {
-            signer.metadata = {
-              nearEd25519SigningKeyId:
-                input.nearEd25519SigningKeyId ||
-                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
-              ...(input.metadata || {}),
-            };
-          } else if (input.metadata) {
-            signer.metadata = input.metadata;
-          }
-          const request: any = {
-            account: {
-              profileId: input.profileId,
-              chainIdKey: input.chainIdKey,
-              accountAddress: input.accountAddress,
-              accountModel:
-                input.accountModel ||
-                (String(input.chainIdKey || '').startsWith('evm:')
-                  ? 'threshold-ecdsa'
-                  : 'near-native'),
-            },
-            signer,
-            activationPolicy: { mode: 'fail_if_occupied', signerSlot: input.signerSlot },
-          };
-          if (input.mutation) request.mutation = input.mutation;
-          return db.activateAccountSigner(request);
-        };
-        const seedNearSigner = async (input: {
-          nearAccountId: string;
-          signerSlot: number;
-          operationalPublicKey: string;
-          passkeyCredential: { id: string; rawId: string };
-        }) => {
-          const accountAddress = String(input.nearAccountId || '')
-            .trim()
-            .toLowerCase();
-          const chainIdKey = accountAddress.endsWith('.testnet') ? 'near:testnet' : 'near:mainnet';
-          const profileId = `profile-near:${accountAddress}`;
-          await db.upsertProfile({
-            profileId,
-            defaultSignerSlot: input.signerSlot,
-            passkeyCredential: input.passkeyCredential,
-          });
-          await db.upsertChainAccount({
-            profileId,
-            chainIdKey,
-            accountAddress,
-            accountModel: 'near-native',
-            isPrimary: true,
-          });
-          await activateSignerFixture({
-            profileId,
-            chainIdKey,
-            accountAddress,
-            signerId: input.operationalPublicKey,
-            signerSlot: input.signerSlot,
-            signerType: 'threshold',
-            signerKind: 'threshold-ed25519',
-            signerAuthMethod: 'passkey',
-            signerSource: 'passkey_registration',
-            status: 'active',
-            mutation: { routeThroughOutbox: false },
-          });
-          return { profileId };
-        };
+        const { db, seedNearSigner } = await (
+          globalThis as any
+        ).__seamsDeviceSelectionFixtures!.createDb();
         const getLastSelectedNearProjection = async () => {
           const lastProfileState = await db.getLastProfileState().catch(() => null);
           if (!lastProfileState?.profileId) return null;
@@ -709,49 +424,9 @@ test.describe('Seams wallet device selection', () => {
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
-          await import(paths.unifiedDB);
-
-        const seamsWalletDB = new SeamsWalletDBManager();
-        seamsWalletDB.setDbName(
-          createSeamsTestWalletDbName(`device_selection_${crypto.randomUUID()}`),
-        );
-        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
-        const activateSignerFixture = (input: any) => {
-          const signer: any = {
-            signerId: input.signerId,
-            signerType: input.signerType,
-            signerKind: input.signerKind,
-            signerAuthMethod: input.signerAuthMethod,
-            signerSource: input.signerSource,
-          };
-          if (input.signerKind === 'threshold-ed25519') {
-            signer.metadata = {
-              nearEd25519SigningKeyId:
-                input.nearEd25519SigningKeyId ||
-                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
-              ...(input.metadata || {}),
-            };
-          } else if (input.metadata) {
-            signer.metadata = input.metadata;
-          }
-          const request: any = {
-            account: {
-              profileId: input.profileId,
-              chainIdKey: input.chainIdKey,
-              accountAddress: input.accountAddress,
-              accountModel:
-                input.accountModel ||
-                (String(input.chainIdKey || '').startsWith('evm:')
-                  ? 'threshold-ecdsa'
-                  : 'near-native'),
-            },
-            signer,
-            activationPolicy: { mode: 'fail_if_occupied', signerSlot: input.signerSlot },
-          };
-          if (input.mutation) request.mutation = input.mutation;
-          return db.activateAccountSigner(request);
-        };
+        const { db, activateSignerFixture } = await (
+          globalThis as any
+        ).__seamsDeviceSelectionFixtures!.createDb();
         const profileId = 'profile-near:slot-replace.testnet';
         const chainIdKey = 'near:testnet';
         const accountAddress = 'slot-replace.testnet';
@@ -876,49 +551,9 @@ test.describe('Seams wallet device selection', () => {
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
-          await import(paths.unifiedDB);
-
-        const seamsWalletDB = new SeamsWalletDBManager();
-        seamsWalletDB.setDbName(
-          createSeamsTestWalletDbName(`device_selection_${crypto.randomUUID()}`),
-        );
-        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
-        const activateSignerFixture = (input: any) => {
-          const signer: any = {
-            signerId: input.signerId,
-            signerType: input.signerType,
-            signerKind: input.signerKind,
-            signerAuthMethod: input.signerAuthMethod,
-            signerSource: input.signerSource,
-          };
-          if (input.signerKind === 'threshold-ed25519') {
-            signer.metadata = {
-              nearEd25519SigningKeyId:
-                input.nearEd25519SigningKeyId ||
-                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
-              ...(input.metadata || {}),
-            };
-          } else if (input.metadata) {
-            signer.metadata = input.metadata;
-          }
-          const request: any = {
-            account: {
-              profileId: input.profileId,
-              chainIdKey: input.chainIdKey,
-              accountAddress: input.accountAddress,
-              accountModel:
-                input.accountModel ||
-                (String(input.chainIdKey || '').startsWith('evm:')
-                  ? 'threshold-ecdsa'
-                  : 'near-native'),
-            },
-            signer,
-            activationPolicy: { mode: 'fail_if_occupied', signerSlot: input.signerSlot },
-          };
-          if (input.mutation) request.mutation = input.mutation;
-          return db.activateAccountSigner(request);
-        };
+        const { db, activateSignerFixture } = await (
+          globalThis as any
+        ).__seamsDeviceSelectionFixtures!.createDb();
         const profileId = 'profile-near:slot-preserve.testnet';
         const chainIdKey = 'near:testnet';
         const accountAddress = 'slot-preserve.testnet';
@@ -1020,14 +655,7 @@ test.describe('Seams wallet device selection', () => {
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
-          await import(paths.unifiedDB);
-
-        const seamsWalletDB = new SeamsWalletDBManager();
-        seamsWalletDB.setDbName(
-          createSeamsTestWalletDbName(`ecdsa-recovery-replacement-${crypto.randomUUID()}`),
-        );
-        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
+        const { db } = await (globalThis as any).__seamsDeviceSelectionFixtures!.createDb();
         const profileId = 'wallet-recovery-ecdsa';
         const chainIdKey = 'evm:eip155:5042002';
         const chainTarget = {
@@ -1174,49 +802,9 @@ test.describe('Seams wallet device selection', () => {
   test('activateAccountSigner can defer active slot cutover', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
-          await import(paths.unifiedDB);
-
-        const seamsWalletDB = new SeamsWalletDBManager();
-        seamsWalletDB.setDbName(
-          createSeamsTestWalletDbName(`device_selection_${crypto.randomUUID()}`),
-        );
-        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
-        const activateSignerFixture = (input: any) => {
-          const signer: any = {
-            signerId: input.signerId,
-            signerType: input.signerType,
-            signerKind: input.signerKind,
-            signerAuthMethod: input.signerAuthMethod,
-            signerSource: input.signerSource,
-          };
-          if (input.signerKind === 'threshold-ed25519') {
-            signer.metadata = {
-              nearEd25519SigningKeyId:
-                input.nearEd25519SigningKeyId ||
-                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
-              ...(input.metadata || {}),
-            };
-          } else if (input.metadata) {
-            signer.metadata = input.metadata;
-          }
-          const request: any = {
-            account: {
-              profileId: input.profileId,
-              chainIdKey: input.chainIdKey,
-              accountAddress: input.accountAddress,
-              accountModel:
-                input.accountModel ||
-                (String(input.chainIdKey || '').startsWith('evm:')
-                  ? 'threshold-ecdsa'
-                  : 'near-native'),
-            },
-            signer,
-            activationPolicy: { mode: 'fail_if_occupied', signerSlot: input.signerSlot },
-          };
-          if (input.mutation) request.mutation = input.mutation;
-          return db.activateAccountSigner(request);
-        };
+        const { db, activateSignerFixture } = await (
+          globalThis as any
+        ).__seamsDeviceSelectionFixtures!.createDb();
         const profileId = 'profile-near:slot-cutover.testnet';
         const chainIdKey = 'near:testnet';
         const accountAddress = 'slot-cutover.testnet';
@@ -1307,49 +895,7 @@ test.describe('Seams wallet device selection', () => {
   test('activateAccountSigner same-signer retry is idempotent', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
-          await import(paths.unifiedDB);
-
-        const seamsWalletDB = new SeamsWalletDBManager();
-        seamsWalletDB.setDbName(
-          createSeamsTestWalletDbName(`device_selection_${crypto.randomUUID()}`),
-        );
-        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
-        const activateSignerFixture = (input: any) => {
-          const signer: any = {
-            signerId: input.signerId,
-            signerType: input.signerType,
-            signerKind: input.signerKind,
-            signerAuthMethod: input.signerAuthMethod,
-            signerSource: input.signerSource,
-          };
-          if (input.signerKind === 'threshold-ed25519') {
-            signer.metadata = {
-              nearEd25519SigningKeyId:
-                input.nearEd25519SigningKeyId ||
-                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
-              ...(input.metadata || {}),
-            };
-          } else if (input.metadata) {
-            signer.metadata = input.metadata;
-          }
-          const request: any = {
-            account: {
-              profileId: input.profileId,
-              chainIdKey: input.chainIdKey,
-              accountAddress: input.accountAddress,
-              accountModel:
-                input.accountModel ||
-                (String(input.chainIdKey || '').startsWith('evm:')
-                  ? 'threshold-ecdsa'
-                  : 'near-native'),
-            },
-            signer,
-            activationPolicy: { mode: 'fail_if_occupied', signerSlot: input.signerSlot },
-          };
-          if (input.mutation) request.mutation = input.mutation;
-          return db.activateAccountSigner(request);
-        };
+        const { db } = await (globalThis as any).__seamsDeviceSelectionFixtures!.createDb();
         const profileId = 'profile-near:slot-idempotent.testnet';
         const chainIdKey = 'near:testnet';
         const accountAddress = 'slot-idempotent.testnet';
@@ -1431,49 +977,7 @@ test.describe('Seams wallet device selection', () => {
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
-          await import(paths.unifiedDB);
-
-        const seamsWalletDB = new SeamsWalletDBManager();
-        seamsWalletDB.setDbName(
-          createSeamsTestWalletDbName(`device_selection_${crypto.randomUUID()}`),
-        );
-        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
-        const activateSignerFixture = (input: any) => {
-          const signer: any = {
-            signerId: input.signerId,
-            signerType: input.signerType,
-            signerKind: input.signerKind,
-            signerAuthMethod: input.signerAuthMethod,
-            signerSource: input.signerSource,
-          };
-          if (input.signerKind === 'threshold-ed25519') {
-            signer.metadata = {
-              nearEd25519SigningKeyId:
-                input.nearEd25519SigningKeyId ||
-                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
-              ...(input.metadata || {}),
-            };
-          } else if (input.metadata) {
-            signer.metadata = input.metadata;
-          }
-          const request: any = {
-            account: {
-              profileId: input.profileId,
-              chainIdKey: input.chainIdKey,
-              accountAddress: input.accountAddress,
-              accountModel:
-                input.accountModel ||
-                (String(input.chainIdKey || '').startsWith('evm:')
-                  ? 'threshold-ecdsa'
-                  : 'near-native'),
-            },
-            signer,
-            activationPolicy: { mode: 'fail_if_occupied', signerSlot: input.signerSlot },
-          };
-          if (input.mutation) request.mutation = input.mutation;
-          return db.activateAccountSigner(request);
-        };
+        const { db } = await (globalThis as any).__seamsDeviceSelectionFixtures!.createDb();
         const profileId = 'profile-near:slot-material-mismatch.testnet';
         const chainIdKey = 'near:testnet';
         const accountAddress = 'slot-material-mismatch.testnet';
@@ -1571,51 +1075,11 @@ test.describe('Seams wallet device selection', () => {
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
-          await import(paths.unifiedDB);
         const { getNearThresholdKeyMaterial, storeNearThresholdKeyMaterial } = await import(
           paths.nearKeyMaterial
         );
 
-        const suffix = crypto.randomUUID();
-        const seamsWalletDB = new SeamsWalletDBManager();
-        seamsWalletDB.setDbName(createSeamsTestWalletDbName(`partial-activation-${suffix}`));
-        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
-        const activateSignerFixture = (input: any) => {
-          const signer: any = {
-            signerId: input.signerId,
-            signerType: input.signerType,
-            signerKind: input.signerKind,
-            signerAuthMethod: input.signerAuthMethod,
-            signerSource: input.signerSource,
-          };
-          if (input.signerKind === 'threshold-ed25519') {
-            signer.metadata = {
-              nearEd25519SigningKeyId:
-                input.nearEd25519SigningKeyId ||
-                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
-              ...(input.metadata || {}),
-            };
-          } else if (input.metadata) {
-            signer.metadata = input.metadata;
-          }
-          const request: any = {
-            account: {
-              profileId: input.profileId,
-              chainIdKey: input.chainIdKey,
-              accountAddress: input.accountAddress,
-              accountModel:
-                input.accountModel ||
-                (String(input.chainIdKey || '').startsWith('evm:')
-                  ? 'threshold-ecdsa'
-                  : 'near-native'),
-            },
-            signer,
-            activationPolicy: { mode: 'fail_if_occupied', signerSlot: input.signerSlot },
-          };
-          if (input.mutation) request.mutation = input.mutation;
-          return db.activateAccountSigner(request);
-        };
+        const { db } = await (globalThis as any).__seamsDeviceSelectionFixtures!.createDb();
 
         const profileId = 'profile-near:partial-activation.testnet';
         const chainIdKey = 'near:testnet';
@@ -1730,51 +1194,11 @@ test.describe('Seams wallet device selection', () => {
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
-          await import(paths.unifiedDB);
         const { getNearThresholdKeyMaterial, storeNearThresholdKeyMaterial } = await import(
           paths.nearKeyMaterial
         );
 
-        const suffix = crypto.randomUUID();
-        const seamsWalletDB = new SeamsWalletDBManager();
-        seamsWalletDB.setDbName(createSeamsTestWalletDbName(`partial-session-${suffix}`));
-        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
-        const activateSignerFixture = (input: any) => {
-          const signer: any = {
-            signerId: input.signerId,
-            signerType: input.signerType,
-            signerKind: input.signerKind,
-            signerAuthMethod: input.signerAuthMethod,
-            signerSource: input.signerSource,
-          };
-          if (input.signerKind === 'threshold-ed25519') {
-            signer.metadata = {
-              nearEd25519SigningKeyId:
-                input.nearEd25519SigningKeyId ||
-                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
-              ...(input.metadata || {}),
-            };
-          } else if (input.metadata) {
-            signer.metadata = input.metadata;
-          }
-          const request: any = {
-            account: {
-              profileId: input.profileId,
-              chainIdKey: input.chainIdKey,
-              accountAddress: input.accountAddress,
-              accountModel:
-                input.accountModel ||
-                (String(input.chainIdKey || '').startsWith('evm:')
-                  ? 'threshold-ecdsa'
-                  : 'near-native'),
-            },
-            signer,
-            activationPolicy: { mode: 'fail_if_occupied', signerSlot: input.signerSlot },
-          };
-          if (input.mutation) request.mutation = input.mutation;
-          return db.activateAccountSigner(request);
-        };
+        const { db } = await (globalThis as any).__seamsDeviceSelectionFixtures!.createDb();
 
         const profileId = 'profile-near:partial-session.testnet';
         const chainIdKey = 'near:testnet';
@@ -1905,49 +1329,7 @@ test.describe('Seams wallet device selection', () => {
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
-          await import(paths.unifiedDB);
-
-        const seamsWalletDB = new SeamsWalletDBManager();
-        seamsWalletDB.setDbName(
-          createSeamsTestWalletDbName(`device_selection_${crypto.randomUUID()}`),
-        );
-        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
-        const activateSignerFixture = (input: any) => {
-          const signer: any = {
-            signerId: input.signerId,
-            signerType: input.signerType,
-            signerKind: input.signerKind,
-            signerAuthMethod: input.signerAuthMethod,
-            signerSource: input.signerSource,
-          };
-          if (input.signerKind === 'threshold-ed25519') {
-            signer.metadata = {
-              nearEd25519SigningKeyId:
-                input.nearEd25519SigningKeyId ||
-                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
-              ...(input.metadata || {}),
-            };
-          } else if (input.metadata) {
-            signer.metadata = input.metadata;
-          }
-          const request: any = {
-            account: {
-              profileId: input.profileId,
-              chainIdKey: input.chainIdKey,
-              accountAddress: input.accountAddress,
-              accountModel:
-                input.accountModel ||
-                (String(input.chainIdKey || '').startsWith('evm:')
-                  ? 'threshold-ecdsa'
-                  : 'near-native'),
-            },
-            signer,
-            activationPolicy: { mode: 'fail_if_occupied', signerSlot: input.signerSlot },
-          };
-          if (input.mutation) request.mutation = input.mutation;
-          return db.activateAccountSigner(request);
-        };
+        const { db } = await (globalThis as any).__seamsDeviceSelectionFixtures!.createDb();
         const profileId = 'profile-near:slot-stage.testnet';
         const chainIdKey = 'evm:eip155:8453';
         const accountAddress = '0x2222222222222222222222222222222222222222';
@@ -2038,49 +1420,9 @@ test.describe('Seams wallet device selection', () => {
   test('activateAccountSigner rejects active signers without signerKind', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
-          await import(paths.unifiedDB);
-
-        const seamsWalletDB = new SeamsWalletDBManager();
-        seamsWalletDB.setDbName(
-          createSeamsTestWalletDbName(`device_selection_${crypto.randomUUID()}`),
-        );
-        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
-        const activateSignerFixture = (input: any) => {
-          const signer: any = {
-            signerId: input.signerId,
-            signerType: input.signerType,
-            signerKind: input.signerKind,
-            signerAuthMethod: input.signerAuthMethod,
-            signerSource: input.signerSource,
-          };
-          if (input.signerKind === 'threshold-ed25519') {
-            signer.metadata = {
-              nearEd25519SigningKeyId:
-                input.nearEd25519SigningKeyId ||
-                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
-              ...(input.metadata || {}),
-            };
-          } else if (input.metadata) {
-            signer.metadata = input.metadata;
-          }
-          const request: any = {
-            account: {
-              profileId: input.profileId,
-              chainIdKey: input.chainIdKey,
-              accountAddress: input.accountAddress,
-              accountModel:
-                input.accountModel ||
-                (String(input.chainIdKey || '').startsWith('evm:')
-                  ? 'threshold-ecdsa'
-                  : 'near-native'),
-            },
-            signer,
-            activationPolicy: { mode: 'fail_if_occupied', signerSlot: input.signerSlot },
-          };
-          if (input.mutation) request.mutation = input.mutation;
-          return db.activateAccountSigner(request);
-        };
+        const { db, activateSignerFixture } = await (
+          globalThis as any
+        ).__seamsDeviceSelectionFixtures!.createDb();
         const profileId = 'profile-near:missing-kind.testnet';
         const chainIdKey = 'near:testnet';
         const accountAddress = 'missing-kind.testnet';
@@ -2131,49 +1473,9 @@ test.describe('Seams wallet device selection', () => {
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
-          await import(paths.unifiedDB);
-
-        const seamsWalletDB = new SeamsWalletDBManager();
-        seamsWalletDB.setDbName(
-          createSeamsTestWalletDbName(`device_selection_${crypto.randomUUID()}`),
-        );
-        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
-        const activateSignerFixture = (input: any) => {
-          const signer: any = {
-            signerId: input.signerId,
-            signerType: input.signerType,
-            signerKind: input.signerKind,
-            signerAuthMethod: input.signerAuthMethod,
-            signerSource: input.signerSource,
-          };
-          if (input.signerKind === 'threshold-ed25519') {
-            signer.metadata = {
-              nearEd25519SigningKeyId:
-                input.nearEd25519SigningKeyId ||
-                "near-ed25519:" + String(input.profileId || "") + ":" + String(input.signerSlot || ""),
-              ...(input.metadata || {}),
-            };
-          } else if (input.metadata) {
-            signer.metadata = input.metadata;
-          }
-          const request: any = {
-            account: {
-              profileId: input.profileId,
-              chainIdKey: input.chainIdKey,
-              accountAddress: input.accountAddress,
-              accountModel:
-                input.accountModel ||
-                (String(input.chainIdKey || '').startsWith('evm:')
-                  ? 'threshold-ecdsa'
-                  : 'near-native'),
-            },
-            signer,
-            activationPolicy: { mode: 'fail_if_occupied', signerSlot: input.signerSlot },
-          };
-          if (input.mutation) request.mutation = input.mutation;
-          return db.activateAccountSigner(request);
-        };
+        const { db, activateSignerFixture } = await (
+          globalThis as any
+        ).__seamsDeviceSelectionFixtures!.createDb();
         const profileId = 'profile-near:same-passkey.testnet';
         const chainIdKey = 'near:testnet';
         const accountAddress = 'same-passkey.testnet';

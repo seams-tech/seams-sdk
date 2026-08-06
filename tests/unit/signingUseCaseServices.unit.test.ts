@@ -18,7 +18,11 @@ import {
   type EcdsaRoleLocalReadyRecord,
 } from '@/core/platform';
 import type { AccountId } from '@/core/types/accountIds';
-import type { EvmAddress, EvmSigningRequest, Hex } from '@/core/signingEngine/chains/evm/evmSigning.types';
+import type {
+  EvmAddress,
+  EvmSigningRequest,
+  Hex,
+} from '@/core/signingEngine/chains/evm/evmSigning.types';
 import type {
   NearTransactionWithActionsPayload,
   NearTransactionWithActionsResult,

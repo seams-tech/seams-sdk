@@ -116,7 +116,8 @@ export function buildFixtureEd25519YaoRegistrationAdmissionReceipt(
 
 /** The deferred-NEAR arm respond returns for a mixed signer plan. */
 export function buildFixtureRespondEd25519DeferredWork(
-  overrides: Parameters<typeof buildFixtureEd25519YaoRegistrationAdmissionReceipt>[0] = {},
+  overrides: Parameters<typeof buildFixtureEd25519YaoRegistrationAdmissionRequest>[0] &
+    Parameters<typeof buildFixtureEd25519YaoRegistrationAdmissionReceipt>[0] = {},
 ): {
   status: 'deferred';
   admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;

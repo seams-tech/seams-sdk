@@ -33,16 +33,17 @@ update the factory once; tests override only the fields they exercise.
   `unit/helpers/cloudflareD1RouterApiAuthService.fixtures.ts`,
   `unit/helpers/warmSessionTestServices.fixtures.ts`,
   `unit/helpers/warmSessionUiConfirm.fixtures.ts`
-- `helpers/signingBudgetStatus.ts`
 - Cross-suite utilities: `helpers/routerAbSigningRuntimeTestUtils.ts`,
-  `helpers/thresholdEcdsaClientBootstrap.ts`, `helpers/emailOtpDerivation.ts`,
-  `helpers/sqliteD1.ts`
+  `helpers/emailOtpDerivation.ts`, `helpers/sqliteD1.ts`
 
 Rules:
 
 - Complex domain-state records (session, auth/capability, signing, persistence) come
   only from the factories — no inline `satisfies SomeRecord` / typed object literals for
   these. Simple value objects, request params, and small DTOs may stay inline.
+- Every new unit test file that builds complex domain state must import the relevant
+  factory from `unit/helpers/` or `helpers/`. A newly introduced inline fixture over
+  100 lines is a review defect and should be extracted before the test lands.
 - If no factory covers the type, add a branch-specific builder in `unit/helpers/`
   (prefer constructing through the production parser/builder — those cannot drift
   silently), then use it. Builders produce valid current-domain objects and expose only

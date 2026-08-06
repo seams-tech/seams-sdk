@@ -72,9 +72,7 @@ const NEAR_PASSKEY_LANE = buildEd25519PasskeySigningLane({
   auth: PASSKEY_AUTH,
   walletSessionId: SigningSessionIds.walletSession('refactor-92-near-passkey-session'),
   quotaId: SigningSessionIds.walletSessionQuota('refactor-92-near-passkey-quota'),
-  thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
-    'refactor-92-near-passkey-session',
-  ),
+  thresholdSessionId: SigningSessionIds.thresholdEd25519Session('refactor-92-near-passkey-session'),
   storageSource: 'login',
 });
 const NEAR_EMAIL_OTP_LANE = buildEd25519EmailOtpSigningLane({
@@ -85,9 +83,7 @@ const NEAR_EMAIL_OTP_LANE = buildEd25519EmailOtpSigningLane({
   auth: EMAIL_OTP_AUTH,
   walletSessionId: SigningSessionIds.walletSession('refactor-92-near-otp-session'),
   quotaId: SigningSessionIds.walletSessionQuota('refactor-92-near-otp-quota'),
-  thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
-    'refactor-92-near-otp-session',
-  ),
+  thresholdSessionId: SigningSessionIds.thresholdEd25519Session('refactor-92-near-otp-session'),
 });
 const ECDSA_MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
   'refactor-92-surface',
@@ -224,9 +220,7 @@ for (const reason of ['auth_unavailable', 'status_unavailable', 'status_unknown'
   });
 }
 
-function expiredReadiness(
-  lane: SelectedSigningSessionPlanningLane,
-): SigningSessionReadiness {
+function expiredReadiness(lane: SelectedSigningSessionPlanningLane): SigningSessionReadiness {
   if (lane.curve === 'ecdsa') {
     return {
       curve: 'ecdsa',
@@ -244,9 +238,7 @@ function expiredReadiness(
   };
 }
 
-function exhaustedReadiness(
-  lane: SelectedSigningSessionPlanningLane,
-): SigningSessionReadiness {
+function exhaustedReadiness(lane: SelectedSigningSessionPlanningLane): SigningSessionReadiness {
   if (lane.curve === 'ecdsa') {
     return {
       curve: 'ecdsa',
