@@ -2,7 +2,7 @@
 
 Date created: June 15, 2026
 
-Last reconciled: August 6, 2026 (Phase 1 crypto and server envelope store landed)
+Last reconciled: August 6, 2026 (Phase 1 complete)
 
 Status: active design plan. Same-device passkey Ed25519 sealing and rehydration,
 durable ECDSA material identity, and the current Email OTP wallet lifecycle have
@@ -641,8 +641,10 @@ root derivation after random-root registration lands.
       as an opaque handle with no byte accessor, and custody secrets are
       generated inside Rust, so JavaScript can neither read nor supply plaintext
       custody material.
-- [ ] Implement recovery-code reservation (server-side lifecycle, distinct from
-      the wrap crypto above).
+- [x] Implement recovery-code reservation
+      (`packages/shared-ts/src/wallet-recovery/recoveryCodeReservation.ts`).
+      Reserve -> consume-on-commit, release on pre-commit failure, and
+      time-bounded holds so an abandoned recovery cannot strand a code.
 - [x] Implement the server-side opaque passkey-envelope store with exact
       credential, wallet, lifecycle, revision, and digest lookup results
       (`packages/sdk-server-ts/src/router/cloudflare/d1/passkeyCustody/`).

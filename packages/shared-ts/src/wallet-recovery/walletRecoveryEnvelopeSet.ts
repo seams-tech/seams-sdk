@@ -16,6 +16,7 @@ import {
   rejectUnknownFields,
   requireRecord,
 } from '../passkey-custody';
+import type { RecoveryCodeReservationId } from './recoveryCodeReservation';
 import type { DerivedWalletRecoveryKeyId } from './recoveryCodes';
 import { parseDerivedWalletRecoveryKeyId, WALLET_RECOVERY_CODE_COUNT } from './recoveryCodes';
 import type { RecoveryCodeLifecycleState } from './recoveryEnvelopes';
@@ -144,7 +145,15 @@ const RECOVERY_SET_FIELDS = [
   'updatedAtMs',
 ] as const;
 
-const RECOVERY_LIFECYCLE_FIELDS = ['state', 'issuedAtMs', 'consumedAtMs', 'revokedAtMs'] as const;
+const RECOVERY_LIFECYCLE_FIELDS = [
+  'state',
+  'issuedAtMs',
+  'reservationId',
+  'reservedAtMs',
+  'reservationExpiresAtMs',
+  'consumedAtMs',
+  'revokedAtMs',
+] as const;
 
 function requireCustodySecretKind(value: unknown, label: string): PasskeyCustodySecretKind {
   if (
@@ -167,7 +176,36 @@ function parseRecoveryCodeLifecycleState(raw: unknown, label: string): RecoveryC
       if (record.consumedAtMs !== undefined || record.revokedAtMs !== undefined) {
         throw new Error(`${label} cannot be active and carry a consumed or revoked timestamp`);
       }
+      if (record.reservationId !== undefined) {
+        throw new Error(`${label} cannot be active and hold a reservation`);
+      }
       return { state: 'active', issuedAtMs };
+    case 'reserved': {
+      if (record.consumedAtMs !== undefined || record.revokedAtMs !== undefined) {
+        throw new Error(`${label} cannot be reserved and carry a consumed or revoked timestamp`);
+      }
+      if (typeof record.reservationId !== 'string' || !record.reservationId) {
+        throw new Error(`${label}.reservationId is required while reserved`);
+      }
+      const reservedAtMs = parseUnixMs(record.reservedAtMs, `${label}.reservedAtMs`);
+      const reservationExpiresAtMs = parseUnixMs(
+        record.reservationExpiresAtMs,
+        `${label}.reservationExpiresAtMs`,
+      );
+      if (reservedAtMs < issuedAtMs) {
+        throw new Error(`${label}.reservedAtMs cannot precede issuance`);
+      }
+      if (reservationExpiresAtMs <= reservedAtMs) {
+        throw new Error(`${label}.reservationExpiresAtMs must follow reservedAtMs`);
+      }
+      return {
+        state: 'reserved',
+        issuedAtMs,
+        reservationId: record.reservationId as RecoveryCodeReservationId,
+        reservedAtMs,
+        reservationExpiresAtMs,
+      };
+    }
     case 'consumed': {
       if (record.revokedAtMs !== undefined) {
         throw new Error(`${label} cannot be consumed and carry a revoked timestamp`);
