@@ -2,7 +2,7 @@
 
 Date created: June 15, 2026
 
-Last reconciled: August 6, 2026 (Phase 1 envelope crypto landed in signer-core)
+Last reconciled: August 6, 2026 (Phase 1 crypto and server envelope store landed)
 
 Status: active design plan. Same-device passkey Ed25519 sealing and rehydration,
 durable ECDSA material identity, and the current Email OTP wallet lifecycle have
@@ -639,8 +639,11 @@ root derivation after random-root registration lands.
 - [ ] Expose the custody seal/open through the browser worker's wasm boundary.
 - [ ] Implement recovery-code reservation (server-side lifecycle, distinct from
       the wrap crypto above).
-- [ ] Implement the server-side opaque passkey-envelope store with exact
-      credential, wallet, lifecycle, revision, and digest lookup results.
+- [x] Implement the server-side opaque passkey-envelope store with exact
+      credential, wallet, lifecycle, revision, and digest lookup results
+      (`packages/sdk-server-ts/src/router/cloudflare/d1/passkeyCustody/`).
+      Built on `CloudflareD1VersionedJsonRecordStore`; revoked rows are retained
+      as credential tombstones and excluded from active retrieval.
 - [ ] Implement authenticated envelope retrieval that verifies the WebAuthn
       assertion while keeping PRF output inside the secure worker.
 - [ ] Persist PRF support and WebAuthn backup observations without treating
