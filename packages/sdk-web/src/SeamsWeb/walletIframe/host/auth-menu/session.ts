@@ -9,7 +9,7 @@ import {
   type AuthMenuViewModel,
   isAuthMenuIntent,
 } from '../lit-ui/auth-menu/auth-menu-domain';
-import type { SeamsAuthMenuSurfaceElement } from '../lit-ui/auth-menu/seams-auth-menu-surface';
+import { SeamsAuthMenuSurfaceElement } from '../lit-ui/auth-menu/seams-auth-menu-surface';
 import {
   hostedAuthMenuExternalAuthRequestIdFromBoundary,
   type HostedAuthMenuExternalAuthRequest,
@@ -19,6 +19,7 @@ import {
   type HostedAuthMenuOpenRequest,
   type HostedAuthMenuOutcome,
   type HostedAuthMenuSessionId,
+  type WalletIframeSurfaceMeasurement,
 } from '../../shared/messages';
 import type {
   GoogleEmailOtpWalletAuthFlow,
@@ -27,6 +28,10 @@ import type {
 } from '@/SeamsWeb/publicApi/types';
 import type { ChildToParentEnvelope } from '../../shared/messages';
 import type { WalletIframeRequestId } from '@/core/types/walletIframeIdentity';
+import {
+  createWalletIframeSurfaceMeasurementReporter,
+  type WalletIframeSurfaceMeasurementReporter,
+} from '../lit-ui/surface-measurement-reporter';
 import type { WebAuthnPromptCancellation } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
 import {
   cancelHostedPasskeyRegistration,
@@ -120,6 +125,11 @@ type PrepareLoginPasskey = (
 ) => Promise<HostedPasskeyMenuPrepared>;
 
 const AUTH_MENU_TAG = 'seams-auth-menu-surface';
+
+function ensureAuthMenuSurfaceDefinition(): void {
+  if (customElements.get(AUTH_MENU_TAG)) return;
+  customElements.define(AUTH_MENU_TAG, SeamsAuthMenuSurfaceElement);
+}
 
 function createPreparingViewModel(args: {
   request: HostedAuthMenuOpenRequest;
@@ -280,6 +290,7 @@ export class AuthMenuSession {
   private loginAccountOptions: readonly AuthMenuAccountOption[] = [];
   private selectedLoginWalletId: string | null = null;
   private sendToParent: ((message: ChildToParentEnvelope) => void) | null = null;
+  private measurementReporter: WalletIframeSurfaceMeasurementReporter | null = null;
   private preparationGeneration = 0;
   private googleGeneration = 0;
   private preparationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -383,6 +394,7 @@ export class AuthMenuSession {
     if (this.element || this.cleanedUp) {
       throw new Error('Hosted auth-menu session is already mounted');
     }
+    ensureAuthMenuSurfaceDefinition();
     const existing = document.querySelectorAll(AUTH_MENU_TAG);
     if (existing.length > 0) {
       throw new Error('A hosted auth-menu surface is already mounted');
@@ -395,6 +407,13 @@ export class AuthMenuSession {
     if (!root) throw new Error('Wallet host document has no mount root');
     root.appendChild(element);
     this.element = element;
+    this.measurementReporter = createWalletIframeSurfaceMeasurementReporter({
+      kind: 'auth_menu_surface',
+      element,
+      requestId: this.identity.requestId,
+      authMenuSessionId: this.identity.authMenuSessionId,
+      postMeasurement: this.postSurfaceMeasurement,
+    });
   }
 
   waitForOutcome(): Promise<HostedAuthMenuOutcome> {
@@ -704,12 +723,18 @@ export class AuthMenuSession {
     if (this.cleanedUp) return;
     this.cleanedUp = true;
     this.invalidatePreparation();
+    this.measurementReporter?.disconnect();
+    this.measurementReporter = null;
     const element = this.element;
     this.element = null;
     if (!element) return;
     element.removeEventListener(AUTH_MENU_INTENT_EVENT, this.onIntent);
     element.remove();
   }
+
+  private postSurfaceMeasurement = (measurement: WalletIframeSurfaceMeasurement): void => {
+    this.sendToParent?.({ type: 'SURFACE_MEASUREMENT', payload: measurement });
+  };
 
   private currentViewModel(): AuthMenuViewModel {
     switch (this.stateValue.kind) {

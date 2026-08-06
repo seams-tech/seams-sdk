@@ -7,7 +7,7 @@ import { useEffect } from 'react';
  *
  * Layering model (high level):
  * - Wallet iframe overlay (host surface):
- *   - CSS: `overlay/overlay-styles.ts`, `overlay/overlay.css`
+ *   - CSS: `overlay/overlay-styles.ts`
  *   - Uses `z-index: var(--w3a-wallet-overlay-z, 2147483646)`
  *   - Hosts tx confirmer and other wallet UI; should sit above normal app UI.
  *
@@ -26,7 +26,7 @@ import { useEffect } from 'react';
  *   - Backdrop/container: `z-index: calc(--w3a-wallet-overlay-z - 2)`
  *
  * - AccountMenuButton / SeamsAuthMenu:
- *   - Uses only small local z-indices (1–3) and no fullscreen overlay z-index,
+ *   - Uses only small local z-indices (1–3),
  *     so it naturally stays below the wallet overlay.
  *
  * Hook behavior:

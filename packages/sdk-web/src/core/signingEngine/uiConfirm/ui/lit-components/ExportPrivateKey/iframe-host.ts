@@ -35,6 +35,7 @@ type MessagePayloads = {
   SET_EXPORT_DATA: {
     theme?: 'dark' | 'light';
     variant?: 'drawer' | 'modal';
+    surface: 'standalone' | 'wallet-iframe';
     accountId: string;
     publicKey?: string;
     keys?: ExportPrivateKeyDisplayEntry[];
@@ -142,6 +143,10 @@ export class IframeExportHost extends LitElementWithProps {
     this.postToIframe('SET_EXPORT_DATA', {
       theme: this.theme,
       variant: this.variant,
+      surface:
+        this.getAttribute('data-w3a-export-surface') === 'wallet-iframe'
+          ? 'wallet-iframe'
+          : 'standalone',
       accountId: this.accountId,
       publicKey: this.publicKey,
       keys: this.keys,
@@ -231,6 +236,10 @@ export class IframeExportHost extends LitElementWithProps {
           this.postToIframe('SET_EXPORT_DATA', {
             theme: this.theme,
             variant: this.variant,
+            surface:
+              this.getAttribute('data-w3a-export-surface') === 'wallet-iframe'
+                ? 'wallet-iframe'
+                : 'standalone',
             accountId: this.accountId,
             publicKey: this.publicKey,
             keys: this.keys,
@@ -318,6 +327,7 @@ export class IframeExportHost extends LitElementWithProps {
 
 // Strongly-typed element shape for 'w3a-export-viewer-iframe'
 export type ExportViewerIframeElement = HTMLElement & {
+  requestUpdate?: () => void;
   theme?: ExportViewerTheme;
   variant?: ExportViewerVariant;
   accountId?: string;

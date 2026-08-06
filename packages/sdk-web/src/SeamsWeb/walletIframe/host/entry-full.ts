@@ -1,2 +1,3 @@
-import './index';
+import { initWalletIFrame } from './index';
 
+initWalletIFrame();

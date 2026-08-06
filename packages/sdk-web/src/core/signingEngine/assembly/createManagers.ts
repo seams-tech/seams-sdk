@@ -91,6 +91,7 @@ export function createManagerAssembly(args: {
       getTheme: args.getTheme,
       getAppearance: args.getAppearance,
       loadEcdsaRoleLocalReadyRecord: args.loadEcdsaRoleLocalReadyRecord,
+      surfaceMeasurementBinding: { kind: 'disabled' },
     },
   );
   const passkeyMpcExport = createPasskeyMpcExportManager(touchConfirm.getContext());

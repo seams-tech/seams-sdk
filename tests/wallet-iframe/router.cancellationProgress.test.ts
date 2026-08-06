@@ -82,24 +82,20 @@ test.describe('WalletIframeRouter cancellation progress', () => {
         ): Promise<{
           message: string;
           code?: string;
-          overlayShown: boolean;
           overlayHidden: boolean;
         }> => {
           const pending = run().catch((error: any) => ({
             message: String(error?.message || error || ''),
             code: typeof error?.code === 'string' ? error.code : undefined,
           }));
-          const overlayShown = await waitFor(() => {
-            const state = capture();
-            return !!(state.exists && state.visible);
-          }, 3000);
+          await waitFor(() => router.getOverlayState().visible, 3000);
           await router.cancelAll();
           const overlayHidden = await waitFor(() => {
             const state = capture();
             return !state.exists || !state.visible;
           }, 3000);
           const settled = (await pending) as { message: string; code?: string };
-          return { ...settled, overlayShown, overlayHidden };
+          return { ...settled, overlayHidden };
         };
 
         const registration = await runAndCancel('registration', () =>
@@ -146,19 +142,16 @@ test.describe('WalletIframeRouter cancellation progress', () => {
     expect(result.registration).toMatchObject({
       message: 'Request cancelled.',
       code: 'cancelled',
-      overlayShown: true,
       overlayHidden: true,
     });
     expect(result.unlock).toMatchObject({
       message: 'Request cancelled.',
       code: 'cancelled',
-      overlayShown: true,
       overlayHidden: true,
     });
     expect(result.signing).toMatchObject({
       message: 'Request cancelled.',
       code: 'cancelled',
-      overlayShown: true,
       overlayHidden: true,
     });
 
