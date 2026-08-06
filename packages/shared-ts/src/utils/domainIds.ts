@@ -52,6 +52,11 @@ export type AppSessionVersion = DomainId<'AppSessionVersion'>;
 // must not be used as a wallet, NEAR account, or signing-key identity.
 export type WebAuthnRpId = DomainId<'WebAuthnRpId'>;
 export type WebAuthnCredentialIdB64u = DomainId<'WebAuthnCredentialIdB64u'>;
+
+// One passkey-sealed custody envelope. This locates ciphertext for a credential
+// and must never be used as a wallet, credential, lane, material-activation, or
+// authorization identity.
+export type PasskeyEnvelopeId = DomainId<'PasskeyEnvelopeId'>;
 export type WalletAuthMethodId = DomainId<'WalletAuthMethodId'>;
 export type WalletAuthorityBindingDigest = DomainId<'WalletAuthorityBindingDigest'>;
 export type AppSessionJwt = DomainId<'AppSessionJwt'>;
@@ -309,6 +314,10 @@ export function parseWebAuthnCredentialIdB64u(
   raw: unknown,
 ): DomainIdParseResult<WebAuthnCredentialIdB64u> {
   return parseDomainId(raw, 'credentialIdB64u');
+}
+
+export function parsePasskeyEnvelopeId(raw: unknown): DomainIdParseResult<PasskeyEnvelopeId> {
+  return parseDomainId(raw, 'passkeyEnvelopeId');
 }
 
 export function parseWalletAuthMethodId(raw: unknown): DomainIdParseResult<WalletAuthMethodId> {

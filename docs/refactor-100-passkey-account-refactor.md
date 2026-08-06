@@ -2,7 +2,7 @@
 
 Date created: June 15, 2026
 
-Last reconciled: August 5, 2026 (post-Refactor 90 implementation checkpoint)
+Last reconciled: August 6, 2026 (Phase 0 custody boundary landed)
 
 Status: active design plan. Same-device passkey Ed25519 sealing and rehydration,
 durable ECDSA material identity, and the current Email OTP wallet lifecycle have
@@ -138,11 +138,14 @@ The local SDK already has the following lifecycle foundations:
 - Email OTP recovery-code backup, status, and rotation UX exists for the current
   enrollment-escrow model. Those codes do not yet open the wallet-scoped mixed
   custody envelope set defined here;
-- the current source has only the generic
-  `PasskeyHolderShareEnvelopeRecord` scaffold in
-  `packages/sdk-web/src/core/signingEngine/session/passkey/envelopes/holderShareEnvelope.ts`;
-  the explicit custody-secret union, envelope record union, and their type
-  fixtures below are pending and are not wired into random-root registration,
+- the explicit custody-secret union, envelope record, wallet-scoped recovery
+  envelope set, their branch-specific builders, their boundary parsers, and
+  their static fixtures have landed in
+  `packages/shared-ts/src/passkey-custody/` and
+  `packages/shared-ts/src/wallet-recovery/walletRecoveryEnvelopeSet.ts`, and
+  replace the previous generic `PasskeyHolderShareEnvelopeRecord` and
+  `RecoveryWrappedHolderShareEnvelopeRecord` scaffolds. They are the frozen
+  custody boundary and are not yet wired into random-root registration,
   portable cold unlock, or wallet-scoped recovery;
 - linked-device operations remain fail closed.
 
@@ -597,11 +600,16 @@ root derivation after random-root registration lands.
 
 ### Phase 0: Freeze Custody Boundaries
 
-- [ ] Replace the generic holder-share envelope model with the explicit custody
+- [x] Replace the generic holder-share envelope model with the explicit custody
       secret union.
-- [ ] Add branch-specific builders and boundary parsers.
-- [ ] Add static fixtures rejecting cross-curve fields and raw-secret records.
-- [ ] Delete deterministic PRF-root lifecycle types and obsolete fixtures.
+- [x] Add branch-specific builders and boundary parsers.
+- [x] Add static fixtures rejecting cross-curve fields and raw-secret records.
+- [x] Delete obsolete custody envelope types and fixtures. The generic
+      `PasskeyHolderShareEnvelopeRecord`, `RecoveryWrappedHolderShareEnvelopeRecord`,
+      their single-purpose KEK contexts, and their fixtures are gone.
+- [ ] Delete the deterministic PRF-root lifecycle types themselves. These stay
+      until Phase 2 lands a random-root registration path: they are the live
+      Ed25519 and ECDSA root sources, not scaffolding.
 
 ### Phase 1: Envelope Crypto
 
@@ -725,7 +733,11 @@ Broad gate:
 ## Decisions Required Before Implementation
 
 - Select the passkey envelope AEAD and nonce format already supported by the
-  Rust/WASM boundary.
+  Rust/WASM boundary. The Email OTP recovery wrap already uses
+  `chacha20poly1305-hkdf-sha256-v1` with a 12-byte nonce
+  (`EMAIL_OTP_RECOVERY_WRAP_ALG`), which is the leading candidate. Until this is
+  frozen, the landed envelope parser accepts a 12-byte or 24-byte nonce and no
+  explicit AEAD tag; freezing the choice should narrow both.
 - Freeze the exact random-root generation API for Yao and ECDSA derivation.
 - Freeze whether a recovery code wraps each manifest entry directly or wraps a
   manifest KEK that encrypts the entries. Both designs must preserve per-entry

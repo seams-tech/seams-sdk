@@ -1,16 +1,22 @@
 import type { WalletId } from '../utils/domainIds';
 import type { LaneShareEpoch, SigningLaneId, WalletKeyId } from '../signing-lanes/ids';
+import type { DigestB64u } from '../utils/canonicalPrimitives';
+import type { EnvelopeCiphertextB64u, EnvelopeNonceB64u } from '../passkey-custody';
 import type { DerivedWalletRecoveryKeyId } from './recoveryCodes';
+import type { RecoveryCodeLifecycleState } from './recoveryEnvelopes';
 import type {
-  RecoveryCodeLifecycleState,
-  RecoveryWrappedHolderShareEnvelopeRecord,
-} from './recoveryEnvelopes';
+  WalletRecoveryEnvelopeEntry,
+  WalletRecoveryEnvelopeSetRecord,
+} from './walletRecoveryEnvelopeSet';
 
 declare const walletId: WalletId;
 declare const walletKeyId: WalletKeyId;
 declare const laneId: SigningLaneId;
 declare const laneShareEpoch: LaneShareEpoch;
 declare const recoveryKeyId: DerivedWalletRecoveryKeyId;
+declare const digest: DigestB64u;
+declare const nonceB64u: EnvelopeNonceB64u;
+declare const ciphertextB64u: EnvelopeCiphertextB64u;
 
 const activeRecoveryCode: RecoveryCodeLifecycleState = {
   state: 'active',
@@ -26,40 +32,91 @@ const invalidActiveRecoveryCode: RecoveryCodeLifecycleState = {
 };
 void invalidActiveRecoveryCode;
 
-const envelope: RecoveryWrappedHolderShareEnvelopeRecord = {
-  kind: 'recovery_wrapped_holder_share_envelope_v1',
-  walletId,
+const ed25519Entry: WalletRecoveryEnvelopeEntry = {
   walletKeyId,
   laneId,
   laneShareEpoch,
+  custodySecretKind: 'ed25519_yao_client_root_v1',
+  nonceB64u,
+  wrappedCustodySecretB64u: ciphertextB64u,
+  aadHashB64u: digest,
+};
+void ed25519Entry;
+
+const ecdsaEntry: WalletRecoveryEnvelopeEntry = {
+  walletKeyId,
+  laneId,
+  laneShareEpoch,
+  custodySecretKind: 'ecdsa_client_root_share_v1',
+  nonceB64u,
+  wrappedCustodySecretB64u: ciphertextB64u,
+  aadHashB64u: digest,
+};
+void ecdsaEntry;
+
+const entryWithUnknownKind: WalletRecoveryEnvelopeEntry = {
+  walletKeyId,
+  laneId,
+  laneShareEpoch,
+  // @ts-expect-error Entries name an exact custody-secret kind, not a generic holder share.
+  custodySecretKind: 'holder_share_v1',
+  nonceB64u,
+  wrappedCustodySecretB64u: ciphertextB64u,
+  aadHashB64u: digest,
+};
+void entryWithUnknownKind;
+
+const entryWithPlaintextSecret: WalletRecoveryEnvelopeEntry = {
+  walletKeyId,
+  laneId,
+  laneShareEpoch,
+  custodySecretKind: 'ed25519_yao_client_root_v1',
+  nonceB64u,
+  wrappedCustodySecretB64u: ciphertextB64u,
+  aadHashB64u: digest,
+  // @ts-expect-error Recovery entries must not carry plaintext custody material.
+  custodySecretPlaintextB64u: 'secret',
+};
+void entryWithPlaintextSecret;
+
+// A recovery code protects a wallet-scoped set covering every key, so the
+// record is a set of entries and never one curve's envelope.
+const recoverySet: WalletRecoveryEnvelopeSetRecord = {
+  kind: 'wallet_recovery_envelope_set_v1',
+  walletId,
   recoveryKeyId,
-  recoveryKeyStatus: activeRecoveryCode,
-  recoveryEnvelopeVersion: 'v1',
-  nonceB64u: 'nonce',
-  wrappedHolderShareB64u: 'ciphertext',
-  aadHashB64u: 'aad',
+  keyManifestDigestB64u: digest,
+  entries: [ed25519Entry, ecdsaEntry],
+  lifecycle: activeRecoveryCode,
   issuedAtMs: 1,
   updatedAtMs: 1,
 };
-void envelope;
+void recoverySet;
 
-const invalidEnvelope: RecoveryWrappedHolderShareEnvelopeRecord = {
-  kind: 'recovery_wrapped_holder_share_envelope_v1',
-  walletId,
-  walletKeyId,
-  laneId,
-  laneShareEpoch,
-  recoveryKeyId,
-  recoveryKeyStatus: activeRecoveryCode,
-  recoveryEnvelopeVersion: 'v1',
-  nonceB64u: 'nonce',
-  wrappedHolderShareB64u: 'ciphertext',
-  aadHashB64u: 'aad',
-  issuedAtMs: 1,
-  updatedAtMs: 1,
-  // @ts-expect-error Recovery envelopes must not contain plaintext recovery codes.
+const recoverySetWithPlaintextCode: WalletRecoveryEnvelopeSetRecord = {
+  ...recoverySet,
+  // @ts-expect-error Recovery sets must not contain plaintext recovery codes.
   recoveryCodePlaintext: 'AAAA-BBBB-CCCC-DDDD-EEEE-FFFF-GGGG-HHHH',
 };
-void invalidEnvelope;
+void recoverySetWithPlaintextCode;
+
+const recoverySetWithGrant: WalletRecoveryEnvelopeSetRecord = {
+  ...recoverySet,
+  // @ts-expect-error A recovery code is a custody factor, never an authorization grant.
+  authorizationGrantRef: 'grant',
+};
+void recoverySetWithGrant;
+
+// @ts-expect-error A recovery set requires its key manifest digest.
+const recoverySetWithoutManifest: WalletRecoveryEnvelopeSetRecord = {
+  kind: 'wallet_recovery_envelope_set_v1',
+  walletId,
+  recoveryKeyId,
+  entries: [ed25519Entry],
+  lifecycle: activeRecoveryCode,
+  issuedAtMs: 1,
+  updatedAtMs: 1,
+};
+void recoverySetWithoutManifest;
 
 export {};

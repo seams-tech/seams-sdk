@@ -10,6 +10,8 @@
     "./authorization/*": "./src/authorization/*.ts",
     "./near": "./src/near/index.ts",
     "./near/*": "./src/near/*.ts",
+    "./passkey-custody": "./src/passkey-custody/index.ts",
+    "./passkey-custody/*": "./src/passkey-custody/*.ts",
     "./signing-lanes": "./src/signing-lanes/index.ts",
     "./signing-lanes/*": "./src/signing-lanes/*.ts",
     "./threshold": "./src/threshold/index.ts",
