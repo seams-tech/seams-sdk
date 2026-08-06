@@ -498,7 +498,7 @@ Evidence recorded July 23, 2026:
 - `packages/sdk-web/src/core/signingEngine/session/identity/clientSessionPersistenceState.typecheck.ts`
   rejects expired, missing, unavailable, and invalid authorization at the
   active-only boundary through the SDK build typecheck.
-- `tests/unit/refactor92.boundaryAndServer.unit.test.ts` covers deterministic
+- `tests/unit/walletSessionExpiry.boundaryAndServer.unit.test.ts` covers deterministic
   persistence-boundary parsing at equality and elapsed time, active-state
   admission, distinct missing/unavailable/invalid states, JWT temporal
   validation, and the shared parse-reason-to-server-code mapping.
@@ -506,13 +506,13 @@ Evidence recorded July 23, 2026:
   budget-status route parser for missing, signature-invalid, claims-invalid,
   expired, scope-mismatched, unavailable, and exhausted Wallet Sessions. All
   16 parser checks pass and assert the exact structured code and HTTP status.
-- `tests/unit/refactor92.invalidationIdempotency.unit.test.ts` proves concurrent
+- `tests/unit/walletSessionExpiry.invalidationIdempotency.unit.test.ts` proves concurrent
   observations produce one invalidation event and two deduplicated results.
-- `tests/unit/refactor92.surfacePlanning.audit.unit.test.ts` covers passkey and
+- `tests/unit/walletSessionExpiry.stepUpPlanning.unit.test.ts` covers passkey and
   Email OTP step-up planning for the three distinct signing lanes: NEAR
   Ed25519, Tempo ECDSA, and EVM ECDSA. It asserts that expiry and exhaustion
   return the correct typed reauthentication branch for each lane.
-- `tests/unit/refactor92.structuredFailureRetry.audit.unit.test.ts` covers exact
+- `tests/unit/walletSessionFailure.structuredRetry.unit.test.ts` covers exact
   structured failure parsing, rejects prose matching, permits one EVM-family
   fresh-auth retry, and blocks a second retry.
 - `tests/unit/seamsSite.walletSessionExpiry.unit.test.ts` covers the public

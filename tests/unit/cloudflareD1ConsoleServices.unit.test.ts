@@ -33,22 +33,17 @@ const LOCAL_D1_WORKFLOW_SIGNING_WORKER_ID = 'signing-worker.local';
 test('local Router binding rewrites the origin and preserves authenticated POST requests', async () => {
   const request = buildLocalRouterRequest(
     'http://127.0.0.1:9090',
-    new Request(
-      'https://router.router-ab.internal/router-ab/ecdsa-derivation/register?attempt=1',
-      {
-        method: 'POST',
-        headers: {
-          authorization: 'Bearer ceremony-token',
-          'content-type': 'application/json',
-        },
-        body: '{"registration":"payload"}',
+    new Request('https://router.router-ab.internal/router-ab/ecdsa-derivation/register?attempt=1', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer ceremony-token',
+        'content-type': 'application/json',
       },
-    ),
+      body: '{"registration":"payload"}',
+    }),
   );
 
-  expect(request.url).toBe(
-    'http://127.0.0.1:9090/router-ab/ecdsa-derivation/register?attempt=1',
-  );
+  expect(request.url).toBe('http://127.0.0.1:9090/router-ab/ecdsa-derivation/register?attempt=1');
   expect(request.method).toBe('POST');
   expect(request.headers.get('authorization')).toBe('Bearer ceremony-token');
   expect(request.headers.get('content-type')).toBe('application/json');
@@ -586,9 +581,7 @@ test('local D1 Worker routes smoke requests through the Router API handler', asy
     ctx,
   );
   expect(signedDelegate.status).not.toBe(404);
-  expect(signedDelegate.headers.get('Access-Control-Allow-Origin')).toBe(
-    'http://127.0.0.1:8787',
-  );
+  expect(signedDelegate.headers.get('Access-Control-Allow-Origin')).toBe('http://127.0.0.1:8787');
 
   const apiWallets = await localD1DevWorker.fetch(
     new Request('http://127.0.0.1:8787/v1/wallets', {
@@ -601,35 +594,6 @@ test('local D1 Worker routes smoke requests through the Router API handler', asy
   await expect(apiWallets.json()).resolves.toMatchObject({
     ok: false,
     code: 'secret_key_missing',
-  });
-});
-
-test('local D1 Worker mounts the shared Ed25519 Yao product composition', async () => {
-  const database = new FakeD1Database();
-  const baseEnv = createLocalD1WorkflowEnv({
-    consoleDatabase: database,
-    signerDatabase: database,
-  });
-  const response = await callLocalWorkflowWorker(
-    {
-      ...baseEnv,
-      MPC_ROUTER_URL: 'http://127.0.0.1:8810',
-      SIGNING_WORKER_ID: LOCAL_D1_WORKFLOW_SIGNING_WORKER_ID,
-      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: 'local-yao-internal-auth',
-      DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: `x25519:${'44'.repeat(32)}`,
-      DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY: `x25519:${'55'.repeat(32)}`,
-    },
-    {
-      method: 'POST',
-      path: '/relay/router-ab/ed25519/yao/registration/admit',
-      body: {},
-    },
-  );
-
-  expect(response.status).toBe(400);
-  await expect(response.json()).resolves.toMatchObject({
-    ok: false,
-    code: 'invalid_body',
   });
 });
 

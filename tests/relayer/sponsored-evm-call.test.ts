@@ -23,10 +23,7 @@ import { createD1ConsoleBillingPrepaidReservationService } from '../../packages/
 import type { ConsoleBillingPrepaidReservationService } from '../../packages/console-server-ts/src/billingPrepaidReservations/service';
 import { createD1ConsoleSponsoredCallService } from '../../packages/console-server-ts/src/sponsoredCalls/d1';
 import type { ConsoleSponsoredCallService } from '../../packages/console-server-ts/src/sponsoredCalls/service';
-import {
-  fetchJson,
-  startExpressRouter,
-} from './helpers';
+import { fetchJson, randomNamespace, startExpressRouter } from './helpers';
 import { registerSponsoredEvmCallRoute } from '@server';
 import {
   applyD1MigrationFiles,
@@ -111,10 +108,6 @@ function encodeErc20TransferInput(to: `0x${string}`, amount: bigint): `0x${strin
   return `0x${transferSelector.slice(2)}${toHex}${amountHex}` as `0x${string}`;
 }
 
-function randomNamespace(prefix: string): string {
-  return `${prefix}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
-}
-
 function cleanupSponsorshipD1Databases(): void {
   for (const tempDir of sponsorshipD1TempDirs) {
     cleanupTemporaryD1Database(tempDir);
@@ -122,9 +115,7 @@ function cleanupSponsorshipD1Databases(): void {
   }
 }
 
-async function makeSponsorshipServices(input?: {
-  initialBalanceMinor?: number;
-}): Promise<{
+async function makeSponsorshipServices(input?: { initialBalanceMinor?: number }): Promise<{
   billing: BillingSpyService;
   ledger: ConsoleSponsoredCallService;
   prepaidReservations: ConsoleBillingPrepaidReservationService;
@@ -506,8 +497,7 @@ async function startSponsoredCallRouteServer(input: {
   sponsorship?: {
     spendCaps?: ReturnType<typeof createInMemoryConsoleSponsorshipSpendCapService>;
     prepaidReservations?: unknown;
-    pricing?:
-      | {
+    pricing?: {
       estimateSponsoredExecutionSpend: (input: Record<string, unknown>) => Promise<{
         spendMinor: number;
         pricingVersion: string;
@@ -516,8 +506,7 @@ async function startSponsoredCallRouteServer(input: {
         spendMinor: number;
         pricingVersion: string;
       }>;
-      }
-      | null;
+    } | null;
   };
   corsOrigins?: string[];
   config: ReturnType<typeof makeRouteConfig>;
@@ -539,10 +528,9 @@ async function startSponsoredCallRouteServer(input: {
     ledger: input.ledger as any,
     runtimeSnapshots: input.runtimeSnapshots as any,
     prepaidReservations: prepaidReservations as any,
-    pricing:
-      (input.sponsorship && 'pricing' in input.sponsorship
-        ? input.sponsorship.pricing
-        : defaultPricing.service) as any,
+    pricing: (input.sponsorship && 'pricing' in input.sponsorship
+      ? input.sponsorship.pricing
+      : defaultPricing.service) as any,
     ...(input.sponsorship?.spendCaps ? { spendCaps: input.sponsorship.spendCaps as any } : {}),
     corsOrigins: input.corsOrigins || [allowedOrigin],
     config: input.config,
@@ -1121,7 +1109,9 @@ test.describe('sponsored evm call route', () => {
       expect(response.status).toBe(200);
       expect(response.json?.ok).toBe(true);
       expect(response.json?.policyId).toBe('policy_gs_multichain_transfer');
-      expect(primaryRpc.requests.filter((method) => method === 'eth_sendRawTransaction')).toHaveLength(0);
+      expect(
+        primaryRpc.requests.filter((method) => method === 'eth_sendRawTransaction'),
+      ).toHaveLength(0);
       expect(
         alternateRpc.requests.filter((method) => method === 'eth_sendRawTransaction'),
       ).toHaveLength(1);
@@ -1129,7 +1119,9 @@ test.describe('sponsored evm call route', () => {
       const record = await ledger.getRecordByIdempotencyKey(apiKeyCtx, idempotencyKey);
       expect(record?.policyId).toBe('policy_gs_multichain_transfer');
       expect(record?.templateId).toBe('erc20_transfer_alt_chain_v1');
-      expect(record?.targetRef).toBe(`evm:${alternateChainId}:${alternateTokenAddress.toLowerCase()}`);
+      expect(record?.targetRef).toBe(
+        `evm:${alternateChainId}:${alternateTokenAddress.toLowerCase()}`,
+      );
     } finally {
       await server.close();
       await primaryRpc.close();
@@ -1607,10 +1599,9 @@ test.describe('sponsored evm call route', () => {
           idempotencyKey: makeIdempotencyKey('recipient-mismatch'),
           call: {
             to: contractAddress,
-            data: encodeTempoDripToInput(
-              '0x3333333333333333333333333333333333333333',
-              [tokenAddress],
-            ),
+            data: encodeTempoDripToInput('0x3333333333333333333333333333333333333333', [
+              tokenAddress,
+            ]),
             gasLimit: '300000',
             value: '0',
           },

@@ -5,12 +5,12 @@ import {
   createConsoleRouter,
   createInMemoryConsoleSponsoredCallService,
   type ConsoleAuthAdapter,
-  type ConsoleAuthAdapterResult,
+  type ConsoleAuthClaims,
   type ConsoleBillingService,
   type ConsoleSponsoredCallService,
 } from '@seams-internal/console-server/router/express-adaptor';
 import { createCloudflareConsoleRouter } from '@seams-internal/console-server/router/cloudflare-adaptor';
-import { callCf, fetchJson, startExpressRouter } from './helpers';
+import { callCf, fetchJson, makeConsoleAuthAdapter, startExpressRouter } from './helpers';
 
 const baseNow = new Date('2026-03-19T00:00:00.000Z');
 const ctx = {
@@ -18,36 +18,19 @@ const ctx = {
   actorUserId: 'user-sponsored-history',
 };
 
-class BillingReaderAuthAdapter implements ConsoleAuthAdapter {
-  readonly #userId: string;
-  readonly #orgId: string;
-
-  constructor(userId: string, orgId: string) {
-    this.#userId = userId;
-    this.#orgId = orgId;
-  }
-
-  authenticate(): ConsoleAuthAdapterResult {
-    return {
-      ok: true,
-      claims: {
-        userId: this.#userId,
-        orgId: this.#orgId,
-        membershipId: `membership-${this.#userId}`,
-        authorizationVersion: 1,
-        role: 'ADMIN',
-        adminPermissions: ['billing.view', 'billing.manage'],
-        projectAccess: { kind: 'all' },
-        platformSupport: false,
-        email: `${this.#userId}@example.com`,
-        name: this.#userId,
-      },
-    };
-  }
-}
-
-function makeConsoleAuthAdapter(input: { userId: string; orgId: string }): ConsoleAuthAdapter {
-  return new BillingReaderAuthAdapter(input.userId, input.orgId);
+function makeBillingReaderClaims(input: { userId: string; orgId: string }): ConsoleAuthClaims {
+  return {
+    userId: input.userId,
+    orgId: input.orgId,
+    membershipId: `membership-${input.userId}`,
+    authorizationVersion: 1,
+    role: 'ADMIN',
+    adminPermissions: ['billing.view', 'billing.manage'],
+    projectAccess: { kind: 'all' },
+    platformSupport: false,
+    email: `${input.userId}@example.com`,
+    name: input.userId,
+  };
 }
 
 async function seedSponsoredCallRecord(
@@ -231,10 +214,12 @@ test.describe('console sponsored call history', () => {
         charged: false,
       });
 
-      const auth = makeConsoleAuthAdapter({
-        userId: ctx.actorUserId,
-        orgId: ctx.orgId,
-      });
+      const auth = makeConsoleAuthAdapter(
+        makeBillingReaderClaims({
+          userId: ctx.actorUserId,
+          orgId: ctx.orgId,
+        }),
+      );
 
       const response = await callHistoryRoute(mode, {
         auth,
@@ -251,10 +236,12 @@ test.describe('console sponsored call history', () => {
     });
 
     test(`console router (${mode}) rejects invalid sponsored history filters`, async () => {
-      const auth = makeConsoleAuthAdapter({
-        userId: ctx.actorUserId,
-        orgId: ctx.orgId,
-      });
+      const auth = makeConsoleAuthAdapter(
+        makeBillingReaderClaims({
+          userId: ctx.actorUserId,
+          orgId: ctx.orgId,
+        }),
+      );
       const service = createInMemoryConsoleSponsoredCallService({
         now: () => new Date(baseNow),
       });
@@ -314,10 +301,12 @@ test.describe('console sponsored call history', () => {
         billingLedgerEntryId: unexpectedDebitId,
       });
 
-      const auth = makeConsoleAuthAdapter({
-        userId: ctx.actorUserId,
-        orgId: ctx.orgId,
-      });
+      const auth = makeConsoleAuthAdapter(
+        makeBillingReaderClaims({
+          userId: ctx.actorUserId,
+          orgId: ctx.orgId,
+        }),
+      );
       const response = await callHistoryRoute(mode, {
         auth,
         billing,
@@ -399,10 +388,12 @@ test.describe('console sponsored call history', () => {
         charged: false,
       });
 
-      const auth = makeConsoleAuthAdapter({
-        userId: ctx.actorUserId,
-        orgId: ctx.orgId,
-      });
+      const auth = makeConsoleAuthAdapter(
+        makeBillingReaderClaims({
+          userId: ctx.actorUserId,
+          orgId: ctx.orgId,
+        }),
+      );
       const response = await (async () => {
         if (mode === 'express') {
           const router = createConsoleRouter({

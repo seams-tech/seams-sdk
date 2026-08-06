@@ -29,9 +29,7 @@ test('Refactor 92 parses every authoritative Wallet Session failure distinctly',
 
 test('Refactor 92 does not classify prose as an authoritative Wallet Session failure', () => {
   expect(
-    walletSessionFailureFromError(
-      new Error('Expired or incomplete Wallet Session claims'),
-    ),
+    walletSessionFailureFromError(new Error('Expired or incomplete Wallet Session claims')),
   ).toBeNull();
 });
 
@@ -49,9 +47,7 @@ test('Refactor 92 retries an authoritative EVM-family expiry once', () => {
     sideEffectState: 'no_auth_side_effect_started',
     retryMode: 'fresh_auth',
   });
-  expect(
-    classifyWalletSessionRetry(failure, { alreadyRetryingFreshAuth: true }),
-  ).toEqual({
+  expect(classifyWalletSessionRetry(failure, { alreadyRetryingFreshAuth: true })).toEqual({
     kind: 'do_not_retry',
     trigger: 'wallet_session_reauthorization_required',
     sideEffectState: 'no_auth_side_effect_started',
