@@ -94,6 +94,15 @@ export const buildWalletServiceHtml = (options: WalletServiceHtmlOptions = {}): 
             return;
           }
 
+          if (type === 'PM_GET_CONFIRMATION_CONFIG') {
+            try {
+              postResult(requestId, { uiMode: 'modal', behavior: 'requireClick', autoProceedDelay: 0 });
+            } catch (err) {
+              console.error('Failed to respond to PM_GET_CONFIRMATION_CONFIG', err);
+            }
+            return;
+          }
+
           if (type === 'PM_GET_EXACT_WALLET_SESSION_STATE') {
             try {
               postResult(requestId, exactSessionState);

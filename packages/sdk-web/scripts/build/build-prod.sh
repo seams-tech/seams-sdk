@@ -52,7 +52,7 @@ else
 fi
 
 print_step "Building TypeScript..."
-if npx tsc -p tsconfig.build.json; then print_success "TypeScript compilation completed"; else print_error "TypeScript compilation failed"; exit 1; fi
+if pnpm run build:types; then print_success "TypeScript compilation and declaration rewrite completed"; else print_error "TypeScript compilation or declaration rewrite failed"; exit 1; fi
 
 print_step "Generating CSS variables from palette.json (w3a-components.css)..."
 if node "$SDK_ROOT/scripts/codegen/generate-w3a-components-css.mjs"; then print_success "w3a-components.css generated"; else print_error "Failed to generate w3a-components.css"; exit 1; fi
@@ -75,7 +75,6 @@ mkdir -p "$BUILD_ESM/sdk"
 # so they must not contain bare module specifiers like `import "idb"`.
 if NODE_ENV=production "$BUN_BIN" build "$SDK_ROOT/src/core/signingEngine/uiConfirm/ui/confirm-ui.ts" --outfile "$BUILD_ESM/sdk/tx-confirm-ui.js" --format esm --target browser --minify --root "$REPO_ROOT" \
   && NODE_ENV=production "$BUN_BIN" build "$SDK_ROOT/src/core/signingEngine/uiConfirm/ui/lit-components/IframeTxConfirmer/tx-confirmer-wrapper.ts" --outfile "$BUILD_ESM/sdk/w3a-tx-confirmer.js" --format esm --target browser --minify --root "$REPO_ROOT" \
-  && NODE_ENV=production "$BUN_BIN" build "$SDK_ROOT/src/core/signingEngine/uiConfirm/ui/lit-components/ExportPrivateKey/iframe-export-bootstrap-script.ts" --outfile "$BUILD_ESM/sdk/iframe-export-bootstrap.js" --format esm --target browser --minify --root "$REPO_ROOT" \
   && NODE_ENV=production "$BUN_BIN" build "$SDK_ROOT/src/core/signingEngine/uiConfirm/ui/lit-components/ExportPrivateKey/viewer.ts" --outfile "$BUILD_ESM/sdk/export-private-key-viewer.js" --format esm --target browser --minify --root "$REPO_ROOT" \
   && NODE_ENV=production "$BUN_BIN" build "$SDK_ROOT/src/core/signingEngine/uiConfirm/ui/lit-components/HaloBorder/index.ts" --outfile "$BUILD_ESM/sdk/halo-border.js" --format esm --target browser --minify --root "$REPO_ROOT" \
   && NODE_ENV=production "$BUN_BIN" build "$SDK_ROOT/src/core/signingEngine/uiConfirm/ui/lit-components/PasskeyHaloLoading/index.ts" --outfile "$BUILD_ESM/sdk/passkey-halo-loading.js" --format esm --target browser --minify --root "$REPO_ROOT"; then

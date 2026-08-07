@@ -2,13 +2,27 @@
 
 set -euo pipefail
 
-target="${1:-staging}"
+lane="${1:-staging-testnet}"
 repository="${SEAMS_GITHUB_REPOSITORY:-seams-tech/seams-sdk}"
 
-case "$target" in
-  staging | production) ;;
+case "$lane" in
+  staging-testnet)
+    site="staging"
+    values_basename="staging"
+    ;;
+  production-testnet)
+    # The production site is shared. This lane rotates only its custody
+    # environments; the production product manifest is applied once from the
+    # production-mainnet lane after both production lanes are prepared.
+    site=""
+    values_basename="production-testnet"
+    ;;
+  production-mainnet)
+    site="production"
+    values_basename="production"
+    ;;
   *)
-    printf 'Usage: %s [staging|production]\n' "$0" >&2
+    printf 'Usage: %s [staging-testnet|production-testnet|production-mainnet]\n' "$0" >&2
     exit 2
     ;;
 esac
@@ -22,9 +36,9 @@ done
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
-values_file="$HOME/.seams/${target}-deployment.env"
+values_file="$HOME/.seams/${values_basename}-deployment.env"
 backup_dir="$HOME/.seams/backups"
-backup_file="$backup_dir/${target}-$(date +%Y%m%d-%H%M%S)-complete-generation.json"
+backup_file="$backup_dir/${lane}-$(date +%Y%m%d-%H%M%S)-complete-generation.json"
 
 if [[ ! -f "$values_file" ]]; then
   printf 'Deployment values file is missing: %s\n' "$values_file" >&2
@@ -32,6 +46,9 @@ if [[ ! -f "$values_file" ]]; then
 fi
 
 cd "$repo_root"
+node --input-type=module -e \
+  "import { readBackendLane } from './scripts/deployment-targets.mjs'; const lane = readBackendLane(process.argv[1]); if (lane.provisioning.kind === 'pending') throw new Error(lane.id + ' is pending provisioning; rotation is blocked');" \
+  "$lane"
 gh auth status
 
 chmod 600 "$values_file"
@@ -40,7 +57,7 @@ chmod 700 "$backup_dir"
 umask 077
 
 printf '\nWARNING: This will rotate the %s GitHub Environment variables and secrets in %s.\n' \
-  "$target" \
+  "$lane" \
   "$repository" >&2
 printf 'Existing GitHub values will be overwritten and cannot be read back from GitHub.\n' >&2
 printf 'Wallets created with the current deployment identities may stop working.\n' >&2
@@ -52,7 +69,7 @@ if [[ ! -t 0 ]]; then
   exit 1
 fi
 
-read -r -p "Continue with ${target} rotation? Type Y or confirm: " confirmation
+read -r -p "Continue with ${lane} rotation? Type Y or confirm: " confirmation
 case "$confirmation" in
   y | Y | yes | Yes | YES | confirm | Confirm | CONFIRM) ;;
   *)
@@ -61,10 +78,10 @@ case "$confirmation" in
     ;;
 esac
 
-printf '\nRotation confirmed. Preparing the new %s generation.\n\n' "$target" >&2
+printf '\nRotation confirmed. Preparing the new %s generation.\n\n' "$lane" >&2
 
 pnpm --silent wallet-core:deploy:env-prepare -- \
-  --env "$target" \
+  --lane "$lane" \
   --values-file "$values_file" \
   --rotate \
   --repo "$repository" \
@@ -82,16 +99,20 @@ product_manifest="$(node -e \
 
 printf '\nUploading wallet-core environments from:\n%s\n\n' "$wallet_core_manifest" >&2
 pnpm --silent wallet-core:deploy:env-apply -- \
-  --env "$target" \
+  --lane "$lane" \
   --manifest-file "$wallet_core_manifest" \
   --rotate \
   --repo "$repository"
 
-printf '\nUploading product environment from:\n%s\n\n' "$product_manifest" >&2
-pnpm --silent product:deploy:env-apply -- \
-  --env "$target" \
-  --manifest-file "$product_manifest" \
-  --repo "$repository"
+if [[ -n "$site" ]]; then
+  printf '\nUploading %s product environment from:\n%s\n\n' "$site" "$product_manifest" >&2
+  pnpm --silent product:deploy:env-apply -- \
+    --site "$site" \
+    --manifest-file "$product_manifest" \
+    --repo "$repository"
+else
+  printf '\nSkipping product environment apply for %s; apply the shared production product manifest once from the production-mainnet rotation.\n' "$lane" >&2
+fi
 
 printf '\nComplete generation backup: %s\n' "$backup_file" >&2
 printf 'Wallet-core manifest: %s\n' "$wallet_core_manifest" >&2

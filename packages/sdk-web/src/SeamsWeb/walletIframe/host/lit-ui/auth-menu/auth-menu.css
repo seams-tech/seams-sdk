@@ -3,7 +3,42 @@ seams-auth-menu-surface {
   display: block;
   inline-size: 100dvw;
   max-inline-size: min(100dvw, 420px);
+  --w3a-spacing-sm: 0.5rem;
+  --w3a-spacing-md: 1rem;
   --w3a-spacing-lg: 1.5rem;
+  /* Two curves, no more — mixed generic eases read as cheap.
+     --w3a-ease-out decelerates an entering view.
+     --w3a-ease-settle is the container's resize curve: a critically damped
+     spring, i.e. bounce 0. Overshoot was the wrong instinct here. An elastic
+     curve on a box whose height is sampled across the iframe boundary spends
+     its most legible frames past the target and then walks back, which reads
+     as slop rather than life; the references this is modelled on use bounce 0
+     for every state change and reserve motion character for enters. Front-load
+     the distance instead: ~80% of the travel lands in the first ~40% of the
+     duration, so the deceleration stays readable at 200ms. */
+  /* One duration for the whole box. Every part of the card's geometry reads
+     from this, so header, switcher and root can never settle at different
+     rates and split one movement into two. --w3a-duration-enter matches it
+     so the incoming view finishes with the box rather than trailing it. */
+  /* The card's height floor. The waiting view derives its own floor from this
+     so the two can never drift apart — see .w3a-waiting. */
+  --w3a-menu-min-block-size: 250px;
+  --w3a-duration-resize: 200ms;
+  --w3a-duration-enter: 200ms;
+  --w3a-ease-out: cubic-bezier(0.25, 1, 0.5, 1);
+  --w3a-ease-settle: cubic-bezier(0.32, 0.72, 0, 1);
+  /* The card's height is a composite: the content switcher animates px -> px
+     (syncContentHeight measures .w3a-content-sizer and writes an explicit
+     height), while the header collapses `height: auto` -> `0px`, which is not
+     interpolable. So one part of the box eased and the other stepped, and the
+     sum read as a jump followed by a glide rather than one curve. Making
+     keyword sizes interpolable puts the header on the same settle as the
+     switcher, so the whole card moves as a single easing.
+     Chromium-only for now; elsewhere the header keeps stepping and the
+     switcher keeps easing, i.e. exactly today's behaviour. */
+  interpolate-size: allow-keywords;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   color: var(--w3a-colors-textPrimary);
   font-family: var(
     --w3a-font-family,
@@ -30,8 +65,16 @@ seams-auth-menu-surface {
   width: min(100dvw, 420px);
   max-width: 100dvw;
   min-width: 330px;
-  min-height: 250px;
+  min-height: var(--w3a-menu-min-block-size, 250px);
   color: var(--w3a-colors-textPrimary);
+  font-family: var(
+    --w3a-font-family,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif
+  );
   background: var(--w3a-colors-colorBackground);
   border: 1px solid var(--w3a-colors-borderPrimary);
   border-radius: var(--w3a-shape-card, 16px);
@@ -46,10 +89,10 @@ seams-auth-menu-surface {
   display: flex;
   flex-direction: column;
   transition:
-    min-height 230ms cubic-bezier(0.34, 1.18, 0.64, 1),
-    padding 230ms cubic-bezier(0.34, 1.18, 0.64, 1),
+    min-height var(--w3a-duration-resize, 200ms)
+      var(--w3a-ease-settle, cubic-bezier(0.32, 0.72, 0, 1)),
+    padding var(--w3a-duration-resize, 200ms) var(--w3a-ease-settle, cubic-bezier(0.32, 0.72, 0, 1)),
     border-radius 300ms cubic-bezier(0.22, 1, 0.36, 1);
-  will-change: min-height, padding;
 }
 
 /* Back button */
@@ -109,18 +152,26 @@ seams-auth-menu-surface {
   height: auto;
   overflow: hidden;
   transition:
-    opacity 240ms ease-out,
-    height 230ms cubic-bezier(0.34, 1.18, 0.64, 1),
-    padding 230ms cubic-bezier(0.34, 1.18, 0.64, 1),
-    margin 230ms cubic-bezier(0.34, 1.18, 0.64, 1);
+    opacity 120ms ease-out,
+    height var(--w3a-duration-resize, 200ms) var(--w3a-ease-settle, cubic-bezier(0.32, 0.72, 0, 1)),
+    padding var(--w3a-duration-resize, 200ms) var(--w3a-ease-settle, cubic-bezier(0.32, 0.72, 0, 1)),
+    margin var(--w3a-duration-resize, 200ms) var(--w3a-ease-settle, cubic-bezier(0.32, 0.72, 0, 1));
   pointer-events: auto;
   position: relative;
-  will-change: height, opacity;
 }
 
 /* Hide the generic menu header when a sub-state renders its own header
    (waiting / scan / OTP code / wallet-naming) — otherwise two headers stack
    with a dead gap between them. */
+/* Entering the loading view is the one resize on the critical path of a
+   ceremony the user just initiated — snappier than the browsing-speed default.
+   The override lives on the root, so every geometry transition inside (header,
+   switcher, content area) retimes together; leaving the state restores the
+   default in the same style recalc that starts the return transition. */
+.w3a-signup-menu-root[data-waiting='true'] {
+  --w3a-duration-resize: 150ms;
+}
+
 .w3a-signup-menu-root[data-waiting='true'] .w3a-header,
 .w3a-signup-menu-root[data-scan-device='true'] .w3a-header,
 .w3a-signup-menu-root[data-otp-prompt='true'] .w3a-header,
@@ -140,26 +191,31 @@ seams-auth-menu-surface {
 .w3a-signup-menu-root[data-otp-prompt='true'] .w3a-content-area,
 .w3a-signup-menu-root[data-registration-prompt='true'] .w3a-content-area {
   flex: 1 1 auto;
-  transition: height 230ms cubic-bezier(0.34, 1.18, 0.64, 1);
+  /* The switcher's box is what animates during a resize; the content inside
+     keeps its intrinsic height. Centre it in that animating box so the message
+     holds the centre line instead of riding the shrinking top edge downward.
+     Centring here rather than stretching the sizer is deliberate: the sizer's
+     scrollHeight is what drives the animation, so stretching it would feed its
+     own height back into the measurement. */
+  justify-content: center;
+  transition: height var(--w3a-duration-resize, 200ms)
+    var(--w3a-ease-settle, cubic-bezier(0.32, 0.72, 0, 1));
 }
 
 /* Specific height adjustments for different states */
-.w3a-signup-menu-root[data-waiting='true'] {
-  min-height: 255px;
-}
-
 .w3a-signup-menu-root[data-scan-device='true'] {
   min-height: 300px;
 }
 
 .w3a-signup-menu-root[data-otp-prompt='true'] {
-  min-height: 310px;
+  min-height: 270px;
 }
 
 .w3a-title {
   font-size: 21px;
   font-weight: 600;
   margin: 0.5rem 0.75rem;
+  text-wrap: balance;
 }
 
 .w3a-signup-menu-root[data-registration-prompt='true'] .w3a-header,
@@ -175,6 +231,7 @@ seams-auth-menu-surface {
   margin: 0;
   margin-bottom: 1rem;
   margin-left: 0.75rem;
+  text-wrap: pretty;
 }
 
 /* Content switcher container */
@@ -183,8 +240,8 @@ seams-auth-menu-surface {
   flex-direction: column;
   overflow: hidden;
   /* ensure smooth height animations without spillover */
-  transition: height 230ms cubic-bezier(0.34, 1.18, 0.64, 1);
-  will-change: height;
+  transition: height var(--w3a-duration-resize, 200ms)
+    var(--w3a-ease-settle, cubic-bezier(0.32, 0.72, 0, 1));
 }
 
 .w3a-content-switcher:has(.w3a-account-menu.is-open) {
@@ -198,7 +255,8 @@ seams-auth-menu-surface {
   flex: 0 1 auto;
   display: flex;
   flex-direction: column;
-  transition: height 230ms cubic-bezier(0.34, 1.18, 0.64, 1);
+  transition: height var(--w3a-duration-resize, 200ms)
+    var(--w3a-ease-settle, cubic-bezier(0.32, 0.72, 0, 1));
 }
 
 /* Intrinsic sizer wrapper inside content area used for height measurement */
@@ -216,15 +274,20 @@ seams-auth-menu-surface {
   width: 100%;
 }
 
+/* Enter recipe: opacity + blur + a small rise. No scale — scaling a text block
+   re-rasterizes glyphs mid-animation and shimmers. Exits stay instant: an
+   outgoing view doesn't deserve the attention an incoming one gets. */
 @keyframes content-enter {
   from {
     opacity: 0;
-    transform: scale(0.98) translateY(6px);
+    transform: translateY(6px);
+    filter: blur(4px);
   }
 
   to {
     opacity: 1;
-    transform: scale(1) translateY(0);
+    transform: translateY(0);
+    filter: blur(0);
   }
 }
 
@@ -342,6 +405,13 @@ seams-auth-menu-surface {
   box-shadow: var(--w3a-shadows-sm);
 }
 
+/* Press acknowledgement. Lives in the existing transform transition, so a
+   released or moved pointer retargets mid-flight instead of finishing a
+   stale keyframe. */
+.w3a-auth-method-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
 .w3a-auth-method-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -426,10 +496,14 @@ seams-auth-menu-surface {
   flex-direction: column;
   gap: 12px;
   width: 100%;
-  min-height: 270px;
+  /* Floor, not a target: real content still grows the card. Sized so the OTP
+     view (title, delivery line, six slots, helper, resend) sits comfortably
+     without the ~2.5rem of dead air it used to reserve. padding-top stays —
+     it clears the absolute-positioned back button. */
+  min-height: 230px;
   padding-top: 42px;
   justify-content: center;
-  animation: content-enter 220ms ease-out;
+  animation: content-enter var(--w3a-duration-enter, 200ms) var(--w3a-ease-out, ease-out);
 }
 
 .w3a-otp-prompt-copy {
@@ -456,6 +530,21 @@ seams-auth-menu-surface {
   font-size: 0.9rem;
   line-height: 1.4;
   text-align: center;
+  text-wrap: pretty;
+  /* A status line, not a hero: fade + focus only, no positional motion. */
+  animation: status-enter 200ms var(--w3a-ease-out, ease-out) both;
+}
+
+@keyframes status-enter {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+  }
+
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
 }
 
 .w3a-otp-error,
@@ -607,6 +696,9 @@ seams-auth-menu-surface {
   font-size: 1.35rem;
   font-weight: 700;
   line-height: 1;
+  /* Equal-width digits: a slot's glyph can't nudge its neighbours as the
+     code fills in. */
+  font-variant-numeric: tabular-nums;
   transition:
     border-color 160ms ease,
     box-shadow 160ms ease,
@@ -793,8 +885,7 @@ seams-auth-menu-surface {
   pointer-events: none;
   visibility: hidden;
   /* React enables once measured */
-  will-change: left;
-  transition: left 32ms ease;
+  transition: left 32ms var(--w3a-ease-out, cubic-bezier(0.25, 1, 0.5, 1));
 }
 
 .w3a-postfix.is-existing {
@@ -888,7 +979,7 @@ seams-auth-menu-surface {
   background: var(--w3a-colors-colorBackground);
   box-shadow: var(--w3a-shadows-lg);
   z-index: 20;
-  animation: content-enter 100ms ease-out;
+  animation: content-enter 180ms var(--w3a-ease-out, ease-out);
 }
 
 .w3a-account-menu-group + .w3a-account-menu-group {
@@ -988,23 +1079,53 @@ seams-auth-menu-surface {
   gap: 16px;
   background: transparent;
   text-align: center;
-  min-height: 180px;
-  /* Quick fade with configurable delay for smoother handoff */
-  animation: content-enter 200ms ease-out;
-  animation-delay: var(--w3a-waiting-delay, 0ms);
-  animation-fill-mode: both;
+  /* Fill the card rather than just the message. The root carries a height
+     floor, so a shorter waiting box sat top-anchored inside a taller card:
+     justify-content centred the message in the BOX, and the box's own dead
+     space below it put the message above the card's true centre. While the
+     card animated its height, the message then rode the moving top edge
+     downward instead of holding still. Matching the card's inner height makes
+     the box and the card the same thing, so centring in one centres in both. */
+  min-height: calc(
+    var(--w3a-menu-min-block-size, 250px) - var(--w3a-seams-auth-menu-padding-top) -
+      var(--w3a-spacing-lg)
+  );
 }
+
+/* No enter animation on the waiting view: arriving here is instant, so the
+   spinner is already turning the moment the state flips. The spinner keeps
+   only its rotation (see .w3a-spinner) — do not add an `animation:` shorthand
+   on this selector, it would shadow the rotation and freeze it. */
 
 .w3a-waiting-message {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
+  /* Deliberately longer than --w3a-duration-enter and than the 150ms resize
+     into this view: the box arrives first and the wording settles into it,
+     rather than both landing at once. `both` holds opacity 0 before the first
+     frame so the text cannot flash at full opacity.
+     This lives on the message wrapper, never on .w3a-waiting — the spinner is
+     a sibling there, and an `animation` shorthand on the parent would shadow
+     its rotation and freeze it. */
+  animation: fade-in 250ms var(--w3a-ease-out, ease-out) both;
+  /* Centring is recomputed by layout on every frame of the resize, so the
+     block's offset lands on fractional pixels and the glyphs re-rasterise at a
+     slightly different rounded position each frame — seen as jitter. Promoting
+     the block to its own layer lets the compositor interpolate that sub-pixel
+     offset instead of re-rendering the text at each rounded step.
+     This is the sanctioned use of will-change: a compositable property, added
+     only after observing the stutter. The layout-property will-change
+     declarations removed elsewhere in this file were neither. */
+  will-change: transform;
+  transform: translateZ(0);
 }
 
 .w3a-waiting-text {
   font-size: 18px;
   font-weight: 600;
+  text-wrap: balance;
 }
 
 .w3a-waiting-subtext {
@@ -1144,7 +1265,7 @@ seams-auth-menu-surface {
   min-height: 300px;
   width: 100%;
   overflow: hidden;
-  animation: content-enter 240ms ease-out;
+  animation: content-enter var(--w3a-duration-enter, 200ms) var(--w3a-ease-out, ease-out);
   animation-fill-mode: both;
 }
 
@@ -1422,23 +1543,7 @@ seams-auth-menu-surface {
   box-sizing: border-box;
 }
 
-.w3a-signin-menu > .w3a-header,
-.w3a-signin-menu > .w3a-passkey-row,
-.w3a-signin-menu > .w3a-auth-methods,
-.w3a-signin-menu > .w3a-scan-device-row,
-.w3a-signin-menu > .w3a-auth-intent-switch,
-.w3a-signin-menu > .w3a-method-error {
-  animation: content-enter 220ms ease-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .w3a-signup-menu-root,
-  .w3a-signup-menu-root *,
-  .w3a-signup-menu-root *::before,
-  .w3a-signup-menu-root *::after {
-    scroll-behavior: auto !important;
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
-  }
-}
+/* No enter animation on the sign-in/sign-up rows. These re-render on every
+   mode toggle, so an opacity 0 -> 1 fade re-fires on content that is largely
+   unchanged and reads as a flash. The host dialog's own 150ms height
+   transition carries the toggle; the rows simply swap. */

@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
+import { assertExpectedWorkerServices } from '../../scripts/deploy-backend.mjs';
 
 type CommandResult = {
   readonly status: number | null;
@@ -14,6 +15,10 @@ type CommandResult = {
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const backendScript = path.join(repoRoot, 'scripts/deploy-backend.mjs');
 const frontendScript = path.join(repoRoot, 'scripts/deploy-frontend.mjs');
+const environmentGeneratorScript = path.join(
+  repoRoot,
+  'crates/router-ab-cloudflare/scripts/generate-github-env-values.mjs',
+);
 const deploymentSecretNames = [
   'STRIPE_API_SK',
   'RELAYER_PRIVATE_KEY',
@@ -114,6 +119,29 @@ test('production-mainnet plan reports pending provisioning and blocks operations
   );
 });
 
+test('production-shaped project policy uses the canonical Seams environment id', () => {
+  const source = readFileSync(environmentGeneratorScript, 'utf8');
+  const policyBuilder = source.match(
+    /function buildProjectPolicy\(configuration\) \{[\s\S]*?\n\}/u,
+  )?.[0];
+  const registrationValidator = source.match(
+    /function validateGatewayRegistrationDocuments\(outputDocument\) \{[\s\S]*?\n\}/u,
+  )?.[0];
+
+  expect(policyBuilder).toBeTruthy();
+  expect(registrationValidator).toBeTruthy();
+  expect(source).toContain("'SEAMS_ENV_ID'");
+  expect(policyBuilder).toContain('environment: configuration.environmentId,');
+  expect(policyBuilder).not.toContain('environment: targetName,');
+  expect(registrationValidator).toMatch(
+    /policy\.environment,\s*deploymentConfig\.tenant\.environmentId,/u,
+  );
+
+  const lanePrefix = 'production';
+  const seamsEnvironmentId = 'seams-production-mainnet';
+  expect(seamsEnvironmentId).not.toBe(lanePrefix);
+});
+
 test('frontend plan runs without deployment secrets', () => {
   const result = runCommand(
     frontendScript,
@@ -206,6 +234,30 @@ test('backend preflight rejects a missing required secret without printing value
 
   expectFailure(result, /SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY is required/u);
   expect(`${result.stdout}${result.stderr}`).not.toContain(secretValue);
+});
+
+test('backend service binding validation rejects a wrong service hidden by a later block', () => {
+  const lane = {
+    id: 'production-testnet',
+    resources: {
+      deriverA: { workerName: 'router-ab-deriver-a-testnet' },
+      deriverB: { workerName: 'router-ab-deriver-b-testnet' },
+      signingWorker: { workerName: 'router-ab-signing-worker-testnet' },
+    },
+  };
+  const section = `
+[[env.production-testnet.services]]
+binding = "DERIVER_B"
+service = "router-ab-deriver-a-testnet"
+
+[[env.production-testnet.services]]
+binding = "UNRELATED"
+service = "router-ab-deriver-b-testnet"
+`;
+
+  expect(() => assertExpectedWorkerServices(lane, 'deriver-a', section)).toThrow(
+    /production-testnet\/deriver-a must bind DERIVER_B to router-ab-deriver-b-testnet/u,
+  );
 });
 
 test('frontend commands reject backend-only operations and extra component arguments', () => {

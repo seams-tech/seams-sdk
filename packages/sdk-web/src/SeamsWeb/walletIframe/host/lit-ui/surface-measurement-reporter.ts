@@ -121,15 +121,17 @@ class SurfaceMeasurementReporter implements WalletIframeSurfaceMeasurementReport
   };
 
   private scheduleReport(): void {
-    if (this.disconnected || this.animationFrame !== null) return;
-    if (typeof requestAnimationFrame !== 'function') {
-      this.reportLatestSize();
-      return;
-    }
-    this.animationFrame = requestAnimationFrame(() => {
+    if (this.disconnected) return;
+    // Report synchronously from the ResizeObserver callback. RO already
+    // delivers at most once per frame, after layout and before paint, so
+    // deferring to requestAnimationFrame only added a whole frame of latency
+    // between this surface resizing and the host geometry that follows it —
+    // visible as the host box lagging the card during a resize.
+    if (this.animationFrame !== null && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(this.animationFrame);
       this.animationFrame = null;
-      this.reportLatestSize();
-    });
+    }
+    this.reportLatestSize();
   }
 
   private reportLatestSize(): void {

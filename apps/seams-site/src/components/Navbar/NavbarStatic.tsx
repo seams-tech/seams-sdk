@@ -20,7 +20,7 @@ import { ArrowRightAnim } from '../ArrowRightAnim';
 import SeamsWordmark from '../icons/SeamsWordmark';
 import { DashboardGoogleAuthCard } from '@/shared/auth/DashboardGoogleAuthCard';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
-import { FRONTEND_CONFIG } from '@/config';
+import { getActiveFrontendDeployment } from '@/context/frontendRuntime';
 import {
   ensureGoogleIdentityScriptLoaded,
   fetchGoogleAuthOptions,
@@ -291,10 +291,10 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
   const SCROLL_THRESHOLD_PX = 8;
 
   const { go, linkProps } = useSiteRouter();
-  const relayerBaseUrl = React.useMemo(
-    () => normalizeBaseUrl(FRONTEND_CONFIG.relayerUrl || FRONTEND_CONFIG.consoleBaseUrl),
-    [],
-  );
+  const relayerBaseUrl = React.useMemo(() => {
+    const deployment = getActiveFrontendDeployment();
+    return normalizeBaseUrl(deployment.relayerUrl || deployment.consoleBaseUrl);
+  }, []);
   const [googleClientId, setGoogleClientId] = React.useState<string>('');
   const rootRef = React.useRef<HTMLElement | null>(null);
   const dropdownButtonRefs = React.useRef<Record<DropdownId, HTMLButtonElement | null>>({
@@ -828,9 +828,7 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
                     </span>
                     <span className="navbar-static__menu-row-text">
                       <span className="navbar-static__menu-row-title">{row.title}</span>
-                      <span className="navbar-static__menu-row-description">
-                        {row.description}
-                      </span>
+                      <span className="navbar-static__menu-row-description">{row.description}</span>
                     </span>
                     {row.meta ? (
                       <span className="navbar-static__menu-row-meta">{row.meta}</span>

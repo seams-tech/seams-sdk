@@ -237,11 +237,29 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
   ]);
 
   const routerConfig = readFileSync(runtime.configs[0].configPath, 'utf8');
+  const routerVars = tomlSection(routerConfig, 'vars');
   expect(routerConfig).toContain('ROUTER_JWT_ISSUER = "http://127.0.0.1:9190"');
-  const routerJwks = parseTomlJsonAssignment(routerConfig, 'ROUTER_JWT_JWKS_JSON');
+  expect(routerVars).toContain('ROUTER_JWT_ISSUER = "http://127.0.0.1:9190"');
+  expect(routerVars).toContain('ROUTER_JWT_AUDIENCE = "router-ab"');
+  const routerJwks = parseTomlJsonAssignment(routerVars, 'ROUTER_JWT_JWKS_JSON');
   expect(routerJwks).toMatchObject({
     keys: [{ alg: 'EdDSA', crv: 'Ed25519', kid: 'local-router-ab-r1', kty: 'OKP', use: 'sig' }],
   });
+  expect(routerVars).toContain(
+    `DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY = ${JSON.stringify(fixture.deriverA.publicKey)}`,
+  );
+  expect(routerVars).toContain(
+    `DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY = ${JSON.stringify(fixture.deriverB.publicKey)}`,
+  );
+  expect(routerVars).toContain(
+    `DERIVER_A_PEER_VERIFYING_KEY_HEX = "${localPeerVerifyingKeyHex(DERIVER_A_PEER_SIGNING_KEY)}"`,
+  );
+  expect(routerVars).toContain(
+    `DERIVER_B_PEER_VERIFYING_KEY_HEX = "${localPeerVerifyingKeyHex(DERIVER_B_PEER_SIGNING_KEY)}"`,
+  );
+  expect(routerVars).toContain(
+    `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = ${JSON.stringify(fixture.signingWorker.publicKey)}`,
+  );
   expect(routerConfig).toContain('binding = "DERIVER_A"');
   expect(routerConfig).toContain('service = "router-ab-deriver-a"');
   expect(routerConfig).not.toContain('[build]');
@@ -259,9 +277,30 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
     'DERIVER_A_ROLE_PRIVATE_D1_KEK=hpke-x25519-role-private-d1-private-v1:',
   );
   const deriverAConfig = readFileSync(runtime.configs[1].configPath, 'utf8');
+  const deriverAVars = tomlSection(deriverAConfig, 'vars');
   expect(deriverAConfig).toContain('DERIVER_ROLE_PRIVATE_D1_KEK_VERSION = "local-epoch-1"');
   expect(deriverAConfig).toContain('DERIVER_ROLE_PRIVATE_D1_ENVIRONMENT = "local"');
   expect(deriverAConfig).toMatch(/DERIVER_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY = "x25519:[0-9a-f]{64}"/u);
+  expect(deriverAVars).toContain(
+    `DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY = ${JSON.stringify(fixture.deriverA.publicKey)}`,
+  );
+  expect(deriverAVars).toContain(
+    `DERIVER_A_PEER_VERIFYING_KEY_HEX = "${localPeerVerifyingKeyHex(DERIVER_A_PEER_SIGNING_KEY)}"`,
+  );
+  expect(deriverAVars).toContain(
+    `DERIVER_B_PEER_VERIFYING_KEY_HEX = "${localPeerVerifyingKeyHex(DERIVER_B_PEER_SIGNING_KEY)}"`,
+  );
+  const deriverBConfig = readFileSync(runtime.configs[2].configPath, 'utf8');
+  const deriverBVars = tomlSection(deriverBConfig, 'vars');
+  expect(deriverBVars).toContain(
+    `DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY = ${JSON.stringify(fixture.deriverB.publicKey)}`,
+  );
+  expect(deriverBVars).toContain(
+    `DERIVER_A_PEER_VERIFYING_KEY_HEX = "${localPeerVerifyingKeyHex(DERIVER_A_PEER_SIGNING_KEY)}"`,
+  );
+  expect(deriverBVars).toContain(
+    `DERIVER_B_PEER_VERIFYING_KEY_HEX = "${localPeerVerifyingKeyHex(DERIVER_B_PEER_SIGNING_KEY)}"`,
+  );
   const signingWorkerSecretFile = readFileSync(runtime.configs[3].secretPath, 'utf8');
   expect(signingWorkerSecretFile).toContain(
     'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY=hpke-x25519-server-output-private-v1:',
@@ -271,14 +310,48 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
     'SIGNING_WORKER_PRIVATE_D1_KEK=hpke-x25519-server-output-private-v1:',
   );
   const signingWorkerConfig = readFileSync(runtime.configs[3].configPath, 'utf8');
+  const signingWorkerVars = tomlSection(signingWorkerConfig, 'vars');
   expect(signingWorkerConfig).toContain('SIGNING_WORKER_PRIVATE_D1_KEK_VERSION = "local-epoch-1"');
   expect(signingWorkerConfig).toContain('SIGNING_WORKER_PRIVATE_D1_ENVIRONMENT = "local"');
   expect(signingWorkerConfig).toMatch(
     /SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY = "x25519:[0-9a-f]{64}"/u,
   );
+  expect(signingWorkerVars).toContain(
+    `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = ${JSON.stringify(fixture.signingWorker.publicKey)}`,
+  );
+  for (const config of runtime.configs) {
+    if (!config.privateD1) continue;
+    const generated = readFileSync(config.configPath, 'utf8');
+    const relativeMigrationsDirectory = `migrations_dir = "migrations/${config.privateD1.migrationsDirectory}"`;
+    const absoluteMigrationsDirectory = `migrations_dir = ${JSON.stringify(
+      path.join(
+        repoRoot(),
+        'crates',
+        'router-ab-cloudflare',
+        'migrations',
+        config.privateD1.migrationsDirectory,
+      ),
+    )}`;
+    expect(generated).not.toContain(relativeMigrationsDirectory);
+    expect(generated).toContain(absoluteMigrationsDirectory);
+    // Miniflare keys local D1 storage by database_id. The rendered id must be
+    // the role's pinned local id — never a deploy-lane placeholder, whose
+    // renames would orphan all local signing/derivation state on restart.
+    expect(generated).toContain(
+      `database_id = ${JSON.stringify(config.privateD1.localDatabaseId)}`,
+    );
+    expect(tomlSection(generated, '[d1_databases]')).not.toContain('__');
+  }
+  expect(runtime.configs.map((config) => config.privateD1?.localDatabaseId)).toEqual([
+    undefined,
+    '00000000-0000-0000-0000-0000000094a1',
+    '00000000-0000-0000-0000-0000000094b1',
+    '00000000-0000-0000-0000-0000000094c1',
+  ]);
   expect(runtime.configs[3].privateD1).toEqual({
     databaseName: 'router-ab-signing-worker-private',
     migrationsDirectory: 'signing-worker',
+    localDatabaseId: '00000000-0000-0000-0000-0000000094c1',
   });
   expect(signingWorkerConfig).toContain(
     `migrations_dir = ${JSON.stringify(

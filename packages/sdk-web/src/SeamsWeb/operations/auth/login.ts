@@ -30,7 +30,7 @@ import type {
   UserAccountLookupSurface,
   WalletSessionWebContext,
 } from '@/SeamsWeb/signingSurface/types';
-import type { AccountId } from '@/core/types/accountIds';
+import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { EcdsaCapabilitySelector } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
@@ -57,10 +57,7 @@ import {
   type MpcWalletSigningQuotaId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import {
-  decodeJwtPayloadRecord,
-  walletSessionJwtAuth,
-} from '@shared/utils/sessionTokens';
+import { decodeJwtPayloadRecord, walletSessionJwtAuth } from '@shared/utils/sessionTokens';
 import {
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
@@ -205,9 +202,7 @@ import {
   buildPasskeyEd25519RestoreMetadata,
   persistPasskeyEd25519YaoSessionForRefresh,
 } from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
-import {
-  passkeyEd25519YaoLaneReferenceFromRecovery,
-} from '@/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery';
+import { passkeyEd25519YaoLaneReferenceFromRecovery } from '@/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery';
 import {
   rebindRouterAbEd25519WalletSessionStateFromExactRuntime,
   type ResolvedRouterAbEd25519WalletSessionState,
@@ -1590,25 +1585,10 @@ export async function unlockResolvedWalletSubjectSet(
   return await unlockInternal(context, subjectSet, options);
 }
 
-/**
- * Host-only continuation used by the wallet-iframe auth menu after its CTA has
- * synchronously collected the passkey assertion. Direct unlock callers keep
- * using `unlockResolvedWalletSubjectSet`, which owns its own prompt.
- */
-export async function unlockResolvedWalletSubjectSetWithPasskeyCredential(
-  context: LoginWebContext,
-  subjectSet: WalletUnlockSubjectSet,
-  credential: WebAuthnAuthenticationCredential,
-  options?: LoginHooksOptions,
-): Promise<LoginAndCreateSessionResult> {
-  return await unlockInternal(context, subjectSet, options, credential);
-}
-
 async function unlockInternal(
   context: LoginWebContext,
   subjectSet: WalletUnlockSubjectSet,
   options: LoginHooksOptions | undefined,
-  initialLoginCredential?: WebAuthnAuthenticationCredential,
 ): Promise<LoginAndCreateSessionResult> {
   const { onEvent, onError, afterCall } = options || {};
   const { signingEngine } = context;
@@ -1624,7 +1604,7 @@ async function unlockInternal(
     walletIdentity.kind === 'near_ed25519_capable_wallet'
       ? String(walletIdentity.nearAccountId)
       : String(walletIdentity.walletId);
-  let loginCredential: WebAuthnAuthenticationCredential | undefined = initialLoginCredential;
+  let loginCredential: WebAuthnAuthenticationCredential | undefined;
 
   // All unlock branches emit the same ordered event stream for caller progress UIs.
   emitUnlockEvent(onEvent, unlockSubjectId, {
@@ -1871,8 +1851,7 @@ async function unlockInternal(
         wantsEd25519Warmup: warmupInput.wantsEd25519Warmup,
       });
       const combinedEd25519EcdsaWarmup =
-        warmupPlan.signersToWarm.includes('ed25519') &&
-        warmupPlan.signersToWarm.includes('ecdsa');
+        warmupPlan.signersToWarm.includes('ed25519') && warmupPlan.signersToWarm.includes('ecdsa');
       const passkeyExchangeEcdsaActivationForWarmup = combinedEd25519EcdsaWarmup
         ? null
         : completedPasskeyExchangeEcdsaActivation;
@@ -2060,8 +2039,27 @@ async function unlockInternal(
     };
 
     // Login persistence is intentionally after auth and warmup side effects succeed.
+    //
+    // A NEAR-capable wallet has TWO profile records: the wallet profile and the
+    // NEAR account projection. setLastUser writes the last-user pointer against
+    // the WALLET profile, but getLastLoggedInSignerSlot — which NEAR signing
+    // resolves its signer slot through — reads it against the projection, and
+    // throws "No last user session for account <id>" when they disagree.
+    // Registration never hit this because it activates through
+    // activateAuthenticatedWalletState, which writes the projection. Unlock has
+    // to do the same, or signing works only in the session where the wallet was
+    // registered. Warmup cannot repair it either: it derives its signerSlot from
+    // the very read that is failing, so it skips activation exactly when the
+    // pointer is missing.
     const persistSuccessfulLoginState = async (signerSlot: number): Promise<void> => {
       await signingEngine.setLastUser(walletIdentity.walletId, signerSlot);
+      if (walletIdentity.kind !== 'near_ed25519_capable_wallet') return;
+      await signingEngine.activateAuthenticatedWalletState({
+        walletId: walletIdentity.walletId,
+        nearAccountId: toAccountId(walletIdentity.nearAccountId),
+        signerSlot,
+        nearClient: context.nearClient,
+      });
     };
 
     // Nonce recovery is best-effort; stale lane leases should not fail login.
@@ -3302,8 +3300,9 @@ async function primeThresholdLoginWarmSigners(args: {
           throw new Error('[login] threshold Ed25519 warm-up did not return a JWT session token');
         }
 
-        const activeEd25519Authorization =
-          await persistActiveWalletSessionAuthorizationCurve(walletSessionAuthorizations, {
+        const activeEd25519Authorization = await persistActiveWalletSessionAuthorizationCurve(
+          walletSessionAuthorizations,
+          {
             walletId: walletBinding.walletId,
             walletSessionId: connected.walletSessionId,
             quotaId: connected.quotaId,
@@ -3314,7 +3313,8 @@ async function primeThresholdLoginWarmSigners(args: {
             authMethod: args.authMethod,
             walletSessionJwt: connectedJwt,
             curve: 'ed25519',
-          });
+          },
+        );
 
         const connectedEcdsaDerivationPasskeyPrfFirstB64u = String(
           connected.ecdsaDerivationPasskeyPrfFirstB64u || '',
@@ -3368,12 +3368,11 @@ async function primeThresholdLoginWarmSigners(args: {
           if (runtimeResolution.kind !== 'resolved') {
             throw new Error('[login] local Ed25519 material requires its exact sealed runtime');
           }
-          const walletSessionState =
-            await rebindRouterAbEd25519WalletSessionStateFromExactRuntime({
-              runtime: runtimeResolution.runtime,
-              authorization: activeEd25519Authorization,
-              nowMs: Date.now(),
-            });
+          const walletSessionState = await rebindRouterAbEd25519WalletSessionStateFromExactRuntime({
+            runtime: runtimeResolution.runtime,
+            authorization: activeEd25519Authorization,
+            nowMs: Date.now(),
+          });
           await args.signingEngine.withExactEd25519MaterialOwner({
             materialActivation: expectedMaterialActivation,
             nearAccountId: walletBinding.nearAccountId,

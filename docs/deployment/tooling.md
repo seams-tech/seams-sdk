@@ -29,12 +29,12 @@ update deployment environments, Actions variables, and Actions secrets.
 
 ## GitHub Environment Bootstrap
 
-Prepare one audited deployment generation before the first deployment or an
-intentional identity rotation:
+Prepare one audited backend-lane generation before the first deployment or an
+intentional identity rotation. Product Pages use the paired frontend site:
 
 ```bash
-pnpm wallet-core:deploy:env-prepare -- --env staging --repo seams-tech/seams-sdk
-pnpm wallet-core:deploy:env-prepare -- --env production --repo seams-tech/seams-sdk
+pnpm wallet-core:deploy:env-prepare -- --lane staging-testnet --repo seams-tech/seams-sdk
+pnpm wallet-core:deploy:env-prepare -- --lane production-mainnet --repo seams-tech/seams-sdk
 ```
 
 Each invocation validates the complete target and writes two owner-only
@@ -82,34 +82,35 @@ this order:
 2. Target-specific names such as `STAGING__CLOUDFLARE_API_TOKEN`.
 3. Shared names such as `CLOUDFLARE_API_TOKEN`.
 
-The public `staging` and `production` demo profiles target NEAR testnet and use
+The provisioned `staging` profile targets NEAR testnet and uses
 `demo_code_response`, which returns the six-digit code to the exact configured
-demo origin. The server supports `provider_and_demo_code` when an embedding
-supplies a real email-provider adapter. The repository's deployed Gateway does
-not expose that mode until its provider integration is wired. Use
-`GATEWAY_RUNTIME_PROFILE=mainnet_service` for a future mainnet deployment. That
-profile rejects demo-code delivery and requires `email_provider` delivery.
+demo origin. Production testnet and mainnet are represented by pending lane
+provisioning until fresh resources and identities are generated. The server
+supports `provider_and_demo_code` when an embedding supplies a real email-
+provider adapter. Use `GATEWAY_RUNTIME_PROFILE=mainnet_service` for a future
+mainnet generation; that profile rejects demo-code delivery and requires
+`email_provider` delivery.
 
-The generated manifest includes a top-level `gatewayDeploymentConfig` document.
-Review and copy it into the target's `gatewayDeploymentConfig` field in
-`deployment/targets.json` before deploying. Later profile, origin, public key,
-or delivery-mode changes are ordinary reviewed target-file changes and never
-rotate Router A/B identities.
+The generated manifest contains the lane's public handoff and Gateway
+deployment configuration. Review it against the matching lane's
+`provisioning` branch in `deployment/targets.json` before deploying. Later
+profile, origin, public key, or delivery-mode changes are ordinary reviewed
+target-file changes and never rotate Router A/B identities.
 
 Prepare the manifests, then upload each ownership group explicitly:
 
 ```bash
 pnpm wallet-core:deploy:env-prepare -- \
-  --env staging \
+  --lane staging-testnet \
   --repo seams-tech/seams-sdk
 
 pnpm wallet-core:deploy:env-apply -- \
-  --env staging \
+  --lane staging-testnet \
   --manifest-file "$HOME/.seams/backups/<wallet-core-manifest>.json" \
   --repo seams-tech/seams-sdk
 
 pnpm product:deploy:env-apply -- \
-  --env staging \
+  --site staging \
   --manifest-file "$HOME/.seams/backups/<product-manifest>.json" \
   --repo seams-tech/seams-sdk
 ```
@@ -119,12 +120,12 @@ The generator automatically loads
 select a different protected file.
 
 Prepare mode provisions or discovers shared Cloudflare resources and validates
-the complete six-environment topology: one frontend environment plus the five
-wallet-core role environments. Component apply mode:
+the complete six-environment topology for one release: one frontend environment
+plus the five wallet-core role environments. Component apply mode:
 
 - Creates missing GitHub Environments.
 - Preserves existing environments and their protection rules.
-- Creates missing target-scoped D1 databases and Pages projects.
+- Creates missing release-scoped D1 databases and Pages projects.
 - Generates and uploads all repository-owned cryptographic secrets.
 - Uploads externally owned values loaded from the protected file or shell.
 - Discovers the Cloudflare account ID and existing Cloudflare resources through
@@ -141,6 +142,11 @@ wallet-core role environments. Component apply mode:
 - Refuses product upload when the wallet-core generation metadata differs.
 - Prints the exact uploaded variables and secrets to stdout for backup.
 
+The generator accepts one backend `--lane` (`staging-testnet`,
+`production-testnet`, or `production-mainnet`) for wallet-core work and one
+frontend `--site` (`staging` or `production`) for product work. Pending
+production lanes are rejected before credentials or GitHub are accessed.
+
 `--allow-incomplete` permits an intentional partial setup. Avoid it for a
 deployment checkpoint because rerunning the generator rotates repository-owned
 identity material.
@@ -149,7 +155,7 @@ CLI options can override the most common public identity values:
 
 ```bash
 pnpm wallet-core:deploy:env-prepare -- \
-  --env staging \
+  --lane staging-testnet \
   --gateway-origin https://gateway.staging.example.com \
   --org-id org-id \
   --project-id project-id \
@@ -169,7 +175,7 @@ After the initial setup, preview operator-owned configuration changes:
 
 ```bash
 pnpm wallet-core:deploy:env-update -- \
-  --env staging \
+  --lane staging-testnet \
   --repo seams-tech/seams-sdk
 ```
 
@@ -177,7 +183,7 @@ Apply the displayed plan:
 
 ```bash
 pnpm wallet-core:deploy:env-update -- \
-  --env staging \
+  --lane staging-testnet \
   --repo seams-tech/seams-sdk \
   --apply
 ```
@@ -186,7 +192,7 @@ Limit an update to named values when changing one integration:
 
 ```bash
 pnpm wallet-core:deploy:env-update -- \
-  --env staging \
+  --lane staging-testnet \
   --repo seams-tech/seams-sdk \
   --only RELAYER_PRIVATE_KEY,SPONSORED_EVM_EXECUTORS_JSON \
   --apply
@@ -207,7 +213,7 @@ Update product-owned Pages and browser network values independently:
 
 ```bash
 pnpm product:deploy:env-update -- \
-  --env staging \
+  --site staging \
   --repo seams-tech/seams-sdk \
   --apply
 ```
@@ -218,8 +224,9 @@ run the product update. The product update reads the checked-in Gateway profile
 and synchronizes `VITE_NEAR_NETWORK`, `VITE_NEAR_RPC_URL`, and
 `VITE_NEAR_EXPLORER` so the browser and Gateway target the same NEAR network.
 
-The command reads
-`$HOME/.seams/<target>-deployment.env` and updates only whitelisted
+The command reads the protected values file for the selected lane/site
+(`staging-deployment.env`, `production-testnet-deployment.env`, or
+`production-deployment.env`) and updates only whitelisted
 external values:
 
 - Cloudflare deployment token and account ID for every target service.
@@ -259,7 +266,19 @@ generation, saves the complete backup, applies wallet-core, then applies the
 paired product manifest:
 
 ```bash
-pnpm deploy:env-rotate -- staging
+pnpm deploy:env-rotate -- staging-testnet
+```
+
+Production rotations keep custody manifests lane-scoped. Run the testnet
+rotation first; it updates only the five `production-testnet-*` environments
+and leaves the shared `production` Pages environment untouched. After both
+production lanes are prepared, run the mainnet rotation. Its product manifest
+uses the `production` site identity and carries both production lane handoffs,
+so the shared product environment is applied once:
+
+```bash
+pnpm deploy:env-rotate -- production-testnet
+pnpm deploy:env-rotate -- production-mainnet
 ```
 
 The operation writes these non-secret audit variables to all six GitHub
@@ -280,7 +299,7 @@ product manifest. Do not prepare another generation:
 
 ```bash
 pnpm product:deploy:env-apply -- \
-  --env staging \
+  --site staging \
   --manifest-file "$HOME/.seams/backups/<same-generation-product-manifest>.json" \
   --repo seams-tech/seams-sdk
 ```
@@ -290,7 +309,7 @@ deploying:
 
 ```bash
 pnpm deploy:env-verify -- \
-  --env staging \
+  --lane staging-testnet \
   --repo seams-tech/seams-sdk
 ```
 
@@ -304,7 +323,7 @@ from that same invocation:
 
 ```bash
 umask 077
-pnpm --silent wallet-core:deploy:env-prepare -- --env staging --json \
+pnpm --silent wallet-core:deploy:env-prepare -- --lane staging-testnet --json \
   --values-file "$HOME/.seams/staging-deployment.env" \
   --repo seams-tech/seams-sdk \
   > staging-complete-generation.json
@@ -320,16 +339,15 @@ to the approved secrets vault when local retention is not permitted.
 The complete environment generator should be preferred for a new target. The
 lower-level generators are useful for controlled rotation or inspection:
 
-| Command                                      | Purpose                                                                                                                             |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm router:deploy:keygen -- --env staging` | Generates Router A/B public/private deployment identities only. It does not generate root shares or Gateway secrets.                |
-| `pnpm router:deploy:root-share-keygen`       | Generates the matched Deriver A and Deriver B MPC PRF root-share wire secrets. Keep each share in its assigned Deriver environment. |
-| `pnpm signing-session-seal:keygen`           | Generates Shamir 3-pass signing-session seal material for the Gateway and browser build.                                            |
+| Command                                               | Purpose                                                                                                                             |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm router:deploy:keygen -- --lane staging-testnet` | Generates Router A/B public/private deployment identities only. It does not generate root shares or Gateway secrets.                |
+| `pnpm router:deploy:root-share-keygen`                | Generates the matched Deriver A and Deriver B MPC PRF root-share wire secrets. Keep each share in its assigned Deriver environment. |
 
 The low-level key generator supports `--show-secrets`, `--json`, `--apply`, and
 `--repo`. Use `--silent` with pnpm when piping JSON. The root-share generator
-supports `--json`; the signing-session generator supports `--json`,
-`--key-version`, and `--prime-bits`.
+supports `--json`. The complete lane generator owns signing-session seal
+material so it remains matched with the Gateway manifest.
 
 Do not combine independently generated low-level outputs with an already
 applied complete manifest unless you are deliberately rotating the complete
@@ -370,20 +388,22 @@ The normal deployment path is explicit workflow dispatch:
 ```bash
 gh workflow run deploy-staging-backend.yml --ref dev
 gh workflow run deploy-staging-frontend.yml --ref dev
-gh workflow run deploy-production-backend.yml --ref main
+gh workflow run deploy-production-testnet-backend.yml --ref main
+gh workflow run deploy-production-mainnet-backend.yml --ref main
 gh workflow run deploy-production-frontend.yml --ref main
 ```
 
 Use the matching branch only. Production workflows are manual and require
 `main`; the existing `production` environment also enforces its branch policy.
-The complete order and rollback procedure are documented in
+The two production backend workflows currently remain gated by pending lane
+provisioning. The complete order and rollback procedure are documented in
 [README.md](README.md#system-and-branch-rules).
 
-The backend workflow builds all components once, validates all five custody
-environments before mutation, applies D1 migrations, then deploys
+Each backend lane workflow builds all components once, validates its five
+custody environments before mutation, applies D1 migrations, then deploys
 SigningWorker, Deriver A, Deriver B, Router, and Gateway. Backend smoke runs at
 the end of the Gateway job. The matching frontend workflow uses one job to
-build, deploy both Pages projects, and run smoke checks.
+build, deploy the site and wallet Pages projects, and run smoke checks.
 
 Do not deploy a Gateway that references a different Router A/B identity set.
 Generate and apply the target manifest before starting the matching environment

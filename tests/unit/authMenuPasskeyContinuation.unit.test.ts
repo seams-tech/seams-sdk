@@ -176,7 +176,10 @@ test.describe('hosted auth-menu passkey continuation', () => {
       expect(session.state.viewModel.mode).toBe('register');
       expect(session.state.viewModel.showRegistrationInput).toBe(true);
       expect(session.state.viewModel.passkeyName).toBe('');
-      expect(session.state.viewModel.status).toEqual({ kind: 'input_required' });
+      expect(session.state.viewModel.status).toEqual({
+        kind: 'idle',
+        interaction: 'awaiting_input',
+      });
     }
     session.cleanup();
   });
@@ -290,7 +293,8 @@ test.describe('hosted auth-menu passkey continuation', () => {
       expect(session.state.kind).toBe('preparing');
       if (session.state.kind === 'preparing') {
         expect(session.state.viewModel.status).toEqual({
-          kind: 'expired',
+          kind: 'recoverable',
+          reason: 'expired',
           message: 'Passkey preparation expired. Retry to continue.',
         });
       }
