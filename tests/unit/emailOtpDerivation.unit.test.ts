@@ -87,7 +87,7 @@ test.describe('Email OTP derivation', () => {
     );
     const unlockInfo = Buffer.from(encodeEmailOtpTuple([walletId]));
     // Parallel derivation: both branches take the client secret as IKM
-    // directly. Neither is a function of the Ed25519 threshold root.
+    // directly. Neither is a function of the retired root intermediate.
     const expectedEcdsa = base64UrlEncode(
       hkdfSync(
         'sha256',
@@ -124,7 +124,7 @@ test.describe('Email OTP derivation', () => {
     expect(base64UrlDecode(actualUnlock)).toHaveLength(32);
   });
 
-  test('the Ed25519 threshold root cannot compute the ECDSA share or unlock seed', async () => {
+  test('the retired email-otp/root intermediate cannot compute the ECDSA share or unlock seed', async () => {
     const clientSecretB64u = base64UrlEncode(
       Uint8Array.from(Array.from({ length: 32 }, (_, index) => index * 3 + 1)),
     );
@@ -132,8 +132,9 @@ test.describe('Email OTP derivation', () => {
     const userId = 'alice.testnet';
     const thresholdRoot = await deriveEmailOtpThresholdRootB64u({ clientSecretB64u, walletId });
 
-    // The retired v1 scheme derived both values from the threshold root plus
-    // public info. Reconstruct that chained computation with the root as IKM
+    // The retired v1 scheme derived both values from this intermediate plus
+    // public info. It is a sibling of the Ed25519 Yao Client root, not its
+    // parent. Reconstruct the chained computation with the intermediate as IKM
     // and assert it matches neither live output, under old or new labels.
     const chainedCandidates = [
       {
