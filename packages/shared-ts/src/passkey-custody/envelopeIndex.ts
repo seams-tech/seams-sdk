@@ -1,30 +1,31 @@
 import type { LaneShareEpoch, SigningLaneId, WalletKeyId } from '../signing-lanes/ids';
+import type { PasskeyEnvelopeId, WalletId } from '../utils/domainIds';
 import type {
-  PasskeyEnvelopeId,
-  WalletId,
-  WebAuthnCredentialIdB64u,
-  WebAuthnRpId,
-} from '../utils/domainIds';
-import type { PasskeyCustodyEnvelopeLifecycle } from './custodyEnvelope';
+  PasskeyCustodyEnvelopeLifecycle,
+  WalletCustodyEnvelopeFactor,
+} from './custodyEnvelope';
 import type { PasskeyCustodySecretKind } from './custodySecretBinding';
 
 /**
- * Public listing row for credential management: which credential protects which
- * lane, and under which envelope. It holds no ciphertext, so listing a wallet's
- * passkeys never moves sealed custody material.
+ * Public listing row for factor management: which factor protects which custody
+ * secret, under which envelope. It holds no ciphertext, so listing a wallet's
+ * enrolled factors never moves sealed custody material.
+ *
+ * Lane scope is optional because owner custody is wallet-scoped: a
+ * `wallet_custody_seed_v1` row covers every owner key and carries no lane,
+ * while a lane holder-share row names exactly one lane.
  */
 export type PasskeyDeviceEnvelopeIndexRecord = {
-  kind: 'passkey_device_envelope_index_v1';
+  kind: 'wallet_custody_envelope_index_v2';
   walletId: WalletId;
-  walletKeyId: WalletKeyId;
-  laneId: SigningLaneId;
-  laneShareEpoch: LaneShareEpoch;
   custodySecretKind: PasskeyCustodySecretKind;
-  credentialIdB64u: WebAuthnCredentialIdB64u;
-  rpId: WebAuthnRpId;
-  deviceLabel: string;
+  factor: WalletCustodyEnvelopeFactor;
   envelopeId: PasskeyEnvelopeId;
+  deviceLabel: string;
   lifecycle: PasskeyCustodyEnvelopeLifecycle;
+  walletKeyId?: WalletKeyId;
+  laneId?: SigningLaneId;
+  laneShareEpoch?: LaneShareEpoch;
   createdAtMs: number;
   updatedAtMs: number;
 };

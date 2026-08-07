@@ -33,28 +33,26 @@ fn code_scope(index: usize) -> WalletRecoveryCodeScopeV1 {
     }
 }
 
+/// The wallet-scoped owner entry: one seed covering every owner key.
 fn ed25519_entry_scope() -> WalletRecoveryEntryScopeV1 {
     WalletRecoveryEntryScopeV1 {
         wallet_id: "alice.testnet".into(),
-        lane: PasskeyCustodyLaneScopeV1 {
-            wallet_key_id: "wallet-key:ed25519:alice.testnet:root-1:v1".into(),
-            lane_id: "lane:owner:ed25519:1".into(),
-            lane_share_epoch: "lane-share-epoch-1".into(),
-        },
-        custody_secret_kind: PasskeyCustodySecretKind::Ed25519YaoClientRoot,
+        lane: None,
+        custody_secret_kind: PasskeyCustodySecretKind::WalletCustodySeed,
         key_manifest_digest: KEY_MANIFEST_DIGEST,
     }
 }
 
+/// A lane holder-share entry, scoped to exactly one lane.
 fn ecdsa_entry_scope() -> WalletRecoveryEntryScopeV1 {
     WalletRecoveryEntryScopeV1 {
         wallet_id: "alice.testnet".into(),
-        lane: PasskeyCustodyLaneScopeV1 {
+        lane: Some(PasskeyCustodyLaneScopeV1 {
             wallet_key_id: "wallet-key:evm-family:alice.testnet:root-1:v1".into(),
             lane_id: "lane:owner:evm-family:1".into(),
             lane_share_epoch: "lane-share-epoch-1".into(),
-        },
-        custody_secret_kind: PasskeyCustodySecretKind::EcdsaClientRootShare,
+        }),
+        custody_secret_kind: PasskeyCustodySecretKind::EcdsaLaneHolderShare,
         key_manifest_digest: KEY_MANIFEST_DIGEST,
     }
 }
@@ -184,11 +182,20 @@ fn substituting_entry_scope_fields_prevents_opening() {
     let mut wrong_wallet = ed25519_entry_scope();
     wrong_wallet.wallet_id = "mallory.testnet".into();
 
-    let mut wrong_lane = ed25519_entry_scope();
-    wrong_lane.lane.lane_id = "lane:linked-device:ed25519:2".into();
+    // Substituting a lane onto the wallet-scoped seed changes its scope marker.
+    let mut wrong_scope = ed25519_entry_scope();
+    wrong_scope.lane = Some(PasskeyCustodyLaneScopeV1 {
+        wallet_key_id: "wallet-key:ed25519:alice.testnet:root-1:v1".into(),
+        lane_id: "lane:linked-device:ed25519:2".into(),
+        lane_share_epoch: "lane-share-epoch-1".into(),
+    });
 
-    let mut wrong_epoch = ed25519_entry_scope();
-    wrong_epoch.lane.lane_share_epoch = "lane-share-epoch-2".into();
+    let mut wrong_epoch = ecdsa_entry_scope();
+    wrong_epoch.lane = Some(PasskeyCustodyLaneScopeV1 {
+        wallet_key_id: "wallet-key:evm-family:alice.testnet:root-1:v1".into(),
+        lane_id: "lane:owner:evm-family:1".into(),
+        lane_share_epoch: "lane-share-epoch-2".into(),
+    });
 
     let mut wrong_kind = ed25519_entry_scope();
     wrong_kind.custody_secret_kind = PasskeyCustodySecretKind::Ed25519LaneHolderShare;
@@ -198,7 +205,7 @@ fn substituting_entry_scope_fields_prevents_opening() {
 
     for scope in [
         wrong_wallet,
-        wrong_lane,
+        wrong_scope,
         wrong_epoch,
         wrong_kind,
         wrong_manifest,
@@ -366,4 +373,12 @@ fn malformed_recovery_inputs_are_rejected() {
     let mut empty_wallet = ed25519_entry_scope();
     empty_wallet.wallet_id = String::new();
     assert!(encode_recovery_entry_aad_v1(&empty_wallet).is_err());
+
+    // A wallet-scoped seed entry and a lane entry never encode alike, and
+    // neither is a prefix of the other.
+    let seed_aad = encode_recovery_entry_aad_v1(&ed25519_entry_scope()).unwrap();
+    let lane_aad = encode_recovery_entry_aad_v1(&ecdsa_entry_scope()).unwrap();
+    assert_ne!(seed_aad, lane_aad);
+    assert!(!lane_aad.starts_with(&seed_aad));
+    assert!(!seed_aad.starts_with(&lane_aad));
 }

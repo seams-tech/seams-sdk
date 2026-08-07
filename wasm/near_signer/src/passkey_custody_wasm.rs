@@ -220,11 +220,15 @@ struct WalletRecoveryCodeScopeWireV1 {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct WalletRecoveryEntryScopeWireV1 {
     wallet_id: String,
-    wallet_key_id: String,
-    lane_id: String,
-    lane_share_epoch: String,
     custody_secret_kind: String,
     key_manifest_digest_b64u: String,
+    /// Absent for the wallet-scoped owner seed entry.
+    #[serde(default)]
+    wallet_key_id: Option<String>,
+    #[serde(default)]
+    lane_id: Option<String>,
+    #[serde(default)]
+    lane_share_epoch: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -250,13 +254,21 @@ fn parse_code_scope(scope_json: &str) -> Result<WalletRecoveryCodeScopeV1, JsVal
 fn parse_entry_scope(scope_json: &str) -> Result<WalletRecoveryEntryScopeV1, JsValue> {
     let wire =
         serde_json::from_str::<WalletRecoveryEntryScopeWireV1>(scope_json).map_err(js_error)?;
+    let lane = match (wire.wallet_key_id, wire.lane_id, wire.lane_share_epoch) {
+        (None, None, None) => None,
+        (Some(wallet_key_id), Some(lane_id), Some(lane_share_epoch)) => {
+            Some(PasskeyCustodyLaneScopeV1 {
+                wallet_key_id,
+                lane_id,
+                lane_share_epoch,
+            })
+        }
+        // A partial lane scope is a caller error, not a wallet-scoped entry.
+        _ => return Err(js_error("recovery entry lane scope is incomplete")),
+    };
     Ok(WalletRecoveryEntryScopeV1 {
         wallet_id: wire.wallet_id,
-        lane: PasskeyCustodyLaneScopeV1 {
-            wallet_key_id: wire.wallet_key_id,
-            lane_id: wire.lane_id,
-            lane_share_epoch: wire.lane_share_epoch,
-        },
+        lane,
         custody_secret_kind: PasskeyCustodySecretKind::parse(&wire.custody_secret_kind)
             .map_err(js_error)?,
         key_manifest_digest: decode_digest(

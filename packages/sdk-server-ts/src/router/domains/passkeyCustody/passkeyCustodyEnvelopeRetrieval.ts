@@ -15,6 +15,10 @@ import type {
 /**
  * Authenticated retrieval of one server-held passkey custody envelope.
  *
+ * This path serves passkey-factor envelopes only: it is gated on a WebAuthn
+ * assertion, which an Email OTP envelope has no counterpart for. Email OTP
+ * envelopes are retrieved through the Email OTP admission boundary instead.
+ *
  * Retrieval requires a server-verified assertion for the exact wallet, RP ID,
  * credential ID, and operation challenge. The response carries ciphertext and
  * public binding only: the KEK is derived from the PRF result, which never
@@ -125,6 +129,13 @@ export async function retrievePasskeyCustodyEnvelope(input: {
     return { kind: 'prf_disclosed', message: disclosed };
   }
 
+  // A WebAuthn assertion can only authorize a passkey envelope. Presenting one
+  // for an Email OTP envelope is a category error, not a near-miss: that
+  // envelope's factor secret is not a credential at all.
+  if (request.locator.factor.kind !== 'passkey') {
+    return { kind: 'credential_mismatch' };
+  }
+
   // The assertion must name the same credential the caller is asking an
   // envelope for; otherwise one credential's assertion could fetch another
   // credential's ciphertext.
@@ -136,7 +147,7 @@ export async function retrievePasskeyCustodyEnvelope(input: {
       message: 'Missing webauthn_authentication.id/rawId',
     };
   }
-  if (String(assertedCredentialId) !== String(request.locator.credentialIdB64u)) {
+  if (String(assertedCredentialId) !== String(request.locator.factor.credentialIdB64u)) {
     return { kind: 'credential_mismatch' };
   }
 

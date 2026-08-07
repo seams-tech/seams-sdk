@@ -1,6 +1,7 @@
 import {
-  PASSKEY_CUSTODY_ENVELOPE_VERSION_V1,
+  EMAIL_OTP_FACTOR_KEK_VERSION_V1,
   PASSKEY_PRF_KEK_VERSION_V1,
+  WALLET_CUSTODY_ENVELOPE_VERSION_V2,
   parsePasskeyCustodyEnvelopeRecord,
   type PasskeyCustodyEnvelopeRecord,
   type PasskeyCustodySecretKind,
@@ -38,6 +39,7 @@ export const ENVELOPE_ID = 'passkey-envelope-1';
 export const RP_ID = 'wallet.example.localhost';
 export const CREDENTIAL_ID_B64U = 'Y3JlZGVudGlhbC0x';
 export const NEAR_ED25519_SIGNING_KEY_ID = 'near-ed25519-key-1';
+export const ENROLLMENT_ID = 'enrollment-1';
 export const THRESHOLD_ECDSA_SESSION_ID = 'threshold-ecdsa-session-1';
 export const RECOVERY_KEY_ID = `email-otp-rkid-v1-${DIGEST_B64U}`;
 
@@ -48,16 +50,16 @@ export const ED25519_LANE_ID = 'lane:owner:ed25519:1';
 export const EVM_LANE_ID = 'lane:owner:evm-family:1';
 export const LANE_SHARE_EPOCH = 'lane-share-epoch-1';
 
-export function rawEd25519YaoClientRootBinding(overrides: RawRecord = {}): RawRecord {
+/** Owner custody: one wallet-scoped seed every owner root derives from. */
+export function rawWalletCustodySeedBinding(overrides: RawRecord = {}): RawRecord {
   return {
-    kind: 'ed25519_yao_client_root_v1',
-    walletKeyId: ED25519_WALLET_KEY_ID,
-    laneId: ED25519_LANE_ID,
-    laneShareEpoch: LANE_SHARE_EPOCH,
+    kind: 'wallet_custody_seed_v1',
+    derivationScheme: 'wallet_seed_parallel_hkdf_sha256_v1',
+    keyManifestDigestB64u: DIGEST_B64U,
     nearEd25519SigningKeyId: NEAR_ED25519_SIGNING_KEY_ID,
-    keyCreationSignerSlot: 1,
-    stableContextDigestB64u: DIGEST_B64U,
-    participantBindingDigestB64u: ALT_DIGEST_B64U,
+    registeredPublicKeyB64u: ED25519_PUBLIC_KEY_B64U,
+    evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
+    clientRootPublicKey33B64u: SECP256K1_PUBLIC_KEY_B64U,
     ...overrides,
   };
 }
@@ -71,19 +73,6 @@ export function rawEd25519LaneHolderShareBinding(overrides: RawRecord = {}): Raw
     nearEd25519SigningKeyId: NEAR_ED25519_SIGNING_KEY_ID,
     registeredPublicKeyB64u: ED25519_PUBLIC_KEY_B64U,
     participantBindingDigestB64u: ALT_DIGEST_B64U,
-    ...overrides,
-  };
-}
-
-export function rawEcdsaClientRootShareBinding(overrides: RawRecord = {}): RawRecord {
-  return {
-    kind: 'ecdsa_client_root_share_v1',
-    walletKeyId: EVM_WALLET_KEY_ID,
-    laneId: EVM_LANE_ID,
-    laneShareEpoch: LANE_SHARE_EPOCH,
-    evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
-    applicationBindingDigestB64u: DIGEST_B64U,
-    clientRootPublicKey33B64u: SECP256K1_PUBLIC_KEY_B64U,
     ...overrides,
   };
 }
@@ -105,16 +94,34 @@ export function rawActiveEnvelopeLifecycle(overrides: RawRecord = {}): RawRecord
   return { state: 'active', activatedAtMs: 1_000, ...overrides };
 }
 
-export function rawPasskeyCustodyEnvelope(overrides: RawRecord = {}): RawRecord {
+export function rawPasskeyFactor(overrides: RawRecord = {}): RawRecord {
   return {
-    kind: PASSKEY_CUSTODY_ENVELOPE_VERSION_V1,
-    envelopeId: ENVELOPE_ID,
-    walletId: WALLET_ID,
-    binding: rawEd25519YaoClientRootBinding(),
+    kind: 'passkey',
     rpId: RP_ID,
     credentialIdB64u: CREDENTIAL_ID_B64U,
-    passkeyEnvelopeVersion: PASSKEY_CUSTODY_ENVELOPE_VERSION_V1,
-    passkeyKekVersion: PASSKEY_PRF_KEK_VERSION_V1,
+    kekVersion: PASSKEY_PRF_KEK_VERSION_V1,
+    ...overrides,
+  };
+}
+
+export function rawEmailOtpFactor(overrides: RawRecord = {}): RawRecord {
+  return {
+    kind: 'email_otp',
+    enrollmentId: ENROLLMENT_ID,
+    enrollmentSealKeyVersion: 'seal-v1',
+    kekVersion: EMAIL_OTP_FACTOR_KEK_VERSION_V1,
+    ...overrides,
+  };
+}
+
+export function rawPasskeyCustodyEnvelope(overrides: RawRecord = {}): RawRecord {
+  return {
+    kind: WALLET_CUSTODY_ENVELOPE_VERSION_V2,
+    envelopeId: ENVELOPE_ID,
+    walletId: WALLET_ID,
+    binding: rawWalletCustodySeedBinding(),
+    factor: rawPasskeyFactor(),
+    envelopeVersion: WALLET_CUSTODY_ENVELOPE_VERSION_V2,
     envelopeRevision: 1,
     nonceB64u: NONCE_12_B64U,
     sealedCustodySecretB64u: CIPHERTEXT_B64U,
@@ -131,6 +138,16 @@ export function rawWalletRecoveryEnvelopeEntry(
   custodySecretKind: PasskeyCustodySecretKind,
   overrides: RawRecord = {},
 ): RawRecord {
+  // The owner seed entry is wallet-scoped and carries no lane identity.
+  if (custodySecretKind === 'wallet_custody_seed_v1') {
+    return {
+      custodySecretKind,
+      nonceB64u: NONCE_12_B64U,
+      wrappedCustodySecretB64u: CIPHERTEXT_B64U,
+      aadHashB64u: DIGEST_B64U,
+      ...overrides,
+    };
+  }
   const ed25519Branch = custodySecretKind.startsWith('ed25519');
   return {
     walletKeyId: ed25519Branch ? ED25519_WALLET_KEY_ID : EVM_WALLET_KEY_ID,
@@ -162,8 +179,8 @@ export function rawWalletRecoveryEnvelopeSet(overrides: RawRecord = {}): RawReco
     keyManifestDigestB64u: DIGEST_B64U,
     manifestKekWraps: [rawManifestKekWrap()],
     entries: [
-      rawWalletRecoveryEnvelopeEntry('ed25519_yao_client_root_v1'),
-      rawWalletRecoveryEnvelopeEntry('ecdsa_client_root_share_v1'),
+      rawWalletRecoveryEnvelopeEntry('wallet_custody_seed_v1'),
+      rawWalletRecoveryEnvelopeEntry('ecdsa_lane_holder_share_v1'),
     ],
     issuedAtMs: 1_000,
     updatedAtMs: 2_000,

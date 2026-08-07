@@ -27,16 +27,21 @@ export type WalletRecoveryCodeKekDerivationContext = {
 
 /**
  * KEK inputs for one entry's wrap under the manifest KEK. The purpose is the
- * custody-secret kind, so an entry KEK that opens the Ed25519 root cannot open
- * the ECDSA entry by substitution — per-entry AAD survives the manifest KEK.
+ * custody-secret kind, so an entry KEK that opens the owner seed cannot open a
+ * lane holder share by substitution — per-entry AAD survives the manifest KEK.
+ *
+ * Lane scope is absent on the owner seed entry, which is wallet-scoped. Its
+ * absence is itself bound: a seed context and a lane context can never encode
+ * identically, because the kind differs and the lane fields are omitted rather
+ * than blanked.
  */
 export type WalletRecoveryEntryKekDerivationContext = {
   kind: 'wallet_recovery_entry_kek_derivation_context_v1';
   walletId: WalletId;
-  walletKeyId: WalletKeyId;
-  laneId: SigningLaneId;
-  laneShareEpoch: LaneShareEpoch;
   purpose: PasskeyCustodySecretKind;
+  walletKeyId?: WalletKeyId;
+  laneId?: SigningLaneId;
+  laneShareEpoch?: LaneShareEpoch;
 };
 
 /**
@@ -60,12 +65,26 @@ export function buildWalletRecoveryEntryKekDerivationContext(args: {
   walletId: WalletId;
   entry: WalletRecoveryEnvelopeEntry;
 }): WalletRecoveryEntryKekDerivationContext {
+  if (args.entry.custodySecretKind === 'wallet_custody_seed_v1') {
+    return {
+      kind: 'wallet_recovery_entry_kek_derivation_context_v1',
+      walletId: args.walletId,
+      purpose: args.entry.custodySecretKind,
+    };
+  }
+  if (
+    args.entry.walletKeyId === undefined ||
+    args.entry.laneId === undefined ||
+    args.entry.laneShareEpoch === undefined
+  ) {
+    throw new Error('a lane holder-share recovery entry requires its lane scope');
+  }
   return {
     kind: 'wallet_recovery_entry_kek_derivation_context_v1',
     walletId: args.walletId,
+    purpose: args.entry.custodySecretKind,
     walletKeyId: args.entry.walletKeyId,
     laneId: args.entry.laneId,
     laneShareEpoch: args.entry.laneShareEpoch,
-    purpose: args.entry.custodySecretKind,
   };
 }

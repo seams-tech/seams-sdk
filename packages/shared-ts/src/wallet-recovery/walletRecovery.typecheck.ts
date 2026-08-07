@@ -4,6 +4,7 @@ import type { DigestB64u } from '../utils/canonicalPrimitives';
 import type { EnvelopeCiphertextB64u, EnvelopeNonceB64u } from '../passkey-custody';
 import type { DerivedWalletRecoveryKeyId } from './recoveryCodes';
 import type { RecoveryCodeLifecycleState } from './recoveryEnvelopes';
+import type { RecoveryCodeReservationId } from './recoveryCodeReservation';
 import type {
   WalletRecoveryEnvelopeEntry,
   WalletRecoveryEnvelopeSetRecord,
@@ -18,6 +19,7 @@ declare const recoveryKeyId: DerivedWalletRecoveryKeyId;
 declare const digest: DigestB64u;
 declare const nonceB64u: EnvelopeNonceB64u;
 declare const ciphertextB64u: EnvelopeCiphertextB64u;
+declare const reservationId: RecoveryCodeReservationId;
 
 const activeRecoveryCode: RecoveryCodeLifecycleState = {
   state: 'active',
@@ -33,32 +35,36 @@ const invalidActiveRecoveryCode: RecoveryCodeLifecycleState = {
 };
 void invalidActiveRecoveryCode;
 
-const ed25519Entry: WalletRecoveryEnvelopeEntry = {
-  walletKeyId,
-  laneId,
-  laneShareEpoch,
-  custodySecretKind: 'ed25519_yao_client_root_v1',
-  nonceB64u,
-  wrappedCustodySecretB64u: ciphertextB64u,
-  aadHashB64u: digest,
+// @ts-expect-error An active code cannot hold a reservation.
+const activeCodeHoldingReservation: RecoveryCodeLifecycleState = {
+  state: 'active',
+  issuedAtMs: 1,
+  reservationId,
 };
-void ed25519Entry;
+void activeCodeHoldingReservation;
 
-const ecdsaEntry: WalletRecoveryEnvelopeEntry = {
-  walletKeyId,
-  laneId,
-  laneShareEpoch,
-  custodySecretKind: 'ecdsa_client_root_share_v1',
+// The owner entry is wallet-scoped: one seed covering every owner key.
+const seedEntry: WalletRecoveryEnvelopeEntry = {
+  custodySecretKind: 'wallet_custody_seed_v1',
   nonceB64u,
   wrappedCustodySecretB64u: ciphertextB64u,
   aadHashB64u: digest,
 };
-void ecdsaEntry;
+void seedEntry;
+
+// Lane holder-share entries name exactly one lane.
+const laneEntry: WalletRecoveryEnvelopeEntry = {
+  custodySecretKind: 'ecdsa_lane_holder_share_v1',
+  walletKeyId,
+  laneId,
+  laneShareEpoch,
+  nonceB64u,
+  wrappedCustodySecretB64u: ciphertextB64u,
+  aadHashB64u: digest,
+};
+void laneEntry;
 
 const entryWithUnknownKind: WalletRecoveryEnvelopeEntry = {
-  walletKeyId,
-  laneId,
-  laneShareEpoch,
   // @ts-expect-error Entries name an exact custody-secret kind, not a generic holder share.
   custodySecretKind: 'holder_share_v1',
   nonceB64u,
@@ -67,11 +73,17 @@ const entryWithUnknownKind: WalletRecoveryEnvelopeEntry = {
 };
 void entryWithUnknownKind;
 
-const entryWithPlaintextSecret: WalletRecoveryEnvelopeEntry = {
-  walletKeyId,
-  laneId,
-  laneShareEpoch,
+const entryWithRetiredKind: WalletRecoveryEnvelopeEntry = {
+  // @ts-expect-error The retired per-curve owner root kinds no longer exist.
   custodySecretKind: 'ed25519_yao_client_root_v1',
+  nonceB64u,
+  wrappedCustodySecretB64u: ciphertextB64u,
+  aadHashB64u: digest,
+};
+void entryWithRetiredKind;
+
+const entryWithPlaintextSecret: WalletRecoveryEnvelopeEntry = {
+  custodySecretKind: 'wallet_custody_seed_v1',
   nonceB64u,
   wrappedCustodySecretB64u: ciphertextB64u,
   aadHashB64u: digest,
@@ -80,8 +92,6 @@ const entryWithPlaintextSecret: WalletRecoveryEnvelopeEntry = {
 };
 void entryWithPlaintextSecret;
 
-// A recovery code protects a wallet-scoped set covering every key, so the
-// record is a set of entries and never one curve's envelope.
 const manifestKekWrap: WalletRecoveryManifestKekWrap = {
   recoveryKeyId,
   nonceB64u,
@@ -107,7 +117,7 @@ const recoverySet: WalletRecoveryEnvelopeSetRecord = {
   walletId,
   keyManifestDigestB64u: digest,
   manifestKekWraps: [manifestKekWrap],
-  entries: [ed25519Entry, ecdsaEntry],
+  entries: [seedEntry, laneEntry],
   issuedAtMs: 1,
   updatedAtMs: 1,
 };
@@ -132,7 +142,7 @@ const recoverySetWithoutManifest: WalletRecoveryEnvelopeSetRecord = {
   kind: 'wallet_recovery_envelope_set_v1',
   walletId,
   manifestKekWraps: [manifestKekWrap],
-  entries: [ed25519Entry],
+  entries: [seedEntry],
   issuedAtMs: 1,
   updatedAtMs: 1,
 };
@@ -143,7 +153,7 @@ const recoverySetWithoutKekWraps: WalletRecoveryEnvelopeSetRecord = {
   kind: 'wallet_recovery_envelope_set_v1',
   walletId,
   keyManifestDigestB64u: digest,
-  entries: [ed25519Entry],
+  entries: [seedEntry],
   issuedAtMs: 1,
   updatedAtMs: 1,
 };
