@@ -75,20 +75,23 @@ fn expand(seed: &[u8], salt: &[u8], info: &[u8]) -> CoreResult<Zeroizing<[u8; 32
 }
 
 /// Derives the Ed25519 Yao Client root directly from the seed.
+///
+/// Bound to the Yao application binding digest, exactly as the PRF-derived root
+/// it replaces was. That digest already covers the wallet, NEAR signing key,
+/// signing root, and key-creation signer slot, so swapping the seed in for
+/// `PRF.first` changes the secret input and nothing about what the root is
+/// bound to.
 pub fn derive_ed25519_yao_client_root_from_seed_v1(
     seed: &[u8],
-    wallet_id: &str,
-    near_ed25519_signing_key_id: &str,
+    application_binding_digest: &[u8; 32],
 ) -> CoreResult<Zeroizing<[u8; WALLET_SIGNING_ROOT_LEN]>> {
     require_seed(seed)?;
-    let wallet_id = wallet_id.trim();
-    let signing_key_id = near_ed25519_signing_key_id.trim();
-    require_field("walletId", wallet_id)?;
-    require_field("nearEd25519SigningKeyId", signing_key_id)?;
-
     let mut info = Vec::new();
-    labeled_str(&mut info, b"walletId", wallet_id);
-    labeled_str(&mut info, b"nearEd25519SigningKeyId", signing_key_id);
+    labeled_field(
+        &mut info,
+        b"applicationBindingDigest",
+        application_binding_digest,
+    );
     let root = expand(seed, ED25519_CLIENT_ROOT_SALT_V1, &info);
     info.clear();
     root

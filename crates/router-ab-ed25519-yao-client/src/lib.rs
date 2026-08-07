@@ -430,6 +430,44 @@ fn prepare_passkey_client_activation_v1(
     )
 }
 
+/// Prepares registration from a Client root the caller already derived.
+///
+/// This is the seam Refactor 100 registers through: the root comes from the
+/// wallet custody seed via `signer_core::wallet_seed_derivation`, bound to the
+/// same application binding digest the PRF-derived root used, so the protocol
+/// below is unchanged and only the secret's origin differs.
+pub fn prepare_client_registration_with_root_v1(
+    admission: &RouterAbEd25519YaoActivationAdmissionReceiptV1,
+    application: &RouterAbEd25519YaoApplicationBindingFactsV1,
+    participant_ids: [u16; 2],
+    root: Ed25519YaoClientDerivationRootV1,
+    entropy: ClientActivationEntropyV1,
+) -> Result<PreparedClientActivationV1, ClientActivationError> {
+    prepare_client_activation_with_root_v1(
+        admission,
+        application,
+        participant_ids,
+        root,
+        entropy,
+        Ed25519YaoOperationV1::Registration,
+        ClientActivationContinuityV1::Establish,
+    )
+}
+
+/// The application binding digest a seed-derived Client root must be bound to.
+///
+/// Exposed so the caller derives the root against exactly the digest this
+/// protocol will verify, rather than recomputing it independently and risking
+/// divergence.
+pub fn client_application_binding_digest_v1(
+    application: &RouterAbEd25519YaoApplicationBindingFactsV1,
+    participant_ids: [u16; 2],
+) -> Result<[u8; 32], ClientActivationError> {
+    let context = stable_key_derivation_context_v1(application, participant_ids)
+        .map_err(|_| ClientActivationError::DerivationFailed)?;
+    Ok(*context.application_binding_digest())
+}
+
 fn prepare_client_activation_with_root_v1(
     admission: &RouterAbEd25519YaoActivationAdmissionReceiptV1,
     application: &RouterAbEd25519YaoApplicationBindingFactsV1,

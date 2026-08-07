@@ -790,7 +790,12 @@ repository evidence.
 
 ### Phase 2: Seed-Root Registration
 
-- [ ] Add seed-derived Client-root input to Yao registration.
+- [x] Add seed-derived Client-root input to Yao registration
+      (`prepare_client_registration_with_root_v1` plus
+      `client_application_binding_digest_v1`, so callers derive against the
+      exact digest the protocol verifies). The seed root is bound to the same
+      application binding digest the PRF root used, so only the secret's
+      origin changed.
 - [ ] Add seed-derived client-root-share input to ECDSA derivation.
 - [ ] Commit server-held mixed-wallet passkey envelopes and recovery envelope
       sets with the registration result.
