@@ -796,7 +796,12 @@ repository evidence.
       exact digest the protocol verifies). The seed root is bound to the same
       application binding digest the PRF root used, so only the secret's
       origin changed.
-- [ ] Add seed-derived client-root-share input to ECDSA derivation.
+- [x] Add seed-derived client-root-share input to ECDSA derivation. The
+      bootstrap seam already accepted a root share, so no new entry point was
+      needed; the seed-derived share flows through
+      `prepare_ecdsa_client_bootstrap` unchanged. Both curves' derivations now
+      take the application binding digest their own protocol computes, so a
+      caller cannot bind to something the protocol will not verify.
 - [ ] Commit server-held mixed-wallet passkey envelopes and recovery envelope
       sets with the registration result.
 - [ ] Delete PRF-derived signing-root paths after replacement.
