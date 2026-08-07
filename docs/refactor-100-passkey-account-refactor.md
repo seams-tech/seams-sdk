@@ -1236,8 +1236,21 @@ repository evidence.
       bootstrap after the proofs verify. A seed-derived share cannot come out
       of those rounds by construction, so the splice moves EVM registration to
       the role-local bootstrap route with the share derived from the custody
-      seed — the same route Email OTP registration already uses (and the
-      bootstrap body already has a `passkeyBootstrapAuthorization` variant).
+      seed. That route's client exists — `thresholdEcdsaDerivationRoleLocalBootstrap`,
+      whose body already takes `derivationClientSharePublicKey33B64u` and
+      `contextBinding32B64u` from the client and returns the relayer's public
+      identity, which is exactly the ceremony's EVM shape, and it has a
+      `passkeyBootstrapAuthorization` variant.
+
+      **Correction:** an earlier note here said this is "the route Email OTP
+      registration already uses". It is not. `thresholdEcdsaDerivationRoleLocalBootstrap`
+      has no caller outside its own parser test, and
+      `prepareEcdsaClientBootstrapFromEmailOtpHandle` has none outside its
+      worker. *Every* registration today — passkey and Email OTP, Ed25519-only
+      and mixed — goes through the strict Router A/B route. So the splice
+      brings an unused route into service rather than joining an established
+      one, and whether the relayer accepts it for registration has to be
+      confirmed against the running service before the client is written.
 
       The ordering worry recorded here earlier was overstated. The ECDSA
       application binding digest is available before any Router leg: the local
@@ -1266,6 +1279,29 @@ repository evidence.
       run can begin as soon as its admission receipt exists. Refactor 94C's
       contract still holds — deferred NEAR work is handed off before activate
       and never awaited.
+
+      Its seam is narrow and known: `RouterAbEd25519YaoClientV1.registerAdmitted`
+      builds a `WasmClientRegistrationSessionV1` from `secret32` — the passkey
+      PRF result or the Email OTP factor key. The ceremony takes the same
+      admission, application binding and participant ids and differs only in
+      where the root comes from, so this is a substitution rather than a
+      restructure.
+
+      **Do not splice NEAR alone for mixed wallets.** A mixed wallet whose NEAR
+      key set came from the custody seed while its EVM key set is still
+      PRF-derived is a wallet the recovery set only half covers — recovery
+      would restore NEAR and silently miss EVM, which is the exact failure this
+      refactor exists to prevent. Either both key sets move together, or the
+      first slice is Ed25519-only wallets, which have no EVM key set to strand.
+
+      **Second blocker, and it gates every variant: nothing can commit.**
+      `commitWalletCustodyRegistration` and its store are built and tested, but
+      no HTTP route exposes them — there is no entry in `routeDefinitions.ts`,
+      no handler under `transport/fetch/routes/`, and no service key. A
+      ceremony can seal and produce a payload that has nowhere to go. Adding
+      the route means choosing its authorization model — what proves the caller
+      may establish custody for this wallet — which is a security decision to
+      settle deliberately, not to infer from a neighbouring route.
 
       The PRF-derived path must keep working until this lands.
 - [x] Repair the SDK barrel at
