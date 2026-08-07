@@ -25,6 +25,7 @@ SOURCE_WASM_EVM_CRYPTO="../../wasm/evm_crypto"
 SOURCE_WASM_TEMPO_SIGNER="../../wasm/tempo_signer"
 SOURCE_WASM_SHAMIR3PASS_RUNTIME="../../wasm/shamir3pass_runtime"
 SOURCE_WASM_EMAIL_OTP_RUNTIME="../../wasm/email_otp_runtime"
+SOURCE_WASM_WALLET_CUSTODY_CEREMONY="../../wasm/wallet_custody_ceremony"
 
 # Critical directories for build freshness checking
 CRITICAL_DIRS=(
@@ -48,6 +49,7 @@ CRITICAL_DIRS=(
     "../../wasm/tempo_signer"
     "../../wasm/shamir3pass_runtime"
     "../../wasm/email_otp_runtime"
+    "../../wasm/wallet_custody_ceremony"
 )
 
 # Runtime paths (used by workers and tests)
@@ -90,6 +92,8 @@ WORKER_SHAMIR3PASS_RUNTIME_JS="shamir3pass_runtime.js"
 WORKER_SHAMIR3PASS_RUNTIME_WASM="shamir3pass_runtime_bg.wasm"
 WORKER_EMAIL_OTP_RUNTIME_JS="email_otp_runtime.js"
 WORKER_EMAIL_OTP_RUNTIME_WASM="email_otp_runtime_bg.wasm"
+WALLET_CUSTODY_CEREMONY_JS="wallet_custody_ceremony.js"
+WALLET_CUSTODY_CEREMONY_WASM="wallet_custody_ceremony_bg.wasm"
 
 # Critical files to check for build freshness
 CRITICAL_FILES=(

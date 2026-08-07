@@ -16,8 +16,7 @@ use signer_core::passkey_custody::{
     WALLET_SEED_DERIVATION_SCHEME_V1,
 };
 use signer_core::wallet_seed_derivation::{
-    compute_wallet_key_manifest_digest_v1, verify_registered_wallet_key_manifest_v1,
-    VerifiedWalletKeyManifestDigestV1, WalletKeyManifestV1,
+    establish_wallet_key_manifest_v1, VerifiedWalletKeyManifestDigestV1, WalletKeyManifestV1,
 };
 
 const PRF_FIRST: [u8; 32] = [7u8; 32];
@@ -66,12 +65,10 @@ fn wallet_key_manifest() -> WalletKeyManifestV1 {
     }
 }
 
-/// A proof obtained the only way one can be: by verifying the manifest against
-/// the digest the envelope was sealed under.
+/// The proof a registration ceremony holds: minted from the manifest the
+/// protocols produced, since registration is where the digest originates.
 fn verified_key_manifest() -> VerifiedWalletKeyManifestDigestV1 {
-    let manifest = wallet_key_manifest();
-    let sealed_digest = compute_wallet_key_manifest_digest_v1(&manifest).unwrap();
-    verify_registered_wallet_key_manifest_v1(&manifest, &sealed_digest).unwrap()
+    establish_wallet_key_manifest_v1(&wallet_key_manifest()).unwrap()
 }
 
 fn wallet_seed_binding() -> PasskeyCustodySecretBindingV1 {

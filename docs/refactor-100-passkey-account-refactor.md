@@ -862,21 +862,57 @@ repository evidence.
         server write, receiving ciphertext and public records. No verification
         token crosses the wasm boundary — a token that came back would prove
         only that some verification once succeeded.
-- [ ] Build `wallet_custody_ceremony` and commit server-held passkey envelopes
-      and recovery envelope sets with the registration result.
+- [x] Build the `wallet_custody_ceremony` registration typestate.
+      `wasm/wallet_custody_ceremony` links `signer-core`, the Yao client, and
+      the ECDSA derivation crate, and implements the transitions:
+      `CeremonySeedHeldV1 → CeremonyProtocolsPreparedV1 →
+      CeremonyProtocolsCompletedV1 → CeremonyManifestEstablishedV1 →
+      WalletCustodyCommitPayloadV1`. Each transition consumes `self`, so a
+      failure drops the state and zeroizes the seed and session material.
 
-      Ready in `signer-core`: `derive_wallet_seed_owner_roots_v1` derives both
-      owner roots as a pair; `verify_registered_wallet_key_manifest_v1` is the
-      fail-closed gate; `VerifiedWalletKeyManifestDigestV1` is the proof it
-      returns, and the seed-envelope and recovery seals take that proof instead
-      of a digest, so no sealing path is reachable before verification.
+      What the structure buys, beyond what any signature could:
 
-      Not yet structural, and the module is what makes it so: nothing forces
-      the binding digests fed to `derive_wallet_seed_owner_roots_v1` to be the
-      ones the protocols computed. The equality rejection there is a tripwire,
-      not a provenance proof. The ceremony orchestrator must obtain both
-      digests from typed protocol outputs and pass them straight in, with no
-      boundary between at which a caller could substitute its own.
+      - The two owner roots are never fields of any state. They exist only
+        inside `prepare`, where they pass straight into the two protocol
+        preparations, so no caller-reachable value ever holds a root.
+      - The Ed25519 binding digest is computed inside `prepare` from the typed
+        application facts via `client_application_binding_digest_v1` — the same
+        function the protocol verifies against — and is not a parameter.
+      - The ECDSA pending state blob stays in wasm memory between rounds. It
+        carries `x_client32` in the clear, so the standalone bootstrap module's
+        habit of handing it to JavaScript is deliberately not inherited.
+      - The manifest proof is a private field of
+        `CeremonyManifestEstablishedV1` and never crosses the boundary.
+        Verify-and-seal is one transition; there is no verified state a caller
+        can hold or replay.
+      - Nonces for the envelope, the ten code wraps, and the recovery entry are
+        generated inside `seal`, so a caller cannot reuse one across two seals.
+
+      Registration mints its manifest digest through
+      `establish_wallet_key_manifest_v1` rather than the verifying constructor:
+      no envelope exists yet, so there is nothing to reproduce. Recovery and
+      cold unlock must use `verify_registered_wallet_key_manifest_v1`, which
+      compares and can fail. Separate functions so a reader can tell which a
+      path took.
+
+      Known asymmetry, recorded rather than papered over: the ECDSA binding
+      digest arrives in the relayer's bootstrap response and cannot be
+      recomputed client-side the way the Ed25519 one can. The ECDSA protocol
+      binds it through `contextBinding32`, which the caller cross-checks. That
+      is a property of the two protocols, not of this module.
+- [ ] Drive states 1 and 2 through the real Router A/B circuit in a native
+      test. The output contract is covered — seven tests prove the sealed
+      envelope opens back to the ceremony seed, that all ten recovery codes
+      reach it, that nonces are unique, and that a partial set or malformed
+      manifest ends the ceremony before anything is sealed — but they start
+      from `CeremonyProtocolsCompletedV1`. Reaching it needs the
+      `router-ab-dev` harness that `crates/router-ab-ed25519-yao-client/tests/
+      registration.rs` builds.
+- [ ] Add the `wasm_bindgen` boundary and the ceremony worker, and commit the
+      server-held envelope and recovery set from the payload.
+- [ ] Shrink `wasm/ecdsa_registration_client` once registration leaves it:
+      rename around role-local material rehydration or fold the remainder into
+      its natural owner. Do not leave a compatibility shell under the old name.
 - [ ] Delete PRF-derived signing-root paths after replacement.
 
 ### Phase 3: Unlock And Signing
