@@ -5,19 +5,15 @@ import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
   EMAIL_OTP_ECDSA_CLIENT_SHARE_SALT_V2,
   EMAIL_OTP_ECDSA_DERIVATION_PATH,
-  EMAIL_OTP_THRESHOLD_ROOT_SALT_V1,
   EMAIL_OTP_UNLOCK_AUTH_SALT_V2,
   deriveEmailOtpEcdsaClientRootShare32FromSecret32,
   deriveEmailOtpEcdsaClientRootShare32B64u,
-  deriveEmailOtpThresholdRootFromSecret32,
-  deriveEmailOtpThresholdRootB64u,
   deriveEmailOtpUnlockAuthSeedFromSecret32,
   deriveEmailOtpUnlockAuthSeedB64u,
   encodeEmailOtpTuple,
 } from '../helpers/emailOtpDerivation';
 import {
   derive_email_otp_ecdsa_client_root_share32_from_secret32,
-  derive_email_otp_threshold_root_from_secret32,
   derive_email_otp_unlock_auth_seed_from_secret32,
   initSync as initEmailOtpRuntimeWasmSync,
   init_email_otp_runtime,
@@ -55,25 +51,6 @@ test.describe('Email OTP derivation', () => {
       0x0b,
       ...Array.from(utf8Bytes('evm-signing')),
     ]);
-  });
-
-  test('matches threshold_root HKDF-SHA-256 reference output', async () => {
-    const clientSecretB64u = base64UrlEncode(
-      Uint8Array.from(Array.from({ length: 32 }, (_, index) => index + 1)),
-    );
-    const walletId = 'alice.testnet';
-    const info = Buffer.from(encodeEmailOtpTuple([walletId]));
-    const expected = base64UrlEncode(
-      hkdfSync(
-        'sha256',
-        Buffer.from(base64UrlDecode(clientSecretB64u)),
-        Buffer.from(EMAIL_OTP_THRESHOLD_ROOT_SALT_V1, 'utf8'),
-        info,
-        32,
-      ),
-    );
-
-    expect(await deriveEmailOtpThresholdRootB64u({ clientSecretB64u, walletId })).toBe(expected);
   });
 
   test('derives stable ECDSA and unlock branches with label separation', async () => {
@@ -130,7 +107,17 @@ test.describe('Email OTP derivation', () => {
     );
     const walletId = 'alice.testnet';
     const userId = 'alice.testnet';
-    const thresholdRoot = await deriveEmailOtpThresholdRootB64u({ clientSecretB64u, walletId });
+    // Recompute the retired v1 chain parent locally. No production code
+    // derives it any more, so the test owns the computation it is disproving.
+    const retiredChainParent = base64UrlEncode(
+      hkdfSync(
+        'sha256',
+        Buffer.from(base64UrlDecode(clientSecretB64u)),
+        Buffer.from('seams/email-otp/root/v1', 'utf8'),
+        Buffer.from(encodeEmailOtpTuple([walletId])),
+        32,
+      ),
+    );
 
     // The retired v1 scheme derived both values from this intermediate plus
     // public info. It is a sibling of the Ed25519 Yao Client root, not its
@@ -158,7 +145,7 @@ test.describe('Email OTP derivation', () => {
       const fromRoot = base64UrlEncode(
         hkdfSync(
           'sha256',
-          Buffer.from(base64UrlDecode(thresholdRoot)),
+          Buffer.from(base64UrlDecode(retiredChainParent)),
           Buffer.from(candidate.salt, 'utf8'),
           Buffer.from(encodeEmailOtpTuple(candidate.info)),
           32,
@@ -176,10 +163,6 @@ test.describe('Email OTP derivation', () => {
     const userId = ' alice.testnet ';
     const derivationPath = 'evm-signing/test-path';
 
-    const expectedThresholdRoot = await deriveEmailOtpThresholdRootFromSecret32({
-      clientSecret32,
-      walletId,
-    });
     const expectedEcdsaShare = await deriveEmailOtpEcdsaClientRootShare32FromSecret32({
       clientSecret32,
       walletId,
@@ -191,10 +174,6 @@ test.describe('Email OTP derivation', () => {
       walletId,
     });
     try {
-      const wasmThresholdRoot = derive_email_otp_threshold_root_from_secret32(
-        clientSecret32,
-        walletId,
-      );
       const wasmEcdsaShare = derive_email_otp_ecdsa_client_root_share32_from_secret32(
         clientSecret32,
         walletId,
@@ -206,19 +185,15 @@ test.describe('Email OTP derivation', () => {
         walletId,
       );
       try {
-        expect(Array.from(wasmThresholdRoot)).toEqual(Array.from(expectedThresholdRoot));
         expect(Array.from(wasmEcdsaShare)).toEqual(Array.from(expectedEcdsaShare));
         expect(Array.from(wasmUnlockSeed)).toEqual(Array.from(expectedUnlockSeed));
-        expect(wasmThresholdRoot).toHaveLength(32);
         expect(wasmEcdsaShare).toHaveLength(32);
         expect(wasmUnlockSeed).toHaveLength(32);
       } finally {
-        zeroize(wasmThresholdRoot);
         zeroize(wasmEcdsaShare);
         zeroize(wasmUnlockSeed);
       }
     } finally {
-      zeroize(expectedThresholdRoot);
       zeroize(expectedEcdsaShare);
       zeroize(expectedUnlockSeed);
       zeroize(clientSecret32);
@@ -256,7 +231,7 @@ test.describe('Email OTP derivation', () => {
   test('WASM runtime rejects non-32-byte Email OTP client secrets', async () => {
     ensureEmailOtpRuntimeWasm();
     expect(() =>
-      derive_email_otp_threshold_root_from_secret32(new Uint8Array(31), 'alice.testnet'),
+      derive_email_otp_unlock_auth_seed_from_secret32(new Uint8Array(31), 'alice.testnet'),
     ).toThrow('Email OTP client secret must be 32 bytes');
     expect(() =>
       derive_email_otp_ecdsa_client_root_share32_from_secret32(
