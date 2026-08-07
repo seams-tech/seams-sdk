@@ -8,6 +8,7 @@ import type {
   PasskeyEnvelopeId,
   WalletId,
   WebAuthnCredentialIdB64u,
+  WebAuthnRpId,
 } from '@shared/utils/domainIds';
 import type { VersionedJsonObject } from '../../../framework/versionedJsonRecordStore';
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
@@ -54,8 +55,16 @@ export type CloudflareD1PasskeyCustodyEnvelopeStoreOptions = {
  * an Email OTP envelope would have no address at all.
  */
 export type WalletCustodyFactorRef =
-  | { readonly kind: 'passkey'; readonly credentialIdB64u: WebAuthnCredentialIdB64u }
-  | { readonly kind: 'email_otp'; readonly enrollmentId: string };
+  | {
+      readonly kind: 'passkey';
+      readonly rpId: WebAuthnRpId;
+      readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+    }
+  | {
+      readonly kind: 'email_otp';
+      readonly enrollmentId: string;
+      readonly enrollmentSealKeyVersion: string;
+    };
 
 export type PasskeyCustodyEnvelopeLocator = {
   readonly walletId: WalletId;
@@ -66,14 +75,27 @@ export type PasskeyCustodyEnvelopeLocator = {
 /** The factor address a stored envelope actually carries. */
 function envelopeFactorRef(envelope: PasskeyCustodyEnvelopeRecord): WalletCustodyFactorRef {
   return envelope.factor.kind === 'passkey'
-    ? { kind: 'passkey', credentialIdB64u: envelope.factor.credentialIdB64u }
-    : { kind: 'email_otp', enrollmentId: envelope.factor.enrollmentId };
+    ? {
+        kind: 'passkey',
+        rpId: envelope.factor.rpId,
+        credentialIdB64u: envelope.factor.credentialIdB64u,
+      }
+    : {
+        kind: 'email_otp',
+        enrollmentId: envelope.factor.enrollmentId,
+        enrollmentSealKeyVersion: envelope.factor.enrollmentSealKeyVersion,
+      };
 }
 
+/**
+ * The complete factor identity, not a shorthand: RP ID and seal-key version
+ * participate in KEK and AAD identity, so a locator that omitted them could
+ * resolve an envelope the caller's factor cannot actually open.
+ */
 function factorKeyPart(factor: WalletCustodyFactorRef): readonly string[] {
   return factor.kind === 'passkey'
-    ? ['passkey', String(factor.credentialIdB64u)]
-    : ['email_otp', factor.enrollmentId];
+    ? ['passkey', String(factor.rpId), String(factor.credentialIdB64u)]
+    : ['email_otp', factor.enrollmentId, factor.enrollmentSealKeyVersion];
 }
 
 function factorRefsMatch(left: WalletCustodyFactorRef, right: WalletCustodyFactorRef): boolean {

@@ -2,7 +2,7 @@
 
 Date created: June 15, 2026
 
-Last reconciled: August 7, 2026 (single-seed custody revision adopted)
+Last reconciled: August 7, 2026 (single-seed revision; scope/locator review applied)
 
 Status: active design plan. Same-device passkey Ed25519 sealing and rehydration,
 durable ECDSA material identity, and the current Email OTP wallet lifecycle have
@@ -764,6 +764,22 @@ repository evidence.
 - [ ] Implement seed -> parallel HKDF derivation of the Ed25519 Yao Client
       root and ECDSA client root share for the shared custody path; freeze
       the domain-separation labels.
+
+      Hard acceptance criteria, fail-closed. Exactly one seed entry plus a
+      stored `keyManifestDigestB64u` proves nothing on its own: the digest is
+      recorded but never verified at parse time. Derivation must recompute
+      both public roots from the opened seed, build the canonical key
+      manifest, and compare its digest against the stored value before any
+      capability is published or any recovery code is consumed. A mismatch
+      aborts; it never degrades to partial success.
+
+- [ ] Decide lane coverage in a recovery set, and enforce the decision.
+      Recovery promises the whole mixed custody set, but the parser accepts
+      one seed while omitting any number of lane-share entries. Either verify
+      entries against a manifest that enumerates required lanes, or state
+      that linked-device lanes are deliberately reprovisioned through
+      Refactor 102 after owner recovery rather than restored from the set.
+      Whichever is chosen, the parser and this plan must agree.
 - [ ] Wipe dev OTP wallets and obsolete persisted records with the Phase 2
       test-wallet reset.
 - [ ] Record a naming glossary in `AGENTS.md` fixing each custody term to one

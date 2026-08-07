@@ -10,7 +10,17 @@ import type { NormalizedLogger } from '../../../core/logger';
 import type {
   CloudflareD1PasskeyCustodyEnvelopeStore,
   PasskeyCustodyEnvelopeLocator,
+  WalletCustodyFactorRef,
 } from '../../cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
+
+/**
+ * A locator narrowed to the passkey factor. Email OTP envelopes are
+ * unrepresentable in this request type: their factor secret is not a
+ * credential, so a WebAuthn assertion is never evidence for them.
+ */
+export type PasskeyEnvelopeRetrievalLocator = Omit<PasskeyCustodyEnvelopeLocator, 'factor'> & {
+  readonly factor: Extract<WalletCustodyFactorRef, { kind: 'passkey' }>;
+};
 
 /**
  * Authenticated retrieval of one server-held passkey custody envelope.
@@ -26,7 +36,7 @@ import type {
  */
 
 export type PasskeyCustodyEnvelopeRetrievalRequest = {
-  readonly locator: PasskeyCustodyEnvelopeLocator;
+  readonly locator: PasskeyEnvelopeRetrievalLocator;
   readonly rpId: WebAuthnRpId;
   readonly userId: string;
   readonly expectedChallenge: string;
@@ -129,11 +139,25 @@ export async function retrievePasskeyCustodyEnvelope(input: {
     return { kind: 'prf_disclosed', message: disclosed };
   }
 
-  // A WebAuthn assertion can only authorize a passkey envelope. Presenting one
-  // for an Email OTP envelope is a category error, not a near-miss: that
-  // envelope's factor secret is not a credential at all.
+  // The type already makes Email OTP unrepresentable here; this guard covers
+  // unparsed wire input, where TypeScript's erasure offers no protection.
   if (request.locator.factor.kind !== 'passkey') {
-    return { kind: 'credential_mismatch' };
+    return {
+      kind: 'assertion_rejected',
+      code: 'invalid_body',
+      message: 'WebAuthn retrieval serves passkey envelopes only',
+    };
+  }
+
+  // The assertion is verified against request.rpId, so the envelope being
+  // fetched must belong to that same relying party — otherwise an assertion
+  // for one RP could retrieve ciphertext sealed under another.
+  if (String(request.locator.factor.rpId) !== String(request.rpId)) {
+    return {
+      kind: 'assertion_rejected',
+      code: 'rp_mismatch',
+      message: 'Locator RP ID does not match the assertion RP ID',
+    };
   }
 
   // The assertion must name the same credential the caller is asking an
