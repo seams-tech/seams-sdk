@@ -38,9 +38,9 @@ const USER_ID = 'user-1';
 
 const LOCATOR = {
   walletId: WALLET_ID as WalletId,
-  credentialIdB64u: CREDENTIAL_ID_B64U as WebAuthnCredentialIdB64u,
+  factor: { kind: 'passkey', credentialIdB64u: CREDENTIAL_ID_B64U as WebAuthnCredentialIdB64u },
   envelopeId: ENVELOPE_ID as PasskeyEnvelopeId,
-};
+} as const;
 
 /**
  * An authenticator store that knows no credentials. Assertion verification
@@ -313,5 +313,23 @@ test('PRF disclosure is rejected even when the assertion would verify', async ()
     // Redaction is enforced ahead of verification, so a valid assertion cannot
     // launder a leaked PRF result into a successful retrieval.
     expect(result.kind).toBe('prf_disclosed');
+  });
+});
+
+test('a WebAuthn assertion cannot retrieve an Email OTP envelope', async () => {
+  await withRetrieval(async (retrieve, store) => {
+    await store.createEnvelope(passkeyCustodyEnvelope());
+    // The Email OTP factor secret is not a credential, so an assertion is not
+    // evidence for it at all — this is a category error, not a near-miss.
+    const result = await retrieve(
+      request({
+        locator: {
+          ...LOCATOR,
+          factor: { kind: 'email_otp', enrollmentId: 'enrollment-1' },
+        },
+      }),
+      acceptAssertion,
+    );
+    expect(result.kind).toBe('credential_mismatch');
   });
 });

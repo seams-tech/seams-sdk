@@ -6,43 +6,38 @@ import {
 } from '@shared/passkey-custody';
 import { parseWalletRecoveryEnvelopeSetRecord } from '@shared/wallet-recovery';
 import type { WalletId } from '@shared/utils/domainIds';
-import type { WalletKeyId } from '@shared/signing-lanes';
 import {
   ALT_DIGEST_B64U,
-  RECOVERY_KEY_ID,
   CIPHERTEXT_B64U,
   DIGEST_B64U,
-  ED25519_WALLET_KEY_ID,
-  EVM_FAMILY_SIGNING_KEY_SLOT_ID,
   EVM_LANE_ID,
   EVM_WALLET_KEY_ID,
   NONCE_12_B64U,
   OTHER_WALLET_ID,
+  RECOVERY_KEY_ID,
   SECP256K1_PUBLIC_KEY_B64U,
   THRESHOLD_ECDSA_SESSION_ID,
   WALLET_ID,
-  rawEcdsaClientRootShareBinding,
   rawEcdsaLaneHolderShareBinding,
   rawEd25519LaneHolderShareBinding,
-  rawEd25519YaoClientRootBinding,
+  rawEmailOtpFactor,
   rawManifestKekWrap,
   rawPasskeyCustodyEnvelope,
+  rawPasskeyFactor,
+  rawWalletCustodySeedBinding,
   rawWalletRecoveryEnvelopeEntry,
   rawWalletRecoveryEnvelopeSet,
 } from './helpers/passkeyCustodyEnvelope.fixtures';
 
 test('every custody-secret branch parses into its exact kind', () => {
-  expect(parsePasskeyCustodySecretBinding(rawEd25519YaoClientRootBinding())).toMatchObject({
-    kind: 'ed25519_yao_client_root_v1',
-    keyCreationSignerSlot: 1,
-    stableContextDigestB64u: DIGEST_B64U,
+  expect(parsePasskeyCustodySecretBinding(rawWalletCustodySeedBinding())).toMatchObject({
+    kind: 'wallet_custody_seed_v1',
+    derivationScheme: 'wallet_seed_parallel_hkdf_sha256_v1',
+    keyManifestDigestB64u: DIGEST_B64U,
+    clientRootPublicKey33B64u: SECP256K1_PUBLIC_KEY_B64U,
   });
   expect(parsePasskeyCustodySecretBinding(rawEd25519LaneHolderShareBinding())).toMatchObject({
     kind: 'ed25519_lane_holder_share_v1',
-  });
-  expect(parsePasskeyCustodySecretBinding(rawEcdsaClientRootShareBinding())).toMatchObject({
-    kind: 'ecdsa_client_root_share_v1',
-    clientRootPublicKey33B64u: SECP256K1_PUBLIC_KEY_B64U,
   });
   expect(parsePasskeyCustodySecretBinding(rawEcdsaLaneHolderShareBinding())).toMatchObject({
     kind: 'ecdsa_lane_holder_share_v1',
@@ -50,24 +45,44 @@ test('every custody-secret branch parses into its exact kind', () => {
   });
 });
 
-test('cross-curve fields are rejected instead of dropped', () => {
+test('the wallet seed is wallet-scoped and rejects lane identity', () => {
+  // Owner custody covers every key; a lane on the seed would imply otherwise.
+  expect(() =>
+    parsePasskeyCustodySecretBinding(rawWalletCustodySeedBinding({ laneId: EVM_LANE_ID })),
+  ).toThrow(/laneId is not part of/);
   expect(() =>
     parsePasskeyCustodySecretBinding(
-      rawEd25519YaoClientRootBinding({
-        evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
-      }),
+      rawWalletCustodySeedBinding({ derivationScheme: 'wallet_seed_chained_v0' }),
     ),
-  ).toThrow(/evmFamilySigningKeySlotId is not part of/);
+  ).toThrow(/derivationScheme must be wallet_seed_parallel_hkdf_sha256_v1/);
+});
 
+test('the retired per-curve owner root kinds no longer parse', () => {
   expect(() =>
-    parsePasskeyCustodySecretBinding(rawEcdsaLaneHolderShareBinding({ keyCreationSignerSlot: 1 })),
-  ).toThrow(/keyCreationSignerSlot is not part of/);
+    parsePasskeyCustodySecretBinding(
+      rawWalletCustodySeedBinding({ kind: 'ed25519_yao_client_root_v1' }),
+    ),
+  ).toThrow(/must be a known passkey custody secret kind/);
+});
+
+test('cross-branch fields are rejected instead of dropped', () => {
+  expect(() =>
+    parsePasskeyCustodySecretBinding(
+      rawEcdsaLaneHolderShareBinding({ keyManifestDigestB64u: DIGEST_B64U }),
+    ),
+  ).toThrow(/keyManifestDigestB64u is not part of/);
 
   expect(() =>
     parsePasskeyCustodySecretBinding(
       rawEcdsaLaneHolderShareBinding({ clientRootPublicKey33B64u: SECP256K1_PUBLIC_KEY_B64U }),
     ),
   ).toThrow(/clientRootPublicKey33B64u is not part of/);
+
+  expect(() =>
+    parsePasskeyCustodySecretBinding(
+      rawEd25519LaneHolderShareBinding({ thresholdSessionId: THRESHOLD_ECDSA_SESSION_ID }),
+    ),
+  ).toThrow(/thresholdSessionId is not part of/);
 });
 
 test('an ECDSA holder share without its threshold session fails', () => {
@@ -85,7 +100,7 @@ test('plaintext custody material is reported as a leak, not a schema mismatch', 
     { root_seed_b64u: 'seed' },
   ];
   for (const field of leakingFields) {
-    expect(() => parsePasskeyCustodySecretBinding(rawEd25519YaoClientRootBinding(field))).toThrow(
+    expect(() => parsePasskeyCustodySecretBinding(rawWalletCustodySeedBinding(field))).toThrow(
       /must never carry plaintext custody material/,
     );
   }
@@ -100,7 +115,7 @@ test('public identities must decode to their curve', () => {
 
   expect(() =>
     parsePasskeyCustodySecretBinding(
-      rawEcdsaClientRootShareBinding({ clientRootPublicKey33B64u: DIGEST_B64U }),
+      rawWalletCustodySeedBinding({ clientRootPublicKey33B64u: DIGEST_B64U }),
     ),
   ).toThrow(/33-byte compressed secp256k1 point/);
 });
@@ -110,13 +125,12 @@ test('an envelope parses and yields a branch-specific KEK context', () => {
   expect(envelope.lifecycle).toEqual({ state: 'active', activatedAtMs: 1_000 });
 
   expect(buildPasskeyCustodyKekDerivationContext(envelope)).toEqual({
-    kind: 'passkey_custody_kek_derivation_context_v1',
+    kind: 'wallet_custody_kek_derivation_context_v2',
     walletId: envelope.walletId,
     envelopeId: envelope.envelopeId,
-    rpId: envelope.rpId,
-    credentialIdB64u: envelope.credentialIdB64u,
-    purpose: 'ed25519_yao_client_root_v1',
-    passkeyKekVersion: 'passkey_prf_kek_hkdf_sha256_v1',
+    factor: envelope.factor,
+    purpose: 'wallet_custody_seed_v1',
+    kekVersion: 'passkey_prf_kek_hkdf_sha256_v1',
   });
 
   const ecdsaEnvelope = parsePasskeyCustodyEnvelopeRecord(
@@ -125,6 +139,42 @@ test('an envelope parses and yields a branch-specific KEK context', () => {
   expect(buildPasskeyCustodyKekDerivationContext(ecdsaEnvelope).purpose).toBe(
     'ecdsa_lane_holder_share_v1',
   );
+
+  // The same seed under an Email OTP factor derives a different KEK context,
+  // so interchangeable factors never share a key-encryption key.
+  const otpEnvelope = parsePasskeyCustodyEnvelopeRecord(
+    rawPasskeyCustodyEnvelope({ factor: rawEmailOtpFactor() }),
+  );
+  const otpContext = buildPasskeyCustodyKekDerivationContext(otpEnvelope);
+  expect(otpContext.kekVersion).toBe('email_otp_factor_kek_hkdf_sha256_v1');
+  expect(otpContext.factor).not.toEqual(envelope.factor);
+  expect(otpContext.purpose).toBe('wallet_custody_seed_v1');
+});
+
+test('factor identity is branch-specific and cannot be mixed', () => {
+  expect(() =>
+    parsePasskeyCustodyEnvelopeRecord(
+      rawPasskeyCustodyEnvelope({ factor: rawEmailOtpFactor({ credentialIdB64u: 'Y3JlZA' }) }),
+    ),
+  ).toThrow(/credentialIdB64u is not part of/);
+
+  expect(() =>
+    parsePasskeyCustodyEnvelopeRecord(
+      rawPasskeyCustodyEnvelope({ factor: rawPasskeyFactor({ enrollmentId: 'enrollment-1' }) }),
+    ),
+  ).toThrow(/enrollmentId is not part of/);
+
+  expect(() =>
+    parsePasskeyCustodyEnvelopeRecord(
+      rawPasskeyCustodyEnvelope({
+        factor: rawPasskeyFactor({ kekVersion: 'email_otp_factor_kek_hkdf_sha256_v1' }),
+      }),
+    ),
+  ).toThrow(/kekVersion must be passkey_prf_kek_hkdf_sha256_v1/);
+
+  expect(() =>
+    parsePasskeyCustodyEnvelopeRecord(rawPasskeyCustodyEnvelope({ factor: { kind: 'sms' } })),
+  ).toThrow(/kind must be passkey or email_otp/);
 });
 
 test('envelopes reject authorization identity and unknown versions', () => {
@@ -142,9 +192,9 @@ test('envelopes reject authorization identity and unknown versions', () => {
 
   expect(() =>
     parsePasskeyCustodyEnvelopeRecord(
-      rawPasskeyCustodyEnvelope({ passkeyKekVersion: 'passkey_prf_kek_v0' }),
+      rawPasskeyCustodyEnvelope({ envelopeVersion: 'passkey_custody_envelope_v1' }),
     ),
-  ).toThrow(/passkeyKekVersion must be passkey_prf_kek_hkdf_sha256_v1/);
+  ).toThrow(/envelopeVersion must be wallet_custody_envelope_v2/);
 });
 
 test('envelope lifecycle states cannot overlap', () => {
@@ -187,18 +237,18 @@ test('a browser cache row must carry an exact revision and digests', () => {
   ).toThrow(/sealed ciphertext with an authentication tag/);
 });
 
-test('a recovery envelope set is wallet-scoped and covers the exact key manifest', () => {
+test('a recovery envelope set is wallet-scoped and covers the owner seed', () => {
   const expectedWalletId = WALLET_ID as WalletId;
-  const requiredWalletKeyIds = [ED25519_WALLET_KEY_ID, EVM_WALLET_KEY_ID] as WalletKeyId[];
 
   const parsed = parseWalletRecoveryEnvelopeSetRecord(rawWalletRecoveryEnvelopeSet(), {
     expectedWalletId,
-    requiredWalletKeyIds,
   });
   expect(parsed.entries.map((entry) => entry.custodySecretKind)).toEqual([
-    'ed25519_yao_client_root_v1',
-    'ecdsa_client_root_share_v1',
+    'wallet_custody_seed_v1',
+    'ecdsa_lane_holder_share_v1',
   ]);
+  // The owner entry carries no lane: it covers every owner key at once.
+  expect(parsed.entries[0].laneId).toBeUndefined();
 
   expect(() =>
     parseWalletRecoveryEnvelopeSetRecord(
@@ -212,26 +262,58 @@ test('a recovery envelope set is wallet-scoped and covers the exact key manifest
       expectedWalletId,
     }),
   ).toThrow(/must cover at least one wallet key/);
+});
 
+test('owner coverage is exactly one seed entry', () => {
+  const expectedWalletId = WALLET_ID as WalletId;
+
+  // Zero means recovery cannot restore owner custody at all.
   expect(() =>
     parseWalletRecoveryEnvelopeSetRecord(
       rawWalletRecoveryEnvelopeSet({
-        entries: [rawWalletRecoveryEnvelopeEntry('ed25519_yao_client_root_v1')],
+        entries: [rawWalletRecoveryEnvelopeEntry('ecdsa_lane_holder_share_v1')],
       }),
-      { expectedWalletId, requiredWalletKeyIds },
+      { expectedWalletId },
     ),
-  ).toThrow(new RegExp(`omits required walletKeyId ${EVM_WALLET_KEY_ID}`));
+  ).toThrow(/exactly one wallet_custody_seed_v1 entry, found 0/);
+
+  // More than one means two different seeds claim the same wallet.
+  expect(() =>
+    parseWalletRecoveryEnvelopeSetRecord(
+      rawWalletRecoveryEnvelopeSet({
+        entries: [
+          rawWalletRecoveryEnvelopeEntry('wallet_custody_seed_v1'),
+          rawWalletRecoveryEnvelopeEntry('wallet_custody_seed_v1'),
+        ],
+      }),
+      { expectedWalletId },
+    ),
+  ).toThrow(/found 2/);
 });
 
-test('a recovery envelope set rejects duplicate wallet keys and lanes', () => {
+test('a seed entry cannot carry lane identity', () => {
+  expect(() =>
+    parseWalletRecoveryEnvelopeSetRecord(
+      rawWalletRecoveryEnvelopeSet({
+        entries: [
+          rawWalletRecoveryEnvelopeEntry('wallet_custody_seed_v1', { laneId: EVM_LANE_ID }),
+        ],
+      }),
+      { expectedWalletId: WALLET_ID as WalletId },
+    ),
+  ).toThrow(/wallet-scoped and cannot carry lane identity/);
+});
+
+test('lane entries reject duplicate wallet keys and lanes', () => {
   const expectedWalletId = WALLET_ID as WalletId;
 
   expect(() =>
     parseWalletRecoveryEnvelopeSetRecord(
       rawWalletRecoveryEnvelopeSet({
         entries: [
-          rawWalletRecoveryEnvelopeEntry('ed25519_yao_client_root_v1'),
-          rawWalletRecoveryEnvelopeEntry('ed25519_lane_holder_share_v1'),
+          rawWalletRecoveryEnvelopeEntry('wallet_custody_seed_v1'),
+          rawWalletRecoveryEnvelopeEntry('ecdsa_lane_holder_share_v1'),
+          rawWalletRecoveryEnvelopeEntry('ecdsa_lane_holder_share_v1'),
         ],
       }),
       { expectedWalletId },
@@ -242,12 +324,9 @@ test('a recovery envelope set rejects duplicate wallet keys and lanes', () => {
     parseWalletRecoveryEnvelopeSetRecord(
       rawWalletRecoveryEnvelopeSet({
         entries: [
-          rawWalletRecoveryEnvelopeEntry('ed25519_yao_client_root_v1'),
-          rawWalletRecoveryEnvelopeEntry('ecdsa_client_root_share_v1', {
-            walletKeyId: EVM_WALLET_KEY_ID,
-            laneId: EVM_LANE_ID,
-          }),
-          rawWalletRecoveryEnvelopeEntry('ecdsa_lane_holder_share_v1', {
+          rawWalletRecoveryEnvelopeEntry('wallet_custody_seed_v1'),
+          rawWalletRecoveryEnvelopeEntry('ecdsa_lane_holder_share_v1'),
+          rawWalletRecoveryEnvelopeEntry('ed25519_lane_holder_share_v1', {
             walletKeyId: `${EVM_WALLET_KEY_ID}:2`,
             laneId: EVM_LANE_ID,
           }),
@@ -263,7 +342,7 @@ test('a recovery entry cannot carry plaintext custody material', () => {
     parseWalletRecoveryEnvelopeSetRecord(
       rawWalletRecoveryEnvelopeSet({
         entries: [
-          rawWalletRecoveryEnvelopeEntry('ed25519_yao_client_root_v1', {
+          rawWalletRecoveryEnvelopeEntry('wallet_custody_seed_v1', {
             custodySecretPlaintextB64u: CIPHERTEXT_B64U,
           }),
         ],
@@ -276,8 +355,7 @@ test('a recovery entry cannot carry plaintext custody material', () => {
     parseWalletRecoveryEnvelopeSetRecord(
       rawWalletRecoveryEnvelopeSet({
         entries: [
-          rawWalletRecoveryEnvelopeEntry('ed25519_yao_client_root_v1', {
-            aadHashB64u: ALT_DIGEST_B64U,
+          rawWalletRecoveryEnvelopeEntry('wallet_custody_seed_v1', {
             custodySecretKind: 'holder_share_v1',
           }),
         ],

@@ -24,11 +24,43 @@ import {
   requireRecord,
 } from './primitives';
 
-export const PASSKEY_CUSTODY_ENVELOPE_VERSION_V1 = 'passkey_custody_envelope_v1' as const;
+export const WALLET_CUSTODY_ENVELOPE_VERSION_V2 = 'wallet_custody_envelope_v2' as const;
 export const PASSKEY_PRF_KEK_VERSION_V1 = 'passkey_prf_kek_hkdf_sha256_v1' as const;
+export const EMAIL_OTP_FACTOR_KEK_VERSION_V1 = 'email_otp_factor_kek_hkdf_sha256_v1' as const;
 
-export type PasskeyCustodyEnvelopeVersion = typeof PASSKEY_CUSTODY_ENVELOPE_VERSION_V1;
+export type WalletCustodyEnvelopeVersion = typeof WALLET_CUSTODY_ENVELOPE_VERSION_V2;
 export type PasskeyPrfKekVersion = typeof PASSKEY_PRF_KEK_VERSION_V1;
+export type EmailOtpFactorKekVersion = typeof EMAIL_OTP_FACTOR_KEK_VERSION_V1;
+
+export type WalletCustodyFactorKind = 'passkey' | 'email_otp';
+
+/**
+ * Which enrolled factor sealed this envelope.
+ *
+ * Factors are interchangeable unwrap paths to the same custody seed: each has
+ * its own envelope, KEK derivation, and revocation, so enrolling or revoking
+ * one never touches another's ciphertext. Factor-specific identity lives inside
+ * the branch rather than at the record's top level, which is what stops an
+ * Email OTP envelope from carrying an RP ID or a passkey envelope from
+ * carrying an enrollment id.
+ */
+export type WalletCustodyEnvelopeFactor =
+  | {
+      kind: 'passkey';
+      rpId: WebAuthnRpId;
+      credentialIdB64u: WebAuthnCredentialIdB64u;
+      kekVersion: PasskeyPrfKekVersion;
+      enrollmentId?: never;
+      enrollmentSealKeyVersion?: never;
+    }
+  | {
+      kind: 'email_otp';
+      enrollmentId: string;
+      enrollmentSealKeyVersion: string;
+      kekVersion: EmailOtpFactorKekVersion;
+      rpId?: never;
+      credentialIdB64u?: never;
+    };
 
 export type PasskeyCustodyEnvelopeLifecycle =
   | {
@@ -51,7 +83,7 @@ export type PasskeyCustodyEnvelopeLifecycle =
     };
 
 /**
- * Ciphertext plus public binding data for one passkey-sealed custody secret.
+ * Ciphertext plus public binding data for one factor-sealed custody secret.
  *
  * This record carries no authorization identity: no `AuthorizationGrantRef`,
  * `WalletSessionId`, `MpcWalletSigningQuotaId`, `AuthorizedOperationId`, or
@@ -61,14 +93,12 @@ export type PasskeyCustodyEnvelopeLifecycle =
  * reactivation can mint a fresh activation id without rewriting this envelope.
  */
 export type PasskeyCustodyEnvelopeRecord = {
-  kind: 'passkey_custody_envelope_v1';
+  kind: 'wallet_custody_envelope_v2';
   envelopeId: PasskeyEnvelopeId;
   walletId: WalletId;
   binding: PasskeyCustodySecretBinding;
-  rpId: WebAuthnRpId;
-  credentialIdB64u: WebAuthnCredentialIdB64u;
-  passkeyEnvelopeVersion: PasskeyCustodyEnvelopeVersion;
-  passkeyKekVersion: PasskeyPrfKekVersion;
+  factor: WalletCustodyEnvelopeFactor;
+  envelopeVersion: WalletCustodyEnvelopeVersion;
   envelopeRevision: EnvelopeRevision;
   nonceB64u: EnvelopeNonceB64u;
   sealedCustodySecretB64u: EnvelopeCiphertextB64u;
@@ -78,6 +108,30 @@ export type PasskeyCustodyEnvelopeRecord = {
   createdAtMs: number;
   updatedAtMs: number;
 };
+
+export function buildPasskeyEnvelopeFactor(args: {
+  rpId: WebAuthnRpId;
+  credentialIdB64u: WebAuthnCredentialIdB64u;
+}): WalletCustodyEnvelopeFactor {
+  return {
+    kind: 'passkey',
+    rpId: args.rpId,
+    credentialIdB64u: args.credentialIdB64u,
+    kekVersion: PASSKEY_PRF_KEK_VERSION_V1,
+  };
+}
+
+export function buildEmailOtpEnvelopeFactor(args: {
+  enrollmentId: string;
+  enrollmentSealKeyVersion: string;
+}): WalletCustodyEnvelopeFactor {
+  return {
+    kind: 'email_otp',
+    enrollmentId: args.enrollmentId,
+    enrollmentSealKeyVersion: args.enrollmentSealKeyVersion,
+    kekVersion: EMAIL_OTP_FACTOR_KEK_VERSION_V1,
+  };
+}
 
 export function buildActiveEnvelopeLifecycle(args: {
   activatedAtMs: number;
@@ -111,8 +165,7 @@ export function buildPasskeyCustodyEnvelopeRecord(args: {
   envelopeId: PasskeyEnvelopeId;
   walletId: WalletId;
   binding: PasskeyCustodySecretBinding;
-  rpId: WebAuthnRpId;
-  credentialIdB64u: WebAuthnCredentialIdB64u;
+  factor: WalletCustodyEnvelopeFactor;
   envelopeRevision: EnvelopeRevision;
   nonceB64u: EnvelopeNonceB64u;
   sealedCustodySecretB64u: EnvelopeCiphertextB64u;
@@ -123,14 +176,12 @@ export function buildPasskeyCustodyEnvelopeRecord(args: {
   updatedAtMs: number;
 }): PasskeyCustodyEnvelopeRecord {
   return {
-    kind: 'passkey_custody_envelope_v1',
+    kind: 'wallet_custody_envelope_v2',
     envelopeId: args.envelopeId,
     walletId: args.walletId,
     binding: args.binding,
-    rpId: args.rpId,
-    credentialIdB64u: args.credentialIdB64u,
-    passkeyEnvelopeVersion: PASSKEY_CUSTODY_ENVELOPE_VERSION_V1,
-    passkeyKekVersion: PASSKEY_PRF_KEK_VERSION_V1,
+    factor: args.factor,
+    envelopeVersion: WALLET_CUSTODY_ENVELOPE_VERSION_V2,
     envelopeRevision: args.envelopeRevision,
     nonceB64u: args.nonceB64u,
     sealedCustodySecretB64u: args.sealedCustodySecretB64u,
@@ -182,15 +233,69 @@ export function parsePasskeyCustodyEnvelopeLifecycle(
   }
 }
 
+const PASSKEY_FACTOR_FIELDS = ['kind', 'rpId', 'credentialIdB64u', 'kekVersion'] as const;
+const EMAIL_OTP_FACTOR_FIELDS = [
+  'kind',
+  'enrollmentId',
+  'enrollmentSealKeyVersion',
+  'kekVersion',
+] as const;
+const ALL_FACTOR_FIELDS: readonly string[] = Array.from(
+  new Set([...PASSKEY_FACTOR_FIELDS, ...EMAIL_OTP_FACTOR_FIELDS]),
+);
+
+function requireNonEmptyString(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} is required`);
+  return value;
+}
+
+export function parseWalletCustodyEnvelopeFactor(
+  raw: unknown,
+  label = 'factor',
+): WalletCustodyEnvelopeFactor {
+  const record = requireRecord(raw, label);
+  switch (record.kind) {
+    case 'passkey': {
+      rejectUnknownFields(record, PASSKEY_FACTOR_FIELDS, label, ALL_FACTOR_FIELDS);
+      if (record.kekVersion !== PASSKEY_PRF_KEK_VERSION_V1) {
+        throw new Error(`${label}.kekVersion must be ${PASSKEY_PRF_KEK_VERSION_V1}`);
+      }
+      const rpId = parseWebAuthnRpId(record.rpId);
+      if (!rpId.ok) throw new Error(`${label}.rpId ${rpId.error.message}`);
+      const credentialIdB64u = parseWebAuthnCredentialIdB64u(record.credentialIdB64u);
+      if (!credentialIdB64u.ok) {
+        throw new Error(`${label}.credentialIdB64u ${credentialIdB64u.error.message}`);
+      }
+      return buildPasskeyEnvelopeFactor({
+        rpId: rpId.value,
+        credentialIdB64u: credentialIdB64u.value,
+      });
+    }
+    case 'email_otp': {
+      rejectUnknownFields(record, EMAIL_OTP_FACTOR_FIELDS, label, ALL_FACTOR_FIELDS);
+      if (record.kekVersion !== EMAIL_OTP_FACTOR_KEK_VERSION_V1) {
+        throw new Error(`${label}.kekVersion must be ${EMAIL_OTP_FACTOR_KEK_VERSION_V1}`);
+      }
+      return buildEmailOtpEnvelopeFactor({
+        enrollmentId: requireNonEmptyString(record.enrollmentId, `${label}.enrollmentId`),
+        enrollmentSealKeyVersion: requireNonEmptyString(
+          record.enrollmentSealKeyVersion,
+          `${label}.enrollmentSealKeyVersion`,
+        ),
+      });
+    }
+    default:
+      throw new Error(`${label}.kind must be passkey or email_otp`);
+  }
+}
+
 const ENVELOPE_RECORD_FIELDS = [
   'kind',
   'envelopeId',
   'walletId',
   'binding',
-  'rpId',
-  'credentialIdB64u',
-  'passkeyEnvelopeVersion',
-  'passkeyKekVersion',
+  'factor',
+  'envelopeVersion',
   'envelopeRevision',
   'nonceB64u',
   'sealedCustodySecretB64u',
@@ -208,33 +313,22 @@ const ENVELOPE_RECORD_FIELDS = [
  */
 export function parsePasskeyCustodyEnvelopeRecord(
   raw: unknown,
-  label = 'passkeyCustodyEnvelope',
+  label = 'walletCustodyEnvelope',
 ): PasskeyCustodyEnvelopeRecord {
   const record = requireRecord(raw, label);
-  if (record.kind !== PASSKEY_CUSTODY_ENVELOPE_VERSION_V1) {
-    throw new Error(`${label}.kind must be ${PASSKEY_CUSTODY_ENVELOPE_VERSION_V1}`);
+  if (record.kind !== WALLET_CUSTODY_ENVELOPE_VERSION_V2) {
+    throw new Error(`${label}.kind must be ${WALLET_CUSTODY_ENVELOPE_VERSION_V2}`);
   }
   rejectUnknownFields(record, ENVELOPE_RECORD_FIELDS, label);
 
-  if (record.passkeyEnvelopeVersion !== PASSKEY_CUSTODY_ENVELOPE_VERSION_V1) {
-    throw new Error(
-      `${label}.passkeyEnvelopeVersion must be ${PASSKEY_CUSTODY_ENVELOPE_VERSION_V1}`,
-    );
-  }
-  if (record.passkeyKekVersion !== PASSKEY_PRF_KEK_VERSION_V1) {
-    throw new Error(`${label}.passkeyKekVersion must be ${PASSKEY_PRF_KEK_VERSION_V1}`);
+  if (record.envelopeVersion !== WALLET_CUSTODY_ENVELOPE_VERSION_V2) {
+    throw new Error(`${label}.envelopeVersion must be ${WALLET_CUSTODY_ENVELOPE_VERSION_V2}`);
   }
 
   const envelopeId = parsePasskeyEnvelopeId(record.envelopeId);
   if (!envelopeId.ok) throw new Error(`${label}.envelopeId ${envelopeId.error.message}`);
   const walletId = parseWalletId(record.walletId);
   if (!walletId.ok) throw new Error(`${label}.walletId ${walletId.error.message}`);
-  const rpId = parseWebAuthnRpId(record.rpId);
-  if (!rpId.ok) throw new Error(`${label}.rpId ${rpId.error.message}`);
-  const credentialIdB64u = parseWebAuthnCredentialIdB64u(record.credentialIdB64u);
-  if (!credentialIdB64u.ok) {
-    throw new Error(`${label}.credentialIdB64u ${credentialIdB64u.error.message}`);
-  }
 
   const createdAtMs = parseUnixMs(record.createdAtMs, `${label}.createdAtMs`);
   const updatedAtMs = parseUnixMs(record.updatedAtMs, `${label}.updatedAtMs`);
@@ -246,8 +340,7 @@ export function parsePasskeyCustodyEnvelopeRecord(
     envelopeId: envelopeId.value,
     walletId: walletId.value,
     binding: parsePasskeyCustodySecretBinding(record.binding, `${label}.binding`),
-    rpId: rpId.value,
-    credentialIdB64u: credentialIdB64u.value,
+    factor: parseWalletCustodyEnvelopeFactor(record.factor, `${label}.factor`),
     envelopeRevision: parseEnvelopeRevision(record.envelopeRevision, `${label}.envelopeRevision`),
     nonceB64u: parseEnvelopeNonceB64u(record.nonceB64u, `${label}.nonceB64u`),
     sealedCustodySecretB64u: parseEnvelopeCiphertextB64u(

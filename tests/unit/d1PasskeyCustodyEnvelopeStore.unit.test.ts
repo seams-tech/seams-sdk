@@ -15,9 +15,11 @@ import {
   DIGEST_B64U,
   ENVELOPE_ID,
   OTHER_WALLET_ID,
+  RP_ID,
   WALLET_ID,
   passkeyCustodyEnvelope,
-  rawEcdsaClientRootShareBinding,
+  rawEcdsaLaneHolderShareBinding,
+  rawEmailOtpFactor,
 } from './helpers/passkeyCustodyEnvelope.fixtures';
 
 const TEST_SCOPE = {
@@ -29,9 +31,9 @@ const TEST_SCOPE = {
 
 const LOCATOR = {
   walletId: WALLET_ID as WalletId,
-  credentialIdB64u: CREDENTIAL_ID_B64U as WebAuthnCredentialIdB64u,
+  factor: { kind: 'passkey', credentialIdB64u: CREDENTIAL_ID_B64U as WebAuthnCredentialIdB64u },
   envelopeId: ENVELOPE_ID as PasskeyEnvelopeId,
-};
+} as const;
 
 async function withStore(
   run: (store: CloudflareD1PasskeyCustodyEnvelopeStore, database: D1DatabaseLike) => Promise<void>,
@@ -76,9 +78,19 @@ test('a missing envelope and a foreign wallet both read as missing', async () =>
 
     const foreignCredential = await store.lookupEnvelope({
       ...LOCATOR,
-      credentialIdB64u: 'Y3JlZGVudGlhbC05' as WebAuthnCredentialIdB64u,
+      factor: {
+        kind: 'passkey',
+        credentialIdB64u: 'Y3JlZGVudGlhbC05' as WebAuthnCredentialIdB64u,
+      },
     });
     expect(foreignCredential.kind).toBe('missing');
+
+    // An Email OTP address never resolves a passkey-sealed envelope.
+    const foreignFactor = await store.lookupEnvelope({
+      ...LOCATOR,
+      factor: { kind: 'email_otp', enrollmentId: 'enrollment-1' },
+    });
+    expect(foreignFactor.kind).toBe('missing');
   });
 });
 
@@ -252,37 +264,67 @@ test('a revoked envelope makes every cache entry unusable', async () => {
   });
 });
 
-test('envelopes for different credentials and curves coexist under one wallet', async () => {
+test('interchangeable factors seal the same seed under separate envelopes', async () => {
   await withStore(async (store) => {
-    const ed25519 = passkeyCustodyEnvelope();
-    const ecdsa = passkeyCustodyEnvelope({
-      envelopeId: 'passkey-envelope-2',
-      credentialIdB64u: 'Y3JlZGVudGlhbC0y',
-      binding: rawEcdsaClientRootShareBinding(),
+    // The point of the factor union: one wallet custody seed, two independent
+    // unwrap paths, each with its own envelope and its own revocation.
+    const passkeyEnvelope = passkeyCustodyEnvelope();
+    const otpEnvelope = passkeyCustodyEnvelope({
+      envelopeId: 'wallet-custody-envelope-2',
+      factor: rawEmailOtpFactor(),
     });
-    expect((await store.createEnvelope(ed25519)).kind).toBe('stored');
-    expect((await store.createEnvelope(ecdsa)).kind).toBe('stored');
+    expect((await store.createEnvelope(passkeyEnvelope)).kind).toBe('stored');
+    expect((await store.createEnvelope(otpEnvelope)).kind).toBe('stored');
 
-    const first = await store.lookupEnvelope(LOCATOR);
-    const second = await store.lookupEnvelope({
+    const otpLocator = {
       walletId: WALLET_ID as WalletId,
-      credentialIdB64u: 'Y3JlZGVudGlhbC0y' as WebAuthnCredentialIdB64u,
-      envelopeId: 'passkey-envelope-2' as PasskeyEnvelopeId,
-    });
-    expect(first.kind === 'active' && first.envelope.binding.kind).toBe(
-      'ed25519_yao_client_root_v1',
-    );
-    expect(second.kind === 'active' && second.envelope.binding.kind).toBe(
-      'ecdsa_client_root_share_v1',
-    );
+      factor: { kind: 'email_otp', enrollmentId: 'enrollment-1' },
+      envelopeId: 'wallet-custody-envelope-2' as PasskeyEnvelopeId,
+    } as const;
 
-    // Revoking one credential's envelope leaves the other active.
+    const viaPasskey = await store.lookupEnvelope(LOCATOR);
+    const viaOtp = await store.lookupEnvelope(otpLocator);
+    expect(viaPasskey.kind).toBe('active');
+    expect(viaOtp.kind).toBe('active');
+    // Same sealed seed, different factor envelopes.
+    expect(viaPasskey.kind === 'active' && viaPasskey.envelope.binding.kind).toBe(
+      'wallet_custody_seed_v1',
+    );
+    expect(viaOtp.kind === 'active' && viaOtp.envelope.binding.kind).toBe('wallet_custody_seed_v1');
+
+    // Revoking one factor leaves the other able to open the same seed.
     await store.revokeEnvelope({ locator: LOCATOR, revokedAtMs: 6_000 });
-    const stillActive = await store.lookupEnvelope({
-      walletId: WALLET_ID as WalletId,
-      credentialIdB64u: 'Y3JlZGVudGlhbC0y' as WebAuthnCredentialIdB64u,
-      envelopeId: 'passkey-envelope-2' as PasskeyEnvelopeId,
+    expect((await store.lookupEnvelope(LOCATOR)).kind).toBe('revoked');
+    expect((await store.lookupEnvelope(otpLocator)).kind).toBe('active');
+  });
+});
+
+test('lane holder-share envelopes coexist with the owner seed', async () => {
+  await withStore(async (store) => {
+    const seedEnvelope = passkeyCustodyEnvelope();
+    const laneEnvelope = passkeyCustodyEnvelope({
+      envelopeId: 'wallet-custody-envelope-3',
+      factor: {
+        kind: 'passkey',
+        rpId: RP_ID,
+        credentialIdB64u: 'Y3JlZGVudGlhbC0y',
+        kekVersion: 'passkey_prf_kek_hkdf_sha256_v1',
+      },
+      binding: rawEcdsaLaneHolderShareBinding(),
     });
-    expect(stillActive.kind).toBe('active');
+    expect((await store.createEnvelope(seedEnvelope)).kind).toBe('stored');
+    expect((await store.createEnvelope(laneEnvelope)).kind).toBe('stored');
+
+    const laneLookup = await store.lookupEnvelope({
+      walletId: WALLET_ID as WalletId,
+      factor: {
+        kind: 'passkey',
+        credentialIdB64u: 'Y3JlZGVudGlhbC0y' as WebAuthnCredentialIdB64u,
+      },
+      envelopeId: 'wallet-custody-envelope-3' as PasskeyEnvelopeId,
+    });
+    expect(laneLookup.kind === 'active' && laneLookup.envelope.binding.kind).toBe(
+      'ecdsa_lane_holder_share_v1',
+    );
   });
 });

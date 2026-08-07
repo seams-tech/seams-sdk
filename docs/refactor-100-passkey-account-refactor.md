@@ -751,13 +751,16 @@ repository evidence.
       with the MPC threshold protocol — the collision that caused a
       misdiagnosis during this revision. The key-separation tests recompute it
       locally instead.
-- [ ] Collapse the custody-secret union's two owner root branches into one
+- [x] Collapse the custody-secret union's two owner root branches into one
       `wallet_custody_seed_v1` branch; lane holder-share branches unchanged.
-- [ ] Add the factor-kind union (`passkey` | `email_otp`) to the custody
+- [x] Add the factor-kind union (`passkey` | `email_otp`) to the custody
       envelope record, KEK context, server store, and authenticated
-      retrieval.
-- [ ] Mirror the union and factor changes in the signer-core binding, AAD
-      encoding, and the near_signer wasm boundary.
+      retrieval. The store addresses envelopes by factor rather than by
+      credential; assertion-gated retrieval serves passkey envelopes only.
+- [x] Mirror the union and factor changes in the signer-core binding, AAD
+      encoding, and the near_signer wasm boundary. Wallet and lane scope are
+      distinguished by an explicit AAD scope marker, so neither encoding can
+      be a prefix of the other.
 - [ ] Implement seed -> parallel HKDF derivation of the Ed25519 Yao Client
       root and ECDSA client root share for the shared custody path; freeze
       the domain-separation labels.

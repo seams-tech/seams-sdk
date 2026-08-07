@@ -21,8 +21,10 @@ use zeroize::Zeroizing;
 use crate::error::{CoreResult, SignerCoreError};
 
 pub const PASSKEY_CUSTODY_WRAP_ALG_V1: &str = "chacha20poly1305-hkdf-sha256-v1";
-pub const PASSKEY_CUSTODY_ENVELOPE_VERSION_V1: &str = "passkey_custody_envelope_v1";
+pub const WALLET_CUSTODY_ENVELOPE_VERSION_V2: &str = "wallet_custody_envelope_v2";
 pub const PASSKEY_CUSTODY_KEK_VERSION_V1: &str = "passkey_prf_kek_hkdf_sha256_v1";
+pub const EMAIL_OTP_FACTOR_KEK_VERSION_V1: &str = "email_otp_factor_kek_hkdf_sha256_v1";
+pub const WALLET_SEED_DERIVATION_SCHEME_V1: &str = "wallet_seed_parallel_hkdf_sha256_v1";
 
 const PASSKEY_CUSTODY_KEK_SALT_V1: &[u8] = b"seams/passkey-custody/kek/salt/v1";
 const PASSKEY_CUSTODY_KEK_INFO_V1: &[u8] = b"seams/passkey-custody/kek/info/v1";
@@ -42,18 +44,16 @@ const MAX_BINDING_FIELD_LEN: usize = 512;
 /// purpose, so a key that opens an Ed25519 root cannot open an ECDSA share.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PasskeyCustodySecretKind {
-    Ed25519YaoClientRoot,
+    WalletCustodySeed,
     Ed25519LaneHolderShare,
-    EcdsaClientRootShare,
     EcdsaLaneHolderShare,
 }
 
 impl PasskeyCustodySecretKind {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Ed25519YaoClientRoot => "ed25519_yao_client_root_v1",
+            Self::WalletCustodySeed => "wallet_custody_seed_v1",
             Self::Ed25519LaneHolderShare => "ed25519_lane_holder_share_v1",
-            Self::EcdsaClientRootShare => "ecdsa_client_root_share_v1",
             Self::EcdsaLaneHolderShare => "ecdsa_lane_holder_share_v1",
         }
     }
@@ -63,9 +63,8 @@ impl PasskeyCustodySecretKind {
     /// reuse another curve's custody purpose.
     pub fn parse(value: &str) -> CoreResult<Self> {
         match value {
-            "ed25519_yao_client_root_v1" => Ok(Self::Ed25519YaoClientRoot),
+            "wallet_custody_seed_v1" => Ok(Self::WalletCustodySeed),
             "ed25519_lane_holder_share_v1" => Ok(Self::Ed25519LaneHolderShare),
-            "ecdsa_client_root_share_v1" => Ok(Self::EcdsaClientRootShare),
             "ecdsa_lane_holder_share_v1" => Ok(Self::EcdsaLaneHolderShare),
             _ => Err(SignerCoreError::invalid_input(
                 "unknown passkey custody secret kind",
@@ -89,14 +88,16 @@ pub struct PasskeyCustodyLaneScopeV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "kind", deny_unknown_fields)]
 pub enum PasskeyCustodySecretBindingV1 {
-    #[serde(rename = "ed25519_yao_client_root_v1", rename_all = "camelCase")]
-    Ed25519YaoClientRoot {
-        #[serde(flatten)]
-        lane: PasskeyCustodyLaneScopeV1,
+    /// Owner custody: one wallet-scoped seed every owner root derives from in
+    /// parallel. It carries no lane, because it covers every owner key.
+    #[serde(rename = "wallet_custody_seed_v1", rename_all = "camelCase")]
+    WalletCustodySeed {
+        derivation_scheme: String,
+        key_manifest_digest_b64u: String,
         near_ed25519_signing_key_id: String,
-        key_creation_signer_slot: u32,
-        stable_context_digest_b64u: String,
-        participant_binding_digest_b64u: String,
+        registered_public_key_b64u: String,
+        evm_family_signing_key_slot_id: String,
+        client_root_public_key33_b64u: String,
     },
     #[serde(rename = "ed25519_lane_holder_share_v1", rename_all = "camelCase")]
     Ed25519LaneHolderShare {
@@ -105,14 +106,6 @@ pub enum PasskeyCustodySecretBindingV1 {
         near_ed25519_signing_key_id: String,
         registered_public_key_b64u: String,
         participant_binding_digest_b64u: String,
-    },
-    #[serde(rename = "ecdsa_client_root_share_v1", rename_all = "camelCase")]
-    EcdsaClientRootShare {
-        #[serde(flatten)]
-        lane: PasskeyCustodyLaneScopeV1,
-        evm_family_signing_key_slot_id: String,
-        application_binding_digest_b64u: String,
-        client_root_public_key33_b64u: String,
     },
     #[serde(rename = "ecdsa_lane_holder_share_v1", rename_all = "camelCase")]
     EcdsaLaneHolderShare {
@@ -127,20 +120,74 @@ pub enum PasskeyCustodySecretBindingV1 {
 impl PasskeyCustodySecretBindingV1 {
     pub fn kind(&self) -> PasskeyCustodySecretKind {
         match self {
-            Self::Ed25519YaoClientRoot { .. } => PasskeyCustodySecretKind::Ed25519YaoClientRoot,
+            Self::WalletCustodySeed { .. } => PasskeyCustodySecretKind::WalletCustodySeed,
             Self::Ed25519LaneHolderShare { .. } => PasskeyCustodySecretKind::Ed25519LaneHolderShare,
-            Self::EcdsaClientRootShare { .. } => PasskeyCustodySecretKind::EcdsaClientRootShare,
             Self::EcdsaLaneHolderShare { .. } => PasskeyCustodySecretKind::EcdsaLaneHolderShare,
         }
     }
 
-    pub fn lane(&self) -> &PasskeyCustodyLaneScopeV1 {
+    /// The lane this binding is scoped to, or `None` for wallet-scoped owner
+    /// custody. The absence is meaningful and is encoded into the AAD.
+    pub fn lane(&self) -> Option<&PasskeyCustodyLaneScopeV1> {
         match self {
-            Self::Ed25519YaoClientRoot { lane, .. }
-            | Self::Ed25519LaneHolderShare { lane, .. }
-            | Self::EcdsaClientRootShare { lane, .. }
-            | Self::EcdsaLaneHolderShare { lane, .. } => lane,
+            Self::WalletCustodySeed { .. } => None,
+            Self::Ed25519LaneHolderShare { lane, .. } | Self::EcdsaLaneHolderShare { lane, .. } => {
+                Some(lane)
+            }
         }
+    }
+}
+
+/// Every public fact one envelope is bound to. This carries no authorization
+/// identity and no material-activation reference: those are resolved per
+/// operation at the Refactor 90 boundary, never sealed into custody.
+/// Which enrolled factor sealed this envelope. Factors are interchangeable
+/// unwrap paths to the same custody seed, so each derives its own KEK: the
+/// factor identity is part of the KEK context and the AAD.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(tag = "kind", deny_unknown_fields)]
+pub enum WalletCustodyEnvelopeFactorV1 {
+    #[serde(rename = "passkey", rename_all = "camelCase")]
+    Passkey {
+        rp_id: String,
+        credential_id_b64u: String,
+        kek_version: String,
+    },
+    #[serde(rename = "email_otp", rename_all = "camelCase")]
+    EmailOtp {
+        enrollment_id: String,
+        enrollment_seal_key_version: String,
+        kek_version: String,
+    },
+}
+
+impl WalletCustodyEnvelopeFactorV1 {
+    pub fn kind_str(&self) -> &'static str {
+        match self {
+            Self::Passkey { .. } => "passkey",
+            Self::EmailOtp { .. } => "email_otp",
+        }
+    }
+
+    pub fn kek_version(&self) -> &str {
+        match self {
+            Self::Passkey { kek_version, .. } | Self::EmailOtp { kek_version, .. } => kek_version,
+        }
+    }
+
+    /// Rejects a factor whose declared KEK version belongs to the other kind,
+    /// which would otherwise let two factors derive from the same context.
+    fn validate(&self) -> CoreResult<()> {
+        let expected = match self {
+            Self::Passkey { .. } => PASSKEY_CUSTODY_KEK_VERSION_V1,
+            Self::EmailOtp { .. } => EMAIL_OTP_FACTOR_KEK_VERSION_V1,
+        };
+        if self.kek_version() != expected {
+            return Err(SignerCoreError::invalid_input(format!(
+                "factor kekVersion must be {expected}"
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -152,8 +199,7 @@ impl PasskeyCustodySecretBindingV1 {
 pub struct PasskeyCustodyEnvelopeBindingV1 {
     pub wallet_id: String,
     pub envelope_id: String,
-    pub rp_id: String,
-    pub credential_id_b64u: String,
+    pub factor: WalletCustodyEnvelopeFactorV1,
     /// Bumped only when the ciphertext changes, so it is safe as AAD: an old
     /// ciphertext cannot be replayed into a newer envelope revision.
     pub envelope_revision: u32,
@@ -234,19 +280,52 @@ fn labeled_str(out: &mut Vec<u8>, label: &[u8], value: &str) {
 
 /// Canonical KEK context: the exact `hash(rpId, credentialId, walletId,
 /// envelopeId, purpose, version)` input from the Refactor 100 plan.
+/// Encodes the factor identity. The factor kind is encoded before its fields,
+/// so a passkey factor and an Email OTP factor can never produce the same
+/// bytes even if their identity strings coincided.
+fn encode_factor(out: &mut Vec<u8>, factor: &WalletCustodyEnvelopeFactorV1) -> CoreResult<()> {
+    factor.validate()?;
+    labeled_str(out, b"factorKind", factor.kind_str());
+    match factor {
+        WalletCustodyEnvelopeFactorV1::Passkey {
+            rp_id,
+            credential_id_b64u,
+            kek_version,
+        } => {
+            require_field("rpId", rp_id)?;
+            require_field("credentialIdB64u", credential_id_b64u)?;
+            labeled_str(out, b"rpId", rp_id);
+            labeled_str(out, b"credentialIdB64u", credential_id_b64u);
+            labeled_str(out, b"kekVersion", kek_version);
+        }
+        WalletCustodyEnvelopeFactorV1::EmailOtp {
+            enrollment_id,
+            enrollment_seal_key_version,
+            kek_version,
+        } => {
+            require_field("enrollmentId", enrollment_id)?;
+            require_field("enrollmentSealKeyVersion", enrollment_seal_key_version)?;
+            labeled_str(out, b"enrollmentId", enrollment_id);
+            labeled_str(
+                out,
+                b"enrollmentSealKeyVersion",
+                enrollment_seal_key_version,
+            );
+            labeled_str(out, b"kekVersion", kek_version);
+        }
+    }
+    Ok(())
+}
+
 fn encode_kek_context(binding: &PasskeyCustodyEnvelopeBindingV1) -> CoreResult<Vec<u8>> {
-    require_field("rpId", &binding.rp_id)?;
-    require_field("credentialIdB64u", &binding.credential_id_b64u)?;
     require_field("walletId", &binding.wallet_id)?;
     require_field("envelopeId", &binding.envelope_id)?;
 
     let mut out = Vec::new();
-    labeled_str(&mut out, b"rpId", &binding.rp_id);
-    labeled_str(&mut out, b"credentialIdB64u", &binding.credential_id_b64u);
+    encode_factor(&mut out, &binding.factor)?;
     labeled_str(&mut out, b"walletId", &binding.wallet_id);
     labeled_str(&mut out, b"envelopeId", &binding.envelope_id);
     labeled_str(&mut out, b"purpose", binding.binding.kind().as_str());
-    labeled_str(&mut out, b"kekVersion", PASSKEY_CUSTODY_KEK_VERSION_V1);
     Ok(out)
 }
 
@@ -258,23 +337,16 @@ pub fn encode_passkey_custody_aad_v1(
 ) -> CoreResult<Vec<u8>> {
     require_field("walletId", &binding.wallet_id)?;
     require_field("envelopeId", &binding.envelope_id)?;
-    require_field("rpId", &binding.rp_id)?;
-    require_field("credentialIdB64u", &binding.credential_id_b64u)?;
-
-    let lane = binding.binding.lane();
-    require_field("walletKeyId", &lane.wallet_key_id)?;
-    require_field("laneId", &lane.lane_id)?;
-    require_field("laneShareEpoch", &lane.lane_share_epoch)?;
 
     let mut out = Vec::new();
     labeled_field(&mut out, b"context", PASSKEY_CUSTODY_AAD_CONTEXT_V1);
     labeled_str(
         &mut out,
         b"envelopeVersion",
-        PASSKEY_CUSTODY_ENVELOPE_VERSION_V1,
+        WALLET_CUSTODY_ENVELOPE_VERSION_V2,
     );
-    labeled_str(&mut out, b"kekVersion", PASSKEY_CUSTODY_KEK_VERSION_V1);
     labeled_str(&mut out, b"wrapAlg", PASSKEY_CUSTODY_WRAP_ALG_V1);
+    encode_factor(&mut out, &binding.factor)?;
     labeled_str(&mut out, b"walletId", &binding.wallet_id);
     labeled_str(&mut out, b"envelopeId", &binding.envelope_id);
     labeled_field(
@@ -282,49 +354,69 @@ pub fn encode_passkey_custody_aad_v1(
         b"envelopeRevision",
         &binding.envelope_revision.to_be_bytes(),
     );
-    labeled_str(&mut out, b"rpId", &binding.rp_id);
-    labeled_str(&mut out, b"credentialIdB64u", &binding.credential_id_b64u);
     labeled_str(
         &mut out,
         b"custodySecretKind",
         binding.binding.kind().as_str(),
     );
-    labeled_str(&mut out, b"walletKeyId", &lane.wallet_key_id);
-    labeled_str(&mut out, b"laneId", &lane.lane_id);
-    labeled_str(&mut out, b"laneShareEpoch", &lane.lane_share_epoch);
+
+    // Lane scope is bound when present, and its absence is bound too: the
+    // wallet-scoped seed encodes an explicit marker rather than nothing, so a
+    // seed AAD can never be a prefix of a lane AAD.
+    match binding.binding.lane() {
+        Some(lane) => {
+            require_field("walletKeyId", &lane.wallet_key_id)?;
+            require_field("laneId", &lane.lane_id)?;
+            require_field("laneShareEpoch", &lane.lane_share_epoch)?;
+            labeled_str(&mut out, b"scope", "lane");
+            labeled_str(&mut out, b"walletKeyId", &lane.wallet_key_id);
+            labeled_str(&mut out, b"laneId", &lane.lane_id);
+            labeled_str(&mut out, b"laneShareEpoch", &lane.lane_share_epoch);
+        }
+        None => labeled_str(&mut out, b"scope", "wallet"),
+    }
 
     match &binding.binding {
-        PasskeyCustodySecretBindingV1::Ed25519YaoClientRoot {
+        PasskeyCustodySecretBindingV1::WalletCustodySeed {
+            derivation_scheme,
+            key_manifest_digest_b64u,
             near_ed25519_signing_key_id,
-            key_creation_signer_slot,
-            stable_context_digest_b64u,
-            participant_binding_digest_b64u,
-            ..
+            registered_public_key_b64u,
+            evm_family_signing_key_slot_id,
+            client_root_public_key33_b64u,
         } => {
-            require_field("nearEd25519SigningKeyId", near_ed25519_signing_key_id)?;
-            if *key_creation_signer_slot == 0 {
-                return Err(SignerCoreError::invalid_input(
-                    "keyCreationSignerSlot must be a positive u32",
-                ));
+            if derivation_scheme != WALLET_SEED_DERIVATION_SCHEME_V1 {
+                return Err(SignerCoreError::invalid_input(format!(
+                    "derivationScheme must be {WALLET_SEED_DERIVATION_SCHEME_V1}"
+                )));
             }
-            let stable_context =
-                require_digest_b64u("stableContextDigestB64u", stable_context_digest_b64u)?;
-            let participants = require_digest_b64u(
-                "participantBindingDigestB64u",
-                participant_binding_digest_b64u,
+            require_field("nearEd25519SigningKeyId", near_ed25519_signing_key_id)?;
+            // The slot id embeds the Router A/B signing-root id and version, so
+            // binding it covers the signing-root identity the plan requires.
+            require_field("evmFamilySigningKeySlotId", evm_family_signing_key_slot_id)?;
+            let key_manifest =
+                require_digest_b64u("keyManifestDigestB64u", key_manifest_digest_b64u)?;
+            let registered =
+                require_public_key_b64u("registeredPublicKeyB64u", registered_public_key_b64u, 32)?;
+            let client_root = require_public_key_b64u(
+                "clientRootPublicKey33B64u",
+                client_root_public_key33_b64u,
+                33,
             )?;
+            labeled_str(&mut out, b"derivationScheme", derivation_scheme);
+            labeled_field(&mut out, b"keyManifestDigest", &key_manifest);
             labeled_str(
                 &mut out,
                 b"nearEd25519SigningKeyId",
                 near_ed25519_signing_key_id,
             );
-            labeled_field(
+            labeled_field(&mut out, b"registeredPublicKey", &registered);
+            labeled_str(
                 &mut out,
-                b"keyCreationSignerSlot",
-                &key_creation_signer_slot.to_be_bytes(),
+                b"evmFamilySigningKeySlotId",
+                evm_family_signing_key_slot_id,
             );
-            labeled_field(&mut out, b"stableContextDigest", &stable_context);
-            labeled_field(&mut out, b"participantBindingDigest", &participants);
+            labeled_field(&mut out, b"clientRootPublicKey33", &client_root);
         }
         PasskeyCustodySecretBindingV1::Ed25519LaneHolderShare {
             near_ed25519_signing_key_id,
@@ -346,32 +438,6 @@ pub fn encode_passkey_custody_aad_v1(
             );
             labeled_field(&mut out, b"registeredPublicKey", &registered);
             labeled_field(&mut out, b"participantBindingDigest", &participants);
-        }
-        PasskeyCustodySecretBindingV1::EcdsaClientRootShare {
-            evm_family_signing_key_slot_id,
-            application_binding_digest_b64u,
-            client_root_public_key33_b64u,
-            ..
-        } => {
-            // The slot id embeds the Router A/B signing-root id and version, so
-            // binding it covers the signing-root identity the plan requires.
-            require_field("evmFamilySigningKeySlotId", evm_family_signing_key_slot_id)?;
-            let application = require_digest_b64u(
-                "applicationBindingDigestB64u",
-                application_binding_digest_b64u,
-            )?;
-            let client_root = require_public_key_b64u(
-                "clientRootPublicKey33B64u",
-                client_root_public_key33_b64u,
-                33,
-            )?;
-            labeled_str(
-                &mut out,
-                b"evmFamilySigningKeySlotId",
-                evm_family_signing_key_slot_id,
-            );
-            labeled_field(&mut out, b"applicationBindingDigest", &application);
-            labeled_field(&mut out, b"clientRootPublicKey33", &client_root);
         }
         PasskeyCustodySecretBindingV1::EcdsaLaneHolderShare {
             evm_family_signing_key_slot_id,

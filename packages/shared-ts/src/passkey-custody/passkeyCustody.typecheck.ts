@@ -12,16 +12,16 @@ import type { DigestB64u } from '../utils/canonicalPrimitives';
 import { resolveCrossDeviceCustodyReadiness } from './index';
 import type {
   CrossDeviceCustodyReadiness,
-  PasskeyCredentialObservationRecord,
   Ed25519PublicKeyB64u,
   EnvelopeCiphertextB64u,
   EnvelopeNonceB64u,
   EnvelopeRevision,
-  KeyCreationSignerSlot,
+  PasskeyCredentialObservationRecord,
   PasskeyCustodyEnvelopeLifecycle,
   PasskeyCustodyEnvelopeRecord,
   PasskeyCustodySecretBinding,
   Secp256k1CompressedPublicKeyB64u,
+  WalletCustodyEnvelopeFactor,
 } from './index';
 
 declare const walletId: WalletId;
@@ -37,24 +37,22 @@ declare const thresholdSessionId: ThresholdEcdsaSessionId;
 declare const digest: DigestB64u;
 declare const ed25519PublicKey: Ed25519PublicKeyB64u;
 declare const secpPublicKey: Secp256k1CompressedPublicKeyB64u;
-declare const keyCreationSignerSlot: KeyCreationSignerSlot;
 declare const envelopeRevision: EnvelopeRevision;
 declare const nonceB64u: EnvelopeNonceB64u;
 declare const ciphertextB64u: EnvelopeCiphertextB64u;
 
 // --- Valid custody-secret branches ---------------------------------------
 
-const ed25519Root: PasskeyCustodySecretBinding = {
-  kind: 'ed25519_yao_client_root_v1',
-  walletKeyId,
-  laneId,
-  laneShareEpoch,
+const walletSeed: PasskeyCustodySecretBinding = {
+  kind: 'wallet_custody_seed_v1',
+  derivationScheme: 'wallet_seed_parallel_hkdf_sha256_v1',
+  keyManifestDigestB64u: digest,
   nearEd25519SigningKeyId,
-  keyCreationSignerSlot,
-  stableContextDigestB64u: digest,
-  participantBindingDigestB64u: digest,
+  registeredPublicKeyB64u: ed25519PublicKey,
+  evmFamilySigningKeySlotId,
+  clientRootPublicKey33B64u: secpPublicKey,
 };
-void ed25519Root;
+void walletSeed;
 
 const ed25519LaneHolderShare: PasskeyCustodySecretBinding = {
   kind: 'ed25519_lane_holder_share_v1',
@@ -67,17 +65,6 @@ const ed25519LaneHolderShare: PasskeyCustodySecretBinding = {
 };
 void ed25519LaneHolderShare;
 
-const ecdsaRootShare: PasskeyCustodySecretBinding = {
-  kind: 'ecdsa_client_root_share_v1',
-  walletKeyId,
-  laneId,
-  laneShareEpoch,
-  evmFamilySigningKeySlotId,
-  applicationBindingDigestB64u: digest,
-  clientRootPublicKey33B64u: secpPublicKey,
-};
-void ecdsaRootShare;
-
 const ecdsaLaneHolderShare: PasskeyCustodySecretBinding = {
   kind: 'ecdsa_lane_holder_share_v1',
   walletKeyId,
@@ -89,37 +76,48 @@ const ecdsaLaneHolderShare: PasskeyCustodySecretBinding = {
 };
 void ecdsaLaneHolderShare;
 
-// --- An Ed25519 root envelope with ECDSA fields fails ---------------------
+// --- The wallet seed is wallet-scoped, never lane-scoped ------------------
 
-// @ts-expect-error An Ed25519 root binding cannot carry an EVM-family key slot.
-const ed25519RootWithEcdsaFields: PasskeyCustodySecretBinding = {
-  kind: 'ed25519_yao_client_root_v1',
-  walletKeyId,
-  laneId,
-  laneShareEpoch,
+// @ts-expect-error Owner custody covers every key, so it cannot name one lane.
+const seedWithLane: PasskeyCustodySecretBinding = {
+  kind: 'wallet_custody_seed_v1',
+  derivationScheme: 'wallet_seed_parallel_hkdf_sha256_v1',
+  keyManifestDigestB64u: digest,
   nearEd25519SigningKeyId,
-  keyCreationSignerSlot,
-  stableContextDigestB64u: digest,
-  participantBindingDigestB64u: digest,
+  registeredPublicKeyB64u: ed25519PublicKey,
   evmFamilySigningKeySlotId,
+  clientRootPublicKey33B64u: secpPublicKey,
+  laneId,
 };
-void ed25519RootWithEcdsaFields;
+void seedWithLane;
 
-// @ts-expect-error An Ed25519 root binding cannot carry an ECDSA threshold session.
-const ed25519RootWithThresholdSession: PasskeyCustodySecretBinding = {
-  kind: 'ed25519_yao_client_root_v1',
+// @ts-expect-error A lane holder share cannot claim the wallet-wide key manifest.
+const laneShareWithManifest: PasskeyCustodySecretBinding = {
+  kind: 'ed25519_lane_holder_share_v1',
   walletKeyId,
   laneId,
   laneShareEpoch,
   nearEd25519SigningKeyId,
-  keyCreationSignerSlot,
-  stableContextDigestB64u: digest,
+  registeredPublicKeyB64u: ed25519PublicKey,
   participantBindingDigestB64u: digest,
-  thresholdSessionId,
+  keyManifestDigestB64u: digest,
 };
-void ed25519RootWithThresholdSession;
+void laneShareWithManifest;
 
-// --- An ECDSA holder-share envelope without a threshold session fails -----
+const laneShareWithScheme: PasskeyCustodySecretBinding = {
+  kind: 'ecdsa_lane_holder_share_v1',
+  walletKeyId,
+  laneId,
+  laneShareEpoch,
+  evmFamilySigningKeySlotId,
+  thresholdSessionId,
+  thresholdPublicKey33B64u: secpPublicKey,
+  // @ts-expect-error Only owner custody declares a seed derivation scheme.
+  derivationScheme: 'wallet_seed_parallel_hkdf_sha256_v1',
+};
+void laneShareWithScheme;
+
+// --- Cross-branch fields still fail --------------------------------------
 
 // @ts-expect-error An ECDSA lane holder share requires its threshold session binding.
 const ecdsaHolderShareWithoutSession: PasskeyCustodySecretBinding = {
@@ -131,8 +129,6 @@ const ecdsaHolderShareWithoutSession: PasskeyCustodySecretBinding = {
   thresholdPublicKey33B64u: secpPublicKey,
 };
 void ecdsaHolderShareWithoutSession;
-
-// --- A linked-device holder share with a key-creation root field fails ----
 
 // @ts-expect-error A holder share cannot carry the client root's public key.
 const ecdsaHolderShareWithRootField: PasskeyCustodySecretBinding = {
@@ -147,21 +143,6 @@ const ecdsaHolderShareWithRootField: PasskeyCustodySecretBinding = {
 };
 void ecdsaHolderShareWithRootField;
 
-// @ts-expect-error A holder share cannot carry the key-creation signer slot.
-const ed25519HolderShareWithRootField: PasskeyCustodySecretBinding = {
-  kind: 'ed25519_lane_holder_share_v1',
-  walletKeyId,
-  laneId,
-  laneShareEpoch,
-  nearEd25519SigningKeyId,
-  registeredPublicKeyB64u: ed25519PublicKey,
-  participantBindingDigestB64u: digest,
-  keyCreationSignerSlot,
-};
-void ed25519HolderShareWithRootField;
-
-// --- Public identities cannot be swapped across curves --------------------
-
 const ed25519HolderShareWithSecpKey: PasskeyCustodySecretBinding = {
   kind: 'ed25519_lane_holder_share_v1',
   walletKeyId,
@@ -173,6 +154,64 @@ const ed25519HolderShareWithSecpKey: PasskeyCustodySecretBinding = {
   participantBindingDigestB64u: digest,
 };
 void ed25519HolderShareWithSecpKey;
+
+const retiredEd25519Root: PasskeyCustodySecretBinding = {
+  // @ts-expect-error The retired per-curve owner root branches no longer exist.
+  kind: 'ed25519_yao_client_root_v1',
+  walletKeyId,
+  laneId,
+  laneShareEpoch,
+  nearEd25519SigningKeyId,
+  participantBindingDigestB64u: digest,
+};
+void retiredEd25519Root;
+
+// --- Factor branches ------------------------------------------------------
+
+const passkeyFactor: WalletCustodyEnvelopeFactor = {
+  kind: 'passkey',
+  rpId,
+  credentialIdB64u,
+  kekVersion: 'passkey_prf_kek_hkdf_sha256_v1',
+};
+void passkeyFactor;
+
+const emailOtpFactor: WalletCustodyEnvelopeFactor = {
+  kind: 'email_otp',
+  enrollmentId: 'enrollment-1',
+  enrollmentSealKeyVersion: 'seal-v1',
+  kekVersion: 'email_otp_factor_kek_hkdf_sha256_v1',
+};
+void emailOtpFactor;
+
+// @ts-expect-error An Email OTP factor has no relying party or credential.
+const emailOtpFactorWithCredential: WalletCustodyEnvelopeFactor = {
+  kind: 'email_otp',
+  enrollmentId: 'enrollment-1',
+  enrollmentSealKeyVersion: 'seal-v1',
+  kekVersion: 'email_otp_factor_kek_hkdf_sha256_v1',
+  credentialIdB64u,
+};
+void emailOtpFactorWithCredential;
+
+// @ts-expect-error A passkey factor has no Email OTP enrollment identity.
+const passkeyFactorWithEnrollment: WalletCustodyEnvelopeFactor = {
+  kind: 'passkey',
+  rpId,
+  credentialIdB64u,
+  kekVersion: 'passkey_prf_kek_hkdf_sha256_v1',
+  enrollmentId: 'enrollment-1',
+};
+void passkeyFactorWithEnrollment;
+
+// @ts-expect-error Each factor kind pins its own KEK version.
+const passkeyFactorWithOtpKek: WalletCustodyEnvelopeFactor = {
+  kind: 'passkey',
+  rpId,
+  credentialIdB64u,
+  kekVersion: 'email_otp_factor_kek_hkdf_sha256_v1',
+};
+void passkeyFactorWithOtpKek;
 
 // --- Envelope lifecycle ---------------------------------------------------
 
@@ -202,14 +241,12 @@ void revokedAndRetiredLifecycle;
 // --- Envelope record ------------------------------------------------------
 
 const envelope: PasskeyCustodyEnvelopeRecord = {
-  kind: 'passkey_custody_envelope_v1',
+  kind: 'wallet_custody_envelope_v2',
   envelopeId,
   walletId,
-  binding: ed25519Root,
-  rpId,
-  credentialIdB64u,
-  passkeyEnvelopeVersion: 'passkey_custody_envelope_v1',
-  passkeyKekVersion: 'passkey_prf_kek_hkdf_sha256_v1',
+  binding: walletSeed,
+  factor: passkeyFactor,
+  envelopeVersion: 'wallet_custody_envelope_v2',
   envelopeRevision,
   nonceB64u,
   sealedCustodySecretB64u: ciphertextB64u,
@@ -221,17 +258,21 @@ const envelope: PasskeyCustodyEnvelopeRecord = {
 };
 void envelope;
 
-// --- An active envelope without credential, lane, key, or AAD identity fails
+// The same seed sealed under an Email OTP factor: interchangeable unwrap paths
+// to identical signing material.
+const emailOtpEnvelope: PasskeyCustodyEnvelopeRecord = {
+  ...envelope,
+  factor: emailOtpFactor,
+};
+void emailOtpEnvelope;
 
-// @ts-expect-error An envelope requires its credential identity.
-const envelopeWithoutCredential: PasskeyCustodyEnvelopeRecord = {
-  kind: 'passkey_custody_envelope_v1',
+// @ts-expect-error An envelope requires its factor identity.
+const envelopeWithoutFactor: PasskeyCustodyEnvelopeRecord = {
+  kind: 'wallet_custody_envelope_v2',
   envelopeId,
   walletId,
-  binding: ed25519Root,
-  rpId,
-  passkeyEnvelopeVersion: 'passkey_custody_envelope_v1',
-  passkeyKekVersion: 'passkey_prf_kek_hkdf_sha256_v1',
+  binding: walletSeed,
+  envelopeVersion: 'wallet_custody_envelope_v2',
   envelopeRevision,
   nonceB64u,
   sealedCustodySecretB64u: ciphertextB64u,
@@ -241,18 +282,16 @@ const envelopeWithoutCredential: PasskeyCustodyEnvelopeRecord = {
   createdAtMs: 1,
   updatedAtMs: 1,
 };
-void envelopeWithoutCredential;
+void envelopeWithoutFactor;
 
 // @ts-expect-error An envelope requires its AAD binding hash.
 const envelopeWithoutAad: PasskeyCustodyEnvelopeRecord = {
-  kind: 'passkey_custody_envelope_v1',
+  kind: 'wallet_custody_envelope_v2',
   envelopeId,
   walletId,
-  binding: ed25519Root,
-  rpId,
-  credentialIdB64u,
-  passkeyEnvelopeVersion: 'passkey_custody_envelope_v1',
-  passkeyKekVersion: 'passkey_prf_kek_hkdf_sha256_v1',
+  binding: walletSeed,
+  factor: passkeyFactor,
+  envelopeVersion: 'wallet_custody_envelope_v2',
   envelopeRevision,
   nonceB64u,
   sealedCustodySecretB64u: ciphertextB64u,
@@ -263,17 +302,13 @@ const envelopeWithoutAad: PasskeyCustodyEnvelopeRecord = {
 };
 void envelopeWithoutAad;
 
-// A lane-scoped binding is required, so an envelope cannot be wallet-scoped
-// only: `binding` has no branch without walletKeyId, laneId, and laneShareEpoch.
 // @ts-expect-error An envelope requires an exact custody-secret binding.
 const envelopeWithoutBinding: PasskeyCustodyEnvelopeRecord = {
-  kind: 'passkey_custody_envelope_v1',
+  kind: 'wallet_custody_envelope_v2',
   envelopeId,
   walletId,
-  rpId,
-  credentialIdB64u,
-  passkeyEnvelopeVersion: 'passkey_custody_envelope_v1',
-  passkeyKekVersion: 'passkey_prf_kek_hkdf_sha256_v1',
+  factor: passkeyFactor,
+  envelopeVersion: 'wallet_custody_envelope_v2',
   envelopeRevision,
   nonceB64u,
   sealedCustodySecretB64u: ciphertextB64u,
@@ -284,6 +319,14 @@ const envelopeWithoutBinding: PasskeyCustodyEnvelopeRecord = {
   updatedAtMs: 1,
 };
 void envelopeWithoutBinding;
+
+// Factor identity lives in the branch, never at the record's top level.
+const envelopeWithTopLevelCredential: PasskeyCustodyEnvelopeRecord = {
+  ...envelope,
+  // @ts-expect-error Credential identity belongs to the passkey factor branch.
+  credentialIdB64u,
+};
+void envelopeWithTopLevelCredential;
 
 // --- Plaintext custody material can never appear in a persisted record ----
 
@@ -301,19 +344,12 @@ const envelopeWithKek: PasskeyCustodyEnvelopeRecord = {
 };
 void envelopeWithKek;
 
-const envelopeWithClientRoot: PasskeyCustodyEnvelopeRecord = {
+const envelopeWithSeedPlaintext: PasskeyCustodyEnvelopeRecord = {
   ...envelope,
-  // @ts-expect-error Envelopes must not carry a plaintext client root.
-  clientRootB64u: 'root',
+  // @ts-expect-error Envelopes must not carry the plaintext custody seed.
+  walletCustodySeedB64u: 'seed',
 };
-void envelopeWithClientRoot;
-
-const envelopeWithHolderShare: PasskeyCustodyEnvelopeRecord = {
-  ...envelope,
-  // @ts-expect-error Envelopes must not carry a plaintext holder share.
-  holderShareB64u: 'share',
-};
-void envelopeWithHolderShare;
+void envelopeWithSeedPlaintext;
 
 const envelopeWithRecoveryCode: PasskeyCustodyEnvelopeRecord = {
   ...envelope,

@@ -17,7 +17,7 @@ import {
 } from '../versionedJson/d1VersionedJsonRecordStore';
 
 /**
- * Opaque custody storage for passkey-sealed envelopes.
+ * Opaque custody storage for factor-sealed custody envelopes.
  *
  * The store validates credential, wallet, lifecycle, revision, and digest
  * facts, and it cannot open an envelope or report its plaintext as live: the
@@ -46,11 +46,39 @@ export type CloudflareD1PasskeyCustodyEnvelopeStoreOptions = {
   readonly scope: CloudflareD1VersionedJsonRecordScopeV1;
 };
 
+/**
+ * Identifies the enrolled factor an envelope belongs to.
+ *
+ * Factors are interchangeable unwrap paths to the same custody seed, so an
+ * envelope is addressed by factor rather than by credential alone — otherwise
+ * an Email OTP envelope would have no address at all.
+ */
+export type WalletCustodyFactorRef =
+  | { readonly kind: 'passkey'; readonly credentialIdB64u: WebAuthnCredentialIdB64u }
+  | { readonly kind: 'email_otp'; readonly enrollmentId: string };
+
 export type PasskeyCustodyEnvelopeLocator = {
   readonly walletId: WalletId;
-  readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+  readonly factor: WalletCustodyFactorRef;
   readonly envelopeId: PasskeyEnvelopeId;
 };
+
+/** The factor address a stored envelope actually carries. */
+function envelopeFactorRef(envelope: PasskeyCustodyEnvelopeRecord): WalletCustodyFactorRef {
+  return envelope.factor.kind === 'passkey'
+    ? { kind: 'passkey', credentialIdB64u: envelope.factor.credentialIdB64u }
+    : { kind: 'email_otp', enrollmentId: envelope.factor.enrollmentId };
+}
+
+function factorKeyPart(factor: WalletCustodyFactorRef): string {
+  return factor.kind === 'passkey'
+    ? `passkey:${String(factor.credentialIdB64u)}`
+    : `email_otp:${factor.enrollmentId}`;
+}
+
+function factorRefsMatch(left: WalletCustodyFactorRef, right: WalletCustodyFactorRef): boolean {
+  return factorKeyPart(left) === factorKeyPart(right);
+}
 
 /**
  * Every terminal outcome of an authenticated envelope lookup. Each non-active
@@ -142,7 +170,7 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
   private recordKey(locator: PasskeyCustodyEnvelopeLocator): string {
     return [
       String(locator.walletId),
-      String(locator.credentialIdB64u),
+      factorKeyPart(locator.factor),
       String(locator.envelopeId),
     ].join(':');
   }
@@ -161,7 +189,7 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
     const envelope = read.value;
     if (
       String(envelope.walletId) !== String(locator.walletId) ||
-      String(envelope.credentialIdB64u) !== String(locator.credentialIdB64u) ||
+      !factorRefsMatch(envelopeFactorRef(envelope), locator.factor) ||
       String(envelope.envelopeId) !== String(locator.envelopeId)
     ) {
       // The record key already scopes the read to this wallet and credential,
@@ -352,7 +380,7 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
 function envelopeLocator(envelope: PasskeyCustodyEnvelopeRecord): PasskeyCustodyEnvelopeLocator {
   return {
     walletId: envelope.walletId,
-    credentialIdB64u: envelope.credentialIdB64u,
+    factor: envelopeFactorRef(envelope),
     envelopeId: envelope.envelopeId,
   };
 }

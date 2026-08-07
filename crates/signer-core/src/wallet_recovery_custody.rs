@@ -54,10 +54,13 @@ pub struct WalletRecoveryCodeScopeV1 {
 }
 
 /// Identifies one custody entry inside a recovery envelope set.
+///
+/// `lane` is absent for the wallet-scoped owner seed entry, which covers every
+/// owner key. The absence is bound into the AAD as an explicit scope marker.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WalletRecoveryEntryScopeV1 {
     pub wallet_id: String,
-    pub lane: PasskeyCustodyLaneScopeV1,
+    pub lane: Option<PasskeyCustodyLaneScopeV1>,
     pub custody_secret_kind: PasskeyCustodySecretKind,
     pub key_manifest_digest: [u8; 32],
 }
@@ -135,9 +138,6 @@ pub fn encode_recovery_manifest_aad_v1(scope: &WalletRecoveryCodeScopeV1) -> Cor
 /// AAD for one custody entry's wrap under the manifest KEK.
 pub fn encode_recovery_entry_aad_v1(scope: &WalletRecoveryEntryScopeV1) -> CoreResult<Vec<u8>> {
     require_field("walletId", &scope.wallet_id)?;
-    require_field("walletKeyId", &scope.lane.wallet_key_id)?;
-    require_field("laneId", &scope.lane.lane_id)?;
-    require_field("laneShareEpoch", &scope.lane.lane_share_epoch)?;
 
     let mut out = Vec::new();
     labeled_field(&mut out, b"context", RECOVERY_ENTRY_AAD_CONTEXT_V1);
@@ -148,14 +148,27 @@ pub fn encode_recovery_entry_aad_v1(scope: &WalletRecoveryEntryScopeV1) -> CoreR
     );
     labeled_str(&mut out, b"wrapAlg", PASSKEY_CUSTODY_WRAP_ALG_V1);
     labeled_str(&mut out, b"walletId", &scope.wallet_id);
-    labeled_str(&mut out, b"walletKeyId", &scope.lane.wallet_key_id);
-    labeled_str(&mut out, b"laneId", &scope.lane.lane_id);
-    labeled_str(&mut out, b"laneShareEpoch", &scope.lane.lane_share_epoch);
     labeled_str(
         &mut out,
         b"custodySecretKind",
         scope.custody_secret_kind.as_str(),
     );
+
+    // The scope marker is encoded either way, so a wallet-scoped entry's AAD
+    // can never be a prefix of a lane-scoped entry's.
+    match &scope.lane {
+        Some(lane) => {
+            require_field("walletKeyId", &lane.wallet_key_id)?;
+            require_field("laneId", &lane.lane_id)?;
+            require_field("laneShareEpoch", &lane.lane_share_epoch)?;
+            labeled_str(&mut out, b"scope", "lane");
+            labeled_str(&mut out, b"walletKeyId", &lane.wallet_key_id);
+            labeled_str(&mut out, b"laneId", &lane.lane_id);
+            labeled_str(&mut out, b"laneShareEpoch", &lane.lane_share_epoch);
+        }
+        None => labeled_str(&mut out, b"scope", "wallet"),
+    }
+
     labeled_field(&mut out, b"keyManifestDigest", &scope.key_manifest_digest);
     Ok(out)
 }
