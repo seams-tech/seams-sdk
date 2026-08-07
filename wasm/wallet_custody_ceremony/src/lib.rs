@@ -18,3 +18,6 @@
 //! neither derives roots, so both stay in `near_signer`.
 
 pub mod ceremony;
+
+#[cfg(test)]
+mod circuit_tests;

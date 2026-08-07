@@ -206,6 +206,19 @@ impl CeremonySeedHeldV1 {
         })
     }
 
+    /// Builds a ceremony over a fixed seed, for tests only.
+    ///
+    /// `generate` is the only way in outside tests. The circuit tests need two
+    /// ceremonies to start from the *same* seed so they can compare what each
+    /// one registers, which random generation cannot express.
+    #[cfg(test)]
+    pub(crate) fn from_seed_for_test(wallet_id: &str, seed: [u8; WALLET_CUSTODY_SEED_LEN]) -> Self {
+        Self {
+            wallet_id: wallet_id.to_string(),
+            seed: Zeroizing::new(seed),
+        }
+    }
+
     /// Derives both owner roots and hands each to its protocol.
     ///
     /// The two derivations and the two protocol preparations happen here with
