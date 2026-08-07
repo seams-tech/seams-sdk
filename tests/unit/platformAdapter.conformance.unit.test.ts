@@ -238,7 +238,9 @@ function createBrowserAuthenticatorConformancePort(): AuthenticatorPort {
 function createBrowserSignerCryptoConformancePort(): SignerCryptoPort {
   const workerCtx: WorkerOperationContext = {
     async requestWorkerOperation({ request }) {
-      if (request.type === WorkerRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap) {
+      if (
+        request.type === WorkerRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap
+      ) {
         const payload = request.payload as typeof prepareInput;
         if (payload.context.applicationBindingDigestB64u === timeoutApplicationBindingDigestB64u) {
           throw new SignerWorkerOperationError({
@@ -252,7 +254,8 @@ function createBrowserSignerCryptoConformancePort(): SignerCryptoPort {
         ) {
           throw new SignerWorkerOperationError({
             code: 'WORKER_RUNTIME_ERROR',
-            message: 'ECDSA client WASM initialization failed: failed to instantiate module_or_path',
+            message:
+              'ECDSA client WASM initialization failed: failed to instantiate module_or_path',
             workerKind: 'ecdsaDerivationClient',
           });
         }
@@ -273,7 +276,9 @@ function createBrowserSignerCryptoConformancePort(): SignerCryptoPort {
           },
         };
       }
-      if (request.type === WorkerRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap) {
+      if (
+        request.type === WorkerRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap
+      ) {
         return {
           type: WorkerResponseType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
           payload: {
@@ -545,11 +550,12 @@ export function runSignerCryptoPortConformance(factory: () => SignerCryptoPort):
 export function runDurableRecordStoreConformance(factory: () => DurableRecordStore): void {
   test.describe('DurableRecordStore conformance', () => {
     test('loads missing records as not_found', async () => {
-      await expect(factory().loadEcdsaRoleLocalReadyRecord(storageKeyFacts)).resolves
-        .toMatchObject({
+      await expect(factory().loadEcdsaRoleLocalReadyRecord(storageKeyFacts)).resolves.toMatchObject(
+        {
           ok: true,
           value: { kind: 'not_found' },
-        });
+        },
+      );
     });
 
     test('persists, loads, and cleans up a valid ready record', async () => {
@@ -608,14 +614,15 @@ export function runDurableRecordStoreConformance(factory: () => DurableRecordSto
           record: { kind: 'ecdsa_role_local_ready_passkey_v1' },
         },
       });
-      await expect(store.loadEcdsaRoleLocalReadyRecord(emailOtpStorageKeyFacts)).resolves
-        .toMatchObject({
-          ok: true,
-          value: {
-            kind: 'found',
-            record: { kind: 'ecdsa_role_local_ready_email_otp_v1' },
-          },
-        });
+      await expect(
+        store.loadEcdsaRoleLocalReadyRecord(emailOtpStorageKeyFacts),
+      ).resolves.toMatchObject({
+        ok: true,
+        value: {
+          kind: 'found',
+          record: { kind: 'ecdsa_role_local_ready_email_otp_v1' },
+        },
+      });
     });
 
     test('rejects pending or raw record writes', async () => {

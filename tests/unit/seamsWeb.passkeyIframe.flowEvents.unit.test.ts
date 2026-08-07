@@ -316,5 +316,4 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
       ],
     });
   });
-
 });

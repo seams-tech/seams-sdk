@@ -59,13 +59,9 @@ function recoveryWrap(index: number) {
   };
 }
 
-function payload(
-  overrides: Partial<WalletCustodyCeremonyCommitPayload> = {},
-): WalletCustodyCeremonyCommitPayload {
+function establishedCustody(overrides: Record<string, unknown> = {}) {
   return {
-    walletId: WALLET_ID,
     envelopeId: ENVELOPE_ID,
-    keyManifestDigestB64u: DIGEST_B64U,
     envelopeBindingJson: envelopeBindingJson(),
     envelopeNonceB64u: NONCE_12_B64U,
     sealedCustodySecretB64u: CIPHERTEXT_B64U,
@@ -75,7 +71,18 @@ function payload(
     recoveryEntryNonceB64u: NONCE_12_B64U,
     recoveryEntryCiphertextB64u: CIPHERTEXT_B64U,
     recoveryEntryAadHashB64u: DIGEST_B64U,
-    registeredPublicKeyB64u: DIGEST_B64U,
+    ...overrides,
+  };
+}
+
+function payload(
+  overrides: Partial<WalletCustodyCeremonyCommitPayload> = {},
+): WalletCustodyCeremonyCommitPayload {
+  return {
+    walletId: WALLET_ID,
+    keySet: 'evm_family_ecdsa_v1',
+    keyManifestDigestB64u: DIGEST_B64U,
+    establishedCustody: establishedCustody(),
     clientRootPublicKey33B64u: DIGEST_B64U,
     ecdsaReadyStateBlobB64u: CIPHERTEXT_B64U,
     ...overrides,
@@ -131,13 +138,17 @@ test('a payload that contradicts its own binding is refused', () => {
   const cases: Array<[string, WalletCustodyCeremonyCommitPayload]> = [
     [
       'binding names another wallet',
-      payload({ envelopeBindingJson: envelopeBindingJson({ walletId: OTHER_WALLET_ID }) }),
+      payload({
+        establishedCustody: establishedCustody({
+          envelopeBindingJson: envelopeBindingJson({ walletId: OTHER_WALLET_ID }),
+        }),
+      }),
     ],
     [
-      'binding names another key manifest',
+      'binding names another wallet, again',
       payload({
-        envelopeBindingJson: envelopeBindingJson({
-          binding: rawWalletCustodySeedBinding({ keyManifestDigestB64u: ALT_DIGEST_B64U }),
+        establishedCustody: establishedCustody({
+          envelopeBindingJson: envelopeBindingJson({ walletId: OTHER_WALLET_ID }),
         }),
       }),
     ],
@@ -157,7 +168,9 @@ test('a payload that contradicts its own binding is refused', () => {
 
 test('a recovery set that is not exactly ten distinct codes is refused', () => {
   const nine = payload({
-    recoveryManifestKekWraps: Array.from({ length: 9 }, (_, index) => recoveryWrap(index)),
+    establishedCustody: establishedCustody({
+      recoveryManifestKekWraps: Array.from({ length: 9 }, (_, index) => recoveryWrap(index)),
+    }),
   });
   expect(() =>
     buildWalletCustodyRegistrationRecords({
@@ -169,7 +182,9 @@ test('a recovery set that is not exactly ten distinct codes is refused', () => {
 
   // Duplicate ids would silently reduce a ten-code set: a code is found by id.
   const duplicated = payload({
-    recoveryManifestKekWraps: Array.from({ length: 10 }, () => recoveryWrap(0)),
+    establishedCustody: establishedCustody({
+      recoveryManifestKekWraps: Array.from({ length: 10 }, () => recoveryWrap(0)),
+    }),
   });
   expect(() =>
     buildWalletCustodyRegistrationRecords({
@@ -182,9 +197,11 @@ test('a recovery set that is not exactly ten distinct codes is refused', () => {
 
 test('malformed ciphertext and nonces are refused at the boundary', () => {
   for (const bad of [
-    payload({ envelopeNonceB64u: 'AQID' }), // not 12 bytes
-    payload({ envelopeAadHashB64u: 'AQID' }), // not a 32-byte digest
-    payload({ sealedCustodySecretB64u: 'not base64url!!' }),
+    payload({ establishedCustody: establishedCustody({ envelopeNonceB64u: 'AQID' }) }), // not 12 bytes
+    payload({ establishedCustody: establishedCustody({ envelopeAadHashB64u: 'AQID' }) }), // not a 32-byte digest
+    payload({
+      establishedCustody: establishedCustody({ sealedCustodySecretB64u: 'not base64url!!' }),
+    }),
   ]) {
     expect(() =>
       buildWalletCustodyRegistrationRecords({
@@ -199,7 +216,7 @@ test('malformed ciphertext and nonces are refused at the boundary', () => {
 test('an unparseable payload is a rejection, and writes nothing', async () => {
   await withStore(async (store) => {
     const rejected = await commitWalletCustodyRegistration({
-      payload: payload({ envelopeBindingJson: '{' }),
+      payload: payload({ establishedCustody: establishedCustody({ envelopeBindingJson: '{' }) }),
       factor: rawPasskeyFactor(),
       nowMs: NOW_MS,
       store,

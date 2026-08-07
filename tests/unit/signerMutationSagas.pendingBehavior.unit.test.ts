@@ -160,9 +160,7 @@ test.describe('signer mutation saga pending behavior', () => {
     expect(result.after[0]?.lastError ?? null).toBeNull();
   });
 
-  test('confirms deployed add-signer operations when key material exists', async ({
-    page,
-  }) => {
+  test('confirms deployed add-signer operations when key material exists', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         try {
@@ -556,21 +554,21 @@ test.describe('signer mutation saga pending behavior', () => {
             signer: {
               signerId: `0x${'dd'.repeat(20)}`,
               signerType: 'threshold',
-            signerKind: 'threshold-ecdsa',
-            signerAuthMethod: 'passkey',
-            signerSource: 'passkey_registration',
-            metadata: {
-              keyHandle: 'revoke-key-handle',
-              ecdsaThresholdKeyId: 'ecdsa-key-revoke',
-              thresholdOwnerAddress: `0x${'44'.repeat(20)}`,
-              chainTarget: {
-                kind: 'evm',
-                namespace: 'eip155',
-                chainId: 11155111,
-                networkSlug: 'sepolia',
+              signerKind: 'threshold-ecdsa',
+              signerAuthMethod: 'passkey',
+              signerSource: 'passkey_registration',
+              metadata: {
+                keyHandle: 'revoke-key-handle',
+                ecdsaThresholdKeyId: 'ecdsa-key-revoke',
+                thresholdOwnerAddress: `0x${'44'.repeat(20)}`,
+                chainTarget: {
+                  kind: 'evm',
+                  namespace: 'eip155',
+                  chainId: 11155111,
+                  networkSlug: 'sepolia',
+                },
               },
             },
-          },
             activationPolicy: { mode: 'fail_if_occupied', signerSlot: 2 },
             preferredSlot: 2,
             mutation: { routeThroughOutbox: false },
@@ -620,10 +618,9 @@ test.describe('signer mutation saga pending behavior', () => {
             accountAddress: `0x${'44'.repeat(20)}`,
             signerId: `0x${'dd'.repeat(20)}`,
           });
-          const keys = (await indexedDB.listKeyMaterialByProfile(
-            context.profileId,
-            'evm:eip155:11155111',
-          )).filter((record: any) => record.signerSlot === 2);
+          const keys = (
+            await indexedDB.listKeyMaterialByProfile(context.profileId, 'evm:eip155:11155111')
+          ).filter((record: any) => record.signerSlot === 2);
           const after = await indexedDB.listSignerOperations({
             statuses: ['queued', 'submitted', 'failed', 'confirmed', 'dead-letter'],
             dueBefore: Number.MAX_SAFE_INTEGER,

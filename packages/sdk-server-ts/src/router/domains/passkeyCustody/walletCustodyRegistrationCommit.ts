@@ -79,13 +79,16 @@ export function buildWalletCustodyRegistrationRecords(args: {
   }
 
   const walletId = requireNonEmpty(payload.walletId, 'walletId') as WalletId;
-  const keyManifestDigestB64u = parseDigestField(
-    payload.keyManifestDigestB64u,
-    'keyManifestDigestB64u',
-  );
+  // A joining run writes no custody records: the wallet already has a seed
+  // envelope and a recovery set, and issuing more would leave half its keys
+  // covered by neither.
+  const custody = payload.establishedCustody;
+  if (!custody) {
+    throw new Error('this ceremony joined existing custody and commits no custody records');
+  }
 
   const rawBinding: unknown = JSON.parse(
-    requireNonEmpty(payload.envelopeBindingJson, 'envelopeBindingJson'),
+    requireNonEmpty(custody.envelopeBindingJson, 'envelopeBindingJson'),
   );
   if (!isPlainObject(rawBinding)) throw new Error('envelopeBindingJson must decode to an object');
   // The ceremony serialises the whole envelope binding, whose `binding` field is
@@ -97,38 +100,35 @@ export function buildWalletCustodyRegistrationRecords(args: {
   if (binding.kind !== 'wallet_custody_seed_v1') {
     throw new Error('a registration commit carries a wallet custody seed envelope');
   }
-  if (String(binding.keyManifestDigestB64u) !== keyManifestDigestB64u) {
-    throw new Error('envelope binding does not carry the payload key manifest digest');
-  }
   if (String((rawBinding as { walletId?: unknown }).walletId ?? '') !== String(walletId)) {
     throw new Error('envelope binding does not carry the payload wallet id');
   }
 
   const factor = parseWalletCustodyEnvelopeFactor(args.factor, 'walletCustodyCommit.factor');
   const envelope = buildPasskeyCustodyEnvelopeRecord({
-    envelopeId: requireNonEmpty(payload.envelopeId, 'envelopeId') as PasskeyEnvelopeId,
+    envelopeId: requireNonEmpty(custody.envelopeId, 'envelopeId') as PasskeyEnvelopeId,
     walletId,
     binding,
     factor,
     // A registration commit is always the first revision. The store refuses
     // anything else, so this is not a place to be lenient.
     envelopeRevision: parseEnvelopeRevision(1),
-    nonceB64u: parseEnvelopeNonceB64u(payload.envelopeNonceB64u, 'envelopeNonceB64u'),
+    nonceB64u: parseEnvelopeNonceB64u(custody.envelopeNonceB64u, 'envelopeNonceB64u'),
     sealedCustodySecretB64u: parseEnvelopeCiphertextB64u(
-      payload.sealedCustodySecretB64u,
+      custody.sealedCustodySecretB64u,
       'sealedCustodySecretB64u',
     ),
     ciphertextDigestB64u: parseDigestField(
-      payload.envelopeCiphertextDigestB64u,
+      custody.envelopeCiphertextDigestB64u,
       'envelopeCiphertextDigestB64u',
     ),
-    aadHashB64u: parseDigestField(payload.envelopeAadHashB64u, 'envelopeAadHashB64u'),
+    aadHashB64u: parseDigestField(custody.envelopeAadHashB64u, 'envelopeAadHashB64u'),
     lifecycle: buildActiveEnvelopeLifecycle({ activatedAtMs: nowMs }),
     createdAtMs: nowMs,
     updatedAtMs: nowMs,
   });
 
-  const wraps = payload.recoveryManifestKekWraps ?? [];
+  const wraps = custody.recoveryManifestKekWraps ?? [];
   if (wraps.length !== WALLET_RECOVERY_CODE_COUNT) {
     throw new Error(`a recovery set carries exactly ${WALLET_RECOVERY_CODE_COUNT} code wraps`);
   }
@@ -155,16 +155,15 @@ export function buildWalletCustodyRegistrationRecords(args: {
 
   const recoverySet = buildWalletRecoveryEnvelopeSetRecord({
     walletId,
-    keyManifestDigestB64u,
     manifestKekWraps,
     entries: [
       buildWalletCustodySeedRecoveryEntry({
-        nonceB64u: parseEnvelopeNonceB64u(payload.recoveryEntryNonceB64u, 'recoveryEntryNonceB64u'),
+        nonceB64u: parseEnvelopeNonceB64u(custody.recoveryEntryNonceB64u, 'recoveryEntryNonceB64u'),
         wrappedCustodySecretB64u: parseEnvelopeCiphertextB64u(
-          payload.recoveryEntryCiphertextB64u,
+          custody.recoveryEntryCiphertextB64u,
           'recoveryEntryCiphertextB64u',
         ),
-        aadHashB64u: parseDigestField(payload.recoveryEntryAadHashB64u, 'recoveryEntryAadHashB64u'),
+        aadHashB64u: parseDigestField(custody.recoveryEntryAadHashB64u, 'recoveryEntryAadHashB64u'),
       }),
     ],
     issuedAtMs: nowMs,

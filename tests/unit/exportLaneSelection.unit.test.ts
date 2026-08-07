@@ -369,10 +369,7 @@ test.describe('Ed25519 export lane selection', () => {
     );
     await expect(
       resolveExactKeyExportLane(
-        depsForEd25519([
-          ed25519Lane(),
-          ed25519Lane({ materialActivation: supersededActivation }),
-        ]),
+        depsForEd25519([ed25519Lane(), ed25519Lane({ materialActivation: supersededActivation })]),
         {
           kind: 'ed25519',
           walletSession: walletSessionRefFromSession({
@@ -688,5 +685,4 @@ test.describe('ECDSA export lane selection', () => {
       }),
     ).rejects.toThrow('exact lane selection failed: ambiguous_material');
   });
-
 });

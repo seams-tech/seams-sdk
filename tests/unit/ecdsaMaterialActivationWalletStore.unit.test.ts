@@ -506,10 +506,7 @@ test('operation step-up prepare and finalize reject superseded material before c
   const walletId = fixtureWalletId();
   const signer = createWalletEcdsaSignerRecord({ walletId, now: 1_900_000_000_000 });
   const canonicalActivation = signer.walletKey.publicCapability.material_activation;
-  const supersededActivation = corruptMaterialActivation(
-    canonicalActivation,
-    'activation_id',
-  );
+  const supersededActivation = corruptMaterialActivation(canonicalActivation, 'activation_id');
   const capability = signer.walletKey.publicCapability;
   const nowMs = Date.now();
   const scope = {

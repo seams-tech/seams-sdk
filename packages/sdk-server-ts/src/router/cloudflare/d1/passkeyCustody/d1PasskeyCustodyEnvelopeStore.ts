@@ -183,9 +183,7 @@ async function ciphertextDigestB64u(sealedCustodySecretB64u: string): Promise<st
  * domain ids permit ':'. A joined string would let
  * {enrollment "e", envelope "x:y"} collide with {enrollment "e:x", envelope "y"}.
  */
-export function passkeyCustodyEnvelopeRecordKey(
-  locator: PasskeyCustodyEnvelopeLocator,
-): string {
+export function passkeyCustodyEnvelopeRecordKey(locator: PasskeyCustodyEnvelopeLocator): string {
   return JSON.stringify([
     String(locator.walletId),
     ...factorKeyPart(locator.factor),

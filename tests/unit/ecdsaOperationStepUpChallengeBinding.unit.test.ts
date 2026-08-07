@@ -218,9 +218,8 @@ test.describe('ECDSA operation step-up challenge binding', () => {
     const request = parseRouterAbEcdsaDerivationExplicitExportRequestV1(
       explicitExportRequest('evm.export_key'),
     );
-    const protocolRequest = projectRouterAbEcdsaDerivationExplicitExportRequestToProtocolV1(
-      request,
-    );
+    const protocolRequest =
+      projectRouterAbEcdsaDerivationExplicitExportRequestToProtocolV1(request);
 
     expect(protocolRequest).not.toHaveProperty('operation');
     expect(parseRouterAbEcdsaDerivationExplicitExportProtocolRequestV1(protocolRequest)).toEqual(
@@ -337,9 +336,7 @@ test.describe('ECDSA operation step-up challenge binding', () => {
 
     const restored = attachRouterAbEcdsaExplicitExportOperationV1({
       facts,
-      protocolRequest: projectRouterAbEcdsaDerivationExplicitExportRequestToProtocolV1(
-        request,
-      ),
+      protocolRequest: projectRouterAbEcdsaDerivationExplicitExportRequestToProtocolV1(request),
     });
     expect(restored.operation).toEqual(facts.operation);
   });

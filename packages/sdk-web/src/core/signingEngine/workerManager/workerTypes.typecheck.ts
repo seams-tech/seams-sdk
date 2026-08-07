@@ -792,22 +792,36 @@ const walletCustodyCeremonySeal: SignerWorkerOperationResult<
   'sealWalletCustodyRegistration'
 > = {
   walletId: 'alice.testnet',
-  envelopeId: 'envelope-1',
+  keySet: 'evm_family_ecdsa_v1',
   keyManifestDigestB64u: 'digest',
-  envelopeBindingJson: '{}',
-  envelopeNonceB64u: 'nonce',
-  sealedCustodySecretB64u: 'ciphertext',
-  envelopeAadHashB64u: 'aad',
-  envelopeCiphertextDigestB64u: 'digest',
-  recoveryManifestKekWraps: [],
-  recoveryEntryNonceB64u: 'nonce',
-  recoveryEntryCiphertextB64u: 'ciphertext',
-  recoveryEntryAadHashB64u: 'aad',
-  registeredPublicKeyB64u: 'key',
+  establishedCustody: {
+    envelopeId: 'envelope-1',
+    envelopeBindingJson: '{}',
+    envelopeNonceB64u: 'nonce',
+    sealedCustodySecretB64u: 'ciphertext',
+    envelopeAadHashB64u: 'aad',
+    envelopeCiphertextDigestB64u: 'digest',
+    recoveryManifestKekWraps: [],
+    recoveryEntryNonceB64u: 'nonce',
+    recoveryEntryCiphertextB64u: 'ciphertext',
+    recoveryEntryAadHashB64u: 'aad',
+  },
   clientRootPublicKey33B64u: 'key',
   ecdsaReadyStateBlobB64u: 'blob',
 };
 void walletCustodyCeremonySeal;
+
+// A run that joined existing custody writes no envelope and issues no codes.
+const walletCustodyCeremonyJoin: SignerWorkerOperationResult<
+  'walletCustodyCeremony',
+  'sealWalletCustodyRegistration'
+> = {
+  walletId: 'alice.testnet',
+  keySet: 'near_ed25519_v1',
+  keyManifestDigestB64u: 'digest',
+  registeredPublicKeyB64u: 'registered',
+};
+void walletCustodyCeremonyJoin;
 
 // The seal result carries ciphertext and public facts only. Nothing that could
 // open an envelope may appear on it.

@@ -239,9 +239,10 @@ test('the ceremony consumes the collected authority and never asks for another',
     };
   }
   try {
-    await runEcdsaEnabledThreeRouteRegistrationCeremony(
-      { ...args, context: { signingEngine: engine } } as never,
-    ).catch(() => undefined);
+    await runEcdsaEnabledThreeRouteRegistrationCeremony({
+      ...args,
+      context: { signingEngine: engine },
+    } as never).catch(() => undefined);
   } finally {
     routes.restore();
   }

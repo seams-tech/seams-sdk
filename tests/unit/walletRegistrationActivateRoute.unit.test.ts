@@ -222,8 +222,10 @@ test('an identical activate retry returns the stored terminal bytes without repe
   try {
     await applySignerMigrations(database);
     const strictRegistration = new CountingStrictRegistrationPort();
-    const { service, activateRequest, thresholdStore } =
-      await respondedCeremony(database, strictRegistration);
+    const { service, activateRequest, thresholdStore } = await respondedCeremony(
+      database,
+      strictRegistration,
+    );
 
     const first = await service.walletRegistration.activateWalletRegistration(
       activateRequest as never,
@@ -541,16 +543,18 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
       minter: signer,
     };
     /* Yao has not resolved. Activate must still return a wallet. */
-    const activated =
-      await service.walletRegistration.activateWalletRegistration(activateRequest as never);
+    const activated = await service.walletRegistration.activateWalletRegistration(
+      activateRequest as never,
+    );
     if (!activated.ok) throw new Error(`activate: ${activated.code}: ${activated.message}`);
     expect(activated.nearProvisioning).toEqual({ status: 'near_pending' });
     expect('ecdsa' in activated).toBe(false);
     expect('resolvedAccount' in activated).toBe(false);
 
     /* Exact replay returns the same pending terminal. */
-    const replayed =
-      await service.walletRegistration.activateWalletRegistration(activateRequest as never);
+    const replayed = await service.walletRegistration.activateWalletRegistration(
+      activateRequest as never,
+    );
     expect(replayed).toEqual(activated);
   } finally {
     cleanupTemporaryD1Database(tempDir);
@@ -681,8 +685,9 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
 
     /* Yao is unresolved. The wallet must still be created, with its
        recovery-critical enrollment committed in the same transaction. */
-    const activated =
-      await service.walletRegistration.activateWalletRegistration(activateRequest as never);
+    const activated = await service.walletRegistration.activateWalletRegistration(
+      activateRequest as never,
+    );
     if (!activated.ok) throw new Error(`activate: ${activated.code}: ${activated.message}`);
     expect(activated.nearProvisioning).toEqual({ status: 'near_pending' });
     expect('ecdsa' in activated).toBe(false);
@@ -702,8 +707,9 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
     expect(Number(signerRows?.count || 0)).toBe(0);
 
     /* Exact pending replay. */
-    const replayed =
-      await service.walletRegistration.activateWalletRegistration(activateRequest as never);
+    const replayed = await service.walletRegistration.activateWalletRegistration(
+      activateRequest as never,
+    );
     expect(replayed).toEqual(activated);
   } finally {
     cleanupTemporaryD1Database(tempDir);

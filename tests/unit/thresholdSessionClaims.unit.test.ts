@@ -1158,5 +1158,4 @@ test.describe('Router A/B Wallet Session token claims', () => {
     expect(materialLookups).toBe(2);
     expect(admissions).toBe(0);
   });
-
 });

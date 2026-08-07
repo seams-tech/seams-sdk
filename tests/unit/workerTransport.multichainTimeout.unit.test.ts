@@ -273,7 +273,10 @@ test.describe('WorkerTransport multichain timeout guard', () => {
       });
 
       expect(result).toBeInstanceOf(ArrayBuffer);
-      expect(progress).toEqual(['computeTempoSenderHash.running', 'computeTempoSenderHash.succeeded']);
+      expect(progress).toEqual([
+        'computeTempoSenderHash.running',
+        'computeTempoSenderHash.succeeded',
+      ]);
     } finally {
       (globalThis as unknown as { Worker: typeof Worker }).Worker = originalWorker;
     }

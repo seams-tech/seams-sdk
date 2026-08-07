@@ -27,9 +27,7 @@ import {
 import { parseWebAuthnRpId, type WebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes';
 import { thresholdEcdsaChainTargetKey } from '../../packages/sdk-server-ts/src/core/thresholdEcdsaChainTarget';
-import {
-  buildEmailOtpWalletAuthAuthority,
-} from '../../packages/shared-ts/src/utils/walletAuthAuthority';
+import { buildEmailOtpWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 
 const routeDefinitions = createRouterApiRouteDefinitions({
   enableHealthz: true,
@@ -103,10 +101,7 @@ function ecdsaInventoryInputFor(args: {
 }
 
 function addSignerInputFor(args: {
-  routeId:
-    | 'wallet_add_signer_intent'
-    | 'wallet_add_signer_start'
-    | 'wallet_add_signer_finalize';
+  routeId: 'wallet_add_signer_intent' | 'wallet_add_signer_start' | 'wallet_add_signer_finalize';
   body: unknown;
   authService: Record<string, unknown>;
   session?: Record<string, unknown>;

@@ -134,9 +134,8 @@ class SyncAccountPersistenceFixture {
     keyKind: KeyMaterialKind,
   ): Promise<KeyMaterialRecord | null> {
     return (
-      this.keyMaterial.get(
-        keyMaterialMapKey({ profileId, signerSlot, chainIdKey, keyKind }),
-      ) ?? null
+      this.keyMaterial.get(keyMaterialMapKey({ profileId, signerSlot, chainIdKey, keyKind })) ??
+      null
     );
   }
 
@@ -175,8 +174,7 @@ class SyncAccountPersistenceFixture {
     };
   }): Promise<void> {
     if (
-      JSON.stringify(this.appState.get(input.journalKey)) !==
-      JSON.stringify(input.expectedJournal)
+      JSON.stringify(this.appState.get(input.journalKey)) !== JSON.stringify(input.expectedJournal)
     ) {
       throw new Error('syncAccount recovery journal changed before finalization');
     }
@@ -223,9 +221,7 @@ function requireActivePersistenceFixture(): SyncAccountPersistenceFixture {
   return activePersistenceFixture;
 }
 
-function requireRecoveryMaterialActivation(
-  request: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
-) {
+function requireRecoveryMaterialActivation(request: RouterAbEd25519YaoRecoveryAdmissionRequestV1) {
   const wire = request.scope.material_activation;
   const parsed = parseMpcMaterialActivationRef({
     kind: wire.kind,

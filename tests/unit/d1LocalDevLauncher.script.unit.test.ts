@@ -23,10 +23,7 @@ function repoRoot(): string {
 }
 
 async function loadD1LocalDevLauncherModule(): Promise<D1LocalDevLauncherModule> {
-  const modulePath = path.join(
-    repoRoot(),
-    'packages/console-server-ts/scripts/d1-local-dev.mjs',
-  );
+  const modulePath = path.join(repoRoot(), 'packages/console-server-ts/scripts/d1-local-dev.mjs');
   return (await import(pathToFileURL(modulePath).href)) as D1LocalDevLauncherModule;
 }
 

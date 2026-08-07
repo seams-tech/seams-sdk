@@ -400,31 +400,31 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
     });
 
     const refreshed = await service.walletRegistration.refreshEd25519YaoWalletSession({
-        kind: 'router_ab_ed25519_yao_budget_refresh_v1',
-        sessionPolicy: {
-          version: 'threshold_session_v1',
-          nearAccountId,
-          nearEd25519SigningKeyId,
-          authority,
-          relayerKeyId: TEST_YAO_SIGNING_WORKER_ID,
-          thresholdSessionId: currentThresholdSessionId,
-          walletSessionId: currentWalletSessionId,
-          quotaId: currentQuotaId,
-          runtimePolicyScope,
-          routerAbNormalSigning: {
-            kind: 'router_ab_ed25519_normal_signing_v1',
-            signingWorkerId: TEST_YAO_SIGNING_WORKER_ID,
-          },
-          participantIds,
-          ttlMs: 60_000,
-          remainingUses: 1,
+      kind: 'router_ab_ed25519_yao_budget_refresh_v1',
+      sessionPolicy: {
+        version: 'threshold_session_v1',
+        nearAccountId,
+        nearEd25519SigningKeyId,
+        authority,
+        relayerKeyId: TEST_YAO_SIGNING_WORKER_ID,
+        thresholdSessionId: currentThresholdSessionId,
+        walletSessionId: currentWalletSessionId,
+        quotaId: currentQuotaId,
+        runtimePolicyScope,
+        routerAbNormalSigning: {
+          kind: 'router_ab_ed25519_normal_signing_v1',
+          signingWorkerId: TEST_YAO_SIGNING_WORKER_ID,
         },
-        authorization: {
-          kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1',
-          authority,
-          verifiedChallengeId: 'passkey-budget-refresh-challenge',
-        },
-      });
+        participantIds,
+        ttlMs: 60_000,
+        remainingUses: 1,
+      },
+      authorization: {
+        kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1',
+        authority,
+        verifiedChallengeId: 'passkey-budget-refresh-challenge',
+      },
+    });
     expect(refreshed).toMatchObject({
       ok: true,
       walletId,

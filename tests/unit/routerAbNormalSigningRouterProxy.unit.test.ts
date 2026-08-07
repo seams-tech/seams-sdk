@@ -61,9 +61,7 @@ test('normal-signing proxy preserves authorization and source-binding headers', 
   expect(forwarded.headers.get('cf-connecting-ip')).toBe('203.0.113.17');
   expect(forwarded.headers.get('cf-ray')).toBe('ray-id-NRT');
   expect(forwarded.headers.get('x-seams-trace-id')).toBe('trace-correlation-1');
-  expect(forwarded.headers.get('x-router-ab-internal-service-auth')).toBe(
-    'router-internal-secret',
-  );
+  expect(forwarded.headers.get('x-router-ab-internal-service-auth')).toBe('router-internal-secret');
   expect(await forwarded.json()).toEqual({ request_id: 'request-1' });
   expect(response.status).toBe(200);
   expect(response.headers.get('server-timing')).toBe('router;dur=12');
@@ -90,8 +88,7 @@ test('Ed25519 SigningWorker in-progress conflict remains non-terminal at the Gat
   expect(
     isRouterAbEd25519OperationInProgressResponse({
       status: 409,
-      bodyText:
-        'ReplayedLocalRequest: SigningWorker normal-signing effect is already in progress',
+      bodyText: 'ReplayedLocalRequest: SigningWorker normal-signing effect is already in progress',
     }),
   ).toBe(true);
   expect(

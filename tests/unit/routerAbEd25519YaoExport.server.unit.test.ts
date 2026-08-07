@@ -251,9 +251,9 @@ function exportBinding(request: RouterAbEd25519YaoExportAdmissionRequestV1) {
         selected_server_id: request.scope.signing_worker_id,
       },
       operation: 'export' as const,
-        session_id: bytes(request.authorization.nonce[0] ?? 71),
-        stable_key_context_binding: bytes(72),
-        material_activation: request.scope.material_activation,
+      session_id: bytes(request.authorization.nonce[0] ?? 71),
+      stable_key_context_binding: bytes(72),
+      material_activation: request.scope.material_activation,
     },
     registered_public_key: request.registered_public_key,
     state_epoch: request.state_epoch,
@@ -493,9 +493,7 @@ class WebAuthnFixture {
 class AuthorizationFixture implements RouterAbEd25519YaoExportAuthorizationAdapter {
   readonly inputs: RouterAbEd25519YaoExportAuthorizationInput[] = [];
 
-  authorize(
-    input: RouterAbEd25519YaoExportAuthorizationInput,
-  ) {
+  authorize(input: RouterAbEd25519YaoExportAuthorizationInput) {
     this.inputs.push(input);
     return { ok: true, authorizationIdentity: exportAuthorizationIdentity() };
   }
@@ -510,9 +508,7 @@ class RequestScopedAuthorizationFixture implements RouterAbEd25519YaoExportAutho
 
   constructor(private readonly throwOnAdmission = false) {}
 
-  authorize(
-    input: RouterAbEd25519YaoExportAuthorizationInput,
-  ) {
+  authorize(input: RouterAbEd25519YaoExportAuthorizationInput) {
     this.calls += 1;
     if (this.throwOnAdmission && input.kind === 'admit') {
       throw new Error('WebAuthn counter update outcome was lost');
@@ -810,9 +806,7 @@ function jsonAdmissionEnvelopeRequest(
   });
 }
 
-function jsonExecutionEnvelopeRequest(
-  body: RouterAbEd25519YaoExportExecuteRequestV1,
-): Request {
+function jsonExecutionEnvelopeRequest(body: RouterAbEd25519YaoExportExecuteRequestV1): Request {
   return new Request(`${ORIGIN}${ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1}`, {
     method: 'POST',
     headers: {
@@ -1239,7 +1233,10 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
         new ActiveCapabilityFixture(substitution),
       );
 
-      expect(await service.admitExport(request, exportAuthorizationIdentity()), substitution).toMatchObject({
+      expect(
+        await service.admitExport(request, exportAuthorizationIdentity()),
+        substitution,
+      ).toMatchObject({
         ok: false,
         status: 409,
         code: 'active_identity_mismatch',
@@ -1275,7 +1272,10 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
         new ActiveCapabilityFixture(),
       );
 
-      expect(await service.admitExport(request, exportAuthorizationIdentity()), substitution).toMatchObject({
+      expect(
+        await service.admitExport(request, exportAuthorizationIdentity()),
+        substitution,
+      ).toMatchObject({
         ok: false,
         status: 502,
         code: 'invalid_backend_response',
@@ -1332,7 +1332,9 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
       failingBackend,
       new ActiveCapabilityFixture(),
     );
-    expect((await failingService.admitExport(failureRequest, exportAuthorizationIdentity())).ok).toBe(true);
+    expect(
+      (await failingService.admitExport(failureRequest, exportAuthorizationIdentity())).ok,
+    ).toBe(true);
     const failureExecute = executeFixture(failureRequest);
     expect(
       await failingService.executeExport(failureExecute, exportAuthorizationIdentity()),
@@ -1370,9 +1372,13 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
     );
 
     expect((await service.admitExport(first, exportAuthorizationIdentity())).ok).toBe(true);
-    expect((await service.executeExport(executeFixture(first), exportAuthorizationIdentity())).ok).toBe(true);
+    expect(
+      (await service.executeExport(executeFixture(first), exportAuthorizationIdentity())).ok,
+    ).toBe(true);
     expect((await service.admitExport(second, exportAuthorizationIdentity())).ok).toBe(true);
-    expect((await service.executeExport(executeFixture(second), exportAuthorizationIdentity())).ok).toBe(true);
+    expect(
+      (await service.executeExport(executeFixture(second), exportAuthorizationIdentity())).ok,
+    ).toBe(true);
     expect((await service.admitExport(second, exportAuthorizationIdentity())).ok).toBe(true);
     expect(backend.admitCalls).toBe(2);
     expect(backend.executeCalls).toBe(2);

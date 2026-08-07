@@ -36,9 +36,7 @@ function resolvedRuntime(overrides: { thresholdSessionId?: string } = {}) {
   const manifest = ecdsaCapabilityHydrationLookupFixture().active.manifest;
   const record = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
     manifest,
-    ...(overrides.thresholdSessionId
-      ? { thresholdSessionId: overrides.thresholdSessionId }
-      : {}),
+    ...(overrides.thresholdSessionId ? { thresholdSessionId: overrides.thresholdSessionId } : {}),
   });
   const walletId = toWalletId(String(manifest.signer.walletId));
   const resolution = resolveExactEcdsaSealedRuntime({
@@ -128,7 +126,9 @@ function activeCanonicalAuthorization(
 }
 
 function canonicalEmailOtpExportLaneFixture(args: {
-  capability: Awaited<ReturnType<typeof canonicalEvmFamilyEcdsaSigningCapabilityFixture>>['capability'];
+  capability: Awaited<
+    ReturnType<typeof canonicalEvmFamilyEcdsaSigningCapabilityFixture>
+  >['capability'];
   authorization: ReturnType<typeof activeEvmFamilyWalletSessionAuthorizationFixture>;
   chainTarget: ThresholdEcdsaChainTarget;
 }): ExactEcdsaExportLane {
@@ -173,7 +173,8 @@ function canonicalEmailOtpExportLaneFixture(args: {
 
 test.describe('Email OTP ECDSA refresh canonical authority', () => {
   test('builds a post-registration lane from the canonical capability without a sealed record', async () => {
-    const { capability, manifest } = await canonicalEvmFamilyEcdsaSigningCapabilityFixture('email_otp');
+    const { capability, manifest } =
+      await canonicalEvmFamilyEcdsaSigningCapabilityFixture('email_otp');
     const [chainTarget] = manifest.signer.scope.targetMemberships;
     if (!chainTarget) throw new Error('ECDSA fixture must have a target membership');
     const authorization = activeCanonicalAuthorization(manifest, 'ec-session-registration');

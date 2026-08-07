@@ -46,13 +46,27 @@ declare const ciphertextB64u: EnvelopeCiphertextB64u;
 const walletSeed: PasskeyCustodySecretBinding = {
   kind: 'wallet_custody_seed_v1',
   derivationScheme: 'wallet_seed_parallel_hkdf_sha256_v1',
-  keyManifestDigestB64u: digest,
-  nearEd25519SigningKeyId,
-  registeredPublicKeyB64u: ed25519PublicKey,
-  evmFamilySigningKeySlotId,
-  clientRootPublicKey33B64u: secpPublicKey,
 };
 void walletSeed;
+
+// The seed names no key set. Key sets are provisioned independently and each
+// records its own manifest on its own registration state, so a seed that named
+// them would have to be resealed every time one arrived.
+const seedNamingAKeySet: PasskeyCustodySecretBinding = {
+  kind: 'wallet_custody_seed_v1',
+  derivationScheme: 'wallet_seed_parallel_hkdf_sha256_v1',
+  // @ts-expect-error The seed does not name the key sets it can derive.
+  keyManifestDigestB64u: digest,
+};
+void seedNamingAKeySet;
+
+// @ts-expect-error A key set's identity belongs to its own manifest.
+const seedNamingASigningKey: PasskeyCustodySecretBinding = {
+  kind: 'wallet_custody_seed_v1',
+  derivationScheme: 'wallet_seed_parallel_hkdf_sha256_v1',
+  nearEd25519SigningKeyId,
+};
+void seedNamingASigningKey;
 
 const ed25519LaneHolderShare: PasskeyCustodySecretBinding = {
   kind: 'ed25519_lane_holder_share_v1',
@@ -82,16 +96,10 @@ void ecdsaLaneHolderShare;
 const seedWithLane: PasskeyCustodySecretBinding = {
   kind: 'wallet_custody_seed_v1',
   derivationScheme: 'wallet_seed_parallel_hkdf_sha256_v1',
-  keyManifestDigestB64u: digest,
-  nearEd25519SigningKeyId,
-  registeredPublicKeyB64u: ed25519PublicKey,
-  evmFamilySigningKeySlotId,
-  clientRootPublicKey33B64u: secpPublicKey,
   laneId,
 };
 void seedWithLane;
 
-// @ts-expect-error A lane holder share cannot claim the wallet-wide key manifest.
 const laneShareWithManifest: PasskeyCustodySecretBinding = {
   kind: 'ed25519_lane_holder_share_v1',
   walletKeyId,
@@ -100,6 +108,7 @@ const laneShareWithManifest: PasskeyCustodySecretBinding = {
   nearEd25519SigningKeyId,
   registeredPublicKeyB64u: ed25519PublicKey,
   participantBindingDigestB64u: digest,
+  // @ts-expect-error A key manifest digest is not a custody binding field.
   keyManifestDigestB64u: digest,
 };
 void laneShareWithManifest;
@@ -130,7 +139,6 @@ const ecdsaHolderShareWithoutSession: PasskeyCustodySecretBinding = {
 };
 void ecdsaHolderShareWithoutSession;
 
-// @ts-expect-error A holder share cannot carry the client root's public key.
 const ecdsaHolderShareWithRootField: PasskeyCustodySecretBinding = {
   kind: 'ecdsa_lane_holder_share_v1',
   walletKeyId,
@@ -139,6 +147,7 @@ const ecdsaHolderShareWithRootField: PasskeyCustodySecretBinding = {
   evmFamilySigningKeySlotId,
   thresholdSessionId,
   thresholdPublicKey33B64u: secpPublicKey,
+  // @ts-expect-error A holder share cannot carry the client root's public key.
   clientRootPublicKey33B64u: secpPublicKey,
 };
 void ecdsaHolderShareWithRootField;

@@ -596,16 +596,10 @@ test.describe('D1 authorization core', () => {
         throw new Error('expected a newly admitted Email OTP operation');
       }
       await expect(
-        readQuotaRemainingUses(
-          temporary.database,
-          fixture.session.tenantId,
-          fixture.quota.quotaId,
-        ),
+        readQuotaRemainingUses(temporary.database, fixture.session.tenantId, fixture.quota.quotaId),
       ).resolves.toBe(2);
 
-      const mismatchedPrincipal = parsePrincipalId(
-        String(fixture.reusableWalletSession.walletId),
-      );
+      const mismatchedPrincipal = parsePrincipalId(String(fixture.reusableWalletSession.walletId));
       if (!mismatchedPrincipal.ok) throw new Error(mismatchedPrincipal.error.message);
       const admittedInput = authorizedOperationInput(first.admission.operation);
       const mismatchedOperation = buildCapabilityOperationEnvelope({
@@ -633,11 +627,7 @@ test.describe('D1 authorization core', () => {
         }),
       ).resolves.toEqual({ kind: 'authorization_grant_rejected' });
       await expect(
-        readQuotaRemainingUses(
-          temporary.database,
-          fixture.session.tenantId,
-          fixture.quota.quotaId,
-        ),
+        readQuotaRemainingUses(temporary.database, fixture.session.tenantId, fixture.quota.quotaId),
       ).resolves.toBe(2);
 
       const retry = await admitRouterAbEcdsaReusableWalletSessionOperation({
@@ -656,11 +646,7 @@ test.describe('D1 authorization core', () => {
       });
       expect(retry).toMatchObject({ ok: true, admission: { kind: 'operation_in_progress' } });
       await expect(
-        readQuotaRemainingUses(
-          temporary.database,
-          fixture.session.tenantId,
-          fixture.quota.quotaId,
-        ),
+        readQuotaRemainingUses(temporary.database, fixture.session.tenantId, fixture.quota.quotaId),
       ).resolves.toBe(2);
     } finally {
       cleanupTemporaryD1Database(temporary.tempDir);
@@ -1189,9 +1175,7 @@ function testDigest(fill: number) {
   return parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(fill)));
 }
 
-function authorizedOperationInput(
-  operation: AuthorizedOperation,
-): Extract<
+function authorizedOperationInput(operation: AuthorizedOperation): Extract<
   AuthorizedOperationInput,
   {
     readonly authorization: { readonly kind: 'authorization_grant' };

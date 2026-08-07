@@ -143,12 +143,10 @@ test.describe('registration-established Wallet Session projection', () => {
           const merged = await repository.readActiveForWallet(mixedIdentity.walletId);
           const mergedKind =
             merged.kind === 'found' ? merged.projection.walletSessionTokens.kind : 'missing';
-          const mergedExpiresAtMs =
-            merged.kind === 'found' ? merged.projection.expiresAtMs : null;
+          const mergedExpiresAtMs = merged.kind === 'found' ? merged.projection.expiresAtMs : null;
           const mergedTokens =
             merged.kind === 'found' &&
-            merged.projection.walletSessionTokens.kind ===
-              'near_ed25519_and_evm_family_ecdsa'
+            merged.projection.walletSessionTokens.kind === 'near_ed25519_and_evm_family_ecdsa'
               ? {
                   ed25519: merged.projection.walletSessionTokens.ed25519.walletSessionJwt,
                   ecdsa: merged.projection.walletSessionTokens.ecdsa.walletSessionJwt,
@@ -166,8 +164,7 @@ test.describe('registration-established Wallet Session projection', () => {
           const reissued = await repository.readActiveForWallet(mixedIdentity.walletId);
           const reissuedTokens =
             reissued.kind === 'found' &&
-            reissued.projection.walletSessionTokens.kind ===
-              'near_ed25519_and_evm_family_ecdsa'
+            reissued.projection.walletSessionTokens.kind === 'near_ed25519_and_evm_family_ecdsa'
               ? {
                   ed25519: reissued.projection.walletSessionTokens.ed25519.walletSessionJwt,
                   ecdsa: reissued.projection.walletSessionTokens.ecdsa.walletSessionJwt,

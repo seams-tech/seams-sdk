@@ -186,7 +186,15 @@ export function rejectUnknownFields(
       throw new Error(`${label}.${field} is not part of ${label}`);
     }
     const normalized = field.toLowerCase().replace(/_/g, '');
-    if (SECRET_BEARING_FIELD_SUBSTRINGS.some((substring) => normalized.includes(substring))) {
+    // A field that names itself a public key is not plaintext custody
+    // material, whatever else its name contains. `clientRootPublicKey33B64u`
+    // matches `clientroot` but is a published point; reporting it as a leak
+    // would send a reader hunting a secret that was never there.
+    const namesAPublicKey = normalized.includes('publickey');
+    if (
+      !namesAPublicKey &&
+      SECRET_BEARING_FIELD_SUBSTRINGS.some((substring) => normalized.includes(substring))
+    ) {
       throw new Error(`${label}.${field} must never carry plaintext custody material`);
     }
     throw new Error(`${label}.${field} is not part of ${label}`);

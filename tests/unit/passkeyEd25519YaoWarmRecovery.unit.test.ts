@@ -85,8 +85,7 @@ async function warmBootstrapResponse(args: {
     nearAccountId: restore.nearAccountId,
     nearEd25519SigningKeyId: restore.nearEd25519SigningKeyId,
     signerSlot: restore.signerSlot,
-    thresholdSessionId:
-      args.responseThresholdSessionId ?? args.record.thresholdSessionIds.ed25519,
+    thresholdSessionId: args.responseThresholdSessionId ?? args.record.thresholdSessionIds.ed25519,
     walletSessionId: String(args.authorization.walletSessionId),
     quotaId: String(args.authorization.quotaId),
     signingWorkerId: restore.relayerKeyId,

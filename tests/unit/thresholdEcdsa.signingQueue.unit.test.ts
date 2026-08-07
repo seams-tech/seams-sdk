@@ -69,14 +69,8 @@ test.describe('threshold ECDSA signing operation queue', () => {
     const queueByKey: ThresholdEcdsaSigningQueueByKey = new Map();
     const firstWalletId = toWalletId('alice.testnet');
     const secondWalletId = firstWalletId;
-    const firstMaterialActivation = buildMpcMaterialActivationRefFixture(
-      'first',
-      firstWalletId,
-    );
-    const secondMaterialActivation = buildMpcMaterialActivationRefFixture(
-      'second',
-      secondWalletId,
-    );
+    const firstMaterialActivation = buildMpcMaterialActivationRefFixture('first', firstWalletId);
+    const secondMaterialActivation = buildMpcMaterialActivationRefFixture('second', secondWalletId);
     const blocker = deferred<void>();
 
     const first = withThresholdEcdsaSigningQueue({

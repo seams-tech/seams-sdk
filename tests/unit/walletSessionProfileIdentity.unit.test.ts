@@ -13,8 +13,7 @@ const IMPORT_PATHS = {
   login: '/_test-sdk/esm/SeamsWeb/operations/auth/login.js',
   walletUnlockSubject: '/_test-sdk/esm/SeamsWeb/operations/auth/walletUnlockSubject.js',
   indexedDB: '/_test-sdk/esm/core/indexedDB/index.js',
-  ecdsaManifestStore:
-    '/_test-sdk/esm/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore.js',
+  ecdsaManifestStore: '/_test-sdk/esm/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore.js',
 } as const;
 
 async function exerciseCanonicalEcdsaRefreshReconciliation(input: {
@@ -171,9 +170,7 @@ test.describe('wallet session profile identity restore', () => {
         return {
           appIdentityKind: session.appIdentity.kind,
           walletId:
-            session.appIdentity.kind === 'resolved'
-              ? String(session.appIdentity.walletId)
-              : '',
+            session.appIdentity.kind === 'resolved' ? String(session.appIdentity.walletId) : '',
           nearAccountId:
             session.appIdentity.kind === 'resolved'
               ? String(session.appIdentity.nearAccountId || '')
@@ -278,9 +275,7 @@ test.describe('wallet session profile identity restore', () => {
           resolutionSource: resolution.source || null,
           appIdentityKind: session.appIdentity.kind,
           walletId:
-            session.appIdentity.kind === 'resolved'
-              ? String(session.appIdentity.walletId)
-              : '',
+            session.appIdentity.kind === 'resolved' ? String(session.appIdentity.walletId) : '',
           nearAccountId:
             session.appIdentity.kind === 'resolved'
               ? String(session.appIdentity.nearAccountId || '')
@@ -406,9 +401,7 @@ test.describe('wallet session profile identity restore', () => {
           resolutionSource: resolution.source || null,
           appIdentityKind: session.appIdentity.kind,
           walletId:
-            session.appIdentity.kind === 'resolved'
-              ? String(session.appIdentity.walletId)
-              : '',
+            session.appIdentity.kind === 'resolved' ? String(session.appIdentity.walletId) : '',
           nearAccountId:
             session.appIdentity.kind === 'resolved'
               ? String(session.appIdentity.nearAccountId || '')
@@ -531,9 +524,7 @@ test.describe('wallet session profile identity restore', () => {
             resolutionReason: resolution.reason || null,
             appIdentityKind: session.appIdentity.kind,
             walletId:
-              session.appIdentity.kind === 'anonymous'
-                ? ''
-                : String(session.appIdentity.walletId),
+              session.appIdentity.kind === 'anonymous' ? '' : String(session.appIdentity.walletId),
             walletSessionKind: session.reusableWalletSession.kind,
             warningCount: warnings.length,
           };

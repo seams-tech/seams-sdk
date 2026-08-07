@@ -32,10 +32,8 @@ const EVM_FAMILY_SLOT_ID = deriveEvmFamilySigningKeySlotId({
   signingRootVersion: 'default',
 });
 const SHARED_OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
-const CLIENT_SHARE_PUBLIC_KEY_33_B64U =
-  'AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC';
-const RELAYER_PUBLIC_KEY_33_B64U =
-  'AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMD';
+const CLIENT_SHARE_PUBLIC_KEY_33_B64U = 'AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC';
+const RELAYER_PUBLIC_KEY_33_B64U = 'AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMD';
 const GROUP_PUBLIC_KEY_33_B64U = CLIENT_SHARE_PUBLIC_KEY_33_B64U;
 const PUBLIC_CAPABILITY = fixtureEcdsaRoleLocalPublicCapability({
   walletId: WALLET_ID,
@@ -60,8 +58,8 @@ function makeBootstrap(args: {
   const ecdsaThresholdKeyId = args.ecdsaThresholdKeyId || 'threshold-key-evm-family';
   const signingRootId = 'project:dev';
   const signingRootVersion = 'default';
-  const routerAbEcdsaDerivationNormalSigning =
-    makeRouterAbEcdsaDerivationNormalSigningStateFixture({
+  const routerAbEcdsaDerivationNormalSigning = makeRouterAbEcdsaDerivationNormalSigningStateFixture(
+    {
       walletId: WALLET_ID,
       walletKeyId: args.evmFamilySigningKeySlotId || EVM_FAMILY_SLOT_ID,
       ecdsaThresholdKeyId,
@@ -72,7 +70,8 @@ function makeBootstrap(args: {
       thresholdPublicKey33B64u: GROUP_PUBLIC_KEY_33_B64U,
       ethereumAddress,
       activationEpoch: `activation-${args.targetLabel}`,
-    });
+    },
+  );
   return {
     formatVersion: 'ecdsa-derivation-role-local',
     walletId: WALLET_ID,
@@ -265,8 +264,7 @@ test.describe('D1 registration ECDSA wallet keys', () => {
     expect(result).toEqual({
       ok: false,
       code: 'incomplete_ecdsa_wallet_key',
-      message:
-        'registration finalize returned duplicate ECDSA wallet key material for tempo:42431',
+      message: 'registration finalize returned duplicate ECDSA wallet key material for tempo:42431',
     });
   });
 });
@@ -294,9 +292,7 @@ test.describe('D1 registration finalize replay parsing', () => {
     expect(parseD1WalletRegistrationFinalizeReplayResponse(raw)).toBeNull();
     expect(parseD1WalletRegistrationFinalizeTerminalResponse(raw)).toBeNull();
     expect(
-      parseD1WalletRegistrationFinalizeTerminalResponse(
-        makeEmailOtpNearFinalizeRecord('   '),
-      ),
+      parseD1WalletRegistrationFinalizeTerminalResponse(makeEmailOtpNearFinalizeRecord('   ')),
     ).toBeNull();
   });
 });

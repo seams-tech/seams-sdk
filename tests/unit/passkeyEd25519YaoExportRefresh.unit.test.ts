@@ -78,9 +78,9 @@ class PasskeyEd25519ExportRefreshHarness {
 
   constructor(private readonly contextCredentialIdB64u: string) {}
 
-  async resolvePasskeyExportContext(args: Parameters<Ed25519YaoExportFlowDeps['resolvePasskeyExportContext']>[0]): ReturnType<
-    Ed25519YaoExportFlowDeps['resolvePasskeyExportContext']
-  > {
+  async resolvePasskeyExportContext(
+    args: Parameters<Ed25519YaoExportFlowDeps['resolvePasskeyExportContext']>[0],
+  ): ReturnType<Ed25519YaoExportFlowDeps['resolvePasskeyExportContext']> {
     this.resolvedLane = args.laneIdentity;
     return { kind: 'ready', context: this.buildDurableContext() };
   }

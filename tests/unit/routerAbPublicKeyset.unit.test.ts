@@ -175,8 +175,7 @@ test.describe('Router A/B public keyset boundary', () => {
             ...keyset.signer_envelope_hpke.current,
             deriver_a: {
               ...keyset.signer_envelope_hpke.current.deriver_a,
-              public_key:
-                'x25519:4444444444444444444444444444444444444444444444444444444444444444',
+              public_key: 'x25519:4444444444444444444444444444444444444444444444444444444444444444',
             },
           },
           previous_retire_at_ms: 2_000,

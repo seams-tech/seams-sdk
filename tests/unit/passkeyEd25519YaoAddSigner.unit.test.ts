@@ -137,8 +137,7 @@ const ADMISSION_MUTATIONS: readonly AdmissionMutation[] = [
     expectedError: /Yao account ID does not match/,
     mutate(input) {
       input.admissionRequest.scope.account_id = 'wallet-substituted';
-      input.admissionRequest.scope.material_activation.material_owner =
-        'wallet-substituted';
+      input.admissionRequest.scope.material_activation.material_owner = 'wallet-substituted';
     },
   },
   {

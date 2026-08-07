@@ -282,13 +282,7 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
   });
   expect(signingWorkerConfig).toContain(
     `migrations_dir = ${JSON.stringify(
-      path.join(
-        repoRoot(),
-        'crates',
-        'router-ab-cloudflare',
-        'migrations',
-        'signing-worker',
-      ),
+      path.join(repoRoot(), 'crates', 'router-ab-cloudflare', 'migrations', 'signing-worker'),
     )}`,
   );
   for (const config of runtime.configs) {

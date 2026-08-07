@@ -19,8 +19,8 @@ function listSourceFiles(relativeDir: string): string[] {
 }
 
 function importsNonceModule(source: string, moduleName: string): boolean {
-  const importPaths = [...source.matchAll(/(?:from|import)\s*["']([^"']+)["']/g)].map(
-    (match) => match[1].replace(/\.tsx?$/, ''),
+  const importPaths = [...source.matchAll(/(?:from|import)\s*["']([^"']+)["']/g)].map((match) =>
+    match[1].replace(/\.tsx?$/, ''),
   );
   return importPaths.some(
     (importPath) =>
@@ -32,7 +32,9 @@ function importsNonceModule(source: string, moduleName: string): boolean {
 
 test.describe('nonce coordinator durable architecture guards', () => {
   test('NonceCoordinator does not own a localStorage durable lease mirror', () => {
-    const source = readRepoSource('packages/sdk-web/src/core/signingEngine/nonce/NonceCoordinator.ts');
+    const source = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/nonce/NonceCoordinator.ts',
+    );
 
     expect(source).not.toContain('localStorage');
     expect(source).not.toContain('seams:nonce-coordinator:v1:evm-leases');
@@ -42,7 +44,9 @@ test.describe('nonce coordinator durable architecture guards', () => {
 
   test('durable nonce leases live in the canonical seams wallet schema', () => {
     const schemaNames = readRepoSource('packages/sdk-web/src/core/indexedDB/schemaNames.ts');
-    const repositories = readRepoSource('packages/sdk-web/src/core/indexedDB/seamsWalletDB/repositories.ts');
+    const repositories = readRepoSource(
+      'packages/sdk-web/src/core/indexedDB/seamsWalletDB/repositories.ts',
+    );
     const managerAssembly = readRepoSource(
       'packages/sdk-web/src/core/signingEngine/assembly/createManagers.ts',
     );
@@ -52,7 +56,9 @@ test.describe('nonce coordinator durable architecture guards', () => {
     const browserSigningStores = readRepoSource(
       'packages/sdk-web/src/SeamsWeb/assembly/createBrowserSigningStores.ts',
     );
-    const store = readRepoSource('packages/sdk-web/src/core/indexedDB/nonceLaneCoordinationStore.ts');
+    const store = readRepoSource(
+      'packages/sdk-web/src/core/indexedDB/nonceLaneCoordinationStore.ts',
+    );
 
     expect(schemaNames).toContain("nonceLaneLeases: 'nonce_lane_leases'");
     expect(schemaNames).toContain("nonceLaneLocks: 'nonce_lane_locks'");
@@ -96,9 +102,14 @@ test.describe('nonce coordinator durable architecture guards', () => {
       'nonceTypes',
       'nonceUtils',
     ];
-    const allowedCallers = new Set(['packages/sdk-web/src/core/signingEngine/nonce/NonceCoordinator.ts']);
+    const allowedCallers = new Set([
+      'packages/sdk-web/src/core/signingEngine/nonce/NonceCoordinator.ts',
+    ]);
     const offenders = listSourceFiles('packages/sdk-web/src')
-      .filter((relativePath) => !relativePath.startsWith('packages/sdk-web/src/core/signingEngine/nonce/'))
+      .filter(
+        (relativePath) =>
+          !relativePath.startsWith('packages/sdk-web/src/core/signingEngine/nonce/'),
+      )
       .filter((relativePath) => !allowedCallers.has(relativePath))
       .filter((relativePath) => {
         const source = readRepoSource(relativePath);
@@ -115,9 +126,9 @@ test.describe('nonce coordinator durable architecture guards', () => {
       'session/restoreCoordinator',
       'session/availableSigningLanes',
       'session/identity/laneResolution',
-    'sealedSessionStore',
-    'restoreCoordinator',
-    'availableSigningLanes',
+      'sealedSessionStore',
+      'restoreCoordinator',
+      'availableSigningLanes',
     ];
     const offenders = listSourceFiles('packages/sdk-web/src/core/signingEngine/nonce').filter(
       (relativePath) => {
@@ -130,12 +141,12 @@ test.describe('nonce coordinator durable architecture guards', () => {
   });
 
   test('nonce internals use encoded lane keys and keep raw EVM-family chain strings at boundaries', () => {
-    const rawLaneKeyOffenders = listSourceFiles('packages/sdk-web/src/core/signingEngine/nonce').filter(
-      (relativePath) => {
-        const source = readRepoSource(relativePath);
-        return source.includes(".join(':')") || source.includes('.join(":")');
-      },
-    );
+    const rawLaneKeyOffenders = listSourceFiles(
+      'packages/sdk-web/src/core/signingEngine/nonce',
+    ).filter((relativePath) => {
+      const source = readRepoSource(relativePath);
+      return source.includes(".join(':')") || source.includes('.join(":")');
+    });
     expect(rawLaneKeyOffenders).toEqual([]);
 
     const rawChainBranchOffenders = listSourceFiles('packages/sdk-web/src/core/signingEngine/nonce')
@@ -159,7 +170,9 @@ test.describe('nonce coordinator durable architecture guards', () => {
   });
 
   test('nonce lane-key helpers stay pure and leave durable parsing at boundaries', () => {
-    const laneKeys = readRepoSource('packages/sdk-web/src/core/signingEngine/nonce/nonceLaneKeys.ts');
+    const laneKeys = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/nonce/nonceLaneKeys.ts',
+    );
 
     expect(laneKeys).not.toContain('normalizeRequiredString');
     expect(laneKeys).not.toContain('normalizeBigint');
@@ -238,7 +251,9 @@ test.describe('nonce coordinator durable architecture guards', () => {
   });
 
   test('nonce operation and EVM reservation types use prepared concrete identity', () => {
-    const nonceTypes = readRepoSource('packages/sdk-web/src/core/signingEngine/nonce/nonceTypes.ts');
+    const nonceTypes = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/nonce/nonceTypes.ts',
+    );
     const nonceBackend = readRepoSource('packages/sdk-web/src/core/rpcClients/evm/nonceBackend.ts');
 
     const preparedOperationStart = nonceTypes.indexOf('export type PreparedNonceOperationContext');
@@ -274,7 +289,9 @@ test.describe('nonce coordinator durable architecture guards', () => {
   });
 
   test('startup recovery cannot spend budget or rebroadcast raw signed transactions', () => {
-    const source = readRepoSource('packages/sdk-web/src/core/signingEngine/nonce/NonceCoordinator.ts');
+    const source = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/nonce/NonceCoordinator.ts',
+    );
     const recoveryStart = source.indexOf('const recoverDurableLeases = async');
     const recoveryEnd = source.indexOf('const reserveNearNonceBatchUnlocked = async');
     expect(recoveryStart).toBeGreaterThanOrEqual(0);

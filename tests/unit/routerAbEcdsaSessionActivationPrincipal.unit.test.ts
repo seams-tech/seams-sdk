@@ -104,7 +104,9 @@ async function activationFixture() {
         async readActiveSession() {
           return authorizationSession;
         },
-        async readReusableWalletSessionStatus(input: { readonly principalId: { toString(): string } }) {
+        async readReusableWalletSessionStatus(input: {
+          readonly principalId: { toString(): string };
+        }) {
           statusInputs.push({ principalId: String(input.principalId) });
           return {
             kind: 'active' as const,
@@ -172,7 +174,9 @@ test('ECDSA Wallet Session status uses the authorization-session principal', asy
       ...fixture.ctx.service,
       authorizationSessions: {
         ...fixture.ctx.service.authorizationSessions,
-        async readReusableWalletSessionStatus(input: { readonly principalId: { toString(): string } }) {
+        async readReusableWalletSessionStatus(input: {
+          readonly principalId: { toString(): string };
+        }) {
           statusInputs.push({ principalId: String(input.principalId) });
           return {
             kind: 'active' as const,
@@ -191,9 +195,7 @@ test('ECDSA Wallet Session status uses the authorization-session principal', asy
   const response = await handleReusableWalletSessionStatus(context);
 
   expect(response?.status).toBe(200);
-  expect(statusInputs).toEqual([
-    { principalId: String(fixture.authorizationSession.principalId) },
-  ]);
+  expect(statusInputs).toEqual([{ principalId: String(fixture.authorizationSession.principalId) }]);
   expect(String(fixture.authorizationSession.principalId)).not.toBe(String(fixture.walletId));
 });
 

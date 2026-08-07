@@ -95,10 +95,7 @@ async function walletSessionFixture(
   return session;
 }
 
-async function authorize(input: {
-  thresholdExpiresAtMs: number;
-  thresholdSessionId?: string;
-}) {
+async function authorize(input: { thresholdExpiresAtMs: number; thresholdSessionId?: string }) {
   const session = await walletSessionFixture(input.thresholdExpiresAtMs);
   const options = createSigningSessionSealRoutesOptions({
     cipher: successfulCipher(),

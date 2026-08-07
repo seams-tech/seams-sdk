@@ -9,9 +9,7 @@ import { createInMemoryConsoleOrgProjectEnvService } from '../../packages/consol
 import { resolveThresholdRuntimePolicyScope } from '../../packages/sdk-server-ts/src/router/auth/commonRouterUtils';
 
 test('deriveSigningRootId composes projectId and envId without orgId', () => {
-  expect(deriveSigningRootId({ projectId: 'proj_alpha', envId: 'dev' })).toBe(
-    'proj_alpha:dev',
-  );
+  expect(deriveSigningRootId({ projectId: 'proj_alpha', envId: 'dev' })).toBe('proj_alpha:dev');
   expect(deriveSigningRootId({ projectId: ' proj_alpha ', envId: ' production ' })).toBe(
     'proj_alpha:production',
   );

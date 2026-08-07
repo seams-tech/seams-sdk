@@ -37,7 +37,11 @@ function createInMemoryRuntimePorts(): RuntimePorts {
     authenticator: {
       kind: 'authenticator',
       async run() {
-        return { ok: false, code: 'unavailable', message: 'in-memory runtime has no authenticator' };
+        return {
+          ok: false,
+          code: 'unavailable',
+          message: 'in-memory runtime has no authenticator',
+        };
       },
     },
     signerCrypto: {
@@ -169,12 +173,14 @@ test.describe('SigningRuntime construction', () => {
           }),
         },
       },
-      config: toSigningRuntimeConfig(buildConfigsFromEnv({
-        relayer: {
-          url: 'http://127.0.0.1:9090',
-        },
-        iframeWallet: { walletOrigin: 'https://wallet.example.test' },
-      })),
+      config: toSigningRuntimeConfig(
+        buildConfigsFromEnv({
+          relayer: {
+            url: 'http://127.0.0.1:9090',
+          },
+          iframeWallet: { walletOrigin: 'https://wallet.example.test' },
+        }),
+      ),
       state,
     });
 

@@ -18,10 +18,13 @@ export type WalletCustodyCeremonyRecoveryWrapPayload = {
   readonly aadHashB64u: string;
 };
 
-export type WalletCustodyCeremonyCommitPayload = {
-  readonly walletId: string;
+/**
+ * The custody records a run writes when it *establishes* custody — the wallet's
+ * first key set. Absent when the run joined custody that already existed, which
+ * writes no envelope and issues no codes.
+ */
+export type EstablishedCustodyRecordsPayload = {
   readonly envelopeId: string;
-  readonly keyManifestDigestB64u: string;
   /**
    * The envelope binding the ceremony sealed against, serialized verbatim.
    * It is carried rather than rebuilt: this is what the AAD was computed over,
@@ -38,8 +41,23 @@ export type WalletCustodyCeremonyCommitPayload = {
   readonly recoveryEntryNonceB64u: string;
   readonly recoveryEntryCiphertextB64u: string;
   readonly recoveryEntryAadHashB64u: string;
-  readonly registeredPublicKeyB64u: string;
-  readonly clientRootPublicKey33B64u: string;
+};
+
+export type WalletCustodyCeremonyCommitPayload = {
+  readonly walletId: string;
+  /** `near_ed25519_v1` or `evm_family_ecdsa_v1`: one key set per run. */
+  readonly keySet: string;
+  /**
+   * This key set's manifest digest, to be written onto that key set's own
+   * *registration state* — never to a record of its own. A free-standing
+   * manifest row could be deleted, and its absence would read as "not
+   * provisioned yet", silently narrowing the wallet.
+   */
+  readonly keyManifestDigestB64u: string;
+  /** Present only when this run established custody. */
+  readonly establishedCustody?: EstablishedCustodyRecordsPayload;
+  readonly registeredPublicKeyB64u?: string;
+  readonly clientRootPublicKey33B64u?: string;
   /** Finalized role-local ECDSA material, still sealed to its own boundary. */
-  readonly ecdsaReadyStateBlobB64u: string;
+  readonly ecdsaReadyStateBlobB64u?: string;
 };

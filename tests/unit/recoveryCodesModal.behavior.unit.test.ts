@@ -28,63 +28,65 @@ test.describe('RecoveryCodesModal behavior', () => {
   });
 
   test('loads retained recovery codes from local wallet storage', async ({ page }) => {
-    const result = await page.evaluate(async ({ recoveryCodes }) => {
-      const mod = await import(
-        '/_test-sdk/esm/react/components/AccountMenuButton/RecoveryCodesModalState.js'
-      );
-      const calls: Array<string | [string, unknown]> = [];
-      const status = {
-        status: 'ready',
-        walletId: 'alice.testnet',
-        enrollmentId: 'enrollment-1',
-        enrollmentSealKeyVersion: 'seal-v1',
-        expectedRecoveryCodeCount: 10,
-        activeRecoveryCodeCount: 10,
-        consumedRecoveryCodeCount: 0,
-        revokedRecoveryCodeCount: 0,
-        totalRecoveryCodeCount: 10,
-        issuedAtMs: 1_700_000_000_000,
-      };
-      const backup = {
-        v: 1,
-        secretKind: 'email_otp_recovery_codes_backup',
-        storageScope: 'iframe_origin_indexeddb',
-        status: 'stored',
-        walletId: 'alice.testnet',
-        enrollmentId: 'enrollment-1',
-        enrollmentSealKeyVersion: 'seal-v1',
-        recoveryCodesIssuedAtMs: 1_700_000_000_000,
-        recoveryKeys: recoveryCodes,
-        createdAtMs: 1_700_000_000_000,
-        lastDisplayedAtMs: null,
-        lastDownloadedAtMs: null,
-      };
-      const displayed = { ...backup, lastDisplayedAtMs: 1_700_000_000_100 };
-      const loaded = await mod.loadRecoveryCodesModalLoadedState({
-        walletId: 'alice.testnet',
-        recovery: {
-          getEmailOtpRecoveryCodeStatus: async (args: unknown) => {
-            calls.push(['status', args]);
+    const result = await page.evaluate(
+      async ({ recoveryCodes }) => {
+        const mod =
+          await import('/_test-sdk/esm/react/components/AccountMenuButton/RecoveryCodesModalState.js');
+        const calls: Array<string | [string, unknown]> = [];
+        const status = {
+          status: 'ready',
+          walletId: 'alice.testnet',
+          enrollmentId: 'enrollment-1',
+          enrollmentSealKeyVersion: 'seal-v1',
+          expectedRecoveryCodeCount: 10,
+          activeRecoveryCodeCount: 10,
+          consumedRecoveryCodeCount: 0,
+          revokedRecoveryCodeCount: 0,
+          totalRecoveryCodeCount: 10,
+          issuedAtMs: 1_700_000_000_000,
+        };
+        const backup = {
+          v: 1,
+          secretKind: 'email_otp_recovery_codes_backup',
+          storageScope: 'iframe_origin_indexeddb',
+          status: 'stored',
+          walletId: 'alice.testnet',
+          enrollmentId: 'enrollment-1',
+          enrollmentSealKeyVersion: 'seal-v1',
+          recoveryCodesIssuedAtMs: 1_700_000_000_000,
+          recoveryKeys: recoveryCodes,
+          createdAtMs: 1_700_000_000_000,
+          lastDisplayedAtMs: null,
+          lastDownloadedAtMs: null,
+        };
+        const displayed = { ...backup, lastDisplayedAtMs: 1_700_000_000_100 };
+        const loaded = await mod.loadRecoveryCodesModalLoadedState({
+          walletId: 'alice.testnet',
+          recovery: {
+            getEmailOtpRecoveryCodeStatus: async (args: unknown) => {
+              calls.push(['status', args]);
+              return status;
+            },
+          },
+          recoveryCodeBackupRepository: {
+            readMatching: async (args: unknown) => {
+              calls.push(['readMatching', args]);
+              return backup;
+            },
+            markDisplayed: async (args: unknown) => {
+              calls.push(['markDisplayed', args]);
+              return displayed;
+            },
+          },
+          showRecoveryCodes: async (args: unknown) => {
+            calls.push(['presenter', args]);
             return status;
           },
-        },
-        recoveryCodeBackupRepository: {
-          readMatching: async (args: unknown) => {
-            calls.push(['readMatching', args]);
-            return backup;
-          },
-          markDisplayed: async (args: unknown) => {
-            calls.push(['markDisplayed', args]);
-            return displayed;
-          },
-        },
-        showRecoveryCodes: async (args: unknown) => {
-          calls.push(['presenter', args]);
-          return status;
-        },
-      });
-      return { loaded, calls };
-    }, { recoveryCodes: RECOVERY_CODES });
+        });
+        return { loaded, calls };
+      },
+      { recoveryCodes: RECOVERY_CODES },
+    );
 
     expect(result.loaded).toMatchObject({
       kind: 'loaded',
@@ -120,9 +122,8 @@ test.describe('RecoveryCodesModal behavior', () => {
 
   test('delegates missing local code display through the iframe presenter', async ({ page }) => {
     const result = await page.evaluate(async () => {
-      const mod = await import(
-        '/_test-sdk/esm/react/components/AccountMenuButton/RecoveryCodesModalState.js'
-      );
+      const mod =
+        await import('/_test-sdk/esm/react/components/AccountMenuButton/RecoveryCodesModalState.js');
       const calls: Array<string | [string, unknown]> = [];
       const status = {
         status: 'ready',
@@ -181,11 +182,12 @@ test.describe('RecoveryCodesModal behavior', () => {
     ]);
   });
 
-  test('keeps local unavailable state when iframe has no stored backup to display', async ({ page }) => {
+  test('keeps local unavailable state when iframe has no stored backup to display', async ({
+    page,
+  }) => {
     const result = await page.evaluate(async () => {
-      const mod = await import(
-        '/_test-sdk/esm/react/components/AccountMenuButton/RecoveryCodesModalState.js'
-      );
+      const mod =
+        await import('/_test-sdk/esm/react/components/AccountMenuButton/RecoveryCodesModalState.js');
       const calls: Array<string | [string, unknown]> = [];
       const status = {
         status: 'ready',
@@ -248,7 +250,9 @@ test.describe('RecoveryCodesModal behavior', () => {
   test('wallet iframe recovery-code command never sends recovery keys to the host', () => {
     const messages = readRepoFile('packages/sdk-web/src/SeamsWeb/walletIframe/shared/messages.ts');
     const router = readRepoFile('packages/sdk-web/src/SeamsWeb/walletIframe/client/router.ts');
-    const handler = readRepoFile('packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/emailOtp.ts');
+    const handler = readRepoFile(
+      'packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/emailOtp.ts',
+    );
 
     expect(messages).toContain('PM_SHOW_EMAIL_OTP_RECOVERY_CODES');
     expect(messages).toContain('PMShowEmailOtpRecoveryCodesPayload');
@@ -291,5 +295,4 @@ test.describe('RecoveryCodesModal behavior', () => {
     expect(modal).toContain('seams.recovery.rotateEmailOtpRecoveryCodes');
     expect(modal).not.toContain('deleteRecovery');
   });
-
 });
