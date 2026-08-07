@@ -745,6 +745,12 @@ repository evidence.
       labels (`wasm/email_otp_runtime`, labels
       `seams/email-otp/ecdsa-client-share/v2` and
       `seams/email-otp/unlock-auth/v2`).
+- [x] Delete the retired Email OTP chain parent (the `seams/email-otp/root/v1`
+      intermediate, its wasm export, and its test helpers). Nothing derived it
+      after parallel derivation landed, and its "threshold root" name collided
+      with the MPC threshold protocol — the collision that caused a
+      misdiagnosis during this revision. The key-separation tests recompute it
+      locally instead.
 - [ ] Collapse the custody-secret union's two owner root branches into one
       `wallet_custody_seed_v1` branch; lane holder-share branches unchanged.
 - [ ] Add the factor-kind union (`passkey` | `email_otp`) to the custody
@@ -757,6 +763,12 @@ repository evidence.
       the domain-separation labels.
 - [ ] Wipe dev OTP wallets and obsolete persisted records with the Phase 2
       test-wallet reset.
+- [ ] Record a naming glossary in `AGENTS.md` fixing each custody term to one
+      referent, plus the suffix convention (bare `root` names a secret
+      derivation origin; `RootId`, `RootVersion`, and `RootShareEpoch` name
+      metadata about it and are never key material). Phase 1B introduces
+      `wallet_custody_seed_v1`, so the vocabulary should be pinned as it
+      lands.
 
 ### Phase 2: Seed-Root Registration
 
