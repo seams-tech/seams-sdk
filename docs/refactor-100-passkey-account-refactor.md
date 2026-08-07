@@ -897,12 +897,32 @@ repository evidence.
       present only on an establishing run, and the manifest digest is returned
       for the caller to write onto that key set's *registration state*, never
       to a record of its own.
-- [ ] Rework the circuit tests for the new shape. They were removed from the
-      build when the ceremony became one key set per run — they drove both
-      protocols in a single ceremony, which the API no longer expresses. The
-      cases worth proving: an EVM-only run commits custody with Yao never
-      running, and a NEAR run joining it produces a manifest and no custody
-      records. The `router-ab-dev` harness they used is still in the file.
+- [x] Rework the circuit tests for the new shape, and restore the ceremony's
+      own tests. The rebuild had dropped `ceremony::tests` wholesale along with
+      the paired states they were written against, so `ceremony.rs` had no
+      tests at all; the circuit tests had been detached from `lib.rs` and
+      nothing compiled them.
+
+      The circuit tests now prove what the decoupling was for. An EVM-family
+      run establishes custody — seed sealed, ten codes issued — with no Router
+      execution request in existence, so the Yao circuit has nothing it could
+      have been asked to do. A NEAR run reaches that same seed by opening the
+      envelope that run sealed, and commits its manifest and nothing else.
+
+      No test starts from a fixed seed any more: `from_seed_for_test` is gone
+      with the states it belonged to, and a joining run's seed arrives the way
+      production's does, so the seed-continuity assertions cannot pass by
+      agreeing with themselves. Checked by mutation — replacing the envelope
+      open with a fresh seed fails six of the eight circuit tests.
+
+      Two beyond the happy path: a re-derived EVM key set is checked against
+      its recorded digest through the verifying constructor, which is what
+      recovery must be able to do; and a NEAR re-run over a recorded key takes
+      the recovery seam and lands on the identical key, while one told to
+      preserve a key this seed does not produce fails rather than registering a
+      replacement.
+
+      24 tests in the crate, ~6s. The `router-ab-dev` harness is unchanged.
 - [x] Align the TypeScript layer. The seed binding now carries `kind` and
       `derivationScheme` only, the recovery set no longer names a key manifest,
       and the commit payload splits into `establishedCustody` plus the key set
