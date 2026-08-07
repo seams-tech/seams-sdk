@@ -29,6 +29,10 @@ security claim.
 - **signingRootId / signingRootVersion** — identifiers inside the EVM-family key
   slot id, serialized in D1 rows and wire ids. Renaming them breaks stored records.
 - **RootShareEpoch** — an epoch marker for durable ECDSA material.
+- **custody ceremony** — a flow that derives owner roots *and* verifies the key
+  manifest: registration and recovery re-establishment. These live in the
+  `wallet_custody_ceremony` wasm module, which links both protocol crates.
+  Adding a factor and unlocking are not ceremonies and stay in `near_signer`.
 - **threshold** — the MPC protocol, never a KDF stage. A "threshold root" once
   existed as an Email OTP KDF intermediate; the collision caused a misdiagnosed
   vulnerability report, and the value has been deleted.

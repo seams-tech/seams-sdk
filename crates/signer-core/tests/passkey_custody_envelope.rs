@@ -6,12 +6,18 @@
 //! across every binding field, ciphertext tampering, cross-credential and
 //! cross-curve key separation, and the digest checks a browser cache must pass.
 
+use signer_core::error::CoreResult;
 use signer_core::passkey_custody::{
     derive_passkey_custody_kek_v1, encode_passkey_custody_aad_v1, open_passkey_custody_secret_v1,
-    open_verified_passkey_custody_secret_v1, seal_passkey_custody_secret_v1, sha256_digest,
-    PasskeyCustodyEnvelopeBindingV1, PasskeyCustodyLaneScopeV1, PasskeyCustodySecretBindingV1,
+    open_verified_passkey_custody_secret_v1, seal_passkey_custody_secret_v1,
+    seal_wallet_custody_seed_envelope_v1, sha256_digest, PasskeyCustodyEnvelopeBindingV1,
+    PasskeyCustodyLaneScopeV1, PasskeyCustodySecretBindingV1, SealedPasskeyCustodyEnvelopeV1,
     WalletCustodyEnvelopeFactorV1, EMAIL_OTP_FACTOR_KEK_VERSION_V1, PASSKEY_CUSTODY_KEK_VERSION_V1,
     WALLET_SEED_DERIVATION_SCHEME_V1,
+};
+use signer_core::wallet_seed_derivation::{
+    compute_wallet_key_manifest_digest_v1, verify_registered_wallet_key_manifest_v1,
+    VerifiedWalletKeyManifestDigestV1, WalletKeyManifestV1,
 };
 
 const PRF_FIRST: [u8; 32] = [7u8; 32];
@@ -44,16 +50,63 @@ fn evm_lane() -> PasskeyCustodyLaneScopeV1 {
     }
 }
 
-fn wallet_seed_binding() -> PasskeyCustodySecretBindingV1 {
+/// The owner key set the seed envelope below claims. The binding is built from
+/// this manifest rather than from loose constants, so the envelope's
+/// `keyManifestDigestB64u` is the digest of the very key set it names — which
+/// is what the sealing gate checks.
+fn wallet_key_manifest() -> WalletKeyManifestV1 {
     let mut compressed = [0u8; 33];
     compressed[0] = 0x02;
+    WalletKeyManifestV1 {
+        wallet_id: "alice.testnet".into(),
+        near_ed25519_signing_key_id: "near-ed25519-key-1".into(),
+        registered_public_key: [5u8; 32],
+        evm_family_signing_key_slot_id: "wallet-key:evm-family:alice.testnet:root-1:v1".into(),
+        client_root_public_key33: compressed,
+    }
+}
+
+/// A proof obtained the only way one can be: by verifying the manifest against
+/// the digest the envelope was sealed under.
+fn verified_key_manifest() -> VerifiedWalletKeyManifestDigestV1 {
+    let manifest = wallet_key_manifest();
+    let sealed_digest = compute_wallet_key_manifest_digest_v1(&manifest).unwrap();
+    verify_registered_wallet_key_manifest_v1(&manifest, &sealed_digest).unwrap()
+}
+
+fn wallet_seed_binding() -> PasskeyCustodySecretBindingV1 {
+    let manifest = wallet_key_manifest();
     PasskeyCustodySecretBindingV1::WalletCustodySeed {
         derivation_scheme: WALLET_SEED_DERIVATION_SCHEME_V1.into(),
-        key_manifest_digest_b64u: digest_b64u(1),
-        near_ed25519_signing_key_id: "near-ed25519-key-1".into(),
-        registered_public_key_b64u: digest_b64u(5),
-        evm_family_signing_key_slot_id: "wallet-key:evm-family:alice.testnet:root-1:v1".into(),
-        client_root_public_key33_b64u: base64_url(&compressed),
+        key_manifest_digest_b64u: verified_key_manifest().digest_b64u(),
+        near_ed25519_signing_key_id: manifest.near_ed25519_signing_key_id.clone(),
+        registered_public_key_b64u: base64_url(&manifest.registered_public_key),
+        evm_family_signing_key_slot_id: manifest.evm_family_signing_key_slot_id.clone(),
+        client_root_public_key33_b64u: base64_url(&manifest.client_root_public_key33),
+    }
+}
+
+/// Seals through whichever entry point the binding's branch requires: a wallet
+/// custody seed through the manifest-gated path, a lane holder share through
+/// the general one. Tests below exercise crypto invariants that hold for both,
+/// so they call this rather than picking a path per test.
+fn seal_for_test(
+    prf_first: &[u8],
+    binding: &PasskeyCustodyEnvelopeBindingV1,
+    nonce: &[u8],
+    custody_secret: &[u8],
+) -> CoreResult<SealedPasskeyCustodyEnvelopeV1> {
+    match &binding.binding {
+        PasskeyCustodySecretBindingV1::WalletCustodySeed { .. } => {
+            seal_wallet_custody_seed_envelope_v1(
+                prf_first,
+                binding,
+                &verified_key_manifest(),
+                nonce,
+                custody_secret,
+            )
+        }
+        _ => seal_passkey_custody_secret_v1(prf_first, binding, nonce, custody_secret),
     }
 }
 
@@ -112,8 +165,7 @@ fn seals_and_opens_every_custody_branch() {
 
     for branch in branches {
         let binding = envelope(branch);
-        let sealed =
-            seal_passkey_custody_secret_v1(&PRF_FIRST, &binding, &NONCE, &CUSTODY_SECRET).unwrap();
+        let sealed = seal_for_test(&PRF_FIRST, &binding, &NONCE, &CUSTODY_SECRET).unwrap();
         let opened =
             open_passkey_custody_secret_v1(&PRF_FIRST, &binding, &NONCE, &sealed.ciphertext)
                 .unwrap();
@@ -125,8 +177,7 @@ fn seals_and_opens_every_custody_branch() {
 #[test]
 fn substituting_any_bound_field_prevents_opening() {
     let binding = envelope(wallet_seed_binding());
-    let sealed =
-        seal_passkey_custody_secret_v1(&PRF_FIRST, &binding, &NONCE, &CUSTODY_SECRET).unwrap();
+    let sealed = seal_for_test(&PRF_FIRST, &binding, &NONCE, &CUSTODY_SECRET).unwrap();
 
     let mut substitutions: Vec<PasskeyCustodyEnvelopeBindingV1> = Vec::new();
 
@@ -206,8 +257,7 @@ fn substituting_any_bound_field_prevents_opening() {
 #[test]
 fn a_different_custody_branch_cannot_open_the_same_ciphertext() {
     let ed25519 = envelope(wallet_seed_binding());
-    let sealed =
-        seal_passkey_custody_secret_v1(&PRF_FIRST, &ed25519, &NONCE, &CUSTODY_SECRET).unwrap();
+    let sealed = seal_for_test(&PRF_FIRST, &ed25519, &NONCE, &CUSTODY_SECRET).unwrap();
 
     let mut ecdsa = envelope(ecdsa_lane_binding());
     ecdsa.envelope_id = ed25519.envelope_id.clone();
@@ -224,8 +274,7 @@ fn a_different_custody_branch_cannot_open_the_same_ciphertext() {
 #[test]
 fn a_different_prf_result_cannot_open_the_envelope() {
     let binding = envelope(wallet_seed_binding());
-    let sealed =
-        seal_passkey_custody_secret_v1(&PRF_FIRST, &binding, &NONCE, &CUSTODY_SECRET).unwrap();
+    let sealed = seal_for_test(&PRF_FIRST, &binding, &NONCE, &CUSTODY_SECRET).unwrap();
     assert!(
         open_passkey_custody_secret_v1(&OTHER_PRF_FIRST, &binding, &NONCE, &sealed.ciphertext)
             .is_err()
@@ -235,8 +284,7 @@ fn a_different_prf_result_cannot_open_the_envelope() {
 #[test]
 fn tampered_ciphertext_and_nonce_fail_to_open() {
     let binding = envelope(wallet_seed_binding());
-    let sealed =
-        seal_passkey_custody_secret_v1(&PRF_FIRST, &binding, &NONCE, &CUSTODY_SECRET).unwrap();
+    let sealed = seal_for_test(&PRF_FIRST, &binding, &NONCE, &CUSTODY_SECRET).unwrap();
 
     for index in [0usize, 5, sealed.ciphertext.len() - 1] {
         let mut tampered = sealed.ciphertext.clone();
@@ -261,8 +309,7 @@ fn tampered_ciphertext_and_nonce_fail_to_open() {
 #[test]
 fn digest_verification_rejects_a_drifted_cache_row() {
     let binding = envelope(wallet_seed_binding());
-    let sealed =
-        seal_passkey_custody_secret_v1(&PRF_FIRST, &binding, &NONCE, &CUSTODY_SECRET).unwrap();
+    let sealed = seal_for_test(&PRF_FIRST, &binding, &NONCE, &CUSTODY_SECRET).unwrap();
 
     let opened = open_verified_passkey_custody_secret_v1(
         &PRF_FIRST,
@@ -376,11 +423,9 @@ fn malformed_binding_fields_are_rejected_before_any_crypto() {
     assert!(encode_passkey_custody_aad_v1(&crossed_kek).is_err());
 
     let binding = envelope(wallet_seed_binding());
-    assert!(seal_passkey_custody_secret_v1(&[0u8; 16], &binding, &NONCE, &CUSTODY_SECRET).is_err());
-    assert!(
-        seal_passkey_custody_secret_v1(&PRF_FIRST, &binding, &[0u8; 24], &CUSTODY_SECRET).is_err()
-    );
-    assert!(seal_passkey_custody_secret_v1(&PRF_FIRST, &binding, &NONCE, &[]).is_err());
+    assert!(seal_for_test(&[0u8; 16], &binding, &NONCE, &CUSTODY_SECRET).is_err());
+    assert!(seal_for_test(&PRF_FIRST, &binding, &[0u8; 24], &CUSTODY_SECRET).is_err());
+    assert!(seal_for_test(&PRF_FIRST, &binding, &NONCE, &[]).is_err());
 }
 
 #[test]
@@ -441,9 +486,59 @@ fn interchangeable_factors_derive_different_keks_for_one_seed() {
     let otp_kek = derive_passkey_custody_kek_v1(&PRF_FIRST, &email_otp).unwrap();
     assert_ne!(passkey_kek.as_slice(), otp_kek.as_slice());
 
-    let sealed =
-        seal_passkey_custody_secret_v1(&PRF_FIRST, &passkey, &NONCE, &CUSTODY_SECRET).unwrap();
+    let sealed = seal_for_test(&PRF_FIRST, &passkey, &NONCE, &CUSTODY_SECRET).unwrap();
     assert!(
         open_passkey_custody_secret_v1(&PRF_FIRST, &email_otp, &NONCE, &sealed.ciphertext).is_err()
     );
+}
+
+#[test]
+fn a_seed_envelope_cannot_be_sealed_without_a_verified_manifest() {
+    let seed = envelope(wallet_seed_binding());
+
+    // The general seal is the lane path. A seed reaching it would write an
+    // envelope claiming a key manifest nothing checked.
+    assert!(seal_passkey_custody_secret_v1(&PRF_FIRST, &seed, &NONCE, &CUSTODY_SECRET).is_err());
+
+    // The gated path is not a rubber stamp: the envelope's recorded digest must
+    // be the digest of the manifest that was actually verified, so a caller
+    // holding a proof for one key set cannot seal an envelope naming another.
+    let mut drifted = seed.clone();
+    drifted.binding = PasskeyCustodySecretBindingV1::WalletCustodySeed {
+        derivation_scheme: WALLET_SEED_DERIVATION_SCHEME_V1.into(),
+        key_manifest_digest_b64u: digest_b64u(1),
+        near_ed25519_signing_key_id: "near-ed25519-key-1".into(),
+        registered_public_key_b64u: digest_b64u(5),
+        evm_family_signing_key_slot_id: "wallet-key:evm-family:alice.testnet:root-1:v1".into(),
+        client_root_public_key33_b64u: base64_url(&wallet_key_manifest().client_root_public_key33),
+    };
+    assert!(seal_wallet_custody_seed_envelope_v1(
+        &PRF_FIRST,
+        &drifted,
+        &verified_key_manifest(),
+        &NONCE,
+        &CUSTODY_SECRET
+    )
+    .is_err());
+
+    // And the gate is seed-only: a lane share carries no manifest to verify.
+    let lane = envelope(ecdsa_lane_binding());
+    assert!(seal_wallet_custody_seed_envelope_v1(
+        &PRF_FIRST,
+        &lane,
+        &verified_key_manifest(),
+        &NONCE,
+        &CUSTODY_SECRET
+    )
+    .is_err());
+
+    // The gated path still seals the envelope it was built for.
+    assert!(seal_wallet_custody_seed_envelope_v1(
+        &PRF_FIRST,
+        &seed,
+        &verified_key_manifest(),
+        &NONCE,
+        &CUSTODY_SECRET
+    )
+    .is_ok());
 }

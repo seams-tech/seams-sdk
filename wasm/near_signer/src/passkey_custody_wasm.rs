@@ -9,18 +9,19 @@
 //! Callers pass parsed envelope records as JSON. The AAD is recomputed inside
 //! `signer_core` from those records, so a caller cannot supply an arbitrary AAD
 //! blob and cannot bind ciphertext to facts the record does not carry.
+//!
+//! Scope: this module serves unlock — opening an existing envelope into a
+//! handle on the recurring signing path. Custody *ceremonies* (registration and
+//! recovery re-establishment) need the owner roots derived and the key manifest
+//! verified, which requires protocol crates `near_signer` does not link, so
+//! they live in the wallet custody ceremony module instead.
 
 use base64ct::{Base64UrlUnpadded, Encoding};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use signer_core::passkey_custody::open_passkey_custody_secret_v1;
 use signer_core::passkey_custody::{
     open_verified_passkey_custody_secret_v1, seal_passkey_custody_secret_v1,
-    PasskeyCustodyEnvelopeBindingV1, PasskeyCustodySecretKind, PASSKEY_CUSTODY_KEY_LEN,
-};
-use signer_core::wallet_recovery_custody::{
-    open_wallet_recovery_entry_v1, open_wallet_recovery_manifest_kek_v1,
-    seal_wallet_recovery_entry_v1, seal_wallet_recovery_manifest_kek_v1, WalletRecoveryCodeScopeV1,
-    WalletRecoveryEntryScopeV1,
+    PasskeyCustodyEnvelopeBindingV1, PasskeyCustodySecretKind,
 };
 use wasm_bindgen::prelude::*;
 use zeroize::Zeroizing;
@@ -114,7 +115,11 @@ pub fn passkey_custody_generate_secret_v1(
     Ok(WasmPasskeyCustodyHandleV1::new(secret, kind))
 }
 
-/// Seals a held custody secret under the passkey KEK derived from `prf_first`.
+/// Seals a held lane holder share under the KEK derived from `prf_first`.
+///
+/// A wallet custody seed is rejected: its envelope records the key manifest the
+/// seed must reproduce, and only a ceremony that derived the owner roots can
+/// have verified that. Seed envelopes are sealed in the ceremony module.
 #[wasm_bindgen]
 pub fn passkey_custody_seal_v1(
     passkey_prf_first: &[u8],
@@ -192,162 +197,13 @@ pub fn passkey_custody_open_verified_v1(
     ))
 }
 
-/// The manifest KEK for one wallet recovery envelope set, held in Rust memory.
-/// As with custody handles, JavaScript never sees the key bytes.
-#[wasm_bindgen]
-pub struct WasmWalletRecoveryManifestKekV1 {
-    manifest_kek: Zeroizing<[u8; PASSKEY_CUSTODY_KEY_LEN]>,
-}
-
-#[wasm_bindgen]
-impl WasmWalletRecoveryManifestKekV1 {
-    /// Zeroizes the manifest KEK immediately.
-    pub fn destroy(&mut self) {
-        self.manifest_kek = Zeroizing::new([0u8; PASSKEY_CUSTODY_KEY_LEN]);
-    }
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct WalletRecoveryCodeScopeWireV1 {
-    wallet_id: String,
-    recovery_key_id: String,
-    key_manifest_digest_b64u: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct WalletRecoveryEntryScopeWireV1 {
-    wallet_id: String,
-    key_manifest_digest_b64u: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SealedRecoveryWrapWireV1 {
-    ciphertext_b64u: String,
-    aad_hash_b64u: String,
-}
-
-fn parse_code_scope(scope_json: &str) -> Result<WalletRecoveryCodeScopeV1, JsValue> {
-    let wire =
-        serde_json::from_str::<WalletRecoveryCodeScopeWireV1>(scope_json).map_err(js_error)?;
-    Ok(WalletRecoveryCodeScopeV1 {
-        wallet_id: wire.wallet_id,
-        recovery_key_id: wire.recovery_key_id,
-        key_manifest_digest: decode_digest(
-            &wire.key_manifest_digest_b64u,
-            "keyManifestDigestB64u",
-        )?,
-    })
-}
-
-fn parse_entry_scope(scope_json: &str) -> Result<WalletRecoveryEntryScopeV1, JsValue> {
-    let wire =
-        serde_json::from_str::<WalletRecoveryEntryScopeWireV1>(scope_json).map_err(js_error)?;
-    Ok(WalletRecoveryEntryScopeV1 {
-        wallet_id: wire.wallet_id,
-        key_manifest_digest: decode_digest(
-            &wire.key_manifest_digest_b64u,
-            "keyManifestDigestB64u",
-        )?,
-    })
-}
-
-/// Generates the random manifest KEK a recovery envelope set is built around.
-#[wasm_bindgen]
-pub fn wallet_recovery_generate_manifest_kek_v1() -> Result<WasmWalletRecoveryManifestKekV1, JsValue>
-{
-    let mut manifest_kek = Zeroizing::new([0u8; PASSKEY_CUSTODY_KEY_LEN]);
-    getrandom::getrandom(&mut manifest_kek[..])
-        .map_err(|_| js_error("manifest KEK randomness is unavailable"))?;
-    Ok(WasmWalletRecoveryManifestKekV1 { manifest_kek })
-}
-
-/// Wraps the manifest KEK under one recovery code.
-#[wasm_bindgen]
-pub fn wallet_recovery_seal_manifest_kek_v1(
-    recovery_code_bytes: &[u8],
-    code_scope_json: &str,
-    nonce12: &[u8],
-    manifest_kek: &WasmWalletRecoveryManifestKekV1,
-) -> Result<JsValue, JsValue> {
-    let scope = parse_code_scope(code_scope_json)?;
-    let code_bytes = Zeroizing::new(recovery_code_bytes.to_vec());
-    let sealed = seal_wallet_recovery_manifest_kek_v1(
-        &code_bytes,
-        &scope,
-        nonce12,
-        &manifest_kek.manifest_kek[..],
-    )
-    .map_err(js_error)?;
-    serde_wasm_bindgen::to_value(&SealedRecoveryWrapWireV1 {
-        ciphertext_b64u: sealed.ciphertext_b64u(),
-        aad_hash_b64u: sealed.aad_hash_b64u(),
-    })
-    .map_err(js_error)
-}
-
-/// Opens the manifest KEK with one recovery code.
-#[wasm_bindgen]
-pub fn wallet_recovery_open_manifest_kek_v1(
-    recovery_code_bytes: &[u8],
-    code_scope_json: &str,
-    nonce12: &[u8],
-    wrapped_manifest_kek_b64u: &str,
-) -> Result<WasmWalletRecoveryManifestKekV1, JsValue> {
-    let scope = parse_code_scope(code_scope_json)?;
-    let ciphertext = decode_b64u(wrapped_manifest_kek_b64u, "wrappedManifestKekB64u")?;
-    let code_bytes = Zeroizing::new(recovery_code_bytes.to_vec());
-    let manifest_kek =
-        open_wallet_recovery_manifest_kek_v1(&code_bytes, &scope, nonce12, &ciphertext)
-            .map_err(js_error)?;
-    Ok(WasmWalletRecoveryManifestKekV1 { manifest_kek })
-}
-
-/// Wraps one custody secret under the manifest KEK for recovery.
-#[wasm_bindgen]
-pub fn wallet_recovery_seal_entry_v1(
-    manifest_kek: &WasmWalletRecoveryManifestKekV1,
-    entry_scope_json: &str,
-    nonce12: &[u8],
-    handle: &WasmPasskeyCustodyHandleV1,
-) -> Result<JsValue, JsValue> {
-    let scope = parse_entry_scope(entry_scope_json)?;
-    if handle.kind != PasskeyCustodySecretKind::WalletCustodySeed {
-        return Err(js_error(
-            "a recovery entry seals the wallet custody seed only",
-        ));
-    }
-    let sealed = seal_wallet_recovery_entry_v1(
-        &manifest_kek.manifest_kek[..],
-        &scope,
-        nonce12,
-        &handle.secret[..],
-    )
-    .map_err(js_error)?;
-    serde_wasm_bindgen::to_value(&SealedRecoveryWrapWireV1 {
-        ciphertext_b64u: sealed.ciphertext_b64u(),
-        aad_hash_b64u: sealed.aad_hash_b64u(),
-    })
-    .map_err(js_error)
-}
-
-/// Opens one recovery entry into a custody handle.
-#[wasm_bindgen]
-pub fn wallet_recovery_open_entry_v1(
-    manifest_kek: &WasmWalletRecoveryManifestKekV1,
-    entry_scope_json: &str,
-    nonce12: &[u8],
-    wrapped_custody_secret_b64u: &str,
-) -> Result<WasmPasskeyCustodyHandleV1, JsValue> {
-    let scope = parse_entry_scope(entry_scope_json)?;
-    let ciphertext = decode_b64u(wrapped_custody_secret_b64u, "wrappedCustodySecretB64u")?;
-    let opened =
-        open_wallet_recovery_entry_v1(&manifest_kek.manifest_kek[..], &scope, nonce12, &ciphertext)
-            .map_err(js_error)?;
-    Ok(WasmPasskeyCustodyHandleV1::new(
-        opened,
-        PasskeyCustodySecretKind::WalletCustodySeed,
-    ))
-}
+// The wallet recovery envelope set is deliberately absent from this module.
+//
+// Both of its flows are custody ceremonies: issuing a set requires a verified
+// key manifest, and opening one is the first step of recovery re-establishment,
+// which must verify the manifest before the recovered seed becomes a
+// capability. `near_signer` links no protocol crate, so it cannot derive the
+// owner roots a manifest check needs — a recovery open exported from here would
+// be an unverified path to the seed. Those exports live in the wallet custody
+// ceremony module, which links both protocols and completes the whole flow in
+// one instance.

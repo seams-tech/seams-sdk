@@ -15,6 +15,13 @@
 //!
 //! Per-entry AAD survives the manifest KEK because each entry KEK is derived
 //! with its own wallet key, lane, epoch, and custody-secret kind.
+//!
+//! Sealing takes a [`VerifiedWalletKeyManifestDigestV1`] rather than a digest,
+//! and builds its own scope from it: a set of ten codes may only be issued for
+//! a key manifest the ceremony proved the seed reproduces. Opening takes a
+//! stored scope directly, because recovery must open the seed *before* it can
+//! derive anything to verify against. The gate there is on promoting the
+//! recovered seed to a capability, not on the decrypt itself.
 
 use base64ct::{Base64UrlUnpadded, Encoding};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
@@ -28,6 +35,7 @@ use crate::passkey_custody::{
     sha256_digest, PasskeyCustodySecretKind, PASSKEY_CUSTODY_KEY_LEN, PASSKEY_CUSTODY_NONCE_LEN,
     PASSKEY_CUSTODY_TAG_LEN, PASSKEY_CUSTODY_WRAP_ALG_V1,
 };
+use crate::wallet_seed_derivation::VerifiedWalletKeyManifestDigestV1;
 
 pub const WALLET_RECOVERY_ENVELOPE_SET_VERSION_V1: &str = "wallet_recovery_envelope_set_v1";
 pub const WALLET_RECOVERY_CODE_COUNT: usize = 10;
@@ -236,9 +244,16 @@ fn open(key: &[u8], nonce: &[u8], aad: &[u8], ciphertext: &[u8]) -> CoreResult<Z
 }
 
 /// Wraps the manifest KEK under one recovery code.
+///
+/// Takes the verified manifest rather than a scope, and builds the scope from
+/// it. Issuing a recovery set is only meaningful for a key manifest this
+/// ceremony reproduced: a wrap bound to an unverified digest would hand out ten
+/// codes for a key set the seed may not control.
 pub fn seal_wallet_recovery_manifest_kek_v1(
     recovery_code_bytes: &[u8],
-    scope: &WalletRecoveryCodeScopeV1,
+    wallet_id: &str,
+    recovery_key_id: &str,
+    verified_key_manifest: &VerifiedWalletKeyManifestDigestV1,
     nonce: &[u8],
     manifest_kek: &[u8],
 ) -> CoreResult<SealedRecoveryWrapV1> {
@@ -247,6 +262,11 @@ pub fn seal_wallet_recovery_manifest_kek_v1(
             "wallet recovery manifest KEK must be {PASSKEY_CUSTODY_KEY_LEN} bytes"
         )));
     }
+    let scope = &WalletRecoveryCodeScopeV1 {
+        wallet_id: wallet_id.to_string(),
+        recovery_key_id: recovery_key_id.to_string(),
+        key_manifest_digest: *verified_key_manifest.digest(),
+    };
     let aad = encode_recovery_manifest_aad_v1(scope)?;
     let code_kek = derive_wallet_recovery_code_kek_v1(recovery_code_bytes, scope)?;
     let ciphertext = seal(&code_kek[..], nonce, &aad, manifest_kek)?;
@@ -275,10 +295,15 @@ pub fn open_wallet_recovery_manifest_kek_v1(
     Ok(Zeroizing::new(manifest_kek))
 }
 
-/// Wraps one custody secret under the manifest KEK.
+/// Wraps the wallet custody seed under the manifest KEK.
+///
+/// Like the code wrap above, the scope is built from the verified manifest, so
+/// the entry a recovery code will later open is bound to the key set this
+/// ceremony proved the seed reproduces.
 pub fn seal_wallet_recovery_entry_v1(
     manifest_kek: &[u8],
-    scope: &WalletRecoveryEntryScopeV1,
+    wallet_id: &str,
+    verified_key_manifest: &VerifiedWalletKeyManifestDigestV1,
     nonce: &[u8],
     custody_secret: &[u8],
 ) -> CoreResult<SealedRecoveryWrapV1> {
@@ -287,6 +312,10 @@ pub fn seal_wallet_recovery_entry_v1(
             "custody secret length is invalid",
         ));
     }
+    let scope = &WalletRecoveryEntryScopeV1 {
+        wallet_id: wallet_id.to_string(),
+        key_manifest_digest: *verified_key_manifest.digest(),
+    };
     let aad = encode_recovery_entry_aad_v1(scope)?;
     let entry_kek = derive_wallet_recovery_entry_kek_v1(manifest_kek, scope)?;
     let ciphertext = seal(&entry_kek[..], nonce, &aad, custody_secret)?;
