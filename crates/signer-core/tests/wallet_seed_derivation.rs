@@ -7,10 +7,11 @@
 //! closed so an opened seed cannot publish a capability it does not reproduce.
 
 use signer_core::wallet_seed_derivation::{
-    compute_wallet_key_manifest_digest_v1, derive_ecdsa_client_root_share_from_seed_v1,
+    compute_wallet_key_set_manifest_digest_v1, derive_ecdsa_client_root_share_from_seed_v1,
     derive_ed25519_yao_client_root_from_seed_v1, derive_wallet_seed_owner_roots_v1,
-    establish_wallet_key_manifest_v1, verify_registered_wallet_key_manifest_v1,
-    verify_wallet_key_manifest_v1, wallet_key_manifest_digest_b64u, WalletKeyManifestV1,
+    establish_wallet_key_set_manifest_v1, verify_registered_wallet_key_set_manifest_v1,
+    verify_wallet_key_set_manifest_v1, wallet_key_manifest_digest_b64u, WalletKeySetKindV1,
+    WalletKeySetManifestV1,
 };
 
 const SEED: [u8; 32] = [7u8; 32];
@@ -31,13 +32,19 @@ fn ecdsa_share() -> Vec<u8> {
         .to_vec()
 }
 
-fn manifest() -> WalletKeyManifestV1 {
-    let mut compressed = [0u8; 33];
-    compressed[0] = 0x02;
-    WalletKeyManifestV1 {
+fn manifest() -> WalletKeySetManifestV1 {
+    WalletKeySetManifestV1::NearEd25519 {
         wallet_id: WALLET_ID.into(),
         near_ed25519_signing_key_id: "near-ed25519-key-1".into(),
         registered_public_key: [9u8; 32],
+    }
+}
+
+fn evm_manifest() -> WalletKeySetManifestV1 {
+    let mut compressed = [0u8; 33];
+    compressed[0] = 0x02;
+    WalletKeySetManifestV1::EvmFamilyEcdsa {
+        wallet_id: WALLET_ID.into(),
         evm_family_signing_key_slot_id: SLOT_ID.into(),
         client_root_public_key33: compressed,
     }
@@ -127,66 +134,74 @@ fn malformed_derivation_inputs_are_rejected() {
 
 #[test]
 fn the_manifest_check_fails_closed_on_every_field() {
-    let expected = compute_wallet_key_manifest_digest_v1(&manifest()).unwrap();
-    assert!(verify_wallet_key_manifest_v1(&manifest(), &expected).is_ok());
+    let expected = compute_wallet_key_set_manifest_digest_v1(&manifest()).unwrap();
+    assert!(verify_wallet_key_set_manifest_v1(&manifest(), &expected).is_ok());
 
-    let mut wrong_wallet = manifest();
-    wrong_wallet.wallet_id = "mallory.testnet".into();
-
-    let mut wrong_signing_key = manifest();
-    wrong_signing_key.near_ed25519_signing_key_id = "near-ed25519-key-2".into();
-
-    let mut wrong_public_key = manifest();
-    wrong_public_key.registered_public_key = [1u8; 32];
-
-    let mut wrong_slot = manifest();
-    wrong_slot.evm_family_signing_key_slot_id =
-        "wallet-key:evm-family:alice.testnet:root-2:v1".into();
-
-    let mut wrong_client_root = manifest();
-    wrong_client_root.client_root_public_key33[1] ^= 0x01;
-
-    for candidate in [
-        wrong_wallet,
-        wrong_signing_key,
-        wrong_public_key,
-        wrong_slot,
-        wrong_client_root,
-    ] {
+    let candidates = [
+        WalletKeySetManifestV1::NearEd25519 {
+            wallet_id: "mallory.testnet".into(),
+            near_ed25519_signing_key_id: "near-ed25519-key-1".into(),
+            registered_public_key: [9u8; 32],
+        },
+        WalletKeySetManifestV1::NearEd25519 {
+            wallet_id: WALLET_ID.into(),
+            near_ed25519_signing_key_id: "near-ed25519-key-2".into(),
+            registered_public_key: [9u8; 32],
+        },
+        WalletKeySetManifestV1::NearEd25519 {
+            wallet_id: WALLET_ID.into(),
+            near_ed25519_signing_key_id: "near-ed25519-key-1".into(),
+            registered_public_key: [1u8; 32],
+        },
+        // The other key set never satisfies this one's digest: the two encode
+        // under different contexts.
+        evm_manifest(),
+    ];
+    for candidate in candidates {
         assert!(
-            verify_wallet_key_manifest_v1(&candidate, &expected).is_err(),
+            verify_wallet_key_set_manifest_v1(&candidate, &expected).is_err(),
             "a manifest differing in any bound field must not verify"
         );
     }
 
     // A truncated or empty expectation must not pass either.
-    assert!(verify_wallet_key_manifest_v1(&manifest(), &expected[..31]).is_err());
-    assert!(verify_wallet_key_manifest_v1(&manifest(), &[]).is_err());
+    assert!(verify_wallet_key_set_manifest_v1(&manifest(), &expected[..31]).is_err());
+    assert!(verify_wallet_key_set_manifest_v1(&manifest(), &[]).is_err());
+
+    // And the EVM key set verifies against its own digest, independently.
+    let evm_expected = compute_wallet_key_set_manifest_digest_v1(&evm_manifest()).unwrap();
+    assert!(verify_wallet_key_set_manifest_v1(&evm_manifest(), &evm_expected).is_ok());
+    assert_ne!(expected, evm_expected);
 }
 
 #[test]
 fn manifest_fields_cannot_be_shifted_across_boundaries() {
     // Length-delimited labeled fields: moving characters between adjacent
     // fields must not produce an equal digest.
-    let mut left = manifest();
-    left.wallet_id = "alice".into();
-    left.near_ed25519_signing_key_id = "key-1".into();
-
-    let mut right = manifest();
-    right.wallet_id = "alicekey".into();
-    right.near_ed25519_signing_key_id = "-1".into();
-
+    let left = WalletKeySetManifestV1::NearEd25519 {
+        wallet_id: "alice".into(),
+        near_ed25519_signing_key_id: "key-1".into(),
+        registered_public_key: [9u8; 32],
+    };
+    let right = WalletKeySetManifestV1::NearEd25519 {
+        wallet_id: "alicekey".into(),
+        near_ed25519_signing_key_id: "-1".into(),
+        registered_public_key: [9u8; 32],
+    };
     assert_ne!(
-        compute_wallet_key_manifest_digest_v1(&left).unwrap(),
-        compute_wallet_key_manifest_digest_v1(&right).unwrap()
+        compute_wallet_key_set_manifest_digest_v1(&left).unwrap(),
+        compute_wallet_key_set_manifest_digest_v1(&right).unwrap()
     );
 }
 
 #[test]
 fn a_manifest_with_a_non_compressed_client_root_is_rejected() {
-    let mut uncompressed = manifest();
-    uncompressed.client_root_public_key33[0] = 0x04;
-    assert!(compute_wallet_key_manifest_digest_v1(&uncompressed).is_err());
+    let uncompressed = WalletKeySetManifestV1::EvmFamilyEcdsa {
+        wallet_id: WALLET_ID.into(),
+        evm_family_signing_key_slot_id: SLOT_ID.into(),
+        client_root_public_key33: [0x04; 33],
+    };
+    assert!(compute_wallet_key_set_manifest_digest_v1(&uncompressed).is_err());
 }
 
 #[cfg(feature = "ecdsa-role-local-client")]
@@ -262,38 +277,50 @@ fn paired_derivation_rejects_a_shared_binding_digest() {
 
 #[test]
 fn the_registration_gate_returns_a_proof_only_when_the_manifest_matches() {
-    let expected = compute_wallet_key_manifest_digest_v1(&manifest()).unwrap();
-    let verified = verify_registered_wallet_key_manifest_v1(&manifest(), &expected).unwrap();
+    let expected = compute_wallet_key_set_manifest_digest_v1(&manifest()).unwrap();
+    let verified = verify_registered_wallet_key_set_manifest_v1(&manifest(), &expected).unwrap();
     assert_eq!(verified.digest(), &expected);
+    assert_eq!(verified.key_set(), WalletKeySetKindV1::NearEd25519);
     assert_eq!(
         verified.digest_b64u(),
         wallet_key_manifest_digest_b64u(&expected)
     );
 
-    let mut drifted = manifest();
-    drifted.registered_public_key = [1u8; 32];
-    // No proof is produced for a manifest the seed does not reproduce, so a
-    // caller cannot reach a sealing path by ignoring the error. The proof type
-    // has no other constructor: `VerifiedWalletKeyManifestDigestV1 { .. }` and
-    // any `From<[u8; 32]>` are unrepresentable outside this module, which is
-    // what stops a caller from recomputing the digest and passing that instead.
-    assert!(verify_registered_wallet_key_manifest_v1(&drifted, &expected).is_err());
+    // No proof for a key set the seed does not reproduce, so a caller cannot
+    // reach a record writer by ignoring the error.
+    let drifted = WalletKeySetManifestV1::NearEd25519 {
+        wallet_id: WALLET_ID.into(),
+        near_ed25519_signing_key_id: "near-ed25519-key-1".into(),
+        registered_public_key: [1u8; 32],
+    };
+    assert!(verify_registered_wallet_key_set_manifest_v1(&drifted, &expected).is_err());
 }
 
 #[test]
 fn establishing_and_verifying_are_separate_paths_to_the_same_proof() {
-    // Registration mints the digest; there is no prior envelope to reproduce.
-    let established = establish_wallet_key_manifest_v1(&manifest()).unwrap();
-    let expected = compute_wallet_key_manifest_digest_v1(&manifest()).unwrap();
+    // Provisioning mints the digest; there is no prior record to reproduce.
+    let established = establish_wallet_key_set_manifest_v1(&evm_manifest()).unwrap();
+    let expected = compute_wallet_key_set_manifest_digest_v1(&evm_manifest()).unwrap();
     assert_eq!(established.digest(), &expected);
+    assert_eq!(established.key_set(), WalletKeySetKindV1::EvmFamilyEcdsa);
 
     // Recovery must reproduce an existing one, so it compares and can fail.
-    let mut drifted = manifest();
-    drifted.evm_family_signing_key_slot_id = "wallet-key:evm-family:alice.testnet:root-2:v1".into();
-    assert!(verify_registered_wallet_key_manifest_v1(&drifted, &expected).is_err());
-    // The establishing constructor still refuses a malformed manifest: it mints
-    // a digest, it does not skip validation.
-    let mut uncompressed = manifest();
-    uncompressed.client_root_public_key33[0] = 0x04;
-    assert!(establish_wallet_key_manifest_v1(&uncompressed).is_err());
+    let drifted = WalletKeySetManifestV1::EvmFamilyEcdsa {
+        wallet_id: WALLET_ID.into(),
+        evm_family_signing_key_slot_id: "wallet-key:evm-family:alice.testnet:root-2:v1".into(),
+        client_root_public_key33: {
+            let mut compressed = [0u8; 33];
+            compressed[0] = 0x02;
+            compressed
+        },
+    };
+    assert!(verify_registered_wallet_key_set_manifest_v1(&drifted, &expected).is_err());
+
+    // The establishing constructor still refuses a malformed manifest.
+    let uncompressed = WalletKeySetManifestV1::EvmFamilyEcdsa {
+        wallet_id: WALLET_ID.into(),
+        evm_family_signing_key_slot_id: SLOT_ID.into(),
+        client_root_public_key33: [0x04; 33],
+    };
+    assert!(establish_wallet_key_set_manifest_v1(&uncompressed).is_err());
 }
