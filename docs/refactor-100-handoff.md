@@ -91,21 +91,27 @@ is the only constructor for that origin and it requires a successful open.
    activate and never awaited. With key sets decoupled this is no longer a
    conflict; EVM commits its custody immediately and NEAR records its manifest
    whenever its Yao work settles.
-2. **Write the race test before the implementation it covers**: concurrent EVM
-   and NEAR ceremonies must end with one seed envelope, one recovery set, two
-   manifests. The commit store needs a third outcome — custody exists, so add
-   this key set only — distinct from today's `already_exists`.
 
-   `circuit_tests::both_key_sets_derive_from_the_one_wallet_custody_seed` is the
-   sequential half of this and the place to start: it already establishes
-   custody and joins it twice. What it does not cover is two runs racing for the
-   *establish* slot, which is the store's problem rather than the ceremony's.
-3. **Shrink `wasm/ecdsa_registration_client`** once registration leaves it.
+   Read the corrected splice entry in the plan first. The EVM half moves
+   registration to the role-local bootstrap route with a seed-derived share —
+   the route Email OTP already uses — and the binding digest is available
+   before any Router leg (the local create step computes it from the setup
+   facts). The digest requirement itself was questioned and stays; the decision
+   and its reasons are pinned in the plan (2026-08-07).
+
+   The store side of the establish race is already in place and tested: the
+   commit store distinguishes a lost race (`custody_already_established` — a
+   different ceremony won; this run's key set is still unrecorded) from a
+   replayed commit (`already_exists` — this commit already applied). What the
+   splice adds is the client reaction: on the first, discard the run's seed and
+   re-enter as a join — the driver's `custody` union expresses this — and on
+   the second, stop.
+2. **Shrink `wasm/ecdsa_registration_client`** once registration leaves it.
    It is not registration-only: `open_ecdsa_role_local_signing_share_v1` runs at
    rehydration and two workers load it. Rename around role-local material
    rehydration, or fold the remainder into its natural owner — do not leave a
    compatibility shell under a misleading name.
-4. **Delete the PRF-derived signing-root paths** and wipe dev OTP wallets. Last,
+3. **Delete the PRF-derived signing-root paths** and wipe dev OTP wallets. Last,
    so registration is never without a working path.
 
 ## Working notes for whoever picks this up
