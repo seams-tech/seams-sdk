@@ -5,7 +5,8 @@ const IMPORT_PATHS = {
   nearBuilder: '/_test-sdk/esm/core/signingEngine/chains/near/display.js',
   evmBuilder: '/_test-sdk/esm/core/signingEngine/chains/evm/display/evmTx.js',
   tempoBuilder: '/_test-sdk/esm/core/signingEngine/chains/tempo/display.js',
-  txTreeUtils: '/_test-sdk/esm/core/signingEngine/uiConfirm/ui/lit-components/TxTree/tx-tree-utils.js',
+  txTreeUtils:
+    '/_test-sdk/esm/core/signingEngine/uiConfirm/ui/lit-components/TxTree/tx-tree-utils.js',
 } as const;
 
 const ERC20_ABI = parseAbi(['function transfer(address to, uint256 amount)']);
@@ -100,12 +101,12 @@ test.describe('touchConfirm display model fixtures', () => {
     const callChild = model.operations[0].children[0];
     expect(callChild.label).toContain('Calling transfer()');
     const fields = Array.isArray(callChild.fields) ? callChild.fields : [];
-    expect(fields.some((field: { label?: string; value?: string }) => field.label === 'Function')).toBe(
-      false,
-    );
-    expect(fields.some((field: { label?: string; value?: string }) => field.label === 'Selector')).toBe(
-      false,
-    );
+    expect(
+      fields.some((field: { label?: string; value?: string }) => field.label === 'Function'),
+    ).toBe(false);
+    expect(
+      fields.some((field: { label?: string; value?: string }) => field.label === 'Selector'),
+    ).toBe(false);
   });
 
   test('keeps direct EIP-1559 ABI decode lazy with operation hints', async ({ page }) => {
@@ -198,12 +199,12 @@ test.describe('touchConfirm display model fixtures', () => {
     const fields = Array.isArray(model.operations[0].children?.[0]?.fields)
       ? model.operations[0].children[0].fields
       : [];
-    expect(fields.some((field: { label?: string; value?: string }) => field.label === 'Function')).toBe(
-      false,
-    );
-    expect(fields.some((field: { label?: string; value?: string }) => field.label === 'Selector')).toBe(
-      false,
-    );
+    expect(
+      fields.some((field: { label?: string; value?: string }) => field.label === 'Function'),
+    ).toBe(false);
+    expect(
+      fields.some((field: { label?: string; value?: string }) => field.label === 'Selector'),
+    ).toBe(false);
   });
 
   test('recognizes Tempo fee-manager setUserToken calldata', async ({ page }) => {

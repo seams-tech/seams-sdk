@@ -110,13 +110,21 @@ void manifestKekWrapWithPlaintextKek;
 const recoverySet: WalletRecoveryEnvelopeSetRecord = {
   kind: 'wallet_recovery_envelope_set_v1',
   walletId,
-  keyManifestDigestB64u: digest,
   manifestKekWraps: [manifestKekWrap],
   entries: [seedEntry],
   issuedAtMs: 1,
   updatedAtMs: 1,
 };
 void recoverySet;
+
+// The set wraps the wallet's seed. Key sets carry their own manifests on their
+// own registration state, so a set naming one would couple them again.
+const recoverySetNamingAKeySet: WalletRecoveryEnvelopeSetRecord = {
+  ...recoverySet,
+  // @ts-expect-error A recovery set does not name a key manifest.
+  keyManifestDigestB64u: digest,
+};
+void recoverySetNamingAKeySet;
 
 const recoverySetWithPlaintextCode: WalletRecoveryEnvelopeSetRecord = {
   ...recoverySet,
@@ -132,22 +140,10 @@ const recoverySetWithGrant: WalletRecoveryEnvelopeSetRecord = {
 };
 void recoverySetWithGrant;
 
-// @ts-expect-error A recovery set requires its key manifest digest.
-const recoverySetWithoutManifest: WalletRecoveryEnvelopeSetRecord = {
-  kind: 'wallet_recovery_envelope_set_v1',
-  walletId,
-  manifestKekWraps: [manifestKekWrap],
-  entries: [seedEntry],
-  issuedAtMs: 1,
-  updatedAtMs: 1,
-};
-void recoverySetWithoutManifest;
-
 // @ts-expect-error A recovery set requires its manifest-KEK wraps.
 const recoverySetWithoutKekWraps: WalletRecoveryEnvelopeSetRecord = {
   kind: 'wallet_recovery_envelope_set_v1',
   walletId,
-  keyManifestDigestB64u: digest,
   entries: [seedEntry],
   issuedAtMs: 1,
   updatedAtMs: 1,

@@ -62,7 +62,9 @@ function inactiveRuntimeRecord(
 function requireInactiveRuntime(
   factor: EcdsaFixtureFactor,
   fixture: Awaited<ReturnType<typeof canonicalEcdsaSealedRuntimeFixture>>['fixture'],
-  chainTarget: Awaited<ReturnType<typeof canonicalEcdsaSealedRuntimeFixture>>['runtime']['chainTarget'],
+  chainTarget: Awaited<
+    ReturnType<typeof canonicalEcdsaSealedRuntimeFixture>
+  >['runtime']['chainTarget'],
 ) {
   const resolution = resolveExactInactiveEcdsaMaterialRuntime({
     manifest: fixture.manifest,
@@ -79,14 +81,13 @@ function requireInactiveRuntime(
 
 for (const factor of ['passkey', 'email_otp'] as const) {
   test(`inactive ${factor} material reaches canonical worker hydration`, async () => {
-    const { fixture, runtime: activeRuntime, worker } =
-      await canonicalEcdsaSealedRuntimeFixture(factor);
-    const { capability, manifest } = fixture;
-    const runtime = requireInactiveRuntime(
-      factor,
+    const {
       fixture,
-      activeRuntime.chainTarget,
-    );
+      runtime: activeRuntime,
+      worker,
+    } = await canonicalEcdsaSealedRuntimeFixture(factor);
+    const { capability, manifest } = fixture;
+    const runtime = requireInactiveRuntime(factor, fixture, activeRuntime.chainTarget);
     expect(runtime.authBinding.kind).toBe(factor);
 
     const resolution = await resolveHydratedSecp256k1SigningMaterial({
@@ -122,13 +123,12 @@ for (const factor of ['passkey', 'email_otp'] as const) {
 
 test('inactive ECDSA hydration binds the worker and signs the exact authorized operation', async () => {
   clearAllRouterAbEcdsaDerivationClientPresignatures();
-  const { fixture, runtime: activeRuntime, worker } =
-    await canonicalEcdsaSealedRuntimeFixture('passkey');
-  const runtime = requireInactiveRuntime(
-    'passkey',
+  const {
     fixture,
-    activeRuntime.chainTarget,
-  );
+    runtime: activeRuntime,
+    worker,
+  } = await canonicalEcdsaSealedRuntimeFixture('passkey');
+  const runtime = requireInactiveRuntime('passkey', fixture, activeRuntime.chainTarget);
   const hydration = await resolveHydratedSecp256k1SigningMaterial({
     capability: fixture.capability,
     runtime,

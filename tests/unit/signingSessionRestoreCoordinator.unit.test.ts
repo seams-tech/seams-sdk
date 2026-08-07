@@ -22,7 +22,10 @@ import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrat
 import { toRpId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { buildCurrentSealedSessionRecord } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore';
 import { ecdsaSealedRecordStoreKey } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/ecdsaSealedRecordKey';
-import { createThresholdEcdsaBootstrapFixture, thresholdEcdsaBootstrapPublicFactsFixture } from './helpers/ecdsaBootstrap.fixtures';
+import {
+  createThresholdEcdsaBootstrapFixture,
+  thresholdEcdsaBootstrapPublicFactsFixture,
+} from './helpers/ecdsaBootstrap.fixtures';
 import {
   buildEcdsaRoleLocalPersistedMaterialRefFixture,
   buildWalletAuthAuthorityRefForAuthorityFixture,
@@ -214,12 +217,16 @@ function makeSealedRecord(args: {
           keyHandle: bootstrap.thresholdEcdsaKeyRef.keyHandle,
           ecdsaThresholdKeyId: bootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId,
           ethereumAddress: bootstrap.thresholdEcdsaKeyRef.ethereumAddress,
-          relayerKeyId: bootstrap.thresholdEcdsaKeyRef.backendBinding?.relayerKeyId || 'relayer-key-restore',
-          clientVerifyingShareB64u: bootstrap.thresholdEcdsaKeyRef.backendBinding?.clientVerifyingShareB64u || 'client-verifying-share-restore',
+          relayerKeyId:
+            bootstrap.thresholdEcdsaKeyRef.backendBinding?.relayerKeyId || 'relayer-key-restore',
+          clientVerifyingShareB64u:
+            bootstrap.thresholdEcdsaKeyRef.backendBinding?.clientVerifyingShareB64u ||
+            'client-verifying-share-restore',
           thresholdEcdsaPublicKeyB64u: bootstrap.thresholdEcdsaKeyRef.thresholdEcdsaPublicKeyB64u,
           participantIds: bootstrap.thresholdEcdsaKeyRef.participantIds,
           roleLocalMaterialRef,
-          routerAbEcdsaDerivationNormalSigning: bootstrap.thresholdEcdsaKeyRef.routerAbEcdsaDerivationNormalSigning,
+          routerAbEcdsaDerivationNormalSigning:
+            bootstrap.thresholdEcdsaKeyRef.routerAbEcdsaDerivationNormalSigning,
           publicCapability: publicFacts.publicCapability,
         }
       : {
@@ -236,12 +243,16 @@ function makeSealedRecord(args: {
           keyHandle: bootstrap.thresholdEcdsaKeyRef.keyHandle,
           ecdsaThresholdKeyId: bootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId,
           ethereumAddress: bootstrap.thresholdEcdsaKeyRef.ethereumAddress,
-          relayerKeyId: bootstrap.thresholdEcdsaKeyRef.backendBinding?.relayerKeyId || 'relayer-key-restore',
-          clientVerifyingShareB64u: bootstrap.thresholdEcdsaKeyRef.backendBinding?.clientVerifyingShareB64u || 'client-verifying-share-restore',
+          relayerKeyId:
+            bootstrap.thresholdEcdsaKeyRef.backendBinding?.relayerKeyId || 'relayer-key-restore',
+          clientVerifyingShareB64u:
+            bootstrap.thresholdEcdsaKeyRef.backendBinding?.clientVerifyingShareB64u ||
+            'client-verifying-share-restore',
           thresholdEcdsaPublicKeyB64u: bootstrap.thresholdEcdsaKeyRef.thresholdEcdsaPublicKeyB64u,
           participantIds: bootstrap.thresholdEcdsaKeyRef.participantIds,
           roleLocalMaterialRef,
-          routerAbEcdsaDerivationNormalSigning: bootstrap.thresholdEcdsaKeyRef.routerAbEcdsaDerivationNormalSigning,
+          routerAbEcdsaDerivationNormalSigning:
+            bootstrap.thresholdEcdsaKeyRef.routerAbEcdsaDerivationNormalSigning,
           publicCapability: publicFacts.publicCapability,
         };
   const record = buildCurrentSealedSessionRecord({
@@ -285,28 +296,22 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
     const cache = createSigningSessionRestoreCache();
     let listCalls = 0;
 
-    await restorePersistedSessionForSigningCommand(
-      ecdsaRestoreInput(),
-      {
-        cache,
-        listExactSealedSessionsForWallet: async () => {
-          listCalls += 1;
-          return [];
-        },
-        restoreSealedRecordForWallet: async () => 'restored',
+    await restorePersistedSessionForSigningCommand(ecdsaRestoreInput(), {
+      cache,
+      listExactSealedSessionsForWallet: async () => {
+        listCalls += 1;
+        return [];
       },
-    );
-    await restorePersistedSessionForSigningCommand(
-      ecdsaRestoreInput(),
-      {
-        cache,
-        listExactSealedSessionsForWallet: async () => {
-          listCalls += 1;
-          return [];
-        },
-        restoreSealedRecordForWallet: async () => 'restored',
+      restoreSealedRecordForWallet: async () => 'restored',
+    });
+    await restorePersistedSessionForSigningCommand(ecdsaRestoreInput(), {
+      cache,
+      listExactSealedSessionsForWallet: async () => {
+        listCalls += 1;
+        return [];
       },
-    );
+      restoreSealedRecordForWallet: async () => 'restored',
+    });
 
     expect(listCalls).toBe(2);
   });
@@ -368,14 +373,8 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       restoreSealedRecordForWallet: async () => 'restored' as const,
     };
 
-    await restorePersistedSessionForSigningCommand(
-      ecdsaRestoreInput(),
-      ports,
-    );
-    await restorePersistedSessionForSigningCommand(
-      ecdsaRestoreInput(),
-      ports,
-    );
+    await restorePersistedSessionForSigningCommand(ecdsaRestoreInput(), ports);
+    await restorePersistedSessionForSigningCommand(ecdsaRestoreInput(), ports);
 
     expect(listCalls).toBe(2);
   });
@@ -409,20 +408,17 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
     const cache = createSigningSessionRestoreCache();
     let restoreCalls = 0;
 
-    const result = await restorePersistedSessionForSigningCommand(
-      ecdsaRestoreInput(),
-      {
-        cache,
-        listExactSealedSessionsForWallet: async () => [
-          makeSealedRecord({ expiresAtMs: Date.now() - 1 }),
-          makeSealedRecord({ remainingUses: 0, updatedAtMs: 2 }),
-        ],
-        restoreSealedRecordForWallet: async () => {
-          restoreCalls += 1;
-          return 'restored';
-        },
+    const result = await restorePersistedSessionForSigningCommand(ecdsaRestoreInput(), {
+      cache,
+      listExactSealedSessionsForWallet: async () => [
+        makeSealedRecord({ expiresAtMs: Date.now() - 1 }),
+        makeSealedRecord({ remainingUses: 0, updatedAtMs: 2 }),
+      ],
+      restoreSealedRecordForWallet: async () => {
+        restoreCalls += 1;
+        return 'restored';
       },
-    );
+    });
 
     expect(result).toEqual({ kind: 'completed', attempted: 0, restored: 0, deferred: 0 });
     expect(restoreCalls).toBe(0);
@@ -431,18 +427,13 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
   test('surfaces rejected exact-purpose records through the rejection callback', async () => {
     const rejections: string[] = [];
 
-    const result = await restorePersistedSessionForSigningCommand(
-      ecdsaRestoreInput(),
-      {
-        listExactSealedSessionsForWallet: async () => [
-          makeMissingRestoreMetadataRecord(),
-        ],
-        restoreSealedRecordForWallet: async () => 'restored',
-        onRejectedRecord: ({ rejection }) => {
-          rejections.push(rejection.reason);
-        },
+    const result = await restorePersistedSessionForSigningCommand(ecdsaRestoreInput(), {
+      listExactSealedSessionsForWallet: async () => [makeMissingRestoreMetadataRecord()],
+      restoreSealedRecordForWallet: async () => 'restored',
+      onRejectedRecord: ({ rejection }) => {
+        rejections.push(rejection.reason);
       },
-    );
+    });
 
     expect(result).toEqual({ kind: 'completed', attempted: 0, restored: 0, deferred: 0 });
     expect(rejections).toEqual(['missing_restore_metadata']);
@@ -451,21 +442,18 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
   test('rejects stale ECDSA sealed-record signing-root siblings before restore', async () => {
     const rejections: string[] = [];
 
-    const result = await restorePersistedSessionForSigningCommand(
-      ecdsaRestoreInput(),
-      {
-        listExactSealedSessionsForWallet: async () => [
-          {
-            ...makeSealedRecord({}),
-            signingRootId: 'legacy-root',
-          },
-        ],
-        restoreSealedRecordForWallet: async () => 'restored',
-        onRejectedRecord: ({ rejection }) => {
-          rejections.push(rejection.reason);
+    const result = await restorePersistedSessionForSigningCommand(ecdsaRestoreInput(), {
+      listExactSealedSessionsForWallet: async () => [
+        {
+          ...makeSealedRecord({}),
+          signingRootId: 'legacy-root',
         },
+      ],
+      restoreSealedRecordForWallet: async () => 'restored',
+      onRejectedRecord: ({ rejection }) => {
+        rejections.push(rejection.reason);
       },
-    );
+    });
 
     expect(result).toEqual({ kind: 'completed', attempted: 0, restored: 0, deferred: 0 });
     expect(rejections).toEqual(['invalid_identity']);
@@ -498,19 +486,16 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
   test('fails closed before restore when duplicate exact-purpose records exist', async () => {
     let restoreCalls = 0;
 
-    const result = await restorePersistedSessionForSigningCommand(
-      ecdsaRestoreInput(),
-      {
-        listExactSealedSessionsForWallet: async () => [
-          makeSealedRecord({ updatedAtMs: 1 }),
-          makeSealedRecord({ updatedAtMs: 2 }),
-        ],
-        restoreSealedRecordForWallet: async () => {
-          restoreCalls += 1;
-          return 'restored';
-        },
+    const result = await restorePersistedSessionForSigningCommand(ecdsaRestoreInput(), {
+      listExactSealedSessionsForWallet: async () => [
+        makeSealedRecord({ updatedAtMs: 1 }),
+        makeSealedRecord({ updatedAtMs: 2 }),
+      ],
+      restoreSealedRecordForWallet: async () => {
+        restoreCalls += 1;
+        return 'restored';
       },
-    );
+    });
 
     expect(result).toMatchObject({
       kind: 'duplicate_records',
@@ -568,7 +553,6 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
 
     expect(restoreCalls).toBe(2);
   });
-
 });
 
 test.describe('discoverPersistedSessionsForWalletCommand', () => {
@@ -634,5 +618,4 @@ test.describe('discoverPersistedSessionsForWalletCommand', () => {
 
     expect(restoreCalls).toBe(0);
   });
-
 });

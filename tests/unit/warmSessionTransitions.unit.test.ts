@@ -61,8 +61,7 @@ async function createEnvelope(): Promise<WarmSessionEnvelope> {
   if (!ed25519Runtime) {
     throw new Error('transition fixture requires exact Ed25519 sealed runtime');
   }
-  const ed25519Authorization =
-    buildPasskeyEd25519AuthorizationProjectionFixture(ed25519Record);
+  const ed25519Authorization = buildPasskeyEd25519AuthorizationProjectionFixture(ed25519Record);
   return {
     walletId: ed25519Runtime.walletId,
     capabilities: {
@@ -127,8 +126,8 @@ test.describe('warmSessionTransitions', () => {
         ecdsa: {
           tempo: {
             state: 'prf_unavailable',
-            thresholdSessionId: envelope.capabilities.ecdsa.tempo.runtime?.sealedRecord
-              .thresholdSessionId,
+            thresholdSessionId:
+              envelope.capabilities.ecdsa.tempo.runtime?.sealedRecord.thresholdSessionId,
             authState: 'present',
             prfClaimState: 'unavailable',
           },

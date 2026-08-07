@@ -70,10 +70,13 @@ function isConsoleCorsReady(response: Response): boolean {
 test('readiness check retries through a post-deploy propagation window', async () => {
   const server = await startFlakyServer(2);
   try {
-    const results = await runReadinessChecks([{ name: '/healthz', url: `${server.origin}/healthz` }], {
-      budgetMs: 10_000,
-      intervalMs: 10,
-    });
+    const results = await runReadinessChecks(
+      [{ name: '/healthz', url: `${server.origin}/healthz` }],
+      {
+        budgetMs: 10_000,
+        intervalMs: 10,
+      },
+    );
     expect(results).toHaveLength(1);
     expect(results[0]?.ok, 'a deployment that becomes healthy must not be reported failed').toBe(
       true,
@@ -88,10 +91,13 @@ test('readiness check retries through a post-deploy propagation window', async (
 test('readiness check still fails a deployment that never becomes healthy', async () => {
   const server = await startFlakyServer(Number.MAX_SAFE_INTEGER);
   try {
-    const results = await runReadinessChecks([{ name: '/healthz', url: `${server.origin}/healthz` }], {
-      budgetMs: 120,
-      intervalMs: 10,
-    });
+    const results = await runReadinessChecks(
+      [{ name: '/healthz', url: `${server.origin}/healthz` }],
+      {
+        budgetMs: 120,
+        intervalMs: 10,
+      },
+    );
     expect(results[0]?.ok).toBe(false);
     expect(results[0]?.status).toBe(500);
     expect(results.filter(isFailedCheck).map(formatFailedCheck)).toEqual(['/healthz']);
@@ -103,10 +109,13 @@ test('readiness check still fails a deployment that never becomes healthy', asyn
 test('readiness check reports a first-attempt pass without retrying', async () => {
   const server = await startFlakyServer(0);
   try {
-    const results = await runReadinessChecks([{ name: '/healthz', url: `${server.origin}/healthz` }], {
-      budgetMs: 10_000,
-      intervalMs: 10,
-    });
+    const results = await runReadinessChecks(
+      [{ name: '/healthz', url: `${server.origin}/healthz` }],
+      {
+        budgetMs: 10_000,
+        intervalMs: 10,
+      },
+    );
     expect(results[0]?.ok).toBe(true);
     expect(results[0]?.attempts).toBe(1);
     expect(server.requestCount()).toBe(1);

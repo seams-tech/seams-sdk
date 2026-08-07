@@ -43,15 +43,19 @@ export type PasskeyCustodySecretBinding =
        *
        * Wallet-scoped by construction: it carries no lane identity, because it
        * covers every owner key rather than one lane's material.
+       *
+       * It names no key set either. Key sets are provisioned independently — an
+       * EVM wallet today, NEAR later — and each records its own manifest on its
+       * own registration state. A seed that named its key sets would have to be
+       * resealed, and its recovery codes rewrapped, every time one arrived.
        */
       kind: 'wallet_custody_seed_v1';
       derivationScheme: WalletSeedDerivationScheme;
-      /** Pins the exact owner key set this seed is expected to reproduce. */
-      keyManifestDigestB64u: DigestB64u;
-      nearEd25519SigningKeyId: NearEd25519SigningKeyId;
-      registeredPublicKeyB64u: Ed25519PublicKeyB64u;
-      evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-      clientRootPublicKey33B64u: Secp256k1CompressedPublicKeyB64u;
+      keyManifestDigestB64u?: never;
+      nearEd25519SigningKeyId?: never;
+      registeredPublicKeyB64u?: never;
+      evmFamilySigningKeySlotId?: never;
+      clientRootPublicKey33B64u?: never;
       walletKeyId?: never;
       laneId?: never;
       laneShareEpoch?: never;
@@ -108,21 +112,10 @@ export function isWalletCustodySeedBinding(
 // Builders are branch-specific on purpose: a shared builder plus a spread would
 // let one branch's identity fields reach another branch's envelope.
 
-export function buildWalletCustodySeedBinding(args: {
-  keyManifestDigestB64u: DigestB64u;
-  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
-  registeredPublicKeyB64u: Ed25519PublicKeyB64u;
-  evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-  clientRootPublicKey33B64u: Secp256k1CompressedPublicKeyB64u;
-}): PasskeyCustodySecretBindingOfKind<'wallet_custody_seed_v1'> {
+export function buildWalletCustodySeedBinding(): PasskeyCustodySecretBindingOfKind<'wallet_custody_seed_v1'> {
   return {
     kind: 'wallet_custody_seed_v1',
     derivationScheme: WALLET_SEED_DERIVATION_SCHEME_V1,
-    keyManifestDigestB64u: args.keyManifestDigestB64u,
-    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
-    registeredPublicKeyB64u: args.registeredPublicKeyB64u,
-    evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
-    clientRootPublicKey33B64u: args.clientRootPublicKey33B64u,
   };
 }
 
@@ -168,15 +161,7 @@ const LANE_SCOPE_FIELDS = ['kind', 'walletKeyId', 'laneId', 'laneShareEpoch'] as
 
 const ALLOWED_FIELDS_BY_KIND: Record<PasskeyCustodySecretKind, readonly string[]> = {
   // No lane scope: owner custody is wallet-scoped.
-  wallet_custody_seed_v1: [
-    'kind',
-    'derivationScheme',
-    'keyManifestDigestB64u',
-    'nearEd25519SigningKeyId',
-    'registeredPublicKeyB64u',
-    'evmFamilySigningKeySlotId',
-    'clientRootPublicKey33B64u',
-  ],
+  wallet_custody_seed_v1: ['kind', 'derivationScheme'],
   ed25519_lane_holder_share_v1: [
     ...LANE_SCOPE_FIELDS,
     'nearEd25519SigningKeyId',
@@ -255,25 +240,7 @@ export function parsePasskeyCustodySecretBinding(
       if (record.derivationScheme !== WALLET_SEED_DERIVATION_SCHEME_V1) {
         throw new Error(`${label}.derivationScheme must be ${WALLET_SEED_DERIVATION_SCHEME_V1}`);
       }
-      return buildWalletCustodySeedBinding({
-        keyManifestDigestB64u: parseDigestField(
-          record.keyManifestDigestB64u,
-          `${label}.keyManifestDigestB64u`,
-        ),
-        nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(record.nearEd25519SigningKeyId),
-        registeredPublicKeyB64u: parseEd25519PublicKeyB64u(
-          record.registeredPublicKeyB64u,
-          `${label}.registeredPublicKeyB64u`,
-        ),
-        evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
-          record.evmFamilySigningKeySlotId,
-          `${label}.evmFamilySigningKeySlotId`,
-        ),
-        clientRootPublicKey33B64u: parseSecp256k1CompressedPublicKeyB64u(
-          record.clientRootPublicKey33B64u,
-          `${label}.clientRootPublicKey33B64u`,
-        ),
-      });
+      return buildWalletCustodySeedBinding();
     }
     case 'ed25519_lane_holder_share_v1': {
       const lane = requireLaneScope(record, label);

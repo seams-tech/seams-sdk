@@ -107,10 +107,7 @@ test.describe('evm client waitForTransactionReceipt', () => {
       { importPath: IMPORT_PATH },
     );
 
-    expect(result.calls).toEqual([
-      'https://first-rpc.example/',
-      'https://second-rpc.example/',
-    ]);
+    expect(result.calls).toEqual(['https://first-rpc.example/', 'https://second-rpc.example/']);
     expect(result.chainId).toBe('0x4cef52');
   });
 

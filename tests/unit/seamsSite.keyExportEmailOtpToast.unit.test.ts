@@ -12,9 +12,7 @@ type KeyExportToastProbe = {
   emit: (phase: string, demoOtpCode?: string | null) => void;
 };
 
-async function installKeyExportToastProbe(
-  page: import('@playwright/test').Page,
-): Promise<void> {
+async function installKeyExportToastProbe(page: import('@playwright/test').Page): Promise<void> {
   await page.goto('/');
   await page.evaluate(async (modulePath) => {
     const copiedCodes: string[] = [];

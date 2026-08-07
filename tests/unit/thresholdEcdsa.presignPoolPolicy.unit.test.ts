@@ -15,9 +15,8 @@ import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef
 
 test.describe('Router A/B ECDSA derivation presignature pool policy', () => {
   const ECDSA_THRESHOLD_KEY_ID = parseEcdsaThresholdKeyId('ecdsa-derivation-test-key-1');
-  const BACKEND_CLIENT_VERIFYING_SHARE_B64U = parseEcdsaClientVerifyingShareB64u(
-    'backend-client-share',
-  );
+  const BACKEND_CLIENT_VERIFYING_SHARE_B64U =
+    parseEcdsaClientVerifyingShareB64u('backend-client-share');
   const WALLET_SESSION_CREDENTIAL = {
     kind: 'wallet_session_jwt' as const,
     walletSessionJwt: 'wallet-session-jwt',
@@ -68,7 +67,9 @@ test.describe('Router A/B ECDSA derivation presignature pool policy', () => {
     return {
       kind: 'router_ab_ecdsa_derivation_client_signing_material_source_v1' as const,
       initClientPresignSession: async () => {
-        throw new Error('policy tests must not initialize Router A/B ECDSA derivation presign sessions');
+        throw new Error(
+          'policy tests must not initialize Router A/B ECDSA derivation presign sessions',
+        );
       },
       stepClientPresignSession: async () => {
         throw new Error('policy tests must not step Router A/B ECDSA derivation presign sessions');
@@ -92,7 +93,9 @@ test.describe('Router A/B ECDSA derivation presignature pool policy', () => {
         throw new Error('policy tests must not list Router A/B ECDSA presignatures');
       },
       computeSignatureShareFromPresignatureHandle: async () => {
-        throw new Error('policy tests must not compute Router A/B ECDSA derivation signature shares');
+        throw new Error(
+          'policy tests must not compute Router A/B ECDSA derivation signature shares',
+        );
       },
     };
   }

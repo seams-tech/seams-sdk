@@ -70,7 +70,14 @@ function emptyResultRunner(command: string): D1StagingCommandResult {
 
 function mismatchResultRunner(command: string): D1StagingCommandResult {
   const rows = command.includes('billing_accounts')
-    ? [{ namespace: 'seams-staging', org_id: 'org_staging', credit_balance_minor: 100, ledger_balance_minor: 0 }]
+    ? [
+        {
+          namespace: 'seams-staging',
+          org_id: 'org_staging',
+          credit_balance_minor: 100,
+          ledger_balance_minor: 0,
+        },
+      ]
     : [];
   return d1StagingJsonCommandResult(command, [{ results: rows }]);
 }
@@ -174,7 +181,7 @@ test('D1 staging reconciliation rejects empty remote JSON output', async () => {
 
 test('D1 staging reconciliation rejects configs that fail the readiness gate', async () => {
   const module = await reconciliationModule;
-  expect(() =>
-    module.buildD1StagingReconciliationPlan(misScopedReconciliationInput),
-  ).toThrow(/console staging config must not reference SIGNER_DB/);
+  expect(() => module.buildD1StagingReconciliationPlan(misScopedReconciliationInput)).toThrow(
+    /console staging config must not reference SIGNER_DB/,
+  );
 });

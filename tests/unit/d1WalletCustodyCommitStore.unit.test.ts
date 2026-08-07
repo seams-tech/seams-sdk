@@ -156,18 +156,6 @@ test('a mismatched pair is refused before anything is written', async () => {
     });
     expect(otherWalletSet.kind).toBe('inconsistent');
 
-    // A recovery set whose codes open a seed for a manifest the envelope does
-    // not name would recover keys the wallet never registered.
-    const otherManifest = await commit.commitRegistration({
-      envelope: passkeyCustodyEnvelope({
-        binding: rawWalletCustodySeedBinding({
-          keyManifestDigestB64u: 'ZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1-f4CBgoM',
-        }),
-      }),
-      recoverySet: recoverySet(),
-    });
-    expect(otherManifest.kind).toBe('inconsistent');
-
     expect((await envelopes.lookupEnvelope(LOCATOR)).kind).toBe('missing');
     expect(await commit.readRecoveryEnvelopeSet(WALLET_ID as WalletId)).toBeNull();
   });
@@ -191,10 +179,7 @@ test('two wallets keep separate custody', async () => {
       recoverySet: recoverySet(),
     });
     const second = await commit.commitRegistration({
-      envelope: passkeyCustodyEnvelope({
-        walletId: OTHER_WALLET_ID,
-        binding: rawWalletCustodySeedBinding({ keyManifestDigestB64u: DIGEST_B64U }),
-      }),
+      envelope: passkeyCustodyEnvelope({ walletId: OTHER_WALLET_ID }),
       recoverySet: recoverySet({ walletId: OTHER_WALLET_ID }),
     });
     expect(second.kind).toBe('committed');

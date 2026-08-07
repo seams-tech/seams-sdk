@@ -33,8 +33,6 @@ test('every custody-secret branch parses into its exact kind', () => {
   expect(parsePasskeyCustodySecretBinding(rawWalletCustodySeedBinding())).toMatchObject({
     kind: 'wallet_custody_seed_v1',
     derivationScheme: 'wallet_seed_parallel_hkdf_sha256_v1',
-    keyManifestDigestB64u: DIGEST_B64U,
-    clientRootPublicKey33B64u: SECP256K1_PUBLIC_KEY_B64U,
   });
   expect(parsePasskeyCustodySecretBinding(rawEd25519LaneHolderShareBinding())).toMatchObject({
     kind: 'ed25519_lane_holder_share_v1',
@@ -117,7 +115,7 @@ test('public identities must decode to their curve', () => {
     parsePasskeyCustodySecretBinding(
       rawWalletCustodySeedBinding({ clientRootPublicKey33B64u: DIGEST_B64U }),
     ),
-  ).toThrow(/33-byte compressed secp256k1 point/);
+  ).toThrow(/clientRootPublicKey33B64u is not part of/);
 });
 
 test('an envelope parses and yields a branch-specific KEK context', () => {

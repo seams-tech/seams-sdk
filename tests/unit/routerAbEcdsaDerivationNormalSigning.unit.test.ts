@@ -145,9 +145,8 @@ async function signingResponse(
   return {
     scope,
     request_id: request.request_id,
-    request_digest: await routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestDigestV1(
-      coreRequest,
-    ),
+    request_digest:
+      await routerAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestDigestV1(coreRequest),
     signing_digest: digest(11),
     signature_scheme: 'ecdsa_secp256k1_recoverable_v1',
     signature65_b64u: b64u(16, 65),
@@ -217,7 +216,8 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
       ...scope,
       public_identity: {
         context_binding_b64u: b64u(99, 32),
-        derivation_client_share_public_key33_b64u: scope.public_identity.derivation_client_share_public_key33_b64u,
+        derivation_client_share_public_key33_b64u:
+          scope.public_identity.derivation_client_share_public_key33_b64u,
         server_public_key33_b64u: scope.public_identity.server_public_key33_b64u,
         threshold_public_key33_b64u: scope.public_identity.threshold_public_key33_b64u,
         ethereum_address20_b64u: scope.public_identity.ethereum_address20_b64u,
@@ -274,7 +274,6 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
     ).rejects.toThrow(
       'ecdsaPrepareResponse.signature_scheme must be ecdsa_secp256k1_recoverable_v1',
     );
-
   });
 
   test('rejects mismatched finalize response request digests', async () => {
@@ -294,13 +293,10 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
     });
 
     await expect(
-      parseRouterAbEcdsaDerivationEvmDigestSigningResponseForCoreRequestV1(
-        finalizeRequest,
-        {
-          ...(await signingResponse(finalizeRequest)),
-          request_digest: digest(99),
-        },
-      ),
+      parseRouterAbEcdsaDerivationEvmDigestSigningResponseForCoreRequestV1(finalizeRequest, {
+        ...(await signingResponse(finalizeRequest)),
+        request_digest: digest(99),
+      }),
     ).rejects.toThrow('ecdsaSigningResponse.request_digest does not match request');
   });
 
@@ -406,7 +402,12 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
         {
           presignatureId: 'stale-local-presignature',
           materialHandle: 'stale-local-material',
-          bigR33: Uint8Array.from(Buffer.from('03f28773c2d975288bc7d1d205c3748651b075fbc6610e58cddeeddf8f19405aa8', 'hex')),
+          bigR33: Uint8Array.from(
+            Buffer.from(
+              '03f28773c2d975288bc7d1d205c3748651b075fbc6610e58cddeeddf8f19405aa8',
+              'hex',
+            ),
+          ),
           createdAtMs: Date.now() - 1_000,
           expiresAtMs: Date.now() + 30_000,
         },
@@ -420,7 +421,9 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
         request: { type: string; payload?: Record<string, unknown> };
       }) => {
         if (args.kind !== 'evmCrypto' || args.request.type !== 'validateSecp256k1PublicKey33') {
-          throw new Error(`Unexpected stale-pool worker request: ${args.kind}/${args.request.type}`);
+          throw new Error(
+            `Unexpected stale-pool worker request: ${args.kind}/${args.request.type}`,
+          );
         }
         return args.request.payload?.publicKey33 as ArrayBuffer;
       },

@@ -203,8 +203,7 @@ test('D1 registration commit stores a mixed Ed25519 and ECDSA wallet atomically'
         walletId,
         activeYaoCapability: {
           version: 'wallet_ed25519_yao_registration_capability_v1',
-          nearAccountId:
-            '0000000000000000000000000000000000000000000000000000000000000001',
+          nearAccountId: '0000000000000000000000000000000000000000000000000000000000000001',
         },
       },
     ]);
@@ -317,7 +316,13 @@ function scopedPrepare(database: D1DatabaseLike) {
   return (sql: string, values: readonly unknown[]) =>
     database
       .prepare(sql)
-      .bind(TEST_SCOPE.namespace, TEST_SCOPE.orgId, TEST_SCOPE.projectId, TEST_SCOPE.envId, ...values);
+      .bind(
+        TEST_SCOPE.namespace,
+        TEST_SCOPE.orgId,
+        TEST_SCOPE.projectId,
+        TEST_SCOPE.envId,
+        ...values,
+      );
 }
 
 function emailOtpCommitPlan(
@@ -352,7 +357,9 @@ test('D1 registration commit stores the Email OTP enrollment in the wallet batch
     await expect(countRows(database, 'wallets')).resolves.toBe(1);
     await expect(countRows(database, 'wallet_signers')).resolves.toBe(1);
     await expect(countRows(database, 'email_otp_wallet_enrollments')).resolves.toBe(1);
-    const enrollments = new CloudflareD1EmailOtpEnrollmentStore({ prepare: scopedPrepare(database) });
+    const enrollments = new CloudflareD1EmailOtpEnrollmentStore({
+      prepare: scopedPrepare(database),
+    });
     await expect(enrollments.readEnrollment(String(walletId))).resolves.toMatchObject({
       walletId: String(walletId),
       verifiedEmail: 'registrant@example.com',
@@ -379,7 +386,11 @@ test('D1 registration commit rolls back the wallet when the Email OTP statement 
         authority: testEmailOtpAuthority(walletId),
         emailOtp: {
           kind: 'd1_email_otp_registration_commit_plan_v1',
-          statements: [database.prepare('INSERT INTO email_otp_wallet_enrollments (namespace) VALUES (?)').bind('only-namespace')],
+          statements: [
+            database
+              .prepare('INSERT INTO email_otp_wallet_enrollments (namespace) VALUES (?)')
+              .bind('only-namespace'),
+          ],
         },
         now,
       }),
@@ -476,7 +487,9 @@ test('the second credential binding write converges without rewriting history', 
     });
     const afterEd25519 = await readBinding();
     // The Ed25519 facts arrive as a set.
-    expect(afterEd25519?.nearAccountId).toBe(testEd25519Signer(walletId, settledAtMs).nearAccountId);
+    expect(afterEd25519?.nearAccountId).toBe(
+      testEd25519Signer(walletId, settledAtMs).nearAccountId,
+    );
     expect(afterEd25519?.signerSlot).toBe(testEd25519Signer(walletId, settledAtMs).signerSlot);
     // The wallet's creation history is not rewritten by the later commit.
     expect(afterEd25519?.createdAtMs).toBe(createdAtMs);

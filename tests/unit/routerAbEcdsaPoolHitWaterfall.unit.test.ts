@@ -261,8 +261,7 @@ test.describe('Router A/B ECDSA pool-hit browser waterfall', () => {
                   groupPublicKey33: groupPublicKey33.buffer,
                   expectedPresignBigR33: expectedPresignBigR33.buffer,
                   digest32: digest32.buffer,
-                  clientRerandomizationContribution32:
-                    clientRerandomizationContribution32.buffer,
+                  clientRerandomizationContribution32: clientRerandomizationContribution32.buffer,
                   signingWorkerRerandomizationContribution32:
                     signingWorkerRerandomizationContribution32.buffer,
                 },

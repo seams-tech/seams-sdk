@@ -93,9 +93,7 @@ const EXPORT_ED25519_LANE = exactEd25519SigningLaneIdentity({
   signer: nearEd25519SignerBindingFromBoundaryFields({
     walletId: EXPORT_WALLET_ID,
     nearAccountId: EXPORT_NEAR_ACCOUNT.accountId,
-    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
-      'ed25519ks_wallet_export_host',
-    ),
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString('ed25519ks_wallet_export_host'),
     signerSlot: 1,
   }),
   auth: {
@@ -172,9 +170,7 @@ test.describe('wallet iframe host export UI handlers', () => {
       respondIfCancelled: () => false,
     });
 
-    await handlers.PM_EXPORT_KEYPAIR_UI!(
-      makeEd25519ExportKeypairReq('req-ed25519-export') as any,
-    );
+    await handlers.PM_EXPORT_KEYPAIR_UI!(makeEd25519ExportKeypairReq('req-ed25519-export') as any);
 
     expect(exportedInput).toEqual(
       expect.objectContaining({

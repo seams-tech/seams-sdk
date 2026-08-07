@@ -13,7 +13,9 @@ type WalletServiceResult = {
   ended: boolean;
 };
 
-function collectWalletServiceMiddlewares(plugin: ReturnType<typeof seamsWalletService>): Middleware[] {
+function collectWalletServiceMiddlewares(
+  plugin: ReturnType<typeof seamsWalletService>,
+): Middleware[] {
   const middlewares: Middleware[] = [];
   plugin.configureServer?.({
     middlewares: {
@@ -49,7 +51,9 @@ function runWalletServiceMiddlewares(middlewares: readonly Middleware[]): Wallet
   return result;
 }
 
-function runWalletServicePlugin(plugin: ReturnType<typeof seamsWalletService>): WalletServiceResult {
+function runWalletServicePlugin(
+  plugin: ReturnType<typeof seamsWalletService>,
+): WalletServiceResult {
   return runWalletServiceMiddlewares(collectWalletServiceMiddlewares(plugin));
 }
 

@@ -50,16 +50,16 @@ export const ED25519_LANE_ID = 'lane:owner:ed25519:1';
 export const EVM_LANE_ID = 'lane:owner:evm-family:1';
 export const LANE_SHARE_EPOCH = 'lane-share-epoch-1';
 
-/** Owner custody: one wallet-scoped seed every owner root derives from. */
+/**
+ * Owner custody: one wallet-scoped seed every owner root derives from.
+ *
+ * It names no key set. Key sets are provisioned independently and each records
+ * its own manifest on its own registration state.
+ */
 export function rawWalletCustodySeedBinding(overrides: RawRecord = {}): RawRecord {
   return {
     kind: 'wallet_custody_seed_v1',
     derivationScheme: 'wallet_seed_parallel_hkdf_sha256_v1',
-    keyManifestDigestB64u: DIGEST_B64U,
-    nearEd25519SigningKeyId: NEAR_ED25519_SIGNING_KEY_ID,
-    registeredPublicKeyB64u: ED25519_PUBLIC_KEY_B64U,
-    evmFamilySigningKeySlotId: EVM_FAMILY_SIGNING_KEY_SLOT_ID,
-    clientRootPublicKey33B64u: SECP256K1_PUBLIC_KEY_B64U,
     ...overrides,
   };
 }
@@ -162,7 +162,6 @@ export function rawWalletRecoveryEnvelopeSet(overrides: RawRecord = {}): RawReco
   return {
     kind: 'wallet_recovery_envelope_set_v1',
     walletId: WALLET_ID,
-    keyManifestDigestB64u: DIGEST_B64U,
     manifestKekWraps: [rawManifestKekWrap()],
     entries: [rawWalletRecoveryEnvelopeEntry()],
     issuedAtMs: 1_000,

@@ -1178,12 +1178,11 @@ test.describe('signing session sealed store', () => {
         });
         if (!first) throw new Error('expected first Email OTP Ed25519 sealed record');
         await mod.writeExactSealedSession(first);
-        const missing =
-          await mod.readExactEd25519SealedSession({
-            kind: 'ed25519_durable_material',
-            authMethod: 'email_otp',
-            materialActivation: missingActivation,
-          });
+        const missing = await mod.readExactEd25519SealedSession({
+          kind: 'ed25519_durable_material',
+          authMethod: 'email_otp',
+          materialActivation: missingActivation,
+        });
         const exact = await mod.readExactEd25519SealedSession({
           kind: 'ed25519_durable_material',
           authMethod: 'email_otp',
@@ -1325,9 +1324,7 @@ test.describe('signing session sealed store', () => {
     expect(result.firstKey).toBe(result.renewedKey);
     expect(result.firstKey).toMatch(/^ed25519-material-v2:alice\.testnet:passkey:ed25519:/);
     expect(result.exactFirst?.sealedSecretB64u).toBe('sealed-ed25519-activation-renewed');
-    expect(result.exactFirst?.thresholdSessionIds.ed25519).toBe(
-      'ed25519-protocol-session-renewed',
-    );
+    expect(result.exactFirst?.thresholdSessionIds.ed25519).toBe('ed25519-protocol-session-renewed');
     expect(result.exactSecond?.sealedSecretB64u).toBe('sealed-ed25519-activation-b');
     expect(result.exactSecond?.thresholdSessionIds.ed25519).toBe('ed25519-protocol-session-b');
   });
@@ -1446,9 +1443,7 @@ test.describe('signing session sealed store', () => {
     expect(result.ecdsaThresholdSessionIds).toEqual(['new-email-otp-ecdsa-session']);
   });
 
-  test('keeps passkey and Email OTP sealed material separate by factor', async ({
-    page,
-  }) => {
+  test('keeps passkey and Email OTP sealed material separate by factor', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.sealedSessionStore);

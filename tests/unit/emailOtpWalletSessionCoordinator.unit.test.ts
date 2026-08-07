@@ -355,7 +355,6 @@ function appSessionJwtWithRuntimePolicyScope(
   })}.sig`;
 }
 
-
 function signingRootFromRuntimePolicyScope(
   runtimePolicyScope:
     | { projectId?: unknown; envId?: unknown; signingRootVersion?: unknown }

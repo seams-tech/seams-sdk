@@ -113,7 +113,6 @@ test.describe('D1 registration ceremony record store', () => {
     ).rejects.toBeInstanceOf(D1RegistrationCeremonyRecordConflictError);
     expect(await store.get('add-signer-finalize-replay', 'add-b:request-b')).toBeNull();
   });
-
 });
 
 function recordMutation(

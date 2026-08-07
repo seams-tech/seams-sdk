@@ -4,12 +4,12 @@ import {
   type ThresholdEcdsaDerivationRoleLocalBootstrapRequest,
 } from '../../packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa';
 import type { DerivationClientSharePublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
-import {
-  toEcdsaDerivationThresholdKeyId,
-} from '../../packages/sdk-web/src/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
+import { toEcdsaDerivationThresholdKeyId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 
-function toDerivationClientSharePublicKey33B64uForTest(value: string): DerivationClientSharePublicKey33B64u {
+function toDerivationClientSharePublicKey33B64uForTest(
+  value: string,
+): DerivationClientSharePublicKey33B64u {
   return value as DerivationClientSharePublicKey33B64u;
 }
 
@@ -131,30 +131,33 @@ test.describe('threshold ECDSA derivation role-local client parser', () => {
         );
       }) as typeof fetch;
 
-      const result = await thresholdEcdsaDerivationRoleLocalBootstrap('https://relay.example.test', {
-        ...BOOTSTRAP_ARGS,
-        passkeyBootstrapAuthorization: {
-          kind: 'passkey_bootstrap',
-          rpId: 'wallet.example.test',
-          webauthn_authentication: {
-            id: 'credential-id',
-            rawId: 'credential-id',
-            type: 'public-key',
-            authenticatorAttachment: undefined,
-            response: {
-              clientDataJSON: 'client-data-json',
-              authenticatorData: 'authenticator-data',
-              signature: 'signature',
-              userHandle: undefined,
+      const result = await thresholdEcdsaDerivationRoleLocalBootstrap(
+        'https://relay.example.test',
+        {
+          ...BOOTSTRAP_ARGS,
+          passkeyBootstrapAuthorization: {
+            kind: 'passkey_bootstrap',
+            rpId: 'wallet.example.test',
+            webauthn_authentication: {
+              id: 'credential-id',
+              rawId: 'credential-id',
+              type: 'public-key',
+              authenticatorAttachment: undefined,
+              response: {
+                clientDataJSON: 'client-data-json',
+                authenticatorData: 'authenticator-data',
+                signature: 'signature',
+                userHandle: undefined,
+              },
+              clientExtensionResults: {
+                prf: { results: { first: undefined, second: undefined } },
+              },
             },
-            clientExtensionResults: {
-              prf: { results: { first: undefined, second: undefined } },
-            },
+            projectEnvironmentId: 'env-test',
+            projectEnvironmentPublishableKey: 'pk_test_runtime',
           },
-          projectEnvironmentId: 'env-test',
-          projectEnvironmentPublishableKey: 'pk_test_runtime',
         },
-      });
+      );
 
       expect(result, JSON.stringify(result)).toMatchObject({ ok: true });
       if (!result.ok) throw new Error(result.error);

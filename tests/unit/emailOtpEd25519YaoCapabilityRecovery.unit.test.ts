@@ -255,8 +255,7 @@ function recoveryBootstrap(args: {
     kind: 'router_ab_ed25519_yao_email_otp_recovery_v1',
     session: {
       sessionKind: 'jwt',
-      walletSessionJwt:
-        args.walletSessionJwt ?? walletSessionJwt('recovered'),
+      walletSessionJwt: args.walletSessionJwt ?? walletSessionJwt('recovered'),
       walletId: WALLET_ID,
       nearAccountId: String(NEAR_ACCOUNT_ID),
       nearEd25519SigningKeyId: String(NEAR_ED25519_SIGNING_KEY_ID),
@@ -562,9 +561,7 @@ function buildEmailOtpSealedRecord(args: {
   });
 }
 
-async function runEd25519CommitQueueTask<T>(args: {
-  task: () => Promise<T>;
-}): Promise<T> {
+async function runEd25519CommitQueueTask<T>(args: { task: () => Promise<T> }): Promise<T> {
   return await args.task();
 }
 
@@ -684,9 +681,7 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
       providerSubjectId: PROVIDER_SUBJECT,
       emailHashHex: EMAIL_HASH_HEX,
     });
-    expect(publicationInput?.walletSessionState.thresholdSessionId).toBe(
-      THRESHOLD_SESSION_ID,
-    );
+    expect(publicationInput?.walletSessionState.thresholdSessionId).toBe(THRESHOLD_SESSION_ID);
     if (result.kind === 'recovered') {
       expect(result.recovery.walletSessionState.remainingUses).toBe(3);
       expect(result.recovery.walletSessionState.thresholdSessionId).toBe(THRESHOLD_SESSION_ID);
@@ -705,8 +700,7 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
     replacementMetadata.scope.material_activation = routerAbMpcMaterialActivationRefToWire(
       replacementMetadata.materialActivation,
     );
-    const replacementActivation =
-      nearEd25519YaoMaterialActivationFromMetadata(replacementMetadata);
+    const replacementActivation = nearEd25519YaoMaterialActivationFromMetadata(replacementMetadata);
     const initialRecord = buildEmailOtpSealedRecord({
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 3,
@@ -914,10 +908,10 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
       material: {
         materialActivation: publicCapabilityReference().materialActivation,
         capability: {
-        lifecycle: {
-          lifecycleId: prior.scope.lifecycle_id,
-          thresholdSessionId: THRESHOLD_SESSION_ID,
-        },
+          lifecycle: {
+            lifecycleId: prior.scope.lifecycle_id,
+            thresholdSessionId: THRESHOLD_SESSION_ID,
+          },
         },
       },
     });
@@ -1040,12 +1034,15 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
       result.material.activeClient.metadata().applicationBinding.key_creation_signer_slot,
     );
     expect(result.walletSessionState.signingLane.storageSource).toBe('email_otp');
-    expect(result.material.activeClient.metadata().registeredPublicKey).toEqual(REGISTERED_PUBLIC_KEY);
+    expect(result.material.activeClient.metadata().registeredPublicKey).toEqual(
+      REGISTERED_PUBLIC_KEY,
+    );
     const recoveredActivation = nearEd25519YaoMaterialActivationFromMetadata(
       result.material.activeClient.metadata(),
     );
-    expect(mpcMaterialActivationRefsEqual(recoveredActivation, priorMetadata.materialActivation))
-      .toBe(false);
+    expect(
+      mpcMaterialActivationRefsEqual(recoveredActivation, priorMetadata.materialActivation),
+    ).toBe(false);
     expect(
       mpcMaterialActivationRefsEqual(
         result.publicationContext.materialActivation,
@@ -1063,9 +1060,7 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
     const activation = new RecoveryActivationHarness(null);
     const prepared = prepareColdEmailOtpEd25519YaoRecoveryV1({
       identity: publicCapabilityReference(),
-      thresholdSessionId: unwrapDomainId(
-        parseThresholdEd25519SessionId(THRESHOLD_SESSION_ID),
-      ),
+      thresholdSessionId: unwrapDomainId(parseThresholdEd25519SessionId(THRESHOLD_SESSION_ID)),
       signerSlot: 1,
       expectedOperationalPublicKey: emailOtpUser().operationalPublicKey,
       providerSubject: PROVIDER_SUBJECT,
@@ -1079,19 +1074,19 @@ test.describe('Email OTP Ed25519 Yao capability recovery', () => {
     });
 
     const recovery = activateColdEmailOtpEd25519YaoUnlockedRecoveryV1({
-        prepared,
-        bootstrap: recoveryBootstrap({
-          remainingUses: 3,
-          prior: priorMetadata,
-          substitutePublicKey: false,
-          substituteParticipantIds: false,
-          substituteSignerSetId: false,
-          walletSessionJwt: walletSessionJwt('wrong-quota', 'substituted-wallet-session-quota'),
-        }),
-        pendingFactorHandle: pendingFactorHandle(),
-        workerContext: worker.context(),
-        activateCapability: activation.activate.bind(activation),
-      });
+      prepared,
+      bootstrap: recoveryBootstrap({
+        remainingUses: 3,
+        prior: priorMetadata,
+        substitutePublicKey: false,
+        substituteParticipantIds: false,
+        substituteSignerSetId: false,
+        walletSessionJwt: walletSessionJwt('wrong-quota', 'substituted-wallet-session-quota'),
+      }),
+      pendingFactorHandle: pendingFactorHandle(),
+      workerContext: worker.context(),
+      activateCapability: activation.activate.bind(activation),
+    });
     const recoveryError: unknown = await recovery.catch((error: unknown) => error);
     expect(isEmailOtpEd25519YaoRecoveryContinuityError(recoveryError)).toBe(true);
     if (!isEmailOtpEd25519YaoRecoveryContinuityError(recoveryError)) {

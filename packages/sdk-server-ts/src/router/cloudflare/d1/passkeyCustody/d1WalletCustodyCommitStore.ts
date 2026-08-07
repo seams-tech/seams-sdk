@@ -97,11 +97,10 @@ function parseRecordOrNull(raw: unknown): WalletCustodyCommitRecord | null {
 }
 
 /**
- * Rejects a pair that does not describe one wallet and one key manifest.
+ * Rejects a pair that does not describe one wallet's custody.
  *
- * Committing a mismatched pair would store a recovery set whose codes open a
- * seed for a manifest the envelope does not name — recovery would then produce
- * keys the wallet never registered.
+ * The envelope and the recovery set wrap the same seed, so a pair naming two
+ * wallets would leave a set whose codes open a seed that is not the wallet's.
  */
 function commitInconsistency(commit: WalletCustodyRegistrationCommit): string | null {
   if (String(commit.envelope.walletId) !== String(commit.recoverySet.walletId)) {
@@ -110,12 +109,9 @@ function commitInconsistency(commit: WalletCustodyRegistrationCommit): string | 
   if (commit.envelope.binding.kind !== 'wallet_custody_seed_v1') {
     return 'registration commits a wallet custody seed envelope';
   }
-  if (
-    String(commit.envelope.binding.keyManifestDigestB64u) !==
-    String(commit.recoverySet.keyManifestDigestB64u)
-  ) {
-    return 'envelope and recovery set describe different key manifests';
-  }
+  // No manifest cross-check: neither record names a key manifest now. Key sets
+  // carry their own on their own registration state, so the only thing that
+  // must agree here is which wallet's seed the pair covers.
   if (commit.recoverySet.entries.length !== 1) {
     return 'a recovery set carries exactly one custody entry';
   }

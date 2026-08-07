@@ -17,8 +17,7 @@ import {
 
 const DAY_MS = 24 * 60 * 60_000;
 const NOW_MS = 1_900_000_000_000;
-const THRESHOLD_SESSION_ID =
-  SigningSessionIds.thresholdEd25519Session('expiry-policy-session');
+const THRESHOLD_SESSION_ID = SigningSessionIds.thresholdEd25519Session('expiry-policy-session');
 
 test.describe('signing session expiry policy', () => {
   test('uses a configurable 24-hour default bounded by the server maximum', () => {
@@ -31,17 +30,14 @@ test.describe('signing session expiry policy', () => {
       ttlMs: DAY_MS,
       remainingUses: 3,
     });
-    expect(DEFAULT_THRESHOLD_ECDSA_PROVISIONING_DEFAULTS.tempo.signingSession.ttlMs).toBe(
-      DAY_MS,
-    );
-    expect(DEFAULT_THRESHOLD_ECDSA_PROVISIONING_DEFAULTS.evm.signingSession.ttlMs).toBe(
-      DAY_MS,
-    );
+    expect(DEFAULT_THRESHOLD_ECDSA_PROVISIONING_DEFAULTS.tempo.signingSession.ttlMs).toBe(DAY_MS);
+    expect(DEFAULT_THRESHOLD_ECDSA_PROVISIONING_DEFAULTS.evm.signingSession.ttlMs).toBe(DAY_MS);
 
     const customTtlMs = 2 * 60 * 60_000;
-    expect(
-      clampThresholdSessionPolicy({ ttlMs: customTtlMs, remainingUses: 9 }),
-    ).toEqual({ ttlMs: customTtlMs, remainingUses: 9 });
+    expect(clampThresholdSessionPolicy({ ttlMs: customTtlMs, remainingUses: 9 })).toEqual({
+      ttlMs: customTtlMs,
+      remainingUses: 9,
+    });
     expect(
       clampThresholdSessionPolicy({
         ttlMs: THRESHOLD_SESSION_POLICY_MAX_TTL_MS + 1,

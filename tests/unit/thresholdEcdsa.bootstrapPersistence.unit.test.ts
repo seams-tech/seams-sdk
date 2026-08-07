@@ -77,7 +77,10 @@ function createBootstrapStore(calls: {
 
 test.describe('threshold ECDSA bootstrap persistence', () => {
   test('persists threshold ECDSA signer identity rows', async () => {
-    const calls = { profiles: [] as UpsertProfileCall[], signers: [] as ActivateAccountSignerInput[] };
+    const calls = {
+      profiles: [] as UpsertProfileCall[],
+      signers: [] as ActivateAccountSignerInput[],
+    };
 
     await persistThresholdEcdsaBootstrapForWalletTarget({
       bootstrapStore: createBootstrapStore(calls),
@@ -124,7 +127,10 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
   });
 
   test('uses the requested chain target as the persisted target identity', async () => {
-    const calls = { profiles: [] as UpsertProfileCall[], signers: [] as ActivateAccountSignerInput[] };
+    const calls = {
+      profiles: [] as UpsertProfileCall[],
+      signers: [] as ActivateAccountSignerInput[],
+    };
 
     await persistThresholdEcdsaBootstrapForWalletTarget({
       bootstrapStore: createBootstrapStore(calls),
@@ -142,7 +148,10 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
   });
 
   test('Email OTP bootstrap writes wallet signer state without NEAR projection compatibility rows', async () => {
-    const calls = { profiles: [] as UpsertProfileCall[], signers: [] as ActivateAccountSignerInput[] };
+    const calls = {
+      profiles: [] as UpsertProfileCall[],
+      signers: [] as ActivateAccountSignerInput[],
+    };
 
     await persistThresholdEcdsaBootstrapForWalletTarget({
       bootstrapStore: createBootstrapStore(calls),

@@ -326,9 +326,7 @@ test.describe('Router A/B Ed25519 Yao recovery Wallet Session authorization', ()
         validClaimsFixture(),
       );
       expect(authorized.result, phase).toMatchObject({ ok: true });
-      expect(authorized.session.parsedAuthorization, phase).toBe(
-        'Bearer recovery-wallet-session',
-      );
+      expect(authorized.session.parsedAuthorization, phase).toBe('Bearer recovery-wallet-session');
     }
   });
 
@@ -336,14 +334,14 @@ test.describe('Router A/B Ed25519 Yao recovery Wallet Session authorization', ()
     const session = failedSessionFixture('missing');
     const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(session);
 
-    await expect(authorization.authorize(authorizationInputFixture('admit', false))).resolves.toEqual(
-      {
-        ok: false,
-        status: 401,
-        code: 'wallet_session_missing',
-        message: 'Wallet Session is missing',
-      },
-    );
+    await expect(
+      authorization.authorize(authorizationInputFixture('admit', false)),
+    ).resolves.toEqual({
+      ok: false,
+      status: 401,
+      code: 'wallet_session_missing',
+      message: 'Wallet Session is missing',
+    });
     expect(session.parsedAuthorization).toBeUndefined();
   });
 

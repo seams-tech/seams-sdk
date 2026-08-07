@@ -19,4 +19,3 @@ test.describe('confirmation config normalization', () => {
     expect(source).not.toMatch(/kind:\s*'silent'[\s\S]{0,120}autoProceedDelay:/);
   });
 });
-

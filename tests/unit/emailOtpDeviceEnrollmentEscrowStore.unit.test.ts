@@ -2,7 +2,8 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  store: '/_test-sdk/esm/core/signingEngine/workerManager/workers/email-otp/deviceEnrollmentEscrowStore.js',
+  store:
+    '/_test-sdk/esm/core/signingEngine/workerManager/workers/email-otp/deviceEnrollmentEscrowStore.js',
 } as const;
 
 test.describe('Email OTP device enrollment escrow store', () => {
@@ -308,7 +309,9 @@ test.describe('Email OTP device enrollment escrow store', () => {
     );
   });
 
-  test('write uses wallet DB disabled-mode protection without opening IndexedDB', async ({ page }) => {
+  test('write uses wallet DB disabled-mode protection without opening IndexedDB', async ({
+    page,
+  }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.store);

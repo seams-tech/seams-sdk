@@ -69,7 +69,8 @@ test('hosted-wallet exchange is repeated when the source App Session or relayer 
     });
 
     const ensure = Reflect.get(router, 'ensureHostedWalletSeamsSession');
-    if (typeof ensure !== 'function') throw new Error('hosted-wallet source resolver is unavailable');
+    if (typeof ensure !== 'function')
+      throw new Error('hosted-wallet source resolver is unavailable');
 
     const sourceA = {
       relayUrl: 'https://relay-a.example.test/',

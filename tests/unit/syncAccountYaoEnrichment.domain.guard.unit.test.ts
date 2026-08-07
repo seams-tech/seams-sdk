@@ -344,10 +344,7 @@ function createBaseService(
 async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
   const temporary = createTemporaryD1Database();
   try {
-    await applyD1MigrationFiles(
-      temporary.database,
-      listD1MigrationFiles('d1-signer'),
-    );
+    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
     const baseService = createBaseService(temporary.database);
     const webAuthn = new RecordingSyncAccountWebAuthnService(
       baseService.webAuthn,

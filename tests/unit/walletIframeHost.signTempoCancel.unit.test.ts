@@ -179,15 +179,11 @@ test.describe('wallet iframe host PM_SIGN_TEMPO cancellation guards', () => {
     const wrongSelector = makeTempoFeeTokenPreferenceRequest('req-hostile-selector');
     wrongSelector.payload.request.tx.data =
       '0x1234567800000000000000000000000020c0000000000000000000000000000000000001';
-    await expect(handlers.PM_SIGN_TEMPO!(wrongSelector)).rejects.toThrow(
-      'FeeManager.setUserToken',
-    );
+    await expect(handlers.PM_SIGN_TEMPO!(wrongSelector)).rejects.toThrow('FeeManager.setUserToken');
 
     const wrongChain = makeTempoFeeTokenPreferenceRequest('req-hostile-chain');
     wrongChain.payload.request.tx.chainId = 1;
-    await expect(handlers.PM_SIGN_TEMPO!(wrongChain)).rejects.toThrow(
-      'chain id does not match',
-    );
+    await expect(handlers.PM_SIGN_TEMPO!(wrongChain)).rejects.toThrow('chain id does not match');
     expect(feeTokenSignCalls).toBe(0);
   });
 });
@@ -477,5 +473,4 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
       ).toBe(message);
     }
   });
-
 });

@@ -338,12 +338,12 @@ test.describe('SeamsWeb Email OTP runtime', () => {
         session_kind: 'jwt',
         projectEnvironmentId: 'env_test',
         exchange: {
-        type: 'oidc_jwt',
-        provider: 'google',
-        account_mode: 'register',
-        token: 'google-id-token-1',
-      },
-    });
+          type: 'oidc_jwt',
+          provider: 'google',
+          account_mode: 'register',
+          token: 'google-id-token-1',
+        },
+      });
       return new Response(
         JSON.stringify({
           ok: true,

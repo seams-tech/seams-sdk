@@ -1,7 +1,5 @@
 import { expect, test } from '@playwright/test';
-import {
-  createRelayerReusableWalletSessionStatusPort,
-} from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
+import { createRelayerReusableWalletSessionStatusPort } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import { walletSessionJwtAuth } from '@shared/utils/sessionTokens';
 
 function jwtWithPayload(payload: Record<string, unknown>): string {

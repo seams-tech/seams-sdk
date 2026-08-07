@@ -338,5 +338,4 @@ test.describe('route definition scaffolding', () => {
 
     expect(calls).toEqual(['event:wallet_created', 'gas:near_delegate']);
   });
-
 });

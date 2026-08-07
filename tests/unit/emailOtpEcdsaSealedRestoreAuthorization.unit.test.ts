@@ -87,12 +87,17 @@ test('queued ECDSA restore rejects a replacement before worker or durable side e
   const initialManifest = (await canonicalEvmFamilyEcdsaSigningCapabilityFixture('email_otp'))
     .manifest;
   const replacementManifest = ecdsaCapabilityHydrationLookupFixture().active.manifest;
-  const initialStoredRecord = buildEmailOtpEcdsaSealedRuntimeRecordFixture({ manifest: initialManifest });
+  const initialStoredRecord = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
+    manifest: initialManifest,
+  });
   const replacementStoredRecord = buildEmailOtpEcdsaSealedRuntimeRecordFixture({
     manifest: replacementManifest,
   });
   const initialNormalized = normalizeSealedRecoveryRecord(initialStoredRecord);
-  if (initialNormalized.kind !== 'accepted' || initialNormalized.record.authMethod !== 'email_otp') {
+  if (
+    initialNormalized.kind !== 'accepted' ||
+    initialNormalized.record.authMethod !== 'email_otp'
+  ) {
     throw new Error('initial Email OTP ECDSA recovery fixture must normalize');
   }
   const initialRecord = initialNormalized.record;

@@ -57,7 +57,12 @@ export type WalletRecoveryManifestKekWrap = {
 export type WalletRecoveryEnvelopeSetRecord = {
   kind: 'wallet_recovery_envelope_set_v1';
   walletId: WalletId;
-  keyManifestDigestB64u: DigestB64u;
+  /**
+   * No key manifest digest. A set wraps the wallet's seed, and key sets are
+   * provisioned independently with their own manifests, so there is no
+   * wallet-level manifest for a set to name. Rotating one key set no longer
+   * invalidates the seed the set wraps.
+   */
   manifestKekWraps: readonly WalletRecoveryManifestKekWrap[];
   entries: readonly WalletRecoveryEnvelopeEntry[];
   issuedAtMs: number;
@@ -95,7 +100,6 @@ export function buildWalletRecoveryManifestKekWrap(args: {
 
 export function buildWalletRecoveryEnvelopeSetRecord(args: {
   walletId: WalletId;
-  keyManifestDigestB64u: DigestB64u;
   manifestKekWraps: readonly WalletRecoveryManifestKekWrap[];
   entries: readonly WalletRecoveryEnvelopeEntry[];
   issuedAtMs: number;
@@ -104,7 +108,6 @@ export function buildWalletRecoveryEnvelopeSetRecord(args: {
   return {
     kind: 'wallet_recovery_envelope_set_v1',
     walletId: args.walletId,
-    keyManifestDigestB64u: args.keyManifestDigestB64u,
     manifestKekWraps: args.manifestKekWraps,
     entries: args.entries,
     issuedAtMs: args.issuedAtMs,
@@ -340,10 +343,6 @@ export function parseWalletRecoveryEnvelopeSetRecord(
 
   return buildWalletRecoveryEnvelopeSetRecord({
     walletId: walletId.value,
-    keyManifestDigestB64u: parseDigestField(
-      record.keyManifestDigestB64u,
-      `${label}.keyManifestDigestB64u`,
-    ),
     manifestKekWraps,
     entries,
     issuedAtMs,

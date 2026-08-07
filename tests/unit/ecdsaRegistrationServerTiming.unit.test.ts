@@ -87,9 +87,9 @@ test('unknown and malformed metrics cannot affect registration', () => {
   expect(parseYaoServerTimingBuckets('yao_d1_claim;dur=-1')).toEqual([]);
   expect(parseYaoServerTimingBuckets('__proto__;dur=1, constructor;dur=2')).toEqual([]);
   // A recognised metric still parses when surrounded by noise.
-  expect(
-    parseYaoServerTimingBuckets('cfCacheStatus;desc="HIT", yao_d1_claim;dur=7, junk'),
-  ).toEqual([['yaoServerD1ClaimMs', 7]]);
+  expect(parseYaoServerTimingBuckets('cfCacheStatus;desc="HIT", yao_d1_claim;dur=7, junk')).toEqual(
+    [['yaoServerD1ClaimMs', 7]],
+  );
 });
 
 /*
