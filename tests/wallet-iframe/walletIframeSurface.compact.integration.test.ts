@@ -18,6 +18,7 @@ type SurfaceMeasurementPayload = Record<string, unknown>;
 const SURFACE_MEASUREMENT_HARNESS_SCRIPT = String.raw`
       let currentSurface = null;
       let previousSurface = null;
+      let exactSessionReadCount = 0;
       const originalAdoptPort = adoptPort;
       adoptPort = function patchedAdoptPort(port) {
         originalAdoptPort(port);
@@ -27,6 +28,13 @@ const SURFACE_MEASUREMENT_HARNESS_SCRIPT = String.raw`
           originalHandler?.(event);
           const message = event.data || {};
           if (!message || typeof message !== 'object') return;
+          if (message.type === 'PM_GET_EXACT_WALLET_SESSION_STATE') {
+            exactSessionReadCount += 1;
+            window.parent?.postMessage({
+              type: 'TEST_EXACT_SESSION_READ_COUNT',
+              count: exactSessionReadCount,
+            }, '*');
+          }
           if (message.type !== 'PM_OPEN_AUTH_MENU' || typeof message.requestId !== 'string') return;
           previousSurface = currentSurface;
           currentSurface = {
@@ -85,21 +93,48 @@ type TestWindow = Window & {
     init: () => Promise<void>;
     dispose: () => void;
     getOverlayState: () => { visible: boolean };
-    openHostedAuthMenu: (request: HostedAuthMenuOpenRequest) => Promise<unknown>;
+    getExactSessionState: () => Promise<unknown>;
+    openHostedAuthMenu: (
+      request: HostedAuthMenuOpenRequest,
+      anchorElement?: HTMLElement,
+    ) => Promise<unknown>;
   };
   __compactSurfaceOpen?: {
     requestId: string;
     authMenuSessionId: string;
   };
+  __compactSurfaceTimeoutDelays?: number[];
+  __compactExactSessionReadCount?: number;
   __compactSurfaceMessageListenerInstalled?: boolean;
 };
 
-async function startHostedAuthMenu(page: Page, sessionId: string) {
+type StartHostedAuthMenuOptions = {
+  anchorZoom?: number;
+  anchorInFlow?: boolean;
+  captureRequestTimeouts?: boolean;
+};
+
+async function startHostedAuthMenu(
+  page: Page,
+  sessionId: string,
+  options: StartHostedAuthMenuOptions = {},
+) {
   await page.evaluate(
-    async ({ walletOrigin, ownerTag, sessionId }) => {
+    async ({
+      walletOrigin,
+      ownerTag,
+      sessionId,
+      anchorZoom,
+      anchorInFlow,
+      captureRequestTimeouts,
+    }) => {
       const testWindow = window as TestWindow;
       if (!testWindow.__compactSurfaceMessageListenerInstalled) {
         window.addEventListener('message', (event) => {
+          if (event.data?.type === 'TEST_EXACT_SESSION_READ_COUNT') {
+            testWindow.__compactExactSessionReadCount = Number(event.data.count);
+            return;
+          }
           if (event.data?.type !== 'TEST_SURFACE_OPEN') return;
           testWindow.__compactSurfaceOpen = {
             requestId: String(event.data.requestId),
@@ -140,9 +175,52 @@ async function startHostedAuthMenu(page: Page, sessionId: string) {
         showProgress: true,
         enabledExternalProviders: [],
       });
-      void router.openHostedAuthMenu(request).catch(() => undefined);
+      let anchorElement: HTMLElement | undefined;
+      if (typeof anchorZoom === 'number') {
+        anchorElement = document.createElement('div');
+        anchorElement.style.position = 'fixed';
+        anchorElement.style.top = '100px';
+        anchorElement.style.left = '80px';
+        anchorElement.style.width = '420px';
+        anchorElement.style.height = '430px';
+        anchorElement.style.setProperty('zoom', String(anchorZoom));
+        document.body.appendChild(anchorElement);
+      } else if (anchorInFlow) {
+        const spacer = document.createElement('div');
+        spacer.style.height = '1200px';
+        document.body.appendChild(spacer);
+        anchorElement = document.createElement('div');
+        anchorElement.dataset.testAuthMenuAnchor = 'true';
+        anchorElement.style.width = '420px';
+        anchorElement.style.height = '430px';
+        document.body.appendChild(anchorElement);
+        const tail = document.createElement('div');
+        tail.style.height = '1200px';
+        document.body.appendChild(tail);
+      }
+      const nativeSetTimeout = window.setTimeout;
+      const timeoutDelays: number[] = [];
+      if (captureRequestTimeouts) {
+        window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+          timeoutDelays.push(Number(timeout ?? 0));
+          return nativeSetTimeout(handler, timeout, ...args);
+        }) as typeof window.setTimeout;
+      }
+      try {
+        void router.openHostedAuthMenu(request, anchorElement).catch(() => undefined);
+      } finally {
+        window.setTimeout = nativeSetTimeout;
+        testWindow.__compactSurfaceTimeoutDelays = timeoutDelays;
+      }
     },
-    { walletOrigin: WALLET_ORIGIN, ownerTag: OWNER_TAG, sessionId },
+    {
+      walletOrigin: WALLET_ORIGIN,
+      ownerTag: OWNER_TAG,
+      sessionId,
+      anchorZoom: options.anchorZoom,
+      anchorInFlow: options.anchorInFlow,
+      captureRequestTimeouts: options.captureRequestTimeouts,
+    },
   );
 
   await page.waitForFunction(
@@ -363,7 +441,9 @@ test.describe('wallet iframe compact surface measurement routing', () => {
     expect(acceptedGeometry.className).not.toContain('is-viewport-fallback');
   });
 
-  test('animates the hosted auth menu between measured content heights', async ({ page }) => {
+  test('tracks measured auth-menu heights instantly rather than easing toward them', async ({
+    page,
+  }) => {
     await startHostedAuthMenu(page, 'compact-height-animation-session');
     await postSurfaceMeasurement(page, {
       kind: 'measured_auth_menu_v1',
@@ -385,14 +465,132 @@ test.describe('wallet iframe compact surface measurement routing', () => {
     });
     await page.waitForTimeout(60);
 
-    const resizingGeometry = await readDialogGeometry(page);
-    expect(resizingGeometry.height).toBeLessThan(430);
-    expect(resizingGeometry.height).toBeGreaterThan(255);
-    expect(resizingGeometry.transitionDuration).toContain('0.23s');
-    expect(resizingGeometry.transitionTimingFunction).toContain(
-      'cubic-bezier(0.34, 1.18, 0.64, 1)',
-    );
+    // The in-iframe card animates its own height and a ResizeObserver posts
+    // every intermediate frame here. If this dialog eased toward those frames
+    // it would trail a still-moving target and the change would read as two
+    // steps. It must land on each reported frame immediately, so the card's
+    // spring stays the only motion on screen.
+    const settledGeometry = await readDialogGeometry(page);
+    expect(settledGeometry.height).toBeCloseTo(255, 0);
+    expect(settledGeometry.transitionDuration).toBe('0s');
     await waitForDialogGeometry(page, { width: 420, height: 255 });
+  });
+
+  test('preserves an anchored menu layout when the host page is zoomed', async ({ page }) => {
+    await startHostedAuthMenu(page, 'compact-zoomed-anchor-session', { anchorZoom: 0.9 });
+    await postSurfaceMeasurement(page, {
+      kind: 'measured_auth_menu_v1',
+      requestId: '__current__',
+      authMenuSessionId: '__current__',
+      sequence: 30,
+      widthCssPx: 420,
+      heightCssPx: 430,
+    });
+    await waitForDialogGeometry(page, { width: 378, height: 387 });
+
+    const geometry = await page.evaluate(() => {
+      const dialog = document.querySelector('dialog.w3a-wallet-overlay-dialog');
+      const iframe = dialog?.querySelector('iframe');
+      if (!(dialog instanceof HTMLDialogElement) || !(iframe instanceof HTMLIFrameElement)) {
+        throw new Error('wallet auth-menu overlay missing');
+      }
+      const rect = dialog.getBoundingClientRect();
+      return {
+        width: rect.width,
+        height: rect.height,
+        top: rect.top,
+        left: rect.left,
+        iframeLayoutWidth: iframe.offsetWidth,
+        transform: getComputedStyle(dialog).transform,
+      };
+    });
+
+    expect(geometry.width).toBeCloseTo(378, 0);
+    expect(geometry.height).toBeCloseTo(387, 0);
+    expect(geometry.top).toBeCloseTo(90, 0);
+    expect(geometry.left).toBeCloseTo(72, 0);
+    expect(geometry.iframeLayoutWidth).toBe(420);
+    expect(geometry.transform).toBe('matrix(0.9, 0, 0, 0.9, 0, 0)');
+  });
+
+  test('an anchored menu scrolls with the page content instead of floating over it', async ({
+    page,
+  }) => {
+    await startHostedAuthMenu(page, 'compact-scroll-follow-session', { anchorInFlow: true });
+    await postSurfaceMeasurement(page, {
+      kind: 'measured_auth_menu_v1',
+      requestId: '__current__',
+      authMenuSessionId: '__current__',
+      sequence: 40,
+      widthCssPx: 420,
+      heightCssPx: 430,
+    });
+    await waitForDialogGeometry(page, { width: 420, height: 430 });
+    // Let the post-open anchor-settle tracking window expire so the scroll
+    // assertion exercises native compositor scrolling, not the rAF tracker.
+    await page.waitForTimeout(800);
+
+    const scrolled = await page.evaluate(async () => {
+      const dialog = document.querySelector('dialog.w3a-wallet-overlay-dialog');
+      const anchor = document.querySelector('[data-test-auth-menu-anchor]');
+      if (!(dialog instanceof HTMLDialogElement) || !(anchor instanceof HTMLElement)) {
+        throw new Error('wallet auth-menu overlay or anchor missing');
+      }
+      const before = {
+        dialogTop: dialog.getBoundingClientRect().top,
+        anchorTop: anchor.getBoundingClientRect().top,
+      };
+      window.scrollTo(0, 400);
+      await new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve(undefined))),
+      );
+      const after = {
+        dialogTop: dialog.getBoundingClientRect().top,
+        anchorTop: anchor.getBoundingClientRect().top,
+        scrollY: window.scrollY,
+        position: getComputedStyle(dialog).position,
+      };
+      return { before, after };
+    });
+
+    expect(scrolled.after.scrollY).toBe(400);
+    expect(scrolled.after.position).toBe('absolute');
+    expect(scrolled.before.dialogTop).toBeCloseTo(scrolled.before.anchorTop, 0);
+    expect(scrolled.after.dialogTop - scrolled.before.dialogTop).toBeCloseTo(-400, 0);
+    expect(scrolled.after.dialogTop).toBeCloseTo(scrolled.after.anchorTop, 0);
+  });
+
+  test('keeps the hosted auth menu open without a request deadline', async ({ page }) => {
+    await startHostedAuthMenu(page, 'compact-interactive-timeout-session', {
+      captureRequestTimeouts: true,
+    });
+
+    const timeoutDelays = await page.evaluate(() => {
+      const testWindow = window as TestWindow;
+      return testWindow.__compactSurfaceTimeoutDelays ?? [];
+    });
+    expect(timeoutDelays).not.toContain(180_000);
+  });
+
+  test('serves exact-session reads from the mirror while hosted authentication is active', async ({
+    page,
+  }) => {
+    await startHostedAuthMenu(page, 'compact-mirrored-session-read');
+    const before = await page.evaluate(() => {
+      const testWindow = window as TestWindow;
+      return testWindow.__compactExactSessionReadCount ?? 0;
+    });
+
+    await page.evaluate(async () => {
+      const testWindow = window as TestWindow;
+      await testWindow.__compactSurfaceRouter?.getExactSessionState();
+    });
+
+    const after = await page.evaluate(() => {
+      const testWindow = window as TestWindow;
+      return testWindow.__compactExactSessionReadCount ?? 0;
+    });
+    expect(after).toBe(before);
   });
 
   test('does not let a stale measurement resize a replacement surface', async ({ page }) => {
