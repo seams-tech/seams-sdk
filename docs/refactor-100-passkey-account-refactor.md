@@ -1230,25 +1230,36 @@ repository evidence.
       true of the paired ceremony; with one key set per run it is not, and the
       two key sets can be provisioned in separate runs at separate times.
 
-      The real obstacle is ordering against the *server* protocol, and it is
-      specific to the EVM family. The ceremony derives the client root share
-      from the seed under the ECDSA application binding digest, and needs that
-      digest before it derives. Today the digest does not exist that early: it
-      comes out of the Router A/B ECDSA registration rounds
-      (`registrationBinding.applicationBindingDigestB64u`, after create and
-      respond), and the relayer's public identity — which the ceremony needs to
-      finalize — only arrives with the activate response. The current client
-      root share is not seed-derived at all: it is `xClientBase`, produced by
-      those same rounds and handed to
-      `prepareRouterAbEcdsaRoleLocalClientBootstrap`.
+      The real change is *which route* registers the EVM key set, not
+      sequencing. Today's strict route derives the client share through the
+      Router A/B registration rounds — `xClientBase`, fed into the role-local
+      bootstrap after the proofs verify. A seed-derived share cannot come out
+      of those rounds by construction, so the splice moves EVM registration to
+      the role-local bootstrap route with the share derived from the custody
+      seed — the same route Email OTP registration already uses (and the
+      bootstrap body already has a `passkeyBootstrapAuthorization` variant).
 
-      So the EVM half is not a substitution inside the flow. Either the relayer
-      publishes the binding digest before the derivation, or the ceremony is
-      restructured to span respond → activate — and in that second case the
-      `xClientBase` those rounds produce is no longer what the wallet
-      registers, which is a change to what the server records, not only to
-      client sequencing. Settle that against the relayer contract before
-      writing code.
+      The ordering worry recorded here earlier was overstated. The ECDSA
+      application binding digest is available before any Router leg: the local
+      `create` step computes it from the setup response's `strictRegistration`
+      facts (`ceremony.registration_binding()`, exposing
+      `applicationBindingDigestB64u`), and it is that same digest the current
+      flow later hands to `prepareRouterAbEcdsaRoleLocalClientBootstrap`. The
+      relayer's bootstrap value echoes `applicationBindingDigestB64u` and
+      `contextBinding32B64u` back, so the finalize cross-check stays.
+
+      **Decision (2026-08-07): the digest requirement stays.** Dropping it from
+      the seed derivation was considered and rejected: it buys nothing for
+      ordering — the role-local bootstrap runs under
+      `RouterAbEcdsaDerivationStableKeyContext`, which is built from the same
+      digest at the same moment, and `contextBinding32` is how both sides agree
+      what is being registered — and it is a real property, not ceremony. The
+      binding means a run induced under a wrong or foreign context derives a
+      *different* key rather than reusing the wallet's real share there, and it
+      keeps the two key sets' derivation models symmetric (the Ed25519 root is
+      bound to its Yao application binding digest the same way). Recovery
+      already depends on the digest being stable — that is what the *Stable* in
+      the context type means.
 
       The NEAR half has no such obstacle: the Ed25519 binding digest is
       computed inside the ceremony from the typed application facts, so a NEAR
