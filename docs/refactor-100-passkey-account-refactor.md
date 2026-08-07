@@ -781,6 +781,45 @@ repository evidence.
       device's material, collapsing the device separation Refactor 103
       creates. A lost lane is revoked and reprovisioned through Refactor 102,
       not recovered. Both parsers reject lane kinds in a recovery entry.
+- [ ] FIX (August 7, 2026) — the key manifest moves **off** the seed and
+      becomes a per-key-set record, correcting an over-constraint introduced
+      earlier in this refactor.
+
+      The defect: the manifest digest was bound into the seed envelope's AAD
+      and into the KEK context of every recovery wrap, so the seed
+      self-certified "I control exactly these two keys". Nothing required that.
+      The EVM-family and NEAR Ed25519 key sets are independent, and binding
+      them to one manifest coupled them for no benefit. The visible symptoms
+      were that a key set could not be added later without resealing the
+      envelope and rewrapping all ten recovery codes, and that the ceremony
+      appeared to need both protocols completed together — which read as a
+      conflict with Refactor 94C's deferred-Yao contract. Both symptoms came
+      from the coupling, not from 94C and not from the product shape.
+
+      Correct shape:
+
+      - The seed envelope binds to wallet, envelope, factor, and derivation
+        scheme. No manifest digest, so it is sealed once and never resealed as
+        key sets arrive.
+      - Each key set records its own manifest when it registers.
+      - The fail-closed gate survives, scoped per key set: to publish
+        capability for a key set, the derived identity must reproduce *that*
+        key set's recorded manifest. Same property, narrower subject.
+
+      Once decoupled, each key set provisions on its own schedule and 94C's
+      ordering is untouched: the EVM wallet commits its custody immediately and
+      Ed25519 records its manifest whenever its Yao work settles.
+
+      Consequence to accept: the recovery wrap scopes lose the key manifest
+      digest, and with it the property that a wrap cannot be moved onto a set
+      whose manifest has since changed. That guard was protecting key rotation;
+      with per-key-set manifests a rotation no longer invalidates the seed, so
+      the guard moves to the per-key-set gate rather than disappearing. Wallet
+      id remains the wrap's binding, and there is one seed per wallet.
+
+      Dependency: provisioning a second key set in a *later session* requires
+      opening the existing seed, which is the Phase 3 cold-unlock path. Same
+      session needs nothing new.
 - [ ] Wipe dev OTP wallets and obsolete persisted records with the Phase 2
       test-wallet reset.
 - [x] Record a naming glossary in `AGENTS.md` fixing each custody term to one

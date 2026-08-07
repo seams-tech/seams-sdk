@@ -19,10 +19,6 @@ use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
 use crate::error::{CoreResult, SignerCoreError};
-use crate::wallet_seed_derivation::{
-    compute_wallet_key_manifest_digest_v1, verify_wallet_key_manifest_v1,
-    wallet_key_manifest_digest_b64u, VerifiedWalletKeyManifestDigestV1, WalletKeyManifestV1,
-};
 
 pub const PASSKEY_CUSTODY_WRAP_ALG_V1: &str = "chacha20poly1305-hkdf-sha256-v1";
 pub const WALLET_CUSTODY_ENVELOPE_VERSION_V2: &str = "wallet_custody_envelope_v2";
@@ -92,17 +88,14 @@ pub struct PasskeyCustodyLaneScopeV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "kind", deny_unknown_fields)]
 pub enum PasskeyCustodySecretBindingV1 {
-    /// Owner custody: one wallet-scoped seed every owner root derives from in
-    /// parallel. It carries no lane, because it covers every owner key.
+    /// Owner custody: one wallet-scoped seed every owner root derives from.
+    /// It carries no lane, because it covers every owner key.
+    ///
+    /// It carries no key manifest. Key sets are provisioned independently and
+    /// each records its own manifest, so binding one here would couple them and
+    /// force a reseal every time a key set arrived.
     #[serde(rename = "wallet_custody_seed_v1", rename_all = "camelCase")]
-    WalletCustodySeed {
-        derivation_scheme: String,
-        key_manifest_digest_b64u: String,
-        near_ed25519_signing_key_id: String,
-        registered_public_key_b64u: String,
-        evm_family_signing_key_slot_id: String,
-        client_root_public_key33_b64u: String,
-    },
+    WalletCustodySeed { derivation_scheme: String },
     #[serde(rename = "ed25519_lane_holder_share_v1", rename_all = "camelCase")]
     Ed25519LaneHolderShare {
         #[serde(flatten)]
@@ -378,46 +371,13 @@ pub fn encode_passkey_custody_aad_v1(
     }
 
     match &binding.binding {
-        PasskeyCustodySecretBindingV1::WalletCustodySeed {
-            derivation_scheme,
-            key_manifest_digest_b64u,
-            near_ed25519_signing_key_id,
-            registered_public_key_b64u,
-            evm_family_signing_key_slot_id,
-            client_root_public_key33_b64u,
-        } => {
+        PasskeyCustodySecretBindingV1::WalletCustodySeed { derivation_scheme } => {
             if derivation_scheme != WALLET_SEED_DERIVATION_SCHEME_V1 {
                 return Err(SignerCoreError::invalid_input(format!(
                     "derivationScheme must be {WALLET_SEED_DERIVATION_SCHEME_V1}"
                 )));
             }
-            require_field("nearEd25519SigningKeyId", near_ed25519_signing_key_id)?;
-            // The slot id embeds the Router A/B signing-root id and version, so
-            // binding it covers the signing-root identity the plan requires.
-            require_field("evmFamilySigningKeySlotId", evm_family_signing_key_slot_id)?;
-            let key_manifest =
-                require_digest_b64u("keyManifestDigestB64u", key_manifest_digest_b64u)?;
-            let registered =
-                require_public_key_b64u("registeredPublicKeyB64u", registered_public_key_b64u, 32)?;
-            let client_root = require_public_key_b64u(
-                "clientRootPublicKey33B64u",
-                client_root_public_key33_b64u,
-                33,
-            )?;
             labeled_str(&mut out, b"derivationScheme", derivation_scheme);
-            labeled_field(&mut out, b"keyManifestDigest", &key_manifest);
-            labeled_str(
-                &mut out,
-                b"nearEd25519SigningKeyId",
-                near_ed25519_signing_key_id,
-            );
-            labeled_field(&mut out, b"registeredPublicKey", &registered);
-            labeled_str(
-                &mut out,
-                b"evmFamilySigningKeySlotId",
-                evm_family_signing_key_slot_id,
-            );
-            labeled_field(&mut out, b"clientRootPublicKey33", &client_root);
         }
         PasskeyCustodySecretBindingV1::Ed25519LaneHolderShare {
             near_ed25519_signing_key_id,
@@ -518,94 +478,15 @@ pub fn seal_passkey_custody_secret_v1(
     seal_custody_secret(prf_first, binding, nonce, custody_secret)
 }
 
-/// Rebuilds the key manifest a seed envelope's binding describes.
+/// Seals the wallet custody seed.
 ///
-/// The binding carries every field the manifest is computed from, so a seed
-/// envelope is self-describing: its recorded digest can be checked against its
-/// own identity fields rather than taken on trust.
-fn wallet_key_manifest_from_binding_v1(
-    binding: &PasskeyCustodyEnvelopeBindingV1,
-) -> CoreResult<WalletKeyManifestV1> {
-    let PasskeyCustodySecretBindingV1::WalletCustodySeed {
-        near_ed25519_signing_key_id,
-        registered_public_key_b64u,
-        evm_family_signing_key_slot_id,
-        client_root_public_key33_b64u,
-        ..
-    } = &binding.binding
-    else {
-        return Err(SignerCoreError::invalid_input(
-            "only a wallet custody seed binding describes a key manifest",
-        ));
-    };
-    let registered =
-        require_public_key_b64u("registeredPublicKeyB64u", registered_public_key_b64u, 32)?;
-    let client_root = require_public_key_b64u(
-        "clientRootPublicKey33B64u",
-        client_root_public_key33_b64u,
-        33,
-    )?;
-    Ok(WalletKeyManifestV1 {
-        wallet_id: binding.wallet_id.clone(),
-        near_ed25519_signing_key_id: near_ed25519_signing_key_id.clone(),
-        registered_public_key: registered
-            .try_into()
-            .map_err(|_| SignerCoreError::invalid_length("registeredPublicKeyB64u"))?,
-        evm_family_signing_key_slot_id: evm_family_signing_key_slot_id.clone(),
-        client_root_public_key33: client_root
-            .try_into()
-            .map_err(|_| SignerCoreError::invalid_length("clientRootPublicKey33B64u"))?,
-    })
-}
-
-/// Requires a seed envelope to be internally consistent with a known digest.
-///
-/// Two checks, and both are needed. The recorded `keyManifestDigestB64u` must
-/// equal the known digest, and the binding's own identity fields must be the
-/// ones that produce it. Checking only the recorded string would let an
-/// envelope carry a valid digest beside a signing key id, registered public
-/// key, or slot id that the digest was never computed from — and those fields
-/// are what a later unlock reads to decide which keys the seed controls.
-fn require_binding_reproduces_manifest_v1(
-    binding: &PasskeyCustodyEnvelopeBindingV1,
-    expected_digest: &[u8; 32],
-    expected_digest_b64u: &str,
-) -> CoreResult<()> {
-    let PasskeyCustodySecretBindingV1::WalletCustodySeed {
-        key_manifest_digest_b64u,
-        ..
-    } = &binding.binding
-    else {
-        return Err(SignerCoreError::invalid_input(
-            "a wallet custody seed envelope is required here",
-        ));
-    };
-    if key_manifest_digest_b64u != expected_digest_b64u {
-        return Err(SignerCoreError::invalid_input(
-            "envelope keyManifestDigestB64u does not match the expected key manifest",
-        ));
-    }
-    let manifest = wallet_key_manifest_from_binding_v1(binding)?;
-    verify_wallet_key_manifest_v1(&manifest, expected_digest)
-}
-
-/// Seals the wallet custody seed, gated on the ceremony's manifest verification.
-///
-/// The whole binding is checked against the verified digest — the recorded
-/// digest string *and* the identity fields that must produce it — so the
-/// envelope cannot describe a key set other than the one the ceremony proved
-/// this seed reproduces. Passing the proof by reference is what makes the
-/// ordering structural: there is no way to reach this function with a digest
-/// the caller merely computed.
-///
-/// This is the initial-registration and recovery-promotion path, where the
-/// roots were freshly derived and checked. Adding a second factor to an
-/// existing wallet is a different valid state and takes its own proof:
-/// [`reseal_wallet_custody_seed_under_new_factor_v1`].
+/// The seed carries no key manifest: key sets are provisioned independently and
+/// each records its own, so a seed envelope is sealed once and never resealed
+/// as key sets arrive. What a seed may publish capability for is checked
+/// per key set at that key set's own gate, not here.
 pub fn seal_wallet_custody_seed_envelope_v1(
     prf_first: &[u8],
     binding: &PasskeyCustodyEnvelopeBindingV1,
-    verified_key_manifest: &VerifiedWalletKeyManifestDigestV1,
     nonce: &[u8],
     custody_seed: &[u8],
 ) -> CoreResult<SealedPasskeyCustodyEnvelopeV1> {
@@ -614,11 +495,6 @@ pub fn seal_wallet_custody_seed_envelope_v1(
             "seal_wallet_custody_seed_envelope_v1 seals the wallet custody seed only",
         ));
     }
-    require_binding_reproduces_manifest_v1(
-        binding,
-        verified_key_manifest.digest(),
-        &verified_key_manifest.digest_b64u(),
-    )?;
     seal_custody_secret(prf_first, binding, nonce, custody_seed)
 }
 
@@ -647,18 +523,6 @@ pub struct WalletCustodySeedFromSealedEnvelopeV1 {
 impl WalletCustodySeedFromSealedEnvelopeV1 {
     pub fn wallet_id(&self) -> &str {
         &self.wallet_id
-    }
-
-    pub fn key_manifest_digest_b64u(&self) -> CoreResult<&str> {
-        match &self.binding {
-            PasskeyCustodySecretBindingV1::WalletCustodySeed {
-                key_manifest_digest_b64u,
-                ..
-            } => Ok(key_manifest_digest_b64u),
-            _ => Err(SignerCoreError::invalid_input(
-                "admitted custody secret is not a wallet custody seed",
-            )),
-        }
     }
 }
 
@@ -689,17 +553,6 @@ pub fn open_wallet_custody_seed_envelope_v1(
             "open_wallet_custody_seed_envelope_v1 opens wallet custody seeds only",
         ));
     }
-    // Reject an envelope whose recorded digest is not the digest of its own
-    // identity fields, so an inconsistent record cannot mint an admission that
-    // a reseal would then copy forward.
-    let manifest = wallet_key_manifest_from_binding_v1(binding)?;
-    let digest = compute_wallet_key_manifest_digest_v1(&manifest)?;
-    require_binding_reproduces_manifest_v1(
-        binding,
-        &digest,
-        &wallet_key_manifest_digest_b64u(&digest),
-    )?;
-
     let seed = open_verified_passkey_custody_secret_v1(
         prf_first,
         binding,
