@@ -1297,6 +1297,21 @@ repository evidence.
         from `parseWalletRegistrationRespondRequest` and
         `RegistrationCeremonyStore.ts:268-371`.
 
+      **The agreement is proved (2026-08-08).**
+      `crates/signer-core/tests/seed_root_ecdsa_registration.rs` drives the
+      whole substitution in-process against the production functions on both
+      sides — seed → HKDF → `prepare_ecdsa_client_bootstrap` on the client,
+      `derive_relayer_share_for_client_public` on the SigningWorker,
+      `finalize_ecdsa_client_bootstrap` back on the client — and they land on
+      one threshold key and one address. So the remaining work on this item is
+      wire and state plumbing, not cryptography.
+
+      It also pins two properties the plumbing must not lose: the same seed
+      re-registers the same address (recovery), and a different SigningWorker
+      answering the same client yields a different wallet (the seed is one half
+      of a 2-of-2, never the whole). Mutation-checked — flipping one bit of the
+      client public key the server derives against fails five of the seven.
+
       The ordering worry recorded here earlier was overstated. The ECDSA
       application binding digest is available before any Router leg: the local
       `create` step computes it from the setup response's `strictRegistration`
