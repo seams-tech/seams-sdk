@@ -92,25 +92,27 @@ is the only constructor for that origin and it requires a successful open.
    conflict; EVM commits its custody immediately and NEAR records its manifest
    whenever its Yao work settles.
 
-   Read the corrected splice entry in the plan first — it has two blockers
-   written up, and neither is typing work.
+   Both blockers were settled on 2026-08-07 — decisions and reasons are pinned
+   in the plan's splice entry. In brief:
 
-   **Nothing can commit yet.** The commit adapter and store are built and
-   tested, but no route exposes them: no `routeDefinitions.ts` entry, no
-   handler, no service key. Adding it means choosing what proves a caller may
-   establish custody for a wallet. Settle that first; every variant of the
-   splice needs it.
+   **Everything stays on the router-ab registration route.** The EVM leg gains
+   a payload kind where the client sends the ceremony's bootstrap facts
+   (seed-derived share public key + `contextBinding32`) and the relayer
+   composes the public identity as its activate leg already does for the
+   `ecdsa-derivation-role-local` bootstrap value. The strict derivation rounds
+   stop producing EVM keys for new wallets. Do NOT reach for
+   `thresholdEcdsaDerivationRoleLocalBootstrap` — it has no server counterpart;
+   the format it names is the registration route's own activate output. The
+   binding digest is not a problem: the local create step computes it from the
+   setup facts before any network leg, and the digest requirement stays.
 
-   **The EVM half brings an unused route into service.** It moves to
-   `thresholdEcdsaDerivationRoleLocalBootstrap` with a seed-derived share —
-   whose body already matches the ceremony's EVM shape — but that route has no
-   caller today, and neither does the Email OTP role-local worker op. Every
-   registration currently goes through the strict Router A/B route. Confirm the
-   relayer accepts the role-local route for registration before writing client
-   code. The binding digest is *not* a problem: the local create step computes
-   it from the setup facts, before any Router leg. The digest requirement
-   itself was questioned and stays — decision and reasons pinned in the plan
-   (2026-08-07).
+   **The custody commit rides the activate/finalize leg** — no standalone
+   route. Authorization is the registration's own: verified `signedSetup` plus
+   the leg's auth proof; the handler checks the payload's wallet is the
+   verified registration's wallet and supplies the factor ref from the
+   credential it just verified. On `custody_already_established`, the client
+   discards the run's seed and re-enters as a join; on `already_exists`, it
+   stops.
 
    **The NEAR half is a narrow substitution** at
    `RouterAbEd25519YaoClientV1.registerAdmitted`, which today derives the root
