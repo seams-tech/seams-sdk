@@ -1215,16 +1215,48 @@ repository evidence.
       orchestration deliberately stayed behind: it calls `registerWallet`, the
       warmup, and app-session helpers, so moving it would have created a real
       import cycle rather than a type-only one.
+- [x] Realign the ceremony's worker channel to one key set per run. The worker
+      and driver were still on the paired wasm API and typechecked only because
+      `wasm/wallet_custody_ceremony/pkg` is a gitignored artifact whose local
+      copy predated the rebuild. Rebuilt, and moved over: a run declares its
+      origin (establish or join) and its key set, the worker dispatches
+      completion from the key set it stored, and the driver makes both refused
+      combinations unrepresentable rather than merely rejected.
 - [ ] Splice the ceremony into `registration.ts` and commit its payload.
 
-      Not a small wiring step, which is why it is separate. Today Yao
-      registration and the ECDSA bootstrap are separate phases —
-      `createRegistrationSession` builds a `WasmClientRegistrationSessionV1` on
-      one side while the ECDSA worker bootstraps on the other. The ceremony
-      needs *both* prepared before either completes, because one seed feeds two
-      protocols, so this is a reordering of the registration flow rather than a
-      substitution inside it. The PRF-derived path must keep working until it
-      lands.
+      **The earlier note here was wrong and the shape of the work is different
+      from what it described.** It said the ceremony needs both protocols
+      prepared before either completes, because one seed feeds two. That was
+      true of the paired ceremony; with one key set per run it is not, and the
+      two key sets can be provisioned in separate runs at separate times.
+
+      The real obstacle is ordering against the *server* protocol, and it is
+      specific to the EVM family. The ceremony derives the client root share
+      from the seed under the ECDSA application binding digest, and needs that
+      digest before it derives. Today the digest does not exist that early: it
+      comes out of the Router A/B ECDSA registration rounds
+      (`registrationBinding.applicationBindingDigestB64u`, after create and
+      respond), and the relayer's public identity — which the ceremony needs to
+      finalize — only arrives with the activate response. The current client
+      root share is not seed-derived at all: it is `xClientBase`, produced by
+      those same rounds and handed to
+      `prepareRouterAbEcdsaRoleLocalClientBootstrap`.
+
+      So the EVM half is not a substitution inside the flow. Either the relayer
+      publishes the binding digest before the derivation, or the ceremony is
+      restructured to span respond → activate — and in that second case the
+      `xClientBase` those rounds produce is no longer what the wallet
+      registers, which is a change to what the server records, not only to
+      client sequencing. Settle that against the relayer contract before
+      writing code.
+
+      The NEAR half has no such obstacle: the Ed25519 binding digest is
+      computed inside the ceremony from the typed application facts, so a NEAR
+      run can begin as soon as its admission receipt exists. Refactor 94C's
+      contract still holds — deferred NEAR work is handed off before activate
+      and never awaited.
+
+      The PRF-derived path must keep working until this lands.
 - [x] Repair the SDK barrel at
       `core/signingEngine/session/passkey/envelopes/index.ts`, which still
       re-exported `PASSKEY_CUSTODY_ENVELOPE_VERSION_V1`,
