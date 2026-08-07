@@ -783,12 +783,10 @@ repository evidence.
       not recovered. Both parsers reject lane kinds in a recovery entry.
 - [ ] Wipe dev OTP wallets and obsolete persisted records with the Phase 2
       test-wallet reset.
-- [ ] Record a naming glossary in `AGENTS.md` fixing each custody term to one
+- [x] Record a naming glossary in `AGENTS.md` fixing each custody term to one
       referent, plus the suffix convention (bare `root` names a secret
       derivation origin; `RootId`, `RootVersion`, and `RootShareEpoch` name
-      metadata about it and are never key material). Phase 1B introduces
-      `wallet_custody_seed_v1`, so the vocabulary should be pinned as it
-      lands.
+      metadata about it and are never key material).
 
 ### Phase 2: Seed-Root Registration
 
