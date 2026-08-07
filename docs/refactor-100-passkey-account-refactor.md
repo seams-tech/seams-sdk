@@ -900,14 +900,34 @@ repository evidence.
       recomputed client-side the way the Ed25519 one can. The ECDSA protocol
       binds it through `contextBinding32`, which the caller cross-checks. That
       is a property of the two protocols, not of this module.
-- [ ] Drive states 1 and 2 through the real Router A/B circuit in a native
-      test. The output contract is covered — seven tests prove the sealed
-      envelope opens back to the ceremony seed, that all ten recovery codes
-      reach it, that nonces are unique, and that a partial set or malformed
-      manifest ends the ceremony before anything is sealed — but they start
-      from `CeremonyProtocolsCompletedV1`. Reaching it needs the
-      `router-ab-dev` harness that `crates/router-ab-ed25519-yao-client/tests/
-      registration.rs` builds.
+- [x] Drive the whole ceremony through the real Router A/B circuit.
+      `src/circuit_tests.rs` runs both Derivers locally over an in-process
+      relay — the genuine Yao circuit, not a stub — and finalizes ECDSA against
+      a relayer identity composed by the protocol itself. Thirteen tests now
+      cover the module: seven own the output contract (the sealed envelope
+      opens back to the ceremony seed, all ten recovery codes reach it, nonces
+      are unique per ceremony, a partial set or malformed manifest aborts
+      before anything is sealed) and six own the protocol half:
+
+      - a ceremony completes both protocols and commits one key manifest, with
+        the envelope binding recording exactly the digest it established;
+      - the registered public key equals the Router receipt's;
+      - the same seed registers the same owner keys across two independent
+        sessions with fresh Deriver keysets, while the ciphertext still
+        differs — nonces and the manifest KEK are per-ceremony;
+      - a different seed registers a different key manifest;
+      - a Router result from another session cannot complete the ceremony;
+      - a relayer identity whose group key is not the sum of the client and
+        relayer keys is refused, so the wallet cannot be bound to a threshold
+        key the seed-derived share does not participate in.
+
+      Note on what this does and does not prove. That the Ed25519 binding
+      digest is the protocol's own is a *compile-time* property —
+      `RegistrationProtocolInputsV1` has no field for it — not something these
+      tests establish: a ceremony using a wrong digest would still derive a
+      valid root and complete the circuit, just for a different key. The tests
+      establish that the ceremony drives both real protocols to completion and
+      that its outputs are stable and seed-determined.
 - [ ] Add the `wasm_bindgen` boundary and the ceremony worker, and commit the
       server-held envelope and recovery set from the payload.
 - [ ] Shrink `wasm/ecdsa_registration_client` once registration leaves it:
