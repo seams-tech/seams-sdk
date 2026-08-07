@@ -1,0 +1,185 @@
+{
+  "establishCommitPayload": {
+    "clientRootPublicKey33B64u": "AhERERERERERERERERERERERERERERERERERERERERER",
+    "ecdsaReadyStateBlobB64u": "AQIDBA",
+    "establishedCustody": {
+      "envelopeAadHashB64u": "KlK9WoM8XVPJSy1TOforj162tyhHk3zvfKTs8KGnfaY",
+      "envelopeBindingJson": "{\"walletId\":\"alice.testnet\",\"envelopeId\":\"wallet-custody-envelope-1\",\"factor\":{\"kind\":\"email_otp\",\"enrollmentId\":\"enrollment-1\",\"enrollmentSealKeyVersion\":\"seal-v1\",\"kekVersion\":\"email_otp_factor_kek_hkdf_sha256_v1\"},\"envelopeRevision\":1,\"binding\":{\"kind\":\"wallet_custody_seed_v1\",\"derivationScheme\":\"wallet_seed_parallel_hkdf_sha256_v1\"}}",
+      "envelopeCiphertextDigestB64u": "M_8O6ad7lqcq1FEB1vd2YCnCVR3XFGfgY1dcjlMs_8E",
+      "envelopeId": "wallet-custody-envelope-1",
+      "envelopeNonceB64u": "CgoKCgoKCgoKCgoK",
+      "recoveryEntryAadHashB64u": "SjLxTyalDwf03C1DWPEiNp-RuGdcX7WcRh7NAUjjgHw",
+      "recoveryEntryCiphertextB64u": "_HLVJqsviK0ZzAekB-xFijBLXGYGvyDPiixkZ3zh735a9R5rrTMcqzDwvFDj8E64",
+      "recoveryEntryNonceB64u": "CwsLCwsLCwsLCwsL",
+      "recoveryManifestKekWraps": [
+        {
+          "aadHashB64u": "NH5Zhd41EQd1MZ1ZZlUB5JCoL3aewy2Xkm3wNySwVx8",
+          "ciphertextB64u": "20wH5PBdpjohLdGlhpqJ-wORsWzLLINQjQaPyygYscjE6DhR2L6KGfDuq8M2lKh8",
+          "nonceB64u": "MDAwMDAwMDAwMDAw",
+          "recoveryKeyId": "email-otp-rkid-v1-bjQLnP-zepicpUTmu3gKLHiQHT-zNzh2hRGjBhevoB0"
+        },
+        {
+          "aadHashB64u": "Wd6Vfc5Fax_kAp8wKB3QBPuPkn7htOk8V761AtpYCHE",
+          "ciphertextB64u": "ZSpheBW2G7kuX3F4cH5bsPBcw4ywNVBcg77fMQXYLz0GssHvpEv6V_EHAIqaBsOw",
+          "nonceB64u": "MTExMTExMTExMTEx",
+          "recoveryKeyId": "email-otp-rkid-v1-S_USLzRFVMU73i67jNK349FgCtYxw4Wl18ziPHeFRZo"
+        },
+        {
+          "aadHashB64u": "JEiVg2Uyn1UcVtEfr77bnd5uPoLG0TbDgxgF-DepllU",
+          "ciphertextB64u": "143k8jiNmxqTxwxc0EKqOvSQ9SUUc5VnoAf83HomtLBHxmfAzokvtobWqgxKGB5P",
+          "nonceB64u": "MjIyMjIyMjIyMjIy",
+          "recoveryKeyId": "email-otp-rkid-v1-28G0yQD_5I1XW12lxjgEASX2XbD-PiRJS3bqmGRX2YY"
+        },
+        {
+          "aadHashB64u": "IDnb6EQPoHGLHzhtXAoOZxaWZmSCHV9OCgfyPRLeoWM",
+          "ciphertextB64u": "mgcib53noArj2h1blryx9DPHvIIA_s11wINYhPTH6OivaTUDVAAd483f0lQvThS3",
+          "nonceB64u": "MzMzMzMzMzMzMzMz",
+          "recoveryKeyId": "email-otp-rkid-v1-CE_tCLl4r019GWp0RqhrWACeY2thHbFiEbZamq3_KcU"
+        },
+        {
+          "aadHashB64u": "QMSXSnNeRIDKVUnGE4k6C2DEpsQAtwOp41yaQ2KQt_U",
+          "ciphertextB64u": "tgMvwStGutB7cA6VxKaDpbnBMOLRwncnpKbmgHo2P0O-YpjckVmB3TTwSpLfiQ6N",
+          "nonceB64u": "NDQ0NDQ0NDQ0NDQ0",
+          "recoveryKeyId": "email-otp-rkid-v1-5S2cUIxQI0c0TYwHrZHL1gaK_HX_YpLwYqCco4HInnE"
+        },
+        {
+          "aadHashB64u": "K-EZb7FGTujJB2M-cnUhUO9BJanIvZufBvrd2ZugsfM",
+          "ciphertextB64u": "O9ZyCljwpNBPl5kMkF6pIIzR4ELotbA4t4ydRGLNLqhoDmMqqnpH7PkKya1ZOJeR",
+          "nonceB64u": "NTU1NTU1NTU1NTU1",
+          "recoveryKeyId": "email-otp-rkid-v1-53uamunjCw29tvUQomTvneeBUB17a5KuiesFnFq3Q9s"
+        },
+        {
+          "aadHashB64u": "85TgmwSUiAAbEa4u-dBqtCf5bPymLzulHROhP5t_pkU",
+          "ciphertextB64u": "fQqeZNB1yvzy1eEyq78GyJPhlG4V4MS2O1cAihGq4kYkFSFOpJmBFTLpQIF2Pze8",
+          "nonceB64u": "NjY2NjY2NjY2NjY2",
+          "recoveryKeyId": "email-otp-rkid-v1-Z1humPrSfaC5lovAOaHvNMk5ubjlI6i--J1HhgjF7PY"
+        },
+        {
+          "aadHashB64u": "5QB1Axtkk83y1VHMPPjdbXffx41A2rZooljqmLRXp7Q",
+          "ciphertextB64u": "DaG-lsnIBDumoeXpQp-Qt5rgTsX8XB00Ga9-46LC0o2Xufdg2h3Fvac0BOqddUIE",
+          "nonceB64u": "Nzc3Nzc3Nzc3Nzc3",
+          "recoveryKeyId": "email-otp-rkid-v1-yjWHWPbSfmz0UnKTeXenSP2IOR22ec7afce_HwBe6Hk"
+        },
+        {
+          "aadHashB64u": "xMKs17WqX-SnEbbSviuLZl3nKLnbOzT7Mk1LgTgXR7g",
+          "ciphertextB64u": "OFEyKQOPMJkKX2fgX0Dl7V8gvlcMlChiYfBMA8rmRqYexxfuVD2yQJUmngcaPhSd",
+          "nonceB64u": "ODg4ODg4ODg4ODg4",
+          "recoveryKeyId": "email-otp-rkid-v1-vurXeZTPVzNB7Be1i79-s00nEcmTwdl2sSizGI3Bgpo"
+        },
+        {
+          "aadHashB64u": "AlVj4M4r8W7j0cBnVaF8nWLcsjF-mOV-oEhs2AvR818",
+          "ciphertextB64u": "Dk8qr2ZA84WCCc5tmb5cz1vLD-8Fns-KlP8KrfFyqrdRN3bki6YvseXm1LBaqsVZ",
+          "nonceB64u": "OTk5OTk5OTk5OTk5",
+          "recoveryKeyId": "email-otp-rkid-v1-K0w0L1Qz6-WRodp34BPRtyR1Vi1IV43Ki4S6xmUcPLk"
+        }
+      ],
+      "sealedCustodySecretB64u": "lZB5gZ9l6lVE2iHJlK0zheA95tmlXwtv89zEX88hY9HSGWHpGS6htNaOt1lU2qY3"
+    },
+    "keyManifestDigestB64u": "UWh4QLklmBymCOJEmEC0RyMGhmaqohTdITzNPPRaGpM",
+    "keySet": "evm_family_ecdsa_v1",
+    "registeredPublicKeyB64u": null,
+    "walletId": "alice.testnet"
+  },
+  "fixtureVersion": "wallet_custody_wire_v1",
+  "inputs": {
+    "credentialIdB64u": "XFxcXFxcXFxcXFxcXFxcXA",
+    "enrollmentId": "enrollment-1",
+    "enrollmentSealKeyVersion": "seal-v1",
+    "envelopeId": "wallet-custody-envelope-1",
+    "evmFamilySigningKeySlotId": "wallet-key:evm-family:alice.testnet:root-1:v1",
+    "factorSecretB64u": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+    "manifestKekB64u": "ISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISE",
+    "nearEd25519SigningKeyId": "near-ed25519-key-1",
+    "recoveryCodes": [
+      {
+        "codeBytesB64u": "AQEBAQEBAQEBAQEBAQEBAQEBAQE",
+        "recoveryKeyId": "email-otp-rkid-v1-bjQLnP-zepicpUTmu3gKLHiQHT-zNzh2hRGjBhevoB0"
+      },
+      {
+        "codeBytesB64u": "AgICAgICAgICAgICAgICAgICAgI",
+        "recoveryKeyId": "email-otp-rkid-v1-S_USLzRFVMU73i67jNK349FgCtYxw4Wl18ziPHeFRZo"
+      },
+      {
+        "codeBytesB64u": "AwMDAwMDAwMDAwMDAwMDAwMDAwM",
+        "recoveryKeyId": "email-otp-rkid-v1-28G0yQD_5I1XW12lxjgEASX2XbD-PiRJS3bqmGRX2YY"
+      },
+      {
+        "codeBytesB64u": "BAQEBAQEBAQEBAQEBAQEBAQEBAQ",
+        "recoveryKeyId": "email-otp-rkid-v1-CE_tCLl4r019GWp0RqhrWACeY2thHbFiEbZamq3_KcU"
+      },
+      {
+        "codeBytesB64u": "BQUFBQUFBQUFBQUFBQUFBQUFBQU",
+        "recoveryKeyId": "email-otp-rkid-v1-5S2cUIxQI0c0TYwHrZHL1gaK_HX_YpLwYqCco4HInnE"
+      },
+      {
+        "codeBytesB64u": "BgYGBgYGBgYGBgYGBgYGBgYGBgY",
+        "recoveryKeyId": "email-otp-rkid-v1-53uamunjCw29tvUQomTvneeBUB17a5KuiesFnFq3Q9s"
+      },
+      {
+        "codeBytesB64u": "BwcHBwcHBwcHBwcHBwcHBwcHBwc",
+        "recoveryKeyId": "email-otp-rkid-v1-Z1humPrSfaC5lovAOaHvNMk5ubjlI6i--J1HhgjF7PY"
+      },
+      {
+        "codeBytesB64u": "CAgICAgICAgICAgICAgICAgICAg",
+        "recoveryKeyId": "email-otp-rkid-v1-yjWHWPbSfmz0UnKTeXenSP2IOR22ec7afce_HwBe6Hk"
+      },
+      {
+        "codeBytesB64u": "CQkJCQkJCQkJCQkJCQkJCQkJCQk",
+        "recoveryKeyId": "email-otp-rkid-v1-vurXeZTPVzNB7Be1i79-s00nEcmTwdl2sSizGI3Bgpo"
+      },
+      {
+        "codeBytesB64u": "CgoKCgoKCgoKCgoKCgoKCgoKCgo",
+        "recoveryKeyId": "email-otp-rkid-v1-K0w0L1Qz6-WRodp34BPRtyR1Vi1IV43Ki4S6xmUcPLk"
+      }
+    ],
+    "rpId": "example.localhost",
+    "seedB64u": "ExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExM",
+    "walletId": "alice.testnet"
+  },
+  "joinCommitPayload": {
+    "clientRootPublicKey33B64u": null,
+    "ecdsaReadyStateBlobB64u": null,
+    "establishedCustody": null,
+    "keyManifestDigestB64u": "AzggIw_gMdb9rPSlR3e1gXM4Oc6Y2RPqzppeoKFMeIw",
+    "keySet": "near_ed25519_v1",
+    "registeredPublicKeyB64u": "Ly8vLy8vLy8vLy8vLy8vLy8vLy8vLy8vLy8vLy8vLy8",
+    "walletId": "alice.testnet"
+  },
+  "joinCustody": {
+    "aadHashB64u": "KlK9WoM8XVPJSy1TOforj162tyhHk3zvfKTs8KGnfaY",
+    "ciphertextDigestB64u": "M_8O6ad7lqcq1FEB1vd2YCnCVR3XFGfgY1dcjlMs_8E",
+    "envelopeBinding": {
+      "binding": {
+        "derivationScheme": "wallet_seed_parallel_hkdf_sha256_v1",
+        "kind": "wallet_custody_seed_v1"
+      },
+      "envelopeId": "wallet-custody-envelope-1",
+      "envelopeRevision": 1,
+      "factor": {
+        "enrollmentId": "enrollment-1",
+        "enrollmentSealKeyVersion": "seal-v1",
+        "kekVersion": "email_otp_factor_kek_hkdf_sha256_v1",
+        "kind": "email_otp"
+      },
+      "walletId": "alice.testnet"
+    },
+    "nonceB64u": "CgoKCgoKCgoKCgoK",
+    "sealedCustodySecretB64u": "lZB5gZ9l6lVE2iHJlK0zheA95tmlXwtv89zEX88hY9HSGWHpGS6htNaOt1lU2qY3"
+  },
+  "passkeyEnvelopeBinding": {
+    "binding": {
+      "derivationScheme": "wallet_seed_parallel_hkdf_sha256_v1",
+      "kind": "wallet_custody_seed_v1"
+    },
+    "envelopeId": "wallet-custody-envelope-1",
+    "envelopeRevision": 1,
+    "factor": {
+      "credentialIdB64u": "XFxcXFxcXFxcXFxcXFxcXA",
+      "kekVersion": "passkey_prf_kek_hkdf_sha256_v1",
+      "kind": "passkey",
+      "rpId": "example.localhost"
+    },
+    "walletId": "alice.testnet"
+  },
+  "warning": "Deterministic test-only secret material. Do not use outside tests."
+}
