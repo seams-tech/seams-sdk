@@ -135,7 +135,13 @@ export function isTouchIdCancellationError(error: unknown): boolean {
     msg.includes('AbortError') ||
     lower.includes('user cancelled') ||
     lower.includes('user canceled') ||
-    lower.includes('user aborted')
+    lower.includes('user aborted') ||
+    // Recognize the friendly text this module itself produces via
+    // getTouchIdCancellationMessage. Flows stringify a cancellation into a
+    // result.error and rethrow it as a plain Error, which drops the DOMException
+    // name, so the message is the only surviving signal.
+    lower.includes('was cancelled') ||
+    lower.includes('was canceled')
   );
 }
 

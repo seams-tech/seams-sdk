@@ -1,5 +1,6 @@
 import type { LoginAndCreateSessionResult } from '@/core/types/seams';
 import type { LoginHooksOptions, SyncAccountHooksOptions } from '@/core/types/sdkSentEvents';
+import { UnlockEventPhase } from '@/core/types/sdkSentEvents';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type {
@@ -7,10 +8,13 @@ import type {
   LoginUnlockSigningSurface,
   SeamsWebBaseContext,
 } from '@/SeamsWeb/signingSurface/ports';
-import { unlockResolvedWalletSubjectSetWithPasskeyCredential } from '@/SeamsWeb/operations/auth/login';
+import { unlockResolvedWalletSubjectSet } from '@/SeamsWeb/operations/auth/login';
+import {
+  clearWalletOriginAppSession,
+  rememberWalletOriginAppSession,
+} from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
 import {
   resolveWalletUnlockSubjectSet,
-  type WalletUnlockSubject,
   type WalletUnlockSubjectSet,
 } from '@/SeamsWeb/operations/auth/walletUnlockSubject';
 import {
@@ -19,8 +23,6 @@ import {
   type PreparedSyncAccountChallenge,
 } from '@/SeamsWeb/operations/recovery/syncAccount';
 import type { SyncAccountResult } from '@/core/types/sdkPublicResults';
-import { IndexedDBManager } from '@/core/indexedDB';
-import { createLocalUnlockChallengeB64u } from '@/SeamsWeb/operations/authMethods/passkey/localUnlock';
 import { walletIdFromString, type WalletId } from '@shared/utils/registrationIntent';
 import type { HostedAuthMenuSessionId } from '../../shared/messages';
 import type { WalletIframeRequestId } from '@/core/types/walletIframeIdentity';
@@ -61,9 +63,6 @@ export type HostedPasskeyLoginPrepared = Readonly<{
   readonly requestId: WalletIframeRequestId;
   readonly walletId: WalletId;
   readonly subjectSet: WalletUnlockSubjectSet;
-  readonly subjectId: string;
-  readonly challengeB64u: string;
-  readonly allowCredentials: readonly WebAuthnAllowCredential[];
   readonly expiresAtMs: number;
   readonly cancellation: HostedPasskeyPreparationCancellation;
   readonly [hostedPasskeyLoginPreparedBrand]: true;
@@ -138,58 +137,6 @@ function passkeyAllowCredential(input: {
   };
 }
 
-function nearSubjectFromSet(
-  subjectSet: WalletUnlockSubjectSet,
-): Extract<WalletUnlockSubject, { kind: 'near_ed25519_wallet' }> | null {
-  const nearSubjects = subjectSet.subjects.filter(
-    (subject): subject is Extract<WalletUnlockSubject, { kind: 'near_ed25519_wallet' }> =>
-      subject.kind === 'near_ed25519_wallet',
-  );
-  if (nearSubjects.length > 1) {
-    throw new Error('Hosted auth-menu login found multiple NEAR wallet subjects');
-  }
-  return nearSubjects[0] || null;
-}
-
-async function loginAllowCredentials(
-  context: HostedPasskeyContext,
-  subjectSet: WalletUnlockSubjectSet,
-): Promise<readonly WebAuthnAllowCredential[]> {
-  const nearSubject = nearSubjectFromSet(subjectSet);
-  if (nearSubject) {
-    const authenticators = await context.signingEngine.nearAuthenticatorsByAccount(
-      nearSubject.nearAccountId,
-    );
-    return authenticators
-      .map((authenticator) =>
-        passkeyAllowCredential({
-          credentialId: authenticator.credentialId,
-          transports: authenticator.transports,
-        }),
-      )
-      .filter((credential) => credential.id);
-  }
-
-  const [authenticators, authMethods] = await Promise.all([
-    IndexedDBManager.listWalletPasskeyAuthenticators(subjectSet.walletId),
-    IndexedDBManager.listWalletAuthMethodsForWallet(String(subjectSet.walletId)),
-  ]);
-  const activeCredentialIds = new Set(
-    authMethods
-      .filter((method) => method.kind === 'passkey' && method.status === 'active')
-      .map((method) => method.credentialIdB64u),
-  );
-  return authenticators
-    .filter((authenticator) => activeCredentialIds.has(authenticator.credentialId))
-    .map((authenticator) =>
-      passkeyAllowCredential({
-        credentialId: authenticator.credentialId,
-        transports: authenticator.transports,
-      }),
-    )
-    .filter((credential) => credential.id);
-}
-
 function preparationIdentity(args: {
   authMenuSessionId: HostedAuthMenuSessionId;
   requestId: WalletIframeRequestId;
@@ -217,20 +164,12 @@ export async function prepareHostedPasskeyLogin(args: {
     throw new Error(`Hosted auth-menu login subject resolution failed: ${resolution.kind}`);
   }
   const subjectSet = resolution.subjectSet;
-  const nearSubject = nearSubjectFromSet(subjectSet);
-  const allowCredentials = await loginAllowCredentials(args.context, subjectSet);
-  if (allowCredentials.length === 0) {
-    throw new Error('Hosted auth-menu login found no active passkey credentials');
-  }
   throwIfCancelled(args.cancellation);
   const prepared: HostedPasskeyLoginPrepared = Object.freeze({
     kind: 'hosted_passkey_login_prepared_v1',
     ...preparationIdentity(args),
     walletId,
     subjectSet,
-    subjectId: nearSubject ? String(nearSubject.nearAccountId) : String(walletId),
-    challengeB64u: createLocalUnlockChallengeB64u(),
-    allowCredentials,
     expiresAtMs: Date.now() + HOSTED_PASSKEY_PREPARATION_TTL_MS,
     cancellation: args.cancellation,
     [hostedPasskeyLoginPreparedBrand]: true as const,
@@ -275,24 +214,17 @@ export async function prepareHostedPasskeyAccountSync(args: {
 }
 
 function startCredential(
-  prepared: HostedPasskeyPrepared,
+  prepared: HostedPasskeyAccountSyncPrepared,
 ): Promise<WebAuthnAuthenticationCredential> {
   const state = requireLivePreparation(prepared);
   state.lifecycle = 'consuming';
-  const args =
-    prepared.kind === 'hosted_passkey_login_prepared_v1'
-      ? {
-          subjectId: prepared.subjectId,
-          challengeB64u: prepared.challengeB64u,
-          allowCredentials: [...prepared.allowCredentials],
-        }
-      : {
-          subjectId: prepared.challenge.walletId || 'account-sync',
-          challengeB64u: prepared.challenge.syncOptions.challengeB64u,
-          allowCredentials: prepared.challenge.syncOptions.credentialIds.map((credentialId) =>
-            passkeyAllowCredential({ credentialId }),
-          ),
-        };
+  const args = {
+    subjectId: prepared.challenge.walletId || 'account-sync',
+    challengeB64u: prepared.challenge.syncOptions.challengeB64u,
+    allowCredentials: prepared.challenge.syncOptions.credentialIds.map((credentialId) =>
+      passkeyAllowCredential({ credentialId }),
+    ),
+  };
   let authority: Promise<WebAuthnAuthenticationCredential>;
   try {
     // Keep this call on the CTA stack. The signing surface invokes
@@ -318,12 +250,6 @@ function startCredential(
   return authority;
 }
 
-export function startHostedPasskeyLoginCredential(
-  prepared: HostedPasskeyLoginPrepared,
-): Promise<WebAuthnAuthenticationCredential> {
-  return startCredential(prepared);
-}
-
 export function startHostedPasskeyAccountSyncCredential(
   prepared: HostedPasskeyAccountSyncPrepared,
 ): Promise<WebAuthnAuthenticationCredential> {
@@ -340,22 +266,62 @@ function requireContinuationState(prepared: HostedPasskeyPrepared): HostedPasske
   return state;
 }
 
+/**
+ * The unlock pipeline flattens a thrown WebAuthn rejection into
+ * `{ success: false, error: <message> }`, which loses the DOMException name the
+ * caller needs to tell "the user dismissed the sheet" from "the unlock failed".
+ * It does classify the cause while the structure still exists, and reports it
+ * on the unlock event stream, so latch that instead of re-deriving it from the
+ * message text downstream.
+ */
+export type HostedPasskeyLoginOutcome = {
+  readonly result: LoginAndCreateSessionResult;
+  readonly cancelledByUser: boolean;
+};
+
 export async function completeHostedPasskeyLogin(
   prepared: HostedPasskeyLoginPrepared,
-): Promise<LoginAndCreateSessionResult> {
-  const state = requireContinuationState(prepared);
-  const authority = state.authority;
-  if (!authority) throw new Error('Hosted auth-menu passkey credential is missing');
+): Promise<HostedPasskeyLoginOutcome> {
+  const state = requireLivePreparation(prepared);
+  state.lifecycle = 'completing';
+  let cancelledByUser = false;
+  const recordUnlockEvent = (event: { phase: UnlockEventPhase }): void => {
+    if (event.phase === UnlockEventPhase.CANCELLED) cancelledByUser = true;
+  };
   try {
-    const credential = await authority;
-    throwIfExpired(prepared);
-    throwIfCancelled(prepared.cancellation);
-    return await unlockResolvedWalletSubjectSetWithPasskeyCredential(
+    // Mirror the PM_UNLOCK handler end to end: this login runs inside the
+    // wallet host without passing through that handler. The handler both
+    // requests a JWT session exchange (without it the relayer mints no
+    // app-session JWT at all) and remembers the minted session — ECDSA export
+    // later resolves its route auth from what is remembered here.
+    const callerOnEvent = state.loginOptions.onEvent;
+    const loginOptions: LoginHooksOptions = {
+      ...state.loginOptions,
+      ...(state.loginOptions.session
+        ? {}
+        : { session: { kind: 'jwt', exchange: { type: 'passkey_assertion' } } }),
+      onEvent: (event) => {
+        recordUnlockEvent(event);
+        callerOnEvent?.(event);
+      },
+    };
+    const result = await unlockResolvedWalletSubjectSet(
       state.context,
       prepared.subjectSet,
-      credential,
-      state.loginOptions,
+      loginOptions,
     );
+    // A hosted login is always a local passkey unlock, so a failure clears any
+    // stale session just as the handler's local branch does.
+    if (result.success && result.jwt) {
+      rememberWalletOriginAppSession({
+        appSessionJwt: result.jwt,
+        relayUrl: state.context.configs.network.relayer.url,
+        walletId: result.walletId,
+      });
+    } else if (!result.success) {
+      clearWalletOriginAppSession();
+    }
+    return { result, cancelledByUser };
   } finally {
     state.lifecycle = 'finished';
   }

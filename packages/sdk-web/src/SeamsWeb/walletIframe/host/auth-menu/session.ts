@@ -9,6 +9,7 @@ import {
   type AuthMenuLinkDeviceViewModel,
   type AuthMenuViewModel,
   isAuthMenuIntent,
+  passkeyCeremonyHeadline,
 } from '../lit-ui/auth-menu/auth-menu-domain';
 import { SeamsAuthMenuSurfaceElement } from '../lit-ui/auth-menu/seams-auth-menu-surface';
 import {
@@ -45,7 +46,8 @@ import {
   completeHostedPasskeyAccountSync,
   completeHostedPasskeyLogin,
   startHostedPasskeyAccountSyncCredential,
-  startHostedPasskeyLoginCredential,
+  type HostedPasskeyAccountSyncPrepared,
+  type HostedPasskeyLoginOutcome,
   type HostedPasskeyPrepared,
 } from './passkey';
 import { parseWalletId } from '@shared/utils/domainIds';
@@ -54,6 +56,15 @@ import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import type { StartDevice2LinkingFlowResults } from '@/core/types/linkDevice';
 
 type HostedPasskeyMenuPrepared = HostedPasskeyRegistrationPrepared | HostedPasskeyPrepared;
+
+/**
+ * Why a passkey attempt ended. `dismissed` re-arms the menu in silence; every
+ * other failure is shown. Callers state which one it is from where the cause is
+ * still structured, so no stage has to guess from an error message.
+ */
+type AuthMenuFailure =
+  | { readonly kind: 'dismissed' }
+  | { readonly kind: 'error'; readonly error: unknown };
 
 function cancelHostedPasskeyMenuPreparation(prepared: HostedPasskeyMenuPrepared): void {
   if (prepared.kind === 'hosted_passkey_registration_prepared_v1') {
@@ -165,8 +176,8 @@ function createPreparingViewModel(args: {
     showProgress: args.request.showProgress,
     enabledExternalProviders: args.request.enabledExternalProviders,
     status: {
-      kind: 'preparing' as const,
-      message: 'Preparing passkey',
+      kind: 'idle' as const,
+      interaction: 'arming' as const,
     },
   };
   return mode === 'register'
@@ -241,7 +252,7 @@ function googleLoginViewModel(args: {
     ...googleViewModelBase({
       base: args.base,
       flow: args.flow,
-      status: args.status ?? { kind: 'ready' },
+      status: args.status ?? { kind: 'idle', interaction: 'actionable' },
     }),
     kind: 'google_otp_login',
     mode: 'login',
@@ -268,7 +279,7 @@ function googleRegistrationViewModel(args: {
     ...googleViewModelBase({
       base: args.base,
       flow: args.flow,
-      status: args.status ?? { kind: 'ready' },
+      status: args.status ?? { kind: 'idle', interaction: 'actionable' },
     }),
     kind: 'google_registration',
     mode: 'register',
@@ -296,7 +307,7 @@ function linkDeviceViewModel(base: AuthMenuViewModel): AuthMenuLinkDeviceViewMod
     ctaLabel: '',
     showProgress: base.showProgress,
     enabledExternalProviders: base.enabledExternalProviders,
-    status: { kind: 'ready' },
+    status: { kind: 'idle', interaction: 'actionable' },
     mode: base.mode,
     linkDevice: { kind: 'loading', message: 'Generating QR code...' },
   };
@@ -497,7 +508,7 @@ export class AuthMenuSession {
         kind: 'preparing',
         viewModel: {
           ...viewModel,
-          status: { kind: 'input_required' },
+          status: { kind: 'idle', interaction: 'awaiting_input' },
         },
       };
       this.updateElement();
@@ -516,7 +527,7 @@ export class AuthMenuSession {
       kind: 'preparing',
       viewModel: {
         ...viewModel,
-        status: { kind: 'preparing', message: 'Preparing passkey' },
+        status: { kind: 'idle', interaction: 'arming' },
       },
     };
     this.updateElement();
@@ -537,7 +548,7 @@ export class AuthMenuSession {
           prepared,
           viewModel: {
             ...this.currentViewModel(),
-            status: { kind: 'ready' },
+            status: { kind: 'idle', interaction: 'actionable' },
           },
         };
         this.schedulePreparationExpiry(prepared);
@@ -551,7 +562,8 @@ export class AuthMenuSession {
           viewModel: {
             ...this.currentViewModel(),
             status: {
-              kind: 'error',
+              kind: 'recoverable',
+              reason: 'error',
               message: error instanceof Error ? error.message : String(error),
             },
           },
@@ -620,7 +632,11 @@ export class AuthMenuSession {
         kind: 'preparing',
         viewModel: {
           ...this.stateValue.viewModel,
-          status: { kind: 'expired', message: 'Passkey preparation expired. Retry to continue.' },
+          status: {
+            kind: 'recoverable',
+            reason: 'expired',
+            message: 'Passkey preparation expired. Retry to continue.',
+          },
         },
       };
       this.updateElement();
@@ -637,7 +653,16 @@ export class AuthMenuSession {
       kind: 'preparing',
       viewModel: {
         ...baseViewModel,
-        status: { kind: 'preparing', message: 'Starting Google sign-in' },
+        // Stay on the waiting view, under the same headline the external-auth
+        // request already showed. 'preparing' is not a loading status, so it
+        // dropped the surface back to the main menu for the whole
+        // beginGoogleEmailOtp round trip — a visible flash between the SSO
+        // prompt and the OTP form.
+        status: {
+          kind: 'busy',
+          headline: 'Waiting for Google SSO authentication…',
+          detail: 'Starting Google sign-in',
+        },
       },
     };
     this.updateElement();
@@ -680,7 +705,7 @@ export class AuthMenuSession {
           kind: 'preparing',
           viewModel: {
             ...baseViewModel,
-            status: { kind: 'error', message: errorMessage(error) },
+            status: { kind: 'recoverable', reason: 'error', message: errorMessage(error) },
           },
         };
         this.updateElement();
@@ -712,7 +737,14 @@ export class AuthMenuSession {
       kind: 'awaiting_external_auth',
       viewModel: {
         ...this.currentViewModel(),
-        status: { kind: 'preparing', message: 'Waiting for Google sign-in' },
+        // 'performing' is what drives the surface's waiting view; 'preparing'
+        // left the menu sitting on the form with no feedback during the SSO
+        // round trip.
+        status: {
+          kind: 'busy',
+          headline: 'Waiting for Google SSO authentication…',
+          detail: 'Waiting for Google sign-in',
+        },
       },
       request,
     };
@@ -750,7 +782,7 @@ export class AuthMenuSession {
           kind: 'preparing',
           viewModel: {
             ...state.viewModel,
-            status: { kind: 'error', message },
+            status: { kind: 'recoverable', reason: 'error', message },
           },
         };
         this.updateElement();
@@ -835,7 +867,7 @@ export class AuthMenuSession {
             viewModel: {
               ...passkeyViewModel,
               passkeyName: intent.passkeyName,
-              status: { kind: 'preparing', message: 'Preparing passkey' },
+              status: { kind: 'idle', interaction: 'arming' },
             },
           };
           this.updateElement();
@@ -846,6 +878,16 @@ export class AuthMenuSession {
         this.selectLoginAccount(intent.walletId);
         return;
       case 'submit':
+        // A failed or expired preparation has no live credential to consume, so
+        // the primary action re-prepares instead. This replaces the separate
+        // Retry control the surface used to render.
+        if (
+          this.stateValue.kind === 'preparing' &&
+          this.stateValue.viewModel.status.kind === 'recoverable'
+        ) {
+          this.retryPreparation();
+          return;
+        }
         if (this.stateValue.kind === 'ready' && this.prepared === this.stateValue.prepared) {
           if (
             (intent.mode === 'register' &&
@@ -927,6 +969,7 @@ export class AuthMenuSession {
       return;
     }
     if (
+      this.stateValue.kind === 'performing' ||
       this.stateValue.kind === 'awaiting_external_auth' ||
       this.stateValue.kind === 'google_login' ||
       this.stateValue.kind === 'google_registration'
@@ -947,7 +990,7 @@ export class AuthMenuSession {
       kind: 'preparing',
       viewModel: {
         ...state.viewModel,
-        status: { kind: 'preparing', message: 'Preparing passkey' },
+        status: { kind: 'idle', interaction: 'arming' },
       },
     };
     this.invalidatePreparation();
@@ -979,10 +1022,7 @@ export class AuthMenuSession {
     this.updateElement();
   }
 
-  private completeLinkDeviceOpen(
-    generation: number,
-    result: StartDevice2LinkingFlowResults,
-  ): void {
+  private completeLinkDeviceOpen(generation: number, result: StartDevice2LinkingFlowResults): void {
     const state = this.stateValue;
     if (generation !== this.deviceLinkGeneration || state.kind !== 'link_device') return;
     this.stateValue = {
@@ -1041,7 +1081,7 @@ export class AuthMenuSession {
       viewModel: {
         ...state.viewModel,
         passkeyName: String(createReadableWalletId()),
-        status: { kind: 'preparing', message: 'Preparing passkey' },
+        status: { kind: 'idle', interaction: 'arming' },
       },
     };
     this.updateElement();
@@ -1066,7 +1106,7 @@ export class AuthMenuSession {
       viewModel: {
         ...state.viewModel,
         selectedWalletId: selected.walletId,
-        status: { kind: 'preparing', message: 'Preparing passkey' },
+        status: { kind: 'idle', interaction: 'arming' },
       },
     };
     this.updateElement();
@@ -1075,10 +1115,7 @@ export class AuthMenuSession {
 
   private retryPreparation(): void {
     const state = this.stateValue;
-    if (
-      state.kind !== 'preparing' ||
-      (state.viewModel.status.kind !== 'expired' && state.viewModel.status.kind !== 'error')
-    ) {
+    if (state.kind !== 'preparing' || state.viewModel.status.kind !== 'recoverable') {
       return;
     }
     this.invalidatePreparation();
@@ -1086,7 +1123,7 @@ export class AuthMenuSession {
       kind: 'preparing',
       viewModel: {
         ...state.viewModel,
-        status: { kind: 'preparing', message: 'Preparing passkey' },
+        status: { kind: 'idle', interaction: 'arming' },
       },
     };
     this.updateElement();
@@ -1102,6 +1139,11 @@ export class AuthMenuSession {
       viewModel: { ...state.viewModel, otpCode, error: '' },
     };
     this.updateElement();
+    // A complete code is an unambiguous intent — submit it rather than making
+    // the user confirm what they just finished typing. submitGoogleOtp re-reads
+    // state and no-ops while a submit is already in flight, so a paste that
+    // lands the sixth digit cannot double-submit.
+    if (/^\d{6}$/.test(otpCode)) this.submitGoogleOtp();
   }
 
   private resendGoogleOtp(): void {
@@ -1112,7 +1154,7 @@ export class AuthMenuSession {
       ...state,
       viewModel: {
         ...state.viewModel,
-        status: { kind: 'performing', message: 'Sending a new email code' },
+        status: { kind: 'busy', headline: 'Sending a new email code' },
         resendBusy: true,
         error: '',
       },
@@ -1129,7 +1171,7 @@ export class AuthMenuSession {
             ...this.stateValue,
             viewModel: {
               ...this.stateValue.viewModel,
-              status: { kind: 'ready' },
+              status: { kind: 'idle', interaction: 'actionable' },
               resendBusy: false,
               error: result.error.message,
             },
@@ -1143,7 +1185,7 @@ export class AuthMenuSession {
             ...this.stateValue,
             viewModel: {
               ...this.stateValue.viewModel,
-              status: { kind: 'ready' },
+              status: { kind: 'idle', interaction: 'actionable' },
               resendBusy: false,
               error: 'Google returned an unexpected registration flow.',
             },
@@ -1165,7 +1207,7 @@ export class AuthMenuSession {
           ...this.stateValue,
           viewModel: {
             ...this.stateValue.viewModel,
-            status: { kind: 'ready' },
+            status: { kind: 'idle', interaction: 'actionable' },
             resendBusy: false,
             error: errorMessage(error),
           },
@@ -1184,7 +1226,7 @@ export class AuthMenuSession {
         ...state,
         viewModel: {
           ...state.viewModel,
-          status: { kind: 'ready' },
+          status: { kind: 'idle', interaction: 'actionable' },
           error: 'Enter the 6-digit code from your email.',
         },
       };
@@ -1196,7 +1238,7 @@ export class AuthMenuSession {
       ...state,
       viewModel: {
         ...state.viewModel,
-        status: { kind: 'performing', message: 'Verifying your email code' },
+        status: { kind: 'busy', headline: 'Verifying your email code' },
         submitBusy: true,
         error: '',
       },
@@ -1210,7 +1252,7 @@ export class AuthMenuSession {
             ...this.stateValue,
             viewModel: {
               ...this.stateValue.viewModel,
-              status: { kind: 'ready' },
+              status: { kind: 'idle', interaction: 'actionable' },
               submitBusy: false,
               error: result.error.message,
             },
@@ -1223,7 +1265,7 @@ export class AuthMenuSession {
             ...this.stateValue,
             viewModel: {
               ...this.stateValue.viewModel,
-              status: { kind: 'ready' },
+              status: { kind: 'idle', interaction: 'actionable' },
               submitBusy: false,
               error: 'Google returned an unexpected registration result.',
             },
@@ -1244,7 +1286,7 @@ export class AuthMenuSession {
           ...this.stateValue,
           viewModel: {
             ...this.stateValue.viewModel,
-            status: { kind: 'ready' },
+            status: { kind: 'idle', interaction: 'actionable' },
             submitBusy: false,
             error: errorMessage(error),
           },
@@ -1262,7 +1304,7 @@ export class AuthMenuSession {
       ...state,
       viewModel: {
         ...state.viewModel,
-        status: { kind: 'performing', message: 'Generating another wallet name' },
+        status: { kind: 'busy', headline: 'Generating another wallet name' },
         rerollBusy: true,
         error: '',
       },
@@ -1279,7 +1321,7 @@ export class AuthMenuSession {
             ...this.stateValue,
             viewModel: {
               ...this.stateValue.viewModel,
-              status: { kind: 'ready' },
+              status: { kind: 'idle', interaction: 'actionable' },
               rerollBusy: false,
               error: result.error.message,
             },
@@ -1293,7 +1335,7 @@ export class AuthMenuSession {
             ...this.stateValue,
             viewModel: {
               ...this.stateValue.viewModel,
-              status: { kind: 'ready' },
+              status: { kind: 'idle', interaction: 'actionable' },
               rerollBusy: false,
               error: 'Google returned an unexpected login flow.',
             },
@@ -1317,7 +1359,7 @@ export class AuthMenuSession {
           ...this.stateValue,
           viewModel: {
             ...this.stateValue.viewModel,
-            status: { kind: 'ready' },
+            status: { kind: 'idle', interaction: 'actionable' },
             rerollBusy: false,
             error: errorMessage(error),
           },
@@ -1335,7 +1377,7 @@ export class AuthMenuSession {
       ...state,
       viewModel: {
         ...state.viewModel,
-        status: { kind: 'performing', message: 'Creating your wallet' },
+        status: { kind: 'busy', headline: 'Creating your wallet' },
         submitBusy: true,
         error: '',
       },
@@ -1351,7 +1393,7 @@ export class AuthMenuSession {
             ...this.stateValue,
             viewModel: {
               ...this.stateValue.viewModel,
-              status: { kind: 'ready' },
+              status: { kind: 'idle', interaction: 'actionable' },
               submitBusy: false,
               error: result.error.message,
             },
@@ -1374,7 +1416,7 @@ export class AuthMenuSession {
           ...this.stateValue,
           viewModel: {
             ...this.stateValue.viewModel,
-            status: { kind: 'ready' },
+            status: { kind: 'idle', interaction: 'actionable' },
             submitBusy: false,
             error: errorMessage(error),
           },
@@ -1400,31 +1442,37 @@ export class AuthMenuSession {
       prepared,
       viewModel: {
         ...this.currentViewModel(),
-        status: { kind: 'performing', message: 'Continue with your passkey' },
+        status: {
+          kind: 'busy',
+          headline: passkeyCeremonyHeadline(this.currentViewModel().mode),
+          detail: 'Continue with your passkey',
+        },
       },
     };
     this.updateElement();
+    if (prepared.kind === 'hosted_passkey_login_prepared_v1') {
+      void this.finishPreparedPasskey(prepared);
+      return;
+    }
     let authority: Promise<unknown>;
     try {
-      // Each adapter starts WebAuthn synchronously while this click still owns
-      // the wallet-origin activation. Continuations run only after the promise.
+      // Registration and account sync start WebAuthn while this click still owns activation.
       authority = this.startPreparedCredential(prepared);
     } catch (error: unknown) {
-      this.fail(error);
+      this.fail(this.ceremonyFailure(prepared, error));
       return;
     }
     void authority.then(
       () => this.finishPreparedPasskey(prepared),
-      (error: unknown) => this.fail(error),
+      (error: unknown) => this.fail(this.ceremonyFailure(prepared, error)),
     );
   }
 
-  private startPreparedCredential(prepared: HostedPasskeyMenuPrepared): Promise<unknown> {
+  private startPreparedCredential(
+    prepared: HostedPasskeyRegistrationPrepared | HostedPasskeyAccountSyncPrepared,
+  ): Promise<unknown> {
     if (prepared.kind === 'hosted_passkey_registration_prepared_v1') {
       return startHostedPasskeyRegistrationCredential(prepared);
-    }
-    if (prepared.kind === 'hosted_passkey_login_prepared_v1') {
-      return startHostedPasskeyLoginCredential(prepared);
     }
     return startHostedPasskeyAccountSyncCredential(prepared);
   }
@@ -1438,8 +1486,8 @@ export class AuthMenuSession {
           return;
         }
         case 'hosted_passkey_login_prepared_v1': {
-          const result = await completeHostedPasskeyLogin(prepared);
-          this.completeLoginResult(result);
+          const outcome = await completeHostedPasskeyLogin(prepared);
+          this.completeLoginResult(outcome);
           return;
         }
         case 'hosted_passkey_account_sync_prepared_v1': {
@@ -1451,7 +1499,7 @@ export class AuthMenuSession {
           return assertNeverHostedPasskeyPrepared(prepared);
       }
     } catch (error: unknown) {
-      this.fail(error);
+      this.fail(this.ceremonyFailure(prepared, error));
     }
   }
 
@@ -1461,16 +1509,20 @@ export class AuthMenuSession {
       (result.kind !== 'wallet_registered' &&
         result.kind !== 'ecdsa_wallet_registered_near_pending')
     ) {
-      this.fail(
-        new Error(
+      this.fail({
+        kind: 'error',
+        error: new Error(
           result.success ? 'Hosted registration returned an unexpected result' : result.error,
         ),
-      );
+      });
       return;
     }
     const walletId = parseWalletId(String(result.walletId));
     if (!walletId.ok) {
-      this.fail(new Error('Hosted registration returned an invalid wallet id'));
+      this.fail({
+        kind: 'error',
+        error: new Error('Hosted registration returned an invalid wallet id'),
+      });
       return;
     }
     this.complete({
@@ -1481,16 +1533,22 @@ export class AuthMenuSession {
     });
   }
 
-  private completeLoginResult(
-    result: Awaited<ReturnType<typeof completeHostedPasskeyLogin>>,
-  ): void {
+  private completeLoginResult(outcome: HostedPasskeyLoginOutcome): void {
+    const result = outcome.result;
     if (!result.success) {
-      this.fail(new Error(result.error));
+      // The unlock pipeline flattens a dismissed passkey sheet into a plain
+      // failure message; it reports the cancellation on the event stream
+      // instead, which the outcome latched while the cause was still typed.
+      this.fail(
+        outcome.cancelledByUser
+          ? { kind: 'dismissed' }
+          : { kind: 'error', error: new Error(result.error) },
+      );
       return;
     }
     const walletId = parseWalletId(String(result.walletId));
     if (!walletId.ok) {
-      this.fail(new Error('Hosted login returned an invalid wallet id'));
+      this.fail({ kind: 'error', error: new Error('Hosted login returned an invalid wallet id') });
       return;
     }
     this.complete({
@@ -1505,12 +1563,15 @@ export class AuthMenuSession {
     result: Awaited<ReturnType<typeof completeHostedPasskeyAccountSync>>,
   ): void {
     if (!result.success) {
-      this.fail(new Error(result.error));
+      this.fail({ kind: 'error', error: new Error(result.error) });
       return;
     }
     const walletId = parseWalletId(String(result.walletId));
     if (!walletId.ok) {
-      this.fail(new Error('Hosted account sync returned an invalid wallet id'));
+      this.fail({
+        kind: 'error',
+        error: new Error('Hosted account sync returned an invalid wallet id'),
+      });
       return;
     }
     this.complete({
@@ -1520,17 +1581,54 @@ export class AuthMenuSession {
     });
   }
 
-  private fail(error: unknown): void {
-    if (this.stateValue.kind === 'performing') {
-      cancelHostedPasskeyMenuPreparation(this.stateValue.prepared);
+  /**
+   * Classify a rejection from the WebAuthn ceremony itself.
+   *
+   * Dismissing the platform authenticator sheet is a decision, not a failure,
+   * and so is an abort this session issued (a mode switch or re-preparation
+   * tears the ceremony down). Both re-arm the menu silently — its own buttons
+   * are already the retry affordance.
+   *
+   * Classify on the DOMException name and on our own abort signal, never on
+   * message text. Text matching also swallowed anything whose message merely
+   * mentioned "AbortError" or "cancelled", so genuine failures re-armed the
+   * menu with no explanation at all. An RP-ID misconfiguration arrives as a
+   * SecurityError and therefore still surfaces.
+   */
+  private ceremonyFailure(prepared: HostedPasskeyMenuPrepared, error: unknown): AuthMenuFailure {
+    if (prepared.cancellation.signal.aborted) return { kind: 'dismissed' };
+    const name = error instanceof Error ? error.name : '';
+    if (name === 'NotAllowedError' || name === 'AbortError') return { kind: 'dismissed' };
+    return { kind: 'error', error };
+  }
+
+  private fail(failure: AuthMenuFailure): void {
+    if (this.stateValue.kind !== 'performing') return;
+    const viewModel = this.stateValue.viewModel;
+    cancelHostedPasskeyMenuPreparation(this.stateValue.prepared);
+    this.prepared = null;
+    if (failure.kind === 'dismissed') {
+      this.invalidatePreparation();
+      this.stateValue = {
+        kind: 'preparing',
+        viewModel: {
+          ...viewModel,
+          status: { kind: 'idle', interaction: 'arming' },
+        },
+      };
+      this.updateElement();
+      this.startPasskeyPreparation();
+      return;
     }
-    const message = error instanceof Error ? error.message : String(error);
-    this.complete({
-      kind: 'failed',
-      authMenuSessionId: this.identity.authMenuSessionId,
-      code: 'webauthn_failed',
-      message,
-    });
+    const message = failure.error instanceof Error ? failure.error.message : String(failure.error);
+    this.stateValue = {
+      kind: 'preparing',
+      viewModel: {
+        ...viewModel,
+        status: { kind: 'recoverable', reason: 'error', message },
+      },
+    };
+    this.updateElement();
   }
 }
 
