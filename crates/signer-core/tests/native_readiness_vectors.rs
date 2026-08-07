@@ -118,6 +118,10 @@ fn build_vector() -> NativeEcdsaBootstrapVectorV1 {
             relayer_public_key33_b64u: encode_base64_url(&identity.relayer_public_key33),
             group_public_key33_b64u: encode_base64_url(&identity.threshold_public_key33),
             ethereum_address: hex_prefixed(&identity.threshold_ethereum_address20),
+            // Carried from the derivation rather than assumed zero: the relayer
+            // retries its share when the composed key would be the point at
+            // infinity, and a vector that pinned 0 would stop covering that.
+            relayer_share_retry_counter: identity.relayer_share_retry_counter,
         },
     };
     let expected_finalize_output =
