@@ -19,3 +19,8 @@
 
 pub mod ceremony;
 pub mod wasm;
+
+/// The ceremony driven through the real Router A/B circuit. Its dependencies
+/// are dev-only, so it is compiled only for tests.
+#[cfg(test)]
+mod circuit_tests;

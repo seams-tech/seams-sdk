@@ -1971,7 +1971,6 @@ name = "wallet_custody_ceremony"
 version = "0.1.0"
 dependencies = [
  "base64ct",
- "curve25519-dalek",
  "getrandom 0.2.17",
  "hpke-ng",
  "router-ab-core",
