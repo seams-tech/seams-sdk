@@ -14,12 +14,12 @@ use signer_core::wallet_seed_derivation::{
 
 const SEED: [u8; 32] = [7u8; 32];
 const WALLET_ID: &str = "alice.testnet";
-const SIGNING_KEY_ID: &str = "near-ed25519-key-1";
+const APPLICATION_BINDING_DIGEST: [u8; 32] = [3u8; 32];
 const SLOT_ID: &str = "wallet-key:evm-family:alice.testnet:root-1:v1";
 const PATH: &str = "evm-signing";
 
 fn ed25519_root() -> Vec<u8> {
-    derive_ed25519_yao_client_root_from_seed_v1(&SEED, WALLET_ID, SIGNING_KEY_ID)
+    derive_ed25519_yao_client_root_from_seed_v1(&SEED, &APPLICATION_BINDING_DIGEST)
         .expect("ed25519 root")
         .to_vec()
 }
@@ -35,7 +35,7 @@ fn manifest() -> WalletKeyManifestV1 {
     compressed[0] = 0x02;
     WalletKeyManifestV1 {
         wallet_id: WALLET_ID.into(),
-        near_ed25519_signing_key_id: SIGNING_KEY_ID.into(),
+        near_ed25519_signing_key_id: "near-ed25519-key-1".into(),
         registered_public_key: [9u8; 32],
         evm_family_signing_key_slot_id: SLOT_ID.into(),
         client_root_public_key33: compressed,
@@ -68,7 +68,7 @@ fn neither_root_is_derivable_from_the_other() {
         for parent in [&ed25519, &ecdsa] {
             let as_seed: [u8; 32] = parent.as_slice().try_into().unwrap();
             let chained_ed =
-                derive_ed25519_yao_client_root_from_seed_v1(&as_seed, WALLET_ID, SIGNING_KEY_ID)
+                derive_ed25519_yao_client_root_from_seed_v1(&as_seed, &APPLICATION_BINDING_DIGEST)
                     .unwrap();
             let chained_ecdsa =
                 derive_ecdsa_client_root_share_from_seed_v1(&as_seed, WALLET_ID, SLOT_ID, PATH)
@@ -85,19 +85,15 @@ fn neither_root_is_derivable_from_the_other() {
 fn every_bound_input_changes_the_derived_root() {
     assert_ne!(
         ed25519_root(),
-        derive_ed25519_yao_client_root_from_seed_v1(&[8u8; 32], WALLET_ID, SIGNING_KEY_ID)
+        derive_ed25519_yao_client_root_from_seed_v1(&[8u8; 32], &APPLICATION_BINDING_DIGEST)
             .unwrap()
             .to_vec()
     );
+    // A different application binding is a different key: wallet, signing key,
+    // signing root and signer slot all live inside this digest.
     assert_ne!(
         ed25519_root(),
-        derive_ed25519_yao_client_root_from_seed_v1(&SEED, "mallory.testnet", SIGNING_KEY_ID)
-            .unwrap()
-            .to_vec()
-    );
-    assert_ne!(
-        ed25519_root(),
-        derive_ed25519_yao_client_root_from_seed_v1(&SEED, WALLET_ID, "near-ed25519-key-2")
+        derive_ed25519_yao_client_root_from_seed_v1(&SEED, &[4u8; 32])
             .unwrap()
             .to_vec()
     );
@@ -123,10 +119,14 @@ fn every_bound_input_changes_the_derived_root() {
 #[test]
 fn malformed_derivation_inputs_are_rejected() {
     assert!(
-        derive_ed25519_yao_client_root_from_seed_v1(&[0u8; 16], WALLET_ID, SIGNING_KEY_ID).is_err()
+        derive_ed25519_yao_client_root_from_seed_v1(&[0u8; 16], &APPLICATION_BINDING_DIGEST)
+            .is_err()
     );
-    assert!(derive_ed25519_yao_client_root_from_seed_v1(&SEED, "", SIGNING_KEY_ID).is_err());
-    assert!(derive_ed25519_yao_client_root_from_seed_v1(&SEED, WALLET_ID, "  ").is_err());
+    assert!(
+        derive_ecdsa_client_root_share_from_seed_v1(&[0u8; 16], WALLET_ID, SLOT_ID, PATH).is_err()
+    );
+    assert!(derive_ecdsa_client_root_share_from_seed_v1(&SEED, "", SLOT_ID, PATH).is_err());
+    assert!(derive_ecdsa_client_root_share_from_seed_v1(&SEED, WALLET_ID, "  ", PATH).is_err());
     assert!(derive_ecdsa_client_root_share_from_seed_v1(&SEED, WALLET_ID, SLOT_ID, "").is_err());
 }
 

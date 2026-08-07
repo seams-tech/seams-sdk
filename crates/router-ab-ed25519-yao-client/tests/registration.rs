@@ -3,11 +3,11 @@ use router_ab_core::{
     Ed25519YaoCeremonyBindingV1, Ed25519YaoEncryptedPackageV1, Ed25519YaoOperationV1,
     Ed25519YaoPackageKindV1, Ed25519YaoSessionIdV1, Ed25519YaoStableKeyContextBindingV1,
     Ed25519YaoStateEpochV1, ExpensiveWorkKindV1, LifecycleScopeV1, MpcMaterialActivationRefV1,
-    RootShareEpoch,
-    RouterAbEd25519YaoActivationAdmissionReceiptV1, RouterAbEd25519YaoActivationKeysetV1,
-    RouterAbEd25519YaoActivationPublicReceiptV1, RouterAbEd25519YaoActivationResultV1,
-    RouterAbEd25519YaoApplicationBindingFactsV1, RouterAbEd25519YaoExportAdmissionReceiptV1,
-    RouterAbEd25519YaoExportBindingV1, RouterAbEd25519YaoExportResultV1,
+    RootShareEpoch, RouterAbEd25519YaoActivationAdmissionReceiptV1,
+    RouterAbEd25519YaoActivationKeysetV1, RouterAbEd25519YaoActivationPublicReceiptV1,
+    RouterAbEd25519YaoActivationResultV1, RouterAbEd25519YaoApplicationBindingFactsV1,
+    RouterAbEd25519YaoExportAdmissionReceiptV1, RouterAbEd25519YaoExportBindingV1,
+    RouterAbEd25519YaoExportResultV1,
 };
 use router_ab_dev::{
     build_local_activation_deriver_a_v1, build_local_activation_deriver_b_v1,
@@ -29,11 +29,14 @@ use router_ab_ed25519_yao::{
     ExportDeriverB,
 };
 use router_ab_ed25519_yao_client::{
-    complete_client_activation_v1, complete_client_export_v1, prepare_email_otp_client_export_v1,
+    client_application_binding_digest_v1, complete_client_activation_v1, complete_client_export_v1,
+    prepare_client_registration_with_root_v1, prepare_email_otp_client_export_v1,
     prepare_email_otp_client_registration_v1, prepare_passkey_client_export_v1,
     prepare_passkey_client_recovery_v1, prepare_passkey_client_registration_v1,
     ClientActivationEntropyV1, ClientActivationError, ClientActivationStateV1,
 };
+use signer_core::ed25519_yao_derivation::Ed25519YaoClientDerivationRootV1;
+use signer_core::wallet_seed_derivation::derive_ed25519_yao_client_root_from_seed_v1;
 
 #[test]
 fn client_activation_entropy_rejects_zero_and_reused_seeds() {
@@ -345,6 +348,13 @@ enum ClientActivationTestCase {
         email_otp_factor: [u8; 32],
         entropy: ActivationEntropyBytes,
     },
+    /// Registration from a Client root the caller derived from the wallet
+    /// custody seed, which is how Refactor 100 registers.
+    SeedRootRegistration {
+        session_byte: u8,
+        wallet_custody_seed: [u8; 32],
+        entropy: ActivationEntropyBytes,
+    },
     Recovery {
         session_byte: u8,
         passkey_prf_first: [u8; 32],
@@ -361,25 +371,27 @@ struct ClientActivationCircuitResult {
 impl ClientActivationTestCase {
     fn operation(&self) -> Ed25519YaoOperationV1 {
         match self {
-            Self::Registration { .. } | Self::EmailOtpRegistration { .. } => {
-                Ed25519YaoOperationV1::Registration
-            }
+            Self::Registration { .. }
+            | Self::EmailOtpRegistration { .. }
+            | Self::SeedRootRegistration { .. } => Ed25519YaoOperationV1::Registration,
             Self::Recovery { .. } => Ed25519YaoOperationV1::Recovery,
         }
     }
 
     fn work_kind(&self) -> ExpensiveWorkKindV1 {
         match self {
-            Self::Registration { .. } | Self::EmailOtpRegistration { .. } => {
-                ExpensiveWorkKindV1::RegistrationPrepare
-            }
+            Self::Registration { .. }
+            | Self::EmailOtpRegistration { .. }
+            | Self::SeedRootRegistration { .. } => ExpensiveWorkKindV1::RegistrationPrepare,
             Self::Recovery { .. } => ExpensiveWorkKindV1::Recovery,
         }
     }
 
     fn state_epoch(&self) -> u64 {
         match self {
-            Self::Registration { .. } | Self::EmailOtpRegistration { .. } => 1,
+            Self::Registration { .. }
+            | Self::EmailOtpRegistration { .. }
+            | Self::SeedRootRegistration { .. } => 1,
             Self::Recovery { .. } => 2,
         }
     }
@@ -388,6 +400,7 @@ impl ClientActivationTestCase {
         match self {
             Self::Registration { session_byte, .. }
             | Self::EmailOtpRegistration { session_byte, .. }
+            | Self::SeedRootRegistration { session_byte, .. }
             | Self::Recovery { session_byte, .. } => *session_byte,
         }
     }
@@ -396,6 +409,7 @@ impl ClientActivationTestCase {
         match self {
             Self::Registration { entropy, .. }
             | Self::EmailOtpRegistration { entropy, .. }
+            | Self::SeedRootRegistration { entropy, .. }
             | Self::Recovery { entropy, .. } => *entropy,
         }
     }
@@ -443,6 +457,25 @@ fn prepare_client_activation(
             entropy,
         )
         .expect("prepare Email OTP registration"),
+        ClientActivationTestCase::SeedRootRegistration {
+            wallet_custody_seed,
+            ..
+        } => {
+            // Derive against the digest this protocol will verify, rather than
+            // recomputing the binding independently and risking divergence.
+            let digest = client_application_binding_digest_v1(application, participant_ids)
+                .expect("application binding digest");
+            let root = derive_ed25519_yao_client_root_from_seed_v1(wallet_custody_seed, &digest)
+                .expect("seed-derived Client root");
+            prepare_client_registration_with_root_v1(
+                admission,
+                application,
+                participant_ids,
+                Ed25519YaoClientDerivationRootV1::from_secret_bytes(*root),
+                entropy,
+            )
+            .expect("prepare seed-root registration")
+        }
         ClientActivationTestCase::Recovery {
             passkey_prf_first,
             expected_registered_public_key,
@@ -838,4 +871,48 @@ fn expect_complete<R, C>(step: RelayStep<R, C>) -> C {
         RelayStep::Complete(completion) => completion,
         _ => panic!("expected completion"),
     }
+}
+
+#[test]
+fn seed_derived_registration_completes_the_real_a_b_circuit() {
+    let activation = run_client_activation(ClientActivationTestCase::SeedRootRegistration {
+        session_byte: 0x53,
+        wallet_custody_seed: [0x22; 32],
+        entropy: activation_entropy(0x73),
+    });
+    let receipt = activation.result.public_receipt().clone();
+    let activated = complete_client_activation_v1(activation.state, &activation.result)
+        .expect("Client activation");
+    let scalar = Scalar::from_canonical_bytes(*activated.client_scalar_share())
+        .into_option()
+        .expect("canonical Client scalar");
+    assert_eq!(
+        (ED25519_BASEPOINT_POINT * scalar).compress().to_bytes(),
+        receipt.joined_client_commitment()
+    );
+    assert_eq!(
+        activated.registered_public_key(),
+        receipt.registered_public_key()
+    );
+    assert_eq!(activated.state_epoch(), 1);
+}
+
+#[test]
+fn a_different_wallet_custody_seed_registers_a_different_key() {
+    // The seed is the only secret input, so two seeds must not converge on one
+    // registered public key.
+    let first = run_client_activation(ClientActivationTestCase::SeedRootRegistration {
+        session_byte: 0x54,
+        wallet_custody_seed: [0x22; 32],
+        entropy: activation_entropy(0x74),
+    });
+    let second = run_client_activation(ClientActivationTestCase::SeedRootRegistration {
+        session_byte: 0x54,
+        wallet_custody_seed: [0x23; 32],
+        entropy: activation_entropy(0x74),
+    });
+    assert_ne!(
+        first.result.public_receipt().registered_public_key(),
+        second.result.public_receipt().registered_public_key()
+    );
 }
