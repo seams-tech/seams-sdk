@@ -928,8 +928,38 @@ repository evidence.
       valid root and complete the circuit, just for a different key. The tests
       establish that the ceremony drives both real protocols to completion and
       that its outputs are stable and seed-determined.
-- [ ] Add the `wasm_bindgen` boundary and the ceremony worker, and commit the
-      server-held envelope and recovery set from the payload.
+- [x] Add the `wasm_bindgen` boundary. `src/wasm.rs` exposes one entry point,
+      `wallet_custody_ceremony_begin_registration_v1`, and four state handles.
+      Each transition takes `self` by value, and wasm-bindgen nulls the
+      JavaScript object's pointer when a method consumes it — so a caller
+      physically cannot reuse an advanced state, retry a failed transition, or
+      seal twice. The typestate and the JavaScript object graph enforce the
+      same rule.
+
+      Yao activation entropy is generated at this boundary rather than
+      accepted, so JavaScript cannot supply the recipient key material or the
+      Deriver seal seeds. The Rust-side inputs struct still takes entropy
+      because the circuit tests must control it to play the Deriver roles.
+      `RegistrationProtocolInputsWireV1` has no field for the Ed25519 binding
+      digest and uses `deny_unknown_fields`, so a caller supplying one is
+      rejected rather than silently ignored.
+
+      Decoders return `String` and convert to `JsValue` only at the edge:
+      `JsValue::from_str` aborts on non-wasm32 targets, which would otherwise
+      make the hand-written address and base64url parsers untestable on the
+      host. Three tests cover them.
+- [x] Gate the Ed25519 Yao client's own `#[wasm_bindgen]` surface behind a
+      default-on `wasm-bindings` feature. A cdylib inherits every
+      `#[wasm_bindgen]` export it can see through its rlib dependencies, so the
+      first real `wasm-pack` build of the ceremony module re-exported the
+      crate's PRF registration and recovery sessions *and*
+      `WasmExportedEd25519SeedV1` — Ed25519 seed export — from a boundary that
+      has no business offering them. The ceremony crate now depends with
+      `default-features = false`; the standalone Yao build keeps the feature
+      and is unchanged. The published surface is one function and four state
+      handles, and the binary dropped from 538,910 to 427,005 bytes.
+- [ ] Build the ceremony worker and commit the server-held envelope and
+      recovery set from the payload.
 - [ ] Shrink `wasm/ecdsa_registration_client` once registration leaves it:
       rename around role-local material rehydration or fold the remainder into
       its natural owner. Do not leave a compatibility shell under the old name.

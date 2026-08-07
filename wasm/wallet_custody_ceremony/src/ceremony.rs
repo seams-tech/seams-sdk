@@ -158,6 +158,8 @@ pub struct CeremonyManifestEstablishedV1 {
 }
 
 /// One sealed recovery wrap, ready for the server record.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SealedRecoveryWrapRecordV1 {
     pub recovery_key_id: String,
     pub nonce_b64u: String,
@@ -169,6 +171,8 @@ pub struct SealedRecoveryWrapRecordV1 {
 ///
 /// JavaScript performs the server write with this. Nothing here opens anything,
 /// and nothing here is a capability that could be replayed into a later seal.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WalletCustodyCommitPayloadV1 {
     pub wallet_id: String,
     pub envelope_id: String,
