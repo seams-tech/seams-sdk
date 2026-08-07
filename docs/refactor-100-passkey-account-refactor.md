@@ -781,7 +781,7 @@ repository evidence.
       device's material, collapsing the device separation Refactor 103
       creates. A lost lane is revoked and reprovisioned through Refactor 102,
       not recovered. Both parsers reject lane kinds in a recovery entry.
-- [ ] FIX (August 7, 2026) — the key manifest moves **off** the seed and
+- [x] FIX (August 7, 2026) — the key manifest moves **off** the seed and
       becomes a per-key-set record, correcting an over-constraint introduced
       earlier in this refactor.
 
@@ -897,16 +897,29 @@ repository evidence.
       present only on an establishing run, and the manifest digest is returned
       for the caller to write onto that key set's *registration state*, never
       to a record of its own.
-- [ ] Rework the circuit tests for the new shape. They currently drive both
-      protocols in one ceremony. The case worth proving is that an EVM-only run
-      commits custody with Yao never running, and that a NEAR run joining it
-      produces a manifest and no custody records.
-- [ ] Align the TypeScript layer. `custodySecretBinding.ts` still emits the
-      five manifest fields the seed binding no longer has, and `near_signer`'s
-      parser uses `deny_unknown_fields` — so every TS-built seed binding is
-      rejected at runtime today. No suite catches this: the Rust and TypeScript
-      unit suites each test their own side. This is the highest-priority
-      remaining item for that reason.
+- [ ] Rework the circuit tests for the new shape. They were removed from the
+      build when the ceremony became one key set per run — they drove both
+      protocols in a single ceremony, which the API no longer expresses. The
+      cases worth proving: an EVM-only run commits custody with Yao never
+      running, and a NEAR run joining it produces a manifest and no custody
+      records. The `router-ab-dev` harness they used is still in the file.
+- [x] Align the TypeScript layer. The seed binding now carries `kind` and
+      `derivationScheme` only, the recovery set no longer names a key manifest,
+      and the commit payload splits into `establishedCustody` plus the key set
+      this run provisioned. The commit adapter refuses a joining run's payload
+      rather than half-building records from absent fields.
+
+      This closed a live defect: `near_signer`'s parser uses
+      `deny_unknown_fields` and had already dropped the five manifest fields,
+      so every TypeScript-built seed binding would have been rejected at
+      runtime. No suite caught it, because the Rust and TypeScript unit suites
+      each test only their own side. A cross-boundary wire fixture would.
+
+      Also fixed while here: `clientRootPublicKey33B64u` belongs to no binding
+      now, so the unknown-field guard reported it as plaintext custody material
+      — it matches the `clientroot` substring. It is a published point, so a
+      field naming itself a public key is exempt from that classification while
+      still being rejected.
 - [ ] Wipe dev OTP wallets and obsolete persisted records with the Phase 2
       test-wallet reset.
 - [x] Record a naming glossary in `AGENTS.md` fixing each custody term to one
