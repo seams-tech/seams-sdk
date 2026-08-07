@@ -14,7 +14,8 @@
 //! the recovery flow requires is structural, not a caller convention.
 //!
 //! Per-entry AAD survives the manifest KEK because each entry KEK is derived
-//! with its own wallet key, lane, epoch, and custody-secret kind.
+//! under its own AAD — the wallet, the custody-secret kind, and the scope — so
+//! a future lane-bearing entry could never open under a seed entry's key.
 //!
 //! Wraps bind to the wallet, not to a key manifest. Key sets are provisioned
 //! independently and each records its own manifest, so there is no wallet-level
@@ -236,10 +237,10 @@ fn open(key: &[u8], nonce: &[u8], aad: &[u8], ciphertext: &[u8]) -> CoreResult<Z
 
 /// Wraps the manifest KEK under one recovery code.
 ///
-/// Takes the verified manifest rather than a scope, and builds the scope from
-/// it. Issuing a recovery set is only meaningful for a key manifest this
-/// ceremony reproduced: a wrap bound to an unverified digest would hand out ten
-/// codes for a key set the seed may not control.
+/// The wrap binds the wallet and the code's own id, not a key manifest. Key
+/// sets are provisioned independently and each records its own manifest, so
+/// there is no wallet-level manifest for a wrap to name; what a recovered seed
+/// may publish is checked per key set at that key set's own gate.
 pub fn seal_wallet_recovery_manifest_kek_v1(
     recovery_code_bytes: &[u8],
     wallet_id: &str,
@@ -286,9 +287,10 @@ pub fn open_wallet_recovery_manifest_kek_v1(
 
 /// Wraps the wallet custody seed under the manifest KEK.
 ///
-/// Like the code wrap above, the scope is built from the verified manifest, so
-/// the entry a recovery code will later open is bound to the key set this
-/// ceremony proved the seed reproduces.
+/// Like the code wrap above, the scope is the wallet. One seed covers every key
+/// set the wallet has now or provisions later, so binding the entry to a key
+/// manifest would leave every key set minted afterwards outside the recovery
+/// set the codes open.
 pub fn seal_wallet_recovery_entry_v1(
     manifest_kek: &[u8],
     wallet_id: &str,
