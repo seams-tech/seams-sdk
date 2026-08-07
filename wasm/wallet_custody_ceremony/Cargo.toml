@@ -45,7 +45,6 @@ getrandom = { version = "0.2.17", features = ["js"] }
 getrandom = "0.2.17"
 
 [dev-dependencies]
-curve25519-dalek = { version = "=4.1.3", features = ["zeroize"] }
 hpke-ng = "0.1.0"
 router-ab-dev = { path = "../../crates/router-ab-dev" }
 router-ab-ed25519-yao = { path = "../../crates/router-ab-ed25519-yao" }
