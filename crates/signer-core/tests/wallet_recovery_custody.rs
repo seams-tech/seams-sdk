@@ -19,9 +19,6 @@ use signer_core::wallet_recovery_custody::{
     seal_wallet_recovery_entry_v1, seal_wallet_recovery_manifest_kek_v1, WalletRecoveryCodeScopeV1,
     WalletRecoveryEntryScopeV1, WALLET_RECOVERY_CODE_COUNT,
 };
-use signer_core::wallet_seed_derivation::{
-    establish_wallet_key_manifest_v1, VerifiedWalletKeyManifestDigestV1, WalletKeyManifestV1,
-};
 
 const MANIFEST_KEK: [u8; 32] = [11u8; 32];
 const NONCE: [u8; 12] = [5u8; 12];
@@ -29,37 +26,6 @@ const ALICE_SEED: [u8; 32] = [21u8; 32];
 const BOB_SEED: [u8; 32] = [22u8; 32];
 const ALICE: &str = "alice.testnet";
 const BOB: &str = "bob.testnet";
-
-fn client_root_public_key33(tag: u8) -> [u8; 33] {
-    let mut key = [tag; 33];
-    key[0] = 0x02;
-    key
-}
-
-fn key_manifest(wallet_id: &str, tag: u8) -> WalletKeyManifestV1 {
-    WalletKeyManifestV1 {
-        wallet_id: wallet_id.into(),
-        near_ed25519_signing_key_id: format!("near-ed25519-key:{wallet_id}"),
-        registered_public_key: [tag; 32],
-        evm_family_signing_key_slot_id: format!("wallet-key:evm-family:{wallet_id}:root-1:v1"),
-        client_root_public_key33: client_root_public_key33(tag),
-    }
-}
-
-/// A proof obtained the only way one can be: from the manifest itself. A
-/// recovery set is issued at registration, so this is the establishing
-/// constructor rather than the verifying one.
-fn verified(wallet_id: &str, tag: u8) -> VerifiedWalletKeyManifestDigestV1 {
-    establish_wallet_key_manifest_v1(&key_manifest(wallet_id, tag)).unwrap()
-}
-
-fn alice() -> VerifiedWalletKeyManifestDigestV1 {
-    verified(ALICE, 31)
-}
-
-fn bob() -> VerifiedWalletKeyManifestDigestV1 {
-    verified(BOB, 32)
-}
 
 fn recovery_code(index: usize) -> Vec<u8> {
     vec![index as u8 + 1; 20]
@@ -76,7 +42,6 @@ fn code_scope(index: usize) -> WalletRecoveryCodeScopeV1 {
     WalletRecoveryCodeScopeV1 {
         wallet_id: ALICE.into(),
         recovery_key_id: recovery_key_id(index),
-        key_manifest_digest: *alice().digest(),
     }
 }
 
@@ -84,7 +49,6 @@ fn code_scope(index: usize) -> WalletRecoveryCodeScopeV1 {
 fn alice_entry_scope() -> WalletRecoveryEntryScopeV1 {
     WalletRecoveryEntryScopeV1 {
         wallet_id: ALICE.into(),
-        key_manifest_digest: *alice().digest(),
     }
 }
 
@@ -92,7 +56,6 @@ fn alice_entry_scope() -> WalletRecoveryEntryScopeV1 {
 fn bob_entry_scope() -> WalletRecoveryEntryScopeV1 {
     WalletRecoveryEntryScopeV1 {
         wallet_id: BOB.into(),
-        key_manifest_digest: *bob().digest(),
     }
 }
 
@@ -109,7 +72,6 @@ fn any_of_the_ten_codes_opens_the_same_manifest_kek() {
                     &recovery_code(index),
                     ALICE,
                     &recovery_key_id(index),
-                    &alice(),
                     &nonce,
                     &MANIFEST_KEK,
                 )
@@ -136,16 +98,14 @@ fn a_recovery_code_opens_the_seed_entry_its_manifest_kek_covers() {
         &recovery_code(0),
         ALICE,
         &recovery_key_id(0),
-        &alice(),
         &NONCE,
         &MANIFEST_KEK,
     )
     .unwrap();
 
     let alice_entry =
-        seal_wallet_recovery_entry_v1(&MANIFEST_KEK, ALICE, &alice(), &NONCE, &ALICE_SEED).unwrap();
-    let bob_entry =
-        seal_wallet_recovery_entry_v1(&MANIFEST_KEK, BOB, &bob(), &NONCE, &BOB_SEED).unwrap();
+        seal_wallet_recovery_entry_v1(&MANIFEST_KEK, ALICE, &NONCE, &ALICE_SEED).unwrap();
+    let bob_entry = seal_wallet_recovery_entry_v1(&MANIFEST_KEK, BOB, &NONCE, &BOB_SEED).unwrap();
 
     let manifest_kek = open_wallet_recovery_manifest_kek_v1(
         &recovery_code(0),
@@ -182,7 +142,7 @@ fn a_recovery_code_opens_the_seed_entry_its_manifest_kek_covers() {
 #[test]
 fn per_entry_aad_survives_the_shared_manifest_kek() {
     let alice_entry =
-        seal_wallet_recovery_entry_v1(&MANIFEST_KEK, ALICE, &alice(), &NONCE, &ALICE_SEED).unwrap();
+        seal_wallet_recovery_entry_v1(&MANIFEST_KEK, ALICE, &NONCE, &ALICE_SEED).unwrap();
 
     // One wallet's entry ciphertext must not open under another's entry scope,
     // even though both entries share one manifest KEK.
@@ -202,22 +162,17 @@ fn per_entry_aad_survives_the_shared_manifest_kek() {
 
 #[test]
 fn substituting_entry_scope_fields_prevents_opening() {
-    let sealed =
-        seal_wallet_recovery_entry_v1(&MANIFEST_KEK, ALICE, &alice(), &NONCE, &ALICE_SEED).unwrap();
+    let sealed = seal_wallet_recovery_entry_v1(&MANIFEST_KEK, ALICE, &NONCE, &ALICE_SEED).unwrap();
 
     let mut wrong_wallet = alice_entry_scope();
     wrong_wallet.wallet_id = "mallory.testnet".into();
 
-    let mut wrong_manifest = alice_entry_scope();
-    wrong_manifest.key_manifest_digest = *bob().digest();
-
-    for scope in [wrong_wallet, wrong_manifest] {
-        assert!(
-            open_wallet_recovery_entry_v1(&MANIFEST_KEK, &scope, &NONCE, &sealed.ciphertext)
-                .is_err(),
-            "a substituted entry scope must not open the wrap"
-        );
-    }
+    // Wallet id is the entry scope now, so it is the one substitution left.
+    assert!(
+        open_wallet_recovery_entry_v1(&MANIFEST_KEK, &wrong_wallet, &NONCE, &sealed.ciphertext)
+            .is_err(),
+        "a substituted entry scope must not open the wrap"
+    );
 }
 
 #[test]
@@ -226,7 +181,6 @@ fn substituting_code_scope_fields_prevents_opening() {
         &recovery_code(0),
         ALICE,
         &recovery_key_id(0),
-        &alice(),
         &NONCE,
         &MANIFEST_KEK,
     )
@@ -247,10 +201,7 @@ fn substituting_code_scope_fields_prevents_opening() {
     let mut wrong_key_id = code_scope(0);
     wrong_key_id.recovery_key_id = recovery_key_id(9);
 
-    let mut wrong_manifest = code_scope(0);
-    wrong_manifest.key_manifest_digest = *bob().digest();
-
-    for scope in [wrong_wallet, wrong_key_id, wrong_manifest] {
+    for scope in [wrong_wallet, wrong_key_id] {
         assert!(
             open_wallet_recovery_manifest_kek_v1(
                 &recovery_code(0),
@@ -266,13 +217,11 @@ fn substituting_code_scope_fields_prevents_opening() {
 
 #[test]
 fn rotating_codes_leaves_entry_ciphertexts_untouched() {
-    let entry =
-        seal_wallet_recovery_entry_v1(&MANIFEST_KEK, ALICE, &alice(), &NONCE, &ALICE_SEED).unwrap();
+    let entry = seal_wallet_recovery_entry_v1(&MANIFEST_KEK, ALICE, &NONCE, &ALICE_SEED).unwrap();
     let original = seal_wallet_recovery_manifest_kek_v1(
         &recovery_code(0),
         ALICE,
         &recovery_key_id(0),
-        &alice(),
         &NONCE,
         &MANIFEST_KEK,
     )
@@ -284,7 +233,6 @@ fn rotating_codes_leaves_entry_ciphertexts_untouched() {
         &recovery_code(5),
         ALICE,
         &recovery_key_id(5),
-        &alice(),
         &NONCE,
         &MANIFEST_KEK,
     )
@@ -313,8 +261,7 @@ fn rotating_codes_leaves_entry_ciphertexts_untouched() {
 
 #[test]
 fn tampered_recovery_ciphertext_fails_to_open() {
-    let sealed =
-        seal_wallet_recovery_entry_v1(&MANIFEST_KEK, ALICE, &alice(), &NONCE, &ALICE_SEED).unwrap();
+    let sealed = seal_wallet_recovery_entry_v1(&MANIFEST_KEK, ALICE, &NONCE, &ALICE_SEED).unwrap();
 
     for index in [0usize, 4, sealed.ciphertext.len() - 1] {
         let mut tampered = sealed.ciphertext.clone();
@@ -341,7 +288,6 @@ fn malformed_recovery_inputs_are_rejected() {
         &recovery_code(0),
         ALICE,
         &recovery_key_id(0),
-        &alice(),
         &NONCE,
         &[0u8; 16]
     )
@@ -350,7 +296,6 @@ fn malformed_recovery_inputs_are_rejected() {
         &[],
         ALICE,
         &recovery_key_id(0),
-        &alice(),
         &NONCE,
         &MANIFEST_KEK
     )
@@ -361,19 +306,13 @@ fn malformed_recovery_inputs_are_rejected() {
         &recovery_code(0),
         "",
         &recovery_key_id(0),
-        &alice(),
         &NONCE,
         &MANIFEST_KEK
     )
     .is_err());
-    assert!(
-        seal_wallet_recovery_entry_v1(&[0u8; 16], ALICE, &alice(), &NONCE, &ALICE_SEED).is_err()
-    );
-    assert!(
-        seal_wallet_recovery_entry_v1(&MANIFEST_KEK, ALICE, &alice(), &[0u8; 24], &ALICE_SEED)
-            .is_err()
-    );
-    assert!(seal_wallet_recovery_entry_v1(&MANIFEST_KEK, ALICE, &alice(), &NONCE, &[]).is_err());
+    assert!(seal_wallet_recovery_entry_v1(&[0u8; 16], ALICE, &NONCE, &ALICE_SEED).is_err());
+    assert!(seal_wallet_recovery_entry_v1(&MANIFEST_KEK, ALICE, &[0u8; 24], &ALICE_SEED).is_err());
+    assert!(seal_wallet_recovery_entry_v1(&MANIFEST_KEK, ALICE, &NONCE, &[]).is_err());
 
     let mut empty_wallet = alice_entry_scope();
     empty_wallet.wallet_id = String::new();

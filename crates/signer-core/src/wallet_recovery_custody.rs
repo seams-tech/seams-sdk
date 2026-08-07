@@ -16,12 +16,11 @@
 //! Per-entry AAD survives the manifest KEK because each entry KEK is derived
 //! with its own wallet key, lane, epoch, and custody-secret kind.
 //!
-//! Sealing takes a [`VerifiedWalletKeyManifestDigestV1`] rather than a digest,
-//! and builds its own scope from it: a set of ten codes may only be issued for
-//! a key manifest the ceremony proved the seed reproduces. Opening takes a
-//! stored scope directly, because recovery must open the seed *before* it can
-//! derive anything to verify against. The gate there is on promoting the
-//! recovered seed to a capability, not on the decrypt itself.
+//! Wraps bind to the wallet, not to a key manifest. Key sets are provisioned
+//! independently and each records its own manifest, so there is no wallet-level
+//! manifest for a wrap to name — and a key rotation no longer invalidates the
+//! seed the set wraps. What a recovered seed may publish capability for is
+//! checked per key set at that key set's own gate.
 
 use base64ct::{Base64UrlUnpadded, Encoding};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
@@ -35,7 +34,6 @@ use crate::passkey_custody::{
     sha256_digest, PasskeyCustodySecretKind, PASSKEY_CUSTODY_KEY_LEN, PASSKEY_CUSTODY_NONCE_LEN,
     PASSKEY_CUSTODY_TAG_LEN, PASSKEY_CUSTODY_WRAP_ALG_V1,
 };
-use crate::wallet_seed_derivation::VerifiedWalletKeyManifestDigestV1;
 
 pub const WALLET_RECOVERY_ENVELOPE_SET_VERSION_V1: &str = "wallet_recovery_envelope_set_v1";
 pub const WALLET_RECOVERY_CODE_COUNT: usize = 10;
@@ -56,9 +54,6 @@ const MAX_CUSTODY_SECRET_LEN: usize = 1024;
 pub struct WalletRecoveryCodeScopeV1 {
     pub wallet_id: String,
     pub recovery_key_id: String,
-    /// Binds a wrap to the exact active owner key/lane manifest, so a wrap
-    /// cannot be moved onto a set whose key manifest has since changed.
-    pub key_manifest_digest: [u8; 32],
 }
 
 /// Identifies the single custody entry inside a recovery envelope set.
@@ -72,7 +67,6 @@ pub struct WalletRecoveryCodeScopeV1 {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WalletRecoveryEntryScopeV1 {
     pub wallet_id: String,
-    pub key_manifest_digest: [u8; 32],
 }
 
 /// A sealed recovery wrap plus the AAD digest its record stores.
@@ -141,7 +135,6 @@ pub fn encode_recovery_manifest_aad_v1(scope: &WalletRecoveryCodeScopeV1) -> Cor
     labeled_str(&mut out, b"walletId", &scope.wallet_id);
     labeled_str(&mut out, b"recoveryKeyId", &scope.recovery_key_id);
     labeled_str(&mut out, b"purpose", MANIFEST_KEK_PURPOSE_V1);
-    labeled_field(&mut out, b"keyManifestDigest", &scope.key_manifest_digest);
     Ok(out)
 }
 
@@ -166,8 +159,6 @@ pub fn encode_recovery_entry_aad_v1(scope: &WalletRecoveryEntryScopeV1) -> CoreR
         PasskeyCustodySecretKind::WalletCustodySeed.as_str(),
     );
     labeled_str(&mut out, b"scope", "wallet");
-
-    labeled_field(&mut out, b"keyManifestDigest", &scope.key_manifest_digest);
     Ok(out)
 }
 
@@ -253,7 +244,6 @@ pub fn seal_wallet_recovery_manifest_kek_v1(
     recovery_code_bytes: &[u8],
     wallet_id: &str,
     recovery_key_id: &str,
-    verified_key_manifest: &VerifiedWalletKeyManifestDigestV1,
     nonce: &[u8],
     manifest_kek: &[u8],
 ) -> CoreResult<SealedRecoveryWrapV1> {
@@ -265,7 +255,6 @@ pub fn seal_wallet_recovery_manifest_kek_v1(
     let scope = &WalletRecoveryCodeScopeV1 {
         wallet_id: wallet_id.to_string(),
         recovery_key_id: recovery_key_id.to_string(),
-        key_manifest_digest: *verified_key_manifest.digest(),
     };
     let aad = encode_recovery_manifest_aad_v1(scope)?;
     let code_kek = derive_wallet_recovery_code_kek_v1(recovery_code_bytes, scope)?;
@@ -303,7 +292,6 @@ pub fn open_wallet_recovery_manifest_kek_v1(
 pub fn seal_wallet_recovery_entry_v1(
     manifest_kek: &[u8],
     wallet_id: &str,
-    verified_key_manifest: &VerifiedWalletKeyManifestDigestV1,
     nonce: &[u8],
     custody_secret: &[u8],
 ) -> CoreResult<SealedRecoveryWrapV1> {
@@ -314,7 +302,6 @@ pub fn seal_wallet_recovery_entry_v1(
     }
     let scope = &WalletRecoveryEntryScopeV1 {
         wallet_id: wallet_id.to_string(),
-        key_manifest_digest: *verified_key_manifest.digest(),
     };
     let aad = encode_recovery_entry_aad_v1(scope)?;
     let entry_kek = derive_wallet_recovery_entry_kek_v1(manifest_kek, scope)?;
