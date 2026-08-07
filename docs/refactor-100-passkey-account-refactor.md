@@ -864,6 +864,49 @@ repository evidence.
       scheme beats wholesale rollback without an external anchor — detectable
       for NEAR via chain state, for EVM once the address has on-chain history,
       and otherwise in the denial-of-service class the server always had.
+- [x] Rebuild the ceremony as one key set per run.
+      `wasm/wallet_custody_ceremony` now provisions a single key set per run,
+      and a run is one of two things:
+
+      - **establish** — the wallet's first key set. The seed is generated here,
+        its envelope is sealed, and the ten-code recovery set is issued.
+      - **join** — a later key set. The seed comes from opening the existing
+        envelope, and the run writes *nothing* but its own key manifest.
+
+      `CustodyOriginV1` carries which, and `finish` refuses the two crossed
+      combinations outright: an establishing run that seals nothing, and a
+      joining run that tries to seal a seed or issue codes. That second refusal
+      is the one that matters — a joining run which sealed would give the
+      wallet a second seed and a second recovery set, leaving half its keys
+      uncovered by either. `join_existing_custody` is the only constructor for
+      the join origin and it requires a successful envelope open, so the
+      authorisation is structural rather than a flag.
+
+      Continuity is wired through: a key set whose registration already exists
+      passes its registered public key, and the run takes
+      `prepare_client_recovery_with_root_v1` instead of the registration seam.
+      An induced re-run then reproduces the identical key or fails.
+
+      Deleted with the coupling that required them:
+      `derive_wallet_seed_owner_roots_v1` and its equal-digest tripwire. Paired
+      derivation only ever existed because one manifest named both key sets.
+      The ceremony is smaller for it — one seed, one root, one protocol, one
+      manifest per run.
+
+      The commit payload changes shape to match: `establishedCustody` is
+      present only on an establishing run, and the manifest digest is returned
+      for the caller to write onto that key set's *registration state*, never
+      to a record of its own.
+- [ ] Rework the circuit tests for the new shape. They currently drive both
+      protocols in one ceremony. The case worth proving is that an EVM-only run
+      commits custody with Yao never running, and that a NEAR run joining it
+      produces a manifest and no custody records.
+- [ ] Align the TypeScript layer. `custodySecretBinding.ts` still emits the
+      five manifest fields the seed binding no longer has, and `near_signer`'s
+      parser uses `deny_unknown_fields` — so every TS-built seed binding is
+      rejected at runtime today. No suite catches this: the Rust and TypeScript
+      unit suites each test their own side. This is the highest-priority
+      remaining item for that reason.
 - [ ] Wipe dev OTP wallets and obsolete persisted records with the Phase 2
       test-wallet reset.
 - [x] Record a naming glossary in `AGENTS.md` fixing each custody term to one

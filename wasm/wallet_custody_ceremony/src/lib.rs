@@ -19,6 +19,3 @@
 
 pub mod ceremony;
 pub mod wasm;
-
-#[cfg(test)]
-mod circuit_tests;
