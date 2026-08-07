@@ -8,6 +8,7 @@ import {
   parsePasskeyCustodySecretBinding,
   parseWalletCustodyEnvelopeFactor,
   type PasskeyCustodyEnvelopeRecord,
+  type WalletCustodyCeremonyCommitPayload,
 } from '@shared/passkey-custody';
 import {
   buildWalletCustodySeedRecoveryEntry,
@@ -19,6 +20,8 @@ import {
 } from '@shared/wallet-recovery';
 import { isPlainObject } from '@shared/utils/validation';
 import type { PasskeyEnvelopeId, WalletId } from '@shared/utils/domainIds';
+
+export type { WalletCustodyCeremonyCommitPayload };
 import type {
   CloudflareD1WalletCustodyCommitStore,
   WalletCustodyRegistrationCommitResult,
@@ -37,30 +40,6 @@ import type {
  * the ceremony produced them under one manifest KEK. Splitting that across two
  * requests would let a wallet exist with a partial code set.
  */
-
-/** The wasm `WalletCustodyCommitPayloadV1`, as it crosses the wire. */
-export type WalletCustodyCeremonyCommitPayload = {
-  readonly walletId: string;
-  readonly envelopeId: string;
-  readonly keyManifestDigestB64u: string;
-  readonly envelopeBindingJson: string;
-  readonly envelopeNonceB64u: string;
-  readonly sealedCustodySecretB64u: string;
-  readonly envelopeAadHashB64u: string;
-  readonly envelopeCiphertextDigestB64u: string;
-  readonly recoveryManifestKekWraps: readonly {
-    readonly recoveryKeyId: string;
-    readonly nonceB64u: string;
-    readonly ciphertextB64u: string;
-    readonly aadHashB64u: string;
-  }[];
-  readonly recoveryEntryNonceB64u: string;
-  readonly recoveryEntryCiphertextB64u: string;
-  readonly recoveryEntryAadHashB64u: string;
-  readonly registeredPublicKeyB64u: string;
-  readonly clientRootPublicKey33B64u: string;
-  readonly ecdsaReadyStateBlobB64u: string;
-};
 
 export type WalletCustodyRegistrationRecords = {
   readonly envelope: PasskeyCustodyEnvelopeRecord;

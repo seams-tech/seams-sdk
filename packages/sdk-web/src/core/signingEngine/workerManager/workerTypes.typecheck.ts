@@ -7,6 +7,8 @@ import type {
   EmailOtpWorkerIssuedSessionHandlePayload,
   EmailOtpWorkerOperationRequestEnvelope,
   EmailOtpWorkerOperationMap,
+  SignerWorkerOperationRequest,
+  SignerWorkerOperationResult,
   EvmCryptoLocalSecp256k1OperationRequest,
   EvmCryptoTransactionOperationRequest,
   EcdsaDerivationRoleLocalMaterialOperationRequest,
@@ -15,7 +17,11 @@ import type {
   NearWorkerOperationRequest,
   EcdsaPresignClientSessionStepRequest,
 } from './workerTypes';
-import type { CapabilityInstanceRef, MpcMaterialActivationRef, RootShareEpoch } from '@shared/utils/domainIds';
+import type {
+  CapabilityInstanceRef,
+  MpcMaterialActivationRef,
+  RootShareEpoch,
+} from '@shared/utils/domainIds';
 import {
   EcdsaDerivationClientCustomRequestType,
   EcdsaPresignClientRequestType,
@@ -339,26 +345,30 @@ const emailOtpEd25519YaoLocalMaterialRehydrate: EmailOtpEd25519YaoLocalMaterialR
 };
 void emailOtpEd25519YaoLocalMaterialRehydrate;
 
-const emailOtpEcdsaWarmMaterialTarget: EmailOtpWorkerOperationMap['getEmailOtpWarmSessionStatus']['payload'] = {
-  target: { kind: 'ecdsa', thresholdSessionId: 'ecdsa-session' },
-};
+const emailOtpEcdsaWarmMaterialTarget: EmailOtpWorkerOperationMap['getEmailOtpWarmSessionStatus']['payload'] =
+  {
+    target: { kind: 'ecdsa', thresholdSessionId: 'ecdsa-session' },
+  };
 void emailOtpEcdsaWarmMaterialTarget;
 
-const emailOtpEd25519YaoWarmMaterialTarget: EmailOtpWorkerOperationMap['getEmailOtpWarmSessionStatus']['payload'] = {
-  target: { kind: 'ed25519_yao', thresholdSessionId: 'ed-session', materialActivation },
-};
+const emailOtpEd25519YaoWarmMaterialTarget: EmailOtpWorkerOperationMap['getEmailOtpWarmSessionStatus']['payload'] =
+  {
+    target: { kind: 'ed25519_yao', thresholdSessionId: 'ed-session', materialActivation },
+  };
 void emailOtpEd25519YaoWarmMaterialTarget;
 
-const emailOtpEd25519YaoWarmMaterialTargetMissingActivation: EmailOtpWorkerOperationMap['getEmailOtpWarmSessionStatus']['payload'] = {
-  // @ts-expect-error Ed25519 warm material always requires exact activation identity.
-  target: { kind: 'ed25519_yao', thresholdSessionId: 'ed-session' },
-};
+const emailOtpEd25519YaoWarmMaterialTargetMissingActivation: EmailOtpWorkerOperationMap['getEmailOtpWarmSessionStatus']['payload'] =
+  {
+    // @ts-expect-error Ed25519 warm material always requires exact activation identity.
+    target: { kind: 'ed25519_yao', thresholdSessionId: 'ed-session' },
+  };
 void emailOtpEd25519YaoWarmMaterialTargetMissingActivation;
 
-const emailOtpEcdsaWarmMaterialTargetWithActivation: EmailOtpWorkerOperationMap['getEmailOtpWarmSessionStatus']['payload'] = {
-  // @ts-expect-error ECDSA warm material remains session-addressed.
-  target: { kind: 'ecdsa', thresholdSessionId: 'ecdsa-session', materialActivation },
-};
+const emailOtpEcdsaWarmMaterialTargetWithActivation: EmailOtpWorkerOperationMap['getEmailOtpWarmSessionStatus']['payload'] =
+  {
+    // @ts-expect-error ECDSA warm material remains session-addressed.
+    target: { kind: 'ecdsa', thresholdSessionId: 'ecdsa-session', materialActivation },
+  };
 void emailOtpEcdsaWarmMaterialTargetWithActivation;
 
 const emailOtpEd25519YaoLocalMaterialRehydrateWithOtp = {
@@ -407,8 +417,7 @@ const emailOtpCapabilityWalletUnlockMaterial: EmailOtpCapabilityWalletUnlockMate
     nearAccountId: emailOtpEd25519YaoWalletUnlockMaterial.nearAccountId,
     expectedOperationalPublicKey:
       emailOtpEd25519YaoWalletUnlockMaterial.expectedOperationalPublicKey,
-    expectedThresholdSessionId:
-      emailOtpEd25519YaoWalletUnlockMaterial.expectedThresholdSessionId,
+    expectedThresholdSessionId: emailOtpEd25519YaoWalletUnlockMaterial.expectedThresholdSessionId,
   },
 };
 void emailOtpCapabilityWalletUnlockMaterial;
@@ -742,5 +751,69 @@ const emailOtpEd25519YaoExportPayloadWithPasskey = {
   webauthnAuthentication: {},
 } satisfies EmailOtpEd25519YaoExportPayload;
 void emailOtpEd25519YaoExportPayloadWithPasskey;
+
+/**
+ * The wallet custody ceremony worker's operation map.
+ *
+ * These pin the two properties the boundary exists for: the ceremony carries
+ * no custody material out, and its steps are addressed by ceremony id rather
+ * than by a handle a caller could hold.
+ */
+const walletCustodyCeremonyBegin: SignerWorkerOperationRequest<
+  'walletCustodyCeremony',
+  'beginWalletCustodyRegistration'
+> = {
+  type: 'beginWalletCustodyRegistration',
+  payload: {
+    ceremonyId: 'ceremony-1',
+    walletId: 'alice.testnet',
+    protocolInputsJson: '{}',
+  },
+};
+void walletCustodyCeremonyBegin;
+
+const walletCustodyCeremonyBeginWithSeed: SignerWorkerOperationRequest<
+  'walletCustodyCeremony',
+  'beginWalletCustodyRegistration'
+> = {
+  type: 'beginWalletCustodyRegistration',
+  payload: {
+    ceremonyId: 'ceremony-1',
+    walletId: 'alice.testnet',
+    protocolInputsJson: '{}',
+    // @ts-expect-error a caller cannot supply the wallet custody seed.
+    walletCustodySeed: new ArrayBuffer(32),
+  },
+};
+void walletCustodyCeremonyBeginWithSeed;
+
+const walletCustodyCeremonySeal: SignerWorkerOperationResult<
+  'walletCustodyCeremony',
+  'sealWalletCustodyRegistration'
+> = {
+  walletId: 'alice.testnet',
+  envelopeId: 'envelope-1',
+  keyManifestDigestB64u: 'digest',
+  envelopeBindingJson: '{}',
+  envelopeNonceB64u: 'nonce',
+  sealedCustodySecretB64u: 'ciphertext',
+  envelopeAadHashB64u: 'aad',
+  envelopeCiphertextDigestB64u: 'digest',
+  recoveryManifestKekWraps: [],
+  recoveryEntryNonceB64u: 'nonce',
+  recoveryEntryCiphertextB64u: 'ciphertext',
+  recoveryEntryAadHashB64u: 'aad',
+  registeredPublicKeyB64u: 'key',
+  clientRootPublicKey33B64u: 'key',
+  ecdsaReadyStateBlobB64u: 'blob',
+};
+void walletCustodyCeremonySeal;
+
+// The seal result carries ciphertext and public facts only. Nothing that could
+// open an envelope may appear on it.
+// @ts-expect-error the ceremony never returns the custody seed.
+void walletCustodyCeremonySeal.walletCustodySeedB64u;
+// @ts-expect-error the ceremony never returns the recovery manifest KEK.
+void walletCustodyCeremonySeal.manifestKekB64u;
 
 export {};

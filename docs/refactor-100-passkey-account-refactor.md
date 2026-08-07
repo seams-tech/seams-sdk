@@ -1014,11 +1014,26 @@ repository evidence.
       exactly ten wraps, duplicate recovery key ids (a code is found by id, so
       duplicates would silently shrink the set), and malformed nonces,
       ciphertext, or digests.
-- [ ] Wire `SignerWorkerManager` and the registration flow to the ceremony
-      worker. `SignerWorkerKind` derives from `SignerWorkerOperationMapByKind`,
-      so this means a typed operation map entry per ceremony message plus a
-      spawn case and a worker-URL resolver; the worker's frames already match
-      the transport's `{id, ok, result}` RPC shape.
+- [x] Wire the ceremony worker into `SignerWorkerManager`.
+      `WalletCustodyCeremonyWorkerOperationMap` types one operation per step,
+      `walletCustodyCeremony` joins `SignerWorkerOperationMapByKind`, and the
+      transport gains a spawn case and a URL resolver. The worker's frames
+      already matched the `{id, ok, result}` RPC shape, so the generic
+      fall-through handles dispatch — with one explicit narrowing branch,
+      because TypeScript cannot correlate `kind` with `request` once the
+      fall-through union has more than one member.
+
+      `WalletCustodyCeremonyCommitPayload` moved to `@shared/passkey-custody`
+      so the SDK channel and the Gateway commit path describe it once. Two
+      spellings would diverge silently, and the first symptom would be a stored
+      envelope that never opens.
+
+      Compile-time fixtures in `workerTypes.typecheck.ts` pin what the channel
+      may carry: a caller supplying a wallet custody seed fails to compile, and
+      the seal result has no seed and no manifest KEK.
+- [ ] Call the ceremony from the registration flow and commit its payload. This
+      is the last wiring step; the PRF-derived path must keep working until it
+      lands, so it is deliberately ahead of the deletions below.
 - [x] Repair the SDK barrel at
       `core/signingEngine/session/passkey/envelopes/index.ts`, which still
       re-exported `PASSKEY_CUSTODY_ENVELOPE_VERSION_V1`,

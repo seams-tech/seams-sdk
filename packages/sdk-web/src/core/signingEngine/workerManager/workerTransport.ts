@@ -18,6 +18,7 @@ import {
 } from '@/core/walletRuntimePaths/multichainWorkers';
 import { resolveWorkerUrl } from '@/core/walletRuntimePaths';
 import { resolveEmailOtpWorkerUrl } from '@/core/walletRuntimePaths/emailOtpWorker';
+import { resolveWalletCustodyCeremonyWorkerUrl } from '@/core/walletRuntimePaths/walletCustodyCeremonyWorker';
 import { EcdsaClientWorkerControlKind } from './ecdsaClientWorkerChannels';
 import type {
   EcdsaDerivationWorkerOperationRequest,
@@ -131,6 +132,13 @@ type AnyWorkerOperationArgs =
         'ecdsaOnlineClient',
         SignerWorkerOperationType<'ecdsaOnlineClient'>
       >;
+    }
+  | {
+      kind: 'walletCustodyCeremony';
+      request: SignerWorkerOperationRequest<
+        'walletCustodyCeremony',
+        SignerWorkerOperationType<'walletCustodyCeremony'>
+      >;
     };
 
 const SIGNER_WORKER_KINDS: readonly SignerWorkerKind[] = [
@@ -139,6 +147,7 @@ const SIGNER_WORKER_KINDS: readonly SignerWorkerKind[] = [
   'evmCrypto',
   'tempoSigner',
   'emailOtp',
+  'walletCustodyCeremony',
 ];
 const MULTICHAIN_WORKER_DEFAULT_TIMEOUT_MS = 20_000;
 
@@ -249,13 +258,19 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
    * cold vs 88 ms warm on `ecdsaRegistrationClientCreateMs`). Fire-and-forget
    * safe: failure leaves the lazy init path exactly as it was.
    */
-  async prewarmEcdsaRegistrationCrypto(): Promise<{ kind: 'succeeded' | 'failed'; wasmInitMs: number }> {
+  async prewarmEcdsaRegistrationCrypto(): Promise<{
+    kind: 'succeeded' | 'failed';
+    wasmInitMs: number;
+  }> {
     const existing = this.ecdsaRegistrationCryptoPrewarmPromise;
     if (existing) return await existing;
     const prewarmPromise = this.requestEcdsaRegistrationCryptoPrewarm();
     this.ecdsaRegistrationCryptoPrewarmPromise = prewarmPromise;
     const outcome = await prewarmPromise;
-    if (outcome.kind === 'failed' && this.ecdsaRegistrationCryptoPrewarmPromise === prewarmPromise) {
+    if (
+      outcome.kind === 'failed' &&
+      this.ecdsaRegistrationCryptoPrewarmPromise === prewarmPromise
+    ) {
       this.ecdsaRegistrationCryptoPrewarmPromise = null;
     }
     return outcome;
@@ -370,6 +385,10 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     | NearWorkerOperationResult<NearWorkerOperationType>
     | EcdsaDerivationWorkerOperationResult<EcdsaDerivationWorkerOperationType>
     | SignerWorkerOperationResult<'emailOtp', SignerWorkerOperationType<'emailOtp'>>
+    | SignerWorkerOperationResult<
+        'walletCustodyCeremony',
+        SignerWorkerOperationType<'walletCustodyCeremony'>
+      >
     | MultichainWorkerOperationResult<
         MultichainWorkerKind,
         MultichainOperationType<MultichainWorkerKind>
@@ -393,6 +412,11 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     }
     if (args.kind === 'tempoSigner') {
       return await this.requestRpcOperation('tempoSigner', args.request);
+    }
+    // Narrowed explicitly so the fall-through keeps a single remaining member:
+    // TypeScript cannot correlate `kind` with `request` across a wider union.
+    if (args.kind === 'walletCustodyCeremony') {
+      return await this.requestRpcOperation('walletCustodyCeremony', args.request);
     }
     return await this.requestRpcOperation(args.kind, args.request);
   }
@@ -701,6 +725,12 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
           baseOrigin: this.workerBaseOrigin,
         });
         return new Worker(workerUrl, { type: 'module', name: 'email-otp-worker' });
+      }
+      if (kind === 'walletCustodyCeremony') {
+        const workerUrl = resolveWalletCustodyCeremonyWorkerUrl({
+          baseOrigin: this.workerBaseOrigin,
+        });
+        return new Worker(workerUrl, { type: 'module', name: 'wallet-custody-ceremony-worker' });
       }
 
       const workerUrl = resolveMultichainWorkerUrl(kind, {
