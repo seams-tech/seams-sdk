@@ -44,11 +44,20 @@ const exportViewerMeasurementBindings = new WeakMap<
   UiConfirmSurfaceMeasurementBinding
 >();
 
+/**
+ * `wallet-iframe` means the parent measured this element and sized the host box
+ * to hug it; `standalone` means the element owns a full-viewport canvas and
+ * positions itself inside it. The HOST BOX shape decides, not what the viewer
+ * renders — see applyConfirmSurfaceMode in confirm-ui.ts for why the two are
+ * separate values.
+ */
 function exportViewerSurfacePresentation(
   variant: UpsertExportViewerHostArgs['variant'] | undefined,
   binding: UiConfirmSurfaceMeasurementBinding,
 ): 'standalone' | 'wallet-iframe' {
-  return binding.kind === 'wallet_iframe' && variant === 'modal' ? 'wallet-iframe' : 'standalone';
+  if (binding.kind !== 'wallet_iframe') return 'standalone';
+  const hostBoxVariant = binding.hostSurfaceVariant ?? variant;
+  return hostBoxVariant === 'modal' ? 'wallet-iframe' : 'standalone';
 }
 
 function sameExportViewerMeasurementBinding(
@@ -63,7 +72,8 @@ function sameExportViewerMeasurementBinding(
       return (
         right.kind === 'wallet_iframe' &&
         left.requestId === right.requestId &&
-        left.postMeasurement === right.postMeasurement
+        left.postMeasurement === right.postMeasurement &&
+        left.hostSurfaceVariant === right.hostSurfaceVariant
       );
   }
 }

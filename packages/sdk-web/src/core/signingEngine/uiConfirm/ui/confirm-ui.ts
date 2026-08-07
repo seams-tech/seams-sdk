@@ -427,7 +427,8 @@ function sameConfirmSurfaceMeasurementBinding(
       return (
         right.kind === 'wallet_iframe' &&
         left.requestId === right.requestId &&
-        left.postMeasurement === right.postMeasurement
+        left.postMeasurement === right.postMeasurement &&
+        left.hostSurfaceVariant === right.hostSurfaceVariant
       );
   }
 }
@@ -459,17 +460,32 @@ function createConfirmSurfaceMeasurementReporter(
   }
 }
 
+/**
+ * Two independent values decide how a confirmation is laid out, and conflating
+ * them is what once stranded the Email OTP export prompt in the top-left corner:
+ *
+ * - `data-w3a-confirm-variant` is what THIS confirmation renders (modal card or
+ *   bottom sheet). It comes from the Confirmer UI setting.
+ * - `data-w3a-confirm-surface` is the shape of the HOST BOX it renders into.
+ *   `wallet-iframe` means the parent measured the card and sized the box to hug
+ *   it, so the card must not position itself. `standalone` means the card owns a
+ *   full-viewport canvas and centres (modal) or bottom-anchors (drawer) itself.
+ *
+ * They are usually the same value, so the box shape is inferred from the
+ * variant. Key export is the exception: its box is pinned to a full-viewport
+ * drawer for the whole request (the key viewer is always a drawer), while the
+ * OTP prompt inside that box still follows the Confirmer UI setting. A modal
+ * prompt in a full-viewport box must self-centre, so the box shape wins.
+ */
 function applyConfirmSurfaceMode(
   element: HTMLElement,
   binding: UiConfirmSurfaceMeasurementBinding,
 ): void {
   const variant = (element as HostTxConfirmerElement).variant;
+  const hostBoxVariant =
+    binding.kind === 'wallet_iframe' ? (binding.hostSurfaceVariant ?? variant) : variant;
   const surface =
-    binding.kind === 'wallet_iframe' && variant === 'drawer'
-      ? 'standalone'
-      : binding.kind === 'wallet_iframe'
-        ? 'wallet-iframe'
-        : 'standalone';
+    binding.kind === 'wallet_iframe' && hostBoxVariant === 'modal' ? 'wallet-iframe' : 'standalone';
   element.setAttribute(CONFIRM_SURFACE_MODE_ATTR, surface);
   if (variant) element.setAttribute('data-w3a-confirm-variant', variant);
 }

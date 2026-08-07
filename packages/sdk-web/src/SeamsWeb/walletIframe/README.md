@@ -203,6 +203,40 @@ to app callbacks and diagnostics; they cannot modify the iframe DOM.
 its hidden and viewport-modal operations. Styling is CSP-safe and uses the
 shared overlay stylesheet. The default z-index is `2147483646`.
 
+### Host box shape vs confirmation variant — READ BEFORE TOUCHING EXPORT UI
+
+These are **two different values**. Conflating them has caused the same bug
+twice (a card stranded in the top-left corner of the screen, and a viewer that
+never appeared at all), so keep them distinct:
+
+| Value | Attribute | Who decides | What it means |
+| --- | --- | --- | --- |
+| Confirmation variant | `data-w3a-confirm-variant` | the Confirmer UI setting | what THIS confirmation renders: a modal card, or a bottom sheet |
+| Host box shape | `data-w3a-confirm-surface` | the parent, per request | `wallet-iframe` = the parent measured the card and sized the iframe to hug it, so the card must NOT position itself. `standalone` = the card owns a full-viewport canvas and centres (modal) or bottom-anchors (drawer) itself. |
+
+For every request except key export the two are the same value, so the box shape
+is inferred from the variant. **Key export is the exception**, and it is
+deliberate — its two surfaces follow different rules:
+
+- **The key viewer ("Exported Keys") is ALWAYS a bottom drawer.** It ignores the
+  Confirmer UI setting entirely.
+- **The Email OTP prompt that runs first FOLLOWS the Confirmer UI setting.**
+  `modal` → centred modal; `drawer` → bottom drawer.
+
+Both render into **one** host box, and the parent sizes that box before the
+iframe renders into it — so the box is pinned to a full-viewport drawer for the
+whole export request (the viewer needs it), and a modal OTP prompt centres
+itself inside that full-viewport canvas.
+
+The pin travels on `UiConfirmSurfaceMeasurementBinding.hostSurfaceVariant`, set
+in `host/runtimeContext.ts` from the same `payload.options.variant` the parent
+reads in `confirmationUiModeForRequest` (`client/router.ts`). Reading one field
+on both sides is what keeps the two descriptions of the box from drifting.
+
+Do NOT "fix" a mispositioned export prompt by changing what the export request
+stamps, or by making the viewer follow the Confirmer UI setting. Those are the
+two wrong turns; the layout knob is the box shape.
+
 ### Notes
 
 - Layering: the iframe overlay uses `z-index: 2147483646`, kept one below the inner modal card (2147483647) to ensure the UI remains clickable when visible.
