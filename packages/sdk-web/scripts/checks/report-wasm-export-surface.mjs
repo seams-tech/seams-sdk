@@ -6,10 +6,18 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const sdkRoot = path.resolve(path.join(__dirname, '../..'));
-const repoRoot = path.resolve(path.join(sdkRoot, '..'));
+/**
+ * `sdkRoot` is `packages/sdk-web`, so the repo root is two levels up, not one.
+ * It read as one for as long as this script existed and still found the wasm
+ * packages, because `packages/wasm` is a symlink to `../wasm` — so the only
+ * visible symptom was that no source root resolved and every export looked
+ * unused.
+ */
+const repoRoot = path.resolve(path.join(sdkRoot, '../..'));
 
 const help = process.argv.includes('--help') || process.argv.includes('-h');
 const jsonOutput = process.argv.includes('--json');
+const assertMode = process.argv.includes('--assert');
 
 if (help) {
   console.log(
@@ -25,8 +33,10 @@ Reports:
   - exports used only by build scripts
   - exports used only by tests/benchmarks
   - exports with no observed import usage
+  - imports naming something the generated wrapper does not export
 
 Options:
+  --assert    Exit non-zero on imports the wrapper does not export
   --json      Print machine-readable JSON
   -h,--help   Show help
 `.trim(),
@@ -34,7 +44,12 @@ Options:
   process.exit(0);
 }
 
-const SOURCE_ROOTS = ['client', 'server', 'shared', 'tests', 'benchmarks', 'sdk', 'examples'];
+/**
+ * Where hand-written source lives. These were the pre-monorepo directory names
+ * until 2026-08-07; none of them existed any more, so the scan matched no files
+ * and the report called every export unused — which is why nobody read it.
+ */
+const SOURCE_ROOTS = ['packages', 'apps', 'tests', 'benchmarks', 'examples', 'clients', 'tools'];
 const GENERATED_SKIP_SEGMENTS = ['/dist/', '/node_modules/', '/wasm/', '/target/'];
 
 function toPosix(value) {
@@ -77,33 +92,62 @@ function parseGeneratedExports(source) {
   return [...names].sort();
 }
 
+/**
+ * Type-only exports — `InitInput`, `InitOutput`, `SyncInitInput` — exist solely
+ * in the generated `.d.ts`. They are legitimate imports, so a check that read
+ * only the `.js` would report every one of them as drift.
+ */
+function parseGeneratedTypeExports(dtsPath) {
+  if (!fs.existsSync(dtsPath)) return [];
+  const source = fs.readFileSync(dtsPath, 'utf8');
+  const names = new Set();
+  const pattern =
+    /^\s*export\s+(?:declare\s+)?(?:type|interface|class|function|const|enum)\s+(\w+)/gm;
+  let match;
+  while ((match = pattern.exec(source))) names.add(match[1]);
+  if (/^\s*export\s+default\s/m.test(source)) names.add('default');
+  return [...names];
+}
+
 function parseImportClause(clause) {
   const trimmed = clause.trim();
   const result = {
     named: [],
+    /**
+     * Named imports written `type X`. They are excluded from usage
+     * categorisation — a type import is not a runtime reference — but they are
+     * still checked against the wrapper's exports, because a wasm-bindgen class
+     * that no longer exists is exactly as broken whether it was imported for
+     * its type or its constructor.
+     */
+    namedTypes: [],
     defaultAlias: null,
     namespaceAlias: null,
     isTypeOnly: false,
   };
   if (!trimmed) return result;
-  if (trimmed.startsWith('type ')) {
-    result.isTypeOnly = true;
-    return result;
-  }
   let rest = trimmed;
+  if (rest.startsWith('type ')) {
+    result.isTypeOnly = true;
+    rest = rest.slice('type '.length).trim();
+  }
   const namedStart = rest.indexOf('{');
   if (namedStart >= 0) {
     const namedEnd = rest.lastIndexOf('}');
     const namedInner = rest.slice(namedStart + 1, namedEnd);
     for (const rawPart of namedInner.split(',')) {
       const part = rawPart.trim();
-      if (!part || part.startsWith('type ')) continue;
-      const [imported] = part.split(/\s+as\s+/);
+      if (!part) continue;
+      const isType = result.isTypeOnly || part.startsWith('type ');
+      const [imported] = (isType ? part.replace(/^type\s+/, '') : part).split(/\s+as\s+/);
       const cleanImported = imported.trim();
-      if (cleanImported) result.named.push(cleanImported);
+      if (!cleanImported) continue;
+      if (isType) result.namedTypes.push(cleanImported);
+      else result.named.push(cleanImported);
     }
     rest = rest.slice(0, namedStart).replace(/,\s*$/, '').trim();
   }
+  if (result.isTypeOnly) return result;
   if (rest.startsWith('* as ')) {
     result.namespaceAlias = rest.slice('* as '.length).trim();
     return result;
@@ -124,10 +168,10 @@ function parseFileImports(source, packageSuffixes) {
     const matchedSuffix = packageSuffixes.find((suffix) => specifier.endsWith(suffix));
     if (!matchedSuffix) continue;
     const parsed = parseImportClause(clause);
-    if (parsed.isTypeOnly) continue;
     imports.push({
       packageSuffix: matchedSuffix,
       named: parsed.named,
+      namedTypes: parsed.namedTypes,
       defaultAlias: parsed.defaultAlias,
       namespaceAlias: parsed.namespaceAlias,
     });
@@ -182,11 +226,26 @@ for (const pkg of packageFiles) {
   const source = fs.readFileSync(pkg.absPath, 'utf8');
   const exportNames = parseGeneratedExports(source);
   const refs = new Map(exportNames.map((name) => [name, []]));
+  const unknownImports = [];
+  // Usage categorisation stays over the runtime exports; the type exports only
+  // widen what counts as a resolvable import.
+  const importableNames = new Set([
+    ...exportNames,
+    ...parseGeneratedTypeExports(pkg.absPath.replace(/\.js$/, '.d.ts')),
+  ]);
 
   for (const file of sourceRecords) {
     const imports = file.imports.filter((entry) => entry.packageSuffix === pkg.relPath);
     if (imports.length === 0) continue;
     for (const entry of imports) {
+      // An import naming something the wrapper does not export. This is the
+      // drift catch: `pkg/` is a gitignored build artifact, so a stale one lets
+      // `tsc` validate source against generated typings for code that is gone.
+      for (const named of [...entry.named, ...entry.namedTypes]) {
+        if (!importableNames.has(named)) {
+          unknownImports.push({ file: file.relPath, exportName: named });
+        }
+      }
       for (const named of entry.named) {
         addRef(refs, named, { category: file.category, file: file.relPath, via: 'named' });
       }
@@ -233,6 +292,7 @@ for (const pkg of packageFiles) {
     packageName: pkg.packageName,
     packagePath: pkg.relPath,
     exports: exportRows,
+    unknownImports,
     counts: {
       total: exportRows.length,
       runtime: exportRows.filter((row) => row.status === 'runtime').length,
@@ -243,9 +303,34 @@ for (const pkg of packageFiles) {
   });
 }
 
+const allUnknownImports = report.flatMap((pkg) =>
+  pkg.unknownImports.map((entry) => ({ packageName: pkg.packageName, ...entry })),
+);
+
 if (jsonOutput) {
-  console.log(JSON.stringify({ packages: report }, null, 2));
-  process.exit(0);
+  console.log(JSON.stringify({ packages: report, unknownImports: allUnknownImports }, null, 2));
+  process.exit(assertMode && allUnknownImports.length > 0 ? 1 : 0);
+}
+
+if (assertMode) {
+  if (allUnknownImports.length === 0) {
+    console.log(
+      `[report-wasm-export-surface] OK: every wasm wrapper import resolves to an export (${report.length} packages)`,
+    );
+    process.exit(0);
+  }
+  console.error(
+    '[report-wasm-export-surface] FAIL: imports name exports the generated wrapper does not have.',
+  );
+  console.error(
+    '  A stale pkg/ is the usual cause — it is a gitignored build artifact, so tsc may be',
+  );
+  console.error('  checking your source against typings for code that no longer exists.');
+  console.error('  Rebuild the package, then re-run. If it still fails, the import is wrong.');
+  for (const entry of allUnknownImports) {
+    console.error(`    - ${entry.file} imports ${entry.exportName} from ${entry.packageName}`);
+  }
+  process.exit(1);
 }
 
 console.log('[report-wasm-export-surface] Generated WASM wrapper export audit');
