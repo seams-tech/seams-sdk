@@ -16,7 +16,7 @@ const SEED: [u8; 32] = [7u8; 32];
 const WALLET_ID: &str = "alice.testnet";
 const APPLICATION_BINDING_DIGEST: [u8; 32] = [3u8; 32];
 const SLOT_ID: &str = "wallet-key:evm-family:alice.testnet:root-1:v1";
-const PATH: &str = "evm-signing";
+const ECDSA_BINDING_DIGEST: [u8; 32] = [5u8; 32];
 
 fn ed25519_root() -> Vec<u8> {
     derive_ed25519_yao_client_root_from_seed_v1(&SEED, &APPLICATION_BINDING_DIGEST)
@@ -25,7 +25,7 @@ fn ed25519_root() -> Vec<u8> {
 }
 
 fn ecdsa_share() -> Vec<u8> {
-    derive_ecdsa_client_root_share_from_seed_v1(&SEED, WALLET_ID, SLOT_ID, PATH)
+    derive_ecdsa_client_root_share_from_seed_v1(&SEED, &ECDSA_BINDING_DIGEST)
         .expect("ecdsa share")
         .to_vec()
 }
@@ -71,7 +71,7 @@ fn neither_root_is_derivable_from_the_other() {
                 derive_ed25519_yao_client_root_from_seed_v1(&as_seed, &APPLICATION_BINDING_DIGEST)
                     .unwrap();
             let chained_ecdsa =
-                derive_ecdsa_client_root_share_from_seed_v1(&as_seed, WALLET_ID, SLOT_ID, PATH)
+                derive_ecdsa_client_root_share_from_seed_v1(&as_seed, &ECDSA_BINDING_DIGEST)
                     .unwrap();
             assert_ne!(chained_ed.to_vec(), ed25519, "salt {salt}");
             assert_ne!(chained_ed.to_vec(), ecdsa, "salt {salt}");
@@ -99,20 +99,17 @@ fn every_bound_input_changes_the_derived_root() {
     );
     assert_ne!(
         ecdsa_share(),
-        derive_ecdsa_client_root_share_from_seed_v1(
-            &SEED,
-            WALLET_ID,
-            "wallet-key:evm-family:alice.testnet:root-2:v1",
-            PATH
-        )
-        .unwrap()
-        .to_vec()
-    );
-    assert_ne!(
-        ecdsa_share(),
-        derive_ecdsa_client_root_share_from_seed_v1(&SEED, WALLET_ID, SLOT_ID, "evm-signing/2")
+        derive_ecdsa_client_root_share_from_seed_v1(&SEED, &[6u8; 32])
             .unwrap()
             .to_vec()
+    );
+    // The two curves share a seed; an identical binding digest must still not
+    // collapse them onto one secret, because their salts differ.
+    assert_ne!(
+        derive_ed25519_yao_client_root_from_seed_v1(&SEED, &ECDSA_BINDING_DIGEST)
+            .unwrap()
+            .to_vec(),
+        ecdsa_share()
     );
 }
 
@@ -123,11 +120,8 @@ fn malformed_derivation_inputs_are_rejected() {
             .is_err()
     );
     assert!(
-        derive_ecdsa_client_root_share_from_seed_v1(&[0u8; 16], WALLET_ID, SLOT_ID, PATH).is_err()
+        derive_ecdsa_client_root_share_from_seed_v1(&[0u8; 16], &ECDSA_BINDING_DIGEST).is_err()
     );
-    assert!(derive_ecdsa_client_root_share_from_seed_v1(&SEED, "", SLOT_ID, PATH).is_err());
-    assert!(derive_ecdsa_client_root_share_from_seed_v1(&SEED, WALLET_ID, "  ", PATH).is_err());
-    assert!(derive_ecdsa_client_root_share_from_seed_v1(&SEED, WALLET_ID, SLOT_ID, "").is_err());
 }
 
 #[test]
@@ -192,4 +186,41 @@ fn a_manifest_with_a_non_compressed_client_root_is_rejected() {
     let mut uncompressed = manifest();
     uncompressed.client_root_public_key33[0] = 0x04;
     assert!(compute_wallet_key_manifest_digest_v1(&uncompressed).is_err());
+}
+
+#[cfg(feature = "ecdsa-role-local-client")]
+mod ecdsa_bootstrap_integration {
+    use super::*;
+    use router_ab_ecdsa_derivation::RouterAbEcdsaDerivationStableKeyContext;
+    use signer_core::ecdsa_role_local_client::command::{
+        prepare_ecdsa_client_bootstrap, PrepareEcdsaClientBootstrapCommand,
+    };
+
+    fn bootstrap_with(seed: [u8; 32], digest: [u8; 32]) -> [u8; 33] {
+        let share = derive_ecdsa_client_root_share_from_seed_v1(&seed, &digest)
+            .expect("seed-derived client root share");
+        let output = prepare_ecdsa_client_bootstrap(PrepareEcdsaClientBootstrapCommand {
+            context: RouterAbEcdsaDerivationStableKeyContext::new(digest),
+            client_root_share32: *share,
+        })
+        .expect("ecdsa client bootstrap");
+        output.client_bootstrap.derivation_client_share_public_key33
+    }
+
+    /// The seam already accepts a root share, so the seed path needed no new
+    /// entry point — but it still has to produce a usable share end to end.
+    #[test]
+    fn a_seed_derived_share_bootstraps_a_stable_client_public_key() {
+        let first = bootstrap_with(SEED, ECDSA_BINDING_DIGEST);
+        let again = bootstrap_with(SEED, ECDSA_BINDING_DIGEST);
+        assert_eq!(first, again);
+        assert!(first[0] == 0x02 || first[0] == 0x03);
+    }
+
+    #[test]
+    fn a_different_seed_or_binding_bootstraps_a_different_public_key() {
+        let baseline = bootstrap_with(SEED, ECDSA_BINDING_DIGEST);
+        assert_ne!(baseline, bootstrap_with([9u8; 32], ECDSA_BINDING_DIGEST));
+        assert_ne!(baseline, bootstrap_with(SEED, [6u8; 32]));
+    }
 }

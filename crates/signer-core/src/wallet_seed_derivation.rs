@@ -99,26 +99,26 @@ pub fn derive_ed25519_yao_client_root_from_seed_v1(
 
 /// Derives the Router A/B ECDSA client root share directly from the seed.
 ///
-/// The EVM-family slot id embeds the signing-root id and version, so binding it
-/// covers the Router A/B signing-root identity.
+/// Takes the ECDSA stable-key application binding digest, mirroring the Ed25519
+/// derivation above. Both curves therefore bind to the digest their own
+/// protocol computes and verifies, so a caller cannot derive against a binding
+/// the protocol does not share. The digest already carries the wallet and
+/// EVM-family slot identity, which embeds the Router A/B signing root id and
+/// version.
+///
+/// This is strictly more binding than the PRF-derived share it replaces, which
+/// used a fixed salt and info and was bound to nothing but the PRF itself.
 pub fn derive_ecdsa_client_root_share_from_seed_v1(
     seed: &[u8],
-    wallet_id: &str,
-    evm_family_signing_key_slot_id: &str,
-    derivation_path: &str,
+    application_binding_digest: &[u8; 32],
 ) -> CoreResult<Zeroizing<[u8; WALLET_SIGNING_ROOT_LEN]>> {
     require_seed(seed)?;
-    let wallet_id = wallet_id.trim();
-    let slot_id = evm_family_signing_key_slot_id.trim();
-    let derivation_path = derivation_path.trim();
-    require_field("walletId", wallet_id)?;
-    require_field("evmFamilySigningKeySlotId", slot_id)?;
-    require_field("derivationPath", derivation_path)?;
-
     let mut info = Vec::new();
-    labeled_str(&mut info, b"walletId", wallet_id);
-    labeled_str(&mut info, b"evmFamilySigningKeySlotId", slot_id);
-    labeled_str(&mut info, b"derivationPath", derivation_path);
+    labeled_field(
+        &mut info,
+        b"applicationBindingDigest",
+        application_binding_digest,
+    );
     let share = expand(seed, ECDSA_CLIENT_ROOT_SHARE_SALT_V1, &info);
     info.clear();
     share
