@@ -10,10 +10,14 @@
 //! key-separation defect removed from the Email OTP runtime, where holding the
 //! Ed25519 root also yielded the ECDSA share.
 //!
-//! Derivation alone is not sufficient to publish a capability. The seed's
-//! envelope records a `keyManifestDigest` naming the exact owner key set the
-//! seed must reproduce; [`verify_wallet_key_manifest_v1`] recomputes that
+//! Derivation alone is not sufficient to publish a capability. Each owner key
+//! set records its own manifest naming the exact identities the seed must
+//! reproduce for it; [`verify_wallet_key_set_manifest_v1`] recomputes that
 //! digest from the derived public identities and fails closed on mismatch.
+//!
+//! The manifest is per key set, not per seed. Key sets are provisioned
+//! independently — an EVM wallet today, NEAR later — so a seed that named its
+//! key sets would have to be resealed every time one arrived.
 
 use base64ct::{Base64UrlUnpadded, Encoding};
 use hkdf::Hkdf;
@@ -28,7 +32,10 @@ pub const WALLET_SIGNING_ROOT_LEN: usize = 32;
 const ED25519_CLIENT_ROOT_SALT_V1: &[u8] = b"seams/wallet-custody/seed/ed25519-yao-client-root/v1";
 const ECDSA_CLIENT_ROOT_SHARE_SALT_V1: &[u8] =
     b"seams/wallet-custody/seed/ecdsa-client-root-share/v1";
-const WALLET_KEY_MANIFEST_CONTEXT_V1: &[u8] = b"seams/wallet-custody/key-manifest/v1";
+const NEAR_ED25519_KEY_SET_MANIFEST_CONTEXT_V1: &[u8] =
+    b"seams/wallet-custody/key-set-manifest/near-ed25519/v1";
+const EVM_FAMILY_KEY_SET_MANIFEST_CONTEXT_V1: &[u8] =
+    b"seams/wallet-custody/key-set-manifest/evm-family-ecdsa/v1";
 
 const MAX_FIELD_LEN: usize = 512;
 
@@ -124,53 +131,121 @@ pub fn derive_ecdsa_client_root_share_from_seed_v1(
     share
 }
 
-/// The exact owner key set one custody seed must reproduce.
+/// Which owner key set a manifest describes.
+///
+/// Key sets are provisioned independently, so each records its own manifest and
+/// each is verified on its own. A missing record is not an error — it means
+/// that key set has not been provisioned yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WalletKeySetKindV1 {
+    NearEd25519,
+    EvmFamilyEcdsa,
+}
+
+impl WalletKeySetKindV1 {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NearEd25519 => "near_ed25519_v1",
+            Self::EvmFamilyEcdsa => "evm_family_ecdsa_v1",
+        }
+    }
+
+    /// An unknown kind is rejected rather than defaulted, so a future key set
+    /// cannot silently inherit another's manifest scope.
+    pub fn parse(value: &str) -> CoreResult<Self> {
+        match value {
+            "near_ed25519_v1" => Ok(Self::NearEd25519),
+            "evm_family_ecdsa_v1" => Ok(Self::EvmFamilyEcdsa),
+            _ => Err(SignerCoreError::invalid_input(
+                "unknown wallet key set kind",
+            )),
+        }
+    }
+}
+
+/// The exact key identities one key set must reproduce.
 ///
 /// Public identities only: this is what a recovered seed is checked against, so
 /// it can be recomputed from derivation output plus registered public facts
 /// without holding any secret.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WalletKeyManifestV1 {
-    pub wallet_id: String,
-    pub near_ed25519_signing_key_id: String,
-    pub registered_public_key: [u8; 32],
-    pub evm_family_signing_key_slot_id: String,
-    pub client_root_public_key33: [u8; 33],
+pub enum WalletKeySetManifestV1 {
+    NearEd25519 {
+        wallet_id: String,
+        near_ed25519_signing_key_id: String,
+        registered_public_key: [u8; 32],
+    },
+    EvmFamilyEcdsa {
+        wallet_id: String,
+        /// Embeds the Router A/B signing-root id and version, so binding it
+        /// covers the signing-root identity.
+        evm_family_signing_key_slot_id: String,
+        client_root_public_key33: [u8; 33],
+    },
 }
 
-/// Canonical manifest digest. Length-delimited labeled fields, so no two
-/// distinct manifests encode alike.
-pub fn compute_wallet_key_manifest_digest_v1(
-    manifest: &WalletKeyManifestV1,
-) -> CoreResult<[u8; 32]> {
-    let wallet_id = manifest.wallet_id.trim();
-    let signing_key_id = manifest.near_ed25519_signing_key_id.trim();
-    let slot_id = manifest.evm_family_signing_key_slot_id.trim();
-    require_field("walletId", wallet_id)?;
-    require_field("nearEd25519SigningKeyId", signing_key_id)?;
-    require_field("evmFamilySigningKeySlotId", slot_id)?;
-    if manifest.client_root_public_key33[0] != 0x02 && manifest.client_root_public_key33[0] != 0x03
-    {
-        return Err(SignerCoreError::invalid_input(
-            "clientRootPublicKey33 must be a compressed secp256k1 point",
-        ));
+impl WalletKeySetManifestV1 {
+    pub fn key_set(&self) -> WalletKeySetKindV1 {
+        match self {
+            Self::NearEd25519 { .. } => WalletKeySetKindV1::NearEd25519,
+            Self::EvmFamilyEcdsa { .. } => WalletKeySetKindV1::EvmFamilyEcdsa,
+        }
     }
 
+    pub fn wallet_id(&self) -> &str {
+        match self {
+            Self::NearEd25519 { wallet_id, .. } | Self::EvmFamilyEcdsa { wallet_id, .. } => {
+                wallet_id
+            }
+        }
+    }
+}
+
+/// Canonical manifest digest. Length-delimited labeled fields under a
+/// per-key-set context, so no two manifests encode alike — not across fields,
+/// and not across key sets.
+pub fn compute_wallet_key_set_manifest_digest_v1(
+    manifest: &WalletKeySetManifestV1,
+) -> CoreResult<[u8; 32]> {
+    let wallet_id = manifest.wallet_id().trim();
+    require_field("walletId", wallet_id)?;
+
     let mut out = Vec::new();
-    labeled_field(&mut out, b"context", WALLET_KEY_MANIFEST_CONTEXT_V1);
-    labeled_str(&mut out, b"walletId", wallet_id);
-    labeled_str(&mut out, b"nearEd25519SigningKeyId", signing_key_id);
-    labeled_field(
-        &mut out,
-        b"registeredPublicKey",
-        &manifest.registered_public_key,
-    );
-    labeled_str(&mut out, b"evmFamilySigningKeySlotId", slot_id);
-    labeled_field(
-        &mut out,
-        b"clientRootPublicKey33",
-        &manifest.client_root_public_key33,
-    );
+    match manifest {
+        WalletKeySetManifestV1::NearEd25519 {
+            near_ed25519_signing_key_id,
+            registered_public_key,
+            ..
+        } => {
+            let signing_key_id = near_ed25519_signing_key_id.trim();
+            require_field("nearEd25519SigningKeyId", signing_key_id)?;
+            labeled_field(
+                &mut out,
+                b"context",
+                NEAR_ED25519_KEY_SET_MANIFEST_CONTEXT_V1,
+            );
+            labeled_str(&mut out, b"walletId", wallet_id);
+            labeled_str(&mut out, b"nearEd25519SigningKeyId", signing_key_id);
+            labeled_field(&mut out, b"registeredPublicKey", registered_public_key);
+        }
+        WalletKeySetManifestV1::EvmFamilyEcdsa {
+            evm_family_signing_key_slot_id,
+            client_root_public_key33,
+            ..
+        } => {
+            let slot_id = evm_family_signing_key_slot_id.trim();
+            require_field("evmFamilySigningKeySlotId", slot_id)?;
+            if client_root_public_key33[0] != 0x02 && client_root_public_key33[0] != 0x03 {
+                return Err(SignerCoreError::invalid_input(
+                    "clientRootPublicKey33 must be a compressed secp256k1 point",
+                ));
+            }
+            labeled_field(&mut out, b"context", EVM_FAMILY_KEY_SET_MANIFEST_CONTEXT_V1);
+            labeled_str(&mut out, b"walletId", wallet_id);
+            labeled_str(&mut out, b"evmFamilySigningKeySlotId", slot_id);
+            labeled_field(&mut out, b"clientRootPublicKey33", client_root_public_key33);
+        }
+    }
 
     let mut hasher = Sha256::new();
     hasher.update(&out);
@@ -181,23 +256,22 @@ pub fn wallet_key_manifest_digest_b64u(digest: &[u8; 32]) -> String {
     Base64UrlUnpadded::encode_string(digest)
 }
 
-/// Fail-closed manifest check.
+/// Fail-closed manifest check for one key set.
 ///
-/// A recovered or cold-unlocked seed must reproduce the exact owner key set its
-/// envelope claims. Exactly-one-seed plus a stored digest proves nothing on its
-/// own — the digest is recorded at seal time and never verified by the record
-/// parser — so this comparison is what stands between an opened seed and a
-/// published capability. Callers must run it before publishing any capability
-/// or consuming a recovery code, and must abort on error rather than
-/// continuing with partial results.
-pub fn verify_wallet_key_manifest_v1(
-    manifest: &WalletKeyManifestV1,
+/// A recovered or cold-unlocked seed may publish capability for a key set only
+/// if it reproduces that key set's exact identities. The record parser never
+/// verifies a stored digest, so this comparison is what stands between an
+/// opened seed and a published capability. Callers must run it before
+/// publishing capability or consuming a recovery code, and must abort on error
+/// rather than continuing with partial results.
+pub fn verify_wallet_key_set_manifest_v1(
+    manifest: &WalletKeySetManifestV1,
     expected_digest: &[u8],
 ) -> CoreResult<()> {
-    let actual = compute_wallet_key_manifest_digest_v1(manifest)?;
+    let actual = compute_wallet_key_set_manifest_digest_v1(manifest)?;
     if actual.as_slice() != expected_digest {
         return Err(SignerCoreError::invalid_input(
-            "derived wallet key manifest does not match the sealed key manifest digest",
+            "derived wallet key set does not match its recorded key manifest digest",
         ));
     }
     Ok(())
@@ -263,30 +337,32 @@ pub fn derive_wallet_seed_owner_roots_v1(
     })
 }
 
-/// Proof that a key manifest was verified against the digest its custody
-/// envelope was sealed under.
+/// Proof that one key set's manifest was established or verified.
 ///
-/// The field is private and [`verify_registered_wallet_key_manifest_v1`] is the
-/// only constructor, so a caller cannot fabricate one from bytes it computed
-/// itself. Sealing entry points that must not run before verification take this
-/// by reference instead of taking a `[u8; 32]` a caller could have produced any
-/// number of ways.
+/// The fields are private and the only constructors are
+/// [`establish_wallet_key_set_manifest_v1`] and
+/// [`verify_registered_wallet_key_set_manifest_v1`], so a caller cannot
+/// fabricate one from bytes it computed itself. Record writers take this by
+/// reference instead of a `[u8; 32]`.
 ///
-/// Deliberately not `Clone`, `Copy`, `Serialize`, or `Deserialize`: this is a
+/// It carries the key set it was minted for, so a proof for one key set cannot
+/// be used to write another's record.
+///
+/// Deliberately not `Clone`, `Copy`, `Serialize`, or `Deserialize`: a
 /// within-ceremony capability, not a token to store, replay, or hand across a
-/// module boundary. A verification token that crossed the wasm boundary and
-/// came back would prove only that *some* verification once succeeded, which is
-/// not what the sealing paths need to know.
-///
-/// The digest itself is public data — the type protects how it was *obtained*,
-/// not the bytes, which is why [`Self::digest`] is unrestricted.
+/// module boundary.
 #[derive(Debug)]
-pub struct VerifiedWalletKeyManifestDigestV1 {
+pub struct VerifiedWalletKeySetManifestDigestV1 {
+    key_set: WalletKeySetKindV1,
     digest: [u8; 32],
 }
 
-impl VerifiedWalletKeyManifestDigestV1 {
-    /// The verified digest, for recording on the records this ceremony writes.
+impl VerifiedWalletKeySetManifestDigestV1 {
+    pub fn key_set(&self) -> WalletKeySetKindV1 {
+        self.key_set
+    }
+
+    /// The verified digest, for recording on the key set's manifest record.
     pub fn digest(&self) -> &[u8; 32] {
         &self.digest
     }
@@ -296,41 +372,34 @@ impl VerifiedWalletKeyManifestDigestV1 {
     }
 }
 
-/// Mints the proof for a key manifest being established for the first time.
+/// Mints the proof for a key set being provisioned for the first time.
 ///
-/// Initial registration is where a digest originates: no envelope exists yet,
-/// so there is nothing to reproduce and nothing to compare against. What makes
-/// the resulting digest trustworthy is that the manifest was built from what
-/// the two protocols actually returned — a property of the ceremony that calls
-/// this, which no signature can enforce. It is a separate function from
-/// [`verify_registered_wallet_key_manifest_v1`] precisely so a reader can tell
-/// which of the two a path took.
-///
-/// Every later path — recovery re-establishment, cold unlock — must use the
-/// verifying constructor, because for those a digest already exists.
-pub fn establish_wallet_key_manifest_v1(
-    manifest: &WalletKeyManifestV1,
-) -> CoreResult<VerifiedWalletKeyManifestDigestV1> {
-    Ok(VerifiedWalletKeyManifestDigestV1 {
-        digest: compute_wallet_key_manifest_digest_v1(manifest)?,
+/// There is no prior record to reproduce, so there is nothing to compare
+/// against. What makes the resulting digest trustworthy is that the manifest
+/// was built from what the protocol actually returned — a property of the
+/// ceremony that calls this, which no signature can enforce. It is a separate
+/// function from the verifying constructor precisely so a reader can tell which
+/// of the two a path took.
+pub fn establish_wallet_key_set_manifest_v1(
+    manifest: &WalletKeySetManifestV1,
+) -> CoreResult<VerifiedWalletKeySetManifestDigestV1> {
+    Ok(VerifiedWalletKeySetManifestDigestV1 {
+        key_set: manifest.key_set(),
+        digest: compute_wallet_key_set_manifest_digest_v1(manifest)?,
     })
 }
 
-/// The recovery gate: a seed may publish capability only for the exact key
-/// set it reproduces.
+/// The gate for a key set that already has a manifest record: recovery,
+/// cold unlock, and any later republish.
 ///
-/// Callers pass the public identities the two protocols actually returned. This
-/// rebuilds the canonical manifest, compares its digest with the one the seed
-/// envelope was sealed against, and returns a
-/// [`VerifiedWalletKeyManifestDigestV1`] only on success — so a caller that
-/// ignores the `Result` has nothing to record and nothing the sealing paths
-/// will accept.
-pub fn verify_registered_wallet_key_manifest_v1(
-    manifest: &WalletKeyManifestV1,
-    sealed_key_manifest_digest: &[u8],
-) -> CoreResult<VerifiedWalletKeyManifestDigestV1> {
-    verify_wallet_key_manifest_v1(manifest, sealed_key_manifest_digest)?;
-    Ok(VerifiedWalletKeyManifestDigestV1 {
-        digest: compute_wallet_key_manifest_digest_v1(manifest)?,
-    })
+/// Rebuilds the canonical manifest from the identities the protocol returned,
+/// compares its digest with the recorded one, and returns a proof only on
+/// success — so a caller that ignores the `Result` has nothing to record and
+/// nothing the record writers will accept.
+pub fn verify_registered_wallet_key_set_manifest_v1(
+    manifest: &WalletKeySetManifestV1,
+    recorded_key_manifest_digest: &[u8],
+) -> CoreResult<VerifiedWalletKeySetManifestDigestV1> {
+    verify_wallet_key_set_manifest_v1(manifest, recorded_key_manifest_digest)?;
+    establish_wallet_key_set_manifest_v1(manifest)
 }
