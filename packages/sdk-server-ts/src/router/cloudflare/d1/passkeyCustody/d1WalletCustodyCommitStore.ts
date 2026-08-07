@@ -56,13 +56,24 @@ export type WalletCustodyRegistrationCommitResult =
       readonly recoverySetStoreVersion: string;
     }
   /**
-   * Something already occupies one of the two keys. Registration never
-   * overwrites: a wallet that already has an envelope or a recovery set is a
-   * wallet whose custody was established by some earlier ceremony, and
-   * replacing it would strand every key the existing seed controls.
+   * This ceremony's own envelope is already stored: the commit was applied
+   * before, and the caller holding this result is done. Never an overwrite —
+   * replacing stored custody would strand every key the existing seed controls.
    */
   | { readonly kind: 'already_exists'; readonly key: string }
-  /** The two records describe different wallets or different key manifests. */
+  /**
+   * The wallet already has custody, established by a *different* ceremony —
+   * its recovery-set key is occupied while this ceremony's envelope key is
+   * free. This is the losing side of the establish race: two key sets each
+   * believed they were the wallet's first. The caller must discard this run's
+   * seed and re-enter as a join of the existing envelope, committing only its
+   * key set's manifest.
+   *
+   * Distinct from `already_exists` because the correct reactions are opposite:
+   * a repeat is finished, a lost race has a key set still to provision.
+   */
+  | { readonly kind: 'custody_already_established'; readonly walletId: WalletId }
+  /** The two records describe different wallets. */
   | { readonly kind: 'inconsistent'; readonly reason: string };
 
 /** Recovery sets are wallet-scoped: one set covers the wallet, not one factor. */
@@ -154,7 +165,15 @@ export class CloudflareD1WalletCustodyCommitStore {
       { key: recoverySetKey, value: commit.recoverySet, expectedVersion: null },
     ]);
     if (stored.kind === 'version_mismatch') {
-      return { kind: 'already_exists', key: stored.key };
+      // Which record is the duplicate decides what the caller does next. The
+      // recovery-set key is wallet-scoped — it is the establish mutex — while
+      // the envelope key carries this ceremony's own envelope id. The envelope
+      // is checked directly rather than trusting which key the batch happened
+      // to report first: a replay conflicts on both keys.
+      const envelopeTaken =
+        stored.key === envelopeKey || (await this.records.read(envelopeKey)).kind !== 'missing';
+      if (envelopeTaken) return { kind: 'already_exists', key: stored.key };
+      return { kind: 'custody_already_established', walletId: commit.recoverySet.walletId };
     }
 
     const envelopeVersion = stored.versions.find((entry) => entry.key === envelopeKey);

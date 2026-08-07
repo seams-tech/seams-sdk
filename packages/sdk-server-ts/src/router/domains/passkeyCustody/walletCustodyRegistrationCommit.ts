@@ -52,6 +52,12 @@ export type WalletCustodyRegistrationCommitOutcome =
       'kind'
     >)
   | { readonly kind: 'already_exists'; readonly key: string }
+  /**
+   * Another ceremony established this wallet's custody first. The route should
+   * tell the client to discard its run's seed and re-enter as a join of the
+   * existing envelope — the key set it was provisioning is still unrecorded.
+   */
+  | { readonly kind: 'custody_already_established'; readonly walletId: WalletId }
   | { readonly kind: 'rejected'; readonly reason: string };
 
 function requireNonEmpty(value: unknown, label: string): string {
@@ -207,6 +213,8 @@ export async function commitWalletCustodyRegistration(input: {
       };
     case 'already_exists':
       return { kind: 'already_exists', key: stored.key };
+    case 'custody_already_established':
+      return { kind: 'custody_already_established', walletId: stored.walletId };
     case 'inconsistent':
       return { kind: 'rejected', reason: stored.reason };
   }
