@@ -296,7 +296,27 @@ impl VerifiedWalletKeyManifestDigestV1 {
     }
 }
 
-/// The registration gate: a seed may publish capability only for the exact key
+/// Mints the proof for a key manifest being established for the first time.
+///
+/// Initial registration is where a digest originates: no envelope exists yet,
+/// so there is nothing to reproduce and nothing to compare against. What makes
+/// the resulting digest trustworthy is that the manifest was built from what
+/// the two protocols actually returned — a property of the ceremony that calls
+/// this, which no signature can enforce. It is a separate function from
+/// [`verify_registered_wallet_key_manifest_v1`] precisely so a reader can tell
+/// which of the two a path took.
+///
+/// Every later path — recovery re-establishment, cold unlock — must use the
+/// verifying constructor, because for those a digest already exists.
+pub fn establish_wallet_key_manifest_v1(
+    manifest: &WalletKeyManifestV1,
+) -> CoreResult<VerifiedWalletKeyManifestDigestV1> {
+    Ok(VerifiedWalletKeyManifestDigestV1 {
+        digest: compute_wallet_key_manifest_digest_v1(manifest)?,
+    })
+}
+
+/// The recovery gate: a seed may publish capability only for the exact key
 /// set it reproduces.
 ///
 /// Callers pass the public identities the two protocols actually returned. This

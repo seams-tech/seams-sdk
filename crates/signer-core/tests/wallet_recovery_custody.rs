@@ -20,8 +20,7 @@ use signer_core::wallet_recovery_custody::{
     WalletRecoveryEntryScopeV1, WALLET_RECOVERY_CODE_COUNT,
 };
 use signer_core::wallet_seed_derivation::{
-    compute_wallet_key_manifest_digest_v1, verify_registered_wallet_key_manifest_v1,
-    VerifiedWalletKeyManifestDigestV1, WalletKeyManifestV1,
+    establish_wallet_key_manifest_v1, VerifiedWalletKeyManifestDigestV1, WalletKeyManifestV1,
 };
 
 const MANIFEST_KEK: [u8; 32] = [11u8; 32];
@@ -47,12 +46,11 @@ fn key_manifest(wallet_id: &str, tag: u8) -> WalletKeyManifestV1 {
     }
 }
 
-/// A proof obtained the only way one can be obtained: by verifying a manifest
-/// against the digest a seed envelope was sealed under.
+/// A proof obtained the only way one can be: from the manifest itself. A
+/// recovery set is issued at registration, so this is the establishing
+/// constructor rather than the verifying one.
 fn verified(wallet_id: &str, tag: u8) -> VerifiedWalletKeyManifestDigestV1 {
-    let manifest = key_manifest(wallet_id, tag);
-    let sealed_digest = compute_wallet_key_manifest_digest_v1(&manifest).unwrap();
-    verify_registered_wallet_key_manifest_v1(&manifest, &sealed_digest).unwrap()
+    establish_wallet_key_manifest_v1(&key_manifest(wallet_id, tag)).unwrap()
 }
 
 fn alice() -> VerifiedWalletKeyManifestDigestV1 {

@@ -9,8 +9,8 @@
 use signer_core::wallet_seed_derivation::{
     compute_wallet_key_manifest_digest_v1, derive_ecdsa_client_root_share_from_seed_v1,
     derive_ed25519_yao_client_root_from_seed_v1, derive_wallet_seed_owner_roots_v1,
-    verify_registered_wallet_key_manifest_v1, verify_wallet_key_manifest_v1,
-    wallet_key_manifest_digest_b64u, WalletKeyManifestV1,
+    establish_wallet_key_manifest_v1, verify_registered_wallet_key_manifest_v1,
+    verify_wallet_key_manifest_v1, wallet_key_manifest_digest_b64u, WalletKeyManifestV1,
 };
 
 const SEED: [u8; 32] = [7u8; 32];
@@ -278,4 +278,23 @@ fn the_registration_gate_returns_a_proof_only_when_the_manifest_matches() {
     // any `From<[u8; 32]>` are unrepresentable outside this module, which is
     // what stops a caller from recomputing the digest and passing that instead.
     assert!(verify_registered_wallet_key_manifest_v1(&drifted, &expected).is_err());
+}
+
+#[test]
+fn establishing_and_verifying_are_separate_paths_to_the_same_proof() {
+    // Registration mints the digest; there is no prior envelope to reproduce.
+    let established = establish_wallet_key_manifest_v1(&manifest()).unwrap();
+    let expected = compute_wallet_key_manifest_digest_v1(&manifest()).unwrap();
+    assert_eq!(established.digest(), &expected);
+
+    // Recovery must reproduce an existing one, so it compares and can fail.
+    let mut drifted = manifest();
+    drifted.evm_family_signing_key_slot_id =
+        "wallet-key:evm-family:alice.testnet:root-2:v1".into();
+    assert!(verify_registered_wallet_key_manifest_v1(&drifted, &expected).is_err());
+    // The establishing constructor still refuses a malformed manifest: it mints
+    // a digest, it does not skip validation.
+    let mut uncompressed = manifest();
+    uncompressed.client_root_public_key33[0] = 0x04;
+    assert!(establish_wallet_key_manifest_v1(&uncompressed).is_err());
 }

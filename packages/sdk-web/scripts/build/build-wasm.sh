@@ -104,6 +104,12 @@ build_ecdsa_registration_client() {
       wasm-pack build --locked --target web --out-dir pkg --out-name ecdsa_registration_client --release
 }
 
+build_wallet_custody_ceremony() {
+  run_in_dir "$SOURCE_WASM_WALLET_CUSTODY_CEREMONY" \
+    with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_WALLET_CUSTODY_CEREMONY/Cargo.lock" \
+      wasm-pack build --locked --target web --out-dir pkg --out-name wallet_custody_ceremony --release
+}
+
 build_router_ab_ecdsa_derivation_client() {
   run_in_dir "$SOURCE_WASM_ECDSA_DERIVATION_CLIENT" \
     with_ecdsa_derivation_hot_path_rustflags \
@@ -251,6 +257,7 @@ FULL_SDK_WASM_SOURCES=(
   "$SOURCE_WASM_ECDSA_ONLINE_CLIENT"
   "$SOURCE_WASM_TEMPO_SIGNER"
   "$SOURCE_WASM_EMAIL_OTP_RUNTIME"
+  "$SOURCE_WASM_WALLET_CUSTODY_CEREMONY"
 )
 
 if [ "${WASM_SDK_USE_PREBUILT:-0}" = "1" ]; then
@@ -281,6 +288,7 @@ else
     start_job "ECDSA online client WASM (release)" build_router_ab_ecdsa_online_client
     start_job "Tempo signer WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_TEMPO_SIGNER" tempo_signer
     start_job "Email OTP runtime WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_EMAIL_OTP_RUNTIME" email_otp_runtime
+    start_job "Wallet custody ceremony WASM (release)" build_wallet_custody_ceremony
   fi
   wait_for_jobs
 
@@ -331,6 +339,9 @@ if [ "$WASM_SDK_BUILD_TARGET" = "all" ]; then
   require_file "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime.js"
   require_file "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime.d.ts"
   require_file "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime_bg.wasm"
+  require_file "$SDK_ROOT/$SOURCE_WASM_WALLET_CUSTODY_CEREMONY/pkg/wallet_custody_ceremony.js"
+  require_file "$SDK_ROOT/$SOURCE_WASM_WALLET_CUSTODY_CEREMONY/pkg/wallet_custody_ceremony.d.ts"
+  require_file "$SDK_ROOT/$SOURCE_WASM_WALLET_CUSTODY_CEREMONY/pkg/wallet_custody_ceremony_bg.wasm"
 fi
 print_success "Expected WASM package outputs are present"
 

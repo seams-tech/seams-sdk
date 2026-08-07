@@ -27,6 +27,7 @@ export const BUILD_PATHS = {
     WASM_TEMPO_SIGNER: '../../wasm/tempo_signer',
     WASM_SHAMIR3PASS_RUNTIME: '../../wasm/shamir3pass_runtime',
     WASM_EMAIL_OTP_RUNTIME: '../../wasm/email_otp_runtime',
+    WASM_WALLET_CUSTODY_CEREMONY: '../../wasm/wallet_custody_ceremony',
     CRITICAL_DIRS: [
       'src/core',
       'src/react',
@@ -45,6 +46,7 @@ export const BUILD_PATHS = {
       '../../wasm/tempo_signer',
       '../../wasm/shamir3pass_runtime',
       '../../wasm/email_otp_runtime',
+      '../../wasm/wallet_custody_ceremony',
     ],
   },
 
