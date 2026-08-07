@@ -779,9 +779,6 @@ const configs = [
       'wallet-iframe-host-near': 'src/SeamsWeb/walletIframe/host/entry-near.ts',
       'wallet-iframe-host-ecdsa': 'src/SeamsWeb/walletIframe/host/entry-ecdsa.ts',
       'wallet-iframe-host-full': 'src/SeamsWeb/walletIframe/host/entry-full.ts',
-      // Export viewer host + bootstrap
-      'iframe-export-bootstrap':
-        'src/core/signingEngine/uiConfirm/ui/lit-components/ExportPrivateKey/iframe-export-bootstrap-script.ts',
     },
     output: {
       dir: BUILD_PATHS.BUILD.ESM,

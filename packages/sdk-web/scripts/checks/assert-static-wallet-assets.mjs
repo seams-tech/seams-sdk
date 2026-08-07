@@ -23,7 +23,6 @@ const REQUIRED_BASE_ROUTES = [
   '/sdk/wallet-iframe-host-ecdsa.js',
   '/sdk/wallet-iframe-host-full.js',
   '/sdk/export-private-key-viewer.js',
-  '/sdk/iframe-export-bootstrap.js',
 ];
 
 const EXPECTED_CONTENT_TYPES = [
