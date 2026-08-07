@@ -755,31 +755,49 @@ void emailOtpEd25519YaoExportPayloadWithPasskey;
 /**
  * The wallet custody ceremony worker's operation map.
  *
- * These pin the two properties the boundary exists for: the ceremony carries
- * no custody material out, and its steps are addressed by ceremony id rather
- * than by a handle a caller could hold.
+ * These pin the properties the boundary exists for: a run carries no custody
+ * material out, its steps are addressed by ceremony id rather than by a handle
+ * a caller could hold, and a run says where its seed comes from — establishing
+ * custody or joining it — rather than leaving that to be inferred.
  */
-const walletCustodyCeremonyBegin: SignerWorkerOperationRequest<
+const walletCustodyCeremonyEstablish: SignerWorkerOperationRequest<
   'walletCustodyCeremony',
-  'beginWalletCustodyRegistration'
+  'beginWalletCustodyKeySetRun'
 > = {
-  type: 'beginWalletCustodyRegistration',
+  type: 'beginWalletCustodyKeySetRun',
   payload: {
     ceremonyId: 'ceremony-1',
-    walletId: 'alice.testnet',
+    keySet: 'evm_family_ecdsa_v1',
+    custody: { origin: 'establish', walletId: 'alice.testnet' },
     protocolInputsJson: '{}',
   },
 };
-void walletCustodyCeremonyBegin;
+void walletCustodyCeremonyEstablish;
+
+// A later key set reaches the same seed by opening the existing envelope.
+const walletCustodyCeremonyJoinRun: SignerWorkerOperationRequest<
+  'walletCustodyCeremony',
+  'beginWalletCustodyKeySetRun'
+> = {
+  type: 'beginWalletCustodyKeySetRun',
+  payload: {
+    ceremonyId: 'ceremony-1',
+    keySet: 'near_ed25519_v1',
+    custody: { origin: 'join', custodyJson: '{}', factorSecret: new ArrayBuffer(32) },
+    protocolInputsJson: '{}',
+  },
+};
+void walletCustodyCeremonyJoinRun;
 
 const walletCustodyCeremonyBeginWithSeed: SignerWorkerOperationRequest<
   'walletCustodyCeremony',
-  'beginWalletCustodyRegistration'
+  'beginWalletCustodyKeySetRun'
 > = {
-  type: 'beginWalletCustodyRegistration',
+  type: 'beginWalletCustodyKeySetRun',
   payload: {
     ceremonyId: 'ceremony-1',
-    walletId: 'alice.testnet',
+    keySet: 'evm_family_ecdsa_v1',
+    custody: { origin: 'establish', walletId: 'alice.testnet' },
     protocolInputsJson: '{}',
     // @ts-expect-error a caller cannot supply the wallet custody seed.
     walletCustodySeed: new ArrayBuffer(32),
@@ -787,9 +805,25 @@ const walletCustodyCeremonyBeginWithSeed: SignerWorkerOperationRequest<
 };
 void walletCustodyCeremonyBeginWithSeed;
 
-const walletCustodyCeremonySeal: SignerWorkerOperationResult<
+const walletCustodyCeremonyJoinWithoutFactor: SignerWorkerOperationRequest<
   'walletCustodyCeremony',
-  'sealWalletCustodyRegistration'
+  'beginWalletCustodyKeySetRun'
+> = {
+  type: 'beginWalletCustodyKeySetRun',
+  payload: {
+    ceremonyId: 'ceremony-1',
+    keySet: 'near_ed25519_v1',
+    // @ts-expect-error joining custody means opening its envelope, which needs
+    // the factor secret. There is no other way in.
+    custody: { origin: 'join', custodyJson: '{}' },
+    protocolInputsJson: '{}',
+  },
+};
+void walletCustodyCeremonyJoinWithoutFactor;
+
+const walletCustodyCeremonyEstablished: SignerWorkerOperationResult<
+  'walletCustodyCeremony',
+  'finishWalletCustodyKeySetRun'
 > = {
   walletId: 'alice.testnet',
   keySet: 'evm_family_ecdsa_v1',
@@ -809,25 +843,25 @@ const walletCustodyCeremonySeal: SignerWorkerOperationResult<
   clientRootPublicKey33B64u: 'key',
   ecdsaReadyStateBlobB64u: 'blob',
 };
-void walletCustodyCeremonySeal;
+void walletCustodyCeremonyEstablished;
 
 // A run that joined existing custody writes no envelope and issues no codes.
-const walletCustodyCeremonyJoin: SignerWorkerOperationResult<
+const walletCustodyCeremonyJoined: SignerWorkerOperationResult<
   'walletCustodyCeremony',
-  'sealWalletCustodyRegistration'
+  'finishWalletCustodyKeySetRun'
 > = {
   walletId: 'alice.testnet',
   keySet: 'near_ed25519_v1',
   keyManifestDigestB64u: 'digest',
   registeredPublicKeyB64u: 'registered',
 };
-void walletCustodyCeremonyJoin;
+void walletCustodyCeremonyJoined;
 
-// The seal result carries ciphertext and public facts only. Nothing that could
-// open an envelope may appear on it.
+// The finish result carries ciphertext and public facts only. Nothing that
+// could open an envelope may appear on it.
 // @ts-expect-error the ceremony never returns the custody seed.
-void walletCustodyCeremonySeal.walletCustodySeedB64u;
+void walletCustodyCeremonyEstablished.walletCustodySeedB64u;
 // @ts-expect-error the ceremony never returns the recovery manifest KEK.
-void walletCustodyCeremonySeal.manifestKekB64u;
+void walletCustodyCeremonyEstablished.manifestKekB64u;
 
 export {};

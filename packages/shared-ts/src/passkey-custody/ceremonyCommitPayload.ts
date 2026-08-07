@@ -11,6 +11,17 @@
  * and the manifest proof all stayed inside the ceremony module.
  */
 
+/**
+ * The owner key sets a ceremony can provision, spelled as the Rust
+ * `WalletKeySetKindV1` serializes them.
+ *
+ * Used where the SDK *chooses* a key set — the worker channel and the ceremony
+ * driver. `WalletCustodyCeremonyCommitPayload.keySet` stays a `string`: it
+ * arrives over the wire, and narrowing a parsed value to this union without
+ * checking it would only move the assumption somewhere harder to see.
+ */
+export type WalletCustodyKeySetKind = 'near_ed25519_v1' | 'evm_family_ecdsa_v1';
+
 export type WalletCustodyCeremonyRecoveryWrapPayload = {
   readonly recoveryKeyId: string;
   readonly nonceB64u: string;
