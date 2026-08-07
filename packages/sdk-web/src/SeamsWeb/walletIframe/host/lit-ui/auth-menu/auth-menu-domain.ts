@@ -10,29 +10,50 @@ import type {
  * the element. Keeping the model here makes the component usable by a future
  * host controller without coupling it to Lit, React, or the message router.
  */
+/**
+ * Discriminated by PRESENTATION, not by which internal phase produced it.
+ *
+ * The surface can only do three things — show the form, show the waiting view,
+ * or show the form with a message — so those are the three kinds. An earlier
+ * shape split the busy case in two ('preparing' vs 'performing'), a provenance
+ * distinction the surface could not act on: it rendered the waiting view for
+ * one and the form for the other, so every author who reached for the wrong
+ * one silently got a form where they meant a spinner. That exact mistake
+ * shipped four times. Here "busy but rendering the form" cannot be expressed.
+ *
+ * `headline` is required on `busy` so entering a wait forces naming what is
+ * being waited on, rather than inheriting whatever copy the previous view had.
+ */
 export type AuthMenuSurfaceStatus =
   | {
-      readonly kind: 'preparing';
-      readonly message: string;
+      /** Renders the form. */
+      readonly kind: 'idle';
+      /**
+       * - `actionable`: primary control is live.
+       * - `awaiting_input`: live once the required input is filled in.
+       * - `arming`: background preparation in flight; control not yet usable.
+       */
+      readonly interaction: 'actionable' | 'awaiting_input' | 'arming';
     }
   | {
-      readonly kind: 'ready';
+      /** Renders the waiting view. The only busy state there is. */
+      readonly kind: 'busy';
+      /** Names the wait, e.g. "Verifying your email code". */
+      readonly headline: string;
+      /** Optional secondary line, shown only when the host opts into progress. */
+      readonly detail?: string;
     }
   | {
-      readonly kind: 'input_required';
-    }
-  | {
-      readonly kind: 'performing';
-      readonly message: string;
-    }
-  | {
-      readonly kind: 'error';
-      readonly message: string;
-    }
-  | {
-      readonly kind: 'expired';
+      /** Renders the form plus a message; the primary control stays live. */
+      readonly kind: 'recoverable';
+      readonly reason: 'error' | 'expired';
       readonly message: string;
     };
+
+/** The waiting headline for the passkey ceremony itself. */
+export function passkeyCeremonyHeadline(mode: 'login' | 'register'): string {
+  return mode === 'register' ? 'Creating passkey wallet…' : 'Signing in…';
+}
 
 interface AuthMenuViewModelCommon {
   readonly appearance: AppearanceConfig;
@@ -233,15 +254,27 @@ export function dispatchAuthMenuIntent(target: EventTarget, detail: AuthMenuInte
 }
 
 export function isAuthMenuLoadingStatus(status: AuthMenuSurfaceStatus): boolean {
-  return status.kind === 'preparing' || status.kind === 'performing';
+  return status.kind === 'busy';
 }
 
 export function isAuthMenuReady(viewModel: AuthMenuViewModel): boolean {
-  return viewModel.status.kind === 'ready';
+  const status = viewModel.status;
+  return status.kind === 'idle' && status.interaction === 'actionable';
+}
+
+/**
+ * A failed or expired preparation is recoverable by acting again, so the
+ * primary control stays live and re-prepares on click. Only genuinely
+ * in-flight work or a required input disables it.
+ */
+export function isAuthMenuActionable(viewModel: AuthMenuViewModel): boolean {
+  const status = viewModel.status;
+  if (status.kind === 'recoverable') return true;
+  return status.kind === 'idle' && status.interaction === 'actionable';
 }
 
 export function isAuthMenuActionReady(viewModel: AuthMenuViewModel): boolean {
-  if (!isAuthMenuReady(viewModel)) return false;
+  if (!isAuthMenuActionable(viewModel)) return false;
   switch (viewModel.kind) {
     case 'google_otp_login':
       return !viewModel.submitBusy && /^\d{6}$/.test(viewModel.otpCode);

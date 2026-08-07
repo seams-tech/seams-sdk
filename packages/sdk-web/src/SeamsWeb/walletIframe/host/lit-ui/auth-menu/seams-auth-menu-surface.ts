@@ -1,11 +1,11 @@
 import { html, type TemplateResult } from 'lit';
 import { keyed } from 'lit/directives/keyed.js';
 import { LitElementWithProps } from '@/core/signingEngine/uiConfirm/ui/lit-components/LitElementWithProps';
-import PasskeyHaloLoadingElement from '@/core/signingEngine/uiConfirm/ui/lit-components/PasskeyHaloLoading';
 import { ensureExternalStyles } from '@/core/signingEngine/uiConfirm/ui/lit-components/css/css-loader';
 import {
   dispatchAuthMenuIntent,
   isAuthMenuActionReady,
+  isAuthMenuActionable,
   isAuthMenuLoadingStatus,
   isAuthMenuReady,
   type AuthMenuIntent,
@@ -56,10 +56,14 @@ function fingerprintIcon(): TemplateResult {
     >
       <path d="M6.405 19.048c.184-.443.353-.894.507-1.351" />
       <path d="M14.343 20.693c.266-.751.502-1.516.707-2.294.186-.706.346-1.422.478-2.147" />
-      <path d="M19.448 17.058c.364-1.964.555-3.989.555-6.058 0-4.418-3.582-8-8-8-1.255 0-2.443.289-3.501.805" />
+      <path
+        d="M19.448 17.058c.364-1.964.555-3.989.555-6.058 0-4.418-3.582-8-8-8-1.255 0-2.443.289-3.501.805"
+      />
       <path d="M3.523 15.025c.314-1.29.48-2.638.48-4.025 0-1.74.556-3.351 1.499-4.664" />
       <path d="M12.003 11c0 2.76-.447 5.416-1.273 7.899-.213.639-.451 1.266-.712 1.881" />
-      <path d="M7.712 14.5c.191-1.138.291-2.308.291-3.5 0-2.209 1.791-4 4-4s4 1.791 4 4c0 .617-.02 1.229-.058 1.836" />
+      <path
+        d="M7.712 14.5c.191-1.138.291-2.308.291-3.5 0-2.209 1.791-4 4-4s4 1.791 4 4c0 .617-.02 1.229-.058 1.836"
+      />
     </svg>
   `;
 }
@@ -89,13 +93,7 @@ function googleIcon(): TemplateResult {
 function arrowIcon(): TemplateResult {
   return html`
     <div class="stripe-arrow w3a-auth-method-arrow">
-      <svg
-        class="HoverArrow"
-        width="16"
-        height="16"
-        viewBox="0 0 10 10"
-        aria-hidden="true"
-      >
+      <svg class="HoverArrow" width="16" height="16" viewBox="0 0 10 10" aria-hidden="true">
         <g fill-rule="evenodd">
           <path class="HoverArrow__linePath" d="M0 5h7" />
           <path class="HoverArrow__tipPath" d="M1 1l4 4-4 4" />
@@ -212,19 +210,11 @@ function selectedLoginAccount(viewModel: AuthMenuLoginViewModel) {
   );
 }
 
-function currentDocumentTheme(fallback: 'light' | 'dark'): 'light' | 'dark' {
-  const theme = document.documentElement.getAttribute('data-w3a-theme');
-  return theme === 'light' || theme === 'dark' ? theme : fallback;
-}
-
 export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
   static properties = {
     viewModel: { attribute: false },
     accountMenuOpen: { state: true },
   } as const;
-
-  static keepDefinitions = [PasskeyHaloLoadingElement];
-  static requiredChildTags = ['w3a-passkey-halo-loading'];
 
   declare viewModel: AuthMenuViewModel;
   declare private accountMenuOpen: boolean;
@@ -234,8 +224,6 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
   private stylesAwaiting: Promise<void> | null = null;
   private previouslyFocusedElement: HTMLElement | null = null;
   private shouldFocusInitialControl = false;
-  private reducedMotionQuery: MediaQueryList | null = null;
-  private prefersReducedMotion = false;
   private contentResizeObserver: ResizeObserver | null = null;
   private contentHeightFrame: number | null = null;
 
@@ -258,8 +246,10 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
       this.previouslyFocusedElement = activeElement;
     }
     this.shouldFocusInitialControl = true;
-    this.setupReducedMotionQuery();
     document.addEventListener('pointerdown', this.onDocumentPointerDown);
+    // Capture phase: the key must reach this handler even when focus sits on a
+    // control inside the surface.
+    document.addEventListener('keydown', this.onKeyDown, true);
     super.connectedCallback();
   }
 
@@ -270,7 +260,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     this.contentHeightFrame = null;
     window.removeEventListener('resize', this.queueContentHeightSync);
     document.removeEventListener('pointerdown', this.onDocumentPointerDown);
-    this.teardownReducedMotionQuery();
+    document.removeEventListener('keydown', this.onKeyDown, true);
     this.restoreFocus();
     super.disconnectedCallback();
   }
@@ -322,32 +312,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     const switcher = this.querySelector<HTMLElement>('.w3a-content-switcher');
     const sizer = this.querySelector<HTMLElement>('.w3a-content-sizer');
     if (!switcher || !sizer) return;
-    if (this.prefersReducedMotion) {
-      switcher.style.transition = 'none';
-      switcher.style.height = `${sizer.scrollHeight}px`;
-      void switcher.offsetHeight;
-      switcher.style.transition = '';
-      return;
-    }
     switcher.style.height = `${sizer.scrollHeight}px`;
-  };
-
-  private setupReducedMotionQuery(): void {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
-    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
-    this.reducedMotionQuery = query;
-    this.prefersReducedMotion = query.matches;
-    query.addEventListener?.('change', this.onReducedMotionChange);
-  }
-
-  private teardownReducedMotionQuery(): void {
-    this.reducedMotionQuery?.removeEventListener?.('change', this.onReducedMotionChange);
-    this.reducedMotionQuery = null;
-  }
-
-  private onReducedMotionChange = (event: MediaQueryListEvent): void => {
-    this.prefersReducedMotion = event.matches;
-    this.requestUpdate();
   };
 
   private focusInitialControl(): void {
@@ -398,6 +363,22 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
   }
 
   private onBackClick = (): void => {
+    this.emitIntent({ kind: 'back' });
+  };
+
+  /**
+   * Escape backs out of the in-progress views the back arrow already serves.
+   * The host dialog is opened non-modally, so it never receives the UA's
+   * `cancel` event — without this the key does nothing while a ceremony is
+   * pending. Deliberately scoped to those views: from the menu itself Escape
+   * belongs to the embedding page, not to us.
+   */
+  private readonly onKeyDown = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' || event.defaultPrevented) return;
+    const viewModel = this.viewModel;
+    if (!viewModel || !isAuthMenuLoadingStatus(viewModel.status)) return;
+    event.preventDefault();
+    event.stopPropagation();
     this.emitIntent({ kind: 'back' });
   };
 
@@ -472,10 +453,6 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     this.emitIntent({ kind: 'google_registration_reroll' });
   };
 
-  private onRetry = (): void => {
-    this.emitIntent({ kind: 'retry' });
-  };
-
   private onGoogleClick = (): void => {
     this.emitIntent({ kind: 'external_auth', provider: 'google' });
   };
@@ -510,25 +487,27 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
         tabindex="-1"
         @keydown=${this.onKeydown}
       >
-        <button
-          class="w3a-back-button ${loading || linkDevice || otpPrompt || registrationPrompt
-            ? 'is-visible'
-            : ''}"
-          type="button"
-          aria-label="Back"
-          data-auth-menu-close
-          @click=${this.onBackClick}
-        >
-          ${backIcon()}
-        </button>
         <div class="w3a-content-switcher">
+          <button
+            class="w3a-back-button ${loading || linkDevice || otpPrompt || registrationPrompt
+              ? 'is-visible'
+              : ''}"
+            type="button"
+            aria-label="Back"
+            data-auth-menu-close
+            @click=${this.onBackClick}
+          >
+            ${backIcon()}
+          </button>
           <div class="w3a-content-area">
             <div class="w3a-content-sizer">
-              <div class="w3a-signin-menu">
-                ${loading
-                  ? this.renderWaiting(viewModel)
-                  : keyed(authViewKey(viewModel), this.renderActiveView(viewModel))}
-              </div>
+              ${loading
+                ? this.renderWaiting(viewModel)
+                : html`
+                    <div class="w3a-signin-menu">
+                      ${keyed(authViewKey(viewModel), this.renderActiveView(viewModel))}
+                    </div>
+                  `}
             </div>
           </div>
         </div>
@@ -656,7 +635,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
               placeholder=${viewModel.passkeyNameLabel}
               .value=${viewModel.passkeyName}
               ?readonly=${viewModel.passkeyNameReadOnly}
-              ?disabled=${viewModel.status.kind === 'performing'}
+              ?disabled=${isAuthMenuLoadingStatus(viewModel.status)}
               @input=${this.onPasskeyNameInput}
             />
           </div>
@@ -699,17 +678,21 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
           </button>
           ${googleEnabled
             ? html`
-                <button
-                  class="w3a-auth-method-btn w3a-auth-method-btn-secondary"
-                  type="button"
-                  data-auth-menu-provider="google"
-                  ?disabled=${!isAuthMenuReady(viewModel)}
-                  @click=${this.onGoogleClick}
-                >
-                  ${googleIcon()}
-                  <span>${googleButtonLabel(viewModel.mode)}</span>
-                  ${arrowIcon()}
-                </button>
+                <div class="w3a-auth-method-stack w3a-social-stack">
+                  <div class="w3a-social-provider">
+                    <button
+                      class="w3a-auth-method-btn w3a-auth-method-btn-secondary"
+                      type="button"
+                      data-auth-menu-provider="google"
+                      ?disabled=${!isAuthMenuActionable(viewModel)}
+                      @click=${this.onGoogleClick}
+                    >
+                      ${googleIcon()}
+                      <span>${googleButtonLabel(viewModel.mode)}</span>
+                      ${arrowIcon()}
+                    </button>
+                  </div>
+                </div>
               `
             : null}
         </div>
@@ -727,14 +710,9 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
           <button class="w3a-link-device-btn" type="button" @click=${this.onLinkDeviceOpen}>
             ${linkDeviceIcon()} Scan and Link Device
           </button>
-          ${viewModel.mode === 'login' &&
-          (viewModel.enabledExternalProviders?.includes('google') ?? false)
+          ${(viewModel.enabledExternalProviders?.includes('google') ?? false)
             ? html`
-                <button
-                  class="w3a-link-device-btn"
-                  type="button"
-                  @click=${this.onGoogleClick}
-                >
+                <button class="w3a-link-device-btn" type="button" @click=${this.onGoogleClick}>
                   ${mailIcon()} Recover Account with Email
                 </button>
               `
@@ -753,37 +731,28 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
           type="button"
           data-auth-menu-mode=${copy.nextMode}
           @click=${this.onIntentSwitchClick}
-          >${copy.action}</button
         >
+          ${copy.action}
+        </button>
       </div>
     `;
   }
 
   private renderWaiting(viewModel: AuthMenuViewModel): TemplateResult {
     const status = viewModel.status;
-    if (status.kind !== 'preparing' && status.kind !== 'performing') return html``;
-    const waitingText =
-      status.kind === 'performing'
-        ? viewModel.mode === 'register'
-          ? 'Creating passkey wallet…'
-          : 'Signing in…'
-        : status.message;
+    if (status.kind !== 'busy') return html``;
+    // `headline` is required on the busy status, so there is no fallback to
+    // inherit here — every wait names itself.
+    const waitingText = status.headline;
     return html`
       <div class="w3a-waiting" role="status" aria-live="polite">
-        <w3a-passkey-halo-loading
-          .theme=${currentDocumentTheme(viewModel.appearance.theme.mode)}
-          .animated=${!this.prefersReducedMotion}
-          .height=${36}
-          .width=${36}
-          .ringGap=${3}
-          .ringWidth=${3}
-        ></w3a-passkey-halo-loading>
         <div class="w3a-waiting-message">
           <span class="w3a-waiting-text">${waitingText}</span>
-          ${viewModel.showProgress && status.message !== waitingText
-            ? html`<span class="w3a-waiting-sdk-events">${status.message}</span>`
+          ${viewModel.showProgress && status.detail && status.detail !== waitingText
+            ? html`<span class="w3a-waiting-sdk-events">${status.detail}</span>`
             : null}
         </div>
+        <div aria-label="Loading" class="w3a-spinner"></div>
       </div>
     `;
   }
@@ -871,7 +840,8 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
           />
           <div class="w3a-otp-slots" aria-hidden="true">
             ${digits.map(
-              (digit) => html`<span class="w3a-otp-slot ${digit.trim() ? 'is-filled' : ''}">${digit}</span>`,
+              (digit) =>
+                html`<span class="w3a-otp-slot ${digit.trim() ? 'is-filled' : ''}">${digit}</span>`,
             )}
           </div>
         </div>
@@ -937,13 +907,11 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
   }
 
   private renderStatusError(viewModel: AuthMenuViewModel): TemplateResult {
-    if (viewModel.status.kind !== 'error' && viewModel.status.kind !== 'expired') return html``;
-    return html`
-      <p class="w3a-method-error" role="alert">${viewModel.status.message}</p>
-      <button class="w3a-otp-resend auth-menu-retry" type="button" @click=${this.onRetry}>
-        Retry
-      </button>
-    `;
+    if (viewModel.status.kind !== 'recoverable') return html``;
+    // No separate retry control: the primary action stays enabled in these
+    // states and re-prepares on click, so a second affordance would be dead
+    // weight next to the button the user already reached for.
+    return html`<p class="w3a-method-error" role="alert">${viewModel.status.message}</p>`;
   }
 }
 
