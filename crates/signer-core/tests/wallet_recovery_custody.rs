@@ -7,12 +7,11 @@
 //! codes leaves entry ciphertexts untouched, and a wrap cannot be moved onto a
 //! different wallet, code, key manifest, or entry.
 
-use signer_core::passkey_custody::{PasskeyCustodyLaneScopeV1, PasskeyCustodySecretKind};
 use signer_core::wallet_recovery_custody::{
     derive_wallet_recovery_entry_kek_v1, encode_recovery_entry_aad_v1,
     open_wallet_recovery_entry_v1, open_wallet_recovery_manifest_kek_v1,
     seal_wallet_recovery_entry_v1, seal_wallet_recovery_manifest_kek_v1, WalletRecoveryCodeScopeV1,
-    WalletRecoveryEntryCustodyV1, WalletRecoveryEntryScopeV1, WALLET_RECOVERY_CODE_COUNT,
+    WalletRecoveryEntryScopeV1, WALLET_RECOVERY_CODE_COUNT,
 };
 
 const MANIFEST_KEK: [u8; 32] = [11u8; 32];
@@ -33,25 +32,19 @@ fn code_scope(index: usize) -> WalletRecoveryCodeScopeV1 {
     }
 }
 
-/// The wallet-scoped owner entry: one seed covering every owner key.
+/// The one entry a recovery set carries: the wallet-scoped owner seed.
 fn ed25519_entry_scope() -> WalletRecoveryEntryScopeV1 {
     WalletRecoveryEntryScopeV1 {
         wallet_id: "alice.testnet".into(),
-        custody: WalletRecoveryEntryCustodyV1::WalletCustodySeed,
         key_manifest_digest: KEY_MANIFEST_DIGEST,
     }
 }
 
-/// A lane holder-share entry, scoped to exactly one lane.
+/// A second wallet's entry, used to prove wallet and manifest binding.
 fn ecdsa_entry_scope() -> WalletRecoveryEntryScopeV1 {
     WalletRecoveryEntryScopeV1 {
-        wallet_id: "alice.testnet".into(),
-        custody: WalletRecoveryEntryCustodyV1::EcdsaLaneHolderShare(PasskeyCustodyLaneScopeV1 {
-            wallet_key_id: "wallet-key:evm-family:alice.testnet:root-1:v1".into(),
-            lane_id: "lane:owner:evm-family:1".into(),
-            lane_share_epoch: "lane-share-epoch-1".into(),
-        }),
-        key_manifest_digest: KEY_MANIFEST_DIGEST,
+        wallet_id: "bob.testnet".into(),
+        key_manifest_digest: [88u8; 32],
     }
 }
 
@@ -180,42 +173,10 @@ fn substituting_entry_scope_fields_prevents_opening() {
     let mut wrong_wallet = ed25519_entry_scope();
     wrong_wallet.wallet_id = "mallory.testnet".into();
 
-    // Seed + lane is unrepresentable now, so the nearest substitution is a
-    // kind change that also introduces a lane: it must still fail to open.
-    let mut wrong_scope = ed25519_entry_scope();
-    wrong_scope.custody =
-        WalletRecoveryEntryCustodyV1::Ed25519LaneHolderShare(PasskeyCustodyLaneScopeV1 {
-            wallet_key_id: "wallet-key:ed25519:alice.testnet:root-1:v1".into(),
-            lane_id: "lane:linked-device:ed25519:2".into(),
-            lane_share_epoch: "lane-share-epoch-1".into(),
-        });
-
-    let mut wrong_epoch = ecdsa_entry_scope();
-    wrong_epoch.custody =
-        WalletRecoveryEntryCustodyV1::EcdsaLaneHolderShare(PasskeyCustodyLaneScopeV1 {
-            wallet_key_id: "wallet-key:evm-family:alice.testnet:root-1:v1".into(),
-            lane_id: "lane:owner:evm-family:1".into(),
-            lane_share_epoch: "lane-share-epoch-2".into(),
-        });
-
-    let mut wrong_kind = ecdsa_entry_scope();
-    wrong_kind.custody =
-        WalletRecoveryEntryCustodyV1::Ed25519LaneHolderShare(PasskeyCustodyLaneScopeV1 {
-            wallet_key_id: "wallet-key:evm-family:alice.testnet:root-1:v1".into(),
-            lane_id: "lane:owner:evm-family:1".into(),
-            lane_share_epoch: "lane-share-epoch-1".into(),
-        });
-
     let mut wrong_manifest = ed25519_entry_scope();
     wrong_manifest.key_manifest_digest = [0u8; 32];
 
-    for scope in [
-        wrong_wallet,
-        wrong_scope,
-        wrong_epoch,
-        wrong_kind,
-        wrong_manifest,
-    ] {
+    for scope in [wrong_wallet, wrong_manifest] {
         assert!(
             open_wallet_recovery_entry_v1(&MANIFEST_KEK, &scope, &NONCE, &sealed.ciphertext)
                 .is_err(),
@@ -380,42 +341,11 @@ fn malformed_recovery_inputs_are_rejected() {
     empty_wallet.wallet_id = String::new();
     assert!(encode_recovery_entry_aad_v1(&empty_wallet).is_err());
 
-    // A wallet-scoped seed entry and a lane entry never encode alike, and
-    // neither is a prefix of the other.
-    let seed_aad = encode_recovery_entry_aad_v1(&ed25519_entry_scope()).unwrap();
-    let lane_aad = encode_recovery_entry_aad_v1(&ecdsa_entry_scope()).unwrap();
-    assert_ne!(seed_aad, lane_aad);
-    assert!(!lane_aad.starts_with(&seed_aad));
-    assert!(!seed_aad.starts_with(&lane_aad));
-}
-
-#[test]
-fn mismatched_kind_and_lane_scope_is_unrepresentable() {
-    // Mismatched shapes are unrepresentable in the scope type itself, so the
-    // validated constructor is the seam wire callers (the wasm parser) hit.
-    let lane = PasskeyCustodyLaneScopeV1 {
-        wallet_key_id: "wallet-key:ed25519:alice.testnet:root-1:v1".into(),
-        lane_id: "lane:owner:ed25519:1".into(),
-        lane_share_epoch: "lane-share-epoch-1".into(),
-    };
-    assert!(WalletRecoveryEntryCustodyV1::from_parts(
-        PasskeyCustodySecretKind::WalletCustodySeed,
-        Some(lane.clone()),
-    )
-    .is_err());
-    assert!(WalletRecoveryEntryCustodyV1::from_parts(
-        PasskeyCustodySecretKind::Ed25519LaneHolderShare,
-        None,
-    )
-    .is_err());
-    assert!(WalletRecoveryEntryCustodyV1::from_parts(
-        PasskeyCustodySecretKind::EcdsaLaneHolderShare,
-        None,
-    )
-    .is_err());
-    assert!(WalletRecoveryEntryCustodyV1::from_parts(
-        PasskeyCustodySecretKind::EcdsaLaneHolderShare,
-        Some(lane),
-    )
-    .is_ok());
+    // Two wallets' seed entries never encode alike, and neither is a prefix
+    // of the other.
+    let one = encode_recovery_entry_aad_v1(&ed25519_entry_scope()).unwrap();
+    let other = encode_recovery_entry_aad_v1(&ecdsa_entry_scope()).unwrap();
+    assert_ne!(one, other);
+    assert!(!other.starts_with(&one));
+    assert!(!one.starts_with(&other));
 }

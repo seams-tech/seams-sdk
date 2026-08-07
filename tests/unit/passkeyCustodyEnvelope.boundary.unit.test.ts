@@ -237,18 +237,14 @@ test('a browser cache row must carry an exact revision and digests', () => {
   ).toThrow(/sealed ciphertext with an authentication tag/);
 });
 
-test('a recovery envelope set is wallet-scoped and covers the owner seed', () => {
+test('a recovery envelope set carries exactly the owner seed', () => {
   const expectedWalletId = WALLET_ID as WalletId;
 
   const parsed = parseWalletRecoveryEnvelopeSetRecord(rawWalletRecoveryEnvelopeSet(), {
     expectedWalletId,
   });
-  expect(parsed.entries.map((entry) => entry.custodySecretKind)).toEqual([
-    'wallet_custody_seed_v1',
-    'ecdsa_lane_holder_share_v1',
-  ]);
-  // The owner entry carries no lane: it covers every owner key at once.
-  expect(parsed.entries[0].laneId).toBeUndefined();
+  expect(parsed.entries).toHaveLength(1);
+  expect(parsed.entries[0].custodySecretKind).toBe('wallet_custody_seed_v1');
 
   expect(() =>
     parseWalletRecoveryEnvelopeSetRecord(
@@ -262,79 +258,30 @@ test('a recovery envelope set is wallet-scoped and covers the owner seed', () =>
       expectedWalletId,
     }),
   ).toThrow(/must cover at least one wallet key/);
+
+  // Two entries means rival seeds claim the same wallet.
+  expect(() =>
+    parseWalletRecoveryEnvelopeSetRecord(
+      rawWalletRecoveryEnvelopeSet({
+        entries: [rawWalletRecoveryEnvelopeEntry(), rawWalletRecoveryEnvelopeEntry()],
+      }),
+      { expectedWalletId },
+    ),
+  ).toThrow(/exactly one wallet_custody_seed_v1 entry, found 2/);
 });
 
-test('owner coverage is exactly one seed entry', () => {
-  const expectedWalletId = WALLET_ID as WalletId;
-
-  // Zero means recovery cannot restore owner custody at all.
-  expect(() =>
-    parseWalletRecoveryEnvelopeSetRecord(
-      rawWalletRecoveryEnvelopeSet({
-        entries: [rawWalletRecoveryEnvelopeEntry('ecdsa_lane_holder_share_v1')],
-      }),
-      { expectedWalletId },
-    ),
-  ).toThrow(/exactly one wallet_custody_seed_v1 entry, found 0/);
-
-  // More than one means two different seeds claim the same wallet.
-  expect(() =>
-    parseWalletRecoveryEnvelopeSetRecord(
-      rawWalletRecoveryEnvelopeSet({
-        entries: [
-          rawWalletRecoveryEnvelopeEntry('wallet_custody_seed_v1'),
-          rawWalletRecoveryEnvelopeEntry('wallet_custody_seed_v1'),
-        ],
-      }),
-      { expectedWalletId },
-    ),
-  ).toThrow(/found 2/);
-});
-
-test('a seed entry cannot carry lane identity', () => {
-  expect(() =>
-    parseWalletRecoveryEnvelopeSetRecord(
-      rawWalletRecoveryEnvelopeSet({
-        entries: [
-          rawWalletRecoveryEnvelopeEntry('wallet_custody_seed_v1', { laneId: EVM_LANE_ID }),
-        ],
-      }),
-      { expectedWalletId: WALLET_ID as WalletId },
-    ),
-  ).toThrow(/wallet-scoped and cannot carry lane identity/);
-});
-
-test('lane entries reject duplicate wallet keys and lanes', () => {
-  const expectedWalletId = WALLET_ID as WalletId;
-
-  expect(() =>
-    parseWalletRecoveryEnvelopeSetRecord(
-      rawWalletRecoveryEnvelopeSet({
-        entries: [
-          rawWalletRecoveryEnvelopeEntry('wallet_custody_seed_v1'),
-          rawWalletRecoveryEnvelopeEntry('ecdsa_lane_holder_share_v1'),
-          rawWalletRecoveryEnvelopeEntry('ecdsa_lane_holder_share_v1'),
-        ],
-      }),
-      { expectedWalletId },
-    ),
-  ).toThrow(/duplicate walletKeyId/);
-
-  expect(() =>
-    parseWalletRecoveryEnvelopeSetRecord(
-      rawWalletRecoveryEnvelopeSet({
-        entries: [
-          rawWalletRecoveryEnvelopeEntry('wallet_custody_seed_v1'),
-          rawWalletRecoveryEnvelopeEntry('ecdsa_lane_holder_share_v1'),
-          rawWalletRecoveryEnvelopeEntry('ed25519_lane_holder_share_v1', {
-            walletKeyId: `${EVM_WALLET_KEY_ID}:2`,
-            laneId: EVM_LANE_ID,
-          }),
-        ],
-      }),
-      { expectedWalletId },
-    ),
-  ).toThrow(/duplicate laneId/);
+test('lane holder shares are not recoverable', () => {
+  // A linked device's share is sealed under that device's own factor, so it
+  // survives owner recovery untouched. Accepting one here would instead let an
+  // owner recovery code reconstruct that device's material.
+  for (const kind of ['ed25519_lane_holder_share_v1', 'ecdsa_lane_holder_share_v1'] as const) {
+    expect(() =>
+      parseWalletRecoveryEnvelopeSetRecord(
+        rawWalletRecoveryEnvelopeSet({ entries: [rawWalletRecoveryEnvelopeEntry(kind)] }),
+        { expectedWalletId: WALLET_ID as WalletId },
+      ),
+    ).toThrow(/reprovisioned, not recovered/);
+  }
 });
 
 test('a recovery entry cannot carry plaintext custody material', () => {
@@ -362,7 +309,7 @@ test('a recovery entry cannot carry plaintext custody material', () => {
       }),
       { expectedWalletId: WALLET_ID as WalletId },
     ),
-  ).toThrow(/must be a known passkey custody secret kind/);
+  ).toThrow(/must be wallet_custody_seed_v1/);
 });
 
 test('a recovery set requires openable manifest-KEK wraps with unique code ids', () => {

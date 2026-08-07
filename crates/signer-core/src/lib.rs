@@ -32,6 +32,8 @@ pub mod secp256k1;
 pub mod tempo_tx;
 #[cfg(feature = "passkey-custody")]
 pub mod wallet_recovery_custody;
+#[cfg(feature = "passkey-custody")]
+pub mod wallet_seed_derivation;
 #[cfg(feature = "webauthn-p256")]
 pub mod webauthn_p256;
 

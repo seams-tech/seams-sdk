@@ -15,13 +15,12 @@ use serde::{Deserialize, Serialize};
 use signer_core::passkey_custody::open_passkey_custody_secret_v1;
 use signer_core::passkey_custody::{
     open_verified_passkey_custody_secret_v1, seal_passkey_custody_secret_v1,
-    PasskeyCustodyEnvelopeBindingV1, PasskeyCustodyLaneScopeV1, PasskeyCustodySecretKind,
-    PASSKEY_CUSTODY_KEY_LEN,
+    PasskeyCustodyEnvelopeBindingV1, PasskeyCustodySecretKind, PASSKEY_CUSTODY_KEY_LEN,
 };
 use signer_core::wallet_recovery_custody::{
     open_wallet_recovery_entry_v1, open_wallet_recovery_manifest_kek_v1,
     seal_wallet_recovery_entry_v1, seal_wallet_recovery_manifest_kek_v1, WalletRecoveryCodeScopeV1,
-    WalletRecoveryEntryCustodyV1, WalletRecoveryEntryScopeV1,
+    WalletRecoveryEntryScopeV1,
 };
 use wasm_bindgen::prelude::*;
 use zeroize::Zeroizing;
@@ -220,15 +219,7 @@ struct WalletRecoveryCodeScopeWireV1 {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct WalletRecoveryEntryScopeWireV1 {
     wallet_id: String,
-    custody_secret_kind: String,
     key_manifest_digest_b64u: String,
-    /// Absent for the wallet-scoped owner seed entry.
-    #[serde(default)]
-    wallet_key_id: Option<String>,
-    #[serde(default)]
-    lane_id: Option<String>,
-    #[serde(default)]
-    lane_share_epoch: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -254,25 +245,8 @@ fn parse_code_scope(scope_json: &str) -> Result<WalletRecoveryCodeScopeV1, JsVal
 fn parse_entry_scope(scope_json: &str) -> Result<WalletRecoveryEntryScopeV1, JsValue> {
     let wire =
         serde_json::from_str::<WalletRecoveryEntryScopeWireV1>(scope_json).map_err(js_error)?;
-    let lane = match (wire.wallet_key_id, wire.lane_id, wire.lane_share_epoch) {
-        (None, None, None) => None,
-        (Some(wallet_key_id), Some(lane_id), Some(lane_share_epoch)) => {
-            Some(PasskeyCustodyLaneScopeV1 {
-                wallet_key_id,
-                lane_id,
-                lane_share_epoch,
-            })
-        }
-        // A partial lane scope is a caller error, not a wallet-scoped entry.
-        _ => return Err(js_error("recovery entry lane scope is incomplete")),
-    };
-    let kind = PasskeyCustodySecretKind::parse(&wire.custody_secret_kind).map_err(js_error)?;
-    // The validated constructor rejects kind/lane mismatches, so a seed entry
-    // smuggling lane identity never becomes a representable scope.
-    let custody = WalletRecoveryEntryCustodyV1::from_parts(kind, lane).map_err(js_error)?;
     Ok(WalletRecoveryEntryScopeV1 {
         wallet_id: wire.wallet_id,
-        custody,
         key_manifest_digest: decode_digest(
             &wire.key_manifest_digest_b64u,
             "keyManifestDigestB64u",
@@ -340,9 +314,9 @@ pub fn wallet_recovery_seal_entry_v1(
     handle: &WasmPasskeyCustodyHandleV1,
 ) -> Result<JsValue, JsValue> {
     let scope = parse_entry_scope(entry_scope_json)?;
-    if scope.custody.kind() != handle.kind {
+    if handle.kind != PasskeyCustodySecretKind::WalletCustodySeed {
         return Err(js_error(
-            "custody handle kind does not match the recovery entry scope",
+            "a recovery entry seals the wallet custody seed only",
         ));
     }
     let sealed = seal_wallet_recovery_entry_v1(
@@ -374,6 +348,6 @@ pub fn wallet_recovery_open_entry_v1(
             .map_err(js_error)?;
     Ok(WasmPasskeyCustodyHandleV1::new(
         opened,
-        scope.custody.kind(),
+        PasskeyCustodySecretKind::WalletCustodySeed,
     ))
 }

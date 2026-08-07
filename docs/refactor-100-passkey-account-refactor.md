@@ -761,25 +761,26 @@ repository evidence.
       encoding, and the near_signer wasm boundary. Wallet and lane scope are
       distinguished by an explicit AAD scope marker, so neither encoding can
       be a prefix of the other.
-- [ ] Implement seed -> parallel HKDF derivation of the Ed25519 Yao Client
-      root and ECDSA client root share for the shared custody path; freeze
-      the domain-separation labels.
-
-      Hard acceptance criteria, fail-closed. Exactly one seed entry plus a
-      stored `keyManifestDigestB64u` proves nothing on its own: the digest is
-      recorded but never verified at parse time. Derivation must recompute
-      both public roots from the opened seed, build the canonical key
-      manifest, and compare its digest against the stored value before any
-      capability is published or any recovery code is consumed. A mismatch
-      aborts; it never degrades to partial success.
-
-- [ ] Decide lane coverage in a recovery set, and enforce the decision.
-      Recovery promises the whole mixed custody set, but the parser accepts
-      one seed while omitting any number of lane-share entries. Either verify
-      entries against a manifest that enumerates required lanes, or state
-      that linked-device lanes are deliberately reprovisioned through
-      Refactor 102 after owner recovery rather than restored from the set.
-      Whichever is chosen, the parser and this plan must agree.
+- [x] Implement seed -> parallel HKDF derivation of the Ed25519 Yao Client
+      root and ECDSA client root share
+      (`crates/signer-core/src/wallet_seed_derivation.rs`). Frozen labels:
+      `seams/wallet-custody/seed/ed25519-yao-client-root/v1` and
+      `seams/wallet-custody/seed/ecdsa-client-root-share/v1`. Both take the
+      seed directly as IKM; neither root is a function of the other.
+- [x] Make manifest verification fail closed. `verify_wallet_key_manifest_v1`
+      recomputes the canonical manifest digest from the derived public
+      identities and rejects any mismatch. Callers must run it before
+      publishing a capability or consuming a recovery code, and must abort
+      rather than continue with partial results. This is what a stored
+      `keyManifestDigestB64u` is worth: the record parser never verifies it.
+- [x] DECIDED (August 7, 2026) — lane coverage: a recovery set carries the
+      owner seed and nothing else. A linked device's holder share is sealed
+      under that device's own factor, so it never depended on the owner
+      credential and survives owner recovery untouched; carrying it in the
+      owner's set would instead let an owner recovery code reconstruct that
+      device's material, collapsing the device separation Refactor 103
+      creates. A lost lane is revoked and reprovisioned through Refactor 102,
+      not recovered. Both parsers reject lane kinds in a recovery entry.
 - [ ] Wipe dev OTP wallets and obsolete persisted records with the Phase 2
       test-wallet reset.
 - [ ] Record a naming glossary in `AGENTS.md` fixing each custody term to one
