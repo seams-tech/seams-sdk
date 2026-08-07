@@ -997,6 +997,43 @@ repository evidence.
 
 ### Phase 5: Credential Management
 
+- [x] Add the custody half of second-factor enrolment — the capability this
+      whole refactor exists for, since per-factor roots cannot be reconciled
+      after the fact.
+
+      Designing it exposed a contradiction in the module decision above. That
+      decision says adding a factor is not a ceremony and stays in
+      `near_signer`, but the only seal available took a
+      `VerifiedWalletKeyManifestDigestV1`, whose constructors either establish a
+      new manifest or verify one — and verifying means deriving both owner
+      roots, which needs protocol crates `near_signer` does not link. As
+      written, factor addition was unimplementable where it was assigned.
+
+      The resolution is a second, distinct proof rather than a second ceremony.
+      Opening a seed envelope already authenticates the seed against its key
+      manifest, because the digest and every identity field are in the AAD. So
+      the open path mints `WalletCustodySeedFromSealedEnvelopeV1`, and
+      `reseal_wallet_custody_seed_under_new_factor_v1` requires it. A reseal may
+      change only the factor and the envelope id: wallet, key manifest, and key
+      set must be identical, so it cannot move a seed to another wallet or
+      relabel which keys it controls. No root derivation, no protocol crate, and
+      no ceremony-module load to add a passkey to an Email OTP wallet.
+
+      The two proofs are deliberately not convertible. Sharing one token would
+      let an admitted seed reach the registration seal, or a fresh verification
+      reach a reseal that is meant to preserve an existing record.
+
+      Related hole closed while designing this: the registration seal compared
+      only the *recorded* `keyManifestDigestB64u` against the proof, leaving the
+      binding's signing key id, registered public key, slot id, and client root
+      key unchecked — an envelope could carry a valid digest beside identity
+      fields that never produced it, and those fields are what a later unlock
+      reads. Both seal paths now require the whole binding to reproduce the
+      digest.
+
+      Exported from `near_signer` as `passkey_custody_open_wallet_seed_v1` and
+      `passkey_custody_reseal_wallet_seed_v1`, with the reseal generating its
+      own nonce.
 - [ ] Add passkey envelope creation, listing, and revocation.
 - [ ] Add device labels and credential activity history.
 - [ ] Add lane refresh escalation after suspected holder-secret exposure.

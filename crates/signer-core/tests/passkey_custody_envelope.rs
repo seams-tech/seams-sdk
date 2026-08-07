@@ -9,7 +9,8 @@
 use signer_core::error::CoreResult;
 use signer_core::passkey_custody::{
     derive_passkey_custody_kek_v1, encode_passkey_custody_aad_v1, open_passkey_custody_secret_v1,
-    open_verified_passkey_custody_secret_v1, seal_passkey_custody_secret_v1,
+    open_verified_passkey_custody_secret_v1, open_wallet_custody_seed_envelope_v1,
+    reseal_wallet_custody_seed_under_new_factor_v1, seal_passkey_custody_secret_v1,
     seal_wallet_custody_seed_envelope_v1, sha256_digest, PasskeyCustodyEnvelopeBindingV1,
     PasskeyCustodyLaneScopeV1, PasskeyCustodySecretBindingV1, SealedPasskeyCustodyEnvelopeV1,
     WalletCustodyEnvelopeFactorV1, EMAIL_OTP_FACTOR_KEK_VERSION_V1, PASSKEY_CUSTODY_KEK_VERSION_V1,
@@ -538,4 +539,189 @@ fn a_seed_envelope_cannot_be_sealed_without_a_verified_manifest() {
         &CUSTODY_SECRET
     )
     .is_ok());
+}
+
+#[test]
+fn a_seed_envelope_must_be_consistent_with_the_manifest_it_records() {
+    // The recorded digest is not enough on its own: the identity fields the
+    // digest is computed from must be the ones the envelope carries, because a
+    // later unlock reads those fields to decide which keys the seed controls.
+    let mut mislabelled = envelope(wallet_seed_binding());
+    let PasskeyCustodySecretBindingV1::WalletCustodySeed {
+        key_manifest_digest_b64u,
+        derivation_scheme,
+        registered_public_key_b64u,
+        evm_family_signing_key_slot_id,
+        client_root_public_key33_b64u,
+        ..
+    } = mislabelled.binding.clone()
+    else {
+        panic!("seed binding");
+    };
+    mislabelled.binding = PasskeyCustodySecretBindingV1::WalletCustodySeed {
+        derivation_scheme,
+        // Correct digest, wrong signing key id: the digest was never computed
+        // from this field, so the record contradicts itself.
+        key_manifest_digest_b64u,
+        near_ed25519_signing_key_id: "near-ed25519-key-2".into(),
+        registered_public_key_b64u,
+        evm_family_signing_key_slot_id,
+        client_root_public_key33_b64u,
+    };
+    assert!(seal_wallet_custody_seed_envelope_v1(
+        &PRF_FIRST,
+        &mislabelled,
+        &verified_key_manifest(),
+        &NONCE,
+        &CUSTODY_SECRET
+    )
+    .is_err());
+}
+
+/// The other factor for the same wallet: a passkey envelope alongside the
+/// Email OTP one, or vice versa.
+fn second_factor_envelope() -> PasskeyCustodyEnvelopeBindingV1 {
+    let mut binding = envelope(wallet_seed_binding());
+    binding.factor = email_otp_factor();
+    binding.envelope_id = "wallet-custody-envelope-2".into();
+    binding
+}
+
+fn open_admitted() -> (
+    Vec<u8>,
+    signer_core::passkey_custody::WalletCustodySeedFromSealedEnvelopeV1,
+) {
+    let first = envelope(wallet_seed_binding());
+    let sealed = seal_wallet_custody_seed_envelope_v1(
+        &PRF_FIRST,
+        &first,
+        &verified_key_manifest(),
+        &NONCE,
+        &CUSTODY_SECRET,
+    )
+    .unwrap();
+    let (seed, admitted) = open_wallet_custody_seed_envelope_v1(
+        &PRF_FIRST,
+        &first,
+        &NONCE,
+        &sealed.ciphertext,
+        &sealed.aad_hash,
+        &sealed.ciphertext_digest,
+    )
+    .unwrap();
+    (seed.to_vec(), admitted)
+}
+
+#[test]
+fn a_second_factor_opens_the_same_seed_without_rederiving_anything() {
+    let (seed, admitted) = open_admitted();
+    assert_eq!(seed, CUSTODY_SECRET);
+    assert_eq!(admitted.wallet_id(), "alice.testnet");
+
+    let second = second_factor_envelope();
+    let resealed = reseal_wallet_custody_seed_under_new_factor_v1(
+        &OTHER_PRF_FIRST,
+        &second,
+        &admitted,
+        &NONCE,
+        &seed,
+    )
+    .unwrap();
+
+    // Both factors now reach one seed, and each opens only its own envelope.
+    assert_eq!(
+        open_passkey_custody_secret_v1(&OTHER_PRF_FIRST, &second, &NONCE, &resealed.ciphertext)
+            .unwrap()
+            .as_slice(),
+        CUSTODY_SECRET
+    );
+    assert!(
+        open_passkey_custody_secret_v1(&PRF_FIRST, &second, &NONCE, &resealed.ciphertext).is_err(),
+        "the first factor's key must not open the second factor's envelope"
+    );
+}
+
+#[test]
+fn a_reseal_may_change_only_the_factor_and_the_envelope_id() {
+    let (seed, admitted) = open_admitted();
+
+    let mut other_wallet = second_factor_envelope();
+    other_wallet.wallet_id = "mallory.testnet".into();
+
+    let mut relabelled_manifest = second_factor_envelope();
+    relabelled_manifest.binding = PasskeyCustodySecretBindingV1::WalletCustodySeed {
+        derivation_scheme: WALLET_SEED_DERIVATION_SCHEME_V1.into(),
+        key_manifest_digest_b64u: digest_b64u(2),
+        near_ed25519_signing_key_id: "near-ed25519-key-1".into(),
+        registered_public_key_b64u: digest_b64u(5),
+        evm_family_signing_key_slot_id: "wallet-key:evm-family:alice.testnet:root-1:v1".into(),
+        client_root_public_key33_b64u: base64_url(&wallet_key_manifest().client_root_public_key33),
+    };
+
+    let mut other_keys = second_factor_envelope();
+    other_keys.binding = ecdsa_lane_binding();
+
+    for rejected in [other_wallet, relabelled_manifest, other_keys] {
+        assert!(
+            reseal_wallet_custody_seed_under_new_factor_v1(
+                &OTHER_PRF_FIRST,
+                &rejected,
+                &admitted,
+                &NONCE,
+                &seed
+            )
+            .is_err(),
+            "a reseal must not change the wallet, the key manifest, or the key set"
+        );
+    }
+}
+
+#[test]
+fn a_lane_share_cannot_mint_a_seed_admission() {
+    let lane = envelope(ecdsa_lane_binding());
+    let sealed =
+        seal_passkey_custody_secret_v1(&PRF_FIRST, &lane, &NONCE, &CUSTODY_SECRET).unwrap();
+    assert!(open_wallet_custody_seed_envelope_v1(
+        &PRF_FIRST,
+        &lane,
+        &NONCE,
+        &sealed.ciphertext,
+        &sealed.aad_hash,
+        &sealed.ciphertext_digest
+    )
+    .is_err());
+}
+
+#[test]
+fn a_drifted_envelope_row_mints_no_admission() {
+    let first = envelope(wallet_seed_binding());
+    let sealed = seal_wallet_custody_seed_envelope_v1(
+        &PRF_FIRST,
+        &first,
+        &verified_key_manifest(),
+        &NONCE,
+        &CUSTODY_SECRET,
+    )
+    .unwrap();
+
+    // A stored digest that no longer matches the ciphertext must fail before a
+    // seed — and therefore an admission — exists.
+    assert!(open_wallet_custody_seed_envelope_v1(
+        &PRF_FIRST,
+        &first,
+        &NONCE,
+        &sealed.ciphertext,
+        &sealed.aad_hash,
+        &[0u8; 32]
+    )
+    .is_err());
+    assert!(open_wallet_custody_seed_envelope_v1(
+        &PRF_FIRST,
+        &first,
+        &NONCE,
+        &sealed.ciphertext,
+        &[0u8; 32],
+        &sealed.ciphertext_digest
+    )
+    .is_err());
 }

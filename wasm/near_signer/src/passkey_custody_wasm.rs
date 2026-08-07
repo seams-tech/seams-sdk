@@ -20,8 +20,10 @@ use base64ct::{Base64UrlUnpadded, Encoding};
 use serde::Serialize;
 use signer_core::passkey_custody::open_passkey_custody_secret_v1;
 use signer_core::passkey_custody::{
-    open_verified_passkey_custody_secret_v1, seal_passkey_custody_secret_v1,
+    open_verified_passkey_custody_secret_v1, open_wallet_custody_seed_envelope_v1,
+    reseal_wallet_custody_seed_under_new_factor_v1, seal_passkey_custody_secret_v1,
     PasskeyCustodyEnvelopeBindingV1, PasskeyCustodySecretKind,
+    WalletCustodySeedFromSealedEnvelopeV1, PASSKEY_CUSTODY_NONCE_LEN,
 };
 use wasm_bindgen::prelude::*;
 use zeroize::Zeroizing;
@@ -54,6 +56,10 @@ fn decode_digest(value: &str, label: &str) -> Result<[u8; 32], JsValue> {
 pub struct WasmPasskeyCustodyHandleV1 {
     secret: Zeroizing<Vec<u8>>,
     kind: PasskeyCustodySecretKind,
+    /// Present only when this handle came from opening a wallet custody seed
+    /// envelope. It is what lets the seed be resealed under a second factor,
+    /// and it never crosses back into JavaScript.
+    admitted: Option<WalletCustodySeedFromSealedEnvelopeV1>,
 }
 
 #[wasm_bindgen]
@@ -74,12 +80,23 @@ impl WasmPasskeyCustodyHandleV1 {
     /// failure rather than waiting for garbage collection.
     pub fn destroy(&mut self) {
         self.secret = Zeroizing::new(Vec::new());
+        self.admitted = None;
+    }
+
+    /// Whether this handle may be resealed under another factor. False for a
+    /// lane share, and false for a seed opened through the unverified path.
+    pub fn can_add_factor(&self) -> bool {
+        self.admitted.is_some()
     }
 }
 
 impl WasmPasskeyCustodyHandleV1 {
     fn new(secret: Zeroizing<Vec<u8>>, kind: PasskeyCustodySecretKind) -> Self {
-        Self { secret, kind }
+        Self {
+            secret,
+            kind,
+            admitted: None,
+        }
     }
 }
 
@@ -162,6 +179,89 @@ pub fn passkey_custody_open_v1(
         opened,
         binding.binding.kind(),
     ))
+}
+
+/// Opens a wallet custody seed envelope into a handle that can add a factor.
+///
+/// This is the second-factor enrolment path: a wallet with an Email OTP factor
+/// gains a passkey, or the reverse. It needs no owner-root derivation and no
+/// protocol crate, because the seed's key manifest was established when its
+/// first envelope was written — opening authenticates the seed against that
+/// manifest, and the reseal below may only carry the claim forward.
+#[wasm_bindgen]
+pub fn passkey_custody_open_wallet_seed_v1(
+    factor_secret: &[u8],
+    envelope_binding_json: &str,
+    nonce12: &[u8],
+    sealed_custody_secret_b64u: &str,
+    aad_hash_b64u: &str,
+    ciphertext_digest_b64u: &str,
+) -> Result<WasmPasskeyCustodyHandleV1, JsValue> {
+    let binding = parse_envelope_binding(envelope_binding_json)?;
+    let ciphertext = decode_b64u(sealed_custody_secret_b64u, "sealedCustodySecretB64u")?;
+    let expected_aad_hash = decode_digest(aad_hash_b64u, "aadHashB64u")?;
+    let expected_ciphertext_digest = decode_digest(ciphertext_digest_b64u, "ciphertextDigestB64u")?;
+    let factor_secret = Zeroizing::new(factor_secret.to_vec());
+    let (secret, admitted) = open_wallet_custody_seed_envelope_v1(
+        &factor_secret,
+        &binding,
+        nonce12,
+        &ciphertext,
+        &expected_aad_hash,
+        &expected_ciphertext_digest,
+    )
+    .map_err(js_error)?;
+    Ok(WasmPasskeyCustodyHandleV1 {
+        secret,
+        kind: PasskeyCustodySecretKind::WalletCustodySeed,
+        admitted: Some(admitted),
+    })
+}
+
+/// Seals an admitted seed under a second factor.
+///
+/// The nonce is generated here rather than accepted, so a caller cannot reuse
+/// one across two seals. Everything except the factor and the envelope id must
+/// match the envelope the handle was opened from; `signer_core` enforces that,
+/// so a reseal cannot move the seed to another wallet or relabel its keys.
+#[wasm_bindgen]
+pub fn passkey_custody_reseal_wallet_seed_v1(
+    handle: &WasmPasskeyCustodyHandleV1,
+    new_factor_secret: &[u8],
+    new_envelope_binding_json: &str,
+) -> Result<JsValue, JsValue> {
+    let admitted = handle.admitted.as_ref().ok_or_else(|| {
+        js_error("this handle was not opened from a verified wallet custody seed envelope")
+    })?;
+    let binding = parse_envelope_binding(new_envelope_binding_json)?;
+    let mut nonce = [0u8; PASSKEY_CUSTODY_NONCE_LEN];
+    getrandom::getrandom(&mut nonce)
+        .map_err(|_| js_error("envelope nonce randomness is unavailable"))?;
+    let new_factor_secret = Zeroizing::new(new_factor_secret.to_vec());
+    let sealed = reseal_wallet_custody_seed_under_new_factor_v1(
+        &new_factor_secret,
+        &binding,
+        admitted,
+        &nonce,
+        &handle.secret[..],
+    )
+    .map_err(js_error)?;
+    serde_wasm_bindgen::to_value(&ResealedEnvelopeWireV1 {
+        nonce_b64u: Base64UrlUnpadded::encode_string(&nonce),
+        sealed_custody_secret_b64u: sealed.ciphertext_b64u(),
+        aad_hash_b64u: sealed.aad_hash_b64u(),
+        ciphertext_digest_b64u: sealed.ciphertext_digest_b64u(),
+    })
+    .map_err(js_error)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ResealedEnvelopeWireV1 {
+    nonce_b64u: String,
+    sealed_custody_secret_b64u: String,
+    aad_hash_b64u: String,
+    ciphertext_digest_b64u: String,
 }
 
 /// Opens an envelope only when the record's stored AAD hash and ciphertext
