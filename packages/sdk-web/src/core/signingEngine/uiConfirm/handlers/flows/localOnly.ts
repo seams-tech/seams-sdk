@@ -13,7 +13,10 @@ import {
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { UserConfirmSecurityContext } from '@/core/types';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
-import { isUserCancelledUserConfirm, ERROR_MESSAGES } from '@/core/signingEngine/stepUpConfirmation/channel/confirmCommon';
+import {
+  isUserCancelledUserConfirm,
+  ERROR_MESSAGES,
+} from '@/core/signingEngine/stepUpConfirmation/channel/confirmCommon';
 import { getIntentDigest } from './adapters/request';
 import { errorMessage } from '@shared/utils/errors';
 import { base64UrlEncode } from '@shared/utils/encoders';

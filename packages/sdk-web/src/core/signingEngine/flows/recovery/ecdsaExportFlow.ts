@@ -65,9 +65,7 @@ import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { PersistedEcdsaRoleLocalMaterial } from '../../session/material/ecdsaRoleLocalMaterialResolver';
-import type {
-  RouterAbEcdsaOperationStepUpAuthorizationV1Wire,
-} from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbEcdsaOperationStepUpAuthorizationV1Wire } from '@shared/utils/routerAbEcdsaDerivation';
 
 type ExportedKeySchemes = Array<'secp256k1'>;
 type EcdsaExportArtifact = {
@@ -815,9 +813,7 @@ export async function exportThresholdEcdsaKeyWithFreshPasskeyAuthorization(
           exportProvision,
           factorAuthorization: {
             kind: 'passkey',
-            passkeyCredentialIdB64u: String(
-              prepared.credential.rawId || prepared.credential.id,
-            ),
+            passkeyCredentialIdB64u: String(prepared.credential.rawId || prepared.credential.id),
             credential: prepared.credential,
           },
         },
