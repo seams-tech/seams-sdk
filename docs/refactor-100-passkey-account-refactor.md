@@ -958,8 +958,31 @@ repository evidence.
       `default-features = false`; the standalone Yao build keeps the feature
       and is unchanged. The published surface is one function and four state
       handles, and the binary dropped from 538,910 to 427,005 bytes.
-- [ ] Build the ceremony worker and commit the server-held envelope and
-      recovery set from the payload.
+- [x] Commit the server-held envelope and recovery set atomically.
+      `CloudflareD1WalletCustodyCommitStore.commitRegistration` writes both rows
+      in one D1 transaction through `putMany`.
+
+      Atomicity is why this is a store rather than two sequential writes. The
+      two partial outcomes are not equally bad. A recovery set with no envelope
+      leaves a wallet no factor can open — loud, and retried. An envelope with
+      no recovery set leaves a *working* wallet whose owner believes they hold
+      ten recovery codes that were never stored: silent, and discovered only
+      when recovery is attempted. Neither state is reachable now.
+
+      Both records share the envelope key prefix, because a D1 batch is scoped
+      to one store instance and one instance is one prefix. Their keys cannot
+      collide: an envelope key is a JSON array and begins with `[`, a
+      recovery-set key begins with `recovery-set:`. The envelope key builder is
+      exported from the envelope store and used by both, so there is one
+      definition — a second spelling would write rows no lookup could find.
+
+      Both writes are inserts, never updates. A repeated ceremony for a wallet
+      that already has custody is refused rather than overwriting a seed whose
+      keys are already registered. A pair naming two wallets or two key
+      manifests is refused before anything is written, since a recovery set
+      whose codes open a seed for a manifest the envelope does not name would
+      recover keys the wallet never registered.
+- [ ] Build the ceremony worker and call the commit from it.
 - [ ] Shrink `wasm/ecdsa_registration_client` once registration leaves it:
       rename around role-local material rehydration or fold the remainder into
       its natural owner. Do not leave a compatibility shell under the old name.
