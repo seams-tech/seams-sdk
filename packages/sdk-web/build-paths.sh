@@ -92,6 +92,7 @@ WORKER_SHAMIR3PASS_RUNTIME_JS="shamir3pass_runtime.js"
 WORKER_SHAMIR3PASS_RUNTIME_WASM="shamir3pass_runtime_bg.wasm"
 WORKER_EMAIL_OTP_RUNTIME_JS="email_otp_runtime.js"
 WORKER_EMAIL_OTP_RUNTIME_WASM="email_otp_runtime_bg.wasm"
+WORKER_WALLET_CUSTODY_CEREMONY="wallet-custody-ceremony.worker.js"
 WALLET_CUSTODY_CEREMONY_JS="wallet_custody_ceremony.js"
 WALLET_CUSTODY_CEREMONY_WASM="wallet_custody_ceremony_bg.wasm"
 
