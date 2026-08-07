@@ -717,3 +717,342 @@ impl CeremonyManifestEstablishedV1 {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! These own the ceremony's output contract: what an establishing run seals
+    //! must open back to the seed under exactly the factor and the codes it was
+    //! sealed for, a joining run must write nothing but its manifest, and a run
+    //! must commit only the key set it provisioned.
+    //!
+    //! They start from `CeremonyProtocolCompletedV1` because they live inside
+    //! the module and can build it directly. Driving states 1 and 2 needs a real
+    //! Router A/B circuit; `circuit_tests` owns that half, including the
+    //! establish-then-join seam over a genuinely opened envelope.
+
+    use super::*;
+    use signer_core::passkey_custody::EMAIL_OTP_FACTOR_KEK_VERSION_V1;
+    use signer_core::wallet_recovery_custody::{
+        open_wallet_recovery_entry_v1, open_wallet_recovery_manifest_kek_v1,
+        WalletRecoveryCodeScopeV1, WalletRecoveryEntryScopeV1,
+    };
+
+    const WALLET_ID: &str = "alice.testnet";
+    const FACTOR_SECRET: [u8; 32] = [7u8; 32];
+    const NEAR_SIGNING_KEY_ID: &str = "near-ed25519-key-1";
+    const EVM_SLOT_ID: &str = "wallet-key:evm-family:alice.testnet:root-1:v1";
+
+    fn seed() -> Zeroizing<[u8; WALLET_CUSTODY_SEED_LEN]> {
+        Zeroizing::new([13u8; WALLET_CUSTODY_SEED_LEN])
+    }
+
+    fn client_root_public_key33() -> [u8; 33] {
+        let mut key = [11u8; 33];
+        key[0] = 0x02;
+        key
+    }
+
+    const REGISTERED_PUBLIC_KEY: [u8; 32] = [21u8; 32];
+
+    fn evm_completed(origin: CustodyOriginV1) -> CeremonyProtocolCompletedV1 {
+        CeremonyProtocolCompletedV1 {
+            wallet_id: WALLET_ID.to_string(),
+            seed: seed(),
+            origin,
+            completed: CompletedProtocolV1::EvmFamilyEcdsa {
+                client_root_public_key33: client_root_public_key33(),
+                ready_state_blob: Zeroizing::new(vec![1, 2, 3]),
+            },
+        }
+    }
+
+    fn near_completed(origin: CustodyOriginV1) -> CeremonyProtocolCompletedV1 {
+        CeremonyProtocolCompletedV1 {
+            wallet_id: WALLET_ID.to_string(),
+            seed: seed(),
+            origin,
+            completed: CompletedProtocolV1::NearEd25519 {
+                registered_public_key: REGISTERED_PUBLIC_KEY,
+            },
+        }
+    }
+
+    fn evm_identity() -> KeySetIdentityInputsV1 {
+        KeySetIdentityInputsV1::EvmFamilyEcdsa {
+            evm_family_signing_key_slot_id: EVM_SLOT_ID.to_string(),
+        }
+    }
+
+    fn near_identity() -> KeySetIdentityInputsV1 {
+        KeySetIdentityInputsV1::NearEd25519 {
+            near_ed25519_signing_key_id: NEAR_SIGNING_KEY_ID.to_string(),
+        }
+    }
+
+    fn factor() -> FactorSealInputsV1 {
+        FactorSealInputsV1 {
+            envelope_id: "wallet-custody-envelope-1".to_string(),
+            factor: WalletCustodyEnvelopeFactorV1::EmailOtp {
+                enrollment_id: "enrollment-1".to_string(),
+                enrollment_seal_key_version: "seal-v1".to_string(),
+                kek_version: EMAIL_OTP_FACTOR_KEK_VERSION_V1.to_string(),
+            },
+            factor_secret: Zeroizing::new(FACTOR_SECRET.to_vec()),
+        }
+    }
+
+    fn recovery_codes(count: usize) -> Vec<RecoveryCodeInputV1> {
+        (0..count)
+            .map(|index| RecoveryCodeInputV1 {
+                recovery_key_id: format!("email-otp-rkid-v1-code-{index}"),
+                code_bytes: Zeroizing::new(vec![index as u8 + 1; 20]),
+            })
+            .collect()
+    }
+
+    fn decode(value: &str) -> Vec<u8> {
+        Base64UrlUnpadded::decode_vec(value).expect("base64url")
+    }
+
+    /// An establishing EVM-family run, committed.
+    fn established() -> WalletCustodyCommitPayloadV1 {
+        evm_completed(CustodyOriginV1::Establish)
+            .establish_manifest(evm_identity(), None)
+            .expect("manifest established")
+            .finish(Some((factor(), recovery_codes(WALLET_RECOVERY_CODE_COUNT))))
+            .expect("custody committed")
+    }
+
+    fn custody_records(payload: &WalletCustodyCommitPayloadV1) -> &EstablishedCustodyRecordsV1 {
+        payload
+            .established_custody
+            .as_ref()
+            .expect("an establishing run writes custody records")
+    }
+
+    #[test]
+    fn an_established_seed_is_wallet_scoped_and_never_repeats() {
+        assert!(CeremonySeedHeldV1::establish("  ").is_err());
+
+        let held = CeremonySeedHeldV1::establish(WALLET_ID).expect("custody established");
+        assert_eq!(held.wallet_id, WALLET_ID);
+        assert_ne!(held.seed[..], [0u8; WALLET_CUSTODY_SEED_LEN][..]);
+
+        let other = CeremonySeedHeldV1::establish(WALLET_ID).expect("custody established");
+        assert_ne!(held.seed[..], other.seed[..]);
+    }
+
+    #[test]
+    fn the_sealed_envelope_opens_back_to_the_ceremony_seed() {
+        let payload = established();
+        let records = custody_records(&payload);
+        let binding =
+            serde_json::from_str::<PasskeyCustodyEnvelopeBindingV1>(&records.envelope_binding_json)
+                .expect("binding round-trips");
+
+        let (opened, admitted) = open_wallet_custody_seed_envelope_v1(
+            &FACTOR_SECRET,
+            &binding,
+            &decode(&records.envelope_nonce_b64u),
+            &decode(&records.sealed_custody_secret_b64u),
+            &decode(&records.envelope_aad_hash_b64u),
+            &decode(&records.envelope_ciphertext_digest_b64u),
+        )
+        .expect("envelope opens");
+        assert_eq!(opened.as_slice(), &seed()[..]);
+
+        // The AAD names the wallet, so an envelope cannot be replayed onto
+        // another wallet's custody.
+        assert_eq!(admitted.wallet_id(), WALLET_ID);
+    }
+
+    #[test]
+    fn every_recovery_code_reaches_the_same_seed() {
+        let payload = established();
+        let records = custody_records(&payload);
+        let codes = recovery_codes(WALLET_RECOVERY_CODE_COUNT);
+        assert_eq!(records.recovery_manifest_kek_wraps.len(), codes.len());
+
+        for (code, wrap) in codes.iter().zip(records.recovery_manifest_kek_wraps.iter()) {
+            assert_eq!(code.recovery_key_id, wrap.recovery_key_id);
+            let manifest_kek = open_wallet_recovery_manifest_kek_v1(
+                &code.code_bytes,
+                &WalletRecoveryCodeScopeV1 {
+                    wallet_id: WALLET_ID.to_string(),
+                    recovery_key_id: wrap.recovery_key_id.clone(),
+                },
+                &decode(&wrap.nonce_b64u),
+                &decode(&wrap.ciphertext_b64u),
+            )
+            .expect("manifest KEK opens");
+
+            let recovered = open_wallet_recovery_entry_v1(
+                &manifest_kek[..],
+                &WalletRecoveryEntryScopeV1 {
+                    wallet_id: WALLET_ID.to_string(),
+                },
+                &decode(&records.recovery_entry_nonce_b64u),
+                &decode(&records.recovery_entry_ciphertext_b64u),
+            )
+            .expect("recovery entry opens");
+            assert_eq!(recovered.as_slice(), &seed()[..]);
+        }
+    }
+
+    #[test]
+    fn nonces_are_fresh_across_every_wrap_in_one_ceremony() {
+        let payload = established();
+        let records = custody_records(&payload);
+        let mut nonces = vec![
+            records.envelope_nonce_b64u.clone(),
+            records.recovery_entry_nonce_b64u.clone(),
+        ];
+        nonces.extend(
+            records
+                .recovery_manifest_kek_wraps
+                .iter()
+                .map(|wrap| wrap.nonce_b64u.clone()),
+        );
+        let unique: std::collections::BTreeSet<_> = nonces.iter().collect();
+        assert_eq!(unique.len(), nonces.len(), "a nonce was reused");
+    }
+
+    #[test]
+    fn a_partial_recovery_set_is_refused() {
+        for count in [
+            0usize,
+            1,
+            WALLET_RECOVERY_CODE_COUNT - 1,
+            WALLET_RECOVERY_CODE_COUNT + 1,
+        ] {
+            let committed = evm_completed(CustodyOriginV1::Establish)
+                .establish_manifest(evm_identity(), None)
+                .expect("manifest established")
+                .finish(Some((factor(), recovery_codes(count))));
+            assert!(
+                committed.is_err(),
+                "{count} codes must not produce a recovery set"
+            );
+        }
+    }
+
+    #[test]
+    fn a_malformed_manifest_ends_the_run_before_anything_is_sealed() {
+        // An uncompressed point is not a client root public key.
+        let mut broken = evm_completed(CustodyOriginV1::Establish);
+        if let CompletedProtocolV1::EvmFamilyEcdsa {
+            client_root_public_key33,
+            ..
+        } = &mut broken.completed
+        {
+            client_root_public_key33[0] = 0x04;
+        }
+        assert!(broken.establish_manifest(evm_identity(), None).is_err());
+
+        assert!(evm_completed(CustodyOriginV1::Establish)
+            .establish_manifest(
+                KeySetIdentityInputsV1::EvmFamilyEcdsa {
+                    evm_family_signing_key_slot_id: String::new(),
+                },
+                None,
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn identity_inputs_for_the_other_key_set_are_refused() {
+        // The manifest names a key the protocol did not produce, so there is no
+        // pairing of these two the ceremony could record honestly.
+        assert!(evm_completed(CustodyOriginV1::Establish)
+            .establish_manifest(near_identity(), None)
+            .is_err());
+        assert!(near_completed(CustodyOriginV1::Establish)
+            .establish_manifest(evm_identity(), None)
+            .is_err());
+    }
+
+    #[test]
+    fn a_key_set_that_already_has_a_manifest_must_reproduce_it() {
+        let recorded = decode(&established().key_manifest_digest_b64u);
+
+        let reproduced = evm_completed(CustodyOriginV1::Join)
+            .establish_manifest(evm_identity(), Some(&recorded))
+            .expect("the same key set reproduces its recorded digest")
+            .finish(None)
+            .expect("committed");
+        assert_eq!(decode(&reproduced.key_manifest_digest_b64u), recorded);
+
+        // A run that would record a different key set under this key set's
+        // registration state is refused rather than silently replacing it.
+        let mut wrong = recorded.clone();
+        wrong[0] ^= 0xff;
+        assert!(evm_completed(CustodyOriginV1::Join)
+            .establish_manifest(evm_identity(), Some(&wrong))
+            .is_err());
+    }
+
+    #[test]
+    fn a_run_that_establishes_custody_must_seal_and_issue_codes() {
+        // Committing without the envelope and the recovery set would leave the
+        // wallet's only seed held nowhere.
+        assert!(evm_completed(CustodyOriginV1::Establish)
+            .establish_manifest(evm_identity(), None)
+            .expect("manifest established")
+            .finish(None)
+            .is_err());
+    }
+
+    #[test]
+    fn a_run_that_joined_existing_custody_must_not_seal() {
+        // Sealing here would give the wallet a second seed and a second
+        // recovery set, leaving half its keys covered by neither.
+        assert!(near_completed(CustodyOriginV1::Join)
+            .establish_manifest(near_identity(), None)
+            .expect("manifest established")
+            .finish(Some((factor(), recovery_codes(WALLET_RECOVERY_CODE_COUNT))))
+            .is_err());
+    }
+
+    #[test]
+    fn a_joining_run_commits_its_manifest_and_no_custody_records() {
+        let payload = near_completed(CustodyOriginV1::Join)
+            .establish_manifest(near_identity(), None)
+            .expect("manifest established")
+            .finish(None)
+            .expect("committed");
+
+        assert!(payload.established_custody.is_none());
+        assert!(!payload.key_manifest_digest_b64u.is_empty());
+    }
+
+    #[test]
+    fn a_run_commits_only_its_own_key_sets_public_facts() {
+        let evm = established();
+        assert_eq!(evm.key_set, WalletKeySetKindV1::EvmFamilyEcdsa.as_str());
+        assert_eq!(
+            evm.client_root_public_key33_b64u.as_deref(),
+            Some(b64u(&client_root_public_key33()).as_str())
+        );
+        assert!(evm.ecdsa_ready_state_blob_b64u.is_some());
+        assert!(
+            evm.registered_public_key_b64u.is_none(),
+            "an EVM-family run has no Ed25519 registration to report"
+        );
+
+        let near = near_completed(CustodyOriginV1::Join)
+            .establish_manifest(near_identity(), None)
+            .expect("manifest established")
+            .finish(None)
+            .expect("committed");
+        assert_eq!(near.key_set, WalletKeySetKindV1::NearEd25519.as_str());
+        assert_eq!(
+            near.registered_public_key_b64u.as_deref(),
+            Some(b64u(&REGISTERED_PUBLIC_KEY).as_str())
+        );
+        assert!(near.client_root_public_key33_b64u.is_none());
+        assert!(near.ecdsa_ready_state_blob_b64u.is_none());
+
+        // Two key sets, two digests: a manifest covers one key set only.
+        assert_ne!(evm.key_manifest_digest_b64u, near.key_manifest_digest_b64u);
+    }
+}
