@@ -28,6 +28,7 @@ import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainW
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { MpcMaterialActivationRef, ThresholdEd25519SessionId } from '@shared/utils/domainIds';
+import type { WalletCustodyCeremonyCommitPayload } from '@shared/passkey-custody';
 import type {
   EcdsaRoleLocalPersistedMaterialRef,
   SigningSessionSealKeyVersion,
@@ -1697,6 +1698,58 @@ export type EcdsaDerivationRoleLocalMaterialOperationType =
 export type EcdsaDerivationRoleLocalMaterialOperationRequest<
   T extends EcdsaDerivationRoleLocalMaterialOperationType,
 > = EcdsaDerivationWorkerOperationRequest<T>;
+/**
+ * The wallet custody registration ceremony, one operation per step.
+ *
+ * The ceremony's state lives in the worker between these calls, keyed by
+ * `ceremonyId`, because it holds the seed and the in-flight protocol state.
+ * Nothing here carries custody material in either direction: `protocolInputs`,
+ * `yaoResult`, and `relayerPublicIdentity` are public protocol messages, and
+ * the seal returns ciphertext and public records.
+ *
+ * `factorSecret` is the one secret that crosses inbound — a passkey PRF result
+ * or the Email OTP factor key — which is the same boundary the existing custody
+ * exports use. The worker clears its copy after the seal.
+ */
+export interface WalletCustodyCeremonyWorkerOperationMap {
+  beginWalletCustodyRegistration: {
+    payload: {
+      ceremonyId: string;
+      walletId: string;
+      /** `RegistrationProtocolInputsWireV1`; no Ed25519 binding digest field. */
+      protocolInputsJson: string;
+    };
+    result: {
+      ceremonyId: string;
+      yaoExecuteRequestJson: string;
+      ecdsaContextBinding32B64u: string;
+      ecdsaClientSharePublicKey33B64u: string;
+    };
+  };
+  completeWalletCustodyRegistration: {
+    payload: {
+      ceremonyId: string;
+      yaoResultJson: string;
+      relayerPublicIdentityJson: string;
+      identitiesJson: string;
+    };
+    result: { ceremonyId: string };
+  };
+  sealWalletCustodyRegistration: {
+    payload: {
+      ceremonyId: string;
+      factorJson: string;
+      factorSecret: ArrayBuffer;
+      recoveryCodesJson: string;
+    };
+    result: WalletCustodyCeremonyCommitPayload;
+  };
+  discardWalletCustodyCeremony: {
+    payload: { ceremonyId: string };
+    result: { ceremonyId: string; discarded: boolean };
+  };
+}
+
 export interface SignerWorkerOperationMapByKind {
   nearSigner: NearSignerWorkerOperationMap;
   ecdsaDerivationClient: DerivationSignerWorkerOperationMap;
@@ -1705,6 +1758,7 @@ export interface SignerWorkerOperationMapByKind {
   evmCrypto: EvmCryptoWorkerOperationMap;
   tempoSigner: TempoSignerWorkerOperationMap;
   emailOtp: EmailOtpWorkerOperationMap;
+  walletCustodyCeremony: WalletCustodyCeremonyWorkerOperationMap;
 }
 
 export type SignerWorkerKind = keyof SignerWorkerOperationMapByKind;
