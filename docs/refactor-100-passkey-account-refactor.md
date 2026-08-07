@@ -820,6 +820,50 @@ repository evidence.
       Dependency: provisioning a second key set in a *later session* requires
       opening the existing seed, which is the Phase 3 cold-unlock path. Same
       session needs nothing new.
+
+      ACCEPTANCE CRITERIA — the other half of this fix. Review found that
+      moving the manifest off the seed makes *absence* unauthenticated. Under
+      the old shape the manifest lived in the seed envelope's AAD, so a
+      provisioned key set could not be made to disappear without breaking the
+      envelope. A free-standing manifest row can simply be deleted, and both
+      readers would treat that as "not provisioned yet": provisioning would
+      re-register the key set, and recovery would restore fewer key sets than
+      the wallet has and report success. Substitution still fails closed;
+      absence would not fail at all.
+
+      The manifest digest therefore gets **no record of its own**. It is a
+      field on the operational registration state that signing already depends
+      on, so that deleting it breaks signing loudly rather than narrowing the
+      wallet silently:
+
+      - EVM family — the registered slot state, whose relayer share every 2PC
+        signature needs.
+      - NEAR Ed25519 — the registration record, cross-checkable against the
+        access keys on the NEAR account itself, which the Gateway does not
+        control.
+
+      Required behaviour:
+
+      1. Enumerate key sets from operational registration state, never from
+         "which manifest records exist". For NEAR, cross-check on chain.
+      2. Verify per enumerated key set, fail closed. Recovery must restore
+         exactly the enumerated set — restoring fewer is a failure, not a
+         partial success.
+      3. A key set whose registration already exists re-runs in continuity
+         mode, never Establish, so an induced re-run either reproduces the
+         identical key or fails. `prepare_client_recovery_with_root_v1` is that
+         seam on the Yao side.
+      4. Commit outcomes: no custody → generate seed, seal, issue recovery set,
+         CAS-insert. Custody exists, including on a lost race → open the
+         existing envelope and add this key set only. Never generate a second
+         seed. Test before implementing: concurrent EVM and NEAR ceremonies end
+         with one seed envelope, one recovery set, two manifests.
+
+      Residual, stated rather than papered over: a server restoring an old
+      snapshot rewinds registrations and digests together. No client-side
+      scheme beats wholesale rollback without an external anchor — detectable
+      for NEAR via chain state, for EVM once the address has on-chain history,
+      and otherwise in the denial-of-service class the server always had.
 - [ ] Wipe dev OTP wallets and obsolete persisted records with the Phase 2
       test-wallet reset.
 - [x] Record a naming glossary in `AGENTS.md` fixing each custody term to one

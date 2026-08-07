@@ -400,6 +400,14 @@ pub fn verify_registered_wallet_key_set_manifest_v1(
     manifest: &WalletKeySetManifestV1,
     recorded_key_manifest_digest: &[u8],
 ) -> CoreResult<VerifiedWalletKeySetManifestDigestV1> {
-    verify_wallet_key_set_manifest_v1(manifest, recorded_key_manifest_digest)?;
-    establish_wallet_key_set_manifest_v1(manifest)
+    let digest = compute_wallet_key_set_manifest_digest_v1(manifest)?;
+    if digest.as_slice() != recorded_key_manifest_digest {
+        return Err(SignerCoreError::invalid_input(
+            "derived wallet key set does not match its recorded key manifest digest",
+        ));
+    }
+    Ok(VerifiedWalletKeySetManifestDigestV1 {
+        key_set: manifest.key_set(),
+        digest,
+    })
 }
