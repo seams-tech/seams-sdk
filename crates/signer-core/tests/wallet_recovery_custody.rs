@@ -382,3 +382,32 @@ fn malformed_recovery_inputs_are_rejected() {
     assert!(!lane_aad.starts_with(&seed_aad));
     assert!(!seed_aad.starts_with(&lane_aad));
 }
+
+#[test]
+fn a_mismatched_kind_and_lane_scope_is_rejected_before_any_crypto() {
+    // A "wallet-scoped" seed entry smuggling lane identity must not encode:
+    // the TypeScript parser rejects this shape, and the Rust encoder is the
+    // last line for callers that reach it through the wasm wire path.
+    let mut seed_with_lane = ed25519_entry_scope();
+    seed_with_lane.lane = Some(PasskeyCustodyLaneScopeV1 {
+        wallet_key_id: "wallet-key:ed25519:alice.testnet:root-1:v1".into(),
+        lane_id: "lane:owner:ed25519:1".into(),
+        lane_share_epoch: "lane-share-epoch-1".into(),
+    });
+    assert!(encode_recovery_entry_aad_v1(&seed_with_lane).is_err());
+    assert!(
+        seal_wallet_recovery_entry_v1(&MANIFEST_KEK, &seed_with_lane, &NONCE, &ED25519_SECRET)
+            .is_err()
+    );
+
+    let mut lane_without_scope = ecdsa_entry_scope();
+    lane_without_scope.lane = None;
+    assert!(encode_recovery_entry_aad_v1(&lane_without_scope).is_err());
+    assert!(seal_wallet_recovery_entry_v1(
+        &MANIFEST_KEK,
+        &lane_without_scope,
+        &NONCE,
+        &ECDSA_SECRET
+    )
+    .is_err());
+}

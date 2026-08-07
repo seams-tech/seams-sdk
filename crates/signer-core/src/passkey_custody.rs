@@ -360,9 +360,9 @@ pub fn encode_passkey_custody_aad_v1(
         binding.binding.kind().as_str(),
     );
 
-    // Lane scope is bound when present, and its absence is bound too: the
-    // wallet-scoped seed encodes an explicit marker rather than nothing, so a
-    // seed AAD can never be a prefix of a lane AAD.
+    // The custody-secret kind above already domain-separates the branches;
+    // the explicit scope marker is defense-in-depth so scope stays bound even
+    // if a future edit lets two branches share a kind.
     match binding.binding.lane() {
         Some(lane) => {
             require_field("walletKeyId", &lane.wallet_key_id)?;
