@@ -14,6 +14,7 @@ import { WALLET_IFRAME_SURFACE_INSET_CSS_PX } from '../surface/geometry';
 
 const CLASS_BASE = 'w3a-wallet-overlay';
 const CLASS_DIALOG = 'w3a-wallet-overlay-dialog';
+const CLASS_INLINE_DIALOG = 'w3a-wallet-inline-dialog';
 const CLASS_IFRAME = 'w3a-wallet-overlay-iframe';
 const CLASS_HIDDEN = 'is-hidden';
 const CLASS_MODAL = 'is-modal';
@@ -21,6 +22,7 @@ const CLASS_DRAWER = 'is-drawer';
 const CLASS_FALLBACK = 'is-viewport-fallback';
 const CLASS_PROVISIONAL = 'is-provisional';
 const CLASS_AUTH_MENU = 'is-auth-menu';
+const CLASS_HAS_GEOMETRY = 'has-geometry';
 const CLASS_RESIZE_ANIMATED = 'is-resize-animated';
 const DIALOG_ID_PREFIX = 'w3a-wallet-overlay-dialog-';
 
@@ -47,6 +49,19 @@ const BASE_CSS = `
     --w3a-wallet-overlay-safe-bottom: env(safe-area-inset-bottom, 0px);
     --w3a-wallet-overlay-safe-left: env(safe-area-inset-left, 0px);
     z-index: var(--w3a-wallet-overlay-z, 2147483646);
+  }
+  /* A dialog with no geometry rule would otherwise fall back to its static
+     position — the top-left of <body> — which is never right for an overlay.
+     Any surface that reaches the DOM before (or without) a measured rect gets
+     centred with the standard elevation instead of stranded in the corner.
+     Scoped to :not(.has-geometry) so a positioned surface is untouched. */
+  dialog.${CLASS_DIALOG}:not(.${CLASS_HAS_GEOMETRY}) {
+    top: 50%;
+    left: 50%;
+    translate: -50% -50%;
+    filter:
+      drop-shadow(0 12px 24px rgb(0 0 0 / 0.22))
+      drop-shadow(0 2px 8px rgb(0 0 0 / 0.12));
   }
   dialog.${CLASS_DIALOG}:not([open]),
   dialog.${CLASS_DIALOG}.${CLASS_HIDDEN} {
@@ -96,13 +111,39 @@ const BASE_CSS = `
   dialog.${CLASS_DIALOG}.${CLASS_FALLBACK}::backdrop {
     background: transparent;
   }
-  dialog.${CLASS_DIALOG}.${CLASS_AUTH_MENU}::backdrop {
+  /* The hosted auth menu is host-page furniture rather than an overlay: it is
+     opened non-modally, so it never enters the top layer, and it renders in the
+     host document's own stacking context. Page chrome (navbars, sticky headers,
+     popovers) therefore paints above it at ordinary z-index values instead of
+     losing to the overlay escape hatch.
+
+     It is position: absolute in DOCUMENT coordinates (its dynamic rule adds the
+     page scroll offset), not fixed: compositor scrolling then moves it with the
+     page content natively, instead of pinning it for a frame and snapping once
+     the scroll listener re-measures the anchor. It cannot be static because the
+     wallet iframe is mounted into this dialog once, before connect(), and
+     cannot be reparented afterwards without discarding its browsing context and
+     MessagePort — so the dialog stays a body child and mirrors the host
+     anchor's rect; --w3a-wallet-inline-dialog-z is the host's hook for placing
+     it within the page's own layering. */
+  dialog.${CLASS_DIALOG}.${CLASS_INLINE_DIALOG} {
+    position: absolute;
+    z-index: var(--w3a-wallet-inline-dialog-z, auto);
+    transform-origin: top left;
+  }
+  dialog.${CLASS_DIALOG}.${CLASS_INLINE_DIALOG}::backdrop {
     background: transparent;
   }
-  dialog.${CLASS_DIALOG}.${CLASS_AUTH_MENU}.${CLASS_RESIZE_ANIMATED} {
-    transition:
-      top 230ms cubic-bezier(0.34, 1.18, 0.64, 1),
-      height 230ms cubic-bezier(0.34, 1.18, 0.64, 1);
+  /* The dialog must NOT animate its own resize. The auth-menu card inside the
+     iframe animates its height, and a ResizeObserver posts every intermediate
+     frame out to this dialog. Transitioning here would make the host box ease
+     toward a target that is itself still easing — the box visibly trails the
+     card and the change reads as two steps (resize, then catch up). Applying
+     each reported frame instantly makes the dialog track the card 1:1, so the
+     card's own spring is the single motion, and the anchor height published
+     from the same frames keeps the host centring in step. */
+  dialog.${CLASS_DIALOG}.${CLASS_INLINE_DIALOG}.${CLASS_RESIZE_ANIMATED} {
+    transition: none;
   }
   /* A provisional drawer already owns the full visual viewport. Keep it
      visible so the iframe's inner sheet can play its slide-in transition;
@@ -129,7 +170,7 @@ const BASE_CSS = `
     pointer-events: none;
   }
   @media (prefers-reduced-motion: reduce) {
-    dialog.${CLASS_DIALOG}.${CLASS_AUTH_MENU} {
+    dialog.${CLASS_DIALOG}.${CLASS_INLINE_DIALOG} {
       transition: none;
     }
     dialog.${CLASS_DIALOG}.${CLASS_MODAL}::backdrop {
@@ -168,6 +209,14 @@ function signedCssPx(value: number): string {
   if (!Number.isFinite(value)) return '0px';
   return `${Math.min(Math.max(Math.round(value), -100_000), 100_000)}px`;
 }
+
+function cssScale(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '1';
+  return String(Math.min(Math.max(value, 0.25), 4));
+}
+
+const drawerGeometryRuleId = (dialogId: string): string => `${dialogId}::drawer`;
+const authMenuGeometryRuleId = (dialogId: string): string => `${dialogId}::auth-menu`;
 
 function ensureDialogId(dialog: HTMLDialogElement): string {
   const currentId = dialog.id;
@@ -237,6 +286,9 @@ export function setDialogAuthMenu(
 ): void {
   ensureOverlayDialog(dialog);
   dialog.classList.toggle(CLASS_AUTH_MENU, authMenu);
+  // The auth menu opts out of the overlay chrome entirely: no backdrop, no top
+  // layer, and no z-index escape above host page chrome.
+  dialog.classList.toggle(CLASS_INLINE_DIALOG, authMenu);
   dialog.classList.toggle(CLASS_RESIZE_ANIMATED, authMenu && animateResize);
 }
 
@@ -247,7 +299,11 @@ export type OverlayRect = {
   heightCssPx: number;
 };
 
-export function setDialogGeometry(dialog: HTMLDialogElement, rect: OverlayRect): void {
+export function setDialogGeometry(
+  dialog: HTMLDialogElement,
+  rect: OverlayRect,
+  authMenuVisualScale = 1,
+): void {
   ensureOverlayDialog(dialog);
   const id = ensureDialogId(dialog);
   const inset = cssPx(WALLET_IFRAME_SURFACE_INSET_CSS_PX);
@@ -257,20 +313,58 @@ export function setDialogGeometry(dialog: HTMLDialogElement, rect: OverlayRect):
   const safeLeft = 'var(--w3a-wallet-overlay-safe-left, 0px)';
   const width = `min(${cssPx(rect.widthCssPx)},max(1px,calc(100vw - ${safeLeft} - ${safeRight} - ${inset} - ${inset})))`;
   const height = `min(${cssPx(rect.heightCssPx)},max(1px,calc(100dvh - ${safeTop} - ${safeBottom} - ${inset} - ${inset})))`;
-  getStyleManager().setDynamicRule(
-    id,
-    `#${id}.${CLASS_DIALOG}{top:max(${cssPx(rect.topCssPx)},calc(${safeTop} + ${inset}));left:max(${cssPx(rect.leftCssPx)},calc(${safeLeft} + ${inset}));width:${width};height:${height};}#${id}.${CLASS_DIALOG}.${CLASS_DRAWER}{top:${signedCssPx(rect.topCssPx)};left:${signedCssPx(rect.leftCssPx)};width:${cssPx(rect.widthCssPx)};height:${cssPx(rect.heightCssPx)};}#${id}.${CLASS_DIALOG}.${CLASS_AUTH_MENU}{top:${signedCssPx(rect.topCssPx)};height:${cssPx(rect.heightCssPx)};}`,
+  // An auth-menu rect arrives from the router already in DOCUMENT coordinates
+  // (the dialog is position:absolute), so it must escape the base rule's
+  // viewport-inset clamps on both axes. Scrolling re-derives an identical rect,
+  // and the stylesheet manager skips the rewrite.
+  dialog.classList.add(CLASS_HAS_GEOMETRY);
+  // Three separately addressable rules rather than one packed string: an
+  // auth-menu resize repoints these on every frame the surface reports, and a
+  // retained rule mutated through CSSOM costs a declaration write instead of a
+  // reserialise-and-reparse of the whole dynamic sheet.
+  const manager = getStyleManager();
+  manager.setDynamicDeclarations(id, `#${id}.${CLASS_DIALOG}`, {
+    top: `max(${cssPx(rect.topCssPx)},calc(${safeTop} + ${inset}))`,
+    left: `max(${cssPx(rect.leftCssPx)},calc(${safeLeft} + ${inset}))`,
+    width,
+    height,
+  });
+  manager.setDynamicDeclarations(
+    drawerGeometryRuleId(id),
+    `#${id}.${CLASS_DIALOG}.${CLASS_DRAWER}`,
+    {
+      top: signedCssPx(rect.topCssPx),
+      left: signedCssPx(rect.leftCssPx),
+      width: cssPx(rect.widthCssPx),
+      height: cssPx(rect.heightCssPx),
+    },
+  );
+  manager.setDynamicDeclarations(
+    authMenuGeometryRuleId(id),
+    `#${id}.${CLASS_DIALOG}.${CLASS_AUTH_MENU}`,
+    {
+      top: signedCssPx(rect.topCssPx),
+      left: signedCssPx(rect.leftCssPx),
+      height: cssPx(rect.heightCssPx),
+      transform: `scale(${cssScale(authMenuVisualScale)})`,
+    },
   );
 }
 
 export function clearDialogGeometry(dialog: HTMLDialogElement): void {
   ensureOverlayDialog(dialog);
-  getStyleManager().deleteDynamicRule(ensureDialogId(dialog));
+  dialog.classList.remove(CLASS_HAS_GEOMETRY);
+  const id = ensureDialogId(dialog);
+  const manager = getStyleManager();
+  manager.deleteDynamicRule(id);
+  manager.deleteDynamicRule(drawerGeometryRuleId(id));
+  manager.deleteDynamicRule(authMenuGeometryRuleId(id));
 }
 
 export const OverlayStyleClasses = {
   BASE: CLASS_BASE,
   DIALOG: CLASS_DIALOG,
+  INLINE_DIALOG: CLASS_INLINE_DIALOG,
   IFRAME: CLASS_IFRAME,
   HIDDEN: CLASS_HIDDEN,
   MODAL: CLASS_MODAL,
@@ -278,6 +372,7 @@ export const OverlayStyleClasses = {
   FALLBACK: CLASS_FALLBACK,
   PROVISIONAL: CLASS_PROVISIONAL,
   AUTH_MENU: CLASS_AUTH_MENU,
+  HAS_GEOMETRY: CLASS_HAS_GEOMETRY,
   RESIZE_ANIMATED: CLASS_RESIZE_ANIMATED,
 };
 

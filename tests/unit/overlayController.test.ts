@@ -47,7 +47,9 @@ test.describe('OverlayController', () => {
     await setupBasicPasskeyTest(page);
   });
 
-  test('native dialog owns compact modal geometry and exact outside dismissal', async ({ page }) => {
+  test('native dialog owns compact modal geometry and exact outside dismissal', async ({
+    page,
+  }) => {
     const res = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.overlay);
@@ -272,7 +274,8 @@ test.describe('OverlayController', () => {
         const iframe = document.createElement('iframe');
         const overlay = new OverlayController({
           ensureIframe: (mountParent?: HTMLElement) => {
-            if (mountParent && iframe.parentElement !== mountParent) mountParent.appendChild(iframe);
+            if (mountParent && iframe.parentElement !== mountParent)
+              mountParent.appendChild(iframe);
             return iframe;
           },
         });
@@ -348,7 +351,8 @@ test.describe('OverlayController', () => {
         const iframe = document.createElement('iframe');
         const overlay = new OverlayController({
           ensureIframe: (mountParent?: HTMLElement) => {
-            if (mountParent && iframe.parentElement !== mountParent) mountParent.appendChild(iframe);
+            if (mountParent && iframe.parentElement !== mountParent)
+              mountParent.appendChild(iframe);
             return iframe;
           },
         });
@@ -442,6 +446,87 @@ test.describe('OverlayController', () => {
     expect(result.authMenuFilter).toBe('none');
     expect(result.measuredWidth).toBeCloseTo(360, 0);
     expect(result.measuredHeight).toBeCloseTo(320, 0);
+  });
+
+  test('auth menu renders in the host stacking context while modals keep the overlay escape', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ path }) => {
+        const mod = await import(path);
+        const OverlayController = (mod as any).OverlayController || (mod as any).default;
+        const iframe = document.createElement('iframe');
+        const overlay = new OverlayController({
+          ensureIframe: (mountParent?: HTMLElement) => {
+            if (mountParent && iframe.parentElement !== mountParent)
+              mountParent.appendChild(iframe);
+            return iframe;
+          },
+        });
+        const geometry = {
+          kind: 'centered_modal' as const,
+          widthCssPx: 360,
+          heightCssPx: 320,
+          topCssPx: 224,
+          leftCssPx: 332,
+        };
+
+        overlay.apply({
+          kind: 'compact_auth_menu',
+          presentation: { kind: 'modal', title: 'Choose account' },
+          geometry,
+          focusTrap: true,
+          identity: {
+            kind: 'request_surface_identity_v1',
+            surfaceId: 'auth-menu-layer-surface',
+            requestId: 'auth-menu-layer-request',
+          },
+          authMenuSessionId: 'auth-menu-layer-session',
+        });
+        const dialog = iframe.closest('dialog.w3a-wallet-overlay-dialog') as HTMLDialogElement;
+        const authMenu = {
+          inlineClass: dialog.classList.contains('w3a-wallet-inline-dialog'),
+          zIndex: getComputedStyle(dialog).zIndex,
+          // Absolute (document-coordinate) positioning scrolls with the page;
+          // fixed would float over it.
+          position: getComputedStyle(dialog).position,
+          // A non-modal dialog never enters the top layer, so host chrome can
+          // paint above it.
+          topLayer: dialog.matches(':modal'),
+        };
+
+        overlay.apply({
+          kind: 'compact_request_modal',
+          presentation: { kind: 'modal', title: 'Confirm transaction' },
+          geometry,
+          focusTrap: true,
+          identity: {
+            kind: 'request_surface_identity_v1',
+            surfaceId: 'modal-layer-surface',
+            requestId: 'modal-layer-request',
+          },
+        });
+        const modal = {
+          inlineClass: dialog.classList.contains('w3a-wallet-inline-dialog'),
+          zIndex: getComputedStyle(dialog).zIndex,
+          position: getComputedStyle(dialog).position,
+          topLayer: dialog.matches(':modal'),
+        };
+
+        overlay.dispose();
+        return { authMenu, modal };
+      },
+      { path: IMPORT_PATHS.overlay },
+    );
+
+    expect(result.authMenu.inlineClass).toBe(true);
+    expect(result.authMenu.zIndex).toBe('auto');
+    expect(result.authMenu.position).toBe('absolute');
+    expect(result.authMenu.topLayer).toBe(false);
+    expect(result.modal.inlineClass).toBe(false);
+    expect(result.modal.zIndex).toBe('2147483646');
+    expect(result.modal.position).toBe('fixed');
+    expect(result.modal.topLayer).toBe(true);
   });
 
   test('Escape dispatches the exact active cancellation event', async ({ page }) => {
@@ -719,5 +804,4 @@ test.describe('OverlayController', () => {
     });
     expect(result.dismissals).toEqual([]);
   });
-
 });
