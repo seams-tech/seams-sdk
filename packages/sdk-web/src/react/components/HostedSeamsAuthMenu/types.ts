@@ -45,7 +45,7 @@ export interface HostedSeamsAuthMenuProps {
   registrationAccountInput?: SeamsAuthMenuRegistrationAccountInput;
   /** Whether the wallet-host registration view exposes its account input. */
   showRegistrationInput?: boolean;
-  /** Whether the wallet-host surface displays operation progress. */
+  /** Whether the wallet-host surface displays SDK operation progress. Defaults to false. */
   showProgress?: boolean;
   /** Serializable copy overrides normalized before crossing the iframe boundary. */
   copy?: HostedAuthMenuCopyInput;

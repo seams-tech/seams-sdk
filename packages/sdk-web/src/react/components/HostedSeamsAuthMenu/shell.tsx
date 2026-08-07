@@ -147,6 +147,15 @@ function normalizeExternalAuthEvidence(value: unknown): HostedAuthMenuExternalAu
   }
 }
 
+/** Outcomes after which an auth menu has done its job and must not re-open. */
+function isTerminalHostedAuthMenuSuccess(outcome: HostedAuthMenuOutcome): boolean {
+  return (
+    outcome.kind === 'authenticated' ||
+    outcome.kind === 'registered' ||
+    outcome.kind === 'account_synced'
+  );
+}
+
 function providerFailureEvidence(
   code: 'provider_unavailable' | 'provider_error',
   message: string,
@@ -413,25 +422,71 @@ class HostedAuthMenuSessionController {
   }
 }
 
-function useOptionalSeams(): SeamsWeb | null {
+function useOptionalSeams(): { seams: SeamsWeb | null; isLoggedIn: boolean } {
   try {
-    return useSeams().seams;
+    const context = useSeams();
+    return { seams: context.seams, isLoggedIn: context.loginState.isLoggedIn };
   } catch (error: unknown) {
-    if (typeof window === 'undefined') return null;
+    if (typeof window === 'undefined') return { seams: null, isLoggedIn: false };
     throw error;
   }
+}
+
+/**
+ * Authenticating is terminal for an auth menu, but hosts routinely re-key or
+ * remount the component in the same commit that handles success — the demo
+ * flips its detected-account mode and refreshes login state. A flag kept on the
+ * component instance dies with that remount, so the replacement instance opens
+ * a REPLACEMENT session and paints the sign-in form for a frame before the host
+ * swaps in its post-login UI (the "menu flashes between Signing in and the
+ * transaction page" report).
+ *
+ * Latch on the SeamsWeb instance instead, so the guard outlives any remount,
+ * and release it only when the wallet actually signs out — a true -> false
+ * login transition. Release cannot key off `isLoggedIn === false` alone: it is
+ * still false for the tick between the terminal outcome and the host's login
+ * refresh, which would clear the latch exactly when it is needed.
+ */
+type HostedAuthMenuLoginLatch = {
+  authenticated: boolean;
+  observedLoggedIn: boolean;
+};
+
+const hostedAuthMenuLoginLatches = new WeakMap<SeamsWeb, HostedAuthMenuLoginLatch>();
+
+function hostedAuthMenuLoginLatch(seams: SeamsWeb | null): HostedAuthMenuLoginLatch | null {
+  if (!seams) return null;
+  const existing = hostedAuthMenuLoginLatches.get(seams);
+  if (existing) return existing;
+  const created: HostedAuthMenuLoginLatch = { authenticated: false, observedLoggedIn: false };
+  hostedAuthMenuLoginLatches.set(seams, created);
+  return created;
+}
+
+function syncHostedAuthMenuLoginLatch(
+  latch: HostedAuthMenuLoginLatch | null,
+  isLoggedIn: boolean,
+): void {
+  if (!latch) return;
+  if (isLoggedIn) {
+    latch.observedLoggedIn = true;
+    return;
+  }
+  if (!latch.observedLoggedIn) return;
+  latch.observedLoggedIn = false;
+  latch.authenticated = false;
 }
 
 export const HostedSeamsAuthMenu: React.FC<HostedSeamsAuthMenuProps> = ({
   initialMode = 'login',
   registrationAccountInput = 'implicit_wallet',
   showRegistrationInput = false,
-  showProgress = true,
+  showProgress = false,
   copy,
   externalAuthBroker = null,
   onOutcome,
 }) => {
-  const seams = useOptionalSeams();
+  const { seams, isLoggedIn } = useOptionalSeams();
   const effectConfigRef = React.useRef<HostedAuthMenuEffectConfig>({
     initialMode,
     registrationAccountInput,
@@ -443,9 +498,16 @@ export const HostedSeamsAuthMenu: React.FC<HostedSeamsAuthMenuProps> = ({
   const externalAuthBrokerRef = React.useRef<HostedAuthMenuExternalAuthBroker | null>(
     externalAuthBroker,
   );
-  const onOutcomeRef = React.useRef<HostedSeamsAuthMenuProps['onOutcome']>(onOutcome);
+  const callerOnOutcomeRef = React.useRef<HostedSeamsAuthMenuProps['onOutcome']>(onOutcome);
+  const onOutcomeRef = React.useRef<HostedSeamsAuthMenuProps['onOutcome']>(() => {});
   const anchorRef = React.useRef<HTMLSpanElement | null>(null);
   const pendingCleanupRef = React.useRef<HostedAuthMenuPendingCleanup | null>(null);
+  // See hostedAuthMenuLoginLatch: success is remembered on the SeamsWeb
+  // instance, so a host remount cannot reopen the menu and flash the form.
+  const loginLatch = hostedAuthMenuLoginLatch(seams);
+  syncHostedAuthMenuLoginLatch(loginLatch, isLoggedIn);
+  const loginLatchRef = React.useRef<HostedAuthMenuLoginLatch | null>(loginLatch);
+  loginLatchRef.current = loginLatch;
   effectConfigRef.current = {
     initialMode,
     registrationAccountInput,
@@ -455,7 +517,12 @@ export const HostedSeamsAuthMenu: React.FC<HostedSeamsAuthMenuProps> = ({
     enabledExternalProviders: externalProvidersForBroker(externalAuthBroker),
   };
   externalAuthBrokerRef.current = externalAuthBroker;
-  onOutcomeRef.current = onOutcome;
+  callerOnOutcomeRef.current = onOutcome;
+  onOutcomeRef.current = (outcome) => {
+    const latch = loginLatchRef.current;
+    if (latch && isTerminalHostedAuthMenuSuccess(outcome)) latch.authenticated = true;
+    callerOnOutcomeRef.current(outcome);
+  };
   const effectConfigKey = hostedAuthMenuEffectConfigKey(effectConfigRef.current);
 
   React.useEffect(() => {
@@ -474,6 +541,9 @@ export const HostedSeamsAuthMenu: React.FC<HostedSeamsAuthMenuProps> = ({
     }
     const anchorElement = anchorRef.current;
     if (!seams || !anchorElement || typeof window === 'undefined') return undefined;
+    // See hostedAuthMenuLoginLatch: never re-open after a successful
+    // authentication until the wallet signs out again.
+    if (loginLatchRef.current?.authenticated) return undefined;
 
     const config = effectConfigRef.current;
     const session = new HostedAuthMenuSessionController({
@@ -505,7 +575,9 @@ export const HostedSeamsAuthMenu: React.FC<HostedSeamsAuthMenuProps> = ({
       style={{
         display: 'block',
         width: 'min(100%, 420px)',
-        minHeight: '450px',
+        // The wallet host measures the menu and publishes its height back onto
+        // this element, so the anchor reserves the space the menu paints over.
+        minHeight: 'var(--seams-auth-menu-height, 450px)',
       }}
     />
   );
