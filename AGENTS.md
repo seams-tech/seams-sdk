@@ -13,6 +13,26 @@ agent session. When working under `tests/`, also read `tests/AGENTS.md`.
   sources in `packages/*`.
 - Rust tests are per-crate under `crates/*/tests/`.
 
+## Custody vocabulary (each term names exactly one thing)
+
+`root` alone always names a secret derivation origin. The `Id`/`Version`/`Epoch`
+suffixes name metadata *about* one, never key material — do not read `signingRootId`
+as a key. A value whose name omits both is neither; check it before citing it in a
+security claim.
+
+- **wallet custody seed** — the one random secret per wallet. Every owner signing
+  root derives from it in parallel; no signing root derives from another.
+- **Ed25519 Yao Client root** / **ECDSA client root share** — the owner signing
+  roots, seed-derived.
+- **lane holder share** — per-lane material provisioned by Refactor 102, *not*
+  seed-derived and never in a recovery set.
+- **signingRootId / signingRootVersion** — identifiers inside the EVM-family key
+  slot id, serialized in D1 rows and wire ids. Renaming them breaks stored records.
+- **RootShareEpoch** — an epoch marker for durable ECDSA material.
+- **threshold** — the MPC protocol, never a KDF stage. A "threshold root" once
+  existed as an Email OTP KDF intermediate; the collision caused a misdiagnosed
+  vulnerability report, and the value has been deleted.
+
 ## Testing policy — read before "fixing" any failing test
 
 Suites are not equally trustworthy, and each owns different invariants. Authority map,
