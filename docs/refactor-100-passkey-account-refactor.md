@@ -999,8 +999,26 @@ repository evidence.
       In-flight ceremonies are bounded: each holds custody material, so a caller
       that abandons them fails rather than growing the map. `discard` drops a
       handle, which zeroizes the seed and any in-flight protocol state.
+- [x] Adapt the ceremony's commit payload into the two stored records.
+      `buildWalletCustodyRegistrationRecords` parses the payload through the
+      same boundary parsers every other reader uses, and
+      `commitWalletCustodyRegistration` builds then commits, so a malformed
+      ceremony result is a request outcome rather than a route crash and
+      nothing is written in that case.
+
+      The envelope binding is carried through from the ceremony's own JSON, not
+      reassembled from loose fields: the binding is what the AAD was computed
+      over, so any field this server re-derived instead of carrying would
+      produce an envelope that cannot open. Refused: a binding naming another
+      wallet or another key manifest than the payload, a set that is not
+      exactly ten wraps, duplicate recovery key ids (a code is found by id, so
+      duplicates would silently shrink the set), and malformed nonces,
+      ciphertext, or digests.
 - [ ] Wire `SignerWorkerManager` and the registration flow to the ceremony
-      worker, and call `commitRegistration` with its payload.
+      worker. `SignerWorkerKind` derives from `SignerWorkerOperationMapByKind`,
+      so this means a typed operation map entry per ceremony message plus a
+      spawn case and a worker-URL resolver; the worker's frames already match
+      the transport's `{id, ok, result}` RPC shape.
 - [x] Repair the SDK barrel at
       `core/signingEngine/session/passkey/envelopes/index.ts`, which still
       re-exported `PASSKEY_CUSTODY_ENVELOPE_VERSION_V1`,
