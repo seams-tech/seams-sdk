@@ -1230,27 +1230,31 @@ repository evidence.
       true of the paired ceremony; with one key set per run it is not, and the
       two key sets can be provisioned in separate runs at separate times.
 
-      The real change is *which route* registers the EVM key set, not
-      sequencing. Today's strict route derives the client share through the
-      Router A/B registration rounds — `xClientBase`, fed into the role-local
-      bootstrap after the proofs verify. A seed-derived share cannot come out
-      of those rounds by construction, so the splice moves EVM registration to
-      the role-local bootstrap route with the share derived from the custody
-      seed. That route's client exists — `thresholdEcdsaDerivationRoleLocalBootstrap`,
-      whose body already takes `derivationClientSharePublicKey33B64u` and
-      `contextBinding32B64u` from the client and returns the relayer's public
-      identity, which is exactly the ceremony's EVM shape, and it has a
-      `passkeyBootstrapAuthorization` variant.
+      **Decision (2026-08-07): EVM registers a seed-derived share on the
+      router-ab registration route.** The route keeps its three legs —
+      setup → respond → activate — its `signedSetup`, and its relayer. What
+      changes is the ECDSA leg's payload kind: instead of running the strict
+      derivation rounds, the client sends the ceremony's bootstrap facts (the
+      seed-derived share public key and `contextBinding32`), and the relayer
+      composes the public identity exactly as its activate leg already does
+      when it builds the `ecdsa-derivation-role-local` bootstrap value
+      (`d1WalletRegistrationService.ts`). The strict rounds stop producing EVM
+      keys for new wallets: the custody seed is the derivation authority, which
+      also means no deriver pair can reconstruct the client share.
 
-      **Correction:** an earlier note here said this is "the route Email OTP
-      registration already uses". It is not. `thresholdEcdsaDerivationRoleLocalBootstrap`
-      has no caller outside its own parser test, and
-      `prepareEcdsaClientBootstrapFromEmailOtpHandle` has none outside its
-      worker. *Every* registration today — passkey and Email OTP, Ed25519-only
-      and mixed — goes through the strict Router A/B route. So the splice
-      brings an unused route into service rather than joining an established
-      one, and whether the relayer accepts it for registration has to be
-      confirmed against the running service before the client is written.
+      Why the rounds cannot be kept and fed the seed root instead: in the
+      strict protocol the client is a *recipient* of `xClientBase`, derived
+      from the two derivers' root halves — there is no input slot for a
+      client-chosen root. That is unlike Yao, where the client was always a
+      contributing party, which is why the Ed25519 `_with_root` seam was cheap
+      and this one is a payload-kind change.
+
+      Two earlier notes here are superseded: `thresholdEcdsaDerivationRoleLocalBootstrap`
+      is *not* the carrier — it has no server counterpart at all; the
+      `ecdsa-derivation-role-local` format is the registration route's own
+      activate output, not a separate service. And nothing about this is "the
+      route Email OTP already uses": every registration today goes through the
+      strict rounds.
 
       The ordering worry recorded here earlier was overstated. The ECDSA
       application binding digest is available before any Router leg: the local
@@ -1294,14 +1298,21 @@ repository evidence.
       refactor exists to prevent. Either both key sets move together, or the
       first slice is Ed25519-only wallets, which have no EVM key set to strand.
 
-      **Second blocker, and it gates every variant: nothing can commit.**
-      `commitWalletCustodyRegistration` and its store are built and tested, but
-      no HTTP route exposes them — there is no entry in `routeDefinitions.ts`,
-      no handler under `transport/fetch/routes/`, and no service key. A
-      ceremony can seal and produce a payload that has nowhere to go. Adding
-      the route means choosing its authorization model — what proves the caller
-      may establish custody for this wallet — which is a security decision to
-      settle deliberately, not to infer from a neighbouring route.
+      **Decision (2026-08-07): the custody commit has no standalone route.**
+      `commitWalletCustodyRegistration` and its store are built and tested but
+      unexposed; the carrier is the registration flow's own activate/finalize
+      leg. What proves a caller may establish custody for a wallet is exactly
+      what proves they may create the wallet: the verified `signedSetup` plus
+      that leg's own auth proof (the WebAuthn create, or the Email OTP proof).
+      Custody must never be establishable under weaker or different conditions
+      than the wallet itself. The handler checks the payload names the wallet
+      the verified registration names, and supplies the envelope's factor ref
+      from the credential it just verified rather than trusting the payload's
+      copy — so an envelope cannot be addressed to someone else's credential.
+      The insert-only store, `already_exists` on replay, and
+      `custody_already_established` on a lost race remain the backstops; a
+      joining run commits nothing here at all, its manifest digest riding the
+      registration state the leg already writes.
 
       The PRF-derived path must keep working until this lands.
 - [x] Repair the SDK barrel at
