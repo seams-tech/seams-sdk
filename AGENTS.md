@@ -32,7 +32,14 @@ security claim.
 - **custody ceremony** — a flow that derives owner roots *and* verifies the key
   manifest: registration and recovery re-establishment. These live in the
   `wallet_custody_ceremony` wasm module, which links both protocol crates.
-  Adding a factor and unlocking are not ceremonies and stay in `near_signer`.
+  Adding a factor and unlocking are not ceremonies and stay in `near_signer`:
+  opening an envelope authenticates the seed against its key manifest, so a
+  reseal carries that claim forward without deriving anything.
+- **two proofs, never one** — `VerifiedWalletKeyManifestDigestV1` says a seed
+  was just proved to reproduce a key set (registration, recovery).
+  `WalletCustodySeedFromSealedEnvelopeV1` says a seed came from an envelope
+  authenticated to a wallet and manifest (factor addition). They are distinct
+  types on purpose; do not add a conversion between them.
 - **threshold** — the MPC protocol, never a KDF stage. A "threshold root" once
   existed as an Email OTP KDF intermediate; the collision caused a misdiagnosed
   vulnerability report, and the value has been deleted.

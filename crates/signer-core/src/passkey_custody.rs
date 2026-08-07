@@ -19,7 +19,10 @@ use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
 use crate::error::{CoreResult, SignerCoreError};
-use crate::wallet_seed_derivation::VerifiedWalletKeyManifestDigestV1;
+use crate::wallet_seed_derivation::{
+    compute_wallet_key_manifest_digest_v1, verify_wallet_key_manifest_v1,
+    wallet_key_manifest_digest_b64u, VerifiedWalletKeyManifestDigestV1, WalletKeyManifestV1,
+};
 
 pub const PASSKEY_CUSTODY_WRAP_ALG_V1: &str = "chacha20poly1305-hkdf-sha256-v1";
 pub const WALLET_CUSTODY_ENVELOPE_VERSION_V2: &str = "wallet_custody_envelope_v2";
@@ -515,19 +518,90 @@ pub fn seal_passkey_custody_secret_v1(
     seal_custody_secret(prf_first, binding, nonce, custody_secret)
 }
 
+/// Rebuilds the key manifest a seed envelope's binding describes.
+///
+/// The binding carries every field the manifest is computed from, so a seed
+/// envelope is self-describing: its recorded digest can be checked against its
+/// own identity fields rather than taken on trust.
+fn wallet_key_manifest_from_binding_v1(
+    binding: &PasskeyCustodyEnvelopeBindingV1,
+) -> CoreResult<WalletKeyManifestV1> {
+    let PasskeyCustodySecretBindingV1::WalletCustodySeed {
+        near_ed25519_signing_key_id,
+        registered_public_key_b64u,
+        evm_family_signing_key_slot_id,
+        client_root_public_key33_b64u,
+        ..
+    } = &binding.binding
+    else {
+        return Err(SignerCoreError::invalid_input(
+            "only a wallet custody seed binding describes a key manifest",
+        ));
+    };
+    let registered =
+        require_public_key_b64u("registeredPublicKeyB64u", registered_public_key_b64u, 32)?;
+    let client_root = require_public_key_b64u(
+        "clientRootPublicKey33B64u",
+        client_root_public_key33_b64u,
+        33,
+    )?;
+    Ok(WalletKeyManifestV1 {
+        wallet_id: binding.wallet_id.clone(),
+        near_ed25519_signing_key_id: near_ed25519_signing_key_id.clone(),
+        registered_public_key: registered
+            .try_into()
+            .map_err(|_| SignerCoreError::invalid_length("registeredPublicKeyB64u"))?,
+        evm_family_signing_key_slot_id: evm_family_signing_key_slot_id.clone(),
+        client_root_public_key33: client_root
+            .try_into()
+            .map_err(|_| SignerCoreError::invalid_length("clientRootPublicKey33B64u"))?,
+    })
+}
+
+/// Requires a seed envelope to be internally consistent with a known digest.
+///
+/// Two checks, and both are needed. The recorded `keyManifestDigestB64u` must
+/// equal the known digest, and the binding's own identity fields must be the
+/// ones that produce it. Checking only the recorded string would let an
+/// envelope carry a valid digest beside a signing key id, registered public
+/// key, or slot id that the digest was never computed from — and those fields
+/// are what a later unlock reads to decide which keys the seed controls.
+fn require_binding_reproduces_manifest_v1(
+    binding: &PasskeyCustodyEnvelopeBindingV1,
+    expected_digest: &[u8; 32],
+    expected_digest_b64u: &str,
+) -> CoreResult<()> {
+    let PasskeyCustodySecretBindingV1::WalletCustodySeed {
+        key_manifest_digest_b64u,
+        ..
+    } = &binding.binding
+    else {
+        return Err(SignerCoreError::invalid_input(
+            "a wallet custody seed envelope is required here",
+        ));
+    };
+    if key_manifest_digest_b64u != expected_digest_b64u {
+        return Err(SignerCoreError::invalid_input(
+            "envelope keyManifestDigestB64u does not match the expected key manifest",
+        ));
+    }
+    let manifest = wallet_key_manifest_from_binding_v1(binding)?;
+    verify_wallet_key_manifest_v1(&manifest, expected_digest)
+}
+
 /// Seals the wallet custody seed, gated on the ceremony's manifest verification.
 ///
-/// The binding's `keyManifestDigestB64u` is checked against the verified
-/// digest, so the envelope cannot record a key set other than the one the
-/// ceremony proved this seed reproduces. Passing the proof by reference is what
-/// makes the ordering structural: there is no way to reach this function with a
-/// digest the caller merely computed.
+/// The whole binding is checked against the verified digest — the recorded
+/// digest string *and* the identity fields that must produce it — so the
+/// envelope cannot describe a key set other than the one the ceremony proved
+/// this seed reproduces. Passing the proof by reference is what makes the
+/// ordering structural: there is no way to reach this function with a digest
+/// the caller merely computed.
 ///
 /// This is the initial-registration and recovery-promotion path, where the
 /// roots were freshly derived and checked. Adding a second factor to an
-/// existing wallet reseals a seed that was already verified when it was
-/// admitted, which is a different valid state and will take its own proof —
-/// not this one.
+/// existing wallet is a different valid state and takes its own proof:
+/// [`reseal_wallet_custody_seed_under_new_factor_v1`].
 pub fn seal_wallet_custody_seed_envelope_v1(
     prf_first: &[u8],
     binding: &PasskeyCustodyEnvelopeBindingV1,
@@ -535,21 +609,144 @@ pub fn seal_wallet_custody_seed_envelope_v1(
     nonce: &[u8],
     custody_seed: &[u8],
 ) -> CoreResult<SealedPasskeyCustodyEnvelopeV1> {
-    let PasskeyCustodySecretBindingV1::WalletCustodySeed {
-        key_manifest_digest_b64u,
-        ..
-    } = &binding.binding
-    else {
+    if binding.binding.kind() != PasskeyCustodySecretKind::WalletCustodySeed {
         return Err(SignerCoreError::invalid_input(
             "seal_wallet_custody_seed_envelope_v1 seals the wallet custody seed only",
         ));
-    };
-    if key_manifest_digest_b64u != &verified_key_manifest.digest_b64u() {
+    }
+    require_binding_reproduces_manifest_v1(
+        binding,
+        verified_key_manifest.digest(),
+        &verified_key_manifest.digest_b64u(),
+    )?;
+    seal_custody_secret(prf_first, binding, nonce, custody_seed)
+}
+
+/// Proof that a seed was opened from an envelope that authenticated it to one
+/// wallet and one key manifest.
+///
+/// Minted only by [`open_wallet_custody_seed_envelope_v1`]. Opening is what
+/// makes it evidence: the manifest digest and every identity field are inside
+/// the envelope's AAD, so a successful open proves the seed was sealed under
+/// exactly this description. It does not prove the seed reproduces those keys —
+/// that was established when the envelope was first written, and this proof
+/// only carries the claim forward unchanged.
+///
+/// Deliberately a different type from [`VerifiedWalletKeyManifestDigestV1`].
+/// Adding a factor and establishing a wallet are different states, and sharing
+/// one token would let an admitted seed reach the registration seal, or a fresh
+/// verification reach a reseal that is supposed to preserve an existing record.
+///
+/// Not `Clone` or `Serialize`: it is a within-session capability, and it must
+/// not cross the wasm boundary.
+pub struct WalletCustodySeedFromSealedEnvelopeV1 {
+    wallet_id: String,
+    binding: PasskeyCustodySecretBindingV1,
+}
+
+impl WalletCustodySeedFromSealedEnvelopeV1 {
+    pub fn wallet_id(&self) -> &str {
+        &self.wallet_id
+    }
+
+    pub fn key_manifest_digest_b64u(&self) -> CoreResult<&str> {
+        match &self.binding {
+            PasskeyCustodySecretBindingV1::WalletCustodySeed {
+                key_manifest_digest_b64u,
+                ..
+            } => Ok(key_manifest_digest_b64u),
+            _ => Err(SignerCoreError::invalid_input(
+                "admitted custody secret is not a wallet custody seed",
+            )),
+        }
+    }
+}
+
+impl core::fmt::Debug for WalletCustodySeedFromSealedEnvelopeV1 {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter.write_str("WalletCustodySeedFromSealedEnvelopeV1")
+    }
+}
+
+/// Opens a wallet custody seed envelope and mints the proof a reseal requires.
+///
+/// The verified open is the whole check: stored AAD hash and ciphertext digest
+/// must match what this binding and ciphertext produce, so a row that drifted
+/// from the server revision fails here rather than yielding a seed. Callers
+/// that only need the seed can keep using
+/// [`open_verified_passkey_custody_secret_v1`]; this one exists for the paths
+/// that go on to write a new envelope.
+pub fn open_wallet_custody_seed_envelope_v1(
+    prf_first: &[u8],
+    binding: &PasskeyCustodyEnvelopeBindingV1,
+    nonce: &[u8],
+    ciphertext: &[u8],
+    expected_aad_hash: &[u8],
+    expected_ciphertext_digest: &[u8],
+) -> CoreResult<(Zeroizing<Vec<u8>>, WalletCustodySeedFromSealedEnvelopeV1)> {
+    if binding.binding.kind() != PasskeyCustodySecretKind::WalletCustodySeed {
         return Err(SignerCoreError::invalid_input(
-            "envelope keyManifestDigestB64u does not match the verified key manifest",
+            "open_wallet_custody_seed_envelope_v1 opens wallet custody seeds only",
         ));
     }
-    seal_custody_secret(prf_first, binding, nonce, custody_seed)
+    // Reject an envelope whose recorded digest is not the digest of its own
+    // identity fields, so an inconsistent record cannot mint an admission that
+    // a reseal would then copy forward.
+    let manifest = wallet_key_manifest_from_binding_v1(binding)?;
+    let digest = compute_wallet_key_manifest_digest_v1(&manifest)?;
+    require_binding_reproduces_manifest_v1(
+        binding,
+        &digest,
+        &wallet_key_manifest_digest_b64u(&digest),
+    )?;
+
+    let seed = open_verified_passkey_custody_secret_v1(
+        prf_first,
+        binding,
+        nonce,
+        ciphertext,
+        expected_aad_hash,
+        expected_ciphertext_digest,
+    )?;
+    Ok((
+        seed,
+        WalletCustodySeedFromSealedEnvelopeV1 {
+            wallet_id: binding.wallet_id.clone(),
+            binding: binding.binding.clone(),
+        },
+    ))
+}
+
+/// Seals an already-admitted seed under a second factor.
+///
+/// This is how a wallet ends up with both a passkey and an Email OTP factor.
+/// It needs no owner-root derivation and no protocol crate: the seed's key
+/// manifest was established when its first envelope was written, and a reseal
+/// may only carry that claim forward.
+///
+/// Everything except the factor and the envelope id must be identical to the
+/// admitted envelope. A reseal is therefore incapable of moving a seed to
+/// another wallet, relabelling its key manifest, or changing which keys the
+/// envelope says it controls — the only degree of freedom is which factor can
+/// open it.
+pub fn reseal_wallet_custody_seed_under_new_factor_v1(
+    new_factor_secret: &[u8],
+    new_binding: &PasskeyCustodyEnvelopeBindingV1,
+    admitted: &WalletCustodySeedFromSealedEnvelopeV1,
+    nonce: &[u8],
+    custody_seed: &[u8],
+) -> CoreResult<SealedPasskeyCustodyEnvelopeV1> {
+    if new_binding.wallet_id != admitted.wallet_id {
+        return Err(SignerCoreError::invalid_input(
+            "a reseal cannot move a custody seed to another wallet",
+        ));
+    }
+    if new_binding.binding != admitted.binding {
+        return Err(SignerCoreError::invalid_input(
+            "a reseal may change only the factor and the envelope id",
+        ));
+    }
+    seal_custody_secret(new_factor_secret, new_binding, nonce, custody_seed)
 }
 
 fn seal_custody_secret(

@@ -289,8 +289,7 @@ fn establishing_and_verifying_are_separate_paths_to_the_same_proof() {
 
     // Recovery must reproduce an existing one, so it compares and can fail.
     let mut drifted = manifest();
-    drifted.evm_family_signing_key_slot_id =
-        "wallet-key:evm-family:alice.testnet:root-2:v1".into();
+    drifted.evm_family_signing_key_slot_id = "wallet-key:evm-family:alice.testnet:root-2:v1".into();
     assert!(verify_registered_wallet_key_manifest_v1(&drifted, &expected).is_err());
     // The establishing constructor still refuses a malformed manifest: it mints
     // a digest, it does not skip validation.
