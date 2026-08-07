@@ -1031,9 +1031,28 @@ repository evidence.
       Compile-time fixtures in `workerTypes.typecheck.ts` pin what the channel
       may carry: a caller supplying a wallet custody seed fails to compile, and
       the seal result has no seed and no manifest KEK.
-- [ ] Call the ceremony from the registration flow and commit its payload. This
-      is the last wiring step; the PRF-derived path must keep working until it
-      lands, so it is deliberately ahead of the deletions below.
+- [x] Add the client-side ceremony driver.
+      `runWalletCustodyRegistrationCeremony` orders the three worker steps
+      around a caller-supplied `runRouterRound`, so the network shape stays with
+      the registration flow that owns it and the driver stays testable without
+      one.
+
+      Its real job is cleanup. A ceremony holds a seed in the worker until it
+      seals, and the worker only drops a handle when a step *it* ran threw — a
+      Router round-trip that fails leaves a live ceremony the worker knows
+      nothing about. Every exit that is not a completed seal discards, and a
+      discard that itself fails does not mask the original error: the caller
+      must learn why the ceremony failed, not why cleanup did.
+- [ ] Splice the ceremony into `registration.ts` and commit its payload.
+
+      Not a small wiring step, which is why it is separate. Today Yao
+      registration and the ECDSA bootstrap are separate phases —
+      `createRegistrationSession` builds a `WasmClientRegistrationSessionV1` on
+      one side while the ECDSA worker bootstraps on the other. The ceremony
+      needs *both* prepared before either completes, because one seed feeds two
+      protocols, so this is a reordering of the registration flow rather than a
+      substitution inside it. The PRF-derived path must keep working until it
+      lands.
 - [x] Repair the SDK barrel at
       `core/signingEngine/session/passkey/envelopes/index.ts`, which still
       re-exported `PASSKEY_CUSTODY_ENVELOPE_VERSION_V1`,
