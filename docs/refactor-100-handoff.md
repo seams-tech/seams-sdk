@@ -92,12 +92,32 @@ is the only constructor for that origin and it requires a successful open.
    conflict; EVM commits its custody immediately and NEAR records its manifest
    whenever its Yao work settles.
 
-   Read the corrected splice entry in the plan first. The EVM half moves
-   registration to the role-local bootstrap route with a seed-derived share —
-   the route Email OTP already uses — and the binding digest is available
-   before any Router leg (the local create step computes it from the setup
-   facts). The digest requirement itself was questioned and stays; the decision
-   and its reasons are pinned in the plan (2026-08-07).
+   Read the corrected splice entry in the plan first — it has two blockers
+   written up, and neither is typing work.
+
+   **Nothing can commit yet.** The commit adapter and store are built and
+   tested, but no route exposes them: no `routeDefinitions.ts` entry, no
+   handler, no service key. Adding it means choosing what proves a caller may
+   establish custody for a wallet. Settle that first; every variant of the
+   splice needs it.
+
+   **The EVM half brings an unused route into service.** It moves to
+   `thresholdEcdsaDerivationRoleLocalBootstrap` with a seed-derived share —
+   whose body already matches the ceremony's EVM shape — but that route has no
+   caller today, and neither does the Email OTP role-local worker op. Every
+   registration currently goes through the strict Router A/B route. Confirm the
+   relayer accepts the role-local route for registration before writing client
+   code. The binding digest is *not* a problem: the local create step computes
+   it from the setup facts, before any Router leg. The digest requirement
+   itself was questioned and stays — decision and reasons pinned in the plan
+   (2026-08-07).
+
+   **The NEAR half is a narrow substitution** at
+   `RouterAbEd25519YaoClientV1.registerAdmitted`, which today derives the root
+   from `secret32`. But do not splice it alone for mixed wallets: a wallet
+   whose NEAR keys come from the seed while its EVM keys are still PRF-derived
+   is half-covered by its own recovery set. Ed25519-only wallets are the safe
+   first slice.
 
    The store side of the establish race is already in place and tested: the
    commit store distinguishes a lost race (`custody_already_established` — a
@@ -128,7 +148,12 @@ is the only constructor for that origin and it requires a successful open.
 - A gap worth closing: a cdylib inherits every `#[wasm_bindgen]` export
   reachable through its rlib dependencies. That leaked the Yao client's seed
   export into the ceremony package, and it was caught only by reading the
-  generated `.js`. No other wasm package is checked for this.
+  generated `.js`. The other half of this is now covered —
+  `pnpm -C packages/sdk-web check:wasm-import-drift` fails on an import naming
+  something a generated wrapper does not export, and runs in the source-guard
+  chain — but nothing yet asserts the *outbound* surface, i.e. that a package
+  exports only what it means to. `check:wasm-exports` reports it; read it when
+  adding a wasm package.
 - The other gap: nothing tests the Rust↔TypeScript wire contract. Each side
   tests itself, which is how the seed-binding drift went unnoticed. A shared
   fixture that round-trips a record through both parsers would catch the whole
