@@ -10,7 +10,6 @@ import {
   parseWebAuthnRpId,
   type WebAuthnRpId,
 } from '@shared/utils/domainIds';
-import type { ThresholdEd25519SessionId } from '@/core/signingEngine/session/operationState/types';
 import type {
   CreateRegistrationFlowEventInput,
   RegistrationFlowEvent,
@@ -60,7 +59,6 @@ import type {
   AddSignerSelection,
   RegistrationAuthMethodInput,
   RegistrationEvmFamilyEcdsaSignerPlan,
-  RegistrationIntentV1,
   RegistrationNearEd25519SignerPlan,
   RegistrationSignerPlan,
   RegistrationSignerPlanBranch,
@@ -114,7 +112,6 @@ import {
   type WalletRegistrationEcdsaWalletKey,
   type WalletRegistrationEmailOtpEnrollmentMaterial,
   type WalletRegistrationEmailOtpBackupAck,
-  type WalletRegistrationEd25519YaoPublicResult,
   type WalletRegistrationFinalizeResponse,
   type WalletRegistrationEcdsaPreparePayload,
   type WalletRegistrationStartResponse,
@@ -135,12 +132,6 @@ import { requirePasskeyPrfFirstB64u } from '@/SeamsWeb/operations/authMethods/pa
 import { rememberWalletOriginAppSession } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import {
-  startEmailOtpEd25519YaoWorkerRegistrationV1,
-  EmailOtpEd25519YaoWorkerPendingRegistrationV1,
-  type EmailOtpEd25519YaoWorkerActiveClientV1,
-  type EmailOtpEd25519YaoRegistrationDiagnosticsV1,
-} from '@/core/signingEngine/session/emailOtp/ed25519YaoWorkerClient';
-import {
   buildEmailOtpAuthContextForWalletAuthMethod,
   emailOtpAuthContextEmailHashHex,
   emailOtpAuthContextProvider,
@@ -149,51 +140,21 @@ import {
 } from '@/core/signingEngine/session/identity/laneIdentity';
 import {
   buildEmailOtpWalletAuthAuthority,
-  buildPasskeyWalletAuthAuthority,
   isEmailOtpWalletAuthAuthority,
   walletAuthAuthorityRef,
   type EmailOtpProvider,
-  type WalletAuthAuthority,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import { parseCanonicalEcdsaServerActivationRequest } from '@shared/utils/ecdsaCapabilityActivation';
 import { registerVerifiedPasskeyEd25519YaoV1 } from '@/core/signingEngine/flows/registration/services/passkeyEd25519YaoRegistration';
 import { registerVerifiedPasskeyEd25519YaoAddSignerV1 } from '@/core/signingEngine/flows/registration/services/passkeyEd25519YaoAddSigner';
-import type {
-  ProductEd25519YaoBrowserMaterialPersistencePortV1,
-  ProductEd25519YaoPendingRegistrationPortV1,
-  ProductEd25519YaoRegistrationResultV1,
-} from '@/core/signingEngine/flows/registration/services/ed25519YaoRegistration';
-import type {
-  RouterAbEd25519YaoActiveClientMetadataV1,
-  RouterAbEd25519YaoSealableActiveClientV1,
-} from '@/core/signingEngine/threshold/ed25519/yaoClient';
-import {
-  deletePasskeyEd25519YaoSignerMaterialV1,
-  persistPasskeyEd25519YaoSignerMaterialV1,
-} from '@/core/signingEngine/session/passkey/ed25519YaoLocalMaterial';
+import type { ProductEd25519YaoPendingRegistrationPortV1 } from '@/core/signingEngine/flows/registration/services/ed25519YaoRegistration';
+import { deletePasskeyEd25519YaoSignerMaterialV1 } from '@/core/signingEngine/session/passkey/ed25519YaoLocalMaterial';
 import { nearEd25519YaoMaterialActivationFromMetadata } from '@/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
-import {
-  buildPasskeyEd25519RestoreMetadata,
-  persistPasskeyEd25519YaoSessionForRefresh,
-} from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
-import {
-  buildPasskeyRouterAbEd25519WalletSessionState,
-  buildEmailOtpRouterAbEd25519WalletSessionState,
-  nearEd25519YaoOperationMaterialFacts,
-  type ResolvedRouterAbEd25519WalletSessionState,
-} from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
-import { buildRouterAbEd25519SigningWalletSession } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import { nearEd25519YaoOperationMaterialFacts } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import type { StoreWalletSignerFinalizeRollbackReceipt } from '@/core/indexedDB/seamsWalletDB/repositories';
 import { toAccountId } from '@/core/types/accountIds';
-import {
-  normalizeRuntimePolicyScope,
-  signingRootScopeFromRuntimePolicyScope,
-} from '@shared/threshold/signingRootScope';
-import type {
-  RegistrationEstablishedEd25519Session,
-  RegistrationEstablishedSession,
-} from '@shared/utils/registrationEstablishedSession';
+import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { persistActiveWalletSessionAuthorizationFromRegistration } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import { deriveImplicitNearAccountIdFromEd25519PublicKey } from '@shared/utils/near';
 import {
@@ -213,7 +174,6 @@ import {
   createSucceededRegistrationTimingSummary,
   emitRegistrationTimingSpan,
   emitRegistrationTimingSummary,
-  parseYaoServerTimingBuckets,
   recordStrictEcdsaServerTimingBuckets,
   registrationTimingSignerSetFromPlan,
   roundDurationMs,
@@ -234,9 +194,7 @@ import {
   registrationChainTargetListsMatch,
   registrationRouteHeaders,
   runStrictEcdsaFamilyCeremony,
-  sameRuntimePolicyScope,
 } from './registrationStrictEcdsa';
-
 import {
   RegistrationPasskeyAuthority,
   RegistrationYaoWork,
@@ -386,31 +344,6 @@ function registrationSignerPlanFromSignerSet(
   return plan.value;
 }
 
-function registrationSignerPlanFromIntentSelection(input: {
-  selection: Parameters<typeof registrationSignerPlanFromSelection>[0];
-}): RegistrationSignerPlan {
-  const plan = registrationSignerPlanFromSelection(input.selection);
-  if (!plan.ok) {
-    throw new Error(plan.message);
-  }
-  return plan.value;
-}
-
-function requiredRegistrationRpId(input: {
-  context: RegistrationWebContext;
-  authMethod: RegistrationAuthMethodInput;
-  operation: string;
-}): string {
-  const rpId =
-    input.authMethod.kind === 'passkey'
-      ? String(input.authMethod.rpId || '').trim()
-      : String(input.context.signingEngine.getRpId() || '').trim();
-  if (!rpId) {
-    throw new Error(`${input.operation} requires configured rpId`);
-  }
-  return rpId;
-}
-
 type RegistrationWarmupOutcome =
   | {
       kind: 'completed';
@@ -546,17 +479,6 @@ function observeRegistrationWarmup(input: {
   void input.warmup.then((outcome) => {
     if (outcome.kind === 'completed') input.recorder.captureWarmupDiagnostics(outcome.diagnostics);
   });
-}
-
-function registrationPreparationWalletLabel(wallet: RegisterWalletInput): string {
-  switch (wallet.kind) {
-    case 'provided':
-      return String(wallet.walletId);
-    case 'server_allocated':
-      return 'New wallet';
-    default:
-      return assertNever(wallet);
-  }
 }
 
 function registrationPreparationSignerSlot(
@@ -1145,14 +1067,6 @@ function registrationErrorCodeFromUnknown(error: unknown): string {
 
 function registrationErrorWithCode(message: string, errorCode: string): Error & { code?: string } {
   return Object.assign(new Error(message), errorCode ? { code: errorCode } : {});
-}
-
-function alreadyFinalizedRestoreRequiredResult(_walletId: string): RegistrationResult {
-  return {
-    success: false,
-    error: 'Wallet registration was already finalized. Restore or unlock the wallet to continue.',
-    errorCode: 'already_finalized_restore_required',
-  };
 }
 
 function webAuthnTransportsFromRaw(value: unknown): AuthenticatorTransport[] {
@@ -1955,16 +1869,6 @@ function registrationPasskeySignerSlot(args: RegisterEcdsaOrMixedWalletArgs): nu
     default:
       return assertNever(args);
   }
-}
-
-function requireEcdsaEnabledRegistrationStart(
-  args: RegisterEcdsaOrMixedWalletArgs,
-  started: WalletRegistrationStartResponse,
-): EcdsaEnabledRegistrationStart {
-  if (started.kind !== args.kind) {
-    throw new Error('Wallet registration start returned a different signer branch');
-  }
-  return started;
 }
 
 type DeferredRegistrationFinalizeAuthMaterial =

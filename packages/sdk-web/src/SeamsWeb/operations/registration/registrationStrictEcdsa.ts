@@ -161,17 +161,6 @@ export function assertRegistrationWalletKeyCapabilities(args: {
   }
 }
 
-function registrationParticipantIdsMatch(
-  left: readonly number[],
-  right: readonly number[],
-): boolean {
-  if (left.length !== right.length) return false;
-  for (let index = 0; index < left.length; index += 1) {
-    if (left[index] !== right[index]) return false;
-  }
-  return true;
-}
-
 function firstRegistrationEvmFamilyWalletKeyMaterialMismatch(
   left: WalletRegistrationEcdsaWalletKey,
   right: WalletRegistrationEcdsaWalletKey,

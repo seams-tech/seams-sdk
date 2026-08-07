@@ -82,7 +82,7 @@ import {
   parseYaoServerTimingBuckets,
 } from './registrationTiming';
 import { sameRuntimePolicyScope } from './registrationStrictEcdsa';
-import type { RegisterEcdsaOrMixedWalletArgs, RegistrationPersistenceAuth } from './registration';
+import type { RegistrationPersistenceAuth } from './registration';
 type PasskeyAuthorityCredential = {
   readonly id?: unknown;
   readonly rawId?: unknown;
@@ -823,22 +823,6 @@ function recordEmailOtpRegistrationYaoDiagnostics(
   if (!diagnostics.clientTimings) return;
   recorder.record('yaoAdmissionMs', diagnostics.clientTimings.admissionMs);
   recorder.record('yaoClientSessionCreateMs', diagnostics.clientTimings.sessionCreateMs);
-}
-
-async function claimRegistrationYao(
-  registrationKind: RegisterEcdsaOrMixedWalletArgs['kind'],
-  work: RegistrationYaoWork,
-): Promise<ClaimedRegistrationYao> {
-  switch (registrationKind) {
-    case 'evm_family_ecdsa':
-      return { kind: 'disabled' };
-    case 'near_ed25519_and_evm_family_ecdsa': {
-      const pending = await work.requirePending();
-      return { kind: 'pending', pending, clientPublicKey: pending.publicKey() };
-    }
-    default:
-      return assertNever(registrationKind);
-  }
 }
 
 export type RegistrationPasskeyAuthority = Awaited<
