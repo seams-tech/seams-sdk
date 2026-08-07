@@ -9,9 +9,13 @@ import {
 import {
   initSync as initEcdsaDerivationClientSync,
   build_ecdsa_role_local_export_artifact_v1,
+} from '../../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js';
+// The client bootstrap pair lives in `ecdsa_registration_client`. Importing it
+// from the derivation client resolved to nothing and would have thrown at load.
+import {
   finalize_ecdsa_client_bootstrap_v1,
   prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1,
-} from '../../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js';
+} from '../../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
