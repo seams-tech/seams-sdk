@@ -70,14 +70,14 @@ function envelopeFactorRef(envelope: PasskeyCustodyEnvelopeRecord): WalletCustod
     : { kind: 'email_otp', enrollmentId: envelope.factor.enrollmentId };
 }
 
-function factorKeyPart(factor: WalletCustodyFactorRef): string {
+function factorKeyPart(factor: WalletCustodyFactorRef): readonly string[] {
   return factor.kind === 'passkey'
-    ? `passkey:${String(factor.credentialIdB64u)}`
-    : `email_otp:${factor.enrollmentId}`;
+    ? ['passkey', String(factor.credentialIdB64u)]
+    : ['email_otp', factor.enrollmentId];
 }
 
 function factorRefsMatch(left: WalletCustodyFactorRef, right: WalletCustodyFactorRef): boolean {
-  return factorKeyPart(left) === factorKeyPart(right);
+  return JSON.stringify(factorKeyPart(left)) === JSON.stringify(factorKeyPart(right));
 }
 
 /**
@@ -168,11 +168,15 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
    * if the envelope id were guessed.
    */
   private recordKey(locator: PasskeyCustodyEnvelopeLocator): string {
-    return [
+    // JSON-encoded so no delimiter inside an id can splice one locator into
+    // another: enrollment ids are caller strings and domain ids permit ':'.
+    // A joined string would let {enrollment "e", envelope "x:y"} collide with
+    // {enrollment "e:x", envelope "y"}.
+    return JSON.stringify([
       String(locator.walletId),
-      factorKeyPart(locator.factor),
+      ...factorKeyPart(locator.factor),
       String(locator.envelopeId),
-    ].join(':');
+    ]);
   }
 
   /**

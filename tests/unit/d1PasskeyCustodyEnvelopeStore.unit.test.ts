@@ -328,3 +328,37 @@ test('lane holder-share envelopes coexist with the owner seed', async () => {
     );
   });
 });
+
+test('locators whose ids contain delimiters cannot collide', async () => {
+  await withStore(async (store) => {
+    // With a ':'-joined key these two locators would map to the same row:
+    // {enrollment "e", envelope "x:y"} vs {enrollment "e:x", envelope "y"}.
+    // The identity re-check kept reads safe, but the second create would
+    // conflict with the first. JSON-encoded keys keep them distinct.
+    const first = passkeyCustodyEnvelope({
+      envelopeId: 'x:y',
+      factor: rawEmailOtpFactor({ enrollmentId: 'e' }),
+    });
+    const second = passkeyCustodyEnvelope({
+      envelopeId: 'y',
+      factor: rawEmailOtpFactor({ enrollmentId: 'e:x' }),
+    });
+    expect((await store.createEnvelope(first)).kind).toBe('stored');
+    expect((await store.createEnvelope(second)).kind).toBe('stored');
+
+    const firstLookup = await store.lookupEnvelope({
+      walletId: WALLET_ID as WalletId,
+      factor: { kind: 'email_otp', enrollmentId: 'e' },
+      envelopeId: 'x:y' as PasskeyEnvelopeId,
+    });
+    const secondLookup = await store.lookupEnvelope({
+      walletId: WALLET_ID as WalletId,
+      factor: { kind: 'email_otp', enrollmentId: 'e:x' },
+      envelopeId: 'y' as PasskeyEnvelopeId,
+    });
+    expect(firstLookup.kind).toBe('active');
+    expect(secondLookup.kind).toBe('active');
+    expect(firstLookup.kind === 'active' && String(firstLookup.envelope.envelopeId)).toBe('x:y');
+    expect(secondLookup.kind === 'active' && String(secondLookup.envelope.envelopeId)).toBe('y');
+  });
+});

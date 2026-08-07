@@ -139,6 +139,27 @@ pub fn encode_recovery_manifest_aad_v1(scope: &WalletRecoveryCodeScopeV1) -> Cor
 pub fn encode_recovery_entry_aad_v1(scope: &WalletRecoveryEntryScopeV1) -> CoreResult<Vec<u8>> {
     require_field("walletId", &scope.wallet_id)?;
 
+    // Kind and lane scope must agree, mirroring the TypeScript parser: a
+    // wallet-scoped seed carrying lane identity or a lane share without one is
+    // a semantically invalid scope, not a valid binding with unusual bytes.
+    match (scope.custody_secret_kind, &scope.lane) {
+        (PasskeyCustodySecretKind::WalletCustodySeed, Some(_)) => {
+            return Err(SignerCoreError::invalid_input(
+                "a wallet-scoped seed entry cannot carry lane identity",
+            ));
+        }
+        (
+            PasskeyCustodySecretKind::Ed25519LaneHolderShare
+            | PasskeyCustodySecretKind::EcdsaLaneHolderShare,
+            None,
+        ) => {
+            return Err(SignerCoreError::invalid_input(
+                "a lane holder-share entry requires its lane scope",
+            ));
+        }
+        _ => {}
+    }
+
     let mut out = Vec::new();
     labeled_field(&mut out, b"context", RECOVERY_ENTRY_AAD_CONTEXT_V1);
     labeled_str(
@@ -154,8 +175,9 @@ pub fn encode_recovery_entry_aad_v1(scope: &WalletRecoveryEntryScopeV1) -> CoreR
         scope.custody_secret_kind.as_str(),
     );
 
-    // The scope marker is encoded either way, so a wallet-scoped entry's AAD
-    // can never be a prefix of a lane-scoped entry's.
+    // The custody-secret kind above already domain-separates the branches;
+    // the explicit scope marker is defense-in-depth so scope stays bound even
+    // if a future edit lets two branches share a kind.
     match &scope.lane {
         Some(lane) => {
             require_field("walletKeyId", &lane.wallet_key_id)?;
