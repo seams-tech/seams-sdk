@@ -53,6 +53,8 @@ REQUIRED_WASM_OUTPUTS=(
   "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime_bg.wasm"
   "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime.js"
   "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime_bg.wasm"
+  "$SDK_ROOT/$SOURCE_WASM_WALLET_CUSTODY_CEREMONY/pkg/wallet_custody_ceremony.js"
+  "$SDK_ROOT/$SOURCE_WASM_WALLET_CUSTODY_CEREMONY/pkg/wallet_custody_ceremony_bg.wasm"
 )
 
 cleanup_build_sdk() {
@@ -151,6 +153,7 @@ if "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/near-signer.worker.ts" --outdir "$B
   && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/passkey-confirm.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
   && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/passkey-mpc-session.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
   && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/passkey-mpc-export.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
+  && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/wallet-custody-ceremony.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
   && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/email-otp.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
   && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/shamir3pass.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
   && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/evm-crypto.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
@@ -176,6 +179,8 @@ if cp "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime.js" "$
 if cp "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime_bg.wasm" "$BUILD_WORKERS/shamir3pass_runtime_bg.wasm" 2>/dev/null; then print_success "shamir3pass_runtime_bg.wasm copied"; else print_warning "shamir3pass_runtime_bg.wasm not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime.js" "$BUILD_WORKERS/email_otp_runtime.js" 2>/dev/null; then print_success "email_otp_runtime.js copied"; else print_warning "email_otp_runtime.js not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime_bg.wasm" "$BUILD_WORKERS/email_otp_runtime_bg.wasm" 2>/dev/null; then print_success "email_otp_runtime_bg.wasm copied"; else print_warning "email_otp_runtime_bg.wasm not found"; fi
+if cp "$SDK_ROOT/$SOURCE_WASM_WALLET_CUSTODY_CEREMONY/pkg/wallet_custody_ceremony.js" "$BUILD_WORKERS/wallet_custody_ceremony.js" 2>/dev/null; then print_success "wallet_custody_ceremony.js copied"; else print_warning "wallet_custody_ceremony.js not found"; fi
+if cp "$SDK_ROOT/$SOURCE_WASM_WALLET_CUSTODY_CEREMONY/pkg/wallet_custody_ceremony_bg.wasm" "$BUILD_WORKERS/wallet_custody_ceremony_bg.wasm" 2>/dev/null; then print_success "wallet_custody_ceremony_bg.wasm copied"; else print_warning "wallet_custody_ceremony_bg.wasm not found"; fi
 
 print_step "Copying browser ECDSA registration client WASM binary into dist/esm..."
 ECDSA_REGISTRATION_CLIENT_WASM_DIR="$BUILD_ESM/wasm/ecdsa_registration_client/pkg"

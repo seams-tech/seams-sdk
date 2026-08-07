@@ -982,7 +982,33 @@ repository evidence.
       manifests is refused before anything is written, since a recovery set
       whose codes open a seed for a manifest the envelope does not name would
       recover keys the wallet never registered.
-- [ ] Build the ceremony worker and call the commit from it.
+- [x] Build the ceremony worker. `wallet-custody-ceremony.worker.ts` owns the
+      wasm state handle across the two Router/relayer round-trips, keyed by a
+      ceremony id, so the seed, the owner roots, and the ECDSA pending blob
+      never exist as JavaScript values. The main thread carries public protocol
+      messages between rounds and ciphertext at the end.
+
+      The worker mirrors the Rust typestate at the message layer: a step *takes*
+      the handle out of the map before advancing, and only a successful
+      transition puts the next one back. A failed step therefore ends the
+      ceremony instead of leaving a half-advanced state to retry into. There is
+      no `completed` state in the map — completing the protocols and
+      establishing the manifest are one message, so a completed-but-
+      unestablished handle never waits on a caller.
+
+      In-flight ceremonies are bounded: each holds custody material, so a caller
+      that abandons them fails rather than growing the map. `discard` drops a
+      handle, which zeroizes the seed and any in-flight protocol state.
+- [ ] Wire `SignerWorkerManager` and the registration flow to the ceremony
+      worker, and call `commitRegistration` with its payload.
+- [x] Repair the SDK barrel at
+      `core/signingEngine/session/passkey/envelopes/index.ts`, which still
+      re-exported `PASSKEY_CUSTODY_ENVELOPE_VERSION_V1`,
+      `buildEd25519YaoClientRootBinding`, `buildEcdsaClientRootShareBinding`,
+      and two recovery builders that the custody-union collapse removed. The
+      SDK TypeScript build had been failing on this since that commit. Updated
+      to the current surface: seed builders, factor builders, and the v2
+      envelope version.
 - [ ] Shrink `wasm/ecdsa_registration_client` once registration leaves it:
       rename around role-local material rehydration or fold the remainder into
       its natural owner. Do not leave a compatibility shell under the old name.

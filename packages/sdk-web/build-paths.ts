@@ -62,6 +62,7 @@ export const BUILD_PATHS = {
     ECDSA_PRESIGN_CLIENT_WORKER: '/sdk/workers/ecdsa-presign-client.worker.js',
     ECDSA_ONLINE_CLIENT_WORKER: '/sdk/workers/ecdsa-online-client.worker.js',
     EMAIL_OTP_WORKER: '/sdk/workers/email-otp.worker.js',
+    WALLET_CUSTODY_CEREMONY_WORKER: '/sdk/workers/wallet-custody-ceremony.worker.js',
   },
 
   // Worker file names
@@ -74,6 +75,7 @@ export const BUILD_PATHS = {
     ECDSA_PRESIGN_CLIENT: 'ecdsa-presign-client.worker.js',
     ECDSA_ONLINE_CLIENT: 'ecdsa-online-client.worker.js',
     EMAIL_OTP: 'email-otp.worker.js',
+    WALLET_CUSTODY_CEREMONY: 'wallet-custody-ceremony.worker.js',
     SHAMIR3PASS: 'shamir3pass.worker.js',
     WASM_SIGNER_JS: 'wasm_signer_worker.js',
     WASM_SIGNER_WASM: 'wasm_signer_worker_bg.wasm',
@@ -91,6 +93,7 @@ export const BUILD_PATHS = {
     WASM_TEMPO_SIGNER_BG_WASM: 'tempo_signer_bg.wasm',
     EMAIL_OTP_RUNTIME_JS: 'email_otp_runtime.js',
     EMAIL_OTP_RUNTIME_WASM: 'email_otp_runtime_bg.wasm',
+    WALLET_CUSTODY_CEREMONY_WASM: 'wallet_custody_ceremony_bg.wasm',
   },
 
   // Test worker file paths (for test files)
@@ -103,6 +106,7 @@ export const BUILD_PATHS = {
     ECDSA_PRESIGN_CLIENT: '/sdk/workers/ecdsa-presign-client.worker.js',
     ECDSA_ONLINE_CLIENT: '/sdk/workers/ecdsa-online-client.worker.js',
     EMAIL_OTP: '/sdk/workers/email-otp.worker.js',
+    WALLET_CUSTODY_CEREMONY: '/sdk/workers/wallet-custody-ceremony.worker.js',
     SHAMIR3PASS: '/sdk/workers/shamir3pass.worker.js',
     WASM_SIGNER_JS: '/sdk/workers/wasm_signer_worker.js',
     WASM_SIGNER_WASM: '/sdk/workers/wasm_signer_worker_bg.wasm',
@@ -120,6 +124,7 @@ export const BUILD_PATHS = {
     WASM_TEMPO_SIGNER_BG_WASM: '/sdk/workers/tempo_signer_bg.wasm',
     EMAIL_OTP_RUNTIME_JS: '/sdk/workers/email_otp_runtime.js',
     EMAIL_OTP_RUNTIME_WASM: '/sdk/workers/email_otp_runtime_bg.wasm',
+    WALLET_CUSTODY_CEREMONY_WASM: '/sdk/workers/wallet_custody_ceremony_bg.wasm',
   },
 } as const;
 
