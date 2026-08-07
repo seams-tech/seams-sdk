@@ -1,15 +1,12 @@
 import React from 'react';
 import NavbarProfileOverlay from './Navbar/NavbarProfileOverlay';
-import { preloadSeamsAuthMenu, useSeams, useTheme, type AuthMenuMode } from '@seams/sdk/react';
+import { useSeams, useTheme, type AuthMenuMode } from '@seams/sdk/react';
 
 import { GlassBorder } from './GlassBorder';
 import { DemoTxCardSkeleton } from './DemoTxCardSkeleton';
 import { Carousel } from './Carousel/Carousel';
 
 // Lazily load the most common flows to shrink the initial bundle.
-const PasskeyLoginMenu = React.lazy(() =>
-  import('@/flows/demo/PasskeyLoginMenu').then((m) => ({ default: m.PasskeyLoginMenu })),
-);
 const HostedPasskeyLoginMenu = React.lazy(() =>
   import('@/flows/demo/HostedPasskeyLoginMenu').then((m) => ({
     default: m.HostedPasskeyLoginMenu,
@@ -89,11 +86,6 @@ function clearDemoToastTheme(): void {
   });
 }
 
-function hostedAuthMenuPreviewEnabled(): boolean {
-  if (typeof window === 'undefined') return false;
-  return new URLSearchParams(window.location.search).get('authMenu') === 'hosted';
-}
-
 function DemoToastThemeBridge(): null {
   const { theme, tokens } = useTheme();
   React.useEffect(() => {
@@ -121,7 +113,6 @@ export function DemoPasskeyColumn({
     walletSessionLifecycle.kind === 'ready' && loginState?.isLoggedIn === true;
   const [internalPage, setInternalPage] = React.useState(0);
   const currentPage = controlledPage ?? internalPage;
-  const useHostedAuthMenu = hostedAuthMenuPreviewEnabled();
   const setCurrentPage = React.useCallback(
     (page: number) => {
       setInternalPage(page);
@@ -129,10 +120,6 @@ export function DemoPasskeyColumn({
     },
     [onCurrentPageChange],
   );
-  const prefetchPasskeyMenu = React.useCallback(() => {
-    void preloadSeamsAuthMenu().catch(() => {});
-  }, []);
-
   // After unlock, jump to Demo Tx page (index 1). On lock, go back to login page (index 0).
   React.useEffect(() => {
     setCurrentPage(isDemoUnlocked ? 1 : 0);
@@ -163,19 +150,11 @@ export function DemoPasskeyColumn({
         title: 'Login',
         element: () => (
           <>
-            <PrefetchOnIntent onIntent={prefetchPasskeyMenu}>
-              <React.Suspense fallback={<SuspenseFallback />}>
-                {useHostedAuthMenu ? (
-                  <HostedPasskeyLoginMenu
-                    defaultModeWhenNoDetectedAccount={defaultModeWhenNoDetectedAccount}
-                  />
-                ) : (
-                  <PasskeyLoginMenu
-                    defaultModeWhenNoDetectedAccount={defaultModeWhenNoDetectedAccount}
-                  />
-                )}
-              </React.Suspense>
-            </PrefetchOnIntent>
+            <React.Suspense fallback={<SuspenseFallback />}>
+              <HostedPasskeyLoginMenu
+                defaultModeWhenNoDetectedAccount={defaultModeWhenNoDetectedAccount}
+              />
+            </React.Suspense>
           </>
         ),
       },
@@ -211,7 +190,7 @@ export function DemoPasskeyColumn({
         ),
       },
     ],
-    [defaultModeWhenNoDetectedAccount, isDemoUnlocked, prefetchPasskeyMenu, useHostedAuthMenu],
+    [defaultModeWhenNoDetectedAccount, isDemoUnlocked],
   );
 
   return (
@@ -241,24 +220,3 @@ const SuspenseFallback = () => (
     style={{ height: 320, width: 'min(420px, calc(100vw - 2rem))' }}
   />
 );
-
-function PrefetchOnIntent(props: { onIntent: () => void; children: React.ReactNode }) {
-  const didPrefetchRef = React.useRef(false);
-  const onIntentOnce = React.useCallback(() => {
-    if (didPrefetchRef.current) return;
-    didPrefetchRef.current = true;
-    props.onIntent();
-  }, [props.onIntent]);
-
-  return (
-    <div
-      style={{ display: 'contents' }}
-      onPointerOver={onIntentOnce}
-      onMouseOver={onIntentOnce}
-      onFocusCapture={onIntentOnce}
-      onTouchStart={onIntentOnce}
-    >
-      {props.children}
-    </div>
-  );
-}
