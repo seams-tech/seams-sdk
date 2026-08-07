@@ -1256,6 +1256,47 @@ repository evidence.
       route Email OTP already uses": every registration today goes through the
       strict rounds.
 
+      **Server flow map (traced 2026-08-08).** What the payload kind actually
+      touches, and the one finding that widens its scope:
+
+      - Respond's ECDSA branch is a *forwarder*: the Gateway handler
+        (`walletRegistrationRoutes.ts:1889`, parser `:1921`, kind gate `:1989`)
+        calls `respondWalletRegistration`
+        (`d1WalletRegistrationService.ts:2343`), which — after signed-setup
+        verification, plan cross-check, and authority verification — POSTs to
+        the **Rust MPCRouter worker** at `/router-ab/ecdsa-derivation/register`
+        (`routerAbEcdsaStrictRegistration.ts:280`, Rust handler
+        `router-ab-cloudflare/src/lib.rs:4792`), which runs Deriver A and B as
+        role Workers and returns the proof bundles.
+      - **The relayer's public identity is not Gateway state.** It arrives only
+        in the *activation receipt* from the Rust worker
+        (`ecdsa_activation.public_identity`, read at
+        `d1WalletRegistrationService.ts:863`); the Gateway shape-validates it
+        (`validation.ts:452`) and composes nothing —
+        `compose_public_identity_from_public_keys` runs only in client wasm
+        today. So the seed-root kind reaches into the Rust worker: it needs a
+        mode with **no deriver rounds**, where the SigningWorker derives its
+        relayer share against the client's seed-derived public key and returns
+        the composed identity in the receipt. The primitive exists:
+        `derive_relayer_share_for_client_public`
+        (`router-ab-ecdsa-derivation`), already exercised in
+        `signer-core/tests/native_readiness_vectors.rs`.
+      - Respond-before-activate is enforced by stored branch state, not
+        convention: respond is the only writer of
+        `evm_family_ecdsa_pending_activation` and of `authorityState:
+        verified`; activate's claim requires exactly that branch kind
+        (`d1RegistrationCeremonyStore.ts:135`) and one `activationOwner` per
+        ceremony. The seed-root kind keeps this machine — what changes is what
+        the pending branch holds (no Router bundles, no `pendingActivation`
+        blob) and what activate forwards.
+      - The full inventory of files gating the kind literals (parsers,
+        contracts, stored-branch decoders — including
+        `d1RegistrationCeremonyRecords.ts:1200`, which hard-codes
+        `evm_family_ecdsa_keygen`, and the exhaustiveness guards that will
+        fail to compile on a new arm) is in the respond/activate trace; start
+        from `parseWalletRegistrationRespondRequest` and
+        `RegistrationCeremonyStore.ts:268-371`.
+
       The ordering worry recorded here earlier was overstated. The ECDSA
       application binding digest is available before any Router leg: the local
       `create` step computes it from the setup response's `strictRegistration`
