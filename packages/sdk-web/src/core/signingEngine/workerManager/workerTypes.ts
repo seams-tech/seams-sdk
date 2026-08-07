@@ -28,7 +28,10 @@ import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainW
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { MpcMaterialActivationRef, ThresholdEd25519SessionId } from '@shared/utils/domainIds';
-import type { WalletCustodyCeremonyCommitPayload } from '@shared/passkey-custody';
+import type {
+  WalletCustodyCeremonyCommitPayload,
+  WalletCustodyKeySetKind,
+} from '@shared/passkey-custody';
 import type {
   EcdsaRoleLocalPersistedMaterialRef,
   SigningSessionSealKeyVersion,
@@ -1699,48 +1702,78 @@ export type EcdsaDerivationRoleLocalMaterialOperationRequest<
   T extends EcdsaDerivationRoleLocalMaterialOperationType,
 > = EcdsaDerivationWorkerOperationRequest<T>;
 /**
- * The wallet custody registration ceremony, one operation per step.
+ * One wallet custody ceremony run, one operation per step.
  *
- * The ceremony's state lives in the worker between these calls, keyed by
+ * A run provisions exactly one key set. It either *establishes* custody — the
+ * wallet's first key set, where the seed is generated, its envelope sealed and
+ * the recovery set issued — or *joins* custody that already exists, reaching the
+ * same seed by opening that envelope and writing nothing but its own manifest.
+ *
+ * The run's state lives in the worker between these calls, keyed by
  * `ceremonyId`, because it holds the seed and the in-flight protocol state.
- * Nothing here carries custody material in either direction: `protocolInputs`,
- * `yaoResult`, and `relayerPublicIdentity` are public protocol messages, and
- * the seal returns ciphertext and public records.
+ * Nothing here carries custody material in either direction: `protocolInputs`
+ * and `protocolResult` are public protocol messages, and the finish returns
+ * ciphertext and public records.
  *
  * `factorSecret` is the one secret that crosses inbound — a passkey PRF result
- * or the Email OTP factor key — which is the same boundary the existing custody
- * exports use. The worker clears its copy after the seal.
+ * or the Email OTP factor key. An establishing run sends it at the finish, to
+ * seal; a joining run sends it at the begin, to open. The worker clears its own
+ * copy either way.
  */
 export interface WalletCustodyCeremonyWorkerOperationMap {
-  beginWalletCustodyRegistration: {
+  beginWalletCustodyKeySetRun: {
     payload: {
       ceremonyId: string;
-      walletId: string;
-      /** `RegistrationProtocolInputsWireV1`; no Ed25519 binding digest field. */
+      keySet: WalletCustodyKeySetKind;
+      /**
+       * Where this run's seed comes from. A run that guessed wrong and
+       * generated a fresh seed would leave the wallet with two seeds, only one
+       * of which any recovery set covers — so this is not a flag the caller can
+       * omit.
+       */
+      custody:
+        | { origin: 'establish'; walletId: string }
+        | { origin: 'join'; custodyJson: string; factorSecret: ArrayBuffer };
+      /** `NearEd25519ProtocolInputsWireV1` or `EvmFamilyProtocolInputsWireV1`. */
       protocolInputsJson: string;
     };
     result: {
       ceremonyId: string;
-      yaoExecuteRequestJson: string;
-      ecdsaContextBinding32B64u: string;
-      ecdsaClientSharePublicKey33B64u: string;
+      /** A NEAR Ed25519 run only. Its absence is what "Yao never ran" looks like. */
+      yaoExecuteRequestJson?: string;
+      /** An EVM-family run only: the facts the relayer's bootstrap needs. */
+      ecdsaContextBinding32B64u?: string;
+      ecdsaClientSharePublicKey33B64u?: string;
     };
   };
-  completeWalletCustodyRegistration: {
+  completeWalletCustodyKeySetRun: {
     payload: {
       ceremonyId: string;
-      yaoResultJson: string;
-      relayerPublicIdentityJson: string;
-      identitiesJson: string;
+      /** The Yao result for a NEAR run, the relayer public identity for an EVM one. */
+      protocolResultJson: string;
+      /** `nearEd25519SigningKeyId` or `evmFamilySigningKeySlotId`, per key set. */
+      identityId: string;
+      /**
+       * The digest already riding this key set's registration state, when it
+       * has one. Present means the run must reproduce it and fails otherwise.
+       */
+      recordedKeyManifestDigestB64u?: string;
     };
     result: { ceremonyId: string };
   };
-  sealWalletCustodyRegistration: {
+  finishWalletCustodyKeySetRun: {
     payload: {
       ceremonyId: string;
-      factorJson: string;
-      factorSecret: ArrayBuffer;
-      recoveryCodesJson: string;
+      /**
+       * Present only for a run that established custody. A joining run that
+       * sent this would be asking for a second seed envelope and a second
+       * recovery set; the ceremony refuses it.
+       */
+      establishWith?: {
+        factorJson: string;
+        factorSecret: ArrayBuffer;
+        recoveryCodesJson: string;
+      };
     };
     result: WalletCustodyCeremonyCommitPayload;
   };

@@ -1,56 +1,69 @@
 import { expect, test } from '@playwright/test';
 import {
-  runWalletCustodyRegistrationCeremony,
-  type WalletCustodyCeremonyRouterResponse,
+  runWalletCustodyKeySetCeremony,
+  type WalletCustodyCeremonyCustodyInput,
+  type WalletCustodyCeremonyKeySetInput,
   type WalletCustodyCeremonyStepRunner,
 } from '../../packages/sdk-web/src/core/signingEngine/walletCustody/ceremonyDriver';
 
 /**
- * The driver's job is ordering and cleanup. These own the property that is
- * easy to lose at a call site: a ceremony holds a seed in the worker until it
- * seals, so every exit that is not a completed seal must discard it — including
- * the one where the caller's own Router round-trip throws.
+ * The driver's job is ordering, key-set dispatch, and cleanup.
+ *
+ * These own the properties that are easy to lose at a call site: a run holds a
+ * seed in the worker until it finishes, so every exit that is not a completed
+ * finish must discard it — including the one where the caller's own protocol
+ * round-trip throws. And a joining run must never seal, which is why the
+ * establish/join choice is a union rather than an optional field.
  */
 
 const CEREMONY_ID = 'ceremony-1';
+const WALLET_ID = 'alice.testnet';
 
-const BEGUN = {
+const BEGUN_NEAR = {
   ceremonyId: CEREMONY_ID,
   yaoExecuteRequestJson: '{"yao":"execute"}',
+};
+
+const BEGUN_EVM = {
+  ceremonyId: CEREMONY_ID,
   ecdsaContextBinding32B64u: 'context-binding',
   ecdsaClientSharePublicKey33B64u: 'client-share-key',
 };
 
-const SEALED = {
-  walletId: 'alice.testnet',
-  envelopeId: 'envelope-1',
+const ESTABLISHED_PAYLOAD = {
+  walletId: WALLET_ID,
+  keySet: 'near_ed25519_v1',
   keyManifestDigestB64u: 'digest',
-  envelopeBindingJson: '{}',
-  envelopeNonceB64u: 'nonce',
-  sealedCustodySecretB64u: 'ciphertext',
-  envelopeAadHashB64u: 'aad',
-  envelopeCiphertextDigestB64u: 'ciphertext-digest',
-  recoveryManifestKekWraps: [],
-  recoveryEntryNonceB64u: 'nonce',
-  recoveryEntryCiphertextB64u: 'ciphertext',
-  recoveryEntryAadHashB64u: 'aad',
   registeredPublicKeyB64u: 'registered',
+  establishedCustody: {
+    envelopeId: 'envelope-1',
+    envelopeBindingJson: '{}',
+    envelopeNonceB64u: 'nonce',
+    sealedCustodySecretB64u: 'ciphertext',
+    envelopeAadHashB64u: 'aad',
+    envelopeCiphertextDigestB64u: 'ciphertext-digest',
+    recoveryManifestKekWraps: [],
+    recoveryEntryNonceB64u: 'nonce',
+    recoveryEntryCiphertextB64u: 'ciphertext',
+    recoveryEntryAadHashB64u: 'aad',
+  },
+};
+
+const JOINED_PAYLOAD = {
+  walletId: WALLET_ID,
+  keySet: 'evm_family_ecdsa_v1',
+  keyManifestDigestB64u: 'other-digest',
   clientRootPublicKey33B64u: 'client-root',
   ecdsaReadyStateBlobB64u: 'ready-blob',
 };
 
-const ROUTER_RESPONSE: WalletCustodyCeremonyRouterResponse = {
-  yaoResultJson: '{"yao":"result"}',
-  relayerPublicIdentityJson: '{"relayerKeyId":"relayer-1"}',
-  identitiesJson: '{"nearEd25519SigningKeyId":"key-1"}',
-};
-
 type Call = { type: string; payload: Record<string, unknown> };
 
-function recordingRunner(overrides: Partial<Record<string, unknown>> = {}): {
-  runStep: WalletCustodyCeremonyStepRunner;
-  calls: Call[];
-} {
+function recordingRunner(
+  overrides: Partial<Record<string, unknown>> = {},
+  begun: Record<string, unknown> = BEGUN_NEAR,
+  finished: Record<string, unknown> = ESTABLISHED_PAYLOAD,
+): { runStep: WalletCustodyCeremonyStepRunner; calls: Call[] } {
   const calls: Call[] = [];
   const runStep = (async (type: string, payload: Record<string, unknown>) => {
     calls.push({ type, payload });
@@ -60,12 +73,12 @@ function recordingRunner(overrides: Partial<Record<string, unknown>> = {}): {
       return override;
     }
     switch (type) {
-      case 'beginWalletCustodyRegistration':
-        return BEGUN;
-      case 'completeWalletCustodyRegistration':
+      case 'beginWalletCustodyKeySetRun':
+        return begun;
+      case 'completeWalletCustodyKeySetRun':
         return { ceremonyId: CEREMONY_ID };
-      case 'sealWalletCustodyRegistration':
-        return SEALED;
+      case 'finishWalletCustodyKeySetRun':
+        return finished;
       case 'discardWalletCustodyCeremony':
         return { ceremonyId: CEREMONY_ID, discarded: true };
       default:
@@ -75,80 +88,195 @@ function recordingRunner(overrides: Partial<Record<string, unknown>> = {}): {
   return { runStep, calls };
 }
 
-function input(
-  runStep: WalletCustodyCeremonyStepRunner,
-  runRouterRound: WalletCustodyRegistrationInput['runRouterRound'],
-) {
+function establishingCustody(): WalletCustodyCeremonyCustodyInput {
   return {
-    runStep,
-    walletId: 'alice.testnet',
-    protocolInputsJson: '{"clientParticipantId":1}',
-    runRouterRound,
+    origin: 'establish',
+    walletId: WALLET_ID,
     factorJson: '{"envelopeId":"envelope-1"}',
     factorSecret: new ArrayBuffer(32),
     recoveryCodesJson: '[]',
-    ceremonyId: CEREMONY_ID,
   };
 }
 
-type WalletCustodyRegistrationInput = Parameters<typeof runWalletCustodyRegistrationCeremony>[0];
+function joiningCustody(): WalletCustodyCeremonyCustodyInput {
+  return {
+    origin: 'join',
+    custodyJson: '{"nonceB64u":"nonce"}',
+    factorSecret: new ArrayBuffer(32),
+  };
+}
 
-test('a ceremony runs begin, the Router round, complete, then seal', async () => {
+function nearRun(
+  runRouterRound: (request: string) => Promise<string>,
+): WalletCustodyCeremonyKeySetInput {
+  return {
+    keySet: 'near_ed25519_v1',
+    protocolInputsJson: '{"clientParticipantId":1}',
+    nearEd25519SigningKeyId: 'near-ed25519-key-1',
+    runRouterRound,
+  };
+}
+
+function evmRun(
+  runRelayerRound: (bootstrap: {
+    contextBinding32B64u: string;
+    clientSharePublicKey33B64u: string;
+  }) => Promise<string>,
+): WalletCustodyCeremonyKeySetInput {
+  return {
+    keySet: 'evm_family_ecdsa_v1',
+    protocolInputsJson: '{"applicationBindingDigestB64u":"digest"}',
+    evmFamilySigningKeySlotId: 'wallet-key:evm-family:alice.testnet:root-1:v1',
+    runRelayerRound,
+  };
+}
+
+test('an establishing NEAR run: begin, the Router round, complete, then finish', async () => {
   const { runStep, calls } = recordingRunner();
   let sawRequest: unknown = null;
 
-  const payload = await runWalletCustodyRegistrationCeremony(
-    input(runStep, async (request) => {
+  const payload = await runWalletCustodyKeySetCeremony({
+    runStep,
+    custody: establishingCustody(),
+    keySetRun: nearRun(async (request) => {
       sawRequest = request;
-      return ROUTER_RESPONSE;
+      return '{"yao":"result"}';
     }),
-  );
+    ceremonyId: CEREMONY_ID,
+  });
 
-  expect(payload).toEqual(SEALED);
+  expect(payload).toEqual(ESTABLISHED_PAYLOAD);
   expect(calls.map((call) => call.type)).toEqual([
-    'beginWalletCustodyRegistration',
-    'completeWalletCustodyRegistration',
-    'sealWalletCustodyRegistration',
+    'beginWalletCustodyKeySetRun',
+    'completeWalletCustodyKeySetRun',
+    'finishWalletCustodyKeySetRun',
   ]);
-  // A completed ceremony is not discarded: the seal already consumed it.
+  // A completed run is not discarded: the finish already consumed it.
   expect(calls.some((call) => call.type === 'discardWalletCustodyCeremony')).toBe(false);
 
-  // The Router round sees only the public protocol messages.
-  expect(sawRequest).toEqual({
-    yaoExecuteRequestJson: BEGUN.yaoExecuteRequestJson,
-    ecdsaContextBinding32B64u: BEGUN.ecdsaContextBinding32B64u,
-    ecdsaClientSharePublicKey33B64u: BEGUN.ecdsaClientSharePublicKey33B64u,
-  });
-  // Every step addresses the same ceremony.
+  // The Router round sees only the public execution request.
+  expect(sawRequest).toBe(BEGUN_NEAR.yaoExecuteRequestJson);
+
+  const begin = calls[0]!.payload;
+  expect(begin.keySet).toBe('near_ed25519_v1');
+  expect(begin.custody).toEqual({ origin: 'establish', walletId: WALLET_ID });
+
+  // The identity recorded is this key set's own field.
+  expect(calls[1]!.payload.identityId).toBe('near-ed25519-key-1');
+
+  // An establishing run must seal, so the finish carries the factor and codes.
+  const establishWith = calls[2]!.payload.establishWith as Record<string, unknown>;
+  expect(establishWith.factorJson).toBe('{"envelopeId":"envelope-1"}');
+  expect(establishWith.recoveryCodesJson).toBe('[]');
+
   for (const call of calls) expect(call.payload.ceremonyId).toBe(CEREMONY_ID);
 });
 
-test('a failed Router round discards the ceremony and rethrows', async () => {
+test('a joining EVM run reaches the relayer and never seals', async () => {
+  const { runStep, calls } = recordingRunner({}, BEGUN_EVM, JOINED_PAYLOAD);
+  let sawBootstrap: unknown = null;
+
+  const payload = await runWalletCustodyKeySetCeremony({
+    runStep,
+    custody: joiningCustody(),
+    keySetRun: evmRun(async (bootstrap) => {
+      sawBootstrap = bootstrap;
+      return '{"relayerKeyId":"relayer-1"}';
+    }),
+    ceremonyId: CEREMONY_ID,
+  });
+
+  expect(payload).toEqual(JOINED_PAYLOAD);
+
+  // The relayer round gets the bootstrap facts, not a Router request.
+  expect(sawBootstrap).toEqual({
+    contextBinding32B64u: BEGUN_EVM.ecdsaContextBinding32B64u,
+    clientSharePublicKey33B64u: BEGUN_EVM.ecdsaClientSharePublicKey33B64u,
+  });
+
+  const begin = calls[0]!.payload;
+  expect(begin.keySet).toBe('evm_family_ecdsa_v1');
+  expect((begin.custody as Record<string, unknown>).origin).toBe('join');
+  // The factor secret opens the existing envelope, at the begin rather than the
+  // finish: a joining run has no seed of its own to seal.
+  expect((begin.custody as Record<string, unknown>).custodyJson).toBe('{"nonceB64u":"nonce"}');
+
+  expect(calls[1]!.payload.identityId).toBe('wallet-key:evm-family:alice.testnet:root-1:v1');
+
+  // The property that matters: sealing here would give the wallet a second seed
+  // and a second recovery set, leaving half its keys covered by neither.
+  expect(calls[2]!.payload.establishWith).toBeUndefined();
+});
+
+test('a recorded manifest digest reaches the completing step', async () => {
+  const { runStep, calls } = recordingRunner();
+
+  await runWalletCustodyKeySetCeremony({
+    runStep,
+    custody: establishingCustody(),
+    keySetRun: nearRun(async () => '{"yao":"result"}'),
+    recordedKeyManifestDigestB64u: 'recorded-digest',
+    ceremonyId: CEREMONY_ID,
+  });
+
+  // Present means the run must reproduce that key set rather than replace it.
+  expect(calls[1]!.payload.recordedKeyManifestDigestB64u).toBe('recorded-digest');
+});
+
+test('a failed protocol round discards the run and rethrows', async () => {
   const { runStep, calls } = recordingRunner();
   const relayerDown = new Error('relayer unavailable');
 
   await expect(
-    runWalletCustodyRegistrationCeremony(
-      input(runStep, async () => {
+    runWalletCustodyKeySetCeremony({
+      runStep,
+      custody: establishingCustody(),
+      keySetRun: nearRun(async () => {
         throw relayerDown;
       }),
-    ),
+      ceremonyId: CEREMONY_ID,
+    }),
   ).rejects.toThrow('relayer unavailable');
 
   // This is the case the driver exists for: the worker never saw a failure, so
   // nothing there would have dropped the seed.
   expect(calls.map((call) => call.type)).toEqual([
-    'beginWalletCustodyRegistration',
+    'beginWalletCustodyKeySetRun',
     'discardWalletCustodyCeremony',
   ]);
 });
 
-test('a failed step discards the ceremony and surfaces the original error', async () => {
-  for (const failing of ['completeWalletCustodyRegistration', 'sealWalletCustodyRegistration']) {
+test('a begin that prepared no protocol round fails before completing', async () => {
+  // An EVM begin answering a NEAR run: there is no execution request to send,
+  // and continuing would hand the Router nothing.
+  const { runStep, calls } = recordingRunner({}, BEGUN_EVM);
+
+  await expect(
+    runWalletCustodyKeySetCeremony({
+      runStep,
+      custody: establishingCustody(),
+      keySetRun: nearRun(async () => '{"yao":"result"}'),
+      ceremonyId: CEREMONY_ID,
+    }),
+  ).rejects.toThrow('no Router execution request');
+
+  expect(calls.map((call) => call.type)).toEqual([
+    'beginWalletCustodyKeySetRun',
+    'discardWalletCustodyCeremony',
+  ]);
+});
+
+test('a failed step discards the run and surfaces the original error', async () => {
+  for (const failing of ['completeWalletCustodyKeySetRun', 'finishWalletCustodyKeySetRun']) {
     const { runStep, calls } = recordingRunner({ [failing]: new Error(`${failing} failed`) });
 
     await expect(
-      runWalletCustodyRegistrationCeremony(input(runStep, async () => ROUTER_RESPONSE)),
+      runWalletCustodyKeySetCeremony({
+        runStep,
+        custody: establishingCustody(),
+        keySetRun: nearRun(async () => '{"yao":"result"}'),
+        ceremonyId: CEREMONY_ID,
+      }),
     ).rejects.toThrow(`${failing} failed`);
 
     expect(calls.at(-1)?.type).toBe('discardWalletCustodyCeremony');
@@ -157,37 +285,48 @@ test('a failed step discards the ceremony and surfaces the original error', asyn
 
 test('a discard that itself fails does not mask the original error', async () => {
   const { runStep } = recordingRunner({
-    sealWalletCustodyRegistration: new Error('seal rejected the recovery set'),
+    finishWalletCustodyKeySetRun: new Error('finish rejected the recovery set'),
     discardWalletCustodyCeremony: new Error('worker is gone'),
   });
 
-  // The caller must learn why the ceremony failed, not why cleanup failed.
+  // The caller must learn why the run failed, not why cleanup failed.
   await expect(
-    runWalletCustodyRegistrationCeremony(input(runStep, async () => ROUTER_RESPONSE)),
-  ).rejects.toThrow('seal rejected the recovery set');
+    runWalletCustodyKeySetCeremony({
+      runStep,
+      custody: establishingCustody(),
+      keySetRun: nearRun(async () => '{"yao":"result"}'),
+      ceremonyId: CEREMONY_ID,
+    }),
+  ).rejects.toThrow('finish rejected the recovery set');
 });
 
 test('a failed begin needs no discard', async () => {
   const { runStep, calls } = recordingRunner({
-    beginWalletCustodyRegistration: new Error('protocol inputs rejected'),
+    beginWalletCustodyKeySetRun: new Error('protocol inputs rejected'),
   });
 
   await expect(
-    runWalletCustodyRegistrationCeremony(input(runStep, async () => ROUTER_RESPONSE)),
+    runWalletCustodyKeySetCeremony({
+      runStep,
+      custody: establishingCustody(),
+      keySetRun: nearRun(async () => '{"yao":"result"}'),
+      ceremonyId: CEREMONY_ID,
+    }),
   ).rejects.toThrow('protocol inputs rejected');
 
   // Nothing was ever stored under this id, and the worker dropped the seed with
   // the failed transition.
-  expect(calls.map((call) => call.type)).toEqual(['beginWalletCustodyRegistration']);
+  expect(calls.map((call) => call.type)).toEqual(['beginWalletCustodyKeySetRun']);
 });
 
-test('each ceremony gets its own id when none is supplied', async () => {
+test('each run gets its own id when none is supplied', async () => {
   const seen = new Set<string>();
   for (let index = 0; index < 3; index += 1) {
     const { runStep, calls } = recordingRunner();
-    await runWalletCustodyRegistrationCeremony({
-      ...input(runStep, async () => ROUTER_RESPONSE),
-      ceremonyId: undefined,
+    await runWalletCustodyKeySetCeremony({
+      runStep,
+      custody: establishingCustody(),
+      keySetRun: nearRun(async () => '{"yao":"result"}'),
     });
     seen.add(String(calls[0]?.payload.ceremonyId));
   }

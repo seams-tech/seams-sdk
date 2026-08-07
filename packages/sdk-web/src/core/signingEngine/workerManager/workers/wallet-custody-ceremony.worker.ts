@@ -1,25 +1,28 @@
 import init, {
-  wallet_custody_ceremony_begin_registration_v1,
+  wallet_custody_ceremony_establish_v1,
+  wallet_custody_ceremony_join_v1,
   type WasmCeremonyManifestEstablishedV1,
-  type WasmCeremonyProtocolsPreparedV1,
+  type WasmCeremonyProtocolPreparedV1,
   type WasmCeremonySeedHeldV1,
 } from '../../../../../../../wasm/wallet_custody_ceremony/pkg/wallet_custody_ceremony.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { errorLogSummary, safeErrorMessage } from '@shared/utils/errors';
+import type { WalletCustodyKeySetKind } from '@shared/passkey-custody';
 
 /**
- * The wallet custody registration ceremony, driven from a dedicated worker.
+ * One wallet custody ceremony run, driven from a dedicated worker.
  *
- * The ceremony spans two Router/relayer round-trips, and its state must survive
- * them without the seed, the owner roots, or the ECDSA pending blob ever
+ * A run provisions one key set and spans one protocol round-trip — the Router
+ * for NEAR Ed25519, the relayer for the EVM family. Its state must survive that
+ * round without the seed, the owner root, or the ECDSA pending blob ever
  * existing as JavaScript values. So the wasm state handle stays here, in the
  * worker, keyed by a ceremony id; the main thread carries only the public
- * protocol messages between rounds and the ciphertext at the end.
+ * protocol messages across the round and the ciphertext at the end.
  *
  * Each wasm transition consumes its handle. This worker mirrors that: a step
  * takes the stored handle out of the map before advancing, and only a
  * successful transition puts the next one back. A failed step therefore ends
- * the ceremony rather than leaving a half-advanced state a caller could retry
+ * the run rather than leaving a half-advanced state a caller could retry
  * into — which is the same rule the Rust typestate enforces, made visible at
  * the message layer.
  */
@@ -35,48 +38,66 @@ let initPromise: Promise<void> | null = null;
 const MAX_CONCURRENT_CEREMONIES = 4;
 
 /**
- * The two steps a ceremony can be *parked* at between messages. There is no
- * `completed` state here on purpose: completing the protocols and establishing
+ * The two steps a run can be *parked* at between messages. There is no
+ * `completed` state here on purpose: completing the protocol and establishing
  * the manifest happen in one message, so a completed-but-unestablished handle
  * never sits in the map waiting for a caller.
+ *
+ * `prepared` carries its key set because the next transition differs by it —
+ * and because the manifest must be recorded under the key set whose protocol
+ * actually ran, not one the completing caller names.
  */
 type CeremonyState =
-  | { readonly step: 'prepared'; readonly handle: WasmCeremonyProtocolsPreparedV1 }
+  | {
+      readonly step: 'prepared';
+      readonly keySet: WalletCustodyKeySetKind;
+      readonly handle: WasmCeremonyProtocolPreparedV1;
+    }
   | { readonly step: 'established'; readonly handle: WasmCeremonyManifestEstablishedV1 };
 
 const ceremonies = new Map<string, CeremonyState>();
 
 type BeginRequest = {
   readonly id: string;
-  readonly type: 'beginWalletCustodyRegistration';
+  readonly type: 'beginWalletCustodyKeySetRun';
   readonly payload: {
     readonly ceremonyId: string;
-    readonly walletId: string;
-    /** `RegistrationProtocolInputsWireV1`. Carries no Ed25519 binding digest. */
+    readonly keySet: WalletCustodyKeySetKind;
+    readonly custody:
+      | { readonly origin: 'establish'; readonly walletId: string }
+      | {
+          readonly origin: 'join';
+          readonly custodyJson: string;
+          /** Opens the existing seed envelope. */
+          readonly factorSecret: ArrayBuffer | Uint8Array;
+        };
+    /** `NearEd25519ProtocolInputsWireV1` or `EvmFamilyProtocolInputsWireV1`. */
     readonly protocolInputsJson: string;
   };
 };
 
 type CompleteRequest = {
   readonly id: string;
-  readonly type: 'completeWalletCustodyRegistration';
+  readonly type: 'completeWalletCustodyKeySetRun';
   readonly payload: {
     readonly ceremonyId: string;
-    readonly yaoResultJson: string;
-    readonly relayerPublicIdentityJson: string;
-    readonly identitiesJson: string;
+    readonly protocolResultJson: string;
+    readonly identityId: string;
+    readonly recordedKeyManifestDigestB64u?: string;
   };
 };
 
-type SealRequest = {
+type FinishRequest = {
   readonly id: string;
-  readonly type: 'sealWalletCustodyRegistration';
+  readonly type: 'finishWalletCustodyKeySetRun';
   readonly payload: {
     readonly ceremonyId: string;
-    readonly factorJson: string;
-    /** The factor secret: a passkey PRF result, or the Email OTP factor key. */
-    readonly factorSecret: ArrayBuffer | Uint8Array;
-    readonly recoveryCodesJson: string;
+    readonly establishWith?: {
+      readonly factorJson: string;
+      /** The factor secret: a passkey PRF result, or the Email OTP factor key. */
+      readonly factorSecret: ArrayBuffer | Uint8Array;
+      readonly recoveryCodesJson: string;
+    };
   };
 };
 
@@ -89,7 +110,7 @@ type DiscardRequest = {
 type WalletCustodyCeremonyWorkerRequest =
   | BeginRequest
   | CompleteRequest
-  | SealRequest
+  | FinishRequest
   | DiscardRequest;
 
 function postToMainThread(message: unknown): void {
@@ -157,7 +178,20 @@ function takeCeremony<TStep extends CeremonyState['step']>(
   return state as Extract<CeremonyState, { step: TStep }>;
 }
 
-function beginRegistration(request: BeginRequest): unknown {
+function requireKeySet(value: unknown): WalletCustodyKeySetKind {
+  if (value === 'near_ed25519_v1' || value === 'evm_family_ecdsa_v1') return value;
+  throw new Error(`Unknown wallet key set kind: ${String(value)}`);
+}
+
+/**
+ * Starts a run: takes hold of the wallet's seed, then derives this key set's
+ * root straight into its protocol.
+ *
+ * Establishing generates the seed here; joining opens the envelope custody
+ * already has. The open is what authorises a joining run — its AAD binds the
+ * seed to the wallet, so a successful open proves the seed is that wallet's own.
+ */
+function beginKeySetRun(request: BeginRequest): unknown {
   const ceremonyId = requireCeremonyId(request.payload.ceremonyId);
   if (ceremonies.has(ceremonyId)) {
     throw new Error(`Wallet custody ceremony ${ceremonyId} is already in flight`);
@@ -165,13 +199,31 @@ function beginRegistration(request: BeginRequest): unknown {
   if (ceremonies.size >= MAX_CONCURRENT_CEREMONIES) {
     throw new Error('Too many wallet custody ceremonies are in flight');
   }
+  // Validated before the seed exists: `prepare_*` consumes the handle, so an
+  // unknown key set must fail while there is still nothing to drop.
+  const keySet = requireKeySet(request.payload.keySet);
 
-  const seedHeld: WasmCeremonySeedHeldV1 = wallet_custody_ceremony_begin_registration_v1(
-    String(request.payload.walletId || ''),
-  );
-  // `prepare` consumes `seedHeld`; on failure the seed is dropped with it.
-  const prepared = seedHeld.prepare(String(request.payload.protocolInputsJson || ''));
-  ceremonies.set(ceremonyId, { step: 'prepared', handle: prepared });
+  const custody = request.payload.custody;
+  let seedHeld: WasmCeremonySeedHeldV1;
+  if (custody?.origin === 'join') {
+    const factorSecret = toBytes(custody.factorSecret);
+    try {
+      seedHeld = wallet_custody_ceremony_join_v1(factorSecret, String(custody.custodyJson || ''));
+    } finally {
+      factorSecret.fill(0);
+    }
+  } else if (custody?.origin === 'establish') {
+    seedHeld = wallet_custody_ceremony_establish_v1(String(custody.walletId || ''));
+  } else {
+    throw new Error('A wallet custody run must either establish custody or join it');
+  }
+
+  // `prepare_*` consumes `seedHeld`; on failure the seed is dropped with it.
+  const prepared =
+    keySet === 'near_ed25519_v1'
+      ? seedHeld.prepare_near_ed25519(String(request.payload.protocolInputsJson || ''))
+      : seedHeld.prepare_evm_family(String(request.payload.protocolInputsJson || ''));
+  ceremonies.set(ceremonyId, { step: 'prepared', keySet, handle: prepared });
 
   return {
     ceremonyId,
@@ -182,34 +234,52 @@ function beginRegistration(request: BeginRequest): unknown {
 }
 
 /**
- * Completes both protocols and establishes the key manifest.
+ * Completes this key set's protocol and establishes its manifest.
  *
  * These are one message because nothing external happens between them: the
- * manifest is built from what the protocols just returned, and leaving the
+ * manifest is built from what the protocol just returned, and leaving the
  * completed state addressable would only widen the window in which a seed sits
  * in the map.
+ *
+ * The key set comes from the stored state rather than the request, so the
+ * manifest is recorded under the protocol that actually ran.
  */
-function completeRegistration(request: CompleteRequest): unknown {
+function completeKeySetRun(request: CompleteRequest): unknown {
   const ceremonyId = requireCeremonyId(request.payload.ceremonyId);
-  const { handle } = takeCeremony(ceremonyId, 'prepared');
-  const completed = handle.complete(
-    String(request.payload.yaoResultJson || ''),
-    String(request.payload.relayerPublicIdentityJson || ''),
+  const { keySet, handle } = takeCeremony(ceremonyId, 'prepared');
+  const protocolResultJson = String(request.payload.protocolResultJson || '');
+  const completed =
+    keySet === 'near_ed25519_v1'
+      ? handle.complete_near_ed25519(protocolResultJson)
+      : handle.complete_evm_family(protocolResultJson);
+  const established = completed.establish_manifest(
+    keySet,
+    String(request.payload.identityId || ''),
+    request.payload.recordedKeyManifestDigestB64u,
   );
-  const established = completed.establish_manifest(String(request.payload.identitiesJson || ''));
   ceremonies.set(ceremonyId, { step: 'established', handle: established });
   return { ceremonyId };
 }
 
-function sealRegistration(request: SealRequest): unknown {
+/**
+ * Finishes the run and returns what there is to commit.
+ *
+ * A run that established custody seals the seed under its factor and issues the
+ * recovery set. A joining run writes neither — the wallet already has both —
+ * and its whole output is this key set's manifest digest.
+ */
+function finishKeySetRun(request: FinishRequest): unknown {
   const ceremonyId = requireCeremonyId(request.payload.ceremonyId);
   const { handle } = takeCeremony(ceremonyId, 'established');
-  const factorSecret = toBytes(request.payload.factorSecret);
+  const establishWith = request.payload.establishWith;
+  if (!establishWith) return handle.finish_joining_custody();
+
+  const factorSecret = toBytes(establishWith.factorSecret);
   try {
-    return handle.seal(
-      String(request.payload.factorJson || ''),
+    return handle.finish_establishing_custody(
+      String(establishWith.factorJson || ''),
       factorSecret,
-      String(request.payload.recoveryCodesJson || ''),
+      String(establishWith.recoveryCodesJson || ''),
     );
   } finally {
     // The factor secret was copied into wasm; this view is the worker's own and
@@ -219,9 +289,8 @@ function sealRegistration(request: SealRequest): unknown {
 }
 
 /**
- * Ends a ceremony without completing it. Dropping the handle zeroizes the seed
- * and any in-flight protocol state, so an abandoned registration leaves nothing
- * behind.
+ * Ends a run without completing it. Dropping the handle zeroizes the seed and
+ * any in-flight protocol state, so an abandoned run leaves nothing behind.
  */
 function discardCeremony(request: DiscardRequest): unknown {
   const ceremonyId = requireCeremonyId(request.payload.ceremonyId);
@@ -232,14 +301,14 @@ function discardCeremony(request: DiscardRequest): unknown {
 async function handleRequest(request: WalletCustodyCeremonyWorkerRequest): Promise<void> {
   await initializeWasm();
   switch (request.type) {
-    case 'beginWalletCustodyRegistration':
-      postSucceeded(request.id, beginRegistration(request));
+    case 'beginWalletCustodyKeySetRun':
+      postSucceeded(request.id, beginKeySetRun(request));
       return;
-    case 'completeWalletCustodyRegistration':
-      postSucceeded(request.id, completeRegistration(request));
+    case 'completeWalletCustodyKeySetRun':
+      postSucceeded(request.id, completeKeySetRun(request));
       return;
-    case 'sealWalletCustodyRegistration':
-      postSucceeded(request.id, sealRegistration(request));
+    case 'finishWalletCustodyKeySetRun':
+      postSucceeded(request.id, finishKeySetRun(request));
       return;
     case 'discardWalletCustodyCeremony':
       postSucceeded(request.id, discardCeremony(request));
