@@ -5,6 +5,7 @@ import type {
   PasskeyEnvelopeId,
   WalletId,
   WebAuthnCredentialIdB64u,
+  WebAuthnRpId,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import { applySignerMigrations } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
@@ -31,7 +32,11 @@ const TEST_SCOPE = {
 
 const LOCATOR = {
   walletId: WALLET_ID as WalletId,
-  factor: { kind: 'passkey', credentialIdB64u: CREDENTIAL_ID_B64U as WebAuthnCredentialIdB64u },
+  factor: {
+    kind: 'passkey',
+    rpId: RP_ID as WebAuthnRpId,
+    credentialIdB64u: CREDENTIAL_ID_B64U as WebAuthnCredentialIdB64u,
+  },
   envelopeId: ENVELOPE_ID as PasskeyEnvelopeId,
 } as const;
 
@@ -80,15 +85,32 @@ test('a missing envelope and a foreign wallet both read as missing', async () =>
       ...LOCATOR,
       factor: {
         kind: 'passkey',
+        rpId: RP_ID as WebAuthnRpId,
         credentialIdB64u: 'Y3JlZGVudGlhbC05' as WebAuthnCredentialIdB64u,
       },
     });
     expect(foreignCredential.kind).toBe('missing');
 
+    // The RP ID is part of factor identity: the same credential id under a
+    // different relying party is a different factor.
+    const foreignRp = await store.lookupEnvelope({
+      ...LOCATOR,
+      factor: {
+        kind: 'passkey',
+        rpId: 'evil.example' as WebAuthnRpId,
+        credentialIdB64u: CREDENTIAL_ID_B64U as WebAuthnCredentialIdB64u,
+      },
+    });
+    expect(foreignRp.kind).toBe('missing');
+
     // An Email OTP address never resolves a passkey-sealed envelope.
     const foreignFactor = await store.lookupEnvelope({
       ...LOCATOR,
-      factor: { kind: 'email_otp', enrollmentId: 'enrollment-1' },
+      factor: {
+        kind: 'email_otp',
+        enrollmentId: 'enrollment-1',
+        enrollmentSealKeyVersion: 'seal-v1',
+      },
     });
     expect(foreignFactor.kind).toBe('missing');
   });
@@ -278,7 +300,11 @@ test('interchangeable factors seal the same seed under separate envelopes', asyn
 
     const otpLocator = {
       walletId: WALLET_ID as WalletId,
-      factor: { kind: 'email_otp', enrollmentId: 'enrollment-1' },
+      factor: {
+        kind: 'email_otp',
+        enrollmentId: 'enrollment-1',
+        enrollmentSealKeyVersion: 'seal-v1',
+      },
       envelopeId: 'wallet-custody-envelope-2' as PasskeyEnvelopeId,
     } as const;
 
@@ -319,6 +345,7 @@ test('lane holder-share envelopes coexist with the owner seed', async () => {
       walletId: WALLET_ID as WalletId,
       factor: {
         kind: 'passkey',
+        rpId: RP_ID as WebAuthnRpId,
         credentialIdB64u: 'Y3JlZGVudGlhbC0y' as WebAuthnCredentialIdB64u,
       },
       envelopeId: 'wallet-custody-envelope-3' as PasskeyEnvelopeId,
@@ -348,12 +375,12 @@ test('locators whose ids contain delimiters cannot collide', async () => {
 
     const firstLookup = await store.lookupEnvelope({
       walletId: WALLET_ID as WalletId,
-      factor: { kind: 'email_otp', enrollmentId: 'e' },
+      factor: { kind: 'email_otp', enrollmentId: 'e', enrollmentSealKeyVersion: 'seal-v1' },
       envelopeId: 'x:y' as PasskeyEnvelopeId,
     });
     const secondLookup = await store.lookupEnvelope({
       walletId: WALLET_ID as WalletId,
-      factor: { kind: 'email_otp', enrollmentId: 'e:x' },
+      factor: { kind: 'email_otp', enrollmentId: 'e:x', enrollmentSealKeyVersion: 'seal-v1' },
       envelopeId: 'y' as PasskeyEnvelopeId,
     });
     expect(firstLookup.kind).toBe('active');

@@ -21,7 +21,7 @@ use signer_core::passkey_custody::{
 use signer_core::wallet_recovery_custody::{
     open_wallet_recovery_entry_v1, open_wallet_recovery_manifest_kek_v1,
     seal_wallet_recovery_entry_v1, seal_wallet_recovery_manifest_kek_v1, WalletRecoveryCodeScopeV1,
-    WalletRecoveryEntryScopeV1,
+    WalletRecoveryEntryCustodyV1, WalletRecoveryEntryScopeV1,
 };
 use wasm_bindgen::prelude::*;
 use zeroize::Zeroizing;
@@ -266,11 +266,13 @@ fn parse_entry_scope(scope_json: &str) -> Result<WalletRecoveryEntryScopeV1, JsV
         // A partial lane scope is a caller error, not a wallet-scoped entry.
         _ => return Err(js_error("recovery entry lane scope is incomplete")),
     };
+    let kind = PasskeyCustodySecretKind::parse(&wire.custody_secret_kind).map_err(js_error)?;
+    // The validated constructor rejects kind/lane mismatches, so a seed entry
+    // smuggling lane identity never becomes a representable scope.
+    let custody = WalletRecoveryEntryCustodyV1::from_parts(kind, lane).map_err(js_error)?;
     Ok(WalletRecoveryEntryScopeV1 {
         wallet_id: wire.wallet_id,
-        lane,
-        custody_secret_kind: PasskeyCustodySecretKind::parse(&wire.custody_secret_kind)
-            .map_err(js_error)?,
+        custody,
         key_manifest_digest: decode_digest(
             &wire.key_manifest_digest_b64u,
             "keyManifestDigestB64u",
@@ -338,7 +340,7 @@ pub fn wallet_recovery_seal_entry_v1(
     handle: &WasmPasskeyCustodyHandleV1,
 ) -> Result<JsValue, JsValue> {
     let scope = parse_entry_scope(entry_scope_json)?;
-    if scope.custody_secret_kind != handle.kind {
+    if scope.custody.kind() != handle.kind {
         return Err(js_error(
             "custody handle kind does not match the recovery entry scope",
         ));
@@ -372,6 +374,6 @@ pub fn wallet_recovery_open_entry_v1(
             .map_err(js_error)?;
     Ok(WasmPasskeyCustodyHandleV1::new(
         opened,
-        scope.custody_secret_kind,
+        scope.custody.kind(),
     ))
 }

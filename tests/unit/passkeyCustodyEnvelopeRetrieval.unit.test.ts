@@ -38,7 +38,11 @@ const USER_ID = 'user-1';
 
 const LOCATOR = {
   walletId: WALLET_ID as WalletId,
-  factor: { kind: 'passkey', credentialIdB64u: CREDENTIAL_ID_B64U as WebAuthnCredentialIdB64u },
+  factor: {
+    kind: 'passkey',
+    rpId: RP_ID,
+    credentialIdB64u: CREDENTIAL_ID_B64U as WebAuthnCredentialIdB64u,
+  },
   envelopeId: ENVELOPE_ID as PasskeyEnvelopeId,
 } as const;
 
@@ -319,17 +323,36 @@ test('PRF disclosure is rejected even when the assertion would verify', async ()
 test('a WebAuthn assertion cannot retrieve an Email OTP envelope', async () => {
   await withRetrieval(async (retrieve, store) => {
     await store.createEnvelope(passkeyCustodyEnvelope());
-    // The Email OTP factor secret is not a credential, so an assertion is not
-    // evidence for it at all — this is a category error, not a near-miss.
+    // The request type makes an Email OTP locator unrepresentable; the cast
+    // simulates unparsed wire input, which the runtime guard must still stop.
+    const wireRequest = request();
+    const tampered = {
+      ...wireRequest,
+      locator: {
+        ...wireRequest.locator,
+        factor: { kind: 'email_otp', enrollmentId: 'enrollment-1' },
+      },
+    } as unknown as PasskeyCustodyEnvelopeRetrievalRequest;
+    const result = await retrieve(tampered, acceptAssertion);
+    expect(result).toMatchObject({ kind: 'assertion_rejected', code: 'invalid_body' });
+  });
+});
+
+test('an assertion for one RP cannot fetch an envelope sealed under another', async () => {
+  await withRetrieval(async (retrieve, store) => {
+    await store.createEnvelope(passkeyCustodyEnvelope());
+    // The assertion verifies against request.rpId; the locator names the
+    // envelope's RP. If they disagree, one RP's assertion would be standing in
+    // for another RP's ciphertext.
     const result = await retrieve(
       request({
         locator: {
           ...LOCATOR,
-          factor: { kind: 'email_otp', enrollmentId: 'enrollment-1' },
+          factor: { ...LOCATOR.factor, rpId: 'evil.example' as WebAuthnRpId },
         },
       }),
       acceptAssertion,
     );
-    expect(result.kind).toBe('credential_mismatch');
+    expect(result).toMatchObject({ kind: 'assertion_rejected', code: 'rp_mismatch' });
   });
 });
