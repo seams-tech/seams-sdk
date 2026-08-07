@@ -75,6 +75,26 @@ function postSurfaceMeasurement(
   input.post({ type: 'SURFACE_MEASUREMENT', payload: measurement });
 }
 
+/**
+ * The variant the parent pinned the host box to for a whole request, when it is
+ * NOT simply the variant of whatever confirmation renders inside it.
+ *
+ * Key export is the only such request. Its box is always a full-viewport drawer
+ * because the key viewer is always a bottom drawer, but the Email OTP prompt
+ * that runs first inside that same box still follows the Confirmer UI setting.
+ * The parent reads this exact field to dress the dialog
+ * (confirmationUiModeForRequest in client/router.ts), so reading it here is what
+ * keeps the two sides describing the same box.
+ */
+function pinnedHostSurfaceVariantForRequest(
+  req: ParentToChildEnvelope,
+): 'modal' | 'drawer' | undefined {
+  if (req.type !== 'PM_EXPORT_KEYPAIR_UI') return undefined;
+  const payload = req.payload as { options?: { variant?: unknown } } | undefined;
+  const variant = payload?.options?.variant;
+  return variant === 'modal' || variant === 'drawer' ? variant : 'drawer';
+}
+
 function surfaceMeasurementBindingForRequest(
   input: WalletHostRuntimeRequest,
 ): { requestId: WalletIframeRequestId; binding: UiConfirmSurfaceMeasurementBinding } | null {
@@ -84,12 +104,14 @@ function surfaceMeasurementBindingForRequest(
   } catch {
     return null;
   }
+  const hostSurfaceVariant = pinnedHostSurfaceVariantForRequest(input.req);
   return {
     requestId,
     binding: {
       kind: 'wallet_iframe',
       requestId,
       postMeasurement: postSurfaceMeasurement.bind(null, input),
+      ...(hostSurfaceVariant ? { hostSurfaceVariant } : {}),
     },
   };
 }
