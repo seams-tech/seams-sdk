@@ -95,6 +95,9 @@ Decision rules — classify before fixing:
     `UPDATE_ROUTER_AB_NORMAL_SIGNING_VECTORS=1 cargo test -p router-ab-core --test normal_signing_vectors`
   - Ed25519-Yao vectors/goldens: `cargo yao-fv all` (individual checks: `just ed25519-yao-fv-*`)
   - Rust→TS type bindings: `pnpm generate:signer-core-types`
+  - Wallet-custody wire fixtures (Rust↔TS contract):
+    `UPDATE_WALLET_CUSTODY_WIRE_FIXTURES=1 cargo test --test wire_fixtures` in
+    `wasm/wallet_custody_ceremony` — regenerate only for an intended wire change on both sides
 - An intentional behaviour change updates the spec doc and its contract test in the same
   change set.
 - Complex domain-state records (session, auth/capability, signing, persistence) come
