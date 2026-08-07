@@ -40,7 +40,7 @@ import {
  * `envelopeRevision`.
  */
 
-const PASSKEY_ENVELOPE_KEY_PREFIX = 'passkey-envelope';
+export const PASSKEY_ENVELOPE_KEY_PREFIX = 'passkey-envelope';
 
 export type CloudflareD1PasskeyCustodyEnvelopeStoreOptions = {
   readonly database: D1DatabaseLike;
@@ -171,6 +171,35 @@ async function ciphertextDigestB64u(sealedCustodySecretB64u: string): Promise<st
   return base64UrlEncode(await sha256Bytes(ciphertext));
 }
 
+/**
+ * The record key for one envelope, exported so the registration commit path
+ * addresses envelopes with this exact definition rather than a copy of it. A
+ * second spelling of this key would write rows no lookup could ever find.
+ *
+ * Envelopes are addressed by wallet, factor, and envelope id together, so a
+ * lookup can never return an envelope belonging to another factor even if the
+ * envelope id were guessed. JSON-encoded so no delimiter inside an id can
+ * splice one locator into another: enrollment ids are caller strings and
+ * domain ids permit ':'. A joined string would let
+ * {enrollment "e", envelope "x:y"} collide with {enrollment "e:x", envelope "y"}.
+ */
+export function passkeyCustodyEnvelopeRecordKey(
+  locator: PasskeyCustodyEnvelopeLocator,
+): string {
+  return JSON.stringify([
+    String(locator.walletId),
+    ...factorKeyPart(locator.factor),
+    String(locator.envelopeId),
+  ]);
+}
+
+/** The factor address a stored envelope carries, for callers building locators. */
+export function passkeyCustodyEnvelopeLocatorOf(
+  envelope: PasskeyCustodyEnvelopeRecord,
+): PasskeyCustodyEnvelopeLocator {
+  return envelopeLocator(envelope);
+}
+
 export class CloudflareD1PasskeyCustodyEnvelopeStore {
   private readonly records: CloudflareD1VersionedJsonRecordStore<PasskeyCustodyEnvelopeRecord>;
 
@@ -184,21 +213,8 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
     });
   }
 
-  /**
-   * Envelopes are addressed by wallet, credential, and envelope id together, so
-   * a lookup can never return an envelope belonging to another credential even
-   * if the envelope id were guessed.
-   */
   private recordKey(locator: PasskeyCustodyEnvelopeLocator): string {
-    // JSON-encoded so no delimiter inside an id can splice one locator into
-    // another: enrollment ids are caller strings and domain ids permit ':'.
-    // A joined string would let {enrollment "e", envelope "x:y"} collide with
-    // {enrollment "e:x", envelope "y"}.
-    return JSON.stringify([
-      String(locator.walletId),
-      ...factorKeyPart(locator.factor),
-      String(locator.envelopeId),
-    ]);
+    return passkeyCustodyEnvelopeRecordKey(locator);
   }
 
   /**
