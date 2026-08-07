@@ -322,8 +322,7 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
   for (const config of runtime.configs) {
     if (!config.privateD1) continue;
     const generated = readFileSync(config.configPath, 'utf8');
-    const relativeMigrationsDirectory =
-      `migrations_dir = "migrations/${config.privateD1.migrationsDirectory}"`;
+    const relativeMigrationsDirectory = `migrations_dir = "migrations/${config.privateD1.migrationsDirectory}"`;
     const absoluteMigrationsDirectory = `migrations_dir = ${JSON.stringify(
       path.join(
         repoRoot(),
@@ -335,20 +334,28 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
     )}`;
     expect(generated).not.toContain(relativeMigrationsDirectory);
     expect(generated).toContain(absoluteMigrationsDirectory);
+    // Miniflare keys local D1 storage by database_id. The rendered id must be
+    // the role's pinned local id — never a deploy-lane placeholder, whose
+    // renames would orphan all local signing/derivation state on restart.
+    expect(generated).toContain(
+      `database_id = ${JSON.stringify(config.privateD1.localDatabaseId)}`,
+    );
+    expect(tomlSection(generated, '[d1_databases]')).not.toContain('__');
   }
+  expect(runtime.configs.map((config) => config.privateD1?.localDatabaseId)).toEqual([
+    undefined,
+    '00000000-0000-0000-0000-0000000094a1',
+    '00000000-0000-0000-0000-0000000094b1',
+    '00000000-0000-0000-0000-0000000094c1',
+  ]);
   expect(runtime.configs[3].privateD1).toEqual({
     databaseName: 'router-ab-signing-worker-private',
     migrationsDirectory: 'signing-worker',
+    localDatabaseId: '00000000-0000-0000-0000-0000000094c1',
   });
   expect(signingWorkerConfig).toContain(
     `migrations_dir = ${JSON.stringify(
-      path.join(
-        repoRoot(),
-        'crates',
-        'router-ab-cloudflare',
-        'migrations',
-        'signing-worker',
-      ),
+      path.join(repoRoot(), 'crates', 'router-ab-cloudflare', 'migrations', 'signing-worker'),
     )}`,
   );
   for (const config of runtime.configs) {

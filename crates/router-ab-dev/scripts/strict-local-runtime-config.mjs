@@ -16,6 +16,7 @@ const STRICT_WORKER_ROLES = Object.freeze([
     privateD1: {
       databaseName: 'router-ab-deriver-a-private',
       migrationsDirectory: 'deriver-a',
+      localDatabaseId: '00000000-0000-0000-0000-0000000094a1',
     },
   },
   {
@@ -24,6 +25,7 @@ const STRICT_WORKER_ROLES = Object.freeze([
     privateD1: {
       databaseName: 'router-ab-deriver-b-private',
       migrationsDirectory: 'deriver-b',
+      localDatabaseId: '00000000-0000-0000-0000-0000000094b1',
     },
   },
   {
@@ -32,6 +34,7 @@ const STRICT_WORKER_ROLES = Object.freeze([
     privateD1: {
       databaseName: 'router-ab-signing-worker-private',
       migrationsDirectory: 'signing-worker',
+      localDatabaseId: '00000000-0000-0000-0000-0000000094c1',
     },
   },
 ]);
@@ -100,11 +103,8 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
       privateD1Keys,
     });
     if (privateD1) {
-      config = setPrivateD1MigrationsDirectory(
-        config,
-        repoRoot,
-        privateD1.migrationsDirectory,
-      );
+      config = setPrivateD1MigrationsDirectory(config, repoRoot, privateD1.migrationsDirectory);
+      config = setPrivateD1LocalDatabaseId(config, privateD1.localDatabaseId);
     }
     writeFileSync(outputPath, config);
     const secretPath = path.join(outputRoot, `.dev.vars.${role}`);
@@ -162,6 +162,28 @@ function setPrivateD1MigrationsDirectory(source, repoRoot, migrationsDirectory) 
   return source.replaceAll(expected, `migrations_dir = ${JSON.stringify(absoluteDirectory)}`);
 }
 
+/**
+ * Pin the top-level [[d1_databases]] id to a role-stable local value.
+ *
+ * Miniflare keys its on-disk D1 storage by database_id, so the id IS the local
+ * database's identity: if the rendered id tracked the base config's deploy
+ * placeholders, every placeholder rename would silently orphan all local
+ * signing/derivation state (wallet activations included) on the next stack
+ * start. The pinned ids predate the placeholder scheme, which also keeps
+ * existing local state files reachable. Only the first database_id line is
+ * rewritten — the [env.*] sections are never exercised by local dev.
+ */
+function setPrivateD1LocalDatabaseId(source, localDatabaseId) {
+  if (!/^[0-9a-f-]{36}$/.test(localDatabaseId || '')) {
+    throw new Error('strict local private D1 requires a pinned localDatabaseId');
+  }
+  const assignment = /^database_id\s*=.*$/m;
+  if (!assignment.test(source)) {
+    throw new Error('strict local Wrangler config must define database_id');
+  }
+  return source.replace(assignment, `database_id = ${JSON.stringify(localDatabaseId)}`);
+}
+
 function applyRoleVars(source, role, env) {
   const internalSecretBinding = 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET';
   let config = setTomlSectionAssignment(
@@ -174,7 +196,12 @@ function applyRoleVars(source, role, env) {
     case 'router':
       config = setTomlSectionAssignment(config, 'vars', 'ROUTER_JWT_ISSUER', env.sdkRouterUrl);
       config = setTomlSectionAssignment(config, 'vars', 'ROUTER_JWT_AUDIENCE', 'router-ab');
-      config = setTomlSectionAssignment(config, 'vars', 'ROUTER_JWT_JWKS_JSON', env.ceremonyJwksJson);
+      config = setTomlSectionAssignment(
+        config,
+        'vars',
+        'ROUTER_JWT_JWKS_JSON',
+        env.ceremonyJwksJson,
+      );
       return replaceTopologyPublicVars(config, env);
     case 'deriver-a':
       config = setTomlSectionAssignment(
