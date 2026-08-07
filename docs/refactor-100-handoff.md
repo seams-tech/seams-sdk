@@ -58,8 +58,14 @@ TypeScript:
 - `packages/sdk-web/.../workers/wallet-custody-ceremony.worker.ts` and
   `.../walletCustody/ceremonyDriver.ts` — worker and driver.
 
-Verification: signer-core 9 suites, ceremony crate tests, 67 TypeScript custody
-unit tests, `tsc` clean across shared-ts / sdk-server-ts / sdk-web.
+Verification: signer-core 9 suites, 24 tests in the ceremony crate (12 output
+contract, 8 through the real Router A/B circuit, 4 at the wasm boundary), 67
+TypeScript custody unit tests, `tsc` clean across shared-ts / sdk-server-ts /
+sdk-web.
+
+The circuit tests are the ones to read first if you want the model in your head
+rather than on paper: they establish custody with an EVM-family run, then reach
+the same seed from a NEAR run by opening the envelope it sealed.
 
 ## Two guarantees that look like style but are not
 
@@ -79,26 +85,27 @@ is the only constructor for that origin and it requires a successful open.
 
 ## Next steps, in order
 
-1. **Rework the circuit tests** (`wasm/wallet_custody_ceremony/src/circuit_tests.rs`,
-   currently detached from `lib.rs`). Prove an EVM-only run commits custody with
-   Yao never running, and a NEAR run joining it writes a manifest and no custody
-   records. The `router-ab-dev` harness is still in the file.
-2. **Splice the ceremony into `registration.ts`.** The file was split for this —
+1. **Splice the ceremony into `registration.ts`.** The file was split for this —
    4,154 lines now, with the Yao and ECDSA phases in their own modules. Respect
    Refactor 94C's tested contract: deferred NEAR work is handed off before
    activate and never awaited. With key sets decoupled this is no longer a
    conflict; EVM commits its custody immediately and NEAR records its manifest
    whenever its Yao work settles.
-3. **Write the race test before the implementation it covers**: concurrent EVM
+2. **Write the race test before the implementation it covers**: concurrent EVM
    and NEAR ceremonies must end with one seed envelope, one recovery set, two
    manifests. The commit store needs a third outcome — custody exists, so add
    this key set only — distinct from today's `already_exists`.
-4. **Shrink `wasm/ecdsa_registration_client`** once registration leaves it.
+
+   `circuit_tests::both_key_sets_derive_from_the_one_wallet_custody_seed` is the
+   sequential half of this and the place to start: it already establishes
+   custody and joins it twice. What it does not cover is two runs racing for the
+   *establish* slot, which is the store's problem rather than the ceremony's.
+3. **Shrink `wasm/ecdsa_registration_client`** once registration leaves it.
    It is not registration-only: `open_ecdsa_role_local_signing_share_v1` runs at
    rehydration and two workers load it. Rename around role-local material
    rehydration, or fold the remainder into its natural owner — do not leave a
    compatibility shell under a misleading name.
-5. **Delete the PRF-derived signing-root paths** and wipe dev OTP wallets. Last,
+4. **Delete the PRF-derived signing-root paths** and wipe dev OTP wallets. Last,
    so registration is never without a working path.
 
 ## Working notes for whoever picks this up
@@ -120,3 +127,10 @@ is the only constructor for that origin and it requires a successful open.
   tests itself, which is how the seed-binding drift went unnoticed. A shared
   fixture that round-trips a record through both parsers would catch the whole
   class.
+- A third, cheaper to close than either: the one-key-set rebuild deleted
+  `ceremony::tests` along with the states it was written against, and the crate
+  stayed green because the remaining tests still passed. An earlier version of
+  this file then described those tests as present. Nothing watches whether a
+  refactor removes coverage — a green suite says only that what still compiles
+  passes. When a commit rewrites a module, check the test count moved the way
+  you expect.
