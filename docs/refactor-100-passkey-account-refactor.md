@@ -168,8 +168,14 @@ The refactor changes every owner root source:
 current passkey Ed25519: PRF.first -> deterministic Yao Client root
 current passkey ECDSA:   PRF.first -> deterministic client root share
 current Email OTP:       random secret32 -> Ed25519 Yao Client root
-                         -> ECDSA client root share (chained from the Ed25519
-                            root: a key-separation defect, deleted by Phase 1B)
+                            (own extract salt + application binding digest)
+                         random secret32 -> threshold-root intermediate T
+                            (seams/email-otp/root/v1) -> ECDSA client root
+                            share and unlock auth seed, both chained from T:
+                            a latent key-separation weakness, deleted by
+                            Phase 1B. T is a sibling of the Yao Client root,
+                            not its parent, and is never derived in
+                            production.
 
 target, both factors:
   random wallet custody seed (generated in Rust)
@@ -712,10 +718,25 @@ root derivation after random-root registration lands.
 
 Adopted August 7, 2026. Passkey and Email OTP become interchangeable unwrap
 factors for one wallet custody seed, and every owner signing root derives from
-the seed in parallel. This also removes an Email OTP key-separation defect:
-the ECDSA client root share and unlock auth seed were chained from the Ed25519
-Yao Client root, so any holder of that root could compute both. No OTP wallets
-exist in production; wiping dev wallets was approved August 7, 2026.
+the seed in parallel. This also removes a latent Email OTP key-separation
+weakness: the ECDSA client root share and unlock auth seed were both chained
+from one intermediate (`seams/email-otp/root/v1`), so any holder of that
+intermediate could compute both from public context.
+
+Independent review on August 7, 2026 corrected an earlier overstatement of this
+weakness. The chaining parent is NOT the Ed25519 Yao Client root: that root is
+derived by `derive_ed25519_yao_client_root_from_email_otp_factor_v1` under its
+own extract salt and expand domain, and binds the application binding digest.
+The intermediate is a sibling of it, both derived from `secret32`. No
+production code derives the intermediate — the Email OTP worker imports only
+the two leaf functions — so there was no demonstrated live exposure path, and
+holding the Ed25519 Yao Client root never conferred the ECDSA share or unlock
+seed. The weakness was structural and latent; the fix is warranted on
+key-separation grounds, not incident grounds.
+
+Wiping dev OTP wallets was approved August 7, 2026 on the operator's assertion
+that none are in production. That deployment fact is not verifiable from
+repository evidence.
 
 - [x] Amend this plan for single-seed custody, parallel derivation, and
       factor-kind envelopes (this revision).
@@ -860,8 +881,12 @@ Broad gate:
   chained derivation). Passkey and Email OTP wrap the same seed in
   factor-specific envelopes. Email OTP's landed chained derivation (ECDSA
   client share and unlock auth seed derived from the Ed25519 threshold root)
-  is a key-separation defect and is deleted; dev OTP wallets are wiped
-  (approved August 7, 2026 — none in production).
+  is a latent key-separation weakness — the chaining parent is an internal
+  intermediate that no production path derives, and it is a sibling of, not
+  the parent of, the Ed25519 Yao Client root — and is deleted rather than
+  versioned. Dev OTP wallets are wiped (approved August 7, 2026 on the
+  operator's assertion that none are in production; not verifiable from
+  repository evidence).
 - FROZEN (August 6, 2026) — recovery-code wrapping uses a manifest KEK: each
   of the ten codes wraps one random 32-byte manifest KEK
   (`WalletRecoveryManifestKekWrap`, purpose `wallet_recovery_manifest_kek`),
