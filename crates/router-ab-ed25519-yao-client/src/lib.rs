@@ -37,14 +37,14 @@ use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 mod signing;
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "wasm-bindings"))]
 mod wasm;
 
 pub use signing::{
     create_client_signing_share_v1, ClientSigningError, ClientSigningRequestV1,
     ClientSigningShareV1,
 };
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "wasm-bindings"))]
 pub use wasm::{
     WasmActivatedClientV1, WasmClientRecoverySessionV1, WasmClientRegistrationSessionV1,
     WasmClientSigningShareV1, WasmEmailOtpClientExportSessionV1,
