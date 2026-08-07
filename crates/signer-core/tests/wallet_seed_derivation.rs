@@ -8,8 +8,8 @@
 
 use signer_core::wallet_seed_derivation::{
     compute_wallet_key_manifest_digest_v1, derive_ecdsa_client_root_share_from_seed_v1,
-    derive_ed25519_yao_client_root_from_seed_v1, verify_wallet_key_manifest_v1,
-    WalletKeyManifestV1,
+    derive_ed25519_yao_client_root_from_seed_v1, derive_wallet_seed_owner_roots_v1,
+    verify_registered_wallet_key_manifest_v1, verify_wallet_key_manifest_v1, WalletKeyManifestV1,
 };
 
 const SEED: [u8; 32] = [7u8; 32];
@@ -223,4 +223,53 @@ mod ecdsa_bootstrap_integration {
         assert_ne!(baseline, bootstrap_with([9u8; 32], ECDSA_BINDING_DIGEST));
         assert_ne!(baseline, bootstrap_with(SEED, [6u8; 32]));
     }
+}
+
+#[test]
+fn paired_derivation_produces_both_owner_roots_from_one_seed() {
+    let roots = derive_wallet_seed_owner_roots_v1(
+        &SEED,
+        &APPLICATION_BINDING_DIGEST,
+        &ECDSA_BINDING_DIGEST,
+    )
+    .expect("owner roots");
+    assert_eq!(roots.ed25519_yao_client_root().to_vec(), ed25519_root());
+    assert_eq!(roots.ecdsa_client_root_share().to_vec(), ecdsa_share());
+    assert_ne!(
+        roots.ed25519_yao_client_root(),
+        roots.ecdsa_client_root_share()
+    );
+}
+
+#[test]
+fn paired_derivation_rejects_a_shared_binding_digest() {
+    // Equal digests mean at least one was not the protocol's own, which is the
+    // divergence this signature exists to prevent.
+    assert!(derive_wallet_seed_owner_roots_v1(
+        &SEED,
+        &APPLICATION_BINDING_DIGEST,
+        &APPLICATION_BINDING_DIGEST
+    )
+    .is_err());
+    assert!(derive_wallet_seed_owner_roots_v1(
+        &[0u8; 16],
+        &APPLICATION_BINDING_DIGEST,
+        &ECDSA_BINDING_DIGEST
+    )
+    .is_err());
+}
+
+#[test]
+fn the_registration_gate_returns_a_digest_only_when_the_manifest_matches() {
+    let expected = compute_wallet_key_manifest_digest_v1(&manifest()).unwrap();
+    assert_eq!(
+        verify_registered_wallet_key_manifest_v1(&manifest(), &expected).unwrap(),
+        expected
+    );
+
+    let mut drifted = manifest();
+    drifted.registered_public_key = [1u8; 32];
+    // No digest is produced for a manifest the seed does not reproduce, so a
+    // caller cannot record one by ignoring the error.
+    assert!(verify_registered_wallet_key_manifest_v1(&drifted, &expected).is_err());
 }

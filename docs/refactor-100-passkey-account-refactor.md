@@ -804,6 +804,23 @@ repository evidence.
       caller cannot bind to something the protocol will not verify.
 - [ ] Commit server-held mixed-wallet passkey envelopes and recovery envelope
       sets with the registration result.
+
+      BLOCKED ON A MODULE DECISION (August 7, 2026). Custody lives in the
+      `near_signer` wasm module; Yao registration runs in
+      `router-ab-ed25519-yao-client` and ECDSA bootstrap in
+      `router_ab_ecdsa_derivation_client`. No module depends on the others, so
+      a seed-derived root cannot reach its protocol without crossing
+      JavaScript as bytes — which invariant 3 forbids. Registration
+      orchestration must therefore live in one module that can reach both
+      protocol crates (both already build as `rlib` as well as `cdylib`).
+      Options: host it in `near_signer`, which carries a bundle-size guard and
+      is loaded for every NEAR signing operation; or add a registration-only
+      wasm module loaded solely for this infrequent flow. Until this is
+      settled, the Rust-side pieces stand ready and nothing is wired.
+
+      Ready in `signer-core`: `derive_wallet_seed_owner_roots_v1` derives both
+      owner roots as a pair, and `verify_registered_wallet_key_manifest_v1` is
+      the fail-closed gate that returns a digest only on a match.
 - [ ] Delete PRF-derived signing-root paths after replacement.
 
 ### Phase 3: Unlock And Signing
