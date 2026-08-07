@@ -1,6 +1,5 @@
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 
-export const EMAIL_OTP_THRESHOLD_ROOT_SALT_V1 = 'seams/email-otp/root/v1';
 // v2: every purpose derives from `secret32` in parallel with its own label.
 // The v1 chained scheme (ECDSA share and unlock seed derived from the Ed25519
 // threshold root) let any holder of that root compute both; it is deleted.
@@ -153,52 +152,6 @@ export function decodeEmailOtpClientSecret32B64u(clientSecretB64u: string): Uint
     throw new Error('Email OTP client secret must decode to 32 bytes');
   }
   return secret;
-}
-
-export async function deriveEmailOtpThresholdRootFromSecret32(args: {
-  clientSecret32: Uint8Array;
-  walletId: string;
-}): Promise<Uint8Array> {
-  if (!(args.clientSecret32 instanceof Uint8Array) || args.clientSecret32.length !== 32) {
-    throw new Error('Email OTP client secret must be 32 bytes');
-  }
-  const info = encodeEmailOtpTuple([String(args.walletId || '').trim()]);
-  try {
-    return await hkdfSha256({
-      ikm: args.clientSecret32,
-      salt: EMAIL_OTP_THRESHOLD_ROOT_SALT_V1,
-      info,
-    });
-  } finally {
-    zeroizeBytes(info);
-  }
-}
-
-export async function deriveEmailOtpThresholdRoot(args: {
-  clientSecretB64u: string;
-  walletId: string;
-}): Promise<Uint8Array> {
-  const clientSecret32 = decodeEmailOtpClientSecret32B64u(args.clientSecretB64u);
-  try {
-    return await deriveEmailOtpThresholdRootFromSecret32({
-      clientSecret32,
-      walletId: args.walletId,
-    });
-  } finally {
-    zeroizeBytes(clientSecret32);
-  }
-}
-
-export async function deriveEmailOtpThresholdRootB64u(args: {
-  clientSecretB64u: string;
-  walletId: string;
-}): Promise<string> {
-  const thresholdRoot = await deriveEmailOtpThresholdRoot(args);
-  try {
-    return base64UrlEncode(thresholdRoot);
-  } finally {
-    zeroizeBytes(thresholdRoot);
-  }
 }
 
 export async function deriveEmailOtpEcdsaClientRootShare32FromSecret32(args: {
