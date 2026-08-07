@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { CloudflareD1WalletCustodyCommitStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
+import { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 import {
   buildWalletCustodyRegistrationRecords,
   commitWalletCustodyRegistration,
@@ -12,10 +13,12 @@ import {
   ALT_DIGEST_B64U,
   CIPHERTEXT_B64U,
   CIPHERTEXT_DIGEST_B64U,
+  CREDENTIAL_ID_B64U,
   DIGEST_B64U,
   ENVELOPE_ID,
   NONCE_12_B64U,
   OTHER_WALLET_ID,
+  RP_ID,
   WALLET_ID,
   rawPasskeyFactor,
   rawWalletCustodySeedBinding,
@@ -90,12 +93,15 @@ function payload(
 }
 
 async function withStore(
-  run: (store: CloudflareD1WalletCustodyCommitStore) => Promise<void>,
+  run: (
+    store: CloudflareD1WalletCustodyCommitStore,
+    database: Parameters<typeof applySignerMigrations>[0],
+  ) => Promise<void>,
 ): Promise<void> {
   const { database, tempDir } = createTemporaryD1Database();
   try {
     await applySignerMigrations(database);
-    await run(new CloudflareD1WalletCustodyCommitStore({ database, scope: TEST_SCOPE }));
+    await run(new CloudflareD1WalletCustodyCommitStore({ database, scope: TEST_SCOPE }), database);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
@@ -114,11 +120,11 @@ test('a ceremony payload becomes one envelope and one ten-code recovery set', ()
   expect(records.recoverySet.manifestKekWraps.length).toBe(10);
   expect(records.recoverySet.entries.length).toBe(1);
   expect(records.recoverySet.entries[0]?.custodySecretKind).toBe('wallet_custody_seed_v1');
-  // Both records name the same manifest, which is what makes the pair
-  // committable at all.
-  expect(String(records.recoverySet.keyManifestDigestB64u)).toBe(
-    String(records.envelope.binding.keyManifestDigestB64u),
-  );
+  // Neither record names a key manifest. Key sets carry their own digest on
+  // their own registration state; a manifest here would couple the seed to one
+  // key set and re-open the deleted-manifest hole the decoupling closed.
+  expect('keyManifestDigestB64u' in records.recoverySet).toBe(false);
+  expect('keyManifestDigestB64u' in records.envelope.binding).toBe(false);
 });
 
 test('the binding is carried through, not reassembled', () => {
@@ -240,6 +246,8 @@ test('a valid payload commits, and a repeat is reported rather than overwriting'
     expect(stored?.record.manifestKekWraps.length).toBe(10);
     expect(stored?.record.manifestKekWraps[0]?.lifecycle.state).toBe('active');
 
+    // The same ceremony's commit replayed — the envelope itself is the
+    // duplicate, so this is a repeat, not a lost race.
     const repeat = await commitWalletCustodyRegistration({
       payload: payload(),
       factor: rawPasskeyFactor(),
@@ -247,5 +255,131 @@ test('a valid payload commits, and a repeat is reported rather than overwriting'
       store,
     });
     expect(repeat.kind).toBe('already_exists');
+  });
+});
+
+/**
+ * The establish race. Registration runs one custody ceremony per key set, and
+ * under Refactor 94C's deferred-NEAR contract the EVM and NEAR runs can be in
+ * flight at once. If both believe they are the wallet's first key set, both
+ * seal a seed and both try to establish. Exactly one may win: the loser's seed
+ * must be discarded, its run re-entered as a join of the winner's envelope, and
+ * the wallet must end with one envelope, one recovery set, two manifests.
+ *
+ * `custody_already_established` is what tells the loser that re-entry is the
+ * correct move. `already_exists` must stay distinct: it means *this* commit was
+ * already applied, for which re-entering as a join would be wrong — the caller
+ * is done.
+ */
+
+/** A second establishing ceremony for the same wallet: fresh envelope, fresh codes. */
+function racingNearPayload(): WalletCustodyCeremonyCommitPayload {
+  return payload({
+    keySet: 'near_ed25519_v1',
+    keyManifestDigestB64u: ALT_DIGEST_B64U,
+    registeredPublicKeyB64u: DIGEST_B64U,
+    clientRootPublicKey33B64u: undefined,
+    ecdsaReadyStateBlobB64u: undefined,
+    establishedCustody: establishedCustody({
+      envelopeId: RACING_ENVELOPE_ID,
+      envelopeBindingJson: envelopeBindingJson({ envelopeId: RACING_ENVELOPE_ID }),
+      recoveryManifestKekWraps: Array.from({ length: 10 }, (_, index) =>
+        racingRecoveryWrap(index),
+      ),
+    }),
+  });
+}
+
+const RACING_ENVELOPE_ID = 'passkey-envelope-2';
+
+function racingRecoveryWrap(index: number) {
+  return {
+    ...recoveryWrap(index),
+    recoveryKeyId: `email-otp-rkid-v1-${DIGEST_B64U.slice(0, 42)}${'KLMNOPQRST'[index]}`,
+  };
+}
+
+function passkeyEnvelopeLocator(envelopeId: string) {
+  return {
+    walletId: WALLET_ID as WalletId,
+    factor: {
+      kind: 'passkey',
+      rpId: RP_ID,
+      credentialIdB64u: CREDENTIAL_ID_B64U,
+    },
+    envelopeId,
+  } as Parameters<CloudflareD1PasskeyCustodyEnvelopeStore['lookupEnvelope']>[0];
+}
+
+test('a second establishing ceremony is told custody exists, and writes nothing', async () => {
+  await withStore(async (store, database) => {
+    const first = await commitWalletCustodyRegistration({
+      payload: payload(),
+      factor: rawPasskeyFactor(),
+      nowMs: NOW_MS,
+      store,
+    });
+    expect(first.kind).toBe('committed');
+
+    // A different ceremony: its envelope id is fresh, so nothing about *its*
+    // records exists yet — only the wallet's custody does.
+    const second = await commitWalletCustodyRegistration({
+      payload: racingNearPayload(),
+      factor: rawPasskeyFactor(),
+      nowMs: NOW_MS + 1,
+      store,
+    });
+    expect(second).toEqual({
+      kind: 'custody_already_established',
+      walletId: WALLET_ID,
+    });
+
+    // The loser wrote nothing: the winner's recovery set is untouched and the
+    // loser's envelope was never stored.
+    const stored = await store.readRecoveryEnvelopeSet(WALLET_ID as WalletId);
+    expect(stored?.record.manifestKekWraps[0]?.recoveryKeyId).toBe(
+      recoveryWrap(0).recoveryKeyId,
+    );
+    const envelopes = new CloudflareD1PasskeyCustodyEnvelopeStore({
+      database,
+      scope: TEST_SCOPE,
+    });
+    expect((await envelopes.lookupEnvelope(passkeyEnvelopeLocator(RACING_ENVELOPE_ID))).kind).toBe(
+      'missing',
+    );
+    expect((await envelopes.lookupEnvelope(passkeyEnvelopeLocator(ENVELOPE_ID))).kind).toBe(
+      'active',
+    );
+  });
+});
+
+test('concurrent establishing ceremonies end with one custody and one loser told to join', async () => {
+  await withStore(async (store) => {
+    const [evm, near] = await Promise.all([
+      commitWalletCustodyRegistration({
+        payload: payload(),
+        factor: rawPasskeyFactor(),
+        nowMs: NOW_MS,
+        store,
+      }),
+      commitWalletCustodyRegistration({
+        payload: racingNearPayload(),
+        factor: rawPasskeyFactor(),
+        nowMs: NOW_MS,
+        store,
+      }),
+    ]);
+
+    // Exactly one winner, and the loser is told custody exists — not that its
+    // own commit already happened, which would end its retry instead of
+    // re-entering it as a join.
+    const kinds = [evm.kind, near.kind].sort();
+    expect(kinds).toEqual(['committed', 'custody_already_established']);
+
+    // One recovery set, and it is the winner's.
+    const stored = await store.readRecoveryEnvelopeSet(WALLET_ID as WalletId);
+    const winnerWrapId =
+      evm.kind === 'committed' ? recoveryWrap(0).recoveryKeyId : racingRecoveryWrap(0).recoveryKeyId;
+    expect(stored?.record.manifestKekWraps[0]?.recoveryKeyId).toBe(winnerWrapId);
   });
 });
