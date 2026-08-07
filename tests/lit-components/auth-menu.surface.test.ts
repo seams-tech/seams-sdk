@@ -17,7 +17,7 @@ const APPEARANCE = {
 } as const;
 
 function registrationViewModel(
-  status: unknown = { kind: 'preparing', message: 'Preparing passkey' },
+  status: unknown = { kind: 'idle', interaction: 'arming' },
   showRegistrationInput = true,
 ) {
   return {
@@ -38,7 +38,7 @@ function registrationViewModel(
   };
 }
 
-function loginViewModel(status: unknown = { kind: 'ready' }) {
+function loginViewModel(status: unknown = { kind: 'idle', interaction: 'actionable' }) {
   return {
     appearance: { ...APPEARANCE, theme: { ...APPEARANCE.theme, mode: 'light' as const } },
     hostname: 'wallet.example.test',
@@ -84,9 +84,10 @@ test.describe('wallet-host Lit auth menu surface', () => {
       return {
         closeLabel: closeButton?.getAttribute('aria-label') ?? '',
         hasPrimary: !!primary,
+        primaryDisabled: primary?.disabled ?? false,
         heading: root.querySelector('.w3a-title')?.textContent?.trim() ?? '',
         subtitle: root.querySelector('.w3a-subhead')?.textContent?.trim() ?? '',
-        hasFingerprint: !!root.querySelector('[data-auth-menu-primary] svg'),
+        hasFingerprint: !!root.querySelector('[data-auth-menu-primary] > svg'),
         hasPasskeyName: !!input,
         passkeyNameLabel: input?.getAttribute('placeholder') ?? '',
         waitingText: root.querySelector('.w3a-waiting-text')?.textContent?.trim() ?? '',
@@ -96,13 +97,14 @@ test.describe('wallet-host Lit auth menu surface', () => {
     }, AUTH_MENU_TAG);
 
     expect(initial.closeLabel).toBe('Back');
-    expect(initial.hasPrimary).toBe(false);
-    expect(initial.heading).toBe('');
-    expect(initial.subtitle).toBe('');
+    expect(initial.hasPrimary).toBe(true);
+    expect(initial.primaryDisabled).toBe(true);
+    expect(initial.heading).toBe('Create your passkey');
+    expect(initial.subtitle).toBe('Use a passkey to create your wallet.');
     expect(initial.hasFingerprint).toBe(false);
-    expect(initial.hasPasskeyName).toBe(false);
-    expect(initial.passkeyNameLabel).toBe('');
-    expect(initial.waitingText).toBe('Preparing passkey');
+    expect(initial.hasPasskeyName).toBe(true);
+    expect(initial.passkeyNameLabel).toBe('Passkey name');
+    expect(initial.waitingText).toBe('');
     expect(initial.hasCancelCopy).toBe(false);
     expect(initial.hasTick).toBe(false);
 
@@ -118,7 +120,7 @@ test.describe('wallet-host Lit auth menu surface', () => {
       element.viewModel = {
         ...(element.viewModel as Record<string, unknown>),
         passkeyName: 'Ledger passkey',
-        status: { kind: 'ready' },
+        status: { kind: 'idle', interaction: 'actionable' },
       };
       await element.updateComplete;
       const input = element.querySelector('#w3a-auth-menu-passkey-name') as HTMLInputElement;
@@ -176,11 +178,101 @@ test.describe('wallet-host Lit auth menu surface', () => {
     });
   });
 
+  test('keeps the Back control interactive while passkey authentication is running', async ({
+    page,
+  }) => {
+    await mountAuthMenu(page, loginViewModel({ kind: 'busy', headline: 'Signing in…' }));
+    await page.evaluate((tagName) => {
+      const element = document.querySelector(tagName);
+      if (!element) throw new Error('auth-menu surface is missing');
+      (window as Window & { __authMenuIntents?: unknown[] }).__authMenuIntents = [];
+      element.addEventListener('w3a-auth-menu-intent', (event) => {
+        (window as Window & { __authMenuIntents?: unknown[] }).__authMenuIntents?.push(
+          (event as CustomEvent<unknown>).detail,
+        );
+      });
+    }, AUTH_MENU_TAG);
+
+    await page.locator(`${AUTH_MENU_TAG} [data-auth-menu-close]`).click();
+
+    const intents = await page.evaluate(
+      () => (window as Window & { __authMenuIntents?: unknown[] }).__authMenuIntents ?? [],
+    );
+    expect(intents).toEqual([{ kind: 'back' }]);
+  });
+
+  test('animates into the waiting view with a rotating spinner', async ({ page }) => {
+    await mountAuthMenu(page, loginViewModel({ kind: 'busy', headline: 'Signing in…' }));
+
+    const waiting = await page.evaluate((tagName) => {
+      const surface = document.querySelector(tagName) as HTMLElement;
+      const spinner = surface.querySelector('.w3a-waiting > .w3a-spinner') as HTMLElement | null;
+      const root = surface.querySelector('.w3a-signup-menu-root') as HTMLElement | null;
+      const switcher = surface.querySelector('.w3a-content-switcher') as HTMLElement | null;
+      if (!spinner || !root || !switcher) throw new Error('waiting view is missing');
+      const spinnerStyle = getComputedStyle(spinner);
+      // Read the token from the root: state-scoped overrides (the waiting
+      // view runs faster) land there, and the invariant is that every part
+      // shares the duration in effect for the CURRENT state.
+      const resizeToken = getComputedStyle(root).getPropertyValue('--w3a-duration-resize').trim();
+      return {
+        spinnerAnimations: spinnerStyle.animationName,
+        spinnerPlayState: spinnerStyle.animationPlayState,
+        resizeSeconds: `${Number.parseFloat(resizeToken) / 1000}s`,
+        rootTransition: getComputedStyle(root).transitionDuration,
+        switcherTransition: getComputedStyle(switcher).transitionDuration,
+      };
+    }, AUTH_MENU_TAG);
+
+    // The card owns the resize in both directions. Never add an `animation:`
+    // shorthand to `.w3a-waiting > .w3a-spinner` — it shadows the rotation and
+    // freezes it.
+    expect(waiting.spinnerAnimations).toContain('w3a-spin');
+    expect(waiting.spinnerPlayState).not.toContain('paused');
+    // Assert the shared token, not a literal: the invariant is that every part
+    // of the box settles on ONE duration. A part left on its own timing splits
+    // one movement into two, which is the bug this guards. Retuning the
+    // duration is a design call and must not fail here.
+    expect(waiting.resizeSeconds).not.toBe('NaNs');
+    expect(waiting.rootTransition).toContain(waiting.resizeSeconds);
+    expect(waiting.switcherTransition).toContain(waiting.resizeSeconds);
+  });
+
+  test('Escape backs out of the waiting view but is ignored on the menu itself', async ({
+    page,
+  }) => {
+    await mountAuthMenu(page, loginViewModel({ kind: 'busy', headline: 'Signing in…' }));
+
+    const fromWaiting = await page.evaluate(async (tagName) => {
+      const element = document.querySelector(tagName) as HTMLElement;
+      const received: unknown[] = [];
+      element.addEventListener('w3a-auth-menu-intent', (event) => {
+        received.push((event as CustomEvent<unknown>).detail);
+      });
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      return received;
+    }, AUTH_MENU_TAG);
+    expect(fromWaiting).toEqual([{ kind: 'back' }]);
+
+    await mountAuthMenu(page, loginViewModel({ kind: 'idle', interaction: 'actionable' }));
+    const fromMenu = await page.evaluate(async (tagName) => {
+      const element = document.querySelector(tagName) as HTMLElement;
+      const received: unknown[] = [];
+      element.addEventListener('w3a-auth-menu-intent', (event) => {
+        received.push((event as CustomEvent<unknown>).detail);
+      });
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      return received;
+    }, AUTH_MENU_TAG);
+    // On the menu itself Escape belongs to the embedding page.
+    expect(fromMenu).toEqual([]);
+  });
+
   test('keeps required sponsored registration input quiet until a name is entered', async ({
     page,
   }) => {
     await mountAuthMenu(page, {
-      ...registrationViewModel({ kind: 'input_required' }, true),
+      ...registrationViewModel({ kind: 'idle', interaction: 'awaiting_input' }, true),
       passkeyName: '',
     });
 
@@ -210,48 +302,90 @@ test.describe('wallet-host Lit auth menu surface', () => {
     });
   });
 
-  test('renders login without registration input and keeps the halo still for reduced motion', async ({
+  test('renders login without registration input and uses the original compact spinner', async ({
     page,
   }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await mountAuthMenu(page, loginViewModel({ kind: 'performing', message: 'Checking passkey' }));
+    await mountAuthMenu(
+      page,
+      loginViewModel({ kind: 'busy', headline: 'Signing in…', detail: 'Checking passkey' }),
+    );
 
     const snapshot = await page.evaluate((tagName) => {
       const root = document.querySelector(tagName) as HTMLElement;
-      const halo = root.querySelector('w3a-passkey-halo-loading') as HTMLElement & {
-        animated?: boolean;
-        theme?: string;
-      };
       return {
         hasPrimary: !!root.querySelector('[data-auth-menu-primary]'),
         hasPasskeyName: !!root.querySelector('#w3a-auth-menu-passkey-name'),
-        haloAnimated: halo?.animated,
+        hasHalo: !!root.querySelector('w3a-passkey-halo-loading'),
         heading: root.querySelector('.w3a-waiting-text')?.textContent?.trim() ?? '',
-        theme: halo?.theme,
+        spinnerLabel: root.querySelector('.w3a-spinner')?.getAttribute('aria-label') ?? '',
       };
     }, AUTH_MENU_TAG);
 
     expect(snapshot.hasPrimary).toBe(false);
     expect(snapshot.hasPasskeyName).toBe(false);
-    expect(snapshot.haloAnimated).toBe(false);
+    expect(snapshot.hasHalo).toBe(false);
     expect(snapshot.heading).toBe('Signing in…');
-    expect(snapshot.theme).toBe('dark');
+    expect(snapshot.spinnerLabel).toBe('Loading');
   });
 
   test('hides the registration input when host configuration disables it', async ({ page }) => {
-    await mountAuthMenu(page, registrationViewModel({ kind: 'ready' }, false));
+    await mountAuthMenu(page, {
+      ...registrationViewModel({ kind: 'idle', interaction: 'actionable' }, false),
+      enabledExternalProviders: ['google'],
+    });
 
-    const hasPasskeyName = await page.evaluate((tagName) => {
+    const snapshot = await page.evaluate((tagName) => {
       const root = document.querySelector(tagName) as HTMLElement;
-      return !!root.querySelector('#w3a-auth-menu-passkey-name');
+      return {
+        hasPasskeyName: !!root.querySelector('#w3a-auth-menu-passkey-name'),
+        hasEmailRecovery: root.textContent?.includes('Recover Account with Email') ?? false,
+      };
     }, AUTH_MENU_TAG);
 
-    expect(hasPasskeyName).toBe(false);
+    expect(snapshot.hasPasskeyName).toBe(false);
+    expect(snapshot.hasEmailRecovery).toBe(true);
+  });
+
+  test('preserves the original auth-menu spacing and social-provider structure', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 420, height: 900 });
+    await mountAuthMenu(page, {
+      ...loginViewModel(),
+      enabledExternalProviders: ['google'],
+    });
+
+    const snapshot = await page.evaluate((tagName) => {
+      const root = document.querySelector(tagName) as HTMLElement;
+      const menu = root.querySelector('.w3a-signup-menu-root') as HTMLElement;
+      const divider = root.querySelector('.w3a-section-divider') as HTMLElement;
+      const dividerText = root.querySelector('.w3a-section-divider-text') as HTMLElement;
+      const google = root.querySelector('[data-auth-menu-provider="google"]');
+      return {
+        padding: getComputedStyle(menu).padding,
+        dividerMargin: getComputedStyle(divider).margin,
+        dividerTextPadding: getComputedStyle(dividerText).padding,
+        googleUsesOriginalWrappers:
+          google?.parentElement?.classList.contains('w3a-social-provider'),
+        socialStackUsesOriginalClasses:
+          google?.parentElement?.parentElement?.classList.contains('w3a-auth-method-stack') &&
+          google.parentElement.parentElement.classList.contains('w3a-social-stack'),
+      };
+    }, AUTH_MENU_TAG);
+
+    expect(snapshot).toEqual({
+      padding: '28px 24px 24px',
+      dividerMargin: '16px 0px',
+      dividerTextPadding: '0px 8px',
+      googleUsesOriginalWrappers: true,
+      socialStackUsesOriginalClasses: true,
+    });
   });
 
   test('renders the implicit-wallet reroll and mode switch intents', async ({ page }) => {
     await mountAuthMenu(page, {
-      ...registrationViewModel({ kind: 'ready' }),
+      ...registrationViewModel({ kind: 'idle', interaction: 'actionable' }),
       passkeyNameReadOnly: true,
       showRegistrationInput: true,
     });
@@ -273,18 +407,20 @@ test.describe('wallet-host Lit auth menu surface', () => {
     ]);
   });
 
-  test('keeps expired preparation disabled and exposes a retry intent', async ({ page }) => {
+  test('keeps the primary action live on expired preparation with no separate retry control', async ({
+    page,
+  }) => {
     await mountAuthMenu(page, {
-      ...loginViewModel({ kind: 'expired', message: 'Passkey preparation expired' }),
+      ...loginViewModel({
+        kind: 'recoverable',
+        reason: 'expired',
+        message: 'Passkey preparation expired',
+      }),
       enabledExternalProviders: ['google'],
     });
 
     const snapshot = await page.evaluate(async (tagName) => {
       const element = document.querySelector(tagName) as HTMLElement;
-      const received: unknown[] = [];
-      element.addEventListener('w3a-auth-menu-intent', (event) => {
-        received.push((event as CustomEvent<unknown>).detail);
-      });
       return {
         ctaDisabled: (element.querySelector('[data-auth-menu-primary]') as HTMLButtonElement)
           .disabled,
@@ -295,33 +431,33 @@ test.describe('wallet-host Lit auth menu surface', () => {
         modeSwitchEnabled: !(
           element.querySelector('[data-auth-menu-mode="register"]') as HTMLButtonElement
         ).disabled,
-        received,
       };
     }, AUTH_MENU_TAG);
 
-    expect(snapshot.ctaDisabled).toBe(true);
-    expect(snapshot.providerDisabled).toBe(true);
+    // The primary button is the retry affordance now, so it must stay usable.
+    expect(snapshot.ctaDisabled).toBe(false);
+    expect(snapshot.providerDisabled).toBe(false);
     expect(snapshot.error).toBe('Passkey preparation expired');
-    expect(snapshot.retryCount).toBe(1);
+    expect(snapshot.retryCount).toBe(0);
     expect(snapshot.modeSwitchEnabled).toBe(true);
 
-    const retryIntent = await page.evaluate(async (tagName) => {
+    const submitIntent = await page.evaluate(async (tagName) => {
       const element = document.querySelector(tagName) as HTMLElement;
       const received: unknown[] = [];
       element.addEventListener('w3a-auth-menu-intent', (event) => {
         received.push((event as CustomEvent<unknown>).detail);
       });
-      (element.querySelector('.auth-menu-retry') as HTMLButtonElement).click();
+      (element.querySelector('[data-auth-menu-primary]') as HTMLButtonElement).click();
       return received;
     }, AUTH_MENU_TAG);
-    expect(retryIntent).toEqual([{ kind: 'retry' }]);
+    expect(submitIntent).toEqual([{ kind: 'submit', mode: 'login' }]);
   });
 
   test('renders Google OTP controls and emits code, resend, and submit intents', async ({
     page,
   }) => {
     await mountAuthMenu(page, {
-      ...loginViewModel({ kind: 'ready' }),
+      ...loginViewModel({ kind: 'idle', interaction: 'actionable' }),
       kind: 'google_otp_login',
       mode: 'login',
       emailHint: 'g***@example.test',
@@ -383,9 +519,7 @@ test.describe('wallet-host Lit auth menu surface', () => {
       });
       (element.querySelector('.w3a-account-menu-trigger') as HTMLButtonElement).click();
       await (element as HTMLElement & { updateComplete?: Promise<unknown> }).updateComplete;
-      (
-        element.querySelector('[data-wallet-id="wallet-b"]') as HTMLButtonElement
-      ).click();
+      (element.querySelector('[data-wallet-id="wallet-b"]') as HTMLButtonElement).click();
       return received;
     }, AUTH_MENU_TAG);
 

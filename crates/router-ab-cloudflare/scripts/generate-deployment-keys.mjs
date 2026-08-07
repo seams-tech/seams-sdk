@@ -1,21 +1,32 @@
 import { spawnSync } from 'node:child_process';
 import { generateKeyPairSync, sign, verify } from 'node:crypto';
+import { readBackendLane } from '../../../scripts/deployment-targets.mjs';
 
 const argv = process.argv.slice(2).filter((arg) => arg !== '--');
-const envName = readOption('--env');
+assertNoLegacyIdentityFlags();
+const laneId = readOption('--lane');
+const lane = laneId ? readBackendLane(laneId) : undefined;
+if (lane?.provisioning.kind === 'pending') {
+  throw new Error(`${lane.id} is pending provisioning; deployment key generation is blocked`);
+}
+const environmentName = lane
+  ? lane.resources.router.deploymentEnvironment.kind === 'named'
+    ? lane.resources.router.deploymentEnvironment.name
+    : lane.release
+  : undefined;
 const apply = argv.includes('--apply');
 const showSecrets = argv.includes('--show-secrets');
 const json = argv.includes('--json');
 const repo = readOption('--repo');
 
-if (argv.includes('--help') || !envName) {
+if (argv.includes('--help') || !laneId) {
   console.log(`Usage:
-  pnpm router:deploy:keygen -- --env staging
-  pnpm router:deploy:keygen -- --env staging --show-secrets
-  pnpm router:deploy:keygen -- --env staging --apply
+  pnpm router:deploy:keygen -- --lane staging-testnet
+  pnpm router:deploy:keygen -- --lane staging-testnet --show-secrets
+  pnpm router:deploy:keygen -- --lane staging-testnet --apply
 
 Options:
-  --env <name>      GitHub Environment name to target.
+  --lane <id>       Backend lane: staging-testnet, production-testnet, or production-mainnet.
   --apply           Write generated values with gh variable set and gh secret set.
   --show-secrets    Print generated secret values for manual copy.
   --json            Print a machine-readable JSON document.
@@ -24,7 +35,7 @@ Options:
 
 This command generates deployment identity keys only. It does not generate
 DERIVER_A_ROOT_SHARE_WIRE_SECRET or DERIVER_B_ROOT_SHARE_WIRE_SECRET.`);
-  process.exit(envName ? 0 : 1);
+  process.exit(laneId ? 0 : 1);
 }
 
 const deriverAEnvelope = generateX25519KeyPair();
@@ -62,7 +73,8 @@ const secrets = {
 };
 
 const output = {
-  environment: envName,
+  lane: laneId,
+  environment: environmentName,
   generatedAt: new Date().toISOString(),
   variables,
   secrets: showSecrets ? secrets : redactObject(secrets),
@@ -70,7 +82,7 @@ const output = {
 };
 
 if (apply) {
-  applyGithubEnvironmentValues(envName, variables, secrets, repo);
+  applyGithubEnvironmentValues(environmentName, variables, secrets, repo);
 }
 
 if (json) {
@@ -153,7 +165,9 @@ function repoArgs(repoName) {
 }
 
 function printHumanOutput(data, options) {
-  console.log(`Router A/B deployment keys for GitHub Environment: ${data.environment}`);
+  console.log(
+    `Router A/B deployment keys for lane ${data.lane} (GitHub Environment: ${data.environment})`,
+  );
   if (options.apply) {
     console.log('Applied generated values with gh.');
   }
@@ -187,14 +201,36 @@ function redactSecret(value) {
 
 function readOption(name) {
   const index = argv.indexOf(name);
-  if (index === -1) {
+  if (index !== -1) {
+    const value = argv[index + 1];
+    if (!value || value.startsWith('--')) {
+      throw new Error(`${name} requires a value`);
+    }
+    return value;
+  }
+  const prefix = `${name}=`;
+  const assignment = argv.find((argument) => argument.startsWith(prefix));
+  if (!assignment) {
     return undefined;
   }
-  const value = argv[index + 1];
-  if (!value || value.startsWith('--')) {
+  const value = assignment.slice(prefix.length).trim();
+  if (!value) {
     throw new Error(`${name} requires a value`);
   }
   return value;
+}
+
+function assertNoLegacyIdentityFlags() {
+  const legacyFlag = argv.find(
+    (argument) =>
+      argument === '--env' ||
+      argument.startsWith('--env=') ||
+      argument === '--target' ||
+      argument.startsWith('--target='),
+  );
+  if (legacyFlag) {
+    throw new Error(`${legacyFlag} is retired; use --lane <backend-lane-id>`);
+  }
 }
 
 function decodeBase64UrlFixed(value, expectedLength, label) {

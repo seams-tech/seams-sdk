@@ -402,9 +402,7 @@ function currentNearEd25519CapabilityRehydrationSubject(args: {
   }
 }
 
-function assertNeverNearEd25519CapabilityRehydrationSubject(
-  value: never,
-): never {
+function assertNeverNearEd25519CapabilityRehydrationSubject(value: never): never {
   throw new Error(`Unknown Ed25519 capability rehydration subject: ${String(value)}`);
 }
 
@@ -1002,15 +1000,11 @@ function normalizeWalletAuthenticationRestoreAuth(
       return auth;
     case 'caller_app_session_jwt':
       const parsedJwt = parseAppSessionJwt(auth.appSessionJwt);
-      return parsedJwt.ok
-        ? { kind: auth.kind, appSessionJwt: parsedJwt.value }
-        : null;
+      return parsedJwt.ok ? { kind: auth.kind, appSessionJwt: parsedJwt.value } : null;
   }
 }
 
-function hostSelectedRestoreAuthFromJwt(
-  appSessionJwt: string,
-): HostSelectedAppSessionRestoreAuth {
+function hostSelectedRestoreAuthFromJwt(appSessionJwt: string): HostSelectedAppSessionRestoreAuth {
   const claims = decodeJwtPayloadRecord(appSessionJwt);
   const authSource = restoreClaimsRecord(claims?.authSource);
   if (authSource?.kind === 'passkey') {
@@ -1023,10 +1017,7 @@ function hostSelectedRestoreAuthFromJwt(
   if (authSource?.kind === 'oidc_provider') {
     const providerId = authSource.providerId;
     const providerSubject = parseProviderSubject(authSource.providerSubject);
-    if (
-      (providerId === 'google_oidc' || providerId === 'oidc') &&
-      providerSubject.ok
-    ) {
+    if ((providerId === 'google_oidc' || providerId === 'oidc') && providerSubject.ok) {
       return {
         kind: 'host_selected_app_session_jwt',
         appSessionJwt,
@@ -1836,7 +1827,7 @@ export class BrowserSigningSurface {
     }
     if (authoritative.kind === 'authenticated') {
       if (args.restoreGeneration === this.walletAuthenticationRestoreGeneration) {
-        this.walletAuthenticationState = authoritative.state;
+        this.applyAuthenticatedWalletState(authoritative.state);
       }
       return this.walletAuthenticationState;
     }
@@ -1866,7 +1857,7 @@ export class BrowserSigningSurface {
       });
       if (cached.kind === 'authenticated') {
         if (args.restoreGeneration === this.walletAuthenticationRestoreGeneration) {
-          this.walletAuthenticationState = cached.state;
+          this.applyAuthenticatedWalletState(cached.state);
         }
         return this.walletAuthenticationState;
       }
@@ -1912,12 +1903,30 @@ export class BrowserSigningSurface {
     this.walletAuthenticationState = { kind: 'signed_out' };
   }
 
+  /**
+   * Every route that lands a wallet in the authenticated state goes through
+   * here — passkey unlock, email OTP login, the hosted auth menu, and session
+   * restore. Binding the preferences manager at this choke point is what makes
+   * per-wallet preferences real: without it the manager stays on "no last
+   * user", so reads answer the built-in defaults while the wallet's persisted
+   * choices sit unread, and writes stay memory-only and evaporate on reload —
+   * the Confirmer UI toggle looked applied but silently reverted every page
+   * load. setCurrentWallet also notifies, which pushes PREFERENCES_CHANGED to
+   * the app origin so its mirrored uiMode follows the wallet too.
+   */
+  private applyAuthenticatedWalletState(
+    state: Extract<WalletAuthenticationState, { kind: 'authenticated' }>,
+  ): void {
+    this.walletAuthenticationState = state;
+    this.userPreferencesManager.setCurrentWallet(state.walletId);
+  }
+
   setWalletAuthenticated(
     state: Extract<WalletAuthenticationState, { kind: 'authenticated' }>,
   ): void {
     this.walletAuthenticationRestoreGeneration += 1;
     this.walletAuthenticationRestorationBlocked = false;
-    this.walletAuthenticationState = state;
+    this.applyAuthenticatedWalletState(state);
   }
 
   clearWalletAuthentication(): void {
@@ -1972,9 +1981,7 @@ export class BrowserSigningSurface {
     this.appearance = appearance;
   }
 
-  setWalletIframeSurfaceMeasurementBinding(
-    binding: UiConfirmSurfaceMeasurementBinding,
-  ): void {
+  setWalletIframeSurfaceMeasurementBinding(binding: UiConfirmSurfaceMeasurementBinding): void {
     this.touchConfirm.getContext().surfaceMeasurementBinding = binding;
   }
 
@@ -2104,8 +2111,8 @@ export class BrowserSigningSurface {
                   authority: localMaterial.locator.authority,
                   materialActivation: localMaterial.locator.materialActivation,
                   sealedMaterial: localMaterial.locator.sealedMaterial,
-              }
-            : { kind: 'missing' },
+                }
+              : { kind: 'missing' },
           runtime: runtimeObservation,
           unlockSource: warmSessionClaim.ok
             ? { kind: 'available', authority }

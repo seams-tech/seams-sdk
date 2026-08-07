@@ -56,7 +56,9 @@ export function readDeploymentTargets(targetsPath = DEFAULT_TARGETS_PATH) {
   try {
     source = JSON.parse(fs.readFileSync(absolutePath, 'utf8'));
   } catch (error) {
-    throw new Error('Unable to read deployment targets ' + absolutePath + ': ' + formatError(error));
+    throw new Error(
+      'Unable to read deployment targets ' + absolutePath + ': ' + formatError(error),
+    );
   }
   return parseDeploymentTargets(source, absolutePath);
 }
@@ -145,6 +147,10 @@ function parseRelease(value, releaseId) {
   const release = requireObject(value, releasePath);
   requireExactKeys(release, ['branch', 'site', 'lanes'], releasePath);
   const branch = requirePattern(release.branch, /^[a-z0-9._/-]+$/u, releasePath + '.branch');
+  const expectedBranch = releaseId === 'staging' ? 'dev' : 'main';
+  if (branch !== expectedBranch) {
+    throw new Error(releasePath + '.branch must be ' + expectedBranch);
+  }
   const site = parseSite(release.site, releaseId, branch);
   const laneRoot = requireObject(release.lanes, releasePath + '.lanes');
   const networks = RELEASE_NETWORKS[releaseId];
@@ -152,14 +158,7 @@ function parseRelease(value, releaseId) {
   const lanes = {};
   for (const network of networks) {
     const laneId = releaseId + '-' + network;
-    lanes[network] = parseBackendLane(
-      laneRoot[network],
-      laneId,
-      releaseId,
-      network,
-      branch,
-      site,
-    );
+    lanes[network] = parseBackendLane(laneRoot[network], laneId, releaseId, network, branch, site);
   }
   const frontendSite = Object.freeze({
     ...site,
@@ -181,7 +180,10 @@ function parseSite(value, releaseId, branch) {
     ['origin', 'googleOidcClientId', 'defaultNetwork', 'availableNetworks', 'pagesProjectEnv'],
     sitePath,
   );
-  const availableNetworks = parseNetworkNames(site.availableNetworks, sitePath + '.availableNetworks');
+  const availableNetworks = parseNetworkNames(
+    site.availableNetworks,
+    sitePath + '.availableNetworks',
+  );
   const expectedNetworks = RELEASE_NETWORKS[releaseId];
   requireExactArrayValues(availableNetworks, expectedNetworks, sitePath + '.availableNetworks');
   const defaultNetwork = requireString(site.defaultNetwork, sitePath + '.defaultNetwork');
@@ -209,7 +211,14 @@ function parseBackendLane(value, laneId, releaseId, network, branch, site) {
   const lane = requireObject(value, lanePath);
   requireExactKeys(
     lane,
-    ['gatewayOrigin', 'walletOrigin', 'walletPagesProjectEnv', 'resources', 'capabilities', 'provisioning'],
+    [
+      'gatewayOrigin',
+      'walletOrigin',
+      'walletPagesProjectEnv',
+      'resources',
+      'capabilities',
+      'provisioning',
+    ],
     lanePath,
   );
   const parsed = Object.freeze({
@@ -226,12 +235,7 @@ function parseBackendLane(value, laneId, releaseId, network, branch, site) {
     ),
     resources: parseResources(lane.resources, lanePath + '.resources'),
     capabilities: parseCapabilities(lane.capabilities, lanePath + '.capabilities'),
-    provisioning: parseProvisioning(
-      lane.provisioning,
-      laneId,
-      network,
-      lanePath + '.provisioning',
-    ),
+    provisioning: parseProvisioning(lane.provisioning, laneId, network, lanePath + '.provisioning'),
   });
   assertLaneOrigins(parsed);
   if (parsed.provisioning.kind === 'provisioned') {
@@ -252,13 +256,19 @@ function parseProvisioning(value, laneId, network, provisioningPath) {
     );
     if (gatewayDeploymentConfig.runtimeProfile.kind !== expectedRuntimeProfile) {
       throw new Error(
-        provisioningPath + '.gatewayDeploymentConfig runtime profile must be ' + expectedRuntimeProfile,
+        provisioningPath +
+          '.gatewayDeploymentConfig runtime profile must be ' +
+          expectedRuntimeProfile,
       );
     }
     return Object.freeze({ kind, gatewayDeploymentConfig });
   }
   if (kind === 'pending') {
-    requireExactKeys(provisioning, ['kind', 'runtimeProfileKind', 'requiredValues'], provisioningPath);
+    requireExactKeys(
+      provisioning,
+      ['kind', 'runtimeProfileKind', 'requiredValues'],
+      provisioningPath,
+    );
     const runtimeProfileKind = requireString(
       provisioning.runtimeProfileKind,
       provisioningPath + '.runtimeProfileKind',
@@ -521,7 +531,10 @@ function parseNetworkNames(value, pathName) {
 }
 
 function requireExactArrayValues(actual, expected, pathName) {
-  if (actual.length !== expected.length || actual.some((value, index) => value !== expected[index])) {
+  if (
+    actual.length !== expected.length ||
+    actual.some((value, index) => value !== expected[index])
+  ) {
     throw new Error(pathName + ' must contain exactly: ' + expected.join(', '));
   }
 }

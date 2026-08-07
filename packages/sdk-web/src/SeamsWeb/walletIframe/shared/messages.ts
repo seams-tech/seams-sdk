@@ -241,7 +241,7 @@ const DEFAULT_HOSTED_AUTH_MENU_COPY: HostedAuthMenuCopy = {
     passkeyCta: 'Sign in with Passkey',
   },
   register: {
-    title: 'Create an account',
+    title: 'Create your account',
     subtitle: 'Continue with Passkey or Google SSO',
     passkeyNameLabel: 'Wallet name',
     passkeyCta: 'Sign up with Passkey',
@@ -565,7 +565,7 @@ export function buildHostedAuthMenuOpenRequest(args: {
     initialMode: args.initialMode ?? 'login',
     registrationAccountInput: args.registrationAccountInput ?? 'implicit_wallet',
     showRegistrationInput: args.showRegistrationInput ?? false,
-    showProgress: args.showProgress ?? true,
+    showProgress: args.showProgress ?? false,
     copy: normalizeHostedAuthMenuCopy(args.copy),
     enabledExternalProviders: [...(args.enabledExternalProviders ?? [])],
   };

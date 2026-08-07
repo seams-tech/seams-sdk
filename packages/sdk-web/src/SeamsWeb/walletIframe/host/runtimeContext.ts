@@ -108,14 +108,29 @@ function clearSurfaceMeasurementBindingForRequest(
   ctx.seamsWeb?.setWalletIframeSurfaceMeasurementBinding({ kind: 'disabled' });
 }
 
-function assertForegroundSurfaceBindingAvailable(
+/**
+ * This binding says where surface measurements are routed. It does NOT decide
+ * whether two requests may be in flight at once — the parent's surface reducer
+ * does, and it rejects a second surface up front, before the message is ever
+ * posted.
+ *
+ * It used to throw here instead, and it was keyed on the wrong lifetime: the
+ * binding is set for a whole request and released in its `finally`, while a
+ * confirmation surface only lives until the user answers it. A transaction that
+ * has been confirmed and is off doing MPC and broadcast still held the binding,
+ * so a key export raised meanwhile was refused for the entire tail of a request
+ * whose UI was long gone. Worse, a request that never settled wedged every
+ * later foreground request until reload, with no way back.
+ *
+ * So hand the binding over. The newest foreground request is the one whose UI
+ * is about to mount, and therefore the one whose measurements matter.
+ */
+function takeForegroundSurfaceBinding(
   ctx: HostContext,
-  requestId: WalletIframeRequestId,
+  binding: UiConfirmSurfaceMeasurementBinding,
 ): void {
-  const binding = ctx.surfaceMeasurementBinding;
-  if (binding.kind === 'wallet_iframe' && binding.requestId !== requestId) {
-    throw new Error('A foreground confirmation surface is already active');
-  }
+  ctx.surfaceMeasurementBinding = binding;
+  ensureSeamsWeb(ctx).setWalletIframeSurfaceMeasurementBinding(binding);
 }
 
 function syncRuntimeContext(state: WalletHostRuntimeState): HostContext {
@@ -225,9 +240,7 @@ export async function handleWalletHostRuntimeRequestWithHandlers(
     ? surfaceMeasurementBindingForRequest(input)
     : null;
   if (foregroundBinding) {
-    assertForegroundSurfaceBindingAvailable(ctx, foregroundBinding.requestId);
-    ctx.surfaceMeasurementBinding = foregroundBinding.binding;
-    ensureSeamsWeb(ctx).setWalletIframeSurfaceMeasurementBinding(foregroundBinding.binding);
+    takeForegroundSurfaceBinding(ctx, foregroundBinding.binding);
   }
   installLitMounterOnce(ctx, input);
 

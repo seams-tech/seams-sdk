@@ -9,8 +9,9 @@ use crate::{
     CloudflareEd25519YaoPackagePairDeliveryV1, CloudflareEd25519YaoPairExecuteRequestV1,
     CloudflareEd25519YaoPairExecuteResponseV1, CloudflareEd25519YaoPairLookupRequestV1,
     CloudflareEd25519YaoPairPrepareRequestV1, CloudflareEd25519YaoPairStatusResponseV1,
-    CloudflareEd25519YaoRoleFailureResponseV1, CloudflareRouterWorkerRuntimeV1,
-    CloudflareWorkerEnvReaderV1, CLOUDFLARE_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH,
+    CloudflareEd25519YaoRoleFailureResponseV1, CloudflareRouterProjectPolicyV1,
+    CloudflareRouterWorkerRuntimeV1, CloudflareWorkerEnvReaderV1,
+    CLOUDFLARE_DERIVER_A_ED25519_YAO_BURN_PAIR_PATH,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_EXECUTE_PAIR_PATH,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_PREPARE_PAIR_PATH,
     CLOUDFLARE_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH,
@@ -274,9 +275,17 @@ async fn execute_router_ceremony_v1(
 ) -> RouterAbProtocolResult<RouterEd25519YaoExecuteResultV1> {
     request.authority().validate_at(now_ms)?;
     request.pair_binding().validate()?;
+    let (binding, input_a, input_b) = request_parts(&request);
+    let project_policy =
+        runtime.evaluate_project_policy_for_yao_work_kind_v1(binding.lifecycle.work_kind)?;
+    if let CloudflareRouterProjectPolicyV1::Rejected { retry_after_ms } = project_policy {
+        return RouterEd25519YaoExecuteResultV1::recoverable(
+            router_ab_core::RouterEd25519YaoExecuteFailureCodeV1::AuthorizationRejected,
+            retry_after_ms,
+        );
+    }
     let verifying_keys =
         parse_cloudflare_deriver_peer_verifying_key_set_v1(&CloudflareWorkerEnvReaderV1::new(env))?;
-    let (binding, input_a, input_b) = request_parts(&request);
     let operation = request.operation();
     let pair_binding = request.pair_binding().clone();
 

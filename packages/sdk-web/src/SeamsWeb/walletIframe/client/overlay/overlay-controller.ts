@@ -139,6 +139,8 @@ export class OverlayController {
   private suppressCloseDismiss = false;
   private listenersInstalled = false;
   private lastAppliedGeometry: WalletIframeSurfaceGeometry | null = null;
+  private authMenuVisualScale = 1;
+  private lastAppliedAuthMenuVisualScale = 1;
   private dialogDisplayMode: 'modal' | 'nonmodal' | null = null;
 
   constructor(opts: OverlayControllerOptions) {
@@ -152,6 +154,10 @@ export class OverlayController {
 
   prepare(): HTMLIFrameElement {
     return this.ensureDialog().iframe;
+  }
+
+  setAuthMenuVisualScale(scale: number): void {
+    this.authMenuVisualScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
   }
 
   apply(mode: OverlayRenderMode): void {
@@ -205,6 +211,8 @@ export class OverlayController {
     const geometryChanged =
       !this.lastAppliedGeometry ||
       !walletIframeSurfaceGeometryEqual(this.lastAppliedGeometry, mode.geometry);
+    const authMenuScaleChanged =
+      authMenu && Math.abs(this.lastAppliedAuthMenuVisualScale - this.authMenuVisualScale) > 0.001;
     const animateAuthMenuResize =
       authMenu &&
       !identityChanged &&
@@ -224,9 +232,10 @@ export class OverlayController {
     setDialogPresentation(dialog, presentationKind(mode), geometryKind(mode.geometry));
     setDialogAuthMenu(dialog, authMenu, animateAuthMenuResize);
     dialog.setAttribute('aria-modal', authMenu ? 'false' : 'true');
-    if (geometryChanged) {
-      setDialogGeometry(dialog, mode.geometry);
+    if (geometryChanged || authMenuScaleChanged) {
+      setDialogGeometry(dialog, mode.geometry, authMenu ? this.authMenuVisualScale : 1);
       this.lastAppliedGeometry = mode.geometry;
+      this.lastAppliedAuthMenuVisualScale = authMenu ? this.authMenuVisualScale : 1;
     }
     iframe.setAttribute('aria-hidden', 'false');
     iframe.removeAttribute('tabindex');
@@ -269,6 +278,8 @@ export class OverlayController {
     this.mode = { kind: 'hidden' };
     this.visible = false;
     this.lastAppliedGeometry = null;
+    this.authMenuVisualScale = 1;
+    this.lastAppliedAuthMenuVisualScale = 1;
     if (!this.dialog) {
       return;
     }

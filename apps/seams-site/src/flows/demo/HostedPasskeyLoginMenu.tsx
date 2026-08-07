@@ -217,7 +217,6 @@ export function HostedPasskeyLoginMenu(props: HostedPasskeyLoginMenuProps) {
         initialMode={resolvedInitialMode}
         registrationAccountInput="implicit_wallet"
         showRegistrationInput={false}
-        showProgress
         copy={{
           login: { subtitle: 'Continue with Passkey or Google SSO' },
           register: { subtitle: 'Continue with Passkey or Google SSO' },

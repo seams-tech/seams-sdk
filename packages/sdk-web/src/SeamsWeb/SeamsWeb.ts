@@ -846,9 +846,7 @@ export class SeamsWeb {
     return await this.walletIframe.openHostedAuthMenu(request, anchorElement);
   }
 
-  async cancelHostedAuthMenu(args: {
-    authMenuSessionId: HostedAuthMenuSessionId;
-  }): Promise<void> {
+  async cancelHostedAuthMenu(args: { authMenuSessionId: HostedAuthMenuSessionId }): Promise<void> {
     await this.walletIframe.cancelHostedAuthMenu(args);
   }
 
@@ -967,9 +965,7 @@ export class SeamsWeb {
     }
   }
 
-  setWalletIframeSurfaceMeasurementBinding(
-    binding: UiConfirmSurfaceMeasurementBinding,
-  ): void {
+  setWalletIframeSurfaceMeasurementBinding(binding: UiConfirmSurfaceMeasurementBinding): void {
     this.signingEngine.setWalletIframeSurfaceMeasurementBinding(binding);
   }
 

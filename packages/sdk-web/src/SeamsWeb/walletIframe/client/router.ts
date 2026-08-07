@@ -207,6 +207,7 @@ import {
   anchorWalletIframeModalGeometry,
   isWalletIframeModalGeometry,
   resolveWalletIframeSurfaceGeometry,
+  type WalletIframeModalGeometry,
   type WalletIframeSurfaceMeasurementState,
   type WalletIframeSurfaceViewport,
 } from './surface/geometry';
@@ -425,10 +426,14 @@ function confirmationUiModeForRequest(
   payload: unknown,
   fallbackUiMode?: RequestConfirmationUiMode,
 ): RequestConfirmationUiMode {
+  // An export request carries its own surface variant, and callers rely on it:
+  // the account menu asks for a drawer explicitly. It must outrank the mirrored
+  // confirmation config, or the host dresses a box the iframe is not rendering
+  // into and the viewer never appears.
   if (type === 'PM_EXPORT_KEYPAIR_UI' && isObject(payload)) {
-    const options = isObject(payload.options) ? payload.options : null;
-    if (options?.variant === 'drawer') return 'drawer';
-    if (options?.variant === 'modal') return 'modal';
+    const exportOptions = isObject(payload.options) ? payload.options : null;
+    if (exportOptions?.variant === 'drawer') return 'drawer';
+    if (exportOptions?.variant === 'modal') return 'modal';
   }
 
   if (!isObject(payload)) return 'modal';
@@ -486,6 +491,13 @@ function requestSurfacePresentationFor(
         : modalWalletIframeSurfacePresentation('Confirm transaction');
     case 'key_export_near':
     case 'key_export_threshold':
+      // An export request paints two surfaces in sequence — the email OTP
+      // authorization prompt and the key viewer — and both resolve their own
+      // variant from the confirmation UI mode, exactly like the tx confirmer.
+      // The host box must read the same setting or it dresses a full-viewport
+      // drawer around a compact modal card (or the reverse). 'none' is not a
+      // presentation an export can use, so it lands on modal like every other
+      // always-visible confirmation.
       return confirmationUiModeForRequest('PM_EXPORT_KEYPAIR_UI', payload, fallbackUiMode) ===
         'drawer'
         ? drawerWalletIframeSurfacePresentation('Confirm key export')
@@ -549,9 +561,87 @@ function shouldHideWalletIframeSurface(payload: ProgressPayload): boolean {
 }
 
 const WALLET_IFRAME_PROGRESS_TIMEOUT_EXTENSION_FACTOR = 4;
-const WALLET_IFRAME_SURFACE_MEASUREMENT_FALLBACK_TIMEOUT_MS = 500;
+/**
+ * Grace period before an unmeasured surface falls back to filling the viewport.
+ *
+ * Every in-iframe mounter binds a measurement reporter, and the reporter posts
+ * as soon as its element exists, so "no measurement" means "nothing is mounted
+ * yet" — not "mounted but unmeasurable". Plenty of surfaces mount behind a
+ * network round-trip (the email OTP export prompt waits for its challenge to be
+ * issued and mailed), so a short deadline declared them broken mid-flight and
+ * swapped a hidden provisional box for a full-viewport, unshadowed one that
+ * then snapped back once the card finally reported. The deadline is a backstop
+ * for a child that never reports at all, so it is sized to outlast a slow
+ * request rather than to race one, and progress on the request restarts it.
+ */
+const WALLET_IFRAME_SURFACE_MEASUREMENT_FALLBACK_TIMEOUT_MS = 4_000;
 const WALLET_IFRAME_REGISTRATION_TIMEOUT_MS = 180_000;
 const WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS = 30_000;
+
+type HostedAuthMenuAnchorMetrics = {
+  topCssPx: number;
+  leftCssPx: number;
+  layoutWidthCssPx: number;
+  heightCssPx: number;
+  visualScale: number;
+};
+
+function hostedAuthMenuAnchorMetrics(
+  anchor: HTMLElement | undefined,
+): HostedAuthMenuAnchorMetrics | null {
+  if (!anchor?.isConnected) return null;
+  const rect = anchor.getBoundingClientRect();
+  const layoutWidthCssPx = anchor.offsetWidth;
+  if (
+    !Number.isFinite(rect.top) ||
+    !Number.isFinite(rect.left) ||
+    !Number.isFinite(rect.width) ||
+    !Number.isFinite(rect.height) ||
+    rect.width <= 0 ||
+    rect.height <= 0 ||
+    !Number.isFinite(layoutWidthCssPx) ||
+    layoutWidthCssPx <= 0
+  ) {
+    return null;
+  }
+  return {
+    topCssPx: rect.top,
+    leftCssPx: rect.left,
+    layoutWidthCssPx,
+    heightCssPx: rect.height,
+    visualScale: rect.width / layoutWidthCssPx,
+  };
+}
+
+export const HOSTED_AUTH_MENU_ANCHOR_HEIGHT_CSS_VAR = '--seams-auth-menu-height';
+
+function pageScrollOffsetCssPx(axis: 'x' | 'y'): number {
+  if (typeof window === 'undefined') return 0;
+  const value = axis === 'x' ? window.scrollX : window.scrollY;
+  return Number.isFinite(value) ? value : 0;
+}
+
+function documentCoordinateAuthMenuGeometry(
+  geometry: WalletIframeModalGeometry,
+): WalletIframeModalGeometry {
+  return {
+    ...geometry,
+    topCssPx: Math.round(geometry.topCssPx + pageScrollOffsetCssPx('y')),
+    leftCssPx: Math.round(geometry.leftCssPx + pageScrollOffsetCssPx('x')),
+  };
+}
+
+function publishHostedAuthMenuAnchorHeight(
+  anchor: HTMLElement | undefined,
+  heightCssPx: number,
+): void {
+  if (!anchor?.isConnected || !Number.isFinite(heightCssPx) || heightCssPx <= 0) return;
+  const next = `${Math.round(heightCssPx)}px`;
+  // Writing an unchanged value would still dirty layout, and this runs on every
+  // scroll and resize tick.
+  if (anchor.style.getPropertyValue(HOSTED_AUTH_MENU_ANCHOR_HEIGHT_CSS_VAR) === next) return;
+  anchor.style.setProperty(HOSTED_AUTH_MENU_ANCHOR_HEIGHT_CSS_VAR, next);
+}
 
 type SignTempoRouterPayload = {
   walletSession: WalletSessionRef;
@@ -1144,6 +1234,7 @@ export class WalletIframeRouter {
   private surfaceGeneration = 0;
   private activeSurfaceMeasurementGeneration = 0;
   private surfaceViewportListenersAttached = false;
+  private surfaceLayoutObserver: ResizeObserver | null = null;
   private measurementFallbackTimer: number | null = null;
   private measurementFallbackGeneration = 0;
   private disposed = false;
@@ -1295,6 +1386,15 @@ export class WalletIframeRouter {
       window.addEventListener('scroll', this.handleSurfaceViewportChange, true);
       visualViewport?.addEventListener('resize', this.handleSurfaceViewportChange);
       visualViewport?.addEventListener('scroll', this.handleSurfaceViewportChange);
+      // Anchored surfaces also go stale when the page reflows without any
+      // scroll/resize event — fonts and images loading, responsive relayout —
+      // because the anchor's document position moves silently. Body size is a
+      // cheap proxy for "content above the anchor changed"; unchanged geometry
+      // short-circuits in the render path, so spurious fires are free.
+      if (typeof ResizeObserver === 'function' && document.body) {
+        this.surfaceLayoutObserver = new ResizeObserver(this.handleSurfaceViewportChange);
+        this.surfaceLayoutObserver.observe(document.body);
+      }
       this.surfaceViewportListenersAttached = true;
       return;
     }
@@ -1302,6 +1402,8 @@ export class WalletIframeRouter {
     window.removeEventListener('scroll', this.handleSurfaceViewportChange, true);
     visualViewport?.removeEventListener('resize', this.handleSurfaceViewportChange);
     visualViewport?.removeEventListener('scroll', this.handleSurfaceViewportChange);
+    this.surfaceLayoutObserver?.disconnect();
+    this.surfaceLayoutObserver = null;
     this.surfaceViewportListenersAttached = false;
     this.cancelMeasurementFallback();
   }
@@ -1325,6 +1427,17 @@ export class WalletIframeRouter {
     this.measurementFallbackTimer = null;
     this.markMeasurementUnavailable(this.measurementFallbackGeneration);
   };
+
+  /**
+   * A request that is still reporting progress has not stalled, so its surface
+   * must not be declared unmeasurable while it works toward mounting.
+   */
+  private extendMeasurementFallbackOnProgress(requestId: string): void {
+    if (this.measurementFallbackTimer === null) return;
+    const surface = this.walletIframeSurface;
+    if (surface.kind === 'hidden' || surface.identity.requestId !== requestId) return;
+    this.scheduleMeasurementFallback(this.measurementFallbackGeneration);
+  }
 
   private markMeasurementUnavailable(generation: number): void {
     if (generation !== this.surfaceGeneration || this.walletIframeSurface.kind === 'hidden') return;
@@ -1429,18 +1542,45 @@ export class WalletIframeRouter {
       surface.kind === 'modal_auth_menu'
         ? this.hostedAuthMenuAnchors.get(surface.authMenuSessionId)
         : undefined;
-    const anchorRect = anchor?.isConnected ? anchor.getBoundingClientRect() : null;
-    const geometry =
+    let anchorMetrics = hostedAuthMenuAnchorMetrics(anchor);
+    let geometry = resolvedGeometry;
+    let authMenuVisualScale = 1;
+    if (
       surface.kind === 'modal_auth_menu' &&
-      anchorRect &&
-      isWalletIframeModalGeometry(resolvedGeometry)
-        ? anchorWalletIframeModalGeometry(resolvedGeometry, viewport, {
-            topCssPx: anchorRect.top,
-            leftCssPx: anchorRect.left,
-            widthCssPx: anchorRect.width,
-            heightCssPx: anchorRect.height,
-          })
-        : resolvedGeometry;
+      anchorMetrics &&
+      isWalletIframeModalGeometry(resolvedGeometry) &&
+      resolvedGeometry.kind !== 'viewport_fallback'
+    ) {
+      // The menu paints from a <body>-level dialog, so it reserves no layout
+      // space of its own. Publish its height to the host anchor, which does sit
+      // in the page flow, so following content is pushed down instead of being
+      // covered.
+      //
+      // Reserve BEFORE re-measuring. Hosts commonly centre the block containing
+      // the anchor, so changing the reserved height moves the anchor's top; if
+      // the geometry were derived from the pre-reflow rect, the dialog would
+      // animate its height now and its top on a later tick, reading as two
+      // separate movements instead of one in-place resize. Height does not
+      // depend on the anchor, so this settles in a single pass.
+      publishHostedAuthMenuAnchorHeight(anchor, resolvedGeometry.heightCssPx);
+      anchorMetrics = hostedAuthMenuAnchorMetrics(anchor) ?? anchorMetrics;
+      authMenuVisualScale = anchorMetrics.visualScale;
+      geometry = anchorWalletIframeModalGeometry(resolvedGeometry, viewport, {
+        topCssPx: anchorMetrics.topCssPx,
+        leftCssPx: anchorMetrics.leftCssPx,
+        widthCssPx: anchorMetrics.layoutWidthCssPx,
+        heightCssPx: anchorMetrics.heightCssPx,
+      });
+    }
+    if (surface.kind === 'modal_auth_menu' && isWalletIframeModalGeometry(geometry)) {
+      // The auth-menu dialog is position:absolute, so hand it DOCUMENT
+      // coordinates. Scrolling then moves it with the page on the compositor
+      // thread (no fixed-position lag), and because anchor viewport movement
+      // and the scroll offset cancel out, scroll events re-derive identical
+      // geometry and the render pipeline short-circuits.
+      geometry = documentCoordinateAuthMenuGeometry(geometry);
+    }
+    this.overlayState.controller.setAuthMenuVisualScale(authMenuVisualScale);
     this.surfaceRenderer.render(surface, geometry);
   }
 
@@ -1878,6 +2018,13 @@ export class WalletIframeRouter {
         this.state.port.onmessage = (ev) => this.onPortMessage(ev, connectionId);
         this.state.port.start?.();
         this.state.ready = true;
+        // Seed the confirmation-config mirror. The host only pushes
+        // PREFERENCES_CHANGED once its SeamsWeb has booted (lazily, on the
+        // first real request), so on a fresh page the mirror can still be
+        // empty when the first surface is dressed — which made an export
+        // resolve to the modal fallback instead of the wallet's persisted
+        // drawer preference. Fire-and-forget: readiness must not wait on it.
+        void this.getConfirmationConfig().catch(() => {});
       }
       const signingSessionPersistenceMode = this.opts.signingSessionPersistenceMode;
       await this.post({
@@ -2108,6 +2255,9 @@ export class WalletIframeRouter {
   }
 
   async getExactSessionState(): Promise<WalletIframeExactSessionState> {
+    if (this.hostedAuthMenuRequestIds.size > 0 && this.exactSessionState !== null) {
+      return this.exactSessionState;
+    }
     return await this.refreshExactSessionState('current', { kind: 'current' });
   }
 
@@ -3373,7 +3523,16 @@ export class WalletIframeRouter {
 
   async exportKeypairWithUI(input: ExportKeypairWithUIInput): Promise<void> {
     const { onEvent, ...messageOptions } = input.options;
-    const payload = walletIframeExportPayload(input, messageOptions);
+    // Key export ALWAYS presents as a bottom drawer — it deliberately does not
+    // follow the Confirmer UI (modal|drawer|none) preference the tx confirmer
+    // uses. Stamping the variant here keeps the one invariant that matters:
+    // the host box and the in-iframe viewer read the same value, so the two
+    // sides cannot disagree. An explicit options.variant from a caller still
+    // wins for embedders that need it.
+    const payload = walletIframeExportPayload(input, {
+      ...messageOptions,
+      variant: messageOptions.variant ?? 'drawer',
+    });
     await this.post<void>({
       type: 'PM_EXPORT_KEYPAIR_UI',
       payload,
@@ -3405,7 +3564,7 @@ export class WalletIframeRouter {
         },
         {
           requestId,
-          timeoutMs: WALLET_IFRAME_REGISTRATION_TIMEOUT_MS,
+          timeout: 'interactive',
           shouldContinue: () =>
             !this.cancelledHostedAuthMenuSessions.has(normalized.authMenuSessionId),
         },
@@ -3530,6 +3689,7 @@ export class WalletIframeRouter {
     if (msg.type === 'PROGRESS') {
       const payload = msg.payload as ProgressPayload;
       this.progressBus.dispatch({ requestId: requestId, payload: payload });
+      this.extendMeasurementFallbackOnProgress(requestId);
       if (shouldHideWalletIframeSurface(payload)) {
         this.hideRequestSurface(requestId as WalletIframeRequestId);
       }
@@ -3661,8 +3821,7 @@ export class WalletIframeRouter {
               deadlineAtMs: requestStartMs + maxLifetimeMs,
             };
           })();
-    const deadlineAtMs =
-      timeoutPolicy.kind === 'deadline' ? timeoutPolicy.deadlineAtMs : null;
+    const deadlineAtMs = timeoutPolicy.kind === 'deadline' ? timeoutPolicy.deadlineAtMs : null;
     const surfaceKind = requestSurfaceKindForMessage(envelope.type, full.payload);
     let transactionSurfaceLease: WalletIframeTransactionSurfaceLease | null = null;
     if (surfaceKind === 'transaction') {
@@ -3714,14 +3873,16 @@ export class WalletIframeRouter {
         // Step 3: Set up timeout handler for request
         const timer =
           timeoutPolicy.kind === 'deadline'
-            ? window.setTimeout(() => {
-                const err = onTimeout();
-                reject(err);
-              },
-              Math.max(
-                1,
-                Math.min(timeoutPolicy.timeoutMs, timeoutPolicy.deadlineAtMs - Date.now()),
-              ))
+            ? window.setTimeout(
+                () => {
+                  const err = onTimeout();
+                  reject(err);
+                },
+                Math.max(
+                  1,
+                  Math.min(timeoutPolicy.timeoutMs, timeoutPolicy.deadlineAtMs - Date.now()),
+                ),
+              )
             : undefined;
 
         // Step 4: Register pending request for correlation

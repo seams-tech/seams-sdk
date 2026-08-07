@@ -9,8 +9,8 @@ command = "cargo install -q worker-build --version 0.8.4 && bash ./scripts/build
 [[d1_databases]]
 binding = "SIGNING_WORKER_PRIVATE_DB"
 database_name = "router-ab-signing-worker-private"
-# deploy-backend.mjs replaces this sentinel before remote migration and deployment.
-database_id = "00000000-0000-0000-0000-0000000094c1"
+# deploy-backend.mjs replaces this lane placeholder before remote migration and deployment.
+database_id = "__PRODUCTION_MAINNET_SIGNING_WORKER_PRIVATE_D1_ID__"
 migrations_dir = "migrations/signing-worker"
 
 [durable_objects]
@@ -29,7 +29,6 @@ SIGNING_WORKER_PRESIGN_SESSION_DO_OBJECT = "signing-worker-presign-session"
 SIGNING_WORKER_PRESIGN_SESSION_DO_KEY_PREFIX = "signing-worker-presign-session/"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_BINDING = "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH = "epoch-1"
-SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:d0a06a6445d78bc87f449dfac2b427ad1857a0b00d91e20f152031ad49c18010"
 
 [env.staging]
 name = "router-ab-signing-worker-staging"
@@ -38,8 +37,8 @@ workers_dev = false
 [[env.staging.d1_databases]]
 binding = "SIGNING_WORKER_PRIVATE_DB"
 database_name = "router-ab-signing-worker-staging-private"
-# deploy-backend.mjs replaces this sentinel before remote migration and deployment.
-database_id = "00000000-0000-0000-0000-0000000094c2"
+# deploy-backend.mjs replaces this lane placeholder before remote migration and deployment.
+database_id = "__STAGING_TESTNET_SIGNING_WORKER_PRIVATE_D1_ID__"
 migrations_dir = "migrations/signing-worker"
 
 [[env.staging.durable_objects.bindings]]
@@ -54,6 +53,29 @@ SIGNING_WORKER_PRESIGN_SESSION_DO_KEY_PREFIX = "signing-worker-presign-session/"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_BINDING = "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH = "epoch-1"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:d0a06a6445d78bc87f449dfac2b427ad1857a0b00d91e20f152031ad49c18010"
+
+[env.production-testnet]
+name = "router-ab-signing-worker-testnet"
+workers_dev = false
+
+[[env.production-testnet.d1_databases]]
+binding = "SIGNING_WORKER_PRIVATE_DB"
+database_name = "router-ab-signing-worker-testnet-private"
+# deploy-backend.mjs replaces this lane placeholder before remote migration and deployment.
+database_id = "__PRODUCTION_TESTNET_SIGNING_WORKER_PRIVATE_D1_ID__"
+migrations_dir = "migrations/signing-worker"
+
+[[env.production-testnet.durable_objects.bindings]]
+name = "SIGNING_WORKER_PRESIGN_SESSION_DO"
+class_name = "RouterAbSigningWorkerPresignSessionDurableObject"
+
+[env.production-testnet.vars]
+ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
+SIGNING_WORKER_PRESIGN_SESSION_DO_BINDING = "SIGNING_WORKER_PRESIGN_SESSION_DO"
+SIGNING_WORKER_PRESIGN_SESSION_DO_OBJECT = "signing-worker-presign-session"
+SIGNING_WORKER_PRESIGN_SESSION_DO_KEY_PREFIX = "signing-worker-presign-session/"
+SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_BINDING = "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY"
+SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH = "epoch-1"
 
 [observability]
 enabled = true

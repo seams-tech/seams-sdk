@@ -106,6 +106,7 @@
   ],
   "scripts": {
     "build:sdk": "./scripts/build/build-sdk.sh",
+    "build:types": "tsc -p tsconfig.build.json && node ./scripts/build/rewrite-declaration-aliases.mjs",
     "build:wasm": "./scripts/build/build-wasm.sh",
     "build:sdk-full": "./scripts/build/build-full.sh",
     "build:prod": "./scripts/build/build-prod.sh",
