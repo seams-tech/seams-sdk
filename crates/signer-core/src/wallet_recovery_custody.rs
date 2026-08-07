@@ -25,8 +25,8 @@ use zeroize::Zeroizing;
 
 use crate::error::{CoreResult, SignerCoreError};
 use crate::passkey_custody::{
-    sha256_digest, PasskeyCustodyLaneScopeV1, PasskeyCustodySecretKind, PASSKEY_CUSTODY_KEY_LEN,
-    PASSKEY_CUSTODY_NONCE_LEN, PASSKEY_CUSTODY_TAG_LEN, PASSKEY_CUSTODY_WRAP_ALG_V1,
+    sha256_digest, PasskeyCustodySecretKind, PASSKEY_CUSTODY_KEY_LEN, PASSKEY_CUSTODY_NONCE_LEN,
+    PASSKEY_CUSTODY_TAG_LEN, PASSKEY_CUSTODY_WRAP_ALG_V1,
 };
 
 pub const WALLET_RECOVERY_ENVELOPE_SET_VERSION_V1: &str = "wallet_recovery_envelope_set_v1";
@@ -53,68 +53,17 @@ pub struct WalletRecoveryCodeScopeV1 {
     pub key_manifest_digest: [u8; 32],
 }
 
-/// The custody a recovery entry restores, with scope made unrepresentable
-/// rather than validated: the wallet-scoped seed cannot carry a lane, and a
-/// lane holder share cannot lack one, because neither shape exists.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WalletRecoveryEntryCustodyV1 {
-    WalletCustodySeed,
-    Ed25519LaneHolderShare(PasskeyCustodyLaneScopeV1),
-    EcdsaLaneHolderShare(PasskeyCustodyLaneScopeV1),
-}
-
-impl WalletRecoveryEntryCustodyV1 {
-    pub fn kind(&self) -> PasskeyCustodySecretKind {
-        match self {
-            Self::WalletCustodySeed => PasskeyCustodySecretKind::WalletCustodySeed,
-            Self::Ed25519LaneHolderShare(_) => PasskeyCustodySecretKind::Ed25519LaneHolderShare,
-            Self::EcdsaLaneHolderShare(_) => PasskeyCustodySecretKind::EcdsaLaneHolderShare,
-        }
-    }
-
-    pub fn lane(&self) -> Option<&PasskeyCustodyLaneScopeV1> {
-        match self {
-            Self::WalletCustodySeed => None,
-            Self::Ed25519LaneHolderShare(lane) | Self::EcdsaLaneHolderShare(lane) => Some(lane),
-        }
-    }
-
-    /// The validated seam for wire callers that receive kind and lane scope as
-    /// separate fields. A seed with a lane, or a lane share without one, is
-    /// rejected here so it can never reach the encoder.
-    pub fn from_parts(
-        kind: PasskeyCustodySecretKind,
-        lane: Option<PasskeyCustodyLaneScopeV1>,
-    ) -> CoreResult<Self> {
-        match (kind, lane) {
-            (PasskeyCustodySecretKind::WalletCustodySeed, None) => Ok(Self::WalletCustodySeed),
-            (PasskeyCustodySecretKind::WalletCustodySeed, Some(_)) => {
-                Err(SignerCoreError::invalid_input(
-                    "a wallet-scoped seed entry cannot carry lane identity",
-                ))
-            }
-            (PasskeyCustodySecretKind::Ed25519LaneHolderShare, Some(lane)) => {
-                Ok(Self::Ed25519LaneHolderShare(lane))
-            }
-            (PasskeyCustodySecretKind::EcdsaLaneHolderShare, Some(lane)) => {
-                Ok(Self::EcdsaLaneHolderShare(lane))
-            }
-            (
-                PasskeyCustodySecretKind::Ed25519LaneHolderShare
-                | PasskeyCustodySecretKind::EcdsaLaneHolderShare,
-                None,
-            ) => Err(SignerCoreError::invalid_input(
-                "a lane holder-share entry requires its lane scope",
-            )),
-        }
-    }
-}
-
-/// Identifies one custody entry inside a recovery envelope set.
+/// Identifies the single custody entry inside a recovery envelope set.
+///
+/// A recovery set covers owner custody only: exactly one wallet-scoped seed.
+/// Lane holder shares are deliberately absent. A linked device's share is
+/// sealed under that device's own factor, so it never depended on the owner
+/// credential and survives owner recovery untouched; including it here would
+/// instead let an owner recovery code reconstruct that device's material. A
+/// lost lane is revoked and reprovisioned through Refactor 102, not recovered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WalletRecoveryEntryScopeV1 {
     pub wallet_id: String,
-    pub custody: WalletRecoveryEntryCustodyV1,
     pub key_manifest_digest: [u8; 32],
 }
 
@@ -201,27 +150,14 @@ pub fn encode_recovery_entry_aad_v1(scope: &WalletRecoveryEntryScopeV1) -> CoreR
     );
     labeled_str(&mut out, b"wrapAlg", PASSKEY_CUSTODY_WRAP_ALG_V1);
     labeled_str(&mut out, b"walletId", &scope.wallet_id);
+    // Bound explicitly even though only one kind and scope exist today, so a
+    // future lane-bearing entry could never collide with a seed entry's AAD.
     labeled_str(
         &mut out,
         b"custodySecretKind",
-        scope.custody.kind().as_str(),
+        PasskeyCustodySecretKind::WalletCustodySeed.as_str(),
     );
-
-    // The custody-secret kind above already domain-separates the branches;
-    // the explicit scope marker is defense-in-depth so scope stays bound even
-    // if a future edit lets two branches share a kind.
-    match scope.custody.lane() {
-        Some(lane) => {
-            require_field("walletKeyId", &lane.wallet_key_id)?;
-            require_field("laneId", &lane.lane_id)?;
-            require_field("laneShareEpoch", &lane.lane_share_epoch)?;
-            labeled_str(&mut out, b"scope", "lane");
-            labeled_str(&mut out, b"walletKeyId", &lane.wallet_key_id);
-            labeled_str(&mut out, b"laneId", &lane.lane_id);
-            labeled_str(&mut out, b"laneShareEpoch", &lane.lane_share_epoch);
-        }
-        None => labeled_str(&mut out, b"scope", "wallet"),
-    }
+    labeled_str(&mut out, b"scope", "wallet");
 
     labeled_field(&mut out, b"keyManifestDigest", &scope.key_manifest_digest);
     Ok(out)

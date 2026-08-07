@@ -1,5 +1,4 @@
 import type { WalletId } from '../utils/domainIds';
-import type { LaneShareEpoch, SigningLaneId, WalletKeyId } from '../signing-lanes/ids';
 import type { DigestB64u } from '../utils/canonicalPrimitives';
 import type { EnvelopeCiphertextB64u, EnvelopeNonceB64u } from '../passkey-custody';
 import type { DerivedWalletRecoveryKeyId } from './recoveryCodes';
@@ -12,9 +11,6 @@ import type {
 } from './walletRecoveryEnvelopeSet';
 
 declare const walletId: WalletId;
-declare const walletKeyId: WalletKeyId;
-declare const laneId: SigningLaneId;
-declare const laneShareEpoch: LaneShareEpoch;
 declare const recoveryKeyId: DerivedWalletRecoveryKeyId;
 declare const digest: DigestB64u;
 declare const nonceB64u: EnvelopeNonceB64u;
@@ -52,12 +48,11 @@ const seedEntry: WalletRecoveryEnvelopeEntry = {
 };
 void seedEntry;
 
-// Lane holder-share entries name exactly one lane.
+// Lane holder shares are never recoverable: a linked device's share is sealed
+// under that device's own factor and is reprovisioned, not restored.
 const laneEntry: WalletRecoveryEnvelopeEntry = {
+  // @ts-expect-error A recovery set carries the wallet custody seed only.
   custodySecretKind: 'ecdsa_lane_holder_share_v1',
-  walletKeyId,
-  laneId,
-  laneShareEpoch,
   nonceB64u,
   wrappedCustodySecretB64u: ciphertextB64u,
   aadHashB64u: digest,
@@ -117,7 +112,7 @@ const recoverySet: WalletRecoveryEnvelopeSetRecord = {
   walletId,
   keyManifestDigestB64u: digest,
   manifestKekWraps: [manifestKekWrap],
-  entries: [seedEntry, laneEntry],
+  entries: [seedEntry],
   issuedAtMs: 1,
   updatedAtMs: 1,
 };

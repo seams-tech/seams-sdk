@@ -135,24 +135,10 @@ export function rawPasskeyCustodyEnvelope(overrides: RawRecord = {}): RawRecord 
 }
 
 export function rawWalletRecoveryEnvelopeEntry(
-  custodySecretKind: PasskeyCustodySecretKind,
+  custodySecretKind: PasskeyCustodySecretKind = 'wallet_custody_seed_v1',
   overrides: RawRecord = {},
 ): RawRecord {
-  // The owner seed entry is wallet-scoped and carries no lane identity.
-  if (custodySecretKind === 'wallet_custody_seed_v1') {
-    return {
-      custodySecretKind,
-      nonceB64u: NONCE_12_B64U,
-      wrappedCustodySecretB64u: CIPHERTEXT_B64U,
-      aadHashB64u: DIGEST_B64U,
-      ...overrides,
-    };
-  }
-  const ed25519Branch = custodySecretKind.startsWith('ed25519');
   return {
-    walletKeyId: ed25519Branch ? ED25519_WALLET_KEY_ID : EVM_WALLET_KEY_ID,
-    laneId: ed25519Branch ? ED25519_LANE_ID : EVM_LANE_ID,
-    laneShareEpoch: LANE_SHARE_EPOCH,
     custodySecretKind,
     nonceB64u: NONCE_12_B64U,
     wrappedCustodySecretB64u: CIPHERTEXT_B64U,
@@ -178,10 +164,7 @@ export function rawWalletRecoveryEnvelopeSet(overrides: RawRecord = {}): RawReco
     walletId: WALLET_ID,
     keyManifestDigestB64u: DIGEST_B64U,
     manifestKekWraps: [rawManifestKekWrap()],
-    entries: [
-      rawWalletRecoveryEnvelopeEntry('wallet_custody_seed_v1'),
-      rawWalletRecoveryEnvelopeEntry('ecdsa_lane_holder_share_v1'),
-    ],
+    entries: [rawWalletRecoveryEnvelopeEntry()],
     issuedAtMs: 1_000,
     updatedAtMs: 2_000,
     ...overrides,

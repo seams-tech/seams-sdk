@@ -22,21 +22,19 @@ import { parseDerivedWalletRecoveryKeyId, WALLET_RECOVERY_CODE_COUNT } from './r
 import type { RecoveryCodeLifecycleState } from './recoveryEnvelopes';
 
 /**
- * One recovery-wrapped custody secret, sealed under a key derived from the
+ * The recovery-wrapped wallet custody seed, sealed under a key derived from the
  * set's manifest KEK (frozen design: a recovery code wraps a random manifest
- * KEK; it never wraps entries directly). A recovery code covers the whole
- * mixed-wallet key set, so a partial recovery can never promote a replacement
- * credential.
+ * KEK; it never wraps entries directly). One seed covers every owner key, so a
+ * partial recovery can never promote a replacement credential.
  *
- * Lane scope is present only on lane holder-share entries. The owner entry
- * carries the wallet custody seed, which is wallet-scoped and covers every
- * owner key at once, so it has no lane to name.
+ * Lane holder shares are deliberately absent. A linked device's share is sealed
+ * under that device's own factor, so it never depended on the owner credential
+ * and survives owner recovery untouched; including it here would instead let an
+ * owner recovery code reconstruct that device's material. A lost lane is
+ * revoked and reprovisioned through Refactor 102, not recovered.
  */
 export type WalletRecoveryEnvelopeEntry = {
-  custodySecretKind: PasskeyCustodySecretKind;
-  walletKeyId?: WalletKeyId;
-  laneId?: SigningLaneId;
-  laneShareEpoch?: LaneShareEpoch;
+  custodySecretKind: 'wallet_custody_seed_v1';
   nonceB64u: EnvelopeNonceB64u;
   wrappedCustodySecretB64u: EnvelopeCiphertextB64u;
   aadHashB64u: DigestB64u;
@@ -66,7 +64,6 @@ export type WalletRecoveryEnvelopeSetRecord = {
   updatedAtMs: number;
 };
 
-/** The wallet-scoped owner entry: one seed covering every owner key. */
 export function buildWalletCustodySeedRecoveryEntry(args: {
   nonceB64u: EnvelopeNonceB64u;
   wrappedCustodySecretB64u: EnvelopeCiphertextB64u;
@@ -74,27 +71,6 @@ export function buildWalletCustodySeedRecoveryEntry(args: {
 }): WalletRecoveryEnvelopeEntry {
   return {
     custodySecretKind: 'wallet_custody_seed_v1',
-    nonceB64u: args.nonceB64u,
-    wrappedCustodySecretB64u: args.wrappedCustodySecretB64u,
-    aadHashB64u: args.aadHashB64u,
-  };
-}
-
-/** A lane holder-share entry, scoped to exactly one lane. */
-export function buildLaneHolderShareRecoveryEntry(args: {
-  walletKeyId: WalletKeyId;
-  laneId: SigningLaneId;
-  laneShareEpoch: LaneShareEpoch;
-  custodySecretKind: Exclude<PasskeyCustodySecretKind, 'wallet_custody_seed_v1'>;
-  nonceB64u: EnvelopeNonceB64u;
-  wrappedCustodySecretB64u: EnvelopeCiphertextB64u;
-  aadHashB64u: DigestB64u;
-}): WalletRecoveryEnvelopeEntry {
-  return {
-    custodySecretKind: args.custodySecretKind,
-    walletKeyId: args.walletKeyId,
-    laneId: args.laneId,
-    laneShareEpoch: args.laneShareEpoch,
     nonceB64u: args.nonceB64u,
     wrappedCustodySecretB64u: args.wrappedCustodySecretB64u,
     aadHashB64u: args.aadHashB64u,
@@ -134,55 +110,6 @@ export function buildWalletRecoveryEnvelopeSetRecord(args: {
     issuedAtMs: args.issuedAtMs,
     updatedAtMs: args.updatedAtMs,
   };
-}
-
-const RECOVERY_ENTRY_FIELDS = [
-  'walletKeyId',
-  'laneId',
-  'laneShareEpoch',
-  'custodySecretKind',
-  'nonceB64u',
-  'wrappedCustodySecretB64u',
-  'aadHashB64u',
-] as const;
-
-const MANIFEST_KEK_WRAP_FIELDS = [
-  'recoveryKeyId',
-  'nonceB64u',
-  'wrappedManifestKekB64u',
-  'aadHashB64u',
-  'lifecycle',
-] as const;
-
-const RECOVERY_SET_FIELDS = [
-  'kind',
-  'walletId',
-  'keyManifestDigestB64u',
-  'manifestKekWraps',
-  'entries',
-  'issuedAtMs',
-  'updatedAtMs',
-] as const;
-
-const RECOVERY_LIFECYCLE_FIELDS = [
-  'state',
-  'issuedAtMs',
-  'reservationId',
-  'reservedAtMs',
-  'reservationExpiresAtMs',
-  'consumedAtMs',
-  'revokedAtMs',
-] as const;
-
-function requireCustodySecretKind(value: unknown, label: string): PasskeyCustodySecretKind {
-  if (
-    value === 'wallet_custody_seed_v1' ||
-    value === 'ed25519_lane_holder_share_v1' ||
-    value === 'ecdsa_lane_holder_share_v1'
-  ) {
-    return value;
-  }
-  throw new Error(`${label} must be a known passkey custody secret kind`);
 }
 
 function parseRecoveryCodeLifecycleState(raw: unknown, label: string): RecoveryCodeLifecycleState {
@@ -245,9 +172,44 @@ function parseRecoveryCodeLifecycleState(raw: unknown, label: string): RecoveryC
       return { state: 'revoked', issuedAtMs, revokedAtMs };
     }
     default:
-      throw new Error(`${label}.state must be active, consumed, or revoked`);
+      throw new Error(`${label}.state must be active, reserved, consumed, or revoked`);
   }
 }
+
+const RECOVERY_ENTRY_FIELDS = [
+  'custodySecretKind',
+  'nonceB64u',
+  'wrappedCustodySecretB64u',
+  'aadHashB64u',
+] as const;
+
+const MANIFEST_KEK_WRAP_FIELDS = [
+  'recoveryKeyId',
+  'nonceB64u',
+  'wrappedManifestKekB64u',
+  'aadHashB64u',
+  'lifecycle',
+] as const;
+
+const RECOVERY_SET_FIELDS = [
+  'kind',
+  'walletId',
+  'keyManifestDigestB64u',
+  'manifestKekWraps',
+  'entries',
+  'issuedAtMs',
+  'updatedAtMs',
+] as const;
+
+const RECOVERY_LIFECYCLE_FIELDS = [
+  'state',
+  'issuedAtMs',
+  'reservationId',
+  'reservedAtMs',
+  'reservationExpiresAtMs',
+  'consumedAtMs',
+  'revokedAtMs',
+] as const;
 
 function parseWalletRecoveryEnvelopeEntry(
   raw: unknown,
@@ -256,51 +218,22 @@ function parseWalletRecoveryEnvelopeEntry(
   const record = requireRecord(raw, label);
   rejectUnknownFields(record, RECOVERY_ENTRY_FIELDS, label);
 
-  const custodySecretKind = requireCustodySecretKind(
-    record.custodySecretKind,
-    `${label}.custodySecretKind`,
-  );
-  const nonceB64u = parseEnvelopeNonceB64u(record.nonceB64u, `${label}.nonceB64u`);
-  const wrappedCustodySecretB64u = parseEnvelopeCiphertextB64u(
-    record.wrappedCustodySecretB64u,
-    `${label}.wrappedCustodySecretB64u`,
-  );
-  const aadHashB64u = parseDigestField(record.aadHashB64u, `${label}.aadHashB64u`);
-
-  if (custodySecretKind === 'wallet_custody_seed_v1') {
-    // Owner custody is wallet-scoped; a lane on the seed entry would imply the
-    // seed belongs to one lane, which it never does.
-    if (
-      record.walletKeyId !== undefined ||
-      record.laneId !== undefined ||
-      record.laneShareEpoch !== undefined
-    ) {
-      throw new Error(`${label} is wallet-scoped and cannot carry lane identity`);
-    }
-    return buildWalletCustodySeedRecoveryEntry({
-      nonceB64u,
-      wrappedCustodySecretB64u,
-      aadHashB64u,
-    });
+  // Only the wallet custody seed is recoverable. A lane kind here means the
+  // caller expects owner recovery to restore a linked device's material, which
+  // it deliberately never does.
+  if (record.custodySecretKind !== 'wallet_custody_seed_v1') {
+    throw new Error(
+      `${label}.custodySecretKind must be wallet_custody_seed_v1; lane holder shares are reprovisioned, not recovered`,
+    );
   }
 
-  const walletKeyId = parseWalletKeyId(record.walletKeyId);
-  if (!walletKeyId.ok) throw new Error(`${label}.walletKeyId ${walletKeyId.error.message}`);
-  const laneId = parseSigningLaneId(record.laneId);
-  if (!laneId.ok) throw new Error(`${label}.laneId ${laneId.error.message}`);
-  const laneShareEpoch = parseLaneShareEpoch(record.laneShareEpoch);
-  if (!laneShareEpoch.ok) {
-    throw new Error(`${label}.laneShareEpoch ${laneShareEpoch.error.message}`);
-  }
-
-  return buildLaneHolderShareRecoveryEntry({
-    walletKeyId: walletKeyId.value,
-    laneId: laneId.value,
-    laneShareEpoch: laneShareEpoch.value,
-    custodySecretKind,
-    nonceB64u,
-    wrappedCustodySecretB64u,
-    aadHashB64u,
+  return buildWalletCustodySeedRecoveryEntry({
+    nonceB64u: parseEnvelopeNonceB64u(record.nonceB64u, `${label}.nonceB64u`),
+    wrappedCustodySecretB64u: parseEnvelopeCiphertextB64u(
+      record.wrappedCustodySecretB64u,
+      `${label}.wrappedCustodySecretB64u`,
+    ),
+    aadHashB64u: parseDigestField(record.aadHashB64u, `${label}.aadHashB64u`),
   });
 }
 
@@ -391,31 +324,11 @@ export function parseWalletRecoveryEnvelopeSetRecord(
     parseWalletRecoveryEnvelopeEntry(entry, `${label}.entries[${index}]`),
   );
 
-  const seenWalletKeyIds = new Set<string>();
-  const seenLaneIds = new Set<string>();
-  let seedEntries = 0;
-  for (const entry of entries) {
-    if (entry.custodySecretKind === 'wallet_custody_seed_v1') {
-      seedEntries += 1;
-      continue;
-    }
-    const walletKeyId = String(entry.walletKeyId);
-    if (seenWalletKeyIds.has(walletKeyId)) {
-      throw new Error(`${label}.entries has duplicate walletKeyId ${walletKeyId}`);
-    }
-    seenWalletKeyIds.add(walletKeyId);
-    const laneId = String(entry.laneId);
-    if (seenLaneIds.has(laneId)) {
-      throw new Error(`${label}.entries has duplicate laneId ${laneId}`);
-    }
-    seenLaneIds.add(laneId);
-  }
-
-  // Exactly one owner seed: zero means recovery cannot restore owner custody,
-  // and more than one means two different seeds claim the same wallet.
-  if (seedEntries !== 1) {
+  // Exactly one entry, and it is the seed: zero cannot restore owner custody,
+  // and more than one means rival seeds claim the same wallet.
+  if (entries.length !== 1) {
     throw new Error(
-      `${label}.entries must contain exactly one wallet_custody_seed_v1 entry, found ${seedEntries}`,
+      `${label}.entries must contain exactly one wallet_custody_seed_v1 entry, found ${entries.length}`,
     );
   }
 
