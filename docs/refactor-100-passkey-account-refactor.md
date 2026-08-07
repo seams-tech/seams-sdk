@@ -1043,6 +1043,19 @@ repository evidence.
       nothing about. Every exit that is not a completed seal discards, and a
       discard that itself fails does not mask the original error: the caller
       must learn why the ceremony failed, not why cleanup did.
+- [x] Split `registration.ts` so the splice below is reviewable. Move-only, in
+      two commits, 7,402 → 4,250 lines: `registrationTiming.ts` (55
+      declarations), `registrationStrictEcdsa.ts` (32), and
+      `registrationEd25519Yao.ts` (34).
+
+      Each extraction ran as a script over exact line ranges and was verified
+      byte-identical to the original text once `export` prefixes are normalised
+      away — nothing was retyped. Cluster boundaries were chosen by measuring
+      references in both directions and absorbing back-references until only
+      type-only ones remained, not by grouping on name. The three-route ECDSA
+      orchestration deliberately stayed behind: it calls `registerWallet`, the
+      warmup, and app-session helpers, so moving it would have created a real
+      import cycle rather than a type-only one.
 - [ ] Splice the ceremony into `registration.ts` and commit its payload.
 
       Not a small wiring step, which is why it is separate. Today Yao
