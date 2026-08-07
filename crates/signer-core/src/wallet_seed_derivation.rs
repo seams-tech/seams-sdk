@@ -232,15 +232,20 @@ impl core::fmt::Debug for WalletSeedOwnerRootsV1 {
 /// Derives every owner signing root for one registration.
 ///
 /// Each curve is bound to the application binding digest its own protocol
-/// computes, so a caller passes digests it obtained from those protocols rather
-/// than assembling bindings itself.
+/// computes. This function cannot check that the digests it receives came from
+/// those protocols — a caller can always fabricate two distinct byte arrays.
+/// Protocol provenance is a property of *where this is called from*, not of
+/// this signature: the ceremony module computes both digests from typed
+/// protocol outputs and passes them straight in, with no boundary in between at
+/// which a caller could substitute its own. The equality rejection below is a
+/// tripwire for the obvious mistake, not a provenance proof.
 pub fn derive_wallet_seed_owner_roots_v1(
     seed: &[u8],
     ed25519_application_binding_digest: &[u8; 32],
     ecdsa_application_binding_digest: &[u8; 32],
 ) -> CoreResult<WalletSeedOwnerRootsV1> {
-    // Two protocols, two digests. Equal digests would mean one of them was not
-    // the protocol's own, and the roots would then differ only by salt.
+    // Two protocols, two digests. Equal digests mean one of them is not the
+    // protocol's own, and the roots would then differ only by salt.
     if ed25519_application_binding_digest == ecdsa_application_binding_digest {
         return Err(SignerCoreError::invalid_input(
             "Ed25519 and ECDSA application binding digests must differ",
@@ -258,17 +263,54 @@ pub fn derive_wallet_seed_owner_roots_v1(
     })
 }
 
+/// Proof that a key manifest was verified against the digest its custody
+/// envelope was sealed under.
+///
+/// The field is private and [`verify_registered_wallet_key_manifest_v1`] is the
+/// only constructor, so a caller cannot fabricate one from bytes it computed
+/// itself. Sealing entry points that must not run before verification take this
+/// by reference instead of taking a `[u8; 32]` a caller could have produced any
+/// number of ways.
+///
+/// Deliberately not `Clone`, `Copy`, `Serialize`, or `Deserialize`: this is a
+/// within-ceremony capability, not a token to store, replay, or hand across a
+/// module boundary. A verification token that crossed the wasm boundary and
+/// came back would prove only that *some* verification once succeeded, which is
+/// not what the sealing paths need to know.
+///
+/// The digest itself is public data — the type protects how it was *obtained*,
+/// not the bytes, which is why [`Self::digest`] is unrestricted.
+#[derive(Debug)]
+pub struct VerifiedWalletKeyManifestDigestV1 {
+    digest: [u8; 32],
+}
+
+impl VerifiedWalletKeyManifestDigestV1 {
+    /// The verified digest, for recording on the records this ceremony writes.
+    pub fn digest(&self) -> &[u8; 32] {
+        &self.digest
+    }
+
+    pub fn digest_b64u(&self) -> String {
+        wallet_key_manifest_digest_b64u(&self.digest)
+    }
+}
+
 /// The registration gate: a seed may publish capability only for the exact key
 /// set it reproduces.
 ///
 /// Callers pass the public identities the two protocols actually returned. This
 /// rebuilds the canonical manifest, compares its digest with the one the seed
-/// envelope was sealed against, and returns the digest only on success — so a
-/// caller that ignores the `Result` still has no digest to record.
+/// envelope was sealed against, and returns a
+/// [`VerifiedWalletKeyManifestDigestV1`] only on success — so a caller that
+/// ignores the `Result` has nothing to record and nothing the sealing paths
+/// will accept.
 pub fn verify_registered_wallet_key_manifest_v1(
     manifest: &WalletKeyManifestV1,
     sealed_key_manifest_digest: &[u8],
-) -> CoreResult<[u8; 32]> {
+) -> CoreResult<VerifiedWalletKeyManifestDigestV1> {
     verify_wallet_key_manifest_v1(manifest, sealed_key_manifest_digest)?;
-    compute_wallet_key_manifest_digest_v1(manifest)
+    Ok(VerifiedWalletKeyManifestDigestV1 {
+        digest: compute_wallet_key_manifest_digest_v1(manifest)?,
+    })
 }

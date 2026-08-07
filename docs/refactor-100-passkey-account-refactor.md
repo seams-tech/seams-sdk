@@ -802,25 +802,81 @@ repository evidence.
       `prepare_ecdsa_client_bootstrap` unchanged. Both curves' derivations now
       take the application binding digest their own protocol computes, so a
       caller cannot bind to something the protocol will not verify.
-- [ ] Commit server-held mixed-wallet passkey envelopes and recovery envelope
-      sets with the registration result.
+- [x] DECIDED (August 7, 2026) — module topology: custody ceremonies get their
+      own wasm module, `wallet_custody_ceremony`, statically linking
+      `signer-core`, `router-ab-ed25519-yao-client`, and
+      `router-ab-ecdsa-derivation`.
 
-      BLOCKED ON A MODULE DECISION (August 7, 2026). Custody lives in the
-      `near_signer` wasm module; Yao registration runs in
-      `router-ab-ed25519-yao-client` and ECDSA bootstrap in
-      `router_ab_ecdsa_derivation_client`. No module depends on the others, so
-      a seed-derived root cannot reach its protocol without crossing
-      JavaScript as bytes — which invariant 3 forbids. Registration
-      orchestration must therefore live in one module that can reach both
-      protocol crates (both already build as `rlib` as well as `cdylib`).
-      Options: host it in `near_signer`, which carries a bundle-size guard and
-      is loaded for every NEAR signing operation; or add a registration-only
-      wasm module loaded solely for this infrequent flow. Until this is
-      settled, the Rust-side pieces stand ready and nothing is wired.
+      A **custody ceremony** is a flow that derives owner roots *and* verifies
+      the key manifest: initial registration and recovery re-establishment.
+      Adding a second factor to an existing wallet is not one — it reseals a
+      seed whose manifest was verified when it was admitted — so it stays in
+      `near_signer` with the other custody primitives.
+
+      Why a module at all: custody lived in `near_signer`, Yao registration in
+      `router-ab-ed25519-yao-client`, ECDSA bootstrap in
+      `router_ab_ecdsa_derivation_client`, and no module depended on the
+      others. A seed-derived root could not reach its protocol without crossing
+      JavaScript as bytes, which invariant 3 forbids. One module reaching both
+      protocol crates is the only way to close that gap; both already build as
+      `rlib` as well as `cdylib`, so this is a new target, not new plumbing.
+
+      Why not `near_signer`: it loads for every NEAR signing operation and
+      carries a bundle-size guard. Hosting registration there would pull
+      frost/curve25519 *and* k256 registration code onto the recurring signing
+      path for a flow that runs once per wallet. Ordinary Ed25519 signing
+      already sits in `near_signer` and links no registration crate; that stays
+      true.
+
+      Why not the existing `wasm/ecdsa_registration_client`, despite the name:
+      it is not registration-only. `open_ecdsa_role_local_signing_share_v1`
+      runs at rehydration, and both `ecdsa-derivation-client.worker.ts` and
+      `email-otp.worker.ts` load the module, so adding Yao dependencies would
+      grow a recurring download. Its API surface is also built on the pattern
+      this refactor removes — `prepare_..._from_resolved_email_otp_root_v1`
+      takes a raw root share as base64 JSON, `open_...` returns
+      `signingShare32B64u`, and its pending state blob carries `x_client32` in
+      plaintext across JS — so placing no-secrets-cross-JS exports beside those
+      would mislead reviewers. Several of those exports are Phase 2 deletion
+      targets anyway. Once registration leaves it, rename it around role-local
+      material rehydration or fold that remainder into its natural owner rather
+      than leaving a compatibility shell under a misleading name.
+
+      Rules the module is built to:
+
+      - Every ceremony completes inside one module instance. Custody code is
+        duplicated by static linking into both modules; secrets are never
+        transferred between them.
+      - Interactive protocol rounds hold session state as a wasm-memory handle,
+        not a state blob through JavaScript. The existing role-local blob
+        carries plaintext key material and must not be inherited. Seal any
+        state that genuinely has to survive a module reload.
+      - Network messages still travel through JavaScript: they carry public
+        protocol data only.
+      - Typestate transitions: `seed held → protocols prepared → manifest
+        verified → envelopes sealed → public commit payload produced`. Every
+        failure transition destroys the seed, the roots, and the ceremony
+        state.
+      - Verify-and-commit is atomic *within* the module: manifest verification
+        and envelope sealing happen in one transition. JavaScript performs the
+        server write, receiving ciphertext and public records. No verification
+        token crosses the wasm boundary — a token that came back would prove
+        only that some verification once succeeded.
+- [ ] Build `wallet_custody_ceremony` and commit server-held passkey envelopes
+      and recovery envelope sets with the registration result.
 
       Ready in `signer-core`: `derive_wallet_seed_owner_roots_v1` derives both
-      owner roots as a pair, and `verify_registered_wallet_key_manifest_v1` is
-      the fail-closed gate that returns a digest only on a match.
+      owner roots as a pair; `verify_registered_wallet_key_manifest_v1` is the
+      fail-closed gate; `VerifiedWalletKeyManifestDigestV1` is the proof it
+      returns, and the seed-envelope and recovery seals take that proof instead
+      of a digest, so no sealing path is reachable before verification.
+
+      Not yet structural, and the module is what makes it so: nothing forces
+      the binding digests fed to `derive_wallet_seed_owner_roots_v1` to be the
+      ones the protocols computed. The equality rejection there is a tripwire,
+      not a provenance proof. The ceremony orchestrator must obtain both
+      digests from typed protocol outputs and pass them straight in, with no
+      boundary between at which a caller could substitute its own.
 - [ ] Delete PRF-derived signing-root paths after replacement.
 
 ### Phase 3: Unlock And Signing

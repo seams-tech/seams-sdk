@@ -9,7 +9,8 @@
 use signer_core::wallet_seed_derivation::{
     compute_wallet_key_manifest_digest_v1, derive_ecdsa_client_root_share_from_seed_v1,
     derive_ed25519_yao_client_root_from_seed_v1, derive_wallet_seed_owner_roots_v1,
-    verify_registered_wallet_key_manifest_v1, verify_wallet_key_manifest_v1, WalletKeyManifestV1,
+    verify_registered_wallet_key_manifest_v1, verify_wallet_key_manifest_v1,
+    wallet_key_manifest_digest_b64u, WalletKeyManifestV1,
 };
 
 const SEED: [u8; 32] = [7u8; 32];
@@ -260,16 +261,21 @@ fn paired_derivation_rejects_a_shared_binding_digest() {
 }
 
 #[test]
-fn the_registration_gate_returns_a_digest_only_when_the_manifest_matches() {
+fn the_registration_gate_returns_a_proof_only_when_the_manifest_matches() {
     let expected = compute_wallet_key_manifest_digest_v1(&manifest()).unwrap();
+    let verified = verify_registered_wallet_key_manifest_v1(&manifest(), &expected).unwrap();
+    assert_eq!(verified.digest(), &expected);
     assert_eq!(
-        verify_registered_wallet_key_manifest_v1(&manifest(), &expected).unwrap(),
-        expected
+        verified.digest_b64u(),
+        wallet_key_manifest_digest_b64u(&expected)
     );
 
     let mut drifted = manifest();
     drifted.registered_public_key = [1u8; 32];
-    // No digest is produced for a manifest the seed does not reproduce, so a
-    // caller cannot record one by ignoring the error.
+    // No proof is produced for a manifest the seed does not reproduce, so a
+    // caller cannot reach a sealing path by ignoring the error. The proof type
+    // has no other constructor: `VerifiedWalletKeyManifestDigestV1 { .. }` and
+    // any `From<[u8; 32]>` are unrepresentable outside this module, which is
+    // what stops a caller from recomputing the digest and passing that instead.
     assert!(verify_registered_wallet_key_manifest_v1(&drifted, &expected).is_err());
 }
