@@ -851,7 +851,7 @@ export class AuthMenuSession {
       case 'close':
         this.cancel(closeReasonForIntent(intent));
         return;
-      case 'passkey_name_changed':
+      case 'passkey_name_changed': {
         const passkeyViewModel =
           this.stateValue.kind === 'preparing' || this.stateValue.kind === 'ready'
             ? this.stateValue.viewModel
@@ -874,6 +874,7 @@ export class AuthMenuSession {
           this.startPasskeyPreparation();
         }
         return;
+      }
       case 'login_account_selected':
         this.selectLoginAccount(intent.walletId);
         return;

@@ -1401,7 +1401,7 @@ test.describe('wallet registration route boundaries', () => {
   });
 
   test('NEAR provisioning attaches the Email OTP app session to the terminal result', async () => {
-    const sessionClaims: Record<string, unknown> = {};
+    const sessionClaims: { subject?: string; [key: string]: unknown } = {};
     const session = {
       verifyJwt: async () => ({
         valid: true as const,
