@@ -1,9 +1,8 @@
 import { base64UrlEncode } from '@shared/utils/base64';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
-import {
-  SigningSessionIds,
-  type SigningOperationFingerprint,
-} from '../operationState/types';
+import { SigningSessionIds, type SigningOperationFingerprint } from '../operationState/types';
+
+export { parseSigningOperationFingerprintDigest } from '@shared/authorization/operationFingerprint';
 
 export async function computeSigningOperationFingerprint(args: {
   kind: string;

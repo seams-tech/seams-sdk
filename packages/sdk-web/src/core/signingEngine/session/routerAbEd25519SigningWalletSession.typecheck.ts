@@ -4,12 +4,23 @@ import type {
   RouterAbEd25519SigningWalletSession,
   RouterAbSigningWalletSessionAuth,
 } from './routerAbSigningWalletSession';
+import type {
+  ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+
+declare const walletSessionId: WalletSessionId;
+declare const quotaId: MpcWalletSigningQuotaId;
+declare const thresholdSessionId: ThresholdEd25519SessionId;
 
 const auth = {
   kind: 'wallet_session_jwt',
   walletSessionJwt: 'wallet-session-jwt',
   credential: {
-    kind: 'jwt',
+    kind: 'wallet_session_jwt',
     walletSessionJwt: 'wallet-session-jwt',
   },
 } satisfies RouterAbSigningWalletSessionAuth;
@@ -29,8 +40,9 @@ const routerAbNormalSigning = {
 const validSession = {
   curve: 'ed25519',
   auth,
-  thresholdSessionId: 'threshold-session-1',
-  signingGrantId: 'signing-grant-1',
+  walletSessionId,
+  thresholdSessionId,
+  quotaId,
   remainingUses: 2,
   expiresAtMs: 1_900_000_000_000,
   runtimePolicyScope,
@@ -44,8 +56,9 @@ void validSession;
 const missingSigningRoot: RouterAbEd25519SigningWalletSession = {
   curve: 'ed25519',
   auth,
-  thresholdSessionId: 'threshold-session-1',
-  signingGrantId: 'signing-grant-1',
+  walletSessionId,
+  thresholdSessionId,
+  quotaId,
   remainingUses: 2,
   expiresAtMs: 1_900_000_000_000,
   runtimePolicyScope,
@@ -57,8 +70,9 @@ void missingSigningRoot;
 const embeddedWorkerMaterial = {
   curve: 'ed25519',
   auth,
-  thresholdSessionId: 'threshold-session-1',
-  signingGrantId: 'signing-grant-1',
+  walletSessionId,
+  thresholdSessionId,
+  quotaId,
   remainingUses: 2,
   expiresAtMs: 1_900_000_000_000,
   runtimePolicyScope,
@@ -73,8 +87,9 @@ void embeddedWorkerMaterial;
 const embeddedActiveClient = {
   curve: 'ed25519',
   auth,
-  thresholdSessionId: 'threshold-session-1',
-  signingGrantId: 'signing-grant-1',
+  walletSessionId,
+  thresholdSessionId,
+  quotaId,
   remainingUses: 2,
   expiresAtMs: 1_900_000_000_000,
   runtimePolicyScope,

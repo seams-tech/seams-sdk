@@ -3,6 +3,7 @@ import {
   respondWalletRegistration,
   activateWalletRegistration,
 } from '../../packages/sdk-web/src/core/rpcClients/relayer/walletRegistration';
+import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 
 /**
  * Refactor 94C. Strict boundary parsers for routes 2 and 3.
@@ -14,13 +15,19 @@ import {
 
 const RELAYER = 'https://relay.example';
 
-function withStubbedFetch<T>(body: unknown, run: () => Promise<T>): Promise<T> {
+function withStubbedFetch<T>(
+  body: unknown,
+  run: () => Promise<T>,
+  observeRequest?: (init: RequestInit | undefined) => void,
+): Promise<T> {
   const original = globalThis.fetch;
-  globalThis.fetch = (async () =>
-    new Response(JSON.stringify(body), {
+  globalThis.fetch = (async (_input, init) => {
+    observeRequest?.(init);
+    return new Response(JSON.stringify(body), {
       status: 200,
       headers: { 'content-type': 'application/json' },
-    })) as typeof fetch;
+    });
+  }) as typeof fetch;
   return run().finally(() => {
     globalThis.fetch = original;
   });
@@ -29,14 +36,48 @@ function withStubbedFetch<T>(body: unknown, run: () => Promise<T>): Promise<T> {
 const RESPOND_ARGS = {
   relayerUrl: RELAYER,
   registrationCeremonyId: 'wrc_test',
+  signerPlanKind: 'near_ed25519_and_evm_family_ecdsa' as const,
   signedSetup: 'signed-setup-token',
   kind: 'passkey' as const,
   webauthnRegistration: {},
   ecdsa: {
     kind: 'router_ab_ecdsa_registration_v1' as const,
     strictRegistration: {} as never,
+    requestDigestB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
   },
 };
+
+test('respond sends the signer plan and authority proof at the route boundary', async () => {
+  const { buildFixtureRespondEd25519DeferredWork } =
+    await import('../helpers/ed25519YaoAdmissionFixtures');
+  let requestBody: Record<string, unknown> | null = null;
+  await withStubbedFetch(
+    {
+      ok: true,
+      registrationCeremonyId: 'wrc_test',
+      kind: 'near_ed25519',
+      ed25519: buildFixtureRespondEd25519DeferredWork({ lifecycleId: 'wrc_test' }),
+    },
+    () =>
+      respondWalletRegistration({
+        relayerUrl: RELAYER,
+        registrationCeremonyId: 'wrc_test',
+        signerPlanKind: 'near_ed25519',
+        signedSetup: 'signed-setup-token',
+        kind: 'email_otp',
+        emailOtpRegistrationProof: {} as never,
+      }),
+    (init) => {
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    },
+  );
+  expect(requestBody).toMatchObject({
+    registrationCeremonyId: 'wrc_test',
+    kind: 'near_ed25519',
+    emailOtpRegistrationProof: {},
+  });
+  expect(requestBody).not.toHaveProperty('authority');
+});
 
 test('respond rejects a mixed plan whose deferred NEAR work is missing', async () => {
   /* The caller asked for a NEAR branch. Narrowing this to ECDSA-only would
@@ -139,6 +180,7 @@ test('respond rejects deferred NEAR work claiming a non-deferred status', async 
 const ACTIVATE_ARGS = {
   relayerUrl: RELAYER,
   registrationCeremonyId: 'wrc_test',
+  signerPlanKind: 'evm_family_ecdsa' as const,
   signedSetup: 'signed-setup-token',
   idempotencyKey: 'idem-1',
   ecdsa: { clientActivation: {} as never },
@@ -188,4 +230,44 @@ test('activate rejects a response missing the activation payload', async () => {
       () => activateWalletRegistration(ACTIVATE_ARGS),
     ),
   ).rejects.toThrow(/missing the activation payload/);
+});
+
+test('activate accepts an Ed25519 wallet pending signer provisioning', async () => {
+  const walletId = 'pending-ed25519.testnet';
+  const rpId = 'example.test';
+  const credentialIdB64u = 'credential-id';
+  const authority = buildPasskeyWalletAuthAuthority({ walletId, rpId, credentialIdB64u });
+
+  const result = await withStubbedFetch(
+    {
+      ok: true,
+      kind: 'near_ed25519',
+      walletId,
+      authority,
+      rpId,
+      authMethod: {
+        kind: 'passkey',
+        credentialIdB64u,
+        credentialPublicKeyB64u: 'credential-public-key',
+      },
+      appSessionJwt: 'app-session-jwt',
+      nearProvisioning: { status: 'near_pending' },
+    },
+    () =>
+      activateWalletRegistration({
+        relayerUrl: RELAYER,
+        registrationCeremonyId: 'wrc_pending_ed25519',
+        signerPlanKind: 'near_ed25519',
+        signedSetup: 'signed-setup-token',
+        idempotencyKey: 'idem-pending-ed25519',
+      }),
+  );
+
+  expect(result).toMatchObject({
+    ok: true,
+    kind: 'near_ed25519',
+    walletId,
+    nearProvisioning: { status: 'near_pending' },
+  });
+  expect(result).not.toHaveProperty('authorityScope');
 });

@@ -15,7 +15,7 @@ export type {
   RouterApiUsageMeterAction,
   RouterApiUsageMeterAdapter,
   RouterApiUsageMeterEvent,
-} from './routerApi';
+} from './framework/routerApi';
 export {
   ROUTER_AB_PUBLIC_KEYSET_PATH,
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
@@ -29,55 +29,59 @@ export type {
   RouterAbNormalSigningAdmissionFailureCode,
   RouterAbNormalSigningAdmissionInput,
   RouterAbNormalSigningAdmissionResult,
-} from './routerAbPrivateSigningWorker';
+} from './domains/signingOperations/routerAbPrivateSigningWorker';
 export {
-  CloudflareD1RouterAbNormalSigningAdmissionStore,
   InMemoryRouterAbNormalSigningAdmissionStore,
-  createCloudflareD1RouterAbNormalSigningAdmissionStore,
   createInMemoryRouterAbNormalSigningAdmissionAdapter,
   createInMemoryRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
-} from './routerAbNormalSigningAdmissionCore';
+} from './domains/signingOperations/routerAbNormalSigningAdmissionCore';
 export type {
-  CloudflareD1RouterAbNormalSigningAdmissionStoreOptions,
-  InMemoryRouterAbNormalSigningAdmissionStoreOptions,
   RouterAbNormalSigningAbuseDecision,
   RouterAbNormalSigningAbuseProvider,
   RouterAbNormalSigningAdmissionStore,
   RouterAbNormalSigningProjectPolicyDecision,
   RouterAbNormalSigningProjectPolicyProvider,
-  RouterAbNormalSigningQuotaDecision,
-  RouterAbNormalSigningQuotaStore,
-} from './routerAbNormalSigningAdmissionCore';
+} from './domains/signingOperations/routerAbNormalSigningAdmissionCore';
+export {
+  CloudflareD1RouterAbNormalSigningAdmissionStore,
+  createCloudflareD1RouterAbNormalSigningAdmissionStore,
+} from './cloudflare/d1/signingAdmission/d1RouterAbNormalSigningAdmissionStore';
+export type { CloudflareD1RouterAbNormalSigningAdmissionStoreOptions } from './cloudflare/d1/signingAdmission/d1RouterAbNormalSigningAdmissionStore';
 export type {
-  RouterApiCloudflareRouteExtension,
-  RouterApiCloudflareRouteExtensionInput,
+  RouterApiFetchRouteExtension,
+  RouterApiFetchRouteExtensionInput,
   RouterApiRouteExtension,
   RouterApiRouteExtensionTransport,
-} from './routeExtensions';
-export type { RouterApiModule, RouterApiModuleKind, RouterApiModuleOptions } from './modules';
-export { createRouterApiModule } from './modules';
-export { CloudflareD1WebAuthnStore } from './cloudflare/d1WebAuthnStore';
-export { CloudflareD1WebAuthnAuthService } from './cloudflare/d1WebAuthnAuthService';
+} from './framework/routeExtensions';
+export type { RouterApiModule, RouterApiModuleKind, RouterApiModuleOptions } from './framework/modules';
+export { createRouterApiModule } from './framework/modules';
+export { CloudflareD1WebAuthnStore } from './cloudflare/d1/webauthn/d1WebAuthnStore';
+export { CloudflareD1WebAuthnAuthService } from './cloudflare/d1/webauthn/d1WebAuthnAuthService';
+export {
+  CloudflareD1AuthorizationStore,
+  type D1AuthorizationStoreOptions,
+} from './cloudflare/d1/authorization/d1AuthorizationStore';
+export { CloudflareD1VaultProxyStore } from './cloudflare/d1/authorization/d1VaultProxyStore';
 export {
   InMemoryRouterAbEd25519YaoRegistrationService,
   createRouterAbEd25519YaoRegistrationModule,
-} from './routerAbEd25519YaoRegistration';
-export { InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter } from './routerAbEd25519YaoRegistrationIntentAuthorization';
+} from './domains/ed25519Yao/registration/routerAbEd25519YaoRegistration';
+export { InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter } from './domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationIntentAuthorization';
 export {
   buildRouterAbEd25519YaoProductAdmissionRequestV1,
   createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1,
   createRouterAbEd25519YaoProductRegistrationStateV1,
   createRouterAbEd25519YaoProductRegistrationRuntimeV1,
-} from './routerAbEd25519YaoProductRegistration';
+} from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 export {
   RouterAbEd25519YaoHttpRegistrationBackend,
   createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
-} from './routerAbEd25519YaoHttpRegistrationBackend';
+} from './domains/ed25519Yao/registration/routerAbEd25519YaoHttpRegistrationBackend';
 export type {
   RouterAbEd25519YaoHttpRegistrationBackendConfig,
   RouterAbEd25519YaoHttpRegistrationBackendRawEnv,
-} from './routerAbEd25519YaoHttpRegistrationBackend';
+} from './domains/ed25519Yao/registration/routerAbEd25519YaoHttpRegistrationBackend';
 export type {
   RouterAbEd25519YaoRegistrationAuthorizationAdapter,
   RouterAbEd25519YaoRegistrationAuthorizationInput,
@@ -95,19 +99,19 @@ export type {
   RouterAbEd25519YaoActivationConsumerV1,
   RouterAbEd25519YaoActivationReferenceV1,
   RouterAbEd25519YaoActivationConsumptionResultV1,
-} from './routerAbEd25519YaoRegistration';
+} from './domains/ed25519Yao/registration/routerAbEd25519YaoRegistration';
 export type {
   RouterAbEd25519YaoVerifiedRegistrationIntentV1,
   RouterAbEd25519YaoRegistrationIntentBindingResult,
-} from './routerAbEd25519YaoRegistrationIntentAuthorization';
+} from './domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationIntentAuthorization';
 export type {
   RouterAbEd25519YaoProductRegistrationRuntimeV1,
   RouterAbEd25519YaoProductRegistrationCompositionV1,
   RouterAbEd25519YaoProductRegistrationStateV1,
   RouterAbEd25519YaoWalletSessionMintResultV1,
-} from './routerAbEd25519YaoProductRegistration';
-export type { RouteDefinition } from './routeDefinitions';
-export { defineRoute } from './routeDefinitions';
+} from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
+export type { RouteDefinition } from './framework/routeDefinitions';
+export { defineRoute } from './framework/routeDefinitions';
 export type {
   CfEmailMessage,
   CfEnv,
@@ -116,7 +120,7 @@ export type {
   FetchHandler,
   RouterApiCloudflareSignerWorkerEnv,
   SeamsD1SignerTenantStorageWorkerEnv,
-} from './cloudflare/cloudflare.types';
+} from './cloudflare/runtime/cloudflare.types';
 export type {
   CloudflareTenantStorageRoute,
   CloudflareTenantTopology,
@@ -141,81 +145,80 @@ export {
   createStaticCloudflareTenantStorageRouteResolver,
   createStaticCloudflareTenantStorageRouteResolverFromBindings,
 } from '../storage/tenantRoute';
-export type { CloudflareEmailHandlerOptions } from './cloudflare/email';
-export { createCloudflareEmailHandler } from './cloudflare/email';
+export type { CloudflareEmailHandlerOptions } from './cloudflare/runtime/email';
+export { createCloudflareEmailHandler } from './cloudflare/runtime/email';
 export type {
   InMemoryRouterApiRuntimeSnapshotConsumer,
   RouterApiRuntimeSnapshotPublishedUpdate,
-} from './runtimeSnapshotConsumer';
+} from './framework/runtimeSnapshotConsumer';
 export {
   createInMemoryRouterApiRuntimeSnapshotConsumer,
   validateRuntimeSnapshotExpectation,
-} from './runtimeSnapshotConsumer';
+} from './framework/runtimeSnapshotConsumer';
 export {
   extractBearerCredential,
   extractRouterApiEnvironmentId,
   resolveSourceIpFromExpressRequest,
   resolveSourceIpFromFetchHeaders,
-} from './routerApiKeyAuth';
-export { createCloudflareRouter } from './cloudflare/createCloudflareRouter';
-export type { SelfHostedCloudflareSigningWorkerFactoryInput } from './cloudflare/createSelfHostedCloudflareSigningWorker';
+} from './auth/routerApiKeyAuth';
+export { createCloudflareRouter } from './cloudflare/runtime/createCloudflareRouter';
+export type { SelfHostedCloudflareSigningWorkerFactoryInput } from './cloudflare/runtime/createSelfHostedCloudflareSigningWorker';
 export {
   createSelfHostedCloudflareSigningRouter,
   createSelfHostedCloudflareSigningWorker,
-} from './cloudflare/createSelfHostedCloudflareSigningWorker';
+} from './cloudflare/runtime/createSelfHostedCloudflareSigningWorker';
 export { ThresholdStoreDurableObject } from './cloudflare/durableObjects/thresholdStore';
 export {
   CloudflareDurableObjectVersionedJsonRecordStore,
   CloudflareVersionedJsonRecordStoreError,
   createCloudflareDurableObjectVersionedJsonRecordStore,
-} from './cloudflare/versionedJsonRecordStore';
+} from './cloudflare/durableObjects/versionedJsonRecordStore';
+export type { CloudflareVersionedJsonRecordStoreOptions } from './cloudflare/durableObjects/versionedJsonRecordStore';
 export type {
-  CloudflareVersionedJsonRecordStoreOptions,
-  CloudflareVersionedJsonObject,
-  CloudflareVersionedJsonRecordPutResult,
-  CloudflareVersionedJsonRecordReadResult,
-  CloudflareVersionedJsonValue,
-} from './cloudflare/versionedJsonRecordStore';
+  VersionedJsonObject,
+  VersionedJsonRecordPutResult,
+  VersionedJsonRecordReadResult,
+  VersionedJsonValue,
+} from './framework/versionedJsonRecordStore';
 export {
   CloudflareD1VersionedJsonRecordStore,
   CloudflareD1VersionedJsonRecordStoreError,
   createCloudflareD1VersionedJsonRecordStore,
-} from './cloudflare/d1VersionedJsonRecordStore';
+} from './cloudflare/d1/versionedJson/d1VersionedJsonRecordStore';
 export type {
   CloudflareD1VersionedJsonRecordScopeV1,
   CloudflareD1VersionedJsonRecordBatchPutResultV1,
   CloudflareD1VersionedJsonRecordMutationV1,
   CloudflareD1VersionedJsonRecordReadManyEntryV1,
   CloudflareD1VersionedJsonRecordStoreOptions,
-} from './cloudflare/d1VersionedJsonRecordStore';
+} from './cloudflare/d1/versionedJson/d1VersionedJsonRecordStore';
 export {
   createRouterAbEd25519YaoCeremonyStateStoreV1,
   encodeRouterAbEd25519YaoProductRegistrationStateV1,
   parseRouterAbEd25519YaoProductRegistrationStateJsonV1,
   parseRouterAbEd25519YaoCeremonyKeyV1,
   resolveRouterAbEd25519YaoCeremonyKeyFromRequestV1,
-} from './routerAbEd25519YaoProductRegistrationPersistence';
+} from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPersistence';
 export type {
   RouterAbEd25519YaoCeremonyKeyV1,
   RouterAbEd25519YaoCeremonyKeyResolutionV1,
   RouterAbEd25519YaoCeremonyStateStoreV1,
-} from './routerAbEd25519YaoProductRegistrationPersistence';
+} from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPersistence';
 export {
   mergeRouterAbEd25519YaoProductRegistrationStatePartitionV1,
   partitionRouterAbEd25519YaoProductRegistrationStateV1,
-} from './routerAbEd25519YaoProductRegistrationPartitioning';
+} from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitioning';
 export type {
   RouterAbEd25519YaoProductRegistrationCeremonyStateV1,
   RouterAbEd25519YaoProductRegistrationSharedStateV1,
   RouterAbEd25519YaoProductRegistrationStatePartitionV1,
-} from './routerAbEd25519YaoProductRegistrationPartitioning';
+} from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitioning';
 export {
   ROUTER_AB_ED25519_YAO_SHARED_STATE_RECORD_KEY_V1,
   createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
-  createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1,
   encodeRouterAbEd25519YaoProductRegistrationPartitionRecordV1,
   parseRouterAbEd25519YaoProductRegistrationPartitionRecordV1,
-} from './routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+} from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 export type {
   RouterAbEd25519YaoProductRegistrationPartitionBatchResultV1,
   RouterAbEd25519YaoProductRegistrationPartitionMutationV1,
@@ -223,19 +226,24 @@ export type {
   RouterAbEd25519YaoProductRegistrationPartitionRecordV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateCommitInputV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateCommitResultV1,
-  RouterAbEd25519YaoProductRegistrationPartitionedStateD1OptionsV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateV1,
-} from './routerAbEd25519YaoProductRegistrationPartitionedStateStore';
-export { runRouterAbEd25519YaoProductRegistrationRequestScopedV1 } from './routerAbEd25519YaoProductRegistrationRequestScopedRunner';
+} from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+export {
+  createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1,
+} from './cloudflare/d1/ed25519Yao/d1Ed25519YaoProductRegistrationPartitionedStateStore';
+export type {
+  RouterAbEd25519YaoProductRegistrationPartitionedStateD1OptionsV1,
+} from './cloudflare/d1/ed25519Yao/d1Ed25519YaoProductRegistrationPartitionedStateStore';
+export { runRouterAbEd25519YaoProductRegistrationRequestScopedV1 } from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRunner';
 export type {
   RouterAbEd25519YaoProductRegistrationRequestScopedExecutionV1,
   RouterAbEd25519YaoProductRegistrationRequestScopedRunInputV1,
   RouterAbEd25519YaoProductRegistrationRequestScopedRunResultV1,
-} from './routerAbEd25519YaoProductRegistrationRequestScopedRunner';
-export { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from './routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
-export type { RouterAbEd25519YaoProductRegistrationRequestScopedRuntimeInputV1 } from './routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
-export { runRouterAbEd25519YaoRegistrationSideEffectV1 } from './routerAbEd25519YaoRegistrationSideEffectBoundary';
+} from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRunner';
+export { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
+export type { RouterAbEd25519YaoProductRegistrationRequestScopedRuntimeInputV1 } from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
+export { runRouterAbEd25519YaoRegistrationSideEffectV1 } from './domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationSideEffectBoundary';
 export type {
   RouterAbEd25519YaoRegistrationSideEffectClaimV1,
   RouterAbEd25519YaoRegistrationSideEffectCompletionV1,
@@ -245,20 +253,20 @@ export type {
   RouterAbEd25519YaoRegistrationSideEffectRunInputV1,
   RouterAbEd25519YaoRegistrationSideEffectRunResultV1,
   RouterAbEd25519YaoRegistrationSideEffectStoreV1,
-} from './routerAbEd25519YaoRegistrationSideEffectBoundary';
-export { runRouterAbEd25519YaoRegistrationTwoPhaseV1 } from './routerAbEd25519YaoRegistrationTwoPhaseRunner';
+} from './domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationSideEffectBoundary';
+export { runRouterAbEd25519YaoRegistrationTwoPhaseV1 } from './domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationTwoPhaseRunner';
 export type {
   RouterAbEd25519YaoRegistrationTwoPhaseBackendResultV1,
   RouterAbEd25519YaoRegistrationTwoPhaseCompletionV1,
   RouterAbEd25519YaoRegistrationTwoPhasePrepareResultV1,
   RouterAbEd25519YaoRegistrationTwoPhaseRunInputV1,
   RouterAbEd25519YaoRegistrationTwoPhaseRunResultV1,
-} from './routerAbEd25519YaoRegistrationTwoPhaseRunner';
+} from './domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationTwoPhaseRunner';
 export type {
   RouterAbEd25519YaoRegistrationAdmissionBoundaryV1,
   RouterAbEd25519YaoRegistrationAdmissionClaimV1,
   RouterAbEd25519YaoRegistrationAdmissionCommitInputV1,
   RouterAbEd25519YaoRegistrationAdmissionPreparationV1,
-} from './routerAbEd25519YaoRegistration';
-export { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from './routerAbEd25519YaoRegistrationRequestScopedCloudflare';
-export type { RouterAbEd25519YaoRegistrationRequestScopedCloudflareInputV1 } from './routerAbEd25519YaoRegistrationRequestScopedCloudflare';
+} from './domains/ed25519Yao/registration/routerAbEd25519YaoRegistration';
+export { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from './domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationRequestScopedCloudflare';
+export type { RouterAbEd25519YaoRegistrationRequestScopedCloudflareInputV1 } from './domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationRequestScopedCloudflare';

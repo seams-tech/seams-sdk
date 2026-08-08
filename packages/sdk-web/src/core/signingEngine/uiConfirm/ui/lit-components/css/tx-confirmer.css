@@ -54,6 +54,9 @@ w3a-modal-tx-confirmer {
   --w3a-modal__container-min-width: 25rem; /* 400px */
   /* Prefer a wider confirmation surface so calldata is easier to inspect. */
   --w3a-modal__container-max-width: 26rem; /* 416px */
+  display: block;
+  inline-size: fit-content;
+  max-inline-size: 100%;
 }
 
 w3a-drawer-tx-confirmer {
@@ -269,17 +272,12 @@ w3a-modal-tx-confirmer {
   box-sizing: border-box;
 }
 
-.modal-backdrop-blur {
-  position: fixed;
-  inset: 0;
-  display: grid;
-  justify-content: center;
-  z-index: 2147483647;
-  background: oklch(0.2 0.01 240 / 0.4);
-  backdrop-filter: blur(0px);
-  animation: var(--w3a-modal__modal-backdrop-blur__animation, backdrop-opacity 150ms ease-out);
-  opacity: 1;
-  will-change: opacity;
+.modal-surface {
+  display: block;
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  padding: 0;
+  pointer-events: auto;
 }
 
 @keyframes backdrop-opacity {
@@ -291,14 +289,79 @@ w3a-modal-tx-confirmer {
   }
 }
 
-.modal-backdrop {
+/* Direct/headless confirmation keeps its document-owned modal presentation. */
+w3a-tx-confirmer[data-w3a-confirm-surface='standalone'][data-w3a-confirm-variant='modal'] {
   position: fixed;
   inset: 0;
   display: grid;
   place-items: center;
   padding-inline: 1rem;
-  z-index: 2147483648; /* Above backdrop */
-  pointer-events: none;
+  z-index: 2147483648;
+  pointer-events: auto;
+  isolation: isolate;
+}
+
+w3a-tx-confirmer[data-w3a-confirm-surface='standalone'][data-w3a-confirm-variant='modal']
+  w3a-modal-tx-confirmer
+  > .standalone-surface-backdrop {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: oklch(0.2 0.01 240 / 0.4);
+  backdrop-filter: blur(0px);
+  animation: backdrop-opacity 150ms ease-out;
+}
+
+w3a-tx-confirmer[data-w3a-confirm-surface='standalone'][data-w3a-confirm-variant='modal']
+  w3a-modal-tx-confirmer
+  > .modal-surface {
+  position: relative;
+  z-index: 1;
+  inline-size: min(var(--w3a-modal__container-max-width, 26rem), calc(100vw - 2rem));
+  max-inline-size: calc(100vw - 2rem);
+}
+
+/* Wallet-iframe confirmations are measured content shells inside the host dialog. */
+w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'] {
+  display: block;
+  inline-size: max-content;
+  max-inline-size: 26rem;
+}
+
+/* Keep compact modal surfaces at one width while details expand inside the card. */
+w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'][data-w3a-confirm-variant='modal'] {
+  inline-size: var(--w3a-modal__container-max-width, 26rem);
+  max-inline-size: 100%;
+  background: transparent;
+  outline: none;
+}
+
+w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'] w3a-modal-tx-confirmer {
+  inline-size: max-content;
+  max-inline-size: var(--w3a-modal__container-max-width, 26rem);
+}
+
+w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'][data-w3a-confirm-variant='modal']
+  w3a-modal-tx-confirmer {
+  inline-size: 100%;
+  max-inline-size: 100%;
+  background: transparent;
+  outline: none;
+}
+
+w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'][data-w3a-confirm-variant='modal']
+  w3a-modal-tx-confirmer
+  .modal-surface {
+  inline-size: 100%;
+  max-inline-size: 100%;
+  background: transparent;
+  outline: none;
+}
+
+w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'] w3a-drawer-tx-confirmer {
+  inline-size: max-content;
+  max-inline-size: var(--w3a-drawer__max-width, 24rem);
 }
 
 .w3a-portal > w3a-tx-confirmer {
@@ -307,26 +370,30 @@ w3a-modal-tx-confirmer {
 }
 
 /* When multiple confirmers are present, offset older ones so they appear like stacked cards. */
-#w3a-confirm-portal > w3a-tx-confirmer .modal-backdrop {
+#w3a-confirm-portal > w3a-tx-confirmer .modal-surface {
   transform: translate(
     calc(var(--w3a-confirm-stack-index) * -1rem),
     calc(var(--w3a-confirm-stack-index) * -1rem)
   );
 }
 
-/* Avoid stacking multiple backdrop layers (darkening) and prevent interacting with non-top modals. */
-#w3a-confirm-portal > w3a-tx-confirmer:not(:last-child) .modal-backdrop-blur {
-  opacity: 0;
-  pointer-events: none;
-  backdrop-filter: none;
-}
-#w3a-confirm-portal > w3a-tx-confirmer:not(:last-child) .modal-backdrop > * {
+/* Prevent interacting with non-top confirmers when concurrent prompts stack. */
+#w3a-confirm-portal > w3a-tx-confirmer:not(:last-child) .modal-surface {
   pointer-events: none;
   opacity: 0.92;
   filter: saturate(0.9);
 }
 
-.modal-backdrop > * {
+#w3a-confirm-portal
+  > w3a-tx-confirmer[data-w3a-confirm-surface='standalone'][data-w3a-confirm-variant='modal']:not(
+    :last-child
+  )
+  w3a-modal-tx-confirmer
+  > .standalone-surface-backdrop {
+  opacity: 0;
+}
+
+.modal-surface > * {
   pointer-events: auto;
 }
 
@@ -340,7 +407,7 @@ w3a-modal-tx-confirmer {
   border: 1px solid var(--w3a-colors-borderPrimary);
   /* card shape, capped at the modal's classic 2rem for the rounded preset */
   border-radius: min(var(--w3a-shape-card, 16px), 2rem);
-  margin: 1rem 0 0 0;
+  margin: 0;
   padding: 0.75rem;
   /* clear the rounded top corner: square stays 0.75rem, rounded opens up so
      the halo + heading aren't cramped against the curve */
@@ -374,6 +441,12 @@ w3a-drawer-tx-confirmer[theme='light'] .modal-container-root {
   box-shadow:
     0 12px 24px rgba(0, 0, 0, 0.14),
     0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* The host dialog paints compact modal elevation outside the iframe bounds. */
+w3a-tx-confirmer[data-w3a-confirm-surface='wallet-iframe'][data-w3a-confirm-variant='modal']
+  .modal-container-root {
+  box-shadow: none;
 }
 
 @keyframes fadeIn {
@@ -920,10 +993,6 @@ w3a-drawer-tx-confirmer[theme='light'] .modal-container-root {
   .modal-container-root {
     width: 100%;
   }
-  /* remove backdrop on mobile becasue of Safari 26 address bar bugs */
-  .modal-backdrop-blur {
-    opacity: 0;
-  }
 }
 
 @media (max-width: 640px) {
@@ -1032,16 +1101,18 @@ w3a-drawer-tx-confirmer[theme='light'] .modal-container-root {
 
 /* Drawer variant styles (extracted from viewer-drawer.ts) */
 :host {
-  display: contents;
+  display: block;
 }
 w3a-drawer-tx-confirmer {
-  display: contents;
+  display: block;
+  inline-size: fit-content;
+  max-inline-size: 100%;
 }
 
 /* Narrower sheet for tx confirmer drawer */
 w3a-drawer {
   /* Scale with viewport and base font size for better zoom behavior */
-  --w3a-drawer__max-width: min(100vw, 29rem);
+  --w3a-drawer__max-width: 24rem;
 }
 .drawer-tx-confirmer-root {
   display: block;

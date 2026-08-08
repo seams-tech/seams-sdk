@@ -112,12 +112,15 @@ test.describe('package export contracts', () => {
       default: './dist/esm/react/components/SeamsAuthMenu/public.js',
       types: './dist/types/sdk-web/src/react/components/SeamsAuthMenu/public.d.ts',
     });
+    expect(exportsMap['./react/seams-auth-menu/client']).toBeUndefined();
+    expect(exportsMap['./react/seams-auth-menu/skeleton']).toBeUndefined();
+    expect(exportsMap['./react/seams-auth-menu/preload']).toBeUndefined();
     expect(fs.existsSync(resolveSdkWebPath(exportsMap['./react/seams-auth-menu'].types))).toBe(
       true,
     );
     expect(exportKeys.filter(isLegacyAuthMenuExportKey)).toEqual([]);
     expect(readRepoFile('packages/sdk-web/src/react/index.ts')).toContain(
-      "export { SeamsAuthMenu, SeamsAuthMenuSkeleton } from './components/SeamsAuthMenu/public';",
+      "export { SeamsAuthMenu } from './components/SeamsAuthMenu/public';",
     );
   });
 
@@ -157,7 +160,7 @@ test.describe('package export contracts', () => {
     });
     expect(exportsMap['./console']).toBeUndefined();
     const cloudflareTypes = readRepoFile(
-      'packages/sdk-server-ts/src/router/cloudflare/cloudflare.types.ts',
+      'packages/sdk-server-ts/src/router/cloudflare/runtime/cloudflare.types.ts',
     );
     expect(cloudflareTypes).toContain('RouterApiCloudflareSignerWorkerEnv');
     expect(cloudflareTypes).toContain('SeamsD1SignerTenantStorageWorkerEnv');

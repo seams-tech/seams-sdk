@@ -30,8 +30,9 @@ use router_ab_core::{
     CanonicalWireBytesV1, DerivationContext, DeriverAEngine, DeriverBEngine,
     EcdsaThresholdPrfProofBatchPayloadV1, EcdsaThresholdPrfRequestV1, EncryptedPayloadV1,
     ExpensiveWorkGateDecisionV1, ExpensiveWorkKindV1, GateDeferReasonV1, LifecycleScopeV1,
-    MpcPrfOutputRequestV1, MpcPrfSignerPartialInputV1, MpcPrfSigningRootShareWireV1,
-    MpcPrfThresholdSignerBatchInputV1, MpcPrfThresholdSignerBatchOutputV1, NormalSigningScopeV1,
+    MpcMaterialActivationRefV1, MpcPrfOutputRequestV1, MpcPrfSignerPartialInputV1,
+    MpcPrfSigningRootShareWireV1, MpcPrfThresholdSignerBatchInputV1,
+    MpcPrfThresholdSignerBatchOutputV1, NormalSigningAuthorizationV1, NormalSigningScopeV1,
     RecipientOutputCiphertextV1, RecipientOutputEncryptionAlgorithmV1,
     RecipientOutputEncryptionRequestV1, RecipientProofBundleCiphertextV1,
     RecipientProofBundleEncryptionRequestV1, RecipientProofBundleEncryptorV1,
@@ -571,9 +572,25 @@ fn gate_defer_reason_maps_to_authority_verified_fallback_reason() {
 
 #[test]
 fn normal_signing_scope_stays_outside_derivation_lifecycle() {
-    let scope =
-        NormalSigningScopeV1::new("sign-1", "wallet-1", "session-1", "session-1", "server-a")
-            .expect("scope");
+    let authorization =
+        NormalSigningAuthorizationV1::reusable_wallet_session("session-1").expect("authorization");
+    let material_activation = MpcMaterialActivationRefV1::new(
+        "activation-1",
+        "capability-1",
+        "wallet-1",
+        "near-ed25519-key-1",
+        "lifecycle-1",
+        "server-a",
+    )
+    .expect("material activation");
+    let scope = NormalSigningScopeV1::new(
+        "sign-1",
+        "wallet-1",
+        authorization,
+        material_activation,
+        "server-a",
+    )
+    .expect("scope");
 
     assert_eq!(scope.request_id, "sign-1");
     assert_eq!(scope.signing_worker_id, "server-a");
@@ -581,8 +598,25 @@ fn normal_signing_scope_stays_outside_derivation_lifecycle() {
 
 #[test]
 fn normal_signing_scope_rejects_empty_identity_fields() {
-    let err = NormalSigningScopeV1::new("", "wallet-1", "session-1", "session-1", "server-a")
-        .expect_err("empty request id must fail");
+    let authorization =
+        NormalSigningAuthorizationV1::reusable_wallet_session("session-1").expect("authorization");
+    let material_activation = MpcMaterialActivationRefV1::new(
+        "activation-1",
+        "capability-1",
+        "wallet-1",
+        "near-ed25519-key-1",
+        "lifecycle-1",
+        "server-a",
+    )
+    .expect("material activation");
+    let err = NormalSigningScopeV1::new(
+        "",
+        "wallet-1",
+        authorization,
+        material_activation,
+        "server-a",
+    )
+    .expect_err("empty request id must fail");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::EmptyField);
 }

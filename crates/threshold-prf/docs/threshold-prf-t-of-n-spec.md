@@ -224,56 +224,18 @@ The trust model is split by deployment mode:
   code must authenticate the commitment registry, TEE attestation, or equivalent
   source before claiming malicious-worker partial correctness.
 
-## Sealed Share Boundary
+## Role-local Share Boundary
 
-The server SDK persistence boundary stores encrypted signing-root share bytes.
-The threshold-prf crate consumes only decrypted 34-byte signing-root share
-wires.
+The Router A/B role-local custody boundary stores encrypted root-share bytes.
+The `threshold-prf` crate consumes only decrypted 34-byte signing-root share
+wires supplied by the owning Deriver.
 
-The active resolver shape is policy-aware:
-
-- storage lists sealed share records by signing-root id and version
-- a decrypt adapter returns plaintext share-wire bytes
-- the resolver parses plaintext with the threshold-prf WASM parser
-- the resolver selects exactly `threshold` distinct shares from the configured
-  policy
-- scratch plaintext buffers are zeroized after parsing
-
-The retained SDK AES-GCM envelope for persisted sealed signing-root records is:
-
-```text
-magic[5] || nonce[12] || aes_gcm_ciphertext_and_tag
-```
-
-where:
-
-- `magic = 0x74 0x70 0x72 0x73 0x01`
-- `nonce` is a fresh 96-bit AES-GCM nonce
-- the AEAD tag is the WebCrypto AES-GCM default 128-bit tag
-- KEK material is AES-256-GCM only
-
-This envelope is a persistence format. It is isolated from the core
-threshold-prf protocol.
-
-AES-GCM AAD is public metadata encoded as:
-
-```text
-u16be(len(domain))              || domain
-u16be(len(signing_root_id))     || signing_root_id
-u16be(len(signing_root_version))|| signing_root_version
-u8(share_id)
-u16be(len(kek_id))              || kek_id
-```
-
-with:
-
-- `domain = "seams/signing-root-share/aes-gcm/v1"`
-- `signing_root_id` trimmed and non-empty
-- `signing_root_version` trimmed, or empty bytes when absent
-- `kek_id` trimmed and non-empty
-
-Opening a sealed share with different signing-root id, signing-root version,
-share id, or KEK id must fail before plaintext is accepted.
+Deriver A and Deriver B keep their custody material and wrapping keys separate.
+The Router never receives plaintext root shares. Role-local envelope formats,
+key epochs, and persistence records belong to the Router A/B deployment layer;
+they are outside this crate's protocol API. The crate validates each wire and
+selects exactly `threshold` distinct shares from the configured policy before
+evaluation. Scratch plaintext buffers are zeroized after parsing.
 
 ## DLEQ
 
@@ -316,16 +278,11 @@ compressed_ristretto(nonce_P)[32]
 Proof generation rejects zero nonce samples and retries. Nonce uniqueness
 depends on a correct `CryptoRng`.
 
-## WASM Boundary
+## Language Boundaries
 
-The production WASM exports use explicit `threshold_prf_` names. Boundary
-inputs are raw JS numbers and byte arrays. The WASM wrapper normalizes them into
-policy and wire types before calling core Rust logic.
-
-Current exported boundary groups:
-
-- Router A/B ECDSA derivation `y_server`
-- verified partial combine
+The production Router A/B workers call this Rust crate directly. An optional
+WASM benchmark wrapper exercises the same Rust operations under Node/V8; it is
+benchmark tooling and is not a signing-runtime dependency.
 
 ## Fixtures And Verification
 
@@ -350,9 +307,9 @@ Current validation:
 ```bash
 cargo test --manifest-path crates/threshold-prf/Cargo.toml
 just threshold-prf-fv
-just threshold-prf-wasm-smoke
+just threshold-prf-wasm-bench
 ```
 
-Integration should also record the native, local WASM, and any required
-deployed Worker benchmarks listed in
+Integration should also record the native and optional local WASM benchmarks
+listed in
 [benchmarks.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/docs/benchmarks.md).

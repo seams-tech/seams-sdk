@@ -2,8 +2,10 @@ import type {
   ChallengeSubjectId,
   AppSessionVersion,
   AgentPrincipalId,
+  CapabilityInstanceRef,
   DelegatedIdempotencyKey,
   DelegatedIntentDigest,
+  DomainIdParseResult,
   EcdsaActiveStateId,
   EmailOtpChallengeId,
   EmailOtpRegistrationAttemptId,
@@ -12,6 +14,15 @@ import type {
   LinkedDeviceId,
   LinkDeviceSessionId,
   MandatePolicyId,
+  MpcCapabilityRuntimeRef,
+  MpcKeyBindingRef,
+  MpcLifecycleBindingRef,
+  MpcMaterialActivationId,
+  MpcMaterialActivationRef,
+  MpcMaterialOwnerRef,
+  MpcReauthorizationPolicyRef,
+  MpcRegisteredPublicKeyBindingRef,
+  MpcSigningWorkerRef,
   OrgId,
   ProviderSubject,
   RootShareEpoch,
@@ -22,8 +33,21 @@ import type {
   VerifiedGoogleEmail,
   WalletId,
   WalletKeyId,
-  SigningGrantId,
 } from './domainIds';
+import {
+  buildMpcMaterialActivationRef,
+  parseCapabilityInstanceRef,
+  parseMpcCapabilityRuntimeRef,
+  parseMpcKeyBindingRef,
+  parseMpcLifecycleBindingRef,
+  parseMpcMaterialActivationId,
+  parseMpcMaterialActivationRef,
+  parseMpcMaterialOwnerRef,
+  parseMpcReauthorizationPolicyRef,
+  parseMpcRegisteredPublicKeyBindingRef,
+  parseMpcSigningWorkerRef,
+} from './domainIds';
+import type { WalletSessionId } from '../authorization/capabilityKinds';
 
 declare const walletId: WalletId;
 declare const providerSubject: ProviderSubject;
@@ -34,7 +58,7 @@ declare const orgId: OrgId;
 declare const appSessionVersion: AppSessionVersion;
 declare const emailOtpChallengeId: EmailOtpChallengeId;
 declare const registrationAttemptId: EmailOtpRegistrationAttemptId;
-declare const signingGrantId: SigningGrantId;
+declare const walletSessionId: WalletSessionId;
 declare const thresholdEd25519SessionId: ThresholdEd25519SessionId;
 declare const thresholdEcdsaSessionId: ThresholdEcdsaSessionId;
 declare const ecdsaActiveStateId: EcdsaActiveStateId;
@@ -49,6 +73,25 @@ declare const rotationOperationId: RotationOperationId;
 declare const delegatedIntentDigest: DelegatedIntentDigest;
 declare const delegatedIdempotencyKey: DelegatedIdempotencyKey;
 declare const linkDeviceSessionId: LinkDeviceSessionId;
+declare const capabilityInstanceRef: CapabilityInstanceRef;
+declare const mpcMaterialOwnerRef: MpcMaterialOwnerRef;
+declare const otherMpcMaterialOwnerRef: MpcMaterialOwnerRef;
+declare const mpcCapabilityRuntimeRef: MpcCapabilityRuntimeRef;
+declare const mpcMaterialActivationId: MpcMaterialActivationId;
+declare const mpcSigningWorkerRef: MpcSigningWorkerRef;
+declare const mpcKeyBindingRef: MpcKeyBindingRef;
+declare const mpcLifecycleBindingRef: MpcLifecycleBindingRef;
+declare const mpcReauthorizationPolicyRef: MpcReauthorizationPolicyRef;
+declare const mpcRegisteredPublicKeyBindingRef: MpcRegisteredPublicKeyBindingRef;
+
+const mpcMaterialActivationRef = buildMpcMaterialActivationRef({
+  activationId: mpcMaterialActivationId,
+  capability: capabilityInstanceRef,
+  materialOwner: mpcMaterialOwnerRef,
+  keyBinding: mpcKeyBindingRef,
+  lifecycleBinding: mpcLifecycleBindingRef,
+  signingWorker: mpcSigningWorkerRef,
+});
 
 function acceptsWalletId(value: WalletId): void {
   void value;
@@ -86,7 +129,7 @@ function acceptsAppSessionVersion(value: AppSessionVersion): void {
   void value;
 }
 
-function acceptsSigningGrantId(value: SigningGrantId): void {
+function acceptsWalletSessionId(value: WalletSessionId): void {
   void value;
 }
 
@@ -146,6 +189,46 @@ function acceptsLinkDeviceSessionId(value: LinkDeviceSessionId): void {
   void value;
 }
 
+function acceptsCapabilityInstanceRef(value: CapabilityInstanceRef): void {
+  void value;
+}
+
+function acceptsMpcMaterialOwnerRef(value: MpcMaterialOwnerRef): void {
+  void value;
+}
+
+function acceptsMpcCapabilityRuntimeRef(value: MpcCapabilityRuntimeRef): void {
+  void value;
+}
+
+function acceptsMpcMaterialActivationId(value: MpcMaterialActivationId): void {
+  void value;
+}
+
+function acceptsMpcSigningWorkerRef(value: MpcSigningWorkerRef): void {
+  void value;
+}
+
+function acceptsMpcKeyBindingRef(value: MpcKeyBindingRef): void {
+  void value;
+}
+
+function acceptsMpcLifecycleBindingRef(value: MpcLifecycleBindingRef): void {
+  void value;
+}
+
+function acceptsMpcReauthorizationPolicyRef(value: MpcReauthorizationPolicyRef): void {
+  void value;
+}
+
+function acceptsMpcRegisteredPublicKeyBindingRef(value: MpcRegisteredPublicKeyBindingRef): void {
+  void value;
+}
+
+function acceptsMpcMaterialActivationRef(value: MpcMaterialActivationRef): void {
+  void value;
+}
+
 acceptsWalletId(walletId);
 acceptsProviderSubject(providerSubject);
 acceptsProviderSubject(googleProviderSubject);
@@ -156,7 +239,7 @@ acceptsOrgId(orgId);
 acceptsAppSessionVersion(appSessionVersion);
 acceptsEmailOtpChallengeId(emailOtpChallengeId);
 acceptsEmailOtpRegistrationAttemptId(registrationAttemptId);
-acceptsSigningGrantId(signingGrantId);
+acceptsWalletSessionId(walletSessionId);
 acceptsThresholdEd25519SessionId(thresholdEd25519SessionId);
 acceptsThresholdEcdsaSessionId(thresholdEcdsaSessionId);
 acceptsEcdsaActiveStateId(ecdsaActiveStateId);
@@ -171,6 +254,39 @@ acceptsRotationOperationId(rotationOperationId);
 acceptsDelegatedIntentDigest(delegatedIntentDigest);
 acceptsDelegatedIdempotencyKey(delegatedIdempotencyKey);
 acceptsLinkDeviceSessionId(linkDeviceSessionId);
+acceptsCapabilityInstanceRef(capabilityInstanceRef);
+acceptsMpcMaterialOwnerRef(mpcMaterialOwnerRef);
+acceptsMpcCapabilityRuntimeRef(mpcCapabilityRuntimeRef);
+acceptsMpcMaterialActivationId(mpcMaterialActivationId);
+acceptsMpcSigningWorkerRef(mpcSigningWorkerRef);
+acceptsMpcKeyBindingRef(mpcKeyBindingRef);
+acceptsMpcLifecycleBindingRef(mpcLifecycleBindingRef);
+acceptsMpcReauthorizationPolicyRef(mpcReauthorizationPolicyRef);
+acceptsMpcRegisteredPublicKeyBindingRef(mpcRegisteredPublicKeyBindingRef);
+acceptsMpcMaterialActivationRef(mpcMaterialActivationRef);
+
+parseCapabilityInstanceRef('capability') satisfies DomainIdParseResult<CapabilityInstanceRef>;
+parseMpcMaterialOwnerRef('material-owner') satisfies DomainIdParseResult<MpcMaterialOwnerRef>;
+parseMpcCapabilityRuntimeRef('runtime') satisfies DomainIdParseResult<MpcCapabilityRuntimeRef>;
+parseMpcMaterialActivationId('activation') satisfies DomainIdParseResult<MpcMaterialActivationId>;
+parseMpcSigningWorkerRef('worker') satisfies DomainIdParseResult<MpcSigningWorkerRef>;
+parseMpcKeyBindingRef('key-binding') satisfies DomainIdParseResult<MpcKeyBindingRef>;
+parseMpcLifecycleBindingRef('lifecycle') satisfies DomainIdParseResult<MpcLifecycleBindingRef>;
+parseMpcReauthorizationPolicyRef(
+  'policy',
+) satisfies DomainIdParseResult<MpcReauthorizationPolicyRef>;
+parseMpcRegisteredPublicKeyBindingRef(
+  'public-key',
+) satisfies DomainIdParseResult<MpcRegisteredPublicKeyBindingRef>;
+parseMpcMaterialActivationRef({
+  kind: 'mpc_material_activation_ref',
+  activationId: 'activation',
+  capability: 'capability',
+  materialOwner: 'material-owner',
+  keyBinding: 'key-binding',
+  lifecycleBinding: 'lifecycle',
+  signingWorker: 'worker',
+}) satisfies DomainIdParseResult<MpcMaterialActivationRef>;
 
 // @ts-expect-error Provider subjects are not wallet ids.
 acceptsWalletId(providerSubject);
@@ -205,14 +321,20 @@ acceptsEmailOtpChallengeId(registrationAttemptId);
 // @ts-expect-error OTP challenge ids are not registration attempt ids.
 acceptsEmailOtpRegistrationAttemptId(emailOtpChallengeId);
 
-// @ts-expect-error Signing grant ids are not threshold Ed25519 session ids.
-acceptsThresholdEd25519SessionId(signingGrantId);
+// @ts-expect-error Wallet Session ids are not threshold Ed25519 session ids.
+acceptsThresholdEd25519SessionId(walletSessionId);
+
+// @ts-expect-error Threshold Ed25519 session ids are not Wallet Session ids.
+acceptsWalletSessionId(thresholdEd25519SessionId);
+
+// @ts-expect-error Material activation ids are not threshold Ed25519 session ids.
+acceptsThresholdEd25519SessionId(mpcMaterialActivationId);
+
+// @ts-expect-error Threshold Ed25519 session ids are not material activation ids.
+acceptsMpcMaterialActivationId(thresholdEd25519SessionId);
 
 // @ts-expect-error Threshold Ed25519 and ECDSA session ids are curve-specific.
 acceptsThresholdEcdsaSessionId(thresholdEd25519SessionId);
-
-// @ts-expect-error Threshold ECDSA session ids are not signing grant ids.
-acceptsSigningGrantId(thresholdEcdsaSessionId);
 
 // @ts-expect-error Threshold ECDSA session ids are not root-share epochs.
 acceptsRootShareEpoch(thresholdEcdsaSessionId);
@@ -232,12 +354,6 @@ acceptsWalletId(walletKeyId);
 // @ts-expect-error Wallet ids are not wallet keys.
 acceptsWalletKeyId(walletId);
 
-// @ts-expect-error Signing lanes are not signing grants.
-acceptsSigningGrantId(signingLaneId);
-
-// @ts-expect-error Signing grants are not signing lanes.
-acceptsSigningLaneId(signingGrantId);
-
 // @ts-expect-error Lane share epochs are not signing lanes.
 acceptsSigningLaneId(laneShareEpoch);
 
@@ -255,3 +371,56 @@ acceptsDelegatedIdempotencyKey(delegatedIntentDigest);
 
 // @ts-expect-error Link-device sessions are not signing lanes.
 acceptsSigningLaneId(linkDeviceSessionId);
+
+// @ts-expect-error Capability instances are not material owners.
+acceptsMpcMaterialOwnerRef(capabilityInstanceRef);
+
+// @ts-expect-error Material owners are not capability instances.
+acceptsCapabilityInstanceRef(mpcMaterialOwnerRef);
+
+// @ts-expect-error Signing-worker references are not runtime references.
+acceptsMpcCapabilityRuntimeRef(mpcSigningWorkerRef);
+
+// @ts-expect-error Key bindings are not lifecycle bindings.
+acceptsMpcLifecycleBindingRef(mpcKeyBindingRef);
+
+// @ts-expect-error Reauthorization policies are not registered-key bindings.
+acceptsMpcRegisteredPublicKeyBindingRef(mpcReauthorizationPolicyRef);
+
+// @ts-expect-error Exact activation references can only come from the canonical builder or parser.
+acceptsMpcMaterialActivationRef({
+  kind: 'mpc_material_activation_ref',
+  activationId: mpcMaterialActivationId,
+  capability: capabilityInstanceRef,
+  materialOwner: mpcMaterialOwnerRef,
+  keyBinding: mpcKeyBindingRef,
+  lifecycleBinding: mpcLifecycleBindingRef,
+  signingWorker: mpcSigningWorkerRef,
+});
+
+buildMpcMaterialActivationRef({
+  // @ts-expect-error Raw strings cannot construct material activation identity.
+  activationId: 'activation',
+  capability: capabilityInstanceRef,
+  materialOwner: mpcMaterialOwnerRef,
+  keyBinding: mpcKeyBindingRef,
+  lifecycleBinding: mpcLifecycleBindingRef,
+  signingWorker: mpcSigningWorkerRef,
+});
+
+// @ts-expect-error Exact activation references require a signing-worker binding.
+buildMpcMaterialActivationRef({
+  activationId: mpcMaterialActivationId,
+  capability: capabilityInstanceRef,
+  materialOwner: mpcMaterialOwnerRef,
+  keyBinding: mpcKeyBindingRef,
+  lifecycleBinding: mpcLifecycleBindingRef,
+});
+
+const activationWithRawOwner = {
+  ...mpcMaterialActivationRef,
+  materialOwner: otherMpcMaterialOwnerRef,
+};
+
+// @ts-expect-error Broad spreads lose the activation proof even when replacement fields are branded.
+acceptsMpcMaterialActivationRef(activationWithRawOwner);

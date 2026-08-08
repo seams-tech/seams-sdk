@@ -3,7 +3,14 @@ import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { AppearanceConfig, SeamsConfigsReadonly } from '@/core/types/seams';
 import type { WalletIframeRouter } from '@/SeamsWeb/walletIframe/client/router';
 import type { WalletIframeTransportDiagnostics } from '@/SeamsWeb/walletIframe/client/transport/IframeTransport';
-import type { PreferencesChangedPayload } from '@/SeamsWeb/walletIframe/shared/messages';
+import type {
+  HostedAuthMenuExternalAuthRequest,
+  HostedAuthMenuExternalAuthResolutionInput,
+  HostedAuthMenuOpenRequest,
+  HostedAuthMenuOutcome,
+  HostedAuthMenuSessionId,
+  PreferencesChangedPayload,
+} from '@/SeamsWeb/walletIframe/shared/messages';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import { createWalletIframeRouter } from '@/SeamsWeb/assembly/createWalletIframeRouter';
 import type { WalletIframeWarmupSurface } from '@/SeamsWeb/signingSurface/types';
@@ -14,8 +21,6 @@ import type {
   WalletIframeExactSessionIdentity,
   WalletIframeExactSessionLockResult,
   WalletIframeExactSessionState,
-  WalletIframeMissingSessionIdentity,
-  WalletIframeMissingSessionLockResult,
 } from './shared/exactSessionState';
 
 function requireRegistrationRpId(value: string, source: string): WebAuthnRpId {
@@ -53,10 +58,18 @@ export class WalletIframeCoordinator {
 
   private iframeRouter: WalletIframeRouter | null = null;
   private walletIframeInitInFlight: Promise<void> | null = null;
+  private walletIframeDisposed = false;
   private walletIframePrefsUnsubscribe: (() => void) | null = null;
   private walletIframeLifecycleUnsubscribe: (() => void) | null = null;
+  private walletIframeAuthMenuUnsubscribe: (() => void) | null = null;
   private readonly sdkLifecycleEventListeners = new Set<SdkLifecycleEventListener>();
+  private readonly hostedAuthMenuExternalAuthRequestListeners = new Set<
+    (request: HostedAuthMenuExternalAuthRequest) => void
+  >();
   private readonly forwardSdkLifecycleEventListener: SdkLifecycleEventListener;
+  private readonly forwardHostedAuthMenuExternalAuthRequestListener: (
+    request: HostedAuthMenuExternalAuthRequest,
+  ) => void;
 
   constructor(deps: WalletIframeCoordinatorDeps) {
     this.configs = deps.configs;
@@ -64,6 +77,8 @@ export class WalletIframeCoordinator {
     this.userPreferences = deps.userPreferences;
     this.getAppearance = deps.getAppearance;
     this.forwardSdkLifecycleEventListener = this.forwardSdkLifecycleEvent.bind(this);
+    this.forwardHostedAuthMenuExternalAuthRequestListener =
+      this.forwardHostedAuthMenuExternalAuthRequest.bind(this);
   }
 
   /**
@@ -104,6 +119,12 @@ export class WalletIframeCoordinator {
 
   getTransportDiagnosticsSnapshot(): WalletIframeTransportDiagnostics | null {
     return this.iframeRouter?.getTransportDiagnosticsSnapshot() ?? null;
+  }
+
+  dispose(): void {
+    if (this.walletIframeDisposed) return;
+    this.walletIframeDisposed = true;
+    this.iframeRouter?.dispose();
   }
 
   onReady(listener: () => void): () => void {
@@ -165,6 +186,7 @@ export class WalletIframeCoordinator {
 
           this.ensureWalletIframePreferencesMirror(this.iframeRouter);
           this.ensureWalletIframeLifecycleMirror(this.iframeRouter);
+          this.ensureWalletIframeAuthMenuMirror(this.iframeRouter);
           await this.iframeRouter.init();
           // Opportunistically warm remote nonce context.
           try {
@@ -181,6 +203,7 @@ export class WalletIframeCoordinator {
     } else {
       this.ensureWalletIframePreferencesMirror(this.iframeRouter);
       this.ensureWalletIframeLifecycleMirror(this.iframeRouter);
+      this.ensureWalletIframeAuthMenuMirror(this.iframeRouter);
       await this.iframeRouter.init();
       // Opportunistically warm remote nonce context.
       try {
@@ -196,7 +219,8 @@ export class WalletIframeCoordinator {
       // Best-effort pull snapshot to cover missed events / older hosts.
       const cfg = await this.iframeRouter.getConfirmationConfig().catch(() => null);
       if (cfg) {
-        const confirmationWalletId = exactState.kind === 'wallet_locked' ? null : exactState.walletId;
+        const confirmationWalletId =
+          exactState.kind === 'wallet_locked' ? null : exactState.walletId;
         this.userPreferences.applyWalletHostConfirmationConfig({
           walletId: confirmationWalletId,
           confirmationConfig: cfg,
@@ -212,18 +236,41 @@ export class WalletIframeCoordinator {
     return await router.getExactSessionState();
   }
 
+  async openHostedAuthMenu(
+    request: HostedAuthMenuOpenRequest,
+    anchorElement?: HTMLElement,
+  ): Promise<HostedAuthMenuOutcome> {
+    const router = await this.requireRouter();
+    return await router.openHostedAuthMenu(request, anchorElement);
+  }
+
+  async cancelHostedAuthMenu(args: {
+    authMenuSessionId: HostedAuthMenuSessionId;
+  }): Promise<void> {
+    const router = await this.requireRouter();
+    await router.cancelHostedAuthMenu(args);
+  }
+
+  onHostedAuthMenuExternalAuthRequest(
+    listener: (request: HostedAuthMenuExternalAuthRequest) => void,
+  ): () => void {
+    this.hostedAuthMenuExternalAuthRequestListeners.add(listener);
+    if (this.iframeRouter) this.ensureWalletIframeAuthMenuMirror(this.iframeRouter);
+    return this.removeHostedAuthMenuExternalAuthRequestListener.bind(this, listener);
+  }
+
+  async resolveHostedAuthMenuExternalAuth(
+    resolution: HostedAuthMenuExternalAuthResolutionInput,
+  ): Promise<void> {
+    const router = await this.requireRouter();
+    await router.resolveHostedAuthMenuExternalAuth(resolution);
+  }
+
   async lockExactSession(
     identity: WalletIframeExactSessionIdentity,
   ): Promise<WalletIframeExactSessionLockResult> {
     const router = await this.requireRouter(String(identity.walletId));
     return await router.lockExactSession(identity);
-  }
-
-  async lockMissingSession(
-    identity: WalletIframeMissingSessionIdentity,
-  ): Promise<WalletIframeMissingSessionLockResult> {
-    const router = await this.requireRouter(String(identity.walletId));
-    return await router.lockMissingSession(identity);
   }
 
   async requireRouter(walletId?: string): Promise<WalletIframeRouter> {
@@ -261,6 +308,13 @@ export class WalletIframeCoordinator {
     );
   }
 
+  private ensureWalletIframeAuthMenuMirror(router: WalletIframeRouter): void {
+    if (this.walletIframeAuthMenuUnsubscribe) return;
+    this.walletIframeAuthMenuUnsubscribe = router.onHostedAuthMenuExternalAuthRequest(
+      this.forwardHostedAuthMenuExternalAuthRequestListener,
+    );
+  }
+
   private forwardSdkLifecycleEvent(event: SdkLifecycleEvent): void {
     for (const listener of Array.from(this.sdkLifecycleEventListeners)) {
       listener(event);
@@ -269,5 +323,21 @@ export class WalletIframeCoordinator {
 
   private removeSdkLifecycleEventListener(listener: SdkLifecycleEventListener): void {
     this.sdkLifecycleEventListeners.delete(listener);
+  }
+
+  private forwardHostedAuthMenuExternalAuthRequest(
+    request: HostedAuthMenuExternalAuthRequest,
+  ): void {
+    for (const listener of Array.from(this.hostedAuthMenuExternalAuthRequestListeners)) {
+      try {
+        listener(request);
+      } catch {}
+    }
+  }
+
+  private removeHostedAuthMenuExternalAuthRequestListener(
+    listener: (request: HostedAuthMenuExternalAuthRequest) => void,
+  ): void {
+    this.hostedAuthMenuExternalAuthRequestListeners.delete(listener);
   }
 }

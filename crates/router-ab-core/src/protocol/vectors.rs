@@ -24,7 +24,10 @@ use crate::protocol::gate::ExpensiveWorkKindV1;
 use crate::protocol::identity::{
     RoleEnvelopeAssignmentV1, ServerIdentityV1, SignerIdentityV1, SignerSetV1,
 };
-use crate::protocol::lifecycle::{LifecycleScopeV1, NormalSigningScopeV1};
+use crate::protocol::lifecycle::{
+    LifecycleScopeV1, MpcMaterialActivationRefV1, NormalSigningAuthorizationV1,
+    NormalSigningScopeV1,
+};
 use crate::protocol::normal_signing::{
     router_ab_delegate_action_fingerprint_from_canonical_borsh_b64u_v2,
     router_ab_ed25519_nep413_canonical_message_b64u_v2,
@@ -325,6 +328,15 @@ fn pair_digest_vector_case(
         operation,
         Ed25519YaoSessionIdV1::new(session).expect("vector session"),
         Ed25519YaoStableKeyContextBindingV1::new(stable_context_binding),
+        MpcMaterialActivationRefV1::new(
+            format!("{case_id}-activation"),
+            format!("{case_id}-capability"),
+            format!("{case_id}-account"),
+            format!("{case_id}-key"),
+            format!("{case_id}-lifecycle"),
+            format!("{case_id}-server"),
+        )
+        .expect("vector material activation"),
     )
     .expect("vector ceremony binding");
     let ceremony = Ed25519YaoCeremonyIdentityV1::from_binding(ceremony_binding)
@@ -667,6 +679,7 @@ fn normal_signing_near_transaction_vector_case_v2() -> NormalSigningVectorCaseV2
     let request = RouterAbEd25519NormalSigningPrepareRequestV2::new(
         scope.clone(),
         expires_at_ms,
+        PublicDigest32::new([0xd1; 32]),
         intent,
         payload,
     )
@@ -674,6 +687,7 @@ fn normal_signing_near_transaction_vector_case_v2() -> NormalSigningVectorCaseV2
     let builder_args_json = serde_json::json!({
         "scope": scope,
         "expiresAtMs": expires_at_ms,
+        "displayDigestB64u": public_digest_b64u(&PublicDigest32::new([0xd1; 32])),
         "operationId": operation_id,
         "operationFingerprint": operation_fingerprint,
         "nearAccountId": "alice.testnet",
@@ -726,6 +740,7 @@ fn normal_signing_nep413_vector_case_v2() -> NormalSigningVectorCaseV2 {
     let request = RouterAbEd25519NormalSigningPrepareRequestV2::new(
         scope.clone(),
         expires_at_ms,
+        PublicDigest32::new([0xd2; 32]),
         intent,
         payload,
     )
@@ -733,6 +748,7 @@ fn normal_signing_nep413_vector_case_v2() -> NormalSigningVectorCaseV2 {
     let builder_args_json = serde_json::json!({
         "scope": scope,
         "expiresAtMs": expires_at_ms,
+        "displayDigestB64u": public_digest_b64u(&PublicDigest32::new([0xd2; 32])),
         "operationId": operation_id,
         "operationFingerprint": operation_fingerprint,
         "nearAccountId": "alice.testnet",
@@ -784,6 +800,7 @@ fn normal_signing_delegate_action_vector_case_v2() -> NormalSigningVectorCaseV2 
     let request = RouterAbEd25519NormalSigningPrepareRequestV2::new(
         scope.clone(),
         expires_at_ms,
+        PublicDigest32::new([0xd3; 32]),
         intent,
         payload,
     )
@@ -791,6 +808,7 @@ fn normal_signing_delegate_action_vector_case_v2() -> NormalSigningVectorCaseV2 
     let builder_args_json = serde_json::json!({
         "scope": scope,
         "expiresAtMs": expires_at_ms,
+        "displayDigestB64u": public_digest_b64u(&PublicDigest32::new([0xd3; 32])),
         "operationId": operation_id,
         "operationFingerprint": operation_fingerprint,
         "nearAccountId": "alice.testnet",
@@ -831,11 +849,23 @@ fn normal_signing_vector_case_v2(
 }
 
 fn normal_signing_scope_v2() -> NormalSigningScopeV1 {
+    let authorization =
+        NormalSigningAuthorizationV1::reusable_wallet_session("threshold-session-v2")
+            .expect("normal-signing authorization");
+    let material_activation = MpcMaterialActivationRefV1::new(
+        "material-activation-v2",
+        "near-ed25519-capability-v2",
+        "alice.testnet",
+        "near-ed25519-key-v2",
+        "yao-lifecycle-v2",
+        "signing-worker-v2",
+    )
+    .expect("normal-signing material activation");
     NormalSigningScopeV1::new(
         "router-ab-normal-signing/request-v2",
         "alice.testnet",
-        "threshold-session-v2",
-        "threshold-session-v2",
+        authorization,
+        material_activation,
         "signing-worker-v2",
     )
     .expect("normal-signing scope")

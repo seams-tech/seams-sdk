@@ -10,18 +10,47 @@ import {
   emailOtpLoginVerifyResponseBody,
   emailOtpLoggedInWebhookEventDescriptor,
   emailOtpServerSealResponseBody,
+  isGoogleOidcEmailOtpSession,
   shouldEmitEmailOtpLockedWebhook,
   validateEmailOtpChannel,
   validateEmailOtpJsonObjectBody,
   validateEmailOtpRequiredString,
   validateEmailOtpWalletId,
-} from '@server/router/emailOtpSessionRouteHelpers';
+} from '@server/router/domains/emailOtp/emailOtpSessionRouteHelpers';
 import {
   emailOtpExportDeniedDecisionFromResult,
   emailOtpExportPolicyWebhookEventDescriptor,
-} from '@server/router/emailOtpExportPolicy';
+} from '@server/router/domains/emailOtp/emailOtpExportPolicy';
 
 test.describe('Email OTP route helpers', () => {
+  test('classifies Google Email OTP sessions from the canonical auth source', () => {
+    const claims = {
+      kind: 'app_session_v1',
+      provider: 'oidc',
+      oidcProvider: 'google',
+      providerSubject: 'google:123',
+      authSource: {
+        kind: 'oidc_provider',
+        providerId: 'google_oidc',
+        providerSubject: 'google:123',
+      },
+    };
+    expect(isGoogleOidcEmailOtpSession(claims)).toBe(true);
+    expect(
+      isGoogleOidcEmailOtpSession({
+        ...claims,
+        authSource: { ...claims.authSource, providerId: 'oidc' },
+      }),
+    ).toBe(false);
+    expect(
+      isGoogleOidcEmailOtpSession({
+        ...claims,
+        authSource: { ...claims.authSource, providerSubject: 'google:other' },
+      }),
+    ).toBe(false);
+    expect(isGoogleOidcEmailOtpSession({ ...claims, providerSubject: 'email:123' })).toBe(false);
+  });
+
   test('validates shared request body fields without transport-specific code', () => {
     expect(validateEmailOtpJsonObjectBody(null)).toEqual({
       ok: false,

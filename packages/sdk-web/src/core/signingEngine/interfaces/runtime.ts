@@ -3,16 +3,22 @@ import type { LastProfileState } from '@/core/indexedDB/passkeyClientDB.types';
 import type { NearAccountClientDbPort } from '@/core/accountData/near/accountProjection';
 import type { NearClient } from '../../rpcClients/near/NearClient';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
-import type { UiConfirmSigningSessionPort } from '../uiConfirm/uiConfirm.types';
+import type {
+  PasskeyMpcSessionPort,
+  UiConfirmRuntimeBridgePort,
+} from '../uiConfirm/uiConfirm.types';
 import type { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { UserPreferencesManager } from '../session/userPreferences';
 import type { ThemeMode, SeamsChainConfig } from '../../types/seams';
+import type { WalletId } from './ecdsaChainTarget';
+import type { RouterAbEd25519NormalSigningCredential } from '../../rpcClients/relayer/routerAbNormalSigning';
 import type {
   SignerWorkerKind,
   SignerWorkerOperationRequest,
   SignerWorkerOperationResult,
   SignerWorkerOperationType,
 } from '../workerManager/workerTypes';
+import type { Ed25519OperationStepUpProof } from '../threshold/ed25519/walletSession';
 
 export type NearSigningKeyMaterialStorePort = NearAccountClientDbPort &
   AccountKeyMaterialStorePort & {
@@ -24,6 +30,11 @@ export type NearSigningKeyMaterialStorePort = NearAccountClientDbPort &
  * Keeps chain signing logic decoupled from SignerWorkerManager internals.
  */
 export interface NearSigningRuntimeDeps {
+  resolveOperationStepUpCredential: (args: {
+    walletId: WalletId;
+    relayerUrl: string;
+    proof: Ed25519OperationStepUpProof;
+  }) => Promise<RouterAbEd25519NormalSigningCredential>;
   touchIdPrompt: TouchIdPrompt;
   nearClient: NearClient;
   nearKeyMaterialStore: NearSigningKeyMaterialStorePort;
@@ -36,7 +47,8 @@ export interface NearSigningRuntimeDeps {
   tempoExplorerUrl?: string;
   evmExplorerUrl?: string;
   relayerUrl: string;
-  touchConfirm?: UiConfirmSigningSessionPort;
+  touchConfirm?: UiConfirmRuntimeBridgePort;
+  passkeyMpcSession: PasskeyMpcSessionPort;
   requestWorkerOperation: <
     K extends SignerWorkerKind,
     T extends SignerWorkerOperationType<K>,

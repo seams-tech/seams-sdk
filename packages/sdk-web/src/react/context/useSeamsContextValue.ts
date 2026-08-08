@@ -8,69 +8,6 @@ import { buildNoCurrentWalletAuthMethod } from '@shared/utils/walletCapabilityBi
 import { useSDKFlowRuntime } from './useSDKFlowRuntime';
 import { useSeamsWithSdkFlow } from './useSeamsWithSdkFlow';
 
-/**
- * Refactor 94C. The registration response is authoritative for wallet
- * identity, so React marks the wallet logged in from it directly rather than
- * waiting for a round trip that would only restate what the response already
- * said. Measured: the two refreshes below ran serially after registration
- * returned and were excluded from the timing summary, so they were invisible
- * perceived latency.
- */
-function hydrateLoginStateFromRegistrationResult(args: {
-  result: RegistrationResult;
-  setLoginState: Dispatch<SetStateAction<LoginState>>;
-}): void {
-  const result = args.result;
-  if (!result.success) return;
-  const walletId = String(result.walletId || '').trim();
-  if (!walletId) return;
-  args.setLoginState((previous) => ({
-    ...previous,
-    isLoggedIn: true,
-    walletId,
-    /* NEAR identity is absent on the ECDSA-ready result and arrives with the
-       background refresh once deferred provisioning settles; never invent it. */
-    nearPublicKey: result.operationalPublicKey ?? previous.nearPublicKey ?? null,
-    nearAccountId: result.nearAccountId ? String(result.nearAccountId) : (previous.nearAccountId ?? null),
-    authMethods: previous.authMethods,
-    currentAuthMethod: previous.currentAuthMethod,
-    thresholdEcdsaEthereumAddress:
-      result.thresholdEcdsaEthereumAddress ?? previous.thresholdEcdsaEthereumAddress ?? null,
-    thresholdEcdsaPublicKeyB64u:
-      result.thresholdEcdsaPublicKeyB64u ?? previous.thresholdEcdsaPublicKeyB64u ?? null,
-  }));
-}
-
-/**
- * Runs both refreshes concurrently and is never awaited by registration: the
- * wallet is already usable from the hydrated response, and these only reconcile
- * auth-method bindings and account data. Failure leaves the hydrated state.
- */
-function refreshReactStateAfterRegistration(args: {
-  walletId: string;
-  refreshLoginState: SeamsContextType['refreshLoginState'];
-  refreshAccountData: SeamsContextType['refreshAccountData'];
-}): void {
-  console.info('[Registration] progress', {
-    stage: 'react_context_background_refresh_started',
-    walletId: args.walletId,
-  });
-  void Promise.all([
-    args.refreshLoginState(args.walletId),
-    args.refreshAccountData(),
-  ]).then(
-    () => {
-      console.info('[Registration] progress', {
-        stage: 'react_context_background_refresh_completed',
-        walletId: args.walletId,
-      });
-    },
-    (error: unknown) => {
-      console.warn('[Registration] background React state refresh failed:', error);
-    },
-  );
-}
-
 export function useSeamsContextValue(args: {
   seams: SeamsContextType['seams'];
   loginState: LoginState;
@@ -170,20 +107,11 @@ export function useSeamsContextValue(args: {
 
       const walletId = result?.success ? String(result.walletId || '').trim() : '';
       if (result?.success && walletId) {
-        console.info('[Registration] progress', {
-          stage: 'react_context_register_passkey_returned',
-          walletId,
-        });
-        hydrateLoginStateFromRegistrationResult({ result, setLoginState });
-        refreshReactStateAfterRegistration({
-          walletId,
-          refreshLoginState,
-          refreshAccountData,
-        });
+        await refreshLoginState(walletId);
       }
       return result;
     },
-    [lock, refreshAccountData, refreshLoginState, seamsWithSdkFlow],
+    [lock, refreshLoginState, seamsWithSdkFlow],
   );
 
   const registerWallet: SeamsContextType['registerWallet'] = useCallback(
@@ -200,20 +128,11 @@ export function useSeamsContextValue(args: {
       });
       const walletId = result?.success ? String(result.walletId || '') : '';
       if (result?.success && walletId) {
-        console.info('[Registration] progress', {
-          stage: 'react_context_register_wallet_returned',
-          walletId,
-        });
-        hydrateLoginStateFromRegistrationResult({ result, setLoginState });
-        refreshReactStateAfterRegistration({
-          walletId,
-          refreshLoginState,
-          refreshAccountData,
-        });
+        await refreshLoginState(walletId);
       }
       return result;
     },
-    [lock, refreshAccountData, refreshLoginState, seamsWithSdkFlow],
+    [lock, refreshLoginState, seamsWithSdkFlow],
   );
 
   const addWalletSigner: SeamsContextType['addWalletSigner'] = useCallback(

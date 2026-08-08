@@ -126,7 +126,7 @@ export async function prepareVerifiedPasskeyEd25519YaoAddSignerV1(
   );
 
   requireMatchingString(admission.scope.lifecycle_id, ceremonyId, 'Yao lifecycle ID');
-  requireMatchingString(admission.scope.wallet_session_id, ceremonyId, 'Yao Wallet Session ID');
+  requireMatchingString(admission.scope.threshold_session_id, ceremonyId, 'Yao Threshold Session ID');
   requireMatchingString(admission.scope.account_id, String(intent.walletId), 'Yao account ID');
   requireMatchingString(
     admission.scope.signer_set_id,

@@ -1,6 +1,32 @@
 export { SeamsWeb } from './SeamsWeb';
+export {
+  buildHostedAuthMenuOpenRequest,
+  hostedAuthMenuExternalAuthRequestIdFromBoundary,
+  hostedAuthMenuSessionIdFromBoundary,
+} from './walletIframe/shared/messages';
+export type {
+  HostedAuthMenuCopy,
+  HostedAuthMenuCopyInput,
+  HostedAuthMenuExternalAuthEvidence,
+  HostedAuthMenuExternalAuthRequest,
+  HostedAuthMenuExternalAuthRequestId,
+  HostedAuthMenuExternalAuthResolutionInput,
+  HostedAuthMenuExternalProvider,
+  HostedAuthMenuMode,
+  HostedAuthMenuOpenRequest,
+  HostedAuthMenuOutcome,
+  HostedAuthMenuRegistrationAccountInput,
+  HostedAuthMenuSessionId,
+} from './walletIframe/shared/messages';
+export { BrowserCapabilityUnavailableError } from './publicApi/capabilitySelection';
+export type {
+  BrowserCapabilitySelectionResult,
+  BrowserCapabilityUnavailableReason,
+  BrowserCapabilityUnavailableSelection,
+} from './publicApi/capabilitySelection';
 
 export type { DemoEmailOtpCodeResponse } from '@/core/signingEngine/session/emailOtp/publicTypes';
+export type { TempoFeeTokenValidation } from '@/core/signingEngine/chains/tempo/feeToken';
 
 export type {
   AuthCapability,
@@ -10,8 +36,6 @@ export type {
   EmailOtpChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
   EmailOtpEcdsaCapabilityResult,
-  EmailOtpEcdsaEnrollmentCapabilityArgs,
-  EmailOtpEcdsaEnrollmentCapabilityResult,
   EmailOtpEnrollmentResult,
   EmailOtpRecoveryCodeBackupStatus,
   EmailOtpRecoveryCodeRotationResult,
@@ -39,6 +63,7 @@ export type {
   GoogleEmailOtpWalletAuthResult,
   GoogleEmailOtpWalletAuthStartInput,
   GoogleEmailOtpWalletAuthSubmitSuccess,
+  GetTempoFeeTokenPreferenceArgs,
   RegistrationFinalizeIdempotencyKey,
   ExecuteEvmFamilyTransactionArgs,
   ExecuteEvmFamilyTransactionResult,
@@ -55,16 +80,23 @@ export type {
   ReportTempoBroadcastRejectedArgs,
   ReportTempoDroppedOrReplacedArgs,
   ReportTempoFinalizedArgs,
+  SignEvmTransactionArgs,
+  SetTempoFeeTokenPreferenceArgs,
   SignTempoArgs,
   TempoNonceLifecycleEvent,
   TempoNonceLifecycleOptions,
   TempoNonceLaneStatus,
   TempoSignerCapability,
+  ValidateTempoFeeTokenArgs,
 } from './publicApi/types';
 
 export type {
   SeamsConfigsReadonly,
   SeamsConfigsInput,
+  AddedEvmFamilyEcdsaSignerCapability,
+  AddedNearEd25519SignerCapability,
+  RegisteredEvmFamilyEcdsaCapability,
+  RegisteredNearEd25519Capability,
   RegistrationResult,
   NearProvisioningState,
   LoginAndCreateSessionResult,

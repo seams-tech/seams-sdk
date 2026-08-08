@@ -8,7 +8,6 @@ import {
   type EcdsaExportMaterial,
 } from './ecdsaExportMaterial';
 import {
-  exportThresholdEcdsaKeyWithAuthorization,
   exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth,
   exportThresholdEcdsaKeyWithFreshPasskeyAuthorization,
   type EcdsaExportFlowDeps,
@@ -26,24 +25,23 @@ import {
 } from './keyExportFlow';
 import { deriveEvmFamilyKeyFingerprintFromPublicFacts } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
-  exportEd25519YaoKeyWithFreshEmailOtp,
-  exportEd25519YaoKeyWithFreshPasskey,
+  exportEd25519YaoKeyWithFreshAuthorization,
   type Ed25519YaoExportFlowDeps,
 } from './ed25519YaoExportFlow';
 import { SIGNING_SESSION_EXPIRY_DETECTION_SOURCES } from '@/core/types/sdkSentEvents';
-import type { ExactSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
 import {
   requireAuthoritativeExpiredWalletSessionAuthorizationBoundary,
   type ExpiredWalletSessionAuthorizationState,
+  type WalletSessionAuthorizationIdentitySource,
   type WalletSessionAuthorizationState,
 } from '../../session/identity/clientSessionPersistenceState';
+import type { ReadClientWalletSessionAuthorizationRequest } from '../../session/persistence/clientSessionPersistence';
 import { walletSessionFailureFromError } from '../../session/lifecycle/walletSessionFailure';
 
 export type KeyExportWalletSessionLifecycleDeps = {
-  readonly readAuthorization: (args: {
-    readonly identity: ExactSigningLaneIdentity;
-    readonly nowMs: number;
-  }) => WalletSessionAuthorizationState;
+  readonly readAuthorization: (
+    args: ReadClientWalletSessionAuthorizationRequest,
+  ) => Promise<WalletSessionAuthorizationState>;
   readonly invalidateExpiredAuthorization: (args: {
     readonly state: ExpiredWalletSessionAuthorizationState;
     readonly source:
@@ -104,12 +102,9 @@ async function invalidateExpiredExportAuthorization(args: {
 
 async function readAndInvalidateExpiredExportAuthorization(args: {
   readonly deps: ExportKeypairWithUIDeps;
-  readonly identity: ExactSigningLaneIdentity;
+  readonly request: ReadClientWalletSessionAuthorizationRequest;
 }): Promise<WalletSessionAuthorizationState> {
-  const state = args.deps.sessionLifecycle.readAuthorization({
-    identity: args.identity,
-    nowMs: Date.now(),
-  });
+  const state = await args.deps.sessionLifecycle.readAuthorization(args.request);
   if (state.kind === 'expired') {
     await invalidateExpiredExportAuthorization({
       deps: args.deps,
@@ -121,14 +116,14 @@ async function readAndInvalidateExpiredExportAuthorization(args: {
 }
 
 function authoritativeExpiredExportAuthorization(args: {
-  readonly identity: ExactSigningLaneIdentity;
+  readonly source: WalletSessionAuthorizationIdentitySource;
   readonly preflightState: WalletSessionAuthorizationState;
   readonly detectedAtMs: number;
 }): ExpiredWalletSessionAuthorizationState | null {
   const stateWithExpiry = authorizationWithExpiry(args.preflightState);
   if (!stateWithExpiry) return null;
   return requireAuthoritativeExpiredWalletSessionAuthorizationBoundary({
-    identity: args.identity,
+    source: args.source,
     expiresAtMs: stateWithExpiry.expiresAtMs,
     detectedAtMs: args.detectedAtMs,
   });
@@ -159,25 +154,24 @@ function emitEcdsaExportFailureDiagnostics(args: {
   error: unknown;
 }): void {
   const publicFacts = args.exportMaterial?.publicFacts || args.exportLane?.publicFacts;
-  const keyFingerprint =
-    args.exportMaterial?.kind === 'ready_threshold_ecdsa_export_material'
-      ? args.exportMaterial.evmFamilyKeyFingerprint
-      : args.exportLane
-        ? deriveEvmFamilyKeyFingerprintFromPublicFacts({
-            walletId: args.exportLane.key.walletId,
-            publicFacts: args.exportLane.publicFacts,
-          })
-        : undefined;
+  const keyFingerprint = args.exportLane
+    ? deriveEvmFamilyKeyFingerprintFromPublicFacts({
+        walletId: args.exportLane.key.walletId,
+        publicFacts: args.exportLane.publicFacts,
+      })
+    : undefined;
   try {
     console.warn('[SigningEngine][ecdsa-export][failure]', {
       operationId: args.flowId,
-      authMethod: args.exportLane?.session.authMethod,
+      authMethod: args.exportLane?.authMethod,
       ...(keyFingerprint ? { evmFamilyKeyFingerprint: keyFingerprint } : {}),
       ...(publicFacts ? { keyHandle: String(publicFacts.keyHandle) } : {}),
       chainTargetKey: thresholdEcdsaChainTargetKey(args.input.chainTarget),
-      signingGrantId: args.exportLane?.session.signingGrantId,
-      thresholdSessionId: args.exportLane?.session.thresholdSessionId,
-      budgetProjectionVersion: undefined,
+      ...(args.exportLane?.authorization
+        ? { walletSessionId: args.exportLane.authorization.projection.walletSessionId }
+        : {}),
+      materialActivationId:
+        args.exportLane?.laneIdentity.signer.materialActivation.activationId,
       freshAuthRetrySideEffectState: 'not_applicable',
       error:
         args.error instanceof Error ? args.error.message : String(args.error || 'unknown error'),
@@ -185,49 +179,17 @@ function emitEcdsaExportFailureDiagnostics(args: {
   } catch {}
 }
 
-async function exportEcdsaKeypairWithFlowId(
+async function executePreparedEcdsaExport(
   deps: ExportKeypairWithUIDeps,
   args: Extract<SigningEngineExportKeypairWithUIInput, { kind: 'ecdsa' }> & { flowId: string },
+  prepared: PreparedEcdsaExport,
 ): Promise<ExportKeypairResult> {
   const walletId = toWalletId(args.walletSession.walletId);
-  let exportLane: Awaited<ReturnType<typeof resolveEcdsaSessionForExport>> | undefined;
-  let exportMaterial: EcdsaExportMaterial | undefined;
-  try {
-    const preparation = prepareEcdsaExport(deps, args);
-    const uiInitialization = deps.ecdsa.touchConfirm.initialize();
-    const [prepared] = await Promise.all([preparation, uiInitialization]);
-    exportLane = prepared.exportLane;
-    exportMaterial = prepared.exportMaterial;
-    if (exportMaterial.kind === 'fresh_email_otp_route_auth_ready') {
-      return await exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(deps.ecdsa, {
-        walletId,
-        exportLane,
-        material: exportMaterial,
-        options: {
-          variant: args.options.variant,
-          theme: args.options.theme,
-        },
-        flowId: args.flowId,
-        onEvent: args.options.onEvent,
-      });
-    }
-    if (exportMaterial.kind === 'fresh_passkey_needs_authorization') {
-      return await exportThresholdEcdsaKeyWithFreshPasskeyAuthorization(deps.ecdsa, {
-        walletId,
-        exportLane,
-        material: exportMaterial,
-        options: {
-          variant: args.options.variant,
-          theme: args.options.theme,
-        },
-        flowId: args.flowId,
-        onEvent: args.options.onEvent,
-      });
-    }
-    return await exportThresholdEcdsaKeyWithAuthorization(deps.ecdsa, {
+  if (prepared.exportMaterial.kind === 'fresh_email_otp_route_auth_ready') {
+    return await exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(deps.ecdsa, {
       walletId,
-      material: exportMaterial,
-      exportLane,
+      exportLane: prepared.exportLane,
+      material: prepared.exportMaterial,
       options: {
         variant: args.options.variant,
         theme: args.options.theme,
@@ -235,71 +197,75 @@ async function exportEcdsaKeypairWithFlowId(
       flowId: args.flowId,
       onEvent: args.options.onEvent,
     });
+  }
+  if (prepared.exportMaterial.kind === 'fresh_passkey_needs_authorization') {
+    return await exportThresholdEcdsaKeyWithFreshPasskeyAuthorization(deps.ecdsa, {
+      walletId,
+      exportLane: prepared.exportLane,
+      material: prepared.exportMaterial,
+      options: {
+        variant: args.options.variant,
+        theme: args.options.theme,
+      },
+      flowId: args.flowId,
+      onEvent: args.options.onEvent,
+    });
+  }
+  prepared.exportMaterial satisfies never;
+  throw new Error('[SigningEngine][ecdsa-export] unsupported export material');
+}
+
+async function exportEcdsaKeypairWithSessionLifecycle(
+  deps: ExportKeypairWithUIDeps,
+  args: Extract<SigningEngineExportKeypairWithUIInput, { kind: 'ecdsa' }> & { flowId: string },
+  attempt: KeyExportAttempt,
+): Promise<ExportKeypairResult> {
+  const [prepared] = await Promise.all([
+    prepareEcdsaExport(deps, args),
+    deps.ecdsa.touchConfirm.initialize(),
+  ]);
+  if (prepared.exportLane.authorizationState === 'authorization_required') {
+    try {
+      return await executePreparedEcdsaExport(deps, args, prepared);
+    } catch (error: unknown) {
+      emitEcdsaExportFailureDiagnostics({
+        input: args,
+        flowId: args.flowId,
+        exportLane: prepared.exportLane,
+        exportMaterial: prepared.exportMaterial,
+        error,
+      });
+      throw error;
+    }
+  }
+  const source: WalletSessionAuthorizationIdentitySource = {
+    kind: 'ecdsa',
+    laneIdentity: prepared.exportLane.laneIdentity,
+    authorization: prepared.exportLane.authorization,
+  };
+  const preflightState = await readAndInvalidateExpiredExportAuthorization({
+    deps,
+    request: {
+      kind: 'ecdsa',
+      laneIdentity: prepared.exportLane.laneIdentity,
+      authorization: prepared.exportLane.authorization,
+      nowMs: Date.now(),
+    },
+  });
+  try {
+    return await executePreparedEcdsaExport(deps, args, prepared);
   } catch (error: unknown) {
     emitEcdsaExportFailureDiagnostics({
       input: args,
       flowId: args.flowId,
-      ...(exportLane ? { exportLane } : {}),
-      ...(exportMaterial ? { exportMaterial } : {}),
+      exportLane: prepared.exportLane,
+      exportMaterial: prepared.exportMaterial,
       error,
     });
-    throw error;
-  }
-}
-
-async function exportEd25519KeypairWithFlowId(
-  deps: ExportKeypairWithUIDeps,
-  args: Extract<SigningEngineExportKeypairWithUIInput, { kind: 'ed25519' }> & { flowId: string },
-): Promise<ExportKeypairResult> {
-  const exportArgs = {
-    walletId: args.walletSession.walletId,
-    nearAccountId: args.nearAccount.accountId,
-    laneIdentity: args.laneIdentity,
-    options: {
-      variant: args.options.variant,
-      theme: args.options.theme,
-    },
-    flowId: args.flowId,
-    onEvent: args.options.onEvent,
-  };
-  switch (args.laneIdentity.auth.kind) {
-    case 'passkey':
-      return await exportEd25519YaoKeyWithFreshPasskey(deps.ed25519Yao, exportArgs);
-    case 'email_otp':
-      return await exportEd25519YaoKeyWithFreshEmailOtp(deps.ed25519Yao, exportArgs);
-  }
-  args.laneIdentity.auth satisfies never;
-  throw new Error('[SigningEngine][ed25519-export] unsupported lane authorization method');
-}
-
-async function exportKeypairWithFlowId(
-  deps: ExportKeypairWithUIDeps,
-  args: SigningEngineExportKeypairWithUIInput & { flowId: string },
-): Promise<ExportKeypairResult> {
-  switch (args.kind) {
-    case 'ecdsa':
-      return await exportEcdsaKeypairWithFlowId(deps, args);
-    case 'ed25519':
-      return await exportEd25519KeypairWithFlowId(deps, args);
-  }
-}
-
-async function exportKeypairWithSessionLifecycle(
-  deps: ExportKeypairWithUIDeps,
-  args: SigningEngineExportKeypairWithUIInput & { flowId: string },
-  attempt: KeyExportAttempt,
-): Promise<ExportKeypairResult> {
-  const preflightState = await readAndInvalidateExpiredExportAuthorization({
-    deps,
-    identity: args.laneIdentity,
-  });
-  try {
-    return await exportKeypairWithFlowId(deps, args);
-  } catch (error: unknown) {
     const failure = walletSessionFailureFromError(error);
     if (attempt.kind === 'fresh_auth_retry' || failure?.kind !== 'expired') throw error;
     const expiredState = authoritativeExpiredExportAuthorization({
-      identity: args.laneIdentity,
+      source,
       preflightState,
       detectedAtMs: Date.now(),
     });
@@ -309,19 +275,49 @@ async function exportKeypairWithSessionLifecycle(
       state: expiredState,
       source: SIGNING_SESSION_EXPIRY_DETECTION_SOURCES.serverRejection,
     });
-    return await exportKeypairWithSessionLifecycle(deps, args, {
+    return await exportEcdsaKeypairWithSessionLifecycle(deps, args, {
       kind: 'fresh_auth_retry',
     });
   }
+}
+
+async function exportEd25519KeypairWithFlowId(
+  deps: ExportKeypairWithUIDeps,
+  args: Extract<SigningEngineExportKeypairWithUIInput, { kind: 'ed25519' }> & { flowId: string },
+): Promise<ExportKeypairResult> {
+  return await exportEd25519YaoKeyWithFreshAuthorization(deps.ed25519Yao, {
+    walletId: args.walletSession.walletId,
+    nearAccountId: args.nearAccount.accountId,
+    laneIdentity: args.laneIdentity,
+    materialActivation: args.materialActivation,
+    options: {
+      variant: args.options.variant,
+      theme: args.options.theme,
+    },
+    flowId: args.flowId,
+    onEvent: args.options.onEvent,
+  });
+}
+
+async function exportEd25519KeypairWithSessionLifecycle(
+  deps: ExportKeypairWithUIDeps,
+  args: Extract<SigningEngineExportKeypairWithUIInput, { kind: 'ed25519' }> & { flowId: string },
+): Promise<ExportKeypairResult> {
+  return await exportEd25519KeypairWithFlowId(deps, args);
 }
 
 export async function exportKeypairWithUI(
   deps: ExportKeypairWithUIDeps,
   input: SigningEngineExportKeypairWithUIInput,
 ): Promise<ExportKeypairResult> {
-  return await runKeyExportWithFlowEvents(input, (args) =>
-    exportKeypairWithSessionLifecycle(deps, args, { kind: 'initial' }),
-  );
+  return await runKeyExportWithFlowEvents(input, async (args) => {
+    switch (args.kind) {
+      case 'ecdsa':
+        return await exportEcdsaKeypairWithSessionLifecycle(deps, args, { kind: 'initial' });
+      case 'ed25519':
+        return await exportEd25519KeypairWithSessionLifecycle(deps, args);
+    }
+  });
 }
 
 export async function resolveExactKeyExportLane(

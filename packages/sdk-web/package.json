@@ -58,6 +58,11 @@
       "default": "./dist/esm/react/components/SeamsAuthMenu/preload.js",
       "types": "./dist/types/sdk-web/src/react/components/SeamsAuthMenu/preload.d.ts"
     },
+    "./react/hosted-seams-auth-menu": {
+      "import": "./dist/esm/react/components/HostedSeamsAuthMenu/public.js",
+      "default": "./dist/esm/react/components/HostedSeamsAuthMenu/public.js",
+      "types": "./dist/types/sdk-web/src/react/components/HostedSeamsAuthMenu/public.d.ts"
+    },
     "./react/provider": {
       "import": "./dist/esm/react/context/SeamsWebProvider.js",
       "default": "./dist/esm/react/context/SeamsWebProvider.js",
@@ -101,6 +106,7 @@
   ],
   "scripts": {
     "build:sdk": "./scripts/build/build-sdk.sh",
+    "build:types": "tsc -p tsconfig.build.json && node ./scripts/build/rewrite-declaration-aliases.mjs",
     "build:wasm": "./scripts/build/build-wasm.sh",
     "build:sdk-full": "./scripts/build/build-full.sh",
     "build:prod": "./scripts/build/build-prod.sh",

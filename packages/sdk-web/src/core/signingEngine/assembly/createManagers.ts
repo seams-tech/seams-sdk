@@ -4,7 +4,13 @@ import { createNonceCoordinator, type NonceCoordinator } from '../nonce/NonceCoo
 import { resolvePrimaryExplorerUrl } from '@/core/config/chains';
 import type { AppearanceConfig, ThemeMode, SeamsConfigsReadonly } from '@/core/types/seams';
 import { createUiConfirmManager } from '../uiConfirm/UiConfirmManager';
-import type { UiConfirmRuntimeBridgePort } from '../uiConfirm/uiConfirm.types';
+import { createPasskeyMpcExportManager } from '../uiConfirm/PasskeyMpcExportManager';
+import { createPasskeyMpcSessionManager } from '../uiConfirm/PasskeyMpcSessionManager';
+import type {
+  PasskeyMpcExportPort,
+  PasskeyMpcSessionPort,
+  UiConfirmRuntimeBridgePort,
+} from '../uiConfirm/uiConfirm.types';
 import type { UiConfirmContext } from '../uiConfirm/uiConfirm.types';
 import { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import { SignerWorkerManager } from '../workerManager/SignerWorkerManager';
@@ -13,13 +19,18 @@ import { getWorkerTransport } from '../workerManager/workerTransport';
 import { type UserPreferencesStorePort, UserPreferencesManager } from '../session/userPreferences';
 import type { NonceLaneCoordinationStore } from '../nonce/NonceCoordinator';
 import type { DurableRecordStore } from '@/core/platform';
-import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
+import { nearOperationStepUpPreparationPort } from '../flows/signNear/shared/operationStepUpPreparation';
+import { nearImplicitAccountFundingPort } from '../flows/signNear/shared/implicitAccountFundingPort';
+import type { ThresholdEcdsaSigningQueueByKey } from '../threshold/ecdsa/signingQueue';
+import { resolveActiveEcdsaCapabilityRuntime } from '../session/material/activeEcdsaCapabilityRuntime';
 
 export type ManagerAssembly = {
   touchIdPrompt: TouchIdPrompt;
   userPreferencesManager: UserPreferencesManager;
   nonceCoordinator: NonceCoordinator;
   touchConfirm: UiConfirmRuntimeBridgePort;
+  passkeyMpcExport: PasskeyMpcExportPort;
+  passkeyMpcSession: PasskeyMpcSessionPort;
   signerWorkerManager: SignerWorkerManager;
 };
 
@@ -32,12 +43,14 @@ export type ManagerAssemblyStores = {
 };
 
 export function createManagerAssembly(args: {
+  resolveOperationStepUpCredential: SignerWorkerManagerDeps['resolveOperationStepUpCredential'];
   stores: ManagerAssemblyStores;
   seamsWebConfigs: SeamsConfigsReadonly;
   nearClient: NearClient;
   loadEcdsaRoleLocalReadyRecord: DurableRecordStore['loadEcdsaRoleLocalReadyRecord'];
   getTheme: () => ThemeMode;
   getAppearance: () => AppearanceConfig;
+  thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey;
 }): ManagerAssembly {
   const touchIdPrompt = new TouchIdPrompt(args.seamsWebConfigs.wallet.iframe?.rpIdOverride, true);
   const userPreferencesManager = new UserPreferencesManager({
@@ -55,18 +68,13 @@ export function createManagerAssembly(args: {
   const nearExplorerUrl = resolvePrimaryExplorerUrl(chains, 'near');
   const tempoExplorerUrl = resolvePrimaryExplorerUrl(chains, 'tempo');
   const evmExplorerUrl = resolvePrimaryExplorerUrl(chains, 'evm');
-  const isSealedRefreshMode =
-    args.seamsWebConfigs.signing.sessionPersistenceMode === 'sealed_refresh_v1';
-
-  const touchConfirm: UiConfirmRuntimeBridgePort = createUiConfirmManager(
-    {
-      signingSessionPersistenceMode: args.seamsWebConfigs.signing.sessionPersistenceMode,
-      ...(isSealedRefreshMode
-        ? {
-            signingSessionSealGroupId: SIGNING_SESSION_SEAL_GROUP_ID,
-          }
-        : {}),
-    },
+  const passkeyMpcSession = createPasskeyMpcSessionManager({
+    signingSessionPersistenceMode: args.seamsWebConfigs.signing.sessionPersistenceMode,
+    thresholdEcdsaSigningQueueByKey: args.thresholdEcdsaSigningQueueByKey,
+    resolveCurrentEcdsaCapabilityRuntime: resolveActiveEcdsaCapabilityRuntime,
+  });
+  const touchConfirm = createUiConfirmManager(
+    {},
     {
       touchIdPrompt: touchIdPrompt,
       nearClient: args.nearClient,
@@ -74,6 +82,8 @@ export function createManagerAssembly(args: {
       passkeyAuthenticatorStore: args.stores.passkeyAuthenticatorStore,
       userPreferencesManager: userPreferencesManager,
       nonceCoordinator: nonceCoordinator,
+      operationStepUpPreparation: nearOperationStepUpPreparationPort,
+      nearImplicitAccountFunding: nearImplicitAccountFundingPort,
       relayerUrl: args.seamsWebConfigs.network.relayer.url,
       chains,
       rpIdOverride: touchIdPrompt.getRpId(),
@@ -83,13 +93,17 @@ export function createManagerAssembly(args: {
       getTheme: args.getTheme,
       getAppearance: args.getAppearance,
       loadEcdsaRoleLocalReadyRecord: args.loadEcdsaRoleLocalReadyRecord,
+      surfaceMeasurementBinding: { kind: 'disabled' },
     },
   );
+  const passkeyMpcExport = createPasskeyMpcExportManager(touchConfirm.getContext());
 
   const signerWorkerManager = new SignerWorkerManager({
+    resolveOperationStepUpCredential: args.resolveOperationStepUpCredential,
     nearKeyMaterialStore: args.stores.nearKeyMaterialStore,
     touchIdPrompt,
     touchConfirm,
+    passkeyMpcSession,
     nearClient: args.nearClient,
     userPreferencesManager,
     nonceCoordinator,
@@ -107,6 +121,8 @@ export function createManagerAssembly(args: {
     userPreferencesManager,
     nonceCoordinator,
     touchConfirm,
+    passkeyMpcExport,
+    passkeyMpcSession,
     signerWorkerManager,
   };
 }

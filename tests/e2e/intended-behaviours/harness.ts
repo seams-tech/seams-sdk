@@ -139,7 +139,7 @@ const ROUTER_AB_ED25519_YAO_EXPORT_PATHS = [
   ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
 ] as const;
 
-const ROUTER_AB_WALLET_BUDGET_STATUS_PATH = '/router-ab/wallet-budget/status';
+const ROUTER_AB_WALLET_BUDGET_STATUS_PATH = '/wallet/session/status';
 
 type IntendedHarnessConfig = {
   appUrl: string;
@@ -287,7 +287,7 @@ type PasskeyRegistrationResultSnapshot = {
   EcdsaEnabledSnapshot;
 
 type Ed25519AddSignerResultSnapshot = {
-  kind: 'near_ed25519_signer_added';
+  kind: 'wallet_signer_added';
   walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
@@ -500,16 +500,14 @@ type CapturedWalletBudgetStatusRequest = {
   authorization: string;
   contentType: string;
   body: string;
-  signingGrantId: string;
-  thresholdSessionId: string;
 };
 
 type AuthoritativeWalletBudgetReplay =
   | { kind: 'active' }
   | {
       kind: 'exhausted';
-      signingGrantId: string;
-      thresholdSessionId: string;
+      walletSessionId: string;
+      quotaId: string;
     };
 
 type KeyExportAuthEventSummary = {
@@ -547,11 +545,6 @@ const KEY_EXPORT_AUTH_PASSKEY_PROMPT_SUCCEEDED = 'key_export.auth.passkey.prompt
 const LIFECYCLE_FAILURE_MATCHER_TABLE_VERSION = 'refactor-88-2026-07-04';
 
 const LIFECYCLE_FAILURE_MATCHERS: readonly LifecycleFailureMatcher[] = [
-  {
-    id: 'remaining_spend_indeterminate_budget_unknown',
-    pattern: /\[SigningSessionBudget\] signing grant budget is budget_unknown/i,
-    reason: 'remaining spend state was indeterminate in a signing path',
-  },
   {
     id: 'exact_lane_selection_failure',
     pattern: /exact selected lane/i,
@@ -820,6 +813,14 @@ export class IntendedBehaviourHarness {
     if (snapshot.events.length === 0) {
       throw new Error('Passkey registration did not emit structured lifecycle events');
     }
+    await expect(this.page.getByTestId('intended-e2e-page')).toHaveAttribute(
+      'data-login-state',
+      'logged_in',
+    );
+    await expect(this.page.getByTestId('intended-e2e-page')).toHaveAttribute(
+      'data-login-wallet-id',
+      result.walletId,
+    );
     this.registeredWallet = result;
     this.nearSignerSlot = 1;
     this.currentWarmSigningStage = 'post_registration';
@@ -1247,7 +1248,7 @@ export class IntendedBehaviourHarness {
       if (replay.kind === 'exhausted') {
         this.latestSigningRemainingUses = 0;
         this.recordService(
-          `signing remaining spend authoritatively exhausted signingGrantId=${replay.signingGrantId} thresholdSessionId=${replay.thresholdSessionId}`,
+          `signing remaining spend authoritatively exhausted walletSessionId=${replay.walletSessionId} quotaId=${replay.quotaId}`,
         );
         return;
       }
@@ -1652,7 +1653,7 @@ export class IntendedBehaviourHarness {
       throw new Error('Concurrent Tempo/Arc authoritative wallet budget remained active');
     }
     this.recordService(
-      `authoritative wallet budget exhausted signingGrantId=${replay.signingGrantId} thresholdSessionId=${replay.thresholdSessionId}`,
+      `authoritative wallet budget exhausted walletSessionId=${replay.walletSessionId} quotaId=${replay.quotaId}`,
     );
   }
 
@@ -1674,11 +1675,7 @@ export class IntendedBehaviourHarness {
         `Authoritative wallet budget status returned HTTP ${response.status()}: ${responseText}`,
       );
     }
-    return parseAuthoritativeWalletBudgetStatus({
-      responseText,
-      expectedSigningGrantId: captured.signingGrantId,
-      expectedThresholdSessionId: captured.thresholdSessionId,
-    });
+    return parseAuthoritativeWalletBudgetStatus({ responseText });
   }
 
   private handleResponse(response: Response): void {
@@ -2299,6 +2296,7 @@ function signingAuthExpectationForStage(
 ): SigningAuthExpectation {
   switch (stage) {
     case 'post_registration':
+      return 'warm_session';
     case 'post_unlock':
     case 'after_refresh_recovery':
       return 'warm_session';
@@ -2672,7 +2670,7 @@ function requireEd25519AddSignerResult(
     throw new Error(`Ed25519 add-signer did not succeed: ${snapshot.action.status}`);
   }
   const result = snapshot.action.result;
-  if (result.kind !== 'near_ed25519_signer_added') {
+  if (result.kind !== 'wallet_signer_added') {
     throw new Error(`Ed25519 add-signer returned unexpected result kind: ${result.kind}`);
   }
   if (result.walletId !== expectedWalletId) {
@@ -2705,7 +2703,7 @@ function requireEmailOtpRegistrationResult(
   }
   if (result.signingSessionStatus !== 'active') {
     throw new Error(
-      `Email OTP registration signing session is not active: ${result.signingSessionStatus}`,
+      `Email OTP registration did not establish an active signing session: ${result.signingSessionStatus}`,
     );
   }
   return result;
@@ -3474,7 +3472,7 @@ function parseIntendedActionResultSnapshot(raw: unknown): IntendedActionResultSn
         ...parseRegisteredNearState(record, 'passkey registration'),
         ...parseEcdsaEnabledSnapshot(record, 'passkey registration'),
       };
-    case 'near_ed25519_signer_added':
+    case 'wallet_signer_added':
       return {
         kind,
         walletId: requireString(record.walletId, 'Ed25519 add-signer walletId'),
@@ -3848,19 +3846,14 @@ function captureWalletBudgetStatusRequest(
   const body = request.postData();
   if (!authorization.startsWith('Bearer ') || !body) return null;
 
-  let signingGrantId: string;
-  let thresholdSessionId: string;
   try {
     const parsed: unknown = JSON.parse(body);
     const requestBody = requireRecord(parsed, 'wallet budget status request body');
-    signingGrantId = requireString(
-      requestBody.signingGrantId,
-      'wallet budget status request signingGrantId',
-    );
-    thresholdSessionId = requireString(
-      requestBody.thresholdSessionId,
-      'wallet budget status request thresholdSessionId',
-    );
+    if (
+      Object.keys(requestBody).length !== 2 ||
+      typeof requestBody.walletSessionId !== 'string' ||
+      typeof requestBody.quotaId !== 'string'
+    ) return null;
   } catch {
     return null;
   }
@@ -3870,15 +3863,11 @@ function captureWalletBudgetStatusRequest(
     authorization,
     contentType,
     body,
-    signingGrantId,
-    thresholdSessionId,
   };
 }
 
 function parseAuthoritativeWalletBudgetStatus(args: {
   responseText: string;
-  expectedSigningGrantId: string;
-  expectedThresholdSessionId: string;
 }): AuthoritativeWalletBudgetReplay {
   let raw: unknown;
   try {
@@ -3890,22 +3879,11 @@ function parseAuthoritativeWalletBudgetStatus(args: {
   if (response.ok !== true) {
     throw new Error('Authoritative wallet budget status response must report ok=true');
   }
-  const signingGrantId = requireString(
-    response.signingGrantId,
-    'authoritative wallet budget status signingGrantId',
+  const walletSessionId = requireString(
+    response.walletSessionId,
+    'authoritative wallet session status walletSessionId',
   );
-  const thresholdSessionId = requireString(
-    response.thresholdSessionId,
-    'authoritative wallet budget status thresholdSessionId',
-  );
-  if (signingGrantId !== args.expectedSigningGrantId) {
-    throw new Error('Authoritative wallet budget status signingGrantId does not match the request');
-  }
-  if (thresholdSessionId !== args.expectedThresholdSessionId) {
-    throw new Error(
-      'Authoritative wallet budget status thresholdSessionId does not match the request',
-    );
-  }
+  const quotaId = requireString(response.quotaId, 'authoritative wallet session status quotaId');
   if (response.status === 'active') return { kind: 'active' };
   if (response.status !== 'exhausted') {
     throw new Error(
@@ -3916,17 +3894,13 @@ function parseAuthoritativeWalletBudgetStatus(args: {
     response.remainingUses,
     'authoritative exhausted wallet budget remainingUses',
   );
-  const availableUses = requireNonNegativeInteger(
-    response.availableUses,
-    'authoritative exhausted wallet budget availableUses',
-  );
-  if (remainingUses !== 0 || availableUses !== 0) {
-    throw new Error('Authoritative exhausted wallet budget must have zero available uses');
+  if (remainingUses !== 0) {
+    throw new Error('Authoritative exhausted wallet quota must have zero remaining uses');
   }
   return {
     kind: 'exhausted',
-    signingGrantId,
-    thresholdSessionId,
+    walletSessionId,
+    quotaId,
   };
 }
 

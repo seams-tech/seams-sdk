@@ -5,7 +5,6 @@ import path from 'node:path';
 import {
   isDirectInvocation,
   arrayTableBodies,
-  commaList,
   escapeRegExp,
   normalizeString,
   packageRoot,
@@ -15,7 +14,6 @@ import {
   readString,
   relativeToRepo,
   rootBody,
-  secretStoreBindingNameForSecretName,
   selectEnvironmentSource,
   stagingReadinessFailureMessage,
   tableBody,
@@ -95,8 +93,6 @@ const forbiddenPostgresTokens = Object.freeze([
   'WEBHOOK_RETRY_POSTGRES_URL',
 ]);
 const forbiddenPlaintextVars = Object.freeze([
-  'SEAMS_LOCAL_SIGNING_ROOT_KEK_ID',
-  'SEAMS_LOCAL_SIGNING_ROOT_KEK_B64U',
   'SEAMS_LOCAL_RELAYER_ACCOUNT',
   'SEAMS_LOCAL_RELAYER_PUBLIC_KEY',
   'SPONSORED_EVM_EXECUTORS_JSON',
@@ -110,10 +106,6 @@ const forbiddenPlaintextVars = Object.freeze([
 const forbiddenConsoleProfileTokens = Object.freeze([
   'SIGNER_DB',
   'THRESHOLD_STORE',
-  'SIGNING_ROOT_KEK_PROVIDER',
-  'SIGNING_ROOT_KEK_ENCODING',
-  'SIGNING_ROOT_KEK_IDS',
-  'secrets_store_secrets',
 ]);
 
 export function checkD1StagingReadiness(input = {}) {
@@ -140,7 +132,6 @@ export function checkD1StagingReadiness(input = {}) {
   if (profile === 'gateway') {
     checkDurableObject(source, errors);
     checkRouterAbServiceBindings(source, errors);
-    checkSigningRootKekProvider(source, errors);
   }
 
   return {
@@ -452,33 +443,6 @@ function checkSecretVars(source, profile, errors) {
   }
 }
 
-function checkSigningRootKekProvider(source, errors) {
-  const vars = tableBody(source, 'vars');
-  checkExactString(
-    readString(vars, 'SIGNING_ROOT_KEK_PROVIDER'),
-    'cloudflare_secrets_store',
-    'SIGNING_ROOT_KEK_PROVIDER',
-    errors,
-  );
-
-  const encoding = readString(vars, 'SIGNING_ROOT_KEK_ENCODING');
-  if (!encoding) errors.push('SIGNING_ROOT_KEK_ENCODING is required');
-  if (encoding && !isSupportedKekEncoding(encoding)) {
-    errors.push('SIGNING_ROOT_KEK_ENCODING must be base64url, base64, or hex');
-  }
-
-  const kekIds = commaList(readString(vars, 'SIGNING_ROOT_KEK_IDS'));
-  if (kekIds.length === 0) {
-    errors.push('SIGNING_ROOT_KEK_IDS must list at least one hosted signer KEK id');
-    return;
-  }
-  for (const kekId of kekIds) {
-    if (!hasSecretStoreSecret(source, kekId)) {
-      errors.push(`missing Cloudflare Secrets Store binding for signer KEK ${kekId}`);
-    }
-  }
-}
-
 function hasAssignment(source, key) {
   const pattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=`, 'm');
   return pattern.test(source);
@@ -489,18 +453,6 @@ function findBlockByAssignment(blocks, key, expected) {
     if (readString(block, key) === expected) return block;
   }
   return '';
-}
-
-function hasSecretStoreSecret(source, secretName) {
-  const blocks = arrayTableBodies(source, 'secrets_store_secrets');
-  const expectedBinding = secretStoreBindingNameForSecretName(secretName);
-  for (const block of blocks) {
-    if (readString(block, 'secret_name') !== secretName) continue;
-    if (readString(block, 'binding') !== expectedBinding) continue;
-    if (valueLooksPlaceholder(readString(block, 'store_id'))) continue;
-    return true;
-  }
-  return false;
 }
 
 function checkExactString(value, expected, label, errors) {
@@ -538,10 +490,6 @@ function includesString(values, expected) {
     if (value === expected) return true;
   }
   return false;
-}
-
-function isSupportedKekEncoding(value) {
-  return value === 'base64url' || value === 'base64' || value === 'hex';
 }
 
 if (isDirectInvocation(import.meta.url)) main();

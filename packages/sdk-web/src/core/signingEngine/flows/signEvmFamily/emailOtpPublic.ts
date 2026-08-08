@@ -10,8 +10,6 @@ import type {
   WalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
-import type { EmailOtpBootstrapRecovery } from '../../stepUpConfirmation/otpPrompt/bootstrapRecovery';
-import type { ThresholdEcdsaSessionStoreDeps } from '../../session/persistence/records';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ThresholdEcdsaChainTarget,
@@ -19,22 +17,18 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
-import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
-import type { WarmSessionEcdsaCapabilityState } from '../../session/warmCapabilities/types';
 import type { EmailOtpWorkerProgressEvent } from '../../workerManager/workerTypes';
 import type { EmailOtpEcdsaBootstrapAuthorization } from '../../session/emailOtp/routePlan';
 import {
   requestEmailOtpSigningSessionChallenge as requestEmailOtpSigningSessionChallengeValue,
+  resolveEmailOtpEcdsaSigningSessionAuth,
   refreshEmailOtpSigningSession as refreshEmailOtpSigningSessionValue,
 } from './emailOtpSigningSession';
 import type {
   EmailOtpEcdsaProviderIdentity,
   EmailOtpThresholdEcdsaLoginResult,
-  EmailOtpThresholdEcdsaLoginTimings,
   LoginEmailOtpEcdsaCapabilityArgs,
 } from '../../session/emailOtp/ecdsaLogin';
-import type { EnrollAndLoginEmailOtpEcdsaCapabilityArgs } from '../../session/emailOtp/ecdsaEnrollment';
-import type { EmailOtpEcdsaPublicationTimings } from '../../session/emailOtp/ecdsaPublication';
 import {
   resolveEmailOtpAuthLane,
   type EmailOtpRoutePlan,
@@ -66,23 +60,10 @@ export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   emailHashHex: string;
   authSubjectId?: never;
   onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
-  ed25519YaoRecovery?: Extract<
-    LoginEmailOtpEcdsaCapabilityArgs['ed25519YaoRecovery'],
-    { kind: 'requested' }
-  >;
+  ed25519YaoRecovery?: LoginEmailOtpEcdsaCapabilityArgs['ed25519YaoRecovery'];
 };
 
-export type LoginWithEmailOtpEcdsaCapabilityInternalResult = {
-  recovery: EmailOtpBootstrapRecovery;
-  bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  warmCapability: WarmSessionEcdsaCapabilityState;
-  warmCapabilities: readonly [
-    WarmSessionEcdsaCapabilityState,
-    ...WarmSessionEcdsaCapabilityState[],
-  ];
-  timings: EmailOtpThresholdEcdsaLoginTimings;
-  ed25519YaoRecovery: EmailOtpThresholdEcdsaLoginResult['ed25519YaoRecovery'];
-};
+export type LoginWithEmailOtpEcdsaCapabilityInternalResult = EmailOtpThresholdEcdsaLoginResult;
 
 export type EnrollEmailOtpInternalArgs = {
   walletId: WalletId;
@@ -99,30 +80,6 @@ export type RotateEmailOtpRecoveryCodesInternalArgs = {
   walletId: WalletId;
   relayUrl?: string;
   appSessionJwt?: string;
-};
-
-export type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs = {
-  walletSession: WalletSessionRef;
-  subjectId?: never;
-  chainTarget: ThresholdEcdsaChainTarget;
-  emailOtpAuthPolicy?: EmailOtpAuthPolicy;
-  otpCode: string;
-  relayUrl?: string;
-  challengeId?: string;
-  groupId?: string;
-  appSessionJwt?: string;
-  routeAuth?: AppOrWalletSessionAuth;
-  participantIds?: number[];
-  keyHandle?: string;
-  sessionKind?: 'jwt';
-  ttlMs?: number;
-  remainingUses?: number;
-  clientSecret32?: Uint8Array;
-  otpChannel?: WalletEmailOtpChannel;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  registrationAttemptId?: string;
-  emailHashHex: string;
-  onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
 };
 
 export type EnrollEmailOtpInternalResult = Awaited<ReturnType<typeof enrollEmailOtpWallet>>;
@@ -160,18 +117,13 @@ export type PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult = Awaite
   ReturnType<typeof prepareEmailOtpRegistrationEnrollmentMaterial>
 >;
 
-export type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult = {
-  enrollment: EnrollEmailOtpInternalResult;
-  bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  warmCapability: WarmSessionEcdsaCapabilityState;
-  timings: EmailOtpEcdsaPublicationTimings;
-};
-
 export type EmailOtpPublicDeps = {
-  ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
   relayerUrl: string;
   groupId: string;
   getSignerWorkerContext: () => WorkerOperationContext;
+  withThresholdEcdsaSigningQueue: Parameters<
+    typeof refreshEmailOtpSigningSessionValue
+  >[0]['withThresholdEcdsaSigningQueue'];
   emailOtpSessions: {
     requestTransactionSigningChallenge: Parameters<
       typeof requestEmailOtpSigningSessionChallengeValue
@@ -179,9 +131,6 @@ export type EmailOtpPublicDeps = {
     loginWithEcdsaCapabilityInternal: (
       args: LoginEmailOtpEcdsaCapabilityArgs,
     ) => Promise<LoginWithEmailOtpEcdsaCapabilityInternalResult>;
-    enrollAndLoginWithEcdsaCapabilityInternal: (
-      args: EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
-    ) => Promise<EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult>;
   };
 };
 
@@ -242,31 +191,6 @@ function emailOtpEcdsaLoginCoreArgsFromBoundary(
   };
 }
 
-function emailOtpEcdsaEnrollmentCoreArgsFromBoundary(
-  args: EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
-): EnrollAndLoginEmailOtpEcdsaCapabilityArgs {
-  return {
-    walletSession: args.walletSession,
-    chainTarget: args.chainTarget,
-    otpCode: args.otpCode,
-    routePlan: buildEmailOtpEcdsaFreshRoutePlanFromBoundary(args, 'registration'),
-    emailHashHex: args.emailHashHex,
-    ...(args.emailOtpAuthPolicy ? { emailOtpAuthPolicy: args.emailOtpAuthPolicy } : {}),
-    ...(args.relayUrl ? { relayUrl: args.relayUrl } : {}),
-    ...(args.challengeId ? { challengeId: args.challengeId } : {}),
-    ...(args.groupId ? { groupId: args.groupId } : {}),
-    ...(args.participantIds ? { participantIds: args.participantIds } : {}),
-    ...(args.keyHandle ? { keyHandle: args.keyHandle } : {}),
-    ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
-    ...(typeof args.remainingUses === 'number' ? { remainingUses: args.remainingUses } : {}),
-    ...(args.clientSecret32 ? { clientSecret32: args.clientSecret32 } : {}),
-    ...(args.otpChannel ? { otpChannel: args.otpChannel } : {}),
-    ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
-    ...(args.registrationAttemptId ? { registrationAttemptId: args.registrationAttemptId } : {}),
-    ...(args.onProgress ? { onProgress: args.onProgress } : {}),
-  };
-}
-
 function emailOtpRegistrationEd25519YaoFactorRequestFromBoundary(
   args: PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs,
 ):
@@ -305,7 +229,8 @@ export async function requestEmailOtpSigningSessionChallenge(
 ): Promise<{ challengeId: string; emailHint?: string }> {
   return await requestEmailOtpSigningSessionChallengeValue(
     {
-      ecdsaSessions: deps.ecdsaSessions,
+      resolveSigningSessionAuth: resolveEmailOtpEcdsaSigningSessionAuth,
+      withThresholdEcdsaSigningQueue: deps.withThresholdEcdsaSigningQueue,
       emailOtpSessions: {
         requestTransactionSigningChallenge: (challengeArgs) =>
           deps.emailOtpSessions.requestTransactionSigningChallenge(challengeArgs),
@@ -341,7 +266,8 @@ export async function refreshEmailOtpSigningSession(
 ): Promise<LoginWithEmailOtpEcdsaCapabilityInternalResult> {
   const refreshed = await refreshEmailOtpSigningSessionValue(
     {
-      ecdsaSessions: deps.ecdsaSessions,
+      resolveSigningSessionAuth: resolveEmailOtpEcdsaSigningSessionAuth,
+      withThresholdEcdsaSigningQueue: deps.withThresholdEcdsaSigningQueue,
       emailOtpSessions: {
         requestTransactionSigningChallenge: (challengeArgs) =>
           deps.emailOtpSessions.requestTransactionSigningChallenge(challengeArgs),
@@ -438,13 +364,4 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterialInternal(
     ed25519YaoFactor: emailOtpRegistrationEd25519YaoFactorRequestFromBoundary(args),
     ...(args.clientSecret32 ? { clientSecret32: args.clientSecret32 } : {}),
   });
-}
-
-export async function enrollAndLoginWithEmailOtpEcdsaCapabilityInternal(
-  deps: EmailOtpPublicDeps,
-  args: EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
-): Promise<EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult> {
-  return await deps.emailOtpSessions.enrollAndLoginWithEcdsaCapabilityInternal(
-    emailOtpEcdsaEnrollmentCoreArgsFromBoundary(args),
-  );
 }

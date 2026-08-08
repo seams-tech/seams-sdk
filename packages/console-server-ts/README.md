@@ -79,8 +79,8 @@ examples already point at the staging entrypoints:
 - `src/router/cloudflare/d1ConsoleStagingWorker.ts`
 - `src/router/cloudflare/d1RouterApiStagingWorker.ts`
 
-Fill in the remote D1 database IDs, Cloudflare Secrets Store ID, relayer public
-key, and Wrangler secret declarations, then run:
+Fill in the remote D1 database IDs, relayer public key, and Wrangler secret
+declarations, then run:
 
 ```sh
 pnpm run d1:staging:check
@@ -88,9 +88,8 @@ pnpm run d1:staging:check
 
 The check is static and credential-free. It rejects local-only Worker config,
 wrong staging entrypoints, Postgres env tokens, placeholder D1 IDs, missing
-profile bindings, signer/DO/KEK bindings on the console Worker, plaintext signer
-KEKs, plaintext session secrets, plaintext sponsored-EVM executor config, and
-missing signer KEK Secrets Store bindings on Gateway. Gateway configuration must
+profile bindings, signer/DO bindings on the console Worker, plaintext session
+secrets, plaintext sponsored-EVM executor config. Gateway configuration must
 declare the registration, recovery, and export admission-cutoff/drain pairs;
 each pair may remain empty before cutover, and populated pairs must contain
 ordered non-negative millisecond timestamps.
@@ -118,8 +117,8 @@ pnpm run d1:staging:resources -- --mode remote
 ```
 
 The inventory script records config-derived Worker names, D1 database IDs,
-Durable Object bindings, Secrets Store metadata, required secret names, and remote
-D1/Worker JSON metadata under `.wrangler/d1-staging-resource-inventory`.
+Durable Object bindings, required secret names, and remote D1/Worker JSON
+metadata under `.wrangler/d1-staging-resource-inventory`.
 
 Apply remote D1 migrations through the manifest-producing staging script:
 
@@ -154,18 +153,6 @@ pnpm run d1:staging:bookmark -- \
 The bookmark script checks the staging Wrangler profiles, captures console and
 signer D1 bookmark JSON with `wrangler d1 time-travel info`, and writes a
 manifest under `.wrangler/d1-staging-bookmarks`.
-
-Verify hosted signer KEK metadata before deploying Gateway:
-
-```sh
-pnpm run d1:staging:kek-check -- --mode dry-run
-pnpm run d1:staging:kek-check -- --mode remote
-```
-
-The KEK check parses the Gateway staging Wrangler config, derives the expected
-Cloudflare Secrets Store binding names, lists remote Secrets Store metadata with
-Wrangler, and records only secret names, bindings, store IDs, and command status.
-It never prints or stores secret values.
 
 Fixture import is a named script so staging does not run ad hoc SQL:
 
@@ -212,44 +199,33 @@ pnpm run d1:staging:reconcile -- --mode remote
 
 The reconciliation script checks dashboard billing balances, prepaid reservation
 summary totals, sponsored-EVM billing links, sponsored settlement amounts, and
-signer sealed-share KEK/lifecycle integrity. It writes evidence under
-`.wrangler/d1-staging-reconciliation` and fails when any mismatch query returns
-rows.
+signer custody health. It writes evidence under `.wrangler/d1-staging-reconciliation`
+and fails when any mismatch query returns rows.
 
 Run the fixture-backed signer custody route drill after fixture import and
 reconciliation:
 
 ```sh
 export SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT="<fixture-wallet-session-jwt>"
-export SEAMS_STAGING_MISSING_KEK_WALLET_SESSION_JWT="<fixture-wallet-session-jwt-with-missing-kek>"
 pnpm run d1:staging:signer-custody -- \
   --mode dry-run \
   --gateway-origin <gateway-staging-origin> \
   --origin <console-staging-origin> \
   --export-share-fixture ./staging/fixtures/ecdsa-export-share.json \
-  --wallet-session-jwt-env SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT \
-  --missing-kek-fixture ./staging/fixtures/ecdsa-export-share-missing-kek.json \
-  --missing-kek-wallet-session-jwt-env SEAMS_STAGING_MISSING_KEK_WALLET_SESSION_JWT \
-  --missing-kek-expected-status 503 \
-  --missing-kek-expected-code missing_signing_root_kek
+  --wallet-session-jwt-env SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT
 pnpm run d1:staging:signer-custody -- \
   --mode remote \
   --gateway-origin <gateway-staging-origin> \
   --origin <console-staging-origin> \
   --export-share-fixture ./staging/fixtures/ecdsa-export-share.json \
-  --wallet-session-jwt-env SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT \
-  --missing-kek-fixture ./staging/fixtures/ecdsa-export-share-missing-kek.json \
-  --missing-kek-wallet-session-jwt-env SEAMS_STAGING_MISSING_KEK_WALLET_SESSION_JWT \
-  --missing-kek-expected-status 503 \
-  --missing-kek-expected-code missing_signing_root_kek
+  --wallet-session-jwt-env SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT
 ```
 
 The signer custody script calls the configured threshold route health endpoints
-and the production `/router-ab/ecdsa-derivation/export/share` route with the success
-fixture and the missing-KEK fixture. It writes redacted evidence under
+and the production `/router-ab/ecdsa-derivation/export/share` route with the
+success fixture. It writes redacted evidence under
 `.wrangler/d1-staging-signer-custody` and never stores the wallet-session JWT or
-server export share in the manifest. The final evidence verifier requires the
-`ecdsa_export_share_missing_kek_fail_closed` result.
+server export share in the manifest.
 
 Run the remote R2 export/restore drill after staging smoke passes:
 
@@ -273,7 +249,6 @@ set before production planning:
 ```sh
 pnpm run d1:staging:evidence -- \
   --resources <resource-inventory-remote-manifest.json> \
-  --kek-check <kek-check-remote-manifest.json> \
   --migrations <migrations-remote-manifest.json> \
   --bookmark-before-fixture-import <before-fixture-import-bookmark-manifest.json> \
   --fixture-import <fixture-import-remote-manifest.json> \
@@ -287,6 +262,5 @@ pnpm run d1:staging:evidence -- \
 
 The evidence verifier rejects missing manifests, dry-run manifests, failed
 commands, reconciliation mismatch rows, missing signer custody export-share
-evidence, missing missing-KEK fail-closed evidence, wrong custody endpoint
-paths/statuses, mixed staging environments, missing configured KEK evidence, and
+evidence, wrong custody endpoint paths/statuses, mixed staging environments, and
 incomplete restore artifacts.

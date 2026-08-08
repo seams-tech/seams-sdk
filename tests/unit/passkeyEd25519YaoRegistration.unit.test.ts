@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import {
-  registrationIntentGrantFromString,
   walletIdFromString,
   type PasskeyRegistrationAuthMethodInput,
   type RegistrationSignerSetSelection,
@@ -10,12 +10,17 @@ import {
   parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoActivationAdmissionReceiptV1,
 } from '@shared/utils/routerAbEd25519Yao';
+import { sameRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   prepareVerifiedPasskeyEd25519YaoRegistrationV1,
   registerVerifiedPasskeyEd25519YaoV1,
   type PasskeyRegistrationIntentV1,
   type VerifiedPasskeyEd25519YaoRegistrationInputV1,
 } from '../../packages/sdk-web/src/core/signingEngine/flows/registration/services/passkeyEd25519YaoRegistration';
+import {
+  RouterAbEd25519YaoClientV1,
+  RouterAbEd25519YaoHttpActivationTransportV1,
+} from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoClient';
 
 const UNUSED_FETCH: typeof fetch = async (): Promise<Response> => {
   throw new Error('fetch is not expected in this test');
@@ -31,7 +36,9 @@ function fixtureBytes(seed: number): number[] {
   return Array.from({ length: 32 }, (_, index) => (seed + index) & 0xff);
 }
 
-function admissionReceipt(): RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'> {
+function admissionReceipt(
+  materialActivationId = 'registration-activation-42',
+): RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'> {
   const parsed = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1({
     binding: {
       lifecycle: {
@@ -47,6 +54,15 @@ function admissionReceipt(): RouterAbEd25519YaoActivationAdmissionReceiptV1<'reg
       operation: 'registration',
       session_id: fixtureBytes(1),
       stable_key_context_binding: fixtureBytes(33),
+      material_activation: {
+        kind: 'mpc_material_activation_ref',
+        activation_id: materialActivationId,
+        capability: 'registration-capability-42',
+        material_owner: 'near-account.testnet',
+        key_binding: 'registration-key-42',
+        lifecycle_binding: 'registration-lifecycle-binding-42',
+        signing_worker: 'signing-worker-a',
+      },
     },
     keyset: {
       deriver_a_input_public_key: fixtureBytes(65),
@@ -96,6 +112,7 @@ function registrationInput(args: {
   participantIds: readonly [number, number];
   ownedPasskeyPrfFirst: Uint8Array;
   routerOrigin: string;
+  admissionMaterialActivationId?: string;
 }): VerifiedPasskeyEd25519YaoRegistrationInputV1 {
   const walletId = walletIdFromString('wallet-yao-local');
   return {
@@ -104,7 +121,7 @@ function registrationInput(args: {
       kind: 'verified_passkey_registration_intent_v1',
       intent: passkeyIntent(),
       registrationIntentDigestB64u: args.intentDigest,
-      registrationIntentGrant: registrationIntentGrantFromString('registration-yao-grant'),
+      registrationBearerToken: 'registration-yao-grant',
       registrationCeremonyId: 'registration-ceremony-42',
     },
     verifiedAuthority: {
@@ -119,9 +136,18 @@ function registrationInput(args: {
         lifecycle_id: 'registration-ceremony-42',
         root_share_epoch: 'root-share-epoch-9',
         account_id: 'near-account.testnet',
-        wallet_session_id: 'wallet-session-42',
+        threshold_session_id: 'wallet-session-42',
         signer_set_id: 'signer-set-42',
         signing_worker_id: 'signing-worker-a',
+        material_activation: {
+          kind: 'mpc_material_activation_ref',
+          activation_id: 'registration-activation-42',
+          capability: 'registration-capability-42',
+          material_owner: 'near-account.testnet',
+          key_binding: 'registration-key-42',
+          lifecycle_binding: 'registration-lifecycle-binding-42',
+          signing_worker: 'signing-worker-a',
+        },
       },
       application_binding: {
         wallet_id: 'wallet-yao-local',
@@ -131,7 +157,7 @@ function registrationInput(args: {
       },
       participant_ids: args.participantIds,
     },
-    admissionReceipt: admissionReceipt(),
+    admissionReceipt: admissionReceipt(args.admissionMaterialActivationId),
     httpTransport: {
       kind: 'passkey_ed25519_yao_http_transport_v1',
       routerOrigin: args.routerOrigin,
@@ -160,9 +186,18 @@ test.describe('verified passkey Ed25519 Yao registration orchestration', () => {
           lifecycle_id: 'registration-ceremony-42',
           root_share_epoch: 'root-share-epoch-9',
           account_id: 'near-account.testnet',
-          wallet_session_id: 'wallet-session-42',
+        threshold_session_id: 'wallet-session-42',
           signer_set_id: 'signer-set-42',
           signing_worker_id: 'signing-worker-a',
+          material_activation: {
+            kind: 'mpc_material_activation_ref',
+            activation_id: 'registration-activation-42',
+            capability: 'registration-capability-42',
+            material_owner: 'near-account.testnet',
+            key_binding: 'registration-key-42',
+            lifecycle_binding: 'registration-lifecycle-binding-42',
+            signing_worker: 'signing-worker-a',
+          },
         },
         application_binding: {
           wallet_id: 'wallet-yao-local',
@@ -177,6 +212,7 @@ test.describe('verified passkey Ed25519 Yao registration orchestration', () => {
         routerOrigin: 'http://127.0.0.1:8787',
         authorization: 'Bearer registration-yao-grant',
         fetch: UNUSED_FETCH,
+        traceContext: undefined,
       },
     });
     expect(ownedPasskeyPrfFirst).toEqual(new Uint8Array(32).fill(7));
@@ -223,6 +259,53 @@ test.describe('verified passkey Ed25519 Yao registration orchestration', () => {
     expect(() => prepareVerifiedPasskeyEd25519YaoRegistrationV1(input)).toThrow(
       'Yao lifecycle ID does not match',
     );
+  });
+
+  test('rejects material activation substitution before Yao execution', async () => {
+    const ownedPasskeyPrfFirst = new Uint8Array(32).fill(8);
+    const input = registrationInput({
+      intentDigest: 'intent-digest-42',
+      authorityDigest: 'intent-digest-42',
+      participantIds: [11, 29],
+      ownedPasskeyPrfFirst,
+      routerOrigin: 'http://127.0.0.1:8787',
+      admissionMaterialActivationId: 'substituted-activation-42',
+    });
+    expect(
+      sameRouterAbMpcMaterialActivationRef(
+        input.admissionReceipt.binding.material_activation,
+        input.admissionRequest.scope.material_activation,
+      ),
+    ).toBe(false);
+    const client = await RouterAbEd25519YaoClientV1.initialize(
+      new Uint8Array(
+        readFileSync(
+          new URL(
+            '../../crates/router-ab-ed25519-yao-client/pkg/router_ab_ed25519_yao_client_bg.wasm',
+            import.meta.url,
+          ),
+        ),
+      ),
+    );
+    const result = await client.registerAdmitted({
+      request: input.admissionRequest,
+      admissionReceipt: input.admissionReceipt,
+      factor: {
+        kind: 'passkey_prf_first',
+        ownedSecret32: input.verifiedAuthority.ownedPasskeyPrfFirst,
+      },
+      transport: new RouterAbEd25519YaoHttpActivationTransportV1({
+        routerOrigin: input.httpTransport.routerOrigin,
+        authorization: 'Bearer registration-yao-grant',
+        fetch: UNUSED_FETCH,
+      }),
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'invalid_router_response',
+      message: 'Router admission receipt does not match the requested lifecycle scope',
+    });
+    expect(ownedPasskeyPrfFirst).toEqual(new Uint8Array(32));
   });
 
   test('rejects invalid transport configuration and consumes owned PRF.first', async () => {

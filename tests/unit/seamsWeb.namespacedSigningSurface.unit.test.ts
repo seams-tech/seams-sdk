@@ -47,12 +47,18 @@ test.describe('SeamsWeb namespaced signing surface', () => {
         const hasTempo =
           !!seams.tempo &&
           typeof seams.tempo.signTempo === 'function' &&
+          typeof seams.tempo.getFeeTokenPreference === 'function' &&
+          typeof seams.tempo.validateFeeToken === 'function' &&
+          typeof seams.tempo.setFeeTokenPreference === 'function' &&
           typeof seams.tempo.reportBroadcastAccepted === 'function' &&
           typeof seams.tempo.reportBroadcastRejected === 'function' &&
           typeof seams.tempo.reportFinalized === 'function' &&
           typeof seams.tempo.reconcileNonceLane === 'function' &&
           typeof seams.tempo.bootstrapEcdsaSession === 'function';
-        const hasEvm = !!seams.evm && typeof seams.evm.bootstrapEcdsaSession === 'function';
+        const hasEvm =
+          !!seams.evm &&
+          typeof seams.evm.signTransaction === 'function' &&
+          typeof seams.evm.bootstrapEcdsaSession === 'function';
         const noFlatMethods = flatMethods.every((name: string) => !(name in seams));
 
         return { hasNear, hasTempo, hasEvm, noFlatMethods };

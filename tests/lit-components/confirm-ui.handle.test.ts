@@ -12,6 +12,69 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
     await setupBasicPasskeyTest(page);
   });
 
+  test('sets wallet surface mode before the confirmer is connected', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.confirmUi);
+        const { mountConfirmUI } =
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
+
+        const firstConnected = new Promise<{ surface: string | null; variant: string | null }>(
+          (resolve) => {
+            const observer = new MutationObserver((records) => {
+              for (const record of records) {
+                for (const node of Array.from(record.addedNodes)) {
+                  if (!(node instanceof HTMLElement) || node.tagName !== 'W3A-TX-CONFIRMER') {
+                    continue;
+                  }
+                  observer.disconnect();
+                  resolve({
+                    surface: node.getAttribute('data-w3a-confirm-surface'),
+                    variant: node.getAttribute('data-w3a-confirm-variant'),
+                  });
+                  return;
+                }
+              }
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+          },
+        );
+
+        const ctx: any = {
+          userPreferencesManager: {
+            getCurrentWalletId: () => 'alice.testnet',
+          },
+          surfaceMeasurementBinding: {
+            kind: 'wallet_iframe',
+            requestId: 'tempo-confirmation-surface',
+            postMeasurement: () => {},
+          },
+        };
+
+        const handle = await mountConfirmUI({
+          ctx,
+          summary: { title: 'Review transaction', body: 'Review the Tempo transaction' } as any,
+          model: {
+            chain: 'tempo',
+            title: 'Review transaction',
+            operations: [],
+          } as any,
+          loading: false,
+          theme: 'light',
+          uiMode: 'modal',
+          nearAccountIdOverride: 'alice.testnet',
+        });
+
+        const connected = await firstConnected;
+        handle.close(true);
+        return connected;
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result).toEqual({ surface: 'wallet-iframe', variant: 'modal' });
+  });
+
   test('mounts from TxDisplayModel without txSigningRequests', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
@@ -22,6 +85,11 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
         const ctx: any = {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
+          },
+          surfaceMeasurementBinding: {
+            kind: 'wallet_iframe',
+            requestId: 'transparent-wallet-iframe-surface',
+            postMeasurement: () => {},
           },
         };
 
@@ -69,6 +137,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
         await waitFor(() => !!document.querySelector('w3a-tx-tree'));
 
         const portalChild = document.getElementById('w3a-confirm-portal')?.firstElementChild as any;
+        const modalElement = portalChild?.querySelector('w3a-modal-tx-confirmer') as HTMLElement;
         const contentEl = document.querySelector('w3a-tx-confirm-content') as any;
         const treeEl = document.querySelector('w3a-tx-tree') as any;
         const treeNode = contentEl?._treeNode;
@@ -77,6 +146,10 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
         const fieldLabels = Array.isArray(firstOperation?.children)
           ? firstOperation.children.map((child: any) => String(child?.label || ''))
           : [];
+        const wrapperBackground = getComputedStyle(portalChild).backgroundColor;
+        const modalBackground = getComputedStyle(modalElement).backgroundColor;
+        const wrapperOutline = getComputedStyle(portalChild).outlineStyle;
+        const modalOutline = getComputedStyle(modalElement).outlineStyle;
 
         handle.close(true);
 
@@ -89,6 +162,10 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           operationHideChevron: !!firstOperation?.hideChevron,
           fieldLabels,
           hasIntentDigestValue: !!portalChild?.intentDigest,
+          wrapperBackground,
+          modalBackground,
+          wrapperOutline,
+          modalOutline,
         };
       },
       { paths: IMPORT_PATHS },
@@ -102,6 +179,10 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
     expect(result.operationHideChevron).toBe(true);
     expect(result.fieldLabels.some((label: string) => label.includes('To:'))).toBe(true);
     expect(result.hasIntentDigestValue).toBe(false);
+    expect(result.wrapperBackground).toBe('rgba(0, 0, 0, 0)');
+    expect(result.modalBackground).toBe('rgba(0, 0, 0, 0)');
+    expect(result.wrapperOutline).toBe('none');
+    expect(result.modalOutline).toBe('none');
   });
 
   test('lazily enriches ABI hints in tx-tree rendering', async ({ page }) => {
@@ -115,6 +196,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const contractAddress = '0xbb442b54c85efba2d7b81ea52990ad638cdba483';
@@ -209,7 +291,9 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
             String(candidate?.label || '').includes('Calling setGreeting() using 200k gas'),
           );
           if (!callNode || !Array.isArray(callNode.children)) return false;
-          const dataNode = callNode.children.find((child: any) => String(child?.label || '') === 'Data:');
+          const dataNode = callNode.children.find(
+            (child: any) => String(child?.label || '') === 'Data:',
+          );
           return String(dataNode?.content || '').includes('"greeting": "hello, world!"');
         });
 
@@ -242,7 +326,9 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
     expect(result.rawContent).toContain('0xa4136862');
   });
 
-  test('ABI decoded address arrays keep 2-space indentation with no blank line', async ({ page }) => {
+  test('ABI decoded address arrays keep 2-space indentation with no blank line', async ({
+    page,
+  }) => {
     const faucetAbi = parseAbi(['function drip(address[] tokenAddresses)']);
     const dripDataHex = encodeFunctionData({
       abi: faucetAbi,
@@ -260,6 +346,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const contractAddress = '0xbb442b54c85efba2d7b81ea52990ad638cdba483';
@@ -345,7 +432,9 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
             String(candidate?.label || '').includes('Calling drip() using 300k gas'),
           );
           if (!callNode || !Array.isArray(callNode.children)) return false;
-          const dataNode = callNode.children.find((child: any) => String(child?.label || '') === 'Data:');
+          const dataNode = callNode.children.find(
+            (child: any) => String(child?.label || '') === 'Data:',
+          );
           return String(dataNode?.content || '').includes('"tokenAddresses"');
         });
 
@@ -389,6 +478,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const models = [
@@ -522,6 +612,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const model = {
@@ -607,6 +698,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const model = {
@@ -687,7 +779,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
     expect(result.fillRatio).toBeGreaterThan(0.92);
   });
 
-  test('tx-tree collapse keeps modal width stable during animation', async ({ page }) => {
+  test('tx-tree collapse keeps wallet modal width stable during animation', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.confirmUi);
@@ -697,6 +789,11 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
         const ctx: any = {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
+          },
+          surfaceMeasurementBinding: {
+            kind: 'wallet_iframe',
+            requestId: 'tx-tree-modal-size-stability',
+            postMeasurement: () => {},
           },
         };
 
@@ -764,8 +861,11 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           await waitFor(() => detailsEl.open, 2000);
           await new Promise((resolve) => setTimeout(resolve, 120));
         }
-        // Let initial mount animation settle; otherwise width sampling picks up fade-in scale.
-        await new Promise((resolve) => setTimeout(resolve, 80));
+        const expandedContentEl = detailsEl.querySelector('.folder-children') as HTMLElement | null;
+        const expandedContentVisible = (expandedContentEl?.getBoundingClientRect().height ?? 0) > 0;
+        const opened = detailsEl.open;
+        // Let initial mount animation settle before sampling the stable surface size.
+        await new Promise((resolve) => setTimeout(resolve, 220));
 
         const initialWidth = modalEl.getBoundingClientRect().width;
         const initialHeight = modalEl.getBoundingClientRect().height;
@@ -800,6 +900,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
         const minWidth = widths.length > 0 ? Math.min(firstWidth, ...widths) : firstWidth;
         const maxWidth = widths.length > 0 ? Math.max(firstWidth, ...widths) : lastWidth;
         const lastHeight = heights[heights.length - 1] ?? modalEl.getBoundingClientRect().height;
+        const closed = !detailsEl.open;
 
         handle.close(true);
 
@@ -808,14 +909,116 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           lastWidth,
           widthRange: maxWidth - minWidth,
           heightDrop: initialHeight - lastHeight,
+          opened,
+          expandedContentVisible,
+          closed,
         };
       },
       { paths: IMPORT_PATHS },
     );
 
+    expect(result.opened).toBe(true);
+    expect(result.expandedContentVisible).toBe(true);
+    expect(result.closed).toBe(true);
     expect(result.heightDrop).toBeGreaterThan(20);
     expect(result.widthRange).toBeLessThanOrEqual(2.5);
     expect(Math.abs(result.firstWidth - result.lastWidth)).toBeLessThanOrEqual(2.5);
+  });
+
+  test('wallet-bound drawer keeps its surface and width stable across tx-tree toggles', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.confirmUi);
+        const { mountConfirmUI } =
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
+
+        const ctx: any = {
+          userPreferencesManager: {
+            getCurrentWalletId: () => 'alice.testnet',
+          },
+          surfaceMeasurementBinding: {
+            kind: 'wallet_iframe',
+            requestId: 'tx-tree-drawer-size-stability',
+            postMeasurement: () => {},
+          },
+        };
+        const model = {
+          chain: 'tempo',
+          operations: [
+            {
+              id: 'tempo-drawer-op',
+              kind: 'tempo.eip2718',
+              label: 'Tempo Transaction',
+              fields: [
+                { label: 'Nonce', value: '1' },
+                { label: 'Gas Limit', value: '21000' },
+                { label: 'To', value: `0x${'11'.repeat(20)}` },
+                { label: 'Value (wei)', value: '0' },
+                { label: 'Input', value: '0x12345678' },
+              ],
+            },
+          ],
+        };
+        const handle = await mountConfirmUI({
+          ctx,
+          summary: { intentDigest: 'digest-drawer-width-stability' } as any,
+          model: model as any,
+          securityContext: { blockHeight: '1', blockHash: 'h' } as any,
+          loading: false,
+          theme: 'dark',
+          uiMode: 'drawer',
+          nearAccountIdOverride: 'alice.testnet',
+        });
+
+        const waitFor = async (predicate: () => boolean, timeoutMs = 5000): Promise<void> => {
+          const start = Date.now();
+          while (!predicate()) {
+            if (Date.now() - start > timeoutMs) throw new Error('Timed out waiting for UI');
+            await new Promise((resolve) => setTimeout(resolve, 16));
+          }
+        };
+
+        await waitFor(() => !!document.querySelector('w3a-drawer .drawer'));
+        await waitFor(
+          () => !!document.querySelector('w3a-tx-tree details.tree-node.folder > summary'),
+        );
+        const confirmer = document.querySelector('#w3a-confirm-portal > w3a-tx-confirmer');
+        const drawerSheet = document.querySelector('w3a-drawer .drawer') as HTMLElement | null;
+        const summaryEl = document.querySelector(
+          'w3a-tx-tree details.tree-node.folder > summary',
+        ) as HTMLElement | null;
+        const detailsEl = summaryEl?.closest('details') as HTMLDetailsElement | null;
+        if (!confirmer || !drawerSheet || !summaryEl || !detailsEl) {
+          handle.close(false);
+          throw new Error('Missing drawer or tx-tree nodes for boundary test');
+        }
+
+        const toggleTree = () => {
+          summaryEl.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
+        };
+        if (!detailsEl.open) {
+          toggleTree();
+          await waitFor(() => detailsEl.open, 2000);
+          await new Promise((resolve) => setTimeout(resolve, 120));
+        }
+        const widthExpanded = drawerSheet.getBoundingClientRect().width;
+        toggleTree();
+        await waitFor(() => !detailsEl.open, 2000);
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        const widthCollapsed = drawerSheet.getBoundingClientRect().width;
+        const surface = confirmer.getAttribute('data-w3a-confirm-surface');
+        handle.close(true);
+        return { surface, widthExpanded, widthCollapsed };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.surface).toBe('standalone');
+    expect(result.widthExpanded).toBeGreaterThan(0);
+    expect(result.widthExpanded).toBeLessThanOrEqual(384);
+    expect(result.widthCollapsed).toBeCloseTo(result.widthExpanded, 0);
   });
 
   test('shows chain context when block height is missing and hides zero wei value rows', async ({
@@ -831,6 +1034,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const model = {
@@ -912,6 +1116,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const txSigningRequests = [
@@ -1031,6 +1236,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
           // Intentionally keep Arc as generic family fallback so chainId-specific override is testable.
           evmExplorerUrl: 'https://arc-explorer.example',
           chains: [
@@ -1145,6 +1351,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const handle = await mountConfirmUI({
@@ -1222,6 +1429,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'alice.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const handle = await mountConfirmUI({
@@ -1293,9 +1501,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
         return labelSize < buttonSize;
       }),
     ).toBe(true);
-    await expect(page.locator('.passkey-registration-confirm [role="progressbar"]')).toHaveCount(
-      1,
-    );
+    await expect(page.locator('.passkey-registration-confirm [role="progressbar"]')).toHaveCount(1);
 
     await page.evaluate(() => {
       (globalThis as any).__passkeyRegistrationHandle?.close(true);
@@ -1314,6 +1520,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'bob.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const handle = await mountConfirmUI({
@@ -1366,6 +1573,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           userPreferencesManager: {
             getCurrentWalletId: () => 'carol.testnet',
           },
+          surfaceMeasurementBinding: { kind: 'disabled' },
         };
 
         const handle = await mountConfirmUI({

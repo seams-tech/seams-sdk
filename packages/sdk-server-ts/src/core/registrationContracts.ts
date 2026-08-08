@@ -10,6 +10,12 @@ import type {
 } from '@shared/utils/routerAbEd25519Yao';
 import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import type {
+  RouterAbEcdsaDerivationActivationCommitQueryResultV1,
+  RouterAbEcdsaDerivationActivationPrepareResultV1,
   RouterAbEcdsaDerivationPublicCapabilityV1,
   RouterAbEcdsaRegistrationActivationRequestV1,
   RouterAbEcdsaRegistrationActivationReceiptV1,
@@ -17,7 +23,9 @@ import type {
   RouterAbEcdsaRegistrationRequestV1,
   RouterAbEcdsaStrictForwardedRegistrationResponseV1,
   RouterAbEcdsaVerifiedClientActivationFactsV1,
+  RouterAbPublicDigest32V1Wire,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   AddAuthMethodInput,
   AddAuthMethodIntentGrant,
@@ -365,13 +373,59 @@ export type WalletAddSignerEcdsaDerivationRespondResponse =
       message: string;
     };
 
-export type WalletAddSignerEcdsaActivationRequest = {
+export type WalletAddSignerEcdsaActivationPrepareRequest = {
   addSignerCeremonyId: string;
   ecdsa: {
     kind: 'router_ab_ecdsa_registration_activation_v1';
+    activationCorrelationId: RouterAbEcdsaRegistrationActivationRequestV1['ecdsa']['activationCorrelationId'];
     publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
   };
 };
+
+export type WalletAddSignerEcdsaActivationPrepareResponse =
+  | {
+      ok: true;
+      addSignerCeremonyId: string;
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_prepared_v1';
+        preparation: RouterAbEcdsaDerivationActivationPrepareResultV1;
+      };
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
+
+export type WalletAddSignerEcdsaActivationRequest = {
+  addSignerCeremonyId: string;
+  ecdsa: WalletAddSignerEcdsaActivationPrepareRequest['ecdsa'] & {
+    expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
+    materialActivation: RouterAbMpcMaterialActivationRefWire;
+  };
+};
+
+export type WalletAddSignerEcdsaActivationQueryRequest = {
+  addSignerCeremonyId: string;
+  ecdsa: WalletAddSignerEcdsaActivationPrepareRequest['ecdsa'] & {
+    expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
+  };
+};
+
+export type WalletAddSignerEcdsaActivationQueryResponse =
+  | {
+      ok: true;
+      addSignerCeremonyId: string;
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_queried_v1';
+        result: RouterAbEcdsaDerivationActivationCommitQueryResultV1;
+      };
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
 
 export type WalletAddSignerEcdsaActivationResponse =
   | {
@@ -416,7 +470,7 @@ export type WalletAddSignerFinalizeResponse =
           kind: 'near_ed25519';
           rpId: string;
           credentialIdB64u: string;
-          ed25519: WalletRegistrationEd25519YaoPublicResult;
+          ed25519: WalletEd25519YaoSignerPublicResult;
           ecdsa?: never;
         }
       | {
@@ -464,7 +518,6 @@ export type WalletRegistrationEcdsaPrepareContext = {
   registrationPreparationId: RegistrationPreparationId;
   requestId: string;
   thresholdSessionId: string;
-  signingGrantId: string;
   ttlMs: number;
   remainingUses: number;
   participantIds: readonly [1, 2];
@@ -495,7 +548,6 @@ export type WalletRegistrationEcdsaClientBootstrap = {
   contextBinding32B64u: string;
   requestId: string;
   thresholdSessionId: string;
-  signingGrantId: string;
   ttlMs: number;
   remainingUses: number;
   participantIds: readonly [1, 2];
@@ -645,7 +697,52 @@ export type WalletRegistrationEcdsaDerivationRespondResponse =
       message: string;
     };
 
-export type WalletRegistrationEcdsaActivationRequest = RouterAbEcdsaRegistrationActivationRequestV1;
+export type WalletRegistrationEcdsaActivationPrepareRequest =
+  RouterAbEcdsaRegistrationActivationRequestV1;
+
+export type WalletRegistrationEcdsaActivationPrepareResponse =
+  | {
+      ok: true;
+      registrationCeremonyId: string;
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_prepared_v1';
+        preparation: RouterAbEcdsaDerivationActivationPrepareResultV1;
+      };
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
+
+export type WalletRegistrationEcdsaActivationRequest = {
+  registrationCeremonyId: string;
+  ecdsa: RouterAbEcdsaRegistrationActivationRequestV1['ecdsa'] & {
+    expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
+  };
+};
+
+export type WalletRegistrationEcdsaActivationQueryRequest = {
+  registrationCeremonyId: string;
+  ecdsa: RouterAbEcdsaRegistrationActivationRequestV1['ecdsa'] & {
+    expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
+  };
+};
+
+export type WalletRegistrationEcdsaActivationQueryResponse =
+  | {
+      ok: true;
+      registrationCeremonyId: string;
+      ecdsa: {
+        kind: 'router_ab_ecdsa_registration_activation_queried_v1';
+        result: RouterAbEcdsaDerivationActivationCommitQueryResultV1;
+      };
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
 
 export type WalletRegistrationEcdsaActivationResponse =
   | {
@@ -718,7 +815,8 @@ export type WalletRegistrationEd25519YaoBootstrapSession = {
   nearEd25519SigningKeyId: string;
   authorityScope: ThresholdEd25519AuthorityScope;
   thresholdSessionId: string;
-  signingGrantId: string;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
   expiresAtMs: number;
   participantIds: readonly [number, number];
   remainingUses: number;
@@ -728,7 +826,7 @@ export type WalletRegistrationEd25519YaoBootstrapSession = {
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 };
 
-export type WalletRegistrationEd25519YaoPublicResult = {
+export type WalletEd25519YaoSignerPublicResult = {
   signerSlot: number;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
@@ -737,7 +835,12 @@ export type WalletRegistrationEd25519YaoPublicResult = {
   keyVersion: string;
   recoveryExportCapable: true;
   participantIds: readonly [number, number];
-  session: WalletRegistrationEd25519YaoBootstrapSession;
+};
+
+export type WalletRegistrationEd25519YaoPublicResult = WalletEd25519YaoSignerPublicResult & {
+  thresholdSessionId: string;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 };
 
 type WalletRegistrationFinalizeResponseBase = {

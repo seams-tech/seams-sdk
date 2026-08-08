@@ -248,7 +248,10 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
             walletSession,
             nearAccount,
             laneIdentity: resolvedLane.laneIdentity,
-            options: { variant: 'drawer', onEvent: onExportKeyEvent },
+            materialActivation: resolvedLane.materialActivation,
+            // No variant: key export always presents as a bottom drawer
+            // (the router stamps it), independent of the Confirmer UI setting.
+            options: { onEvent: onExportKeyEvent },
           });
           return;
         }
@@ -269,7 +272,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
           chainTarget,
           laneIdentity: resolvedLane.laneIdentity,
           options: {
-            variant: 'drawer',
+            // See the ed25519 branch: always a drawer, stamped by the router.
             onEvent: onExportKeyEvent,
           },
         });

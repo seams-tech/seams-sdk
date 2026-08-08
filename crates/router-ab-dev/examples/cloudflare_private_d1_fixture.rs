@@ -1,7 +1,7 @@
 use router_ab_cloudflare::CloudflareEd25519YaoPairPrepareRequestV1;
 use router_ab_core::{
-    ed25519_yao_recipient_set_digest_v1, LocalServiceRoleV1, RootShareEpoch,
-    RouterEd25519YaoGatewayExecuteRequestV1,
+    ed25519_yao_recipient_set_digest_v1, LocalServiceRoleV1, MpcMaterialActivationRefV1,
+    RootShareEpoch, RouterEd25519YaoGatewayExecuteRequestV1,
 };
 use router_ab_dev::{
     admit_local_ed25519_yao_registration_v1, derive_local_ed25519_yao_recipient_key_pair_v1,
@@ -137,6 +137,14 @@ fn request_fixture(
                 format!("{label}-wallet-session"),
                 format!("{label}-signer-set"),
                 "signing-worker-local",
+                MpcMaterialActivationRefV1::new(
+                    format!("activation-{label}"),
+                    format!("capability-{label}"),
+                    format!("wallet-{label}"),
+                    format!("key-{label}"),
+                    format!("{label}-session"),
+                    "signing-worker-local",
+                )?,
             )?,
             application_binding.clone(),
             [1, 2],

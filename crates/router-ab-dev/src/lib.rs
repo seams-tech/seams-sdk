@@ -16,7 +16,7 @@ use router_ab_core::{
     decode_ab_peer_message_payload_v1,
     decode_and_validate_ecdsa_threshold_prf_proof_batch_peer_payload_v1,
     execute_local_persistence_sql_seed_plan_v1, local_persistence_seed_sql_plan_v1,
-    router_ab_ecdsa_derivation_active_state_session_id_v1, router_transcript_digest_v1,
+    router_transcript_digest_v1,
     ActiveSigningWorkerStateV1, EcdsaThresholdPrfRequestV1, EncryptedPayloadV1,
     ExpensiveWorkKindV1, LifecycleScopeV1, LocalDeriverAEndpointV1, LocalDeriverBEndpointV1,
     LocalEnvSnapshotV1, LocalHttpCeremonyResultV1, LocalHttpMethodV1, LocalHttpPathV1,
@@ -24,8 +24,8 @@ use router_ab_core::{
     LocalPersistenceSqlSeedExecutorV1, LocalPersistenceSqlStatementV1, LocalPersistenceSqlValueV1,
     LocalRouterEndpointV1, LocalSealedRootShareRecordV1, LocalServiceRoleV1, LocalServiceStackV1,
     LocalServiceStartupV1, LocalSigningRootMetadataV1, LocalSigningWorkerEndpointV1,
-    LocalTransportEnvelopeV1, LocalTransportRouteV1, RoleEncryptedEnvelopeV1,
-    RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
+    LocalTransportEnvelopeV1, LocalTransportRouteV1, MpcMaterialActivationRefV1,
+    RoleEncryptedEnvelopeV1, RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
     RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningResponseV1, RouterAbEcdsaDerivationNormalSigningScopeV1,
@@ -1266,14 +1266,7 @@ impl LocalRouterAbEcdsaDerivationTrustedAdmissionV1 {
                 "local Router A/B ECDSA derivation prepare admission account_id does not match request scope",
             ));
         }
-        if self.session_id
-            != router_ab_ecdsa_derivation_active_state_session_id_v1(
-                &request.scope.ecdsa_threshold_key_id,
-                &request.scope.signing_root_id,
-                &request.scope.signing_root_version,
-                &request.scope.activation_epoch,
-            )?
-        {
+        if self.session_id != request.scope.material_activation.activation_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
                 "local Router A/B ECDSA derivation prepare admission session_id does not match request scope",
@@ -1303,14 +1296,7 @@ impl LocalRouterAbEcdsaDerivationTrustedAdmissionV1 {
                 "local Router A/B ECDSA derivation finalize admission account_id does not match request scope",
             ));
         }
-        if self.session_id
-            != router_ab_ecdsa_derivation_active_state_session_id_v1(
-                &request.scope.ecdsa_threshold_key_id,
-                &request.scope.signing_root_id,
-                &request.scope.signing_root_version,
-                &request.scope.activation_epoch,
-            )?
-        {
+        if self.session_id != request.scope.material_activation.activation_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
                 "local Router A/B ECDSA derivation finalize admission session_id does not match request scope",
@@ -1673,15 +1659,9 @@ fn local_active_router_ab_ecdsa_derivation_signing_worker_state_v1(
             "local Router A/B ECDSA derivation scope SigningWorker does not match local worker config",
         ));
     }
-    let session_id = router_ab_ecdsa_derivation_active_state_session_id_v1(
-        &scope.ecdsa_threshold_key_id,
-        &scope.signing_root_id,
-        &scope.signing_root_version,
-        &scope.activation_epoch,
-    )?;
     let state = ActiveSigningWorkerStateV1::new(
         scope.wallet_id.clone(),
-        session_id,
+        scope.material_activation.clone(),
         scope.public_identity.threshold_public_key33_b64u.clone(),
         signing_worker,
         local_router_ab_ecdsa_derivation_digest_v1(b"activation-transcript"),
@@ -1914,6 +1894,14 @@ pub fn run_example_local_router_ab_dev_http_ceremony_v1(
     )?;
     let core_http_ceremony = local_service_stack_v1()?.run_deterministic_http_ceremony(
         router_request.lifecycle.lifecycle_id.clone(),
+        MpcMaterialActivationRefV1::new(
+            "opaque-local-example-activation-1",
+            "local-example-capability-1",
+            router_request.lifecycle.account_id.clone(),
+            "local-example-key-binding-1",
+            "opaque-local-example-material-lifecycle-1",
+            router_request.lifecycle.selected_server_id.clone(),
+        )?,
         deriver_a_request.clone(),
         deriver_b_request.clone(),
     )?;

@@ -25,7 +25,6 @@ SOURCE_WASM_EVM_CRYPTO="../../wasm/evm_crypto"
 SOURCE_WASM_TEMPO_SIGNER="../../wasm/tempo_signer"
 SOURCE_WASM_SHAMIR3PASS_RUNTIME="../../wasm/shamir3pass_runtime"
 SOURCE_WASM_EMAIL_OTP_RUNTIME="../../wasm/email_otp_runtime"
-SOURCE_WASM_THRESHOLD_PRF="../../wasm/threshold_prf"
 
 # Critical directories for build freshness checking
 CRITICAL_DIRS=(
@@ -49,13 +48,14 @@ CRITICAL_DIRS=(
     "../../wasm/tempo_signer"
     "../../wasm/shamir3pass_runtime"
     "../../wasm/email_otp_runtime"
-    "../../wasm/threshold_prf"
 )
 
 # Runtime paths (used by workers and tests)
 RUNTIME_SDK_BASE="/sdk"
 RUNTIME_WORKERS_BASE="/sdk/workers"
 RUNTIME_TOUCH_CONFIRM_WORKER="/sdk/workers/passkey-confirm.worker.js"
+RUNTIME_PASSKEY_MPC_SESSION_WORKER="/sdk/workers/passkey-mpc-session.worker.js"
+RUNTIME_PASSKEY_MPC_EXPORT_WORKER="/sdk/workers/passkey-mpc-export.worker.js"
 RUNTIME_SIGNER_WORKER="/sdk/workers/near-signer.worker.js"
 RUNTIME_ECDSA_DERIVATION_CLIENT_WORKER="/sdk/workers/ecdsa-derivation-client.worker.js"
 RUNTIME_ECDSA_PRESIGN_CLIENT_WORKER="/sdk/workers/ecdsa-presign-client.worker.js"
@@ -63,6 +63,8 @@ RUNTIME_ECDSA_ONLINE_CLIENT_WORKER="/sdk/workers/ecdsa-online-client.worker.js"
 
 # Worker file names
 WORKER_TOUCH_CONFIRM="passkey-confirm.worker.js"
+WORKER_PASSKEY_MPC_SESSION="passkey-mpc-session.worker.js"
+WORKER_PASSKEY_MPC_EXPORT="passkey-mpc-export.worker.js"
 WORKER_SIGNER="near-signer.worker.js"
 WORKER_ECDSA_DERIVATION_CLIENT="ecdsa-derivation-client.worker.js"
 WORKER_ECDSA_PRESIGN_CLIENT="ecdsa-presign-client.worker.js"
@@ -88,13 +90,11 @@ WORKER_SHAMIR3PASS_RUNTIME_JS="shamir3pass_runtime.js"
 WORKER_SHAMIR3PASS_RUNTIME_WASM="shamir3pass_runtime_bg.wasm"
 WORKER_EMAIL_OTP_RUNTIME_JS="email_otp_runtime.js"
 WORKER_EMAIL_OTP_RUNTIME_WASM="email_otp_runtime_bg.wasm"
-WORKER_THRESHOLD_PRF_WASM="threshold_prf.wasm"
 
 # Critical files to check for build freshness
 CRITICAL_FILES=(
     "src/core/signingEngine/uiConfirm/UiConfirmManager.ts"
     "src/core/signingEngine/workerManager/SignerWorkerManager.ts"
-    "src/core/signingEngine/workerManager/session.ts"
     "src/core/signingEngine/workerManager/validation.ts"
     "src/core/signingEngine/workerManager/nearKeyOps"
     "src/core/signingEngine/chains/near"

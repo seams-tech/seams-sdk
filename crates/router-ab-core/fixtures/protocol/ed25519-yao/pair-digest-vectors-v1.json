@@ -84,7 +84,16 @@
               34,
               34,
               34
-            ]
+            ],
+            "material_activation": {
+              "kind": "mpc_material_activation_ref",
+              "activation_id": "registration_v1-activation",
+              "capability": "registration_v1-capability",
+              "material_owner": "registration_v1-account",
+              "key_binding": "registration_v1-key",
+              "lifecycle_binding": "registration_v1-lifecycle",
+              "signing_worker": "registration_v1-server"
+            }
           },
           "circuit": "activation_v1",
           "protocol": "v1"
@@ -354,7 +363,16 @@
               119,
               119,
               119
-            ]
+            ],
+            "material_activation": {
+              "kind": "mpc_material_activation_ref",
+              "activation_id": "export_v1-activation",
+              "capability": "export_v1-capability",
+              "material_owner": "export_v1-account",
+              "key_binding": "export_v1-key",
+              "lifecycle_binding": "export_v1-lifecycle",
+              "signing_worker": "export_v1-server"
+            }
           },
           "circuit": "export_v1",
           "protocol": "v1"

@@ -26,10 +26,6 @@ type SignerCustodyModule = {
     readonly gatewayOrigin: string;
     readonly exportShareFixturePath: string;
     readonly generatedAtIso?: string;
-    readonly missingKekExpectedCode?: string;
-    readonly missingKekExpectedStatus?: string;
-    readonly missingKekFixturePath?: string;
-    readonly missingKekJwtEnvName?: string;
     readonly mode?: 'dry-run' | 'remote';
     readonly origin?: string;
   }) => SignerCustodyPlan;
@@ -38,10 +34,6 @@ type SignerCustodyModule = {
     readonly exportShareFixturePath: string;
     readonly generatedAtIso?: string;
     readonly manifestPath: string;
-    readonly missingKekExpectedCode?: string;
-    readonly missingKekExpectedStatus?: string;
-    readonly missingKekFixturePath?: string;
-    readonly missingKekJwtEnvName?: string;
     readonly mode?: 'dry-run' | 'remote';
     readonly fetchImpl?: typeof fetch;
     readonly env?: Record<string, string>;
@@ -114,9 +106,6 @@ async function signerCustodyFetch(input: string | URL | Request, init?: RequestI
   if (url === `${D1_STAGING_GATEWAY_ORIGIN}/router-ab/ecdsa-derivation/export/share`) {
     expect(init?.method).toBe('POST');
     const authorization = requestAuthorization(init);
-    if (authorization === 'Bearer missing-kek-jwt') {
-      return d1StagingJsonResponse({ ok: false, code: 'missing_signing_root_kek' }, 503);
-    }
     expect(authorization).toBe('Bearer fixture-jwt');
     return d1StagingJsonResponse(
       {
@@ -192,40 +181,6 @@ test('D1 staging signer custody remote mode records redacted export-share eviden
     /fixture-jwt|server-share-secret|server-share-snake-secret|private-key-secret|signing-share-secret|Bearer body-token/,
   );
   expect(serialized).toContain('<redacted>');
-});
-
-test('D1 staging signer custody remote mode records fail-closed missing KEK evidence', async () => {
-  const module = await signerCustodyModule;
-  const manifestPath = d1StagingManifestPath('seams-d1-staging-signer-custody-missing-kek');
-  const result = await module.runD1StagingSignerCustody({
-    ...signerCustodyInput(),
-    missingKekFixturePath: writeExportShareFixture(),
-    missingKekExpectedStatus: '503',
-    missingKekExpectedCode: 'missing_signing_root_kek',
-    manifestPath,
-    mode: 'remote',
-    fetchImpl: signerCustodyFetch,
-    env: {
-      SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT: 'fixture-jwt',
-      SEAMS_STAGING_MISSING_KEK_WALLET_SESSION_JWT: 'missing-kek-jwt',
-    },
-  });
-
-  expect(result.manifest.results.map((check) => check.id)).toEqual([
-    'signer_custody_ed25519_healthz',
-    'signer_custody_ecdsa_derivation_healthz',
-    'ecdsa_export_share_success',
-    'ecdsa_export_share_missing_kek_fail_closed',
-  ]);
-  expect(result.manifest.results[3]).toMatchObject({
-    id: 'ecdsa_export_share_missing_kek_fail_closed',
-    status: 503,
-    ok: true,
-    body: { ok: false, code: 'missing_signing_root_kek' },
-  });
-  expect(JSON.stringify(result.manifest)).not.toMatch(
-    /fixture-jwt|missing-kek-jwt|server-share-secret/,
-  );
 });
 
 test('D1 staging signer custody remote mode requires JWTs from env', async () => {

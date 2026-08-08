@@ -7,15 +7,18 @@ import {
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import { secureRandomId } from '@shared/utils/secureRandomId';
-import type { NearResolvedEd25519SigningSessionState } from '@/core/signingEngine/interfaces/near';
+import {
+  buildMpcMaterialActivationRef,
+  parseMpcMaterialActivationId,
+  parseMpcLifecycleBindingRef,
+} from '@shared/utils/domainIds';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
+import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import type {
   ProductEd25519YaoActivationReferenceV1,
-  ProductEd25519YaoCapabilityActivationPortV1,
-  ProductEd25519YaoPendingLocalMaterialSourceV1,
   ProductEd25519YaoPendingRegistrationPortV1,
+  ProductEd25519YaoRegistrationMaterialPersistenceV1,
 } from '@/core/signingEngine/flows/registration/services/ed25519YaoRegistration';
-import type { Ed25519YaoActiveClientIdentityV1 } from '@/core/signingEngine/threshold/ed25519/yaoActiveClientRegistry';
 import type {
   RouterAbEd25519YaoActiveClientMetadataV1,
   RouterAbEd25519YaoActiveClientStatusV1,
@@ -24,7 +27,11 @@ import type {
   RouterAbEd25519YaoClientSigningShareV1,
 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import { ROUTER_AB_ED25519_YAO_ACTIVE_CLIENT_KIND_V1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
-import type { EmailOtpEd25519YaoRecoveryBootstrapV1 } from '@/core/signingEngine/workerManager/workerTypes';
+import type {
+  EmailOtpEd25519YaoIssuedOperationAuthorizationV1,
+  EmailOtpEd25519YaoOperationStepUpProofV1,
+  EmailOtpEd25519YaoRecoveryBootstrapV1,
+} from '@/core/signingEngine/workerManager/workerTypes';
 import type {
   EmailOtpEd25519YaoPendingFactorHandle,
   EmailOtpEd25519YaoRootHandle,
@@ -34,6 +41,13 @@ import {
   emailOtpEd25519YaoRecoveryRootScopeV1,
   emailOtpEd25519YaoRegistrationRootScopeV1,
 } from './ed25519YaoActivation';
+import type {
+  MpcMaterialActivationRef,
+  ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
+import { requestRehydrateEmailOtpEd25519YaoOperationMaterial } from './workerRequests';
+import { nearEd25519YaoMaterialActivationFromMetadata } from '../material/nearEd25519YaoMaterialActivation';
 
 type WorkerActiveClientLifecycle =
   | { kind: 'active'; activeClientHandle: string }
@@ -42,12 +56,23 @@ type WorkerActiveClientLifecycle =
 type WorkerPendingRegistrationLifecycle =
   | { kind: 'pending'; pendingHandle: string }
   | {
-      kind: 'committing';
-      result: Promise<Ed25519YaoActiveClientIdentityV1>;
+      kind: 'persisting_material';
+      result: Promise<WorkerPersistedRegistrationMaterial>;
       pendingHandle?: never;
     }
-  | { kind: 'committed'; pendingHandle?: never; result?: never }
+  | {
+      kind: 'material_persisted';
+      metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+      activeClientHandle: string;
+      pendingHandle?: never;
+      result?: never;
+    }
   | { kind: 'disposed'; pendingHandle?: never; result?: never };
+
+type WorkerPersistedRegistrationMaterial = {
+  metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+  activeClientHandle: string;
+};
 
 type WorkerFactorOwnership =
   | {
@@ -115,6 +140,7 @@ export type VerifiedEmailOtpEd25519YaoRecoveryWorkerInputV1 = {
     | 'participantIds'
     | 'registeredPublicKey'
     | 'stateEpoch'
+    | 'materialActivation'
   >;
   providerSubject: string;
   registrationAuthorityId: string;
@@ -134,14 +160,24 @@ export function buildEmailOtpEd25519YaoRecoveryContinuityMetadataV1(
       lifecycle_id: 'persisted-email-otp-recovery-anchor-v1',
       root_share_epoch: capability.lifecycle.rootShareEpoch,
       account_id: capability.lifecycle.accountId,
-      wallet_session_id: capability.lifecycle.walletSessionId,
+      threshold_session_id: capability.lifecycle.thresholdSessionId,
       signer_set_id: capability.lifecycle.signerSetId,
       signing_worker_id: capability.lifecycle.signingWorkerId,
+      material_activation: {
+        kind: capability.materialActivation.kind,
+        activation_id: capability.materialActivation.activationId,
+        capability: capability.materialActivation.capability,
+        material_owner: capability.materialActivation.materialOwner,
+        key_binding: capability.materialActivation.keyBinding,
+        lifecycle_binding: capability.materialActivation.lifecycleBinding,
+        signing_worker: capability.materialActivation.signingWorker,
+      },
     },
     applicationBinding: capability.applicationBinding,
     participantIds: capability.participantIds,
     registeredPublicKey: Uint8Array.from(capability.registeredPublicKey),
     stateEpoch: BigInt(capability.stateEpoch),
+    materialActivation: capability.materialActivation,
   };
 }
 
@@ -163,9 +199,10 @@ function cloneMetadata(
       lifecycle_id: metadata.scope.lifecycle_id,
       root_share_epoch: metadata.scope.root_share_epoch,
       account_id: metadata.scope.account_id,
-      wallet_session_id: metadata.scope.wallet_session_id,
+      threshold_session_id: metadata.scope.threshold_session_id,
       signer_set_id: metadata.scope.signer_set_id,
       signing_worker_id: metadata.scope.signing_worker_id,
+      material_activation: metadata.scope.material_activation,
     },
     applicationBinding: {
       wallet_id: metadata.applicationBinding.wallet_id,
@@ -179,6 +216,7 @@ function cloneMetadata(
     stateEpoch: metadata.stateEpoch,
     transcript: metadata.transcript.slice(),
     activeCapabilityBinding: [...metadata.activeCapabilityBinding],
+    materialActivation: metadata.materialActivation,
   };
 }
 
@@ -232,7 +270,7 @@ function assertPriorRecoveryContinuity(
     capability.applicationBinding.signing_root_id !== session.signingRootId ||
     capability.lifecycle.rootShareEpoch !== session.signingRootVersion ||
     capability.lifecycle.accountId !== walletId ||
-    capability.lifecycle.walletSessionId !== session.thresholdSessionId ||
+    capability.lifecycle.thresholdSessionId !== session.thresholdSessionId ||
     capability.lifecycle.signingWorkerId !== session.routerAbNormalSigning.signingWorkerId ||
     !equalParticipants(capability.participantIds, session.participantIds) ||
     !equalRuntimePolicyScope(session.runtimePolicyScope, capability.runtimePolicyScope) ||
@@ -246,7 +284,7 @@ function assertPriorRecoveryContinuity(
     !equalParticipants(prior.participantIds, capability.participantIds) ||
     prior.scope.root_share_epoch !== capability.lifecycle.rootShareEpoch ||
     prior.scope.account_id !== capability.lifecycle.accountId ||
-    prior.scope.wallet_session_id !== capability.lifecycle.walletSessionId ||
+    prior.scope.threshold_session_id !== capability.lifecycle.thresholdSessionId ||
     prior.scope.signer_set_id !== capability.lifecycle.signerSetId ||
     prior.scope.signing_worker_id !== capability.lifecycle.signingWorkerId ||
     prior.stateEpoch !== BigInt(capability.stateEpoch)
@@ -261,19 +299,59 @@ function recoveryAdmissionRequest(
   const capability = input.bootstrap.capability;
   const replacementCapabilityBinding = new Uint8Array(32);
   globalThis.crypto.getRandomValues(replacementCapabilityBinding);
+  const lifecycleId = secureRandomId(
+    'email-otp-ed25519-yao-recovery',
+    32,
+    'Email OTP Ed25519 Yao recovery lifecycle IDs',
+  );
+  const replacementActivationId = parseMpcMaterialActivationId(
+    secureRandomId(
+      'email-otp-ed25519-yao-recovery-material-activation',
+      32,
+      'Email OTP Ed25519 Yao recovery material activation IDs',
+    ),
+  );
+  const replacementLifecycleBinding = parseMpcLifecycleBindingRef(
+    `${lifecycleId}:material-activation`,
+  );
+  if (!replacementActivationId.ok || !replacementLifecycleBinding.ok) {
+    throw new Error('Email OTP Ed25519 Yao recovery material activation identity is invalid');
+  }
+  const replacementMaterialActivation = buildMpcMaterialActivationRef({
+    activationId: replacementActivationId.value,
+    capability: capability.materialActivation.capability,
+    materialOwner: capability.materialActivation.materialOwner,
+    keyBinding: capability.materialActivation.keyBinding,
+    lifecycleBinding: replacementLifecycleBinding.value,
+    signingWorker: capability.materialActivation.signingWorker,
+  });
   try {
     const parsed = parseRouterAbEd25519YaoRecoveryAdmissionRequestV1({
       scope: {
-        lifecycle_id: secureRandomId(
-          'email-otp-ed25519-yao-recovery',
-          32,
-          'Email OTP Ed25519 Yao recovery lifecycle IDs',
-        ),
+        lifecycle_id: lifecycleId,
         root_share_epoch: capability.lifecycle.rootShareEpoch,
         account_id: capability.lifecycle.accountId,
-        wallet_session_id: input.bootstrap.session.thresholdSessionId,
+        threshold_session_id: input.bootstrap.session.thresholdSessionId,
         signer_set_id: capability.lifecycle.signerSetId,
         signing_worker_id: capability.lifecycle.signingWorkerId,
+        material_activation: {
+          kind: replacementMaterialActivation.kind,
+          activation_id: replacementMaterialActivation.activationId,
+          capability: replacementMaterialActivation.capability,
+          material_owner: replacementMaterialActivation.materialOwner,
+          key_binding: replacementMaterialActivation.keyBinding,
+          lifecycle_binding: replacementMaterialActivation.lifecycleBinding,
+          signing_worker: replacementMaterialActivation.signingWorker,
+        },
+      },
+      active_material_activation: {
+        kind: capability.materialActivation.kind,
+        activation_id: capability.materialActivation.activationId,
+        capability: capability.materialActivation.capability,
+        material_owner: capability.materialActivation.materialOwner,
+        key_binding: capability.materialActivation.keyBinding,
+        lifecycle_binding: capability.materialActivation.lifecycleBinding,
+        signing_worker: capability.materialActivation.signingWorker,
       },
       application_binding: capability.applicationBinding,
       participant_ids: capability.participantIds,
@@ -300,7 +378,7 @@ function assertRecoveredMetadataContinuity(args: {
     args.recovered.scope.lifecycle_id !== args.request.scope.lifecycle_id ||
     args.recovered.scope.root_share_epoch !== args.request.scope.root_share_epoch ||
     args.recovered.scope.account_id !== args.request.scope.account_id ||
-    args.recovered.scope.wallet_session_id !== args.request.scope.wallet_session_id ||
+    args.recovered.scope.threshold_session_id !== args.request.scope.threshold_session_id ||
     args.recovered.scope.signer_set_id !== args.request.scope.signer_set_id ||
     args.recovered.scope.signing_worker_id !== args.request.scope.signing_worker_id ||
     args.recovered.applicationBinding.wallet_id !== args.prior.applicationBinding.wallet_id ||
@@ -435,7 +513,59 @@ export class EmailOtpEd25519YaoWorkerActiveClientV1 implements RouterAbEd25519Ya
   }
 }
 
-class EmailOtpEd25519YaoWorkerPendingRegistrationV1 implements ProductEd25519YaoPendingRegistrationPortV1 {
+export type RehydrateEmailOtpEd25519YaoOperationMaterialInputV1 = {
+  workerContext: WorkerOperationContext;
+  relayUrl: string;
+  walletId: string;
+  nearAccountId: string;
+  signerSlot: number;
+  providerSubjectId: string;
+  expectedOperationalPublicKey: string;
+  expectedThresholdSessionId: ThresholdEd25519SessionId;
+  expectedMaterialActivation: MpcMaterialActivationRef;
+  normalSigningRequest: RouterAbNormalSigningPrepareRequestV2Wire;
+  displayDigest: string;
+  proof: EmailOtpEd25519YaoOperationStepUpProofV1;
+};
+
+export type RehydrateEmailOtpEd25519YaoOperationMaterialResultV1 = {
+  activeClient: EmailOtpEd25519YaoWorkerActiveClientV1;
+  issuedAuthorization: EmailOtpEd25519YaoIssuedOperationAuthorizationV1;
+};
+
+export async function rehydrateEmailOtpEd25519YaoOperationMaterialV1(
+  input: RehydrateEmailOtpEd25519YaoOperationMaterialInputV1,
+): Promise<RehydrateEmailOtpEd25519YaoOperationMaterialResultV1> {
+  if (input.proof.providerSubjectId !== input.providerSubjectId) {
+    throw new Error('Email OTP Ed25519 operation proof changed provider identity');
+  }
+  const result = await requestRehydrateEmailOtpEd25519YaoOperationMaterial(input);
+  const activation = nearEd25519YaoMaterialActivationFromMetadata(result.metadata);
+  if (
+    result.metadata.scope.threshold_session_id !== input.expectedThresholdSessionId ||
+    result.metadata.applicationBinding.wallet_id !== input.walletId ||
+    result.metadata.applicationBinding.key_creation_signer_slot !== input.signerSlot ||
+    `ed25519:${base58Encode(result.metadata.registeredPublicKey)}` !==
+      input.expectedOperationalPublicKey ||
+    !mpcMaterialActivationRefsEqual(activation, input.expectedMaterialActivation)
+  ) {
+    await disposeEmailOtpEd25519YaoActiveClientV1({
+      workerContext: input.workerContext,
+      activeClientHandle: result.activeClientHandle,
+    }).catch(() => undefined);
+    throw new Error('Email OTP Ed25519 worker activated different signing material');
+  }
+  return {
+    activeClient: new EmailOtpEd25519YaoWorkerActiveClientV1(
+      input.workerContext,
+      result.activeClientHandle,
+      result.metadata,
+    ),
+    issuedAuthorization: result.issuedAuthorization,
+  };
+}
+
+export class EmailOtpEd25519YaoWorkerPendingRegistrationV1 implements ProductEd25519YaoPendingRegistrationPortV1 {
   private lifecycle: WorkerPendingRegistrationLifecycle;
 
   constructor(
@@ -453,8 +583,8 @@ class EmailOtpEd25519YaoWorkerPendingRegistrationV1 implements ProductEd25519Yao
   publicKey(): string {
     switch (this.lifecycle.kind) {
       case 'pending':
-      case 'committing':
-      case 'committed':
+      case 'persisting_material':
+      case 'material_persisted':
         return this.operationalPublicKey;
       case 'disposed':
         throw new Error('Email OTP Ed25519 Yao registration is disposed');
@@ -466,14 +596,14 @@ class EmailOtpEd25519YaoWorkerPendingRegistrationV1 implements ProductEd25519Yao
   activationReference(): ProductEd25519YaoActivationReferenceV1 {
     switch (this.lifecycle.kind) {
       case 'pending':
-      case 'committing':
         return {
           kind: this.reference.kind,
           lifecycle_id: this.reference.lifecycle_id,
           session_id: [...this.reference.session_id],
         };
-      case 'committed':
-        throw new Error('Email OTP Ed25519 Yao registration is already committed');
+      case 'persisting_material':
+      case 'material_persisted':
+        throw new Error('Email OTP Ed25519 Yao registration material is already persisted');
       case 'disposed':
         throw new Error('Email OTP Ed25519 Yao registration is disposed');
       default:
@@ -481,28 +611,38 @@ class EmailOtpEd25519YaoWorkerPendingRegistrationV1 implements ProductEd25519Yao
     }
   }
 
-  localMaterialSource(): ProductEd25519YaoPendingLocalMaterialSourceV1 {
-    return { kind: 'worker_owned' };
-  }
-
-  async commit(args: {
-    activation: ProductEd25519YaoCapabilityActivationPortV1;
-    walletSessionState: NearResolvedEd25519SigningSessionState;
-  }): Promise<Ed25519YaoActiveClientIdentityV1> {
+  async persistRegistrationMaterial(
+    args: ProductEd25519YaoRegistrationMaterialPersistenceV1,
+  ): Promise<RouterAbEd25519YaoActiveClientMetadataV1> {
     switch (this.lifecycle.kind) {
       case 'pending': {
-        const result = this.commitPending({
+        if (args.kind !== 'worker_owned') {
+          throw new Error('Email OTP Ed25519 registration material must remain worker-owned');
+        }
+        const result = this.persistPendingRegistrationMaterial({
           pendingHandle: this.lifecycle.pendingHandle,
-          activation: args.activation,
-          walletSessionState: args.walletSessionState,
+          walletId: args.walletId,
+          providerSubject: args.providerSubject,
+          nearAccountId: args.nearAccountId,
+          nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+          signerSlot: args.signerSlot,
+          signingRootVersion: args.signingRootVersion,
+          expectedOperationalPublicKey: args.expectedOperationalPublicKey,
+          sessionPolicy: args.sessionPolicy,
         });
-        this.lifecycle = { kind: 'committing', result };
-        return await result;
+        this.lifecycle = { kind: 'persisting_material', result };
+        const persisted = await result;
+        this.lifecycle = {
+          kind: 'material_persisted',
+          metadata: persisted.metadata,
+          activeClientHandle: persisted.activeClientHandle,
+        };
+        return persisted.metadata;
       }
-      case 'committing':
-        return await this.lifecycle.result;
-      case 'committed':
-        throw new Error('Email OTP Ed25519 Yao registration is already committed');
+      case 'persisting_material':
+        return (await this.lifecycle.result).metadata;
+      case 'material_persisted':
+        return this.lifecycle.metadata;
       case 'disposed':
         throw new Error('Email OTP Ed25519 Yao registration is disposed');
       default:
@@ -524,10 +664,10 @@ class EmailOtpEd25519YaoWorkerPendingRegistrationV1 implements ProductEd25519Yao
         });
         return;
       }
-      case 'committing':
+      case 'persisting_material':
         await this.lifecycle.result;
         return;
-      case 'committed':
+      case 'material_persisted':
       case 'disposed':
         return;
       default:
@@ -535,42 +675,64 @@ class EmailOtpEd25519YaoWorkerPendingRegistrationV1 implements ProductEd25519Yao
     }
   }
 
-  private async commitPending(args: {
+  persistedActiveClient(): EmailOtpEd25519YaoWorkerActiveClientV1 {
+    switch (this.lifecycle.kind) {
+      case 'material_persisted':
+        return new EmailOtpEd25519YaoWorkerActiveClientV1(
+          this.workerContext,
+          this.lifecycle.activeClientHandle,
+          this.lifecycle.metadata,
+        );
+      case 'pending':
+      case 'persisting_material':
+        throw new Error('Email OTP Ed25519 registration material is not persisted');
+      case 'disposed':
+        throw new Error('Email OTP Ed25519 Yao registration is disposed');
+      default:
+        return assertNever(this.lifecycle);
+    }
+  }
+
+  private async persistPendingRegistrationMaterial(args: {
     pendingHandle: string;
-    activation: ProductEd25519YaoCapabilityActivationPortV1;
-    walletSessionState: NearResolvedEd25519SigningSessionState;
-  }): Promise<Ed25519YaoActiveClientIdentityV1> {
-    let activeClient: EmailOtpEd25519YaoWorkerActiveClientV1 | null = null;
+    walletId: string;
+    providerSubject: string;
+    nearAccountId: string;
+    nearEd25519SigningKeyId: string;
+    signerSlot: number;
+    signingRootVersion: string;
+    expectedOperationalPublicKey: string;
+    sessionPolicy: {
+      thresholdSessionId: string;
+      expiresAtMs: number;
+      remainingUses: number;
+    };
+  }): Promise<WorkerPersistedRegistrationMaterial> {
     try {
       const result = await this.workerContext.requestWorkerOperation({
         kind: 'emailOtp',
         request: {
-          type: 'commitEmailOtpEd25519YaoRegistration',
-          payload: {
-            pendingHandle: args.pendingHandle,
-            walletSessionState: args.walletSessionState,
-          },
+          type: 'persistEmailOtpEd25519YaoRegistrationMaterial',
+          payload: args,
         },
       });
       if (
-        `ed25519:${base58Encode(result.metadata.registeredPublicKey)}` !== this.operationalPublicKey
+        `ed25519:${base58Encode(result.metadata.registeredPublicKey)}` !==
+          args.expectedOperationalPublicKey ||
+        result.metadata.applicationBinding.wallet_id !== args.walletId ||
+        result.metadata.applicationBinding.near_ed25519_signing_key_id !==
+          args.nearEd25519SigningKeyId ||
+        result.metadata.applicationBinding.key_creation_signer_slot !== args.signerSlot ||
+        result.metadata.scope.root_share_epoch !== args.signingRootVersion
       ) {
-        throw new Error('Email OTP Ed25519 Yao worker committed a different public key');
+        await disposeEmailOtpEd25519YaoActiveClientV1({
+          workerContext: this.workerContext,
+          activeClientHandle: result.activeClientHandle,
+        }).catch(() => undefined);
+        throw new Error('Email OTP Ed25519 worker persisted a different signer material identity');
       }
-      activeClient = new EmailOtpEd25519YaoWorkerActiveClientV1(
-        this.workerContext,
-        result.activeClientHandle,
-        result.metadata,
-      );
-      const identity = await args.activation.activateVerifiedNearEd25519YaoSigningCapability({
-        activeClient,
-        walletSessionState: args.walletSessionState,
-      });
-      activeClient = null;
-      this.lifecycle = { kind: 'committed' };
-      return identity;
-    } catch (error) {
-      activeClient?.dispose();
+      return result;
+    } catch (error: unknown) {
       this.lifecycle = { kind: 'disposed' };
       throw error;
     }

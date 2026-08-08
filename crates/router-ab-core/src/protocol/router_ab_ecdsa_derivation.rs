@@ -10,7 +10,9 @@ use crate::protocol::error::{
 };
 use crate::protocol::gate::ExpensiveWorkKindV1;
 use crate::protocol::identity::{ServerIdentityV1, SignerIdentityV1, SignerSetV1};
-use crate::protocol::lifecycle::LifecycleScopeV1;
+use crate::protocol::lifecycle::{
+    LifecycleScopeV1, MpcMaterialActivationRefV1, NormalSigningAuthorizationV1,
+};
 use base64ct::{Base64UrlUnpadded, Encoding};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -255,6 +257,7 @@ impl RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1 {
             refresh_nonce: request.refresh_nonce.clone(),
             previous_activation_epoch: request.previous_activation_epoch.clone(),
             next_activation_epoch: request.next_activation_epoch.clone(),
+            material_activation: request.material_activation.clone(),
         };
         plaintext.validate()?;
         Ok(Self::Refresh(plaintext))
@@ -380,6 +383,7 @@ impl RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1 {
                 push_len32(&mut out, plaintext.refresh_nonce.as_bytes());
                 push_len32(&mut out, plaintext.previous_activation_epoch.as_bytes());
                 push_len32(&mut out, plaintext.next_activation_epoch.as_bytes());
+                push_mpc_material_activation_ref(&mut out, &plaintext.material_activation)?;
             }
         }
         Ok(out)
@@ -613,6 +617,8 @@ pub struct RouterAbEcdsaDerivationDeriverRefreshEnvelopePlaintextV1 {
     pub previous_activation_epoch: String,
     /// Activation epoch to be installed by the SigningWorker.
     pub next_activation_epoch: String,
+    /// Exact material activation installed by this refresh.
+    pub material_activation: MpcMaterialActivationRefV1,
 }
 
 impl RouterAbEcdsaDerivationDeriverRefreshEnvelopePlaintextV1 {
@@ -653,6 +659,16 @@ impl RouterAbEcdsaDerivationDeriverRefreshEnvelopePlaintextV1 {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLifecycleState,
                 "Router A/B ECDSA derivation Deriver refresh plaintext lifecycle root epoch must equal next activation epoch",
+            ));
+        }
+        self.material_activation.validate()?;
+        if self.material_activation.material_owner != self.common.lifecycle.account_id
+            || self.material_activation.signing_worker
+                != self.common.signer_set.selected_server.server_id
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "Router A/B ECDSA derivation Deriver refresh material activation is not bound to lifecycle owner and selected SigningWorker",
             ));
         }
         Ok(())
@@ -719,23 +735,6 @@ impl RouterAbEcdsaDerivationStableKeyContextV1 {
             &router_ab_ecdsa_derivation_context_binding_frame(&context_bytes)?,
         ))
     }
-}
-
-/// Returns the active SigningWorker session id for one Router A/B ECDSA derivation activation epoch.
-pub fn router_ab_ecdsa_derivation_active_state_session_id_v1(
-    ecdsa_threshold_key_id: &str,
-    signing_root_id: &str,
-    signing_root_version: &str,
-    activation_epoch: &str,
-) -> RouterAbProtocolResult<String> {
-    require_ascii_non_empty("ecdsa_threshold_key_id", ecdsa_threshold_key_id)?;
-    require_ascii_non_empty("signing_root_id", signing_root_id)?;
-    require_ascii_non_empty("signing_root_version", signing_root_version)?;
-    require_ascii_non_empty("activation_epoch", activation_epoch)?;
-    Ok(format!(
-        "{}:{}:{}:{}",
-        ecdsa_threshold_key_id, signing_root_id, signing_root_version, activation_epoch
-    ))
 }
 
 /// Public ECDSA identity produced by Router A/B ECDSA derivation registration/activation.
@@ -1155,6 +1154,8 @@ pub struct RouterAbEcdsaDerivationActivationReceiptV1 {
     pub public_identity: RouterAbEcdsaDerivationPublicIdentityV1,
     /// SigningWorker identity that accepted activation.
     pub signing_worker: ServerIdentityV1,
+    /// Canonical exact material activation installed by the SigningWorker.
+    pub material_activation: MpcMaterialActivationRefV1,
     /// Activation epoch persisted by the SigningWorker.
     pub activation_epoch: String,
     /// Digest of the activation payload encoded as unpadded base64url.
@@ -1169,6 +1170,13 @@ impl RouterAbEcdsaDerivationActivationReceiptV1 {
         self.context.validate()?;
         self.public_identity.validate_for_context(&self.context)?;
         self.signing_worker.validate()?;
+        self.material_activation.validate()?;
+        if self.material_activation.signing_worker != self.signing_worker.server_id {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidSignerIdentity,
+                "activation material activation does not match SigningWorker",
+            ));
+        }
         require_ascii_non_empty("activation.activation_epoch", &self.activation_epoch)?;
         decode_base64url_fixed_32(
             "activation.activation_digest_b64u",
@@ -1196,6 +1204,11 @@ pub struct RouterAbEcdsaDerivationExplicitExportRequestV1 {
     pub client_id: String,
     /// Client ephemeral public key used for client-output encryption.
     pub client_ephemeral_public_key: String,
+    /// Exact operation authority for this export; session and authorization identifiers
+    /// never re-enter this request outside the authorization branch.
+    pub authorization: NormalSigningAuthorizationV1,
+    /// Exact material activation this export binds.
+    pub material_activation: MpcMaterialActivationRefV1,
     /// User-confirmed export authorization digest encoded as unpadded base64url.
     pub export_authorization_digest_b64u: String,
     /// Request-scoped export replay nonce.
@@ -1221,6 +1234,17 @@ impl RouterAbEcdsaDerivationExplicitExportRequestV1 {
             "export.client_ephemeral_public_key",
             &self.client_ephemeral_public_key,
         )?;
+        self.authorization.validate()?;
+        self.material_activation.validate()?;
+        if self.material_activation.material_owner != self.lifecycle.account_id
+            || self.material_activation.signing_worker != self.lifecycle.selected_server_id
+            || self.material_activation.signing_worker != self.signer_set.selected_server.server_id
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "export material activation does not match lifecycle and selected server",
+            ));
+        }
         validate_lifecycle_for_context("export.lifecycle", &self.lifecycle, &self.context)?;
         decode_base64url_fixed_32(
             "export.export_authorization_digest_b64u",
@@ -1273,6 +1297,8 @@ impl RouterAbEcdsaDerivationExplicitExportRequestV1 {
         push_len32(&mut out, self.router_id.as_bytes());
         push_len32(&mut out, self.client_id.as_bytes());
         push_len32(&mut out, self.client_ephemeral_public_key.as_bytes());
+        push_normal_signing_authorization(&mut out, &self.authorization)?;
+        push_mpc_material_activation_ref(&mut out, &self.material_activation)?;
         push_len32(&mut out, self.export_authorization_digest_b64u.as_bytes());
         push_len32(&mut out, self.export_nonce.as_bytes());
         push_u64(&mut out, self.expires_at_ms);
@@ -1525,6 +1551,8 @@ pub struct RouterAbEcdsaDerivationActivationRefreshRequestV1 {
     pub previous_activation_epoch: String,
     /// Activation epoch to be installed by the SigningWorker.
     pub next_activation_epoch: String,
+    /// Canonical exact material activation that the refresh installs.
+    pub material_activation: MpcMaterialActivationRefV1,
     /// Request expiry in Unix milliseconds.
     pub expires_at_ms: u64,
     /// Deriver A encrypted Router A/B ECDSA derivation refresh envelope.
@@ -1572,6 +1600,15 @@ impl RouterAbEcdsaDerivationActivationRefreshRequestV1 {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLifecycleState,
                 "Router A/B ECDSA derivation refresh lifecycle root epoch must equal next activation epoch",
+            ));
+        }
+        self.material_activation.validate()?;
+        if self.material_activation.material_owner != self.lifecycle.account_id
+            || self.material_activation.signing_worker != self.signer_set.selected_server.server_id
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "Router A/B ECDSA derivation refresh material activation is not bound to the lifecycle owner and selected SigningWorker",
             ));
         }
         require_positive_ms("refresh.expires_at_ms", self.expires_at_ms)?;
@@ -1627,6 +1664,7 @@ impl RouterAbEcdsaDerivationActivationRefreshRequestV1 {
         push_len32(&mut out, self.refresh_nonce.as_bytes());
         push_len32(&mut out, self.previous_activation_epoch.as_bytes());
         push_len32(&mut out, self.next_activation_epoch.as_bytes());
+        push_mpc_material_activation_ref(&mut out, &self.material_activation)?;
         push_u64(&mut out, self.expires_at_ms);
         Ok(out)
     }
@@ -1690,8 +1728,6 @@ impl RouterAbEcdsaDerivationActivationRefreshRequestV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RouterAbEcdsaDerivationNormalSigningScopeV1 {
-    /// Stable wallet key id used by the SDK.
-    pub wallet_key_id: String,
     /// Wallet id that owns this Router A/B ECDSA derivation key.
     pub wallet_id: String,
     /// Stable threshold ECDSA key id.
@@ -1704,6 +1740,8 @@ pub struct RouterAbEcdsaDerivationNormalSigningScopeV1 {
     pub context: RouterAbEcdsaDerivationStableKeyContextV1,
     /// Public identity expected for the active signing key.
     pub public_identity: RouterAbEcdsaDerivationPublicIdentityV1,
+    /// Complete activated material reference owned by the SigningWorker.
+    pub material_activation: MpcMaterialActivationRefV1,
     /// SigningWorker identity that owns activation state.
     pub signing_worker: ServerIdentityV1,
     /// Activation epoch persisted by the SigningWorker.
@@ -1714,7 +1752,6 @@ impl RouterAbEcdsaDerivationNormalSigningScopeV1 {
     /// Creates a validated normal-signing scope.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        wallet_key_id: impl Into<String>,
         wallet_id: impl Into<String>,
         ecdsa_threshold_key_id: impl Into<String>,
         signing_root_id: impl Into<String>,
@@ -1723,15 +1760,16 @@ impl RouterAbEcdsaDerivationNormalSigningScopeV1 {
         public_identity: RouterAbEcdsaDerivationPublicIdentityV1,
         signing_worker: ServerIdentityV1,
         activation_epoch: impl Into<String>,
+        material_activation: MpcMaterialActivationRefV1,
     ) -> RouterAbProtocolResult<Self> {
         let scope = Self {
-            wallet_key_id: wallet_key_id.into(),
             wallet_id: wallet_id.into(),
             ecdsa_threshold_key_id: ecdsa_threshold_key_id.into(),
             signing_root_id: signing_root_id.into(),
             signing_root_version: signing_root_version.into(),
             context,
             public_identity,
+            material_activation,
             signing_worker,
             activation_epoch: activation_epoch.into(),
         };
@@ -1741,7 +1779,6 @@ impl RouterAbEcdsaDerivationNormalSigningScopeV1 {
 
     /// Validates the normal-signing scope.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_ascii_non_empty("normal_signing.wallet_key_id", &self.wallet_key_id)?;
         require_ascii_non_empty("normal_signing.wallet_id", &self.wallet_id)?;
         require_ascii_non_empty(
             "normal_signing.ecdsa_threshold_key_id",
@@ -1754,8 +1791,19 @@ impl RouterAbEcdsaDerivationNormalSigningScopeV1 {
         )?;
         self.context.validate()?;
         self.public_identity.validate_for_context(&self.context)?;
+        self.material_activation.validate()?;
         self.signing_worker.validate()?;
-        require_ascii_non_empty("normal_signing.activation_epoch", &self.activation_epoch)
+        require_ascii_non_empty("normal_signing.activation_epoch", &self.activation_epoch)?;
+        if self.material_activation.material_owner != self.wallet_id
+            || self.material_activation.key_binding != self.public_identity.context_binding_b64u
+            || self.material_activation.signing_worker != self.signing_worker.server_id
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "normal-signing material activation does not match scope",
+            ));
+        }
+        Ok(())
     }
 
     /// Returns canonical normal-signing scope bytes.
@@ -1766,7 +1814,6 @@ impl RouterAbEcdsaDerivationNormalSigningScopeV1 {
             &mut out,
             ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_SCOPE_VERSION_V1,
         );
-        push_len32(&mut out, self.wallet_key_id.as_bytes());
         push_len32(&mut out, self.wallet_id.as_bytes());
         push_len32(&mut out, self.ecdsa_threshold_key_id.as_bytes());
         push_len32(&mut out, self.signing_root_id.as_bytes());
@@ -1776,26 +1823,36 @@ impl RouterAbEcdsaDerivationNormalSigningScopeV1 {
             &mut out,
             &self.public_identity.canonical_public_identity_bytes()?,
         );
+        push_mpc_material_activation_ref(&mut out, &self.material_activation)?;
         push_server_identity(&mut out, &self.signing_worker);
         push_len32(&mut out, self.activation_epoch.as_bytes());
         Ok(out)
     }
 
-    /// Returns the active SigningWorker session id for this normal-signing scope.
-    pub fn active_state_session_id(&self) -> RouterAbProtocolResult<String> {
+    /// Returns the material activation id for this normal-signing scope.
+    pub fn material_activation_id(&self) -> RouterAbProtocolResult<String> {
         self.validate()?;
-        router_ab_ecdsa_derivation_active_state_session_id_v1(
-            &self.ecdsa_threshold_key_id,
-            &self.signing_root_id,
-            &self.signing_root_version,
-            &self.activation_epoch,
-        )
+        Ok(self.material_activation.activation_id.clone())
     }
 
     /// Returns the normal-signing scope digest.
     pub fn scope_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
         Ok(public_digest(&self.canonical_scope_bytes()?))
     }
+}
+
+fn validate_ecdsa_normal_signing_material_activation(
+    scope: &RouterAbEcdsaDerivationNormalSigningScopeV1,
+    material_activation: &MpcMaterialActivationRefV1,
+) -> RouterAbProtocolResult<()> {
+    material_activation.validate()?;
+    if material_activation != &scope.material_activation {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "material activation does not exactly match ECDSA signing scope",
+        ));
+    }
+    Ok(())
 }
 
 /// Commits to the Client contribution before SigningWorker entropy is revealed.
@@ -1806,6 +1863,47 @@ pub fn router_ab_ecdsa_rerandomization_client_commitment_v1(contribution32: [u8;
     hasher.finalize().into()
 }
 
+/// Exact public digests that bind a signing request to its lane, payload, and displayed intent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RouterAbEcdsaDerivationOperationDigestsV1 {
+    pub lane_digest_b64u: String,
+    pub intent_digest_b64u: String,
+    pub display_digest_b64u: String,
+}
+
+impl RouterAbEcdsaDerivationOperationDigestsV1 {
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        decode_base64url_fixed_32("operation_digests.lane_digest_b64u", &self.lane_digest_b64u)?;
+        decode_base64url_fixed_32(
+            "operation_digests.intent_digest_b64u",
+            &self.intent_digest_b64u,
+        )?;
+        decode_base64url_fixed_32(
+            "operation_digests.display_digest_b64u",
+            &self.display_digest_b64u,
+        )?;
+        Ok(())
+    }
+
+    fn push_canonical(&self, out: &mut Vec<u8>) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        out.extend_from_slice(&decode_base64url_fixed_32(
+            "operation_digests.lane_digest_b64u",
+            &self.lane_digest_b64u,
+        )?);
+        out.extend_from_slice(&decode_base64url_fixed_32(
+            "operation_digests.intent_digest_b64u",
+            &self.intent_digest_b64u,
+        )?);
+        out.extend_from_slice(&decode_base64url_fixed_32(
+            "operation_digests.display_digest_b64u",
+            &self.display_digest_b64u,
+        )?);
+        Ok(())
+    }
+}
+
 /// Client-facing typed Router A/B ECDSA derivation normal-signing request after Router parsing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1814,6 +1912,14 @@ pub struct RouterAbEcdsaDerivationEvmDigestSigningRequestV1 {
     pub scope: RouterAbEcdsaDerivationNormalSigningScopeV1,
     /// Request id used for replay, quota, and audit correlation.
     pub request_id: String,
+    /// Stable operation id shared by retries of this exact signing operation.
+    pub operation_id: String,
+    /// Exact lane, intent, and display digests claimed by the Gateway.
+    pub operation_digests: RouterAbEcdsaDerivationOperationDigestsV1,
+    /// Exact operation authorization; reusable and step-up identities remain disjoint.
+    pub authorization: NormalSigningAuthorizationV1,
+    /// Exact activated MPC material used for the operation.
+    pub material_activation: MpcMaterialActivationRefV1,
     /// Client-held presignature id that must match the SigningWorker server share.
     pub client_presignature_id: String,
     /// Request expiry in Unix milliseconds.
@@ -1829,6 +1935,10 @@ impl RouterAbEcdsaDerivationEvmDigestSigningRequestV1 {
     pub fn new(
         scope: RouterAbEcdsaDerivationNormalSigningScopeV1,
         request_id: impl Into<String>,
+        operation_id: impl Into<String>,
+        operation_digests: RouterAbEcdsaDerivationOperationDigestsV1,
+        authorization: NormalSigningAuthorizationV1,
+        material_activation: MpcMaterialActivationRefV1,
         client_presignature_id: impl Into<String>,
         expires_at_ms: u64,
         signing_digest_b64u: impl Into<String>,
@@ -1837,6 +1947,10 @@ impl RouterAbEcdsaDerivationEvmDigestSigningRequestV1 {
         let request = Self {
             scope,
             request_id: request_id.into(),
+            operation_id: operation_id.into(),
+            operation_digests,
+            authorization,
+            material_activation,
             client_presignature_id: client_presignature_id.into(),
             expires_at_ms,
             signing_digest_b64u: signing_digest_b64u.into(),
@@ -1851,12 +1965,22 @@ impl RouterAbEcdsaDerivationEvmDigestSigningRequestV1 {
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.scope.validate()?;
         require_ascii_non_empty("normal_signing.request_id", &self.request_id)?;
+        require_ascii_non_empty("normal_signing.operation_id", &self.operation_id)?;
+        self.operation_digests.validate()?;
+        self.authorization.validate()?;
+        validate_ecdsa_normal_signing_material_activation(&self.scope, &self.material_activation)?;
         require_ascii_non_empty(
             "normal_signing.client_presignature_id",
             &self.client_presignature_id,
         )?;
         require_positive_ms("normal_signing.expires_at_ms", self.expires_at_ms)?;
         self.signing_digest()?;
+        if self.operation_digests.intent_digest_b64u != self.signing_digest_b64u {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "operation intent digest does not match the admitted signing digest",
+            ));
+        }
         self.client_rerandomization_commitment32()?;
         Ok(())
     }
@@ -1899,6 +2023,10 @@ impl RouterAbEcdsaDerivationEvmDigestSigningRequestV1 {
         );
         push_len32(&mut out, &self.scope.canonical_scope_bytes()?);
         push_len32(&mut out, self.request_id.as_bytes());
+        push_len32(&mut out, self.operation_id.as_bytes());
+        self.operation_digests.push_canonical(&mut out)?;
+        push_normal_signing_authorization(&mut out, &self.authorization)?;
+        push_mpc_material_activation_ref(&mut out, &self.material_activation)?;
         push_len32(&mut out, self.client_presignature_id.as_bytes());
         push_u64(&mut out, self.expires_at_ms);
         push_digest(&mut out, self.signing_digest()?);
@@ -1920,6 +2048,14 @@ pub struct RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1 {
     pub scope: RouterAbEcdsaDerivationNormalSigningScopeV1,
     /// Request id used for replay, quota, and audit correlation.
     pub request_id: String,
+    /// Stable operation id shared with prepare.
+    pub operation_id: String,
+    /// Exact lane, intent, and display digests shared with prepare.
+    pub operation_digests: RouterAbEcdsaDerivationOperationDigestsV1,
+    /// Exact operation authorization shared with prepare.
+    pub authorization: NormalSigningAuthorizationV1,
+    /// Exact activated MPC material shared with prepare.
+    pub material_activation: MpcMaterialActivationRefV1,
     /// Request expiry in Unix milliseconds.
     pub expires_at_ms: u64,
     /// Exact 32-byte EVM/secp256k1 digest encoded as unpadded base64url.
@@ -1937,6 +2073,10 @@ impl RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1 {
     pub fn new(
         scope: RouterAbEcdsaDerivationNormalSigningScopeV1,
         request_id: impl Into<String>,
+        operation_id: impl Into<String>,
+        operation_digests: RouterAbEcdsaDerivationOperationDigestsV1,
+        authorization: NormalSigningAuthorizationV1,
+        material_activation: MpcMaterialActivationRefV1,
         expires_at_ms: u64,
         signing_digest_b64u: impl Into<String>,
         server_presignature_id: impl Into<String>,
@@ -1946,6 +2086,10 @@ impl RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1 {
         let request = Self {
             scope,
             request_id: request_id.into(),
+            operation_id: operation_id.into(),
+            operation_digests,
+            authorization,
+            material_activation,
             expires_at_ms,
             signing_digest_b64u: signing_digest_b64u.into(),
             server_presignature_id: server_presignature_id.into(),
@@ -1961,12 +2105,22 @@ impl RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1 {
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.scope.validate()?;
         require_ascii_non_empty("ecdsa_finalize.request_id", &self.request_id)?;
+        require_ascii_non_empty("ecdsa_finalize.operation_id", &self.operation_id)?;
+        self.operation_digests.validate()?;
+        self.authorization.validate()?;
+        validate_ecdsa_normal_signing_material_activation(&self.scope, &self.material_activation)?;
         require_positive_ms("ecdsa_finalize.expires_at_ms", self.expires_at_ms)?;
         require_ascii_non_empty(
             "ecdsa_finalize.server_presignature_id",
             &self.server_presignature_id,
         )?;
         self.signing_digest()?;
+        if self.operation_digests.intent_digest_b64u != self.signing_digest_b64u {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "operation intent digest does not match the admitted signing digest",
+            ));
+        }
         self.client_signature_share32()?;
         self.client_rerandomization_contribution32()?;
         Ok(())
@@ -1994,6 +2148,10 @@ impl RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1 {
         RouterAbEcdsaDerivationEvmDigestSigningRequestV1::new(
             self.scope.clone(),
             self.request_id.clone(),
+            self.operation_id.clone(),
+            self.operation_digests.clone(),
+            self.authorization.clone(),
+            self.material_activation.clone(),
             self.server_presignature_id.clone(),
             self.expires_at_ms,
             self.signing_digest_b64u.clone(),
@@ -2040,6 +2198,10 @@ impl RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1 {
         );
         push_len32(&mut out, &self.scope.canonical_scope_bytes()?);
         push_len32(&mut out, self.request_id.as_bytes());
+        push_len32(&mut out, self.operation_id.as_bytes());
+        self.operation_digests.push_canonical(&mut out)?;
+        push_normal_signing_authorization(&mut out, &self.authorization)?;
+        push_mpc_material_activation_ref(&mut out, &self.material_activation)?;
         push_u64(&mut out, self.expires_at_ms);
         push_digest(&mut out, self.signing_digest()?);
         push_len32(&mut out, self.server_presignature_id.as_bytes());
@@ -2392,6 +2554,38 @@ fn push_server_identity(out: &mut Vec<u8>, server: &ServerIdentityV1) {
     push_len32(out, server.server_id.as_bytes());
     push_len32(out, server.key_epoch.as_bytes());
     push_len32(out, server.recipient_encryption_key.as_bytes());
+}
+
+fn push_normal_signing_authorization(
+    out: &mut Vec<u8>,
+    authorization: &NormalSigningAuthorizationV1,
+) -> RouterAbProtocolResult<()> {
+    authorization.validate()?;
+    match authorization {
+        NormalSigningAuthorizationV1::ReusableWalletSession { wallet_session_id } => {
+            push_len32(out, b"reusable_wallet_session");
+            push_len32(out, wallet_session_id.as_bytes());
+        }
+        NormalSigningAuthorizationV1::OperationStepUp => {
+            push_len32(out, b"operation_step_up");
+        }
+    }
+    Ok(())
+}
+
+fn push_mpc_material_activation_ref(
+    out: &mut Vec<u8>,
+    material_activation: &MpcMaterialActivationRefV1,
+) -> RouterAbProtocolResult<()> {
+    material_activation.validate()?;
+    push_len32(out, b"mpc_material_activation_ref");
+    push_len32(out, material_activation.activation_id.as_bytes());
+    push_len32(out, material_activation.capability.as_bytes());
+    push_len32(out, material_activation.material_owner.as_bytes());
+    push_len32(out, material_activation.key_binding.as_bytes());
+    push_len32(out, material_activation.lifecycle_binding.as_bytes());
+    push_len32(out, material_activation.signing_worker.as_bytes());
+    Ok(())
 }
 
 fn push_digest(out: &mut Vec<u8>, digest: PublicDigest32) {

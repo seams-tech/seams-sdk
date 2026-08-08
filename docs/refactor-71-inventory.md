@@ -743,7 +743,7 @@ files below:
 - `tests/unit/nonceCoordinator.unit.test.ts`
 - `tests/unit/passkeyEd25519Recovery.unit.test.ts`
 - `tests/unit/persistedAvailableSigningLanes.emailOtpEd25519.unit.test.ts`
-- `tests/unit/phase5UseCaseServices.unit.test.ts`
+- `tests/unit/signingUseCaseServices.unit.test.ts`
 - `tests/unit/provisionEcdsaUseCase.unit.test.ts`
 - `tests/unit/registrationCeremonyStore.unit.test.ts`
 - `tests/unit/registrationIntentAllocation.unit.test.ts`

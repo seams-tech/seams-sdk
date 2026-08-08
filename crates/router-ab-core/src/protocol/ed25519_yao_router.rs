@@ -1891,6 +1891,15 @@ mod tests {
             Ed25519YaoOperationV1::Registration,
             Ed25519YaoSessionIdV1::new([1; 32]).expect("session"),
             crate::protocol::ed25519_yao::Ed25519YaoStableKeyContextBindingV1::new([2; 32]),
+            crate::protocol::lifecycle::MpcMaterialActivationRefV1::new(
+                "activation-1",
+                "capability-1",
+                "account-1",
+                "key-1",
+                "lifecycle-1",
+                "server-1",
+            )
+            .expect("material activation"),
         )
         .expect("binding")
     }

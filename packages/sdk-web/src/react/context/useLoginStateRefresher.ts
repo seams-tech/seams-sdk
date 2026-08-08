@@ -25,32 +25,73 @@ function resolveExactReactLoginWalletId(
   return walletId || null;
 }
 
+async function restoreAndRefreshLocalLoginState(args: {
+  seams: SeamsWeb;
+  refreshLoginState: SeamsContextType['refreshLoginState'];
+}): Promise<void> {
+  await args.seams.restoreWalletAuthenticationState();
+  await args.refreshLoginState();
+}
+
 export function useLoginStateRefresher(args: {
   seams: SeamsWeb;
-  walletIframeConnected: boolean;
   setLoginState: Dispatch<SetStateAction<LoginState>>;
   setInputUsername: SeamsContextType['setInputUsername'];
 }) {
-  const { seams, walletIframeConnected, setLoginState, setInputUsername } = args;
+  const { seams, setLoginState, setInputUsername } = args;
 
   const refreshLoginState: SeamsContextType['refreshLoginState'] = useCallback(
     async (walletId?: string) => {
       try {
-        const exactWalletId = resolveExactReactLoginWalletId(seams, walletId);
+        let exactWalletId: string | null;
+        if (seams.configs.wallet.mode === 'iframe') {
+          const requestedWalletId = String(walletId || '').trim();
+          if (requestedWalletId) {
+            exactWalletId = requestedWalletId;
+          } else {
+            const state = await seams.getWalletIframeExactSessionState();
+            switch (state.kind) {
+              case 'active_session':
+              case 'wallet_authenticated_identity_unresolvable':
+              case 'wallet_unlocked_without_signing_session':
+                exactWalletId = state.walletId;
+                break;
+              case 'wallet_locked':
+              case 'expired_session':
+                setLoginState(buildReactLoggedOutLoginState());
+                return;
+              default:
+                state satisfies never;
+                return;
+            }
+          }
+        } else {
+          exactWalletId = resolveExactReactLoginWalletId(seams, walletId);
+        }
         if (!exactWalletId) {
           setLoginState(buildReactLoggedOutLoginState());
           return;
         }
 
         const session = await seams.auth.getWalletSession(exactWalletId);
+        if (
+          session.authentication.kind === 'authenticated' &&
+          session.appIdentity.kind !== 'resolved'
+        ) {
+          return;
+        }
         if (!isWalletSessionReadyForUi({ session })) {
           setLoginState(buildReactLoggedOutLoginState());
           return;
         }
-        const { login: ls } = session;
-        if (ls.walletId) {
-          seams.preferences.setCurrentWallet(toWalletId(ls.walletId));
-          syncInputUsernameFromWalletId(setInputUsername, ls.walletId);
+        if (session.appIdentity.kind !== 'resolved') {
+          setLoginState(buildReactLoggedOutLoginState());
+          return;
+        }
+        const resolvedWalletId = session.appIdentity.walletId;
+        if (resolvedWalletId) {
+          seams.preferences.setCurrentWallet(toWalletId(resolvedWalletId));
+          syncInputUsernameFromWalletId(setInputUsername, resolvedWalletId);
         }
         const nextLoginState = buildReactLoggedInLoginStateFromSession(session);
         setLoginState(nextLoginState ?? buildReactLoggedOutLoginState());
@@ -62,9 +103,9 @@ export function useLoginStateRefresher(args: {
   );
 
   useEffect(() => {
-    if (seams.configs.wallet.mode === 'iframe' && !walletIframeConnected) return;
-    void refreshLoginState();
-  }, [refreshLoginState, seams, walletIframeConnected]);
+    if (seams.configs.wallet.mode === 'iframe') return;
+    void restoreAndRefreshLocalLoginState({ seams, refreshLoginState });
+  }, [refreshLoginState, seams]);
 
   return refreshLoginState;
 }

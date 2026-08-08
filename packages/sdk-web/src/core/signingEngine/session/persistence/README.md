@@ -2,7 +2,7 @@
 
 ## Owns
 
-Threshold session record normalization and sealed-session persistence storage.
+Sealed-session persistence storage and transport authorization boundaries.
 
 ## May Import
 
@@ -16,5 +16,5 @@ outside persistence-specific helpers.
 
 ## Entrypoints
 
-- `records.ts`
+- `sealedSessionTransportAuth.ts`
 - `sealedSessionStore.ts`

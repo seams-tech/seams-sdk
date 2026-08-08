@@ -13,7 +13,7 @@ import {
   type NonceDurableLeaseLifecycle,
 } from './nonceTypes';
 import { nonceLaneKey } from './nonceLaneKeys';
-import { maxBigint, normalizeBigint, normalizeRequiredString } from './nonceUtils';
+import { maxBigint, normalizeBigint, normalizeSessionStatusRequiredString } from './nonceUtils';
 
 export type NearAccessKeySubject = {
   walletId: string;
@@ -370,9 +370,9 @@ export function initializeNearAccessKeyState(input: {
   nearAccountId: string;
   publicKey: string;
 }): void {
-  const nearAccountId = normalizeRequiredString(input.nearAccountId, 'nearAccountId');
-  const publicKey = normalizeRequiredString(input.publicKey, 'publicKey');
-  const walletId = normalizeRequiredString(input.walletId, 'walletId');
+  const nearAccountId = normalizeSessionStatusRequiredString(input.nearAccountId, 'nearAccountId');
+  const publicKey = normalizeSessionStatusRequiredString(input.publicKey, 'publicKey');
+  const walletId = normalizeSessionStatusRequiredString(input.walletId, 'walletId');
   if (!walletId) {
     throw new Error('[NonceCoordinator] NEAR access key walletId is required');
   }

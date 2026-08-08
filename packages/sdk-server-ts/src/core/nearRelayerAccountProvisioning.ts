@@ -29,7 +29,22 @@ import type {
   FundImplicitNearAccountResult,
 } from './types';
 
-const NEAR_IMPLICIT_ACCOUNT_FUND_WAIT_UNTIL: TxExecutionStatus = 'FINAL';
+/**
+ * A plain funding transfer only has to be executed before the client can read
+ * the account's access key, and the client polls until it is queryable — so
+ * optimistic execution is enough, matching DEFAULT_WAIT_STATUS everywhere else
+ * ("finality will converge shortly after"). Waiting for full finality here used
+ * to add several seconds directly in front of the signing step-up prompt, since
+ * an operation step-up cannot be prepared until funding lands.
+ */
+const NEAR_IMPLICIT_ACCOUNT_FUND_WAIT_UNTIL: TxExecutionStatus = 'EXECUTED_OPTIMISTIC';
+/**
+ * The sponsored account-creation broadcast keeps full finality: its caller
+ * persists the prepared bytes and reconciles ambiguous outcomes by rebroadcast,
+ * so a reorged optimistic result would feed that reconciliation a false
+ * terminal state.
+ */
+const NEAR_SPONSORED_ACCOUNT_CREATION_WAIT_UNTIL: TxExecutionStatus = 'FINAL';
 const ED25519_PKCS8_SEED_PREFIX = Uint8Array.from([
   0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
 ]);
@@ -931,7 +946,7 @@ export async function broadcastPreparedSponsoredNearAccountCreation(input: {
         signature: null,
         borsh_bytes: Array.from(base64UrlDecode(input.prepared.signedTransactionBorshB64u)),
       }),
-      NEAR_IMPLICIT_ACCOUNT_FUND_WAIT_UNTIL,
+      NEAR_SPONSORED_ACCOUNT_CREATION_WAIT_UNTIL,
     );
     const status = outcomeStatus(outcome);
     if (status.kind === 'created') {

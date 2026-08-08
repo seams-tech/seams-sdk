@@ -18,7 +18,11 @@ const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
 
 export function resolveD1LocalDevEnvFiles(input = {}) {
   const resolvedPackageRoot = input.packageRoot || packageRoot;
-  const candidates = [path.join(resolvedPackageRoot, '.dev.vars')];
+  const resolvedRepoRoot = input.repoRoot || repoRoot;
+  const candidates = [
+    path.join(resolvedRepoRoot, 'packages/sdk-server-ts/.dev.vars'),
+    path.join(resolvedPackageRoot, '.dev.vars'),
+  ];
   const existing = [];
   for (const candidate of candidates) {
     if (existsSync(candidate)) existing.push(candidate);

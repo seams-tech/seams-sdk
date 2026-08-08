@@ -11,31 +11,60 @@
 */
 
 :host {
+  display: block;
+  position: relative;
+  inline-size: 24rem;
+  max-inline-size: 100%;
+  block-size: min(36rem, calc(100dvh - 2rem));
+  max-block-size: calc(100dvh - 2rem);
+  overflow: hidden;
+}
+
+/* Direct/headless export keeps the document-owned fullscreen presentation. */
+:host([data-w3a-export-surface='standalone']) {
   position: fixed;
   inset: 0;
+  inline-size: 100vw;
+  block-size: 100vh;
+  max-inline-size: none;
+  max-block-size: none;
   z-index: 2147483647;
-  display: block;
+  overflow: hidden;
+}
+
+/* Wallet-iframe exports are measured content shells inside the host dialog.
+
+   NEVER size this surface from dvh/vh. In this mode the host derives the
+   iframe's height FROM measuring this element, so 100dvh is downstream of our
+   own height: a dvh-derived height re-measures 2rem shorter on every pass and
+   the loop converges to a 0-tall card. The height must be a constant the
+   measurement can settle on; the parent clamps it to its own viewport when
+   the window is small. */
+:host([data-w3a-export-surface='wallet-iframe']) {
+  position: relative;
+  inline-size: 24rem;
+  max-inline-size: 100%;
+  block-size: 36rem;
+  max-block-size: none;
+  z-index: auto;
 }
 
 .iframe-host {
-  position: fixed;
-  inset: 0;
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  max-inline-size: 100%;
+  max-block-size: 100%;
 }
 
 iframe {
+  display: block;
   border: none;
   background: transparent;
   color-scheme: normal;
-  position: fixed;
-  inset: 0;
-  width: 100vw;
-  height: 100vh;
-  z-index: 2147483647;
-}
-
-@supports (width: 100dvw) and (height: 100dvh) {
-  iframe {
-    width: 100dvw;
-    height: 100dvh;
-  }
+  inline-size: 100%;
+  block-size: 100%;
+  max-inline-size: 100%;
+  max-block-size: 100%;
+  overflow: auto;
 }

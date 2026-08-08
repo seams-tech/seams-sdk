@@ -5,29 +5,7 @@ import {
   thresholdEcdsaChainTargetFromRequest,
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
-  thresholdEcdsaSessionRecordKeysEqual,
-  thresholdEcdsaLaneKey,
-  toWalletId,
-  type ThresholdEcdsaSessionRecordKey,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-
-function makeLane(overrides: Partial<ThresholdEcdsaSessionRecordKey> = {}): ThresholdEcdsaSessionRecordKey {
-  return {
-    walletId: toWalletId('wallet-1.testnet'),
-    keyHandle: 'ederivation-key-arc',
-    authMethod: 'email_otp',
-    curve: 'ecdsa',
-    chainTarget: {
-      kind: 'evm',
-      namespace: 'eip155',
-      chainId: 5_042_002,
-      networkSlug: 'arc-testnet',
-    },
-    signingGrantId: 'wsess-arc',
-    thresholdSessionId: 'tsess-arc',
-    ...overrides,
-  };
-}
 
 test.describe('threshold ECDSA concrete chain targets', () => {
   test('normalizes Arc and Tempo requests into concrete canonical targets', () => {
@@ -104,58 +82,6 @@ test.describe('threshold ECDSA concrete chain targets', () => {
     expect(() =>
       thresholdEcdsaChainTargetFromRequest({ chain: 'evm', namespace: 'cosmos', chainId: 1 }),
     ).toThrow('namespace must be eip155');
-  });
-
-  test('canonical lane identity includes wallet, key handle, chain target, and session ids', () => {
-    const arc = makeLane();
-    const ethereum = makeLane({
-      chainTarget: {
-        kind: 'evm',
-        namespace: 'eip155',
-        chainId: 1,
-        networkSlug: 'ethereum-mainnet',
-      },
-    });
-    const otherKey = makeLane({ keyHandle: 'ederivation-key-ethereum' });
-
-    expect(thresholdEcdsaLaneKey(arc)).toBe(
-      [
-        'wallet-1.testnet',
-        'ederivation-key-arc',
-        'email_otp',
-        'ecdsa',
-        'evm%3Aeip155%3A5042002',
-        'wsess-arc',
-        'tsess-arc',
-      ].join(':'),
-    );
-    expect(thresholdEcdsaSessionRecordKeysEqual(arc, ethereum)).toBe(false);
-    expect(thresholdEcdsaSessionRecordKeysEqual(arc, otherKey)).toBe(false);
-  });
-
-  test('keeps multiple EVM networks with the same wallet and key handle as separate lanes', () => {
-    const megaEthTestnet = makeLane({
-      chainTarget: {
-        kind: 'evm',
-        namespace: 'eip155',
-        chainId: 6_345,
-        networkSlug: 'megaeth-testnet',
-      },
-      keyHandle: 'ederivation-shared',
-    });
-    const polygonMainnet = makeLane({
-      chainTarget: {
-        kind: 'evm',
-        namespace: 'eip155',
-        chainId: 137,
-        networkSlug: 'polygon-mainnet',
-      },
-      keyHandle: 'ederivation-shared',
-    });
-
-    expect(thresholdEcdsaSessionRecordKeysEqual(megaEthTestnet, polygonMainnet)).toBe(false);
-    expect(thresholdEcdsaLaneKey(megaEthTestnet)).toContain('evm%3Aeip155%3A6345');
-    expect(thresholdEcdsaLaneKey(polygonMainnet)).toContain('evm%3Aeip155%3A137');
   });
 
   test('classifies named and implicit NEAR account refs without using them as ECDSA subject ids', () => {

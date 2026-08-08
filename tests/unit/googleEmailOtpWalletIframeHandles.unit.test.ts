@@ -23,6 +23,33 @@ import {
 import type { WalletSession } from '@/core/types/seams';
 import { parseEmailOtpChallengeDelivery } from '@/core/signingEngine/session/emailOtp/challengeDelivery';
 
+let flowHandleRandomFillCalls = 0;
+
+function fillFlowHandleRandomBytes(bytes: Uint8Array): Uint8Array {
+  flowHandleRandomFillCalls += 1;
+  bytes.fill(42);
+  return bytes;
+}
+
+function throwIfMathRandomIsUsed(): number {
+  throw new Error('Math.random must not generate Email OTP flow handles');
+}
+
+function setGlobalCrypto(value: unknown): void {
+  Object.defineProperty(globalThis, 'crypto', {
+    configurable: true,
+    value,
+  });
+}
+
+function restoreGlobalCrypto(original: PropertyDescriptor | undefined): void {
+  if (original) {
+    Object.defineProperty(globalThis, 'crypto', original);
+    return;
+  }
+  delete (globalThis as { crypto?: unknown }).crypto;
+}
+
 function walletId(value: string) {
   return walletIdFromString(value);
 }
@@ -68,10 +95,24 @@ function submitSuccess(value: {
 function registrationCompleted(value: {
   walletId?: string;
 } = {}): GoogleEmailOtpWalletAuthRegistrationCompleted {
+  const resolvedWalletId = walletId(value.walletId ?? 'alice.testnet');
   return {
-    walletId: walletId(value.walletId ?? 'alice.testnet'),
+    walletId: resolvedWalletId,
     mode: 'register',
     session: emailOtpWalletSession(value),
+    registration: {
+      success: true,
+      kind: 'ecdsa_wallet_registered_near_pending',
+      walletId: resolvedWalletId,
+      capabilities: [
+        {
+          kind: 'evm_family_ecdsa',
+          thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
+          thresholdEcdsaPublicKeyB64u: 'ecdsa-public-key',
+        },
+      ],
+      nearProvisioning: { status: 'pending' },
+    },
   };
 }
 
@@ -234,6 +275,42 @@ function submitPayload(
 }
 
 test.describe('Google Email OTP wallet iframe flow handles', () => {
+  test('uses WebCrypto when randomUUID is unavailable', async () => {
+    const originalCrypto = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+    const originalMathRandom = Math.random;
+    flowHandleRandomFillCalls = 0;
+    setGlobalCrypto({ getRandomValues: fillFlowHandleRandomBytes });
+    Object.defineProperty(Math, 'random', {
+      configurable: true,
+      value: throwIfMathRandomIsUsed,
+    });
+
+    try {
+      const { wireFlow } = await beginFlow();
+      expect(wireFlow.flowHandleId).toBe('google-email-otp-KioqKioqKioqKioqKioqKg');
+      expect(flowHandleRandomFillCalls).toBe(1);
+    } finally {
+      Object.defineProperty(Math, 'random', {
+        configurable: true,
+        value: originalMathRandom,
+      });
+      restoreGlobalCrypto(originalCrypto);
+    }
+  });
+
+  test('fails closed when WebCrypto is unavailable', async () => {
+    const originalCrypto = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+    setGlobalCrypto({});
+
+    try {
+      await expect(beginFlow()).rejects.toThrow(
+        'WebCrypto getRandomValues is required for Google Email OTP wallet auth flow handles',
+      );
+    } finally {
+      restoreGlobalCrypto(originalCrypto);
+    }
+  });
+
   test('serializes login and registration flow shapes separately', async () => {
     const login = await beginFlow({ flow: makeLoginFlow() });
     expect(login.wireFlow).toMatchObject({

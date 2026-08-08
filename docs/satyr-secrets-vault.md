@@ -678,7 +678,7 @@ principal + SeamsSession or follow-on service-account evidence
   -> audit and replay lock
 ```
 
-Full-product vault policy should be usable without MPC. Refactor 90 Slice A
+Full-product vault policy should be usable without MPC. Refactor 90 Unit 3b
 uses only the Passkey-backed session/evidence path from this table; service
 accounts, Slack OTP, SSO assurance, approvals, and `mpc_signer_proof` are
 follow-on implementation work.
@@ -696,19 +696,19 @@ follow-on implementation work.
 
 Refactor 90 is the current implementation plan for modular auth and
 capabilities. Its vault scope is deliberately narrow: prove the authorization
-architecture with one production-shaped vault operation before migrating live
-MPC signing.
+architecture with one production-shaped vault operation as the parallel vault
+proof required for Refactor 90 completion.
 
-Refactor 90 Slice A includes:
+Refactor 90 Unit 3b includes:
 
 - native session exchange into an opaque, tenant-bound `SeamsSession`;
 - operation-bound Passkey evidence;
 - exact one-use grant issuance, grant claim, and audit linkage;
 - a minimal vault record;
-- one proxy or reveal operation through real persistence and route adapters;
+- `vault.proxy_use` through real persistence and route adapters;
 - a minimal local Worker-compatible broker/gateway adapter for tests.
 
-Refactor 90 Slice A excludes:
+Refactor 90 Unit 3b excludes:
 
 - service-account evidence, workload identity, and service-account vault flows;
 - Slack OTP and provider-assurance adapters;
@@ -1403,10 +1403,10 @@ landing as a parallel subsystem.
 | Area | Current inventory | Required refactor |
 | --- | --- | --- |
 | Auth monolith | `packages/sdk-server-ts/src/core/AuthService.ts` mixes wallet registration, WebAuthn, Email OTP, sessions, recovery, threshold signing, stores, and signer WASM. | Extract session/factor provider ports used by Seams authorization; keep MPC runtime behind capability modules. |
-| Route policy | `packages/sdk-server-ts/src/router/routeAuthPolicy.ts` has `console`, `api_credentials`, `user_session`, `threshold_session`, and `public`. | Add management/API/session/capability-grant route planes from Refactor 90; runtime vault routes require `capability_grant`. |
-| Route definitions | `packages/sdk-server-ts/src/router/routeDefinitions.ts` validates API scopes and route auth planes centrally. | Teach definitions about `management_api_key`, `seams_session`, and `capability_grant`; keep unknown capability operations fail-closed. |
-| Cloudflare router | `packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter.ts` eagerly wires wallet, session, threshold, OTP, and seal routes. | Register vault routes through route modules with lazy runtime handler factories; keep vault-only Workers free of MPC imports. |
-| Route modules | `packages/sdk-server-ts/src/router/modules.ts` and `routeExtensions.ts` already support route extensions. | Evolve this into capability route registration; preserve Express parity only where the runtime actually supports the route. |
+| Route policy | `packages/sdk-server-ts/src/router/framework/routeAuthPolicy.ts` has `console`, `api_credentials`, `user_session`, `threshold_session`, and `public`. | Add management/API/session/capability-grant route planes from Refactor 90; runtime vault routes require `capability_grant`. |
+| Route definitions | `packages/sdk-server-ts/src/router/framework/routeDefinitions.ts` validates API scopes and route auth planes centrally. | Teach definitions about `management_api_key`, `seams_session`, and `capability_grant`; keep unknown capability operations fail-closed. |
+| Cloudflare router | `packages/sdk-server-ts/src/router/cloudflare/runtime/createCloudflareRouter.ts` eagerly wires wallet, session, threshold, OTP, and seal routes. | Register vault routes through route modules with lazy runtime handler factories; keep vault-only Workers free of MPC imports. |
+| Route modules | `packages/sdk-server-ts/src/router/framework/modules.ts` and `framework/routeExtensions.ts` already support route extensions. | Evolve this into capability route registration; preserve Express parity only where the runtime actually supports the route. |
 | Express routes | `packages/sdk-server-ts/src/router/express/*` mirrors relay routes. | Decide whether vault runtime routes are Cloudflare-only for v1; management routes can keep Express parity. |
 | API credential scopes | `packages/console-shared-ts/src/apiKeyScopes.ts` is wallet-bootstrap oriented. | Split management scopes from grant-request scopes such as `grants.request.vault_proxy_use` and `grants.request.vault_rotate`. |
 | Console RBAC | `packages/console-server-ts/src/teamRbac/*` uses org-scoped team roles and wallet-operation categories. | Add principal kinds, member access modes, vault/admin categories, and direct/delegate membership constraints. |
@@ -1473,7 +1473,7 @@ Implementation priority:
 | 3 | Persistence foundation | Add D1 migrations, D1 repositories, R2 key builders, envelope AAD builders, boundary parsers, cross-tenant denial tests, and seed fixtures. |
 | 4 | Management API and dashboard CRUD | Add vault metadata/value write APIs, dashboard list/detail/create/edit/archive flows, redacted responses, audit records, and no-echo secret write behavior. |
 | 5 | Permissions and policies | Add vault permission grants, member access mode enforcement, capability grant policies, service-account grant-request scopes, approval policy wiring, and dashboard grant UI. |
-| 6 | Minimal Refactor 90 vault runtime | Implement one proxy or reveal operation with real persistence, route adapters, Passkey evidence, one-time `CapabilityGrant` issuance, grant claim/use, a minimal local broker/gateway adapter, and audit readback. |
+| 6 | Minimal Refactor 90 vault runtime | Implement `vault.proxy_use` with real persistence, route adapters, Passkey evidence, one-time `CapabilityGrant` issuance, grant claim/use, a minimal local broker/gateway adapter, and audit readback. |
 | 7 | Reveal and break-glass | Implement direct-member reveal, approval evidence, passkey/SSO step-up, optional `mpc_signer_proof`, one-time display, noisy audit, and rotation reminder. |
 | 8 | OAuth, rotation, and scoped credentials | Implement gateway-owned OAuth exchange, refresh, manual rotation, version activation, retired versions, scoped credential minting, rotation workflows, and service-account rotation grants. |
 | 9 | Commodity vault adapters | Implement 1Password first when needed, then Infisical, OpenBao, Bitwarden, or HashiCorp Vault adapters/importers based on customer demand. Include adapter credential custody, source fingerprinting, stale sync detection, and adapter audit. |
@@ -1483,7 +1483,7 @@ Implementation priority:
 
 ## Validation Plan
 
-These checks cover the full Satyr vault product. Refactor 90 Slice A runs only
+These checks cover the full Satyr vault product. Refactor 90 Unit 3b runs only
 the subset needed for the minimal session/evidence/grant/operation/audit
 vertical, plus import or route guards that protect the current static assembly.
 

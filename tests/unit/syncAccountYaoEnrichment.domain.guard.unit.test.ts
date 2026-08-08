@@ -2,31 +2,45 @@ import { expect, test } from '@playwright/test';
 import type {
   RouterApiServiceBag,
   RouterApiWebAuthnService,
-} from '../../packages/sdk-server-ts/src/router/authServicePort';
-import type { WalletRegistrationEd25519YaoBootstrapSession } from '../../packages/sdk-server-ts/src/core/registrationContracts';
-import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '../../packages/shared-ts/src/utils/signingSessionSeal';
-import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
+} from '../../packages/sdk-server-ts/src/router/framework/authServicePort';
+import {
+  parseThresholdEd25519SessionId,
+  parseWebAuthnRpId,
+  type ThresholdEd25519SessionId,
+} from '../../packages/shared-ts/src/utils/domainIds';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
-import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
-import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
-import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
-import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/routerApi';
-import type {
-  RouterAbWalletBudgetGrantProvisionInputV1,
-  RouterAbWalletBudgetGrantProvisionerV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
-import type {
-  RouterAbEd25519YaoProductRegistrationRuntimeV1,
-  RouterAbEd25519YaoWalletSessionMintInputV1,
-  RouterAbEd25519YaoWalletSessionMintResultV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
+import {
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+} from '../../packages/shared-ts/src/utils/walletAuthAuthority';
+import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/createCloudflareRouter';
+import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/framework/routerApi';
+import {
+  mintRouterAbEd25519YaoWalletSessionV1,
+  type RouterAbEd25519YaoProductRegistrationRuntimeV1,
+  type RouterAbEd25519YaoWalletSessionMintInputV1,
+  type RouterAbEd25519YaoWalletSessionMintResultV1,
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import type {
   RouterAbEd25519YaoActiveCapabilityDescriptorV1,
   RouterAbEd25519YaoActiveCapabilityLookupResultV1,
   RouterAbEd25519YaoActiveCapabilityLookupV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
-import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
+
+function parseFixtureThresholdSessionId(value: string): ThresholdEd25519SessionId {
+  const parsed = parseThresholdEd25519SessionId(value);
+  if (!parsed.ok) throw new Error('fixture threshold session identity is invalid');
+  return parsed.value;
+}
+import {
+  applyD1MigrationFiles,
+  cleanupTemporaryD1Database,
+  createTemporaryD1Database,
+  listD1MigrationFiles,
+} from '../helpers/sqliteD1';
 import { FixtureRouterAbEcdsaStrictRegistrationPort } from '../helpers/routerAbSigningRuntimeTestUtils';
+import { StaticWalletSessionAdapter } from './helpers/routerAbEd25519YaoRegistrationBridge.fixtures';
 
 const WALLET_ID = 'wallet-sync-1';
 const NEAR_ACCOUNT_ID = 'wallet-sync-1.testnet';
@@ -77,42 +91,11 @@ function activeCapabilityFixture(
       lifecycleId: 'sync-account-active-lifecycle',
       rootShareEpoch: 'root-active-v2',
       accountId: WALLET_ID,
-      walletSessionId: 'active-threshold-session-2',
+      thresholdSessionId: parseFixtureThresholdSessionId('active-threshold-session-2'),
       signerSetId: 'signer-set-sync-1',
       signingWorkerId: SIGNING_WORKER_ID,
     },
     stateEpoch: 2,
-  };
-}
-
-function walletSessionFixture(): WalletRegistrationEd25519YaoBootstrapSession {
-  return {
-    sessionKind: 'jwt',
-    walletSessionJwt: 'active.wallet.session.jwt',
-    walletId: walletIdFromString(WALLET_ID),
-    nearAccountId: NEAR_ACCOUNT_ID,
-    nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-    authorityScope: {
-      kind: 'passkey_rp',
-      rpId: requireWebAuthnRpId(RP_ID),
-    },
-    thresholdSessionId: 'active-threshold-session-2',
-    signingGrantId: 'active-signing-grant-2',
-    expiresAtMs: 1_900_000_000_000,
-    participantIds: PARTICIPANT_IDS,
-    remainingUses: 3,
-    signingRootId: 'project-active:env-active',
-    signingRootVersion: 'root-active-v2',
-    runtimePolicyScope: {
-      orgId: 'org-active',
-      projectId: 'project-active',
-      envId: 'env-active',
-      signingRootVersion: 'root-active-v2',
-    },
-    routerAbNormalSigning: {
-      kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
-      signingWorkerId: SIGNING_WORKER_ID,
-    },
   };
 }
 
@@ -224,11 +207,9 @@ class RecordingYaoProductRuntime implements RouterAbEd25519YaoProductRegistratio
   readonly signingWorkerId = SIGNING_WORKER_ID;
   readonly lookupCalls: RouterAbEd25519YaoActiveCapabilityLookupV1[] = [];
   readonly mintCalls: RouterAbEd25519YaoWalletSessionMintInputV1[] = [];
+  private readonly session = new StaticWalletSessionAdapter();
 
-  constructor(
-    private readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1,
-    private readonly walletSession: WalletRegistrationEd25519YaoBootstrapSession,
-  ) {}
+  constructor(private readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1) {}
 
   bindVerifiedIntent(
     _input: Parameters<RouterAbEd25519YaoProductRegistrationRuntimeV1['bindVerifiedIntent']>[0],
@@ -279,7 +260,11 @@ class RecordingYaoProductRuntime implements RouterAbEd25519YaoProductRegistratio
     input: RouterAbEd25519YaoWalletSessionMintInputV1,
   ): Promise<RouterAbEd25519YaoWalletSessionMintResultV1> {
     this.mintCalls.push(input);
-    return { ok: true, session: this.walletSession };
+    return await mintRouterAbEd25519YaoWalletSessionV1({
+      session: this.session,
+      signingWorkerId: SIGNING_WORKER_ID,
+      sessionInput: input,
+    });
   }
 }
 
@@ -295,6 +280,7 @@ function replaceWebAuthnService(
     webAuthn,
     identity: service.identity,
     sessionVersions: service.sessionVersions,
+    authorizationSessions: service.authorizationSessions,
     thresholdRuntime: service.thresholdRuntime,
     nearFunding: service.nearFunding,
     recovery: service.recovery,
@@ -341,7 +327,6 @@ function syncAccountVerifyRequestWithObsoleteSessionPolicy(): Request {
 
 function createBaseService(
   database: Parameters<typeof createCloudflareD1RouterApiAuthService>[0]['database'],
-  walletBudgetGrantProvisioner: RouterAbWalletBudgetGrantProvisionerV1 | null = null,
 ) {
   return createCloudflareD1RouterApiAuthService({
     database,
@@ -352,40 +337,23 @@ function createBaseService(
     relayerAccount: 'relay.testnet',
     relayerPublicKey: 'ed25519:relay-public-key',
     accountIdDerivationSecret: 'sync-account-test-derivation-secret',
-    walletBudgetGrantProvisioner,
     ecdsaStrictRegistration: new FixtureRouterAbEcdsaStrictRegistrationPort(),
   });
-}
-
-class RecordingWalletBudgetGrantProvisioner implements RouterAbWalletBudgetGrantProvisionerV1 {
-  readonly calls: RouterAbWalletBudgetGrantProvisionInputV1[] = [];
-
-  async provisionGrant(input: RouterAbWalletBudgetGrantProvisionInputV1) {
-    this.calls.push(input);
-    return {
-      ok: true as const,
-      signingGrantId: input.signingGrantId,
-      remainingUses: input.initialSignatureUses,
-      reservedUses: 0,
-      availableUses: input.initialSignatureUses,
-      expiresAtMs: input.expiresAtMs,
-    };
-  }
 }
 
 async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
   const temporary = createTemporaryD1Database();
   try {
-    const walletBudgetGrantProvisioner = new RecordingWalletBudgetGrantProvisioner();
-    const baseService = createBaseService(temporary.database, walletBudgetGrantProvisioner);
+    await applyD1MigrationFiles(
+      temporary.database,
+      listD1MigrationFiles('d1-signer'),
+    );
+    const baseService = createBaseService(temporary.database);
     const webAuthn = new RecordingSyncAccountWebAuthnService(
       baseService.webAuthn,
       verifiedEd25519WalletFixture(),
     );
-    const runtime = new RecordingYaoProductRuntime(
-      activeCapabilityFixture(),
-      walletSessionFixture(),
-    );
+    const runtime = new RecordingYaoProductRuntime(activeCapabilityFixture());
     const unexpectedSession = new ThrowingUnexpectedSessionAdapter();
     const router = createCloudflareRouter(replaceWebAuthnService(baseService, webAuthn), {
       session: unexpectedSession,
@@ -393,7 +361,7 @@ async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
     });
 
     const response = await router(syncAccountVerifyRequest());
-    expect(response.status).toBe(200);
+    expect(response.status, await response.clone().text()).toBe(200);
     expect(webAuthn.verificationCalls).toEqual([
       {
         challengeId: 'sync-challenge-1',
@@ -416,52 +384,51 @@ async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
         participantIds: PARTICIPANT_IDS,
       },
     ]);
-    expect(runtime.mintCalls).toEqual([
-      {
-        kind: 'registration_wallet_session_v1',
-        walletId: walletIdFromString(WALLET_ID),
-        nearAccountId: NEAR_ACCOUNT_ID,
-        nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-        authority: buildPasskeyWalletAuthAuthority({
-          walletId: WALLET_ID,
-          rpId: RP_ID,
-          credentialIdB64u: CREDENTIAL_ID,
-        }),
-        thresholdSessionId: 'active-threshold-session-2',
-        participantIds: PARTICIPANT_IDS,
-        runtimePolicyScope: {
-          orgId: 'org-active',
-          projectId: 'project-active',
-          envId: 'env-active',
-          signingRootVersion: 'root-active-v2',
-        },
-      },
-    ]);
-    expect(walletBudgetGrantProvisioner.calls).toEqual([
-      {
+    expect(runtime.mintCalls).toHaveLength(1);
+    const mintCall = runtime.mintCalls[0];
+    expect(mintCall).toMatchObject({
+      kind: 'verified_wallet_unlock_v1',
+      walletId: walletIdFromString(WALLET_ID),
+      nearAccountId: NEAR_ACCOUNT_ID,
+      nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
+      authority: buildPasskeyWalletAuthAuthority({
         walletId: WALLET_ID,
-        signingGrantId: walletSessionFixture().signingGrantId,
-        relyingPartyId: RP_ID,
-        authorizedSigners: [
-          {
-            curve: 'ed25519',
-            threshold_session_id: walletSessionFixture().thresholdSessionId,
-            signing_worker_id: SIGNING_WORKER_ID,
-          },
-        ],
-        initialSignatureUses: walletSessionFixture().remainingUses,
-        expiresAtMs: walletSessionFixture().expiresAtMs,
-        issuerIdempotencyKey: `sync-account:${walletSessionFixture().signingGrantId}`,
+        rpId: RP_ID,
+        credentialIdB64u: CREDENTIAL_ID,
+      }),
+      thresholdSessionId: 'active-threshold-session-2',
+      participantIds: PARTICIPANT_IDS,
+      remainingUses: 3,
+      runtimePolicyScope: {
+        orgId: 'org-active',
+        projectId: 'project-active',
+        envId: 'env-active',
+        signingRootVersion: 'root-active-v2',
       },
-    ]);
-    expect(await response.json()).toMatchObject({
+    });
+    expect(String(mintCall?.walletSessionId)).not.toBe(String(mintCall?.thresholdSessionId));
+    const expectedAuthorityRef = await walletAuthAuthorityRef({
+      authority: buildPasskeyWalletAuthAuthority({
+        walletId: WALLET_ID,
+        rpId: RP_ID,
+        credentialIdB64u: CREDENTIAL_ID,
+      }),
+    });
+    const responseBody = await response.json();
+    expect(responseBody).toMatchObject({
       ok: true,
       verified: true,
       thresholdEd25519: {
-        session: walletSessionFixture(),
+        session: {
+          thresholdSessionId: mintCall?.thresholdSessionId,
+          walletSessionId: mintCall?.walletSessionId,
+          quotaId: mintCall?.quotaId,
+          remainingUses: 3,
+        },
       },
       ed25519YaoRecovery: {
         kind: 'router_ab_ed25519_yao_sync_recovery_v1',
+        authorityRef: expectedAuthorityRef,
         capability: activeCapabilityFixture(),
       },
     });
@@ -506,7 +473,6 @@ async function syncAccountRejectsCapabilityForAnotherNearAccount(): Promise<void
     );
     const runtime = new RecordingYaoProductRuntime(
       activeCapabilityFixture('another-wallet.testnet'),
-      walletSessionFixture(),
     );
     const unexpectedSession = new ThrowingUnexpectedSessionAdapter();
     const router = createCloudflareRouter(replaceWebAuthnService(baseService, webAuthn), {

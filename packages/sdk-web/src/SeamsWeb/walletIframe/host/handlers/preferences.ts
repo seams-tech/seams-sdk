@@ -23,11 +23,14 @@ export function createPreferencesWalletIframeHandlers(deps: HandlerDeps): Handle
         pm.preferences.setCurrentWallet(toWalletId(walletId));
         await pm.auth
           .getWalletSession(walletId)
-          .then(({ login }) => {
-            const existing = (login?.userData?.preferences?.confirmationConfig || {}) as Record<
-              string,
-              unknown
-            >;
+          .then((session) => {
+            const existing =
+              session.appIdentity.kind === 'resolved'
+                ? ((session.appIdentity.userData?.preferences?.confirmationConfig || {}) as Record<
+                    string,
+                    unknown
+                  >)
+                : {};
             patch = { ...existing, ...incoming };
           })
           .catch(() => undefined);

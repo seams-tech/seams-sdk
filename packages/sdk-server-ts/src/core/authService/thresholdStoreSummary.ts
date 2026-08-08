@@ -28,18 +28,10 @@ export function summarizeThresholdStoreConfig(cfg: AuthServiceConfig['thresholdS
 
   const nodeRole = coerceThresholdNodeRole(cfg.THRESHOLD_NODE_ROLE);
   const store = thresholdStoreKind(cfg);
-  const hasSigningRootSecretShares = Boolean(
-    cfg.signingRootShareResolver ||
-      cfg.signingRootShareResolverAdapters ||
-      (cfg.signingRootSharePolicy &&
-        cfg.signingRootShareStore &&
-        cfg.signingRootShareDecryptAdapter),
-  );
   const parts = [
     `thresholdStore: configured`,
     `nodeRole=${nodeRole}`,
     `store=${store}`,
-    `signingRootSecretShares=${hasSigningRootSecretShares ? 'configured' : 'not_configured'}`,
   ];
   return parts.join(' ');
 }

@@ -33,6 +33,18 @@ ed25519-yao-fv-parity:
 ed25519-yao-fv-anti-drift:
   cargo yao-fv anti-drift
 
+# Run production-linked activation/export cases against the clear oracle.
+ed25519-yao-fv-runtime-conformance:
+  cargo yao-fv runtime-conformance-check
+
+# Run the passive Deriver public-shape and cross-session replay boundary check.
+ed25519-yao-fv-passive-public-shape:
+  cargo yao-fv passive-public-shape-check
+
+# Check production public views and conditional passive hybrid bounds.
+ed25519-yao-fv-passive-security:
+  cargo yao-fv passive-security-check
+
 # Build the named Ed25519 Yao Lean model target.
 ed25519-yao-fv-lean:
   cargo yao-fv lean-check
@@ -193,41 +205,6 @@ threshold-prf-bench-gate:
 threshold-prf-wasm-bench:
   node crates/threshold-prf/scripts/wasm-bench.mjs
 
-# Run threshold-prf wasm-bindgen tests under Node.
-threshold-prf-wasm-test:
-  wasm-pack test --node wasm/threshold_prf
-
-# Build the production threshold-prf WASM package and record bundle sizes.
-threshold-prf-wasm-size:
-  node crates/threshold-prf/scripts/wasm-size.mjs
-
-# Build the production threshold-prf WASM package and smoke-test generated JS exports.
-threshold-prf-wasm-smoke:
-  node crates/threshold-prf/scripts/wasm-production-smoke.mjs
-
 # Run the API-neutral private t-of-N interpolation smoke timing harness.
 threshold-prf-t-of-n-prep-bench:
   cargo test --manifest-path crates/threshold-prf/Cargo.toml benchmark_private -- --ignored --nocapture --test-threads=1
-
-# Build the threshold-prf Cloudflare Worker benchmark fixture.
-threshold-prf-worker-bench-build:
-  node crates/threshold-prf/scripts/worker-bench-build.mjs
-
-# Run the threshold-prf Worker benchmark fixture locally with Wrangler.
-threshold-prf-worker-bench-dev:
-  just threshold-prf-worker-bench-build
-  cd crates/threshold-prf/worker-bench && pnpm exec wrangler dev
-
-# Check that warm local Worker requests reuse initialized threshold-prf WASM state.
-threshold-prf-worker-bench-init-check:
-  just threshold-prf-worker-bench-build
-  node crates/threshold-prf/scripts/worker-bench-init-check.mjs
-
-# Deploy the threshold-prf Worker benchmark fixture with Wrangler.
-threshold-prf-worker-bench-deploy:
-  just threshold-prf-worker-bench-build
-  cd crates/threshold-prf/worker-bench && pnpm exec wrangler deploy
-
-# Collect samples from a deployed threshold-prf Worker benchmark URL.
-threshold-prf-worker-bench-run url:
-  node crates/threshold-prf/scripts/worker-bench-run.mjs {{url}}

@@ -18,6 +18,7 @@ import {
   type FreshStepUpSatisfiedForAdmission,
   type FreshStepUpRequired,
 } from './stepUpFreshness';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
 const walletId = toWalletId('wallet.testnet');
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
@@ -26,26 +27,25 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
 });
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId,
-  evmFamilySigningKeySlotId: 'wallet-key-localhost',
   ecdsaThresholdKeyId: 'ederivation-step-up',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
   participantIds: [1, 2],
   thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
 });
+declare const materialActivation: MpcMaterialActivationRef;
 const laneIdentity = exactEcdsaSigningLaneIdentity({
   signer: buildEvmFamilyEcdsaSignerBinding({
     walletId,
     chainTarget,
     key,
+    materialActivation,
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
   }),
   auth: {
     kind: 'email_otp',
     providerSubjectId: 'google:subject-1',
   },
-  signingGrantId: SigningSessionIds.signingGrant('wallet-session'),
-  thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('threshold-session'),
 });
 
 const satisfied = buildFreshStepUpSatisfied({
@@ -108,8 +108,7 @@ const missingOperationFingerprint: FreshStepUpRequired = {
   curve: 'ecdsa',
   laneIdentity,
   laneIdentityKey: satisfied.laneIdentityKey,
-  signingGrantId: satisfied.signingGrantId,
-  thresholdSessionIds: satisfied.thresholdSessionIds,
+  authority: satisfied.authority,
   projection: { kind: 'unavailable', reason: 'email_otp_refresh_rejected' },
   expiry: { kind: 'unavailable', reason: 'email_otp_refresh_rejected' },
   provenance: { kind: 'email_otp_refresh_boundary', httpStatus: 401, observedAtMs: 1 },

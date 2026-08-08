@@ -24,7 +24,6 @@ type ResourceInventoryPlan = {
       readonly d1Databases: readonly unknown[];
       readonly durableObjects: readonly unknown[];
       readonly durableObjectMigrations: readonly unknown[];
-      readonly secretsStoreSecrets: readonly unknown[];
     };
   };
   readonly commands: readonly {
@@ -105,13 +104,6 @@ test('D1 staging resource inventory records config-derived resource IDs', async 
   expect(plan.resources.gatewayWorker.d1Databases).toHaveLength(2);
   expect(plan.resources.gatewayWorker.durableObjects).toEqual([]);
   expect(plan.resources.gatewayWorker.durableObjectMigrations).toEqual([]);
-  expect(plan.resources.gatewayWorker.secretsStoreSecrets).toEqual([
-    {
-      binding: 'SIGNING_ROOT_KEK_STAGING_R1',
-      storeId: '33333333333333333333333333333333',
-      secretName: 'signing-root-kek-staging-r1',
-    },
-  ]);
 });
 
 test('D1 staging resource inventory dry-run writes a manifest without remote commands', async () => {

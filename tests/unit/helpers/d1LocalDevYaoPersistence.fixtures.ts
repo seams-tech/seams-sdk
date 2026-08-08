@@ -40,12 +40,12 @@ import { D1WalletStore } from '../../../packages/sdk-server-ts/src/core/d1Wallet
 import {
   buildYaoEd25519WalletSignerRecord,
   ed25519NearPublicKeyFromBytes,
-} from '../../../packages/sdk-server-ts/src/router/cloudflare/d1Ed25519YaoWalletSigner';
-import type { CfExecutionContext } from '../../../packages/sdk-server-ts/src/router/cloudflare/cloudflare.types';
+} from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
+import type { CfExecutionContext } from '../../../packages/sdk-server-ts/src/router/cloudflare/runtime/cloudflare.types';
 import { createHmacSessionAdapter } from '../../../packages/console-server-ts/src/router/cloudflare/d1StagingSession';
-import { buildRouterAbEd25519YaoRegistrationCapabilityRecordV1 } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
-import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
-import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
+import { buildRouterAbEd25519YaoRegistrationCapabilityRecordV1 } from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
+import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoProductRegistrationPartitionedStateStore';
+import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
 import type { D1DatabaseLike } from '../../../packages/sdk-server-ts/src/storage/tenantRoute';
 import type { CloudflareServiceBindingFetcher } from '../../../packages/console-server-ts/src/router/cloudflare/routerAbServiceBindings';
 import localD1DevWorker from '../../../packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker';
@@ -67,6 +67,18 @@ const LOCAL_SESSION_ISSUER = 'seams-local-d1-relay';
 const LOCAL_SESSION_AUDIENCE = 'seams-local-d1';
 const LOCAL_ORIGIN = 'http://127.0.0.1:8787';
 const EMAIL_PROVIDER_SUBJECT_ID = 'google:local-yao-user';
+
+function localMaterialActivation(lifecycleBinding: string) {
+  return {
+    kind: 'mpc_material_activation_ref' as const,
+    activation_id: `activation:${lifecycleBinding}`,
+    capability: 'capability:local-existing-yao',
+    material_owner: localWalletId(),
+    key_binding: 'key:local-existing-yao',
+    lifecycle_binding: lifecycleBinding,
+    signing_worker: SIGNING_WORKER_ID,
+  };
+}
 
 type LocalD1DevWorkerEnv = Parameters<typeof localD1DevWorker.fetch>[1];
 type RegistrationBinding = RouterAbEd25519YaoActivationBindingV1<'registration'>;
@@ -317,7 +329,7 @@ export function buildLocalYaoRegistrationFixture(lifecycleId: string) {
       lifecycle_id: lifecycleId,
       root_share_epoch: ROOT_SHARE_EPOCH,
       account_id: walletId,
-      wallet_session_id: `wallet-session-${lifecycleId}`,
+      threshold_session_id: `wallet-session-${lifecycleId}`,
       signer_set_id: 'ed25519:1',
       signing_worker_id: SIGNING_WORKER_ID,
     },
@@ -381,8 +393,9 @@ export async function buildLocalYaoExistingWalletFixture(input: {
         nearEd25519SigningKeyId:
           capability.admissionRequest.application_binding.near_ed25519_signing_key_id,
         signerSlot: capability.admissionRequest.application_binding.key_creation_signer_slot,
-        thresholdSessionId: capability.admissionRequest.scope.wallet_session_id,
-        signingGrantId: localSigningGrantId(),
+        thresholdSessionId: capability.admissionRequest.scope.threshold_session_id,
+        walletSessionId: localWalletSessionId(),
+        quotaId: localWalletSessionQuotaId(),
         signingWorkerId: capability.admissionRequest.scope.signing_worker_id,
         participantIds: capability.admissionRequest.participant_ids,
       }),
@@ -391,8 +404,9 @@ export async function buildLocalYaoExistingWalletFixture(input: {
     exportAdmission: {
       protocol: exportAdmission,
       authorizationIdentity: {
-        thresholdSessionId: capability.admissionRequest.scope.wallet_session_id,
-        signingGrantId: localSigningGrantId(),
+        walletSessionId: localWalletSessionId(),
+        quotaId: localWalletSessionQuotaId(),
+        thresholdSessionId: capability.admissionRequest.scope.threshold_session_id,
       },
       authorization: {
         kind: 'email_otp_factor' as const,
@@ -543,6 +557,7 @@ function activationResult(binding: RegistrationBinding | RecoveryBinding) {
       joined_signing_worker_commitment: bytes(64),
       signing_worker_verifying_share: bytes(64),
       state_epoch: stateEpoch,
+      material_activation: binding.material_activation,
     },
   };
 }
@@ -554,9 +569,10 @@ async function buildLocalRegistrationCapability(): Promise<WalletEd25519YaoActiv
         lifecycle_id: 'registration-local-existing-wallet',
         root_share_epoch: ROOT_SHARE_EPOCH,
         account_id: localWalletId(),
-        wallet_session_id: localWalletSessionId(),
+        threshold_session_id: localWalletSessionId(),
         signer_set_id: 'ed25519:1',
         signing_worker_id: SIGNING_WORKER_ID,
+        material_activation: localMaterialActivation('registration-local-existing-wallet'),
       },
       application_binding: {
         wallet_id: localWalletId(),
@@ -574,7 +590,7 @@ async function buildLocalRegistrationCapability(): Promise<WalletEd25519YaoActiv
       primitive_request_kind: 'registration',
       root_share_epoch: admissionRequest.scope.root_share_epoch,
       account_id: admissionRequest.scope.account_id,
-      session_id: admissionRequest.scope.wallet_session_id,
+      session_id: admissionRequest.scope.threshold_session_id,
       signer_set_id: admissionRequest.scope.signer_set_id,
       selected_server_id: admissionRequest.scope.signing_worker_id,
     },
@@ -584,6 +600,7 @@ async function buildLocalRegistrationCapability(): Promise<WalletEd25519YaoActiv
       admissionRequest.application_binding,
       admissionRequest.participant_ids,
     ),
+    material_activation: admissionRequest.scope.material_activation,
   };
   const registrationResult = requireParsed(
     parseRouterAbEd25519YaoRegistrationActivationResultV1(activationResult(binding)),
@@ -620,7 +637,7 @@ async function persistLocalCapability(
       nearAccountId: capability.nearAccountId,
       nearEd25519SigningKeyId:
         capability.admissionRequest.application_binding.near_ed25519_signing_key_id,
-      thresholdSessionId: capability.admissionRequest.scope.wallet_session_id,
+      thresholdSessionId: capability.admissionRequest.scope.threshold_session_id,
       signerSlot: capability.admissionRequest.application_binding.key_creation_signer_slot,
       publicKey: ed25519NearPublicKeyFromBytes(
         capability.activationResult.public_receipt.registered_public_key,
@@ -653,8 +670,10 @@ async function issueLocalWalletSessionToken(
     nearAccountId: capability.nearAccountId,
     nearEd25519SigningKeyId:
       capability.admissionRequest.application_binding.near_ed25519_signing_key_id,
-    thresholdSessionId: capability.admissionRequest.scope.wallet_session_id,
-    signingGrantId: localSigningGrantId(),
+    thresholdSessionId: capability.admissionRequest.scope.threshold_session_id,
+    authorizationId: localWalletAuthorizationId(),
+    walletSessionId: localWalletSessionId(),
+    quotaId: localWalletSessionQuotaId(),
     relayerKeyId: SIGNING_WORKER_ID,
     authority,
     authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
@@ -684,10 +703,12 @@ function localRecoveryAdmission(
         lifecycle_id: lifecycleId,
         root_share_epoch: ROOT_SHARE_EPOCH,
         account_id: localWalletId(),
-        wallet_session_id: localWalletSessionId(),
+        threshold_session_id: localWalletSessionId(),
         signer_set_id: 'ed25519:1',
         signing_worker_id: SIGNING_WORKER_ID,
+        material_activation: localMaterialActivation(`${lifecycleId}-replacement`),
       },
+      active_material_activation: capability.admissionRequest.scope.material_activation,
       application_binding: capability.admissionRequest.application_binding,
       participant_ids: capability.admissionRequest.participant_ids,
       active_capability_binding: capability.activeCapabilityBinding,
@@ -707,9 +728,10 @@ async function localExportAdmission(
       lifecycle_id: lifecycleId,
       root_share_epoch: ROOT_SHARE_EPOCH,
       account_id: localWalletId(),
-      wallet_session_id: localWalletSessionId(),
+      threshold_session_id: localWalletSessionId(),
       signer_set_id: 'ed25519:1',
       signing_worker_id: SIGNING_WORKER_ID,
+      material_activation: capability.admissionRequest.scope.material_activation,
     },
     application_binding: capability.admissionRequest.application_binding,
     participant_ids: capability.admissionRequest.participant_ids,
@@ -733,8 +755,6 @@ async function localExportAdmission(
     nonce,
     issuedAtMs,
     expiresAtMs,
-    thresholdSessionId: localWalletSessionId(),
-    signingGrantId: localSigningGrantId(),
     authority: { kind: 'email_otp', providerSubjectId: EMAIL_PROVIDER_SUBJECT_ID },
   });
   return requireParsed(
@@ -816,8 +836,12 @@ function localWalletSessionId(): string {
   return 'wallet-session-local-existing-yao';
 }
 
-function localSigningGrantId(): string {
-  return 'signing-grant-local-existing-yao';
+function localWalletAuthorizationId(): string {
+  return 'authorization-grant-local-existing-yao';
+}
+
+function localWalletSessionQuotaId(): string {
+  return 'wallet-session-quota-local-existing-yao';
 }
 
 function localNearSigningKeyId(): string {

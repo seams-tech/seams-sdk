@@ -1,6 +1,9 @@
 import type { ProgressPayload } from '../../shared/messages';
 import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
 import { respondOk, respondOkResult } from './shared';
+import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
+import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
+import { requireTempoFeeTokenPreferenceSigningRequest } from '@/core/signingEngine/chains/tempo/feeToken';
 
 export function createEcdsaTempoWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
   return {
@@ -24,18 +27,68 @@ export function createEcdsaTempoWalletIframeHandlers(deps: HandlerDeps): Handler
       const pm = deps.getSeamsWeb();
       const { walletSession, request, chainTarget, options } = req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
-      const result = await pm.tempo.signTempo({
-        walletSession,
-        request,
-        chainTarget,
-        options: {
-          confirmationConfig: options?.confirmationConfig,
-          shouldAbort: () => deps.isCancelled(req.requestId),
-          onEvent: (ev) => {
-            deps.postProgress(req.requestId, ev as unknown as ProgressPayload);
-          },
+      const signOptions = {
+        confirmationConfig: options?.confirmationConfig,
+        shouldAbort: () => deps.isCancelled(req.requestId),
+        onEvent: (ev: Parameters<typeof deps.postProgress>[1]) => {
+          deps.postProgress(req.requestId, ev as unknown as ProgressPayload);
         },
-      });
+      };
+      let result: TempoSignedResult | EvmSignedResult;
+      switch (req.payload!.operationKind) {
+        case 'tempo_transaction': {
+          if (request.chain !== 'tempo') {
+            throw new Error('[wallet-iframe] Tempo operation requires a Tempo request');
+          }
+          if (chainTarget.kind !== 'tempo') {
+            throw new Error('[wallet-iframe] Tempo request requires a Tempo target');
+          }
+          result = await pm.tempo.signTempo({
+            walletSession,
+            request,
+            chainTarget,
+            options: signOptions,
+          });
+          break;
+        }
+        case 'evm_transaction': {
+          if (request.chain !== 'evm') {
+            throw new Error('[wallet-iframe] EVM operation requires an EVM request');
+          }
+          if (chainTarget.kind !== 'evm') {
+            throw new Error('[wallet-iframe] EVM request requires an EVM target');
+          }
+          result = await pm.evm.signTransaction({
+            walletSession,
+            request,
+            chainTarget,
+            options: signOptions,
+          });
+          break;
+        }
+        case 'tempo_fee_token_preference': {
+          if (request.chain !== 'evm' || chainTarget.kind !== 'tempo') {
+            throw new Error(
+              '[wallet-iframe] Tempo fee-token operation requires an EVM request and Tempo target',
+            );
+          }
+          const exactRequest = requireTempoFeeTokenPreferenceSigningRequest({
+            request,
+            chainTarget,
+          });
+          result = await pm.signTempoFeeTokenPreferenceInternal({
+            walletSession,
+            request: exactRequest,
+            chainTarget,
+            confirmationConfigOverride: signOptions.confirmationConfig,
+            shouldAbort: signOptions.shouldAbort,
+            onEvent: signOptions.onEvent,
+          });
+          break;
+        }
+        default:
+          throw new Error('[wallet-iframe] unsupported EVM-family signing operation');
+      }
       if (deps.respondIfCancelled(req.requestId)) return;
       respondOkResult(deps, req.requestId, result);
     },

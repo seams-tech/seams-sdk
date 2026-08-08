@@ -1,190 +1,258 @@
-import { SigningEventPhase } from '@/core/types/sdkSentEvents';
-import { secureRandomId } from '@shared/utils/secureRandomId';
-import { SigningSessionIds } from '../../session/operationState/types';
-import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
 import type {
-  SigningOperationContext,
-  SigningOperationId,
   SigningSessionPlan,
+  SigningOperationContext,
 } from '../../session/operationState/types';
-import {
-  SigningOperationCommandKind,
-  runSigningOperationCommandTrace,
-  type SigningOperationTransitionObserver,
-} from '../shared/signingStateMachine';
-import {
-  createSigningBoundaryTraceEvent,
-  emitSigningBoundaryTrace,
-  emitSigningSessionFlowTrace,
-} from '../../session/operationState/trace';
+import type { SigningOperationTransitionObserver } from '../shared/signingStateMachine';
 import type { EvmFamilySigningDeps } from '../../interfaces/operationDeps';
-import { emitEvmFamilySigningEvent, emitEvmFamilySigningOperationTrace } from './events';
-import { throwIfEvmFamilySigningCancelled } from './errors';
 import type { EvmFamilyLifecycleEventCallback, EvmFamilySenderSignatureAlgorithm } from './types';
 import { loadSecp256k1EngineCtor, loadWebAuthnP256EngineCtor } from './signerLoader';
-import type { EcdsaSigningMaterialPlan } from './signingFlow';
-import { createEvmFamilyWarmSessionServices } from './warmSessionServices';
-import { ensureEvmFamilyThresholdEcdsaRecordReady } from './ecdsaReadiness';
-import {
-  readSelectedEcdsaRecordForLane,
-  validateSelectedEcdsaRecordCandidateForLane,
-  type ResolvedEvmFamilyEcdsaSigningLane,
-} from './ecdsaLanes';
-import { requireEvmFamilyEcdsaSigner } from '../../session/identity/exactSigningLaneIdentity';
-import { type ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
-import type { EvmSigningRequest } from '../../chains/evm/evmSigning.types';
-import type { TempoSigningRequest } from '../../chains/tempo/tempoSigning.types';
-import {
-  buildEcdsaSessionPolicy,
-  type ThresholdRuntimePolicyScope,
-} from '../../threshold/sessionPolicy';
-import {
-  buildEcdsaSessionIdentity,
-  buildEcdsaSigningKeyContextFromRecord,
-  type EcdsaSigningKeyContext,
-} from '../../session/warmCapabilities/ecdsaProvisionPlan';
-import { resolveThresholdSigningRootBindingFromRecord } from '../../session/identity/evmFamilyEcdsaIdentity';
-import type { EvmFamilyThresholdEcdsaReauthResult } from './thresholdAdmission';
+import type { EcdsaSigningMaterialPlan, SupersededEcdsaSigningMaterial } from './signingFlow';
 import type { EvmFamilyThresholdEcdsaStepUpRuntime } from './requireEvmFamilyStepUpAuth';
 import type { EvmFamilySigningAuthSideEffect } from './freshAuthRetryPolicy';
-import { buildReadySecp256k1SigningMaterialFromRecord } from './readySecp256k1Material';
+import {
+  attachReusableEcdsaWalletSessionAuthorization,
+  resolveHydratedSecp256k1SigningMaterial,
+} from './readySecp256k1Material';
+import { resolveExactEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
+import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import type {
   ThresholdEcdsaChainTarget,
+  WalletId,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  configuredThresholdEcdsaChainTargets,
-  toWalletId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  buildEvmFamilyPasskeyEcdsaProvisionPlan,
-  buildEvmFamilyWarmSessionReconnectPlan,
-} from './provisionPlan';
-import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../../session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
-import {
-  normalizeStepUpOperationId,
-  resolvePostExhaustionStepUpBudgetPolicy,
-  resolveSigningBudgetPolicyRemainingUses,
-} from '../../session/budget/policy';
-import {
-  computeEcdsaDerivationRoleLocalPasskeyBootstrapAuthDigest32B64u,
-  computeEcdsaDerivationRoleLocalRelayerKeyId,
-} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { EvmSigningRequest } from '../../chains/evm/evmSigning.types';
+import type { TempoSigningRequest } from '../../chains/tempo/tempoSigning.types';
+import { requireEvmFamilyEcdsaSigner } from '../../session/identity/exactSigningLaneIdentity';
+import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
 
-type PasskeyEcdsaReconnectMaterial = {
-  kind: 'session_record';
-  record: ThresholdEcdsaSessionRecord;
-};
+/** The exact material activation the signer binding names. Signing serializes
+ * per activation, so this is the only identity the runtime needs — no selected
+ * lane, and therefore no authorization. */
+type EvmFamilyEcdsaMaterialActivation = ReturnType<
+  typeof requireEvmFamilyEcdsaSigner
+>['materialActivation'];
+import {
+  authorizeEvmFamilyEcdsaOperationStepUp,
+  prepareEvmFamilyEcdsaOperationStepUp,
+} from './thresholdAdmission';
+import { emitEvmFamilySigningOperationTrace } from './events';
+import { resolveThresholdEcdsaSigningQueueKey } from '../../threshold/ecdsa/signingQueue';
+import type {
+  ActiveEvmFamilyWalletSessionAuthorization,
+  CanonicalEvmFamilyEcdsaSigningCapability,
+} from '../../session/material/ecdsaSigningCapability';
+import type { ActiveEcdsaCapabilityManifest } from '../../session/material/ecdsaCapabilityManifest';
 
-function signingKeyContextFromPasskeyEcdsaReconnectMaterial(
-  material: PasskeyEcdsaReconnectMaterial,
-): EcdsaSigningKeyContext {
-  return buildEcdsaSigningKeyContextFromRecord(material.record);
-}
-
-function relayerKeyIdFromPasskeyEcdsaReconnectMaterial(
-  material: PasskeyEcdsaReconnectMaterial,
-): string {
-  return String(material.record.relayerKeyId || '').trim();
-}
-
-function runtimePolicyScopeForPasskeyEcdsaReconnect(args: {
-  material: PasskeyEcdsaReconnectMaterial;
-  signingRootBinding: ReturnType<typeof resolveThresholdSigningRootBindingFromRecord>;
-}): ThresholdRuntimePolicyScope {
-  const runtimePolicyScope = args.material.record.runtimePolicyScope;
-  if (!runtimePolicyScope) {
-    throw new Error('[SigningEngine] passkey ECDSA reconnect requires runtimePolicyScope');
+function signerAuthMethodForWalletAuthority(authority: WalletAuthAuthority): SignerAuthMethod {
+  switch (authority.factor.kind) {
+    case 'passkey':
+      return 'passkey';
+    case 'email_otp':
+      return 'email_otp';
+    default:
+      authority.factor satisfies never;
+      throw new Error('[SigningEngine] unsupported wallet authorization factor');
   }
-  const signingRootId = String(args.signingRootBinding.signingRootId || '').trim();
-  const separator = signingRootId.lastIndexOf(':');
-  if (separator <= 0 || separator >= signingRootId.length - 1) {
-    throw new Error('[SigningEngine] passkey ECDSA reconnect requires project:env signingRootId');
+}
+
+async function runSerializedEcdsaMaterialUse<T>(
+  args: {
+    deps: EvmFamilySigningDeps;
+    walletId: WalletId;
+    materialActivation: EvmFamilyEcdsaMaterialActivation;
+    shouldAbort?: () => boolean;
+  },
+  task: () => Promise<T>,
+): Promise<T> {
+  return await args.deps.withThresholdEcdsaSigningQueue({
+    queueKey: resolveThresholdEcdsaSigningQueueKey({
+      materialActivation: args.materialActivation,
+    }),
+    walletId: args.walletId,
+    enabled: true,
+    ...(args.shouldAbort ? { shouldAbort: args.shouldAbort } : {}),
+    task,
+  });
+}
+
+function requireEvmFamilyRelayerUrl(deps: EvmFamilySigningDeps): string {
+  const relayerUrl = String(deps.seamsWebConfigs.network.relayer?.url || '').trim();
+  if (!relayerUrl) {
+    throw new Error('[SigningEngine] EVM-family signing requires relayerUrl');
+  }
+  return relayerUrl;
+}
+
+/** R90-INV-010. The wallet's active manifest names the material that may be
+ * used right now. When it has moved on from the one this operation was prepared
+ * against, the preparation is superseded -- material activation is advance-only,
+ * so the prepared side is always the stale one. That is a re-resolution, not a
+ * failure and not a request for the wrong material. */
+export function ecdsaSigningMaterialSupersession(args: {
+  preparedMaterialActivation: EvmFamilyEcdsaMaterialActivation;
+  currentMaterialActivation: EvmFamilyEcdsaMaterialActivation;
+}): SupersededEcdsaSigningMaterial | null {
+  if (
+    mpcMaterialActivationRefsEqual(args.currentMaterialActivation, args.preparedMaterialActivation)
+  ) {
+    return null;
   }
   return {
-    ...runtimePolicyScope,
-    projectId: signingRootId.slice(0, separator),
-    envId: signingRootId.slice(separator + 1),
-    signingRootVersion: String(args.signingRootBinding.signingRootVersion || 'default'),
+    kind: 'superseded',
+    supersessionKind: 'material_activation_replaced',
+    preparedMaterialActivation: args.preparedMaterialActivation,
+    currentMaterialActivation: args.currentMaterialActivation,
   };
 }
 
-function readPasskeyEcdsaReconnectMaterialForLane(args: {
-  deps: EvmFamilySigningDeps;
-  lane?: ResolvedEvmFamilyEcdsaSigningLane;
-  preparedRecord?: ThresholdEcdsaSessionRecord;
-}): PasskeyEcdsaReconnectMaterial | undefined {
-  const preparedRecord = validateSelectedEcdsaRecordCandidateForLane({
-    lane: args.lane,
-    record: args.preparedRecord,
-    context: 'passkey ECDSA reconnect',
+export function ecdsaSigningCapabilitySupersession(args: {
+  preparedCapability: CanonicalEvmFamilyEcdsaSigningCapability;
+  currentManifest: ActiveEcdsaCapabilityManifest;
+}): SupersededEcdsaSigningMaterial | null {
+  const preparedManifest = args.preparedCapability.manifest;
+  const preparedActivation = preparedManifest.activation.materialActivation;
+  const currentActivation = args.currentManifest.activation.materialActivation;
+  const activationSupersession = ecdsaSigningMaterialSupersession({
+    preparedMaterialActivation: preparedActivation,
+    currentMaterialActivation: currentActivation,
   });
-  if (preparedRecord) return { kind: 'session_record', record: preparedRecord };
-  const record = readSelectedEcdsaRecordForLane({ deps: args.deps, lane: args.lane });
-  if (record) return { kind: 'session_record', record };
-  return undefined;
+  if (activationSupersession) return activationSupersession;
+  const preparedSigner = preparedManifest.signer;
+  const currentSigner = args.currentManifest.signer;
+  if (
+    String(preparedManifest.identity.manifestId) ===
+      String(args.currentManifest.identity.manifestId) &&
+    Number(preparedManifest.identity.manifestRevision) ===
+      Number(args.currentManifest.identity.manifestRevision) &&
+    String(preparedSigner.capability) === String(currentSigner.capability) &&
+    String(preparedSigner.authority.walletId) === String(currentSigner.authority.walletId) &&
+    String(preparedSigner.authority.authorityDigest) ===
+      String(currentSigner.authority.authorityDigest)
+  ) {
+    return null;
+  }
+  return {
+    kind: 'superseded',
+    supersessionKind: 'capability_authority_replaced',
+    preparedMaterialActivation: preparedActivation,
+    currentMaterialActivation: currentActivation,
+  };
 }
 
-function resolveEvmFamilyStepUpOperationId(
-  operation: SigningOperationContext | undefined,
-): SigningOperationId {
-  return normalizeStepUpOperationId(
-    operation?.operationId ||
-      SigningSessionIds.signingOperation('evm-family-post-exhaustion-step-up'),
-  );
-}
-
-type EvmFamilyThresholdEcdsaRecordUpdate = {
-  record: ThresholdEcdsaSessionRecord;
-};
-
-type EvmFamilyThresholdEcdsaRecordUpdateResult = EvmFamilyThresholdEcdsaReauthResult;
-
-function requirePlannedReconnectSessionIdentity(args: {
-  sessionId: string;
-  signingGrantId: string;
-}): {
-  thresholdSessionId: string;
-  signingGrantId: string;
-} {
-  return buildEcdsaSessionIdentity({
-    thresholdSessionId: args.sessionId,
-    signingGrantId: args.signingGrantId,
-  });
-}
-
-function generateEvmFamilyEcdsaBootstrapRequestId(): string {
-  return secureRandomId('tecdsa-keygen', 32, 'EVM family ECDSA bootstrap request IDs');
+export function ecdsaSigningAuthorizationSupersession(args: {
+  preparedAuthorization: ActiveEvmFamilyWalletSessionAuthorization;
+  currentAuthorization: ActiveEvmFamilyWalletSessionAuthorization | null;
+  materialActivation: EvmFamilyEcdsaMaterialActivation;
+}): SupersededEcdsaSigningMaterial | null {
+  const prepared = args.preparedAuthorization.projection;
+  const currentAuthorization = args.currentAuthorization;
+  const current = currentAuthorization?.projection;
+  if (
+    currentAuthorization &&
+    current &&
+    String(current.walletId) === String(prepared.walletId) &&
+    String(current.walletSessionId) === String(prepared.walletSessionId) &&
+    String(current.authorizationId) === String(prepared.authorizationId) &&
+    String(current.quotaId) === String(prepared.quotaId) &&
+    String(currentAuthorization.status.walletSessionId) ===
+      String(args.preparedAuthorization.status.walletSessionId) &&
+    String(currentAuthorization.status.quotaId) ===
+      String(args.preparedAuthorization.status.quotaId) &&
+    String(current.authority.authorityDigest) === String(prepared.authority.authorityDigest)
+  ) {
+    return null;
+  }
+  return {
+    kind: 'superseded',
+    supersessionKind: 'reusable_authorization_replaced',
+    preparedMaterialActivation: args.materialActivation,
+    currentMaterialActivation: args.materialActivation,
+  };
 }
 
 async function resolveEcdsaSigningMaterialHydrationPlan(args: {
-  record: ThresholdEcdsaSessionRecord | undefined;
-  requestLabel: unknown;
-  evmFamilySigningKeySlotId: unknown;
+  capability: CanonicalEvmFamilyEcdsaSigningCapability;
+  preparedAuthorization: ActiveEvmFamilyWalletSessionAuthorization | null;
+  currentAuthorization: ActiveEvmFamilyWalletSessionAuthorization | null;
+  walletId: WalletId;
+  chainTarget: ThresholdEcdsaChainTarget;
+  materialActivation: EvmFamilyEcdsaMaterialActivation;
+  relayerUrl: string;
   workerCtx: ReturnType<EvmFamilySigningDeps['getSignerWorkerContext']>;
 }): Promise<EcdsaSigningMaterialPlan> {
-  if (!args.record) return { kind: 'unavailable', reason: 'missing_record' };
-  try {
-    const material = await buildReadySecp256k1SigningMaterialFromRecord({
-      record: args.record,
-      requestLabel: args.requestLabel,
-      evmFamilySigningKeySlotId: args.evmFamilySigningKeySlotId,
-      workerCtx: args.workerCtx,
-    });
-    return { kind: 'material_from_runtime_validated_record', material };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('evmFamilySigningKeySlotId mismatch')) {
-      return { kind: 'unavailable', reason: 'rp_id_mismatch' };
-    }
-    if (message.includes('chain mismatch')) {
-      return { kind: 'unavailable', reason: 'chain_mismatch' };
-    }
-    if (message.includes('fresh Email OTP verification')) {
-      return { kind: 'unavailable', reason: 'single_use_email_otp_consumed' };
-    }
-    throw error;
+  // Resolve the active capability material first. Reusable authorization is
+  // checked separately; without it, the hydrated material requires operation
+  // step-up authorization.
+  const activeRuntimeResolution = await resolveExactEcdsaCapabilityRuntime({
+    manifest: args.capability.manifest,
+    chainTarget: args.chainTarget,
+    relayerUrl: args.relayerUrl,
+  });
+  if (activeRuntimeResolution.kind !== 'resolved') {
+    return {
+      kind: 'failed',
+      failure: { kind: 'unavailable', reason: 'runtime_correlation_mismatch' },
+    };
   }
+  const superseded = ecdsaSigningCapabilitySupersession({
+    preparedCapability: args.capability,
+    currentManifest: activeRuntimeResolution.manifest,
+  });
+  if (superseded) return { kind: 'superseded', replacement: superseded };
+  if (args.preparedAuthorization) {
+    const authorizationSupersession = ecdsaSigningAuthorizationSupersession({
+      preparedAuthorization: args.preparedAuthorization,
+      currentAuthorization: args.currentAuthorization,
+      materialActivation: args.materialActivation,
+    });
+    if (authorizationSupersession) {
+      return { kind: 'superseded', replacement: authorizationSupersession };
+    }
+  }
+  const resolution = await resolveHydratedSecp256k1SigningMaterial({
+    capability: args.capability,
+    runtime: activeRuntimeResolution.runtime,
+    chainTarget: args.chainTarget,
+    materialActivation: args.materialActivation,
+    workerCtx: args.workerCtx,
+  });
+  if (resolution.kind === 'unavailable') {
+    return { kind: 'failed', failure: resolution };
+  }
+  if (!args.preparedAuthorization) {
+    return {
+      kind: 'authorization_required',
+      requirement: {
+        kind: 'material_for_step_up',
+        material: resolution.material,
+      },
+    };
+  }
+  if (!args.currentAuthorization) {
+    return {
+      kind: 'superseded',
+      replacement: {
+        kind: 'superseded',
+        supersessionKind: 'reusable_authorization_replaced',
+        preparedMaterialActivation: args.materialActivation,
+        currentMaterialActivation: args.materialActivation,
+      },
+    };
+  }
+  return {
+    kind: 'ready',
+    value: {
+      kind: 'material_from_canonical_capability',
+      material: attachReusableEcdsaWalletSessionAuthorization({
+        material: resolution.material,
+        capability: args.capability,
+        authorization: args.currentAuthorization,
+      }),
+    },
+  };
 }
 
 export async function createEvmFamilySigningFlowRuntime(args: {
@@ -201,332 +269,117 @@ export async function createEvmFamilySigningFlowRuntime(args: {
   onAuthSideEffectStarted?: (sideEffect: EvmFamilySigningAuthSideEffect) => void;
   signingOperation?: SigningOperationContext;
   onSigningOperationTransition?: SigningOperationTransitionObserver;
-  getThresholdEcdsaRecord: () => ThresholdEcdsaSessionRecord | undefined;
-  setThresholdEcdsaRecord: (
-    update: EvmFamilyThresholdEcdsaRecordUpdate,
-  ) =>
-    | Promise<EvmFamilyThresholdEcdsaRecordUpdateResult>
-    | EvmFamilyThresholdEcdsaRecordUpdateResult;
-  getResolvedEcdsaSigningLane: () => ResolvedEvmFamilyEcdsaSigningLane;
+  // The exact material identity, whether or not a reusable Wallet Session
+  // authorizes it. Everything below is resolved from wallet, chain target and
+  // material activation.
+  getEcdsaSigningLaneIdentity: () => ExactEcdsaSigningLaneIdentity;
 }) {
   const [Secp256k1Engine, WebAuthnP256Engine] = await Promise.all([
     loadSecp256k1EngineCtor(),
     loadWebAuthnP256EngineCtor(),
   ]);
-  const signerWorkerCtx = args.deps.getSignerWorkerContext();
+  const workerCtx = args.deps.getSignerWorkerContext();
   const ctx = args.deps.touchConfirm.getContext();
-  const warmSessionServices = createEvmFamilyWarmSessionServices(args.deps);
   const walletId = toWalletId(args.walletSession.walletId);
-  const requestChainId = args.chainTarget.chainId;
-  const requestChainTarget = args.chainTarget;
-  const configuredEcdsaChainTargets = configuredThresholdEcdsaChainTargets(
-    args.deps.seamsWebConfigs.network.chains,
-  );
-  const postExhaustionStepUpBudgetPolicy = resolvePostExhaustionStepUpBudgetPolicy({
-    operationId: resolveEvmFamilyStepUpOperationId(args.signingOperation),
-    requiredSignatureUses: 1,
-  });
-  const postExhaustionStepUpSessionBudgetUses = resolveSigningBudgetPolicyRemainingUses(
-    postExhaustionStepUpBudgetPolicy,
-  );
-  const runRuntimeCommand = async <T>(
-    commandKind:
-      | typeof SigningOperationCommandKind.RequestOtp
-      | typeof SigningOperationCommandKind.ConnectThreshold,
-    execute: () => Promise<T>,
-  ): Promise<T> =>
-    await runSigningOperationCommandTrace({
-      signingSessionPlan: args.signingSessionPlan,
-      commandKind,
-      ...(args.signingOperation ? { operation: args.signingOperation } : {}),
-      onTransition: args.onSigningOperationTransition || emitEvmFamilySigningOperationTrace,
-      execute,
-    });
-  const emailOtpSigningForFlow = args.emailOtpSigningForFlow
+  const relayerUrl = requireEvmFamilyRelayerUrl(args.deps);
+
+  const resolvedSigner =
+    args.senderSignatureAlgorithm === 'secp256k1'
+      ? requireEvmFamilyEcdsaSigner(
+          args.getEcdsaSigningLaneIdentity(),
+          'ECDSA signing material hydration',
+        )
+      : undefined;
+  const capability = resolvedSigner
+    ? await args.deps.resolveCanonicalEcdsaSigningCapability({
+        walletId: resolvedSigner.walletId,
+        chainTarget: resolvedSigner.chainTarget,
+        materialActivation: resolvedSigner.materialActivation,
+      })
+    : undefined;
+  const authorization = resolvedSigner
+    ? await args.deps.resolveActiveEcdsaWalletSessionAuthorization(resolvedSigner.walletId)
+    : null;
+
+  const thresholdEcdsaStepUpRuntime: EvmFamilyThresholdEcdsaStepUpRuntime | undefined = capability
     ? {
-        ...args.emailOtpSigningForFlow,
-        prepare: async () =>
-          await runRuntimeCommand(
-            SigningOperationCommandKind.RequestOtp,
-            args.emailOtpSigningForFlow!.prepare,
-          ),
-        ...(args.emailOtpSigningForFlow.resend
-          ? {
-              resend: async () =>
-                await runRuntimeCommand(
-                  SigningOperationCommandKind.RequestOtp,
-                  args.emailOtpSigningForFlow!.resend!,
-                ),
-            }
+        ...(args.emailOtpSigningForFlow ? { emailOtpSigning: args.emailOtpSigningForFlow } : {}),
+        // Without an active reusable Wallet Session the candidate is
+        // auth-neutral, so the operation must be authorized by a step-up on
+        // the capability's own factor rather than a warm session.
+        reusableAuthorization: authorization
+          ? { kind: 'active' }
+          : {
+              kind: 'absent',
+              requiredFactor: signerAuthMethodForWalletAuthority(capability.authority),
+            },
+        operationStepUp: {
+          prepare: async ({ operation, operationDigests, material }) =>
+            await prepareEvmFamilyEcdsaOperationStepUp({
+              operation,
+              operationDigests,
+              material,
+            }),
+          authorize: async ({ authorization, prepared, material }) => {
+            args.onAuthSideEffectStarted?.(
+              authorization.kind === 'passkey' ? 'passkey_reauth' : 'email_otp_challenge',
+            );
+            const sessionAuth = await args.deps.resolveEcdsaOperationStepUpSessionAuth({
+              walletSession: args.walletSession,
+              authMethod: authorization.kind,
+            });
+            return await authorizeEvmFamilyEcdsaOperationStepUp({
+              relayerUrl,
+              sessionAuth,
+              authority: capability.authority,
+              authorization,
+              prepared,
+              material,
+            });
+          },
+        },
+        ...(args.onAuthSideEffectStarted
+          ? { onAuthSideEffectStarted: args.onAuthSideEffectStarted }
           : {}),
       }
     : undefined;
-  const buildPasskeyEcdsaReconnect = () => {
-    if (args.senderSignatureAlgorithm !== 'secp256k1') return undefined;
-    return {
-      prepare: async ({ usesNeeded }: { usesNeeded: number }) => {
-        void usesNeeded;
-        const lane = args.getResolvedEcdsaSigningLane();
-        const material = readPasskeyEcdsaReconnectMaterialForLane({
-          deps: args.deps,
-          lane,
-          preparedRecord: args.getThresholdEcdsaRecord(),
-        });
-        if (!material) {
-          throw new Error(
-            '[SigningEngine][ecdsa] passkey ECDSA reconnect requires exact session record material',
-          );
-        }
-        const rpId = String(ctx.touchIdPrompt.getRpId() || '').trim();
-        if (!rpId) {
-          throw new Error('[SigningEngine] missing rpId for passkey ECDSA reconnect');
-        }
-        const signer = requireEvmFamilyEcdsaSigner(
-          lane.identity,
-          'passkey ECDSA reconnect runtime',
-        );
-        const evmFamilySigningKeySlotId = String(signer.key.evmFamilySigningKeySlotId || '').trim();
-        if (!evmFamilySigningKeySlotId) {
-          throw new Error(
-            '[SigningEngine] missing evmFamilySigningKeySlotId for passkey ECDSA reconnect',
-          );
-        }
-        const signingKeyContext = signingKeyContextFromPasskeyEcdsaReconnectMaterial(material);
-        const materialRelayerKeyId = relayerKeyIdFromPasskeyEcdsaReconnectMaterial(material);
-        if (!materialRelayerKeyId) {
-          throw new Error('[SigningEngine] missing relayerKeyId for passkey ECDSA reconnect');
-        }
-        const relayerKeyId = await computeEcdsaDerivationRoleLocalRelayerKeyId({
-          walletId,
-          evmFamilySigningKeySlotId,
-        });
-        if (materialRelayerKeyId !== relayerKeyId) {
-          throw new Error('[SigningEngine] passkey ECDSA reconnect relayer key mismatch');
-        }
-        const requestId = generateEvmFamilyEcdsaBootstrapRequestId();
-        const remainingUses = postExhaustionStepUpSessionBudgetUses;
-        const ecdsaThresholdKeyId = String(signingKeyContext.ecdsaThresholdKeyId).trim();
-        if (!ecdsaThresholdKeyId) {
-          throw new Error(
-            '[SigningEngine] passkey ECDSA reconnect requires threshold key identity',
-          );
-        }
-        const participantIds = signingKeyContext.participantIds.map((participantId) =>
-          Number(participantId),
-        );
-        const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({
-          record: material.record,
-        });
-        const runtimePolicyScope = runtimePolicyScopeForPasskeyEcdsaReconnect({
-          material,
-          signingRootBinding,
-        });
-        const { policy } = await buildEcdsaSessionPolicy({
-          walletId,
-          evmFamilySigningKeySlotId,
-          relayerKeyId,
-          chainTarget: signer.chainTarget,
-          ecdsaThresholdKeyId,
-          runtimePolicyScope,
-          ...(participantIds?.length ? { participantIds } : {}),
-          remainingUses,
-        });
-        const passkeyBootstrapDigest32B64u =
-          await computeEcdsaDerivationRoleLocalPasskeyBootstrapAuthDigest32B64u({
-            walletId: policy.walletId,
-            evmFamilySigningKeySlotId: policy.evmFamilySigningKeySlotId,
-            rpId,
-            ecdsaThresholdKeyId: policy.ecdsaThresholdKeyId,
-            signingRootId: String(signingRootBinding.signingRootId),
-            signingRootVersion: String(signingRootBinding.signingRootVersion || 'default'),
-            keyScope: 'evm-family',
-            relayerKeyId,
-            requestId,
-            sessionId: policy.sessionId,
-            signingGrantId: policy.signingGrantId,
-            ttlMs: policy.ttlMs,
-            remainingUses: policy.remainingUses,
-            participantIds: policy.participantIds || participantIds,
-          });
-        return {
-          webauthnChallenge: {
-            kind: 'ecdsa_role_local_bootstrap' as const,
-            digest32B64u: passkeyBootstrapDigest32B64u,
-            requestId,
-            thresholdSessionId: policy.sessionId,
-            signingGrantId: policy.signingGrantId,
-          },
-        };
-      },
-      reconnect: async ({
-        authorization,
-        usesNeeded,
-      }: {
-        authorization: Parameters<
-          NonNullable<EvmFamilyThresholdEcdsaStepUpRuntime['passkeyReconnect']>['reconnect']
-        >[0]['authorization'];
-        usesNeeded: number;
-      }) => {
-        const lane = args.getResolvedEcdsaSigningLane();
-        const material = readPasskeyEcdsaReconnectMaterialForLane({
-          deps: args.deps,
-          lane,
-          preparedRecord: args.getThresholdEcdsaRecord(),
-        });
-        if (!material) {
-          throw new Error(
-            '[SigningEngine][ecdsa] passkey ECDSA reconnect requires exact session record material',
-          );
-        }
-        const reconnectPlan = await buildEvmFamilyPasskeyEcdsaProvisionPlan({
-          authorization,
-          material: { kind: 'session_record', lane, record: material.record },
-          sessionBudgetUses: postExhaustionStepUpSessionBudgetUses,
-        });
-        const selectedRecord = material.record;
-        const reconnectSessionIdentity = requirePlannedReconnectSessionIdentity({
-          sessionId: reconnectPlan.newSessionIdentity.thresholdSessionId,
-          signingGrantId: reconnectPlan.newSessionIdentity.signingGrantId,
-        });
-        emitSigningSessionFlowTrace('evm-family', {
-          stage: 'ecdsa_runtime.passkey_reconnect_start',
-          walletId,
-          chain: args.request.chain,
-          chainId: requestChainId,
-          lane: {
-            authMethod: signingLaneAuthMethod(lane.auth),
-            signingGrantId: String(lane.signingGrantId),
-            thresholdSessionId: String(lane.thresholdSessionId),
-          },
-          reconnectSessionIdentity,
-          usesNeeded,
-        });
-        const readyRecord = await runRuntimeCommand(
-          SigningOperationCommandKind.ConnectThreshold,
-          async () =>
-            await ensureEvmFamilyThresholdEcdsaRecordReady({
-              deps: args.deps,
-              lane,
-              chainId: requestChainId,
-              record: selectedRecord,
-              reconnectSessionIdentity,
-              reconnectPlan,
-              operationUsesNeeded: Math.max(1, Math.floor(Number(usesNeeded) || 1)),
-              sessionBudgetUses: postExhaustionStepUpSessionBudgetUses,
-              shouldAbort: args.shouldAbort,
-              onEvent: args.onEvent,
-            }),
-        );
-        const updated = await args.setThresholdEcdsaRecord({
-          record: readyRecord,
-        });
-        const walletSessionAuth = resolveRouterAbEcdsaWalletSessionAuthFromRecord(readyRecord);
-        emitSigningSessionFlowTrace('evm-family', {
-          stage: 'ecdsa_runtime.passkey_reconnect_admitted',
-          walletId,
-          chain: args.request.chain,
-          chainId: requestChainId,
-          record: {
-            signingGrantId: readyRecord.signingGrantId,
-            thresholdSessionId: readyRecord.thresholdSessionId,
-            hasRouterAbWalletSessionAuth: walletSessionAuth.kind === 'ready',
-          },
-          budgetKind: updated.operation.budgetAdmission ? 'admitted' : 'missing',
-        });
-        return updated;
-      },
-    };
-  };
-  const emitConfirmedAuthSideEffectStarted = (sideEffect: EvmFamilySigningAuthSideEffect): void => {
-    let lane: ResolvedEvmFamilyEcdsaSigningLane | undefined;
-    try {
-      args.onAuthSideEffectStarted?.(sideEffect);
-      lane = args.getResolvedEcdsaSigningLane();
-    } catch {
-      lane = undefined;
-    }
-    emitSigningBoundaryTrace(
-      'evm-family',
-      createSigningBoundaryTraceEvent({
-        event: 'auth_side_effect_started',
-        lane,
-        sideEffect,
-        phase: 'confirmed',
-      }),
-    );
-  };
-  const passkeyEcdsaReconnect = buildPasskeyEcdsaReconnect();
-  const thresholdEcdsaStepUpRuntime: EvmFamilyThresholdEcdsaStepUpRuntime | undefined =
-    args.senderSignatureAlgorithm === 'secp256k1'
-      ? {
-          ...(emailOtpSigningForFlow ? { emailOtpSigning: emailOtpSigningForFlow } : {}),
-          ...(passkeyEcdsaReconnect ? { passkeyReconnect: passkeyEcdsaReconnect } : {}),
-          thresholdReconnect: {
-            ensureThresholdEcdsaReadyMaterial: async ({ authorization, usesNeeded }) => {
-              const lane = args.getResolvedEcdsaSigningLane();
-              const record = readSelectedEcdsaRecordForLane({ deps: args.deps, lane });
-              if (!record) {
-                throw new Error(
-                  '[SigningEngine][ecdsa] warm-session reconnect requires exact session record material',
-                );
-              }
-              const reconnectPlan = buildEvmFamilyWarmSessionReconnectPlan({
-                authorization,
-                material: { lane, record },
-                sessionBudgetUses: postExhaustionStepUpSessionBudgetUses,
-              });
-              const readyRecord = await runRuntimeCommand(
-                SigningOperationCommandKind.ConnectThreshold,
-                async () =>
-                  await ensureEvmFamilyThresholdEcdsaRecordReady({
-                    deps: args.deps,
-                    lane,
-                    chainId: requestChainId,
-                    record,
-                    reconnectSessionIdentity: buildEcdsaSessionIdentity({
-                      thresholdSessionId: lane.thresholdSessionId,
-                      signingGrantId: lane.signingGrantId,
-                    }),
-                    reconnectPlan,
-                    operationUsesNeeded: Math.max(1, Math.floor(Number(usesNeeded) || 1)),
-                    sessionBudgetUses: postExhaustionStepUpSessionBudgetUses,
-                    shouldAbort: args.shouldAbort,
-                    onEvent: args.onEvent,
-                  }),
-              );
-              const updated = await args.setThresholdEcdsaRecord({
-                record: readyRecord,
-              });
-              return updated;
-            },
-          },
-          onAuthSideEffectStarted: emitConfirmedAuthSideEffectStarted,
-        }
-      : undefined;
-  const runtimeValidatedThresholdEcdsaRecord = args.getThresholdEcdsaRecord();
+
   const flowArgs = {
     ctx,
     touchConfirm: args.deps.touchConfirm,
-    workerCtx: signerWorkerCtx,
+    workerCtx,
     walletId,
     onEvent: args.onEvent,
     engines: {
       secp256k1: new Secp256k1Engine({
         getRpId: () => ctx.touchIdPrompt.getRpId(),
-        workerCtx: signerWorkerCtx,
+        workerCtx,
         shouldAbort: args.shouldAbort,
       }),
-      webauthnP256: new WebAuthnP256Engine(signerWorkerCtx),
+      webauthnP256: new WebAuthnP256Engine(workerCtx),
     },
-    ...(runtimeValidatedThresholdEcdsaRecord
+    ...(resolvedSigner && capability
       ? {
-          resolveEcdsaSigningMaterialPlan: async ({ requestLabel }: { requestLabel: unknown }) =>
+          runEcdsaMaterialUse: runSerializedEcdsaMaterialUse.bind(null, {
+            deps: args.deps,
+            walletId: resolvedSigner.walletId,
+            materialActivation: resolvedSigner.materialActivation,
+            ...(args.shouldAbort ? { shouldAbort: args.shouldAbort } : {}),
+          }),
+          resolveEcdsaSigningMaterialPlan: async () =>
             await resolveEcdsaSigningMaterialHydrationPlan({
-              record: runtimeValidatedThresholdEcdsaRecord,
-              requestLabel,
-              evmFamilySigningKeySlotId:
-                args.getResolvedEcdsaSigningLane().key.evmFamilySigningKeySlotId,
-              workerCtx: signerWorkerCtx,
+              capability,
+              preparedAuthorization: authorization,
+              currentAuthorization: authorization
+                ? await args.deps.resolveActiveEcdsaWalletSessionAuthorization(
+                    resolvedSigner.walletId,
+                  )
+                : null,
+              walletId: resolvedSigner.walletId,
+              chainTarget: resolvedSigner.chainTarget,
+              materialActivation: resolvedSigner.materialActivation,
+              relayerUrl,
+              workerCtx,
             }),
         }
       : {}),
@@ -538,5 +391,5 @@ export async function createEvmFamilySigningFlowRuntime(args: {
     confirmationConfigOverride: args.confirmationConfigOverride,
   };
 
-  return { flowArgs, warmSessionServices };
+  return { flowArgs };
 }

@@ -22,20 +22,19 @@ import {
   buildRouterAbEd25519YaoRegistrationCapabilityRecordV1,
   InMemoryRouterAbEd25519YaoRecoveryService,
   createRouterAbEd25519YaoRecoveryModule,
-  createRouterAbEd25519YaoRecoveryRuntimePortV1,
   type RouterAbEd25519YaoRecoveryAuthorizationAdapter,
   type RouterAbEd25519YaoRecoveryAuthorizationInput,
   type RouterAbEd25519YaoRecoveryAuthorizationResult,
   type RouterAbEd25519YaoRecoveryBackend,
   type RouterAbEd25519YaoRecoveryBackendResult,
   type RouterAbEd25519YaoCapabilityPersistenceV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
-import type { RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
+import type { RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../../packages/sdk-server-ts/src/core/WalletStore';
 import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
-import { coerceRouterLogger } from '../../packages/sdk-server-ts/src/router/logger';
+import { coerceRouterLogger } from '../../packages/sdk-server-ts/src/router/framework/logger';
 
-function authorizationClaimsFixture() {
+function walletSessionClaimsFixture() {
   const authority = buildPasskeyWalletAuthAuthority({
     walletId: 'wallet-1',
     rpId: 'router.example.test',
@@ -48,7 +47,8 @@ function authorizationClaimsFixture() {
     nearAccountId: 'wallet-1.testnet',
     nearEd25519SigningKeyId: 'ed25519ks_1',
     thresholdSessionId: 'wallet-session-1',
-    signingGrantId: 'signing-grant-1',
+    walletSessionId: 'wallet-session-1',
+    quotaId: 'quota-recovery-1',
     relayerKeyId: 'signing-worker-1',
     authority,
     authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
@@ -119,7 +119,7 @@ class AllowRecoveryAuthorization implements RouterAbEd25519YaoRecoveryAuthorizat
     input: RouterAbEd25519YaoRecoveryAuthorizationInput,
   ): RouterAbEd25519YaoRecoveryAuthorizationResult {
     this.inputs.push(input);
-    return { ok: true, claims: authorizationClaimsFixture() };
+    return { ok: true, claims: walletSessionClaimsFixture() };
   }
 }
 
@@ -159,9 +159,10 @@ function registrationAdmissionRequest(): RouterAbEd25519YaoRegistrationAdmission
         lifecycle_id: 'registration-1',
         root_share_epoch: 'root-epoch-1',
         account_id: 'wallet-1',
-        wallet_session_id: 'wallet-session-1',
+        threshold_session_id: 'wallet-session-1',
         signer_set_id: 'signer-set-1',
         signing_worker_id: 'signing-worker-1',
+        material_activation: materialActivation('registration-1'),
       },
       application_binding: {
         wallet_id: 'wallet-1',
@@ -189,6 +190,7 @@ function registrationBinding(): Record<string, unknown> {
     operation: 'registration',
     session_id: bytes(6),
     stable_key_context_binding: bytes(8),
+    material_activation: materialActivation('registration-1'),
   };
 }
 
@@ -213,7 +215,7 @@ function registrationResult(): RegistrationResult {
       binding,
       deriver_a_client_package: activationClientPackage(binding, 'deriver_a'),
       deriver_b_client_package: activationClientPackage(binding, 'deriver_b'),
-      public_receipt: publicReceipt(1),
+      public_receipt: publicReceipt(1, binding.material_activation),
     }),
   );
 }
@@ -240,10 +242,12 @@ function recoveryAdmissionRequest(input?: {
         lifecycle_id: values.lifecycleId,
         root_share_epoch: 'root-epoch-1',
         account_id: values.accountId,
-        wallet_session_id: values.walletSessionId,
+        threshold_session_id: values.walletSessionId,
         signer_set_id: 'signer-set-1',
         signing_worker_id: 'signing-worker-1',
+        material_activation: materialActivation(values.lifecycleId, values.accountId),
       },
+      active_material_activation: materialActivation('registration-1', values.accountId),
       application_binding: registrationAdmissionRequest().application_binding,
       participant_ids: [1, 2],
       active_capability_binding: bytes(values.activeCapabilitySeed),
@@ -261,13 +265,14 @@ function recoveryBinding(request: RouterAbEd25519YaoRecoveryAdmissionRequestV1) 
       primitive_request_kind: 'recovery' as const,
       root_share_epoch: request.scope.root_share_epoch,
       account_id: request.scope.account_id,
-      session_id: request.scope.wallet_session_id,
+      session_id: request.scope.threshold_session_id,
       signer_set_id: request.scope.signer_set_id,
       selected_server_id: request.scope.signing_worker_id,
     },
     operation: 'recovery' as const,
     session_id: bytes(7),
     stable_key_context_binding: bytes(8),
+    material_activation: request.scope.material_activation,
   };
 }
 
@@ -310,11 +315,18 @@ function encryptedRecoveryInput(
   };
 }
 
-function publicReceipt(stateEpoch: number) {
-  return publicReceiptForKey(stateEpoch, 12);
+function publicReceipt(
+  stateEpoch: number,
+  materialActivationRef: ReturnType<typeof materialActivation>,
+) {
+  return publicReceiptForKey(stateEpoch, 12, materialActivationRef);
 }
 
-function publicReceiptForKey(stateEpoch: number, publicKeySeed: number) {
+function publicReceiptForKey(
+  stateEpoch: number,
+  publicKeySeed: number,
+  materialActivationRef: ReturnType<typeof materialActivation>,
+) {
   return {
     transcript: bytes(11),
     registered_public_key: bytes(publicKeySeed),
@@ -322,6 +334,19 @@ function publicReceiptForKey(stateEpoch: number, publicKeySeed: number) {
     joined_signing_worker_commitment: bytes(15),
     signing_worker_verifying_share: bytes(15),
     state_epoch: stateEpoch,
+    material_activation: materialActivationRef,
+  };
+}
+
+function materialActivation(lifecycleId: string, materialOwner = 'wallet-1') {
+  return {
+    kind: 'mpc_material_activation_ref' as const,
+    activation_id: `${lifecycleId}-activation`,
+    capability: `capability-${materialOwner}`,
+    material_owner: materialOwner,
+    key_binding: `key-${materialOwner}`,
+    lifecycle_binding: `${lifecycleId}-lifecycle-binding`,
+    signing_worker: 'signing-worker-1',
   };
 }
 
@@ -351,7 +376,7 @@ function recoveryResultForPublicKey(
       encapsulated_key: bytes(32),
       ciphertext: bytes(33, 16),
     },
-    public_receipt: publicReceiptForKey(2, publicKeySeed),
+    public_receipt: publicReceiptForKey(2, publicKeySeed, request.binding.material_activation),
   };
 }
 
@@ -423,7 +448,6 @@ async function recoveryPromotesOnlyAfterExactActivation(): Promise<void> {
   const backend = new TestRecoveryBackend({ kind: 'success', result });
   const persistence = new RecordingCapabilityPersistence();
   const service = new InMemoryRouterAbEd25519YaoRecoveryService(backend, undefined, persistence);
-  const runtime = createRouterAbEd25519YaoRecoveryRuntimePortV1(service);
 
   expect(installRegistrationCapability(service)).toMatchObject({
     ok: true,
@@ -434,7 +458,6 @@ async function recoveryPromotesOnlyAfterExactActivation(): Promise<void> {
     ok: true,
     disposition: 'exact_retry',
   });
-  expect(runtime.kind).toBe('router_ab_ed25519_yao_recovery_runtime_v1');
   expect(resolveWalletCapability(service)).toMatchObject({
     ok: true,
     capability: {
@@ -509,7 +532,7 @@ async function recoveryPromotesOnlyAfterExactActivation(): Promise<void> {
     binding: result.binding,
     deriver_a_client_package: result.deriver_a_client_package,
     deriver_b_client_package: result.deriver_b_client_package,
-    public_receipt: publicReceipt(3),
+    public_receipt: publicReceipt(3, result.binding.material_activation),
   });
   expect(await service.activateRecovery(conflictingActivation)).toMatchObject({
     ok: false,
@@ -734,7 +757,7 @@ async function warmBootstrapReturnsExactActiveCapabilityWithoutMintingSession():
   const extension = module.routeExtensions[0];
   const route = extension?.routes.find(isWarmRecoveryBootstrapRoute);
   if (!extension || !route) throw new Error('warm recovery bootstrap route is required');
-  const response = await extension.handleCloudflareRoute({
+  const response = await extension.handleFetchRoute({
     request: new Request(`https://router.example.test${route.path}`, {
       method: 'POST',
       headers: {
@@ -748,7 +771,6 @@ async function warmBootstrapReturnsExactActiveCapabilityWithoutMintingSession():
         nearEd25519SigningKeyId: 'ed25519ks_1',
         signerSlot: 1,
         thresholdSessionId: 'wallet-session-1',
-        signingGrantId: 'signing-grant-1',
         signingWorkerId: 'signing-worker-1',
         participantIds: [1, 2],
       }),
@@ -757,6 +779,7 @@ async function warmBootstrapReturnsExactActiveCapabilityWithoutMintingSession():
     pathname: route.path,
     method: 'POST',
     logger: coerceRouterLogger(null),
+    runtime: { kind: 'inline' },
   });
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({
@@ -766,7 +789,8 @@ async function warmBootstrapReturnsExactActiveCapabilityWithoutMintingSession():
     nearEd25519SigningKeyId: 'ed25519ks_1',
     signerSlot: 1,
     thresholdSessionId: 'wallet-session-1',
-    signingGrantId: 'signing-grant-1',
+    walletSessionId: 'wallet-session-1',
+    quotaId: 'quota-recovery-1',
     signingWorkerId: 'signing-worker-1',
     participantIds: [1, 2],
     capability: {

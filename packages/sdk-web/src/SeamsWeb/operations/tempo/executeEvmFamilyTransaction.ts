@@ -19,7 +19,6 @@ import type {
   ReportTempoBroadcastRejectedArgs,
   ReportTempoDroppedOrReplacedArgs,
   ReportTempoFinalizedArgs,
-  SignTempoArgs,
   TempoNonceLifecycleEvent,
 } from '@/SeamsWeb/signingSurface/types';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
@@ -30,8 +29,15 @@ import {
   type CreateSigningFlowEventInput,
 } from '@/core/types/sdkSentEvents';
 
+export type EvmFamilyTransactionSignArgs = {
+  walletSession: ExecuteEvmFamilyTransactionArgs['walletSession'];
+  request: ExecuteEvmFamilyTransactionArgs['request'];
+  chainTarget: ExecuteEvmFamilyTransactionArgs['chainTarget'];
+  options?: ExecuteEvmFamilyTransactionArgs['options'];
+};
+
 type TempoLifecycleDeps = {
-  signTempo(args: SignTempoArgs): Promise<TempoSignedResult | EvmSignedResult>;
+  signEvmFamily(args: EvmFamilyTransactionSignArgs): Promise<TempoSignedResult | EvmSignedResult>;
   reportBroadcastAccepted(args: ReportTempoBroadcastAcceptedArgs): Promise<void>;
   reportBroadcastRejected(args: ReportTempoBroadcastRejectedArgs): Promise<void>;
   reportFinalized(args: ReportTempoFinalizedArgs): Promise<void>;
@@ -222,7 +228,10 @@ function eip1559PayloadExpectationFromRequest(
 }
 
 function tempoCallPayloadExpectationFromRequestCall(
-  call: Extract<ExecuteEvmFamilyTransactionArgs['request'], { chain: 'tempo' }>['tx']['calls'][number],
+  call: Extract<
+    ExecuteEvmFamilyTransactionArgs['request'],
+    { chain: 'tempo' }
+  >['tx']['calls'][number],
 ): FinalizedTempoEip2718PayloadExpectation['calls'][number] {
   return {
     to: call.to,
@@ -334,7 +343,7 @@ function payloadExpectationMatchesObservation(args: {
   }
 }
 
-function resolveRpcUrlForRequest(args: {
+export function resolveEvmFamilyRpcUrl(args: {
   chains: readonly SeamsChainConfig[];
   chainTarget: ExecuteEvmFamilyTransactionArgs['chainTarget'];
 }): string {
@@ -527,13 +536,13 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
 
   try {
     const request = args.input.request;
-    const rpcUrl = resolveRpcUrlForRequest({
+    const rpcUrl = resolveEvmFamilyRpcUrl({
       chains: args.chains,
       chainTarget: args.input.chainTarget,
     });
     const client = createEvmClient({ rpcUrl });
 
-    signedResult = await args.lifecycle.signTempo({
+    signedResult = await args.lifecycle.signEvmFamily({
       walletSession: args.input.walletSession,
       request,
       chainTarget: args.input.chainTarget,

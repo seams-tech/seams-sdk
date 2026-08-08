@@ -9,6 +9,8 @@ export type {
 } from '@/core/types/walletIframeIdentity';
 import type {
   NearAccountRef,
+  EvmEip155ChainTarget,
+  TempoChainTarget,
   ThresholdEcdsaChainTarget,
   WalletId as EcdsaWalletId,
   WalletSessionRef,
@@ -24,11 +26,8 @@ import type {
   GoogleEmailOtpSessionExchangeResult,
   DemoEmailOtpCodeResponse,
 } from '@/core/signingEngine/session/emailOtp/publicTypes';
-import type {
-  ProvisionWarmEd25519CapabilityResult,
-  WarmEcdsaSigningSessionStatus,
-  WarmSessionEcdsaCapabilityState,
-} from '@/core/signingEngine/session/warmCapabilities/types';
+import type { ProvisionWarmEd25519CapabilityResult } from '@/core/signingEngine/session/warmCapabilities/types';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type {
   AccessKeyList,
@@ -78,7 +77,6 @@ import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { AccountId } from '@/core/types/accountIds';
 import type { ActionArgs, TransactionInput } from '@/core/types/actions';
 import type { DelegateActionInput, SignedDelegate } from '@/core/types/delegate';
-import type { MultichainSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import type {
@@ -89,13 +87,10 @@ import type { SyncAccountResult } from '@/SeamsWeb/operations/recovery/syncAccou
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import type {
   AvailableSigningLanes,
-  ListThresholdEcdsaSessionRecordsForWalletTargetInput,
   ReadAvailableSigningLanesInput,
   DiscoverPersistedSessionsForWalletInput,
   DiscoverPersistedSessionsForWalletResult,
-  ThresholdEcdsaSessionRecord as SessionPublicThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/public';
-import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import type {
   NearSignIntentRequest,
   NearSignIntentResult,
@@ -114,6 +109,7 @@ import type {
   EvmSigningRequest,
 } from '@/core/signingEngine/chains/evm/evmSigning.types';
 import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
+import type { TempoFeeTokenValidation } from '@/core/signingEngine/chains/tempo/feeToken';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { RegistrationCredentialConfirmationPayload } from '@/core/signingEngine/workerManager/validation';
 import type {
@@ -126,8 +122,6 @@ import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey
 import type { ConnectEd25519SessionArgs } from '@/core/signingEngine/session/passkey/public';
 import type { EmailOtpBootstrapRecovery } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/bootstrapRecovery';
 import type {
-  EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
-  EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult,
   EnrollEmailOtpInternalArgs,
   EnrollEmailOtpInternalResult,
   LoginWithEmailOtpEcdsaCapabilityInternalArgs,
@@ -192,8 +186,8 @@ export type PublicThresholdEcdsaSessionBootstrapResult = Omit<
 
 export type SignTempoArgs = {
   walletSession: WalletSessionRef;
-  request: MultichainSigningRequest;
-  chainTarget: ThresholdEcdsaChainTarget;
+  request: TempoSigningRequest;
+  chainTarget: TempoChainTarget;
   options?: {
     confirmationConfig?: Partial<ConfirmationConfig>;
     /** Internal host-only cancellation probe; ignored in wallet-router calls. */
@@ -202,11 +196,57 @@ export type SignTempoArgs = {
   };
 };
 
+export type SignEvmTransactionArgs = {
+  walletSession: WalletSessionRef;
+  request: EvmSigningRequest;
+  chainTarget: EvmEip155ChainTarget;
+  options?: {
+    confirmationConfig?: Partial<ConfirmationConfig>;
+    /** Internal host-only cancellation probe; ignored in wallet-router calls. */
+    shouldAbort?: () => boolean;
+    onEvent?: (event: SigningFlowEvent) => void;
+  };
+};
+
+export type GetTempoFeeTokenPreferenceArgs = {
+  chainTarget: TempoChainTarget;
+  account: EvmAddress;
+  timeoutMs?: number;
+};
+
+export type ValidateTempoFeeTokenArgs = {
+  chainTarget: TempoChainTarget;
+  feeToken: EvmAddress;
+  timeoutMs?: number;
+};
+
+export type SetTempoFeeTokenPreferenceArgs = {
+  walletSession: WalletSessionRef;
+  chainTarget: TempoChainTarget;
+  account: EvmAddress;
+  feeToken: EvmAddress;
+  feeCaps: {
+    maxPriorityFeePerGas: bigint;
+    maxFeePerGas: bigint;
+  };
+  gasLimit?: bigint;
+  finalization?: {
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+    confirmations?: number;
+  };
+  options?: {
+    confirmationConfig?: Partial<ConfirmationConfig>;
+    shouldAbort?: () => boolean;
+    onEvent?: (event: TempoNonceLifecycleEvent) => void;
+  };
+};
+
 export type RegisterNearImplicitWalletArgs = {
   accountProvisioning?: Extract<RegistrationNearAccountProvisioning, { kind: 'implicit_account' }>;
   nearAccountId?: never;
   wallet?: Extract<RegisterWalletInput, { kind: 'provided' }>;
-  authMethod?: RegistrationAuthMethodInput;
+  authMethod: RegistrationAuthMethodInput;
   options?: RegistrationHooksOptions;
 };
 
@@ -217,7 +257,7 @@ export type RegisterNearSponsoredWalletArgs = {
   >;
   wallet: Extract<RegisterWalletInput, { kind: 'provided' }>;
   nearAccountId?: never;
-  authMethod?: RegistrationAuthMethodInput;
+  authMethod: RegistrationAuthMethodInput;
   options?: RegistrationHooksOptions;
 };
 
@@ -248,7 +288,7 @@ export type PasskeyRegistrationOptions = RegistrationHooksOptions & {
 export type RegisterEvmWalletArgs = {
   chainTargets: readonly ThresholdEcdsaChainTarget[];
   participantIds: readonly number[];
-  authMethod?: RegistrationAuthMethodInput;
+  authMethod: RegistrationAuthMethodInput;
   options?: RegistrationHooksOptions;
 };
 
@@ -458,18 +498,11 @@ export type EmailOtpEcdsaCapabilityArgs = {
 export type EmailOtpEcdsaCapabilityResult = {
   recovery: EmailOtpBootstrapRecovery;
   bootstrap: PublicThresholdEcdsaSessionBootstrapResult;
-  warmCapability: WarmSessionEcdsaCapabilityState;
-};
-
-export type EmailOtpEcdsaEnrollmentCapabilityArgs = Omit<EmailOtpEcdsaCapabilityArgs, 'onEvent'> & {
-  clientSecret32?: Uint8Array;
-  onEvent?: (event: RegistrationFlowEvent | UnlockFlowEvent) => void;
-};
-
-export type EmailOtpEcdsaEnrollmentCapabilityResult = {
-  enrollment: EmailOtpEnrollmentResult | EmailOtpBackedUpEnrollmentResult;
-  bootstrap: PublicThresholdEcdsaSessionBootstrapResult;
-  warmCapability: WarmSessionEcdsaCapabilityState;
+  authorization: ActiveWalletSessionAuthorizationProjection;
+  authorizations: readonly [
+    ActiveWalletSessionAuthorizationProjection,
+    ...ActiveWalletSessionAuthorizationProjection[],
+  ];
 };
 
 export type GoogleEmailOtpWalletAuthRequestedMode = 'register' | 'login';
@@ -609,6 +642,7 @@ export type GoogleEmailOtpWalletAuthSubmitSuccess = {
 export type GoogleEmailOtpWalletAuthRegistrationCompleted = {
   walletId: WalletId;
   session: WalletSession;
+  registration: RegistrationResult;
   mode: 'register';
 };
 
@@ -757,9 +791,6 @@ export interface RegistrationCapability {
     clientSecret32?: Uint8Array;
     onEvent?: (event: RegistrationFlowEvent) => void;
   }): Promise<EmailOtpEnrollmentResult | EmailOtpBackedUpEnrollmentResult>;
-  enrollAndLoginWithEmailOtpEcdsaCapability(
-    args: EmailOtpEcdsaEnrollmentCapabilityArgs,
-  ): Promise<EmailOtpEcdsaEnrollmentCapabilityResult>;
 }
 
 export interface NearSignerCapability {
@@ -834,7 +865,12 @@ export interface NearSignerCapability {
 }
 
 export interface TempoSignerCapability {
-  signTempo(args: SignTempoArgs): Promise<TempoSignedResult | EvmSignedResult>;
+  signTempo(args: SignTempoArgs): Promise<TempoSignedResult>;
+  getFeeTokenPreference(args: GetTempoFeeTokenPreferenceArgs): Promise<EvmAddress | null>;
+  validateFeeToken(args: ValidateTempoFeeTokenArgs): Promise<TempoFeeTokenValidation>;
+  setFeeTokenPreference(
+    args: SetTempoFeeTokenPreferenceArgs,
+  ): Promise<ExecuteEvmFamilyTransactionResult>;
   executeEvmFamilyTransaction(
     args: ExecuteEvmFamilyTransactionArgs,
   ): Promise<ExecuteEvmFamilyTransactionResult>;
@@ -849,6 +885,8 @@ export interface TempoSignerCapability {
 }
 
 export interface EvmSignerCapability {
+  signTransaction(args: SignEvmTransactionArgs): Promise<EvmSignedResult>;
+
   registerEvmWallet(args: RegisterEvmWalletArgs): Promise<RegistrationResult>;
 
   bootstrapEcdsaSession(

@@ -1,239 +1,94 @@
-import type {
-  EvmFamilyKeyFingerprint,
-  ReadyEcdsaSignerSession,
-  VerifiedEcdsaPublicFacts,
-} from '../../session/identity/evmFamilyEcdsaIdentity';
-import type {
-  PersistedEcdsaRoleLocalMaterial,
-  ThresholdEcdsaSessionRecord,
-} from '../../session/persistence/records';
+import type { VerifiedEcdsaPublicFacts } from '../../session/identity/evmFamilyEcdsaIdentity';
+import type { PersistedEcdsaRoleLocalMaterial } from '../../session/material/ecdsaRoleLocalMaterialResolver';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
+import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';
+import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type {
-  AuthFactorIdentity,
-  EmailOtpWalletAuthAuthority,
-  PasskeyWalletAuthAuthority,
-} from '@shared/utils/walletAuthAuthority';
-import type {
-  EcdsaExportLane,
-  EmailOtpEcdsaPublicReauthExportAuthority,
-  ExactEcdsaExportSession,
+  ExactEcdsaExportLane,
   FreshEmailOtpEcdsaExportMaterial,
   FreshPasskeyEcdsaExportMaterial,
-  PasskeyEcdsaExportBootstrapContext,
-  ReadyEcdsaExportLane,
-  ReadyThresholdEcdsaExportMaterial,
 } from './ecdsaExportMaterial';
-import type { RecordBackedEcdsaCommittedLane } from '../signEvmFamily/ecdsaSelection';
-import type { EmailOtpEcdsaSigningSessionAuthority } from '../../session/emailOtp/ecdsaSigningSessionAuthority';
 
-declare const signerSession: ReadyEcdsaSignerSession;
+declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const publicFacts: VerifiedEcdsaPublicFacts;
-declare const record: ThresholdEcdsaSessionRecord;
-declare const existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
-declare const keyRef: unknown;
-declare const evmFamilyKeyFingerprint: EvmFamilyKeyFingerprint;
 declare const runtimePolicyScope: ThresholdRuntimePolicyScope;
-declare const committedLane: EcdsaExportLane<EmailOtpWalletAuthAuthority>;
-declare const broadCommittedLane: RecordBackedEcdsaCommittedLane<EmailOtpWalletAuthAuthority>;
-declare const readyCommittedLane: ReadyEcdsaExportLane<EmailOtpWalletAuthAuthority>;
-declare const readyPasskeyCommittedLane: ReadyEcdsaExportLane<PasskeyWalletAuthAuthority>;
-declare const signingSessionAuthority: EmailOtpEcdsaSigningSessionAuthority;
-declare const publicReauthAuthority: EmailOtpEcdsaPublicReauthExportAuthority;
-declare const currentExactExportSession: Extract<
-  ExactEcdsaExportSession,
-  { state: 'ready' | 'restorable' | 'deferred' }
->;
-declare const passkeyBootstrap: PasskeyEcdsaExportBootstrapContext;
+declare const persistedMaterial: PersistedEcdsaRoleLocalMaterial;
+declare const authority: EmailOtpWalletAuthAuthority;
+declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+declare const existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
+declare const relayerUrl: string;
+declare const normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+declare const relayerKeyId: string;
+declare const participantIds: readonly [number, number];
+declare const currentExactExportLane: ExactEcdsaExportLane;
+declare const obsoleteRecord: unknown;
 
-// @ts-expect-error post-finalize ECDSA export lanes require wallet-bound authority, not pure factor identity.
-type InvalidFactorBackedEcdsaExportLane = EcdsaExportLane<AuthFactorIdentity>;
-void ({} as InvalidFactorBackedEcdsaExportLane);
-
-// @ts-expect-error Email OTP ECDSA export lanes require runtime-policy-scoped records.
-const broadEmailOtpCommittedLaneAsExportLane: EcdsaExportLane<EmailOtpWalletAuthAuthority> =
-  broadCommittedLane;
-void broadEmailOtpCommittedLaneAsExportLane;
-
-const exportMaterial: ReadyThresholdEcdsaExportMaterial = {
-  kind: 'ready_threshold_ecdsa_export_material',
-  authMethod: 'passkey',
-  signerSession,
-  publicFacts,
-  cachedExportArtifact: null,
-  evmFamilyKeyFingerprint,
-  committedLane: readyPasskeyCommittedLane,
+const exportLaneWithThresholdSessionId: ExactEcdsaExportLane = {
+  ...currentExactExportLane,
+  // @ts-expect-error export lanes carry no threshold-session identity.
+  thresholdSessionId: 'threshold-session-1',
 };
-void exportMaterial;
+void exportLaneWithThresholdSessionId;
 
-// @ts-expect-error ready passkey export material requires the committed lane.
-const passkeyExportMaterialWithoutCommittedLane: ReadyThresholdEcdsaExportMaterial = {
-  kind: 'ready_threshold_ecdsa_export_material',
-  authMethod: 'passkey',
-  signerSession,
-  publicFacts,
-  cachedExportArtifact: null,
-  evmFamilyKeyFingerprint,
-};
-void passkeyExportMaterialWithoutCommittedLane;
-
-// @ts-expect-error ready export material requires signer-session material.
-const exportMaterialMissingSignerSession: ReadyThresholdEcdsaExportMaterial = {
-  kind: 'ready_threshold_ecdsa_export_material',
-  authMethod: 'passkey',
-  publicFacts,
-  cachedExportArtifact: null,
-  evmFamilyKeyFingerprint,
-  committedLane: readyPasskeyCommittedLane,
-};
-void exportMaterialMissingSignerSession;
-
-// @ts-expect-error ready export material requires verified public facts.
-const exportMaterialMissingPublicFacts: ReadyThresholdEcdsaExportMaterial = {
-  kind: 'ready_threshold_ecdsa_export_material',
-  authMethod: 'passkey',
-  signerSession,
-  cachedExportArtifact: null,
-  evmFamilyKeyFingerprint,
-  committedLane: readyPasskeyCommittedLane,
-};
-void exportMaterialMissingPublicFacts;
-
-const exportMaterialWithThresholdKeyId: ReadyThresholdEcdsaExportMaterial = {
-  ...exportMaterial,
-  // @ts-expect-error ready export material carries keyHandle through public facts.
-  ecdsaThresholdKeyId: 'ederivation-key-1',
-};
-void exportMaterialWithThresholdKeyId;
-
-const exportMaterialWithBroadReadyMaterial: ReadyThresholdEcdsaExportMaterial = {
-  ...exportMaterial,
-  // @ts-expect-error export material rejects broad ready signing material.
-  readyMaterial: {},
-};
-void exportMaterialWithBroadReadyMaterial;
-
-const emailOtpExportMaterial: ReadyThresholdEcdsaExportMaterial = {
-  kind: 'ready_threshold_ecdsa_export_material',
-  authMethod: 'email_otp',
-  signerSession,
-  publicFacts,
-  cachedExportArtifact: null,
-  evmFamilyKeyFingerprint,
-  committedLane: readyCommittedLane,
-};
-void emailOtpExportMaterial;
-
-// @ts-expect-error ready Email OTP export material requires the committed lane.
-const emailOtpExportMaterialWithoutCommittedLane: ReadyThresholdEcdsaExportMaterial = {
-  kind: 'ready_threshold_ecdsa_export_material',
-  authMethod: 'email_otp',
-  signerSession,
-  publicFacts,
-  cachedExportArtifact: null,
-  evmFamilyKeyFingerprint,
-};
-void emailOtpExportMaterialWithoutCommittedLane;
-
-const readyExportMaterialWithLooseRecord: ReadyThresholdEcdsaExportMaterial = {
-  ...exportMaterial,
-  // @ts-expect-error ready export material carries session records through committed lanes.
-  record,
-};
-void readyExportMaterialWithLooseRecord;
-
-const exportMaterialWithBroadKeyRef: ReadyThresholdEcdsaExportMaterial = {
-  ...exportMaterial,
-  // @ts-expect-error export material exposes signerSession instead of broad key refs.
-  keyRef,
-};
-void exportMaterialWithBroadKeyRef;
-
-const freshRouteAuthReadyMaterial: FreshEmailOtpEcdsaExportMaterial = {
+const walletSessionAuthorizedMaterial: FreshEmailOtpEcdsaExportMaterial = {
   kind: 'fresh_email_otp_route_auth_ready',
-  chainTarget: record.chainTarget,
+  chainTarget,
   publicFacts,
   runtimePolicyScope,
-  authorization: { kind: 'record_backed', committedLane },
-};
-void freshRouteAuthReadyMaterial;
-
-const durableRouteAuthReadyMaterial: FreshEmailOtpEcdsaExportMaterial = {
-  kind: 'fresh_email_otp_route_auth_ready',
-  chainTarget: record.chainTarget,
-  publicFacts,
-  runtimePolicyScope,
-  authorization: { kind: 'durable_authority_backed', signingSessionAuthority },
-};
-void durableRouteAuthReadyMaterial;
-
-const publicReauthRouteAuthReadyMaterial: FreshEmailOtpEcdsaExportMaterial = {
-  kind: 'fresh_email_otp_route_auth_ready',
-  chainTarget: record.chainTarget,
-  publicFacts,
-  runtimePolicyScope,
-  authorization: { kind: 'public_reauth_authority_backed', publicReauthAuthority },
-};
-void publicReauthRouteAuthReadyMaterial;
-
-const invalidMixedPublicReauthAuthority: FreshEmailOtpEcdsaExportMaterial = {
-  ...durableRouteAuthReadyMaterial,
-  // @ts-expect-error one export authorization branch cannot carry public reauth authority.
+  persistedMaterial,
+  normalSigning,
+  relayerKeyId,
+  participantIds,
+  relayerUrl,
   authorization: {
-    kind: 'durable_authority_backed',
-    signingSessionAuthority,
-    publicReauthAuthority,
+    kind: 'fresh_operation_authorization_required',
+    authority,
   },
 };
-void invalidMixedPublicReauthAuthority;
-
-// @ts-expect-error retired export sessions require an exact durable public reauth authority.
-const retiredExportSessionWithoutAuthority: ExactEcdsaExportSession = {
-  ...currentExactExportSession,
-  state: 'exhausted',
-  source: 'durable_sealed_record',
-};
-void retiredExportSessionWithoutAuthority;
 
 // @ts-expect-error route-auth-ready fresh material requires one exact authority branch.
 const freshRouteAuthReadyWithoutAuthority: FreshEmailOtpEcdsaExportMaterial = {
   kind: 'fresh_email_otp_route_auth_ready',
-  chainTarget: record.chainTarget,
+  chainTarget,
   publicFacts,
   runtimePolicyScope,
 };
 void freshRouteAuthReadyWithoutAuthority;
 
 const freshRouteAuthReadyWithLooseRecord: FreshEmailOtpEcdsaExportMaterial = {
-  ...freshRouteAuthReadyMaterial,
-  // @ts-expect-error route-auth-ready fresh material rejects loose session records.
-  record,
+  ...walletSessionAuthorizedMaterial,
+  // @ts-expect-error canonical export material carries no composite session record.
+  record: obsoleteRecord,
 };
 void freshRouteAuthReadyWithLooseRecord;
 
 const freshPasskeyExportMaterial: FreshPasskeyEcdsaExportMaterial = {
   kind: 'fresh_passkey_needs_authorization',
-  chainTarget: record.chainTarget,
+  chainTarget,
   publicFacts,
   runtimePolicyScope,
-  publicCapability: record.ecdsaRoleLocalPublicFacts.publicCapability,
+  publicCapability,
   existingRoleLocalMaterial,
-  bootstrap: passkeyBootstrap,
+  relayerUrl,
 };
-void freshPasskeyExportMaterial;
 
-// @ts-expect-error fresh passkey export requires normalized bootstrap metadata.
-const freshPasskeyExportWithoutBootstrap: FreshPasskeyEcdsaExportMaterial = {
+// @ts-expect-error fresh passkey export requires exact relayer transport.
+const freshPasskeyExportWithoutRelayer: FreshPasskeyEcdsaExportMaterial = {
   kind: 'fresh_passkey_needs_authorization',
-  chainTarget: record.chainTarget,
+  chainTarget,
   publicFacts,
   runtimePolicyScope,
+  publicCapability,
+  existingRoleLocalMaterial,
 };
-void freshPasskeyExportWithoutBootstrap;
+void freshPasskeyExportWithoutRelayer;
 
 const freshPasskeyExportWithRuntimeRecord: FreshPasskeyEcdsaExportMaterial = {
   ...freshPasskeyExportMaterial,
   // @ts-expect-error fresh passkey export does not carry mutable runtime records.
-  record,
+  record: obsoleteRecord,
 };
 void freshPasskeyExportWithRuntimeRecord;
 

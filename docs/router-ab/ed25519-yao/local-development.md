@@ -18,16 +18,16 @@ state hosting, and secret custody differ from deployed Cloudflare.
 
 ## Service Topology
 
-| Service           | Local origin             | Runtime                                      |
-| ----------------- | ------------------------ | -------------------------------------------- |
-| Gateway           | `http://127.0.0.1:9090`  | TypeScript Cloudflare Worker under `workerd` |
-| MPCRouter         | `http://127.0.0.1:9100`  | Rust/WASM Cloudflare Worker under `workerd`  |
-| Deriver A         | `http://127.0.0.1:9101`  | Rust/WASM Cloudflare Worker under `workerd`  |
-| Deriver B         | `http://127.0.0.1:9102`  | Rust/WASM Cloudflare Worker under `workerd`  |
-| SigningWorker     | `http://127.0.0.1:9103`  | Rust/WASM Cloudflare Worker under `workerd`  |
-| Public Gateway    | `https://localhost:9444` | Caddy reverse proxy to `9090`                |
-| Wallet origin     | `https://localhost:8443` | Caddy static file server                     |
-| App origin        | `https://localhost`      | Caddy reverse proxy to Vite on `3600`        |
+| Service        | Local origin             | Runtime                                      |
+| -------------- | ------------------------ | -------------------------------------------- |
+| Gateway        | `http://127.0.0.1:9090`  | TypeScript Cloudflare Worker under `workerd` |
+| MPCRouter      | `http://127.0.0.1:9100`  | Rust/WASM Cloudflare Worker under `workerd`  |
+| Deriver A      | `http://127.0.0.1:9101`  | Rust/WASM Cloudflare Worker under `workerd`  |
+| Deriver B      | `http://127.0.0.1:9102`  | Rust/WASM Cloudflare Worker under `workerd`  |
+| SigningWorker  | `http://127.0.0.1:9103`  | Rust/WASM Cloudflare Worker under `workerd`  |
+| Public Gateway | `https://localhost:9444` | Caddy reverse proxy to `9090`                |
+| Wallet origin  | `https://localhost:8443` | Caddy static file server                     |
+| App origin     | `https://localhost`      | Caddy reverse proxy to Vite on `3600`        |
 
 Ports `9091-9093` are obsolete. The four production-shaped Router A/B Workers
 own `9100-9103`.
@@ -302,20 +302,32 @@ Caddy uses `tls internal` and attempts to trust its local CA before startup.
 
 ## Local Persistence
 
-Gateway stores local D1 and Threshold Durable Object data under:
+Wrangler persistence is grouped under role-owned directories:
 
 ```text
-.runtime/router-d1-local
+.local/cloudflare-state/
+  gateway/
+  router-ab/
+    router/
+    deriver-a/
+    deriver-b/
+    signing-worker/
 ```
 
-The four strict Workers use separate persistence roots:
+The Gateway root contains local D1 databases plus other Cloudflare and Miniflare
+state. The four strict Workers use separate persistence roots:
 
 ```text
-.runtime/router-ab-strict-state/router
-.runtime/router-ab-strict-state/deriver-a
-.runtime/router-ab-strict-state/deriver-b
-.runtime/router-ab-strict-state/signing-worker
+.local/cloudflare-state/gateway
+.local/cloudflare-state/router-ab/router
+.local/cloudflare-state/router-ab/deriver-a
+.local/cloudflare-state/router-ab/deriver-b
+.local/cloudflare-state/router-ab/signing-worker
 ```
+
+The Router root may contain only Wrangler and Miniflare runtime metadata;
+MPCRouter has no D1 or Durable Object binding and owns no mutable product
+storage. The other role roots hold their role-owned Worker state.
 
 Separate roots reflect production ownership and prevent independent Wrangler
 processes from contending over one local SQLite recovery database. A shared

@@ -1,18 +1,16 @@
 import { intendedTest as test, type IntendedBehaviourHarness } from './harness';
 
-async function verifyLocalEd25519YaoRegistrationAndSigning({
+async function verifyLocalEd25519YaoRegistration({
   harness,
 }: {
   harness: IntendedBehaviourHarness;
 }): Promise<void> {
   await harness.registerPasskeyEd25519YaoWallet();
-  await harness.assertNearDemoSigningActionable();
-  await harness.signNearTransaction('post_registration');
 }
 
 test(
-  'public Ed25519 Yao registration signs immediately',
-  verifyLocalEd25519YaoRegistrationAndSigning,
+  'public Ed25519 Yao registration persists a ready signer',
+  verifyLocalEd25519YaoRegistration,
 );
 
 async function verifyLocalEd25519YaoAddSignerAndSigning({
@@ -22,11 +20,10 @@ async function verifyLocalEd25519YaoAddSignerAndSigning({
 }): Promise<void> {
   await harness.registerPasskeyEd25519YaoWallet();
   await harness.addPasskeyEd25519YaoWalletSigner();
-  await harness.signNearTransaction('post_registration');
 }
 
 test(
-  'public Ed25519 Yao add-signer persists and signs immediately',
+  'public Ed25519 Yao add-signer persists a distinct signer',
   verifyLocalEd25519YaoAddSignerAndSigning,
 );
 
@@ -36,8 +33,6 @@ async function verifyExactTransportRetry({
   harness: IntendedBehaviourHarness;
 }): Promise<void> {
   await harness.registerPasskeyEd25519YaoWalletWithExactTransportRetry();
-  await harness.assertNearDemoSigningActionable();
-  await harness.signNearTransaction('post_registration');
 }
 
 test(

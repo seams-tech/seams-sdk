@@ -1,13 +1,15 @@
 import {
   buildEcdsaRoleLocalExportArtifactCommandWasm,
   finalizeEcdsaClientBootstrapCommandWasm,
-  parseServerPlannedEcdsaDerivationContext,
+  openEcdsaRoleLocalSigningMaterialWasm,
   prepareEcdsaClientBootstrapCommandWasm,
-  type ServerPlannedEcdsaDerivationContext,
   type ThresholdEcdsaDerivationRoleLocalClientContext,
   type ThresholdEcdsaDerivationStableKeyContext,
 } from './ecdsaDerivationClientWasm';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import type { EcdsaRoleLocalPersistedMaterialRef } from '../../session/keyMaterialBrands';
 import type {
   BuildEcdsaRoleLocalExportArtifactCommand,
   FinalizeEcdsaClientBootstrapCommand,
@@ -20,24 +22,6 @@ import {
 } from '../../session/identity/emailOtpEcdsaDerivationIdentity';
 import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
-const serverPlannedContext = parseServerPlannedEcdsaDerivationContext({
-  walletId: 'wallet-user',
-  evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
-    walletId: 'wallet-user',
-    signingRootId: 'project:dev',
-    signingRootVersion: 'default',
-  }),
-  chainTarget: {
-    kind: 'evm',
-    namespace: 'eip155',
-    chainId: 11155111,
-    networkSlug: 'ethereum-sepolia',
-  },
-  ecdsaThresholdKeyId: 'ederivation-stable',
-  signingRootId: 'project:dev',
-  signingRootVersion: 'default',
-});
-void (serverPlannedContext satisfies ServerPlannedEcdsaDerivationContext);
 
 const locallyConstructedStableContext: ThresholdEcdsaDerivationStableKeyContext = {
   walletId: toWalletId('wallet-user'),
@@ -57,13 +41,6 @@ void ({
   // @ts-expect-error stable ECDSA DERIVATION key context requires branded ECDSA key ids.
   ecdsaThresholdKeyId: 'ederivation-stable',
 } satisfies ThresholdEcdsaDerivationStableKeyContext);
-
-const stableContextWithSigningGrantId: ThresholdEcdsaDerivationStableKeyContext = {
-  ...locallyConstructedStableContext,
-  // @ts-expect-error stable ECDSA DERIVATION key context rejects volatile wallet session ids.
-  signingGrantId: 'wsess-1',
-};
-void stableContextWithSigningGrantId;
 
 const stableContextWithThresholdSessionId: ThresholdEcdsaDerivationStableKeyContext = {
   ...locallyConstructedStableContext,
@@ -124,6 +101,23 @@ void ({
 } satisfies ThresholdEcdsaDerivationRoleLocalClientContext);
 
 declare const workerCtx: WorkerOperationContext;
+declare const authority: WalletAuthAuthorityRef;
+declare const materialActivation: MpcMaterialActivationRef;
+declare const materialRef: EcdsaRoleLocalPersistedMaterialRef;
+
+void openEcdsaRoleLocalSigningMaterialWasm({
+  authority,
+  materialActivation,
+  workerCtx,
+});
+
+void openEcdsaRoleLocalSigningMaterialWasm({
+  authority,
+  materialActivation,
+  workerCtx,
+  // @ts-expect-error Worker-open requests cannot use caller-selected durable material refs.
+  materialRef,
+});
 
 async function assertRoleLocalBootstrapShape(): Promise<void> {
   const prepared = await prepareEcdsaClientBootstrapCommandWasm({

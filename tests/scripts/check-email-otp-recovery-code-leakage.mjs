@@ -36,8 +36,8 @@ const recoveryKeysAllowedSourceFiles = new Set([
   'packages/sdk-web/src/react/components/AccountMenuButton/RecoveryCodesModalState.ts',
   'packages/sdk-server-ts/src/core/EmailOtpRecords.ts',
   'packages/sdk-server-ts/src/core/EmailOtpStores.ts',
-  'packages/sdk-server-ts/src/router/emailOtpRouteHandlers.ts',
-  'packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts',
+  'packages/sdk-server-ts/src/router/domains/emailOtp/emailOtpRouteHandlers.ts',
+  'packages/sdk-server-ts/src/router/domains/walletRegistration/walletRegistrationRoutes.ts',
 ]);
 
 const retainedBackupRecordAllowedSourceFiles = new Set([

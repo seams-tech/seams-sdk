@@ -61,6 +61,38 @@ signer_set_id: string,
  */
 selected_server_id: string, };
 
+export type RouterAbMpcMaterialActivationRefKindV1 = "mpc_material_activation_ref";
+
+export type RouterAbMpcMaterialActivationRefV1 = {
+/**
+ * Wire discriminant.
+ */
+kind: RouterAbMpcMaterialActivationRefKindV1,
+/**
+ * Opaque activation id.
+ */
+activation_id: string,
+/**
+ * Activated capability instance.
+ */
+capability: string,
+/**
+ * Owner of the activated material.
+ */
+material_owner: string,
+/**
+ * Public-key binding.
+ */
+key_binding: string,
+/**
+ * Lifecycle binding.
+ */
+lifecycle_binding: string,
+/**
+ * SigningWorker that owns the live material.
+ */
+signing_worker: string, };
+
 export type RouterAbEd25519YaoCircuitFamilyV1 = "activation" | "export";
 
 export type RouterAbEd25519YaoOperationV1 = "registration" | "recovery" | "refresh" | "export";
@@ -81,7 +113,7 @@ session_id: RouterAbEd25519YaoSessionIdV1,
 /**
  * Canonical stable KDF-context binding admitted by the Router.
  */
-stable_key_context_binding: RouterAbEd25519YaoStableKeyContextBindingV1, };
+stable_key_context_binding: RouterAbEd25519YaoStableKeyContextBindingV1, material_activation: RouterAbMpcMaterialActivationRefV1, };
 
 export type RouterAbEd25519YaoCircuitIdV1 = "activation_v1" | "export_v1";
 

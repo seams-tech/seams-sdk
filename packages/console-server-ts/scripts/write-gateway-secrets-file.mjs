@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { gatewaySecretNames, readDeploymentTarget } from '../../../scripts/deployment-targets.mjs';
+import { gatewaySecretNames, readBackendLane } from '../../../scripts/deployment-targets.mjs';
 
 const OPTIONAL_SECRET_NAMES = [
   'CONSOLE_INITIAL_OWNER_EMAIL',
@@ -12,9 +12,10 @@ const OPTIONAL_SECRET_NAMES = [
 
 function main() {
   const outputPath = readOutputPath(process.argv.slice(2));
-  const targetName = readTargetName();
-  const target = readDeploymentTarget(targetName);
-  const secrets = readRequiredSecrets(gatewaySecretNames(target));
+  const laneId = readLaneId();
+  const lane = readBackendLane(laneId);
+  requireProvisionedLane(laneId, lane.provisioning);
+  const secrets = readRequiredSecrets(gatewaySecretNames(lane));
   addOptionalSecrets(secrets);
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, `${JSON.stringify(secrets)}\n`, {
@@ -35,10 +36,16 @@ function readOutputPath(args) {
   return path.resolve(process.cwd(), value);
 }
 
-function readTargetName() {
-  const target = String(process.env.DEPLOY_TARGET || '').trim();
-  if (!target) throw new Error('DEPLOY_TARGET is required');
-  return target;
+function readLaneId() {
+  const lane = String(process.env.DEPLOYMENT_LANE || '').trim();
+  if (!lane) throw new Error('DEPLOYMENT_LANE is required');
+  return lane;
+}
+
+function requireProvisionedLane(laneId, provisioning) {
+  if (provisioning.kind !== 'provisioned') {
+    throw new Error(`lane ${laneId} is pending provisioning; Gateway secrets cannot be written`);
+  }
 }
 
 function addOptionalSecrets(secrets) {

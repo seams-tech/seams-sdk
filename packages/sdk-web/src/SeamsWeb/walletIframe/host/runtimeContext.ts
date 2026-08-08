@@ -4,6 +4,7 @@ import type {
   ParentToChildType,
   PreferencesChangedPayload,
   ProgressPayload,
+  WalletIframeSurfaceMeasurement,
 } from '../shared/messages';
 import { SeamsWeb } from '@/SeamsWeb';
 import type { SeamsConfigsInput } from '@/core/types/seams';
@@ -18,6 +19,11 @@ import {
 } from './context';
 import type { HandlerDeps, HandlerMap } from './handlers/walletIframeHandler.types';
 import type { SdkLifecycleEvent } from '@/core/types/sdkSentEvents';
+import {
+  walletIframeRequestIdFromBoundary,
+  type WalletIframeRequestId,
+} from '@/core/types/walletIframeIdentity';
+import type { UiConfirmSurfaceMeasurementBinding } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 
 export type WalletHostRuntimeState = {
   parentOrigin: string | null;
@@ -40,6 +46,115 @@ let runtimeContext: HostContext | null = null;
 const handlerMaps = new Map<HandlerFactory, HandlerMap>();
 let litMounterInstalled = false;
 
+const FOREGROUND_CONFIRMATION_REQUEST_TYPES: ReadonlySet<ParentToChildType> = new Set([
+  'PM_REGISTER_WALLET',
+  'PM_ADD_WALLET_SIGNER',
+  'PM_SIGN_TX_WITH_ACTIONS',
+  'PM_SIGN_AND_SEND_TX',
+  'PM_EXECUTE_ACTION',
+  'PM_SIGN_DELEGATE_ACTION',
+  'PM_SIGN_NEP413',
+  'PM_UNLOCK',
+  'PM_SIGN_TEMPO',
+  'PM_ENROLL_EMAIL_OTP',
+  'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
+  'PM_SHOW_EMAIL_OTP_RECOVERY_CODES',
+  'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES',
+  'PM_SET_RECOVERY_EMAILS',
+  'PM_SYNC_ACCOUNT_FLOW',
+  'PM_EXPORT_KEYPAIR_UI',
+  'PM_DELETE_DEVICE_KEY',
+  'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA',
+  'PM_START_DEVICE2_LINKING_FLOW',
+]);
+
+function postSurfaceMeasurement(
+  input: WalletHostRuntimeRequest,
+  measurement: WalletIframeSurfaceMeasurement,
+): void {
+  input.post({ type: 'SURFACE_MEASUREMENT', payload: measurement });
+}
+
+/**
+ * The variant the parent pinned the host box to for a whole request, when it is
+ * NOT simply the variant of whatever confirmation renders inside it.
+ *
+ * Key export is the only such request. Its box is always a full-viewport drawer
+ * because the key viewer is always a bottom drawer, but the Email OTP prompt
+ * that runs first inside that same box still follows the Confirmer UI setting.
+ * The parent reads this exact field to dress the dialog
+ * (confirmationUiModeForRequest in client/router.ts), so reading it here is what
+ * keeps the two sides describing the same box.
+ */
+function pinnedHostSurfaceVariantForRequest(
+  req: ParentToChildEnvelope,
+): 'modal' | 'drawer' | undefined {
+  if (req.type !== 'PM_EXPORT_KEYPAIR_UI') return undefined;
+  const payload = req.payload as { options?: { variant?: unknown } } | undefined;
+  const variant = payload?.options?.variant;
+  return variant === 'modal' || variant === 'drawer' ? variant : 'drawer';
+}
+
+function surfaceMeasurementBindingForRequest(
+  input: WalletHostRuntimeRequest,
+): { requestId: WalletIframeRequestId; binding: UiConfirmSurfaceMeasurementBinding } | null {
+  let requestId: WalletIframeRequestId;
+  try {
+    requestId = walletIframeRequestIdFromBoundary(input.req.requestId);
+  } catch {
+    return null;
+  }
+  const hostSurfaceVariant = pinnedHostSurfaceVariantForRequest(input.req);
+  return {
+    requestId,
+    binding: {
+      kind: 'wallet_iframe',
+      requestId,
+      postMeasurement: postSurfaceMeasurement.bind(null, input),
+      ...(hostSurfaceVariant ? { hostSurfaceVariant } : {}),
+    },
+  };
+}
+
+function isForegroundConfirmationRequest(input: WalletHostRuntimeRequest): boolean {
+  return FOREGROUND_CONFIRMATION_REQUEST_TYPES.has(input.req.type);
+}
+
+function clearSurfaceMeasurementBindingForRequest(
+  ctx: HostContext,
+  requestId: WalletIframeRequestId,
+): void {
+  const binding = ctx.surfaceMeasurementBinding;
+  if (binding.kind !== 'wallet_iframe' || binding.requestId !== requestId) return;
+  ctx.surfaceMeasurementBinding = { kind: 'disabled' };
+  ctx.seamsWeb?.setWalletIframeSurfaceMeasurementBinding({ kind: 'disabled' });
+}
+
+/**
+ * This binding says where surface measurements are routed. It does NOT decide
+ * whether two requests may be in flight at once — the parent's surface reducer
+ * does, and it rejects a second surface up front, before the message is ever
+ * posted.
+ *
+ * It used to throw here instead, and it was keyed on the wrong lifetime: the
+ * binding is set for a whole request and released in its `finally`, while a
+ * confirmation surface only lives until the user answers it. A transaction that
+ * has been confirmed and is off doing MPC and broadcast still held the binding,
+ * so a key export raised meanwhile was refused for the entire tail of a request
+ * whose UI was long gone. Worse, a request that never settled wedged every
+ * later foreground request until reload, with no way back.
+ *
+ * So hand the binding over. The newest foreground request is the one whose UI
+ * is about to mount, and therefore the one whose measurements matter.
+ */
+function takeForegroundSurfaceBinding(
+  ctx: HostContext,
+  binding: UiConfirmSurfaceMeasurementBinding,
+): void {
+  ctx.surfaceMeasurementBinding = binding;
+  ensureSeamsWeb(ctx).setWalletIframeSurfaceMeasurementBinding(binding);
+}
+
 function syncRuntimeContext(state: WalletHostRuntimeState): HostContext {
   if (!runtimeContext) {
     runtimeContext = createHostContext();
@@ -52,6 +167,11 @@ function syncRuntimeContext(state: WalletHostRuntimeState): HostContext {
     state.walletConfigs = runtimeContext.walletConfigs;
   }
   return runtimeContext;
+}
+
+export function syncActiveWalletHostRuntimeConfig(state: WalletHostRuntimeState): void {
+  if (!runtimeContext || !state.walletConfigs) return;
+  syncRuntimeContext(state);
 }
 
 function installLitMounterOnce(ctx: HostContext, input: WalletHostRuntimeRequest): void {
@@ -138,19 +258,31 @@ export async function handleWalletHostRuntimeRequestWithHandlers(
   createHandlers: HandlerFactory,
 ): Promise<void> {
   const ctx = syncRuntimeContext(input.state);
+  const foregroundBinding = isForegroundConfirmationRequest(input)
+    ? surfaceMeasurementBindingForRequest(input)
+    : null;
+  if (foregroundBinding) {
+    takeForegroundSurfaceBinding(ctx, foregroundBinding.binding);
+  }
   installLitMounterOnce(ctx, input);
 
-  let handlers = handlerMaps.get(createHandlers);
-  if (!handlers) {
-    handlers = createHandlers(buildHandlerDeps(ctx, input));
-    handlerMaps.set(createHandlers, handlers);
-  }
+  try {
+    let handlers = handlerMaps.get(createHandlers);
+    if (!handlers) {
+      handlers = createHandlers(buildHandlerDeps(ctx, input));
+      handlerMaps.set(createHandlers, handlers);
+    }
 
-  const handler = handlers[input.req.type as ParentToChildType] as unknown as
-    | ((r: ParentToChildEnvelope) => Promise<void>)
-    | undefined;
-  if (!handler) {
-    throw new Error(`Unsupported wallet iframe request type: ${input.req.type}`);
+    const handler = handlers[input.req.type as ParentToChildType] as unknown as
+      | ((r: ParentToChildEnvelope) => Promise<void>)
+      | undefined;
+    if (!handler) {
+      throw new Error(`Unsupported wallet iframe request type: ${input.req.type}`);
+    }
+    await handler(input.req);
+  } finally {
+    if (foregroundBinding) {
+      clearSurfaceMeasurementBindingForRequest(ctx, foregroundBinding.requestId);
+    }
   }
-  await handler(input.req);
 }

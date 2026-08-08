@@ -4,8 +4,8 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import url from 'node:url';
 
-test.describe('SSR sanity: SeamsAuthMenuSkeleton', () => {
-  test('imports public subpath and renders without window', async () => {
+test.describe('SSR sanity: SeamsAuthMenu adapter', () => {
+  test('imports the public subpath and renders one inert host marker', async () => {
     const here = path.dirname(url.fileURLToPath(import.meta.url));
     const packageJsonPath = path.resolve(here, '../../packages/sdk-web/package.json');
     const packageRequire = createRequire(packageJsonPath);
@@ -19,18 +19,24 @@ test.describe('SSR sanity: SeamsAuthMenuSkeleton', () => {
 
     const distMarkerCandidates = [path.resolve(path.dirname(packageJsonPath), exportTarget)];
     test.skip(
-      distMarkerCandidates.every((p) => !fs.existsSync(p)),
+      distMarkerCandidates.every((candidate) => !fs.existsSync(candidate)),
       `SDK dist not found at ${distMarkerCandidates[0]}; run pnpm -C packages/sdk-web build:rolldown`,
     );
 
     expect(typeof (globalThis as any).window).toBe('undefined');
 
     const mod: any = await import(url.pathToFileURL(distMarkerCandidates[0]).href);
-    expect(mod).toHaveProperty('SeamsAuthMenuSkeleton');
-    expect(typeof mod.SeamsAuthMenuSkeleton).toBe('function');
+    expect(mod).toHaveProperty('SeamsAuthMenu');
+    expect(typeof mod.SeamsAuthMenu).toBe('function');
+    expect(mod).not.toHaveProperty('SeamsAuthMenuSkeleton');
+    expect(mod).not.toHaveProperty('SeamsAuthMenuClient');
 
-    const html = renderToString(React.createElement(mod.SeamsAuthMenuSkeleton));
-    expect(html).toContain('w3a-signup-menu-root');
+    const html = renderToString(
+      React.createElement(mod.SeamsAuthMenu, { onOutcome: () => undefined }),
+    );
+    expect(html).toContain('data-seams-auth-menu-host="true"');
+    expect(html).not.toContain('<button');
+    expect(html).not.toContain('w3a-signup-menu-root');
 
     expect(typeof (globalThis as any).window).toBe('undefined');
   });

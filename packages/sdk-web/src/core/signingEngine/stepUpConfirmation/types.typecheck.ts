@@ -6,7 +6,7 @@ const warmSessionSigningAuthPlan = {
   accountId: 'wallet.testnet',
   intent: 'transaction_sign',
   curve: 'ecdsa',
-  sessionId: 'threshold-session-1',
+  thresholdSessionId: 'threshold-session-1',
   retention: 'session',
   expiresAtMs: 1_900_000_000_000,
   remainingUses: 1,

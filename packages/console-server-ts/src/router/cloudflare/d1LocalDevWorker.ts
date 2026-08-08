@@ -1,34 +1,17 @@
 import type { RouterAbNormalSigningAdmissionInput } from '@seams/sdk-server/cloud-host';
 import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
 import { createCloudflareD1RouterAbNormalSigningAdmissionStore } from '@seams/sdk-server/cloud-host';
+import { createRouterAbNormalSigningAdmissionAdapter } from '@seams/sdk-server/cloud-host';
 import type { ConsoleAuthAdapter, ConsoleAuthClaims, HeaderRecord } from '../consoleAuth';
-import {
-  createSigningRootSecretShareKekResolver,
-  type SigningRootKekProvider,
-} from '@seams/sdk-server/cloud-host';
-import { sealSigningRootSecretShareWireV1 } from '@seams/sdk-server/cloud-host';
-import {
-  normalizeSigningRootSecretShareId,
-  type SigningRootSecretShareWireV1,
-} from '@seams/sdk-server/cloud-host';
-import type {
-  CreateHostedSigningRootShareResolverInput,
-  SealedSigningRootShare as ResolverSealedSigningRootShare,
-  SigningRootShareSource,
-  ThresholdPrfPolicy,
-} from '@seams/sdk-server/cloud-host';
-import { D1SigningRootSecretStore } from '@seams/sdk-server/cloud-host';
 import type { CfEnv, CfExecutionContext, FetchHandler } from '@seams/sdk-server/cloud-host';
 import { createSigningSessionSealOptions } from '@seams/sdk-server/cloud-host';
 import { RouterAbEcdsaPresignRuntime } from '@seams/sdk-server/cloud-host';
 import type { SigningSessionSealRoutesOptions } from '@seams/sdk-server/cloud-host';
 import { createCloudflareRouter } from '@seams/sdk-server/cloud-host';
-import { createRouterAbPrivateD1WalletBudgetGrantProvisionerV1 } from '@seams/sdk-server/cloud-host';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
 import {
   createCloudflareD1ConsoleServiceBundle,
   createCloudflareD1RouterApiRouteExtensions,
-  createCloudflareD1SigningRootShareDecryptAdapter,
 } from './d1ConsoleServices';
 import {
   createCloudflareD1RouterApiEmailRecoveryAuthService,
@@ -94,6 +77,7 @@ import {
   ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_STATUS_PATH_V1,
   ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
   ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
@@ -164,8 +148,6 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS?: string;
   readonly EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX?: string;
   readonly EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS?: string;
-  readonly SEAMS_LOCAL_SIGNING_ROOT_KEK_ID?: string;
-  readonly SEAMS_LOCAL_SIGNING_ROOT_KEK_B64U?: string;
   readonly SPONSORED_EVM_EXECUTORS_JSON?: string;
   readonly SPONSORED_EXECUTION_REAL_PRICING_JSON?: string;
   readonly SPONSORED_EXECUTION_STATIC_PRICING_JSON?: string;
@@ -187,19 +169,12 @@ type ReadyD1SchemaResult = {
 
 type ReadyAdmissionResult = {
   readonly database: 'SIGNER_DB';
-  readonly quotaReservation: 'accepted' | 'reuse_existing';
-};
-
-type LocalD1SigningRootShareRequest = {
-  readonly signingRootId: string;
-  readonly signingRootVersion: string;
+  readonly policy: 'allowed';
 };
 
 const DEFAULT_LOCAL_CONSOLE_USER_ID = 'local-console-user';
 const DEFAULT_LOCAL_CONSOLE_PROJECT_ID = 'local-smoke-project';
 const DEFAULT_LOCAL_CONSOLE_ENVIRONMENT_ID = 'local';
-const DEFAULT_LOCAL_SIGNING_ROOT_KEK_ID = 'signing-root-kek-local-r1';
-const DEFAULT_LOCAL_SIGNING_ROOT_KEK_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const DEFAULT_LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET = 'dev-router-ab-internal-service-auth';
 const DEFAULT_LOCAL_ROUTER_AB_ROUTER_URL = 'http://127.0.0.1:9090';
 const LOCAL_ROUTER_AB_CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json';
@@ -550,27 +525,6 @@ function localRouterAbCeremonyJwksResponse(env: LocalD1DevEnv): Response {
     },
   });
 }
-const LOCAL_SIGNING_ROOT_SECRET_SHARE_ENVELOPE_VERSION = 'local-d1-signing-root-share-v1';
-const LOCAL_SIGNING_ROOT_SECRET_SHARE_AUDIT_EVENT_ID = 'local-dev-signing-root-share-seed';
-const LOCAL_SIGNING_ROOT_SHARE_POLICY: ThresholdPrfPolicy = Object.freeze({
-  protocol: 'threshold-prf',
-  threshold: 2,
-  shareCount: 3,
-});
-const LOCAL_SIGNING_ROOT_SHARE_FIXTURES = Object.freeze([
-  {
-    shareId: 1,
-    wireHex: '0001d73847ea1a0888265782eb6998f3d905b8275fa4e5fda6556ddacc3b28741702',
-  },
-  {
-    shareId: 2,
-    wireHex: '0002b3ee4da8422ffeebb66bd0b55afb5d072f55aa324698a89c0a8b234042fd6c0f',
-  },
-  {
-    shareId: 3,
-    wireHex: '0003a2d05e0950f3615940b8bd5e3e0903f4a582f5c0a632aae3a73b7a445c86c20c',
-  },
-] as const);
 const LOCAL_ROUTER_API_CORS_ORIGINS = Object.freeze([
   'https://localhost',
   'https://localhost:8443',
@@ -628,7 +582,6 @@ const CONSOLE_READY_TABLES = Object.freeze([
 ]);
 
 const SIGNER_READY_TABLES = Object.freeze([
-  'signing_root_secret_shares',
   'wallets',
   'wallet_signers',
   'wallet_auth_methods',
@@ -905,179 +858,6 @@ function localConsoleEnvironmentId(env: LocalD1DevEnv): string {
   );
 }
 
-function localSigningRootKekId(env: LocalD1DevEnv): string {
-  return (
-    normalizeLocalString(env.SEAMS_LOCAL_SIGNING_ROOT_KEK_ID) || DEFAULT_LOCAL_SIGNING_ROOT_KEK_ID
-  );
-}
-
-function localSigningRootKekProvider(env: LocalD1DevEnv): SigningRootKekProvider {
-  const kekId = localSigningRootKekId(env);
-  const kekB64u =
-    normalizeLocalString(env.SEAMS_LOCAL_SIGNING_ROOT_KEK_B64U) ||
-    DEFAULT_LOCAL_SIGNING_ROOT_KEK_B64U;
-  return {
-    kind: 'worker_secret',
-    workerSecretsByKekId: {
-      [kekId]: kekB64u,
-    },
-    encoding: 'base64url',
-  };
-}
-
-function hexToLocalBytes(hex: string): Uint8Array {
-  const normalized = hex.trim();
-  if (!/^[0-9a-fA-F]*$/.test(normalized) || normalized.length % 2 !== 0) {
-    throw new Error('local signing-root fixture hex is invalid');
-  }
-  const out = new Uint8Array(normalized.length / 2);
-  for (let i = 0; i < out.length; i += 1) {
-    out[i] = Number.parseInt(normalized.slice(i * 2, i * 2 + 2), 16);
-  }
-  return out;
-}
-
-function parseLocalSigningRootId(signingRootId: string): {
-  readonly projectId: string;
-  readonly envId: string;
-} {
-  const value = normalizeLocalString(signingRootId);
-  const separator = value.lastIndexOf(':');
-  if (separator <= 0 || separator >= value.length - 1) {
-    throw new Error('local D1 signingRootId must be projectId:envId');
-  }
-  return {
-    projectId: value.slice(0, separator),
-    envId: value.slice(separator + 1),
-  };
-}
-
-function createLocalD1SigningRootSecretStore(input: {
-  readonly env: LocalD1DevEnv;
-  readonly signingRootId: string;
-}): D1SigningRootSecretStore {
-  const scope = parseLocalSigningRootId(input.signingRootId);
-  return new D1SigningRootSecretStore({
-    database: input.env.SIGNER_DB,
-    namespace: localTenantStorageNamespace(input.env),
-    orgId: localConsoleOrgId(input.env),
-    projectId: scope.projectId,
-    envId: scope.envId,
-    envelopeVersion: LOCAL_SIGNING_ROOT_SECRET_SHARE_ENVELOPE_VERSION,
-    lastAuditEventId: LOCAL_SIGNING_ROOT_SECRET_SHARE_AUDIT_EVENT_ID,
-    ensureSchema: false,
-  });
-}
-
-function normalizeLocalD1SigningRootShareRequest(input: {
-  readonly signingRootId: string;
-  readonly signingRootVersion?: string;
-}): LocalD1SigningRootShareRequest {
-  const signingRootId = normalizeLocalString(input.signingRootId);
-  const signingRootVersion = normalizeLocalString(input.signingRootVersion);
-  if (!signingRootId) throw new Error('local D1 signing-root share request requires signingRootId');
-  if (!signingRootVersion) {
-    throw new Error('local D1 signing-root share request requires signingRootVersion');
-  }
-
-  return {
-    signingRootId,
-    signingRootVersion,
-  };
-}
-
-function localSigningRootSeedKey(input: LocalD1SigningRootShareRequest): string {
-  return `${input.signingRootId}\0${input.signingRootVersion}`;
-}
-
-class LocalD1SigningRootShareSource implements SigningRootShareSource {
-  private readonly seedPromises = new Map<string, Promise<void>>();
-  private readonly seededKeys = new Set<string>();
-
-  constructor(private readonly env: LocalD1DevEnv) {}
-
-  async listSealedSigningRootShares(input: {
-    readonly signingRootId: string;
-    readonly signingRootVersion?: string;
-  }): Promise<readonly ResolverSealedSigningRootShare[]> {
-    const request = normalizeLocalD1SigningRootShareRequest(input);
-    const store = createLocalD1SigningRootSecretStore({
-      env: this.env,
-      signingRootId: request.signingRootId,
-    });
-    await this.ensureSeeded(store, request);
-    return await store.listSealedSigningRootSecretShares(request);
-  }
-
-  private async ensureSeeded(
-    store: D1SigningRootSecretStore,
-    input: LocalD1SigningRootShareRequest,
-  ): Promise<void> {
-    const key = localSigningRootSeedKey(input);
-    if (this.seededKeys.has(key)) return;
-    const existing = this.seedPromises.get(key);
-    if (existing) {
-      await existing;
-      return;
-    }
-    const promise = this.seed(store, input);
-    this.seedPromises.set(key, promise);
-    try {
-      await promise;
-      this.seededKeys.add(key);
-    } finally {
-      this.seedPromises.delete(key);
-    }
-  }
-
-  private async seed(
-    store: D1SigningRootSecretStore,
-    input: LocalD1SigningRootShareRequest,
-  ): Promise<void> {
-    const resolveKek = createSigningRootSecretShareKekResolver(
-      localSigningRootKekProvider(this.env),
-    );
-    const kekId = localSigningRootKekId(this.env);
-    for (const fixture of LOCAL_SIGNING_ROOT_SHARE_FIXTURES) {
-      const shareId = normalizeSigningRootSecretShareId(fixture.shareId);
-      if (!shareId) throw new Error('local signing-root fixture has invalid shareId');
-      const plaintextShareWire = hexToLocalBytes(fixture.wireHex) as SigningRootSecretShareWireV1;
-      try {
-        const sealedShare = await sealSigningRootSecretShareWireV1({
-          signingRootId: input.signingRootId,
-          signingRootVersion: input.signingRootVersion,
-          shareId,
-          kekId,
-          plaintextShareWire,
-          resolveKek,
-        });
-        await store.putSealedSigningRootSecretShare({
-          signingRootId: input.signingRootId,
-          signingRootVersion: input.signingRootVersion,
-          shareId,
-          sealedShare,
-          storageId: `local-dev-signing-root-share-${shareId}`,
-          kekId,
-        });
-      } finally {
-        plaintextShareWire.fill(0);
-      }
-    }
-  }
-}
-
-function createLocalD1SigningRootShareResolverAdapters(
-  env: LocalD1DevEnv,
-): CreateHostedSigningRootShareResolverInput {
-  return {
-    policy: LOCAL_SIGNING_ROOT_SHARE_POLICY,
-    storageAdapter: new LocalD1SigningRootShareSource(env),
-    decryptAdapter: createCloudflareD1SigningRootShareDecryptAdapter(
-      localSigningRootKekProvider(env),
-    ),
-  };
-}
-
 function isConsolePath(pathname: string): boolean {
   return pathname === '/console' || pathname.startsWith('/console/');
 }
@@ -1124,7 +904,6 @@ async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandl
     bindings: {
       consoleDatabase: env.CONSOLE_DB,
       signerMetadataDatabase: env.SIGNER_DB,
-      kekProvider: localSigningRootKekProvider(env),
     },
     route: {
       namespace: localTenantStorageNamespace(env),
@@ -1144,11 +923,6 @@ async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandl
     auth: new LocalD1DevConsoleAuthAdapter(env),
     readyCheck: createLocalReadyCheck(env),
     billingStripeWebhookSigningSecret: String(env.STRIPE_WEBHOOK_SECRET || '').trim() || undefined,
-    // Local dev runs as a single auto-authenticated admin, so the 4-eyes
-    // approval gate can't be satisfied and only blocks policy publishing
-    // (POLICY_PUBLISH -> "approvalId is required"). Disable it so the console
-    // can publish policies (and thus runtime snapshots) directly.
-    approvals: null,
   });
 }
 
@@ -1166,7 +940,6 @@ async function createLocalRouterApiHandler(
     bindings: {
       consoleDatabase: env.CONSOLE_DB,
       signerMetadataDatabase: env.SIGNER_DB,
-      kekProvider: localSigningRootKekProvider(env),
     },
     route: {
       namespace: localTenantStorageNamespace(env),
@@ -1202,7 +975,10 @@ async function createLocalRouterApiHandler(
     session,
     ...(ed25519Yao.kind === 'enabled' ? { routerAbEd25519YaoProduct: ed25519Yao.runtime } : {}),
     ...(sessionCookieName ? { sessionCookieName } : {}),
-    routerAbNormalSigningRouterProxy: env.MPC_ROUTER,
+    routerAbNormalSigningRouterProxy: {
+      internalServiceAuthSecret: localRouterAbInternalServiceAuthSecret(env),
+      fetch: (request) => env.MPC_ROUTER.fetch(request),
+    },
     routerAbEcdsaStrictPostRegistration: ecdsaStrictPorts.postRegistration,
     emailRecovery: {
       kind: 'prepare_only',
@@ -1260,6 +1036,7 @@ async function handleLocalYaoRequestScoped(
     case ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1:
     case ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1:
     case ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1:
+    case ROUTER_AB_ED25519_YAO_RECOVERY_STATUS_PATH_V1:
       return await handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1({
         request,
         store: dependencies.store,
@@ -1363,12 +1140,6 @@ function localD1RouterApiAuthServiceOptions(
     emailOtpGoogleRegistrationAttemptRateLimitWindowMs:
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS,
     routerAbEcdsaPresignRuntime: createLocalEcdsaPresignRuntime(env),
-    walletBudgetGrantProvisioner:
-      createRouterAbPrivateD1WalletBudgetGrantProvisionerV1({
-        routerBaseUrl: ROUTER_AB_MPC_ROUTER_ORIGIN,
-        internalServiceAuthSecret: localRouterAbInternalServiceAuthSecret(env),
-        fetchImpl: createRouterAbServiceBindingFetch(env),
-      }),
     ecdsaStrictRegistration: localEcdsaStrictPorts(env).registration,
     ...(ed25519Yao.kind === 'enabled' ? { ed25519YaoProductRegistration: ed25519Yao.runtime } : {}),
   };
@@ -1515,7 +1286,7 @@ function routerApiRequest(request: Request, pathname: string): Request {
 function localAdmissionInput(
   env: LocalD1DevEnv,
   nowMs: number,
-): RouterAbNormalSigningAdmissionInput {
+): Extract<RouterAbNormalSigningAdmissionInput, { readonly curve: 'ed25519' }> {
   const rpId = parseWebAuthnRpId('localhost');
   if (!rpId.ok) throw new Error('local D1/DO admission smoke rpId is invalid');
   return {
@@ -1524,7 +1295,8 @@ function localAdmissionInput(
     walletId: 'local-smoke-wallet',
     authorityScope: { kind: 'passkey_rp', rpId: rpId.value },
     thresholdSessionId: 'local-smoke-threshold-session',
-    signingGrantId: 'local-smoke-signing-grant',
+    walletSessionId: 'local-smoke-wallet-session',
+    quotaId: 'local-smoke-wallet-session-quota',
     requestId: `local-smoke-request-${nowMs}`,
     expiresAtMs: nowMs + 60_000,
     signingWorkerId: 'local-smoke-signing-worker',
@@ -1545,24 +1317,12 @@ async function runD1AdmissionSmoke(env: LocalD1DevEnv): Promise<ReadyAdmissionRe
     storageNamespace: localTenantStorageNamespace(env),
     now: () => nowMs,
   });
-  const result = await store.reserveQuota(input);
-  switch (result.kind) {
-    case 'accepted':
-    case 'reuse_existing':
-      return {
-        database: 'SIGNER_DB',
-        quotaReservation: result.kind,
-      };
-    case 'short_window_saturated':
-    case 'signer_queue_saturated':
-      throw new Error(`local D1 admission smoke failed: ${result.kind}`);
-    default:
-      return assertNeverAdmissionDecision(result);
+  const admission = createRouterAbNormalSigningAdmissionAdapter(store, { now: () => nowMs });
+  const result = await admission.evaluatePolicy(input);
+  if (!result.ok) {
+    throw new Error(`local D1 admission smoke failed: ${result.code}`);
   }
-}
-
-function assertNeverAdmissionDecision(value: never): never {
-  throw new Error(`Unsupported local D1 admission decision: ${JSON.stringify(value)}`);
+  return { database: 'SIGNER_DB', policy: 'allowed' };
 }
 
 function parseJsonObject(text: string): Record<string, unknown> | null {

@@ -413,7 +413,7 @@ impl LocalEd25519YaoSigningWorkerStateV1 {
                 continue;
             };
             if active.binding.lifecycle.account_id != scope.account_id
-                || active.binding.lifecycle.session_id != scope.session_id
+                || active.binding.material_activation != scope.material_activation
                 || active.binding.lifecycle.selected_server_id != scope.signing_worker_id
             {
                 continue;
@@ -801,7 +801,7 @@ impl LocalEd25519YaoSigningIdentityStateV1 {
             invalid_normal_signing("SigningWorker has no active Yao signing share")
         })?;
         if active.binding.lifecycle.account_id != scope.account_id
-            || active.binding.lifecycle.session_id != scope.session_id
+            || active.binding.material_activation != scope.material_activation
             || active.binding.lifecycle.selected_server_id != scope.signing_worker_id
         {
             return Err(invalid_normal_signing(
@@ -814,7 +814,7 @@ impl LocalEd25519YaoSigningIdentityStateV1 {
         );
         let state = ActiveSigningWorkerStateV1::new(
             scope.account_id.clone(),
-            scope.session_id.clone(),
+            scope.material_activation.clone(),
             public_key,
             ServerIdentityV1::new(
                 config.signing_worker_id.clone(),
@@ -960,6 +960,7 @@ impl LocalEd25519YaoSigningIdentityStateV1 {
             .ok_or_else(|| invalid_activation("refresh requires an active Yao signing share"))?;
         let transition = binding.epochs().signing_worker;
         if !same_signing_identity(&active.binding, binding.ceremony())
+            || active.binding.material_activation != binding.ceremony().material_activation
             || binding.registered_public_key() != &active.registered_public_key
             || transition.current() != active.state_epoch
         {
@@ -1361,8 +1362,9 @@ fn invalid_normal_signing(message: impl Into<String>) -> RouterAbProtocolError {
 mod tests {
     use super::*;
     use router_ab_core::{
-        Ed25519YaoSessionIdV1, Ed25519YaoStableKeyContextBindingV1, RootShareEpoch,
-        RouterAbEd25519YaoLifecycleScopeV1,
+        Ed25519YaoEpochTransitionV1, Ed25519YaoRefreshEpochsV1, Ed25519YaoSessionIdV1,
+        Ed25519YaoStableKeyContextBindingV1, MpcMaterialActivationRefV1,
+        NormalSigningAuthorizationV1, RootShareEpoch, RouterAbEd25519YaoLifecycleScopeV1,
     };
 
     #[test]
@@ -1510,6 +1512,118 @@ mod tests {
         assert_eq!(second.active_signing_share(), Some(&[2; 32]));
     }
 
+    #[test]
+    fn normal_signing_selects_the_exact_opaque_material_activation() {
+        let binding = ceremony_binding_for_identity(Ed25519YaoOperationV1::Registration, 0x31, 1);
+        assert_ne!(
+            binding.lifecycle.session_id,
+            binding.material_activation.activation_id
+        );
+        assert_ne!(
+            binding.lifecycle.lifecycle_id,
+            binding.material_activation.lifecycle_binding
+        );
+        let identity = LocalEd25519YaoEffectiveIdentityV1::from_binding(&binding);
+        let mut worker = LocalEd25519YaoSigningWorkerStateV1::default();
+        worker.identities.insert(
+            identity.clone(),
+            LocalEd25519YaoSigningIdentityStateV1 {
+                active: Some(ActiveSigningShare {
+                    scalar: Zeroizing::new([0x41; 32]),
+                    binding: binding.clone(),
+                    state_epoch: epoch(1),
+                    transcript: [0x42; 32],
+                    registered_public_key: [0x43; 32],
+                }),
+                ..Default::default()
+            },
+        );
+        let exact_scope = NormalSigningScopeV1::new(
+            "normal-signing-request-1",
+            binding.lifecycle.account_id.clone(),
+            NormalSigningAuthorizationV1::reusable_wallet_session("authorization-wallet-session-1")
+                .expect("authorization"),
+            binding.material_activation.clone(),
+            binding.lifecycle.selected_server_id.clone(),
+        )
+        .expect("normal-signing scope");
+        assert_eq!(
+            worker
+                .identity_for_scope(&exact_scope)
+                .expect("exact activation selects active state"),
+            identity
+        );
+
+        let mut substituted_scope = exact_scope;
+        substituted_scope.material_activation.activation_id =
+            "opaque-substituted-activation".to_owned();
+        assert!(worker.identity_for_scope(&substituted_scope).is_err());
+    }
+
+    #[test]
+    fn signing_worker_refresh_rejects_a_substituted_material_activation() {
+        let state = active_state(epoch(1), [0x51; 32]);
+        let active = state.active.as_ref().expect("active state");
+        let exact_refresh = refresh_binding(
+            &active.binding,
+            active.binding.material_activation.clone(),
+            active.registered_public_key,
+        );
+        state
+            .validate_refresh_transition(&exact_refresh)
+            .expect("exact activation refresh");
+
+        let mut substituted_activation = active.binding.material_activation.clone();
+        substituted_activation.activation_id = "opaque-substituted-activation".to_owned();
+        let substituted_refresh = refresh_binding(
+            &active.binding,
+            substituted_activation,
+            active.registered_public_key,
+        );
+        assert!(state
+            .validate_refresh_transition(&substituted_refresh)
+            .is_err());
+    }
+
+    fn refresh_binding(
+        active: &Ed25519YaoCeremonyBindingV1,
+        material_activation: MpcMaterialActivationRefV1,
+        registered_public_key: [u8; 32],
+    ) -> Ed25519YaoRefreshBindingV1 {
+        let ceremony_activation = material_activation.clone();
+        let scope = RouterAbEd25519YaoLifecycleScopeV1::new(
+            "refresh-threshold-lifecycle-1",
+            active.lifecycle.root_share_epoch.clone(),
+            active.lifecycle.account_id.clone(),
+            "refresh-threshold-session-1",
+            active.lifecycle.signer_set_id.clone(),
+            active.lifecycle.selected_server_id.clone(),
+            material_activation,
+        )
+        .expect("refresh scope");
+        let transition =
+            Ed25519YaoEpochTransitionV1::new(epoch(1), epoch(2)).expect("refresh transition");
+        Ed25519YaoRefreshBindingV1::new(
+            Ed25519YaoCeremonyBindingV1::new(
+                scope
+                    .into_lifecycle(Ed25519YaoOperationV1::Refresh)
+                    .expect("refresh lifecycle"),
+                Ed25519YaoOperationV1::Refresh,
+                Ed25519YaoSessionIdV1::new([0x61; 32]).expect("refresh session"),
+                active.stable_key_context_binding,
+                ceremony_activation,
+            )
+            .expect("refresh ceremony"),
+            registered_public_key,
+            Ed25519YaoRefreshEpochsV1 {
+                deriver_a: transition,
+                deriver_b: transition,
+                signing_worker: transition,
+            },
+        )
+        .expect("refresh binding")
+    }
+
     fn active_state(
         state_epoch: Ed25519YaoStateEpochV1,
         scalar: [u8; 32],
@@ -1621,19 +1735,30 @@ mod tests {
         identity_tag: u8,
     ) -> Ed25519YaoCeremonyBindingV1 {
         let scope = RouterAbEd25519YaoLifecycleScopeV1::new(
-            format!("lifecycle-{session_tag}"),
+            format!("threshold-lifecycle-{session_tag}"),
             RootShareEpoch::new(format!("root-epoch-{identity_tag}")).expect("root epoch"),
             format!("account-{identity_tag}"),
-            format!("wallet-session-{session_tag}"),
+            format!("threshold-session-{session_tag}"),
             format!("signer-set-{identity_tag}"),
             "signing-worker-1",
+            MpcMaterialActivationRefV1::new(
+                format!("opaque-activation-{session_tag}"),
+                format!("capability-{identity_tag}"),
+                format!("account-{identity_tag}"),
+                format!("key-{identity_tag}"),
+                format!("opaque-material-lifecycle-{session_tag}"),
+                "signing-worker-1",
+            )
+            .expect("material activation"),
         )
         .expect("scope");
+        let material_activation = scope.material_activation().clone();
         Ed25519YaoCeremonyBindingV1::new(
             scope.into_lifecycle(operation).expect("lifecycle"),
             operation,
             Ed25519YaoSessionIdV1::new([session_tag; 32]).expect("session"),
             Ed25519YaoStableKeyContextBindingV1::new([identity_tag; 32]),
+            material_activation,
         )
         .expect("binding")
     }

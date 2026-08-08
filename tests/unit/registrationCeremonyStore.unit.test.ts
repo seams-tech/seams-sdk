@@ -54,7 +54,6 @@ function makeEcdsaAddSignerCeremony(
         relayerKeyId: 'rk_add_signer',
         requestId: 'request-add-signer',
         thresholdSessionId: 'session-add-signer',
-        signingGrantId: 'wallet-session-add-signer',
         ttlMs: 300_000,
         remainingUses: 1,
         participantIds: [1, 2],

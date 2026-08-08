@@ -12,6 +12,7 @@ use router_ab_ecdsa_client_protocol::{
     EcdsaRegistrationSealSeedsV1, EcdsaRegistrationSignerSetV1, EcdsaSelectedServerIdentityV1,
     EcdsaSignerEnvelopePublicKeyV1, EcdsaSignerIdentityV1, EcdsaSigningWorkerExportShareBindingV1,
     EcdsaSigningWorkerExportShareEnvelopeV1, EcdsaStableKeyContextV1,
+    EcdsaMaterialActivationRefKindV1, EcdsaMaterialActivationRefV1,
 };
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
@@ -121,6 +122,13 @@ impl RouterAbEcdsaClientCeremonyV1 {
                 client_ephemeral_public_key: self.active_keypair()?.public_key().to_owned(),
             },
             EcdsaPostRegistrationOperationV1::ExplicitExport {
+                authorization_kind: input.authorization.kind_label().to_owned(),
+                authorization_id: input
+                    .authorization
+                    .authorization_id()
+                    .map_err(|error| JsValue::from_str(error))?
+                    .to_owned(),
+                material_activation: parse_material_activation(&input.material_activation)?,
                 authorization_digest_b64u: input.export_authorization_digest_b64u.clone(),
                 nonce: input.export_nonce.clone(),
             },
@@ -147,6 +155,7 @@ impl RouterAbEcdsaClientCeremonyV1 {
                 nonce: input.refresh_nonce.clone(),
                 previous_activation_epoch: input.previous_activation_epoch.clone(),
                 next_activation_epoch: input.next_activation_epoch.clone(),
+                material_activation: parse_material_activation(&input.material_activation)?,
             },
         )?;
         let request = self.build_post_request(header, &input.common.deriver_recipient_keys)?;
@@ -394,13 +403,53 @@ struct PostRegistrationCommonInputV1 {
     deriver_recipient_keys: RecipientKeysInputV1,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum NormalSigningAuthorizationInputV1 {
+    ReusableWalletSession { wallet_session_id: String },
+    OperationStepUp {
+        #[serde(skip_serializing)]
+        authorization_id: String,
+    },
+}
+
+impl NormalSigningAuthorizationInputV1 {
+    fn kind_label(&self) -> &'static str {
+        match self {
+            Self::ReusableWalletSession { .. } => "reusable_wallet_session",
+            Self::OperationStepUp { .. } => "operation_step_up",
+        }
+    }
+
+    fn authorization_id(&self) -> Result<&str, &'static str> {
+        match self {
+            Self::ReusableWalletSession { wallet_session_id } => Ok(wallet_session_id),
+            Self::OperationStepUp { authorization_id } => Ok(authorization_id),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ExplicitExportRequestInputV1 {
     #[serde(flatten)]
     common: PostRegistrationCommonInputV1,
+    authorization: NormalSigningAuthorizationInputV1,
+    material_activation: MaterialActivationRefInputV1,
     export_authorization_digest_b64u: String,
     export_nonce: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct MaterialActivationRefInputV1 {
+    kind: String,
+    activation_id: String,
+    capability: String,
+    material_owner: String,
+    key_binding: String,
+    lifecycle_binding: String,
+    signing_worker: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -413,6 +462,7 @@ struct ActivationRefreshRequestInputV1 {
     refresh_nonce: String,
     previous_activation_epoch: String,
     next_activation_epoch: String,
+    material_activation: MaterialActivationRefInputV1,
 }
 
 #[derive(Serialize)]
@@ -457,6 +507,8 @@ struct ExplicitExportRequestWireV1 {
     router_id: String,
     client_id: String,
     client_ephemeral_public_key: String,
+    authorization: NormalSigningAuthorizationInputV1,
+    material_activation: MaterialActivationRefInputV1,
     export_authorization_digest_b64u: String,
     export_nonce: String,
     expires_at_ms: u64,
@@ -477,6 +529,7 @@ struct ActivationRefreshRequestWireV1 {
     refresh_nonce: String,
     previous_activation_epoch: String,
     next_activation_epoch: String,
+    material_activation: MaterialActivationRefInputV1,
     expires_at_ms: u64,
     deriver_a_refresh_envelope: EnvelopeWireV1,
     deriver_b_refresh_envelope: EnvelopeWireV1,
@@ -486,6 +539,25 @@ fn parse_context(input: &ContextInputV1) -> Result<EcdsaStableKeyContextV1, JsVa
     EcdsaStableKeyContextV1::new(input.application_binding_digest_b64u.clone())
         .map_err(protocol_error)
         .map_err(js_error)
+}
+
+fn parse_material_activation(
+    input: &MaterialActivationRefInputV1,
+) -> Result<EcdsaMaterialActivationRefV1, JsValue> {
+    if input.kind != "mpc_material_activation_ref" {
+        return Err(JsValue::from_str(
+            "material_activation.kind must be mpc_material_activation_ref",
+        ));
+    }
+    Ok(EcdsaMaterialActivationRefV1 {
+        kind: EcdsaMaterialActivationRefKindV1::MpcMaterialActivationRef,
+        activation_id: input.activation_id.clone(),
+        capability: input.capability.clone(),
+        material_owner: input.material_owner.clone(),
+        key_binding: input.key_binding.clone(),
+        lifecycle_binding: input.lifecycle_binding.clone(),
+        signing_worker: input.signing_worker.clone(),
+    })
 }
 
 fn parse_public_identity(
@@ -613,6 +685,8 @@ fn serialize_export_request(
         router_id: input.common.router_id,
         client_id: input.common.client_id,
         client_ephemeral_public_key: public_key.to_owned(),
+        authorization: input.authorization,
+        material_activation: input.material_activation,
         export_authorization_digest_b64u: input.export_authorization_digest_b64u,
         export_nonce: input.export_nonce,
         expires_at_ms: input.common.expires_at_ms,
@@ -637,6 +711,7 @@ fn serialize_refresh_request(
         refresh_nonce: input.refresh_nonce,
         previous_activation_epoch: input.previous_activation_epoch,
         next_activation_epoch: input.next_activation_epoch,
+        material_activation: input.material_activation,
         expires_at_ms: input.common.expires_at_ms,
         deriver_a_refresh_envelope: envelope_wire(request.deriver_a_envelope()),
         deriver_b_refresh_envelope: envelope_wire(request.deriver_b_envelope()),
@@ -714,6 +789,7 @@ mod tests {
                     .expect("client ceremony keypair"),
             ),
             registration_binding: None,
+            explicit_export_request_digest: None,
         }
     }
 
@@ -833,6 +909,16 @@ mod tests {
     }
 
     #[test]
+    fn operation_step_up_authorization_serializes_without_local_identifier() {
+        let value = serde_json::to_value(NormalSigningAuthorizationInputV1::OperationStepUp {
+            authorization_id: b64u(&[0x52; 32]),
+        })
+        .expect("operation step-up authorization JSON");
+        assert_eq!(value, serde_json::json!({ "kind": "operation_step_up" }));
+        assert!(serde_json::from_value::<NormalSigningAuthorizationInputV1>(value).is_err());
+    }
+
+    #[test]
     fn opaque_ceremony_builds_all_strict_request_branches_without_private_material() {
         let mut ceremony = test_ceremony();
         let client_public_key = ceremony
@@ -886,6 +972,18 @@ mod tests {
                 "export",
                 "root-epoch-1",
             )),
+            authorization: NormalSigningAuthorizationInputV1::ReusableWalletSession {
+                wallet_session_id: "wallet-session-1".to_owned(),
+            },
+            material_activation: MaterialActivationRefInputV1 {
+                kind: "mpc_material_activation_ref".to_owned(),
+                activation_id: "material-activation-1".to_owned(),
+                capability: "capability-1".to_owned(),
+                material_owner: "wallet-1".to_owned(),
+                key_binding: "key-binding-1".to_owned(),
+                lifecycle_binding: "export-lifecycle-1".to_owned(),
+                signing_worker: SERVER_ID.to_owned(),
+            },
             export_authorization_digest_b64u: b64u(&[0x51; 32]),
             export_nonce: "export-nonce-1".to_owned(),
         };
@@ -897,6 +995,55 @@ mod tests {
                 .expect("export request"),
         );
         assert_eq!(export["client_ephemeral_public_key"], client_public_key);
+        assert_eq!(export["authorization"]["kind"], "reusable_wallet_session");
+        assert_eq!(
+            export["authorization"]["wallet_session_id"],
+            "wallet-session-1"
+        );
+        assert_eq!(
+            export["material_activation"]["activation_id"],
+            "material-activation-1"
+        );
+
+        let operation_step_up_input = ExplicitExportRequestInputV1 {
+            common: test_post_common(test_lifecycle(
+                "export-step-up-lifecycle-1",
+                "key_export",
+                "export",
+                "root-epoch-1",
+            )),
+            authorization: NormalSigningAuthorizationInputV1::OperationStepUp {
+                authorization_id: b64u(&[0x52; 32]),
+            },
+            material_activation: MaterialActivationRefInputV1 {
+                kind: "mpc_material_activation_ref".to_owned(),
+                activation_id: "material-activation-1".to_owned(),
+                capability: "capability-1".to_owned(),
+                material_owner: "wallet-1".to_owned(),
+                key_binding: "key-binding-1".to_owned(),
+                lifecycle_binding: "export-step-up-lifecycle-1".to_owned(),
+                signing_worker: SERVER_ID.to_owned(),
+            },
+            export_authorization_digest_b64u: b64u(&[0x53; 32]),
+            export_nonce: "export-step-up-nonce-1".to_owned(),
+        };
+        let operation_step_up_export = parse_output(
+            ceremony
+                .build_explicit_export_request(
+                    &serde_json::to_string(&operation_step_up_input)
+                        .expect("operation step-up export input JSON"),
+                )
+                .expect("operation step-up export request"),
+        );
+        assert_eq!(
+            operation_step_up_export["authorization"]["kind"],
+            "operation_step_up"
+        );
+        assert!(operation_step_up_export["authorization"]
+            .as_object()
+            .expect("operation step-up authorization object")
+            .get("authorization_id")
+            .is_none());
 
         let signing_worker_public_key = x25519_public_key([0x81; 32]);
         let refresh_input = ActivationRefreshRequestInputV1 {
@@ -911,6 +1058,15 @@ mod tests {
             refresh_nonce: "refresh-nonce-1".to_owned(),
             previous_activation_epoch: "root-epoch-1".to_owned(),
             next_activation_epoch: "root-epoch-2".to_owned(),
+            material_activation: MaterialActivationRefInputV1 {
+                kind: "mpc_material_activation_ref".to_owned(),
+                activation_id: "material-activation-2".to_owned(),
+                capability: "capability-2".to_owned(),
+                material_owner: "wallet-1".to_owned(),
+                key_binding: "key-binding-2".to_owned(),
+                lifecycle_binding: "refresh-lifecycle-1".to_owned(),
+                signing_worker: SERVER_ID.to_owned(),
+            },
         };
         let refresh = parse_output(
             ceremony

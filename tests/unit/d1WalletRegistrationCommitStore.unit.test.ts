@@ -5,10 +5,10 @@ import type {
   WalletEcdsaSignerRecord,
   WalletRecord,
 } from '../../packages/sdk-server-ts/src/core/WalletStore';
-import { CloudflareD1WalletRegistrationCommitStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationCommitStore';
-import { CloudflareD1WebAuthnStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1WebAuthnStore';
-import { CloudflareD1EmailOtpEnrollmentStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpEnrollmentStore';
-import type { D1EmailOtpRegistrationCommitPlan } from '../../packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpRegistrationEnrollmentFinalizer';
+import { CloudflareD1WalletRegistrationCommitStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1WalletRegistrationCommitStore';
+import { CloudflareD1WebAuthnStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/webauthn/d1WebAuthnStore';
+import { CloudflareD1EmailOtpEnrollmentStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/emailOtp/d1EmailOtpEnrollmentStore';
+import type { D1EmailOtpRegistrationCommitPlan } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/emailOtp/d1EmailOtpRegistrationEnrollmentFinalizer';
 import type { EmailOtpWalletEnrollmentRecord } from '../../packages/sdk-server-ts/src/core/EmailOtpStores';
 import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
@@ -137,6 +137,17 @@ test('D1 registration commit binds the passkey credential before Ed25519 exists'
     await expect(countRows(database, 'webauthn_authenticators')).resolves.toBe(1);
     // The binding must exist, or the next passkey login fails unknown_credential.
     await expect(countRows(database, 'webauthn_credential_bindings')).resolves.toBe(1);
+    const signerRow = await database
+      .prepare('SELECT record_json FROM wallet_signers LIMIT 1')
+      .first<{ readonly record_json?: unknown }>();
+    const persistedSigner = JSON.parse(String(signerRow?.record_json)) as Record<string, unknown>;
+    expect(persistedSigner).toMatchObject({
+      version: 'wallet_signer_ecdsa_v1',
+      walletId,
+      walletKey: { keyHandle: 'ecdsa-key-handle-1' },
+    });
+    expect(persistedSigner).not.toHaveProperty('evmFamilySigningKeySlotId');
+    expect(persistedSigner).not.toHaveProperty('walletKey.evmFamilySigningKeySlotId');
 
     const webAuthnStore = new CloudflareD1WebAuthnStore({
       database,

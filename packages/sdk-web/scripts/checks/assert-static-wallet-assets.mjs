@@ -23,7 +23,6 @@ const REQUIRED_BASE_ROUTES = [
   '/sdk/wallet-iframe-host-ecdsa.js',
   '/sdk/wallet-iframe-host-full.js',
   '/sdk/export-private-key-viewer.js',
-  '/sdk/iframe-export-bootstrap.js',
 ];
 
 const EXPECTED_CONTENT_TYPES = [
@@ -69,20 +68,18 @@ const FORBIDDEN_DOCUMENT_DEFAULT_HEADERS = [
 const CANONICAL_WALLET_STATIC_ASSETS = ['wallet-shims.js', 'wallet-service.css'];
 
 const REFERENCED_ROUTE_CLASSES = new Set(['javascript', 'css', 'htmlDocument']);
+const WASM_FREE_WORKER_ROUTES = new Set(['/sdk/workers/passkey-confirm.worker.js']);
 const JS_REFERENCE_PATTERNS = [
   /\bimport\s+(?:[^'"]+\s+from\s+)?["']([^"']+)["']/g,
   /\bexport\s+[^'"]+\s+from\s+["']([^"']+)["']/g,
   /\bimport\(\s*["']([^"']+)["']\s*\)/g,
   /\bnew URL\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*\)/g,
+  /\bresolveWasmUrl\(\s*["']([^"']+)["']/g,
+  /\b[A-Za-z_$][\w$]*\(\s*["']([^"']+\.(?:worker\.js|wasm))["']/g,
 ];
 const HTML_REFERENCE_PATTERN = /\b(?:href|src)="([^"]+)"/g;
 const CSS_URL_PATTERN = /\burl\(\s*(['"]?)([^'")]+)\1\s*\)/g;
 const SOURCE_MAPPING_URL_PATTERN = /(?:\/\/|\/\*)# sourceMappingURL=([^\s*]+)/g;
-
-function routeToFilePath(route) {
-  if (route === '/wallet-service') return path.join(PUBLIC_ROOT, 'wallet-service/index.html');
-  return path.join(PUBLIC_ROOT, route.slice(1));
-}
 
 function sourceFileToFilePath(sourceFile) {
   return path.join(PUBLIC_ROOT, sourceFile);
@@ -370,7 +367,7 @@ async function assertWorkerWasmReachability(assets, routes) {
   const graph = await buildAssetReferenceGraph(assets, routes);
   const workerRoutes = assets
     .map((asset) => asset.route)
-    .filter(isWalletWorkerEntryRoute)
+    .filter((route) => isWalletWorkerEntryRoute(route) && !WASM_FREE_WORKER_ROUTES.has(route))
     .sort();
   const wasmRoutes = new Set(assets.map((asset) => asset.route).filter(isWalletWorkerWasmRoute));
   const wasmFreeWorkers = [];

@@ -14,8 +14,9 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ExactEcdsaSigningLaneIdentity,
-  ExactEd25519SigningLaneIdentity,
+  ExactEd25519ExportMaterialIdentity,
 } from '../../session/identity/exactSigningLaneIdentity';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
 export type KeyExportEventCallback = (event: KeyExportFlowEvent) => void;
 
@@ -38,7 +39,8 @@ export type SigningEngineExportKeypairWithUIInput =
       kind: 'ed25519';
       nearAccount: NearAccountRef;
       walletSession: WalletSessionRef;
-      laneIdentity: ExactEd25519SigningLaneIdentity;
+      laneIdentity: ExactEd25519ExportMaterialIdentity;
+      materialActivation: MpcMaterialActivationRef;
       chainTarget?: never;
       options: SigningEngineKeyExportUiOptions;
     };
@@ -64,7 +66,8 @@ export type SigningEngineResolveExactKeyExportLaneResult =
     }
   | {
       kind: 'ed25519';
-      laneIdentity: ExactEd25519SigningLaneIdentity;
+      laneIdentity: ExactEd25519ExportMaterialIdentity;
+      materialActivation: MpcMaterialActivationRef;
     };
 
 type KeyExportFlowContext = {

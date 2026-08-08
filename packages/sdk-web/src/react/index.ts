@@ -73,6 +73,10 @@ export type {
   SeamsContextProviderProps,
   LoginState,
   LoginResult,
+  AddedEvmFamilyEcdsaSignerCapability,
+  AddedNearEd25519SignerCapability,
+  RegisteredEvmFamilyEcdsaCapability,
+  RegisteredNearEd25519Capability,
   RegistrationResult,
   PasskeyRegistrationOptions,
   // Re-exported from SeamsWeb types
@@ -128,16 +132,29 @@ export type {
   SeamsAuthMenuSyncAccountRequest,
 } from './components/SeamsAuthMenu/public';
 export { AuthMenuMode, AuthMenuModeMap } from './components/SeamsAuthMenu/authMenuTypes';
-export type {
-  AuthMenuModeLabel,
-  AuthMenuHeadings,
-} from './components/SeamsAuthMenu/authMenuTypes';
+export type { AuthMenuModeLabel, AuthMenuHeadings } from './components/SeamsAuthMenu/authMenuTypes';
 // SSR-safe shell + explicit client entrypoints
 export {
   SeamsAuthMenuClient,
   SeamsAuthMenuSkeletonInner,
   preloadSeamsAuthMenu,
 } from './components/SeamsAuthMenu';
+// Iframe-hosted successor retained alongside the embedded React menu for parity work.
+export { HostedSeamsAuthMenu } from './components/HostedSeamsAuthMenu/public';
+export type {
+  HostedAuthMenuCopy,
+  HostedAuthMenuCopyInput,
+  HostedAuthMenuExternalAuthBroker,
+  HostedAuthMenuExternalAuthEvidence,
+  HostedAuthMenuExternalAuthRequest,
+  HostedAuthMenuExternalProvider,
+  HostedAuthMenuMode,
+  HostedAuthMenuOpenRequest,
+  HostedAuthMenuOutcome,
+  HostedAuthMenuRegistrationAccountInput,
+  HostedAuthMenuSessionId,
+  HostedSeamsAuthMenuProps,
+} from './components/HostedSeamsAuthMenu/public';
 // Small SVG utility icon used in examples
 export { default as TouchIcon } from './components/AccountMenuButton/icons/TouchIcon';
 export { default as QRCodeIcon } from './components/QRCodeIcon';

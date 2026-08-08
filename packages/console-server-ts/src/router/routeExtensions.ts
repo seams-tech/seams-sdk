@@ -334,10 +334,10 @@ export function createConsoleRouterApiRouteExtensions(
 
   return [
     {
-      kind: 'cloudflare_route_extension',
+      kind: 'fetch_route_extension',
       id: 'console_router_api_managed_routes',
       routes,
-      async handleCloudflareRoute(input) {
+      async handleFetchRoute(input) {
         const logger = input.logger;
         if (
           input.route.id === ROUTER_API_SPONSORED_EVM_CALL_ROUTE_ID &&

@@ -52,9 +52,7 @@ test.describe('determineConfirmationConfig', () => {
     });
   });
 
-  test('decryptPrivateKeyWithPrf defaults to normalized silent mode', async ({
-    page,
-  }) => {
+  test('decryptPrivateKeyWithPrf defaults to normalized silent mode', async ({ page }) => {
     const res = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.determine);
@@ -139,7 +137,7 @@ test.describe('determineConfirmationConfig', () => {
               method: 'passkey',
               accountId: 'alice.testnet',
               intent: 'transactionSign',
-              sessionId: 'threshold-session',
+              thresholdSessionId: 'threshold-session',
               retention: 'multi_use',
               expiresAtMs: Date.now() + 60_000,
               remainingUses: 2,
@@ -207,6 +205,97 @@ test.describe('determineConfirmationConfig', () => {
     });
   });
 
+  // An Email OTP code exists only in the user's inbox, so neither
+  // non-interactive setting can produce one: uiMode 'none' confirms silently and
+  // behavior 'skipClick' auto-confirms past the mounted prompt. Both used to
+  // return a decision with no code, failing downstream with "requires a 6-digit
+  // code".
+  for (const [label, configured] of [
+    ['silent uiMode', { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 }],
+    ['auto-proceed behavior', { uiMode: 'modal', behavior: 'skipClick', autoProceedDelay: 0 }],
+  ] as Array<[string, Record<string, unknown>]>) {
+    test(`Email OTP step-up overrides ${label} so the code can be entered`, async ({ page }) => {
+      const res = await page.evaluate(
+        async ({ paths, configured }) => {
+          const mod = await import(paths.determine);
+          const types = await import(paths.types);
+          const determine = mod.determineConfirmationConfig as Function;
+
+          const ctx: any = {
+            userPreferencesManager: {
+              getConfirmationConfig: () => configured,
+            },
+          };
+
+          const request = {
+            type: types.UserConfirmationType.SIGN_INTENT_DIGEST,
+            confirmationConfig: configured,
+            payload: {
+              nearAccountId: 'alice.testnet',
+              challengeB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+              signingAuthPlan: {
+                kind: 'emailOtpReauth',
+                method: 'email_otp',
+                emailOtpPrompt: { challengeId: 'email-otp-1' },
+              },
+            },
+          } as any;
+
+          return { cfg: determine(ctx, request) };
+        },
+        { paths: IMPORT_PATHS, configured },
+      );
+
+      expect(res.cfg.kind).toBe('interactive');
+      expect(res.cfg.behavior).toBe('requireClick');
+      expect(res.cfg.uiMode).toBe('modal');
+    });
+  }
+
+  // An explicitly configured drawer is already a visible prompt, so it survives
+  // the clamp — only the behavior is forced.
+  test('Email OTP step-up keeps a configured drawer', async ({ page }) => {
+    const res = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.determine);
+        const types = await import(paths.types);
+        const determine = mod.determineConfirmationConfig as Function;
+
+        const ctx: any = {
+          userPreferencesManager: {
+            getConfirmationConfig: () => ({
+              uiMode: 'drawer',
+              behavior: 'skipClick',
+              autoProceedDelay: 0,
+            }),
+          },
+        };
+
+        const request = {
+          type: types.UserConfirmationType.SIGN_INTENT_DIGEST,
+          payload: {
+            nearAccountId: 'alice.testnet',
+            challengeB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+            signingAuthPlan: {
+              kind: 'emailOtpReauth',
+              method: 'email_otp',
+              emailOtpPrompt: { challengeId: 'email-otp-2' },
+            },
+          },
+        } as any;
+
+        return { cfg: determine(ctx, request) };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(res.cfg).toEqual({
+      kind: 'interactive',
+      uiMode: 'drawer',
+      behavior: 'requireClick',
+    });
+  });
+
   test('warm-session signing respects explicit transaction confirmation config', async ({
     page,
   }) => {
@@ -240,7 +329,7 @@ test.describe('determineConfirmationConfig', () => {
               accountId: 'alice.testnet',
               intent: 'transaction_sign',
               curve: 'ed25519',
-              sessionId: 'tsess-ready',
+              thresholdSessionId: 'tsess-ready',
               expiresAtMs: Date.now() + 60_000,
               remainingUses: 3,
             },
@@ -411,5 +500,4 @@ test.describe('determineConfirmationConfig', () => {
       behavior: 'requireClick',
     });
   });
-
 });

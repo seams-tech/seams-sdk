@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { parsePrepareEmailRecoveryRequest } from '@server/router/emailRecoveryRequestValidation';
+import { parsePrepareEmailRecoveryRequest } from '@server/router/domains/emailRecovery/emailRecoveryRequestValidation';
 
 test('email-recovery prepare rejects raw threshold ECDSA bootstrap payloads at the route boundary', () => {
   const result = parsePrepareEmailRecoveryRequest({

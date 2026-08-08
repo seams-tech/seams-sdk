@@ -16,10 +16,26 @@ import { buildNearTransactionSigningLane } from '../../packages/sdk-web/src/core
 import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
 import { buildFreshStepUpRequiredFromEmailOtpRefreshRejection } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/stepUpFreshness';
 
-function appSessionJwt(args?: { expSeconds?: number; sub?: string; walletId?: string }): string {
+function appSessionJwt(args?: {
+  expSeconds?: number;
+  sub?: string;
+  providerSubject?: string;
+  provider?: 'google' | 'email';
+  walletId?: string;
+}): string {
+  const subject = args?.sub || 'google:wallet.testnet';
+  const providerSubject = args?.providerSubject || subject;
+  const provider = args?.provider || (providerSubject.startsWith('email:') ? 'email' : 'google');
   const payload = {
     kind: 'app_session_v1',
-    sub: args?.sub || 'google:wallet.testnet',
+    sub: subject,
+    provider,
+    providerSubject,
+    authSource: {
+      kind: 'oidc_provider',
+      providerId: provider === 'google' ? 'google_oidc' : 'oidc',
+      providerSubject,
+    },
     walletId: args?.walletId || 'wallet.testnet',
     exp: args?.expSeconds || Math.floor(Date.now() / 1000) + 3600,
   };
@@ -44,12 +60,13 @@ function makeIdentity() {
     walletId,
     nearAccountId,
     nearEd25519SigningKeyId,
-  signerSlot: 1,
-  auth: {
+    signerSlot: 1,
+    auth: {
       kind: 'email_otp',
       providerSubjectId: 'google:wallet.testnet',
     },
-    signingGrantId: SigningSessionIds.signingGrant('wallet-session-1'),
+    walletSessionId: SigningSessionIds.walletSession('wallet-session-1'),
+    quotaId: SigningSessionIds.walletSessionQuota('wallet-quota-1'),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-1'),
   });
   return emailOtpRefreshIdentity({
@@ -62,6 +79,18 @@ function makeIdentity() {
 }
 
 test.describe('EmailOtpAppSessionJwtCache', () => {
+  test('binds linked OIDC sessions by provider subject rather than principal', () => {
+    const binding = emailOtpAppSessionBindingFromJwt({
+      walletId: toWalletId('wallet.testnet'),
+      appSessionJwt: appSessionJwt({
+        sub: 'linked-principal',
+        providerSubject: 'google:wallet.testnet',
+      }),
+    });
+
+    expect(binding.providerSubject).toBe('google:wallet.testnet');
+  });
+
   test('rejects a wallet-session JWT at the app-session boundary', () => {
     const identity = makeIdentity();
     const cache = new EmailOtpAppSessionJwtCache();
@@ -91,6 +120,46 @@ test.describe('EmailOtpAppSessionJwtCache', () => {
         appSessionJwt: initialWalletJwt,
       }),
     ).toThrow('app-session wallet does not match the requested wallet binding');
+  });
+
+  test('requires the canonical OIDC auth source and exact provider claims', () => {
+    const valid = appSessionJwt();
+    const payload = JSON.parse(
+      Buffer.from(valid.split('.')[1]!, 'base64url').toString('utf8'),
+    ) as Record<string, unknown>;
+    const withPayload = (overrides: Record<string, unknown>): string =>
+      [
+        base64UrlJson({ alg: 'none', typ: 'JWT' }),
+        base64UrlJson({ ...payload, ...overrides }),
+        'signature',
+      ].join('.');
+
+    expect(() =>
+      emailOtpAppSessionBindingFromJwt({
+        walletId: toWalletId('wallet.testnet'),
+        appSessionJwt: withPayload({ authSource: undefined }),
+      }),
+    ).toThrow('OIDC provider source');
+    expect(() =>
+      emailOtpAppSessionBindingFromJwt({
+        walletId: toWalletId('wallet.testnet'),
+        appSessionJwt: withPayload({
+          provider: 'email',
+        }),
+      }),
+    ).toThrow('does not match its provider claims');
+    expect(() =>
+      emailOtpAppSessionBindingFromJwt({
+        walletId: toWalletId('wallet.testnet'),
+        appSessionJwt: withPayload({
+          authSource: {
+            kind: 'oidc_provider',
+            providerId: 'google_oidc',
+            providerSubject: 'google:other',
+          },
+        }),
+      }),
+    ).toThrow('does not match its provider subject');
   });
 
   test('returns a typed cached success for an unexpired app-session JWT', async () => {
@@ -136,6 +205,33 @@ test.describe('EmailOtpAppSessionJwtCache', () => {
     await expect(
       cache.resolveJwt({ walletSession, relayUrl: 'https://relay.example.test' }),
     ).resolves.toBe(jwt);
+  });
+
+  test('resolves step-up authority by exact wallet and provider subject', async () => {
+    const walletId = toWalletId('exact-wallet.testnet');
+    const expectedJwt = appSessionJwt({
+      walletId,
+      sub: 'linked-principal',
+      providerSubject: 'google:expected',
+    });
+    const otherJwt = appSessionJwt({
+      walletId,
+      sub: 'linked-principal',
+      providerSubject: 'google:other',
+    });
+    const cache = new EmailOtpAppSessionJwtCache({
+      refreshAppSessionJwt: failUnexpectedAppSessionRefresh,
+    });
+    cache.remember(emailOtpAppSessionBindingFromJwt({ walletId, appSessionJwt: otherJwt }));
+    cache.remember(emailOtpAppSessionBindingFromJwt({ walletId, appSessionJwt: expectedJwt }));
+
+    await expect(
+      cache.resolveJwtForProviderSubject({
+        walletId,
+        providerSubject: 'google:expected',
+        relayUrl: 'https://relay.example.test',
+      }),
+    ).resolves.toBe(expectedJwt);
   });
 
   test('returns a typed refresh success and remembers the refreshed JWT', async () => {

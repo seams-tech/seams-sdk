@@ -5,11 +5,12 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import {
   buildCurrentSealedSessionRecord,
   type BuildCurrentSealedSessionRecordInput,
+  type readExactEd25519SealedSession,
   type readExactSealedSession,
   type writeExactSealedSession,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
@@ -18,11 +19,11 @@ import {
   type EmailOtpEcdsaPublicationPorts,
 } from './ecdsaPublication';
 import {
-  persistEmailOtpEd25519YaoSessionForRefresh,
+  persistEmailOtpEd25519YaoCapabilityForRefresh,
   type EmailOtpEd25519YaoPublicationPorts,
 } from './ed25519YaoPublication';
-import type { ThresholdEd25519SessionRecord } from '../persistence/records';
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 export class EmailOtpSealedSessionRegistry {
   constructor(
@@ -34,15 +35,16 @@ export class EmailOtpSealedSessionRegistry {
         chainTarget: ThresholdEcdsaChainTarget;
         bootstrap: ThresholdEcdsaSessionBootstrapResult;
         source: 'email_otp';
+        authority: WalletAuthAuthorityRef;
         emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
       }) => Promise<{
         bootstrap: ThresholdEcdsaSessionBootstrapResult;
-        warmCapability: WarmSessionEcdsaCapabilityState;
+        authorization: ActiveWalletSessionAuthorizationProjection;
       }>;
       writeExactSealedSession: typeof writeExactSealedSession;
+      readExactEd25519SealedSession: typeof readExactEd25519SealedSession;
       readExactSealedSession: typeof readExactSealedSession;
-      listThresholdEcdsaSessionRecordsForWallet: EmailOtpEcdsaPublicationPorts['listThresholdEcdsaSessionRecordsForWallet'];
-      listActiveEcdsaSignersForWallet: EmailOtpEcdsaPublicationPorts['listActiveEcdsaSignersForWallet'];
+      listActiveEcdsaCapabilityManifestsForWallet: EmailOtpEcdsaPublicationPorts['listActiveEcdsaCapabilityManifestsForWallet'];
       clearEcdsaRestoreCaches: () => void;
     },
   ) {}
@@ -66,17 +68,15 @@ export class EmailOtpSealedSessionRegistry {
         this.ports.commitEvmFamilyThresholdEcdsaSessions,
       registerSigningSession: (record) => this.registerSigningSession(record),
       readExactSealedSession: this.ports.readExactSealedSession,
-      listThresholdEcdsaSessionRecordsForWallet:
-        this.ports.listThresholdEcdsaSessionRecordsForWallet,
-      listActiveEcdsaSignersForWallet: this.ports.listActiveEcdsaSignersForWallet,
+      listActiveEcdsaCapabilityManifestsForWallet:
+        this.ports.listActiveEcdsaCapabilityManifestsForWallet,
     };
   }
 
-  async persistEd25519YaoSessionForRefresh(args: {
-    record: ThresholdEd25519SessionRecord;
-    rpId: string;
-  }): Promise<void> {
-    await persistEmailOtpEd25519YaoSessionForRefresh(args, this.ed25519YaoPublicationPorts());
+  async persistEd25519YaoCapabilityForRefresh(
+    args: Parameters<typeof persistEmailOtpEd25519YaoCapabilityForRefresh>[0],
+  ): Promise<void> {
+    await persistEmailOtpEd25519YaoCapabilityForRefresh(args, this.ed25519YaoPublicationPorts());
   }
 
   async persistEcdsaSessionForRefresh(args: {
@@ -105,7 +105,7 @@ export class EmailOtpSealedSessionRegistry {
       configs: this.ports.configs,
       getSignerWorkerContext: this.ports.getSignerWorkerContext,
       registerSigningSession: (record) => this.registerSigningSession(record),
-      readExactSealedSession: this.ports.readExactSealedSession,
+      readExactEd25519SealedSession: this.ports.readExactEd25519SealedSession,
     };
   }
 }

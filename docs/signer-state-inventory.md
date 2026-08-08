@@ -31,13 +31,14 @@ for:
 - whether material is live, rehydratable, or requires reauthorization;
 - which durable material reference belongs to the selected capability.
 
-The repository contains most of the intended concepts: exact lane identity,
-canonical lane inventory, runtime validation, durable role-local material,
-public reauthorization anchors, and sealed recovery. The Refactor 90 SPEC owns
-the target `MpcCapabilityHydrationPlan`. Its earlier legacy-record adapter was
-deleted before the July 20 checkpoint, so the shared decision contract and
-proof constructors remain implementation work. Current protocol composition
-remains record-shaped and flow-specific.
+The historical snapshot contained most of the intended concepts: exact lane
+identity, canonical lane inventory, runtime validation, durable role-local
+material, public reauthorization anchors, and sealed recovery. Refactor 90
+replaced the ECDSA public-only anchor produced by Wallet Session expiry or
+exhaustion with an authorization-free inactive sealed-material record in
+`fe07fea5b`. It retains encrypted material and the exact activation binding
+while excluding reusable-session authorization. Canonical inactive-material
+consumption through same-method operation step-up landed in `fa1f21657`.
 
 ## Intended Architecture
 
@@ -74,7 +75,7 @@ Several identities have different cardinalities and lifetimes.
 | material owner | one role-local key-material owner | key/session dependent | represented through optional handle, ref, or ready record |
 | runtime handle | one worker-local handle | worker lifetime | sometimes treated as lane readiness |
 | durable material reference | one pointer to encrypted worker material | session/material lifetime | can disappear with runtime records |
-| exact lane | key + target + auth + grant + threshold session | operation/session | selected separately from material in some flows |
+| exact lane | key + target + auth + Wallet Session/quota + threshold session | operation/session | selected separately from material in some flows |
 
 The shared EVM-family key is the clearest mismatch. The key is family-wide.
 Target membership, policy scope, nonce scope, and operation lane can be
@@ -86,7 +87,7 @@ the shared key:
 - `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:2578`
 - `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:2614`
 
-That projection copies `signingGrantId` and `thresholdSessionId`. The model
+That projection copies Wallet Session/quota identity and `thresholdSessionId`. The model
 needs an explicit server-authorized capability scope before this copy is safe:
 
 ```ts
@@ -200,21 +201,15 @@ is lost.
 The sealed-session repository persists refresh records in IndexedDB. A full
 sealed record can contain the recovery artifact and exact session metadata.
 
-The current registration path persists an ECDSA public reauthorization anchor:
-
-- `packages/sdk-web/src/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions.ts:260`
-- `packages/sdk-web/src/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions.ts:274`
-- `packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts:2401`
-
-The anchor type explicitly excludes secrets, sealed material, and runtime
-state:
-
-- `packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts:139`
-- `packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts:161`
-
-It also omits `roleLocalDurableMaterialRef` and the role-local binding digest.
-It can support fresh reauthorization. It cannot address the encrypted
-role-local material by itself.
+At the time of this snapshot, ECDSA expiry and exhaustion produced a
+public-only reauthorization anchor. Refactor 90 removed that record shape in
+`fe07fea5b`. The replacement inactive record retains the sealed secret,
+role-local persisted-material reference, and exact material activation while
+excluding Wallet Session/quota identity, threshold-session identity, Wallet Session JWT,
+allowance, and other reusable-session authorization state.
+The retired anchor could support fresh reauthorization but could not address
+the encrypted role-local material by itself. The replacement closes that
+material-identity gap without reviving reusable-session authority.
 
 ### Server authority
 
@@ -251,7 +246,7 @@ such as:
 - an active grant with no live or durable material;
 - durable material with no durable manifest that points to it;
 - a ready record for one lifecycle branch and a worker handle for another;
-- a public reauth anchor classified as restorable;
+- the retired public reauth anchor classified as restorable;
 - copied shared-key identity carrying a target session whose scope is implicit.
 
 Auth method is also derived through two independent fields. Record source
@@ -289,15 +284,17 @@ Current passkey ECDSA registration:
 2. persists public account/signer identity per target;
 3. commits a full runtime record to an in-memory session store;
 4. marks the worker handle runtime-validated;
-5. persists a public reauthorization anchor.
+5. persists the durable ECDSA material and session state through their
+   canonical owners.
 
 See:
 
 - `packages/sdk-web/src/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions.ts:201`
 
-Immediate signing works because the runtime record and worker handle are live.
-The durable worker bytes and public reauth anchor do not form one rehydratable
-capability record.
+Immediate signing uses the live runtime. After authorization expiry or
+exhaustion, the inactive sealed-material record keeps the exact encrypted
+material available without claiming that reusable-session authorization is
+still active.
 
 ### After wallet unlock
 
@@ -354,37 +351,31 @@ Refresh clears:
 Refresh can retain:
 
 - public account/signer identity;
-- sealed-session records or public reauth anchors;
+- active sealed-session records or authorization-free inactive sealed material;
 - role-local ready records when a path wrote them;
 - encrypted worker material.
 
-The available-lane reader merges durable sealed records, public reauth anchors,
-runtime records, status advisories, and shared-key projections:
+The historical available-lane reader merged durable sealed records, public
+reauth anchors, runtime records, status advisories, and shared-key projections.
+Refactor 90 removed the ECDSA anchor branch. Inactive sealed material is now a
+durable material fact and cannot construct an authorized or restorable signing
+lane by itself.
 
 - `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:2727`
 - `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:2810`
 - `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:2863`
 - `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:3099`
 
-A live public reauth anchor is mapped to `state: 'restorable'`:
-
-- `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:1296`
-- `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:1361`
-
 A full sealed recovery record is also mapped to `state: 'restorable'`:
 
 - `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:1373`
 - `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:1465`
 
-Those states have different next transitions:
-
-- sealed material can be rehydrated without a new user authorization while the
-  grant remains valid;
-- a public anchor requires a fresh authorization ceremony;
-- encrypted role-local material requires its exact durable ref and binding
-  digest.
-
-The single `restorable` label hides these distinctions.
+The remaining distinction is explicit: an active sealed-session record may
+restore session-scoped runtime state, while inactive sealed material requires
+same-method operation authorization before use. The inactive record preserves
+the exact durable reference and activation; it carries no grant or Wallet
+Session identity.
 
 ## Lane Selection
 
@@ -589,7 +580,8 @@ type ActiveEcdsaCapabilityManifest = {
   scope: EcdsaCapabilityScope;
   authority: WalletAuthAuthority;
   policy: {
-    signingGrantId: SigningGrantId;
+    walletSessionId: WalletSessionId;
+    quotaId: MpcWalletSigningQuotaId;
     thresholdSessionId: ThresholdEcdsaSessionId;
     serverGeneration: ServerIssuedGeneration;
     remainingUses: PositiveInteger;

@@ -1,4 +1,34 @@
 export { SeamsWeb } from './SeamsWeb';
+export {
+  buildHostedAuthMenuOpenRequest,
+  hostedAuthMenuExternalAuthRequestIdFromBoundary,
+  hostedAuthMenuSessionIdFromBoundary,
+} from './SeamsWeb/walletIframe/shared/messages';
+export type {
+  HostedAuthMenuCopy,
+  HostedAuthMenuCopyInput,
+  HostedAuthMenuExternalAuthEvidence,
+  HostedAuthMenuExternalAuthRequest,
+  HostedAuthMenuExternalAuthRequestId,
+  HostedAuthMenuExternalAuthResolutionInput,
+  HostedAuthMenuExternalProvider,
+  HostedAuthMenuMode,
+  HostedAuthMenuOpenRequest,
+  HostedAuthMenuOutcome,
+  HostedAuthMenuRegistrationAccountInput,
+  HostedAuthMenuSessionId,
+} from './SeamsWeb/walletIframe/shared/messages';
+export { BrowserCapabilityUnavailableError } from './SeamsWeb/publicApi/capabilitySelection';
+export type {
+  BrowserCapabilitySelectionResult,
+  BrowserCapabilityUnavailableReason,
+  BrowserCapabilityUnavailableSelection,
+} from './SeamsWeb/publicApi/capabilitySelection';
+export type {
+  WalletIframeExactSessionIdentity,
+  WalletIframeExactSessionState,
+} from './SeamsWeb/walletIframe/shared/exactSessionState';
+export type { WalletAuthenticationRestoreAuth } from './SeamsWeb/signingSurface/ports';
 
 export * from './config';
 export { PASSKEY_MANAGER_DEFAULT_CONFIGS } from './core/config/defaultConfigs';
@@ -22,6 +52,10 @@ export type {
   SeamsConfigsReadonly,
   SeamsConfigsInput,
   // Registration
+  AddedEvmFamilyEcdsaSignerCapability,
+  AddedNearEd25519SignerCapability,
+  RegisteredEvmFamilyEcdsaCapability,
+  RegisteredNearEd25519Capability,
   RegistrationResult,
   NearProvisioningState,
   // Login

@@ -1,193 +1,141 @@
-import type {
-  ReadyEcdsaSignerSession,
-  ReadyEvmFamilyEcdsaMaterial,
-} from '../../session/identity/evmFamilyEcdsaIdentity';
-import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
-import type { BudgetAdmittedTransactionOperation } from '../../session/operationState/transactionState';
-import type { SigningAuthPlan, WebAuthnChallenge } from '../../stepUpConfirmation/types';
-import type { ReadyEcdsaMaterial } from './ecdsaMaterialState';
+import type { OperationDigestSet } from '@shared/authorization/operationFingerprint';
+import type { TransactionSigningIntent } from '../../session/operationState/transactionState';
+import type { SigningAuthPlan } from '../../stepUpConfirmation/types';
 import type {
   EvmFamilyEcdsaEmailOtpStepUpAuthorization,
   EvmFamilyEcdsaPasskeyStepUpAuthorization,
-  EvmFamilyEcdsaWarmSessionStepUpAuthorization,
 } from './stepUpAuthorization';
+import {
+  isEmailOtpWalletAuthAuthority,
+  isPasskeyWalletAuthAuthority,
+  type WalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
+import {
+  issueEcdsaOperationStepUpAuthorization,
+  prepareEcdsaOperationStepUp,
+  type EcdsaOperationStepUpSessionAuth,
+  type PreparedEcdsaOperationStepUp,
+} from '../../threshold/ecdsa/operationStepUp';
+import type { HydratedEcdsaSignerMaterial } from '../../session/identity/evmFamilyEcdsaIdentity';
+import {
+  buildReadySecp256k1SigningMaterial,
+  type ReadySecp256k1SigningMaterial,
+} from './signers/secp256k1';
 
-export type EvmFamilyThresholdEcdsaOperation = BudgetAdmittedTransactionOperation<
-  SelectedEcdsaLane,
-  SigningAuthPlan
->;
-
-export type EvmFamilyThresholdEcdsaReauthResult = {
-  readyToSignMaterial: ReadyEcdsaMaterial;
-  readyMaterial: ReadyEvmFamilyEcdsaMaterial;
-  signerSession: ReadyEcdsaSignerSession;
-  operation: EvmFamilyThresholdEcdsaOperation;
+/** The operation a step-up authorizes: the intent it was prepared for, and the
+ * plan that will authorize it. It carries no `SelectedEcdsaLane` — an
+ * auth-neutral candidate has none, and nothing here ever read one. */
+export type EvmFamilyThresholdEcdsaOperation = {
+  readonly intent: TransactionSigningIntent;
+  readonly authPlan: SigningAuthPlan;
 };
 
-export async function buildEvmFamilyThresholdEcdsaReauthResult(args: {
-  readyToSignMaterial: ReadyEcdsaMaterial;
-  operation: EvmFamilyThresholdEcdsaOperation;
-}): Promise<EvmFamilyThresholdEcdsaReauthResult> {
-  return {
-    readyToSignMaterial: args.readyToSignMaterial,
-    readyMaterial: args.readyToSignMaterial.readyMaterial,
-    signerSession: args.readyToSignMaterial.signerSession,
-    operation: args.operation,
-  };
+export type EvmFamilyEcdsaOperationStepUpAuthorization =
+  | EvmFamilyEcdsaEmailOtpStepUpAuthorization
+  | EvmFamilyEcdsaPasskeyStepUpAuthorization;
+
+export async function prepareEvmFamilyEcdsaOperationStepUp(args: {
+  readonly operation: EvmFamilyThresholdEcdsaOperation;
+  readonly operationDigests: OperationDigestSet;
+  readonly material: HydratedEcdsaSignerMaterial;
+}): Promise<PreparedEcdsaOperationStepUp> {
+  const signerSession = args.material;
+  const participantIds = signerSession.publicFacts.participantIds;
+  if (participantIds.length !== 2) {
+    throw new Error('[chains] ECDSA operation step-up requires exactly two participants');
+  }
+  const operationId = String(args.operation.intent.operationId || '').trim();
+  const expiresAtMs = Date.now() + 5 * 60_000;
+  return await prepareEcdsaOperationStepUp({
+    walletId: signerSession.walletId,
+    operationKind: 'evm.sign_transaction',
+    operationId,
+    operationDigests: args.operationDigests,
+    materialActivation: signerSession.materialActivation,
+    normalSigningScope: signerSession.routerAbEcdsaDerivationNormalSigning.state.scope,
+    keyHandle: signerSession.publicFacts.keyHandle,
+    relayerKeyId: signerSession.transport.relayerKeyId,
+    participantIds: [Number(participantIds[0]), Number(participantIds[1])],
+    expiresAtMs,
+  });
 }
 
-export type EvmFamilyThresholdEcdsaAdmissionBoundary =
-  | {
-      kind: 'not_required';
-    }
-  | {
-      kind: 'admitted';
-      operation: EvmFamilyThresholdEcdsaOperation;
-    };
+export async function authorizeEvmFamilyEcdsaOperationStepUp(args: {
+  readonly relayerUrl: string;
+  readonly sessionAuth: EcdsaOperationStepUpSessionAuth;
+  readonly authority: WalletAuthAuthority;
+  readonly authorization: EvmFamilyEcdsaOperationStepUpAuthorization;
+  readonly prepared: PreparedEcdsaOperationStepUp;
+  readonly material: HydratedEcdsaSignerMaterial;
+}): Promise<ReadySecp256k1SigningMaterial> {
+  const proof = operationStepUpProof({
+    authority: args.authority,
+    authorization: args.authorization,
+  });
+  const authorization = await issueEcdsaOperationStepUpAuthorization({
+    relayerUrl: args.relayerUrl,
+    sessionAuth: args.sessionAuth,
+    request: {
+      kind: 'router_ab_ecdsa_operation_step_up_v1',
+      operation: args.prepared.operation,
+      proof,
+    },
+  });
+  const credential =
+    args.sessionAuth.kind === 'app_session_jwt'
+      ? {
+          kind: 'app_session_jwt' as const,
+          appSessionJwt: args.sessionAuth.appSessionJwt,
+        }
+      : { kind: 'app_session_cookie' as const };
+  return buildReadySecp256k1SigningMaterial({
+    walletId: args.material.walletId,
+    signerSession: args.material,
+    authorization: { kind: 'operation_step_up' },
+    credential,
+    expiresAtMs: authorization.expires_at_ms,
+    singleUseEmailOtpSession: false,
+    operationStepUpPreparation: args.prepared.operation,
+  });
+}
 
-export type EvmFamilyThresholdEcdsaAuthPlanInput =
-  | {
-      kind: 'not_required';
+function operationStepUpProof(args: {
+  readonly authority: WalletAuthAuthority;
+  readonly authorization: EvmFamilyEcdsaOperationStepUpAuthorization;
+}) {
+  switch (args.authorization.kind) {
+    case 'passkey': {
+      if (!isPasskeyWalletAuthAuthority(args.authority)) {
+        throw new Error('[chains] passkey step-up requires the exact passkey authority');
+      }
+      const credential = args.authorization.credential;
+      return {
+        kind: 'passkey' as const,
+        authority: args.authority,
+        webauthn_authentication: {
+          id: credential.id,
+          rawId: credential.rawId,
+          type: credential.type,
+          authenticatorAttachment: credential.authenticatorAttachment ?? null,
+          response: {
+            clientDataJSON: credential.response.clientDataJSON,
+            authenticatorData: credential.response.authenticatorData,
+            signature: credential.response.signature,
+            userHandle: credential.response.userHandle ?? null,
+          },
+          clientExtensionResults: credential.clientExtensionResults ?? null,
+        },
+      };
     }
-  | {
-      kind: 'planned';
-      signingAuthPlan: SigningAuthPlan;
-    };
-
-export type EvmFamilyThresholdEcdsaEmailOtpSigning = {
-  complete: (
-    authorization: EvmFamilyEcdsaEmailOtpStepUpAuthorization,
-  ) => Promise<EvmFamilyThresholdEcdsaReauthResult>;
-};
-
-export type EvmFamilyThresholdEcdsaPasskeyReconnect = {
-  reconnect: (args: {
-    authorization: EvmFamilyEcdsaPasskeyStepUpAuthorization;
-    usesNeeded: number;
-  }) => Promise<EvmFamilyThresholdEcdsaReauthResult>;
-};
-
-export type EvmFamilyThresholdEcdsaPasskeyReconnectPlan = {
-  webauthnChallenge: Extract<WebAuthnChallenge, { kind: 'ecdsa_role_local_bootstrap' }>;
-};
-
-export type EvmFamilyThresholdEcdsaAdmissionCompletion = {
-  source: 'email_otp' | 'passkey' | 'threshold_reconnect';
-  result: EvmFamilyThresholdEcdsaReauthResult;
-};
-
-export type EvmFamilyThresholdEcdsaAdmissionConfirmation =
-  | {
-      kind: 'none';
-    }
-  | {
-      kind: 'warm_session';
-      authorization: EvmFamilyEcdsaWarmSessionStepUpAuthorization;
-    }
-  | {
-      kind: 'email_otp';
-      authorization: EvmFamilyEcdsaEmailOtpStepUpAuthorization;
-    }
-  | {
-      kind: 'passkey';
-      authorization: EvmFamilyEcdsaPasskeyStepUpAuthorization;
-    };
-
-export type EvmFamilyThresholdEcdsaAdmissionMode =
-  | {
-      kind: 'not_required';
-    }
-  | {
-      kind: 'already_admitted';
-    }
-  | {
-      kind: 'email_otp';
-      emailOtpSigning: EvmFamilyThresholdEcdsaEmailOtpSigning;
-    }
-  | {
-      kind: 'passkey_reconnect';
-      passkeyEcdsaReconnect: EvmFamilyThresholdEcdsaPasskeyReconnect;
-      onThresholdReconnectStarted?: () => void;
-    }
-  | {
-      kind: 'threshold_reconnect';
-      ensureThresholdEcdsaReadyMaterial: (args: {
-        authorization: EvmFamilyEcdsaWarmSessionStepUpAuthorization;
-        usesNeeded: number;
-      }) => Promise<EvmFamilyThresholdEcdsaReauthResult>;
-      onThresholdReconnectStarted?: () => void;
-    };
-
-export async function completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation(args: {
-  mode: EvmFamilyThresholdEcdsaAdmissionMode;
-  confirmation: EvmFamilyThresholdEcdsaAdmissionConfirmation;
-  usesNeeded: number;
-}): Promise<EvmFamilyThresholdEcdsaAdmissionCompletion | null> {
-  if (args.mode.kind === 'not_required' || args.mode.kind === 'already_admitted') return null;
-
-  if (args.mode.kind === 'email_otp') {
-    if (args.confirmation.kind !== 'email_otp') {
-      throw new Error('[chains] Email OTP admission requires Email OTP confirmation');
-    }
-    const result = await args.mode.emailOtpSigning.complete(args.confirmation.authorization);
-    if (!result?.readyMaterial || !result?.signerSession || !result?.operation) {
-      throw new Error('[chains] Email OTP ECDSA reauth must return admitted operation');
-    }
-    return { source: 'email_otp', result };
+    case 'email_otp':
+      if (!isEmailOtpWalletAuthAuthority(args.authority)) {
+        throw new Error('[chains] Email OTP step-up requires the exact Email OTP authority');
+      }
+      return {
+        kind: 'email_otp' as const,
+        authority: args.authority,
+        challenge_id: args.authorization.challengeId,
+        otp_code: args.authorization.otpCode,
+      };
   }
-
-  if (args.mode.kind === 'passkey_reconnect') {
-    if (args.confirmation.kind !== 'passkey') {
-      throw new Error('[chains] passkey admission requires WebAuthn confirmation');
-    }
-    args.mode.onThresholdReconnectStarted?.();
-    const result = await args.mode.passkeyEcdsaReconnect.reconnect({
-      authorization: args.confirmation.authorization,
-      usesNeeded: args.usesNeeded,
-    });
-    if (!result?.readyMaterial || !result?.signerSession || !result?.operation) {
-      throw new Error('[chains] passkey ECDSA reconnect must return admitted operation');
-    }
-    if (!args.confirmation.authorization.plannedPasskeyReconnect) {
-      throw new Error(
-        '[chains] passkey ECDSA reconnect requires planned session identity in authorization',
-      );
-    }
-    if (
-      String(result.operation.lane.thresholdSessionId || '').trim() !==
-        args.confirmation.authorization.plannedPasskeyReconnect.webauthnChallenge.thresholdSessionId
-    ) {
-      throw new Error(
-        '[chains] threshold ECDSA reconnect admitted a different session id than the confirmed session policy',
-      );
-    }
-    if (
-      String(result.operation.lane.signingGrantId || '').trim() !==
-        args.confirmation.authorization.plannedPasskeyReconnect.webauthnChallenge
-          .signingGrantId
-    ) {
-      throw new Error(
-        '[chains] threshold ECDSA reconnect admitted a different signing grant id than the confirmed session policy',
-      );
-    }
-    return { source: 'passkey', result };
-  }
-
-  if (args.mode.kind === 'threshold_reconnect') {
-    if (args.confirmation.kind !== 'warm_session') {
-      throw new Error('[chains] threshold ECDSA reconnect requires warm-session authorization');
-    }
-    args.mode.onThresholdReconnectStarted?.();
-    const result = await args.mode.ensureThresholdEcdsaReadyMaterial({
-      authorization: args.confirmation.authorization,
-      usesNeeded: args.usesNeeded,
-    });
-    if (!result?.readyMaterial || !result?.signerSession || !result?.operation) {
-      throw new Error('[chains] threshold ECDSA reconnect must return admitted operation');
-    }
-    return { source: 'threshold_reconnect', result };
-  }
-
-  args.mode satisfies never;
-  return null;
 }

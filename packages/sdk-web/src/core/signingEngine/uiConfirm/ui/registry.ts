@@ -25,12 +25,11 @@ export const CONFIRM_UI_ELEMENT_SELECTORS = [
 // Dedicated portal container to enforce a single confirmer instance.
 export const W3A_CONFIRM_PORTAL_ID = 'w3a-confirm-portal';
 
-// Export viewer iframe host + bootstrap + viewer bundle.
+// Export viewer host (direct-mount; the tag keeps its historical name) and
+// the standalone viewer bundle tests and embedders load by path.
 export const W3A_EXPORT_VIEWER_IFRAME_ID = 'w3a-export-viewer-iframe';
 export const W3A_EXPORT_KEY_VIEWER_ID = 'w3a-export-key-viewer';
-export const IFRAME_EXPORT_BOOTSTRAP_MODULE = 'iframe-export-bootstrap.js';
 export const EXPORT_VIEWER_BUNDLE = 'export-private-key-viewer.js';
-export const EXPORT_DRAWER_BUNDLE = 'export-private-key-drawer.js';
 
 // Consolidated loaders for known W3A custom elements that may be used across runtimes.
 // This allows dev tooling to auto-ensure definitions for common elements when possible.

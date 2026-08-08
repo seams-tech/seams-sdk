@@ -5,6 +5,14 @@ export type ThresholdEcdsaKeyHandle = string & {
   readonly __brand: 'ThresholdEcdsaKeyHandle';
 };
 
+export function parseThresholdEcdsaKeyHandle(value: unknown): ThresholdEcdsaKeyHandle {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized.startsWith('ederivation-key-')) {
+    throw new Error('Threshold ECDSA key handle is invalid');
+  }
+  return normalized as ThresholdEcdsaKeyHandle;
+}
+
 export type ThresholdEcdsaKeyHandleInput = {
   ecdsaThresholdKeyId: unknown;
   signingRootId: unknown;

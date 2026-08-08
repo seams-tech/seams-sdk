@@ -11,10 +11,6 @@ const assets = [
     target: 'dist/esm/wasm/near_signer/pkg/wasm_signer_worker_bg.wasm',
   },
   {
-    source: 'wasm/threshold_prf/pkg/threshold_prf_bg.wasm',
-    target: 'dist/esm/wasm/threshold_prf/pkg/threshold_prf_bg.wasm',
-  },
-  {
     source: 'wasm/evm_crypto/pkg/evm_crypto_bg.wasm',
     target: 'dist/esm/wasm/evm_crypto/pkg/evm_crypto_bg.wasm',
   },

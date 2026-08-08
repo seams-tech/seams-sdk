@@ -6,7 +6,6 @@ import {
 import type {
   AvailableSigningLanes,
   AvailableEd25519SigningLane,
-  ConcreteAvailableEcdsaSigningLane,
 } from '../availability/availableSigningLanes';
 import {
   availableEd25519SigningLaneAuthMethod,
@@ -16,9 +15,13 @@ import { laneCandidateAuthMethod } from '../identity/laneIdentity';
 import type { NearEd25519TransactionReadyLane } from '../identity/selectLane';
 import { listNearEd25519TransactionReadyLanes } from '../identity/selectLane';
 import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionAuthorizationId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 export type RuntimePostconditionSource = 'registration_finalize' | 'wallet_unlock';
-export type RuntimePostconditionAuthMethod = SigningSessionSealAuthMethod;
 
 export type RuntimePostconditionTarget =
   | { curve: 'ed25519'; chainTarget?: never }
@@ -27,16 +30,17 @@ export type RuntimePostconditionTarget =
 export type RuntimeLaneMaterial =
   | { kind: 'durable_sealed_record'; sourceChainTarget?: never }
   | { kind: 'runtime_session_record'; sourceChainTarget?: never }
-  | { kind: 'evm_family_shared_key'; sourceChainTarget: ThresholdEcdsaChainTarget };
+  | { kind: 'canonical_capability'; sourceChainTarget?: never };
 
 export type RuntimePostconditionLaneState = 'ready' | 'restorable';
 
 export type UsableRuntimeLane =
   | {
       state: RuntimePostconditionLaneState;
-      authMethod: RuntimePostconditionAuthMethod;
+      authMethod: SigningSessionSealAuthMethod;
       target: { curve: 'ed25519'; chainTarget?: never };
-      signingGrantId: string;
+      walletSessionId: WalletSessionId;
+      quotaId: MpcWalletSigningQuotaId;
       thresholdSessionId: string;
       remainingSignatureUses: number;
       expiresAtMs: number;
@@ -44,10 +48,10 @@ export type UsableRuntimeLane =
     }
   | {
       state: RuntimePostconditionLaneState;
-      authMethod: RuntimePostconditionAuthMethod;
+      authMethod: SigningSessionSealAuthMethod;
       target: { curve: 'ecdsa'; chainTarget: ThresholdEcdsaChainTarget };
-      signingGrantId: string;
-      thresholdSessionId: string;
+      authorizationId: WalletSessionAuthorizationId;
+      materialActivationId: string;
       remainingSignatureUses: number;
       expiresAtMs: number;
       material: RuntimeLaneMaterial;
@@ -55,7 +59,7 @@ export type UsableRuntimeLane =
 
 export type WalletRuntimeInventory = {
   walletId: string;
-  authMethod: RuntimePostconditionAuthMethod;
+  authMethod: SigningSessionSealAuthMethod;
   ed25519?: UsableRuntimeLane;
   ecdsaByTarget: ReadonlyMap<string, UsableRuntimeLane>;
 };
@@ -79,7 +83,7 @@ export type WalletRuntimePostconditionResult =
 
 type ReadPersistedAvailableSigningLanes = (args: {
   walletId: string | WalletId;
-  authMethod: RuntimePostconditionAuthMethod;
+  authMethod: SigningSessionSealAuthMethod;
 }) => Promise<AvailableSigningLanes>;
 
 export class WalletRuntimePostconditionError extends Error {
@@ -87,7 +91,7 @@ export class WalletRuntimePostconditionError extends Error {
   readonly details: Record<string, unknown>;
 
   constructor(result: Extract<WalletRuntimePostconditionResult, { ok: false }>) {
-    super(`[WalletRuntimePostcondition] ${result.code}`);
+    super(`[WalletRuntimePostcondition] ${result.code} ${JSON.stringify(result.details)}`);
     this.name = 'WalletRuntimePostconditionError';
     this.code = result.code;
     this.details = result.details;
@@ -118,19 +122,6 @@ function laneExpiresAtMs(
   return futureEpochMs(value.expiresAtMs ?? value.policyHint?.expiresAtMs, nowMs);
 }
 
-function ecdsaMaterialForLane(lane: ConcreteAvailableEcdsaSigningLane): RuntimeLaneMaterial | null {
-  if (lane.source === 'evm_family_shared_key') {
-    return { kind: 'evm_family_shared_key', sourceChainTarget: lane.sourceChainTarget };
-  }
-  if (
-    lane.source === 'durable_sealed_record' ||
-    lane.source === 'runtime_session_record'
-  ) {
-    return { kind: lane.source };
-  }
-  return null;
-}
-
 function ed25519MaterialForTransactionReadyLane(
   lane: NearEd25519TransactionReadyLane,
 ): RuntimeLaneMaterial | null {
@@ -145,7 +136,7 @@ function ed25519MaterialForTransactionReadyLane(
 
 function concreteEd25519CandidatesForAuth(args: {
   candidates: readonly AvailableEd25519SigningLane[];
-  authMethod: RuntimePostconditionAuthMethod;
+  authMethod: SigningSessionSealAuthMethod;
 }): AvailableEd25519SigningLane[] {
   const matches: AvailableEd25519SigningLane[] = [];
   for (const candidate of args.candidates) {
@@ -159,7 +150,7 @@ function concreteEd25519CandidatesForAuth(args: {
 
 function transactionReadyEd25519CandidatesForAuth(args: {
   candidates: readonly NearEd25519TransactionReadyLane[];
-  authMethod: RuntimePostconditionAuthMethod;
+  authMethod: SigningSessionSealAuthMethod;
 }): NearEd25519TransactionReadyLane[] {
   const matches: NearEd25519TransactionReadyLane[] = [];
   for (const candidate of args.candidates) {
@@ -181,7 +172,7 @@ function hasEd25519TransactionReadyState(
 
 function readReadyEd25519Lane(args: {
   lanes: AvailableSigningLanes;
-  authMethod: RuntimePostconditionAuthMethod;
+  authMethod: SigningSessionSealAuthMethod;
   nowMs: number;
 }): UsableRuntimeLane | WalletRuntimePostconditionFailureCode {
   const candidates = args.lanes.candidates.ed25519.near;
@@ -216,7 +207,9 @@ function readReadyEd25519Lane(args: {
   const remainingSignatureUses = laneRemainingUses(availableLane);
   const expiresAtMs = laneExpiresAtMs(availableLane, args.nowMs);
   if (
-    !availableLane.signingGrantId ||
+    availableLane.authorizationState !== 'authorized' ||
+    !availableLane.authorization.walletSessionId ||
+    !availableLane.authorization.quotaId ||
     !availableLane.thresholdSessionId ||
     !remainingSignatureUses ||
     !expiresAtMs
@@ -229,7 +222,8 @@ function readReadyEd25519Lane(args: {
     state: availableLane.state === 'restorable' ? 'restorable' : 'ready',
     authMethod: args.authMethod,
     target: { curve: 'ed25519' },
-    signingGrantId: availableLane.signingGrantId,
+    walletSessionId: availableLane.authorization.walletSessionId,
+    quotaId: availableLane.authorization.quotaId,
     thresholdSessionId: availableLane.thresholdSessionId,
     remainingSignatureUses,
     expiresAtMs,
@@ -240,7 +234,7 @@ function readReadyEd25519Lane(args: {
 function readEcdsaUseCaseReadyLane(args: {
   lanes: AvailableSigningLanes;
   chainTarget: ThresholdEcdsaChainTarget;
-  authMethod: RuntimePostconditionAuthMethod;
+  authMethod: SigningSessionSealAuthMethod;
   nowMs: number;
 }): UsableRuntimeLane | WalletRuntimePostconditionFailureCode {
   const targetKey = thresholdEcdsaChainTargetKey(args.chainTarget);
@@ -249,30 +243,28 @@ function readEcdsaUseCaseReadyLane(args: {
   if (availableEcdsaSigningLaneAuthMethod(lane) !== args.authMethod) {
     return 'auth_method_route_mismatch';
   }
-  if (lane.state !== 'ready' && lane.state !== 'restorable') return 'ecdsa_lane_missing';
+  if (lane.state !== 'ready') return 'ecdsa_lane_missing';
   const remainingSignatureUses = laneRemainingUses(lane);
   const expiresAtMs = laneExpiresAtMs(lane, args.nowMs);
-  if (!lane.signingGrantId || !lane.thresholdSessionId || !remainingSignatureUses || !expiresAtMs) {
+  if (!lane.authorization || !remainingSignatureUses || !expiresAtMs) {
     return 'lane_inventory_mismatch';
   }
-  const material = ecdsaMaterialForLane(lane);
-  if (!material) return 'lane_material_missing';
   return {
     state: lane.state,
     authMethod: args.authMethod,
     target: { curve: 'ecdsa', chainTarget: args.chainTarget },
-    signingGrantId: lane.signingGrantId,
-    thresholdSessionId: lane.thresholdSessionId,
+    authorizationId: lane.authorization.projection.authorizationId,
+    materialActivationId: String(lane.materialActivation.activationId),
     remainingSignatureUses,
     expiresAtMs,
-    material,
+    material: { kind: 'canonical_capability' },
   };
 }
 
 export async function readWalletRuntimePostconditions(args: {
   source: RuntimePostconditionSource;
   walletId: string | WalletId;
-  authMethod: RuntimePostconditionAuthMethod;
+  authMethod: SigningSessionSealAuthMethod;
   requiredTargets: readonly RuntimePostconditionTarget[];
   readPersistedAvailableSigningLanes: ReadPersistedAvailableSigningLanes;
   nowMs?: number;
@@ -348,9 +340,6 @@ export async function readWalletRuntimePostconditions(args: {
 }
 
 function laneMaterialShape(lane: UsableRuntimeLane): string {
-  if (lane.material.kind === 'evm_family_shared_key') {
-    return `${lane.material.kind}:${thresholdEcdsaChainTargetKey(lane.material.sourceChainTarget)}`;
-  }
   return lane.material.kind;
 }
 
@@ -458,7 +447,7 @@ export function compareWalletRuntimeInventories(args: {
 export async function assertWalletRuntimePostconditions(args: {
   source: RuntimePostconditionSource;
   walletId: string | WalletId;
-  authMethod: RuntimePostconditionAuthMethod;
+  authMethod: SigningSessionSealAuthMethod;
   requiredTargets: readonly RuntimePostconditionTarget[];
   readPersistedAvailableSigningLanes: ReadPersistedAvailableSigningLanes;
   nowMs?: number;

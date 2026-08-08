@@ -1,11 +1,9 @@
-import type { SigningRootKekProvider } from '@seams/sdk-server/cloud-host';
 import type { ConsoleRouterOptions } from '@seams-internal/console-server/router/console';
 import type { RouterApiOptions } from '@seams/sdk-server/cloud-host';
 import type { D1DatabaseLike, D1PreparedStatementLike } from '@seams/sdk-server/cloud-host';
 import { parseOrgId, type OrgId } from '@seams/sdk-server/cloud-host';
 import {
   createStaticCloudflareTenantStorageRouteResolverFromBindings,
-  type PostgresTenantStorageRoute,
 } from './tenantStorageRoute';
 import type {
   CloudflareD1ConsoleRouterStorageOptions,
@@ -13,13 +11,11 @@ import type {
   CloudflareD1ConsoleOnlyServiceBundleOptions,
   CloudflareD1ConsoleServiceBundle,
   CloudflareD1ConsoleServiceBundleOptions,
-  CloudflareD1SigningRootSecretAdapterOptions,
 } from './d1ConsoleServices';
 import {
   asConsoleRouterOptions,
   asRouterApiOptions,
   createCloudflareD1ConsoleOnlyServiceBundle,
-  createCloudflareD1SigningRootSecretAdapters,
 } from './d1ConsoleServices';
 
 const preparedStatement: D1PreparedStatementLike = {
@@ -63,19 +59,10 @@ function orgIdFromString(input: string): OrgId {
   return parsed.value;
 }
 
-const kekProvider: SigningRootKekProvider = {
-  kind: 'worker_secret',
-  workerSecretsByKekId: {
-    'signing-root-kek-test-r1': 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-  },
-  encoding: 'base64url',
-};
-
 const bundleOptions: CloudflareD1ConsoleServiceBundleOptions = {
   bindings: {
     consoleDatabase: database,
     signerMetadataDatabase: database,
-    kekProvider,
   },
   route: {
     namespace: 'seams',
@@ -102,17 +89,6 @@ const invalidConsoleOnlySignerDatabase: CloudflareD1ConsoleOnlyServiceBundleOpti
   },
 };
 
-const invalidConsoleOnlySignerKekProvider: CloudflareD1ConsoleOnlyServiceBundleOptions = {
-  bindings: {
-    consoleDatabase: database,
-    // @ts-expect-error Console-only staging bundles cannot receive signer KEK providers.
-    kekProvider,
-  },
-  route: {
-    namespace: 'seams',
-  },
-};
-
 const routeResolver = createStaticCloudflareTenantStorageRouteResolverFromBindings({
   routeVersion: 1,
   topology: 'shared',
@@ -123,7 +99,6 @@ const routeResolver = createStaticCloudflareTenantStorageRouteResolverFromBindin
   signerMetadataBindingName: 'SIGNER_DB',
   signerMetadataDatabaseName: 'seams-signer',
   signerMetadataDatabase: database,
-  kekProvider,
 });
 
 const cloudflareRoute = routeResolver.resolveTenantStorageRoute({
@@ -131,52 +106,8 @@ const cloudflareRoute = routeResolver.resolveTenantStorageRoute({
   orgId: orgIdFromString('org_1'),
 });
 
-const signerSecretOptions: CloudflareD1SigningRootSecretAdapterOptions = {
-  route: cloudflareRoute,
-  projectId: 'project_1',
-  envId: 'env_1',
-  envelopeVersion: 'aes-256-gcm-v1',
-  lastAuditEventId: 'audit_1',
-  policy: {
-    protocol: 'threshold-prf',
-    threshold: 2,
-    shareCount: 3,
-  },
-};
-
-const signerSecretAdapters = createCloudflareD1SigningRootSecretAdapters(signerSecretOptions);
-
-declare const postgresRoute: PostgresTenantStorageRoute;
-
-const invalidPostgresSignerSecretOptions: CloudflareD1SigningRootSecretAdapterOptions = {
-  // @ts-expect-error D1 signer secret adapters require a Cloudflare D1/DO route.
-  route: postgresRoute,
-  projectId: 'project_1',
-  envId: 'env_1',
-  envelopeVersion: 'aes-256-gcm-v1',
-  lastAuditEventId: 'audit_1',
-  policy: {
-    protocol: 'threshold-prf',
-    threshold: 2,
-    shareCount: 3,
-  },
-};
-
-// @ts-expect-error D1 signer secret adapters require env identity.
-const missingSignerSecretEnvId: CloudflareD1SigningRootSecretAdapterOptions = {
-  route: cloudflareRoute,
-  projectId: 'project_1',
-  envelopeVersion: 'aes-256-gcm-v1',
-  lastAuditEventId: 'audit_1',
-  policy: {
-    protocol: 'threshold-prf',
-    threshold: 2,
-    shareCount: 3,
-  },
-};
-
 const missingSignerBindings: CloudflareD1ConsoleServiceBundleOptions = {
-  // @ts-expect-error D1 console bundle requires signer metadata and a KEK provider.
+  // @ts-expect-error D1 console bundle requires signer metadata.
   bindings: {
     consoleDatabase: database,
   },
@@ -189,7 +120,6 @@ const missingNamespace: CloudflareD1ConsoleServiceBundleOptions = {
   bindings: {
     consoleDatabase: database,
     signerMetadataDatabase: database,
-    kekProvider,
   },
   // @ts-expect-error Route namespace is required at the bundle boundary.
   route: {},
@@ -218,10 +148,7 @@ const consoleOnlyBundle = createCloudflareD1ConsoleOnlyServiceBundle(consoleOnly
 void bundleOptions;
 void consoleOnlyBundleOptions;
 void invalidConsoleOnlySignerDatabase;
-void invalidConsoleOnlySignerKekProvider;
-void signerSecretAdapters;
-void invalidPostgresSignerSecretOptions;
-void missingSignerSecretEnvId;
+void cloudflareRoute;
 void missingSignerBindings;
 void missingNamespace;
 void consoleOptions;

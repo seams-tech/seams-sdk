@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 
-SCHEMA_VERSION = "voice_id_pad_evaluation_v1"
+SCHEMA_VERSION = "voice_id_pad_evaluation_v2"
 ATTACK_CLASSES = frozenset(
     {"replay", "synthesis", "voice_conversion", "splice", "relay", "digital_injection"}
 )
@@ -23,7 +23,7 @@ class PadEvaluationEntry:
     fixture_id: str
     subject_id: str
     session_id: str
-    partition: Literal["development", "evaluation"]
+    partition: Literal["calibration", "evaluation"]
     presentation: Literal["bona_fide", "attack"]
     attack_class: str | None
     capture_profile: str
@@ -51,6 +51,13 @@ class RateEstimate:
 
 
 @dataclass(frozen=True)
+class LatencySummary:
+    p50: float
+    p95: float
+    p99: float
+
+
+@dataclass(frozen=True)
 class PadEvaluationReport:
     schema_version: str
     dataset_manifest_version: str
@@ -58,7 +65,9 @@ class PadEvaluationReport:
     pad_calibration_version: str
     reject_threshold: float
     accept_threshold: float
+    calibration_fixture_count: int
     evaluation_fixture_count: int
+    latency_ms: LatencySummary
     bpcer: RateEstimate
     apcer: RateEstimate
     uncertainty: RateEstimate
@@ -128,7 +137,7 @@ def parse_pad_entry(value: object, index: int) -> PadEvaluationEntry:
             "latencyMs",
         },
     )
-    partition = require_one_of(data, "partition", {"development", "evaluation"})
+    partition = require_one_of(data, "partition", {"calibration", "evaluation"})
     presentation = require_one_of(data, "presentation", {"bona_fide", "attack"})
     attack_class = parse_attack_class(data["attackClass"], presentation, field_name)
     return PadEvaluationEntry(
@@ -159,11 +168,11 @@ def parse_attack_class(
 
 
 def assert_subject_disjoint_partitions(entries: tuple[PadEvaluationEntry, ...]) -> None:
-    development_subjects = {entry.subject_id for entry in entries if entry.partition == "development"}
+    calibration_subjects = {entry.subject_id for entry in entries if entry.partition == "calibration"}
     evaluation_subjects = {entry.subject_id for entry in entries if entry.partition == "evaluation"}
-    overlap = development_subjects & evaluation_subjects
+    overlap = calibration_subjects & evaluation_subjects
     if len(overlap) > 0:
-        raise PadEvaluationError("development and evaluation subjects must be disjoint")
+        raise PadEvaluationError("calibration and evaluation subjects must be disjoint")
 
 
 def evaluate_pad(manifest: PadEvaluationManifest) -> PadEvaluationReport:
@@ -195,7 +204,11 @@ def evaluate_pad(manifest: PadEvaluationManifest) -> PadEvaluationReport:
         pad_calibration_version=manifest.pad_calibration_version,
         reject_threshold=manifest.reject_threshold,
         accept_threshold=manifest.accept_threshold,
+        calibration_fixture_count=sum(
+            entry.partition == "calibration" for entry in manifest.entries
+        ),
         evaluation_fixture_count=len(entries),
+        latency_ms=latency_summary([entry.latency_ms for entry in entries]),
         bpcer=bpcer,
         apcer=apcer,
         uncertainty=uncertainty,
@@ -206,13 +219,100 @@ def evaluate_pad(manifest: PadEvaluationManifest) -> PadEvaluationReport:
     )
 
 
+def calibrate_pad_thresholds(
+    entries: tuple[PadEvaluationEntry, ...],
+    *,
+    target_apcer: float,
+    target_bpcer: float,
+) -> tuple[float, float]:
+    if not 0 <= target_apcer <= 1 or not 0 <= target_bpcer <= 1:
+        raise PadEvaluationError("calibration targets must be probabilities")
+    calibration = tuple(entry for entry in entries if entry.partition == "calibration")
+    bona_fide = tuple(
+        entry for entry in calibration if entry.presentation == "bona_fide"
+    )
+    attacks = tuple(entry for entry in calibration if entry.presentation == "attack")
+    if len(bona_fide) == 0 or len(attacks) == 0:
+        raise PadEvaluationError(
+            "calibration partition requires bona_fide and attack entries"
+        )
+    candidates = []
+    for reject_percent in range(0, 100):
+        reject_threshold = reject_percent / 100
+        for accept_percent in range(reject_percent + 1, 101):
+            accept_threshold = accept_percent / 100
+            attack_acceptance = sum(
+                classify_score(
+                    entry.pad_score,
+                    reject_threshold=reject_threshold,
+                    accept_threshold=accept_threshold,
+                )
+                == "accepted"
+                for entry in attacks
+            ) / len(attacks)
+            bona_fide_error = sum(
+                classify_score(
+                    entry.pad_score,
+                    reject_threshold=reject_threshold,
+                    accept_threshold=accept_threshold,
+                )
+                != "accepted"
+                for entry in bona_fide
+            ) / len(bona_fide)
+            uncertainty = sum(
+                classify_score(
+                    entry.pad_score,
+                    reject_threshold=reject_threshold,
+                    accept_threshold=accept_threshold,
+                )
+                == "uncertain"
+                for entry in calibration
+            ) / len(calibration)
+            feasible = (
+                attack_acceptance <= target_apcer
+                and bona_fide_error <= target_bpcer
+            )
+            candidates.append(
+                (
+                    (
+                        0 if feasible else 1,
+                        max(
+                            attack_acceptance - target_apcer,
+                            bona_fide_error - target_bpcer,
+                            0,
+                        ),
+                        attack_acceptance + bona_fide_error,
+                        uncertainty,
+                        accept_threshold - reject_threshold,
+                    ),
+                    reject_threshold,
+                    accept_threshold,
+                )
+            )
+    _, reject_threshold, accept_threshold = min(candidates)
+    return reject_threshold, accept_threshold
+
+
 def classify(
     entry: PadEvaluationEntry,
     manifest: PadEvaluationManifest,
 ) -> Literal["accepted", "uncertain", "rejected"]:
-    if entry.pad_score >= manifest.accept_threshold:
+    return classify_score(
+        entry.pad_score,
+        reject_threshold=manifest.reject_threshold,
+        accept_threshold=manifest.accept_threshold,
+    )
+
+
+def classify_score(
+    score: float,
+    *,
+    reject_threshold: float,
+    accept_threshold: float,
+) -> Literal["accepted", "uncertain", "rejected"]:
+    if score >= accept_threshold:
         return "accepted"
-    if entry.pad_score <= manifest.reject_threshold:
+    if score <= reject_threshold:
         return "rejected"
     return "uncertain"
 
@@ -252,6 +352,27 @@ def rate_estimate(errors: int, trials: int) -> RateEstimate:
     )
 
 
+def latency_summary(values: list[float]) -> LatencySummary:
+    if len(values) == 0:
+        raise PadEvaluationError("latency summary requires observations")
+    ordered = sorted(values)
+    return LatencySummary(
+        p50=round(percentile(ordered, 0.50), 3),
+        p95=round(percentile(ordered, 0.95), 3),
+        p99=round(percentile(ordered, 0.99), 3),
+    )
+
+
+def percentile(values: list[float], quantile: float) -> float:
+    if len(values) == 1:
+        return values[0]
+    position = (len(values) - 1) * quantile
+    lower = int(position)
+    upper = min(lower + 1, len(values) - 1)
+    fraction = position - lower
+    return values[lower] + (values[upper] - values[lower]) * fraction
+
+
 def wilson_interval(errors: int, trials: int, z_score: float = 1.959963984540054) -> tuple[float, float]:
     rate = errors / trials
     denominator = 1 + z_score * z_score / trials
@@ -261,7 +382,30 @@ def wilson_interval(errors: int, trials: int, z_score: float = 1.959963984540054
 
 
 def report_to_json(report: PadEvaluationReport) -> dict[str, Any]:
-    return asdict(report)
+    return {
+        "schemaVersion": report.schema_version,
+        "datasetManifestVersion": report.dataset_manifest_version,
+        "modelVersion": report.model_version,
+        "padCalibrationVersion": report.pad_calibration_version,
+        "rejectThreshold": report.reject_threshold,
+        "acceptThreshold": report.accept_threshold,
+        "calibrationFixtureCount": report.calibration_fixture_count,
+        "evaluationFixtureCount": report.evaluation_fixture_count,
+        "latencyMs": asdict(report.latency_ms),
+        "bpcer": asdict(report.bpcer),
+        "apcer": asdict(report.apcer),
+        "uncertainty": asdict(report.uncertainty),
+        "apcerByAttackClass": {
+            key: asdict(value)
+            for key, value in report.apcer_by_attack_class.items()
+        },
+        "apcerByCaptureProfile": {
+            key: asdict(value)
+            for key, value in report.apcer_by_capture_profile.items()
+        },
+        "missingAttackClasses": list(report.missing_attack_classes),
+        "releaseReady": report.release_ready,
+    }
 
 
 def require_exact_object(value: object, field_name: str, expected_keys: set[str]) -> dict[str, Any]:

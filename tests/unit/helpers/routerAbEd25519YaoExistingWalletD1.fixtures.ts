@@ -3,10 +3,10 @@ import { D1WalletStore } from '../../../packages/sdk-server-ts/src/core/d1Wallet
 import {
   buildYaoEd25519WalletSignerRecord,
   ed25519NearPublicKeyFromBytes,
-} from '../../../packages/sdk-server-ts/src/router/cloudflare/d1Ed25519YaoWalletSigner';
-import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
-import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
-import type { RouterAbEd25519YaoActiveCapabilityLookupV1 } from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
+} from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
+import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoProductRegistrationPartitionedStateStore';
+import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
+import type { RouterAbEd25519YaoActiveCapabilityLookupV1 } from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import { parseWalletId } from '../../../packages/shared-ts/src/utils/domainIds';
 import {
   cleanupTemporaryD1Database,
@@ -95,7 +95,7 @@ export async function createRouterAbEd25519YaoExistingWalletD1Fixture(
         walletId: walletId.value,
         nearAccountId: input.capability.nearAccountId,
         nearEd25519SigningKeyId: application.near_ed25519_signing_key_id,
-        thresholdSessionId: input.capability.admissionRequest.scope.wallet_session_id,
+        thresholdSessionId: input.capability.admissionRequest.scope.threshold_session_id,
         signerSlot: application.key_creation_signer_slot,
         publicKey: ed25519NearPublicKeyFromBytes(
           input.capability.activationResult.public_receipt.registered_public_key,

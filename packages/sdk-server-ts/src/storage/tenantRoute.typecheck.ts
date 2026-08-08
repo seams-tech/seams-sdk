@@ -15,7 +15,6 @@ import {
   createStaticCloudflareTenantStorageRouteResolverFromBindings,
 } from './tenantRoute';
 import { parseOrgId, type OrgId } from '@shared/utils/domainIds';
-import type { SigningRootKekProvider } from '../core/ThresholdService/signingRootKekProvider';
 
 function orgIdFromString(input: string): OrgId {
   const parsed = parseOrgId(input);
@@ -58,20 +57,11 @@ const d1Database: D1DatabaseLike = {
   },
 };
 
-const kekProvider: SigningRootKekProvider = {
-  kind: 'worker_secret',
-  workerSecretsByKekId: {
-    'signing-root-kek-test-r1': 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-  },
-  encoding: 'base64url',
-};
-
 const signerD1DoTarget: SignerD1DoStorageTarget = {
   kind: 'cloudflare_d1_do',
   metadataBindingName: 'SIGNER_DB',
   metadataDatabaseName: 'seams-signer',
   metadataDatabase: d1Database,
-  kekProvider,
 };
 
 const hyperdrive: HyperdriveBindingLike = {
@@ -83,7 +73,6 @@ const signerPostgresTarget: SignerPostgresStorageTarget = {
   hyperdriveBindingName: 'SEAMS_POSTGRES',
   hyperdrive,
   postgresSchema: 'seams_signer',
-  kekProvider,
 };
 
 const orgId = orgIdFromString('org_test');
@@ -127,7 +116,6 @@ const resolverFromBindings = createStaticCloudflareTenantStorageRouteResolverFro
   signerMetadataBindingName: 'SIGNER_DB',
   signerMetadataDatabaseName: 'seams-signer',
   signerMetadataDatabase: d1Database,
-  kekProvider,
 });
 const resolvedFromBindings = resolverFromBindings.resolveTenantStorageRoute({
   namespace: 'seams',

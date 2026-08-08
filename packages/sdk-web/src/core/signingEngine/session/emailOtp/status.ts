@@ -1,137 +1,75 @@
+import type { EmailOtpEcdsaSealedRuntimePurpose } from './sealedRuntimePurpose';
+import type { EmailOtpWarmMaterialTarget } from '@/core/signingEngine/workerManager/workerTypes';
 import type {
-  WarmSessionClaimResult,
   WarmSessionStatusResult,
 } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 
 export async function readEmailOtpWarmSessionStatusOnly(args: {
-  sessionId: string;
-  readWarmSessionStatusFromWorker: (sessionId: string) => Promise<WarmSessionStatusResult>;
+  target: EmailOtpWarmMaterialTarget;
+  readWarmSessionStatusFromWorker: (target: EmailOtpWarmMaterialTarget) => Promise<WarmSessionStatusResult>;
 }): Promise<WarmSessionStatusResult> {
-  const normalizedSessionId = String(args.sessionId || '').trim();
-  if (!normalizedSessionId) {
-    return { ok: false, code: 'invalid_args', message: 'Missing sessionId' };
+  const target = normalizedWarmMaterialTarget(args.target);
+  if (!target) {
+    return { ok: false, code: 'invalid_args', message: 'Missing thresholdSessionId' };
   }
-  return await args.readWarmSessionStatusFromWorker(normalizedSessionId).catch((error) => ({
+  return await args.readWarmSessionStatusFromWorker(target).catch((error) => ({
     ok: false as const,
     code: 'worker_error',
     message: error instanceof Error ? error.message : String(error || 'Email OTP worker error'),
   }));
 }
 
-export async function claimEmailOtpWarmSessionMaterial(args: {
-  sessionId: string;
-  uses?: number;
-  consume?: boolean;
-  claimWarmSessionMaterialFromWorker: (args: {
-    sessionId: string;
-    uses?: number;
-    consume?: boolean;
-  }) => Promise<WarmSessionClaimResult>;
-  shouldAttemptEcdsaSealedRestoreForSessionId: (sessionId: string) => boolean;
-  tryRestoreEcdsaWarmSessionStatusFromSealedRecord: (
-    sessionId: string,
-  ) => Promise<WarmSessionStatusResult | null>;
-  recordSessionMaterialClaimed: (
-    sessionId: string,
-    result: WarmSessionClaimResult,
-  ) => Promise<void>;
-  recordSessionMaterialRestored: (
-    sessionId: string,
-    result: WarmSessionStatusResult,
-  ) => Promise<void>;
-}): Promise<WarmSessionClaimResult> {
-  const normalizedSessionId = String(args.sessionId || '').trim();
-  if (!normalizedSessionId) {
-    return { ok: false, code: 'invalid_args', message: 'Missing sessionId' };
-  }
-  try {
-    const result = await args.claimWarmSessionMaterialFromWorker({
-      sessionId: normalizedSessionId,
-      ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
-      ...(typeof args.consume === 'boolean' ? { consume: args.consume } : {}),
-    });
-    if (
-      !result.ok &&
-      result.code === 'not_found' &&
-      args.shouldAttemptEcdsaSealedRestoreForSessionId(normalizedSessionId)
-    ) {
-      const restored =
-        await args.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(normalizedSessionId);
-      if (restored?.ok) {
-        const retry = await args.claimWarmSessionMaterialFromWorker({
-          sessionId: normalizedSessionId,
-          ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
-          ...(typeof args.consume === 'boolean' ? { consume: args.consume } : {}),
-        });
-        await args.recordSessionMaterialClaimed(normalizedSessionId, retry);
-        return retry;
-      }
-      if (restored) {
-        await args.recordSessionMaterialRestored(normalizedSessionId, restored);
-      }
-      return result;
-    }
-    await args.recordSessionMaterialClaimed(normalizedSessionId, result);
-    return result;
-  } catch (error) {
-    return {
-      ok: false,
-      code: 'worker_error',
-      message: error instanceof Error ? error.message : String(error || 'Email OTP worker error'),
-    };
-  }
-}
-
 export async function consumeEmailOtpWarmSessionUses(args: {
-  sessionId: string;
+  target: EmailOtpWarmMaterialTarget;
   uses?: number;
   consumeWarmSessionUsesFromWorker: (args: {
-    sessionId: string;
+    target: EmailOtpWarmMaterialTarget;
     uses?: number;
   }) => Promise<WarmSessionStatusResult>;
-  shouldAttemptEcdsaSealedRestoreForSessionId: (sessionId: string) => boolean;
+  ecdsaPurpose: EmailOtpEcdsaSealedRuntimePurpose | null;
   tryRestoreEcdsaWarmSessionStatusFromSealedRecord: (
-    sessionId: string,
+    purpose: EmailOtpEcdsaSealedRuntimePurpose,
   ) => Promise<WarmSessionStatusResult | null>;
   recordSessionUseConsumed: (
-    sessionId: string,
+    purpose: EmailOtpEcdsaSealedRuntimePurpose,
     result: WarmSessionStatusResult,
   ) => Promise<void>;
   recordSessionMaterialRestored: (
-    sessionId: string,
+    purpose: EmailOtpEcdsaSealedRuntimePurpose,
     result: WarmSessionStatusResult,
   ) => Promise<void>;
 }): Promise<WarmSessionStatusResult> {
-  const normalizedSessionId = String(args.sessionId || '').trim();
-  if (!normalizedSessionId) {
-    return { ok: false, code: 'invalid_args', message: 'Missing sessionId' };
+  const target = normalizedWarmMaterialTarget(args.target);
+  if (!target) {
+    return { ok: false, code: 'invalid_args', message: 'Missing thresholdSessionId' };
   }
   try {
     const result = await args.consumeWarmSessionUsesFromWorker({
-      sessionId: normalizedSessionId,
+      target,
       ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
     });
     if (
       !result.ok &&
       result.code === 'not_found' &&
-      args.shouldAttemptEcdsaSealedRestoreForSessionId(normalizedSessionId)
+      args.ecdsaPurpose
     ) {
-      const restored =
-        await args.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(normalizedSessionId);
+      const restored = await args.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(
+        args.ecdsaPurpose,
+      );
       if (restored?.ok) {
         const retry = await args.consumeWarmSessionUsesFromWorker({
-          sessionId: normalizedSessionId,
+          target,
           ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
         });
-        await args.recordSessionUseConsumed(normalizedSessionId, retry);
+        if (args.ecdsaPurpose) await args.recordSessionUseConsumed(args.ecdsaPurpose, retry);
         return retry;
       }
       if (restored) {
-        await args.recordSessionMaterialRestored(normalizedSessionId, restored);
+        if (args.ecdsaPurpose) await args.recordSessionMaterialRestored(args.ecdsaPurpose, restored);
       }
       return result;
     }
-    await args.recordSessionUseConsumed(normalizedSessionId, result);
+    if (args.ecdsaPurpose) await args.recordSessionUseConsumed(args.ecdsaPurpose, result);
     return result;
   } catch (error) {
     return {
@@ -143,10 +81,24 @@ export async function consumeEmailOtpWarmSessionUses(args: {
 }
 
 export async function clearEmailOtpWarmSessionMaterial(args: {
-  sessionId: string;
-  clearVolatileWarmSessionMaterialFromWorker: (sessionId: string) => Promise<void>;
+  target: EmailOtpWarmMaterialTarget;
+  clearVolatileWarmSessionMaterialFromWorker: (target: EmailOtpWarmMaterialTarget) => Promise<void>;
 }): Promise<void> {
-  const normalizedSessionId = String(args.sessionId || '').trim();
-  if (!normalizedSessionId) return;
-  await args.clearVolatileWarmSessionMaterialFromWorker(normalizedSessionId).catch(() => undefined);
+  const target = normalizedWarmMaterialTarget(args.target);
+  if (!target) return;
+  await args.clearVolatileWarmSessionMaterialFromWorker(target).catch(() => undefined);
+}
+
+function normalizedWarmMaterialTarget(
+  target: EmailOtpWarmMaterialTarget,
+): EmailOtpWarmMaterialTarget | null {
+  const thresholdSessionId = String(target.thresholdSessionId || '').trim();
+  if (!thresholdSessionId) return null;
+  return target.kind === 'ecdsa'
+    ? { kind: 'ecdsa', thresholdSessionId }
+    : {
+        kind: 'ed25519_yao',
+        thresholdSessionId,
+        materialActivation: target.materialActivation,
+      };
 }

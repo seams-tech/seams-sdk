@@ -11,7 +11,7 @@ import {
   type AddSignerIntentV1,
   type RegistrationIntentV1,
 } from '@shared/utils/registrationIntent';
-import { InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistrationIntentAuthorization';
+import { InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationIntentAuthorization';
 
 const WALLET_ID = walletIdFromString('wallet-add-signer');
 const ADD_SIGNER_GRANT = addSignerIntentGrantFromString(
@@ -78,7 +78,7 @@ async function admissionRequest(
       lifecycle_id: 'wallet-add-signer-ceremony-1',
       root_share_epoch: RUNTIME_POLICY_SCOPE.signingRootVersion,
       account_id: String(intent.walletId),
-      wallet_session_id: 'wallet-add-signer-ceremony-1',
+      threshold_session_id: 'wallet-add-signer-ceremony-1',
       signer_set_id: registrationNearEd25519BranchKey(selection.signerSlot),
       signing_worker_id: 'signing-worker-1',
     },

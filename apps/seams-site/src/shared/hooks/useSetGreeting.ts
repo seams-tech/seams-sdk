@@ -48,7 +48,7 @@ export const useSetGreeting = (options?: { enabled?: boolean }): SetGreetingHook
     setError(null);
 
     try {
-      const result = await nearClient.view<unknown>({
+      const result = await nearClient.view<Record<string, never>, unknown>({
         account: DEMO_CONTRACT_ID,
         method: 'get_greeting',
         args: {},

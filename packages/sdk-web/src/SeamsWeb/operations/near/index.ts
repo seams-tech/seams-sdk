@@ -9,7 +9,6 @@ import {
   type RegistrationNearAccountProvisioning,
 } from '@shared/utils/registrationIntent';
 import { buildNearWalletRegistrationSignerSetSelection } from '@/SeamsWeb/operations/registration/registrationSignerSet';
-import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 
 type NearWalletRegistrationArgs = Parameters<RegistrationCapability['registerWallet']>[0] & {
   options: NonNullable<Parameters<RegistrationCapability['registerWallet']>[0]['options']>;
@@ -24,23 +23,13 @@ function resolveNearRegistrationAccountProvisioning(
   return args.accountProvisioning;
 }
 
-function requireNearRegistrationRpId(value: string): WebAuthnRpId {
-  const parsed = parseWebAuthnRpId(value);
-  if (!parsed.ok) {
-    throw new Error(parsed.error.message);
-  }
-  return parsed.value;
-}
-
 export function buildNearWalletRegistrationArgs(
   context: NearSigningWebContext,
   args: Parameters<NearSignerCapability['registerNearWallet']>[0],
 ): NearWalletRegistrationArgs {
-  const rpId = requireNearRegistrationRpId(context.signingEngine.getRpId());
-  if (!rpId) {
-    throw new Error('[SeamsWeb][near] registerNearWallet requires rpId');
+  if (!args.authMethod) {
+    throw new Error('[SeamsWeb][near] registerNearWallet requires an explicit authMethod');
   }
-  const authMethod = args.authMethod || { kind: 'passkey' as const, rpId };
   const accountProvisioning = resolveNearRegistrationAccountProvisioning(args);
   let wallet: RegisterWalletInput;
   switch (accountProvisioning.kind) {
@@ -60,7 +49,7 @@ export function buildNearWalletRegistrationArgs(
   }
   return {
     wallet,
-    authMethod,
+    authMethod: args.authMethod,
     signerSelection: buildNearWalletRegistrationSignerSetSelection({
       configs: context.configs,
       accountProvisioning,

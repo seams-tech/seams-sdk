@@ -2460,7 +2460,7 @@ mod tests {
         Ed25519YaoCeremonyIdentityV1, Ed25519YaoEpochTransitionV1, Ed25519YaoInputKindV1,
         Ed25519YaoInputPairBindingV1, Ed25519YaoRefreshEpochsV1, Ed25519YaoSessionIdV1,
         Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1, LifecycleScopeV1, PublicDigest32,
-        RootShareEpoch,
+        MpcMaterialActivationRefV1, RootShareEpoch,
     };
     use signer_core::ed25519_yao_derivation::{
         derive_ed25519_yao_joint_refresh_delta_v1, Ed25519YaoDeriverARefreshDeltaContributionV1,
@@ -2727,13 +2727,22 @@ mod tests {
 
         let transition =
             Ed25519YaoEpochTransitionV1::new(epoch_one, epoch_two).expect("transition");
+        let registration_material_activation = ceremony(
+            1,
+            Ed25519YaoOperationV1::Registration,
+            ExpensiveWorkKindV1::RegistrationPrepare,
+            1,
+        )
+        .material_activation;
+        let mut refresh_ceremony = ceremony(
+            1,
+            Ed25519YaoOperationV1::Refresh,
+            ExpensiveWorkKindV1::ServerShareRefresh,
+            5,
+        );
+        refresh_ceremony.material_activation = registration_material_activation;
         let refresh = Ed25519YaoRefreshBindingV1::new(
-            ceremony(
-                1,
-                Ed25519YaoOperationV1::Refresh,
-                ExpensiveWorkKindV1::ServerShareRefresh,
-                5,
-            ),
+            refresh_ceremony,
             [0x71; 32],
             Ed25519YaoRefreshEpochsV1 {
                 deriver_a: transition,
@@ -2873,6 +2882,15 @@ mod tests {
             operation,
             Ed25519YaoSessionIdV1::new([session_tag; 32]).expect("session"),
             Ed25519YaoStableKeyContextBindingV1::new([identity_tag; 32]),
+            MpcMaterialActivationRefV1::new(
+                format!("activation-{identity_tag}-{session_tag}"),
+                format!("capability-{identity_tag}"),
+                format!("account-{identity_tag}"),
+                format!("key-{identity_tag}"),
+                format!("lifecycle-{identity_tag}-{session_tag}"),
+                "signing-worker-1",
+            )
+            .expect("material activation"),
         )
         .expect("ceremony")
     }

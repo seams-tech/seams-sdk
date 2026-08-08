@@ -96,6 +96,7 @@ export type VoiceIdVerificationResult =
         | 'phrase_mismatch'
         | 'intent_mismatch'
         | 'speaker_mismatch'
+        | 'presentation_attack'
         | 'low_audio_quality';
       checks: VoiceIdVerificationChecks;
     }

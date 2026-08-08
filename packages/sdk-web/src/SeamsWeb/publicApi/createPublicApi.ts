@@ -37,6 +37,12 @@ import type {
   UserAccountLookupSurface,
 } from '@/SeamsWeb/signingSurface/types';
 import type { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
+import {
+  CAPABILITY_KINDS,
+  EVM_ECDSA_MPC_OPERATION_KINDS,
+  NEAR_ED25519_MPC_OPERATION_KINDS,
+} from '@shared/authorization/capabilityKinds';
+import { requireBrowserCapabilityOperation } from '@/SeamsWeb/publicApi/capabilitySelection';
 
 type WalletIframeRoutingSurface = Pick<
   WalletIframeCoordinator,
@@ -63,13 +69,37 @@ export type RegistrationCapabilityDomainMethods = {
   registerPasskey: RegistrationCapability['registerPasskey'];
   requestEmailOtpEnrollmentChallenge: RegistrationCapability['requestEmailOtpEnrollmentChallenge'];
   enrollEmailOtp: RegistrationCapability['enrollEmailOtp'];
-  enrollAndLoginWithEmailOtpEcdsaCapability: RegistrationCapability['enrollAndLoginWithEmailOtpEcdsaCapability'];
 };
 
 export type KeyExportCapabilityDomainMethods = {
   resolveExactKeyExportLane: KeyExportCapability['resolveExactKeyExportLane'];
   exportKeypairWithUI: KeyExportCapability['exportKeypairWithUI'];
 };
+
+type KeyExportCapabilitySelectionInput =
+  | Parameters<KeyExportCapability['resolveExactKeyExportLane']>[0]
+  | Parameters<KeyExportCapability['exportKeypairWithUI']>[0];
+
+function requireKeyExportCapability(
+  configs: SeamsConfigsReadonly,
+  input: KeyExportCapabilitySelectionInput,
+): void {
+  switch (input.kind) {
+    case 'ed25519':
+      requireBrowserCapabilityOperation(configs, {
+        capabilityKind: CAPABILITY_KINDS.nearEd25519MpcSigning,
+        operationKind: NEAR_ED25519_MPC_OPERATION_KINDS.exportKey,
+      });
+      return;
+    case 'ecdsa':
+      requireBrowserCapabilityOperation(configs, {
+        capabilityKind: CAPABILITY_KINDS.evmEcdsaMpcSigning,
+        operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.exportKey,
+        chainTarget: input.chainTarget,
+      });
+      return;
+  }
+}
 
 function createWalletIframeRoutingSurface(
   getWalletIframe: () => WalletIframeCoordinator,
@@ -157,8 +187,6 @@ export function createPublicApi(deps: {
       registerPasskey: deps.registration.registerPasskey,
       requestEmailOtpEnrollmentChallenge: deps.registration.requestEmailOtpEnrollmentChallenge,
       enrollEmailOtp: deps.registration.enrollEmailOtp,
-      enrollAndLoginWithEmailOtpEcdsaCapability:
-        deps.registration.enrollAndLoginWithEmailOtpEcdsaCapability,
     },
     recovery: createRecoveryCapability({
       getContext: getEmailRecoveryContext,
@@ -171,8 +199,14 @@ export function createPublicApi(deps: {
       domain: deps.devices,
     }),
     keys: {
-      resolveExactKeyExportLane: deps.keys.resolveExactKeyExportLane,
-      exportKeypairWithUI: deps.keys.exportKeypairWithUI,
+      resolveExactKeyExportLane: async (input) => {
+        requireKeyExportCapability(deps.configs, input);
+        return await deps.keys.resolveExactKeyExportLane(input);
+      },
+      exportKeypairWithUI: async (input) => {
+        requireKeyExportCapability(deps.configs, input);
+        await deps.keys.exportKeypairWithUI(input);
+      },
     },
     near: createNearSignerCapability({
       signingEngine: deps.signingEngine,

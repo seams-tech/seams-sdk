@@ -129,7 +129,8 @@ const WALLET_STUB_PASSKEY_SCRIPT = String.raw`
           eventBase(requestId, 'unlock', 'unlock.auth.passkey.prompt.succeeded', 3, 'succeeded', 'Passkey confirmed', {
             interaction: { kind: 'passkey_assert', overlay: 'hide' },
           }),
-          eventBase(requestId, 'unlock', 'unlock.app_session.exchange.skipped', 4, 'skipped', 'App session skipped'),
+          eventBase(requestId, 'unlock', 'unlock.app_session.exchange.started', 4, 'started', 'Creating app session'),
+          eventBase(requestId, 'unlock', 'unlock.app_session.exchange.succeeded', 4, 'succeeded', 'App session ready'),
           eventBase(requestId, 'unlock', 'unlock.session.ready', 6, 'succeeded', 'Wallet session ready'),
           eventBase(requestId, 'unlock', 'unlock.completed', 7, 'succeeded', 'Wallet unlocked'),
         ].forEach((payload) => postProgress(requestId, payload));
@@ -294,11 +295,12 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
         'unlock.auth.passkey.challenge.started',
         'unlock.auth.passkey.prompt.started',
         'unlock.auth.passkey.prompt.succeeded',
-        'unlock.app_session.exchange.skipped',
+        'unlock.app_session.exchange.started',
+        'unlock.app_session.exchange.succeeded',
         'unlock.session.ready',
         'unlock.completed',
       ],
-      unlockEventSteps: [1, 2, 2, 3, 3, 3, 4, 6, 7],
+      unlockEventSteps: [1, 2, 2, 3, 3, 3, 4, 4, 6, 7],
       unlockEventFlows: ['unlock'],
       unlockEventAuthMethods: ['passkey'],
       unlockInteractions: [

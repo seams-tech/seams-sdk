@@ -51,6 +51,14 @@ class TestActivationSigningEngine {
     this.calls.push(`activate:${args.walletId}:${args.nearAccountId}:${args.signerSlot}`);
   }
 
+  setWalletAuthenticated(args: {
+    kind: 'authenticated';
+    walletId: ReturnType<typeof toWalletId>;
+    authMethod: 'email_otp';
+  }): void {
+    this.calls.push(`authenticate:${args.walletId}:${args.authMethod}`);
+  }
+
   getUserPreferences(): TestActivationPreferences {
     return new TestActivationPreferences(this.calls);
   }
@@ -72,7 +80,10 @@ test('Email OTP Ed25519 unlock activates the exact NEAR signer', async () => {
     signer: testNearSigner(),
   });
 
-  expect(calls).toEqual(['activate:otp-wallet:alice.testnet:2']);
+  expect(calls).toEqual([
+    'activate:otp-wallet:alice.testnet:2',
+    'authenticate:otp-wallet:email_otp',
+  ]);
 });
 
 test('Email OTP Ed25519 unlock fails when exact signer activation fails', async () => {
@@ -94,5 +105,9 @@ test('Email OTP EVM-family ECDSA unlock activates the wallet preference without 
     walletId: toWalletId('otp-wallet'),
   });
 
-  expect(calls).toEqual(['preferences:otp-wallet', 'preferences:reload']);
+  expect(calls).toEqual([
+    'preferences:otp-wallet',
+    'preferences:reload',
+    'authenticate:otp-wallet:email_otp',
+  ]);
 });

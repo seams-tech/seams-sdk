@@ -26,7 +26,6 @@ const validPasskeyIntentPayload: SignIntentDigestPayload = {
     digest32B64u: 'role-local-bootstrap-digest',
     requestId: 'tecdsa-keygen-1',
     thresholdSessionId: 'threshold-session-1',
-    signingGrantId: 'wallet-session-1',
   },
 };
 void validPasskeyIntentPayload;

@@ -18,6 +18,7 @@ import { AuthMenuMode, SeamsAuthMenuSkeletonInner } from '@seams/sdk/react';
 import { DEMO_THEME_PRESETS } from '@/context/app-themes';
 import NavbarStatic from '@/components/Navbar/NavbarStatic';
 import SeamsWordmark from '@/components/icons/SeamsWordmark';
+import { NETWORK_MARKS, NetworkMarkLockup } from '@/components/icons/NetworkMarks';
 import { ArrowRightAnim } from '@/components/ArrowRightAnim';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import {
@@ -316,7 +317,7 @@ function HomeHeroCurrent(): React.JSX.Element {
 
   return (
     <>
-      <header className="h2-hero-simple" aria-labelledby="h2-home-title">
+      <header className="h2-hero-simple h2-hero-simple--sage" aria-labelledby="h2-home-title">
         <div className="h2-shell">
           <h1 id="h2-home-title" className="h2-display h2-hero-simple__title">
             Commerce accounts for people and AI agents
@@ -621,33 +622,25 @@ function HomeHeroMedia(): React.JSX.Element {
   );
 }
 
-/* ---------- trusted-by: fictional merchant wordmarks (placeholders) ---------- */
-
-const merchantLogos = [
-  { name: 'Kanda Goods', variant: 'h2-logo--bold' },
-  { name: 'AOYAMA ATELIER', variant: 'h2-logo--caps' },
-  { name: 'Ginza Table', variant: 'h2-logo--serif' },
-  { name: 'shirokane supply', variant: 'h2-logo--mono' },
-  { name: 'Yūgen Prints', variant: 'h2-logo--light' },
-];
+/* ---------- networks strip: real brand marks for the supported rails ---------- */
 
 function HomeTrusted(): React.JSX.Element {
   return (
     <section className="h2-section h2-rule h2-logos" aria-labelledby="h2-trusted-title">
       <div className="h2-shell">
-        <div className="h2-logos__row" aria-label="Merchants building on Seams">
-          {merchantLogos.map((logo) => (
-            <span key={logo.name} className={`h2-logo ${logo.variant}`}>
-              {logo.name}
+        <div className="h2-logos__row" aria-label="Supported networks">
+          {NETWORK_MARKS.map((mark) => (
+            <span key={mark.name} className="h2-logo">
+              <NetworkMarkLockup mark={mark} />
             </span>
           ))}
         </div>
         <div className="h2-logos__head">
           <h2 id="h2-trusted-title" className="h2-display">
-            Trusted by merchants shipping the future of commerce
+            Built on the rails merchants settle on
           </h2>
           <p className="h2-logos__copy">
-            Stores and platforms use Seams for secure accounts, scoped credentials, and wallet
+            Seams gives stores and platforms secure accounts, scoped credentials, and wallet
             access, with approval rules and an audit trail for every action.
           </p>
         </div>

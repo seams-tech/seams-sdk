@@ -1,11 +1,7 @@
 import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
-import type {
-  PersistedEcdsaRoleLocalMaterial,
-  ThresholdEcdsaSessionRecord,
-} from '../persistence/records';
+import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import {
   thresholdEcdsaChainTargetKey,
-  thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '../../interfaces/ecdsaChainTarget';
@@ -23,6 +19,7 @@ import {
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import { alphabetizeStringify } from '@shared/utils/digests';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 
 export type WalletUnlockSelection =
   | {
@@ -94,16 +91,6 @@ export type EcdsaWarmupReadyTarget = {
   chainTarget: ThresholdEcdsaChainTarget;
   walletKey: EvmFamilyEcdsaWalletKey;
   publicCapability: EcdsaPublicCapabilityState;
-  localSessionRecord?: ThresholdEcdsaSessionRecord;
-};
-
-export type CurrentEcdsaSessionFact = {
-  keyHandle: string;
-  chainTarget: ThresholdEcdsaChainTarget;
-  thresholdSessionId: string;
-  signingGrantId: string;
-  expiresAtMs: number;
-  remainingUses: number;
 };
 
 export type ConfiguredTargetThresholdEcdsaWarmKey = {
@@ -255,22 +242,6 @@ export function parseActiveEcdsaSignerRecordForUnlock(args: {
   return { kind: 'skipped' };
 }
 
-function localSessionForTarget(args: {
-  walletKey: EvmFamilyEcdsaWalletKey;
-  localSessionRecords: readonly ThresholdEcdsaSessionRecord[];
-  nowMs: number;
-}): ThresholdEcdsaSessionRecord | undefined {
-  return args.localSessionRecords.find((record) => {
-    if (String(record.keyHandle) !== String(args.walletKey.keyHandle)) return false;
-    if (!thresholdEcdsaChainTargetsEqual(record.chainTarget, args.walletKey.chainTarget)) {
-      return false;
-    }
-    if (Number(record.expiresAtMs) <= args.nowMs) return false;
-    if (Number(record.remainingUses) <= 0) return false;
-    return true;
-  });
-}
-
 function activeTargetRecordsByTarget(
   records: readonly ActiveEcdsaSignerRecord[],
 ): Map<string, ActiveEcdsaSignerRecord | BlockedEcdsaSignerRecord> {
@@ -397,8 +368,10 @@ export function collectConfiguredTargetThresholdEcdsaWarmKeys(args: {
     if (
       key.existingRoleLocalMaterial &&
       existing?.existingRoleLocalMaterial &&
-      key.existingRoleLocalMaterial.materialRef.durableMaterialRef !==
-        existing.existingRoleLocalMaterial.materialRef.durableMaterialRef
+      !mpcMaterialActivationRefsEqual(
+        key.existingRoleLocalMaterial.materialActivation,
+        existing.existingRoleLocalMaterial.materialActivation,
+      )
     ) {
       throw new Error(
         `[login] threshold ECDSA warm-up received ambiguous ${args.source} role-local material for ${targetKey}`,
@@ -534,12 +507,9 @@ export function planUnlockEcdsaWarmup(args: {
   activeSignerRecords: readonly ActiveEcdsaSignerRecord[];
   keyFactsInventoryRequiredRecords?: readonly KeyFactsInventoryRequiredEcdsaSignerRecord[];
   blockedRecords?: readonly BlockedEcdsaSignerRecord[];
-  localSessionRecords: readonly ThresholdEcdsaSessionRecord[];
-  currentSessionFacts?: readonly CurrentEcdsaSessionFact[];
   runtimeConfig?: EcdsaUnlockRuntimeConfig;
   allowAuthenticatedKeyFactsInventory?: boolean;
   explicitKeyFactsInventoryMode?: boolean;
-  nowMs?: number;
 }): EcdsaWarmupPlannerResult {
   if (!walletUnlockSelectionIncludesEcdsa(args.selection) || args.configuredTargets.length === 0) {
     return { kind: 'no_configured_ecdsa_targets' };
@@ -564,7 +534,6 @@ export function planUnlockEcdsaWarmup(args: {
 
   const keyFactsInventoryRequiredRecords: KeyFactsInventoryRequiredEcdsaSignerRecord[] = [];
   const readyTargets: EcdsaWarmupReadyTarget[] = [];
-  const nowMs = args.nowMs ?? Date.now();
   for (const chainTarget of args.configuredTargets) {
     const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
     const active = activeByTarget.get(targetKey);
@@ -574,19 +543,6 @@ export function planUnlockEcdsaWarmup(args: {
         chainTarget,
         walletKey: active.walletKey,
         publicCapability: active.publicCapability,
-        ...(localSessionForTarget({
-          walletKey: active.walletKey,
-          localSessionRecords: args.localSessionRecords,
-          nowMs,
-        })
-          ? {
-              localSessionRecord: localSessionForTarget({
-                walletKey: active.walletKey,
-                localSessionRecords: args.localSessionRecords,
-                nowMs,
-              }),
-            }
-          : {}),
       });
       continue;
     }

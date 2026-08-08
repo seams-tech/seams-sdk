@@ -4,7 +4,7 @@ title: Sealed Refresh
 
 # Sealed Refresh
 
-Sealed refresh restores an already-authenticated signing grant after accidental
+Sealed refresh restores sealed signing material after accidental
 iframe or page reload, while keeping signing material out of browser storage in
 plaintext.
 
@@ -15,7 +15,7 @@ server-side signing-session state.
 ## Rules
 
 1. Store sealed refresh records in the wallet iframe origin.
-2. Bind records to the signing grant and browser-session marker.
+2. Bind records to exact material activation and the browser-session marker.
 3. Delete records on logout, lock, account switch, revocation, expiry, and
    remaining-use exhaustion.
 4. Restore only transaction signing capability.

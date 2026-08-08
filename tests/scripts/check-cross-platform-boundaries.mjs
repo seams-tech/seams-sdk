@@ -59,11 +59,6 @@ const platformBoundaryFiles = guardBoundaryFiles([
     reason: 'checks browser persistence availability before reading lane state',
   },
   {
-    file: 'packages/sdk-web/src/core/signingEngine/session/budget/budgetFinalizer.ts',
-    owner: 'budget finalization diagnostics boundary',
-    reason: 'reads browser diagnostics storage while finalizing signing budgets',
-  },
-  {
     file: 'packages/sdk-web/src/core/signingEngine/session/operationState/trace.ts',
     owner: 'operation trace diagnostics boundary',
     reason: 'reads browser diagnostics storage for operation traces',
@@ -74,15 +69,22 @@ const platformBoundaryFiles = guardBoundaryFiles([
     reason: 'receives browser storage and prompt ports for ECDSA bootstrap',
   },
   {
+    file: 'packages/sdk-web/src/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery.ts',
+    owner: 'passkey Ed25519 Yao recovery boundary',
+    reason: 'coordinates exact-owner recovery persistence at the browser recovery edge',
+  },
+  {
+    file: 'packages/sdk-web/src/core/signingEngine/session/passkey/ed25519YaoRecoverySource.ts',
+    owner: 'passkey Ed25519 Yao recovery source boundary',
+    reason: 'seals recovery source material with the browser WebCrypto boundary',
+  },
+  {
     file: 'packages/sdk-web/src/core/signingEngine/session/userPreferences.ts',
     owner: 'session preference persistence boundary',
     reason: 'reads browser local storage for user preferences',
   },
 ]);
 
-const rawLegacyShareBoundaryFiles = guardBoundaryFiles([]);
-const rawDbRecordBoundaryFiles = guardBoundaryFiles([]);
-const ecdsaDerivationClientWorkerConstructionBoundaryFiles = guardBoundaryFiles([]);
 const secretSourceCastBoundaryFiles = new Set([
   'packages/sdk-web/src/core/platform/types.typecheck.ts',
 ]);
@@ -117,17 +119,6 @@ const platformLeakagePatterns = [
   /\bcrypto\.subtle\b/,
 ];
 
-const rawLegacySharePatterns = [
-  /\bclientShare32B64u\b/,
-  /\bclientAdditiveShare32B64u\b/,
-  /\bmappedPrivateShare32B64u\b/,
-  /\bverifyingShare33B64u\b/,
-  /\bclientCaitSithInput\b/,
-  /\bclientPublicKey33B64u\b/,
-];
-
-const rawClientRootSharePatterns = [/\bclientRootShare32\b/, /\bclientRootShare32B64u\b/];
-
 const secretSourceCastPatterns = [
   /\bas\s+ClientSecretSource\b/,
   /\bas\s+WebAuthnPrfFirstSecretSource\b/,
@@ -135,19 +126,6 @@ const secretSourceCastPatterns = [
   /\bas\s+EmailOtpWorkerIssuedSessionHandle\b/,
   /\bas\s+SecureEnclaveWrappedSecretSource\b/,
   /\bas\s+Fido2HmacSecretSource\b/,
-];
-
-const rawDbRecordPatterns = [
-  /\bEcdsaRoleLocalBoundaryRecord\b/,
-  /\becdsa_role_local_ready_record_v1\b/,
-  /\blegacy_raw_role_local_v1\b/,
-  /\bcurrent_unbranched_ready_record_v1\b/,
-];
-
-const ecdsaDerivationClientWorkerConstructionPatterns = [
-  /\bWorkerRequestType\.BuildThresholdEcdsaDerivationRoleLocalClientBootstrap\b/,
-  /\bbuildThresholdEcdsaDerivationRoleLocalClientBootstrapWasm\b/,
-  /\bThresholdEcdsaDerivationRoleLocalClientBootstrap\b/,
 ];
 
 const signerCommandSchemaRoots = [
@@ -275,24 +253,6 @@ function collectPlatformApiViolations() {
   );
 }
 
-function collectRawLegacyShareViolations() {
-  return collectPatternViolations(
-    listTypeScriptFilesInRoots(activeCoreSigningRoots),
-    rawLegacyShareBoundaryFiles,
-    rawLegacySharePatterns,
-    'raw Router A/B ECDSA derivation share field in active core signing root',
-  );
-}
-
-function collectClientRootShareViolations() {
-  return collectPatternViolations(
-    listTypeScriptFilesInRoots(activeCoreSigningRoots),
-    new Set(),
-    rawClientRootSharePatterns,
-    'passkey ECDSA PRF material modeled as client-root share',
-  );
-}
-
 function collectSecretSourceCastViolations() {
   return collectPatternViolations(
     listTypeScriptFilesInRoots(['packages/sdk-web/src/core/platform', ...guardedRoots]),
@@ -333,19 +293,6 @@ function collectUseCaseRuntimePortsViolations() {
   return violations;
 }
 
-function collectRawDbRecordViolations() {
-  return collectPatternViolations(
-    listTypeScriptFilesInRoots([
-      ...activeCoreSigningRoots,
-      'packages/sdk-web/src/core/platform',
-      'packages/sdk-web/src/SeamsWeb',
-    ]),
-    rawDbRecordBoundaryFiles,
-    rawDbRecordPatterns,
-    'raw ECDSA role-local record shape outside persistence boundary',
-  );
-}
-
 function collectRoleLocalParserViolations() {
   const violations = [];
   const platformTypes = 'packages/sdk-web/src/core/platform/ecdsaRoleLocalRecords.ts';
@@ -377,33 +324,6 @@ function collectRoleLocalParserViolations() {
   return violations;
 }
 
-function collectEcdsaDerivationClientWorkerConstructionViolations() {
-  return collectPatternViolations(
-    listTypeScriptFilesInRoots(activeCoreSigningRoots),
-    ecdsaDerivationClientWorkerConstructionBoundaryFiles,
-    ecdsaDerivationClientWorkerConstructionPatterns,
-    'ECDSA derivation client bootstrap worker construction outside signer adapter',
-  );
-}
-
-function collectLegacyRootShareFfiViolations() {
-  const violations = [];
-  const emailOtpWorkerSource = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
-  );
-  const clientDts = readRepoFile('wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.d.ts');
-  const legacyFfi = 'threshold_ecdsa_derivation_role_local_prepare_client_bootstrap';
-
-  if (emailOtpWorkerSource.includes(legacyFfi)) {
-    violations.push('email-otp.worker.ts contains legacy root-share ECDSA prepare FFI');
-  }
-  if (clientDts.includes(legacyFfi)) {
-    violations.push('router_ab_ecdsa_derivation_client.d.ts contains legacy root-share ECDSA prepare FFI');
-  }
-
-  return violations;
-}
-
 function collectHandWrittenSignerCommandSchemaViolations() {
   return collectPatternViolations(
     listTypeScriptFilesInRoots(signerCommandSchemaRoots),
@@ -427,25 +347,6 @@ function collectEmailOtpRegistrationPrepViolations() {
   }
   if (workerTypesSource.includes('clientRootShare32B64u: string;')) {
     violations.push('workerTypes.ts exposes clientRootShare32B64u as a string');
-  }
-
-  return violations;
-}
-
-function collectEcdsaExportClientRootShareViolations() {
-  const violations = [];
-  const exportFlowSource = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportFlow.ts',
-  );
-  const exportBoundarySource = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaDerivationExport.ts',
-  );
-
-  if (exportFlowSource.includes('clientRootShare32B64u')) {
-    violations.push('ecdsaExportFlow.ts transports clientRootShare32B64u');
-  }
-  if (exportBoundarySource.includes('clientRootShare32B64u: string')) {
-    violations.push('ecdsaDerivationExport.ts exposes clientRootShare32B64u as a string');
   }
 
   return violations;
@@ -485,18 +386,12 @@ function collectLifecycleWorkerResultViolations() {
 function main() {
   const violations = [
     ...collectPlatformApiViolations(),
-    ...collectRawLegacyShareViolations(),
-    ...collectClientRootShareViolations(),
     ...collectSecretSourceCastViolations(),
     ...collectRuntimePortsAggregateViolations(),
     ...collectUseCaseRuntimePortsViolations(),
-    ...collectRawDbRecordViolations(),
     ...collectRoleLocalParserViolations(),
-    ...collectEcdsaDerivationClientWorkerConstructionViolations(),
-    ...collectLegacyRootShareFfiViolations(),
     ...collectHandWrittenSignerCommandSchemaViolations(),
     ...collectEmailOtpRegistrationPrepViolations(),
-    ...collectEcdsaExportClientRootShareViolations(),
     ...collectEmailOtpEd25519ExportMaterialViolations(),
     ...collectLifecycleWorkerResultViolations(),
   ];

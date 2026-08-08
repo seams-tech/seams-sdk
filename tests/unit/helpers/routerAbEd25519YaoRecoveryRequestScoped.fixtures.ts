@@ -15,7 +15,7 @@ import {
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
-import type { CloudflareVersionedJsonRecordReadResult } from '../../../packages/sdk-server-ts/src/router/cloudflare/versionedJsonRecordStore';
+import type { VersionedJsonRecordReadResult } from '../../../packages/sdk-server-ts/src/router/framework/versionedJsonRecordStore';
 import {
   parseRouterAbEd25519WalletSessionClaims,
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
@@ -23,7 +23,7 @@ import {
 import {
   createRouterAbEd25519YaoProductRegistrationStateV1,
   type RouterAbEd25519YaoProductRegistrationStateV1,
-} from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
+} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import {
   createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   type RouterAbEd25519YaoProductRegistrationPartitionBatchResultV1,
@@ -31,7 +31,7 @@ import {
   type RouterAbEd25519YaoProductRegistrationPartitionRecordStoreV1,
   type RouterAbEd25519YaoProductRegistrationPartitionRecordV1,
   type RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
-} from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 import {
   InMemoryRouterAbEd25519YaoRecoveryService,
   type RouterAbEd25519YaoRecoveryAdmissionCommitInputV1,
@@ -41,7 +41,7 @@ import {
   type RouterAbEd25519YaoRecoveryBackend,
   type RouterAbEd25519YaoRecoveryBackendResult,
   type RouterAbEd25519YaoRecoveryExecuteCommitInputV1,
-} from '../../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
+} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../packages/sdk-server-ts/src/core/WalletStore';
 
 const ROOT_SHARE_EPOCH = 'root-recovery-v1';
@@ -58,8 +58,10 @@ type RecoveryFixtureIdentity = {
   readonly walletId: string;
   readonly nearAccountId: string;
   readonly nearSigningKeyId: string;
+  readonly authorizationId: string;
   readonly walletSessionId: string;
-  readonly signingGrantId: string;
+  readonly thresholdSessionId: string;
+  readonly quotaId: string;
   readonly signingWorkerId: string;
   readonly signerSetId: string;
   readonly credentialId: string;
@@ -74,8 +76,10 @@ const PRIMARY_IDENTITY: RecoveryFixtureIdentity = {
   walletId: 'wallet-recovery-1',
   nearAccountId: 'wallet-recovery-1.testnet',
   nearSigningKeyId: 'ed25519ks_recovery_1',
+  authorizationId: 'authorization-grant-recovery-1',
   walletSessionId: 'wallet-session-recovery-1',
-  signingGrantId: 'signing-grant-recovery-1',
+  thresholdSessionId: 'threshold-session-recovery-1',
+  quotaId: 'wallet-session-quota-recovery-1',
   signingWorkerId: 'signing-worker-recovery-1',
   signerSetId: 'signer-set-recovery-1',
   credentialId: 'recovery-request-scoped-credential-1',
@@ -90,8 +94,10 @@ const SECONDARY_IDENTITY: RecoveryFixtureIdentity = {
   walletId: 'wallet-recovery-2',
   nearAccountId: 'wallet-recovery-2.testnet',
   nearSigningKeyId: 'ed25519ks_recovery_2',
+  authorizationId: 'authorization-grant-recovery-2',
   walletSessionId: 'wallet-session-recovery-2',
-  signingGrantId: 'signing-grant-recovery-2',
+  thresholdSessionId: 'threshold-session-recovery-2',
+  quotaId: 'wallet-session-quota-recovery-2',
   signingWorkerId: 'signing-worker-recovery-2',
   signerSetId: 'signer-set-recovery-2',
   credentialId: 'recovery-request-scoped-credential-2',
@@ -155,12 +161,12 @@ class MemoryPartitionRecordStore implements RouterAbEd25519YaoProductRegistratio
   async readMany(keys: readonly string[]): Promise<
     readonly {
       readonly key: string;
-      readonly result: CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
+      readonly result: VersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
     }[]
   > {
     const results: {
       readonly key: string;
-      readonly result: CloudflareVersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
+      readonly result: VersionedJsonRecordReadResult<RouterAbEd25519YaoProductRegistrationPartitionRecordV1>;
     }[] = [];
     for (const key of keys) {
       const record = this.records.get(key);
@@ -278,6 +284,7 @@ function capabilityReplacementFixture(
   const recoveryRequest = requireParsed(
     parseRouterAbEd25519YaoRecoveryAdmissionRequestV1({
       scope: admission.scope,
+      active_material_activation: admission.active_material_activation,
       application_binding: admission.application_binding,
       participant_ids: admission.participant_ids,
       active_capability_binding: registrationActivation.binding.session_id,
@@ -399,9 +406,14 @@ function registrationAdmission(identity: RecoveryFixtureIdentity) {
         lifecycle_id: identity.registrationLifecycleId,
         root_share_epoch: ROOT_SHARE_EPOCH,
         account_id: identity.walletId,
-        wallet_session_id: identity.walletSessionId,
+        threshold_session_id: identity.thresholdSessionId,
         signer_set_id: identity.signerSetId,
         signing_worker_id: identity.signingWorkerId,
+        material_activation: materialActivation(
+          identity.registrationLifecycleId,
+          identity.walletId,
+          identity.signingWorkerId,
+        ),
       },
       application_binding: {
         wallet_id: identity.walletId,
@@ -422,13 +434,18 @@ function registrationBinding(identity: RecoveryFixtureIdentity) {
       primitive_request_kind: 'registration' as const,
       root_share_epoch: ROOT_SHARE_EPOCH,
       account_id: identity.walletId,
-      session_id: identity.walletSessionId,
+      session_id: identity.thresholdSessionId,
       signer_set_id: identity.signerSetId,
       selected_server_id: identity.signingWorkerId,
     },
     operation: 'registration' as const,
     session_id: bytes(identity.activeCapabilitySeed),
     stable_key_context_binding: bytes(8),
+    material_activation: materialActivation(
+      identity.registrationLifecycleId,
+      identity.walletId,
+      identity.signingWorkerId,
+    ),
   };
 }
 
@@ -439,7 +456,11 @@ function registrationResult(identity: RecoveryFixtureIdentity) {
       binding,
       deriver_a_client_package: activationClientPackage(binding, 'deriver_a'),
       deriver_b_client_package: activationClientPackage(binding, 'deriver_b'),
-      public_receipt: publicReceipt(1, identity.registeredPublicKeySeed),
+      public_receipt: publicReceipt(
+        1,
+        identity.registeredPublicKeySeed,
+        binding.material_activation,
+      ),
     }),
   );
 }
@@ -453,10 +474,20 @@ function recoveryAdmission(
         lifecycle_id: identity.lifecycleId,
         root_share_epoch: ROOT_SHARE_EPOCH,
         account_id: identity.walletId,
-        wallet_session_id: identity.walletSessionId,
+        threshold_session_id: identity.thresholdSessionId,
         signer_set_id: identity.signerSetId,
         signing_worker_id: identity.signingWorkerId,
+        material_activation: {
+          kind: 'mpc_material_activation_ref',
+          activation_id: `${identity.lifecycleId}-recovery-material-activation`,
+          capability: registrationAdmission(identity).scope.material_activation.capability,
+          material_owner: registrationAdmission(identity).scope.material_activation.material_owner,
+          key_binding: registrationAdmission(identity).scope.material_activation.key_binding,
+          lifecycle_binding: `${identity.lifecycleId}:material-activation`,
+          signing_worker: registrationAdmission(identity).scope.material_activation.signing_worker,
+        },
       },
+      active_material_activation: registrationAdmission(identity).scope.material_activation,
       application_binding: registrationAdmission(identity).application_binding,
       participant_ids: [1, 2],
       active_capability_binding: bytes(identity.activeCapabilitySeed),
@@ -500,7 +531,11 @@ function recoveryExecutionResult(
       binding: request.binding,
       deriver_a_client_package: activationClientPackage(request.binding, 'deriver_a'),
       deriver_b_client_package: activationClientPackage(request.binding, 'deriver_b'),
-      public_receipt: publicReceipt(2, registeredPublicKeySeed),
+      public_receipt: publicReceipt(
+        2,
+        registeredPublicKeySeed,
+        request.binding.material_activation,
+      ),
     }),
   );
 }
@@ -513,13 +548,26 @@ function recoveryBinding(request: RouterAbEd25519YaoRecoveryAdmissionRequestV1) 
       primitive_request_kind: 'recovery' as const,
       root_share_epoch: request.scope.root_share_epoch,
       account_id: request.scope.account_id,
-      session_id: request.scope.wallet_session_id,
+      session_id: request.scope.threshold_session_id,
       signer_set_id: request.scope.signer_set_id,
       selected_server_id: request.scope.signing_worker_id,
     },
     operation: 'recovery' as const,
     session_id: bytes(7),
     stable_key_context_binding: bytes(8),
+    material_activation: request.scope.material_activation,
+  };
+}
+
+function materialActivation(lifecycleId: string, materialOwner: string, signingWorker: string) {
+  return {
+    kind: 'mpc_material_activation_ref' as const,
+    activation_id: `${lifecycleId}-activation`,
+    capability: `${lifecycleId}-capability`,
+    material_owner: materialOwner,
+    key_binding: `${lifecycleId}-key`,
+    lifecycle_binding: `${lifecycleId}-lifecycle-binding`,
+    signing_worker: signingWorker,
   };
 }
 
@@ -552,7 +600,11 @@ function activationClientPackage(
   };
 }
 
-function publicReceipt(stateEpoch: number, registeredPublicKeySeed: number) {
+function publicReceipt(
+  stateEpoch: number,
+  registeredPublicKeySeed: number,
+  materialActivationRef: ReturnType<typeof materialActivation>,
+) {
   return {
     transcript: bytes(11),
     registered_public_key: bytes(registeredPublicKeySeed),
@@ -560,6 +612,7 @@ function publicReceipt(stateEpoch: number, registeredPublicKeySeed: number) {
     joined_signing_worker_commitment: bytes(15),
     signing_worker_verifying_share: bytes(15),
     state_epoch: stateEpoch,
+    material_activation: materialActivationRef,
   };
 }
 
@@ -575,8 +628,10 @@ function recoveryClaims(identity: RecoveryFixtureIdentity) {
     walletId: identity.walletId,
     nearAccountId: identity.nearAccountId,
     nearEd25519SigningKeyId: identity.nearSigningKeyId,
-    thresholdSessionId: identity.walletSessionId,
-    signingGrantId: identity.signingGrantId,
+    authorizationId: identity.authorizationId,
+    walletSessionId: identity.walletSessionId,
+    quotaId: identity.quotaId,
+    thresholdSessionId: identity.thresholdSessionId,
     relayerKeyId: identity.signingWorkerId,
     authority,
     authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),

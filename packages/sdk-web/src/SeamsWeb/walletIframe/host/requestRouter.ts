@@ -1,4 +1,10 @@
 import type { ParentToChildEnvelope, ParentToChildType } from '../shared/messages';
+import {
+  parseHostedAuthMenuCancelPayload,
+  parseHostedAuthMenuExternalAuthResolution,
+  parseHostedAuthMenuOpenRequest,
+} from '../shared/messages';
+import { walletIframeRequestIdFromBoundary } from '@/core/types/walletIframeIdentity';
 
 type WalletHostRequest<T extends ParentToChildType> = ParentToChildEnvelope & { type: T };
 
@@ -16,10 +22,12 @@ export type NearWalletRequestType =
   | 'PM_SIGN_DELEGATE_ACTION'
   | 'PM_SIGN_NEP413';
 export type AuthWalletRequestType =
+  | 'PM_OPEN_AUTH_MENU'
+  | 'PM_CANCEL_AUTH_MENU'
+  | 'PM_RESOLVE_AUTH_MENU_EXTERNAL_AUTH'
   | 'PM_UNLOCK'
   | 'PM_LOCK'
   | 'PM_LOCK_EXACT_WALLET_SESSION'
-  | 'PM_LOCK_MISSING_WALLET_SESSION'
   | 'PM_GET_WALLET_SESSION'
   | 'PM_GET_EXACT_WALLET_SESSION_STATE'
   | 'PM_GET_RECENT_UNLOCKS';
@@ -33,6 +41,7 @@ export type EcdsaWalletRequestType =
   | 'PM_RECONCILE_TEMPO_NONCE_LANE'
   | 'PM_PREFILL_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL';
 export type EmailOtpWalletRequestType =
+  | 'PM_REDEEM_HOSTED_WALLET_SEAMS_SESSION'
   | 'PM_REQUEST_EMAIL_OTP_CHALLENGE'
   | 'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE'
   | 'PM_REQUEST_EMAIL_OTP_SIGNING_SESSION_CHALLENGE'
@@ -46,7 +55,6 @@ export type EmailOtpWalletRequestType =
   | 'PM_ENROLL_EMAIL_OTP'
   | 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
   | 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION'
-  | 'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
   | 'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS'
   | 'PM_SHOW_EMAIL_OTP_RECOVERY_CODES'
   | 'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES';
@@ -121,6 +129,19 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled wallet host route: ${String(value)}`);
 }
 
+function requireHostedAuthMenuPayload<T>(value: T | null, label: string): T {
+  if (value === null) throw new Error(`Invalid ${label} payload`);
+  return value;
+}
+
+function requireHostedAuthMenuRequestId(value: unknown): string {
+  try {
+    return walletIframeRequestIdFromBoundary(value);
+  } catch {
+    throw new Error('Hosted auth-menu request requires a non-empty requestId');
+  }
+}
+
 export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHostRoute {
   switch (request.type) {
     case 'PING':
@@ -141,10 +162,54 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
     case 'PM_SIGN_NEP413':
       return { kind: 'near', type: request.type, request };
 
+    case 'PM_OPEN_AUTH_MENU': {
+      const requestId = requireHostedAuthMenuRequestId(request.requestId);
+      return {
+        kind: 'auth',
+        type: request.type,
+        request: {
+          ...request,
+          requestId,
+          payload: requireHostedAuthMenuPayload(
+            parseHostedAuthMenuOpenRequest(request.payload),
+            'hosted auth-menu open',
+          ),
+        },
+      };
+    }
+    case 'PM_CANCEL_AUTH_MENU': {
+      const requestId = requireHostedAuthMenuRequestId(request.requestId);
+      return {
+        kind: 'auth',
+        type: request.type,
+        request: {
+          ...request,
+          requestId,
+          payload: requireHostedAuthMenuPayload(
+            parseHostedAuthMenuCancelPayload(request.payload),
+            'hosted auth-menu cancellation',
+          ),
+        },
+      };
+    }
+    case 'PM_RESOLVE_AUTH_MENU_EXTERNAL_AUTH': {
+      const requestId = requireHostedAuthMenuRequestId(request.requestId);
+      return {
+        kind: 'auth',
+        type: request.type,
+        request: {
+          ...request,
+          requestId,
+          payload: requireHostedAuthMenuPayload(
+            parseHostedAuthMenuExternalAuthResolution(request.payload),
+            'hosted auth-menu external-auth resolution',
+          ),
+        },
+      };
+    }
     case 'PM_UNLOCK':
     case 'PM_LOCK':
     case 'PM_LOCK_EXACT_WALLET_SESSION':
-    case 'PM_LOCK_MISSING_WALLET_SESSION':
     case 'PM_GET_WALLET_SESSION':
     case 'PM_GET_EXACT_WALLET_SESSION_STATE':
     case 'PM_GET_RECENT_UNLOCKS':
@@ -160,6 +225,7 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
     case 'PM_PREFILL_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL':
       return { kind: 'ecdsa', type: request.type, request };
 
+    case 'PM_REDEEM_HOSTED_WALLET_SEAMS_SESSION':
     case 'PM_REQUEST_EMAIL_OTP_CHALLENGE':
     case 'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE':
     case 'PM_REQUEST_EMAIL_OTP_SIGNING_SESSION_CHALLENGE':
@@ -173,7 +239,6 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
     case 'PM_ENROLL_EMAIL_OTP':
     case 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY':
     case 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION':
-    case 'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY':
     case 'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS':
     case 'PM_SHOW_EMAIL_OTP_RECOVERY_CODES':
     case 'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES':

@@ -155,7 +155,7 @@ export function signingAuthPlanFromSigningSessionPlan(args: {
       accountId: args.accountId,
       intent: args.intent,
       ...(args.curve ? { curve: args.curve } : {}),
-      sessionId: String(plan.keyRef.thresholdSessionId),
+      thresholdSessionId: String(plan.keyRef.thresholdSessionId),
       retention: plan.lane.retention,
       expiresAtMs,
       remainingUses,
@@ -226,13 +226,20 @@ export async function resolveSigningConfirmationAuth(args: SigningConfirmationAu
 }
 
 export function resolveSigningConfirmationAuthMethod(
-  authPlan: Pick<SigningAuthPlan, 'kind'> | undefined,
-  hasEmailOtpPrompt: boolean,
+  authPlan: Pick<SigningAuthPlan, 'kind'>,
 ): WalletFlowAuthMethod {
-  if (hasEmailOtpPrompt || authPlan?.kind === SigningAuthPlanKind.EmailOtpReauth)
-    return 'email_otp';
-  if (authPlan?.kind === SigningAuthPlanKind.WarmSession) return 'warm_session';
-  return 'passkey';
+  switch (authPlan.kind) {
+    case SigningAuthPlanKind.EmailOtpReauth:
+      return 'email_otp';
+    case SigningAuthPlanKind.WarmSession:
+      return 'warm_session';
+    case SigningAuthPlanKind.PasskeyReauth:
+      return 'passkey';
+    default: {
+      const exhaustive: never = authPlan.kind;
+      throw new Error(`Unsupported signing confirmation auth method: ${String(exhaustive)}`);
+    }
+  }
 }
 
 export function mapSigningConfirmationProgress(

@@ -1,9 +1,10 @@
+use crate::CloudflareRouterEd25519JwkV1;
 #[cfg(feature = "workers-rs")]
 use crate::{
-    cloudflare_router_error_status, worker_binding_error, worker_binding_error_code,
-    ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1, ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING_ENV,
+    cloudflare_router_error_status, require_non_empty, worker_binding_error,
+    worker_binding_error_code, ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
+    ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING_ENV,
 };
-use crate::{require_non_empty, CloudflareRouterEd25519JwkV1};
 use ed25519_dalek::{Signature as Ed25519Signature, VerifyingKey as Ed25519VerifyingKey};
 use router_ab_core::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult};
 #[cfg(feature = "workers-rs")]
@@ -139,31 +140,6 @@ pub(crate) fn verify_router_ed25519_jwt_signature_v1(
                 "Router JWT Ed25519 signature verification failed",
             )
         })
-}
-
-pub(crate) fn select_router_jwt_session_id_v1(
-    sid: Option<String>,
-    session_id: Option<String>,
-) -> RouterAbProtocolResult<String> {
-    match (sid, session_id) {
-        (Some(sid), Some(session_id)) if sid == session_id => Ok(sid),
-        (Some(_), Some(_)) => Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            "Router JWT sid and session_id claims differ",
-        )),
-        (Some(sid), None) => {
-            require_non_empty("jwt sid", &sid)?;
-            Ok(sid)
-        }
-        (None, Some(session_id)) => {
-            require_non_empty("jwt session_id", &session_id)?;
-            Ok(session_id)
-        }
-        (None, None) => Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            "Router JWT must include sid or session_id",
-        )),
-    }
 }
 
 pub(crate) fn unix_seconds_to_millis_v1(field: &str, seconds: u64) -> RouterAbProtocolResult<u64> {

@@ -22,7 +22,7 @@ import type { ConfirmUIElement } from '../../confirm-ui-types';
 import { WalletIframeDomEvents } from '@/core/browser/walletIframe/events';
 import {
   copyTextToClipboard,
-  isNearTransactionSubmittingNotice,
+  isNearSigningProgressNotice,
   parseNearAccountFundingNotice,
 } from '@/core/signingEngine/uiConfirm/nearFundingNotice';
 
@@ -168,9 +168,6 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
       this._handleCancel();
     }
   };
-  // Guard to prevent immediate backdrop-cancel due to the click that mounted the modal
-  private _backdropArmed = false;
-
   private _chainLabelForModel(): string {
     switch (this.model?.chain) {
       case 'tempo':
@@ -195,7 +192,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
     const chainId = String(this.model?.chainId || '').trim();
     if (chainId) return false;
     const blockHeight = String(this.securityContext?.blockHeight || '').trim();
-    const submittingTransaction = isNearTransactionSubmittingNotice(String(this.body || ''));
+    const submittingTransaction = isNearSigningProgressNotice(String(this.body || ''));
     return (this.loading || submittingTransaction) && !blockHeight;
   }
 
@@ -206,6 +203,18 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
   private _isWarmSessionMode(): boolean {
     return this.signingAuthMode === 'warmSession';
   }
+
+  private _isStandaloneSurface(): boolean {
+    return (
+      this.closest('w3a-tx-confirmer')?.getAttribute('data-w3a-confirm-surface') === 'standalone'
+    );
+  }
+
+  private _handleBackdropClick = (event: Event): void => {
+    if (!this._isStandaloneSurface()) return;
+    event.stopPropagation();
+    this._handleCancel();
+  };
 
   private _authHeadingFallback(): string {
     if (this._passkeyRegistrationDisplay()) return 'Create your passkey';
@@ -255,11 +264,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
   private _renderPasskeyRegistrationActions() {
     return html`
       <div class="passkey-registration-confirm__actions">
-        <button
-          type="button"
-          class="btn btn-cancel"
-          @click=${this._handleCancel}
-        >
+        <button type="button" class="btn btn-cancel" @click=${this._handleCancel}>
           ${this.cancelText || 'Cancel'}
         </button>
         <button
@@ -289,8 +294,10 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
 
   private _renderPasskeyRegistrationModal(display: PasskeyRegistrationConfirmDisplay) {
     return html`
-      <div class="modal-backdrop-blur" @click=${this._handleBackdropClick}></div>
-      <div class="modal-backdrop" @click=${this._handleContentClick}>
+      ${this._isStandaloneSurface()
+        ? html`<div class="standalone-surface-backdrop" @click=${this._handleBackdropClick}></div>`
+        : ''}
+      <div class="modal-surface">
         <div class="modal-container-root passkey-registration-confirm">
           <div class="responsive-card">
             <div class="hero passkey-registration-confirm__hero">
@@ -470,7 +477,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
   private _renderConfirmationBody() {
     const body = String(this.body || '').trim();
     if (!body) return '';
-    if (isNearTransactionSubmittingNotice(body)) {
+    if (isNearSigningProgressNotice(body)) {
       return html`<div class="confirmation-body confirmation-body--status">${body}</div>`;
     }
     const fundingNotice = parseNearAccountFundingNotice(body);
@@ -593,10 +600,6 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
         }
       }
     } catch {}
-    // Arm backdrop after the current event loop to avoid capturing the mounting click
-    setTimeout(() => {
-      this._backdropArmed = true;
-    }, 0);
     // Listen globally so Escape works regardless of focus target
     window.addEventListener('keydown', this._onKeyDown);
     // Listen for global timeout notification (posted by SignerWorkerManager on operation timeout)
@@ -636,10 +639,10 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
     const securityDetailsText = this._securityDetailsText();
     const securityDetailsLoading = this._isSecurityDetailsLoading();
     return html`
-      <!-- Separate backdrop layer for independent animation -->
-      <div class="modal-backdrop-blur" @click=${this._handleBackdropClick}></div>
-      <!-- Modal content layer -->
-      <div class="modal-backdrop" @click=${this._handleContentClick}>
+      ${this._isStandaloneSurface()
+        ? html`<div class="standalone-surface-backdrop" @click=${this._handleBackdropClick}></div>`
+        : ''}
+      <div class="modal-surface">
         <div class="modal-container-root">
           <div class="responsive-card">
             <div class="hero">
@@ -728,8 +731,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
                 </div>
               </div>
             </div>
-            ${this._renderConfirmationBody()}
-            ${this._renderEmailOtpPrompt()}
+            ${this._renderConfirmationBody()} ${this._renderEmailOtpPrompt()}
           </div>
 
           <div class="responsive-card">
@@ -819,16 +821,6 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
     if (!this.deferClose) {
       this._resolveAndCleanup(true);
     }
-  }
-
-  private _handleBackdropClick() {
-    // Ignore the first click that may have triggered mounting the modal
-    if (!this._backdropArmed) return;
-    this._handleCancel();
-  }
-
-  private _handleContentClick(e: Event) {
-    e.stopPropagation();
   }
 
   private _resolveAndCleanup(_confirmed: boolean) {

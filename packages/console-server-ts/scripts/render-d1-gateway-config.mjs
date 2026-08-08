@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import {
-  buildGatewayDeploymentPlan,
   DEFAULT_EMAIL_OTP_CHALLENGE_RATE_LIMIT_MAX,
   DEFAULT_EMAIL_OTP_GRANT_RATE_LIMIT_MAX,
   DEFAULT_EMAIL_OTP_LOCKOUT_TTL_MS,
@@ -16,29 +15,38 @@ import {
   GATEWAY_WORKER_COMPATIBILITY_FLAGS,
   gatewayRuntimeProfileNearNetwork,
 } from './gateway-deployment-config.mjs';
-import { readDeploymentTarget } from '../../../scripts/deployment-targets.mjs';
+import { readBackendLane } from '../../../scripts/deployment-targets.mjs';
 
-const VALID_TARGETS = new Set(['staging', 'production']);
+const VALID_LANES = new Set(['staging-testnet', 'production-testnet', 'production-mainnet']);
 
 function main() {
   const options = parseArguments(process.argv.slice(2));
-  const deployment = readDeploymentTarget(options.target).gatewayDeploymentConfig;
+  const lane = readBackendLane(options.lane);
+  const deployment = requireProvisionedGatewayDeploymentConfig(options.lane, lane.provisioning);
   assertNearRelayerSecretConsistency(deployment.optional.nearRelayer);
   const config = buildConfig(deployment, process.cwd());
-  const plan = buildGatewayDeploymentPlan(deployment);
   writePrivateJson(options.output, config);
-  writePrivateJson(options.deploymentPlanOutput, plan);
   process.stdout.write(`${path.resolve(process.cwd(), options.output)}\n`);
 }
 
+function requireProvisionedGatewayDeploymentConfig(laneId, provisioning) {
+  if (!provisioning || provisioning.kind !== 'provisioned') {
+    throw new Error(`backend lane ${laneId} has no provisioned Gateway deployment config`);
+  }
+  const deployment = provisioning.gatewayDeploymentConfig;
+  if (!deployment || typeof deployment !== 'object' || Array.isArray(deployment)) {
+    throw new Error(`backend lane ${laneId} has no provisioned Gateway deployment config`);
+  }
+  return deployment;
+}
+
 function parseArguments(args) {
-  let target = '';
+  let lane = '';
   let output = '';
-  let deploymentPlanOutput = '';
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
-    if (argument === '--target') {
-      target = requireArgumentValue(args, index, argument);
+    if (argument === '--lane') {
+      lane = requireArgumentValue(args, index, argument);
       index += 1;
       continue;
     }
@@ -47,17 +55,13 @@ function parseArguments(args) {
       index += 1;
       continue;
     }
-    if (argument === '--deployment-plan-output') {
-      deploymentPlanOutput = requireArgumentValue(args, index, argument);
-      index += 1;
-      continue;
-    }
     throw new Error(`Unknown argument: ${argument}`);
   }
-  if (!VALID_TARGETS.has(target)) throw new Error('--target must be staging or production');
+  if (!VALID_LANES.has(lane)) {
+    throw new Error('--lane must be staging-testnet, production-testnet, or production-mainnet');
+  }
   if (!output) throw new Error('--output is required');
-  if (!deploymentPlanOutput) throw new Error('--deployment-plan-output is required');
-  return { target, output, deploymentPlanOutput };
+  return { lane, output };
 }
 
 function requireArgumentValue(args, index, name) {
@@ -126,19 +130,12 @@ function buildConfig(deployment, packageRoot) {
         head_sampling_rate: 1,
       },
     },
-    secrets_store_secrets: [
-      {
-        binding: signingRootBindingName(deployment.signingRoot.id),
-        store_id: resources.secretsStoreId,
-        secret_name: deployment.signingRoot.secretName,
-      },
-    ],
     vars,
   };
 }
 
 function buildWorkerVars(deployment) {
-  const production = deployment.target === 'production';
+  const production = deployment.lane !== 'staging-testnet';
   const implicitNearTestFunding =
     deployment.runtimeProfile.nearFunding.kind === 'implicit_account_relayer';
   const demoEmailOtpDelivery =
@@ -167,8 +164,7 @@ function buildWorkerVars(deployment) {
     RELAY_CORS_ORIGINS: deployment.origins.allowedCors.join(','),
     CONSOLE_BASE_URL: deployment.origins.allowedCors[0],
     SESSION_COOKIE_NAME: DEFAULT_SESSION_COOKIE_NAME,
-    SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION:
-      deployment.signingSessionSeal.currentKeyVersion,
+    SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION: deployment.signingSessionSeal.currentKeyVersion,
     SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS:
       deployment.signingSessionSeal.acceptedWarmKeyVersions.join(','),
     EMAIL_OTP_RUNTIME_PROFILE: deployment.runtimeProfile.kind,
@@ -190,11 +186,8 @@ function buildWorkerVars(deployment) {
       DEFAULT_EMAIL_OTP_SENSITIVE_ATTEMPT_RATE_LIMIT_MAX,
     EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS:
       DEFAULT_EMAIL_OTP_RATE_LIMIT_WINDOW_MS,
-    SIGNING_ROOT_KEK_PROVIDER: 'cloudflare_secrets_store',
-    SIGNING_ROOT_KEK_ENCODING: deployment.signingRoot.encoding,
-    SIGNING_ROOT_KEK_IDS: deployment.signingRoot.id,
     SPONSORED_EXECUTION_REAL_PRICING_JSON: JSON.stringify(
-      buildRefFinanceSponsoredExecutionPricingConfig(deployment.runtimeProfile),
+      buildOutlayerSponsoredExecutionPricingConfig(deployment.runtimeProfile),
     ),
     SPONSORED_EXECUTION_STATIC_PRICING_JSON: JSON.stringify(
       buildStaticSponsoredExecutionPricingConfig(deployment.runtimeProfile),
@@ -209,24 +202,22 @@ function buildWorkerVars(deployment) {
   return vars;
 }
 
-function buildRefFinanceSponsoredExecutionPricingConfig(runtimeProfile) {
+function buildOutlayerSponsoredExecutionPricingConfig(runtimeProfile) {
   const networkClass =
     gatewayRuntimeProfileNearNetwork(runtimeProfile) === 'mainnet' ? 'MAINNET' : 'TESTNET';
   return {
-    provider: 'ref_finance',
+    provider: 'outlayer',
     nearRpcUrl: 'https://free.rpc.fastnear.com',
-    dexContractId: 'v2.ref-finance.near',
-    poolId: 4512,
-    nearTokenId: 'wrap.near',
-    usdcTokenId: '17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1',
-    nearTokenDecimals: 24,
-    usdcTokenDecimals: 6,
-    cacheTtlMs: 300_000,
+    oracleContractId: 'price-oracle.near',
+    nearUsdPriceId: 'c415de8d2efa7db216527dff4b60e8f3a5311c740dadb233e13e12547e226750',
+    maxAgeSeconds: 120,
+    maxLatestToEmaDeviationBps: 1_000,
+    cacheTtlMs: 60_000,
     near: {
       [networkClass]: {
         nativeUnitDecimals: 24,
         estimateFeeAmountYocto: '1000000000000000000000',
-        pricingVersionPrefix: `ref-finance-near-${networkClass.toLowerCase()}`,
+        pricingVersionPrefix: `outlayer-near-${networkClass.toLowerCase()}`,
       },
     },
   };
@@ -273,18 +264,6 @@ function assertNearRelayerSecretConsistency(nearRelayer) {
   if (!nearRelayer && hasPrivateKey) {
     throw new Error('RELAYER_PRIVATE_KEY must be absent when optional.nearRelayer is null');
   }
-}
-
-function requireEnvironmentValue(name) {
-  const value = String(process.env[name] || '').trim();
-  if (!value) throw new Error(`${name} is required`);
-  return value;
-}
-
-function signingRootBindingName(kekId) {
-  const bindingName = kekId.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
-  if (!bindingName) throw new Error('signingRoot.id must produce a binding name');
-  return bindingName;
 }
 
 main();

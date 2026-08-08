@@ -17,20 +17,23 @@ E2E enforcement plan: [Refactor 88: Intended Behaviour E2E Contract](./refactor-
 | `walletId`           | Durable wallet identity. For current NEAR-backed wallets this is often the NEAR account id, but code must treat it as the wallet id. |
 | `providerSubject`    | External identity-provider subject, such as a Google subject used by Email OTP registration.                                         |
 | `challengeSubjectId` | Subject stored on an Email OTP challenge. For Google Email OTP it must match `providerSubject`.                                      |
-| `signingGrantId`     | User-approved signing allowance that carries TTL, remaining-use, and replay/idempotency budget.                                      |
+| `walletSessionId`    | Reusable authenticated Wallet Session identity.                                                                                       |
+| `quotaId`            | Server-authoritative remaining-use and expiry quota for a Wallet Session.                                                             |
+| `capabilityGrantId`  | Exact one-operation authority bound to an operation, capability, and material activation.                                             |
 | `thresholdSessionId` | Cryptographic signing-session id for Ed25519 or ECDSA material.                                                                      |
 | `chainTarget`        | Concrete ECDSA signing target, such as Tempo testnet or Arc EVM testnet.                                                             |
-| `warm session`       | Short-lived signing session created by registration, unlock, or step-up auth.                                                        |
-| `step-up auth`       | Same-method fresh authorization used when an operation needs more authority than the current warm session has.                       |
+| `warm session`       | Short-lived reusable signing session created by registration, unlock, or step-up auth.                                             |
+| `step-up auth`       | Same-method fresh authorization scoped to one privileged operation.                                                                  |
 
 ## Global Invariants
 
 - Passkey and Email OTP are separate auth methods. A flow selected as
   `email_otp` must not call passkey/WebAuthn credential lookup. A flow selected
   as `passkey` must not call Email OTP verification.
-- Registration and default wallet unlock must leave the wallet with equivalent
-  usable lane inventory for the same wallet, auth method, and configured chains.
-  Explicit partial unlock must hydrate only the requested lane subset.
+- Registration must persist the configured signer inventory and establish a
+  reusable Wallet Session for the authenticated registration authority. Default
+  wallet unlock hydrates that durable inventory; explicit partial unlock
+  hydrates only the requested lane subset.
 - Transaction signing uses warm-session budget. It should not ask for step-up
   while a valid warm session has enough signature uses for the requested
   operation.
@@ -43,6 +46,26 @@ E2E enforcement plan: [Refactor 88: Intended Behaviour E2E Contract](./refactor-
   persisted/sealed session state. If rehydration fails or a session is expired
   or exhausted, the next operation must use normal unlock or step-up auth.
 
+## Hosted Auth Menu Entry Point
+
+When hosted wallet-iframe mode is configured, mounting `SeamsAuthMenu` opens one
+`modal_auth_menu` surface in the wallet-origin iframe. The app document contains
+only an inert lifecycle marker; auth inputs, progress, OTP prompts, and the final
+CTA belong to the wallet origin.
+
+- Login and registration prepare their asynchronous prerequisites before enabling
+  the single wallet-origin CTA. The CTA starts the selected passkey ceremony from
+  that wallet-origin activation.
+- Registration uses the configured account-input policy and completes through the
+  same prepared surface; it does not open a second registration-confirmation modal.
+- An external provider broker may return only typed evidence. The wallet host
+  owns provider validation, OTP state, registration continuation, and unlock
+  continuation.
+- The adapter emits exactly one terminal `HostedAuthMenuOutcome` for the session.
+  Unmounting or closing cancels only that session and leaves direct
+  `registerWallet()`, `addWalletSigner()`, and `unlock()` confirmation surfaces
+  unchanged.
+
 ## Registration
 
 ### Passkey Account
@@ -52,14 +75,14 @@ Expected behaviour:
 - Registration prompts for one passkey credential creation.
 - The newly created passkey credential is bound to the wallet and stored as a
   passkey auth method.
-- Registration returns after the wallet, auth method, and configured ECDSA
-  signer inventory are durable. Tempo and Arc/EVM signing may begin immediately.
+- Registration returns after the wallet, auth method, configured ECDSA signer
+  inventory, and reusable Wallet Session are durable. Tempo and Arc/EVM signing
+  may begin immediately.
 - For a mixed signer set, Ed25519/NEAR provisioning continues under the same
   authenticated ceremony and publishes one of `near_pending`,
   `near_provisioning`, `near_ready`, or `near_failed_retryable`.
-- NEAR signing and Ed25519 export become available at `near_ready` without a
-  second passkey prompt. A retryable provisioning failure remains visible to
-  the caller.
+- NEAR signing becomes available at `near_ready` without a second passkey prompt.
+  A retryable provisioning failure remains visible to the caller.
 - ECDSA key export remains available while NEAR is pending and requires fresh
   export authorization.
 - Passkey registration must not send or verify an Email OTP challenge.
@@ -84,15 +107,14 @@ Expected behaviour:
   registration purpose match.
 - Registration stores the Email OTP auth method and binds it to the final
   wallet id.
-- Registration returns after the wallet, Email OTP auth method, and configured
-  ECDSA signer inventory are durable. Tempo and Arc/EVM signing may begin
-  immediately.
+- Registration returns after the wallet, Email OTP auth method, configured ECDSA
+  signer inventory, and reusable Wallet Session are durable. Tempo and Arc/EVM
+  signing may begin immediately.
 - For a mixed signer set, Ed25519/NEAR provisioning continues with the live
   registration factor and publishes one of `near_pending`,
   `near_provisioning`, `near_ready`, or `near_failed_retryable`.
-- NEAR signing and Ed25519 export become available at `near_ready` without a
-  second OTP verification. A retryable provisioning failure remains visible to
-  the caller.
+- NEAR signing becomes available at `near_ready` without a second OTP
+  verification. A retryable provisioning failure remains visible to the caller.
 - ECDSA key export remains available while NEAR is pending and requires fresh
   export authorization.
 - Email OTP registration must not create passkey-owned runtime material.

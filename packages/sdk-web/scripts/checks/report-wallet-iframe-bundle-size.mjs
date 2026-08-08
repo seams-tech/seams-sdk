@@ -194,6 +194,16 @@ try {
 const hostAbs = path.join(distRoot, 'esm/sdk/wallet-iframe-host-runtime.js');
 const workerTargets = [
   ['passkeyConfirmWorker', 'passkey confirm worker', 'dist/workers/passkey-confirm.worker.js'],
+  [
+    'passkeyMpcSessionWorker',
+    'passkey MPC session worker',
+    'dist/workers/passkey-mpc-session.worker.js',
+  ],
+  [
+    'passkeyMpcExportWorker',
+    'Passkey MPC export worker',
+    'dist/workers/passkey-mpc-export.worker.js',
+  ],
   ['emailOtpWorker', 'Email OTP worker', 'dist/workers/email-otp.worker.js'],
   ['nearSignerWorker', 'NEAR signer worker', 'dist/workers/near-signer.worker.js'],
   ['nearWasm', 'NEAR signer WASM', 'dist/workers/wasm_signer_worker_bg.wasm'],
@@ -241,7 +251,6 @@ const workerTargets = [
   ['shamir3PassWorker', 'Shamir3Pass worker', 'dist/workers/shamir3pass.worker.js'],
   ['shamir3PassWasm', 'Shamir3Pass WASM', 'dist/workers/shamir3pass_runtime_bg.wasm'],
   ['emailOtpRuntimeWasm', 'Email OTP runtime WASM', 'dist/workers/email_otp_runtime_bg.wasm'],
-  ['thresholdPrfWasm', 'threshold PRF WASM', 'dist/workers/threshold_prf.wasm'],
 ];
 
 const missing = [];

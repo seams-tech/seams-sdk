@@ -65,19 +65,19 @@ const observabilityDocPaths = [
     'docs/saas/observability-events-4.md',
 ];
 const authServicePath = 'packages/sdk-server-ts/src/core/AuthService.ts';
-const walletRegistrationRoutesPath = 'packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts';
-const syncAccountRequestValidationPath = 'packages/sdk-server-ts/src/router/syncAccountRequestValidation.ts';
-const authServicePortPath = 'packages/sdk-server-ts/src/router/authServicePort.ts';
+const walletRegistrationRoutesPath = 'packages/sdk-server-ts/src/router/domains/walletRegistration/walletRegistrationRoutes.ts';
+const syncAccountRequestValidationPath = 'packages/sdk-server-ts/src/router/domains/syncAccount/syncAccountRequestValidation.ts';
+const authServicePortPath = 'packages/sdk-server-ts/src/router/framework/authServicePort.ts';
 const authServiceWebAuthnPath = 'packages/sdk-server-ts/src/core/authService/webauthn.ts';
-const d1WebAuthnAuthServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1WebAuthnAuthService.ts';
+const d1WebAuthnAuthServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1/webauthn/d1WebAuthnAuthService.ts';
 const sdkWebSyncAccountPath = 'packages/sdk-web/src/SeamsWeb/operations/recovery/syncAccount.ts';
 const sdkServerCoreTypesPath = 'packages/sdk-server-ts/src/core/types.ts';
-const routeDefinitionsPath = 'packages/sdk-server-ts/src/router/routeDefinitions.ts';
-const routeExecutionContextPath = 'packages/sdk-server-ts/src/router/routeExecutionContext.ts';
-const d1RegistrationIntentServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationIntentService.ts';
-const d1WalletRegistrationServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts';
-const d1RegistrationCeremonyRecordsPath = 'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords.ts';
-const d1RegistrationCeremonyStorePath = 'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyStore.ts';
+const routeDefinitionsPath = 'packages/sdk-server-ts/src/router/framework/routeDefinitions.ts';
+const routeExecutionContextPath = 'packages/sdk-server-ts/src/router/framework/routeExecutionContext.ts';
+const d1RegistrationIntentServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationIntentService.ts';
+const d1WalletRegistrationServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1WalletRegistrationService.ts';
+const d1RegistrationCeremonyRecordsPath = 'packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords.ts';
+const d1RegistrationCeremonyStorePath = 'packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyStore.ts';
 const d1RegistrationCeremonyDoPath = 'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyDo.ts';
 const forbiddenCloudflarePostgresEnvTokens = [
     'POSTGRES_URL',
@@ -94,7 +94,7 @@ const forbiddenCloudflareD1EnvPricingPatterns = [
         message: 'reads sponsored execution pricing from Worker env instead of Console D1',
     },
     {
-        pattern: /\bresolve(?:Static|RefFinance|Sponsored)SponsoredExecutionPricingFromEnv\b/,
+        pattern: /\bresolve(?:Static|Outlayer|Sponsored)SponsoredExecutionPricingFromEnv\b/,
         message: 'constructs sponsored execution pricing from Worker env instead of Console D1',
     },
 ];
@@ -578,8 +578,8 @@ const cloudflareD1ConsoleServicesPath = 'packages/console-server-ts/src/router/c
 const cloudflareD1ConsoleStagingWorkerPath = 'packages/console-server-ts/src/router/cloudflare/d1ConsoleStagingWorker.ts';
 const cloudflareD1LocalDevWorkerPath = 'packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker.ts';
 const cloudflareD1RouterApiStagingWorkerPath = 'packages/console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts';
-const cloudflareD1RouterApiAuthServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService.ts';
-const cloudflareD1EmailOtpRecoveryServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpRecoveryService.ts';
+const cloudflareD1RouterApiAuthServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService.ts';
+const cloudflareD1EmailOtpRecoveryServicePath = 'packages/sdk-server-ts/src/router/cloudflare/d1/emailOtp/d1EmailOtpRecoveryService.ts';
 const authServiceEmailOtpGrantPath = 'packages/sdk-server-ts/src/core/authService/emailOtpGrant.ts';
 const authServiceEmailOtpRecoveryKeysPath = 'packages/sdk-server-ts/src/core/authService/emailOtpRecoveryKeys.ts';
 const oldCloudflareD1RelayStagingWorkerPath = 'packages/sdk-server-ts/src/router/cloudflare/d1RelayStagingWorker.ts';
@@ -623,9 +623,8 @@ const activeRouterApiTextPaths = [
     'packages/sdk-server-ts/src/core/routerAbSigning/createCloudflareDurableObjectRouterAbSigningRuntimes.ts',
     'packages/sdk-server-ts/src/core/defaultConfigsServer.ts',
     'packages/console-server-ts/src/router/cloudflare/d1ConsoleServices.ts',
-    'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyStore.ts',
-    'packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthConfig.ts',
-    'packages/sdk-server-ts/src/router/cloudflare/d1RouterAbSigningRuntime.ts',
+    'packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyStore.ts',
+    'packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthConfig.ts',
     'docs/saas/bring-you-own-auth.md',
     'tests/unit/cloudflareD1ConsoleServices.unit.test.ts',
     'tests/unit/cloudflareD1RouterApiEmailOtp.unit.test.ts',
@@ -793,7 +792,6 @@ const d1LocalBackupRestoreDrillScript = 'packages/console-server-ts/scripts/d1-l
 const d1StagingManifestWriterScripts = [
     d1LocalBackupRestoreDrillScript,
     'packages/console-server-ts/scripts/d1-staging-fixture-import.mjs',
-    'packages/console-server-ts/scripts/d1-staging-kek-check.mjs',
     'packages/console-server-ts/scripts/d1-staging-migrate.mjs',
     'packages/console-server-ts/scripts/d1-staging-r2-restore-drill.mjs',
     'packages/console-server-ts/scripts/d1-staging-reconciliation.mjs',
@@ -1754,11 +1752,9 @@ function consoleOnlyStagingSignerCustodyViolations() {
     if (!body)
         return [`${cloudflareD1ConsoleServicesPath}: missing ${functionName}`];
     const forbidden = [
-        'kekProvider',
         'signerMetadataDatabase',
         'thresholdStore',
         'createCloudflareD1TenantRouteResolver',
-        'createCloudflareD1SigningRootSecretAdapters',
     ];
     const violations = [];
     for (const token of forbidden) {
@@ -1773,9 +1769,7 @@ function consoleStagingWorkerSignerCustodyViolations() {
     const forbidden = [
         'SIGNER_DB',
         'THRESHOLD_STORE',
-        'kekProvider',
         'createCloudflareD1ConsoleServiceBundle',
-        'createCloudflareSecretsStoreKekProviderFromEnv',
     ];
     const violations = [];
     for (const token of forbidden) {
@@ -1789,8 +1783,6 @@ function routerApiStagingWorkerSignerCustodyViolations() {
     const source = readSource(cloudflareD1RouterApiStagingWorkerPath);
     const required = [
         'SIGNER_DB',
-        'THRESHOLD_STORE',
-        'createCloudflareSecretsStoreKekProviderFromEnv',
         'resolveSponsoredEvmWorkerExecutionAdapter',
     ];
     const violations = [];
@@ -2170,16 +2162,6 @@ test('concrete D1 staging Wrangler configs stay untracked', () => {
     const source = readSource(gitignorePath);
     expect(source).toContain('packages/console-server-ts/wrangler.d1-staging-console.toml');
     expect(source).toContain('packages/console-server-ts/wrangler.d1-staging-gateway.toml');
-});
-test('D1 staging README documents missing-KEK signer custody evidence', () => {
-    const source = readSource(sdkServerReadmePath);
-    expect(source).toContain('--wallet-session-jwt-env SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT');
-    expect(source).toContain('--missing-kek-fixture ./staging/fixtures/ecdsa-export-share-missing-kek.json');
-    expect(source).toContain('--missing-kek-wallet-session-jwt-env SEAMS_STAGING_MISSING_KEK_WALLET_SESSION_JWT');
-    expect(source).toContain('--missing-kek-expected-status 503');
-    expect(source).toContain('--missing-kek-expected-code missing_signing_root_kek');
-    expect(source).toContain('ecdsa_export_share_missing_kek_fail_closed');
-    expect(source).toContain('--output .wrangler/d1-staging-evidence/verification.json');
 });
 test('D1 staging README shows dry-run before remote mutating commands', () => {
     const source = readSource(sdkServerReadmePath);

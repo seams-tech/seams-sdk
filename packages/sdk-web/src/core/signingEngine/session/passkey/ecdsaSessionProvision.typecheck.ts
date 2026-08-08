@@ -12,20 +12,16 @@ import {
   buildEvmFamilyEcdsaSessionLanePolicy,
   toEvmFamilyEcdsaKeyHandle,
 } from '../identity/evmFamilyEcdsaIdentity';
-import {
-  buildEcdsaSessionIdentity,
-  type VerifiedEcdsaWalletSessionAuth,
-} from '../warmCapabilities/ecdsaProvisionPlan';
+import { buildEcdsaSessionIdentity } from '../warmCapabilities/ecdsaProvisionPlan';
 import {
   buildEcdsaExportActivation,
   buildEmailOtpPerOperationReauthEcdsaActivation,
   buildEmailOtpSessionBootstrapEcdsaActivation,
-  buildPasskeyReconnectEcdsaActivation,
   buildPasskeyRegistrationEcdsaActivation,
-  buildWalletSessionReconnectEcdsaActivation,
   type EcdsaBootstrapLifecycleCommand,
 } from './ecdsaSessionProvision';
-import type { PersistedEcdsaRoleLocalMaterial } from '../persistence/records';
+import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
+import type { EcdsaExplicitExportOperationAuthorization } from '../../threshold/ecdsa/activation';
 
 const walletId = 'wallet.testnet';
 const subjectId = toWalletId(walletId);
@@ -35,27 +31,23 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
 });
 const sessionIdentity = buildEcdsaSessionIdentity({
   thresholdSessionId: 'threshold-session-1',
-  signingGrantId: 'signing-grant-1',
 });
 const runtimePolicy = { kind: 'default_policy' } as const;
+const runtimePolicyScope = {
+  orgId: 'org-1',
+  projectId: 'project-1',
+  envId: 'env-1',
+  signingRootVersion: 'default',
+};
 const passkeyCredentialIdB64u = 'passkey-credential-id';
 declare const webauthnAuthentication: WebAuthnAuthenticationCredential;
 declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 declare const existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
+declare const explicitExportAuthorization: EcdsaExplicitExportOperationAuthorization;
 declare const emailOtpWorkerSessionHandle: Extract<
   EmailOtpWorkerIssuedSessionHandle,
   { action: 'threshold_ecdsa_bootstrap' }
 >;
-
-const walletSessionAuth = {
-  kind: 'wallet_session',
-  curve: 'ecdsa',
-  identity: sessionIdentity,
-  walletSessionJwt: 'jwt-token',
-  expiresAtMs: 1,
-  ecdsaThresholdKeyId: 'ecdsa-key-1',
-  relayerKeyId: 'relayer-key-1',
-} satisfies VerifiedEcdsaWalletSessionAuth;
 
 const emailOtpAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
   walletId: 'wallet.testnet',
@@ -88,7 +80,6 @@ const emailOtpSingleUseAuthContext = buildEmailOtpAuthContextForWalletAuthMethod
 
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId,
-  evmFamilySigningKeySlotId: 'wallet-key-example-test',
   ecdsaThresholdKeyId: 'ecdsa-key-1',
   signingRootId: 'signing-root-1',
   signingRootVersion: 'default',
@@ -97,7 +88,6 @@ const key = buildBaseEvmFamilyEcdsaKeyIdentity({
 });
 const walletKey = buildEvmFamilyEcdsaWalletKey({
   walletId: key.walletId,
-  evmFamilySigningKeySlotId: key.evmFamilySigningKeySlotId,
   keyHandle: toEvmFamilyEcdsaKeyHandle('ederivation-key-1'),
   chainTarget,
   ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
@@ -111,10 +101,10 @@ const walletKey = buildEvmFamilyEcdsaWalletKey({
 const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
   chainTarget,
   thresholdSessionId: 'threshold-session-1',
-  signingGrantId: 'signing-grant-1',
   thresholdSessionKind: 'jwt',
   ttlMs: 60_000,
   remainingUses: 1,
+  runtimePolicyScope,
 });
 
 const broadActivationCommon = {
@@ -154,7 +144,7 @@ void buildPasskeyRegistrationEcdsaActivation({
   walletSessionRouteAuth,
 });
 
-void buildPasskeyReconnectEcdsaActivation({
+void buildPasskeyRegistrationEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
@@ -164,7 +154,7 @@ void buildPasskeyReconnectEcdsaActivation({
 });
 
 // @ts-expect-error persisted ECDSA activation requires its exact public capability
-void buildPasskeyReconnectEcdsaActivation({
+void buildPasskeyRegistrationEcdsaActivation({
   source: 'login',
   relayerUrl: 'https://relay.example',
   sessionBudgetUses: 1,
@@ -197,22 +187,10 @@ void buildEmailOtpPerOperationReauthEcdsaActivation({
   walletSessionRouteAuth,
 });
 
-void buildWalletSessionReconnectEcdsaActivation({
-  ...exactActivationCommon,
-  sessionIdentity,
-  sessionKind: 'jwt',
-  walletSessionAuth,
-  passkeyPrfFirstB64u: 'client-root',
-  passkeyCredentialIdB64u,
-});
-
 void buildEcdsaExportActivation({
-  ...exactActivationCommon,
-  sessionIdentity,
-  sessionKind: 'jwt',
-  passkeyPrfFirstB64u: 'client-root',
-  webauthnAuthentication,
-  walletSessionRouteAuth,
+  relayerUrl: 'https://relay.example',
+  existingRoleLocalMaterial,
+  authorization: explicitExportAuthorization,
 });
 
 // @ts-expect-error activation builders require canonical key and lane policy
@@ -225,7 +203,7 @@ void buildPasskeyRegistrationEcdsaActivation({
   walletSessionRouteAuth,
 });
 
-void buildPasskeyReconnectEcdsaActivation({
+void buildPasskeyRegistrationEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
@@ -236,7 +214,7 @@ void buildPasskeyReconnectEcdsaActivation({
   walletSessionAuth,
 });
 
-void buildPasskeyReconnectEcdsaActivation({
+void buildPasskeyRegistrationEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
@@ -278,18 +256,8 @@ void buildEmailOtpSessionBootstrapEcdsaActivation({
   webauthnAuthentication,
 });
 
-void buildWalletSessionReconnectEcdsaActivation({
-  ...exactActivationCommon,
-  sessionIdentity,
-  // @ts-expect-error Wallet Session reconnect must stay on jwt sessionKind
-  sessionKind: 'cookie',
-  walletSessionAuth,
-  passkeyPrfFirstB64u: 'client-root',
-  passkeyCredentialIdB64u,
-});
-
 // @ts-expect-error exact activation key requires a lane policy
-void buildPasskeyReconnectEcdsaActivation({
+void buildPasskeyRegistrationEcdsaActivation({
   source: 'login',
   relayerUrl: 'https://relay.example',
   sessionBudgetUses: 1,
@@ -304,7 +272,7 @@ void buildPasskeyReconnectEcdsaActivation({
 });
 
 // @ts-expect-error exact activation lane policy requires a key
-void buildPasskeyReconnectEcdsaActivation({
+void buildPasskeyRegistrationEcdsaActivation({
   source: 'login',
   relayerUrl: 'https://relay.example',
   sessionBudgetUses: 1,
@@ -318,7 +286,7 @@ void buildPasskeyReconnectEcdsaActivation({
   walletSessionRouteAuth,
 });
 
-void buildPasskeyReconnectEcdsaActivation({
+void buildPasskeyRegistrationEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
@@ -329,7 +297,7 @@ void buildPasskeyReconnectEcdsaActivation({
   key,
 });
 
-void buildPasskeyReconnectEcdsaActivation({
+void buildPasskeyRegistrationEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
@@ -342,7 +310,7 @@ void buildPasskeyReconnectEcdsaActivation({
 
 const validPasskeyLifecycleCommand = {
   kind: 'passkey_existing_session_activation',
-  request: buildPasskeyReconnectEcdsaActivation({
+  request: buildPasskeyRegistrationEcdsaActivation({
     ...exactActivationCommon,
     sessionIdentity,
     sessionKind: 'jwt',
@@ -366,25 +334,5 @@ const invalidLifecycleCommandWithBroadIdentity = {
   },
 } satisfies EcdsaBootstrapLifecycleCommand;
 void invalidLifecycleCommandWithBroadIdentity;
-
-const invalidLifecycleCommandWithTargetIntent = {
-  kind: 'wallet_session_existing_session_reconnect',
-  request: {
-    kind: 'wallet_session_reconnect',
-    ...exactActivationCommon,
-    // @ts-expect-error lifecycle bootstrap commands cannot carry target keyIntent state.
-    keyIntent: {
-      kind: 'existing_ecdsa_key',
-      ecdsaThresholdKeyId: 'ecdsa-key-1',
-      participantIds: [1, 2],
-    },
-    sessionIdentity,
-    sessionKind: 'jwt',
-    walletSessionAuth,
-    passkeyPrfFirstB64u: 'client-root',
-    passkeyCredentialIdB64u,
-  },
-} satisfies EcdsaBootstrapLifecycleCommand;
-void invalidLifecycleCommandWithTargetIntent;
 
 export {};

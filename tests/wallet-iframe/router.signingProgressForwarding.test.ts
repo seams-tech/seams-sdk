@@ -85,7 +85,13 @@ const signingProgressForwardingScript = String.raw`
             requestId,
             payload: {
               ok: true,
-              result: { chain: 'evm', kind: 'eip1559', txHashHex: '0xabc', rawTxHex: '0xdef' },
+              result: {
+                chain: 'evm',
+                kind: 'eip1559',
+                txHashHex: '0xabc',
+                rawTxHex: '0xdef',
+                operationKind: data.payload.operationKind,
+              },
             },
           });
         } catch (err) {
@@ -171,6 +177,60 @@ test.describe('WalletIframeRouter signing progress forwarding', () => {
       authMethod: 'warm_session',
       interaction: { kind: 'none', overlay: 'none' },
       data: { chain: 'evm', threshold: true },
+    });
+  });
+
+  test('labels only the exact FeeManager EVM envelope as a Tempo fee-token operation', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ routerPath, walletOrigin, walletSession }) => {
+        const mod = await import(routerPath);
+        const { WalletIframeRouter } = mod as typeof import('@/SeamsWeb/walletIframe/client/router');
+        const router = new WalletIframeRouter({
+          walletOrigin,
+          servicePath: '/wallet-service',
+          connectTimeoutMs: 3000,
+          requestTimeoutMs: 1200,
+          debug: true,
+          sdkBasePath: '/sdk',
+        });
+        await router.init();
+        return await router.signTempo({
+          walletSession,
+          chainTarget: {
+            kind: 'tempo',
+            chainId: 42431,
+            networkSlug: 'tempo-testnet',
+          },
+          request: {
+            chain: 'evm',
+            kind: 'eip1559',
+            senderSignatureAlgorithm: 'secp256k1',
+            tx: {
+              chainId: 42431,
+              maxPriorityFeePerGas: 1n,
+              maxFeePerGas: 2n,
+              gasLimit: 1_000_000n,
+              to: '0xfeec000000000000000000000000000000000000',
+              value: 0n,
+              data: '0xe789744400000000000000000000000020c0000000000000000000000000000000000001',
+              accessList: [],
+            },
+          },
+        });
+      },
+      {
+        routerPath: SDK_ESM_PATHS.walletIframeRouter,
+        walletOrigin: WALLET_ORIGIN,
+        walletSession: ALICE_WALLET_SESSION,
+      },
+    );
+
+    expect(result).toMatchObject({
+      chain: 'evm',
+      kind: 'eip1559',
+      operationKind: 'tempo_fee_token_preference',
     });
   });
 });

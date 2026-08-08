@@ -1,5 +1,6 @@
 use router_ab_core::{
-    Ed25519YaoEpochTransitionV1, Ed25519YaoRefreshEpochsV1, Ed25519YaoStateEpochV1, RootShareEpoch,
+    Ed25519YaoEpochTransitionV1, Ed25519YaoRefreshEpochsV1, Ed25519YaoStateEpochV1,
+    MpcMaterialActivationRefV1, RootShareEpoch,
 };
 use router_ab_dev::{
     admit_local_ed25519_yao_registration_v1, generate_local_ed25519_yao_recipient_key_pair_v1,
@@ -172,14 +173,35 @@ fn admission_request() -> RouterAbEd25519YaoRegistrationAdmissionRequestV1 {
     .expect("registration request")
 }
 
-fn scope(lifecycle_id: &str, wallet_session_id: &str) -> RouterAbEd25519YaoLifecycleScopeV1 {
+fn scope(lifecycle_id: &str, threshold_session_id: &str) -> RouterAbEd25519YaoLifecycleScopeV1 {
+    scope_with_material_activation(
+        lifecycle_id,
+        threshold_session_id,
+        MpcMaterialActivationRefV1::new(
+            format!("activation-{lifecycle_id}"),
+            "capability-input",
+            "account-1",
+            "key-input",
+            lifecycle_id,
+            "worker-1",
+        )
+        .expect("material activation"),
+    )
+}
+
+fn scope_with_material_activation(
+    lifecycle_id: &str,
+    threshold_session_id: &str,
+    material_activation: MpcMaterialActivationRefV1,
+) -> RouterAbEd25519YaoLifecycleScopeV1 {
     RouterAbEd25519YaoLifecycleScopeV1::new(
         lifecycle_id,
         RootShareEpoch::new("epoch-1").expect("epoch"),
         "account-1",
-        wallet_session_id,
+        threshold_session_id,
         "set-1",
         "worker-1",
+        material_activation,
     )
     .expect("lifecycle scope")
 }
@@ -203,7 +225,11 @@ fn refresh_a_request() -> LocalEd25519YaoRefreshDeriverARequestV1 {
     .expect("refresh state");
     let binding = state
         .begin(LocalEd25519YaoRouterRefreshAdmissionRequestV1 {
-            scope: scope("input-test-refresh", "session-2"),
+            scope: scope_with_material_activation(
+                "input-test-refresh",
+                "session-2",
+                active.material_activation.clone(),
+            ),
             application_binding: application(),
             participant_ids: [1, 2],
             registered_public_key: [0x61; 32],

@@ -1,4 +1,4 @@
-import type { ClientAuthenticatorData } from '@/core/accountData/near/nearAccountData.types';
+import type { WebAuthnAuthenticatorRecord } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 
 export type PasskeyLoginAssertionSurface = {
@@ -18,7 +18,7 @@ export async function collectPasskeyLoginAssertion(args: {
   signingEngine: PasskeyLoginAssertionSurface;
   subjectId: string;
   challengeB64u: string;
-  authenticators: readonly ClientAuthenticatorData[];
+  authenticators: readonly WebAuthnAuthenticatorRecord[];
   onPromptStarted: () => void;
   onPromptSucceeded: () => void;
 }): Promise<WebAuthnAuthenticationCredential> {

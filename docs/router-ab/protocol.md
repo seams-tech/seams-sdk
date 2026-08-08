@@ -127,7 +127,7 @@ requests. SigningWorker does not parse browser Wallet Session credentials.
 
 SigningWorker may open only material addressed to the active SigningWorker
 identity. It must reject output packages for clients, derivation workers, stale
-activation epochs, wrong public identity, or wrong active-state session ids.
+activation epochs, wrong public identity, or wrong material activation ids.
 
 ### 2.4 Browser SDK And WASM Workers
 
@@ -1356,14 +1356,14 @@ Router A/B ECDSA derivation active-state binding covers:
 - SigningWorker id
 - Wallet Session JWT
 
-Canonical active-state session id:
+Canonical active-state material activation id:
 
 ```text
 {ecdsa_threshold_key_id}:{signing_root_id}:{signing_root_version}:{activation_epoch}
 ```
 
-This value is the Wallet Session `session_id` for Router A/B ECDSA derivation normal signing and a
-SigningWorker active-state lookup component. It prevents one wallet, key id, and
+This value is the `MpcMaterialActivationRef.activation_id` for Router A/B ECDSA derivation normal
+signing and a SigningWorker active-state lookup component. It prevents one wallet, key id, and
 worker from colliding across signing root versions or activation epochs.
 
 ### 8.2 ECDSA Public Identity
@@ -1521,7 +1521,7 @@ stateDiagram-v2
 
 Any state can terminate as failed, expired, or abandoned before activation or
 client output. Activated state replacement requires a newer activation
-timestamp for the same account, active-state session id, and SigningWorker.
+timestamp for the same account, material activation id, and SigningWorker.
 
 Router A/B ECDSA derivation transcript domains are protocol-specific:
 
@@ -1550,14 +1550,14 @@ signing binds the active normal-signing scope digest, request id, selected
 client presignature id, signing digest, expiry, prepare digest, and finalize
 client signature share.
 
-The active-state session id is:
+The active-state material activation id is:
 
 ```text
 {ecdsa_threshold_key_id}:{signing_root_id}:{signing_root_version}:{activation_epoch}
 ```
 
-That value is the Wallet Session `session_id` for Router A/B ECDSA derivation normal signing and
-the SigningWorker active-state lookup key component. This prevents one wallet,
+That value is the `MpcMaterialActivationRef.activation_id` for Router A/B ECDSA derivation normal
+signing and the SigningWorker active-state lookup key component. This prevents one wallet,
 key id, and worker from colliding across signing root versions or activation
 epochs.
 
@@ -1722,33 +1722,32 @@ Finalize/sign replay is single-use. Once a nonce or presignature record is
 claimed for an admitted signing digest, it cannot be reused for a different
 request or returned to the pool.
 
-### 9.4 Budget
+### 9.4 Authorization claim and quota
 
-Server-side Wallet Session budget is authoritative. SDK budget state is a local
-projection only.
-
-Signing routes use reserve/commit/release semantics:
+The Gateway authorization core atomically validates the Wallet Session,
+consumes its exact quota once, and creates an operation claim before private
+signing effects begin. SDK quota state is a display projection only.
 
 ```mermaid
 flowchart TD
   P0["prepare"] --> P1["validate Wallet Session JWT"]
   P1 --> P2["validate scope and signer binding"]
-  P2 --> P3["reserve required server signature uses for signingGrantId"]
-  P3 --> P4["forward admitted prepare to private SigningWorker"]
-  P4 --> P5["return prepare response with budgetReservationId"]
+  P2 --> P3["consume walletSessionId + quotaId once"]
+  P3 --> P4["create operation-bound capability claim"]
+  P4 --> P5["forward admitted prepare to private SigningWorker"]
 
   F0["finalize / sign"] --> F1["validate Wallet Session JWT"]
-  F1 --> F2["validate scope, request digest, and reservation binding"]
+  F1 --> F2["validate scope, request digest, and operation claim"]
   F2 --> F3["forward admitted finalize to private SigningWorker"]
   F3 --> F4{"private finalize ok?"}
-  F4 -- "no" --> F5["release reservation"]
-  F4 -- "yes" --> F6["commit reserved server signature uses exactly once"]
-  F6 --> F7["return signature"]
+  F4 -- "no" --> F5["retain terminal claim outcome"]
+  F4 -- "yes" --> F6["record terminal effect exactly once"]
+  F6 --> F7["return or replay signature"]
 ```
 
-NEAR, Tempo, and EVM share the same Wallet Session budget when they share the
-same `signingGrantId`. A post-exhaustion step-up mint creates a new signing
-grant and budget counter.
+NEAR, Tempo, and EVM share the same reusable allowance when they carry the
+same Wallet Session and quota identities. Operation step-up creates a
+single-use capability grant without creating a reusable quota identity.
 
 ## 10. Implementation Reference
 

@@ -7,8 +7,8 @@ import type {
 import {
   createCloudflareD1VersionedJsonRecordStore,
   type CloudflareD1VersionedJsonRecordScopeV1,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1VersionedJsonRecordStore';
-import type { CloudflareVersionedJsonObject } from '../../packages/sdk-server-ts/src/router/cloudflare/versionedJsonRecordStore';
+} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/versionedJson/d1VersionedJsonRecordStore';
+import type { VersionedJsonObject } from '../../packages/sdk-server-ts/src/router/framework/versionedJsonRecordStore';
 
 type RecordValue = {
   readonly kind: 'test_d1_record_v1';
@@ -153,7 +153,7 @@ const scope: CloudflareD1VersionedJsonRecordScopeV1 = {
   envId: 'env-test',
 };
 
-function encodeRecord(value: RecordValue): CloudflareVersionedJsonObject {
+function encodeRecord(value: RecordValue): VersionedJsonObject {
   return { kind: value.kind, id: value.id, count: value.count };
 }
 

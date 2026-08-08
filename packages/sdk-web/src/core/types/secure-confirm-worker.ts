@@ -1,10 +1,4 @@
-/**
- * UserConfirm worker types
- *
- * The UserConfirm worker now hosts:
- * - the UserConfirm bridge (`awaitUserConfirmationV2`) used by confirmTxFlow, and
- * - a small warm-session material store for threshold signing.
- */
+/** User confirmation and Passkey MPC worker types. */
 import type { SigningSessionPersistenceMode } from './seams';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { SigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
@@ -14,14 +8,16 @@ import type {
   RouterAbEd25519YaoBytes32V1,
   RouterAbEd25519YaoLifecycleScopeV1,
 } from '@shared/utils/routerAbEd25519Yao';
-import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
-
-export type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
+import type {
+  RouterAbEd25519NormalSigningState,
+  SealedSigningSessionEcdsaRestoreMetadata,
+  SealedSigningSessionEd25519RestoreMetadata,
+} from '@shared/utils/signingSessionSeal';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
 type WarmSessionSealTransportCommon = {
   walletId?: string;
   relayerUrl: string;
-  signingGrantId?: string;
   signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
   groupId?: string;
 };
@@ -36,8 +32,17 @@ type PasskeyWarmSessionSealTransportCommon = WarmSessionSealTransportCommon & {
     kind: 'passkey_registration';
     walletId: string;
     credentialIdB64u: string;
-    signingGrantId: string;
+    walletSessionId: string;
+    quotaId: string;
   };
+};
+
+export type PasskeyEd25519SealRestoreMetadata = Extract<
+  SealedSigningSessionEd25519RestoreMetadata,
+  { credentialIdB64u: string }
+> & {
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 };
 
 export interface UiConfirmManagerConfig {
@@ -49,11 +54,11 @@ export interface UiConfirmManagerConfig {
   signingSessionSealGroupId?: string;
 }
 
-export type UserConfirmWorkerMessageType =
+export type UserConfirmWorkerMessageType = 'PING' | 'SECURE_CONFIRM_REQUEST';
+
+export type PasskeyMpcSessionWorkerMessageType =
   | 'PING'
   | 'PREWARM_SHAMIR3PASS'
-  | 'SECURE_CONFIRM_REQUEST'
-  | 'EXPORT_PRIVATE_KEYS_WITH_UI'
   | 'WARM_SESSION_MATERIAL_PUT'
   | 'WARM_SESSION_STATUS_READ'
   | 'WARM_SESSION_STATUS_BATCH_READ'
@@ -68,33 +73,44 @@ export type WarmSessionSealTransportInput =
   | (EmailOtpWarmSessionSealTransportCommon & {
       curve: 'ed25519';
       authMethod: 'email_otp';
+      ecdsaRestore?: never;
+      ed25519Restore?: never;
       emailOtpRestore?: never;
     })
   | (PasskeyWarmSessionSealTransportCommon & {
       curve: 'ed25519';
-      authMethod?: 'passkey';
+      authMethod: 'passkey';
+      walletId: string;
+      walletSessionJwt: string;
+      ecdsaRestore?: never;
+      ed25519Restore: PasskeyEd25519SealRestoreMetadata;
       emailOtpRestore?: never;
     })
   | (EmailOtpWarmSessionSealTransportCommon & {
       curve: 'ecdsa';
       authMethod: 'email_otp';
       chainTarget: ThresholdEcdsaChainTarget;
+      ecdsaRestore?: never;
+      ed25519Restore?: never;
       emailOtpRestore?: never;
     })
   | (PasskeyWarmSessionSealTransportCommon & {
       curve: 'ecdsa';
-      authMethod?: 'passkey';
+      authMethod: 'passkey';
+      walletId: string;
       chainTarget: ThresholdEcdsaChainTarget;
+      ecdsaRestore: Exclude<SealedSigningSessionEcdsaRestoreMetadata, { source: 'email_otp' }>;
+      ed25519Restore?: never;
       emailOtpRestore?: never;
     });
 
 export interface WarmSessionSealAndPersistPayload {
-  sessionId: string;
+  thresholdSessionId: string;
   transport: WarmSessionSealTransportInput;
 }
 
 export interface WarmSessionRehydratePayload {
-  sessionId: string;
+  thresholdSessionId: string;
   sealedSecretB64u: string;
   expiresAtMs: number;
   remainingUses: number;
@@ -103,12 +119,12 @@ export interface WarmSessionRehydratePayload {
 }
 
 export interface WarmSessionStatusBatchReadPayload {
-  sessionIds: string[];
+  thresholdSessionIds: string[];
 }
 
 export type WarmSessionStatusBatchResult = {
   results: Array<{
-    sessionId: string;
+    thresholdSessionId: string;
     result:
       | { ok: true; remainingUses: number; expiresAtMs: number }
       | { ok: false; code: string; message: string };
@@ -143,21 +159,25 @@ export type ThresholdEcdsaExportArtifactKind = 'ecdsa-derivation-secp256k1-expor
 export const ROUTER_AB_ED25519_YAO_EXPORT_ARTIFACT_KIND_V1 =
   'router-ab-ed25519-yao-seed-export-v1' as const;
 
+/** Authorization is carried independently from the exact material lane. */
+export type RouterAbEd25519YaoExportWorkerAuthorizationV1 = {
+  readonly kind: 'wallet_session';
+  readonly walletSessionJwt: string;
+};
+
 export type RouterAbEd25519YaoExportWorkerPayloadV1 = ExportPrivateKeysWithUiWorkerPayloadBase & {
   walletId: string;
   nearAccountId: string;
   artifactKind: typeof ROUTER_AB_ED25519_YAO_EXPORT_ARTIFACT_KIND_V1;
   relayerUrl: string;
-  walletSessionJwt: string;
+  authorization: RouterAbEd25519YaoExportWorkerAuthorizationV1;
   flowId: string;
   viewerSessionId: string;
   exactLane: {
     nearEd25519SigningKeyId: string;
     signerSlot: number;
     credentialIdB64u: string;
-    signingGrantId: string;
-    thresholdSessionId: string;
-    activeStateSessionId: string;
+    materialActivation: MpcMaterialActivationRef;
   };
   capability: {
     scope: RouterAbEd25519YaoLifecycleScopeV1;
@@ -166,6 +186,7 @@ export type RouterAbEd25519YaoExportWorkerPayloadV1 = ExportPrivateKeysWithUiWor
     registeredPublicKey: RouterAbEd25519YaoBytes32V1;
     stateEpoch: number;
     activeCapabilityBinding: RouterAbEd25519YaoBytes32V1;
+    materialActivation: MpcMaterialActivationRef;
     runtimePolicyScope: ThresholdRuntimePolicyScope;
   };
   chainTarget?: never;
@@ -204,6 +225,18 @@ export interface ExportPrivateKeysWithUiWorkerResult {
 
 export interface UserConfirmWorkerMessage<TPayload = unknown> {
   type: UserConfirmWorkerMessageType;
+  id?: string;
+  payload?: TPayload;
+}
+
+export interface PasskeyMpcExportWorkerMessage {
+  type: 'EXPORT_PRIVATE_KEYS_WITH_UI';
+  id?: string;
+  payload: ExportPrivateKeysWithUiWorkerPayload;
+}
+
+export interface PasskeyMpcSessionWorkerMessage<TPayload = unknown> {
+  type: PasskeyMpcSessionWorkerMessageType;
   id?: string;
   payload?: TPayload;
 }

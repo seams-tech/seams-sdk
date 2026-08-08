@@ -3,6 +3,7 @@ import { MoonIcon, SunIcon } from '@seams/sdk/react';
 import SeamsLogo from '@/components/icons/SeamsLogo';
 import DashboardSidebarToggleIcon from '../icons/DashboardSidebarToggleIcon';
 import type { TopbarContextState, TopbarMenuKey, TopbarOption } from '../types';
+import type { FrontendNetwork } from '@/config';
 
 type HomeLinkProps = {
   href: string;
@@ -29,6 +30,9 @@ type DashboardTopbarProps = {
   accountLabel?: string;
   searchItems?: TopbarSearchItem[];
   onNavigate?: (path: string) => void;
+  network?: FrontendNetwork;
+  availableNetworks?: readonly FrontendNetwork[];
+  onSelectNetwork?: (network: FrontendNetwork) => void;
 };
 
 function isMetaK(event: KeyboardEvent): boolean {
@@ -52,9 +56,7 @@ function TopbarCommandPalette({
   const matches = React.useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) return items;
-    return items.filter((item) =>
-      `${item.group} ${item.label}`.toLowerCase().includes(normalized),
-    );
+    return items.filter((item) => `${item.group} ${item.label}`.toLowerCase().includes(normalized));
   }, [items, query]);
 
   React.useEffect(() => {
@@ -144,6 +146,9 @@ export function DashboardTopbar({
   accountLabel,
   searchItems = [],
   onNavigate,
+  network = 'testnet',
+  availableNetworks = ['testnet'],
+  onSelectNetwork,
 }: DashboardTopbarProps): React.JSX.Element {
   const topbarRef = React.useRef<HTMLElement | null>(null);
   const [accountMenuOpen, setAccountMenuOpen] = React.useState(false);
@@ -151,11 +156,27 @@ export function DashboardTopbar({
   const organizationLabel =
     focusedContextValue !== undefined
       ? focusedContextValue
-      : (dropdownOptions.organization.find((entry) => entry.value === selectedContext.organization)
-          ?.label || '');
+      : dropdownOptions.organization.find((entry) => entry.value === selectedContext.organization)
+          ?.label || '';
   const accountName = accountLabel || 'Account';
   const accountInitial = (accountName.trim().charAt(0) || 'A').toUpperCase();
   const searchEnabled = searchItems.length > 0 && Boolean(onNavigate);
+  const networkToggle =
+    availableNetworks.length > 1 && onSelectNetwork ? (
+      <div className="dashboard-network-toggle" role="group" aria-label="Network">
+        {availableNetworks.map((candidate) => (
+          <button
+            key={candidate}
+            type="button"
+            className={`dashboard-network-toggle__option${candidate === network ? ' is-active' : ''}`}
+            aria-pressed={candidate === network}
+            onClick={() => onSelectNetwork(candidate)}
+          >
+            {candidate === 'testnet' ? 'Testnet' : 'Mainnet'}
+          </button>
+        ))}
+      </div>
+    ) : null;
 
   React.useEffect(() => {
     if (!accountMenuOpen) return;
@@ -272,7 +293,10 @@ export function DashboardTopbar({
           <span className="dashboard-topbar__focused-value">{organizationLabel}</span>
         </div>
 
-        {accountMenu}
+        <div className="dashboard-topbar__utilities">
+          {networkToggle}
+          {accountMenu}
+        </div>
       </header>
     );
   }
@@ -309,7 +333,10 @@ export function DashboardTopbar({
         <span />
       )}
 
-      <div className="dashboard-topbar__utilities">{accountMenu}</div>
+      <div className="dashboard-topbar__utilities">
+        {networkToggle}
+        {accountMenu}
+      </div>
 
       {paletteOpen && searchEnabled && onNavigate ? (
         <TopbarCommandPalette

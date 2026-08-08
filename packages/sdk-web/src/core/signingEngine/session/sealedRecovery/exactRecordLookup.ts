@@ -11,6 +11,7 @@ import type {
   RestorePersistedSessionWorkItem,
 } from './sealedRecovery.types';
 import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 
 type EcdsaRestoreRecord = Extract<SealedRecoveryRecord, { curve: 'ecdsa' }>;
 
@@ -76,7 +77,7 @@ function ecdsaRestoreRecordLaneIdentityMismatchReasons(
     reasons.push('email_otp_auth_branch');
     return reasons;
   }
-  if (!sameString(record.authority.factor.providerUserId, lane.auth.providerSubjectId)) {
+  if (!sameString(record.emailOtpAuthority.factor.providerUserId, lane.auth.providerSubjectId)) {
     reasons.push('provider_subject_id');
   }
   return reasons;
@@ -142,7 +143,6 @@ function exactPurposeForAcceptedRecord(
   if (
     record.authMethod !== input.authMethod ||
     !thresholdEcdsaChainTargetsEqual(record.chainTarget, input.chainTarget) ||
-    record.signingGrantId !== input.signingGrantId ||
     record.thresholdSessionId !== input.thresholdSessionId
   ) {
     return null;
@@ -160,6 +160,14 @@ function exactPurposeForAcceptedRecord(
   ) {
     return null;
   }
+  if (
+    !mpcMaterialActivationRefsEqual(
+      record.roleLocalMaterialRef.materialActivation,
+      lane.signer.materialActivation,
+    )
+  ) {
+    return null;
+  }
   return {
     record,
     purpose: {
@@ -167,7 +175,7 @@ function exactPurposeForAcceptedRecord(
       authMethod: input.authMethod,
       curve: 'ecdsa',
       chainTarget: input.chainTarget,
-      signingGrantId: record.signingGrantId,
+      materialActivation: record.roleLocalMaterialRef.materialActivation,
       thresholdSessionId: record.thresholdSessionId,
       reason: input.reason,
     },
@@ -206,7 +214,7 @@ function listedPurposeForAcceptedRecord(args: {
         authMethod: args.record.authMethod,
         curve: 'ecdsa',
         chainTarget: args.requestedChainTarget,
-        signingGrantId: args.record.signingGrantId,
+        materialActivation: args.record.roleLocalMaterialRef.materialActivation,
         thresholdSessionId: args.record.thresholdSessionId,
         reason: args.reason,
       },

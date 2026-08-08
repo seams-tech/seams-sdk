@@ -5,6 +5,7 @@ import type {
   EcdsaSessionBootstrapSurface,
   EcdsaSessionControlSurface,
   Ed25519SessionConnectionSurface,
+  Ed25519MaterialOwnerQueueSurface,
   EmailOtpRegistrationEnrollmentSurface,
   EmailOtpSigningSessionSurface,
   EvmFamilySigningSurface,
@@ -24,9 +25,11 @@ import type {
   UserProfileStoreSurface,
   WarmSessionStatusSurface,
   WalletIframeWarmupSurface,
+  WalletAuthenticationSurface,
   WebAuthnRegistrationConfirmationSurface,
 } from './ports';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
+import type { UiConfirmSurfaceMeasurementBinding } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { AppearanceConfig, SeamsConfigsReadonly } from '@/core/types/seams';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 
@@ -75,6 +78,7 @@ export type {
   UserAccountLookupSurface,
   UserProfileStoreSurface,
   WalletIframeWarmupSurface,
+  WalletAuthenticationSurface,
   WalletSessionReadSurface,
   WalletSessionWebContext,
   WarmSessionStatusSurface,
@@ -88,6 +92,7 @@ export interface SeamsWebSigningSurface
     RpIdSurface,
     NonceCoordinatorSurface,
     WalletIframeWarmupSurface,
+    WalletAuthenticationSurface,
     RuntimeStartupSurface,
     SigningEngineLifecycleEventSurface,
     WorkerOperationContext,
@@ -108,12 +113,14 @@ export interface SeamsWebSigningSurface
     RegistrationAccountSurface,
     EcdsaRegistrationSurface,
     Ed25519YaoRegistrationActivationSurface,
+    Ed25519MaterialOwnerQueueSurface,
     WebAuthnRegistrationConfirmationSurface,
     PasskeyLoginAssertionSurface,
     KeyExportSigningSurface {
   readonly seamsWebConfigs: SeamsConfigsReadonly;
   dispose(): void;
   setAppearance(appearance: AppearanceConfig): void;
+  setWalletIframeSurfaceMeasurementBinding(binding: UiConfirmSurfaceMeasurementBinding): void;
   getUserPreferences(): UserPreferencesManager;
 }
 

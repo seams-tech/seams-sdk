@@ -107,14 +107,12 @@ planUnlockEcdsaWarmup({
   configuredTargets: [chainTarget],
   // @ts-expect-error planner input requires parsed active ECDSA signer records.
   activeSignerRecords: [{ metadata: { keyHandle: 'ecdsa-handle' } }],
-  localSessionRecords: [],
 });
 
 planUnlockEcdsaWarmup({
   selection: { mode: 'ecdsa_only', ecdsa: true },
   configuredTargets: [chainTarget],
   activeSignerRecords: [activeRecord],
-  localSessionRecords: [],
 });
 
 parseActiveEcdsaSignerRecordForUnlock({
