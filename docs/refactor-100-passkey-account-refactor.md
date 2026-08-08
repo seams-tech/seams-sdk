@@ -1253,6 +1253,32 @@ repository evidence.
         parser does (`email-otp-rkid-v1-` plus 43 base64url chars), so the two
         sides already disagree about what an id is.
 
+      **Built so far (2026-08-09), leaving one dependency.** The primitives the
+      splice needs now exist and are tested:
+
+      - `issueWalletRecoveryCodes` mints the ten codes from the platform
+        CSPRNG, with no `Math.random` fallback.
+      - `establishNearEd25519CustodyV1`
+        (`sdk-web/.../walletCustody/registrationCeremony.ts`) issues the set,
+        runs one NEAR key set, and returns the codes, the wire payload, the
+        continuity cache, and the Yao activation reference.
+      - The wire payload is a *projection*: the cache and the ECDSA
+        ready-state blob come back as their own fields, so "send the payload"
+        cannot send client signing material by accident.
+      - The activation reference is parsed from the round the run performed —
+        the PRF path read it off the active client it kept, and a ceremony
+        keeps no client.
+
+      **What still blocks the call-site swap:** the Ed25519-only passkey path
+      (`registration.ts`, the `registerVerifiedPasskeyEd25519YaoV1` call before
+      route 4) ends by handing its `pending` registration to
+      `persistPasskeyRegistrationEd25519Material`, which seals material under
+      `PRF.first`. A ceremony produces a *seed-sealed* record instead and no
+      `pending`, so that persistence call has no counterpart until the
+      wallet-scoped Ed25519 material record exists — the Phase 3 item below.
+      Swapping the call site before then would register a wallet and persist
+      nothing.
+
       **DECIDED AND FROZEN (2026-08-09).** Issuance moves into Phase 2, because
       establishing custody must atomically issue the recovery set. Phase 4
       keeps recovery *use*: backup acknowledgement, rotation, status, and the
