@@ -215,4 +215,27 @@ export class CloudflareD1WalletCustodyCommitStore {
       return null;
     }
   }
+
+  /**
+   * Writes a recovery set back, refusing if it changed underneath.
+   *
+   * The expected version is the whole point. Burning a recovery code is a
+   * read-modify-write on one shared record, so two concurrent attempts that
+   * both read the same set would otherwise each write their own view — and
+   * the second write would silently restore the first attempt's consumed code
+   * to the active pool. A single-use code that survives its use is the one
+   * failure this record must not have.
+   */
+  async writeRecoveryEnvelopeSet(input: {
+    readonly record: WalletRecoveryEnvelopeSetRecord;
+    readonly expectedStoreVersion: string;
+  }): Promise<{ kind: 'stored'; storeVersion: string } | { kind: 'conflict' }> {
+    const result = await this.records.put(
+      walletRecoveryEnvelopeSetRecordKey(input.record.walletId),
+      input.record,
+      input.expectedStoreVersion,
+    );
+    if (result.kind !== 'stored') return { kind: 'conflict' };
+    return { kind: 'stored', storeVersion: result.version };
+  }
 }
