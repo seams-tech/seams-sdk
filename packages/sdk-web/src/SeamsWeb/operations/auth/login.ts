@@ -2109,17 +2109,18 @@ async function unlockInternal(
             throw new Error('Missing rpId for passkey_assertion session exchange');
           }
 
-          preparedPasskeyExchangeEcdsaActivation = requireThresholdWarmup
-            ? await preparePasskeyExchangeEcdsaActivation({
-                context,
-                walletIdentity,
-                selection: walletUnlockSelection,
-                ttlMs: signingSessionPolicy.ttlMs,
-                remainingUses: requireLoginUnlockSessionUses(
-                  signingSessionPolicy.unlockRemainingUses,
-                ),
-              })
-            : null;
+          preparedPasskeyExchangeEcdsaActivation =
+            requireThresholdWarmup && walletUnlockSelection.mode === 'ecdsa_only'
+              ? await preparePasskeyExchangeEcdsaActivation({
+                  context,
+                  walletIdentity,
+                  selection: walletUnlockSelection,
+                  ttlMs: signingSessionPolicy.ttlMs,
+                  remainingUses: requireLoginUnlockSessionUses(
+                    signingSessionPolicy.unlockRemainingUses,
+                  ),
+                })
+              : null;
           const completedExchange = await completePasskeySessionExchange({
             context,
             walletIdentity,
@@ -2184,9 +2185,10 @@ async function unlockInternal(
           });
         }
 
-        // Success is durable only after account state and nonce leases are updated.
+        // Account state is part of login durability. Nonce cleanup is lane-locked and
+        // best-effort, so it can continue after the wallet becomes usable.
         await persistSuccessfulLoginState(baseSignerSlot);
-        await recoverNonceLanesAfterUnlock();
+        void recoverNonceLanesAfterUnlock();
 
         emitUnlockEvent(onEvent, unlockSubjectId, {
           phase: UnlockEventPhase.STEP_06_SESSION_READY,
@@ -2256,11 +2258,14 @@ async function unlockInternal(
         return assertNeverLoginState(noServerSessionPasskeyCredentialPlan);
     }
 
-    // A default passkey unlock still performs the authoritative exchange when ECDSA
-    // warm-up is requested. The ECDSA response is consumed as preauthorization;
-    // the app-session JWT remains an Ed25519 route credential only.
+    // ECDSA-only unlock consumes exchange activation directly. Combined unlock mints
+    // its shared authority during Ed25519-first warm-up and avoids duplicate activation.
     let didPerformPasskeySessionExchange = false;
-    if (requireThresholdWarmup && localUnlockAuthMethod === SIGNER_AUTH_METHODS.passkey) {
+    if (
+      requireThresholdWarmup &&
+      localUnlockAuthMethod === SIGNER_AUTH_METHODS.passkey &&
+      walletUnlockSelection.mode === 'ecdsa_only'
+    ) {
       const preparedActivation = await preparePasskeyExchangeEcdsaActivation({
         context,
         walletIdentity,
@@ -2346,7 +2351,7 @@ async function unlockInternal(
     }
 
     await persistSuccessfulLoginState(baseSignerSlot);
-    await recoverNonceLanesAfterUnlock();
+    void recoverNonceLanesAfterUnlock();
 
     // Return the same public result shape as the server-session branch.
     const baseLoginResult = buildSuccessfulLoginResult({
