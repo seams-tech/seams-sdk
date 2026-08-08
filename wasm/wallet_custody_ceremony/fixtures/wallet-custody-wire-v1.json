@@ -1,6 +1,16 @@
 {
   "establishCommitPayload": {
     "clientRootPublicKey33B64u": "AhERERERERERERERERERERERERERERERERERERERERER",
+    "ecdsaPublicFacts": {
+      "clientShareRetryCounter": 0,
+      "clientVerifyingShare33B64u": "AhERERERERERERERERERERERERERERERERERERERERER",
+      "contextBinding32B64u": "MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE",
+      "derivationClientSharePublicKey33B64u": "AhERERERERERERERERERERERERERERERERERERERERER",
+      "ethereumAddress": "0x2929292929292929292929292929292929292929",
+      "groupPublicKey33B64u": "AhERERERERERERERERERERERERERERERERERERERERER",
+      "relayerPublicKey33B64u": "AhERERERERERERERERERERERERERERERERERERERERER",
+      "relayerShareRetryCounter": 0
+    },
     "ecdsaReadyStateBlobB64u": "AQIDBA",
     "ed25519LocalMaterialB64u": null,
     "ed25519LocalMaterialNonceB64u": null,
@@ -140,6 +150,7 @@
   },
   "joinCommitPayload": {
     "clientRootPublicKey33B64u": null,
+    "ecdsaPublicFacts": null,
     "ecdsaReadyStateBlobB64u": null,
     "ed25519LocalMaterialB64u": "TExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEw",
     "ed25519LocalMaterialNonceB64u": "TU1NTU1NTU1NTU1N",

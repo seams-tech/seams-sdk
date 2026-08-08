@@ -1499,6 +1499,36 @@ repository evidence.
         replaces *both* with one wallet-scoped record, which is the point: two
         readers exist only because there were two wrapping factors.
 
+      **The EVM half's first blocker is the same bug as the NEAR one, and it
+      is fixed (2026-08-08).** `complete_evm_family` computed the full public
+      identity through `finalize_ecdsa_client_bootstrap` and kept only
+      `ready_state_blob`, dropping `public_facts`. Those facts are exactly what
+      `finalizeRouterAbEcdsaRegistrationActivation` builds
+      `registeredPublicFacts` and `roleLocalPublicFacts` from, so an installer
+      would have held material it could not describe. They now ride the payload
+      as `ecdsaPublicFacts` — reported rather than re-derived at the install
+      site, because re-deriving means trusting a second computation to agree
+      with the one that produced the material.
+
+      **What remains for the EVM install is larger than "route the blob".**
+      `finalizeRouterAbEcdsaRegistrationActivation`
+      (`workers/ecdsa-derivation-client.worker.ts`) reaches
+      `sealAndFinalizeActivation` only through a *prepared journal*: it opens
+      one by id, decodes its pending payload, finalizes the pending state blob
+      locally, and derives the activation binding from it. A ceremony run
+      creates none of that. So the seam is that worker's finalize, which must
+      accept a ready-state blob and public facts produced elsewhere instead of
+      finalizing a pending blob it holds — not the store, which is fine as-is.
+
+      **Open question, deliberately not answered here:**
+      `ecdsaReadyStateBlobB64u` already crosses to the server on the commit
+      payload, and it is sealed *client* material. The NEAR cache was excluded
+      from that crossing on the grounds that the server has no use for a
+      device's signing material; the same argument applies to the ECDSA blob,
+      but it predates this refactor and nothing server-side reads it. Decide
+      whether it should be dropped from the wire coercion too before the
+      install lands.
+
       The import side is built and tested in Rust
       (`import_activated_client_under_custody_seed_v1`) but is not exposed at
       the wasm boundary, and cannot be exposed the obvious way: the cache key

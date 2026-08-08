@@ -88,6 +88,28 @@ export type WalletCustodyCeremonyCommitPayload = {
   readonly clientRootPublicKey33B64u?: string;
   /** Finalized role-local ECDSA material, still sealed to its own boundary. */
   readonly ecdsaReadyStateBlobB64u?: string;
+  /**
+   * The EVM-family run's registered public identity, as its own finalize
+   * computed it. Absent on a NEAR run.
+   *
+   * The client's capability manifest is built from exactly these. They are
+   * reported rather than re-derived at the install site because re-deriving
+   * would mean trusting a second computation to agree with the one that
+   * produced the material.
+   */
+  readonly ecdsaPublicFacts?: WalletCustodyEvmFamilyPublicFacts;
+};
+
+export type WalletCustodyEvmFamilyPublicFacts = {
+  readonly contextBinding32B64u: string;
+  readonly derivationClientSharePublicKey33B64u: string;
+  readonly clientVerifyingShare33B64u: string;
+  readonly relayerPublicKey33B64u: string;
+  readonly groupPublicKey33B64u: string;
+  /** Lowercase 0x-prefixed. */
+  readonly ethereumAddress: string;
+  readonly clientShareRetryCounter: number;
+  readonly relayerShareRetryCounter: number;
 };
 
 /**
@@ -162,6 +184,12 @@ export function walletCustodyCeremonyCommitPayloadFromWire(
     ...(record.ecdsaReadyStateBlobB64u === undefined
       ? {}
       : { ecdsaReadyStateBlobB64u: asWireString(record.ecdsaReadyStateBlobB64u) }),
+    /* Public identity only, so this crosses. Carried verbatim: the admission
+       gate does not read it, and anything that later records it must compare
+       it against the activation receipt rather than trust it. */
+    ...(record.ecdsaPublicFacts === undefined || record.ecdsaPublicFacts === null
+      ? {}
+      : { ecdsaPublicFacts: record.ecdsaPublicFacts as WalletCustodyEvmFamilyPublicFacts }),
   };
 }
 
