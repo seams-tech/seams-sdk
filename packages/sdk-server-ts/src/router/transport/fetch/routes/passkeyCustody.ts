@@ -22,6 +22,7 @@ const ROUTE_ID = 'passkey_custody_envelope_retrieve';
 const RECOVERY_SPEND_ROUTE_ID = 'wallet_recovery_code_spend';
 const RECOVERY_PROMOTE_ROUTE_ID = 'wallet_recovery_credential_promote';
 const RECOVERY_ACK_ROUTE_ID = 'wallet_recovery_backup_acknowledge';
+const RECOVERY_ROTATE_ROUTE_ID = 'wallet_recovery_codes_rotate';
 
 export async function handlePasskeyCustody(ctx: FetchRouterApiContext): Promise<Response | null> {
   const route = findRouteDefinitionById(ctx.routeDefinitions, ROUTE_ID);
@@ -297,4 +298,72 @@ export async function handleWalletRecoveryBackupAcknowledge(
        view of "which codes" matches what the server just recorded. */
     body: { ok: true, issuedAtMs: result.issuedAtMs },
   });
+}
+
+/**
+ * Rotating a wallet's recovery codes.
+ *
+ * The wraps pass through as opaque records — the server cannot check that
+ * they wrap the right KEK, because it has neither. What it does check is the
+ * set's shape, and it does so before writing: a set that reaches the store
+ * with the wrong number of wraps leaves a wallet holding fewer codes than its
+ * owner wrote down, and nothing surfaces that until someone counts.
+ */
+export async function handleWalletRecoveryRotate(
+  ctx: FetchRouterApiContext,
+): Promise<Response | null> {
+  const route = findRouteDefinitionById(ctx.routeDefinitions, RECOVERY_ROTATE_ROUTE_ID);
+  if (!route) throw new Error(`Missing route definition for ${RECOVERY_ROTATE_ROUTE_ID}`);
+  if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
+
+  const body = (await readJson(ctx.request)) as Record<string, unknown> | null;
+  const walletId = trimmed(body?.walletId);
+  const manifestKekWraps = Array.isArray(body?.manifestKekWraps)
+    ? body.manifestKekWraps.filter(isObject)
+    : [];
+  if (!walletId || manifestKekWraps.length === 0) {
+    return toFetchRouteResponse({
+      status: 400,
+      body: {
+        ok: false,
+        code: 'invalid_request',
+        message: 'a rotation needs a wallet and its replacement code wraps',
+      },
+    });
+  }
+
+  const result = await ctx.service.passkeyCustody.rotateRecoveryCodes({
+    walletId,
+    manifestKekWraps: manifestKekWraps as never,
+  });
+
+  switch (result.kind) {
+    case 'rotated':
+      return toFetchRouteResponse({
+        status: 200,
+        /* The new issuance timestamp, which is what re-arms the backup
+           prompt — a client that shows codes without it cannot tell whether
+           the user has acknowledged the set in front of them. */
+        body: { ok: true, issuedAtMs: result.issuedAtMs, storeVersion: result.storeVersion },
+      });
+    case 'no_recovery_set':
+      return toFetchRouteResponse({
+        status: 404,
+        body: { ok: false, code: 'no_recovery_set', message: 'this wallet has no codes to rotate' },
+      });
+    case 'conflict':
+      return toFetchRouteResponse({
+        status: 409,
+        body: {
+          ok: false,
+          code: 'recovery_set_conflict',
+          message: 'the recovery set changed during this rotation; try again',
+        },
+      });
+    case 'rejected':
+      return toFetchRouteResponse({
+        status: 400,
+        body: { ok: false, code: 'rotation_rejected', message: result.reason },
+      });
+  }
 }

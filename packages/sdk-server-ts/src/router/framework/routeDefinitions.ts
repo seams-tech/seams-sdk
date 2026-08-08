@@ -553,6 +553,19 @@ export function createRouterApiRouteDefinitions(
       { kind: 'event', action: 'wallet_created' },
     ),
     publicRoute(
+      'wallet_recovery_codes_rotate',
+      'POST',
+      '/wallets/recovery/rotate',
+      'Replace a wallet recovery code set with freshly wrapped codes',
+      {
+        plane: 'public',
+        proof: 'recovery_proof',
+        rationale:
+          'The caller must already hold the manifest KEK, which requires opening custody. The server swaps which codes unwrap it and never holds the seed.',
+      },
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+    ),
+    publicRoute(
       'wallet_recovery_backup_acknowledge',
       'POST',
       '/wallets/recovery/acknowledge-backup',

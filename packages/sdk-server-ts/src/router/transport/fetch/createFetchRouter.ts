@@ -7,6 +7,7 @@ import { handleWalletRegistration } from './routes/walletRegistration';
 import {
   handlePasskeyCustody,
   handleWalletRecoveryBackupAcknowledge,
+  handleWalletRecoveryRotate,
   handleWalletRecoveryPromote,
   handleWalletRecoverySpend,
 } from './routes/passkeyCustody';
@@ -109,6 +110,7 @@ export function createFetchRouter(
     handleWalletRecoverySpend,
     handleWalletRecoveryPromote,
     handleWalletRecoveryBackupAcknowledge,
+    handleWalletRecoveryRotate,
     handleAuth,
     handleSyncAccount,
     ...(emailRecoveryPrepareRoutesEnabled ? [handleEmailRecoveryPrepare] : []),
