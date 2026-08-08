@@ -88,7 +88,7 @@ test('a registration commit stores the envelope and the recovery set together', 
     expect(lookup.kind).toBe('active');
 
     const stored = await commit.readRecoveryEnvelopeSet(WALLET_ID as WalletId);
-    expect(stored?.record.manifestKekWraps.length).toBe(1);
+    expect(stored?.record.manifestKekWraps.length).toBe(10);
     expect(stored?.record.entries[0]?.custodySecretKind).toBe('wallet_custody_seed_v1');
   });
 });

@@ -132,7 +132,6 @@ fn factor_inputs() -> FactorSealInputsV1 {
 fn recovery_codes() -> Vec<RecoveryCodeInputV1> {
     (0..signer_core::wallet_recovery_custody::WALLET_RECOVERY_CODE_COUNT)
         .map(|index| RecoveryCodeInputV1 {
-            recovery_key_id: format!("email-otp-rkid-v1-code-{index}"),
             code_bytes: zeroize::Zeroizing::new(vec![index as u8 + 1; 20]),
         })
         .collect()

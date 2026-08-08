@@ -55,7 +55,7 @@ function recoveryWrap(index: number) {
   return {
     // 43 base64url chars after the prefix, distinct per code: the parser
     // enforces that shape, so appending an index would not be a valid id.
-    recoveryKeyId: `email-otp-rkid-v1-${DIGEST_B64U.slice(0, 42)}${'ABCDEFGHIJ'[index]}`,
+    recoveryKeyId: `wallet-rkid-v1-${DIGEST_B64U.slice(0, 42)}${'ABCDEFGHIJ'[index]}`,
     nonceB64u: NONCE_12_B64U,
     ciphertextB64u: CIPHERTEXT_B64U,
     aadHashB64u: ALT_DIGEST_B64U,
@@ -295,7 +295,7 @@ const RACING_ENVELOPE_ID = 'passkey-envelope-2';
 function racingRecoveryWrap(index: number) {
   return {
     ...recoveryWrap(index),
-    recoveryKeyId: `email-otp-rkid-v1-${DIGEST_B64U.slice(0, 42)}${'KLMNOPQRST'[index]}`,
+    recoveryKeyId: `wallet-rkid-v1-${DIGEST_B64U.slice(0, 42)}${'KLMNOPQRST'[index]}`,
   };
 }
 

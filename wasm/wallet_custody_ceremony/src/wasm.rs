@@ -117,7 +117,10 @@ struct FactorSealInputsWireV1 {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct RecoveryCodeInputWireV1 {
-    recovery_key_id: String,
+    /* No `recoveryKeyId`. The id is derived inside the ceremony from the
+    wallet and these bytes and returned on the sealed wrap, so JavaScript
+    cannot supply one — `deny_unknown_fields` makes sending one an error
+    rather than a value silently ignored. */
     code_bytes_b64u: String,
 }
 
@@ -369,7 +372,6 @@ impl WasmCeremonyManifestEstablishedV1 {
         let mut recovery_codes = Vec::with_capacity(code_wires.len());
         for wire in code_wires {
             recovery_codes.push(RecoveryCodeInputV1 {
-                recovery_key_id: wire.recovery_key_id,
                 code_bytes: Zeroizing::new(
                     decode_b64u(&wire.code_bytes_b64u, "codeBytesB64u").map_err(js_error)?,
                 ),

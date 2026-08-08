@@ -194,10 +194,13 @@ const MANIFEST_KEK_WRAP_FIELDS = [
   'lifecycle',
 ] as const;
 
+/* No `keyManifestDigestB64u`. The manifest moved onto each key set's own
+   registration state, so a set carrying one is a record written by a retired
+   design — accepting and silently dropping it is a compatibility path, and
+   `rejectUnknownFields` now says so. */
 const RECOVERY_SET_FIELDS = [
   'kind',
   'walletId',
-  'keyManifestDigestB64u',
   'manifestKekWraps',
   'entries',
   'issuedAtMs',
@@ -267,9 +270,9 @@ function parseWalletRecoveryManifestKekWrap(
  *
  * Owner coverage is no longer a per-key list. Under single-seed custody the
  * owner entry is one seed covering every owner key, so completeness is the
- * exactly-one-seed rule below plus `keyManifestDigestB64u`, which pins the
- * owner key set the seed must reproduce and is verified where the roots are
- * actually derived. A per-key allow-list here would only restate that weakly.
+ * exactly-one-seed rule below. The key manifest that pins which keys the seed
+ * must reproduce lives on each key set's own registration state and is
+ * verified where the roots are derived — it is deliberately not a field here.
  */
 export function parseWalletRecoveryEnvelopeSetRecord(
   raw: unknown,
@@ -294,12 +297,15 @@ export function parseWalletRecoveryEnvelopeSetRecord(
   if (!Array.isArray(record.manifestKekWraps)) {
     throw new Error(`${label}.manifestKekWraps must be an array`);
   }
-  if (record.manifestKekWraps.length === 0) {
-    throw new Error(`${label}.manifestKekWraps must carry at least one recovery-code wrap`);
-  }
-  if (record.manifestKekWraps.length > WALLET_RECOVERY_CODE_COUNT) {
+  /* Exactly ten, not one-to-ten. Establishment issues ten and the durable
+     invariant keeps ten lifecycle records — a consumed or revoked code keeps
+     its wrap and changes its lifecycle state rather than disappearing. So a
+     set with fewer rows is a set that lost some, and accepting it would let a
+     wallet look recoverable while silently holding fewer codes than its owner
+     wrote down. */
+  if (record.manifestKekWraps.length !== WALLET_RECOVERY_CODE_COUNT) {
     throw new Error(
-      `${label}.manifestKekWraps cannot exceed ${WALLET_RECOVERY_CODE_COUNT} recovery codes`,
+      `${label}.manifestKekWraps must carry exactly ${WALLET_RECOVERY_CODE_COUNT} recovery-code wraps`,
     );
   }
 

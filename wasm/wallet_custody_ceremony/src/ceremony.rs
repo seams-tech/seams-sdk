@@ -53,7 +53,8 @@ use signer_core::passkey_custody::{
     PASSKEY_CUSTODY_KEY_LEN, WALLET_SEED_DERIVATION_SCHEME_V1,
 };
 use signer_core::wallet_recovery_custody::{
-    seal_wallet_recovery_entry_v1, seal_wallet_recovery_manifest_kek_v1, WALLET_RECOVERY_CODE_COUNT,
+    derive_wallet_recovery_key_id_v1, seal_wallet_recovery_entry_v1,
+    seal_wallet_recovery_manifest_kek_v1, WALLET_RECOVERY_CODE_COUNT,
 };
 use signer_core::wallet_seed_derivation::{
     derive_ecdsa_client_root_share_from_seed_v1,
@@ -62,6 +63,7 @@ use signer_core::wallet_seed_derivation::{
     verify_registered_wallet_key_set_manifest_v1, VerifiedWalletKeySetManifestDigestV1,
     WalletKeySetKindV1, WalletKeySetManifestV1, WALLET_CUSTODY_SEED_LEN,
 };
+use std::collections::BTreeSet;
 use zeroize::Zeroizing;
 
 pub const PASSKEY_CUSTODY_NONCE_LEN: usize = 12;
@@ -153,9 +155,13 @@ pub enum KeySetIdentityInputsV1 {
     },
 }
 
-/// One recovery code's identity and secret bytes.
+/// One recovery code's secret bytes.
+///
+/// Carries no id. The id is derived here from the wallet and these bytes, so a
+/// caller cannot point two codes at one wrap, name a wrap no code opens, or
+/// disagree with the reader about what an id is. It comes back on the sealed
+/// wrap instead.
 pub struct RecoveryCodeInputV1 {
-    pub recovery_key_id: String,
     pub code_bytes: Zeroizing<Vec<u8>>,
 }
 
@@ -905,19 +911,30 @@ impl CeremonyManifestEstablishedV1 {
         random_bytes(&mut manifest_kek[..])?;
 
         let mut recovery_manifest_kek_wraps = Vec::with_capacity(recovery_codes.len());
+        let mut seen_recovery_key_ids = BTreeSet::new();
         for code in &recovery_codes {
+            let recovery_key_id =
+                derive_wallet_recovery_key_id_v1(&self.wallet_id, &code.code_bytes)
+                    .map_err(|error| CeremonyError::new(format!("recovery key id: {error}")))?;
+            // Two identical codes derive one id and would silently reduce a
+            // ten-code set to fewer usable codes, since a code is found by id.
+            if !seen_recovery_key_ids.insert(recovery_key_id.clone()) {
+                return Err(CeremonyError::new(
+                    "a recovery set carries ten distinct codes",
+                ));
+            }
             let mut nonce = [0u8; PASSKEY_CUSTODY_NONCE_LEN];
             random_bytes(&mut nonce)?;
             let wrap = seal_wallet_recovery_manifest_kek_v1(
                 &code.code_bytes,
                 &self.wallet_id,
-                &code.recovery_key_id,
+                &recovery_key_id,
                 &nonce,
                 &manifest_kek[..],
             )
             .map_err(|error| CeremonyError::new(format!("recovery code wrap: {error}")))?;
             recovery_manifest_kek_wraps.push(SealedRecoveryWrapRecordV1 {
-                recovery_key_id: code.recovery_key_id.clone(),
+                recovery_key_id,
                 nonce_b64u: b64u(&nonce),
                 ciphertext_b64u: wrap.ciphertext_b64u(),
                 aad_hash_b64u: wrap.aad_hash_b64u(),
@@ -1048,7 +1065,6 @@ mod tests {
     fn recovery_codes(count: usize) -> Vec<RecoveryCodeInputV1> {
         (0..count)
             .map(|index| RecoveryCodeInputV1 {
-                recovery_key_id: format!("email-otp-rkid-v1-code-{index}"),
                 code_bytes: Zeroizing::new(vec![index as u8 + 1; 20]),
             })
             .collect()
@@ -1118,7 +1134,12 @@ mod tests {
         assert_eq!(records.recovery_manifest_kek_wraps.len(), codes.len());
 
         for (code, wrap) in codes.iter().zip(records.recovery_manifest_kek_wraps.iter()) {
-            assert_eq!(code.recovery_key_id, wrap.recovery_key_id);
+            // The wrap reports the id the ceremony derived; a reader looking a
+            // code up must reach the same one from the code and wallet alone.
+            assert_eq!(
+                wrap.recovery_key_id,
+                derive_wallet_recovery_key_id_v1(WALLET_ID, &code.code_bytes).expect("key id"),
+            );
             let manifest_kek = open_wallet_recovery_manifest_kek_v1(
                 &code.code_bytes,
                 &WalletRecoveryCodeScopeV1 {
