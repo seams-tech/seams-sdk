@@ -32,8 +32,8 @@ use signer_core::wallet_seed_derivation::{
     establish_wallet_key_set_manifest_v1, WalletKeySetKindV1, WalletKeySetManifestV1,
 };
 use wallet_custody_ceremony::ceremony::{
-    CeremonySeedHeldV1, EstablishedCustodyRecordsV1, SealedRecoveryWrapRecordV1,
-    WalletCustodyCommitPayloadV1,
+    CeremonySeedHeldV1, EstablishedCustodyRecordsV1, EvmFamilyPublicFactsRecordV1,
+    SealedRecoveryWrapRecordV1, WalletCustodyCommitPayloadV1,
 };
 
 const UPDATE_ENV: &str = "UPDATE_WALLET_CUSTODY_WIRE_FIXTURES";
@@ -186,6 +186,16 @@ fn establish_commit_payload() -> WalletCustodyCommitPayloadV1 {
         ed25519_local_material_nonce_b64u: None,
         client_root_public_key33_b64u: Some(b64u(&evm_client_root_public_key33())),
         ecdsa_ready_state_blob_b64u: Some(b64u(&ECDSA_READY_STATE_BLOB)),
+        ecdsa_public_facts: Some(EvmFamilyPublicFactsRecordV1 {
+            context_binding32_b64u: b64u(&[0x31; 32]),
+            derivation_client_share_public_key33_b64u: b64u(&evm_client_root_public_key33()),
+            client_verifying_share33_b64u: b64u(&evm_client_root_public_key33()),
+            relayer_public_key33_b64u: b64u(&evm_client_root_public_key33()),
+            group_public_key33_b64u: b64u(&evm_client_root_public_key33()),
+            ethereum_address: "0x2929292929292929292929292929292929292929".to_string(),
+            client_share_retry_counter: 0,
+            relayer_share_retry_counter: 0,
+        }),
     }
 }
 
@@ -214,6 +224,8 @@ fn join_commit_payload() -> WalletCustodyCommitPayloadV1 {
         ed25519_local_material_nonce_b64u: Some(b64u(&NEAR_LOCAL_MATERIAL_NONCE)),
         client_root_public_key33_b64u: None,
         ecdsa_ready_state_blob_b64u: None,
+        // A NEAR run has no EVM identity.
+        ecdsa_public_facts: None,
     }
 }
 

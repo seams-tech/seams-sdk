@@ -1079,3 +1079,76 @@ fn the_cache_binding_carries_no_factor_identity() {
         expected
     );
 }
+
+/// The EVM run reports the identity its own finalize computed.
+///
+/// These facts are what the client's capability manifest is built from — the
+/// threshold group key, the address it projects to, and both shares' public
+/// keys. The run once returned only the sealed blob, which left an installer
+/// holding material it could not describe. Recomputing them outside the
+/// ceremony would be worse than reporting them: it would mean trusting a
+/// second computation to agree with the one that produced the material.
+#[test]
+fn an_evm_run_reports_the_identity_its_own_finalize_produced() {
+    let payload = establish_custody_with_evm_key_set();
+    let facts = payload.ecdsa_public_facts.expect("EVM public facts");
+
+    // The relayer stand-in composed the same identity from the same public
+    // keys, so the ceremony's report must agree with it exactly.
+    let expected = relayer_identity(
+        payload
+            .client_root_public_key33_b64u
+            .as_deref()
+            .expect("client root key"),
+    );
+    assert_eq!(
+        decode(&facts.group_public_key33_b64u),
+        expected.group_public_key33.to_vec()
+    );
+    assert_eq!(
+        decode(&facts.relayer_public_key33_b64u),
+        expected.relayer_public_key33.to_vec()
+    );
+
+    // The address is the one the threshold key projects to, spelled the way
+    // the wasm boundary's decoder reads one.
+    let mut address = String::from("0x");
+    for byte in expected.ethereum_address20 {
+        address.push_str(&format!("{byte:02x}"));
+    }
+    assert_eq!(facts.ethereum_address, address);
+
+    // The client share the manifest records is this run's own, and the context
+    // binding is the one its stable-key context produced.
+    assert_eq!(
+        facts.derivation_client_share_public_key33_b64u,
+        payload
+            .client_root_public_key33_b64u
+            .expect("client root key")
+    );
+    assert_eq!(decode(&facts.context_binding32_b64u).len(), 32);
+}
+
+/// A NEAR run carries no EVM identity, and an EVM run carries no NEAR cache.
+#[test]
+fn each_key_set_reports_only_its_own_material() {
+    let evm = establish_custody_with_evm_key_set();
+    assert!(evm.ecdsa_public_facts.is_some());
+    assert!(evm.ed25519_local_material_b64u.is_none());
+    assert!(evm.ed25519_local_material_nonce_b64u.is_none());
+
+    let run = prepare_near_ed25519(join_custody(custody_records(&evm)), 0x53, None);
+    let result_json = run.run_circuit();
+    let near = run
+        .prepared
+        .complete_near_ed25519(&result_json)
+        .expect("completed")
+        .establish_manifest(near_identity(), None)
+        .expect("manifest")
+        .finish(None)
+        .expect("committed");
+
+    assert!(near.ed25519_local_material_b64u.is_some());
+    assert!(near.ecdsa_public_facts.is_none());
+    assert!(near.ecdsa_ready_state_blob_b64u.is_none());
+}

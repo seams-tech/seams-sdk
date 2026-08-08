@@ -230,7 +230,29 @@ enum CompletedProtocolV1 {
     EvmFamilyEcdsa {
         client_root_public_key33: [u8; 33],
         ready_state_blob: Zeroizing<Vec<u8>>,
+        /// The public identity the finalize computed.
+        ///
+        /// Carried rather than dropped because the client's capability
+        /// manifest is built from exactly these: the threshold group key, the
+        /// address it projects to, and both shares' public keys. A run that
+        /// returned only the sealed blob would leave the installer with
+        /// material it could not describe, and re-deriving them outside the
+        /// ceremony would mean trusting a second computation to agree with the
+        /// one that actually produced the material.
+        public_facts: EvmFamilyPublicFactsV1,
     },
+}
+
+/// The EVM-family run's registered public identity.
+struct EvmFamilyPublicFactsV1 {
+    context_binding32: [u8; 32],
+    derivation_client_share_public_key33: [u8; 33],
+    client_verifying_share33: [u8; 33],
+    relayer_public_key33: [u8; 33],
+    group_public_key33: [u8; 33],
+    ethereum_address20: [u8; 20],
+    client_share_retry_counter: u32,
+    relayer_share_retry_counter: u32,
 }
 
 /// State 4: this key set's manifest is established or verified.
@@ -300,6 +322,24 @@ pub struct WalletCustodyCommitPayloadV1 {
     pub ed25519_local_material_nonce_b64u: Option<String>,
     pub client_root_public_key33_b64u: Option<String>,
     pub ecdsa_ready_state_blob_b64u: Option<String>,
+    /// The EVM-family run's registered public identity, as the client's
+    /// capability manifest records it. Absent on a NEAR run.
+    pub ecdsa_public_facts: Option<EvmFamilyPublicFactsRecordV1>,
+}
+
+/// The EVM-family public identity, base64url-encoded for the wire.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvmFamilyPublicFactsRecordV1 {
+    pub context_binding32_b64u: String,
+    pub derivation_client_share_public_key33_b64u: String,
+    pub client_verifying_share33_b64u: String,
+    pub relayer_public_key33_b64u: String,
+    pub group_public_key33_b64u: String,
+    /// Lowercase 0x-prefixed, as every other address surface spells it.
+    pub ethereum_address: String,
+    pub client_share_retry_counter: u32,
+    pub relayer_share_retry_counter: u32,
 }
 
 impl CeremonySeedHeldV1 {
@@ -527,6 +567,17 @@ pub fn ed25519_local_material_binding_v1(
     out
 }
 
+/// Encodes a 20-byte address the way `decode_ethereum_address20` reads one, so
+/// the pair round-trips and the TypeScript side sees one spelling.
+fn ethereum_address_0x(address20: &[u8; 20]) -> String {
+    let mut out = String::with_capacity(42);
+    out.push_str("0x");
+    for byte in address20 {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
 fn require_wallet_id(wallet_id: &str) -> CeremonyResult<String> {
     let wallet_id = wallet_id.trim();
     if wallet_id.is_empty() {
@@ -632,6 +683,18 @@ impl CeremonyProtocolPreparedV1 {
             completed: CompletedProtocolV1::EvmFamilyEcdsa {
                 client_root_public_key33: client_share_public_key33,
                 ready_state_blob: Zeroizing::new(finalized.ready_state_blob.state_blob.clone()),
+                public_facts: EvmFamilyPublicFactsV1 {
+                    context_binding32: finalized.public_facts.context_binding32,
+                    derivation_client_share_public_key33: finalized
+                        .public_facts
+                        .derivation_client_share_public_key33,
+                    client_verifying_share33: finalized.public_facts.client_verifying_share33,
+                    relayer_public_key33: finalized.public_facts.relayer_public_key33,
+                    group_public_key33: finalized.public_facts.group_public_key33,
+                    ethereum_address20: finalized.public_facts.ethereum_address20,
+                    client_share_retry_counter: finalized.public_facts.client_share_retry_counter,
+                    relayer_share_retry_counter: finalized.public_facts.relayer_share_retry_counter,
+                },
             },
         })
     }
@@ -758,12 +821,30 @@ impl CeremonyManifestEstablishedV1 {
             CompletedProtocolV1::EvmFamilyEcdsa {
                 client_root_public_key33,
                 ready_state_blob,
+                ..
             } => (
                 None,
                 None,
                 Some(b64u(client_root_public_key33)),
                 Some(b64u(ready_state_blob)),
             ),
+        };
+        let ecdsa_public_facts = match &self.completed {
+            CompletedProtocolV1::EvmFamilyEcdsa { public_facts, .. } => {
+                Some(EvmFamilyPublicFactsRecordV1 {
+                    context_binding32_b64u: b64u(&public_facts.context_binding32),
+                    derivation_client_share_public_key33_b64u: b64u(
+                        &public_facts.derivation_client_share_public_key33,
+                    ),
+                    client_verifying_share33_b64u: b64u(&public_facts.client_verifying_share33),
+                    relayer_public_key33_b64u: b64u(&public_facts.relayer_public_key33),
+                    group_public_key33_b64u: b64u(&public_facts.group_public_key33),
+                    ethereum_address: ethereum_address_0x(&public_facts.ethereum_address20),
+                    client_share_retry_counter: public_facts.client_share_retry_counter,
+                    relayer_share_retry_counter: public_facts.relayer_share_retry_counter,
+                })
+            }
+            CompletedProtocolV1::NearEd25519 { .. } => None,
         };
         let (ed25519_local_material_b64u, ed25519_local_material_nonce_b64u) =
             match ed25519_local_material {
@@ -781,6 +862,7 @@ impl CeremonyManifestEstablishedV1 {
             ed25519_local_material_nonce_b64u,
             client_root_public_key33_b64u,
             ecdsa_ready_state_blob_b64u,
+            ecdsa_public_facts,
         })
     }
 
@@ -912,6 +994,16 @@ mod tests {
             completed: CompletedProtocolV1::EvmFamilyEcdsa {
                 client_root_public_key33: client_root_public_key33(),
                 ready_state_blob: Zeroizing::new(vec![1, 2, 3]),
+                public_facts: EvmFamilyPublicFactsV1 {
+                    context_binding32: [31u8; 32],
+                    derivation_client_share_public_key33: client_root_public_key33(),
+                    client_verifying_share33: client_root_public_key33(),
+                    relayer_public_key33: client_root_public_key33(),
+                    group_public_key33: client_root_public_key33(),
+                    ethereum_address20: [41u8; 20],
+                    client_share_retry_counter: 0,
+                    relayer_share_retry_counter: 0,
+                },
             },
         }
     }
