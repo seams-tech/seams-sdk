@@ -110,6 +110,8 @@ import {
 } from '../registration/d1RegistrationCeremonyRecords';
 import { CloudflareD1WalletRegistrationCommitStore } from '../registration/d1WalletRegistrationCommitStore';
 import { CloudflareD1WalletCustodyCommitStore } from '../passkeyCustody/d1WalletCustodyCommitStore';
+import { CloudflareD1PasskeyCustodyEnvelopeStore } from '../passkeyCustody/d1PasskeyCustodyEnvelopeStore';
+import { createD1PasskeyCustodyRouteService } from '../passkeyCustody/d1PasskeyCustodyRouteService';
 import {
   CloudflareD1WalletAddSignerService,
   parseD1WalletAddSignerFinalizeSideEffectRecord,
@@ -200,6 +202,11 @@ type CloudflareD1RouterApiAuthAssembly = {
   readonly walletAddSigners: CloudflareD1WalletAddSignerService;
   readonly registrationIntents: CloudflareD1RegistrationIntentService;
   readonly signedDelegateExecutor: CloudflareD1SignedDelegateExecutor;
+  readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
+  /* Exposed because custody retrieval verifies the assertion against the same
+     authenticators WebAuthn registration wrote. A second store here would let
+     a credential be active for one and unknown to the other. */
+  readonly webAuthnStore: CloudflareD1WebAuthnStore;
 };
 
 type D1WalletRegistrationRouteServiceAssembly = Pick<
@@ -1441,6 +1448,19 @@ function createCloudflareD1RouterApiAuthAssembly(
       envId: options.envId,
     },
   });
+  /* The custody envelope store. Until this line it was constructed only in
+     tests, which is why cold unlock could not be built end to end: the store,
+     its retrieval gate and its wire mapping all existed and none of them were
+     reachable from a running server. */
+  const passkeyCustodyEnvelopes = new CloudflareD1PasskeyCustodyEnvelopeStore({
+    database: options.database,
+    scope: {
+      namespace: options.namespace,
+      orgId: options.orgId,
+      projectId: options.projectId,
+      envId: options.envId,
+    },
+  });
   const signedDelegateExecutor = new CloudflareD1SignedDelegateExecutor(options);
   const authorizationTenantId = parseTenantId(options.orgId);
   if (!authorizationTenantId.ok) {
@@ -1526,6 +1546,8 @@ function createCloudflareD1RouterApiAuthAssembly(
     walletAddSigners,
     registrationIntents,
     signedDelegateExecutor,
+    passkeyCustodyEnvelopes,
+    webAuthnStore,
   };
 }
 
@@ -1923,6 +1945,11 @@ export function createCloudflareD1RouterApiAuthService(
     nearFunding: createD1NearFundingRouteService(assembly),
     recovery: createD1RecoveryRouteService(assembly),
     router: createD1RouterAccountRouteService(assembly),
+    passkeyCustody: createD1PasskeyCustodyRouteService({
+      passkeyCustodyEnvelopes: assembly.passkeyCustodyEnvelopes,
+      webAuthnStore: assembly.webAuthnStore,
+      logger: normalizeLogger(),
+    }),
     executeSignedDelegate: assembly.signedDelegateExecutor.execute.bind(
       assembly.signedDelegateExecutor,
     ),

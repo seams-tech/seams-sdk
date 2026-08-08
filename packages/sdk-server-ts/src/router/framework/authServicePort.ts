@@ -11,12 +11,7 @@ import type {
   WalletRegistrationSetupInput,
 } from '../domains/walletRegistration/walletRegistrationInputs';
 import type { WalletEmailOtpAction } from '@shared/utils/emailOtpDomain';
-import type {
-  OrgId,
-  ProviderSubject,
-  WalletId,
-  WebAuthnRpId,
-} from '@shared/utils/domainIds';
+import type { OrgId, ProviderSubject, WalletId, WebAuthnRpId } from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
@@ -92,10 +87,7 @@ export type CreateAddSignerIntentCommand = Readonly<{
 }>;
 
 export type StartWalletAddAuthMethodCommand = Readonly<
-  { subject: WalletAuthMethodManagementSubject } & Omit<
-    WalletAddAuthMethodStartRequest,
-    'walletId'
-  >
+  { subject: WalletAuthMethodManagementSubject } & Omit<WalletAddAuthMethodStartRequest, 'walletId'>
 >;
 
 export type RevokeWalletAuthMethodCommand = Readonly<
@@ -1130,12 +1122,12 @@ export interface RouterApiWalletRegistrationService {
     readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
   }): Promise<
     | {
-      readonly ok: true;
-      readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
-      readonly keyHandle: string;
-      readonly relayerKeyId: string;
-      readonly participantIds: readonly [number, number];
-    }
+        readonly ok: true;
+        readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+        readonly keyHandle: string;
+        readonly relayerKeyId: string;
+        readonly participantIds: readonly [number, number];
+      }
     | { readonly ok: false; readonly code: 'not_found' | 'internal'; readonly message: string }
   >;
   listWalletEcdsaKeyFactsInventory(
@@ -1429,6 +1421,9 @@ export interface RouterApiRouterAccountService {
   getRelayerAccount(): Promise<{ accountId: string; publicKey: string }>;
 }
 
+export type { RouterApiPasskeyCustodyService } from '../cloudflare/d1/passkeyCustody/d1PasskeyCustodyRouteService';
+import type { RouterApiPasskeyCustodyService } from '../cloudflare/d1/passkeyCustody/d1PasskeyCustodyRouteService';
+
 export interface RouterApiServiceBag {
   walletRegistration: RouterApiWalletRegistrationService;
   walletAuthMethods: RouterApiWalletAuthMethodService;
@@ -1443,6 +1438,14 @@ export interface RouterApiServiceBag {
   nearFunding: RouterApiNearFundingService;
   recovery: RouterApiRecoveryRouteService;
   router: RouterApiRouterAccountService;
+  /**
+   * Custody envelope retrieval, for a browser whose local storage is empty.
+   *
+   * Declared here rather than reached through a store because the whole
+   * layer beneath it spent its existence built, tested and unreachable —
+   * a port on the bag is what makes it callable from a route.
+   */
+  passkeyCustody: RouterApiPasskeyCustodyService;
 }
 
 export interface RouterApiAuthorizedOperationService {
