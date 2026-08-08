@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { parseWalletKeyId } from '@shared/utils/domainIds';
 import {
+  buildWebAuthnPrfFirstSecretSource,
   createBrowserPlatformRuntime,
   parseEmailOtpWorkerIssuedSessionHandle,
 } from '@/core/platform';
@@ -30,7 +31,6 @@ import {
 import {
   buildFido2HmacSecretSource,
   buildSecureEnclaveWrappedSecretSource,
-  buildWebAuthnPrfFirstSecretSource,
   type EcdsaRoleLocalPendingStateBlob,
   type PrepareEcdsaClientBootstrapInput,
   type RequiredPrfAuthenticatorSuccess,
@@ -331,6 +331,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
             relayerPublicKey33B64u: publicKeyB,
             groupPublicKey33B64u: publicKeyC,
             ethereumAddress: '0x0000000000000000000000000000000000000001',
+            relayerShareRetryCounter: 0,
           },
         });
         return {
@@ -383,6 +384,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
         relayerPublicKey33B64u: publicKeyB as EcdsaDerivationRelayerPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
+        relayerShareRetryCounter: 0,
       },
     });
     expect(finalized).toMatchObject({
@@ -424,6 +426,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
         relayerPublicKey33B64u: publicKeyB as EcdsaDerivationRelayerPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
+        relayerShareRetryCounter: 0,
       },
     });
     expect(result).toMatchObject({
@@ -445,6 +448,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
         relayerPublicKey33B64u: publicKeyB as EcdsaDerivationRelayerPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
+        relayerShareRetryCounter: 0,
       },
     });
     expect(result).toMatchObject({
@@ -466,6 +470,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
         relayerPublicKey33B64u: publicKeyB as EcdsaDerivationRelayerPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
+        relayerShareRetryCounter: 0,
       },
     });
     expect(result).toMatchObject({
@@ -491,6 +496,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
         relayerPublicKey33B64u: publicKeyB as EcdsaDerivationRelayerPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
+        relayerShareRetryCounter: 0,
       },
     });
     expect(result).toMatchObject({
@@ -514,6 +520,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
         relayerPublicKey33B64u: publicKeyA as EcdsaDerivationRelayerPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
+        relayerShareRetryCounter: 0,
       },
     });
     expect(result).toMatchObject({
