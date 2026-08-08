@@ -747,11 +747,24 @@ cannot sign. So the export belongs in `router-ab-ed25519-yao-client`, which
 required moving `ed25519_local_material_binding_v1` down beside the opener —
 the ceremony can reach down to it, unlock could never have reached up.
 
-Four instances in one refactor is a pattern, not coincidence. Each was a
+**And the same shape across all of Phase 4.** `runWalletRecoveryWithCode`,
+`admitWalletRecoveryCredentialPromotion` and the recovery-key-id derivation
+are exported, tested, and called only by their own tests. Phase 4 is not
+"unstarted" — its primitives are complete and unreachable, exactly as cold
+unlock's were. What it needs is a route, an RPC and a surface, which is the
+same three-piece shape, not more crypto.
+
+Five instances in one refactor is a pattern, not coincidence. Each was a
 half-built seam that typechecked and tested green because *nothing on the
 other side existed to disagree with it*. When adding a producer, check for
 the consumer; when adding a store, check for the DI site; when adding a
 write, check for the read. The test suite will not ask.
+
+**So the honest reading of the five flow boxes is one sentence:** every one of
+them has its primitives written and mutation-checked, and none of them is
+reachable from a running system. That is a single kind of remaining work —
+route, RPC, surface — repeated five times, and it is why the box count has
+stopped being a useful measure of what is left.
 
 A note for whoever picks this up: converting a flow box into a primitive closes
 the box and leaves the flow. Several boxes above were closed that way
