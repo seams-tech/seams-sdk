@@ -694,6 +694,17 @@ This is the same shape as the earlier finding that nothing consumed
 callers do not exist. Worth checking for deliberately — a green suite says
 nothing about whether anything calls the thing it covers.
 
+**A third instance, found the same day.** The Ed25519 continuity cache had
+`persistWalletCustodyEd25519MaterialV1` and no loader: written at
+registration, never read, so every unlock paid for the Router round the cache
+exists to avoid. Now readable, with `absent` and `unusable` kept distinct.
+
+Three instances in one refactor is a pattern, not coincidence. Each was a
+half-built seam that typechecked and tested green because *nothing on the
+other side existed to disagree with it*. When adding a producer, check for
+the consumer; when adding a store, check for the DI site; when adding a
+write, check for the read. The test suite will not ask.
+
 A note for whoever picks this up: converting a flow box into a primitive closes
 the box and leaves the flow. Several boxes above were closed that way
 deliberately, because the primitive is the part with the security properties —
