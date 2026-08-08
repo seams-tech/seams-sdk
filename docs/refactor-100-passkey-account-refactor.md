@@ -683,8 +683,36 @@ challenge, and the client has the RPC, the join-wire projection, the cache
 reader, the wasm open path, the metadata assembly and the warm/cold branch.
 What is left is the last mile — calling `openOrRejoinWalletCustodyEd25519V1`
 from the unlock surface, where the factor secret and the wallet session live,
-and driving `rejoinNearEd25519CustodyV1` on its rejoin branch. That is wiring
-against a live session, not new mechanism.
+and driving `rejoinNearEd25519CustodyV1` on its rejoin branch.
+
+**But that last mile needs a decision first, and it is not a small one.** The
+hydration site (`ed25519YaoLocalMaterial.ts`, the
+`rehydrate_material_activation` branch) has the activation facts and the
+factor secret, and no custody envelope — because *the client never stores
+one*. The envelope is committed to the server at registration and cached
+nowhere locally.
+
+That matters more than it first reads, because the seed is never retained:
+`open_wallet_custody_ed25519_material_v1` re-derives it by opening the
+envelope on **every** unlock. So the continuity cache as it stands saves the
+Router ceremony round and not the network round — a warm unlock still cannot
+complete offline.
+
+Two ways out, and they differ in cost rather than correctness:
+
+1. **Cache the envelope locally.** It is ciphertext plus public binding and
+   carries no client secret, so it is safe at rest under the same argument
+   that lets it cross the network. This needs a new IndexedDB store and a
+   schema bump (v13 → v14), which touches every existing wallet's local
+   state, and the cached copy must be revision-checked against the server's
+   `envelopeRevision` before it is trusted — a stale local envelope and a
+   rewrapped server one would fail to unlock with a correct credential.
+2. **Fetch the envelope per unlock.** No migration, no staleness question, and
+   unlock keeps a hard network dependency that the phrase "same-device
+   continuity cache" does not suggest to a reader.
+
+This is recorded rather than decided because the migration is user-visible and
+the offline property is a product question, not an implementation detail.
 
 **And one finding that resizes those flows (2026-08-09).** The passkey-custody
 envelope storage layer is built, tested, and *entirely unwired from the running
