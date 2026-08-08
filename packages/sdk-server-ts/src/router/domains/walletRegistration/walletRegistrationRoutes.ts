@@ -90,7 +90,6 @@ import {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
 import type { WalletRegistrationActivateInput } from './walletRegistrationInputs';
-import { parseRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { normalizeCorsOrigin } from '../../../core/SessionService';
 import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '@shared/utils/ecdsaKeyFactsInventory';
@@ -1474,7 +1473,6 @@ function parseWalletAddSignerEcdsaActivationRequest(
     'activationCorrelationId',
     'publicFacts',
     'expectedActivationRequestDigest',
-    'materialActivation',
   ]);
   if (unknownEcdsaField) {
     return {
@@ -1511,7 +1509,6 @@ function parseWalletAddSignerEcdsaActivationRequest(
           activationCorrelationId: parsed.ecdsa.activationCorrelationId,
           publicFacts: parsed.ecdsa.publicFacts,
           expectedActivationRequestDigest,
-          materialActivation: parseRouterAbMpcMaterialActivationRef(ecdsa.materialActivation),
         },
       },
     };
@@ -2081,12 +2078,25 @@ export async function handleRouterApiWalletRegistrationActivate(
     return routeError(400, 'invalid_body', 'an Ed25519-only activate carries no ECDSA activation');
   }
   const ecdsa = isPlainObject(body.ecdsa) ? body.ecdsa : null;
+  const unknownEcdsaField = ecdsa
+    ? findUnknownField(ecdsa, [
+        'activationCorrelationId',
+        'activationRequestDigestB64u',
+        'clientActivation',
+      ])
+    : null;
+  if (unknownEcdsaField) {
+    return routeError(
+      400,
+      'invalid_body',
+      `wallet registration ECDSA activation field ${unknownEcdsaField} is unsupported`,
+    );
+  }
   if (
     !ed25519Only &&
     (!ecdsa ||
       typeof ecdsa.activationCorrelationId !== 'string' ||
       typeof ecdsa.activationRequestDigestB64u !== 'string' ||
-      !isPlainObject(ecdsa.materialActivation) ||
       !isPlainObject(ecdsa.clientActivation))
   ) {
     return routeError(400, 'invalid_body', 'browser-verified clientActivation is required');
@@ -2105,7 +2115,6 @@ export async function handleRouterApiWalletRegistrationActivate(
       parsedActivation = {
         activationCorrelationId: parsed.ecdsa.activationCorrelationId,
         activationRequestDigestB64u: parseDigestB64u(ecdsa.activationRequestDigestB64u),
-        materialActivation: parseRouterAbMpcMaterialActivationRef(ecdsa.materialActivation),
         clientActivation: parsed.ecdsa.publicFacts,
       };
     } catch {

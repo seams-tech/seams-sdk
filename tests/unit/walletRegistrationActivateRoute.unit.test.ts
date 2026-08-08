@@ -4,7 +4,6 @@ import { secp256k1PrivateKey32ToPublicKey33 } from '../../packages/sdk-server-ts
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { implicitNearAccountProvisioning } from '../../packages/shared-ts/src/utils/registrationIntent';
-import { parseRouterAbMpcMaterialActivationRef } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import {
   buildFixtureRouterAbEcdsaStrictRegistrationRequest,
@@ -167,15 +166,6 @@ async function respondedCeremony(database: unknown, strictRegistration: unknown)
     ecdsa: {
       activationCorrelationId: setup.registrationCeremonyId,
       activationRequestDigestB64u: base64UrlEncode(new Uint8Array(32)),
-      materialActivation: parseRouterAbMpcMaterialActivationRef({
-        kind: 'mpc_material_activation_ref',
-        activation_id: `activation-${setup.registrationCeremonyId}`,
-        capability: `capability-${setup.registrationCeremonyId}`,
-        material_owner: setup.walletId,
-        key_binding: `key-${setup.registrationCeremonyId}`,
-        lifecycle_binding: setup.registrationCeremonyId,
-        signing_worker: setup.ecdsa.strictRegistration.lifecycle.selected_server_id,
-      }),
       clientActivation: fixtureRouterAbEcdsaActivationFacts(),
     },
     verifier: signer,

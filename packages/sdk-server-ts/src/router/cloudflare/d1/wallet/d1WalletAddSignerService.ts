@@ -1103,7 +1103,6 @@ export class CloudflareD1WalletAddSignerService {
           publicResponse: state.publicResponse,
           publicFacts: request.ecdsa.publicFacts,
           activationRequestDigestB64u: canonicalDigestB64u,
-          materialActivation: request.ecdsa.materialActivation,
         };
         claimedCeremony = updateAddSignerCeremonyState({
           ceremony,
@@ -1122,9 +1121,7 @@ export class CloudflareD1WalletAddSignerService {
         }
         if (
           alphabetizeStringify(state.publicFacts) !==
-            alphabetizeStringify(request.ecdsa.publicFacts) ||
-          alphabetizeStringify(state.materialActivation) !==
-            alphabetizeStringify(request.ecdsa.materialActivation)
+            alphabetizeStringify(request.ecdsa.publicFacts)
         ) {
           return {
             ok: false,
@@ -1138,7 +1135,6 @@ export class CloudflareD1WalletAddSignerService {
       const activated = await this.ecdsaStrictRegistration.activate({
         activationCorrelationId: request.ecdsa.activationCorrelationId,
         activationRequestDigestB64u: claimedState.activationRequestDigestB64u,
-        materialActivation: claimedState.materialActivation,
         pendingActivation: claimedState.pendingActivation,
         clientActivation: claimedState.publicFacts,
         requestPolicy: {

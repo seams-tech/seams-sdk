@@ -70,7 +70,6 @@ import {
 } from '@shared/utils/ecdsaCapabilityActivation';
 import {
   parseCapabilityInstanceRef,
-  parseMpcMaterialActivationId,
   parseMpcMaterialOwnerRef,
   parseRootShareEpoch,
   parseWalletAuthorityBindingDigest,
@@ -229,7 +228,6 @@ export function ecdsaCapabilityActivationFixture(args?: {
         args?.signingRootVersion ?? 'v1',
       ),
     }),
-    activationId: unwrap(parseMpcMaterialActivationId('ecdsa-activation-fixture')),
     roleLocalBinding,
     bindingDigest: parseEcdsaRoleLocalBindingDigest(CONTEXT_BINDING_B64U),
     durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef('ecdsa-material-fixture'),
@@ -558,7 +556,6 @@ function buildEcdsaCapabilityReplacementFixture(
       signingRootId: priorSigner.signingRootId,
       signingRootVersion: priorSigner.signingRootVersion,
     }),
-    activationId: unwrap(parseMpcMaterialActivationId('ecdsa-activation-replacement-fixture')),
     roleLocalBinding,
     bindingDigest: parseEcdsaRoleLocalBindingDigest(REPLACEMENT_DIGEST_B64U),
     durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef('ecdsa-material-replacement-fixture'),

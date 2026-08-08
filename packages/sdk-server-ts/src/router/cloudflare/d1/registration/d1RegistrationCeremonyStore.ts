@@ -127,7 +127,6 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
     readonly registrationCeremonyId: string;
     readonly publicFacts: StoredWalletRegistrationEvmFamilyEcdsaActivationClaimedBranch['publicFacts'];
     readonly activationRequestDigestB64u: string;
-    readonly materialActivation: StoredWalletRegistrationEvmFamilyEcdsaActivationClaimedBranch['materialActivation'];
     readonly activationOwner: string;
   }): Promise<D1WalletRegistrationEcdsaCeremonyClaimV1 | null> {
     return await this.claimEcdsaBranch({
@@ -138,7 +137,6 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
         kind: 'evm_family_ecdsa_activation_claimed',
         publicFacts: input.publicFacts,
         activationRequestDigestB64u: input.activationRequestDigestB64u,
-        materialActivation: input.materialActivation,
         activationOwner: input.activationOwner,
       },
     });

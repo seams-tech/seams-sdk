@@ -57,7 +57,6 @@ function requireEvmFamilySigningKeySlotId(value: unknown) {
 }
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
-import { parseRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationActivationResultV1,
@@ -1105,7 +1104,6 @@ function parseD1StoredEvmFamilyEcdsaActivationClaimedBranch(
       ),
       publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.publicFacts),
       activationRequestDigestB64u: parseDigestB64u(record.activationRequestDigestB64u),
-      materialActivation: parseRouterAbMpcMaterialActivationRef(record.materialActivation),
       /* Empty on rows written before ownership existed; owner checks treat
          empty as never-matching, so legacy claims deny adoption rather than
          allowing it. */
@@ -1566,7 +1564,6 @@ function parseD1StoredEcdsaAddSignerActivationClaimed(
       ),
       publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.publicFacts),
       activationRequestDigestB64u: parseDigestB64u(record.activationRequestDigestB64u),
-      materialActivation: parseRouterAbMpcMaterialActivationRef(record.materialActivation),
     };
   } catch {
     return null;

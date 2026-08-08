@@ -8,7 +8,6 @@ import {
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import {
   parseCapabilityInstanceRef,
-  parseMpcMaterialActivationId,
   parseMpcMaterialOwnerRef,
   type DomainIdParseResult,
 } from '@shared/utils/domainIds';
@@ -301,14 +300,6 @@ function freshManifestIdentity() {
   });
 }
 
-function freshActivationId() {
-  return unwrapDomainId(
-    parseMpcMaterialActivationId(
-      secureRandomId('ecdsa-activation', 32, 'initial ECDSA material activation identities'),
-    ),
-  );
-}
-
 function freshDurableMaterialRef() {
   return parseEcdsaRoleLocalDurableMaterialRef(
     secureRandomId('ecdsa-role-local-material', 32, 'initial ECDSA durable material identities'),
@@ -360,7 +351,6 @@ export async function buildInitialEcdsaCapabilityActivationPlan(
   const activationBinding = buildEcdsaActivationBinding({
     targetManifest: freshManifestIdentity(),
     signer,
-    activationId: freshActivationId(),
     roleLocalBinding,
     bindingDigest: parseEcdsaRoleLocalBindingDigest(input.bindingDigest),
     durableMaterialRef: freshDurableMaterialRef(),

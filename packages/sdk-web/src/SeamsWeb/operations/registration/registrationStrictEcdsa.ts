@@ -39,7 +39,6 @@ import {
   thresholdEcdsaChainTargetKey,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   RouterAbEcdsaVerifiedClientActivationFactsV1,
   RouterAbPublicDigest32V1Wire,
@@ -274,7 +273,6 @@ async function activateAddSignerEcdsaWithReplayReconciliation(args: {
   activationCorrelationId: CorrelationId;
   publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
   expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
-  materialActivation: RouterAbMpcMaterialActivationRefWire;
 }) {
   try {
     return await activateWalletAddSignerEcdsa(args);
@@ -413,7 +411,6 @@ export async function runStrictEcdsaFamilyCeremony(args: {
         walletId: args.walletId,
         addSignerCeremonyId: ceremonyId,
         activationCorrelationId,
-        materialActivation: persisted.materialActivation,
         publicFacts: verified.publicFacts,
         expectedActivationRequestDigest,
       }),
