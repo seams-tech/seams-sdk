@@ -47,3 +47,11 @@ export type {
   WalletRecoveryActivationResult,
   WalletRecoveryAttemptOutcome,
 } from './recoveryCodeAttempt';
+
+export {
+  buildWalletRecoveryBackupAcknowledgementV1,
+  parseWalletRecoveryBackupAcknowledgementV1,
+  walletRecoveryBackupIsOutstanding,
+} from './backupAcknowledgement';
+
+export type { WalletRecoveryBackupAcknowledgementV1 } from './backupAcknowledgement';
