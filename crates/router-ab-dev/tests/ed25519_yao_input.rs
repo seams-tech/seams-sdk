@@ -174,6 +174,26 @@ fn admission_request() -> RouterAbEd25519YaoRegistrationAdmissionRequestV1 {
 }
 
 fn scope(lifecycle_id: &str, threshold_session_id: &str) -> RouterAbEd25519YaoLifecycleScopeV1 {
+    scope_with_material_activation(
+        lifecycle_id,
+        threshold_session_id,
+        MpcMaterialActivationRefV1::new(
+            format!("activation-{lifecycle_id}"),
+            "capability-input",
+            "account-1",
+            "key-input",
+            lifecycle_id,
+            "worker-1",
+        )
+        .expect("material activation"),
+    )
+}
+
+fn scope_with_material_activation(
+    lifecycle_id: &str,
+    threshold_session_id: &str,
+    material_activation: MpcMaterialActivationRefV1,
+) -> RouterAbEd25519YaoLifecycleScopeV1 {
     RouterAbEd25519YaoLifecycleScopeV1::new(
         lifecycle_id,
         RootShareEpoch::new("epoch-1").expect("epoch"),
@@ -181,15 +201,7 @@ fn scope(lifecycle_id: &str, threshold_session_id: &str) -> RouterAbEd25519YaoLi
         threshold_session_id,
         "set-1",
         "worker-1",
-        MpcMaterialActivationRefV1::new(
-            format!("activation-{lifecycle_id}"),
-            "capability-input",
-            "wallet-input",
-            "key-input",
-            lifecycle_id,
-            "worker-1",
-        )
-        .expect("material activation"),
+        material_activation,
     )
     .expect("lifecycle scope")
 }
@@ -213,7 +225,11 @@ fn refresh_a_request() -> LocalEd25519YaoRefreshDeriverARequestV1 {
     .expect("refresh state");
     let binding = state
         .begin(LocalEd25519YaoRouterRefreshAdmissionRequestV1 {
-            scope: scope("input-test-refresh", "session-2"),
+            scope: scope_with_material_activation(
+                "input-test-refresh",
+                "session-2",
+                active.material_activation.clone(),
+            ),
             application_binding: application(),
             participant_ids: [1, 2],
             registered_public_key: [0x61; 32],

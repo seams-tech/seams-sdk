@@ -4041,7 +4041,7 @@ function resolveThresholdLoginWarmupPlan(args: {
   });
   let ecdsaContextResolution: ThresholdLoginWarmEcdsaContextResolution;
   let signersToWarm: ThresholdLoginWarmSigner[];
-  let ed25519DependsOnEcdsa = false;
+  const ed25519DependsOnEcdsa = false;
   let ecdsaDependsOnEd25519 = false;
   if (
     configuredTargetKeyCompletion.kind === 'missing_configured_target_keys' &&

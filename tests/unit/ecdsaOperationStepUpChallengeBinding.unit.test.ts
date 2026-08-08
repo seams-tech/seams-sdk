@@ -1,8 +1,10 @@
 import { expect, test } from '@playwright/test';
 import {
   buildEcdsaOperationStepUpPreparation,
+  issueEcdsaOperationStepUpAuthorization,
   prepareEcdsaOperationStepUp,
 } from '../../packages/sdk-web/src/core/signingEngine/threshold/ecdsa/operationStepUp';
+import { WalletSessionFailureError } from '../../packages/sdk-web/src/core/signingEngine/session/lifecycle/walletSessionFailure';
 import {
   computeRouterAbEcdsaOperationStepUpChallengeB64u,
   parseRouterAbEcdsaExplicitExportForwardedResponseV1,
@@ -13,6 +15,7 @@ import {
   type RouterAbEcdsaDerivationNormalSigningScopeV1,
 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
+import { buildEmailOtpWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import { parseRootShareEpoch } from '../../packages/shared-ts/src/utils/domainIds';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import {
@@ -430,5 +433,83 @@ test.describe('ECDSA operation step-up challenge binding', () => {
         },
       }),
     ).toThrow('digest must be unpadded base64url');
+  });
+});
+
+// A structurally valid app session JWT can outlive the session row it points
+// at: the row is clamped to the wallet-session quota it was minted alongside,
+// so it lapses well before the token's own exp. The client cannot see that
+// coming — the 401 is the only signal — so the step-up has to classify it as a
+// wallet-session lifecycle failure and say what the user should do, rather than
+// surfacing the transport message as an opaque signing error.
+test.describe('ECDSA operation step-up session failures', () => {
+  // A real request: the client parses it before it ever reaches the network, so
+  // a stub would fail validation instead of exercising the response handling.
+  const stepUpRequest = {
+    kind: 'router_ab_ecdsa_operation_step_up_v1' as const,
+    operation: buildEcdsaOperationStepUpPreparation(preparationArgs()),
+    proof: {
+      kind: 'email_otp' as const,
+      // Built rather than hand-written: bindingId is derived from the wallet id
+      // and email hash, and the parser rejects any value that does not match.
+      authority: buildEmailOtpWalletAuthAuthority({
+        walletId: WALLET_ID,
+        provider: 'google',
+        providerUserId: 'google:step-up-session-copy',
+        emailHashHex: 'a'.repeat(64),
+      }),
+      challenge_id: 'challenge-1',
+      otp_code: '123456',
+    },
+  } as unknown as Parameters<typeof issueEcdsaOperationStepUpAuthorization>[0]['request'];
+
+  function respondWith(code: string, message: string) {
+    return async () =>
+      new Response(JSON.stringify({ ok: false, code, message }), {
+        status: 401,
+        headers: { 'content-type': 'application/json' },
+      });
+  }
+
+  test('an expired session becomes a typed failure with actionable copy', async () => {
+    const error = await issueEcdsaOperationStepUpAuthorization({
+      relayerUrl: 'https://relay.test',
+      sessionAuth: { kind: 'app_session_cookie' },
+      request: stepUpRequest,
+      fetchImpl: respondWith(
+        'wallet_session_expired',
+        'Active app session is unavailable',
+      ) as unknown as typeof fetch,
+    }).then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toBeInstanceOf(WalletSessionFailureError);
+    expect((error as WalletSessionFailureError).failure.kind).toBe('expired');
+    // The user is told what to do, not what the transport returned.
+    expect((error as Error).message).toBe('Signing session expired. Sign in again to continue.');
+  });
+
+  // An identity or origin mismatch is not something signing in again fixes, so
+  // it stays an untyped error carrying the server's developer-facing wording.
+  test('a non-session failure stays an untyped error', async () => {
+    const error = await issueEcdsaOperationStepUpAuthorization({
+      relayerUrl: 'https://relay.test',
+      sessionAuth: { kind: 'app_session_cookie' },
+      request: stepUpRequest,
+      fetchImpl: respondWith(
+        'unauthorized',
+        'Active app session is unavailable',
+      ) as unknown as typeof fetch,
+    }).then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).not.toBeInstanceOf(WalletSessionFailureError);
+    expect((error as Error).message).toBe(
+      'ECDSA operation step-up failed: Active app session is unavailable',
+    );
   });
 });

@@ -4324,7 +4324,7 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
       userId: args.userId,
       routePlan: args.routePlan,
     });
-    let localEnrollmentEscrow = await readEmailOtpDeviceEnrollmentEscrowRecord({
+    const localEnrollmentEscrow = await readEmailOtpDeviceEnrollmentEscrowRecord({
       walletId,
       authSubjectId: userId,
       enrollmentId: emailOtpDeviceEnrollmentId(walletId, userId),
@@ -6183,7 +6183,7 @@ function parseEmailOtpWalletUnlockVerification(
   if (!verification) throw new Error('loginWithEmailOtpWallet.verification is required');
   const kind = readString(verification.kind, 'verification.kind');
   switch (kind) {
-    case 'otp':
+    case 'otp': {
       rejectUnknownEmailOtpYaoFields(
         verification,
         ['kind', 'challengeId', 'otpCode'],
@@ -6198,7 +6198,8 @@ function parseEmailOtpWalletUnlockVerification(
         kind: 'otp',
         otpCode,
       };
-    case 'email_otp_unseal_grant':
+    }
+    case 'email_otp_unseal_grant': {
       rejectUnknownEmailOtpYaoFields(
         verification,
         ['kind', 'grant', 'challengeId'],
@@ -6209,6 +6210,7 @@ function parseEmailOtpWalletUnlockVerification(
         grant: readString(verification.grant, 'verification.grant'),
         challengeId: readString(verification.challengeId, 'verification.challengeId'),
       };
+    }
     default:
       throw new Error('loginWithEmailOtpWallet.verification.kind is invalid');
   }

@@ -998,9 +998,10 @@ function normalizeWalletAuthenticationRestoreAuth(
   switch (auth.kind) {
     case 'cookie':
       return auth;
-    case 'caller_app_session_jwt':
+    case 'caller_app_session_jwt': {
       const parsedJwt = parseAppSessionJwt(auth.appSessionJwt);
       return parsedJwt.ok ? { kind: auth.kind, appSessionJwt: parsedJwt.value } : null;
+    }
   }
 }
 
