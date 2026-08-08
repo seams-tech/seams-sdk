@@ -379,3 +379,66 @@ pub fn open_wallet_recovery_entry_v1(
     let entry_kek = derive_wallet_recovery_entry_kek_v1(manifest_kek, scope)?;
     open(&entry_kek[..], nonce, &aad, ciphertext)
 }
+
+/// One stored recovery wrap, as the caller read it back.
+pub struct WalletRecoveryManifestKekWrapV1<'a> {
+    /// The id the wrap was stored under.
+    pub recovery_key_id: &'a str,
+    /// The wrap's nonce.
+    pub nonce: &'a [u8],
+    /// The wrapped manifest KEK.
+    pub ciphertext: &'a [u8],
+}
+
+/// Opens a wallet's custody seed with one recovery code.
+///
+/// **The code never selects its own wrap.** Its id is derived here from the
+/// wallet and the code bytes, then matched against the stored set — so a
+/// caller cannot point a code at a wrap it does not open, and a code for
+/// another wallet finds nothing rather than being tried against every row.
+///
+/// Two levels, as frozen: the code opens the manifest KEK, and the manifest
+/// KEK opens the seed entry. A code never wraps the seed directly, which is
+/// what lets one code be consumed or revoked without touching the other nine.
+///
+/// Returns `None` when no wrap bears this code's id — the "wrong code" answer,
+/// kept distinct from a decryption failure so a caller can tell a mistyped
+/// code from a corrupt record.
+pub fn open_wallet_custody_seed_with_recovery_code_v1(
+    wallet_id: &str,
+    recovery_code_bytes: &[u8],
+    wraps: &[WalletRecoveryManifestKekWrapV1<'_>],
+    entry_nonce: &[u8],
+    entry_ciphertext: &[u8],
+) -> CoreResult<Option<Zeroizing<Vec<u8>>>> {
+    let wallet_id = wallet_id.trim();
+    require_field("walletId", wallet_id)?;
+    let recovery_key_id = derive_wallet_recovery_key_id_v1(wallet_id, recovery_code_bytes)?;
+
+    let Some(wrap) = wraps
+        .iter()
+        .find(|candidate| candidate.recovery_key_id == recovery_key_id)
+    else {
+        return Ok(None);
+    };
+
+    let manifest_kek = open_wallet_recovery_manifest_kek_v1(
+        recovery_code_bytes,
+        &WalletRecoveryCodeScopeV1 {
+            wallet_id: wallet_id.to_string(),
+            recovery_key_id,
+        },
+        wrap.nonce,
+        wrap.ciphertext,
+    )?;
+
+    let seed = open_wallet_recovery_entry_v1(
+        &manifest_kek[..],
+        &WalletRecoveryEntryScopeV1 {
+            wallet_id: wallet_id.to_string(),
+        },
+        entry_nonce,
+        entry_ciphertext,
+    )?;
+    Ok(Some(seed))
+}

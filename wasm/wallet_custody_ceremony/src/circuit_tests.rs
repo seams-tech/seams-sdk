@@ -1252,3 +1252,83 @@ fn a_factor_enrolled_after_registration_opens_the_same_cache() {
         receipt.registered_public_key()
     );
 }
+
+/// Every issued code opens the wallet's seed, and only for its own wallet.
+///
+/// This is the recovery read side against a real ceremony's output: the codes
+/// the run issued, the wraps it sealed, and the entry it wrote. The ceremony
+/// derives each code's id as it seals; recovery derives the same id from the
+/// code the user typed and finds the wrap by it, so the two cannot disagree
+/// about which wrap a code opens.
+#[test]
+fn any_issued_recovery_code_opens_the_wallets_seed() {
+    use signer_core::wallet_recovery_custody::{
+        open_wallet_custody_seed_with_recovery_code_v1, WalletRecoveryManifestKekWrapV1,
+    };
+
+    let payload = establish_custody_with_evm_key_set();
+    let records = custody_records(&payload);
+    let codes = recovery_codes();
+
+    let nonces: Vec<Vec<u8>> = records
+        .recovery_manifest_kek_wraps
+        .iter()
+        .map(|wrap| decode(&wrap.nonce_b64u))
+        .collect();
+    let ciphertexts: Vec<Vec<u8>> = records
+        .recovery_manifest_kek_wraps
+        .iter()
+        .map(|wrap| decode(&wrap.ciphertext_b64u))
+        .collect();
+    let wraps: Vec<WalletRecoveryManifestKekWrapV1<'_>> = records
+        .recovery_manifest_kek_wraps
+        .iter()
+        .enumerate()
+        .map(|(index, wrap)| WalletRecoveryManifestKekWrapV1 {
+            recovery_key_id: &wrap.recovery_key_id,
+            nonce: &nonces[index],
+            ciphertext: &ciphertexts[index],
+        })
+        .collect();
+
+    let entry_nonce = decode(&records.recovery_entry_nonce_b64u);
+    let entry_ciphertext = decode(&records.recovery_entry_ciphertext_b64u);
+
+    // All ten reach the same seed: losing nine codes still recovers the wallet.
+    for code in &codes {
+        let seed = open_wallet_custody_seed_with_recovery_code_v1(
+            WALLET_ID,
+            &code.code_bytes,
+            &wraps,
+            &entry_nonce,
+            &entry_ciphertext,
+        )
+        .expect("recovery open")
+        .expect("a wrap for this code");
+        assert_eq!(seed.len(), 32);
+    }
+
+    // A code this wallet never issued finds no wrap — reported as "no such
+    // code" rather than tried against every row.
+    assert!(open_wallet_custody_seed_with_recovery_code_v1(
+        WALLET_ID,
+        &[0x9f; 20],
+        &wraps,
+        &entry_nonce,
+        &entry_ciphertext,
+    )
+    .expect("recovery open")
+    .is_none());
+
+    // A real code against another wallet derives a different id, so it finds
+    // nothing here either.
+    assert!(open_wallet_custody_seed_with_recovery_code_v1(
+        "mallory.testnet",
+        &codes[0].code_bytes,
+        &wraps,
+        &entry_nonce,
+        &entry_ciphertext,
+    )
+    .expect("recovery open")
+    .is_none());
+}
