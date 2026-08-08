@@ -1222,7 +1222,8 @@ repository evidence.
       origin (establish or join) and its key set, the worker dispatches
       completion from the key set it stored, and the driver makes both refused
       combinations unrepresentable rather than merely rejected.
-- [ ] Splice the ceremony into `registration.ts` and commit its payload.
+- [x] Splice the ceremony into `registration.ts` and commit its payload.
+      **Landed 2026-08-09** for the Ed25519-only passkey path (`52162fc46`).
 
       **Blocked on a decision, found 2026-08-09: the splice cannot establish
       custody until wallet-scoped recovery codes can be issued, and they
