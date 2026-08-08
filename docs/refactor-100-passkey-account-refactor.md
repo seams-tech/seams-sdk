@@ -2305,11 +2305,51 @@ Broad gate:
   returns a typed union: active with envelope and revision, or explicit
   revoked / retired / missing / digest-mismatch failures; no branch falls back
   to derivation.
-- Freeze the typed ownership handoff from an opened Refactor 100 ECDSA custody
-  handle into the Refactor 90 activation input, exact
-  `MpcMaterialActivationRef`, activation journal, manifest read-back, and
-  hydration result. Explicit material reactivation must allocate a fresh
-  activation ID; ordinary rehydration must preserve the current one.
+- FROZEN (August 9, 2026) — ECDSA ownership handoff: **the Router mints the
+  `MpcMaterialActivationRef`**, in its receipt, on the existing
+  activate/finalize leg, exactly as it already does for Ed25519. The client
+  sends only `ecdsaPublicFacts` and installs the receipt's ref unchanged into
+  the Refactor 90 activation journal; it never derives one.
+
+  This satisfies Invariant 11 *by construction* rather than by discipline:
+  with one minting authority there is no "which ref wins" case to reconcile,
+  and no obligation to re-prove at each future refactor that two writers never
+  diverge. It is also the shape that already worked — the Ed25519 splice
+  landed without touching a frozen boundary precisely because the Router
+  minted, so the mixed-wallet path keeps one mental model instead of a special
+  case per curve.
+
+  The client-minting alternative buys nothing real: ECDSA activation is 2-of-2
+  with a SigningWorker, so there is no useful activated state without the
+  Router regardless. It would spend the invariant for no independence.
+
+  `ecdsaReadyStateBlobB64u` still never crosses to the server, and this
+  decision does not need it to: minting requires public facts only, and
+  `extract_client_signing_share32_from_ready_state_blob` is a plain
+  `parse_ready_state(&blob).x_client32` — sending it would hand one share of a
+  2-of-2 key to the holder of the other.
+
+  Explicit material reactivation must allocate a fresh activation ID; ordinary
+  rehydration must preserve the current one.
+- FROZEN (August 9, 2026) — the browser does **not** cache the custody
+  envelope; it fetches per unlock. No new IndexedDB store and no v13 -> v14
+  migration.
+
+  The offline property a local cache would buy is illusory: the custody seed
+  is never retained, so it is re-derived from the envelope on every unlock,
+  and ordinary signing needs a Router round regardless. An "offline unlock"
+  would open onto a wallet that cannot sign. The cost avoided is real —
+  a migration touching every existing wallet's local state, plus revision
+  checking against the server's `envelopeRevision`, where a stale local
+  envelope against a rewrapped server one fails to unlock with a correct
+  credential.
+
+  Revisit only if read-only offline access becomes a product goal.
+- FROZEN (August 9, 2026) — `expectedOrigin` on the custody retrieval route
+  comes from the request's `Origin` header, with **no body fallback**. The
+  sibling WebAuthn service's caller-supplied `expected_origin` convention was
+  designed for an app server calling the Router; on a browser-reachable route
+  a value the requester supplies is not evidence.
 - Define the per-owner effects for wallet registration and recovery: Gateway D1
   owns product ceremonies, passkey-envelope records, activation results,
   Wallet Session authorization, quotas, authorized operations, and audit;
