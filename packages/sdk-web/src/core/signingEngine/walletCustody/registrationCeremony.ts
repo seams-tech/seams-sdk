@@ -201,3 +201,101 @@ function activationSessionIdFromResult(resultJson: string): readonly number[] {
     return byte;
   });
 }
+
+/**
+ * Reproduces one NEAR key set from custody that already exists.
+ *
+ * This is synced-passkey cold unlock: a browser with empty IndexedDB has the
+ * wallet's server-held envelope and its credential, but no cached material. It
+ * opens the envelope with the factor, reaches the same seed, derives the same
+ * root, and re-runs the Yao protocol against the *registered* public key —
+ * reproducing the key set rather than establishing a new one.
+ *
+ * **It creates no credential and consumes no recovery code.** The run joins
+ * existing custody, so it seals no envelope and issues no codes: `finish` is
+ * called with nothing to establish, which the ceremony refuses to combine with
+ * a joining origin. That refusal is what makes the guarantee structural rather
+ * than a promise this function makes.
+ *
+ * The continuity key is required, not optional. Without it the run would
+ * *establish* a key set — registering a second, different key for a wallet
+ * that already has one, which no later check would undo.
+ */
+export type RejoinNearEd25519CustodyInput = Omit<EstablishNearEd25519CustodyInput, 'factorJson'> & {
+  /** `JoinCustodyWireV1`: the stored envelope binding and its sealed seed. */
+  readonly custodyJson: string;
+  /** The key this run must reproduce. */
+  readonly registeredPublicKeyB64u: string;
+};
+
+export type RejoinedNearEd25519Custody = {
+  /** No custody records: the wallet already has its envelope and codes. */
+  readonly commitPayload: WalletCustodyCeremonyCommitPayload;
+  readonly activationReference: EstablishedNearEd25519Custody['activationReference'];
+  readonly localMaterial: EstablishedNearEd25519Custody['localMaterial'];
+};
+
+export async function rejoinNearEd25519CustodyV1(
+  input: RejoinNearEd25519CustodyInput,
+): Promise<RejoinedNearEd25519Custody> {
+  const registeredPublicKeyB64u = String(input.registeredPublicKeyB64u || '').trim();
+  if (!registeredPublicKeyB64u) {
+    throw new Error('a cold unlock must name the key set it reproduces');
+  }
+
+  let activationSessionId: readonly number[] | null = null;
+  const payload = await runWalletCustodyKeySetCeremony({
+    runStep: input.runStep,
+    custody: {
+      origin: 'join',
+      custodyJson: input.custodyJson,
+      factorSecret: input.factorSecret,
+    },
+    keySetRun: {
+      keySet: 'near_ed25519_v1',
+      protocolInputsJson: JSON.stringify({
+        yaoAdmission: input.yaoAdmission,
+        yaoApplication: input.yaoApplication,
+        clientParticipantId: input.participantIds[0],
+        signingWorkerParticipantId: input.participantIds[1],
+        // Present means reproduce, absent means establish. This path must
+        // never establish: the wallet already has this key set.
+        continuityRegisteredPublicKeyB64u: registeredPublicKeyB64u,
+      }),
+      nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
+      runRouterRound: async (yaoExecuteRequestJson: string) => {
+        const resultJson = await input.runRouterRound(yaoExecuteRequestJson);
+        activationSessionId = activationSessionIdFromResult(resultJson);
+        return resultJson;
+      },
+    },
+  });
+
+  if (!activationSessionId) {
+    throw new Error('the NEAR cold unlock produced no activation session id');
+  }
+  if (payload.establishedCustody) {
+    /* Unreachable through the ceremony, which refuses to seal on a joining
+       run. Checked anyway because the failure it guards against — a second
+       envelope and a second recovery set for one wallet — is the one this
+       whole design exists to prevent. */
+    throw new Error('a cold unlock must not establish custody');
+  }
+  if (!payload.ed25519LocalMaterialB64u || !payload.ed25519LocalMaterialNonceB64u) {
+    throw new Error('the NEAR cold unlock sealed no local material');
+  }
+
+  return {
+    commitPayload: walletCustodyCommitPayloadForWire(payload),
+    activationReference: {
+      kind: 'router_ab_ed25519_yao_activation_reference_v1',
+      lifecycle_id: input.registrationCeremonyId,
+      session_id: activationSessionId,
+    },
+    localMaterial: {
+      b64u: payload.ed25519LocalMaterialB64u,
+      nonceB64u: payload.ed25519LocalMaterialNonceB64u,
+      applicationBindingDigestB64u: String(payload.ed25519ApplicationBindingDigestB64u || ''),
+    },
+  };
+}

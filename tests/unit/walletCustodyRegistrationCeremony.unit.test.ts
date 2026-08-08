@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   establishNearEd25519CustodyV1,
+  rejoinNearEd25519CustodyV1,
   walletCustodyCommitPayloadForWire,
 } from '../../packages/sdk-web/src/core/signingEngine/walletCustody/registrationCeremony';
 import { base64UrlDecode } from '../../packages/shared-ts/src/utils/encoders';
@@ -176,4 +177,105 @@ test('a Router result with no session id fails the run', async () => {
       runRouterRound: async () => '{"binding":{}}',
     }),
   ).rejects.toThrow(/session id/);
+});
+
+/**
+ * Synced-passkey cold unlock: a browser with empty IndexedDB reproduces the
+ * wallet's key set from the server-held envelope and the same credential.
+ *
+ * The guarantees are all negatives — no new credential, no new envelope, no
+ * recovery code consumed — so these check what the run does *not* do as much
+ * as what it returns.
+ */
+function rejoinArgs(steps: Step[], overrides: Record<string, unknown> = {}) {
+  const { runStep: _runStep, factorJson: _factorJson, ...rest } = establishArgs(steps);
+  return {
+    ...rest,
+    runStep: (async (type: string, payload: Record<string, unknown>) => {
+      steps.push({ type, payload });
+      if (type === 'beginWalletCustodyKeySetRun') {
+        return { yaoExecuteRequestJson: '{"execute":"request"}' };
+      }
+      if (type === 'finishWalletCustodyKeySetRun') {
+        return {
+          walletId: WALLET_ID,
+          keySet: 'near_ed25519_v1',
+          keyManifestDigestB64u: 'ZGlnZXN0',
+          registeredPublicKeyB64u: 'cHVibGlj',
+          ed25519LocalMaterialB64u: 'bWF0ZXJpYWw',
+          ed25519LocalMaterialNonceB64u: 'AQIDBAUGBwgJCgsM',
+          ed25519ApplicationBindingDigestB64u: 'YmluZGluZw',
+        };
+      }
+      return {};
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }) as any,
+    custodyJson: JSON.stringify({ envelopeBinding: {}, nonceB64u: 'AQIDBAUGBwgJCgsM' }),
+    registeredPublicKeyB64u: 'cHVibGlj',
+    ...overrides,
+  };
+}
+
+test('a cold unlock joins existing custody and seals no envelope', async () => {
+  const steps: Step[] = [];
+  const rejoined = await rejoinNearEd25519CustodyV1(rejoinArgs(steps));
+
+  const begun = steps.find((step) => step.type === 'beginWalletCustodyKeySetRun');
+  expect((begun?.payload.custody as { origin: string }).origin).toBe('join');
+
+  // `finish` is called with nothing to establish — the ceremony refuses to
+  // combine that with a joining origin, which is what makes "no second
+  // envelope, no new codes" structural rather than a promise.
+  const finished = steps.find((step) => step.type === 'finishWalletCustodyKeySetRun');
+  expect(finished?.payload.establishWith).toBeUndefined();
+  expect(rejoined.commitPayload.establishedCustody).toBeUndefined();
+});
+
+test('a cold unlock reproduces the registered key rather than establishing one', async () => {
+  const steps: Step[] = [];
+  await rejoinNearEd25519CustodyV1(rejoinArgs(steps));
+
+  const begun = steps.find((step) => step.type === 'beginWalletCustodyKeySetRun');
+  const inputs = JSON.parse(String(begun?.payload.protocolInputsJson)) as Record<string, unknown>;
+  // Present means reproduce; absent would register a second, different key for
+  // a wallet that already has one.
+  expect(inputs.continuityRegisteredPublicKeyB64u).toBe('cHVibGlj');
+});
+
+test('a cold unlock without the key it reproduces is refused before any step runs', async () => {
+  const steps: Step[] = [];
+  await expect(
+    rejoinNearEd25519CustodyV1(rejoinArgs(steps, { registeredPublicKeyB64u: '  ' })),
+  ).rejects.toThrow(/must name the key set/);
+  expect(steps).toHaveLength(0);
+});
+
+test('a cold unlock that somehow established custody is refused', async () => {
+  /* Unreachable through the ceremony, which refuses to seal on a joining run.
+     Checked anyway: a second envelope and a second recovery set for one wallet
+     is the failure this design exists to prevent. */
+  const steps: Step[] = [];
+  await expect(
+    rejoinNearEd25519CustodyV1({
+      ...rejoinArgs(steps),
+      runStep: (async (type: string) => {
+        if (type === 'beginWalletCustodyKeySetRun') {
+          return { yaoExecuteRequestJson: '{"execute":"request"}' };
+        }
+        if (type === 'finishWalletCustodyKeySetRun') {
+          return {
+            ...buildWalletCustodyCommitPayloadFixture({
+              walletId: WALLET_ID,
+              keySet: 'near_ed25519_v1',
+            }),
+            ed25519LocalMaterialB64u: 'bWF0ZXJpYWw',
+            ed25519LocalMaterialNonceB64u: 'AQIDBAUGBwgJCgsM',
+            ed25519ApplicationBindingDigestB64u: 'YmluZGluZw',
+          };
+        }
+        return {};
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any,
+    }),
+  ).rejects.toThrow(/must not establish custody/);
 });
