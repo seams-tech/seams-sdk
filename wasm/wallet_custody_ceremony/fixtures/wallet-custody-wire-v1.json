@@ -12,6 +12,7 @@
       "relayerShareRetryCounter": 0
     },
     "ecdsaReadyStateBlobB64u": "AQIDBA",
+    "ed25519ApplicationBindingDigestB64u": null,
     "ed25519LocalMaterialB64u": null,
     "ed25519LocalMaterialNonceB64u": null,
     "establishedCustody": {
@@ -152,6 +153,7 @@
     "clientRootPublicKey33B64u": null,
     "ecdsaPublicFacts": null,
     "ecdsaReadyStateBlobB64u": null,
+    "ed25519ApplicationBindingDigestB64u": "W1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1s",
     "ed25519LocalMaterialB64u": "TExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEw",
     "ed25519LocalMaterialNonceB64u": "TU1NTU1NTU1NTU1N",
     "establishedCustody": null,

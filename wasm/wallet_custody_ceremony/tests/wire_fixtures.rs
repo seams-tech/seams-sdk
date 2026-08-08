@@ -187,6 +187,7 @@ fn establish_commit_payload() -> WalletCustodyCommitPayloadV1 {
         // An EVM run seals no Ed25519 continuity cache.
         ed25519_local_material_b64u: None,
         ed25519_local_material_nonce_b64u: None,
+        ed25519_application_binding_digest_b64u: None,
         client_root_public_key33_b64u: Some(b64u(&evm_client_root_public_key33())),
         ecdsa_ready_state_blob_b64u: Some(b64u(&ECDSA_READY_STATE_BLOB)),
         ecdsa_public_facts: Some(EvmFamilyPublicFactsRecordV1 {
@@ -225,6 +226,7 @@ fn join_commit_payload() -> WalletCustodyCommitPayloadV1 {
         // byte-compared fixture cannot carry.
         ed25519_local_material_b64u: Some(b64u(&NEAR_LOCAL_MATERIAL)),
         ed25519_local_material_nonce_b64u: Some(b64u(&NEAR_LOCAL_MATERIAL_NONCE)),
+        ed25519_application_binding_digest_b64u: Some(b64u(&[0x5b; 32])),
         client_root_public_key33_b64u: None,
         ecdsa_ready_state_blob_b64u: None,
         // A NEAR run has no EVM identity.
