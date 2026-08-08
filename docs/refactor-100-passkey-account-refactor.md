@@ -676,6 +676,24 @@ which is which before picking one up:
 - **Five are flows**, each spanning server routes, client wiring and UI. Their
   cores exist as primitives; what remains is the orchestration.
 
+**And one finding that resizes those flows (2026-08-09).** The passkey-custody
+envelope storage layer is built, tested, and *entirely unwired from the running
+server*: `CloudflareD1PasskeyCustodyEnvelopeStore` is referenced by type in the
+domain code and constructed **only in tests** — no DI site builds one, and no
+route service exposes one.
+
+So cold unlock is not one route away. The order is: construct the store beside
+the other custody stores at the auth-service DI site, expose it as a route
+service, register the retrieval route, then add the client RPC and the unlock
+composition. The wire mapping for that route now exists
+(`passkeyCustodyEnvelopeRetrievalRoute.ts`), so the first two steps are what
+stands between a tested layer and a reachable one.
+
+This is the same shape as the earlier finding that nothing consumed
+`ecdsaReadyStateBlobB64u`: a layer whose tests all pass and whose production
+callers do not exist. Worth checking for deliberately — a green suite says
+nothing about whether anything calls the thing it covers.
+
 A note for whoever picks this up: converting a flow box into a primitive closes
 the box and leaves the flow. Several boxes above were closed that way
 deliberately, because the primitive is the part with the security properties —
