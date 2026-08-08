@@ -476,7 +476,7 @@ fn product_registration_request(
                 MpcMaterialActivationRefV1::new(
                     "activation-product-benchmark",
                     "capability-product-benchmark",
-                    "wallet-product-benchmark",
+                    "account-product-benchmark",
                     "key-product-benchmark",
                     "product-benchmark-registration",
                     "signing-worker-local",
