@@ -3,6 +3,7 @@ import {
   requestEmailOtpEd25519KeyExportAuthorization,
   requestEmailOtpKeyExportAuthorization,
   requestThresholdEcdsaExportAuthorization,
+  showEd25519ExportViewer,
   showThresholdEcdsaExportViewer,
 } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/keyExportConfirmation';
 import {
@@ -45,6 +46,43 @@ const TEST_WEBAUTHN_CREDENTIAL = {
 } satisfies WebAuthnAuthenticationCredential;
 
 test.describe('threshold ECDSA export viewer payload', () => {
+  test('renders Ed25519 loading state without private material', async () => {
+    let capturedPayload: any = null;
+
+    await showEd25519ExportViewer(
+      {
+        touchConfirm: {
+          requestUserConfirmation: async (request) => {
+            capturedPayload = request.payload;
+            return { requestId: request.requestId, confirmed: true };
+          },
+        },
+      },
+      {
+        state: 'loading',
+        walletId: 'frost-vermillion-k7p9m2',
+        nearAccountId: 'frost-vermillion-k7p9m2.testnet',
+        publicKey: 'ed25519:public-key',
+        variant: 'drawer',
+        viewerSessionId: 'ed25519-export-viewer-session-1',
+        flowId: 'key-export-flow-1',
+      },
+    );
+
+    if (!capturedPayload) throw new Error('expected export viewer request to be captured');
+
+    expect(capturedPayload.viewerSessionId).toBe('ed25519-export-viewer-session-1');
+    expect(capturedPayload.loading).toBe(true);
+    expect(capturedPayload.keys).toEqual([
+      {
+        scheme: 'ed25519',
+        label: 'NEAR Ed25519 private key',
+        publicKey: 'ed25519:public-key',
+        privateKey: '',
+      },
+    ]);
+  });
+
   test('includes EVM address in the loading viewer payload', async () => {
     let capturedRequestType = '';
     let capturedPayload: any = null;
