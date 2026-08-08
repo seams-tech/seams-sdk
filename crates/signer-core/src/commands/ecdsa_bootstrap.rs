@@ -68,9 +68,7 @@ pub struct EcdsaClientBootstrapParticipantsV1 {
     rename_all_fields = "camelCase"
 )]
 pub enum EcdsaBootstrapSecretSourceV1 {
-    ThresholdPrfXClientBase {
-        x_client_base_b64u: String,
-    },
+    ThresholdPrfXClientBase { x_client_base_b64u: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -416,10 +414,8 @@ fn client_root_share_from_secret_source(
         EcdsaBootstrapSecretSourceV1::ThresholdPrfXClientBase {
             mut x_client_base_b64u,
         } => {
-            let decoded = decode_base64_url_fixed(
-                &x_client_base_b64u,
-                "secretSource.xClientBaseB64u",
-            );
+            let decoded =
+                decode_base64_url_fixed(&x_client_base_b64u, "secretSource.xClientBaseB64u");
             x_client_base_b64u.zeroize();
             decoded
         }
