@@ -170,20 +170,20 @@ export function walletCustodyCeremonyCommitPayloadFromWire(
     ...(custody === undefined || custody === null
       ? {}
       : { establishedCustody: custody as EstablishedCustodyRecordsPayload }),
-    /* `ed25519LocalMaterial*` is deliberately absent. It is the ceremony's
-       output to its own client, not part of the commit: the continuity cache
-       is a same-device record, and the server has no use for a device's
-       signing material. Dropping it here means a client that sends it anyway
-       cannot cause it to be stored. */
+    /* `ed25519LocalMaterial*` and `ecdsaReadyStateBlobB64u` are deliberately
+       absent. Both are the ceremony's output to its own client, not part of
+       the commit — and the ECDSA blob is the sharper case: it is not
+       self-encrypted, and `extract_client_signing_share32_from_ready_state_blob`
+       yields the client's signing share from its bytes with no key. Letting it
+       cross would hand one share of a 2-of-2 key to the holder of the other
+       share. Dropping both here means a client that sends them anyway cannot
+       cause them to be stored. (Decision 2026-08-09.) */
     ...(record.registeredPublicKeyB64u === undefined
       ? {}
       : { registeredPublicKeyB64u: asWireString(record.registeredPublicKeyB64u) }),
     ...(record.clientRootPublicKey33B64u === undefined
       ? {}
       : { clientRootPublicKey33B64u: asWireString(record.clientRootPublicKey33B64u) }),
-    ...(record.ecdsaReadyStateBlobB64u === undefined
-      ? {}
-      : { ecdsaReadyStateBlobB64u: asWireString(record.ecdsaReadyStateBlobB64u) }),
     /* Public identity only, so this crosses. Carried verbatim: the admission
        gate does not read it, and anything that later records it must compare
        it against the activation receipt rather than trust it. */
