@@ -2899,7 +2899,92 @@ impl CloudflareRouterAbEcdsaDerivationPendingSigningWorkerActivationV1 {
     }
 }
 
-/// SigningWorker activation request carrying client facts derived after proof verification.
+/// Public Router activation command carrying client facts derived after proof verification.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareRouterAbEcdsaDerivationActivationCommandV1 {
+    /// Gateway-owned idempotency identity for this activation.
+    pub activation_correlation_id: String,
+    /// Router-produced pending activation with encrypted SigningWorker proof bundles.
+    pub pending: CloudflareRouterAbEcdsaDerivationPendingSigningWorkerActivationV1,
+    /// Client public facts produced by the verified `XClientBase` finalizer.
+    pub client_activation: EcdsaVerifiedClientActivationFactsV1,
+}
+
+impl CloudflareRouterAbEcdsaDerivationActivationCommandV1 {
+    /// Creates a validated public Router activation command.
+    pub fn new(
+        activation_correlation_id: impl Into<String>,
+        pending: CloudflareRouterAbEcdsaDerivationPendingSigningWorkerActivationV1,
+        client_activation: EcdsaVerifiedClientActivationFactsV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let command = Self {
+            activation_correlation_id: activation_correlation_id.into(),
+            pending,
+            client_activation,
+        };
+        command.validate()?;
+        Ok(command)
+    }
+
+    /// Validates client facts against the exact registration request and proof transcript.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty(
+            "ECDSA activation correlation id",
+            &self.activation_correlation_id,
+        )?;
+        self.pending.validate()?;
+        if self.activation_correlation_id != self.pending.activation_context.lifecycle.lifecycle_id
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "ECDSA activation correlation id does not match lifecycle id",
+            ));
+        }
+        self.client_activation.validate().map_err(|_| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Router A/B ECDSA derivation client activation facts are malformed",
+            )
+        })?;
+        let registration = &self.pending.registration;
+        let expected_request_digest =
+            encode_base64url_bytes_v1(registration.request_digest()?.as_bytes());
+        let public_request = registration.to_threshold_prf_request()?;
+        let expected_transcript_digest =
+            encode_base64url_bytes_v1(public_request.transcript_digest.as_bytes());
+        let expected_context_binding =
+            encode_base64url_bytes_v1(registration.context.context_binding_digest()?.as_bytes());
+        if self.client_activation.registration_request_digest_b64u != expected_request_digest
+            || self.client_activation.proof_transcript_digest_b64u != expected_transcript_digest
+            || self.client_activation.context_binding32_b64u != expected_context_binding
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "Router A/B ECDSA derivation client activation does not match pending registration",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Converts a public command into the private SigningWorker activation request.
+    pub fn into_signing_worker_request(
+        self,
+    ) -> RouterAbProtocolResult<CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1>
+    {
+        self.validate()?;
+        let material_activation =
+            cloudflare_router_ab_ecdsa_derivation_material_activation_ref_v1(&self)?;
+        CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1::new(
+            self.activation_correlation_id,
+            self.pending,
+            self.client_activation,
+            material_activation,
+        )
+    }
+}
+
+/// SigningWorker activation request carrying the Router-minted material reference.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1 {
@@ -2911,6 +2996,78 @@ pub struct CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1 {
     pub client_activation: EcdsaVerifiedClientActivationFactsV1,
     /// Canonical exact material activation for this ECDSA capability.
     pub material_activation: MpcMaterialActivationRefV1,
+}
+
+/// Derives the stable Router-owned activation reference for one idempotent activation command.
+pub fn cloudflare_router_ab_ecdsa_derivation_material_activation_ref_v1(
+    command: &CloudflareRouterAbEcdsaDerivationActivationCommandV1,
+) -> RouterAbProtocolResult<MpcMaterialActivationRefV1> {
+    command.validate()?;
+    let lifecycle = command.pending.activation_context.lifecycle();
+    let selected_server = &command
+        .pending
+        .activation_context
+        .signer_set()
+        .selected_server;
+    let activation_id = router_owned_ecdsa_activation_component_v1(
+        b"router-ab-cloudflare/ecdsa-material-activation-id/v1",
+        command,
+        "ecdsa-activation-v1",
+    )?;
+    let capability = router_owned_ecdsa_activation_component_v1(
+        b"router-ab-cloudflare/ecdsa-material-capability/v1",
+        command,
+        "ecdsa-capability-v1",
+    )?;
+    MpcMaterialActivationRefV1::new(
+        activation_id,
+        capability,
+        lifecycle.account_id.clone(),
+        command.client_activation.context_binding32_b64u.clone(),
+        lifecycle.lifecycle_id.clone(),
+        selected_server.server_id.clone(),
+    )
+}
+
+fn router_owned_ecdsa_activation_component_v1(
+    domain: &[u8],
+    command: &CloudflareRouterAbEcdsaDerivationActivationCommandV1,
+    prefix: &str,
+) -> RouterAbProtocolResult<String> {
+    let lifecycle = command.pending.activation_context.lifecycle();
+    let selected_server = &command
+        .pending
+        .activation_context
+        .signer_set()
+        .selected_server;
+    let mut hasher = Sha256::new();
+    push_hash_field_v1(&mut hasher, domain);
+    push_hash_field_v1(&mut hasher, command.activation_correlation_id.as_bytes());
+    push_hash_field_v1(&mut hasher, lifecycle.account_id.as_bytes());
+    push_hash_field_v1(
+        &mut hasher,
+        command
+            .client_activation
+            .registration_request_digest_b64u
+            .as_bytes(),
+    );
+    push_hash_field_v1(
+        &mut hasher,
+        command
+            .client_activation
+            .proof_transcript_digest_b64u
+            .as_bytes(),
+    );
+    push_hash_field_v1(
+        &mut hasher,
+        command.client_activation.context_binding32_b64u.as_bytes(),
+    );
+    push_hash_field_v1(&mut hasher, selected_server.server_id.as_bytes());
+    let digest = hasher.finalize();
+    Ok(format!(
+        "{prefix}-{}",
+        encode_base64url_bytes_v1(digest.as_slice())
+    ))
 }
 
 impl CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1 {
@@ -4926,7 +5083,7 @@ pub async fn handle_cloudflare_router_ab_ecdsa_derivation_activation_authenticat
     env: &worker::Env,
     runtime: &CloudflareRouterWorkerRuntimeV1,
     now_unix_ms: u64,
-    request: CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1,
+    command: CloudflareRouterAbEcdsaDerivationActivationCommandV1,
     authorization: CloudflareRouterBearerAuthorizationV1,
     trusted_source_digest: PublicDigest32,
     verifier: Verifier,
@@ -4936,18 +5093,19 @@ where
     Verifier: CloudflareRouterJwtVerifierV1,
 {
     let total_started_at_ms = CloudflareEcdsaBoundaryTimingV1::now_ms();
-    request.validate()?;
-    let public_request = request.pending.registration.to_threshold_prf_request()?;
+    command.validate()?;
+    let public_request = command.pending.registration.to_threshold_prf_request()?;
     let mut session = CloudflareRouterJwtSessionProviderV1::new(
         runtime.admission_bindings().jwt.clone(),
         authorization,
         now_unix_ms,
         trusted_source_digest,
-        request.pending.registration.request_digest()?,
+        command.pending.registration.request_digest()?,
         verifier,
     )?;
     session.verify_public_request_session(&public_request)?;
     timing.mark("ecdsa_rt_act_session", total_started_at_ms);
+    let request = command.into_signing_worker_request()?;
     let worker_started_at_ms = CloudflareEcdsaBoundaryTimingV1::now_ms();
     let call =
         execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_service_call_v1(
@@ -4971,8 +5129,8 @@ where
 #[cfg(feature = "workers-rs")]
 pub fn parse_cloudflare_router_ab_ecdsa_derivation_activation_request_v1_json(
     bytes: &[u8],
-) -> RouterAbProtocolResult<CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1> {
-    let request: CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1 =
+) -> RouterAbProtocolResult<CloudflareRouterAbEcdsaDerivationActivationCommandV1> {
+    let request: CloudflareRouterAbEcdsaDerivationActivationCommandV1 =
         serde_json::from_slice(bytes).map_err(|err| {
             RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::MalformedWirePayload,

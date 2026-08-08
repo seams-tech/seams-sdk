@@ -14,6 +14,7 @@ use router_ab_cloudflare::{
     cloudflare_recipient_proof_bundle_response_from_ab_proof_batch_v1,
     cloudflare_router_ab_ecdsa_derivation_activation_receipt_from_material_v1,
     cloudflare_router_ab_ecdsa_derivation_activation_refresh_receipt_from_material_v1,
+    cloudflare_router_ab_ecdsa_derivation_material_activation_ref_v1,
     cloudflare_router_ab_ecdsa_derivation_normal_signing_scope_from_activation_receipt_v1,
     cloudflare_router_ab_ecdsa_derivation_public_identity_from_activation_material_v1,
     cloudflare_router_ab_ecdsa_derivation_public_identity_from_normal_signing_material_v1,
@@ -70,6 +71,7 @@ use router_ab_cloudflare::{
     CloudflarePreloadedSignerHostV1,
     CloudflareRoleSeparatedRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1,
     CloudflareRootShareStartupMetadataV1, CloudflareRootShareWireSecretBindingV1,
+    CloudflareRouterAbEcdsaDerivationActivationCommandV1,
     CloudflareRouterAbEcdsaDerivationActivationRefreshAdmissionResponseV1,
     CloudflareRouterAbEcdsaDerivationDeriverActivationRefreshPrivateRequestV1,
     CloudflareRouterAbEcdsaDerivationDeriverExportPrivateRequestV1,
@@ -1540,6 +1542,69 @@ fn router_ab_ecdsa_derivation_activation_request(
         router_ab_ecdsa_derivation_material_activation_for_epoch("epoch-1"),
     )
     .expect("Router A/B ECDSA derivation SigningWorker activation request")
+}
+
+#[test]
+fn router_mints_stable_domain_separated_ecdsa_material_activation() {
+    let existing = router_ab_ecdsa_derivation_activation_request();
+    let command = CloudflareRouterAbEcdsaDerivationActivationCommandV1::new(
+        existing.activation_correlation_id.clone(),
+        existing.pending.clone(),
+        existing.client_activation.clone(),
+    )
+    .expect("public ECDSA activation command");
+    let first = cloudflare_router_ab_ecdsa_derivation_material_activation_ref_v1(&command)
+        .expect("Router-minted ECDSA activation ref");
+    let second = cloudflare_router_ab_ecdsa_derivation_material_activation_ref_v1(&command)
+        .expect("idempotent Router-minted ECDSA activation ref");
+
+    assert_eq!(first, second);
+    assert_eq!(
+        first.activation_id,
+        "ecdsa-activation-v1-crkrm9mr28cJQj6z6haRzW0ZBSw1NH5DYdl7bKNtpJQ"
+    );
+    assert_eq!(
+        first.capability,
+        "ecdsa-capability-v1-Mm1SNWRATVrl4lCOPo5qXuNy_yho_YlWScmJC3M4DU8"
+    );
+    assert_ne!(first.activation_id, first.capability);
+    assert!(first.activation_id.starts_with("ecdsa-activation-v1-"));
+    assert!(first.capability.starts_with("ecdsa-capability-v1-"));
+    assert_eq!(
+        first.material_owner,
+        command.pending.activation_context.lifecycle.account_id
+    );
+    assert_eq!(
+        first.key_binding,
+        command.client_activation.context_binding32_b64u
+    );
+    assert_eq!(
+        first.lifecycle_binding,
+        command.pending.activation_context.lifecycle.lifecycle_id
+    );
+    assert_eq!(
+        first.signing_worker,
+        command
+            .pending
+            .activation_context
+            .signer_set()
+            .selected_server
+            .server_id
+    );
+
+    let mut public_json = serde_json::to_value(command).expect("public activation JSON");
+    assert!(public_json.get("material_activation").is_none());
+    public_json
+        .as_object_mut()
+        .expect("public activation object")
+        .insert(
+            "material_activation".to_string(),
+            serde_json::to_value(existing.material_activation).expect("material activation JSON"),
+        );
+    assert!(
+        serde_json::from_value::<CloudflareRouterAbEcdsaDerivationActivationCommandV1>(public_json)
+            .is_err()
+    );
 }
 
 fn router_ab_ecdsa_derivation_activation_refresh_request(

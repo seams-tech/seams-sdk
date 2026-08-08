@@ -1,5 +1,4 @@
 import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
-import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   RegisterWalletInput,
   RegistrationAuthMethodInput,
@@ -70,7 +69,6 @@ export type WalletRegistrationActivateInput = {
   readonly ecdsa?: {
     readonly activationCorrelationId: CorrelationId;
     readonly activationRequestDigestB64u: string;
-    readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
     readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
   };
   readonly emailOtpEnrollment?: unknown;

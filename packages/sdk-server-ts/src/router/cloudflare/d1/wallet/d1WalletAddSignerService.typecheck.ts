@@ -10,7 +10,15 @@ const activationCommitWithoutCanonicalDigest = {
     kind: activationCommit.ecdsa.kind,
     activationCorrelationId: activationCommit.ecdsa.activationCorrelationId,
     publicFacts: activationCommit.ecdsa.publicFacts,
-    materialActivation: activationCommit.ecdsa.materialActivation,
+  },
+} satisfies WalletAddSignerEcdsaActivationRequest;
+
+const activationCommitWithBrowserOwnedMaterial = {
+  ...activationCommit,
+  ecdsa: {
+    ...activationCommit.ecdsa,
+    // @ts-expect-error The public activation request cannot choose Router-owned material identity.
+    materialActivation: {},
   },
 } satisfies WalletAddSignerEcdsaActivationRequest;
 
@@ -39,3 +47,4 @@ void validEcdsaFinalizePrepared;
 void ecdsaFinalizeWithSessionTerms;
 void ed25519FinalizeWithSessionTerms;
 void activationCommitWithoutCanonicalDigest;
+void activationCommitWithBrowserOwnedMaterial;

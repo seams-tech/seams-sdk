@@ -17,7 +17,6 @@ import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
 import type { CapabilityInstanceRef, MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { EcdsaServerActivationCommand } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
-import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 
 export type CreateRouterAbEcdsaRegistrationCeremonyRequestV1 = {
   readonly kind: 'create_router_ab_ecdsa_registration_ceremony_v1';
@@ -66,7 +65,6 @@ export type PersistInitialCanonicalEcdsaActivationResultV1 =
       readonly kind: 'initial_canonical_ecdsa_activation_persisted_v1';
       readonly ceremonyId: string;
       readonly journalId: InitialEcdsaCapabilityActivationPlanInput['journalId'];
-      readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
       readonly code?: never;
       readonly message?: never;
     }

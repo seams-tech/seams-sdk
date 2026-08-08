@@ -26,7 +26,6 @@ import type {
   RouterAbEcdsaVerifiedClientActivationFactsV1,
   RouterAbPublicDigest32V1Wire,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   AddAuthMethodInput,
   AddAuthMethodIntentGrant,
@@ -387,7 +386,6 @@ export type WalletAddSignerEcdsaActivationRequest = {
     activationCorrelationId: RouterAbEcdsaRegistrationActivationRequestV1['ecdsa']['activationCorrelationId'];
     publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
     expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
-    materialActivation: RouterAbMpcMaterialActivationRefWire;
   };
 };
 

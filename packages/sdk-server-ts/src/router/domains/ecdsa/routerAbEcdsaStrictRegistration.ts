@@ -28,7 +28,6 @@ import {
   type RouterAbPublicDigest32V1Wire,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/routerAbNormalSigningIdentity';
-import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
 import {
   ROUTER_AB_TRACE_ID_HEADER_V1,
@@ -171,7 +170,6 @@ export interface RouterAbEcdsaStrictRegistrationPort {
   activate(input: {
     readonly activationCorrelationId: CorrelationId;
     readonly activationRequestDigestB64u: string;
-    readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
     readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
     readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
     readonly requestPolicy: RouterAbEcdsaRegistrationRequestPolicyV1;
@@ -311,7 +309,6 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
   async activate(input: {
     readonly activationCorrelationId: CorrelationId;
     readonly activationRequestDigestB64u: string;
-    readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
     readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
     readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
     readonly requestPolicy: RouterAbEcdsaRegistrationRequestPolicyV1;
@@ -325,7 +322,6 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
       path: STRICT_ECDSA_ACTIVATION_PATH,
       authority: input.authority,
       activationCorrelationId: input.activationCorrelationId,
-      materialActivation: input.materialActivation,
       requestPolicy: input.requestPolicy,
       pendingActivation: input.pendingActivation,
       clientActivation: input.clientActivation,
@@ -388,7 +384,6 @@ class StrictRegistrationForwarder implements RouterAbEcdsaStrictRegistrationPort
       | {
           readonly kind: 'activation';
           readonly activationCorrelationId: CorrelationId;
-          readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
           readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
           readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
         }
@@ -697,7 +692,6 @@ function strictForwardBodyJson(
     | {
         readonly kind: 'activation';
         readonly activationCorrelationId: CorrelationId;
-        readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
         readonly pendingActivation: RouterAbEcdsaPendingActivationV1;
         readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
       },
@@ -706,7 +700,7 @@ function strictForwardBodyJson(
     case 'registration':
       return JSON.stringify(input.request);
     case 'activation':
-      return `{"activation_correlation_id":${JSON.stringify(input.activationCorrelationId)},"pending":${input.pendingActivation.canonicalPayloadJson},"client_activation":${JSON.stringify(input.clientActivation)},"material_activation":${JSON.stringify(input.materialActivation)}}`;
+      return `{"activation_correlation_id":${JSON.stringify(input.activationCorrelationId)},"pending":${input.pendingActivation.canonicalPayloadJson},"client_activation":${JSON.stringify(input.clientActivation)}}`;
     default:
       return assertNeverStrictForwardBody(input);
   }

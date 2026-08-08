@@ -722,15 +722,6 @@ async function persistInitialCanonicalEcdsaActivation(
         kind: 'initial_canonical_ecdsa_activation_persisted_v1',
         ceremonyId,
         journalId: plan.journalId,
-        materialActivation: parseRouterAbMpcMaterialActivationRef({
-          kind: 'mpc_material_activation_ref',
-          activation_id: plan.activationBinding.activationId,
-          capability: plan.activationBinding.signer.capability,
-          material_owner: plan.activationBinding.signer.materialOwner,
-          key_binding: plan.activationBinding.bindingDigest,
-          lifecycle_binding: ceremonyId,
-          signing_worker: active.registrationRequest.signer_set.selected_server.server_id,
-        }),
       };
     case 'exact_record_conflict':
     case 'corrupt':

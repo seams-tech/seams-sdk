@@ -252,9 +252,6 @@ type ActivateWalletRegistrationEcdsaInput = {
     readonly activationRequestDigestB64u: NonNullable<
       WalletRegistrationActivateInput['ecdsa']
     >['activationRequestDigestB64u'];
-    readonly materialActivation: NonNullable<
-      WalletRegistrationActivateInput['ecdsa']
-    >['materialActivation'];
     readonly publicFacts: NonNullable<WalletRegistrationActivateInput['ecdsa']>['clientActivation'];
   };
 };
@@ -3359,7 +3356,6 @@ export class CloudflareD1WalletRegistrationService {
           kind: 'router_ab_ecdsa_registration_activation_v1',
           activationCorrelationId: context.input.ecdsa.activationCorrelationId,
           activationRequestDigestB64u: context.input.ecdsa.activationRequestDigestB64u,
-          materialActivation: context.input.ecdsa.materialActivation,
           publicFacts: context.input.ecdsa.clientActivation,
         },
       } as ActivateWalletRegistrationEcdsaInput,
@@ -3542,7 +3538,6 @@ export class CloudflareD1WalletRegistrationService {
         registrationCeremonyId: request.registrationCeremonyId,
         publicFacts: request.ecdsa.publicFacts,
         activationRequestDigestB64u: request.ecdsa.activationRequestDigestB64u,
-        materialActivation: request.ecdsa.materialActivation,
         activationOwner: owner,
       });
       markServerTiming('ecdsa_activate_d1_claim', claimStartedAtMs);
@@ -3603,11 +3598,7 @@ export class CloudflareD1WalletRegistrationService {
         if (
           alphabetizeStringify(ecdsaBranch.publicFacts) !==
             alphabetizeStringify(request.ecdsa.publicFacts) ||
-          ecdsaBranch.activationRequestDigestB64u !== request.ecdsa.activationRequestDigestB64u ||
-          !sameRouterAbMpcMaterialActivationRef(
-            ecdsaBranch.materialActivation,
-            request.ecdsa.materialActivation,
-          )
+          ecdsaBranch.activationRequestDigestB64u !== request.ecdsa.activationRequestDigestB64u
         ) {
           return {
             ok: false,
@@ -3642,7 +3633,6 @@ export class CloudflareD1WalletRegistrationService {
       const activated = await this.ecdsaStrictRegistration.activate({
         activationCorrelationId: request.ecdsa.activationCorrelationId,
         activationRequestDigestB64u: ecdsaBranch.activationRequestDigestB64u,
-        materialActivation: ecdsaBranch.materialActivation,
         pendingActivation: ecdsaBranch.pendingActivation,
         clientActivation: ecdsaBranch.publicFacts,
         requestPolicy: {

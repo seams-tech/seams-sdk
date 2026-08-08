@@ -24,7 +24,6 @@ import {
 import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/utils/near';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
-import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   RegistrationEstablishedEcdsaSession,
   RegistrationEstablishedEd25519Session,
@@ -2742,7 +2741,6 @@ type ActivateWalletRegistrationArgsBase = {
 type WalletRegistrationActivateEcdsaRequest = {
   activationCorrelationId: CorrelationId;
   activationRequestDigestB64u: string;
-  materialActivation: RouterAbMpcMaterialActivationRefWire;
   clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
   expectedKeyHandles?: string[];
 };
@@ -3651,7 +3649,6 @@ export async function activateWalletAddSignerEcdsa(args: {
   activationCorrelationId: CorrelationId;
   publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
   expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
-  materialActivation: RouterAbMpcMaterialActivationRefWire;
 }): Promise<WalletAddSignerEcdsaActivationResponse> {
   const walletId = String(args.walletId || '').trim();
   if (!walletId) throw new Error('walletId is required for add-signer ECDSA activation');
@@ -3665,7 +3662,6 @@ export async function activateWalletAddSignerEcdsa(args: {
         activationCorrelationId: args.activationCorrelationId,
         publicFacts: args.publicFacts,
         expectedActivationRequestDigest: args.expectedActivationRequestDigest,
-        materialActivation: args.materialActivation,
       },
     },
   });

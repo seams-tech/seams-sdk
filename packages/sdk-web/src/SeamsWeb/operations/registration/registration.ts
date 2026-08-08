@@ -1612,7 +1612,6 @@ export async function runEcdsaEnabledThreeRouteRegistrationCeremony(args: {
           clientActivation: verified.publicFacts,
           activationCorrelationId,
           activationRequestDigestB64u: activationCommand.requestDigest,
-          materialActivation: persisted.materialActivation,
         },
         ...(activateEmailOtp.enrollment ? { emailOtpEnrollment: activateEmailOtp.enrollment } : {}),
         ...(activateEmailOtp.backupAck ? { emailOtpBackupAck: activateEmailOtp.backupAck } : {}),

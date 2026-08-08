@@ -10,7 +10,6 @@ import {
 import {
   mpcMaterialActivationRefsEqual,
   parseCapabilityInstanceRef,
-  parseMpcMaterialActivationId,
   parseMpcMaterialActivationRef,
   parseMpcMaterialOwnerRef,
   parseWalletId,
@@ -575,7 +574,6 @@ function activationBindingAadProjection(binding: EcdsaActivationBinding) {
       signing_root_id: binding.signer.signingRootId,
       signing_root_version: binding.signer.signingRootVersion,
     },
-    activation_id: binding.activationId,
     role_local_binding: binding.roleLocalBinding,
     binding_digest: binding.bindingDigest,
     durable_material_ref: binding.durableMaterialRef,
@@ -595,7 +593,6 @@ function activeManifestBindingAadProjection(manifest: ActiveEcdsaCapabilityManif
       signing_root_id: manifest.signer.signingRootId,
       signing_root_version: manifest.signer.signingRootVersion,
     },
-    activation_id: manifest.durableMaterial.materialActivation.activationId,
     role_local_binding: manifest.durableMaterial.roleLocalBinding,
     binding_digest: manifest.durableMaterial.bindingDigest,
     durable_material_ref: manifest.durableMaterial.durableMaterialRef,
@@ -908,7 +905,6 @@ function parseActivationBinding(value: unknown): EcdsaActivationBinding {
     'kind',
     'targetManifest',
     'signer',
-    'activationId',
     'roleLocalBinding',
     'bindingDigest',
     'durableMaterialRef',
@@ -919,7 +915,6 @@ function parseActivationBinding(value: unknown): EcdsaActivationBinding {
   return buildEcdsaActivationBinding({
     targetManifest: parseManifestIdentity(record.targetManifest),
     signer: parsePreparedSigner(record.signer),
-    activationId: unwrapDomainId(parseMpcMaterialActivationId(record.activationId)),
     roleLocalBinding: parseRoleLocalBinding(record.roleLocalBinding),
     bindingDigest: parseEcdsaRoleLocalBindingDigest(record.bindingDigest),
     durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(record.durableMaterialRef),
@@ -2147,10 +2142,7 @@ export class IndexedDbEcdsaCapabilityManifestStore {
     try {
       for (const row of rows) {
         const pointer = parsePointerRow(row);
-        if (
-          pointer.selector.authority.walletId === walletId &&
-          pointer.selector.capability === capability
-        ) {
+        if (pointer.selector.authority.walletId === walletId) {
           selectors.push(pointer.selector);
         }
       }
@@ -2160,38 +2152,41 @@ export class IndexedDbEcdsaCapabilityManifestStore {
     if (selectors.length === 0) {
       return { kind: 'missing', subject: 'capability', capability };
     }
-    if (selectors.length > 1) {
-      return { kind: 'exact_record_conflict', capability };
+    const exact: Extract<EcdsaCapabilityManifestLookup, { readonly kind: 'active' }>[] = [];
+    for (const selector of selectors) {
+      const lookup = await this.lookup(selector);
+      switch (lookup.kind) {
+        case 'active':
+          if (
+            mpcMaterialActivationRefsEqual(
+              lookup.manifest.activation.materialActivation,
+              materialActivation,
+            ) &&
+            mpcMaterialActivationRefsEqual(
+              lookup.manifest.durableMaterial.materialActivation,
+              materialActivation,
+            ) &&
+            mpcMaterialActivationRefsEqual(
+              lookup.material.binding.materialActivation,
+              materialActivation,
+            )
+          ) {
+            exact.push(lookup);
+          }
+          break;
+        case 'retired':
+          break;
+        case 'missing':
+          return { kind: 'missing', subject: lookup.subject, capability };
+        case 'exact_binding_mismatch':
+        case 'exact_record_conflict':
+        case 'corrupt':
+        case 'persistence_unavailable':
+          return { kind: lookup.kind, capability };
+      }
     }
-
-    const lookup = await this.lookup(selectors[0]);
-    switch (lookup.kind) {
-      case 'active':
-        return mpcMaterialActivationRefsEqual(
-          lookup.manifest.activation.materialActivation,
-          materialActivation,
-        ) &&
-          mpcMaterialActivationRefsEqual(
-            lookup.manifest.durableMaterial.materialActivation,
-            materialActivation,
-          ) &&
-          mpcMaterialActivationRefsEqual(
-            lookup.material.binding.materialActivation,
-            materialActivation,
-          )
-          ? lookup
-          : { kind: 'exact_binding_mismatch', capability };
-      case 'retired':
-        return lookup;
-      case 'missing':
-        return { kind: 'missing', subject: lookup.subject, capability };
-      case 'exact_binding_mismatch':
-      case 'exact_record_conflict':
-      case 'corrupt':
-      case 'persistence_unavailable':
-        return { kind: lookup.kind, capability };
-    }
-    return assertNever(lookup);
+    if (exact.length > 1) return { kind: 'exact_record_conflict', capability };
+    return exact[0] ?? { kind: 'exact_binding_mismatch', capability };
   }
 
   async openActiveMaterial(
@@ -2227,8 +2222,7 @@ export class IndexedDbEcdsaCapabilityManifestStore {
     }
     if (
       locator.durableMaterialRef !== materialRef.durableMaterialRef ||
-      locator.bindingDigest !== materialRef.bindingDigest ||
-      locator.selector.capability !== capability
+      locator.bindingDigest !== materialRef.bindingDigest
     ) {
       return { kind: 'exact_binding_mismatch', capability };
     }
@@ -2297,7 +2291,6 @@ export class IndexedDbEcdsaCapabilityManifestStore {
       const durableMaterial = parsed.activeProof.durableMaterial;
       if (durableMaterial.durableMaterialRef !== materialRef.durableMaterialRef) continue;
       if (
-        parsed.selector.capability !== capability ||
         durableMaterial.bindingDigest !== materialRef.bindingDigest ||
         !mpcMaterialActivationRefsEqual(
           durableMaterial.materialActivation,

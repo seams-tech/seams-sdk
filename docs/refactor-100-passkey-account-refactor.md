@@ -2311,6 +2311,17 @@ Broad gate:
   sends only `ecdsaPublicFacts` and installs the receipt's ref unchanged into
   the Refactor 90 activation journal; it never derives one.
 
+  The Router mint is deterministic for the idempotent activation command. It
+  hashes length-prefixed public fields — activation correlation, wallet,
+  registration-request digest, proof-transcript digest, ECDSA context binding,
+  and selected SigningWorker — under separate
+  `router-ab-cloudflare/ecdsa-material-activation-id/v1` and
+  `router-ab-cloudflare/ecdsa-material-capability/v1` domains. The resulting
+  IDs use `ecdsa-activation-v1-<base64url>` and
+  `ecdsa-capability-v1-<base64url>`. Retries therefore reproduce the exact
+  receipt identity after an ambiguous transport failure, while a new
+  activation correlation produces a new identity.
+
   This satisfies Invariant 11 *by construction* rather than by discipline:
   with one minting authority there is no "which ref wins" case to reconcile,
   and no obligation to re-prove at each future refactor that two writers never
