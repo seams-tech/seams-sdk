@@ -1904,7 +1904,18 @@ repository evidence.
       finds nothing rather than being tried against every row. Tested against a
       real ceremony's output; all ten codes reach the same seed.
 - [ ] Recover every key in the exact manifest before credential promotion.
-- [ ] Consume a recovery code only with the activation commit.
+- [x] Consume a recovery code only with the activation commit.
+      `runWalletRecoveryWithCode` makes the ordering structural rather than a
+      rule each call site restates: it reserves before the work runs, consumes
+      only on a reported commit, and releases on every other path including a
+      throw — the case a hand-written call site is likeliest to miss, and the
+      one where a burned code leaves the user one poorer with nothing
+      recovered.
+
+      A commit whose hold has lapsed is *refused* rather than released: the
+      code is owed consumption, and handing it back would let one code be
+      spent twice. Nothing here persists; each transition returns the next
+      lifecycle for the caller to write.
 
 ### Phase 5: Credential Management
 
