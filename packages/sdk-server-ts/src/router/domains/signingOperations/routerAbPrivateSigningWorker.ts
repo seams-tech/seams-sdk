@@ -1787,7 +1787,26 @@ export async function authenticateRouterAbOperationStepUpAppSessionIdentity(inpu
       : activeSession?.audience.kind === 'hosted_wallet_iframe'
         ? activeSession.audience.walletOrigin === requestOrigin
         : false;
-  if (!activeSession || activeSession.principalId !== principalId.value || !audienceMatches) {
+  if (!activeSession) {
+    // A structurally valid app session JWT whose session no longer resolves is
+    // the normal end of a session's life, not a malformed credential: the row
+    // is clamped to the wallet-session quota it was minted alongside, so it can
+    // lapse well before the token's own exp. Name it with the shared
+    // wallet-session vocabulary — the client classifies this code and tells the
+    // user to authenticate again instead of surfacing a bare `unauthorized`.
+    return {
+      ok: false,
+      error: routerAbStepUpError(
+        401,
+        WALLET_SESSION_FAILURE_CODES.expired,
+        'Active app session is unavailable',
+      ),
+    };
+  }
+  // The session exists but belongs to someone else, or was minted for another
+  // origin. Neither is a lifecycle outcome the user can resolve by signing in
+  // again, so these keep the opaque code.
+  if (activeSession.principalId !== principalId.value || !audienceMatches) {
     return {
       ok: false,
       error: routerAbStepUpError(401, 'unauthorized', 'Active app session is unavailable'),
