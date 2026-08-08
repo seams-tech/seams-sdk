@@ -762,6 +762,11 @@ were exported, tested, and called only by their own tests. Phase 4 was never
 unlock's were. What it needs is a route, an RPC and a surface, which is the
 same three-piece shape, not more crypto.
 
+**Phase 4 is now wired end to end.** All four flows — spend, promote,
+acknowledge, rotate — have a domain function, a route and a client RPC, each
+mutation-checked. What remains for the phase is UI, and proving it against a
+live stack.
+
 **Two of Phase 4's flows are now wired end to end** — spending a code
 (`walletRecoveryAttempt.ts`, `/wallets/recovery/spend`,
 `walletRecoverySpend.ts`) and promoting the credential a recovery enrolled
