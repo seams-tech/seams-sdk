@@ -14,13 +14,16 @@ import type {
 import { connectEd25519Session } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/connectSession';
 import {
   buildThresholdEd25519WebAuthnPrfSecretSource,
-  issueEd25519OperationStepUpGrant,
+  issueEd25519OperationStepUpAuthorization,
   mintEd25519WalletSession,
 } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/walletSession';
 import { buildRouterAbEd25519NearTransactionPrepareRequestV2 } from '../../packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning';
 
 const PUBLISHABLE_KEY = 'pk_test_refresh';
 const PRF_FIRST_B64U = 'cHJmLWZpcnN0LXNlY3JldA';
+/* Refactor 90 replaced the standalone step-up grant row with the evidence set
+   the atomic admission binds, so the response names a digest, not a grant id. */
+const OPERATION_STEP_UP_EVIDENCE_SET_DIGEST = base64UrlEncode(new Uint8Array(32).fill(9));
 
 type RefreshFetchCapture = {
   authorization: string;
@@ -121,9 +124,11 @@ async function operationStepUpFetch(
     JSON.stringify(
       activeOperationStepUpResponseBody || {
         ok: true,
-        kind: 'operation_step_up',
-        grantId: 'operation-step-up-grant',
-        authorizationSessionId: 'authorization-session',
+        kind: 'verified_step_up',
+        authorization: {
+          kind: 'operation_step_up',
+          evidence_set_digest: OPERATION_STEP_UP_EVIDENCE_SET_DIGEST,
+        },
         expiresAtMs: Date.now() + 60_000,
         materialRecovery,
       },
@@ -144,7 +149,6 @@ async function operationStepUpPrepareRequest() {
         account_id: 'frost-vermillion-k7p9m2',
         authorization: {
           kind: 'operation_step_up',
-          grant_id: 'operation-step-up-grant',
         },
         material_activation: {
           kind: 'mpc_material_activation_ref',
@@ -348,8 +352,9 @@ test('Email OTP Ed25519 step-up sends exact operation proof without material rec
       emailHashHex: 'email-hash-operation-step-up',
     });
     const authorityRef = await walletAuthAuthorityRef({ authority });
-    const result = await issueEd25519OperationStepUpGrant({
+    const result = await issueEd25519OperationStepUpAuthorization({
       relayerUrl: 'https://relay.example.test',
+      credential: { kind: 'app_session_cookie' },
       normalSigningRequest: await operationStepUpPrepareRequest(),
       displayDigest: base64UrlEncode(new Uint8Array(32).fill(7)),
       proof: {
@@ -363,9 +368,11 @@ test('Email OTP Ed25519 step-up sends exact operation proof without material rec
     });
 
     expect(result).toEqual({
-      kind: 'operation_step_up',
-      grantId: 'operation-step-up-grant',
-      authorizationSessionId: 'authorization-session',
+      kind: 'verified_step_up',
+      authorization: {
+        kind: 'operation_step_up',
+        evidence_set_digest: OPERATION_STEP_UP_EVIDENCE_SET_DIGEST,
+      },
       expiresAtMs: result.expiresAtMs,
       materialRecovery: { kind: 'not_requested' },
     });
@@ -411,8 +418,9 @@ test('Email OTP Ed25519 step-up returns exact locally recoverable material with 
       emailHashHex: 'email-hash-operation-step-up',
     });
     const authorityRef = await walletAuthAuthorityRef({ authority });
-    const result = await issueEd25519OperationStepUpGrant({
+    const result = await issueEd25519OperationStepUpAuthorization({
       relayerUrl: 'https://relay.example.test',
+      credential: { kind: 'app_session_cookie' },
       normalSigningRequest: await operationStepUpPrepareRequest(),
       displayDigest: base64UrlEncode(new Uint8Array(32).fill(7)),
       proof: {
@@ -459,9 +467,11 @@ test('Email OTP Ed25519 step-up rejects a material-recovery key-version mismatch
   activeOperationStepUpFetchCapture = capture;
   activeOperationStepUpResponseBody = {
     ok: true,
-    kind: 'operation_step_up',
-    grantId: 'operation-step-up-grant',
-    authorizationSessionId: 'authorization-session',
+    kind: 'verified_step_up',
+    authorization: {
+      kind: 'operation_step_up',
+      evidence_set_digest: OPERATION_STEP_UP_EVIDENCE_SET_DIGEST,
+    },
     expiresAtMs: Date.now() + 60_000,
     materialRecovery: {
       kind: 'email_otp_local_material_v1',
@@ -480,8 +490,9 @@ test('Email OTP Ed25519 step-up rejects a material-recovery key-version mismatch
     });
     const authorityRef = await walletAuthAuthorityRef({ authority });
     await expect(
-      issueEd25519OperationStepUpGrant({
+      issueEd25519OperationStepUpAuthorization({
         relayerUrl: 'https://relay.example.test',
+        credential: { kind: 'app_session_cookie' },
         normalSigningRequest: await operationStepUpPrepareRequest(),
         displayDigest: base64UrlEncode(new Uint8Array(32).fill(7)),
         proof: {
@@ -515,9 +526,11 @@ test('Ed25519 operation step-up rejects unexpected success-response fields', asy
   activeOperationStepUpFetchCapture = capture;
   activeOperationStepUpResponseBody = {
     ok: true,
-    kind: 'operation_step_up',
-    grantId: 'operation-step-up-grant',
-    authorizationSessionId: 'authorization-session',
+    kind: 'verified_step_up',
+    authorization: {
+      kind: 'operation_step_up',
+      evidence_set_digest: OPERATION_STEP_UP_EVIDENCE_SET_DIGEST,
+    },
     expiresAtMs: Date.now() + 60_000,
     materialRecovery: { kind: 'not_requested' },
     thresholdSessionId: 'forbidden-reusable-session',
@@ -533,8 +546,9 @@ test('Ed25519 operation step-up rejects unexpected success-response fields', asy
     });
     const authorityRef = await walletAuthAuthorityRef({ authority });
     await expect(
-      issueEd25519OperationStepUpGrant({
+      issueEd25519OperationStepUpAuthorization({
         relayerUrl: 'https://relay.example.test',
+        credential: { kind: 'app_session_cookie' },
         normalSigningRequest: await operationStepUpPrepareRequest(),
         displayDigest: base64UrlEncode(new Uint8Array(32).fill(7)),
         proof: {
