@@ -300,6 +300,37 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
    * Stores the first revision of a new envelope. Fails with `version_mismatch`
    * if any envelope already exists at this locator.
    */
+  /**
+   * Every envelope stored for one wallet, in key order.
+   *
+   * Credential management needs this and cannot be written without it: whether
+   * removing a passkey is safe depends on whether *another* active envelope
+   * still protects the same custody seed, and that question is unanswerable
+   * from a single locator.
+   *
+   * The scan is bounded by the wallet's own key prefix, so it cannot reach
+   * another wallet's rows even if a caller passes a crafted id — the prefix is
+   * a JSON-encoded array whose first element is the wallet.
+   */
+  async listWalletEnvelopes(
+    walletId: WalletId,
+    options: { readonly limit?: number } = {},
+  ): Promise<readonly PasskeyCustodyEnvelopeRecord[]> {
+    /* `["<walletId>",` — the encoded key's opening element plus its comma. The
+       trailing comma is what stops a wallet whose id is a prefix of another's
+       from matching it. */
+    const prefix = `[${JSON.stringify(String(walletId))},`;
+    const entries = await this.records.listByKeyPrefix(prefix, options);
+    const envelopes: PasskeyCustodyEnvelopeRecord[] = [];
+    for (const entry of entries) {
+      if (entry.result.kind !== 'present') continue;
+      // Bound to the wallet the caller asked for, never to what the row says.
+      if (String(entry.result.value.walletId) !== String(walletId)) continue;
+      envelopes.push(entry.result.value);
+    }
+    return envelopes;
+  }
+
   async createEnvelope(
     envelope: PasskeyCustodyEnvelopeRecord,
   ): Promise<PasskeyCustodyEnvelopePutResult> {

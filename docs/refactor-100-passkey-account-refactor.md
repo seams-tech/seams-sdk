@@ -1956,7 +1956,19 @@ repository evidence.
       Exported from `near_signer` as `passkey_custody_open_wallet_seed_v1` and
       `passkey_custody_reseal_wallet_seed_v1`, with the reseal generating its
       own nonce.
-- [ ] Add passkey envelope creation, listing, and revocation.
+- [x] Add passkey envelope creation, listing, and revocation. Creation,
+      rewrap, retire and revoke were already on the store; **listing was the
+      missing one, and the credential-management rules could not be written
+      without it.** Whether removing a passkey is safe depends on whether
+      *another* active envelope still protects the same custody seed, which no
+      per-envelope lookup can answer.
+
+      `listWalletEnvelopes` scans by the wallet's own key prefix — the encoded
+      key's first element plus its comma, so a wallet whose id prefixes
+      another's cannot match it — and `admitEnvelopeRevocation` refuses the
+      last *active* envelope, since revoking it leaves a seed no factor can
+      open while appearing to succeed. Counting rows rather than active rows
+      fails a test.
 - [ ] Add device labels and credential activity history.
 - [ ] Add lane refresh escalation after suspected holder-secret exposure.
 
