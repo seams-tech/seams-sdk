@@ -1475,8 +1475,26 @@ repository evidence.
         coupling this removes. The mutation survived until the binding's byte
         encoding was pinned field by field.
 
-      **The splice's real blocker, found 2026-08-08: nothing installs the
-      ceremony's material into a signing worker — for either key set.**
+      **Correction (2026-08-09): the material install below is Phase 3 work,
+      not a Phase 2 blocker.** It was recorded here as blocking the splice.
+      That reads the sequencing backwards: this plan already owns the handoff
+      as Phase 3's "Open custody entries into opaque worker handles" and "Hand
+      verified ECDSA custody material to the Refactor 90 activation journal and
+      read-back path", and the exact shape of it is a *deliberately unfrozen*
+      entry under Decisions Required — "the typed ownership handoff from an
+      opened Refactor 100 ECDSA custody handle into the Refactor 90 activation
+      input". So nothing consuming the blob today is the plan working as
+      written, not an oversight.
+
+      The splice may therefore land first, as sequenced. A ceremony-registered
+      wallet is not signable until Phase 3, which is acceptable because the
+      PRF-derived path is deleted only later ("Delete PRF-derived signing-root
+      paths after replacement") and dev wallets are wiped with the Phase 2
+      cutover. What follows stays here as the *findings* that Phase 3 starts
+      from, not as a gate on Phase 2.
+
+      **Findings (2026-08-08): nothing installs the ceremony's material into a
+      signing worker — for either key set.**
       `ecdsaReadyStateBlobB64u` has existed on the commit payload since the
       ceremony was built, and no production code reads it: it reaches the
       shared wire type, a worker typecheck fixture, and tests, and stops there.
@@ -1521,8 +1539,11 @@ repository evidence.
       finalizing a pending blob it holds — not the store, which is fine as-is.
 
       **Decision (2026-08-09, user-confirmed): `ecdsaReadyStateBlobB64u` never
-      crosses to the server.** Investigating the blob's encoding settled it —
-      the question was sharper than "sealed client material":
+      crosses to the server. This was not a free choice — Invariant 3 already
+      required it**, and the Non-Goals repeat it: persistence adapters never
+      receive a holder share, and custody material is never stored in the app,
+      iframe host, Router, or database. The blob's encoding is what makes it a
+      holder share rather than opaque ciphertext:
       `extract_client_signing_share32_from_ready_state_blob` is
       `parse_ready_state(&blob).x_client32`, so the blob yields the client's
       signing share from its bytes with *no key*. It is not self-encrypted;
