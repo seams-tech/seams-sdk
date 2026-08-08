@@ -34,6 +34,12 @@ import {
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 
+const ED25519_WALLET_SESSION_MINT_TIMEOUT_MS = 15_000;
+
+function abortEd25519WalletSessionMint(controller: AbortController): void {
+  controller.abort('timeout');
+}
+
 export type ThresholdEd25519WebAuthnPrfSecretSource = {
   kind: 'webauthn_prf_first_credential';
   credential: WebAuthnAuthenticationCredential;
@@ -205,6 +211,8 @@ export async function mintEd25519WalletSession(args: {
     message: string;
   }>;
 
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
   try {
     const url = `${relayerUrl}${ROUTER_AB_ED25519_WALLET_SESSION_PATH}`;
     const appSessionJwt =
@@ -218,6 +226,11 @@ export async function mintEd25519WalletSession(args: {
     const projectEnvironmentId = usesPublishableKeyBearer
       ? String(args.projectEnvironmentId || '').trim() || undefined
       : undefined;
+    timeoutId = setTimeout(
+      abortEd25519WalletSessionMint,
+      ED25519_WALLET_SESSION_MINT_TIMEOUT_MS,
+      controller,
+    );
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -225,6 +238,7 @@ export async function mintEd25519WalletSession(args: {
         ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
       },
       credentials: useAppSessionCookie ? 'include' : 'omit',
+      signal: controller.signal,
       body: JSON.stringify({
         sessionKind: args.sessionKind,
         relayerKeyId: args.relayerKeyId,
@@ -234,7 +248,13 @@ export async function mintEd25519WalletSession(args: {
       }),
     });
 
-    const data = (await response.json().catch(() => ({}))) as Ed25519WalletSessionMintResponseBody;
+    let data: Ed25519WalletSessionMintResponseBody;
+    try {
+      data = (await response.json()) as Ed25519WalletSessionMintResponseBody;
+    } catch (error: unknown) {
+      if (controller.signal.aborted) throw error;
+      data = {};
+    }
     if (!response.ok) {
       return {
         ok: false,
@@ -285,7 +305,16 @@ export async function mintEd25519WalletSession(args: {
         ? (e as { message?: unknown }).message
         : e || 'Failed to mint threshold session',
     );
-    return { ok: false, code: 'network_error', message: msg };
+    const timedOut = controller.signal.aborted;
+    return {
+      ok: false,
+      code: timedOut ? 'timeout' : 'network_error',
+      message: timedOut
+        ? `Wallet Session mint timed out after ${ED25519_WALLET_SESSION_MINT_TIMEOUT_MS}ms`
+        : msg,
+    };
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
   }
 }
 
