@@ -552,6 +552,27 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_WALLET_REGISTRATION_SESSION_SERVICES,
       { kind: 'event', action: 'wallet_created' },
     ),
+    apiCredentialRoute(
+      'wallet_recovery_status',
+      'GET',
+      '/wallets/:walletId/recovery/status',
+      'Report how many recovery codes remain and whether the owner saved them',
+      {
+        plane: 'api_credentials',
+        /* Authenticated on purpose, unlike the spend route beside it. Counting
+           how many of ten codes remain is an enumeration oracle for a stranger
+           and the entire point of a recovery settings screen for the owner —
+           the credential is what separates those two callers. */
+        credentials: ['publishable_key'],
+        scopes: ['wallets.read'],
+        environmentBinding: 'required',
+        originBinding: 'required',
+      },
+      /* Reading status costs nothing to meter: it runs no ceremony and mints
+         no material. */
+      { kind: 'none' },
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+    ),
     publicRoute(
       'wallet_recovery_codes_rotate',
       'POST',

@@ -23,6 +23,7 @@ const RECOVERY_SPEND_ROUTE_ID = 'wallet_recovery_code_spend';
 const RECOVERY_PROMOTE_ROUTE_ID = 'wallet_recovery_credential_promote';
 const RECOVERY_ACK_ROUTE_ID = 'wallet_recovery_backup_acknowledge';
 const RECOVERY_ROTATE_ROUTE_ID = 'wallet_recovery_codes_rotate';
+const RECOVERY_STATUS_ROUTE_ID = 'wallet_recovery_status';
 
 export async function handlePasskeyCustody(ctx: FetchRouterApiContext): Promise<Response | null> {
   const route = findRouteDefinitionById(ctx.routeDefinitions, ROUTE_ID);
@@ -366,4 +367,58 @@ export async function handleWalletRecoveryRotate(
         body: { ok: false, code: 'rotation_rejected', message: result.reason },
       });
   }
+}
+
+/**
+ * Reporting recovery status to the wallet's owner.
+ *
+ * The wallet comes from the path, and the route sits behind credentials —
+ * that is what makes counting remaining codes safe here and unsafe on the
+ * spend route beside it.
+ *
+ * Counts only, never identifiers. Which codes remain is not something even
+ * the owner's browser needs, and a list would be one leak away from being
+ * useful to someone else.
+ */
+export async function handleWalletRecoveryStatus(
+  ctx: FetchRouterApiContext,
+): Promise<Response | null> {
+  const route = findRouteDefinitionById(ctx.routeDefinitions, RECOVERY_STATUS_ROUTE_ID);
+  if (!route) throw new Error(`Missing route definition for ${RECOVERY_STATUS_ROUTE_ID}`);
+  if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
+
+  const walletId = walletIdFromPath(route.path, ctx.pathname);
+  if (!walletId) {
+    return toFetchRouteResponse({
+      status: 400,
+      body: { ok: false, code: 'invalid_request', message: 'status needs a wallet' },
+    });
+  }
+
+  const result = await ctx.service.passkeyCustody.readRecoveryStatus({ walletId });
+  if (result.kind === 'no_recovery_set') {
+    return toFetchRouteResponse({
+      status: 404,
+      body: { ok: false, code: 'no_recovery_set', message: 'this wallet has no recovery codes' },
+    });
+  }
+  return toFetchRouteResponse({
+    status: 200,
+    body: {
+      ok: true,
+      activeCodeCount: result.activeCodeCount,
+      totalCodeCount: result.totalCodeCount,
+      issuedAtMs: result.issuedAtMs,
+      backupOutstanding: result.backupOutstanding,
+    },
+  });
+}
+
+function walletIdFromPath(routePath: string, pathname: string): string {
+  const routeSegments = routePath.split('/').filter(Boolean);
+  const pathSegments = pathname.split('/').filter(Boolean);
+  const index = routeSegments.indexOf(':walletId');
+  if (index < 0) return '';
+  const segment = pathSegments[index];
+  return segment ? decodeURIComponent(segment).trim() : '';
 }
