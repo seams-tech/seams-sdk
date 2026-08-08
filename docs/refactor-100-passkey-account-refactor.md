@@ -1998,7 +1998,20 @@ repository evidence.
       last *active* envelope, since revoking it leaves a seed no factor can
       open while appearing to succeed. Counting rows rather than active rows
       fails a test.
-- [ ] Add device labels and credential activity history.
+- [x] Add device labels and credential activity history.
+      A *sibling* of the custody envelope, never a field on it: the envelope's
+      AAD covers its own fields, so folding a mutable label inside would mean
+      renaming a device rewrapped custody, and a failed rename could leave a
+      wallet unopenable. It carries no secret and decides nothing — revocation
+      reads the envelope's lifecycle, not this.
+
+      Absences are meaningful: no label until the user sets one (inventing one
+      from a user agent would present a guess as their choice), and no
+      last-use until it has been used since registration. A use count without
+      a last-use time, or the reverse, is refused — that history cannot have
+      happened, and it is how a partial write shows up. Recording a use is
+      monotonic, so an out-of-order report cannot make a credential read as
+      unused.
 - [ ] Add lane refresh escalation after suspected holder-secret exposure.
 
 ### Phase 6: Linked-Lane Integration
