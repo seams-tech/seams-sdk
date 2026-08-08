@@ -1,4 +1,8 @@
 import {
+  parseWalletRecoveryBackupAcknowledgementV1,
+  type WalletRecoveryBackupAcknowledgementV1,
+} from '@shared/wallet-recovery/recoveryCodes';
+import {
   parseWalletRecoveryEnvelopeSetRecord,
   type WalletRecoveryEnvelopeSetRecord,
 } from '@shared/wallet-recovery';
@@ -77,6 +81,10 @@ export type WalletCustodyRegistrationCommitResult =
   | { readonly kind: 'inconsistent'; readonly reason: string };
 
 /** Recovery sets are wallet-scoped: one set covers the wallet, not one factor. */
+export function walletRecoveryBackupAcknowledgementRecordKey(walletId: WalletId): string {
+  return `wallet-recovery-backup-ack/${String(walletId)}`;
+}
+
 export function walletRecoveryEnvelopeSetRecordKey(walletId: WalletId): string {
   return `recovery-set:${String(walletId)}`;
 }
@@ -214,6 +222,44 @@ export class CloudflareD1WalletCustodyCommitStore {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Reads the wallet's backup acknowledgement, if any.
+   *
+   * Absent is the normal state for a wallet whose owner has not confirmed
+   * saving their codes, so it is `null` rather than an error.
+   */
+  async readBackupAcknowledgement(
+    walletId: WalletId,
+  ): Promise<WalletRecoveryBackupAcknowledgementV1 | null> {
+    const read = await this.records.read(walletRecoveryBackupAcknowledgementRecordKey(walletId));
+    if (read.kind === 'missing') return null;
+    const parsed = parseWalletRecoveryBackupAcknowledgementV1(read.value, {
+      expectedWalletId: String(walletId),
+    });
+    return parsed.ok ? parsed.record : null;
+  }
+
+  /**
+   * Records that the owner confirmed saving their codes.
+   *
+   * Written with no expected version, unlike the recovery set: this row is
+   * cosmetic, a repeat acknowledgement is not a conflict worth surfacing to
+   * someone pressing a button, and it shares no record with the wraps a spend
+   * updates — which is exactly why it is a separate key.
+   */
+  async writeBackupAcknowledgement(
+    record: WalletRecoveryBackupAcknowledgementV1,
+  ): Promise<{ kind: 'stored' } | { kind: 'conflict' }> {
+    const key = walletRecoveryBackupAcknowledgementRecordKey(record.walletId as WalletId);
+    const existing = await this.records.read(key);
+    const result = await this.records.put(
+      key,
+      record as unknown as WalletCustodyCommitRecord,
+      existing.kind === 'missing' ? null : existing.version,
+    );
+    return result.kind === 'stored' ? { kind: 'stored' } : { kind: 'conflict' };
   }
 
   /**

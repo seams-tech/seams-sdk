@@ -18,7 +18,10 @@ import {
   type WalletRecoveryPromotionResult,
 } from '../../../domains/passkeyCustody/walletRecoveryPromotion';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
-import type { RecoveredKeySetOutcome } from '@shared/wallet-recovery/recoveryCodes';
+import {
+  buildWalletRecoveryBackupAcknowledgementV1,
+  type RecoveredKeySetOutcome,
+} from '@shared/wallet-recovery/recoveryCodes';
 
 /**
  * The custody envelope layer's way into the router.
@@ -104,6 +107,18 @@ export interface RouterApiPasskeyCustodyService {
     readonly requiredKeySets: readonly string[];
     readonly outcomes: readonly RecoveredKeySetOutcome[];
   }): Promise<WalletRecoveryPromotionResult>;
+
+  /**
+   * Records that the owner confirmed saving their recovery codes.
+   *
+   * Cosmetic by design: nothing consults it to decide whether a recovery may
+   * proceed. It exists so the product can stop asking, and it must never mean
+   * more than that — a user who acknowledged without saving has no codes, and
+   * one who never acknowledged still has working ones.
+   */
+  acknowledgeRecoveryBackup(request: {
+    readonly walletId: string;
+  }): Promise<{ kind: 'acknowledged'; issuedAtMs: number } | { kind: 'no_recovery_set' }>;
 }
 
 /** How long a reservation may sit before another attempt may take the code. */
@@ -184,6 +199,26 @@ export function createD1PasskeyCustodyRouteService(assembly: {
         outcomes: request.outcomes,
         nowMs: (assembly.nowMs ?? Date.now)(),
       }),
+
+    acknowledgeRecoveryBackup: async (request) => {
+      const stored = await assembly.walletCustodyCommits.readRecoveryEnvelopeSet(
+        request.walletId as WalletId,
+      );
+      /* The acknowledgement names the issuance it covers, so there has to be
+         one. Acknowledging nothing would write a row that silences the prompt
+         for codes that were never issued. */
+      if (!stored) return { kind: 'no_recovery_set' };
+
+      const issuedAtMs = Number(stored.record.issuedAtMs);
+      await assembly.walletCustodyCommits.writeBackupAcknowledgement(
+        buildWalletRecoveryBackupAcknowledgementV1({
+          walletId: request.walletId,
+          issuedAtMs,
+          acknowledgedAtMs: (assembly.nowMs ?? Date.now)(),
+        }),
+      );
+      return { kind: 'acknowledged', issuedAtMs };
+    },
   };
 }
 

@@ -21,6 +21,7 @@ import { decodeBase64UrlOrBase64 } from '../../../../core/authService/webauthnOi
 const ROUTE_ID = 'passkey_custody_envelope_retrieve';
 const RECOVERY_SPEND_ROUTE_ID = 'wallet_recovery_code_spend';
 const RECOVERY_PROMOTE_ROUTE_ID = 'wallet_recovery_credential_promote';
+const RECOVERY_ACK_ROUTE_ID = 'wallet_recovery_backup_acknowledge';
 
 export async function handlePasskeyCustody(ctx: FetchRouterApiContext): Promise<Response | null> {
   const route = findRouteDefinitionById(ctx.routeDefinitions, ROUTE_ID);
@@ -253,4 +254,47 @@ function stringList(value: unknown): string[] {
     if (text) out.push(text);
   }
   return out;
+}
+
+/**
+ * Recording that the owner saved their recovery codes.
+ *
+ * The one thing this must not do is succeed for a wallet with no recovery
+ * set. That would write an acknowledgement covering an issuance that never
+ * happened, and the user would never be asked to save the codes they
+ * eventually get.
+ */
+export async function handleWalletRecoveryBackupAcknowledge(
+  ctx: FetchRouterApiContext,
+): Promise<Response | null> {
+  const route = findRouteDefinitionById(ctx.routeDefinitions, RECOVERY_ACK_ROUTE_ID);
+  if (!route) throw new Error(`Missing route definition for ${RECOVERY_ACK_ROUTE_ID}`);
+  if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
+
+  const body = (await readJson(ctx.request)) as Record<string, unknown> | null;
+  const walletId = trimmed(body?.walletId);
+  if (!walletId) {
+    return toFetchRouteResponse({
+      status: 400,
+      body: { ok: false, code: 'invalid_request', message: 'an acknowledgement needs a wallet' },
+    });
+  }
+
+  const result = await ctx.service.passkeyCustody.acknowledgeRecoveryBackup({ walletId });
+  if (result.kind === 'no_recovery_set') {
+    return toFetchRouteResponse({
+      status: 404,
+      body: {
+        ok: false,
+        code: 'no_recovery_set',
+        message: 'this wallet has no issued recovery codes to acknowledge',
+      },
+    });
+  }
+  return toFetchRouteResponse({
+    status: 200,
+    /* Echoes the issuance it covered, so a client can tell whether its own
+       view of "which codes" matches what the server just recorded. */
+    body: { ok: true, issuedAtMs: result.issuedAtMs },
+  });
 }

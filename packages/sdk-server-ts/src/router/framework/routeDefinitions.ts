@@ -553,6 +553,19 @@ export function createRouterApiRouteDefinitions(
       { kind: 'event', action: 'wallet_created' },
     ),
     publicRoute(
+      'wallet_recovery_backup_acknowledge',
+      'POST',
+      '/wallets/recovery/acknowledge-backup',
+      'Record that the owner saved their recovery codes',
+      {
+        plane: 'public',
+        proof: 'challenge_exchange',
+        rationale:
+          'Cosmetic state that gates no recovery: it only stops the product asking. Nothing consults it to decide whether a recovery may proceed.',
+      },
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+    ),
+    publicRoute(
       'wallet_recovery_credential_promote',
       'POST',
       '/wallets/recovery/promote',
