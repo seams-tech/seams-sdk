@@ -1151,3 +1151,104 @@ fn each_key_set_reports_only_its_own_material() {
     assert!(near.ecdsa_public_facts.is_none());
     assert!(near.ecdsa_ready_state_blob_b64u.is_none());
 }
+
+/// The property this whole refactor exists to provide: a wallet registered
+/// under one factor unlocks under a factor enrolled *afterwards*.
+///
+/// The continuity cache is sealed under the wallet custody seed, so it belongs
+/// to the wallet rather than to whichever credential created it. Adding a
+/// factor reseals the *envelope* — it derives nothing and re-registers
+/// nothing — and the new factor then opens the same cache the first one did.
+///
+/// Under the per-factor records this replaces, the second factor would have
+/// found no cache at all and had to reproduce the material through a Router
+/// round on every unlock.
+#[test]
+fn a_factor_enrolled_after_registration_opens_the_same_cache() {
+    use router_ab_ed25519_yao_client::{
+        open_wallet_custody_ed25519_material_v1, OpenWalletCustodyEd25519MaterialV1,
+    };
+    use signer_core::passkey_custody::reseal_wallet_custody_seed_under_new_factor_v1;
+
+    // Register: an EVM run establishes custody, a NEAR run joins it and seals
+    // the continuity cache.
+    let evm = establish_custody_with_evm_key_set();
+    let records = custody_records(&evm);
+    let run = prepare_near_ed25519(join_custody(records), 0x53, None);
+    let result_json = run.run_circuit();
+    let result =
+        serde_json::from_str::<RouterAbEd25519YaoActivationResultV1>(&result_json).expect("result");
+    let receipt = result.public_receipt().clone();
+    let payload = run
+        .prepared
+        .complete_near_ed25519(&result_json)
+        .expect("completed")
+        .establish_manifest(near_identity(), None)
+        .expect("manifest")
+        .finish(None)
+        .expect("committed");
+
+    let binding =
+        serde_json::from_str::<PasskeyCustodyEnvelopeBindingV1>(&records.envelope_binding_json)
+            .expect("binding");
+
+    // Enrol a second factor: the seed is opened with the first and resealed
+    // under the second. Nothing is derived and no key set is touched.
+    let (seed, admitted) = open_wallet_custody_seed_envelope_v1(
+        &FACTOR_SECRET,
+        &binding,
+        &decode(&records.envelope_nonce_b64u),
+        &decode(&records.sealed_custody_secret_b64u),
+        &decode(&records.envelope_aad_hash_b64u),
+        &decode(&records.envelope_ciphertext_digest_b64u),
+    )
+    .expect("first factor opens the envelope");
+
+    const SECOND_FACTOR_SECRET: [u8; 32] = [0x2b; 32];
+    let second_nonce = [0x3c; 12];
+    let resealed = reseal_wallet_custody_seed_under_new_factor_v1(
+        &SECOND_FACTOR_SECRET,
+        &binding,
+        &admitted,
+        &second_nonce,
+        &seed,
+    )
+    .expect("reseal under the second factor");
+
+    // Unlock with the *second* factor only.
+    let application_binding_digest =
+        client_application_binding_digest_v1(&application(), [1, 2]).expect("binding digest");
+    let cache_binding = ed25519_local_material_binding_v1(
+        &application_binding_digest,
+        &receipt.registered_public_key(),
+        [1, 2],
+        state_epoch_for(Ed25519YaoOperationV1::Registration),
+    );
+    let opened = open_wallet_custody_ed25519_material_v1(OpenWalletCustodyEd25519MaterialV1 {
+        factor_secret: &SECOND_FACTOR_SECRET,
+        envelope_binding: &binding,
+        envelope_nonce: &second_nonce,
+        envelope_ciphertext: &decode(&resealed.ciphertext_b64u()),
+        envelope_aad_hash: &decode(&resealed.aad_hash_b64u()),
+        envelope_ciphertext_digest: &decode(&resealed.ciphertext_digest_b64u()),
+        application_binding_digest: &application_binding_digest,
+        binding: &cache_binding,
+        nonce: &decode(
+            &payload
+                .ed25519_local_material_nonce_b64u
+                .clone()
+                .expect("nonce"),
+        ),
+        ciphertext: &decode(&payload.ed25519_local_material_b64u.clone().expect("record")),
+        expected_registered_public_key: &receipt.registered_public_key(),
+        expected_state_epoch: state_epoch_for(Ed25519YaoOperationV1::Registration),
+        participant_ids: [1, 2],
+        signing_worker_verifying_share: &receipt.signing_worker_verifying_share(),
+    })
+    .expect("the second factor opens the wallet's cache");
+
+    assert_eq!(
+        opened.registered_public_key(),
+        receipt.registered_public_key()
+    );
+}
