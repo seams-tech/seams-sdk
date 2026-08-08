@@ -1,4 +1,5 @@
 import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
+import type { TransactionContext } from '@/core/types/rpc';
 import type { TransactionInputWasm } from '@/core/types/actions';
 import {
   createSigningFlowEvent,
@@ -53,9 +54,7 @@ import {
 } from '../../session/operationState/types';
 import { nearEd25519SignerBindingFromBoundaryFields } from '../../session/identity/exactSigningLaneIdentity';
 import type { NearTransactionSigningLane } from '../../session/operationState/lanes';
-import {
-  type PreparedTransactionOperation,
-} from '../../session/operationState/transactionState';
+import { type PreparedTransactionOperation } from '../../session/operationState/transactionState';
 import type { NonceLeaseRef } from '../../interfaces/nonceLease';
 import {
   createSigningBoundaryTraceEvent,
@@ -121,6 +120,13 @@ function requireNearOperationStepUpPreparation(
   return value;
 }
 
+function requireNearOperationStepUpBuilderFn<T>(value: T | null): T {
+  if (!value) {
+    throw new Error('[SigningEngine][near] operation step-up builder is missing');
+  }
+  return value;
+}
+
 function requirePreparedNearOperationStepUp(
   value: PreparedNearOperationStepUp | null,
 ): Extract<PreparedNearOperationStepUp, { kind: 'near_transaction' }> {
@@ -178,10 +184,7 @@ async function resolveNearTransactionOperationStepUpMaterial(args: {
       credential: args.authorization.credential,
     });
   }
-  if (
-    args.material.kind !== 'email_otp_live' &&
-    args.material.kind !== 'email_otp_sealed'
-  ) {
+  if (args.material.kind !== 'email_otp_live' && args.material.kind !== 'email_otp_sealed') {
     throw new Error('[SigningEngine][near] Email OTP transaction material changed factor');
   }
   if (args.proof.kind !== 'email_otp') {
@@ -247,7 +250,10 @@ function createNearTransactionSigningOperationId(): SigningOperationId {
 
 function isNearAuthorizationRequiredTransactionPayload(
   payload: NearTransactionWithActionsPayload,
-): payload is Extract<NearTransactionWithActionsPayload, { selection: { kind: 'authorization_required' } }> {
+): payload is Extract<
+  NearTransactionWithActionsPayload,
+  { selection: { kind: 'authorization_required' } }
+> {
   return payload.selection.kind === 'authorization_required';
 }
 
@@ -297,7 +303,9 @@ async function runNearAuthorizationRequiredTransactionSigning(
   const nearAccountId = toAccountId(nearAccount.accountId);
   const operationId =
     providedOperationId ||
-    SigningSessionIds.signingOperation(`near-transaction-sign:${secureRandomBase64Url(32, 'NEAR operation')}`);
+    SigningSessionIds.signingOperation(
+      `near-transaction-sign:${secureRandomBase64Url(32, 'NEAR operation')}`,
+    );
   const warnings: string[] = [];
   if (!ctx.touchConfirm) throw new Error('UiConfirm bridge not available for signing');
   if (!sessionCoordinator) {
@@ -316,18 +324,25 @@ async function runNearAuthorizationRequiredTransactionSigning(
     thresholdKeyMaterial,
   });
   const resolvedRpcCall = {
-    nearRpcUrl: rpcCall.nearRpcUrl || resolvePrimaryNearRpcUrl(PASSKEY_MANAGER_DEFAULT_CONFIGS.network.chains),
+    nearRpcUrl:
+      rpcCall.nearRpcUrl ||
+      resolvePrimaryNearRpcUrl(PASSKEY_MANAGER_DEFAULT_CONFIGS.network.chains),
     nearAccountId,
   } as RpcCallPayload;
   const { txSigningRequest, confirmationTransaction } = buildNearTransactionSigningPayload({
     nearAccountId: String(nearAccountId),
     transaction,
   });
-  const parsedTransaction = parseThresholdEd25519NearTransaction(txSigningRequest, 'txSigningRequest');
+  const parsedTransaction = parseThresholdEd25519NearTransaction(
+    txSigningRequest,
+    'txSigningRequest',
+  );
   const operationFingerprint = SigningSessionIds.signingOperationFingerprint(
     await thresholdEd25519NearTransactionPlanningOperationFingerprint({
       nearAccountId,
-      nearNetworkId: resolveNearNetwork(ctx.chains || PASSKEY_MANAGER_DEFAULT_CONFIGS.network.chains),
+      nearNetworkId: resolveNearNetwork(
+        ctx.chains || PASSKEY_MANAGER_DEFAULT_CONFIGS.network.chains,
+      ),
       relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
       signerPublicKey: signingContext.threshold.thresholdKeyMaterial.publicKey,
       transactions: [parsedTransaction],
@@ -382,25 +397,30 @@ async function runNearAuthorizationRequiredTransactionSigning(
   });
   const materialFacts = nearOperationStepUpMaterialFacts(operationStepUpMaterial);
   const signingOperationUses = requiredNearTransactionSignatureUses(transaction);
+  const buildTransactionStepUp = async (input: {
+    transactionContext: TransactionContext;
+    displayDigest: string;
+  }) =>
+    await prepareRouterAbEd25519NearTransactionOperationStepUp({
+      ctx,
+      thresholdSessionId: materialFacts.thresholdSessionId,
+      materialFacts,
+      thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+      walletId: commandSubject.walletSession.walletId,
+      nearAccountId,
+      materialActivation: operationStepUpMaterial.materialActivation,
+      operationId,
+      txSigningRequest,
+      transactionContext: input.transactionContext,
+      displayDigest: input.displayDigest,
+    });
   registerNearOperationStepUpBuilder({
     requestId: String(operationId),
     build: async (preparation) => {
       if (preparation.kind !== 'near_transaction') {
         throw new Error('[SigningEngine][near] transaction step-up preparation kind changed');
       }
-      return await prepareRouterAbEd25519NearTransactionOperationStepUp({
-        ctx,
-        thresholdSessionId: materialFacts.thresholdSessionId,
-        materialFacts,
-        thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
-        walletId: commandSubject.walletSession.walletId,
-        nearAccountId,
-        materialActivation: operationStepUpMaterial.materialActivation,
-        operationId,
-        txSigningRequest,
-        transactionContext: preparation.transactionContext,
-        displayDigest: preparation.displayDigest,
-      });
+      return await buildTransactionStepUp(preparation);
     },
   });
   let confirmation: ConfirmTransactionSigningOperationResult;
@@ -454,10 +474,35 @@ async function runNearAuthorizationRequiredTransactionSigning(
     auth: candidate.auth,
     walletId: commandSubject.walletSession.walletId,
   });
-  const preparedOperationStepUp = consumePreparedNearOperationStepUp({
-    requestId: String(operationId),
-    ref: requireNearOperationStepUpPreparation(confirmation.operationStepUpPreparation),
-  });
+  // Same deferred-funding contract as the warm-session path: the confirmation
+  // reports `funding_required` untouched, and the signing side funds after the
+  // user confirmed. The step-up preparation binds to a transaction context, so
+  // when the account had to be funded first there was nothing for the confirm
+  // flow to prepare — prepare here instead, against the funded context.
+  const confirmedNearContext =
+    confirmation.readiness.kind === 'context_ready'
+      ? confirmation.readiness
+      : await resolveConfirmedNearTransactionContext({
+          confirmation,
+          ctx,
+          nearPublicKeyStr: signingContext.signingNearPublicKeyStr,
+          walletSessionState: await yaoMaterialExecutor.resolveWalletSessionState(),
+          authorization: stepUpAuthorization,
+          signingOperation,
+          signatureUses: signingOperationUses,
+        });
+  const preparedOperationStepUp =
+    !confirmation.operationStepUpPreparation && confirmation.readiness.kind === 'funding_required'
+      ? (
+          await buildTransactionStepUp({
+            transactionContext: confirmedNearContext.transactionContext,
+            displayDigest: confirmation.intentDigest,
+          })
+        ).operation
+      : consumePreparedNearOperationStepUp({
+          requestId: String(operationId),
+          ref: requireNearOperationStepUpPreparation(confirmation.operationStepUpPreparation),
+        });
   const preparedTransactionStepUp = requirePreparedNearOperationStepUp(preparedOperationStepUp);
   const resolvedOperationStepUpMaterial = await resolveNearTransactionOperationStepUpMaterial({
     material: operationStepUpMaterial,
@@ -468,9 +513,6 @@ async function runNearAuthorizationRequiredTransactionSigning(
   });
   try {
     await ctx.nonceCoordinator.recoverDurableLeases({ walletId: String(candidate.walletId) });
-    if (confirmation.readiness.kind !== 'context_ready') {
-      throw new Error('[SigningEngine][near] implicit-account funding requires transaction context');
-    }
     const result = await tryFinalizeRouterAbEd25519NearTransactionNormalSigning({
       ctx,
       thresholdSessionId: materialFacts.thresholdSessionId,
@@ -483,7 +525,7 @@ async function runNearAuthorizationRequiredTransactionSigning(
       operationFingerprint,
       displayDigest: confirmation.intentDigest,
       txSigningRequest,
-      transactionContext: confirmation.readiness.transactionContext,
+      transactionContext: confirmedNearContext.transactionContext,
       authorization: {
         kind: 'operation_step_up',
         prepared: preparedTransactionStepUp,
@@ -503,9 +545,9 @@ async function runNearAuthorizationRequiredTransactionSigning(
       okResponse: result.okResponse,
       nearAccountId,
       warnings,
-      nonceLeases: confirmation.readiness.nonceLeases,
+      nonceLeases: confirmedNearContext.nonceLeases,
     });
-    await markNearNonceLeasesSigned(ctx, confirmation.readiness.nonceLeases);
+    await markNearNonceLeasesSigned(ctx, confirmedNearContext.nonceLeases);
     return signed;
   } finally {
     resolvedOperationStepUpMaterial.material.activeClient.dispose();
@@ -697,6 +739,12 @@ async function runAuthorizedNearTransactionWithActionsSigning({
     interaction: { kind: 'transaction_confirmation', overlay: 'show' },
   });
   let operationStepUpMaterial: NearOperationStepUpMaterial | null = null;
+  let buildTransactionStepUp:
+    | ((input: {
+        transactionContext: TransactionContext;
+        displayDigest: string;
+      }) => ReturnType<typeof prepareRouterAbEd25519NearTransactionOperationStepUp>)
+    | null = null;
   if (preparedStepUp.kind !== 'warm_session') {
     operationStepUpMaterial = await prepareNearOperationStepUpMaterial({
       method: preparedStepUp.kind,
@@ -705,6 +753,21 @@ async function runAuthorizedNearTransactionWithActionsSigning({
     });
     const material = operationStepUpMaterial;
     const materialFacts = nearOperationStepUpMaterialFacts(material);
+    buildTransactionStepUp = async (input) =>
+      await prepareRouterAbEd25519NearTransactionOperationStepUp({
+        ctx,
+        thresholdSessionId: materialFacts.thresholdSessionId,
+        materialFacts,
+        thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+        walletId: commandSubject.walletSession.walletId,
+        nearAccountId,
+        materialActivation: material.materialActivation,
+        operationId: signingOperation.operationId,
+        txSigningRequest,
+        transactionContext: input.transactionContext,
+        displayDigest: input.displayDigest,
+      });
+    const buildRegisteredTransactionStepUp = buildTransactionStepUp;
     registerNearOperationStepUpBuilder({
       requestId: thresholdSessionId,
       build: async (preparation) => {
@@ -714,19 +777,7 @@ async function runAuthorizedNearTransactionWithActionsSigning({
         if (preparation.operationId !== String(signingOperation.operationId)) {
           throw new Error('[SigningEngine][near] operation step-up operation identity changed');
         }
-        return await prepareRouterAbEd25519NearTransactionOperationStepUp({
-          ctx,
-          thresholdSessionId: materialFacts.thresholdSessionId,
-          materialFacts,
-          thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
-          walletId: commandSubject.walletSession.walletId,
-          nearAccountId,
-          materialActivation: material.materialActivation,
-          operationId: signingOperation.operationId,
-          txSigningRequest,
-          transactionContext: preparation.transactionContext,
-          displayDigest: preparation.displayDigest,
-        });
+        return await buildRegisteredTransactionStepUp(preparation);
       },
     });
   }
@@ -790,12 +841,38 @@ async function runAuthorizedNearTransactionWithActionsSigning({
           auth: transactionOperation.lane.auth,
           walletId: commandSubject.walletSession.walletId,
         });
+  // Same deferred-funding contract as the warm-session branch below: the
+  // confirmation reports `funding_required` untouched and the signing side
+  // funds after the user confirmed. The step-up preparation binds to a
+  // transaction context, so when the account had to be funded first there was
+  // nothing for the confirm flow to prepare — prepare here, against the funded
+  // context.
+  const stepUpFundedContext =
+    stepUpAuthorization.kind !== 'warm_session' &&
+    confirmation.readiness.kind === 'funding_required'
+      ? await resolveConfirmedNearTransactionContext({
+          confirmation,
+          ctx,
+          nearPublicKeyStr: signingContext.signingNearPublicKeyStr,
+          walletSessionState: await yaoMaterialExecutor.resolveWalletSessionState(),
+          authorization: stepUpAuthorization,
+          signingOperation,
+          signatureUses: requiredSignatureUses,
+        })
+      : null;
   const preparedOperationStepUp =
     stepUpAuthorization.kind !== 'warm_session'
-      ? consumePreparedNearOperationStepUp({
-          requestId: thresholdSessionId,
-          ref: requireNearOperationStepUpPreparation(confirmation.operationStepUpPreparation),
-        })
+      ? stepUpFundedContext && !confirmation.operationStepUpPreparation
+        ? (
+            await requireNearOperationStepUpBuilderFn(buildTransactionStepUp)({
+              transactionContext: stepUpFundedContext.transactionContext,
+              displayDigest: confirmation.intentDigest,
+            })
+          ).operation
+        : consumePreparedNearOperationStepUp({
+            requestId: thresholdSessionId,
+            ref: requireNearOperationStepUpPreparation(confirmation.operationStepUpPreparation),
+          })
       : null;
   const resolvedOperationStepUpMaterial =
     stepUpAuthorization.kind === 'warm_session'
@@ -868,13 +945,16 @@ async function runAuthorizedNearTransactionWithActionsSigning({
               signingOperation,
               signatureUses: requiredSignatureUses,
             })
-          : confirmation.readiness.kind === 'context_ready'
-            ? confirmation.readiness
-            : (() => {
-                throw new Error(
-                  '[SigningEngine][near] implicit-account funding requires a reusable Wallet Session',
-                );
-              })();
+          : // The step-up path funded before preparing (stepUpFundedContext),
+            // since its preparation binds to the transaction context.
+            (stepUpFundedContext ??
+            (confirmation.readiness.kind === 'context_ready'
+              ? confirmation.readiness
+              : (() => {
+                  throw new Error(
+                    '[SigningEngine][near] implicit-account funding did not produce a context',
+                  );
+                })()));
       emitNearSigningEvent(onEvent, nearAccountId, {
         phase: SigningEventPhase.STEP_07_AUTHENTICATION_COMPLETE,
         status: 'succeeded',
@@ -936,9 +1016,7 @@ async function runAuthorizedNearTransactionWithActionsSigning({
       });
     });
   };
-  const executeSignRequest = async (
-    yaoClient: NearEd25519YaoOperationMaterial['activeClient'],
-  ) => {
+  const executeSignRequest = async (yaoClient: NearEd25519YaoOperationMaterial['activeClient']) => {
     emitNearSigningEvent(onEvent, nearAccountId, {
       phase: SigningEventPhase.STEP_10_COMMIT_STARTED,
       status: 'running',
@@ -986,8 +1064,7 @@ async function runAuthorizedNearTransactionWithActionsSigning({
             ctx,
             thresholdSessionId: canonicalThresholdSessionId,
             activeClient: yaoClient,
-            walletSessionState:
-              await requireActiveAuthorizedWalletSessionState(walletSessionState),
+            walletSessionState: await requireActiveAuthorizedWalletSessionState(walletSessionState),
             thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
             walletId: commandSubject.walletSession.walletId,
             nearAccountId,
