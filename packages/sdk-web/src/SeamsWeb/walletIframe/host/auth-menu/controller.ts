@@ -82,15 +82,12 @@ export class AuthMenuController {
         await this.beginGoogleEmailOtp({ idToken, mode, signal }),
       startDeviceLinking: this.startDeviceLinking,
       stopDeviceLinking: this.stopDeviceLinking,
+      sendToParent: this.deps.send,
     });
     const outcomePromise = session.waitForOutcome();
     this.sessions.set(args.request.authMenuSessionId, session);
     try {
-      session.mount({
-        appearance: this.deps.getAppearance(),
-        hostname: trustedHostHostname(),
-        send: this.deps.send,
-      });
+      session.mount();
       session.setRegistrationPreparation((registrationValue, cancellation) =>
         this.prepareRegistration(
           args.request,

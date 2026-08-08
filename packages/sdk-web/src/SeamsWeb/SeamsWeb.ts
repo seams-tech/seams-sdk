@@ -52,6 +52,7 @@ import { IndexedDBManager } from '@/core/indexedDB';
 import { ActionType } from '@/core/types/actions';
 import type {
   HostedAuthMenuExternalAuthRequest,
+  HostedAuthMenuDemoEmailOtpDelivery,
   HostedAuthMenuExternalAuthResolutionInput,
   HostedAuthMenuOpenRequest,
   HostedAuthMenuOutcome,
@@ -854,6 +855,12 @@ export class SeamsWeb {
     listener: (request: HostedAuthMenuExternalAuthRequest) => void,
   ): () => void {
     return this.walletIframe.onHostedAuthMenuExternalAuthRequest(listener);
+  }
+
+  onHostedAuthMenuDemoEmailOtpDelivery(
+    listener: (delivery: HostedAuthMenuDemoEmailOtpDelivery) => void,
+  ): () => void {
+    return this.walletIframe.onHostedAuthMenuDemoEmailOtpDelivery(listener);
   }
 
   async resolveHostedAuthMenuExternalAuth(

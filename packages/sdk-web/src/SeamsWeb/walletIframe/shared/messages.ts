@@ -142,6 +142,12 @@ export type HostedAuthMenuExternalAuthRequest = {
   mode: HostedAuthMenuMode;
 };
 
+export type HostedAuthMenuDemoEmailOtpDelivery = {
+  kind: 'hosted_auth_menu_demo_email_otp_delivery_v1';
+  authMenuSessionId: HostedAuthMenuSessionId;
+  delivery: Extract<GoogleEmailOtpWalletAuthDelivery, { otpCode: string }>;
+};
+
 export type HostedAuthMenuExternalAuthFailureCode =
   | 'provider_unavailable'
   | 'provider_error'
@@ -595,6 +601,39 @@ export function parseHostedAuthMenuExternalAuthRequest(
   const mode = parseAuthMenuMode(record.mode);
   if (!authMenuSessionId || !externalAuthRequestId || !provider || !mode) return null;
   return { kind: record.kind, authMenuSessionId, externalAuthRequestId, provider, mode };
+}
+
+export function parseHostedAuthMenuDemoEmailOtpDelivery(
+  value: unknown,
+): HostedAuthMenuDemoEmailOtpDelivery | null {
+  const record = recordFromBoundary(value);
+  if (
+    !record ||
+    !isWireSerializable(record) ||
+    record.kind !== 'hosted_auth_menu_demo_email_otp_delivery_v1' ||
+    !hasOnlyKeys(record, ['kind', 'authMenuSessionId', 'delivery'])
+  ) {
+    return null;
+  }
+  const authMenuSessionId = hostedAuthMenuSessionIdFromBoundary(record.authMenuSessionId);
+  const delivery = recordFromBoundary(record.delivery);
+  if (
+    !authMenuSessionId ||
+    !delivery ||
+    !hasOnlyKeys(delivery, ['kind', 'status', 'emailHint', 'otpCode']) ||
+    (delivery.kind !== 'demo_code_response' && delivery.kind !== 'provider_and_demo_code') ||
+    (delivery.status !== 'sent' && delivery.status !== 'reused')
+  ) {
+    return null;
+  }
+  const emailHint = boundaryString(delivery.emailHint, 'emailHint');
+  const otpCode = boundaryString(delivery.otpCode, 'otpCode');
+  if (!emailHint || !otpCode || !/^\d{6}$/.test(otpCode)) return null;
+  return {
+    kind: record.kind,
+    authMenuSessionId,
+    delivery: { kind: delivery.kind, status: delivery.status, emailHint, otpCode },
+  };
 }
 
 function parseExternalAuthEvidence(value: unknown): HostedAuthMenuExternalAuthEvidence | null {
@@ -1408,6 +1447,7 @@ export type ChildToParentEnvelope =
   | RpcEnvelope<'SDK_LIFECYCLE_EVENT', SdkLifecycleEvent>
   | RpcEnvelope<'PREFERENCES_CHANGED', PreferencesChangedPayload>
   | RpcEnvelope<'AUTH_MENU_EXTERNAL_AUTH_REQUEST', HostedAuthMenuExternalAuthRequest>
+  | RpcEnvelope<'AUTH_MENU_DEMO_EMAIL_OTP_DELIVERY', HostedAuthMenuDemoEmailOtpDelivery>
   | RpcEnvelope<'SURFACE_MEASUREMENT', WalletIframeSurfaceMeasurement>
   | RpcEnvelope<'PM_RESULT', PMResultPayload>
   | RpcEnvelope<'ERROR', ErrorPayload>;

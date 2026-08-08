@@ -12,9 +12,7 @@ type KeyExportToastProbe = {
   emit: (phase: string, demoOtpCode?: string | null) => void;
 };
 
-async function installKeyExportToastProbe(
-  page: import('@playwright/test').Page,
-): Promise<void> {
+async function installKeyExportToastProbe(page: import('@playwright/test').Page): Promise<void> {
   await page.goto('/');
   await page.evaluate(async (modulePath) => {
     const copiedCodes: string[] = [];
@@ -55,7 +53,7 @@ function emit(page: import('@playwright/test').Page, phase: string, code?: strin
 }
 
 function demoToasts(page: import('@playwright/test').Page) {
-  return page.locator('[data-sonner-toast]').filter({ hasText: 'OTP code' });
+  return page.locator('[data-sonner-toast]').filter({ hasText: 'Code' });
 }
 
 test('key-export demo OTP code is shown once, copied raw, and never logged', async ({ page }) => {
@@ -67,7 +65,7 @@ test('key-export demo OTP code is shown once, copied raw, and never logged', asy
   await emit(page, INPUT_REQUIRED, '654321');
 
   await expect(demoToasts(page)).toHaveCount(1);
-  await expect(demoToasts(page)).toContainText('OTP code 654-321 copied to clipboard!');
+  await expect(demoToasts(page)).toContainText('Code 654-321 copied!');
   await expect(demoToasts(page)).not.toContainText('123-456');
 
   await expect

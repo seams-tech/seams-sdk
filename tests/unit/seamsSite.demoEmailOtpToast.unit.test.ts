@@ -32,9 +32,9 @@ test('demo OTP delivery replaces the existing toast without logging the code', a
     });
   });
 
-  const demoToasts = page.locator('[data-sonner-toast]').filter({ hasText: 'OTP code' });
+  const demoToasts = page.locator('[data-sonner-toast]').filter({ hasText: 'Code' });
   await expect(demoToasts).toHaveCount(1);
-  await expect(demoToasts).toContainText('OTP code 654-321 copied to clipboard!');
+  await expect(demoToasts).toContainText('Code 654-321 copied!');
   await expect(demoToasts).toContainText('Email delivery is not configured for this live demo.');
   await expect(demoToasts).not.toContainText('123-456');
   await expect
