@@ -22,6 +22,7 @@ import {
   rawEd25519LaneHolderShareBinding,
   rawEmailOtpFactor,
   rawManifestKekWrap,
+  rawManifestKekWrapSet,
   rawPasskeyCustodyEnvelope,
   rawPasskeyFactor,
   rawWalletCustodySeedBinding,
@@ -313,55 +314,64 @@ test('a recovery entry cannot carry plaintext custody material', () => {
 test('a recovery set requires openable manifest-KEK wraps with unique code ids', () => {
   const expectedWalletId = WALLET_ID as WalletId;
 
-  expect(() =>
-    parseWalletRecoveryEnvelopeSetRecord(rawWalletRecoveryEnvelopeSet({ manifestKekWraps: [] }), {
-      expectedWalletId,
-    }),
-  ).toThrow(/must carry at least one recovery-code wrap/);
+  /* Exactly ten, not one-to-ten. Establishment issues ten and the durable
+     invariant keeps ten — a consumed or revoked code keeps its wrap and
+     changes its lifecycle state. So a short set is one that lost rows, and
+     accepting it would let a wallet look recoverable while holding fewer
+     codes than its owner wrote down. */
+  for (const count of [0, 1, 9, 11]) {
+    expect(() =>
+      parseWalletRecoveryEnvelopeSetRecord(
+        rawWalletRecoveryEnvelopeSet({
+          manifestKekWraps: Array.from({ length: count }, (_, index) =>
+            rawManifestKekWrap({
+              recoveryKeyId: `${RECOVERY_KEY_ID.slice(0, -2)}${String(10 + index)}`,
+            }),
+          ),
+        }),
+        { expectedWalletId },
+      ),
+    ).toThrow(/must carry exactly 10 recovery-code wraps/);
+  }
 
   expect(() =>
     parseWalletRecoveryEnvelopeSetRecord(
       rawWalletRecoveryEnvelopeSet({
-        manifestKekWraps: [rawManifestKekWrap(), rawManifestKekWrap()],
+        manifestKekWraps: Array.from({ length: 10 }, () => rawManifestKekWrap()),
       }),
       { expectedWalletId },
     ),
   ).toThrow(/duplicate recoveryKeyId/);
 
+  // A full set with one poisoned wrap, so the plaintext check is what rejects
+  // it rather than the count check standing in front.
+  const poisoned = rawManifestKekWrapSet();
+  poisoned[3] = { ...poisoned[3], manifestKekPlaintextB64u: 'kek' };
   expect(() =>
     parseWalletRecoveryEnvelopeSetRecord(
-      rawWalletRecoveryEnvelopeSet({
-        manifestKekWraps: Array.from({ length: 11 }, (_, index) =>
-          rawManifestKekWrap({
-            recoveryKeyId: `${RECOVERY_KEY_ID.slice(0, -2)}${String(10 + index)}`,
-          }),
-        ),
-      }),
-      { expectedWalletId },
-    ),
-  ).toThrow(/cannot exceed 10 recovery codes/);
-
-  expect(() =>
-    parseWalletRecoveryEnvelopeSetRecord(
-      rawWalletRecoveryEnvelopeSet({
-        manifestKekWraps: [rawManifestKekWrap({ manifestKekPlaintextB64u: 'kek' })],
-      }),
+      rawWalletRecoveryEnvelopeSet({ manifestKekWraps: poisoned }),
       { expectedWalletId },
     ),
   ).toThrow(/must never carry plaintext custody material/);
 });
 
 test('a consumed code wrap keeps the set parseable for the remaining codes', () => {
+  /* A consumed code keeps its row and changes its lifecycle state — that is
+     precisely why the set is exactly ten rather than "up to ten". Dropping the
+     row would shrink the set and make a used code indistinguishable from one
+     that was never issued. */
   const expectedWalletId = WALLET_ID as WalletId;
+  const wraps = rawManifestKekWrapSet();
+  wraps[0] = {
+    ...wraps[0],
+    lifecycle: { state: 'consumed', issuedAtMs: 1_000, consumedAtMs: 2_000 },
+  };
+
   const parsed = parseWalletRecoveryEnvelopeSetRecord(
-    rawWalletRecoveryEnvelopeSet({
-      manifestKekWraps: [
-        rawManifestKekWrap({
-          lifecycle: { state: 'consumed', issuedAtMs: 1_000, consumedAtMs: 2_000 },
-        }),
-      ],
-    }),
+    rawWalletRecoveryEnvelopeSet({ manifestKekWraps: wraps }),
     { expectedWalletId },
   );
+  expect(parsed.manifestKekWraps).toHaveLength(10);
   expect(parsed.manifestKekWraps[0].lifecycle.state).toBe('consumed');
+  expect(parsed.manifestKekWraps[1].lifecycle.state).toBe('active');
 });

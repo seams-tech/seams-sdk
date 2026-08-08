@@ -32,7 +32,7 @@ fn recovery_code(index: usize) -> Vec<u8> {
 }
 
 fn recovery_key_id(index: usize) -> String {
-    format!("email-otp-rkid-v1-code-{index}")
+    format!("wallet-rkid-v1-code-{index}")
 }
 
 /// The scope an open reconstructs from the stored record. Opening takes a scope

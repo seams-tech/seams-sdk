@@ -27,7 +27,7 @@ use base64ct::{Base64UrlUnpadded, Encoding};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use hkdf::Hkdf;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
 use crate::error::{CoreResult, SignerCoreError};
@@ -49,6 +49,60 @@ const RECOVERY_ENTRY_AAD_CONTEXT_V1: &[u8] = b"seams/wallet-recovery/entry/aad/v
 const MANIFEST_KEK_PURPOSE_V1: &str = "wallet_recovery_manifest_kek";
 const MAX_RECOVERY_FIELD_LEN: usize = 512;
 const MAX_CUSTODY_SECRET_LEN: usize = 1024;
+
+const RECOVERY_KEY_ID_CONTEXT_V1: &str = "seams/wallet-recovery/recovery-key-id/v1";
+const RECOVERY_KEY_ID_PREFIX_V1: &str = "wallet-rkid-v1-";
+
+/// Derives one recovery code's identity within a wallet's set.
+///
+/// **Derived here, never accepted from a caller.** The id is what a stored wrap
+/// is found by, so a caller that supplied its own could point two codes at one
+/// wrap, or name a wrap that no code opens. Deriving it beside the seal removes
+/// that as a representable state and keeps one definition across the boundary —
+/// the ceremony and the reader cannot disagree about what an id is.
+///
+/// SHA-256 rather than an HKDF stage, deliberately: this is an identifier
+/// derived from a 160-bit random code, not key material. The dedicated context
+/// and the canonical length-delimited tuple give the separation; a KDF here
+/// would imply the output were a key.
+///
+/// Bound to the wallet and the set version, never to an envelope. Recovery is
+/// wallet-scoped and has to survive adding, rewrapping, and revoking
+/// factor-specific envelopes — the envelope that happened to establish custody
+/// is incidental to the code that recovers it.
+pub fn derive_wallet_recovery_key_id_v1(wallet_id: &str, code_bytes: &[u8]) -> CoreResult<String> {
+    let wallet_id = wallet_id.trim();
+    require_field("walletId", wallet_id)?;
+    if code_bytes.is_empty() || code_bytes.len() > MAX_RECOVERY_FIELD_LEN {
+        return Err(SignerCoreError::invalid_length(
+            "recovery code bytes are out of range",
+        ));
+    }
+
+    /* Four length-prefixed values, no field labels. The AAD encoders above are
+    labeled because they bind records with many optional fields; this tuple
+    is fixed and frozen, and it must hash byte-identically to the TypeScript
+    encoder that derives the same id for recovery lookup. A label here would
+    be invisible on this side and impossible to match on the other. */
+    let mut out = Vec::new();
+    for field in [
+        RECOVERY_KEY_ID_CONTEXT_V1,
+        &Base64UrlUnpadded::encode_string(code_bytes),
+        wallet_id,
+        WALLET_RECOVERY_ENVELOPE_SET_VERSION_V1,
+    ] {
+        out.extend_from_slice(&(field.len() as u32).to_be_bytes());
+        out.extend_from_slice(field.as_bytes());
+    }
+
+    let mut hasher = Sha256::new();
+    hasher.update(&out);
+    let digest: [u8; 32] = hasher.finalize().into();
+    Ok(format!(
+        "{RECOVERY_KEY_ID_PREFIX_V1}{}",
+        Base64UrlUnpadded::encode_string(&digest)
+    ))
+}
 
 /// Identifies one recovery code's wrap of the manifest KEK.
 #[derive(Debug, Clone, PartialEq, Eq)]

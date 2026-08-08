@@ -48,7 +48,7 @@ function envelopeBindingJson(walletId: string = WALLET_ID): string {
 
 function recoveryWrap(index: number) {
   return {
-    recoveryKeyId: `email-otp-rkid-v1-${DIGEST_B64U.slice(0, 42)}${'ABCDEFGHIJ'[index]}`,
+    recoveryKeyId: `wallet-rkid-v1-${DIGEST_B64U.slice(0, 42)}${'ABCDEFGHIJ'[index]}`,
     nonceB64u: NONCE_12_B64U,
     ciphertextB64u: CIPHERTEXT_B64U,
     aadHashB64u: ALT_DIGEST_B64U,

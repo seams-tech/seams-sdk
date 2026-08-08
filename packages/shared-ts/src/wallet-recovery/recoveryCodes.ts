@@ -8,11 +8,23 @@ export {
   buildEmailOtpRecoveryCodeSet as buildWalletRecoveryCodeSet,
   formatEmailOtpRecoveryKey as formatWalletRecoveryCode,
   normalizeEmailOtpRecoveryKey as normalizeWalletRecoveryCode,
-  parseDerivedEmailOtpRecoveryKeyId as parseDerivedWalletRecoveryKeyId,
 } from '../utils/emailOtpRecoveryKey';
 
 export type {
-  DerivedEmailOtpRecoveryKeyId as DerivedWalletRecoveryKeyId,
   EmailOtpRecoveryCode as WalletRecoveryCode,
   EmailOtpRecoveryCodeSet as WalletRecoveryCodeSet,
 } from '../utils/emailOtpRecoveryKey';
+
+/* The code *format* is shared with Email OTP — same alphabet, length, and
+   grouping, because it is the same thing a user writes down. The code's
+   *identity* is not: an Email OTP id is bound to an enrollment, which a
+   passkey wallet does not have. See `recoveryKeyId.ts`. */
+export {
+  deriveWalletRecoveryKeyId,
+  deriveWalletRecoveryKeyIdFromBytes,
+  isDerivedWalletRecoveryKeyId,
+  parseDerivedWalletRecoveryKeyId,
+  WALLET_RECOVERY_KEY_ID_PREFIX_V1,
+} from './recoveryKeyId';
+
+export type { DerivedWalletRecoveryKeyId } from './recoveryKeyId';

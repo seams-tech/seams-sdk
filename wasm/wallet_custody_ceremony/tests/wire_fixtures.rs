@@ -26,7 +26,8 @@ use signer_core::passkey_custody::{
     WALLET_SEED_DERIVATION_SCHEME_V1,
 };
 use signer_core::wallet_recovery_custody::{
-    seal_wallet_recovery_entry_v1, seal_wallet_recovery_manifest_kek_v1, WALLET_RECOVERY_CODE_COUNT,
+    derive_wallet_recovery_key_id_v1, seal_wallet_recovery_entry_v1,
+    seal_wallet_recovery_manifest_kek_v1, WALLET_RECOVERY_CODE_COUNT,
 };
 use signer_core::wallet_seed_derivation::{
     establish_wallet_key_set_manifest_v1, WalletKeySetKindV1, WalletKeySetManifestV1,
@@ -86,13 +87,15 @@ fn recovery_code_bytes(index: usize) -> Vec<u8> {
     vec![index as u8 + 1; 20]
 }
 
-/// Production-shaped: `email-otp-rkid-v1-` plus unpadded base64url over one
-/// SHA-256 digest. The TypeScript adapter enforces this shape
-/// (`parseDerivedEmailOtpRecoveryKeyId`); the Rust side never checks it, which
-/// is exactly the kind of asymmetry this fixture exists to keep visible.
+/// The real derivation, not a production-shaped stand-in.
+///
+/// This is the cross-boundary vector: TypeScript's `deriveWalletRecoveryKeyId`
+/// hashes the same frozen tuple, so the fixture pins that both sides compute
+/// one id from a code and a wallet. The previous stand-in hashed an index and
+/// only *looked* right, which is what let the two sides disagree unnoticed.
 fn recovery_key_id(index: usize) -> String {
-    let digest = signer_core::passkey_custody::sha256_digest(&[index as u8]);
-    format!("email-otp-rkid-v1-{}", b64u(&digest))
+    derive_wallet_recovery_key_id_v1(WALLET_ID, &recovery_code_bytes(index))
+        .expect("recovery key id")
 }
 
 fn email_otp_binding() -> PasskeyCustodyEnvelopeBindingV1 {

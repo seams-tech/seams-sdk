@@ -25,64 +25,64 @@
       "recoveryEntryNonceB64u": "CwsLCwsLCwsLCwsL",
       "recoveryManifestKekWraps": [
         {
-          "aadHashB64u": "NH5Zhd41EQd1MZ1ZZlUB5JCoL3aewy2Xkm3wNySwVx8",
-          "ciphertextB64u": "20wH5PBdpjohLdGlhpqJ-wORsWzLLINQjQaPyygYscjE6DhR2L6KGfDuq8M2lKh8",
+          "aadHashB64u": "XQvV27SvyLFYz5Fb5GDjGY-VDaqRA2dz4KsTUzIw0Ss",
+          "ciphertextB64u": "V-uanAw4Ps7l4feQ-V6hMYOu1vjUEtHUtVM7MU-DkAEoRMt2vWXl-Jr27fkmgTQp",
           "nonceB64u": "MDAwMDAwMDAwMDAw",
-          "recoveryKeyId": "email-otp-rkid-v1-bjQLnP-zepicpUTmu3gKLHiQHT-zNzh2hRGjBhevoB0"
+          "recoveryKeyId": "wallet-rkid-v1-XMi243QeMwKXjf0N2RomtpL_22h92GkIMPI1__WaLPs"
         },
         {
-          "aadHashB64u": "Wd6Vfc5Fax_kAp8wKB3QBPuPkn7htOk8V761AtpYCHE",
-          "ciphertextB64u": "ZSpheBW2G7kuX3F4cH5bsPBcw4ywNVBcg77fMQXYLz0GssHvpEv6V_EHAIqaBsOw",
+          "aadHashB64u": "QYQDMc_sA1-EmkJUuktn3LtpdWsTAx_04a4DjSyu_NI",
+          "ciphertextB64u": "cLse7v0C_Svu4SlMHZDLsH5e5xgEHelGVEWQeKXYaW5J4CoTmUENdqzLp3XN38gB",
           "nonceB64u": "MTExMTExMTExMTEx",
-          "recoveryKeyId": "email-otp-rkid-v1-S_USLzRFVMU73i67jNK349FgCtYxw4Wl18ziPHeFRZo"
+          "recoveryKeyId": "wallet-rkid-v1-CoCW4SdtycIzObXkpa6Jt71WHKsrTGCHOMMvpkPUB1U"
         },
         {
-          "aadHashB64u": "JEiVg2Uyn1UcVtEfr77bnd5uPoLG0TbDgxgF-DepllU",
-          "ciphertextB64u": "143k8jiNmxqTxwxc0EKqOvSQ9SUUc5VnoAf83HomtLBHxmfAzokvtobWqgxKGB5P",
+          "aadHashB64u": "ndhzvGbfJjEFX1v2c2ODugPQOBBqxlKKVvkhcVUZows",
+          "ciphertextB64u": "yJ1jEynOtx8XOnllORjYwLtMGck-cxq2OT7lAajh8VWew54W0h8kvwLzaEYBFS5t",
           "nonceB64u": "MjIyMjIyMjIyMjIy",
-          "recoveryKeyId": "email-otp-rkid-v1-28G0yQD_5I1XW12lxjgEASX2XbD-PiRJS3bqmGRX2YY"
+          "recoveryKeyId": "wallet-rkid-v1-LpMZBdK9E-hce0PXygbSYYJV5iD-CEwXIs_N8zoWeXY"
         },
         {
-          "aadHashB64u": "IDnb6EQPoHGLHzhtXAoOZxaWZmSCHV9OCgfyPRLeoWM",
-          "ciphertextB64u": "mgcib53noArj2h1blryx9DPHvIIA_s11wINYhPTH6OivaTUDVAAd483f0lQvThS3",
+          "aadHashB64u": "EB4xhdyI3A9j5VF12VIedqFeJsmA-iExdv1sLPQ69lw",
+          "ciphertextB64u": "9yQqvg42Wcom1JVxA54prj8cNvpLbT9Pur3JoKiuKYl-NHLbqIRKtA28TgE6Xrmt",
           "nonceB64u": "MzMzMzMzMzMzMzMz",
-          "recoveryKeyId": "email-otp-rkid-v1-CE_tCLl4r019GWp0RqhrWACeY2thHbFiEbZamq3_KcU"
+          "recoveryKeyId": "wallet-rkid-v1-ziyIp5YdRTWZoWs1a4BmwsAvCbGAX0VbqTcvMPF0sdU"
         },
         {
-          "aadHashB64u": "QMSXSnNeRIDKVUnGE4k6C2DEpsQAtwOp41yaQ2KQt_U",
-          "ciphertextB64u": "tgMvwStGutB7cA6VxKaDpbnBMOLRwncnpKbmgHo2P0O-YpjckVmB3TTwSpLfiQ6N",
+          "aadHashB64u": "DM9BQCgr7MfZodsNQlWL13UxAA4S-uc3Byeqb9a619k",
+          "ciphertextB64u": "Jr5ezyeV9imVKmK62k4caNxnXqkah5gxHzVq8qC1VHFVDDileqdnAYtB9fmdJ1ss",
           "nonceB64u": "NDQ0NDQ0NDQ0NDQ0",
-          "recoveryKeyId": "email-otp-rkid-v1-5S2cUIxQI0c0TYwHrZHL1gaK_HX_YpLwYqCco4HInnE"
+          "recoveryKeyId": "wallet-rkid-v1-n1UcVT3FkIwblhX_Asl1Ef5leda_eOBsqBnW6ZKEOvI"
         },
         {
-          "aadHashB64u": "K-EZb7FGTujJB2M-cnUhUO9BJanIvZufBvrd2ZugsfM",
-          "ciphertextB64u": "O9ZyCljwpNBPl5kMkF6pIIzR4ELotbA4t4ydRGLNLqhoDmMqqnpH7PkKya1ZOJeR",
+          "aadHashB64u": "xB5TbjlmiEmxWUzvYmcSkpj1qt53CyjOM7eRF7vVmLA",
+          "ciphertextB64u": "WILeJcIwVQg2HAGLLPkLeJTpyuyUU3arBsK2zR5NePqunymLimxTXtxcpgRTbnPb",
           "nonceB64u": "NTU1NTU1NTU1NTU1",
-          "recoveryKeyId": "email-otp-rkid-v1-53uamunjCw29tvUQomTvneeBUB17a5KuiesFnFq3Q9s"
+          "recoveryKeyId": "wallet-rkid-v1-XHnIRy8usqKrXn54yge5MREWlaHJjTbuox-hvb5NDsw"
         },
         {
-          "aadHashB64u": "85TgmwSUiAAbEa4u-dBqtCf5bPymLzulHROhP5t_pkU",
-          "ciphertextB64u": "fQqeZNB1yvzy1eEyq78GyJPhlG4V4MS2O1cAihGq4kYkFSFOpJmBFTLpQIF2Pze8",
+          "aadHashB64u": "wvl-XGoZkStwmqbVyqPXw6v3wGrHyr4bPcTX89yzZNw",
+          "ciphertextB64u": "q587QnP5l4UH6zNG73LcMNLKVfZtT_Qs_Iaub0lsV_WpH-IXwEK55yTsH1i0P-dq",
           "nonceB64u": "NjY2NjY2NjY2NjY2",
-          "recoveryKeyId": "email-otp-rkid-v1-Z1humPrSfaC5lovAOaHvNMk5ubjlI6i--J1HhgjF7PY"
+          "recoveryKeyId": "wallet-rkid-v1-09WGEjzK__5irJ_GQNm3Eu5j7Q6EYMCgtF1KnfKS_NE"
         },
         {
-          "aadHashB64u": "5QB1Axtkk83y1VHMPPjdbXffx41A2rZooljqmLRXp7Q",
-          "ciphertextB64u": "DaG-lsnIBDumoeXpQp-Qt5rgTsX8XB00Ga9-46LC0o2Xufdg2h3Fvac0BOqddUIE",
+          "aadHashB64u": "2ZFOuptQ0KLN1D28Jy2vWaWElPD9LimhG3Oo3233MI8",
+          "ciphertextB64u": "McYpBls0oBu6v5FJ1kMjMhM33iIn1GlXbs45Omf1Kl-_V5CncgSef9FtTmV37rao",
           "nonceB64u": "Nzc3Nzc3Nzc3Nzc3",
-          "recoveryKeyId": "email-otp-rkid-v1-yjWHWPbSfmz0UnKTeXenSP2IOR22ec7afce_HwBe6Hk"
+          "recoveryKeyId": "wallet-rkid-v1-iyplhiV7jePoUpwfCFljqLOSfTIAtbrbsRNJR2keWGs"
         },
         {
-          "aadHashB64u": "xMKs17WqX-SnEbbSviuLZl3nKLnbOzT7Mk1LgTgXR7g",
-          "ciphertextB64u": "OFEyKQOPMJkKX2fgX0Dl7V8gvlcMlChiYfBMA8rmRqYexxfuVD2yQJUmngcaPhSd",
+          "aadHashB64u": "2voL2_oZYswiwXDReo-SMZ2_iP5AvaU8r4j0mU_A52Y",
+          "ciphertextB64u": "hIOLLp_a81WDPBDBwEFP8zchEU_MFfK3bNTW12f9NxkYfCS1oe1t9UHWavTbNoLo",
           "nonceB64u": "ODg4ODg4ODg4ODg4",
-          "recoveryKeyId": "email-otp-rkid-v1-vurXeZTPVzNB7Be1i79-s00nEcmTwdl2sSizGI3Bgpo"
+          "recoveryKeyId": "wallet-rkid-v1-JG5dlp14c5X6Ap7tlboQyQRw25bzO6LS5ZQI1tyq74E"
         },
         {
-          "aadHashB64u": "AlVj4M4r8W7j0cBnVaF8nWLcsjF-mOV-oEhs2AvR818",
-          "ciphertextB64u": "Dk8qr2ZA84WCCc5tmb5cz1vLD-8Fns-KlP8KrfFyqrdRN3bki6YvseXm1LBaqsVZ",
+          "aadHashB64u": "QniSjJ0ri6yC-ZpDHSCIkh8pnjeZXzmpbpI7ryYl-oo",
+          "ciphertextB64u": "8hu9wDEV8A1l8EXsWc35s0WBFANC-dVOwOunt2wlV9SB9qsAcSYJkjRlCXW_mL-W",
           "nonceB64u": "OTk5OTk5OTk5OTk5",
-          "recoveryKeyId": "email-otp-rkid-v1-K0w0L1Qz6-WRodp34BPRtyR1Vi1IV43Ki4S6xmUcPLk"
+          "recoveryKeyId": "wallet-rkid-v1-5n--XHndLnNAxLqfMu5YnMdo82da0QN-b7a85isUH3U"
         }
       ],
       "sealedCustodySecretB64u": "lZB5gZ9l6lVE2iHJlK0zheA95tmlXwtv89zEX88hY9HSGWHpGS6htNaOt1lU2qY3"
@@ -105,43 +105,43 @@
     "recoveryCodes": [
       {
         "codeBytesB64u": "AQEBAQEBAQEBAQEBAQEBAQEBAQE",
-        "recoveryKeyId": "email-otp-rkid-v1-bjQLnP-zepicpUTmu3gKLHiQHT-zNzh2hRGjBhevoB0"
+        "recoveryKeyId": "wallet-rkid-v1-XMi243QeMwKXjf0N2RomtpL_22h92GkIMPI1__WaLPs"
       },
       {
         "codeBytesB64u": "AgICAgICAgICAgICAgICAgICAgI",
-        "recoveryKeyId": "email-otp-rkid-v1-S_USLzRFVMU73i67jNK349FgCtYxw4Wl18ziPHeFRZo"
+        "recoveryKeyId": "wallet-rkid-v1-CoCW4SdtycIzObXkpa6Jt71WHKsrTGCHOMMvpkPUB1U"
       },
       {
         "codeBytesB64u": "AwMDAwMDAwMDAwMDAwMDAwMDAwM",
-        "recoveryKeyId": "email-otp-rkid-v1-28G0yQD_5I1XW12lxjgEASX2XbD-PiRJS3bqmGRX2YY"
+        "recoveryKeyId": "wallet-rkid-v1-LpMZBdK9E-hce0PXygbSYYJV5iD-CEwXIs_N8zoWeXY"
       },
       {
         "codeBytesB64u": "BAQEBAQEBAQEBAQEBAQEBAQEBAQ",
-        "recoveryKeyId": "email-otp-rkid-v1-CE_tCLl4r019GWp0RqhrWACeY2thHbFiEbZamq3_KcU"
+        "recoveryKeyId": "wallet-rkid-v1-ziyIp5YdRTWZoWs1a4BmwsAvCbGAX0VbqTcvMPF0sdU"
       },
       {
         "codeBytesB64u": "BQUFBQUFBQUFBQUFBQUFBQUFBQU",
-        "recoveryKeyId": "email-otp-rkid-v1-5S2cUIxQI0c0TYwHrZHL1gaK_HX_YpLwYqCco4HInnE"
+        "recoveryKeyId": "wallet-rkid-v1-n1UcVT3FkIwblhX_Asl1Ef5leda_eOBsqBnW6ZKEOvI"
       },
       {
         "codeBytesB64u": "BgYGBgYGBgYGBgYGBgYGBgYGBgY",
-        "recoveryKeyId": "email-otp-rkid-v1-53uamunjCw29tvUQomTvneeBUB17a5KuiesFnFq3Q9s"
+        "recoveryKeyId": "wallet-rkid-v1-XHnIRy8usqKrXn54yge5MREWlaHJjTbuox-hvb5NDsw"
       },
       {
         "codeBytesB64u": "BwcHBwcHBwcHBwcHBwcHBwcHBwc",
-        "recoveryKeyId": "email-otp-rkid-v1-Z1humPrSfaC5lovAOaHvNMk5ubjlI6i--J1HhgjF7PY"
+        "recoveryKeyId": "wallet-rkid-v1-09WGEjzK__5irJ_GQNm3Eu5j7Q6EYMCgtF1KnfKS_NE"
       },
       {
         "codeBytesB64u": "CAgICAgICAgICAgICAgICAgICAg",
-        "recoveryKeyId": "email-otp-rkid-v1-yjWHWPbSfmz0UnKTeXenSP2IOR22ec7afce_HwBe6Hk"
+        "recoveryKeyId": "wallet-rkid-v1-iyplhiV7jePoUpwfCFljqLOSfTIAtbrbsRNJR2keWGs"
       },
       {
         "codeBytesB64u": "CQkJCQkJCQkJCQkJCQkJCQkJCQk",
-        "recoveryKeyId": "email-otp-rkid-v1-vurXeZTPVzNB7Be1i79-s00nEcmTwdl2sSizGI3Bgpo"
+        "recoveryKeyId": "wallet-rkid-v1-JG5dlp14c5X6Ap7tlboQyQRw25bzO6LS5ZQI1tyq74E"
       },
       {
         "codeBytesB64u": "CgoKCgoKCgoKCgoKCgoKCgoKCgo",
-        "recoveryKeyId": "email-otp-rkid-v1-K0w0L1Qz6-WRodp34BPRtyR1Vi1IV43Ki4S6xmUcPLk"
+        "recoveryKeyId": "wallet-rkid-v1-5n--XHndLnNAxLqfMu5YnMdo82da0QN-b7a85isUH3U"
       }
     ],
     "rpId": "example.localhost",

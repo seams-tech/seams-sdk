@@ -43,7 +43,7 @@ export const CREDENTIAL_ID_B64U = 'Y3JlZGVudGlhbC0x';
 export const NEAR_ED25519_SIGNING_KEY_ID = 'near-ed25519-key-1';
 export const ENROLLMENT_ID = 'enrollment-1';
 export const THRESHOLD_ECDSA_SESSION_ID = 'threshold-ecdsa-session-1';
-export const RECOVERY_KEY_ID = `email-otp-rkid-v1-${DIGEST_B64U}`;
+export const RECOVERY_KEY_ID = `wallet-rkid-v1-${DIGEST_B64U}`;
 
 export const ED25519_WALLET_KEY_ID = 'wallet-key:ed25519:alice.testnet:root-1:v1';
 export const EVM_WALLET_KEY_ID = 'wallet-key:evm-family:alice.testnet:root-1:v1';
@@ -160,11 +160,26 @@ export function rawManifestKekWrap(overrides: RawRecord = {}): RawRecord {
   };
 }
 
+/**
+ * Ten distinct wraps, because a set carries exactly ten.
+ *
+ * Establishment issues ten and the durable invariant keeps ten: a consumed or
+ * revoked code keeps its wrap and changes its lifecycle state rather than
+ * disappearing. A fixture with one wrap described a set that cannot exist.
+ */
+export function rawManifestKekWrapSet(): RawRecord[] {
+  return Array.from({ length: 10 }, (_, index) =>
+    rawManifestKekWrap({
+      recoveryKeyId: `wallet-rkid-v1-${DIGEST_B64U.slice(0, 42)}${'ABCDEFGHIJ'[index]}`,
+    }),
+  );
+}
+
 export function rawWalletRecoveryEnvelopeSet(overrides: RawRecord = {}): RawRecord {
   return {
     kind: 'wallet_recovery_envelope_set_v1',
     walletId: WALLET_ID,
-    manifestKekWraps: [rawManifestKekWrap()],
+    manifestKekWraps: rawManifestKekWrapSet(),
     entries: [rawWalletRecoveryEnvelopeEntry()],
     issuedAtMs: 1_000,
     updatedAtMs: 2_000,
@@ -226,7 +241,7 @@ export function buildWalletCustodyCommitPayloadFixture(input: {
       envelopeCiphertextDigestB64u: CIPHERTEXT_DIGEST_B64U,
       // Ten wraps of one manifest KEK, one per recovery code, with distinct ids.
       recoveryManifestKekWraps: Array.from({ length: 10 }, (_, index) => ({
-        recoveryKeyId: `email-otp-rkid-v1-${DIGEST_B64U.slice(0, 42)}${'ABCDEFGHIJ'[index]}`,
+        recoveryKeyId: `wallet-rkid-v1-${DIGEST_B64U.slice(0, 42)}${'ABCDEFGHIJ'[index]}`,
         nonceB64u: NONCE_12_B64U,
         ciphertextB64u: CIPHERTEXT_B64U,
         aadHashB64u: ALT_DIGEST_B64U,

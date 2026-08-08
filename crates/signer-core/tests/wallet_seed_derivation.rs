@@ -375,8 +375,9 @@ fn the_cache_key_follows_the_seed() {
 
 #[test]
 fn the_cache_key_rejects_a_seed_of_the_wrong_length() {
-    assert!(
-        derive_ed25519_local_material_cache_key_from_seed_v1(&[7u8; 31], &APPLICATION_BINDING_DIGEST)
-            .is_err()
-    );
+    assert!(derive_ed25519_local_material_cache_key_from_seed_v1(
+        &[7u8; 31],
+        &APPLICATION_BINDING_DIGEST
+    )
+    .is_err());
 }
