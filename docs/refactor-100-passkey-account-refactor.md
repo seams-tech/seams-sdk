@@ -1419,10 +1419,33 @@ repository evidence.
         `walletRegistrationCommitStore` in the DI site
         (`d1RouterApiAuthService.ts:1435`) — same `options` shape — and inject
         it into `CloudflareD1WalletRegistrationService`.
-      - Call `commitRegistrationCustody` in the activate path after the
-        finalize returns, where `commit.authority` is already in hand
-        (`d1WalletRegistrationService.ts:3367-3400`). The Ed25519-only path is
-        the other call site and matters most: it is the first client slice.
+      - **Correction (2026-08-08): the commit belongs inside
+        `executeWalletRegistrationFinalize` (`d1WalletRegistrationService.ts:3786`),
+        not in the activate path.** Two callers reach it — activate's ECDSA
+        branch (`:3367`) and `commitDeferredEd25519Signer` (`:2654`) — and one
+        seam inside covers both. It is also the only correct place for an
+        Ed25519-only wallet: activate returns `near_pending` with no Yao result
+        yet, so that wallet's custody can only be sealed on the *deferred* NEAR
+        provisioning leg. A commit wired into activate alone would silently
+        never fire for the first client slice.
+
+        `executeWalletRegistrationFinalize` already has what the commit needs:
+        `ceremonyAuthority` from `verifiedRegistrationCeremonyAuthority`, and
+        the ceremony's wallet id.
+
+      - The payload rides `WalletRegistrationFinalizeRequestBase`
+        (`registrationContracts.ts:765`) as an optional field, which both
+        callers populate. Note this changes
+        `walletRegistrationFinalizeRequestFingerprint` — it hashes the whole
+        request — which is correct: a different custody payload is a different
+        request and must not adopt a prior operation row.
+
+      - **The Email OTP factor is fully threadable.** Its two facts live
+        together on the `EmailOtpWalletEnrollmentRecord` the same leg builds
+        (`d1EmailOtpRegistrationEnrollmentFinalizer.ts:392-400`):
+        `enrollmentId` and `enrollmentSealKeyVersion`. The finalize request
+        already carries the seal key version; the id comes from the finalizer's
+        result, so surface it rather than re-deriving it.
       - Surface the outcome on the activate response. **This breaks the client
         parser unless updated in the same change:**
         `parseWalletRegistrationActivateResponseV2`
