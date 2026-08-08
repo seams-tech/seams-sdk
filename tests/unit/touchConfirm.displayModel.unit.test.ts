@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { injectImportMap } from '../setup/bootstrap';
 import { encodeFunctionData, parseAbi } from 'viem';
 
 const IMPORT_PATHS = {
@@ -18,6 +19,11 @@ const FAUCET_ABI = parseAbi([
 test.describe('touchConfirm display model fixtures', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
+    /* The built ESM leaves bare specifiers (bs58 and friends) for the host to
+       resolve, so a page that loads these modules needs the import map. Called
+       after navigation: that branch installs the document route and reloads,
+       so the map is present during the parse that matters. */
+    await injectImportMap(page);
   });
 
   test('normalizes NEAR action payloads into display operations', async ({ page }) => {

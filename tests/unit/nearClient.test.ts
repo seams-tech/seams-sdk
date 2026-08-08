@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { injectImportMap } from '../setup/bootstrap';
 
 const IMPORT_PATHS = {
   nearClient: '/_test-sdk/esm/core/rpcClients/near/NearClient.js',
@@ -8,6 +9,11 @@ test.describe('encodeSignedTransactionBase64', () => {
   test.beforeEach(async ({ page }) => {
     // Minimal bootstrap for pure unit tests: ensure origin is available for /sdk imports
     await page.goto('/');
+    /* The built ESM leaves bare specifiers (bs58 and friends) for the host to
+       resolve, so a page that loads these modules needs the import map. Called
+       after navigation: that branch installs the document route and reloads,
+       so the map is present during the parse that matters. */
+    await injectImportMap(page);
   });
 
   test('encodes SignedTransaction instances via methods', async ({ page }) => {
