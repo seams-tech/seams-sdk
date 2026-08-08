@@ -44,8 +44,8 @@ use router_ab_ed25519_yao::{
     stable_key_derivation_context_v1, ActivationDeriverA, ActivationDeriverB,
 };
 use router_ab_ed25519_yao_client::{
-    client_application_binding_digest_v1, import_activated_client_under_custody_seed_v1,
-    ClientActivationEntropyV1,
+    client_application_binding_digest_v1, ed25519_local_material_binding_v1,
+    import_activated_client_under_custody_seed_v1, ClientActivationEntropyV1,
 };
 use signer_core::ecdsa_role_local_client::command::RelayerPublicIdentityInput;
 use signer_core::passkey_custody::open_wallet_custody_seed_envelope_v1;

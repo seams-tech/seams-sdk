@@ -15,13 +15,15 @@ use crate::{
     ClientSigningRequestV1,
 };
 use crate::{
-    import_activated_client_material_v1, seal_activated_client_material_v1,
-    LocalMaterialSealDomainV1,
+    ed25519_local_material_binding_v1, import_activated_client_material_v1,
+    open_wallet_custody_ed25519_material_v1, seal_activated_client_material_v1,
+    LocalMaterialSealDomainV1, OpenWalletCustodyEd25519MaterialV1,
 };
 use signer_core::near_ed25519_recovery::{
     build_near_ed25519_seed_export_artifact_v1, encode_near_ed25519_public_key_from_seed,
 };
 use signer_core::near_threshold_ed25519::CommitmentsWire;
+use signer_core::passkey_custody::PasskeyCustodyEnvelopeBindingV1;
 
 /// One-use browser registration session containing only Client-owned secret state.
 #[wasm_bindgen]
@@ -723,6 +725,92 @@ fn import_activated_client_local_material(
         client_scalar_share: opened.client_scalar_share,
         registered_public_key: opened.registered_public_key,
         state_epoch: opened.state_epoch,
+    })
+}
+
+/// Opens the wallet's Ed25519 continuity cache with any enrolled factor.
+///
+/// **The unlock read side, and deliberately one call.** The custody seed
+/// exists only between opening the envelope and deriving the cache key.
+/// Splitting this into "open the envelope" and "open the cache" would put the
+/// seed in a caller's hands, and every caller here is JavaScript.
+///
+/// Exported from *this* module rather than the ceremony's because the handle
+/// it returns has to be the one the signing path already uses: two wasm
+/// modules each define their own `WasmActivatedClientV1`, and a handle from
+/// the wrong module cannot sign.
+///
+/// The caller never assembles the cache seal binding. It is rebuilt here from
+/// the record's own fields, because it is both HKDF input and AEAD associated
+/// data — a caller that assembled it even slightly differently would hold a
+/// record that never opens, and the failure would read as a bad factor.
+///
+/// Any factor works, which is the point of sealing under the seed: a passkey
+/// enrolled long after registration opens the cache the Email OTP enrollment
+/// wrote, and the reverse.
+#[wasm_bindgen(js_name = openWalletCustodyEd25519MaterialV1)]
+#[allow(clippy::too_many_arguments)]
+pub fn wasm_open_wallet_custody_ed25519_material_v1(
+    factor_secret: &[u8],
+    envelope_binding_json: &str,
+    envelope_nonce: &[u8],
+    envelope_ciphertext: &[u8],
+    envelope_aad_hash: &[u8],
+    envelope_ciphertext_digest: &[u8],
+    application_binding_digest: &[u8],
+    registered_public_key: &[u8],
+    state_epoch: u64,
+    client_participant_id: u16,
+    signing_worker_participant_id: u16,
+    signing_worker_verifying_share: &[u8],
+    cache_nonce: &[u8],
+    cache_ciphertext: &[u8],
+) -> Result<WasmActivatedClientV1, JsValue> {
+    let envelope_binding =
+        serde_json::from_str::<PasskeyCustodyEnvelopeBindingV1>(envelope_binding_json)
+            .map_err(js_error)?;
+    let application_binding_digest =
+        parse_32(application_binding_digest, "application binding digest")?;
+    let registered_public_key = parse_32(
+        registered_public_key,
+        "expected registered Ed25519 public key",
+    )?;
+    let signing_worker_verifying_share = parse_32(
+        signing_worker_verifying_share,
+        "SigningWorker verifying share",
+    )?;
+    let participant_ids = [client_participant_id, signing_worker_participant_id];
+
+    // Rebuilt, never accepted: see above.
+    let binding = ed25519_local_material_binding_v1(
+        &application_binding_digest,
+        &registered_public_key,
+        participant_ids,
+        state_epoch,
+    );
+
+    let opened = open_wallet_custody_ed25519_material_v1(OpenWalletCustodyEd25519MaterialV1 {
+        factor_secret,
+        envelope_binding: &envelope_binding,
+        envelope_nonce,
+        envelope_ciphertext,
+        envelope_aad_hash,
+        envelope_ciphertext_digest,
+        application_binding_digest: &application_binding_digest,
+        binding: &binding,
+        nonce: cache_nonce,
+        ciphertext: cache_ciphertext,
+        expected_registered_public_key: &registered_public_key,
+        expected_state_epoch: state_epoch,
+        participant_ids,
+        signing_worker_verifying_share: &signing_worker_verifying_share,
+    })
+    .map_err(js_error)?;
+
+    Ok(WasmActivatedClientV1 {
+        client_scalar_share: Zeroizing::new(*opened.client_scalar_share()),
+        registered_public_key: opened.registered_public_key(),
+        state_epoch: opened.state_epoch(),
     })
 }
 
