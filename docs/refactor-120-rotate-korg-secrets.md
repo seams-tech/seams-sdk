@@ -26,7 +26,7 @@ The authoritative protocol and deployment documents are:
 - [Router A/B protocol](router-ab/protocol.md)
 - [Router A/B deployment](router-ab/deployment.md)
 - [R90: modular auth and capabilities](refactor-90-modular-auth-capabilities-plan.md)
-- [R102: wallet share rotation](refactor-102-share-rotation.md)
+- [R102: rotatable signing lanes](refactor-102-rotatable-signing-lanes.md)
 - [R115: deployment portability](refactor-115-deployment-portability.md)
 - [Self-hosting plan](refactor-120-self-hosting.md)
 

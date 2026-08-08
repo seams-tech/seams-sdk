@@ -54,7 +54,7 @@ This plan consumes:
 - [Refactor 101](./refactor-101-wallet-execution-lanes.md) for stable
   `WalletKey` identity and independently replaceable holder/server execution
   lanes;
-- [Refactor 102](./refactor-102-share-rotation.md) for curve-specific lane
+- [Refactor 102](./refactor-102-rotatable-signing-lanes.md) for curve-specific lane
   provisioning, share refresh, activation, revocation, and public-key
   continuity;
 - [Refactor 103](./refactor-103-device-linking.md) for linked-device continuity
