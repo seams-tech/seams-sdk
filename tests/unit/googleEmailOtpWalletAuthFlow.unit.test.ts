@@ -8,6 +8,7 @@ import type { DemoEmailOtpCodeResponse } from '@/core/signingEngine/session/emai
 import type { RegistrationResult } from '@/core/types/seams';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
+import { activeWalletSessionFixture } from './helpers/walletSessionReadProjection.fixtures';
 
 const TEMPO_TARGET = {
   kind: 'tempo',
@@ -76,12 +77,7 @@ function testConfigsWithConfiguredEcdsaChains(): GoogleEmailOtpWalletAuthDeps['c
 }
 
 function loggedInSession(walletId: string) {
-  return {
-    login: {
-      isLoggedIn: true,
-      nearAccountId: walletId,
-    },
-  } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['getWalletSession']>>;
+  return activeWalletSessionFixture({ walletId, nearAccountId: walletId });
 }
 
 function makeRegisterResolution(input?: { walletId?: string; attemptId?: string }) {
@@ -188,6 +184,9 @@ function makeDeps(overrides?: Partial<GoogleEmailOtpWalletAuthDeps>): {
     },
     loginWithEmailOtpEd25519YaoCapability: async (args) => {
       calls.push({ type: 'loginWithEmailOtpEd25519YaoCapability', args });
+    },
+    rememberEmailOtpAppSessionJwt: (args) => {
+      calls.push({ type: 'rememberEmailOtpAppSessionJwt', args });
     },
     getWalletSession: async (walletId) => {
       calls.push({ type: 'getWalletSession', args: { walletId } });
