@@ -19,7 +19,7 @@ import {
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { SignerWorkerOperationError } from '@/core/signingEngine/workerManager/workerTypes';
 import {
-  WorkerRequestType,
+  EcdsaDerivationClientCustomRequestType,
   WorkerResponseType,
   type WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapRequest,
   type WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapRequest,
@@ -119,7 +119,7 @@ function finalizeFailureWorkerCtx(message: string): WorkerOperationContext {
   return {
     async requestWorkerOperation({ request }) {
       expect(request.type).toBe(
-        WorkerRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap,
+        EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap,
       );
       throw new SignerWorkerOperationError({
         code: 'SIGNER_CRYPTO_ERROR',
@@ -263,7 +263,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       async requestWorkerOperation({ kind, request }) {
         expect(kind).toBe('ecdsaDerivationClient');
         if (
-          request.type === WorkerRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap
+          request.type === EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap
         ) {
           const payload =
             request.payload as WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapRequest;
@@ -280,10 +280,8 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
               participantIds: [1, 2],
             },
             secretSource: {
-              kind: 'webauthn_prf_first',
-              prfFirstB64u: requiredPrfSuccess.prf.prfFirstB64u,
-              rpId: 'localhost',
-              credentialIdB64u: 'credential',
+              kind: 'threshold_prf_x_client_base',
+              xClientBaseB64u: prepareInput.secretSource.xClientBaseB64u,
             },
           });
           return {
@@ -310,7 +308,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
           } as any;
         }
         expect(request.type).toBe(
-          WorkerRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap,
+          EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap,
         );
         const payload =
           request.payload as WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapRequest;
