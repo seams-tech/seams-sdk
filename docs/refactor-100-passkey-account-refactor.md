@@ -1289,6 +1289,14 @@ repository evidence.
         ceremony. The seed-root kind keeps this machine — what changes is what
         the pending branch holds (no Router bundles, no `pendingActivation`
         blob) and what activate forwards.
+      - **No existing Router path can be borrowed.** Recovery
+        (`lib.rs:5143`) and activation-refresh (`:5212`) both `futures::join!`
+        the two Deriver role Workers exactly as registration does, so every
+        ECDSA path in the Router forwards to the Derivers today. The seed-root
+        mode is a genuinely new Router path — new public path and purpose, a
+        request carrying the client's public key instead of Deriver envelopes,
+        an admission plan that does not Forward, and a SigningWorker call that
+        composes the identity — not a variation on something already tested.
       - The full inventory of files gating the kind literals (parsers,
         contracts, stored-branch decoders — including
         `d1RegistrationCeremonyRecords.ts:1200`, which hard-codes
@@ -1353,6 +1361,14 @@ repository evidence.
       would restore NEAR and silently miss EVM, which is the exact failure this
       refactor exists to prevent. Either both key sets move together, or the
       first slice is Ed25519-only wallets, which have no EVM key set to strand.
+
+      **The admission gate is built (2026-08-08).**
+      `walletCustodyRegistrationAdmission.ts` is the only path a route should
+      take to `commitWalletCustodyRegistration`, and it enforces both checks
+      below plus the joining case. What remains for this half is the route
+      change itself: carrying the payload on the activate body, resolving the
+      verified factor from the credential that leg verified, and surfacing the
+      outcomes. Six tests, mutation-checked on the wallet-equality check.
 
       **Decision (2026-08-07): the custody commit has no standalone route.**
       `commitWalletCustodyRegistration` and its store are built and tested but
