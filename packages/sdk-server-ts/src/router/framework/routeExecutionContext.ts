@@ -13,6 +13,7 @@ export const ROUTE_SERVICE_KEYS = [
   'identity',
   'nearFunding',
   'orgProjectEnv',
+  'passkeyCustody',
   'publishableKeyAuth',
   'recovery',
   'signingSessionSeal',

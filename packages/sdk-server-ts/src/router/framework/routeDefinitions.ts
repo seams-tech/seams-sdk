@@ -83,7 +83,9 @@ const ROUTER_API_AUTH_PROVIDER_SERVICES = [
   'webAuthn',
   'identity',
 ] as const satisfies readonly CoreRouteServiceKey[];
-const ROUTER_API_SYNC_ACCOUNT_SERVICES = ['webAuthn'] as const satisfies readonly CoreRouteServiceKey[];
+const ROUTER_API_SYNC_ACCOUNT_SERVICES = [
+  'webAuthn',
+] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_ED25519_WALLET_SESSION_SERVICES = [
   'walletRegistration',
   'webAuthn',
@@ -127,6 +129,9 @@ const ROUTER_API_SESSION_EXCHANGE_SERVICES = [
 const ROUTER_API_SESSION_VERSION_SERVICES = [
   'sessionVersions',
   'session',
+] as const satisfies readonly CoreRouteServiceKey[];
+const ROUTER_API_PASSKEY_CUSTODY_SERVICES = [
+  'passkeyCustody',
 ] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_WALLET_UNLOCK_SERVICES = [
   'walletUnlock',
@@ -546,6 +551,19 @@ export function createRouterApiRouteDefinitions(
       },
       ROUTER_API_WALLET_REGISTRATION_SESSION_SERVICES,
       { kind: 'event', action: 'wallet_created' },
+    ),
+    publicRoute(
+      'passkey_custody_envelope_retrieve',
+      'POST',
+      '/wallets/custody/envelope',
+      'Retrieve a wallet custody envelope for a device that has none locally',
+      {
+        plane: 'public',
+        proof: 'webauthn',
+        rationale:
+          'The WebAuthn assertion is the gate: the response is ciphertext the server cannot open, and the KEK derives from a PRF result that never leaves the browser.',
+      },
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
     ),
     publicRoute(
       'wallet_registration_near_provisioning',

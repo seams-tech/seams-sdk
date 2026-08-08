@@ -24,6 +24,33 @@ import type { NormalizedLogger } from '../../../../core/logger';
  * bag's whole point is that they do not.
  */
 
+/**
+ * What a browser may send. Deliberately *not*
+ * `PasskeyCustodyEnvelopeRetrievalRequest`.
+ *
+ * That type carries `expectedChallenge`, `userId` and `rpId` — the values the
+ * assertion is checked against. On a public route a caller that supplies both
+ * the assertion and what it must match has proved nothing, so those three are
+ * not accepted here: they come from the challenge record the server issued and
+ * stores, named by an opaque id.
+ */
+export type PasskeyCustodyEnvelopeRetrievalWireRequest = {
+  readonly locator: PasskeyCustodyEnvelopeRetrievalRequest['locator'];
+  /** Names the server-issued challenge; consumed once. */
+  readonly challengeId: string;
+  /**
+   * The relying party's origin, from the caller.
+   *
+   * Matches the convention of the sibling WebAuthn service, which takes
+   * `expected_origin` the same way. Worth revisiting for a browser-reachable
+   * route: the sibling is called by an app server, and a value the requester
+   * supplies is weaker evidence there. Left consistent rather than quietly
+   * given a different origin policy than every other WebAuthn route.
+   */
+  readonly expectedOrigin: string;
+  readonly webauthnAuthentication: PasskeyCustodyEnvelopeRetrievalRequest['webauthnAuthentication'];
+};
+
 export interface RouterApiPasskeyCustodyService {
   /**
    * Fetch a wallet's custody envelope for a browser that has none locally.
@@ -34,7 +61,7 @@ export interface RouterApiPasskeyCustodyService {
    * what "this credential no longer opens the wallet" means.
    */
   retrieveEnvelope(
-    request: PasskeyCustodyEnvelopeRetrievalRequest,
+    request: PasskeyCustodyEnvelopeRetrievalWireRequest,
   ): Promise<PasskeyCustodyEnvelopeRetrievalRouteResponse>;
 }
 
@@ -45,13 +72,51 @@ export function createD1PasskeyCustodyRouteService(assembly: {
 }): RouterApiPasskeyCustodyService {
   const authenticatorStore = authenticatorStoreView(assembly.webAuthnStore);
   return {
-    retrieveEnvelope: (request) =>
-      handlePasskeyCustodyEnvelopeRetrieval({
-        request,
+    retrieveEnvelope: async (request) => {
+      const challengeId = String(request.challengeId || '').trim();
+      const expectedOrigin = String(request.expectedOrigin || '').trim();
+      if (!challengeId || !expectedOrigin) {
+        return {
+          status: 400,
+          body: {
+            ok: false,
+            code: 'challenge_required',
+            message: 'custody retrieval needs a server-issued challenge and an origin',
+          },
+        };
+      }
+
+      /* Consumed, not read: a challenge that could be replayed would let one
+         captured assertion fetch the envelope repeatedly. */
+      const challenge = await assembly.webAuthnStore.consumeLoginChallenge(challengeId);
+      if (!challenge) {
+        return {
+          status: 401,
+          body: {
+            ok: false,
+            code: 'challenge_unknown',
+            message: 'the challenge is unknown, expired, or already used',
+          },
+        };
+      }
+
+      return handlePasskeyCustodyEnvelopeRetrieval({
+        request: {
+          locator: request.locator,
+          /* From the issued challenge, never the request body. This is what
+             makes the assertion evidence: the browser cannot choose the
+             user, the relying party, or the bytes it signs over. */
+          rpId: challenge.rpId as PasskeyCustodyEnvelopeRetrievalRequest['rpId'],
+          userId: challenge.userId,
+          expectedChallenge: challenge.challengeB64u,
+          expectedOrigin,
+          webauthnAuthentication: request.webauthnAuthentication,
+        },
         envelopeStore: assembly.passkeyCustodyEnvelopes,
         authenticatorStore,
         logger: assembly.logger,
-      }),
+      });
+    },
   };
 }
 
