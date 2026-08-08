@@ -314,7 +314,9 @@ test.describe('hosted Google Email OTP account privacy', () => {
     expect(restarted.walletId).not.toBe(first.walletId);
     expect(restarted.walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relayer\.testnet$/);
     await expect(
-      (service as any).stores.getEmailOtpRegistrationAttemptStore().get(restarted.registrationAttemptId),
+      (service as any).stores
+        .getEmailOtpRegistrationAttemptStore()
+        .get(restarted.registrationAttemptId),
     ).resolves.toMatchObject({
       walletId: restarted.walletId,
       walletIdDerivationNonce: expect.any(String),
