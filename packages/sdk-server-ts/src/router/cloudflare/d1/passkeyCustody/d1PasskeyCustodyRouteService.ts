@@ -1,0 +1,108 @@
+import type { CloudflareD1PasskeyCustodyEnvelopeStore } from './d1PasskeyCustodyEnvelopeStore';
+import {
+  handlePasskeyCustodyEnvelopeRetrieval,
+  type PasskeyCustodyEnvelopeRetrievalRouteResponse,
+} from '../../../domains/passkeyCustody/passkeyCustodyEnvelopeRetrievalRoute';
+import type { PasskeyCustodyEnvelopeRetrievalRequest } from '../../../domains/passkeyCustody/passkeyCustodyEnvelopeRetrieval';
+import type { WebAuthnAuthenticatorStore } from '../../../../core/WebAuthnAuthenticatorStore';
+import type { CloudflareD1WebAuthnStore } from '../webauthn/d1WebAuthnStore';
+import type { NormalizedLogger } from '../../../../core/logger';
+
+/**
+ * The custody envelope layer's way into the router.
+ *
+ * Everything below this file — the store, the retrieval gate, the revocation
+ * admission, the wire mapping — was written, tested, and unreachable: nothing
+ * in the running server constructed a store, so cold unlock could not be
+ * implemented end to end no matter how complete the pieces were. This is the
+ * seam that makes them reachable.
+ *
+ * It is a *port*, like everything else in the service bag, not the store
+ * itself. Routes get a method they can call; the store, the authenticator
+ * store, and the logger stay behind it. A route holding a D1 store directly
+ * would make every future custody route depend on the storage shape, and the
+ * bag's whole point is that they do not.
+ */
+
+export interface RouterApiPasskeyCustodyService {
+  /**
+   * Fetch a wallet's custody envelope for a browser that has none locally.
+   *
+   * Returns the wire response rather than the domain result: the status a
+   * failure earns is a decision, it is made once in the wire mapping, and a
+   * second caller re-deciding it is how two clients come to disagree about
+   * what "this credential no longer opens the wallet" means.
+   */
+  retrieveEnvelope(
+    request: PasskeyCustodyEnvelopeRetrievalRequest,
+  ): Promise<PasskeyCustodyEnvelopeRetrievalRouteResponse>;
+}
+
+export function createD1PasskeyCustodyRouteService(assembly: {
+  readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
+  readonly webAuthnStore: CloudflareD1WebAuthnStore;
+  readonly logger: NormalizedLogger;
+}): RouterApiPasskeyCustodyService {
+  const authenticatorStore = authenticatorStoreView(assembly.webAuthnStore);
+  return {
+    retrieveEnvelope: (request) =>
+      handlePasskeyCustodyEnvelopeRetrieval({
+        request,
+        envelopeStore: assembly.passkeyCustodyEnvelopes,
+        authenticatorStore,
+        logger: assembly.logger,
+      }),
+  };
+}
+
+/**
+ * The router's WebAuthn store, seen as the interface assertion verification
+ * expects.
+ *
+ * The two shapes differ only in naming — both read and write the same
+ * `WebAuthnAuthenticatorRecord` rows — so this adapts rather than duplicates.
+ * Verifying against the router's own authenticators is the point: a separate
+ * store would let a credential be active for registration and unknown to
+ * custody, and the wallet would refuse a passkey the user just enrolled.
+ */
+function authenticatorStoreView(store: CloudflareD1WebAuthnStore): WebAuthnAuthenticatorStore {
+  return {
+    get: async (userId, credentialIdB64u) => {
+      const record = await store.readAuthenticator({ userId, credentialIdB64u });
+      if (!record) return null;
+      /* The router row carries device info the verifier has no use for, and
+         lacks the version tag the core record is discriminated by. The five
+         fields verification actually reads are identical in both. */
+      return {
+        version: 'webauthn_authenticator_v1',
+        credentialIdB64u: record.credentialIdB64u,
+        credentialPublicKeyB64u: record.credentialPublicKeyB64u,
+        counter: record.counter,
+        createdAtMs: record.createdAtMs,
+        updatedAtMs: record.updatedAtMs,
+      };
+    },
+    /* Narrowed to the counter on purpose. A successful assertion may advance
+       the signature counter and nothing else; a general write here could
+       replace a credential's public key on the strength of an assertion that
+       key just verified, which is a credential swap with extra steps. It also
+       cannot create a row, so custody retrieval can never enroll a factor. */
+    put: (userId, record) =>
+      store.updateAuthenticatorCounter({
+        userId,
+        credentialIdB64u: record.credentialIdB64u,
+        newCounter: record.counter,
+        updatedAtMs: record.updatedAtMs,
+      }),
+    del: async () => {
+      /* Deliberately not implemented rather than a silent no-op. The D1 store
+         has no delete, and a `del` that resolved without removing anything
+         would report a revoked credential as gone while it still verified
+         assertions. Retrieval never calls this; anything that does is a bug
+         that should surface here rather than as phantom access later. */
+      throw new Error(
+        'the router WebAuthn store cannot delete authenticators; revoke the custody envelope instead',
+      );
+    },
+  };
+}
