@@ -1420,6 +1420,39 @@ repository evidence.
       accept a cache miss whenever a wallet unlocks under a factor it did not
       register with.
 
+      **Decision reviewed and confirmed (2026-08-08): seal under the custody
+      seed.** The review sharpened three things beyond the original framing:
+
+      - *Per-factor-times-N ("seal under both") is unsound multi-device, not
+        merely stateful.* Factor add happens on one device; another device's
+        IndexedDB cannot gain the new factor's wrap without a re-seal ceremony
+        on that device, so a later-added factor never opens existing caches.
+        It degenerates to per-factor with more state. Ruled out. Seed-sealing
+        handles the same case by construction: the *server* envelope gains a
+        wrap (`reseal_wallet_custody_seed_under_new_factor_v1`), and a stale
+        local envelope copy just refetches once.
+      - *Seed-sealing has two real costs.* (1) Warm unlock changes shape from
+        `factor → open cache` to `factor → KEK → open envelope → seed → HKDF →
+        open cache`, so the envelope ciphertext must be cached locally or warm
+        unlock gains a server fetch. (2) The seed materializes on every warm
+        unlock instead of only during ceremonies — it stays inside wasm and
+        zeroizes, and the client scalar share it unwraps is equal-value
+        material that materializes anyway, but it is a posture change and is
+        recorded as such.
+      - *Two things are washes, not differentiators.* User presence: the
+        passkey KEK still requires the WebAuthn/PRF ceremony, so the seed sits
+        behind the factor gate, not beside it. Revocation: local material
+        outliving factor revocation until wiped is true under every option (a
+        revoked passkey still computes PRF; a cached wrap still opens); the
+        threshold model is the backstop either way — one local share cannot
+        sign, and server-side revocation kills the SigningWorker half.
+
+      Implementation requirements the review pinned: the cache key gets its
+      own HKDF domain with vectors proving it equals neither signing root; the
+      seal binding drops the credential/RP components (the record is
+      factor-agnostic by design) and keeps wallet, key, lifecycle, worker,
+      participant set, public key, and state epoch.
+
       **Do not splice NEAR alone for mixed wallets.** A mixed wallet whose NEAR
       key set came from the custody seed while its EVM key set is still
       PRF-derived is a wallet the recovery set only half covers — recovery
