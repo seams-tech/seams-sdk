@@ -6,6 +6,7 @@ import {
 } from '../../../framework/routeDefinitions';
 import { toFetchRouteResponse } from '../../../framework/routeResponses';
 import { readJson } from '../../../framework/http';
+import { decodeBase64UrlOrBase64 } from '../../../../core/authService/webauthnOidcHelpers';
 
 /**
  * The transport for custody envelope retrieval.
@@ -18,6 +19,7 @@ import { readJson } from '../../../framework/http';
  */
 
 const ROUTE_ID = 'passkey_custody_envelope_retrieve';
+const RECOVERY_SPEND_ROUTE_ID = 'wallet_recovery_code_spend';
 
 export async function handlePasskeyCustody(ctx: FetchRouterApiContext): Promise<Response | null> {
   const route = findRouteDefinitionById(ctx.routeDefinitions, ROUTE_ID);
@@ -39,6 +41,95 @@ export async function handlePasskeyCustody(ctx: FetchRouterApiContext): Promise<
 
   const response = await ctx.service.passkeyCustody.retrieveEnvelope(request);
   return toFetchRouteResponse(response);
+}
+
+/**
+ * Spending a recovery code.
+ *
+ * The refusal is one shape for every cause — unknown wallet, unknown code,
+ * spent code. The domain deliberately makes them indistinguishable so the
+ * route cannot be used to count how many of a user's ten codes remain, and
+ * this must not helpfully re-separate them on the way out.
+ */
+export async function handleWalletRecoverySpend(
+  ctx: FetchRouterApiContext,
+): Promise<Response | null> {
+  const route = findRouteDefinitionById(ctx.routeDefinitions, RECOVERY_SPEND_ROUTE_ID);
+  if (!route) throw new Error(`Missing route definition for ${RECOVERY_SPEND_ROUTE_ID}`);
+  if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
+
+  const body = (await readJson(ctx.request)) as Record<string, unknown> | null;
+  const walletId = trimmed(body?.walletId);
+  const recoveryCode = trimmed(body?.recoveryCode);
+  const reservationId = trimmed(body?.reservationId);
+  if (!walletId || !recoveryCode || !reservationId) {
+    return toFetchRouteResponse({
+      status: 400,
+      body: {
+        ok: false,
+        code: 'invalid_request',
+        message: 'a recovery spend needs a wallet, a code, and a reservation id',
+      },
+    });
+  }
+
+  let recoveryCodeBytes: Uint8Array;
+  try {
+    recoveryCodeBytes = decodeRecoveryCode(recoveryCode);
+  } catch {
+    /* Answered exactly like a wrong code. A distinct "malformed" reply would
+       tell an enumerating caller which candidates are even shaped like codes. */
+    return toFetchRouteResponse(refusedSpend());
+  }
+
+  const result = await ctx.service.passkeyCustody.spendRecoveryCode({
+    walletId,
+    recoveryCodeBytes,
+    reservationId,
+  });
+
+  switch (result.kind) {
+    case 'committed':
+      return toFetchRouteResponse({
+        status: 200,
+        body: {
+          ok: true,
+          wrap: result.wrap,
+          entries: result.entries,
+          storeVersion: result.storeVersion,
+        },
+      });
+    case 'conflict':
+      /* 409, and retryable: another attempt committed against the version this
+         one read. The code may still be good. */
+      return toFetchRouteResponse({
+        status: 409,
+        body: {
+          ok: false,
+          code: 'recovery_set_conflict',
+          message: 'the recovery set changed during this attempt; try again',
+        },
+      });
+    case 'refused':
+      return toFetchRouteResponse(refusedSpend());
+  }
+}
+
+function refusedSpend() {
+  return {
+    status: 401,
+    body: {
+      ok: false,
+      code: 'recovery_code_rejected',
+      message: 'that recovery code cannot be used',
+    },
+  };
+}
+
+function decodeRecoveryCode(value: string): Uint8Array {
+  const normalized = value.replace(/[\s-]/g, '');
+  if (!normalized) throw new Error('empty recovery code');
+  return decodeBase64UrlOrBase64(normalized, 'recoveryCode');
 }
 
 function parseWireRequest(

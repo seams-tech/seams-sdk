@@ -203,6 +203,10 @@ type CloudflareD1RouterApiAuthAssembly = {
   readonly registrationIntents: CloudflareD1RegistrationIntentService;
   readonly signedDelegateExecutor: CloudflareD1SignedDelegateExecutor;
   readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
+  /* The same store registration commits through: recovery spends update the
+     record registration wrote, so a second store here would let a spend land
+     against a set nothing else can see. */
+  readonly walletCustodyCommitStore: CloudflareD1WalletCustodyCommitStore;
   /* Exposed because custody retrieval verifies the assertion against the same
      authenticators WebAuthn registration wrote. A second store here would let
      a credential be active for one and unknown to the other. */
@@ -1547,6 +1551,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     registrationIntents,
     signedDelegateExecutor,
     passkeyCustodyEnvelopes,
+    walletCustodyCommitStore,
     webAuthnStore,
   };
 }
@@ -1947,6 +1952,7 @@ export function createCloudflareD1RouterApiAuthService(
     router: createD1RouterAccountRouteService(assembly),
     passkeyCustody: createD1PasskeyCustodyRouteService({
       passkeyCustodyEnvelopes: assembly.passkeyCustodyEnvelopes,
+      walletCustodyCommits: assembly.walletCustodyCommitStore,
       webAuthnStore: assembly.webAuthnStore,
       logger: normalizeLogger(),
     }),

@@ -553,6 +553,19 @@ export function createRouterApiRouteDefinitions(
       { kind: 'event', action: 'wallet_created' },
     ),
     publicRoute(
+      'wallet_recovery_code_spend',
+      'POST',
+      '/wallets/recovery/spend',
+      'Spend one wallet recovery code and return its wrapped custody payload',
+      {
+        plane: 'public',
+        proof: 'recovery_proof',
+        rationale:
+          'The recovery code is the proof. Recovery exists for the case where every enrolled factor is gone, so there is nothing else to authenticate with; the response is ciphertext only the code opens.',
+      },
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+    ),
+    publicRoute(
       'passkey_custody_envelope_retrieve',
       'POST',
       '/wallets/custody/envelope',
