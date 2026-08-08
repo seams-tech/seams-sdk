@@ -75,6 +75,8 @@ export type WalletRegistrationActivateInput = {
   };
   readonly emailOtpEnrollment?: unknown;
   readonly emailOtpBackupAck?: unknown;
+  /** The custody ceremony's sealed output; the admission gate owns validation. */
+  readonly walletCustodyCommit?: unknown;
   readonly verifier: WalletRegistrationSetupVerifier;
   /** Signs the registration-established Router Wallet Session JWTs. */
   readonly session: SessionAdapter;
@@ -87,6 +89,13 @@ export type WalletRegistrationNearProvisioningInput = {
   readonly ed25519: unknown;
   readonly emailOtpEnrollment?: unknown;
   readonly emailOtpBackupAck?: unknown;
+  /**
+   * The custody ceremony's sealed output. An Ed25519-only wallet establishes
+   * its custody *here* rather than at activate: activate returns
+   * `near_pending` with no Yao result yet, so this deferred leg is the first
+   * point at which that wallet has a key set to seal against.
+   */
+  readonly walletCustodyCommit?: unknown;
   readonly verifier: WalletRegistrationSetupVerifier;
   /** Signs the registration-established Router Wallet Session JWTs. */
   readonly session: SessionAdapter;

@@ -5,6 +5,8 @@ import {
   parsePasskeyCustodyEnvelopeRecord,
   type PasskeyCustodyEnvelopeRecord,
   type PasskeyCustodySecretKind,
+  type WalletCustodyCeremonyCommitPayload,
+  type WalletCustodyKeySetKind,
 } from '@shared/passkey-custody';
 
 /**
@@ -176,4 +178,64 @@ export function rawWalletRecoveryEnvelopeSet(overrides: RawRecord = {}): RawReco
  */
 export function passkeyCustodyEnvelope(overrides: RawRecord = {}): PasskeyCustodyEnvelopeRecord {
   return parsePasskeyCustodyEnvelopeRecord(rawPasskeyCustodyEnvelope(overrides));
+}
+
+/**
+ * One ceremony run's sealed output, as the client sends it.
+ *
+ * The single builder for this payload: the admission gate, the outcome
+ * composer and the registration routes must all be exercised against the same
+ * shape, and three hand-written copies would drift apart exactly where the
+ * wire contract matters.
+ *
+ * `origin: 'join'` models a run that opened custody the wallet already had —
+ * no envelope, no recovery codes, just this key set's manifest digest.
+ */
+export function buildWalletCustodyCommitPayloadFixture(input: {
+  readonly walletId: string;
+  readonly keySet?: WalletCustodyKeySetKind;
+  readonly keyManifestDigestB64u?: string;
+  readonly origin?: 'establish' | 'join';
+}): WalletCustodyCeremonyCommitPayload {
+  const walletId = input.walletId;
+  const base = {
+    walletId,
+    keySet: input.keySet ?? 'evm_family_ecdsa_v1',
+    keyManifestDigestB64u: input.keyManifestDigestB64u ?? DIGEST_B64U,
+  } as const;
+  if (input.origin === 'join') {
+    return { ...base, registeredPublicKeyB64u: ED25519_PUBLIC_KEY_B64U };
+  }
+  return {
+    ...base,
+    establishedCustody: {
+      envelopeId: ENVELOPE_ID,
+      /* Carried verbatim, as the ceremony serialized it: this is what the AAD
+         was computed over, so a reader that rebuilt it would produce an
+         envelope that cannot open. */
+      envelopeBindingJson: JSON.stringify({
+        walletId,
+        envelopeId: ENVELOPE_ID,
+        factor: rawPasskeyFactor(),
+        envelopeRevision: 1,
+        binding: rawWalletCustodySeedBinding(),
+      }),
+      envelopeNonceB64u: NONCE_12_B64U,
+      sealedCustodySecretB64u: CIPHERTEXT_B64U,
+      envelopeAadHashB64u: ALT_DIGEST_B64U,
+      envelopeCiphertextDigestB64u: CIPHERTEXT_DIGEST_B64U,
+      // Ten wraps of one manifest KEK, one per recovery code, with distinct ids.
+      recoveryManifestKekWraps: Array.from({ length: 10 }, (_, index) => ({
+        recoveryKeyId: `email-otp-rkid-v1-${DIGEST_B64U.slice(0, 42)}${'ABCDEFGHIJ'[index]}`,
+        nonceB64u: NONCE_12_B64U,
+        ciphertextB64u: CIPHERTEXT_B64U,
+        aadHashB64u: ALT_DIGEST_B64U,
+      })),
+      recoveryEntryNonceB64u: NONCE_12_B64U,
+      recoveryEntryCiphertextB64u: CIPHERTEXT_B64U,
+      recoveryEntryAadHashB64u: DIGEST_B64U,
+    },
+    clientRootPublicKey33B64u: SECP256K1_PUBLIC_KEY_B64U,
+    ecdsaReadyStateBlobB64u: CIPHERTEXT_B64U,
+  };
 }

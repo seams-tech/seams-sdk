@@ -1,3 +1,4 @@
+import type { WalletCustodyRegistrationOutcome } from '@shared/passkey-custody';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { WalletId } from '@shared/utils/domainIds';
 import {
@@ -12,12 +13,9 @@ import {
 import type { CloudflareD1WalletCustodyCommitStore } from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
 
 /**
- * What a registration leg reports back about the custody it was asked to
- * commit.
- *
- * This is the whole custody side-effect of activation, in one call: resolve the
- * factor from the authority the leg verified, then admit the payload against
- * the wallet the leg registered.
+ * The whole custody side-effect of one registration leg, in one call: resolve
+ * the factor from the authority the leg verified, then admit the payload
+ * against the wallet the leg registered.
  *
  * **Activation never fails because of custody.** The wallet's registration is
  * already committed by the time this runs, and the seed exists only in the
@@ -30,23 +28,11 @@ import type { CloudflareD1WalletCustodyCommitStore } from '../../cloudflare/d1/p
  * That is a deliberate default, not a claim that a wallet without custody is
  * fine — it is not, and a client that sees anything but `committed` or
  * `not_requested` must act on it rather than treat registration as done.
+ *
+ * The outcome shape itself is the wire contract, and lives in shared beside the
+ * payload it answers.
  */
-export type RegistrationCustodyOutcome =
-  /** No custody payload rode this activation. Registration is unaffected. */
-  | { readonly status: 'not_requested' }
-  | { readonly status: 'committed' }
-  /**
-   * A joining run: this key set's manifest digest, with no custody records
-   * written because the wallet already has its envelope and recovery set.
-   */
-  | { readonly status: 'joined'; readonly keyManifestDigestB64u: string }
-  /**
-   * Another ceremony established this wallet's custody first. The client must
-   * discard its run's seed and re-enter as a join of the existing envelope.
-   */
-  | { readonly status: 'custody_already_established' }
-  /** The payload was refused. Nothing was written. */
-  | { readonly status: 'rejected'; readonly reason: string };
+export type RegistrationCustodyOutcome = WalletCustodyRegistrationOutcome;
 
 export async function commitRegistrationCustody(input: {
   /** Absent when the client did not run a custody ceremony for this leg. */
@@ -68,15 +54,28 @@ export async function commitRegistrationCustody(input: {
   });
   if (!factor.ok) return { status: 'rejected', reason: factor.reason };
 
-  return toOutcome(
-    await admitWalletCustodyRegistrationCommit({
-      payload: input.payload,
-      verifiedWalletId: input.verifiedWalletId,
-      verifiedFactor: factor.factor,
-      nowMs: input.nowMs,
-      store: input.store,
-    }),
-  );
+  try {
+    return toOutcome(
+      await admitWalletCustodyRegistrationCommit({
+        payload: input.payload,
+        verifiedWalletId: input.verifiedWalletId,
+        verifiedFactor: factor.factor,
+        nowMs: input.nowMs,
+        store: input.store,
+      }),
+    );
+  } catch (error: unknown) {
+    /* The store itself failed — D1 refused the write, or the batch threw. The
+       payload parser already turns malformed input into `rejected`, so
+       reaching here means infrastructure, and the policy above is exactly what
+       must hold when infrastructure fails: the registration this leg already
+       committed must not be reported as an error because custody could not be
+       stored. The client is told, and retries. */
+    return {
+      status: 'rejected',
+      reason: error instanceof Error ? error.message : 'wallet custody commit failed',
+    };
+  }
 }
 
 function toOutcome(

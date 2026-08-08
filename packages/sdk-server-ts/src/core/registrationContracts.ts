@@ -1,3 +1,4 @@
+import type { WalletCustodyRegistrationOutcome } from '@shared/passkey-custody';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { DerivationClientSharePublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
@@ -645,9 +646,7 @@ export type WalletRegistrationRouteTimingName =
 
 export type WalletRegistrationRouteDiagnostics = {
   kind: 'wallet_registration_route_diagnostics_v1';
-  route:
-    | 'wallets_register_setup'
-    | 'wallets_register_finalize';
+  route: 'wallets_register_setup' | 'wallets_register_finalize';
   entries: {
     name: WalletRegistrationRouteTimingName;
     durationMs: number;
@@ -765,6 +764,17 @@ export type WalletRegistrationEcdsaActivationResponse =
 type WalletRegistrationFinalizeRequestBase = {
   registrationCeremonyId: string;
   idempotencyKey: string;
+  /**
+   * The wallet custody ceremony's sealed output, when the client ran one for
+   * this key set. Carried unvalidated: the admission gate owns every check,
+   * and it must be able to *report* a malformed payload rather than have the
+   * route reject the request — the wallet is committed either way.
+   *
+   * Note this participates in `walletRegistrationFinalizeRequestFingerprint`,
+   * which hashes the whole request. That is correct: a different custody
+   * payload is a different request and must not adopt a prior operation row.
+   */
+  walletCustodyCommit?: unknown;
   emailOtpEnrollment?: {
     recoveryWrappedEnrollmentEscrows: unknown[];
     enrollmentSealKeyVersion: string;
@@ -848,6 +858,13 @@ type WalletRegistrationFinalizeResponseBase = {
   walletId: WalletId;
   authority: WalletAuthAuthority;
   registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
+  /**
+   * What became of this leg's custody commit. Absent when no custody payload
+   * rode the request, so a wallet registered before this existed is unchanged
+   * on the wire. Anything other than `committed` is the client's to act on —
+   * the registration itself succeeded regardless.
+   */
+  walletCustody?: WalletCustodyRegistrationOutcome;
 };
 
 type WalletRegistrationFinalizeResponseAuthMethod =
