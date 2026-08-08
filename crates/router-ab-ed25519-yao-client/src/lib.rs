@@ -42,12 +42,13 @@ mod signing;
 mod wasm;
 
 pub use local_material::{
-    import_activated_client_material_v1, import_activated_client_under_custody_seed_v1,
-    open_wallet_custody_ed25519_material_v1, seal_activated_client_material_v1,
-    seal_activated_client_under_custody_seed_v1, LocalMaterialError, LocalMaterialResult,
-    LocalMaterialSealDomainV1, OpenWalletCustodyEd25519MaterialV1, OpenedLocalMaterialV1,
-    ACTIVATED_CLIENT_NONCE_LEN_V1, ACTIVATED_CLIENT_PLAINTEXT_LEN_V1,
-    ACTIVATED_CLIENT_SEAL_VERSION_V1, MAX_ACTIVATED_CLIENT_BINDING_LEN_V1,
+    ed25519_local_material_binding_v1, import_activated_client_material_v1,
+    import_activated_client_under_custody_seed_v1, open_wallet_custody_ed25519_material_v1,
+    seal_activated_client_material_v1, seal_activated_client_under_custody_seed_v1,
+    LocalMaterialError, LocalMaterialResult, LocalMaterialSealDomainV1,
+    OpenWalletCustodyEd25519MaterialV1, OpenedLocalMaterialV1, ACTIVATED_CLIENT_NONCE_LEN_V1,
+    ACTIVATED_CLIENT_PLAINTEXT_LEN_V1, ACTIVATED_CLIENT_SEAL_VERSION_V1,
+    MAX_ACTIVATED_CLIENT_BINDING_LEN_V1,
 };
 pub use signing::{
     create_client_signing_share_v1, ClientSigningError, ClientSigningRequestV1,

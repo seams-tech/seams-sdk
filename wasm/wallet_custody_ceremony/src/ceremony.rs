@@ -37,9 +37,9 @@ use router_ab_core::{
 use router_ab_ecdsa_derivation::RouterAbEcdsaDerivationStableKeyContext;
 use router_ab_ed25519_yao_client::{
     client_application_binding_digest_v1, complete_client_activation_v1,
-    prepare_client_recovery_with_root_v1, prepare_client_registration_with_root_v1,
-    seal_activated_client_under_custody_seed_v1, ActivatedClientV1, ClientActivationEntropyV1,
-    ClientActivationStateV1,
+    ed25519_local_material_binding_v1, prepare_client_recovery_with_root_v1,
+    prepare_client_registration_with_root_v1, seal_activated_client_under_custody_seed_v1,
+    ActivatedClientV1, ClientActivationEntropyV1, ClientActivationStateV1,
 };
 use signer_core::ecdsa_role_local_client::command::{
     finalize_ecdsa_client_bootstrap, prepare_ecdsa_client_bootstrap,
@@ -535,52 +535,6 @@ fn seal_ed25519_local_material_v1(
         seal_activated_client_under_custody_seed_v1(activated, &cache_key, &binding, &nonce)
             .map_err(|error| CeremonyError::new(format!("local material seal: {error}")))?;
     Ok((b64u(&sealed), b64u(&nonce)))
-}
-
-/// Canonical binding for the Ed25519 continuity cache record.
-///
-/// Length-delimited fields under a fixed context, so no two bindings encode
-/// alike and no field can be shifted into another. Carries nothing that names
-/// a factor.
-///
-/// Public because opening the cache at unlock has to rebuild this exact byte
-/// string: it is both HKDF input and AEAD associated data, so a reader that
-/// assembled it differently would hold a record that never opens.
-pub fn ed25519_local_material_binding_v1(
-    application_binding_digest: &[u8; 32],
-    registered_public_key: &[u8; 32],
-    participant_ids: [u16; 2],
-    state_epoch: u64,
-) -> Vec<u8> {
-    fn field(out: &mut Vec<u8>, label: &[u8], value: &[u8]) {
-        out.extend_from_slice(&(label.len() as u32).to_be_bytes());
-        out.extend_from_slice(label);
-        out.extend_from_slice(&(value.len() as u32).to_be_bytes());
-        out.extend_from_slice(value);
-    }
-    let mut out = Vec::new();
-    field(
-        &mut out,
-        b"context",
-        b"seams/wallet-custody/ed25519-local-material-cache/v1",
-    );
-    field(
-        &mut out,
-        b"applicationBindingDigest",
-        application_binding_digest,
-    );
-    field(&mut out, b"registeredPublicKey", registered_public_key);
-    field(
-        &mut out,
-        b"participantIds",
-        &[
-            participant_ids[0].to_be_bytes(),
-            participant_ids[1].to_be_bytes(),
-        ]
-        .concat(),
-    );
-    field(&mut out, b"stateEpoch", &state_epoch.to_be_bytes());
-    out
 }
 
 /// Encodes a 20-byte address the way `decode_ethereum_address20` reads one, so

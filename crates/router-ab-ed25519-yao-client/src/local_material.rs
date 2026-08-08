@@ -351,6 +351,55 @@ pub fn import_activated_client_under_custody_seed_v1(
     ))
 }
 
+/// Canonical binding for the Ed25519 continuity cache record.
+///
+/// Length-delimited fields under a fixed context, so no two bindings encode
+/// alike and no field can be shifted into another. Carries nothing that names
+/// a factor.
+///
+/// Lives here rather than in the ceremony because both sides need it and the
+/// dependency only runs one way: the ceremony seals and can reach down to this
+/// crate, while unlock opens from this crate and could never reach up. Two
+/// copies would be worse than either — it is both HKDF input and AEAD
+/// associated data, so a reader that assembled it even slightly differently
+/// holds a record that never opens, and the failure looks like a bad factor.
+pub fn ed25519_local_material_binding_v1(
+    application_binding_digest: &[u8; 32],
+    registered_public_key: &[u8; 32],
+    participant_ids: [u16; 2],
+    state_epoch: u64,
+) -> Vec<u8> {
+    fn field(out: &mut Vec<u8>, label: &[u8], value: &[u8]) {
+        out.extend_from_slice(&(label.len() as u32).to_be_bytes());
+        out.extend_from_slice(label);
+        out.extend_from_slice(&(value.len() as u32).to_be_bytes());
+        out.extend_from_slice(value);
+    }
+    let mut out = Vec::new();
+    field(
+        &mut out,
+        b"context",
+        b"seams/wallet-custody/ed25519-local-material-cache/v1",
+    );
+    field(
+        &mut out,
+        b"applicationBindingDigest",
+        application_binding_digest,
+    );
+    field(&mut out, b"registeredPublicKey", registered_public_key);
+    field(
+        &mut out,
+        b"participantIds",
+        &[
+            participant_ids[0].to_be_bytes(),
+            participant_ids[1].to_be_bytes(),
+        ]
+        .concat(),
+    );
+    field(&mut out, b"stateEpoch", &state_epoch.to_be_bytes());
+    out
+}
+
 /// Opens the wallet's continuity cache with a factor, end to end.
 ///
 /// **This is the unlock read side, and it is deliberately one call.** The seed
