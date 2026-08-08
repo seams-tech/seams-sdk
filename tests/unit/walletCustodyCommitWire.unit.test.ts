@@ -81,12 +81,14 @@ test('garbage in the field is a payload, never an absence', () => {
   }
 });
 
-test('a well-formed payload crosses unchanged', () => {
+test('a well-formed payload crosses, minus the client-only material', () => {
   const payload = buildWalletCustodyCommitPayloadFixture({ walletId: WALLET_ID });
   const parsed = walletCustodyCeremonyCommitPayloadFromWire(
     JSON.parse(JSON.stringify(payload)) as unknown,
   );
-  expect(parsed).toEqual(payload);
+  // Everything the commit needs crosses; the ready-state blob does not.
+  const { ecdsaReadyStateBlobB64u: _clientOnly, ...wire } = payload;
+  expect(parsed).toEqual(wire);
 });
 
 test('non-string scalars are emptied rather than coerced to their text', () => {
@@ -100,23 +102,30 @@ test('non-string scalars are emptied rather than coerced to their text', () => {
   expect(parsed).toMatchObject({ walletId: '', keySet: '', keyManifestDigestB64u: '' });
 });
 
-test('the same-device continuity cache never crosses to the server', async () => {
-  /* The Ed25519 cache is the ceremony's output to its own client: it re-opens
-     signing material on the device that produced it. The server has no use for
-     it and must not become a place it is stored, so the inbound coercion drops
-     it even when a client sends it. */
-  const parsed = walletCustodyCeremonyCommitPayloadFromWire({
+test('client signing material never crosses to the server, for either key set', async () => {
+  /* Both records are the ceremony's output to its own client. The ECDSA blob
+     is the sharper case: it is not self-encrypted —
+     extract_client_signing_share32_from_ready_state_blob yields the client's
+     signing share from its bytes with no key — so letting it cross would hand
+     one share of a 2-of-2 key to the holder of the other share. The inbound
+     coercion drops all three fields even when a client sends them. */
+  const near = walletCustodyCeremonyCommitPayloadFromWire({
     ...buildWalletCustodyCommitPayloadFixture({ walletId: WALLET_ID, keySet: 'near_ed25519_v1' }),
     ed25519LocalMaterialB64u: CIPHERTEXT_B64U,
     ed25519LocalMaterialNonceB64u: NONCE_12_B64U,
   });
-
-  expect(parsed).not.toBeUndefined();
-  expect(Object.keys(parsed ?? {})).not.toContain('ed25519LocalMaterialB64u');
-  expect(Object.keys(parsed ?? {})).not.toContain('ed25519LocalMaterialNonceB64u');
+  expect(near).not.toBeUndefined();
+  expect(Object.keys(near ?? {})).not.toContain('ed25519LocalMaterialB64u');
+  expect(Object.keys(near ?? {})).not.toContain('ed25519LocalMaterialNonceB64u');
   // The rest of the payload still crosses.
-  expect(parsed?.walletId).toBe(WALLET_ID);
-  expect(parsed?.keySet).toBe('near_ed25519_v1');
+  expect(near?.walletId).toBe(WALLET_ID);
+  expect(near?.keySet).toBe('near_ed25519_v1');
+
+  const evm = walletCustodyCeremonyCommitPayloadFromWire(
+    buildWalletCustodyCommitPayloadFixture({ walletId: WALLET_ID }),
+  );
+  expect(Object.keys(evm ?? {})).not.toContain('ecdsaReadyStateBlobB64u');
+  expect(evm?.keySet).toBe('evm_family_ecdsa_v1');
 });
 
 test('a garbage payload reaches the gate and is reported, not silently dropped', async () => {

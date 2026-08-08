@@ -1520,14 +1520,29 @@ repository evidence.
       accept a ready-state blob and public facts produced elsewhere instead of
       finalizing a pending blob it holds — not the store, which is fine as-is.
 
-      **Open question, deliberately not answered here:**
-      `ecdsaReadyStateBlobB64u` already crosses to the server on the commit
-      payload, and it is sealed *client* material. The NEAR cache was excluded
-      from that crossing on the grounds that the server has no use for a
-      device's signing material; the same argument applies to the ECDSA blob,
-      but it predates this refactor and nothing server-side reads it. Decide
-      whether it should be dropped from the wire coercion too before the
-      install lands.
+      **Decision (2026-08-09, user-confirmed): `ecdsaReadyStateBlobB64u` never
+      crosses to the server.** Investigating the blob's encoding settled it —
+      the question was sharper than "sealed client material":
+      `extract_client_signing_share32_from_ready_state_blob` is
+      `parse_ready_state(&blob).x_client32`, so the blob yields the client's
+      signing share from its bytes with *no key*. It is not self-encrypted;
+      the IndexedDB manifest store double-encrypts it before persisting for
+      exactly that reason. Letting it cross would hand one share of a 2-of-2
+      key to the relayer — the holder of the other share.
+
+      There is no necessity or performance counter-argument: nothing
+      server-side reads it, it is same-device material another device could
+      not use, recovery reproduces it from the seed rather than from any
+      escrow, and — decisively — nothing sends it yet, because the splice is
+      unbuilt. This is the last moment the drop costs zero migration.
+
+      Enforced at the wire coercion beside the NEAR cache fields (a client
+      that sends it anyway cannot cause it to be stored), and proven by the
+      activate route tests, whose fixture payloads carry the blob through the
+      real path and commit successfully without it. **Splice requirement:**
+      the client must also project the payload before sending — the server
+      drop keeps the blob out of stores, but only the client-side projection
+      keeps it off the wire entirely.
 
       The import side is built and tested in Rust
       (`import_activated_client_under_custody_seed_v1`) but is not exposed at
