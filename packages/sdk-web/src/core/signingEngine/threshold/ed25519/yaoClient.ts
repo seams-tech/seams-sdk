@@ -6,6 +6,7 @@ import {
   WasmEmailOtpClientRecoverySessionV1,
   WasmEmailOtpClientRegistrationSessionV1,
   WasmPasskeyClientExportSessionV1,
+  openWalletCustodyEd25519MaterialV1,
   default as initializeYaoClientWasm,
   type InitInput,
 } from '../../../../../../../crates/router-ab-ed25519-yao-client/pkg/router_ab_ed25519_yao_client.js';
@@ -46,7 +47,10 @@ import {
   type RouterAbEd25519YaoExportExecuteRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
-import { parseMpcMaterialActivationRef, type MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import {
+  parseMpcMaterialActivationRef,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
 import { sameRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
 import { redactCredentialExtensionOutputs } from '@/core/signingEngine/webauthnAuth/credentials/credentialExtensions';
 import {
@@ -243,6 +247,34 @@ export type RouterAbEd25519YaoSealLocalMaterialInputV1 = {
 export type RouterAbEd25519YaoImportLocalMaterialInputV1 = {
   ownedPasskeyPrfFirst: Uint8Array;
   binding: Uint8Array;
+  sealed: RouterAbEd25519YaoSealedLocalMaterialV1;
+  metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+};
+
+/**
+ * Opening the wallet's continuity cache with any enrolled factor.
+ *
+ * Carries no `binding`, unlike the per-factor inputs above. The seal binding
+ * is rebuilt inside wasm from the record's own fields, because it is both
+ * HKDF input and AEAD associated data — a caller that assembled it even
+ * slightly differently would hold a record that never opens, and the failure
+ * would read as a bad factor rather than a bad binding.
+ *
+ * The factor secret is whatever opened the custody envelope: `PRF.first`, or
+ * the Email OTP factor key. Which one is immaterial here, and that is the
+ * point of sealing the cache under the custody seed.
+ */
+export type RouterAbEd25519YaoOpenCustodyCacheInputV1 = {
+  ownedFactorSecret: Uint8Array;
+  /** The custody envelope, as stored, and its sealed seed. */
+  envelope: {
+    bindingJson: string;
+    nonce: Uint8Array;
+    ciphertext: Uint8Array;
+    aadHash: Uint8Array;
+    ciphertextDigest: Uint8Array;
+  };
+  applicationBindingDigest: Uint8Array;
   sealed: RouterAbEd25519YaoSealedLocalMaterialV1;
   metadata: RouterAbEd25519YaoActiveClientMetadataV1;
 };
@@ -1412,6 +1444,43 @@ function importVerifiedEmailOtpActiveClient(
   }
 }
 
+function openVerifiedCustodyCacheActiveClient(
+  input: RouterAbEd25519YaoOpenCustodyCacheInputV1,
+): WasmRouterAbEd25519YaoActiveClientV1 {
+  let activated: WasmActivatedClientV1 | null = null;
+  try {
+    activated = openWalletCustodyEd25519MaterialV1(
+      input.ownedFactorSecret,
+      input.envelope.bindingJson,
+      input.envelope.nonce,
+      input.envelope.ciphertext,
+      input.envelope.aadHash,
+      input.envelope.ciphertextDigest,
+      input.applicationBindingDigest,
+      input.metadata.registeredPublicKey,
+      input.metadata.stateEpoch,
+      input.metadata.participantIds[0],
+      input.metadata.participantIds[1],
+      input.metadata.signingWorkerVerifyingShare,
+      input.sealed.nonce,
+      input.sealed.ciphertext,
+    );
+    return new WasmRouterAbEd25519YaoActiveClientV1({
+      [ACTIVE_CLIENT_CONSTRUCTION]: true,
+      metadata: input.metadata,
+      activated,
+    });
+  } catch (error) {
+    activated?.free();
+    throw error;
+  } finally {
+    /* Zeroed on every path, like the per-factor importers. The factor secret
+       opened the custody envelope moments ago; leaving it in a live buffer
+       would outlast the one call it was needed for. */
+    input.ownedFactorSecret.fill(0);
+  }
+}
+
 export class RouterAbEd25519YaoClientV1 {
   private constructor() {}
 
@@ -1437,6 +1506,16 @@ export class RouterAbEd25519YaoClientV1 {
     input: RouterAbEd25519YaoImportEmailOtpLocalMaterialInputV1,
   ): RouterAbEd25519YaoActiveClientV1 {
     return importVerifiedEmailOtpActiveClient(input);
+  }
+
+  /**
+   * Opens the wallet continuity cache with any factor that opens its custody
+   * envelope — the read side cold and warm unlock share.
+   */
+  openCustodyCache(
+    input: RouterAbEd25519YaoOpenCustodyCacheInputV1,
+  ): RouterAbEd25519YaoActiveClientV1 {
+    return openVerifiedCustodyCacheActiveClient(input);
   }
 
   async register(args: {
