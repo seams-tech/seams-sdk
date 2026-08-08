@@ -123,3 +123,61 @@ export async function openWalletCustodyEd25519ActiveClientV1(input: {
     metadata,
   });
 }
+
+export type WalletCustodyUnlockResultV1 =
+  | {
+      readonly kind: 'opened';
+      readonly activeClient: RouterAbEd25519YaoActiveClientV1;
+      /** Whether this unlock avoided the Router round. */
+      readonly usedCache: boolean;
+    }
+  | { readonly kind: 'rejoin_required'; readonly reason: string };
+
+/**
+ * Chooses between opening the cache and rejoining the key set.
+ *
+ * **The envelope is needed either way.** The custody seed is never stored — it
+ * is re-derived by opening the envelope on every unlock, so a cache hit saves
+ * the Router round, not the envelope. That is the honest saving and it is
+ * worth stating, because "warm unlock" otherwise sounds like it needs nothing.
+ *
+ * An unusable cached row takes the same branch as a missing one, but the
+ * reason is preserved rather than flattened: the two arrive here for different
+ * causes and a caller that logs them identically cannot tell a fresh device
+ * from a stale row that will keep failing.
+ *
+ * This deliberately does not perform the rejoin. Rejoining runs a Router
+ * ceremony and needs the step runner, the admission and the application facts
+ * this layer has no business holding; it reports that one is required and the
+ * unlock path drives it.
+ */
+export async function openOrRejoinWalletCustodyEd25519V1(input: {
+  readonly loadCachedMaterial: () => Promise<
+    | { readonly kind: 'found'; readonly material: LoadedWalletCustodyEd25519MaterialV1 }
+    | { readonly kind: 'absent' }
+    | { readonly kind: 'unusable'; readonly reason: string }
+  >;
+  readonly activation: WalletCustodyActivationFactsV1;
+  readonly envelope: WalletCustodyCacheEnvelopeV1;
+  readonly ownedFactorSecret: Uint8Array;
+}): Promise<WalletCustodyUnlockResultV1> {
+  const cached = await input.loadCachedMaterial();
+  if (cached.kind !== 'found') {
+    /* The factor secret is zeroed here because the callee that normally does
+       it is never reached. A rejoin obtains its own. */
+    input.ownedFactorSecret.fill(0);
+    return {
+      kind: 'rejoin_required',
+      reason:
+        cached.kind === 'absent' ? 'no cached custody material on this device' : cached.reason,
+    };
+  }
+
+  const activeClient = await openWalletCustodyEd25519ActiveClientV1({
+    material: cached.material,
+    activation: input.activation,
+    envelope: input.envelope,
+    ownedFactorSecret: input.ownedFactorSecret,
+  });
+  return { kind: 'opened', activeClient, usedCache: true };
+}
