@@ -1893,6 +1893,16 @@ repository evidence.
 - [ ] Reuse the Email OTP authorization and Refactor 90 Wallet Session/
       `AuthorizedOperation` admission boundary; recovery-code custody remains
       separate from authorization and quota.
+- [x] The recovery read side: `open_wallet_custody_seed_with_recovery_code_v1`
+      (`cb84039ae`). The code opens the manifest KEK, the manifest KEK opens
+      the seed entry — the two-level design frozen above, which is what lets
+      one code be consumed or revoked without touching the other nine.
+
+      The code never selects its own wrap: its id is derived from the wallet
+      and the code bytes and matched against the stored set, so a caller cannot
+      point a code at a wrap it does not open, and a code for another wallet
+      finds nothing rather than being tried against every row. Tested against a
+      real ceremony's output; all ten codes reach the same seed.
 - [ ] Recover every key in the exact manifest before credential promotion.
 - [ ] Consume a recovery code only with the activation commit.
 
