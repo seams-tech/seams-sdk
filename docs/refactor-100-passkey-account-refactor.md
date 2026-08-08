@@ -676,6 +676,16 @@ which is which before picking one up:
 - **Five are flows**, each spanning server routes, client wiring and UI. Their
   cores exist as primitives; what remains is the orchestration.
 
+**Cold unlock (2026-08-09).** Every piece now exists, is tested, and is
+reachable from JavaScript: the store has a DI site and a service-bag port, the
+retrieval route is registered with its assertion bound to a server-issued
+challenge, and the client has the RPC, the join-wire projection, the cache
+reader, the wasm open path, the metadata assembly and the warm/cold branch.
+What is left is the last mile — calling `openOrRejoinWalletCustodyEd25519V1`
+from the unlock surface, where the factor secret and the wallet session live,
+and driving `rejoinNearEd25519CustodyV1` on its rejoin branch. That is wiring
+against a live session, not new mechanism.
+
 **And one finding that resizes those flows (2026-08-09).** The passkey-custody
 envelope storage layer is built, tested, and *entirely unwired from the running
 server*: `CloudflareD1PasskeyCustodyEnvelopeStore` is referenced by type in the
@@ -699,7 +709,17 @@ nothing about whether anything calls the thing it covers.
 registration, never read, so every unlock paid for the Router round the cache
 exists to avoid. Now readable, with `absent` and `unusable` kept distinct.
 
-Three instances in one refactor is a pattern, not coincidence. Each was a
+**A fourth, which was the real blocker.**
+`open_wallet_custody_ed25519_material_v1` existed in Rust, was tested, and had
+no `wasm_bindgen` export — so JavaScript could not call it and the cold unlock
+composition had nothing to call. Exporting it forced a decision worth
+recording: the two wasm modules each define their own `WasmActivatedClientV1`,
+warm unlock imports from the yao client's, and a handle from the wrong module
+cannot sign. So the export belongs in `router-ab-ed25519-yao-client`, which
+required moving `ed25519_local_material_binding_v1` down beside the opener —
+the ceremony can reach down to it, unlock could never have reached up.
+
+Four instances in one refactor is a pattern, not coincidence. Each was a
 half-built seam that typechecked and tested green because *nothing on the
 other side existed to disagree with it*. When adding a producer, check for
 the consumer; when adding a store, check for the DI site; when adding a

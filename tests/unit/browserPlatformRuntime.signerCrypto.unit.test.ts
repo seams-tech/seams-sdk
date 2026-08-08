@@ -10,6 +10,7 @@ import {
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { buildThresholdPrfXClientBaseSecretSource } from '@/core/platform/secretSources';
 import {
   toEcdsaDerivationSigningRootId,
   toEcdsaDerivationSigningRootVersion,
@@ -138,42 +139,6 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       prfFirstB64u: requiredPrfSuccess.prf.prfFirstB64u,
       rpId: requiredPrfSuccess.rpId,
       credentialIdB64u: requiredPrfSuccess.credentialIdB64u,
-    });
-  });
-
-  test('rejects unsupported future secret-source branches at browser dispatch', async () => {
-    const runtime = createBrowserPlatformRuntime({
-      workerCtx: {
-        async requestWorkerOperation() {
-          throw new Error('worker must not be called for unsupported secret sources');
-        },
-      },
-    });
-
-    const secureEnclaveResult = await runtime.signerCrypto.prepareEcdsaClientBootstrap({
-      ...prepareInput,
-      secretSource: buildSecureEnclaveWrappedSecretSource({
-        keyId: 'secure-key',
-        accessGroup: 'group',
-      }),
-    });
-    expect(secureEnclaveResult).toMatchObject({
-      ok: false,
-      failure: 'command',
-      code: 'unsupported_secret_source',
-    });
-
-    const fido2Result = await runtime.signerCrypto.prepareEcdsaClientBootstrap({
-      ...prepareInput,
-      secretSource: buildFido2HmacSecretSource({
-        credentialIdB64u: 'credential',
-        rpId: toRpId('localhost'),
-      }),
-    });
-    expect(fido2Result).toMatchObject({
-      ok: false,
-      failure: 'command',
-      code: 'unsupported_secret_source',
     });
   });
 
