@@ -26,8 +26,7 @@ use signer_core::passkey_custody::{
     WALLET_SEED_DERIVATION_SCHEME_V1,
 };
 use signer_core::wallet_recovery_custody::{
-    seal_wallet_recovery_entry_v1, seal_wallet_recovery_manifest_kek_v1,
-    WALLET_RECOVERY_CODE_COUNT,
+    seal_wallet_recovery_entry_v1, seal_wallet_recovery_manifest_kek_v1, WALLET_RECOVERY_CODE_COUNT,
 };
 use signer_core::wallet_seed_derivation::{
     establish_wallet_key_set_manifest_v1, WalletKeySetKindV1, WalletKeySetManifestV1,
@@ -134,8 +133,9 @@ fn passkey_binding() -> PasskeyCustodyEnvelopeBindingV1 {
 /// serde serializes the struct, not a hand-written map.
 fn establish_commit_payload() -> WalletCustodyCommitPayloadV1 {
     let binding = email_otp_binding();
-    let sealed = seal_wallet_custody_seed_envelope_v1(&FACTOR_SECRET, &binding, &ENVELOPE_NONCE, &SEED)
-        .expect("seal fixture envelope");
+    let sealed =
+        seal_wallet_custody_seed_envelope_v1(&FACTOR_SECRET, &binding, &ENVELOPE_NONCE, &SEED)
+            .expect("seal fixture envelope");
 
     let mut wraps = Vec::with_capacity(WALLET_RECOVERY_CODE_COUNT);
     for index in 0..WALLET_RECOVERY_CODE_COUNT {
@@ -181,10 +181,16 @@ fn establish_commit_payload() -> WalletCustodyCommitPayloadV1 {
             recovery_entry_aad_hash_b64u: entry.aad_hash_b64u(),
         }),
         registered_public_key_b64u: None,
+        // An EVM run seals no Ed25519 continuity cache.
+        ed25519_local_material_b64u: None,
+        ed25519_local_material_nonce_b64u: None,
         client_root_public_key33_b64u: Some(b64u(&evm_client_root_public_key33())),
         ecdsa_ready_state_blob_b64u: Some(b64u(&ECDSA_READY_STATE_BLOB)),
     }
 }
+
+const NEAR_LOCAL_MATERIAL: [u8; 89] = [0x4c; 89];
+const NEAR_LOCAL_MATERIAL_NONCE: [u8; 12] = [0x4d; 12];
 
 /// A joining NEAR run's payload: a manifest digest and its registered key,
 /// no custody records.
@@ -202,6 +208,10 @@ fn join_commit_payload() -> WalletCustodyCommitPayloadV1 {
         key_manifest_digest_b64u: manifest.digest_b64u(),
         established_custody: None,
         registered_public_key_b64u: Some(b64u(&NEAR_REGISTERED_PUBLIC_KEY)),
+        // Deterministic stand-ins: a real seal draws a random nonce, which a
+        // byte-compared fixture cannot carry.
+        ed25519_local_material_b64u: Some(b64u(&NEAR_LOCAL_MATERIAL)),
+        ed25519_local_material_nonce_b64u: Some(b64u(&NEAR_LOCAL_MATERIAL_NONCE)),
         client_root_public_key33_b64u: None,
         ecdsa_ready_state_blob_b64u: None,
     }
@@ -268,12 +278,11 @@ fn the_wallet_custody_wire_fixture_is_reproduced_and_live() {
         return;
     }
 
-    let stored: Value = serde_json::from_str(
-        &std::fs::read_to_string(&path).unwrap_or_else(|error| {
+    let stored: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap_or_else(|error| {
             panic!("failed to read {}: {error}", path.display());
-        }),
-    )
-    .expect("parse fixture");
+        }))
+        .expect("parse fixture");
 
     // Byte-level contract: the production types with fixed inputs reproduce the
     // checked-in fixture exactly. A drifted field name, a renamed variant, or a
@@ -304,9 +313,10 @@ fn the_wallet_custody_wire_fixture_is_reproduced_and_live() {
     )
     .expect("email OTP binding parses");
     assert_eq!(stored_binding, email_otp_binding());
-    let stored_passkey =
-        serde_json::from_value::<PasskeyCustodyEnvelopeBindingV1>(stored["passkeyEnvelopeBinding"].clone())
-            .expect("passkey binding parses");
+    let stored_passkey = serde_json::from_value::<PasskeyCustodyEnvelopeBindingV1>(
+        stored["passkeyEnvelopeBinding"].clone(),
+    )
+    .expect("passkey binding parses");
     assert_eq!(stored_passkey, passkey_binding());
 
     // The fixture envelope is live, not just well-shaped: the factor secret
@@ -320,7 +330,11 @@ fn the_wallet_custody_wire_fixture_is_reproduced_and_live() {
                 .as_str()
                 .expect("ciphertext"),
         ),
-        &decode(stored["joinCustody"]["aadHashB64u"].as_str().expect("aad hash")),
+        &decode(
+            stored["joinCustody"]["aadHashB64u"]
+                .as_str()
+                .expect("aad hash"),
+        ),
         &decode(
             stored["joinCustody"]["ciphertextDigestB64u"]
                 .as_str()
@@ -340,7 +354,11 @@ fn the_wallet_custody_wire_fixture_is_reproduced_and_live() {
                 .as_str()
                 .expect("ciphertext"),
         ),
-        &decode(stored["joinCustody"]["aadHashB64u"].as_str().expect("aad hash")),
+        &decode(
+            stored["joinCustody"]["aadHashB64u"]
+                .as_str()
+                .expect("aad hash"),
+        ),
         &decode(
             stored["joinCustody"]["ciphertextDigestB64u"]
                 .as_str()

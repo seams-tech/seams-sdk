@@ -1,15 +1,8 @@
-use chacha20poly1305::aead::{Aead, Payload};
-use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce};
-use curve25519_dalek::{constants::ED25519_BASEPOINT_POINT, scalar::Scalar};
-use hkdf::Hkdf;
 use router_ab_core::{
     RouterAbEd25519YaoActivationAdmissionReceiptV1, RouterAbEd25519YaoActivationResultV1,
     RouterAbEd25519YaoApplicationBindingFactsV1, RouterAbEd25519YaoExportAdmissionReceiptV1,
     RouterAbEd25519YaoExportResultV1,
 };
-use sha2::Sha256;
-use signer_core::near_threshold_frost::compute_threshold_ed25519_group_public_key_2p_from_verifying_shares;
-use subtle::ConstantTimeEq;
 use wasm_bindgen::prelude::*;
 use zeroize::{Zeroize, Zeroizing};
 
@@ -21,23 +14,14 @@ use crate::{
     ClientActivationEntropyV1, ClientActivationStateV1, ClientExportStateV1,
     ClientSigningRequestV1,
 };
+use crate::{
+    import_activated_client_material_v1, seal_activated_client_material_v1,
+    LocalMaterialSealDomainV1,
+};
 use signer_core::near_ed25519_recovery::{
     build_near_ed25519_seed_export_artifact_v1, encode_near_ed25519_public_key_from_seed,
 };
 use signer_core::near_threshold_ed25519::CommitmentsWire;
-
-const ACTIVATED_CLIENT_SEAL_VERSION_V1: u8 = 1;
-const ACTIVATED_CLIENT_PLAINTEXT_LEN_V1: usize = 1 + 32 + 32 + 8;
-const ACTIVATED_CLIENT_NONCE_LEN_V1: usize = 12;
-const PASSKEY_ACTIVATED_CLIENT_SEAL_INFO_V1: &[u8] =
-    b"seams/router-ab/ed25519-yao/activated-client-seal/v1";
-const PASSKEY_ACTIVATED_CLIENT_SEAL_SALT_V1: &[u8] =
-    b"seams/router-ab/ed25519-yao/activated-client-seal/salt/v1";
-const EMAIL_OTP_ACTIVATED_CLIENT_SEAL_INFO_V1: &[u8] =
-    b"seams/router-ab/ed25519-yao/activated-client-seal/email-otp/v1";
-const EMAIL_OTP_ACTIVATED_CLIENT_SEAL_SALT_V1: &[u8] =
-    b"seams/router-ab/ed25519-yao/activated-client-seal/email-otp/salt/v1";
-const MAX_ACTIVATED_CLIENT_BINDING_LEN_V1: usize = 4096;
 
 /// One-use browser registration session containing only Client-owned secret state.
 #[wasm_bindgen]
@@ -575,8 +559,7 @@ impl WasmActivatedClientV1 {
             &wrapping_secret,
             binding,
             nonce,
-            PASSKEY_ACTIVATED_CLIENT_SEAL_SALT_V1,
-            PASSKEY_ACTIVATED_CLIENT_SEAL_INFO_V1,
+            LocalMaterialSealDomainV1::PasskeyPrfFirst,
         )
     }
 
@@ -596,8 +579,7 @@ impl WasmActivatedClientV1 {
             &wrapping_secret,
             binding,
             nonce,
-            EMAIL_OTP_ACTIVATED_CLIENT_SEAL_SALT_V1,
-            EMAIL_OTP_ACTIVATED_CLIENT_SEAL_INFO_V1,
+            LocalMaterialSealDomainV1::EmailOtpEnrollment,
         )
     }
 
@@ -624,8 +606,7 @@ impl WasmActivatedClientV1 {
             expected_state_epoch,
             [client_participant_id, signing_worker_participant_id],
             signing_worker_verifying_share,
-            PASSKEY_ACTIVATED_CLIENT_SEAL_SALT_V1,
-            PASSKEY_ACTIVATED_CLIENT_SEAL_INFO_V1,
+            LocalMaterialSealDomainV1::PasskeyPrfFirst,
         )
     }
 
@@ -655,8 +636,7 @@ impl WasmActivatedClientV1 {
             expected_state_epoch,
             [client_participant_id, signing_worker_participant_id],
             signing_worker_verifying_share,
-            EMAIL_OTP_ACTIVATED_CLIENT_SEAL_SALT_V1,
-            EMAIL_OTP_ACTIVATED_CLIENT_SEAL_INFO_V1,
+            LocalMaterialSealDomainV1::EmailOtpEnrollment,
         )
     }
 
@@ -682,41 +662,29 @@ impl WasmActivatedClientV1 {
     }
 }
 
-fn validate_activated_client_binding(binding: &[u8]) -> Result<(), JsValue> {
-    if binding.is_empty() || binding.len() > MAX_ACTIVATED_CLIENT_BINDING_LEN_V1 {
-        return Err(JsValue::from_str(
-            "Ed25519 Yao activated Client binding length is invalid",
-        ));
-    }
-    Ok(())
-}
-
+/// Seals under one of the shared wrapping domains.
+///
+/// The crypto itself lives in `local_material`, because the wallet custody
+/// ceremony has to seal the same record shape from its own wasm module and
+/// this one is compiled only for `wasm32`. These shims exist to keep the
+/// binding surface unchanged while there is a single implementation underneath.
 fn seal_activated_client_local_material(
     activated_client: &WasmActivatedClientV1,
     wrapping_secret: &[u8; 32],
     binding: &[u8],
     nonce: &[u8],
-    salt: &[u8],
-    info: &[u8],
+    domain: LocalMaterialSealDomainV1,
 ) -> Result<Vec<u8>, JsValue> {
-    let nonce = parse_12(nonce, "activated Client seal nonce")?;
-    validate_activated_client_binding(binding)?;
-    let key = derive_activated_client_seal_key(wrapping_secret, binding, salt, info)?;
-    let mut plaintext = Zeroizing::new([0u8; ACTIVATED_CLIENT_PLAINTEXT_LEN_V1]);
-    plaintext[0] = ACTIVATED_CLIENT_SEAL_VERSION_V1;
-    plaintext[1..33].copy_from_slice(&activated_client.client_scalar_share[..]);
-    plaintext[33..65].copy_from_slice(&activated_client.registered_public_key);
-    plaintext[65..73].copy_from_slice(&activated_client.state_epoch.to_be_bytes());
-    ChaCha20Poly1305::new_from_slice(&key[..])
-        .map_err(js_error)?
-        .encrypt(
-            Nonce::from_slice(&nonce),
-            Payload {
-                msg: plaintext.as_slice(),
-                aad: binding,
-            },
-        )
-        .map_err(|_| JsValue::from_str("Ed25519 Yao activated Client seal failed"))
+    seal_activated_client_material_v1(
+        &activated_client.client_scalar_share,
+        &activated_client.registered_public_key,
+        activated_client.state_epoch,
+        wrapping_secret,
+        binding,
+        nonce,
+        domain,
+    )
+    .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -729,11 +697,8 @@ fn import_activated_client_local_material(
     expected_state_epoch: u64,
     participant_ids: [u16; 2],
     signing_worker_verifying_share: &[u8],
-    salt: &[u8],
-    info: &[u8],
+    domain: LocalMaterialSealDomainV1,
 ) -> Result<WasmActivatedClientV1, JsValue> {
-    let nonce = parse_12(nonce, "activated Client seal nonce")?;
-    validate_activated_client_binding(binding)?;
     let expected_registered_public_key = parse_32(
         expected_registered_public_key,
         "expected registered Ed25519 public key",
@@ -742,89 +707,23 @@ fn import_activated_client_local_material(
         signing_worker_verifying_share,
         "SigningWorker verifying share",
     )?;
-    let key = derive_activated_client_seal_key(wrapping_secret, binding, salt, info)?;
-    let plaintext = ChaCha20Poly1305::new_from_slice(&key[..])
-        .map_err(js_error)?
-        .decrypt(
-            Nonce::from_slice(&nonce),
-            Payload {
-                msg: ciphertext,
-                aad: binding,
-            },
-        )
-        .map(Zeroizing::new)
-        .map_err(|_| JsValue::from_str("Ed25519 Yao activated Client envelope is invalid"))?;
-    if plaintext.len() != ACTIVATED_CLIENT_PLAINTEXT_LEN_V1
-        || plaintext[0] != ACTIVATED_CLIENT_SEAL_VERSION_V1
-    {
-        return Err(JsValue::from_str(
-            "Ed25519 Yao activated Client envelope version is invalid",
-        ));
-    }
-    let client_scalar_share =
-        Zeroizing::new(parse_32(&plaintext[1..33], "sealed Client scalar share")?);
-    let registered_public_key =
-        parse_32(&plaintext[33..65], "sealed registered Ed25519 public key")?;
-    let state_epoch = u64::from_be_bytes(
-        plaintext[65..73]
-            .try_into()
-            .map_err(|_| JsValue::from_str("sealed state epoch is invalid"))?,
-    );
-    if !bool::from(registered_public_key.ct_eq(&expected_registered_public_key))
-        || state_epoch != expected_state_epoch
-    {
-        return Err(JsValue::from_str(
-            "Ed25519 Yao activated Client envelope identity mismatch",
-        ));
-    }
-    verify_imported_public_relation(
-        &client_scalar_share,
+    let opened = import_activated_client_material_v1(
+        wrapping_secret,
+        binding,
+        nonce,
+        ciphertext,
+        &expected_registered_public_key,
+        expected_state_epoch,
         participant_ids,
         &signing_worker_verifying_share,
-        &registered_public_key,
-    )?;
-    Ok(WasmActivatedClientV1 {
-        client_scalar_share,
-        registered_public_key,
-        state_epoch,
-    })
-}
-
-fn derive_activated_client_seal_key(
-    wrapping_secret: &[u8; 32],
-    binding: &[u8],
-    salt: &[u8],
-    info: &[u8],
-) -> Result<Zeroizing<[u8; 32]>, JsValue> {
-    let hkdf = Hkdf::<Sha256>::new(Some(salt), wrapping_secret);
-    let mut key = Zeroizing::new([0u8; 32]);
-    hkdf.expand_multi_info(&[info, binding], &mut key[..])
-        .map_err(|_| JsValue::from_str("Ed25519 Yao activated Client key derivation failed"))?;
-    Ok(key)
-}
-
-fn verify_imported_public_relation(
-    client_scalar_share: &[u8; 32],
-    participant_ids: [u16; 2],
-    signing_worker_verifying_share: &[u8; 32],
-    registered_public_key: &[u8; 32],
-) -> Result<(), JsValue> {
-    let scalar = Option::<Scalar>::from(Scalar::from_canonical_bytes(*client_scalar_share))
-        .ok_or_else(|| JsValue::from_str("sealed Client scalar share is invalid"))?;
-    let client_verifying_share = (ED25519_BASEPOINT_POINT * scalar).compress().to_bytes();
-    let threshold_public_key = compute_threshold_ed25519_group_public_key_2p_from_verifying_shares(
-        &client_verifying_share,
-        signing_worker_verifying_share,
-        participant_ids[0],
-        participant_ids[1],
+        domain,
     )
-    .map_err(js_error)?;
-    if !bool::from(threshold_public_key.ct_eq(registered_public_key)) {
-        return Err(JsValue::from_str(
-            "sealed Client material does not match the registered Ed25519 public key",
-        ));
-    }
-    Ok(())
+    .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    Ok(WasmActivatedClientV1 {
+        client_scalar_share: opened.client_scalar_share,
+        registered_public_key: opened.registered_public_key,
+        state_epoch: opened.state_epoch,
+    })
 }
 
 /// One Client FROST share created from activated Yao material.
@@ -892,14 +791,6 @@ fn parse_32(value: &[u8], label: &str) -> Result<[u8; 32], JsValue> {
     value
         .try_into()
         .map_err(|_| JsValue::from_str(&format!("{label} must contain exactly 32 bytes")))
-}
-
-fn parse_12(value: &[u8], label: &str) -> Result<[u8; ACTIVATED_CLIENT_NONCE_LEN_V1], JsValue> {
-    value.try_into().map_err(|_| {
-        JsValue::from_str(&format!(
-            "{label} must contain exactly {ACTIVATED_CLIENT_NONCE_LEN_V1} bytes"
-        ))
-    })
 }
 
 fn js_error(error: impl core::fmt::Display) -> JsValue {

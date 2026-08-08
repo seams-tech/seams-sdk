@@ -30,10 +30,12 @@ use router_ab_ed25519_yao::{
 };
 use router_ab_ed25519_yao_client::{
     client_application_binding_digest_v1, complete_client_activation_v1, complete_client_export_v1,
+    import_activated_client_material_v1, import_activated_client_under_custody_seed_v1,
     prepare_client_registration_with_root_v1, prepare_email_otp_client_export_v1,
     prepare_email_otp_client_registration_v1, prepare_passkey_client_export_v1,
     prepare_passkey_client_recovery_v1, prepare_passkey_client_registration_v1,
-    ClientActivationEntropyV1, ClientActivationError, ClientActivationStateV1,
+    seal_activated_client_under_custody_seed_v1, ActivatedClientV1, ClientActivationEntropyV1,
+    ClientActivationError, ClientActivationStateV1, LocalMaterialError, LocalMaterialSealDomainV1,
 };
 use signer_core::ed25519_yao_derivation::Ed25519YaoClientDerivationRootV1;
 use signer_core::wallet_seed_derivation::derive_ed25519_yao_client_root_from_seed_v1;
@@ -914,5 +916,216 @@ fn a_different_wallet_custody_seed_registers_a_different_key() {
     assert_ne!(
         first.result.public_receipt().registered_public_key(),
         second.result.public_receipt().registered_public_key()
+    );
+}
+
+/// Refactor 100. The same-device continuity cache, sealed under the wallet
+/// custody seed rather than a factor.
+///
+/// The point of the seed domain is that the record stops belonging to whichever
+/// factor happened to register. These run against a real activated Client from
+/// the A/B circuit above, because a cache that round-trips synthetic bytes
+/// proves nothing about whether the material it returns can actually sign.
+const CACHE_BINDING: &[u8] = b"wallet:alice.testnet|key:near-ed25519-key-1|epoch:1";
+const CACHE_NONCE: [u8; 12] = [0x5a; 12];
+
+fn activated_for_cache() -> (ActivatedClientV1, [u8; 32], [u8; 32]) {
+    let activation = run_client_activation(ClientActivationTestCase::Registration {
+        session_byte: 0x61,
+        passkey_prf_first: [0x31; 32],
+        entropy: activation_entropy(0x81),
+    });
+    let receipt = activation.result.public_receipt().clone();
+    let activated = complete_client_activation_v1(activation.state, &activation.result)
+        .expect("Client activation");
+    let registered_public_key = activated.registered_public_key();
+    (
+        activated,
+        registered_public_key,
+        receipt.signing_worker_verifying_share(),
+    )
+}
+
+#[test]
+fn a_seed_sealed_cache_returns_material_that_reproduces_the_registered_key() {
+    let (activated, registered_public_key, verifying_share) = activated_for_cache();
+    let cache_key = [0x44; 32];
+    let scalar_share = *activated.client_scalar_share();
+
+    let sealed = seal_activated_client_under_custody_seed_v1(
+        &activated,
+        &cache_key,
+        CACHE_BINDING,
+        &CACHE_NONCE,
+    )
+    .expect("seal");
+
+    let opened = import_activated_client_under_custody_seed_v1(
+        &cache_key,
+        CACHE_BINDING,
+        &CACHE_NONCE,
+        &sealed,
+        &registered_public_key,
+        activated.state_epoch(),
+        [1, 2],
+        &verifying_share,
+    )
+    .expect("import");
+
+    assert_eq!(*opened.client_scalar_share(), scalar_share);
+    assert_eq!(opened.registered_public_key(), registered_public_key);
+    assert_eq!(opened.state_epoch(), activated.state_epoch());
+}
+
+#[test]
+fn a_seed_sealed_cache_does_not_open_under_a_factor_domain() {
+    // The three domains must not be interchangeable even when handed identical
+    // bytes: a record sealed for the wallet must never open as though a factor
+    // had sealed it, or the domain separation is decorative.
+    let (activated, registered_public_key, verifying_share) = activated_for_cache();
+    let secret = [0x44; 32];
+    let sealed = seal_activated_client_under_custody_seed_v1(
+        &activated,
+        &secret,
+        CACHE_BINDING,
+        &CACHE_NONCE,
+    )
+    .expect("seal");
+
+    for domain in [
+        LocalMaterialSealDomainV1::PasskeyPrfFirst,
+        LocalMaterialSealDomainV1::EmailOtpEnrollment,
+    ] {
+        let opened = import_activated_client_material_v1(
+            &secret,
+            CACHE_BINDING,
+            &CACHE_NONCE,
+            &sealed,
+            &registered_public_key,
+            activated.state_epoch(),
+            [1, 2],
+            &verifying_share,
+            domain,
+        );
+        assert_eq!(opened.err(), Some(LocalMaterialError::SealFailed));
+    }
+}
+
+#[test]
+fn a_cache_record_is_bound_to_its_wallet_and_its_key() {
+    let (activated, registered_public_key, verifying_share) = activated_for_cache();
+    let cache_key = [0x44; 32];
+    let sealed = seal_activated_client_under_custody_seed_v1(
+        &activated,
+        &cache_key,
+        CACHE_BINDING,
+        &CACHE_NONCE,
+    )
+    .expect("seal");
+
+    // A different binding is a different wallet or key set. The binding is both
+    // HKDF input and AEAD associated data, so this fails at the seal layer
+    // rather than producing openable material for the wrong wallet.
+    let wrong_binding = import_activated_client_under_custody_seed_v1(
+        &cache_key,
+        b"wallet:mallory.testnet|key:near-ed25519-key-1|epoch:1",
+        &CACHE_NONCE,
+        &sealed,
+        &registered_public_key,
+        activated.state_epoch(),
+        [1, 2],
+        &verifying_share,
+    );
+    assert_eq!(wrong_binding.err(), Some(LocalMaterialError::SealFailed));
+
+    // Another wallet's seed yields another cache key and opens nothing.
+    let wrong_key = import_activated_client_under_custody_seed_v1(
+        &[0x45; 32],
+        CACHE_BINDING,
+        &CACHE_NONCE,
+        &sealed,
+        &registered_public_key,
+        activated.state_epoch(),
+        [1, 2],
+        &verifying_share,
+    );
+    assert_eq!(wrong_key.err(), Some(LocalMaterialError::SealFailed));
+}
+
+#[test]
+fn a_cache_record_is_refused_when_it_names_another_identity_or_epoch() {
+    // The record decrypts here — the caller holds the right cache key — so
+    // these are the checks that stand between a stale cache and material
+    // installed against the wrong key or a superseded epoch.
+    let (activated, registered_public_key, verifying_share) = activated_for_cache();
+    let cache_key = [0x44; 32];
+    let sealed = seal_activated_client_under_custody_seed_v1(
+        &activated,
+        &cache_key,
+        CACHE_BINDING,
+        &CACHE_NONCE,
+    )
+    .expect("seal");
+
+    let wrong_public_key = import_activated_client_under_custody_seed_v1(
+        &cache_key,
+        CACHE_BINDING,
+        &CACHE_NONCE,
+        &sealed,
+        &[0x77; 32],
+        activated.state_epoch(),
+        [1, 2],
+        &verifying_share,
+    );
+    assert_eq!(
+        wrong_public_key.err(),
+        Some(LocalMaterialError::IdentityMismatch)
+    );
+
+    let wrong_epoch = import_activated_client_under_custody_seed_v1(
+        &cache_key,
+        CACHE_BINDING,
+        &CACHE_NONCE,
+        &sealed,
+        &registered_public_key,
+        activated.state_epoch() + 1,
+        [1, 2],
+        &verifying_share,
+    );
+    assert_eq!(
+        wrong_epoch.err(),
+        Some(LocalMaterialError::IdentityMismatch)
+    );
+}
+
+#[test]
+fn a_cache_record_is_refused_when_its_share_cannot_reproduce_the_key() {
+    // The public-relation check. Without it a record that decrypts and names
+    // the right key could still install a share that recombines to something
+    // else entirely — material signing under a key the wallet does not own.
+    let (activated, registered_public_key, _) = activated_for_cache();
+    let cache_key = [0x44; 32];
+    let sealed = seal_activated_client_under_custody_seed_v1(
+        &activated,
+        &cache_key,
+        CACHE_BINDING,
+        &CACHE_NONCE,
+    )
+    .expect("seal");
+
+    let opened = import_activated_client_under_custody_seed_v1(
+        &cache_key,
+        CACHE_BINDING,
+        &CACHE_NONCE,
+        &sealed,
+        &registered_public_key,
+        activated.state_epoch(),
+        [1, 2],
+        // A verifying share the SigningWorker never held.
+        &[0x66; 32],
+    );
+    assert_eq!(
+        opened.err(),
+        Some(LocalMaterialError::PublicRelationMismatch)
     );
 }

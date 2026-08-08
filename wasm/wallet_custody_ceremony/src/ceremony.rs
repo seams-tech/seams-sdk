@@ -38,7 +38,8 @@ use router_ab_ecdsa_derivation::RouterAbEcdsaDerivationStableKeyContext;
 use router_ab_ed25519_yao_client::{
     client_application_binding_digest_v1, complete_client_activation_v1,
     prepare_client_recovery_with_root_v1, prepare_client_registration_with_root_v1,
-    ClientActivationEntropyV1, ClientActivationStateV1,
+    seal_activated_client_under_custody_seed_v1, ActivatedClientV1, ClientActivationEntropyV1,
+    ClientActivationStateV1,
 };
 use signer_core::ecdsa_role_local_client::command::{
     finalize_ecdsa_client_bootstrap, prepare_ecdsa_client_bootstrap,
@@ -55,10 +56,11 @@ use signer_core::wallet_recovery_custody::{
     seal_wallet_recovery_entry_v1, seal_wallet_recovery_manifest_kek_v1, WALLET_RECOVERY_CODE_COUNT,
 };
 use signer_core::wallet_seed_derivation::{
-    derive_ecdsa_client_root_share_from_seed_v1, derive_ed25519_yao_client_root_from_seed_v1,
-    establish_wallet_key_set_manifest_v1, verify_registered_wallet_key_set_manifest_v1,
-    VerifiedWalletKeySetManifestDigestV1, WalletKeySetKindV1, WalletKeySetManifestV1,
-    WALLET_CUSTODY_SEED_LEN,
+    derive_ecdsa_client_root_share_from_seed_v1,
+    derive_ed25519_local_material_cache_key_from_seed_v1,
+    derive_ed25519_yao_client_root_from_seed_v1, establish_wallet_key_set_manifest_v1,
+    verify_registered_wallet_key_set_manifest_v1, VerifiedWalletKeySetManifestDigestV1,
+    WalletKeySetKindV1, WalletKeySetManifestV1, WALLET_CUSTODY_SEED_LEN,
 };
 use zeroize::Zeroizing;
 
@@ -185,6 +187,11 @@ enum PreparedProtocolV1 {
     NearEd25519 {
         yao_state: ClientActivationStateV1,
         yao_execute_request_json: String,
+        /// Carried forward so the continuity cache can be keyed and bound to
+        /// this exact key set without recomputing it from inputs the run has
+        /// already consumed.
+        application_binding_digest: [u8; 32],
+        participant_ids: [u16; 2],
     },
     EvmFamilyEcdsa {
         /// Held as `Zeroizing` because the role-local pending blob carries the
@@ -207,6 +214,18 @@ pub struct CeremonyProtocolCompletedV1 {
 enum CompletedProtocolV1 {
     NearEd25519 {
         registered_public_key: [u8; 32],
+        /// The activated Client's material, already sealed as the same-device
+        /// continuity cache.
+        ///
+        /// Sealed at completion rather than carried as live material and
+        /// sealed later: the activated Client is the only thing that can sign
+        /// for this key set, and holding it across two further state
+        /// transitions would widen its lifetime for no gain. This arm once
+        /// dropped it entirely, which left a registered key set with nothing
+        /// to sign with — the ceremony *is* the registration for a
+        /// seed-derived key set, so no other path holds this material.
+        local_material_b64u: String,
+        local_material_nonce_b64u: String,
     },
     EvmFamilyEcdsa {
         client_root_public_key33: [u8; 33],
@@ -264,6 +283,21 @@ pub struct WalletCustodyCommitPayloadV1 {
     /// Present only when this run established custody.
     pub established_custody: Option<EstablishedCustodyRecordsV1>,
     pub registered_public_key_b64u: Option<String>,
+    /// The NEAR same-device continuity cache: the activated Client's material,
+    /// sealed under a key derived from the wallet custody seed.
+    ///
+    /// Sealed under the *seed* rather than the factor that ran this ceremony,
+    /// so every factor that can open the wallet's custody envelope reaches the
+    /// same record. A per-factor wrap would guarantee a cache miss for any
+    /// factor enrolled after registration, which is exactly the case this
+    /// refactor exists to serve.
+    ///
+    /// It is a cache and never a source of truth: losing it costs a Router
+    /// round, not the wallet.
+    pub ed25519_local_material_b64u: Option<String>,
+    /// The nonce the cache record was sealed with. Generated here, never
+    /// accepted, so one cannot be reused across two seals under the same key.
+    pub ed25519_local_material_nonce_b64u: Option<String>,
     pub client_root_public_key33_b64u: Option<String>,
     pub ecdsa_ready_state_blob_b64u: Option<String>,
 }
@@ -370,6 +404,8 @@ impl CeremonySeedHeldV1 {
                     yao_execute_request_json: serde_json::to_string(&execute_request).map_err(
                         |error| CeremonyError::new(format!("Yao execute request: {error}")),
                     )?,
+                    application_binding_digest: binding_digest,
+                    participant_ids,
                 }
             }
             KeySetProtocolInputsV1::EvmFamilyEcdsa {
@@ -409,6 +445,86 @@ impl CeremonySeedHeldV1 {
             protocol,
         })
     }
+}
+
+/// Seals the activated Client for same-device rehydration.
+///
+/// The binding deliberately names no credential and no RP. This record is
+/// factor-agnostic by construction — that is the whole reason it is sealed
+/// under the seed — so binding it to whichever credential happened to run the
+/// ceremony would reintroduce the coupling being removed. What it does name is
+/// the key set (through the application binding digest, which already covers
+/// the wallet, NEAR signing key, signing root and slot), the registered public
+/// key, the participants, and the state epoch.
+fn seal_ed25519_local_material_v1(
+    seed: &[u8],
+    activated: &ActivatedClientV1,
+    application_binding_digest: &[u8; 32],
+    participant_ids: [u16; 2],
+) -> CeremonyResult<(String, String)> {
+    let cache_key =
+        derive_ed25519_local_material_cache_key_from_seed_v1(seed, application_binding_digest)
+            .map_err(|error| CeremonyError::new(format!("cache key derivation: {error}")))?;
+    let binding = ed25519_local_material_binding_v1(
+        application_binding_digest,
+        &activated.registered_public_key(),
+        participant_ids,
+        activated.state_epoch(),
+    );
+    // Generated here, never accepted, so a caller cannot reuse a nonce across
+    // two seals under the same cache key.
+    let mut nonce = [0u8; 12];
+    random_bytes(&mut nonce)?;
+    let sealed =
+        seal_activated_client_under_custody_seed_v1(activated, &cache_key, &binding, &nonce)
+            .map_err(|error| CeremonyError::new(format!("local material seal: {error}")))?;
+    Ok((b64u(&sealed), b64u(&nonce)))
+}
+
+/// Canonical binding for the Ed25519 continuity cache record.
+///
+/// Length-delimited fields under a fixed context, so no two bindings encode
+/// alike and no field can be shifted into another. Carries nothing that names
+/// a factor.
+///
+/// Public because opening the cache at unlock has to rebuild this exact byte
+/// string: it is both HKDF input and AEAD associated data, so a reader that
+/// assembled it differently would hold a record that never opens.
+pub fn ed25519_local_material_binding_v1(
+    application_binding_digest: &[u8; 32],
+    registered_public_key: &[u8; 32],
+    participant_ids: [u16; 2],
+    state_epoch: u64,
+) -> Vec<u8> {
+    fn field(out: &mut Vec<u8>, label: &[u8], value: &[u8]) {
+        out.extend_from_slice(&(label.len() as u32).to_be_bytes());
+        out.extend_from_slice(label);
+        out.extend_from_slice(&(value.len() as u32).to_be_bytes());
+        out.extend_from_slice(value);
+    }
+    let mut out = Vec::new();
+    field(
+        &mut out,
+        b"context",
+        b"seams/wallet-custody/ed25519-local-material-cache/v1",
+    );
+    field(
+        &mut out,
+        b"applicationBindingDigest",
+        application_binding_digest,
+    );
+    field(&mut out, b"registeredPublicKey", registered_public_key);
+    field(
+        &mut out,
+        b"participantIds",
+        &[
+            participant_ids[0].to_be_bytes(),
+            participant_ids[1].to_be_bytes(),
+        ]
+        .concat(),
+    );
+    field(&mut out, b"stateEpoch", &state_epoch.to_be_bytes());
+    out
 }
 
 fn require_wallet_id(wallet_id: &str) -> CeremonyResult<String> {
@@ -456,7 +572,13 @@ impl CeremonyProtocolPreparedV1 {
         self,
         yao_result_json: &str,
     ) -> CeremonyResult<CeremonyProtocolCompletedV1> {
-        let PreparedProtocolV1::NearEd25519 { yao_state, .. } = self.protocol else {
+        let PreparedProtocolV1::NearEd25519 {
+            yao_state,
+            application_binding_digest,
+            participant_ids,
+            ..
+        } = self.protocol
+        else {
             return Err(CeremonyError::new(
                 "this ceremony is not a NEAR Ed25519 run",
             ));
@@ -465,12 +587,20 @@ impl CeremonyProtocolPreparedV1 {
             .map_err(|error| CeremonyError::new(format!("Yao result: {error}")))?;
         let activated = complete_client_activation_v1(yao_state, &result)
             .map_err(|error| CeremonyError::new(format!("Yao activation: {error:?}")))?;
+        let (local_material_b64u, local_material_nonce_b64u) = seal_ed25519_local_material_v1(
+            &self.seed[..],
+            &activated,
+            &application_binding_digest,
+            participant_ids,
+        )?;
         Ok(CeremonyProtocolCompletedV1 {
             wallet_id: self.wallet_id,
             seed: self.seed,
             origin: self.origin,
             completed: CompletedProtocolV1::NearEd25519 {
                 registered_public_key: activated.registered_public_key(),
+                local_material_b64u,
+                local_material_nonce_b64u,
             },
         })
     }
@@ -527,6 +657,7 @@ impl CeremonyProtocolCompletedV1 {
             (
                 CompletedProtocolV1::NearEd25519 {
                     registered_public_key,
+                    ..
                 },
                 KeySetIdentityInputsV1::NearEd25519 {
                     near_ed25519_signing_key_id,
@@ -607,21 +738,38 @@ impl CeremonyManifestEstablishedV1 {
 
         let (
             registered_public_key_b64u,
+            ed25519_local_material,
             client_root_public_key33_b64u,
             ecdsa_ready_state_blob_b64u,
         ) = match &self.completed {
             CompletedProtocolV1::NearEd25519 {
                 registered_public_key,
-            } => (Some(b64u(registered_public_key)), None, None),
+                local_material_b64u,
+                local_material_nonce_b64u,
+            } => (
+                Some(b64u(registered_public_key)),
+                Some((
+                    local_material_b64u.clone(),
+                    local_material_nonce_b64u.clone(),
+                )),
+                None,
+                None,
+            ),
             CompletedProtocolV1::EvmFamilyEcdsa {
                 client_root_public_key33,
                 ready_state_blob,
             } => (
                 None,
+                None,
                 Some(b64u(client_root_public_key33)),
                 Some(b64u(ready_state_blob)),
             ),
         };
+        let (ed25519_local_material_b64u, ed25519_local_material_nonce_b64u) =
+            match ed25519_local_material {
+                Some((ciphertext, nonce)) => (Some(ciphertext), Some(nonce)),
+                None => (None, None),
+            };
 
         Ok(WalletCustodyCommitPayloadV1 {
             wallet_id: self.wallet_id,
@@ -629,6 +777,8 @@ impl CeremonyManifestEstablishedV1 {
             key_manifest_digest_b64u: self.verified.digest_b64u(),
             established_custody,
             registered_public_key_b64u,
+            ed25519_local_material_b64u,
+            ed25519_local_material_nonce_b64u,
             client_root_public_key33_b64u,
             ecdsa_ready_state_blob_b64u,
         })
@@ -773,6 +923,8 @@ mod tests {
             origin,
             completed: CompletedProtocolV1::NearEd25519 {
                 registered_public_key: REGISTERED_PUBLIC_KEY,
+                local_material_b64u: b64u(&[9u8; 48]),
+                local_material_nonce_b64u: b64u(&[3u8; 12]),
             },
         }
     }

@@ -1,0 +1,347 @@
+//! Same-device continuity cache for activated Ed25519 Yao Client material.
+//!
+//! This record is a cache and nothing else. It re-opens material the protocol
+//! already activated, so it is never the source of truth for a wallet's keys,
+//! never a portable custody envelope, and never a Client root. Losing it costs
+//! a Router round; it does not cost the wallet.
+//!
+//! The crypto lives here rather than in the wasm bindings because the wallet
+//! custody ceremony has to seal one of these from inside its own wasm module,
+//! where the custody seed lives and never leaves — and `mod wasm` is compiled
+//! only for `wasm32`, so a ceremony test on the host could not reach it. The
+//! bindings now delegate here, byte-for-byte: same salts, same info, same
+//! plaintext layout, so records sealed before this split still open.
+//!
+//! Three wrapping domains, listed in [`LocalMaterialSealDomainV1`]. The seed
+//! domain is the one this refactor adds, and the reason it exists is that the
+//! other two are per factor: a wallet that registered under a passkey and later
+//! enrolled Email OTP would miss its cache on every OTP unlock.
+
+use chacha20poly1305::aead::{Aead, Payload};
+use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce};
+use core::fmt;
+use curve25519_dalek::{constants::ED25519_BASEPOINT_POINT, scalar::Scalar};
+use hkdf::Hkdf;
+use sha2::Sha256;
+use signer_core::near_threshold_frost::compute_threshold_ed25519_group_public_key_2p_from_verifying_shares;
+use subtle::ConstantTimeEq;
+use zeroize::Zeroizing;
+
+use crate::ActivatedClientV1;
+
+/// Plaintext layout version. Bumping it invalidates every stored record,
+/// which is the intended effect of ever changing the layout.
+pub const ACTIVATED_CLIENT_SEAL_VERSION_V1: u8 = 1;
+/// Version byte, scalar share, registered public key, big-endian state epoch.
+pub const ACTIVATED_CLIENT_PLAINTEXT_LEN_V1: usize = 1 + 32 + 32 + 8;
+/// ChaCha20-Poly1305 nonce width.
+pub const ACTIVATED_CLIENT_NONCE_LEN_V1: usize = 12;
+/// Upper bound on the binding, so a caller cannot force unbounded HKDF input.
+pub const MAX_ACTIVATED_CLIENT_BINDING_LEN_V1: usize = 4096;
+
+const PASSKEY_SEAL_INFO_V1: &[u8] = b"seams/router-ab/ed25519-yao/activated-client-seal/v1";
+const PASSKEY_SEAL_SALT_V1: &[u8] = b"seams/router-ab/ed25519-yao/activated-client-seal/salt/v1";
+const EMAIL_OTP_SEAL_INFO_V1: &[u8] =
+    b"seams/router-ab/ed25519-yao/activated-client-seal/email-otp/v1";
+const EMAIL_OTP_SEAL_SALT_V1: &[u8] =
+    b"seams/router-ab/ed25519-yao/activated-client-seal/email-otp/salt/v1";
+/// The wallet-scoped domain. Its wrapping secret is the seed-derived cache key
+/// from `signer_core::wallet_seed_derivation`, never a factor secret and never
+/// a signing root.
+const WALLET_CUSTODY_SEED_SEAL_INFO_V1: &[u8] =
+    b"seams/router-ab/ed25519-yao/activated-client-seal/wallet-custody-seed/v1";
+const WALLET_CUSTODY_SEED_SEAL_SALT_V1: &[u8] =
+    b"seams/router-ab/ed25519-yao/activated-client-seal/wallet-custody-seed/salt/v1";
+
+/// Which secret wraps a cache record.
+///
+/// Separate salt and info per domain, so a record sealed under one never opens
+/// under another even if the same 32 bytes were somehow supplied twice. The
+/// enum exists rather than loose salt arguments because a caller passing the
+/// wrong pair would produce a record that fails to open much later, at unlock,
+/// with nothing pointing back to the mistake.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalMaterialSealDomainV1 {
+    /// Wrapped by `PRF.first`. Opens only for the credential that registered.
+    PasskeyPrfFirst,
+    /// Wrapped by the Email OTP enrollment secret. Opens only for that
+    /// enrollment.
+    EmailOtpEnrollment,
+    /// Wrapped by the seed-derived cache key, so every factor that opens the
+    /// wallet's custody envelope reaches the same record.
+    WalletCustodySeed,
+}
+
+impl LocalMaterialSealDomainV1 {
+    const fn salt(self) -> &'static [u8] {
+        match self {
+            Self::PasskeyPrfFirst => PASSKEY_SEAL_SALT_V1,
+            Self::EmailOtpEnrollment => EMAIL_OTP_SEAL_SALT_V1,
+            Self::WalletCustodySeed => WALLET_CUSTODY_SEED_SEAL_SALT_V1,
+        }
+    }
+
+    const fn info(self) -> &'static [u8] {
+        match self {
+            Self::PasskeyPrfFirst => PASSKEY_SEAL_INFO_V1,
+            Self::EmailOtpEnrollment => EMAIL_OTP_SEAL_INFO_V1,
+            Self::WalletCustodySeed => WALLET_CUSTODY_SEED_SEAL_INFO_V1,
+        }
+    }
+}
+
+/// Why a cache record could not be sealed or opened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalMaterialError {
+    /// The binding was empty or longer than the accepted maximum.
+    InvalidBinding,
+    /// The nonce was not exactly 12 bytes.
+    InvalidNonce,
+    /// A fixed-width input was the wrong length.
+    InvalidLength,
+    /// Key derivation, sealing, or opening failed.
+    SealFailed,
+    /// The envelope opened but its version or layout was not this one's.
+    InvalidEnvelope,
+    /// The opened record named a different key or state epoch than expected.
+    IdentityMismatch,
+    /// The opened share does not reproduce the registered threshold key.
+    PublicRelationMismatch,
+}
+
+impl fmt::Display for LocalMaterialError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let message = match self {
+            Self::InvalidBinding => "Ed25519 Yao activated Client binding length is invalid",
+            Self::InvalidNonce => "Ed25519 Yao activated Client seal nonce is invalid",
+            Self::InvalidLength => "Ed25519 Yao activated Client input length is invalid",
+            Self::SealFailed => "Ed25519 Yao activated Client seal failed",
+            Self::InvalidEnvelope => "Ed25519 Yao activated Client envelope version is invalid",
+            Self::IdentityMismatch => "Ed25519 Yao activated Client envelope identity mismatch",
+            Self::PublicRelationMismatch => {
+                "sealed Client material does not match the registered Ed25519 public key"
+            }
+        };
+        formatter.write_str(message)
+    }
+}
+
+impl core::error::Error for LocalMaterialError {}
+
+/// Result alias for the seal and import surface.
+pub type LocalMaterialResult<T> = Result<T, LocalMaterialError>;
+
+fn require_32(value: &[u8]) -> LocalMaterialResult<[u8; 32]> {
+    value
+        .try_into()
+        .map_err(|_| LocalMaterialError::InvalidLength)
+}
+
+fn require_nonce(value: &[u8]) -> LocalMaterialResult<[u8; ACTIVATED_CLIENT_NONCE_LEN_V1]> {
+    value
+        .try_into()
+        .map_err(|_| LocalMaterialError::InvalidNonce)
+}
+
+fn require_binding(binding: &[u8]) -> LocalMaterialResult<()> {
+    if binding.is_empty() || binding.len() > MAX_ACTIVATED_CLIENT_BINDING_LEN_V1 {
+        return Err(LocalMaterialError::InvalidBinding);
+    }
+    Ok(())
+}
+
+/// Derives the record's AEAD key.
+///
+/// The binding is mixed into the derivation *and* used as AEAD associated data.
+/// That is deliberate belt-and-braces: the first makes a record for one wallet
+/// undecryptable under another's binding, the second makes tampering with the
+/// binding detectable rather than merely useless.
+fn derive_seal_key(
+    wrapping_secret: &[u8; 32],
+    binding: &[u8],
+    domain: LocalMaterialSealDomainV1,
+) -> LocalMaterialResult<Zeroizing<[u8; 32]>> {
+    let hkdf = Hkdf::<Sha256>::new(Some(domain.salt()), wrapping_secret);
+    let mut key = Zeroizing::new([0u8; 32]);
+    hkdf.expand_multi_info(&[domain.info(), binding], &mut key[..])
+        .map_err(|_| LocalMaterialError::SealFailed)?;
+    Ok(key)
+}
+
+/// Seals one activated Client's material under any wrapping domain.
+pub fn seal_activated_client_material_v1(
+    client_scalar_share: &[u8; 32],
+    registered_public_key: &[u8; 32],
+    state_epoch: u64,
+    wrapping_secret: &[u8; 32],
+    binding: &[u8],
+    nonce: &[u8],
+    domain: LocalMaterialSealDomainV1,
+) -> LocalMaterialResult<Vec<u8>> {
+    let nonce = require_nonce(nonce)?;
+    require_binding(binding)?;
+    let key = derive_seal_key(wrapping_secret, binding, domain)?;
+    let mut plaintext = Zeroizing::new([0u8; ACTIVATED_CLIENT_PLAINTEXT_LEN_V1]);
+    plaintext[0] = ACTIVATED_CLIENT_SEAL_VERSION_V1;
+    plaintext[1..33].copy_from_slice(client_scalar_share);
+    plaintext[33..65].copy_from_slice(registered_public_key);
+    plaintext[65..73].copy_from_slice(&state_epoch.to_be_bytes());
+    ChaCha20Poly1305::new_from_slice(&key[..])
+        .map_err(|_| LocalMaterialError::SealFailed)?
+        .encrypt(
+            Nonce::from_slice(&nonce),
+            Payload {
+                msg: plaintext.as_slice(),
+                aad: binding,
+            },
+        )
+        .map_err(|_| LocalMaterialError::SealFailed)
+}
+
+/// The material an opened record yields, before it becomes an activated Client.
+pub struct OpenedLocalMaterialV1 {
+    /// The Client's scalar share, zeroized on drop.
+    pub client_scalar_share: Zeroizing<[u8; 32]>,
+    /// The registered threshold public key this share reproduces.
+    pub registered_public_key: [u8; 32],
+    /// The SigningWorker state epoch the record was sealed at.
+    pub state_epoch: u64,
+}
+
+/// Opens a record and re-verifies that its share reproduces the registered key.
+///
+/// The public-relation check is what makes this safe to cache at all: a record
+/// that decrypts but whose share does not recombine to the registered public
+/// key is rejected, so a tampered or stale cache cannot install material that
+/// signs under a key the wallet does not own.
+#[allow(clippy::too_many_arguments)]
+pub fn import_activated_client_material_v1(
+    wrapping_secret: &[u8; 32],
+    binding: &[u8],
+    nonce: &[u8],
+    ciphertext: &[u8],
+    expected_registered_public_key: &[u8; 32],
+    expected_state_epoch: u64,
+    participant_ids: [u16; 2],
+    signing_worker_verifying_share: &[u8; 32],
+    domain: LocalMaterialSealDomainV1,
+) -> LocalMaterialResult<OpenedLocalMaterialV1> {
+    let nonce = require_nonce(nonce)?;
+    require_binding(binding)?;
+    let key = derive_seal_key(wrapping_secret, binding, domain)?;
+    let plaintext = ChaCha20Poly1305::new_from_slice(&key[..])
+        .map_err(|_| LocalMaterialError::SealFailed)?
+        .decrypt(
+            Nonce::from_slice(&nonce),
+            Payload {
+                msg: ciphertext,
+                aad: binding,
+            },
+        )
+        .map(Zeroizing::new)
+        .map_err(|_| LocalMaterialError::SealFailed)?;
+    if plaintext.len() != ACTIVATED_CLIENT_PLAINTEXT_LEN_V1
+        || plaintext[0] != ACTIVATED_CLIENT_SEAL_VERSION_V1
+    {
+        return Err(LocalMaterialError::InvalidEnvelope);
+    }
+    let client_scalar_share = Zeroizing::new(require_32(&plaintext[1..33])?);
+    let registered_public_key = require_32(&plaintext[33..65])?;
+    let state_epoch = u64::from_be_bytes(
+        plaintext[65..73]
+            .try_into()
+            .map_err(|_| LocalMaterialError::InvalidEnvelope)?,
+    );
+    if !bool::from(registered_public_key.ct_eq(expected_registered_public_key))
+        || state_epoch != expected_state_epoch
+    {
+        return Err(LocalMaterialError::IdentityMismatch);
+    }
+    verify_public_relation(
+        &client_scalar_share,
+        participant_ids,
+        signing_worker_verifying_share,
+        &registered_public_key,
+    )?;
+    Ok(OpenedLocalMaterialV1 {
+        client_scalar_share,
+        registered_public_key,
+        state_epoch,
+    })
+}
+
+fn verify_public_relation(
+    client_scalar_share: &[u8; 32],
+    participant_ids: [u16; 2],
+    signing_worker_verifying_share: &[u8; 32],
+    registered_public_key: &[u8; 32],
+) -> LocalMaterialResult<()> {
+    let scalar = Option::<Scalar>::from(Scalar::from_canonical_bytes(*client_scalar_share))
+        .ok_or(LocalMaterialError::InvalidEnvelope)?;
+    let client_verifying_share = (ED25519_BASEPOINT_POINT * scalar).compress().to_bytes();
+    let threshold_public_key = compute_threshold_ed25519_group_public_key_2p_from_verifying_shares(
+        &client_verifying_share,
+        signing_worker_verifying_share,
+        participant_ids[0],
+        participant_ids[1],
+    )
+    .map_err(|_| LocalMaterialError::PublicRelationMismatch)?;
+    if !bool::from(threshold_public_key.ct_eq(registered_public_key)) {
+        return Err(LocalMaterialError::PublicRelationMismatch);
+    }
+    Ok(())
+}
+
+/// Seals an activated Client under the wallet custody seed's cache key.
+///
+/// Takes the derived cache key rather than the seed, so the seed itself never
+/// reaches this crate: the ceremony derives it inside its own module and passes
+/// only the wrapping key. The binding must not carry credential or RP identity
+/// — this record is factor-agnostic by construction, and binding it to the
+/// credential that happened to register would defeat the reason it exists.
+pub fn seal_activated_client_under_custody_seed_v1(
+    activated: &ActivatedClientV1,
+    cache_key: &[u8; 32],
+    binding: &[u8],
+    nonce: &[u8],
+) -> LocalMaterialResult<Vec<u8>> {
+    seal_activated_client_material_v1(
+        activated.client_scalar_share(),
+        &activated.registered_public_key(),
+        activated.state_epoch(),
+        cache_key,
+        binding,
+        nonce,
+        LocalMaterialSealDomainV1::WalletCustodySeed,
+    )
+}
+
+/// Opens a seed-sealed record back into an activated Client.
+#[allow(clippy::too_many_arguments)]
+pub fn import_activated_client_under_custody_seed_v1(
+    cache_key: &[u8; 32],
+    binding: &[u8],
+    nonce: &[u8],
+    ciphertext: &[u8],
+    expected_registered_public_key: &[u8; 32],
+    expected_state_epoch: u64,
+    participant_ids: [u16; 2],
+    signing_worker_verifying_share: &[u8; 32],
+) -> LocalMaterialResult<ActivatedClientV1> {
+    let opened = import_activated_client_material_v1(
+        cache_key,
+        binding,
+        nonce,
+        ciphertext,
+        expected_registered_public_key,
+        expected_state_epoch,
+        participant_ids,
+        signing_worker_verifying_share,
+        LocalMaterialSealDomainV1::WalletCustodySeed,
+    )?;
+    Ok(ActivatedClientV1::from_local_material_v1(
+        *opened.client_scalar_share,
+        opened.registered_public_key,
+        opened.state_epoch,
+    ))
+}
