@@ -7,6 +7,12 @@ import type { PasskeyCustodyEnvelopeRetrievalRequest } from '../../../domains/pa
 import type { WebAuthnAuthenticatorStore } from '../../../../core/WebAuthnAuthenticatorStore';
 import type { CloudflareD1WebAuthnStore } from '../webauthn/d1WebAuthnStore';
 import type { NormalizedLogger } from '../../../../core/logger';
+import type { CloudflareD1WalletCustodyCommitStore } from './d1WalletCustodyCommitStore';
+import {
+  attemptWalletRecoveryWithCodeV1,
+  type WalletRecoveryAttemptResult,
+} from '../../../domains/passkeyCustody/walletRecoveryAttempt';
+import type { WalletId } from '@shared/utils/domainIds';
 
 /**
  * The custody envelope layer's way into the router.
@@ -63,12 +69,32 @@ export interface RouterApiPasskeyCustodyService {
   retrieveEnvelope(
     request: PasskeyCustodyEnvelopeRetrievalWireRequest,
   ): Promise<PasskeyCustodyEnvelopeRetrievalRouteResponse>;
+
+  /**
+   * Spends one recovery code and returns the wrapped payload.
+   *
+   * The code is the proof — it is 160 bits of randomness and the server can
+   * only match its derived id against stored wraps. There is nothing else to
+   * authenticate with: recovery exists precisely for the case where every
+   * enrolled factor is gone.
+   */
+  spendRecoveryCode(request: {
+    readonly walletId: string;
+    readonly recoveryCodeBytes: Uint8Array;
+    readonly reservationId: string;
+  }): Promise<WalletRecoveryAttemptResult>;
 }
+
+/** How long a reservation may sit before another attempt may take the code. */
+const RECOVERY_RESERVATION_TTL_MS = 120_000;
 
 export function createD1PasskeyCustodyRouteService(assembly: {
   readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
+  readonly walletCustodyCommits: CloudflareD1WalletCustodyCommitStore;
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
   readonly logger: NormalizedLogger;
+  /** Injected so the reservation window is testable without waiting. */
+  readonly nowMs?: () => number;
 }): RouterApiPasskeyCustodyService {
   const authenticatorStore = authenticatorStoreView(assembly.webAuthnStore);
   return {
@@ -117,6 +143,16 @@ export function createD1PasskeyCustodyRouteService(assembly: {
         logger: assembly.logger,
       });
     },
+
+    spendRecoveryCode: (request) =>
+      attemptWalletRecoveryWithCodeV1({
+        store: assembly.walletCustodyCommits,
+        walletId: request.walletId as WalletId,
+        recoveryCodeBytes: request.recoveryCodeBytes,
+        reservationId: request.reservationId,
+        nowMs: (assembly.nowMs ?? Date.now)(),
+        reservationTtlMs: RECOVERY_RESERVATION_TTL_MS,
+      }),
   };
 }
 
