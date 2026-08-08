@@ -163,6 +163,7 @@ import {
   hostedAuthMenuSessionIdFromBoundary,
   parseHostedAuthMenuExternalAuthRequest,
   parseHostedAuthMenuExternalAuthResolution,
+  parseHostedAuthMenuDemoEmailOtpDelivery,
 } from '../shared/messages';
 import type {
   PMGoogleEmailOtpWalletAuthCompleteRegistrationWireResult,
@@ -177,6 +178,7 @@ import type {
   HostedAuthMenuSessionId,
   HostedAuthMenuExternalAuthRequest,
   HostedAuthMenuExternalAuthResolutionInput,
+  HostedAuthMenuDemoEmailOtpDelivery,
 } from '../shared/messages';
 import { ActionArgs, TransactionInput, TxExecutionStatus } from '@/core/types';
 import type { DelegateActionInput } from '@/core/types/delegate';
@@ -1216,6 +1218,9 @@ export class WalletIframeRouter {
     hostedAuthMenuExternalAuthRequest: new Set<
       (payload: HostedAuthMenuExternalAuthRequest) => void
     >(),
+    hostedAuthMenuDemoEmailOtpDelivery: new Set<
+      (payload: HostedAuthMenuDemoEmailOtpDelivery) => void
+    >(),
     sdkLifecycleEvent: new Set<SdkLifecycleEventListener>(),
   };
   private readonly expiredSigningSessionsByWallet = new Map<WalletId, Set<WalletSessionId>>();
@@ -1968,6 +1973,13 @@ export class WalletIframeRouter {
   ): () => void {
     this.listeners.hostedAuthMenuExternalAuthRequest.add(listener);
     return () => this.listeners.hostedAuthMenuExternalAuthRequest.delete(listener);
+  }
+
+  onHostedAuthMenuDemoEmailOtpDelivery(
+    listener: (payload: HostedAuthMenuDemoEmailOtpDelivery) => void,
+  ): () => void {
+    this.listeners.hostedAuthMenuDemoEmailOtpDelivery.add(listener);
+    return () => this.listeners.hostedAuthMenuDemoEmailOtpDelivery.delete(listener);
   }
 
   async resolveHostedAuthMenuExternalAuth(
@@ -3672,6 +3684,24 @@ export class WalletIframeRouter {
         return;
       }
       for (const listener of Array.from(this.listeners.hostedAuthMenuExternalAuthRequest)) {
+        try {
+          listener(payload);
+        } catch {}
+      }
+      return;
+    }
+    if (msg.type === 'AUTH_MENU_DEMO_EMAIL_OTP_DELIVERY') {
+      const payload = parseHostedAuthMenuDemoEmailOtpDelivery(msg.payload);
+      if (!payload) return;
+      const activeRequestId = this.hostedAuthMenuRequestIds.get(payload.authMenuSessionId);
+      if (
+        !activeRequestId ||
+        typeof msg.requestId !== 'string' ||
+        msg.requestId !== activeRequestId
+      ) {
+        return;
+      }
+      for (const listener of Array.from(this.listeners.hostedAuthMenuDemoEmailOtpDelivery)) {
         try {
           listener(payload);
         } catch {}

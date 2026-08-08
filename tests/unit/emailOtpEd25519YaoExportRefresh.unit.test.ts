@@ -157,8 +157,19 @@ class EmailOtpEd25519ExportRefreshHarness {
   contextCalls = 0;
   exportCalls = 0;
   exportedCapability: unknown = null;
+  viewerLoadingBeforeExport = false;
 
   async requestUserConfirmation(request: UserConfirmRequest): Promise<UserConfirmDecision> {
+    if (request.type === 'showSecurePrivateKeyUi') {
+      const payload = request.payload as {
+        loading?: unknown;
+        keys?: Array<{ privateKey?: unknown }>;
+      };
+      expect(payload.loading).toBe(true);
+      expect(payload.keys?.[0]?.privateKey).toBe('');
+      this.viewerLoadingBeforeExport = this.exportCalls === 0;
+      return { requestId: request.requestId, confirmed: true };
+    }
     if (this.contextCalls === 1 && this.exportCalls === 0) {
       return {
         requestId: request.requestId,
@@ -219,6 +230,7 @@ class EmailOtpEd25519ExportRefreshHarness {
     args: Parameters<Ed25519YaoExportFlowDeps['emailOtp']['exportSeedWithFreshAuthorization']>[0],
   ) {
     this.exportCalls += 1;
+    expect(this.viewerLoadingBeforeExport).toBe(true);
     this.exportedCapability = args.exportContext.material.capability;
     expect(args.exportContext.authorization.walletSessionTokens.ed25519.walletSessionJwt).toContain(
       'durable-wallet-session-jwt',
@@ -273,5 +285,6 @@ test('page-refresh Email OTP Ed25519 export resolves durable context without pas
   });
   expect(harness.contextCalls).toBe(1);
   expect(harness.exportCalls).toBe(1);
+  expect(harness.viewerLoadingBeforeExport).toBe(true);
   expect(harness.exportedCapability).toEqual(CAPABILITY);
 });
