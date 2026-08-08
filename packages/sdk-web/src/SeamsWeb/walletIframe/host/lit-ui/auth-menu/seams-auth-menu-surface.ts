@@ -216,8 +216,8 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     accountMenuOpen: { state: true },
   } as const;
 
-  declare viewModel: AuthMenuViewModel;
-  declare private accountMenuOpen: boolean;
+  viewModel!: AuthMenuViewModel;
+  private accountMenuOpen!: boolean;
 
   private readonly stylePromises: Promise<void>[] = [];
   private stylesReady = false;
