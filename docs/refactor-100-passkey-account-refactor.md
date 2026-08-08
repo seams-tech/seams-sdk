@@ -1383,13 +1383,20 @@ repository evidence.
       refactor exists to prevent. Either both key sets move together, or the
       first slice is Ed25519-only wallets, which have no EVM key set to strand.
 
-      **The admission gate is built (2026-08-08).**
+      **Both halves of the admission decision are built (2026-08-08).**
       `walletCustodyRegistrationAdmission.ts` is the only path a route should
-      take to `commitWalletCustodyRegistration`, and it enforces both checks
-      below plus the joining case. What remains for this half is the route
-      change itself: carrying the payload on the activate body, resolving the
-      verified factor from the credential that leg verified, and surfacing the
-      outcomes. Six tests, mutation-checked on the wallet-equality check.
+      take to `commitWalletCustodyRegistration` — it enforces the wallet-
+      equality check and the joining case. `verifiedCustodyFactor.ts` resolves
+      the envelope factor from the verified `WalletAuthAuthority`, so no route
+      can read it off the payload; its Email OTP arm needs the enrollment id
+      and seal key version from the material the same leg finalizes, and
+      refuses rather than guessing.
+
+      What remains for this half is only the route change: carry the payload on
+      the activate body, pass the ceremony's authority and enrollment through,
+      and surface the outcomes. Twelve tests across the two modules, each
+      mutation-checked (disabling the wallet-equality check, and sourcing the
+      RP id from anywhere but the verifier).
 
       **Decision (2026-08-07): the custody commit has no standalone route.**
       `commitWalletCustodyRegistration` and its store are built and tested but
