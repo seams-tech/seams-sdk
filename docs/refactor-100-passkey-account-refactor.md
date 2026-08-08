@@ -24,7 +24,7 @@ The follow-on plans are:
 
 - [refactor-101-wallet-execution-lanes.md](./refactor-101-wallet-execution-lanes.md)
   for `WalletKey`, share-bearing execution lanes, and lane identity;
-- [refactor-102-share-rotation.md](./refactor-102-share-rotation.md) for
+- [refactor-102-rotatable-signing-lanes.md](./refactor-102-rotatable-signing-lanes.md) for
   curve-specific lane provisioning and refresh;
 - [refactor-103-device-linking.md](./refactor-103-device-linking.md) for
   physical linked-device product flows;

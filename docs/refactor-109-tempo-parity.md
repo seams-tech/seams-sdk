@@ -83,7 +83,7 @@ This plan consumes:
   credential ownership and wallet identity;
 - [Refactor 101](./refactor-101-wallet-execution-lanes.md) for stable wallet-key
   identity and chain-specific execution adapters;
-- [Refactor 102](./refactor-102-share-rotation.md) for replaceable execution
+- [Refactor 102](./refactor-102-rotatable-signing-lanes.md) for replaceable execution
   material and revocation epochs;
 - [Refactor 103](./refactor-103-device-linking.md) for device continuity;
 - [Refactor 104](./refactor-104-agent-id-spending.md) for independent agent

@@ -51,19 +51,50 @@ started the run. Direct pushes to protected `main` remain disabled. Production
 is manual and uses the existing `production` environment, whose branch policy
 and the workflow branch guard both restrict deployments to `main`.
 
-Normal promotion is:
+## Dev → staging → PR → main → production
+
+`dev` is the staging integration branch. `main` is the protected production
+branch. A production deployment promotes a reviewed `dev` change into `main`,
+then rebuilds the merged `main` revision from source.
+
+1. Push the candidate commit to `dev`. The staging workflows accept `dev` only.
+   The `dev` branch is currently the integration branch, so feature work may
+   arrive through a PR or an integration push according to the repository's
+   development policy.
+2. Deploy both staging surfaces from that `dev` tip and exercise the staging
+   site, wallet iframe, and API. The workflow event SHA is the exact revision
+   built and deployed.
+3. Open a pull request from `dev` to protected `main`. Resolve conversations
+   and complete the repository's review/check requirements before merging.
+   Direct pushes to `main` are disabled.
+4. Merge the PR. If the merge strategy creates a new commit (for example, a
+   squash merge), production uses that new `main` SHA and rebuilds it from
+   source; it does not reuse the staging artifact.
+5. Manually dispatch the production testnet backend, production mainnet
+   backend, and shared production frontend workflows from the resulting
+   `main` tip.
+
+The command sequence is:
 
 ```bash
 # Staging remains an explicit deployment
 gh workflow run deploy-staging-backend.yml --ref dev
 gh workflow run deploy-staging-frontend.yml --ref dev
 
-# Production: merge an accepted change into protected main, then dispatch the
-# independent backend lane workflows and the shared frontend workflow.
+# Open and merge the promotion PR through GitHub's protected-main flow.
+gh pr create --base main --head dev --title "Promote dev to main"
+
+# After the PR is merged, dispatch the independent backend lane workflows and
+# the shared frontend workflow from main.
 gh workflow run deploy-production-testnet-backend.yml --ref main
 gh workflow run deploy-production-mainnet-backend.yml --ref main
 gh workflow run deploy-production-frontend.yml --ref main
 ```
+
+The PR merge and the production dispatch are separate operations. No production
+workflow runs automatically when the PR merges. The production environment
+branch policy and the workflow guards both reject a production run from any
+branch other than `main`.
 
 The production backend workflows are present as independent lane entrypoints.
 Their plans are available immediately, while `production-testnet` and

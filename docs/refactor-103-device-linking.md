@@ -27,7 +27,7 @@ It consumes:
 - [refactor-101-wallet-execution-lanes.md](./refactor-101-wallet-execution-lanes.md)
   for curve-specific wallet keys, linked-device lanes, lifecycle, and
   execution admission;
-- [refactor-102-share-rotation.md](./refactor-102-share-rotation.md) for Yao
+- [refactor-102-rotatable-signing-lanes.md](./refactor-102-rotatable-signing-lanes.md) for Yao
   Ed25519 recipient provisioning, ECDSA additive target-lane resharing,
   aggregate activation, refresh, and revocation.
 
