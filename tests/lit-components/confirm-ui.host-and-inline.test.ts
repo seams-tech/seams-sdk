@@ -498,6 +498,102 @@ test.describe('confirm-ui inline confirmer', () => {
     });
   });
 
+  /**
+   * Key export pins its host box to a full-viewport drawer for the whole request
+   * (the key viewer is always a drawer) while the Email OTP prompt inside that
+   * same box still follows the Confirmer UI setting. A modal prompt therefore
+   * has to self-centre on the full-viewport canvas — inferring the box shape
+   * from the prompt's own 'modal' variant makes it a hugging `wallet-iframe`
+   * surface with nothing sizing it, which strands the card in the top-left
+   * corner of the screen. See walletIframe/README.md.
+   */
+  test('a modal confirmation in a drawer-pinned host box takes the standalone surface', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ securityContext, summary, waitForSource, paths }) => {
+        const waitFor = eval(waitForSource) as typeof harnessWaitFor;
+        const mod = await import(paths.confirmUi);
+        const events = await import(paths.events);
+        const { awaitConfirmUIDecision } =
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
+        const ctx = {
+          userPreferencesManager: {
+            getCurrentWalletId: () => 'alice.testnet',
+            getConfirmationConfig: () => ({
+              uiMode: 'modal',
+              behavior: 'requireClick',
+              autoProceedDelay: 0,
+              theme: 'dark',
+            }),
+          },
+          surfaceMeasurementBinding: {
+            kind: 'wallet_iframe',
+            requestId: 'request-export',
+            postMeasurement: () => undefined,
+            hostSurfaceVariant: 'drawer',
+          },
+        };
+
+        const decisionPromise = awaitConfirmUIDecision({
+          ctx: ctx as any,
+          surface: { kind: 'mount_new' },
+          summary,
+          txSigningRequests: [],
+          securityContext: securityContext as any,
+          theme: 'dark',
+          uiMode: 'modal',
+          nearAccountIdOverride: 'alice.testnet',
+        });
+
+        await waitFor(
+          () =>
+            document
+              .getElementById('w3a-confirm-portal')
+              ?.firstElementChild?.getAttribute('data-w3a-confirm-surface') === 'standalone',
+        );
+        await waitFor(
+          () =>
+            !!document
+              .getElementById('w3a-confirm-portal')
+              ?.firstElementChild?.querySelector('.standalone-surface-backdrop'),
+        );
+        const host = document.getElementById('w3a-confirm-portal')
+          ?.firstElementChild as HTMLElement | null;
+        const surface = host?.getAttribute('data-w3a-confirm-surface');
+        const variant = host?.getAttribute('data-w3a-confirm-variant');
+        // The centring rule is keyed on both attributes together.
+        const centred = host ? getComputedStyle(host).placeItems.includes('center') : false;
+        const hasBackdrop = Boolean(
+          host?.querySelector('w3a-modal-tx-confirmer .standalone-surface-backdrop'),
+        );
+
+        host?.dispatchEvent(
+          new CustomEvent(events.WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
+            bubbles: true,
+            composed: true,
+          }),
+        );
+        const decision = await decisionPromise;
+        decision.handle.close(false);
+        return { surface, variant, centred, hasBackdrop };
+      },
+      {
+        securityContext: SECURITY_CONTEXT,
+        summary: SUMMARY,
+        waitForSource: WAIT_FOR_SOURCE,
+        paths: IMPORT_PATHS,
+      },
+    );
+
+    expect(result).toEqual({
+      surface: 'standalone',
+      variant: 'modal',
+      centred: true,
+      hasBackdrop: true,
+    });
+  });
+
   test('drawer confirm renders inline wrapper (no iframe fallback)', async ({ page }) => {
     const result = await page.evaluate(
       async ({ securityContext, summary, waitForSource, paths }) => {
