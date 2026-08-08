@@ -47,10 +47,11 @@ function establishArgs(steps: Step[]) {
     factorJson: JSON.stringify({ kind: 'passkey' }),
     factorSecret: new ArrayBuffer(32),
     nearEd25519SigningKeyId: 'near-ed25519-key-1',
+    registrationCeremonyId: 'wrc_test',
     yaoAdmission: { admission: true },
     yaoApplication: { application: true },
     participantIds: [1, 2] as const,
-    runRouterRound: async () => '{"result":"activation"}',
+    runRouterRound: async () => JSON.stringify({ binding: { session_id: [1, 2, 3, 4] } }),
   };
 }
 
@@ -144,4 +145,30 @@ test('the projection drops material from any payload, including an EVM run', asy
   expect(keys).not.toContain('ed25519LocalMaterialB64u');
   expect(keys).not.toContain('ed25519LocalMaterialNonceB64u');
   expect(projected.keyManifestDigestB64u).toBeTruthy();
+});
+
+test('the activation reference comes from the round this run performed', async () => {
+  /* Route 4 claims the Yao result with this reference. The ceremony consumes
+     the Router's result and returns only public facts, so if the run did not
+     carry the session id out, the deferred leg would have nothing to present.
+     It is parsed from the result rather than accepted as an argument, so it
+     cannot name another ceremony's activation for the leg to burn. */
+  const steps: Step[] = [];
+  const established = await establishNearEd25519CustodyV1(establishArgs(steps));
+
+  expect(established.activationReference).toEqual({
+    kind: 'router_ab_ed25519_yao_activation_reference_v1',
+    lifecycle_id: 'wrc_test',
+    session_id: [1, 2, 3, 4],
+  });
+});
+
+test('a Router result with no session id fails the run', async () => {
+  const steps: Step[] = [];
+  await expect(
+    establishNearEd25519CustodyV1({
+      ...establishArgs(steps),
+      runRouterRound: async () => '{"binding":{}}',
+    }),
+  ).rejects.toThrow(/session id/);
 });
