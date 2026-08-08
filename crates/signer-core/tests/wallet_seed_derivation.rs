@@ -8,6 +8,7 @@
 
 use signer_core::wallet_seed_derivation::{
     compute_wallet_key_set_manifest_digest_v1, derive_ecdsa_client_root_share_from_seed_v1,
+    derive_ed25519_local_material_cache_key_from_seed_v1,
     derive_ed25519_yao_client_root_from_seed_v1, derive_wallet_seed_owner_roots_v1,
     establish_wallet_key_set_manifest_v1, verify_registered_wallet_key_set_manifest_v1,
     verify_wallet_key_set_manifest_v1, wallet_key_manifest_digest_b64u, WalletKeySetKindV1,
@@ -29,6 +30,12 @@ fn ed25519_root() -> Vec<u8> {
 fn ecdsa_share() -> Vec<u8> {
     derive_ecdsa_client_root_share_from_seed_v1(&SEED, &ECDSA_BINDING_DIGEST)
         .expect("ecdsa share")
+        .to_vec()
+}
+
+fn local_material_cache_key() -> Vec<u8> {
+    derive_ed25519_local_material_cache_key_from_seed_v1(&SEED, &APPLICATION_BINDING_DIGEST)
+        .expect("cache key")
         .to_vec()
 }
 
@@ -323,4 +330,53 @@ fn establishing_and_verifying_are_separate_paths_to_the_same_proof() {
         client_root_public_key33: [0x04; 33],
     };
     assert!(establish_wallet_key_set_manifest_v1(&uncompressed).is_err());
+}
+
+/// The continuity cache key is a third domain, not a reuse of either root.
+///
+/// It wraps a local record that re-opens material the protocol already
+/// activated; it must never be usable as, or derivable from, key material a
+/// protocol signs with. Sharing bytes with either root would mean a stolen
+/// cache key yields signing capability, which is the whole reason it gets its
+/// own salt.
+#[test]
+fn the_local_material_cache_key_is_neither_signing_root() {
+    let cache_key = local_material_cache_key();
+
+    assert_eq!(cache_key, local_material_cache_key());
+    assert_eq!(cache_key.len(), 32);
+    // Same seed, same binding digest as the Ed25519 root: only the salt differs,
+    // so this is the comparison that proves the salt is load-bearing.
+    assert_ne!(cache_key, ed25519_root());
+    assert_ne!(cache_key, ecdsa_share());
+    assert_ne!(cache_key, SEED.to_vec());
+}
+
+/// One key set's cache key cannot open another's record.
+#[test]
+fn the_cache_key_is_bound_to_its_key_set() {
+    let other = derive_ed25519_local_material_cache_key_from_seed_v1(&SEED, &[4u8; 32])
+        .expect("cache key")
+        .to_vec();
+    assert_ne!(local_material_cache_key(), other);
+}
+
+/// A different seed is a different cache, so a wallet cannot open another's.
+#[test]
+fn the_cache_key_follows_the_seed() {
+    let other = derive_ed25519_local_material_cache_key_from_seed_v1(
+        &[8u8; 32],
+        &APPLICATION_BINDING_DIGEST,
+    )
+    .expect("cache key")
+    .to_vec();
+    assert_ne!(local_material_cache_key(), other);
+}
+
+#[test]
+fn the_cache_key_rejects_a_seed_of_the_wrong_length() {
+    assert!(
+        derive_ed25519_local_material_cache_key_from_seed_v1(&[7u8; 31], &APPLICATION_BINDING_DIGEST)
+            .is_err()
+    );
 }

@@ -32,6 +32,8 @@ pub const WALLET_SIGNING_ROOT_LEN: usize = 32;
 const ED25519_CLIENT_ROOT_SALT_V1: &[u8] = b"seams/wallet-custody/seed/ed25519-yao-client-root/v1";
 const ECDSA_CLIENT_ROOT_SHARE_SALT_V1: &[u8] =
     b"seams/wallet-custody/seed/ecdsa-client-root-share/v1";
+const ED25519_LOCAL_MATERIAL_CACHE_SALT_V1: &[u8] =
+    b"seams/wallet-custody/seed/ed25519-local-material-cache/v1";
 const NEAR_ED25519_KEY_SET_MANIFEST_CONTEXT_V1: &[u8] =
     b"seams/wallet-custody/key-set-manifest/near-ed25519/v1";
 const EVM_FAMILY_KEY_SET_MANIFEST_CONTEXT_V1: &[u8] =
@@ -129,6 +131,40 @@ pub fn derive_ecdsa_client_root_share_from_seed_v1(
     let share = expand(seed, ECDSA_CLIENT_ROOT_SHARE_SALT_V1, &info);
     info.clear();
     share
+}
+
+/// Derives the wrapping key for the Ed25519 same-device continuity cache.
+///
+/// **This is not a signing root, and the distinction is the point.** The two
+/// derivations above produce key material a protocol signs with. This one
+/// produces a wrapping key for a local record that only ever *re-opens*
+/// material the protocol already activated — Constraint 13's continuity cache,
+/// never a source of truth. Its own salt keeps it from colliding with either
+/// root, so holding the cache key yields no signing capability at all.
+///
+/// Keyed off the seed rather than a factor because that is what makes the cache
+/// factor-agnostic. A wallet that registered under a passkey and later enrolled
+/// Email OTP reaches the same cache under either, because both factors already
+/// open the envelope this seed comes out of. A per-factor wrapping key would
+/// give the second factor a guaranteed cache miss on every unlock and force a
+/// Router round to reproduce material the device is already holding.
+///
+/// Bound to the same application binding digest as the Ed25519 root, so the
+/// cache for one key set cannot open another's record.
+pub fn derive_ed25519_local_material_cache_key_from_seed_v1(
+    seed: &[u8],
+    application_binding_digest: &[u8; 32],
+) -> CoreResult<Zeroizing<[u8; WALLET_SIGNING_ROOT_LEN]>> {
+    require_seed(seed)?;
+    let mut info = Vec::new();
+    labeled_field(
+        &mut info,
+        b"applicationBindingDigest",
+        application_binding_digest,
+    );
+    let key = expand(seed, ED25519_LOCAL_MATERIAL_CACHE_SALT_V1, &info);
+    info.clear();
+    key
 }
 
 /// Which owner key set a manifest describes.

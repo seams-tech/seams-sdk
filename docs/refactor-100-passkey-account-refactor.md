@@ -1453,6 +1453,28 @@ repository evidence.
       factor-agnostic by design) and keeps wallet, key, lifecycle, worker,
       participant set, public key, and state epoch.
 
+      **Built 2026-08-08.** `derive_ed25519_local_material_cache_key_from_seed_v1`
+      is a third domain beside the two roots;
+      `router-ab-ed25519-yao-client/src/local_material.rs` holds the seal and
+      import, with the wasm bindings delegating to it byte-for-byte so records
+      sealed before the split still open. The ceremony seals at
+      `complete_near_ed25519` rather than at `finish`, so the activated Client's
+      lifetime is one function rather than three states.
+
+      Two things the implementation settled that the plan had not:
+
+      - **The cache never crosses to the server.** It is the ceremony's output
+        to its own client, and the server has no use for a device's signing
+        material, so `walletCustodyCeremonyCommitPayloadFromWire` drops the two
+        fields — a client that sends them anyway cannot cause them to be
+        stored. The Rust payload carries them because that same struct is the
+        worker→client return; the wire coercion is where the two roles part.
+      - **The binding needed a golden test, not a round-trip.** A test that
+        rebuilds the binding through the production builder passes no matter
+        what fields are added to it — including a credential id, the exact
+        coupling this removes. The mutation survived until the binding's byte
+        encoding was pinned field by field.
+
       **Do not splice NEAR alone for mixed wallets.** A mixed wallet whose NEAR
       key set came from the custody seed while its EVM key set is still
       PRF-derived is a wallet the recovery set only half covers — recovery

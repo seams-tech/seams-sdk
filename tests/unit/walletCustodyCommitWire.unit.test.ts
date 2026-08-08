@@ -11,8 +11,10 @@ import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helper
 import { applySignerMigrations } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
 import {
   buildWalletCustodyCommitPayloadFixture,
+  CIPHERTEXT_B64U,
   CREDENTIAL_ID_B64U,
   DIGEST_B64U,
+  NONCE_12_B64U,
   RP_ID,
   WALLET_ID,
 } from './helpers/passkeyCustodyEnvelope.fixtures';
@@ -96,6 +98,25 @@ test('non-string scalars are emptied rather than coerced to their text', () => {
     keyManifestDigestB64u: null,
   });
   expect(parsed).toMatchObject({ walletId: '', keySet: '', keyManifestDigestB64u: '' });
+});
+
+test('the same-device continuity cache never crosses to the server', async () => {
+  /* The Ed25519 cache is the ceremony's output to its own client: it re-opens
+     signing material on the device that produced it. The server has no use for
+     it and must not become a place it is stored, so the inbound coercion drops
+     it even when a client sends it. */
+  const parsed = walletCustodyCeremonyCommitPayloadFromWire({
+    ...buildWalletCustodyCommitPayloadFixture({ walletId: WALLET_ID, keySet: 'near_ed25519_v1' }),
+    ed25519LocalMaterialB64u: CIPHERTEXT_B64U,
+    ed25519LocalMaterialNonceB64u: NONCE_12_B64U,
+  });
+
+  expect(parsed).not.toBeUndefined();
+  expect(Object.keys(parsed ?? {})).not.toContain('ed25519LocalMaterialB64u');
+  expect(Object.keys(parsed ?? {})).not.toContain('ed25519LocalMaterialNonceB64u');
+  // The rest of the payload still crosses.
+  expect(parsed?.walletId).toBe(WALLET_ID);
+  expect(parsed?.keySet).toBe('near_ed25519_v1');
 });
 
 test('a garbage payload reaches the gate and is reported, not silently dropped', async () => {

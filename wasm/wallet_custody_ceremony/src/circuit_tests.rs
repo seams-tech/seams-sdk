@@ -43,12 +43,18 @@ use router_ab_ed25519_yao::{
     },
     stable_key_derivation_context_v1, ActivationDeriverA, ActivationDeriverB,
 };
-use router_ab_ed25519_yao_client::ClientActivationEntropyV1;
+use router_ab_ed25519_yao_client::{
+    client_application_binding_digest_v1, import_activated_client_under_custody_seed_v1,
+    ClientActivationEntropyV1,
+};
 use signer_core::ecdsa_role_local_client::command::RelayerPublicIdentityInput;
+use signer_core::passkey_custody::open_wallet_custody_seed_envelope_v1;
 use signer_core::passkey_custody::{
     PasskeyCustodyEnvelopeBindingV1, EMAIL_OTP_FACTOR_KEK_VERSION_V1,
 };
-use signer_core::wallet_seed_derivation::WalletKeySetKindV1;
+use signer_core::wallet_seed_derivation::{
+    derive_ed25519_local_material_cache_key_from_seed_v1, WalletKeySetKindV1,
+};
 
 use crate::ceremony::*;
 
@@ -908,4 +914,168 @@ fn expect_complete<R, C>(step: RelayStep<R, C>) -> C {
         RelayStep::Complete(completion) => completion,
         _ => panic!("expected completion"),
     }
+}
+
+/// The continuity cache a NEAR run seals, opened the way a later unlock opens
+/// it: factor → custody envelope → seed → cache key → material.
+///
+/// This is the property the whole seed-sealed design exists for. The run below
+/// *joins* custody established by an EVM run, so the factor that opens the
+/// envelope here is not tied to whichever ceremony first sealed it — which is
+/// exactly a wallet unlocking under a factor enrolled after registration.
+///
+/// The material must come back able to sign: the check is that its share
+/// recombines with the SigningWorker's verifying share to the registered public
+/// key, not merely that the bytes round-trip.
+#[test]
+fn a_near_run_seals_a_cache_the_custody_seed_can_open() {
+    let evm = establish_custody_with_evm_key_set();
+    let records = custody_records(&evm);
+    let run = prepare_near_ed25519(join_custody(records), 0x53, None);
+    let result_json = run.run_circuit();
+    let result =
+        serde_json::from_str::<RouterAbEd25519YaoActivationResultV1>(&result_json).expect("result");
+    let receipt = result.public_receipt().clone();
+    let payload = run
+        .prepared
+        .complete_near_ed25519(&result_json)
+        .expect("completed")
+        .establish_manifest(near_identity(), None)
+        .expect("manifest")
+        .finish(None)
+        .expect("committed");
+
+    let sealed = decode(&payload.ed25519_local_material_b64u.expect("cache record"));
+    let nonce = decode(
+        &payload
+            .ed25519_local_material_nonce_b64u
+            .expect("cache nonce"),
+    );
+
+    // The seed, reached the only way a client can reach it: by opening the
+    // wallet's custody envelope with a factor.
+    let binding =
+        serde_json::from_str::<PasskeyCustodyEnvelopeBindingV1>(&records.envelope_binding_json)
+            .expect("binding");
+    let (seed, _) = open_wallet_custody_seed_envelope_v1(
+        &FACTOR_SECRET,
+        &binding,
+        &decode(&records.envelope_nonce_b64u),
+        &decode(&records.sealed_custody_secret_b64u),
+        &decode(&records.envelope_aad_hash_b64u),
+        &decode(&records.envelope_ciphertext_digest_b64u),
+    )
+    .expect("envelope opens");
+
+    let application_binding_digest =
+        client_application_binding_digest_v1(&application(), [1, 2]).expect("binding digest");
+    let cache_key =
+        derive_ed25519_local_material_cache_key_from_seed_v1(&seed, &application_binding_digest)
+            .expect("cache key");
+    let cache_binding = ed25519_local_material_binding_v1(
+        &application_binding_digest,
+        &receipt.registered_public_key(),
+        [1, 2],
+        state_epoch_for(Ed25519YaoOperationV1::Registration),
+    );
+
+    let opened = import_activated_client_under_custody_seed_v1(
+        &cache_key,
+        &cache_binding,
+        &nonce,
+        &sealed,
+        &receipt.registered_public_key(),
+        state_epoch_for(Ed25519YaoOperationV1::Registration),
+        [1, 2],
+        &receipt.signing_worker_verifying_share(),
+    )
+    .expect("cache opens");
+
+    assert_eq!(
+        opened.registered_public_key(),
+        receipt.registered_public_key()
+    );
+}
+
+/// A wallet cannot open another wallet's cache, even holding the record.
+#[test]
+fn another_wallets_seed_does_not_open_the_cache() {
+    let evm = establish_custody_with_evm_key_set();
+    let run = prepare_near_ed25519(join_custody(custody_records(&evm)), 0x53, None);
+    let result_json = run.run_circuit();
+    let result =
+        serde_json::from_str::<RouterAbEd25519YaoActivationResultV1>(&result_json).expect("result");
+    let receipt = result.public_receipt().clone();
+    let payload = run
+        .prepared
+        .complete_near_ed25519(&result_json)
+        .expect("completed")
+        .establish_manifest(near_identity(), None)
+        .expect("manifest")
+        .finish(None)
+        .expect("committed");
+
+    let application_binding_digest =
+        client_application_binding_digest_v1(&application(), [1, 2]).expect("binding digest");
+    let foreign_cache_key = derive_ed25519_local_material_cache_key_from_seed_v1(
+        &[0x99; 32],
+        &application_binding_digest,
+    )
+    .expect("cache key");
+
+    assert!(import_activated_client_under_custody_seed_v1(
+        &foreign_cache_key,
+        &ed25519_local_material_binding_v1(
+            &application_binding_digest,
+            &receipt.registered_public_key(),
+            [1, 2],
+            state_epoch_for(Ed25519YaoOperationV1::Registration),
+        ),
+        &decode(&payload.ed25519_local_material_nonce_b64u.expect("nonce")),
+        &decode(&payload.ed25519_local_material_b64u.expect("record")),
+        &receipt.registered_public_key(),
+        state_epoch_for(Ed25519YaoOperationV1::Registration),
+        [1, 2],
+        &receipt.signing_worker_verifying_share(),
+    )
+    .is_err());
+}
+
+/// The cache binding names the key set and nothing that names a factor.
+///
+/// Rebuilt here from its parts rather than compared against the production
+/// builder's own output: a test that calls the builder on both sides passes no
+/// matter what fields are added, including a credential id — which is exactly
+/// the coupling the seed-sealed cache exists to remove. Adding, removing, or
+/// reordering any field breaks this.
+#[test]
+fn the_cache_binding_carries_no_factor_identity() {
+    let digest = [0x21u8; 32];
+    let registered_public_key = [0x22u8; 32];
+
+    fn field(out: &mut Vec<u8>, label: &[u8], value: &[u8]) {
+        out.extend_from_slice(&(label.len() as u32).to_be_bytes());
+        out.extend_from_slice(label);
+        out.extend_from_slice(&(value.len() as u32).to_be_bytes());
+        out.extend_from_slice(value);
+    }
+    let mut expected = Vec::new();
+    field(
+        &mut expected,
+        b"context",
+        b"seams/wallet-custody/ed25519-local-material-cache/v1",
+    );
+    field(&mut expected, b"applicationBindingDigest", &digest);
+    field(
+        &mut expected,
+        b"registeredPublicKey",
+        &registered_public_key,
+    );
+    field(&mut expected, b"participantIds", &[0, 1, 0, 2]);
+    field(&mut expected, b"stateEpoch", &7u64.to_be_bytes());
+
+    assert_eq!(
+        ed25519_local_material_binding_v1(&digest, &registered_public_key, [1, 2], 7),
+        expected
+    );
 }

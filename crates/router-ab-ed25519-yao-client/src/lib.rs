@@ -36,10 +36,18 @@ use signer_core::near_threshold_frost::compute_threshold_ed25519_group_public_ke
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
+mod local_material;
 mod signing;
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindings"))]
 mod wasm;
 
+pub use local_material::{
+    import_activated_client_material_v1, import_activated_client_under_custody_seed_v1,
+    seal_activated_client_material_v1, seal_activated_client_under_custody_seed_v1,
+    LocalMaterialError, LocalMaterialResult, LocalMaterialSealDomainV1, OpenedLocalMaterialV1,
+    ACTIVATED_CLIENT_NONCE_LEN_V1, ACTIVATED_CLIENT_PLAINTEXT_LEN_V1,
+    ACTIVATED_CLIENT_SEAL_VERSION_V1, MAX_ACTIVATED_CLIENT_BINDING_LEN_V1,
+};
 pub use signing::{
     create_client_signing_share_v1, ClientSigningError, ClientSigningRequestV1,
     ClientSigningShareV1,
@@ -278,6 +286,24 @@ impl ActivatedClientV1 {
     /// Returns the activated SigningWorker state epoch.
     pub const fn state_epoch(&self) -> u64 {
         self.state_epoch
+    }
+
+    /// Rebuilds an activated Client from an opened same-device cache record.
+    ///
+    /// Crate-private and deliberately narrow: the only caller is the local
+    /// material import, which has already re-verified that this share
+    /// recombines to the registered public key. Nothing else may assemble an
+    /// activated Client from loose bytes.
+    pub(crate) const fn from_local_material_v1(
+        client_scalar_share: [u8; 32],
+        registered_public_key: [u8; 32],
+        state_epoch: u64,
+    ) -> Self {
+        Self {
+            client_scalar_share,
+            registered_public_key,
+            state_epoch,
+        }
     }
 }
 

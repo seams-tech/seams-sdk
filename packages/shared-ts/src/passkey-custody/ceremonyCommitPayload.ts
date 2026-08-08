@@ -68,6 +68,23 @@ export type WalletCustodyCeremonyCommitPayload = {
   /** Present only when this run established custody. */
   readonly establishedCustody?: EstablishedCustodyRecordsPayload;
   readonly registeredPublicKeyB64u?: string;
+  /**
+   * The NEAR same-device continuity cache: the activated Yao Client's material,
+   * sealed under a key derived from the wallet custody seed.
+   *
+   * Sealed under the seed rather than the factor that ran the ceremony, so
+   * every factor that opens the wallet's custody envelope reaches the same
+   * record — a wallet that registered under a passkey and later enrolled Email
+   * OTP would otherwise miss its cache on every OTP unlock.
+   *
+   * A cache and never a source of truth: losing it costs a Router round, not
+   * the wallet. It is also the only copy of this key set's signing material the
+   * ceremony produces, so a NEAR run that dropped it would register a public
+   * key with nothing to sign for it.
+   */
+  readonly ed25519LocalMaterialB64u?: string;
+  /** The nonce that record was sealed with. Generated inside the ceremony. */
+  readonly ed25519LocalMaterialNonceB64u?: string;
   readonly clientRootPublicKey33B64u?: string;
   /** Finalized role-local ECDSA material, still sealed to its own boundary. */
   readonly ecdsaReadyStateBlobB64u?: string;
@@ -131,6 +148,11 @@ export function walletCustodyCeremonyCommitPayloadFromWire(
     ...(custody === undefined || custody === null
       ? {}
       : { establishedCustody: custody as EstablishedCustodyRecordsPayload }),
+    /* `ed25519LocalMaterial*` is deliberately absent. It is the ceremony's
+       output to its own client, not part of the commit: the continuity cache
+       is a same-device record, and the server has no use for a device's
+       signing material. Dropping it here means a client that sends it anyway
+       cannot cause it to be stored. */
     ...(record.registeredPublicKeyB64u === undefined
       ? {}
       : { registeredPublicKeyB64u: asWireString(record.registeredPublicKeyB64u) }),

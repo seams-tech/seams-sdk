@@ -2,6 +2,8 @@
   "establishCommitPayload": {
     "clientRootPublicKey33B64u": "AhERERERERERERERERERERERERERERERERERERERERER",
     "ecdsaReadyStateBlobB64u": "AQIDBA",
+    "ed25519LocalMaterialB64u": null,
+    "ed25519LocalMaterialNonceB64u": null,
     "establishedCustody": {
       "envelopeAadHashB64u": "KlK9WoM8XVPJSy1TOforj162tyhHk3zvfKTs8KGnfaY",
       "envelopeBindingJson": "{\"walletId\":\"alice.testnet\",\"envelopeId\":\"wallet-custody-envelope-1\",\"factor\":{\"kind\":\"email_otp\",\"enrollmentId\":\"enrollment-1\",\"enrollmentSealKeyVersion\":\"seal-v1\",\"kekVersion\":\"email_otp_factor_kek_hkdf_sha256_v1\"},\"envelopeRevision\":1,\"binding\":{\"kind\":\"wallet_custody_seed_v1\",\"derivationScheme\":\"wallet_seed_parallel_hkdf_sha256_v1\"}}",
@@ -139,6 +141,8 @@
   "joinCommitPayload": {
     "clientRootPublicKey33B64u": null,
     "ecdsaReadyStateBlobB64u": null,
+    "ed25519LocalMaterialB64u": "TExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEw",
+    "ed25519LocalMaterialNonceB64u": "TU1NTU1NTU1NTU1N",
     "establishedCustody": null,
     "keyManifestDigestB64u": "AzggIw_gMdb9rPSlR3e1gXM4Oc6Y2RPqzppeoKFMeIw",
     "keySet": "near_ed25519_v1",
