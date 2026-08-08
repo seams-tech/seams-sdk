@@ -132,7 +132,7 @@ test('a commit whose recovery set already exists writes no envelope', async () =
       envelope: otherFactorEnvelope,
       recoverySet: recoverySet(),
     });
-    expect(conflicted.kind).toBe('already_exists');
+    expect(conflicted.kind).toBe('custody_already_established');
 
     // The batch rolled back: no envelope was written for the second factor.
     const orphan = await envelopes.lookupEnvelope({
