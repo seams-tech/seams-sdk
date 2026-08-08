@@ -1134,6 +1134,37 @@ test.describe('confirmTxFlow – success paths', () => {
               fund: async (input: any) => {
                 fundPortRequests.push(input);
                 portFunded = true;
+                // The real funder reserves while it funds and hands both halves
+                // back: refs for the wire, full leases for release-on-failure.
+                const leases = (ctx.nearContextFixture.reserveNonces(1) as string[]).map(
+                  (nonce: string) => ({
+                    leaseId: `lease-${nonce}`,
+                    nonce,
+                    lane: { walletId, nearAccountId, nearPublicKeyStr },
+                    state: 'reserved',
+                    reservedAtMs: 1,
+                    expiresAtMs: 2,
+                    operationId: input.request.operation.operationId,
+                    operationFingerprint: input.request.operation.operationFingerprint,
+                  }),
+                );
+                return {
+                  readiness: {
+                    kind: 'context_ready',
+                    transactionContext: {
+                      nearPublicKeyStr,
+                      accessKeyInfo: { nonce: 300, permission: 'FullAccess' },
+                      nextNonce: leases[0].nonce,
+                      txBlockHeight: '3001',
+                      txBlockHash: 'h-implicit-funded',
+                    },
+                    nonceLeases: leases.map((lease: any) => ({
+                      leaseId: lease.leaseId,
+                      nonce: lease.nonce,
+                    })),
+                  },
+                  reservedNonceLeases: leases,
+                };
               },
             },
             operationStepUpPreparation: {
@@ -1304,8 +1335,11 @@ test.describe('confirmTxFlow – success paths', () => {
     // decision proceeds down the unchanged context_ready route: the step-up is
     // prepared against the funded context so the assertion signs its digest.
     expect(result.readiness?.kind).toBe('context_ready');
+    // The funder reserves as it funds, so the flow does NOT re-query the access
+    // key afterwards — that redundant round trip sat in front of the passkey
+    // prompt.
     expect(result.reserved).toEqual(['301']);
-    expect(result.accessKeyLookups).toBeGreaterThanOrEqual(2);
+    expect(result.accessKeyLookups).toBe(1);
     expect(result.prepareInputs).toHaveLength(1);
     expect(result.prepareInputs[0]).toEqual(
       expect.objectContaining({

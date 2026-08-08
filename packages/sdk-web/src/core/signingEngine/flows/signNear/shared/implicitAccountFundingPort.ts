@@ -1,4 +1,7 @@
-import type { NearImplicitAccountFundingPort } from '@/core/signingEngine/interfaces/implicitAccountFunding';
+import type {
+  NearImplicitAccountFundingPort,
+  NearImplicitAccountFundingResult,
+} from '@/core/signingEngine/interfaces/implicitAccountFunding';
 import type { NearFundingRequest } from '@/core/signingEngine/nonce/nearTransactionReadiness';
 
 /**
@@ -8,7 +11,9 @@ import type { NearFundingRequest } from '@/core/signingEngine/nonce/nearTransact
  * opening the confirmation, and clears it when the confirmation settles. The
  * confirmation flow reaches the funder only through the port.
  */
-type NearImplicitAccountFunder = (request: NearFundingRequest) => Promise<void>;
+type NearImplicitAccountFunder = (
+  request: NearFundingRequest,
+) => Promise<NearImplicitAccountFundingResult>;
 
 const pendingFunders = new Map<string, NearImplicitAccountFunder>();
 
@@ -30,7 +35,7 @@ export function clearNearImplicitAccountFunder(requestId: string): void {
 }
 
 export const nearImplicitAccountFundingPort: NearImplicitAccountFundingPort = {
-  async fund(input): Promise<void> {
+  async fund(input) {
     const requestId = requireFunderRequestId(input.requestId);
     const funder = pendingFunders.get(requestId);
     if (!funder) {
@@ -38,6 +43,6 @@ export const nearImplicitAccountFundingPort: NearImplicitAccountFundingPort = {
     }
     // Single-use, like a step-up builder: one funding per confirmation.
     pendingFunders.delete(requestId);
-    await funder(input.request);
+    return await funder(input.request);
   },
 };
