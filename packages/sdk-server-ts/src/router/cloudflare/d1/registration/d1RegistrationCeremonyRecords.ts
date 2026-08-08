@@ -1022,7 +1022,7 @@ function parseD1StoredEvmFamilyEcdsaPreparedBranch(
   record: Record<string, unknown>,
 ): StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch | null {
   const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
-  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  const prepared = parseD1StoredEcdsaRegistrationBranchBase(record);
   if (!branchKey || !prepared) return null;
   return {
     kind: 'evm_family_ecdsa_prepared',
@@ -1039,7 +1039,7 @@ function parseD1StoredEvmFamilyEcdsaResponseClaimedBranch(
   record: Record<string, unknown>,
 ): StoredWalletRegistrationEvmFamilyEcdsaResponseClaimedBranch | null {
   const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
-  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  const prepared = parseD1StoredEcdsaRegistrationBranchBase(record);
   if (!branchKey || !prepared) return null;
   try {
     return {
@@ -1061,7 +1061,7 @@ function parseD1StoredEvmFamilyEcdsaPendingActivationBranch(
   record: Record<string, unknown>,
 ): StoredWalletRegistrationEvmFamilyEcdsaPendingActivationBranch | null {
   const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
-  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  const prepared = parseD1StoredEcdsaRegistrationBranchBase(record);
   if (!branchKey || !prepared) return null;
   try {
     return {
@@ -1087,7 +1087,7 @@ function parseD1StoredEvmFamilyEcdsaActivationClaimedBranch(
   record: Record<string, unknown>,
 ): StoredWalletRegistrationEvmFamilyEcdsaActivationClaimedBranch | null {
   const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
-  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  const prepared = parseD1StoredEcdsaRegistrationBranchBase(record);
   if (!branchKey || !prepared) return null;
   try {
     return {
@@ -1120,7 +1120,7 @@ function parseD1StoredEvmFamilyEcdsaActivatedBranch(
   record: Record<string, unknown>,
 ): StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch | null {
   const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
-  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  const prepared = parseD1StoredEcdsaRegistrationBranchBase(record);
   const bootstrap = parseD1EcdsaDerivationServerBootstrapResponse(record.bootstrap);
   if (!branchKey || !prepared || !bootstrap) return null;
   try {
@@ -1148,7 +1148,7 @@ function parseD1StoredEvmFamilyEcdsaFinalizedBranch(
   record: Record<string, unknown>,
 ): StoredWalletRegistrationEvmFamilyEcdsaFinalizedBranch | null {
   const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
-  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  const prepared = parseD1StoredEcdsaRegistrationBranchBase(record);
   const bootstrap = parseD1EcdsaDerivationServerBootstrapResponse(record.bootstrap);
   const finalizedAtMs = safeInteger(record.finalizedAtMs);
   if (!branchKey || !prepared || !bootstrap || finalizedAtMs === null) return null;
@@ -1183,25 +1183,20 @@ function parseD1RegistrationSignerBranchKey(raw: unknown): RegistrationSignerBra
   }
 }
 
-function parseD1StoredEcdsaRegistrationBase(record: Record<string, unknown>): {
+type D1StoredEcdsaRegistrationBase = {
   readonly derivationKind: 'evm_family_ecdsa_keygen';
   readonly chainTargets: readonly [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]];
   readonly prepare: WalletRegistrationEcdsaPrepareContext;
   readonly strictRegistration: WalletRegistrationEcdsaPreparePayload['strictRegistration'];
-  readonly strictRegistrationBindingJson: string;
-} | null {
+};
+
+function parseD1StoredEcdsaRegistrationBase(
+  record: Record<string, unknown>,
+): D1StoredEcdsaRegistrationBase | null {
   const derivationKind = toOptionalTrimmedString(record.derivationKind);
   const chainTargets = parseD1ThresholdEcdsaChainTargets(record.chainTargets);
   const prepare = parseD1WalletRegistrationEcdsaPrepare(record.prepare);
-  const strictRegistrationBindingJson = toOptionalTrimmedString(
-    record.strictRegistrationBindingJson,
-  );
-  if (
-    derivationKind !== 'evm_family_ecdsa_keygen' ||
-    !chainTargets ||
-    !prepare ||
-    !strictRegistrationBindingJson
-  ) {
+  if (derivationKind !== 'evm_family_ecdsa_keygen' || !chainTargets || !prepare) {
     return null;
   }
   try {
@@ -1210,11 +1205,29 @@ function parseD1StoredEcdsaRegistrationBase(record: Record<string, unknown>): {
       chainTargets,
       prepare,
       strictRegistration: parseRouterAbEcdsaRegistrationRequestFactsV1(record.strictRegistration),
-      strictRegistrationBindingJson,
     };
   } catch {
     return null;
   }
+}
+
+/**
+ * Registration branch rows additionally persist the strict-registration
+ * binding JSON: branch convergence compares it byte-for-byte, so a branch row
+ * without one is unusable. Add-signer rows never carry the field — their
+ * replay check matches the request against the stored facts instead — so the
+ * shared base above must not demand it: doing so made every stored ECDSA
+ * add-signer ceremony unreadable, surfacing as `not_found` mid-ceremony.
+ */
+function parseD1StoredEcdsaRegistrationBranchBase(
+  record: Record<string, unknown>,
+): (D1StoredEcdsaRegistrationBase & { readonly strictRegistrationBindingJson: string }) | null {
+  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  const strictRegistrationBindingJson = toOptionalTrimmedString(
+    record.strictRegistrationBindingJson,
+  );
+  if (!prepared || !strictRegistrationBindingJson) return null;
+  return { ...prepared, strictRegistrationBindingJson };
 }
 
 export function parseD1StoredAddSignerIntent(raw: unknown): StoredAddSignerIntent | null {
@@ -1671,10 +1684,9 @@ export function parseD1EcdsaDerivationServerBootstrapResponse(
   const expiresAtMs = safeInteger(record.expiresAtMs);
   const expiresAt = toOptionalTrimmedString(record.expiresAt);
   const remainingUses = safeInteger(record.remainingUses);
-  const routerAbEcdsaDerivationNormalSigning =
-    parseRouterAbEcdsaDerivationNormalSigningStateV1(
-      record.routerAbEcdsaDerivationNormalSigning,
-    );
+  const routerAbEcdsaDerivationNormalSigning = parseRouterAbEcdsaDerivationNormalSigningStateV1(
+    record.routerAbEcdsaDerivationNormalSigning,
+  );
   if (
     !walletId ||
     !evmFamilySigningKeySlotId ||
@@ -1697,8 +1709,8 @@ export function parseD1EcdsaDerivationServerBootstrapResponse(
     !activationEpoch ||
     expiresAtMs === null ||
     !expiresAt ||
-    remainingUses === null
-    || !routerAbEcdsaDerivationNormalSigning
+    remainingUses === null ||
+    !routerAbEcdsaDerivationNormalSigning
   ) {
     return null;
   }
