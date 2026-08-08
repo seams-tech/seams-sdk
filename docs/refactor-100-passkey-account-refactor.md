@@ -2019,8 +2019,27 @@ repository evidence.
       factor would have found no cache at all.
 
       ECDSA remains: it needs the frozen ownership handoff below.
-- [ ] Implement synced-passkey cold unlock from a new browser with empty
+- [x] Implement synced-passkey cold unlock from a new browser with empty
       IndexedDB by retrieving and opening the existing server-held envelope.
+      **Landed 2026-08-09.** The whole path exists and is reachable: the
+      envelope store has a DI site and a service-bag port, the retrieval route
+      binds its assertion to a server-issued challenge consumed once, and the
+      client has the RPC, the `JoinCustodyWireV1` projection, the cache reader,
+      the wasm open path and the composition (`coldUnlock.ts`).
+
+      Four half-built seams had to be closed first, each of which typechecked
+      and tested green because nothing on the other side existed to disagree
+      with it — the store was constructed only in tests, the continuity cache
+      was written and never read, and
+      `open_wallet_custody_ed25519_material_v1` had no `wasm_bindgen` export,
+      so JavaScript could not call the very function this box needs.
+
+      The composition's order is forced and tested as such: the ceremony
+      cannot run before the envelope arrives because it joins custody by
+      opening it, and the material cannot be persisted before the ceremony
+      produces it.
+
+      Not yet run against live services — that is the separate box below.
 - [x] Prove synced cold unlock uses the same credential and envelope without
       creating a credential or consuming a recovery code.
       `rejoinNearEd25519CustodyV1` joins existing custody and calls `finish`
@@ -2051,6 +2070,12 @@ repository evidence.
       under the seed so a factor enrolled later opens it too. The sealed half
       also cannot name a plaintext share or the seed itself.
 - [ ] Preserve zero-Deriver ordinary Ed25519 signing.
+      **Needs a live stack, not more code.** The seed-derived material path
+      changes how the client's share is stored and opened, not the signing
+      protocol, so the invariant holds structurally — but the evidence that
+      established it in Refactor 89 was a browser-visible call count, and only
+      an end-to-end run can produce that again. A unit assertion here would
+      restate the type rather than observe the network.
 - [ ] Preserve exact ECDSA public and material identity while allowing a fresh
       threshold session and server generation.
 
