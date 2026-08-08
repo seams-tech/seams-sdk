@@ -1224,6 +1224,43 @@ repository evidence.
       combinations unrepresentable rather than merely rejected.
 - [ ] Splice the ceremony into `registration.ts` and commit its payload.
 
+      **Blocked on a decision, found 2026-08-09: the splice cannot establish
+      custody until wallet-scoped recovery codes can be issued, and they
+      cannot be today.**
+
+      An establishing run structurally requires exactly ten codes —
+      `finish()` refuses `(Establish, None)`, correctly, because an envelope
+      with no recovery set is the silent failure the atomic commit above exists
+      to prevent. So the splice needs code issuance, which is Phase 4's
+      unchecked "Bind ten single-use codes to the wallet-scoped mixed-custody
+      envelope set".
+
+      What exists and what does not:
+
+      - Code *formatting* is shared already — `buildWalletRecoveryCodeSet`,
+        `formatWalletRecoveryCode`, `normalizeWalletRecoveryCode` are the Email
+        OTP primitives re-exported under wallet names
+        (`shared-ts/src/wallet-recovery/recoveryCodes.ts`).
+      - Code *identity* is not. `deriveEmailOtpRecoveryKeyId` binds the id to
+        an Email OTP enrollment — `enrollmentVersion` and
+        `enrollmentSealKeyVersion` are fields in its HKDF tuple
+        (`utils/emailOtpRecoveryKey.ts:305-335`). A passkey wallet has no
+        enrollment, so this derivation cannot mint ids for a wallet-scoped
+        custody set at all.
+      - Every current caller sidesteps it: the ceremony's own tests and
+        fixtures spell ids as `email-otp-rkid-v1-code-{index}` or a bare
+        SHA-256, and the ceremony never checks the format. The TypeScript
+        parser does (`email-otp-rkid-v1-` plus 43 base64url chars), so the two
+        sides already disagree about what an id is.
+
+      **Decision needed before implementing:** how a wallet custody recovery
+      code's id is derived, given it must serve a passkey-only wallet. The
+      shape mirrors the seed-derived cache key decision — a wallet-scoped
+      binding (wallet id, envelope id, recovery-set version) replacing the
+      enrollment fields, under its own domain — plus whether the
+      `email-otp-rkid-v1-` prefix and its parser move to a factor-neutral
+      spelling. Both halves are wire-visible and awkward to change later.
+
       **The earlier note here was wrong and the shape of the work is different
       from what it described.** It said the ceremony needs both protocols
       prepared before either completes, because one seed feeds two. That was
