@@ -374,59 +374,22 @@ export type WalletAddSignerEcdsaDerivationRespondResponse =
       message: string;
     };
 
-export type WalletAddSignerEcdsaActivationPrepareRequest = {
+/**
+ * The activation commit. `expectedActivationRequestDigest` is the digest of
+ * the canonical `wallet_add_signer_activate_v2` command the client computed
+ * locally; the server recomputes it from these same coordinates rather than
+ * having handed it back from a preparation route.
+ */
+export type WalletAddSignerEcdsaActivationRequest = {
   addSignerCeremonyId: string;
   ecdsa: {
     kind: 'router_ab_ecdsa_registration_activation_v1';
     activationCorrelationId: RouterAbEcdsaRegistrationActivationRequestV1['ecdsa']['activationCorrelationId'];
     publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
-  };
-};
-
-export type WalletAddSignerEcdsaActivationPrepareResponse =
-  | {
-      ok: true;
-      addSignerCeremonyId: string;
-      ecdsa: {
-        kind: 'router_ab_ecdsa_registration_activation_prepared_v1';
-        preparation: RouterAbEcdsaDerivationActivationPrepareResultV1;
-      };
-    }
-  | {
-      ok: false;
-      code: string;
-      message: string;
-    };
-
-export type WalletAddSignerEcdsaActivationRequest = {
-  addSignerCeremonyId: string;
-  ecdsa: WalletAddSignerEcdsaActivationPrepareRequest['ecdsa'] & {
     expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
     materialActivation: RouterAbMpcMaterialActivationRefWire;
   };
 };
-
-export type WalletAddSignerEcdsaActivationQueryRequest = {
-  addSignerCeremonyId: string;
-  ecdsa: WalletAddSignerEcdsaActivationPrepareRequest['ecdsa'] & {
-    expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
-  };
-};
-
-export type WalletAddSignerEcdsaActivationQueryResponse =
-  | {
-      ok: true;
-      addSignerCeremonyId: string;
-      ecdsa: {
-        kind: 'router_ab_ecdsa_registration_activation_queried_v1';
-        result: RouterAbEcdsaDerivationActivationCommitQueryResultV1;
-      };
-    }
-  | {
-      ok: false;
-      code: string;
-      message: string;
-    };
 
 export type WalletAddSignerEcdsaActivationResponse =
   | {
@@ -696,52 +659,12 @@ export type WalletRegistrationEcdsaDerivationRespondResponse =
       message: string;
     };
 
-export type WalletRegistrationEcdsaActivationPrepareRequest =
-  RouterAbEcdsaRegistrationActivationRequestV1;
-
-export type WalletRegistrationEcdsaActivationPrepareResponse =
-  | {
-      ok: true;
-      registrationCeremonyId: string;
-      ecdsa: {
-        kind: 'router_ab_ecdsa_registration_activation_prepared_v1';
-        preparation: RouterAbEcdsaDerivationActivationPrepareResultV1;
-      };
-    }
-  | {
-      ok: false;
-      code: string;
-      message: string;
-    };
-
 export type WalletRegistrationEcdsaActivationRequest = {
   registrationCeremonyId: string;
   ecdsa: RouterAbEcdsaRegistrationActivationRequestV1['ecdsa'] & {
     expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
   };
 };
-
-export type WalletRegistrationEcdsaActivationQueryRequest = {
-  registrationCeremonyId: string;
-  ecdsa: RouterAbEcdsaRegistrationActivationRequestV1['ecdsa'] & {
-    expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire;
-  };
-};
-
-export type WalletRegistrationEcdsaActivationQueryResponse =
-  | {
-      ok: true;
-      registrationCeremonyId: string;
-      ecdsa: {
-        kind: 'router_ab_ecdsa_registration_activation_queried_v1';
-        result: RouterAbEcdsaDerivationActivationCommitQueryResultV1;
-      };
-    }
-  | {
-      ok: false;
-      code: string;
-      message: string;
-    };
 
 export type WalletRegistrationEcdsaActivationResponse =
   | {

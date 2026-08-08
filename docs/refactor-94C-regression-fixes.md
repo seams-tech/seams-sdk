@@ -382,6 +382,19 @@ No implementation on either lane may redefine the other lane's contract.
       ceremony and journals.
 - [x] Switch the add-signer client to direct publishable-key admission, then
       delete the grant client and server broker once no flow uses them.
+- [x] Fold add-signer's activation preparation and query into its activate
+      route, as registration's were folded. The client computes the activation
+      request digest locally over the canonical `wallet_add_signer_activate_v2`
+      command (`{operation, addSignerCeremonyId, activationCorrelationId,
+      publicFacts}`, alphabetized, sha256); the server recomputes it from the
+      same coordinates and refuses a digest that is not the canonical one.
+      Refactor 90's four properties survive the route shape change: activate
+      records those coordinates as a claim *before* any Router work (prepared
+      coordinates), replays the committed receipt byte for byte to any later
+      call carrying them (exact replay, and the only way completion is now
+      queried), and keeps the claim when the Router commits but the ceremony
+      write does not, so a retry finishes rather than strands the wallet (crash
+      reconciliation).
 
 The lanes may use temporary compile-time interface stubs that exactly match the
 checkpoint. Delete those stubs during integration.

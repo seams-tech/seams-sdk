@@ -52,6 +52,8 @@ import {
   parseEcdsaRoleLocalMaterialHandle,
 } from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
 import { parseRouterAbEcdsaDerivationPublicCapabilityV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
+import { base64UrlDecode } from '../../packages/shared-ts/src/utils/encoders';
+import { computeWalletAddSignerEcdsaActivationRequestDigestB64u } from '../../packages/shared-ts/src/utils/walletAddSignerActivation';
 const RELAYER_URL = 'https://relay.example.test';
 const WALLET_SUBJECT_ID = walletIdFromString('wallet-matrix.testnet');
 
@@ -560,11 +562,14 @@ function mockedEcdsaServerBootstrap(
   return bootstrap;
 }
 
-function mockedEcdsaActivationReceipt(facts: Record<string, any>): Record<string, unknown> {
+function mockedEcdsaActivationReceipt(
+  facts: Record<string, any>,
+  activationRequestDigest?: { bytes: number[] },
+): Record<string, unknown> {
   const digest = { bytes: new Array<number>(32).fill(0) };
   return {
     activation_correlation_id: facts.lifecycle.lifecycle_id,
-    activation_request_digest: digest,
+    activation_request_digest: activationRequestDigest ?? digest,
     server_generation: 'generation-test',
     ecdsa_activation: {
       context: facts.context,
@@ -3247,6 +3252,7 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
     if (path === `/wallets/${WALLET_SUBJECT_ID}/signers/derivation/activate`) {
       const ecdsaFacts = captures.ecdsaRegistrationFacts as Record<string, any>;
       const prepare = captures.ecdsaPrepare as Record<string, any>;
+      captures.activateBody = body;
       let bootstrap = mockedEcdsaServerBootstrap(ecdsaFacts, prepare);
       const patchAddSignerBootstrap = captures.patchAddSignerBootstrap as
         | ((value: Record<string, unknown>) => Record<string, unknown>)
@@ -3259,21 +3265,14 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
         addSignerCeremonyId: body.addSignerCeremonyId,
         ecdsa: {
           kind: 'router_ab_ecdsa_registration_activated_v1',
-          activation: mockedEcdsaActivationReceipt(ecdsaFacts),
+          /* The receipt echoes the digest the client sent, as the Router
+             forwarder does — the client asserts the two are equal before it
+             finalizes the activation journal. */
+          activation: mockedEcdsaActivationReceipt(
+            ecdsaFacts,
+            body.ecdsa.expectedActivationRequestDigest,
+          ),
           bootstrap,
-        },
-      });
-    }
-    if (path === `/wallets/${WALLET_SUBJECT_ID}/signers/derivation/activate/prepare`) {
-      return jsonResponse({
-        ok: true,
-        addSignerCeremonyId: body.addSignerCeremonyId,
-        ecdsa: {
-          kind: 'router_ab_ecdsa_registration_activation_prepared_v1',
-          preparation: {
-            activation_correlation_id: body.ecdsa.activationCorrelationId,
-            activation_request_digest: { bytes: new Array<number>(32).fill(0) },
-          },
         },
       });
     }
@@ -3370,10 +3369,25 @@ test('addWalletSigner orchestrates later ECDSA from an Ed25519 wallet', async ()
       `/wallets/${WALLET_SUBJECT_ID}/signers/intent`,
       `/wallets/${WALLET_SUBJECT_ID}/signers/start`,
       `/wallets/${WALLET_SUBJECT_ID}/signers/derivation/respond`,
-      `/wallets/${WALLET_SUBJECT_ID}/signers/derivation/activate/prepare`,
       `/wallets/${WALLET_SUBJECT_ID}/signers/derivation/activate`,
       `/wallets/${WALLET_SUBJECT_ID}/signers/finalize`,
     ]);
+    /* No preparation round trip: the digest activate carries is the one the
+       client computed from the canonical add-signer activation command. */
+    const activateBody = captures.activateBody as Record<string, any>;
+    const respondBody = captures.respondBody as Record<string, any>;
+    expect(activateBody.ecdsa.expectedActivationRequestDigest.bytes).toEqual(
+      Array.from(
+        base64UrlDecode(
+          await computeWalletAddSignerEcdsaActivationRequestDigestB64u({
+            addSignerCeremonyId: activateBody.addSignerCeremonyId,
+            activationCorrelationId: activateBody.ecdsa.activationCorrelationId,
+            publicFacts: activateBody.ecdsa.publicFacts,
+          }),
+        ),
+      ),
+    );
+    expect(typeof respondBody.ecdsa.requestDigestB64u).toBe('string');
     expect(captures.authenticationArgs).toMatchObject({
       challengeB64u: captures.digest,
       includeSecondPrfOutput: false,

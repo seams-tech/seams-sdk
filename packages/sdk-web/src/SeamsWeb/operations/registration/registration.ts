@@ -97,7 +97,6 @@ import { computeAddSignerIntentDigest } from '@/utils/intentDigest';
 import type { EmailOtpRegistrationProof } from '@shared/utils/registrationIntent';
 import {
   setupWalletRegistration,
-  activateWalletRegistrationEcdsa,
   createWalletAddSignerIntent,
   finalizeWalletAddSigner,
   isEmailOtpWalletRegistrationFinalizeResponse,
@@ -165,6 +164,7 @@ import {
   createRouterAbTraceContextV1,
   type RouterAbTraceContextV1,
 } from '@shared/utils/routerAbTraceContext';
+import type { RouterAbEcdsaVerifiedClientActivationFactsV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import {
   RegistrationTimingRecorder,
@@ -1320,7 +1320,7 @@ async function buildThreeRouteCanonicalActivationCommand(args: {
   registrationCeremonyId: string;
   activationCorrelationId: CorrelationId;
   idempotencyKey: string;
-  publicFacts: Parameters<typeof activateWalletRegistrationEcdsa>[0]['publicFacts'];
+  publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
 }) {
   const canonicalRequest = parseCanonicalEcdsaServerActivationRequest(
     alphabetizeStringify({
@@ -3916,11 +3916,8 @@ async function addPasskeyEcdsaWalletSigner(
   const pendingLocalFinalization = await runStrictEcdsaFamilyCeremony({
     context: input.context,
     relayerUrl: input.relayerUrl,
-    route: {
-      kind: 'add_signer',
-      walletId: input.walletId,
-      addSignerCeremonyId: input.started.addSignerCeremonyId,
-    },
+    walletId: input.walletId,
+    addSignerCeremonyId: input.started.addSignerCeremonyId,
     started: input.started.ecdsa,
     authority,
     registrationTiming: null,
