@@ -97,7 +97,11 @@ const prepareInput: PrepareEcdsaClientBootstrapInput = {
     relayerParticipantId: 2,
     participantIds: [1, 2],
   },
-  secretSource: buildWebAuthnPrfFirstSecretSource(requiredPrfSuccess),
+  /* ECDSA bootstrap takes exactly one secret source: the threshold PRF
+     x-client base. The PRF credential is consumed upstream of this port. */
+  secretSource: buildThresholdPrfXClientBaseSecretSource({
+    xClientBaseB64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+  }),
 };
 
 function pendingBlob(): EcdsaRoleLocalPendingStateBlob {
