@@ -587,8 +587,58 @@ export async function handleTransactionSigningFlow(
     }
     if (
       signingAuthMode !== 'warmSession' &&
-      nearTransactionReadiness?.kind === 'context_ready'
+      nearTransactionReadiness?.kind === 'funding_required' &&
+      nearContextFetchInput
     ) {
+      // A step-up assertion signs the digest of the prepared operation — nonce
+      // and block hash included — so an unfunded implicit account must be
+      // funded HERE, after the user's confirm click and before the assertion.
+      // The signing side registered the funder (it holds the Wallet Session and
+      // the request-integrity checks); this flow only asks it to fund, then
+      // reserves the context through its ordinary path and proceeds down the
+      // unchanged context_ready route. Warm sessions never take this branch:
+      // their authorization is not context-bound, so the signing side funds
+      // after the confirmation returns.
+      try {
+        await ctx.nearImplicitAccountFunding.fund({
+          requestId: request.requestId,
+          request: nearTransactionReadiness.request,
+        });
+      } catch (error: unknown) {
+        cancelNearOperationStepUpPreparation({
+          ctx,
+          requestId: request.requestId,
+          preparation: operationStepUpPreparation,
+        });
+        return session.confirmAndCloseModal({
+          requestId: request.requestId,
+          intentDigest: resolvedIntentDigestForResponse,
+          confirmed: false,
+          error: `NEAR account funding failed: ${String(toError(error)?.message || error)}`,
+        });
+      }
+      const fundedRpc = await adapters.near.fetchNearContext(nearContextFetchInput);
+      if (fundedRpc.kind !== 'readiness' || fundedRpc.readiness.kind !== 'context_ready') {
+        const failure =
+          fundedRpc.kind === 'failed'
+            ? nearRpcFailureMessage(fundedRpc)
+            : 'Funded NEAR account did not become ready for signing';
+        cancelNearOperationStepUpPreparation({
+          ctx,
+          requestId: request.requestId,
+          preparation: operationStepUpPreparation,
+        });
+        return session.confirmAndCloseModal({
+          requestId: request.requestId,
+          intentDigest: resolvedIntentDigestForResponse,
+          confirmed: false,
+          error: failure,
+        });
+      }
+      nearTransactionReadiness = fundedRpc.readiness;
+      session.setNonceLeases(fundedRpc.reservedNonceLeases);
+    }
+    if (signingAuthMode !== 'warmSession' && nearTransactionReadiness?.kind === 'context_ready') {
       const fundingRequest = buildNearContextFetchInput({
         request,
         usesNeeded,

@@ -52,6 +52,7 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type { ThresholdSessionId } from '@shared/utils/domainIds';
 import type { DurableRecordStore } from '@/core/platform';
 import type { NearOperationStepUpPreparationPort } from '../interfaces/operationStepUpPreparation';
+import type { NearImplicitAccountFundingPort } from '../interfaces/implicitAccountFunding';
 import type { WalletIframeSurfaceMeasurement } from '@/SeamsWeb/walletIframe/shared/messages';
 import type { WalletIframeRequestId } from '@/core/types/walletIframeIdentity';
 
@@ -93,6 +94,7 @@ export interface UiConfirmContext {
   userPreferencesManager: UserPreferencesManager;
   nonceCoordinator: NonceCoordinator;
   operationStepUpPreparation: NearOperationStepUpPreparationPort;
+  nearImplicitAccountFunding: NearImplicitAccountFundingPort;
   relayerUrl: string;
   chains?: readonly SeamsChainConfig[];
   getTheme?: () => ThemeMode;

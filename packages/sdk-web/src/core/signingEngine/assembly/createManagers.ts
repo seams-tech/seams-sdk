@@ -20,6 +20,7 @@ import { type UserPreferencesStorePort, UserPreferencesManager } from '../sessio
 import type { NonceLaneCoordinationStore } from '../nonce/NonceCoordinator';
 import type { DurableRecordStore } from '@/core/platform';
 import { nearOperationStepUpPreparationPort } from '../flows/signNear/shared/operationStepUpPreparation';
+import { nearImplicitAccountFundingPort } from '../flows/signNear/shared/implicitAccountFundingPort';
 import type { ThresholdEcdsaSigningQueueByKey } from '../threshold/ecdsa/signingQueue';
 import { resolveActiveEcdsaCapabilityRuntime } from '../session/material/activeEcdsaCapabilityRuntime';
 
@@ -82,6 +83,7 @@ export function createManagerAssembly(args: {
       userPreferencesManager: userPreferencesManager,
       nonceCoordinator: nonceCoordinator,
       operationStepUpPreparation: nearOperationStepUpPreparationPort,
+      nearImplicitAccountFunding: nearImplicitAccountFundingPort,
       relayerUrl: args.seamsWebConfigs.network.relayer.url,
       chains,
       rpIdOverride: touchIdPrompt.getRpId(),
