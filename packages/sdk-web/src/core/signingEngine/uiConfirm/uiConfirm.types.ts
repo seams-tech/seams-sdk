@@ -52,6 +52,7 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type { ThresholdSessionId } from '@shared/utils/domainIds';
 import type { DurableRecordStore } from '@/core/platform';
 import type { NearOperationStepUpPreparationPort } from '../interfaces/operationStepUpPreparation';
+import type { NearImplicitAccountFundingPort } from '../interfaces/implicitAccountFunding';
 import type { WalletIframeSurfaceMeasurement } from '@/SeamsWeb/walletIframe/shared/messages';
 import type { WalletIframeRequestId } from '@/core/types/walletIframeIdentity';
 
@@ -71,6 +72,17 @@ export type UiConfirmSurfaceMeasurementBinding =
       kind: 'wallet_iframe';
       requestId: WalletIframeRequestId;
       postMeasurement: (measurement: WalletIframeSurfaceMeasurement) => void;
+      /**
+       * The variant the parent dressed the HOST BOX with, when it is pinned for
+       * the whole request regardless of what each confirmation inside it
+       * renders. Only key export needs this: its box is always a full-viewport
+       * drawer (for the key viewer) while the Email OTP prompt inside that box
+       * still follows the Confirmer UI setting and may be a modal.
+       *
+       * Omitted everywhere else, where the box variant and the confirmation
+       * variant are the same value — both come from the confirmation config.
+       */
+      hostSurfaceVariant?: 'modal' | 'drawer';
     };
 
 /** UiConfirm-owned host context passed into the concrete confirmation runtime. */
@@ -82,6 +94,7 @@ export interface UiConfirmContext {
   userPreferencesManager: UserPreferencesManager;
   nonceCoordinator: NonceCoordinator;
   operationStepUpPreparation: NearOperationStepUpPreparationPort;
+  nearImplicitAccountFunding: NearImplicitAccountFundingPort;
   relayerUrl: string;
   chains?: readonly SeamsChainConfig[];
   getTheme?: () => ThemeMode;

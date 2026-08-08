@@ -1,7 +1,4 @@
-import type {
-  PasskeyEd25519SealRestoreMetadata,
-  WarmSessionSealAndPersistResult,
-} from '@/core/types/secure-confirm-worker';
+import type { PasskeyEd25519SealRestoreMetadata } from '@/core/types/secure-confirm-worker';
 import type { NearResolvedEd25519SigningSessionState } from '../../interfaces/near';
 import type { HydrateSigningSessionInput } from '../warmCapabilities/public';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
@@ -57,10 +54,6 @@ export function buildPasskeyEd25519RestoreMetadata(args: {
 
 export type PasskeyEd25519YaoSessionPersistencePort = {
   hydrateSigningSession(input: HydrateSigningSessionInput): Promise<void>;
-  persistSigningSessionSealForThresholdSession(input: {
-    thresholdSessionId: string;
-    transport: NonNullable<HydrateSigningSessionInput['transport']>;
-  }): Promise<WarmSessionSealAndPersistResult>;
 };
 
 export type PersistPasskeyEd25519YaoSessionForRefreshInput = {
@@ -129,13 +122,4 @@ export async function persistPasskeyEd25519YaoSessionForRefresh(
     remainingUses,
     transport,
   });
-  const persisted = await input.persistence.persistSigningSessionSealForThresholdSession({
-    thresholdSessionId,
-    transport,
-  });
-  if (!persisted.ok) {
-    throw new Error(
-      `Ed25519 Yao sealed refresh persistence failed (${persisted.code}): ${persisted.message}`,
-    );
-  }
 }

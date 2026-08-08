@@ -906,7 +906,9 @@ test.describe('confirmTxFlow – success paths', () => {
         };
 
         const messages: any[] = [];
-        const worker = { postMessage: (message: any) => messages.push(message) } as unknown as Worker;
+        const worker = {
+          postMessage: (message: any) => messages.push(message),
+        } as unknown as Worker;
         triggerEmailOtpConfirmation();
         await handle(
           ctx,
@@ -1032,7 +1034,9 @@ test.describe('confirmTxFlow – success paths', () => {
         };
 
         const messages: any[] = [];
-        const worker = { postMessage: (message: any) => messages.push(message) } as unknown as Worker;
+        const worker = {
+          postMessage: (message: any) => messages.push(message),
+        } as unknown as Worker;
         triggerConfirmation();
         await handle(
           ctx,
@@ -1070,7 +1074,9 @@ test.describe('confirmTxFlow – success paths', () => {
     expect(result.passkeyCredentialLookups).toBe(0);
   });
 
-  test('Signing: defers implicit NEAR funding until passkey reauth completes', async ({ page }) => {
+  test('Signing: funds an implicit account via the funding port before the step-up assertion', async ({
+    page,
+  }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.handle);
@@ -1082,6 +1088,9 @@ test.describe('confirmTxFlow – success paths', () => {
         const nearPublicKeyStr = 'ed25519:test-implicit-public-key';
         const originalFetch = globalThis.fetch.bind(globalThis);
         const reserved: string[] = [];
+        const fundPortRequests: any[] = [];
+        const prepareInputs: any[] = [];
+        let portFunded = false;
         let fundingCalls = 0;
         let accessKeyLookups = 0;
         let fundedRequestBody: any = null;
@@ -1117,6 +1126,58 @@ test.describe('confirmTxFlow – success paths', () => {
                 autoProceedDelay: 0,
               }),
             },
+            // The signing side registers the real funder; this stub stands in
+            // for it. The step-up assertion signs the prepared operation's
+            // digest, so the confirm flow must fund through this port and
+            // re-reserve the context BEFORE preparing and asserting.
+            nearImplicitAccountFunding: {
+              fund: async (input: any) => {
+                fundPortRequests.push(input);
+                portFunded = true;
+                // The real funder reserves while it funds and hands both halves
+                // back: refs for the wire, full leases for release-on-failure.
+                const leases = (ctx.nearContextFixture.reserveNonces(1) as string[]).map(
+                  (nonce: string) => ({
+                    leaseId: `lease-${nonce}`,
+                    nonce,
+                    lane: { walletId, nearAccountId, nearPublicKeyStr },
+                    state: 'reserved',
+                    reservedAtMs: 1,
+                    expiresAtMs: 2,
+                    operationId: input.request.operation.operationId,
+                    operationFingerprint: input.request.operation.operationFingerprint,
+                  }),
+                );
+                return {
+                  readiness: {
+                    kind: 'context_ready',
+                    transactionContext: {
+                      nearPublicKeyStr,
+                      accessKeyInfo: { nonce: 300, permission: 'FullAccess' },
+                      nextNonce: leases[0].nonce,
+                      txBlockHeight: '3001',
+                      txBlockHash: 'h-implicit-funded',
+                    },
+                    nonceLeases: leases.map((lease: any) => ({
+                      leaseId: lease.leaseId,
+                      nonce: lease.nonce,
+                    })),
+                  },
+                  reservedNonceLeases: leases,
+                };
+              },
+            },
+            operationStepUpPreparation: {
+              prepare: async (input: unknown) => {
+                prepareInputs.push(input);
+                return {
+                  kind: 'near_operation_step_up_prepared_v1',
+                  handle: 'near-operation-step-up:implicit-funding-confirmation',
+                  challengeB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+                } as const;
+              },
+              cancel() {},
+            },
             nearContextFixture: {
               nearAccountId,
               nearPublicKeyStr,
@@ -1128,14 +1189,14 @@ test.describe('confirmTxFlow – success paths', () => {
             },
             nearClient: {
               async viewAccount() {
-                if (fundingCalls === 0) {
+                if (!portFunded) {
                   throw new Error('Account does not exist while viewing');
                 }
                 return { amount: '100000000000000000000000' };
               },
               async viewAccessKey() {
                 accessKeyLookups += 1;
-                if (fundingCalls === 0) {
+                if (!portFunded) {
                   throw new Error('Access key not found');
                 }
                 return { nonce: 300, permission: 'FullAccess' };
@@ -1242,6 +1303,9 @@ test.describe('confirmTxFlow – success paths', () => {
             accessKeyLookups,
             fundedRequestBody,
             hasCredential: Boolean(resp?.credential),
+            fundPortRequests,
+            prepareInputs,
+            preparationHandle: resp?.operationStepUpPreparation?.handle,
           };
         } finally {
           globalThis.fetch = originalFetch;
@@ -1252,14 +1316,39 @@ test.describe('confirmTxFlow – success paths', () => {
 
     expect(result.confirmed, result.error || 'unknown error').toBe(true);
     expect(result.hasCredential).toBe(true);
-    expect(result.readiness?.kind).toBe('funding_required');
-    expect(result.readiness?.request?.subject?.nearAccountId).toBe(
-      '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    // Funding went through the port (the signing side's registered funder), not
+    // through any HTTP call this flow makes itself.
+    expect(result.fundPortRequests).toHaveLength(1);
+    expect(result.fundPortRequests[0]).toEqual(
+      expect.objectContaining({
+        requestId: 'r-implicit-fund',
+        request: expect.objectContaining({
+          subject: expect.objectContaining({
+            nearAccountId: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+          }),
+        }),
+      }),
     );
-    expect(result.reserved).toEqual([]);
     expect(result.fundingCalls).toBe(0);
-    expect(result.accessKeyLookups).toBe(1);
     expect(result.fundedRequestBody).toBeNull();
+    // After funding, the context is reserved through the ordinary path and the
+    // decision proceeds down the unchanged context_ready route: the step-up is
+    // prepared against the funded context so the assertion signs its digest.
+    expect(result.readiness?.kind).toBe('context_ready');
+    // The funder reserves as it funds, so the flow does NOT re-query the access
+    // key afterwards — that redundant round trip sat in front of the passkey
+    // prompt.
+    expect(result.reserved).toEqual(['301']);
+    expect(result.accessKeyLookups).toBe(1);
+    expect(result.prepareInputs).toHaveLength(1);
+    expect(result.prepareInputs[0]).toEqual(
+      expect.objectContaining({
+        kind: 'near_transaction',
+        requestId: 'r-implicit-fund',
+        transactionContext: expect.anything(),
+      }),
+    );
+    expect(result.preparationHandle).toBe('near-operation-step-up:implicit-funding-confirmation');
   });
 
   test('Delegate action: warm-session confirmation skips access-key readiness', async ({
@@ -1402,9 +1491,9 @@ test.describe('confirmTxFlow – success paths', () => {
           },
           touchIdPrompt: {
             getRpId: () => 'example.localhost',
-            getAuthenticationCredentialsSerializedForChallengeB64u: async (
-              input: { challengeB64u: string },
-            ) => {
+            getAuthenticationCredentialsSerializedForChallengeB64u: async (input: {
+              challengeB64u: string;
+            }) => {
               passkeyChallenge = input.challengeB64u;
               return {
                 id: 'nep-cred',
@@ -1529,9 +1618,7 @@ test.describe('confirmTxFlow – success paths', () => {
         displayDigest: expect.any(String),
       },
     ]);
-    expect(result.operationStepUpPreparation?.handle).toBe(
-      'near-operation-step-up:nep413-passkey',
-    );
+    expect(result.operationStepUpPreparation?.handle).toBe('near-operation-step-up:nep413-passkey');
     expect(result.passkeyChallenge).toBe('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
     // NEP-413 signing also must not expose PRF output.
     expect(result.prf).toBeUndefined();

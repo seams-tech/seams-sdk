@@ -49,7 +49,10 @@ import {
   type IntentDigestPreparationResult,
 } from '@/core/signingEngine/stepUpConfirmation/intentDigestPreparation';
 import { consumeConfirmationReadiness } from '@/core/signingEngine/uiConfirm/confirmationReadinessRegistry';
-import { formatNearAccountFundingNotice } from '@/core/signingEngine/uiConfirm/nearFundingNotice';
+import {
+  formatNearAccountFundingNotice,
+  formatNearAccountFundingProgressNotice,
+} from '@/core/signingEngine/uiConfirm/nearFundingNotice';
 import {
   walletSessionFailureFromError,
   type WalletSessionFailure,
@@ -587,8 +590,51 @@ export async function handleTransactionSigningFlow(
     }
     if (
       signingAuthMode !== 'warmSession' &&
-      nearTransactionReadiness?.kind === 'context_ready'
+      nearTransactionReadiness?.kind === 'funding_required' &&
+      nearContextFetchInput
     ) {
+      // A step-up assertion signs the digest of the prepared operation — nonce
+      // and block hash included — so an unfunded implicit account must be
+      // funded HERE, after the user's confirm click and before the assertion.
+      // The signing side registered the funder (it holds the Wallet Session and
+      // the request-integrity checks); it funds and hands back the reserved
+      // context, and this flow proceeds down the unchanged context_ready route.
+      // Warm sessions never take this branch: their authorization is not
+      // context-bound, so the signing side funds after the confirmation returns.
+      //
+      // This is the one step that can take seconds, so say what is happening —
+      // otherwise the prompt reads "needs funding" beside a bare spinner and a
+      // legitimate wait looks like a hang.
+      session.updateUI({
+        body: formatNearAccountFundingProgressNotice(
+          String(nearTransactionReadiness.request.subject.nearAccountId),
+        ),
+        errorMessage: '',
+        loading: true,
+      });
+      let funded: Awaited<ReturnType<UiConfirmContext['nearImplicitAccountFunding']['fund']>>;
+      try {
+        funded = await ctx.nearImplicitAccountFunding.fund({
+          requestId: request.requestId,
+          request: nearTransactionReadiness.request,
+        });
+      } catch (error: unknown) {
+        cancelNearOperationStepUpPreparation({
+          ctx,
+          requestId: request.requestId,
+          preparation: operationStepUpPreparation,
+        });
+        return session.confirmAndCloseModal({
+          requestId: request.requestId,
+          intentDigest: resolvedIntentDigestForResponse,
+          confirmed: false,
+          error: `NEAR account funding failed: ${String(toError(error)?.message || error)}`,
+        });
+      }
+      nearTransactionReadiness = funded.readiness;
+      session.setNonceLeases(funded.reservedNonceLeases);
+    }
+    if (signingAuthMode !== 'warmSession' && nearTransactionReadiness?.kind === 'context_ready') {
       const fundingRequest = buildNearContextFetchInput({
         request,
         usesNeeded,

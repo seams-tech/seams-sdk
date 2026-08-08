@@ -78,6 +78,11 @@ const passkeyServerSealedSecretCache = new Map<string, PasskeyServerSealedSecret
 const signingSessionSealApplyInFlight = new Map<string, Promise<OkSealResult | ErrResult>>();
 const signingSessionSealRemoveInFlight = new Map<string, Promise<OkResult | ErrResult>>();
 const SIGNING_SESSION_SEAL_BASE_PATH = WALLET_SESSION_SEAL_BASE_PATH;
+const SIGNING_SESSION_SEAL_ROUTE_TIMEOUT_MS = 15_000;
+
+function abortSigningSessionSealRoute(controller: AbortController): void {
+  controller.abort('timeout');
+}
 
 type PasskeyMpcSessionWorkerIncomingMessage = {
   id?: unknown;
@@ -379,6 +384,12 @@ async function callSigningSessionSealRoute(args: {
     args.transport.relayerUrl,
     `${SIGNING_SESSION_SEAL_BASE_PATH}/${routePath}`,
   );
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    abortSigningSessionSealRoute,
+    SIGNING_SESSION_SEAL_ROUTE_TIMEOUT_MS,
+    controller,
+  );
 
   try {
     const headers: Record<string, string> = {
@@ -393,6 +404,7 @@ async function callSigningSessionSealRoute(args: {
       method: 'POST',
       credentials: walletSessionJwt ? 'omit' : 'include',
       headers,
+      signal: controller.signal,
       body: JSON.stringify({
         thresholdSessionId: args.thresholdSessionId,
         ciphertext: args.ciphertext,
@@ -413,12 +425,15 @@ async function callSigningSessionSealRoute(args: {
   } catch (error: unknown) {
     return {
       ok: false,
-      code: 'network_error',
-      message:
-        error instanceof Error
+      code: controller.signal.aborted ? 'timeout' : 'network_error',
+      message: controller.signal.aborted
+        ? `Signing-session seal request timed out after ${SIGNING_SESSION_SEAL_ROUTE_TIMEOUT_MS}ms`
+        : error instanceof Error
           ? error.message
           : String(error || 'Signing-session seal request failed'),
     };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

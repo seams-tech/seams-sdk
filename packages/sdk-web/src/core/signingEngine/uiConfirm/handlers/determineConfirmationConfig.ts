@@ -4,7 +4,22 @@ import { normalizeConfirmationConfig } from '@/core/types/confirmationConfig';
 import type { UiConfirmContext } from '../uiConfirm.types';
 import type { UserConfirmRequest } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import { UserConfirmationType } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
+import { getSigningAuthMode } from './flows/adapters/request';
 import { needsExplicitActivation } from '@/utils/deviceDetection';
+
+/**
+ * Whether this request's step-up is satisfied by an Email OTP code. Reads the
+ * signing auth plan defensively: this runs before the flow handlers validate the
+ * payload, so a malformed request must fall through to the ordinary rules rather
+ * than fail config resolution.
+ */
+function isEmailOtpStepUpRequest(request: UserConfirmRequest): boolean {
+  try {
+    return getSigningAuthMode(request) === 'emailOtp';
+  } catch {
+    return false;
+  }
+}
 
 /**
  * determineConfirmationConfig
@@ -15,7 +30,14 @@ import { needsExplicitActivation } from '@/utils/deviceDetection';
  * Order of precedence (highest → lowest):
  * 1) Request‑level override (request.confirmationConfig), when explicitly set.
  * 2) User preferences stored in the wallet host (from IndexedDB via ctx.userPreferencesManager).
- * 3) Runtime safety rules (wallet‑iframe registration/link flows) that may clamp behavior.
+ * 3) Runtime safety rules (Email OTP step-ups, wallet‑iframe registration/link
+ *    flows) that may clamp behavior.
+ *
+ * Email OTP step-up rule:
+ * - A one-time code exists only in the user's inbox, so a step-up that spends one can never be
+ *   satisfied without them. `uiMode: 'none'` becomes `'modal'` and the behavior is clamped to
+ *   `requireClick`, overriding both user preferences and request-level overrides. An explicitly
+ *   configured `drawer` is preserved — it is already a visible prompt.
  *
  * Wallet‑iframe registration/link safety rule:
  * - When running inside the wallet-iframe host context, always clamp registration/link flows to
@@ -48,6 +70,21 @@ export function determineConfirmationConfig(
       behavior: cfg.behavior,
       autoProceedDelay: cfg.autoProceedDelay,
     });
+  }
+
+  // An Email OTP step-up can never run without the user: the one-time code
+  // exists only in their inbox. Both non-interactive settings drop it —
+  // uiMode 'none' confirms silently, and behavior 'skipClick' mounts the prompt
+  // then auto-confirms past it — so either way the decision carries no code and
+  // the flow fails downstream with "requires a 6-digit code". Show a modal that
+  // waits for input, the same way the registration/link rule below clamps for
+  // user activation.
+  if (request && isEmailOtpStepUpRequest(request)) {
+    cfg = {
+      ...cfg,
+      uiMode: cfg.uiMode === 'none' ? 'modal' : cfg.uiMode,
+      behavior: 'requireClick',
+    } as ConfirmationConfig;
   }
 
   // Detect if running inside an iframe (wallet host context)

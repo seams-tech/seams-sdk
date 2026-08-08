@@ -20,7 +20,7 @@ import type {
 import { formatEmailOtpSentText } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/promptText';
 import {
   copyTextToClipboard,
-  isNearTransactionSubmittingNotice,
+  isNearSigningProgressNotice,
   parseNearAccountFundingNotice,
 } from '@/core/signingEngine/uiConfirm/nearFundingNotice';
 
@@ -180,7 +180,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     const chainId = String(this.model?.chainId || '').trim();
     if (chainId) return false;
     const blockHeight = String(this.securityContext?.blockHeight || '').trim();
-    const submittingTransaction = isNearTransactionSubmittingNotice(String(this.body || ''));
+    const submittingTransaction = isNearSigningProgressNotice(String(this.body || ''));
     return (this.loading || submittingTransaction) && !blockHeight;
   }
 
@@ -413,7 +413,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
   private _renderConfirmationBody() {
     const body = String(this.body || '').trim();
     if (!body) return '';
-    if (isNearTransactionSubmittingNotice(body)) {
+    if (isNearSigningProgressNotice(body)) {
       return html`<div class="confirmation-body confirmation-body--status">${body}</div>`;
     }
     const fundingNotice = parseNearAccountFundingNotice(body);

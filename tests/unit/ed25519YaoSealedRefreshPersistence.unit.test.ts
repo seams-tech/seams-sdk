@@ -37,26 +37,22 @@ const SEALED_RECORD = buildPasskeyEd25519SealedSessionRecordFixture();
 const WALLET_ID = SEALED_RECORD.walletId;
 const THRESHOLD_SESSION_ID = SEALED_RECORD.thresholdSessionIds.ed25519;
 
-type SessionPersistenceCall = { kind: 'hydrate' | 'persist'; input: unknown };
+type SessionPersistenceCall = { kind: 'hydrate'; input: unknown };
 
 class SessionPersistenceFixture implements PasskeyEd25519YaoSessionPersistencePort {
   readonly calls: SessionPersistenceCall[] = [];
 
-  constructor(private readonly persistResult: WarmSessionSealAndPersistResult) {}
+  constructor(private readonly hydrateResult: WarmSessionSealAndPersistResult) {}
 
   async hydrateSigningSession(
     input: Parameters<PasskeyEd25519YaoSessionPersistencePort['hydrateSigningSession']>[0],
   ): Promise<void> {
     this.calls.push({ kind: 'hydrate', input });
-  }
-
-  async persistSigningSessionSealForThresholdSession(
-    input: Parameters<
-      PasskeyEd25519YaoSessionPersistencePort['persistSigningSessionSealForThresholdSession']
-    >[0],
-  ): Promise<WarmSessionSealAndPersistResult> {
-    this.calls.push({ kind: 'persist', input });
-    return this.persistResult;
+    if (!this.hydrateResult.ok) {
+      throw new Error(
+        `Warm-session cache could not persist sealed refresh material (${this.hydrateResult.code}): ${this.hydrateResult.message}`,
+      );
+    }
   }
 }
 
@@ -231,7 +227,7 @@ test('persists and verifies a passkey Yao session seal for page refresh', async 
     materialActivation: fixture.ed25519Restore.materialActivation,
   });
 
-  expect(persistence.calls.map(sessionPersistenceCallKind)).toEqual(['hydrate', 'persist']);
+  expect(persistence.calls.map(sessionPersistenceCallKind)).toEqual(['hydrate']);
   expect(persistence.calls[0].input).toMatchObject({
     thresholdSessionId: THRESHOLD_SESSION_ID,
     remainingUses: 3,
@@ -240,12 +236,6 @@ test('persists and verifies a passkey Yao session seal for page refresh', async 
       authMethod: 'passkey',
       walletId: WALLET_ID,
       walletSessionJwt: fixture.walletSessionJwt,
-      ed25519Restore: fixture.ed25519Restore,
-    },
-  });
-  expect(persistence.calls[1].input).toMatchObject({
-    thresholdSessionId: THRESHOLD_SESSION_ID,
-    transport: {
       ed25519Restore: fixture.ed25519Restore,
     },
   });
@@ -283,11 +273,7 @@ test('persists the exact runtime from registration-established Ed25519 authoriza
     materialActivation: restore.materialActivation,
   });
 
-  expect(persistence.calls.map(sessionPersistenceCallKind)).toEqual(['hydrate', 'persist']);
-  expect(persistence.calls[1].input).toMatchObject({
-    thresholdSessionId: SEALED_RECORD.thresholdSessionIds.ed25519,
-    transport: { ed25519Restore: restore },
-  });
+  expect(persistence.calls.map(sessionPersistenceCallKind)).toEqual(['hydrate']);
 
   const foreignRegistrationSession = buildRegistrationEstablishedPasskeySession({
     nearAccountId: 'foreign-near-account.testnet',
@@ -511,7 +497,7 @@ test('promotes renewed Ed25519 authorization to a current durable seal without c
     materialActivation: restore.materialActivation,
   });
 
-  expect(persistence.calls.map(sessionPersistenceCallKind)).toEqual(['hydrate', 'persist']);
+  expect(persistence.calls.map(sessionPersistenceCallKind)).toEqual(['hydrate']);
   expect(persistence.calls[0].input).toMatchObject({
     thresholdSessionId: renewedRecord.thresholdSessionIds.ed25519,
     expiresAtMs: durableRecord.expiresAtMs,
@@ -520,10 +506,6 @@ test('promotes renewed Ed25519 authorization to a current durable seal without c
       walletSessionJwt: authorization.walletSessionTokens.ed25519.walletSessionJwt,
       ed25519Restore: restore,
     },
-  });
-  expect(persistence.calls[1].input).toMatchObject({
-    thresholdSessionId: renewedRecord.thresholdSessionIds.ed25519,
-    transport: { ed25519Restore: restore },
   });
 });
 
@@ -553,7 +535,9 @@ test('fails the lifecycle when the durable Yao session seal is unavailable', asy
       ed25519Restore: fixture.ed25519Restore,
       materialActivation: fixture.ed25519Restore.materialActivation,
     }),
-  ).rejects.toThrow('Ed25519 Yao sealed refresh persistence failed (not_enabled)');
+  ).rejects.toThrow(
+    'Warm-session cache could not persist sealed refresh material (not_enabled): sealed refresh is disabled',
+  );
 });
 
 test('rejects refresh persistence when the material activation reference changes', async () => {
