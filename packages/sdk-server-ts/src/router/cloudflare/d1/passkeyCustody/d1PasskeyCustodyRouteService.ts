@@ -19,6 +19,11 @@ import {
 } from '../../../domains/passkeyCustody/walletRecoveryPromotion';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import {
+  rotateWalletRecoveryCodesV1,
+  type WalletRecoveryRotationResult,
+} from '../../../domains/passkeyCustody/walletRecoveryRotation';
+import type { WalletRecoveryEnvelopeSetRecord } from '@shared/wallet-recovery/walletRecoveryEnvelopeSet';
+import {
   buildWalletRecoveryBackupAcknowledgementV1,
   type RecoveredKeySetOutcome,
 } from '@shared/wallet-recovery/recoveryCodes';
@@ -119,6 +124,18 @@ export interface RouterApiPasskeyCustodyService {
   acknowledgeRecoveryBackup(request: {
     readonly walletId: string;
   }): Promise<{ kind: 'acknowledged'; issuedAtMs: number } | { kind: 'no_recovery_set' }>;
+
+  /**
+   * Replaces the wallet's recovery codes with a freshly wrapped set.
+   *
+   * The wraps are built client-side from the same manifest KEK, so the server
+   * swaps which codes unwrap it without ever holding the seed. The entries are
+   * untouched by design.
+   */
+  rotateRecoveryCodes(request: {
+    readonly walletId: string;
+    readonly manifestKekWraps: WalletRecoveryEnvelopeSetRecord['manifestKekWraps'];
+  }): Promise<WalletRecoveryRotationResult>;
 }
 
 /** How long a reservation may sit before another attempt may take the code. */
@@ -219,6 +236,14 @@ export function createD1PasskeyCustodyRouteService(assembly: {
       );
       return { kind: 'acknowledged', issuedAtMs };
     },
+
+    rotateRecoveryCodes: (request) =>
+      rotateWalletRecoveryCodesV1({
+        store: assembly.walletCustodyCommits,
+        walletId: request.walletId as WalletId,
+        manifestKekWraps: request.manifestKekWraps,
+        nowMs: (assembly.nowMs ?? Date.now)(),
+      }),
   };
 }
 
