@@ -27,6 +27,11 @@ use signer_core::near_threshold_frost::compute_threshold_ed25519_group_public_ke
 use subtle::ConstantTimeEq;
 use zeroize::Zeroizing;
 
+use signer_core::passkey_custody::{
+    open_wallet_custody_seed_envelope_v1, PasskeyCustodyEnvelopeBindingV1,
+};
+use signer_core::wallet_seed_derivation::derive_ed25519_local_material_cache_key_from_seed_v1;
+
 use crate::ActivatedClientV1;
 
 /// Plaintext layout version. Bumping it invalidates every stored record,
@@ -344,4 +349,85 @@ pub fn import_activated_client_under_custody_seed_v1(
         opened.registered_public_key,
         opened.state_epoch,
     ))
+}
+
+/// Opens the wallet's continuity cache with a factor, end to end.
+///
+/// **This is the unlock read side, and it is deliberately one call.** The seed
+/// exists only between opening the custody envelope and deriving the cache
+/// key; splitting it would put the seed in a caller's hands, and every caller
+/// is JavaScript. Factor secret and ciphertext in, activated Client out.
+///
+/// Unlocking is not a ceremony — it derives no owner root and establishes no
+/// manifest. Opening the envelope authenticates the seed to the wallet, and
+/// the import below re-verifies that the cached share still reproduces the
+/// registered key, so nothing here has to trust the cache.
+///
+/// Any factor works, which is the whole point: the record was sealed under the
+/// seed, so a factor enrolled long after registration opens the same cache as
+/// the one that created it.
+#[allow(clippy::too_many_arguments)]
+pub fn open_wallet_custody_ed25519_material_v1(
+    input: OpenWalletCustodyEd25519MaterialV1<'_>,
+) -> LocalMaterialResult<ActivatedClientV1> {
+    let seed = open_wallet_custody_seed_envelope_v1(
+        input.factor_secret,
+        input.envelope_binding,
+        input.envelope_nonce,
+        input.envelope_ciphertext,
+        input.envelope_aad_hash,
+        input.envelope_ciphertext_digest,
+    )
+    .map_err(|_| LocalMaterialError::SealFailed)
+    .map(|(seed, _admitted)| seed)?;
+
+    let cache_key = derive_ed25519_local_material_cache_key_from_seed_v1(
+        &seed,
+        input.application_binding_digest,
+    )
+    .map_err(|_| LocalMaterialError::SealFailed)?;
+
+    import_activated_client_under_custody_seed_v1(
+        &cache_key,
+        input.binding,
+        input.nonce,
+        input.ciphertext,
+        input.expected_registered_public_key,
+        input.expected_state_epoch,
+        input.participant_ids,
+        input.signing_worker_verifying_share,
+    )
+}
+
+/// Everything one unlock needs. A struct because eight positional arguments of
+/// mostly-byte-slices is a place transpositions hide.
+pub struct OpenWalletCustodyEd25519MaterialV1<'a> {
+    /// The unwrap factor: `PRF.first`, or the Email OTP factor key.
+    pub factor_secret: &'a [u8],
+    /// The custody envelope's binding, as stored.
+    pub envelope_binding: &'a PasskeyCustodyEnvelopeBindingV1,
+    /// The envelope's nonce.
+    pub envelope_nonce: &'a [u8],
+    /// The sealed custody seed.
+    pub envelope_ciphertext: &'a [u8],
+    /// The envelope's recorded AAD digest.
+    pub envelope_aad_hash: &'a [u8],
+    /// The envelope's recorded ciphertext digest.
+    pub envelope_ciphertext_digest: &'a [u8],
+    /// This key set's application binding digest, from the cache record.
+    pub application_binding_digest: &'a [u8; 32],
+    /// The cache record's seal binding, rebuilt by the caller.
+    pub binding: &'a [u8],
+    /// The cache record's nonce.
+    pub nonce: &'a [u8],
+    /// The cache record's ciphertext.
+    pub ciphertext: &'a [u8],
+    /// The registered key the opened share must reproduce.
+    pub expected_registered_public_key: &'a [u8; 32],
+    /// The state epoch the record was sealed at.
+    pub expected_state_epoch: u64,
+    /// Client and SigningWorker participant ids, in that order.
+    pub participant_ids: [u16; 2],
+    /// The SigningWorker's verifying share, for the public-relation check.
+    pub signing_worker_verifying_share: &'a [u8; 32],
 }
