@@ -67,6 +67,7 @@ type EcdsaBootstrapRequestCommon = {
   relayerUrl?: string;
   operationIntent?: SigningOperationIntent;
   requestId?: string;
+  beforeAuthorizationPersistence?: () => Promise<void>;
   runtimeScopeBootstrap?: {
     projectEnvironmentId: string;
     publishableKey: string;
@@ -722,6 +723,8 @@ export async function bootstrapEcdsaSessionValue(
       transport: readyPersistenceInput.passkeyPrfSealMaterial.transport,
     });
   }
+  // Combined unlock overlaps both curves, then commits their shared authorization in curve order.
+  await request.beforeAuthorizationPersistence?.();
   await persistActiveWalletSessionAuthorizationFromEcdsaBootstrap(walletSessionAuthorizations, {
     walletId,
     authority,

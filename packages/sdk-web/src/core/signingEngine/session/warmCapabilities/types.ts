@@ -609,6 +609,9 @@ type ProvisionWarmEd25519CapabilityBaseArgs = {
   relayerUrl?: string;
   ttlMs?: number;
   remainingUses?: number;
+  onWalletSessionAuthorityReady?: (
+    authority: MintedEd25519WalletSessionAuthority,
+  ) => void | Promise<void>;
   beforeProvision?: () => void | Promise<void>;
   assertNotCancelled?: () => void;
 };
@@ -654,6 +657,18 @@ export type ExactWarmEd25519CapabilityProvisionArgs = ProvisionWarmEd25519Capabi
 export type ProvisionWarmEd25519CapabilityArgs =
   | FreshWarmEd25519CapabilityProvisionArgs
   | ExactWarmEd25519CapabilityProvisionArgs;
+
+export type MintedEd25519WalletSessionAuthority = {
+  kind: 'minted_ed25519_wallet_session_authority';
+  thresholdSessionId: ThresholdEd25519SessionId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
+  expiresAtMs: number;
+  remainingUses: number;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  jwt: string;
+  ecdsaDerivationPasskeyPrfFirstB64u: string;
+};
 
 export type ProvisionWarmEd25519CapabilitySuccessResult = {
   ok: true;
