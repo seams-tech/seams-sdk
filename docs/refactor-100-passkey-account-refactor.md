@@ -1392,11 +1392,43 @@ repository evidence.
       and seal key version from the material the same leg finalizes, and
       refuses rather than guessing.
 
-      What remains for this half is only the route change: carry the payload on
-      the activate body, pass the ceremony's authority and enrollment through,
-      and surface the outcomes. Twelve tests across the two modules, each
-      mutation-checked (disabling the wallet-equality check, and sourcing the
-      RP id from anywhere but the verifier).
+      `registrationCustodyOutcome.ts` composes the two into the leg's whole
+      custody side-effect and maps the store's results to what a client acts
+      on. Eighteen tests across the three modules, two mutation-checked
+      (disabling the wallet-equality check; sourcing the RP id from anywhere
+      but the verifier).
+
+      **Policy decided here, and it is a policy call rather than a mechanical
+      one: activation never fails because of custody.** The registration is
+      already committed when the custody commit runs, and the seed exists only
+      in the client's worker — so the client is the only party that can retry,
+      re-enter as a join, or abandon. Failing activation would leave the server
+      registered, the response an error, and the client with no instruction it
+      can read. Every outcome is reported instead. This is not a claim that a
+      wallet without custody is acceptable: a client seeing anything but
+      `committed` or `not_requested` must act on it rather than treat
+      registration as done.
+
+      **The remaining route wiring, with its exact seams:**
+
+      - `WalletRegistrationActivateInput` gains `walletCustodyCommit?`
+        (`walletRegistrationInputs.ts:56`), parsed in the activate handler
+        (`walletRegistrationRoutes.ts:2077-2108`) — pass it through unvalidated,
+        since the admission gate owns validation.
+      - Construct `CloudflareD1WalletCustodyCommitStore` beside
+        `walletRegistrationCommitStore` in the DI site
+        (`d1RouterApiAuthService.ts:1435`) — same `options` shape — and inject
+        it into `CloudflareD1WalletRegistrationService`.
+      - Call `commitRegistrationCustody` in the activate path after the
+        finalize returns, where `commit.authority` is already in hand
+        (`d1WalletRegistrationService.ts:3367-3400`). The Ed25519-only path is
+        the other call site and matters most: it is the first client slice.
+      - Surface the outcome on the activate response. **This breaks the client
+        parser unless updated in the same change:**
+        `parseWalletRegistrationActivateResponseV2`
+        (`sdk-web/.../rpcClients/relayer/walletRegistration.ts:2937`) uses
+        `assertExactResponseKeys` with a fixed key list per branch, so a new
+        response key must be added there too.
 
       **Decision (2026-08-07): the custody commit has no standalone route.**
       `commitWalletCustodyRegistration` and its store are built and tested but
