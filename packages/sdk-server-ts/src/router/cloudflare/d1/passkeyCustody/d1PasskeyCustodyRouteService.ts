@@ -25,6 +25,7 @@ import {
 import type { WalletRecoveryEnvelopeSetRecord } from '@shared/wallet-recovery/walletRecoveryEnvelopeSet';
 import {
   buildWalletRecoveryBackupAcknowledgementV1,
+  walletRecoveryBackupIsOutstanding,
   type RecoveredKeySetOutcome,
 } from '@shared/wallet-recovery/recoveryCodes';
 
@@ -136,6 +137,30 @@ export interface RouterApiPasskeyCustodyService {
     readonly walletId: string;
     readonly manifestKekWraps: WalletRecoveryEnvelopeSetRecord['manifestKekWraps'];
   }): Promise<WalletRecoveryRotationResult>;
+
+  /**
+   * How many codes remain and whether the owner has saved them.
+   *
+   * **This is the counting the spend route refuses to do**, and the
+   * difference is authentication. An unauthenticated caller learning how many
+   * of ten codes are left is an enumeration oracle; the wallet's own owner
+   * learning it is the entire point of a recovery settings screen. So this
+   * route sits behind credentials and the spend route does not.
+   *
+   * It returns counts, never identifiers: which codes remain is not something
+   * even the owner's browser needs, and a list would be one leak away from
+   * being useful to someone else.
+   */
+  readRecoveryStatus(request: { readonly walletId: string }): Promise<
+    | {
+        readonly kind: 'status';
+        readonly activeCodeCount: number;
+        readonly totalCodeCount: number;
+        readonly issuedAtMs: number;
+        readonly backupOutstanding: boolean;
+      }
+    | { readonly kind: 'no_recovery_set' }
+  >;
 }
 
 /** How long a reservation may sit before another attempt may take the code. */
@@ -235,6 +260,33 @@ export function createD1PasskeyCustodyRouteService(assembly: {
         }),
       );
       return { kind: 'acknowledged', issuedAtMs };
+    },
+
+    readRecoveryStatus: async (request) => {
+      const stored = await assembly.walletCustodyCommits.readRecoveryEnvelopeSet(
+        request.walletId as WalletId,
+      );
+      if (!stored) return { kind: 'no_recovery_set' };
+
+      const acknowledgement = await assembly.walletCustodyCommits.readBackupAcknowledgement(
+        request.walletId as WalletId,
+      );
+      const issuedAtMs = Number(stored.record.issuedAtMs);
+      return {
+        kind: 'status',
+        activeCodeCount: stored.record.manifestKekWraps.filter(
+          (wrap) => wrap.lifecycle.state === 'active',
+        ).length,
+        /* Both counts, because "3 left" means something different out of ten
+           than out of three, and a rotation changes which one the user is
+           looking at. */
+        totalCodeCount: stored.record.manifestKekWraps.length,
+        issuedAtMs,
+        backupOutstanding: walletRecoveryBackupIsOutstanding({
+          setIssuedAtMs: issuedAtMs,
+          acknowledgement,
+        }),
+      };
     },
 
     rotateRecoveryCodes: (request) =>
