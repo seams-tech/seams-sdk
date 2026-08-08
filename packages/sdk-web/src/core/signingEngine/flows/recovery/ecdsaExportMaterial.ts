@@ -144,7 +144,7 @@ export function isConcreteEcdsaExportLane(
     !lane.chainTarget ||
     !isConcreteAvailableSigningLane(lane) ||
     lane.source !== 'canonical_capability' ||
-    !Boolean(String(lane.publicFacts.keyHandle || '').trim())
+    !String(lane.publicFacts.keyHandle || '').trim()
   ) {
     return false;
   }
