@@ -1376,6 +1376,50 @@ repository evidence.
       where the root comes from, so this is a substitution rather than a
       restructure.
 
+      **Blocker found 2026-08-08: the NEAR ceremony run produces no signing
+      material, and the splice cannot land until it does.**
+      `CeremonyProtocolPreparedV1::complete_near_ed25519`
+      (`wasm/wallet_custody_ceremony/src/ceremony.rs:455`) calls
+      `complete_client_activation_v1`, keeps only
+      `activated.registered_public_key()`, and drops the `ActivatedClientV1` —
+      which zeroizes on drop. Its EVM sibling does the opposite: it carries the
+      finalized `ready_state_blob` out through
+      `ecdsa_ready_state_blob_b64u`.
+
+      This is not a substitution the client can paper over. The ceremony *is*
+      the registration for a spliced NEAR key set — it builds the execute
+      request through `prepare_client_registration_with_root_v1` — so running
+      `registerAdmitted` alongside it for material would derive a second,
+      different root. As built, a seed-derived NEAR wallet would register a
+      public key it holds nothing to sign with.
+
+      **Where the material has to end up, and the decision that shapes it.**
+      Today the same-device continuity cache is sealed *per factor*:
+      `WasmActivatedClientV1::seal_local_material` takes `PRF.first`,
+      `seal_email_otp_local_material` takes the enrollment secret, each under
+      its own salt and info
+      (`crates/router-ab-ed25519-yao-client/src/wasm.rs:566-602`). Constraint 13
+      already says that record is a same-device continuity cache and never the
+      source of truth — but per-factor sealing contradicts what this refactor is
+      for: a wallet that registered under a passkey and later added Email OTP
+      would miss the cache on every OTP unlock and have to reproduce the
+      material through a Router round.
+
+      **Recommendation: seal the continuity cache under the custody seed**, in
+      its own domain-separated HKDF alongside the two root derivations, so
+      either factor reaches it after opening the envelope it already has to
+      open. That keeps the seal inside the ceremony's wasm boundary, which is
+      the invariant the crate exists for — the seed never crosses to JS, so
+      nothing else *can* seal it. It needs a new Rust-callable seal/import pair
+      in `router-ab-ed25519-yao-client` (both the primitive and its salts are
+      private to `wasm.rs` today), then `ed25519LocalMaterialB64u` on the commit
+      payload as the NEAR analogue of the EVM ready-state blob.
+
+      This is a new seal domain, so it is a decision rather than a mechanical
+      step: the alternative is to seal per factor at the ceremony boundary and
+      accept a cache miss whenever a wallet unlocks under a factor it did not
+      register with.
+
       **Do not splice NEAR alone for mixed wallets.** A mixed wallet whose NEAR
       key set came from the custody seed while its EVM key set is still
       PRF-derived is a wallet the recovery set only half covers — recovery
