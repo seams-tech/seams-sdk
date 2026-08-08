@@ -1867,8 +1867,18 @@ repository evidence.
       ECDSA remains: it needs the frozen ownership handoff below.
 - [ ] Implement synced-passkey cold unlock from a new browser with empty
       IndexedDB by retrieving and opening the existing server-held envelope.
-- [ ] Prove synced cold unlock uses the same credential and envelope without
+- [x] Prove synced cold unlock uses the same credential and envelope without
       creating a credential or consuming a recovery code.
+      `rejoinNearEd25519CustodyV1` joins existing custody and calls `finish`
+      with nothing to establish — a combination the ceremony *refuses*, which
+      is what makes "no second envelope, no new codes" structural rather than a
+      promise the function makes. It also passes the registered key as
+      continuity, so the run reproduces that key set instead of registering a
+      second, different one; dropping that fails a test.
+
+      What remains of the box above is the surrounding flow: retrieving the
+      server-held envelope on a browser with empty IndexedDB, and driving this
+      from the unlock path.
 - [ ] Hand verified ECDSA custody material to the Refactor 90 activation journal
       and read-back path as an exact `MpcMaterialActivationRef`; do not write a
       second active ECDSA persistence record.
