@@ -11,7 +11,10 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { buildThresholdPrfXClientBaseSecretSource } from '@/core/platform/secretSources';
-import { EcdsaDerivationClientCustomRequestType } from '@/core/signingEngine/workerManager/workerTypes';
+import {
+  EcdsaDerivationClientCustomRequestType,
+  EcdsaDerivationClientCustomResponseType,
+} from '@/core/signingEngine/workerManager/workerTypes';
 import {
   toEcdsaDerivationSigningRootId,
   toEcdsaDerivationSigningRootVersion,
@@ -263,7 +266,8 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       async requestWorkerOperation({ kind, request }) {
         expect(kind).toBe('ecdsaDerivationClient');
         if (
-          request.type === EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap
+          request.type ===
+          EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap
         ) {
           const payload =
             request.payload as WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapRequest;
@@ -285,7 +289,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
             },
           });
           return {
-            type: WorkerResponseType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
+            type: EcdsaDerivationClientCustomResponseType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
             payload: {
               pendingStateBlob: {
                 kind: 'ecdsa_role_local_pending_state_blob_v1',
@@ -330,7 +334,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
           },
         });
         return {
-          type: WorkerResponseType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
+          type: EcdsaDerivationClientCustomResponseType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
           payload: {
             stateBlob: {
               kind: 'ecdsa_role_local_state_blob_v1',
