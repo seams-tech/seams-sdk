@@ -60,13 +60,13 @@ export type PasskeyCustodyEnvelopeRetrievalWireRequest = {
   /** Names the server-issued challenge; consumed once. */
   readonly challengeId: string;
   /**
-   * The relying party's origin, from the caller.
+   * The relying party's origin, taken from the request's `Origin` header.
    *
-   * Matches the convention of the sibling WebAuthn service, which takes
-   * `expected_origin` the same way. Worth revisiting for a browser-reachable
-   * route: the sibling is called by an app server, and a value the requester
-   * supplies is weaker evidence there. Left consistent rather than quietly
-   * given a different origin policy than every other WebAuthn route.
+   * Frozen 2026-08-09 to the header with no body fallback. The sibling
+   * WebAuthn service takes `expected_origin` from its caller because an app
+   * server calls it; this route is browser-reachable, and there a value the
+   * requester supplies is not evidence — it would let a caller name the
+   * origin its own assertion is checked against.
    */
   readonly expectedOrigin: string;
   readonly webauthnAuthentication: PasskeyCustodyEnvelopeRetrievalRequest['webauthnAuthentication'];

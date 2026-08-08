@@ -158,10 +158,16 @@ function parseWireRequest(
     return null;
   }
 
-  /* The Origin header wins over anything in the body. A request that names one
-     origin in its headers and another in its payload is not a request worth
-     guessing about. */
-  const expectedOrigin = trimmed(originHeader) || trimmed(body.expectedOrigin);
+  /* The header, with no body fallback (frozen 2026-08-09). The sibling
+     WebAuthn service takes `expected_origin` from its caller because it is
+     called by an app server; on a browser-reachable route a value the
+     requester supplies is not evidence of anything — it would let a caller
+     name the origin its own assertion is checked against.
+
+     A request with no Origin header is refused rather than read from the
+     body: browsers set it on cross-origin POSTs, so its absence means the
+     caller is not the browser this route exists for. */
+  const expectedOrigin = trimmed(originHeader);
   if (!expectedOrigin) return null;
 
   return {
