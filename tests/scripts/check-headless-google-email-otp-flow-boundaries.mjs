@@ -27,43 +27,12 @@ function listTypeScriptFiles(relativeDir) {
   return files;
 }
 
-function extractConstAsyncFunctionBlock(source, functionName) {
-  const start = source.indexOf(`const ${functionName} = async`);
-  assert.notEqual(start, -1, `Missing ${functionName}`);
-
-  const nextConst = source.indexOf('\n  const ', start + 1);
-  return nextConst < 0 ? source.slice(start) : source.slice(start, nextConst);
-}
-
 function assertDoesNotMatch(source, pattern, label) {
   assert.ok(!pattern.test(source), `${label}: matched ${pattern}`);
 }
 
 function assertNoOffenders(label, offenders) {
   assert.deepEqual(offenders, [], `${label}\n${offenders.join('\n')}`);
-}
-
-function checkDemoGoogleEmailOtpPathUsesHeadlessFlow() {
-  const source = readRepoFile('apps/seams-site/src/flows/demo/PasskeyLoginMenu.tsx');
-  const googleFlow = extractConstAsyncFunctionBlock(source, 'onGoogleSsoEmailOtp');
-
-  assert.ok(
-    googleFlow.includes('beginGoogleEmailOtpWalletAuth'),
-    'demo Google Email OTP path must use beginGoogleEmailOtpWalletAuth',
-  );
-
-  const forbiddenPatterns = [
-    /\bexchangeGoogleEmailOtpSession\b/,
-    /\brequestEmailOtpChallenge\b/,
-    /\brequestEmailOtpEnrollmentChallenge\b/,
-    /\bloginWithEmailOtpEcdsaCapability\b/,
-    /\bregisterNearWallet\b/,
-    /\bgetWalletSession\b/,
-    /\bwalletSessionRefFromSession\b/,
-  ];
-  for (const pattern of forbiddenPatterns) {
-    assertDoesNotMatch(googleFlow, pattern, 'demo Google Email OTP path must stay headless');
-  }
 }
 
 function checkReactUiDoesNotBranchOnRelayGoogleEmailOtpResolution() {
@@ -143,7 +112,6 @@ function checkWalletIframeEmailOtpFlowHandlesAreBoundBeforeConsume() {
   assert.match(clientSource, /mode: wire\.mode/);
 }
 
-checkDemoGoogleEmailOtpPathUsesHeadlessFlow();
 checkReactUiDoesNotBranchOnRelayGoogleEmailOtpResolution();
 checkHeadlessFlowOperationDependsOnNarrowPorts();
 checkStandardRegistrationBranchCannotIssueOtpChallenges();

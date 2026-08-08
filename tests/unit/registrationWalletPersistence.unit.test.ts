@@ -10,7 +10,6 @@ import {
   storeWalletMixedRegistrationData,
   type StoreWalletEcdsaWalletKey,
 } from '../../packages/sdk-web/src/core/signingEngine/flows/registration/accountLifecycle';
-import { parseEcdsaRoleLocalDurableMaterialRef } from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
 import type {
   AccountRef,
   AccountSignerRecord,
@@ -28,13 +27,18 @@ import {
 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { makeEcdsaRoleLocalReadyRecordFixture } from './helpers/ecdsaSessionRecordVariants.fixtures';
 import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes';
+import { buildEcdsaRoleLocalPersistedMaterialRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
+
+function webAuthnRpId(value: string) {
+  const parsed = parseWebAuthnRpId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
 
 type StoreWalletEcdsaWalletKeyFixtureInput = Omit<
   StoreWalletEcdsaWalletKey,
-  | 'participantIds'
-  | 'publicCapability'
-  | 'roleLocalDurableMaterialRef'
-  | 'ecdsaRoleLocalPublicFacts'
+  'participantIds' | 'publicCapability' | 'roleLocalMaterialRef' | 'ecdsaRoleLocalPublicFacts'
 > & {
   participantIds: readonly number[];
   walletKeyId?: string;
@@ -67,9 +71,11 @@ function storeWalletEcdsaWalletKeyFixture(
     evmFamilySigningKeySlotId,
     participantIds: [participantIds[0], participantIds[1]],
     publicCapability: roleLocal.publicFacts.publicCapability,
-    roleLocalDurableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(
-      `router-ab-ecdsa-role-local:${input.keyHandle}`,
-    ),
+    roleLocalMaterialRef: buildEcdsaRoleLocalPersistedMaterialRefFixture({
+      durableMaterialRef: `router-ab-ecdsa-role-local:${input.keyHandle}`,
+      bindingDigest: roleLocal.publicFacts.contextBinding32B64u,
+      label: `registration-wallet:${input.keyHandle}`,
+    }),
     ecdsaRoleLocalPublicFacts: roleLocal.publicFacts,
   };
 }
@@ -375,6 +381,7 @@ test('wallet registration persists wallet signer before NEAR projection', async 
     walletId: walletIdFromString('wallet_alice'),
     nearAccountId: toAccountId('alice.testnet'),
     nearEd25519SigningKeyId: String(nearEd25519SigningKeyIdFromString('wallet_alice')),
+    rpId: webAuthnRpId('wallet.example.test'),
     credential,
     credentialPublicKeyB64u: 'AQID',
     signerSlot: 2,
@@ -397,6 +404,7 @@ test('wallet registration persists wallet signer before NEAR projection', async 
   expect(authMethods[0]).toMatchObject({
     kind: 'passkey',
     walletId: 'wallet_alice',
+    rpId: 'wallet.example.test',
     credentialIdB64u: 'credential-raw-id',
   });
   expect(activations[0]).toMatchObject({
@@ -479,6 +487,7 @@ test('mixed wallet registration atomically persists Ed25519 and every ECDSA targ
     walletId,
     nearAccountId: toAccountId('mixed.testnet'),
     nearEd25519SigningKeyId: String(nearEd25519SigningKeyIdFromString(String(walletId))),
+    rpId: webAuthnRpId('wallet.example.test'),
     credential,
     credentialPublicKeyB64u: 'AQID',
     signerSlot: 2,
@@ -507,6 +516,7 @@ test('mixed wallet registration atomically persists Ed25519 and every ECDSA targ
   expect(batch.initialAuthMethod).toMatchObject({
     kind: 'passkey',
     walletId: 'wallet_mixed',
+    rpId: 'wallet.example.test',
     credentialIdB64u: 'credential-raw-id',
   });
   expect(batch.authenticators).toHaveLength(2);
@@ -984,7 +994,6 @@ test('wallet add-signer persists ECDSA signer records without re-registering aut
       metadata: {
         keyHandle: 'ederivation-key-alice',
         walletId: 'wallet_alice',
-        evmFamilySigningKeySlotId: walletKeys[0].evmFamilySigningKeySlotId,
         ecdsaThresholdKeyId: 'ederivation-key-id-alice',
         signingRootId: 'project_registration:dev',
         signingRootVersion: 'root_v1',
@@ -1166,6 +1175,7 @@ test('wallet add-signer persistence supports both later signer-family orders', a
     walletId,
     nearAccountId: toAccountId('matrix.testnet'),
     nearEd25519SigningKeyId: String(nearEd25519SigningKeyIdFromString(String(walletId))),
+    rpId: webAuthnRpId('wallet.example.test'),
     credential,
     credentialPublicKeyB64u: 'AQID',
     signerSlot: 1,

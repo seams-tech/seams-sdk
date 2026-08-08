@@ -4,6 +4,7 @@ import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   thresholdEcdsaChainTargetFromRequest,
+  type ThresholdEcdsaChainTarget,
   toWalletId,
 } from '../../interfaces/ecdsaChainTarget';
 import { toRpId } from '../identity/evmFamilyEcdsaIdentity';
@@ -13,7 +14,6 @@ import {
   toEcdsaDerivationThresholdKeyId,
   toEmailOtpAuthSubjectId,
 } from '../identity/emailOtpEcdsaDerivationIdentity';
-import { parseRawThresholdEcdsaSessionRecord, type ThresholdEcdsaSessionRecord } from './records';
 import type {
   CleanupMalformedEcdsaRoleLocalRecordInput,
   CredentialIdB64u,
@@ -23,19 +23,12 @@ import type {
   EcdsaRoleLocalRecordParseResult,
   EcdsaRoleLocalReadyRecord,
   EcdsaRoleLocalReadyStateBlob,
-  EcdsaRoleLocalSessionRecordState,
   LoadEcdsaRoleLocalReadyRecordInput,
 } from '@/core/platform/types';
 import type {
   DerivationClientSharePublicKey33B64u,
   EcdsaDerivationRelayerPublicKey33B64u,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
-import { requireEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
-
-export type EcdsaRoleLocalExportMaterial = {
-  readyRecord: EcdsaRoleLocalReadyRecord;
-  contextBinding32B64u: string;
-};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -151,10 +144,6 @@ function parseCredentialIdB64u(value: unknown, field = 'credentialIdB64u'): Cred
   return requiredString(value, field) as CredentialIdB64u;
 }
 
-function toWalletKeyId(value: unknown) {
-  return requireEvmFamilySigningKeySlotId(value);
-}
-
 export function parseEcdsaRoleLocalAuthMethod(input: unknown): EcdsaRoleLocalAuthMethod {
   if (!isRecord(input)) {
     throw new Error('[platform][ecdsa-role-local] authMethod must be an object');
@@ -249,9 +238,10 @@ function parsePublicFacts(input: unknown): EcdsaRoleLocalPublicFacts {
   if (
     input.rpId !== undefined ||
     input.credentialIdB64u !== undefined ||
-    input.authSubjectId !== undefined
+    input.authSubjectId !== undefined ||
+    input.evmFamilySigningKeySlotId !== undefined
   ) {
-    throw new Error('[platform][ecdsa-role-local] auth fields are not publicFacts');
+    throw new Error('[platform][ecdsa-role-local] non-public fields are not publicFacts');
   }
   if (Number(input.clientParticipantId) !== 1) {
     throw new Error('[platform][ecdsa-role-local] clientParticipantId must be 1');
@@ -270,7 +260,6 @@ function parsePublicFacts(input: unknown): EcdsaRoleLocalPublicFacts {
   }
   return {
     walletId: toWalletId(input.walletId),
-    evmFamilySigningKeySlotId: toWalletKeyId(input.evmFamilySigningKeySlotId),
     chainTarget: thresholdEcdsaChainTargetFromRequest(
       isRecord(input.chainTarget) ? input.chainTarget : {},
     ),
@@ -301,6 +290,33 @@ function parsePublicFacts(input: unknown): EcdsaRoleLocalPublicFacts {
 
 export function buildEcdsaRoleLocalPublicFacts(input: unknown): EcdsaRoleLocalPublicFacts {
   return parsePublicFacts(input);
+}
+
+/** Rebind the public role-local facts to a published EVM-family target while
+ * preserving every cryptographic and protocol fact from the canonical source. */
+export function projectEcdsaRoleLocalPublicFactsToChainTarget(args: {
+  publicFacts: EcdsaRoleLocalPublicFacts;
+  chainTarget: ThresholdEcdsaChainTarget;
+}): EcdsaRoleLocalPublicFacts {
+  const source = args.publicFacts;
+  return buildEcdsaRoleLocalPublicFacts({
+    walletId: source.walletId,
+    chainTarget: args.chainTarget,
+    keyHandle: source.keyHandle,
+    ecdsaThresholdKeyId: source.ecdsaThresholdKeyId,
+    signingRootId: source.signingRootId,
+    signingRootVersion: source.signingRootVersion,
+    applicationBindingDigestB64u: source.applicationBindingDigestB64u,
+    clientParticipantId: source.clientParticipantId,
+    relayerParticipantId: source.relayerParticipantId,
+    participantIds: source.participantIds,
+    contextBinding32B64u: source.contextBinding32B64u,
+    derivationClientSharePublicKey33B64u: source.derivationClientSharePublicKey33B64u,
+    relayerPublicKey33B64u: source.relayerPublicKey33B64u,
+    groupPublicKey33B64u: source.groupPublicKey33B64u,
+    ethereumAddress: source.ethereumAddress,
+    publicCapability: source.publicCapability,
+  });
 }
 
 export function parseEcdsaRoleLocalReadyRecord(input: unknown): EcdsaRoleLocalReadyRecord {
@@ -361,181 +377,6 @@ export function buildEcdsaRoleLocalReadyRecord(input: {
   });
 }
 
-function thresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
-  record: ThresholdEcdsaSessionRecord,
-): EcdsaRoleLocalReadyRecord {
-  if (!record.ecdsaRoleLocalReadyRecord) {
-    throw new Error('[platform][ecdsa-role-local] session record is missing role-local state');
-  }
-  return parseEcdsaRoleLocalReadyRecord(record.ecdsaRoleLocalReadyRecord);
-}
-
-export function readThresholdEcdsaSessionRecordRoleLocalReadyRecord(
-  record: ThresholdEcdsaSessionRecord,
-): EcdsaRoleLocalReadyRecord {
-  return thresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
-}
-
-export function parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
-  input: unknown,
-): EcdsaRoleLocalReadyRecord {
-  return thresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
-    parseRawThresholdEcdsaSessionRecord(input),
-  );
-}
-
-export function thresholdEcdsaRecordHasRoleLocalSigningMaterial(input: unknown): boolean {
-  const state = classifyThresholdEcdsaSessionRecordRoleLocalState({
-    record: input,
-    nowMs: Date.now(),
-  });
-  switch (state.kind) {
-    case 'ready_passkey_role_local_material_v1':
-    case 'ready_email_otp_role_local_material_v1':
-      return true;
-    case 'reauth_required_role_local_material_v1':
-    case 'cleanup_only_raw_role_local_record_v1':
-      return false;
-    default:
-      return assertNever(state);
-  }
-}
-
-export function classifyThresholdEcdsaSessionRecordRoleLocalState(args: {
-  record: unknown;
-  nowMs: number;
-}): EcdsaRoleLocalSessionRecordState {
-  let record: ThresholdEcdsaSessionRecord;
-  try {
-    record = parseRawThresholdEcdsaSessionRecord(args.record);
-  } catch (error) {
-    return {
-      kind: 'cleanup_only_raw_role_local_record_v1',
-      reason: 'malformed_record',
-      message:
-        error instanceof Error
-          ? error.message
-          : '[platform][ecdsa-role-local] malformed role-local record',
-    };
-  }
-
-  const authMethod = record.ecdsaRoleLocalAuthMethod;
-  const publicFacts = record.ecdsaRoleLocalPublicFacts;
-  const remainingUses = Math.floor(Number(record.remainingUses) || 0);
-  if (remainingUses <= 0) {
-    return {
-      kind: 'reauth_required_role_local_material_v1',
-      authMethod,
-      publicFacts,
-      reason: 'exhausted',
-    };
-  }
-  const expiresAtMs = Math.floor(Number(record.expiresAtMs) || 0);
-  if (expiresAtMs <= Math.floor(Number(args.nowMs) || 0)) {
-    return {
-      kind: 'reauth_required_role_local_material_v1',
-      authMethod,
-      publicFacts,
-      reason: 'expired',
-    };
-  }
-
-  const handle = record.clientAdditiveShareHandle;
-  const workerSessionId =
-    handle?.kind === 'email_otp_worker_session' ? String(handle.sessionId || '').trim() : '';
-  if (authMethod.kind === 'passkey') {
-    if (workerSessionId) {
-      return {
-        kind: 'reauth_required_role_local_material_v1',
-        authMethod,
-        publicFacts,
-        reason: 'unsupported_material_owner',
-      };
-    }
-    if (!record.roleLocalDurableMaterialRef) {
-      return {
-        kind: 'reauth_required_role_local_material_v1',
-        authMethod,
-        publicFacts,
-        reason: 'missing_durable_material',
-      };
-    }
-    return {
-      kind: 'ready_passkey_role_local_material_v1',
-      authMethod,
-      publicFacts,
-      durableMaterialRef: record.roleLocalDurableMaterialRef,
-    };
-  }
-
-  if (record.roleLocalDurableMaterialRef) {
-    return {
-      kind: 'ready_email_otp_role_local_material_v1',
-      authMethod,
-      publicFacts,
-      inlineSigningMaterial: {
-        kind: 'role_local_durable_material',
-        durableMaterialRef: record.roleLocalDurableMaterialRef,
-      },
-    };
-  }
-
-  const readyRecord = record.ecdsaRoleLocalReadyRecord;
-  if (!readyRecord || readyRecord.authMethod.kind !== 'email_otp') {
-    return {
-      kind: 'cleanup_only_raw_role_local_record_v1',
-      reason: 'malformed_record',
-      message: '[platform][ecdsa-role-local] Email OTP session is missing role-local state',
-    };
-  }
-  if (readyRecord.kind === 'ecdsa_role_local_ready_email_otp_v1' && workerSessionId) {
-    return {
-      kind: 'ready_email_otp_role_local_material_v1',
-      authMethod: readyRecord.authMethod,
-      readyRecord,
-      inlineSigningMaterial: {
-        kind: 'email_otp_worker_share',
-        workerSessionId,
-      },
-    };
-  }
-  if (readyRecord.kind === 'ecdsa_role_local_ready_email_otp_v1') {
-    return {
-      kind: 'ready_email_otp_role_local_material_v1',
-      authMethod: readyRecord.authMethod,
-      readyRecord,
-      inlineSigningMaterial: {
-        kind: 'role_local_ready_state_blob',
-        stateBlob: readyRecord.stateBlob,
-      },
-    };
-  }
-  return {
-    kind: 'reauth_required_role_local_material_v1',
-    authMethod,
-    publicFacts,
-    reason: 'unsupported_material_owner',
-  };
-}
-
-export function parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
-  input: unknown,
-): EcdsaRoleLocalExportMaterial {
-  return thresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
-    parseRawThresholdEcdsaSessionRecord(input),
-  );
-}
-
-function thresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
-  record: ThresholdEcdsaSessionRecord,
-): EcdsaRoleLocalExportMaterial {
-  const readyRecord = thresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
-  return {
-    readyRecord,
-    contextBinding32B64u: readyRecord.publicFacts.contextBinding32B64u,
-  };
-}
-
 function cleanupInputFromLookup(args: {
   lookup: LoadEcdsaRoleLocalReadyRecordInput;
   reason: string;
@@ -589,7 +430,6 @@ function serializeEcdsaRoleLocalPublicFacts(
 ): Record<string, unknown> {
   return {
     walletId: facts.walletId,
-    evmFamilySigningKeySlotId: facts.evmFamilySigningKeySlotId,
     chainTarget: facts.chainTarget,
     keyHandle: facts.keyHandle,
     ecdsaThresholdKeyId: facts.ecdsaThresholdKeyId,
@@ -636,7 +476,6 @@ export function ecdsaRoleLocalReadyRecordStorageKey(
   return [
     'ecdsa_role_local_ready_v1',
     keyPart(input.walletId),
-    keyPart(input.evmFamilySigningKeySlotId),
     keyPart(thresholdEcdsaChainTargetKey(input.chainTarget)),
     keyPart(input.keyHandle),
     keyPart(input.ecdsaThresholdKeyId),
@@ -654,7 +493,6 @@ export function ecdsaRoleLocalReadyRecordStorageKeyFacts(
   const facts = parsed.publicFacts;
   return {
     walletId: facts.walletId,
-    evmFamilySigningKeySlotId: facts.evmFamilySigningKeySlotId,
     chainTarget: facts.chainTarget,
     keyHandle: facts.keyHandle,
     ecdsaThresholdKeyId: facts.ecdsaThresholdKeyId,
@@ -684,7 +522,6 @@ export function ecdsaRoleLocalReadyRecordMatchesInput(args: {
   const input = args.input;
   return (
     String(facts.walletId) === String(input.walletId) &&
-    String(facts.evmFamilySigningKeySlotId) === String(input.evmFamilySigningKeySlotId) &&
     thresholdEcdsaChainTargetsEqual(facts.chainTarget, input.chainTarget) &&
     String(facts.keyHandle) === String(input.keyHandle) &&
     String(facts.ecdsaThresholdKeyId) === String(input.ecdsaThresholdKeyId) &&

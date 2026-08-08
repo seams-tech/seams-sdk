@@ -79,7 +79,6 @@ function createOperation() {
     ),
     intent: SigningOperationIntent.TransactionSign,
     accountId: 'nonce-coordinator.testnet',
-    signingGrantId: 'wallet-session-nonce-coordinator',
     chainFamily: 'tempo' as const,
   };
 }

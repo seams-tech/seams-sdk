@@ -16,34 +16,23 @@ const sourceRoots = [
 // Temporary Refactor 91 inventory. New occurrences fail; removals must shrink this list.
 const approvedBinaryFallbacks = new Map([
   ['packages/sdk-web/src/SeamsWeb/assembly/browserSigningSurfaceAssembly.ts', 1],
-  ['packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts', 1],
-  ['packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts', 3],
   ['packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts', 1],
-  ['packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaBootstrapCommit.ts', 1],
-  ['packages/sdk-web/src/core/signingEngine/session/operationState/lanes.ts', 1],
   ['packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord.ts', 1],
   ['packages/sdk-web/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts', 1],
-  ['packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts', 1],
+  ['packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1WalletRegistrationService.ts', 1],
 ]);
 const approvedLiteralUnions = new Map([
   ['packages/sdk-web/src/core/rpcClients/relayer/walletRegistration.ts', 1],
   ['packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportMaterial.ts', 1],
   [
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/requireEvmFamilyStepUpAuth.ts',
-    1,
-  ],
-  ['packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget.ts', 1],
-  [
     'packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts',
-    9,
+    7,
   ],
-  ['packages/sdk-web/src/core/signingEngine/session/emailOtp/persistedSnapshot.ts', 1],
   [
     'packages/sdk-web/src/core/signingEngine/session/persistence/durableSealedSessionCommands.ts',
     4,
   ],
-  ['packages/sdk-web/src/core/signingEngine/session/persistence/records.ts', 1],
-  ['packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts', 11],
+  ['packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts', 6],
   [
     'packages/sdk-web/src/core/signingEngine/session/postconditions/runtimePostconditions.ts',
     0,

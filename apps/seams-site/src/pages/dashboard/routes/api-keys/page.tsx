@@ -26,7 +26,7 @@ import {
   type CreateDashboardApiKeyInput,
   type DashboardConsoleApiKey,
 } from './consoleApiKeysApi';
-import { FRONTEND_CONFIG } from '../../../../config';
+import { getActiveFrontendDeployment } from '../../../../context/frontendRuntime';
 import { CopyButton } from '../../../../components/CopyButton';
 import { UriListEditor } from '../../components/UriListEditor';
 import { ScopePicker, type DashboardScopeOption } from '../../components/ScopePicker';
@@ -74,12 +74,10 @@ const API_KEYS_TABLE_COLUMNS = dashboardTableColumns(1.35, 0.9, 0.7, 1.05, 1.1, 
 const DEFAULT_SECRET_SCOPES: ApiCredentialScope[] = ['accounts.create'];
 
 type DashboardCredentialKind = DashboardConsoleApiKey['kind'];
-type PendingCredentialAction =
-  | {
-      type: 'rotate' | 'revoke';
-      apiKey: DashboardConsoleApiKey;
-    }
-  | null;
+type PendingCredentialAction = {
+  type: 'rotate' | 'revoke';
+  apiKey: DashboardConsoleApiKey;
+} | null;
 
 function parseCsvValues(raw: string): string[] {
   const out: string[] = [];
@@ -327,7 +325,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
   const selectedContext = useDashboardSelectedContext();
   const selectedEnvironmentId = String(selectedContext.environment || '').trim();
   const walletOriginHint = React.useMemo(
-    () => String(FRONTEND_CONFIG.walletOrigin || 'https://localhost:8443').trim(),
+    () => String(getActiveFrontendDeployment().walletOrigin || 'https://localhost:8443').trim(),
     [],
   );
   const defaultPublishableOrigins = React.useMemo(
@@ -343,8 +341,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
   const [credentialKindInput, setCredentialKindInput] =
     React.useState<DashboardCredentialKind>('secret_key');
   const [nameInput, setNameInput] = React.useState<string>('');
-  const [scopesInput, setScopesInput] =
-    React.useState<ApiCredentialScope[]>(DEFAULT_SECRET_SCOPES);
+  const [scopesInput, setScopesInput] = React.useState<ApiCredentialScope[]>(DEFAULT_SECRET_SCOPES);
   const [ipAllowlistInput, setIpAllowlistInput] = React.useState<string>('');
   const [allowedOriginsInput, setAllowedOriginsInput] =
     React.useState<string[]>(defaultPublishableOrigins);
@@ -1017,7 +1014,9 @@ export function ApiKeyManagementPage(): React.JSX.Element {
               className="dashboard-input"
               value={nameInput}
               onChange={(event) => setNameInput(event.target.value)}
-              placeholder={credentialKindInput === 'publishable_key' ? 'frontend-app' : 'server-key'}
+              placeholder={
+                credentialKindInput === 'publishable_key' ? 'frontend-app' : 'server-key'
+              }
               disabled={creating}
             />
           </label>
@@ -1112,7 +1111,10 @@ export function ApiKeyManagementPage(): React.JSX.Element {
             <p className="dashboard-pagination-note">
               <code>{editingApiKey.kind}</code> {editingApiKey.id}
             </p>
-            <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onSaveApiKeyEdits}>
+            <form
+              className="dashboard-view-grid dashboard-view-grid--two"
+              onSubmit={onSaveApiKeyEdits}
+            >
               <label className="dashboard-form-field">
                 <span>Name</span>
                 <input
@@ -1205,7 +1207,11 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                 >
                   Cancel
                 </button>
-                <button type="submit" className="dashboard-pagination-button" disabled={editingBusy}>
+                <button
+                  type="submit"
+                  className="dashboard-pagination-button"
+                  disabled={editingBusy}
+                >
                   {editingBusy ? 'Saving...' : 'Save changes'}
                 </button>
               </div>

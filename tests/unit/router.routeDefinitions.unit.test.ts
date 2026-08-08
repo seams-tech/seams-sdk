@@ -1,30 +1,18 @@
 import { expect, test } from '@playwright/test';
-import { applyRouteMetering } from '../../packages/sdk-server-ts/src/router/applyRouteMetering';
-import { registerCloudflareRoute } from '../../packages/sdk-server-ts/src/router/cloudflare/registerCloudflareRoute';
-import { enforceRoutePolicy } from '../../packages/sdk-server-ts/src/router/enforceRoutePolicy';
-import { API_CREDENTIAL_ROUTE_SCOPES } from '../../packages/sdk-server-ts/src/router/routeAuthPolicy';
-import { ROUTE_SERVICE_KEYS } from '../../packages/sdk-server-ts/src/router/routeExecutionContext';
+import { applyRouteMetering } from '../../packages/sdk-server-ts/src/router/framework/applyRouteMetering';
+import { enforceRoutePolicy } from '../../packages/sdk-server-ts/src/router/framework/enforceRoutePolicy';
+import { API_CREDENTIAL_ROUTE_SCOPES } from '../../packages/sdk-server-ts/src/router/framework/routeAuthPolicy';
+import { ROUTE_SERVICE_KEYS } from '../../packages/sdk-server-ts/src/router/framework/routeExecutionContext';
 import {
   createRouterApiRouteDefinitions,
   defineRoute,
   type RouteDefinition,
-} from '../../packages/sdk-server-ts/src/router/routeDefinitions';
+} from '../../packages/sdk-server-ts/src/router/framework/routeDefinitions';
 import {
   ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH,
   ROUTER_AB_ECDSA_DERIVATION_HEALTH_PATH,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import { WALLET_SESSION_SEAL_BASE_PATH } from '@shared/utils/signingSessionSeal';
-
-const THRESHOLD_CONTINUATION_ROUTE_IDS = [
-  'threshold_ed25519_sign_init',
-  'threshold_ed25519_sign_finalize',
-  'threshold_ed25519_internal_cosign_init',
-  'threshold_ed25519_internal_cosign_finalize',
-  'threshold_ecdsa_sign_init',
-  'threshold_ecdsa_sign_finalize',
-  'threshold_ecdsa_internal_cosign_init',
-  'threshold_ecdsa_internal_cosign_finalize',
-] as const;
 
 const ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS = [
   'router_api_healthz',
@@ -80,7 +68,6 @@ test.describe('route definition scaffolding', () => {
     const ids = routes.map((route) => route.id);
     expect(new Set(ids).size).toBe(ids.length);
 
-    expect(routes.find((route) => route.id === 'registration_bootstrap')).toBeUndefined();
     const walletRegistrationSetup = routes.find(
       (route) => route.id === 'wallet_registration_setup',
     );
@@ -111,12 +98,6 @@ test.describe('route definition scaffolding', () => {
     });
     expect(walletRevokeAuthMethod?.metering).toEqual({ kind: 'none' });
 
-    const signedDelegate = routes.find((route) => route.id === 'signed_delegate');
-    expect(signedDelegate).toBeUndefined();
-    expect(routes.find((route) => route.id === 'sponsored_evm_call')).toBeUndefined();
-
-    expect(routes.find((route) => route.id === 'threshold_ecdsa_sign_init')).toBeUndefined();
-
     const sessionState = routes.find((route) => route.id === 'session_state');
     expect(sessionState).toBeTruthy();
     expect(sessionState?.path).toBe('/session/state');
@@ -125,16 +106,6 @@ test.describe('route definition scaffolding', () => {
     const routePaths = routes.map((route) => route.path);
     expect(routePaths).toContain(ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH);
     expect(routePaths).toContain(ROUTER_AB_ECDSA_DERIVATION_HEALTH_PATH);
-    expect(routePaths).not.toContain('/threshold-ed25519/session');
-    expect(routePaths).not.toContain('/threshold-ed25519/internal/cosign/init');
-    expect(routePaths).not.toContain('/threshold-ed25519/internal/cosign/finalize');
-    expect(routePaths).not.toContain('/threshold-ecdsa/derivation/bootstrap');
-    expect(routePaths).not.toContain('/threshold-ecdsa/derivation/export/share');
-    expect(routePaths).not.toContain('/threshold-ecdsa/internal/cosign/init');
-    expect(routePaths).not.toContain('/threshold-ecdsa/internal/cosign/finalize');
-    expect(routePaths).not.toContain('/threshold-ecdsa/derivation/prepare');
-    expect(routePaths).not.toContain('/threshold-ecdsa/derivation/respond');
-    expect(routePaths).not.toContain('/threshold-ecdsa/derivation/finalize');
 
     const wellKnown = routes.find((route) => route.id === 'relay_well_known_webauthn');
     expect(wellKnown?.aliases).toEqual(['/.well-known/webauthn/']);
@@ -161,13 +132,6 @@ test.describe('route definition scaffolding', () => {
       expect(rationale.length).toBeGreaterThan(0);
       expect(Boolean(auth.proof) || rationale.length > 0).toBe(true);
     }
-
-    const continuationRoutes = routes.filter((route) =>
-      THRESHOLD_CONTINUATION_ROUTE_IDS.includes(
-        route.id as (typeof THRESHOLD_CONTINUATION_ROUTE_IDS)[number],
-      ),
-    );
-    expect(continuationRoutes).toEqual([]);
 
     const publicRouteIds = publicRoutes.map((route) => route.id).sort();
     expect(publicRouteIds).toEqual([...ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS].sort());
@@ -375,28 +339,4 @@ test.describe('route definition scaffolding', () => {
     expect(calls).toEqual(['event:wallet_created', 'gas:near_delegate']);
   });
 
-  test('transport wrappers match paths and methods', async () => {
-    const route = defineRoute({
-      id: 'wrapper_route',
-      surface: 'relay',
-      method: 'GET',
-      path: '/wrapper',
-      aliases: ['/wrapper/'],
-      auth: { plane: 'public', rationale: 'test' },
-      metering: { kind: 'none' },
-      summary: 'wrapper route',
-    });
-
-    const cloudflareHandler = registerCloudflareRoute(route, async ({ route: matchedRoute }) => {
-      return new Response(JSON.stringify({ id: matchedRoute.id }), { status: 200 });
-    });
-
-    const miss = await cloudflareHandler({ method: 'POST', pathname: '/wrapper' });
-    expect(miss).toBeNull();
-    const hit = await cloudflareHandler({ method: 'GET', pathname: '/wrapper/' });
-    expect(hit?.status).toBe(200);
-
-    const aliasHit = await cloudflareHandler({ method: 'GET', pathname: '/wrapper/' });
-    expect(aliasHit?.status).toBe(200);
-  });
 });

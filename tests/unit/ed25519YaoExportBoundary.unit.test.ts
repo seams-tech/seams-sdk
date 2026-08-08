@@ -1,22 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { parseSigningGrantId, parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import type { RouterAbEd25519YaoExportAdmissionRequestV1 } from '@shared/utils/routerAbEd25519Yao';
 import { buildRouterAbEd25519YaoExportAdmissionBodyV1 } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoClient';
 import type { WebAuthnAuthenticationCredential } from '../../packages/sdk-web/src/core/types/webauthn';
 
 const PARTICIPANT_IDS = [11, 29] as const;
-
-function exportAuthorizationIdentity() {
-  const thresholdSessionId = parseThresholdEd25519SessionId('wallet-session-1');
-  const signingGrantId = parseSigningGrantId('signing-grant-1');
-  if (!thresholdSessionId.ok || !signingGrantId.ok) {
-    throw new Error('invalid export authorization fixture identity');
-  }
-  return {
-    thresholdSessionId: thresholdSessionId.value,
-    signingGrantId: signingGrantId.value,
-  };
-}
 
 function bytes(value: number): number[] {
   return new Array<number>(32).fill(value);
@@ -28,7 +15,7 @@ function exportAdmissionRequest(): RouterAbEd25519YaoExportAdmissionRequestV1 {
       lifecycle_id: 'export-lifecycle-1',
       root_share_epoch: 'root-epoch-1',
       account_id: 'wallet-1',
-      wallet_session_id: 'wallet-session-1',
+      threshold_session_id: 'wallet-session-1',
       signer_set_id: 'signer-set-1',
       signing_worker_id: 'signing-worker-1',
     },
@@ -84,7 +71,6 @@ test.describe('Ed25519 Yao export browser boundary', () => {
         kind: 'passkey',
         webauthnAuthentication: authenticationCredential(),
       },
-      authorizationIdentity: exportAuthorizationIdentity(),
     });
     const serialized = JSON.stringify(body);
 
@@ -104,7 +90,6 @@ test.describe('Ed25519 Yao export browser boundary', () => {
         kind: 'email_otp_factor',
         providerSubjectId: 'google:ed25519-export-user',
       },
-      authorizationIdentity: exportAuthorizationIdentity(),
     });
 
     expect(body).toEqual({
@@ -113,7 +98,6 @@ test.describe('Ed25519 Yao export browser boundary', () => {
         kind: 'email_otp_factor',
         providerSubjectId: 'google:ed25519-export-user',
       },
-      authorizationIdentity: exportAuthorizationIdentity(),
     });
     expect(JSON.stringify(body)).not.toContain('webauthn');
   });

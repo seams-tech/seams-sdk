@@ -225,7 +225,12 @@ body {
   position: absolute;
   top: 2rem;
   right: 2rem;
-  z-index: 2;
+  /* Above .h2-pager (z-index 5). The account menu expands downward from this
+     button in normal flow — it is not a positioned overlay of its own — so this
+     slot is the only stacking context it has, and both it and the pager resolve
+     against the root (see the .h2-pager comment in h2.css). At 2 the pager's
+     chevrons painted over the open menu's lower rows. */
+  z-index: 6;
 }
 
 /* Install panel (hero code block) */
@@ -660,11 +665,19 @@ body {
     transparent 43%
   );
   --marketing-panel-highlight-opacity: 0.28;
-  --marketing-eyebrow: color-mix(in srgb, var(--site-text-secondary) 86%, var(--site-text-primary) 14%);
+  --marketing-eyebrow: color-mix(
+    in srgb,
+    var(--site-text-secondary) 86%,
+    var(--site-text-primary) 14%
+  );
   --marketing-title: var(--site-text-primary);
   --marketing-trust-icon: color-mix(in srgb, #7c9fbf 52%, var(--site-text-secondary) 48%);
   --marketing-trust-title: var(--site-text-primary);
-  --marketing-trust-copy: color-mix(in srgb, var(--site-text-secondary) 90%, var(--site-text-primary) 10%);
+  --marketing-trust-copy: color-mix(
+    in srgb,
+    var(--site-text-secondary) 90%,
+    var(--site-text-primary) 10%
+  );
   --marketing-item-surface: linear-gradient(
     124deg,
     color-mix(in srgb, var(--site-surface-strong) 86%, #000 14%) 0%,
@@ -674,14 +687,22 @@ body {
   --marketing-solution-item-border: color-mix(in srgb, var(--site-border) 58%, transparent);
   --marketing-item-text: var(--site-text-primary);
   --marketing-item-title: var(--site-text-primary);
-  --marketing-item-copy: color-mix(in srgb, var(--site-text-secondary) 90%, var(--site-text-primary) 10%);
+  --marketing-item-copy: color-mix(
+    in srgb,
+    var(--site-text-secondary) 90%,
+    var(--site-text-primary) 10%
+  );
   --marketing-final-cta-surface: linear-gradient(
     24deg,
     color-mix(in srgb, #6f92b2 17%, var(--site-surface-strong) 83%) 0%,
     color-mix(in srgb, var(--site-surface-muted) 91%, #000 9%) 44%,
     color-mix(in srgb, var(--site-canvas) 94%, #000 6%) 100%
   );
-  --marketing-final-cta-copy: color-mix(in srgb, var(--site-text-secondary) 90%, var(--site-text-primary) 10%);
+  --marketing-final-cta-copy: color-mix(
+    in srgb,
+    var(--site-text-secondary) 90%,
+    var(--site-text-primary) 10%
+  );
   --marketing-btn-solid-surface: linear-gradient(
     126deg,
     color-mix(in srgb, var(--site-brand) 88%, var(--site-accent) 12%) 0%,

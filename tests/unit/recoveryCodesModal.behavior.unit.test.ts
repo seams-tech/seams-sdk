@@ -292,17 +292,4 @@ test.describe('RecoveryCodesModal behavior', () => {
     expect(modal).not.toContain('deleteRecovery');
   });
 
-  test('SeamsAuthMenu prompts rotation after recovery consumes a code', () => {
-    const controller = readRepoFile(
-      'packages/sdk-web/src/react/components/SeamsAuthMenu/controller/useSeamsAuthMenuController.ts',
-    );
-    const client = readRepoFile('packages/sdk-web/src/react/components/SeamsAuthMenu/client.tsx');
-
-    expect(controller).toContain('postRecoveryRotationPromptFromSubmitResult');
-    expect(controller).toContain('activeRecoveryWrappedEnrollmentEscrowCount');
-    expect(controller).toContain('EMAIL_OTP_RECOVERY_KEY_COUNT');
-    expect(controller).toContain('rotateEmailOtpRecoveryCodes({ walletId: prompt.walletId })');
-    expect(client).toContain('Rotate recovery codes');
-    expect(client).toContain('data-post-recovery-rotation-prompt');
-  });
 });

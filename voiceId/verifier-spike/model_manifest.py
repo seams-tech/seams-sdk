@@ -9,6 +9,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = "voice_id_model_manifest_v1"
+IGNORED_ARTIFACT_FILE_NAMES = frozenset({".gitattributes", "README.md"})
 
 
 @dataclass(frozen=True)
@@ -70,6 +71,14 @@ ARTIFACTS = (
         license_name="Apache-2.0",
         expected_published_bytes=89_100_000,
     ),
+    ArtifactSpec(
+        artifact_id="aasist-asvspoof2019-la",
+        relative_path="aasist",
+        source="https://github.com/clovaai/aasist",
+        revision="a04c9863f63d44471dde8a6abcb3b082b07cd1d1",
+        license_name="MIT",
+        expected_published_bytes=1_281_532,
+    ),
 )
 
 
@@ -93,6 +102,7 @@ def build_artifact(root: Path, spec: ArtifactSpec) -> dict[str, Any]:
         if path.is_file()
         and ".cache" not in path.parts
         and not path.name.endswith((".lock", ".metadata"))
+        and path.name not in IGNORED_ARTIFACT_FILE_NAMES
     ):
         relative_path = path.relative_to(artifact_root).as_posix()
         content = path.read_bytes()

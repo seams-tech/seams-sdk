@@ -43,6 +43,9 @@ checkout_pin() {
   local repository="$1"
   local revision="$2"
   local destination="$3"
+  if [[ -L "${destination}" && ! -e "${destination}" ]]; then
+    unlink "${destination}"
+  fi
   if [[ ! -d "${destination}/.git" ]]; then
     git clone --no-checkout "${repository}" "${destination}"
   fi
@@ -60,8 +63,8 @@ ln -s "${CHARON_DIR}" "${AENEAS_DIR}/charon"
 
 opam install -y ppx_deriving visitors easy_logging zarith yojson core_unix odoc \
   ocamlgraph menhir ocamlformat.0.27.0 unionFind progress domainslib
-"${MAKE_BIN}" -C "${AENEAS_DIR}" setup-charon
-"${MAKE_BIN}" -C "${AENEAS_DIR}"
+opam exec -- "${MAKE_BIN}" -C "${AENEAS_DIR}" setup-charon
+opam exec -- "${MAKE_BIN}" -C "${AENEAS_DIR}"
 
 test -x "${AENEAS_DIR}/bin/aeneas"
 test -x "${CHARON_DIR}/bin/charon"

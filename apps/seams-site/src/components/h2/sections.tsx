@@ -16,6 +16,7 @@ import {
 import { Theme, useSeams, type AuthMenuMode, type WalletShapeId } from '@seams/sdk/react';
 import SeamsWordmark from '@/components/icons/SeamsWordmark';
 import { EcosystemLattice } from '@/components/h2/EcosystemLattice';
+import { NETWORK_MARKS, NetworkMarkLockup } from '@/components/icons/NetworkMarks';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import { useRevealOnIdle } from '@/shared/hooks/useRevealOnIdle';
 import {
@@ -237,7 +238,6 @@ export function H2DemoHero({
 
 /* ---------- ecosystem (commerce-stack lattice + networks) ---------- */
 
-const networks = ['Ethereum', 'Stripe Tempo', 'Circle Arc', 'NEAR', 'Hyperliquid', 'Polygon'];
 
 export function H2Ecosystem(): React.JSX.Element {
   const { linkProps } = useSiteRouter();
@@ -270,15 +270,15 @@ export function H2Ecosystem(): React.JSX.Element {
 }
 
 /* Reference-style logo band (wallet page): the supported networks as a quiet,
-   evenly spaced wordmark row. Text wordmarks stand in until brand SVGs land. */
+   evenly spaced row of real brand marks. */
 export function H2Networks(): React.JSX.Element {
   return (
     <section className="h2-section h2-rule h2-networks" aria-label="Supported networks">
       <div className="h2-shell">
         <ul className="h2-networks__row">
-          {networks.map((name) => (
-            <li key={name} className="h2-networks__mark">
-              {name}
+          {NETWORK_MARKS.map((mark) => (
+            <li key={mark.name} className="h2-networks__mark">
+              <NetworkMarkLockup mark={mark} />
             </li>
           ))}
         </ul>

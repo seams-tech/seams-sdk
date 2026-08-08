@@ -20,8 +20,6 @@ void buildExportStepUpAuthorization({
   nearAccountId: 'alice.testnet',
   nearEd25519SigningKeyId: 'near-key-1',
   signerSlot: 1,
-  thresholdSessionId: 'threshold-ed25519-1',
-  signingGrantId: 'grant-ed25519-1',
 });
 
 void buildExportStepUpAuthorization({
@@ -42,8 +40,6 @@ void buildExportStepUpAuthorization({
   nearAccountId: 'alice.testnet',
   nearEd25519SigningKeyId: 'near-key-1',
   signerSlot: 1,
-  thresholdSessionId: 'threshold-ed25519-1',
-  signingGrantId: 'grant-ed25519-1',
 });
 
 const warmSigningAuthorization = {
@@ -53,11 +49,11 @@ const warmSigningAuthorization = {
     method: 'passkey',
     accountId: 'alice.testnet',
     intent: 'transaction_sign',
-    sessionId: 'session-1',
+    thresholdSessionId: 'threshold-session-1',
     expiresAtMs: 1,
     remainingUses: 1,
   },
-  sessionId: 'session-1',
+  thresholdSessionId: 'threshold-session-1',
   expiresAtMs: 1,
   remainingUses: 1,
 } satisfies WarmSessionStepUpAuthorization<
@@ -74,11 +70,11 @@ const invalidDirectWarmExportAuthorization: ExportStepUpAuthorization = {
     method: 'passkey',
     accountId: 'alice.testnet',
     intent: 'ecdsa_export',
-    sessionId: 'session-1',
+    thresholdSessionId: 'threshold-session-1',
     expiresAtMs: 1,
     remainingUses: 1,
   },
-  sessionId: 'session-1',
+  thresholdSessionId: 'threshold-session-1',
   expiresAtMs: 1,
   remainingUses: 1,
   walletSessionUserId: 'alice.testnet',

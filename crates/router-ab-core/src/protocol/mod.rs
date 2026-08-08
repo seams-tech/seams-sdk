@@ -77,7 +77,8 @@ pub use self::identity::{
     RoleEnvelopeAssignmentV1, ServerIdentityV1, SignerIdentityV1, SignerSetPolicyV1, SignerSetV1,
 };
 pub use self::lifecycle::{
-    AuthorityVerifiedFallbackReasonV1, LifecycleScopeV1, NormalSigningScopeV1,
+    AuthorityVerifiedFallbackReasonV1, LifecycleScopeV1, MpcMaterialActivationRefKindV1,
+    MpcMaterialActivationRefV1, NormalSigningAuthorizationV1, NormalSigningScopeV1,
     RouterAbLifecycleStateV1,
 };
 pub use self::local::{
@@ -167,7 +168,6 @@ pub use self::router_ab_ecdsa_derivation::{
     parse_router_ab_ecdsa_derivation_normal_signing_scope_v1_json,
     parse_router_ab_ecdsa_derivation_recovery_request_v1_json,
     parse_router_ab_ecdsa_derivation_registration_bootstrap_request_v1_json,
-    router_ab_ecdsa_derivation_active_state_session_id_v1,
     router_ab_ecdsa_rerandomization_client_commitment_v1,
     RouterAbEcdsaDerivationActivationReceiptV1, RouterAbEcdsaDerivationActivationRefreshRequestV1,
     RouterAbEcdsaDerivationDeriverEnvelopeCommonV1,
@@ -181,8 +181,8 @@ pub use self::router_ab_ecdsa_derivation::{
     RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningResponseV1,
     RouterAbEcdsaDerivationExplicitExportRequestV1, RouterAbEcdsaDerivationNormalSigningScopeV1,
-    RouterAbEcdsaDerivationOutputKindV1, RouterAbEcdsaDerivationPublicIdentityV1,
-    RouterAbEcdsaDerivationRecoveryRequestV1,
+    RouterAbEcdsaDerivationOperationDigestsV1, RouterAbEcdsaDerivationOutputKindV1,
+    RouterAbEcdsaDerivationPublicIdentityV1, RouterAbEcdsaDerivationRecoveryRequestV1,
     RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
     RouterAbEcdsaDerivationRegistrationHeaderV1, RouterAbEcdsaDerivationRegistrationPurposeV1,
     RouterAbEcdsaDerivationRequestKindV1, RouterAbEcdsaDerivationSignatureSchemeV1,

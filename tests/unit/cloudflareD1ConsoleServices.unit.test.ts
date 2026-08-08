@@ -1,6 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { SigningRootKekProvider } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootKekProvider';
-import type { RouterAbNormalSigningAdmissionInput } from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
+import type { RouterAbNormalSigningAdmissionInput } from '../../packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker';
 import {
   createCloudflareD1ConsoleOnlyServiceBundle,
   createCloudflareD1ConsoleServiceBundle,
@@ -10,7 +9,7 @@ import type {
   D1PreparedStatementLike,
   D1ResultLike,
 } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
-import type { CfExecutionContext } from '../../packages/sdk-server-ts/src/router/cloudflare/cloudflare.types';
+import type { CfExecutionContext } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/cloudflare.types';
 import localD1DevWorker, {
   buildLocalRouterRequest,
 } from '../../packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker';
@@ -34,22 +33,17 @@ const LOCAL_D1_WORKFLOW_SIGNING_WORKER_ID = 'signing-worker.local';
 test('local Router binding rewrites the origin and preserves authenticated POST requests', async () => {
   const request = buildLocalRouterRequest(
     'http://127.0.0.1:9090',
-    new Request(
-      'https://router.router-ab.internal/router-ab/ecdsa-derivation/register?attempt=1',
-      {
-        method: 'POST',
-        headers: {
-          authorization: 'Bearer ceremony-token',
-          'content-type': 'application/json',
-        },
-        body: '{"registration":"payload"}',
+    new Request('https://router.router-ab.internal/router-ab/ecdsa-derivation/register?attempt=1', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer ceremony-token',
+        'content-type': 'application/json',
       },
-    ),
+      body: '{"registration":"payload"}',
+    }),
   );
 
-  expect(request.url).toBe(
-    'http://127.0.0.1:9090/router-ab/ecdsa-derivation/register?attempt=1',
-  );
+  expect(request.url).toBe('http://127.0.0.1:9090/router-ab/ecdsa-derivation/register?attempt=1');
   expect(request.method).toBe('POST');
   expect(request.headers.get('authorization')).toBe('Bearer ceremony-token');
   expect(request.headers.get('content-type')).toBe('application/json');
@@ -157,16 +151,6 @@ function webAuthnRpId(value: string) {
   return parsed.value;
 }
 
-function createKekProvider(): SigningRootKekProvider {
-  return {
-    kind: 'worker_secret',
-    workerSecretsByKekId: {
-      'signing-root-kek-test-r1': 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-    },
-    encoding: 'base64url',
-  };
-}
-
 function createAdmissionInput(): RouterAbNormalSigningAdmissionInput {
   return {
     curve: 'ed25519',
@@ -177,7 +161,8 @@ function createAdmissionInput(): RouterAbNormalSigningAdmissionInput {
       rpId: webAuthnRpId('example.localhost'),
     },
     thresholdSessionId: 'threshold-session-1',
-    signingGrantId: 'signing-grant-1',
+    walletSessionId: 'wallet-session-1',
+    quotaId: 'wallet-session-quota-1',
     requestId: 'request-1',
     expiresAtMs: Date.now() + 60_000,
     signingWorkerId: 'signing-worker-a',
@@ -340,7 +325,6 @@ test('Cloudflare D1 service bundle wires signer-D1 normal-signing admission into
       bindings: {
         consoleDatabase: database,
         signerMetadataDatabase: signer.database,
-        kekProvider: createKekProvider(),
       },
       route: {
         namespace: 'seams',
@@ -408,7 +392,6 @@ test('D1 Router API storage options attach sponsored EVM route extension with ex
     bindings: {
       consoleDatabase: database,
       signerMetadataDatabase: database,
-      kekProvider: createKekProvider(),
     },
     route: {
       namespace: 'seams',
@@ -452,7 +435,6 @@ test('D1 Router API routes NEAR pricing around the EVM-only D1 pricing adapter',
     bindings: {
       consoleDatabase: database,
       signerMetadataDatabase: database,
-      kekProvider: createKekProvider(),
     },
     route: {
       namespace: 'seams',
@@ -507,7 +489,7 @@ test('local D1 Worker ready smoke validates D1 tables and signer-D1 admission', 
     },
     admission: {
       database: 'SIGNER_DB',
-      quotaReservation: 'accepted',
+      policy: 'allowed',
     },
   });
 });
@@ -599,9 +581,7 @@ test('local D1 Worker routes smoke requests through the Router API handler', asy
     ctx,
   );
   expect(signedDelegate.status).not.toBe(404);
-  expect(signedDelegate.headers.get('Access-Control-Allow-Origin')).toBe(
-    'http://127.0.0.1:8787',
-  );
+  expect(signedDelegate.headers.get('Access-Control-Allow-Origin')).toBe('http://127.0.0.1:8787');
 
   const apiWallets = await localD1DevWorker.fetch(
     new Request('http://127.0.0.1:8787/v1/wallets', {
@@ -614,35 +594,6 @@ test('local D1 Worker routes smoke requests through the Router API handler', asy
   await expect(apiWallets.json()).resolves.toMatchObject({
     ok: false,
     code: 'secret_key_missing',
-  });
-});
-
-test('local D1 Worker mounts the shared Ed25519 Yao product composition', async () => {
-  const database = new FakeD1Database();
-  const baseEnv = createLocalD1WorkflowEnv({
-    consoleDatabase: database,
-    signerDatabase: database,
-  });
-  const response = await callLocalWorkflowWorker(
-    {
-      ...baseEnv,
-      MPC_ROUTER_URL: 'http://127.0.0.1:8810',
-      SIGNING_WORKER_ID: LOCAL_D1_WORKFLOW_SIGNING_WORKER_ID,
-      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: 'local-yao-internal-auth',
-      DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: `x25519:${'44'.repeat(32)}`,
-      DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY: `x25519:${'55'.repeat(32)}`,
-    },
-    {
-      method: 'POST',
-      path: '/relay/router-ab/ed25519/yao/registration/admit',
-      body: {},
-    },
-  );
-
-  expect(response.status).toBe(400);
-  await expect(response.json()).resolves.toMatchObject({
-    ok: false,
-    code: 'invalid_body',
   });
 });
 
@@ -872,6 +823,16 @@ test('local D1 Worker serves dashboard onboarding state through D1 services', as
         currentStep: 'organization',
       },
     });
+
+    const approvalsResponse = await callLocalWorkflowWorker(env, {
+      method: 'GET',
+      path: '/console/approvals',
+    });
+    expect(approvalsResponse.status).toBe(200);
+    await expect(readJsonRecord(approvalsResponse)).resolves.toMatchObject({
+      ok: true,
+      approvals: [],
+    });
   } finally {
     cleanupTemporaryD1Database(consoleTemp.tempDir);
     cleanupTemporaryD1Database(signerTemp.tempDir);
@@ -994,7 +955,7 @@ test('local D1 Worker runs dashboard, signer, billing, and reconciliation smoke 
       },
       admission: {
         durableObject: 'configured',
-        quotaReservation: 'accepted',
+        policy: 'allowed',
       },
     });
 

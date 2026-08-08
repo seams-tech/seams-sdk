@@ -7,6 +7,15 @@ use support::{
     rust_source_files,
 };
 
+fn contains_rust_identifier(source: &str, identifier: &str) -> bool {
+    source.match_indices(identifier).any(|(start, _)| {
+        let before = source[..start].chars().next_back();
+        let after = source[start + identifier.len()..].chars().next();
+        !before.is_some_and(|character| character.is_ascii_alphanumeric() || character == '_')
+            && !after.is_some_and(|character| character.is_ascii_alphanumeric() || character == '_')
+    })
+}
+
 #[test]
 fn normal_signing_routes_do_not_invoke_ab_derivation_handlers() {
     let lib_rs = read_src_file("lib.rs");
@@ -72,7 +81,7 @@ fn legacy_normal_signing_v1_flow_symbols_are_absent() {
         "RouterToSigningWorkerSigningRequestV1",
     ] {
         assert!(
-            !lib_rs.contains(deleted_symbol),
+            !contains_rust_identifier(&lib_rs, deleted_symbol),
             "legacy normal-signing v1 flow symbol `{deleted_symbol}` must stay deleted"
         );
     }
@@ -83,7 +92,7 @@ fn signing_worker_normal_signing_loads_active_material_before_handler() {
     let lib_rs = read_src_file("lib.rs");
     let body = extract_function_body(
         &lib_rs,
-        "handle_cloudflare_signing_worker_normal_signing_private_fetch_v1",
+        "execute_claimed_cloudflare_signing_worker_normal_signing_v1",
     );
     let state_lookup = body
         .find("active_signing_worker_state_get_request")
@@ -145,7 +154,7 @@ fn strict_signing_worker_handler_is_protocol_aware() {
     let lib_rs = read_src_file("lib.rs");
     let fetch_body = extract_function_body(
         &lib_rs,
-        "handle_cloudflare_signing_worker_normal_signing_private_fetch_v1",
+        "execute_claimed_cloudflare_signing_worker_normal_signing_v1",
     );
     let prepare_handler_body = extract_braced_block_after_marker(
         &lib_rs,

@@ -4,7 +4,7 @@ import {
   pmUnlockPayloadToLoginHooksOptions,
 } from '@/SeamsWeb/walletIframe/shared/unlockOptions';
 
-test('wallet iframe PM_UNLOCK forwards explicit unlock options', () => {
+test('wallet iframe PM_UNLOCK strips parent-origin bearer authority', () => {
   const payload = buildPMUnlockPayload({
     kind: 'custom_options',
     walletId: 'alice.testnet',
@@ -51,7 +51,6 @@ test('wallet iframe PM_UNLOCK forwards explicit unlock options', () => {
         kind: 'value',
         value: {
           mode: 'app_session',
-          appSessionJwt: 'app-session-jwt',
           policyTtlMs: 45_000,
         },
       },
@@ -75,7 +74,6 @@ test('wallet iframe PM_UNLOCK forwards explicit unlock options', () => {
     },
     ecdsaKeyFactsInventory: {
       mode: 'app_session',
-      appSessionJwt: 'app-session-jwt',
       policyTtlMs: 45_000,
     },
   });

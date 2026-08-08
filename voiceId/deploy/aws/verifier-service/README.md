@@ -24,11 +24,13 @@ browser, mobile, or robot
   -> SigningWorker
 ```
 
-The verifier does not own wallet signing. It returns quality, speaker, and
-template results to the VoiceID API. It does not establish phrase correctness,
-freshness, PAD, device proof, capture provenance, E2, or signing authorization.
-Router A/B admission and SigningWorker remain responsible for the existing
-normal-signing boundary.
+The verifier has no wallet authority. Its combined route returns independent
+phrase, semantic-intent, quality, speaker, and configured PAD component
+results; enrollment returns one template result. It does not establish trusted
+capture provenance, device proof, E2, or signing authorization. Challenge
+freshness and lifecycle consumption remain in the VoiceID API. Router A/B
+admission and SigningWorker remain responsible for the existing normal-signing
+boundary.
 
 ## Image
 

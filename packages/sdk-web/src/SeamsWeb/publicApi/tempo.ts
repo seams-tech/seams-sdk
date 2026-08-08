@@ -7,9 +7,32 @@ import type { TempoSignerCapability, TempoSigningSurface } from '@/SeamsWeb/sign
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { SeamsConfigsReadonly, ThemeMode } from '@/core/types/seams';
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
-import { executeEvmFamilyTransactionLifecycle } from '@/SeamsWeb/operations/tempo/executeEvmFamilyTransaction';
+import {
+  executeEvmFamilyTransactionLifecycle,
+  type EvmFamilyTransactionSignArgs,
+} from '@/SeamsWeb/operations/tempo/executeEvmFamilyTransaction';
 import { buildTempoBootstrapArgs, toSerializableTempoError } from '@/SeamsWeb/operations/tempo';
 import type { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
+import {
+  CAPABILITY_KINDS,
+  EVM_ECDSA_MPC_OPERATION_KINDS,
+} from '@shared/authorization/capabilityKinds';
+import { requireBrowserCapabilityOperation } from '@/SeamsWeb/publicApi/capabilitySelection';
+import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
+import {
+  getTempoFeeTokenPreference,
+  setTempoFeeTokenPreference,
+  validateConfiguredTempoFeeToken,
+} from '@/SeamsWeb/operations/tempo/feeTokenPreference';
+
+function requireTempoSignedResult(
+  result: Awaited<ReturnType<TempoSigningSurface['signEvmFamily']>>,
+): TempoSignedResult {
+  if (result.chain !== 'tempo' || result.kind !== 'tempoTransaction') {
+    throw new Error(`[Tempo capability] expected Tempo result, received ${result.chain}`);
+  }
+  return result;
+}
 
 function toLocalTempoBootstrapRequest(
   args: Parameters<TempoSignerCapability['bootstrapEcdsaSession']>[0],
@@ -26,6 +49,17 @@ function toLocalTempoBootstrapRequest(
   };
 }
 
+function requireEvmFamilySigningCapability(
+  configs: SeamsConfigsReadonly,
+  chainTarget: ReturnType<typeof thresholdEcdsaChainTargetFromRequest>,
+): void {
+  requireBrowserCapabilityOperation(configs, {
+    capabilityKind: CAPABILITY_KINDS.evmEcdsaMpcSigning,
+    operationKind: EVM_ECDSA_MPC_OPERATION_KINDS.signTransaction,
+    chainTarget,
+  });
+}
+
 export function createTempoSignerCapability(deps: {
   signingEngine: TempoSigningSurface;
   nearClient: NearClient;
@@ -33,12 +67,13 @@ export function createTempoSignerCapability(deps: {
   getTheme: () => ThemeMode;
   getWalletIframe: () => WalletIframeCoordinator;
 }): TempoSignerCapability {
-  const signTempo: TempoSignerCapability['signTempo'] = async (args) => {
-    const walletIframe = deps.getWalletIframe();
+  const signEvmFamily = async (args: EvmFamilyTransactionSignArgs) => {
     const chainTarget = thresholdEcdsaChainTargetFromRequest(args.chainTarget);
+    requireEvmFamilySigningCapability(deps.configs, chainTarget);
+    const walletIframe = deps.getWalletIframe();
     const walletId = toWalletId(args.walletSession.walletId);
     if (!walletIframe.shouldUseWalletIframe()) {
-      return await deps.signingEngine.signEvmFamily({
+      const result = await deps.signingEngine.signEvmFamily({
         walletSession: args.walletSession,
         request: args.request,
         chainTarget,
@@ -46,10 +81,11 @@ export function createTempoSignerCapability(deps: {
         shouldAbort: args.options?.shouldAbort,
         onEvent: args.options?.onEvent,
       });
+      return result;
     }
     try {
       const router = await walletIframe.requireRouter(walletId);
-      return await router.signTempo({
+      const result = await router.signTempo({
         walletSession: args.walletSession,
         request: args.request,
         chainTarget,
@@ -58,10 +94,13 @@ export function createTempoSignerCapability(deps: {
           onEvent: args.options?.onEvent,
         },
       });
+      return result;
     } catch (error: unknown) {
       throw toError(error);
     }
   };
+  const signTempo: TempoSignerCapability['signTempo'] = async (args) =>
+    requireTempoSignedResult(await signEvmFamily(args));
   const reportBroadcastAccepted: TempoSignerCapability['reportBroadcastAccepted'] = async (
     args,
   ) => {
@@ -200,23 +239,35 @@ export function createTempoSignerCapability(deps: {
     }
   };
   const lifecycle = {
-    signTempo,
+    signEvmFamily,
     reportBroadcastAccepted,
     reportBroadcastRejected,
     reportFinalized,
     reportDroppedOrReplaced,
     reconcileNonceLane,
   };
+  const executeEvmFamilyTransaction: TempoSignerCapability['executeEvmFamilyTransaction'] = async (
+    args,
+  ) => {
+    const chainTarget = thresholdEcdsaChainTargetFromRequest(args.chainTarget);
+    return await executeEvmFamilyTransactionLifecycle({
+      lifecycle,
+      chains: deps.configs.network.chains,
+      input: { ...args, chainTarget },
+    });
+  };
   return {
     signTempo,
-    executeEvmFamilyTransaction: async (args) => {
-      const chainTarget = thresholdEcdsaChainTargetFromRequest(args.chainTarget);
-      return await executeEvmFamilyTransactionLifecycle({
-        lifecycle,
-        chains: deps.configs.network.chains,
-        input: { ...args, chainTarget },
-      });
-    },
+    getFeeTokenPreference: async (args) =>
+      await getTempoFeeTokenPreference(deps.configs.network.chains, args),
+    validateFeeToken: async (args) =>
+      await validateConfiguredTempoFeeToken(deps.configs.network.chains, args),
+    setFeeTokenPreference: async (args) =>
+      await setTempoFeeTokenPreference(
+        { chains: deps.configs.network.chains, execute: executeEvmFamilyTransaction },
+        args,
+      ),
+    executeEvmFamilyTransaction,
     reportBroadcastAccepted,
     reportBroadcastRejected,
     reportFinalized,

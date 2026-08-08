@@ -3,7 +3,11 @@ import http from 'node:http';
 import type { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import expressImport from 'express';
-import type { SessionAdapter } from '@server/router/express-adaptor';
+import type {
+  ConsoleAuthAdapter,
+  ConsoleAuthClaims,
+  SessionAdapter,
+} from '@server/router/express-adaptor';
 import type { CfEnv, CfExecutionContext } from '@server/router/cloudflare-adaptor';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import {
@@ -33,11 +37,7 @@ const express: ExpressLike = (() => {
   return expressImport as unknown as ExpressLike;
 })();
 
-function captureRawJsonBody(
-  req: unknown,
-  _res: unknown,
-  buffer: Buffer,
-): void {
+function captureRawJsonBody(req: unknown, _res: unknown, buffer: Buffer): void {
   if (!req || typeof req !== 'object') return;
   (req as { rawBody?: Uint8Array }).rawBody = Uint8Array.from(buffer);
 }
@@ -169,6 +169,16 @@ export function getPath(json: unknown, ...path: Array<string | number>): unknown
     cursor = (cursor as Record<string, unknown>)[key];
   }
   return cursor;
+}
+
+export function randomNamespace(prefix: string): string {
+  return `${prefix}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+}
+
+export function makeConsoleAuthAdapter(claims: ConsoleAuthClaims): ConsoleAuthAdapter {
+  return {
+    authenticate: async () => ({ ok: true, claims }),
+  };
 }
 
 export function makeGoogleEmailOtpRegistrationOffer(input: {

@@ -42,7 +42,8 @@ export type ThresholdEcdsaKeyInventoryRecord = {
   thresholdEcdsaPublicKeyB64u: string;
   key: {
     walletId: string;
-    evmFamilySigningKeySlotId: string;
+    keyHandle: string;
+    rpId: string;
     keyScope: 'evm-family';
     ecdsaThresholdKeyId: string;
     signingRootId: string;
@@ -183,7 +184,8 @@ export async function listThresholdEcdsaKeyIdentityTargetsForUser(input: {
       thresholdEcdsaPublicKeyB64u,
       key: {
         walletId: identity.walletId,
-        evmFamilySigningKeySlotId: identity.evmFamilySigningKeySlotId,
+        keyHandle,
+        rpId,
         keyScope: identity.keyScope,
         ecdsaThresholdKeyId: identity.ecdsaThresholdKeyId,
         signingRootId: identity.signingRootId,

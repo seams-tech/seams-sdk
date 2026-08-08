@@ -97,6 +97,64 @@ test.describe('Email OTP device enrollment escrow store', () => {
     expect(result.rawHasSealedSecretField).toBe(false);
   });
 
+  test('reads the enrollment escrow for the exact wallet, provider subject, and enrollment id', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.store);
+        await mod.clearAllEmailOtpDeviceEnrollmentEscrowRecords();
+        const walletId = 'alice.testnet';
+        const first = {
+          walletId,
+          authSubjectId: 'google-sub-1',
+          enrollmentId: 'email-otp-device-enrollment-v1:alice.testnet:google-sub-1',
+          enrollmentVersion: '1',
+          enrollmentSealKeyVersion: 'seal-v1',
+          signingRootId: 'root-1',
+          signingRootVersion: 'root-v1',
+          groupId: 'rfc2409-group2',
+          encSB64u: 'ZW5jX3Nfcy1ieXRlcy0x',
+        };
+        const second = {
+          ...first,
+          authSubjectId: 'google-sub-2',
+          enrollmentId: 'email-otp-device-enrollment-v1:alice.testnet:google-sub-2',
+          encSB64u: 'ZW5jX3Nfcy1ieXRlcy0y',
+        };
+        await mod.writeEmailOtpDeviceEnrollmentEscrowRecord(first);
+        await mod.writeEmailOtpDeviceEnrollmentEscrowRecord(second);
+        const firstRead = await mod.readEmailOtpDeviceEnrollmentEscrowRecord({
+          walletId,
+          authSubjectId: first.authSubjectId,
+          enrollmentId: first.enrollmentId,
+        });
+        const secondRead = await mod.readEmailOtpDeviceEnrollmentEscrowRecord({
+          walletId,
+          authSubjectId: second.authSubjectId,
+          enrollmentId: second.enrollmentId,
+        });
+        const staleRead = await mod.readEmailOtpDeviceEnrollmentEscrowRecord({
+          walletId,
+          authSubjectId: first.authSubjectId,
+          enrollmentId: second.enrollmentId,
+        });
+        return {
+          first: firstRead?.authSubjectId,
+          second: secondRead?.authSubjectId,
+          stale: staleRead,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result).toEqual({
+      first: 'google-sub-1',
+      second: 'google-sub-2',
+      stale: null,
+    });
+  });
+
   test('fails closed on malformed records and deletes by wallet/auth subject/enrollment scope', async ({
     page,
   }) => {

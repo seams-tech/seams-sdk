@@ -3,7 +3,7 @@ import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import {
   handleEmailOtpSigningSessionChallengeRoute,
   handleEmailOtpSigningSessionUnsealRoute,
-} from '@server/router/emailOtpRouteHandlers';
+} from '@server/router/domains/emailOtp/emailOtpRouteHandlers';
 
 type CapturedSigningSessionUnsealCalls = {
   readActiveEnrollmentInput: Record<string, unknown> | null;
@@ -109,14 +109,17 @@ test('Email OTP signing-session unseal consumes grants with the enrollment autho
     orgId: 'org-a',
   });
   expect(captured.consumeGrantInput).toMatchObject({
+    subject: {
+      kind: 'provider_identity',
+      orgId: 'org-a',
+      providerSubject: 'google:provider-user',
+      walletId: 'wallet-a',
+    },
     loginGrant: 'login-grant-1',
-    userId: 'google:provider-user',
-    walletId: 'wallet-a',
-    orgId: 'org-a',
     otpChannel: EMAIL_OTP_CHANNEL,
   });
   expect(captured.consumeGrantInput).not.toMatchObject({
-    userId: 'wallet-a',
+    subject: { providerSubject: 'wallet-a' },
   });
   expect(captured.readEnrollmentInput).toEqual({
     walletId: 'wallet-a',

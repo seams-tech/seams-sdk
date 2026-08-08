@@ -1,0 +1,351 @@
+name: Deploy / production-testnet / backend
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deployment-production-testnet-backend
+  cancel-in-progress: false
+
+env:
+  DEPLOY_LANE: production-testnet
+  DEPLOY_SHA: ${{ github.sha }}
+  RUST_TOOLCHAIN: 1.96.0
+
+jobs:
+  build:
+    name: Build / production-testnet / backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout workflow revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+      - name: Require main branch
+        run: test "$GITHUB_REF" = refs/heads/main
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Build backend artifact
+        run: pnpm deploy:backend build --lane "$DEPLOY_LANE"
+      - name: Check fixed build entries
+        run: |
+          set -euo pipefail
+          for component in signing-worker deriver-a deriver-b router; do
+            test -s "crates/router-ab-cloudflare/build/$component/worker/shim.mjs"
+          done
+          test -s .release-artifacts/gateway/payload/d1RouterApiWorker.js
+      - name: Upload backend artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-build-production-testnet
+          overwrite: true
+          include-hidden-files: true
+          retention-days: 30
+          compression-level: 0
+          path: |
+            .release-artifacts
+            crates/router-ab-cloudflare/build
+            packages/console-server-ts/.wrangler/generated
+
+  preflight:
+    name: Preflight / production-testnet / ${{ matrix.component }}
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: signing-worker
+            environment: production-testnet-signing-worker
+          - component: deriver-a
+            environment: production-testnet-deriver-a
+          - component: deriver-b
+            environment: production-testnet-deriver-b
+          - component: router
+            environment: production-testnet-mpc-router
+          - component: gateway
+            environment: production-testnet-gateway
+    environment:
+      name: ${{ matrix.environment }}
+    env:
+      DEPLOYMENT_SECRETS_JSON: ${{ toJSON(secrets) }}
+      DEPLOYMENT_VARS_JSON: ${{ toJSON(vars) }}
+    steps:
+      - name: Checkout workflow revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Check component configuration
+        run: node scripts/deploy-backend.mjs preflight --lane "$DEPLOY_LANE" --component "${{ matrix.component }}"
+
+  migrate:
+    name: Migrate / production-testnet / gateway
+    needs:
+      - preflight
+      - build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production-testnet-gateway
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      RELAYER_PRIVATE_KEY: ${{ secrets.RELAYER_PRIVATE_KEY }}
+    steps:
+      - name: Checkout workflow revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install deployment dependencies
+        run: pnpm install --frozen-lockfile --filter @seams-internal/console-server...
+      - name: Download backend artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: backend-build-production-testnet
+      - name: Check Gateway build entry
+        run: test -s .release-artifacts/gateway/payload/d1RouterApiWorker.js
+      - name: Apply D1 migrations
+        run: pnpm deploy:backend migrate --lane "$DEPLOY_LANE"
+
+  deploy_signing_worker:
+    name: Deploy / production-testnet / signing-worker
+    needs: migrate
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment:
+      name: production-testnet-signing-worker
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
+      SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY: ${{ secrets.SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY }}
+      SIGNING_WORKER_PRIVATE_D1_KEK: ${{ secrets.SIGNING_WORKER_PRIVATE_D1_KEK }}
+      SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY }}
+      SIGNING_WORKER_PRIVATE_D1_ID: ${{ vars.ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_ID }}
+      SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY }}
+      SIGNING_WORKER_PRIVATE_D1_KEK_VERSION: ${{ vars.ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_VERSION }}
+    steps:
+      - name: Checkout workflow revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install deployment dependencies
+        run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
+      - name: Download backend artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: backend-build-production-testnet
+      - name: Check Signing Worker build entry
+        run: test -s crates/router-ab-cloudflare/build/signing-worker/worker/shim.mjs
+      - name: Deploy Signing Worker
+        run: pnpm deploy:backend deploy --lane "$DEPLOY_LANE" --component signing-worker
+
+  deploy_deriver_a:
+    name: Deploy / production-testnet / deriver-a
+    needs: migrate
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment:
+      name: production-testnet-deriver-a
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
+      DERIVER_A_ROOT_SHARE_WIRE_SECRET: ${{ secrets.DERIVER_A_ROOT_SHARE_WIRE_SECRET }}
+      DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY: ${{ secrets.DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY }}
+      DERIVER_A_PEER_SIGNING_KEY: ${{ secrets.DERIVER_A_PEER_SIGNING_KEY }}
+      DERIVER_A_ROLE_PRIVATE_D1_KEK: ${{ secrets.DERIVER_A_ROLE_PRIVATE_D1_KEK }}
+      DERIVER_A_PRIVATE_D1_ID: ${{ vars.ROUTER_AB_DERIVER_A_PRIVATE_D1_ID }}
+      DERIVER_A_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY: ${{ vars.ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY }}
+      DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION: ${{ vars.ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION }}
+      DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY }}
+      DERIVER_A_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX }}
+      DERIVER_B_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX }}
+    steps:
+      - name: Checkout workflow revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install deployment dependencies
+        run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
+      - name: Download backend artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: backend-build-production-testnet
+      - name: Check Deriver A build entry
+        run: test -s crates/router-ab-cloudflare/build/deriver-a/worker/shim.mjs
+      - name: Deploy Deriver A
+        run: pnpm deploy:backend deploy --lane "$DEPLOY_LANE" --component deriver-a
+
+  deploy_deriver_b:
+    name: Deploy / production-testnet / deriver-b
+    needs: migrate
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment:
+      name: production-testnet-deriver-b
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
+      DERIVER_B_ROOT_SHARE_WIRE_SECRET: ${{ secrets.DERIVER_B_ROOT_SHARE_WIRE_SECRET }}
+      DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY: ${{ secrets.DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY }}
+      DERIVER_B_PEER_SIGNING_KEY: ${{ secrets.DERIVER_B_PEER_SIGNING_KEY }}
+      DERIVER_B_ROLE_PRIVATE_D1_KEK: ${{ secrets.DERIVER_B_ROLE_PRIVATE_D1_KEK }}
+      DERIVER_B_PRIVATE_D1_ID: ${{ vars.ROUTER_AB_DERIVER_B_PRIVATE_D1_ID }}
+      DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY: ${{ vars.ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY }}
+      DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION: ${{ vars.ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION }}
+      DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY }}
+      DERIVER_A_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX }}
+      DERIVER_B_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX }}
+    steps:
+      - name: Checkout workflow revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install deployment dependencies
+        run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
+      - name: Download backend artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: backend-build-production-testnet
+      - name: Check Deriver B build entry
+        run: test -s crates/router-ab-cloudflare/build/deriver-b/worker/shim.mjs
+      - name: Deploy Deriver B
+        run: pnpm deploy:backend deploy --lane "$DEPLOY_LANE" --component deriver-b
+
+  deploy_router:
+    name: Deploy / production-testnet / router
+    needs: [deploy_signing_worker, deploy_deriver_a, deploy_deriver_b]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment:
+      name: production-testnet-mpc-router
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
+      ROUTER_AB_JWT_ISSUER: ${{ vars.ROUTER_AB_JWT_ISSUER }}
+      ROUTER_AB_JWT_AUDIENCE: ${{ vars.ROUTER_AB_JWT_AUDIENCE }}
+      ROUTER_AB_JWT_JWKS_JSON: ${{ vars.ROUTER_AB_JWT_JWKS_JSON }}
+      DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY }}
+      DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY }}
+      SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY }}
+      DERIVER_A_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX }}
+      DERIVER_B_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX }}
+    steps:
+      - name: Checkout workflow revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install deployment dependencies
+        run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
+      - name: Download backend artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: backend-build-production-testnet
+      - name: Check Router build entry
+        run: test -s crates/router-ab-cloudflare/build/router/worker/shim.mjs
+      - name: Deploy Router
+        run: pnpm deploy:backend deploy --lane "$DEPLOY_LANE" --component router
+
+  deploy_gateway:
+    name: Deploy / production-testnet / gateway
+    needs: deploy_router
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment:
+      name: production-testnet-gateway
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      RELAY_SESSION_HMAC_SECRET: ${{ secrets.RELAY_SESSION_HMAC_SECRET }}
+      ACCOUNT_ID_DERIVATION_SECRET: ${{ secrets.ACCOUNT_ID_DERIVATION_SECRET }}
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
+      ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: ${{ secrets.ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK }}
+      RELAYER_PRIVATE_KEY: ${{ secrets.RELAYER_PRIVATE_KEY }}
+      SPONSORED_EVM_EXECUTORS_JSON: ${{ secrets.SPONSORED_EVM_EXECUTORS_JSON }}
+      STRIPE_API_SK: ${{ secrets.STRIPE_API_SK }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      SIGNING_SESSION_SEAL_ROOT_SECRET_B64U: ${{ secrets.SIGNING_SESSION_SEAL_ROOT_SECRET_B64U }}
+    steps:
+      - name: Checkout workflow revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install deployment dependencies
+        run: pnpm install --frozen-lockfile --filter @seams-internal/console-server...
+      - name: Download backend artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: backend-build-production-testnet
+      - name: Check Gateway build entry
+        run: test -s .release-artifacts/gateway/payload/d1RouterApiWorker.js
+      - name: Deploy Gateway
+        run: pnpm deploy:backend deploy --lane "$DEPLOY_LANE" --component gateway
+      - name: Run backend smoke tests
+        run: pnpm deploy:backend smoke --lane "$DEPLOY_LANE"

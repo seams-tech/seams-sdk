@@ -16,6 +16,7 @@ const WALLET_ID = 'wallet-recovery-1';
 const NEAR_ACCOUNT_ID = 'wallet-recovery.testnet';
 const NEAR_SIGNING_KEY_ID = 'ed25519ks_wallet_recovery_1';
 const WALLET_SESSION_ID = 'wallet-session-recovery-1';
+const THRESHOLD_SESSION_ID = 'threshold-session-recovery-1';
 const SIGNING_WORKER_ID = 'signing-worker-recovery-1';
 const ROOT_SHARE_EPOCH = 'root-share-epoch-recovery-1';
 const PARTICIPANT_IDS = [11, 29] as const;
@@ -27,6 +28,8 @@ type SyncResponseFixtureInput = {
   readonly capabilityWalletId: string;
   readonly capabilityAccountId: string;
   readonly capabilityNearAccountId: string;
+  readonly sessionWalletSessionId: string;
+  readonly sessionQuotaId: string;
   readonly sessionId: string;
   readonly capabilitySessionId: string;
   readonly sessionParticipantIds: readonly [number, number];
@@ -82,8 +85,10 @@ function defaultSyncResponseFixtureInput(): SyncResponseFixtureInput {
     capabilityWalletId: WALLET_ID,
     capabilityAccountId: WALLET_ID,
     capabilityNearAccountId: NEAR_ACCOUNT_ID,
-    sessionId: WALLET_SESSION_ID,
-    capabilitySessionId: WALLET_SESSION_ID,
+    sessionWalletSessionId: WALLET_SESSION_ID,
+    sessionQuotaId: 'wallet-session-quota-recovery-1',
+    sessionId: THRESHOLD_SESSION_ID,
+    capabilitySessionId: THRESHOLD_SESSION_ID,
     sessionParticipantIds: PARTICIPANT_IDS,
     capabilityParticipantIds: PARTICIPANT_IDS,
     relayerKeyId: SIGNING_WORKER_ID,
@@ -125,8 +130,9 @@ function syncResponseFixture(
         walletId: input.sessionWalletId,
         nearAccountId: NEAR_ACCOUNT_ID,
         nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
+        walletSessionId: input.sessionWalletSessionId,
+        quotaId: input.sessionQuotaId,
         thresholdSessionId: input.sessionId,
-        signingGrantId: 'signing-grant-recovery-1',
         expiresAtMs: Date.now() + 60_000,
         participantIds: [...input.sessionParticipantIds],
         remainingUses: 4,
@@ -146,6 +152,11 @@ function syncResponseFixture(
     },
     ed25519YaoRecovery: {
       kind: input.recoveryKind,
+      authorityRef: {
+        kind: 'wallet_auth_authority_ref',
+        walletId: input.responseWalletId,
+        authorityDigest: 'passkey-recovery-authority-digest',
+      },
       capability: {
         kind: 'router_ab_ed25519_yao_active_capability_v1',
         activeCapabilityBinding: bytes(20, input.activeCapabilityBindingLength),
@@ -164,11 +175,12 @@ function syncResponseFixture(
           signingRootVersion: input.capabilityRuntimeRootShareEpoch,
         },
         participantIds: [...input.capabilityParticipantIds],
+        materialActivation: capabilityMaterialActivation(),
         lifecycle: {
           lifecycleId: 'passkey-recovery-capability-lifecycle',
           rootShareEpoch: input.capabilityRootShareEpoch,
           accountId: input.capabilityAccountId,
-          walletSessionId: input.capabilitySessionId,
+          thresholdSessionId: input.capabilitySessionId,
           signerSetId: 'signer-set-recovery-1',
           signingWorkerId: input.capabilitySigningWorkerId,
         },
@@ -184,10 +196,12 @@ function requireAdmissionRequest(): RouterAbEd25519YaoRecoveryAdmissionRequestV1
       lifecycle_id: 'recovery-lifecycle-transport-1',
       root_share_epoch: ROOT_SHARE_EPOCH,
       account_id: WALLET_ID,
-      wallet_session_id: WALLET_SESSION_ID,
+      threshold_session_id: THRESHOLD_SESSION_ID,
       signer_set_id: 'signer-set-recovery-1',
       signing_worker_id: SIGNING_WORKER_ID,
+      material_activation: materialActivation('replacement'),
     },
+    active_material_activation: materialActivation('active'),
     application_binding: {
       wallet_id: WALLET_ID,
       near_ed25519_signing_key_id: NEAR_SIGNING_KEY_ID,
@@ -203,6 +217,30 @@ function requireAdmissionRequest(): RouterAbEd25519YaoRecoveryAdmissionRequestV1
   return parsed.value;
 }
 
+function capabilityMaterialActivation() {
+  return {
+    kind: 'mpc_material_activation_ref' as const,
+    activationId: 'passkey-recovery-active-activation',
+    capability: 'passkey-recovery-capability',
+    materialOwner: WALLET_ID,
+    keyBinding: 'passkey-recovery-key',
+    lifecycleBinding: 'passkey-recovery-active-lifecycle-binding',
+    signingWorker: SIGNING_WORKER_ID,
+  };
+}
+
+function materialActivation(label: string) {
+  return {
+    kind: 'mpc_material_activation_ref' as const,
+    activation_id: `passkey-recovery-${label}-activation`,
+    capability: 'passkey-recovery-capability',
+    material_owner: WALLET_ID,
+    key_binding: 'passkey-recovery-key',
+    lifecycle_binding: `passkey-recovery-${label}-lifecycle-binding`,
+    signing_worker: SIGNING_WORKER_ID,
+  };
+}
+
 function resetTransportFetch(response: Response): void {
   capturedFetch = null;
   nextFetchResponse = response;
@@ -213,6 +251,11 @@ test.describe('passkey Ed25519 Yao browser recovery boundary', () => {
     const parsed = parsePasskeyEd25519YaoSyncResponseV1(syncResponseFixture());
 
     expect(parsed).toMatchObject({
+      authority: {
+        kind: 'wallet_auth_authority_ref',
+        walletId: WALLET_ID,
+        authorityDigest: 'passkey-recovery-authority-digest',
+      },
       walletId: WALLET_ID,
       nearAccountId: NEAR_ACCOUNT_ID,
       nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
@@ -220,8 +263,9 @@ test.describe('passkey Ed25519 Yao browser recovery boundary', () => {
       relayerKeyId: SIGNING_WORKER_ID,
       session: {
         walletSessionJwt: WALLET_SESSION_JWT,
-        thresholdSessionId: WALLET_SESSION_ID,
-        signingGrantId: 'signing-grant-recovery-1',
+        walletSessionId: WALLET_SESSION_ID,
+        quotaId: 'wallet-session-quota-recovery-1',
+        thresholdSessionId: THRESHOLD_SESSION_ID,
         remainingUses: 4,
       },
       capability: {
@@ -230,7 +274,7 @@ test.describe('passkey Ed25519 Yao browser recovery boundary', () => {
         lifecycle: {
           rootShareEpoch: ROOT_SHARE_EPOCH,
           accountId: WALLET_ID,
-          walletSessionId: WALLET_SESSION_ID,
+          thresholdSessionId: THRESHOLD_SESSION_ID,
           signingWorkerId: SIGNING_WORKER_ID,
         },
       },
@@ -253,11 +297,14 @@ test.describe('passkey Ed25519 Yao browser recovery boundary', () => {
 
   test('accepts a fresh Wallet Session while preserving the active capability identity', () => {
     const parsed = parsePasskeyEd25519YaoSyncResponseV1(
-      syncResponseFixture({ sessionId: 'fresh-wallet-session-recovery-1' }),
+      syncResponseFixture({
+        sessionWalletSessionId: 'fresh-wallet-session-recovery-1',
+      }),
     );
 
-    expect(parsed.session.thresholdSessionId).toBe('fresh-wallet-session-recovery-1');
-    expect(parsed.capability.lifecycle.walletSessionId).toBe(WALLET_SESSION_ID);
+    expect(parsed.session.walletSessionId).toBe('fresh-wallet-session-recovery-1');
+    expect(parsed.session.thresholdSessionId).toBe(THRESHOLD_SESSION_ID);
+    expect(parsed.capability.lifecycle.thresholdSessionId).toBe(THRESHOLD_SESSION_ID);
   });
 
   test('rejects wallet, participant, worker, root, and public-key substitutions', () => {

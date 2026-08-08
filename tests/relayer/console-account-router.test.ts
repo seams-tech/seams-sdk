@@ -14,7 +14,7 @@ import {
 } from '@seams-internal/console-server/router/express-adaptor';
 import { createCloudflareConsoleRouter } from '@seams-internal/console-server/router/cloudflare-adaptor';
 import type { SessionAdapter } from '@seams/sdk-server/router/express';
-import { callCf, fetchJson, startExpressRouter } from './helpers';
+import { callCf, fetchJson, makeConsoleAuthAdapter, startExpressRouter } from './helpers';
 
 const CURRENT_USER_ID = 'user_current';
 const CURRENT_EMAIL = 'owner@example.com';
@@ -73,7 +73,11 @@ class ContextSwitchSession implements SessionAdapter {
     return 'seams-jwt=; Path=/; Max-Age=0';
   }
 
-  async refresh(): Promise<{ readonly ok: false; readonly code: string; readonly message: string }> {
+  async refresh(): Promise<{
+    readonly ok: false;
+    readonly code: string;
+    readonly message: string;
+  }> {
     return { ok: false, code: 'not_eligible', message: 'not eligible' };
   }
 }
@@ -89,19 +93,11 @@ function createAccountRouteFixture(): AccountRouteFixture {
   return { orgProjectEnv, organizationAccess, account };
 }
 
-function makeConsoleAuthAdapter(claims: ConsoleAuthClaims): ConsoleAuthAdapter {
-  return {
-    authenticate: async () => ({ ok: true, claims }),
-  };
-}
-
 function assertNever(value: never): never {
   throw new Error(`Unhandled authorization role: ${JSON.stringify(value)}`);
 }
 
-function toConsoleAuthClaims(
-  authorization: ActiveOrganizationAuthorization,
-): ConsoleAuthClaims {
+function toConsoleAuthClaims(authorization: ActiveOrganizationAuthorization): ConsoleAuthClaims {
   switch (authorization.role) {
     case 'OWNER':
       return {
@@ -229,9 +225,7 @@ async function addCurrentUserAsProjectMember(input: {
 function readObjectArray(value: unknown, field: string): readonly Record<string, unknown>[] {
   if (
     !Array.isArray(value) ||
-    !value.every(
-      (entry) => typeof entry === 'object' && entry !== null && !Array.isArray(entry),
-    )
+    !value.every((entry) => typeof entry === 'object' && entry !== null && !Array.isArray(entry))
   ) {
     throw new Error(`Expected ${field} to be an array of objects`);
   }
@@ -376,23 +370,12 @@ for (const mode of ['express', 'cloudflare'] as const) {
         path: '/console/account/organizations',
       });
       expect(listResponse.status).toBe(200);
-      const organizations = readObjectArray(
-        listResponse.json?.organizations,
-        'organizations',
-      );
-      expect(organizations.map((entry) => entry.id).sort()).toEqual([
-        'org_current',
-        'org_shared',
-      ]);
+      const organizations = readObjectArray(listResponse.json?.organizations, 'organizations');
+      expect(organizations.map((entry) => entry.id).sort()).toEqual(['org_current', 'org_shared']);
       expect(requireOrganization(organizations, 'org_current')).toMatchObject({
         membershipId: currentMembershipId,
         role: 'OWNER',
-        adminPermissions: [
-          'members.manage',
-          'projects.manage',
-          'billing.view',
-          'billing.manage',
-        ],
+        adminPermissions: ['members.manage', 'projects.manage', 'billing.view', 'billing.manage'],
         projectAccess: { kind: 'all' },
         isCurrentOrg: true,
       });

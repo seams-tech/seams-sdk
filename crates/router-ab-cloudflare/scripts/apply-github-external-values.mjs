@@ -4,9 +4,8 @@ import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { isDeepStrictEqual, parseEnv } from 'node:util';
 import { gatewayRuntimeProfileNearNetwork } from '../../../packages/console-server-ts/scripts/gateway-deployment-config.mjs';
-import { readDeploymentTarget } from '../../../scripts/deployment-targets.mjs';
+import { readBackendLane, readFrontendSite } from '../../../scripts/deployment-targets.mjs';
 
-const TARGETS = new Set(['staging', 'production']);
 const COMPONENTS = new Set(['wallet-core', 'product']);
 const githubCli = process.env.GITHUB_CLI_BIN || 'gh';
 const GENERAL_VARIABLE_INPUTS = Object.freeze([
@@ -37,6 +36,17 @@ const GATEWAY_SECRET_INPUTS = Object.freeze([
   ['CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U', 'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U'],
 ]);
 const GATEWAY_VARIABLE_INPUTS = Object.freeze([['CONSOLE_EMAIL_FROM', 'CONSOLE_EMAIL_FROM']]);
+const PRODUCTION_LANE_VARIABLE_SUFFIXES = Object.freeze([
+  'SEAMS_PROJECT_ENVIRONMENT_ID',
+  'SEAMS_PUBLISHABLE_KEY',
+  'NEAR_RPC_URL',
+  'NEAR_EXPLORER',
+  'TEMPO_RPC_URL',
+  'TEMPO_EXPLORER',
+  'TEMPO_FEE_TOKEN',
+  'ARC_RPC_URL',
+  'ARC_EXPLORER',
+]);
 const NEAR_PUBLIC_CONFIG_BY_NETWORK = Object.freeze({
   testnet: Object.freeze({
     rpcUrl: 'https://test.rpc.fastnear.com',
@@ -50,6 +60,8 @@ const NEAR_PUBLIC_CONFIG_BY_NETWORK = Object.freeze({
 
 const argv = process.argv.slice(2).filter((argument) => argument !== '--');
 
+assertNoLegacyIdentityFlags();
+
 if (argv.includes('--help')) {
   printUsage();
   process.exit(0);
@@ -62,10 +74,12 @@ async function main(options) {
   validateExternalValues(values, options.component);
   const repository = resolveGitHubRepository(options.repository);
   const plan = buildBasePlan(options, repository, values);
-  validateCheckedInGatewayConfiguration(plan.target, values);
+  validateCheckedInGatewayConfiguration(plan.gatewayDeploymentConfig, values);
   if (options.component === 'product') {
-    addProductNearRelayerUpdate(plan, values);
-    addProductNearNetworkUpdates(plan);
+    if (options.site.id === 'staging') {
+      addProductNearRelayerUpdate(plan, values);
+      addProductNearNetworkUpdates(plan);
+    }
   } else {
     addWalletCoreNearRelayerSecretUpdate(plan, values);
   }
@@ -78,25 +92,88 @@ async function main(options) {
 }
 
 function parseOptions() {
-  const target = requireOption('--env');
-  if (!TARGETS.has(target)) {
-    throw new Error('--env must be staging or production');
-  }
-  const valuesFile =
-    readOption('--values-file') || resolve(homedir(), '.seams', `${target}-deployment.env`);
   const component = requireOption('--component');
   if (!COMPONENTS.has(component)) {
     throw new Error('--component must be wallet-core or product');
   }
+  const laneId = readOption('--lane');
+  const siteId = readOption('--site');
+  if (laneId && siteId) {
+    throw new Error('--lane and --site are mutually exclusive');
+  }
+  if (component === 'wallet-core' && !laneId) {
+    throw new Error('--lane is required for wallet-core operations');
+  }
+  if (component === 'product' && !siteId) {
+    throw new Error('--site is required for product operations');
+  }
+  if (component === 'wallet-core' && siteId) {
+    throw new Error('--site cannot be used for wallet-core operations');
+  }
+  if (component === 'product' && laneId) {
+    throw new Error('--lane cannot be used for product operations');
+  }
+  const identity = resolveDeploymentIdentity(component, laneId, siteId);
+  const valuesFile = readOption('--values-file') || defaultValuesFile(identity);
   const selection = parseUpdateSelection();
   return {
-    target,
+    release: identity.release,
+    identityId: identity.id,
+    environmentPrefix: deploymentEnvironmentPrefix(identity),
+    lane: identity.lane,
+    site: identity.site,
     component,
     valuesFile,
     repository: readOption('--repo'),
     apply: argv.includes('--apply'),
     selection,
   };
+}
+
+function deploymentEnvironmentPrefix(identity) {
+  if (!identity.lane) return identity.site.id;
+  const deploymentEnvironment = identity.lane.resources.router.deploymentEnvironment;
+  return deploymentEnvironment.kind === 'named'
+    ? deploymentEnvironment.name
+    : identity.lane.release;
+}
+
+function resolveDeploymentIdentity(component, laneId, siteId) {
+  if (component === 'wallet-core') {
+    const lane = readBackendLane(laneId);
+    assertProvisionedIdentity(lane.id, lane.provisioning.kind);
+    return { id: lane.id, release: lane.release, lane, site: lane.site };
+  }
+  const site = readFrontendSite(siteId);
+  const lane = site.lanes.find((candidate) => candidate.network === site.defaultNetwork);
+  if (!lane) {
+    throw new Error(`site ${site.id} has no lane for default network ${site.defaultNetwork}`);
+  }
+  const pendingLane = site.lanes.find((candidate) => candidate.provisioning.kind === 'pending');
+  if (pendingLane) {
+    throw new Error(
+      `${site.id} is pending provisioning for ${pendingLane.id}; deployment environment updates are blocked`,
+    );
+  }
+  return { id: site.id, release: site.release, lane, site };
+}
+
+function assertProvisionedIdentity(identityId, provisioningKind) {
+  if (provisioningKind === 'pending') {
+    throw new Error(
+      `${identityId} is pending provisioning; deployment environment updates are blocked`,
+    );
+  }
+}
+
+function defaultValuesFile(identity) {
+  const fileName =
+    identity.lane.id === 'production-testnet'
+      ? 'production-testnet-deployment.env'
+      : identity.release === 'production'
+        ? 'production-deployment.env'
+        : 'staging-deployment.env';
+  return resolve(homedir(), '.seams', fileName);
 }
 
 function parseUpdateSelection() {
@@ -188,28 +265,94 @@ function requireConsoleEmailInvitationSecretKey(value) {
 
 function buildBasePlan(options, repository, values) {
   const plan = {
-    target: options.target,
+    release: options.release,
+    identityId: options.identityId,
+    lane: options.lane,
+    site: options.site,
     component: options.component,
     repository,
     valuesFile: options.valuesFile,
     variables: [],
     secrets: [],
-    gatewayDeploymentConfig: readDeploymentTarget(options.target).gatewayDeploymentConfig,
+    gatewayDeploymentConfig: options.lane.provisioning.gatewayDeploymentConfig,
   };
   if (options.component === 'product') {
-    appendMappedUpdates(plan.variables, options.target, values, GENERAL_VARIABLE_INPUTS);
-    appendMappedUpdates(plan.secrets, options.target, values, CLOUDFLARE_SECRET_INPUTS);
+    if (options.site.id === 'production') {
+      appendProductionProductUpdates(plan, values);
+    } else {
+      appendMappedUpdates(plan.variables, options.release, values, GENERAL_VARIABLE_INPUTS);
+      appendMappedUpdates(plan.secrets, options.release, values, CLOUDFLARE_SECRET_INPUTS);
+    }
   } else {
-    appendWalletCoreCloudflareDeploymentUpdates(plan, options.target, values);
+    appendWalletCoreCloudflareDeploymentUpdates(plan, options.environmentPrefix, values);
     appendMappedUpdates(
       plan.variables,
-      `${options.target}-gateway`,
+      `${options.environmentPrefix}-gateway`,
       values,
       GATEWAY_VARIABLE_INPUTS,
     );
-    appendMappedUpdates(plan.secrets, `${options.target}-gateway`, values, GATEWAY_SECRET_INPUTS);
+    appendMappedUpdates(
+      plan.secrets,
+      `${options.environmentPrefix}-gateway`,
+      values,
+      GATEWAY_SECRET_INPUTS,
+    );
   }
   return plan;
+}
+
+function appendProductionProductUpdates(plan, values) {
+  appendMappedUpdates(plan.secrets, plan.environmentPrefix, values, CLOUDFLARE_SECRET_INPUTS);
+  appendMappedUpdates(plan.secrets, plan.environmentPrefix, values, [
+    ['CF_PAGES_PROJECT_WALLET_TESTNET', 'CF_PAGES_PROJECT_WALLET_TESTNET'],
+    ['CF_PAGES_PROJECT_WALLET_MAINNET', 'CF_PAGES_PROJECT_WALLET_MAINNET'],
+  ]);
+  for (const lane of plan.site.lanes) {
+    const prefix = `VITE_${lane.network.toUpperCase()}_`;
+    plan.variables.push(
+      {
+        environment: plan.environmentPrefix,
+        name: `${prefix}RELAYER_URL`,
+        value: lane.gatewayOrigin,
+      },
+      {
+        environment: plan.environmentPrefix,
+        name: `${prefix}CONSOLE_BASE_URL`,
+        value: lane.gatewayOrigin,
+      },
+      { environment: plan.environmentPrefix, name: `${prefix}NEAR_NETWORK`, value: lane.network },
+      {
+        environment: plan.environmentPrefix,
+        name: `${prefix}WALLET_SERVICE_PATH`,
+        value: '/wallet-service',
+      },
+      { environment: plan.environmentPrefix, name: `${prefix}SDK_BASE_PATH`, value: '/sdk' },
+      {
+        environment: plan.environmentPrefix,
+        name: `${prefix}SIGNING_SESSION_PERSISTENCE_MODE`,
+        value: 'sealed_refresh_v1',
+      },
+      {
+        environment: plan.environmentPrefix,
+        name: `${prefix}ROUTER_AB_NORMAL_SIGNING_WORKER_ID`,
+        value: lane.resources.signingWorker.workerName,
+      },
+    );
+    for (const suffix of PRODUCTION_LANE_VARIABLE_SUFFIXES) {
+      const value = readValue(values, `${prefix}${suffix}`);
+      if (value) {
+        plan.variables.push({
+          environment: plan.environmentPrefix,
+          name: `${prefix}${suffix}`,
+          value,
+        });
+      }
+    }
+  }
+  appendMappedUpdates(plan.variables, plan.environmentPrefix, values, [
+    ['VITE_DOCS_ORIGIN', 'VITE_DOCS_ORIGIN'],
+    ['VITE_DASHBOARD_WALLETS_ROUTES_ENABLED', 'VITE_DASHBOARD_WALLETS_ROUTES_ENABLED'],
+  ]);
 }
 
 function appendWalletCoreCloudflareDeploymentUpdates(plan, target, values) {
@@ -233,7 +376,7 @@ function addProductNearRelayerUpdate(plan, values) {
     return;
   }
   plan.variables.push({
-    environment: plan.target,
+    environment: plan.environmentPrefix,
     name: 'VITE_RELAYER_ACCOUNT_ID',
     value: accountId,
   });
@@ -250,17 +393,17 @@ function addProductNearNetworkUpdates(plan) {
   const nearRpcUrl = config.optional.nearRelayer?.rpcUrl || publicConfig.rpcUrl;
   plan.variables.push(
     {
-      environment: plan.target,
+      environment: plan.environmentPrefix,
       name: 'VITE_NEAR_NETWORK',
       value: network,
     },
     {
-      environment: plan.target,
+      environment: plan.environmentPrefix,
       name: 'VITE_NEAR_RPC_URL',
       value: nearRpcUrl,
     },
     {
-      environment: plan.target,
+      environment: plan.environmentPrefix,
       name: 'VITE_NEAR_EXPLORER',
       value: publicConfig.explorerUrl,
     },
@@ -276,14 +419,13 @@ function addWalletCoreNearRelayerSecretUpdate(plan, values) {
     throw new Error('RELAYER_PRIVATE_KEY requires nearRelayer in deployment/targets.json');
   }
   plan.secrets.push({
-    environment: `${plan.target}-gateway`,
+    environment: `${plan.environmentPrefix}-gateway`,
     name: 'RELAYER_PRIVATE_KEY',
     value: privateKey,
   });
 }
 
-function validateCheckedInGatewayConfiguration(target, values) {
-  const config = readDeploymentTarget(target).gatewayDeploymentConfig;
+function validateCheckedInGatewayConfiguration(config, values) {
   assertSuppliedValueMatches(values, 'GATEWAY_RUNTIME_PROFILE', config.runtimeProfile.kind);
   assertSuppliedValueMatches(
     values,
@@ -345,7 +487,11 @@ function selectPlan(plan, selection) {
     throw new Error('the selected deployment update contains no values');
   }
   return {
-    target: plan.target,
+    release: plan.release,
+    identityId: plan.identityId,
+    environmentPrefix: plan.environmentPrefix,
+    lane: plan.lane.id,
+    site: plan.site.id,
     component: plan.component,
     repository: plan.repository,
     valuesFile: plan.valuesFile,
@@ -411,7 +557,9 @@ function printPlan(plan, applying) {
     `${applying ? 'Applying' : 'Dry run for'} external deployment values from ${plan.valuesFile}\n`,
   );
   process.stdout.write(`Repository: ${plan.repository}\n`);
-  process.stdout.write(`Target: ${plan.target}\n\n`);
+  process.stdout.write(
+    `${plan.component === 'wallet-core' ? 'Lane' : 'Site'}: ${plan.identityId} (release ${plan.release})\n\n`,
+  );
   process.stdout.write(`Component: ${plan.component}\n\n`);
   printGatewayRuntimeProfile(plan);
   printUpdates('Variables', plan.variables, false);
@@ -536,14 +684,36 @@ function requireOption(name) {
 
 function readOption(name) {
   const index = argv.indexOf(name);
-  if (index === -1) {
+  if (index !== -1) {
+    const value = argv[index + 1];
+    if (!value || value.startsWith('--')) {
+      throw new Error(`${name} requires a value`);
+    }
+    return value;
+  }
+  const prefix = `${name}=`;
+  const assignment = argv.find((argument) => argument.startsWith(prefix));
+  if (!assignment) {
     return undefined;
   }
-  const value = argv[index + 1];
-  if (!value || value.startsWith('--')) {
+  const value = assignment.slice(prefix.length).trim();
+  if (!value) {
     throw new Error(`${name} requires a value`);
   }
   return value;
+}
+
+function assertNoLegacyIdentityFlags() {
+  const legacyFlag = argv.find(
+    (argument) =>
+      argument === '--env' ||
+      argument.startsWith('--env=') ||
+      argument === '--target' ||
+      argument.startsWith('--target='),
+  );
+  if (legacyFlag) {
+    throw new Error(`${legacyFlag} is retired; use --lane for wallet-core or --site for product`);
+  }
 }
 
 function printUsage() {
@@ -551,13 +721,14 @@ function printUsage() {
     .write(`Apply operator-owned deployment values without rotating generated identities.
 
 Usage:
-  pnpm wallet-core:deploy:env-update -- --env staging --repo seams-tech/seams-sdk
-  pnpm product:deploy:env-update -- --env staging --repo seams-tech/seams-sdk
+  pnpm wallet-core:deploy:env-update -- --lane staging-testnet --repo seams-tech/seams-sdk
+  pnpm product:deploy:env-update -- --site staging --repo seams-tech/seams-sdk
 
 Options:
-  --env <target>        Required. staging or production.
+  --lane <id>           Required for wallet-core: staging-testnet, production-testnet, or production-mainnet.
+  --site <id>           Required for product: staging or production.
   --component <name>    Required. wallet-core or product.
-  --values-file <path>  Defaults to ~/.seams/<target>-deployment.env.
+  --values-file <path>  Defaults to the lane/site deployment values file under ~/.seams.
   --repo <owner/repo>   Defaults to the repository for the current checkout.
   --only <names>        Update only the comma-separated GitHub value names.
   --variables-only      Update variables and leave every secret unchanged.

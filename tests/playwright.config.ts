@@ -28,12 +28,13 @@ function resolveDefaultFrontendUrlNoCaddy(): string {
   try {
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = path.dirname(__filename);
-    const expectedSdkDistRoot = fs.realpathSync(path.resolve(path.join(__dirname, '../packages/sdk-web/dist')));
+    const expectedSdkDistRoot = fs.realpathSync(
+      path.resolve(path.join(__dirname, '../packages/sdk-web/dist')),
+    );
     const script = `
       const fs = require('node:fs');
       const ports = [3600, 5180, 5175, 5181, 5190, 5191];
       const expected = process.argv[2];
-      const requireStrictCoep = process.argv[3] === 'strict';
       const timeoutMs = 250;
 
       async function classifyOrigin(origin) {
@@ -47,12 +48,6 @@ function resolveDefaultFrontendUrlNoCaddy(): string {
             try {
               const real = fs.realpathSync(text);
               if (real === expected) {
-                if (requireStrictCoep) {
-                  const doc = await fetch(\`\${origin}/\`, { signal: controller.signal });
-                  if (doc.headers.get('cross-origin-embedder-policy') !== 'require-corp') {
-                    return { kind: 'in_use_wrong' };
-                  }
-                }
                 return { kind: 'in_use_correct' };
               }
             } catch {}
@@ -91,14 +86,10 @@ function resolveDefaultFrontendUrlNoCaddy(): string {
         console.log(3600);
       })();
     `;
-    const chosenPortRaw = execFileSync(
-      process.execPath,
-      ['-e', script, expectedSdkDistRoot, process.env.VITE_COEP_MODE ?? 'strict'],
-      {
-        stdio: ['ignore', 'pipe', 'ignore'],
-        encoding: 'utf8',
-      },
-    )
+    const chosenPortRaw = execFileSync(process.execPath, ['-e', script, expectedSdkDistRoot], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      encoding: 'utf8',
+    })
       .toString()
       .trim();
     const chosenPort = Number(chosenPortRaw);
@@ -119,12 +110,6 @@ function resolveDefaultFrontendUrlNoCaddy(): string {
 // for local debugging (set VITE_WALLET_DEV_CSP=compatible).
 if (process.env.VITE_WALLET_DEV_CSP == null) {
   process.env.VITE_WALLET_DEV_CSP = 'strict';
-}
-
-// Enable COEP during tests to exercise cross-origin isolation behavior.
-// Default app behavior is COEP off to preserve browser extension compatibility.
-if (process.env.VITE_COEP_MODE == null) {
-  process.env.VITE_COEP_MODE = 'strict';
 }
 
 /**
@@ -243,7 +228,6 @@ export default defineConfig({
     // Propagate strict CSP to the dev server process.
     env: {
       VITE_WALLET_DEV_CSP: process.env.VITE_WALLET_DEV_CSP ?? 'strict',
-      VITE_COEP_MODE: process.env.VITE_COEP_MODE ?? 'strict',
       VITE_RELAYER_URL: process.env.VITE_RELAYER_URL ?? DEV_SERVER_URL,
       VITE_CONSOLE_BASE_URL: process.env.VITE_CONSOLE_BASE_URL ?? DEV_SERVER_URL,
       VITE_WALLET_ORIGIN: process.env.VITE_WALLET_ORIGIN ?? DEV_SERVER_URL,

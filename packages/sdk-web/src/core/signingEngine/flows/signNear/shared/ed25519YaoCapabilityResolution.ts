@@ -1,164 +1,257 @@
 import type {
-  NearEd25519EmailOtpStepUpAuthorization,
-  NearEd25519PasskeyStepUpAuthorization,
+  NearEmailOtpEd25519OperationStepUpCapabilityPreparation,
+  NearEd25519YaoMaterialExecutor,
+  NearEd25519YaoOperationMaterial,
   NearEd25519StepUpAuthorization,
-  NearEd25519YaoCapabilitySource,
-  NearEd25519YaoSigningCapability,
-  NearEmailOtpEd25519ReconnectHook,
-  NearPasskeyEd25519ReconnectHook,
 } from '../../../interfaces/near';
+import type { ResolvedRouterAbEd25519WalletSessionState } from '../../../session/warmCapabilities/routerAbEd25519WalletSessionState';
+import type { NearEd25519YaoSigningPreparation } from '../../../session/material/nearEd25519YaoSigningPreparation';
+import type {
+  MpcMaterialActivationRef,
+  ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
+import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
+import { nearEd25519YaoMaterialActivationFromMetadata } from '../../../session/material/nearEd25519YaoMaterialActivation';
+import { requireNearOperationStepUpMaterialActivation } from './operationStepUpPreparation';
+import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 
-export type NearEd25519ReconnectResult = {
-  sessionId: string;
-  capability: NearEd25519YaoSigningCapability;
+export type NearEd25519AuthorizationResult = {
+  thresholdSessionId: ThresholdEd25519SessionId;
+  material: NearEd25519YaoOperationMaterial;
+  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
 };
 
-export async function resolveNearEd25519YaoCapabilitySource(
-  source: NearEd25519YaoCapabilitySource,
-): Promise<NearEd25519YaoSigningCapability> {
-  switch (source.kind) {
-    case 'active_capability':
-      return source.capability;
-    case 'capability_rehydration':
-      return await source.rehydrate();
-    case 'email_otp_reconnect':
+export type NearOperationStepUpMaterial =
+  | {
+      kind: 'passkey_live';
+      materialActivation: MpcMaterialActivationRef;
+      material: NearEd25519YaoOperationMaterial;
+      rehydrate?: never;
+      authorizeAndRehydrate?: never;
+    }
+  | {
+      kind: 'email_otp_live';
+      materialActivation: MpcMaterialActivationRef;
+      material: NearEd25519YaoOperationMaterial;
+      rehydrate?: never;
+      authorizeAndRehydrate?: never;
+    }
+  | {
+      kind: 'passkey_sealed';
+      materialActivation: MpcMaterialActivationRef;
+      facts: NearEd25519YaoOperationMaterial['facts'];
+      material?: never;
+      authorizeAndRehydrate?: never;
+      rehydrate: (
+        credential: WebAuthnAuthenticationCredential,
+      ) => Promise<NearEd25519YaoOperationMaterial>;
+    }
+  | ({
+      kind: 'email_otp_sealed';
+      material?: never;
+      rehydrate?: never;
+    } & Omit<
+      Extract<NearEmailOtpEd25519OperationStepUpCapabilityPreparation, { kind: 'sealed' }>,
+      'kind'
+    >);
+
+export type ResolvedNearOperationStepUpMaterial = {
+  material: NearEd25519YaoOperationMaterial;
+  issuedAuthorization: Awaited<
+    ReturnType<
+      Extract<
+        NearEmailOtpEd25519OperationStepUpCapabilityPreparation,
+        { kind: 'sealed' }
+      >['authorizeAndRehydrate']
+    >
+  >['issuedAuthorization'] | null;
+};
+
+export function nearOperationStepUpMaterialFacts(
+  material: NearOperationStepUpMaterial,
+): NearEd25519YaoOperationMaterial['facts'] {
+  switch (material.kind) {
+    case 'passkey_live':
+    case 'email_otp_live':
+      return material.material.facts;
+    case 'passkey_sealed':
+    case 'email_otp_sealed':
+      return material.facts;
+    default:
+      material satisfies never;
+      throw new Error('[SigningEngine][near] unsupported operation material');
+  }
+}
+
+export async function resolvePreparedNearEd25519YaoMaterial(
+  preparation: NearEd25519YaoSigningPreparation,
+  executor: NearEd25519YaoMaterialExecutor,
+): Promise<NearEd25519YaoOperationMaterial> {
+  switch (preparation.hydration.kind) {
+    case 'use_live_runtime':
+    case 'rehydrate_material_activation':
+      return await executor.resolve(preparation);
+    case 'reauthorize_public_anchor':
+      throw new Error('[SigningEngine][near] material requires public-anchor reauthorization');
+    case 'blocked':
       throw new Error(
-        '[SigningEngine][near] confirmed Email OTP reconnect did not activate an Ed25519 Yao capability',
+        `[SigningEngine][near] material hydration is blocked: ${preparation.hydration.reason}`,
       );
     default:
-      return assertNeverNearEd25519YaoCapabilitySource(source);
+      preparation.hydration satisfies never;
+      throw new Error('[SigningEngine][near] unsupported Ed25519 Yao hydration plan');
   }
 }
 
-export function nearEd25519YaoResolutionRequiresBudgetReadmission(
-  source: NearEd25519YaoCapabilitySource,
-): boolean {
-  switch (source.kind) {
-    case 'active_capability':
-      return false;
-    case 'capability_rehydration':
-    case 'email_otp_reconnect':
-      return true;
-    default:
-      return assertNeverNearEd25519YaoCapabilitySource(source);
+export async function prepareNearOperationStepUpMaterial(args: {
+  method: SignerAuthMethod;
+  preparation: NearEd25519YaoSigningPreparation;
+  executor: NearEd25519YaoMaterialExecutor;
+}): Promise<NearOperationStepUpMaterial> {
+  if (
+    args.method === 'passkey' &&
+    args.preparation.hydration.kind === 'rehydrate_material_activation'
+  ) {
+    const prepared = await args.executor.preparePasskeyOperationStepUp(args.preparation);
+    return {
+      kind: 'passkey_sealed',
+      materialActivation: prepared.materialActivation,
+      facts: prepared.facts,
+      rehydrate: prepared.rehydrate,
+    };
   }
-}
-
-export async function reconnectNearPasskeyEd25519(args: {
-  authorization: NearEd25519PasskeyStepUpAuthorization;
-  hook: NearPasskeyEd25519ReconnectHook | null | undefined;
-  requiredSignatureUses: number;
-}): Promise<NearEd25519ReconnectResult> {
-  if (!args.hook) {
-    throw new Error('[SigningEngine] passkey reconnect runner is unavailable');
-  }
-  if (!args.authorization.credential) {
-    throw new Error('[SigningEngine] missing WebAuthn credential for passkey session reconnect');
-  }
-  const refreshed = await args.hook.reconnect({
-    authorization: args.authorization,
-    requiredSignatureUses: args.requiredSignatureUses,
-  });
-  return nearEd25519ReconnectResult(refreshed);
-}
-
-export async function reconnectNearEmailOtpEd25519(args: {
-  authorization: NearEd25519EmailOtpStepUpAuthorization;
-  hook: NearEmailOtpEd25519ReconnectHook | null | undefined;
-  requiredSignatureUses: number;
-}): Promise<NearEd25519ReconnectResult> {
-  if (!args.hook) {
-    throw new Error('[SigningEngine] Email OTP reconnect runner is unavailable');
-  }
-  const refreshed = await args.hook.reconnect({
-    authorization: args.authorization,
-    requiredSignatureUses: args.requiredSignatureUses,
-  });
-  return nearEd25519ReconnectResult(refreshed);
-}
-
-export async function resolveConfirmedNearEd25519YaoCapability(args: {
-  authorization: NearEd25519StepUpAuthorization;
-  source: NearEd25519YaoCapabilitySource;
-  passkeyReconnect: NearPasskeyEd25519ReconnectHook | null;
-  emailOtpReconnect: NearEmailOtpEd25519ReconnectHook | null;
-  requiredSignatureUses: number;
-}): Promise<NearEd25519ReconnectResult> {
-  switch (args.authorization.kind) {
-    case 'warm_session': {
-      const capability = await resolveNearEd25519YaoCapabilitySource(args.source);
-      return {
-        sessionId: capability.walletSessionState.thresholdSessionId,
-        capability,
-      };
-    }
-    case 'passkey': {
-      if (!args.passkeyReconnect) {
-        const capability = await resolveNearEd25519YaoCapabilitySource(args.source);
+  if (args.method === 'email_otp') {
+    const prepared = await args.executor.prepareEmailOtpOperationStepUp(args.preparation);
+    switch (prepared.kind) {
+      case 'live':
         return {
-          sessionId: capability.walletSessionState.thresholdSessionId,
-          capability,
+          kind: 'email_otp_live',
+          materialActivation: prepared.materialActivation,
+          material: prepared.material,
         };
-      }
-      const refreshed = await reconnectNearPasskeyEd25519({
-        authorization: args.authorization,
-        hook: args.passkeyReconnect,
-        requiredSignatureUses: args.requiredSignatureUses,
-      });
-      if (refreshed.sessionId !== args.authorization.plannedPasskeyReconnect.sessionId) {
-        throw new Error(
-          '[SigningEngine] passkey signing returned a different threshold session id than the confirmed session policy',
-        );
-      }
-      return refreshed;
-    }
-    case 'email_otp':
-      if (!args.emailOtpReconnect) {
-        const capability = await resolveNearEd25519YaoCapabilitySource(args.source);
+      case 'sealed':
         return {
-          sessionId: capability.walletSessionState.thresholdSessionId,
-          capability,
+          kind: 'email_otp_sealed',
+          materialActivation: prepared.materialActivation,
+          facts: prepared.facts,
+          authorizeAndRehydrate: prepared.authorizeAndRehydrate,
         };
-      }
-      return await reconnectNearEmailOtpEd25519({
-        authorization: args.authorization,
-        hook: args.emailOtpReconnect,
-        requiredSignatureUses: args.requiredSignatureUses,
-      });
-    default:
-      return assertNeverNearEd25519StepUpAuthorization(args.authorization);
+      default:
+        prepared satisfies never;
+        throw new Error('[SigningEngine][near] unsupported Email OTP operation material');
+    }
   }
-}
-
-function nearEd25519ReconnectResult(args: {
-  sessionId: string;
-  activeClient: NearEd25519YaoSigningCapability['activeClient'];
-  sessionState: NearEd25519YaoSigningCapability['walletSessionState'];
-}): NearEd25519ReconnectResult {
-  const sessionId = String(args.sessionId || '').trim();
-  if (!sessionId) {
-    throw new Error('[SigningEngine][near] reconnect did not return a threshold session id');
-  }
-  if (args.sessionState.thresholdSessionId !== sessionId) {
-    throw new Error('[SigningEngine][near] reconnect session state does not match its session id');
-  }
+  const material = await resolvePreparedNearEd25519YaoMaterial(
+    args.preparation,
+    args.executor,
+  );
   return {
-    sessionId,
-    capability: {
-      activeClient: args.activeClient,
-      walletSessionState: args.sessionState,
-    },
+    kind: 'passkey_live',
+    materialActivation: nearEd25519YaoMaterialActivationFromMetadata(
+      material.activeClient.metadata(),
+    ),
+    material,
   };
 }
 
-function assertNeverNearEd25519YaoCapabilitySource(value: never): never {
-  throw new Error(
-    `[SigningEngine][near] unsupported Ed25519 Yao capability source: ${String(value)}`,
-  );
+type ResolveNearOperationStepUpMaterialArgs =
+  | {
+      kind: 'passkey';
+      material: Extract<
+        NearOperationStepUpMaterial,
+        { kind: 'passkey_live' | 'passkey_sealed' }
+      >;
+      expectedActivation: MpcMaterialActivationRef;
+      credential: WebAuthnAuthenticationCredential;
+      normalSigningRequest?: never;
+      displayDigest?: never;
+      proof?: never;
+    }
+  | {
+      kind: 'email_otp_live';
+      material: Extract<NearOperationStepUpMaterial, { kind: 'email_otp_live' }>;
+      expectedActivation: MpcMaterialActivationRef;
+      normalSigningRequest?: never;
+      displayDigest?: never;
+      proof?: never;
+      credential?: never;
+    }
+  | {
+      kind: 'email_otp_sealed';
+      material: Extract<NearOperationStepUpMaterial, { kind: 'email_otp_sealed' }>;
+      expectedActivation: MpcMaterialActivationRef;
+      normalSigningRequest: Parameters<
+        Extract<
+          NearEmailOtpEd25519OperationStepUpCapabilityPreparation,
+          { kind: 'sealed' }
+        >['authorizeAndRehydrate']
+      >[0]['normalSigningRequest'];
+      displayDigest: string;
+      proof: Parameters<
+        Extract<
+          NearEmailOtpEd25519OperationStepUpCapabilityPreparation,
+          { kind: 'sealed' }
+        >['authorizeAndRehydrate']
+      >[0]['proof'];
+      credential?: never;
+    };
+
+export async function resolveNearOperationStepUpMaterial(
+  args: ResolveNearOperationStepUpMaterialArgs,
+): Promise<ResolvedNearOperationStepUpMaterial> {
+  requireNearOperationStepUpMaterialActivation({
+    expected: args.expectedActivation,
+    actual: args.material.materialActivation,
+  });
+  let material: NearEd25519YaoOperationMaterial;
+  let issuedAuthorization: ResolvedNearOperationStepUpMaterial['issuedAuthorization'] = null;
+  if (args.kind === 'email_otp_live' || args.kind === 'email_otp_sealed') {
+    if (args.kind === 'email_otp_live') {
+      material = args.material.material;
+    } else {
+      const resolved = await args.material.authorizeAndRehydrate({
+        normalSigningRequest: args.normalSigningRequest,
+        displayDigest: args.displayDigest,
+        proof: args.proof,
+      });
+      material = resolved.material;
+      issuedAuthorization = resolved.issuedAuthorization;
+    }
+  } else {
+    material =
+      args.material.kind === 'passkey_live'
+        ? args.material.material
+        : await args.material.rehydrate(args.credential);
+  }
+  try {
+    requireNearOperationStepUpMaterialActivation({
+      expected: args.expectedActivation,
+      actual: nearEd25519YaoMaterialActivationFromMetadata(material.activeClient.metadata()),
+    });
+    return { material, issuedAuthorization };
+  } catch (error) {
+    if (
+      args.material.kind === 'passkey_sealed' ||
+      args.material.kind === 'email_otp_sealed'
+    ) {
+      material.activeClient.dispose();
+    }
+    throw error;
+  }
 }
 
-function assertNeverNearEd25519StepUpAuthorization(value: never): never {
-  throw new Error(
-    `[SigningEngine][near] unsupported Ed25519 step-up authorization: ${String(value)}`,
+export async function resolveConfirmedNearEd25519YaoCapability(args: {
+  authorization: Extract<NearEd25519StepUpAuthorization, { kind: 'warm_session' }>;
+  preparation: NearEd25519YaoSigningPreparation;
+  executor: NearEd25519YaoMaterialExecutor;
+}): Promise<NearEd25519AuthorizationResult> {
+  const material = await resolvePreparedNearEd25519YaoMaterial(
+    args.preparation,
+    args.executor,
   );
+  return {
+    thresholdSessionId: material.facts.thresholdSessionId,
+    material,
+    walletSessionState: await args.executor.resolveWalletSessionState(),
+  };
 }

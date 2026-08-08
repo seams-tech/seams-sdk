@@ -16,6 +16,7 @@ import {
   awaitConfirmUIDecision,
   prepareConfirmUISurface,
   type ConfirmUIHandle,
+  type ConfirmUIRenderContext,
   type ConfirmUIPromptDiagnostics,
   type ConfirmUISurfaceSource,
   type ConfirmUIUpdate,
@@ -229,6 +230,18 @@ function closeModalSafely(confirmed: boolean, handle?: ConfirmUIHandle) {
   handle?.close?.(confirmed);
 }
 
+function confirmUiRenderContext(ctx: UiConfirmContext): ConfirmUIRenderContext {
+  return {
+    userPreferencesManager: ctx.userPreferencesManager,
+    chains: ctx.chains,
+    getAppearance: ctx.getAppearance,
+    nearExplorerUrl: ctx.nearExplorerUrl,
+    tempoExplorerUrl: ctx.tempoExplorerUrl,
+    evmExplorerUrl: ctx.evmExplorerUrl,
+    surfaceMeasurementBinding: ctx.surfaceMeasurementBinding,
+  };
+}
+
 type RenderConfirmUIResult = {
   confirmed: boolean;
   confirmHandle?: ConfirmUIHandle;
@@ -278,7 +291,7 @@ async function renderAutoProceedConfirmUI(
 ): Promise<RenderConfirmUIResult> {
   const mountStartedAt = performance.now();
   const handle = await prepareConfirmUISurface({
-    ctx: args.ctx,
+    ctx: confirmUiRenderContext(args.ctx),
     summary: args.transactionSummary,
     txSigningRequests: args.txSigningRequests,
     model: args.model,
@@ -314,7 +327,7 @@ async function renderInteractiveConfirmUI(
 ): Promise<RenderConfirmUIResult> {
   const { confirmed, handle, error, otpCode, emailOtpChallengeId, diagnostics } =
     await awaitConfirmUIDecision({
-      ctx: args.ctx,
+      ctx: confirmUiRenderContext(args.ctx),
       summary: args.transactionSummary,
       txSigningRequests: args.txSigningRequests,
       model: args.model,

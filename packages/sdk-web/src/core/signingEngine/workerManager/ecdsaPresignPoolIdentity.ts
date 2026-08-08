@@ -5,7 +5,9 @@ export const FIXED_ECDSA_PRESIGN_PROTOCOL_ID =
 
 export type EcdsaClientPresignPoolIdentity = {
   readonly poolKey: string;
-  readonly walletKeyId: string;
+  readonly materialActivationId: string;
+  readonly capability: string;
+  readonly keyBinding: string;
   readonly walletId: string;
   readonly signingScopeB64u: string;
   readonly pairRole: 'client';
@@ -32,7 +34,12 @@ export function parseEcdsaClientPresignPoolIdentity(
   }
   return {
     poolKey: requireIdentityString(raw.poolKey, 'poolIdentity.poolKey'),
-    walletKeyId: requireIdentityString(raw.walletKeyId, 'poolIdentity.walletKeyId'),
+    materialActivationId: requireIdentityString(
+      raw.materialActivationId,
+      'poolIdentity.materialActivationId',
+    ),
+    capability: requireIdentityString(raw.capability, 'poolIdentity.capability'),
+    keyBinding: requireIdentityString(raw.keyBinding, 'poolIdentity.keyBinding'),
     walletId: requireIdentityString(raw.walletId, 'poolIdentity.walletId'),
     signingScopeB64u: requireIdentityString(
       raw.signingScopeB64u,
@@ -57,7 +64,9 @@ export function equalEcdsaClientPresignPoolIdentity(
 ): boolean {
   return (
     left.poolKey === right.poolKey &&
-    left.walletKeyId === right.walletKeyId &&
+    left.materialActivationId === right.materialActivationId &&
+    left.capability === right.capability &&
+    left.keyBinding === right.keyBinding &&
     left.walletId === right.walletId &&
     left.signingScopeB64u === right.signingScopeB64u &&
     left.pairRole === right.pairRole &&

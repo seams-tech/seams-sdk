@@ -1,6 +1,7 @@
 use router_ab_core::{
-    LocalHttpPathV1, LocalServiceRoleV1, RootShareEpoch, RouterEd25519YaoExecuteResultV1,
-    RouterEd25519YaoExecuteSuccessV1, RouterEd25519YaoGatewayExecuteRequestV1,
+    LocalHttpPathV1, MpcMaterialActivationRefV1, LocalServiceRoleV1, RootShareEpoch,
+    RouterEd25519YaoExecuteResultV1, RouterEd25519YaoExecuteSuccessV1,
+    RouterEd25519YaoGatewayExecuteRequestV1,
 };
 use router_ab_dev::{
     admit_local_ed25519_yao_registration_v1, generate_local_ed25519_yao_recipient_key_pair_v1,
@@ -472,6 +473,14 @@ fn product_registration_request(
                 "wallet-session-product-benchmark",
                 "signer-set-product-benchmark",
                 "signing-worker-local",
+                MpcMaterialActivationRefV1::new(
+                    "activation-product-benchmark",
+                    "capability-product-benchmark",
+                    "account-product-benchmark",
+                    "key-product-benchmark",
+                    "product-benchmark-registration",
+                    "signing-worker-local",
+                )?,
             )?,
             application_binding.clone(),
             [1, 2],

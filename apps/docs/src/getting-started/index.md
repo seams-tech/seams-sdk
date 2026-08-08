@@ -20,7 +20,7 @@ create wallet -> approve intent -> sign with policy -> audit
 1. [Create A Wallet](/getting-started/create-wallet): register a wallet key and
    bind it to the user's auth method.
 2. [Sign With Policy](/getting-started/sign-with-policy): request a wallet
-   signature through a typed intent, Wallet Session, signing grant, and Router
+   signature through a typed intent, Wallet Session quota, capability claim, and Router
    A/B.
 3. [Delegate Or Rotate](/getting-started/delegate-or-rotate): add linked
    devices, issue delegated-agent lanes, refresh shares, export, or rekey under
@@ -41,7 +41,12 @@ const seamsConfig = {
   },
   relayerAccount: 'w3a-relayer.testnet',
   relayer: {
-    url: import.meta.env.VITE_SEAMS_ROUTER_URL,
+    url: import.meta.env.VITE_RELAYER_URL,
+  },
+  registration: {
+    mode: 'managed',
+    projectEnvironmentId: import.meta.env.VITE_SEAMS_PROJECT_ENVIRONMENT_ID,
+    publishableKey: import.meta.env.VITE_SEAMS_PUBLISHABLE_KEY,
   },
   chains: [
     {

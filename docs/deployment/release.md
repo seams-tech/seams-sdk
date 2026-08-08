@@ -20,7 +20,6 @@ For changes touching threshold signing or D1/DO-backed relay behavior, also run:
 
 ```bash
 pnpm test:threshold-core
-pnpm test:threshold-ed25519:active-path
 pnpm -C packages/console-server-ts run d1:local:prepare
 pnpm -C packages/console-server-ts run d1:local:restore:drill
 ```
@@ -63,16 +62,20 @@ npm view @seams/sdk version
 ## Deploy Hosted Surfaces
 
 After the release commit is merged to protected `main`, manually dispatch the
-production backend and frontend workflows from that same `main` revision:
+two production backend lane workflows and the shared frontend workflow from
+that same `main` revision:
 
 ```bash
-gh workflow run deploy-production-backend.yml --ref main
+gh workflow run deploy-production-testnet-backend.yml --ref main
+gh workflow run deploy-production-mainnet-backend.yml --ref main
 gh workflow run deploy-production-frontend.yml --ref main
 ```
 
-Each workflow builds and deploys its complete lane, then runs its own smoke
-checks. They are independent and use the workflow commit as the source of
-truth.
+Each workflow identifies one backend lane or the shared production site and
+uses the workflow commit as the source of truth. The production lane workflows
+currently produce plans and stop at provisioning guards until fresh testnet
+and mainnet resources and identities are available. The frontend production
+workflow remains gated while either backend lane is pending.
 
 ## Release Verification
 
@@ -90,7 +93,8 @@ Check:
 SDK runtime:
 
 1. Revert the bad change or land a corrective commit on `main`.
-2. Dispatch both production workflows from that new `main` tip.
+2. Dispatch both production backend lane workflows and the production frontend
+   workflow from that new `main` tip.
 3. Treat secrets, D1 migrations, Durable Object state, and other environment
    state as separate recovery work.
 
@@ -103,6 +107,8 @@ npm deprecate @seams/sdk@X.Y.Z "Use X.Y.Z+1"
 Use `npm unpublish` only inside npm's allowed unpublish window and only when
 deprecation is insufficient.
 
-Relay and Pages: use the matching production workflow from the corrective
-`main` commit, then re-run its smoke checks. Use the Cloudflare dashboard only
-as an emergency provider-specific fallback.
+Relay and Pages: use the matching production-testnet or production-mainnet
+workflow, plus the production frontend workflow, from the corrective `main`
+commit, then re-run its smoke checks. Pending lane provisioning remains a hard
+gate. Use the Cloudflare dashboard only as an emergency provider-specific
+fallback.

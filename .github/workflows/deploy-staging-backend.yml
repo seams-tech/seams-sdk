@@ -1,4 +1,4 @@
-name: Deploy / staging / backend
+name: Deploy / staging-testnet / backend
 
 on:
   workflow_dispatch:
@@ -7,17 +7,17 @@ permissions:
   contents: read
 
 concurrency:
-  group: deployment-staging-backend
+  group: deployment-staging-testnet-backend
   cancel-in-progress: false
 
 env:
-  DEPLOY_TARGET: staging
+  DEPLOY_LANE: staging-testnet
   DEPLOY_SHA: ${{ github.sha }}
   RUST_TOOLCHAIN: 1.96.0
 
 jobs:
   build:
-    name: Build / staging / backend
+    name: Build / staging-testnet / backend
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -43,7 +43,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
       - name: Build backend artifact
-        run: pnpm deploy:backend build --target "$DEPLOY_TARGET"
+        run: pnpm deploy:backend build --lane "$DEPLOY_LANE"
       - name: Check fixed build entries
         run: |
           set -euo pipefail
@@ -54,7 +54,7 @@ jobs:
       - name: Upload backend artifact
         uses: actions/upload-artifact@v7
         with:
-          name: backend-build
+          name: backend-build-staging-testnet
           overwrite: true
           include-hidden-files: true
           retention-days: 30
@@ -65,7 +65,7 @@ jobs:
             packages/console-server-ts/.wrangler/generated
 
   preflight:
-    name: Preflight / staging / ${{ matrix.component }}
+    name: Preflight / staging-testnet / ${{ matrix.component }}
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -98,10 +98,10 @@ jobs:
         with:
           node-version: '24'
       - name: Check component configuration
-        run: node scripts/deploy-backend.mjs preflight --target "$DEPLOY_TARGET" --component "${{ matrix.component }}"
+        run: node scripts/deploy-backend.mjs preflight --lane "$DEPLOY_LANE" --component "${{ matrix.component }}"
 
   migrate:
-    name: Migrate / staging / gateway
+    name: Migrate / staging-testnet / gateway
     needs:
       - preflight
       - build
@@ -130,14 +130,14 @@ jobs:
       - name: Download backend artifact
         uses: actions/download-artifact@v8
         with:
-          name: backend-build
+          name: backend-build-staging-testnet
       - name: Check Gateway build entry
         run: test -s .release-artifacts/gateway/payload/d1RouterApiWorker.js
       - name: Apply D1 migrations
-        run: pnpm deploy:backend migrate --target "$DEPLOY_TARGET"
+        run: pnpm deploy:backend migrate --lane "$DEPLOY_LANE"
 
   deploy_signing_worker:
-    name: Deploy / staging / signing-worker
+    name: Deploy / staging-testnet / signing-worker
     needs: migrate
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -170,14 +170,14 @@ jobs:
       - name: Download backend artifact
         uses: actions/download-artifact@v8
         with:
-          name: backend-build
+          name: backend-build-staging-testnet
       - name: Check Signing Worker build entry
         run: test -s crates/router-ab-cloudflare/build/signing-worker/worker/shim.mjs
       - name: Deploy Signing Worker
-        run: pnpm deploy:backend deploy --target "$DEPLOY_TARGET" --component signing-worker
+        run: pnpm deploy:backend deploy --lane "$DEPLOY_LANE" --component signing-worker
 
   deploy_deriver_a:
-    name: Deploy / staging / deriver-a
+    name: Deploy / staging-testnet / deriver-a
     needs: migrate
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -214,14 +214,14 @@ jobs:
       - name: Download backend artifact
         uses: actions/download-artifact@v8
         with:
-          name: backend-build
+          name: backend-build-staging-testnet
       - name: Check Deriver A build entry
         run: test -s crates/router-ab-cloudflare/build/deriver-a/worker/shim.mjs
       - name: Deploy Deriver A
-        run: pnpm deploy:backend deploy --target "$DEPLOY_TARGET" --component deriver-a
+        run: pnpm deploy:backend deploy --lane "$DEPLOY_LANE" --component deriver-a
 
   deploy_deriver_b:
-    name: Deploy / staging / deriver-b
+    name: Deploy / staging-testnet / deriver-b
     needs: migrate
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -258,14 +258,14 @@ jobs:
       - name: Download backend artifact
         uses: actions/download-artifact@v8
         with:
-          name: backend-build
+          name: backend-build-staging-testnet
       - name: Check Deriver B build entry
         run: test -s crates/router-ab-cloudflare/build/deriver-b/worker/shim.mjs
       - name: Deploy Deriver B
-        run: pnpm deploy:backend deploy --target "$DEPLOY_TARGET" --component deriver-b
+        run: pnpm deploy:backend deploy --lane "$DEPLOY_LANE" --component deriver-b
 
   deploy_router:
-    name: Deploy / staging / router
+    name: Deploy / staging-testnet / router
     needs: [deploy_signing_worker, deploy_deriver_a, deploy_deriver_b]
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -300,14 +300,14 @@ jobs:
       - name: Download backend artifact
         uses: actions/download-artifact@v8
         with:
-          name: backend-build
+          name: backend-build-staging-testnet
       - name: Check Router build entry
         run: test -s crates/router-ab-cloudflare/build/router/worker/shim.mjs
       - name: Deploy Router
-        run: pnpm deploy:backend deploy --target "$DEPLOY_TARGET" --component router
+        run: pnpm deploy:backend deploy --lane "$DEPLOY_LANE" --component router
 
   deploy_gateway:
-    name: Deploy / staging / gateway
+    name: Deploy / staging-testnet / gateway
     needs: deploy_router
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -325,7 +325,6 @@ jobs:
       STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
       RELAYER_PRIVATE_KEY: ${{ secrets.RELAYER_PRIVATE_KEY }}
       SPONSORED_EVM_EXECUTORS_JSON: ${{ secrets.SPONSORED_EVM_EXECUTORS_JSON }}
-      SIGNING_ROOT_KEK_VALUE: ${{ secrets.SIGNING_ROOT_KEK_VALUE }}
       SIGNING_SESSION_SEAL_ROOT_SECRET_B64U: ${{ secrets.SIGNING_SESSION_SEAL_ROOT_SECRET_B64U }}
     steps:
       - name: Checkout workflow revision
@@ -344,10 +343,10 @@ jobs:
       - name: Download backend artifact
         uses: actions/download-artifact@v8
         with:
-          name: backend-build
+          name: backend-build-staging-testnet
       - name: Check Gateway build entry
         run: test -s .release-artifacts/gateway/payload/d1RouterApiWorker.js
       - name: Deploy Gateway
-        run: pnpm deploy:backend deploy --target "$DEPLOY_TARGET" --component gateway
+        run: pnpm deploy:backend deploy --lane "$DEPLOY_LANE" --component gateway
       - name: Run backend smoke tests
-        run: pnpm deploy:backend smoke --target "$DEPLOY_TARGET"
+        run: pnpm deploy:backend smoke --lane "$DEPLOY_LANE"

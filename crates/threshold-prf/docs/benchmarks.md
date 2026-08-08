@@ -8,8 +8,9 @@ Last updated: June 13, 2026
 This document tracks the active `t-of-N` benchmark surface for
 `threshold-prf`.
 
-The crate runs server-side, so production bundle size is an operational signal
-and platform-limit check. It is not a user-facing web bundle target.
+The native crate is the production implementation. The local Node/V8 WASM
+benchmark exercises the separate benchmark wrapper and provides a comparative
+runtime signal.
 
 ## Commands
 
@@ -30,29 +31,6 @@ Local Node/V8 WASM benchmark:
 ```bash
 just threshold-prf-wasm-bench
 ```
-
-Production WASM package-size check:
-
-```bash
-just threshold-prf-wasm-size
-```
-
-Generated package smoke:
-
-```bash
-just threshold-prf-wasm-smoke
-```
-
-Cloudflare Worker benchmark harness:
-
-```bash
-just threshold-prf-worker-bench-build
-just threshold-prf-worker-bench-init-check
-just threshold-prf-worker-bench-deploy
-just threshold-prf-worker-bench-run https://threshold-prf-worker-bench.<account>.workers.dev
-```
-
-Live Cloudflare testing is deferred.
 
 ## Active Native Guardrails
 
@@ -76,7 +54,7 @@ The guardrail check reads Criterion mean confidence-interval upper bounds after
 
 These thresholds catch large regressions before integration. They are looser
 than local Apple M4 Pro measurements and are not portable performance claims
-for CI or Cloudflare Workers.
+for CI.
 
 ## Retained Local Baseline
 
@@ -88,7 +66,6 @@ Environment:
 - Native command: `just threshold-prf-bench`
 - Native guard command: `just threshold-prf-bench-check`
 - Local WASM command: `just threshold-prf-wasm-bench`
-- Bundle-size command: `just threshold-prf-wasm-size`
 
 Native Criterion mean estimates:
 
@@ -120,63 +97,6 @@ Interpretation:
   proxy.
 - The native guardrail check passed all active benchmark thresholds.
 
-## Production WASM Package Size
-
-Latest retained size check after distributed-combine exports:
-
-| Artifact | Raw | Gzip | Brotli |
-| --- | ---: | ---: | ---: |
-| `threshold_prf_bg.wasm` | 87.8 KiB | 39.9 KiB | 33.3 KiB |
-| `threshold_prf.js` | 17.1 KiB | 3.0 KiB | 2.7 KiB |
-| package total | 111.6 KiB | 44.5 KiB | 37.3 KiB |
-
-The generated package smoke currently checks 32 outputs and 7 rejection
-cases.
-
-## WASM Initialization Lifecycle
-
-Expected lifecycle:
-
-- Cloudflare Worker benchmark isolates cache threshold-prf WASM initialization
-  in module-scope state. The first `/bench` request in an isolate initializes
-  WASM, and subsequent warm `/bench` requests reuse the cached init promise.
-- The server SDK `ensureThresholdPrfWasm()` path also keeps a module-scope init
-  promise, so repeated derivations in one process avoid redundant
-  `init_threshold_prf()` calls.
-- New Worker isolates and new server processes pay initialization cost again.
-
-Regression guard:
-
-```bash
-just threshold-prf-worker-bench-init-check
-```
-
-The guard starts local Wrangler, sends two `/bench` requests to the fixture, and
-fails if the second request reports `wasmWasReadyBeforeRequest: false`.
-
-## Cloudflare Worker Harness
-
-Source:
-
-- [worker-bench](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/worker-bench)
-- [worker-bench-build.mjs](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/scripts/worker-bench-build.mjs)
-- [worker-bench-init-check.mjs](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/scripts/worker-bench-init-check.mjs)
-- [worker-bench-run.mjs](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/scripts/worker-bench-run.mjs)
-
-Measured deployed results: pending.
-
-Record the first deployed run with:
-
-- date
-- Cloudflare account/region details that are safe to disclose
-- git revision and worktree state
-- Worker URL or deployment version
-- command and iteration count
-- first-request and warm-request samples
-- WASM initialization time
-- in-isolate crypto timings
-- client-observed request latency
-
 ## Performance Readiness Decision
 
 Decision: threshold-prf performance is sufficient for server SDK one-runtime
@@ -188,19 +108,14 @@ Rationale:
   local Node/V8 WASM proxy.
 - Existing ECDSA bootstrap and Ed25519 Yao ceremony paths are tens to hundreds
   of milliseconds, so threshold-prf derivation is not a first-order latency source.
-- Further threshold-prf micro-optimization should wait for deployed Worker
-  measurements or a demonstrated hot path.
-- Real Cloudflare Worker runtime benchmarks are still required before making
-  Worker production latency claims or treating coordination costs as known.
+- Further threshold-prf micro-optimization should wait for a demonstrated hot
+  path.
 
 ## Optimization Policy
 
 High-impact optimization work should target measured runtime costs:
 
-- deployed Worker cold and warm request timings
-- storage and decrypt overhead around sealed share resolution
-- WASM initialization lifecycle regressions
-- distributed-combine coordination overhead
+- measured native or local WASM runtime costs
 - DLEQ proof generation or verification only when profiling shows it is
   material
 

@@ -1,8 +1,11 @@
 import type { WalletSession } from '@/core/types/seams';
 
 export function isWalletSessionReadyForUi(args: {
-  session: Pick<WalletSession, 'login' | 'signingSession'>;
+  session: Pick<WalletSession, 'appIdentity' | 'authentication'>;
 }): boolean {
-  const { session } = args;
-  return Boolean(session?.login?.isLoggedIn && session.login.walletId);
+  if (args.session.appIdentity.kind !== 'resolved') return false;
+  if (args.session.authentication.kind !== 'authenticated') return false;
+  return (
+    String(args.session.appIdentity.walletId) === String(args.session.authentication.walletId)
+  );
 }

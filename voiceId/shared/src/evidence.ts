@@ -21,10 +21,45 @@ export type VoiceIdExperimentalCaptureFreshness = {
   serverVerifiedFreshness: false;
 };
 
-export type VoiceIdExperimentalPad = {
-  kind: 'pad_unavailable';
-  reason: 'ordinary_browser_capture';
-};
+export type VoiceIdExperimentalPad =
+  | {
+      kind: 'pad_unavailable';
+      reason: 'ordinary_browser_capture';
+    }
+  | {
+      kind: 'accepted';
+      score: number;
+      rejectThreshold: number;
+      acceptThreshold: number;
+      modelVersion: string;
+      calibrationVersion: string;
+      latencyMs: number;
+    }
+  | {
+      kind: 'rejected';
+      reason: 'presentation_attack';
+      score: number;
+      rejectThreshold: number;
+      acceptThreshold: number;
+      modelVersion: string;
+      calibrationVersion: string;
+      latencyMs: number;
+    }
+  | {
+      kind: 'uncertain';
+      reason:
+        | 'model_low_confidence'
+        | 'model_unavailable'
+        | 'deadline_exceeded'
+        | 'overloaded'
+        | 'low_audio_quality';
+      score: number;
+      rejectThreshold: number;
+      acceptThreshold: number;
+      modelVersion: string;
+      calibrationVersion: string;
+      latencyMs: number;
+    };
 
 export type VoiceIdExperimentalCaptureProfile = {
   kind: 'ordinary_browser_capture';
@@ -38,7 +73,7 @@ export type VoiceIdObservedChecks = {
   speaker: Extract<VoiceIdSpeakerMatchResult, { kind: 'accepted' }>;
   quality: Extract<VoiceIdAudioQualityResult, { kind: 'accepted' }>;
   captureFreshness: VoiceIdExperimentalCaptureFreshness;
-  pad: VoiceIdExperimentalPad;
+  pad: Extract<VoiceIdExperimentalPad, { kind: 'accepted' | 'pad_unavailable' }>;
   captureProfile: VoiceIdExperimentalCaptureProfile;
 };
 

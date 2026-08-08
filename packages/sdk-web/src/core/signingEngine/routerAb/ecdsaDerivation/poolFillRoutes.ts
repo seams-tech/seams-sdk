@@ -3,12 +3,31 @@ import {
   ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH,
   ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH,
   type RouterAbEcdsaDerivationNormalSigningScopeV1,
+  type RouterAbEcdsaOperationStepUpPreparationV1Wire,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import { fetchRouterAbEcdsaDerivationJson } from './httpRequest';
+import type { RouterAbEd25519NormalSigningCredential } from '../../../rpcClients/relayer/routerAbNormalSigning';
 
 type RouterAbEcdsaDerivationPoolFillAuth = {
-  walletSessionJwt: string;
+  credential: RouterAbEd25519NormalSigningCredential;
 };
+
+export type RouterAbEcdsaDerivationPoolFillAuthorization =
+  | {
+      readonly authorization: Extract<
+        RouterAbNormalSigningAuthorizationWire,
+        { readonly kind: 'reusable_wallet_session' }
+      >;
+      readonly operation?: never;
+    }
+  | {
+      readonly authorization: Extract<
+        RouterAbNormalSigningAuthorizationWire,
+        { readonly kind: 'operation_step_up' }
+      >;
+      readonly operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
+    };
 
 function resolveRelayerUrl(input: string): string | null {
   const relayerUrl = stripTrailingSlashes(toTrimmedString(input));
@@ -19,6 +38,7 @@ function resolvePresignAuthHeaders(args: RouterAbEcdsaDerivationPoolFillAuth):
   | {
       ok: true;
       headers: Record<string, string>;
+      credentials: RequestCredentials;
     }
   | {
       ok: false;
@@ -26,16 +46,53 @@ function resolvePresignAuthHeaders(args: RouterAbEcdsaDerivationPoolFillAuth):
       message: string;
     } {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const jwt = String(args.walletSessionJwt || '').trim();
-  if (!jwt) {
-    return {
-      ok: false,
-      code: 'invalid_args',
-      message: 'Missing walletSessionJwt for Router A/B ECDSA derivation presign pool fill',
-    };
+  switch (args.credential.kind) {
+    case 'wallet_session_jwt': {
+      const jwt = String(args.credential.walletSessionJwt || '').trim();
+      if (!jwt) {
+        return {
+          ok: false,
+          code: 'invalid_args',
+          message: 'Missing session JWT for Router A/B ECDSA derivation presign pool fill',
+        };
+      }
+      headers.Authorization = `Bearer ${jwt}`;
+      return { ok: true, headers, credentials: 'omit' };
+    }
+    case 'app_session_jwt': {
+      const jwt = String(args.credential.appSessionJwt || '').trim();
+      if (!jwt) {
+        return {
+          ok: false,
+          code: 'invalid_args',
+          message: 'Missing app session JWT for Router A/B ECDSA derivation presign pool fill',
+        };
+      }
+      headers.Authorization = `Bearer ${jwt}`;
+      return { ok: true, headers, credentials: 'omit' };
+    }
+    case 'app_session_cookie':
+      return { ok: true, headers, credentials: 'include' };
   }
-  headers.Authorization = `Bearer ${jwt}`;
-  return { ok: true, headers };
+}
+
+function poolFillAuthorizationBody(
+  input: RouterAbEcdsaDerivationPoolFillAuthorization,
+): RouterAbEcdsaDerivationPoolFillAuthorization {
+  switch (input.authorization.kind) {
+    case 'reusable_wallet_session':
+      return { authorization: input.authorization };
+    case 'operation_step_up': {
+      const operation = input.operation;
+      if (!operation) {
+        throw new Error('Operation step-up pool fill requires exact operation preparation');
+      }
+      return {
+        authorization: input.authorization,
+        operation,
+      };
+    }
+  }
 }
 
 export type RouterAbEcdsaDerivationPoolFillProgress = {
@@ -79,10 +136,11 @@ function resolveRouterAbEcdsaDerivationPoolFillInitKeySelector(args: {
 export type RouterAbEcdsaDerivationPoolFillInitBaseArgs = {
   relayerUrl: string;
   count?: number;
-  walletSessionJwt: string;
+  credential: RouterAbEd25519NormalSigningCredential;
   requestTag?: string;
   requestTimeoutMs?: number;
-} & RouterAbEcdsaDerivationPoolFillInitKeySelector;
+} & RouterAbEcdsaDerivationPoolFillInitKeySelector &
+  RouterAbEcdsaDerivationPoolFillAuthorization;
 
 export type RouterAbEcdsaDerivationPresignaturePoolFillInitArgs = RouterAbEcdsaDerivationPoolFillInitBaseArgs & {
   poolFill: RouterAbEcdsaDerivationPresignaturePoolFill;
@@ -130,12 +188,13 @@ async function postEcdsaPresignInit(
       init: {
         method: 'POST',
         headers: auth.headers,
-        credentials: 'omit',
+        credentials: auth.credentials,
         body: JSON.stringify({
           ...keySelector.value,
           count: Number.isFinite(args.count) ? Math.max(1, Math.floor(Number(args.count))) : 1,
           ...(requestTag ? { requestTag } : {}),
           poolFill: args.poolFill,
+          ...poolFillAuthorizationBody(args),
         }),
       },
     });
@@ -180,10 +239,10 @@ export type RouterAbEcdsaDerivationPoolFillStepArgs = {
   presignSessionId: string;
   stage: 'triples' | 'presign';
   outgoingMessagesB64u?: string[];
-  walletSessionJwt: string;
+  credential: RouterAbEd25519NormalSigningCredential;
   requestTag?: string;
   requestTimeoutMs?: number;
-};
+} & RouterAbEcdsaDerivationPoolFillAuthorization;
 
 async function postEcdsaPresignStep(
   args: RouterAbEcdsaDerivationPoolFillStepArgs & { path: string },
@@ -235,7 +294,7 @@ async function postEcdsaPresignStep(
       init: {
         method: 'POST',
         headers: auth.headers,
-        credentials: 'omit',
+        credentials: auth.credentials,
         body: JSON.stringify({
           presignSessionId,
           stage: args.stage,
@@ -243,6 +302,7 @@ async function postEcdsaPresignStep(
             ? args.outgoingMessagesB64u
             : [],
           ...(requestTag ? { requestTag } : {}),
+          ...poolFillAuthorizationBody(args),
         }),
       },
     });

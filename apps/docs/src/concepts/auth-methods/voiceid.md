@@ -23,13 +23,13 @@ SDK transaction request
   -> VoiceID command capture on enrolled device
   -> speaker, phrase, freshness, and device checks
   -> wallet policy decision
-  -> one-use owner-presence or signing grant
+  -> one-use owner-presence capability grant
   -> normal Router A/B signing continuation
 ```
 
 ## Policy Modes
 
-Direct signing grants are appropriate only for low-risk, one-use, intent-bound
+Direct capability grants are appropriate only for low-risk, one-use, intent-bound
 actions.
 
 Riskier tasks should use VoiceID as the first check, then require passkey, Email

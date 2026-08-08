@@ -1,6 +1,6 @@
 # Ed25519 Yao Lean Model
 
-The current FV1 model contains exactly 158 theorems.
+The current FV1 model contains exactly 169 theorems.
 
 The FV1 Lean model contains three manifest rehearsal theorems for distinct
 activation/export family bytes, seven digest slots, and thirteen metrics. Nine
@@ -136,13 +136,24 @@ They do not provide runtime frame bytes, durable state or transactions,
 transport/authentication/timing behavior, a simulator, indistinguishability,
 selected-profile satisfaction, or a protocol-security theorem.
 
+Eleven passive-security theorems define a conditional hybrid-composition
+scaffold for activation/export and passive Deriver A/B. The observed view
+contains typed corrupted inputs and random tape, authorized package shares,
+message payload bytes, local state, ordered messages, and transcript bytes.
+The ideal simulator is definitionally independent of honest private inputs and
+real coins. Lean defines finite all-distinguisher acceptance-count bounds and
+proves that five supplied adjacent-transition bounds add to the four
+role/family bounds. Export Deriver A has a concrete typed simulator input tied
+to the generated production public view. Production payload semantics,
+nonvacuous transition bounds, and primitive reductions remain uninstantiated.
+
 ```sh
 cargo yao-fv lean-check
 ```
 
 The task builds the explicit `Ed25519YaoModel` target, checks an exact nonzero
 theorem count, and requires its `.olean` output. This handwritten model has no
-generated production or Verus bridge, so it is not evidence for the checked
-manifest obligations. No complete or executable runtime party-view,
-corruption-game, simulator, privacy, or protocol-security model is present; the
-corruption definitions above freeze interface shape only.
+general generated production or Verus bridge. `RuntimePublicShape.lean` is
+regenerated from production executions and checked byte for byte. Production
+payload extraction, a discharged primitive-security bound, active-security
+results, and a complete protocol-security theorem remain open.

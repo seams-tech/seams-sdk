@@ -161,6 +161,8 @@
   --w3a-gradient-blueWhite: linear-gradient(90deg, hsla(213, 62%, 45%, 1) 0%, hsla(203, 89%, 71%, 1) 50%, hsla(0, 0%, 96%, 1) 100%);
   --w3a-gradient-green: linear-gradient(45deg, oklch(0.82 0.130 170) 0%, oklch(0.66 0.180 170) 50%);
   --w3a-gradient-red: linear-gradient(45deg, oklch(0.82 0.130 19) 0%, oklch(0.66 0.180 19) 50%);
+  --w3a-gradient-sage: linear-gradient(160deg, #919690 0%, #c7d0cf 100%);
+  --w3a-gradient-sageDeep: linear-gradient(160deg, #004737 0%, #919690 100%);
 }
 
 /* Base CSS variables for W3A custom elements (applied on hosts) */

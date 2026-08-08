@@ -58,10 +58,10 @@ const defaultEnrollmentPrompts: VoiceIdEnrollmentPromptSequence = [
 ];
 
 const defaultVerificationPromptBases: readonly VoiceIdPromptPhrase[] = [
-  parsePromptPhrase('River lantern'),
-  parsePromptPhrase('Silver meadow'),
-  parsePromptPhrase('Cedar compass'),
-  parsePromptPhrase('Harbor sunrise'),
+  parsePromptPhrase('Approve this request'),
+  parsePromptPhrase('I approve this request'),
+  parsePromptPhrase('Confirm and approve this request'),
+  parsePromptPhrase('Proceed with approval'),
 ];
 
 export function parseVoiceIdSpeakerScoreThreshold(value: unknown, fieldName: string): number {
@@ -753,7 +753,10 @@ function buildVerificationPrompt(
   }
   const selector = nonce.charCodeAt(nonce.length - 1) % promptBases.length;
   const base = promptBases[selector];
-  const randomFragment = nonce.slice(-6).split('').join(' ');
+  const randomFragment = nonce.replace(/[^a-z0-9]/gi, '').slice(-6).split('').join(' ');
+  if (randomFragment.split(' ').length !== 6) {
+    throw new Error('challenge nonce must provide six alphanumeric prompt tokens');
+  }
   return parsePromptPhrase(`${base}. ${randomFragment}`);
 }
 
@@ -774,6 +777,20 @@ function buildVerificationResult(input: {
     return uncertainVerification(
       input.verification.verificationId,
       uncertainReasonFromQuality(input.checks.quality),
+      input.checks,
+    );
+  }
+  if (input.checks.pad.kind === 'rejected') {
+    return rejectedVerification(
+      input.verification.verificationId,
+      'presentation_attack',
+      input.checks,
+    );
+  }
+  if (input.checks.pad.kind === 'uncertain') {
+    return uncertainVerification(
+      input.verification.verificationId,
+      uncertainReasonFromPad(input.checks.pad),
       input.checks,
     );
   }
@@ -869,6 +886,23 @@ function uncertainReasonFromChecks(
     }
   }
   throw new Error('uncertain verification requires an uncertain check');
+}
+
+function uncertainReasonFromPad(
+  pad: Extract<VoiceIdVerificationChecks['pad'], { kind: 'uncertain' }>,
+): Extract<VoiceIdVerificationResult, { kind: 'uncertain' }>['reason'] {
+  switch (pad.reason) {
+    case 'model_low_confidence':
+      return 'model_low_confidence';
+    case 'low_audio_quality':
+      return 'noisy_audio';
+    case 'model_unavailable':
+    case 'deadline_exceeded':
+    case 'overloaded':
+      return 'verifier_unavailable';
+    default:
+      return assertNever(pad.reason);
+  }
 }
 
 function uncertainReasonFromQuality(

@@ -9,6 +9,7 @@ from typing import Any, Literal
 SCHEMA_VERSION = "voice_id_verifier_v2"
 MAXIMUM_AUDIO_BYTE_LENGTH = 32 * 1024 * 1024
 MAXIMUM_AUDIO_BASE64_LENGTH = ((MAXIMUM_AUDIO_BYTE_LENGTH + 2) // 3) * 4
+MAXIMUM_JSON_REQUEST_BYTES = MAXIMUM_AUDIO_BASE64_LENGTH + 64 * 1024
 
 
 class VerifierSchemaError(ValueError):
@@ -126,6 +127,7 @@ class AnalyzeVerificationRequest:
     threshold: float
     expected_phrase: str
     intent_name: str
+    challenge_tokens: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -432,7 +434,16 @@ def parse_analyze_verification_request(value: dict[str, Any]) -> AnalyzeVerifica
     data = _require_exact_object(
         value,
         "analyze verification request",
-        {"schemaVersion", "requestId", "audio", "template", "threshold", "expectedPhrase", "intentName"},
+        {
+            "schemaVersion",
+            "requestId",
+            "audio",
+            "template",
+            "threshold",
+            "expectedPhrase",
+            "intentName",
+            "challengeTokens",
+        },
     )
     return AnalyzeVerificationRequest(
         schema_version=_require_schema_version(data),
@@ -442,7 +453,23 @@ def parse_analyze_verification_request(value: dict[str, Any]) -> AnalyzeVerifica
         threshold=_require_probability(data, "threshold"),
         expected_phrase=_require_string(data, "expectedPhrase"),
         intent_name=_require_string(data, "intentName"),
+        challenge_tokens=_require_non_empty_string_tuple(data, "challengeTokens"),
     )
+
+
+def _require_non_empty_string_tuple(
+    data: dict[str, Any],
+    field_name: str,
+) -> tuple[str, ...]:
+    value = data.get(field_name)
+    if not isinstance(value, list) or len(value) == 0:
+        raise VerifierSchemaError(f"{field_name} must be a non-empty string array")
+    if not all(isinstance(item, str) and item.strip() != "" for item in value):
+        raise VerifierSchemaError(f"{field_name} must be a non-empty string array")
+    normalized = tuple(item.strip().lower() for item in value)
+    if len(normalized) != len(set(normalized)):
+        raise VerifierSchemaError(f"{field_name} must contain unique strings")
+    return normalized
 def encode_audio_bytes(audio_bytes: bytes) -> str:
     return base64.b64encode(audio_bytes).decode("ascii")
 

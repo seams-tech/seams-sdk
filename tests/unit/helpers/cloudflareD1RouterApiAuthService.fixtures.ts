@@ -5,7 +5,6 @@ import type { D1DatabaseLike } from '../../../packages/sdk-server-ts/src/storage
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
-  EcdsaDerivationClientBootstrapRequest,
   EcdsaDerivationServerBootstrapResponse,
 } from '../../../packages/sdk-server-ts/src/core/types';
 import type {
@@ -15,15 +14,12 @@ import type {
 import type {
   CloudflareD1EmailOtpDeliveryProviderInput,
   CloudflareD1EmailOtpDeliveryProviderResult,
-} from '../../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
-import { createCloudflareD1RouterApiAuthService } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
-import { parseGoogleEmailOtpRegistrationAttemptRecord } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1GoogleEmailOtpRegistrationRecords';
-import { parseD1RegistrationIntent } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords';
+} from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { createCloudflareD1RouterApiAuthService } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { parseGoogleEmailOtpRegistrationAttemptRecord } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/emailOtp/d1GoogleEmailOtpRegistrationRecords';
+import { parseD1RegistrationIntent } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords';
 import { base64UrlDecode, base64UrlEncode } from '../../../packages/shared-ts/src/utils/encoders';
-import {
-  parseRootShareEpoch,
-  parseWebAuthnRpId,
-} from '../../../packages/shared-ts/src/utils/domainIds';
+import { parseWebAuthnRpId } from '../../../packages/shared-ts/src/utils/domainIds';
 import { normalizeRuntimePolicyScope } from '../../../packages/shared-ts/src/threshold/signingRootScope';
 import {
   implicitNearAccountProvisioning,
@@ -427,7 +423,6 @@ export function testEcdsaClientBootstrap(
     contextBinding32B64u: 'test-context-binding-32',
     requestId: prepare.requestId,
     thresholdSessionId: prepare.thresholdSessionId,
-    signingGrantId: prepare.signingGrantId,
     ttlMs: prepare.ttlMs,
     remainingUses: prepare.remainingUses,
     participantIds: prepare.participantIds,
@@ -450,43 +445,6 @@ export function testEcdsaClientBootstrapTargets(ecdsa: WalletRegistrationEcdsaPr
     chainTarget,
     clientBootstrap: testEcdsaClientBootstrap(ecdsa.prepare),
   }));
-}
-
-export function testEcdsaServerBootstrapResponse(
-  request: EcdsaDerivationClientBootstrapRequest,
-): EcdsaDerivationServerBootstrapResponse {
-  const expiresAtMs = Date.now() + 10 * 60_000;
-  return {
-    formatVersion: 'ecdsa-derivation-role-local',
-    walletId: request.walletId,
-    evmFamilySigningKeySlotId: request.evmFamilySigningKeySlotId,
-    ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
-    relayerKeyId: request.relayerKeyId,
-    applicationBindingDigestB64u: 'test-application-binding-digest',
-    contextBinding32B64u: request.contextBinding32B64u,
-    publicIdentity: {
-      derivationClientSharePublicKey33B64u: request.derivationClientSharePublicKey33B64u,
-      relayerPublicKey33B64u: 'test-relayer-public-key' as TestEcdsaRelayerPublicKey,
-      groupPublicKey33B64u: 'test-group-public-key',
-      ethereumAddress: '0x0000000000000000000000000000000000000001',
-    },
-    clientShareRetryCounter: request.clientShareRetryCounter,
-    relayerShareRetryCounter: 0,
-    publicTranscriptDigest32B64u: 'test-public-transcript-digest',
-    keyHandle: 'test-add-signer-ecdsa-key-handle',
-    signingRootId: request.signingRootId,
-    signingRootVersion: request.signingRootVersion,
-    thresholdEcdsaPublicKeyB64u: 'test-group-public-key',
-    ethereumAddress: '0x0000000000000000000000000000000000000001',
-    relayerVerifyingShareB64u: 'test-relayer-public-key',
-    participantIds: request.participantIds,
-    thresholdSessionId: request.sessionId,
-    activationEpoch: requireParsedDomainId(parseRootShareEpoch('test-activation-epoch')),
-    signingGrantId: request.signingGrantId,
-    expiresAtMs,
-    expiresAt: new Date(expiresAtMs).toISOString(),
-    remainingUses: request.remainingUses,
-  };
 }
 
 export function utf8Bytes(input: string): Uint8Array {

@@ -1,17 +1,12 @@
-const TARGETS = new Set(['staging', 'production']);
-const KEK_ENCODINGS = new Set(['base64url', 'base64', 'hex']);
 const RESOURCE_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const D1_DATABASE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const CLOUDFLARE_ID_PATTERN = /^[0-9a-f]{32}$/;
 const TENANT_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,126}[A-Za-z0-9])?$/;
-const SECRET_NAME_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$/;
 const X25519_PUBLIC_KEY_PATTERN = /^x25519:[0-9a-f]{64}$/;
 const ED25519_PUBLIC_KEY_PATTERN = /^ed25519:[1-9A-HJ-NP-Za-km-z]+$/;
 const ED25519_VERIFYING_KEY_PATTERN = /^[0-9a-f]{64}$/;
 const UNSIGNED_INTEGER_PATTERN = /^(?:0|[1-9][0-9]*)$/;
 
-export const GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION = 3;
-export const GATEWAY_DEPLOYMENT_PLAN_SCHEMA_VERSION = 2;
+export const GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION = 4;
 export const DEFAULT_NEAR_INITIAL_BALANCE_YOCTO = '30000000000000000000000';
 export const DEFAULT_RELAY_SESSION_AUDIENCE = 'seams-wallet-session';
 export const DEFAULT_SESSION_COOKIE_NAME = 'seams-jwt';
@@ -29,6 +24,35 @@ export const GATEWAY_RUNTIME_PROFILE_KINDS = {
   testnetService: 'testnet_service',
   mainnetService: 'mainnet_service',
 };
+const BACKEND_LANE_DEFINITIONS = Object.freeze({
+  'staging-testnet': Object.freeze({
+    runtimeProfileKind: 'testnet_live_demo',
+    serviceNames: Object.freeze({
+      deriverA: 'router-ab-deriver-a-staging',
+      deriverB: 'router-ab-deriver-b-staging',
+      signingWorker: 'router-ab-signing-worker-staging',
+      mpcRouter: 'router-ab-mpc-router-staging',
+    }),
+  }),
+  'production-testnet': Object.freeze({
+    runtimeProfileKind: 'testnet_live_demo',
+    serviceNames: Object.freeze({
+      deriverA: 'router-ab-deriver-a-testnet',
+      deriverB: 'router-ab-deriver-b-testnet',
+      signingWorker: 'router-ab-signing-worker-testnet',
+      mpcRouter: 'router-ab-mpc-router-testnet',
+    }),
+  }),
+  'production-mainnet': Object.freeze({
+    runtimeProfileKind: 'mainnet_service',
+    serviceNames: Object.freeze({
+      deriverA: 'router-ab-deriver-a',
+      deriverB: 'router-ab-deriver-b',
+      signingWorker: 'router-ab-signing-worker',
+      mpcRouter: 'router-ab-mpc-router',
+    }),
+  }),
+});
 export const GATEWAY_EMAIL_OTP_DELIVERY_KINDS = {
   emailProvider: 'email_provider',
   demoCodeResponse: 'demo_code_response',
@@ -98,7 +122,7 @@ export function gatewayRuntimeProfileNearNetwork(runtimeProfile) {
   }
 }
 
-export function parseGatewayDeploymentConfig(source, expectedTarget) {
+export function parseGatewayDeploymentConfig(source, expectedLaneId) {
   const root = parseJsonObject(source, 'Gateway deployment config');
   requireExactInteger(
     root.schemaVersion,
@@ -106,31 +130,39 @@ export function parseGatewayDeploymentConfig(source, expectedTarget) {
     'schemaVersion',
   );
   requireExactKeys(root, gatewayDeploymentConfigKeys(), 'Gateway deployment config');
-  const target = requireTarget(root.target, 'target');
-  if (target !== expectedTarget) {
-    throw new Error(`target must match --target ${expectedTarget}`);
+  const expectedLane = requireBackendLaneId(expectedLaneId, 'expected lane');
+  const lane = requireBackendLaneId(root.lane, 'lane');
+  if (lane !== expectedLane) {
+    throw new Error(`lane must match --lane ${expectedLane}`);
   }
 
-  const serviceNames = serviceNamesForTarget(target);
+  const laneDefinition = BACKEND_LANE_DEFINITIONS[lane];
+  const serviceNames = laneDefinition.serviceNames;
   const runtimeProfile = parseRuntimeProfile(root.runtimeProfile);
+  requireExactString(
+    runtimeProfile.kind,
+    laneDefinition.runtimeProfileKind,
+    `runtimeProfile.kind for ${lane}`,
+  );
   const resources = parseResources(root.resources);
   const tenant = parseTenant(root.tenant);
   const origins = parseOrigins(root.origins);
-  const signingRoot = parseSigningRoot(root.signingRoot);
   const session = parseSession(root.session);
   const signingSessionSeal = parseSigningSessionSeal(root.signingSessionSeal);
   const routerAb = parseRouterAb(root.routerAb, serviceNames);
   const optional = parseOptionalConfig(root.optional);
 
+  if (lane === 'production-mainnet' && optional.nearRelayer) {
+    throw new Error('production-mainnet must not configure optional.nearRelayer');
+  }
   requireNearFundingConfiguration(runtimeProfile, optional.nearRelayer);
   return {
     schemaVersion: GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION,
-    target,
+    lane,
     runtimeProfile,
     resources,
     tenant,
     origins,
-    signingRoot,
     session,
     signingSessionSeal,
     routerAb,
@@ -142,12 +174,11 @@ export function parseGatewayDeploymentConfig(source, expectedTarget) {
 function gatewayDeploymentConfigKeys() {
   return [
     'schemaVersion',
-    'target',
+    'lane',
     'runtimeProfile',
     'resources',
     'tenant',
     'origins',
-    'signingRoot',
     'session',
     'signingSessionSeal',
     'routerAb',
@@ -223,86 +254,13 @@ function knownNearNetworkForRpcUrl(rpcUrl) {
   return null;
 }
 
-export function buildGatewayDeploymentPlan(config) {
-  return {
-    schemaVersion: GATEWAY_DEPLOYMENT_PLAN_SCHEMA_VERSION,
-    target: config.target,
-    gatewayOrigin: config.origins.gateway,
-    consoleD1: {
-      name: config.resources.consoleD1.name,
-    },
-    signingRootSecret: {
-      storeId: config.resources.secretsStoreId,
-      secretName: config.signingRoot.secretName,
-    },
-  };
-}
-
-export function parseGatewayDeploymentPlan(source) {
-  const root =
-    typeof source === 'string'
-      ? parseJsonObject(source, 'deployment plan')
-      : requireObject(source, 'deployment plan');
-  requireExactKeys(
-    root,
-    ['schemaVersion', 'target', 'gatewayOrigin', 'consoleD1', 'signingRootSecret'],
-    'deployment plan',
-  );
-  requireExactInteger(
-    root.schemaVersion,
-    GATEWAY_DEPLOYMENT_PLAN_SCHEMA_VERSION,
-    'deployment plan.schemaVersion',
-  );
-  const target = requireTarget(root.target, 'deployment plan.target');
-  const consoleD1 = requireObject(root.consoleD1, 'deployment plan.consoleD1');
-  requireExactKeys(consoleD1, ['name'], 'deployment plan.consoleD1');
-  const signingRootSecret = requireObject(
-    root.signingRootSecret,
-    'deployment plan.signingRootSecret',
-  );
-  requireExactKeys(
-    signingRootSecret,
-    ['storeId', 'secretName'],
-    'deployment plan.signingRootSecret',
-  );
-  return {
-    schemaVersion: GATEWAY_DEPLOYMENT_PLAN_SCHEMA_VERSION,
-    target,
-    gatewayOrigin: requireHttpsUrl(root.gatewayOrigin, 'deployment plan.gatewayOrigin'),
-    consoleD1: {
-      name: requirePattern(consoleD1.name, RESOURCE_NAME_PATTERN, 'deployment plan.consoleD1.name'),
-    },
-    signingRootSecret: {
-      storeId: requirePattern(
-        signingRootSecret.storeId,
-        CLOUDFLARE_ID_PATTERN,
-        'deployment plan.signingRootSecret.storeId',
-      ),
-      secretName: requirePattern(
-        signingRootSecret.secretName,
-        SECRET_NAME_PATTERN,
-        'deployment plan.signingRootSecret.secretName',
-      ),
-    },
-  };
-}
-
 function parseResources(value) {
   const resources = requireObject(value, 'resources');
-  requireExactKeys(
-    resources,
-    ['workerName', 'consoleD1', 'signerD1', 'secretsStoreId'],
-    'resources',
-  );
+  requireExactKeys(resources, ['workerName', 'consoleD1', 'signerD1'], 'resources');
   return {
     workerName: requirePattern(resources.workerName, RESOURCE_NAME_PATTERN, 'resources.workerName'),
     consoleD1: parseD1Resource(resources.consoleD1, 'resources.consoleD1'),
     signerD1: parseD1Resource(resources.signerD1, 'resources.signerD1'),
-    secretsStoreId: requirePattern(
-      resources.secretsStoreId,
-      CLOUDFLARE_ID_PATTERN,
-      'resources.secretsStoreId',
-    ),
   };
 }
 
@@ -311,7 +269,7 @@ function parseD1Resource(value, path) {
   requireExactKeys(resource, ['name', 'id'], path);
   return {
     name: requirePattern(resource.name, RESOURCE_NAME_PATTERN, `${path}.name`),
-    id: requirePattern(resource.id, D1_DATABASE_ID_PATTERN, `${path}.id`),
+    id: requireNonZeroHexPattern(resource.id, D1_DATABASE_ID_PATTERN, `${path}.id`),
   };
 }
 
@@ -332,24 +290,6 @@ function parseOrigins(value) {
   return {
     gateway: requireHttpsUrl(origins.gateway, 'origins.gateway'),
     allowedCors: parseOriginArray(origins.allowedCors, 'origins.allowedCors'),
-  };
-}
-
-function parseSigningRoot(value) {
-  const signingRoot = requireObject(value, 'signingRoot');
-  requireExactKeys(signingRoot, ['id', 'secretName', 'encoding'], 'signingRoot');
-  const encoding = requireString(signingRoot.encoding, 'signingRoot.encoding');
-  if (!KEK_ENCODINGS.has(encoding)) {
-    throw new Error('signingRoot.encoding must be base64url, base64, or hex');
-  }
-  return {
-    id: requireTenantId(signingRoot.id, 'signingRoot.id'),
-    secretName: requirePattern(
-      signingRoot.secretName,
-      SECRET_NAME_PATTERN,
-      'signingRoot.secretName',
-    ),
-    encoding,
   };
 }
 
@@ -414,7 +354,7 @@ function parseRouterAb(value, serviceNames) {
   const deriverBInputPublicKey = publicKeyset.signer_envelope_hpke.current.deriver_b.public_key;
   const signingWorkerOutputPublicKey = publicKeyset.signing_worker_server_output_hpke.public_key;
   requireEqual(
-    requirePattern(
+    requireNonZeroHexPattern(
       routerAb.deriverAYaoInputPublicKey,
       X25519_PUBLIC_KEY_PATTERN,
       'routerAb.deriverAYaoInputPublicKey',
@@ -423,7 +363,7 @@ function parseRouterAb(value, serviceNames) {
     'routerAb.deriverAYaoInputPublicKey and publicKeyset',
   );
   requireEqual(
-    requirePattern(
+    requireNonZeroHexPattern(
       routerAb.deriverBYaoInputPublicKey,
       X25519_PUBLIC_KEY_PATTERN,
       'routerAb.deriverBYaoInputPublicKey',
@@ -432,7 +372,7 @@ function parseRouterAb(value, serviceNames) {
     'routerAb.deriverBYaoInputPublicKey and publicKeyset',
   );
   requireEqual(
-    requirePattern(
+    requireNonZeroHexPattern(
       routerAb.signingWorkerOutputPublicKey,
       X25519_PUBLIC_KEY_PATTERN,
       'routerAb.signingWorkerOutputPublicKey',
@@ -534,7 +474,7 @@ function parsePublicKeyset(value) {
         workerOutput.key_epoch,
         'routerAb.publicKeyset.signing_worker_server_output_hpke.key_epoch',
       ),
-      public_key: requirePattern(
+      public_key: requireNonZeroHexPattern(
         workerOutput.public_key,
         X25519_PUBLIC_KEY_PATTERN,
         'routerAb.publicKeyset.signing_worker_server_output_hpke.public_key',
@@ -550,7 +490,11 @@ function parseEnvelopeKey(value, expectedRole, path) {
   return {
     role: expectedRole,
     key_epoch: requireEpoch(key.key_epoch, `${path}.key_epoch`),
-    public_key: requirePattern(key.public_key, X25519_PUBLIC_KEY_PATTERN, `${path}.public_key`),
+    public_key: requireNonZeroHexPattern(
+      key.public_key,
+      X25519_PUBLIC_KEY_PATTERN,
+      `${path}.public_key`,
+    ),
   };
 }
 
@@ -560,7 +504,7 @@ function parsePeerVerifyingKey(value, expectedRole, path) {
   requireExactString(key.role, expectedRole, `${path}.role`);
   return {
     role: expectedRole,
-    verifying_key_hex: requirePattern(
+    verifying_key_hex: requireNonZeroHexPattern(
       key.verifying_key_hex,
       ED25519_VERIFYING_KEY_PATTERN,
       `${path}.verifying_key_hex`,
@@ -636,7 +580,7 @@ function parseRegistrationTopology(value, serviceNames) {
           selectedServer.key_epoch,
           'routerAb.registrationTopology.signerSet.selected_server.key_epoch',
         ),
-        recipient_encryption_key: requirePattern(
+        recipient_encryption_key: requireNonZeroHexPattern(
           selectedServer.recipient_encryption_key,
           X25519_PUBLIC_KEY_PATTERN,
           'routerAb.registrationTopology.signerSet.selected_server.recipient_encryption_key',
@@ -808,14 +752,25 @@ function requirePattern(value, pattern, path) {
   return normalized;
 }
 
+function requireNonZeroHexPattern(value, pattern, path) {
+  const normalized = requirePattern(value, pattern, path);
+  const hex = normalized.includes(':')
+    ? normalized.slice(normalized.indexOf(':') + 1)
+    : normalized.replaceAll('-', '');
+  if (/^0+$/.test(hex)) throw new Error(`${path} must not be all zeroes`);
+  return normalized;
+}
+
 function requireTenantId(value, path) {
   return requirePattern(value, TENANT_ID_PATTERN, path);
 }
 
-function requireTarget(value, path) {
-  const target = requireString(value, path);
-  if (!TARGETS.has(target)) throw new Error(`${path} must be staging or production`);
-  return target;
+function requireBackendLaneId(value, path) {
+  const lane = requireString(value, path);
+  if (!Object.hasOwn(BACKEND_LANE_DEFINITIONS, lane)) {
+    throw new Error(`${path} must be ${Object.keys(BACKEND_LANE_DEFINITIONS).join(', ')}`);
+  }
+  return lane;
 }
 
 function requireExactString(value, expected, path) {
@@ -853,21 +808,4 @@ function requireEpoch(value, path) {
 
 function requireEqual(actual, expected, label) {
   if (actual !== expected) throw new Error(`${label} values must match`);
-}
-
-function serviceNamesForTarget(target) {
-  if (target === 'production') {
-    return {
-      deriverA: 'router-ab-deriver-a',
-      deriverB: 'router-ab-deriver-b',
-      signingWorker: 'router-ab-signing-worker',
-      mpcRouter: 'router-ab-mpc-router',
-    };
-  }
-  return {
-    deriverA: 'router-ab-deriver-a-staging',
-    deriverB: 'router-ab-deriver-b-staging',
-    signingWorker: 'router-ab-signing-worker-staging',
-    mpcRouter: 'router-ab-mpc-router-staging',
-  };
 }

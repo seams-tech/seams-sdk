@@ -1,29 +1,28 @@
 import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
-import type { NearProvisioningState, NearProvisioningWriteV1 } from '@/core/types/seams';
+import type {
+  NearProvisioningState,
+  NearProvisioningWriteV1,
+  WalletAuthenticationState,
+} from '@/core/types/seams';
 import type { WalletId } from '@shared/utils/registrationIntent';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId as EcdsaWalletId,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type {
-  ProvisionWarmEd25519CapabilityResult,
-  WarmEcdsaSigningSessionStatus,
-  WarmSessionEcdsaCapabilityState,
-} from '@/core/signingEngine/session/warmCapabilities/types';
+import type { ProvisionWarmEd25519CapabilityResult } from '@/core/signingEngine/session/warmCapabilities/types';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type {
   AvailableSigningLanes,
-  ListThresholdEcdsaSessionRecordsForWalletTargetInput,
   ReadAvailableSigningLanesInput,
   DiscoverPersistedSessionsForWalletInput,
   DiscoverPersistedSessionsForWalletResult,
-  ThresholdEcdsaSessionRecord as SessionPublicThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/public';
-import type {
-  ThresholdEcdsaSessionRecord,
-  ThresholdEd25519SessionRecord,
-} from '@/core/signingEngine/session/persistence/records';
+import type { ExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
+import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
+import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
+import type { ReusableWalletSessionState } from '@/core/types/seams';
 import type {
   NearSignIntentRequest,
   NearSignIntentResult,
@@ -42,7 +41,13 @@ import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { ProductEd25519YaoCapabilityActivationPortV1 } from '@/core/signingEngine/flows/registration/services/ed25519YaoRegistration';
+import type { Ed25519YaoActiveClientIdentityV1 } from '@/core/signingEngine/threshold/ed25519/yaoActiveClientRegistry';
+import type {
+  Ed25519YaoPublicCapabilityLaneReferenceV1,
+  Ed25519YaoPublicCapabilityReferenceV1,
+} from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import type { AccountId } from '@/core/types/accountIds';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type {
   ClientAuthenticatorData,
   ClientUserData,
@@ -54,6 +59,7 @@ import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import type {
   RegistrationWebAuthnPromptOwner,
   ReservedRegistrationWebAuthnPrompt,
+  WebAuthnPromptCancellation,
 } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
 import type {
   SigningEngineResolveExactKeyExportLaneInput,
@@ -86,6 +92,8 @@ import type {
   CreateRouterAbEcdsaRegistrationCeremonyResultV1,
   FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
   FinalizeRouterAbEcdsaRegistrationActivationResultV1,
+  PersistInitialCanonicalEcdsaActivationRequestV1,
+  PersistInitialCanonicalEcdsaActivationResultV1,
   VerifyRouterAbEcdsaRegistrationClientProofsRequestV1,
   VerifyRouterAbEcdsaRegistrationClientProofsResultV1,
 } from '@/core/signingEngine/routerAb/ecdsaDerivation/clientCeremony';
@@ -95,17 +103,13 @@ import type { ConnectEd25519SessionArgs } from '@/core/signingEngine/session/pas
 import type { HydrateWarmSigningSessionInput } from '@/core/signingEngine/session/passkey/warmSessionHydration';
 import type { EmailOtpBootstrapRecovery } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/bootstrapRecovery';
 import type { LoginWithEmailOtpEd25519YaoCapabilityInternalArgs } from '@/core/signingEngine/session/emailOtp/ed25519YaoLogin';
-import type { PreparedColdEmailOtpEd25519YaoRecoveryV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery';
-import type {
-  EmailOtpEd25519YaoExactLocalSessionBootstrapV1,
-  EmailOtpEd25519YaoRecoveryBootstrapV1,
-} from '@/core/signingEngine/workerManager/workerTypes';
+import type { PreparedColdEmailOtpEd25519YaoRecoveryV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoCapabilityRecovery';
+import type { EmailOtpEd25519YaoRecoveryBootstrapV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import type { EmailOtpEd25519YaoPendingFactorHandle } from '@/core/signingEngine/session/emailOtp/ed25519YaoRootVault';
 import type { EmailOtpAppSessionBinding } from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
+import type { EmailOtpEd25519YaoPublicationInput } from '@/core/signingEngine/session/emailOtp/ed25519YaoPublication';
 import type {
-  EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
-  EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult,
   EnrollEmailOtpInternalArgs,
   EnrollEmailOtpInternalResult,
   LoginWithEmailOtpEcdsaCapabilityInternalArgs,
@@ -123,10 +127,7 @@ import type {
   WarmSessionSealAndPersistResult,
   WarmSessionSealTransportInput,
 } from '@/core/types/secure-confirm-worker';
-import type {
-  SdkLifecycleEventListener,
-  SigningFlowEvent,
-} from '@/core/types/sdkSentEvents';
+import type { SdkLifecycleEventListener, SigningFlowEvent } from '@/core/types/sdkSentEvents';
 import type {
   WorkerResourceWarmupAccountContext,
   WorkerResourceWarmupDiagnostics,
@@ -196,6 +197,10 @@ export interface RuntimeStartupSurface {
   assertSealedRefreshStartupParity(): Promise<void>;
 }
 
+export type WalletAuthenticationRestoreAuth =
+  | { readonly kind: 'cookie' }
+  | { readonly kind: 'caller_app_session_jwt'; readonly appSessionJwt: string };
+
 export interface SigningEngineLifecycleEventSurface {
   onSdkLifecycleEvent(listener: SdkLifecycleEventListener): () => void;
 }
@@ -215,13 +220,11 @@ export type UserAccountLookupSurface = Pick<
 >;
 
 export interface EcdsaLoginSessionSurface {
-  listThresholdEcdsaSessionRecordsForWalletTarget(
-    args: ListThresholdEcdsaSessionRecordsForWalletTargetInput,
-  ): SessionPublicThresholdEcdsaSessionRecord[];
   scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(args: {
     walletId: EcdsaWalletId;
     chainTarget: ThresholdEcdsaChainTarget;
-    thresholdEcdsaSessionRecord: ThresholdEcdsaSessionRecord;
+    manifest: ActiveEcdsaCapabilityManifest;
+    runtime: ExactEcdsaSealedRuntime;
     minRemainingUsesBeforePrefill?: number;
   }): Promise<RouterAbEcdsaDerivationLoginPresignaturePrefillResult>;
 }
@@ -251,6 +254,12 @@ export interface RegistrationAccountSurface {
     signerSlot: number;
     nearClient?: NearClient;
   }): Promise<void>;
+  upsertEd25519YaoPublicCapabilityReference(
+    identity: Ed25519YaoPublicCapabilityReferenceV1,
+  ): Promise<void>;
+  upsertEd25519YaoPublicCapabilityLaneReference(
+    reference: Ed25519YaoPublicCapabilityLaneReferenceV1,
+  ): Promise<void>;
   storeAuthenticator(authenticatorData: StoreAuthenticatorInput): Promise<void>;
   rollbackUserRegistration(nearAccountId: AccountId): Promise<void>;
   hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean>;
@@ -284,6 +293,9 @@ export interface EcdsaRegistrationSurface {
   verifyRouterAbEcdsaRegistrationClientProofs(
     input: VerifyRouterAbEcdsaRegistrationClientProofsRequestV1,
   ): Promise<VerifyRouterAbEcdsaRegistrationClientProofsResultV1>;
+  persistInitialCanonicalEcdsaActivation(
+    input: PersistInitialCanonicalEcdsaActivationRequestV1,
+  ): Promise<PersistInitialCanonicalEcdsaActivationResultV1>;
   finalizeRouterAbEcdsaRegistrationActivation(
     input: FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
   ): Promise<FinalizeRouterAbEcdsaRegistrationActivationResultV1>;
@@ -312,12 +324,21 @@ export interface EcdsaRegistrationSurface {
 
 export type Ed25519YaoRegistrationActivationSurface = ProductEd25519YaoCapabilityActivationPortV1;
 
+export interface Ed25519MaterialOwnerQueueSurface {
+  withExactEd25519MaterialOwner<T>(args: {
+    materialActivation: MpcMaterialActivationRef;
+    nearAccountId: AccountId;
+    task: () => Promise<T>;
+  }): Promise<T>;
+}
+
 export interface SigningSessionSurface {
   hydrateSigningSession(input: HydrateWarmSigningSessionInput): Promise<void>;
   persistSigningSessionSealForThresholdSession(input: {
-    sessionId: string;
-    transport?: WarmSessionSealTransportInput;
+    thresholdSessionId: string;
+    transport: Exclude<WarmSessionSealTransportInput, { authMethod: 'email_otp' }>;
   }): Promise<WarmSessionSealAndPersistResult>;
+  readReusableWalletSessionState(walletId: WalletId | string): Promise<ReusableWalletSessionState>;
   discoverPersistedSessionsForWallet(
     args: DiscoverPersistedSessionsForWalletInput,
   ): Promise<DiscoverPersistedSessionsForWalletResult>;
@@ -326,32 +347,49 @@ export interface SigningSessionSurface {
   ): Promise<AvailableSigningLanes>;
 }
 
+export interface WalletAuthenticationSurface {
+  readWalletAuthenticationState(): WalletAuthenticationState;
+  restoreWalletAuthenticationState(
+    walletId: WalletId | string | undefined,
+    auth: WalletAuthenticationRestoreAuth,
+  ): Promise<WalletAuthenticationState>;
+  restoreWalletAuthenticationStateFromHostSession(
+    walletId: WalletId | string | undefined,
+  ): Promise<WalletAuthenticationState>;
+  setWalletAuthenticated(
+    state: Extract<WalletAuthenticationState, { kind: 'authenticated' }>,
+  ): void;
+  clearWalletAuthentication(): void;
+}
+
 export interface WarmSessionStatusSurface {
-  getWarmThresholdEd25519SessionStatus(
-    nearAccountId: AccountId | string,
-  ): Promise<SigningSessionStatus | null>;
-  getWarmThresholdEcdsaSessionStatus(
-    walletId: EcdsaWalletId,
-    chainTarget: ThresholdEcdsaChainTarget,
-    thresholdSessionId: string,
-  ): Promise<WarmEcdsaSigningSessionStatus | null>;
-  listWarmThresholdEcdsaSessionStatuses(
-    walletId: EcdsaWalletId,
-    chainTarget: ThresholdEcdsaChainTarget,
-  ): Promise<WarmEcdsaSigningSessionStatus[]>;
+  getWarmThresholdEd25519SessionStatus(args: {
+    walletId: WalletId | string;
+    nearAccountId: AccountId | string;
+    nearEd25519SigningKeyId: string;
+  }): Promise<SigningSessionStatus | null>;
 }
 
 export type WalletSessionReadSurface = RuntimeStartupSurface &
+  SignerWorkerContextSurface &
   NonceCoordinatorSurface &
   UserAccountLookupSurface &
   WarmSessionStatusSurface &
-  Pick<SigningSessionSurface, 'readPersistedAvailableSigningLanes'> &
-  Pick<EcdsaLoginSessionSurface, 'listThresholdEcdsaSessionRecordsForWalletTarget'>;
+  Pick<
+    WalletAuthenticationSurface,
+    'readWalletAuthenticationState' | 'restoreWalletAuthenticationState'
+  > &
+  Pick<
+    SigningSessionSurface,
+    'readReusableWalletSessionState' | 'readPersistedAvailableSigningLanes'
+  >;
 
 export type LoginUnlockSigningSurface = WalletSessionReadSurface &
   UserAccountLookupSurface &
   LoginWarmSigningSurface &
   Ed25519YaoRegistrationActivationSurface &
+  Ed25519MaterialOwnerQueueSurface &
+  Pick<RegistrationAccountSurface, 'upsertEd25519YaoPublicCapabilityLaneReference'> &
   EcdsaLoginSessionSurface &
   Pick<
     SigningSessionSurface,
@@ -360,6 +398,12 @@ export type LoginUnlockSigningSurface = WalletSessionReadSurface &
   PasskeyLoginAssertionSurface &
   Pick<EcdsaSessionControlSurface, 'clearVolatileWarmSigningMaterial'> &
   Pick<UserProfileStoreSurface, 'setLastUser'> &
+  // Unlock must activate the NEAR account projection, not just write the
+  // wallet-profile last-user pointer — see persistSuccessfulLoginState. The
+  // restore path (LocalLoginStateSurface) already pairs these two for the same
+  // reason.
+  Pick<RegistrationAccountSurface, 'activateAuthenticatedWalletState'> &
+  Pick<WalletAuthenticationSurface, 'setWalletAuthenticated'> &
   Pick<WarmSessionStatusSurface, 'getWarmThresholdEd25519SessionStatus'>;
 
 export type RecentUnlocksSigningSurface = Pick<
@@ -368,12 +412,13 @@ export type RecentUnlocksSigningSurface = Pick<
 >;
 
 export interface EcdsaSessionControlSurface {
-  clearAllThresholdEcdsaSessionRecords(): void;
   clearVolatileWarmSigningMaterial(walletId?: EcdsaWalletId): Promise<void>;
   clearThresholdEcdsaSigningQueue(): void;
 }
 
-export type LockSigningSurface = NonceCoordinatorSurface & EcdsaSessionControlSurface;
+export type LockSigningSurface = NonceCoordinatorSurface &
+  EcdsaSessionControlSurface &
+  Pick<WalletAuthenticationSurface, 'clearWalletAuthentication'>;
 
 export type LocalLoginStateSurface = WalletSessionReadSurface &
   Pick<
@@ -383,6 +428,7 @@ export type LocalLoginStateSurface = WalletSessionReadSurface &
 
 export type AccountSyncSigningSurface = LocalLoginStateSurface &
   Ed25519YaoRegistrationActivationSurface &
+  Ed25519MaterialOwnerQueueSurface &
   Pick<EcdsaSessionControlSurface, 'clearVolatileWarmSigningMaterial'> &
   Pick<
     SigningSessionSurface,
@@ -392,7 +438,7 @@ export type AccountSyncSigningSurface = LocalLoginStateSurface &
   PasskeyLoginAssertionSurface &
   Pick<
     UserProfileStoreSurface & RegistrationAccountSurface,
-    'storeUserData' | 'storeAuthenticator'
+    'storeUserData' | 'storeAuthenticator' | 'upsertEd25519YaoPublicCapabilityLaneReference'
   >;
 
 export interface WebAuthnRegistrationConfirmationSurface {
@@ -426,13 +472,15 @@ export interface PasskeyLoginAssertionSurface {
     challengeB64u: string;
     allowCredentials: WebAuthnAllowCredential[];
     includeSecondPrfOutput?: boolean;
+    cancellation?: Extract<WebAuthnPromptCancellation, { kind: 'abort_signal' }>;
   }): Promise<WebAuthnAuthenticationCredential>;
 }
 
 export interface EmailOtpSigningSessionSurface {
   rememberEmailOtpAppSessionBinding(binding: EmailOtpAppSessionBinding): void;
-  persistEmailOtpEd25519YaoSessionForRefreshInternal(
-    record: ThresholdEd25519SessionRecord,
+  rememberEmailOtpAppSessionJwt(walletId: WalletId, appSessionJwt: string): void;
+  persistEmailOtpEd25519YaoCapabilityForRefreshInternal(
+    input: EmailOtpEd25519YaoPublicationInput,
   ): Promise<void>;
   prepareEmailOtpEd25519YaoLoginRecoveryInternal(args: {
     walletSession: WalletSessionRef;
@@ -443,16 +491,16 @@ export interface EmailOtpSigningSessionSurface {
     prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
     bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
     pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
-  }): Promise<ThresholdEd25519SessionRecord>;
-  activateEmailOtpEd25519YaoLocalSessionInternal(args: {
+  }): Promise<NearEd25519SignerBinding>;
+  activateEmailOtpEd25519YaoLocalCapabilityInternal(args: {
     prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
-    bootstrap: EmailOtpEd25519YaoExactLocalSessionBootstrapV1;
+    bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
     activeClientHandle: string;
     metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-  }): Promise<ThresholdEd25519SessionRecord>;
+  }): Promise<NearEd25519SignerBinding>;
   loginWithEmailOtpEd25519YaoCapabilityInternal(
     args: LoginWithEmailOtpEd25519YaoCapabilityInternalArgs,
-  ): Promise<ThresholdEd25519SessionRecord>;
+  ): Promise<NearEd25519SignerBinding>;
   loginWithEmailOtpEcdsaCapabilityInternal(
     args: LoginWithEmailOtpEcdsaCapabilityInternalArgs,
   ): Promise<LoginWithEmailOtpEcdsaCapabilityInternalResult>;
@@ -470,7 +518,11 @@ export interface EmailOtpSigningSessionSurface {
   }): Promise<{
     recovery: EmailOtpBootstrapRecovery;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
-    warmCapability: WarmSessionEcdsaCapabilityState;
+    authorization: ActiveWalletSessionAuthorizationProjection;
+    authorizations: readonly [
+      ActiveWalletSessionAuthorizationProjection,
+      ...ActiveWalletSessionAuthorizationProjection[],
+    ];
   }>;
   resolveEmailOtpAppSessionJwt(args: {
     walletSession: WalletSessionRef;
@@ -480,9 +532,6 @@ export interface EmailOtpSigningSessionSurface {
   rotateEmailOtpRecoveryCodesInternal(
     args: RotateEmailOtpRecoveryCodesInternalArgs,
   ): Promise<RotateEmailOtpRecoveryCodesInternalResult>;
-  enrollAndLoginWithEmailOtpEcdsaCapabilityInternal(
-    args: EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
-  ): Promise<EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult>;
 }
 
 export interface KeyExportSigningSurface {
@@ -514,10 +563,11 @@ export type RegistrationSigningSurface = RpIdSurface &
   > &
   Pick<
     EmailOtpSigningSessionSurface,
-    'rememberEmailOtpAppSessionBinding' | 'persistEmailOtpEd25519YaoSessionForRefreshInternal'
+    'rememberEmailOtpAppSessionBinding' | 'persistEmailOtpEd25519YaoCapabilityForRefreshInternal'
   > &
   SignerWorkerContextSurface &
   PasskeyLoginAssertionSurface &
+  Pick<WalletAuthenticationSurface, 'setWalletAuthenticated'> &
   Pick<UserProfileStoreSurface, 'getUserBySignerSlot'> &
   Pick<
     RegistrationAccountSurface,

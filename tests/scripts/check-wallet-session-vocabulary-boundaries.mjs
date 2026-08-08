@@ -57,26 +57,28 @@ const sessionIdBoundaryRoots = [
 const classifiedSessionIdPublicSurfaceFiles = {
   'apps/seams-site/src/flows/demo/hooks/useDemoSigningSession.ts':
     'rename_later_agent_b_signing_or_wasm',
+  'packages/sdk-server-ts/src/authorization/domain.ts':
+    'keep_app_device_or_recovery_session',
+  'packages/sdk-server-ts/src/authorization/service.ts':
+    'keep_app_device_or_recovery_session',
   'packages/sdk-server-ts/src/core/RecoveryExecutionStore.ts':
     'keep_app_device_or_recovery_session',
   'packages/sdk-server-ts/src/core/RecoverySessionStore.ts': 'keep_app_device_or_recovery_session',
   'packages/sdk-server-ts/src/core/RegistrationCeremonyStore.ts':
     'keep_ed25519_yao_protocol_session',
   'packages/sdk-server-ts/src/core/types.ts': 'rename_later_agent_b_signing_or_wasm',
-  'packages/sdk-server-ts/src/router/authServicePort.ts': 'keep_app_device_or_recovery_session',
-  'packages/sdk-server-ts/src/router/recoveryExecutionTracking.ts':
+  'packages/sdk-server-ts/src/router/framework/authServicePort.ts': 'keep_app_device_or_recovery_session',
+  'packages/sdk-server-ts/src/router/domains/emailRecovery/recoveryExecutionTracking.ts':
     'keep_app_device_or_recovery_session',
-  'packages/sdk-server-ts/src/router/routerAbEd25519YaoExport.ts':
+  'packages/sdk-server-ts/src/router/domains/ed25519Yao/export/routerAbEd25519YaoExport.ts':
     'keep_ed25519_yao_protocol_session',
-  'packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery.ts':
+  'packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery.ts':
     'keep_ed25519_yao_protocol_session',
-  'packages/sdk-server-ts/src/router/routerAbEd25519YaoRegistration.ts':
+  'packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistration.ts':
     'keep_ed25519_yao_protocol_session',
-  'packages/sdk-server-ts/src/router/routerAbEcdsaStrictRegistration.ts':
+  'packages/sdk-server-ts/src/router/domains/ecdsa/routerAbEcdsaStrictRegistration.ts':
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/SeamsWeb/signingSurface/ports.ts':
-    'rename_later_agent_b_signing_or_wasm',
-  'packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts':
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/platform/generated/signerCoreCommands.ts':
     'rename_later_agent_b_signing_or_wasm',
@@ -112,7 +114,7 @@ const classifiedSessionIdPublicSurfaceFiles = {
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts':
     'rename_later_agent_b_signing_or_wasm',
-  'packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoBudgetRecovery.ts':
+  'packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoCapabilityRecovery.ts':
     'rename_to_threshold_session_id',
   'packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519Warmup.ts':
     'rename_later_agent_b_signing_or_wasm',
@@ -137,8 +139,6 @@ const classifiedSessionIdPublicSurfaceFiles = {
   'packages/sdk-web/src/core/signingEngine/session/passkey/warmSessionMaterialWriter.ts':
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/signingEngine/session/passkey/warmSessionHydration.ts':
-    'rename_later_agent_b_signing_or_wasm',
-  'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ed25519Authorization.ts':
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/public.ts':
     'rename_later_agent_b_signing_or_wasm',

@@ -7,12 +7,14 @@ const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
 const WALLET_ID = 'refactor-92-wallet';
 const ACTIVE_SESSION_ID = 'wss_refactor_92_active';
 const STALE_SESSION_ID = 'wss_refactor_92_stale';
+const AUTHORIZATION_ID = 'wsa_refactor_92_active';
 const EXPIRES_AT_MS = 4_102_444_800_000;
 
 const ACTIVE_SESSION_STATE = {
   kind: 'active_session',
   status: 'active',
   walletId: WALLET_ID,
+  authorizationId: AUTHORIZATION_ID,
   walletSessionId: ACTIVE_SESSION_ID,
   authMethod: 'passkey',
   expiresAtMs: EXPIRES_AT_MS,
@@ -32,9 +34,18 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
     await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
   });
 
-  test('forwards each exact event once and cancels only exact-session requests', async ({ page }) => {
+  test('forwards each exact event once and cancels only exact-session requests', async ({
+    page,
+  }) => {
     const result = await page.evaluate(
-      async ({ routerPath, walletOrigin, walletId, activeSessionId, staleSessionId, expiresAtMs }) => {
+      async ({
+        routerPath,
+        walletOrigin,
+        walletId,
+        activeSessionId,
+        staleSessionId,
+        expiresAtMs,
+      }) => {
         const module = await import(routerPath);
         const { WalletIframeRouter } =
           module as typeof import('@/SeamsWeb/walletIframe/client/router');
@@ -47,7 +58,9 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
           sdkBasePath: '/sdk',
         });
         const lifecycleEvents: Array<{ walletSessionId: string }> = [];
+        const loginStatuses: Array<{ isLoggedIn: boolean; walletId: string | null }> = [];
         router.onSdkLifecycleEvent((event) => lifecycleEvents.push(event));
+        router.onLoginStatusChanged((status) => loginStatuses.push(status));
         await router.init();
 
         let requestSettled = false;
@@ -102,6 +115,7 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
           requestSettled,
           mirroredState: router.getMirroredExactSessionState(),
           lifecycleEventSessionIds: lifecycleEvents.map((event) => event.walletSessionId),
+          loginStatuses: [...loginStatuses],
         };
 
         const activeExpiry = {
@@ -118,6 +132,7 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
           requestResult,
           finalMirroredState: router.getMirroredExactSessionState(),
           lifecycleEventSessionIds: lifecycleEvents.map((event) => event.walletSessionId),
+          loginStatuses,
         };
       },
       {
@@ -133,6 +148,9 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
     expect(result.staleEventResult.requestSettled).toBe(false);
     expect(result.staleEventResult.mirroredState).toEqual(ACTIVE_SESSION_STATE);
     expect(result.staleEventResult.lifecycleEventSessionIds).toEqual([STALE_SESSION_ID]);
+    expect(result.staleEventResult.loginStatuses).toEqual([
+      { isLoggedIn: true, walletId: WALLET_ID },
+    ]);
     expect(result.requestResult).toEqual({
       kind: 'rejected',
       name: 'WalletIframeSessionExpiredRequestError',
@@ -144,11 +162,16 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
     expect(result.finalMirroredState).toEqual({
       kind: 'expired_session',
       walletId: WALLET_ID,
+      authorizationId: AUTHORIZATION_ID,
       walletSessionId: ACTIVE_SESSION_ID,
       authMethod: 'passkey',
       expiresAtMs: EXPIRES_AT_MS,
     });
     expect(result.lifecycleEventSessionIds).toEqual([STALE_SESSION_ID, ACTIVE_SESSION_ID]);
+    expect(result.loginStatuses).toEqual([
+      { isLoggedIn: true, walletId: WALLET_ID },
+      { isLoggedIn: true, walletId: WALLET_ID },
+    ]);
   });
 
   test('rejects queued exact requests while admitting requests started after expiry', async ({
@@ -290,6 +313,7 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
       kind: 'locked',
       identity: {
         walletId: WALLET_ID,
+        authorizationId: AUTHORIZATION_ID,
         walletSessionId: ACTIVE_SESSION_ID,
         authMethod: 'passkey',
         expiresAtMs: EXPIRES_AT_MS,
@@ -299,6 +323,7 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
       kind: 'stale_session',
       expected: {
         walletId: WALLET_ID,
+        authorizationId: AUTHORIZATION_ID,
         walletSessionId: ACTIVE_SESSION_ID,
         authMethod: 'passkey',
         expiresAtMs: EXPIRES_AT_MS,
@@ -306,47 +331,5 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
       current: { kind: 'wallet_locked' },
     });
     expect(result.mirroredState).toEqual({ kind: 'wallet_locked' });
-  });
-
-  test('locks only a wallet that still has no signing session', async ({ page }) => {
-    await page.unroute(WALLET_SERVICE_ROUTE);
-    await registerWalletServiceRoute(
-      page,
-      buildWalletServiceHtml({
-        exactSessionState: {
-          kind: 'wallet_unlocked_without_signing_session',
-          walletId: WALLET_ID,
-          reason: 'not_found',
-        },
-      }),
-      WALLET_SERVICE_ROUTE,
-    );
-
-    const result = await page.evaluate(
-      async ({ routerPath, walletOrigin, walletId }) => {
-        const module = await import(routerPath);
-        const { WalletIframeRouter } =
-          module as typeof import('@/SeamsWeb/walletIframe/client/router');
-        const router = new WalletIframeRouter({
-          walletOrigin,
-          servicePath: '/wallet-service',
-          connectTimeoutMs: 3_000,
-          requestTimeoutMs: 5_000,
-          sdkBasePath: '/sdk',
-        });
-        await router.init();
-        return await router.lockMissingSession({ walletId, reason: 'not_found' });
-      },
-      {
-        routerPath: SDK_ESM_PATHS.walletIframeRouter,
-        walletOrigin: WALLET_ORIGIN,
-        walletId: WALLET_ID,
-      },
-    );
-
-    expect(result).toEqual({
-      kind: 'locked',
-      identity: { walletId: WALLET_ID, reason: 'not_found' },
-    });
   });
 });

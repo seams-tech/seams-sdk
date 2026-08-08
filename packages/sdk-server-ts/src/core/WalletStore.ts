@@ -17,7 +17,11 @@ import type {
   RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import {
-  parseRouterAbEcdsaDerivationActivationRefreshForwardedResponseV1,
+  sameRouterAbMpcMaterialActivationRef,
+  type RouterAbMpcMaterialActivationRefWire,
+} from '@shared/utils/routerAbNormalSigningIdentity';
+import {
+  parseRouterAbEcdsaDerivationActivationRefreshResponseV1,
   parseRouterAbEcdsaDerivationActivationRefreshRequestV1,
   parseRouterAbEcdsaDerivationRecoveryRequestV1,
   parseRouterAbEcdsaStrictForwardedRegistrationResponseV1,
@@ -95,14 +99,21 @@ export type WalletEd25519SignerRecord = {
   updatedAtMs: number;
 };
 
+export type WalletEcdsaSignerKey = Omit<
+  WalletRegistrationEcdsaWalletKey,
+  'evmFamilySigningKeySlotId'
+> & {
+  evmFamilySigningKeySlotId?: never;
+};
+
 export type WalletEcdsaSignerRecord = {
   version: 'wallet_signer_ecdsa_v1';
   walletId: WalletId;
-  evmFamilySigningKeySlotId: string;
+  evmFamilySigningKeySlotId?: never;
   signerId: string;
   chainTargetKey: string;
   chainTarget: ThresholdEcdsaChainTarget;
-  walletKey: WalletRegistrationEcdsaWalletKey;
+  walletKey: WalletEcdsaSignerKey;
   createdAtMs: number;
   updatedAtMs: number;
 };
@@ -145,6 +156,10 @@ export interface WalletStore {
   getEcdsaSignerByPublicCapability(input: {
     walletId: WalletId;
     publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+  }): Promise<WalletEcdsaSignerRecord | null>;
+  getEcdsaSignerByMaterialActivation(input: {
+    walletId: WalletId;
+    materialActivation: RouterAbMpcMaterialActivationRefWire;
   }): Promise<WalletEcdsaSignerRecord | null>;
   getEcdsaSignerByPostRegistrationRequest(input: {
     walletId: WalletId;
@@ -214,7 +229,7 @@ export function parseWalletEcdsaPendingSessionActivationRecord(
           ...base,
           operation: 'refresh',
           request: parseRouterAbEcdsaDerivationActivationRefreshRequestV1(raw.request),
-          response: parseRouterAbEcdsaDerivationActivationRefreshForwardedResponseV1(raw.response),
+          response: parseForwardedEcdsaRefreshResponse(raw.response),
         };
       default:
         return null;
@@ -222,6 +237,16 @@ export function parseWalletEcdsaPendingSessionActivationRecord(
   } catch {
     return null;
   }
+}
+
+function parseForwardedEcdsaRefreshResponse(
+  raw: unknown,
+): RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1 {
+  const response = parseRouterAbEcdsaDerivationActivationRefreshResponseV1(raw);
+  if (response.result !== 'forwarded') {
+    throw new Error('Persisted ECDSA refresh proof must be forwarded');
+  }
+  return response;
 }
 
 function ecdsaPublicCapabilitiesEqual(
@@ -310,18 +335,17 @@ function parseWalletRecord(raw: unknown): WalletRecord | null {
 
 export function parseWalletEcdsaSignerRecord(raw: unknown): WalletEcdsaSignerRecord | null {
   if (!isObject(raw) || raw.version !== 'wallet_signer_ecdsa_v1') return null;
+  if ('evmFamilySigningKeySlotId' in raw) return null;
   const walletId = parseWalletId(raw.walletId);
-  const evmFamilySigningKeySlotId = toOptionalTrimmedString(raw.evmFamilySigningKeySlotId);
   const signerId = toOptionalTrimmedString(raw.signerId);
   const chainTargetKey = toOptionalTrimmedString(raw.chainTargetKey);
   const chainTarget = thresholdEcdsaChainTargetFromValue(raw.chainTarget);
   const walletKeyRaw = isObject(raw.walletKey) ? raw.walletKey : null;
-  const walletKey = walletKeyRaw ? parseWalletRegistrationEcdsaWalletKey(walletKeyRaw) : null;
+  const walletKey = walletKeyRaw ? parseWalletEcdsaSignerKey(walletKeyRaw) : null;
   const createdAtMs = normalizeTimestampMs(raw.createdAtMs);
   const updatedAtMs = normalizeTimestampMs(raw.updatedAtMs);
   if (
     !walletId.ok ||
-    !evmFamilySigningKeySlotId ||
     !signerId ||
     !chainTargetKey ||
     !chainTarget ||
@@ -329,7 +353,6 @@ export function parseWalletEcdsaSignerRecord(raw: unknown): WalletEcdsaSignerRec
     createdAtMs === null ||
     updatedAtMs === null ||
     walletKey.walletId !== walletId.value ||
-    walletKey.evmFamilySigningKeySlotId !== evmFamilySigningKeySlotId ||
     thresholdEcdsaChainTargetKey(chainTarget) !== chainTargetKey ||
     thresholdEcdsaChainTargetKey(walletKey.chainTarget) !== chainTargetKey
   ) {
@@ -338,7 +361,6 @@ export function parseWalletEcdsaSignerRecord(raw: unknown): WalletEcdsaSignerRec
   return {
     version: 'wallet_signer_ecdsa_v1',
     walletId: walletId.value,
-    evmFamilySigningKeySlotId,
     signerId,
     chainTargetKey,
     chainTarget,
@@ -348,9 +370,8 @@ export function parseWalletEcdsaSignerRecord(raw: unknown): WalletEcdsaSignerRec
   };
 }
 
-function parseWalletRegistrationEcdsaWalletKey(
-  raw: Record<string, unknown>,
-): WalletRegistrationEcdsaWalletKey | null {
+function parseWalletEcdsaSignerKey(raw: Record<string, unknown>): WalletEcdsaSignerKey | null {
+  if ('evmFamilySigningKeySlotId' in raw) return null;
   const walletId = parseWalletId(raw.walletId);
   const chainTarget = thresholdEcdsaChainTargetFromValue(raw.chainTarget);
   const participantIds = raw.participantIds;
@@ -383,7 +404,6 @@ function parseWalletRegistrationEcdsaWalletKey(
   ) {
     return null;
   }
-  const evmFamilySigningKeySlotId = toOptionalTrimmedString(raw.evmFamilySigningKeySlotId);
   const keyHandle = toOptionalTrimmedString(raw.keyHandle);
   let ecdsaThresholdKeyId;
   try {
@@ -399,7 +419,6 @@ function parseWalletRegistrationEcdsaWalletKey(
   const relayerVerifyingShareB64u = toOptionalTrimmedString(raw.relayerVerifyingShareB64u);
   const contextBinding32B64u = toOptionalTrimmedString(raw.contextBinding32B64u);
   if (
-    !evmFamilySigningKeySlotId ||
     !keyHandle ||
     !signingRootId ||
     !signingRootVersion ||
@@ -415,7 +434,6 @@ function parseWalletRegistrationEcdsaWalletKey(
     keyScope: 'evm-family',
     chainTarget,
     walletId: walletId.value,
-    evmFamilySigningKeySlotId,
     keyHandle,
     ecdsaThresholdKeyId,
     signingRootId,
@@ -514,6 +532,27 @@ class InMemoryWalletStore implements WalletStore {
     const keyHandle = matches[0]?.walletKey.keyHandle;
     if (!keyHandle || matches.some((record) => record.walletKey.keyHandle !== keyHandle)) {
       throw new Error('Wallet has conflicting ECDSA public capabilities');
+    }
+    return matches[0] ?? null;
+  }
+
+  async getEcdsaSignerByMaterialActivation(input: {
+    walletId: WalletId;
+    materialActivation: RouterAbMpcMaterialActivationRefWire;
+  }): Promise<WalletEcdsaSignerRecord | null> {
+    const matches = [...this.signers.values()].filter(
+      (record): record is WalletEcdsaSignerRecord =>
+        record.version === 'wallet_signer_ecdsa_v1' &&
+        record.walletId === input.walletId &&
+        sameRouterAbMpcMaterialActivationRef(
+          record.walletKey.publicCapability.material_activation,
+          input.materialActivation,
+        ),
+    );
+    if (matches.length === 0) return null;
+    const keyHandle = matches[0]?.walletKey.keyHandle;
+    if (!keyHandle || matches.some((record) => record.walletKey.keyHandle !== keyHandle)) {
+      throw new Error('Wallet has conflicting ECDSA material activations');
     }
     return matches[0] ?? null;
   }
@@ -697,6 +736,34 @@ class CloudflareDurableObjectWalletStore implements WalletStore {
       : null;
   }
 
+  async getEcdsaSignerByMaterialActivation(input: {
+    walletId: WalletId;
+    materialActivation: RouterAbMpcMaterialActivationRefWire;
+  }): Promise<WalletEcdsaSignerRecord | null> {
+    const response = await this.stub.fetch('https://threshold-store.invalid/', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        op: 'get',
+        key: this.key(
+          'signer',
+          `${input.walletId}:ecdsa-material-activation:${input.materialActivation.activation_id}`,
+        ),
+      }),
+    });
+    if (!response.ok) return null;
+    const current = (await response.json().catch(() => null)) as { value?: unknown } | null;
+    const signer = parseWalletEcdsaSignerRecord(current?.value);
+    return signer &&
+      signer.walletId === input.walletId &&
+      sameRouterAbMpcMaterialActivationRef(
+        signer.walletKey.publicCapability.material_activation,
+        input.materialActivation,
+      )
+      ? signer
+      : null;
+  }
+
   async getEcdsaSignerByPostRegistrationRequest(input: {
     walletId: WalletId;
     request: WalletEcdsaPostRegistrationPublicRequest;
@@ -799,6 +866,13 @@ class CloudflareDurableObjectWalletStore implements WalletStore {
         this.key(
           'signer',
           `${record.walletId}:ecdsa-public-capability:${record.walletKey.publicCapability.registration_request_digest_b64u}`,
+        ),
+        record,
+      );
+      await this.put(
+        this.key(
+          'signer',
+          `${record.walletId}:ecdsa-material-activation:${record.walletKey.publicCapability.material_activation.activation_id}`,
         ),
         record,
       );

@@ -15,6 +15,7 @@ import {
 import {
   isAttachEcdsaDerivationToPresignPort,
   isAttachEmailOtpToPresignPort,
+  type EcdsaDerivationAdditiveShareRequest,
   type EcdsaDerivationAdditiveShareResponse,
   type EmailOtpEcdsaSigningShareResponse,
 } from '../ecdsaClientWorkerChannels';
@@ -248,9 +249,8 @@ function handleEmailOtpResponse(event: MessageEvent<EmailOtpEcdsaSigningShareRes
 
 function requestAdditiveShare(args: {
   materialHandle: string;
-  durableMaterialRef: string;
+  material: EcdsaDerivationAdditiveShareRequest['material'];
   poolIdentity: EcdsaClientPresignPoolIdentity;
-  expectedBindingDigest: string;
 }): Promise<Uint8Array> {
   if (!derivationPort) {
     throw new Error('ECDSA presign client has no derivation material channel');
@@ -262,14 +262,13 @@ function requestAdditiveShare(args: {
     kind: 'ecdsa_derivation_additive_share_request_v1',
     requestId,
     materialHandle: args.materialHandle,
-    durableMaterialRef: args.durableMaterialRef,
+    material: args.material,
     poolIdentity: args.poolIdentity,
-    expectedBindingDigest: args.expectedBindingDigest,
   });
   return deferred.promise;
 }
 
-function requestEmailOtpSigningShare(sessionId: string): Promise<EmailOtpSigningShare> {
+function requestEmailOtpSigningShare(thresholdSessionId: string): Promise<EmailOtpSigningShare> {
   if (!emailOtpPort) {
     throw new Error('ECDSA presign client has no Email OTP material channel');
   }
@@ -279,7 +278,7 @@ function requestEmailOtpSigningShare(sessionId: string): Promise<EmailOtpSigning
   emailOtpPort.postMessage({
     kind: 'email_otp_ecdsa_signing_share_request_v1',
     requestId,
-    sessionId,
+    thresholdSessionId,
   });
   return deferred.promise;
 }
@@ -299,20 +298,13 @@ async function initializeSession(
     case 'role_local_derivation_handle':
       additiveShare32 = await requestAdditiveShare({
         materialHandle: requireString(payload.authority.materialHandle, 'materialHandle'),
-        durableMaterialRef: requireString(
-          payload.authority.durableMaterialRef,
-          'durableMaterialRef',
-        ),
+        material: payload.authority.material,
         poolIdentity,
-        expectedBindingDigest: requireString(
-          payload.authority.expectedBindingDigest,
-          'expectedBindingDigest',
-        ),
       });
       break;
     case 'email_otp_worker_session': {
       const claimed = await requestEmailOtpSigningShare(
-        requireString(payload.authority.emailOtpSessionId, 'emailOtpSessionId'),
+        requireString(payload.authority.thresholdSessionId, 'thresholdSessionId'),
       );
       additiveShare32 = claimed.additiveShare32;
       emailOtpAuthority = {

@@ -4,6 +4,10 @@ import {
   type WalletIframeRequestId,
   type WalletIframeSurfaceId,
 } from '@/core/types/walletIframeIdentity';
+import type {
+  HostedAuthMenuSessionId,
+  WalletIframeSurfaceMeasurement,
+} from '../../shared/messages';
 
 export type WalletIframeConnectionId = string & {
   readonly __walletIframeConnectionId: unique symbol;
@@ -31,14 +35,83 @@ export type PasskeyRegistrationPreparationReceipt = {
   expiresAtMs: number;
 };
 
+export type WalletIframeTrustedSurfaceMeasurement =
+  | {
+      kind: 'measured_v1';
+      connectionId: WalletIframeConnectionId;
+      identity: RequestSurfaceIdentity;
+      authMenuSessionId?: never;
+      sequence: number;
+      widthCssPx: number;
+      heightCssPx: number;
+    }
+  | {
+      kind: 'measured_auth_menu_v1';
+      connectionId: WalletIframeConnectionId;
+      identity: RequestSurfaceIdentity;
+      authMenuSessionId: HostedAuthMenuSessionId;
+      sequence: number;
+      widthCssPx: number;
+      heightCssPx: number;
+    };
+
+export type WalletIframeSurfacePresentation =
+  | { kind: 'modal'; title: string }
+  | { kind: 'drawer'; title: string; edge: 'bottom' }
+  | { kind: 'auth_menu_modal'; title: string };
+
+export type WalletIframeRequestSurfacePresentation = Exclude<
+  WalletIframeSurfacePresentation,
+  { kind: 'auth_menu_modal' }
+>;
+
+export type WalletIframeModalPresentation = Extract<
+  WalletIframeSurfacePresentation,
+  { kind: 'modal' }
+>;
+
+export type WalletIframeDrawerPresentation = Extract<
+  WalletIframeSurfacePresentation,
+  { kind: 'drawer' }
+>;
+
+export type WalletIframeAuthMenuPresentation = Extract<
+  WalletIframeSurfacePresentation,
+  { kind: 'auth_menu_modal' }
+>;
+
+function requiredPresentationTitle(title: string): string {
+  const normalized = title.trim();
+  if (!normalized) throw new Error('Wallet iframe surface presentation title is required');
+  return normalized;
+}
+
+export function modalWalletIframeSurfacePresentation(title: string): WalletIframeModalPresentation {
+  return { kind: 'modal', title: requiredPresentationTitle(title) };
+}
+
+export function drawerWalletIframeSurfacePresentation(
+  title: string,
+): WalletIframeDrawerPresentation {
+  return { kind: 'drawer', title: requiredPresentationTitle(title), edge: 'bottom' };
+}
+
+export function authMenuWalletIframeSurfacePresentation(
+  title: string,
+): WalletIframeAuthMenuPresentation {
+  return { kind: 'auth_menu_modal', title: requiredPresentationTitle(title) };
+}
+
 export type HiddenWalletIframeSurface = {
   kind: 'hidden';
   identity?: never;
   connectionId?: never;
+  presentation?: never;
 };
 
 type OwnedWalletIframeSurface = {
   connectionId: WalletIframeConnectionId;
+  presentation: WalletIframeRequestSurfacePresentation;
 };
 
 export type ModalRegistrationConfirmSurface = OwnedWalletIframeSurface & {
@@ -80,6 +153,14 @@ export type ModalDeviceLinkQrSurface = OwnedWalletIframeSurface & {
   identity: RequestSurfaceIdentity;
 };
 
+export type ModalAuthMenuSurface = {
+  kind: 'modal_auth_menu';
+  connectionId: WalletIframeConnectionId;
+  identity: RequestSurfaceIdentity;
+  presentation: WalletIframeAuthMenuPresentation;
+  authMenuSessionId: HostedAuthMenuSessionId;
+};
+
 export type WalletIframeSurface =
   | HiddenWalletIframeSurface
   | ModalRegistrationConfirmSurface
@@ -87,7 +168,8 @@ export type WalletIframeSurface =
   | ModalKeyExportConfirmSurface
   | ModalUnlockConfirmSurface
   | ModalRecoveryCodesSurface
-  | ModalDeviceLinkQrSurface;
+  | ModalDeviceLinkQrSurface
+  | ModalAuthMenuSurface;
 
 export type ForegroundWalletIframeSurface = Exclude<WalletIframeSurface, HiddenWalletIframeSurface>;
 
@@ -108,30 +190,54 @@ type RequestOwnedEvent = {
   identity: RequestSurfaceIdentity;
 };
 
+type RequestPresentationEvent = RequestOwnedEvent & {
+  presentation: WalletIframeRequestSurfacePresentation;
+};
+
 export type WalletIframeSurfaceEvent =
-  | (RequestOwnedEvent & {
+  | (RequestPresentationEvent & {
       kind: 'registration_modal_request_started';
       preparation: PasskeyRegistrationPreparationReceipt;
     })
-  | (RequestOwnedEvent & {
+  | (RequestPresentationEvent & {
       kind: 'transaction_modal_request_started';
     })
-  | (RequestOwnedEvent & {
+  | (RequestPresentationEvent & {
       kind: 'key_export_modal_request_started';
       exportKind: ModalKeyExportConfirmSurface['exportKind'];
     })
-  | (RequestOwnedEvent & {
+  | (RequestPresentationEvent & {
       kind: 'unlock_modal_request_started';
       unlockKind: ModalUnlockConfirmSurface['unlockKind'];
     })
-  | (RequestOwnedEvent & {
+  | (RequestPresentationEvent & {
       kind: 'recovery_codes_modal_request_started';
       operation: ModalRecoveryCodesSurface['operation'];
     })
-  | (RequestOwnedEvent & { kind: 'device_link_qr_modal_request_started' })
-  | (RequestOwnedEvent & { kind: 'request_surface_hidden' })
-  | (RequestOwnedEvent & { kind: 'request_finished' })
-  | (RequestOwnedEvent & { kind: 'request_cancelled' })
+  | (RequestPresentationEvent & { kind: 'device_link_qr_modal_request_started' })
+  | (RequestOwnedEvent & {
+      kind: 'auth_menu_request_started';
+      presentation: WalletIframeAuthMenuPresentation;
+      authMenuSessionId: HostedAuthMenuSessionId;
+    })
+  | (RequestOwnedEvent & {
+      kind: 'auth_menu_request_completed';
+      presentation?: never;
+      authMenuSessionId: HostedAuthMenuSessionId;
+    })
+  | (RequestOwnedEvent & {
+      kind: 'auth_menu_request_closed';
+      presentation?: never;
+      authMenuSessionId: HostedAuthMenuSessionId;
+    })
+  | (RequestOwnedEvent & {
+      kind: 'auth_menu_request_cancelled';
+      presentation?: never;
+      authMenuSessionId: HostedAuthMenuSessionId;
+    })
+  | (RequestOwnedEvent & { kind: 'request_surface_hidden'; presentation?: never })
+  | (RequestOwnedEvent & { kind: 'request_finished'; presentation?: never })
+  | (RequestOwnedEvent & { kind: 'request_cancelled'; presentation?: never })
   | { kind: 'connection_closed'; connectionId: WalletIframeConnectionId };
 
 export type ReduceWalletIframeSurfaceResult =
@@ -189,6 +295,37 @@ export function trustedWalletIframeInboundIdentity<
   });
 }
 
+export function trustedWalletIframeSurfaceMeasurementFromWire(args: {
+  connectionId: WalletIframeConnectionId;
+  identity: RequestSurfaceIdentity;
+  measurement: WalletIframeSurfaceMeasurement;
+}): WalletIframeTrustedSurfaceMeasurement | null {
+  if (args.measurement.requestId !== args.identity.requestId) return null;
+  switch (args.measurement.kind) {
+    case 'measured_v1':
+      return {
+        kind: 'measured_v1',
+        connectionId: args.connectionId,
+        identity: args.identity,
+        sequence: args.measurement.sequence,
+        widthCssPx: args.measurement.widthCssPx,
+        heightCssPx: args.measurement.heightCssPx,
+      };
+    case 'measured_auth_menu_v1':
+      return {
+        kind: 'measured_auth_menu_v1',
+        connectionId: args.connectionId,
+        identity: args.identity,
+        authMenuSessionId: args.measurement.authMenuSessionId,
+        sequence: args.measurement.sequence,
+        widthCssPx: args.measurement.widthCssPx,
+        heightCssPx: args.measurement.heightCssPx,
+      };
+    default:
+      return assertNever(args.measurement);
+  }
+}
+
 export function passkeyRegistrationPreparationReceipt(
   expiresAtMs: number,
 ): PasskeyRegistrationPreparationReceipt {
@@ -205,6 +342,7 @@ export function hiddenWalletIframeSurface(): HiddenWalletIframeSurface {
 export function modalRegistrationConfirmSurface(args: {
   connectionId: WalletIframeConnectionId;
   identity: RequestSurfaceIdentity;
+  presentation: WalletIframeRequestSurfacePresentation;
   preparation: PasskeyRegistrationPreparationReceipt;
 }): ModalRegistrationConfirmSurface {
   return {
@@ -217,6 +355,7 @@ export function modalRegistrationConfirmSurface(args: {
 export function modalTransactionConfirmSurface(args: {
   connectionId: WalletIframeConnectionId;
   identity: RequestSurfaceIdentity;
+  presentation: WalletIframeRequestSurfacePresentation;
 }): ModalTransactionConfirmSurface {
   return {
     kind: 'modal_transaction_confirm',
@@ -228,6 +367,7 @@ export function modalTransactionConfirmSurface(args: {
 export function modalKeyExportConfirmSurface(args: {
   connectionId: WalletIframeConnectionId;
   identity: RequestSurfaceIdentity;
+  presentation: WalletIframeRequestSurfacePresentation;
   exportKind: ModalKeyExportConfirmSurface['exportKind'];
 }): ModalKeyExportConfirmSurface {
   return {
@@ -240,6 +380,7 @@ export function modalKeyExportConfirmSurface(args: {
 export function modalUnlockConfirmSurface(args: {
   connectionId: WalletIframeConnectionId;
   identity: RequestSurfaceIdentity;
+  presentation: WalletIframeRequestSurfacePresentation;
   unlockKind: ModalUnlockConfirmSurface['unlockKind'];
 }): ModalUnlockConfirmSurface {
   return {
@@ -252,6 +393,7 @@ export function modalUnlockConfirmSurface(args: {
 export function modalRecoveryCodesSurface(args: {
   connectionId: WalletIframeConnectionId;
   identity: RequestSurfaceIdentity;
+  presentation: WalletIframeRequestSurfacePresentation;
   operation: ModalRecoveryCodesSurface['operation'];
 }): ModalRecoveryCodesSurface {
   return {
@@ -264,8 +406,24 @@ export function modalRecoveryCodesSurface(args: {
 export function modalDeviceLinkQrSurface(args: {
   connectionId: WalletIframeConnectionId;
   identity: RequestSurfaceIdentity;
+  presentation: WalletIframeRequestSurfacePresentation;
 }): ModalDeviceLinkQrSurface {
   return { kind: 'modal_device_link_qr', ...args };
+}
+
+export function modalAuthMenuSurface(args: {
+  connectionId: WalletIframeConnectionId;
+  identity: RequestSurfaceIdentity;
+  presentation: WalletIframeAuthMenuPresentation;
+  authMenuSessionId: HostedAuthMenuSessionId;
+}): ModalAuthMenuSurface {
+  return {
+    kind: 'modal_auth_menu',
+    connectionId: args.connectionId,
+    identity: args.identity,
+    presentation: args.presentation,
+    authMenuSessionId: args.authMenuSessionId,
+  };
 }
 
 function requestIdentitiesEqual(
@@ -280,6 +438,13 @@ function foregroundSurfaceIdentitiesEqual(
   right: ForegroundWalletIframeSurface,
 ): boolean {
   if (left.kind !== right.kind || left.connectionId !== right.connectionId) return false;
+  if (
+    left.kind === 'modal_auth_menu' &&
+    right.kind === 'modal_auth_menu' &&
+    left.authMenuSessionId !== right.authMenuSessionId
+  ) {
+    return false;
+  }
   return requestIdentitiesEqual(left.identity, right.identity);
 }
 
@@ -313,6 +478,18 @@ function requestEventOwnsSurface(
   );
 }
 
+function authMenuEventOwnsSurface(
+  surface: WalletIframeSurface,
+  event: RequestOwnedEvent & { authMenuSessionId: HostedAuthMenuSessionId },
+): surface is ModalAuthMenuSurface {
+  return (
+    surface.kind === 'modal_auth_menu' &&
+    surface.connectionId === event.connectionId &&
+    requestIdentitiesEqual(surface.identity, event.identity) &&
+    surface.authMenuSessionId === event.authMenuSessionId
+  );
+}
+
 function reduceStartResult(
   current: WalletIframeSurface,
   result: BeginForegroundWalletIframeSurfaceResult,
@@ -342,6 +519,7 @@ export function reduceWalletIframeSurface(
           modalRegistrationConfirmSurface({
             connectionId: event.connectionId,
             identity: event.identity,
+            presentation: event.presentation,
             preparation: event.preparation,
           }),
         ),
@@ -354,6 +532,7 @@ export function reduceWalletIframeSurface(
           modalTransactionConfirmSurface({
             connectionId: event.connectionId,
             identity: event.identity,
+            presentation: event.presentation,
           }),
         ),
       );
@@ -365,6 +544,7 @@ export function reduceWalletIframeSurface(
           modalKeyExportConfirmSurface({
             connectionId: event.connectionId,
             identity: event.identity,
+            presentation: event.presentation,
             exportKind: event.exportKind,
           }),
         ),
@@ -377,6 +557,7 @@ export function reduceWalletIframeSurface(
           modalUnlockConfirmSurface({
             connectionId: event.connectionId,
             identity: event.identity,
+            presentation: event.presentation,
             unlockKind: event.unlockKind,
           }),
         ),
@@ -389,6 +570,7 @@ export function reduceWalletIframeSurface(
           modalRecoveryCodesSurface({
             connectionId: event.connectionId,
             identity: event.identity,
+            presentation: event.presentation,
             operation: event.operation,
           }),
         ),
@@ -401,9 +583,29 @@ export function reduceWalletIframeSurface(
           modalDeviceLinkQrSurface({
             connectionId: event.connectionId,
             identity: event.identity,
+            presentation: event.presentation,
           }),
         ),
       );
+    case 'auth_menu_request_started':
+      return reduceStartResult(
+        current,
+        beginForegroundWalletIframeSurface(
+          current,
+          modalAuthMenuSurface({
+            connectionId: event.connectionId,
+            identity: event.identity,
+            presentation: event.presentation,
+            authMenuSessionId: event.authMenuSessionId,
+          }),
+        ),
+      );
+    case 'auth_menu_request_completed':
+    case 'auth_menu_request_closed':
+    case 'auth_menu_request_cancelled':
+      return authMenuEventOwnsSurface(current, event)
+        ? { kind: 'applied', surface: hiddenWalletIframeSurface() }
+        : { kind: 'ignored', surface: current };
     case 'request_surface_hidden':
       return requestEventOwnsSurface(current, event)
         ? { kind: 'applied', surface: hiddenWalletIframeSurface() }

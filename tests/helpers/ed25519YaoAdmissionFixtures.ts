@@ -24,9 +24,12 @@ export function ed25519YaoFixtureBytes(seed: number): number[] {
 export function buildFixtureEd25519YaoRegistrationAdmissionRequest(
   overrides: {
     readonly lifecycleId?: string;
+    readonly rootShareEpoch?: string;
     readonly walletId?: string;
     readonly signerSetId?: string;
     readonly signingWorkerId?: string;
+    readonly nearEd25519SigningKeyId?: string;
+    readonly signingRootId?: string;
     readonly participantIds?: readonly [number, number];
     readonly signerSlot?: number;
   } = {},
@@ -37,16 +40,25 @@ export function buildFixtureEd25519YaoRegistrationAdmissionRequest(
   const parsed = parseRouterAbEd25519YaoRegistrationAdmissionRequestV1({
     scope: {
       lifecycle_id: lifecycleId,
-      root_share_epoch: 'root-share-epoch-9',
+      root_share_epoch: overrides.rootShareEpoch ?? 'root-share-epoch-9',
       account_id: walletId,
-      wallet_session_id: `${lifecycleId}-session`,
+      threshold_session_id: `${lifecycleId}-session`,
       signer_set_id: overrides.signerSetId ?? 'signer-set-fixture',
       signing_worker_id: overrides.signingWorkerId ?? 'signing-worker-a',
+      material_activation: {
+        kind: 'mpc_material_activation_ref',
+        activation_id: `${lifecycleId}-activation`,
+        capability: `${lifecycleId}-capability`,
+        material_owner: walletId,
+        key_binding: `${lifecycleId}-key`,
+        lifecycle_binding: `${lifecycleId}-lifecycle-binding`,
+        signing_worker: overrides.signingWorkerId ?? 'signing-worker-a',
+      },
     },
     application_binding: {
       wallet_id: walletId,
-      near_ed25519_signing_key_id: 'ed25519ks_fixture',
-      signing_root_id: 'project_fixture:dev',
+      near_ed25519_signing_key_id: overrides.nearEd25519SigningKeyId ?? 'ed25519ks_fixture',
+      signing_root_id: overrides.signingRootId ?? 'project_fixture:dev',
       key_creation_signer_slot: signerSlot,
     },
     participant_ids: overrides.participantIds ?? [11, 29],
@@ -58,27 +70,39 @@ export function buildFixtureEd25519YaoRegistrationAdmissionRequest(
 export function buildFixtureEd25519YaoRegistrationAdmissionReceipt(
   overrides: {
     readonly lifecycleId?: string;
+    readonly rootShareEpoch?: string;
     readonly walletId?: string;
     readonly signerSetId?: string;
     readonly signingWorkerId?: string;
   } = {},
 ): RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'> {
   const lifecycleId = overrides.lifecycleId ?? 'registration-ceremony-fixture';
+  const walletId = overrides.walletId ?? 'near-account.testnet';
+  const signingWorkerId = overrides.signingWorkerId ?? 'signing-worker-a';
   const parsed = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1({
     binding: {
       lifecycle: {
         lifecycle_id: lifecycleId,
         work_kind: 'registration_prepare',
         primitive_request_kind: 'registration',
-        root_share_epoch: 'root-share-epoch-9',
-        account_id: overrides.walletId ?? 'near-account.testnet',
+        root_share_epoch: overrides.rootShareEpoch ?? 'root-share-epoch-9',
+        account_id: walletId,
         session_id: `${lifecycleId}-session`,
         signer_set_id: overrides.signerSetId ?? 'signer-set-fixture',
-        selected_server_id: overrides.signingWorkerId ?? 'signing-worker-a',
+        selected_server_id: signingWorkerId,
       },
       operation: 'registration',
       session_id: ed25519YaoFixtureBytes(1),
       stable_key_context_binding: ed25519YaoFixtureBytes(33),
+      material_activation: {
+        kind: 'mpc_material_activation_ref',
+        activation_id: `${lifecycleId}-activation`,
+        capability: `${lifecycleId}-capability`,
+        material_owner: walletId,
+        key_binding: `${lifecycleId}-key`,
+        lifecycle_binding: `${lifecycleId}-lifecycle-binding`,
+        signing_worker: signingWorkerId,
+      },
     },
     keyset: {
       deriver_a_input_public_key: ed25519YaoFixtureBytes(65),
@@ -92,7 +116,8 @@ export function buildFixtureEd25519YaoRegistrationAdmissionReceipt(
 
 /** The deferred-NEAR arm respond returns for a mixed signer plan. */
 export function buildFixtureRespondEd25519DeferredWork(
-  overrides: Parameters<typeof buildFixtureEd25519YaoRegistrationAdmissionReceipt>[0] = {},
+  overrides: Parameters<typeof buildFixtureEd25519YaoRegistrationAdmissionRequest>[0] &
+    Parameters<typeof buildFixtureEd25519YaoRegistrationAdmissionReceipt>[0] = {},
 ): {
   status: 'deferred';
   admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;

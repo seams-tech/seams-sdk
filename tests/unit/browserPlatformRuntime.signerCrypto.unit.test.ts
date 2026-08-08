@@ -31,7 +31,7 @@ import {
   type PrepareEcdsaClientBootstrapInput,
   type RequiredPrfAuthenticatorSuccess,
 } from '@/core/platform';
-import type { EcdsaRelayerDerivationPublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import type { EcdsaDerivationRelayerPublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 
 function bytesB64u(length: number, fill: number): string {
   return base64UrlEncode(new Uint8Array(length).fill(fill));
@@ -293,7 +293,9 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
     const workerCtx: WorkerOperationContext = {
       async requestWorkerOperation({ kind, request }) {
         expect(kind).toBe('ecdsaDerivationClient');
-        if (request.type === WorkerRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap) {
+        if (
+          request.type === WorkerRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap
+        ) {
           const payload =
             request.payload as WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapRequest;
           capturedPreparePayloads.push(payload);
@@ -407,7 +409,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       pendingStateBlob: prepared.value.pendingStateBlob,
       relayerPublicIdentity: {
         relayerKeyId: 'relayer',
-        relayerPublicKey33B64u: publicKeyB as EcdsaRelayerDerivationPublicKey33B64u,
+        relayerPublicKey33B64u: publicKeyB as EcdsaDerivationRelayerPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
       },
@@ -448,7 +450,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       },
       relayerPublicIdentity: {
         relayerKeyId: 'relayer',
-        relayerPublicKey33B64u: publicKeyB as EcdsaRelayerDerivationPublicKey33B64u,
+        relayerPublicKey33B64u: publicKeyB as EcdsaDerivationRelayerPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
       },
@@ -469,7 +471,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       pendingStateBlob: pendingBlob(),
       relayerPublicIdentity: {
         relayerKeyId: 'relayer',
-        relayerPublicKey33B64u: publicKeyB as EcdsaRelayerDerivationPublicKey33B64u,
+        relayerPublicKey33B64u: publicKeyB as EcdsaDerivationRelayerPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
       },
@@ -490,7 +492,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       pendingStateBlob: pendingBlob(),
       relayerPublicIdentity: {
         relayerKeyId: 'relayer',
-        relayerPublicKey33B64u: publicKeyB as EcdsaRelayerDerivationPublicKey33B64u,
+        relayerPublicKey33B64u: publicKeyB as EcdsaDerivationRelayerPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
       },
@@ -515,7 +517,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       pendingStateBlob: pendingBlob(),
       relayerPublicIdentity: {
         relayerKeyId: '',
-        relayerPublicKey33B64u: publicKeyB as EcdsaRelayerDerivationPublicKey33B64u,
+        relayerPublicKey33B64u: publicKeyB as EcdsaDerivationRelayerPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
       },
@@ -538,7 +540,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       pendingStateBlob: pendingBlob(),
       relayerPublicIdentity: {
         relayerKeyId: 'relayer',
-        relayerPublicKey33B64u: publicKeyA as EcdsaRelayerDerivationPublicKey33B64u,
+        relayerPublicKey33B64u: publicKeyA as EcdsaDerivationRelayerPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
       },
@@ -555,7 +557,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       kind: 'email_otp_worker_session_handle_v1',
       sessionId: 'otp-session',
       walletId: 'wallet.testnet',
-      walletKeyId: 'wallet-key-browser-platform',
+      keyHandle: 'ecdsa-key-handle',
       authSubjectId: 'google:alice',
       action: 'threshold_ecdsa_bootstrap',
       operation: 'sign',
@@ -574,7 +576,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
         kind: 'email_otp_worker_session_handle_v1',
         sessionId: 'otp-session',
         walletId: 'wallet.testnet',
-        walletKeyId: 'wallet-key-browser-platform',
+        keyHandle: 'ecdsa-key-handle',
         action: 'threshold_ecdsa_bootstrap',
         operation: 'sign',
         chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-testnet' },
@@ -588,7 +590,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
         kind: 'email_otp_worker_session_handle_v1',
         sessionId: 'otp-session',
         walletId: 'wallet.testnet',
-        walletKeyId: 'wallet-key-browser-platform',
+        keyHandle: 'ecdsa-key-handle',
         authSubjectId: 'google:alice',
         action: 'threshold_ecdsa_bootstrap',
         operation: 'sign',
@@ -602,7 +604,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
         kind: 'email_otp_worker_session_handle_v1',
         sessionId: 'otp-session',
         walletId: 'wallet.testnet',
-        walletKeyId: 'wallet-key-browser-platform',
+        keyHandle: 'ecdsa-key-handle',
         rpId: 'localhost',
         authSubjectId: 'google:alice',
         action: 'threshold_ecdsa_bootstrap',
@@ -610,6 +612,37 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
         chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-testnet' },
       }),
     ).toThrow(/rpId/i);
+  });
+
+  test('rejects runtime ECDSA worker handles carrying a provisioning slot', () => {
+    expect(() =>
+      parseEmailOtpWorkerIssuedSessionHandle({
+        kind: 'email_otp_worker_session_handle_v1',
+        sessionId: 'otp-session',
+        walletId: 'wallet.testnet',
+        keyHandle: 'ecdsa-key-handle',
+        evmFamilySigningKeySlotId: 'evm-family-slot',
+        authSubjectId: 'google:alice',
+        action: 'threshold_ecdsa_bootstrap',
+        operation: 'export',
+        chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-testnet' },
+      }),
+    ).toThrow(/cannot include evmFamilySigningKeySlotId/i);
+  });
+
+  test('rejects retired registration ECDSA worker handles', () => {
+    expect(() =>
+      parseEmailOtpWorkerIssuedSessionHandle({
+        kind: 'email_otp_worker_session_handle_v1',
+        sessionId: 'otp-session',
+        walletId: 'wallet.testnet',
+        evmFamilySigningKeySlotId: 'evm-family-slot',
+        authSubjectId: 'google:alice',
+        action: 'threshold_ecdsa_bootstrap',
+        operation: 'registration',
+        chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-testnet' },
+      }),
+    ).toThrow(/registration.*retired/i);
   });
 
   test('parses Ed25519 worker-issued Email OTP handles without chainTarget', () => {

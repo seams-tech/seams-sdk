@@ -3,6 +3,8 @@ import type { TransactionContext } from '@/core/types/rpc';
 import type { NearEd25519StepUpAuthorization } from '../../interfaces/near';
 import type { NearSigningRuntimeDeps } from '../../interfaces/runtime';
 import type { NonceLeaseRef } from '../../interfaces/nonceLease';
+import type { NonceLease } from '../../nonce/nonceTypes';
+import type { NearImplicitAccountFundingResult } from '../../interfaces/implicitAccountFunding';
 import { nonceLeaseToRef } from '../../nonce/NonceCoordinator';
 import { buildNearNonceLane } from '../../nonce/nearNonceLaneIdentity';
 import type {
@@ -18,6 +20,16 @@ import type { ResolvedRouterAbEd25519WalletSessionState } from '../../session/wa
 
 const ACCESS_KEY_POLL_ATTEMPTS = 12;
 const ACCESS_KEY_POLL_DELAY_MS = 1_000;
+/**
+ * The funding transfer is broadcast with optimistic execution, so the account is
+ * usually queryable within a few hundred milliseconds — the RPC node we read
+ * from just has to catch up. Start well under a second and ease off, instead of
+ * paying a flat second for a wait that is normally already over. Total budget
+ * stays comparable to the flat schedule.
+ */
+const FUNDED_ACCESS_KEY_BACKOFF_MS = [
+  120, 180, 250, 350, 500, 700, 1_000, 1_000, 1_500, 1_500, 2_000,
+] as const;
 const nearFundingAuthorityBrand = Symbol('NearWalletSessionFundingAuthority');
 
 type FingerprintedSigningOperationContext = SigningOperationContext & {
@@ -49,9 +61,9 @@ type NearWalletSessionFundingAuthority =
   | FreshWalletSessionAuthority
   | FreshEmailOtpWalletSessionAuthority;
 
-function delayAccessKeyPoll(): Promise<void> {
+function delayAccessKeyPoll(delayMs = ACCESS_KEY_POLL_DELAY_MS): Promise<void> {
   return new Promise((resolve) => {
-    setTimeout(resolve, ACCESS_KEY_POLL_DELAY_MS);
+    setTimeout(resolve, delayMs);
   });
 }
 
@@ -65,6 +77,14 @@ function requireWalletSessionJwt(state: ResolvedRouterAbEd25519WalletSessionStat
   return walletSessionJwt;
 }
 
+/**
+ * The step-up METHOD, which is known before any step-up authorization exists.
+ * Confirmation-time funding runs between the user's confirm click and the
+ * step-up assertion — before the proof is assembled — so it names its
+ * provenance from the method rather than from a finished authorization.
+ */
+export type NearOperationStepUpFundingMethod = 'passkey' | 'email_otp';
+
 function fundingAuthorityProvenance(
   authorization: NearEd25519StepUpAuthorization,
 ): NearWalletSessionFundingAuthority['provenance'] {
@@ -77,6 +97,21 @@ function fundingAuthorityProvenance(
       return 'email_otp_reauth';
     default:
       return assertNeverFundingAuthorization(authorization);
+  }
+}
+
+function operationStepUpFundingProvenance(
+  method: NearOperationStepUpFundingMethod,
+): NearWalletSessionFundingAuthority['provenance'] {
+  switch (method) {
+    case 'passkey':
+      return 'passkey_reauth';
+    case 'email_otp':
+      return 'email_otp_reauth';
+    default: {
+      method satisfies never;
+      throw new Error('[SigningEngine][near] unsupported operation step-up funding method');
+    }
   }
 }
 
@@ -128,11 +163,11 @@ function assertFundingRequestMatchesAuthenticatedState(args: {
 function createNearWalletSessionFundingAuthority(args: {
   request: NearFundingRequest;
   walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
-  authorization: NearEd25519StepUpAuthorization;
+  provenance: NearWalletSessionFundingAuthority['provenance'];
 }): NearWalletSessionFundingAuthority {
   return {
     kind: 'near_wallet_session_funding_authority',
-    provenance: fundingAuthorityProvenance(args.authorization),
+    provenance: args.provenance,
     request: args.request,
     thresholdSessionId: args.walletSessionState.signingLane.identity.thresholdSessionId,
     walletSessionJwt: requireWalletSessionJwt(args.walletSessionState),
@@ -140,10 +175,21 @@ function createNearWalletSessionFundingAuthority(args: {
   };
 }
 
+/**
+ * `nonceLeases` are the wire-shaped refs the readiness carries; `reservedLeases`
+ * are the full leases, which the confirmation flow needs so it can release them
+ * if the confirmation fails after reservation.
+ */
+type FundedNearTransactionContext = {
+  transactionContext: TransactionContext;
+  nonceLeases: NonceLeaseRef[];
+  reservedLeases: NonceLease[];
+};
+
 async function reserveFundedImplicitNearTransactionContext(args: {
   ctx: NearSigningRuntimeDeps;
   authority: NearWalletSessionFundingAuthority;
-}): Promise<{ transactionContext: TransactionContext; nonceLeases: NonceLeaseRef[] }> {
+}): Promise<FundedNearTransactionContext> {
   const request = args.authority.request;
   const lane = buildNearNonceLane({
     chains: args.ctx.chains,
@@ -163,10 +209,15 @@ async function reserveFundedImplicitNearTransactionContext(args: {
       return {
         transactionContext: reserved.context,
         nonceLeases: reserved.leases.map(nonceLeaseToRef),
+        reservedLeases: reserved.leases,
       };
     } catch (error: unknown) {
       latestError = error;
-      if (attempt < ACCESS_KEY_POLL_ATTEMPTS) await delayAccessKeyPoll();
+      if (attempt < ACCESS_KEY_POLL_ATTEMPTS) {
+        await delayAccessKeyPoll(
+          FUNDED_ACCESS_KEY_BACKOFF_MS[attempt - 1] ?? ACCESS_KEY_POLL_DELAY_MS,
+        );
+      }
     }
   }
   throw latestError instanceof Error
@@ -177,7 +228,7 @@ async function reserveFundedImplicitNearTransactionContext(args: {
 async function fundAndReserveNearContext(args: {
   ctx: NearSigningRuntimeDeps;
   authority: NearWalletSessionFundingAuthority;
-}): Promise<{ transactionContext: TransactionContext; nonceLeases: NonceLeaseRef[] }> {
+}): Promise<FundedNearTransactionContext> {
   const request = args.authority.request;
   const funded = await fundImplicitNearAccountForTesting({
     relayerUrl: args.ctx.relayerUrl,
@@ -215,7 +266,7 @@ export async function resolveConfirmedNearTransactionContext(args: {
       const authority = createNearWalletSessionFundingAuthority({
         request: args.confirmation.readiness.request,
         walletSessionState: args.walletSessionState,
-        authorization: args.authorization,
+        provenance: fundingAuthorityProvenance(args.authorization),
       });
       const funded = await fundAndReserveNearContext({ ctx: args.ctx, authority });
       return {
@@ -231,4 +282,55 @@ export async function resolveConfirmedNearTransactionContext(args: {
 
 function assertNeverConfirmedNearTransactionContext(value: never): never {
   throw new Error(`Unsupported confirmed NEAR transaction readiness: ${String(value)}`);
+}
+
+/**
+ * The funder behind NearImplicitAccountFundingPort: funds an implicit NEAR
+ * account and reserves the transaction context the confirmation flow needs, in
+ * one pass.
+ *
+ * The warm-session path funds after the confirmation returns
+ * (resolveConfirmedNearTransactionContext above) because its authorization is
+ * not context-bound. A step-up authorization is: its challenge is the digest of
+ * the prepared operation — nonce and block hash included — and the assertion
+ * signs that digest, so funding must land before the assertion is collected.
+ * Same authority, same subject and operation checks; only the ordering and the
+ * caller differ.
+ *
+ * Reserving here rather than making the caller re-fetch matters for latency:
+ * this runs while the user waits for the passkey prompt, and the reservation is
+ * itself the retry — a not-yet-visible access key is retried inside
+ * reserveFundedImplicitNearTransactionContext instead of costing a separate
+ * access-key probe plus a full second of backoff before the caller tries again.
+ */
+export async function fundNearImplicitAccountForOperationStepUp(args: {
+  request: NearFundingRequest;
+  ctx: NearSigningRuntimeDeps;
+  nearPublicKeyStr: string;
+  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
+  method: NearOperationStepUpFundingMethod;
+  signingOperation: FingerprintedSigningOperationContext;
+  signatureUses: number;
+}): Promise<NearImplicitAccountFundingResult> {
+  assertFundingRequestMatchesAuthenticatedState({
+    request: args.request,
+    walletSessionState: args.walletSessionState,
+    nearPublicKeyStr: args.nearPublicKeyStr,
+    signingOperation: args.signingOperation,
+    signatureUses: args.signatureUses,
+  });
+  const authority = createNearWalletSessionFundingAuthority({
+    request: args.request,
+    walletSessionState: args.walletSessionState,
+    provenance: operationStepUpFundingProvenance(args.method),
+  });
+  const funded = await fundAndReserveNearContext({ ctx: args.ctx, authority });
+  return {
+    readiness: {
+      kind: 'context_ready',
+      transactionContext: funded.transactionContext,
+      nonceLeases: funded.nonceLeases,
+    },
+    reservedNonceLeases: funded.reservedLeases,
+  };
 }

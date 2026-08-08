@@ -8,12 +8,13 @@ import {
   handleRouterApiWalletAddSignerIntent,
   handleRouterApiWalletAddSignerStart,
   handleRouterApiWalletEcdsaKeyFactsInventory,
-} from '../../packages/sdk-server-ts/src/router/walletRegistrationRoutes';
+  handleRouterApiWalletRegistrationNearProvisioning,
+} from '../../packages/sdk-server-ts/src/router/domains/walletRegistration/walletRegistrationRoutes';
 import {
   createRouterApiRouteDefinitions,
   findRouteDefinitionById,
   type RouteDefinition,
-} from '../../packages/sdk-server-ts/src/router/routeDefinitions';
+} from '../../packages/sdk-server-ts/src/router/framework/routeDefinitions';
 import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '../../packages/shared-ts/src/utils/ecdsaKeyFactsInventory';
 import { ROUTER_AB_PUBLIC_KEYSET_VERSION_V2 } from '../../packages/shared-ts/src/utils/routerAbPublicKeyset';
 import {
@@ -26,6 +27,9 @@ import {
 import { parseWebAuthnRpId, type WebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes';
 import { thresholdEcdsaChainTargetKey } from '../../packages/sdk-server-ts/src/core/thresholdEcdsaChainTarget';
+import {
+  buildEmailOtpWalletAuthAuthority,
+} from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 
 const routeDefinitions = createRouterApiRouteDefinitions({
   enableHealthz: true,
@@ -110,6 +114,7 @@ function addSignerInputFor(args: {
   headers?: Record<string, string>;
   origin?: string;
   apiKeyAuth?: Record<string, unknown>;
+  publishableKeyAuth?: Record<string, unknown>;
   orgProjectEnv?: Record<string, unknown>;
 }) {
   return {
@@ -128,7 +133,8 @@ function addSignerInputFor(args: {
       walletRegistration: args.authService,
       authService: args.authService,
       session: args.session || {},
-      publishableKeyAuth: args.apiKeyAuth,
+      apiKeyAuth: args.apiKeyAuth,
+      publishableKeyAuth: args.publishableKeyAuth,
       orgProjectEnv: args.orgProjectEnv,
       routerAbPublicKeyset: ROUTER_AB_PUBLIC_KEYSET,
     },
@@ -218,7 +224,6 @@ function validEcdsaClientBootstrap() {
     requestId: 'request-1',
     registrationPreparationId: 'wrp_123',
     thresholdSessionId: 'session-1',
-    signingGrantId: 'signing-grant-1',
     ttlMs: 300_000,
     remainingUses: 1,
     participantIds: [1, 2],
@@ -279,7 +284,7 @@ function ed25519AddSignerAdmissionRequest() {
       lifecycle_id: 'wasc_1',
       root_share_epoch: 'root-share-epoch-1',
       account_id: 'wallet_alice',
-      wallet_session_id: 'wallet-session-add-signer-1',
+      threshold_session_id: 'threshold-session-add-signer-1',
       signer_set_id: 'signer-set-add-signer-1',
       signing_worker_id: 'signing-worker-test',
     },
@@ -394,7 +399,6 @@ test.describe('wallet registration route boundaries', () => {
       webauthn_authentication: credential,
     });
     expect(serviceRequest).toMatchObject({
-      walletId: 'wallet_alice',
       addSignerIntentDigestB64u: digest,
       auth: {
         kind: 'webauthn_assertion',
@@ -563,6 +567,7 @@ test.describe('wallet registration route boundaries', () => {
             claims: {
               kind: 'app_session_v1',
               sub: 'app-user-1',
+              walletId: 'wallet_alice',
               appSessionVersion: 'asv-1',
               exp: Math.floor(Date.now() / 1000) + 60,
             },
@@ -573,7 +578,6 @@ test.describe('wallet registration route boundaries', () => {
 
     expect(response.status).toBe(200);
     expect(serviceRequest).toMatchObject({
-      walletId: 'wallet_alice',
       auth: {
         kind: 'app_session',
         policy: {
@@ -716,8 +720,11 @@ test.describe('wallet registration route boundaries', () => {
 
     expect(response.status).toBe(200);
     expect(capturedRequest).toMatchObject({
-      request: {
-        walletId: 'wallet_alice',
+      command: {
+        subject: {
+          kind: 'wallet_auth_method_management',
+          walletId: 'wallet_alice',
+        },
         authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
       },
       expectedOrigin: 'https://wallet.example.test',
@@ -776,6 +783,69 @@ test.describe('wallet registration route boundaries', () => {
       ok: false,
       code: 'invalid_body',
       message: 'add-signer Ed25519 participantIds must contain participant ids',
+    });
+  });
+
+  test('add-signer intent dispatches an exact wallet signer subject', async () => {
+    let capturedCommand: unknown = null;
+    const response = await handleRouterApiWalletAddSignerIntent(
+      addSignerInputFor({
+        routeId: 'wallet_add_signer_intent',
+        body: {
+          signerSelection: {
+            mode: 'ed25519',
+            ed25519: {
+              mode: 'create_implicit_near_account',
+              signerSlot: 1,
+              participantIds: [1, 2],
+              keyPurpose: 'near_tx',
+              keyVersion: 'router-ab-ed25519-yao-v1',
+              derivationVersion: 1,
+            },
+          },
+        },
+        headers: {
+          authorization: 'Bearer pk_test',
+          'x-seams-environment-id': 'project:dev',
+        },
+        authService: {
+          createAddSignerIntent: async (input: unknown) => {
+            capturedCommand = input;
+            return {
+              ok: true,
+              intent: { version: 'add_signer_intent_v1' },
+              addSignerIntentDigestB64u: 'digest',
+              addSignerIntentGrant: 'wasig_1',
+              expiresAtMs: Date.now() + 60_000,
+            };
+          },
+        },
+        publishableKeyAuth: {
+          authenticate: async () => ({
+            ok: true,
+            principal: {
+              apiKeyId: 'pk_add_signer',
+              orgId: 'org_add_signer',
+              projectId: 'project',
+              envId: 'dev',
+              environmentId: 'project:dev',
+              scopes: ['wallets.signers.create'],
+            },
+          }),
+        },
+      }) as unknown as Parameters<typeof handleRouterApiWalletAddSignerIntent>[0],
+    );
+
+    expect(response.status).toBe(200);
+    expect(capturedCommand).toMatchObject({
+      command: {
+        subject: {
+          kind: 'wallet_signer_management',
+          walletId: 'wallet_alice',
+        },
+        signerSelection: { mode: 'ed25519' },
+      },
+      expectedOrigin: 'https://wallet.example.test',
     });
   });
 
@@ -864,7 +934,10 @@ test.describe('wallet registration route boundaries', () => {
       webauthn_authentication: credential,
     });
     expect(serviceRequest).toMatchObject({
-      walletId: 'wallet_alice',
+      subject: {
+        kind: 'wallet_auth_method_management',
+        walletId: 'wallet_alice',
+      },
       addAuthMethodIntentDigestB64u: digest,
       intent: {
         authMethod: { kind: 'passkey', rpId: 'wallet.example.test' },
@@ -917,6 +990,7 @@ test.describe('wallet registration route boundaries', () => {
             claims: {
               kind: 'app_session_v1',
               sub: 'user_1',
+              walletId: 'wallet_alice',
               appSessionVersion: 'v1',
               exp: Math.floor(Date.now() / 1000) + 60,
             },
@@ -938,7 +1012,10 @@ test.describe('wallet registration route boundaries', () => {
 
     expect(response.status).toBe(200);
     expect(serviceRequest).toMatchObject({
-      walletId: 'wallet_alice',
+      subject: {
+        kind: 'wallet_auth_method_management',
+        walletId: 'wallet_alice',
+      },
       intent: {
         authMethod: { kind: 'email_otp', email: 'alice@example.test' },
       },
@@ -979,6 +1056,7 @@ test.describe('wallet registration route boundaries', () => {
             claims: {
               kind: 'app_session_v1',
               sub: 'user_1',
+              walletId: 'wallet_alice',
               appSessionVersion: 'v1',
               exp: Math.floor(Date.now() / 1000) + 60,
             },
@@ -1025,6 +1103,10 @@ test.describe('wallet registration route boundaries', () => {
 
     expect(response.status).toBe(200);
     expect(finalizeRequest).toEqual({
+      subject: {
+        kind: 'wallet_auth_method_management',
+        walletId: 'wallet_alice',
+      },
       addAuthMethodCeremonyId: 'waac_1',
     });
   });
@@ -1058,6 +1140,7 @@ test.describe('wallet registration route boundaries', () => {
             claims: {
               kind: 'app_session_v1',
               sub: 'user_1',
+              walletId: 'wallet_alice',
               appSessionVersion: 'v1',
               exp: Math.floor(Date.now() / 1000) + 60,
             },
@@ -1079,7 +1162,10 @@ test.describe('wallet registration route boundaries', () => {
 
     expect(response.status).toBe(200);
     expect(revokeRequest).toEqual({
-      walletId: 'wallet_alice',
+      subject: {
+        kind: 'wallet_auth_method_management',
+        walletId: 'wallet_alice',
+      },
       auth: {
         kind: 'app_session',
         policy: {
@@ -1096,6 +1182,7 @@ test.describe('wallet registration route boundaries', () => {
         kind: 'email_otp',
         email: 'alice@example.test',
       },
+      walletId: 'wallet_alice',
     });
   });
 
@@ -1171,6 +1258,7 @@ test.describe('wallet registration route boundaries', () => {
             claims: {
               kind: 'app_session_v1',
               sub: 'app-user-1',
+              walletId: 'wallet_alice',
               appSessionVersion: 'asv-1',
               exp: Math.floor(Date.now() / 1000) + 60,
             },
@@ -1310,5 +1398,127 @@ test.describe('wallet registration route boundaries', () => {
       rpId: 'wallet.example.test',
       keyTargets,
     });
+  });
+
+  test('NEAR provisioning attaches the Email OTP app session to the terminal result', async () => {
+    const sessionClaims: { subject?: string; [key: string]: unknown } = {};
+    const session = {
+      verifyJwt: async () => ({
+        valid: true as const,
+        payload: {
+          kind: 'wallet_registration_setup_v1',
+          registrationCeremonyId: 'registration-ceremony',
+          walletId: 'wallet_alice',
+          orgId: 'org',
+          signingRootId: 'project:dev',
+          signingRootVersion: 'root-v1',
+          policy: {
+            kind: 'runtime_policy_scope',
+            scope: {
+              orgId: 'org',
+              projectId: 'project',
+              envId: 'dev',
+              signingRootVersion: 'root-v1',
+            },
+          },
+          setupDigestB64u: 'setup-digest',
+          expiresAtMs: Date.now() + 60_000,
+        },
+      }),
+      signJwt: async (subject: string, claims: Record<string, unknown>) => {
+        sessionClaims.subject = subject;
+        Object.assign(sessionClaims, claims);
+        return 'registration-email-otp-app-session';
+      },
+    };
+    const authority = buildEmailOtpWalletAuthAuthority({
+      walletId: 'wallet_alice',
+      provider: 'google',
+      providerUserId: 'google:alice',
+      emailHashHex: 'a'.repeat(64),
+    });
+    const service = {
+      completeWalletRegistrationNearProvisioning: async () =>
+        ({
+          ok: true,
+          walletId: walletIdFromString('wallet_alice'),
+          authority,
+          authMethod: {
+            kind: 'email_otp',
+            registrationAuthorityId: 'registration-authority',
+          },
+          kind: 'near_ed25519',
+          authorityScope: {
+            kind: 'email_otp',
+            provider: 'google',
+            providerUserId: 'google:alice',
+          },
+          accountProvisioning: {
+            kind: 'implicit_account',
+            accountIdSource: 'ed25519_public_key',
+          },
+          resolvedAccount: {
+            kind: 'implicit_account',
+            nearAccountId: 'ab'.repeat(32),
+            nearEd25519SigningKeyId: 'near-ed25519-key',
+          },
+          ed25519: {
+            signerSlot: 1,
+            nearAccountId: 'ab'.repeat(32),
+            nearEd25519SigningKeyId: 'near-ed25519-key',
+            publicKey: 'ed25519:registration-public-key',
+            relayerKeyId: 'signing-worker',
+            keyVersion: 'router-ab-ed25519-yao-v1',
+            recoveryExportCapable: true,
+            participantIds: [1, 2],
+            thresholdSessionId: 'threshold-session',
+            runtimePolicyScope: {
+              orgId: 'org',
+              projectId: 'project',
+              envId: 'dev',
+              signingRootVersion: 'root-v1',
+            },
+            routerAbNormalSigning: {
+              kind: 'router_ab_ed25519_normal_signing_v1',
+              signingWorkerId: 'signing-worker',
+            },
+          },
+          nearProvisioning: { status: 'near_ready' },
+          appSessionJwt: 'registration-email-otp-app-session',
+          registrationEstablishedSession: {},
+        }) as never,
+      getOrCreateAppSessionVersion: async () => ({
+        ok: true as const,
+        appSessionVersion: 'app-session-v1',
+      }),
+    };
+    const response = await handleRouterApiWalletRegistrationNearProvisioning({
+      body: {
+        registrationCeremonyId: 'registration-ceremony',
+        signedSetup: 'signed-setup',
+        idempotencyKey: 'near-provisioning-key',
+        ed25519: { activationReference: {} },
+      },
+      headers: {},
+      logger: {
+        debug: () => {},
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+      },
+      origin: 'https://wallet.example.test',
+      route: route('wallet_registration_near_provisioning'),
+      services: {
+        walletRegistration: service,
+        session,
+      },
+    } as never);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      ok: true,
+      appSessionJwt: 'registration-email-otp-app-session',
+    });
+    expect(sessionClaims).toEqual({});
   });
 });

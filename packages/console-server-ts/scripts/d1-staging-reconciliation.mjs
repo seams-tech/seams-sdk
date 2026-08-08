@@ -7,7 +7,6 @@ import {
   d1StagingCommandLines,
   isDirectInvocation,
   isJsonRecord,
-  commaList,
   normalizeConsoleGatewayD1StagingOptions,
   normalizeString,
   packageRoot,
@@ -20,7 +19,6 @@ import {
   requireSuccessfulCommandResult,
   shellArg,
   sqlString,
-  sqlStringList,
   tableBody,
   writeD1StagingManifest,
   wranglerCommand,
@@ -126,9 +124,7 @@ function readGatewayStagingVars(input) {
     orgId: readRequiredVar(vars, 'SEAMS_STAGING_ORG_ID'),
     projectId: readRequiredVar(vars, 'SEAMS_STAGING_PROJECT_ID'),
     envId: readRequiredVar(vars, 'SEAMS_STAGING_ENV_ID'),
-    kekIds: commaList(readString(vars, 'SIGNING_ROOT_KEK_IDS')),
   };
-  if (stagingVars.kekIds.length === 0) throw new Error('SIGNING_ROOT_KEK_IDS must list at least one KEK id');
   return stagingVars;
 }
 
@@ -164,18 +160,6 @@ function reconciliationChecks(input) {
       configPath: input.consoleConfigPath,
       sql: sponsoredCallSettlementAmountMismatchSql(input.stagingVars),
     }),
-    signerCheck({
-      id: 'signer_share_unknown_kek',
-      description: 'Signer sealed-share rows must use a KEK configured in the Gateway staging profile.',
-      configPath: input.gatewayConfigPath,
-      sql: signerShareUnknownKekSql(input.stagingVars),
-    }),
-    signerCheck({
-      id: 'signer_share_invalid_rotation_state',
-      description: 'Signer sealed-share rotation fields must match the selected lifecycle state.',
-      configPath: input.gatewayConfigPath,
-      sql: signerShareInvalidRotationStateSql(input.stagingVars),
-    }),
   ];
 }
 
@@ -184,14 +168,6 @@ function consoleCheck(input) {
     ...input,
     target: 'console',
     databaseName: 'seams-console-staging-nrt',
-  });
-}
-
-function signerCheck(input) {
-  return readOnlyD1Check({
-    ...input,
-    target: 'signer',
-    databaseName: 'seams-signer-staging-nrt',
   });
 }
 
@@ -307,56 +283,6 @@ function sponsoredCallSettlementAmountMismatchSql(vars) {
       AND c.intent_kind = 'evm_call'
       AND c.charged = 1
       AND COALESCE(c.settled_spend_minor, -1) != ABS(e.amount_minor)
-    LIMIT 50
-  `);
-}
-
-function signerShareUnknownKekSql(vars) {
-  return compactSql(`
-    SELECT
-      namespace,
-      org_id,
-      project_id,
-      env_id,
-      signing_root_id,
-      signing_root_version,
-      share_id,
-      kek_id
-    FROM signing_root_secret_shares
-    WHERE namespace = ${sqlString(vars.namespace)}
-      AND org_id = ${sqlString(vars.orgId)}
-      AND project_id = ${sqlString(vars.projectId)}
-      AND env_id = ${sqlString(vars.envId)}
-      AND kek_id NOT IN (${sqlStringList(vars.kekIds)})
-    LIMIT 50
-  `);
-}
-
-function signerShareInvalidRotationStateSql(vars) {
-  return compactSql(`
-    SELECT
-      namespace,
-      org_id,
-      project_id,
-      env_id,
-      signing_root_id,
-      signing_root_version,
-      share_id,
-      rotation_state,
-      rotated_from_kek_id,
-      rotated_at_ms,
-      retired_at_ms
-    FROM signing_root_secret_shares
-    WHERE namespace = ${sqlString(vars.namespace)}
-      AND org_id = ${sqlString(vars.orgId)}
-      AND project_id = ${sqlString(vars.projectId)}
-      AND env_id = ${sqlString(vars.envId)}
-      AND (
-        (rotation_state = 'active' AND (rotated_at_ms IS NOT NULL OR retired_at_ms IS NOT NULL))
-        OR (rotation_state = 'rotation_pending' AND retired_at_ms IS NOT NULL)
-        OR (rotation_state = 'rotated' AND (rotated_from_kek_id IS NULL OR rotated_at_ms IS NULL))
-        OR (rotation_state = 'retired' AND retired_at_ms IS NULL)
-      )
     LIMIT 50
   `);
 }

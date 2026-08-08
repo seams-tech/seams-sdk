@@ -81,7 +81,7 @@ test('D1 staging readiness check accepts the console-only staging shape', async 
   expect(result).toMatchObject({ errors: [], ok: true });
 });
 
-test('D1 staging readiness check accepts the gateway D1 and Secrets Store shape', async () => {
+test('D1 staging readiness check accepts the gateway D1 and Router A/B shape', async () => {
   const result = await checkConfig(validD1GatewayStagingConfig(), 'gateway');
   expect(result).toMatchObject({ errors: [], ok: true });
 });
@@ -151,16 +151,11 @@ test('D1 staging readiness check rejects the checked-in gateway placeholder temp
   expectErrorContaining(result, 'CONSOLE_DB.database_id still contains a placeholder');
   expectErrorContaining(result, 'SIGNER_DB.database_id still contains a placeholder');
   expectErrorContaining(result, 'RELAYER_PUBLIC_KEY still contains a placeholder');
-  expectErrorContaining(result, 'missing Cloudflare Secrets Store binding');
 });
 
 test('D1 staging readiness check rejects signer bindings in console profile', async () => {
   const result = await checkConfig(validD1GatewayStagingConfig(), 'console');
   expectErrorContaining(result, 'console staging config must not reference SIGNER_DB');
-  expectErrorContaining(
-    result,
-    'console staging config must not reference SIGNING_ROOT_KEK_PROVIDER',
-  );
 });
 
 test('D1 staging readiness check rejects the local development Worker config', async () => {
@@ -174,5 +169,4 @@ test('D1 staging readiness check rejects the local development Worker config', a
   expectErrorContaining(result, 'SPONSORED_EVM_EXECUTORS_JSON must not be configured');
   expectErrorContaining(result, 'ACCOUNT_ID_DERIVATION_SECRET must not be configured');
   expectErrorContaining(result, 'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK must be declared');
-  expectErrorContaining(result, 'SIGNING_ROOT_KEK_PROVIDER must be cloudflare_secrets_store');
 });

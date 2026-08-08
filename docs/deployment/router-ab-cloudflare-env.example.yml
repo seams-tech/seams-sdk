@@ -1,8 +1,10 @@
 # Router A/B Cloudflare deployment environment contract.
 # Copy each role into its matching protected GitHub Environment.
 # Keep real private values in GitHub secrets or a secret manager.
-# Mirror each staging role under the matching production-* environment with
-# independent values. Production deploys the unsuffixed Worker names.
+# Keep staging testnet, production testnet, and production mainnet in separate
+# custody environments with independent values. The existing production-*
+# environments represent mainnet; production-testnet-* uses testnet-suffixed
+# Worker names and remains pending until fresh values are generated.
 
 version: 1
 
@@ -10,10 +12,11 @@ github_actions:
   repository_validation_workflow: .github/workflows/validate-repository.yml
   router_validation_workflow: .github/workflows/validate-cloudflare-router-ab.yml
   staging_backend_workflow: .github/workflows/deploy-staging-backend.yml
-  production_backend_workflow: .github/workflows/deploy-production-backend.yml
+  production_testnet_backend_workflow: .github/workflows/deploy-production-testnet-backend.yml
+  production_mainnet_backend_workflow: .github/workflows/deploy-production-mainnet-backend.yml
   staging_frontend_workflow: .github/workflows/deploy-staging-frontend.yml
   production_frontend_workflow: .github/workflows/deploy-production-frontend.yml
-  # Service build and deployment jobs live in the two backend workflows above.
+  # Service build and deployment jobs live in the three backend workflows above.
   deploy_order:
     - signing-worker
     - deriver-a
@@ -40,18 +43,18 @@ github_environments:
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: '<shared-internal-service-auth-secret>'
       ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: '<ceremony-jwt-private-jwk>'
       RELAYER_PRIVATE_KEY: '<near-relayer-private-key>'
-      SIGNING_ROOT_KEK_VALUE: '<signing-root-kek-value>'
       SIGNING_SESSION_SEAL_ROOT_SECRET_B64U: '<32-byte-signing-session-seal-root-b64u>'
 
   production:
     vars:
       VITE_DOCS_ORIGIN: 'https://seams.sh'
-      VITE_WALLET_ORIGIN: 'https://sign.seams.sh'
+      VITE_WALLET_ORIGIN: 'https://test.sign.seams.sh'
     secrets:
       CLOUDFLARE_API_TOKEN: '<pages-only-deploy-token>'
       CLOUDFLARE_ACCOUNT_ID: '<account-id>'
       CF_PAGES_PROJECT_VITE: '<production-app-pages-project>'
-      CF_PAGES_PROJECT_WALLET: '<production-wallet-pages-project>'
+      CF_PAGES_PROJECT_WALLET_TESTNET: '<production-testnet-wallet-pages-project>'
+      CF_PAGES_PROJECT_WALLET_MAINNET: '<production-mainnet-wallet-pages-project>'
 
   production-gateway:
     secrets:
@@ -62,8 +65,122 @@ github_environments:
       ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: '<shared-internal-service-auth-secret>'
       ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: '<ceremony-jwt-private-jwk>'
       RELAYER_PRIVATE_KEY: '<near-relayer-private-key>'
-      SIGNING_ROOT_KEK_VALUE: '<signing-root-kek-value>'
       SIGNING_SESSION_SEAL_ROOT_SECRET_B64U: '<32-byte-signing-session-seal-root-b64u>'
+
+  # Production testnet custody is intentionally pending. Generate fresh values
+  # before changing these placeholders or dispatching its workflow.
+  production-testnet-gateway:
+    secrets:
+      CLOUDFLARE_API_TOKEN: '<production-testnet-gateway-worker-deploy-token>'
+      CLOUDFLARE_ACCOUNT_ID: '<account-id>'
+      RELAY_SESSION_HMAC_SECRET: '<production-testnet-relay-session-hmac-secret>'
+      ACCOUNT_ID_DERIVATION_SECRET: '<production-testnet-account-id-derivation-secret>'
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: '<production-testnet-shared-internal-service-auth-secret>'
+      ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: '<production-testnet-ceremony-jwt-private-jwk>'
+      RELAYER_PRIVATE_KEY: '<production-testnet-near-relayer-private-key>'
+      SIGNING_SESSION_SEAL_ROOT_SECRET_B64U: '<production-testnet-signing-session-seal-root-b64u>'
+
+  production-testnet-mpc-router:
+    vars:
+      ROUTER_AB_JWT_ISSUER: '<production-testnet-router-jwt-issuer>'
+      ROUTER_AB_JWT_AUDIENCE: 'router-ab'
+      ROUTER_AB_JWT_JWKS_JSON: '<production-testnet-router-jwt-jwks-json>'
+      ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: '<production-testnet-deriver-a-envelope-hpke-public-key>'
+      ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY: '<production-testnet-deriver-b-envelope-hpke-public-key>'
+      ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: '<production-testnet-signing-worker-output-hpke-public-key>'
+      ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX: '<production-testnet-deriver-a-peer-verifying-key-hex>'
+      ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX: '<production-testnet-deriver-b-peer-verifying-key-hex>'
+    secrets:
+      CLOUDFLARE_API_TOKEN: '<production-testnet-mpc-router-worker-deploy-token>'
+      CLOUDFLARE_ACCOUNT_ID: '<account-id>'
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: '<production-testnet-shared-internal-service-auth-secret>'
+
+  production-testnet-deriver-a:
+    vars:
+      ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: '<production-testnet-deriver-a-envelope-hpke-public-key>'
+      ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX: '<production-testnet-deriver-a-peer-verifying-key-hex>'
+      ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX: '<production-testnet-deriver-b-peer-verifying-key-hex>'
+    secrets:
+      CLOUDFLARE_API_TOKEN: '<production-testnet-deriver-a-worker-deploy-token>'
+      CLOUDFLARE_ACCOUNT_ID: '<account-id>'
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: '<production-testnet-shared-internal-service-auth-secret>'
+      DERIVER_A_ROOT_SHARE_WIRE_SECRET: '<production-testnet-deriver-a-root-share-wire-secret>'
+      DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY: '<production-testnet-deriver-a-envelope-hpke-private-key>'
+      DERIVER_A_PEER_SIGNING_KEY: '<production-testnet-deriver-a-peer-signing-key>'
+
+  production-testnet-deriver-b:
+    vars:
+      ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY: '<production-testnet-deriver-b-envelope-hpke-public-key>'
+      ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX: '<production-testnet-deriver-a-peer-verifying-key-hex>'
+      ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX: '<production-testnet-deriver-b-peer-verifying-key-hex>'
+    secrets:
+      CLOUDFLARE_API_TOKEN: '<production-testnet-deriver-b-worker-deploy-token>'
+      CLOUDFLARE_ACCOUNT_ID: '<account-id>'
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: '<production-testnet-shared-internal-service-auth-secret>'
+      DERIVER_B_ROOT_SHARE_WIRE_SECRET: '<production-testnet-deriver-b-root-share-wire-secret>'
+      DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY: '<production-testnet-deriver-b-envelope-hpke-private-key>'
+      DERIVER_B_PEER_SIGNING_KEY: '<production-testnet-deriver-b-peer-signing-key>'
+
+  production-testnet-signing-worker:
+    vars:
+      ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: '<production-testnet-signing-worker-output-hpke-public-key>'
+    secrets:
+      CLOUDFLARE_API_TOKEN: '<production-testnet-signing-worker-deploy-token>'
+      CLOUDFLARE_ACCOUNT_ID: '<account-id>'
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: '<production-testnet-shared-internal-service-auth-secret>'
+      SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY: '<production-testnet-signing-worker-output-hpke-private-key>'
+
+  # Existing production-* custody environments are the production-mainnet
+  # lane. Their values must be generated independently from testnet.
+  production-mpc-router:
+    vars:
+      ROUTER_AB_JWT_ISSUER: '<production-mainnet-router-jwt-issuer>'
+      ROUTER_AB_JWT_AUDIENCE: 'router-ab'
+      ROUTER_AB_JWT_JWKS_JSON: '<production-mainnet-router-jwt-jwks-json>'
+      ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: '<production-mainnet-deriver-a-envelope-hpke-public-key>'
+      ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY: '<production-mainnet-deriver-b-envelope-hpke-public-key>'
+      ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: '<production-mainnet-signing-worker-output-hpke-public-key>'
+      ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX: '<production-mainnet-deriver-a-peer-verifying-key-hex>'
+      ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX: '<production-mainnet-deriver-b-peer-verifying-key-hex>'
+    secrets:
+      CLOUDFLARE_API_TOKEN: '<production-mainnet-mpc-router-worker-deploy-token>'
+      CLOUDFLARE_ACCOUNT_ID: '<account-id>'
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: '<production-mainnet-shared-internal-service-auth-secret>'
+
+  production-deriver-a:
+    vars:
+      ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: '<production-mainnet-deriver-a-envelope-hpke-public-key>'
+      ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX: '<production-mainnet-deriver-a-peer-verifying-key-hex>'
+      ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX: '<production-mainnet-deriver-b-peer-verifying-key-hex>'
+    secrets:
+      CLOUDFLARE_API_TOKEN: '<production-mainnet-deriver-a-worker-deploy-token>'
+      CLOUDFLARE_ACCOUNT_ID: '<account-id>'
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: '<production-mainnet-shared-internal-service-auth-secret>'
+      DERIVER_A_ROOT_SHARE_WIRE_SECRET: '<production-mainnet-deriver-a-root-share-wire-secret>'
+      DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY: '<production-mainnet-deriver-a-envelope-hpke-private-key>'
+      DERIVER_A_PEER_SIGNING_KEY: '<production-mainnet-deriver-a-peer-signing-key>'
+
+  production-deriver-b:
+    vars:
+      ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY: '<production-mainnet-deriver-b-envelope-hpke-public-key>'
+      ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX: '<production-mainnet-deriver-a-peer-verifying-key-hex>'
+      ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX: '<production-mainnet-deriver-b-peer-verifying-key-hex>'
+    secrets:
+      CLOUDFLARE_API_TOKEN: '<production-mainnet-deriver-b-worker-deploy-token>'
+      CLOUDFLARE_ACCOUNT_ID: '<account-id>'
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: '<production-mainnet-shared-internal-service-auth-secret>'
+      DERIVER_B_ROOT_SHARE_WIRE_SECRET: '<production-mainnet-deriver-b-root-share-wire-secret>'
+      DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY: '<production-mainnet-deriver-b-envelope-hpke-private-key>'
+      DERIVER_B_PEER_SIGNING_KEY: '<production-mainnet-deriver-b-peer-signing-key>'
+
+  production-signing-worker:
+    vars:
+      ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: '<production-mainnet-signing-worker-output-hpke-public-key>'
+    secrets:
+      CLOUDFLARE_API_TOKEN: '<production-mainnet-signing-worker-deploy-token>'
+      CLOUDFLARE_ACCOUNT_ID: '<account-id>'
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: '<production-mainnet-shared-internal-service-auth-secret>'
+      SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY: '<production-mainnet-signing-worker-output-hpke-private-key>'
 
   staging-mpc-router:
     vars:
@@ -121,6 +238,7 @@ cloudflare_workers:
     wrangler_config: crates/router-ab-cloudflare/wrangler.router.toml
     worker_names:
       staging: router-ab-mpc-router-staging
+      production-testnet: router-ab-mpc-router-testnet
       production: router-ab-mpc-router
     durable_objects:
       ROUTER_REPLAY_DO: RouterAbRouterReplayDurableObject
@@ -151,6 +269,7 @@ cloudflare_workers:
     wrangler_config: crates/router-ab-cloudflare/wrangler.deriver-a.toml
     worker_names:
       staging: router-ab-deriver-a-staging
+      production-testnet: router-ab-deriver-a-testnet
       production: router-ab-deriver-a
     durable_objects:
       DERIVER_A_ROOT_SHARE_DO: RouterAbDeriverARootShareDurableObject
@@ -174,6 +293,7 @@ cloudflare_workers:
     wrangler_config: crates/router-ab-cloudflare/wrangler.deriver-b.toml
     worker_names:
       staging: router-ab-deriver-b-staging
+      production-testnet: router-ab-deriver-b-testnet
       production: router-ab-deriver-b
     durable_objects:
       DERIVER_B_ROOT_SHARE_DO: RouterAbDeriverBRootShareDurableObject
@@ -197,6 +317,7 @@ cloudflare_workers:
     wrangler_config: crates/router-ab-cloudflare/wrangler.signing-worker.toml
     worker_names:
       staging: router-ab-signing-worker-staging
+      production-testnet: router-ab-signing-worker-testnet
       production: router-ab-signing-worker
     durable_objects:
       SIGNING_WORKER_PRESIGN_SESSION_DO: RouterAbSigningWorkerPresignSessionDurableObject
@@ -208,9 +329,10 @@ cloudflare_workers:
         format: 'hpke-x25519-server-output-private-v1:<64-lowercase-hex>'
 
 workflow_commands:
-  keygen_staging: 'pnpm router:deploy:keygen -- --env staging'
-  keygen_apply_staging: 'pnpm router:deploy:keygen -- --env staging --apply'
-  deploy_staging: >-
-    gh workflow run deploy-staging-backend.yml --ref dev
-  deploy_production: >-
-    gh workflow run deploy-production-backend.yml --ref main
+  keygen_staging: 'pnpm router:deploy:keygen -- --lane staging-testnet'
+  keygen_apply_staging: 'pnpm router:deploy:keygen -- --lane staging-testnet --apply'
+  deploy_staging: 'gh workflow run deploy-staging-backend.yml --ref dev'
+  deploy_production_testnet: >-
+    gh workflow run deploy-production-testnet-backend.yml --ref main
+  deploy_production_mainnet: >-
+    gh workflow run deploy-production-mainnet-backend.yml --ref main

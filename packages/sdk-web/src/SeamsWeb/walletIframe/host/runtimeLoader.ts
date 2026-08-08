@@ -1,13 +1,13 @@
 import type { RuntimeWalletHostRoute } from './requestRouter';
 
 export type WalletHostRuntimeModule = typeof import('./runtime');
-export type WalletHostRegistrationPreparationModule =
-  typeof import('./registrationPreparationPreload');
 type WalletHostRuntimeKind = RuntimeWalletHostRoute['kind'];
 
 const runtimePromises: Partial<Record<WalletHostRuntimeKind, Promise<WalletHostRuntimeModule>>> =
   {};
-let registrationPreparationPromise: Promise<WalletHostRegistrationPreparationModule> | null = null;
+let registrationPreparationPromise:
+  | Promise<typeof import('./registrationPreparationPreload')>
+  | null = null;
 
 export function loadWalletHostRuntime(
   route: RuntimeWalletHostRoute,
@@ -21,13 +21,9 @@ export async function preloadWalletHostRegistrationSurface(): Promise<void> {
   await Promise.all([runtimePromises.near, preloadRegistrationPreparation()]);
 }
 
-export function loadWalletHostRegistrationPreparation(): Promise<WalletHostRegistrationPreparationModule> {
-  registrationPreparationPromise ??= import('./registrationPreparationPreload');
-  return registrationPreparationPromise;
-}
-
 async function preloadRegistrationPreparation(): Promise<void> {
-  const registrationPreparation = await loadWalletHostRegistrationPreparation();
+  registrationPreparationPromise ??= import('./registrationPreparationPreload');
+  const registrationPreparation = await registrationPreparationPromise;
   await registrationPreparation.preloadWalletHostRegistrationPreparation();
 }
 

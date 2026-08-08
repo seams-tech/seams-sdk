@@ -4,16 +4,32 @@ import {
   encodeRouterAbEd25519YaoProductRegistrationStateV1,
   parseRouterAbEd25519YaoProductRegistrationStateJsonV1,
   resolveRouterAbEd25519YaoCeremonyKeyFromRequestV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPersistence';
-import { createRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistration';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPersistence';
+import { createRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import {
   mergeRouterAbEd25519YaoProductRegistrationStatePartitionV1,
   partitionRouterAbEd25519YaoProductRegistrationStateV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoProductRegistrationPartitioning';
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitioning';
 import {
   ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
   ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
 } from '../../packages/shared-ts/src/utils/routerAbEd25519Yao';
+
+function isUnknownRecord(value: unknown): value is { [key: string]: unknown } {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function removeEncodedAuthorizationUncertain(value: unknown): unknown {
+  const cloned: unknown = structuredClone(value);
+  if (!isUnknownRecord(cloned) || !isUnknownRecord(cloned.state)) {
+    throw new Error('Expected an encoded product-state envelope');
+  }
+  if (!isUnknownRecord(cloned.state.export)) {
+    throw new Error('Expected encoded product export state');
+  }
+  delete cloned.state.export.authorizationUncertain;
+  return cloned;
+}
 
 test.describe('Ed25519 Yao request-scoped persistence boundary', () => {
   test('round-trips all four lifecycle collections without JSON.stringify', () => {
@@ -33,6 +49,17 @@ test.describe('Ed25519 Yao request-scoped persistence boundary', () => {
     expect(decoded?.registration.states).toBeInstanceOf(Map);
     expect(decoded?.recovery.recoveries).toBeInstanceOf(Map);
     expect(decoded?.export.exports).toBeInstanceOf(Map);
+  });
+
+  test('normalizes persisted state written before export uncertainty tracking', () => {
+    const encoded = encodeRouterAbEd25519YaoProductRegistrationStateV1(
+      createRouterAbEd25519YaoProductRegistrationStateV1(),
+    );
+    const decoded = parseRouterAbEd25519YaoProductRegistrationStateJsonV1(
+      removeEncodedAuthorizationUncertain(encoded),
+    );
+
+    expect(decoded?.export.authorizationUncertain).toEqual(new Set());
   });
 
   test('rejects records that are not the versioned product-state envelope', () => {

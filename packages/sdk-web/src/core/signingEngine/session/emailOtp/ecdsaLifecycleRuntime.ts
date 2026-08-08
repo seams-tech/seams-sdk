@@ -3,6 +3,7 @@ import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChai
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { EmailOtpRuntimeConfig } from './runtimeConfig';
 import type { EmailOtpEcdsaPublicationPorts } from './ecdsaPublication';
+import type { EmailOtpWalletSessionCoordinatorDeps } from './ports';
 import type {
   ThresholdEcdsaActivationRequest,
   ThresholdEcdsaEmailOtpExportActivationRequest,
@@ -12,20 +13,13 @@ import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa
 import {
   loginWithEmailOtpEcdsaCapability,
   loginWithEmailOtpEcdsaCapabilityForSigning,
-  loginWithEmailOtpEcdsaPublicReauthCapabilityForSigning,
   prepareEmailOtpEcdsaExportCapability,
   type EmailOtpThresholdEcdsaExportPreparation,
   type EmailOtpThresholdEcdsaLoginResult,
   type LoginEmailOtpEcdsaCapabilityArgs,
   type LoginEmailOtpEcdsaCapabilityForSigningArgs,
-  type LoginEmailOtpEcdsaPublicReauthCapabilityForSigningArgs,
   type PrepareEmailOtpEcdsaExportCapabilityArgs,
 } from './ecdsaLogin';
-import {
-  enrollAndLoginWithEmailOtpEcdsaCapability,
-  type EmailOtpThresholdEcdsaEnrollmentResult,
-  type EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
-} from './ecdsaEnrollment';
 
 export class EmailOtpEcdsaLifecycleRuntime {
   constructor(
@@ -39,6 +33,7 @@ export class EmailOtpEcdsaLifecycleRuntime {
         request: ThresholdEcdsaEmailOtpExportActivationRequest,
       ) => Promise<EmailOtpEcdsaExplicitExportBootstrapResult>;
       runtimeConfig: EmailOtpRuntimeConfig;
+      resolveCurrentEcdsaCapabilityRuntime: EmailOtpWalletSessionCoordinatorDeps['resolveCurrentEcdsaCapabilityRuntime'];
       rememberAppSessionJwt: (args: {
         walletId: WalletSessionRef['walletId'];
         appSessionJwt: string;
@@ -52,14 +47,7 @@ export class EmailOtpEcdsaLifecycleRuntime {
   ): Promise<EmailOtpThresholdEcdsaLoginResult> {
     return await loginWithEmailOtpEcdsaCapabilityForSigning(args, {
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
-      loginWithEcdsaCapabilityInternal: (request) => this.loginWithEcdsaCapabilityInternal(request),
-    });
-  }
-
-  async loginWithEcdsaPublicReauthCapabilityForSigning(
-    args: LoginEmailOtpEcdsaPublicReauthCapabilityForSigningArgs,
-  ): Promise<EmailOtpThresholdEcdsaLoginResult> {
-    return await loginWithEmailOtpEcdsaPublicReauthCapabilityForSigning(args, {
+      resolveCurrentEcdsaCapabilityRuntime: this.ports.resolveCurrentEcdsaCapabilityRuntime,
       loginWithEcdsaCapabilityInternal: (request) => this.loginWithEcdsaCapabilityInternal(request),
     });
   }
@@ -74,7 +62,8 @@ export class EmailOtpEcdsaLifecycleRuntime {
       provisionEmailOtpEcdsaExplicitExportSession:
         this.ports.provisionEmailOtpEcdsaExplicitExportSession,
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
-      requireSigningSessionSealGroupId: () => this.ports.runtimeConfig.requireSigningSessionSealGroupId(),
+      requireSigningSessionSealGroupId: () =>
+        this.ports.runtimeConfig.requireSigningSessionSealGroupId(),
       rememberAppSessionJwt: (request) => this.ports.rememberAppSessionJwt(request),
       publicationPorts: this.ports.publicationPorts(),
     });
@@ -90,24 +79,8 @@ export class EmailOtpEcdsaLifecycleRuntime {
       provisionEmailOtpEcdsaExplicitExportSession:
         this.ports.provisionEmailOtpEcdsaExplicitExportSession,
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
-      requireSigningSessionSealGroupId: () => this.ports.runtimeConfig.requireSigningSessionSealGroupId(),
-      rememberAppSessionJwt: (request) => this.ports.rememberAppSessionJwt(request),
-      publicationPorts: this.ports.publicationPorts(),
-    });
-  }
-
-  async enrollAndLoginWithEcdsaCapabilityInternal(
-    args: EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
-  ): Promise<EmailOtpThresholdEcdsaEnrollmentResult> {
-    return await enrollAndLoginWithEmailOtpEcdsaCapability(args, {
-      configs: this.ports.configs,
-      getSignerWorkerContext: this.ports.getSignerWorkerContext,
-      requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
-      requireSigningSessionSealGroupId: () => this.ports.runtimeConfig.requireSigningSessionSealGroupId(),
-      requireRpId: (operation) => this.ports.runtimeConfig.requireRpId(operation),
-      provisionThresholdEcdsaSession: this.ports.provisionThresholdEcdsaSession,
-      provisionEmailOtpEcdsaExplicitExportSession:
-        this.ports.provisionEmailOtpEcdsaExplicitExportSession,
+      requireSigningSessionSealGroupId: () =>
+        this.ports.runtimeConfig.requireSigningSessionSealGroupId(),
       rememberAppSessionJwt: (request) => this.ports.rememberAppSessionJwt(request),
       publicationPorts: this.ports.publicationPorts(),
     });

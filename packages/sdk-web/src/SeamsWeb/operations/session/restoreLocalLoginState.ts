@@ -3,7 +3,6 @@ import { normalizePositiveInteger } from '@shared/utils/normalize';
 import { getWalletSession } from '@/SeamsWeb/operations/auth/login';
 import type { LocalLoginStateWebContext } from '@/SeamsWeb/signingSurface/types';
 import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { getStoredThresholdEd25519SessionRecordForWallet } from '@/core/signingEngine/session/persistence/records';
 import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 
 export async function restoreLocalLoginState(args: {
@@ -30,20 +29,13 @@ export async function restoreLocalLoginState(args: {
     throw new Error('restoreLocalLoginState requires wallet binding fields');
   }
 
-  const record = getStoredThresholdEd25519SessionRecordForWallet(walletId);
-  if (record) {
-    if (String(record.nearAccountId) !== String(nearAccountId)) {
-      throw new Error('restoreLocalLoginState nearAccountId mismatch');
-    }
-    if (String(record.nearEd25519SigningKeyId) !== nearEd25519SigningKeyId) {
-      throw new Error('restoreLocalLoginState nearEd25519SigningKeyId mismatch');
-    }
-  }
-
   await args.context.signingEngine.setLastUser(walletId, signerSlot);
-  const { login } = await getWalletSession(args.context, walletId);
-  const loginWalletId = String(login?.walletId || '').trim();
-  const loginNearAccountId = String(login?.nearAccountId || '').trim();
+  await args.context.signingEngine.restoreWalletAuthenticationState(walletId, { kind: 'cookie' });
+  const session = await getWalletSession(args.context, walletId);
+  const appIdentity = session.appIdentity;
+  const loginWalletId = appIdentity.kind === 'resolved' ? String(appIdentity.walletId).trim() : '';
+  const loginNearAccountId =
+    appIdentity.kind === 'resolved' ? String(appIdentity.nearAccountId || '').trim() : '';
   if (loginWalletId && loginWalletId !== String(walletId)) {
     throw new Error('restoreLocalLoginState walletId mismatch');
   }
@@ -62,6 +54,9 @@ export async function restoreLocalLoginState(args: {
     nearAccountId,
     nearEd25519SigningKeyId: String(nearEd25519SigningKeyId),
     signerSlot,
-    isLoggedIn: Boolean(login?.isLoggedIn),
+    isLoggedIn:
+      appIdentity.kind === 'resolved' &&
+      session.authentication.kind === 'authenticated' &&
+      session.authentication.walletId === appIdentity.walletId,
   };
 }

@@ -1,10 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { createInMemoryConsoleOrganizationAccessService } from '../../packages/console-server-ts/src/teamRbac/service';
 import {
-  createCloudflareSecretsStoreKekProviderFromEnv,
   createConsoleSessionAuthAdapter,
   createHmacSessionAdapter,
-  secretBindingNameForKekId,
 } from '../../packages/console-server-ts/src/router/cloudflare/d1StagingSession';
 
 const SESSION_SECRET = '0123456789abcdef0123456789abcdef';
@@ -137,42 +135,6 @@ async function consoleAuthIgnoresTokenRoleEscalation(): Promise<void> {
   });
 }
 
-async function secretsStoreKekProviderUsesExpectedBindingName(): Promise<void> {
-  const secretBinding = {
-    get: readSecretValue,
-  };
-  const provider = createCloudflareSecretsStoreKekProviderFromEnv({
-    SIGNING_ROOT_KEK_PROVIDER: 'cloudflare_secrets_store',
-    SIGNING_ROOT_KEK_ENCODING: 'base64url',
-    SIGNING_ROOT_KEK_IDS: 'signing-root-kek-staging-r1',
-    SIGNING_ROOT_KEK_STAGING_R1: secretBinding,
-  });
-  expect(secretBindingNameForKekId('signing-root-kek-staging-r1')).toBe(
-    'SIGNING_ROOT_KEK_STAGING_R1',
-  );
-  expect(provider.kind).toBe('cloudflare_secrets_store');
-  if (provider.kind !== 'cloudflare_secrets_store') {
-    throw new Error('expected Cloudflare Secrets Store provider');
-  }
-  await expect(provider.secretsByKekId['signing-root-kek-staging-r1']?.get()).resolves.toBe(
-    'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-  );
-}
-
-async function secretsStoreKekProviderRejectsMissingBinding(): Promise<void> {
-  expect(() =>
-    createCloudflareSecretsStoreKekProviderFromEnv({
-      SIGNING_ROOT_KEK_PROVIDER: 'cloudflare_secrets_store',
-      SIGNING_ROOT_KEK_ENCODING: 'base64url',
-      SIGNING_ROOT_KEK_IDS: 'signing-root-kek-staging-r1',
-    }),
-  ).toThrow('Cloudflare Secrets Store binding SIGNING_ROOT_KEK_STAGING_R1 is required');
-}
-
-async function readSecretValue(): Promise<string> {
-  return 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-}
-
 test('HMAC staging session signs and verifies JWT claims', hmacSessionRoundTrip);
 test('HMAC staging session rejects wrong audience', hmacSessionRejectsWrongAudience);
 test(
@@ -184,5 +146,3 @@ test(
   consoleAuthUsesCurrentOrganizationAuthorization,
 );
 test('console staging auth rejects token role escalation', consoleAuthIgnoresTokenRoleEscalation);
-test('Secrets Store KEK provider resolves upper-snake bindings', secretsStoreKekProviderUsesExpectedBindingName);
-test('Secrets Store KEK provider rejects missing bindings', secretsStoreKekProviderRejectsMissingBinding);

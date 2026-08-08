@@ -14,6 +14,15 @@ const CLIENT_REACT_ROOT_ABS = path.resolve(SDK_ROOT_ABS, 'src/react');
 const CLIENT_PLUGINS_ROOT_ABS = path.resolve(SDK_ROOT_ABS, 'src/plugins');
 const WALLET_STATIC_ASSETS_ROOT_ABS = path.resolve(SDK_ROOT_ABS, 'src/static/wallet-assets');
 const WALLET_STATIC_ASSET_FILES = ['wallet-shims.js', 'wallet-service.css'] as const;
+const WALLET_HOST_STATIC_ASSETS = [
+  {
+    source: path.resolve(
+      SDK_ROOT_ABS,
+      'src/SeamsWeb/walletIframe/host/lit-ui/auth-menu/auth-menu.css',
+    ),
+    fileName: 'auth-menu.css',
+  },
+] as const;
 const NEAR_SIGNER_WASM_JS_ABS = path.resolve(
   SDK_ROOT_ABS,
   '../../wasm/near_signer/pkg/wasm_signer_worker.js',
@@ -192,6 +201,9 @@ const copyWalletStaticAssets = (sdkDir: string): void => {
   for (const fileName of WALLET_STATIC_ASSET_FILES) {
     copyWalletStaticAsset(sdkDir, fileName);
   }
+  for (const asset of WALLET_HOST_STATIC_ASSETS) {
+    fs.copyFileSync(asset.source, path.join(sdkDir, asset.fileName));
+  }
 };
 
 const W3A_COMPONENT_HOSTS = [
@@ -364,12 +376,7 @@ const emitWalletServiceStaticAssets = async (sdkRoot = process.cwd()): Promise<v
     path.join(sdkRoot, 'src/core/signingEngine/uiConfirm/ui/lit-components/css/export-iframe.css'),
     path.join(sdkDir, 'export-iframe.css'),
   );
-  copyIfMissing(
-    path.join(sdkRoot, 'src/SeamsWeb/walletIframe/client/overlay/overlay.css'),
-    path.join(sdkDir, 'overlay.css'),
-  );
-
-  console.log('✅ Emitted /sdk wallet-shims.js and wallet-service.css');
+  console.log('✅ Emitted /sdk wallet-shims.js, wallet-service.css, and auth-menu.css');
 };
 
 const emitWalletServiceStaticPlugin = {
@@ -474,6 +481,10 @@ const configs = [
       'src/core/signingEngine/session/persistence/sealedSessionStore.ts',
       // Keep worker-facing WASM wrapper exports stable for deep imports used by tests/tools.
       'src/core/signingEngine/chains/evm/evmCryptoWasm.ts',
+      // Keep compact wallet-iframe surface modules stable for deep imports used by tests/tools.
+      'src/SeamsWeb/walletIframe/client/surface/geometry.ts',
+      'src/SeamsWeb/walletIframe/host/lit-ui/surface-measurement-reporter.ts',
+      'src/SeamsWeb/walletIframe/host/lit-ui/auth-menu/seams-auth-menu-surface.ts',
     ],
     output: {
       dir: BUILD_PATHS.BUILD.ESM,
@@ -539,11 +550,11 @@ const configs = [
       'src/react/context/SeamsWebProvider.tsx',
       // Ensure public subpath entrypoints exist in dist even when re-exports are flattened.
       'src/react/components/SeamsAuthMenu/public.ts',
-      // Public subpath entrypoints (avoid treeshaking away default exports).
       'src/react/components/SeamsAuthMenu/preload.ts',
       'src/react/components/SeamsAuthMenu/shell.tsx',
       'src/react/components/SeamsAuthMenu/skeleton.tsx',
       'src/react/components/SeamsAuthMenu/client.tsx',
+      'src/react/components/HostedSeamsAuthMenu/public.ts',
     ],
     output: {
       dir: BUILD_PATHS.BUILD.ESM,
@@ -655,13 +666,11 @@ const configs = [
     ],
   },
   {
-    input:
-      '../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js',
+    input: '../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js',
     output: {
       dir: BUILD_PATHS.BUILD.ESM,
       format: 'esm',
-      entryFileNames:
-        'wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js',
+      entryFileNames: 'wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js',
     },
     plugins: [
       {
@@ -684,8 +693,7 @@ const configs = [
             );
             (this as any).emitFile({
               type: 'asset',
-              fileName:
-                'wasm/ecdsa_registration_client/pkg/ecdsa_registration_client_bg.wasm',
+              fileName: 'wasm/ecdsa_registration_client/pkg/ecdsa_registration_client_bg.wasm',
               source,
             });
             console.log(
@@ -771,9 +779,6 @@ const configs = [
       'wallet-iframe-host-near': 'src/SeamsWeb/walletIframe/host/entry-near.ts',
       'wallet-iframe-host-ecdsa': 'src/SeamsWeb/walletIframe/host/entry-ecdsa.ts',
       'wallet-iframe-host-full': 'src/SeamsWeb/walletIframe/host/entry-full.ts',
-      // Export viewer host + bootstrap
-      'iframe-export-bootstrap':
-        'src/core/signingEngine/uiConfirm/ui/lit-components/ExportPrivateKey/iframe-export-bootstrap-script.ts',
     },
     output: {
       dir: BUILD_PATHS.BUILD.ESM,

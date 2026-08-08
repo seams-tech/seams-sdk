@@ -66,6 +66,8 @@ export interface IframeTransportOptions {
   };
 }
 
+export type WalletIframeConnectionClosedListener = () => void;
+
 type ResolvedTransportOptions = Required<Omit<IframeTransportOptions, 'signal'>> & {
   signal?: AbortSignal;
 };
@@ -89,13 +91,36 @@ function roundTransportDurationMs(startedAt: number): number {
 export class IframeTransport {
   private readonly opts: ResolvedTransportOptions;
   private iframeEl: HTMLIFrameElement | null = null;
+  private connectionClosed = false;
+  private readonly connectionClosedListeners = new Set<WalletIframeConnectionClosedListener>();
   private serviceBooted = false; // set when wallet host sends SERVICE_HOST_BOOTED (best-effort only)
   private connectInFlight: Promise<MessagePort> | null = null;
+  private connectedPort: MessagePort | null = null;
+  private iframeInitialLoadSeen = false;
+  private handshakeComplete = false;
   private readonly walletServiceUrl: URL;
   private readonly walletOrigin: string;
   private readonly testOptions: { routerId?: string; ownerTag?: string };
   private debug = false;
   private lastDiagnostics = createZeroWalletIframeTransportDiagnostics();
+  private readonly onIframeLoad = (): void => {
+    if (!this.iframeInitialLoadSeen) {
+      this.iframeInitialLoadSeen = true;
+      return;
+    }
+    if (!this.handshakeComplete || this.connectionClosed) return;
+
+    this.handshakeComplete = false;
+    const port = this.connectedPort;
+    this.connectedPort = null;
+    try {
+      port?.close();
+    } catch {}
+    const iframe = this.iframeEl;
+    this.iframeEl = null;
+    iframe?.remove();
+    this.emitConnectionClosed();
+  };
   private readonly onWindowMessage = (e: MessageEvent): void => {
     const data = e.data as unknown;
     if (!isObject(data)) return;
@@ -168,15 +193,40 @@ export class IframeTransport {
     return { ...this.lastDiagnostics };
   }
 
+  onConnectionClosed(listener: WalletIframeConnectionClosedListener): () => void {
+    if (this.connectionClosed) {
+      listener();
+      return () => {};
+    }
+    this.connectionClosedListeners.add(listener);
+    return () => {
+      this.connectionClosedListeners.delete(listener);
+    };
+  }
+
   /** Remove global listeners created by this transport instance. */
   dispose(): void {
     if (typeof window !== 'undefined') {
       window.removeEventListener('message', this.onWindowMessage);
     }
+    const iframe = this.iframeEl;
+    this.iframeEl = null;
+    if (iframe) {
+      iframe.removeEventListener('load', this.onIframeLoad);
+      const dialog = iframe.closest('dialog.w3a-wallet-overlay-dialog');
+      (dialog ?? iframe).remove();
+    }
+    this.handshakeComplete = false;
+    const port = this.connectedPort;
+    this.connectedPort = null;
+    try {
+      port?.close();
+    } catch {}
+    this.emitConnectionClosed();
   }
 
   /** Ensure the iframe element exists and is appended to the DOM. Idempotent. */
-  ensureIframeMounted(): HTMLIFrameElement {
+  ensureIframeMounted(mountParent: HTMLElement = document.body): HTMLIFrameElement {
     if (this.iframeEl) {
       return this.iframeEl;
     }
@@ -185,7 +235,9 @@ export class IframeTransport {
     const iframe = createWalletIframe({
       walletOrigin: this.walletOrigin,
       walletServiceUrl: this.walletServiceUrl,
+      mountParent,
       testOptions: this.testOptions,
+      onLoad: this.onIframeLoad,
     });
     this.iframeEl = iframe;
     return iframe;
@@ -241,6 +293,9 @@ export class IframeTransport {
         },
         signal: this.opts.signal,
       });
+      this.connectedPort?.close();
+      this.connectedPort = port;
+      this.handshakeComplete = true;
       handshakeMs = roundTransportDurationMs(handshakeStartedAt);
       this.lastDiagnostics = {
         kind: 'wallet_iframe_transport_diagnostics_v1',
@@ -265,5 +320,17 @@ export class IframeTransport {
     if (this.serviceBooted) return this.walletOrigin;
     if (attempt <= WILDCARD_CONNECT_ATTEMPTS) return '*';
     return this.walletOrigin;
+  }
+
+  private emitConnectionClosed(): void {
+    if (this.connectionClosed) return;
+    this.connectionClosed = true;
+    const listeners = Array.from(this.connectionClosedListeners);
+    this.connectionClosedListeners.clear();
+    for (const listener of listeners) {
+      try {
+        listener();
+      } catch {}
+    }
   }
 }

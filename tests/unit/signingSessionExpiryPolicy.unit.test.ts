@@ -4,10 +4,9 @@ import {
   PASSKEY_MANAGER_DEFAULT_CONFIGS,
 } from '../../packages/sdk-web/src/core/config/defaultConfigs';
 import {
-  applyWalletBudgetStatusToSigningSessionReadiness,
+  applyWalletSessionStatusToSigningSessionReadiness,
   warmClaimFromRecordPolicy,
 } from '../../packages/sdk-web/src/core/signingEngine/session/availability/readiness';
-import { durableRecordPolicyAdvisory } from '../../packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes';
 import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
 import {
   clampThresholdSessionPolicy,
@@ -53,7 +52,7 @@ test.describe('signing session expiry policy', () => {
 
   test('classifies elapsed sessions as expired before considering exhaustion', () => {
     expect(
-      applyWalletBudgetStatusToSigningSessionReadiness({
+      applyWalletSessionStatusToSigningSessionReadiness({
         status: 'ready',
         thresholdSessionId: THRESHOLD_SESSION_ID,
         expiresAtMs: NOW_MS,
@@ -61,6 +60,7 @@ test.describe('signing session expiry policy', () => {
         nowMs: NOW_MS,
       }).readiness,
     ).toEqual({
+      curve: 'ed25519',
       status: 'expired',
       thresholdSessionId: THRESHOLD_SESSION_ID,
       expiresAtMs: NOW_MS,
@@ -70,7 +70,7 @@ test.describe('signing session expiry policy', () => {
   test('classifies a temporally valid depleted session as exhausted', () => {
     const expiresAtMs = NOW_MS + 60_000;
     expect(
-      applyWalletBudgetStatusToSigningSessionReadiness({
+      applyWalletSessionStatusToSigningSessionReadiness({
         status: 'ready',
         thresholdSessionId: THRESHOLD_SESSION_ID,
         expiresAtMs,
@@ -78,6 +78,7 @@ test.describe('signing session expiry policy', () => {
         nowMs: NOW_MS,
       }).readiness,
     ).toEqual({
+      curve: 'ed25519',
       status: 'exhausted',
       thresholdSessionId: THRESHOLD_SESSION_ID,
       remainingUses: 0,
@@ -87,12 +88,12 @@ test.describe('signing session expiry policy', () => {
 
   test('keeps unavailable distinct from expiry and exhaustion', () => {
     expect(
-      applyWalletBudgetStatusToSigningSessionReadiness({
+      applyWalletSessionStatusToSigningSessionReadiness({
         status: 'ready',
         thresholdSessionId: THRESHOLD_SESSION_ID,
         expiresAtMs: NOW_MS + 60_000,
         remainingUses: 3,
-        walletBudgetStatus: {
+        walletSessionStatus: {
           sessionId: 'wallet-budget-session',
           status: 'unavailable',
           statusCode: 'service_unavailable',
@@ -100,6 +101,7 @@ test.describe('signing session expiry policy', () => {
         nowMs: NOW_MS,
       }).readiness,
     ).toEqual({
+      curve: 'ed25519',
       status: 'status_unavailable',
       thresholdSessionId: THRESHOLD_SESSION_ID,
     });
@@ -108,28 +110,13 @@ test.describe('signing session expiry policy', () => {
   test('record policy gives elapsed time precedence over an empty budget', () => {
     expect(
       warmClaimFromRecordPolicy({
-        sessionId: String(THRESHOLD_SESSION_ID),
-        remainingUses: 0,
-        expiresAtMs: 1,
-      }),
-    ).toEqual({
-      state: 'expired',
-      sessionId: String(THRESHOLD_SESSION_ID),
-    });
-
-    expect(
-      durableRecordPolicyAdvisory({
         thresholdSessionId: String(THRESHOLD_SESSION_ID),
         remainingUses: 0,
         expiresAtMs: 1,
-        state: 'ready',
       }),
     ).toEqual({
-      kind: 'durable_policy',
-      thresholdSessionId: String(THRESHOLD_SESSION_ID),
-      remainingUses: 0,
-      expiresAtMs: 1,
       state: 'expired',
+      thresholdSessionId: String(THRESHOLD_SESSION_ID),
     });
   });
 });

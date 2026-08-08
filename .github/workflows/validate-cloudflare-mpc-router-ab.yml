@@ -62,7 +62,7 @@ jobs:
           shared-key: router-ab-validation-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
           workspaces: crates/router-ab-cloudflare -> target
       - name: Run Router A/B Cloudflare tests
-        run: cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml
+        run: cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --features workers-rs
 
   router_ab_entrypoints:
     name: MPC Router A/B entrypoint checks

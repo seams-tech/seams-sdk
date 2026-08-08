@@ -2,7 +2,6 @@ import type {
   WarmSessionClaimResult,
   WarmSessionStatusResult,
 } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
-import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import type {
   deleteDurableSealedSessionRecord,
   updateExactSealedSessionPolicy,
@@ -12,32 +11,43 @@ import {
   createDeleteDurableSealedSessionCommand,
   type DurableSealedSessionDeleteReason,
 } from '@/core/signingEngine/session/persistence/durableSealedSessionCommands';
+import type { EmailOtpEcdsaSealedRuntimePurpose } from './sealedRuntimePurpose';
 
+/** Only invalid persisted state justifies destroying sealed material. Expiry
+ * and exhaustion are Refactor 92 authorization states: they compose with an
+ * unchanged material hydration result and cannot remove its activation, so the
+ * sealed secret survives them for rehydration after re-authorization. */
 export type EmailOtpDurableSealedSessionDeleteReason = Extract<
   DurableSealedSessionDeleteReason,
-  'expired' | 'exhausted' | 'invalid_persisted_record'
+  'invalid_persisted_record'
 >;
 
 export type EmailOtpSealedRefreshPolicyPorts = {
-  getThresholdEcdsaSessionRecordByThresholdSessionId: (
-    thresholdSessionId: string,
-  ) => ThresholdEcdsaSessionRecord | null;
   deleteDurableSealedSessionRecord: typeof deleteDurableSealedSessionRecord;
   updateExactSealedSessionPolicy: typeof updateExactSealedSessionPolicy;
   clearEcdsaRestoreCaches: () => void;
 };
 
+// Updating runtime policy needs the exact sealed record and nothing else: the
+// purpose names the lane, the record carries the allowance being replaced. No
+// manifest lookup is involved, because no material is being selected here.
 export class EmailOtpSealedRefreshPolicy {
   constructor(private readonly ports: EmailOtpSealedRefreshPolicyPorts) {}
 
+  private sealedRecordFilter(
+    purpose: EmailOtpEcdsaSealedRuntimePurpose,
+  ): SigningSessionSealedRecordFilter {
+    return { authMethod: 'email_otp', curve: 'ecdsa', chainTarget: purpose.chainTarget };
+  }
+
+  /** Corrupt persisted state or explicit user removal only. Expiry and
+   * exhaustion never reach here. */
   async deleteEmailOtpDurableSealedSessionRecord(args: {
-    sessionId: string;
+    purpose: EmailOtpEcdsaSealedRuntimePurpose;
     deleteReason: EmailOtpDurableSealedSessionDeleteReason;
   }): Promise<void> {
-    const sessionId = String(args.sessionId || '').trim();
-    if (!sessionId) return;
-    const record = this.ports.getThresholdEcdsaSessionRecordByThresholdSessionId(sessionId);
-    if (!record?.chainTarget) {
+    const thresholdSessionId = String(args.purpose.thresholdSessionId || '').trim();
+    if (!thresholdSessionId) {
       this.ports.clearEcdsaRestoreCaches();
       return;
     }
@@ -45,80 +55,60 @@ export class EmailOtpSealedRefreshPolicy {
       durableRecord: {
         authMethod: 'email_otp',
         curve: 'ecdsa',
-        thresholdSessionId: sessionId,
-        chainTarget: record.chainTarget,
+        thresholdSessionId,
+        chainTarget: args.purpose.chainTarget,
       },
       deleteReason: args.deleteReason,
-      preserveResolvedIdentity:
-        args.deleteReason === 'expired' || args.deleteReason === 'exhausted',
+      preserveResolvedIdentity: false,
     });
     await this.ports.deleteDurableSealedSessionRecord(command).catch(() => undefined);
     this.ports.clearEcdsaRestoreCaches();
   }
 
   async recordSessionMaterialClaimed(
-    sessionId: string,
+    purpose: EmailOtpEcdsaSealedRuntimePurpose,
     result: WarmSessionClaimResult,
   ): Promise<void> {
-    await this.recordSessionPolicyResult({ sessionId, result });
+    await this.recordSessionPolicyResult({ purpose, result });
   }
 
   async recordSessionUseConsumed(
-    sessionId: string,
+    purpose: EmailOtpEcdsaSealedRuntimePurpose,
     result: WarmSessionStatusResult,
   ): Promise<void> {
-    await this.recordSessionPolicyResult({ sessionId, result });
+    await this.recordSessionPolicyResult({ purpose, result });
   }
 
   async recordSessionMaterialRestored(
-    sessionId: string,
+    purpose: EmailOtpEcdsaSealedRuntimePurpose,
     result: WarmSessionStatusResult,
   ): Promise<void> {
-    await this.recordSessionPolicyResult({ sessionId, result });
+    await this.recordSessionPolicyResult({ purpose, result });
   }
 
+  /** Writes the observed allowance and expiry to the exact record named by the
+   * purpose. Expiry and exhaustion invalidate the authorization and runtime
+   * projections and leave the sealed material and its activation intact; the
+   * caller requests operation step-up from there. */
   private async recordSessionPolicyResult(args: {
-    sessionId: string;
+    purpose: EmailOtpEcdsaSealedRuntimePurpose;
     result: WarmSessionStatusResult | WarmSessionClaimResult;
   }): Promise<void> {
-    const sessionId = String(args.sessionId || '').trim();
-    if (!sessionId) return;
-    const result = args.result;
-    if (result.ok) {
-      if (result.remainingUses <= 0 || Date.now() >= result.expiresAtMs) {
-        await this.deleteEmailOtpDurableSealedSessionRecord({
-          sessionId,
-          deleteReason: result.remainingUses <= 0 ? 'exhausted' : 'expired',
-        });
-        return;
-      }
-      const filter = this.resolveEmailOtpEcdsaSealedRecordFilter(sessionId);
-      if (filter) {
-        await this.ports.updateExactSealedSessionPolicy({
-          thresholdSessionId: sessionId,
-          filter,
-          expiresAtMs: result.expiresAtMs,
-          remainingUses: result.remainingUses,
-          updatedAtMs: Date.now(),
-        }).catch(() => undefined);
-      }
+    const thresholdSessionId = String(args.purpose.thresholdSessionId || '').trim();
+    if (!thresholdSessionId) return;
+    if (!args.result.ok) {
       this.ports.clearEcdsaRestoreCaches();
       return;
     }
-    if (result.code === 'expired' || result.code === 'exhausted') {
-      await this.deleteEmailOtpDurableSealedSessionRecord({
-        sessionId,
-        deleteReason: result.code,
-      });
-    }
-  }
-
-  private resolveEmailOtpEcdsaSealedRecordFilter(
-    sessionId: string,
-  ): SigningSessionSealedRecordFilter | null {
-    const record = this.ports.getThresholdEcdsaSessionRecordByThresholdSessionId(sessionId);
-    const chainTarget = record?.chainTarget;
-    if (!chainTarget) return null;
-    return { authMethod: 'email_otp', curve: 'ecdsa', chainTarget };
+    await this.ports
+      .updateExactSealedSessionPolicy({
+        thresholdSessionId,
+        filter: this.sealedRecordFilter(args.purpose),
+        expiresAtMs: args.result.expiresAtMs,
+        remainingUses: args.result.remainingUses,
+        updatedAtMs: Date.now(),
+      })
+      .catch(() => undefined);
+    this.ports.clearEcdsaRestoreCaches();
   }
 }

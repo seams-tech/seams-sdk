@@ -47,7 +47,7 @@ template for the validated fixture set.
 ## PAD Evaluation Manifest
 
 PAD experiments use a separate `voiceid-pad-evaluation.json` manifest. Each
-entry records a subject, session, frozen development or evaluation partition,
+entry records a subject, session, frozen calibration or evaluation partition,
 bona-fide or attack presentation, exact attack class, capture profile, PAD
 score, and latency. Bona-fide entries carry a null attack class. Attack entries
 use one of:
@@ -61,11 +61,11 @@ relay
 digital_injection
 ```
 
-The parser rejects subjects shared by development and evaluation partitions.
+The parser rejects subjects shared by calibration and evaluation partitions.
 Run the dependency-free contract tests and evaluate frozen scores with:
 
 ```sh
-pnpm -C voiceId pad:test
+pnpm -C voiceId benchmark:test
 pnpm -C voiceId pad:evaluate
 ```
 

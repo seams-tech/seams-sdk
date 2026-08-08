@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 mod phase2b_exit_evidence;
 mod phase2b_protected_inputs;
 mod phase2b_review_subject;
+mod runtime_checks;
 
 type DynError = Box<dyn std::error::Error>;
 
@@ -286,6 +287,11 @@ fn run() -> Result<(), DynError> {
         "phase2b-independent-host-finalize" => run_phase2b_independent_host_finalize(),
         "phase2b-independent-host-record-check" => run_phase2b_independent_host_record_check(),
         "phase2b-review-approval-check" => run_phase2b_review_approval_check(),
+        "runtime-conformance-check" => runtime_checks::run_runtime_conformance_check()
+            .map_err(|error| std::io::Error::other(error).into()),
+        "passive-public-shape-check" => runtime_checks::run_passive_public_shape_check()
+            .map_err(|error| std::io::Error::other(error).into()),
+        "passive-security-check" => run_passive_security_check(),
         "__phase2b-review-subject-material-v1" => run_internal_phase2b_review_subject_material(),
         phase2b_review_subject::INTERNAL_REPRODUCTION_MATERIAL_COMMAND => {
             run_internal_phase2b_reproduction_material()
@@ -295,7 +301,7 @@ fn run() -> Result<(), DynError> {
             Ok(())
         }
         unknown => Err(format!(
-            "unknown task `{unknown}`; expected all, check, reference-spec-check, vectors-check, cross-language-check, parity, anti-drift, lean-check, aeneas-check, verus-check, constant-time-qualification, benchmark-manifest-reproducibility, phase2b-reconciliation-check, phase2b-exit-evidence-readiness-check, phase2b-review-subject-check, phase2b-protected-inputs-check, phase2b-independent-host-prepare, phase2b-independent-host-finalize, phase2b-independent-host-record-check, or phase2b-review-approval-check"
+            "unknown task `{unknown}`; expected all, check, reference-spec-check, vectors-check, cross-language-check, parity, anti-drift, lean-check, aeneas-check, verus-check, constant-time-qualification, benchmark-manifest-reproducibility, runtime-conformance-check, passive-public-shape-check, passive-security-check, phase2b-reconciliation-check, phase2b-exit-evidence-readiness-check, phase2b-review-subject-check, phase2b-protected-inputs-check, phase2b-independent-host-prepare, phase2b-independent-host-finalize, phase2b-independent-host-record-check, or phase2b-review-approval-check"
         )
         .into()),
     }
@@ -311,16 +317,18 @@ fn run_all() -> Result<(), DynError> {
     run_benchmark_manifest_reproducibility()?;
     run_parity()?;
     run_anti_drift()?;
+    runtime_checks::run_runtime_conformance_check()?;
+    runtime_checks::run_passive_public_shape_check()?;
     run_aeneas_check()?;
     run_lean_check()?;
     run_verus_check()?;
-    println!("all ok: 12 nonempty Ed25519 Yao verification tracks executed");
+    println!("all ok: 14 nonempty Ed25519 Yao verification tracks executed");
     Ok(())
 }
 
 fn print_help() {
     println!(
-        "usage: cargo yao-fv [all|check|reference-spec-check|vectors-check|cross-language-check|parity|anti-drift|lean-check|aeneas-check|verus-check|constant-time-qualification|benchmark-manifest-reproducibility|phase2b-reconciliation-check|phase2b-exit-evidence-readiness-check|phase2b-review-subject-check|phase2b-protected-inputs-check|phase2b-independent-host-prepare|phase2b-independent-host-finalize|phase2b-independent-host-record-check|phase2b-review-approval-check]"
+        "usage: cargo yao-fv [all|check|reference-spec-check|vectors-check|cross-language-check|parity|anti-drift|runtime-conformance-check|passive-public-shape-check|passive-security-check|lean-check|aeneas-check|verus-check|constant-time-qualification|benchmark-manifest-reproducibility|phase2b-reconciliation-check|phase2b-exit-evidence-readiness-check|phase2b-review-subject-check|phase2b-protected-inputs-check|phase2b-independent-host-prepare|phase2b-independent-host-finalize|phase2b-independent-host-record-check|phase2b-review-approval-check]"
     );
 }
 
@@ -2403,10 +2411,48 @@ fn run_anti_drift() -> Result<(), DynError> {
     Ok(())
 }
 
+fn verify_runtime_public_shape_lean() -> Result<(), DynError> {
+    let path = lean_model_dir().join("Ed25519YaoModel/RuntimePublicShape.lean");
+    let generated =
+        runtime_checks::render_runtime_public_shape_lean().map_err(std::io::Error::other)?;
+    if env::var_os("UPDATE_ED25519_YAO_RUNTIME_PUBLIC_SHAPE").is_some() {
+        fs::write(&path, generated)?;
+        println!(
+            "updated production-linked runtime public-shape model: {}",
+            path.display()
+        );
+        return Ok(());
+    }
+    let committed = fs::read_to_string(&path).map_err(|error| {
+        format!(
+            "failed to read production-linked runtime public-shape model {}: {error}; regenerate with UPDATE_ED25519_YAO_RUNTIME_PUBLIC_SHAPE=1 cargo yao-fv lean-check",
+            path.display()
+        )
+    })?;
+    if committed != generated {
+        return Err(format!(
+            "production-linked runtime public-shape model drifted: {}; regenerate with UPDATE_ED25519_YAO_RUNTIME_PUBLIC_SHAPE=1 cargo yao-fv lean-check",
+            path.display()
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn run_passive_security_check() -> Result<(), DynError> {
+    runtime_checks::run_passive_public_shape_check().map_err(std::io::Error::other)?;
+    run_lean_check()?;
+    println!(
+        "passive-security-check ok: production public views, typed export-A simulator input, and conditional additive hybrid bounds checked"
+    );
+    Ok(())
+}
+
 fn run_lean_check() -> Result<(), DynError> {
     let baseline = load_baseline()?;
     reject_forbidden_lean_declarations()?;
     verify_lean_toolchain(&baseline, &lean_model_dir())?;
+    verify_runtime_public_shape_lean()?;
 
     let manifest_model = lean_model_dir().join("Ed25519YaoModel/Manifest.lean");
     let party_views_model = lean_model_dir().join("Ed25519YaoModel/PartyViews.lean");
@@ -2450,6 +2496,8 @@ fn run_lean_check() -> Result<(), DynError> {
         lean_model_dir().join("Ed25519YaoModel/SemanticFramePartyViews.lean");
     let semantic_frame_party_views_theorem_count =
         count_lean_theorems(&semantic_frame_party_views_model)?;
+    let passive_security_model = lean_model_dir().join("Ed25519YaoModel/PassiveSecurity.lean");
+    let passive_security_theorem_count = count_lean_theorems(&passive_security_model)?;
     let theorem_count = count_lean_theorems(&manifest_model)?
         .checked_add(count_lean_theorems(&party_views_model)?)
         .and_then(|count| count.checked_add(evaluation_input_theorem_count))
@@ -2464,6 +2512,7 @@ fn run_lean_check() -> Result<(), DynError> {
         .and_then(|count| count.checked_add(recovery_evaluator_admission_theorem_count))
         .and_then(|count| count.checked_add(refresh_evaluator_admission_theorem_count))
         .and_then(|count| count.checked_add(semantic_frame_party_views_theorem_count))
+        .and_then(|count| count.checked_add(passive_security_theorem_count))
         .ok_or("Lean model theorem count overflow")?;
     require_exact_count(
         "Lean model theorem",

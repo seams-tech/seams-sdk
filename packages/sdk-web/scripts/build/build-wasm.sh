@@ -242,7 +242,6 @@ GATEWAY_WASM_SOURCES=(
   "$SOURCE_WASM_ECDSA_SIGNING_WORKER"
   "$SOURCE_WASM_EVM_CRYPTO"
   "$SOURCE_WASM_SHAMIR3PASS_RUNTIME"
-  "$SOURCE_WASM_THRESHOLD_PRF"
 )
 FULL_SDK_WASM_SOURCES=(
   "$SOURCE_ED25519_YAO_CLIENT"
@@ -274,7 +273,6 @@ else
   start_job "ECDSA server signing worker WASM (release)" build_router_ab_ecdsa_signing_worker
   start_job "EVM crypto WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_EVM_CRYPTO" evm_crypto
   start_job "Shamir3Pass runtime WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_SHAMIR3PASS_RUNTIME" shamir3pass_runtime
-  start_job "threshold-prf WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_THRESHOLD_PRF" threshold_prf
   if [ "$WASM_SDK_BUILD_TARGET" = "all" ]; then
     start_job "Ed25519 Yao Client WASM (release)" build_ed25519_yao_client
     start_job "ECDSA registration client WASM (release)" build_ecdsa_registration_client
@@ -308,9 +306,6 @@ require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_SIGNING_WORKER/pkg/router_ab_ecdsa_si
 require_file "$SDK_ROOT/$SOURCE_WASM_EVM_CRYPTO/pkg/evm_crypto.js"
 require_file "$SDK_ROOT/$SOURCE_WASM_EVM_CRYPTO/pkg/evm_crypto.d.ts"
 require_file "$SDK_ROOT/$SOURCE_WASM_EVM_CRYPTO/pkg/evm_crypto_bg.wasm"
-require_file "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF/pkg/threshold_prf.js"
-require_file "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF/pkg/threshold_prf.d.ts"
-require_file "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF/pkg/threshold_prf_bg.wasm"
 if [ "$WASM_SDK_BUILD_TARGET" = "all" ]; then
   require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client.js"
   require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client.d.ts"

@@ -1,9 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
 import { secp256k1PrivateKey32ToPublicKey33 } from '../../packages/sdk-server-ts/src/core/ThresholdService/evmCryptoWasm';
-import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService';
+import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { implicitNearAccountProvisioning } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { parseRouterAbMpcMaterialActivationRef } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import {
   buildFixtureRouterAbEcdsaStrictRegistrationRequest,
@@ -12,10 +13,6 @@ import {
   SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort,
 } from '../helpers/routerAbSigningRuntimeTestUtils';
 import { createActivatedFinalizeYaoRuntimeFixture } from './helpers/d1WalletRegistrationFinalizeConvergence.fixtures';
-import type {
-  RouterAbWalletBudgetGrantProvisionInputV1,
-  RouterAbWalletBudgetGrantProvisionerV1,
-} from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
 import {
   applySignerMigrations,
   makeRecoveryWrappedEnrollmentEscrows,
@@ -54,7 +51,19 @@ function fakeGatewaySigner() {
   return {
     signJwt: async (sub: string, extra?: Record<string, unknown>) => {
       counter += 1;
-      const token = `activate-jwt-${instance}-${counter}`;
+      const header = base64UrlEncode(
+        new TextEncoder().encode(JSON.stringify({ alg: 'none', typ: 'JWT' })),
+      );
+      const payload = base64UrlEncode(
+        new TextEncoder().encode(
+          JSON.stringify({
+            sub,
+            exp: Math.floor(Date.now() / 1000) + 900,
+            ...(extra || {}),
+          }),
+        ),
+      );
+      const token = `${header}.${payload}.test-signature-${instance}-${counter}`;
       issued.set(token, { sub, ...(extra || {}) });
       return token;
     },
@@ -83,34 +92,16 @@ class CountingStrictRegistrationPort extends SuccessfulFixtureRouterAbEcdsaStric
   }
 }
 
-class RecordingPrivateD1BudgetProvisioner implements RouterAbWalletBudgetGrantProvisionerV1 {
-  readonly requests: RouterAbWalletBudgetGrantProvisionInputV1[] = [];
-
-  async provisionGrant(input: RouterAbWalletBudgetGrantProvisionInputV1) {
-    this.requests.push(input);
-    return {
-      ok: true as const,
-      signingGrantId: input.signingGrantId,
-      remainingUses: input.initialSignatureUses,
-      reservedUses: 0,
-      availableUses: input.initialSignatureUses,
-      expiresAtMs: input.expiresAtMs,
-    };
-  }
-}
-
 /** Drives a ceremony through setup and respond, ready to activate. */
 async function respondedCeremony(database: unknown, strictRegistration: unknown) {
   const routerAbSigningRuntimes = createRouterAbSigningRuntimesForUnitTests({
     config: { ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker-activate' },
   });
   const thresholdStore = new RecordingDurableObjectNamespace();
-  const budgetProvisioner = new RecordingPrivateD1BudgetProvisioner();
   const service = createCloudflareD1RouterApiAuthService({
     database: database as never,
     ...SCOPE,
     routerAbSigningRuntimes: routerAbSigningRuntimes.runtimes,
-    walletBudgetGrantProvisioner: budgetProvisioner,
     ecdsaStrictRegistration: strictRegistration,
     thresholdStore: {
       kind: 'cloudflare-do',
@@ -169,11 +160,26 @@ async function respondedCeremony(database: unknown, strictRegistration: unknown)
     registrationCeremonyId: setup.registrationCeremonyId,
     signedSetup: setup.signedSetup,
     idempotencyKey: 'activate-key-1',
-    ecdsa: { clientActivation: fixtureRouterAbEcdsaActivationFacts() },
+    planKind: 'evm_family_ecdsa',
+    session: signer,
+    ecdsa: {
+      activationCorrelationId: setup.registrationCeremonyId,
+      activationRequestDigestB64u: base64UrlEncode(new Uint8Array(32)),
+      materialActivation: parseRouterAbMpcMaterialActivationRef({
+        kind: 'mpc_material_activation_ref',
+        activation_id: `activation-${setup.registrationCeremonyId}`,
+        capability: `capability-${setup.registrationCeremonyId}`,
+        material_owner: setup.walletId,
+        key_binding: `key-${setup.registrationCeremonyId}`,
+        lifecycle_binding: setup.registrationCeremonyId,
+        signing_worker: setup.ecdsa.strictRegistration.lifecycle.selected_server_id,
+      }),
+      clientActivation: fixtureRouterAbEcdsaActivationFacts(),
+    },
     verifier: signer,
     minter: signer,
   };
-  return { service, signer, setup, activateRequest, budgetProvisioner, thresholdStore };
+  return { service, signer, setup, activateRequest, thresholdStore };
 }
 
 test('a conflicting activate retry is refused before any custody effect', async () => {
@@ -216,13 +222,14 @@ test('an identical activate retry returns the stored terminal bytes without repe
   try {
     await applySignerMigrations(database);
     const strictRegistration = new CountingStrictRegistrationPort();
-    const { service, activateRequest, budgetProvisioner, thresholdStore } =
+    const { service, activateRequest, thresholdStore } =
       await respondedCeremony(database, strictRegistration);
 
     const first = await service.walletRegistration.activateWalletRegistration(
       activateRequest as never,
     );
     if (!first.ok) throw new Error(`first activate: ${first.code}: ${first.message}`);
+    expect(first.appSessionJwt).toEqual(expect.any(String));
     const custodyCallsAfterFirst = strictRegistration.activateCalls;
 
     const replayed = await service.walletRegistration.activateWalletRegistration(
@@ -235,6 +242,7 @@ test('an identical activate retry returns the stored terminal bytes without repe
        the store's JSON encoding, so property order is the encoder's business
        and pinning it here would assert an implementation detail. */
     expect(replayed).toEqual(first);
+    expect(replayed.ok && replayed.appSessionJwt).toBe(first.appSessionJwt);
     /* And no repeated custody effect. */
     expect(strictRegistration.activateCalls).toBe(custodyCallsAfterFirst);
     /* Both legs merged: the commit half's wallet keys plus the activation
@@ -244,14 +252,6 @@ test('an identical activate retry returns the stored terminal bytes without repe
     expect(first.ecdsa.activation).toBeTruthy();
     expect(first.ecdsa.bootstrap).toBeTruthy();
     expect(replayed.ok && replayed.ecdsa.activation).toBeTruthy();
-    expect(budgetProvisioner.requests).toHaveLength(1);
-    expect(budgetProvisioner.requests[0]?.authorizedSigners).toEqual([
-      {
-        curve: 'ecdsa',
-        threshold_session_id: first.ecdsa.bootstrap.thresholdSessionId,
-        signing_worker_id: 'signing-worker-unit-fixture',
-      },
-    ]);
     expect(thresholdStore.objectNames).toEqual([]);
     expect(replayed.ok && replayed.ecdsa.bootstrap).toBeTruthy();
   } finally {
@@ -536,6 +536,7 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
       signedSetup: setup.signedSetup,
       idempotencyKey: 'ed25519-e2e-activate',
       planKind: 'near_ed25519',
+      session: signer,
       verifier: signer,
       minter: signer,
     };
@@ -673,6 +674,7 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
         acknowledgedAtMs: Date.now(),
         idempotencyKey: 'ed25519-otp-backup-ack',
       },
+      session: signer,
       verifier: signer,
       minter: signer,
     };

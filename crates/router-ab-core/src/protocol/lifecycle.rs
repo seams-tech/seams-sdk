@@ -77,6 +77,160 @@ impl LifecycleScopeV1 {
     }
 }
 
+/// Operation authority for one normal-signing request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum NormalSigningAuthorizationV1 {
+    /// Reusable Wallet Session authority. The Gateway derives the exact operation authorization.
+    ReusableWalletSession { wallet_session_id: String },
+    /// Single-operation step-up authority. Verified evidence and the resulting
+    /// authorized operation remain server-side; the public request carries only
+    /// this marker.
+    OperationStepUp,
+}
+
+impl NormalSigningAuthorizationV1 {
+    /// Creates validated reusable Wallet Session authority.
+    pub fn reusable_wallet_session(
+        wallet_session_id: impl Into<String>,
+    ) -> RouterAbProtocolResult<Self> {
+        let authorization = Self::ReusableWalletSession {
+            wallet_session_id: wallet_session_id.into(),
+        };
+        authorization.validate()?;
+        Ok(authorization)
+    }
+
+    /// Creates validated single-operation step-up authority.
+    pub fn operation_step_up() -> RouterAbProtocolResult<Self> {
+        let authorization = Self::OperationStepUp;
+        authorization.validate()?;
+        Ok(authorization)
+    }
+
+    /// Validates the exact authorization identity.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        match self {
+            Self::ReusableWalletSession { wallet_session_id } => {
+                require_non_empty("authorization.wallet_session_id", wallet_session_id)
+            }
+            Self::OperationStepUp => Ok(()),
+        }
+    }
+
+    /// Returns the canonical wire label of the authorization branch.
+    pub fn kind_label(&self) -> &'static str {
+        match self {
+            Self::ReusableWalletSession { .. } => "reusable_wallet_session",
+            Self::OperationStepUp => "operation_step_up",
+        }
+    }
+
+    /// Returns the exact identifier carried by the authorization branch.
+    pub fn authorization_id(&self) -> RouterAbProtocolResult<&str> {
+        match self {
+            Self::ReusableWalletSession { wallet_session_id } => Ok(wallet_session_id),
+            Self::OperationStepUp => Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "operation step-up authority has no public authorization id",
+            )),
+        }
+    }
+
+    /// Returns the exact reusable Wallet Session id or fails closed for step-up authority.
+    pub fn reusable_wallet_session_id(&self) -> RouterAbProtocolResult<&str> {
+        self.validate()?;
+        match self {
+            Self::ReusableWalletSession {
+                wallet_session_id, ..
+            } => Ok(wallet_session_id),
+            Self::OperationStepUp => Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "operation step-up authority has no reusable Wallet Session id",
+            )),
+        }
+    }
+}
+
+/// Exact activated MPC material used by one normal-signing request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "typescript-bindings", derive(ts_rs::TS))]
+#[cfg_attr(
+    feature = "typescript-bindings",
+    ts(
+        rename = "RouterAbMpcMaterialActivationRefKindV1",
+        rename_all = "snake_case"
+    )
+)]
+pub enum MpcMaterialActivationRefKindV1 {
+    /// Exact MPC material-activation reference.
+    MpcMaterialActivationRef,
+}
+
+/// Exact activated MPC material used by one normal-signing request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "typescript-bindings", derive(ts_rs::TS))]
+#[cfg_attr(
+    feature = "typescript-bindings",
+    ts(rename = "RouterAbMpcMaterialActivationRefV1")
+)]
+pub struct MpcMaterialActivationRefV1 {
+    /// Wire discriminant.
+    pub kind: MpcMaterialActivationRefKindV1,
+    /// Opaque activation id.
+    pub activation_id: String,
+    /// Activated capability instance.
+    pub capability: String,
+    /// Owner of the activated material.
+    pub material_owner: String,
+    /// Public-key binding.
+    pub key_binding: String,
+    /// Lifecycle binding.
+    pub lifecycle_binding: String,
+    /// SigningWorker that owns the live material.
+    pub signing_worker: String,
+}
+
+impl MpcMaterialActivationRefV1 {
+    /// Creates a validated material-activation reference.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        activation_id: impl Into<String>,
+        capability: impl Into<String>,
+        material_owner: impl Into<String>,
+        key_binding: impl Into<String>,
+        lifecycle_binding: impl Into<String>,
+        signing_worker: impl Into<String>,
+    ) -> RouterAbProtocolResult<Self> {
+        let activation = Self {
+            kind: MpcMaterialActivationRefKindV1::MpcMaterialActivationRef,
+            activation_id: activation_id.into(),
+            capability: capability.into(),
+            material_owner: material_owner.into(),
+            key_binding: key_binding.into(),
+            lifecycle_binding: lifecycle_binding.into(),
+            signing_worker: signing_worker.into(),
+        };
+        activation.validate()?;
+        Ok(activation)
+    }
+
+    /// Validates every material-activation binding.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("material_activation.activation_id", &self.activation_id)?;
+        require_non_empty("material_activation.capability", &self.capability)?;
+        require_non_empty("material_activation.material_owner", &self.material_owner)?;
+        require_non_empty("material_activation.key_binding", &self.key_binding)?;
+        require_non_empty(
+            "material_activation.lifecycle_binding",
+            &self.lifecycle_binding,
+        )?;
+        require_non_empty("material_activation.signing_worker", &self.signing_worker)
+    }
+}
+
 /// Normal signing scope that bypasses A/B derivation setup.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -85,10 +239,10 @@ pub struct NormalSigningScopeV1 {
     pub request_id: String,
     /// Canonical account or wallet id.
     pub account_id: String,
-    /// Canonical session id.
-    pub session_id: String,
-    /// Session id that owns the activated SigningWorker material.
-    pub active_state_session_id: String,
+    /// Exact operation authority, independent from material identity.
+    pub authorization: NormalSigningAuthorizationV1,
+    /// Exact activated MPC material.
+    pub material_activation: MpcMaterialActivationRefV1,
     /// Active SigningWorker identity.
     pub signing_worker_id: String,
 }
@@ -98,15 +252,15 @@ impl NormalSigningScopeV1 {
     pub fn new(
         request_id: impl Into<String>,
         account_id: impl Into<String>,
-        session_id: impl Into<String>,
-        active_state_session_id: impl Into<String>,
+        authorization: NormalSigningAuthorizationV1,
+        material_activation: MpcMaterialActivationRefV1,
         signing_worker_id: impl Into<String>,
     ) -> RouterAbProtocolResult<Self> {
         let scope = Self {
             request_id: request_id.into(),
             account_id: account_id.into(),
-            session_id: session_id.into(),
-            active_state_session_id: active_state_session_id.into(),
+            authorization,
+            material_activation,
             signing_worker_id: signing_worker_id.into(),
         };
         scope.validate()?;
@@ -117,9 +271,16 @@ impl NormalSigningScopeV1 {
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         require_non_empty("request_id", &self.request_id)?;
         require_non_empty("account_id", &self.account_id)?;
-        require_non_empty("session_id", &self.session_id)?;
-        require_non_empty("active_state_session_id", &self.active_state_session_id)?;
-        require_non_empty("signing_worker_id", &self.signing_worker_id)
+        self.authorization.validate()?;
+        self.material_activation.validate()?;
+        require_non_empty("signing_worker_id", &self.signing_worker_id)?;
+        if self.material_activation.signing_worker != self.signing_worker_id {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "material activation SigningWorker does not match normal signing scope",
+            ));
+        }
+        Ok(())
     }
 }
 

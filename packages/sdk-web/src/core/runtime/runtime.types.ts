@@ -6,7 +6,6 @@ import type {
   SeamsSigningConfig,
 } from '@/core/types/seams';
 import type { ThresholdEcdsaCanonicalExportArtifact } from '@/core/signingEngine/interfaces/signing';
-import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { RegistrationAccountLifecycleDeps } from '@/core/signingEngine/interfaces/operationDeps';
 import type { EcdsaWalletRecordsService } from '@/core/signingEngine/flows/registration/services/ecdsaWalletRecords';
@@ -46,7 +45,6 @@ export type SigningRuntimeConfig = ReadonlyDeep<{
 }>;
 
 export type SigningRuntimeEcdsaStatePorts = {
-  recordsByLane: Map<string, ThresholdEcdsaSessionRecord>;
   exportArtifactsByLane: Map<string, ThresholdEcdsaCanonicalExportArtifact>;
 };
 

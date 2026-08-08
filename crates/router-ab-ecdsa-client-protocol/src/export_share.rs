@@ -40,10 +40,12 @@ pub struct EcdsaSigningWorkerExportShareBindingV1 {
     pub export_authorization_digest_b64u: String,
     /// One-time export nonce.
     pub export_nonce: String,
-    /// Authenticated threshold Wallet Session identifier.
-    pub threshold_session_id: String,
-    /// Authenticated Wallet Session signing grant.
-    pub signing_grant_id: String,
+    /// Exact authorization branch label; reusable and step-up identities remain disjoint.
+    pub authorization_kind: String,
+    /// Exact authorization identifier carried by the authorization branch.
+    pub authorization_id: String,
+    /// Exact material activation this export redemption binds.
+    pub material_activation: EcdsaMaterialActivationRefV1,
     /// Exact export lifecycle identifier.
     pub lifecycle_id: String,
     /// Authorized browser recipient identity.
@@ -66,12 +68,22 @@ impl EcdsaSigningWorkerExportShareBindingV1 {
             &self.activation_epoch,
             &self.signing_worker_id,
             &self.export_nonce,
-            &self.threshold_session_id,
-            &self.signing_grant_id,
+            &self.authorization_id,
             &self.lifecycle_id,
             &self.recipient_identity,
         ] {
             require_non_empty(value)?;
+        }
+        self.material_activation.validate()?;
+        if self.material_activation.material_owner != self.wallet_id
+            || self.material_activation.signing_worker != self.signing_worker_id
+        {
+            return Err(EcdsaClientProtocolError::InvalidShape);
+        }
+        if self.authorization_kind != "reusable_wallet_session"
+            && self.authorization_kind != "verified_step_up"
+        {
+            return Err(EcdsaClientProtocolError::InvalidShape);
         }
         decode_base64url_fixed::<32>(&self.context_binding_b64u)?;
         decode_base64url_fixed::<33>(&self.threshold_public_key33_b64u)?;
@@ -105,12 +117,13 @@ impl EcdsaSigningWorkerExportShareBindingV1 {
             &self.export_request_digest_b64u,
             &self.export_authorization_digest_b64u,
             &self.export_nonce,
-            &self.threshold_session_id,
-            &self.signing_grant_id,
-            &self.lifecycle_id,
-            &self.recipient_identity,
-            &self.recipient_public_key,
+            &self.authorization_kind,
+            &self.authorization_id,
         ] {
+            push_bytes(&mut out, value.as_bytes());
+        }
+        out.extend_from_slice(&self.material_activation.canonical_bytes()?);
+        for value in [&self.lifecycle_id, &self.recipient_identity, &self.recipient_public_key] {
             push_bytes(&mut out, value.as_bytes());
         }
         out.extend_from_slice(&self.expires_at_ms.to_be_bytes());
@@ -228,4 +241,52 @@ fn decode_base64url_fixed<const N: usize>(
         .as_slice()
         .try_into()
         .map_err(|_| EcdsaClientProtocolError::InvalidShape)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn binding(authorization_kind: &str) -> EcdsaSigningWorkerExportShareBindingV1 {
+        EcdsaSigningWorkerExportShareBindingV1 {
+            wallet_id: "wallet-1".to_owned(),
+            key_handle: "key-handle-1".to_owned(),
+            ecdsa_threshold_key_id: "ecdsa-key-1".to_owned(),
+            signing_root_id: "root-1".to_owned(),
+            signing_root_version: "root-v1".to_owned(),
+            activation_epoch: "activation-1".to_owned(),
+            signing_worker_id: "signing-worker-1".to_owned(),
+            context_binding_b64u: Base64UrlUnpadded::encode_string(&[0x01; 32]),
+            threshold_public_key33_b64u: Base64UrlUnpadded::encode_string(&[0x02; 33]),
+            export_request_digest_b64u: Base64UrlUnpadded::encode_string(&[0x03; 32]),
+            export_authorization_digest_b64u: Base64UrlUnpadded::encode_string(&[0x04; 32]),
+            export_nonce: "export-nonce-1".to_owned(),
+            authorization_kind: authorization_kind.to_owned(),
+            authorization_id: Base64UrlUnpadded::encode_string(&[0x05; 32]),
+            material_activation: EcdsaMaterialActivationRefV1 {
+                kind: EcdsaMaterialActivationRefKindV1::MpcMaterialActivationRef,
+                activation_id: "activation-1".to_owned(),
+                capability: "capability-1".to_owned(),
+                material_owner: "wallet-1".to_owned(),
+                key_binding: "key-binding-1".to_owned(),
+                lifecycle_binding: "lifecycle-binding-1".to_owned(),
+                signing_worker: "signing-worker-1".to_owned(),
+            },
+            lifecycle_id: "lifecycle-1".to_owned(),
+            recipient_identity: "recipient-1".to_owned(),
+            recipient_public_key: format!("x25519:{}", "00".repeat(32)),
+            expires_at_ms: 1,
+        }
+    }
+
+    #[test]
+    fn verified_step_up_binding_is_valid_and_public_marker_is_rejected() {
+        binding("verified_step_up")
+            .validate()
+            .expect("verified step-up binding is accepted");
+        assert_eq!(
+            binding("operation_step_up").validate(),
+            Err(EcdsaClientProtocolError::InvalidShape)
+        );
+    }
 }

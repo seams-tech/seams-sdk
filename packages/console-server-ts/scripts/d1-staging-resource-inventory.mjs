@@ -7,7 +7,6 @@ import {
   d1StagingCommandLines,
   isDirectInvocation,
   arrayTableBodies,
-  commaList,
   normalizeConsoleGatewayD1StagingOptions,
   normalizeString,
   packageRoot,
@@ -130,7 +129,6 @@ function readProfileInventory(input) {
     d1Databases: readD1Databases(source),
     durableObjects: readDurableObjectBindings(source),
     durableObjectMigrations: readDurableObjectMigrations(source),
-    secretsStoreSecrets: readSecretsStoreSecrets(source),
     requiredSecrets: readArray(tableBody(source, 'secrets'), 'required'),
     stagingVars: readStagingVars(source),
   };
@@ -172,18 +170,6 @@ function readDurableObjectMigrations(source) {
   return migrations;
 }
 
-function readSecretsStoreSecrets(source) {
-  const secrets = [];
-  for (const block of arrayTableBodies(source, 'secrets_store_secrets')) {
-    secrets.push({
-      binding: readString(block, 'binding'),
-      storeId: readString(block, 'store_id'),
-      secretName: readString(block, 'secret_name'),
-    });
-  }
-  return secrets;
-}
-
 function readStagingVars(source) {
   const vars = tableBody(source, 'vars');
   return {
@@ -191,8 +177,6 @@ function readStagingVars(source) {
     orgId: readString(vars, 'SEAMS_STAGING_ORG_ID'),
     projectId: readString(vars, 'SEAMS_STAGING_PROJECT_ID'),
     envId: readString(vars, 'SEAMS_STAGING_ENV_ID'),
-    signingRootKekProvider: readString(vars, 'SIGNING_ROOT_KEK_PROVIDER'),
-    signingRootKekIds: commaList(readString(vars, 'SIGNING_ROOT_KEK_IDS')),
   };
 }
 

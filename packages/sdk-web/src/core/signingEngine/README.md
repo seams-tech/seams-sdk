@@ -21,14 +21,12 @@ flows or browser assembly.
 - `flows/shared/`: shared operation state machine, command ports, and
   confirmation command runner.
 - `session/`: selected lane identity, available lanes, readiness, record
-  normalization, restore, planning, budget, sealed persistence, and
+  normalization, restore, planning, authorization admission, sealed persistence, and
   warm-session state.
 - `session/emailOtp/`: Email OTP threshold-session provisioning, restoration,
   export recovery, and warm-session status coordination.
 - `session/planning/`: signing-operation planning, operation fingerprints, and
   operation-id binding.
-- `session/budget/`: signing grant budget reads, projection,
-  reservation, and spend finalization.
 - `stepUpConfirmation/`: confirmation contracts, email-OTP/passkey prompts,
   wallet-auth policy resolution, intent digest preparation, and channel message
   contracts.
@@ -105,7 +103,7 @@ sequenceDiagram
 
   SDK->>RT: "sign / export / register"
   RT->>OP: "delegate to operation"
-  OP->>SS: "select lane, restore, reserve budget"
+  OP->>SS: "select lane, restore, authorize operation"
   OP->>CF: "confirm passkey or email OTP"
   OP->>TH: "authorize/connect/sign threshold material"
   OP->>CH: "build payload/display/final tx"
@@ -126,14 +124,11 @@ sequenceDiagram
   planning-layer extension for operation planning, storage source, retention,
   and backing material context.
 - `SigningSessionPlan` (`session/planning/planner.ts`): planned operation
-  identity bound to one selected lane before confirmation, signing, and budget
-  stages execute.
-- `WalletSigningBudgetReservation` (`session/budget/budget.ts`): budget
-  reservation and spend identity that follows the selected lane through the
-  finalization path.
-- `ThresholdEcdsaSessionRecord` / `ThresholdEd25519SessionRecord`
-  (`session/persistence/records.ts`): persistence records normalized at
-  storage boundaries.
+  identity bound to one selected lane before confirmation, signing, and the
+  server-owned claim/quota transaction.
+- Ed25519 material and authorization use the capability and sealed-runtime
+  boundaries; the retired in-memory session-record family is no longer a
+  signing-engine state source.
 - `ThresholdEcdsaChainTarget` (`interfaces/ecdsaChainTarget.ts`): neutral EVM
   and Tempo chain target identity shared by session, prompt, threshold, and
   operation modules.
@@ -146,11 +141,11 @@ sequenceDiagram
 | Term                   | Axis                                                                                | Canonical owner                                 |
 | ---------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------- |
 | `warmSession`          | Secure-confirm worker PRF cache and volatile capability material.                   | `session/warmCapabilities/*`                    |
-| `warmSigning`          | Runtime aggregate of warm-session readers, status readers, and ECDSA record access. | `assembly/ports/warmSigning.ts`                 |
+| `warmSigning`          | Runtime aggregate of warm-session readers, status readers, and sealed-runtime access. | `assembly/ports/warmSigning.ts`                 |
 | `warmCapabilities`     | Public capability/status surface derived from warm material and budget state.       | `session/warmCapabilities/public.ts`            |
-| `signingSession`       | Operation lane, budget, and identity scope used while signing.                      | `session/planning/*`, `session/budget/*`        |
-| `signingGrant` | Server-issued wallet-scoped budget session identifier.                              | `session/budget/*`                              |
-| `thresholdSession`     | Cryptographic threshold-protocol authorization session.                             | `threshold/*`, `session/persistence/records.ts` |
+| `signingSession`       | Operation lane, authorization, and identity scope used while signing.              | `session/planning/*`, `session/operationState/*` |
+| `walletSession` | Server-issued reusable Wallet Session authorization identity.                       | `session/lifecycle/*`, `session/availability/*` |
+| `thresholdSession`     | Cryptographic threshold-protocol authorization session.                             | `threshold/*`, sealed-runtime boundaries        |
 | `emailOtpSession`      | Email OTP step-up session and warm-session coordination.                            | `session/emailOtp/*`                            |
 | `appSession`           | Outer application JWT/policy used to authorize wallet operations.                   | `stepUpConfirmation/*`, relayer clients         |
 
@@ -163,7 +158,7 @@ flowchart LR
   PREP --> SELECT["session/identity/selectLane.ts"]
   SELECT --> ID["session/identity/laneIdentity.ts"]
   OP --> PLAN["session/planning/planner.ts"]
-  OP --> BUDGET["session/budget/budget.ts"]
+  OP --> CLAIM["server-owned claim/quota admission"]
   OP --> AUTH["authPlanning.ts + stepUpConfirmation prompts"]
   OP --> TH["threshold/ecdsa/*"]
   OP --> CH["chains/evm + chains/tempo"]

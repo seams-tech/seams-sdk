@@ -1,12 +1,12 @@
-# Router A/B Local Development Deployment Parity Plan
+# Router A/B Local Development
 
-Status: Phase 9C local Ed25519 Yao lifecycle implemented and passing. SDK
-public-route cutover remains open. Cloudflare deployment and timing evidence
-remain deferred until the local cutover closes.
+Status: the local product topology uses the production strict Worker artifacts
+and role boundaries. Deployed Cloudflare timing and release evidence remain
+separate production gates.
 
-This plan defines how local development should mimic the Cloudflare Router/A/B
-deployment while keeping the existing fast in-process tests. The target local
-shape is one public Gateway plus four independently started private workers:
+This guide describes how local development mirrors the Cloudflare Router/A/B
+deployment while keeping the existing fast in-process tests. The local shape is
+one public Gateway plus four role-separated Cloudflare Workers:
 
 - Gateway
 - MPCRouter
@@ -39,13 +39,13 @@ rules as production.
 
 Default ports:
 
-| Service                  | URL                     |
-| ------------------------ | ----------------------- |
-| Gateway                  | `http://127.0.0.1:9090` |
-| MPCRouter                | `http://127.0.0.1:9100` |
-| Deriver A Worker         | `http://127.0.0.1:9101` |
-| Deriver B Worker         | `http://127.0.0.1:9102` |
-| SigningWorker            | `http://127.0.0.1:9103` |
+| Service          | URL                     |
+| ---------------- | ----------------------- |
+| Gateway          | `http://127.0.0.1:9090` |
+| MPCRouter        | `http://127.0.0.1:9100` |
+| Deriver A Worker | `http://127.0.0.1:9101` |
+| Deriver B Worker | `http://127.0.0.1:9102` |
+| SigningWorker    | `http://127.0.0.1:9103` |
 
 ```mermaid
 flowchart LR
@@ -97,44 +97,28 @@ flowchart LR
   browser WASM Client retains its scalar inside an opaque disposable object.
   A real-process SDK test completes registration and ordinary FROST signing.
 
-Remaining local work:
-
-- close the SDK public-route cutover and update intended-behaviour tests around
-  the canonical Yao lifecycle;
-- capture the deferred Cloudflare deployment and timing evidence.
-
-Cloudflare startup and runtime evidence begins only after those local items
-close.
-
 ## Architecture
 
-Gateway owns public Router A/B routes. Add one role-parametrized
-Rust binary under `crates/router-ab-dev` for private worker roles:
+Gateway owns the browser-facing Router A/B routes. The local launcher runs the
+four strict Worker artifacts built from `router-ab-cloudflare`:
 
 ```text
-crates/router-ab-dev/src/bin/router_ab_local_worker.rs
+crates/router-ab-cloudflare/build/router/worker/shim.mjs
+crates/router-ab-cloudflare/build/deriver-a/worker/shim.mjs
+crates/router-ab-cloudflare/build/deriver-b/worker/shim.mjs
+crates/router-ab-cloudflare/build/signing-worker/worker/shim.mjs
 ```
 
-The binary should accept:
+`crates/router-ab-dev/scripts/strict-local-runtime-config.mjs` renders local
+Wrangler configs and role-specific secret files under:
 
 ```text
-router-ab-local-worker --role deriver-a --env .env.router-ab.deriver-a.local
-router-ab-local-worker --role deriver-b --env .env.router-ab.deriver-b.local
-router-ab-local-worker --role signing-worker --env .env.router-ab.signing-worker.local
+.runtime/router-ab-strict/
 ```
 
-Each process parses raw env once at startup into a precise role branch:
-
-```rust
-enum LocalWorkerRoleConfig {
-    DeriverA(LocalDeriverAWorkerConfig),
-    DeriverB(LocalDeriverBWorkerConfig),
-    SigningWorker(LocalSigningWorkerConfig),
-}
-```
-
-Core handlers must accept only the narrowed role config. Invalid role/config
-combinations should be unrepresentable after startup parsing.
+Each Worker receives only its role-specific bindings. The MPCRouter receives
+public keys, JWT verification material, internal service authentication, and
+service bindings. It receives no private D1 binding or role-private key.
 
 ## Routes
 
@@ -142,12 +126,12 @@ The local HTTP harness uses the canonical protocol-specific route families:
 
 | Route                                                                           | Owner         | Purpose                                |
 | ------------------------------------------------------------------------------- | ------------- | -------------------------------------- |
-| `/router-ab/ed25519/yao/registration/{admit,execute}`                           | Router        | public Ed25519 registration lifecycle  |
-| `/router-ab/ed25519/yao/recovery/{admit,execute,activate}`                      | Router        | public Ed25519 recovery lifecycle      |
-| `/router-ab/ed25519/sign/{prepare}` and `/router-ab/ed25519/sign`               | Router        | public normal-signing lifecycle        |
+| `/router-ab/ed25519/yao/registration/{admit,execute}`                           | Gateway       | public Ed25519 registration lifecycle  |
+| `/router-ab/ed25519/yao/recovery/{admit,execute,activate}`                      | Gateway       | public Ed25519 recovery lifecycle      |
+| `/router-ab/ed25519/sign/{prepare}` and `/router-ab/ed25519/sign`               | Gateway       | public normal-signing lifecycle        |
 | `/router-ab/deriver-a/ed25519-yao/*`                                            | Deriver A     | private Ed25519 Yao role-A work        |
 | `/router-ab/deriver-b/ed25519-yao/*`                                            | Deriver B     | private Ed25519 Yao role-B work        |
-| `/router-ab/ecdsa-derivation/*`                                                 | Router        | public strict ECDSA lifecycle          |
+| `/router-ab/ecdsa-derivation/*`                                                 | Gateway       | public strict ECDSA lifecycle          |
 | `/router-ab/signing-worker/ed25519-yao/*`                                       | SigningWorker | private Ed25519 activation and refresh |
 | `/router-ab/signing-worker/sign/{prepare}` and `/router-ab/signing-worker/sign` | SigningWorker | private normal-signing lifecycle       |
 
@@ -157,38 +141,35 @@ route drift fails at the boundary.
 
 ## Local Storage
 
-Use role-owned local state directories:
+Cloudflare and Miniflare persistence is grouped under role-owned directories:
 
 ```text
-.router-ab-local/
-  router/
-    durable.sqlite
-  deriver-a/
-    durable.sqlite
-    sealed-root-shares.sqlite
-  deriver-b/
-    durable.sqlite
-    sealed-root-shares.sqlite
-  signing-worker/
-    durable.sqlite
+.local/cloudflare-state/
+  gateway/
+  router-ab/
+    router/
+    deriver-a/
+    deriver-b/
+    signing-worker/
 ```
+
+The Gateway root contains its local D1 databases plus other Cloudflare and
+Miniflare state. Each strict Worker has a separate Wrangler persistence root
+under `router-ab/`.
 
 Storage ownership:
 
-- Router owns replay, lifecycle, admission, quota, and abuse state.
-- Deriver A owns only Deriver A root-share metadata and A-local sealed shares.
-- Deriver B owns only Deriver B root-share metadata and B-local sealed shares.
-- SigningWorker owns activation records, active SigningWorker state, and
-  SigningWorker-local opened `x_relayer_base` material.
-
-Implementation sequence:
-
-1. Use the existing `CloudflareDurableObjectMemoryStorageV1` for role-local
-   smoke tests.
-2. Add a file-backed `LocalDurableObjectSqliteStorageV1` with the same trait
-   behavior.
-3. Make file-backed SQLite the default for `local:up`.
-4. Keep memory storage for unit tests and explicit `--ephemeral` runs.
+- Gateway owns application, identity, session, policy, and admission state in
+  the Wrangler persistence root `.local/cloudflare-state/gateway`.
+- MPCRouter owns no mutable product storage. Its
+  `.local/cloudflare-state/router-ab/router` directory may contain only
+  Wrangler and Miniflare runtime metadata.
+- Deriver A owns its role-scoped private D1 state and root-share material in
+  `.local/cloudflare-state/router-ab/deriver-a`.
+- Deriver B owns its role-scoped private D1 state and root-share material in
+  `.local/cloudflare-state/router-ab/deriver-b`.
+- SigningWorker owns its role-scoped private D1 and ECDSA presignature session
+  state in `.local/cloudflare-state/router-ab/signing-worker`.
 
 ## Env Files
 
@@ -212,12 +193,13 @@ Generated local env files should stay untracked:
 
 Minimum bindings:
 
-| Role          | Required bindings                                                                                                            |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Router        | Router public URL, Deriver A URL, Deriver B URL, SigningWorker URL, Router replay/lifecycle/admission storage                |
-| Deriver A     | A envelope HPKE private key, A root-share wire secret, A peer signing key, A/B peer verifying keys, Deriver B URL, A storage |
-| Deriver B     | B envelope HPKE private key, B root-share wire secret, B peer signing key, A/B peer verifying keys, Deriver A URL, B storage |
-| SigningWorker | SigningWorker server-output HPKE private key, SigningWorker server-output storage, SigningWorker public identity             |
+| Role          | Required bindings                                                                                                             |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Gateway       | Public origins, local D1 databases, ceremony signing material, MPCRouter and SigningWorker endpoints                          |
+| MPCRouter     | Deriver A, Deriver B, and SigningWorker service bindings, public role keys, JWT verification, internal service authentication |
+| Deriver A     | A envelope HPKE private key, A root-share wire secret, A peer signing key, A/B peer verifying keys, Deriver B binding, A D1   |
+| Deriver B     | B envelope HPKE private key, B root-share wire secret, B peer signing key, A/B peer verifying keys, Deriver A binding, B D1   |
+| SigningWorker | SigningWorker server-output HPKE private key, private D1, presignature session storage, public identity                       |
 
 Forbidden local env checks should mirror production source guards:
 
@@ -347,8 +329,8 @@ dashboard. `pnpm site` owns
 `https://localhost:9444/.well-known/webauthn` and start the local Caddy proxy
 when that HTTPS endpoint is absent. The production-equivalent Cloudflare
 Workers run on `127.0.0.1:9100-9103` and retain state in
-`.runtime/router-ab-strict-state/<worker-role>`, with one persistence directory
-per production Worker.
+`.local/cloudflare-state/router-ab/<worker-role>`, with one persistence
+directory per production Worker.
 
 The build and launch phases are separate. `pnpm build:sdk` builds the SDK and
 the four strict Rust/WASM Workers. `pnpm router` validates the Worker artifacts

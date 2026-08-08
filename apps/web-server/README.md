@@ -92,17 +92,20 @@ If active sponsorship policies use spend caps, also configure a pricing adapter.
 
 Real pricing currently supports:
 
-- EVM native gas spend using live `eth_gasPrice` plus the on-chain Ref Finance NEAR/USDC price
-- NEAR gas-only spend using the on-chain Ref Finance NEAR/USDC price plus an operator-configured reservation estimate in yoctoNEAR
+- EVM native gas spend using live `eth_gasPrice` plus the on-chain Outlayer NEAR/USD price
+- NEAR gas-only spend using the on-chain Outlayer NEAR/USD price plus an operator-configured reservation estimate in yoctoNEAR
 
 ```env
-SPONSORED_EXECUTION_REAL_PRICING_JSON={"provider":"ref_finance","nearRpcUrl":"https://free.rpc.fastnear.com","dexContractId":"v2.ref-finance.near","poolId":4512,"nearTokenId":"wrap.near","usdcTokenId":"17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1","nearTokenDecimals":24,"usdcTokenDecimals":6,"cacheTtlMs":300000,"near":{"TESTNET":{"nativeUnitDecimals":24,"estimateFeeAmountYocto":"2000","pricingVersionPrefix":"ref-finance-near-testnet"}}}
+SPONSORED_EXECUTION_REAL_PRICING_JSON={"provider":"outlayer","nearRpcUrl":"https://free.rpc.fastnear.com","oracleContractId":"price-oracle.near","nearUsdPriceId":"c415de8d2efa7db216527dff4b60e8f3a5311c740dadb233e13e12547e226750","maxAgeSeconds":120,"maxLatestToEmaDeviationBps":1000,"cacheTtlMs":60000,"near":{"TESTNET":{"nativeUnitDecimals":24,"estimateFeeAmountYocto":"2000","pricingVersionPrefix":"outlayer-near-testnet"}}}
 ```
 
 That adapter uses:
 
 - `rpcUrl` to read live `eth_gasPrice` for EVM estimate reservations
-- `nearRpcUrl`, `dexContractId`, and `poolId` to read the NEAR/USDC reserves on-chain
+- `nearRpcUrl`, `oracleContractId`, and `nearUsdPriceId` to read latest and EMA NEAR/USD prices on-chain
+- `maxAgeSeconds` to reject stale oracle publications
+- `maxLatestToEmaDeviationBps` to reject a latest price that has moved too far from the EMA
+- `cacheTtlMs` to bound reuse of a validated oracle quote
 - `nativeUnitDecimals` to convert native fee units into whole-asset pricing
 - `estimateFeeAmountYocto` for NEAR reservation estimates before execution settles actual `tokens_burnt`
 - `pricingVersionPrefix` to stamp reservation/settlement records with the live pricing source version
@@ -122,7 +125,7 @@ That adapter uses:
 
 This is an operator-configured static conversion, not a live transaction-level pricing feed.
 
-If both `SPONSORED_EXECUTION_REAL_PRICING_JSON` and `SPONSORED_EXECUTION_STATIC_PRICING_JSON` are configured, Router API prefers the real pricing source and falls back to static only when the real config is absent or invalid.
+If both `SPONSORED_EXECUTION_REAL_PRICING_JSON` and `SPONSORED_EXECUTION_STATIC_PRICING_JSON` are configured, Router API uses the real pricing source. An invalid real-pricing configuration fails startup validation instead of selecting static pricing.
 
 ### Passkey Verification (`POST /auth/passkey/options` → `POST /auth/passkey/verify`)
 
@@ -282,11 +285,10 @@ ROUTER_API_KEY_AUTH_ENABLED=1
 # CONSOLE_OBSERVABILITY_RETENTION_PRUNE_INTERVAL_MS=300000
 # CONSOLE_OBSERVABILITY_RETENTION_BATCH_SIZE=1000
 
-# Threshold signing-root shares
-# Local dev automatically wires fixture signing-root shares for localhost/.local origins
-# unless NODE_ENV=production.
-# Use real sealed signing-root share storage before using the signer for real funds.
-# THRESHOLD_SIGNING_ROOT_LOCAL_DEV_RESOLVER=1
+# Threshold Router A/B role-local root-share fixtures
+# Local dev automatically wires Deriver A/B fixtures for localhost/.local origins
+# unless NODE_ENV=production. Use independent role-local custody before using the
+# signer for real funds.
 # The authenticated project/environment runtime scope supplies signingRootId per request.
 # Active environment metadata supplies signingRootVersion=default for the local fixture.
 # Do not configure a process-wide signing root on the Router API for hosted multi-project flows.

@@ -1,14 +1,13 @@
 import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accountAuthMetadata';
-import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type {
+  AuthorizationRequiredEcdsaLaneCandidate,
+  AuthorizedEcdsaLaneCandidate,
   EcdsaLaneCandidate,
   SelectedEcdsaLane,
   ThresholdEcdsaSessionStoreSource,
 } from '../../session/identity/laneIdentity';
-import {
-  laneCandidateAuthMethod,
-  selectedLaneAuthMethod,
-} from '../../session/identity/laneIdentity';
+import { laneCandidateAuthMethod } from '../../session/identity/laneIdentity';
+import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
 import type {
   ReadAvailableSigningLanesForSigningInput,
   AvailableSigningLanes,
@@ -16,45 +15,35 @@ import type {
 } from '../../session/availability/availableSigningLanes';
 import {
   availableEcdsaSigningLaneAuthMethod,
-  buildReauthAnchorIdentityFromEcdsaLaneCandidate,
   ecdsaAvailableLaneCandidatesForTarget,
   isConcreteAvailableSigningLane,
 } from '../../session/availability/availableSigningLanes';
 import {
+  buildEvmFamilyEcdsaSignerBinding,
   exactEcdsaSigningLaneIdentity,
   exactEcdsaSigningLaneIdentityFromSelectedLane,
   exactSigningLaneIdentityFromSelectedLane,
   exactSigningLaneIdentityKey,
-  requireEvmFamilyEcdsaSigner,
+  type ExactEcdsaSigningLaneIdentity,
 } from '../../session/identity/exactSigningLaneIdentity';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import type { RestorePersistedSessionForSigningInput } from '../../session/sealedRecovery/sealedRecovery.types';
-import type { SigningSessionBudgetStatusAuth } from '../../session/budget/budget';
-import {
-  selectTransactionLane,
-  type EvmFamilyEcdsaAvailableLane,
-} from '../../session/identity/selectLane';
+import { selectEvmFamilyEcdsaMaterialCandidate } from '../../session/identity/selectLane';
 import { deriveEvmFamilyKeyFingerprintFromPublicFacts } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
   prepareTransactionSigningOperation,
-  recordPreparedTransactionNoBudget,
   type EvmFamilyEcdsaTransactionSigningIntent,
-  type PreparedTransactionBudgetState,
   type PreparedTransactionOperation,
   type TransactionAuthSelectionPolicy,
-  type TransactionSigningIntent,
 } from '../../session/operationState/transactionState';
-import {
-  SigningSessionIds,
-  type SigningOperationContext,
+import type {
+  SigningOperationContext,
+  SigningOperationId,
 } from '../../session/operationState/types';
-import { computeSigningOperationFingerprint } from '../../session/planning/operationFingerprint';
 import type { SigningSessionReadiness } from '../../session/planning/planner';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   toWalletId,
-  type ThresholdEcdsaChainTarget,
   type WalletId,
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -68,51 +57,33 @@ import {
   emitSigningSessionFlowTrace,
 } from '../../session/operationState/trace';
 import {
-  materialIdentityMatchesResolvedLane,
-  summarizeEcdsaMaterialState,
-  type EcdsaMaterialState,
-  type ReadyEcdsaMaterial,
-} from './ecdsaMaterialState';
-import {
-  findExactEcdsaSessionRecordForSelectedLane,
   requireResolvedEvmFamilyEcdsaSigningLane,
   summarizeEvmFamilyEcdsaLane,
-  type EvmFamilyEcdsaAuthMethod,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
 import {
-  ecdsaCommittedLaneAuthMethod,
   resolveEvmFamilyEcdsaSigningSelection,
-  resolvedEvmFamilyEcdsaSigningLaneFromCandidate,
-  type EvmFamilyEcdsaSigningSelectionResult,
   type EvmFamilyEcdsaSigningSelectionDeps,
-  type PasskeyEcdsaCommittedLane,
   type ReadyEvmFamilyEcdsaSigningSelection,
-  type ReauthRequiredEvmFamilyEcdsaSigningSelection,
 } from './ecdsaSelection';
-import { thresholdEcdsaLaneCandidateFromSessionRecord } from '../../session/persistence/records';
-import {
-  resolveEvmFamilyEcdsaPlannerReadiness,
-  resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth,
-  type EvmFamilyPlannerReadiness,
-  type EvmFamilyPreConfirmSigningDeps,
-} from './authPlanning';
-import { resolveEvmFamilyTransactionWalletAuth } from './accountAuth';
+import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { EvmFamilySigningTarget } from './types';
-import { hydrateEcdsaRoleLocalMaterialForSigning } from './readySecp256k1Material';
-import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 
 export function buildEvmFamilyTransactionSigningIntent(args: {
   walletId: WalletId;
   signingTarget: EvmFamilySigningTarget;
   authSelectionPolicy: TransactionAuthSelectionPolicy;
   operationUsesNeeded: number;
+  operationId?: SigningOperationId;
 }): EvmFamilyEcdsaTransactionSigningIntent {
   const base = {
     walletId: args.walletId,
     curve: 'ecdsa' as const,
     authSelectionPolicy: args.authSelectionPolicy,
     operationUsesNeeded: args.operationUsesNeeded,
+    // Router A/B normal signing binds the exact operation id, so the intent
+    // must carry the operation it was prepared for.
+    ...(args.operationId ? { operationId: args.operationId } : {}),
   };
   return args.signingTarget.kind === 'tempo'
     ? {
@@ -128,18 +99,16 @@ export function buildEvmFamilyTransactionSigningIntent(args: {
 }
 
 export function resolveEvmFamilyTransactionAuthSelectionPolicy(args: {
-  candidateAuthMethod?: EvmFamilyEcdsaAuthMethod;
+  candidateAuthMethod: WalletAuthAuthority['factor']['kind'];
 }): TransactionAuthSelectionPolicy {
-  return args.candidateAuthMethod
-    ? { kind: 'account_class', authMethod: args.candidateAuthMethod }
-    : { kind: 'any' };
+  return { kind: 'account_class', authMethod: args.candidateAuthMethod };
 }
 
-function singleConcreteAuthMethodForEcdsaTarget(args: {
+function requireSingleConcreteAuthMethodForEcdsaTarget(args: {
   availableLanes: AvailableSigningLanes;
   signingTarget: EvmFamilySigningTarget;
-}): EvmFamilyEcdsaAuthMethod | undefined {
-  const authMethods = new Set<EvmFamilyEcdsaAuthMethod>();
+}): WalletAuthAuthority['factor']['kind'] {
+  const authMethods = new Set<WalletAuthAuthority['factor']['kind']>();
   for (const lane of ecdsaAvailableLaneCandidatesForTarget(
     args.availableLanes,
     args.signingTarget,
@@ -148,7 +117,12 @@ function singleConcreteAuthMethodForEcdsaTarget(args: {
     if (!thresholdEcdsaChainTargetsEqual(lane.chainTarget, args.signingTarget)) continue;
     authMethods.add(availableEcdsaSigningLaneAuthMethod(lane));
   }
-  return authMethods.size === 1 ? Array.from(authMethods)[0] : undefined;
+  if (authMethods.size !== 1) {
+    throw new Error(
+      '[SigningEngine][ecdsa] exact capability authority is unavailable or ambiguous',
+    );
+  }
+  return Array.from(authMethods)[0];
 }
 
 function summarizeEcdsaAvailableLane(
@@ -177,14 +151,10 @@ function summarizeEcdsaAvailableLane(
     ...(evmFamilyKeyFingerprint ? { evmFamilyKeyFingerprint } : {}),
     state: lane.state,
     source: lane.source,
-    ...(lane.source === 'evm_family_shared_key'
-      ? { sourceChainTarget: lane.sourceChainTarget }
-      : {}),
-    signingGrantId: lane.signingGrantId,
-    thresholdSessionId: lane.thresholdSessionId,
-    remainingUses: lane.remainingUses,
-    expiresAtMs: lane.expiresAtMs,
-    updatedAtMs: lane.updatedAtMs,
+    walletSessionId: lane.authorization?.projection.walletSessionId,
+    materialActivationId: lane.materialActivation.activationId,
+    remainingUses: lane.authorization?.status.remainingUses,
+    expiresAtMs: lane.authorization?.status.expiresAtMs,
   };
 }
 
@@ -230,77 +200,43 @@ function summarizeEcdsaLaneCandidate(
     curve: candidate.curve,
     chain: candidate.chainTarget.kind,
     chainTarget: candidate.chainTarget,
-    ...(candidate.source === 'evm_family_shared_key'
-      ? { sourceChainTarget: candidate.sourceChainTarget }
-      : {}),
     state: candidate.state,
     source: candidate.source,
-    signingGrantId: candidate.signingGrantId,
-    thresholdSessionId: candidate.thresholdSessionId,
-    remainingUses: candidate.remainingUses,
-    expiresAtMs: candidate.expiresAtMs,
-    updatedAtMs: candidate.updatedAtMs,
+    materialActivationId: candidate.materialActivation.activationId,
+    authorizationState: candidate.authorizationState,
+    ...(candidate.authorizationState === 'authorized'
+      ? {
+          walletSessionId: candidate.authorization.projection.walletSessionId,
+          remainingUses: candidate.authorization.status.remainingUses,
+          expiresAtMs: candidate.authorization.status.expiresAtMs,
+        }
+      : {}),
   };
 }
 
-export function resolveEvmFamilyEcdsaRestoreMaterialLane(args: {
-  laneCandidate: EcdsaLaneCandidate;
-  transactionLane: SelectedEcdsaLane;
-}): SelectedEcdsaLane {
-  switch (args.laneCandidate.source) {
-    case 'evm_family_shared_key':
-      return resolvedEvmFamilyEcdsaSigningLaneFromCandidate({
-        ...args.laneCandidate,
-        chain: args.laneCandidate.sourceChainTarget.kind,
-        chainTarget: args.laneCandidate.sourceChainTarget,
-      });
-    case 'durable_sealed_record':
-    case 'runtime_session_record':
-    case 'unknown':
-      return args.transactionLane;
-  }
-}
-
 function assertSelectionMatchesLaneCandidate(args: {
-  candidate: EcdsaLaneCandidate;
+  candidate: AuthorizedEcdsaLaneCandidate;
   selection: ReadyEvmFamilyEcdsaSigningSelection;
 }): void {
   const candidate = args.candidate;
   const candidateAuthMethod = laneCandidateAuthMethod(candidate);
-  const committedAuthMethod = ecdsaCommittedLaneAuthMethod(args.selection.committedLane);
+  const committedAuthMethod = args.selection.committedLane.authority.factor.kind;
   if (candidateAuthMethod !== committedAuthMethod) {
     throw new Error(
-      `[SigningEngine][ecdsa] prepared restore auth method ${candidateAuthMethod} did not match committed lane auth method ${committedAuthMethod}`,
+      `[SigningEngine][ecdsa] prepared auth method ${candidateAuthMethod} did not match committed lane auth method ${committedAuthMethod}`,
     );
   }
-  if (args.selection.authMethod !== committedAuthMethod) {
-    throw new Error(
-      `[SigningEngine][ecdsa] selected auth method ${args.selection.authMethod} did not match committed lane auth method ${committedAuthMethod}`,
-    );
-  }
-  const selectionLaneAuthMethod = selectedLaneAuthMethod(args.selection.lane);
+  const selectionLaneAuthMethod = signingLaneAuthMethod(args.selection.lane.auth);
   if (selectionLaneAuthMethod !== committedAuthMethod) {
     throw new Error(
       `[SigningEngine][ecdsa] selected lane auth method ${selectionLaneAuthMethod} did not match committed lane auth method ${committedAuthMethod}`,
     );
   }
-  if (candidate.thresholdSessionId !== String(args.selection.lane.thresholdSessionId)) {
-    throw new Error(
-      '[SigningEngine][ecdsa] prepared restore threshold session did not match selected lane',
-    );
-  }
-  if (candidate.signingGrantId !== String(args.selection.lane.signingGrantId)) {
-    throw new Error(
-      '[SigningEngine][ecdsa] prepared restore signing grant did not match selected lane',
-    );
-  }
   if (
-    !materialIdentityMatchesResolvedLane({
-      state: args.selection.material,
-      lane: args.selection.lane,
-    })
+    candidate.authorization.projection.walletSessionId !==
+    args.selection.lane.authorization.projection.walletSessionId
   ) {
-    throw new Error('[SigningEngine][ecdsa] prepared restore material did not match selected lane');
+    throw new Error('[SigningEngine][ecdsa] prepared authorization did not match lane');
   }
   const committedLaneKey = exactSigningLaneIdentityKey(
     exactEcdsaSigningLaneIdentityFromSelectedLane(args.selection.committedLane.lane),
@@ -311,229 +247,76 @@ function assertSelectionMatchesLaneCandidate(args: {
   if (committedLaneKey !== selectionLaneKey) {
     throw new Error('[SigningEngine][ecdsa] committed lane did not match selected lane');
   }
-  if (
-    !materialIdentityMatchesResolvedLane({
-      state: args.selection.committedLane.material,
-      lane: args.selection.lane,
-    })
-  ) {
-    throw new Error('[SigningEngine][ecdsa] committed lane material did not match selected lane');
-  }
 }
+
+type EvmFamilyPlannerReadiness = {
+  readiness: SigningSessionReadiness;
+  expiresAtMs: number;
+  remainingUses: number;
+};
 
 function readinessFromSelection(
-  selection: EvmFamilyEcdsaSigningSelectionResult,
+  selection: ReadyEvmFamilyEcdsaSigningSelection,
 ): EvmFamilyPlannerReadiness {
-  switch (selection.kind) {
-    case 'ready': {
-      const expiresAtMs = Math.floor(Number(selection.material.record.expiresAtMs) || 0);
-      const remainingUses = Math.max(
-        0,
-        Math.floor(Number(selection.material.record.remainingUses) || 0),
-      );
-      return {
-        readiness: {
-          status: 'ready',
-          thresholdSessionId: selection.lane.thresholdSessionId,
-          expiresAtMs,
-          remainingUses,
-        },
-        expiresAtMs,
-        remainingUses,
-        trustedBudgetStatusAuth: {
-          kind: 'no_trusted_budget_status_auth',
-        },
-      };
-    }
-    case 'reauth_required': {
-      const status =
-        selection.material.kind === 'public_identity_unavailable'
-          ? 'missing_session'
-          : selection.reason === 'expired'
-            ? 'expired'
-            : selection.reason === 'exhausted'
-              ? 'exhausted'
-              : 'missing_session';
-      const readiness: SigningSessionReadiness =
-        status === 'expired'
-          ? { status, thresholdSessionId: selection.lane.thresholdSessionId, expiresAtMs: 0 }
-          : status === 'exhausted'
-            ? {
-                status,
-                thresholdSessionId: selection.lane.thresholdSessionId,
-                expiresAtMs: 0,
-                remainingUses: 0,
-              }
-            : { status, thresholdSessionId: selection.lane.thresholdSessionId };
-      return {
-        readiness,
-        expiresAtMs: 0,
-        remainingUses: 0,
-        trustedBudgetStatusAuth: {
-          kind: 'no_trusted_budget_status_auth',
-        },
-      };
-    }
-    case 'budget_blocked':
-      return {
-        readiness: {
-          status: 'budget_unknown',
-          thresholdSessionId: selection.lane.thresholdSessionId,
-        },
-        expiresAtMs: Math.floor(Number(selection.material.record.expiresAtMs) || 0),
-        remainingUses: 0,
-        trustedBudgetStatusAuth: {
-          kind: 'no_trusted_budget_status_auth',
-        },
-      };
-    case 'missing_material':
-      return {
-        readiness: {
-          status: 'missing_session',
-          thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(
-            selection.candidate.thresholdSessionId,
-          ),
-        },
-        expiresAtMs: 0,
-        remainingUses: 0,
-        trustedBudgetStatusAuth: {
-          kind: 'no_trusted_budget_status_auth',
-        },
-      };
-    case 'restore_required':
-      return {
-        readiness: {
-          status: 'missing_session',
-          thresholdSessionId: selection.lane.thresholdSessionId,
-        },
-        expiresAtMs: 0,
-        remainingUses: 0,
-        trustedBudgetStatusAuth: {
-          kind: 'no_trusted_budget_status_auth',
-        },
-      };
-  }
-}
-
-async function resolveReadinessFromNonReadySelection(args: {
-  deps: Pick<PrepareEvmFamilyEcdsaSigningDeps, 'signingSessionCoordinator'>;
-  lane: ResolvedEvmFamilyEcdsaSigningLane;
-  selection: Exclude<EvmFamilyEcdsaSigningSelectionResult, { kind: 'ready' }>;
-}): Promise<EvmFamilyPlannerReadiness> {
-  const fallback = readinessFromSelection(args.selection);
-  if (args.selection.kind !== 'reauth_required') return fallback;
-  const selection = args.selection;
-  if (
-    !isPasskeyReauthRequiredSelection(selection) ||
-    selection.reason !== 'missing_hot_material' ||
-    selection.material.kind !== 'reauth_required' ||
-    selection.material.reason !== 'missing_inline_share'
-  ) {
-    return fallback;
-  }
-  const trustedBudgetStatusAuth = trustedBudgetStatusAuthFromPasskeyCommittedLane(
-    selection.committedLane,
-  );
-  if (trustedBudgetStatusAuth.kind !== 'trusted_budget_status_auth') {
+  const candidateState = selection.diagnostics.selectedLaneCandidate.state;
+  if (candidateState === 'expired') {
     return {
       readiness: {
-        status: 'missing_session',
-        thresholdSessionId: args.lane.thresholdSessionId,
+        status: 'expired',
+        curve: 'ecdsa',
+        materialActivation: selection.lane.materialActivation,
+        authorization: selection.lane.authorization,
+        expiresAtMs: 0,
       },
       expiresAtMs: 0,
       remainingUses: 0,
-      trustedBudgetStatusAuth,
     };
   }
-  return await resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth({
-    deps: args.deps,
-    lane: args.lane,
-    trustedStatusAuth: trustedBudgetStatusAuth.auth,
-    inFlightRetry: 'available',
-  });
+  if (candidateState === 'exhausted') {
+    return {
+      readiness: {
+        status: 'exhausted',
+        curve: 'ecdsa',
+        materialActivation: selection.lane.materialActivation,
+        authorization: selection.lane.authorization,
+        expiresAtMs: 0,
+        remainingUses: 0,
+      },
+      expiresAtMs: 0,
+      remainingUses: 0,
+    };
+  }
+  const expiresAtMs = Math.floor(Number(selection.lane.authorization.status.expiresAtMs) || 0);
+  const remainingUses = Math.max(
+    0,
+    Math.floor(Number(selection.lane.authorization.status.remainingUses) || 0),
+  );
+  return {
+    readiness: {
+      status: 'ready',
+      curve: 'ecdsa',
+      materialActivation: selection.lane.materialActivation,
+      authorization: selection.lane.authorization,
+      expiresAtMs,
+      remainingUses,
+    },
+    expiresAtMs,
+    remainingUses,
+  };
 }
 
 type PreparedEvmFamilyEcdsaMetadata = {
   accountAuth: AccountAuthMetadata;
-  authMethod: EvmFamilyEcdsaAuthMethod;
+  authMethod: WalletAuthAuthority['factor']['kind'];
   source: ThresholdEcdsaSessionStoreSource;
-  selection: ReadyEvmFamilyEcdsaSigningSelection | ReauthRequiredEvmFamilyEcdsaSigningSelection;
+  selection: ReadyEvmFamilyEcdsaSigningSelection;
   materialBinding: {
     operationId: SigningOperationContext['operationId'];
     operationFingerprint?: SigningOperationContext['operationFingerprint'];
     laneIdentityKey: ReturnType<typeof exactSigningLaneIdentityKey>;
-    material: EcdsaMaterialState;
   };
   availableLanesGeneration: number;
 };
-
-function budgetStatusAuthFromReadyEcdsaMaterial(args: {
-  selection: ReadyEvmFamilyEcdsaSigningSelection;
-  material: ReadyEcdsaMaterial;
-}): SigningSessionBudgetStatusAuth | null {
-  const authority = args.selection.committedLane.walletSessionAuthority;
-  const committedAuthMethod = ecdsaCommittedLaneAuthMethod(args.selection.committedLane);
-  if (authority.kind !== 'ecdsa_wallet_session_authority') {
-    return null;
-  }
-  const signerSession = args.material.signerSession;
-  const relayerUrl = String(signerSession.transport.relayerUrl || '').trim();
-  const thresholdSessionId = String(authority.thresholdSessionId || '').trim();
-  const signingGrantId = String(authority.signingGrantId || '').trim();
-  const walletSessionJwt = String(authority.walletSessionJwt || '').trim();
-  if (!relayerUrl || !thresholdSessionId || !signingGrantId || !walletSessionJwt) return null;
-  if (
-    String(signerSession.session.thresholdSessionId) !== thresholdSessionId ||
-    String(signerSession.session.signingGrantId) !== signingGrantId
-  ) {
-    throw new Error(
-      `[SigningSessionBudget] committed ${committedAuthMethod} ECDSA lane does not match ready signer session`,
-    );
-  }
-  return {
-    relayerUrl,
-    thresholdSessionId,
-    walletSessionJwt,
-  };
-}
-
-function trustedBudgetStatusAuthFromPasskeyCommittedLane(
-  committedLane: PasskeyEcdsaCommittedLane,
-): EvmFamilyPlannerReadiness['trustedBudgetStatusAuth'] {
-  const authority = committedLane.walletSessionAuthority;
-  if (authority.kind !== 'ecdsa_wallet_session_authority') {
-    return { kind: 'no_trusted_budget_status_auth' };
-  }
-  const relayerUrl = String(committedLane.record.relayerUrl || '').trim();
-  const thresholdSessionId = String(authority.thresholdSessionId || '').trim();
-  const signingGrantId = String(authority.signingGrantId || '').trim();
-  const walletSessionJwt = String(authority.walletSessionJwt || '').trim();
-  if (!relayerUrl || !thresholdSessionId || !signingGrantId || !walletSessionJwt) {
-    return { kind: 'no_trusted_budget_status_auth' };
-  }
-  if (
-    String(committedLane.record.thresholdSessionId) !== thresholdSessionId ||
-    String(committedLane.record.signingGrantId) !== signingGrantId
-  ) {
-    throw new Error(
-      '[SigningSessionBudget] committed passkey ECDSA lane budget authority does not match record',
-    );
-  }
-  return {
-    kind: 'trusted_budget_status_auth',
-    auth: {
-      relayerUrl,
-      thresholdSessionId,
-      walletSessionJwt,
-    },
-  };
-}
-
-function isPasskeyReauthRequiredSelection(
-  selection: ReauthRequiredEvmFamilyEcdsaSigningSelection,
-): selection is Extract<ReauthRequiredEvmFamilyEcdsaSigningSelection, { authMethod: 'passkey' }> {
-  return selection.authMethod === SIGNER_AUTH_METHODS.passkey;
-}
 
 function assertPreparedMaterialBindingMatchesOperation(args: {
   metadata: PreparedEvmFamilyEcdsaMetadata;
@@ -564,12 +347,15 @@ function assertPreparedMaterialBindingMatchesOperation(args: {
   }
 }
 
-export type PreparedEvmFamilyEcdsaSigningSession = {
+/** Prepared against an active reusable Wallet Session. Only this branch owns a
+ * `SelectedEcdsaLane`: a selected lane carries the authorization that made it
+ * selectable, so it cannot describe auth-neutral material. */
+export type AuthorizedEvmFamilyEcdsaSigningSession = {
+  kind: 'authorized';
   accountAuth: AccountAuthMetadata;
-  authMethod: EvmFamilyEcdsaAuthMethod;
+  authMethod: WalletAuthAuthority['factor']['kind'];
   source: ThresholdEcdsaSessionStoreSource;
-  selection: ReadyEvmFamilyEcdsaSigningSelection | ReauthRequiredEvmFamilyEcdsaSigningSelection;
-  material: EcdsaMaterialState;
+  selection: ReadyEvmFamilyEcdsaSigningSelection;
   availableLanesGeneration: number;
   signingLane: ResolvedEvmFamilyEcdsaSigningLane;
   preparedOperation: PreparedThresholdSigningOperation<
@@ -577,78 +363,40 @@ export type PreparedEvmFamilyEcdsaSigningSession = {
     Record<string, unknown>
   >;
   transactionOperation: PreparedTransactionOperation<SelectedEcdsaLane>;
-  budget: PreparedTransactionBudgetState<SelectedEcdsaLane>;
-  budgetStatusAuth?: SigningSessionBudgetStatusAuth;
+  identity?: never;
+  candidate?: never;
+  intent?: never;
 };
 
-export type PrepareEvmFamilyEcdsaSigningDeps = EvmFamilyEcdsaSigningSelectionDeps &
-  EvmFamilyPreConfirmSigningDeps & {
-    getSignerWorkerContext: () => WorkerOperationContext;
-    restorePersistedSessionForSigning: (
-      args: Extract<RestorePersistedSessionForSigningInput, { curve: 'ecdsa' }>,
-    ) => Promise<unknown>;
+/** Prepared from an auth-neutral material candidate: exact material is known,
+ * nothing authorizes it yet. The carrier is the exact lane identity, which
+ * names wallet, chain target and material activation and holds no
+ * authorization at all. The operation is authorized by a step-up on the
+ * capability's own factor and the grant is attached after confirmation. */
+export type AuthorizationRequiredEvmFamilyEcdsaSigningSession = {
+  kind: 'authorization_required';
+  authMethod: WalletAuthAuthority['factor']['kind'];
+  availableLanesGeneration: number;
+  identity: ExactEcdsaSigningLaneIdentity;
+  candidate: AuthorizationRequiredEcdsaLaneCandidate;
+  intent: EvmFamilyEcdsaTransactionSigningIntent;
+  accountAuth?: never;
+  source?: never;
+  selection?: never;
+  signingLane?: never;
+  preparedOperation?: never;
+  transactionOperation?: never;
+};
+
+export type PreparedEvmFamilyEcdsaSigningSession =
+  | AuthorizedEvmFamilyEcdsaSigningSession
+  | AuthorizationRequiredEvmFamilyEcdsaSigningSession;
+
+export type PrepareEvmFamilyEcdsaSigningDeps = EvmFamilyEcdsaSigningSelectionDeps & {
     readAvailableSigningLanesForSigning: (
       args: Extract<ReadAvailableSigningLanesForSigningInput, { curve: 'ecdsa' }>,
     ) => Promise<AvailableSigningLanes>;
   };
-
-type RestoredPasskeyEcdsaMaterialOutcome =
-  | { kind: 'not_passkey' }
-  | { kind: 'material_hydrated' }
-  | { kind: 'fresh_auth_required'; laneCandidate: EcdsaLaneCandidate };
-
-async function resolveRestoredPasskeyEcdsaMaterial(args: {
-  deps: PrepareEvmFamilyEcdsaSigningDeps;
-  authMethod: EvmFamilyEcdsaAuthMethod;
-  restoreMaterialLane: SelectedEcdsaLane;
-}): Promise<RestoredPasskeyEcdsaMaterialOutcome> {
-  if (args.authMethod !== SIGNER_AUTH_METHODS.passkey) return { kind: 'not_passkey' };
-  const record = findExactEcdsaSessionRecordForSelectedLane({
-    deps: args.deps,
-    lane: args.restoreMaterialLane,
-  });
-  if (!record) {
-    throw new Error(
-      '[SigningEngine][ecdsa] restored passkey lane is missing its exact session record',
-    );
-  }
-  const laneCandidate = thresholdEcdsaLaneCandidateFromSessionRecord({ record });
-  if (laneCandidate.state === 'expired' || laneCandidate.state === 'exhausted') {
-    return { kind: 'fresh_auth_required', laneCandidate };
-  }
-  await hydrateEcdsaRoleLocalMaterialForSigning({
-    record,
-    workerCtx: args.deps.getSignerWorkerContext(),
-  });
-  return { kind: 'material_hydrated' };
-}
-
-async function buildEcdsaReauthAnchorForOperation(args: {
-  walletId: WalletId;
-  chainTarget: ThresholdEcdsaChainTarget;
-  signingOperation: SigningOperationContext;
-  candidate: EcdsaLaneCandidate;
-}) {
-  return buildReauthAnchorIdentityFromEcdsaLaneCandidate({
-    walletId: args.walletId,
-    operationId: SigningSessionIds.signingOperation(
-      args.signingOperation.operationId ||
-        `evm-family-reauth:${args.walletId}:${thresholdEcdsaChainTargetKey(args.chainTarget)}`,
-    ),
-    operationFingerprint:
-      args.signingOperation.operationFingerprint ||
-      (await computeSigningOperationFingerprint({
-        kind: 'evm-family:reauth-anchor',
-        payload: {
-          walletId: args.walletId,
-          chainTarget: args.chainTarget,
-          signingGrantId: args.candidate.signingGrantId,
-          thresholdSessionId: args.candidate.thresholdSessionId,
-        },
-      })),
-    candidate: args.candidate,
-  });
-}
 
 export async function prepareEvmFamilyEcdsaSigningSession(args: {
   deps: PrepareEvmFamilyEcdsaSigningDeps;
@@ -662,359 +410,152 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
   const chainTarget = args.signingTarget;
   const chain = chainTarget.kind;
   const walletId = toWalletId(args.walletSession.walletId);
-  const preparedTransaction = await prepareTransactionSigningOperation({
-    intent: buildEvmFamilyTransactionSigningIntent({
+
+  // Material selection runs ahead of the reusable-session planner. The planner
+  // is selected-lane-only, and a selected lane exists only where a reusable
+  // Wallet Session already authorizes the material, so an auth-neutral
+  // candidate must be recognized before it can reach one.
+  const candidateAvailableLanes = await args.deps.readAvailableSigningLanesForSigning({
+    walletId,
+    curve: 'ecdsa',
+    ecdsaChainTargets: [chainTarget],
+  });
+  const laneReadDiagnostic = {
+    walletId,
+    chain,
+    chainTarget,
+    targetKey: thresholdEcdsaChainTargetKey(chainTarget),
+    candidateCount: ecdsaAvailableLaneCandidatesForTarget(candidateAvailableLanes, chainTarget)
+      .length,
+    selectedLanesByTarget: summarizeEcdsaSelectedLanesByTarget(candidateAvailableLanes),
+    candidatesByTarget: summarizeEcdsaAvailableCandidatesByTarget(candidateAvailableLanes),
+  };
+  if (laneReadDiagnostic.candidateCount === 0) {
+    emitVisibleEcdsaLaneDiagnostic(
+      '[ECDSA_LANE_READ_DIAGNOSTIC][no-candidates]',
+      laneReadDiagnostic,
+    );
+  }
+  emitSigningSessionFlowTrace('evm-family', {
+    stage: 'ecdsa_prepare.available_lanes_read',
+    ...laneReadDiagnostic,
+  });
+  const candidateAuthMethod = requireSingleConcreteAuthMethodForEcdsaTarget({
+    availableLanes: candidateAvailableLanes,
+    signingTarget: args.signingTarget,
+  });
+  const transactionIntent: EvmFamilyEcdsaTransactionSigningIntent =
+    buildEvmFamilyTransactionSigningIntent({
       walletId,
-      authSelectionPolicy: { kind: 'any' },
+      authSelectionPolicy: resolveEvmFamilyTransactionAuthSelectionPolicy({
+        candidateAuthMethod,
+      }),
       operationUsesNeeded: 1,
       signingTarget: args.signingTarget,
-    }),
+      ...(args.signingOperation.operationId
+        ? { operationId: args.signingOperation.operationId }
+        : {}),
+    });
+  const materialSelection = selectEvmFamilyEcdsaMaterialCandidate({
+    intent: transactionIntent,
+    availableLanes: candidateAvailableLanes,
+  });
+  emitSigningSessionFlowTrace('evm-family', {
+    stage: 'ecdsa_prepare.material_candidate_selected',
+    walletId,
+    chain,
+    chainTarget,
+    primaryAuthMethod: materialSelection.ok
+      ? laneCandidateAuthMethod(materialSelection.candidate)
+      : candidateAuthMethod,
+    selectionOk: materialSelection.ok,
+    ...(materialSelection.ok
+      ? {
+          authorizationState: materialSelection.kind,
+          selectedAvailableLane: summarizeEcdsaAvailableLane(
+            materialSelection.availableLane as AvailableEcdsaSigningLane,
+          ),
+          selectedLaneCandidate: summarizeEcdsaLaneCandidate(materialSelection.candidate),
+          ...(materialSelection.kind === 'authorized'
+            ? { transactionLane: materialSelection.lane }
+            : {}),
+        }
+      : { failure: materialSelection.failure }),
+  });
+  if (!materialSelection.ok) {
+    const noMaterialDiagnostic = {
+      stage: 'ecdsa_prepare.exact_material_candidate_missing',
+      walletId,
+      chain,
+      chainTarget,
+      targetKey: thresholdEcdsaChainTargetKey(chainTarget),
+      primaryAuthMethod: candidateAuthMethod,
+      candidateCount: laneReadDiagnostic.candidateCount,
+      ecdsaTargets: candidateAvailableLanes.ecdsa.targets,
+      selectedLanesByTarget: laneReadDiagnostic.selectedLanesByTarget,
+      candidatesByTarget: laneReadDiagnostic.candidatesByTarget,
+      selectionFailure: materialSelection.failure,
+    };
+    emitVisibleEcdsaLaneDiagnostic('[ECDSA_NO_LANE_DIAGNOSTIC]', noMaterialDiagnostic);
+    emitSigningSessionFlowFailure('evm-family', noMaterialDiagnostic);
+    throw new Error(
+      `[SigningEngine][ecdsa] transaction signing requires exact ECDSA material for ${chain}`,
+    );
+  }
+  if (materialSelection.kind === 'authorization_required') {
+    const candidate = materialSelection.candidate;
+    args.diagnostics.selection = {
+      kind: 'authorization_required',
+      authMethod: availableEcdsaSigningLaneAuthMethod(materialSelection.availableLane),
+      candidate: summarizeEcdsaLaneCandidate(candidate),
+    };
+    return {
+      kind: 'authorization_required',
+      authMethod: availableEcdsaSigningLaneAuthMethod(materialSelection.availableLane),
+      availableLanesGeneration: candidateAvailableLanes.generation,
+      identity: exactEcdsaSigningLaneIdentity({
+        signer: buildEvmFamilyEcdsaSignerBinding({
+          walletId: candidate.walletId,
+          chainTarget: candidate.chainTarget,
+          keyHandle: candidate.keyHandle,
+          key: candidate.key,
+          materialActivation: candidate.materialActivation,
+        }),
+        auth: candidate.auth,
+      }),
+      candidate,
+      intent: transactionIntent,
+    };
+  }
+  const laneCandidate: AuthorizedEcdsaLaneCandidate = materialSelection.candidate;
+  const transactionLane: SelectedEcdsaLane = materialSelection.lane;
+  const preparedTransaction = await prepareTransactionSigningOperation({
+    intent: transactionIntent,
     coordinator: args.signingSessionCoordinator,
     operation: args.signingOperation,
     forceFreshAuth: args.forceFreshAuth === true,
     missingWhenExpiresAtMissing: true,
-    prepareBudgetIdentity: false,
     onPlannerTrace: (event) => emitSigningPlannerDecisionTrace('evm-family', event),
     lifecycleAdapter: {
-      prepare: async (input) => {
-        const candidateAvailableLanes = await args.deps.readAvailableSigningLanesForSigning({
+      prepare: async () => {
+        const selection = await resolveEvmFamilyEcdsaSigningSelection({
+          deps: args.deps,
           walletId,
-          curve: 'ecdsa',
-          ecdsaChainTargets: [chainTarget],
-        });
-        const laneReadDiagnostic = {
-          walletId,
-          chain,
           chainTarget,
-          targetKey: thresholdEcdsaChainTargetKey(chainTarget),
-          candidateCount: ecdsaAvailableLaneCandidatesForTarget(
-            candidateAvailableLanes,
-            chainTarget,
-          ).length,
-          selectedLanesByTarget: summarizeEcdsaSelectedLanesByTarget(candidateAvailableLanes),
-          candidatesByTarget: summarizeEcdsaAvailableCandidatesByTarget(candidateAvailableLanes),
-        };
-        if (laneReadDiagnostic.candidateCount === 0) {
-          emitVisibleEcdsaLaneDiagnostic(
-            '[ECDSA_LANE_READ_DIAGNOSTIC][no-candidates]',
-            laneReadDiagnostic,
-          );
-        }
-        emitSigningSessionFlowTrace('evm-family', {
-          stage: 'ecdsa_prepare.available_lanes_read',
-          ...laneReadDiagnostic,
+          senderSignatureAlgorithm: 'secp256k1',
+          laneCandidate,
         });
-        const candidateAuthMethod = singleConcreteAuthMethodForEcdsaTarget({
-          availableLanes: candidateAvailableLanes,
-          signingTarget: args.signingTarget,
-        });
-        const transactionIntent: TransactionSigningIntent = buildEvmFamilyTransactionSigningIntent({
-          walletId,
-          authSelectionPolicy: resolveEvmFamilyTransactionAuthSelectionPolicy({
-            candidateAuthMethod,
-          }),
-          operationUsesNeeded: 1,
-          signingTarget: args.signingTarget,
-        });
-        const selectedLane = selectTransactionLane({
-          intent: transactionIntent,
-          availableLanes: candidateAvailableLanes,
-        });
-        emitSigningSessionFlowTrace('evm-family', {
-          stage: 'ecdsa_prepare.lane_selected',
-          walletId,
-          chain,
-          chainTarget,
-          primaryAuthMethod: selectedLane.ok
-            ? laneCandidateAuthMethod(selectedLane.candidate as EcdsaLaneCandidate)
-            : candidateAuthMethod,
-          selectionOk: selectedLane.ok,
-          ...(selectedLane.ok
-            ? {
-                selectedAvailableLane: summarizeEcdsaAvailableLane(
-                  selectedLane.availableLane as AvailableEcdsaSigningLane,
-                ),
-                selectedLaneCandidate: summarizeEcdsaLaneCandidate(
-                  selectedLane.candidate as EcdsaLaneCandidate,
-                ),
-                transactionLane: selectedLane.lane,
-              }
-            : { failure: selectedLane.failure }),
-        });
-        if (!selectedLane.ok) {
-          if (selectedLane.failure.kind !== 'no_candidate') {
-            emitSigningSessionFlowFailure('evm-family', {
-              stage: 'ecdsa_prepare.lane_selection_failed',
-              walletId,
-              chain,
-              chainTarget,
-              primaryAuthMethod: candidateAuthMethod,
-              failure: selectedLane.failure,
-            });
-            throw new Error(
-              `[SigningEngine][ecdsa] transaction lane selection failed: ${selectedLane.failure.kind}`,
-            );
-          }
-        }
-        if (
-          selectedLane.ok &&
-          (selectedLane.lane.curve !== 'ecdsa' || selectedLane.availableLane.curve !== 'ecdsa')
-        ) {
-          throw new Error('[SigningEngine][ecdsa] selector returned a non-ECDSA lane');
-        }
-        const selectedAvailableLane = selectedLane.ok
-          ? (selectedLane.availableLane as EvmFamilyEcdsaAvailableLane)
-          : null;
-        const laneCandidate = selectedLane.ok
-          ? (selectedLane.candidate as EcdsaLaneCandidate)
-          : null;
-        const transactionLane = selectedLane.ok ? (selectedLane.lane as SelectedEcdsaLane) : null;
-        if (!selectedAvailableLane || !laneCandidate || !transactionLane) {
-          const noLaneDiagnostic = {
-            stage: 'ecdsa_prepare.exact_available_lane_missing',
-            walletId,
-            chain,
-            chainTarget,
-            targetKey: thresholdEcdsaChainTargetKey(chainTarget),
-            primaryAuthMethod: candidateAuthMethod,
-            candidateCount: ecdsaAvailableLaneCandidatesForTarget(
-              candidateAvailableLanes,
-              chainTarget,
-            ).length,
-            ecdsaTargets: candidateAvailableLanes.ecdsa.targets,
-            selectedLanesByTarget: summarizeEcdsaSelectedLanesByTarget(candidateAvailableLanes),
-            candidatesByTarget: summarizeEcdsaAvailableCandidatesByTarget(candidateAvailableLanes),
-            selectedLaneFailure: selectedLane.ok ? undefined : selectedLane.failure,
-          };
-          emitVisibleEcdsaLaneDiagnostic('[ECDSA_NO_LANE_DIAGNOSTIC]', noLaneDiagnostic);
-          emitSigningSessionFlowFailure('evm-family', noLaneDiagnostic);
-          throw new Error(
-            `[SigningEngine][ecdsa] transaction restore requires an exact available lane for ${chain}`,
-          );
-        }
-        const authMethod = selectedLaneAuthMethod(transactionLane);
-        const restoreResults: Record<string, unknown> = {};
-        let effectiveLaneCandidate = laneCandidate;
-        let laneRequiresFreshAuth =
-          laneCandidate.state === 'expired' || laneCandidate.state === 'exhausted';
-        let reauthAnchor = laneRequiresFreshAuth
-          ? await buildEcdsaReauthAnchorForOperation({
-              walletId,
-              chainTarget,
-              signingOperation: args.signingOperation,
-              candidate: laneCandidate,
-            })
-          : null;
-        if (laneRequiresFreshAuth && !reauthAnchor) {
-          throw new Error(
-            '[SigningEngine][ecdsa] exhausted/expired lane did not produce a reauth anchor',
-          );
-        }
-        const resolveSelectedEcdsaMaterial = async () =>
-          await resolveEvmFamilyEcdsaSigningSelection({
-            deps: args.deps,
-            walletId,
-            chain,
-            chainTarget,
-            senderSignatureAlgorithm: 'secp256k1',
-            authMethod,
-            laneCandidate: effectiveLaneCandidate,
-            reauth:
-              reauthAnchor && selectedAvailableLane.source === 'durable_sealed_record'
-                ? {
-                    kind: 'public_anchor',
-                    reauthAnchor,
-                    publicRestore: selectedAvailableLane.publicReauthAuthority,
-                  }
-                : { kind: 'not_required' },
-            allowMissingHotMaterial: args.forceFreshAuth === true,
-          });
-        let selection = await resolveSelectedEcdsaMaterial();
-        if (selection.kind === 'missing_material') {
-          emitSigningSessionFlowFailure('evm-family', {
-            stage: 'ecdsa_selection.exact_material_unavailable_before_restore',
-            walletId,
-            chain,
-            chainTarget,
-            authMethod: selection.authMethod,
-            candidate: selection.diagnostics.selectedLaneCandidate,
-            material: summarizeEcdsaMaterialState(selection.material),
-          });
-          throw new Error('[SigningEngine][ecdsa] exact available lane has no restorable material');
-        }
-        const hasSelectedHotMaterial = selection.kind === 'ready';
-        // Material selection understands shared EVM-family source targets. Only
-        // restore after selection proves the selected lane lacks usable material.
-        const shouldRestoreAvailableLane =
-          !laneRequiresFreshAuth &&
-          !hasSelectedHotMaterial &&
-          (selection.kind === 'restore_required' ||
-            (selection.kind === 'reauth_required' && selection.reason === 'missing_hot_material'));
-        const restoreChainTarget =
-          selection.kind === 'restore_required'
-            ? selection.restoreChainTarget
-            : selectedAvailableLane.source === 'evm_family_shared_key'
-              ? selectedAvailableLane.sourceChainTarget
-              : chainTarget;
-        if (shouldRestoreAvailableLane) {
-          emitSigningSessionFlowTrace('evm-family', {
-            stage: 'ecdsa_prepare.restore_start',
-            walletId,
-            chain,
-            chainTarget,
-            restoreChainTarget,
-            authMethod,
-            hasSelectedHotMaterial,
-            selectionKind: selection.kind,
-            selectedAvailableLane: summarizeEcdsaAvailableLane(selectedAvailableLane),
-            selectedLaneCandidate: summarizeEcdsaLaneCandidate(laneCandidate),
-          });
-          args.diagnostics.sealedRestoreBeforeSelection = {
-            attempted: true,
-            completed: false,
-            authMethod,
-            selectedAvailableLane: summarizeEcdsaAvailableLane(selectedAvailableLane),
-          };
-          try {
-            const restoreMaterialLane = resolveEvmFamilyEcdsaRestoreMaterialLane({
-              laneCandidate,
-              transactionLane,
-            });
-            const restoreMaterialLaneSigner = requireEvmFamilyEcdsaSigner(
-              restoreMaterialLane.identity,
-              'EVM-family restore material identity',
-            );
-            const result = await args.deps.restorePersistedSessionForSigning({
-              walletId,
-              authMethod,
-              curve: 'ecdsa',
-              chainTarget: restoreChainTarget,
-              signingGrantId: laneCandidate.signingGrantId,
-              thresholdSessionId: laneCandidate.thresholdSessionId,
-              reason: 'transaction',
-              materialRestoreIdentity: {
-                kind: 'ecdsa_role_local_restore',
-                lane: exactEcdsaSigningLaneIdentityFromSelectedLane(restoreMaterialLane),
-                ecdsaThresholdKeyId: restoreMaterialLaneSigner.key.ecdsaThresholdKeyId,
-              },
-            });
-            const materialOutcome = await resolveRestoredPasskeyEcdsaMaterial({
-              deps: args.deps,
-              authMethod,
-              restoreMaterialLane,
-            });
-            if (materialOutcome.kind === 'fresh_auth_required') {
-              effectiveLaneCandidate = materialOutcome.laneCandidate;
-              laneRequiresFreshAuth = true;
-              reauthAnchor = await buildEcdsaReauthAnchorForOperation({
-                walletId,
-                chainTarget,
-                signingOperation: args.signingOperation,
-                candidate: materialOutcome.laneCandidate,
-              });
-            }
-            restoreResults[authMethod] = result;
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            restoreResults[authMethod] = { error: message };
-            emitSigningSessionFlowFailure('evm-family', {
-              stage: 'ecdsa_prepare.restore_failed',
-              walletId,
-              chain,
-              chainTarget,
-              restoreChainTarget,
-              authMethod,
-              selectedAvailableLane: summarizeEcdsaAvailableLane(selectedAvailableLane),
-              selectedLaneCandidate: summarizeEcdsaLaneCandidate(laneCandidate),
-              error: message,
-            });
-            args.diagnostics.sealedRestoreBeforeSelection = {
-              attempted: true,
-              completed: false,
-              authMethod,
-              results: restoreResults,
-              selectedLaneCandidate: summarizeEcdsaLaneCandidate(laneCandidate),
-            };
-            throw new Error(
-              `[SigningEngine][ecdsa] exact transaction restore failed for ${chain} ${authMethod}: ${message}`,
-            );
-          }
-          emitSigningSessionFlowTrace('evm-family', {
-            stage: 'ecdsa_prepare.restore_succeeded',
-            walletId,
-            chain,
-            chainTarget,
-            restoreChainTarget,
-            authMethod,
-            selectedAvailableLane: summarizeEcdsaAvailableLane(selectedAvailableLane),
-            selectedLaneCandidate: summarizeEcdsaLaneCandidate(laneCandidate),
-          });
-          selection = await resolveSelectedEcdsaMaterial();
-        } else {
-          args.diagnostics.sealedRestoreBeforeSelection = {
-            attempted: false,
-            completed: true,
-            authMethod,
-            reason: 'selected_available_lane_ready',
-          };
-        }
-        args.diagnostics.sealedRestoreBeforeSelection = {
-          attempted: shouldRestoreAvailableLane,
-          completed: true,
-          authMethod,
-          results: restoreResults,
-          selectedLaneCandidate: summarizeEcdsaLaneCandidate(laneCandidate),
-        };
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_prepare.material_selected',
           walletId,
           chain,
           chainTarget,
           selectionKind: selection.kind,
-          authMethod: selection.authMethod,
-          lane:
-            'lane' in selection ? summarizeEvmFamilyEcdsaLane(selection.lane) : { present: false },
-          material: summarizeEcdsaMaterialState(selection.material),
+          authMethod: selection.committedLane.authority.factor.kind,
+          lane: summarizeEvmFamilyEcdsaLane(selection.lane),
           diagnostics: selection.diagnostics,
         });
-        if (selection.kind === 'missing_material' || selection.kind === 'restore_required') {
-          const unavailableAfterRestore = {
-            stage: 'ecdsa_selection.exact_material_unavailable_after_restore',
-            walletId,
-            chain,
-            chainTarget,
-            authMethod: selection.authMethod,
-            candidate: selection.diagnostics.selectedLaneCandidate,
-            material: summarizeEcdsaMaterialState(selection.material),
-          };
-          emitVisibleEcdsaLaneDiagnostic(
-            '[ECDSA_RESTORE_MATERIAL_UNAVAILABLE]',
-            unavailableAfterRestore,
-          );
-          emitSigningSessionFlowFailure('evm-family', unavailableAfterRestore);
-          throw new Error(
-            '[SigningEngine][ecdsa] exact available lane is unavailable after restore',
-          );
-        }
-        if (selection.kind === 'budget_blocked') {
-          emitSigningSessionFlowFailure('evm-family', {
-            stage: 'ecdsa_prepare.selection_budget_blocked',
-            walletId,
-            chain,
-            chainTarget,
-            authMethod: selection.authMethod,
-            lane: summarizeEvmFamilyEcdsaLane(selection.lane),
-            material: summarizeEcdsaMaterialState(selection.material),
-            budget: selection.budget,
-          });
-          throw new Error('[SigningEngine][ecdsa] selected ECDSA lane budget is budget_unknown');
-        }
-        const committedSelectionAuthMethod = selection.authMethod;
-        if (selection.authMethod !== committedSelectionAuthMethod) {
-          throw new Error(
-            `[SigningEngine][ecdsa] selection auth method ${selection.authMethod} did not match committed lane authority ${committedSelectionAuthMethod}`,
-          );
-        }
+        const committedSelectionAuthMethod = selection.committedLane.authority.factor.kind;
         const availableLanes = await args.deps.readAvailableSigningLanesForSigning({
           walletId,
           curve: 'ecdsa',
@@ -1027,9 +568,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         args.diagnostics.selection = {
           kind: selection.kind,
           authMethod: committedSelectionAuthMethod,
-          source: selection.kind === 'ready' ? selection.source : selection.material.source,
           lane: summarizeEvmFamilyEcdsaLane(selection.lane),
-          material: summarizeEcdsaMaterialState(selection.material),
           diagnostics: selection.diagnostics,
         };
         const resolvedLane = requireResolvedEvmFamilyEcdsaSigningLane({
@@ -1038,24 +577,11 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           context: 'EVM-family signing preparation',
           diagnostics: args.diagnostics,
         });
-        if (selection.kind === 'ready') {
-          assertSelectionMatchesLaneCandidate({
-            candidate: laneCandidate,
-            selection,
-          });
-        }
-        const readiness =
-          selection.kind === 'ready'
-            ? await resolveEvmFamilyEcdsaPlannerReadiness({
-                deps: args.deps,
-                lane: resolvedLane,
-                material: selection.material,
-              })
-            : await resolveReadinessFromNonReadySelection({
-                deps: args.deps,
-                lane: resolvedLane,
-                selection,
-              });
+        assertSelectionMatchesLaneCandidate({
+          candidate: laneCandidate,
+          selection,
+        });
+        const readiness = readinessFromSelection(selection);
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_prepare.readiness',
           walletId,
@@ -1077,20 +603,17 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         return {
           lane: resolvedLane,
           transactionLane,
-          ...(transactionIntent ? { transactionIntent } : {}),
+          transactionIntent,
           readiness: {
             readiness: readiness.readiness,
             expiresAtMs: readiness.expiresAtMs,
             remainingUses: readiness.remainingUses,
-            ...(readiness.trustedBudgetStatusAuth.kind === 'trusted_budget_status_auth'
-              ? { trustedStatusAuth: readiness.trustedBudgetStatusAuth.auth }
-              : {}),
           },
           availableLanesGeneration: availableLanes.generation,
           metadata: {
             accountAuth: selection.accountAuth,
             authMethod: committedSelectionAuthMethod,
-            source: selection.kind === 'ready' ? selection.source : selection.material.source,
+            source: selection.diagnostics.selectedLaneCandidate.source,
             selection,
             materialBinding: {
               operationId: args.signingOperation.operationId,
@@ -1100,7 +623,6 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
               laneIdentityKey: exactSigningLaneIdentityKey(
                 exactSigningLaneIdentityFromSelectedLane(resolvedLane),
               ),
-              material: selection.material,
             },
             availableLanesGeneration: availableLanes.generation,
           },
@@ -1115,32 +637,15 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
     >;
   const metadata = preparedOperation.metadata as PreparedEvmFamilyEcdsaMetadata;
   assertPreparedMaterialBindingMatchesOperation({ metadata, preparedOperation });
-  const material = metadata.materialBinding.material;
-  const budget =
-    material.kind === 'ready_to_sign'
-      ? preparedTransaction.budget
-      : recordPreparedTransactionNoBudget(
-          preparedTransaction.transactionOperation,
-          'budget_identity_not_prepared',
-        );
-  const budgetStatusAuth =
-    material.kind === 'ready_to_sign' && metadata.selection.kind === 'ready'
-      ? budgetStatusAuthFromReadyEcdsaMaterial({
-          selection: metadata.selection,
-          material,
-        })
-      : null;
   return {
+    kind: 'authorized',
     accountAuth: metadata.accountAuth,
     authMethod: metadata.authMethod,
     source: metadata.source,
     selection: metadata.selection,
-    material,
     availableLanesGeneration: metadata.availableLanesGeneration,
     signingLane: preparedOperation.lane,
     preparedOperation,
     transactionOperation: preparedTransaction.transactionOperation,
-    budget,
-    ...(budgetStatusAuth ? { budgetStatusAuth } : {}),
   };
 }

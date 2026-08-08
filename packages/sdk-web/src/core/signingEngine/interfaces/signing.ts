@@ -3,8 +3,7 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type { EcdsaThresholdKeyId } from '../session/identity/laneIdentity';
 import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
-  EcdsaRoleLocalBindingDigest,
-  EcdsaRoleLocalDurableMaterialRef,
+  EcdsaRoleLocalPersistedMaterialRef,
   EcdsaRoleLocalWorkerHandle,
 } from '../session/keyMaterialBrands';
 import type {
@@ -34,7 +33,7 @@ export type { EcdsaThresholdKeyId };
 
 export type ThresholdEcdsaClientAdditiveShareHandle = {
   kind: 'email_otp_worker_session';
-  sessionId: string;
+  thresholdSessionId: string;
 };
 
 export type ThresholdEcdsaDerivationRoleLocalClientState = {
@@ -79,6 +78,7 @@ export type ThresholdEcdsaRoleLocalWorkerHandleBackendBinding =
   ThresholdEcdsaBackendBindingCommon & {
     materialKind: 'role_local_worker_handle';
     roleLocalMaterialHandle: EcdsaRoleLocalWorkerHandle;
+    roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
     publicFacts: EcdsaRoleLocalPublicFacts;
     authMethod: EcdsaRoleLocalAuthMethod;
     ecdsaRoleLocalReadyRecord?: never;
@@ -101,8 +101,7 @@ export type ThresholdEcdsaRoleLocalDurablePublicAnchorBackendBinding =
 export type ThresholdEcdsaRoleLocalDurableSealedBackendBinding =
   ThresholdEcdsaBackendBindingCommon & {
     materialKind: 'role_local_durable_sealed_ref';
-    durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
-    bindingDigest: EcdsaRoleLocalBindingDigest;
+    roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
     publicFacts: EcdsaRoleLocalPublicFacts;
     roleLocalMaterialHandle?: never;
     ecdsaRoleLocalReadyRecord?: never;
@@ -137,7 +136,6 @@ export type KeyRef =
        * Canonical product-facing identity for the integrated ecdsa-derivation key.
        */
       keyHandle?: string;
-      evmFamilySigningKeySlotId: string;
       ecdsaThresholdKeyId: EcdsaThresholdKeyId;
       signingRootId?: never;
       signingRootVersion?: never;
@@ -148,11 +146,6 @@ export type KeyRef =
       ethereumAddress?: string;
       relayerVerifyingShareB64u?: string;
       routerAbEcdsaDerivationNormalSigning?: RouterAbEcdsaDerivationNormalSigningStateV1;
-      thresholdSessionKind?: 'jwt' | 'cookie';
-      walletSessionJwt?: string;
-      thresholdSessionId: string;
-      signingGrantId: string;
-      mpcSessionId?: string;
     }
   | {
       type: 'webauthnP256';

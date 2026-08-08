@@ -3,16 +3,22 @@ import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/parti
 import { connectEd25519Session } from '../../threshold/ed25519/connectSession';
 import { cacheCredentialBoundarySetupExportPrfFirst, generateSessionId } from './prfCache';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
-import {
-  persistWarmSessionEd25519Capability,
-  type PersistWarmSessionEd25519CapabilityArgs,
-} from '../warmCapabilities/persistence';
 import type {
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
 } from '../warmCapabilities/types';
 import type { PasskeyEd25519SessionPolicyAuthority } from '../../threshold/sessionPolicy';
 import { nearProtocolProjectionFromExactLane } from '../identity/exactSigningLaneIdentity';
+import { SigningSessionIds } from '../operationState/types';
+import {
+  buildPasskeyEd25519RestoreMetadata,
+} from './ed25519YaoSealedSession';
+import type { PasskeyEd25519SealRestoreMetadata } from '@/core/types/secure-confirm-worker';
+import type { ThresholdEd25519SessionId } from '@shared/utils/domainIds';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 
 type ConnectEd25519SessionInput = Parameters<typeof connectEd25519Session>[0];
 
@@ -23,8 +29,7 @@ type ResolvedEd25519ProvisionProtocol =
       nearAccountId: AccountId | string;
       nearEd25519SigningKeyId: string;
       signerSlot: number;
-      sessionId: string;
-      signingGrantId?: never;
+      thresholdSessionId: ThresholdEd25519SessionId;
     }
   | {
       kind: 'exact';
@@ -32,8 +37,9 @@ type ResolvedEd25519ProvisionProtocol =
       nearAccountId: AccountId | string;
       nearEd25519SigningKeyId: string;
       signerSlot: number;
-      sessionId: string;
-      signingGrantId: string;
+      thresholdSessionId: ThresholdEd25519SessionId;
+      walletSessionId: WalletSessionId;
+      quotaId: MpcWalletSigningQuotaId;
     };
 
 export type ProvisionThresholdEd25519SessionDeps = {
@@ -42,21 +48,21 @@ export type ProvisionThresholdEd25519SessionDeps = {
   touchConfirm: Parameters<typeof cacheCredentialBoundarySetupExportPrfFirst>[0];
   defaultRelayerUrl: string;
   getSignerWorkerContext: () => ConnectEd25519SessionInput['workerCtx'];
-  persistWarmSessionEd25519Capability?: (args: PersistWarmSessionEd25519CapabilityArgs) => unknown;
 };
 
 function sealTransportForProvisionedEd25519Session(args: {
   walletId: string;
   relayerUrl: string;
-  signingGrantId: string;
   walletSessionJwt: string;
+  ed25519Restore: PasskeyEd25519SealRestoreMetadata;
 }): WarmSessionSealTransportInput {
   return {
     curve: 'ed25519',
+    authMethod: 'passkey',
     walletId: args.walletId,
     relayerUrl: args.relayerUrl,
-    signingGrantId: args.signingGrantId,
-    ...(args.walletSessionJwt ? { walletSessionJwt: args.walletSessionJwt } : {}),
+    walletSessionJwt: args.walletSessionJwt,
+    ed25519Restore: args.ed25519Restore,
   };
 }
 
@@ -81,7 +87,9 @@ function resolveEd25519ProvisionProtocol(
         nearAccountId: args.nearAccountId,
         nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
         signerSlot: args.signerSlot,
-        sessionId: generateSessionId('threshold-ed25519'),
+        thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
+          generateSessionId('threshold-ed25519'),
+        ),
       };
     case 'exact_ed25519_provisioning': {
       const projection = nearProtocolProjectionFromExactLane(
@@ -94,8 +102,9 @@ function resolveEd25519ProvisionProtocol(
         nearAccountId: projection.nearAccountId,
         nearEd25519SigningKeyId: String(projection.nearEd25519SigningKeyId),
         signerSlot: projection.signerSlot,
-        sessionId: String(args.laneIdentity.thresholdSessionId),
-        signingGrantId: String(args.laneIdentity.signingGrantId),
+        thresholdSessionId: args.laneIdentity.thresholdSessionId,
+        walletSessionId: args.laneIdentity.walletSessionId,
+        quotaId: args.laneIdentity.quotaId,
       };
     }
   }
@@ -105,16 +114,18 @@ function resolveEd25519ProvisionProtocol(
 
 function exactEd25519ProvisionReturnedDifferentIdentity(args: {
   requested: ResolvedEd25519ProvisionProtocol;
-  returnedSessionId: string;
-  returnedSigningGrantId: string;
+  returnedThresholdSessionId: ThresholdEd25519SessionId;
+  returnedWalletSessionId: WalletSessionId;
+  returnedQuotaId: MpcWalletSigningQuotaId;
 }): boolean {
   switch (args.requested.kind) {
     case 'fresh':
       return false;
     case 'exact':
       return (
-        args.returnedSessionId !== args.requested.sessionId ||
-        args.returnedSigningGrantId !== args.requested.signingGrantId
+        args.returnedThresholdSessionId !== args.requested.thresholdSessionId ||
+        args.returnedWalletSessionId !== args.requested.walletSessionId ||
+        args.returnedQuotaId !== args.requested.quotaId
       );
   }
   args.requested satisfies never;
@@ -152,10 +163,7 @@ export async function provisionThresholdEd25519Session(
     nearAccountId,
     participantIds,
     sessionKind,
-    sessionId: protocol.sessionId,
-    ...(protocol.kind === 'exact'
-      ? { signingGrantId: protocol.signingGrantId }
-      : {}),
+    thresholdSessionId: protocol.thresholdSessionId,
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
     workerCtx,
@@ -168,20 +176,20 @@ export async function provisionThresholdEd25519Session(
     };
   }
 
-  const resolvedSessionId = String(connected.sessionId || protocol.sessionId).trim();
-  const signingGrantId = String(connected.signingGrantId || '').trim();
+  const resolvedThresholdSessionId =
+    connected.thresholdSessionId || protocol.thresholdSessionId;
   const expiresAtMs = Number(connected.expiresAtMs);
   const remainingUses = Number(connected.remainingUses);
   const jwt = String(connected.jwt || '').trim();
   const prfFirstB64u = String(connected.ecdsaDerivationPasskeyPrfFirstB64u || '').trim();
-  const runtimePolicyScope = connected.runtimePolicyScope || args.runtimePolicyScope;
+  const runtimePolicyScope = connected.runtimePolicyScope;
   if (
-    !resolvedSessionId ||
-    !signingGrantId ||
+    !resolvedThresholdSessionId ||
+    !connected.walletSessionId ||
+    !connected.quotaId ||
     !Number.isFinite(expiresAtMs) ||
     !Number.isFinite(remainingUses) ||
-    !jwt ||
-    !runtimePolicyScope
+    !jwt
   ) {
     return {
       ok: false,
@@ -192,8 +200,9 @@ export async function provisionThresholdEd25519Session(
   if (
     exactEd25519ProvisionReturnedDifferentIdentity({
       requested: protocol,
-      returnedSessionId: resolvedSessionId,
-      returnedSigningGrantId: signingGrantId,
+      returnedThresholdSessionId: resolvedThresholdSessionId,
+      returnedWalletSessionId: connected.walletSessionId,
+      returnedQuotaId: connected.quotaId,
     })
   ) {
     return {
@@ -203,61 +212,37 @@ export async function provisionThresholdEd25519Session(
     };
   }
 
-  const persist = deps.persistWarmSessionEd25519Capability || persistWarmSessionEd25519Capability;
-  if (args.source === 'email_otp') {
-    persist({
-      kind: 'jwt_email_otp',
-      walletId: protocol.walletId,
-      nearAccountId,
-      nearEd25519SigningKeyId: protocol.nearEd25519SigningKeyId,
-      rpId: deps.touchIdPrompt.getRpId(),
-      relayerUrl,
-      relayerKeyId: args.relayerKeyId,
-      runtimePolicyScope,
-      routerAbNormalSigning: args.routerAbNormalSigning,
-      participantIds,
-      signerSlot: protocol.signerSlot,
-      sessionId: resolvedSessionId,
-      signingGrantId,
-      expiresAtMs,
-      remainingUses,
-      jwt,
-      emailOtpAuthContext: args.emailOtpAuthContext,
-      source: 'email_otp',
-    });
-  } else {
-    persist({
-      kind: 'jwt_passkey',
-      walletId: protocol.walletId,
-      nearAccountId,
-      nearEd25519SigningKeyId: protocol.nearEd25519SigningKeyId,
-      rpId: deps.touchIdPrompt.getRpId(),
-      relayerUrl,
-      relayerKeyId: args.relayerKeyId,
-      runtimePolicyScope,
-      routerAbNormalSigning: args.routerAbNormalSigning,
-      participantIds,
-      signerSlot: protocol.signerSlot,
-      sessionId: resolvedSessionId,
-      signingGrantId,
-      expiresAtMs,
-      remainingUses,
-      jwt,
-      passkeyCredentialIdB64u: passkeyCredentialIdB64uFromAuthority(args.authority),
-      source: args.source,
-    });
-  }
-
+  const rpId = deps.touchIdPrompt.getRpId();
   if (prfFirstB64u) {
+    if (args.source === 'email_otp') {
+      return {
+        ok: false,
+        code: 'invalid_result',
+        message: 'Passkey PRF material cannot seal an Email OTP Ed25519 session',
+      };
+    }
+    const credentialIdB64u = passkeyCredentialIdB64uFromAuthority(args.authority);
+    const ed25519Restore = buildPasskeyEd25519RestoreMetadata({
+      rpId,
+      nearAccountId: String(nearAccountId),
+      nearEd25519SigningKeyId: protocol.nearEd25519SigningKeyId,
+      relayerKeyId: args.relayerKeyId,
+      participantIds,
+      runtimePolicyScope,
+      signerSlot: protocol.signerSlot,
+      routerAbNormalSigning: args.routerAbNormalSigning,
+      credentialIdB64u,
+      materialActivation: args.materialActivation,
+    });
     const transport = sealTransportForProvisionedEd25519Session({
       walletId: protocol.walletId,
       relayerUrl,
-      signingGrantId,
       walletSessionJwt: jwt,
+      ed25519Restore,
     });
     try {
       await cacheCredentialBoundarySetupExportPrfFirst(deps.touchConfirm, {
-        sessionId: resolvedSessionId,
+        thresholdSessionId: String(resolvedThresholdSessionId),
         prfFirstB64u,
         expiresAtMs,
         remainingUses,
@@ -279,11 +264,12 @@ export async function provisionThresholdEd25519Session(
 
   return {
     ok: true,
-    sessionId: resolvedSessionId,
-    signingGrantId,
+    thresholdSessionId: resolvedThresholdSessionId,
+    walletSessionId: connected.walletSessionId,
+    quotaId: connected.quotaId,
     expiresAtMs,
     remainingUses,
-    ...(connected.runtimePolicyScope ? { runtimePolicyScope: connected.runtimePolicyScope } : {}),
+    runtimePolicyScope,
     jwt,
     ...(connected.ecdsaDerivationPasskeyPrfFirstB64u
       ? { ecdsaDerivationPasskeyPrfFirstB64u: connected.ecdsaDerivationPasskeyPrfFirstB64u }

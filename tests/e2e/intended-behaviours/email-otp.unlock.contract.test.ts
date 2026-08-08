@@ -13,6 +13,8 @@ async function verifyEmailOtpUnlockImmediateLifecycle({
   await harness.signNearTransaction('post_unlock');
   await harness.signTempoAndArcEvmConcurrently('post_unlock');
   await harness.signNearTransaction('step_up_required');
+  await harness.signTempoTransaction('step_up_required');
+  await harness.signArcEvmTransaction('step_up_required');
 }
 
 test(
@@ -33,4 +35,6 @@ test('Email OTP unlock lifecycle', async ({ harness }) => {
   await harness.signNearTransaction('step_up_required');
   await harness.signTempoTransaction('step_up_required');
   await harness.signArcEvmTransaction('step_up_required');
+  await harness.exportEd25519Key();
+  await harness.exportEcdsaKey();
 });

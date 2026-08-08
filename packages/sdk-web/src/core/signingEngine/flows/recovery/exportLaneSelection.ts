@@ -11,49 +11,46 @@ import {
   emitSigningSessionFlowFailure,
   emitSigningSessionFlowTrace,
 } from '../../session/operationState/trace';
-import { SigningSessionIds } from '../../session/operationState/types';
 import {
-  thresholdEcdsaChainTargetsEqual,
   toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { deriveEvmFamilyKeyFingerprintFromPublicFacts } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
   buildEvmFamilyEcdsaSignerBinding,
-  exactEd25519SigningLaneIdentity,
+  exactEd25519ExportMaterialIdentity,
   exactEcdsaSigningLaneIdentity,
   exactSigningLaneIdentityKey,
   nearEd25519SignerBindingFromBoundaryFields,
   type ExactEcdsaSigningLaneIdentity,
-  type ExactEd25519SigningLaneIdentity,
+  type ExactEd25519ExportMaterialIdentity,
 } from '../../session/identity/exactSigningLaneIdentity';
 import type { EvmFamilySigningTarget } from '../signEvmFamily/types';
 import {
   isConcreteEcdsaExportLane,
   type ExactEcdsaExportLane,
-  type ExactEcdsaExportSession,
 } from './ecdsaExportMaterial';
 import type {
   SigningEngineResolveExactKeyExportLaneInput,
   SigningEngineResolveExactKeyExportLaneResult,
 } from './keyExportFlow';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 
-type ConcreteEcdsaExportAvailableLane = ConcreteAvailableEcdsaSigningLane;
+type ConcreteEcdsaExportAvailableLane = ConcreteAvailableEcdsaSigningLane & {
+  source: 'canonical_capability';
+} & (
+  | {
+      authorization: NonNullable<ConcreteAvailableEcdsaSigningLane['authorization']>;
+    }
+  | {
+      authorization?: never;
+      auth: ConcreteAvailableEcdsaSigningLane['auth'];
+    }
+);
 
 type EcdsaExportSelectionKeyContext = {
   walletId: string;
 };
-
-type EcdsaExportMaterialLaneResolution =
-  | {
-      kind: 'resolved';
-      lane: ConcreteEcdsaExportAvailableLane;
-    }
-  | {
-      kind: 'duplicate_shared_key_targets';
-      targetLane: ConcreteEcdsaExportAvailableLane;
-      sourceCandidates: ConcreteEcdsaExportAvailableLane[];
-    };
 
 export type ExportLaneSelectionDeps = {
   readPersistedAvailableSigningLanesForTargets: (
@@ -66,6 +63,7 @@ export type ExportLaneSelectionDeps = {
 function summarizeExportAvailableLane(
   lane: ConcreteEcdsaExportAvailableLane,
 ): Record<string, unknown> {
+  const authorization = lane.authorization;
   return {
     authMethod: availableEcdsaSigningLaneAuthMethod(lane),
     curve: lane.curve,
@@ -73,10 +71,12 @@ function summarizeExportAvailableLane(
     chainTarget: lane.chainTarget,
     state: lane.state,
     source: lane.source,
-    signingGrantId: lane.signingGrantId,
-    thresholdSessionId: lane.thresholdSessionId,
-    remainingUses: lane.remainingUses,
-    expiresAtMs: lane.expiresAtMs,
+    ...(authorization
+      ? {
+          remainingUses: lane.remainingUses,
+          expiresAtMs: lane.expiresAtMs,
+        }
+      : {}),
     updatedAtMs: lane.updatedAtMs,
     evmFamilyKeyFingerprint: deriveEvmFamilyKeyFingerprintFromPublicFacts({
       walletId: lane.key.walletId,
@@ -157,10 +157,9 @@ function exactEcdsaIdentityForExportLane(args: {
       chainTarget: args.chainTarget || args.lane.chainTarget,
       keyHandle: args.lane.publicFacts.keyHandle,
       key: args.lane.key,
+      materialActivation: args.lane.materialActivation,
     }),
     auth: args.lane.auth,
-    signingGrantId: args.lane.signingGrantId,
-    thresholdSessionId: args.lane.thresholdSessionId,
   });
 }
 
@@ -172,26 +171,12 @@ function ecdsaExportMaterialAvailabilityForLane(lane: ConcreteEcdsaExportAvailab
   return { kind: 'sealed_worker_material' as const };
 }
 
-function exactEcdsaExportSessionFromAvailableLane(args: {
+function exactEcdsaExportLaneStateFromAvailableLane(args: {
   lane: ConcreteEcdsaExportAvailableLane;
   chainTarget: ThresholdEcdsaChainTarget;
-}): ExactEcdsaExportSession {
+}): Pick<ExactEcdsaExportLane, 'authMethod' | 'chainTarget' | 'material' | 'source' | 'state'> {
   const authMethod = availableEcdsaSigningLaneAuthMethod(args.lane);
-  const signingGrantId = SigningSessionIds.signingGrant(args.lane.signingGrantId);
-  const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession(args.lane.thresholdSessionId);
   const material = ecdsaExportMaterialAvailabilityForLane(args.lane);
-  if (args.lane.source === 'durable_sealed_record') {
-    return {
-      chainTarget: args.chainTarget,
-      authMethod,
-      signingGrantId,
-      thresholdSessionId,
-      material,
-      state: args.lane.state,
-      source: 'durable_sealed_record',
-      publicReauthAuthority: args.lane.publicReauthAuthority,
-    };
-  }
   switch (args.lane.state) {
     case 'expired':
     case 'exhausted':
@@ -199,18 +184,44 @@ function exactEcdsaExportSessionFromAvailableLane(args: {
         '[SigningEngine][ecdsa-export] expired export lane requires durable public reauth authority',
       );
     case 'ready':
-    case 'restorable':
     case 'deferred':
       return {
         chainTarget: args.chainTarget,
         authMethod,
-        signingGrantId,
-        thresholdSessionId,
         material,
         state: args.lane.state,
-        source: args.lane.source,
+        source: 'canonical_capability',
       };
   }
+}
+
+function exactEcdsaExportLaneFromAvailableLane(args: {
+  lane: ConcreteEcdsaExportAvailableLane;
+  chainTarget: ThresholdEcdsaChainTarget;
+}): ExactEcdsaExportLane {
+  const laneIdentity = exactEcdsaIdentityForExportLane({ lane: args.lane });
+  const state = exactEcdsaExportLaneStateFromAvailableLane(args);
+  if (args.lane.authorization) {
+    return {
+      curve: 'ecdsa',
+      laneIdentity,
+      authorizationState: 'authorized',
+      authorization: args.lane.authorization,
+      capability: args.lane.capability,
+      key: args.lane.key,
+      publicFacts: args.lane.publicFacts,
+      ...state,
+    };
+  }
+  return {
+    curve: 'ecdsa',
+    laneIdentity,
+    authorizationState: 'authorization_required',
+    capability: args.lane.capability,
+    key: args.lane.key,
+    publicFacts: args.lane.publicFacts,
+    ...state,
+  };
 }
 
 function ecdsaExportLaneMatchesIdentity(args: {
@@ -232,80 +243,6 @@ function targetEcdsaExportCandidates(args: {
   );
 }
 
-function sameEcdsaExportSession(
-  left: ConcreteEcdsaExportAvailableLane,
-  right: ConcreteEcdsaExportAvailableLane,
-): boolean {
-  return (
-    availableEcdsaSigningLaneAuthMethod(left) === availableEcdsaSigningLaneAuthMethod(right) &&
-    left.signingGrantId === right.signingGrantId &&
-    left.thresholdSessionId === right.thresholdSessionId
-  );
-}
-
-function resolveEcdsaExportMaterialLane(args: {
-  targetLane: ConcreteEcdsaExportAvailableLane;
-  allCandidates: ConcreteEcdsaExportAvailableLane[];
-  ecdsaContext: EcdsaExportSelectionKeyContext;
-}): EcdsaExportMaterialLaneResolution {
-  if (args.targetLane.source !== 'evm_family_shared_key') {
-    return { kind: 'resolved', lane: args.targetLane };
-  }
-  const targetIdentityKey = exportAvailableLaneSelectionKey(args.targetLane, args.ecdsaContext);
-  if (!targetIdentityKey) {
-    return { kind: 'resolved', lane: args.targetLane };
-  }
-  const sourceChainTarget = args.targetLane.sourceChainTarget;
-  const sourceCandidates = args.allCandidates.filter(
-    (candidate): candidate is ConcreteEcdsaExportAvailableLane =>
-      candidate.source !== 'evm_family_shared_key' &&
-      thresholdEcdsaChainTargetsEqual(candidate.chainTarget, sourceChainTarget) &&
-      sameEcdsaExportSession(candidate, args.targetLane) &&
-      exportAvailableLaneSelectionKey(candidate, args.ecdsaContext) === targetIdentityKey,
-  );
-  if (sourceCandidates.length === 0) {
-    return { kind: 'resolved', lane: args.targetLane };
-  }
-  if (sourceCandidates.length > 1) {
-    return {
-      kind: 'duplicate_shared_key_targets',
-      targetLane: args.targetLane,
-      sourceCandidates,
-    };
-  }
-  const [selectedSource] = sourceCandidates;
-  return { kind: 'resolved', lane: selectedSource };
-}
-
-function resolveEcdsaExportMaterialLanesForTarget(args: {
-  targetCandidates: ConcreteEcdsaExportAvailableLane[];
-  allCandidates: ConcreteEcdsaExportAvailableLane[];
-  ecdsaContext: EcdsaExportSelectionKeyContext;
-}): ConcreteEcdsaExportAvailableLane[] {
-  const materialLanes: ConcreteEcdsaExportAvailableLane[] = [];
-  for (const targetLane of args.targetCandidates) {
-    const resolution = resolveEcdsaExportMaterialLane({
-      targetLane,
-      allCandidates: args.allCandidates,
-      ecdsaContext: args.ecdsaContext,
-    });
-    if (resolution.kind === 'duplicate_shared_key_targets') {
-      emitSigningSessionFlowFailure('evm-family', {
-        stage: 'key_export.duplicate_shared_key_targets',
-        context: 'ecdsa-export',
-        targetLane: summarizeExportAvailableLane(resolution.targetLane),
-        candidateCount: resolution.sourceCandidates.length,
-        candidates: resolution.sourceCandidates.map(summarizeExportAvailableLane),
-      });
-      throw new Error(
-        '[SigningEngine][ecdsa-export] shared-key source lane selection failed: duplicate_shared_key_targets',
-      );
-    }
-    materialLanes.push(resolution.lane);
-  }
-  return materialLanes;
-}
-
 async function resolveEcdsaExportLane(
   deps: Pick<ExportLaneSelectionDeps, 'readPersistedAvailableSigningLanesForTargets'>,
   args: {
@@ -325,38 +262,18 @@ async function resolveEcdsaExportLane(
   const exactTargetCandidates = targetCandidates.filter((lane) =>
     ecdsaExportLaneMatchesIdentity({ lane, identity: args.laneIdentity }),
   );
-  const allConcreteCandidates = Object.values(targetAvailableLanes.ecdsa.candidatesByTarget)
-    .flat()
-    .filter(isConcreteEcdsaExportLane);
   const ecdsaContext = {
     walletId: args.walletId,
   };
-  const materialCandidates = resolveEcdsaExportMaterialLanesForTarget({
-    targetCandidates: exactTargetCandidates,
-    allCandidates: allConcreteCandidates,
-    ecdsaContext,
-  });
   const selected = selectExactExportAvailableLane({
     context: 'ecdsa-export',
-    candidates: materialCandidates,
+    candidates: exactTargetCandidates,
     ecdsaContext,
   });
-  const sessionChainTarget =
-    selected.source === 'evm_family_shared_key' ? selected.sourceChainTarget : selected.chainTarget;
-  const laneIdentity = exactEcdsaIdentityForExportLane({
-    lane: selected,
-    chainTarget: sessionChainTarget,
-  });
-  return {
-    curve: 'ecdsa',
-    laneIdentity,
-    key: selected.key,
-    publicFacts: selected.publicFacts,
-    session: exactEcdsaExportSessionFromAvailableLane({
+  return exactEcdsaExportLaneFromAvailableLane({
       lane: selected,
-      chainTarget: sessionChainTarget,
-    }),
-  };
+      chainTarget: selected.chainTarget,
+  });
 }
 
 export async function resolveExactKeyExportLane(
@@ -401,19 +318,19 @@ function isUsableEd25519ExportLane(args: {
   nearAccountId: string;
 }): boolean {
   const hasRecoverableSource =
-    args.lane.source === 'runtime_session_record' || args.lane.source === 'durable_sealed_record';
+    args.lane.source === 'durable_sealed_record' ||
+    args.lane.source === 'public_capability_reference';
   return (
     String(args.lane.walletId) === args.walletId &&
     String(args.lane.nearAccountId) === args.nearAccountId &&
-    hasRecoverableSource &&
-    args.lane.state !== 'deferred'
+    hasRecoverableSource
   );
 }
 
-function exactEd25519IdentityForExportLane(
+function exactEd25519MaterialIdentityForExportLane(
   lane: ConcreteAvailableEd25519SigningLane,
-): ExactEd25519SigningLaneIdentity {
-  return exactEd25519SigningLaneIdentity({
+): ExactEd25519ExportMaterialIdentity {
+  return exactEd25519ExportMaterialIdentity({
     signer: nearEd25519SignerBindingFromBoundaryFields({
       walletId: lane.walletId,
       nearAccountId: lane.nearAccountId,
@@ -421,7 +338,6 @@ function exactEd25519IdentityForExportLane(
       signerSlot: lane.signerSlot,
     }),
     auth: lane.auth,
-    signingGrantId: lane.signingGrantId,
     thresholdSessionId: lane.thresholdSessionId,
   });
 }
@@ -455,7 +371,8 @@ async function resolveExactEd25519KeyExportLane(
   const [selectedLane] = candidates;
   return {
     kind: 'ed25519',
-    laneIdentity: exactEd25519IdentityForExportLane(selectedLane),
+    laneIdentity: exactEd25519MaterialIdentityForExportLane(selectedLane),
+    materialActivation: selectedLane.materialActivation,
   };
 }
 
@@ -472,12 +389,12 @@ export async function resolveEcdsaSessionForExport(
     signingTarget: args.signingTarget,
     laneIdentity: args.laneIdentity,
   });
-  switch (restoreLane.session.material.kind) {
+  switch (restoreLane.material.kind) {
     case 'loaded_worker_material':
     case 'material_pending':
     case 'sealed_worker_material':
       return restoreLane;
   }
-  restoreLane.session.material satisfies never;
+  restoreLane.material satisfies never;
   throw new Error('[SigningEngine][ecdsa-export] unsupported material availability');
 }

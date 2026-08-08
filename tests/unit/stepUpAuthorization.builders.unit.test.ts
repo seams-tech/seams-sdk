@@ -128,6 +128,12 @@ test.describe('step-up authorization builders', () => {
     ).rejects.toThrow('auth_method_route_mismatch');
   });
 
+  // A passkey step-up authorization is now the plan plus the credential and
+  // nothing else. It used to carry a `plannedPasskeyReconnect` webauthn
+  // challenge keyed by threshold-session authorization -- the
+  // session-identity bridge Refactor 90 deletes. The operation a step-up
+  // authorizes is named by the prepared operation, not by a reconnect
+  // challenge, so there is no shape here for those identifiers to live in.
   test('buildEvmFamilyEcdsaStepUpAuthorization normalizes passkey credentials', () => {
     const authorization = buildEvmFamilyEcdsaStepUpAuthorization({
       prepared: {
@@ -136,15 +142,6 @@ test.describe('step-up authorization builders', () => {
           signingAuthPlan: {
             kind: SigningAuthPlanKind.PasskeyReauth,
             method: 'passkey',
-          },
-        },
-        plannedPasskeyReconnect: {
-          webauthnChallenge: {
-            kind: 'ecdsa_role_local_bootstrap',
-            digest32B64u: 'digest-32',
-            requestId: 'request-1',
-            thresholdSessionId: 'threshold-session-passkey',
-            signingGrantId: 'wallet-session-passkey',
           },
         },
       },
@@ -162,15 +159,6 @@ test.describe('step-up authorization builders', () => {
         method: 'passkey',
       },
       credential: TEST_WEBAUTHN_CREDENTIAL,
-      plannedPasskeyReconnect: {
-        webauthnChallenge: {
-          kind: 'ecdsa_role_local_bootstrap',
-          digest32B64u: 'digest-32',
-          requestId: 'request-1',
-          thresholdSessionId: 'threshold-session-passkey',
-          signingGrantId: 'wallet-session-passkey',
-        },
-      },
     });
   });
 });

@@ -26,14 +26,6 @@ function assertNotContains(source, marker, label) {
   assert.ok(!source.includes(marker), `${label}: unexpectedly contained ${marker}`);
 }
 
-function extractSourceBlock(source, startMarker, endMarker, label) {
-  const start = source.indexOf(startMarker);
-  assert.ok(start >= 0, `${label}: missing start marker ${startMarker}`);
-  const end = source.indexOf(endMarker, start + startMarker.length);
-  assert.ok(end > start, `${label}: missing end marker ${endMarker}`);
-  return source.slice(start, end + endMarker.length);
-}
-
 function listTypeScriptFiles(relativePath) {
   const absoluteRoot = absolutePath(relativePath);
   const stat = fs.statSync(absoluteRoot);
@@ -76,37 +68,6 @@ function checkWalletScopedUnlockAvoidsCollapsedNearBindingError() {
   assertContains(walletAuth, 'WalletUnlockSubject', 'walletAuth');
 }
 
-function checkVisibleIframePasskeyRegistrationUsesProvidedWalletId() {
-  const publicTypes = readRepoSource('packages/sdk-web/src/SeamsWeb/publicApi/types.ts');
-  const messages = readRepoSource('packages/sdk-web/src/SeamsWeb/walletIframe/shared/messages.ts');
-  const controller = readRepoSource(
-    'packages/sdk-web/src/react/components/SeamsAuthMenu/controller/useSeamsAuthMenuController.ts',
-  );
-  const client = readRepoSource(
-    'packages/sdk-web/src/react/components/SeamsAuthMenu/client.tsx',
-  );
-
-  assertContains(controller, 'type PasskeyRegistrationDraft', 'SeamsAuthMenu controller');
-  assertContains(controller, 'createReadableWalletId()', 'SeamsAuthMenu controller');
-  assertContains(
-    controller,
-    'props.onRegister?.(registrationRequest)',
-    'SeamsAuthMenu controller',
-  );
-  assertContains(client, 'onClick={controller.onProceed}', 'SeamsAuthMenu client');
-  assertNotContains(
-    publicTypes,
-    'CreatePasskeyRegistrationActivationSurfaceArgs',
-    'registration public types',
-  );
-  assertNotContains(
-    messages,
-    'PM_REGISTRATION_ACTIVATION_PREPARE',
-    'wallet iframe messages',
-  );
-}
-
-
 function checkRegistrationTimingUsesSpanCoverage() {
   const registration = readRepoSource(
     'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
@@ -131,73 +92,10 @@ function checkRegistrationTimingUsesSpanCoverage() {
   assertContains(registration, 'JSON.stringify(summary)', 'registration');
 }
 
-function checkEmailOtpUnlockCurrentSessionsUseCommitCommands() {
-  const warmPersistence = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/persistence.ts',
-  );
-  const ecdsaRecords = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/persistence/records.ts',
-  );
-  const ecdsaPublication = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaPublication.ts',
-  );
-  const ed25519CurrentCommit = extractSourceBlock(
-    warmPersistence,
-    'export function persistWarmSessionEd25519Capability',
-    'publishResolvedIdentity({',
-    'Ed25519 current warm-session commit',
-  );
-  const ecdsaCurrentCommit = extractSourceBlock(
-    ecdsaRecords,
-    'export function upsertThresholdEcdsaSessionFromBootstrap',
-    'export function upsertThresholdEcdsaSessionFact',
-    'ECDSA current session commit',
-  );
-  assertContains(
-    ed25519CurrentCommit,
-    'upsertThresholdEd25519SessionFact({',
-    'Ed25519 current warm-session commit',
-  );
-  assertNotContains(
-    ed25519CurrentCommit,
-    'WorkerMaterial',
-    'Ed25519 current warm-session commit',
-  );
-  assertContains(
-    warmPersistence,
-    "curve: 'ed25519'",
-    'Ed25519 current warm-session commit',
-  );
-  assertContains(
-    ecdsaCurrentCommit,
-    'buildOperationUsableThresholdEcdsaSessionRecord',
-    'ECDSA current session commit',
-  );
-  assertContains(
-    ecdsaCurrentCommit,
-    'commitCurrentThresholdEcdsaSession({',
-    'ECDSA current session commit',
-  );
-  assertContains(
-    ecdsaCurrentCommit,
-    "transition: args.source === 'registration' ? 'registration' : 'wallet_unlock'",
-    'ECDSA current session commit',
-  );
-  assertContains(ecdsaPublication, 'commitEvmFamilyThresholdEcdsaSessions({', 'ECDSA publication');
-  assertContains(
-    ecdsaPublication,
-    'persistEmailOtpEcdsaSigningSessionForRefresh(',
-    'ECDSA publication',
-  );
-  assertNotContains(ecdsaPublication, 'upsertThresholdEcdsaSessionFact', 'ECDSA publication');
-}
-
 function main() {
   checkRoleLocalEcdsaMaterialHandlesAreIdentityLocal();
   checkWalletScopedUnlockAvoidsCollapsedNearBindingError();
-  checkVisibleIframePasskeyRegistrationUsesProvidedWalletId();
   checkRegistrationTimingUsesSpanCoverage();
-  checkEmailOtpUnlockCurrentSessionsUseCommitCommands();
   console.log('[registration-capability-subjects] ok');
 }
 

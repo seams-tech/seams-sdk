@@ -11,12 +11,57 @@ function makeTempoRequest(requestId: string): any {
     type: 'PM_SIGN_TEMPO',
     requestId,
     payload: {
-      nearAccountId: 'alice.testnet',
+      operationKind: 'evm_transaction',
+      walletSession: {
+        walletId: 'alice.testnet',
+        walletSessionUserId: 'alice.testnet',
+      },
+      chainTarget: {
+        kind: 'evm',
+        namespace: 'eip155',
+        chainId: 1,
+        networkSlug: 'ethereum',
+      },
       request: {
         chain: 'evm',
         kind: 'eip1559',
         senderSignatureAlgorithm: 'secp256k1',
         tx: {},
+      },
+      options: {},
+    },
+  };
+}
+
+function makeTempoFeeTokenPreferenceRequest(requestId: string): any {
+  return {
+    type: 'PM_SIGN_TEMPO',
+    requestId,
+    payload: {
+      operationKind: 'tempo_fee_token_preference',
+      walletSession: {
+        walletId: 'alice.testnet',
+        walletSessionUserId: 'alice.testnet',
+      },
+      chainTarget: {
+        kind: 'tempo',
+        chainId: 42431,
+        networkSlug: 'tempo-testnet',
+      },
+      request: {
+        chain: 'evm',
+        kind: 'eip1559',
+        senderSignatureAlgorithm: 'secp256k1',
+        tx: {
+          chainId: 42431,
+          maxPriorityFeePerGas: 1n,
+          maxFeePerGas: 2n,
+          gasLimit: 1_000_000n,
+          to: '0xfeec000000000000000000000000000000000000',
+          value: 0n,
+          data: '0xe789744400000000000000000000000020c0000000000000000000000000000000000001',
+          accessList: [],
+        },
       },
       options: {},
     },
@@ -32,8 +77,8 @@ test.describe('wallet iframe host PM_SIGN_TEMPO cancellation guards', () => {
     const handlers = createWalletIframeHandlers({
       getSeamsWeb: () =>
         ({
-          tempo: {
-            signTempo: async () => {
+          evm: {
+            signTransaction: async () => {
               signCalls += 1;
               return { chain: 'evm', txHashHex: '0x1', rawTxHex: '0x2' } as any;
             },
@@ -55,7 +100,7 @@ test.describe('wallet iframe host PM_SIGN_TEMPO cancellation guards', () => {
     expect(posts.length).toBe(0);
   });
 
-  test('forwards shouldAbort probe into signTempo call', async () => {
+  test('forwards shouldAbort probe into EVM signing call', async () => {
     const posts: ChildToParentEnvelope[] = [];
     let cancelled = false;
     let signCalls = 0;
@@ -63,8 +108,8 @@ test.describe('wallet iframe host PM_SIGN_TEMPO cancellation guards', () => {
     const handlers = createWalletIframeHandlers({
       getSeamsWeb: () =>
         ({
-          tempo: {
-            signTempo: async (args: any) => {
+          evm: {
+            signTransaction: async (args: any) => {
               signCalls += 1;
               const shouldAbort = args?.options?.shouldAbort;
               expect(typeof shouldAbort).toBe('function');
@@ -86,6 +131,64 @@ test.describe('wallet iframe host PM_SIGN_TEMPO cancellation guards', () => {
 
     expect(signCalls).toBe(1);
     expect(posts.some((msg) => msg.type === 'PM_RESULT')).toBe(true);
+  });
+
+  test('routes the exact FeeManager setUserToken EVM envelope through the Tempo target', async () => {
+    const posts: ChildToParentEnvelope[] = [];
+    let feeTokenSignCalls = 0;
+
+    const handlers = createWalletIframeHandlers({
+      getSeamsWeb: () =>
+        ({
+          signTempoFeeTokenPreferenceInternal: async () => {
+            feeTokenSignCalls += 1;
+            return { chain: 'evm', kind: 'eip1559', txHashHex: '0x1', rawTxHex: '0x2' };
+          },
+        }) as any,
+      post: (msg) => posts.push(msg),
+      postProgress: () => undefined,
+      isCancelled: () => false,
+      respondIfCancelled: () => false,
+    });
+
+    await handlers.PM_SIGN_TEMPO!(makeTempoFeeTokenPreferenceRequest('req-fee-token') as any);
+
+    expect(feeTokenSignCalls).toBe(1);
+    expect(posts.some((msg) => msg.type === 'PM_RESULT')).toBe(true);
+  });
+
+  test('rejects hostile substitutions labeled as Tempo fee-token preference', async () => {
+    let feeTokenSignCalls = 0;
+    const handlers = createWalletIframeHandlers({
+      getSeamsWeb: () =>
+        ({
+          signTempoFeeTokenPreferenceInternal: async () => {
+            feeTokenSignCalls += 1;
+          },
+        }) as any,
+      post: () => undefined,
+      postProgress: () => undefined,
+      isCancelled: () => false,
+      respondIfCancelled: () => false,
+    });
+
+    const wrongContract = makeTempoFeeTokenPreferenceRequest('req-hostile-contract');
+    wrongContract.payload.request.tx.to = '0x1111111111111111111111111111111111111111';
+    await expect(handlers.PM_SIGN_TEMPO!(wrongContract)).rejects.toThrow('Tempo FeeManager');
+
+    const wrongSelector = makeTempoFeeTokenPreferenceRequest('req-hostile-selector');
+    wrongSelector.payload.request.tx.data =
+      '0x1234567800000000000000000000000020c0000000000000000000000000000000000001';
+    await expect(handlers.PM_SIGN_TEMPO!(wrongSelector)).rejects.toThrow(
+      'FeeManager.setUserToken',
+    );
+
+    const wrongChain = makeTempoFeeTokenPreferenceRequest('req-hostile-chain');
+    wrongChain.payload.request.tx.chainId = 1;
+    await expect(handlers.PM_SIGN_TEMPO!(wrongChain)).rejects.toThrow(
+      'chain id does not match',
+    );
+    expect(feeTokenSignCalls).toBe(0);
   });
 });
 

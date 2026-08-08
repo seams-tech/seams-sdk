@@ -69,14 +69,6 @@ export const buildWalletServiceHtml = (options: WalletServiceHtmlOptions = {}): 
       );
     }
 
-    function isMissingSession(state, expected) {
-      return (
-        state.kind === 'wallet_unlocked_without_signing_session' &&
-        state.walletId === expected.walletId &&
-        state.reason === expected.reason
-      );
-    }
-
     function adoptPort(port) {
       if (adoptedPort) return;
       adoptedPort = port;
@@ -98,6 +90,15 @@ export const buildWalletServiceHtml = (options: WalletServiceHtmlOptions = {}): 
               });
             } catch (err) {
               console.error('Failed to respond to PM_SET_CONFIG', err);
+            }
+            return;
+          }
+
+          if (type === 'PM_GET_CONFIRMATION_CONFIG') {
+            try {
+              postResult(requestId, { uiMode: 'modal', behavior: 'requireClick', autoProceedDelay: 0 });
+            } catch (err) {
+              console.error('Failed to respond to PM_GET_CONFIRMATION_CONFIG', err);
             }
             return;
           }
@@ -126,25 +127,6 @@ export const buildWalletServiceHtml = (options: WalletServiceHtmlOptions = {}): 
               postResult(requestId, { kind: 'locked', identity: expected });
             } catch (err) {
               console.error('Failed to respond to PM_LOCK_EXACT_WALLET_SESSION', err);
-            }
-            return;
-          }
-
-          if (type === 'PM_LOCK_MISSING_WALLET_SESSION') {
-            try {
-              const expected = message.payload;
-              if (!isMissingSession(exactSessionState, expected)) {
-                postResult(requestId, {
-                  kind: 'stale_session',
-                  expected,
-                  current: exactSessionState,
-                });
-                return;
-              }
-              exactSessionState = { kind: 'wallet_locked' };
-              postResult(requestId, { kind: 'locked', identity: expected });
-            } catch (err) {
-              console.error('Failed to respond to PM_LOCK_MISSING_WALLET_SESSION', err);
             }
             return;
           }
@@ -273,7 +255,8 @@ export const initRouter = async (page: Page, options: RouterHarnessOptions = {})
       const base =
         window.location.origin === 'null' ? 'https://example.localhost' : window.location.origin;
       const module = await import(new URL(modulePath, base).toString());
-      const { WalletIframeRouter } = module as typeof import('@/SeamsWeb/walletIframe/client/router');
+      const { WalletIframeRouter } =
+        module as typeof import('@/SeamsWeb/walletIframe/client/router');
       const router = new WalletIframeRouter(routerOptions);
       (window as any).__walletRouter = router;
     },

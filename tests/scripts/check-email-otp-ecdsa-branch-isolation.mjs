@@ -8,7 +8,6 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '../..');
 
 const emailOtpEcdsaSourcePaths = [
-  'packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaEnrollment.ts',
   'packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts',
   'packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaPublication.ts',
   'packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecovery.ts',
@@ -41,11 +40,9 @@ function listSourceFiles(relativeDir) {
 }
 
 function listActiveSourceFiles() {
-  return [
-    'packages/sdk-web/src',
-    'packages/sdk-server-ts/src',
-    'packages/shared-ts/src',
-  ].flatMap(listSourceFiles);
+  return ['packages/sdk-web/src', 'packages/sdk-server-ts/src', 'packages/shared-ts/src'].flatMap(
+    listSourceFiles,
+  );
 }
 
 function collectDuplicateDomainBrandViolations() {
@@ -57,7 +54,6 @@ function collectDuplicateDomainBrandViolations() {
     'EmailOtpRegistrationAttemptId',
     'OrgId',
     'AppSessionVersion',
-    'SigningGrantId',
     'ThresholdEd25519SessionId',
     'ThresholdEcdsaSessionId',
   ];
@@ -94,14 +90,14 @@ function collectPasskeyPrfPersistenceViolations() {
 }
 
 function collectWalletSubjectVocabularyViolations() {
-  const allowedFiles = new Set([
-    'packages/sdk-web/src/core/indexedDB/seamsWalletDB/schema.ts',
-  ]);
+  const allowedFiles = new Set(['packages/sdk-web/src/core/indexedDB/seamsWalletDB/schema.ts']);
 
   return listActiveSourceFiles()
     .filter((relativePath) => !allowedFiles.has(relativePath))
     .filter((relativePath) => /walletSubject|wallet_subject/.test(readRepoSource(relativePath)))
-    .map((relativePath) => `${relativePath}: wallet-subject vocabulary outside delete-only boundary`);
+    .map(
+      (relativePath) => `${relativePath}: wallet-subject vocabulary outside delete-only boundary`,
+    );
 }
 
 function collectTemporaryDiagnosticViolations() {

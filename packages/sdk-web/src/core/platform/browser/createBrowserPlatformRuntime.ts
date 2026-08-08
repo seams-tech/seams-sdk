@@ -12,6 +12,7 @@ import {
   closeRouterAbEcdsaRegistrationCeremonyWasm,
   createRouterAbEcdsaRegistrationCeremonyWasm,
   finalizeRouterAbEcdsaRegistrationActivationWasm,
+  persistInitialCanonicalEcdsaActivationWasm,
   verifyRouterAbEcdsaRegistrationClientProofsWasm,
   storeEcdsaRoleLocalSigningMaterialWasm,
 } from '../../signingEngine/threshold/crypto/ecdsaDerivationClientWasm';
@@ -26,15 +27,9 @@ import {
 } from '../../signingEngine/webauthnAuth/credentials/helpers';
 import { getPrfFirstB64uFromCredential } from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
 import {
-  clearThresholdEcdsaSessionRecordsForWalletTargetKeyHandle,
-  listThresholdEcdsaSessionRecordsForWalletTarget,
-  type ThresholdEcdsaSessionStoreDeps,
-} from '../../signingEngine/session/persistence/records';
-import {
   ecdsaRoleLocalReadyRecordMatchesInput,
   ecdsaRoleLocalReadyRecordStorageKey,
   parseEcdsaRoleLocalReadyRecord,
-  parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
   serializeEcdsaRoleLocalReadyRecord,
 } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import {
@@ -84,7 +79,6 @@ type BrowserRuntimePortsDeps = {
   crypto?: Crypto;
   credentials?: CredentialsContainer;
   workerCtx?: WorkerOperationContext;
-  ecdsaSessionStore?: ThresholdEcdsaSessionStoreDeps;
   nowMs?: () => number;
 };
 
@@ -289,7 +283,6 @@ function parseRelayerPublicIdentity(input: unknown): BrowserRelayerPublicIdentit
 
 function createBrowserDurableRecordStore(
   indexedDB: typeof IndexedDBManager,
-  ecdsaSessionStore: ThresholdEcdsaSessionStoreDeps | undefined,
 ): BrowserDurableRecordStore {
   return {
     kind: 'durable_record_store',
@@ -314,22 +307,6 @@ function createBrowserDurableRecordStore(
             };
           }
           return { ok: true, value: { kind: 'found', record: parsed } };
-        }
-        if (!ecdsaSessionStore) return { ok: true, value: { kind: 'not_found' } };
-        const candidates = listThresholdEcdsaSessionRecordsForWalletTarget(ecdsaSessionStore, {
-          walletId: input.walletId,
-          chainTarget: input.chainTarget,
-        });
-        for (const candidate of candidates) {
-          let parsed = null;
-          try {
-            parsed = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(candidate);
-          } catch {
-            continue;
-          }
-          if (ecdsaRoleLocalReadyRecordMatchesInput({ record: parsed, input })) {
-            return { ok: true, value: { kind: 'found', record: parsed } };
-          }
         }
         return { ok: true, value: { kind: 'not_found' } };
       } catch (error) {
@@ -375,13 +352,6 @@ function createBrowserDurableRecordStore(
     ): Promise<CleanupMalformedEcdsaRoleLocalRecordResult> {
       try {
         await indexedDB.setAppState(ecdsaRoleLocalReadyRecordStorageKey(input), null);
-        if (ecdsaSessionStore) {
-          clearThresholdEcdsaSessionRecordsForWalletTargetKeyHandle(ecdsaSessionStore, {
-            walletId: input.walletId,
-            chainTarget: input.chainTarget,
-            keyHandle: input.keyHandle,
-          });
-        }
         return { ok: true, value: { kind: 'deleted' } };
       } catch (error) {
         return {
@@ -624,6 +594,15 @@ function createBrowserSignerCryptoPort(
         throw new Error('ECDSA derivation client worker context is unavailable');
       }
       return verifyRouterAbEcdsaRegistrationClientProofsWasm({
+        command: input,
+        workerCtx,
+      });
+    },
+    async persistInitialCanonicalEcdsaActivation(input) {
+      if (!workerCtx) {
+        throw new Error('ECDSA derivation client worker context is unavailable');
+      }
+      return persistInitialCanonicalEcdsaActivationWasm({
         command: input,
         workerCtx,
       });
@@ -873,7 +852,7 @@ export function createBrowserPlatformRuntime(
   const indexedDB = deps.indexedDB || IndexedDBManager;
   return {
     kind: 'browser',
-    storage: createBrowserDurableRecordStore(indexedDB, deps.ecdsaSessionStore),
+    storage: createBrowserDurableRecordStore(indexedDB),
     secrets: createBrowserSecureSecretStore(),
     authenticator: createBrowserAuthenticatorPort(
       deps.credentials || globalThis.navigator?.credentials,

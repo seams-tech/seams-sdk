@@ -7,11 +7,11 @@ import type {
 import {
   CloudflareD1RouterAbEd25519YaoCapabilityPersistence,
   ROUTER_AB_ED25519_YAO_CAPABILITY_REPLACEMENT_TABLE_V1,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1Ed25519YaoCapabilityPersistence';
+} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoCapabilityPersistence';
 import {
   buildYaoEd25519WalletSignerRecord,
   ed25519NearPublicKeyFromBytes,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1Ed25519YaoWalletSigner';
+} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import { applySignerMigrations } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
@@ -169,7 +169,7 @@ async function seedWalletSigner(database: D1DatabaseLike): Promise<D1WalletStore
       walletId,
       nearAccountId: fixture.nearAccountId,
       nearEd25519SigningKeyId: fixture.nearSigningKeyId,
-      thresholdSessionId: fixture.previous.admissionRequest.scope.wallet_session_id,
+      thresholdSessionId: fixture.previous.admissionRequest.scope.threshold_session_id,
       signerSlot: fixture.previous.admissionRequest.application_binding.key_creation_signer_slot,
       publicKey: ed25519NearPublicKeyFromBytes(
         fixture.previous.activationResult.public_receipt.registered_public_key,

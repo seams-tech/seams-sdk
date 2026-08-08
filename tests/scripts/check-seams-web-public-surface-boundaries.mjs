@@ -32,11 +32,7 @@ const authMethods = [
   'refreshEmailOtpSigningSession',
 ];
 
-const registrationMethods = [
-  'requestEmailOtpEnrollmentChallenge',
-  'enrollEmailOtp',
-  'enrollAndLoginWithEmailOtpEcdsaCapability',
-];
+const registrationMethods = ['requestEmailOtpEnrollmentChallenge', 'enrollEmailOtp'];
 
 const recoveryMethods = ['getEmailOtpRecoveryCodeStatus', 'rotateEmailOtpRecoveryCodes'];
 
@@ -235,7 +231,9 @@ function collectNamespaceViolations() {
 function collectMethodNamespaceViolations(input) {
   const violations = [];
   const seamsWebSource = readRepoSource(seamsWebImplementationPath);
-  const iframeFacadeSource = readRepoSource('packages/sdk-web/src/SeamsWeb/walletIframe/SeamsWebIframe.ts');
+  const iframeFacadeSource = readRepoSource(
+    'packages/sdk-web/src/SeamsWeb/walletIframe/SeamsWebIframe.ts',
+  );
 
   for (const methodName of input.methods) {
     if (new RegExp(`^\\s*async\\s+${methodName}\\s*\\(`, 'm').test(seamsWebSource)) {
@@ -342,7 +340,9 @@ function collectDeviceNamespaceViolations() {
 function collectPreferenceNamespaceViolations() {
   const violations = [];
   const seamsWebSource = readRepoSource(seamsWebImplementationPath);
-  const iframeFacadeSource = readRepoSource('packages/sdk-web/src/SeamsWeb/walletIframe/SeamsWebIframe.ts');
+  const iframeFacadeSource = readRepoSource(
+    'packages/sdk-web/src/SeamsWeb/walletIframe/SeamsWebIframe.ts',
+  );
 
   for (const methodName of preferencesMethodFragments) {
     if (new RegExp(`^\\s*${methodName}\\s*\\(`, 'm').test(seamsWebSource)) {
@@ -474,8 +474,12 @@ function collectBroadDependencyViolations() {
     }
   }
 
-  const signingSurfaceTypes = readRepoSource('packages/sdk-web/src/SeamsWeb/signingSurface/types.ts');
-  const signingSurfacePorts = readRepoSource('packages/sdk-web/src/SeamsWeb/signingSurface/ports.ts');
+  const signingSurfaceTypes = readRepoSource(
+    'packages/sdk-web/src/SeamsWeb/signingSurface/types.ts',
+  );
+  const signingSurfacePorts = readRepoSource(
+    'packages/sdk-web/src/SeamsWeb/signingSurface/ports.ts',
+  );
   const aggregateMatch =
     signingSurfaceTypes.match(/export interface SeamsWebSigningSurface[\s\S]*?^}/m)?.[0] ?? '';
   if (!/extends[\s\S]*?\bRpIdSurface\b/.test(aggregateMatch)) {
@@ -539,7 +543,9 @@ function collectImportDirectionViolations() {
 
   violations.push(
     ...listTypeScriptFiles('packages/sdk-web/src/core')
-      .filter((relativePath) => /from\s+['"](?:@\/web\/|\.\.?\/.*web\/)/.test(readRepoSource(relativePath)))
+      .filter((relativePath) =>
+        /from\s+['"](?:@\/web\/|\.\.?\/.*web\/)/.test(readRepoSource(relativePath)),
+      )
       .map((relativePath) => `${relativePath}: core imports web layer`),
   );
   violations.push(
@@ -551,16 +557,22 @@ function collectImportDirectionViolations() {
   );
   violations.push(
     ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb/signingSurface')
-      .filter((relativePath) => relativePath !== 'packages/sdk-web/src/SeamsWeb/signingSurface/types.ts')
+      .filter(
+        (relativePath) => relativePath !== 'packages/sdk-web/src/SeamsWeb/signingSurface/types.ts',
+      )
       .filter((relativePath) =>
-        /from\s+['"](?:@\/SeamsWeb\/publicApi\/|\.\.?\/.*publicApi\/)/.test(readRepoSource(relativePath)),
+        /from\s+['"](?:@\/SeamsWeb\/publicApi\/|\.\.?\/.*publicApi\/)/.test(
+          readRepoSource(relativePath),
+        ),
       )
       .map((relativePath) => `${relativePath}: signing surface imports public API implementation`),
   );
   violations.push(
     ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb/publicApi')
       .filter((relativePath) =>
-        /from\s+['"](?:@\/SeamsWeb\/assembly\/|\.\.?\/.*assembly\/)/.test(readRepoSource(relativePath)),
+        /from\s+['"](?:@\/SeamsWeb\/assembly\/|\.\.?\/.*assembly\/)/.test(
+          readRepoSource(relativePath),
+        ),
       )
       .map((relativePath) => `${relativePath}: public API imports assembly layer`),
   );
@@ -577,7 +589,9 @@ function collectImportDirectionViolations() {
 
 function collectCoreWalletIframePrimitiveViolations() {
   const violations = [];
-  const primitiveFiles = listTypeScriptFiles('packages/sdk-web/src/core/browser/walletIframe').sort();
+  const primitiveFiles = listTypeScriptFiles(
+    'packages/sdk-web/src/core/browser/walletIframe',
+  ).sort();
   if (JSON.stringify(primitiveFiles) !== JSON.stringify(allowedCoreWalletIframePrimitiveFiles)) {
     violations.push(
       `core browser wallet iframe primitives changed: ${JSON.stringify(primitiveFiles)}`,
@@ -668,7 +682,8 @@ function collectNativeFacadeViolations() {
   const violations = [];
   const packageJson = readRepoJson('packages/sdk-web/package.json');
   if (packageJson.exports['./ios'] !== undefined) violations.push('package exports ./ios');
-  if (packageJson.exports['./embedded'] !== undefined) violations.push('package exports ./embedded');
+  if (packageJson.exports['./embedded'] !== undefined)
+    violations.push('package exports ./embedded');
   if (packageJson.typesVersions?.['*']?.ios !== undefined) {
     violations.push('package typesVersions exposes ios');
   }
@@ -676,7 +691,8 @@ function collectNativeFacadeViolations() {
     violations.push('package typesVersions exposes embedded');
   }
   if (packageJson.keywords.includes('native')) violations.push('package keyword native returned');
-  if (packageJson.keywords.includes('embedded')) violations.push('package keyword embedded returned');
+  if (packageJson.keywords.includes('embedded'))
+    violations.push('package keyword embedded returned');
 
   for (const relativePath of [
     'packages/sdk-web/src/ios',
@@ -739,7 +755,9 @@ function main() {
   assert(fs.existsSync(repoRoot), 'repo root does not exist');
   const violations = collectViolations();
   if (violations.length > 0) {
-    console.error(`[seams-web-public-surface-boundaries] failed with ${violations.length} violation(s):`);
+    console.error(
+      `[seams-web-public-surface-boundaries] failed with ${violations.length} violation(s):`,
+    );
     for (const violation of violations) {
       console.error(`- ${violation}`);
     }

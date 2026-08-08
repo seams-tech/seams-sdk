@@ -20,9 +20,9 @@ import type {
 import type {
   SessionAdapter,
   SessionClaims,
-} from '../../packages/sdk-server-ts/src/router/routerApi';
-import type { RouterAbEd25519YaoRecoveryAuthorizationInput } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery';
-import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '../../packages/sdk-server-ts/src/router/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
+} from '../../packages/sdk-server-ts/src/router/framework/routerApi';
+import type { RouterAbEd25519YaoRecoveryAuthorizationInput } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
+import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
 
 type RecoveryExecuteRequest = RouterAbEd25519YaoActivationExecuteRequestV1<'recovery'>;
 type AuthorizationPhase = RouterAbEd25519YaoRecoveryAuthorizationInput['kind'];
@@ -31,6 +31,7 @@ const WALLET_ID = 'recovery-wallet.testnet';
 const NEAR_SIGNING_KEY_ID = 'ed25519ks_recovery_wallet';
 const ROOT_SHARE_EPOCH = 'root-epoch-recovery-1';
 const WALLET_SESSION_ID = 'wallet-session-recovery-1';
+const THRESHOLD_SESSION_ID = 'threshold-session-recovery-1';
 const SIGNING_WORKER_ID = 'signing-worker-recovery-1';
 const PARTICIPANT_IDS = [1, 2] as const;
 
@@ -38,8 +39,9 @@ type ClaimsFixtureInput = {
   walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
+  walletSessionId: string;
+  quotaId: string;
   thresholdSessionId: string;
-  signingGrantId: string;
   rootShareEpoch: string;
   participantIds: readonly number[];
   signingWorkerId: string;
@@ -99,6 +101,18 @@ function requireParsed<T>(parsed: { ok: true; value: T } | { ok: false; message:
   return parsed.value;
 }
 
+function materialActivation(label: string) {
+  return {
+    kind: 'mpc_material_activation_ref' as const,
+    activation_id: `recovery-wallet-${label}-material-activation-1`,
+    capability: 'recovery-wallet-capability-1',
+    material_owner: WALLET_ID,
+    key_binding: 'recovery-wallet-key-1',
+    lifecycle_binding: `recovery-wallet-${label}-lifecycle-binding-1`,
+    signing_worker: SIGNING_WORKER_ID,
+  };
+}
+
 function parsedSessionFixture(result: SessionParseResult<SessionClaims>): SessionFixture {
   return new SessionFixture({ kind: 'parsed', result });
 }
@@ -121,10 +135,12 @@ function admissionRequestFixture(): RouterAbEd25519YaoRecoveryAdmissionRequestV1
         lifecycle_id: 'recovery-lifecycle-1',
         root_share_epoch: ROOT_SHARE_EPOCH,
         account_id: WALLET_ID,
-        wallet_session_id: WALLET_SESSION_ID,
+        threshold_session_id: THRESHOLD_SESSION_ID,
         signer_set_id: 'signer-set-recovery-1',
         signing_worker_id: SIGNING_WORKER_ID,
+        material_activation: materialActivation('replacement'),
       },
+      active_material_activation: materialActivation('active'),
       application_binding: {
         wallet_id: WALLET_ID,
         near_ed25519_signing_key_id: NEAR_SIGNING_KEY_ID,
@@ -147,8 +163,7 @@ function bootstrapRequestFixture(): RouterAbEd25519YaoWarmRecoveryBootstrapReque
       nearAccountId: WALLET_ID,
       nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
       signerSlot: 1,
-      thresholdSessionId: WALLET_SESSION_ID,
-      signingGrantId: 'signing-grant-recovery-1',
+      thresholdSessionId: THRESHOLD_SESSION_ID,
       signingWorkerId: SIGNING_WORKER_ID,
       participantIds: PARTICIPANT_IDS,
     }),
@@ -163,13 +178,14 @@ function recoveryBindingFixture(admission: RouterAbEd25519YaoRecoveryAdmissionRe
       primitive_request_kind: 'recovery' as const,
       root_share_epoch: admission.scope.root_share_epoch,
       account_id: admission.scope.account_id,
-      session_id: admission.scope.wallet_session_id,
+      session_id: admission.scope.threshold_session_id,
       signer_set_id: admission.scope.signer_set_id,
       selected_server_id: admission.scope.signing_worker_id,
     },
     operation: 'recovery' as const,
     session_id: bytes(7),
     stable_key_context_binding: bytes(8),
+    material_activation: admission.scope.material_activation,
   };
 }
 
@@ -214,6 +230,7 @@ function activationRequestFixture(
         joined_signing_worker_commitment: bytes(14),
         signing_worker_verifying_share: bytes(15),
         state_epoch: 2,
+        material_activation: execute.binding.material_activation,
       },
     }),
   );
@@ -246,8 +263,9 @@ function validClaimsFixture(input?: Partial<ClaimsFixtureInput>): SessionClaims 
     walletId: input?.walletId ?? WALLET_ID,
     nearAccountId: input?.nearAccountId ?? WALLET_ID,
     nearEd25519SigningKeyId: input?.nearEd25519SigningKeyId ?? NEAR_SIGNING_KEY_ID,
-    thresholdSessionId: input?.thresholdSessionId ?? WALLET_SESSION_ID,
-    signingGrantId: input?.signingGrantId ?? 'signing-grant-recovery-1',
+    walletSessionId: input?.walletSessionId ?? WALLET_SESSION_ID,
+    quotaId: input?.quotaId ?? 'quota-recovery-1',
+    thresholdSessionId: input?.thresholdSessionId ?? THRESHOLD_SESSION_ID,
     rootShareEpoch: input?.rootShareEpoch ?? ROOT_SHARE_EPOCH,
     participantIds: input?.participantIds ?? PARTICIPANT_IDS,
     signingWorkerId: input?.signingWorkerId ?? SIGNING_WORKER_ID,
@@ -264,8 +282,9 @@ function validClaimsFixture(input?: Partial<ClaimsFixtureInput>): SessionClaims 
     walletId: values.walletId,
     nearAccountId: values.nearAccountId,
     nearEd25519SigningKeyId: values.nearEd25519SigningKeyId,
+    walletSessionId: values.walletSessionId,
+    quotaId: values.quotaId,
     thresholdSessionId: values.thresholdSessionId,
-    signingGrantId: values.signingGrantId,
     relayerKeyId: values.signingWorkerId,
     authority,
     authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
@@ -292,6 +311,10 @@ async function authorizeWithClaims(
   const authorization = new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(session);
   const result = await authorization.authorize(input);
   return { result, session };
+}
+
+function claimsWithSubstitutedThresholdSession(): SessionClaims {
+  return validClaimsFixture({ thresholdSessionId: 'substituted-threshold-session' });
 }
 
 test.describe('Router A/B Ed25519 Yao recovery Wallet Session authorization', () => {
@@ -368,9 +391,9 @@ test.describe('Router A/B Ed25519 Yao recovery Wallet Session authorization', ()
     });
   });
 
-  test('rejects wallet, session, and SigningWorker substitutions in every phase', async () => {
+  test('rejects wallet, phase-owned session, and SigningWorker substitutions', async () => {
     const phases: readonly AuthorizationPhase[] = ['bootstrap', 'admit', 'execute', 'activate'];
-    const substitutions: ReadonlyArray<{
+    const sharedSubstitutions: ReadonlyArray<{
       label: string;
       claims: SessionClaims;
     }> = [
@@ -379,16 +402,19 @@ test.describe('Router A/B Ed25519 Yao recovery Wallet Session authorization', ()
         claims: validClaimsFixture({ walletId: 'substituted-wallet.testnet' }),
       },
       {
-        label: 'session',
-        claims: validClaimsFixture({ thresholdSessionId: 'substituted-wallet-session' }),
-      },
-      {
         label: 'SigningWorker',
         claims: validClaimsFixture({ signingWorkerId: 'substituted-signing-worker' }),
       },
     ];
 
     for (const phase of phases) {
+      const substitutions = [
+        ...sharedSubstitutions,
+        {
+          label: 'session',
+          claims: claimsWithSubstitutedThresholdSession(),
+        },
+      ];
       for (const substitution of substitutions) {
         const authorized = await authorizeWithClaims(
           authorizationInputFixture(phase, true),
@@ -413,10 +439,6 @@ test.describe('Router A/B Ed25519 Yao recovery Wallet Session authorization', ()
       {
         label: 'Ed25519 key',
         claims: validClaimsFixture({ nearEd25519SigningKeyId: 'ed25519ks_substituted' }),
-      },
-      {
-        label: 'signing grant',
-        claims: validClaimsFixture({ signingGrantId: 'substituted-signing-grant' }),
       },
       {
         label: 'participants',

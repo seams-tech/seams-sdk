@@ -2,18 +2,17 @@ import { expect, test } from '@playwright/test';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { SessionParseResult } from '../../packages/sdk-server-ts/src/core/sessionValidation';
-import { signRouterAbEd25519WalletSessionJwt } from '../../packages/sdk-server-ts/src/router/commonRouterUtils';
+import { signRouterAbEd25519WalletSessionJwt } from '../../packages/sdk-server-ts/src/router/auth/commonRouterUtils';
 import {
   type SessionAdapter,
   type SessionClaims,
-} from '../../packages/sdk-server-ts/src/router/routerApi';
+} from '../../packages/sdk-server-ts/src/router/framework/routerApi';
 import { createSigningSessionSealRoutesOptions } from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/routesOptions';
 import type { SigningSessionSealCipherAdapter } from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/signingSessionSeal.types';
 
 const NOW_MS = 2_000_000_000_000;
 const WALLET_ID = 'seal-authorization.testnet';
 const THRESHOLD_SESSION_ID = 'threshold-session-seal-authorization';
-const SIGNING_GRANT_ID = 'signing-grant-seal-authorization';
 const SIGNING_WORKER_ID = 'signing-worker-seal-authorization';
 
 class WalletSessionClaimsFixture implements SessionAdapter {
@@ -72,7 +71,9 @@ async function walletSessionFixture(
       nearAccountId: WALLET_ID,
       nearEd25519SigningKeyId: 'near-ed25519-signing-key-seal-authorization',
       thresholdSessionId: THRESHOLD_SESSION_ID,
-      signingGrantId: SIGNING_GRANT_ID,
+      authorizationId: 'authorization-grant-seal-authorization',
+      walletSessionId: 'wallet-session-seal-authorization',
+      quotaId: 'quota-seal-authorization',
       expiresAtMs: thresholdExpiresAtMs,
       participantIds: [1, 2],
       runtimePolicyScope: {

@@ -7,7 +7,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
-import type { RequestEmailOtpChallengeArgs } from '../../session/emailOtp/exportRecoveryRuntime';
+import type { RequestEmailOtpExportChallengeArgs } from '../../session/emailOtp/exportRecoveryRuntime';
 import { requestEmailOtpExportAuthorization as requestEmailOtpExportAuthorizationValue } from '../../stepUpConfirmation/otpPrompt/exportAuthorization';
 import {
   buildExportStepUpAuthorization,
@@ -33,10 +33,7 @@ export type KeyExportConfirmationDeps = {
   theme?: ThemeMode;
 };
 
-export type EmailOtpWalletSessionExportChallengeArgs = Extract<
-  RequestEmailOtpChallengeArgs,
-  { kind: 'wallet_session_challenge' | 'near_account_challenge' }
->;
+export type EmailOtpWalletSessionExportChallengeArgs = RequestEmailOtpExportChallengeArgs;
 
 export type EmailOtpWalletSessionExportAuthorizationDeps = {
   touchConfirm: Pick<UiConfirmRuntimeBridgePort, 'requestUserConfirmation'>;
@@ -45,22 +42,10 @@ export type EmailOtpWalletSessionExportAuthorizationDeps = {
   ) => Promise<EmailOtpTransactionSigningChallenge>;
 };
 
-export type EmailOtpEcdsaExportAuthorizationDeps = EmailOtpWalletSessionExportAuthorizationDeps & {
-  requestPublicReauthExportChallenge: (args: {
-    walletSession: WalletSessionRef;
-    chain: ThresholdEcdsaChainTarget['kind'];
-  }) => Promise<EmailOtpTransactionSigningChallenge>;
+type WalletSessionEcdsaExportChallengeAuthority = {
+  kind: 'app_session';
+  appSessionJwt: string;
 };
-
-type WalletSessionEcdsaExportChallengeAuthority =
-  | {
-      kind: 'signing_session';
-      authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
-    }
-  | {
-      kind: 'public_reauth';
-      authLane?: never;
-    };
 
 type WalletSessionEcdsaExportAuthorizationArgs = {
   kind: 'wallet_session_export_auth';
@@ -81,8 +66,6 @@ type WalletSessionEd25519ExportAuthorizationArgs = {
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   signerSlot: number;
-  thresholdSessionId: string;
-  signingGrantId: string;
   publicKey: string;
   curve: 'ed25519';
   chain: 'near';
@@ -92,23 +75,15 @@ type WalletSessionEd25519ExportAuthorizationArgs = {
 };
 
 async function requestWalletSessionEcdsaExportChallenge(
-  deps: EmailOtpEcdsaExportAuthorizationDeps,
+  deps: EmailOtpWalletSessionExportAuthorizationDeps,
   args: WalletSessionEcdsaExportAuthorizationArgs,
 ): Promise<EmailOtpTransactionSigningChallenge> {
-  switch (args.challengeAuthority.kind) {
-    case 'signing_session':
-      return await deps.requestExportChallenge({
-        kind: 'wallet_session_challenge',
-        walletSession: args.walletSession,
-        chain: args.chain,
-        authLane: args.challengeAuthority.authLane,
-      });
-    case 'public_reauth':
-      return await deps.requestPublicReauthExportChallenge({
-        walletSession: args.walletSession,
-        chain: args.chain,
-      });
-  }
+  return await deps.requestExportChallenge({
+    kind: 'wallet_capability_export_challenge',
+    walletSession: args.walletSession,
+    chain: args.chain,
+    appSessionJwt: args.challengeAuthority.appSessionJwt,
+  });
 }
 
 function emitEmailOtpExportChallenge(
@@ -198,7 +173,7 @@ export function isEmailOtpPasskeyStepUpError(error: unknown): boolean {
 }
 
 export async function requestEmailOtpKeyExportAuthorization(
-  deps: EmailOtpEcdsaExportAuthorizationDeps,
+  deps: EmailOtpWalletSessionExportAuthorizationDeps,
   args: WalletSessionEcdsaExportAuthorizationArgs,
 ): Promise<ExportEmailOtpStepUpAuthorization> {
   const accountIdForUi = args.walletSession.walletSessionUserId;
@@ -279,8 +254,6 @@ export async function requestEmailOtpEd25519KeyExportAuthorization(
     nearAccountId: args.nearAccountId,
     nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
     signerSlot: args.signerSlot,
-    thresholdSessionId: args.thresholdSessionId,
-    signingGrantId: args.signingGrantId,
     emailOtpPrompt: { challengeId: authorization.challengeId },
     decision: {
       confirmed: true,

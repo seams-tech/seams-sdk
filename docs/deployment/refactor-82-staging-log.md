@@ -1,15 +1,15 @@
 # Refactor 82 D1/DO Staging Deployment Log
 
 Status: template. Generate the active log only after
-`pnpm --dir packages/sdk-server-ts run d1:staging:check` passes against copied
+`pnpm --dir packages/console-server-ts run d1:staging:check` passes against copied
 staging Wrangler configs.
 
 ```sh
-pnpm --dir packages/sdk-server-ts run d1:staging:runbook -- \
+pnpm --dir packages/console-server-ts run d1:staging:runbook -- \
   --output ../../docs/deployment/refactor-82-staging-log.md \
   --r2-bucket <staging-r2-backup-bucket> \
   --console-origin <console-staging-origin> \
-  --router-api-origin <router-api-staging-origin>
+  --gateway-origin <gateway-staging-origin>
 ```
 
 Do not record secret values in this file. Record secret names, binding names,
@@ -18,21 +18,21 @@ pass/fail evidence only.
 
 ## Required Evidence
 
-| Check | Result | Evidence location |
-| --- | --- | --- |
-| Staging readiness |  |  |
-| Console migrations |  |  |
-| Signer migrations |  |  |
-| Time Travel before fixture import |  |  |
-| Fixture import |  |  |
-| Time Travel before route switch |  |  |
-| Console `/readyz` |  |  |
-| Router API `/readyz` |  |  |
-| Dashboard reconciliation |  |  |
-| Sponsored gas settlement and prepaid billing |  |  |
-| Signer custody and KEK isolation |  |  |
-| R2 export object keys |  |  |
-| Restore drill integrity checks |  |  |
+| Check                                        | Result | Evidence location |
+| -------------------------------------------- | ------ | ----------------- |
+| Staging readiness                            |        |                   |
+| Console migrations                           |        |                   |
+| Signer migrations                            |        |                   |
+| Time Travel before fixture import            |        |                   |
+| Fixture import                               |        |                   |
+| Time Travel before route switch              |        |                   |
+| Console `/readyz`                            |        |                   |
+| Router API `/readyz`                         |        |                   |
+| Dashboard reconciliation                     |        |                   |
+| Sponsored gas settlement and prepaid billing |        |                   |
+| Signer custody and KEK isolation             |        |                   |
+| R2 export object keys                        |        |                   |
+| Restore drill integrity checks               |        |                   |
 
 ## Sign-Off
 

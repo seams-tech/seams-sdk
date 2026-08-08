@@ -305,6 +305,10 @@ export type {
 
 export type {
   // Results
+  AddedEvmFamilyEcdsaSignerCapability,
+  AddedNearEd25519SignerCapability,
+  RegisteredEvmFamilyEcdsaCapability,
+  RegisteredNearEd25519Capability,
   RegistrationResult,
   LoginResult,
 } from '../core/types/seams';

@@ -2,7 +2,7 @@
 
 Date created: June 15, 2026
 
-Last reconciled: July 22, 2026
+Last reconciled: August 5, 2026
 
 Status: active cryptographic plan. Shared rotation types and server store
 interfaces exist. Current owner flows now preserve local Ed25519 material and
@@ -16,23 +16,24 @@ lifecycle.
 This plan consumes:
 
 - [refactor-90-modular-auth-capabilities-plan.md](./refactor-90-modular-auth-capabilities-plan.md)
-  for canonical capability hydration, active ECDSA material manifests,
-  activation commits, and exact operation-lane resolution;
+  for canonical capability hydration, the landed ECDSA capability manifest and
+  activation journal, exact `MpcMaterialActivationRef` identities, and
+  operation authorization/admission;
 - [router-ab/ed25519-yao/implementation-plan.md](./router-ab/ed25519-yao/implementation-plan.md) for Ed25519 stable context, registered `A_pub`,
   Client and SigningWorker recipients, recovery, correlated refresh,
   forward-only output commitment, and production security gates;
 - `crates/router-ab-ecdsa-derivation` for secp256k1 role-local additive shares,
   public identity, threshold sessions, and explicit export;
-- [refactor-95-passkey-account-refactor.md](./refactor-95-passkey-account-refactor.md)
+- [refactor-100-passkey-account-refactor.md](./refactor-100-passkey-account-refactor.md)
   for sealed roots and holder material;
-- [refactor-96-wallet-execution-lanes.md](./refactor-96-wallet-execution-lanes.md)
+- [refactor-101-wallet-execution-lanes.md](./refactor-101-wallet-execution-lanes.md)
   for wallet keys, share-bearing lanes, lifecycle, and execution identity;
-- [refactor-99-agent-id-spending.md](./refactor-99-agent-id-spending.md) for
+- [refactor-104-agent-id-spending.md](./refactor-104-agent-id-spending.md) for
   agent identity, owner authorization, custody binding, and delegated execution
   admission.
 
-Refactor 98 consumes linked-device protocols and lifecycle defined here.
-Refactor 99 may consume an authorization-bound delegated-execution lane when
+Refactor 103 consumes linked-device protocols and lifecycle defined here.
+Refactor 104 may consume an authorization-bound delegated-execution lane when
 the selected wallet adapter requires agent-held MPC participation.
 
 ## Goal
@@ -61,7 +62,7 @@ same custody secret
 new credential, KEK, custody key, or envelope version
 ```
 
-Refactor 95 owns passkey and recovery rewrap. Refactor 99 owns agent
+Refactor 100 owns passkey and recovery rewrap. Refactor 104 owns agent
 identity-key and custody replacement. When an optional delegated-execution
 holder share changes custody, this plan supplies the admitted lane refresh.
 
@@ -97,6 +98,15 @@ commitments bound to the exact source lane, target lane, epochs, public
 identity, and activation receipt; it must not recreate a long-lived commitment
 authority or registry.
 
+Each target lane is activated as its own material instance. The curve adapter
+creates a fresh `MpcMaterialActivationId` and exact
+`MpcMaterialActivationRef`, binds it to the target lane and first share epoch,
+and records the curve-specific activation receipt. For ECDSA this reference is
+the active manifest's activation plus its server activation commit; for
+Ed25519 it is the Yao recipient-package activation and its verified receipt.
+The aggregate enrollment manifest is a product receipt and never substitutes
+for either curve-specific capability record.
+
 Ed25519 and ECDSA use different protocols described below.
 
 ### Lane Share Refresh
@@ -114,6 +124,13 @@ old target epoch retired at activation
 
 Other lanes stay active.
 
+Refresh follows the same mapping as creation: a fresh activation ID and
+activation reference bind the replacement material to the same lane ID and the
+next share epoch. The prior activation remains the canonical source until the
+replacement receipt is committed, then its material is retired or revoked by
+the owning protocol. Refresh cannot reuse an activation ID, move an activation
+between lanes, or replace the wallet-key public identity.
+
 ### Wallet-Key Root Refresh
 
 An Ed25519 Yao root/provenance refresh or Router A/B ECDSA root-custody refresh
@@ -122,9 +139,13 @@ operations. Their root custody, operator separation, and production protocol
 remain owned by the authoritative protocol documents.
 
 If such a refresh changes active recipient packages, it must enumerate the
-exact active lane manifest and reactivate all affected lanes under one
-wallet-key refresh operation. A root refresh cannot silently mutate one lane's
-server material while leaving its holder binding stale.
+exact active lane references and reactivate every affected lane under one
+wallet-key refresh operation. The enrollment manifest is an aggregate product
+receipt; each curve-specific capability hydration still resolves its own
+manifest and `MpcMaterialActivationRef`. A pending activation journal is
+reconciled before lookup and deleted during atomic local finalization. A root
+refresh cannot silently mutate one lane's server material while leaving its
+holder binding stale.
 
 ### Revocation
 
@@ -193,7 +214,7 @@ before routes are registered. Reusing `registration`, `recovery`, or
 4. Existing active recipient lanes remain active during target creation.
 5. The Router sees ciphertext, public commitments, and receipts only.
 6. The target holder package is encrypted directly to Device 2 or, for an
-   already-authorized Refactor 99 execution adapter, its named custody binding.
+   already-authorized Refactor 104 execution adapter, its named custody binding.
 7. The target SigningWorker package activates under the exact target lane and
    epoch.
 8. Ordinary signing uses the activated Client and SigningWorker and performs
@@ -273,7 +294,7 @@ The transcript includes:
 - target lane ID, epoch, holder principal, and relayer key ID;
 - `X_client_target` and `X_relayer_target`;
 - target threshold-session identities;
-- enrollment and policy or mandate digests;
+- enrollment identity and exactly one authorization binding digest;
 - target custody public key;
 - operation ID, idempotency key, protocol version, and expiry.
 
@@ -286,6 +307,18 @@ type LaneProvisioningJob =
   | Ed25519YaoLaneProvisioningJob
   | EcdsaAdditiveLaneProvisioningJob;
 
+type LaneAuthorizationBinding =
+  | {
+      kind: 'linked_device';
+      linkedDevicePermissionDigestB64u: string;
+      authorizationBindingDigestB64u?: never;
+    }
+  | {
+      kind: 'delegated_execution';
+      authorizationBindingDigestB64u: string;
+      linkedDevicePermissionDigestB64u?: never;
+    };
+
 type Ed25519YaoLaneProvisioningJob = {
   kind: 'ed25519_yao_lane_provisioning_v1';
   operationId: LaneOperationId;
@@ -296,9 +329,10 @@ type Ed25519YaoLaneProvisioningJob = {
   sourceLaneShareEpoch: LaneShareEpoch;
   targetLaneId: SigningLaneId;
   targetLaneShareEpoch: LaneShareEpoch;
+  targetMaterialActivationId: MpcMaterialActivationId;
   registeredPublicKeyB64u: string;
   keyCreationSignerSlot: KeyCreationSignerSlot;
-  policyDigestB64u: string;
+  authorization: LaneAuthorizationBinding;
   lifecycle: LaneProtocolLifecycle;
 };
 
@@ -312,16 +346,19 @@ type EcdsaAdditiveLaneProvisioningJob = {
   sourceLaneShareEpoch: LaneShareEpoch;
   targetLaneId: SigningLaneId;
   targetLaneShareEpoch: LaneShareEpoch;
+  targetMaterialActivationId: MpcMaterialActivationId;
   thresholdPublicKey33B64u: string;
   evmAddress: string;
-  policyDigestB64u: string;
+  authorization: LaneAuthorizationBinding;
   lifecycle: LaneProtocolLifecycle;
 };
 ```
 
-Delegated-execution and linked-device jobs use separate outer branches.
-Delegated jobs bind `authorizationBindingDigestB64u`; device jobs bind
-`linkedDevicePermissionDigestB64u`. The two cannot be confused.
+The target activation ID is allocated once for the exact lane/epoch job. On
+commit, the curve adapter returns the full `MpcMaterialActivationRef` and
+persists it with the lane record. Delegated-execution and linked-device jobs
+use the disjoint `LaneAuthorizationBinding` branches above, so a linked-device
+permission digest cannot be presented as delegated authorization or vice versa.
 
 ## Protocol Lifecycle
 
@@ -397,8 +434,11 @@ Only pre-commit states can abort. Committed states either reach
 
 ## Multi-Key Enrollment Activation
 
-A linked-device or optional delegated-execution enrollment has one key-manifest
-digest and one child job per target wallet key.
+A linked-device or optional delegated-execution enrollment has one aggregate
+product manifest digest and one child job per target wallet key. This aggregate
+manifest coordinates the enrollment only; it is distinct from the landed
+curve-specific ECDSA capability manifest and from every child
+`MpcMaterialActivationRef`.
 
 ```text
 Enrollment(preparing)
@@ -422,9 +462,17 @@ Atomic visibility is enforced through the parent enrollment:
 - cancellation after committed Yao output completes accounting and revokes all
   child targets before the parent can become active.
 
-This provides all-or-nothing product behavior without claiming that browser
-storage, Router storage, and SigningWorker storage share one database
-transaction.
+Gateway D1 owns the parent enrollment, child lane product records, aggregate
+manifest receipt, activation result, Wallet Session authorization, quotas,
+authorized operations, and authorization audit. SigningWorker private D1 owns
+target server material, delivery state, active material, cryptographic effect
+deduplication, presignature or Yao material consumption, and terminal response
+replay; Deriver A/B private D1 owns role-local custody and one-use state. Device
+storage owns the holder package after local finalization.
+Router carries authenticated typed commands, ciphertext, and receipts and owns
+no mutable enrollment, lane, manifest, or activation state. Cross-store
+convergence uses exact correlation and idempotent effects; it does not claim a
+single database transaction.
 
 ## Concurrency And Fencing
 
@@ -437,6 +485,8 @@ transaction.
 - give revocation priority over creation or refresh;
 - reject stale epochs before any holder or server participation;
 - keep pending and retired material unavailable to ordinary signing;
+- keep Wallet Session expiry, quota exhaustion, and delegated-authorization
+  expiry as admission outcomes that preserve lane material and activation;
 - make every activation and receipt idempotent for the exact transcript.
 
 ## Owner Lane Refresh
@@ -449,7 +499,7 @@ family:
 - ECDSA: additive resharing through the active client capability and relayer
   share;
 - mixed wallet: one refresh enrollment coordinates every selected key;
-- credential-only replacement: Refactor 95 rewrap/recovery path, with no lane
+- credential-only replacement: Refactor 100 rewrap/recovery path, with no lane
   epoch change.
 
 The UI must distinguish credential replacement, lane refresh, and wallet rekey.
@@ -471,7 +521,7 @@ The source owner lanes remain active throughout.
 
 ## Authorization-Bound Delegated Execution Lane
 
-This optional flow exists only for the Refactor 99 direct threshold-wallet
+This optional flow exists only for the Refactor 104 direct threshold-wallet
 adapter. Agent identity registration and owner authorization complete first.
 Lane creation then uses these substitutions:
 
@@ -482,7 +532,8 @@ Lane creation then uses these substitutions:
   digest;
 - activation requires custody and participant receipts;
 - every signing operation still requires a verified agent request, active
-  owner authorization, atomic budget claim, and Refactor 99 admission.
+  delegated authorization, an atomic delegated budget claim, and Refactor 104
+  admission. It does not consume or rename Refactor 90's Wallet Session quota.
 
 The lane share never acts as the agent identity or delegated authorization.
 
@@ -495,6 +546,44 @@ Lane revocation:
 3. Disable the exact target SigningWorker or relayer capability.
 4. Retire target holder-delivery records and invalidate warm handles.
 5. Emit a revocation receipt and audit event.
+
+ECDSA uses an exact server retirement effect for this path. Refactor 90's
+canonical ECDSA manifest currently has one terminal retirement shape,
+`replaced`, proven by a replacement server activation commit. Lane revocation
+cannot be encoded as `replaced` or inferred from an authorization state. This
+plan adds a disjoint receipt and lane-aware hydration adapter:
+
+```ts
+type EcdsaServerRetirementReceipt = {
+  kind: 'ecdsa_server_retirement_receipt_v1';
+  manifest: EcdsaManifestIdentity;
+  materialActivation: MpcMaterialActivationRef;
+  walletKeyId: WalletKeyId;
+  laneId: SigningLaneId;
+  laneShareEpoch: LaneShareEpoch;
+  revocationEpoch: number;
+  retirementReason:
+    | 'lane_revoked'
+    | 'device_compromise'
+    | 'agent_compromise'
+    | 'rotation';
+  retirementCorrelationId: CorrelationId;
+  retirementRequestDigestB64u: string;
+  serverGeneration: EcdsaServerGeneration;
+  lifecycleId: EcdsaLifecycleId;
+  receiptDigestB64u: string;
+  retiredAt: IsoTimestamp;
+};
+```
+
+The receipt is produced by the ECDSA server-material owner, persisted with the
+Gateway's lane product record, and delivered to the SigningWorker owner for
+exact capability disablement. Hydration verifies manifest identity,
+activation reference, lane/epoch, retirement correlation and request digest,
+server generation, and receipt digest before returning a lane-specific
+`blocked.revoked` result. It never retires another
+lane or changes the wallet-key public identity. Router transports the command
+and receipt and keeps no retirement record.
 
 Enrollment revocation applies these steps to every child lane under one parent
 revocation operation. Owner lanes and unrelated enrollments remain active.
@@ -513,10 +602,13 @@ evaluate wallet rekey. A replacement lane always requires fresh owner approval.
 - no Yao `lane_provisioning` request kind exists;
 - no lane-scoped Yao refresh exists;
 - ECDSA additive target-lane resharing is unimplemented;
-- current owner ECDSA flows persist role-local durable material references and
-  public identity, though the canonical Refactor 90 manifest and a lane-aware
-  source-material resolver remain open;
-- server store interfaces have no durable implementations;
+- Refactor 90's canonical ECDSA manifest, activation journal, hydration, and
+  exact `MpcMaterialActivationRef` are landed; the lane-aware source-material
+  adapter remains open;
+- the exact ECDSA lane-retirement receipt and lane-specific hydration mapping
+  remain open;
+- Gateway, SigningWorker, and Deriver owner adapters for lane delivery and
+  activation remain open;
 - signing admission does not resolve active enrollment and lane records.
 
 Replace these scaffolds directly. Do not retain a universal rotation job or
@@ -526,6 +618,8 @@ protocol fallback.
 
 ### Phase 0: Freeze Protocol Ownership
 
+- [x] Adopt Refactor 90's landed curve-specific canonical hydration and ECDSA
+      manifest as the source of truth; do not introduce a cross-curve manifest.
 - [ ] Add `lane_provisioning` and lane-scoped refresh to the Yao specification,
       ideal functionality map, request union, and lifecycle proofs.
 - [ ] Freeze ECDSA additive target-lane resharing and transcript encoding using
@@ -540,14 +634,21 @@ protocol fallback.
 - [ ] Add committed forward-only lifecycle states.
 - [ ] Add enrollment manifests, aggregate receipts, and activation decisions.
 - [ ] Add type fixtures for creation-versus-refresh and curve separation.
+- [ ] Require a fresh target `MpcMaterialActivationId` for every lane create or
+      refresh and bind the resulting reference to the lane and share epoch.
 
 ### Phase 2: ECDSA Lane Protocol
 
-- [ ] Resolve the exact active source material through Refactor 90's canonical
-      ECDSA manifest and capability lifecycle.
+- [x] Resolve the exact active source material through Refactor 90's landed
+      `ActiveEcdsaCapabilityManifest` and hydration contract after reconciling
+      any pending activation journal.
+- [ ] Add the lane-aware source-material adapter that binds the manifest,
+      lane/epoch, participants, and exact `MpcMaterialActivationRef`.
 - [ ] Implement holder-sampled target share and transient delta handling.
 - [ ] Verify public-key and address continuity.
 - [ ] Seal target relayer shares and bind target threshold sessions.
+- [ ] Emit and hydrate the exact `EcdsaServerRetirementReceipt` for lane
+      revocation; do not encode revocation as `replaced`.
 - [ ] Add replay, parity, tamper, and zeroization tests.
 
 ### Phase 3: Ed25519 Yao Lane Protocol
@@ -570,6 +671,8 @@ protocol fallback.
 - [ ] Add owner, linked-device, and delegated-execution lane refresh.
 - [ ] Add immediate lane and aggregate enrollment revocation.
 - [ ] Invalidate warm capabilities and reject stale epochs.
+- [ ] Ensure Wallet Session and delegated-authorization expiry preserve active
+      lane material and activation references.
 - [ ] Add wallet-key root refresh integration after authoritative protocol
       support exists.
 
@@ -581,12 +684,16 @@ Static checks:
 - ECDSA job with Yao circuit fields fails;
 - lane creation cannot carry a prior target epoch to retire;
 - lane refresh requires the same lane ID and strictly advancing epoch;
+- every create or refresh allocates a fresh activation ID and persists the
+  exact activation reference with the target lane epoch;
 - delegated authorization-binding and linked-device permission digests cannot
   be interchanged;
 - committed lifecycle cannot transition to pre-commit abort;
 - active enrollment requires a nonempty exact child manifest;
 - persisted records cannot contain ECDSA delta, plaintext holder material, Yao
-  private outputs, or export shares.
+  private outputs, or export shares;
+- ECDSA lane revocation fails closed without an exact server retirement receipt
+  bound to the manifest, activation, lane, epoch, generation, and digest;
 
 Focused cryptographic tests:
 
@@ -636,6 +743,8 @@ Broad gate:
   recipients.
 - Decide how committed target packages are durably redelivered after a link
   session expires.
-- Freeze the cross-store activation manifest and signing-admission read model.
+- Freeze the aggregate enrollment visibility and lane-aware hydration read
+  model across Gateway D1 and private material owners; Router remains
+  stateless.
 - Define compromise cases that require lane refresh, enrollment revocation, or
   wallet rekey.

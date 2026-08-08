@@ -131,5 +131,5 @@ benchmark_bundle_index_bytes = 387
 benchmark_bundle_index_digest = "aa62b83b38163bf898c90084f2eb25df1c95ba41274d0f7826250f9168b80db1"
 anti_drift_tests = 6
 verus_obligations = 27
-lean_model_theorems = 158
+lean_model_theorems = 169
 aeneas_extracted_functions = 2

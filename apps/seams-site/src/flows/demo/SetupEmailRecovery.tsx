@@ -10,7 +10,7 @@ import { NEAR_EXPLORER_BASE_URL } from '@/shared/types';
 
 export const SetupEmailRecovery: React.FC = () => {
   const {
-    loginState: { isLoggedIn, nearAccountId },
+    loginState: { isLoggedIn, walletId },
     seams,
   } = useSeams();
 
@@ -18,7 +18,9 @@ export const SetupEmailRecovery: React.FC = () => {
   const [recoveryEmails, setRecoveryEmails] = React.useState<string[]>(['']);
   const [onChainHashes, setOnChainHashes] = React.useState<string[]>([]);
   const nearNetwork = (() => {
-    type ConfiguredChain = ReturnType<typeof useSeams>['seams']['configs']['network']['chains'][number];
+    type ConfiguredChain = ReturnType<
+      typeof useSeams
+    >['seams']['configs']['network']['chains'][number];
     const nearChain = seams?.configs.network.chains.find((chain: ConfiguredChain) =>
       String(chain.network).startsWith('near-'),
     );
@@ -26,13 +28,13 @@ export const SetupEmailRecovery: React.FC = () => {
   })();
 
   const refreshOnChainEmails = React.useCallback(async () => {
-    if (!seams || !nearAccountId || nearNetwork !== 'testnet') {
+    if (!seams || !walletId || nearNetwork !== 'testnet') {
       setOnChainHashes([]);
       return;
     }
 
     try {
-      const records = await seams.recovery.getRecoveryEmails(nearAccountId);
+      const records = await seams.recovery.getRecoveryEmails(walletId);
       const labels = (records || []).map((rec: { email: string }) => rec.email);
       setOnChainHashes(labels);
     } catch (err) {
@@ -40,7 +42,7 @@ export const SetupEmailRecovery: React.FC = () => {
       console.error('[EmailRecovery] Failed to fetch recovery emails', err);
       setOnChainHashes([]);
     }
-  }, [seams, nearAccountId, nearNetwork]);
+  }, [seams, walletId, nearNetwork]);
 
   React.useEffect(() => {
     void refreshOnChainEmails();
@@ -55,7 +57,7 @@ export const SetupEmailRecovery: React.FC = () => {
   };
 
   const handleSetRecoveryEmails = async () => {
-    if (!seams || !nearAccountId) return;
+    if (!seams || !walletId) return;
     if (!ensureTestnet()) return;
 
     const toastId = 'email-recovery-set-emails';
@@ -64,7 +66,7 @@ export const SetupEmailRecovery: React.FC = () => {
     try {
       toast.loading('Updating recovery emails...', { id: toastId });
       const result = await seams.recovery.setRecoveryEmails({
-        accountId: nearAccountId,
+        walletId,
         recoveryEmails,
         options: {
           waitUntil: TxExecutionStatus.EXECUTED_OPTIMISTIC,
@@ -110,7 +112,7 @@ export const SetupEmailRecovery: React.FC = () => {
     }
   };
 
-  if (!isLoggedIn || !nearAccountId) {
+  if (!isLoggedIn || !walletId) {
     return null;
   }
 
@@ -120,9 +122,7 @@ export const SetupEmailRecovery: React.FC = () => {
         Email Recovery
         <span className="recovery-beta-chip">Beta</span>
       </h3>
-      <div className="action-text">
-        Recover your account by email if you lose your passkey.
-      </div>
+      <div className="action-text">Recover your account by email if you lose your passkey.</div>
       <div style={{ width: '100%', maxWidth: 480 }}>
         <EmailRecoveryFields
           value={recoveryEmails}

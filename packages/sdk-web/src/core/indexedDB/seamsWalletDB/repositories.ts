@@ -1,4 +1,5 @@
 import { toTrimmedString } from '@shared/utils/validation';
+import { alphabetizeStringify } from '@shared/utils/digests';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { SIGNER_KINDS } from '@shared/utils/signerDomain';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
@@ -204,6 +205,18 @@ export type StoreWalletSignerFinalizeBatchInput = {
     profileId: string;
     activeSignerSlot: number;
     scope?: string | null;
+  };
+};
+
+export type AtomicKeyMaterialRecoveryFinalizationInput = {
+  journalKey: string;
+  expectedJournal: unknown;
+  replacement: KeyMaterialRecord;
+  retire: {
+    profileId: string;
+    signerSlot: number;
+    chainIdKey: string;
+    keyKind: KeyMaterialKind;
   };
 };
 
@@ -879,6 +892,19 @@ function walletAuthMethodRowsForRegistrationFinalize(
   }
 
   for (const authenticator of authenticators) {
+    if (
+      input.initialAuthMethod.kind === 'passkey' &&
+      authenticator.profileId === input.initialAuthMethod.walletId &&
+      authenticator.credentialId === input.initialAuthMethod.credentialIdB64u
+    ) {
+      const row = passkeyAuthMethodRow({
+        binding: input.initialAuthMethod,
+        authenticator,
+      });
+      rows.set(row.wallet_auth_method_id, row);
+      credentialRows.set(passkeyCredentialIndexKey(row), row);
+      continue;
+    }
     const row = walletAuthMethodRowFromAuthenticator(authenticator);
     const credentialKey = passkeyCredentialIndexKey(row);
     const existingCredentialRow = credentialRows.get(credentialKey);
@@ -1548,6 +1574,29 @@ export class SeamsWalletRepositories {
     if (!normalizedKey) return;
     await this.manager.runTransaction([SEAMS_WALLET_STORES.appState], 'readwrite', async (ctx) => {
       await ctx.store(SEAMS_WALLET_STORES.appState).put({ key: normalizedKey, value });
+    });
+  }
+
+  async compareAndSwapAppState(input: {
+    key: string;
+    expected: unknown | null;
+    replacement: unknown;
+  }): Promise<boolean> {
+    const normalizedKey = toTrimmedString(input.key || '');
+    if (!normalizedKey) throw new Error('[SeamsWalletDB] app-state CAS key is required');
+    return this.manager.runTransaction([SEAMS_WALLET_STORES.appState], 'readwrite', async (ctx) => {
+      const store = ctx.store(SEAMS_WALLET_STORES.appState);
+      const current = (await store.get(normalizedKey)) as AppStateRow<unknown> | undefined;
+      const matches =
+        input.expected === null
+          ? current === undefined
+          : current !== undefined &&
+            alphabetizeStringify(current.value) === alphabetizeStringify(input.expected);
+      if (!matches) {
+        return false;
+      }
+      await store.put({ key: normalizedKey, value: input.replacement });
+      return true;
     });
   }
 
@@ -3546,6 +3595,62 @@ export class SeamsWalletRepositories {
             );
           }
         }
+      },
+    );
+  }
+
+  async finalizeKeyMaterialRecovery(
+    input: AtomicKeyMaterialRecoveryFinalizationInput,
+  ): Promise<void> {
+    const journalKey = toTrimmedString(input.journalKey || '');
+    if (!journalKey) throw new Error('[SeamsWalletDB] recovery journal key is required');
+    const replacementRow = keyMaterialRow(input.replacement);
+    const retireProfileId = toTrimmedString(input.retire.profileId || '');
+    const retireChainIdKey = toTrimmedString(input.retire.chainIdKey || '').toLowerCase();
+    const retireKeyKind = toTrimmedString(input.retire.keyKind || '');
+    if (
+      !retireProfileId ||
+      !retireChainIdKey ||
+      !retireKeyKind ||
+      !Number.isSafeInteger(input.retire.signerSlot) ||
+      input.retire.signerSlot < 1
+    ) {
+      throw new Error('[SeamsWalletDB] recovery source coordinates are invalid');
+    }
+    await this.manager.runTransaction(
+      [SEAMS_WALLET_STORES.appState, SEAMS_WALLET_STORES.keyMaterial],
+      'readwrite',
+      async (ctx) => {
+        const appStateStore = ctx.store(SEAMS_WALLET_STORES.appState);
+        const journal = (await appStateStore.get(journalKey)) as AppStateRow<unknown> | undefined;
+        if (
+          !journal ||
+          alphabetizeStringify(journal.value) !== alphabetizeStringify(input.expectedJournal)
+        ) {
+          throw new Error('[SeamsWalletDB] recovery journal changed before finalization');
+        }
+        const keyMaterialStore = ctx.store(SEAMS_WALLET_STORES.keyMaterial);
+        await keyMaterialStore.put(replacementRow);
+        const rows = (await keyMaterialStore
+          .index(SEAMS_WALLET_INDEXES.walletId)
+          .getAll(retireProfileId)) as unknown[];
+        for (const row of rows) {
+          const parsed = parseKeyMaterialRow(row);
+          if (
+            parsed &&
+            parsed.signerSlot === input.retire.signerSlot &&
+            parsed.chainIdKey === retireChainIdKey &&
+            parsed.keyKind === retireKeyKind
+          ) {
+            await keyMaterialStore.delete(
+              keyMaterialId({
+                walletSignerId: walletSignerIdForKeyMaterial(parsed),
+                keyKind: parsed.keyKind,
+              }),
+            );
+          }
+        }
+        await appStateStore.delete(journalKey);
       },
     );
   }

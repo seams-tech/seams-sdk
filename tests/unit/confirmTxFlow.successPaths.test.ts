@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 const IMPORT_PATHS = {
   handle: '/_test-sdk/esm/core/signingEngine/uiConfirm/handlers/handlePromptFromWorker.js',
   types: '/_test-sdk/esm/core/signingEngine/stepUpConfirmation/channel/confirmTypes.js',
+  events: '/_test-sdk/esm/core/browser/walletIframe/events.js',
   localOnly: '/_test-sdk/esm/core/signingEngine/uiConfirm/handlers/flows/localOnly.js',
   litRegistry: '/_test-sdk/esm/core/signingEngine/uiConfirm/ui/registry.js',
   nonceCoordinator: '/_test-sdk/esm/core/signingEngine/nonce/NonceCoordinator.js',
@@ -764,7 +765,318 @@ test.describe('confirmTxFlow – success paths', () => {
     expect(result.prf).toBeUndefined();
   });
 
-  test('Signing: defers implicit NEAR funding until passkey reauth completes', async ({ page }) => {
+  test('Signing: context-ready Email OTP prepares one operation step-up without passkey lookup', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.handle);
+        const types = await import(paths.types);
+        const events = await import(paths.events);
+        const handle = mod.handlePromptFromWorker as Function;
+
+        const preparationRef = {
+          kind: 'near_operation_step_up_prepared_v1',
+          handle: 'near-operation-step-up:email-otp-confirmation',
+          challengeB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+        } as const;
+        const prepareInputs: unknown[] = [];
+        let passkeyCredentialLookups = 0;
+        const ctx: any = {
+          userPreferencesManager: {
+            getConfirmationConfig: () => ({
+              uiMode: 'modal',
+              behavior: 'requireClick',
+              autoProceedDelay: 0,
+            }),
+          },
+          nearContextFixture: {
+            async getNonceBlockHashAndHeight() {
+              return {
+                nearPublicKeyStr: 'pk-email-otp',
+                accessKeyInfo: { nonce: 40, permission: 'FullAccess' },
+                nextNonce: '41',
+                txBlockHeight: '4000',
+                txBlockHash: 'email-otp-block',
+              };
+            },
+            reserveNonces() {
+              return ['41'];
+            },
+            releaseNonce() {},
+          },
+          nearClient: {
+            async viewBlock() {
+              return { header: { height: 4001, hash: 'email-otp-block-next' } };
+            },
+          },
+          touchIdPrompt: {
+            getRpId: () => 'example.localhost',
+            getAuthenticationCredentialsSerializedForChallengeB64u: async () => {
+              passkeyCredentialLookups += 1;
+              throw new Error('Email OTP confirmation must not collect a passkey credential');
+            },
+          },
+          webauthnCredentialStore: {
+            resolveProfileAccountContext: async () => {
+              passkeyCredentialLookups += 1;
+              throw new Error('Email OTP confirmation must not resolve passkey context');
+            },
+            listProfileAuthenticators: async () => {
+              passkeyCredentialLookups += 1;
+              throw new Error('Email OTP confirmation must not list passkeys');
+            },
+            selectProfileAuthenticatorsForPrompt: async () => {
+              passkeyCredentialLookups += 1;
+              throw new Error('Email OTP confirmation must not select a passkey');
+            },
+          },
+          operationStepUpPreparation: {
+            prepare: async (input: unknown) => {
+              prepareInputs.push(input);
+              return preparationRef;
+            },
+            cancel() {},
+          },
+        };
+        await (globalThis as any).__attachTestNonceCoordinator(ctx);
+
+        const request = {
+          requestId: 'email-otp-context-ready',
+          type: types.UserConfirmationType.SIGN_TRANSACTION,
+          summary: {},
+          payload: {
+            signingKind: 'transaction',
+            intentDigest: '',
+            signingAuthPlan: {
+              kind: 'emailOtpReauth',
+              method: 'email_otp',
+              emailOtpPrompt: {
+                challengeId: 'email-otp-challenge-context-ready',
+              },
+            },
+            walletId: 'email-otp-wallet',
+            nearAccountId: 'email-otp.testnet',
+            nearPublicKeyStr: 'pk-email-otp',
+            nearFundingRequest: {
+              subject: {
+                walletId: 'email-otp-wallet',
+                nearAccountId: 'email-otp.testnet',
+                nearPublicKeyStr: 'pk-email-otp',
+              },
+              operation: {
+                operationId: 'email-otp-operation',
+                operationFingerprint: 'email-otp-fingerprint',
+                intent: 'transaction_sign',
+                accountId: 'email-otp.testnet',
+              },
+              signatureUses: 1,
+            },
+            txSigningRequests: [{ receiverId: 'receiver.testnet', actions: [] }],
+            rpcCall: {
+              method: 'sign',
+              argsJson: {},
+              nearAccountId: 'email-otp.testnet',
+              nearRpcUrl: 'https://rpc.testnet.near.org',
+            },
+          },
+        } as any;
+
+        const triggerEmailOtpConfirmation = () => {
+          const attempt = () => {
+            const portal = document.getElementById('w3a-confirm-portal');
+            const host = portal?.firstElementChild as HTMLElement | null;
+            if (!host) {
+              setTimeout(attempt, 20);
+              return;
+            }
+            host.dispatchEvent(
+              new CustomEvent(events.WalletIframeDomEvents.TX_CONFIRMER_CONFIRM, {
+                bubbles: true,
+                composed: true,
+                detail: {
+                  confirmed: true,
+                  otpCode: '654321',
+                  emailOtpChallengeId: 'email-otp-challenge-context-ready',
+                },
+              }),
+            );
+          };
+          setTimeout(attempt, 60);
+        };
+
+        const messages: any[] = [];
+        const worker = {
+          postMessage: (message: any) => messages.push(message),
+        } as unknown as Worker;
+        triggerEmailOtpConfirmation();
+        await handle(
+          ctx,
+          {
+            type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+            data: request,
+          },
+          worker,
+        );
+
+        const response = messages[0]?.data;
+        return {
+          confirmed: response?.confirmed,
+          error: response?.error,
+          otpCode: response?.otpCode,
+          emailOtpChallengeId: response?.emailOtpChallengeId,
+          operationStepUpPreparation: response?.operationStepUpPreparation,
+          readiness: response?.nearTransactionReadiness,
+          prepareInputs,
+          passkeyCredentialLookups,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.confirmed, result.error || 'unknown error').toBe(true);
+    expect(result.readiness?.kind).toBe('context_ready');
+    expect(result.prepareInputs).toHaveLength(1);
+    expect(result.operationStepUpPreparation).toEqual({
+      kind: 'near_operation_step_up_prepared_v1',
+      handle: 'near-operation-step-up:email-otp-confirmation',
+      challengeB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    });
+    expect(result.otpCode).toBe('654321');
+    expect(result.emailOtpChallengeId).toBe('email-otp-challenge-context-ready');
+    expect(result.passkeyCredentialLookups).toBe(0);
+  });
+
+  test('NEP-413: Email OTP prepares a signature-only operation step-up', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.handle);
+        const types = await import(paths.types);
+        const events = await import(paths.events);
+        const handle = mod.handlePromptFromWorker as Function;
+        const prepareInputs: unknown[] = [];
+        let passkeyCredentialLookups = 0;
+        const ctx: any = {
+          userPreferencesManager: {
+            getConfirmationConfig: () => ({
+              uiMode: 'modal',
+              behavior: 'requireClick',
+              autoProceedDelay: 0,
+            }),
+          },
+          nonceCoordinator: {
+            fetchNearContext: async () => {
+              throw new Error('NEP-413 must not fetch access-key context');
+            },
+          },
+          touchIdPrompt: {
+            getRpId: () => 'example.localhost',
+            getAuthenticationCredentialsSerializedForChallengeB64u: async () => {
+              passkeyCredentialLookups += 1;
+              throw new Error('Email OTP confirmation must not collect a passkey credential');
+            },
+          },
+          operationStepUpPreparation: {
+            prepare: async (input: unknown) => {
+              prepareInputs.push(input);
+              return {
+                kind: 'near_operation_step_up_prepared_v1',
+                handle: 'near-operation-step-up:nep413-email-otp',
+                challengeB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+              };
+            },
+            cancel() {},
+          },
+        };
+
+        const request = {
+          requestId: 'nep413-email-otp',
+          type: types.UserConfirmationType.SIGN_NEP413_MESSAGE,
+          summary: {},
+          payload: {
+            signingAuthPlan: {
+              kind: 'emailOtpReauth',
+              method: 'email_otp',
+              emailOtpPrompt: {
+                challengeId: 'nep413-email-otp-challenge',
+              },
+            },
+            walletId: 'email-otp-wallet',
+            nearAccountId: 'email-otp.testnet',
+            nearPublicKeyStr: 'pk-email-otp',
+            message: 'authorize this message',
+            recipient: 'receiver.testnet',
+            nearRpcUrl: 'https://rpc.testnet.near.org',
+          },
+        } as any;
+
+        const triggerConfirmation = () => {
+          const attempt = () => {
+            const portal = document.getElementById('w3a-confirm-portal');
+            const host = portal?.firstElementChild as HTMLElement | null;
+            if (!host) {
+              setTimeout(attempt, 20);
+              return;
+            }
+            host.dispatchEvent(
+              new CustomEvent(events.WalletIframeDomEvents.TX_CONFIRMER_CONFIRM, {
+                bubbles: true,
+                composed: true,
+                detail: {
+                  confirmed: true,
+                  otpCode: '654321',
+                  emailOtpChallengeId: 'nep413-email-otp-challenge',
+                },
+              }),
+            );
+          };
+          setTimeout(attempt, 60);
+        };
+
+        const messages: any[] = [];
+        const worker = {
+          postMessage: (message: any) => messages.push(message),
+        } as unknown as Worker;
+        triggerConfirmation();
+        await handle(
+          ctx,
+          {
+            type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+            data: request,
+          },
+          worker,
+        );
+        const response = messages[0]?.data;
+        return {
+          confirmed: response?.confirmed,
+          error: response?.error,
+          otpCode: response?.otpCode,
+          operationStepUpPreparation: response?.operationStepUpPreparation,
+          prepareInputs,
+          passkeyCredentialLookups,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.confirmed, result.error || 'unknown error').toBe(true);
+    expect(result.prepareInputs).toEqual([
+      {
+        kind: 'near_signature_only',
+        requestId: 'nep413-email-otp',
+        displayDigest: expect.any(String),
+      },
+    ]);
+    expect(result.operationStepUpPreparation?.handle).toBe(
+      'near-operation-step-up:nep413-email-otp',
+    );
+    expect(result.otpCode).toBe('654321');
+    expect(result.passkeyCredentialLookups).toBe(0);
+  });
+
+  test('Signing: funds an implicit account via the funding port before the step-up assertion', async ({
+    page,
+  }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.handle);
@@ -776,6 +1088,9 @@ test.describe('confirmTxFlow – success paths', () => {
         const nearPublicKeyStr = 'ed25519:test-implicit-public-key';
         const originalFetch = globalThis.fetch.bind(globalThis);
         const reserved: string[] = [];
+        const fundPortRequests: any[] = [];
+        const prepareInputs: any[] = [];
+        let portFunded = false;
         let fundingCalls = 0;
         let accessKeyLookups = 0;
         let fundedRequestBody: any = null;
@@ -811,6 +1126,58 @@ test.describe('confirmTxFlow – success paths', () => {
                 autoProceedDelay: 0,
               }),
             },
+            // The signing side registers the real funder; this stub stands in
+            // for it. The step-up assertion signs the prepared operation's
+            // digest, so the confirm flow must fund through this port and
+            // re-reserve the context BEFORE preparing and asserting.
+            nearImplicitAccountFunding: {
+              fund: async (input: any) => {
+                fundPortRequests.push(input);
+                portFunded = true;
+                // The real funder reserves while it funds and hands both halves
+                // back: refs for the wire, full leases for release-on-failure.
+                const leases = (ctx.nearContextFixture.reserveNonces(1) as string[]).map(
+                  (nonce: string) => ({
+                    leaseId: `lease-${nonce}`,
+                    nonce,
+                    lane: { walletId, nearAccountId, nearPublicKeyStr },
+                    state: 'reserved',
+                    reservedAtMs: 1,
+                    expiresAtMs: 2,
+                    operationId: input.request.operation.operationId,
+                    operationFingerprint: input.request.operation.operationFingerprint,
+                  }),
+                );
+                return {
+                  readiness: {
+                    kind: 'context_ready',
+                    transactionContext: {
+                      nearPublicKeyStr,
+                      accessKeyInfo: { nonce: 300, permission: 'FullAccess' },
+                      nextNonce: leases[0].nonce,
+                      txBlockHeight: '3001',
+                      txBlockHash: 'h-implicit-funded',
+                    },
+                    nonceLeases: leases.map((lease: any) => ({
+                      leaseId: lease.leaseId,
+                      nonce: lease.nonce,
+                    })),
+                  },
+                  reservedNonceLeases: leases,
+                };
+              },
+            },
+            operationStepUpPreparation: {
+              prepare: async (input: unknown) => {
+                prepareInputs.push(input);
+                return {
+                  kind: 'near_operation_step_up_prepared_v1',
+                  handle: 'near-operation-step-up:implicit-funding-confirmation',
+                  challengeB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+                } as const;
+              },
+              cancel() {},
+            },
             nearContextFixture: {
               nearAccountId,
               nearPublicKeyStr,
@@ -822,14 +1189,14 @@ test.describe('confirmTxFlow – success paths', () => {
             },
             nearClient: {
               async viewAccount() {
-                if (fundingCalls === 0) {
+                if (!portFunded) {
                   throw new Error('Account does not exist while viewing');
                 }
                 return { amount: '100000000000000000000000' };
               },
               async viewAccessKey() {
                 accessKeyLookups += 1;
-                if (fundingCalls === 0) {
+                if (!portFunded) {
                   throw new Error('Access key not found');
                 }
                 return { nonce: 300, permission: 'FullAccess' };
@@ -936,6 +1303,9 @@ test.describe('confirmTxFlow – success paths', () => {
             accessKeyLookups,
             fundedRequestBody,
             hasCredential: Boolean(resp?.credential),
+            fundPortRequests,
+            prepareInputs,
+            preparationHandle: resp?.operationStepUpPreparation?.handle,
           };
         } finally {
           globalThis.fetch = originalFetch;
@@ -946,14 +1316,39 @@ test.describe('confirmTxFlow – success paths', () => {
 
     expect(result.confirmed, result.error || 'unknown error').toBe(true);
     expect(result.hasCredential).toBe(true);
-    expect(result.readiness?.kind).toBe('funding_required');
-    expect(result.readiness?.request?.subject?.nearAccountId).toBe(
-      '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    // Funding went through the port (the signing side's registered funder), not
+    // through any HTTP call this flow makes itself.
+    expect(result.fundPortRequests).toHaveLength(1);
+    expect(result.fundPortRequests[0]).toEqual(
+      expect.objectContaining({
+        requestId: 'r-implicit-fund',
+        request: expect.objectContaining({
+          subject: expect.objectContaining({
+            nearAccountId: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+          }),
+        }),
+      }),
     );
-    expect(result.reserved).toEqual([]);
     expect(result.fundingCalls).toBe(0);
-    expect(result.accessKeyLookups).toBe(1);
     expect(result.fundedRequestBody).toBeNull();
+    // After funding, the context is reserved through the ordinary path and the
+    // decision proceeds down the unchanged context_ready route: the step-up is
+    // prepared against the funded context so the assertion signs its digest.
+    expect(result.readiness?.kind).toBe('context_ready');
+    // The funder reserves as it funds, so the flow does NOT re-query the access
+    // key afterwards — that redundant round trip sat in front of the passkey
+    // prompt.
+    expect(result.reserved).toEqual(['301']);
+    expect(result.accessKeyLookups).toBe(1);
+    expect(result.prepareInputs).toHaveLength(1);
+    expect(result.prepareInputs[0]).toEqual(
+      expect.objectContaining({
+        kind: 'near_transaction',
+        requestId: 'r-implicit-fund',
+        transactionContext: expect.anything(),
+      }),
+    );
+    expect(result.preparationHandle).toBe('near-operation-step-up:implicit-funding-confirmation');
   });
 
   test('Delegate action: warm-session confirmation skips access-key readiness', async ({
@@ -1006,7 +1401,7 @@ test.describe('confirmTxFlow – success paths', () => {
               method: 'passkey',
               accountId: 'wallet.testnet',
               intent: 'transaction_sign',
-              sessionId: 'threshold-session-delegate',
+              thresholdSessionId: 'threshold-session-delegate',
               retention: 'volatile',
               expiresAtMs: Date.now() + 60_000,
               remainingUses: 1,
@@ -1062,6 +1457,8 @@ test.describe('confirmTxFlow – success paths', () => {
 
         const reserved: string[] = [];
         let contextFetches = 0;
+        const prepareInputs: unknown[] = [];
+        let passkeyChallenge = '';
         const ctx: any = {
           userPreferencesManager: {
             getConfirmationConfig: () => ({
@@ -1094,8 +1491,11 @@ test.describe('confirmTxFlow – success paths', () => {
           },
           touchIdPrompt: {
             getRpId: () => 'example.localhost',
-            getAuthenticationCredentialsSerializedForChallengeB64u: async () =>
-              ({
+            getAuthenticationCredentialsSerializedForChallengeB64u: async (input: {
+              challengeB64u: string;
+            }) => {
+              passkeyChallenge = input.challengeB64u;
+              return {
                 id: 'nep-cred',
                 rawId: 'Bw',
                 type: 'public-key',
@@ -1113,7 +1513,19 @@ test.describe('confirmTxFlow – success paths', () => {
                     },
                   },
                 },
-              }) as any,
+              } as any;
+            },
+          },
+          operationStepUpPreparation: {
+            prepare: async (input: unknown) => {
+              prepareInputs.push(input);
+              return {
+                kind: 'near_operation_step_up_prepared_v1',
+                handle: 'near-operation-step-up:nep413-passkey',
+                challengeB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+              };
+            },
+            cancel() {},
           },
           indexedDB: {
             clientDB: {
@@ -1185,6 +1597,9 @@ test.describe('confirmTxFlow – success paths', () => {
           error: resp?.error,
           prf: resp?.prfOutput,
           tx: resp?.transactionContext,
+          operationStepUpPreparation: resp?.operationStepUpPreparation,
+          prepareInputs,
+          passkeyChallenge,
           reserved,
           contextFetches,
         };
@@ -1196,6 +1611,15 @@ test.describe('confirmTxFlow – success paths', () => {
     expect(result.tx).toBeUndefined();
     expect(result.reserved).toEqual([]);
     expect(result.contextFetches).toBe(0);
+    expect(result.prepareInputs).toEqual([
+      {
+        kind: 'near_signature_only',
+        requestId: 'r-nep',
+        displayDigest: expect.any(String),
+      },
+    ]);
+    expect(result.operationStepUpPreparation?.handle).toBe('near-operation-step-up:nep413-passkey');
+    expect(result.passkeyChallenge).toBe('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
     // NEP-413 signing also must not expose PRF output.
     expect(result.prf).toBeUndefined();
   });

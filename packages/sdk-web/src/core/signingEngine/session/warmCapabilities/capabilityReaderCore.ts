@@ -1,59 +1,59 @@
-import { resolveEmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
+import type { ActiveEcdsaCapabilityRuntimeResolution } from '../material/activeEcdsaCapabilityRuntime';
 import {
-  buildEmailOtpEcdsaSigningSessionAuthority,
-  type EmailOtpEcdsaSigningSessionAuthority,
-} from '../emailOtp/ecdsaSigningSessionAuthority';
+  resolveActiveEcdsaCapabilityRuntime,
+  resolveActiveEcdsaCapabilityRuntimeForChain,
+} from '../material/activeEcdsaCapabilityRuntime';
 import {
-  buildEmailOtpEd25519SigningSessionAuthority,
-  type EmailOtpEd25519SigningSessionAuthority,
-} from '../emailOtp/ed25519SigningSessionAuthority';
-import { emailOtpAuthContextProviderUserId, selectedEcdsaLane } from '../identity/laneIdentity';
-import {
-  toExactEcdsaSigningLaneIdentity,
-  thresholdEcdsaLaneCandidateFromSessionRecord,
-  thresholdEcdsaSessionRecordReadModel,
-  type ThresholdSessionSealTransportAuthMaterial,
-} from '../persistence/records';
-import {
-  exactSigningLaneIdentityMatches,
-  type ExactEcdsaSigningLaneIdentity,
-  type ExactEd25519SigningLaneIdentity,
-} from '../identity/exactSigningLaneIdentity';
-import {
-  readWarmSessionCapabilityRecordsForWallet,
-  readWarmSessionEcdsaRecordByThresholdSessionId,
-  readWarmSessionEd25519RecordForAccount,
-  readWarmSessionEd25519RecordByThresholdSessionId,
-} from './store';
+  buildBaseEvmFamilyEcdsaKeyIdentity,
+  toRpId,
+} from '../identity/evmFamilyEcdsaIdentity';
+import { selectedEcdsaLane } from '../identity/laneIdentity';
+import type { EcdsaSealTransportAuthMaterial } from '../persistence/sealedSessionTransportAuth';
+import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '../material/ecdsaSigningCapability';
 import {
   deriveEcdsaCapabilityState,
   deriveEd25519CapabilityState,
-  readWarmSessionClaim,
-  resolveEcdsaAuthMaterial,
   resolveEcdsaSealTransport,
-  resolveEd25519AuthMaterial,
-  type WarmSessionReadPorts,
 } from './readModel';
-import { tryBuildEcdsaSessionIdentity } from './ecdsaProvisionPlan';
 import { assertWarmSessionEnvelopeInvariant } from './types';
-import {
-  toWalletId,
-  type ThresholdEcdsaChainTarget,
-  type WalletId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  parseSigningSessionSealKeyVersion,
-  type SigningSessionSealKeyVersion,
-} from '../keyMaterialBrands';
+import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { warmClaimFromRecordPolicy } from '../availability/readiness';
 import type {
-  WarmSessionEcdsaAuthMaterial,
   WarmSessionEcdsaCapabilityState,
-  WarmSessionEd25519AuthMaterial,
   WarmSessionEd25519CapabilityState,
   WarmSessionEnvelope,
+  WarmSessionPrfClaim,
 } from './types';
 import type { WarmSigningStatusReader } from './statusReader';
-import type { AccountId } from '@/core/types/accountIds';
+import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  resolveExactEd25519SealedSessionRuntimeForWallet,
+  type Ed25519WalletSealedSessionRuntimeResolution,
+} from './ed25519SealedSessionRuntime';
+import type { ExactEcdsaSealedRuntimeAuthBinding } from '../material/ecdsaSealedRuntime';
+import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
+
+function signingLaneAuthBindingFromEcdsaRuntime(
+  authBinding: ExactEcdsaSealedRuntimeAuthBinding,
+): SigningLaneAuthBinding {
+  switch (authBinding.kind) {
+    case 'passkey':
+      return {
+        kind: 'passkey',
+        rpId: toRpId(authBinding.rpId),
+        credentialIdB64u: authBinding.credentialIdB64u,
+      };
+    case 'email_otp':
+      return {
+        kind: 'email_otp',
+        providerSubjectId: authBinding.providerSubjectId,
+      };
+    default:
+      authBinding satisfies never;
+      throw new Error('[WarmSessionStore] unsupported ECDSA runtime auth binding');
+  }
+}
 
 export type WarmSessionCapabilityReaderSealConfigured = {
   seal: 'configured';
@@ -70,253 +70,234 @@ export type WarmSessionCapabilityReaderSeal =
   | WarmSessionCapabilityReaderSealUnavailable;
 
 export type WarmSessionCapabilityReaderCoreDeps = {
-  touchConfirm: WarmSessionReadPorts | null;
   statusReader: Pick<
     WarmSigningStatusReader,
-    | 'readWalletScopedClaimsForRecords'
-    | 'readEcdsaWarmSessionClaimForRecord'
-    | 'resolveExactEcdsaRecord'
+    'readEd25519WarmSessionClaim'
   >;
   signingSessionSeal: WarmSessionCapabilityReaderSeal;
+  // Resolves the active reusable Wallet Session authorization for a wallet.
+  // Absent or failing resolution degrades ECDSA capabilities to
+  // `authorization_required`; it never fabricates an authorization.
+  resolveActiveEcdsaWalletSessionAuthorization?: (
+    walletId: WalletId,
+  ) => Promise<ActiveEvmFamilyWalletSessionAuthorization | null>;
+  resolveActiveEd25519WalletSessionAuthorization?: (
+    walletId: WalletId,
+  ) => Promise<ActiveWalletSessionAuthorizationProjection | null>;
 };
 
 export type WarmSessionCapabilityReaderCore = {
   getWarmSession: (walletId: WalletId) => Promise<WarmSessionEnvelope>;
-  getEd25519CapabilityForNearAccount: (
-    nearAccountId: AccountId,
-  ) => Promise<WarmSessionEd25519CapabilityState | null>;
-  resolveEd25519RecordByThresholdSessionId: (
-    thresholdSessionId: string,
-  ) => WarmSessionEd25519CapabilityState['record'];
-  resolveEcdsaRecordByThresholdSessionId: (
-    thresholdSessionId: string,
-  ) => WarmSessionEcdsaCapabilityState['record'];
-  resolveEd25519AuthByThresholdSessionId: (
-    thresholdSessionId: string,
-  ) => WarmSessionEd25519AuthMaterial | null;
-  resolveEcdsaAuthByThresholdSessionId: (
-    thresholdSessionId: string,
-  ) => WarmSessionEcdsaAuthMaterial | null;
-  resolveEmailOtpEd25519SigningSessionAuthority: (args: {
-    lane: ExactEd25519SigningLaneIdentity;
-  }) => EmailOtpEd25519SigningSessionAuthority | null;
-  resolveEmailOtpEcdsaSigningSessionAuthority: (args: {
-    lane: ExactEcdsaSigningLaneIdentity;
-  }) => EmailOtpEcdsaSigningSessionAuthority | null;
-  getEd25519CapabilityByThresholdSessionId: (
-    thresholdSessionId: string,
-  ) => Promise<WarmSessionEd25519CapabilityState | null>;
-  getEcdsaCapabilityByThresholdSessionId: (
-    thresholdSessionId: string,
-  ) => Promise<WarmSessionEcdsaCapabilityState | null>;
   getEcdsaCapabilityForLane: (
-    lane: ExactEcdsaSigningLaneIdentity,
+    args: {
+      lane: ExactEcdsaSigningLaneIdentity;
+      authorization: ActiveEvmFamilyWalletSessionAuthorization;
+    },
   ) => Promise<WarmSessionEcdsaCapabilityState | null>;
-  resolveEcdsaSealTransportByThresholdSessionId: (args: {
+  // Lane-qualified, and async because canonical resolution reads persistence.
+  // There is deliberately no threshold-session-id entry point: that id indexes
+  // runtime state and must never select material.
+  resolveEcdsaSealTransportForLane: (args: {
     lane: ExactEcdsaSigningLaneIdentity;
-  }) => ThresholdSessionSealTransportAuthMaterial | null;
+    authorization: ActiveEvmFamilyWalletSessionAuthorization;
+  }) => Promise<EcdsaSealTransportAuthMaterial | null>;
 };
 
-async function getEd25519CapabilityForNearAccount(
-  getByThresholdSessionId: WarmSessionCapabilityReaderCore['getEd25519CapabilityByThresholdSessionId'],
-  nearAccountId: AccountId,
-): Promise<WarmSessionEd25519CapabilityState | null> {
-  const record = readWarmSessionEd25519RecordForAccount(nearAccountId);
-  if (!record) return null;
-  return await getByThresholdSessionId(record.thresholdSessionId);
-}
-
-function recordOwnedEd25519WalletSessionJwt(
-  auth: WarmSessionEd25519AuthMaterial | null,
-): string | null {
-  if (!auth || auth.walletSessionJwtSource !== 'ed25519_record') return null;
-  return String(auth.walletSessionJwt || '').trim() || null;
-}
-
-function recordOwnedEcdsaWalletSessionJwt(
-  auth: WarmSessionEcdsaAuthMaterial | null,
-): string | null {
-  if (!auth || auth.state !== 'ready' || auth.walletSessionJwtSource !== 'ecdsa_record') {
-    return null;
-  }
-  return String(auth.walletSessionJwt || '').trim() || null;
+/** The PRF claim for a resolved ECDSA capability. Correlation has already proved
+ * the material, so the claim is the sealed runtime's own allowance and expiry --
+ * the same facts the shared Refactor 92 rule classifies. A blocked resolution
+ * has no runtime and so no claim to report.
+ *
+ * The wallet-scoped relayer claim is not consulted here. It is read by lane, and
+ * no lane was ever built for an ECDSA capability from the composite store, so
+ * this reaches strictly more state than the path it replaces rather than less. */
+function ecdsaClaimForResolution(
+  resolution: ActiveEcdsaCapabilityRuntimeResolution,
+): WarmSessionPrfClaim | null {
+  if (resolution.kind !== 'resolved') return null;
+  return warmClaimFromRecordPolicy({
+    thresholdSessionId: resolution.runtime.sealedRecord.thresholdSessionId,
+    remainingUses: resolution.runtime.remainingUses,
+    expiresAtMs: resolution.runtime.expiresAtMs,
+  });
 }
 
 export function createWarmSessionCapabilityReaderCore(
   deps: WarmSessionCapabilityReaderCoreDeps,
 ): WarmSessionCapabilityReaderCore {
+  async function resolveEcdsaAuthorizationForWallet(
+    walletId: WalletId | string,
+  ): Promise<ActiveEvmFamilyWalletSessionAuthorization | null> {
+    const resolve = deps.resolveActiveEcdsaWalletSessionAuthorization;
+    if (!resolve) return null;
+    try {
+      return await resolve(toWalletId(walletId));
+    } catch {
+      return null;
+    }
+  }
+
+  async function resolveEd25519AuthorizationForWallet(
+    walletId: WalletId,
+  ): Promise<ActiveWalletSessionAuthorizationProjection | null> {
+    const resolve = deps.resolveActiveEd25519WalletSessionAuthorization;
+    if (!resolve) return null;
+    try {
+      return await resolve(walletId);
+    } catch {
+      return null;
+    }
+  }
+
   function buildEd25519CapabilityState(args: {
-    record: WarmSessionEd25519CapabilityState['record'];
-    auth: WarmSessionEd25519AuthMaterial | null;
+    resolution: Ed25519WalletSealedSessionRuntimeResolution;
+    auth: ActiveWalletSessionAuthorizationProjection | null;
     prfClaim: WarmSessionEd25519CapabilityState['prfClaim'];
   }): WarmSessionEd25519CapabilityState {
-    const state = deriveEd25519CapabilityState(args);
-    if (!args.record) {
+    if (args.resolution.kind === 'missing') {
       return {
         capability: 'ed25519',
-        record: null,
+        runtime: null,
         auth: null,
         prfClaim: null,
         state: 'missing',
       };
     }
-    if (state === 'missing') {
+    if (args.resolution.kind === 'conflict' || args.resolution.kind === 'corrupt') {
+      return {
+        capability: 'ed25519',
+        runtime: null,
+        auth: null,
+        prfClaim: null,
+        invalidReason:
+          args.resolution.kind === 'conflict' ? 'exact_record_conflict' : 'corrupt',
+        state: 'invalid',
+      };
+    }
+    const runtime = args.resolution.runtime;
+    const state = deriveEd25519CapabilityState({
+      runtime,
+      auth: args.auth,
+      prfClaim: args.prfClaim,
+    });
+    if (state === 'authorization_required') {
+      return {
+        capability: 'ed25519',
+        runtime,
+        auth: null,
+        prfClaim: args.prfClaim,
+        state,
+      };
+    }
+    if (state === 'missing' || state === 'invalid') {
       throw new Error(
-        '[WarmSessionStore] Ed25519 capability state cannot be missing with a record',
+        `[WarmSessionStore] Ed25519 capability state=${state} with resolved material`,
       );
     }
-    if (args.record.source === 'email_otp') {
-      if (!args.record.emailOtpAuthContext) {
-        throw new Error(
-          '[WarmSessionStore] Email OTP Ed25519 capability requires emailOtpAuthContext',
-        );
-      }
-      if (state === 'auth_missing') {
-        return {
-          capability: 'ed25519',
-          record: args.record,
-          auth: args.auth?.walletSessionJwtSource === 'none' ? args.auth : null,
-          prfClaim: args.prfClaim,
-          emailOtpAuthContext: args.record.emailOtpAuthContext,
-          state,
-        };
-      }
-      if (!args.auth || args.auth.walletSessionJwtSource !== 'ed25519_record') {
-        throw new Error(
-          `[WarmSessionStore] Ed25519 capability state=${state} requires Wallet Session JWT auth`,
-        );
-      }
-      return {
-        capability: 'ed25519',
-        record: args.record,
-        auth: args.auth,
-        prfClaim: args.prfClaim,
-        emailOtpAuthContext: args.record.emailOtpAuthContext,
-        state,
-      };
-    }
-    if (state === 'auth_missing') {
-      return {
-        capability: 'ed25519',
-        record: args.record,
-        auth: args.auth?.walletSessionJwtSource === 'none' ? args.auth : null,
-        prfClaim: args.prfClaim,
-        state,
-      };
-    }
-    if (!args.auth || args.auth.walletSessionJwtSource !== 'ed25519_record') {
+    if (!args.auth) {
       throw new Error(
-        `[WarmSessionStore] Ed25519 capability state=${state} requires Wallet Session JWT auth`,
+        `[WarmSessionStore] Ed25519 capability state=${state} requires active authorization`,
       );
     }
     return {
       capability: 'ed25519',
-      record: args.record,
+      runtime,
       auth: args.auth,
       prfClaim: args.prfClaim,
       state,
     };
   }
 
+  /** Canonical ECDSA warm state. The manifest and sealed runtime prove exact
+   * material; the active reusable Wallet Session is the independent second
+   * proof. Absent authorization over resolved material is authorization_required
+   * with no lane, because a SelectedEcdsaLane embeds that authorization. */
   function buildEcdsaCapabilityState(args: {
-    record: WarmSessionEcdsaCapabilityState['record'];
-    auth: WarmSessionEcdsaAuthMaterial | null;
+    resolution: ActiveEcdsaCapabilityRuntimeResolution;
+    authorization: ActiveEvmFamilyWalletSessionAuthorization | null;
     prfClaim: WarmSessionEcdsaCapabilityState['prfClaim'];
   }): WarmSessionEcdsaCapabilityState {
-    const state = deriveEcdsaCapabilityState(args);
-    if (!args.record) {
+    if (args.resolution.kind === 'blocked') {
+      const reason = args.resolution.reason;
+      // Absence and disagreement are different situations: only the first is
+      // 'missing'. A store that holds a manifest and a sealed record which do
+      // not correlate is reported with its typed reason.
+      if (reason === 'missing_capability' || reason === 'missing_material') {
+        return {
+          capability: 'ecdsa',
+          manifest: null,
+          runtime: null,
+          key: null,
+          lane: null,
+          auth: null,
+          prfClaim: null,
+          state: 'missing',
+        };
+      }
       return {
         capability: 'ecdsa',
-        record: null,
+        manifest: null,
+        runtime: null,
         key: null,
         lane: null,
         auth: null,
         prfClaim: null,
-        state: 'missing',
+        invalidReason: reason,
+        state: 'invalid',
       };
     }
-    if (state === 'missing') {
-      throw new Error('[WarmSessionStore] ECDSA capability state cannot be missing with a record');
-    }
-    const key = thresholdEcdsaSessionRecordReadModel(args.record).key;
-    const candidate = thresholdEcdsaLaneCandidateFromSessionRecord({ record: args.record });
-    const lane = selectedEcdsaLane({
-      key,
-      keyHandle: args.record.keyHandle,
-      walletId: args.record.walletId,
-      auth: candidate.auth,
-      signingGrantId: args.record.signingGrantId,
-      thresholdSessionId: args.record.thresholdSessionId,
-      chainTarget: args.record.chainTarget,
+    const { manifest, runtime } = args.resolution;
+    const publicFacts = manifest.durableMaterial.roleLocalPublicFacts;
+    const key = buildBaseEvmFamilyEcdsaKeyIdentity({
+      walletId: runtime.walletId,
+      ecdsaThresholdKeyId: runtime.ecdsaThresholdKeyId,
+      signingRootId: String(publicFacts.signingRootId),
+      signingRootVersion: String(publicFacts.signingRootVersion),
+      participantIds: [...runtime.participantIds],
+      thresholdOwnerAddress: String(publicFacts.ethereumAddress),
     });
-
-    if (args.record.source === 'email_otp') {
-      if (!args.record.emailOtpAuthContext) {
-        throw new Error(
-          '[WarmSessionStore] Email OTP ECDSA capability requires emailOtpAuthContext',
-        );
-      }
-      if (state === 'auth_missing') {
-        return {
-          capability: 'ecdsa',
-          record: args.record,
-          key,
-          lane,
-          auth: args.auth?.state === 'unavailable' ? args.auth : null,
-          prfClaim: args.prfClaim,
-          emailOtpAuthContext: args.record.emailOtpAuthContext,
-          state,
-        };
-      }
-      if (!args.auth || args.auth.state !== 'ready') {
-        throw new Error(
-          `[WarmSessionStore] ECDSA capability state=${state} requires Wallet Session JWT auth`,
-        );
-      }
-      if (state === 'ready' || state === 'material_pending') {
-        if (!args.prfClaim || args.prfClaim.state !== 'warm') {
-          throw new Error(
-            `[WarmSessionStore] ECDSA capability state=${state} requires a warm PRF claim`,
-          );
-        }
-        return {
-          capability: 'ecdsa',
-          record: args.record,
-          key,
-          lane,
-          auth: args.auth,
-          prfClaim: args.prfClaim,
-          emailOtpAuthContext: args.record.emailOtpAuthContext,
-          state,
-        };
-      }
+    const authBinding = runtime.authBinding;
+    const state = deriveEcdsaCapabilityState({
+      runtime,
+      auth: args.authorization,
+      prfClaim: args.prfClaim,
+      emailOtpAuthContext: null,
+    });
+    // Derived before the lane, because a SelectedEcdsaLane embeds the
+    // authorization it signs under. An absent Wallet Session and a spent one
+    // both land here, and neither can produce a lane.
+    if (state === 'authorization_required') {
       return {
         capability: 'ecdsa',
-        record: args.record,
+        manifest,
+        runtime,
         key,
-        lane,
-        auth: args.auth,
+        lane: null,
+        auth: null,
         prfClaim: args.prfClaim,
-        emailOtpAuthContext: args.record.emailOtpAuthContext,
+        emailOtpAuthContext: null,
         state,
       };
     }
-    if (state === 'auth_missing') {
-      return {
-        capability: 'ecdsa',
-        record: args.record,
-        key,
-        lane,
-        auth: args.auth?.state === 'unavailable' ? args.auth : null,
-        prfClaim: args.prfClaim,
-        state,
-      };
-    }
-    if (!args.auth || args.auth.state !== 'ready') {
+    if (!args.authorization) {
       throw new Error(
-        `[WarmSessionStore] ECDSA capability state=${state} requires Wallet Session JWT auth`,
+        '[WarmSessionStore] ECDSA capability without authorization must be authorization_required',
       );
     }
+    if (state === 'missing' || state === 'invalid') {
+      // Both are resolution outcomes, returned above. Reaching them here would
+      // mean a resolved manifest and runtime describing an absent capability.
+      throw new Error(`[WarmSessionStore] ECDSA capability state=${state} with resolved material`);
+    }
+    const lane = selectedEcdsaLane({
+      key,
+      materialActivation: runtime.materialActivation,
+      keyHandle: runtime.keyHandle,
+      walletId: runtime.walletId,
+      auth: signingLaneAuthBindingFromEcdsaRuntime(authBinding),
+      authorization: args.authorization,
+      chainTarget: runtime.chainTarget,
+    });
     if (state === 'ready' || state === 'material_pending') {
       if (!args.prfClaim || args.prfClaim.state !== 'warm') {
         throw new Error(
@@ -325,20 +306,34 @@ export function createWarmSessionCapabilityReaderCore(
       }
       return {
         capability: 'ecdsa',
-        record: args.record,
+        manifest,
+        runtime,
         key,
         lane,
-        auth: args.auth,
+        auth: args.authorization,
+        prfClaim: args.prfClaim,
+        state,
+      };
+    }
+    if (state === 'auth_missing') {
+      return {
+        capability: 'ecdsa',
+        manifest,
+        runtime,
+        key,
+        lane,
+        auth: null,
         prfClaim: args.prfClaim,
         state,
       };
     }
     return {
       capability: 'ecdsa',
-      record: args.record,
+      manifest,
+      runtime,
       key,
       lane,
-      auth: args.auth,
+      auth: args.authorization,
       prfClaim: args.prfClaim,
       state,
     };
@@ -346,33 +341,51 @@ export function createWarmSessionCapabilityReaderCore(
 
   async function getWarmSession(walletId: WalletId): Promise<WarmSessionEnvelope> {
     const normalizedWalletId = toWalletId(walletId);
-    const records = readWarmSessionCapabilityRecordsForWallet(normalizedWalletId);
-
-    const ed25519Auth = resolveEd25519AuthMaterial(records.ed25519);
-    const evmAuth = resolveEcdsaAuthMaterial(records.ecdsa.evm);
-    const tempoAuth = resolveEcdsaAuthMaterial(records.ecdsa.tempo);
-
-    const { ed25519Claim, evmClaim, tempoClaim } =
-      await deps.statusReader.readWalletScopedClaimsForRecords(records);
-
+    // Material and authorization are resolved independently: authorization is
+    // read unconditionally, so a wallet with durable material and no active
+    // Wallet Session reaches authorization_required instead of being gated out
+    // by a material precondition.
+    const [
+      ed25519Resolution,
+      ed25519Authorization,
+      ecdsaAuthorization,
+      evmResolution,
+      tempoResolution,
+    ] = await Promise.all([
+      resolveExactEd25519SealedSessionRuntimeForWallet(normalizedWalletId),
+      resolveEd25519AuthorizationForWallet(normalizedWalletId),
+      resolveEcdsaAuthorizationForWallet(normalizedWalletId),
+      resolveActiveEcdsaCapabilityRuntimeForChain({
+        walletId: normalizedWalletId,
+        chain: 'evm',
+      }),
+      resolveActiveEcdsaCapabilityRuntimeForChain({
+        walletId: normalizedWalletId,
+        chain: 'tempo',
+      }),
+    ]);
+    const ed25519Claim =
+      ed25519Resolution.kind === 'resolved'
+        ? await deps.statusReader.readEd25519WarmSessionClaim(ed25519Resolution.runtime)
+        : null;
     return assertWarmSessionEnvelopeInvariant({
       walletId: normalizedWalletId,
       capabilities: {
         ed25519: buildEd25519CapabilityState({
-          record: records.ed25519,
-          auth: ed25519Auth,
+          resolution: ed25519Resolution,
+          auth: ed25519Authorization,
           prfClaim: ed25519Claim,
         }),
         ecdsa: {
           evm: buildEcdsaCapabilityState({
-            record: records.ecdsa.evm,
-            auth: evmAuth,
-            prfClaim: evmClaim,
+            resolution: evmResolution,
+            prfClaim: ecdsaClaimForResolution(evmResolution),
+            authorization: ecdsaAuthorization,
           }),
           tempo: buildEcdsaCapabilityState({
-            record: records.ecdsa.tempo,
-            auth: tempoAuth,
-            prfClaim: tempoClaim,
+            resolution: tempoResolution,
+            prfClaim: ecdsaClaimForResolution(tempoResolution),
+            authorization: ecdsaAuthorization,
           }),
         },
       },
@@ -380,198 +393,59 @@ export function createWarmSessionCapabilityReaderCore(
     });
   }
 
-  function resolveEd25519RecordByThresholdSessionId(
-    thresholdSessionId: string,
-  ): WarmSessionEd25519CapabilityState['record'] {
-    return readWarmSessionEd25519RecordByThresholdSessionId(thresholdSessionId);
-  }
-
-  function resolveEcdsaRecordByThresholdSessionId(
-    thresholdSessionId: string,
-  ): WarmSessionEcdsaCapabilityState['record'] {
-    return readWarmSessionEcdsaRecordByThresholdSessionId(thresholdSessionId);
-  }
-
-  function resolveEd25519AuthByThresholdSessionId(
-    thresholdSessionId: string,
-  ): WarmSessionEd25519AuthMaterial | null {
-    return resolveEd25519AuthMaterial(
-      readWarmSessionEd25519RecordByThresholdSessionId(thresholdSessionId),
-    );
-  }
-
-  function resolveEcdsaAuthByThresholdSessionId(
-    thresholdSessionId: string,
-  ): WarmSessionEcdsaAuthMaterial | null {
-    const record = readWarmSessionEcdsaRecordByThresholdSessionId(thresholdSessionId);
-    return record ? resolveEcdsaAuthMaterial(record) : null;
-  }
-
-  function ed25519RecordMatchesExactLane(args: {
-    record: WarmSessionEd25519CapabilityState['record'];
-    lane: ExactEd25519SigningLaneIdentity;
-  }): boolean {
-    const record = args.record;
-    const lane = args.lane;
-    const signer = lane.signer;
-    if (!record) return false;
-    if (record.source !== 'email_otp') return false;
-    if (lane.auth.kind !== 'email_otp') return false;
-    if (String(record.walletId || '').trim() !== String(signer.account.wallet.walletId)) {
-      return false;
-    }
-    if (String(record.nearAccountId || '').trim() !== String(signer.account.nearAccountId)) {
-      return false;
-    }
-    if (
-      String(record.nearEd25519SigningKeyId || '').trim() !== String(signer.nearEd25519SigningKeyId)
-    ) {
-      return false;
-    }
-    if (String(record.signingGrantId || '').trim() !== String(lane.signingGrantId)) return false;
-    if (String(record.thresholdSessionId || '').trim() !== String(lane.thresholdSessionId)) {
-      return false;
-    }
-    if (!record.emailOtpAuthContext) return false;
-    return (
-      emailOtpAuthContextProviderUserId(record.emailOtpAuthContext) === lane.auth.providerSubjectId
-    );
-  }
-
-  function ecdsaRecordMatchesExactLane(args: {
-    record: WarmSessionEcdsaCapabilityState['record'];
-    lane: ExactEcdsaSigningLaneIdentity;
-  }): boolean {
-    if (!args.record) return false;
-    if (args.record.source !== 'email_otp' && args.lane.auth.kind === 'email_otp') return false;
-    try {
-      return exactSigningLaneIdentityMatches(
-        toExactEcdsaSigningLaneIdentity(args.record),
-        args.lane,
-      );
-    } catch {
-      return false;
-    }
-  }
-
-  function resolveEmailOtpEd25519SigningSessionAuthority(args: {
-    lane: ExactEd25519SigningLaneIdentity;
-  }): EmailOtpEd25519SigningSessionAuthority | null {
-    const thresholdSessionId = String(args.lane.thresholdSessionId || '').trim();
-    if (!thresholdSessionId) return null;
-    if (args.lane.auth.kind !== 'email_otp') return null;
-    const record = readWarmSessionEd25519RecordByThresholdSessionId(thresholdSessionId);
-    if (!ed25519RecordMatchesExactLane({ record, lane: args.lane })) return null;
-    const auth = resolveEd25519AuthMaterial(record);
-    const jwt = recordOwnedEd25519WalletSessionJwt(auth);
-    if (record?.source !== 'email_otp' || !jwt || !record.emailOtpAuthContext) return null;
-    const lane = resolveEmailOtpAuthLane({
-      routeAuth: { kind: 'wallet_session', jwt },
-      thresholdSessionId,
-      authorizingSigningGrantId: record.signingGrantId,
-      curve: 'ed25519',
-    });
-    return buildEmailOtpEd25519SigningSessionAuthority({
-      authLane: lane,
-      authority: record.emailOtpAuthContext.authority,
-    });
-  }
-
-  function resolveEmailOtpEcdsaSigningSessionAuthority(args: {
-    lane: ExactEcdsaSigningLaneIdentity;
-  }): EmailOtpEcdsaSigningSessionAuthority | null {
-    const thresholdSessionId = String(args.lane.thresholdSessionId || '').trim();
-    if (!thresholdSessionId) return null;
-    if (args.lane.auth.kind !== 'email_otp') return null;
-    const record = readWarmSessionEcdsaRecordByThresholdSessionId(thresholdSessionId);
-    if (!ecdsaRecordMatchesExactLane({ record, lane: args.lane })) return null;
-    const auth = resolveEcdsaAuthMaterial(record);
-    const jwt = recordOwnedEcdsaWalletSessionJwt(auth);
-    const identity = record ? tryBuildEcdsaSessionIdentity(record) : null;
-    if (record?.source !== 'email_otp' || !jwt || !identity) return null;
-    const lane = resolveEmailOtpAuthLane({
-      routeAuth: { kind: 'wallet_session', jwt },
-      thresholdSessionId: identity.thresholdSessionId,
-      authorizingSigningGrantId: identity.signingGrantId,
-      curve: 'ecdsa',
+  /** The lane names its own wallet and chain target, so material is selected by
+   * the capability it belongs to. The authorization the lane already carries is
+   * the one this capability is read under -- re-resolving it for the wallet
+   * could answer with a different Wallet Session than the caller holds. */
+  async function getEcdsaCapabilityForLane(
+    args: {
+      lane: ExactEcdsaSigningLaneIdentity;
+      authorization: ActiveEvmFamilyWalletSessionAuthorization;
+    },
+  ): Promise<WarmSessionEcdsaCapabilityState | null> {
+    const resolution = await resolveActiveEcdsaCapabilityRuntime({
+      walletId: args.lane.signer.walletId,
       chainTarget: args.lane.signer.chainTarget,
     });
-    return buildEmailOtpEcdsaSigningSessionAuthority({
-      authLane: lane,
-      authority: record.emailOtpAuthContext.authority,
+    return buildEcdsaCapabilityState({
+      resolution,
+      prfClaim: ecdsaClaimForResolution(resolution),
+      authorization: args.authorization,
     });
   }
 
-  async function getEd25519CapabilityByThresholdSessionId(
-    thresholdSessionId: string,
-  ): Promise<WarmSessionEd25519CapabilityState | null> {
-    const record = readWarmSessionEd25519RecordByThresholdSessionId(thresholdSessionId);
-    if (!record) return null;
-    const auth = resolveEd25519AuthMaterial(record);
-    const prfClaim = await readWarmSessionClaim(deps.touchConfirm, record.thresholdSessionId);
-    return buildEd25519CapabilityState({ record, auth, prfClaim });
+  function ecdsaSealConfig(): {
+    groupId: string;
+  } {
+    if (deps.signingSessionSeal.seal !== 'configured') return { groupId: '' };
+    return {
+      groupId: String(deps.signingSessionSeal.groupId || '').trim(),
+    };
   }
 
-  async function getEcdsaCapabilityByThresholdSessionId(
-    thresholdSessionIdRaw: string,
-  ): Promise<WarmSessionEcdsaCapabilityState | null> {
-    const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
-    if (!thresholdSessionId) return null;
-    const record = readWarmSessionEcdsaRecordByThresholdSessionId(thresholdSessionId);
-    if (!record) return null;
-    const auth = resolveEcdsaAuthMaterial(record);
-    const prfClaim = await deps.statusReader.readEcdsaWarmSessionClaimForRecord(record);
-    return buildEcdsaCapabilityState({ record, auth, prfClaim });
-  }
-
-  async function getEcdsaCapabilityForLane(
-    lane: ExactEcdsaSigningLaneIdentity,
-  ): Promise<WarmSessionEcdsaCapabilityState | null> {
-    const exactRecord = deps.statusReader.resolveExactEcdsaRecord({ lane });
-    if (exactRecord.kind !== 'found') return null;
-    const record = exactRecord.record;
-    const auth = resolveEcdsaAuthMaterial(record);
-    const prfClaim = await deps.statusReader.readEcdsaWarmSessionClaimForRecord(record);
-    return buildEcdsaCapabilityState({ record, auth, prfClaim });
-  }
-
-  function resolveEcdsaSealTransportByThresholdSessionId(args: {
+  /** Seal parameters come from configuration alone. The sealed record's own
+   * `keyVersion` seals that record's secret at rest and is not the signing
+   * session's transport seal; the two must not be interchanged. */
+  async function resolveEcdsaSealTransportForLane(args: {
     lane: ExactEcdsaSigningLaneIdentity;
-  }): ThresholdSessionSealTransportAuthMaterial | null {
-    const exactRecord = deps.statusReader.resolveExactEcdsaRecord({
-      lane: args.lane,
+    authorization: ActiveEvmFamilyWalletSessionAuthorization;
+  }): Promise<EcdsaSealTransportAuthMaterial | null> {
+    const resolution = await resolveActiveEcdsaCapabilityRuntime({
+      walletId: args.lane.signer.walletId,
+      chainTarget: args.lane.signer.chainTarget,
     });
-    if (exactRecord.kind !== 'found') return null;
-    const record = exactRecord.record;
-    if (!record) return null;
-    const auth = resolveEcdsaAuthMaterial(record);
-    const fallbackGroupId =
-      deps.signingSessionSeal.seal === 'configured' ? deps.signingSessionSeal.groupId : '';
+    if (resolution.kind !== 'resolved') return null;
+    const seal = ecdsaSealConfig();
     return resolveEcdsaSealTransport({
-      record,
-      auth,
-      signingSessionSealKeyVersion: record.signingSessionSealKeyVersion
-        ? parseSigningSessionSealKeyVersion(record.signingSessionSealKeyVersion)
-        : undefined,
-      groupId: String(record.signingSessionSealGroupId || fallbackGroupId).trim(),
+      runtime: resolution.runtime,
+      auth: args.authorization,
+      groupId: seal.groupId,
     });
   }
 
   return {
     getWarmSession,
-    getEd25519CapabilityForNearAccount: getEd25519CapabilityForNearAccount.bind(
-      null,
-      getEd25519CapabilityByThresholdSessionId,
-    ),
-    resolveEd25519RecordByThresholdSessionId,
-    resolveEcdsaRecordByThresholdSessionId,
-    resolveEd25519AuthByThresholdSessionId,
-    resolveEcdsaAuthByThresholdSessionId,
-    resolveEmailOtpEd25519SigningSessionAuthority,
-    resolveEmailOtpEcdsaSigningSessionAuthority,
-    getEd25519CapabilityByThresholdSessionId,
-    getEcdsaCapabilityByThresholdSessionId,
     getEcdsaCapabilityForLane,
-    resolveEcdsaSealTransportByThresholdSessionId,
+    resolveEcdsaSealTransportForLane,
   };
 }

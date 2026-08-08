@@ -8,7 +8,22 @@ import {
   parseEcdsaRoleLocalMaterialHandle,
   parseEcdsaThresholdKeyId,
 } from '@/core/signingEngine/session/keyMaterialBrands';
-import type { EcdsaRoleLocalReadyRecord } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+import {
+  buildEcdsaRoleLocalPersistedMaterialRefFixture,
+  buildMpcMaterialActivationRefFixture,
+} from './ecdsaMaterialRef.fixtures';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseReusableWalletSessionMintId,
+  parseSeamsSessionId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+
+function requireBootstrapAuthorizationId<T>(result: { ok: true; value: T } | { ok: false }): T {
+  if (!result.ok) throw new Error('ecdsa bootstrap fixture authorization id is invalid');
+  return result.value;
+}
+import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/ecdsaRoleLocalRecords';
 import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
@@ -25,11 +40,14 @@ import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
   parseRouterAbEcdsaDerivationPublicCapabilityV1,
+  parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
+  parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
   type RouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import { testEcdsaChainId, testEcdsaChainTarget } from './ecdsaChainTarget.fixtures';
+import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import { testEcdsaChainTarget } from './ecdsaChainTarget.fixtures';
 
 const VALID_ECDSA_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
@@ -70,7 +88,6 @@ function fixtureRouterAbEcdsaDerivationNormalSigning(args: {
   return {
     kind: ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
     scope: {
-      wallet_key_id: args.walletKeyId,
       wallet_id: args.walletId,
       ecdsa_threshold_key_id: args.ecdsaThresholdKeyId,
       signing_root_id: args.signingRootId,
@@ -87,6 +104,12 @@ function fixtureRouterAbEcdsaDerivationNormalSigning(args: {
         client_share_retry_counter: 0,
         server_share_retry_counter: 0,
       },
+      material_activation: routerAbMpcMaterialActivationRefToWire(
+        buildMpcMaterialActivationRefFixture(
+          `router-ab-ecdsa:${args.walletId}:${args.ecdsaThresholdKeyId}:${args.sessionId}`,
+          args.walletId,
+        ),
+      ),
       signing_worker: {
         server_id: 'signing-worker-warm-session-fixture',
         key_epoch: 'epoch-warm-session-fixture',
@@ -107,6 +130,7 @@ export function fixtureRouterAbEcdsaDerivationPublicCapability(args: {
     kind: 'router_ab_ecdsa_derivation_public_capability_v1',
     context: args.normalSigning.scope.context,
     public_identity: args.normalSigning.scope.public_identity,
+    material_activation: args.normalSigning.scope.material_activation,
     signer_set: {
       signer_set_id: 'signer-set-warm-session-fixture',
       policy: 'all_2',
@@ -199,14 +223,12 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   ecdsaThresholdKeyId?: string;
   sessionId?: string;
   walletSessionJwt?: string;
-  sessionKind?: 'jwt' | 'cookie';
   relayerUrl?: string;
   relayerKeyId?: string;
   clientVerifyingShareB64u?: string;
   passkeyCredentialIdB64u?: string;
   participantIds?: number[];
   ethereumAddress?: string;
-  signingGrantId?: string;
   signingRootId?: string;
   signingRootVersion?: string;
   expiresAtMs?: number;
@@ -221,7 +243,12 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   );
   const keyHandle = String(args.keyHandle || `ederivation-key-${ecdsaThresholdKeyId}`).trim();
   const sessionId = String(args.sessionId || `sess-${chainLabel}-1`).trim();
-  const sessionKind = args.sessionKind || 'jwt';
+  const walletSessionId = requireBootstrapAuthorizationId(
+    parseWalletSessionId(`ecdsa-bootstrap-wallet-session:${sessionId}`),
+  );
+  const quotaId = requireBootstrapAuthorizationId(
+    parseMpcWalletSigningQuotaId(`ecdsa-bootstrap-quota:${sessionId}`),
+  );
   const relayerUrl = String(args.relayerUrl || 'https://relay.example').trim();
   const rpId = String(args.rpId || 'localhost').trim();
   const relayerKeyId = String(args.relayerKeyId || `rk-${chainLabel}-1`).trim();
@@ -233,7 +260,6 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   ).trim();
   const participantIds = args.participantIds || [1, 2];
   const ethereumAddress = args.ethereumAddress || `0x${'11'.repeat(20)}`;
-  const signingGrantId = String(args.signingGrantId || `wsess-${sessionId}`).trim();
   const signingRootId = String(args.signingRootId || 'sr-test:dev').trim();
   const signingRootVersion = String(args.signingRootVersion || 'default').trim();
   const evmFamilySigningKeySlotId = deriveEvmFamilySigningKeySlotId({
@@ -244,6 +270,9 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   const runtimePolicyScope =
     args.runtimePolicyScope ||
     fixtureRuntimePolicyScopeFromSigningRoot(signingRootId, signingRootVersion);
+  if (!runtimePolicyScope) {
+    throw new Error('ECDSA bootstrap fixture requires a runtime policy scope');
+  }
   const chainTarget = testEcdsaChainTarget(args.chain);
   const roleLocalAuthMethod =
     args.roleLocalAuthMethod === 'email_otp'
@@ -269,7 +298,6 @@ export function createThresholdEcdsaBootstrapFixture(args: {
     stateBlob: FIXTURE_ROLE_LOCAL_STATE_BLOB,
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: toWalletId(args.nearAccountId),
-      evmFamilySigningKeySlotId,
       chainTarget,
       keyHandle,
       ecdsaThresholdKeyId,
@@ -292,19 +320,29 @@ export function createThresholdEcdsaBootstrapFixture(args: {
     }),
     authMethod: roleLocalAuthMethod,
   });
-  const walletSessionJwt =
-    sessionKind === 'jwt'
-      ? toFixtureWalletSessionJwt(String(args.walletSessionJwt || `jwt:${sessionId}`).trim(), {
-          nearAccountId: args.nearAccountId,
-          sessionId,
-          signingGrantId,
-          relayerKeyId,
-          ecdsaThresholdKeyId,
-          participantIds,
-          chainTarget,
-          ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-        })
-      : '';
+  const roleLocalMaterialRef = buildEcdsaRoleLocalPersistedMaterialRefFixture({
+    durableMaterialRef: `role-local:${sessionId}`,
+    bindingDigest: ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
+    materialOwner: args.nearAccountId,
+  });
+  const expiresAtMs = args.expiresAtMs ?? Date.now() + 120_000;
+  const walletSessionJwt = toFixtureWalletSessionJwt(
+    String(args.walletSessionJwt || `jwt:${sessionId}`).trim(),
+    {
+      nearAccountId: args.nearAccountId,
+      sessionId,
+      authorizationId: `ecdsa-bootstrap-authorization:${sessionId}`,
+      authorizationSessionId: `ecdsa-bootstrap-authorization-session:${sessionId}`,
+      walletSessionId,
+      quotaId,
+      expiresAtMs,
+      relayerKeyId,
+      ecdsaThresholdKeyId,
+      participantIds,
+      chainTarget,
+      runtimePolicyScope,
+    },
+  );
 
   return {
     thresholdEcdsaKeyRef: {
@@ -313,7 +351,6 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       chainTarget,
       relayerUrl,
       keyHandle,
-      evmFamilySigningKeySlotId,
       ecdsaThresholdKeyId,
       participantIds: [...participantIds],
       // Canonical passkey ECDSA session records may only reference durable
@@ -342,41 +379,104 @@ export function createThresholdEcdsaBootstrapFixture(args: {
                   `role-local:${sessionId}`,
                 ),
               },
+              roleLocalMaterialRef,
               publicFacts: ecdsaRoleLocalReadyRecord.publicFacts,
               authMethod: ecdsaRoleLocalReadyRecord.authMethod,
             },
-      thresholdSessionKind: sessionKind,
-      thresholdSessionId: sessionId,
-      signingGrantId,
-      ...(walletSessionJwt ? { walletSessionJwt } : {}),
       routerAbEcdsaDerivationNormalSigning: normalSigning,
       ethereumAddress,
       thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
       relayerVerifyingShareB64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
     },
     passkeyCredentialIdB64u,
-    keygen: {
-      ok: true,
-      evmFamilySigningKeySlotId,
-      ecdsaThresholdKeyId,
-      clientVerifyingShareB64u,
-      relayerKeyId,
-      participantIds: [...participantIds],
-      chainId: testEcdsaChainId(args.chain),
-      ethereumAddress,
-      thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
-      relayerVerifyingShareB64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
-    },
     session: {
       ok: true,
       thresholdSessionId: sessionId,
-      signingGrantId,
-      expiresAtMs: args.expiresAtMs ?? Date.now() + 120_000,
+      authorizationSessionId: requireBootstrapAuthorizationId(
+        parseSeamsSessionId(`ecdsa-bootstrap-authorization-session:${sessionId}`),
+      ),
+      walletSessionId,
+      quotaId,
+      expiresAtMs,
       remainingUses: args.remainingUses ?? 5,
-      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-      ...(walletSessionJwt ? { jwt: walletSessionJwt } : {}),
+      runtimePolicyScope,
+      jwt: walletSessionJwt,
       clientVerifyingShareB64u,
     },
+  };
+}
+
+export function thresholdEcdsaBootstrapPublicFactsFixture(
+  bootstrap: ThresholdEcdsaSessionBootstrapResult,
+) {
+  const binding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
+  switch (binding.materialKind) {
+    case 'role_local_worker_handle':
+    case 'role_local_durable_sealed_ref':
+    case 'role_local_durable_public_anchor':
+      return binding.publicFacts;
+    case 'email_otp_worker_handle':
+    case 'role_local_ready_state_blob':
+      return binding.ecdsaRoleLocalReadyRecord.publicFacts;
+    case 'metadata_only':
+      throw new Error('ECDSA bootstrap fixture requires role-local public facts');
+    default:
+      binding satisfies never;
+      throw new Error('ECDSA bootstrap fixture has an unsupported material binding');
+  }
+}
+
+export function createEcdsaSessionActivationFixture(args: {
+  walletId: string;
+  chain: ThresholdEcdsaActivationChain;
+  sessionId?: string;
+}) {
+  const bootstrap = createThresholdEcdsaBootstrapFixture({
+    nearAccountId: args.walletId,
+    chain: args.chain,
+    sessionId: args.sessionId,
+  });
+  const binding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
+  const runtimePolicyScope = bootstrap.session.runtimePolicyScope;
+  const walletSessionJwt = bootstrap.session.jwt;
+  const normalSigning = bootstrap.thresholdEcdsaKeyRef.routerAbEcdsaDerivationNormalSigning;
+  if (
+    !binding ||
+    binding.materialKind !== 'role_local_worker_handle' ||
+    !runtimePolicyScope ||
+    !walletSessionJwt ||
+    !normalSigning
+  ) {
+    throw new Error('ECDSA session activation fixture requires complete role-local material');
+  }
+  return {
+    request: parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1({
+      kind: 'router_ab_ecdsa_post_registration_session_activation_v1',
+      public_capability: binding.publicFacts.publicCapability,
+      session_policy: {
+        threshold_session_id: bootstrap.session.thresholdSessionId,
+        wallet_session_mint_id: requireBootstrapAuthorizationId(
+          parseReusableWalletSessionMintId('wallet-session-mint-fixture'),
+        ),
+        ttl_ms: Math.max(1, bootstrap.session.expiresAtMs - Date.now()),
+        remaining_uses: bootstrap.session.remainingUses,
+        runtime_policy_scope: runtimePolicyScope,
+      },
+    }),
+    response: parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1({
+      kind: 'router_ab_ecdsa_post_registration_session_activated_v1',
+      public_capability: binding.publicFacts.publicCapability,
+      session: {
+        authorization_session_id: bootstrap.session.authorizationSessionId,
+        threshold_session_id: bootstrap.session.thresholdSessionId,
+        wallet_session_id: bootstrap.session.walletSessionId,
+        quota_id: bootstrap.session.quotaId,
+        expires_at_ms: bootstrap.session.expiresAtMs,
+        remaining_uses: bootstrap.session.remainingUses,
+        wallet_session_jwt: walletSessionJwt,
+      },
+      normal_signing: normalSigning,
+    }),
   };
 }
 
@@ -408,7 +508,11 @@ function toFixtureWalletSessionJwt(
   args: {
     nearAccountId: string;
     sessionId: string;
-    signingGrantId: string;
+    authorizationId: string;
+    authorizationSessionId: string;
+    walletSessionId: string;
+    quotaId: string;
+    expiresAtMs: number;
     relayerKeyId: string;
     ecdsaThresholdKeyId: string;
     participantIds: number[];
@@ -424,16 +528,64 @@ function toFixtureWalletSessionJwt(
       walletId: args.nearAccountId,
       kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
       thresholdSessionId: args.sessionId,
-      signingGrantId: args.signingGrantId,
+      authorizationId: args.authorizationId,
+      authorizationSessionId: args.authorizationSessionId,
+      sid: args.authorizationSessionId,
+      walletSessionId: args.walletSessionId,
+      quotaId: args.quotaId,
       subjectId: args.nearAccountId,
       chainTarget: args.chainTarget,
       ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
       relayerKeyId: args.relayerKeyId,
       rpId: 'localhost',
-      thresholdExpiresAtMs: Date.now() + 120_000,
+      thresholdExpiresAtMs: args.expiresAtMs,
+      exp: Math.floor(args.expiresAtMs / 1_000),
       participantIds: args.participantIds,
       ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
     }),
   ).toString('base64url');
   return `${header}.${payload}.fixture`;
+}
+
+/** Converts a bootstrap fixture carrying an inline role-local ready-state blob
+ * into the current worker-owned material binding: canonical passkey ECDSA
+ * material is referenced through a durable worker handle, never carried inline.
+ * Its previous home (`warmSessionTestServices.fixtures`) exercised the retired
+ * composite record store and was deleted with it. */
+export function toWorkerOwnedPasskeyEcdsaBootstrapFixture(
+  bootstrap: ThresholdEcdsaSessionBootstrapResult,
+): ThresholdEcdsaSessionBootstrapResult {
+  const binding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
+  if (!binding || binding.materialKind !== 'role_local_ready_state_blob') {
+    return bootstrap;
+  }
+  const sessionId = String(bootstrap.session.thresholdSessionId).trim() || 'fixture-session';
+  const durableMaterialRef = parseEcdsaRoleLocalDurableMaterialRef(`role-local:${sessionId}`);
+  const bindingDigest = parseEcdsaRoleLocalBindingDigest(
+    binding.ecdsaRoleLocalReadyRecord.publicFacts.contextBinding32B64u,
+  );
+  const roleLocalMaterialRef = buildEcdsaRoleLocalPersistedMaterialRefFixture({
+    durableMaterialRef,
+    bindingDigest,
+  });
+  return {
+    ...bootstrap,
+    thresholdEcdsaKeyRef: {
+      ...bootstrap.thresholdEcdsaKeyRef,
+      backendBinding: {
+        materialKind: 'role_local_worker_handle' as const,
+        relayerKeyId: binding.relayerKeyId,
+        clientVerifyingShareB64u: binding.clientVerifyingShareB64u,
+        roleLocalMaterialHandle: {
+          kind: 'ecdsa_role_local_worker_handle_v1' as const,
+          materialHandle: parseEcdsaRoleLocalMaterialHandle(`role-local-live:${sessionId}`),
+          bindingDigest,
+          durableMaterialRef,
+        },
+        roleLocalMaterialRef,
+        publicFacts: binding.ecdsaRoleLocalReadyRecord.publicFacts,
+        authMethod: binding.ecdsaRoleLocalReadyRecord.authMethod,
+      },
+    },
+  };
 }

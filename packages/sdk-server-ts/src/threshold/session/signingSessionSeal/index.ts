@@ -90,4 +90,4 @@ export {
 } from './idempotencyBackends';
 export { composeSigningSessionSealGuards } from './guards';
 export { registerSigningSessionSealRoutes } from './transport/express';
-export { handleSigningSessionSealRoutes } from './transport/cloudflare';
+export { handleSigningSessionSealRoutes } from './transport/fetch';

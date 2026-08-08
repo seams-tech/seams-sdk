@@ -1,55 +1,148 @@
-// Iframe host for the Export Private Key viewer (drawer or modal variant)
+// Direct-mount host for the Export Private Key viewer (drawer or modal variant).
+//
+// This element used to wrap the viewer in a nested srcdoc iframe driven by an
+// 11-message postMessage protocol. That inner document was same-origin with
+// this one (sandbox="allow-scripts allow-same-origin") and inherited the
+// embedder's CSP, so it was never a security boundary — while costing a second
+// load of every asset, a protocol for each prop, and the measured-surface
+// sizing loop (an iframe cannot be content-sized, so the host had to sample
+// it). The viewer and drawer now render directly in this document, matching
+// how the tx confirmer already mounts; lit events bubble to export-viewer-host
+// with no forwarding.
+//
+// The tag name keeps its historical "-iframe" suffix: tests and the export
+// host address the element by tag, and renaming it is presentation-neutral
+// churn best done on its own.
 import { html, type PropertyValues } from 'lit';
-import { ref, createRef, Ref } from 'lit/directives/ref.js';
 import { LitElementWithProps } from '../LitElementWithProps';
-import { IFRAME_EXPORT_BOOTSTRAP_MODULE, EXPORT_VIEWER_BUNDLE } from '../../registry';
-import { resolveEmbeddedBase } from '../asset-base';
-import type { ExportViewerVariant, ExportViewerTheme } from './viewer';
-import { isObject, isString } from '@shared/utils/validation';
-import { dispatchLitCancel, dispatchLitConfirm, dispatchLitCopy } from '../../lit-events';
+import { W3A_DRAWER_ID, W3A_EXPORT_KEY_VIEWER_ID } from '../../registry';
+// BINDING imports, not side-effect imports: the per-file ESM build honors
+// sideEffects and drops a bare `import './viewer'`, which shipped a host whose
+// drawer upgraded (the tx-confirmer bundle happens to define it) around a
+// never-upgraded, zero-height viewer — an empty sheet. Importing the classes
+// and defining them below survives every build shape.
+import ExportPrivateKeyViewer from './viewer';
+import DrawerElement from '../Drawer';
 import { ensureExternalStyles } from '../css/css-loader';
+
+if (!customElements.get(W3A_EXPORT_KEY_VIEWER_ID)) {
+  customElements.define(W3A_EXPORT_KEY_VIEWER_ID, ExportPrivateKeyViewer);
+}
+void DrawerElement; // Drawer/index self-defines on import; the binding keeps the import.
 import type {
   ExportGuidance,
   ExportPrivateKeyDisplayEntry,
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { AppearanceConfig } from '@/core/types/seams';
+import type { ExportViewerVariant, ExportViewerTheme } from './viewer';
+import {
+  createCspStylesheetManager,
+  getDefaultCspNonce,
+} from '@/core/browser/walletIframe/csp-stylesheet';
 
-type MessageType =
-  | 'READY'
-  | 'ETX_DEFINED'
-  | 'SET_INIT'
-  | 'SET_EXPORT_DATA'
-  | 'SET_LOADING'
-  | 'SET_ERROR'
-  | 'SET_PRIVATE_KEY'
-  | 'CONFIRM'
-  | 'CANCEL'
-  | 'COPY'
-  | 'IFRAME_ERROR'
-  | 'IFRAME_UNHANDLED_REJECTION';
-
-type MessagePayloads = {
-  READY: undefined;
-  ETX_DEFINED: undefined;
-  SET_INIT: { targetOrigin: string };
-  SET_EXPORT_DATA: {
-    theme?: 'dark' | 'light';
-    variant?: 'drawer' | 'modal';
-    accountId: string;
-    publicKey?: string;
-    keys?: ExportPrivateKeyDisplayEntry[];
-    guidance?: ExportGuidance;
-    appearance?: AppearanceConfig;
-  };
-  SET_LOADING: boolean;
-  SET_ERROR: string;
-  SET_PRIVATE_KEY: { privateKey: string };
-  CONFIRM: undefined;
-  CANCEL: undefined;
-  COPY: { type: 'publicKey' | 'privateKey'; value: string };
-  IFRAME_ERROR: string;
-  IFRAME_UNHANDLED_REJECTION: string;
+type ExportDrawerElement = HTMLElement & {
+  theme?: string;
+  open?: boolean;
+  height?: string;
+  showCloseButton?: boolean;
+  overpullPx?: number;
+  dragToClose?: boolean;
+  closeOnOverlayClick?: boolean;
+  contentRoot?: Element | null;
 };
+
+type ExportViewerElement = HTMLElement & {
+  theme?: string;
+  variant?: string;
+  accountId?: string;
+  publicKey?: string;
+  privateKey?: string;
+  keys?: ExportPrivateKeyDisplayEntry[];
+  guidance?: ExportGuidance;
+  loading?: boolean;
+  errorMessage?: string;
+};
+
+// Appearance color overrides live on a document-level constructed stylesheet.
+// The nested document used to take these to its grave; in the shared document
+// they must be removed when the host disconnects.
+const EXPORT_TOKEN_RULE_ID = 'w3a-export-token-overrides';
+const EXPORT_HOST_SELECTORS = [W3A_DRAWER_ID, W3A_EXPORT_KEY_VIEWER_ID] as const;
+const EXPORT_DARK_SELECTOR = EXPORT_HOST_SELECTORS.map(
+  (selector) =>
+    `${selector}[theme="dark"],\n:root[data-w3a-theme="dark"] ${selector}:not([theme="light"])`,
+).join(',\n');
+const EXPORT_LIGHT_SELECTOR = EXPORT_HOST_SELECTORS.map(
+  (selector) =>
+    `${selector}[theme="light"],\n:root[data-w3a-theme="light"] ${selector}:not([theme="dark"])`,
+).join(',\n');
+let exportTokenStyleManager: ReturnType<typeof createCspStylesheetManager> | null = null;
+
+function getExportTokenStyleManager(): ReturnType<typeof createCspStylesheetManager> {
+  if (!exportTokenStyleManager) {
+    exportTokenStyleManager = createCspStylesheetManager({
+      doc: document,
+      baseCss: '',
+      dynamicStyleDataAttr: 'data-w3a-export-token-overrides',
+      nonce: () => getDefaultCspNonce(),
+    });
+  }
+  return exportTokenStyleManager;
+}
+
+function toStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object') return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof v === 'string') out[k] = v;
+  }
+  return out;
+}
+
+function sanitizeTokenName(name: string): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  return /^[A-Za-z][A-Za-z0-9_-]*$/.test(trimmed) ? trimmed : null;
+}
+
+function sanitizeTokenValue(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.length > 1024) return null;
+  if (/[{};\n\r]/.test(trimmed)) return null;
+  return trimmed;
+}
+
+function serializeColorOverrides(colors: Record<string, string>): string[] {
+  const lines: string[] = [];
+  for (const [rawName, rawValue] of Object.entries(colors)) {
+    const tokenName = sanitizeTokenName(rawName);
+    if (!tokenName) continue;
+    const tokenValue = sanitizeTokenValue(rawValue);
+    if (!tokenValue) continue;
+    lines.push(`  --w3a-colors-${tokenName}: ${tokenValue} !important;`);
+  }
+  return lines;
+}
+
+function coerceTheme(value: unknown): 'dark' | 'light' | undefined {
+  return value === 'dark' || value === 'light' ? value : undefined;
+}
+
+function upsertExportAppearanceOverrides(appearance?: AppearanceConfig): void {
+  const mode = coerceTheme(appearance?.theme.mode);
+  const colors = toStringRecord(appearance?.theme.colors);
+  const lines = serializeColorOverrides(colors);
+  if (!mode || lines.length === 0) {
+    getExportTokenStyleManager().deleteDynamicRule(EXPORT_TOKEN_RULE_ID);
+    return;
+  }
+  const selector = mode === 'light' ? EXPORT_LIGHT_SELECTOR : EXPORT_DARK_SELECTOR;
+  getExportTokenStyleManager().setDynamicRule(
+    EXPORT_TOKEN_RULE_ID,
+    `${selector} {\n${lines.join('\n')}\n}`,
+  );
+}
 
 export class IframeExportHost extends LitElementWithProps {
   static properties = {
@@ -63,6 +156,9 @@ export class IframeExportHost extends LitElementWithProps {
     appearance: { attribute: false },
     loading: { type: Boolean },
     errorMessage: { type: String },
+    // Reflected by export-viewer-host; re-render when the surface changes so
+    // the drawer attribute below tracks it.
+    surface: { type: String, attribute: 'data-w3a-export-surface', reflect: false },
   } as const;
 
   declare theme: 'dark' | 'light';
@@ -75,15 +171,16 @@ export class IframeExportHost extends LitElementWithProps {
   declare appearance?: AppearanceConfig;
   declare loading: boolean;
   declare errorMessage?: string;
+  declare surface?: string;
 
-  private iframeRef: Ref<HTMLIFrameElement> = createRef();
-  private messageHandler?: (event: MessageEvent) => void | Promise<void>;
-  private iframeInitialized = false;
-  private _bootstrapTimer: number | null = null;
-  // Styles gating to avoid FOUC: wait for export-iframe.css before first render
-  private _stylesReady = false;
-  private _stylePromises: Promise<void>[] = [];
-  private _stylesAwaiting: Promise<void> | null = null;
+  private drawerEl: ExportDrawerElement | null = null;
+  private viewerEl: ExportViewerElement | null = null;
+  private openFrame: number | null = null;
+  // Hold the first child mount until export-iframe.css is adopted: the host is
+  // a MEASURED surface, and an unstyled first layout would post a wrong height
+  // before the real one.
+  private stylesReady = false;
+  private stylePromise: Promise<void> | null = null;
 
   constructor() {
     super();
@@ -100,224 +197,122 @@ export class IframeExportHost extends LitElementWithProps {
 
   protected createRenderRoot(): HTMLElement | DocumentFragment {
     const root = super.createRenderRoot();
-    const p = ensureExternalStyles(
+    this.stylePromise = ensureExternalStyles(
       root as ShadowRoot | DocumentFragment | HTMLElement,
       'export-iframe.css',
       'data-w3a-export-iframe-css',
-    );
-    this._stylePromises.push(p);
-    p.catch(() => {});
+    ).catch(() => {});
     return root;
+  }
+
+  protected shouldUpdate(_changed: PropertyValues): boolean {
+    if (this.stylesReady) return true;
+    void (this.stylePromise ?? Promise.resolve()).then(() => {
+      this.stylesReady = true;
+      this.requestUpdate();
+    });
+    return false;
   }
 
   protected getComponentPrefix(): string {
     return 'export-iframe';
   }
 
-  // Avoid FOUC: block first paint until external styles are applied
-  protected shouldUpdate(_changed: Map<string | number | symbol, unknown>): boolean {
-    if (this._stylesReady) return true;
-    if (!this._stylesAwaiting) {
-      const settle = Promise.all(this._stylePromises).then(
-        () =>
-          new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
-      );
-      this._stylesAwaiting = settle.then(() => {
-        this._stylesReady = true;
-        this.requestUpdate();
+  disconnectedCallback(): void {
+    super.disconnectedCallback();
+    if (this.openFrame !== null) cancelAnimationFrame(this.openFrame);
+    this.openFrame = null;
+    getExportTokenStyleManager().deleteDynamicRule(EXPORT_TOKEN_RULE_ID);
+    this.drawerEl = null;
+    this.viewerEl = null;
+  }
+
+  /**
+   * The drawer owns its inner shell and adopts host children into its content
+   * slot, so build the pair imperatively — the same topology the nested
+   * document produced — rather than fighting it with a lit template.
+   */
+  private ensureDrawerAndViewer(): { drawer: ExportDrawerElement; viewer: ExportViewerElement } {
+    let drawer = this.drawerEl;
+    if (!drawer || !drawer.isConnected) {
+      drawer = document.createElement(W3A_DRAWER_ID) as ExportDrawerElement;
+      this.appendChild(drawer);
+      this.drawerEl = drawer;
+      this.viewerEl = null;
+    }
+    let viewer = this.viewerEl;
+    if (!viewer || !viewer.isConnected) {
+      viewer = document.createElement(W3A_EXPORT_KEY_VIEWER_ID) as ExportViewerElement;
+      const target =
+        drawer.contentRoot ||
+        drawer.querySelector('.above-fold') ||
+        drawer.querySelector('.body') ||
+        drawer;
+      target.appendChild(viewer);
+      this.viewerEl = viewer;
+    }
+    return { drawer, viewer };
+  }
+
+  protected updated(changed: PropertyValues): void {
+    super.updated(changed);
+    const { drawer, viewer } = this.ensureDrawerAndViewer();
+    const surface =
+      this.getAttribute('data-w3a-export-surface') === 'wallet-iframe'
+        ? 'wallet-iframe'
+        : 'standalone';
+    const resolvedTheme = coerceTheme(this.appearance?.theme.mode) ?? coerceTheme(this.theme);
+
+    upsertExportAppearanceOverrides(this.appearance);
+
+    if (resolvedTheme) {
+      viewer.theme = resolvedTheme;
+      drawer.theme = resolvedTheme;
+    }
+    viewer.variant = this.variant;
+    viewer.accountId = this.accountId;
+    viewer.publicKey = this.publicKey || '';
+    viewer.keys = Array.isArray(this.keys) ? this.keys : undefined;
+    viewer.guidance = this.guidance;
+    viewer.loading = !!this.loading;
+    if (typeof this.errorMessage === 'string') viewer.errorMessage = this.errorMessage;
+    if (this.privateKey) {
+      viewer.privateKey = this.privateKey;
+      viewer.loading = false;
+    }
+
+    drawer.setAttribute('data-w3a-export-surface', surface);
+    // Auto-fit to content: the drawer computes its visible height from the
+    // content above the fold.
+    drawer.height = undefined;
+    drawer.showCloseButton = true;
+    drawer.dragToClose = true;
+    drawer.closeOnOverlayClick = false;
+    drawer.overpullPx = 160;
+    if (!drawer.open && this.openFrame === null) {
+      // Defer open by two frames so slot content renders before the drawer's
+      // initial content measurement.
+      this.openFrame = requestAnimationFrame(() => {
+        this.openFrame = requestAnimationFrame(() => {
+          this.openFrame = null;
+          if (this.drawerEl?.isConnected) this.drawerEl.open = true;
+        });
       });
     }
-    return false;
   }
 
-  updated(changed: PropertyValues) {
-    super.updated(changed);
-    // Initialize iframe once; contentWindow can exist for about:blank, so use a flag
-    if (!this.iframeInitialized) {
-      this.initializeIframe();
-      this.iframeInitialized = true;
-      return;
-    }
-    // Push data on update
-    this.postToIframe('SET_EXPORT_DATA', {
-      theme: this.theme,
-      variant: this.variant,
-      accountId: this.accountId,
-      publicKey: this.publicKey,
-      keys: this.keys,
-      guidance: this.guidance,
-      appearance: this.appearance,
-    });
-    if (changed.has('loading')) {
-      this.postToIframe('SET_LOADING', !!this.loading);
-    }
-    if (changed.has('errorMessage') && typeof this.errorMessage === 'string') {
-      this.postToIframe('SET_ERROR', this.errorMessage);
-    }
-    if (changed.has('privateKey') && this.privateKey) {
-      this.postToIframe('SET_PRIVATE_KEY', { privateKey: this.privateKey });
-    }
-  }
-
-  disconnectedCallback() {
-    super.disconnectedCallback();
-    if (this.messageHandler) {
-      window.removeEventListener('message', this.messageHandler);
-      this.messageHandler = undefined;
-    }
-  }
-
-  private generateIframeHtml(): string {
-    const base = resolveEmbeddedBase();
-    const isAbsoluteBase = /^https?:/i.test(base);
-    const initialTheme = this.theme === 'light' ? 'light' : 'dark';
-    if (!isAbsoluteBase) {
-      try {
-        console.warn(
-          '[W3A][IframeExportHost] Embedded SDK base is not absolute. Skipping CSS preloads. ' +
-            'Configure an absolute base so assets resolve: React → set SeamsWebProvider config ' +
-            '{ iframeWallet: { walletOrigin: "https://wallet.example.com", sdkBasePath: "/sdk" } }, ',
-        );
-      } catch {}
-    }
-    const viewerBundle = EXPORT_VIEWER_BUNDLE;
-    const bootstrap = IFRAME_EXPORT_BOOTSTRAP_MODULE;
-    return `<!DOCTYPE html>
-      <html data-w3a-theme="${initialTheme}">
-        <head>
-          <meta charset="utf-8" />
-          <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-          ${isAbsoluteBase ? `<link rel="preload" href="${base}export-viewer.css" as="style" />` : ''}
-          <link rel="stylesheet" href="${base}wallet-service.css" />
-          <!-- Component palette/tokens for host elements (e.g., <w3a-drawer>) -->
-          ${isAbsoluteBase ? `<link rel="stylesheet" href="${base}w3a-components.css" />` : ''}
-          <!-- Ensure critical component styles (strict CSP: external only, no inline) -->
-          ${isAbsoluteBase ? `<link rel="stylesheet" href="${base}drawer.css" data-w3a-drawer-css />` : ''}
-          ${isAbsoluteBase ? `<link rel="stylesheet" href="${base}export-viewer.css" data-w3a-export-viewer-css />` : ''}
-          <script type="module" crossorigin="anonymous" src="${base}${viewerBundle}"></script>
-          <script type="module" crossorigin="anonymous" src="${base}${bootstrap}"></script>
-        </head>
-        <body>
-          <w3a-drawer id="exp" theme="${initialTheme}"></w3a-drawer>
-        </body>
-      </html>`;
-  }
-
-  private initializeIframe() {
-    const iframeEl = this.iframeRef.value;
-    if (!iframeEl) return;
-    this.setupMessageHandling();
-    iframeEl.srcdoc = this.generateIframeHtml();
-  }
-
-  private postToIframe<T extends MessageType>(type: T, payload?: MessagePayloads[T]) {
-    const win = this.iframeRef.value?.contentWindow;
-    if (!win) return;
-    win.postMessage({ type, payload }, '*');
-  }
-
-  private setupMessageHandling() {
-    const onMessage = async (event: MessageEvent) => {
-      const data = event?.data;
-      if (!isObject(data) || !isString((data as { type?: unknown }).type)) return;
-      const type = (data as { type?: string }).type as MessageType;
-      const payload = (data as { payload?: unknown }).payload;
-      switch (type) {
-        case 'READY': {
-          // Mark initialized in case parent missed initial flag set
-          this.iframeInitialized = true;
-          // Push init and initial data
-          this.postToIframe('SET_INIT', { targetOrigin: window.location.origin });
-          this.postToIframe('SET_EXPORT_DATA', {
-            theme: this.theme,
-            variant: this.variant,
-            accountId: this.accountId,
-            publicKey: this.publicKey,
-            keys: this.keys,
-            guidance: this.guidance,
-            appearance: this.appearance,
-          });
-          this.postToIframe('SET_LOADING', !!this.loading);
-          if (this.errorMessage) this.postToIframe('SET_ERROR', this.errorMessage);
-          if (this.privateKey)
-            this.postToIframe('SET_PRIVATE_KEY', { privateKey: this.privateKey });
-          return;
-        }
-        case 'IFRAME_ERROR':
-        case 'IFRAME_UNHANDLED_REJECTION': {
-          console.error('[IframeExportHost] iframe error:', payload);
-          return;
-        }
-        case 'CONFIRM': {
-          dispatchLitConfirm(this);
-          this.remove();
-          return;
-        }
-        case 'CANCEL': {
-          dispatchLitCancel(this);
-          this.remove();
-          return;
-        }
-        case 'COPY': {
-          if (isObject(payload)) {
-            const { type, value } = payload as Partial<{ type: unknown; value: unknown }>;
-            if (
-              isString(type) &&
-              (type === 'publicKey' || type === 'privateKey') &&
-              isString(value)
-            ) {
-              dispatchLitCopy(this, { type, value });
-            } else {
-              console.warn(
-                '[IframeExportHost] Ignoring COPY message with invalid payload',
-                payload,
-              );
-            }
-          }
-          return;
-        }
-        default:
-          return;
-      }
-    };
-
-    if (this.messageHandler) window.removeEventListener('message', this.messageHandler);
-    this.messageHandler = onMessage;
-    window.addEventListener('message', onMessage);
-  }
-
-  render() {
-    return html`
-      <div class="iframe-host">
-        <!--
-          About this ExportPrivateKey iframe:
-          - sandbox="allow-scripts allow-same-origin":
-            Allows module scripts to run while preserving the wallet origin inside
-            the iframe (no opaque origin). Keeping same-origin is required so the
-            document matches the parent Permissions-Policy allowlist (e.g.,
-            clipboard-read/write and WebAuthn) rather than being blocked as a
-            null/opaque origin.
-          - allow="clipboard-read; clipboard-write":
-            Opts in to the clipboard features at the frame level. This must be
-            used in combination with a Permissions-Policy header on the parent
-            page that allows clipboard for the wallet origin.
-          - srcdoc (set in initializeIframe):
-            Loads wallet-service.css, component tokens (w3a-components.css),
-            preloads drawer + export-viewer CSS, and imports the viewer +
-            bootstrap modules; no inline scripts/styles to satisfy strict CSP.
-        -->
-        <iframe
-          ${ref(this.iframeRef)}
-          sandbox="allow-scripts allow-same-origin"
-          allow="clipboard-read; clipboard-write"
-        ></iframe>
-      </div>
-    `;
+  render(): unknown {
+    // The drawer and viewer are light-DOM children (managed in updated()):
+    // they are styled by document-level component CSS, which cannot pierce
+    // this shadow root. The shadow tree exists only so export-iframe.css can
+    // size the host via :host() — all content flows through the slot.
+    return html`<slot></slot>`;
   }
 }
 
 // Strongly-typed element shape for 'w3a-export-viewer-iframe'
 export type ExportViewerIframeElement = HTMLElement & {
+  requestUpdate?: () => void;
   theme?: ExportViewerTheme;
   variant?: ExportViewerVariant;
   accountId?: string;

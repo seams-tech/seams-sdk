@@ -4,27 +4,6 @@ import {
   type SigningAuthPlan,
 } from '@/core/signingEngine/stepUpConfirmation/types';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
-import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
-import type { EmailOtpEcdsaSigningBootstrapResult } from '../../interfaces/operationDeps';
-import type {
-  WarmSessionStatusReader,
-  WarmSessionStatusResult,
-} from '../../uiConfirm/uiConfirm.types';
-import type {
-  SigningSessionCoordinator,
-  SigningSessionReadiness,
-} from '../../session/SigningSessionCoordinator';
-import type { SigningSessionBudgetStatusAuth } from '../../session/budget/budget';
-import { applyWalletBudgetStatusToSigningSessionReadiness } from '../../session/availability/readiness';
-import {
-  decideSigningGrantAdmissionError,
-  waitForSigningGrantAdmissionRetry,
-} from '../../session/budget/admission';
-import {
-  normalizeStepUpOperationId,
-  resolvePostExhaustionStepUpBudgetPolicy,
-  resolveSigningBudgetPolicyRemainingUses,
-} from '../../session/budget/policy';
 import type { SigningSessionPlan } from '../../session/operationState/types';
 import { SigningOperationIntent, SigningSessionPlanKind } from '../../session/operationState/types';
 import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
@@ -32,92 +11,59 @@ import type { PreparedThresholdSigningOperation } from '../../session/operationS
 import { signingAuthPlanFromSigningSessionPlan } from '../shared/signingConfirmation';
 import type {
   ThresholdEcdsaChainTarget,
-  WalletId,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  isEmailOtpThresholdEcdsaSigningContext,
-  type ResolvedEvmFamilyEcdsaSigningLane,
-} from './ecdsaLanes';
-import type { EvmFamilyEcdsaSessionReaderDeps } from '../../interfaces/operationDeps';
+import type { ResolvedEvmFamilyEcdsaSigningLane } from './ecdsaLanes';
 import type { EmailOtpTransactionSigningChallenge } from '../../session/emailOtp/publicTypes';
 import {
   createEmailOtpEcdsaTransactionSigningBridge,
+  emailOtpEcdsaCapabilityStepUpAuthority,
+  type EmailOtpEcdsaChallengeAuthority,
   type EmailOtpEcdsaStepUpAuthority,
   type EvmFamilyEmailOtpTransactionSigningBridge,
 } from './emailOtpSigningSession';
 import {
-  getEcdsaMaterialRecord,
-  resolveEmailOtpEcdsaReadinessSource,
-  type EcdsaMaterialState,
-  type ReadyEcdsaMaterial,
-} from './ecdsaMaterialState';
-import type {
-  EmailOtpEcdsaCommittedLane,
-  EmailOtpEcdsaPublicReauthLane,
-  ReadyEvmFamilyEcdsaSigningSelection,
-  ReauthRequiredEvmFamilyEcdsaSigningSelection,
-} from './ecdsaSelection';
+  isEmailOtpWalletAuthAuthority,
+  isPasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { CanonicalEvmFamilyEcdsaSigningCapability } from '../../session/material/ecdsaSigningCapability';
+import type { ReadyEvmFamilyEcdsaSigningSelection } from './ecdsaSelection';
 import type {
   EvmFamilyChain,
   EvmFamilyLifecycleEventCallback,
   EvmFamilySenderSignatureAlgorithm,
 } from './types';
 
-export type EvmFamilyPreConfirmSigningDeps = EvmFamilyEcdsaSessionReaderDeps & {
-  touchConfirm: WarmSessionStatusReader;
-  getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
-  signingSessionCoordinator: SigningSessionCoordinator;
-};
-export type EvmFamilyWarmSessionReadinessDeps = EvmFamilyPreConfirmSigningDeps;
-
 export type EvmFamilyConfirmedEmailOtpDeps = {
   requestEmailOtpTransactionSigningChallenge?: (args: {
     walletSession: WalletSessionRef;
     chain: EvmFamilyChain;
-    authority:
-      | {
-          kind: 'live_session';
-          authLane: Extract<EmailOtpSigningSessionAuthLane, { curve: 'ecdsa' }>;
-          reauthLane?: never;
-        }
-      | {
-          kind: 'public_reauth_anchor';
-          reauthLane: EmailOtpEcdsaPublicReauthLane;
-          authLane?: never;
-        };
+    authority: EmailOtpEcdsaChallengeAuthority;
   }) => Promise<EmailOtpTransactionSigningChallenge>;
-  loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
-    walletSession: WalletSessionRef;
-    subjectId?: never;
-    chainTarget: ThresholdEcdsaChainTarget;
-    challengeId: string;
-    otpCode: string;
-    authority: EmailOtpEcdsaStepUpAuthority;
-    remainingUses: number;
-  }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
 };
 
 function emailOtpStepUpAuthority(
-  selection: Extract<
-    ReadyEvmFamilyEcdsaSigningSelection | ReauthRequiredEvmFamilyEcdsaSigningSelection,
-    { authMethod: 'email_otp' }
-  >,
+  selection: ReadyEvmFamilyEcdsaSigningSelection,
 ): EmailOtpEcdsaStepUpAuthority {
-  if (selection.kind === 'ready' || selection.reason === 'missing_hot_material') {
-    return { kind: 'live_session', committedLane: selection.committedLane };
+  if (!isEmailOtpWalletAuthAuthority(selection.committedLane.authority)) {
+    throw new Error('[SigningEngine][ecdsa] Email OTP step-up requires Email OTP authority');
   }
-  return { kind: 'public_reauth_anchor', reauthLane: selection.reauthLane };
+  return { kind: 'live_session', committedLane: selection.committedLane };
 }
 
-export type EvmFamilyConfirmedSigningDeps = EvmFamilyConfirmedEmailOtpDeps;
-
-export type EvmFamilyTransactionStepUpDeps = EvmFamilyPreConfirmSigningDeps;
+function emailOtpStepUpAuthorityForSelection(
+  selection: ReadyEvmFamilyEcdsaSigningSelection | undefined,
+): EmailOtpEcdsaStepUpAuthority | undefined {
+  if (!selection) return undefined;
+  return isEmailOtpWalletAuthAuthority(selection.committedLane.authority)
+    ? emailOtpStepUpAuthority(selection)
+    : undefined;
+}
 
 type ResolveEvmFamilyTransactionStepUpBaseArgs = {
-  deps: EvmFamilyTransactionStepUpDeps;
-  confirmedDeps: EvmFamilyConfirmedSigningDeps;
+  confirmedDeps: EvmFamilyConfirmedEmailOtpDeps;
   walletSession: WalletSessionRef;
   chain: EvmFamilyChain;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -125,335 +71,36 @@ type ResolveEvmFamilyTransactionStepUpBaseArgs = {
   onEvent?: EvmFamilyLifecycleEventCallback;
 };
 
-function assertNeverEcdsaReadinessSource(value: never): never {
-  throw new Error(`[SigningEngine][ecdsa] unsupported readiness source: ${String(value)}`);
-}
-
-type BaseEvmFamilyPlannerReadiness = {
-  readiness: SigningSessionReadiness;
-  expiresAtMs: number;
-  remainingUses: number;
-};
-
-export type EvmFamilyPlannerReadiness =
-  | (BaseEvmFamilyPlannerReadiness & {
-      trustedBudgetStatusAuth: {
-        kind: 'trusted_budget_status_auth';
-        auth: SigningSessionBudgetStatusAuth;
-      };
-    })
-  | (BaseEvmFamilyPlannerReadiness & {
-      trustedBudgetStatusAuth: {
-        kind: 'no_trusted_budget_status_auth';
-      };
-    });
-
-function buildMissingEcdsaPlannerReadiness(
-  thresholdSessionId: SigningSessionReadiness['thresholdSessionId'],
-): EvmFamilyPlannerReadiness {
-  return {
-    readiness: {
-      status: 'missing_session',
-      thresholdSessionId,
-    },
-    expiresAtMs: 0,
-    remainingUses: 0,
-    trustedBudgetStatusAuth: {
-      kind: 'no_trusted_budget_status_auth',
-    },
-  };
-}
-
-function buildReadyEcdsaBackingReadiness(input: {
-  thresholdSessionId: SigningSessionReadiness['thresholdSessionId'];
-  expiresAtMs: number;
-  remainingUses: number;
-  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
-}): EvmFamilyPlannerReadiness {
-  const expiresAtMs = Math.floor(Number(input.expiresAtMs) || 0);
-  const remainingUses = Math.floor(Number(input.remainingUses) || 0);
-  const classified = applyWalletBudgetStatusToSigningSessionReadiness({
-    status: 'ready',
-    thresholdSessionId: input.thresholdSessionId,
-    expiresAtMs,
-    remainingUses,
-    missingWhenExpiresAtMissing: true,
-  });
-  if (input.trustedStatusAuth) {
-    return {
-      readiness: classified.readiness,
-      expiresAtMs: classified.expiresAtMs,
-      remainingUses: classified.remainingUses,
-      trustedBudgetStatusAuth: {
-        kind: 'trusted_budget_status_auth',
-        auth: input.trustedStatusAuth,
-      },
-    };
-  }
-  return {
-    readiness: classified.readiness,
-    expiresAtMs: classified.expiresAtMs,
-    remainingUses: classified.remainingUses,
-    trustedBudgetStatusAuth: {
-      kind: 'no_trusted_budget_status_auth',
-    },
-  };
-}
-
-export type EvmFamilyEmailOtpSingleOperationStepUpBudget = {
-  kind: 'single_operation_email_otp_step_up';
-  remainingUses: 1;
-};
-
-export function buildEvmFamilyEmailOtpSingleOperationStepUpBudget(
-  operation: PreparedThresholdSigningOperation['operation'],
-): EvmFamilyEmailOtpSingleOperationStepUpBudget {
-  const policy = resolvePostExhaustionStepUpBudgetPolicy({
-    operationId: normalizeStepUpOperationId(
-      operation?.operationId || 'evm-family-email-otp-post-exhaustion-step-up',
-    ),
-    requiredSignatureUses: 1,
-  });
-  const remainingUses = resolveSigningBudgetPolicyRemainingUses(policy);
-  if (remainingUses !== 1) {
-    throw new Error(
-      `[SigningEngine][ecdsa] Email OTP single-operation step-up resolved ${remainingUses} uses`,
-    );
-  }
-  return {
-    kind: 'single_operation_email_otp_step_up',
-    remainingUses,
-  };
-}
-
-function trustedBudgetStatusAuthFromReadyEcdsaMaterial(
-  material: ReadyEcdsaMaterial,
-): SigningSessionBudgetStatusAuth {
-  const signerSession = material.signerSession;
-  const walletSessionJwt =
-    signerSession.routerAbEcdsaDerivationNormalSigning.credential.walletSessionJwt;
-  return {
-    relayerUrl: signerSession.transport.relayerUrl,
-    thresholdSessionId: String(signerSession.session.thresholdSessionId),
-    walletSessionJwt,
-  };
-}
-
 export type ResolveEvmFamilyTransactionStepUpArgs =
   | (ResolveEvmFamilyTransactionStepUpBaseArgs & {
       senderSignatureAlgorithm: 'secp256k1';
+      ecdsaAuthorization: 'reusable_wallet_session';
       preparedOperation: PreparedThresholdSigningOperation<
         ResolvedEvmFamilyEcdsaSigningLane,
         Record<string, unknown>
       >;
     })
+  // Auth-neutral ECDSA material: the reusable-session planner never ran, so
+  // there is no prepared threshold operation and no signing session plan to
+  // derive a warm-session plan from. The operation is authorized directly on
+  // the capability's own factor, which is why the capability itself is
+  // required here -- it is the authority an Email OTP challenge is minted for.
+  | (ResolveEvmFamilyTransactionStepUpBaseArgs & {
+      senderSignatureAlgorithm: 'secp256k1';
+      ecdsaAuthorization: 'operation_step_up';
+      preparedOperation?: never;
+      capability: CanonicalEvmFamilyEcdsaSigningCapability;
+      materialActivation: MpcMaterialActivationRef;
+      operationFingerprint: string;
+    })
   | (ResolveEvmFamilyTransactionStepUpBaseArgs & {
       senderSignatureAlgorithm: Exclude<EvmFamilySenderSignatureAlgorithm, 'secp256k1'>;
+      ecdsaAuthorization?: never;
       preparedOperation?: never;
+      capability?: never;
+      materialActivation?: never;
+      operationFingerprint?: never;
     });
-
-export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
-  deps: Pick<
-    EvmFamilyPreConfirmSigningDeps,
-    'touchConfirm' | 'getEmailOtpWarmSessionStatus' | 'signingSessionCoordinator'
-  >;
-  lane: ResolvedEvmFamilyEcdsaSigningLane;
-  material: EcdsaMaterialState;
-}): Promise<EvmFamilyPlannerReadiness> {
-  const thresholdSessionId = args.lane.thresholdSessionId;
-  const record = getEcdsaMaterialRecord(args.material);
-  if (!record) {
-    return buildMissingEcdsaPlannerReadiness(thresholdSessionId);
-  }
-
-  const materialIsEmailOtp = isEmailOtpThresholdEcdsaSigningContext({ record });
-  if (materialIsEmailOtp) {
-    const readinessSource = resolveEmailOtpEcdsaReadinessSource({
-      record,
-      nowMs: Date.now(),
-    });
-    switch (readinessSource.kind) {
-      case 'persisted_record_policy':
-        if (args.material.kind === 'ready_to_sign') {
-          return buildReadyEcdsaBackingReadiness({
-            thresholdSessionId,
-            expiresAtMs: readinessSource.expiresAtMs,
-            remainingUses: readinessSource.remainingUses,
-            trustedStatusAuth: trustedBudgetStatusAuthFromReadyEcdsaMaterial(args.material),
-          });
-        }
-        return buildMissingEcdsaPlannerReadiness(thresholdSessionId);
-      case 'worker_session_status': {
-        const status =
-          typeof args.deps.getEmailOtpWarmSessionStatus === 'function'
-            ? await args.deps
-                .getEmailOtpWarmSessionStatus(readinessSource.workerSessionId)
-                .catch(() => null)
-            : null;
-        const statusExpiresAtMs = status?.ok ? status.expiresAtMs : 0;
-        const statusRemainingUses = status?.ok ? status.remainingUses : 0;
-        return buildReadyEcdsaBackingReadiness({
-          thresholdSessionId,
-          expiresAtMs: Math.floor(Number(statusExpiresAtMs) || 0),
-          remainingUses: Math.floor(Number(statusRemainingUses) || 0),
-          ...(args.material.kind === 'ready_to_sign'
-            ? { trustedStatusAuth: trustedBudgetStatusAuthFromReadyEcdsaMaterial(args.material) }
-            : {}),
-        });
-      }
-      case 'unavailable':
-        return buildMissingEcdsaPlannerReadiness(thresholdSessionId);
-      default:
-        return assertNeverEcdsaReadinessSource(readinessSource);
-    }
-  }
-
-  const trustedPasskeyReadiness = await resolvePasskeyEcdsaTrustedBudgetReadiness({
-    deps: args.deps,
-    lane: args.lane,
-    material: args.material,
-  });
-  if (trustedPasskeyReadiness) return trustedPasskeyReadiness;
-  if (args.material.kind !== 'ready_to_sign') {
-    return buildMissingEcdsaPlannerReadiness(thresholdSessionId);
-  }
-
-  const expiresAtMs = record.expiresAtMs;
-  const remainingUses = record.remainingUses;
-  return buildReadyEcdsaBackingReadiness({ thresholdSessionId, expiresAtMs, remainingUses });
-}
-
-async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {
-  deps: Pick<EvmFamilyPreConfirmSigningDeps, 'signingSessionCoordinator'>;
-  lane: ResolvedEvmFamilyEcdsaSigningLane;
-  material: EcdsaMaterialState;
-}): Promise<{
-  readiness: SigningSessionReadiness;
-  expiresAtMs: number;
-  remainingUses: number;
-  trustedBudgetStatusAuth: {
-    kind: 'trusted_budget_status_auth';
-    auth: SigningSessionBudgetStatusAuth;
-  };
-} | null> {
-  const record = getEcdsaMaterialRecord(args.material);
-  if (
-    !record ||
-    args.material.kind !== 'ready_to_sign' ||
-    signingLaneAuthMethod(args.lane.auth) !== SIGNER_AUTH_METHODS.passkey
-  ) {
-    return null;
-  }
-  const signerSession = args.material.signerSession;
-  const walletSessionJwt =
-    signerSession.routerAbEcdsaDerivationNormalSigning.credential.walletSessionJwt;
-  const trustedStatusAuth: SigningSessionBudgetStatusAuth = {
-    relayerUrl: signerSession.transport.relayerUrl,
-    thresholdSessionId: String(signerSession.session.thresholdSessionId),
-    walletSessionJwt,
-  };
-  return await resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth({
-    ...args,
-    trustedStatusAuth,
-    inFlightRetry: 'available',
-  });
-}
-
-export async function resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth(args: {
-  deps: Pick<EvmFamilyPreConfirmSigningDeps, 'signingSessionCoordinator'>;
-  lane: ResolvedEvmFamilyEcdsaSigningLane;
-  trustedStatusAuth: SigningSessionBudgetStatusAuth;
-  inFlightRetry: 'available' | 'spent';
-}): Promise<{
-  readiness: SigningSessionReadiness;
-  expiresAtMs: number;
-  remainingUses: number;
-  trustedBudgetStatusAuth: {
-    kind: 'trusted_budget_status_auth';
-    auth: SigningSessionBudgetStatusAuth;
-  };
-}> {
-  try {
-    const budgetIdentity = await args.deps.signingSessionCoordinator.prepareBudgetIdentity({
-      lane: args.lane,
-      trustedStatusAuth: args.trustedStatusAuth,
-      operationUsesNeeded: 1,
-    });
-    const expiresAtMs = Math.floor(Number(budgetIdentity.status.expiresAtMs) || 0);
-    const remainingUses = Math.floor(Number(budgetIdentity.status.remainingUses) || 0);
-    const classified = applyWalletBudgetStatusToSigningSessionReadiness({
-      status: 'ready',
-      thresholdSessionId: args.lane.thresholdSessionId,
-      expiresAtMs,
-      remainingUses,
-      walletBudgetStatus: budgetIdentity.status,
-      missingWhenExpiresAtMissing: true,
-    });
-    return {
-      readiness: classified.readiness,
-      expiresAtMs: classified.expiresAtMs,
-      remainingUses: classified.remainingUses,
-      trustedBudgetStatusAuth: {
-        kind: 'trusted_budget_status_auth',
-        auth: args.trustedStatusAuth,
-      },
-    };
-  } catch (error: unknown) {
-    const admissionDecision = decideSigningGrantAdmissionError(error);
-    if (!admissionDecision) {
-      return {
-        readiness: {
-          status: 'missing_session',
-          thresholdSessionId: args.lane.thresholdSessionId,
-        },
-        expiresAtMs: 0,
-        remainingUses: 0,
-        trustedBudgetStatusAuth: {
-          kind: 'trusted_budget_status_auth',
-          auth: args.trustedStatusAuth,
-        },
-      };
-    }
-    if (
-      admissionDecision.kind === 'wait_and_retry_admission' &&
-      args.inFlightRetry === 'available'
-    ) {
-      await waitForSigningGrantAdmissionRetry(admissionDecision.retryAfterMs);
-      return await resolvePasskeyEcdsaTrustedBudgetReadinessFromAuth({
-        ...args,
-        inFlightRetry: 'spent',
-      });
-    }
-    if (admissionDecision.kind === 'wait_and_retry_admission') {
-      return {
-        readiness: {
-          status: 'missing_session',
-          thresholdSessionId: args.lane.thresholdSessionId,
-        },
-        expiresAtMs: 0,
-        remainingUses: 0,
-        trustedBudgetStatusAuth: {
-          kind: 'trusted_budget_status_auth',
-          auth: args.trustedStatusAuth,
-        },
-      };
-    }
-    return {
-      readiness: {
-        status: 'exhausted',
-        thresholdSessionId: args.lane.thresholdSessionId,
-        expiresAtMs: 0,
-        remainingUses: 0,
-      },
-      expiresAtMs: 0,
-      remainingUses: 0,
-      trustedBudgetStatusAuth: {
-        kind: 'trusted_budget_status_auth',
-        auth: args.trustedStatusAuth,
-      },
-    };
-  }
-}
 
 export async function resolveEvmFamilyTransactionStepUp(
   args: ResolveEvmFamilyTransactionStepUpArgs,
@@ -463,57 +110,60 @@ export async function resolveEvmFamilyTransactionStepUp(
   emailOtpSigning?: {
     prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
     resend?: () => Promise<{ challengeId: string; emailHint?: string }>;
-    complete: (
-      otpCode: string,
-      challengeId?: string,
-    ) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
   };
 }> {
   const walletId = toWalletId(args.walletSession.walletId);
-  const preparedEcdsaMetadata =
-    args.senderSignatureAlgorithm === 'secp256k1'
-      ? (args.preparedOperation.metadata as {
-          selection:
-            | ReadyEvmFamilyEcdsaSigningSelection
-            | ReauthRequiredEvmFamilyEcdsaSigningSelection;
-          material: EcdsaMaterialState;
-        })
+  // Only a reusable-session preparation carries a threshold operation. Every
+  // warm-session fact below is derived from it, so an auth-neutral operation
+  // simply has none of them.
+  const reusableSessionEcdsaOperation =
+    args.senderSignatureAlgorithm === 'secp256k1' &&
+    args.ecdsaAuthorization === 'reusable_wallet_session'
+      ? args.preparedOperation
       : null;
-  const preparedEcdsaLane =
-    args.senderSignatureAlgorithm === 'secp256k1' ? args.preparedOperation.lane : undefined;
+  const preparedEcdsaMetadata = reusableSessionEcdsaOperation
+    ? (reusableSessionEcdsaOperation.metadata as {
+        selection: ReadyEvmFamilyEcdsaSigningSelection;
+      })
+    : null;
+  const preparedEcdsaLane = reusableSessionEcdsaOperation?.lane;
   const preparedSelection = preparedEcdsaMetadata?.selection;
   const confirmedEmailOtpDeps = args.confirmedDeps;
-  const emailOtpAuthority =
-    args.senderSignatureAlgorithm === 'secp256k1' &&
-    preparedEcdsaLane &&
-    signingLaneAuthMethod(preparedEcdsaLane.auth) === SIGNER_AUTH_METHODS.emailOtp &&
-    preparedSelection?.authMethod === SIGNER_AUTH_METHODS.emailOtp
-      ? emailOtpStepUpAuthority(preparedSelection)
-      : undefined;
-  const emailOtpAuthBridge =
-    args.senderSignatureAlgorithm === 'secp256k1' && emailOtpAuthority
-      ? createEmailOtpEcdsaTransactionSigningBridge({
-          walletId,
-          walletSession: args.walletSession,
-          chain: args.chain,
-          chainTarget: args.chainTarget,
-          selectedLane: preparedEcdsaLane,
-          authority: emailOtpAuthority,
-          onEvent: args.onEvent,
-          requestEmailOtpTransactionSigningChallenge:
-            confirmedEmailOtpDeps.requestEmailOtpTransactionSigningChallenge,
-          loginWithEmailOtpEcdsaCapabilityForSigning:
-            confirmedEmailOtpDeps.loginWithEmailOtpEcdsaCapabilityForSigning,
-          remainingUses: buildEvmFamilyEmailOtpSingleOperationStepUpBudget(
-            args.preparedOperation.operation,
-          ).remainingUses,
+  // Auth-neutral material has no lane and no selection to read an authority
+  // from. The capability is the authority, and it is validated against the
+  // exact material activation before any challenge is minted.
+  const capabilityStepUpAuthority =
+    args.ecdsaAuthorization === 'operation_step_up' &&
+    isEmailOtpWalletAuthAuthority(args.capability.authority)
+      ? emailOtpEcdsaCapabilityStepUpAuthority({
+          capability: args.capability,
+          materialActivation: args.materialActivation,
+          operationFingerprint: args.operationFingerprint,
         })
-      : null;
+      : undefined;
+  const emailOtpAuthority =
+    capabilityStepUpAuthority ??
+    (preparedEcdsaLane &&
+    signingLaneAuthMethod(preparedEcdsaLane.auth) === SIGNER_AUTH_METHODS.emailOtp
+      ? emailOtpStepUpAuthorityForSelection(preparedSelection)
+      : undefined);
+  const emailOtpAuthBridge = emailOtpAuthority
+    ? createEmailOtpEcdsaTransactionSigningBridge({
+        walletId,
+        walletSession: args.walletSession,
+        chain: args.chain,
+        ...(preparedEcdsaLane ? { selectedLane: preparedEcdsaLane } : {}),
+        authority: emailOtpAuthority,
+        onEvent: args.onEvent,
+        requestEmailOtpTransactionSigningChallenge:
+          confirmedEmailOtpDeps.requestEmailOtpTransactionSigningChallenge,
+      })
+    : null;
   const signingIntent = SigningOperationIntent.TransactionSign;
   let plannedEcdsaSigningAuthPlan: SigningAuthPlan | null = null;
   let plannedSigningSessionPlan: SigningSessionPlan | undefined;
-  if (args.senderSignatureAlgorithm === 'secp256k1') {
-    const preparedOperation = args.preparedOperation;
+  if (reusableSessionEcdsaOperation) {
+    const preparedOperation = reusableSessionEcdsaOperation;
     const signingSessionPlan = preparedOperation.signingSessionPlan;
     plannedSigningSessionPlan = signingSessionPlan;
     if (signingSessionPlan.kind === SigningSessionPlanKind.NotReady) {
@@ -540,9 +190,8 @@ export async function resolveEvmFamilyTransactionStepUp(
     };
   }
 
-  let activeChallenge: { challengeId: string; email: string } | null = null;
   const prepareChallenge = async (): Promise<{ challengeId: string; emailHint?: string }> => {
-    activeChallenge = await activeEmailOtpAuthBridge.challenge();
+    const activeChallenge = await activeEmailOtpAuthBridge.challenge();
     return {
       challengeId: activeChallenge.challengeId,
       ...(activeChallenge.email ? { emailHint: activeChallenge.email } : {}),
@@ -556,19 +205,6 @@ export async function resolveEvmFamilyTransactionStepUp(
       resend: async () => {
         return await prepareChallenge();
       },
-      complete: async (otpCode: string, challengeId?: string) => {
-        const resolvedChallengeId = String(
-          challengeId || activeChallenge?.challengeId || '',
-        ).trim();
-        if (!resolvedChallengeId) {
-          throw new Error('[SigningEngine] Email OTP challenge was not prepared before completion');
-        }
-        const proof = await activeEmailOtpAuthBridge.complete({
-          challengeId: resolvedChallengeId,
-          code: otpCode,
-        });
-        return proof;
-      },
     },
   };
 
@@ -576,6 +212,31 @@ export async function resolveEvmFamilyTransactionStepUp(
     signingAuthPlan: SigningAuthPlan;
     emailOtpAuthBridge?: EvmFamilyEmailOtpTransactionSigningBridge;
   }> {
+    if (args.ecdsaAuthorization === 'operation_step_up') {
+      if (isPasskeyWalletAuthAuthority(args.capability.authority)) {
+        return {
+          signingAuthPlan: {
+            kind: SigningAuthPlanKind.PasskeyReauth,
+            method: 'passkey',
+          },
+        };
+      }
+      if (isEmailOtpWalletAuthAuthority(args.capability.authority)) {
+        if (!emailOtpAuthBridge) {
+          throw new Error(
+            '[SigningEngine] Email OTP step-up authority is unavailable for the selected capability',
+          );
+        }
+        return {
+          signingAuthPlan: {
+            kind: SigningAuthPlanKind.EmailOtpReauth,
+            method: 'email_otp',
+          },
+          emailOtpAuthBridge,
+        };
+      }
+      args.capability.authority satisfies never;
+    }
     const linkedAuthMethods = Array.isArray(args.accountAuth.linkedAuthMethods)
       ? args.accountAuth.linkedAuthMethods
       : [];

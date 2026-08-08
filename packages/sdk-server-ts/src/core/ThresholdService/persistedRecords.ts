@@ -1,5 +1,4 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import { base64UrlDecode } from '@shared/utils/encoders';
 import {
   parseThresholdEd25519CoordinatorSigningSessionRecord,
   parseEd25519WalletSessionRecord,
@@ -8,10 +7,6 @@ import {
   parseThresholdEd25519MpcSessionRecord,
   parseThresholdEd25519SigningSessionRecord,
 } from './validation';
-import {
-  normalizeSigningRootSecretShareId,
-  type SealedSigningRootSecretShare,
-} from './signingRootSecretShareWires';
 
 export type CurrentThresholdEd25519SessionRecord = NonNullable<
   ReturnType<typeof parseEd25519WalletSessionRecord>
@@ -55,11 +50,6 @@ export type CurrentRouterAbEcdsaDerivationPoolFillSessionRecord = NonNullable<
 export type CurrentRouterAbEcdsaDerivationPoolFillSessionRow = {
   record: CurrentRouterAbEcdsaDerivationPoolFillSessionRecord;
   expiresAtMs: number;
-};
-
-export type CurrentSigningRootSecretShareRecord = SealedSigningRootSecretShare & {
-  createdAtMs: number;
-  updatedAtMs: number;
 };
 
 function toPositiveSafeInt(value: unknown): number | null {
@@ -211,54 +201,6 @@ export function parseCurrentRouterAbEcdsaDerivationPoolFillSessionRow(input: {
   return {
     record,
     expiresAtMs,
-  };
-}
-
-export function parseCurrentSigningRootSecretShareRecord(raw: {
-  signing_root_id?: unknown;
-  signing_root_version?: unknown;
-  share_id?: unknown;
-  sealed_share_b64u?: unknown;
-  storage_id?: unknown;
-  kek_id?: unknown;
-  created_at_ms?: unknown;
-  updated_at_ms?: unknown;
-}): CurrentSigningRootSecretShareRecord | null {
-  const signingRootId =
-    typeof raw.signing_root_id === 'string' && raw.signing_root_id.trim()
-      ? raw.signing_root_id.trim()
-      : null;
-  const shareId = normalizeSigningRootSecretShareId(raw.share_id);
-  const sealedShareB64u =
-    typeof raw.sealed_share_b64u === 'string' && raw.sealed_share_b64u.trim()
-      ? raw.sealed_share_b64u.trim()
-      : null;
-  const createdAtMs = toPositiveSafeInt(raw.created_at_ms);
-  const updatedAtMs = toPositiveSafeInt(raw.updated_at_ms);
-  if (!signingRootId || !shareId || !sealedShareB64u || !createdAtMs || !updatedAtMs) return null;
-  if (!hasIncreasingTimestamps(createdAtMs, updatedAtMs)) return null;
-  let sealedShare: Uint8Array;
-  try {
-    sealedShare = base64UrlDecode(sealedShareB64u);
-  } catch {
-    return null;
-  }
-  if (sealedShare.length === 0) return null;
-  const signingRootVersion =
-    typeof raw.signing_root_version === 'string' ? raw.signing_root_version : null;
-  if (signingRootVersion === null) return null;
-  const storageId =
-    typeof raw.storage_id === 'string' && raw.storage_id.trim() ? raw.storage_id.trim() : null;
-  const kekId = typeof raw.kek_id === 'string' && raw.kek_id.trim() ? raw.kek_id.trim() : null;
-  return {
-    signingRootId,
-    shareId,
-    sealedShare,
-    ...(signingRootVersion ? { signingRootVersion } : {}),
-    ...(storageId ? { storageId } : {}),
-    ...(kekId ? { kekId } : {}),
-    createdAtMs,
-    updatedAtMs,
   };
 }
 

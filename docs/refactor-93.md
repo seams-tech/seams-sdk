@@ -1,4 +1,4 @@
-# Refactor 93: Stateless MPC Router And Role-Isolated Signing Coordination
+# Refactor 93: Router-Owned Yao Ceremony Orchestration
 
 Date created: July 24, 2026
 

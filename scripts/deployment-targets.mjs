@@ -6,7 +6,18 @@ import { parseGatewayDeploymentConfig } from '../packages/console-server-ts/scri
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_TARGETS_PATH = path.join(SCRIPT_DIRECTORY, '..', 'deployment', 'targets.json');
 
-export const TARGET_NAMES = Object.freeze(['staging', 'production']);
+const RELEASE_IDS = Object.freeze(['staging', 'production']);
+const RELEASE_NETWORKS = Object.freeze({
+  staging: Object.freeze(['testnet']),
+  production: Object.freeze(['testnet', 'mainnet']),
+});
+const BACKEND_LANE_IDS = Object.freeze([
+  'staging-testnet',
+  'production-testnet',
+  'production-mainnet',
+]);
+const FRONTEND_SITE_IDS = Object.freeze(['staging', 'production']);
+
 export const BACKEND_COMPONENTS = Object.freeze([
   'signing-worker',
   'deriver-a',
@@ -23,7 +34,6 @@ const DEPLOYMENT_RESOURCE_NAMES = Object.freeze([
   'deriverA',
   'deriverB',
   'signingWorker',
-  'frontend',
 ]);
 const GATEWAY_BASE_SECRET_NAMES = Object.freeze([
   'RELAY_SESSION_HMAC_SECRET',
@@ -32,48 +42,77 @@ const GATEWAY_BASE_SECRET_NAMES = Object.freeze([
   'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK',
 ]);
 
+export function backendLaneIds() {
+  return BACKEND_LANE_IDS;
+}
+
+export function frontendSiteIds() {
+  return FRONTEND_SITE_IDS;
+}
+
 export function readDeploymentTargets(targetsPath = DEFAULT_TARGETS_PATH) {
   const absolutePath = path.resolve(targetsPath);
   let source;
   try {
     source = JSON.parse(fs.readFileSync(absolutePath, 'utf8'));
   } catch (error) {
-    throw new Error(`Unable to read deployment targets ${absolutePath}: ${formatError(error)}`);
+    throw new Error(
+      'Unable to read deployment targets ' + absolutePath + ': ' + formatError(error),
+    );
   }
   return parseDeploymentTargets(source, absolutePath);
 }
 
-export function readDeploymentTarget(targetName, targetsPath = DEFAULT_TARGETS_PATH) {
-  const targets = readDeploymentTargets(targetsPath);
-  if (!TARGET_NAMES.includes(targetName)) {
-    throw new Error(`target must be ${TARGET_NAMES.join(' or ')}`);
+export function readBackendLane(laneId, targetsPath = DEFAULT_TARGETS_PATH) {
+  if (!BACKEND_LANE_IDS.includes(laneId)) {
+    throw new Error('backend lane must be ' + BACKEND_LANE_IDS.join(' or '));
   }
-  return targets[targetName];
+  return readDeploymentTargets(targetsPath).backendLanes[laneId];
+}
+
+export function readFrontendSite(siteId, targetsPath = DEFAULT_TARGETS_PATH) {
+  if (!FRONTEND_SITE_IDS.includes(siteId)) {
+    throw new Error('frontend site must be ' + FRONTEND_SITE_IDS.join(' or '));
+  }
+  return readDeploymentTargets(targetsPath).frontendSites[siteId];
 }
 
 export function parseDeploymentTargets(value, sourceName = 'deployment targets') {
   const root = requireObject(value, sourceName);
-  requireExactKeys(root, TARGET_NAMES, sourceName);
-  const targets = {};
-  for (const targetName of TARGET_NAMES) {
-    targets[targetName] = parseDeploymentTarget(root[targetName], targetName);
+  requireExactKeys(root, RELEASE_IDS, sourceName);
+  const releases = {};
+  const backendLanes = {};
+  const frontendSites = {};
+  for (const releaseId of RELEASE_IDS) {
+    const release = parseRelease(root[releaseId], releaseId);
+    releases[releaseId] = release;
+    frontendSites[releaseId] = release.site;
+    for (const lane of Object.values(release.lanes)) backendLanes[lane.id] = lane;
   }
-  return Object.freeze(targets);
+  assertUniqueSiteOrigins(Object.values(frontendSites));
+  assertUniqueLaneOrigins(Object.values(backendLanes));
+  assertUniqueResourceNames(Object.values(backendLanes));
+  assertUniqueProvisionedIdentities(Object.values(backendLanes));
+  return Object.freeze({
+    releases: Object.freeze(releases),
+    backendLanes: Object.freeze(backendLanes),
+    frontendSites: Object.freeze(frontendSites),
+  });
 }
 
-export function gatewaySecretNames(target) {
+export function gatewaySecretNames(lane) {
   const names = [...GATEWAY_BASE_SECRET_NAMES];
   for (const capabilityName of CAPABILITY_NAMES) {
-    const capability = target.capabilities[capabilityName];
+    const capability = lane.capabilities[capabilityName];
     if (capability.enabled) names.push(...capability.secrets);
   }
   return unique(names, 'gateway secret requirements');
 }
 
-export function componentSecretNames(target, component) {
+export function componentSecretNames(lane, component) {
   switch (component) {
     case 'gateway':
-      return gatewaySecretNames(target);
+      return gatewaySecretNames(lane);
     case 'signing-worker':
       return [
         'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
@@ -99,69 +138,198 @@ export function componentSecretNames(target, component) {
     case 'router':
       return ['ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET'];
     default:
-      throw new Error(`Unsupported backend component: ${component}`);
+      throw new Error('Unsupported backend component: ' + component);
   }
 }
 
-function parseDeploymentTarget(value, targetName) {
-  const target = requireObject(value, targetName);
-  requireExactKeys(
-    target,
-    ['branch', 'origins', 'resources', 'capabilities', 'gatewayDeploymentConfig'],
-    targetName,
-  );
-  const branch = requirePattern(target.branch, /^[a-z0-9._/-]+$/u, `${targetName}.branch`);
-  const origins = parseOrigins(target.origins, `${targetName}.origins`);
-  const resources = parseResources(target.resources, `${targetName}.resources`);
-  const capabilities = parseCapabilities(target.capabilities, `${targetName}.capabilities`);
-  const gatewayDeploymentConfig = parseGatewayDeploymentConfig(
-    JSON.stringify(target.gatewayDeploymentConfig),
-    targetName,
-  );
-  assertGatewayDeploymentConfigMatchesTarget(
-    targetName,
-    origins,
-    resources,
-    gatewayDeploymentConfig,
-  );
-  return Object.freeze({ branch, origins, resources, capabilities, gatewayDeploymentConfig });
+function parseRelease(value, releaseId) {
+  const releasePath = releaseId;
+  const release = requireObject(value, releasePath);
+  requireExactKeys(release, ['branch', 'site', 'lanes'], releasePath);
+  const branch = requirePattern(release.branch, /^[a-z0-9._/-]+$/u, releasePath + '.branch');
+  const expectedBranch = releaseId === 'staging' ? 'dev' : 'main';
+  if (branch !== expectedBranch) {
+    throw new Error(releasePath + '.branch must be ' + expectedBranch);
+  }
+  const site = parseSite(release.site, releaseId, branch);
+  const laneRoot = requireObject(release.lanes, releasePath + '.lanes');
+  const networks = RELEASE_NETWORKS[releaseId];
+  requireExactKeys(laneRoot, networks, releasePath + '.lanes');
+  const lanes = {};
+  for (const network of networks) {
+    const laneId = releaseId + '-' + network;
+    lanes[network] = parseBackendLane(laneRoot[network], laneId, releaseId, network, branch, site);
+  }
+  const frontendSite = Object.freeze({
+    ...site,
+    lanes: Object.freeze(Object.values(lanes)),
+  });
+  return Object.freeze({
+    id: releaseId,
+    branch,
+    site: frontendSite,
+    lanes: Object.freeze(lanes),
+  });
 }
 
-function assertGatewayDeploymentConfigMatchesTarget(targetName, origins, resources, config) {
+function parseSite(value, releaseId, branch) {
+  const sitePath = releaseId + '.site';
+  const site = requireObject(value, sitePath);
+  requireExactKeys(
+    site,
+    ['origin', 'googleOidcClientId', 'defaultNetwork', 'availableNetworks', 'pagesProjectEnv'],
+    sitePath,
+  );
+  const availableNetworks = parseNetworkNames(
+    site.availableNetworks,
+    sitePath + '.availableNetworks',
+  );
+  const expectedNetworks = RELEASE_NETWORKS[releaseId];
+  requireExactArrayValues(availableNetworks, expectedNetworks, sitePath + '.availableNetworks');
+  const defaultNetwork = requireString(site.defaultNetwork, sitePath + '.defaultNetwork');
+  if (!availableNetworks.includes(defaultNetwork)) {
+    throw new Error(sitePath + '.defaultNetwork must be one of ' + availableNetworks.join(', '));
+  }
+  return Object.freeze({
+    id: releaseId,
+    release: releaseId,
+    branch,
+    origin: requireHttpsOrigin(site.origin, sitePath + '.origin'),
+    googleOidcClientId: requirePattern(
+      site.googleOidcClientId,
+      /^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$/u,
+      sitePath + '.googleOidcClientId',
+    ),
+    defaultNetwork,
+    availableNetworks: Object.freeze(availableNetworks),
+    pagesProjectEnv: requireEnvironmentName(site.pagesProjectEnv, sitePath + '.pagesProjectEnv'),
+  });
+}
+
+function parseBackendLane(value, laneId, releaseId, network, branch, site) {
+  const lanePath = releaseId + '.lanes.' + network;
+  const lane = requireObject(value, lanePath);
+  requireExactKeys(
+    lane,
+    [
+      'gatewayOrigin',
+      'walletOrigin',
+      'walletPagesProjectEnv',
+      'resources',
+      'capabilities',
+      'provisioning',
+    ],
+    lanePath,
+  );
+  const parsed = Object.freeze({
+    id: laneId,
+    release: releaseId,
+    network,
+    branch,
+    site,
+    gatewayOrigin: requireHttpsOrigin(lane.gatewayOrigin, lanePath + '.gatewayOrigin'),
+    walletOrigin: requireHttpsOrigin(lane.walletOrigin, lanePath + '.walletOrigin'),
+    walletPagesProjectEnv: requireEnvironmentName(
+      lane.walletPagesProjectEnv,
+      lanePath + '.walletPagesProjectEnv',
+    ),
+    resources: parseResources(lane.resources, lanePath + '.resources'),
+    capabilities: parseCapabilities(lane.capabilities, lanePath + '.capabilities'),
+    provisioning: parseProvisioning(lane.provisioning, laneId, network, lanePath + '.provisioning'),
+  });
+  assertLaneOrigins(parsed);
+  if (parsed.provisioning.kind === 'provisioned') {
+    assertGatewayDeploymentConfigMatchesLane(parsed);
+  }
+  return parsed;
+}
+
+function parseProvisioning(value, laneId, network, provisioningPath) {
+  const provisioning = requireObject(value, provisioningPath);
+  const expectedRuntimeProfile = network === 'mainnet' ? 'mainnet_service' : 'testnet_live_demo';
+  const kind = requireString(provisioning.kind, provisioningPath + '.kind');
+  if (kind === 'provisioned') {
+    requireExactKeys(provisioning, ['kind', 'gatewayDeploymentConfig'], provisioningPath);
+    const gatewayDeploymentConfig = parseGatewayDeploymentConfig(
+      JSON.stringify(provisioning.gatewayDeploymentConfig),
+      laneId,
+    );
+    if (gatewayDeploymentConfig.runtimeProfile.kind !== expectedRuntimeProfile) {
+      throw new Error(
+        provisioningPath +
+          '.gatewayDeploymentConfig runtime profile must be ' +
+          expectedRuntimeProfile,
+      );
+    }
+    return Object.freeze({ kind, gatewayDeploymentConfig });
+  }
+  if (kind === 'pending') {
+    requireExactKeys(
+      provisioning,
+      ['kind', 'runtimeProfileKind', 'requiredValues'],
+      provisioningPath,
+    );
+    const runtimeProfileKind = requireString(
+      provisioning.runtimeProfileKind,
+      provisioningPath + '.runtimeProfileKind',
+    );
+    if (runtimeProfileKind !== expectedRuntimeProfile) {
+      throw new Error(provisioningPath + '.runtimeProfileKind must be ' + expectedRuntimeProfile);
+    }
+    return Object.freeze({
+      kind,
+      runtimeProfileKind,
+      requiredValues: parseRequiredValues(
+        provisioning.requiredValues,
+        provisioningPath + '.requiredValues',
+      ),
+    });
+  }
+  throw new Error(provisioningPath + '.kind must be provisioned or pending');
+}
+
+function assertLaneOrigins(lane) {
+  if (lane.provisioning.kind !== 'provisioned') return;
+  const configOrigins = lane.provisioning.gatewayDeploymentConfig.origins;
+  const expectedCors = [lane.site.origin, lane.walletOrigin].sort();
+  const actualCors = [...configOrigins.allowedCors].sort();
+  if (
+    configOrigins.gateway !== lane.gatewayOrigin ||
+    actualCors.length !== expectedCors.length ||
+    actualCors.some((origin, index) => origin !== expectedCors[index])
+  ) {
+    throw new Error('Gateway origins do not match backend lane ' + lane.id);
+  }
+}
+
+function assertGatewayDeploymentConfigMatchesLane(lane) {
+  const config = lane.provisioning.gatewayDeploymentConfig;
+  const resources = lane.resources;
+  if (config.optional.googleOidcClientId !== lane.site.googleOidcClientId) {
+    throw new Error('Gateway Google OIDC client does not match frontend site ' + lane.site.id);
+  }
   if (
     config.resources.workerName !== resources.gateway.workerName ||
     config.resources.consoleD1.name !== resources.gateway.consoleD1Name ||
     config.resources.signerD1.name !== resources.gateway.signerD1Name ||
-    config.origins.gateway !== origins.gateway ||
     config.serviceNames.mpcRouter !== resources.router.workerName ||
     config.serviceNames.deriverA !== resources.deriverA.workerName ||
     config.serviceNames.deriverB !== resources.deriverB.workerName ||
     config.serviceNames.signingWorker !== resources.signingWorker.workerName
   ) {
-    throw new Error(`gatewayDeploymentConfig does not match deployment target ${targetName}`);
+    throw new Error('gatewayDeploymentConfig does not match backend lane ' + lane.id);
   }
-}
-
-function parseOrigins(value, pathName) {
-  const origins = requireObject(value, pathName);
-  requireExactKeys(origins, ['gateway', 'site', 'wallet'], pathName);
-  return Object.freeze({
-    gateway: requireHttpsUrl(origins.gateway, `${pathName}.gateway`),
-    site: requireHttpsUrl(origins.site, `${pathName}.site`),
-    wallet: requireHttpsUrl(origins.wallet, `${pathName}.wallet`),
-  });
 }
 
 function parseResources(value, pathName) {
   const resources = requireObject(value, pathName);
   requireExactKeys(resources, DEPLOYMENT_RESOURCE_NAMES, pathName);
   return Object.freeze({
-    gateway: parseGatewayResource(resources.gateway, `${pathName}.gateway`),
-    router: parseWorkerResource(resources.router, `${pathName}.router`),
-    deriverA: parseWorkerResource(resources.deriverA, `${pathName}.deriverA`),
-    deriverB: parseWorkerResource(resources.deriverB, `${pathName}.deriverB`),
-    signingWorker: parseWorkerResource(resources.signingWorker, `${pathName}.signingWorker`),
-    frontend: parseFrontendResource(resources.frontend, `${pathName}.frontend`),
+    gateway: parseGatewayResource(resources.gateway, pathName + '.gateway'),
+    router: parseWorkerResource(resources.router, pathName + '.router'),
+    deriverA: parseWorkerResource(resources.deriverA, pathName + '.deriverA'),
+    deriverB: parseWorkerResource(resources.deriverB, pathName + '.deriverB'),
+    signingWorker: parseWorkerResource(resources.signingWorker, pathName + '.signingWorker'),
   });
 }
 
@@ -169,9 +337,9 @@ function parseGatewayResource(value, pathName) {
   const resource = requireObject(value, pathName);
   requireExactKeys(resource, ['workerName', 'consoleD1Name', 'signerD1Name'], pathName);
   return Object.freeze({
-    workerName: requireResourceName(resource.workerName, `${pathName}.workerName`),
-    consoleD1Name: requireResourceName(resource.consoleD1Name, `${pathName}.consoleD1Name`),
-    signerD1Name: requireResourceName(resource.signerD1Name, `${pathName}.signerD1Name`),
+    workerName: requireResourceName(resource.workerName, pathName + '.workerName'),
+    consoleD1Name: requireResourceName(resource.consoleD1Name, pathName + '.consoleD1Name'),
+    signerD1Name: requireResourceName(resource.signerD1Name, pathName + '.signerD1Name'),
   });
 }
 
@@ -179,35 +347,18 @@ function parseWorkerResource(value, pathName) {
   const resource = requireObject(value, pathName);
   requireExactKeys(resource, ['workerName', 'configPath', 'deploymentEnvironment'], pathName);
   return Object.freeze({
-    workerName: requireResourceName(resource.workerName, `${pathName}.workerName`),
-    configPath: requireRelativePath(resource.configPath, `${pathName}.configPath`),
+    workerName: requireResourceName(resource.workerName, pathName + '.workerName'),
+    configPath: requireRelativePath(resource.configPath, pathName + '.configPath'),
     deploymentEnvironment: parseDeploymentEnvironment(
       resource.deploymentEnvironment,
-      `${pathName}.deploymentEnvironment`,
-    ),
-  });
-}
-
-function parseFrontendResource(value, pathName) {
-  const resource = requireObject(value, pathName);
-  requireExactKeys(resource, ['pagesBranch', 'appProjectEnv', 'walletProjectEnv'], pathName);
-  return Object.freeze({
-    pagesBranch: requirePattern(
-      resource.pagesBranch,
-      /^[a-z0-9._/-]+$/u,
-      `${pathName}.pagesBranch`,
-    ),
-    appProjectEnv: requireEnvironmentName(resource.appProjectEnv, `${pathName}.appProjectEnv`),
-    walletProjectEnv: requireEnvironmentName(
-      resource.walletProjectEnv,
-      `${pathName}.walletProjectEnv`,
+      pathName + '.deploymentEnvironment',
     ),
   });
 }
 
 function parseDeploymentEnvironment(value, pathName) {
   const environment = requireObject(value, pathName);
-  const kind = requireString(environment.kind, `${pathName}.kind`);
+  const kind = requireString(environment.kind, pathName + '.kind');
   if (kind === 'default') {
     requireExactKeys(environment, ['kind'], pathName);
     return Object.freeze({ kind });
@@ -216,39 +367,35 @@ function parseDeploymentEnvironment(value, pathName) {
     requireExactKeys(environment, ['kind', 'name'], pathName);
     return Object.freeze({
       kind,
-      name: requirePattern(environment.name, /^[a-z0-9._/-]+$/u, `${pathName}.name`),
+      name: requirePattern(environment.name, /^[a-z0-9._/-]+$/u, pathName + '.name'),
     });
   }
-  throw new Error(`${pathName}.kind must be default or named`);
+  throw new Error(pathName + '.kind must be default or named');
 }
 
-function parseCapabilities(value, pathName, requireAllCapabilities = true) {
+function parseCapabilities(value, pathName) {
   const capabilities = requireObject(value, pathName);
-  const capabilityNames = Object.keys(capabilities);
-  if (requireAllCapabilities) {
-    requireExactKeys(capabilities, CAPABILITY_NAMES, pathName);
-  } else if (capabilityNames.some((name) => !CAPABILITY_NAMES.includes(name))) {
-    throw new Error(`${pathName} contains an unknown capability`);
-  }
+  requireExactKeys(capabilities, CAPABILITY_NAMES, pathName);
   const parsed = {};
   const ownedSecrets = new Map();
-  const namesToParse = requireAllCapabilities ? CAPABILITY_NAMES : capabilityNames;
-  for (const capabilityName of namesToParse) {
-    const capabilityPath = `${pathName}.${capabilityName}`;
+  for (const capabilityName of CAPABILITY_NAMES) {
+    const capabilityPath = pathName + '.' + capabilityName;
     const capability = requireObject(capabilities[capabilityName], capabilityPath);
     requireExactKeys(capability, ['enabled', 'owner', 'secrets'], capabilityPath);
     if (typeof capability.enabled !== 'boolean') {
-      throw new Error(`${capabilityPath}.enabled must be a boolean`);
+      throw new Error(capabilityPath + '.enabled must be a boolean');
     }
-    const owner = requireString(capability.owner, `${capabilityPath}.owner`);
+    const owner = requireString(capability.owner, capabilityPath + '.owner');
     if (!CAPABILITY_OWNER_NAMES.has(owner)) {
-      throw new Error(`${capabilityPath}.owner must be gateway`);
+      throw new Error(capabilityPath + '.owner must be gateway');
     }
-    const secrets = parseSecretNames(capability.secrets, `${capabilityPath}.secrets`);
+    const secrets = parseSecretNames(capability.secrets, capabilityPath + '.secrets');
     for (const secret of secrets) {
       const previousOwner = ownedSecrets.get(secret);
       if (previousOwner !== undefined) {
-        throw new Error(`secret ${secret} has duplicate ownership: ${previousOwner} and ${owner}`);
+        throw new Error(
+          'secret ' + secret + ' has duplicate ownership: ' + previousOwner + ' and ' + owner,
+        );
       }
       ownedSecrets.set(secret, owner);
     }
@@ -258,53 +405,185 @@ function parseCapabilities(value, pathName, requireAllCapabilities = true) {
 }
 
 function parseSecretNames(value, pathName) {
-  if (!Array.isArray(value)) throw new Error(`${pathName} must be an array`);
+  if (!Array.isArray(value)) throw new Error(pathName + ' must be an array');
   return Object.freeze(
     unique(
-      value.map((item, index) => requireSecretName(item, `${pathName}[${index}]`)),
+      value.map((item, index) => requireSecretName(item, pathName + '[' + index + ']')),
       pathName,
     ),
   );
+}
+
+function parseRequiredValues(value, pathName) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(pathName + ' must be a non-empty array');
+  }
+  return Object.freeze(
+    unique(
+      value.map((item, index) => requireEnvironmentName(item, pathName + '[' + index + ']')),
+      pathName,
+    ),
+  );
+}
+
+function assertUniqueSiteOrigins(sites) {
+  assertUnique(
+    sites.map((site) => site.origin),
+    'frontend site origins',
+  );
+}
+
+function assertUniqueLaneOrigins(lanes) {
+  const origins = [];
+  for (const lane of lanes) origins.push(lane.gatewayOrigin, lane.walletOrigin);
+  assertUnique(origins, 'backend lane origins');
+  const siteOrigins = new Set(lanes.map((lane) => lane.site.origin));
+  for (const origin of origins) {
+    if (siteOrigins.has(origin)) {
+      throw new Error('backend origin ' + origin + ' must not equal a frontend site origin');
+    }
+  }
+}
+
+function assertUniqueResourceNames(lanes) {
+  const names = [];
+  for (const lane of lanes) {
+    names.push(
+      lane.resources.gateway.workerName,
+      lane.resources.gateway.consoleD1Name,
+      lane.resources.gateway.signerD1Name,
+      lane.resources.router.workerName,
+      lane.resources.deriverA.workerName,
+      lane.resources.deriverB.workerName,
+      lane.resources.signingWorker.workerName,
+    );
+  }
+  assertUnique(names, 'backend resource names');
+}
+
+function assertUniqueProvisionedIdentities(lanes) {
+  const provisioned = lanes.filter((lane) => lane.provisioning.kind === 'provisioned');
+  assertUnique(
+    provisioned.map((lane) => lane.provisioning.gatewayDeploymentConfig.resources.consoleD1.id),
+    'console D1 identities',
+  );
+  assertUnique(
+    provisioned.map((lane) => lane.provisioning.gatewayDeploymentConfig.resources.signerD1.id),
+    'signer D1 identities',
+  );
+  assertUnique(
+    provisioned.map((lane) => lane.provisioning.gatewayDeploymentConfig.tenant.namespace),
+    'tenant namespaces',
+  );
+  assertUnique(
+    provisioned.map((lane) => lane.provisioning.gatewayDeploymentConfig.tenant.orgId),
+    'tenant organizations',
+  );
+  assertUnique(
+    provisioned.map((lane) => lane.provisioning.gatewayDeploymentConfig.tenant.projectId),
+    'tenant projects',
+  );
+  assertUnique(
+    provisioned.map((lane) => lane.provisioning.gatewayDeploymentConfig.tenant.environmentId),
+    'tenant environments',
+  );
+  assertUnique(
+    provisioned.map((lane) => lane.provisioning.gatewayDeploymentConfig.session.issuer),
+    'session issuers',
+  );
+  assertUnique(
+    provisioned.map(
+      (lane) => lane.provisioning.gatewayDeploymentConfig.signingSessionSeal.currentKeyVersion,
+    ),
+    'signing session seal identities',
+  );
+  assertUnique(
+    provisioned.map((lane) => lane.provisioning.gatewayDeploymentConfig.routerAb.ceremonyJwtKeyId),
+    'Router ceremony identities',
+  );
+  assertUnique(
+    provisioned.map(
+      (lane) =>
+        lane.provisioning.gatewayDeploymentConfig.routerAb.registrationTopology.signerSet
+          .signer_set_id,
+    ),
+    'Router signer-set identities',
+  );
+}
+
+function assertUnique(values, pathName) {
+  if (new Set(values).size !== values.length) {
+    throw new Error(pathName + ' must be unique across deployment lanes');
+  }
+}
+
+function parseNetworkNames(value, pathName) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(pathName + ' must be a non-empty array');
+  }
+  return value.map((item, index) => {
+    const network = requireString(item, pathName + '[' + index + ']');
+    if (!['testnet', 'mainnet'].includes(network)) {
+      throw new Error(pathName + ' must contain only testnet or mainnet');
+    }
+    return network;
+  });
+}
+
+function requireExactArrayValues(actual, expected, pathName) {
+  if (
+    actual.length !== expected.length ||
+    actual.some((value, index) => value !== expected[index])
+  ) {
+    throw new Error(pathName + ' must contain exactly: ' + expected.join(', '));
+  }
 }
 
 function requireExactKeys(value, keys, pathName) {
   const actual = Object.keys(value).sort();
   const expected = [...keys].sort();
   if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
-    throw new Error(`${pathName} must contain exactly: ${keys.join(', ')}`);
+    throw new Error(pathName + ' must contain exactly: ' + keys.join(', '));
   }
 }
 
 function requireObject(value, pathName) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`${pathName} must be an object`);
+    throw new Error(pathName + ' must be an object');
   }
   return value;
 }
 
 function requireString(value, pathName) {
   if (typeof value !== 'string' || value.trim() === '') {
-    throw new Error(`${pathName} must be a non-empty string`);
+    throw new Error(pathName + ' must be a non-empty string');
   }
   return value.trim();
 }
 
 function requirePattern(value, pattern, pathName) {
   const string = requireString(value, pathName);
-  if (!pattern.test(string)) throw new Error(`${pathName} has an invalid value`);
+  if (!pattern.test(string)) throw new Error(pathName + ' has an invalid value');
   return string;
 }
 
-function requireHttpsUrl(value, pathName) {
+function requireHttpsOrigin(value, pathName) {
   const string = requireString(value, pathName);
   let url;
   try {
     url = new URL(string);
   } catch {
-    throw new Error(`${pathName} must be an HTTPS URL`);
+    throw new Error(pathName + ' must be an HTTPS origin');
   }
-  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
-    throw new Error(`${pathName} must be an HTTPS origin`);
+  if (
+    url.protocol !== 'https:' ||
+    url.username ||
+    url.password ||
+    url.pathname !== '/' ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error(pathName + ' must be an HTTPS origin');
   }
   return url.origin;
 }
@@ -316,7 +595,7 @@ function requireResourceName(value, pathName) {
 function requireRelativePath(value, pathName) {
   const string = requireString(value, pathName);
   if (path.isAbsolute(string) || string.includes('..')) {
-    throw new Error(`${pathName} must be a repository-relative path`);
+    throw new Error(pathName + ' must be a repository-relative path');
   }
   return string;
 }
@@ -333,7 +612,7 @@ function unique(values, pathName) {
   const result = [];
   const seen = new Set();
   for (const value of values) {
-    if (seen.has(value)) throw new Error(`${pathName} must not contain duplicate values`);
+    if (seen.has(value)) throw new Error(pathName + ' must not contain duplicate values');
     seen.add(value);
     result.push(value);
   }

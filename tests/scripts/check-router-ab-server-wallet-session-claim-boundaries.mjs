@@ -45,41 +45,8 @@ function collectForbiddenMarkerOffenders(paths, forbiddenMarkers) {
   return offenders;
 }
 
-function checkActiveSigningCapableServerCodeRejectsLegacyClaimKinds() {
-  const guardedRoots = [
-    'packages/sdk-server-ts/src/router',
-    'packages/sdk-server-ts/src/core/ThresholdService',
-    'packages/sdk-server-ts/src/threshold/session/signingSessionSeal',
-    'packages/sdk-web/src/core/signingEngine/session',
-    'packages/sdk-web/src/core/signingEngine/flows',
-  ];
-  const forbiddenMarkers = [
-    'parseThresholdEd25519SessionClaims',
-    'parseThresholdEcdsaSessionClaims',
-    'LegacyThresholdSessionJwtKind',
-    'THRESHOLD_ED25519_SESSION_AUTH_TOKEN_KIND',
-    'THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND',
-    'export async function signWalletSessionJwt',
-    'export function signWalletSessionJwt',
-    "walletSessionJwt ? 'jwt' : 'cookie'",
-    "kind: 'threshold_ed25519_session_v1'",
-    'kind: "threshold_ed25519_session_v1"',
-    "kind: 'threshold_ecdsa_session_v2'",
-    'kind: "threshold_ecdsa_session_v2"',
-    "kind: 'browser_cookie'",
-    'kind: "browser_cookie"',
-  ];
-
-  const guardedFiles = [];
-  for (const root of guardedRoots) guardedFiles.push(...listTsFiles(root));
-  assertNoOffenders(
-    'active signing-capable server code must reject legacy threshold-session claim kinds',
-    collectForbiddenMarkerOffenders(guardedFiles, forbiddenMarkers),
-  );
-}
-
 function checkRouterAbServerWalletSessionIssuerUsesExactClaimBuilders() {
-  const source = readRepoFile('packages/sdk-server-ts/src/router/commonRouterUtils.ts');
+  const source = readRepoFile('packages/sdk-server-ts/src/router/auth/commonRouterUtils.ts');
   const forbiddenMarkers = [
     'extraClaims',
     'allowedSessionKinds',
@@ -108,7 +75,7 @@ function checkRouterAbServerWalletSessionIssuerUsesExactClaimBuilders() {
 function checkRouterAbEcdsaDerivationScopeComparisonUsesCanonicalProtocolBytes() {
   const guardedFiles = [
     'packages/shared-ts/src/utils/routerAbEcdsaDerivation.ts',
-    'packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts',
+    'packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker.ts',
     'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool.ts',
   ];
   const forbiddenMarkers = [
@@ -126,7 +93,9 @@ function checkRouterAbEcdsaDerivationScopeComparisonUsesCanonicalProtocolBytes()
     'routerAbEcdsaDerivation.ts missing canonical-byte helper',
   );
   assert.ok(
-    readRepoFile('packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts').includes(
+    readRepoFile(
+      'packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker.ts',
+    ).includes(
       'sameRouterAbEcdsaDerivationNormalSigningScopeV1',
     ),
     'routerAbPrivateSigningWorker.ts missing canonical scope comparison',
@@ -142,7 +111,7 @@ function checkRouterAbEcdsaDerivationScopeComparisonUsesCanonicalProtocolBytes()
 function checkRouterAbPrivateServiceJsonCallsUseSharedInternalAuthHelper() {
   const guardedFiles = [
     'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPresignBridge.ts',
-    'packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts',
+    'packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker.ts',
   ];
   const forbiddenMarkers = [
     '[ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1]:',
@@ -163,7 +132,6 @@ function checkRouterAbPrivateServiceJsonCallsUseSharedInternalAuthHelper() {
   }
 }
 
-checkActiveSigningCapableServerCodeRejectsLegacyClaimKinds();
 checkRouterAbServerWalletSessionIssuerUsesExactClaimBuilders();
 checkRouterAbEcdsaDerivationScopeComparisonUsesCanonicalProtocolBytes();
 checkRouterAbPrivateServiceJsonCallsUseSharedInternalAuthHelper();

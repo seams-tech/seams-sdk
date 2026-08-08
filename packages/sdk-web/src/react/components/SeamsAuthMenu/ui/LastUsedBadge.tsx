@@ -6,4 +6,3 @@ export function LastUsedBadge({ active }: { active: boolean }): React.JSX.Elemen
 }
 
 export default LastUsedBadge;
-

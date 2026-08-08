@@ -11,6 +11,7 @@ import {
   type SeamsAuthMenuRegistrationRequest,
   type SeamsAuthMenuSocialLoginArgs,
   type SeamsAuthMenuSyncAccountRequest,
+  type RegistrationResult,
   type RegistrationFlowEvent,
   type UnlockFlowEvent,
 } from '@seams/sdk/react';
@@ -21,10 +22,7 @@ import './PasskeyLoginMenu.css';
 import { FRONTEND_CONFIG } from '@/config';
 import { useAuthMenuControl } from '@/context/AuthMenuControl';
 import { demoPasskeyEcdsaSignerOptions } from './demoPasskeyEcdsaSignerOptions';
-import {
-  dismissDemoEmailOtpToast,
-  showCopiedDemoEmailOtpToast,
-} from './demoEmailOtpToast';
+import { dismissDemoEmailOtpToast, showCopiedDemoEmailOtpToast } from './demoEmailOtpToast';
 import {
   ensureGoogleIdentityScriptLoaded,
   fetchGoogleAuthOptions,
@@ -51,7 +49,6 @@ function normalizeBaseUrl(input: unknown): string {
     .trim()
     .replace(/\/+$/, '');
 }
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -102,13 +99,14 @@ function shouldDelayAuthMenuForAccountDetection(input: {
   );
 }
 
-function assertDemoPasskeyRegistrationProvisionedEcdsa(result: {
-  success?: boolean;
-  thresholdEcdsaEthereumAddress?: string | null;
-}): void {
+function assertDemoPasskeyRegistrationProvisionedEcdsa(result: RegistrationResult): void {
   if (!result.success) return;
-  const thresholdOwnerAddress = String(result.thresholdEcdsaEthereumAddress || '').trim();
-  if (thresholdOwnerAddress) return;
+  if (
+    result.kind !== 'near_wallet_registered_pending' &&
+    result.capabilities.some((capability) => capability.kind === 'evm_family_ecdsa')
+  ) {
+    return;
+  }
   throw new Error(
     'Registration completed without threshold ECDSA signer; this demo requires Tempo and EVM threshold signers.',
   );
@@ -406,26 +404,6 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     };
   }, [props.defaultModeWhenNoDetectedAccount, seams]);
 
-  const onRegister = async (request: SeamsAuthMenuRegistrationRequest) => {
-    const result = await registerPasskey({
-      wallet: request.wallet,
-      signerOptions: demoPasskeyEcdsaSignerOptions(
-        seams.configs.signing.thresholdEcdsa.provisioningDefaults,
-      ),
-      onEvent: handleRegistrationEvent,
-    });
-    assertDemoPasskeyRegistrationProvisionedEcdsa(result);
-
-    if (result.success && result.nearAccountId) {
-      const tx = result.transactionId ? ` tx: ${result.transactionId}` : '';
-      toast.success(`Registration completed: ${result.walletId}${tx}`, { id: 'registration' });
-      props.onLoggedIn?.(result.nearAccountId);
-      return result;
-    } else {
-      throw new Error(result.error || 'Registration failed');
-    }
-  };
-
   const loginWithSession = async (walletId: string) => {
     const loginTarget = String(walletId || '').trim();
     if (!loginTarget) {
@@ -442,12 +420,26 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     });
     if (result?.success) {
       const accountId = String(result.nearAccountId || '').trim();
-      if (!accountId) {
-        throw new Error('Login succeeded but nearAccountId is missing');
-      }
-      props.onLoggedIn?.(accountId);
+      props.onLoggedIn?.(accountId || undefined);
     }
     return result;
+  };
+
+  const onRegister = async (request: SeamsAuthMenuRegistrationRequest) => {
+    const result = await registerPasskey({
+      wallet: request.wallet,
+      signerOptions: demoPasskeyEcdsaSignerOptions(
+        seams.configs.signing.thresholdEcdsa.provisioningDefaults,
+      ),
+      onEvent: handleRegistrationEvent,
+    });
+    assertDemoPasskeyRegistrationProvisionedEcdsa(result);
+
+    if (result.success) {
+      toast.success(`Registration completed: ${result.walletId}`, { id: 'registration' });
+      return result;
+    }
+    throw new Error(result.error || 'Registration failed');
   };
 
   const onLogin = async (request: SeamsAuthMenuPasskeyLoginRequest) => {
@@ -473,11 +465,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
       if (!flow.ok) {
         throw flow.error;
       }
-      if (
-        args.mode === AuthMenuMode.Login &&
-        args.walletId &&
-        flow.value.mode === 'register'
-      ) {
+      if (args.mode === AuthMenuMode.Login && args.walletId && flow.value.mode === 'register') {
         await flow.value.cancel();
         throw new Error(existingGoogleOtpAccountResolutionFailedMessage());
       }

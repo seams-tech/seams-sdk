@@ -1,42 +1,35 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import { configuredThresholdEcdsaChainTargets } from '../../interfaces/ecdsaChainTarget';
-import { readTrustedWalletSigningBudgetStatus } from '../../session/budget/budgetStatusReader';
+import type { SigningSessionStatusReader } from '../../session/lifecycle/walletSessionStatus';
 import type { EmailOtpWalletSessionCoordinator } from '../../session/emailOtp/EmailOtpWalletSessionCoordinator';
 import type { SessionPublicDeps } from '../../session/public';
-import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
-import type { WarmSigningPorts } from './warmSigning';
+import type {
+  PasskeyMpcSessionPort,
+  UiConfirmRuntimeBridgePort,
+} from '../../uiConfirm/uiConfirm.types';
+import type { PersistedAvailableSigningLanesDeps } from '../../session/availability/persistedAvailableSigningLanes';
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 
 export function createSessionPublicDeps(args: {
   seamsWebConfigs: SeamsConfigsReadonly;
   touchConfirm: UiConfirmRuntimeBridgePort;
+  passkeyMpcSession: PasskeyMpcSessionPort;
   emailOtpSessions: EmailOtpWalletSessionCoordinator;
-  warmSigning: WarmSigningPorts;
+  readActiveWalletSessionAuthorization: PersistedAvailableSigningLanesDeps['readActiveWalletSessionAuthorization'];
+  listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
+  getWalletSessionStatus: SigningSessionStatusReader;
 }): SessionPublicDeps {
-  const readCombinedEmailOtpWarmSessionStatus = (sessionId: string) =>
-    args.touchConfirm.getWarmSessionStatus({ sessionId });
   const sessionDiscovery: SessionPublicDeps['discovery'] = {
     emailOtp: (discoveryArgs) =>
       args.emailOtpSessions.discoverPersistedSessionsForWallet(discoveryArgs),
+    passkey: (discoveryArgs) =>
+      args.passkeyMpcSession.discoverPersistedSessionsForWallet(discoveryArgs),
   };
-  if (args.touchConfirm.discoverPersistedSessionsForWallet) {
-    sessionDiscovery.passkey = (discoveryArgs) =>
-      args.touchConfirm.discoverPersistedSessionsForWallet!(discoveryArgs);
-  }
   return {
     availableLanes: {
-      ecdsaSessions: args.warmSigning.ecdsaSessions,
-      statusReader: args.touchConfirm,
-      getEmailOtpWarmSessionStatus: readCombinedEmailOtpWarmSessionStatus,
-      getWalletSigningBudgetStatus: (statusArgs) =>
-        readTrustedWalletSigningBudgetStatus(
-          {
-            ecdsaSessions: args.warmSigning.ecdsaSessions,
-          },
-          statusArgs,
-        ),
+      readActiveWalletSessionAuthorization: args.readActiveWalletSessionAuthorization,
+      listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
     },
-    ecdsaSessions: args.warmSigning.ecdsaSessions,
     signingSessionSeal:
       args.seamsWebConfigs.signing.sessionSeal.mode === 'sealed_refresh_v1'
         ? { groupId: SIGNING_SESSION_SEAL_GROUP_ID }

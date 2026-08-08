@@ -23,7 +23,6 @@ function memoizeService<TService>(
 export function createSigningRuntimeStatePorts(): SigningRuntimeStatePorts {
   return {
     ecdsaSessions: {
-      recordsByLane: new Map(),
       exportArtifactsByLane: new Map(),
     },
   };

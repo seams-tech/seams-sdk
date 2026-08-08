@@ -1,5 +1,4 @@
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { awaitEcdsaWarmSessionSeal } from '../passkey/ecdsaWarmSessionSealRegistry';
 import {
   buildRestoreWorkItemLookupResult,
   buildRestoreWorkItemLookupResultsForListedRecord,
@@ -16,6 +15,7 @@ import type {
   SigningSessionRestoreAttemptRegistry,
   SigningSessionRestoreCache,
 } from './sealedRecovery.types';
+import { materialActivationKey } from './materialActivationKey';
 import type { SealedRecoveryRecord } from './recoveryRecord';
 
 type RestorePersistedSessionCacheInput =
@@ -33,15 +33,18 @@ function successfulRestoreCacheKey(
   record: SealedRecoveryRecord,
 ): string {
   const chainKey = thresholdEcdsaChainTargetKey(input.chainTarget);
+  const materialActivation =
+    'materialRestoreIdentity' in input
+      ? input.materialRestoreIdentity.lane.signer.materialActivation
+      : input.materialActivation;
   return [
     input.walletId,
     input.authMethod,
     input.curve,
     chainKey,
     input.reason,
-    input.signingGrantId,
+    materialActivationKey(materialActivation),
     input.thresholdSessionId,
-    record.signingGrantId,
     record.thresholdSessionId,
     record.updatedAtMs,
     'restored',
@@ -58,7 +61,7 @@ function purposeCacheKey(
     purpose.authMethod,
     purpose.curve,
     chainKey,
-    purpose.signingGrantId,
+    materialActivationKey(purpose.materialActivation),
     purpose.thresholdSessionId,
     record.updatedAtMs,
   ].join('|');
@@ -84,9 +87,7 @@ function duplicateRestoreRecordSummaries(
     authMethod: purpose.authMethod,
     curve: purpose.curve,
     chain: thresholdEcdsaChainTargetKey(purpose.chainTarget),
-    signingGrantId: purpose.signingGrantId,
     thresholdSessionId: purpose.thresholdSessionId,
-    recordSigningGrantId: record.signingGrantId,
     recordThresholdSessionId: record.thresholdSessionId,
     updatedAtMs: record.updatedAtMs,
   }));
@@ -147,17 +148,6 @@ export async function restorePersistedSessionForSigningCommand(
     ...input,
     walletId,
   };
-
-  if (normalizedInput.authMethod === 'passkey') {
-    /* Refactor 94C. Registration defers the warm-session seal off its blocking
-       path, so a signing operation arriving inside that window would list zero
-       sealed records and fall back to re-auth spuriously. Awaiting the typed
-       pending state settles immediately when no seal was ever scheduled
-       (returns null), waits out an in-flight seal when one was, and a
-       seal_failed_reauth_required outcome falls through to the existing
-       re-auth fallback below — exactly what a genuinely absent record does. */
-    await awaitEcdsaWarmSessionSeal(walletId);
-  }
 
   let records;
   try {
@@ -232,18 +222,15 @@ export async function discoverPersistedSessionsForWalletCommand(
 
   let records;
   try {
-    const authMethods = input.authMethod ? [input.authMethod] : (['email_otp', 'passkey'] as const);
     const listed = await Promise.all(
-      authMethods.flatMap((authMethod) => {
-        return input.ecdsaChainTargets.map((chainTarget) =>
-          ports.listExactSealedSessionsForWallet({
-            walletId,
-            authMethod,
-            curve: 'ecdsa' as const,
-            chainTarget,
-          }),
-        );
-      }),
+      input.ecdsaChainTargets.map((chainTarget) =>
+        ports.listExactSealedSessionsForWallet({
+          walletId,
+          authMethod: input.authMethod,
+          curve: 'ecdsa',
+          chainTarget,
+        }),
+      ),
     );
     records = listed.flat();
   } catch (error) {

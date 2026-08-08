@@ -3,13 +3,7 @@ import { Buffer } from 'node:buffer';
 import type { IncomingMessage } from 'node:http';
 import {
   AuthService,
-  createHostedSigningRootShareResolver,
   requireEnvVar,
-  type SealedSigningRootShare,
-  type SigningRootShareDecryptAdapter,
-  type SigningRootSecretShareId,
-  type SigningRootShareSource,
-  type SigningRootShareResolver,
   type ThresholdStoreConfigInput,
 } from '@seams/sdk-server';
 import {
@@ -138,107 +132,6 @@ function parseBooleanFlagWithDefault(value: unknown, fallback: boolean): boolean
 function hasConsoleErrorCode(error: unknown, code: string): boolean {
   if (!error || typeof error !== 'object') return false;
   return String((error as { code?: unknown }).code || '').trim() === code;
-}
-
-const LOCAL_DEV_SIGNING_ROOT_SECRET_SHARE_WIRES: ReadonlyArray<{
-  readonly shareId: SigningRootSecretShareId;
-  readonly wireHex: string;
-}> = [
-  {
-    shareId: 1,
-    wireHex: '0001d73847ea1a0888265782eb6998f3d905b8275fa4e5fda6556ddacc3b28741702',
-  },
-  {
-    shareId: 2,
-    wireHex: '0002b3ee4da8422ffeebb66bd0b55afb5d072f55aa324698a89c0a8b234042fd6c0f',
-  },
-  {
-    shareId: 3,
-    wireHex: '0003a2d05e0950f3615940b8bd5e3e0903f4a582f5c0a632aae3a73b7a445c86c20c',
-  },
-];
-const LOCAL_DEV_SIGNING_ROOT_VERSION = 'default';
-const LOCAL_DEV_THRESHOLD_PRF_POLICY = {
-  protocol: 'threshold-prf',
-  threshold: 2,
-  shareCount: 3,
-} as const;
-
-function hexToBytes(hex: string): Uint8Array {
-  return new Uint8Array(Buffer.from(hex, 'hex'));
-}
-
-function localDevSigningRootShareWireFromHex(input: {
-  readonly shareId: SigningRootSecretShareId;
-  readonly wireHex: string;
-}): Uint8Array {
-  const bytes = hexToBytes(input.wireHex);
-  if (bytes.length !== 34) {
-    throw new Error(`local-dev signing-root share ${input.shareId} must be 34 bytes`);
-  }
-  const encodedShareId = (bytes[0] << 8) | bytes[1];
-  if (encodedShareId !== input.shareId) {
-    throw new Error(`local-dev signing-root share ${input.shareId} has mismatched wire share id`);
-  }
-  return bytes;
-}
-
-function shouldEnableLocalDevSigningRootResolver(input: {
-  readonly env: NodeJS.ProcessEnv;
-  readonly expectedOrigin: string;
-  readonly expectedWalletOrigin: string;
-}): boolean {
-  if (
-    String(input.env.NODE_ENV || '')
-      .trim()
-      .toLowerCase() === 'production'
-  )
-    return false;
-  if (parseBooleanFlag(input.env.THRESHOLD_SIGNING_ROOT_LOCAL_DEV_RESOLVER)) return true;
-  return (
-    isLocalDevelopmentOrigin(input.expectedOrigin) ||
-    isLocalDevelopmentOrigin(input.expectedWalletOrigin)
-  );
-}
-
-function createLocalDevSigningRootShareResolver(): SigningRootShareResolver {
-  const storageAdapter: SigningRootShareSource = {
-    listSealedSigningRootShares: async (request) => {
-      const signingRootId = String(request.signingRootId || '').trim();
-      const signingRootVersion = String(request.signingRootVersion || '').trim();
-      if (!signingRootId) throw new Error('signingRootId is required');
-      if (signingRootVersion !== LOCAL_DEV_SIGNING_ROOT_VERSION) {
-        throw new Error(
-          `local-dev signing-root fixture only supports signingRootVersion=${LOCAL_DEV_SIGNING_ROOT_VERSION}`,
-        );
-      }
-      return LOCAL_DEV_SIGNING_ROOT_SECRET_SHARE_WIRES.map(
-        (share): SealedSigningRootShare => ({
-          signingRootId,
-          signingRootVersion,
-          shareId: share.shareId,
-          sealedShare: localDevSigningRootShareWireFromHex(share),
-          storageId: 'local-dev-fixture',
-          kekId: 'local-dev-plaintext',
-        }),
-      );
-    },
-  };
-  const decryptAdapter: SigningRootShareDecryptAdapter = {
-    decryptSigningRootShare: async (record) => {
-      if (record.signingRootVersion !== LOCAL_DEV_SIGNING_ROOT_VERSION) {
-        throw new Error(
-          `local-dev signing-root fixture only supports signingRootVersion=${LOCAL_DEV_SIGNING_ROOT_VERSION}`,
-        );
-      }
-      return new Uint8Array(record.sealedShare);
-    },
-  };
-  return createHostedSigningRootShareResolver({
-    policy: LOCAL_DEV_THRESHOLD_PRF_POLICY,
-    storageAdapter,
-    decryptAdapter,
-  });
 }
 
 async function resolveConsoleDemoOrgId(input: {
@@ -789,44 +682,19 @@ async function main() {
   const sponsorshipStaticPricing =
     resolveStaticSponsoredExecutionPricingFromEnv(sponsorshipPricingEnv);
   const sponsorshipPricing = sponsorshipRealPricing || sponsorshipStaticPricing;
-  const hasRealSponsorshipPricingConfig = Boolean(
-    String(env.SPONSORED_EXECUTION_REAL_PRICING_JSON || '').trim(),
-  );
   const hasStaticSponsorshipPricingConfig = Boolean(
     String(env.SPONSORED_EXECUTION_STATIC_PRICING_JSON || '').trim(),
   );
   const tempoOnboardingFaucetContractRaw = String(
     env.TEMPO_ONBOARDING_FAUCET_CONTRACT || '',
   ).trim();
-  if (hasRealSponsorshipPricingConfig && !sponsorshipRealPricing) {
-    console.warn(
-      '[sponsorship-pricing] SPONSORED_EXECUTION_REAL_PRICING_JSON is invalid; real spend pricing is disabled',
-    );
-  }
   if (hasStaticSponsorshipPricingConfig && !sponsorshipStaticPricing) {
     console.warn(
       '[sponsorship-pricing] SPONSORED_EXECUTION_STATIC_PRICING_JSON is invalid; static spend pricing is disabled',
     );
   }
-  const localDevSigningRootResolver = shouldEnableLocalDevSigningRootResolver({
-    env,
-    expectedOrigin: config.expectedOrigin,
-    expectedWalletOrigin: config.expectedWalletOrigin,
-  })
-    ? createLocalDevSigningRootShareResolver()
-    : undefined;
-  if (localDevSigningRootResolver) {
-    console.warn(
-      '[threshold] using dynamic local-dev fixture signing-root shares; do not use this signer for real funds.',
-    );
-  }
-
   const thresholdStore = {
-    // Share mode and threshold-prf signing-root share derivation.
     THRESHOLD_ED25519_SHARE_MODE: env.THRESHOLD_ED25519_SHARE_MODE,
-    ...(localDevSigningRootResolver
-      ? { signingRootShareResolver: localDevSigningRootResolver }
-      : {}),
     // Node role + coordinator/cosigner wiring (optional)
     THRESHOLD_NODE_ROLE: env.THRESHOLD_NODE_ROLE,
     THRESHOLD_COORDINATOR_SHARED_SECRET_B64U: env.THRESHOLD_COORDINATOR_SHARED_SECRET_B64U,
@@ -1067,7 +935,7 @@ async function main() {
           ? 'real_configured'
           : sponsorshipStaticPricing
             ? 'static_configured'
-            : hasRealSponsorshipPricingConfig || hasStaticSponsorshipPricingConfig
+            : hasStaticSponsorshipPricingConfig
               ? 'invalid'
               : 'disabled'
       }`,

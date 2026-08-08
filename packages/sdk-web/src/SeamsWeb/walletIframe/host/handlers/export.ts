@@ -2,8 +2,9 @@ import { isTouchIdCancellationError } from '@shared/utils/errors';
 import { thresholdEcdsaChainTargetsEqual } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   parseExactEcdsaSigningLaneIdentity,
-  parseExactEd25519SigningLaneIdentity,
+  parseExactEd25519ExportMaterialIdentity,
 } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import { parseMpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { SigningEngineExportKeypairWithUIInput } from '@/core/signingEngine/flows/recovery/keyExportFlow';
 import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
 import { respondOk, respondOkResult } from './shared';
@@ -30,7 +31,9 @@ function keyExportInputFromPayload(
       };
     }
     case 'ed25519': {
-      const laneIdentity = parseExactEd25519SigningLaneIdentity(payload.laneIdentity);
+      const laneIdentity = parseExactEd25519ExportMaterialIdentity(payload.laneIdentity);
+      const materialActivation = parseMpcMaterialActivationRef(payload.materialActivation);
+      if (!materialActivation.ok) throw new Error(materialActivation.error.message);
       const signer = laneIdentity.signer;
       if (String(signer.account.wallet.walletId) !== String(payload.walletSession.walletId)) {
         throw new Error('[WalletIframe] Ed25519 export lane wallet does not match wallet session');
@@ -43,6 +46,7 @@ function keyExportInputFromPayload(
         nearAccount: payload.nearAccount,
         walletSession: payload.walletSession,
         laneIdentity,
+        materialActivation: materialActivation.value,
         options: payload.options,
       };
     }
@@ -80,6 +84,7 @@ export function createExportWalletIframeHandlers(deps: HandlerDeps): HandlerMap 
                 nearAccount: exportInput.nearAccount,
                 walletSession: exportInput.walletSession,
                 laneIdentity: exportInput.laneIdentity,
+                materialActivation: exportInput.materialActivation,
                 options: {
                   ...exportInput.options,
                   onEvent: (event) => deps.postProgress(req.requestId, event),

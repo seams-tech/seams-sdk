@@ -4,25 +4,28 @@ import type {
 } from './keyExportFlow';
 import type {
   ExactEcdsaSigningLaneIdentity,
-  ExactEd25519SigningLaneIdentity,
+  ExactEd25519ExportMaterialIdentity,
 } from '../../session/identity/exactSigningLaneIdentity';
 import type {
   NearAccountRef,
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
 } from '../../interfaces/ecdsaChainTarget';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 
 declare const walletSession: WalletSessionRef;
 declare const nearAccount: NearAccountRef;
 declare const chainTarget: ThresholdEcdsaChainTarget;
-declare const ed25519Lane: ExactEd25519SigningLaneIdentity;
+declare const ed25519MaterialIdentity: ExactEd25519ExportMaterialIdentity;
 declare const ecdsaLane: ExactEcdsaSigningLaneIdentity;
+declare const materialActivation: MpcMaterialActivationRef;
 
 const validEd25519Export: SigningEngineExportKeypairWithUIInput = {
   kind: 'ed25519',
   walletSession,
   nearAccount,
-  laneIdentity: ed25519Lane,
+  laneIdentity: ed25519MaterialIdentity,
+  materialActivation,
   options: {},
 };
 void validEd25519Export;
@@ -52,7 +55,7 @@ const invalidEd25519Target: SigningEngineExportKeypairWithUIInput = {
   walletSession,
   nearAccount,
   chainTarget,
-  laneIdentity: ed25519Lane,
+  laneIdentity: ed25519MaterialIdentity,
   options: {},
 };
 void invalidEd25519Target;

@@ -1,9 +1,15 @@
 import React from 'react';
-import type { NearProvisioningState, NearProvisioningStateChangedEvent } from '@seams/sdk';
+import type {
+  NearProvisioningState,
+  NearProvisioningStateChangedEvent,
+  WalletSession,
+} from '@seams/sdk';
 import {
   ActionType,
   useSeams,
+  type AddedNearEd25519SignerCapability,
   type GoogleEmailOtpWalletAuthEcdsaTargets,
+  type RegisteredNearEd25519Capability,
   type RegistrationResult,
   type RegistrationSignerSetSelection,
 } from '@seams/sdk/react';
@@ -114,8 +120,8 @@ type IntendedEcdsaSessionSummary =
     }
   | {
       ecdsaTargetProfile: 'tempo_arc';
-      thresholdEcdsaEthereumAddress?: never;
-      thresholdEcdsaPublicKeyB64u?: never;
+      thresholdEcdsaEthereumAddress: string;
+      thresholdEcdsaPublicKeyB64u: string;
     };
 
 type IntendedEcdsaSummary =
@@ -179,7 +185,7 @@ type PasskeyRegistrationCoreSummary = (
 type PasskeyRegistrationResultSummary = PasskeyRegistrationCoreSummary & IntendedEcdsaSummary;
 
 type Ed25519AddSignerResultSummary = {
-  kind: 'near_ed25519_signer_added';
+  kind: 'wallet_signer_added';
   walletId: string;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
@@ -388,8 +394,8 @@ const INTENDED_ARC_EVM_CHAIN_TARGET = {
   chainId: INTENDED_ARC_EVM_CHAIN_ID,
   networkSlug: 'arc-testnet',
 } satisfies ThresholdEcdsaChainTarget;
-const INTENDED_EVM_RECIPIENT = '0x1111111111111111111111111111111111111111';
-const INTENDED_TEMPO_RECIPIENT = '0x2222222222222222222222222222222222222222';
+const INTENDED_EVM_RECIPIENT: `0x${string}` = '0x1111111111111111111111111111111111111111';
+const INTENDED_TEMPO_RECIPIENT: `0x${string}` = '0x2222222222222222222222222222222222222222';
 const INTENDED_MAX_PRIORITY_FEE_PER_GAS = 1n;
 const INTENDED_MAX_FEE_PER_GAS = 1n;
 const INTENDED_EVM_GAS_LIMIT = 21_000n;
@@ -710,8 +716,7 @@ class IntendedPageController {
         expectedWalletId: this.walletId,
         ecdsaTargetProfile: this.passkeyEcdsaTargetProfile,
       });
-      await this.refreshLoginState(registration.walletId);
-      const ecdsaTargetKeys = await this.readEcdsaTargetKeys(this.passkeyEcdsaTargetProfile.kind);
+      const ecdsaTargetKeys = registrationEcdsaTargetKeys(registration);
       const ecdsa = assertEcdsaTargetKeysForSession({
         session: registration,
         ecdsaTargetKeys,
@@ -763,7 +768,6 @@ class IntendedPageController {
         expectedWalletId: this.walletId,
         ecdsaTargetProfile: { kind: 'none' },
       });
-      await this.refreshLoginState(registration.walletId);
       if (registration.nearProvisioning) {
         throw new Error('Ed25519-only passkey registration must resolve its NEAR identity');
       }
@@ -806,7 +810,6 @@ class IntendedPageController {
       });
       const summary = assertEd25519AddSignerSucceeded(result, this.walletId);
       this.nearAccountId = summary.nearAccountId;
-      await this.refreshLoginState(summary.walletId);
       this.dispatch({ kind: 'action_succeeded', action, result: summary });
     } catch (error) {
       this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
@@ -820,8 +823,7 @@ class IntendedPageController {
       const registration = await this.registerEmailOtpWalletWithPublicSdk();
       this.walletId = registration.walletId;
       this.nearAccountId = registration.nearAccountId ?? null;
-      await this.refreshLoginState(this.walletId);
-      const ecdsaTargetKeys = await this.readEcdsaTargetKeys(this.emailOtpEcdsaTargetProfile.kind);
+      const ecdsaTargetKeys = registrationEcdsaTargetKeys(registration);
       const ecdsa = assertEcdsaTargetKeysForSession({
         session: registration,
         ecdsaTargetKeys,
@@ -865,8 +867,13 @@ class IntendedPageController {
         walletId: this.walletId,
       });
       const session = await this.seams.auth.getWalletSession(this.walletId);
-      const nearAccountId = String(session.login.nearAccountId ?? '').trim();
-      const operationalPublicKey = String(session.login.publicKey ?? '').trim();
+      if (session.appIdentity.kind !== 'resolved') {
+        throw new Error(`NEAR readiness wallet identity is ${session.appIdentity.kind}`);
+      }
+      const nearAccountId = String(session.appIdentity.nearAccountId ?? '').trim();
+      const operationalPublicKey = String(
+        session.appIdentity.nearOperationalPublicKey ?? '',
+      ).trim();
       if (nearAccountId !== state.nearAccountId || !operationalPublicKey) {
         throw new Error('NEAR provisioning completed without a matching wallet session identity');
       }
@@ -1111,15 +1118,8 @@ class IntendedPageController {
     const nearProvisioning = await this.seams.registration.getNearProvisioningState({
       walletId: completed.value.walletId,
     });
-    const session =
-      nearProvisioning?.status === 'near_ready'
-        ? await this.seams.auth.getWalletSession(completed.value.walletId)
-        : completed.value.session;
     return assertEmailOtpRegistrationCompleted({
-      completed: {
-        ...completed.value,
-        session,
-      },
+      completed: completed.value,
       initialWalletId,
       ecdsaTargetProfile: this.emailOtpEcdsaTargetProfile,
       nearProvisioning,
@@ -1224,7 +1224,7 @@ class IntendedPageController {
   }
 
   private async signArcEvmTransactionWithPublicSdk(): Promise<ArcEvmSigningResultSummary> {
-    const result = await this.seams.tempo.signTempo({
+    const result = await this.seams.evm.signTransaction({
       walletSession: walletSessionRefFromSession({
         walletId: this.walletId,
         walletSessionUserId: this.walletId,
@@ -1298,6 +1298,7 @@ class IntendedPageController {
       walletSession,
       nearAccount,
       laneIdentity: resolvedLane.laneIdentity,
+      materialActivation: resolvedLane.materialActivation,
       options: {
         variant: 'drawer',
         onEvent: this.recordLifecycleEvent,
@@ -1403,7 +1404,7 @@ function intendedPageReducer(
 function intendedActionResultWalletId(result: IntendedActionResult): string | null {
   switch (result.kind) {
     case 'passkey_registration_success':
-    case 'near_ed25519_signer_added':
+    case 'wallet_signer_added':
     case 'email_otp_registration_success':
     case 'near_provisioning_ready':
     case 'near_sign_success':
@@ -1422,7 +1423,7 @@ function intendedActionResultWalletId(result: IntendedActionResult): string | nu
 function intendedActionResultNearAccountId(result: IntendedActionResult): string | null {
   switch (result.kind) {
     case 'passkey_registration_success':
-    case 'near_ed25519_signer_added':
+    case 'wallet_signer_added':
     case 'email_otp_registration_success':
     case 'near_provisioning_ready':
     case 'near_sign_success':
@@ -1447,7 +1448,7 @@ function intendedActionResultNearSignerSlot(
     case 'passkey_registration_success':
     case 'email_otp_registration_success':
       return 1;
-    case 'near_ed25519_signer_added':
+    case 'wallet_signer_added':
       return 2;
     case 'near_provisioning_ready':
       return 1;
@@ -1646,12 +1647,17 @@ function assertPasskeyRegistrationSucceeded(args: {
   }
   switch (args.ecdsaTargetProfile.kind) {
     case 'none': {
-      if (result.kind !== 'near_wallet_registered') {
+      if (
+        result.kind !== 'wallet_registered' ||
+        result.capabilities.length !== 1 ||
+        result.capabilities[0].kind !== 'near_ed25519'
+      ) {
         throw new Error(`NEAR-only passkey registration returned result kind: ${result.kind}`);
       }
       return {
         ...passkeyRegistrationIdentitySummary({
-          result,
+          walletId: result.walletId,
+          capability: result.capabilities[0],
           expectedWalletId: args.expectedWalletId,
         }),
         ecdsaTargetProfile: 'none',
@@ -1666,7 +1672,7 @@ function assertPasskeyRegistrationSucceeded(args: {
         throw new Error(`Mixed passkey registration returned result kind: ${result.kind}`);
       }
       const ecdsa = requireThresholdEcdsaSessionFields({
-        source: result,
+        source: result.capabilities[0],
         label: 'Passkey registration',
       });
       return {
@@ -1681,12 +1687,18 @@ function assertPasskeyRegistrationSucceeded(args: {
       if (result.kind !== 'ecdsa_wallet_registered_near_pending') {
         throw new Error(`Mixed passkey registration returned result kind: ${result.kind}`);
       }
+      const ecdsa = requireThresholdEcdsaSessionFields({
+        source: result.capabilities[0],
+        label: 'Passkey registration',
+      });
       return {
         ...pendingPasskeyRegistrationSummary({
           result,
           expectedWalletId: args.expectedWalletId,
         }),
         ecdsaTargetProfile: 'tempo_arc',
+        thresholdEcdsaEthereumAddress: ecdsa.thresholdEcdsaEthereumAddress,
+        thresholdEcdsaPublicKeyB64u: ecdsa.thresholdEcdsaPublicKeyB64u,
       };
     }
     default:
@@ -1701,32 +1713,32 @@ function assertEd25519AddSignerSucceeded(
   if (!result.success) {
     throw new Error(result.error || 'Ed25519 add-signer failed');
   }
-  if (result.kind !== 'near_ed25519_signer_added') {
+  if (
+    result.kind !== 'wallet_signer_added' ||
+    result.capabilities.length !== 1 ||
+    result.capabilities[0].kind !== 'near_ed25519'
+  ) {
     throw new Error(`Ed25519 add-signer returned result kind: ${result.kind}`);
   }
+  const capability: AddedNearEd25519SignerCapability = result.capabilities[0];
   const walletId = String(result.walletId).trim();
   if (walletId !== expectedWalletId) {
     throw new Error(`Ed25519 add-signer wallet mismatch: ${walletId}`);
   }
-  const nearAccountId = String(result.nearAccountId).trim();
-  const nearEd25519SigningKeyId = String(result.nearEd25519SigningKeyId).trim();
-  const operationalPublicKey = String(result.operationalPublicKey ?? '').trim();
+  const nearAccountId = String(capability.nearAccountId).trim();
+  const nearEd25519SigningKeyId = String(capability.nearEd25519SigningKeyId).trim();
+  const operationalPublicKey = String(capability.operationalPublicKey ?? '').trim();
   if (!nearAccountId || !nearEd25519SigningKeyId || !operationalPublicKey) {
     throw new Error('Ed25519 add-signer returned incomplete signer identity');
   }
   return {
-    kind: 'near_ed25519_signer_added',
+    kind: 'wallet_signer_added',
     walletId,
     nearAccountId,
     nearEd25519SigningKeyId,
     operationalPublicKey,
   };
 }
-
-type PasskeyWalletRegistrationResult = Extract<
-  RegistrationResult,
-  { success: true; kind: 'near_wallet_registered' }
->;
 
 type PendingPasskeyWalletRegistrationResult = Extract<
   RegistrationResult,
@@ -1781,23 +1793,23 @@ function registrationNearProvisioningSummary(
 }
 
 function passkeyRegistrationIdentitySummary(args: {
-  result: PasskeyWalletRegistrationResult;
+  walletId: string;
+  capability: RegisteredNearEd25519Capability;
   expectedWalletId: string;
 }): PasskeyRegistrationIdentitySummary {
-  const result = args.result;
-  const walletId = String(result.walletId).trim();
+  const walletId = String(args.walletId).trim();
   if (walletId !== args.expectedWalletId) {
     throw new Error(`Passkey registration wallet mismatch: ${walletId}`);
   }
-  const nearAccountId = String(result.nearAccountId).trim();
+  const nearAccountId = String(args.capability.nearAccountId).trim();
   if (!nearAccountId) {
     throw new Error('Passkey registration did not return a NEAR account id');
   }
-  const nearEd25519SigningKeyId = String(result.nearEd25519SigningKeyId).trim();
+  const nearEd25519SigningKeyId = String(args.capability.nearEd25519SigningKeyId).trim();
   if (!nearEd25519SigningKeyId) {
     throw new Error('Passkey registration did not return an Ed25519 signing key id');
   }
-  const operationalPublicKey = String(result.operationalPublicKey ?? '').trim();
+  const operationalPublicKey = String(args.capability.operationalPublicKey ?? '').trim();
   if (!operationalPublicKey) {
     throw new Error('Passkey registration did not return an operational public key');
   }
@@ -1835,8 +1847,11 @@ function assertEcdsaSessionSummary(args: {
       };
     }
     case 'tempo_arc': {
+      const ecdsa = requireThresholdEcdsaSessionFields(args);
       return {
         ecdsaTargetProfile: 'tempo_arc',
+        thresholdEcdsaEthereumAddress: ecdsa.thresholdEcdsaEthereumAddress,
+        thresholdEcdsaPublicKeyB64u: ecdsa.thresholdEcdsaPublicKeyB64u,
       };
     }
     default:
@@ -1894,6 +1909,8 @@ function assertEcdsaTargetKeysForSession(args: {
       }
       return {
         ecdsaTargetProfile: 'tempo_arc',
+        thresholdEcdsaEthereumAddress: args.session.thresholdEcdsaEthereumAddress,
+        thresholdEcdsaPublicKeyB64u: args.session.thresholdEcdsaPublicKeyB64u,
         ecdsaTargetKeys: args.ecdsaTargetKeys,
       };
     default:
@@ -1901,22 +1918,46 @@ function assertEcdsaTargetKeysForSession(args: {
   }
 }
 
+function registrationEcdsaTargetKeys(
+  registration: IntendedEcdsaSessionSummary,
+): IntendedEcdsaTargetKeysSummary {
+  switch (registration.ecdsaTargetProfile) {
+    case 'none':
+      return { kind: 'none' };
+    case 'tempo':
+      return {
+        kind: 'tempo',
+        tempo: registrationEcdsaTargetKey('tempo', registration.thresholdEcdsaEthereumAddress),
+      };
+    case 'tempo_arc': {
+      const thresholdOwnerAddress = registration.thresholdEcdsaEthereumAddress;
+      return {
+        kind: 'tempo_arc',
+        tempo: registrationEcdsaTargetKey('tempo', thresholdOwnerAddress),
+        arcEvm: registrationEcdsaTargetKey('arc_evm', thresholdOwnerAddress),
+      };
+    }
+    default:
+      return assertNever(registration);
+  }
+}
+
+function registrationEcdsaTargetKey(
+  chain: IntendedEcdsaTargetKeySummary['chain'],
+  thresholdOwnerAddress: string,
+): IntendedEcdsaTargetKeySummary {
+  return {
+    chain,
+    chainId: intendedEcdsaChainTarget(chain).chainId,
+    thresholdOwnerAddress,
+  };
+}
+
 function assertEmailOtpRegistrationCompleted(args: {
   completed: {
     walletId: string;
-    session: {
-      login: {
-        walletId: string | null;
-        nearAccountId: string | null;
-        publicKey: string | null;
-        thresholdEcdsaEthereumAddress?: string | null;
-        thresholdEcdsaPublicKeyB64u?: string | null;
-      };
-      signingSession: {
-        status?: string;
-        remainingUses?: number;
-      } | null;
-    };
+    session: WalletSession;
+    registration: RegistrationResult;
   };
   initialWalletId: string;
   ecdsaTargetProfile: IntendedEmailOtpEcdsaTargetProfile;
@@ -1930,29 +1971,36 @@ function assertEmailOtpRegistrationCompleted(args: {
   if (walletId === args.initialWalletId) {
     throw new Error('Email OTP registration reroll returned the initial walletId');
   }
-  const sessionWalletId = String(completed.session.login.walletId || '').trim();
+  if (completed.session.appIdentity.kind !== 'resolved') {
+    throw new Error(
+      `Email OTP registration wallet identity is ${completed.session.appIdentity.kind}`,
+    );
+  }
+  const sessionWalletId = String(completed.session.appIdentity.walletId).trim();
   if (sessionWalletId !== walletId) {
     throw new Error(`Email OTP registration session wallet mismatch: ${sessionWalletId}`);
   }
-  const nearAccountId = String(completed.session.login.nearAccountId || '').trim();
-  const operationalPublicKey = String(completed.session.login.publicKey || '').trim();
+  const nearAccountId = String(completed.session.appIdentity.nearAccountId || '').trim();
+  const operationalPublicKey = String(
+    completed.session.appIdentity.nearOperationalPublicKey || '',
+  ).trim();
   const ecdsa = assertEcdsaSessionSummary({
     ecdsaTargetProfile: args.ecdsaTargetProfile,
-    source: completed.session.login,
+    source: registrationEcdsaCapability(completed.registration),
     label: 'Email OTP registration',
   });
-  const signingSessionStatus = String(completed.session.signingSession?.status || '').trim();
-  if (signingSessionStatus !== 'active') {
+  const reusableWalletSession = completed.session.reusableWalletSession;
+  if (reusableWalletSession.kind !== 'active') {
     throw new Error(
-      `Email OTP registration did not return an active signing session: ${signingSessionStatus}`,
+      `Email OTP registration did not return an active signing session: ${reusableWalletSession.kind}`,
     );
   }
   const common = {
     kind: 'email_otp_registration_success' as const,
     initialWalletId: args.initialWalletId,
     walletId,
-    signingSessionStatus,
-    remainingUses: normalizeOptionalNumber(completed.session.signingSession?.remainingUses),
+    signingSessionStatus: reusableWalletSession.kind,
+    remainingUses: reusableWalletSession.remainingUses,
   };
   if (nearAccountId && operationalPublicKey) {
     return {
@@ -1970,6 +2018,17 @@ function assertEmailOtpRegistrationCompleted(args: {
     nearProvisioning: nearProvisioningSummaryStatus(args.nearProvisioning),
     ...ecdsa,
   };
+}
+
+function registrationEcdsaCapability(result: RegistrationResult): EcdsaSessionFields {
+  if (!result.success) {
+    throw new Error(result.error || 'Email OTP registration failed');
+  }
+  if (result.kind === 'near_wallet_registered_pending') return {};
+  for (const capability of result.capabilities) {
+    if (capability.kind === 'evm_family_ecdsa') return capability;
+  }
+  return {};
 }
 
 function nearProvisioningSummaryStatus(
@@ -2048,19 +2107,7 @@ function settleNearProvisioningState(
 function assertEmailOtpUnlockSucceeded(args: {
   result: {
     walletId: string;
-    session: {
-      login: {
-        walletId: string | null;
-        nearAccountId: string | null;
-        publicKey: string | null;
-        thresholdEcdsaEthereumAddress?: string | null;
-        thresholdEcdsaPublicKeyB64u?: string | null;
-      };
-      signingSession: {
-        status?: string;
-        remainingUses?: number;
-      } | null;
-    };
+    session: WalletSession;
   };
   expectedWalletId: string;
   ecdsaTargetProfile: IntendedEmailOtpEcdsaTargetProfile;
@@ -2070,27 +2117,31 @@ function assertEmailOtpUnlockSucceeded(args: {
   if (walletId !== args.expectedWalletId) {
     throw new Error(`Email OTP unlock wallet mismatch: ${walletId}`);
   }
-  const sessionWalletId = String(result.session.login.walletId || '').trim();
+  const appIdentity = result.session.appIdentity;
+  if (appIdentity.kind !== 'resolved') {
+    throw new Error(`Email OTP unlock did not resolve app identity: ${appIdentity.kind}`);
+  }
+  const sessionWalletId = String(appIdentity.walletId).trim();
   if (sessionWalletId !== walletId) {
     throw new Error(`Email OTP unlock session wallet mismatch: ${sessionWalletId}`);
   }
-  const nearAccountId = String(result.session.login.nearAccountId || '').trim();
+  const nearAccountId = String(appIdentity.nearAccountId || '').trim();
   if (!nearAccountId) {
     throw new Error('Email OTP unlock did not return a NEAR account id');
   }
-  const operationalPublicKey = String(result.session.login.publicKey || '').trim();
+  const operationalPublicKey = String(appIdentity.nearOperationalPublicKey || '').trim();
   if (!operationalPublicKey) {
     throw new Error('Email OTP unlock did not return an operational public key');
   }
   const ecdsa = assertEcdsaSessionSummary({
     ecdsaTargetProfile: args.ecdsaTargetProfile,
-    source: result.session.login,
+    source: appIdentity,
     label: 'Email OTP unlock',
   });
-  const signingSessionStatus = String(result.session.signingSession?.status || '').trim();
-  if (signingSessionStatus !== 'active') {
+  const reusableWalletSession = result.session.reusableWalletSession;
+  if (reusableWalletSession.kind !== 'active') {
     throw new Error(
-      `Email OTP unlock did not return an active signing session: ${signingSessionStatus}`,
+      `Email OTP unlock did not return an active signing session: ${reusableWalletSession.kind}`,
     );
   }
   return {
@@ -2098,8 +2149,8 @@ function assertEmailOtpUnlockSucceeded(args: {
     walletId,
     nearAccountId,
     operationalPublicKey,
-    signingSessionStatus,
-    remainingUses: normalizeOptionalNumber(result.session.signingSession?.remainingUses),
+    signingSessionStatus: reusableWalletSession.kind,
+    remainingUses: reusableWalletSession.remainingUses,
     ...ecdsa,
   };
 }

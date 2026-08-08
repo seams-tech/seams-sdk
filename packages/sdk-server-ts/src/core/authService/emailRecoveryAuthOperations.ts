@@ -28,7 +28,6 @@ import { randomBase64Url } from './bytes';
 import { normalizeAdjacentFlowEcdsaPrepareSpec } from './walletRegistrationPlanning';
 import {
   resolveBoundThresholdRuntimePolicyScope,
-  type ThresholdEd25519BootstrapSession,
 } from './registrationThresholdHelpers';
 import {
   passkeyThresholdEd25519AuthorityScope,
@@ -158,7 +157,8 @@ export class EmailRecoveryAuthOperations {
     });
     const relayerKeyId = await computeEcdsaDerivationRoleLocalRelayerKeyId({
       walletId: input.walletId,
-      evmFamilySigningKeySlotId,
+      signingRootId: input.signingRootId,
+      signingRootVersion,
     });
     for (const chainTarget of input.chainTargets) {
       const chainTargetKey = thresholdEcdsaChainTargetKey(chainTarget);
@@ -180,7 +180,6 @@ export class EmailRecoveryAuthOperations {
           ),
           requestId: `${input.registrationCeremonyId}:ecdsa:${encodeURIComponent(chainTargetKey)}`,
           thresholdSessionId: `tederivation_${randomBase64Url(24)}`,
-          signingGrantId: `wss_${randomBase64Url(24)}`,
           ttlMs: 10 * 60_000,
           remainingUses: REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES,
           participantIds: [1, 2],
@@ -229,7 +228,6 @@ export class EmailRecoveryAuthOperations {
           clientParticipantId?: number;
           relayerParticipantId?: number;
           participantIds?: number[];
-          session?: ThresholdEd25519BootstrapSession;
         };
         ecdsa: EmailRecoveryEcdsaPreparePayload;
       }

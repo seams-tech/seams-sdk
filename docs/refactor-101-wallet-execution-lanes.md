@@ -2,7 +2,7 @@
 
 Date created: June 15, 2026
 
-Rewritten: July 22, 2026
+Reconciled: August 5, 2026
 
 Status: active foundation plan. Curve-specific key identity, local capability
 material, and exact Wallet Session admission exist as groundwork. First-class
@@ -19,24 +19,25 @@ transport, or user-facing policy.
 It consumes:
 
 - [refactor-90-modular-auth-capabilities-plan.md](./refactor-90-modular-auth-capabilities-plan.md)
-  for canonical capability hydration, active ECDSA manifests, activation
-  commits, authorization resources, atomic quota claims, and exact operation
-  execution;
+  for canonical capability hydration, the landed curve-specific ECDSA
+  capability manifest, exact `MpcMaterialActivationRef` identities, idempotent
+  activation commits, authorization resources, atomic authorized-operation
+  admission, and exact operation execution;
 - [router-ab/ed25519-yao/implementation-plan.md](./router-ab/ed25519-yao/implementation-plan.md)
   for Ed25519 key identity, Client and SigningWorker lifecycle, recovery,
   recipient provisioning, refresh, and export;
 - `crates/router-ab-ecdsa-derivation` for secp256k1 role-local additive shares,
   threshold sessions, signing, and export;
-- [refactor-95-passkey-account-refactor.md](./refactor-95-passkey-account-refactor.md)
+- [refactor-100-passkey-account-refactor.md](./refactor-100-passkey-account-refactor.md)
   for wrapped owner and linked-device custody.
 
 It supplies the execution model consumed by:
 
-- [refactor-97-share-rotation.md](./refactor-97-share-rotation.md) for lane
+- [refactor-102-share-rotation.md](./refactor-102-share-rotation.md) for lane
   provisioning, refresh, activation, and revocation;
-- [refactor-98-device-linking.md](./refactor-98-device-linking.md) for physical
+- [refactor-103-device-linking.md](./refactor-103-device-linking.md) for physical
   linked-device enrollment;
-- [refactor-99-agent-id-spending.md](./refactor-99-agent-id-spending.md) for an
+- [refactor-104-agent-id-spending.md](./refactor-104-agent-id-spending.md) for an
   optional authorization-bound delegated execution lane after agent identity
   and owner authorization have verified.
 
@@ -64,6 +65,13 @@ AgentIdentityKey
 An agent identity key never becomes a `WalletKey`. A delegated authorization
 never becomes a lane policy. An execution lane never proves who authored a
 request.
+
+Terminology is deliberately split. A persistent `SigningLane` is durable
+share-bearing material for one wallet key, holder participant, and server
+participant. Refactor 90's `ExactEcdsaOperationLane` is an operation-local,
+prepared signing descriptor. It carries the selected persistent lane and exact
+material activation into admission, then expires with that operation; it is not
+a second durable lane and cannot be used to infer lane ownership.
 
 ## Required Invariants
 
@@ -156,10 +164,21 @@ type SigningLaneReference = {
   laneShareEpoch: LaneShareEpoch;
   participantBindingDigestB64u: string;
 };
+
+type ActiveSigningLaneReference = SigningLaneReference & {
+  lifecycle: Extract<SigningLaneLifecycle, { state: 'active' }>;
+  materialActivation: MpcMaterialActivationRef;
+};
 ```
 
+Only an active lane may expose `ActiveSigningLaneReference`. Provisioning and
+pending records carry their protocol correlation and activation candidate but
+cannot satisfy an execution reference until the curve-specific activation
+receipt is verified. A lane refresh creates a fresh activation reference for
+the next share epoch; it never mutates the prior active reference in place.
+
 `delegated_execution` describes an optional MPC execution topology used after
-Refactor 99 authorization. Its holder material may be sealed to an agent
+Refactor 104 authorization. Its holder material may be sealed to an agent
 runtime so the agent and Seams policy participant must both cooperate. The
 agent's independent identity key remains the request author and authorization
 subject.
@@ -199,9 +218,11 @@ type DelegatedExecutionLaneRecord = SigningLaneReference & {
 };
 ```
 
-Refactor 99 owns the referenced authorization, agent key, custody binding, and
-policy. This lane can execute only after Refactor 99 returns a committed
-admission claim for the exact request and authorization epoch.
+Refactor 104 owns the referenced authorization, agent key, custody binding, and
+policy. This lane can execute only after Refactor 104 returns a committed
+admission claim for the exact request and authorization epoch. The lane's
+activation remains an independent `MpcMaterialActivationRef` selected by the
+curve-specific capability adapter.
 
 Deployments that use a chain-native smart account or credential-provider
 payment rail may omit `delegated_execution` entirely. The agent key or released
@@ -209,7 +230,14 @@ credential is then the execution mechanism defined by that adapter.
 
 ## Lane Lifecycle
 
-Lifecycle and revocation form one exhaustive union:
+Cryptographic material lifecycle and authorization availability are separate.
+Wallet Session expiry, quota exhaustion, delegated-authorization expiry, and
+step-up denial block admission while preserving the active lane's sealed
+material and `MpcMaterialActivationRef`. They never retire a lane. Product
+pause or risk decisions are admission projections owned by the relevant
+authorization plan; they are not cryptographic lane states.
+
+The cryptographic lifecycle and revocation form one exhaustive union:
 
 ```ts
 type SigningLaneLifecycle =
@@ -231,17 +259,6 @@ type SigningLaneLifecycle =
       activationReceiptDigestB64u: string;
     }
   | {
-      state: 'suspended';
-      revocationEpoch: number;
-      suspendedAtMs: number;
-      suspendReason: 'user_paused' | 'risk_engine' | 'authorization_suspended';
-    }
-  | {
-      state: 'expired';
-      revocationEpoch: number;
-      expiredAtMs: number;
-    }
-  | {
       state: 'revoked';
       revocationEpoch: number;
       revokedAtMs: number;
@@ -249,7 +266,6 @@ type SigningLaneLifecycle =
         | 'user_revoked'
         | 'device_compromise'
         | 'agent_compromise'
-        | 'authorization_revoked'
         | 'rotation';
     };
 ```
@@ -277,10 +293,10 @@ operation.
 ## Enrollment Boundaries
 
 Physical linked devices commonly require one child lane for every wallet key.
-Refactor 98 owns their aggregate enrollment, ordered key manifest, delivery
+Refactor 103 owns their aggregate enrollment, ordered key manifest, delivery
 receipts, and atomic activation.
 
-A Refactor 99 authorization can cover one or more wallet keys without creating
+A Refactor 104 authorization can cover one or more wallet keys without creating
 lanes. When a direct threshold-wallet adapter requires delegated execution
 lanes, its execution enrollment is subordinate to the already-signed
 authorization and must match the authorization's exact key set or a strict
@@ -298,25 +314,55 @@ type PreparedWalletExecution =
   | PreparedOwnerWalletExecution
   | PreparedLinkedDeviceWalletExecution
   | PreparedDelegatedWalletExecution;
+
+type PreparedWalletExecutionBase = {
+  authorizedOperation: Extract<AuthorizedOperation, { lifecycle: 'claimed' }>;
+  materialActivation: MpcMaterialActivationRef;
+  lane: ActiveSigningLaneReference;
+};
+
+type PreparedOwnerWalletExecution = PreparedWalletExecutionBase & {
+  kind: 'prepared_owner_wallet_execution';
+  laneKind: 'owner_passkey' | 'owner_email_otp' | 'recovery' | 'break_glass';
+};
+
+type PreparedLinkedDeviceWalletExecution = PreparedWalletExecutionBase & {
+  kind: 'prepared_linked_device_wallet_execution';
+  laneKind: 'linked_device';
+  linkedDeviceEnrollmentId: LinkedDeviceEnrollmentId;
+};
+
+type PreparedDelegatedWalletExecution = PreparedWalletExecutionBase & {
+  kind: 'prepared_delegated_wallet_execution';
+  laneKind: 'delegated_execution';
+  delegatedAuthorizationId: DelegatedSpendAuthorizationId;
+  budgetClaim: Extract<DelegatedBudgetClaimState, { state: 'reserved' }>;
+};
 ```
 
-The delegated branch requires:
+Every prepared branch carries the already admitted `AuthorizedOperation` and
+the exact material activation selected by the curve-specific adapter. The
+operation uses Refactor 90's fingerprint and authorized-operation contract,
+extended only by the linked-device or delegated authorization variant owned by
+Refactor 103 or 104. The persistent lane reference is a separate identity.
+
+The delegated branch additionally requires:
 
 - verified agent request signature;
 - verified owner authorization signature;
-- active authorization and current revocation epoch;
-- committed atomic budget claim;
+- active delegated authorization and current revocation epoch;
+- atomically reserved delegated budget claim;
 - replay and idempotency claim;
 - exact typed intent and final unsigned-transaction digest;
 - active wallet key;
-- active execution lane when the selected adapter uses one;
 - exact holder/server participant and share epochs.
 
 Diagnostics, UI projections, and audit summaries cannot construct this type.
 
 ## Storage Ownership
 
-Refactor 96 owns:
+Refactor 101 owns the domain interfaces and parsers. Product-owned durable
+records are persisted by Gateway D1:
 
 - `WalletKeyStore`;
 - `SigningLaneStore`;
@@ -324,12 +370,19 @@ Refactor 96 owns:
 - active lane lookup by exact wallet key;
 - lane-to-capability execution bindings.
 
-Refactor 97 owns protocol jobs, material delivery, activation receipts,
-refresh, and cryptographic revocation receipts.
+Refactor 102 owns protocol jobs, material delivery, activation receipts,
+refresh, and cryptographic revocation receipts. Gateway D1 owns product
+ceremony outcomes, Wallet Session authorization, quotas, authorized operations,
+and authorization audit. SigningWorker private D1 owns activated server
+material, delivery state, cryptographic effect deduplication, presignature or
+Yao material consumption, and terminal response replay; Deriver A/B private D1
+owns role-local custody and one-use state.
+Router transports typed commands and receipts and owns no mutable lane,
+manifest, or activation store.
 
-Refactor 98 owns linked-device sessions and aggregate device enrollments.
+Refactor 103 owns linked-device sessions and aggregate device enrollments.
 
-Refactor 99 owns agent identities, public keys, owner authorizations, custody
+Refactor 104 owns agent identities, public keys, owner authorizations, custody
 bindings, budgets, replay claims, spend requests, and delegated audit records.
 
 No store may persist plaintext roots, holder shares, PRF outputs, KEKs,
@@ -344,10 +397,9 @@ superseded model:
 - `DelegatedAgentSigningLaneRecord` with lane-owned mandate policy;
 - `AgentPrincipalId` described as a principal that holds an MPC share;
 - `DelegatedSigningRequest` whose authority is inferred from lane identity;
-- `DelegatedBudgetReservationStore` keyed around the old lane-owned policy;
 - agent wallet summaries derived from delegated lanes.
 
-Replace these directly with the Refactor 99 identity and authorization model
+Replace these directly with the Refactor 104 identity and authorization model
 plus the optional `delegated_execution` lane. Delete obsolete fixtures and
 tests that protect the old coupling.
 
@@ -367,8 +419,13 @@ tests that protect the old coupling.
 ### Phase 1: Persistence And Capability Resolution
 
 - [ ] Implement wallet-key and lane stores.
-- [ ] Resolve active lanes through Refactor 90's canonical capability manifest
-      and activation journal.
+- [ ] Resolve each active lane through its curve-specific canonical capability
+      hydration: the landed ECDSA `ActiveEcdsaCapabilityManifest` and the
+      Ed25519 adapter's exact hydration result. Carry the matching
+      `MpcMaterialActivationRef` and verified activation receipt into the lane
+      record. Reconcile any pending activation journal before lookup, then
+      delete it at atomic local finalization; an operation-local lane never
+      becomes durable here.
 - [ ] Bind each active lane to exact curve participants and share epochs.
 - [ ] Keep all dormant route shells fail closed.
 
@@ -376,7 +433,7 @@ tests that protect the old coupling.
 
 - [ ] Define `PreparedWalletExecution` branches.
 - [ ] Require linked-device enrollment admission for linked-device lanes.
-- [ ] Require Refactor 99 committed authorization and budget claims for
+- [ ] Require Refactor 104 committed authorization and budget claims for
       delegated execution.
 - [ ] Prove raw requests and diagnostics cannot enter signing.
 
@@ -389,8 +446,8 @@ tests that protect the old coupling.
 
 ### Phase 4: Cutover
 
-- [ ] Enable Refactor 98 device-linking behavior.
-- [ ] Enable the Refactor 99 threshold-wallet execution adapter.
+- [ ] Enable Refactor 103 device-linking behavior.
+- [ ] Enable the Refactor 104 threshold-wallet execution adapter.
 - [ ] Delete obsolete delegated-agent lane types, stores, APIs, fixtures, and
       tests.
 
@@ -411,10 +468,12 @@ Focused tests prove:
 
 - creating an agent authorization creates no wallet key or lane;
 - a valid agent request with no active execution adapter fails closed;
-- a delegated execution lane cannot sign without a committed Refactor 99
+- a delegated execution lane cannot sign without a committed Refactor 104
   admission claim;
 - lane revocation blocks execution and leaves owner lanes active;
-- authorization revocation blocks delegated execution before share work;
+- owner or linked-device Wallet Session expiry blocks its corresponding
+  execution, while delegated-authorization rejection blocks delegated
+  execution before share work; each preserves lane material;
 - direct owner and linked-device signing remain independent from agent state;
 - wallet public identities remain stable through lane creation and refresh.
 

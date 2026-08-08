@@ -1,23 +1,27 @@
 import { expect, test } from '@playwright/test';
-import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEvmFamilyTransactionSigningIntent,
-  resolveEvmFamilyEcdsaRestoreMaterialLane,
   resolveEvmFamilyTransactionAuthSelectionPolicy,
 } from '@/core/signingEngine/flows/signEvmFamily/preparedSigning';
-import type { EcdsaLaneCandidate } from '@/core/signingEngine/session/identity/laneIdentity';
+import { selectEvmFamilyEcdsaMaterialCandidate } from '@/core/signingEngine/session/identity/selectLane';
 import {
-  buildEvmFamilyEcdsaKeyIdentity,
-  toEvmFamilyEcdsaKeyHandle,
-  toRpId,
-} from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { buildTempoTransactionSigningLane } from '@/core/signingEngine/session/operationState/lanes';
-import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
-import { exactEcdsaSigningLaneIdentityFromSelectedLane } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
+  AVAILABLE_LANES_ECDSA_TARGET,
+  AVAILABLE_LANES_WALLET_ID,
+  authorizationRequiredCanonicalEcdsaAvailableLane,
+  canonicalEcdsaAvailableLane,
+  readAvailableLanesFixture,
+} from './helpers/availableSigningLanes.fixtures';
+
+// The shared-key restore-lane case is gone with
+// `resolveEvmFamilyEcdsaRestoreMaterialLane`. It asserted that a restore lane
+// carried the source chain's exact identity while reusing the transaction
+// lane's session and grant ids -- identifiers an ExactEcdsaSigningLaneIdentity
+// no longer carries at all. Restored material is selected by manifest and
+// sealed runtime now, so the invariant has no record-shaped form to test.
 
 const walletId = toWalletId('wallet.testnet');
 const signingTarget = thresholdEcdsaChainTargetFromChainFamily({
@@ -26,12 +30,14 @@ const signingTarget = thresholdEcdsaChainTargetFromChainFamily({
 });
 
 test.describe('EVM-family prepared signing auth selection', () => {
-  test('keeps initial transaction intent auth-neutral', () => {
+  test('binds the transaction intent to the selected capability factor', () => {
     const intent = buildEvmFamilyTransactionSigningIntent({
       walletId,
       signingTarget,
       operationUsesNeeded: 1,
-      authSelectionPolicy: resolveEvmFamilyTransactionAuthSelectionPolicy({}),
+      authSelectionPolicy: resolveEvmFamilyTransactionAuthSelectionPolicy({
+        candidateAuthMethod: 'passkey',
+      }),
     });
 
     expect(intent).toMatchObject({
@@ -40,7 +46,7 @@ test.describe('EVM-family prepared signing auth selection', () => {
       chain: 'evm',
       chainTarget: signingTarget,
       operationUsesNeeded: 1,
-      authSelectionPolicy: { kind: 'any' },
+      authSelectionPolicy: { kind: 'account_class', authMethod: 'passkey' },
     });
   });
 
@@ -63,73 +69,77 @@ test.describe('EVM-family prepared signing auth selection', () => {
     });
   });
 
-  test('uses source chain exact identity for shared-key material restore', () => {
-    const tempoTarget = {
-      kind: 'tempo' as const,
-      chainId: 42431,
-      networkSlug: 'tempo-testnet',
-    };
-    const key = buildEvmFamilyEcdsaKeyIdentity({
-      walletId,
-      evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
-        walletId,
-        signingRootId: 'proj_local:dev',
-        signingRootVersion: 'default',
-      }),
-      ecdsaThresholdKeyId: 'ek-shared-restore',
-      signingRootId: 'proj_local:dev',
-      signingRootVersion: 'default',
-      participantIds: [1, 2],
+  test('selects exact canonical material without constructing an authorized lane', async () => {
+    const materialRecord = authorizationRequiredCanonicalEcdsaAvailableLane({
+      chainTarget: AVAILABLE_LANES_ECDSA_TARGET,
       thresholdOwnerAddress: `0x${'ab'.repeat(20)}`,
+      authMethod: 'passkey',
+      ecdsaThresholdKeyId: 'auth-required-material',
     });
-    const keyHandle = toEvmFamilyEcdsaKeyHandle('key-handle-shared-restore');
-    const passkeyAuth = {
-      kind: 'passkey' as const,
-      rpId: toRpId('example.localhost'),
-      credentialIdB64u: 'credential-shared-restore',
-    };
-    const laneCandidate: EcdsaLaneCandidate = {
-      kind: 'lane_candidate',
-      auth: passkeyAuth,
-      curve: 'ecdsa',
-      chain: 'tempo',
-      walletId,
-      key,
-      keyHandle,
-      chainTarget: tempoTarget,
-      signingGrantId: 'grant-shared-restore',
-      thresholdSessionId: 'threshold-shared-restore',
-      state: 'deferred',
-      remainingUses: null,
-      expiresAtMs: null,
-      updatedAtMs: 1,
-      source: 'evm_family_shared_key',
-      sourceChainTarget: signingTarget,
-    };
-    const transactionLane = buildTempoTransactionSigningLane({
-      key,
-      keyHandle,
-      walletId,
-      auth: passkeyAuth,
-      chainTarget: tempoTarget,
-      signingGrantId: SigningSessionIds.signingGrant(laneCandidate.signingGrantId),
-      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(
-        laneCandidate.thresholdSessionId,
-      ),
-      storageSource: 'login',
+    const availableLanes = await readAvailableLanesFixture({
+      walletId: AVAILABLE_LANES_WALLET_ID,
+      ecdsaChainTargets: [AVAILABLE_LANES_ECDSA_TARGET],
+      canonicalEcdsaLanes: [materialRecord],
+    });
+    const intent = buildEvmFamilyTransactionSigningIntent({
+      walletId: toWalletId(AVAILABLE_LANES_WALLET_ID),
+      signingTarget: AVAILABLE_LANES_ECDSA_TARGET,
+      operationUsesNeeded: 1,
+      authSelectionPolicy: { kind: 'account_class', authMethod: 'passkey' },
     });
 
-    const restoreMaterialLane = resolveEvmFamilyEcdsaRestoreMaterialLane({
-      laneCandidate,
-      transactionLane,
-    });
-    const restoreIdentity = exactEcdsaSigningLaneIdentityFromSelectedLane(restoreMaterialLane);
-    const transactionIdentity = exactEcdsaSigningLaneIdentityFromSelectedLane(transactionLane);
+    const selected = selectEvmFamilyEcdsaMaterialCandidate({ intent, availableLanes });
 
-    expect(transactionIdentity.signer.chainTarget).toEqual(tempoTarget);
-    expect(restoreIdentity.signer.chainTarget).toEqual(signingTarget);
-    expect(restoreIdentity.signer.chainTarget).toEqual(laneCandidate.sourceChainTarget);
-    expect(restoreIdentity.signingGrantId).toEqual(transactionIdentity.signingGrantId);
-    expect(restoreIdentity.thresholdSessionId).toEqual(transactionIdentity.thresholdSessionId);
+    if (!selected.ok) {
+      throw new Error(
+        `material selection failed: ${JSON.stringify({
+          failure: selected.failure,
+          lanes: availableLanes.ecdsa,
+        })}`,
+      );
+    }
+    expect(selected.kind).toBe('authorization_required');
+    if (selected.kind !== 'authorization_required') {
+      throw new Error('expected authorization-required material selection');
+    }
+    expect(selected.candidate.authorizationState).toBe('authorization_required');
+    expect(selected.candidate.materialActivation.activationId).toBe(
+      materialRecord.materialActivation.activationId,
+    );
+    expect(selected.candidate.chainTarget).toEqual(AVAILABLE_LANES_ECDSA_TARGET);
+    expect(selected.lane).toBeUndefined();
+  });
+
+  test('constructs a selected lane only for an authorized material candidate', async () => {
+    const materialRecord = canonicalEcdsaAvailableLane({
+      chainTarget: AVAILABLE_LANES_ECDSA_TARGET,
+      thresholdOwnerAddress: `0x${'cd'.repeat(20)}`,
+      authMethod: 'passkey',
+      ecdsaThresholdKeyId: 'authorized-material',
+    });
+    const availableLanes = await readAvailableLanesFixture({
+      walletId: AVAILABLE_LANES_WALLET_ID,
+      ecdsaChainTargets: [AVAILABLE_LANES_ECDSA_TARGET],
+      canonicalEcdsaLanes: [materialRecord],
+    });
+    const intent = buildEvmFamilyTransactionSigningIntent({
+      walletId: toWalletId(AVAILABLE_LANES_WALLET_ID),
+      signingTarget: AVAILABLE_LANES_ECDSA_TARGET,
+      operationUsesNeeded: 1,
+      authSelectionPolicy: { kind: 'account_class', authMethod: 'passkey' },
+    });
+
+    const selected = selectEvmFamilyEcdsaMaterialCandidate({ intent, availableLanes });
+
+    if (!selected.ok) throw new Error(`material selection failed: ${selected.failure.kind}`);
+    expect(selected.kind).toBe('authorized');
+    if (selected.kind !== 'authorized') throw new Error('expected authorized material selection');
+    expect(selected.candidate.authorizationState).toBe('authorized');
+    expect(selected.lane.authorization.projection.walletSessionId).toBe(
+      materialRecord.authorization?.projection.walletSessionId,
+    );
+    expect(selected.lane.materialActivation.activationId).toBe(
+      materialRecord.materialActivation.activationId,
+    );
   });
 });

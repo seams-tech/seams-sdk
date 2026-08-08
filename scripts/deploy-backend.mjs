@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import {
   BACKEND_COMPONENTS,
   componentSecretNames,
-  readDeploymentTarget,
+  readBackendLane,
 } from './deployment-targets.mjs';
 import { readMigrationSet } from './migration-fingerprint.mjs';
 import { formatFailedCheck, isFailedCheck, runReadinessChecks } from './deployment-smoke.mjs';
@@ -27,14 +27,7 @@ const GATEWAY_BUILD_CONFIG = path.join(
   'generated',
   'gateway-build.jsonc',
 );
-const GATEWAY_CONFIG = path.join(GATEWAY_ROOT, '.wrangler', 'generated', 'gateway.jsonc');
-const GATEWAY_PLAN = path.join(
-  GATEWAY_ROOT,
-  '.wrangler',
-  'generated',
-  'gateway-deployment-plan.json',
-);
-const GATEWAY_SECRETS = path.join(GATEWAY_ROOT, '.wrangler', 'generated', 'gateway-secrets.json');
+const GATEWAY_GENERATED_ROOT = path.join(GATEWAY_ROOT, '.wrangler', 'generated');
 const GATEWAY_BUNDLE = path.join(
   REPOSITORY_ROOT,
   '.release-artifacts',
@@ -70,46 +63,68 @@ const PRIVATE_D1_DEPLOYMENTS = Object.freeze({
   'signing-worker': Object.freeze({
     binding: 'SIGNING_WORKER_PRIVATE_DB',
     databaseIdEnvironment: 'SIGNING_WORKER_PRIVATE_D1_ID',
-    productionPlaceholder: '00000000-0000-0000-0000-0000000094c1',
-    stagingPlaceholder: '00000000-0000-0000-0000-0000000094c2',
+    placeholders: Object.freeze({
+      'staging-testnet': '__STAGING_TESTNET_SIGNING_WORKER_PRIVATE_D1_ID__',
+      'production-testnet': '__PRODUCTION_TESTNET_SIGNING_WORKER_PRIVATE_D1_ID__',
+      'production-mainnet': '__PRODUCTION_MAINNET_SIGNING_WORKER_PRIVATE_D1_ID__',
+    }),
   }),
   'deriver-a': Object.freeze({
     binding: 'DERIVER_ROLE_PRIVATE_DB',
     databaseIdEnvironment: 'DERIVER_A_PRIVATE_D1_ID',
-    productionPlaceholder: '00000000-0000-0000-0000-0000000094a1',
-    stagingPlaceholder: '00000000-0000-0000-0000-0000000094a2',
+    placeholders: Object.freeze({
+      'staging-testnet': '__STAGING_TESTNET_DERIVER_A_PRIVATE_D1_ID__',
+      'production-testnet': '__PRODUCTION_TESTNET_DERIVER_A_PRIVATE_D1_ID__',
+      'production-mainnet': '__PRODUCTION_MAINNET_DERIVER_A_PRIVATE_D1_ID__',
+    }),
   }),
   'deriver-b': Object.freeze({
     binding: 'DERIVER_ROLE_PRIVATE_DB',
     databaseIdEnvironment: 'DERIVER_B_PRIVATE_D1_ID',
-    productionPlaceholder: '00000000-0000-0000-0000-0000000094b1',
-    stagingPlaceholder: '00000000-0000-0000-0000-0000000094b2',
+    placeholders: Object.freeze({
+      'staging-testnet': '__STAGING_TESTNET_DERIVER_B_PRIVATE_D1_ID__',
+      'production-testnet': '__PRODUCTION_TESTNET_DERIVER_B_PRIVATE_D1_ID__',
+      'production-mainnet': '__PRODUCTION_MAINNET_DERIVER_B_PRIVATE_D1_ID__',
+    }),
   }),
 });
 
-main(process.argv.slice(2)).catch(handleFailure);
+if (isDirectInvocation()) {
+  main(process.argv.slice(2)).catch(handleFailure);
+}
+
+function isDirectInvocation() {
+  return (
+    process.argv[1] &&
+    path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))
+  );
+}
 
 async function main(args) {
   const options = parseArguments(args);
-  const target = readDeploymentTarget(options.target);
+  const lane = readBackendLane(options.lane);
+  if (options.operation !== 'plan') {
+    requireProvisionedLane(lane);
+    assertDeploymentBranch(lane);
+  }
   switch (options.operation) {
     case 'plan':
-      printPlan(options.target, target);
+      printPlan(lane);
       return;
     case 'build':
-      buildBackend();
+      buildBackend(lane);
       return;
     case 'preflight':
-      preflightBackend(options.target, target, options.component, readPreflightEnvironment());
+      preflightBackend(lane, options.component, readPreflightEnvironment());
       return;
     case 'migrate':
-      migrateBackend(options.target);
+      migrateBackend(lane);
       return;
     case 'deploy':
-      deployBackend(options.target, target, options.component);
+      deployBackend(lane, options.component);
       return;
     case 'smoke':
-      await smokeBackend(target);
+      await smokeBackend(lane);
       return;
     default:
       throw new Error(`Unsupported backend operation: ${options.operation}`);
@@ -118,11 +133,11 @@ async function main(args) {
 
 function parseArguments(args) {
   const operation = String(args[0] || '').trim();
-  const options = { operation, target: '', component: '' };
+  const options = { operation, lane: '', component: '' };
   for (let index = 1; index < args.length; index += 1) {
     const argument = args[index];
-    if (argument === '--target') {
-      options.target = requireArgumentValue(args, index, argument);
+    if (argument === '--lane') {
+      options.lane = requireArgumentValue(args, index, argument);
       index += 1;
       continue;
     }
@@ -132,18 +147,16 @@ function parseArguments(args) {
       continue;
     }
     throw new Error(
-      `usage: deploy-backend.mjs <plan|build|preflight|migrate|deploy|smoke> --target <target>`,
+      `usage: deploy-backend.mjs <plan|build|preflight|migrate|deploy|smoke> --lane <lane>`,
     );
   }
   if (!['plan', 'build', 'preflight', 'migrate', 'deploy', 'smoke'].includes(operation)) {
     throw new Error(
-      'usage: deploy-backend.mjs <plan|build|preflight|migrate|deploy|smoke> --target <target>',
+      'usage: deploy-backend.mjs <plan|build|preflight|migrate|deploy|smoke> --lane <lane>',
     );
   }
-  if (!options.target)
-    throw new Error(
-      '--target is required (usage: deploy-backend.mjs <operation> --target <target>)',
-    );
+  if (!options.lane)
+    throw new Error('--lane is required (usage: deploy-backend.mjs <operation> --lane <lane>)');
   if (['preflight', 'deploy'].includes(operation)) {
     if (!options.component) throw new Error('--component is required');
     if (!BACKEND_COMPONENTS.includes(options.component)) {
@@ -161,41 +174,99 @@ function requireArgumentValue(args, index, name) {
   return value;
 }
 
-function printPlan(targetName, target) {
+function assertDeploymentBranch(lane) {
+  const ref = resolveDeploymentRef();
+  if (!ref) return;
+  const expectedRef = `refs/heads/${lane.branch}`;
+  if (ref !== expectedRef) {
+    throw new Error(`lane ${lane.id} requires branch ${lane.branch}; received ${ref}`);
+  }
+}
+
+function resolveDeploymentRef() {
+  const ref = String(process.env.GITHUB_REF || '').trim();
+  if (ref) return ref;
+  const branch = String(process.env.GITHUB_REF_NAME || '').trim();
+  return branch ? `refs/heads/${branch}` : '';
+}
+
+function requireProvisionedLane(lane) {
+  switch (lane.provisioning.kind) {
+    case 'provisioned':
+      return lane.provisioning.gatewayDeploymentConfig;
+    case 'pending':
+      throw new Error(
+        `lane ${lane.id} is pending provisioning; required values: ${lane.provisioning.requiredValues.join(', ')}`,
+      );
+    default:
+      throw new Error(`Unsupported provisioning state for lane ${lane.id}`);
+  }
+}
+
+function printPlan(lane) {
+  const provisioningLines = provisioningPlanLines(lane);
   const lines = [
-    `Backend deployment plan: ${targetName}`,
-    `Branch: ${target.branch}`,
-    `Gateway: ${target.resources.gateway.workerName}`,
-    `Gateway origin: ${target.origins.gateway}`,
-    `Capabilities: ${formatCapabilities(target)}`,
+    `Backend deployment plan: ${lane.id}`,
+    `Release: ${lane.release}`,
+    `Network: ${lane.network}`,
+    `Branch: ${lane.branch}`,
+    ...provisioningLines,
+    `Gateway: ${lane.resources.gateway.workerName}`,
+    `Gateway origin: ${lane.gatewayOrigin}`,
+    `Wallet origin: ${lane.walletOrigin}`,
+    `Site origin: ${lane.site.origin}`,
+    `Console D1: ${lane.resources.gateway.consoleD1Name}`,
+    `Signer D1: ${lane.resources.gateway.signerD1Name}`,
+    `Capabilities: ${formatCapabilities(lane)}`,
     '',
     'Order:',
-    '  1. build all backend components once and require the target branch',
+    '  1. build all backend components once and require the lane branch',
     '  2. preflight all five backend custody components',
-    `  3. migrate ${target.resources.gateway.consoleD1Name} (console D1)`,
-    `  4. migrate ${target.resources.gateway.signerD1Name} (signer D1)`,
+    `  3. migrate ${lane.resources.gateway.consoleD1Name} (console D1)`,
+    `  4. migrate ${lane.resources.gateway.signerD1Name} (signer D1)`,
     '  5. migrate and deploy signing-worker, deriver-a, and deriver-b concurrently',
     '  6. deploy router after all three workers complete',
-    '  7. upsert Gateway signing-root KEK',
-    '  8. deploy gateway',
-    '  9. smoke Gateway and Router A/B endpoints',
+    '  7. deploy gateway',
+    '  8. smoke Gateway and Router A/B endpoints',
   ];
   process.stdout.write(`${lines.join('\n')}\n`);
 }
 
-function formatCapabilities(target) {
+function provisioningPlanLines(lane) {
+  switch (lane.provisioning.kind) {
+    case 'provisioned':
+      return [
+        'Provisioning: provisioned',
+        `Runtime profile: ${lane.provisioning.gatewayDeploymentConfig.runtimeProfile.kind}`,
+      ];
+    case 'pending':
+      return [
+        'Provisioning: pending',
+        `Runtime profile: ${lane.provisioning.runtimeProfileKind}`,
+        `Required values: ${lane.provisioning.requiredValues.join(', ')}`,
+      ];
+    default:
+      throw new Error(`Unsupported provisioning state for lane ${lane.id}`);
+  }
+}
+
+function formatCapabilities(lane) {
   const names = ['billing', 'sponsoredExecution', 'signingSessionSeal'];
   const values = [];
   for (const name of names) {
-    values.push(`${name}=${target.capabilities[name].enabled ? 'enabled' : 'disabled'}`);
+    values.push(`${name}=${lane.capabilities[name].enabled ? 'enabled' : 'disabled'}`);
   }
   return values.join(', ');
 }
 
-function buildBackend() {
+function buildBackend(lane) {
+  process.stdout.write(`Building backend lane ${lane.id} (${lane.network})\n`);
   runCommand('pnpm', ['install', '--frozen-lockfile']);
   runCommand('pnpm', ['-C', 'crates/router-ab-cloudflare', 'run', 'worker-build:install']);
-  const routerEnvironment = buildEnvironment({ ROUTER_AB_WORKER_BUILD_PROFILE: 'release' });
+  const routerEnvironment = buildEnvironment({
+    DEPLOYMENT_LANE: lane.id,
+    ROUTER_AB_WORKER_BUILD_PROFILE: 'release',
+  });
   for (const role of ['signing-worker', 'deriver-a', 'deriver-b', 'router']) {
     runCommand('pnpm', ['-C', 'crates/router-ab-cloudflare', 'run', `build:${role}`], {
       env: routerEnvironment,
@@ -203,6 +274,7 @@ function buildBackend() {
   }
   runCommand('bash', ['packages/sdk-web/scripts/build/install-ci-wasm-tooling.sh']);
   const sdkWasmEnvironment = buildEnvironment({
+    DEPLOYMENT_LANE: lane.id,
     WASM_SDK_BUILD_MODE: 'prod',
     WASM_SDK_BUILD_TARGET: 'all',
   });
@@ -213,7 +285,7 @@ function buildBackend() {
   runCommand('pnpm', ['-C', 'packages/console-server-ts', 'run', 'd1:local:ensure-wasm'], {
     env: sdkWasmEnvironment,
   });
-  writeGatewayBuildConfig();
+  writeGatewayBuildConfig(lane.id);
   fs.mkdirSync(path.dirname(GATEWAY_BUNDLE), { recursive: true });
   runCommand(
     'pnpm',
@@ -234,9 +306,9 @@ function buildBackend() {
   assertFile(GATEWAY_BUNDLE, 'Gateway build entry');
 }
 
-function writeGatewayBuildConfig() {
+function writeGatewayBuildConfig(laneId) {
   const config = {
-    name: 'seams-sdk-d1-gateway-build',
+    name: `seams-sdk-d1-gateway-build-${laneId}`,
     main: path.join(GATEWAY_ROOT, 'src/router/cloudflare/d1RouterApiWorker.ts'),
     compatibility_date: GATEWAY_WORKER_COMPATIBILITY_DATE,
     compatibility_flags: GATEWAY_WORKER_COMPATIBILITY_FLAGS,
@@ -247,20 +319,129 @@ function writeGatewayBuildConfig() {
   });
 }
 
-function preflightBackend(targetName, target, component, environment = process.env) {
+function preflightBackend(lane, component, environment = process.env) {
+  assertLaneResourceBindings(lane, component);
   const requiredNames = ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID'];
-  requiredNames.push(...componentSecretNames(target, component));
-  for (const name of componentRuntimeRequirements(targetName, target, component)) {
+  requiredNames.push(...componentSecretNames(lane, component));
+  for (const name of componentRuntimeRequirements(lane, component)) {
     requiredNames.push(name);
   }
   if (component === 'gateway') {
-    requiredNames.push('SIGNING_ROOT_KEK_VALUE');
-    const config = target.gatewayDeploymentConfig;
+    const config = requireProvisionedLane(lane);
     if (config.optional.nearRelayer) requiredNames.push('RELAYER_PRIVATE_KEY');
   }
   requireEnvironmentValues(unique(requiredNames), environment);
   if (component === 'gateway') warnDisabledGatewayIntegrations(environment);
-  process.stdout.write(`Preflight passed: ${targetName}/${component}\n`);
+  process.stdout.write(`Preflight passed: ${lane.id}/${component}\n`);
+}
+
+function assertLaneResourceBindings(lane, component) {
+  if (component === 'gateway') return;
+  const resourceKey = {
+    'signing-worker': 'signingWorker',
+    'deriver-a': 'deriverA',
+    'deriver-b': 'deriverB',
+    router: 'router',
+  }[component];
+  if (!resourceKey) throw new Error(`Unsupported backend component: ${component}`);
+  const resource = lane.resources[resourceKey];
+  const configPath = path.resolve(REPOSITORY_ROOT, resource.configPath);
+  assertFile(configPath, `Wrangler config for ${resource.workerName}`);
+  const section = readWranglerWorkerSection(
+    fs.readFileSync(configPath, 'utf8'),
+    resource.deploymentEnvironment,
+  );
+  requireConfigLine(section, 'name', resource.workerName, `${lane.id}/${component} Worker`);
+  assertExpectedWorkerServices(lane, component, section);
+  assertExpectedPrivateD1Binding(lane, component, section);
+}
+
+function readWranglerWorkerSection(source, deploymentEnvironment) {
+  if (deploymentEnvironment.kind === 'default') {
+    return source.split(/\n\[env\./u, 1)[0];
+  }
+  const marker = `\n[env.${deploymentEnvironment.name}]`;
+  const start = source.indexOf(marker);
+  if (start < 0) {
+    throw new Error(`Wrangler config is missing [env.${deploymentEnvironment.name}]`);
+  }
+  const sectionStart = start + 1;
+  const end = source.indexOf('\n[env.', sectionStart);
+  return source.slice(sectionStart, end < 0 ? source.length : end);
+}
+
+function requireConfigLine(section, key, expected, label) {
+  const pattern = new RegExp(`^${key}\\s*=\\s*"([^"]+)"\\s*$`, 'mu');
+  const match = pattern.exec(section);
+  if (!match || match[1] !== expected) {
+    throw new Error(`${label} must bind ${key}=${expected}`);
+  }
+}
+
+export function assertExpectedWorkerServices(lane, component, section) {
+  const expectedServices = {
+    router: [
+      ['DERIVER_A', lane.resources.deriverA.workerName],
+      ['DERIVER_B', lane.resources.deriverB.workerName],
+      ['SIGNING_WORKER', lane.resources.signingWorker.workerName],
+    ],
+    'deriver-a': [['DERIVER_B', lane.resources.deriverB.workerName]],
+    'deriver-b': [['DERIVER_A', lane.resources.deriverA.workerName]],
+    'signing-worker': [],
+  }[component];
+  const serviceBindings = parseWranglerServiceBindings(section);
+  for (const [binding, service] of expectedServices) {
+    if (serviceBindings.get(binding) !== service) {
+      throw new Error(`${lane.id}/${component} must bind ${binding} to ${service}`);
+    }
+  }
+}
+
+export function parseWranglerServiceBindings(section) {
+  const headerPattern = /^\[\[(?:[^\r\n]+?\.)?services\]\][ \t]*$/gmu;
+  const headers = [...section.matchAll(headerPattern)];
+  const bindings = new Map();
+  for (let index = 0; index < headers.length; index += 1) {
+    const start = headers[index].index;
+    const end = headers[index + 1]?.index ?? section.length;
+    const block = section.slice(start, end);
+    const binding = /^binding\s*=\s*"([^"]+)"\s*$/mu.exec(block)?.[1];
+    const service = /^service\s*=\s*"([^"]+)"\s*$/mu.exec(block)?.[1];
+    if (!binding || !service) {
+      throw new Error('Wrangler service binding blocks must define binding and service');
+    }
+    if (bindings.has(binding)) {
+      throw new Error(`Wrangler service binding ${binding} is defined more than once`);
+    }
+    bindings.set(binding, service);
+  }
+  return bindings;
+}
+
+function assertExpectedPrivateD1Binding(lane, component, section) {
+  const deployment = PRIVATE_D1_DEPLOYMENTS[component];
+  if (!deployment) return;
+  const suffix = {
+    'staging-testnet': '-staging',
+    'production-testnet': '-testnet',
+    'production-mainnet': '',
+  }[lane.id];
+  const componentName =
+    component === 'signing-worker' ? 'signing-worker' : `deriver-${component.slice(-1)}`;
+  const expectedDatabaseName = `router-ab-${componentName}${suffix}-private`;
+  requireConfigLine(
+    section,
+    'database_name',
+    expectedDatabaseName,
+    `${lane.id}/${component} private D1`,
+  );
+  const expectedPlaceholder = deployment.placeholders[lane.id];
+  requireConfigLine(
+    section,
+    'database_id',
+    expectedPlaceholder,
+    `${lane.id}/${component} private D1`,
+  );
 }
 
 function warnDisabledGatewayIntegrations(environment) {
@@ -307,7 +488,7 @@ function parseEnvironmentInventory(name) {
   return value;
 }
 
-function componentRuntimeRequirements(targetName, target, component) {
+function componentRuntimeRequirements(lane, component) {
   switch (component) {
     case 'signing-worker':
       return [
@@ -342,7 +523,7 @@ function componentRuntimeRequirements(targetName, target, component) {
         'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
         'DERIVER_A_PEER_VERIFYING_KEY_HEX',
         'DERIVER_B_PEER_VERIFYING_KEY_HEX',
-        ...(targetName === 'production' ? ['ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON'] : []),
+        ...(lane.network === 'mainnet' ? ['ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON'] : []),
       ];
     case 'gateway':
       return [];
@@ -351,9 +532,10 @@ function componentRuntimeRequirements(targetName, target, component) {
   }
 }
 
-function migrateBackend(targetName) {
+function migrateBackend(lane) {
   requireEnvironmentValues(['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID']);
-  renderGatewayConfig(targetName);
+  const gatewayConfig = gatewayConfigPath(lane.id);
+  renderGatewayConfig(lane.id, gatewayConfig);
   const migrations = [
     ['CONSOLE_DB', path.join(GATEWAY_ROOT, 'migrations', 'd1-console')],
     ['SIGNER_DB', path.join(GATEWAY_ROOT, '..', 'sdk-server-ts', 'migrations', 'd1-signer')],
@@ -367,7 +549,7 @@ function migrateBackend(targetName) {
         '--database',
         database,
         '--config',
-        GATEWAY_CONFIG,
+        gatewayConfig,
         '--migrations-dir',
         migrationsDirectory,
         '--expected-fingerprint',
@@ -378,35 +560,35 @@ function migrateBackend(targetName) {
   }
 }
 
-function deployBackend(targetName, target, component) {
-  preflightBackend(targetName, target, component);
+function deployBackend(lane, component) {
+  preflightBackend(lane, component);
   switch (component) {
     case 'signing-worker':
-      deploySigningWorker(targetName, target);
+      deploySigningWorker(lane);
       return;
     case 'deriver-a':
-      deployDeriver(targetName, target, 'a');
+      deployDeriver(lane, 'a');
       return;
     case 'deriver-b':
-      deployDeriver(targetName, target, 'b');
+      deployDeriver(lane, 'b');
       return;
     case 'router':
-      deployMpcRouter(targetName, target);
+      deployMpcRouter(lane);
       return;
     case 'gateway':
-      deployGateway(targetName);
+      deployGateway(lane);
       return;
     default:
       throw new Error(`Unsupported backend component: ${component}`);
   }
 }
 
-function deploySigningWorker(targetName, target) {
-  const resource = target.resources.signingWorker;
+function deploySigningWorker(lane) {
+  const resource = lane.resources.signingWorker;
   putWorkerSecret(resource, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET');
   putWorkerSecret(resource, 'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY');
   putWorkerSecret(resource, 'SIGNING_WORKER_PRIVATE_D1_KEK');
-  const configPath = renderPrivateD1WorkerConfig(targetName, resource, 'signing-worker');
+  const configPath = renderPrivateD1WorkerConfig(lane, resource, 'signing-worker');
   migratePrivateD1(resource, configPath, 'signing-worker');
   const args = workerDeployArguments(resource, configPath);
   args.push(
@@ -417,13 +599,13 @@ function deploySigningWorker(targetName, target) {
     '--var',
     `SIGNING_WORKER_PRIVATE_D1_KEK_VERSION:${requireEnvironmentValue('SIGNING_WORKER_PRIVATE_D1_KEK_VERSION')}`,
     '--var',
-    `SIGNING_WORKER_PRIVATE_D1_ENVIRONMENT:${targetName}`,
+    `SIGNING_WORKER_PRIVATE_D1_ENVIRONMENT:${lane.id}`,
   );
   runRouterCommand(args);
 }
 
-function deployDeriver(targetName, target, role) {
-  const resource = role === 'a' ? target.resources.deriverA : target.resources.deriverB;
+function deployDeriver(lane, role) {
+  const resource = role === 'a' ? lane.resources.deriverA : lane.resources.deriverB;
   const prefix = role === 'a' ? 'DERIVER_A' : 'DERIVER_B';
   putWorkerSecret(resource, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET');
   putWorkerSecret(resource, `${prefix}_ROOT_SHARE_WIRE_SECRET`);
@@ -431,7 +613,7 @@ function deployDeriver(targetName, target, role) {
   putWorkerSecret(resource, `${prefix}_PEER_SIGNING_KEY`);
   putWorkerSecret(resource, `${prefix}_ROLE_PRIVATE_D1_KEK`);
   const component = `deriver-${role}`;
-  const configPath = renderPrivateD1WorkerConfig(targetName, resource, component);
+  const configPath = renderPrivateD1WorkerConfig(lane, resource, component);
   migratePrivateD1(resource, configPath, component);
   const args = workerDeployArguments(resource, configPath);
   args.push(
@@ -446,18 +628,18 @@ function deployDeriver(targetName, target, role) {
     '--var',
     `DERIVER_ROLE_PRIVATE_D1_KEK_VERSION:${requireEnvironmentValue(`${prefix}_ROLE_PRIVATE_D1_KEK_VERSION`)}`,
     '--var',
-    `DERIVER_ROLE_PRIVATE_D1_ENVIRONMENT:${targetName}`,
+    `DERIVER_ROLE_PRIVATE_D1_ENVIRONMENT:${lane.id}`,
   );
   runRouterCommand(args);
 }
 
-function deployMpcRouter(targetName, target) {
-  const resource = target.resources.router;
+function deployMpcRouter(lane) {
+  const resource = lane.resources.router;
   putWorkerSecret(resource, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET');
   const args = workerDeployArguments(resource);
   args.push(
     '--var',
-    `ROUTER_JWT_ISSUER:${target.origins.gateway}`,
+    `ROUTER_JWT_ISSUER:${lane.gatewayOrigin}`,
     '--var',
     'ROUTER_JWT_AUDIENCE:router-ab',
     '--var',
@@ -473,7 +655,7 @@ function deployMpcRouter(targetName, target) {
     '--var',
     `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:${requireEnvironmentValue('SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY')}`,
   );
-  if (targetName === 'production') {
+  if (lane.network === 'mainnet') {
     args.push(
       '--var',
       `ROUTER_PROJECT_POLICY_BOOTSTRAP_JSON:${requireEnvironmentValue('ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON')}`,
@@ -482,15 +664,14 @@ function deployMpcRouter(targetName, target) {
   runRouterCommand(args);
 }
 
-function deployGateway(targetName) {
-  renderGatewayConfig(targetName);
+function deployGateway(lane) {
+  const gatewayConfig = gatewayConfigPath(lane.id);
+  const gatewaySecrets = gatewaySecretsPath(lane.id);
+  renderGatewayConfig(lane.id, gatewayConfig);
   assertFile(GATEWAY_BUNDLE, 'Gateway build entry');
-  runCommand('node', ['scripts/upsert-signing-root-kek.mjs', '--plan', GATEWAY_PLAN], {
+  runCommand('node', ['scripts/write-gateway-secrets-file.mjs', '--output', gatewaySecrets], {
     cwd: GATEWAY_ROOT,
-  });
-  runCommand('node', ['scripts/write-gateway-secrets-file.mjs', '--output', GATEWAY_SECRETS], {
-    cwd: GATEWAY_ROOT,
-    env: buildEnvironment({ DEPLOY_TARGET: targetName }),
+    env: buildEnvironment({ DEPLOYMENT_LANE: lane.id }),
   });
   runCommand(
     'pnpm',
@@ -501,11 +682,11 @@ function deployGateway(targetName) {
       GATEWAY_BUNDLE,
       '--no-bundle',
       '--config',
-      GATEWAY_CONFIG,
+      gatewayConfig,
       '--secrets-file',
-      GATEWAY_SECRETS,
+      gatewaySecrets,
       '--message',
-      process.env.DEPLOY_SHA || `runtime-${targetName}`,
+      process.env.DEPLOY_SHA || `runtime-${lane.id}`,
     ],
     { cwd: GATEWAY_ROOT },
   );
@@ -521,17 +702,22 @@ function workerDeployArguments(resource, renderedConfigPath) {
   return args;
 }
 
-function renderPrivateD1WorkerConfig(targetName, resource, component) {
+function renderPrivateD1WorkerConfig(lane, resource, component) {
   const deployment = PRIVATE_D1_DEPLOYMENTS[component];
   if (!deployment) throw new Error(`Private D1 deployment is missing for ${component}`);
   const sourcePath = path.resolve(REPOSITORY_ROOT, resource.configPath);
   assertFile(sourcePath, `Wrangler config for ${resource.workerName}`);
-  const placeholder =
-    targetName === 'staging' ? deployment.stagingPlaceholder : deployment.productionPlaceholder;
-  const databaseId = requireEnvironmentValue(deployment.databaseIdEnvironment);
+  const placeholder = deployment.placeholders[lane.id];
+  if (!placeholder) {
+    throw new Error(`Private D1 placeholder is missing for ${lane.id}/${component}`);
+  }
+  const databaseId = requireDatabaseId(
+    requireEnvironmentValue(deployment.databaseIdEnvironment),
+    deployment.databaseIdEnvironment,
+  );
   const source = fs.readFileSync(sourcePath, 'utf8');
   if (!source.includes(`database_id = "${placeholder}"`)) {
-    throw new Error(`${sourcePath} is missing the ${targetName} private D1 placeholder`);
+    throw new Error(`${sourcePath} is missing the ${lane.id} private D1 placeholder`);
   }
   const rendered = source.replace(
     `database_id = "${placeholder}"`,
@@ -539,10 +725,21 @@ function renderPrivateD1WorkerConfig(targetName, resource, component) {
   );
   const outputPath = path.join(
     path.dirname(sourcePath),
-    `.wrangler.generated.${component}.${targetName}.toml`,
+    `.wrangler.generated.${component}.${lane.id}.toml`,
   );
   fs.writeFileSync(outputPath, rendered, { mode: 0o600 });
   return outputPath;
+}
+
+function requireDatabaseId(value, name) {
+  const normalized = String(value || '').trim();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(normalized)) {
+    throw new Error(`${name} must be a Cloudflare D1 database ID`);
+  }
+  if (/^0{8}-0{4}-0{4}-0{4}-0{12}$/u.test(normalized)) {
+    throw new Error(`${name} must not be all zeroes`);
+  }
+  return normalized;
 }
 
 function migratePrivateD1(resource, configPath, component) {
@@ -584,31 +781,33 @@ function runRouterCommand(args) {
   runCommand('pnpm', args, { cwd: ROUTER_ROOT });
 }
 
-async function smokeBackend(target) {
+async function smokeBackend(lane) {
   const checks = [];
   for (const requestPath of BACKEND_SMOKE_PATHS) {
     checks.push({
       name: requestPath,
-      url: new URL(requestPath, target.origins.gateway).toString(),
+      url: new URL(requestPath, lane.gatewayOrigin).toString(),
     });
   }
   checks.push({
     name: '/console/session CORS preflight',
-    url: new URL('/console/session', target.origins.gateway).toString(),
+    url: new URL('/console/session', lane.gatewayOrigin).toString(),
     request: {
       method: 'OPTIONS',
       headers: {
-        Origin: target.origins.site,
+        Origin: lane.site.origin,
         'Access-Control-Request-Method': 'GET',
       },
     },
-    isReady: isDashboardConsoleCorsPreflight.bind(null, target.origins.site),
+    isReady: isDashboardConsoleCorsPreflight.bind(null, lane.site.origin),
   });
   const results = await runReadinessChecks(checks);
   const failed = results.filter(isFailedCheck);
   process.stdout.write(`${JSON.stringify({ results })}\n`);
   if (failed.length > 0) {
-    throw new Error(`backend smoke failed: ${failed.map(formatFailedCheck).join(', ')}`);
+    throw new Error(
+      `backend smoke failed for ${lane.id}: ${failed.map(formatFailedCheck).join(', ')}`,
+    );
   }
 }
 
@@ -620,18 +819,18 @@ function isDashboardConsoleCorsPreflight(dashboardOrigin, response) {
   );
 }
 
-function renderGatewayConfig(targetName) {
+function gatewayConfigPath(laneId) {
+  return path.join(GATEWAY_GENERATED_ROOT, `gateway.${laneId}.jsonc`);
+}
+
+function gatewaySecretsPath(laneId) {
+  return path.join(GATEWAY_GENERATED_ROOT, `gateway-secrets.${laneId}.json`);
+}
+
+function renderGatewayConfig(laneId, outputPath) {
   runCommand(
     'node',
-    [
-      'scripts/render-d1-gateway-config.mjs',
-      '--target',
-      targetName,
-      '--output',
-      GATEWAY_CONFIG,
-      '--deployment-plan-output',
-      GATEWAY_PLAN,
-    ],
+    ['scripts/render-d1-gateway-config.mjs', '--lane', laneId, '--output', outputPath],
     { cwd: GATEWAY_ROOT },
   );
 }

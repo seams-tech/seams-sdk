@@ -153,6 +153,8 @@ export async function setupBasicPasskeyTest(
               const filename = (u.pathname.split('/').pop() || '').toLowerCase();
               if (
                 filename === 'passkey-confirm.worker.js' ||
+                filename === 'passkey-mpc-session.worker.js' ||
+                filename === 'passkey-mpc-export.worker.js' ||
                 filename === 'near-signer.worker.js' ||
                 filename === 'ecdsa-derivation-client.worker.js'
               ) {

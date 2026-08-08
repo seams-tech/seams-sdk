@@ -111,7 +111,6 @@ function renderRunbook(input) {
   appendResourceInventory(lines);
   appendCommandSection(lines, 'Preflight', preflightCommands(input.options));
   appendCommandSection(lines, 'Resource Inventory Capture', resourceInventoryCommands());
-  appendCommandSection(lines, 'Hosted Signer KEK Metadata Check', kekCheckCommands());
   appendCommandSection(lines, 'Remote D1 Migrations', migrationCommands(input.options));
   appendCommandSection(lines, 'Time Travel Bookmark Before Fixture Import', timeTravelCommands(input.options, 'before_fixture_import'));
   appendCommandSection(lines, 'Fixture Import', fixtureImportCommands(input.options));
@@ -145,8 +144,6 @@ function appendResourceInventory(lines) {
   lines.push('| Console D1 database ID |  | `wrangler d1 info seams-console-staging-nrt` |');
   lines.push('| Signer D1 database ID |  | `wrangler d1 info seams-signer-staging-nrt` |');
   lines.push('| Threshold Durable Object namespace |  | gateway Wrangler config |');
-  lines.push('| Secrets Store ID |  | gateway Wrangler config |');
-  lines.push('| Signer KEK secret names |  | gateway Wrangler config, secret metadata only |');
   lines.push('| R2 backup bucket |  | bucket metadata |');
   lines.push('| Console Worker version |  | deploy output |');
   lines.push('| Gateway Worker version |  | deploy output |');
@@ -190,13 +187,6 @@ function migrationCommands(options) {
   return [
     'pnpm --dir packages/console-server-ts run d1:staging:migrate -- --mode dry-run',
     'pnpm --dir packages/console-server-ts run d1:staging:migrate -- --mode remote',
-  ];
-}
-
-function kekCheckCommands() {
-  return [
-    'pnpm --dir packages/console-server-ts run d1:staging:kek-check -- --mode dry-run',
-    'pnpm --dir packages/console-server-ts run d1:staging:kek-check -- --mode remote',
   ];
 }
 
@@ -275,9 +265,7 @@ function reconciliationCommands() {
 function signerCustodyCommands(options) {
   return [
     'ECDSA_EXPORT_SHARE_FIXTURE="./staging/fixtures/ecdsa-export-share.json"',
-    'ECDSA_MISSING_KEK_EXPORT_SHARE_FIXTURE="./staging/fixtures/ecdsa-export-share-missing-kek.json"',
     'export SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT="<fixture-wallet-session-jwt>"',
-    'export SEAMS_STAGING_MISSING_KEK_WALLET_SESSION_JWT="<missing-kek-fixture-wallet-session-jwt>"',
     [
       'pnpm --dir packages/console-server-ts run d1:staging:signer-custody --',
       '--mode dry-run',
@@ -287,10 +275,6 @@ function signerCustodyCommands(options) {
       shellArg(options.consoleOrigin),
       '--export-share-fixture "$ECDSA_EXPORT_SHARE_FIXTURE"',
       '--wallet-session-jwt-env SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT',
-      '--missing-kek-fixture "$ECDSA_MISSING_KEK_EXPORT_SHARE_FIXTURE"',
-      '--missing-kek-wallet-session-jwt-env SEAMS_STAGING_MISSING_KEK_WALLET_SESSION_JWT',
-      '--missing-kek-expected-status 503',
-      '--missing-kek-expected-code missing_signing_root_kek',
     ].join(' '),
     [
       'pnpm --dir packages/console-server-ts run d1:staging:signer-custody --',
@@ -301,12 +285,7 @@ function signerCustodyCommands(options) {
       shellArg(options.consoleOrigin),
       '--export-share-fixture "$ECDSA_EXPORT_SHARE_FIXTURE"',
       '--wallet-session-jwt-env SEAMS_STAGING_ECDSA_WALLET_SESSION_JWT',
-      '--missing-kek-fixture "$ECDSA_MISSING_KEK_EXPORT_SHARE_FIXTURE"',
-      '--missing-kek-wallet-session-jwt-env SEAMS_STAGING_MISSING_KEK_WALLET_SESSION_JWT',
-      '--missing-kek-expected-status 503',
-      '--missing-kek-expected-code missing_signing_root_kek',
     ].join(' '),
-    '# The final evidence verifier requires ecdsa_export_share_missing_kek_fail_closed in the signer custody manifest.',
   ];
 }
 
@@ -330,7 +309,6 @@ function r2ExportRestoreCommands(options) {
 function evidenceVerificationCommands() {
   return [
     'RESOURCE_INVENTORY_MANIFEST="<resource-inventory-remote-manifest.json>"',
-    'KEK_CHECK_MANIFEST="<kek-check-remote-manifest.json>"',
     'MIGRATIONS_MANIFEST="<migrations-remote-manifest.json>"',
     'BOOKMARK_BEFORE_FIXTURE_IMPORT_MANIFEST="<before-fixture-import-bookmark-manifest.json>"',
     'FIXTURE_IMPORT_MANIFEST="<fixture-import-remote-manifest.json>"',
@@ -342,7 +320,6 @@ function evidenceVerificationCommands() {
     [
       'pnpm --dir packages/console-server-ts run d1:staging:evidence --',
       '--resources "$RESOURCE_INVENTORY_MANIFEST"',
-      '--kek-check "$KEK_CHECK_MANIFEST"',
       '--migrations "$MIGRATIONS_MANIFEST"',
       '--bookmark-before-fixture-import "$BOOKMARK_BEFORE_FIXTURE_IMPORT_MANIFEST"',
       '--fixture-import "$FIXTURE_IMPORT_MANIFEST"',
@@ -373,7 +350,7 @@ function appendEvidenceTable(lines) {
   lines.push('| Gateway `/router-ab/ecdsa-derivation/healthz` configured |  |  |');
   lines.push('| Dashboard reconciliation |  |  |');
   lines.push('| Sponsored gas settlement and prepaid billing |  |  |');
-  lines.push('| Fixture-backed signer custody, KEK isolation, and missing-KEK fail-closed |  |  |');
+  lines.push('| Fixture-backed signer custody |  |  |');
   lines.push('| R2 export object keys |  |  |');
   lines.push('| Restore drill integrity checks |  |  |');
   lines.push('| Final evidence verification |  |  |');
@@ -385,11 +362,11 @@ function appendSignOff(lines) {
   lines.push('');
   lines.push('- [ ] Staging starts on D1/DO.');
   lines.push('- [ ] No request path mixes D1/DO and Postgres.');
-  lines.push('- [ ] Console Worker has no signer D1, Durable Object, or KEK bindings.');
+  lines.push('- [ ] Console Worker has no signer D1 or Durable Object bindings.');
   lines.push('- [ ] Time Travel bookmarks are captured before fixture import and before route traffic switch.');
   lines.push('- [ ] R2 export and restore drill evidence is recorded.');
   lines.push('- [ ] Final evidence verification passes.');
-  lines.push('- [ ] Dashboard reconciliation, sponsored gas settlement, signer route health, fixture-backed custody, and missing-KEK fail-closed checks pass.');
+  lines.push('- [ ] Dashboard reconciliation, sponsored gas settlement, signer route health, and fixture-backed custody checks pass.');
   lines.push('');
 }
 

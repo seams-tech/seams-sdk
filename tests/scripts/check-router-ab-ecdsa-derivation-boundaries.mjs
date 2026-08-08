@@ -168,7 +168,6 @@ function checkNoRuntimeV1DerivationSurfaces() {
     'wasm/router_ab_ecdsa_online_client/src',
     'wasm/router_ab_ecdsa_presign_client/src',
     'wasm/router_ab_ecdsa_signing_worker/src',
-    'wasm/threshold_prf/src',
   ];
   const forbiddenTokens = [
     'EcdsaDerivationStableKeyContextV1',
@@ -388,7 +387,6 @@ function checkActiveSourceUsesCurrentVocabulary() {
     'wasm/router_ab_ecdsa_online_client/src',
     'wasm/router_ab_ecdsa_presign_client/src',
     'wasm/router_ab_ecdsa_signing_worker/src',
-    'wasm/threshold_prf/src',
   ];
   const forbiddenTokens = [
     'ecdsaClientSignerWasm',
@@ -445,7 +443,6 @@ const retiredVocabularyGuardPaths = new Set([
   'crates/router-ab-dev/tests/ed25519_yao_local_profiles.rs',
   'crates/router-ab-ecdsa-derivation/tests/source_boundaries.rs',
   'crates/router-ab-ed25519-yao/tests/source_boundaries.rs',
-  'packages/sdk-web/scripts/checks/check-signing-root-refactor-boundaries.mjs',
   'tests/scripts/check-auth-secret-terminology.mjs',
   'tests/scripts/check-cloudflare-d1-runtime-boundaries.mjs',
   'tests/scripts/check-cross-platform-boundaries.mjs',
@@ -721,7 +718,7 @@ function checkNormalSigningHasOneRuntimeOwner() {
   }
 
   const privateRoutes = readRepoFile(
-    'packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts',
+    'packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker.ts',
   );
   assert.equal(
     privateRoutes.includes('getThresholdSigningService'),

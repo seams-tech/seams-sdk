@@ -628,7 +628,7 @@ fn build_output_activation_record(
     );
     let active_state = ActiveSigningWorkerStateV1::new(
         binding.lifecycle.account_id.clone(),
-        binding.lifecycle.session_id.clone(),
+        binding.material_activation().clone(),
         format!(
             "ed25519:{}",
             bs58::encode(receipt.registered_public_key).into_string()

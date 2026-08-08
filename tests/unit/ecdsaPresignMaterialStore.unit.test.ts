@@ -46,7 +46,9 @@ test.describe('ECDSA Client presign material store', () => {
           new Uint8Array(length).fill(value);
         const poolIdentity = {
           poolKey: 'pool-1',
-          walletKeyId: 'wallet-key-1',
+          materialActivationId: 'activation-pool-1',
+          capability: 'ecdsa.sign',
+          keyBinding: 'pool-key-binding-1',
           walletId: 'wallet-1',
           signingScopeB64u: 'scope-1',
           pairRole: 'client' as const,
@@ -200,7 +202,9 @@ test.describe('ECDSA Client presign material store', () => {
           new Uint8Array(length).fill(value);
         const poolIdentity = {
           poolKey: 'pool-1',
-          walletKeyId: 'wallet-key-1',
+          materialActivationId: 'activation-pool-1',
+          capability: 'ecdsa.sign',
+          keyBinding: 'pool-key-binding-1',
           walletId: 'wallet-1',
           signingScopeB64u: 'scope-1',
           pairRole: 'client' as const,
@@ -229,7 +233,9 @@ test.describe('ECDSA Client presign material store', () => {
         const substitutedIdentityId = await put('substituted-identity', 10_000);
         const substitutedIdentity = {
           poolKey: 'pool-substituted',
-          walletKeyId: 'wallet-key-1',
+          materialActivationId: 'activation-substituted',
+          capability: 'ecdsa.sign',
+          keyBinding: 'pool-key-binding-1',
           walletId: 'wallet-1',
           signingScopeB64u: 'scope-1',
           pairRole: 'client' as const,
@@ -427,7 +433,9 @@ test.describe('ECDSA Client presign material store', () => {
           new Uint8Array(length).fill(value);
         const poolIdentity = {
           poolKey: 'pool-faults',
-          walletKeyId: 'wallet-key-1',
+          materialActivationId: 'activation-faults',
+          capability: 'ecdsa.sign',
+          keyBinding: 'pool-key-binding-faults',
           walletId: 'wallet-1',
           signingScopeB64u: 'scope-1',
           pairRole: 'client' as const,
@@ -584,7 +592,9 @@ test.describe('ECDSA Client presign material store', () => {
           new Uint8Array(length).fill(value);
         const poolIdentity = {
           poolKey: 'pool-recovery',
-          walletKeyId: 'wallet-key-1',
+          materialActivationId: 'activation-recovery',
+          capability: 'ecdsa.sign',
+          keyBinding: 'pool-key-binding-recovery',
           walletId: 'wallet-1',
           signingScopeB64u: 'scope-1',
           pairRole: 'client' as const,
@@ -675,7 +685,9 @@ test.describe('ECDSA Client presign material store', () => {
           new Uint8Array(length).fill(value);
         const poolIdentity = {
           poolKey: 'pool-1',
-          walletKeyId: 'wallet-key-1',
+          materialActivationId: 'activation-pool-1',
+          capability: 'ecdsa.sign',
+          keyBinding: 'pool-key-binding-1',
           walletId: 'wallet-1',
           signingScopeB64u: 'scope-1',
           pairRole: 'client' as const,
@@ -785,7 +797,9 @@ test.describe('ECDSA Client presign material store', () => {
           new Uint8Array(length).fill(value);
         const poolIdentity = {
           poolKey: 'pool-retired',
-          walletKeyId: 'wallet-key-1',
+          materialActivationId: 'activation-retired',
+          capability: 'ecdsa.sign',
+          keyBinding: 'pool-key-binding-retired',
           walletId: 'wallet-1',
           signingScopeB64u: 'scope-retired',
           pairRole: 'client' as const,

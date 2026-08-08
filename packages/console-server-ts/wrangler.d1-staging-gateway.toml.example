@@ -23,11 +23,6 @@ service = "router-ab-signing-worker-staging"
 binding = "MPC_ROUTER"
 service = "router-ab-mpc-router-staging"
 
-[[secrets_store_secrets]]
-binding = "SIGNING_ROOT_KEK_STAGING_R1"
-store_id = "<cloudflare-secrets-store-id>"
-secret_name = "signing-root-kek-staging-r1"
-
 [vars]
 SEAMS_TENANT_STORAGE_NAMESPACE = "seams-staging"
 CONSOLE_BASE_URL = "https://<console-staging-host>"
@@ -56,11 +51,8 @@ ACCOUNT_INITIAL_BALANCE = "30000000000000000000000"
 ENABLE_IMPLICIT_NEAR_ACCOUNT_TEST_FUNDING = "false"
 RELAY_SESSION_ISSUER = "seams-gateway-staging"
 RELAY_SESSION_AUDIENCE = "seams-wallet-session"
-SPONSORED_EXECUTION_REAL_PRICING_JSON = '{"provider":"ref_finance","nearRpcUrl":"https://free.rpc.fastnear.com","dexContractId":"v2.ref-finance.near","poolId":4512,"nearTokenId":"wrap.near","usdcTokenId":"17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1","nearTokenDecimals":24,"usdcTokenDecimals":6,"near":{"TESTNET":{"nativeUnitDecimals":24,"estimateFeeAmountYocto":"1000000000000000000000","pricingVersionPrefix":"ref-finance-near-testnet"}}}'
+SPONSORED_EXECUTION_REAL_PRICING_JSON = '{"provider":"outlayer","nearRpcUrl":"https://free.rpc.fastnear.com","oracleContractId":"price-oracle.near","nearUsdPriceId":"c415de8d2efa7db216527dff4b60e8f3a5311c740dadb233e13e12547e226750","maxAgeSeconds":120,"maxLatestToEmaDeviationBps":1000,"cacheTtlMs":60000,"near":{"TESTNET":{"nativeUnitDecimals":24,"estimateFeeAmountYocto":"1000000000000000000000","pricingVersionPrefix":"outlayer-near-testnet"}}}'
 SPONSORED_EXECUTION_STATIC_PRICING_JSON = '{"near":{"TESTNET":{"estimateFeeAmountYocto":"1000000000000000000000","minorPerFeeUnitNumerator":"300","minorPerFeeUnitDenominator":"1000000000000000000000000","pricingVersion":"static-near-testnet-v1"}}}'
-SIGNING_ROOT_KEK_PROVIDER = "cloudflare_secrets_store"
-SIGNING_ROOT_KEK_ENCODING = "base64url"
-SIGNING_ROOT_KEK_IDS = "signing-root-kek-staging-r1"
 
 [triggers]
 crons = ["* * * * *"]

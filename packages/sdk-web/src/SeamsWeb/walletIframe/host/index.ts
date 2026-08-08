@@ -10,10 +10,7 @@ import { WalletIframeDomEvents } from '@/core/browser/walletIframe/events';
 import { isObject } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
 import type { WalletHostRuntimeState } from './runtimeContext';
-import {
-  loadWalletHostRuntime,
-  preloadWalletHostRegistrationSurface,
-} from './runtimeLoader';
+import { loadWalletHostRuntime, preloadWalletHostRegistrationSurface } from './runtimeLoader';
 import {
   type RuntimeWalletHostRoute,
   routeRequiresRuntime,
@@ -23,6 +20,7 @@ import {
 let initialized = false;
 
 const CONFIRM_UI_SELECTORS = [
+  'seams-auth-menu-surface',
   'w3a-modal-tx-confirmer',
   'w3a-drawer-tx-confirmer',
   'w3a-tx-confirmer',
@@ -105,12 +103,22 @@ export function initWalletIFrame(options: WalletHostEntryOptions = {}): void {
     );
     for (const el of els) {
       try {
-        el.dispatchEvent(
-          new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
-            bubbles: true,
-            composed: true,
-          }),
-        );
+        if (el.matches('seams-auth-menu-surface')) {
+          el.dispatchEvent(
+            new CustomEvent('w3a-auth-menu-intent', {
+              bubbles: true,
+              composed: true,
+              detail: { kind: 'close', reason: 'close_button' },
+            }),
+          );
+        } else {
+          el.dispatchEvent(
+            new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
+              bubbles: true,
+              composed: true,
+            }),
+          );
+        }
       } catch {}
       const recoveryCodeCloseButton = el.querySelector<HTMLButtonElement>(
         '[data-w3a-email-otp-recovery-code-dialog-close]',
@@ -137,6 +145,10 @@ export function initWalletIFrame(options: WalletHostEntryOptions = {}): void {
               ...(state.walletConfigs || ({} as SeamsConfigsInput)),
               ...(route.request.payload as PMSetConfigPayload),
             } as SeamsConfigsInput;
+            if (CONFIRM_UI_SELECTORS.some((selector) => document.querySelector(selector))) {
+              const runtimeContext = await import('./runtimeContext');
+              runtimeContext.syncActiveWalletHostRuntimeConfig(state);
+            }
             if (registrationRuntimeIsSupported(options.supportedRuntimeRouteKinds)) {
               await preloadWalletHostRegistrationSurface();
             }

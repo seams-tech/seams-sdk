@@ -1,1054 +1,2164 @@
-# Refactor 90: Modular Auth And Capability Implementation Plan
+# Refactor 90: Modular Auth Capabilities — Implementation Plan
 
-Created: June 28, 2026
-Slimmed: July 22, 2026
+Created: 2026-06-28
 
-## Status
+Consolidated: 2026-07-27
 
-Phases 1-3 are complete. Phases 4-5 and Foundations A-B are in progress.
-[Refactor 91B](./refactor-91B.md) is implemented, with intended-behaviour E2E
-acceptance pending a working local site. The
-[Email OTP local-rehydration patch](./refactor-patch-2-email-otp-local-rehydration.md)
-remains current-stack groundwork that Refactor 90 must absorb without creating a
-second persistence owner or factor-specific signing lane.
-[Refactor 92](./refactor-92-session-expiry-handling.md) is implemented and its
-reusable Wallet Session behavior is frozen input to this plan. Refactor 90
-replaces the underlying material and authorization identities while preserving
-its expiry, exhaustion, refresh, step-up, invalidation, secure-origin, event,
-and demo-lock semantics. Staging and production confirmation of the effective
-24-hour default remain Refactor 92 deployment acceptance.
+Status: **implementation complete — local OTP and Passkey lifecycle checkpoint
+established; deployment acceptance remains open**
 
-Git history is the progress log; there is no separate journal doc.
-Implementation details and normative invariants live in the
-[companion SPEC](./refactor-90-modular-auth-capabilities-SPEC.md). This document
-owns execution order, dependencies, deletion points, and acceptance checks. It
-does not restate the full type system or security model.
+Working checkpoint: `a0e8bece4` (2026-08-05). Manual verification covers OTP
+unlock, NEAR/Tempo/EVM signing, Ed25519/ECDSA export, same-method step-up, and
+post-refresh rehydration. The focused OTP intended contracts pass 3/3. The full
+healthy local intended run passes 10/10 after the pending-Ed25519 activation
+parser correction.
 
-## Why This Plan Was Slimmed
+This document is the execution tracker for
+[the normative SPEC](./refactor-90-modular-auth-capabilities-SPEC.md). If this plan
+and the SPEC diverge, the SPEC controls.
 
-The previous plan mixed an implementation checklist, architecture specification,
-repository inventory, migration ledger, test matrix, and several future product
-roadmaps. The same invariants appeared in up to six places. Recovery also exposed
-volatile worker steps and local implementation checkpoints as durable public
-states.
+Operational records:
 
-This revision applies four constraints:
-
-1. The SPEC owns numbered invariants. Phases cite them.
-2. Durable state records irreversible cross-boundary facts only.
-3. Enforcement matches the failure mode: types for construction, parsers and
-   tests for untrusted data, and guards for dependency or artifact boundaries.
-4. Refactor 90 ships the smallest verticals needed to prove the authorization
-   layer and migrate the two MPC capabilities.
+- [deletion ledger](./refactor-90-deletion-ledger.md)
+- [signer-state inventory](./signer-state-inventory.md)
 
 ## Verification Budget
 
-This section is binding on every phase and overrides any verification obligation
-implied elsewhere in this plan or the SPEC.
+This budget is binding across every unit and overrides broader verification
+language elsewhere in the plan or SPEC.
 
-- One enforcement per failure mode. If the compiler rejects it, do not also
-  write a unit test, a source guard, or an E2E case for it.
-- Do not add new `check-*.mjs` source guards. Guards are permitted only for
-  worker-secret, generated-WASM, and workspace-package boundaries, and only when
-  an existing guard cannot be extended. The repository already carries ~19k
-  lines of source guards against 2 type fixtures; that ratio inverts the
-  enforcement policy in `AGENTS.md`.
-- Prefer type fixtures in `tests/typecheck/`. They are the cheapest layer, they
-  cannot go stale silently, and this refactor should grow them.
-- Intended-behaviour E2E is capped at the eight scenarios in the
-  [E2E budget](#intended-behaviour-e2e-budget). Behavior owned by Refactor 92 is
-  verified by running Refactor 92's existing contracts, not by new cases.
-- No phase produces a document as its deliverable. Inventory findings become
-  rows in the [deletion ledger](./refactor-90-deletion-ledger.md), discovered
-  during implementation rather than ahead of it.
-- Do not update more than one status surface per change. This plan owns task
-  status; the SPEC checklist owns invariant conformance evidence.
-- Removing scope from this plan requires no ledger entry, justification
-  document, or replacement check.
+- Make the operating path work and demonstrate it once before adding secondary
+  verification or abstractions.
+- Use one enforcement per failure mode. A compiler-enforced property gets a type
+  fixture, without a duplicate unit test, source guard, or E2E case.
+- Add no new `check-*.mjs` source guards. Extend an existing guard only for a
+  worker-secret, generated-WASM, or workspace-package boundary the type system
+  cannot observe.
+- Prefer type fixtures in `tests/typecheck/` for construction-time constraints.
+- Refactor 90 E2E is capped at the eight scenarios listed below. Refactor 92
+  behavior is checked by running its existing contracts.
+- No unit produces an inventory or justification document. Add a deletion-ledger
+  row only when implementation discovers a concrete replacement target.
+- This plan owns task status. The SPEC checklist owns invariant-conformance
+  evidence. Update only the applicable surface.
+- Removing scope requires no ledger row, replacement check, or separate
+  justification.
+
+## Grounding
+
+Refactor 90 builds on behavior already established by:
+
+- [Refactor 91](./refactor-91.md): canonical auth domains and exhaustive
+  conversions;
+- [Refactor 92](./refactor-92-session-expiry-handling.md): the signing-session
+  lifecycle, which is frozen for this refactor;
+- [Refactor 93](./refactor-93.md): pair-bound Router/Deriver execution and exact
+  role-result replay;
+- [Refactor 94C](./refactor-94C-regression-fixes.md): the final Cloudflare
+  durable-owner map and zero-Durable-Object topology;
+- [Email OTP local rehydration](./refactor-patch-2-email-otp-local-rehydration.md):
+  the current local-material recovery boundary.
+
+Refactor 90 must preserve those behaviors. It replaces temporary shapes and
+duplicated transitions without reopening their product semantics.
+
+### Refactor 94C reconciliation boundary
+
+[Refactor 94C](./refactor-94C-regression-fixes.md) is a follow-on
+topology change that may supersede Refactor 93 placement decisions while this
+branch is in flight. Future merges from `dev` must preserve Refactor 90's domain
+contracts and accept Refactor 94C's final durable-owner placement.
+
+Known conflicts:
+
+- The request-scoped Gateway owns canonical authorized-operation admission, Wallet Session
+  quota consumption, and authorization audit records. Refactor 94C keeps
+  cryptographic effect deduplication, terminal replay, and presignature
+  consumption in SigningWorker private D1. The Gateway forwards only a typed
+  authorized-operation record over an internally authenticated Router route.
+- Refactor 90 models activation as idempotent and queryable by activation
+  correlation. Refactor 94C folds standalone prepare/finalize routes into its
+  three blocking registration routes. Preserve prepared coordinates, exact
+  replay, crash reconciliation, and queryable completion even if the route
+  shape changes.
+- Refactor 94C removes redundant server journals and standalone authorization
+  rows. It must preserve the exact `AuthorizationGrantRef`, admitted policy,
+  `AuthorizedOperation`, and the client IndexedDB two-state activation journal
+  used to resolve server uncertainty.
+- Refactor 94C's stateless compute Workers may use private D1-owned durable
+  effects. Do not restore DO/Gateway state merely to satisfy Refactor 93-era
+  call sites during conflict resolution.
+
+Merge rule: keep the Refactor 90 capability, authorization, activation,
+fingerprint, replay, and typed-result interfaces; take Refactor 94C's storage
+and routing ownership; delete the superseded owner in the same merge. Update
+the affected Unit 2 and Unit 3a checkboxes before marking either unit complete.
 
 ## Goal
 
-Registration, wallet unlock, and page refresh must resolve the same canonical
-capability, material, authority, and signing-lane state. Each protocol owns one
-durable material model and one precise boundary parser. Factor-specific code
-produces verified evidence or custody observations; it does not select signing
-lanes, own generic capability state, or publish a parallel active record.
+Make signer selection, authorization, material hydration, persistence, and
+operation execution use one precise capability model across registration,
+wallet unlock, page refresh, signing, and export.
 
-The refactor is complete when:
+The completed system must:
 
-- ECDSA no longer uses `ThresholdEcdsaSessionRecordCore` or an equivalent broad
-  optional aggregate;
-- Ed25519 and ECDSA each have one canonical durable material owner;
-- registration, unlock, and refresh feed the same hydration resolver;
-- exact authority and material bindings select one operation lane;
-- server admission atomically claims one operation grant and, when applicable,
-  one wallet-signing quota use under a stable operation fingerprint;
-- recovery survives crashes through idempotent server reconciliation and a
-  minimal client journal;
-- obsolete wallet-first paths, records, fixtures, and source guards are deleted.
+1. resolve the exact wallet, authorization session, and material activation;
+2. distinguish live runtime use, local rehydration, public-anchor
+   reauthorization, and blocked state;
+3. persist only durable state and keep secret material in its intended owner;
+4. admit an authorized operation and consume reusable-session quota atomically;
+5. use the same lifecycle rules for Passkey and Email OTP;
+6. remove replaced paths in the same change that installs their replacement;
+7. keep `AuthorizationGrantRef`, `WalletSessionId`,
+   `MpcWalletSigningQuotaId`, `AuthorizedOperationId`, and material identities
+   distinct, with no curve-specific signing-grant identity.
 
 ## Scope
 
 ### Included
 
-- Canonical auth-method and exact `WalletAuthAuthorityRef` boundaries.
-- Required-field ECDSA capability records and exact persistence parsing.
-- Protocol-neutral hydration outcomes with protocol-local payloads.
-- Near Ed25519 Yao active-material rehydration and same-root recovery.
-- Exact ECDSA role-local material activation and rehydration.
-- DB-backed operation grants and MPC wallet-signing quota claims.
-- A minimal vault vertical proving session, evidence, grant, enforcement, and
-  audit before MPC migration.
-- Static route composition through narrow service ports.
-- Current Cloudflare, Node, SDK, worker, UI, and provisioning migrations needed
-  by the two MPC capabilities.
-- Preservation of Refactor 92's reusable Wallet Session classifier and public
-  lifecycle behavior while the underlying signing model changes.
-- Same-change deletion of replaced behavior.
+- canonical hydration and ECDSA session/material state;
+- shared authorization, evidence, authorized-operation, quota, and audit primitives;
+- capability selection at SDK and server boundaries;
+- MPC signing and export cutover;
+- the minimal vault proving slice owned by the Satyr plan;
+- UI confirmation and provisioning integration;
+- worker, WASM, host-assembly, and persistence boundary enforcement;
+- removal of obsolete aliases, record families, routes, fixtures, and guards.
 
-### Follow-on work
+### Follow-on context
 
-These are separate refactors and do not block Refactor 90:
+These remain separate plans unless a narrow interface is required here:
 
-- service-account evidence and workload identity;
-- Better Auth integration;
-- IdP/OIDC provider functionality;
-- Slack OTP grant evidence;
-- full vault administration, delegation, rotation, break-glass, export, and
-  service-account workflows;
-- a general route-plugin or runtime module registry;
-- package or WASM artifact splitting without a security-boundary requirement or
-  measured bundle/latency evidence;
-- comprehensive host/example platform migration beyond the currently supported
-  Refactor 90 paths;
-- `mpc_signer_proof` production until its owning capability and policy are
-  decided. The reserved operation fails closed in the meantime.
+- enterprise SSO and Better Auth integration;
+- delegate wallets and delegated-agent linked-device behavior;
+- service-account product behavior;
+- broad vault product surface;
+- new MPC protocols or production advancement of the Yao backend.
 
-Device binding is classified in a separate session-hardening decision. If the
-current threat model requires device-bound sessions for theft or replay
-resistance, the narrow binding required by Refactor 90 remains. Broader device
-management does not enter this plan.
+Refactor 90 may consume the current Yao interfaces. The
+[Ed25519 Yao implementation plan](./router-ab/ed25519-yao/implementation-plan.md)
+owns its cryptographic and production gates; Refactor 90 cannot redefine that
+backend or advance its production status ahead of those gates.
 
-The [Ed25519 Yao implementation plan](./router-ab/ed25519-yao/implementation-plan.md)
-remains authoritative for the Yao cryptographic construction, Deriver A/B and
-SigningWorker ownership, protocol lifecycle, and production-readiness gates.
-Refactor 90 owns session, authorization, capability composition, and the public
-integration around that implementation; it cannot redefine the Yao backend or
-advance its production status ahead of those gates.
+## Normative Architecture Index
 
-## Settled Architecture
+The SPEC contains the definitions and proof obligations. This table assigns
+their implementation ownership without restating them.
 
-Each section cites the SPEC invariants it instantiates. Where prose here and the
-SPEC differ, the SPEC invariant text is normative.
+| Decision                                         | Normative invariants                                                                     | Owning unit        | Load-bearing result                                                                                         |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------- |
+| Exact subject resolution and canonical hydration | `R90-INV-001`, `R90-INV-002`, `R90-INV-003`                                              | Units 1 and 3a     | Unit 1 establishes the shared contract and ECDSA adapter; Unit 3a supplies the canonical Near adapter.      |
+| ECDSA persistence and activation identity        | `R90-INV-001`, `R90-INV-002`, `R90-INV-005`, `R90-INV-006`, `R90-INV-011`, `R90-INV-013` | Unit 1             | Required `active \| retired` records and stable material activation identity replace optional session bags. |
+| Durable recovery journals                        | `R90-INV-004`, `R90-INV-005`, `R90-INV-006`, `R90-INV-007`                               | Units 1 and 3a     | Durable state records server uncertainty and final material promotion only.                                 |
+| Preparation outcomes                             | `R90-INV-010`                                                                            | Units 3a and 4     | Every preparation ends as `ready`, `pending`, `authorization_required`, `superseded`, or `failed`.          |
+| Material serialization and secret ownership      | `R90-INV-008`                                                                            | Unit 3a            | Workers and WASM own live secret material; generic code receives typed references.                          |
+| Evidence, authorization grants, authorized operations, and quota | `R90-INV-009` | Units 2, 3a, 3c, and 3d | One fingerprint and one atomic admission govern retries; reusable operations reference their Wallet Session authorization grant, while step-up uses verified evidence directly. |
+| Revocation and session expiry                    | `R90-INV-006`, `R90-INV-009`, `R90-INV-013`, `R90-INV-014`                               | Units 1, 3a, 3c, 3d, and 4 | Authorization, quota, material activation, and operation grants remain separate identities.          |
+| Minimal vault proof                              | `R90-INV-009`, `R90-INV-012`                                                             | Unit 3b            | One real secret operation proves the shared authorization core.                                             |
+| Boundary enforcement                             | `R90-INV-012`                                                                            | All units          | Each failure mode has one cheapest effective enforcement.                                                   |
 
-### 1. Canonical hydration
+## Load-Bearing State Index
 
-Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-003`.
+Keep these SPEC-defined state families intact during consolidation:
 
-Foundation A owns four outcomes:
+- hydration:
+  `use_live_runtime | rehydrate_material_activation | reauthorize_public_anchor | blocked`;
+- ECDSA records: required `active | retired`;
+- ECDSA activation journal:
+  `activation_prepared | server_activation_committed`;
+- NEAR recovery journal: `prepared | promotion_committed`, with cancellation as
+  the prepared disposition;
+- preparation:
+  `ready | pending | authorization_required | superseded | failed`;
+- operation authorization: reusable-session authority or one-operation step-up
+  authority, plus an independent exact material-activation reference.
 
-- `use_live_runtime`;
-- `rehydrate_material_activation`;
-- `reauthorize_public_anchor`;
-- `blocked`.
+The SPEC owns every branch payload, parser, transition, and atomicity rule.
 
-Registration, wallet unlock, and page refresh are provenance for diagnostics and
-tests. Current canonical state selects the outcome. Each protocol constructs its
-own exact payload; the shared layer does not introduce a generic hierarchy of
-material, proof, and runtime reference wrappers beyond what both protocols
-actually consume.
+## Execution Model
 
-Passkey and Email OTP must produce equivalent canonical observations for
-equivalent state. A synthetic third-factor adapter is not required. Generic
-preparation and coordination modules retain a source guard against factor-kind
-literals because dependency direction cannot be proven by TypeScript alone.
+The old phase numbers remain useful for history and the deletion ledger. Active
+work is tracked in seven units.
 
-### 2. Canonical ECDSA state
+| Unit                                               | Consolidates                                             | Dependency                                                                                         | Result                                                                                                             |
+| -------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **1. Canonical hydration + canonical ECDSA state** | Foundations A/B, Phases 4–5, ECDSA identity work from 18 | Implementation complete; remaining state/crash acceptance open                                     | Exact subjects, protocol-local resolvers with shared outcomes, required ECDSA state, and slim material references. |
+| **2. Shared authorization core**                   | Phases 7–14, including Phase 8 SDK selection             | Atomic claim core complete; effect-owner response replay awaits Refactor 94C                       | Closed capability vocabulary plus DB-backed session → evidence → grant → claim → audit flow.                       |
+| **3a. MPC cutover — no release**                   | Phases 17–21 and 24                                      | Core operating paths and production record deletion complete; acceptance and residual cleanup open | All MPC operations use the shared core; legacy and replacement paths do not ship together.                         |
+| **3b. Vault proving vertical**                     | Phase 16                                                 | Complete                                                                                           | [Satyr vault plan Phase 6](./satyr-secrets-vault.md) proves one real vault operation.                              |
+| **3c. Signing grant identity elimination**         | Signing-specific identity and quota convergence          | Units 2 and 3a complete their canonical claim and wire foundations                                 | `SigningGrantId` and the duplicate Router quota protocol are absent; both curves use the shared claim owner.        |
+| **3d. Direct reusable-session operation claims**   | Follow-up authorization model simplification             | Unit 3c is complete                                                                                | Reusable Wallet Sessions claim operations directly; step-up uses verified evidence directly.                      |
+| **4. UI + provisioning**                           | Phases 22–23                                             | Provisioning and typed lifecycle implementation complete; cleanup and Refactor 92 acceptance open  | Typed lifecycle events and provisioning use the canonical capability model.                                        |
 
-Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-005`, `R90-INV-006`,
-`R90-INV-011`.
+Units 3a and 3b may be implemented in parallel after Unit 2 interfaces
+stabilize. Unit 3c begins after the Unit 2 claim core and Unit 3a breaking wire
+cutover are stable. Unit 3d begins after Unit 3c and closes the synthetic
+grant-shaped reusable-operation model. Unit 3b does not block development of
+the MPC cutover. Supported release and Refactor 90 completion require Units
+3a, 3b, 3c, and 3d.
 
-Foundation B replaces `ThresholdEcdsaSessionRecordCore` with one boundary-parsed
-`active | retired` ECDSA capability record. The active branch requires:
+### Historical phase disposition
 
-- registered signer and exact capability scope;
-- exact wallet authority;
-- exact material activation and server generation;
-- durable role-local material ref and authenticated binding digests;
-- lifecycle, revision, expiry, and activation receipt.
+| Previous phase          | Current disposition                                                                                         |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------- |
+| 1–3                     | Completed baseline retained below.                                                                          |
+| 4–5 and Foundations A/B | Merged into Unit 1.                                                                                         |
+| 6                       | Removed. The existing deletion ledger seeds implementation directly.                                        |
+| 7–14                    | Merged into Unit 2.                                                                                         |
+| 15 and 25–26            | Follow-on context, outside active execution.                                                                |
+| 16                      | Unit 3b, with detailed execution owned by Satyr Phase 6.                                                    |
+| 17–20                   | Merged into Unit 3a.                                                                                        |
+| 21                      | Worker/bundle acceptance checks inside Unit 3a.                                                             |
+| 22–23                   | Merged into Unit 4.                                                                                         |
+| 24                      | Host call-site migration inside the Unit 3a cutover.                                                        |
+| 27                      | Removed as a work phase; same-change deletion is enforced per unit, followed by the final conformance gate. |
+| New closeout phase      | Unit 3c removes the legacy `SigningGrantId` identity and its curve-specific quota flows.                    |
+| Follow-up simplification | Unit 3d removes synthetic capability grants and grant evidence from reusable Wallet Session operations.    |
 
-Runtime handles, bearer credentials, operation grants, wallet quota, nonce,
-entry-point provenance, diagnostics, and provider data are separate domains.
-There is one IndexedDB capability adapter and one volatile worker-runtime
-registry.
+## Working Rules
 
-ECDSA activation uses only `activation_prepared` and
-`server_activation_committed` journal branches. The final IndexedDB transaction
-writes encrypted material, writes the active manifest, retires the replaced
-record when applicable, and deletes the journal atomically. Runtime publication
-occurs afterward and can be reconstructed from canonical durable state.
+1. Make the requested operating path work first. Use the deletion ledger to
+   locate known targets and append concrete targets discovered while coding.
+2. Delete a replaced path in the same change that installs its replacement.
+   Close the corresponding deletion-ledger row in that unit.
+3. Validate raw DB, request, worker, UI, and decoded-token shapes once at their
+   boundary. Core code accepts precise domain types.
+4. Keep compatibility logic only at an intentional persistence or request
+   boundary, with an explicit deletion owner.
+5. Use one enforcement per failure mode: a type fixture for invalid state, a
+   boundary parser for untrusted data, a behavior test for lifecycle behavior,
+   and a source guard only for an architectural boundary types cannot express.
+6. Record stable checkpoints and genuine blockers in the commit history and
+   the applicable plan or deletion-ledger entry.
 
-An immediate read through the canonical parser may run after transaction
-completion for high-value writes. It can fail the current operation, but it does
-not create a durable `*_readback_pending` or `runtime_publication_pending` state.
+## Completed Baseline
 
-### 3. Minimal recovery journal
+- [x] Phase 1: signer-set registration cut.
+- [x] Phase 2: wallet-rooted confirmation subjects.
+- [x] Phase 3: AuthService mechanical module split.
+- [x] Refactor 91 auth-domain cutover is treated as current behavior.
+- [x] Refactor 92 signing-session lifecycle is frozen.
+- [x] Refactor 93 pair-bound role execution and exact replay are retained.
+- [x] Refactor 94C replaces the Cloudflare Gateway/DO ownership baseline before
+      Refactor 90 release.
 
-Invariants: `R90-INV-004`, `R90-INV-005`, `R90-INV-006`, `R90-INV-007`.
+## External Acceptance Gates
 
-Near recovery has two persisted branches:
+These checks depend on deployment or environment state and do not authorize
+parallel compatibility paths.
+
+- [ ] Verify the effective 24-hour Wallet Session default in staging.
+- [ ] Verify the effective 24-hour Wallet Session default in production.
+- [ ] Patch 2 records its remaining timing, manual, audit, and intended-behavior
+      evidence.
+- [ ] Refactor 91 intended-behavior acceptance passes against a healthy site.
+- [ ] Refactor 92 network traces prove expiry never invokes Yao recovery or
+      device linking.
+- [ ] Refactor 93 hosted recovery behavior remains correct on the Refactor 94C
+      topology before Near release.
+- [ ] Refactor 94C zero-DO registration and ordinary-signing acceptance passes.
+- [x] Run the intended-behavior suite against a healthy local or deployed site
+      (10/10 on 2026-08-05).
+- [ ] Complete required Yao production gates before claiming Yao production
+      readiness.
+
+## Unit 1 — Canonical Hydration + Canonical ECDSA State
+
+Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-003`,
+`R90-INV-005`, `R90-INV-006`, `R90-INV-011`, `R90-INV-012`,
+`R90-INV-013`, `R90-INV-014`.
+
+### 1A. Exact subjects and secure-origin projections
+
+- [x] ECDSA unlock resolves through an isolated subject resolver.
+- [x] Mixed or ambiguous ECDSA subjects are rejected.
+- [x] App identity, authorization-session identity, readiness, and material
+      activation are separate projections.
+- [x] The secure wallet origin returns the exact active or restorable wallet and
+      session projection.
+- [x] NEAR session state survives without an inferred signing lane.
+- [x] Replace combined optional wallet-unlock bags with an exhaustive subject
+      union.
+- [x] Make registration, unlock, and refresh enter the protocol-local resolver
+      for each capability and return the shared outcome union.
+- [x] Delete authentication-method inference from canonical ECDSA lane
+      selection.
+- [x] Delete JWT-payload inference from normal signing and worker orchestration;
+      retain token decoding only in boundary parsers.
+- [x] Delete remaining optional-ID inference from core transitions. Status,
+      lane discovery, and Email OTP Ed25519 consumption now require the exact
+      grant or threshold-session identity (`00d5130f9`).
+- [x] Require persisted-session discovery to name one exact auth method; delete
+      the omitted-method branch that silently searched Passkey and Email OTP.
+- [x] Add boundary and lifecycle tests for missing, mixed, stale, and exact
+      subjects.
+
+### 1B. Canonical hydration
+
+- [x] Define the protocol-neutral four-outcome hydration union.
+- [x] Add branch-specific builders and type fixtures that reject invalid
+      combinations.
+- [x] Normalize ECDSA observations once into the shared hydration input.
+- [x] Prove registration, unlock, and refresh provenance is absent from ECDSA
+      and Near resolver input.
+- [x] Cover the seven canonical states for each capability: live,
+      sealed-active, retired, missing, corrupt, conflicting, and unavailable.
+- [x] Delete duplicate readiness helpers after the shared path is active.
+- [x] Delete remaining protocol-specific derivation helpers after their last
+      caller moves to the shared path.
+  - [x] Delete the zero-caller key-ref, server-record, bootstrap-context,
+        wallet-key projection, and record-fingerprint adapters (`26bd50338`).
+  - [x] Move sealed-export public-facts validation onto exact manifest/runtime
+        correlation and delete its durable-record adapter (`2d447bc05`).
+- [x] Verify there is one hydration decision for Passkey and Email OTP.
+- [x] Prove routine Passkey/OTP local rehydration makes zero Deriver A/B calls.
+- [x] Fail closed for missing, mismatched, corrupt, conflicting, or unavailable
+      canonical observations.
+
+Near normalization begins Unit 3a after its session-shaped persistence and
+runtime identity are replaced. An adapter over `thresholdSessionId` or
+`activeStateSessionId` would preserve the identity coupling this refactor
+removes.
+
+### 1C. Canonical ECDSA record and activation journal
+
+- [x] Define the required `active | retired` record and rejection fixtures.
+- [x] Persist the current manifest pointer independently of authorization
+      session state.
+- [x] Parse persisted state into exact internal records at the IndexedDB
+      boundary.
+- [x] Introduce branded material-activation identity independent of
+      `authorizationSessionId`.
+- [x] Reduce the activation journal to two states: `activation_prepared` and
+      `server_activation_committed`.
+- [x] Make server activation idempotent and queryable by journal correlation.
+- [x] Prove finalized encrypted material survives worker termination and a
+      fresh worker rehydrates the same durable material reference using the
+      current worker-open request fixture.
+- [x] Implement selector-scoped store/worker reconciliation for prepared and
+      server-committed journals; prepared remains pending and committed reuses
+      the canonical atomic finalizer.
+- [x] Invoke reconciliation after refresh/unlock once the exact-subject cut
+      supplies `CapabilityInstanceRef + WalletAuthAuthorityRef`; do not infer
+      either identity from legacy session fields or resume an abandoned parent
+      registration/add-signer operation.
+- [x] Route every activation through one commit port.
+- [x] Finalize replacement, retire the source, and delete the journal in one
+      IndexedDB transaction.
+- [x] Rehydrate the same exact material activation across refresh while
+      authorization session identity may change.
+- [x] Remove canonical material ownership, material readers, and material
+      writers from the legacy `ThresholdEcdsaSessionRecord*` family; forbid new
+      legacy material writes.
+- [x] Reject and clear pre-cutover development records at the persistence
+      boundary; add no dual-schema core reader, alias, or fallback.
+- [x] Prove persisted hydration → worker bind → sign through the shared path
+      using the current worker-open request fixture.
+- [x] Keep warm ECDSA Email OTP context explicit at the read-model boundary:
+      require a nullable context value, preserve `never` exclusion branches,
+      and repair the identity guard's protocol-owned allowlist (`e9ed27172`).
+
+### 1D. Slim material references
+
+- [x] Keep broad session state out of live material handles.
+- [x] Use a branded public-key representation at the material boundary.
+- [x] Add fixtures rejecting raw strings, broad spreads, and forged material
+      references.
+- [x] Keep role-local material handles stable across Tempo and ARC for the same
+      exact activated material.
+- [x] Remove raw share bytes and broad state objects from generic callers.
+  - [x] Remove the unbranded client-verifying-share copy from the exact ECDSA
+        runtime. The runtime now carries the manifest-owned branded client
+        verifying public key, while the normal-signing wire adapter performs
+        the only protocol-name conversion (`085b9c01a`).
+- [x] Delete `evmFamilySigningKeySlotId` from role-local public facts,
+      activation/durable bindings, persistence keys, and sealing AAD.
+- [x] Delete `evmFamilySigningKeySlotId` from remaining runtime paths or prove
+      it is a provisioning-only identifier outside material selection.
+  - [x] Delete the zero-caller slot-bearing server-planned WASM context and its
+        type fixture (`2b2d2f4b3`).
+  - [x] Delete the zero-caller server export-share request, response, and parser
+        contract that still carried the slot identity (`84677131e`).
+  - [x] Delete the zero-caller slot-bearing ECDSA connect adapter and consume
+        the bootstrap result shape directly (`713fc967c`).
+  - [x] Remove the slot from server normal-signing provision admission and
+        durable ECDSA MPC session records (`a980592a0`, `9bada9733`).
+  - [x] Remove the slot from local ECDSA normal-signing session seeding and
+        assert budget identity with the exact key handle (`5f63b4de9`).
+  - [x] Remove the slot from runtime wallet-key projections and persisted
+        signer metadata; existing-key Email OTP handles and sealed rehydration
+        now correlate by exact key handle. Registration-only handles retain
+        their provisioning slot (`6113b36bb`).
+  - [x] Delete the unused client ECDSA session-policy type, builder, digest,
+        public exports, and slot-pinning source checks. Email OTP bootstrap now
+        clamps TTL and use count directly (`3d6c4c74b`).
+  - [x] Stop copying the provisioning slot into durable IndexedDB signer
+        metadata during registration, add-signer, and bootstrap persistence;
+        exact key handles remain the persisted correlation identity
+        (`0fbbbb04b`).
+  - [x] Delete the zero-caller server role-local ECDSA key-record parser and
+        in-memory, Redis, Upstash, and Durable Object stores with their obsolete
+        fixtures and source checks (`a913d461f`).
+  - [x] Remove unused provisioning-slot projections from Wallet Session
+        `stableKeyContext`, persisted Email OTP capability lookup, and sealed
+        refresh validation (`45e495ddc`).
+  - [x] Remove the provisioning slot from server-persisted ECDSA signer
+        records and key inventory, require exact top-level/nested key-handle
+        correlation, and delete the forbidden slot from post-registration
+        normal-signing scope (`5f7075386`).
+  - [x] Remove the provisioning slot from exact-session bootstrap results;
+        registration keygen retains its reservation input without projecting it
+        through the activated-session result (`1f04bb1bb`).
+  - [x] Forbid provisioning slots on ready ECDSA use-case lanes and Email OTP
+        runtime activation authority with negative type fixtures
+        (`47070b2b0`).
+  - [x] Replace the dead keygen-derived activation projection with required,
+        slot-free activated ECDSA key facts for Passkey and Email OTP
+        (`2768d24a0`).
+  - [x] Delete the zero-caller ECDSA keygen facade and its dead
+        normal-signing-state builder (`f762803df`).
+  - [x] Delete the registration-era ECDSA enrollment activation/bootstrap
+        variant; activation now accepts exact existing-session identity only
+        (`1e317e433`).
+  - [x] Delete registration-era bootstrap tests that exercised the retired
+        activation request shapes while retaining the client-root proof
+        boundary test (`499a9e00e`).
+  - [x] Remove provisioning-slot inputs from post-registration relayer-key
+        derivation; exact-session bootstrap now supplies wallet and signing-root
+        facts while the derivation preserves the established wire identifier
+        (`fca3baaf2`).
+  - [x] Audit the remaining positive uses as registration/provisioning-only,
+        retain explicit runtime `never`/parser rejection, and delete the
+        zero-consumer bootstrap relayer port family (`a843d8dbc`).
+- [x] Bind server ECDSA Wallet Session records, budget bindings, runtime/DO
+      equality, and sealed projections to required branded `EcdsaKeyHandle`;
+      reject old slot-bearing persisted records at the parser boundary.
+- [x] Verify Tempo, EVM, and export consumers use the same durable material
+      reference.
+- [x] Reject cross-chain mismatch before worker open or material use.
+- [x] Confine any transitional `activeState` shape to its boundary and schedule
+      its same-unit deletion.
+- [x] Delete the zero-caller ECDSA activation-journal id projection; journal
+      owners read the required id directly (`c51134bba`).
+
+### Unit 1 exit
+
+- [x] Every concrete deletion-ledger entry assigned to Unit 1 is closed;
+      ownership corrections and intentional boundary-retained rows are
+      recorded in the deletion ledger. Environment-backed refresh acceptance
+      remains tracked separately below.
+- [x] Type fixtures prove registration, unlock, and refresh provenance cannot
+      affect ECDSA or Near resolver input.
+- [x] Fourteen state cases cover the seven canonical states for both
+      capabilities.
+- [x] Required-field and invalid-state type fixtures pass.
+- [x] Reject the retired `restorable` label on concrete ECDSA lanes while
+      retaining it for Ed25519 durable sealed material.
+- [x] IndexedDB crash tests prove atomic activation finalization.
+- [x] Focused intended-behavior tests preserve refresh allowance and exact
+      material rehydration. OTP registration/unlock passes 3/3, and both OTP
+      and Passkey unlock contracts preserve post-refresh signing and export at
+      the `3ab4d27bc` working checkpoint.
+
+## Unit 2 — Shared Authorization Core
+
+Invariants: `R90-INV-001`, `R90-INV-009`, `R90-INV-012`,
+`R90-INV-013`.
+
+### Completed inputs
+
+- [x] Refactor 91 supplies the closed capability, operation, evidence, signer
+      auth, and wallet-authority vocabularies with boundary parsers and type
+      fixtures.
+- [x] Refactor 93 supplies the pair-bound Router/Deriver protocol and exact
+      role-result replay used by every host.
+- [x] Refactor 94C supplies Cloudflare's final Gateway D1, role-private D1, and
+      SigningWorker private-D1 ownership behind the shared host ports.
+- [x] The existing app-session exchange and provider-verification boundary is
+      the transport entry point to extend.
+- [x] Existing D1 CAS batches and Wallet Session budget tests provide the
+      transaction pattern; they are not the new authorization domain.
+
+### Closed vocabulary and selection
+
+- [x] Adopt the existing closed capability vocabulary in production SDK,
+      server, UI, and persistence boundaries.
+- [x] Include only the tenant, principal, session, factor, capability,
+      operation, grant, and evidence references required by current verticals.
+- [x] Use named or flat `all | any` evidence requirements; add no recursive
+      policy grammar or speculative factor/provider taxonomy.
+- [x] Preserve Refactor 82B `WalletAuthAuthority` types and fixtures as the
+      baseline instead of restaging that cut.
+- [x] Make SDK capability selection exhaustive and reject implicit fallbacks.
+- [x] Make disabled capability requests fail early with a typed result.
+- [x] Keep protocol, auth method, capability, and lifecycle as separate unions.
+- [x] Remove duplicate aliases and direct string comparisons from generic code.
+      Generic signing, hydration, export, sealed-runtime, and step-up surfaces
+      now use the canonical auth-method domains and exhaustive factor
+      projection; the auth-domain guard passes with the stale allowances
+      removed (`157eb7562`, `732802dc9`, `40fb0203f`, `bdf6cc5da`).
+- [x] Delete the restore-purpose, bootstrap-request, ECDSA transport-auth, and
+      ready-session-policy aliases after their consumers adopt the canonical
+      types directly.
+- [x] Add type fixtures for invalid capability/auth/protocol combinations.
+
+### Ports and host-independent assembly
+
+- [x] Define narrow request-scoped ports for capability policy, session,
+      evidence, grants, claims, and audit.
+- [x] Keep Cloudflare, Node, local, and self-hosted adapters behind the same
+      static port shapes.
+- [x] Use one statically composed module graph; add no runtime plugin registry,
+      tenant-mutated route table, or deployment module-selection framework.
+- [x] Preserve the request-scoped `MPC_ROUTER` service-binding contract while
+      applying Refactor 94C's Cloudflare durable-owner map; keep Router
+      stateless.
+- [x] Reject tenant-runtime service locators and direct infrastructure roles in
+      domain handlers.
+
+### Authorization data model
+
+- [x] Define precise records for session exchange codes, authorization
+      sessions, factor evidence, capability instances/bindings, logical
+      operation grants, operation claims, and audit events. A host may carry an
+      admitted grant as a signed payload instead of a standalone durable row.
+- [x] Implement opaque native session exchange bound to tenant, principal,
+      audience/origin, and the minimum required device fact.
+- [x] Keep session transport and management authorization separate from
+      capability-operation grants.
+- [x] Normalize DB and route data once into required-field domain unions.
+- [x] Define the stable operation fingerprint from operation semantics without
+      rotating authorization, quota, session, or runtime identities.
+- [x] Atomically create an absent claim, consume its grant, and consume reusable
+      quota when the operation declares quota use.
+- [x] Make repeated claims return the recorded outcome without double
+      consumption.
+- [x] Keep the normal-signing prepare-response parser and endpoint fixture
+      aligned on the required budget claim fields; the canonical operating-path
+      proof completes pooled prepare/finalize to a verified 65-byte signature
+      (`7c20fe644`, `e75d2bcfb`).
+- [x] Keep export quota-neutral.
+- [x] Keep step-up grants single-operation and incapable of creating a reusable
+      Wallet Session.
+
+### Shared authorization behavior
+
+- [x] Passkey and Email OTP create the same evidence and grant shapes.
+- [x] Bind Passkey and existing Email OTP evidence to the exact operation.
+- [x] Policy evaluates declared capability, operation, factor evidence, and
+      current authorization state.
+- [x] Fail `mpc_signer_proof` policy evaluation closed until a verified producer
+      exists.
+- [x] Audit records the decision and identifiers without secret material.
+- [x] Move management and session routes to exact subjects, keep their policy
+      separate from operation grants, and delete wallet-first policy aliases.
+- [x] One DB-backed integration test proves
+      session → evidence → grant → claim → audit before Units 3a/3b depend on the
+      core.
+- [x] Keep the no-factor-literal guard in generic preparation and coordination
+      modules.
+
+### Unit 2 exit
+
+- [x] Every deletion-ledger entry assigned to Unit 2 is closed; the historical
+      Phase 9 carryover rows were confirmed absent and the ledger records the
+      retained request-scoped registration boundaries (`5d3518c98` audit).
+- [x] Shared/session/server type checks pass.
+- [x] Concurrent identical and conflicting claim tests prove exactly-once
+      grant/quota consumption.
+- [x] SDK and each host adapter pass the same capability-selection contract.
+      Cloudflare, Express/Node, local D1, and self-hosted assembly use the same
+      static `RouterApiServiceBag`; the focused route-surface and self-host
+      parity suites pass 15/15.
+
+## Unit 3a — MPC Cutover, No Release
+
+Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-003`,
+`R90-INV-004`, `R90-INV-005`, `R90-INV-006`, `R90-INV-007`,
+`R90-INV-008`, `R90-INV-009`, `R90-INV-010`, `R90-INV-011`,
+`R90-INV-012`, `R90-INV-013`, `R90-INV-014`.
+
+This is one no-release cutover. Intermediate commits may compile and test, but
+the replacement and legacy MPC paths must not ship together.
+
+### Durable recovery and authority
+
+- [x] Keep authorization session, material activation, recovery, grant, and
+      operation identities independent and branded.
+- [x] Store active Ed25519 Yao material without reusable Wallet Session
+      authorization; resolve current authorization independently for execution
+      and reject cross-material publication (`a5d2d9ecc`, `2eff31657`).
+- [x] Name the Ed25519 active-capability lifecycle with branded
+      `ThresholdEd25519SessionId`; keep reusable `WalletSessionId` and quota
+      identity on authorization only, and bind recovery admission to the
+      threshold-material session.
+- [x] Accept opaque Ed25519 capability, key-binding, and lifecycle-binding
+      references at the sealed Passkey boundary while still rejecting a
+      foreign material owner or SigningWorker (`c98f56125`).
+- [x] Validate reusable NEAR normal-signing authorization against the active
+      Wallet Session ID independently from the threshold-material session ID
+      (`a55e393a8`).
+- [x] Rekey the remaining Passkey, sealed-store, and Email OTP Ed25519 material
+      locators from threshold-session identity to the exact material activation;
+      remove threshold-session/grant identity from Ed25519 export context.
+  - [x] Warm-session purpose carries exact Ed25519 activation while worker
+        protocol session identity travels separately (`c619db902`).
+  - [x] Passkey durable reads and policy updates resolve Ed25519 material by
+        exact activation, while Email OTP worker status, consumption, sealing,
+        clearing, and rehydration key Ed25519 material by the complete
+        activation target (`c7472eb28`, `629c1da97`, `47f0cebfe`).
+  - [x] Email OTP Ed25519 hydration, recovery, publication readback, and export
+        resolve sealed material by the complete activation ref; unavailable
+        public locators fail before durable probing (`eeab81b5a`, `30c1a741a`).
+  - [x] Ed25519 sealed rows use the complete material activation as their
+        physical key, preserve that key across threshold-protocol-session
+        renewal, and reject legacy grant-key residue (`680c39f0e`).
+  - [x] Passkey Ed25519 export selection, browser/iframe transport, durable
+        recovery, and exact active-registry lookup carry and revalidate the
+        selected material activation (`2574fe239`).
+  - [x] Ed25519 export admission/execute wire and worker transport no longer
+        accept client-supplied threshold-session or signing-grant identity;
+        authenticated server claims derive and correlate those authorization
+        identities (`bbeabd262`).
+  - [x] Remove threshold-session and signing-grant identity from the Email OTP
+        and shared client/worker Ed25519 export-authorization carriers. Exact
+        capability activation remains the material identity and the authenticated
+        server claims remain the authorization source (`82b439fc5`). Passkey
+        durable export context now carries exact material beside current
+        authorization, without threshold-session or signing-grant identity
+        (`35b9584a6`). Deferred material and lane identity preserve exact
+        activation across Wallet Session and threshold-session renewal
+        (`b68efc2a9`, `594e99c1e`, `d89688dac`).
+  - [x] Cloudflare and local Rust normal-signing paths keep Wallet Session,
+        threshold-session, activation, and lifecycle identities distinct; local
+        registration takes explicit activation and refresh rejects substitution
+        (`c45dd8d3f`, `5498e37f9`).
+- [x] Correlate the recovery journal's outer material owner with its admitted
+      active/replacement activation refs, and reject replacement material that
+      differs from the promotion receipt before commit or either atomic
+      finalizer (`aa5ceb318`).
+- [x] Persist one canonical Near public locator, sealed active-client record,
+      and sealed recovery source; create no parallel D1/DO material owner.
+- [x] Parse Near persistence once with no dual-schema core reader or legacy
+      lifecycle inference.
+- [x] Normalize the exact Near record, runtime binding, and unlock-source
+      observation once into the shared hydration input.
+- [x] Reduce NEAR recovery persistence to `prepared | promotion_committed`.
+- [x] Persist `prepared` before the first consuming call, query before replay
+      after reload, and persist `promotion_committed` from the exact receipt.
+- [x] Preserve `cancel_requested` on prepared recovery; reload reconciles it
+      without executing the abandoned parent operation.
+- [x] Make every consuming recovery call independently idempotent and queryable
+      by recovery ID.
+- [x] Atomically finalize local promotion and delete its journal.
+- [x] Use no eventual-revocation command: no implemented offline cleanup path
+      requires one. Continue disposing local secrets immediately; add a command
+      only if a concrete server revocation obligation appears.
+- [x] Add fault-injection tests for crashes before call, after call, after
+      readback, and during atomic local finalization.
+- [x] Ensure expiry never invokes recovery or device linking; the canonical
+      Email OTP refresh and sealed-lifecycle paths preserve material and its
+      activation while invalidating authorization/runtime projections.
+
+### Capability-owned MPC operations
+
+- [x] Keep the durable ECDSA capability and material activation independent
+      from active reusable-session authorization; preserve material facts and
+      return `authorization_required` when authorization is absent.
+- [x] Delete the client-side ECDSA wallet-budget lane path; keep the remaining
+      client budget subsystem Ed25519-only and fail closed for other curves.
+- [x] Record the canonical Ed25519 server quota boundary explicitly: the
+      authenticated Router A/B reserve/commit/release fallback was removed and
+      normal signing uses the shared atomic claim/quota path, while ECDSA public
+      budget fields and compatibility aliases are rejected at the wire boundary
+      (`4885bed62`, `41ed8f9cb`, `fa5791630`).
+- [x] Remove reusable NEAR transaction admission and finalization from the
+      client budget subsystem. The relayer now owns the exact operation claim,
+      quota consumption, replay, and terminal completion for that path
+      (`cc4cf26ab`).
+- [x] Remove delegate and NEP-413 admission/finalization from the client budget
+      subsystem; their relayer prepare/finalize exchange owns the same exact
+      operation claim and quota transaction (`f16cfef7a`).
+- [x] Delete the zero-caller client budget projection reducer and finalizer,
+      their obsolete type fixtures/tests, and the stale diagnostics boundary
+      guard (`64f46362c`, `c838eeea0`). Trusted server-status reads remain open.
+- [x] Delete the remaining `session/budget/**` implementation and obsolete
+      policy fixture; move live Refactor-92 lifecycle status and authorization
+      admission into neutral lifecycle/operation-state modules (`82b439fc5`).
+      The trusted status wire and server-owned quota lifecycle remain open.
+- [x] Remove reusable Ed25519 `grant_id` from the public normal-signing scope.
+      The private SigningWorker candidate derives its grant only from verified
+      Wallet Session claims, and the committed Rust vectors now pass the
+      TypeScript boundary unchanged (`86c82a904`).
+- [x] Select ECDSA signing lanes and live material by exact canonical material
+      identity; delete the source-priority scan, record-candidate builders,
+      `findExact`/`readSelected` readers, and obsolete budget-blocked lane kind.
+- [x] Key ECDSA provisioning and reconnect by exact material activation, flow
+      kind, and budget; remove authorization-session/grant identity from the
+      reconnect key, delete record/lane fallback paths, and reject rehydration
+      that changes the activation.
+- [x] Require exact runtime policy scope on every ECDSA session-lane policy;
+      reject missing scope before strict activation and pin omission as a
+      compile-time error (`ff6464baf`).
+- [x] Remove session transport kind, Wallet Session bearer credentials, and
+      the unused MPC-session alias from ECDSA bootstrap material key
+      references; type fixtures reject all three projections (`f32baab61`).
+- [x] Make the bootstrap `session` branch the sole owner of threshold-session
+      and signing-grant identity. Delete key-reference copies, precedence and
+      rewrite helpers, and fail when the worker-issued grant disagrees with the
+      requested grant (`3fdeba8b7`). Its remaining policy scope, Wallet Session
+      bearer, and client verifying share are required; the dead optional
+      success base, `sessionId`, budget-projection alias, and inert login
+      reconstruction are deleted (`04221828c`). The exact key reference is now
+      the sole owner of bootstrap material facts; the duplicate `keygen` result
+      branch and its hand-written fixtures are deleted (`118f5c882`,
+      `7d1e31bbd`).
+- [x] Cut ECDSA export over atomically across the client, Gateway, Router,
+      SigningWorker, sealed-share AAD, and Rust protocol mirrors so requests
+      carry discriminated authorization plus the exact material activation.
+- [x] Prepare EVM-family operation step-up before confirmation, bind Passkey
+      and Email OTP to that one prepared operation, and delete the
+      post-confirmation ECDSA preparation path.
+- [x] Regenerate the normal-signing vectors after the authorization-wire cut;
+      the focused export protocol, client-protocol, WASM ceremony, and
+      challenge-binding checks pass.
+- [x] Add one manifest-to-sealed-record runtime resolver selected by exact
+      material activation, with typed missing, conflict, and corrupt results,
+      and expose its canonical persisted material reference.
+- [x] Before sealed-runtime consumers move, match sealed public, auth, and
+      normal-signing facts against the manifest binding; require the exact
+      two-party participant shape and valid allowance facts.
+- [x] Move ECDSA export and operation step-up to capability-owned modules using
+      the shared authorization core; active Email OTP export resolves the exact
+      manifest + sealed runtime, and the write-dead runtime record map and
+      record-backed ready-export branch are deleted.
+- [x] Move Email OTP signing-session refresh, sealed restore, and sealed
+      refresh policy to the exact manifest + sealed-runtime boundary.
+- [x] Move the warm ECDSA read model, login public-capability warm-up, and
+      presignature prefill to the exact manifest + sealed-runtime boundary;
+      preserve reusable-session authorization as an independent proof.
+- [x] Remove `EcdsaWalletSessionAuthority`, ECDSA signing-grant aliases, and
+      Wallet Session JWT control-state reads from committed ECDSA lanes; carry
+      the typed active authorization and use the JWT only as its bearer
+      credential.
+- [x] Make ECDSA selection and prepared signing decide exact lane and
+      authorization without a duplicate material-readiness model; delete
+      `ecdsaMaterialState.ts` and hydrate canonical material immediately before
+      worker use.
+- [x] Remove the composite session record from
+      `ReadyEvmFamilyEcdsaMaterial` and delete the record-backed ready-material
+      and export helpers that depended on it.
+- [x] Construct the Passkey committed material lane from its exact Passkey
+      binding; selection no longer depends on record-backed or pre-hydrated
+      material state.
+- [x] Demonstrate Passkey and Email OTP normal signing through canonical
+      hydration and worker binding using current shared factories. The
+      canonical ECDSA operating-path proof completes persisted hydration,
+      dedicated worker binding, pooled prepare/finalize, and verifies the
+      resulting 65-byte signature; its endpoint fixture and prepare-response
+      parser agree on the required operation-claim fields (`7c20fe644`,
+      `e75d2bcfb`). The focused hydration, signing, step-up, and sealed-runtime
+      proof set passes 26/26; the presign bridge, pool policy, and browser
+      pool-hit proofs pass 19/19 at `917439856`.
+- [x] Move the remaining registration and explicit-unlock entry points to
+      capability-owned state: Passkey unlock plans from active signer and
+      capability facts, while Email OTP registration/unlock resolves existing
+      role-local material from active manifests instead of the write-dead
+      composite session store.
+- [x] Use the five preparation outcomes exhaustively:
+      `ready | pending | authorization_required | superseded | failed`.
+- [x] Treat exact-material supersession during signing as a typed retryable
+      re-resolution and preserve it as distinct from terminal signing failure.
+- [x] Serialize normal signing per exact material owner after user interaction;
+      re-resolve canonical material inside the queue and allow different owners
+      to progress independently.
+- [x] Serialize export by exact material owner after user interaction; re-resolve
+      the canonical manifest and sealed runtime after the queue wait and reject
+      a superseded activation before provisioning or worker export.
+  - [x] Route NEAR Ed25519-Yao transaction, delegate, NEP-413, Passkey export,
+        and Email OTP export through the same exact-material activation queue
+        instead of keying signing by threshold session identity
+        (`10c8a61da`).
+- [x] Complete canonical activation serialization and re-resolution immediately
+      before every recovery and refresh consuming call and commit.
+  - [x] Email OTP ECDSA signing-session refresh enters the exact activation
+        queue, re-resolves before the consuming login call and after refresh,
+        and rejects disappearance or replacement (`71c67e3dc`).
+  - [x] Passkey and Email OTP ECDSA sealed restore enter the shared exact-owner
+        queue, re-resolve canonical material before worker rehydration and
+        before durable writes, preserve the persisted allowance, and reject a
+        replacement with zero restore/write side effects (`bbeabd262`).
+  - [x] Email OTP Ed25519 silent sealed recovery uses the queue shared by NEAR
+        signing and export, re-resolves before rehydration, persists before
+        releasing the owner, and verifies the durable activation afterward
+        (`b78210618`).
+  - [x] Email OTP Ed25519 direct login and unlock activation persist under the
+        same exact-owner queue and reject an activation replaced during commit
+        (`fbf4be6a4`).
+  - [x] Route Passkey login hydration and sync/unlock recovery through the
+        shared exact material-owner runner. Login rereads the locator before
+        hydration; sync parses once and keeps recovery, durable promotion,
+        sealed refresh persistence, and registry activation in one queued
+        commit (`26c3cedf2`, `5f3d52bab`).
+  - [x] Run the Passkey sync/unlock queue-state operating test with the durable
+        recovery-store port supplied. The test exercises the production
+        source seal, two-state journal, atomic material replacement, registry
+        publication, and seal persistence inside one exact-owner queue. It
+        also proves that recovery publication adopts the promoted activation
+        instead of comparing it with the retired pre-promotion activation.
+- [x] Bind live worker material to the exact material activation.
+- [x] Give a server-side expiry race at most one retry after same-method
+      step-up.
+- [x] Return a typed expiry result immediately to UI confirmation.
+- [x] Apply one session classifier to NEAR, Tempo, EVM, delegate signing, and
+      key export.
+- [x] Preserve the three-use reusable-session budget across refresh.
+- [x] Keep expiry, exhaustion, missing, unavailable, and invalid as distinct
+      typed states.
+- [x] Look up an existing operation claim before fresh authorization or
+      recovery; reuse its outcome without another grant/quota use
+      (`b166b0bf1`, `b4a286bb5`).
+- [x] For an absent claim, atomically validate lifecycle, consume the exact
+      grant and applicable quota, create the claim, and link its audit event
+      (`6fd6c7c25`, `b166b0bf1`, `b4a286bb5`, `f260700e4`).
+- [x] Require reusable-session authority to carry
+      `WalletSessionId + CapabilityGrantId`; require step-up authority to carry
+      `CapabilityGrantId` and forbid `WalletSessionId`.
+- [x] Require both authorization branches to carry the independent exact
+      `MpcMaterialActivationRef`.
+- [x] Resolve ECDSA operation-step-up grant authority from the canonical active
+      WalletStore material before factor verification, OTP consumption,
+      evidence, or grant writes; derive `CapabilityId` from that stored ref and
+      reject every independently mutated activation field with zero side
+      effects (`4a436aed7`).
+- [x] Apply canonical active-material resolution before export authorization
+      side effects and replace the export activation-ID-only wire with the full
+      activation ref (`57845af73`).
+  - [x] Reusable prepare/finalize re-resolve the complete active material before
+        admission, operation claim, quota, or proxy effects and carry the
+        canonical ref through accepted admission (`c7b259a5c`).
+  - [x] Operation-step-up prepare/finalize re-resolve the complete active
+        material before admission, claim, audit, or proxy effects and derive
+        admission and claim identity from the canonical ref (`dd68687d4`).
+  - [x] Pool-fill authorization re-resolves canonical active material before
+        operation-step-up claims or SigningWorker runtime calls and compares
+        the full ref across operation, signed scope, and init scope
+        (`80aea5036`).
+  - [x] Explicit export binds the complete activation ref through SDK, WASM,
+        Gateway, Router, SigningWorker, Derivers, and HPKE AAD; Gateway derives
+        claim capability from the authoritative active ref, and Router
+        preflights the no-secret SigningWorker owner before Deriver work
+        (`57845af73`).
+- [x] Separate hydrated ECDSA signer material from execution authorization;
+      prepare step-up from neutral material and attach the reusable-session or
+      one-operation grant only in the ready execution envelope.
+- [x] Resolve the canonical ECDSA capability and reusable Wallet Session
+      authorization independently; hydrate canonical material even when the
+      reusable authorization is absent.
+- [x] Key canonical ECDSA availability identity by exact material activation;
+      forbid `signingGrantId` and `thresholdSessionId` on canonical availability
+      records and their type fixtures.
+- [x] Carry export authorization beside the exact export material lane instead
+      of reading it from material identity; Email OTP Ed25519 export now sends
+      only selected lane, authorization, activation, and capability facts to
+      the worker (`f20403de5`).
+- [x] Flatten the one-arm `ExactEcdsaExportSession` wrapper into the exact
+      export lane so export state, target, factor, and material availability
+      have one required-field carrier (`643dde348`).
+- [x] Delete the redundant Passkey ECDSA export bootstrap identity after the
+      exact export lane owns material identity; retain only the relayer URL
+      required by the fresh-authorization operation.
+- [x] Require warm-capability and seal-transport consumers to receive their
+      reusable authorization explicitly.
+- [x] Key ECDSA step-up freshness authority by exact material activation rather
+      than Wallet Session or quota identity.
+- [x] Let canonical preparation discovery select an exact material lane without
+      requiring an active reusable Wallet Session. Preserve exact activation,
+      target, and factor as `authorization_required` without constructing a
+      `SelectedEcdsaLane`.
+- [x] When reusable authorization is absent, derive the operation-step-up
+      method from the capability authority and carry that prepared method into
+      confirmation; active reusable authorization retains the warm-session path.
+- [x] Carry the selected `authorization_required` material into operation
+      preparation and attach a same-method single-operation grant as a separate
+      execution proof. Do not mint or reread a reusable Wallet Session.
+- [x] Remove reusable authorization from `ExactEcdsaSigningLaneIdentity` and
+      require persistence, expiry, warm-capability, seal, and export consumers
+      to receive authorization through their explicit operation carrier.
+- [x] Replace generic wire `session_id` and `active_state_session_id` fields
+      with the discriminated authorization branch and exact activation reference;
+      update the unreleased protocol schema and transcript vectors together.
+- [x] Commit the reusable-session Near operation claim, quota use, and audit
+      atomically in Gateway authorization D1 before execution. Forward its typed
+      receipt through the internally authenticated Router route; SigningWorker
+      private D1 owns exact cryptographic-effect deduplication and terminal
+      replay (`b166b0bf1`).
+- [x] Commit the operation-step-up Near claim and consume its exact one-use grant
+      before forwarding execution. Preserve the same operation fingerprint and
+      SigningWorker terminal replay used by reusable-session signing
+      (`b4a286bb5`).
+- [x] Add no execution lease: no implemented operation outlives its request or
+      transfers between workers. Reopen this only for a demonstrated owner
+      transfer.
+- [x] Stop deriving NEAR budget readmission from material-hydration provenance;
+      only a real authorization/session replacement refreshes budget identity
+      (`30b52879b`).
+- [x] Replace the closure-bearing NEAR committed-capability carrier with the
+      shared hydration plan plus an independent reusable-authorization state.
+      Transaction, delegate, and NEP-413 payloads carry preparation data and an
+      explicit material executor, and exact activation is checked before use
+      (`6a818aea3`, `e118d0d5e`).
+- [x] Make delegate and NEP-413 authorization planning consume the canonical
+      preparation's active-status proof. Delete the record-backed warm-capability
+      reader, record-to-lane reconstruction, and obsolete handwritten
+      session-selection suite (`5a8ce9090`, `70ef2a420`).
+- [x] Remove the final composite-session-record read and cache reseeding from
+      NEAR transaction, delegate, and NEP-413 preparation. Expiry cleanup reads
+      the independent reusable-authorization status; signing preparation now
+      succeeds from canonical material plus authorization after refresh
+      (`4f089b483`).
+- [x] Remove the composite-session lookup from recovered local-login
+      restoration; the verified recovery binding plus canonical app and Wallet
+      Session identity own the restore checks (`51e71d7e8`).
+- [x] Carry required Passkey Ed25519 restore metadata from provisioning and
+      sync recovery into sealed persistence. The durable Passkey MPC owner no
+      longer reverse-resolves a composite record by threshold session ID, and
+      the focused sealed-refresh suite passes 4/4 (`0f5d7e6b6`).
+- [x] Publish Email OTP Ed25519 sealed refresh state from the canonical active
+      capability plus factor-only publication context. The publication
+      boundary, sealed-session registry, and silent-recovery persistence port
+      no longer accept a composite session record; the focused recovery suite
+      passes 13/13 (`93ae1e20a`).
+- [x] Build Email OTP Ed25519 cold login/unlock state directly from the exact
+      bootstrap. Correlate JWT claims, active allowance, expiry, signing root,
+      and signer identity at the boundary; return the activated lane's signer
+      through Browser and SeamsWeb without creating or returning a composite
+      session record. The focused recovery suite passes 14/14 (`f5062fc13`).
+- [x] Prepare Email OTP Ed25519 cold recovery from one exact sealed record
+      correlated by wallet, factor subject, account, signer slot, and material
+      activation. Browser no longer reads the composite session cache to choose
+      the recovery session or runtime policy (`e4322bd15`).
+- [x] Resolve the legacy NEAR unlock wrapper's wallet from the active user
+      binding it already owns, instead of consulting the composite signing
+      record solely for `walletId` (`2cdfea541`).
+- [x] Resolve NEAR wallet-unlock subjects solely from canonical active signer
+      profile rows. Delete the inert runtime-record subject duplicate and its
+      diagnostic provenance branch (`8c2aeb3ac`).
+- [x] Clear wallet-scoped volatile Ed25519 material by enumerating exact
+      Passkey and Email OTP sealed sessions. Runtime cleanup no longer needs a
+      composite record to discover material-session IDs (`b9638246a`).
+- [x] Make Ed25519 key-export lifecycle preflight read the canonical active
+      Wallet Session authorization projection asynchronously. Missing,
+      corrupt, unavailable, mismatched, active, and expired states no longer
+      depend on the composite record cache (`47fbe2cbc`).
+- [x] Add one exact Ed25519 sealed-session runtime boundary that validates
+      persisted signer, factor, JWT, policy, signing-root, participant, worker,
+      allowance, and expiry facts and returns distinct resolved, missing,
+      conflict, and corrupt outcomes (`2733f7960`).
+- [x] Replace the wallet-scoped Ed25519 warm-capability envelope with the exact
+      sealed runtime, independent active Wallet Session authorization, and
+      worker claim. Missing authorization preserves material as
+      `authorization_required`; the read model no longer embeds or derives its
+      bearer credential from the composite session record (`cdd9cc2b8`).
+- [x] Make Ed25519 session status wallet, account, and signing-key qualified.
+      Resolve the exact sealed runtime first, validate the independent active
+      authorization and its bearer claims, preserve expiry-before-exhaustion,
+      and derive budget identity from the runtime rather than a composite
+      record (`4ea6eccb7`).
+- [x] Hydrate Passkey Ed25519 local material after login from the exact sealed
+      runtime correlated to the returned Wallet Session and active JWT. Wallet
+      lock now clears volatile material without clearing the retired composite
+      record cache (`5a582a992`).
+- [x] Resolve NEAR signing preparation, Passkey and Email OTP operation
+      step-up, and local-material rehydration from the exact sealed Ed25519
+      runtime. Delete the sealed-record-to-composite-record signing adapter
+      (`7a97a1363`).
+- [x] Project persisted Ed25519 available lanes and their local/server budget
+      advisory directly from exact sealed runtimes. Delete the inert
+      in-memory-record inventory and the sealed-record-to-composite-record
+      conversion (`06f22ac7d`).
+- [x] Build Passkey recovery and provisioning Wallet Session state from exact
+      response/runtime facts and publish only the resolved identity. These
+      operating paths no longer write or rebuild the composite Ed25519 record
+      (`98a595709`).
+- [x] Discover readiness lanes asynchronously from exact sealed Ed25519
+      runtimes. Durable seals remain record-policy reauthorization anchors,
+      consume only against trusted server budget, and survive grant clear,
+      expiry, and exhaustion; delete the duplicate composite-record mutation
+      port (`e3a562ed3`).
+- [x] Delete the zero-caller composite Ed25519 store, persistence adapter,
+      Wallet Session parsing, and state adapters; retain only exact-runtime
+      builders and the JWT boundary parser (`40e9c34fc`).
+- [x] Isolate and narrow sealed transport authorization to its live ECDSA
+      domain. Remove the unused Ed25519 arm, grant alias, and source
+      discriminator (`d82cda777`, `2e28e741f`).
+- [x] Retire composite-record browser rehydrate and Email OTP inventory tests,
+      migrate valid seal/export coverage to current builders, and remove
+      obsolete record resets from unrelated suites (`a62080152`).
+- [x] Make non-iframe implicit NEAR funding read its bearer credential from the
+      canonical active Wallet Session authorization projection; missing or
+      expired authorization fails before network use, independently of MPC
+      material persistence (`174c89600`).
+- [x] Delete the unread record-derived Wallet Session bearer projection from
+      NEAR transaction admission. Canonical preparation and the admitted
+      operation-claim receipt remain the authorization inputs (`5173ad50b`).
+- [x] Make NEAR transaction readiness and authorization planning consume the
+      shared canonical preparation plus independent reusable-authorization
+      state. The composite session record remains only for the still-open
+      lifecycle hook adapters (`6edc2d100`).
+- [x] Derive NEAR transaction expiry invalidation, retry admission, and
+      same-method UI routing from the canonical active authorization and
+      selected factor instead of the composite session record (`535c0be3b`).
+- [x] Build NEAR Passkey operation-step-up authority from the exact selected
+      lane and its policy from canonical material preparation. Preserve the
+      full signer participant set without reading the composite session record
+      in the signing-flow hook (`8ad73528b`).
+- [x] Validate NEAR Email OTP operation-step-up proof at the server boundary,
+      consume the exact OTP challenge, persist factor evidence, and issue a
+      one-use operation grant without minting a reusable Wallet Session or
+      consuming its quota (`007416714`).
+- [x] Extend the NEAR operation-grant boundary with a strict discriminated
+      material-recovery request and mirrored response. Passkey admits no
+      recovery branch; Email OTP removes the exact enrollment server seal after
+      OTP consumption and before grant issuance, and rejects key-version
+      substitution (`7dea7838a`).
+- [x] Parse the same material-recovery union at the SDK grant boundary and
+      correlate the mirrored response with the requested wallet, material
+      session, activation, and enrollment-key version. Passkey cannot request
+      local recovery in the client domain types (`88cc478f0`).
+- [x] Define the Email OTP worker transport for operation-material
+      rehydration. Its strict boundary parser validates the prepared
+      operation-step-up authorization, intent, display digest, proof authority,
+      expected material activation, threshold session, and public key; the
+      browser client rejects response correlation drift (`f07020d80`).
+- [x] Complete NEAR Email OTP operation step-up for transaction, delegate, and
+      NEP-413 signing when the canonical material is already live. Prepare the
+      exact operation before confirmation, consume one operation grant, and
+      keep reusable Wallet Session creation and quota use out of the step-up
+      branch (`069db2326`).
+- [x] Route transaction, delegate, and NEP-413 signing through one
+      authorization-neutral operation-material carrier. Live and sealed
+      Passkey/Email OTP branches prepare before confirmation, preserve exact
+      activation and factor, attach the issued one-use grant beside material,
+      and never construct or reread a reusable Wallet Session (`2b585ed38`).
+- [x] Complete sealed Email OTP operation-material recovery inside the worker:
+      apply the ephemeral client seal, request the one-operation grant and
+      server-unsealed ciphertext, remove the client seal, import and correlate
+      the exact material, zeroize/dispose temporary secrets, and return the
+      active material beside the issued grant (`126df7138`).
+      The focused supersession, exact-owner queue, operation-material, and
+      Email OTP unseal/step-up suites pass 37/37 at the current checkpoint.
+- [x] Replace the five public NEAR factor-specific preparation, Passkey
+      rehydration, and Email OTP recovery ports with one Browser-owned
+      `{ preparation, executor }` material boundary. Exact factor, signer,
+      session, and activation correlation now occurs before any active client
+      crosses into generic signing orchestration (`fe33b405a`).
+
+### Worker, WASM, and bundle boundary
+
+- [x] Delete the unread ECDSA runtime-validation registry and its
+      JWT/expiry-derived material key; retain canonical manifest/runtime
+      correlation and role-local resolver validation.
+- [x] Keep pending Ed25519 Yao registration material inside its browser/WASM or
+      Email OTP worker owner; generic registration invokes typed persistence
+      and never receives the active client.
+- [x] Delete the dead Email OTP registration-commit worker operation and reject
+      non-positive or unsafe signer slots at the remaining persistence boundary.
+- [x] Keep live secret material owned by the worker or WASM boundary.
+- [x] Preserve the Refactor 93 rule that `SigningWorker` receives the exact A/B
+      package pair atomically and the Refactor 94C rule that its activation,
+      delivery, session, budget, and presign effects live in private D1.
+- [x] Keep generic confirmation free of MPC material; preserve Email OTP
+      KEK/secret, Near root/client, and ECDSA derivation/presign/online-signing
+      custody in their secure owners.
+  - [x] Move Passkey secp256k1 and Ed25519-Yao raw export handling into the
+        dedicated Passkey MPC export worker; the generic confirmation worker
+        no longer imports export WASM/Yao runtime or handles export messages.
+  - [x] Move Passkey MPC export transport, response validation, prompt routing,
+        and viewer lifecycle into a dedicated main-thread export owner;
+        `UiConfirmManager` no longer imports or sends the export protocol.
+  - [x] Move Passkey warm-session material, PRF claims, sealing, rehydration,
+        policy updates, and Shamir3Pass prewarm into the dedicated Passkey MPC
+        session worker; the generic confirmation worker now handles prompts
+        only.
+  - [x] Move volatile Passkey warm-material writes, status reads, claims,
+        consumption, clearing, session-worker lifecycle, and prewarm into the
+        dedicated main-thread `PasskeyMpcSessionManager`; generic confirmation
+        no longer imports or sends the session-worker protocol.
+  - [x] Move durable seal persistence, restore, deletion, and policy
+        coordination into `PasskeyMpcSessionManager`, then delete the temporary
+        durable session-worker seam from generic confirmation (`d9c303f3c`,
+        `fe07fea5b`, `fa1f21657`).
+    - [x] Require Passkey persisted-session discovery at the lifecycle port;
+          remove the optional host-assembly fallback that silently omitted it
+          and the redundant `authMethod` discriminators from Passkey discovery
+          and restore ports.
+    - [x] Move persisted-session discovery and exact sealed-record listing into
+          `PasskeyMpcSessionManager`; session-public and no-prompt ECDSA reuse
+          call the session owner directly.
+    - [x] Move raw worker seal and rehydrate operations onto
+          `PasskeyMpcSessionManager`; generic confirmation calls the owner
+          internally and exposes no forwarding methods.
+    - [x] Move persisted restore command routing, exact-record correlation,
+          module-global single-flight, restore leases, readback, and
+          invalid-record cleanup into `PasskeyMpcSessionManager`; expiry keeps
+          the sealed material available for same-method step-up.
+    - [x] Delete the redundant exported
+          `PasskeyMpcSessionDurableWorkerPort`; the dedicated session port is
+          the only raw seal/rehydrate worker contract.
+    - [x] Delete the one-call
+          `ensurePasskeySealedRecordPersisted` coordinator and move its
+          optional missing-restore-metadata handling into
+          `PasskeyMpcSessionManager`.
+    - [x] Move high-level seal persistence, exact-record registration/readback,
+          and persistence single-flight into `PasskeyMpcSessionManager`
+          (`d9c303f3c`).
+    - [x] Move sealed-session policy coordination into
+          `PasskeyMpcSessionManager`; preserve sealed material on expiry and
+          exhaustion, and delete only invalid persisted records (`fe07fea5b`,
+          `fa1f21657`).
+    - [x] Delete the remaining generic durable-session ports and callback cycle
+          after the dedicated session owner supplies persistence and policy
+          coordination directly (`d9c303f3c`).
+- [x] Remove replaced worker entrypoints, loaders, manifest rows, and public
+      exports.
+  - [x] Delete the generic worker's `EXPORT_PRIVATE_KEYS_WITH_UI` protocol arm
+        and export-runtime imports; register the dedicated Passkey MPC export
+        worker in build, freshness, runtime-path, test, and bundle inventories.
+  - [x] Delete the generic manager's export worker fields, initialization,
+        message union, lifecycle callback map, and recovery forwarding adapter;
+        assembly exposes the narrow `PasskeyMpcExportPort` directly.
+  - [x] Delete the generic worker's `WARM_SESSION_*` and
+        `PREWARM_SHAMIR3PASS` protocol arms; register the dedicated Passkey MPC
+        session worker in build, freshness, runtime-path, test, static-asset,
+        and bundle inventories.
+  - [x] Delete the generic manager's volatile warm-session methods, session
+        worker fields, initialization, message union, and request routing;
+        assembly exposes the narrow `PasskeyMpcSessionPort` directly.
+- [x] Delete the unused `UiConfirmSigningRuntimePort` and the generic combined
+      `UiConfirmSigningSessionPort`; the Near runtime names its required
+      confirmation and warm-material capabilities directly.
+- [x] Delete the zero-caller wallet-host registration-preparation loader and
+      module-type exports; retain the single registration-surface preload entrypoint.
+- [x] Delete the zero-caller Router A/B ECDSA refresh-client-proof worker
+      operation across its wrapper, channel, type map, and worker dispatch.
+- [x] Delete the unreachable Email OTP `session_bootstrap` worker branch and
+      require registration-attempt identity as an explicit worker input.
+- [x] Preserve existing import/export and bundle guards. The key-export,
+      Ed25519-Yao custody, ECDSA client-worker split, Email OTP branch
+      isolation, and static-wallet-asset checks pass.
+  - [x] Point the key-export and Ed25519-Yao custody guards at the dedicated
+        Passkey MPC export runtime; both focused guards pass.
+  - [x] Keep the generic confirmation worker's static asset graph WASM-free
+        while admitting the dedicated Passkey MPC session worker's required
+        signer assets.
+- [x] Split no worker or bundle without measured evidence. The current
+      worker split follows the measured production caller map: generic prompts,
+      Passkey MPC session custody, and Passkey MPC export custody have separate
+      entrypoints and bundle inventories.
+- [x] Verify generic orchestration cannot import secret-bearing worker
+      internals. The static wallet asset graph remains WASM-free for generic
+      confirmation, and the focused key-export, ECDSA client-worker, and Email
+      OTP branch-isolation checks pass after the capability-envelope cutover
+      (`def400d94`).
+
+### Host assembly
+
+- [x] Complete the hosted-wallet Seams Session one-time exchange in the iframe
+      client. The parent sends only the opaque code and nonce; the wallet origin
+      redeems and stores its own JWT, and parent-posted bearer credentials are
+      rejected.
+- [x] Update Cloudflare, Node, local, and self-hosted call sites in the same
+      cutover.
+- [x] Preserve static host ports and request-scoped service bindings; apply the
+      Refactor 94C owner map only inside the Cloudflare adapter.
+- [x] Verify each host assembles the same statically composed capability
+      modules and policies.
+      Cloudflare, Express/Node, local D1, and self-hosted assembly consume the
+      same `RouterApiServiceBag`; route handlers do not access D1 or claim and
+      session stores directly. The focused route-surface and self-host parity
+      suites pass 15/15.
+- [x] Preserve one signed, admitted Gateway → Router command. Keep Router
+      stateless; forbid ceremony-wide Router ledgers, tenant-wide Gateway
+      runtime state, tenant runtime/cutover selectors, direct Deriver origins,
+      direct Gateway role calls, and Gateway-owned SigningWorker delivery.
+- [x] Remove obsolete route handlers, service locators, and direct host-role
+      access with their last caller.
+  - [x] Delete the forwarding-only wallet-unlock service locator; Cloudflare
+        unlock routes use the request-scoped `ctx.service.walletUnlock`
+        directly (`5f989ea9f`).
+- [x] Delete the zero-caller Cloudflare route-registration wrapper and its
+      obsolete wrapper-only unit test; production routing remains owned by the
+      canonical route-definition dispatcher.
+- [x] Delete the obsolete standalone Email OTP ECDSA enrollment SDK/iframe
+      route and its JWT-derived runtime-policy scope; canonical `registerWallet`
+      remains the sole registration owner.
+- [x] Delete the zero-caller standalone ECDSA refresh HTTP adapter and its
+      wrapper-only test; canonical route definitions retain the refresh route
+      (`a89ede462`, `df478bfed`).
+- [x] Delete the duplicate persisted Ed25519 capability fallback service
+      locator; the request-scoped runtime remains the single persisted
+      load/install/reread owner (`729ad4cdd`).
+- [x] Delete the forwarding-only Ed25519 recovery runtime locator; recovery
+      consumers use the service's narrow installation and lookup ports
+      directly (`868ba6dee`).
+
+### Same-change deletion
+
+- [x] Delete the write-dead composite-record key-ref lookup, record-first
+      probes, no-prompt reconnect path, and record-backed ECDSA
+      selection/material branches.
+- [x] Collapse the inert server-internal Email OTP Ed25519 local/recovery
+      request variants into one required-field session request. Preserve the
+      public exact-local and missing-material route outcomes because they still
+      select local activation versus recovery (`18daabe77`).
+- [x] Restore current shared authorization/ECDSA factories, regenerate their
+      current shapes through canonical builders, and delete obsolete
+      record-store and pre-cutover export tests.
+- [x] Restore unit-suite collection by deleting obsolete imports/tests and
+      updating still-valid tests through current shared factories; require a
+      successful non-empty Playwright unit test listing before normal-signing
+      work proceeds.
+  - [x] Build the enrolled threshold-session claim tests through shared
+        curve-specific factories; the focused parser/private-route matrix passes
+        9/9 (`b34b0c58a`).
+- [x] Delete the complete production `ThresholdEcdsaSessionRecord*` family,
+      public APIs, runtime maps, readers, writers, parsers, and adapters after
+      Unit 2 supplies the narrow authorization/session/quota projection.
+- [x] Prove the remaining Ed25519 in-memory session-record module has no
+      production or retained-test consumers, then retire it with only its
+      stale architecture/documentation references. Keep the server-side
+      persisted-record parser, which remains a live boundary (`a84f92b37`).
+- [x] Remove legacy-only composite-record fixtures and move retained Email OTP
+      coordinator setup to canonical manifest, authorization, and sealed-runtime
+      factories.
+- [x] Delete the tactical Email OTP local Wallet Session/budget model and rename
+      its remaining Shamir3Pass recovery, publication, refresh, route, worker,
+      browser, and test surfaces as capability operations (`82b439fc5`).
+- [x] Delete `active_state_session_id` from production types and wire shapes.
+- [x] Delete remaining generic wire session aliases and
+      authorization/material-scope aliases owned by this cutover.
+  - [x] Delete the generic threshold-session claim aliases and the one-use
+        signing coordinator, PRF writer, and Passkey MPC manager aliases;
+        consumers now name their canonical protocol or port types directly
+        (`544f3934c`).
+  - [x] Delete the redundant signing-status dependency, EVM-family readiness,
+        and Email OTP restore-root input aliases; consumers use their canonical
+        dependency and input types directly (`272812bf2`).
+  - [x] Delete the empty EVM-family session-reader dependency and its
+        forwarding pre-confirm/confirmed/step-up aliases, plus the local
+        Passkey bootstrap route-auth alias (`46f0d07e7`).
+  - [x] Rename the active SigningWorker wire field from `session_id` to
+        `material_activation_id` across the Router A/B Rust schema, Cloudflare
+        lookup/storage keys, shared TypeScript parser, dev adapter, fixtures,
+        and protocol documentation. Lifecycle and ceremony `session_id`
+        fields remain unchanged (`d91498b2c`).
+  - [x] Delete generic worker `WithOptionalSessionId`/`withSessionId`
+        injection. Exact WASM payloads now carry their required protocol
+        session identity directly; custom worker messages carry no invented
+        session field (`53838a192`).
+  - [x] Rename the Email OTP ECDSA bootstrap worker payload's threshold-session
+        field from `sessionId` to `thresholdSessionId`, reject the retired field
+        at the worker parser, and keep role-local protocol/session-handle IDs
+        distinct (`cb3141f98`).
+  - [x] Rename warm-session status, restore, cleanup, and assembly callback
+        parameters that carry ECDSA threshold-session identity to
+        `thresholdSessionId`; update the warm read-model fixtures to the same
+        strict shape (`e659fb18d`).
+  - [x] Rename the remaining private Email OTP warm-session worker helpers and
+        batch-status wire fixture to `thresholdSessionId`; worker handles,
+        presign sessions, and role-local protocol IDs remain distinct
+        (`673426d2e`).
+  - [x] Keep one-operation NEAR grants as fresh branded
+        `CapabilityGrantId`s from preparation through server issuance and
+        execution. They never become a reusable `SigningGrantId` or selected
+        Wallet Session lane (`0ef310b0e`).
+  - [x] Carry ECDSA normal-signing state explicitly in the server bootstrap
+        response, persist and reject malformed/old D1 rows at the boundary,
+        validate the state before Wallet Session JWT signing, and require the
+        client response field. Delete the JWT-derived reconstruction helper;
+        the JWT remains a bearer credential (`d2128b7d9`).
+  - [x] Remove Wallet Session bearer/grant state from durable Ed25519 and
+        active ECDSA sealed-material restore metadata. Recovery and signing
+        must receive reusable authorization or a one-operation grant through
+        an independent operation carrier. Canonical records now scrub stale
+        grant fields at the persistence boundary (`d91e4bc9d`, `04b774f04`);
+        full acceptance remains tracked under R90-INV-014.
+    - [x] Email OTP ECDSA sealed rehydration reads and correlates the current
+          reusable authorization independently; its persisted bearer is no
+          longer trusted or transported (`17f0a622f`).
+    - [x] Passkey Ed25519 export, hydration, availability, and sealed-runtime
+          reads correlate current authorization independently; sealed runtime
+          state no longer carries or validates a persisted bearer
+          (`7a2ad4bca`, `3d05abca5`).
+    - [x] Passkey MPC sealed ECDSA restore reads current authorization and
+          correlates wallet, factor, authority, and expiry before rehydration;
+          neither worker transport nor reconstructed metadata trusts the
+          persisted bearer (`a39e90add`).
+    - [x] Delete persisted `sessionKind` and `walletSessionJwt` fields from
+          Ed25519/ECDSA sealed restore metadata, recovery records, boundary
+          parsers, writers, and fixtures. Current authorization remains an
+          independent transport input; record-level protocol/session identity
+          remains separate (`22ccd0c26`). Unit 3c removed the remaining
+          record-level grant/lease identity; current authorization is carried
+          explicitly by the Wallet Session/quota or one-operation claim path
+          (`fa5791630`, `acd3a5a04`).
+    - [x] Remove `signingGrantId` from restore-lease payloads and validation;
+          leases are coordination records keyed by the sealed-store key and
+          owner/attempt, and old grant-bearing lease rows are rejected
+          (`2d56e3a58`).
+    - [x] Delete write-only ECDSA resolved-identity publication from passkey
+          recovery, Email OTP restore, and sealed-store identity projections;
+          canonical ECDSA availability no longer receives a grant/session
+          identity from this inert map (`71d061d6d`).
+    - [x] Carry the exact `MpcMaterialActivationRef` through sealed-recovery
+          purposes, correlate both restore callers against the record's role
+          local material, and include it in restore cache/single-flight keys
+          (`5c8e8c92b`).
+    - [x] Atomically migrate legacy grant-keyed ECDSA sealed rows to canonical
+          activation-keyed rows in one IndexedDB transaction, deleting the
+          legacy row and its restore lease only after the canonical write
+          succeeds (`e824bfda2`).
+    - [x] Complete the operation-authorization cutover for the former
+          record-level grant/lease identity. Durable ECDSA sealed records,
+          restore sources, cache keys, worker transports, and recovered-material
+          activation requests are grant-free; live reusable authorization is an
+          independent Wallet Session/quota carrier (`ec050a05d`, `fa5791630`,
+          `acd3a5a04`).
+    - [x] Re-key durable Ed25519 sealed records by stable material identity,
+          atomically migrate legacy grant-keyed rows and restore leases, and
+          require authenticated warm-bootstrap authorization independently of
+          the sealed material record (`d91e4bc9d`).
+    - [x] Delete the write-only Ed25519 resolved-identity map and both grant-
+          bearing publishers. Durable sealed records and current authorization
+          remain the only material and grant owners (`fbe92c4ee`).
+    - [x] Preserve a grant-free Ed25519 material candidate when reusable
+          authorization is absent, then attach the current grant only after
+          same-method step-up. Availability must not drop durable material
+          merely because the Wallet Session is absent or expired.
+      - [x] Ed25519 availability and lane candidates use explicit `authorized`
+            and `authorization_required` branches; the deferred branch retains
+            exact durable material identity and forbids `signingGrantId`
+            (`6ac506d57`).
+      - [x] NEAR material selection preserves grant-free Passkey and Email OTP
+            candidates as a typed `authorization_required` result, and runtime
+            discovery no longer rejects that valid branch for lacking a grant
+            (`dd4ce7942`, `9d643b5e5`).
+      - [x] Carry the deferred candidate through NEAR delegate, NEP-413, and
+            transaction signing confirmation and construct
+            `SelectedEd25519Lane` only after same-method operation step-up
+            supplies the relayer-issued grant (`cd8f89760`, `e2467ea4c`).
+            Full lifecycle acceptance remains open under R90-INV-014.
+  - [x] Require canonical JWT `sid` at the Cloudflare Router boundary and
+        delete the legacy `session_id` claim fallback and selector
+        (`af6dc1514`).
+    - [x] Delete the pure `SigningAuthMethod = SignerAuthMethod` alias and use
+        canonical `SignerAuthMethod` throughout signing operation state.
+    - [x] Delete the unused threshold warm-session policy draft/request-envelope
+        API, its pre-cutover type fixture and unit coverage, and the source
+        guards that only enforced that retired surface. The live Router A/B
+        normal-signing policy builder remains (`4c60abd88`).
+  - [x] Delete zero-caller wallet/session helpers and exact aliases for ECDSA
+        authorization, activation requests/results, bootstrap args, and sealed
+        resolved identity (`6207cea1f`, `dfee38d07`).
+  - [x] Keep the Email OTP ECDSA signing-session route grant-free while
+        requiring the independent authorizing grant on Ed25519. The worker
+        boundary accepts the canonical ECDSA lane and rejects the retired
+        grant alias (`440e3dd10`).
+  - [x] Delete the zero-caller ECDSA Wallet Session transport-auth wrapper and
+        its wrapper-only type fixtures; active authorization and route
+        boundaries carry the bearer credential directly.
+  - [x] Delete zero-caller Email OTP HKDF helpers whose tuple included
+        `signingGrantId`; restore-info derivation now uses material/session
+        facts without a grant-bound secret tuple (`47455581e`).
+- [x] Inline the canonical bootstrap and exact/missing Wallet Session payload
+      types in the iframe envelope and delete their one-use wire aliases.
+- [x] Delete the unread duplicate ECDSA export operation-authorization carrier;
+      explicit export authorization remains the operation's sole authority.
+- [x] Delete legacy recovery microstates and compensation branches.
+  - [x] Delete the zero-producer Passkey ECDSA warm-seal pending registry, its
+        restore wait, and its obsolete unit suite (`c72cbf31f`).
+- [x] Delete duplicate signing-lane selectors, auth-method fallbacks, direct
+      protocol dispatch, and superseded export coordinators.
+  - [x] Replace binary Passkey/Email OTP fallbacks and ad hoc two-factor unions
+        across signing, hydration, export, sealed-runtime, and step-up
+        boundaries with exhaustive canonical-domain control flow; remove the
+        duplicate runtime-postcondition auth alias and shrink the guard
+        allowlists (`157eb7562`, `732802dc9`, `40fb0203f`, `bdf6cc5da`).
+  - [x] Delete the zero-caller duplicate ECDSA material-key selector
+        (`5cc54814d`).
+  - [x] Delete the zero-caller private-key export coordinator and its dead
+        dependency/store wiring; dedicated capability export owners remain
+        (`d3201483b`).
+  - [x] Delete the zero-caller Email OTP route-plan auth forwarding selector;
+        the canonical auth-lane adapter remains the sole projection owner
+        (`6910f4d94`).
+  - [x] Delete the zero-caller exact ECDSA and Ed25519 lane-signer projection
+        selectors; consumers narrow the canonical signer binding directly
+        (`151110bd8`).
+  - [x] Delete the local Email OTP route-plan auth wrapper and inline the
+        canonical auth-lane projection at its worker callers (`e90c3f09a`).
+  - [x] Delete the zero-caller Passkey Ed25519 Wallet Session JWT fallback;
+        active authorization remains canonical and sealed-runtime-owned
+        (`563909459`).
+  - [x] Delete the zero-caller duplicate Email OTP ECDSA publication target
+        planner; live publication uses the canonical chain-target planner
+        (`b6b691bce`).
+  - [x] Delete the zero-caller Email OTP existing-public-capability fallback;
+        the canonical existing-key resolver remains live (`d51f1da06`).
+  - [x] Delete the zero-caller sealed-session identity converter; the live
+        sealed-session filter remains the persistence boundary (`45a4222b2`).
+  - [x] Delete the zero-caller ECDSA manifest identity projection; manifest
+        identity builders remain the canonical construction path (`19ec99d94`).
+  - [x] Delete the zero-caller silent PRF-cache fallback; strict cache setup
+        remains the sole writer path (`5a619687a`).
+  - [x] Delete the zero-caller Email OTP Ed25519 signing-session authority
+        module; canonical `EmailOtpSigningSessionAuthLane` remains the active
+        authority boundary (`4f11a1211`).
+  - [x] Delete the zero-caller role-local active-state projection and
+        unavailable-material constructor; callers use canonical active-state
+        builders and explicit unavailable branches (`01521c796`).
+  - [x] Delete the zero-caller sealed-record runtime wrapper; active runtime
+        resolution uses the wallet/target or chain-kind canonical selectors
+        (`3f251b7cb`).
+  - [x] Delete the zero-caller recovery-record-to-session identity converter;
+        recovery commands accept the canonical exact identity directly
+        (`750138097`).
+  - [x] Delete the zero-caller composite seal-transport auth type and its
+        ECDSA/session aliases; sealed recovery owns the live transport shapes
+        (`6dc24c395`).
+  - [x] Delete zero-caller threshold-status error constants, formatters, and
+        normalization helpers from the warm-session reader; canonical status
+        mapping remains in the read model (`308910932`, `111345f7c`).
+  - [x] Delete zero-caller warm-claim sufficiency and error-formatting
+        helpers; claim/status mapping remains the sole read-model boundary
+        (`9427bc746`).
+  - [x] Delete the superseded `EcdsaPublicReauthLane` and
+        `EvmFamilySharedEcdsaState` unions; canonical selection and hydration
+        outcomes own those branches (`f6ce0651e`, `5db9ad87e`).
+- [x] Route Ed25519 Yao export through one exhaustive same-method coordinator
+      and delete the public Passkey/Email OTP-specific export entrypoints.
+- [x] Delete method-specific Passkey/Email OTP committed-lane aliases and the
+      duplicate two-slot committed-lane selector.
+- [x] Delete the dead in-place ECDSA lane-identity updater, its record-era unit
+      test, and the source-range guard whose remaining subject it owned.
+- [x] Delete the dead record-backed Email OTP Ed25519 routine-signing lane and
+      its active-material recovery path. Retain cold login/unlock recovery,
+      sealed refresh, and export recovery; the focused retained recovery suite
+      passes 12/12 (`069db2326`).
+- [x] Delete zero-caller Ed25519 composite-record rejection, commit,
+      runtime-reseed, broad-list, exact-clear, and recovered-session retirement
+      helpers (`7886fd39f`).
+- [x] Delete the remaining zero-caller operation-usable Ed25519 record,
+      current-generation commit/supersession branch, and its obsolete unit and
+      type fixtures (`f5c6ec6d9`).
+- [x] Delete the zero-caller account/session record readers, record-derived
+      Email OTP authority resolver, per-session status port, and record auth
+      predicate from the warm capability surface (`94aa9b344`).
+- [x] Delete the Passkey durable-state composite-record reverse lookup and its
+      record-to-restore parsers after exact Ed25519 restore metadata becomes a
+      required seal-transport field (`0f5d7e6b6`).
+- [x] Delete composite-record authority from Email OTP Ed25519 sealed
+      publication. Correlate the active-client metadata, exact activation,
+      canonical Wallet Session state, and factor publication context before
+      writing the sealed record (`93ae1e20a`).
+- [x] Delete composite-record construction and record-to-signer conversion
+      from Email OTP Ed25519 cold login/unlock. The exact bootstrap now builds
+      the Wallet Session state and private SDK activation surfaces return the
+      canonical signer directly (`f5062fc13`).
+- [x] Delete Browser's composite-record lookup from Email OTP Ed25519 recovery
+      preparation; exact sealed state now owns its recoverable session identity
+      and runtime policy (`e4322bd15`).
+- [x] Delete the NEAR unlock wrapper's composite-record wallet lookup; the
+      active user binding owns wallet selection (`2cdfea541`).
+- [x] Delete the composite-record NEAR wallet-unlock subject and runtime-record
+      provenance branch; active signer profile rows own the exact subject
+      projection (`8c2aeb3ac`).
+- [x] Delete composite-record discovery from wallet-scoped volatile Ed25519
+      cleanup; exact sealed records own the material-session IDs
+      (`b9638246a`).
+- [x] Delete the composite-record authorization lookup from Ed25519 key-export
+      preflight; the canonical Wallet Session projection owns lifecycle expiry
+      and factor correlation (`47fbe2cbc`).
+- [x] Delete composite-record ownership from the wallet-scoped Ed25519 warm
+      capability envelope and its transition/provision readback consumers.
+      Exact sealed runtime, active authorization, and worker claim now remain
+      separate typed inputs (`cdd9cc2b8`).
+- [x] Delete the record-backed Ed25519 authorization parser, its 303-line
+      record-era unit suite, and the dead manager convenience status port.
+      Login postconditions and the public status surface now consume the exact
+      runtime plus active authorization (`4ea6eccb7`).
+- [x] Delete the forwarding-only selected-lane auth-method selector; prepared
+      signing now reads the canonical auth binding directly, and its focused
+      auth-neutral preparation suite passes 7/7 (`0983a94ec`).
+- [x] Delete obsolete tests, handwritten records, mocks, guards, and fixtures
+      that encode pre-cutover behavior.
+  - [x] Delete the route-wrapper-only test and the stale public route-catalog
+        assertion for the private 94C ECDSA bootstrap plane.
+  - [x] Delete the NEAR recovery-ordering and sealed-refresh source guards after
+        their retired markers and hydration-derived budget assumption were
+        removed (`6d6002e3c`).
+  - [x] Delete the combined Email OTP unlock fixture after unlock began
+        returning exact sibling capability outcomes (`89e9cd4a5`).
+  - [x] Delete the wrapper-only ECDSA refresh test with its duplicate HTTP
+        adapter (`df478bfed`).
+  - [x] Delete the record-era NEAR session-selection suite after delegate and
+        NEP-413 planning moved to canonical hydration plus independent
+        authorization; retain same-method step-up coverage through current
+        typed hooks (`70ef2a420`).
+  - [x] Retire source-guard blocks whose guarded paths were deleted or moved;
+        active registration and key-brand checks remain (`703fa1d95`).
+  - [x] Retire the obsolete signing-session seal default-key guard; current
+        Cloudflare seal configuration uses root/current/accepted key-version
+        fields (`2744c6c02`).
+  - [x] Repoint the EVM key-slot branding guard at the live provisioning,
+        worker, Router validation, and registration/recovery boundaries
+        (`fc048026f`).
+  - [x] Restore unit-suite collection through the shared sealed-session factory:
+        Email OTP Ed25519 fixtures now carry canonical material activation and
+        valid runtime-policy scope; 1,975 tests collect in 349 files
+        (`e5cb737c8`).
+  - [x] Keep threshold-session identity separate from material activation in
+        Passkey ECDSA seal persistence. Bootstrap supplies the real
+        `thresholdSessionId`; material activation remains the in-flight
+        coalescing key, and the zero-caller `WarmSessionProvisioner` alias is
+        deleted (`57849eda9`).
+  - [x] Name the ECDSA worker-share and presign handoff field
+        `thresholdSessionId`; one-shot Email OTP client-root handles and
+        presign-session IDs remain separate (`fae146131`).
+  - [x] Rename the volatile warm-material clear command scope from generic
+        `sessionId` to branded `ThresholdSessionId`; reject the retired
+        payload shape at the worker boundary and remove the local volatile-ID
+        alias (`0c341f40a`; boundary test 1/1).
+  - [x] Delete zero-caller budget owner, availability, and unknown-status
+        adapters; live admission and status readers remain unchanged
+        (`20f1bcfca`, `1ce066cf9`, `69b0e6b30`).
+  - [x] Delete the zero-caller network-only ECDSA chain-target adapter;
+        configured-request and chain-family builders remain (`4250a8871`).
+  - [x] Delete the zero-caller ECDSA lane-specific presignature retirement
+        helper; global pool clearing and live worker retirement remain
+        (`814616909`).
+  - [x] Replace the record-era ECDSA export-lane fixture with the shared
+        canonical-capability builder, retain exact selection and ambiguity
+        coverage, and delete tests for retired runtime/sealed/shared-key lane
+        sources (`79bd0e00b`; 16/16 focused tests).
+  - [x] Reconcile the Email OTP coordinator with activation-owned ECDSA session
+        identity and response-owned seal key versions; all 14 focused
+        coordinator scenarios pass (`cf705f212`, `19d402075`).
+
+### Unit 3a exit
+
+- [x] All concrete Unit 3a deletion-ledger entries are closed; intentionally
+      retained Ed25519 quota/challenge and factor-owner rows are reassigned in
+      the deletion ledger's final bounded sweep.
+- [x] The authoritative intended-behaviour contracts and focused MPC tests cover
+      the supported registration, unlock, refresh, signing, step-up, export,
+      retry, cancellation, and recovery paths. An exhaustive cross-product fault
+      matrix is not a Refactor 90 release gate; add a case only when a distinct
+      failure mode is demonstrated.
+- [x] Load-bearing crash, replay, stale-fence, owner-serialization,
+      supersession, and fail-closed material cases are covered by their focused
+      tests. The previous named broad matrix is retired as duplicate acceptance
+      work.
+- [x] Passkey and Email OTP agree across signing and export. The current local
+      intended run passes both factors' registration, unlock, signing, refresh,
+      step-up, and export paths. The Passkey pending-Ed25519 activation parser
+      now accepts its intentionally signer-free response without requiring the
+      completed-signer `authorityScope`.
+- [x] Focused Rust vectors, TS bindings, worker/WASM guards, host adapter tests, and
+      bundle checks pass.
+  - Evidence at the current checkpoint: the focused Refactor 90 operating-path
+      and wire matrix passes 72/72; the Rust Cloudflare ECDSA binding suite
+      passes 36/36, the ECDSA wire crate passes 1/1, the ECDSA client-protocol
+      tests pass 9/9, the presign crate passes 44/44 plus 7/7 doctests, and
+      normal-signing vectors pass 3/3;
+      the router-ab-core generated TypeScript binding check passes 1/1 and the
+      signer-core generated schema check passes 1/1;
+      the focused ECDSA lifecycle, hydration, supersession, export, step-up,
+      sealed-runtime, presign-store, expiry, authorization-seal, warm-read-model,
+      and volatile-threshold-session-boundary matrix passes 55/55 after
+      refreshing current required-identity fixtures (`12fc49a59`, `0c341f40a`);
+      SDK and unit typechecks pass; direct architecture, worker/WASM, bundle,
+      and boundary guards pass. The source Playwright guard set passes 220/220;
+      the D1 local-dev launcher contract is restored with SDK `.dev.vars`
+      precedence before the console file (`a610be9dc`). Passkey ECDSA seal
+      persistence keeps `thresholdSessionId` distinct from material activation
+      (`57849eda9`). Workspace Rust checks
+      for router-ab-core, router-ab-ecdsa-client-protocol, router-ab-cloudflare,
+      and router-ab-ed25519-yao-client also pass (`c2a6bbf04`).
+      The latest local-no-server focused claim, recovery, coordinator,
+      lifecycle, sealed-runtime, signing, export, and supersession matrix
+      passes 104/104.
+      The final 97-test closeout selection (Gateway claims, canonical ECDSA
+      hydration/signing/export, recovery, expiry, step-up, and factor parity)
+      passes **97/97** with the local frontend explicitly selected at
+      `http://localhost:5180`. An earlier 92/97 attempt failed before its five
+      `sealedRefresh.parity` assertions because the harness selected an
+      unavailable port; that was a test-environment failure, not a production
+      result.
+  - [x] The broad unit result is retained as historical diagnostic evidence,
+        not a Refactor 90 release gate. The last recorded run after the full
+        build collected **1,745 passed, 147 failed, and 9 skipped out of 1,901
+        tests**. Its failures were lower-authority stale expectations and
+        environment-dependent ceremony/JWK, identity, dynamic-import, and UI
+        cases. The authoritative lifecycle contracts and focused invariant
+        owners replace this undifferentiated aggregate for Refactor 90
+        acceptance.
+  - [x] Intended-test declaration generation and typechecking complete in the
+        isolated worktree (`b44dcb34d`). The later healthy local run completes
+        the lifecycle suite at 10/10 on 2026-08-05.
+- [x] No legacy and replacement MPC path coexist in a releasable tree; the
+      composite ECDSA family and generic worker custody paths are absent, and
+      the source/boundary guards pass. Local lifecycle acceptance is complete;
+      deployment-only gates remain listed separately.
+
+## Unit 3b — Vault Proving Vertical
+
+Invariants: `R90-INV-009`, `R90-INV-012`.
+
+Detailed implementation belongs to
+[Satyr Secrets Vault, Phase 6](./satyr-secrets-vault.md). Refactor 90 needs only
+the proof that the shared authorization core supports `vault.proxy_use` through
+the minimal local broker/gateway adapter.
+
+- [x] Use Unit 2 sessions, evidence, grants, claims, and audit without a
+      vault-specific authorization framework.
+- [x] Prove native session exchange → operation-bound Passkey evidence → exact
+      one-use grant → atomic claim/use → real persisted/routed
+      `vault.proxy_use` → audit readback. The persisted D1 vertical is covered
+      by `vaultProxyUse.unit.test.ts` and passes at the current checkpoint
+      (`5db9ad87e`).
+- [x] Keep broad vault product UI, recovery, rotation, sharing, and future
+      capability kinds in the Satyr plan.
+- [x] Delete each concrete replaced vault target in the change that replaces it.
+
+Unit 3b may run in parallel with Unit 3a after the Unit 2 integration gate and
+does not block the Unit 3a implementation checkpoint. Refactor 90 completion
+and its supported release gate still require this proving vertical unless the
+normative plans are amended together.
+
+## Unit 3c — Signing Grant Identity Elimination, No Release
+
+Invariants: `R90-INV-009`, `R90-INV-012`, `R90-INV-013`,
+`R90-INV-014`.
+
+### Phase 20 direction correction — one existing operation store
+
+This is a destructive rename of the existing Wallet Session and
+operation-claim/use model. It does not add a parallel grant or
+`authorized_operations` table. `AuthorizationGrant` is the Wallet Session
+branch implemented by Refactor 90; linked-device and delegated-spend branches
+belong to Refactors 103 and 104. `AuthorizedOperation` replaces the existing
+operation claim/use record in place and preserves its stable fingerprint,
+atomic quota claim, replay lookup, execution lifecycle, result, and audit
+linkage.
+
+The only source union is:
 
 ```ts
-type NearEd25519YaoRecoveryCommitJournal =
+type OperationAuthorizationSource =
   | {
-      kind: 'prepared';
-      recoveryId: RecoveryId;
-      authority: WalletAuthAuthorityRef;
-      materialOwner: MpcMaterialOwnerRef;
-      source: NearEd25519YaoMaterialRecoverySourceRef;
-      correlation: RecoveryCorrelation;
-      disposition: 'continue' | 'cancel_requested';
+      kind: 'authorization_grant';
+      authorizationGrantRef: AuthorizationGrantRef;
+      evidenceSetDigest?: never;
     }
   | {
-      kind: 'promotion_committed';
-      recoveryId: RecoveryId;
-      authority: WalletAuthAuthorityRef;
-      materialOwner: MpcMaterialOwnerRef;
-      promotionReceipt: NearEd25519YaoPromotionReceipt;
-      finalization: NearEd25519YaoLocalFinalizationCommand;
+      kind: 'verified_step_up';
+      authorizationGrantRef?: never;
+      evidenceSetDigest: DigestB64u;
     };
 ```
 
-The exact target names remain SPEC-owned. The shape has these semantics:
-
-- `prepared` is persisted before the first consuming server call. On reload it
-  already represents server uncertainty; a separate `server_effect_uncertain`
-  state adds no information.
-- Every consuming server call is independently idempotent and queryable by
-  `recoveryId`. This is the load-bearing crash-safety invariant.
-- `cancel_requested` prevents reload from silently continuing abandoned work.
-  Reconciliation queries server state. When no consuming effect committed it
-  cleans up and deletes the journal. When an irreversible effect committed it
-  completes safe convergence without authorizing or executing the parent
-  operation.
-- `promotion_committed` records the irreversible server receipt needed for local
-  finalization.
-- One IndexedDB transaction persists the replacement seal or volatile-retention
-  record, retires or removes the prior source, persists the current lifecycle
-  receipt, and deletes the journal. Journal absence is terminal only because this
-  transaction is atomic.
-- Runtime activation, handle disposal, candidate disposal, and zeroization are
-  process-local worker responsibilities. They never enter durable journal state.
-
-The client may keep private in-memory stages while an operation is live. They do
-not become persisted unions, public preparation results, or cross-module proof
-brands.
-
-### 4. Preparation outcomes
-
-Invariants: `R90-INV-010`.
-
-Capability preparation exposes five outcomes:
-
-```ts
-type CapabilityPreparationResult<Ready, Resume, Requirement, Replacement, Failure> =
-  | { kind: 'ready'; value: Ready }
-  | { kind: 'pending'; resume: Resume }
-  | { kind: 'authorization_required'; requirement: Requirement }
-  | { kind: 'superseded'; replacement: Replacement }
-  | { kind: 'failed'; failure: Failure };
-```
-
-`superseded` invalidates the prepared lane and requires exact re-resolution. It
-must not collapse into retry, generic blockage, or recovery continuation.
-Protocol-specific failure payloads distinguish retryable and terminal failures.
-
-### 5. Material serialization
-
-Invariants: `R90-INV-008`.
-
-One per-material-owner queue serializes recovery, signing, refresh, and export.
-The queue validates an owner generation/fence before material use and again
-before committing effects. Callers run within a structured
-`withMaterialOwnerLock(...)` boundary.
-
-There is no public `MaterialUseLease` lifecycle, affine token transfer protocol,
-or runtime registry that attempts to invalidate aliased TypeScript values.
-Durable server execution leases remain separate and exist only for operations
-that can outlive a request, transfer between workers, or require delivery
-reconciliation.
-
-### 6. Operation claims
-
-Invariants: `R90-INV-009`.
-
-The operation fingerprint excludes rotating grant, quota, session, and runtime
-IDs. One server transaction on an absent fingerprint:
-
-1. validates the exact capability operation and current authority/lifecycle;
-2. validates and consumes one operation-grant use;
-3. validates and consumes one wallet quota use when the descriptor requires it;
-4. creates the operation claim and audit linkage.
-
-Operation descriptors declare quota applicability: normal signing costs one
-wallet-quota use beside its grant; key export declares no quota use and consumes
-only its exact grant. Quota exhaustion therefore never blocks export, and export
-never spends signing quota.
-
-An existing claim returns its current or terminal result without consuming
-renewed resources. A server execution lease is added only for an operation whose
-execution semantics require retry by another worker or delivery reconciliation.
-Ordinary request-bound execution does not become a durable job scheduler.
-
-### 7. Revocation
-
-Invariants: `R90-INV-006`, `R90-INV-009`.
-
-Server claims are revoked and reconciled by server-owned epochs and claim state.
-They are not local revocation-outbox targets.
-
-When offline local cleanup must eventually trigger a server revocation, the
-client stores one command containing an exact target, idempotency key, and
-creation time. It does not define a target-specific lifecycle union with
-cross-target `never` fields. Local secret disposal still happens immediately in
-the worker and does not wait for outbox delivery.
-
-### 8. Minimal vault proving slice
-
-Invariants: `R90-INV-009`, `R90-INV-012`.
-
-Slice A proves the shared authorization path before MPC migration:
-
-```text
-native session
-  -> operation-bound passkey evidence
-  -> one-use vault proxy/reveal grant
-  -> one vault operation
-  -> audit event
-```
-
-It includes only the schema, route, SDK call, evidence verification, grant claim,
-operation, and audit readback needed for this vertical. Full vault product
-behavior remains in its own plan.
-
-### 9. Enforcement rule
-
-Invariants: `R90-INV-012`.
-
-Use one primary enforcement mechanism per failure mode:
-
-- discriminated unions, required fields, `never`, exhaustive switches, and type
-  fixtures reject invalid core construction;
-- boundary parsers and focused hostile-input tests reject raw request,
-  persistence, worker, and token data;
-- source/import/export guards enforce dependency, worker, generated-WASM, and
-  bundle boundaries that the type system cannot observe;
-- integration tests cover atomicity, idempotency, crash reconciliation, and
-  cross-store effects;
-- E2E tests cover a small number of intended user-visible transitions.
-
-Do not require a source guard, negative fixture, unit test, and E2E test for the
-same structurally enforced property. Guards are retired when package or export
-boundaries make the prohibited path impossible.
-
-## Reduction Ledger
-
-| Removed or reduced mechanism | Property it protected | Replacement | Cheapest effective verification |
-| --- | --- | --- | --- |
-| ECDSA readback/publication journal stages | exact persisted manifest/material agreement | atomic local commit plus optional immediate canonical read | adapter round-trip and focused commit test |
-| Near recovery microstates | crash-safe convergence | recovery ID, server query/idempotency, two-state journal | crash fault-injection around each irreversible boundary |
-| separate server-uncertain state | detection of an in-flight consuming call | `prepared` already precedes the call | reload from `prepared` test |
-| pre-promotion cleanup state hierarchy | cancellation without unsafe continuation | `prepared.disposition = cancel_requested` plus reconciliation | cancel/crash/reload test |
-| seal and source deletion in separate commits | journal/source consistency | one finalization transaction that swaps/retire records and deletes journal | transaction-abort fault injection |
-| affine `MaterialUseLease` tokens | exclusive material use | owner queue plus generation/fence | concurrent recovery/sign/export test |
-| runtime disposal/zeroization journal facts | live secret cleanup | worker ownership and `finally` disposal | worker lifecycle tests |
-| target-specific revocation outbox union | eventual revocation | one exact idempotent command; server claims remain server-owned | offline/retry integration test |
-| synthetic third-factor adapter | factor-neutral coordination | factor-free interfaces and literal/import guard | generic-module source guard plus Passkey/OTP tests |
-| recursive evidence expression in the critical path | composed authorization | named policies or flat `all \| any` requirements used by current operations | policy table tests |
-| repository-wide and phase-local inventory gates | migration coverage | the standing deletion ledger, appended during implementation | scoped search and diff review per phase |
-| triple enforcement artifacts | regression resistance | one enforcement layer matched to the failure mode | check named in each phase |
-| broad vault feature set | proof of the authorization architecture | minimal proxy/reveal vertical | one end-to-end slice test |
-| predeclared future capability kinds | future extensibility | extend closed unions when a capability lands | exhaustive build failure on extension |
-
-This table is frozen history from the July 22 slimming. It is not a live
-process: removing scope from this plan does not require a new row, and no phase
-should spend time authoring ledger prose in place of code.
-
-## Execution Order
-
-The existing phase numbers remain stable for links from companion plans and the
-journal. Their scope is reduced below.
-
-| Work | Scope | Status |
-| --- | --- | --- |
-| Tactical Patch 2 | Email OTP exact-material local rehydration | In progress |
-| Refactor 91 | canonical auth-method domains | Implemented; E2E pending |
-| Foundation A | canonical hydration outcomes | In progress |
-| Foundation B | canonical required-field ECDSA state | In progress |
-| Phases 1-3 | registration cut, subjects, mechanical AuthService split | Complete |
-| Phases 4-5 | exact subjects and ECDSA role-local cache slimming | In progress |
-| Phases 7-9 | current vocabulary, SDK surface, narrow route ports/static assembly | Planning |
-| Phases 10-16 | minimal session/authorization/vault proving slice | Planning |
-| Phases 17-20 | authority/persistence migration, MPC modules and claims | Planning |
-| Phases 21-23 | required worker, UI, and provisioning cutover | Planning |
-| Phase 24 | current-host assembly reconciliation only | Planning |
-| Phases 25-26 | Better Auth and IdP | Moved to follow-on plans |
-| Phase 27 | final deletion and hardening | Planning |
-
-Foundations A-B and Phases 4-5 may proceed in parallel. No inventory phase gates
-Phase 7. Each phase performs its own scoped search as part of changing shared
-types, and records its deletions in the ledger before exit.
-
-The minimal Slice A vertical must pass before Phase 17 starts migrating live MPC
-signing. Phases 19-20 form one no-release cutover: a supported build cannot expose
-both the old signing authorization flow and the new capability-grant flow.
-
-## Phased Todo Tracker
-
-This is the progress checklist. The phase sections below define scope and exit
-conditions. Check a task only after its named implementation and validation are
-complete; cite the implementing commit SHA beside the checked item.
-Granular open-item lists for in-flight work live in the Foundation A/B and
-Phase 4/5 sections; symbol-level deletion targets live in the
-[deletion ledger](./refactor-90-deletion-ledger.md).
-
-### Current groundwork
-
-- [ ] Tactical Patch 2 passes its remaining exact-local, missing-material,
-  persistence-failure, intended-behaviour, audit/timing, and latency acceptance.
-- [x] Refactor 91 canonical auth-method domains and exhaustive conversions are
-  implemented.
-- [ ] Refactor 91 intended-behaviour E2E acceptance passes against a working
-  local site.
-- [x] Refactor 92 reusable Wallet Session lifecycle behavior is implemented and
-  frozen for Refactor 90 migration.
-- [ ] Refactor 92's effective 24-hour default is confirmed in staging and
-  production; this deployment check does not block local Refactor 90 phases.
-- [ ] Foundation A canonical hydration types, protocol resolvers, type fixtures,
-  and entry-point-equivalence tests are complete.
-- [ ] Foundation B canonical ECDSA record, parser, two-state activation journal,
-  atomic finalization, exact lane resolver, and legacy-record deletion are
-  complete.
-
-### Completed and in-flight phases
-
-- [x] Phase 1 — signer-set registration cut.
-- [x] Phase 2 — wallet-rooted confirmation subjects.
-- [x] Phase 3 — AuthService mechanical module split.
-- [ ] Phase 4 — exact capability-subject hardening closes against Foundation A.
-- [ ] Phase 5 — ECDSA role-local material contains no chain, grant, quota,
-  nonce, or broad session state.
-
-### Slice A — authorization proving vertical
-
-- [ ] Phase 7 — current closed capability/evidence vocabulary and exhaustive
-  operation mappings compile.
-- [ ] Phase 8 — narrow SDK runtime/capability selection fails early for disabled
-  server capabilities.
-- [ ] Phase 9 — current routes use narrow ports and static assembly; replaced
-  facade/helper/parallel paths are deleted.
-- [ ] Phase 10 — minimal session, factor, capability, grant, claim, vault, and
-  audit schema plus boundary parsers are complete.
-- [ ] Phase 11 — native session exchange produces an opaque, correctly bound
-  `SeamsSession`.
-- [ ] Phase 12 — verified evidence, exact grant issuance, stable fingerprints,
-  atomic claim/use, and audit linkage are complete.
-- [ ] Phase 13 — management/session routes use exact subjects and no obsolete
-  wallet-first policy aliases.
-- [ ] Phase 14 — Passkey and Email OTP evidence flow through factor-neutral
-  confirmation coordination.
-- [x] Phase 15 — service-account work is removed from Refactor 90 and assigned
-  to a follow-on plan.
-- [ ] Phase 16 — the minimal real session → Passkey evidence → one-use grant →
-  vault operation → audit vertical passes end to end.
-
-### Slice B — MPC migration
-
-- [ ] Phase 17 — active signing lanes use exact `WalletAuthAuthorityRef` without
-  duplicate identity bags.
-- [ ] Phase 18 — ECDSA and Near persistence, two-state recovery, simple
-  revocation commands, grants, and wallet quota have canonical owners and strict
-  parsers.
-- [ ] Phase 18 — persisted capability and material records use opaque material
-  activation IDs independently from authorization session IDs.
-- [ ] Phase 18 — `WalletSessionId`, `MpcWalletSigningQuotaId`,
-  `CapabilityGrantId`, `SeamsSessionId`, and `MpcMaterialActivationId` remain
-  independent branded identities; the `WalletSessionId = SigningGrantId` alias
-  is deleted.
-- [ ] Phase 19 — registration, unlock, refresh, signing, step-up, and export use
-  the same capability modules and minimal recovery lifecycle.
-- [ ] Phase 19 — activation, hydration, and runtime publication resolve one exact
-  `MpcMaterialActivationRef`; `active_state_session_id` and session-shaped
-  material locators are deleted.
-- [ ] Phase 19 — cancellation, crash recovery, atomic finalization, secret
-  disposal, and `superseded` re-resolution tests pass.
-- [ ] Phase 19 — the tactical symbols in the deletion ledger owned by this phase
-  are deleted in the same changes that replace them.
-- [ ] Phase 20 — MPC routes use exact operation grants and atomic absent-claim
-  grant/quota consumption; old threshold-session authorization is deleted.
-- [ ] Phase 20 — signed MPC operation scopes validate
-  `authorizationSessionId` and `materialActivation` independently.
-- [ ] Phase 20 — structured Wallet Session expiry races retry at most once
-  through same-method operation step-up; expiry never selects recovery.
-- [ ] Phase 20 — durable execution leases exist only for operations with a
-  demonstrated cross-request or cross-worker need.
-- [ ] Phase 21 — worker/WASM secret boundaries and required import/export guards
-  pass without speculative artifact restructuring.
-- [ ] Phase 22 — React, Lit, iframe, and direct SDK adapters exhaustively handle
-  the five preparation outcomes.
-- [ ] Phase 22 — secure-origin Wallet Session initialization and events preserve
-  Refactor 92 demo locking: expiry locks once, exhaustion remains unlocked, and
-  app identity survives either transition.
-- [ ] Phase 23 — auth-first per-capability provisioning replaces tactical
-  combined cross-curve registration/unlock orchestration.
-- [ ] Phase 23 — only explicit wallet unlock creates a reusable Wallet Session;
-  transaction/export step-up grants exactly one operation.
-- [ ] Phase 24 — current Cloudflare, Node, local-test, and self-hosted assembly
-  paths use the final static composition and thin adapters.
-- [x] Phases 25-26 — Better Auth and IdP are removed from Refactor 90 and
-  assigned to follow-on plans.
-- [ ] Phase 27 — obsolete code, schemas, fixtures, guards, docs, and exports are
-  deleted; final focused validation passes.
-
-### Completion checkpoint
-
-The per-invariant completion criteria are the SPEC's
-[Final conformance](./refactor-90-modular-auth-capabilities-SPEC.md#final-conformance)
-section; the behavioural criteria are the [Goal](#goal). Neither is restated
-here. This plan's exit gate is:
-
-- [ ] every phase above is checked;
-- [ ] the eight-scenario E2E budget and `git diff --check` pass.
-
-## In-Flight Foundations And Completed Work
-
-### Foundation A: Canonical MPC hydration
-
-Implement the four shared outcome names and protocol-local resolvers described
-above. Boundary observations remain precise `present | absent | invalid` or
-protocol-specific closed unions. Entry-point provenance cannot affect resolver
-control flow.
-
-Exit checks (`R90-INV-001`, `R90-INV-002`, `R90-INV-003`, `R90-INV-012`):
-
-- equivalent registration, unlock, and refresh observations choose the same
-  outcome;
-- missing, mismatched, corrupt, conflicting, and unavailable records fail
-  closed;
-- exact active material can become live without a new recovery ceremony;
-- retired capability material state can request public-anchor reauthorization
-  without carrying secret or bearer data;
-- reusable Wallet Session expiry or exhaustion is handled by Refactor 92 before
-  material hydration and cannot select recovery or material reactivation;
-- generic modules contain no `passkey` or `email_otp` lane-selection branches.
-
-Open items (nothing from this list is landed at the July 20 checkpoint; the
-tactical ECDSA resolver and Ed25519 local rehydration provide protocol evidence
-only):
-
-- [ ] leaf hydration module with the four-outcome union and narrow proof
-      constructors that reject direct literals, broad spreads, and mixed
-      live/sealed/anchor fields;
-- [ ] type fixtures rejecting cross-branch combinations (reauthorizable retired
-      state without a public anchor, sealed branch without a material
-      activation, live branch without runtime proof);
-- [ ] Near and ECDSA observation unions parsed from canonical persistence, never
-      from entry-point state;
-- [ ] one type fixture proving entry-point provenance is absent from the
-      resolver input type; this makes registration/unlock/refresh equivalence
-      structural rather than a 42-case behavioural matrix;
-- [ ] seven canonical-state resolver tests per capability (live, sealed-active,
-      capability-retired, missing, corrupt, conflicting, unavailable);
-- [ ] post-registration -> refresh and post-unlock -> refresh transition tests
-      proving only volatile runtime state disappears;
-- [ ] routine local rehydration (Passkey and Email OTP) resolves with zero
-      Deriver A/B calls.
-
-### Foundation B: Canonical ECDSA state and persistence
-
-Implement the active/retired record, exact parser, volatile runtime observation,
-exact lane resolver, and two-state activation journal. Registration, unlock,
-reauthorization, recovery, and refresh converge on this one adapter.
-
-Exit checks (`R90-INV-001`, `R90-INV-002`, `R90-INV-005`, `R90-INV-006`,
-`R90-INV-011`, `R90-INV-012`, `R90-INV-013`):
-
-- core identity, authority, session, material, persistence, recovery, export,
-  and lifecycle fields are required in their valid branch;
-- invalid branch combinations fail type checking;
-- material, manifest, retirement of a replaced record, and journal deletion
-  commit atomically after server activation;
-- activation is idempotent and queryable by journal correlation;
-- an optional post-commit read uses the canonical parser and creates no durable
-  readback state;
-- no compatibility reader or timestamp/source-priority selector survives.
-
-Landed groundwork (July 20 checkpoint): encrypted role-local material and
-presign records in `seams_wallet` with worker-local live state, and
-registration/Email OTP lifecycle repair through the shared tactical resolver.
-
-Open items:
-
-- [ ] required-field `active | retired` record with fixtures rejecting an active
-      manifest missing authority, server generation, durable material ref,
-      binding digest, or revision;
-- [ ] exact persistence parser distinguishing missing, mismatch, conflict,
-      corrupt, and unavailable, with exhaustive switches and no
-      timestamp/source-priority fallback;
-- [ ] two-state activation journal with atomic
-      material/manifest/retirement/journal-delete finalization, idempotent and
-      queryable by correlation;
-- [ ] one activation commit port shared by registration and unlock; Email OTP
-      unlock commits through it with no second writer;
-- [ ] refresh after worker destruction observes runtime `absent` and resolves
-      `rehydrate_material_activation`;
-- [ ] persisted activation identity uses a branded `MpcMaterialActivationId`
-      independently from every authorization or Wallet Session ID;
-- [ ] legacy `ThresholdEcdsaSessionRecordCore` family deleted (see the
-      [deletion ledger](./refactor-90-deletion-ledger.md));
-- [ ] end-to-end: real write, destroy runtime, reopen persistence, hydrate,
-      sign — for one-target and shared EVM-family configurations.
-
-### Phases 1-3: Completed cuts
-
-Keep the completed signer-set registration cut, wallet-rooted confirmation
-subjects, and mechanical AuthService split intact. Later route-port work deletes
-the remaining facade/helper pair in the same change; it does not add a third
-implementation.
-
-### Phase 4: Exact capability subjects
-
-Complete the current exact-subject hardening needed by Foundation A and the
-operation envelope. Do not expand into future identity-provider or device
-management schemas.
-
-Done so far: NEAR Ed25519 unlock requires the exact
-`nearAccountId`/`nearEd25519SigningKeyId`/`signerSlot` subject, and page-reload
-unlock resolves from durable wallet signer records when runtime session records
-are empty.
-
-Open items:
-
-- [ ] ECDSA-only wallet unlock reads no NEAR account identity (`toAccountId`,
-      NEAR projections, operational keys);
-- [ ] combined NEAR+ECDSA unlock warms branches from a typed
-      `WalletUnlockSubjectSet`; no flattened wallet/NEAR/ECDSA identity object;
-- [ ] page-refresh session restoration resolves subjects through the same
-      resolver for NEAR-only, ECDSA-only, and combined wallets;
-- [ ] app identity, reusable Wallet Session lifecycle, and per-capability
-      readiness remain separate; expiry locks only the demo wallet, exhaustion
-      leaves it unlocked, and either state can coexist with active app identity;
-- [ ] iframe initialization supplies the exact secure-origin Wallet Session
-      projection before React chooses locked or unlocked display state;
-- [ ] registered NEAR identity survives absent lane, grant, quota, and live
-      Client state;
-- [ ] delete `nearAccountId`-inference fallbacks, the
-      `login.publicKey ? 'passkey' : null` auth-method inference, and silent
-      signer-slot defaults;
-- [ ] focused tests: post-registration inventory publication, ECDSA-only
-      unlock, combined unlock, ECDSA-only/combined page-reload session reads,
-      missing/ambiguous-profile demotion, active login with no live Yao Client.
-
-### Phase 5: ECDSA role-local material slimming
-
-Remove chain target, operation authorization, wallet quota, nonce, and broad
-session state from role-local material. Preserve worker-only plaintext ownership,
-opaque handles, TTL cleanup, validation, zeroization, and `finally` disposal.
-
-Done so far: `evmFamilySigningKeySlotId` is removed from the role-local
-identity/handle builders and their call sites, with a focused regression test.
-
-Open items:
-
-- [ ] `buildEcdsaRoleLocalMaterialIdentity()` and its handle/digest builders
-      accept no `chainTarget`, `walletId`, `thresholdSessionId`,
-      `activeStateId`, grant, quota, remaining-use, or expiry input;
-- [ ] `evmFamilySigningKeySlotId` is deleted from runtime paths or renamed to a
-      provisioning reservation confined to registration/bootstrap (audit first;
-      see the [deletion ledger](./refactor-90-deletion-ledger.md));
-- [ ] `clientVerifyingShareB64u` renamed to `clientVerifyingPublicKey33B64u` on
-      ECDSA role-local surfaces (Ed25519 naming is out of scope);
-- [ ] role-local material handles are stable across Tempo/ARC for the same
-      material; cross-chain signing fails closed through lane/session
-      validation before worker material opens;
-- [ ] `activeStateId` appears only in Router A/B state/admission helpers and
-      request builders;
-- [ ] focused tests: same-material cross-chain reuse, cross-chain mismatch
-      rejection, reload-restored material, registration-created material.
-
-## Slice A: Prove The Shared Authorization Path
-
-The standing [deletion ledger](./refactor-90-deletion-ledger.md) carries the
-symbol-level deletion targets. Phases consult it as they go and add newly
-discovered targets as rows. There is no separate inventory phase: an inventory
-whose deliverable is a document goes stale before the code that replaces it
-lands, and the ledger already holds what such a phase would produce.
-
-### Phase 7: Current capability vocabulary
-
-Create closed leaf unions for only the capabilities and operations implemented by
-the minimal vault slice and the two MPC modules. Keep `WalletAuthMethod` and
-`SignerAuthMethod` in their stable Refactor 91 shared leaf module while both SDK
-and server consume them. Ownership purity alone does not justify moving them.
-
-Introduce exact tenant, principal, session, factor, capability, operation,
-grant, and evidence references required by the current verticals. Use named or
-flat `all | any` evidence requirements. Do not add recursive policy expressions,
-service-account evidence, provider-assurance taxonomies, IdP operations, Slack
-OTP, or an implemented `mpc_signer_proof` producer.
-
-The Refactor 82B `WalletAuthAuthority` restructure lands as one coordinated cut
-with this phase: stage the 82B domain types and fixtures dark first, then flip
-imports and delete the old wallet-auth shapes in the same change
-([refactor-82B.md](./refactor-82B.md)).
-
-### Phase 8: Narrow SDK runtime surface
-
-Expose only the runtime and capability selection required by hosted wallet mode,
-the minimal vault call, and MPC operations. Server tenant configuration remains
-authoritative. Disabled capability requests fail early and typed.
-
-### Phase 9: Route service ports and static assembly
-
-Replace route-facing `Pick<AuthService, ...>` dependencies with narrow typed
-ports. Cloudflare and Node use the same fetch-style handlers through thin
-adapters. Delete replaced facade/helper/parallel route paths in the same change.
-
-Use one static composition module with explicit imports. Do not introduce a
-runtime-neutral plugin registry, tenant-mutated route table, or deployment module
-selection framework. Optional modules can be added to static assembly when they
-exist.
-
-### Phase 10: Minimal Slice A schema
-
-Add only the persistence required for:
-
-- Seams sessions and exchange codes;
-- current auth-factor records;
-- capability instances and bindings;
-- operation grants, uses, and claims;
-- the minimal vault record;
-- authorization audit events.
-
-Defer service accounts, Better Auth, IdP, generalized device management, full
-vault administration, and future capability rows. Migrations validate and
-normalize raw rows once at their adapter.
-
-### Phase 11: Native session exchange
-
-Implement the native session-provider port and opaque `SeamsSession`. Bind the
-session to the current tenant, principal, audience/origin, and the minimum device
-fact required by the security decision. Session transport remains separate from
-operation authorization.
-
-### Phase 12: Authorization core
-
-Implement verified evidence construction, exact operation-grant issuance,
-stable operation fingerprints, atomic claim/use behavior, and audit linkage for
-the operations currently in scope. `mpc_signer_proof` policy evaluation fails
-closed until a producer is designed.
-
-Invariants: `R90-INV-001`, `R90-INV-009`.
-
-### Phase 13: Management and session route policy
-
-Move management and session routes to exact subject and session policies. Keep
-management authorization separate from capability-operation grants. Delete old
-wallet-first policy aliases and fixtures.
-
-### Phase 14: Grant evidence and confirmation UI
-
-Implement operation-bound Passkey evidence and the existing Email OTP evidence
-needed by current MPC flows. The minimal vault E2E acceptance uses Passkey.
-Generic coordination consumes verified evidence and contains no factor-kind
-branch. Slack OTP and provider adapters remain follow-on work.
-
-### Phase 15: Service accounts
-
-Moved to a follow-on plan. No service-account schema, evidence kind, policy, API
-key flow, or test blocks Slice A or Slice B.
-
-### Phase 16: Minimal vault integration
-
-Implement one production-shaped proxy/reveal vertical proving:
-
-1. native session exchange;
-2. operation-bound Passkey evidence;
-3. one-use exact grant issuance and claim;
-4. one vault operation;
-5. an auditable terminal result.
-
-Exclude delegation, rotation, break-glass, export, broad administration,
-service-account use, and complex UI. Exit requires the real persistence and
-route adapters, rather than a mock capability, so Slice B consumes a proven
-authorization core.
-
-Invariants: `R90-INV-009`, `R90-INV-012`.
-
-## Slice B: Migrate MPC Capabilities
-
-### Phase 17: Exact wallet authority references
-
-Replace factor strings and inferred wallet-auth identity on signing lanes with
-boundary-constructed `WalletAuthAuthorityRef`. Put the authority on the canonical
-capability/material owner and pass narrow prepared contexts downward. Avoid
-threading a duplicate identity bag through every internal helper.
-
-Reusable Wallet Session parsing must bind that exact authority while keeping
-`WalletSessionId` independent from auth-method display data, app identity,
-operation grants, wallet quota IDs, and material activation IDs.
-
-Invariants: `R90-INV-001`, `R90-INV-013`, `R90-INV-014`.
-
-### Phase 18: Wallet vocabulary and persistence migration
-
-Delete obsolete wallet-first tests and records as the replacements land.
-Preserve Refactor 91's stable auth-method leaf domains.
-
-Implement:
-
-- canonical ECDSA active/retired persistence from Foundation B;
-- exact Near public locator, sealed active-client record, and sealed recovery
-  source;
-- the two-state Near recovery journal;
-- one simple revocation command outbox when offline server reconciliation is
-  required;
-- independent operation grants and `MpcWalletSigningQuota`;
-- an opaque `WalletSessionId` for reusable wallet authorization and the exact
-  remaining-use quota attached to that session, independent from
-  `CapabilityGrantId` and `SeamsSessionId`;
-- a branded `MpcMaterialActivationId` and exact activation reference persisted
-  with each active capability/material manifest, separate from
-  `WalletSessionId` and `SeamsSessionId`;
-- strict boundary parsers with no dual-schema core reader.
-
-`signingGrantId` is classified and deleted, mapped to operation grant, or mapped
-to wallet quota according to semantics. It is never mechanically renamed or used
-as material identity.
-
-The persisted/request cutover replaces `active_state_session_id` and any
-threshold-session-derived material locator with the exact activation reference.
-There is no compatibility alias in core types. Activation records created before
-the cutover may be rejected at the persistence boundary; development accounts
-can be recreated after the schema and protocol version advance.
-
-The current `WalletSessionId = SigningGrantId` alias is deleted in the same cut.
-Wallet Session, app session, operation grant, wallet quota, and material
-activation each receive a distinct branded identifier and boundary parser.
-Refactor 92's exact Wallet Session state remains owned by the secure wallet
-origin and is never reconstructed from an operation grant, JWT presence,
-optional persisted IDs, or a material record.
-
-Invariants: `R90-INV-001`, `R90-INV-002`, `R90-INV-005`, `R90-INV-006`,
-`R90-INV-013`, `R90-INV-014`. The record and symbol deletion targets are enumerated in the
-[deletion ledger](./refactor-90-deletion-ledger.md).
-
-### Phase 19: MPC capability modules
-
-Create Near Ed25519 and EVM-family ECDSA capability modules. Both consume
-Foundation A outcomes, exact authorities, and protocol-local material adapters.
-Registration, unlock, refresh, signing, step-up, and export contain no
-entry-point-specific material branch.
-
-Near recovery follows the two-state journal and server invariants in the SPEC:
-
-1. inspect canonical source and journal state without effects;
-2. collect required authorization outside the material-owner queue;
-3. acquire the owner queue and re-resolve exact current state;
-4. persist `prepared` before the first consuming server call;
-5. reconcile idempotent/queryable admission, acquisition, and promotion by
-   `recoveryId`;
-6. persist `promotion_committed` when promotion is irreversible;
-7. atomically finalize local durable state and delete the journal;
-8. construct or publish runtime state and re-resolve the exact lane;
-9. return `superseded` if authority or lifecycle changed.
-
-Cancellation CAS-updates `prepared.disposition` to `cancel_requested`. Reload
-never silently resumes user-abandoned work. Pre-promotion cancellation cleans up
-after server reconciliation. Post-promotion cancellation cannot undo committed
-authority; it finishes safe local convergence without executing the parent
-operation.
-
-All live secret handles remain worker-private, purpose-bound, and one-use.
-Disposal and zeroization cover success, failure, cancellation, expiry,
-supersession, and abandoned-handle TTL cleanup. They do not appear in the
-durable journal.
-
-The capability module owns activation identity. Registration or explicit
-re-activation creates a new opaque activation ID and binds it to the capability,
-material owner, key, lifecycle, and SigningWorker. Explicit wallet unlock or a
-Wallet Session refresh may mint a fresh authorization session while preserving
-that exact activation reference. Ordinary page refresh reuses the same valid
-Wallet Session and remaining allowance. Operation step-up mints only the
-single-operation grant. No path derives material identity from a fresh session
-or grant ID. Hydration returns the same activation reference for live and sealed
-copies of the same exact material.
-
-Refactor 92 remains the wallet-authorization front end to both modules. A valid
-Wallet Session retains its remaining warm allowance across page refresh while
-the module rehydrates and rebinds the same exact material activation. Expired
-or missing authorization requests same-method step-up for the current
-operation. Exhaustion follows the same operation-step-up path while the demo
-stays unlocked. Neither transition mints a reusable Wallet Session, changes the
-material activation, or enters Yao recovery/device linking. Passkey and Email
-OTP use the same classifier, invalidator, and transition table for signing,
-delegate signing, and export.
-
-Invariants: `R90-INV-002`, `R90-INV-003`, `R90-INV-004`, `R90-INV-005`,
-`R90-INV-006`, `R90-INV-007`, `R90-INV-008`, `R90-INV-010`, `R90-INV-011`,
-`R90-INV-013`, `R90-INV-014`.
-The tactical resolver, lane, reconnect, recovery, and export symbols this phase
-deletes are enumerated in the
-[deletion ledger](./refactor-90-deletion-ledger.md).
-
-### Phase 20: MPC route policy and operation claims
-
-Replace threshold-session authorization planes with exact capability-operation
-grants. Existing-claim lookup occurs before fresh authorization or recovery.
-Only an absent claim can consume new grant/quota resources.
-
-The server atomically validates current promotion/revocation state, consumes the
-exact grant and applicable quota, creates the claim, and writes audit linkage.
-Add execution phases, leases, watchdogs, or delivery reconciliation only to
-operations whose real execution can outlive the request or transfer between
-workers. Client material-owner queues and server operation claims remain separate
-domains.
-
-Every signed MPC operation scope carries two independent proofs:
-
-- `authorizationSessionId` identifies the current reusable Wallet Session and
-  is checked for expiry, wallet, exact auth authority, and warm allowance;
-- `materialActivation` identifies the exact activated material instance and is
-  checked against the capability, owner, key, lifecycle, generation, and
-  SigningWorker state.
-
-The operation grant remains bound to the active `SeamsSession` and exact
-operation. Server admission distinguishes expired, exhausted, missing,
-unavailable, and invalid Wallet Session results. An authoritative expiry race
-may trigger one same-method operation-step-up retry. A second expiry is
-terminal. Expiry never selects recovery, and key export declares no quota use.
-
-The wire protocol replaces generic `session_id` and
-`active_state_session_id` fields with these explicit domains and advances its
-version and transcript vectors. Wallet Session replacement changes only
-authorization. Material re-activation changes only the activation reference.
-Neither value is accepted as a substitute for the other.
-
-Invariants: `R90-INV-008`, `R90-INV-009`, `R90-INV-013`, `R90-INV-014`.
-
-### Phase 21: Worker and bundle boundaries
-
-Preserve responsibility-local secret ownership:
-
-- generic confirmation receives no MPC material;
-- Email OTP enrollment secret and KEKs remain in its secure worker;
-- Near root and active Client material remain in the Near secure owner;
-- ECDSA derivation, presign, and online signing remain separated where their
-  secret ownership or existing artifacts require it.
-
-Split or consolidate additional artifacts only when a trust boundary or measured
-bundle/latency result justifies it. Keep import/export guards for worker and WASM
-boundaries that TypeScript cannot express.
-
-### Phase 22: Wallet UI migration
-
-Migrate React, Lit, iframe, and direct SDK adapters to the exact preparation
-outcomes. UI may render provenance and diagnostics but cannot choose material,
-recovery, authorization, or lane branches. `superseded` discards stale prepared
-state and initiates exact re-resolution.
-
-The secure wallet origin remains the canonical Wallet Session owner. Iframe
-initialization returns the exact active or restorable wallet/session projection,
-and React waits for initialization before choosing display state. Typed
-Refactor 92 events drive the live demo: authoritative expiry locks the matching
-wallet once, exhaustion keeps the wallet unlocked and requests step-up, and
-either transition preserves the broader app/Google identity session. UI
-confirmation requests for the expired session terminate immediately with the
-typed expiry result.
-
-Invariants: `R90-INV-010`, `R90-INV-014`.
-
-### Phase 23: Auth-first provisioning
-
-Registration and add-factor flows create auth identity first, then provision
-each requested capability independently. Each capability commits through its
-canonical persistence owner. Partial provisioning returns exact per-capability
-results and does not create a combined cross-curve active record.
-
-Only explicit wallet unlock creates a reusable Wallet Session. Same-method
-step-up for signing or export creates one operation grant and leaves reusable
-Wallet Session state unchanged.
-
-The tactical Email OTP registration/unlock coordination from Patch 2 is deleted
-after its exact-local and missing-material behavior is preserved by the two
-capability modules.
-
-Invariants: `R90-INV-013`, `R90-INV-014`.
-
-### Phase 24: Current-host assembly reconciliation
-
-Update current Cloudflare, Node, local test, and self-hosted paths that directly
-construct the replaced services. Keep one static route composition model and thin
-host adapters. Broader example matrices and a generic route-module framework are
-follow-on work.
-
-### Phases 25-26: Better Auth and IdP
-
-Moved to their own plans. Refactor 90 retains only provider-neutral session and
-evidence boundaries needed to permit later adapters. No placeholder handlers,
-future capability kinds, schemas, or conformance suites are required now.
-
-### Phase 27: Final deletion and hardening
-
-Delete:
-
-- `ThresholdEcdsaSessionRecordCore` and equivalent optional aggregates;
-- source-priority and newest-record selection;
-- entry-point-specific registration/unlock/refresh material branches;
-- duplicate persistence owners and compatibility readers outside explicit raw
-  request/persistence boundaries;
-- old signing-grant/budget/session aliases;
-- replaced AuthService facade/helper/route paths;
-- obsolete tests, fixtures, mocks, guards, docs, and public exports;
-- synthetic-factor scaffolding and placeholder future capability handlers.
-
-Run export-map and dependency checks, focused security-sensitive integration
-tests, intended-behaviour E2E tests, and `git diff --check`.
-
-## Validation Strategy
-
-Per-invariant conformance evidence lives in the SPEC's
-[Phased Invariant Verification Checklist](./refactor-90-modular-auth-capabilities-SPEC.md#phased-invariant-verification-checklist),
-and each phase names its own checks. This section is not a second copy of
-either. It owns only the two budgets that bound total verification work, under
-the [Verification Budget](#verification-budget) rules.
-
-Static and type-level properties — invalid lifecycle combinations, required
-fields per branch, exhaustive conversions, non-substitutable branded IDs,
-fingerprint inputs excluding rotating IDs, `superseded` not collapsing into
-ready/pending/retry — are enforced by the types and fixtures named in each
-phase. They get no additional unit test, source guard, or E2E case.
-
-### Fault-injection and concurrency budget
-
-These are load-bearing and are not trimmed:
-
-- crash fault injection at each irreversible Near boundary — admission,
-  acquisition, promotion, finalization;
-- crash/reload from `prepared` queries server state before any other effect;
-- `cancel_requested` never silently resumes the abandoned parent operation;
-- ECDSA activation idempotency by journal correlation;
-- local finalization atomically persists replacement/retirement/lifecycle facts
-  and deletes the journal; transaction abort leaves the old source and journal
-  reconcilable;
-- recovery, signing, refresh, and export serialize per exact material owner, and
-  a stale generation/fence cannot commit after replacement or revocation;
-- existing operation claims consume no renewed grant or quota;
-- a server-side expiry race performs at most one step-up retry.
-
-### Intended-behaviour E2E budget
-
-Capped at eight scenarios:
+Reusable Wallet Session operations reference the existing Wallet Session
+authorization and consume its quota once. Passkey and Email OTP step-up
+operations are created directly from verified evidence and never mint a
+transient grant. Existing operation rows replay without consuming authorization
+or quota. Wallet Session, operation, quota, Seams session, threshold-session,
+and material-activation identities remain independent.
+
+Replace the current domain types, ports, parsers, schemas, fixtures, and
+builders in place. No compatibility aliases, synthetic grant/evidence
+construction, generic revocation-epoch subsystem, or second authorization
+store is permitted. Raw legacy column names may be handled only inside the
+persistence boundary while the forward migration removes them.
+
+`SigningGrantId` is a legacy signing-session identity that overlaps the
+canonical authorization model. A reusable operation already has an exact
+`AuthorizationGrantRef`, `WalletSessionId`, and `MpcWalletSigningQuotaId`; a
+one-operation authority has an exact `AuthorizedOperationId`; material is
+identified independently by `MpcMaterialActivationRef`. Unit 3c removes
+`SigningGrantId` as a domain concept across Ed25519 and ECDSA.
+
+This is a coordinated breaking cutover. It is not a mechanical rename, and it
+must not introduce a compatibility alias or let a quota, grant, session, or
+material identifier substitute for another.
+
+The initial live-occurrence inventory is recorded in the deletion ledger
+(`b0da12eaf`): 118 production files and 1,245 references after excluding type
+fixtures and generated `dist` output. The ECDSA post-registration activation
+field was coupled to Wallet Session JWT issuance and downstream bootstrap; the
+coordinated Rust/TypeScript claim-verifier cutover below removed it.
+
+The first Ed25519 cleanup checkpoint is recorded in the deletion ledger and
+commit `a37dbb65b`: the reservation-only route-core unit test and its obsolete
+local-Yao public-signing section were deleted. Registration, retry, and worker
+disposal coverage remains; the production legacy route has no caller and was
+removed in the same checkpoint.
+
+Current implementation checkpoint (`cb7bc901c`, `53ab721df`, and
+`daeda0d7e`, following `5dbabdfc8`, `b34bf343f`, and `422268f7d`): the
+Rust/TypeScript authorization-claim boundary is strict and the Rust ECDSA
+binding and Router A/B crate suites pass. Near Ed25519 lane and status
+diagnostics now use `WalletSessionId` plus `MpcWalletSigningQuotaId`; the old
+grant identity has been removed from shared Ed lane/session-state carriers,
+ECDSA registration bootstrap contracts, registration-side budget provisioning,
+and the shared branded-ID/parser surface. The Rust Router reserve/validate/
+commit/release budget protocol, its public route/types, and current-row wiring
+were deleted in `cb7bc901c`; stale boundary guards were aligned in
+`c92b7d4a0` and `daeda0d7e`. Server and web typechecks pass. Obsolete Router
+budget-only unit coverage was deleted in `5dbabdfc8`. Unit 3c's implementation
+cutover is complete: current production source has no live `SigningGrantId`,
+`signingGrantId`, or `signing_grant_id` occurrence outside the immutable
+historical migration, and both curves use the Gateway atomic claim/quota path.
+The focused acceptance and conformance evidence is closed by `fa5791630`.
+
+The deletion checkpoints `882dfd681`, `4885bed62`, `32be59fb1`,
+`fa5791630`, and `f4c8c7423` remove the remaining
+TypeScript Router budget persistence/parser surface, the callerless local
+signing-seed runtime and factory wiring, obsolete wallet-budget status and
+parser tests, grant-named admission/cache identities in the SDK and console
+admission fixture, and the local smoke wire's legacy budget-field injection.
+The focused
+wallet-session quota admission suite is green; Router normal-signing,
+Email OTP recovery/export, identity-fixture, and EVM retry coverage are green;
+SDK-server, SDK-web, console-server, and unit TypeScript typechecks pass. The
+Unit 3c implementation and focused acceptance gate are closed. Broader
+Refactor 90 environment-dependent acceptance remains tracked separately.
+
+### Canonical authorization identities
+
+- [x] Remove the inert ECDSA admission-policy `signingGrantId` input and make
+      Router A/B quota-key helpers accept only the Ed25519 admission subtype;
+      the ECDSA policy/abuse path performs no legacy quota reservation
+      (`5cf433765`). The Rust reusable-claim binding now uses the shared durable
+      claim verifier and canonical Wallet Session/quota identities.
+- [x] The focused Router A/B admission-store suite covers ECDSA policy without
+      legacy quota reservation and passes 8/8 (`5cf433765`).
+- [x] Remove the legacy grant identity from the internal verified ECDSA Wallet
+      Session authorization carrier and complete the coordinated strict
+      Rust/TypeScript JWT cutover (`13e7a9844`, `41ed8f9cb`).
+- [x] Add every live `SigningGrantId`, `signingGrantId`, and
+      `signing_grant_id` production occurrence to the deletion ledger and
+      classify it as reusable-session authorization, quota, operation grant,
+      persistence boundary, or obsolete projection. Current source search is
+      empty outside the immutable historical migration; no live occurrence is
+      classified as material identity (`4885bed62`).
+- [x] Make reusable authorization carry only the exact `WalletSessionId`,
+      `MpcWalletSigningQuotaId`, authority, expiry, and operation context.
+      Remove `signingGrantId` from Wallet Session JWT claims, verified session
+      auth, mint/bootstrap responses, session exchange, refresh, and status
+      projections for both curves (`13e7a9844`, `4885bed62`).
+- [x] Issue and consume canonical `CapabilityGrantId` and
+      `CapabilityGrantUseId` values for each authorized signing operation.
+      Bind the grant to the exact capability, operation, digests, material
+      activation, and reusable Wallet Session/quota branch or operation-step-up
+      branch (`b166b0bf1`, `41ed8f9cb`). This records the completed Unit 3c
+      checkpoint; Unit 3d removes the synthetic reusable branch while retaining
+      grants for operation step-up.
+- [x] Change the ECDSA `authorization_claim` reusable branch to carry the
+      canonical capability grant rather than the verified Wallet Session's
+      `signing_grant_id`. Keep strict Rust and TypeScript parsing atomic and
+      reject the old field (`41ed8f9cb`, `9196afd69`).
+- [x] Keep `MpcMaterialActivationRef` and curve-specific threshold-session
+      identity independent from Wallet Session, quota, and capability-grant
+      identities. Material, sealed records, restore leases, worker handles,
+      and hydration state reject every authorization identifier
+      (`57849eda9`, `0c341f40a`).
+
+### Atomic claim and quota ownership
+
+- [x] Move Ed25519 reusable-session quota consumption from the Router
+      reserve/commit/release protocol to the Unit 2 authorization core's atomic
+      absent-claim transaction at the durable Gateway D1 owner. The transaction
+      validates the exact grant, consumes the applicable quota once, creates
+      the operation claim, and records audit linkage (`b166b0bf1`; focused
+      authorization/claims suite 29/29).
+- [x] Keep SigningWorker private D1 responsible only for cryptographic effect
+      deduplication, presignature or Yao material consumption, and terminal
+      response replay. It must receive a typed accepted claim and must not own
+      Wallet Session quota state (`4885bed62`; Rust worker claim validation).
+- [x] Preserve lifecycle semantics: reusable signing consumes one quota use;
+      replay consumes none; operation step-up consumes only its one-operation
+      grant; export consumes no signing quota; expiry and exhaustion remain
+      distinct; failed, stale, mismatched, or superseded operations consume
+      nothing (focused authorization/claims and lifecycle matrix evidence).
+- [x] Delete Router, runtime, store, Redis, Durable Object, worker, client, and
+      test reserve/commit/release APIs and rows after their final Ed25519 caller
+      moves. Reject or clear old persisted rows at the owning persistence
+      boundary without exposing a dual-schema core path.
+  - [x] Rust Router reserve/validate/commit/release protocol, public route,
+        current-row wiring, TypeScript Router budget runtime/store/provisioner,
+        and callerless local-seed runtime deleted (`cb7bc901c`, `8cfd03530`,
+        `a68f73437`, `f79921609`, `805521710`, `882dfd681`).
+  - [x] Move the remaining live Ed25519 reusable-session quota caller to the
+        shared atomic claim/quota owner, then close this parent item
+        (`b166b0bf1`).
+
+### Client, UI, and persistence cleanup
+
+- [x] Remove `signingGrantId` from signing lanes, readiness and availability
+      records, warm-capability state, session policies, expiry invalidation,
+      browser/iframe envelopes, UI confirmation payloads, local persistence,
+      worker requests, logs, and public APIs (`4885bed62`; current-source
+      search is empty).
+- [x] Use `CapabilityGrantPlan`/`CapabilityGrantId` for operation confirmation
+      and use `WalletSessionId` plus `MpcWalletSigningQuotaId` for reusable
+      lifecycle display and status. Display state must remain non-authoritative.
+- [x] Delete the `SigningGrantId` branded type, parser, generator, exports,
+      builders, adapters, source guards, fixtures, mocks, and documentation
+      after all production callers move (`4885bed62`; historical refactor docs
+      remain archival references).
+- [x] Remove `signing_grant_id` from current Rust and TypeScript wire schemas
+      and generated bindings in the same change. Historical migrations may
+      retain the old column name only when migration immutability requires it;
+      the current schema and boundary parsers must reject or remove it, and the
+      deletion ledger records that boundary-only exception (`41ed8f9cb`,
+      `9196afd69`).
+- [x] Regenerate authoritative Rust-to-TypeScript bindings and affected vectors
+      once after the wire shapes stabilize. Never hand-edit generated output.
+
+### Focused verification
+
+- [x] One focused reusable-session operating-path test per curve proves exact
+      Wallet Session/quota binding, one atomic quota consumption, operation
+      claim creation, signing success, and replay without another consumption.
+- [x] One focused operation-step-up test proves a canonical capability grant
+      authorizes exactly one operation and carries no Wallet Session or quota
+      identity (authorization/claims suite 29/29).
+- [x] Existing expiry, exhaustion, export-without-quota, hostile substitution,
+      and durable effect-replay cases pass after the cutover. Add no duplicate
+      enforcement for invariants already owned by those tests (`fa5791630`;
+      focused Email OTP recovery 15/15, including exact quota substitution).
+- [x] Type fixtures reject `SigningGrantId`, `signingGrantId`, and
+      `signing_grant_id` in current session, grant, quota, material, worker, and
+      UI shapes.
+- [x] Run focused type, wire, claim/quota, worker, binding, and vector checks
+      while implementing. Run the broad unit and intended-behavior gates once
+      at final conformance.
+
+### Unit 3c exit
+
+- [x] No live production, test, generated-binding, public-documentation, or
+      current-schema occurrence of `SigningGrantId`, `signingGrantId`, or
+      `signing_grant_id` remains. Any immutable historical migration occurrence
+      is boundary-only and explicitly recorded (`4885bed62`, `41ed8f9cb`).
+- [x] Ed25519 and ECDSA use the same Gateway atomic claim/quota owner and exact
+      material-activation separation (`b166b0bf1`, `41ed8f9cb`). Unit 3d owns
+      removal of their remaining divergent synthetic-grant adapters.
+- [x] The legacy Router reserve/commit/release budget protocol and its persisted
+      rows, fixtures, and guards are deleted (`4885bed62`).
+- [x] Focused reusable, step-up, expiry, exhaustion, export, replay, hostile
+      substitution, binding, and vector checks pass (`4885bed62`,
+      `32be59fb1`, `fa5791630`, `f4c8c7423`; 109 identity fixtures, 38 admission/recovery/
+      export/coordinator checks, and the previously recorded Rust binding and
+      vector gates).
+- [x] All Unit 3c deletion-ledger entries are closed with implementing commit
+      evidence (`4885bed62`, `fa5791630`).
+
+## Unit 3d — Direct Authorized Operations, No Release
+
+Invariants: `R90-INV-009`, `R90-INV-012`, `R90-INV-013`,
+`R90-INV-014`.
+
+Unit 3c removed the legacy signing-grant identity and the duplicate Router
+quota protocol. Unit 3d removes the remaining capability-grant/use model from
+operation admission and makes the two authority branches exact:
+
+| Authority branch          | Required authorization identity                                      | Forbidden identity                                      |
+| ------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------- |
+| Reusable Wallet Session   | `AuthorizationGrantRef` + `WalletSessionId` + `MpcWalletSigningQuotaId` + `AuthorizedOperationId` | Step-up evidence identity |
+| One-operation step-up     | `AuthorizedOperationId` + verified evidence digest                   | Authorization grant, Wallet Session, and reusable quota identity |
+| MPC material              | `MpcMaterialActivationRef` + curve-local threshold-session identity   | Every authorization and authorized-operation identity   |
+
+This is a coordinated breaking cutover. Add no compatibility alias, synthetic
+grant row, derived evidence record, or second quota authority. Historical
+migrations remain immutable; current schemas and runtime types contain only the
+new model.
+
+### Branch-specific domain model
+
+- [x] Amend the Refactor 90 SPEC so `R90-INV-009` defines the exact reusable
+      and operation-step-up authorization branches, their forbidden fields,
+      their authorized-operation identities, and their atomic storage obligations before
+      changing production types.
+- [x] Replace the common `CapabilityOperationClaimBase` and
+      `CapabilityGrantUse` with the `AuthorizedOperation` discriminated union.
+      Reusable and verified-step-up sources reject each other's fields.
+- [x] Make completion references bind the exact `AuthorizedOperationId` and
+      operation fingerprint. Step-up completion carries no transient grant.
+- [x] Provide branch-specific builders and exhaustive switches. Type fixtures
+      must reject grant or evidence fields on reusable claims and Wallet Session
+      or quota fields on step-up claims.
+- [x] Delete synthetic reusable evidence-digest derivation and every reusable
+      builder, fixture, public document, and diagnostics field that treats a
+      capability grant as direct Wallet Session authority.
+
+### One direct authorized-operation path for both curves
+
+- [x] Replace `claimReusableWalletSessionFromGrant` and grant-shaped reusable
+      inputs with one direct authorized-operation port.
+- [x] Move Ed25519 to the direct port and delete its fabricated
+      `ed25519-operation-grant:*` identifier.
+- [x] Move ECDSA to the same direct port. Delete reusable-session construction
+      and persistence of `VerifiedGrantEvidenceSet`, `ActiveCapabilityGrant`,
+      binding ID, grant ID, and evidence IDs. Preserve verified step-up evidence
+      as the direct source of its authorized operation.
+- [x] Cut over the reusable ECDSA `authorized_operation` branch in Rust,
+      TypeScript, generated bindings, boundary parsers, and fixtures together.
+      Reject grant, grant-use, binding, and grant-evidence fields on that
+      branch; keep the operation-step-up branch strict and unchanged.
+- [x] Keep the ECDSA material-activation match inside its atomic admission.
+      Ed25519 and ECDSA must share session, quota, fingerprint, admission, replay,
+      completion, and audit semantics; curve-specific material checks remain
+      explicit predicates of that admission.
+- [x] Keep private workers effect-only. They receive an accepted direct-session
+      authorized operation and never infer authority from a grant,
+      JWT, material handle, or diagnostics record.
+
+### Atomic storage and deployed-data cutover
+
+- [x] Add one forward D1 migration after the current signer migrations. Do not
+      rewrite immutable migration history.
+- [x] Remove synthetic reusable grant/use identity from current authorized-operation
+      and audit rows. Store either an authorization reference or verified step-up
+      evidence according to the operation source branch.
+- [x] Keep reusable session validation, quota consumption, operation-fingerprint
+      reservation, operation insertion, and audit insertion in one atomic database
+      operation. Replay and failed admission consume no quota.
+- [x] Preserve exact ECDSA material-activation matching in the same D1 atomic
+      batch as operation insertion. A material mismatch must return before a worker
+      effect begins.
+- [x] Delete or reject pre-cutover synthetic reusable grant/evidence rows at the
+      persistence boundary. Ship no dual-schema reader or lazy compatibility
+      conversion.
+### Typed recovery failures
+
+- [x] Replace the raw `wallet_binding_mismatch` exception in cold Email OTP
+      recovery continuity with the existing typed recovery failure/result
+      boundary. Keep parse failure, identity mismatch, material mismatch, and
+      disposal failure distinguishable where callers make different retry or
+      UI decisions.
+- [x] Add one hostile continuity test proving a substituted Wallet Session,
+      quota, threshold session, or material activation fails before promotion
+      or signing effects. Extend the existing test table rather than creating a
+      parallel suite.
+
+### Bounded verification and acceptance repair
+
+- [x] Repair the local ceremony-JWT JWK fixture and other environment setup
+      required by the current D1 authorization tests. Classify remaining broad
+      failures before changing production code; delete obsolete fixtures and
+      preserve valid behavioral assertions.
+- [x] Run one focused direct reusable-operation case per curve, one step-up
+      case, one atomic quota/replay concurrency case, the branch type fixtures,
+      and the existing hostile-substitution table.
+- [x] Run SDK/server/unit typechecks, the affected Rust/TypeScript wire checks,
+      and `git diff --check` once after the shapes stabilize. Add no source-text
+      guard or duplicate policy matrix.
+- [x] Run the existing intended-behavior contracts once in a healthy
+      environment for Passkey and Email OTP across Ed25519 and ECDSA signing,
+      export, expiry, exhaustion, replay, and recovery. Do not create another
+      E2E suite for behaviors those contracts already own. The complete suite
+      passes 10/10 on 2026-08-05.
+
+### Unit 3d exit
+
+- [x] Reusable Wallet Session authorized operations contain no capability-grant,
+      grant-use, binding, or grant-evidence identity in production types, wire
+      shapes, current D1 schema, workers, fixtures, or public documentation.
+- [x] Verified step-up evidence is consumed directly by one authorized
+      operation. Capability grants remain only in independently scoped vault
+      authorization.
+- [x] Ed25519 and ECDSA use the same direct Wallet Session admission/quota/replay/
+      completion model, with exact curve-specific material predicates.
+- [x] Focused Unit 3d authorization checks and the healthy intended-behavior run
+      supply the required factor/curve parity evidence. Broad lower-authority
+      and environment-dependent matrices are not release gates.
+- [x] Every Unit 3d deletion-ledger row is closed by the Unit 3d completion entry.
+
+## Unit 4 — UI + Provisioning
+
+Invariants: `R90-INV-010`, `R90-INV-012`, `R90-INV-013`,
+`R90-INV-014`.
+
+### Typed UI lifecycle
+
+- [x] Make React, Lit, iframe, and direct SDK adapters render
+      `ready | pending | authorization_required | superseded | failed`
+      exhaustively.
+- [x] Discard and re-resolve stale state on `superseded` across the direct SDK,
+      React, iframe, and demo-wallet projections without locking the wallet.
+      A bounded React reread that is still `superseded` preserves the current
+      login until the next typed lifecycle event (`c258b94fb`).
+- [x] Terminate confirmation immediately on the typed expiry result.
+- [x] Wait for secure-origin initialization and consume typed state/events.
+- [x] Stop inferring unlocked state from optional IDs, JWT presence, or auth
+      method.
+- [x] Treat the demo wallet as unlocked only while a reusable Wallet Session is
+      active.
+- [x] Lock on authoritative expiry, request step-up on exhaustion, and preserve
+      the broader app identity session.
+- [x] Registration establishes the initial reusable Wallet Session. Explicit
+      wallet unlock establishes or renews one; refresh and one-operation
+      step-up do not mint one. Keep first ECDSA registration activation inside
+      the registration ceremony, make later activation Wallet-Session-only for
+      additional targets, and delete the app-session/export path that can mint
+      one.
+- [x] Restrict direct ECDSA session activation for additional targets to an
+      existing same-wallet Wallet Session; registration remains the first-session
+      provisioning path.
+- [x] Send the first exact activation through the registration authority
+      exchange and use the Wallet Session JWT from explicit unlock for additional
+      configured targets.
+  - [x] Passkey registration verifies the registration proof, provisions the
+        first exact ECDSA activation, adopts that correlated activation locally,
+        and establishes the initial reusable Wallet Session.
+  - [x] Email OTP registration verification performs the equivalent initial
+        activation and Wallet Session establishment without exposing
+        worker-owned secret material.
+- [x] Keep step-up single-operation across signing and export surfaces.
+
+### Provisioning
+
+- [x] Create registration/add-factor auth identity first, then provision each
+      capability independently through statically composed canonical owners.
+- [x] Make partial capability results explicit and exhaustively handled.
+- [x] Return exact per-capability results with no combined cross-curve record.
+      Email OTP unlock now returns exact sibling ECDSA and Ed25519-Yao outcomes
+      under one proof envelope; the combined discriminants and fixture were
+      deleted in `def400d94` and `89e9cd4a5`.
+- [x] Use exact wallet, authorization-session, and material-activation
+      projections.
+- [x] Delete Patch 2 tactical UI/provisioning bridges after their last caller
+      moves.
+- [x] Delete obsolete loading heuristics, fallback lane selection, and
+      pre-cutover fixtures in the same change. The inert deferred-seal
+      registry and restore wait were deleted in `c72cbf31f`; the remaining
+      fallback selectors and composite/pre-cutover fixtures were already
+      removed by `ae8f7b72d`, `24e0c2335`, `acb368888`, `a62080152`,
+      `e501d0231`, and `69313bcdf`. Remaining migration fixtures are boundary
+      coverage and stay in place.
+- [x] Delete the Ed25519 updated-at fallback lane and select directly from the
+      canonicalized, priority-sorted candidates.
+  - [x] Delete the zero-caller ECDSA reauth-anchor candidate fallback and its
+        candidate-only freshness helpers; retain the canonical operation-state
+        builder (`24e0c2335`).
+  - [x] Delete the zero-caller available-lane reauth-anchor fallback and its
+        lane-selection/version/source helpers; retain canonical operation-state
+        freshness and lane admission (`acb368888`).
+  - [x] Delete the zero-caller dual-PRF registration credential helper and its
+        allow-list adapter; the canonical credential collector remains live
+        (`93958f9a6`).
+
+### Unit 4 exit
+
+- [x] Every concrete deletion-ledger entry assigned to Unit 4 is closed;
+      ownership corrections and intentional retained factor-owner rows are
+      recorded in the final bounded sweep.
+- [x] UI type fixtures reject incomplete lifecycle states.
+- [x] Existing Refactor 92 contracts still prove expiry/exhaustion separation,
+      refresh allowance, step-up behavior, and Passkey/OTP parity. The focused
+      OTP contracts pass 3/3 and the healthy local run exercises both factors'
+      unlock and refresh lifecycles (`3ab4d27bc`).
+  - [x] The local Refactor 92 boundary, retry, invalidation, planning, demo,
+      persistence, and policy set passes 38/38 and proves typed
+      expiry/exhaustion separation plus same-method step-up. Refresh
+      allowance and cross-factor parity remain environment-backed gates. The
+      demo expiry fixture now constructs a canonical `WalletSessionId` rather
+      than the retired signing-grant helper (`a7de243ce`).
+- [x] Registration and provisioning expose no partial legacy capability shape.
+
+## Final Conformance Gate
+
+This is a validation gate, not a deferred cleanup phase.
+
+- [x] Every applicable deletion-ledger entry is closed. Unit 3c closed the
+      previously retained `SigningGrantId` and Router budget rows
+      (`acd3a5a04`, `f4c8c7423`); Unit 3d owns the new direct reusable-claim
+      deletion inventory.
+- [x] Prohibited legacy symbols, routes, imports, exports, aliases, record
+      families, and obsolete source guards are absent. Remaining `sessionId`
+      fields may be ceremony, handle, presign, request, or UI identities;
+      `SigningGrantId` has no retained live exception. Current-source sweeps
+      exclude only immutable historical migrations and negative type fixtures.
+- [x] Required factor-neutral, worker/WASM, import, and bundle guards pass.
+      Key-export custody, ECDSA worker ownership, signing-engine architecture
+      and identity, and static-wallet-asset checks pass after the latest
+      `dev` merge.
+- [x] Public export and dependency-direction checks pass. The SeamsWeb public
+      surface and workspace-package boundary checks pass after the latest
+      `dev` merge.
+- [x] Reusable Wallet Session claims contain no synthetic capability grant,
+      grant use, binding, or grant evidence; step-up uses verified evidence
+      directly and independent vault authorization retains its own grants.
+- [x] Ed25519 and ECDSA use the Unit 3d direct reusable-operation claim model
+      with one atomic Wallet Session quota owner and exact material predicates.
+- [x] Shared, SDK, server, worker, intended-test, and Rust type/build checks
+      pass.
+  - [x] Package-level SDK, server, shared, and unit typechecks pass; Rust
+        normal-signing vectors pass 3/3 and the ECDSA client protocol passes
+        9/9.
+  - [x] Root declaration generation and repository-wide TypeScript typecheck
+        pass after rebuilding the isolated worktree. The repository check now
+        passes through Rust format/lint, architecture, worker/WASM, and signer
+        parity checks; lint reports warnings only (1,291), with no errors
+        (`e2fd7d254`; `pnpm check` completed successfully at the current
+        checkpoint).
+  - [x] SDK web/server and intended-contract typechecks, the hosted SDK/WASM
+        build, and `git diff --check` pass at `3ab4d27bc`.
+- [x] Focused unit, crash, concurrency, host-adapter, worker/WASM, and vector
+      tests pass.
+  - [x] The current branch-specific Wallet Session claim and private-route
+        validation fixtures are enrolled in unit typecheck and pass 9/9;
+        branded identity fixtures reject Wallet Session, threshold-session,
+        activation, and grant substitution (`7efc569b7`).
+  - [x] Focused Refactor 92 lifecycle tests pass 38/38; hosted-recovery,
+      activation-pair, escrow, and operation-material tests pass 18/18; key
+      export, branding, Email OTP isolation, signing architecture, and ECDSA
+      client-worker boundary checks pass.
+  - Evidence: the current focused signing, refresh, coordinator, wire, and
+    claim-binding matrix passes 72/72; the Rust ECDSA binding suite passes
+    36/36 and the source-boundary suite passes 220/220
+    after the D1 launcher contract fix (`a610be9dc`).
+- [x] `pnpm test:intended` passes against a healthy environment.
+  - [x] With the isolated outputs rebuilt, declaration generation and
+        intended-test typechecking pass (`53f06f1e1`). A fresh
+        `pnpm test:intended` attempt on 2026-08-02 reached
+        `ensure:intended-google-token` and stopped because the intended Google
+        ID token is not configured. The browser acceptance remains open until
+        the healthy intended-test environment is provisioned.
+  - [x] The healthy local environment is now provisioned and the complete suite
+        was run at `3ab4d27bc`: 7/10 pass. OTP is green 3/3; three Passkey
+        Ed25519 local-registration cases remain open on missing
+        `authorityScope`, so the parent acceptance checkbox remains open.
+  - [x] The pending-Ed25519 activation parser was corrected at its route
+        boundary and the healthy complete suite passes 10/10 on 2026-08-05.
+- [x] `git diff --check` passes.
+
+## Verification Budgets
+
+### Fault-injection and concurrency
+
+Keep the load-bearing crash cases at irreversible Near boundaries, ECDSA
+activation-correlation replay, atomic local finalization, stale material-owner
+generation/fence rejection, per-owner serialization, existing-claim
+non-consumption, and the single server-expiry retry. Add no broader matrix until
+one of those demonstrations exposes a distinct failure mode.
+
+### Intended-behaviour E2E
+
+Refactor 90 adds at most these eight scenarios:
 
 1. registration immediately followed by signing;
 2. wallet unlock immediately followed by signing;
@@ -1056,48 +2166,71 @@ Capped at eight scenarios:
 4. exact local rehydration without Yao recovery;
 5. missing-material recovery followed by signing;
 6. corrupt or mismatched material failing closed;
-7. stale lane returning `superseded` and resolving the replacement;
+7. stale preparation returning `superseded` and resolving the replacement;
 8. one minimal vault session/evidence/grant/operation/audit vertical.
 
-Refactor 92 expiry, exhaustion, step-up, invalidation, demo-lock, and
-app-identity behavior is verified by running Refactor 92's existing contracts
-unchanged. Refactor 90 adds no E2E cases for it; a Refactor 92 contract failure
-is the signal that Refactor 90 broke that behavior.
+Run Refactor 92's existing contracts unchanged for expiry, exhaustion, step-up,
+invalidation, demo-lock, and app-identity behavior. Refactor 90 adds no duplicate
+E2E cases for those behaviors.
 
-Passkey and Email OTP cover the real factor paths across signing and export. No
-synthetic third-factor E2E suite is required.
+## Validation Ownership
 
-## Implementation Checkpoint Order
+The SPEC verification checklist is normative. Unit-local checks provide the
+short execution view.
 
-Create stable commits at these boundaries:
+| Unit  | Primary verification                                                                                    |
+| ----- | ------------------------------------------------------------------------------------------------------- |
+| 1     | Domain type fixtures, IndexedDB store tests, fourteen canonical-state cases, and activation crash tests |
+| 2     | Schema/boundary tests, authorization integration, atomic claim concurrency, host-port contracts         |
+| 3a    | MPC intended behaviors, recovery fault injection, vectors/bindings, worker/WASM/bundle and host checks  |
+| 3b    | Satyr Phase 6 end-to-end vault operation and authorization/audit assertions                             |
+| 3c    | Reusable/step-up claim and quota tests, strict wire bindings, identity type fixtures, and deletion sweep |
+| 3d    | Direct reusable claim parity, branch type fixtures, atomic D1 quota/replay, and acceptance-signal repair  |
+| 4     | UI type fixtures and intended registration/unlock/refresh/expiry/exhaustion tests                       |
+| Final | Full intended suite, architecture/export guards, deletion ledger, and diff hygiene                      |
 
-1. current tactical patches and Refactor 91 validation;
-2. Foundations A-B types, parsers, persistence adapters, and focused tests;
-3. minimal Slice A authorization/vault vertical;
-4. exact authority and persistence migration;
-5. Phase 19-20 no-release MPC cutover;
-6. worker/UI/provisioning migration;
-7. final deletion and public-surface hardening.
+When a lower-authority fixture or source guard fails, classify it against the
+SPEC and intended behavior before changing production code.
 
-Do not combine an unfinished recovery-state rewrite with unrelated Better Auth,
-IdP, service-account, full-vault, route-framework, or bundle-optimization work.
+## Checkpoint Order
+
+1. **Unit 1 checkpoint:** canonical hydration and ECDSA state are coherent and
+   independently validated.
+2. **Unit 2 checkpoint:** the DB-backed authorization integration gate passes.
+3. **Unit 3a and 3b checkpoints:** proceed in parallel once Unit 2 interfaces
+   stabilize; each lands as an independently reviewable checkpoint.
+4. **Unit 3c checkpoint:** remove `SigningGrantId` after the shared claim core
+   and MPC wire boundaries are stable.
+5. **Unit 3d checkpoint:** make reusable Wallet Sessions claim operations
+   directly; use verified evidence directly for operation step-up and retain
+   grants only for the independently scoped vault vertical.
+6. **Unit 4 checkpoint:** UI and provisioning consume stable capability
+   interfaces; rerun its narrow lifecycle checks after Unit 3c removes the
+   final signing-specific grant projection and Unit 3d stabilizes operation-use
+   results.
+7. **Final checkpoint:** all deletion and conformance gates pass.
+
+Pull or merge `dev` at stable checkpoint boundaries. Re-run the narrow
+unit-owned validation after reconciliation before continuing.
 
 ## Open Decisions
 
-| Decision | Blocking point | Default until decided |
-| --- | --- | --- |
-| Which MPC capability produces `mpc_signer_proof`? | its follow-on implementation | deny all policies requiring it |
-| Does the current session threat model require device binding? | Phase 10 schema freeze | retain only the minimum existing binding; move broader management out |
-| Which operations require durable server execution leases? | Phase 20 per-operation review | request-bound claim without lease |
+| Decision                                                      | Needed by                    | Default if unresolved                                                                                            |
+| ------------------------------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Does the current session threat model require device binding? | Unit 2 schema freeze         | Retain only the minimum existing binding; keep broader management out.                                           |
+| Which operations require durable server execution leases?     | Unit 3a per-operation review | Use a request-bound claim without a lease until a real operation proves cross-request or cross-worker execution. |
+| Which MPC capability produces `mpc_signer_proof`?             | Follow-on implementation     | Deny every policy requiring it until a verified producer is designed.                                            |
 
 ## Related Plans
 
+- [Refactor 90 SPEC](./refactor-90-modular-auth-capabilities-SPEC.md)
 - [Refactor 90 deletion ledger](./refactor-90-deletion-ledger.md)
-- [Refactor 91A patches](./refactor-91A-patches.md)
+- [Refactor 90A patches](./refactor-90A-patches.md)
 - [Email OTP local rehydration](./refactor-patch-2-email-otp-local-rehydration.md)
-- [Refactor 91B auth-method domains](./refactor-91B.md)
-- [Refactor 92 signing-session expiry handling](./refactor-92-session-expiry-handling.md)
+- [Refactor 91](./refactor-91.md)
+- [Refactor 92](./refactor-92-session-expiry-handling.md)
+- [Refactor 93](./refactor-93.md)
+- [Refactor 94C](./refactor-94C-regression-fixes.md)
 - [Refactor 82B authority typing](./refactor-82B.md)
-- [Refactor 85 IndexedDB minimization](./refactor-85-indexedDB.md)
 - [Ed25519 Yao implementation plan](./router-ab/ed25519-yao/implementation-plan.md)
-- [Refactor 101 enterprise SSO](./refactor-101-enterprise-sso.md)
+- [Satyr Secrets Vault](./satyr-secrets-vault.md)

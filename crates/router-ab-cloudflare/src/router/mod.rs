@@ -3,6 +3,7 @@ use crate::*;
 /// Auth context already verified by the Router boundary.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "auth", rename_all = "snake_case")]
+#[serde(deny_unknown_fields)]
 pub enum CloudflareRouterAuthContextV1 {
     /// Fully authenticated user/session.
     AuthenticatedSession {
@@ -10,6 +11,13 @@ pub enum CloudflareRouterAuthContextV1 {
         subject_id: String,
         /// Canonical session id from verified auth.
         session_id: String,
+    },
+    /// Authenticated app session carrying a claimed single-operation authorization.
+    OperationStepUpSession {
+        /// Canonical subject id from verified auth.
+        subject_id: String,
+        /// Canonical Seams authorization-session id.
+        authorization_session_id: String,
     },
     /// Pre-auth session allowed only for registration prepare.
     PreAuthSession {
@@ -43,6 +51,19 @@ impl CloudflareRouterAuthContextV1 {
         Ok(context)
     }
 
+    /// Creates a validated operation-step-up session context.
+    pub fn operation_step_up_session(
+        subject_id: impl Into<String>,
+        authorization_session_id: impl Into<String>,
+    ) -> RouterAbProtocolResult<Self> {
+        let context = Self::OperationStepUpSession {
+            subject_id: subject_id.into(),
+            authorization_session_id: authorization_session_id.into(),
+        };
+        context.validate()?;
+        Ok(context)
+    }
+
     /// Validates auth branch identity fields.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         match self {
@@ -52,6 +73,13 @@ impl CloudflareRouterAuthContextV1 {
             } => {
                 require_non_empty("subject_id", subject_id)?;
                 require_non_empty("session_id", session_id)
+            }
+            Self::OperationStepUpSession {
+                subject_id,
+                authorization_session_id,
+            } => {
+                require_non_empty("subject_id", subject_id)?;
+                require_non_empty("authorization_session_id", authorization_session_id)
             }
             Self::PreAuthSession {
                 pre_auth_session_id,
@@ -67,6 +95,13 @@ impl CloudflareRouterAuthContextV1 {
                 subject_id,
                 session_id,
             } => GatePrincipalV1::authenticated_session(subject_id.clone(), session_id.clone()),
+            Self::OperationStepUpSession {
+                subject_id,
+                authorization_session_id,
+            } => GatePrincipalV1::authenticated_session(
+                subject_id.clone(),
+                authorization_session_id.clone(),
+            ),
             Self::PreAuthSession {
                 pre_auth_session_id,
             } => GatePrincipalV1::pre_auth_session(pre_auth_session_id.clone()),
@@ -76,6 +111,10 @@ impl CloudflareRouterAuthContextV1 {
     pub(crate) fn session_id(&self) -> &str {
         match self {
             Self::AuthenticatedSession { session_id, .. } => session_id,
+            Self::OperationStepUpSession {
+                authorization_session_id,
+                ..
+            } => authorization_session_id,
             Self::PreAuthSession {
                 pre_auth_session_id,
             } => pre_auth_session_id,
@@ -171,6 +210,15 @@ impl CloudflareRouterTrustedRequestMetadataV1 {
                 "pre-auth Router metadata is allowed only for registration prepare",
             ));
         }
+        if matches!(
+            self.auth,
+            CloudflareRouterAuthContextV1::OperationStepUpSession { .. }
+        ) {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "operation step-up Router metadata is allowed only for normal signing",
+            ));
+        }
         Ok(())
     }
 
@@ -264,11 +312,23 @@ impl CloudflareRouterNormalSigningTrustedMetadataV1 {
                 "trusted normal-signing account id does not match v2 finalize scope",
             ));
         }
-        if self.auth.session_id() != request.scope.session_id {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "trusted normal-signing session id does not match v2 finalize scope",
-            ));
+        match (&self.auth, &request.scope.authorization) {
+            (
+                CloudflareRouterAuthContextV1::AuthenticatedSession { session_id, .. },
+                NormalSigningAuthorizationV1::ReusableWalletSession {
+                    wallet_session_id, ..
+                },
+            ) if session_id == wallet_session_id => {}
+            (
+                CloudflareRouterAuthContextV1::OperationStepUpSession { .. },
+                NormalSigningAuthorizationV1::OperationStepUp,
+            ) => {}
+            _ => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidGateDecision,
+                    "trusted normal-signing authorization does not match v2 finalize scope",
+                ));
+            }
         }
         if self.intent_digest != request.intent_digest() {
             return Err(RouterAbProtocolError::new(
@@ -621,10 +681,16 @@ pub struct CloudflareRouterVerifiedWalletSessionV1 {
     pub subject_id: String,
     /// Account, wallet, or root resource id authorized by the session.
     pub account_id: String,
+    /// Exact Seams authorization-session id carried by the verified credential.
+    pub authorization_session_id: String,
+    /// Exact durable Wallet Session authorization id.
+    pub authorization_id: String,
+    /// Exact reusable Wallet Session id.
+    pub wallet_session_id: String,
+    /// Exact reusable Wallet Session quota id paired with the Wallet Session.
+    pub quota_id: String,
     /// Threshold/MPC session id authorized by the Wallet Session.
     pub threshold_session_id: String,
-    /// Server-authoritative Wallet Session signing grant id.
-    pub signing_grant_id: String,
     /// Canonical organization id authorized by the session.
     pub org_id: String,
     /// Canonical project id authorized by the session.
@@ -647,8 +713,11 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
     pub fn new(
         subject_id: impl Into<String>,
         account_id: impl Into<String>,
+        authorization_session_id: impl Into<String>,
+        authorization_id: impl Into<String>,
+        wallet_session_id: impl Into<String>,
+        quota_id: impl Into<String>,
         threshold_session_id: impl Into<String>,
-        signing_grant_id: impl Into<String>,
         org_id: impl Into<String>,
         project_id: impl Into<String>,
         environment: impl Into<String>,
@@ -660,8 +729,11 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
         let session = Self {
             subject_id: subject_id.into(),
             account_id: account_id.into(),
+            authorization_session_id: authorization_session_id.into(),
+            authorization_id: authorization_id.into(),
+            wallet_session_id: wallet_session_id.into(),
+            quota_id: quota_id.into(),
             threshold_session_id: threshold_session_id.into(),
-            signing_grant_id: signing_grant_id.into(),
             org_id: org_id.into(),
             project_id: project_id.into(),
             environment: environment.into(),
@@ -679,10 +751,25 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
         require_non_empty("wallet session subject_id", &self.subject_id)?;
         require_non_empty("wallet session account_id", &self.account_id)?;
         require_non_empty(
+            "wallet session authorization_session_id",
+            &self.authorization_session_id,
+        )?;
+        require_non_empty("wallet session authorization_id", &self.authorization_id)?;
+        require_non_empty("wallet session wallet_session_id", &self.wallet_session_id)?;
+        require_non_empty("wallet session quota_id", &self.quota_id)?;
+        if self.authorization_id == self.wallet_session_id
+            || self.authorization_id == self.quota_id
+            || self.wallet_session_id == self.quota_id
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "wallet session authorization, Wallet Session, and quota ids must be pairwise distinct",
+            ));
+        }
+        require_non_empty(
             "wallet session threshold_session_id",
             &self.threshold_session_id,
         )?;
-        require_non_empty("wallet session signing_grant_id", &self.signing_grant_id)?;
         require_non_empty("wallet session org_id", &self.org_id)?;
         require_non_empty("wallet session project_id", &self.project_id)?;
         require_non_empty("wallet session environment", &self.environment)?;
@@ -733,11 +820,21 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
                 "Wallet Session account_id does not match normal-signing scope",
             ));
         }
-        if self.threshold_session_id != request.scope.session_id {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Wallet Session session_id does not match normal-signing scope",
-            ));
+        match &request.scope.authorization {
+            NormalSigningAuthorizationV1::ReusableWalletSession { wallet_session_id } => {
+                if self.wallet_session_id != *wallet_session_id {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidGateDecision,
+                        "Wallet Session id does not match normal-signing scope",
+                    ));
+                }
+            }
+            NormalSigningAuthorizationV1::OperationStepUp => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidGateDecision,
+                    "Wallet Session bearer cannot authorize operation-step-up signing",
+                ));
+            }
         }
         if self.signing_worker_id != request.scope.signing_worker_id {
             return Err(RouterAbProtocolError::new(
@@ -774,11 +871,21 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
                 "Wallet Session account_id does not match normal-signing finalize scope",
             ));
         }
-        if self.threshold_session_id != request.scope.session_id {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Wallet Session session_id does not match normal-signing finalize scope",
-            ));
+        match &request.scope.authorization {
+            NormalSigningAuthorizationV1::ReusableWalletSession { wallet_session_id } => {
+                if self.wallet_session_id != *wallet_session_id {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidGateDecision,
+                        "Wallet Session id does not match normal-signing finalize scope",
+                    ));
+                }
+            }
+            NormalSigningAuthorizationV1::OperationStepUp => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidGateDecision,
+                    "Wallet Session bearer cannot authorize operation-step-up signing",
+                ));
+            }
         }
         if self.signing_worker_id != request.scope.signing_worker_id {
             return Err(RouterAbProtocolError::new(
@@ -815,15 +922,21 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
                 "Wallet Session account_id does not match Router A/B ECDSA derivation signing scope",
             ));
         }
-        if self.threshold_session_id
-            != cloudflare_router_ab_ecdsa_derivation_active_state_session_id_from_scope_v1(
-                &request.scope,
-            )?
-        {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Wallet Session session_id does not match Router A/B ECDSA derivation signing scope",
-            ));
+        match &request.authorization {
+            NormalSigningAuthorizationV1::ReusableWalletSession { wallet_session_id } => {
+                if self.wallet_session_id != *wallet_session_id {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidGateDecision,
+                        "Wallet Session id does not match Router A/B ECDSA derivation signing scope",
+                    ));
+                }
+            }
+            NormalSigningAuthorizationV1::OperationStepUp => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidGateDecision,
+                    "Wallet Session bearer cannot authorize operation-step-up signing",
+                ));
+            }
         }
         if self.signing_worker_id != request.scope.signing_worker.server_id {
             return Err(RouterAbProtocolError::new(
@@ -860,15 +973,21 @@ impl CloudflareRouterVerifiedWalletSessionV1 {
                 "Wallet Session account_id does not match Router A/B ECDSA derivation finalize scope",
             ));
         }
-        if self.threshold_session_id
-            != cloudflare_router_ab_ecdsa_derivation_active_state_session_id_from_scope_v1(
-                &request.scope,
-            )?
-        {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Wallet Session session_id does not match Router A/B ECDSA derivation finalize scope",
-            ));
+        match &request.authorization {
+            NormalSigningAuthorizationV1::ReusableWalletSession { wallet_session_id } => {
+                if self.wallet_session_id != *wallet_session_id {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidGateDecision,
+                        "Wallet Session id does not match Router A/B ECDSA derivation finalize scope",
+                    ));
+                }
+            }
+            NormalSigningAuthorizationV1::OperationStepUp => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidGateDecision,
+                    "Wallet Session bearer cannot authorize operation-step-up signing",
+                ));
+            }
         }
         if self.signing_worker_id != request.scope.signing_worker.server_id {
             return Err(RouterAbProtocolError::new(
@@ -1358,6 +1477,7 @@ impl CloudflareRouterCompactJwtV1 {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CloudflareRouterJwtClaimsPayloadV1 {
     kind: Option<String>,
     iss: String,
@@ -1366,14 +1486,43 @@ struct CloudflareRouterJwtClaimsPayloadV1 {
     exp: u64,
     nbf: Option<u64>,
     iat: Option<u64>,
-    sid: Option<String>,
-    session_id: Option<String>,
-    #[serde(rename = "signingGrantId")]
-    signing_grant_id: Option<String>,
+    sid: String,
+    #[serde(rename = "walletId", default)]
+    wallet_id: Option<String>,
+    #[serde(rename = "nearAccountId", default)]
+    near_account_id: Option<String>,
+    #[serde(rename = "nearEd25519SigningKeyId", default)]
+    near_ed25519_signing_key_id: Option<String>,
+    #[serde(rename = "relayerKeyId", default)]
+    relayer_key_id: Option<String>,
+    #[serde(rename = "authority", default)]
+    authority: Option<serde_json::Value>,
+    #[serde(rename = "authorityScope", default)]
+    authority_scope: Option<serde_json::Value>,
+    #[serde(rename = "authorizationId")]
+    authorization_id: Option<String>,
+    #[serde(rename = "authorizationSessionId", default)]
+    authorization_session_id: Option<String>,
+    #[serde(rename = "walletSessionId")]
+    wallet_session_id: Option<String>,
+    #[serde(rename = "quotaId")]
+    quota_id: Option<String>,
+    #[serde(rename = "thresholdSessionId")]
+    threshold_session_id: Option<String>,
+    #[serde(rename = "keyScope", default)]
+    key_scope: Option<String>,
+    #[serde(rename = "keyHandle", default)]
+    key_handle: Option<String>,
+    #[serde(rename = "thresholdExpiresAtMs", default)]
+    threshold_expires_at_ms: Option<u64>,
+    #[serde(rename = "participantIds", default)]
+    participant_ids: Option<Vec<u16>>,
     org_id: String,
     project_id: String,
     environment: String,
     account_id: String,
+    #[serde(rename = "runtimePolicyScope", default)]
+    runtime_policy_scope: Option<CloudflareRouterJwtRuntimePolicyScopeV1>,
     #[serde(rename = "routerAbRequestPolicy", default)]
     router_ab_request_policy: Option<RouterRequestPolicyClaimsV1>,
     #[serde(rename = "routerAbNormalSigning", default)]
@@ -1381,6 +1530,106 @@ struct CloudflareRouterJwtClaimsPayloadV1 {
     #[serde(rename = "routerAbEcdsaDerivationNormalSigning", default)]
     router_ab_ecdsa_derivation_normal_signing:
         Option<CloudflareRouterJwtEcdsaDerivationNormalSigningClaimsV1>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CloudflareRouterJwtRuntimePolicyScopeV1 {
+    #[serde(rename = "orgId")]
+    org_id: String,
+    #[serde(rename = "projectId")]
+    project_id: String,
+    #[serde(rename = "envId")]
+    env_id: String,
+    #[serde(rename = "signingRootVersion")]
+    signing_root_version: String,
+}
+
+impl CloudflareRouterJwtRuntimePolicyScopeV1 {
+    fn validate_for_claims(
+        &self,
+        org_id: &str,
+        project_id: &str,
+        environment: &str,
+    ) -> RouterAbProtocolResult<()> {
+        require_non_empty("runtimePolicyScope.orgId", &self.org_id)?;
+        require_non_empty("runtimePolicyScope.projectId", &self.project_id)?;
+        require_non_empty("runtimePolicyScope.envId", &self.env_id)?;
+        require_non_empty(
+            "runtimePolicyScope.signingRootVersion",
+            &self.signing_root_version,
+        )?;
+        if self.org_id != org_id || self.project_id != project_id || self.env_id != environment {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Router Wallet Session runtime policy scope does not match its claims",
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn validate_wallet_session_participant_ids(
+    participant_ids: Option<&Vec<u16>>,
+) -> RouterAbProtocolResult<()> {
+    let participant_ids = participant_ids.ok_or_else(|| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "Router Wallet Session requires participantIds",
+        )
+    })?;
+    if participant_ids.len() < 2
+        || participant_ids
+            .iter()
+            .any(|participant_id| *participant_id == 0)
+        || participant_ids.windows(2).any(|pair| pair[0] >= pair[1])
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "Router Wallet Session participantIds must be sorted, unique, and contain at least two positive ids",
+        ));
+    }
+    Ok(())
+}
+
+fn require_wallet_session_authority(
+    authority: Option<&serde_json::Value>,
+    wallet_id: &str,
+) -> RouterAbProtocolResult<()> {
+    let authority = authority
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Router Wallet Session requires authority",
+            )
+        })?;
+    if authority
+        .get("walletId")
+        .and_then(serde_json::Value::as_str)
+        != Some(wallet_id)
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "Router Wallet Session authority wallet id does not match walletId",
+        ));
+    }
+    Ok(())
+}
+
+fn require_wallet_session_authority_scope(
+    authority_scope: Option<&serde_json::Value>,
+) -> RouterAbProtocolResult<()> {
+    if authority_scope
+        .and_then(serde_json::Value::as_object)
+        .is_none()
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "Router Wallet Session requires authorityScope",
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
@@ -1405,6 +1654,7 @@ struct CloudflareRouterJwtEcdsaDerivationNormalSigningClaimsV1 {
 
 #[derive(Debug, Deserialize)]
 struct CloudflareRouterJwtEcdsaDerivationNormalSigningScopeV1 {
+    wallet_id: String,
     signing_worker: CloudflareRouterJwtEcdsaDerivationSigningWorkerV1,
 }
 
@@ -1415,6 +1665,10 @@ struct CloudflareRouterJwtEcdsaDerivationSigningWorkerV1 {
 
 impl CloudflareRouterJwtEcdsaDerivationNormalSigningClaimsV1 {
     fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty(
+            "routerAbEcdsaDerivationNormalSigning.scope.wallet_id",
+            &self.scope.wallet_id,
+        )?;
         require_non_empty(
             "routerAbEcdsaDerivationNormalSigning.scope.signing_worker.server_id",
             &self.scope.signing_worker.server_id,
@@ -1508,31 +1762,162 @@ impl CloudflareRouterJwtClaimsPayloadV1 {
                 ));
             }
         }
+        let kind = self.kind.as_deref().ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Router Wallet Session requires kind",
+            )
+        })?;
+        let wallet_id = self.wallet_id.as_deref().ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Router Wallet Session requires walletId",
+            )
+        })?;
+        require_non_empty("Router Wallet Session walletId", wallet_id)?;
+        if wallet_id != self.sub {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Router Wallet Session walletId must match sub",
+            ));
+        }
+        validate_wallet_session_participant_ids(self.participant_ids.as_ref())?;
+        let threshold_expires_at_ms = self.threshold_expires_at_ms.ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Router Wallet Session requires thresholdExpiresAtMs",
+            )
+        })?;
+        if threshold_expires_at_ms <= now_unix_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "Router Wallet Session threshold expiry has passed",
+            ));
+        }
+        let is_ed25519 = kind == "router_ab_ed25519_wallet_session_v1";
+        let is_ecdsa = kind == "router_ab_ecdsa_derivation_wallet_session_v1";
+        if !is_ed25519 && !is_ecdsa {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Router Wallet Session kind is unsupported",
+            ));
+        }
+        if let Some(runtime_policy_scope) = self.runtime_policy_scope.as_ref() {
+            runtime_policy_scope.validate_for_claims(
+                &self.org_id,
+                &self.project_id,
+                &self.environment,
+            )?;
+        } else {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Router Wallet Session requires runtimePolicyScope",
+            ));
+        }
+        if is_ed25519 {
+            let near_account_id = self.near_account_id.as_deref().ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MalformedWirePayload,
+                    "Router Wallet Session requires nearAccountId",
+                )
+            })?;
+            require_non_empty("Router Wallet Session nearAccountId", near_account_id)?;
+            let near_signing_key_id =
+                self.near_ed25519_signing_key_id.as_deref().ok_or_else(|| {
+                    RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MalformedWirePayload,
+                        "Router Wallet Session requires nearEd25519SigningKeyId",
+                    )
+                })?;
+            require_non_empty(
+                "Router Wallet Session nearEd25519SigningKeyId",
+                near_signing_key_id,
+            )?;
+            let relayer_key_id = self.relayer_key_id.as_deref().ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MalformedWirePayload,
+                    "Router Wallet Session requires relayerKeyId",
+                )
+            })?;
+            require_non_empty("Router Wallet Session relayerKeyId", relayer_key_id)?;
+            require_wallet_session_authority(self.authority.as_ref(), wallet_id)?;
+            require_wallet_session_authority_scope(self.authority_scope.as_ref())?;
+        }
+        if is_ecdsa {
+            if self.account_id != wallet_id {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MalformedWirePayload,
+                    "Router Wallet Session account_id must match walletId",
+                ));
+            }
+            let authorization_session_id =
+                self.authorization_session_id.as_deref().ok_or_else(|| {
+                    RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MalformedWirePayload,
+                        "Router Wallet Session requires authorizationSessionId",
+                    )
+                })?;
+            if authorization_session_id != self.sid {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MalformedWirePayload,
+                    "Router Wallet Session authorizationSessionId must match sid",
+                ));
+            }
+            if self.key_scope.as_deref() != Some("evm-family") {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MalformedWirePayload,
+                    "Router Wallet Session keyScope must be evm-family",
+                ));
+            }
+            let key_handle = self.key_handle.as_deref().ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MalformedWirePayload,
+                    "Router Wallet Session requires keyHandle",
+                )
+            })?;
+            require_non_empty("Router Wallet Session keyHandle", key_handle)?;
+            let relayer_key_id = self.relayer_key_id.as_deref().ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MalformedWirePayload,
+                    "Router Wallet Session requires relayerKeyId",
+                )
+            })?;
+            require_non_empty("Router Wallet Session relayerKeyId", relayer_key_id)?;
+        }
         let (authorization_level, signing_worker_id) = match (
-            self.router_ab_normal_signing,
-            self.router_ab_ecdsa_derivation_normal_signing,
+            self.router_ab_normal_signing.as_ref(),
+            self.router_ab_ecdsa_derivation_normal_signing.as_ref(),
         ) {
             (Some(normal_signing), None) => {
                 normal_signing.validate()?;
-                if self.kind.as_deref() != Some("router_ab_ed25519_wallet_session_v1") {
+                if !is_ed25519 {
                     return Err(RouterAbProtocolError::new(
                         RouterAbProtocolErrorCode::MalformedWirePayload,
                         "Router Wallet Session kind does not match Ed25519 normal signing",
                     ));
                 }
-                ("near-ed25519".to_owned(), normal_signing.signing_worker_id)
+                (
+                    "near-ed25519".to_owned(),
+                    normal_signing.signing_worker_id.clone(),
+                )
             }
             (None, Some(normal_signing)) => {
                 normal_signing.validate()?;
-                if self.kind.as_deref() != Some("router_ab_ecdsa_derivation_wallet_session_v1") {
+                if !is_ecdsa {
                     return Err(RouterAbProtocolError::new(
                         RouterAbProtocolErrorCode::MalformedWirePayload,
                         "Router Wallet Session kind does not match ECDSA normal signing",
                     ));
                 }
+                if normal_signing.scope.wallet_id != wallet_id {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MalformedWirePayload,
+                        "Router Wallet Session normal-signing wallet id does not match walletId",
+                    ));
+                }
                 (
                     "evm-family".to_owned(),
-                    normal_signing.scope.signing_worker.server_id,
+                    normal_signing.scope.signing_worker.server_id.clone(),
                 )
             }
             (None, None) => {
@@ -1548,18 +1933,40 @@ impl CloudflareRouterJwtClaimsPayloadV1 {
                 ));
             }
         };
-        let session_id = select_router_jwt_session_id_v1(self.sid, self.session_id)?;
-        let signing_grant_id = self.signing_grant_id.ok_or_else(|| {
+        require_non_empty("jwt sid", &self.sid)?;
+        let authorization_session_id = self.sid;
+        let authorization_id = self.authorization_id.ok_or_else(|| {
             RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::MalformedWirePayload,
-                "Router Wallet Session requires signingGrantId",
+                "Router Wallet Session requires authorizationId",
+            )
+        })?;
+        let wallet_session_id = self.wallet_session_id.ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Router Wallet Session requires walletSessionId",
+            )
+        })?;
+        let quota_id = self.quota_id.ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Router Wallet Session requires quotaId",
+            )
+        })?;
+        let threshold_session_id = self.threshold_session_id.ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Router Wallet Session requires thresholdSessionId",
             )
         })?;
         CloudflareRouterVerifiedWalletSessionV1::new(
             self.sub,
             self.account_id,
-            session_id,
-            signing_grant_id,
+            authorization_session_id,
+            authorization_id,
+            wallet_session_id,
+            quota_id,
+            threshold_session_id,
             self.org_id,
             self.project_id,
             self.environment,
@@ -1621,7 +2028,8 @@ impl CloudflareRouterJwtClaimsPayloadV1 {
                 ));
             }
         }
-        let session_id = select_router_jwt_session_id_v1(self.sid, self.session_id)?;
+        require_non_empty("jwt sid", &self.sid)?;
+        let session_id = self.sid;
         let claims = CloudflareRouterVerifiedJwtClaimsV1::new(
             self.sub,
             session_id,
@@ -2100,6 +2508,169 @@ impl CloudflareRouterNormalSigningTrustedAdmissionV1 {
     }
 }
 
+/// Exact authorization branch admitted by the Router for normal signing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(deny_unknown_fields)]
+pub enum CloudflareRouterNormalSigningAuthorizationV2 {
+    /// Reusable Wallet Session authority.
+    ReusableWalletSession {
+        /// Exact durable Wallet Session authorization id.
+        authorization_id: String,
+        /// Exact reusable Wallet Session id.
+        wallet_session_id: String,
+    },
+    /// Single-operation step-up authority.
+    OperationStepUp {
+        /// Exact Seams authorization-session id that verified the evidence.
+        authorization_session_id: String,
+        /// Digest of the verified evidence set. This field is server-private;
+        /// the public normal-signing marker carries no evidence data.
+        evidence_set_digest: String,
+    },
+}
+
+impl CloudflareRouterNormalSigningAuthorizationV2 {
+    pub fn kind_label(&self) -> &'static str {
+        match self {
+            Self::ReusableWalletSession { .. } => "reusable_wallet_session",
+            Self::OperationStepUp { .. } => "operation_step_up",
+        }
+    }
+
+    pub fn authorization_id(&self) -> RouterAbProtocolResult<&str> {
+        match self {
+            Self::ReusableWalletSession {
+                authorization_id, ..
+            } => Ok(authorization_id),
+            Self::OperationStepUp { .. } => Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "operation step-up authority has no public authorization id",
+            )),
+        }
+    }
+
+    /// Creates reusable Wallet Session authority.
+    pub fn reusable_wallet_session(
+        authorization_id: impl Into<String>,
+        wallet_session_id: impl Into<String>,
+    ) -> RouterAbProtocolResult<Self> {
+        let authorization = Self::ReusableWalletSession {
+            authorization_id: authorization_id.into(),
+            wallet_session_id: wallet_session_id.into(),
+        };
+        authorization.validate()?;
+        Ok(authorization)
+    }
+
+    /// Creates single-operation step-up authority.
+    pub fn operation_step_up(
+        authorization_session_id: impl Into<String>,
+        evidence_set_digest: impl Into<String>,
+    ) -> RouterAbProtocolResult<Self> {
+        let authorization = Self::OperationStepUp {
+            authorization_session_id: authorization_session_id.into(),
+            evidence_set_digest: evidence_set_digest.into(),
+        };
+        authorization.validate()?;
+        Ok(authorization)
+    }
+
+    /// Validates exact branch identity.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        match self {
+            Self::ReusableWalletSession {
+                authorization_id,
+                wallet_session_id,
+            } => {
+                require_non_empty(
+                    "normal-signing authorization authorization_id",
+                    authorization_id,
+                )?;
+                require_non_empty(
+                    "normal-signing authorization wallet_session_id",
+                    wallet_session_id,
+                )?;
+                if authorization_id == wallet_session_id {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidGateDecision,
+                        "normal-signing authorization and Wallet Session ids must be pairwise distinct",
+                    ));
+                }
+                Ok(())
+            }
+            Self::OperationStepUp {
+                authorization_session_id,
+                evidence_set_digest,
+            } => {
+                require_non_empty(
+                    "normal-signing authorization authorization_session_id",
+                    authorization_session_id,
+                )?;
+                require_non_empty(
+                    "normal-signing authorization evidence_set_digest",
+                    evidence_set_digest,
+                )
+            }
+        }
+    }
+
+    /// Validates this trusted authorization against the public scope branch.
+    pub fn validate_for_scope(
+        &self,
+        authorization: &NormalSigningAuthorizationV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        authorization.validate()?;
+        let matches = match (self, authorization) {
+            (
+                Self::ReusableWalletSession {
+                    authorization_id: _,
+                    wallet_session_id,
+                    ..
+                },
+                NormalSigningAuthorizationV1::ReusableWalletSession {
+                    wallet_session_id: scope_session_id,
+                },
+            ) => wallet_session_id == scope_session_id,
+            (Self::OperationStepUp { .. }, NormalSigningAuthorizationV1::OperationStepUp) => true,
+            _ => false,
+        };
+        if matches {
+            Ok(())
+        } else {
+            Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "normal-signing trusted authorization does not match request scope",
+            ))
+        }
+    }
+
+    fn to_auth_context(
+        &self,
+        subject_id: impl Into<String>,
+    ) -> RouterAbProtocolResult<CloudflareRouterAuthContextV1> {
+        let subject_id = subject_id.into();
+        match self {
+            Self::ReusableWalletSession {
+                authorization_id: _,
+                wallet_session_id,
+                ..
+            } => CloudflareRouterAuthContextV1::authenticated_session(
+                subject_id,
+                wallet_session_id.clone(),
+            ),
+            Self::OperationStepUp {
+                authorization_session_id,
+                ..
+            } => CloudflareRouterAuthContextV1::operation_step_up_session(
+                subject_id,
+                authorization_session_id.clone(),
+            ),
+        }
+    }
+}
+
 /// Pre-gate Router admission candidate for typed normal-signing v2 prepare.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudflareRouterNormalSigningPrepareAdmissionCandidateV2 {
@@ -2113,8 +2684,8 @@ pub struct CloudflareRouterNormalSigningPrepareAdmissionCandidateV2 {
     pub account_id: String,
     /// Canonical subject id from verified wallet auth.
     pub subject_id: String,
-    /// Threshold/MPC session id authorized by the Wallet Session.
-    pub threshold_session_id: String,
+    /// Exact Router-verified authorization branch.
+    pub authorization: CloudflareRouterNormalSigningAuthorizationV2,
     /// Active SigningWorker id authorized for this request.
     pub signing_worker_id: String,
     /// Router request id from the typed normal-signing scope.
@@ -2142,7 +2713,7 @@ impl CloudflareRouterNormalSigningPrepareAdmissionCandidateV2 {
         environment: impl Into<String>,
         account_id: impl Into<String>,
         subject_id: impl Into<String>,
-        threshold_session_id: impl Into<String>,
+        authorization: CloudflareRouterNormalSigningAuthorizationV2,
         signing_worker_id: impl Into<String>,
         request_id: impl Into<String>,
         intent_digest: PublicDigest32,
@@ -2158,7 +2729,7 @@ impl CloudflareRouterNormalSigningPrepareAdmissionCandidateV2 {
             environment: environment.into(),
             account_id: account_id.into(),
             subject_id: subject_id.into(),
-            threshold_session_id: threshold_session_id.into(),
+            authorization,
             signing_worker_id: signing_worker_id.into(),
             request_id: request_id.into(),
             intent_digest,
@@ -2180,13 +2751,27 @@ impl CloudflareRouterNormalSigningPrepareAdmissionCandidateV2 {
     ) -> RouterAbProtocolResult<Self> {
         wallet_session.validate_for_normal_signing_prepare_request_v2(request, now_unix_ms)?;
         let material = request.admission_material()?;
+        let authorization = match &request.scope.authorization {
+            NormalSigningAuthorizationV1::ReusableWalletSession { .. } => {
+                CloudflareRouterNormalSigningAuthorizationV2::reusable_wallet_session(
+                    wallet_session.authorization_id.clone(),
+                    wallet_session.wallet_session_id.clone(),
+                )?
+            }
+            NormalSigningAuthorizationV1::OperationStepUp => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidGateDecision,
+                    "Wallet Session bearer cannot authorize operation-step-up signing",
+                ));
+            }
+        };
         let admission = Self::new(
             wallet_session.org_id.clone(),
             wallet_session.project_id.clone(),
             wallet_session.environment.clone(),
             wallet_session.account_id.clone(),
             wallet_session.subject_id.clone(),
-            wallet_session.threshold_session_id.clone(),
+            authorization,
             wallet_session.signing_worker_id.clone(),
             request.scope.request_id.clone(),
             material.intent_digest,
@@ -2207,10 +2792,7 @@ impl CloudflareRouterNormalSigningPrepareAdmissionCandidateV2 {
         require_non_empty("normal-signing v2 environment", &self.environment)?;
         require_non_empty("normal-signing v2 account_id", &self.account_id)?;
         require_non_empty("normal-signing v2 subject_id", &self.subject_id)?;
-        require_non_empty(
-            "normal-signing v2 threshold_session_id",
-            &self.threshold_session_id,
-        )?;
+        self.authorization.validate()?;
         require_non_empty(
             "normal-signing v2 signing_worker_id",
             &self.signing_worker_id,
@@ -2244,12 +2826,8 @@ impl CloudflareRouterNormalSigningPrepareAdmissionCandidateV2 {
                 "normal-signing v2 admission account_id does not match request scope",
             ));
         }
-        if self.threshold_session_id != request.scope.session_id {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "normal-signing v2 admission session_id does not match request scope",
-            ));
-        }
+        self.authorization
+            .validate_for_scope(&request.scope.authorization)?;
         if self.signing_worker_id != request.scope.signing_worker_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
@@ -2314,10 +2892,8 @@ impl CloudflareRouterNormalSigningPrepareAdmissionCandidateV2 {
             self.project_id.clone(),
             self.environment.clone(),
             self.account_id.clone(),
-            CloudflareRouterAuthContextV1::authenticated_session(
-                self.subject_id.clone(),
-                self.threshold_session_id.clone(),
-            )?,
+            self.authorization
+                .to_auth_context(self.subject_id.clone())?,
             self.trusted_source_digest,
             self.intent_digest,
         )
@@ -2337,8 +2913,8 @@ pub struct CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2 {
     pub account_id: String,
     /// Canonical subject id from verified wallet auth.
     pub subject_id: String,
-    /// Threshold/MPC session id authorized by the Wallet Session.
-    pub threshold_session_id: String,
+    /// Exact Router-verified authorization branch.
+    pub authorization: CloudflareRouterNormalSigningAuthorizationV2,
     /// Active SigningWorker id authorized for this request.
     pub signing_worker_id: String,
     /// Router request id from the typed normal-signing scope.
@@ -2364,7 +2940,7 @@ impl CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2 {
         environment: impl Into<String>,
         account_id: impl Into<String>,
         subject_id: impl Into<String>,
-        threshold_session_id: impl Into<String>,
+        authorization: CloudflareRouterNormalSigningAuthorizationV2,
         signing_worker_id: impl Into<String>,
         request_id: impl Into<String>,
         intent_digest: PublicDigest32,
@@ -2379,7 +2955,7 @@ impl CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2 {
             environment: environment.into(),
             account_id: account_id.into(),
             subject_id: subject_id.into(),
-            threshold_session_id: threshold_session_id.into(),
+            authorization,
             signing_worker_id: signing_worker_id.into(),
             request_id: request_id.into(),
             intent_digest,
@@ -2399,13 +2975,27 @@ impl CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2 {
         now_unix_ms: u64,
     ) -> RouterAbProtocolResult<Self> {
         wallet_session.validate_for_normal_signing_finalize_request_v2(request, now_unix_ms)?;
+        let authorization = match &request.scope.authorization {
+            NormalSigningAuthorizationV1::ReusableWalletSession { .. } => {
+                CloudflareRouterNormalSigningAuthorizationV2::reusable_wallet_session(
+                    wallet_session.authorization_id.clone(),
+                    wallet_session.wallet_session_id.clone(),
+                )?
+            }
+            NormalSigningAuthorizationV1::OperationStepUp => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidGateDecision,
+                    "Wallet Session bearer cannot authorize operation-step-up signing",
+                ));
+            }
+        };
         let admission = Self::new(
             wallet_session.org_id.clone(),
             wallet_session.project_id.clone(),
             wallet_session.environment.clone(),
             wallet_session.account_id.clone(),
             wallet_session.subject_id.clone(),
-            wallet_session.threshold_session_id.clone(),
+            authorization,
             wallet_session.signing_worker_id.clone(),
             request.scope.request_id.clone(),
             request.intent_digest(),
@@ -2425,10 +3015,7 @@ impl CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2 {
         require_non_empty("normal-signing v2 finalize environment", &self.environment)?;
         require_non_empty("normal-signing v2 finalize account_id", &self.account_id)?;
         require_non_empty("normal-signing v2 finalize subject_id", &self.subject_id)?;
-        require_non_empty(
-            "normal-signing v2 finalize threshold_session_id",
-            &self.threshold_session_id,
-        )?;
+        self.authorization.validate()?;
         require_non_empty(
             "normal-signing v2 finalize signing_worker_id",
             &self.signing_worker_id,
@@ -2453,12 +3040,8 @@ impl CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2 {
                 "normal-signing v2 finalize admission account_id does not match request scope",
             ));
         }
-        if self.threshold_session_id != request.scope.session_id {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "normal-signing v2 finalize admission session_id does not match request scope",
-            ));
-        }
+        self.authorization
+            .validate_for_scope(&request.scope.authorization)?;
         if self.signing_worker_id != request.scope.signing_worker_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
@@ -2508,10 +3091,8 @@ impl CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2 {
             self.project_id.clone(),
             self.environment.clone(),
             self.account_id.clone(),
-            CloudflareRouterAuthContextV1::authenticated_session(
-                self.subject_id.clone(),
-                self.threshold_session_id.clone(),
-            )?,
+            self.authorization
+                .to_auth_context(self.subject_id.clone())?,
             self.trusted_source_digest,
             self.intent_digest,
         )
@@ -2531,8 +3112,8 @@ pub struct CloudflareRouterAbEcdsaDerivationEvmDigestPrepareAdmissionCandidateV1
     pub account_id: String,
     /// Canonical subject id from verified wallet auth.
     pub subject_id: String,
-    /// Threshold/MPC session id authorized by the Wallet Session.
-    pub threshold_session_id: String,
+    /// Exact Router-verified authorization branch.
+    pub authorization: CloudflareRouterNormalSigningAuthorizationV2,
     /// Active SigningWorker id authorized for this request.
     pub signing_worker_id: String,
     /// Router request id from the typed Router A/B ECDSA derivation request.
@@ -2560,7 +3141,7 @@ impl CloudflareRouterAbEcdsaDerivationEvmDigestPrepareAdmissionCandidateV1 {
         environment: impl Into<String>,
         account_id: impl Into<String>,
         subject_id: impl Into<String>,
-        threshold_session_id: impl Into<String>,
+        authorization: CloudflareRouterNormalSigningAuthorizationV2,
         signing_worker_id: impl Into<String>,
         request_id: impl Into<String>,
         client_presignature_id: impl Into<String>,
@@ -2576,7 +3157,7 @@ impl CloudflareRouterAbEcdsaDerivationEvmDigestPrepareAdmissionCandidateV1 {
             environment: environment.into(),
             account_id: account_id.into(),
             subject_id: subject_id.into(),
-            threshold_session_id: threshold_session_id.into(),
+            authorization,
             signing_worker_id: signing_worker_id.into(),
             request_id: request_id.into(),
             client_presignature_id: client_presignature_id.into(),
@@ -2600,13 +3181,27 @@ impl CloudflareRouterAbEcdsaDerivationEvmDigestPrepareAdmissionCandidateV1 {
             request,
             now_unix_ms,
         )?;
+        let authorization = match &request.authorization {
+            NormalSigningAuthorizationV1::ReusableWalletSession { .. } => {
+                CloudflareRouterNormalSigningAuthorizationV2::reusable_wallet_session(
+                    wallet_session.authorization_id.clone(),
+                    wallet_session.wallet_session_id.clone(),
+                )?
+            }
+            NormalSigningAuthorizationV1::OperationStepUp => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidGateDecision,
+                    "Wallet Session bearer cannot authorize operation-step-up signing",
+                ));
+            }
+        };
         let admission = Self::new(
             wallet_session.org_id.clone(),
             wallet_session.project_id.clone(),
             wallet_session.environment.clone(),
             wallet_session.account_id.clone(),
             wallet_session.subject_id.clone(),
-            wallet_session.threshold_session_id.clone(),
+            authorization,
             wallet_session.signing_worker_id.clone(),
             request.request_id.clone(),
             request.client_presignature_id.clone(),
@@ -2639,10 +3234,7 @@ impl CloudflareRouterAbEcdsaDerivationEvmDigestPrepareAdmissionCandidateV1 {
             "Router A/B ECDSA derivation prepare subject_id",
             &self.subject_id,
         )?;
-        require_non_empty(
-            "Router A/B ECDSA derivation prepare threshold_session_id",
-            &self.threshold_session_id,
-        )?;
+        self.authorization.validate()?;
         require_non_empty(
             "Router A/B ECDSA derivation prepare signing_worker_id",
             &self.signing_worker_id,
@@ -2674,16 +3266,14 @@ impl CloudflareRouterAbEcdsaDerivationEvmDigestPrepareAdmissionCandidateV1 {
                 "Router A/B ECDSA derivation prepare admission account_id does not match request scope",
             ));
         }
-        if self.threshold_session_id
-            != cloudflare_router_ab_ecdsa_derivation_active_state_session_id_from_scope_v1(
-                &request.scope,
-            )?
-        {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Router A/B ECDSA derivation prepare admission session_id does not match request scope",
-            ));
-        }
+        self.authorization
+            .validate_for_scope(&request.authorization)
+            .map_err(|_| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidGateDecision,
+                    "Router A/B ECDSA derivation prepare admission authorization does not match request scope",
+                )
+            })?;
         if self.signing_worker_id != request.scope.signing_worker.server_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
@@ -2739,10 +3329,8 @@ impl CloudflareRouterAbEcdsaDerivationEvmDigestPrepareAdmissionCandidateV1 {
             self.project_id.clone(),
             self.environment.clone(),
             self.account_id.clone(),
-            CloudflareRouterAuthContextV1::authenticated_session(
-                self.subject_id.clone(),
-                self.threshold_session_id.clone(),
-            )?,
+            self.authorization
+                .to_auth_context(self.subject_id.clone())?,
             self.trusted_source_digest,
             self.request_digest,
         )
@@ -2762,8 +3350,8 @@ pub struct CloudflareRouterAbEcdsaDerivationEvmDigestFinalizeAdmissionCandidateV
     pub account_id: String,
     /// Canonical subject id from verified wallet auth.
     pub subject_id: String,
-    /// Threshold/MPC session id authorized by the Wallet Session.
-    pub threshold_session_id: String,
+    /// Exact Router-verified authorization branch.
+    pub authorization: CloudflareRouterNormalSigningAuthorizationV2,
     /// Active SigningWorker id authorized for this request.
     pub signing_worker_id: String,
     /// Router request id from the typed Router A/B ECDSA derivation finalize request.
@@ -2793,7 +3381,7 @@ impl CloudflareRouterAbEcdsaDerivationEvmDigestFinalizeAdmissionCandidateV1 {
         environment: impl Into<String>,
         account_id: impl Into<String>,
         subject_id: impl Into<String>,
-        threshold_session_id: impl Into<String>,
+        authorization: CloudflareRouterNormalSigningAuthorizationV2,
         signing_worker_id: impl Into<String>,
         request_id: impl Into<String>,
         scope_digest: PublicDigest32,
@@ -2810,7 +3398,7 @@ impl CloudflareRouterAbEcdsaDerivationEvmDigestFinalizeAdmissionCandidateV1 {
             environment: environment.into(),
             account_id: account_id.into(),
             subject_id: subject_id.into(),
-            threshold_session_id: threshold_session_id.into(),
+            authorization,
             signing_worker_id: signing_worker_id.into(),
             request_id: request_id.into(),
             scope_digest,
@@ -2835,13 +3423,27 @@ impl CloudflareRouterAbEcdsaDerivationEvmDigestFinalizeAdmissionCandidateV1 {
             request,
             now_unix_ms,
         )?;
+        let authorization = match &request.authorization {
+            NormalSigningAuthorizationV1::ReusableWalletSession { .. } => {
+                CloudflareRouterNormalSigningAuthorizationV2::reusable_wallet_session(
+                    wallet_session.authorization_id.clone(),
+                    wallet_session.wallet_session_id.clone(),
+                )?
+            }
+            NormalSigningAuthorizationV1::OperationStepUp => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidGateDecision,
+                    "Wallet Session bearer cannot authorize operation-step-up signing",
+                ));
+            }
+        };
         let admission = Self::new(
             wallet_session.org_id.clone(),
             wallet_session.project_id.clone(),
             wallet_session.environment.clone(),
             wallet_session.account_id.clone(),
             wallet_session.subject_id.clone(),
-            wallet_session.threshold_session_id.clone(),
+            authorization,
             wallet_session.signing_worker_id.clone(),
             request.request_id.clone(),
             request.scope.scope_digest()?,
@@ -2875,10 +3477,7 @@ impl CloudflareRouterAbEcdsaDerivationEvmDigestFinalizeAdmissionCandidateV1 {
             "Router A/B ECDSA derivation finalize subject_id",
             &self.subject_id,
         )?;
-        require_non_empty(
-            "Router A/B ECDSA derivation finalize threshold_session_id",
-            &self.threshold_session_id,
-        )?;
+        self.authorization.validate()?;
         require_non_empty(
             "Router A/B ECDSA derivation finalize signing_worker_id",
             &self.signing_worker_id,
@@ -2910,16 +3509,14 @@ impl CloudflareRouterAbEcdsaDerivationEvmDigestFinalizeAdmissionCandidateV1 {
                 "Router A/B ECDSA derivation finalize admission account_id does not match request scope",
             ));
         }
-        if self.threshold_session_id
-            != cloudflare_router_ab_ecdsa_derivation_active_state_session_id_from_scope_v1(
-                &request.scope,
-            )?
-        {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Router A/B ECDSA derivation finalize admission session_id does not match request scope",
-            ));
-        }
+        self.authorization
+            .validate_for_scope(&request.authorization)
+            .map_err(|_| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidGateDecision,
+                    "Router A/B ECDSA derivation finalize admission authorization does not match request scope",
+                )
+            })?;
         if self.signing_worker_id != request.scope.signing_worker.server_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
@@ -2981,10 +3578,8 @@ impl CloudflareRouterAbEcdsaDerivationEvmDigestFinalizeAdmissionCandidateV1 {
             self.project_id.clone(),
             self.environment.clone(),
             self.account_id.clone(),
-            CloudflareRouterAuthContextV1::authenticated_session(
-                self.subject_id.clone(),
-                self.threshold_session_id.clone(),
-            )?,
+            self.authorization
+                .to_auth_context(self.subject_id.clone())?,
             self.trusted_source_digest,
             self.finalize_request_digest,
         )

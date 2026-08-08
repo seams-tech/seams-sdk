@@ -6,8 +6,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const cloudflareRouterDir = path.join(repoRoot, 'packages/sdk-server-ts/src/router/cloudflare');
-
 function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
@@ -28,13 +26,7 @@ function listProductionCoreFiles(dir = path.join(repoRoot, 'packages/sdk-web/src
 }
 
 function listProductionCloudflareD1Files() {
-  return fs
-    .readdirSync(cloudflareRouterDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .map((entry) => entry.name)
-    .filter((name) => /^d1.*\.ts$/.test(name) && !name.endsWith('.typecheck.ts'))
-    .map((name) => path.relative(repoRoot, path.join(cloudflareRouterDir, name)))
-    .sort();
+  return listProductionServerTypeScriptFiles('packages/sdk-server-ts/src/router/cloudflare/d1');
 }
 
 function listProductionServerTypeScriptFiles(relativeDir) {
@@ -55,7 +47,9 @@ function listProductionServerTypeScriptFiles(relativeDir) {
 
 function listWalletPersistenceParserGuardFiles() {
   const files = new Set();
-  for (const relativePath of listProductionServerTypeScriptFiles('packages/sdk-server-ts/src/core')) {
+  for (const relativePath of listProductionServerTypeScriptFiles(
+    'packages/sdk-server-ts/src/core',
+  )) {
     files.add(relativePath);
   }
   for (const relativePath of listProductionCloudflareD1Files()) {
@@ -101,7 +95,7 @@ function collectNearPublicKeyRootPasskeyFieldViolations() {
   const violations = [];
   const checkedFiles = [
     'packages/sdk-server-ts/src/core/NearPublicKeyStore.ts',
-    'packages/sdk-server-ts/src/router/cloudflare/d1WebAuthnRecords.ts',
+    'packages/sdk-server-ts/src/router/cloudflare/d1/webauthn/d1WebAuthnRecords.ts',
   ];
   for (const relativePath of checkedFiles) {
     const source = readRepoFile(relativePath);
@@ -114,7 +108,9 @@ function collectNearPublicKeyRootPasskeyFieldViolations() {
       violations.push(`${relativePath} stores passkey rpId at NearPublicKeyRecord root`);
     }
     if (/\bcredentialIdB64u\?:\s*string;/.test(recordType[0])) {
-      violations.push(`${relativePath} stores passkey credentialIdB64u at NearPublicKeyRecord root`);
+      violations.push(
+        `${relativePath} stores passkey credentialIdB64u at NearPublicKeyRecord root`,
+      );
     }
     if (!recordType[0].includes('authBinding?: NearPublicKeyAuthBinding')) {
       violations.push(`${relativePath} lacks branch-specific NearPublicKey authBinding`);
@@ -122,7 +118,7 @@ function collectNearPublicKeyRootPasskeyFieldViolations() {
   }
 
   const relayListSource = readRepoFile(
-    'packages/sdk-server-ts/src/router/cloudflare/d1NearPublicKeyStore.ts',
+    'packages/sdk-server-ts/src/router/cloudflare/d1/near/d1NearPublicKeyStore.ts',
   );
   if (/\brecord\.(rpId|credentialIdB64u)\b/.test(relayListSource)) {
     violations.push('Cloudflare D1 NEAR public-key list response flattens passkey fields');
@@ -167,6 +163,7 @@ function checkProductionWalletPathsAvoidNearProjectionHelpers() {
 
 function checkEcdsaWalletScopedFilesRejectNearAccountProjection() {
   const ecdsaWalletScopedFiles = [
+    'packages/sdk-web/src/SeamsWeb/operations/auth/walletUnlockEcdsaSubject.ts',
     'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/activation.ts',
     'packages/sdk-web/src/core/signingEngine/session/availability/persistedAvailableSigningLanes.ts',
     'packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget.ts',
@@ -182,20 +179,14 @@ function checkEcdsaWalletScopedFilesRejectNearAccountProjection() {
     for (const pattern of forbiddenPatterns) {
       if (pattern.test(source)) violations.push(`${relativePath} matches ${pattern}`);
     }
-  }
-
-  const reauthSource = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts',
-  );
-  const reauthStart = reauthSource.indexOf(
-    'export function buildReauthAnchorIdentityFromAvailableLane',
-  );
-  const reauthEnd = reauthSource.indexOf('\nfunction emptyEd25519Lane', reauthStart);
-  assert.ok(reauthStart >= 0, 'missing buildReauthAnchorIdentityFromAvailableLane');
-  assert.ok(reauthEnd > reauthStart, 'missing buildReauthAnchorIdentityFromAvailableLane body end');
-  const reauthBody = reauthSource.slice(reauthStart, reauthEnd);
-  if (/toAccountId\s*\([^)]*walletId[^)]*\)/.test(reauthBody)) {
-    violations.push('availableSigningLanes.ts projects walletId through toAccountId in reauth body');
+    if (
+      relativePath.endsWith('/walletUnlockEcdsaSubject.ts') &&
+      /from\s+['"][^'"]*(?:accountIds|registrationIntent|session\/persistence\/records)['"]/.test(
+        source,
+      )
+    ) {
+      violations.push(`${relativePath} imports a NEAR identity or session-record module`);
+    }
   }
 
   assertNoViolations('ECDSA wallet-scoped files must reject NEAR account projection', violations);
@@ -209,14 +200,19 @@ function checkEcdsaBootstrapPersistenceAvoidsNearCompatibilityMappingApis() {
   for (const token of ['upsertChainAccount', 'setLastProfileStateForProfile', 'near:testnet']) {
     if (source.includes(token)) violations.push(`ecdsaBootstrapPersistence.ts contains ${token}`);
   }
-  assertNoViolations('ECDSA bootstrap persistence must avoid NEAR compatibility mapping APIs', violations);
+  assertNoViolations(
+    'ECDSA bootstrap persistence must avoid NEAR compatibility mapping APIs',
+    violations,
+  );
 }
 
 function checkCoreNearAccountAuthenticatorLookupHasExplicitApiOnly() {
   const lifecycle = readRepoFile(
     'packages/sdk-web/src/core/signingEngine/flows/registration/accountLifecycle.ts',
   );
-  const publicApi = readRepoFile('packages/sdk-web/src/core/signingEngine/flows/registration/public.ts');
+  const publicApi = readRepoFile(
+    'packages/sdk-web/src/core/signingEngine/flows/registration/public.ts',
+  );
   const violations = [];
   if (lifecycle.includes('export async function getAuthenticatorsByUser')) {
     violations.push('accountLifecycle exports getAuthenticatorsByUser');
@@ -224,7 +220,10 @@ function checkCoreNearAccountAuthenticatorLookupHasExplicitApiOnly() {
   if (publicApi.includes('export function getAuthenticatorsByUser')) {
     violations.push('registration public API exports getAuthenticatorsByUser');
   }
-  assertNoViolations('core NEAR-account authenticator lookup must have explicit near-prefixed API only', violations);
+  assertNoViolations(
+    'core NEAR-account authenticator lookup must have explicit near-prefixed API only',
+    violations,
+  );
 }
 
 checkProductionWalletPathsAvoidNearProjectionHelpers();

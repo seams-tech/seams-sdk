@@ -4,8 +4,8 @@ use curve25519_dalek::scalar::Scalar;
 use rand_core::{OsRng, RngCore};
 use router_ab_core::{
     Ed25519YaoCeremonyBindingV1, Ed25519YaoRefreshBindingV1, Ed25519YaoStableKeyContextBindingV1,
-    Ed25519YaoStateEpochV1, RootShareEpoch, RouterAbProtocolError, RouterAbProtocolErrorCode,
-    RouterAbProtocolResult,
+    Ed25519YaoStateEpochV1, MpcMaterialActivationRefV1, RootShareEpoch, RouterAbProtocolError,
+    RouterAbProtocolErrorCode, RouterAbProtocolResult,
 };
 use serde::{Deserialize, Serialize};
 use signer_core::ed25519_yao_derivation::{
@@ -203,6 +203,8 @@ macro_rules! define_effective_state {
             epoch: Ed25519YaoStateEpochV1,
             #[zeroize(skip)]
             identity: LocalEd25519YaoEffectiveIdentityV1,
+            #[zeroize(skip)]
+            material_activation: MpcMaterialActivationRefV1,
         }
 
         impl $state {
@@ -218,6 +220,7 @@ macro_rules! define_effective_state {
                     tau: tau.into_bytes(),
                     epoch,
                     identity: LocalEd25519YaoEffectiveIdentityV1::from_binding(binding),
+                    material_activation: binding.material_activation.clone(),
                 })
             }
 
@@ -258,7 +261,9 @@ macro_rules! define_effective_state {
             ) -> RouterAbProtocolResult<()> {
                 binding.ceremony().validate()?;
                 let transition = binding.epochs().$role_epoch;
-                if !self.identity.matches(binding.ceremony()) || transition.current() != self.epoch
+                if !self.identity.matches(binding.ceremony())
+                    || transition.current() != self.epoch
+                    || self.material_activation != binding.ceremony().material_activation
                 {
                     return Err(invalid_refresh(concat!(
                         $role,

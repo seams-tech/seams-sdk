@@ -12,7 +12,7 @@ import { resolveExplorerUrlForChainFamily } from '@/core/config/chains';
 import type { TxDisplayModel } from '@/core/signingEngine/interfaces/display';
 import { computeUiIntentDigestFromTxs, orderActionForDigest } from '@/utils/intentDigest';
 
-import type { UiConfirmContext } from '../uiConfirm.types';
+import type { UiConfirmContext, UiConfirmSurfaceMeasurementBinding } from '../uiConfirm.types';
 import type { TransactionSummary } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { EmailOtpConfirmPrompt, SigningAuthMode } from '../../stepUpConfirmation/types';
 import type {
@@ -29,6 +29,11 @@ import {
   W3A_TX_CONFIRMER_ID,
   ensureDefined,
 } from './registry';
+import {
+  createWalletIframeSurfaceMeasurementReporter,
+  type WalletIframeSurfaceMeasurementReporter,
+} from '@/SeamsWeb/walletIframe/host/lit-ui/surface-measurement-reporter';
+import { ensureExternalStyles } from './lit-components/css/css-loader';
 
 export type {
   ConfirmUIHandle,
@@ -92,6 +97,16 @@ type ConfirmUIInternalUpdate = ConfirmUIUpdate & {
   evmExplorerUrl?: string;
 };
 
+const CONFIRM_SURFACE_MODE_ATTR = 'data-w3a-confirm-surface';
+const confirmSurfaceMeasurementReporters = new WeakMap<
+  HTMLElement,
+  WalletIframeSurfaceMeasurementReporter
+>();
+const confirmSurfaceMeasurementBindings = new WeakMap<
+  HTMLElement,
+  UiConfirmSurfaceMeasurementBinding
+>();
+
 export type ConfirmUIRenderContext = {
   userPreferencesManager: Pick<UiConfirmContext['userPreferencesManager'], 'getCurrentWalletId'>;
   chains?: UiConfirmContext['chains'];
@@ -99,6 +114,7 @@ export type ConfirmUIRenderContext = {
   nearExplorerUrl?: string;
   tempoExplorerUrl?: string;
   evmExplorerUrl?: string;
+  surfaceMeasurementBinding: UiConfirmSurfaceMeasurementBinding;
 };
 
 async function ensureTxConfirmerElementDefined(): Promise<void> {
@@ -110,6 +126,15 @@ async function ensureTxConfirmerElementDefined(): Promise<void> {
 
 export async function prewarmTxConfirmerUi(): Promise<void> {
   await ensureTxConfirmerElementDefined();
+  const root = typeof document === 'undefined' ? null : document.documentElement;
+  if (!root) return;
+  await Promise.all([
+    ensureExternalStyles(root, 'w3a-components.css', 'data-w3a-components-css'),
+    ensureExternalStyles(root, 'tx-tree.css', 'data-w3a-tx-tree-css'),
+    ensureExternalStyles(root, 'tx-confirmer.css', 'data-w3a-tx-confirmer-css'),
+    ensureExternalStyles(root, 'halo-border.css', 'data-w3a-halo-border-css'),
+    ensureExternalStyles(root, 'passkey-halo-loading.css', 'data-w3a-passkey-halo-loading-css'),
+  ]);
 }
 
 const DEFAULT_CONFIRM_APPEARANCE: AppearanceConfig = {
@@ -221,6 +246,7 @@ function cleanupExistingConfirmers(): void {
   );
 
   for (const element of elements) {
+    disconnectConfirmSurfaceMeasurementReporter(element);
     element.dispatchEvent(
       new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, { bubbles: true, composed: true }),
     );
@@ -241,6 +267,7 @@ function ensureConfirmPortal(): HTMLElement {
 }
 
 function removeHostConfirmerElement(element: HTMLElement): void {
+  disconnectConfirmSurfaceMeasurementReporter(element);
   element.remove();
   const portal = document.getElementById(W3A_CONFIRM_PORTAL_ID) as HTMLElement | null;
   if (portal) updateConfirmPortalState(portal);
@@ -388,6 +415,97 @@ function applyHostElementProps(
   element.requestUpdate?.();
 }
 
+function sameConfirmSurfaceMeasurementBinding(
+  left: UiConfirmSurfaceMeasurementBinding | undefined,
+  right: UiConfirmSurfaceMeasurementBinding,
+): boolean {
+  if (!left || left.kind !== right.kind) return false;
+  switch (left.kind) {
+    case 'disabled':
+      return right.kind === 'disabled';
+    case 'wallet_iframe':
+      return (
+        right.kind === 'wallet_iframe' &&
+        left.requestId === right.requestId &&
+        left.postMeasurement === right.postMeasurement &&
+        left.hostSurfaceVariant === right.hostSurfaceVariant
+      );
+  }
+}
+
+function disconnectConfirmSurfaceMeasurementReporter(element: HTMLElement): void {
+  confirmSurfaceMeasurementReporters.get(element)?.disconnect();
+  confirmSurfaceMeasurementReporters.delete(element);
+  confirmSurfaceMeasurementBindings.delete(element);
+}
+
+function createConfirmSurfaceMeasurementReporter(
+  binding: UiConfirmSurfaceMeasurementBinding,
+  element: HTMLElement,
+): WalletIframeSurfaceMeasurementReporter | null {
+  switch (binding.kind) {
+    case 'disabled':
+      return null;
+    case 'wallet_iframe':
+      return createWalletIframeSurfaceMeasurementReporter({
+        kind: 'request_surface',
+        element,
+        requestId: binding.requestId,
+        postMeasurement: binding.postMeasurement,
+      });
+    default: {
+      const exhaustive: never = binding;
+      throw new Error(`Unhandled confirmation measurement binding: ${String(exhaustive)}`);
+    }
+  }
+}
+
+/**
+ * Two independent values decide how a confirmation is laid out, and conflating
+ * them is what once stranded the Email OTP export prompt in the top-left corner:
+ *
+ * - `data-w3a-confirm-variant` is what THIS confirmation renders (modal card or
+ *   bottom sheet). It comes from the Confirmer UI setting.
+ * - `data-w3a-confirm-surface` is the shape of the HOST BOX it renders into.
+ *   `wallet-iframe` means the parent measured the card and sized the box to hug
+ *   it, so the card must not position itself. `standalone` means the card owns a
+ *   full-viewport canvas and centres (modal) or bottom-anchors (drawer) itself.
+ *
+ * They are usually the same value, so the box shape is inferred from the
+ * variant. Key export is the exception: its box is pinned to a full-viewport
+ * drawer for the whole request (the key viewer is always a drawer), while the
+ * OTP prompt inside that box still follows the Confirmer UI setting. A modal
+ * prompt in a full-viewport box must self-centre, so the box shape wins.
+ */
+function applyConfirmSurfaceMode(
+  element: HTMLElement,
+  binding: UiConfirmSurfaceMeasurementBinding,
+): void {
+  const variant = (element as HostTxConfirmerElement).variant;
+  const hostBoxVariant =
+    binding.kind === 'wallet_iframe' ? (binding.hostSurfaceVariant ?? variant) : variant;
+  const surface =
+    binding.kind === 'wallet_iframe' && hostBoxVariant === 'modal' ? 'wallet-iframe' : 'standalone';
+  element.setAttribute(CONFIRM_SURFACE_MODE_ATTR, surface);
+  if (variant) element.setAttribute('data-w3a-confirm-variant', variant);
+}
+
+function bindConfirmSurfaceMeasurementReporter(
+  element: HTMLElement,
+  binding: UiConfirmSurfaceMeasurementBinding,
+): void {
+  applyConfirmSurfaceMode(element, binding);
+  if (
+    sameConfirmSurfaceMeasurementBinding(confirmSurfaceMeasurementBindings.get(element), binding)
+  ) {
+    return;
+  }
+  disconnectConfirmSurfaceMeasurementReporter(element);
+  confirmSurfaceMeasurementBindings.set(element, binding);
+  const reporter = createConfirmSurfaceMeasurementReporter(binding, element);
+  if (reporter) confirmSurfaceMeasurementReporters.set(element, reporter);
+}
+
 function createHostConfirmHandle(
   ctx: ConfirmUIRenderContext,
   element: HostTxConfirmerElement,
@@ -399,6 +517,7 @@ function createHostConfirmHandle(
     close: (confirmed: boolean) => {
       if (closed) return;
       closed = true;
+      disconnectConfirmSurfaceMeasurementReporter(element);
       closeHostConfirmerElement(element, confirmed, onClose);
     },
     update: (props: ConfirmUIUpdate) => applyHostElementProps(ctx, element, props),
@@ -483,6 +602,7 @@ function reuseMountedDecisionSurface(
     throw new Error('Cannot reuse a detached confirmation surface');
   }
   el.variant = args.variant;
+  bindConfirmSurfaceMeasurementReporter(el, args.ctx.surfaceMeasurementBinding);
   el.txSigningRequests = args.txSigningRequests;
   el.model = args.model;
   el.intentDigest = args.summary.intentDigest;
@@ -823,10 +943,18 @@ function mountHostElement({
     element.title = 'Sign Delegate Action';
   }
 
+  // Set the surface mode before connecting the custom element. The wallet
+  // iframe host uses this attribute to hide provisional geometry; connecting
+  // first lets a synchronous render paint the standalone/default surface for
+  // one frame while the reporter is attached.
+  applyConfirmSurfaceMode(element, ctx.surfaceMeasurementBinding);
+
   const portal = ensureConfirmPortal();
   const wasEmpty = portal.childElementCount === 0;
   portal.appendChild(element);
   updateConfirmPortalState(portal);
+
+  bindConfirmSurfaceMeasurementReporter(element, ctx.surfaceMeasurementBinding);
 
   if (wasEmpty) {
     portal.classList.remove('w3a-portal--visible');

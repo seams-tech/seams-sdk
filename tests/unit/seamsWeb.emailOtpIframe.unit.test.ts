@@ -120,7 +120,7 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
         clientAdditiveShare32B64u: secretSentinel,
         clientAdditiveShareHandle: {
           kind: 'email_otp_worker_session',
-          sessionId: 'email-otp-session-1',
+          thresholdSessionId: 'threshold-session-1',
         },
       },
     },
@@ -129,10 +129,6 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
       kind: 'cookie',
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 3,
-    },
-    keygen: {
-      clientAdditiveShare32B64u: secretSentinel,
-      clientRootShare32B64u: secretSentinel,
     },
   };
 
@@ -284,26 +280,6 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
         setWarmCapabilityActive(true);
         respond({ recovery: loginRecovery, bootstrap: bootstrapResult, warmCapability });
       }
-      if (data.type === 'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY') {
-        rememberWallet(data.payload?.walletSession?.walletId || '');
-        rememberNearAccount(data.payload?.nearAccountId || 'alice.testnet');
-        setWarmCapabilityActive(true);
-        respond({
-          enrollment: {
-            thresholdEcdsaClientVerifyingShareB64u: 'threshold-verifier-b64u',
-            challengeId: 'enrollment-challenge-1',
-            otpChannel: 'email_otp',
-            enrollmentSealKeyVersion: 'email-otp-kv-1',
-            recoveryKeys: [secretSentinel],
-            clientUnlockPublicKeyB64u: 'unlock-public-key-b64u',
-            unlockKeyVersion: 'unlock-kv-1',
-            clientRootShare32B64u: secretSentinel,
-            clientSecret32: secretSentinel,
-          },
-          bootstrap: bootstrapResult,
-          warmCapability,
-        });
-      }
       if (data.type === 'PM_SIGN_TEMPO') {
         if (!warmCapabilityActive) {
           reject('threshold_ecdsa_session_not_ready', 'Fresh Email OTP verification required');
@@ -374,7 +350,6 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
         const unlockEvents: Array<Record<string, unknown>> = [];
         const perOperationUnlockEvents: Array<Record<string, unknown>> = [];
         const failedUnlockEvents: Array<Record<string, unknown>> = [];
-        const enrollAndLoginEvents: Array<Record<string, unknown>> = [];
         const secretRejectionEvents: Array<Record<string, unknown>> = [];
         const captureEvent =
           (events: Array<Record<string, unknown>>) => (event: Record<string, unknown>) => {
@@ -462,15 +437,6 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           })
           .then(() => null)
           .catch((error: unknown) => String((error as Error)?.message || error));
-        const enrollAndLogin = await pm.registration.enrollAndLoginWithEmailOtpEcdsaCapability({
-          walletSession: walletSessionRef,
-          chainTarget,
-          emailOtpAuthPolicy: 'session',
-          challengeId: enrollmentChallenge.challengeId,
-          otpCode: '123456',
-          appSessionJwt: 'app-session-jwt',
-          onEvent: captureEvent(enrollAndLoginEvents),
-        });
         const appOriginSecretRejection = await pm.registration
           .enrollEmailOtp({
             walletId,
@@ -497,7 +463,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
             accessList: [],
           },
         };
-        const sessionSigned = await pm.tempo.signTempo({
+        const sessionSigned = await pm.evm.signTransaction({
           walletSession: walletSessionRef,
           chainTarget,
           request: signRequest,
@@ -513,7 +479,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           options: { confirmationConfig: { uiMode: 'modal' } },
         });
         const walletSession = await pm.auth.getWalletSession(walletId);
-        const perOperationSigned = await pm.tempo.signTempo({
+        const perOperationSigned = await pm.evm.signTransaction({
           walletSession: walletSessionRef,
           chainTarget,
           request: { ...signRequest, tx: { ...signRequest.tx, nonce: 1n } },
@@ -584,7 +550,6 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           enrollment,
           login,
           perOperationLogin,
-          enrollAndLogin,
           sessionSigned,
           nearSigned,
           perOperationSigned,
@@ -600,7 +565,6 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           googleRegistrationStartState: googleRegistrationFlow?.state || null,
           googleRegistrationStartWalletId: googleRegistrationFlow?.walletId || null,
           enrollmentKeyVersion: enrollment.enrollmentSealKeyVersion,
-          enrollAndLoginKeyVersion: enrollAndLogin.enrollment.enrollmentSealKeyVersion,
           appOriginSecretRejection,
           sessionSignedKind: sessionSigned.kind,
           nearSignedCount: Array.isArray(nearSigned) ? nearSigned.length : 0,
@@ -636,9 +600,6 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           failedUnlockEventStatuses: failedUnlockEvents.map((event) => event.status),
           failedUnlockEventInteractions: failedUnlockEvents.map((event) => event.interaction),
           failedUnlockEventErrors: failedUnlockEvents.map((event) => event.error),
-          enrollAndLoginEventPhases: enrollAndLoginEvents.map((event) => event.phase),
-          enrollAndLoginEventSteps: enrollAndLoginEvents.map((event) => event.step),
-          enrollAndLoginEventFlows: [...new Set(enrollAndLoginEvents.map((event) => event.flow))],
           secretRejectionEventPhases: secretRejectionEvents.map((event) => event.phase),
           secretRejectionEventSteps: secretRejectionEvents.map((event) => event.step),
           secretRejectionEventStatuses: secretRejectionEvents.map((event) => event.status),
@@ -677,7 +638,6 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
       googleRegistrationStartState: 'registration_ready',
       googleRegistrationStartWalletId: 'alice.testnet',
       enrollmentKeyVersion: 'email-otp-kv-1',
-      enrollAndLoginKeyVersion: 'email-otp-kv-1',
       appOriginSecretRejection:
         '[SeamsWeb] Wallet iframe Email OTP enrollment owns client secret generation; clientSecret32 is not accepted from the app origin.',
       sessionSignedKind: 'eip1559',
@@ -734,17 +694,6 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
         { kind: 'none', overlay: 'hide' },
       ],
       failedUnlockEventErrors: [null, { message: 'Invalid Email OTP code' }],
-      enrollAndLoginEventPhases: [
-        'registration.otp.verify.started',
-        'registration.otp.verify.succeeded',
-        'registration.signer.email_otp.enroll.started',
-        'registration.signer.email_otp.enroll.succeeded',
-        'registration.signer.ecdsa.provision.started',
-        'registration.signer.ecdsa.provision.succeeded',
-        'registration.completed',
-      ],
-      enrollAndLoginEventSteps: [4, 4, 9, 9, 10, 10, 11],
-      enrollAndLoginEventFlows: ['registration'],
       secretRejectionEventPhases: ['registration.otp.verify.started', 'registration.failed'],
       secretRejectionEventSteps: [4, 0],
       secretRejectionEventStatuses: ['running', 'failed'],
@@ -778,12 +727,11 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
     expect(messageTypes).toContain('PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH');
     expect(messageTypes).toContain('PM_ENROLL_EMAIL_OTP');
     expect(messageTypes).toContain('PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY');
-    expect(messageTypes).toContain('PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY');
 
     const emailOtpMessages = messages.filter((message: { type: string }) =>
       message.type.includes('EMAIL_OTP'),
     );
-    expect(emailOtpMessages).toHaveLength(9);
+    expect(emailOtpMessages).toHaveLength(8);
     for (const message of emailOtpMessages) {
       if (message.type === 'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION') continue;
       if (message.type === 'PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH') {
@@ -801,7 +749,6 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
       }
       if (
         message.type === 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY' ||
-        message.type === 'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY' ||
         message.type === 'PM_REQUEST_EMAIL_OTP_SIGNING_SESSION_CHALLENGE' ||
         message.type === 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION'
       ) {
@@ -1046,8 +993,8 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
             accessList: [],
           },
         };
-        const signResult = await pm.tempo
-          .signTempo({
+        const signResult = await pm.evm
+          .signTransaction({
             walletSession,
             chainTarget: {
               kind: 'evm',

@@ -5,10 +5,13 @@ import express, {
   type Response as ExpressResponse,
   type Router as ExpressRouter,
 } from 'express';
-import type { RouterApiServiceBag } from './authServicePort';
-import { createCloudflareRouter } from './cloudflare/createCloudflareRouter';
-import type { RouterApiOptions } from './routerApi';
-import { attachRouterApiRouteSurface, getRouterApiRouteSurface } from './routerApiRouteSurface';
+import type { RouterApiServiceBag } from './framework/authServicePort';
+import { createFetchRouter } from './transport/fetch/createFetchRouter';
+import type { RouterApiOptions } from './framework/routerApi';
+import {
+  attachRouterApiRouteSurface,
+  getRouterApiRouteSurface,
+} from './framework/routerApiRouteSurface';
 
 export type {
   RouterApiOptions,
@@ -28,7 +31,7 @@ export type {
   RouterApiRuntimePolicyScope,
   RouterApiRuntimeSnapshotEnvelope,
   RouterApiRuntimeSnapshotConsumer,
-} from './routerApi';
+} from './framework/routerApi';
 export {
   ROUTER_AB_PUBLIC_KEYSET_PATH,
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
@@ -42,44 +45,64 @@ export type {
   RouterAbNormalSigningAdmissionFailureCode,
   RouterAbNormalSigningAdmissionInput,
   RouterAbNormalSigningAdmissionResult,
-} from './routerAbPrivateSigningWorker';
+} from './domains/signingOperations/routerAbPrivateSigningWorker';
 export {
-  CloudflareD1RouterAbNormalSigningAdmissionStore,
   InMemoryRouterAbNormalSigningAdmissionStore,
-  createCloudflareD1RouterAbNormalSigningAdmissionStore,
   createInMemoryRouterAbNormalSigningAdmissionAdapter,
   createInMemoryRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
-} from './routerAbNormalSigningAdmissionStore';
+} from './domains/signingOperations/routerAbNormalSigningAdmissionCore';
 export type {
-  CloudflareD1RouterAbNormalSigningAdmissionStoreOptions,
-  InMemoryRouterAbNormalSigningAdmissionStoreOptions,
   RouterAbNormalSigningAbuseDecision,
   RouterAbNormalSigningAbuseProvider,
   RouterAbNormalSigningAdmissionStore,
   RouterAbNormalSigningProjectPolicyDecision,
   RouterAbNormalSigningProjectPolicyProvider,
-  RouterAbNormalSigningQuotaDecision,
-  RouterAbNormalSigningQuotaStore,
-} from './routerAbNormalSigningAdmissionStore';
+} from './domains/signingOperations/routerAbNormalSigningAdmissionCore';
 export type {
-  RouterApiCloudflareRouteExtension,
-  RouterApiCloudflareRouteExtensionInput,
+  RouterApiFetchRouteExtension,
+  RouterApiFetchRouteExtensionInput,
   RouterApiRouteExtension,
   RouterApiRouteExtensionTransport,
-} from './routeExtensions';
-export type { RouterApiModule, RouterApiModuleKind, RouterApiModuleOptions } from './modules';
-export { createRouterApiModule } from './modules';
-export type { RouteDefinition } from './routeDefinitions';
-export { defineRoute } from './routeDefinitions';
+} from './framework/routeExtensions';
+export type {
+  RouterApiModule,
+  RouterApiModuleKind,
+  RouterApiModuleOptions,
+} from './framework/modules';
+export { createRouterApiModule } from './framework/modules';
+export type { RouteDefinition } from './framework/routeDefinitions';
+export { defineRoute } from './framework/routeDefinitions';
 export type {
   InMemoryRouterApiRuntimeSnapshotConsumer,
   RouterApiRuntimeSnapshotPublishedUpdate,
-} from './runtimeSnapshotConsumer';
+} from './framework/runtimeSnapshotConsumer';
 export {
   createInMemoryRouterApiRuntimeSnapshotConsumer,
   validateRuntimeSnapshotExpectation,
-} from './runtimeSnapshotConsumer';
+} from './framework/runtimeSnapshotConsumer';
+export {
+  RouterAbEd25519YaoHttpRegistrationBackend,
+  createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
+} from './domains/ed25519Yao/registration/routerAbEd25519YaoHttpRegistrationBackend';
+export type {
+  RouterAbEd25519YaoHttpRegistrationBackendConfig,
+  RouterAbEd25519YaoHttpRegistrationBackendRawEnv,
+} from './domains/ed25519Yao/registration/routerAbEd25519YaoHttpRegistrationBackend';
+export {
+  createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1,
+  createRouterAbEd25519YaoProductRegistrationRuntimeV1,
+  createRouterAbEd25519YaoProductRegistrationStateV1,
+} from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
+export type {
+  RouterAbEd25519YaoProductRecoveryServicePortV1,
+  RouterAbEd25519YaoProductRegistrationAuthorizationPortV1,
+  RouterAbEd25519YaoProductRegistrationCompositionV1,
+  RouterAbEd25519YaoProductRegistrationPortsV1,
+  RouterAbEd25519YaoProductRegistrationRuntimeV1,
+  RouterAbEd25519YaoProductRegistrationServicePortV1,
+  RouterAbEd25519YaoProductRegistrationStateV1,
+} from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 
 function appendExpressRequestHeaders(headers: Headers, req: ExpressRequest): void {
   for (const [name, value] of Object.entries(req.headers)) {
@@ -142,7 +165,7 @@ async function sendFetchResponseToExpress(
 }
 
 function createFetchBackedExpressMiddleware(
-  fetchHandler: ReturnType<typeof createCloudflareRouter>,
+  fetchHandler: ReturnType<typeof createFetchRouter>,
 ): RequestHandler {
   return async function fetchBackedExpressMiddleware(
     req: ExpressRequest,
@@ -167,7 +190,7 @@ export function createRouterApiRouter(
   service: RouterApiServiceBag,
   opts: RouterApiOptions = {},
 ): ExpressRouter {
-  const fetchHandler = createCloudflareRouter(service, opts);
+  const fetchHandler = createFetchRouter(service, opts, { kind: 'inline' });
   const router = express.Router();
   router.use(createFetchBackedExpressMiddleware(fetchHandler));
   const surface = getRouterApiRouteSurface(fetchHandler);

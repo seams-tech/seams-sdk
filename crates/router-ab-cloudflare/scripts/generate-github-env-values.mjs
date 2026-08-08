@@ -13,8 +13,8 @@ import {
   gatewayRuntimeProfileNearNetwork,
   parseGatewayDeploymentConfig as parseStrictGatewayDeploymentConfig,
 } from '../../../packages/console-server-ts/scripts/gateway-deployment-config.mjs';
+import { readBackendLane, readFrontendSite } from '../../../scripts/deployment-targets.mjs';
 
-const VALID_TARGETS = new Set(['staging', 'production']);
 const VALID_DEPLOYMENT_COMPONENTS = new Set(['wallet-core', 'product']);
 const githubCli = process.env.GITHUB_CLI_BIN || 'gh';
 const argv = process.argv.slice(2).filter((argument) => argument !== '--');
@@ -47,10 +47,6 @@ const OBSOLETE_GATEWAY_VARIABLE_NAMES = new Set([
   'GATEWAY_CONSOLE_D1_DATABASE_ID',
   'GATEWAY_SIGNER_D1_DATABASE_NAME',
   'GATEWAY_SIGNER_D1_DATABASE_ID',
-  'GATEWAY_SECRETS_STORE_ID',
-  'SIGNING_ROOT_KEK_ID',
-  'SIGNING_ROOT_KEK_SECRET_NAME',
-  'SIGNING_ROOT_KEK_ENCODING',
   'SEAMS_TENANT_STORAGE_NAMESPACE',
   'SEAMS_ORG_ID',
   'SEAMS_PROJECT_ID',
@@ -155,7 +151,7 @@ if (argv.includes('--help')) {
   process.exit(0);
 }
 
-const target = requireTarget();
+assertNoLegacyIdentityFlags();
 const json = argv.includes('--json');
 const apply = argv.includes('--apply');
 const prepare = argv.includes('--prepare');
@@ -164,8 +160,16 @@ const verifyGeneration = argv.includes('--verify-generation');
 const allowIncomplete = argv.includes('--allow-incomplete');
 const requestedRepository = readOption('--repo');
 const deploymentComponent = readDeploymentComponent();
+const deploymentIdentity = resolveDeploymentIdentity(deploymentComponent);
+const target = deploymentIdentity.release;
+const identityId = deploymentIdentity.id;
+const environmentPrefix = deploymentEnvironmentPrefix(deploymentIdentity);
+const deploymentSite =
+  deploymentIdentity.kind === 'site'
+    ? deploymentIdentity.site
+    : readFrontendSite(deploymentIdentity.lane.site.id);
 const manifestFile = readOption('--manifest-file');
-const valuesFile = readOption('--values-file') || findDefaultValuesFile(target);
+const valuesFile = readOption('--values-file') || findDefaultValuesFile(deploymentIdentity);
 const progress = createProgressLogger(resolveProgressStepCount());
 let repository = requestedRepository;
 if (verifyGeneration) {
@@ -175,7 +179,7 @@ if (verifyGeneration) {
   progress.step('Validate GitHub authentication and repository access');
   repository = resolveGitHubRepository(requestedRepository);
   progress.step('Verify deployment generation metadata');
-  const verification = verifyAppliedGenerationMetadata(target, repository);
+  const verification = verifyAppliedGenerationMetadata(deploymentIdentity, repository);
   if (json) {
     process.stdout.write(`${JSON.stringify(verification, null, 2)}\n`);
   } else {
@@ -191,11 +195,15 @@ if (manifestFile) {
     throw new Error('--manifest-file requires --component wallet-core or --component product');
   }
   progress.step('Load and verify prepared component manifest');
-  const preparedManifest = loadPreparedComponentManifest(manifestFile, target, deploymentComponent);
+  const preparedManifest = loadPreparedComponentManifest(
+    manifestFile,
+    deploymentIdentity,
+    deploymentComponent,
+  );
   progress.step('Validate GitHub authentication and repository access');
   repository = resolveGitHubRepository(requestedRepository);
   if (deploymentComponent === 'wallet-core') {
-    assertTargetCanInitialize(target, repository, rotate);
+    assertTargetCanInitialize(environmentPrefix, repository, rotate);
   } else {
     assertWalletCoreGenerationMatches(preparedManifest, repository);
   }
@@ -208,7 +216,7 @@ if (manifestFile) {
   );
   let verification;
   if (deploymentComponent === 'product') {
-    verification = verifyAppliedGenerationMetadata(target, repository);
+    verification = verifyAppliedGenerationMetadata(deploymentIdentity, repository);
   }
   if (json) {
     process.stdout.write(
@@ -220,9 +228,6 @@ if (manifestFile) {
   }
   process.exit(0);
 }
-if (deploymentComponent) {
-  throw new Error('--component is valid only with --manifest-file');
-}
 if (prepare && apply) {
   throw new Error('--prepare and --apply are separate operations');
 }
@@ -232,15 +237,21 @@ if (apply) {
 if (prepare) {
   progress.step('Validate GitHub authentication and repository access');
   repository = resolveGitHubRepository(requestedRepository);
-  assertTargetCanInitialize(target, repository, rotate);
+  assertTargetCanInitialize(environmentPrefix, repository, rotate);
 }
 progress.step('Load supplied deployment values');
 const suppliedValues = loadSuppliedValues(valuesFile);
-validateOptionalIntegrationInputs(target, suppliedValues);
+validateOptionalIntegrationInputs(environmentPrefix, suppliedValues);
 if (prepare) {
-  requireCloudflareApiTokenForApply(target, suppliedValues, valuesFile);
-  configureWranglerEnvironment(target, suppliedValues);
-  await discoverCloudflareValues(target, suppliedValues, progress);
+  requireCloudflareApiTokenForApply(environmentPrefix, suppliedValues, valuesFile);
+  configureWranglerEnvironment(environmentPrefix, suppliedValues);
+  await discoverCloudflareValues(
+    deploymentIdentity.lane,
+    deploymentSite,
+    environmentPrefix,
+    suppliedValues,
+    progress,
+  );
 }
 
 function validateOptionalIntegrationInputs(targetName, suppliedValues) {
@@ -318,8 +329,10 @@ function requirePositiveUnsignedInteger(value, name) {
 }
 progress.step('Generate Router A/B deployment identities');
 const deployment = runJsonScript(join(scriptDir, 'generate-deployment-keys.mjs'), [
-  '--env',
-  target,
+  '--lane',
+  deploymentIdentity.kind === 'lane'
+    ? deploymentIdentity.id
+    : stagingLaneIdForSite(deploymentIdentity),
   '--show-secrets',
   '--json',
 ]);
@@ -327,16 +340,25 @@ progress.step('Generate matched Deriver root shares');
 const rootShares = runJsonScript(join(scriptDir, 'generate-root-share-keys.mjs'), ['--json']);
 progress.step('Build and validate the GitHub Environment manifest');
 const configuration = buildTargetConfiguration(target, suppliedValues);
-const generatedSecrets = buildGeneratedSecrets(target);
+const generatedSecrets = buildGeneratedSecrets(environmentPrefix);
 const output = buildOutput({
   target,
+  environmentPrefix,
+  deploymentComponent,
+  identityId,
+  laneId:
+    deploymentIdentity.kind === 'lane'
+      ? deploymentIdentity.id
+      : stagingLaneIdForSite(deploymentIdentity),
+  siteId:
+    deploymentIdentity.kind === 'site' ? deploymentIdentity.id : deploymentIdentity.lane.site.id,
   deployment,
   rootShares,
   configuration,
   generatedSecrets,
 });
 
-resolveSuppliedEnvironmentValues(output.environments, target, suppliedValues);
+resolveSuppliedEnvironmentValues(output.environments, environmentPrefix, suppliedValues);
 attachDeploymentAuditMetadata(output);
 output.manualInputs = collectManualInputs(output.environments);
 output.requiredManualInputs = collectRequiredManualInputs(output.environments);
@@ -360,15 +382,16 @@ function printUsage() {
   console.log(`Generate the complete GitHub Environment manifest for one deployment target.
 
 Usage:
-  pnpm wallet-core:deploy:env-prepare -- --env staging
-  pnpm wallet-core:deploy:env-prepare -- --env production
-  pnpm wallet-core:deploy:env-prepare -- --env staging --rotate
-  pnpm wallet-core:deploy:env-apply -- --env staging --manifest-file <path> --rotate
-  pnpm product:deploy:env-apply -- --env staging --manifest-file <path>
-  pnpm --silent wallet-core:deploy:env-prepare -- --env staging --json
+  pnpm wallet-core:deploy:env-prepare -- --lane staging-testnet
+  pnpm wallet-core:deploy:env-prepare -- --lane production-mainnet
+  pnpm wallet-core:deploy:env-prepare -- --lane staging-testnet --rotate
+  pnpm wallet-core:deploy:env-apply -- --lane staging-testnet --manifest-file <path> --rotate
+  pnpm product:deploy:env-apply -- --site staging --manifest-file <path>
+  pnpm --silent wallet-core:deploy:env-prepare -- --lane staging-testnet --json
 
 Options:
-  --env <target>               Required. staging or production.
+  --lane <id>                  Backend lane for wallet-core: staging-testnet, production-testnet, or production-mainnet.
+  --site <id>                  Frontend site for product: staging or production.
   --gateway-origin <url>       Public HTTPS Gateway origin.
   --org-id <id>                Seams organization id.
   --project-id <id>            Seams project id.
@@ -377,7 +400,7 @@ Options:
                                Browser-facing project-environment id.
   --tenant-namespace <name>    Tenant storage namespace.
   --values-file <path>         Protected .env file containing external values.
-                               Defaults to ~/.seams/<target>-deployment.env.
+                               Defaults to the lane/site deployment values file under ~/.seams.
   --prepare                    Provision infrastructure and write separate protected manifests.
   --manifest-file <path>       Prepared wallet-core or product component manifest.
   --component <name>           wallet-core or product; required with --manifest-file.
@@ -408,30 +431,111 @@ WARNING: Every prepare invocation generates fresh identities. Preparing or
 applying wallet-core for an initialized target requires --rotate.`);
 }
 
-function requireTarget() {
-  const value = readOption('--env');
-  if (!value) {
-    throw new Error('--env is required; expected staging or production');
+function assertNoLegacyIdentityFlags() {
+  const legacyFlag = argv.find(
+    (argument) =>
+      argument === '--env' ||
+      argument.startsWith('--env=') ||
+      argument === '--target' ||
+      argument.startsWith('--target='),
+  );
+  if (legacyFlag) {
+    throw new Error(`${legacyFlag} is retired; use --lane for wallet-core or --site for product`);
   }
-  if (!VALID_TARGETS.has(value)) {
-    throw new Error('--env must be staging or production');
+}
+
+function resolveDeploymentIdentity(component) {
+  const laneId = readOption('--lane');
+  const siteId = readOption('--site');
+  if (laneId && siteId) {
+    throw new Error('--lane and --site are mutually exclusive');
   }
-  return value;
+  const resolvedComponent = component || (laneId ? 'wallet-core' : siteId ? 'product' : undefined);
+  if (!resolvedComponent) {
+    throw new Error('--lane or --site is required');
+  }
+  if (resolvedComponent === 'wallet-core') {
+    if (!laneId) {
+      throw new Error('--lane is required for wallet-core operations');
+    }
+    if (siteId) {
+      throw new Error('--site cannot be used for wallet-core operations');
+    }
+    const lane = readBackendLane(laneId);
+    assertProvisionedDeployment(lane.id, lane.provisioning.kind);
+    return { kind: 'lane', id: lane.id, release: lane.release, lane };
+  }
+  if (!siteId) {
+    throw new Error('--site is required for product operations');
+  }
+  if (laneId) {
+    throw new Error('--lane cannot be used for product operations');
+  }
+  const site = readFrontendSite(siteId);
+  const lane = site.lanes.find((candidate) => candidate.network === site.defaultNetwork);
+  if (!lane) {
+    throw new Error(`site ${site.id} has no lane for default network ${site.defaultNetwork}`);
+  }
+  const pendingLane = site.lanes.find((candidate) => candidate.provisioning.kind === 'pending');
+  if (pendingLane) {
+    throw new Error(
+      `${site.id} is pending provisioning for ${pendingLane.id}; generation and GitHub environment updates are blocked`,
+    );
+  }
+  return { kind: 'site', id: site.id, release: site.release, site, lane };
+}
+
+function assertProvisionedDeployment(identityId, provisioningKind) {
+  if (provisioningKind === 'pending') {
+    throw new Error(
+      `${identityId} is pending provisioning; generation and GitHub environment updates are blocked`,
+    );
+  }
+}
+
+function stagingLaneIdForSite(identity) {
+  if (identity.kind === 'lane') return identity.id;
+  const lane = identity.site.lanes.find(
+    (candidate) => candidate.provisioning.kind === 'provisioned',
+  );
+  if (!lane) {
+    throw new Error(`${identity.site.id} has no provisioned backend lane`);
+  }
+  return lane.id;
+}
+
+function deploymentEnvironmentPrefix(identity) {
+  if (identity.kind === 'site') return identity.site.id;
+  const deploymentEnvironment = identity.lane.resources.router.deploymentEnvironment;
+  return deploymentEnvironment.kind === 'named'
+    ? deploymentEnvironment.name
+    : identity.lane.release;
 }
 
 function buildTargetConfiguration(targetName, suppliedValues) {
-  const production = targetName === 'production';
+  const identityPrefix = environmentPrefix;
+  const lane = deploymentIdentity.lane;
+  const checkedInGatewayConfig =
+    lane.provisioning.kind === 'provisioned'
+      ? lane.provisioning.gatewayDeploymentConfig
+      : undefined;
+  const checkedInRuntimeProfile = checkedInGatewayConfig?.runtimeProfile;
+  const checkedInOrigins = checkedInGatewayConfig?.origins;
+  const checkedInTenant = checkedInGatewayConfig?.tenant;
+  const checkedInResources = checkedInGatewayConfig?.resources;
+  const checkedInRouter = checkedInGatewayConfig?.routerAb;
+  const gatewayEnvironment = `${environmentPrefix}-gateway`;
+  const deriverAEnvironment = `${environmentPrefix}-deriver-a`;
+  const deriverBEnvironment = `${environmentPrefix}-deriver-b`;
+  const signingWorkerEnvironment = `${environmentPrefix}-signing-worker`;
   const runtimeProfileKind =
-    readSuppliedValue(
-      suppliedValues,
-      targetName,
-      `${targetName}-gateway`,
-      'GATEWAY_RUNTIME_PROFILE',
-    ) || GATEWAY_RUNTIME_PROFILE_KINDS.testnetLiveDemo;
+    readSuppliedValue(suppliedValues, targetName, gatewayEnvironment, 'GATEWAY_RUNTIME_PROFILE') ||
+    checkedInRuntimeProfile?.kind ||
+    GATEWAY_RUNTIME_PROFILE_KINDS.testnetLiveDemo;
   const emailOtpDeliveryKind = readSuppliedValue(
     suppliedValues,
     targetName,
-    `${targetName}-gateway`,
+    gatewayEnvironment,
     'EMAIL_OTP_DELIVERY_MODE',
   );
   const runtimeProfile = buildGatewayRuntimeProfile(runtimeProfileKind, emailOtpDeliveryKind);
@@ -439,19 +543,24 @@ function buildTargetConfiguration(targetName, suppliedValues) {
   const gatewayOrigin =
     readOption('--gateway-origin') ||
     readSuppliedValue(suppliedValues, targetName, targetName, 'GATEWAY_ORIGIN') ||
-    manual(`${targetName}-gateway-origin`);
+    checkedInOrigins?.gateway ||
+    lane.gatewayOrigin ||
+    manual(`${identityPrefix}-gateway-origin`);
   const orgId =
     readOption('--org-id') ||
-    readSuppliedValue(suppliedValues, targetName, `${targetName}-gateway`, 'SEAMS_ORG_ID') ||
-    manual(`${targetName}-organization-id`);
+    readSuppliedValue(suppliedValues, targetName, gatewayEnvironment, 'SEAMS_ORG_ID') ||
+    checkedInTenant?.orgId ||
+    manual(`${identityPrefix}-organization-id`);
   const projectId =
     readOption('--project-id') ||
-    readSuppliedValue(suppliedValues, targetName, `${targetName}-gateway`, 'SEAMS_PROJECT_ID') ||
-    manual(`${targetName}-project-id`);
+    readSuppliedValue(suppliedValues, targetName, gatewayEnvironment, 'SEAMS_PROJECT_ID') ||
+    checkedInTenant?.projectId ||
+    manual(`${identityPrefix}-project-id`);
   const environmentId =
     readOption('--environment-id') ||
-    readSuppliedValue(suppliedValues, targetName, `${targetName}-gateway`, 'SEAMS_ENV_ID') ||
-    manual(`${targetName}-environment-id`);
+    readSuppliedValue(suppliedValues, targetName, gatewayEnvironment, 'SEAMS_ENV_ID') ||
+    checkedInTenant?.environmentId ||
+    manual(`${identityPrefix}-environment-id`);
   const projectEnvironmentId =
     readOption('--project-environment-id') ||
     readSuppliedValue(
@@ -460,32 +569,37 @@ function buildTargetConfiguration(targetName, suppliedValues) {
       targetName,
       'VITE_SEAMS_PROJECT_ENVIRONMENT_ID',
     ) ||
-    manual(`${targetName}-project-environment-id`);
+    manual(`${identityPrefix}-project-environment-id`);
   const publishableKey =
     readSuppliedValue(suppliedValues, targetName, targetName, 'VITE_SEAMS_PUBLISHABLE_KEY') ||
-    manual(`${targetName}-publishable-key`);
+    manual(`${identityPrefix}-publishable-key`);
   const tenantNamespace =
     readOption('--tenant-namespace') ||
     readSuppliedValue(
       suppliedValues,
       targetName,
-      `${targetName}-gateway`,
+      gatewayEnvironment,
       'SEAMS_TENANT_STORAGE_NAMESPACE',
     ) ||
-    `seams-${targetName}`;
+    `seams-${identityPrefix}`;
   const appOrigin =
     readSuppliedValue(suppliedValues, targetName, targetName, 'VITE_APP_ORIGIN') ||
-    manual(`${targetName}-app-origin`);
+    lane.site.origin ||
+    checkedInOrigins?.allowedCors?.[0] ||
+    manual(`${identityPrefix}-app-origin`);
   const walletOrigin =
     readSuppliedValue(suppliedValues, targetName, targetName, 'VITE_WALLET_ORIGIN') ||
-    manual(`${targetName}-wallet-origin`);
+    lane.walletOrigin ||
+    checkedInOrigins?.allowedCors?.[1] ||
+    manual(`${identityPrefix}-wallet-origin`);
   const rpId =
     readSuppliedValue(suppliedValues, targetName, targetName, 'VITE_RP_ID_BASE') ||
-    (targetName === 'production' ? 'sign.seams.sh' : undefined) ||
     hostnameFromOrigin(walletOrigin) ||
-    manual(`${targetName}-webauthn-rp-id`);
+    (identityPrefix === 'production' ? 'sign.seams.sh' : undefined) ||
+    manual(`${identityPrefix}-webauthn-rp-id`);
   const nearRpcUrl =
     readSuppliedValue(suppliedValues, targetName, targetName, 'NEAR_RPC_URL') ||
+    checkedInGatewayConfig?.optional.nearRelayer?.rpcUrl ||
     (nearNetwork === 'mainnet' ? 'https://rpc.mainnet.near.org' : 'https://rpc.testnet.near.org');
   const nearExplorerUrl =
     readSuppliedValue(suppliedValues, targetName, targetName, 'VITE_NEAR_EXPLORER') ||
@@ -494,45 +608,41 @@ function buildTargetConfiguration(targetName, suppliedValues) {
     readSuppliedValue(
       suppliedValues,
       targetName,
-      `${targetName}-gateway`,
+      gatewayEnvironment,
       'GATEWAY_CONSOLE_D1_DATABASE_ID',
-    ) || manual(`${targetName}-console-d1-database-id`);
+    ) ||
+    checkedInResources?.consoleD1.id ||
+    manual(`${identityPrefix}-console-d1-database-id`);
   const signerDatabaseId =
     readSuppliedValue(
       suppliedValues,
       targetName,
-      `${targetName}-gateway`,
+      gatewayEnvironment,
       'GATEWAY_SIGNER_D1_DATABASE_ID',
-    ) || manual(`${targetName}-signer-d1-database-id`);
+    ) ||
+    checkedInResources?.signerD1.id ||
+    manual(`${identityPrefix}-signer-d1-database-id`);
   const deriverAPrivateDatabaseId =
     readSuppliedValue(
       suppliedValues,
       targetName,
-      `${targetName}-deriver-a`,
+      deriverAEnvironment,
       'ROUTER_AB_DERIVER_A_PRIVATE_D1_ID',
-    ) || manual(`${targetName}-deriver-a-private-d1-database-id`);
+    ) || manual(`${identityPrefix}-deriver-a-private-d1-database-id`);
   const deriverBPrivateDatabaseId =
     readSuppliedValue(
       suppliedValues,
       targetName,
-      `${targetName}-deriver-b`,
+      deriverBEnvironment,
       'ROUTER_AB_DERIVER_B_PRIVATE_D1_ID',
-    ) || manual(`${targetName}-deriver-b-private-d1-database-id`);
+    ) || manual(`${identityPrefix}-deriver-b-private-d1-database-id`);
   const signingWorkerPrivateDatabaseId =
     readSuppliedValue(
       suppliedValues,
       targetName,
-      `${targetName}-signing-worker`,
+      signingWorkerEnvironment,
       'ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_ID',
-    ) || manual(`${targetName}-signing-worker-private-d1-database-id`);
-  const secretsStoreId =
-    readSuppliedValue(
-      suppliedValues,
-      targetName,
-      `${targetName}-gateway`,
-      'GATEWAY_SECRETS_STORE_ID',
-    ) || manual(`${targetName}-cloudflare-secrets-store-id`);
-
+    ) || manual(`${identityPrefix}-signing-worker-private-d1-database-id`);
   return {
     suppliedValues,
     runtimeProfile,
@@ -548,51 +658,56 @@ function buildTargetConfiguration(targetName, suppliedValues) {
     projectEnvironmentId,
     publishableKey,
     tenantNamespace,
-    gatewayWorkerName: production ? 'seams-sdk-d1-gateway' : 'seams-sdk-d1-gateway-staging',
-    mpcRouterWorkerName: production ? 'router-ab-mpc-router' : 'router-ab-mpc-router-staging',
-    deriverAWorkerName: production ? 'router-ab-deriver-a' : 'router-ab-deriver-a-staging',
-    deriverBWorkerName: production ? 'router-ab-deriver-b' : 'router-ab-deriver-b-staging',
-    signingWorkerName: production ? 'router-ab-signing-worker' : 'router-ab-signing-worker-staging',
-    consoleDatabaseName: production ? 'seams-console' : 'seams-console-staging-nrt',
+    gatewayWorkerName: checkedInResources?.workerName || lane.resources.gateway.workerName,
+    mpcRouterWorkerName: lane.resources.router.workerName,
+    deriverAWorkerName: lane.resources.deriverA.workerName,
+    deriverBWorkerName: lane.resources.deriverB.workerName,
+    signingWorkerName: lane.resources.signingWorker.workerName,
+    consoleDatabaseName: checkedInResources?.consoleD1.name || lane.resources.gateway.consoleD1Name,
     consoleDatabaseId,
-    signerDatabaseName: production ? 'seams-signer' : 'seams-signer-staging-nrt',
+    signerDatabaseName: checkedInResources?.signerD1.name || lane.resources.gateway.signerD1Name,
     signerDatabaseId,
     deriverAPrivateDatabaseId,
     deriverBPrivateDatabaseId,
     signingWorkerPrivateDatabaseId,
-    secretsStoreId,
-    signingRootKekId: `signing-root-kek-${targetName}-r1`,
-    ceremonyJwtKeyId: `router-ab-ceremony-${targetName}-r1`,
-    signerSetId: `router-ab-${targetName}-signers-r1`,
-    relaySessionIssuer: `seams-gateway-${targetName}`,
+    ceremonyJwtKeyId:
+      checkedInRouter?.ceremonyJwtKeyId || `router-ab-ceremony-${identityPrefix}-r1`,
+    signerSetId:
+      checkedInRouter?.registrationTopology.signerSet.signer_set_id ||
+      `router-ab-${identityPrefix}-signers-r1`,
+    relaySessionIssuer: checkedInGatewayConfig?.session.issuer || `seams-gateway-${identityPrefix}`,
     routerJwtAudience: 'router-ab',
     nearNetwork,
   };
 }
 
-function buildGeneratedSecrets(targetName) {
+function buildGeneratedSecrets(environmentPrefix) {
   return {
     internalServiceAuth: `router-ab-internal-service-auth-v1:${randomBase64Url(32)}`,
     relaySessionHmac: randomBase64Url(32),
     accountIdDerivation: randomBase64Url(32),
     consoleEmailInvitationSecret: randomBase64Url(32),
     ceremonyPrivateJwk: generateCeremonyPrivateJwk(),
-    signingRootKek: randomBase64Url(32),
     signingSession: {
       rootSecretB64u: randomBase64Url(32),
-      currentKeyVersion: `signing-session-seal-${targetName}-r2`,
-      acceptedWarmKeyVersions: [`signing-session-seal-${targetName}-r2`],
+      currentKeyVersion: `signing-session-seal-${environmentPrefix}-r2`,
+      acceptedWarmKeyVersions: [`signing-session-seal-${environmentPrefix}-r2`],
     },
-    generationId: `${targetName}-${randomBase64Url(12)}`,
+    generationId: `${environmentPrefix}-${randomBase64Url(12)}`,
   };
 }
 
 function buildOutput(input) {
   const keyset = buildPublicKeyset(input.deployment);
   const registrationTopology = buildRegistrationTopology(input.configuration, input.deployment);
-  const projectPolicy = buildProjectPolicy(input.target, input.configuration);
+  const projectPolicy = buildProjectPolicy(input.configuration);
   const deploymentInput = {
     target: input.target,
+    environmentPrefix: input.environmentPrefix,
+    laneId: input.laneId,
+    siteId: input.siteId,
+    deploymentComponent: input.deploymentComponent,
+    siteLanes: deploymentIdentity.site?.lanes || [deploymentIdentity.lane],
     deployment: input.deployment,
     rootShares: input.rootShares,
     configuration: input.configuration,
@@ -606,14 +721,37 @@ function buildOutput(input) {
   return {
     schemaVersion: 1,
     target: input.target,
+    environmentPrefix: input.environmentPrefix,
+    lane: input.laneId,
+    site: input.siteId,
+    deploymentComponent: input.deploymentComponent,
     generationId: input.generatedSecrets.generationId,
     generatedAt: new Date().toISOString(),
     warning:
       'This document contains private keys and secrets. Store it securely and never commit it.',
     gatewayDeploymentConfig: buildGatewayDeploymentConfig(deploymentInput),
+    productLaneHandoffs:
+      input.siteId === 'production' ? buildProductLaneHandoffs(deploymentInput) : undefined,
     environments,
     manualInputs: collectManualInputs(environments),
   };
+}
+
+function buildProductLaneHandoffs(input) {
+  return Object.fromEntries(
+    input.siteLanes.map((lane) => [
+      lane.network,
+      {
+        laneId: lane.id,
+        gatewayOrigin: lane.gatewayOrigin,
+        walletOrigin: lane.walletOrigin,
+        walletPagesProjectEnv: lane.walletPagesProjectEnv,
+        signingWorkerId: lane.resources.signingWorker.workerName,
+        generationId: manual(`production-${lane.network}-wallet-core-generation-id`),
+        provisioning: lane.provisioning.kind,
+      },
+    ]),
+  );
 }
 
 function attachDeploymentAuditMetadata(output) {
@@ -635,9 +773,14 @@ function buildDeploymentDigestPayload(output) {
   return {
     schemaVersion: output.schemaVersion,
     target: output.target,
+    environmentPrefix: output.environmentPrefix,
+    lane: output.lane,
+    site: output.site,
+    deploymentComponent: output.deploymentComponent,
     generationId: output.generationId,
     generatedAt: output.generatedAt,
     gatewayDeploymentConfig: output.gatewayDeploymentConfig,
+    productLaneHandoffs: output.productLaneHandoffs,
     environments: output.environments,
   };
 }
@@ -653,25 +796,25 @@ function buildEnvironments(input) {
   ]);
 }
 
-function deploymentComponentEnvironmentNames(targetName, component) {
+function deploymentComponentEnvironmentNames(environmentPrefix, component) {
   switch (component) {
     case 'wallet-core':
       return [
-        `${targetName}-gateway`,
-        `${targetName}-mpc-router`,
-        `${targetName}-deriver-a`,
-        `${targetName}-deriver-b`,
-        `${targetName}-signing-worker`,
+        `${environmentPrefix}-gateway`,
+        `${environmentPrefix}-mpc-router`,
+        `${environmentPrefix}-deriver-a`,
+        `${environmentPrefix}-deriver-b`,
+        `${environmentPrefix}-signing-worker`,
       ];
     case 'product':
-      return [targetName];
+      return [environmentPrefix];
     default:
       throw new Error(`unsupported deployment component: ${component}`);
   }
 }
 
 function buildPreparedComponentManifest(output, component) {
-  const environmentNames = deploymentComponentEnvironmentNames(output.target, component);
+  const environmentNames = deploymentComponentEnvironmentNames(output.environmentPrefix, component);
   const environments = {};
   for (const environmentName of environmentNames) {
     environments[environmentName] = output.environments[environmentName];
@@ -679,12 +822,16 @@ function buildPreparedComponentManifest(output, component) {
   const manifest = {
     schemaVersion: output.schemaVersion,
     target: output.target,
+    environmentPrefix: output.environmentPrefix,
+    lane: output.lane,
+    site: output.site,
     deploymentComponent: component,
     generationId: output.generationId,
     generatedAt: output.generatedAt,
     manifestSha256: output.manifestSha256,
     warning: output.warning,
     gatewayDeploymentConfig: output.gatewayDeploymentConfig,
+    productLaneHandoffs: output.productLaneHandoffs,
     environments,
     manualInputs: collectManualInputs(environments),
     requiredManualInputs: collectRequiredManualInputs(environments),
@@ -699,11 +846,15 @@ function computeComponentManifestSha256(manifest) {
       JSON.stringify({
         schemaVersion: manifest.schemaVersion,
         target: manifest.target,
+        environmentPrefix: manifest.environmentPrefix,
+        lane: manifest.lane,
+        site: manifest.site,
         deploymentComponent: manifest.deploymentComponent,
         generationId: manifest.generationId,
         generatedAt: manifest.generatedAt,
         manifestSha256: manifest.manifestSha256,
         gatewayDeploymentConfig: manifest.gatewayDeploymentConfig,
+        productLaneHandoffs: manifest.productLaneHandoffs,
         environments: manifest.environments,
       }),
       'utf8',
@@ -712,7 +863,10 @@ function computeComponentManifestSha256(manifest) {
 }
 
 function buildGeneralEnvironment(input) {
-  const environmentName = input.target;
+  const environmentName = input.environmentPrefix;
+  if (input.siteId === 'production') {
+    return [environmentName, buildProductionProductEnvironment(input)];
+  }
   const configuration = input.configuration;
   return [
     environmentName,
@@ -732,12 +886,12 @@ function buildGeneralEnvironment(input) {
       },
       optionalVariables: {
         VITE_CONSOLE_BASE_URL: configuration.gatewayOrigin,
-        VITE_RELAYER_ACCOUNT_ID: manual(`${input.target}-near-relayer-account-id`),
-        VITE_TEMPO_RPC_URL: manual(`${input.target}-tempo-rpc-url`),
-        VITE_TEMPO_EXPLORER: manual(`${input.target}-tempo-explorer-url`),
-        VITE_TEMPO_FEE_TOKEN: manual(`${input.target}-tempo-fee-token`),
-        VITE_ARC_RPC_URL: manual(`${input.target}-arc-rpc-url`),
-        VITE_ARC_EXPLORER: manual(`${input.target}-arc-explorer-url`),
+        VITE_RELAYER_ACCOUNT_ID: manual(`${input.environmentPrefix}-near-relayer-account-id`),
+        VITE_TEMPO_RPC_URL: manual(`${input.environmentPrefix}-tempo-rpc-url`),
+        VITE_TEMPO_EXPLORER: manual(`${input.environmentPrefix}-tempo-explorer-url`),
+        VITE_TEMPO_FEE_TOKEN: manual(`${input.environmentPrefix}-tempo-fee-token`),
+        VITE_ARC_RPC_URL: manual(`${input.environmentPrefix}-arc-rpc-url`),
+        VITE_ARC_EXPLORER: manual(`${input.environmentPrefix}-arc-explorer-url`),
         VITE_WALLET_SERVICE_PATH: '/wallet-service',
         VITE_SDK_BASE_PATH: '/sdk',
         VITE_DOCS_ORIGIN: configuration.appOrigin,
@@ -745,7 +899,7 @@ function buildGeneralEnvironment(input) {
       },
       secrets: {
         CLOUDFLARE_API_TOKEN: manual(`${environmentName}-cloudflare-pages-api-token`),
-        CLOUDFLARE_ACCOUNT_ID: manual(`${input.target}-cloudflare-account-id`),
+        CLOUDFLARE_ACCOUNT_ID: manual(`${input.environmentPrefix}-cloudflare-account-id`),
         CF_PAGES_PROJECT_VITE: manual(`${environmentName}-cloudflare-pages-app-project`),
         CF_PAGES_PROJECT_WALLET: manual(`${environmentName}-cloudflare-pages-wallet-project`),
       },
@@ -753,31 +907,118 @@ function buildGeneralEnvironment(input) {
   ];
 }
 
+function buildProductionProductEnvironment(input) {
+  const variables = {};
+  const optionalVariables = {
+    VITE_DOCS_ORIGIN: input.configuration.appOrigin,
+    VITE_DASHBOARD_WALLETS_ROUTES_ENABLED: 'true',
+  };
+  for (const lane of input.siteLanes) {
+    Object.assign(variables, buildProductionLaneVariables(input, lane));
+  }
+  return {
+    purpose: 'Production Pages site with testnet/mainnet lane configuration',
+    variables,
+    optionalVariables,
+    secrets: {
+      CLOUDFLARE_API_TOKEN: manual(`${input.environmentPrefix}-cloudflare-pages-api-token`),
+      CLOUDFLARE_ACCOUNT_ID: manual(`${input.environmentPrefix}-cloudflare-account-id`),
+      CF_PAGES_PROJECT_VITE: manual(`${input.environmentPrefix}-cloudflare-pages-app-project`),
+      CF_PAGES_PROJECT_WALLET_TESTNET: manual(
+        `${input.environmentPrefix}-cloudflare-pages-wallet-testnet-project`,
+      ),
+      CF_PAGES_PROJECT_WALLET_MAINNET: manual(
+        `${input.environmentPrefix}-cloudflare-pages-wallet-mainnet-project`,
+      ),
+    },
+  };
+}
+
+function buildProductionLaneVariables(input, lane) {
+  const prefix = `VITE_${lane.network.toUpperCase()}_`;
+  const suppliedValues = input.configuration.suppliedValues;
+  const nearNetwork = lane.network;
+  const laneValue = (name, fallback) =>
+    readFirstNonEmptyValue(suppliedValues, [`${prefix}${name}`, name]) || fallback;
+  const tempo = nearNetwork === 'testnet';
+  return {
+    [`${prefix}RELAYER_URL`]: lane.gatewayOrigin,
+    [`${prefix}CONSOLE_BASE_URL`]: lane.gatewayOrigin,
+    [`${prefix}SEAMS_PROJECT_ENVIRONMENT_ID`]: laneValue(
+      'SEAMS_PROJECT_ENVIRONMENT_ID',
+      manual(`production-${lane.network}-project-environment-id`),
+    ),
+    [`${prefix}SEAMS_PUBLISHABLE_KEY`]: laneValue(
+      'SEAMS_PUBLISHABLE_KEY',
+      manual(`production-${lane.network}-publishable-key`),
+    ),
+    [`${prefix}NEAR_NETWORK`]: nearNetwork,
+    [`${prefix}NEAR_RPC_URL`]: laneValue(
+      'NEAR_RPC_URL',
+      nearNetwork === 'mainnet' ? 'https://rpc.mainnet.near.org' : 'https://rpc.testnet.near.org',
+    ),
+    [`${prefix}NEAR_EXPLORER`]: laneValue(
+      'NEAR_EXPLORER',
+      nearNetwork === 'mainnet' ? 'https://nearblocks.io' : 'https://testnet.nearblocks.io',
+    ),
+    [`${prefix}WALLET_SERVICE_PATH`]: '/wallet-service',
+    [`${prefix}SDK_BASE_PATH`]: '/sdk',
+    [`${prefix}SIGNING_SESSION_PERSISTENCE_MODE`]: 'sealed_refresh_v1',
+    [`${prefix}ROUTER_AB_NORMAL_SIGNING_WORKER_ID`]: lane.resources.signingWorker.workerName,
+    ...(tempo
+      ? {
+          [`${prefix}TEMPO_RPC_URL`]: laneValue(
+            'TEMPO_RPC_URL',
+            manual('production-testnet-tempo-rpc-url'),
+          ),
+          [`${prefix}TEMPO_EXPLORER`]: laneValue(
+            'TEMPO_EXPLORER',
+            manual('production-testnet-tempo-explorer-url'),
+          ),
+          [`${prefix}TEMPO_FEE_TOKEN`]: laneValue(
+            'TEMPO_FEE_TOKEN',
+            manual('production-testnet-tempo-fee-token'),
+          ),
+          [`${prefix}ARC_RPC_URL`]: laneValue(
+            'ARC_RPC_URL',
+            manual('production-testnet-arc-rpc-url'),
+          ),
+          [`${prefix}ARC_EXPLORER`]: laneValue(
+            'ARC_EXPLORER',
+            manual('production-testnet-arc-explorer-url'),
+          ),
+        }
+      : {}),
+  };
+}
+
 function buildGatewayEnvironment(input) {
-  const environmentName = `${input.target}-gateway`;
+  const environmentName = `${input.environmentPrefix}-gateway`;
   return [
     environmentName,
     {
       purpose: 'Gateway Worker, D1, tenant state, and public ceremony JWT issuer',
       variables: {
-        CONSOLE_EMAIL_FROM: manual(`${input.target}-console-email-from`),
+        CONSOLE_EMAIL_FROM: manual(`${input.environmentPrefix}-console-email-from`),
       },
       optionalVariables: {},
       secrets: {
         CLOUDFLARE_API_TOKEN: manual(`${environmentName}-cloudflare-worker-api-token`),
-        CLOUDFLARE_ACCOUNT_ID: manual(`${input.target}-cloudflare-account-id`),
+        CLOUDFLARE_ACCOUNT_ID: manual(`${input.environmentPrefix}-cloudflare-account-id`),
         RELAY_SESSION_HMAC_SECRET: input.generatedSecrets.relaySessionHmac,
         ACCOUNT_ID_DERIVATION_SECRET: input.generatedSecrets.accountIdDerivation,
         ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: input.generatedSecrets.internalServiceAuth,
         ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: input.generatedSecrets.ceremonyPrivateJwk,
-        RELAYER_PRIVATE_KEY: manual(`${input.target}-near-relayer-private-key`),
-        SPONSORED_EVM_EXECUTORS_JSON: manual(`${input.target}-sponsored-evm-executors-json`),
-        STRIPE_API_SK: manual(`${input.target}-stripe-secret-key`),
-        STRIPE_WEBHOOK_SECRET: manual(`${input.target}-stripe-webhook-signing-secret`),
-        CONSOLE_INITIAL_OWNER_EMAIL: manual(`${input.target}-console-initial-owner-email`),
-        SIGNING_ROOT_KEK_VALUE: input.generatedSecrets.signingRootKek,
-        SIGNING_SESSION_SEAL_ROOT_SECRET_B64U:
-          input.generatedSecrets.signingSession.rootSecretB64u,
+        RELAYER_PRIVATE_KEY: manual(`${input.environmentPrefix}-near-relayer-private-key`),
+        SPONSORED_EVM_EXECUTORS_JSON: manual(
+          `${input.environmentPrefix}-sponsored-evm-executors-json`,
+        ),
+        STRIPE_API_SK: manual(`${input.environmentPrefix}-stripe-secret-key`),
+        STRIPE_WEBHOOK_SECRET: manual(`${input.environmentPrefix}-stripe-webhook-signing-secret`),
+        CONSOLE_INITIAL_OWNER_EMAIL: manual(
+          `${input.environmentPrefix}-console-initial-owner-email`,
+        ),
+        SIGNING_SESSION_SEAL_ROOT_SECRET_B64U: input.generatedSecrets.signingSession.rootSecretB64u,
       },
     },
   ];
@@ -788,7 +1029,7 @@ function buildGatewayDeploymentConfig(input) {
   const deploymentVariables = input.deployment.variables;
   return {
     schemaVersion: GATEWAY_DEPLOYMENT_CONFIG_SCHEMA_VERSION,
-    target: input.target,
+    lane: input.laneId,
     runtimeProfile: configuration.runtimeProfile,
     resources: {
       workerName: configuration.gatewayWorkerName,
@@ -800,7 +1041,6 @@ function buildGatewayDeploymentConfig(input) {
         name: configuration.signerDatabaseName,
         id: configuration.signerDatabaseId,
       },
-      secretsStoreId: configuration.secretsStoreId,
     },
     tenant: {
       namespace: configuration.tenantNamespace,
@@ -811,11 +1051,6 @@ function buildGatewayDeploymentConfig(input) {
     origins: {
       gateway: configuration.gatewayOrigin,
       allowedCors: [configuration.appOrigin, configuration.walletOrigin],
-    },
-    signingRoot: {
-      id: configuration.signingRootKekId,
-      secretName: configuration.signingRootKekId,
-      encoding: 'base64url',
     },
     session: {
       issuer: configuration.relaySessionIssuer,
@@ -842,35 +1077,44 @@ function buildGatewayDeploymentConfig(input) {
 
 function buildGatewayOptionalDeploymentConfig(input) {
   const suppliedValues = input.configuration.suppliedValues;
-  const relayerAccountId = readSuppliedValue(
-    suppliedValues,
-    input.target,
-    `${input.target}-gateway`,
-    'RELAYER_ACCOUNT_ID',
-  );
-  const relayerPublicKey = readSuppliedValue(
-    suppliedValues,
-    input.target,
-    `${input.target}-gateway`,
-    'RELAYER_PUBLIC_KEY',
-  );
+  const checkedInGatewayConfig =
+    deploymentIdentity.lane.provisioning.kind === 'provisioned'
+      ? deploymentIdentity.lane.provisioning.gatewayDeploymentConfig
+      : undefined;
+  const checkedInNearRelayer = checkedInGatewayConfig?.optional.nearRelayer;
+  const relayerAccountId =
+    readSuppliedValue(
+      suppliedValues,
+      input.target,
+      `${input.environmentPrefix}-gateway`,
+      'RELAYER_ACCOUNT_ID',
+    ) || checkedInNearRelayer?.accountId;
+  const relayerPublicKey =
+    readSuppliedValue(
+      suppliedValues,
+      input.target,
+      `${input.environmentPrefix}-gateway`,
+      'RELAYER_PUBLIC_KEY',
+    ) || checkedInNearRelayer?.publicKey;
   const initialBalanceYocto =
     readSuppliedValue(
       suppliedValues,
       input.target,
-      `${input.target}-gateway`,
+      `${input.environmentPrefix}-gateway`,
       'RELAYER_INITIAL_BALANCE_YOCTO',
-    ) || DEFAULT_NEAR_INITIAL_BALANCE_YOCTO;
+    ) ||
+    checkedInNearRelayer?.initialBalanceYocto ||
+    DEFAULT_NEAR_INITIAL_BALANCE_YOCTO;
   const googleOidcClientId = readSuppliedValue(
     suppliedValues,
     input.target,
-    `${input.target}-gateway`,
+    `${input.environmentPrefix}-gateway`,
     'GOOGLE_OIDC_CLIENT_ID',
   );
   const oidcExchangeJson = readSuppliedValue(
     suppliedValues,
     input.target,
-    `${input.target}-gateway`,
+    `${input.environmentPrefix}-gateway`,
     'SEAMS_OIDC_EXCHANGE_JSON',
   );
   return {
@@ -890,7 +1134,7 @@ function buildGatewayOptionalDeploymentConfig(input) {
 }
 
 function buildMpcRouterEnvironment(input) {
-  const environmentName = `${input.target}-mpc-router`;
+  const environmentName = `${input.environmentPrefix}-mpc-router`;
   const variables = input.deployment.variables;
   return [
     environmentName,
@@ -917,7 +1161,7 @@ function buildMpcRouterEnvironment(input) {
       },
       optionalVariables: {},
       secrets: buildWorkerDeploymentSecrets(
-        input.target,
+        input.environmentPrefix,
         environmentName,
         input.generatedSecrets.internalServiceAuth,
       ),
@@ -926,10 +1170,10 @@ function buildMpcRouterEnvironment(input) {
 }
 
 function buildDeriverAEnvironment(input) {
-  const environmentName = `${input.target}-deriver-a`;
+  const environmentName = `${input.environmentPrefix}-deriver-a`;
   const variables = input.deployment.variables;
   const secrets = buildWorkerDeploymentSecrets(
-    input.target,
+    input.environmentPrefix,
     environmentName,
     input.generatedSecrets.internalServiceAuth,
   );
@@ -963,10 +1207,10 @@ function buildDeriverAEnvironment(input) {
 }
 
 function buildDeriverBEnvironment(input) {
-  const environmentName = `${input.target}-deriver-b`;
+  const environmentName = `${input.environmentPrefix}-deriver-b`;
   const variables = input.deployment.variables;
   const secrets = buildWorkerDeploymentSecrets(
-    input.target,
+    input.environmentPrefix,
     environmentName,
     input.generatedSecrets.internalServiceAuth,
   );
@@ -1000,9 +1244,9 @@ function buildDeriverBEnvironment(input) {
 }
 
 function buildSigningWorkerEnvironment(input) {
-  const environmentName = `${input.target}-signing-worker`;
+  const environmentName = `${input.environmentPrefix}-signing-worker`;
   const secrets = buildWorkerDeploymentSecrets(
-    input.target,
+    input.environmentPrefix,
     environmentName,
     input.generatedSecrets.internalServiceAuth,
   );
@@ -1109,11 +1353,11 @@ function buildRegistrationTopology(configuration, deployment) {
   };
 }
 
-function buildProjectPolicy(targetName, configuration) {
+function buildProjectPolicy(configuration) {
   return {
     org_id: configuration.orgId,
     project_id: configuration.projectId,
-    environment: targetName,
+    environment: configuration.environmentId,
     allowed_work_kinds: ['registration_prepare', 'key_export', 'recovery', 'server_share_refresh'],
     allow_normal_signing: true,
     rejected_retry_after_ms: 1000,
@@ -1199,8 +1443,14 @@ function loadSuppliedValues(valuesFilePath) {
   };
 }
 
-function findDefaultValuesFile(targetName) {
-  const defaultPath = join(homedir(), '.seams', `${targetName}-deployment.env`);
+function findDefaultValuesFile(identity) {
+  const fileName =
+    identity.kind === 'lane' && identity.id === 'production-testnet'
+      ? 'production-testnet-deployment.env'
+      : identity.release === 'production'
+        ? 'production-deployment.env'
+        : 'staging-deployment.env';
+  const defaultPath = join(homedir(), '.seams', fileName);
   return existsSync(defaultPath) ? defaultPath : undefined;
 }
 
@@ -1213,68 +1463,70 @@ function loadValuesFile(valuesFilePath) {
   }
 }
 
-async function discoverCloudflareValues(targetName, suppliedValues, progressLogger) {
-  const accountId = discoverCloudflareAccountId(targetName, suppliedValues, progressLogger);
+async function discoverCloudflareValues(
+  lane,
+  site,
+  environmentPrefix,
+  suppliedValues,
+  progressLogger,
+) {
+  const accountId = discoverCloudflareAccountId(environmentPrefix, suppliedValues, progressLogger);
   ensureD1Database({
-    targetName,
+    environmentPrefix,
     suppliedValues,
     progressLogger,
     variableName: 'GATEWAY_CONSOLE_D1_DATABASE_ID',
-    databaseName: targetName === 'production' ? 'seams-console' : 'seams-console-staging-nrt',
+    databaseName: lane.resources.gateway.consoleD1Name,
   });
   ensureD1Database({
-    targetName,
+    environmentPrefix,
     suppliedValues,
     progressLogger,
     variableName: 'GATEWAY_SIGNER_D1_DATABASE_ID',
-    databaseName: targetName === 'production' ? 'seams-signer' : 'seams-signer-staging-nrt',
+    databaseName: lane.resources.gateway.signerD1Name,
   });
   ensureD1Database({
-    targetName,
+    environmentPrefix,
     suppliedValues,
     progressLogger,
-    environmentName: `${targetName}-deriver-a`,
+    environmentName: `${environmentPrefix}-deriver-a`,
     variableName: 'ROUTER_AB_DERIVER_A_PRIVATE_D1_ID',
-    databaseName:
-      targetName === 'production'
-        ? 'router-ab-deriver-a-private'
-        : 'router-ab-deriver-a-staging-private',
+    databaseName: `${lane.resources.deriverA.workerName}-private`,
     locationHint: 'apac',
   });
   ensureD1Database({
-    targetName,
+    environmentPrefix,
     suppliedValues,
     progressLogger,
-    environmentName: `${targetName}-deriver-b`,
+    environmentName: `${environmentPrefix}-deriver-b`,
     variableName: 'ROUTER_AB_DERIVER_B_PRIVATE_D1_ID',
-    databaseName:
-      targetName === 'production'
-        ? 'router-ab-deriver-b-private'
-        : 'router-ab-deriver-b-staging-private',
+    databaseName: `${lane.resources.deriverB.workerName}-private`,
     locationHint: 'apac',
   });
   ensureD1Database({
-    targetName,
+    environmentPrefix,
     suppliedValues,
     progressLogger,
-    environmentName: `${targetName}-signing-worker`,
+    environmentName: `${environmentPrefix}-signing-worker`,
     variableName: 'ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_ID',
-    databaseName:
-      targetName === 'production'
-        ? 'router-ab-signing-worker-private'
-        : 'router-ab-signing-worker-staging-private',
+    databaseName: `${lane.resources.signingWorker.workerName}-private`,
     locationHint: 'apac',
   });
-  ensurePagesProjects(targetName, suppliedValues, progressLogger);
-  ensureSecretsStore(targetName, suppliedValues, progressLogger);
-  await discoverWorkersDevOrigin(targetName, suppliedValues, accountId, progressLogger);
+  ensurePagesProjects(site, environmentPrefix, suppliedValues, progressLogger);
+  await discoverWorkersDevOrigin(
+    lane,
+    environmentPrefix,
+    suppliedValues,
+    accountId,
+    progressLogger,
+  );
 }
 
-function requireCloudflareApiTokenForApply(targetName, suppliedValues, valuesFilePath) {
+function requireCloudflareApiTokenForApply(environmentPrefix, suppliedValues, valuesFilePath) {
   const token = readSuppliedValue(
     suppliedValues,
-    targetName,
-    `${targetName}-gateway`,
+    environmentPrefix,
+    `${environmentPrefix}-gateway`,
     'CLOUDFLARE_API_TOKEN',
   );
   if (token) {
@@ -1282,24 +1534,24 @@ function requireCloudflareApiTokenForApply(targetName, suppliedValues, valuesFil
   }
   const source = valuesFilePath
     ? resolve(repoRoot, valuesFilePath)
-    : join(homedir(), '.seams', `${targetName}-deployment.env`);
+    : join(homedir(), '.seams', `${environmentPrefix}-deployment.env`);
   throw new Error(
     `CLOUDFLARE_API_TOKEN is required before apply mode can provision resources. ` +
       `Add it to ${source}.`,
   );
 }
 
-function configureWranglerEnvironment(targetName, suppliedValues) {
+function configureWranglerEnvironment(environmentPrefix, suppliedValues) {
   const apiToken = readSuppliedValue(
     suppliedValues,
-    targetName,
-    `${targetName}-gateway`,
+    environmentPrefix,
+    `${environmentPrefix}-gateway`,
     'CLOUDFLARE_API_TOKEN',
   );
   const accountId = readSuppliedValue(
     suppliedValues,
-    targetName,
-    `${targetName}-gateway`,
+    environmentPrefix,
+    `${environmentPrefix}-gateway`,
     'CLOUDFLARE_ACCOUNT_ID',
   );
   wranglerEnvironment = {
@@ -1309,11 +1561,11 @@ function configureWranglerEnvironment(targetName, suppliedValues) {
   };
 }
 
-function discoverCloudflareAccountId(targetName, suppliedValues, progressLogger) {
+function discoverCloudflareAccountId(environmentPrefix, suppliedValues, progressLogger) {
   const existing = readSuppliedValue(
     suppliedValues,
-    targetName,
-    `${targetName}-gateway`,
+    environmentPrefix,
+    `${environmentPrefix}-gateway`,
     'CLOUDFLARE_ACCOUNT_ID',
   );
   if (existing) {
@@ -1345,8 +1597,8 @@ function discoverCloudflareAccountId(targetName, suppliedValues, progressLogger)
 function ensureD1Database(input) {
   const existing = readSuppliedValue(
     input.suppliedValues,
-    input.targetName,
-    input.environmentName || `${input.targetName}-gateway`,
+    input.environmentPrefix,
+    input.environmentName || `${input.environmentPrefix}-gateway`,
     input.variableName,
   );
   if (existing) {
@@ -1370,81 +1622,91 @@ function ensureD1Database(input) {
   input.progressLogger.detail(`Resolved ${input.variableName} from ${input.databaseName}`);
 }
 
-function ensurePagesProjects(targetName, suppliedValues, progressLogger) {
+function ensurePagesProjects(site, environmentPrefix, suppliedValues, progressLogger) {
   const appProject = readSuppliedValue(
     suppliedValues,
-    targetName,
-    targetName,
+    environmentPrefix,
+    environmentPrefix,
     'CF_PAGES_PROJECT_VITE',
-  );
-  const walletProject = readSuppliedValue(
-    suppliedValues,
-    targetName,
-    targetName,
-    'CF_PAGES_PROJECT_WALLET',
   );
   const projects = runWranglerJson(['pages', 'project', 'list', '--json']);
   if (!projects.ok || !Array.isArray(projects.value)) {
     throw new Error('failed to list Cloudflare Pages projects');
   }
   const names = new Set();
-  const projectsByName = new Map();
   for (const project of projects.value) {
     const projectName = readPagesProjectName(project);
     if (projectName) {
       names.add(projectName);
-      projectsByName.set(projectName, project);
     }
   }
   const defaultAppProject =
-    targetName === 'production' && names.has('seams-site')
-      ? 'seams-site'
-      : `seams-site-${targetName}`;
-  const defaultWalletProject =
-    targetName === 'production' && names.has('seams-wallet')
-      ? 'seams-wallet'
-      : `seams-wallet-${targetName}`;
+    site.id === 'production' && names.has('seams-site') ? 'seams-site' : `seams-site-${site.id}`;
   const resolvedAppProject = appProject || defaultAppProject;
-  const resolvedWalletProject = walletProject || defaultWalletProject;
-  ensurePagesProject(resolvedAppProject, names, targetName, progressLogger);
-  ensurePagesProject(resolvedWalletProject, names, targetName, progressLogger);
+  ensurePagesProject(resolvedAppProject, names, site.branch, progressLogger);
   suppliedValues.CF_PAGES_PROJECT_VITE = resolvedAppProject;
-  suppliedValues.CF_PAGES_PROJECT_WALLET = resolvedWalletProject;
-  if (!readSuppliedValue(suppliedValues, targetName, targetName, 'VITE_APP_ORIGIN')) {
-    suppliedValues.VITE_APP_ORIGIN = pagesProjectOrigin(
-      resolvedAppProject,
-      projectsByName.get(resolvedAppProject),
-    );
+  const resolvedWalletProjects = site.lanes.map((lane) =>
+    resolveLanePagesProject(lane, site, environmentPrefix, suppliedValues, names),
+  );
+  if (new Set(resolvedWalletProjects).size !== resolvedWalletProjects.length) {
+    throw new Error(`Pages wallet projects must be unique for ${site.id}`);
   }
-  if (!readSuppliedValue(suppliedValues, targetName, targetName, 'VITE_WALLET_ORIGIN')) {
-    suppliedValues.VITE_WALLET_ORIGIN =
-      targetName === 'production'
-        ? 'https://sign.seams.sh'
-        : pagesProjectOrigin(resolvedWalletProject, projectsByName.get(resolvedWalletProject));
+  if (resolvedWalletProjects.includes(resolvedAppProject)) {
+    throw new Error(`Pages app and wallet projects must be distinct for ${site.id}`);
   }
+  for (const projectName of resolvedWalletProjects) {
+    ensurePagesProject(projectName, names, site.branch, progressLogger);
+  }
+  suppliedValues.VITE_APP_ORIGIN =
+    readSuppliedValue(suppliedValues, environmentPrefix, environmentPrefix, 'VITE_APP_ORIGIN') ||
+    site.origin;
   progressLogger.detail(
-    `Resolved Pages projects ${resolvedAppProject} and ${resolvedWalletProject}`,
+    `Resolved Pages projects ${[resolvedAppProject, ...resolvedWalletProjects].join(', ')}`,
   );
 }
 
-function ensurePagesProject(projectName, existingNames, targetName, progressLogger) {
+function ensurePagesProject(projectName, existingNames, branch, progressLogger) {
   if (existingNames.has(projectName)) {
     return;
   }
-  const productionBranch = targetName === 'production' ? 'main' : 'dev';
   const created = runWrangler([
     'pages',
     'project',
     'create',
     projectName,
     '--production-branch',
-    productionBranch,
+    branch,
   ]);
   if (created.status !== 0) {
     throw new Error(formatWranglerFailure(`create Pages project ${projectName}`, created));
   }
   existingNames.add(projectName);
   progressLogger.detail(`Created Pages project ${projectName}`);
+}
+
+function resolveLanePagesProject(lane, site, environmentPrefix, suppliedValues, names) {
+  const suppliedProject = readSuppliedValue(
+    suppliedValues,
+    environmentPrefix,
+    environmentPrefix,
+    lane.walletPagesProjectEnv,
+  );
+  const canonicalProject = lane.network === 'mainnet' ? 'seams-wallet' : 'seams-wallet-testnet';
+  const defaultProject =
+    site.id === 'production' && names.has(canonicalProject)
+      ? canonicalProject
+      : site.id === 'staging'
+        ? 'seams-wallet-staging'
+        : `seams-wallet-${lane.id}`;
+  const projectName = suppliedProject || defaultProject;
+  suppliedValues[lane.walletPagesProjectEnv] = projectName;
+  if (
+    site.id === 'staging' &&
+    !readSuppliedValue(suppliedValues, environmentPrefix, environmentPrefix, 'VITE_WALLET_ORIGIN')
+  ) {
+    suppliedValues.VITE_WALLET_ORIGIN = lane.walletOrigin;
+  }
+  return projectName;
 }
 
 function readPagesProjectName(project) {
@@ -1455,81 +1717,26 @@ function readPagesProjectName(project) {
   return typeof name === 'string' ? name : undefined;
 }
 
-function pagesProjectOrigin(projectName, project) {
-  const domains =
-    typeof project?.['Project Domains'] === 'string'
-      ? project['Project Domains']
-          .split(',')
-          .map((value) => value.trim())
-          .filter(Boolean)
-      : [];
-  const customDomain = domains.find((domain) => domain !== `${projectName}.pages.dev`);
-  return `https://${customDomain || `${projectName}.pages.dev`}`;
-}
-
-function ensureSecretsStore(targetName, suppliedValues, progressLogger) {
-  const suppliedStoreId = readSuppliedValue(
+async function discoverWorkersDevOrigin(
+  lane,
+  environmentPrefix,
+  suppliedValues,
+  accountId,
+  progressLogger,
+) {
+  const existing = readSuppliedValue(
     suppliedValues,
-    targetName,
-    `${targetName}-gateway`,
-    'GATEWAY_SECRETS_STORE_ID',
+    environmentPrefix,
+    `${environmentPrefix}-gateway`,
+    'GATEWAY_ORIGIN',
   );
-  if (suppliedStoreId) {
-    return;
-  }
-  const storeName = `seams-gateway-${targetName}`;
-  let stores = listSecretsStores();
-  let storeId = stores.get(storeName);
-  if (!storeId && stores.size === 1) {
-    const [[existingStoreName, existingStoreId]] = stores;
-    storeId = existingStoreId;
-    progressLogger.detail(`Reusing account Secrets Store ${existingStoreName}`);
-  }
-  if (!storeId && stores.size > 1) {
-    throw new Error(
-      'Multiple Cloudflare Secrets Stores are available; supply GATEWAY_SECRETS_STORE_ID',
-    );
-  }
-  if (!storeId) {
-    const created = runWrangler(['secrets-store', 'store', 'create', storeName, '--remote']);
-    if (created.status !== 0) {
-      throw new Error(formatWranglerFailure(`create Secrets Store ${storeName}`, created));
-    }
-    stores = listSecretsStores();
-    storeId = stores.get(storeName);
-    if (!storeId) {
-      throw new Error(`created Secrets Store ${storeName} but could not resolve its ID`);
-    }
-    progressLogger.detail(`Created Secrets Store ${storeName}`);
-  }
-  suppliedValues.GATEWAY_SECRETS_STORE_ID = storeId;
-  progressLogger.detail(`Resolved GATEWAY_SECRETS_STORE_ID from ${storeName}`);
-}
-
-function listSecretsStores() {
-  const listed = runWrangler(['secrets-store', 'store', 'list', '--remote', '--per-page', '100']);
-  if (listed.status !== 0) {
-    throw new Error(formatWranglerFailure('list Secrets Stores', listed));
-  }
-  const stores = new Map();
-  for (const line of String(listed.stdout).split(/\r?\n/)) {
-    const match = /^│\s*([A-Za-z0-9_.-]+)\s*│\s*([a-f0-9]{32})\s*│/.exec(line);
-    if (match) {
-      stores.set(match[1], match[2]);
-    }
-  }
-  return stores;
-}
-
-async function discoverWorkersDevOrigin(targetName, suppliedValues, accountId, progressLogger) {
-  const existing = readSuppliedValue(suppliedValues, targetName, targetName, 'GATEWAY_ORIGIN');
   if (existing || !accountId) {
     return;
   }
   const apiToken = readSuppliedValue(
     suppliedValues,
-    targetName,
-    `${targetName}-gateway`,
+    environmentPrefix,
+    `${environmentPrefix}-gateway`,
     'CLOUDFLARE_API_TOKEN',
   );
   if (!apiToken) {
@@ -1549,8 +1756,7 @@ async function discoverWorkersDevOrigin(targetName, suppliedValues, accountId, p
   if (!response.ok || body?.success !== true || typeof subdomain !== 'string' || !subdomain) {
     throw new Error('failed to resolve the Cloudflare Workers subdomain');
   }
-  const workerName =
-    targetName === 'production' ? 'seams-sdk-d1-gateway' : 'seams-sdk-d1-gateway-staging';
+  const workerName = lane.resources.gateway.workerName;
   suppliedValues.GATEWAY_ORIGIN = `https://${workerName}.${subdomain}.workers.dev`;
   progressLogger.detail('Derived GATEWAY_ORIGIN from the Cloudflare Workers subdomain');
 }
@@ -1620,7 +1826,7 @@ function readSuppliedValue(suppliedValues, targetName, environmentName, name) {
   for (const candidateName of names) {
     const value = readFirstNonEmptyValue(suppliedValues, [
       `${toEnvironmentPrefix(environmentName)}__${candidateName}`,
-      `${toEnvironmentPrefix(targetName)}__${candidateName}`,
+      `${toEnvironmentPrefix(environmentPrefix)}__${candidateName}`,
       candidateName,
     ]);
     if (value) {
@@ -1715,12 +1921,12 @@ function assertCompleteApplyInput(outputDocument, shouldApply, incompleteAllowed
 
 function validateOutput(outputDocument) {
   const expectedEnvironmentNames = [
-    outputDocument.target,
-    `${outputDocument.target}-gateway`,
-    `${outputDocument.target}-mpc-router`,
-    `${outputDocument.target}-deriver-a`,
-    `${outputDocument.target}-deriver-b`,
-    `${outputDocument.target}-signing-worker`,
+    outputDocument.environmentPrefix,
+    `${outputDocument.environmentPrefix}-gateway`,
+    `${outputDocument.environmentPrefix}-mpc-router`,
+    `${outputDocument.environmentPrefix}-deriver-a`,
+    `${outputDocument.environmentPrefix}-deriver-b`,
+    `${outputDocument.environmentPrefix}-signing-worker`,
   ];
   assertEqual(
     Object.keys(outputDocument.environments),
@@ -1730,7 +1936,7 @@ function validateOutput(outputDocument) {
   validateEnvironmentValues(outputDocument.environments);
   parseStrictGatewayDeploymentConfig(
     JSON.stringify(outputDocument.gatewayDeploymentConfig),
-    outputDocument.target,
+    outputDocument.lane,
   );
   validateCloudflareServiceBindingAccount(outputDocument);
   validateSharedInternalServiceAuth(outputDocument);
@@ -1741,29 +1947,29 @@ function validateOutput(outputDocument) {
 }
 
 function validateWorkflowCoverage(outputDocument) {
-  const targetName = outputDocument.target;
-  const backendWorkflow = readDeploymentWorkflow(targetName, 'backend');
-  const frontendWorkflow = readDeploymentWorkflow(targetName, 'frontend');
+  const environmentPrefix = outputDocument.environmentPrefix;
+  const backendWorkflow = readDeploymentWorkflow(outputDocument.lane, 'backend');
+  const frontendWorkflow = readDeploymentWorkflow(outputDocument.site, 'frontend');
   const requirements = new Map([
-    [targetName, collectWorkflowRequirements(frontendWorkflow)],
+    [environmentPrefix, collectWorkflowRequirements(frontendWorkflow)],
     [
-      `${targetName}-gateway`,
+      `${environmentPrefix}-gateway`,
       collectWorkflowRequirements(extractWorkflowJob(backendWorkflow, 'deploy_gateway')),
     ],
     [
-      `${targetName}-mpc-router`,
+      `${environmentPrefix}-mpc-router`,
       collectWorkflowRequirements(extractWorkflowJob(backendWorkflow, 'deploy_router')),
     ],
     [
-      `${targetName}-deriver-a`,
+      `${environmentPrefix}-deriver-a`,
       collectWorkflowRequirements(extractWorkflowJob(backendWorkflow, 'deploy_deriver_a')),
     ],
     [
-      `${targetName}-deriver-b`,
+      `${environmentPrefix}-deriver-b`,
       collectWorkflowRequirements(extractWorkflowJob(backendWorkflow, 'deploy_deriver_b')),
     ],
     [
-      `${targetName}-signing-worker`,
+      `${environmentPrefix}-signing-worker`,
       collectWorkflowRequirements(extractWorkflowJob(backendWorkflow, 'deploy_signing_worker')),
     ],
   ]);
@@ -1784,8 +1990,13 @@ function validateWorkflowCoverage(outputDocument) {
   }
 }
 
-function readDeploymentWorkflow(targetName, lane) {
-  return readFileSync(join(repoRoot, `.github/workflows/deploy-${targetName}-${lane}.yml`), 'utf8');
+function readDeploymentWorkflow(identityId, component) {
+  const workflowTarget =
+    component === 'backend' && identityId === 'staging-testnet' ? 'staging' : identityId;
+  return readFileSync(
+    join(repoRoot, `.github/workflows/deploy-${workflowTarget}-${component}.yml`),
+    'utf8',
+  );
 }
 
 function extractWorkflowJob(workflowSource, jobName) {
@@ -1842,11 +2053,11 @@ function validateEnvironmentValues(environments) {
 
 function validateCloudflareServiceBindingAccount(outputDocument) {
   const names = [
-    `${outputDocument.target}-gateway`,
-    `${outputDocument.target}-mpc-router`,
-    `${outputDocument.target}-deriver-a`,
-    `${outputDocument.target}-deriver-b`,
-    `${outputDocument.target}-signing-worker`,
+    `${outputDocument.environmentPrefix}-gateway`,
+    `${outputDocument.environmentPrefix}-mpc-router`,
+    `${outputDocument.environmentPrefix}-deriver-a`,
+    `${outputDocument.environmentPrefix}-deriver-b`,
+    `${outputDocument.environmentPrefix}-signing-worker`,
   ];
   const accountIds = names.map(
     (name) => outputDocument.environments[name].secrets.CLOUDFLARE_ACCOUNT_ID,
@@ -1858,11 +2069,11 @@ function validateCloudflareServiceBindingAccount(outputDocument) {
 
 function validateSharedInternalServiceAuth(outputDocument) {
   const names = [
-    `${outputDocument.target}-gateway`,
-    `${outputDocument.target}-mpc-router`,
-    `${outputDocument.target}-deriver-a`,
-    `${outputDocument.target}-deriver-b`,
-    `${outputDocument.target}-signing-worker`,
+    `${outputDocument.environmentPrefix}-gateway`,
+    `${outputDocument.environmentPrefix}-mpc-router`,
+    `${outputDocument.environmentPrefix}-deriver-a`,
+    `${outputDocument.environmentPrefix}-deriver-b`,
+    `${outputDocument.environmentPrefix}-signing-worker`,
   ];
   const values = names.map(
     (name) => outputDocument.environments[name].secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET,
@@ -1873,10 +2084,12 @@ function validateSharedInternalServiceAuth(outputDocument) {
 }
 
 function validateRoleSecretIsolation(outputDocument) {
-  const deriverA = outputDocument.environments[`${outputDocument.target}-deriver-a`].secrets;
-  const deriverB = outputDocument.environments[`${outputDocument.target}-deriver-b`].secrets;
+  const deriverA =
+    outputDocument.environments[`${outputDocument.environmentPrefix}-deriver-a`].secrets;
+  const deriverB =
+    outputDocument.environments[`${outputDocument.environmentPrefix}-deriver-b`].secrets;
   const signingWorker =
-    outputDocument.environments[`${outputDocument.target}-signing-worker`].secrets;
+    outputDocument.environments[`${outputDocument.environmentPrefix}-signing-worker`].secrets;
   assertAbsent(deriverA, [
     'DERIVER_B_ROOT_SHARE_WIRE_SECRET',
     'DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY',
@@ -1900,10 +2113,11 @@ function validateRoleSecretIsolation(outputDocument) {
 
 function validateRouterPublicIdentityConsistency(outputDocument) {
   const environments = outputDocument.environments;
-  const router = environments[`${outputDocument.target}-mpc-router`].variables;
-  const deriverA = environments[`${outputDocument.target}-deriver-a`].variables;
-  const deriverB = environments[`${outputDocument.target}-deriver-b`].variables;
-  const signingWorker = environments[`${outputDocument.target}-signing-worker`].variables;
+  const router = environments[`${outputDocument.environmentPrefix}-mpc-router`].variables;
+  const deriverA = environments[`${outputDocument.environmentPrefix}-deriver-a`].variables;
+  const deriverB = environments[`${outputDocument.environmentPrefix}-deriver-b`].variables;
+  const signingWorker =
+    environments[`${outputDocument.environmentPrefix}-signing-worker`].variables;
   assertEqual(
     deriverA.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY,
     router.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY,
@@ -1933,8 +2147,8 @@ function validateRouterPublicIdentityConsistency(outputDocument) {
 
 function validateGatewayRegistrationDocuments(outputDocument) {
   const environments = outputDocument.environments;
-  const gateway = environments[`${outputDocument.target}-gateway`];
-  const router = environments[`${outputDocument.target}-mpc-router`];
+  const gateway = environments[`${outputDocument.environmentPrefix}-gateway`];
+  const router = environments[`${outputDocument.environmentPrefix}-mpc-router`];
   const deploymentConfig = outputDocument.gatewayDeploymentConfig;
   const keyset = deploymentConfig.routerAb.publicKeyset;
   const topology = deploymentConfig.routerAb.registrationTopology;
@@ -1964,7 +2178,11 @@ function validateGatewayRegistrationDocuments(outputDocument) {
     keyset.signer_envelope_hpke.current.deriver_b.public_key,
     'registration topology Deriver B public key',
   );
-  assertEqual(policy.environment, outputDocument.target, 'MPCRouter project policy environment');
+  assertEqual(
+    policy.environment,
+    deploymentConfig.tenant.environmentId,
+    'MPCRouter project policy environment',
+  );
   const ceremonyJwk = JSON.parse(gateway.secrets.ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK);
   assertEqual(ceremonyJwk.kty, 'OKP', 'ceremony JWT JWK kty');
   assertEqual(ceremonyJwk.crv, 'Ed25519', 'ceremony JWT JWK curve');
@@ -1988,8 +2206,8 @@ function validateGatewayRegistrationDocuments(outputDocument) {
 }
 
 function validateSigningSessionConsistency(outputDocument) {
-  const general = outputDocument.environments[outputDocument.target];
-  const gateway = outputDocument.environments[`${outputDocument.target}-gateway`];
+  const general = outputDocument.environments[outputDocument.environmentPrefix];
+  const gateway = outputDocument.environments[`${outputDocument.environmentPrefix}-gateway`];
   if (!gateway.secrets.SIGNING_SESSION_SEAL_ROOT_SECRET_B64U) {
     throw new Error('Gateway signing-session seal root secret is missing');
   }
@@ -2058,9 +2276,10 @@ function writePreparedComponentManifests(output) {
 }
 
 function writePreparedComponentManifest(backupDirectory, manifest) {
+  const identityId = manifest.deploymentComponent === 'wallet-core' ? manifest.lane : manifest.site;
   const manifestPath = join(
     backupDirectory,
-    `${manifest.target}-${manifest.generationId}-${manifest.deploymentComponent}-github-environments.json`,
+    `${identityId}-${manifest.generationId}-${manifest.deploymentComponent}-github-environments.json`,
   );
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, {
     encoding: 'utf8',
@@ -2069,7 +2288,7 @@ function writePreparedComponentManifest(backupDirectory, manifest) {
   return manifestPath;
 }
 
-function loadPreparedComponentManifest(manifestFilePath, targetName, component) {
+function loadPreparedComponentManifest(manifestFilePath, identity, component) {
   const absolutePath = resolve(repoRoot, manifestFilePath);
   if (!existsSync(absolutePath)) {
     throw new Error(`prepared deployment manifest does not exist: ${absolutePath}`);
@@ -2086,19 +2305,35 @@ function loadPreparedComponentManifest(manifestFilePath, targetName, component) 
       `failed to load prepared deployment manifest ${absolutePath}: ${error.message}`,
     );
   }
-  validatePreparedComponentManifest(manifest, targetName, component);
+  validatePreparedComponentManifest(manifest, identity, component);
   return manifest;
 }
 
-function validatePreparedComponentManifest(manifest, targetName, component) {
+function validatePreparedComponentManifest(manifest, identity, component) {
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
     throw new Error('prepared deployment manifest must be a JSON object');
   }
   assertEqual(manifest.schemaVersion, 1, 'prepared deployment manifest schema version');
-  assertEqual(manifest.target, targetName, 'prepared deployment target');
+  assertEqual(manifest.target, identity.release, 'prepared deployment release');
+  assertEqual(
+    manifest.environmentPrefix,
+    deploymentEnvironmentPrefix(identity),
+    'prepared deployment environment prefix',
+  );
+  assertEqual(
+    manifest[component === 'wallet-core' ? 'lane' : 'site'],
+    identity.id,
+    'prepared deployment identity',
+  );
   assertEqual(manifest.deploymentComponent, component, 'prepared deployment component');
-  parseStrictGatewayDeploymentConfig(JSON.stringify(manifest.gatewayDeploymentConfig), targetName);
-  const expectedEnvironmentNames = deploymentComponentEnvironmentNames(targetName, component);
+  parseStrictGatewayDeploymentConfig(
+    JSON.stringify(manifest.gatewayDeploymentConfig),
+    manifest.gatewayDeploymentConfig.lane,
+  );
+  const expectedEnvironmentNames = deploymentComponentEnvironmentNames(
+    deploymentEnvironmentPrefix(identity),
+    component,
+  );
   assertEqual(
     Object.keys(manifest.environments || {}),
     expectedEnvironmentNames,
@@ -2194,7 +2429,7 @@ function applyGeneratedValues(data, repositoryName, progressLogger, backupPath) 
       );
       appliedSecrets.push(`${environmentName}.secrets.${name}`);
     }
-    if (environmentName === `${data.target}-gateway`) {
+    if (environmentName === `${data.environmentPrefix}-gateway`) {
       removedVariables.push(...removeObsoleteGatewayVariables(environmentName, repositoryName));
       removedSecrets.push(
         ...removeDisabledGatewaySecrets(
@@ -2315,8 +2550,9 @@ function removeObsoleteGatewayVariables(environmentName, repositoryName) {
   return removed;
 }
 
-function verifyAppliedGenerationMetadata(targetName, repositoryName) {
-  const environments = deploymentEnvironmentNames(targetName).map((environmentName) => {
+function verifyAppliedGenerationMetadata(identity, repositoryName) {
+  const environmentPrefix = deploymentEnvironmentPrefix(identity);
+  const environments = deploymentEnvironmentNames(environmentPrefix).map((environmentName) => {
     const variables = readGitHubEnvironmentVariables(environmentName, repositoryName);
     return {
       environment: environmentName,
@@ -2344,7 +2580,9 @@ function verifyAppliedGenerationMetadata(targetName, repositoryName) {
     assertEqual(environment.manifestSha256, expected.manifestSha256, 'deployment manifest SHA-256');
   }
   return {
-    target: targetName,
+    target: identity.release,
+    lane: identity.kind === 'lane' ? identity.id : undefined,
+    site: identity.kind === 'site' ? identity.id : undefined,
     repository: repositoryName,
     generationId: expected.generationId,
     generatedAt: expected.generatedAt,
@@ -2355,7 +2593,7 @@ function verifyAppliedGenerationMetadata(targetName, repositoryName) {
 
 function assertWalletCoreGenerationMatches(productManifest, repositoryName) {
   for (const environmentName of deploymentComponentEnvironmentNames(
-    productManifest.target,
+    productManifest.environmentPrefix,
     'wallet-core',
   )) {
     const variables = readGitHubEnvironmentVariables(environmentName, repositoryName);
@@ -2377,14 +2615,14 @@ function assertWalletCoreGenerationMatches(productManifest, repositoryName) {
   }
 }
 
-function deploymentEnvironmentNames(targetName) {
+function deploymentEnvironmentNames(environmentPrefix) {
   return [
-    targetName,
-    `${targetName}-gateway`,
-    `${targetName}-mpc-router`,
-    `${targetName}-deriver-a`,
-    `${targetName}-deriver-b`,
-    `${targetName}-signing-worker`,
+    environmentPrefix,
+    `${environmentPrefix}-gateway`,
+    `${environmentPrefix}-mpc-router`,
+    `${environmentPrefix}-deriver-a`,
+    `${environmentPrefix}-deriver-b`,
+    `${environmentPrefix}-signing-worker`,
   ];
 }
 
@@ -2471,13 +2709,14 @@ function resolveGitHubRepository(repositoryName) {
   return resolved;
 }
 
-function assertTargetCanInitialize(targetName, repositoryName, rotationAllowed) {
+function assertTargetCanInitialize(environmentPrefix, repositoryName, rotationAllowed) {
+  const targetName = environmentPrefix;
   if (rotationAllowed) {
     return;
   }
   const existingMarkers = [];
   for (const [role, marker] of GENERATED_IDENTITY_SECRET_MARKERS) {
-    const environmentName = `${targetName}-${role}`;
+    const environmentName = `${environmentPrefix}-${role}`;
     const listed = runGhResult(
       [
         'secret',
@@ -2612,7 +2851,7 @@ function resolveProgressStepCount() {
   if (verifyGeneration) return 2;
   if (manifestFile) {
     const environmentCount = deploymentComponent
-      ? deploymentComponentEnvironmentNames(target, deploymentComponent).length
+      ? deploymentComponentEnvironmentNames(environmentPrefix, deploymentComponent).length
       : 0;
     return environmentCount + 4;
   }
@@ -2776,9 +3015,16 @@ function readOption(name) {
 
 function readDeploymentComponent() {
   const component = readOption('--component');
-  if (!component) return undefined;
-  if (!VALID_DEPLOYMENT_COMPONENTS.has(component)) {
+  if (component && !VALID_DEPLOYMENT_COMPONENTS.has(component)) {
     throw new Error('--component must be wallet-core or product');
   }
-  return component;
+  const inferred = readOption('--lane')
+    ? 'wallet-core'
+    : readOption('--site')
+      ? 'product'
+      : undefined;
+  if (component && inferred && component !== inferred) {
+    throw new Error(`--component ${component} does not match the supplied deployment identity`);
+  }
+  return component || inferred;
 }

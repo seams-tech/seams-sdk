@@ -7,32 +7,26 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   AvailableSigningLanes,
-  ConcreteAvailableEcdsaSigningLane,
   ConcreteAvailableEd25519SigningLane,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
 import {
   assertWalletRuntimePostconditions,
   compareWalletRuntimeInventories,
   readWalletRuntimePostconditions,
-  type RuntimePostconditionAuthMethod,
 } from '@/core/signingEngine/session/postconditions/runtimePostconditions';
-import {
-  buildPasskeyEcdsaAuthBinding,
-  buildEvmFamilyEcdsaKeyIdentity,
-  buildResolvedEvmFamilyEcdsaKey,
-  buildVerifiedEcdsaPublicFacts,
-  toRpId,
-  type EvmFamilyEcdsaKeyHandle,
-} from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
+import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
+import {
+  availableLaneEd25519Authorization,
+  canonicalEcdsaAvailableLane,
+} from './helpers/availableSigningLanes.fixtures';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const WALLET_ID = 'runtime-postconditions.testnet';
 const ED25519_WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
 const ED25519_NEAR_ACCOUNT_ID = toAccountId('runtime-postconditions.testnet');
-const ED25519_KEY_SCOPE_ID = nearEd25519SigningKeyIdFromString(
-  'scope-frost-vermillion-k7p9m2',
-);
+const ED25519_KEY_SCOPE_ID = nearEd25519SigningKeyIdFromString('scope-frost-vermillion-k7p9m2');
 const TARGET: ThresholdEcdsaChainTarget = {
   kind: 'tempo',
   chainId: 42431,
@@ -47,7 +41,6 @@ const ARC_TARGET: ThresholdEcdsaChainTarget = {
 };
 const ARC_TARGET_KEY = thresholdEcdsaChainTargetKey(ARC_TARGET);
 const THRESHOLD_OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
-const PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const PASSKEY_AUTH = {
   kind: 'passkey' as const,
   rpId: toRpId('localhost'),
@@ -62,7 +55,7 @@ const REQUIRED_TARGETS = [
   { curve: 'ecdsa' as const, chainTarget: TARGET },
   { curve: 'ecdsa' as const, chainTarget: ARC_TARGET },
 ] as const;
-type TestLaneSource = 'durable_sealed_record' | 'runtime_session_record';
+type TestLaneSource = 'durable_sealed_record';
 type TestLaneOptions = {
   state?: 'ready' | 'restorable' | 'deferred' | 'expired' | 'exhausted';
   source?: TestLaneSource;
@@ -72,7 +65,7 @@ type TestLaneOptions = {
 
 function ed25519Lane(
   suffix: string,
-  authMethod: RuntimePostconditionAuthMethod = 'email_otp',
+  authMethod: SigningSessionSealAuthMethod = 'email_otp',
   options: TestLaneOptions = {},
 ): ConcreteAvailableEd25519SigningLane {
   return {
@@ -84,76 +77,47 @@ function ed25519Lane(
     nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
     signerSlot: 1,
     state: options.state ?? 'ready',
-    signingGrantId: `wss-ed25519-${suffix}`,
+    authorizationState: 'authorized',
+    authorization: availableLaneEd25519Authorization({
+      walletId: String(ED25519_WALLET_ID),
+      identitySeed: suffix,
+      authMethod,
+      expiresAtMs: options.expiresAtMs,
+    }),
+    materialActivation: buildMpcMaterialActivationRefFixture(
+      `runtime-postcondition:${suffix}`,
+      String(ED25519_WALLET_ID),
+    ),
     thresholdSessionId: `tsess-ed25519-${suffix}`,
     remainingUses: options.remainingUses ?? 3,
     expiresAtMs: options.expiresAtMs ?? 1_900_000_000_000,
     updatedAtMs: 1_800_000_000_000,
-    source: options.source ?? 'runtime_session_record',
+    source: 'durable_sealed_record',
   };
 }
 
 function ecdsaLane(
-  suffix: string,
+  _suffix: string,
   chainTarget: ThresholdEcdsaChainTarget,
-  authMethod: RuntimePostconditionAuthMethod = 'email_otp',
+  authMethod: SigningSessionSealAuthMethod = 'email_otp',
   options: TestLaneOptions = {},
-): ConcreteAvailableEcdsaSigningLane {
-  const key = buildEvmFamilyEcdsaKeyIdentity({
+): ReturnType<typeof canonicalEcdsaAvailableLane> {
+  return canonicalEcdsaAvailableLane({
     walletId: WALLET_ID,
-    evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
-      walletId: WALLET_ID,
-      signingRootId: 'root-runtime-postconditions',
-      signingRootVersion: 'default',
-    }),
-    ecdsaThresholdKeyId: 'ecdsa-key-runtime-postconditions',
-    signingRootId: 'root-runtime-postconditions',
-    signingRootVersion: 'default',
-    participantIds: [1, 2],
-    thresholdOwnerAddress: THRESHOLD_OWNER_ADDRESS,
-  });
-  const publicFacts = buildVerifiedEcdsaPublicFacts({
-    keyHandle: `ederivation-runtime-postconditions-${suffix}` as EvmFamilyEcdsaKeyHandle,
-    publicKeyB64u: PUBLIC_KEY_B64U,
-    participantIds: key.participantIds,
-    thresholdOwnerAddress: key.thresholdOwnerAddress,
-  });
-  const laneBase = {
-    curve: 'ecdsa' as const,
     chainTarget,
+    ecdsaThresholdKeyId: 'ecdsa-key-runtime-postconditions',
+    thresholdOwnerAddress: THRESHOLD_OWNER_ADDRESS,
+    authMethod,
     state: options.state ?? 'ready',
-    signingGrantId: `wss-ecdsa-${suffix}`,
-    thresholdSessionId: `tederivation-${suffix}`,
     remainingUses: options.remainingUses ?? 3,
     expiresAtMs: options.expiresAtMs ?? 1_900_000_000_000,
     updatedAtMs: 1_800_000_000_000,
-    source: options.source ?? 'runtime_session_record',
-    key,
-    publicFacts,
-  };
-  if (authMethod === 'passkey') {
-    return {
-      ...laneBase,
-      auth: PASSKEY_AUTH,
-      resolvedKey: buildResolvedEvmFamilyEcdsaKey({
-        walletId: WALLET_ID,
-        publicFacts,
-        authBinding: buildPasskeyEcdsaAuthBinding({
-          rpId: 'localhost',
-          credentialIdB64u: PASSKEY_AUTH.credentialIdB64u,
-        }),
-      }),
-    };
-  }
-  return {
-    ...laneBase,
-    auth: EMAIL_OTP_AUTH,
-  };
+  });
 }
 
 function availableLanes(
   suffix: string,
-  authMethod: RuntimePostconditionAuthMethod = 'email_otp',
+  authMethod: SigningSessionSealAuthMethod = 'email_otp',
   options: TestLaneOptions = {},
 ): AvailableSigningLanes {
   const tempoEcdsa = ecdsaLane(`${suffix}-tempo`, TARGET, authMethod, options);
@@ -188,15 +152,6 @@ function moveLanePolicyToDurableHint(lanes: AvailableSigningLanes): void {
     delete ed25519.remainingUses;
     delete ed25519.expiresAtMs;
   }
-  for (const lane of Object.values(lanes.ecdsa.lanesByTarget)) {
-    if (lane.state === 'missing') continue;
-    lane.policyHint = {
-      remainingUses: lane.remainingUses,
-      expiresAtMs: lane.expiresAtMs,
-    };
-    delete lane.remainingUses;
-    delete lane.expiresAtMs;
-  }
 }
 
 test.describe('wallet runtime postconditions', () => {
@@ -213,19 +168,19 @@ test.describe('wallet runtime postconditions', () => {
       authMethod: 'email_otp',
       target: { curve: 'ed25519' },
       remainingSignatureUses: 3,
-      material: { kind: 'runtime_session_record' },
+      material: { kind: 'durable_sealed_record' },
     });
     expect(inventory.ecdsaByTarget.get(TARGET_KEY)).toMatchObject({
       authMethod: 'email_otp',
       target: { curve: 'ecdsa', chainTarget: TARGET },
       remainingSignatureUses: 3,
-      material: { kind: 'runtime_session_record' },
+      material: { kind: 'canonical_capability' },
     });
     expect(inventory.ecdsaByTarget.get(ARC_TARGET_KEY)).toMatchObject({
       authMethod: 'email_otp',
       target: { curve: 'ecdsa', chainTarget: ARC_TARGET },
       remainingSignatureUses: 3,
-      material: { kind: 'runtime_session_record' },
+      material: { kind: 'canonical_capability' },
     });
   });
 
@@ -248,8 +203,9 @@ test.describe('wallet runtime postconditions', () => {
     expect(inventory.ed25519).toMatchObject({
       authMethod: 'passkey',
       target: { curve: 'ed25519' },
-      signingGrantId: 'wss-ed25519-candidate-backed-unlock',
-      material: { kind: 'runtime_session_record' },
+      walletSessionId: 'available-lane-wallet-session:candidate-backed-unlock',
+      quotaId: 'available-lane-quota:candidate-backed-unlock',
+      material: { kind: 'durable_sealed_record' },
     });
   });
 
@@ -335,11 +291,12 @@ test.describe('wallet runtime postconditions', () => {
     });
   });
 
-  test('accepts durable sealed exact lanes after page refresh', async () => {
-    const lanes = availableLanes('page-refresh', 'email_otp', {
-      state: 'restorable',
-      source: 'durable_sealed_record',
-    });
+  test('accepts canonical exact lanes after page refresh', async () => {
+    const lanes = availableLanes('page-refresh');
+    const ed25519 = lanes.lanes.ed25519.near;
+    if (ed25519.state === 'missing') throw new Error('expected concrete Ed25519 lane');
+    ed25519.state = 'restorable';
+    ed25519.source = 'durable_sealed_record';
     moveLanePolicyToDurableHint(lanes);
 
     const inventory = await assertWalletRuntimePostconditions({
@@ -355,12 +312,12 @@ test.describe('wallet runtime postconditions', () => {
       material: { kind: 'durable_sealed_record' },
     });
     expect(inventory.ecdsaByTarget.get(TARGET_KEY)).toMatchObject({
-      state: 'restorable',
-      material: { kind: 'durable_sealed_record' },
+      state: 'ready',
+      material: { kind: 'canonical_capability' },
     });
     expect(inventory.ecdsaByTarget.get(ARC_TARGET_KEY)).toMatchObject({
-      state: 'restorable',
-      material: { kind: 'durable_sealed_record' },
+      state: 'ready',
+      material: { kind: 'canonical_capability' },
     });
   });
 

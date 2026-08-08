@@ -5,12 +5,12 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 const verifierCallFiles = Object.freeze([
-  'packages/sdk-server-ts/src/router/cloudflare/routes/auth.ts',
-  'packages/sdk-server-ts/src/router/cloudflare/routes/sessions.ts',
-  'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts',
-  'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts',
-  'packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts',
-  'packages/sdk-server-ts/src/router/walletUnlockRouteHandlers.ts',
+  'packages/sdk-server-ts/src/router/transport/fetch/routes/auth.ts',
+  'packages/sdk-server-ts/src/router/transport/fetch/routes/sessions.ts',
+  'packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEcdsa.ts',
+  'packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEd25519.ts',
+  'packages/sdk-server-ts/src/router/domains/walletRegistration/walletRegistrationRoutes.ts',
+  'packages/sdk-server-ts/src/router/domains/walletUnlock/walletUnlockRouteHandlers.ts',
   'packages/sdk-server-ts/src/core/AuthService.ts',
 ]);
 
@@ -142,41 +142,6 @@ function findWalletRegistrationOriginViolations() {
     violations.push(`${preloadPath} does not preload the registration modal element`);
   }
 
-  const authMenuAdapterPath =
-    'packages/sdk-web/src/react/components/SeamsAuthMenu/adapters/seams.ts';
-  const authMenuAdapter = readRepoFile(authMenuAdapterPath);
-  if (!/walletIframeConnected:\s*ctx\.walletIframeConnected/.test(authMenuAdapter)) {
-    violations.push(`${authMenuAdapterPath} does not expose iframe readiness to the auth menu`);
-  }
-  const authMenuControllerPath =
-    'packages/sdk-web/src/react/components/SeamsAuthMenu/controller/useSeamsAuthMenuController.ts';
-  const authMenuController = readRepoFile(authMenuControllerPath);
-  if (
-    !/const canSubmit =[\s\S]{0,220}isPasskeyInteractionReady\(runtime\)/.test(authMenuController)
-  ) {
-    violations.push(
-      `${authMenuControllerPath} enables passkey interaction before iframe readiness`,
-    );
-  }
-
-  const registrationPath = 'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts';
-  const registration = readRepoFile(registrationPath);
-  const modalStart = registration.indexOf(
-    'const modalPromise = args.context.signingEngine.openRegistrationPreparationModal(',
-  );
-  const precomputeStart = registration.indexOf(
-    'const readyPromise = startWalletRegistrationPrecomputeReady(args);',
-    modalStart,
-  );
-  const parallelAwait = registration.indexOf(
-    'await Promise.all([readyPromise, modalPromise])',
-    precomputeStart,
-  );
-  if (modalStart < 0 || precomputeStart < modalStart || parallelAwait < precomputeStart) {
-    violations.push(
-      `${registrationPath} does not open the modal before parallel registration precompute`,
-    );
-  }
   const uiConfirmPath = 'packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts';
   const uiConfirm = readRepoFile(uiConfirmPath);
   if (

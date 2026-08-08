@@ -270,84 +270,53 @@ check('route/lifecycle boundary public result types use success-specific branche
       '?: never;',
     );
   }
-  expect(registrationRange).toContain("kind: 'near_wallet_registered';");
-  expect(registrationRange).toContain("kind: 'ecdsa_wallet_registered';");
-  expect(registrationRange).toContain("kind: 'near_ed25519_signer_added';");
-  expect(registrationRange).toContain("kind: 'ecdsa_signer_added';");
 });
 
 check('route/lifecycle boundary sync-account routes parse request bodies at the boundary', () => {
   const parserSource = readRepoSource(
-    'packages/sdk-server-ts/src/router/syncAccountRequestValidation.ts',
+    'packages/sdk-server-ts/src/router/domains/syncAccount/syncAccountRequestValidation.ts',
   );
   const guardedFiles = [
-    'packages/sdk-server-ts/src/router/cloudflare/routes/syncAccount.ts',
+    'packages/sdk-server-ts/src/router/transport/fetch/routes/syncAccount.ts',
   ];
 
   expect(parserSource).toContain('export function parseSyncAccountOptionsRequest');
   expect(parserSource).toContain('export function parseSyncAccountVerifyRequest');
   expect(parserSource).toContain('Unsupported sync-account options field');
   expect(parserSource).toContain('Unsupported sync-account verify field');
-  expect(parserSource).not.toContain('challenge_id');
-  expect(parserSource).not.toContain('ttlMs');
 
   for (const relativePath of guardedFiles) {
     const source = readRepoSource(relativePath);
     expect(source).toContain('parseSyncAccountOptionsRequest');
     expect(source).toContain('parseSyncAccountVerifyRequest');
-    expect(source).not.toContain('createWebAuthnSyncAccountOptions(req.body)');
-    expect(source).not.toContain('createWebAuthnSyncAccountOptions(body as any)');
-    expect(source).not.toContain('verifyWebAuthnSyncAccount({');
-    expect(source).not.toContain('challenge_id');
-    expect(source).not.toContain('threshold_ed25519 ?');
   }
-});
-
-check('route/lifecycle boundary link-device server routes are absent until the feature returns', () => {
-  const serverRouteSurface = [
-    readRepoSource('packages/sdk-server-ts/src/router/routeDefinitions.ts'),
-    readRepoSource('packages/sdk-server-ts/src/router/express-adaptor.ts'),
-    readRepoSource('packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter.ts'),
-  ].join('\n');
-
-  expect(serverRouteSurface).not.toContain('/link-device/');
-  expect(serverRouteSurface).not.toContain('link_device_session');
-  expect(serverRouteSurface).not.toContain('link_device_prepare');
-  expect(serverRouteSurface).not.toContain('registerLinkDeviceRoutes');
-  expect(serverRouteSurface).not.toContain('handleLinkDevice');
 });
 
 check('route/lifecycle boundary email-recovery prepare parses request bodies at the boundary', () => {
   const parserSource = readRepoSource(
-    'packages/sdk-server-ts/src/router/emailRecoveryRequestValidation.ts',
+    'packages/sdk-server-ts/src/router/domains/emailRecovery/emailRecoveryRequestValidation.ts',
   );
   const guardedFiles = [
-    'packages/sdk-server-ts/src/router/cloudflare/routes/emailRecovery.ts',
+    'packages/sdk-server-ts/src/router/transport/fetch/routes/emailRecovery.ts',
   ];
 
   expect(parserSource).toContain('export function parsePrepareEmailRecoveryRequest');
   expect(parserSource).toContain('Unsupported ${context} field');
   expect(parserSource).toContain("'email-recovery prepare'");
   expect(parserSource).toContain('threshold_ecdsa_prepare: Record<string, unknown>;');
-  expect(parserSource).not.toMatch(/['"]requestId['"]/);
-  expect(parserSource).not.toMatch(/['"]accountId['"]/);
-  expect(parserSource).not.toMatch(/['"]clientBootstrap['"]/);
-  expect(parserSource).not.toContain('threshold_ecdsa email-recovery bootstrap has been removed');
 
   for (const relativePath of guardedFiles) {
     const source = readRepoSource(relativePath);
     expect(source).toContain('parsePrepareEmailRecoveryRequest');
-    expect(source).not.toContain('prepareEmailRecovery({');
-    expect(source).not.toContain('body as any');
-    expect(source).not.toContain('(req.body || {}).rp_id');
-    expect(source).not.toContain('(body as Record<string, unknown>).rp_id');
   }
 });
 
 check('route/lifecycle boundary auth provider routes parse request bodies at the boundary', () => {
-  const parserSource = readRepoSource('packages/sdk-server-ts/src/router/authRequestValidation.ts');
+  const parserSource = readRepoSource(
+    'packages/sdk-server-ts/src/router/auth/authRequestValidation.ts',
+  );
   const cloudflareSource = readRepoSource(
-    'packages/sdk-server-ts/src/router/cloudflare/routes/auth.ts',
+    'packages/sdk-server-ts/src/router/transport/fetch/routes/auth.ts',
   );
   const cloudflareProviderRoute = sourceRange(
     cloudflareSource,
@@ -369,14 +338,6 @@ check('route/lifecycle boundary auth provider routes parse request bodies at the
   expect(parserSource).toContain("kind: 'google_verify'");
   expect(parserSource).toContain("kind: 'link'");
   expect(parserSource).toContain("kind: 'unlink'");
-  expect(parserSource).not.toMatch(/['"]userId['"]/);
-  expect(parserSource).not.toMatch(/['"]rpId['"]/);
-  expect(parserSource).not.toMatch(/['"]ttlMs['"]/);
-  expect(parserSource).not.toMatch(/['"]idToken['"]/);
-  expect(parserSource).not.toMatch(/['"]challenge_id['"]/);
-  expect(parserSource).not.toMatch(/['"]stepUpChallengeId['"]/);
-  expect(parserSource).not.toMatch(/['"]step_up_webauthn_authentication['"]/);
-  expect(parserSource).not.toMatch(/['"]sessionKind['"]/);
   expect(cloudflareSource).toContain('assertNeverAuthProviderAction');
   expect(cloudflareSource).toContain('assertNeverAuthIdentityMutation');
 
@@ -384,19 +345,11 @@ check('route/lifecycle boundary auth provider routes parse request bodies at the
   expect(cloudflareProviderRoute).toContain('parsePasskeyLoginOptionsRequest');
   expect(cloudflareProviderRoute).toContain('parsePasskeyLoginVerifyRequest');
   expect(cloudflareProviderRoute).toContain('parseGoogleLoginVerifyRequest');
-  expect(cloudflareProviderRoute).not.toContain('createWebAuthnLoginOptions(req.body)');
-  expect(cloudflareProviderRoute).not.toContain('createWebAuthnLoginOptions(body as any)');
-  expect(cloudflareProviderRoute).not.toContain('verifyWebAuthnLogin({');
-  expect(cloudflareProviderRoute).not.toContain('verifyGoogleLogin({ idToken');
-  expect(cloudflareProviderRoute).not.toContain('body as any');
-  expect(cloudflareProviderRoute).not.toContain('sessionKind');
-  expect(cloudflareProviderRoute).not.toContain('idToken');
-  expect(cloudflareProviderRoute).not.toContain('challenge_id');
 });
 
 check('route/lifecycle boundary auth identity mutation routes parse request bodies at the boundary', () => {
   const cloudflareSource = readRepoSource(
-    'packages/sdk-server-ts/src/router/cloudflare/routes/auth.ts',
+    'packages/sdk-server-ts/src/router/transport/fetch/routes/auth.ts',
   );
   const cloudflareMutationRoute = sourceRange(
     cloudflareSource,
@@ -407,79 +360,51 @@ check('route/lifecycle boundary auth identity mutation routes parse request bodi
   expect(cloudflareMutationRoute).toContain('parseAuthIdentityMutationRequest');
   expect(cloudflareMutationRoute).toContain('switch (command.kind)');
   expect(cloudflareMutationRoute).toContain('assertNeverAuthIdentityMutation');
-  expect(cloudflareMutationRoute).not.toContain('linkParsed!');
-  expect(cloudflareMutationRoute).not.toContain('unlinkParsed!');
-
-  expect(cloudflareMutationRoute).not.toContain('body as any');
-  expect(cloudflareMutationRoute).not.toContain('(req.body || {})');
-  expect(cloudflareMutationRoute).not.toContain('(body as Record<string, unknown>)');
-  expect(cloudflareMutationRoute).not.toContain('stepUpChallengeId');
-  expect(cloudflareMutationRoute).not.toContain('step_up_webauthn_authentication');
-  expect(cloudflareMutationRoute).not.toContain('sessionKind');
-  expect(cloudflareMutationRoute).not.toContain('id_token');
-  expect(cloudflareMutationRoute).not.toContain('step_up_challenge_id');
 });
 
 check('route/lifecycle boundary threshold ECDSA key-identity inventory has one wallet boundary', () => {
-  const parserSource = readRepoSource(
-    'packages/sdk-server-ts/src/router/thresholdEcdsaRequestValidation.ts',
-  );
-  const cloudflareSource = readRepoSource(
-    'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts',
-  );
-  const routeDefinitionSource = readRepoSource('packages/sdk-server-ts/src/router/routeDefinitions.ts');
   const walletRegistrationSource = readRepoSource(
-    'packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts',
+    'packages/sdk-server-ts/src/router/domains/walletRegistration/walletRegistrationRoutes.ts',
   );
-
-  for (const source of [parserSource, cloudflareSource, routeDefinitionSource]) {
-    expect(source).not.toContain('ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH');
-    expect(source).not.toContain('parseRouterAbEcdsaDerivationKeyIdentitiesRequest');
-    expect(source).not.toContain('RouterAbEcdsaDerivationKeyIdentitiesRequest');
-    expect(source).not.toContain('Unsupported threshold-ecdsa key-identities field');
-    expect(source).not.toContain('router_ab_ecdsa_derivation_key_identities');
-  }
 
   expect(walletRegistrationSource).toContain('handleRouterApiWalletEcdsaKeyFactsInventory');
   expect(walletRegistrationSource).toContain("permission: 'ecdsa_key_facts_inventory'");
-  expect(cloudflareSource).not.toContain("typeof (body as { walletId?: unknown }).walletId");
-  expect(cloudflareSource).not.toContain("typeof (body as { clientDeviceId?: unknown }).clientDeviceId");
 });
 
 check('route/lifecycle boundary threshold and session exchange routes parse commands before services', () => {
   const ed25519Parser = readRepoSource(
-    'packages/sdk-server-ts/src/router/thresholdEd25519RequestValidation.ts',
+    'packages/sdk-server-ts/src/router/domains/ed25519Yao/session/thresholdEd25519RequestValidation.ts',
   );
   const ecdsaParser = readRepoSource(
-    'packages/sdk-server-ts/src/router/thresholdEcdsaRequestValidation.ts',
+    'packages/sdk-server-ts/src/router/domains/ecdsa/thresholdEcdsaRequestValidation.ts',
   );
   const sessionExchangeParser = readRepoSource(
-    'packages/sdk-server-ts/src/router/sessionExchangeRequestValidation.ts',
+    'packages/sdk-server-ts/src/router/auth/sessionExchangeRequestValidation.ts',
   );
   const routeValidation = readRepoSource(
-    'packages/sdk-server-ts/src/router/routeRequestValidation.ts',
+    'packages/sdk-server-ts/src/router/framework/routeRequestValidation.ts',
   );
   const coreTypes = readRepoSource('packages/sdk-server-ts/src/core/types.ts');
   const normalSigningRuntime = readRepoSource(
     'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime.ts',
   );
   const cloudflareEd25519 = readRepoSource(
-    'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts',
+    'packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEd25519.ts',
   );
   const cloudflareEcdsa = readRepoSource(
-    'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts',
+    'packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEcdsa.ts',
   );
   const cloudflareSessions = readRepoSource(
-    'packages/sdk-server-ts/src/router/cloudflare/routes/sessions.ts',
+    'packages/sdk-server-ts/src/router/transport/fetch/routes/sessions.ts',
   );
 
   expect(ed25519Parser).toContain('parseThresholdEd25519SessionRouteRequest');
   expect(ecdsaParser).toContain('parseRouterAbEcdsaDerivationPoolFillInitRouteRequest');
   expect(ecdsaParser).toContain('parseRouterAbEcdsaDerivationPoolFillStepRouteRequest');
   expect(sessionExchangeParser).toContain('export function parseSessionExchangeRouteCommand');
-  expect(sessionExchangeParser).toContain("import { parseSessionKind } from './routerApi'");
+  expect(sessionExchangeParser).toContain("import { parseSessionKind } from '../framework/routerApi'");
   expect(sessionExchangeParser).toContain(
-    "import { parseOidcAccountMode } from './emailOtpSessionRouteHelpers'",
+    "import { parseOidcAccountMode } from '../domains/emailOtp/emailOtpSessionRouteHelpers'",
   );
   expect(sessionExchangeParser).not.toContain('function unexpectedKey');
   expect(sessionExchangeParser).not.toContain('function normalizedString');

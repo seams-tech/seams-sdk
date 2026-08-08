@@ -4,6 +4,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ExactEcdsaSigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/evmSigning.types';
 import type { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import type {
   BootstrapThresholdEcdsaSessionArgs,
@@ -77,7 +78,15 @@ const evmExecuteRequest = {
     value: 0n,
     data: '0x',
   },
-} satisfies Extract<SignTempoArgs['request'], { chain: 'evm' }>;
+} satisfies EvmSigningRequest;
+
+const invalidEvmTempoSign: SignTempoArgs = {
+  walletSession,
+  chainTarget: tempoChainTarget,
+  // @ts-expect-error Tempo signing rejects EIP-1559 requests.
+  request: evmExecuteRequest,
+};
+void invalidEvmTempoSign;
 
 const tempoExecuteRequest = {
   chain: 'tempo',
@@ -179,6 +188,12 @@ const validNearEmailOtpRegistrationInput: Parameters<
 };
 void validNearEmailOtpRegistrationInput;
 
+// @ts-expect-error Generic NEAR registration requires an explicit auth method.
+const invalidNearRegistrationWithoutAuth: Parameters<
+  NearSignerCapability['registerNearWallet']
+>[0] = {};
+void invalidNearRegistrationWithoutAuth;
+
 declare const signedNearTransaction: SignedTransaction;
 
 // @ts-expect-error Public NEAR broadcast requires wallet session and account subject.
@@ -208,6 +223,13 @@ const validEvmEmailOtpRegistrationInput: Parameters<EvmSignerCapability['registe
   },
 };
 void validEvmEmailOtpRegistrationInput;
+
+// @ts-expect-error Generic EVM registration requires an explicit auth method.
+const invalidEvmRegistrationWithoutAuth: Parameters<EvmSignerCapability['registerEvmWallet']>[0] = {
+  chainTargets: [tempoChainTarget],
+  participantIds: [1, 2],
+};
+void invalidEvmRegistrationWithoutAuth;
 
 declare const registrationCapability: RegistrationCapability;
 void registrationCapability.getNearProvisioningState({ walletId: 'alice.testnet' });
@@ -400,14 +422,6 @@ const invalidPublicBootstrapWalletSessionJwt =
   // @ts-expect-error Public bootstrap keyRef hides internal Wallet Session bearer auth.
   publicEcdsaBootstrapResult.thresholdEcdsaKeyRef.walletSessionJwt;
 void invalidPublicBootstrapWalletSessionJwt;
-
-const invalidEcdsaBootstrapLifecycleInput: BootstrapThresholdEcdsaSessionArgs = {
-  // @ts-expect-error Fresh bootstrap is an internal signing-engine lifecycle request.
-  kind: 'passkey_fresh_ecdsa_bootstrap',
-  walletSession,
-  chainTarget: tempoChainTarget,
-};
-void invalidEcdsaBootstrapLifecycleInput;
 
 type PublicKeyExportInput = Parameters<KeyExportCapability['exportKeypairWithUI']>[0];
 

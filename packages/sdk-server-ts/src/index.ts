@@ -8,6 +8,9 @@ export {
   type SigningSessionSealKeyVersion,
 } from './core/keyMaterialBrands';
 export { AuthService } from './core/AuthService';
+export * from './authorization/domain';
+export * from './authorization/service';
+export * from './authorization/vaultProxyUse';
 export { SessionService, parseCsvList, buildCorsOrigins } from './core/SessionService';
 export type { SessionConfig } from './core/SessionService';
 export {
@@ -15,47 +18,12 @@ export {
   createThresholdEd25519SessionStore,
   createEd25519WalletSessionStore,
   createEcdsaWalletSessionStore,
-  createWalletSigningBudgetSessionStore,
-  CloudflareDurableObjectSigningRootSecretStore,
-  D1SigningRootSecretStore,
-  SIGNING_ROOT_SECRET_SHARE_D1_SCHEMA_SQL,
-  createConfiguredSigningRootShareResolver,
-  createHostedSigningRootShareResolver,
-  createSelfHostedSigningRootShareResolver,
-  ensureSigningRootSecretShareD1Schema,
-  deriveEcdsaDerivationYRelayerFromSigningRootShareResolver,
-  computeSigningRootMigrationBundleChecksumB64u,
-  createSigningRootMigrationExportArtifact,
-  createSigningRootMigrationWalletInventory,
 } from './core/ThresholdService';
 export {
   createRouterAbSigningRuntimes,
   type RouterAbSigningRuntimeBundle,
 } from './core/routerAbSigning/createRouterAbSigningRuntimes';
 export { RouterAbEcdsaPresignRuntime } from './core/routerAbSigning/RouterAbEcdsaPresignRuntime';
-export type {
-  CreateHostedSigningRootShareResolverInput,
-  CreateSelfHostedSigningRootShareResolverInput,
-  DeriveEcdsaDerivationYRelayerFromSigningRootShareResolverInput,
-  D1SigningRootSecretStoreOptions,
-  D1SigningRootSecretStoreSchemaOptions,
-  FixedSigningRootScope,
-  SealedSigningRootShare,
-  SigningRootShareDecryptAdapter,
-  SigningRootShareSource,
-  SigningRootSecretShareId,
-  SigningRootSecretShareKekResolver,
-  SigningRootSecretShareKekResolutionInput,
-  SigningRootSecretStore,
-  SealedSigningRootSecretShare,
-  SigningRootSecretShareSource,
-  SigningRootSecretShareWireV1,
-  SigningRootShareInput,
-  SigningRootShareResolverInput,
-  SigningRootShareResolver,
-  SigningRootShareSet,
-  ThresholdPrfPolicy,
-} from './core/ThresholdService';
 export {
   ensureEvmCryptoWasm,
   computeEip1559TxHash,
@@ -212,35 +180,34 @@ export {
   type NearPublicKeyStore,
 } from './core/NearPublicKeyStore';
 export {
-  CloudflareD1RouterAbNormalSigningAdmissionStore,
   InMemoryRouterAbNormalSigningAdmissionStore,
-  createCloudflareD1RouterAbNormalSigningAdmissionStore,
   createInMemoryRouterAbNormalSigningAdmissionAdapter,
   createInMemoryRouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
-  type CloudflareD1RouterAbNormalSigningAdmissionStoreOptions,
-  type InMemoryRouterAbNormalSigningAdmissionStoreOptions,
   type RouterAbNormalSigningAbuseDecision,
   type RouterAbNormalSigningAbuseProvider,
   type RouterAbNormalSigningAdmissionStore,
   type RouterAbNormalSigningProjectPolicyDecision,
   type RouterAbNormalSigningProjectPolicyProvider,
-  type RouterAbNormalSigningQuotaDecision,
-  type RouterAbNormalSigningQuotaStore,
-} from './router/routerAbNormalSigningAdmissionStore';
+} from './router/domains/signingOperations/routerAbNormalSigningAdmissionCore';
+export {
+  CloudflareD1RouterAbNormalSigningAdmissionStore,
+  createCloudflareD1RouterAbNormalSigningAdmissionStore,
+  type CloudflareD1RouterAbNormalSigningAdmissionStoreOptions,
+} from './router/cloudflare/d1/signingAdmission/d1RouterAbNormalSigningAdmissionStore';
 export * from './email-recovery';
 export * from './threshold/session/signingSessionSeal';
 export type {
   RouterApiModule,
   RouterApiModuleKind,
   RouterApiModuleOptions,
-} from './router/modules';
-export { createRouterApiModule } from './router/modules';
+} from './router/framework/modules';
+export { createRouterApiModule } from './router/framework/modules';
 export type {
-  RouterApiCloudflareRouteExtension,
-  RouterApiCloudflareRouteExtensionInput,
+  RouterApiFetchRouteExtension,
+  RouterApiFetchRouteExtensionInput,
   RouterApiRouteExtension,
   RouterApiRouteExtensionTransport,
-} from './router/routeExtensions';
-export * from './router/ror';
+} from './router/framework/routeExtensions';
+export * from './router/framework/ror';
 export * from './storage/tenantRoute';
