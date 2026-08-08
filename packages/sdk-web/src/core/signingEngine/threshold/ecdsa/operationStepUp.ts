@@ -14,6 +14,8 @@ import type { OperationDigestSet } from '@shared/authorization/operationFingerpr
 import type { EvmEcdsaMpcOperationKind } from '@shared/authorization/capabilityKinds';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { AppSessionJwt } from '@shared/utils/domainIds';
+import { walletSessionFailureErrorFromPayload } from '@/core/signingEngine/session/lifecycle/walletSessionFailure';
+import { WALLET_SESSION_FAILURE_CODES } from '@shared/utils/walletSessionFailure';
 
 export type EcdsaOperationStepUpSessionAuth =
   | {
@@ -126,6 +128,24 @@ export async function prepareEcdsaOperationStepUp(args: Parameters<
   };
 }
 
+/**
+ * User-facing copy for a step-up that failed because the wallet session is no
+ * longer usable. These are the states signing in again resolves, so the message
+ * says that rather than restating the transport failure. Anything else keeps the
+ * server's own wording, which is aimed at the developer.
+ */
+function ecdsaOperationStepUpSessionMessage(code: unknown, serverMessage: string): string {
+  switch (code) {
+    case WALLET_SESSION_FAILURE_CODES.expired:
+    case WALLET_SESSION_FAILURE_CODES.missing:
+      return 'Signing session expired. Sign in again to continue.';
+    case WALLET_SESSION_FAILURE_CODES.budgetExhausted:
+      return 'Signing session budget is used up. Sign in again to continue.';
+    default:
+      return `ECDSA operation step-up failed: ${serverMessage}`;
+  }
+}
+
 export async function issueEcdsaOperationStepUpAuthorization(args: {
   readonly relayerUrl: string;
   readonly sessionAuth: EcdsaOperationStepUpSessionAuth;
@@ -151,9 +171,18 @@ export async function issueEcdsaOperationStepUpAuthorization(args: {
   const body = await response.json().catch(() => null);
   if (!response.ok) {
     const error = requireResponseRecord(body);
-    throw new Error(
-      `ECDSA operation step-up failed: ${String(error.message || `HTTP ${response.status}`)}`,
-    );
+    const message = String(error.message || `HTTP ${response.status}`);
+    // A wallet session that has lapsed is a lifecycle outcome the user can act
+    // on — sign in again — not an opaque signing failure. Rethrow it as the
+    // shared typed failure, carrying copy that says what to do, so it reaches
+    // the UI as an instruction rather than a developer string. NEAR normal
+    // signing already classifies its errors this way.
+    const walletSessionError = walletSessionFailureErrorFromPayload({
+      code: error.code,
+      message: ecdsaOperationStepUpSessionMessage(error.code, message),
+    });
+    if (walletSessionError) throw walletSessionError;
+    throw new Error(`ECDSA operation step-up failed: ${message}`);
   }
   return parseEcdsaOperationStepUpAuthorizationResponse(body);
 }

@@ -376,15 +376,12 @@ mod tests {
         scope: &RouterAbEcdsaDerivationNormalSigningScopeV1,
         intent_digest: PublicDigest32,
     ) -> CloudflareRouterNormalSigningTrustedAdmissionV1 {
-        let session_id = scope
-            .material_activation_id()
-            .expect("material activation id");
         let metadata = CloudflareRouterNormalSigningTrustedMetadataV1::new(
             "org-1",
             "project-1",
             "dev",
             scope.wallet_id.clone(),
-            CloudflareRouterAuthContextV1::authenticated_session("subject-1", session_id)
+            CloudflareRouterAuthContextV1::authenticated_session("subject-1", "wallet-session-1")
                 .expect("auth context"),
             PublicDigest32::new([0x42; 32]),
             intent_digest,

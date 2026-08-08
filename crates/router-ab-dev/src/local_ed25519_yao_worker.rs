@@ -2727,13 +2727,22 @@ mod tests {
 
         let transition =
             Ed25519YaoEpochTransitionV1::new(epoch_one, epoch_two).expect("transition");
+        let registration_material_activation = ceremony(
+            1,
+            Ed25519YaoOperationV1::Registration,
+            ExpensiveWorkKindV1::RegistrationPrepare,
+            1,
+        )
+        .material_activation;
+        let mut refresh_ceremony = ceremony(
+            1,
+            Ed25519YaoOperationV1::Refresh,
+            ExpensiveWorkKindV1::ServerShareRefresh,
+            5,
+        );
+        refresh_ceremony.material_activation = registration_material_activation;
         let refresh = Ed25519YaoRefreshBindingV1::new(
-            ceremony(
-                1,
-                Ed25519YaoOperationV1::Refresh,
-                ExpensiveWorkKindV1::ServerShareRefresh,
-                5,
-            ),
+            refresh_ceremony,
             [0x71; 32],
             Ed25519YaoRefreshEpochsV1 {
                 deriver_a: transition,
