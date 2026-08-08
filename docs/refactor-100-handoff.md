@@ -95,12 +95,18 @@ is the only constructor for that origin and it requires a successful open.
    Both blockers were settled on 2026-08-07 — decisions and reasons are pinned
    in the plan's splice entry. In brief:
 
-   **Everything stays on the router-ab registration route.** The EVM leg gains
-   a payload kind where the client sends the ceremony's bootstrap facts
-   (seed-derived share public key + `contextBinding32`) and the relayer
-   composes the public identity as its activate leg already does for the
-   `ecdsa-derivation-role-local` bootstrap value. The strict derivation rounds
-   stop producing EVM keys for new wallets. Do NOT reach for
+   **Everything stays on the router-ab registration route — and (verified
+   2026-08-08) with no wire, Gateway-kind, or Router change for the key
+   substitution.** The Router never checks the client share's provenance: the
+   SigningWorker composes the activation receipt from the client's *claimed*
+   facts against its own material (`router-ab-cloudflare/src/lib.rs:3215`),
+   and every digest the request validation pins is a pure function of the
+   registration request the client built. So the client runs registration
+   exactly as today and presents activation facts computed from the
+   seed-derived share instead of `xClientBase`. The rounds keep running — they
+   provision the SigningWorker's relayer half, which is still needed. Earlier
+   notes proposing a new ECDSA payload kind are superseded; the proof chain is
+   in the plan's flow map. Do NOT reach for
    `thresholdEcdsaDerivationRoleLocalBootstrap` — it has no server counterpart;
    the format it names is the registration route's own activate output. The
    binding digest is not a problem: the local create step computes it from the
