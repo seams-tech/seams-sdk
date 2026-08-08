@@ -154,6 +154,17 @@ function activationCommitCeremonyId(record: Record<string, unknown>): string {
     if (!ceremonyId) throw new Error('ECDSA activation operation ceremony identity is invalid');
     return ceremonyId;
   }
+  if (record.operation === 'wallet_add_signer_activate_v2') {
+    requireExactKeys(record, 'ECDSA activation operation', [
+      'operation',
+      'addSignerCeremonyId',
+      'activationCorrelationId',
+      'publicFacts',
+    ]);
+    const ceremonyId = String(record.addSignerCeremonyId || '').trim();
+    if (!ceremonyId) throw new Error('ECDSA activation operation ceremony identity is invalid');
+    return ceremonyId;
+  }
   const hasRegistrationId = Object.hasOwn(record, 'registrationCeremonyId');
   const hasAddSignerId = Object.hasOwn(record, 'addSignerCeremonyId');
   if (hasRegistrationId === hasAddSignerId) {
@@ -184,6 +195,16 @@ function assertCanonicalRequestMatchesVerifiedCeremony(input: {
     }
     if (!String(request.idempotencyKey || '').trim()) {
       throw new Error('ECDSA activation operation requires an idempotency key');
+    }
+    const publicFacts = parseRouterAbEcdsaVerifiedClientActivationFactsV1(request.publicFacts);
+    if (alphabetizeStringify(publicFacts) !== alphabetizeStringify(input.clientActivation)) {
+      throw new Error('ECDSA activation operation changed the verified client facts');
+    }
+    return;
+  }
+  if (request.operation === 'wallet_add_signer_activate_v2') {
+    if (parseCorrelationId(request.activationCorrelationId) !== input.planInput.journalId) {
+      throw new Error('ECDSA activation operation changed the activation correlation');
     }
     const publicFacts = parseRouterAbEcdsaVerifiedClientActivationFactsV1(request.publicFacts);
     if (alphabetizeStringify(publicFacts) !== alphabetizeStringify(input.clientActivation)) {

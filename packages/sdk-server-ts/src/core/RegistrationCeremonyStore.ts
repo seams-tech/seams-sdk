@@ -600,12 +600,34 @@ export type StoredEcdsaAddSignerPendingActivation = StoredEcdsaAddSignerBase & {
   bootstrap?: never;
 };
 
+/**
+ * The prepared activation coordinates, recorded before any Router custody work
+ * runs. The client computed the activation request digest from the canonical
+ * add-signer activation command; a retry after a crash between the Router
+ * commit and the store update finds this claim, must present the exact same
+ * coordinates, and replays the canonical Router activation to completion.
+ */
+export type StoredEcdsaAddSignerActivationClaimed = StoredEcdsaAddSignerBase & {
+  kind: 'ecdsa_add_signer_activation_claimed';
+  registrationRequest: RouterAbEcdsaRegistrationRequestV1;
+  pendingActivation: RouterAbEcdsaPendingActivationV1;
+  publicResponse: RouterAbEcdsaStrictForwardedRegistrationResponseV1;
+  publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
+  activationRequestDigestB64u: string;
+  materialActivation: RouterAbMpcMaterialActivationRefWire;
+  activation?: never;
+  bootstrap?: never;
+};
+
 export type StoredEcdsaAddSignerActivated = StoredEcdsaAddSignerBase & {
   kind: 'ecdsa_add_signer_activated';
   pendingActivation?: never;
   publicResponse?: never;
   registrationRequest: RouterAbEcdsaRegistrationRequestV1;
   publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
+  /** Carried from the claim so a replay is judged against what this server
+   * committed to, not against what the Router echoed back. */
+  activationRequestDigestB64u: string;
   activation: RouterAbEcdsaRegistrationActivationReceiptV1;
   publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   bootstrap: EcdsaDerivationServerBootstrapResponse;
@@ -642,6 +664,7 @@ export type StoredEd25519YaoAddSignerFinalizing = StoredEd25519YaoAddSignerActiv
 export type StoredWalletAddSignerSignerState =
   | StoredEcdsaAddSignerPrepared
   | StoredEcdsaAddSignerPendingActivation
+  | StoredEcdsaAddSignerActivationClaimed
   | StoredEcdsaAddSignerActivated
   | StoredEd25519YaoAddSignerAuthorized
   | StoredEd25519YaoAddSignerActivated

@@ -1395,6 +1395,9 @@ function parseD1StoredWalletAddSignerSignerState(
   if (kind === 'ecdsa_add_signer_pending_activation') {
     return parseD1StoredEcdsaAddSignerPendingActivation(record);
   }
+  if (kind === 'ecdsa_add_signer_activation_claimed') {
+    return parseD1StoredEcdsaAddSignerActivationClaimed(record);
+  }
   if (kind === 'ecdsa_add_signer_activated') {
     return parseD1StoredEcdsaAddSignerActivated(record);
   }
@@ -1541,6 +1544,35 @@ function parseD1StoredEcdsaAddSignerPendingActivation(
   }
 }
 
+function parseD1StoredEcdsaAddSignerActivationClaimed(
+  record: Record<string, unknown>,
+): Extract<
+  StoredWalletAddSignerCeremony['signerState'],
+  { kind: 'ecdsa_add_signer_activation_claimed' }
+> | null {
+  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  if (!prepared) return null;
+  try {
+    return {
+      kind: 'ecdsa_add_signer_activation_claimed',
+      derivationKind: prepared.derivationKind,
+      chainTargets: prepared.chainTargets,
+      prepare: prepared.prepare,
+      strictRegistration: prepared.strictRegistration,
+      registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
+      pendingActivation: parseStoredRouterAbEcdsaPendingActivationV1(record.pendingActivation),
+      publicResponse: parseRouterAbEcdsaStrictForwardedRegistrationResponseV1(
+        record.publicResponse,
+      ),
+      publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.publicFacts),
+      activationRequestDigestB64u: parseDigestB64u(record.activationRequestDigestB64u),
+      materialActivation: parseRouterAbMpcMaterialActivationRef(record.materialActivation),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function parseD1StoredEcdsaAddSignerActivated(
   record: Record<string, unknown>,
 ): Extract<
@@ -1559,6 +1591,7 @@ function parseD1StoredEcdsaAddSignerActivated(
       strictRegistration: prepared.strictRegistration,
       registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
       publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.publicFacts),
+      activationRequestDigestB64u: parseDigestB64u(record.activationRequestDigestB64u),
       activation: parseRouterAbEcdsaRegistrationActivationReceiptV1(record.activation),
       publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(record.publicCapability),
       bootstrap,

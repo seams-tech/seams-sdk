@@ -29,6 +29,7 @@ import type { D1WalletStore } from '../../../../core/d1WalletStore';
 import type {
   StoredEd25519YaoAddSignerActivation,
   StoredEcdsaAddSignerActivated,
+  StoredEcdsaAddSignerActivationClaimed,
   StoredWalletAddSignerCeremony,
   StoredAddSignerIntent,
   StoredWalletAddSignerFinalizeRequest,
@@ -60,6 +61,7 @@ import {
   implicitNearAccountIdFromEd25519PublicKeyBytes,
 } from '../ed25519Yao/d1Ed25519YaoWalletSigner';
 import { buildRouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import { computeWalletAddSignerEcdsaActivationRequestDigestB64u } from '@shared/utils/walletAddSignerActivation';
 import {
   routerAbEcdsaStrictRegistrationRequestMatchesFacts,
   type RouterAbEcdsaStrictRegistrationPort,
@@ -181,6 +183,7 @@ function walletAddSignerStartResponseFromCeremony(
         },
       };
     case 'ecdsa_add_signer_pending_activation':
+    case 'ecdsa_add_signer_activation_claimed':
     case 'ecdsa_add_signer_activated':
     case 'near_ed25519_yao_add_signer_activated':
     case 'near_ed25519_yao_add_signer_finalizing':
@@ -1012,95 +1015,210 @@ export class CloudflareD1WalletAddSignerService {
     }
   }
 
+  /**
+   * Idempotent under the canonical activation coordinates. The client computes
+   * the activation request digest from the canonical add-signer command
+   * (`wallet_add_signer_activate_v2`); this method recomputes it, records the
+   * coordinates as a claim before any Router custody work, and replays the
+   * committed receipt to any later activate with the same coordinates — the
+   * replay is also how completion is queried since the standalone
+   * prepare/query routes were removed.
+   */
   async activateWalletAddSignerEcdsa(
     request: ActivateWalletAddSignerEcdsaInput,
   ): Promise<WalletAddSignerEcdsaActivationResponse> {
-    const store = this.getRegistrationCeremonyIntentStore();
-    const ceremony = await store.getAddSignerCeremony(request.addSignerCeremonyId);
-    if (!ceremony) {
-      return { ok: false, code: 'not_found', message: 'add-signer ceremony not found' };
-    }
-    const state = ceremony.signerState;
-    if (state.kind === 'ecdsa_add_signer_activated') {
+    try {
+      const store = this.getRegistrationCeremonyIntentStore();
+      const ceremony = await store.getAddSignerCeremony(request.addSignerCeremonyId);
+      if (!ceremony) {
+        return { ok: false, code: 'not_found', message: 'add-signer ceremony not found' };
+      }
+      const requestDigestB64u = base64UrlEncode(
+        Uint8Array.from(request.ecdsa.expectedActivationRequestDigest.bytes),
+      );
+      const state = ceremony.signerState;
+      if (state.kind === 'ecdsa_add_signer_activated') {
+        if (
+          alphabetizeStringify(state.publicFacts) !==
+          alphabetizeStringify(request.ecdsa.publicFacts)
+        ) {
+          return {
+            ok: false,
+            code: 'scope_mismatch',
+            message: 'ECDSA add-signer activation replay changed the verified client facts',
+          };
+        }
+        if (state.activationRequestDigestB64u !== requestDigestB64u) {
+          return {
+            ok: false,
+            code: 'activation_digest_mismatch',
+            message: 'ECDSA add-signer activation replay changed the request digest',
+          };
+        }
+        return {
+          ok: true,
+          addSignerCeremonyId: ceremony.addSignerCeremonyId,
+          ecdsa: {
+            kind: 'router_ab_ecdsa_registration_activated_v1',
+            activation: state.activation,
+            bootstrap: state.bootstrap,
+          },
+        };
+      }
       if (
-        alphabetizeStringify(state.publicFacts) !== alphabetizeStringify(request.ecdsa.publicFacts)
+        ceremony.intent.signerSelection.mode !== 'ecdsa' ||
+        (state.kind !== 'ecdsa_add_signer_pending_activation' &&
+          state.kind !== 'ecdsa_add_signer_activation_claimed')
       ) {
         return {
           ok: false,
-          code: 'scope_mismatch',
-          message: 'ECDSA add-signer activation replay changed the verified client facts',
+          code: 'invalid_state',
+          message: 'one pending ECDSA add-signer activation is required',
         };
       }
-      return {
-        ok: true,
-        addSignerCeremonyId: ceremony.addSignerCeremonyId,
-        ecdsa: {
-          kind: 'router_ab_ecdsa_registration_activated_v1',
-          activation: state.activation,
-          bootstrap: state.bootstrap,
-        },
-      };
-    }
-    if (
-      ceremony.intent.signerSelection.mode !== 'ecdsa' ||
-      state.kind !== 'ecdsa_add_signer_pending_activation'
-    ) {
-      return {
-        ok: false,
-        code: 'invalid_state',
-        message: 'one pending ECDSA add-signer activation is required',
-      };
-    }
-    const activated = await this.ecdsaStrictRegistration.activate({
-      activationCorrelationId: request.ecdsa.activationCorrelationId,
-      activationRequestDigestB64u: base64UrlEncode(
-        Uint8Array.from(request.ecdsa.expectedActivationRequestDigest.bytes),
-      ),
-      materialActivation: request.ecdsa.materialActivation,
-      pendingActivation: state.pendingActivation,
-      clientActivation: request.ecdsa.publicFacts,
-      requestPolicy: {
-        policyVersion: WALLET_ADD_SIGNER_ROUTER_POLICY_VERSION,
-        requestDigestB64u: request.ecdsa.publicFacts.registrationRequestDigestB64u,
-      },
-      authority: ecdsaStrictRegistrationAuthority(state.strictRegistration),
-    });
-    if (!activated.ok) {
-      if (!activated.retryable) await store.takeAddSignerCeremony(ceremony.addSignerCeremonyId);
-      return { ok: false, code: activated.code, message: activated.message };
-    }
-    try {
-      const bootstrap = await buildActivatedEcdsaFamilyBootstrap({
-        branch: state,
-        publicFacts: request.ecdsa.publicFacts,
-        activation: activated.value,
-      });
-      const activatedState: StoredEcdsaAddSignerActivated = {
-        kind: 'ecdsa_add_signer_activated',
-        derivationKind: state.derivationKind,
-        chainTargets: state.chainTargets,
-        prepare: state.prepare,
-        strictRegistration: state.strictRegistration,
-        registrationRequest: state.registrationRequest,
-        publicFacts: request.ecdsa.publicFacts,
-        activation: activated.value,
-        publicCapability: buildRouterAbEcdsaDerivationPublicCapabilityV1({
-          registrationFacts: state.strictRegistration,
+      let claimedCeremony: StoredWalletAddSignerCeremony;
+      let claimedState: StoredEcdsaAddSignerActivationClaimed;
+      if (state.kind === 'ecdsa_add_signer_pending_activation') {
+        const canonicalDigestB64u = await computeWalletAddSignerEcdsaActivationRequestDigestB64u({
+          addSignerCeremonyId: ceremony.addSignerCeremonyId,
+          activationCorrelationId: request.ecdsa.activationCorrelationId,
+          publicFacts: request.ecdsa.publicFacts,
+        });
+        if (canonicalDigestB64u !== requestDigestB64u) {
+          return {
+            ok: false,
+            code: 'activation_digest_mismatch',
+            message:
+              'ECDSA add-signer activation request digest is not the canonical command digest',
+          };
+        }
+        claimedState = {
+          kind: 'ecdsa_add_signer_activation_claimed',
+          derivationKind: state.derivationKind,
+          chainTargets: state.chainTargets,
+          prepare: state.prepare,
+          strictRegistration: state.strictRegistration,
           registrationRequest: state.registrationRequest,
-          clientActivation: request.ecdsa.publicFacts,
-          activationReceipt: activated.value,
-        }),
-        bootstrap: storedEcdsaAddSignerBootstrap(bootstrap),
-      };
-      await store.updateAddSignerCeremony({
-        expected: ceremony,
-        next: updateAddSignerCeremonyState({
+          pendingActivation: state.pendingActivation,
+          publicResponse: state.publicResponse,
+          publicFacts: request.ecdsa.publicFacts,
+          activationRequestDigestB64u: canonicalDigestB64u,
+          materialActivation: request.ecdsa.materialActivation,
+        };
+        claimedCeremony = updateAddSignerCeremonyState({
           ceremony,
           signingRootId: ceremony.signingRootId,
           signingRootVersion: ceremony.signingRootVersion,
-          signerState: activatedState,
-        }),
+          signerState: claimedState,
+        });
+        await store.updateAddSignerCeremony({ expected: ceremony, next: claimedCeremony });
+      } else {
+        if (state.activationRequestDigestB64u !== requestDigestB64u) {
+          return {
+            ok: false,
+            code: 'activation_digest_mismatch',
+            message: 'ECDSA add-signer activation claim was prepared for a different digest',
+          };
+        }
+        if (
+          alphabetizeStringify(state.publicFacts) !==
+            alphabetizeStringify(request.ecdsa.publicFacts) ||
+          alphabetizeStringify(state.materialActivation) !==
+            alphabetizeStringify(request.ecdsa.materialActivation)
+        ) {
+          return {
+            ok: false,
+            code: 'scope_mismatch',
+            message: 'ECDSA add-signer activation claim belongs to different verified client facts',
+          };
+        }
+        claimedCeremony = ceremony;
+        claimedState = state;
+      }
+      const activated = await this.ecdsaStrictRegistration.activate({
+        activationCorrelationId: request.ecdsa.activationCorrelationId,
+        activationRequestDigestB64u: claimedState.activationRequestDigestB64u,
+        materialActivation: claimedState.materialActivation,
+        pendingActivation: claimedState.pendingActivation,
+        clientActivation: claimedState.publicFacts,
+        requestPolicy: {
+          policyVersion: WALLET_ADD_SIGNER_ROUTER_POLICY_VERSION,
+          requestDigestB64u: claimedState.publicFacts.registrationRequestDigestB64u,
+        },
+        authority: ecdsaStrictRegistrationAuthority(claimedState.strictRegistration),
       });
+      if (!activated.ok) {
+        if (!activated.retryable) await store.takeAddSignerCeremony(ceremony.addSignerCeremonyId);
+        return { ok: false, code: activated.code, message: activated.message };
+      }
+      let bootstrap: StoredEcdsaAddSignerActivated['bootstrap'];
+      try {
+        bootstrap = storedEcdsaAddSignerBootstrap(
+          await buildActivatedEcdsaFamilyBootstrap({
+            branch: claimedState,
+            publicFacts: claimedState.publicFacts,
+            activation: activated.value,
+          }),
+        );
+      } catch (error: unknown) {
+        /* The Router commit may already be durable. Keep the claim: a retry
+           with the same coordinates replays the canonical activation and
+           finishes these legs. */
+        return {
+          ok: false,
+          code: 'ecdsa_activation_terminal_failure',
+          message: errorMessage(error) || 'ECDSA add-signer activation failed',
+        };
+      }
+      const activatedState: StoredEcdsaAddSignerActivated = {
+        kind: 'ecdsa_add_signer_activated',
+        derivationKind: claimedState.derivationKind,
+        chainTargets: claimedState.chainTargets,
+        prepare: claimedState.prepare,
+        strictRegistration: claimedState.strictRegistration,
+        registrationRequest: claimedState.registrationRequest,
+        publicFacts: claimedState.publicFacts,
+        activationRequestDigestB64u: claimedState.activationRequestDigestB64u,
+        activation: activated.value,
+        publicCapability: buildRouterAbEcdsaDerivationPublicCapabilityV1({
+          registrationFacts: claimedState.strictRegistration,
+          registrationRequest: claimedState.registrationRequest,
+          clientActivation: claimedState.publicFacts,
+          activationReceipt: activated.value,
+        }),
+        bootstrap,
+      };
+      try {
+        await store.updateAddSignerCeremony({
+          expected: claimedCeremony,
+          next: updateAddSignerCeremonyState({
+            ceremony: claimedCeremony,
+            signingRootId: claimedCeremony.signingRootId,
+            signingRootVersion: claimedCeremony.signingRootVersion,
+            signerState: activatedState,
+          }),
+        });
+      } catch (error: unknown) {
+        /* A concurrent activate with the same coordinates may have committed
+           first; accept only an identical outcome. */
+        const reconciled = await store.getAddSignerCeremony(ceremony.addSignerCeremonyId);
+        const reconciledState = reconciled?.signerState;
+        if (
+          reconciledState?.kind !== 'ecdsa_add_signer_activated' ||
+          alphabetizeStringify(reconciledState.publicFacts) !==
+            alphabetizeStringify(activatedState.publicFacts) ||
+          alphabetizeStringify(reconciledState.activation) !==
+            alphabetizeStringify(activatedState.activation) ||
+          alphabetizeStringify(reconciledState.bootstrap) !==
+            alphabetizeStringify(activatedState.bootstrap)
+        ) {
+          return {
+            ok: false,
+            code: 'ecdsa_activation_terminal_failure',
+            message: errorMessage(error) || 'ECDSA add-signer activation failed',
+          };
+        }
+      }
       return {
         ok: true,
         addSignerCeremonyId: ceremony.addSignerCeremonyId,
@@ -1111,11 +1229,10 @@ export class CloudflareD1WalletAddSignerService {
         },
       };
     } catch (error: unknown) {
-      await store.takeAddSignerCeremony(ceremony.addSignerCeremonyId);
       return {
         ok: false,
-        code: 'ecdsa_activation_terminal_failure',
-        message: errorMessage(error) || 'ECDSA add-signer activation failed',
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to activate wallet add-signer ceremony',
       };
     }
   }

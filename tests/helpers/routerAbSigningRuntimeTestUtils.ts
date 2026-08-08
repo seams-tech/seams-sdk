@@ -31,6 +31,10 @@ import {
   type RouterAbEcdsaRegistrationRequestV1,
   type RouterAbEcdsaVerifiedClientActivationFactsV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import {
+  parseRouterAbMpcMaterialActivationRef,
+  type RouterAbMpcMaterialActivationRefWire,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 
 const FIXTURE_ECDSA_STRICT_REGISTRATION_TOPOLOGY: RouterAbEcdsaStrictRegistrationTopology = {
   routerId: 'router-unit-fixture',
@@ -90,6 +94,20 @@ export function fixtureRouterAbEcdsaActivationFacts(): RouterAbEcdsaVerifiedClie
   });
 }
 
+export function fixtureRouterAbEcdsaMaterialActivation(
+  lifecycleBinding: string,
+): RouterAbMpcMaterialActivationRefWire {
+  return parseRouterAbMpcMaterialActivationRef({
+    kind: 'mpc_material_activation_ref',
+    activation_id: `ecdsa-activation:${lifecycleBinding}`,
+    capability: `ecdsa-capability:${lifecycleBinding}`,
+    material_owner: lifecycleBinding,
+    key_binding: 'ecdsa-key-binding-unit-fixture',
+    lifecycle_binding: lifecycleBinding,
+    signing_worker: FIXTURE_ECDSA_STRICT_REGISTRATION_TOPOLOGY.signerSet.selected_server.server_id,
+  });
+}
+
 export function buildFixtureRouterAbEcdsaStrictRegistrationRequest(
   facts: RouterAbEcdsaRegistrationRequestFactsV1,
 ): RouterAbEcdsaRegistrationRequestV1 {
@@ -137,6 +155,12 @@ export class FixtureRouterAbEcdsaStrictRegistrationPort implements RouterAbEcdsa
 export class SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort implements RouterAbEcdsaStrictRegistrationPort {
   registrationRequest: RouterAbEcdsaRegistrationRequestV1 | null = null;
   activatedReceipt: RouterAbEcdsaRegistrationActivationReceiptV1 | null = null;
+  /**
+   * Models a caller that dies once the Router has already committed custody:
+   * the receipt is retained, so the next activate replays it, but this call
+   * never returns one. Cleared after it fires.
+   */
+  failAfterNextActivationCommit = false;
 
   topology(): RouterAbEcdsaStrictRegistrationTopology {
     return FIXTURE_ECDSA_STRICT_REGISTRATION_TOPOLOGY;
@@ -225,6 +249,10 @@ export class SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort implements Rou
       transcript_digest: { bytes: new Array<number>(32).fill(0) },
     });
     this.activatedReceipt = receipt;
+    if (this.failAfterNextActivationCommit) {
+      this.failAfterNextActivationCommit = false;
+      throw new Error('Fixture Router committed the activation and then lost its caller');
+    }
     return {
       ok: true,
       value: receipt,
