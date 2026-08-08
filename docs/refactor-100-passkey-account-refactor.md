@@ -1872,11 +1872,20 @@ repository evidence.
 - [ ] Hand verified ECDSA custody material to the Refactor 90 activation journal
       and read-back path as an exact `MpcMaterialActivationRef`; do not write a
       second active ECDSA persistence record.
-- [ ] Bind opaque material handles only to wallet key, lane, epoch, participant
+- [x] Bind opaque material handles only to wallet key, lane, epoch, participant
       set, exact material activation, and TTL. Compose the admitted reusable or
       step-up authorization branch only in prepared operation state; no
       authorization, Wallet Session, quota, or operation identity enters the
       material handle.
+
+      **Pinned at compile time** (`ed25519SeedMaterial.typecheck.ts`), because
+      these are *absences*: a runtime test can only check the fields a record
+      has, and the property is which ones it can never carry. Two families are
+      excluded for different reasons — authorization identity, because a
+      material handle is a key rather than a permission and Refactor 90 owns
+      those per operation; and factor identity, because the record is sealed
+      under the seed so a factor enrolled later opens it too. The sealed half
+      also cannot name a plaintext share or the seed itself.
 - [ ] Preserve zero-Deriver ordinary Ed25519 signing.
 - [ ] Preserve exact ECDSA public and material identity while allowing a fresh
       threshold session and server generation.
