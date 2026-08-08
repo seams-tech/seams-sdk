@@ -644,6 +644,43 @@ and product behavior.
   lane envelopes remain active.
 - Credential replacement and device revocation are separate user operations.
 
+## Where This Stands (2026-08-09)
+
+57 of 71 boxes. Phase 2 is complete; Phase 3's NEAR half is complete; Phases 4
+and 5 have their load-bearing primitives with every guard mutation-checked.
+The refactor's defining property is proven in a circuit test: register a wallet
+under one factor, enrol a second by resealing the envelope, unlock with the
+second alone.
+
+**Verified by types, unit and circuit tests — never yet against running
+services.** The spliced registration path compiles and its parts are tested in
+isolation; no wallet has been registered through it end to end. Two of the open
+boxes exist for exactly that.
+
+The fourteen open boxes are not more of the same work, and it is worth knowing
+which is which before picking one up:
+
+- **One is a decision** — the ECDSA ownership handoff under *Decisions
+  Required*. It cannot be implemented around: minting an
+  `MpcMaterialActivationRef` locally would be a second owner for state Refactor
+  90 owns, which Invariant 11 forbids. The Ed25519 path only avoided it because
+  the Router mints that identity in its receipt.
+- **Three are blocked behind that decision** — the EVM install, shrinking
+  `wasm/ecdsa_registration_client`, and deleting the PRF-derived signing-root
+  paths. The last also needs the Email OTP and mixed registration paths spliced,
+  which was deliberately not done: splicing NEAR alone for a mixed wallet leaves
+  a half-covered recovery set.
+- **Three need Refactor 102** to deliver lane holder material first.
+- **Two need a live stack** — the dev-wallet wipe, and proving synced cold
+  unlock end to end.
+- **Five are flows**, each spanning server routes, client wiring and UI. Their
+  cores exist as primitives; what remains is the orchestration.
+
+A note for whoever picks this up: converting a flow box into a primitive closes
+the box and leaves the flow. Several boxes above were closed that way
+deliberately, because the primitive is the part with the security properties —
+but the orchestration is still owed, and the box no longer says so.
+
 ## Implementation Phases
 
 ### Landed Lifecycle Groundwork
