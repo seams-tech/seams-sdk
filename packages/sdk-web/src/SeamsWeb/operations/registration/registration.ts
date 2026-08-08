@@ -74,6 +74,10 @@ import {
   walletIdFromString,
 } from '@shared/utils/registrationIntent';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
+import { base58Encode } from '@shared/utils/base58';
+import { parseWebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
+import { buildPasskeyEnvelopeFactor } from '@shared/passkey-custody';
+import { WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
 import {
   toParticipantId,
   toRpId,
@@ -145,7 +149,6 @@ import {
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import { parseCanonicalEcdsaServerActivationRequest } from '@shared/utils/ecdsaCapabilityActivation';
-import { registerVerifiedPasskeyEd25519YaoV1 } from '@/core/signingEngine/flows/registration/services/passkeyEd25519YaoRegistration';
 import { registerVerifiedPasskeyEd25519YaoAddSignerV1 } from '@/core/signingEngine/flows/registration/services/passkeyEd25519YaoAddSigner';
 import type { ProductEd25519YaoPendingRegistrationPortV1 } from '@/core/signingEngine/flows/registration/services/ed25519YaoRegistration';
 import { deletePasskeyEd25519YaoSignerMaterialV1 } from '@/core/signingEngine/session/passkey/ed25519YaoLocalMaterial';
@@ -3159,35 +3162,41 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
     if (responded.kind !== 'near_ed25519') {
       throw new Error('Ed25519-only registration respond returned a different signer branch');
     }
-    const yao = await registerVerifiedPasskeyEd25519YaoV1({
-      kind: 'verified_passkey_ed25519_yao_registration_input_v1',
-      verifiedIntent: {
-        kind: 'verified_passkey_registration_intent_v1',
-        intent,
-        registrationIntentDigestB64u: setup.registrationIntentDigestB64u,
-        registrationBearerToken: String(setup.signedSetup),
-        registrationCeremonyId: setup.registrationCeremonyId,
-      },
-      verifiedAuthority: {
-        kind: 'verified_passkey_registration_authority_v1',
-        walletId: intent.walletId,
-        registrationIntentDigestB64u: setup.registrationIntentDigestB64u,
-        credentialIdB64u: String(
-          passkeyAuthority.credential.rawId || passkeyAuthority.credential.id || '',
-        ).trim(),
-        ownedPasskeyPrfFirst: base64UrlDecode(passkeyAuthority.prfFirstB64u),
-      },
+    /* Refactor 100. The key set is provisioned from the wallet custody seed
+       rather than the passkey PRF: the ceremony generates the seed, derives
+       this key set's root under it, and seals the seed under the passkey as a
+       factor. The passkey is now an unwrap factor, not the root.
+
+       Ed25519-only wallets first, deliberately. A mixed wallet whose NEAR key
+       set came from the seed while its EVM key set is still PRF-derived would
+       be covered by the recovery set only halfway — recovery would restore
+       NEAR and silently miss EVM, the exact failure this refactor exists to
+       prevent. */
+    const parsedCredentialId = parseWebAuthnCredentialIdB64u(
+      String(passkeyAuthority.credential.rawId || passkeyAuthority.credential.id || '').trim(),
+    );
+    if (!parsedCredentialId.ok) {
+      throw new Error(`passkey credential id ${parsedCredentialId.error.message}`);
+    }
+    const established = await context.signingEngine.establishWalletCustodyNearEd25519KeySet({
+      walletId: String(intent.walletId),
+      factorJson: JSON.stringify(
+        buildPasskeyEnvelopeFactor({
+          rpId: requireWebAuthnRpId(args.authMethod.rpId),
+          credentialIdB64u: parsedCredentialId.value,
+        }),
+      ),
+      factorSecret: base64UrlDecode(passkeyAuthority.prfFirstB64u).buffer as ArrayBuffer,
+      nearEd25519SigningKeyId:
+        responded.ed25519.admissionRequest.application_binding.near_ed25519_signing_key_id,
+      registrationCeremonyId: setup.registrationCeremonyId,
       admissionRequest: responded.ed25519.admissionRequest,
       admissionReceipt: responded.ed25519.admissionReceipt,
-      httpTransport: {
-        kind: 'passkey_ed25519_yao_http_transport_v1',
-        routerOrigin: new URL(relayerUrl).origin,
-        fetch: globalThis.fetch,
-        traceContext,
-      },
+      participantIds: responded.ed25519.admissionRequest.participant_ids,
+      routerOrigin: new URL(relayerUrl).origin,
+      authorization: String(setup.signedSetup),
+      traceContext,
     });
-    if (!yao.ok) throw new Error(yao.message);
-    const pending = yao.registration;
     /* Activate before the Yao computation is awaited. The wallet becomes
        durable in `near_pending` with no signer yet; being that signer's only
        source is not a reason to hold registration open, and the completion
@@ -3214,7 +3223,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
       });
     }
     try {
-      const clientPublicKey = pending.publicKey();
+      const clientPublicKey = `ed25519:${base58Encode(established.metadata.registeredPublicKey)}`;
       /* Route 4 — its own idempotency key: a separate effect from activate's,
          and sharing one would let a retry replay activate's commit. */
       const finalized = await completeWalletRegistrationNearProvisioning({
@@ -3225,8 +3234,11 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
         idempotencyKey: createRegistrationOperationIdempotencyKey(
           'wallet-registration-near-provisioning',
         ),
-        ed25519: { activationReference: pending.activationReference() },
+        ed25519: { activationReference: established.activationReference },
         auth: { kind: 'passkey' },
+        /* The projection, not the ceremony's output: the continuity cache and
+           any role-local material stay on this device. */
+        walletCustodyCommit: established.commitPayload,
       });
       if (!finalized.ok || finalized.kind !== 'near_ed25519') {
         throw new Error('Deferred NEAR provisioning returned a different signer branch');
@@ -3268,12 +3280,30 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
         walletId: intent.walletId,
         expectedRuntimePolicyScope: normalizeRuntimePolicyScope(intent.runtimePolicyScope),
       });
-      const metadata = await persistPasskeyRegistrationEd25519Material({
-        pending,
-        facts: materialFacts,
-        rpId: finalizedPasskey.rpId,
-        credentialIdB64u: finalizedPasskey.credentialIdB64u,
-        passkeyPrfFirstB64u: passkeyAuthority.prfFirstB64u,
+      /* The wallet-scoped continuity cache, sealed by the ceremony under a key
+         derived from the custody seed. One record per wallet rather than one
+         per factor: a factor enrolled later opens the same envelope and so
+         reaches the same cache. Persisted here rather than at establish time
+         because the wallet profile it hangs off is created in between. */
+      const metadata = established.metadata;
+      await context.signingEngine.persistWalletCustodyEd25519Material({
+        binding: {
+          kind: WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
+          applicationBindingDigestB64u: established.localMaterial.applicationBindingDigestB64u,
+          registeredPublicKeyB64u: base64UrlEncode(metadata.registeredPublicKey),
+          participantIds: metadata.participantIds,
+          stateEpoch: String(metadata.stateEpoch),
+          walletId: String(finalized.walletId),
+          nearAccountId: String(finalized.ed25519.nearAccountId),
+          nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
+          signerSlot: finalized.ed25519.signerSlot,
+          signingWorkerId: metadata.scope.signing_worker_id,
+          signingWorkerVerifyingShareB64u: base64UrlEncode(metadata.signingWorkerVerifyingShare),
+        },
+        sealed: {
+          ciphertextB64u: established.localMaterial.b64u,
+          nonceB64u: established.localMaterial.nonceB64u,
+        },
       });
       await context.signingEngine.upsertEd25519YaoPublicCapabilityLaneReference({
         walletId: finalized.walletId,
@@ -3371,7 +3401,8 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
       options.afterCall?.(true, result);
       return result;
     } catch (error) {
-      pending.dispose();
+      /* Nothing to dispose: the ceremony holds no live client on this side —
+         it sealed its material and returned public facts. */
       throw error;
     }
   } catch (error) {
