@@ -11,6 +11,7 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { buildThresholdPrfXClientBaseSecretSource } from '@/core/platform/secretSources';
+import { EcdsaDerivationClientCustomRequestType } from '@/core/signingEngine/workerManager/workerTypes';
 import {
   toEcdsaDerivationSigningRootId,
   toEcdsaDerivationSigningRootVersion,
@@ -19,7 +20,6 @@ import {
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { SignerWorkerOperationError } from '@/core/signingEngine/workerManager/workerTypes';
 import {
-  EcdsaDerivationClientCustomRequestType,
   WorkerResponseType,
   type WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapRequest,
   type WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapRequest,
