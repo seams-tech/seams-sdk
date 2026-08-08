@@ -1847,7 +1847,24 @@ repository evidence.
 
 ### Phase 3: Unlock And Signing
 
-- [ ] Open custody entries into opaque worker handles.
+- [x] Open custody entries into opaque worker handles.
+      **NEAR landed 2026-08-09** (`c0c80f923`):
+      `open_wallet_custody_ed25519_material_v1` takes a factor secret and the
+      stored ciphertext and returns the activated Client, in one call — the
+      seed exists only between opening the envelope and deriving the cache
+      key, and splitting that would put it in a JavaScript caller's hands.
+
+      It lives in the Ed25519 client's crate rather than the ceremony module,
+      per the glossary: unlocking derives no owner root and establishes no
+      manifest, so it is not a ceremony. The import re-verifies that the cached
+      share still reproduces the registered key, so nothing trusts the cache.
+
+      A circuit test proves the property this refactor exists for: register
+      under one factor, enrol a second by resealing the envelope, unlock with
+      the second alone. Under the per-factor records this replaces, the second
+      factor would have found no cache at all.
+
+      ECDSA remains: it needs the frozen ownership handoff below.
 - [ ] Implement synced-passkey cold unlock from a new browser with empty
       IndexedDB by retrieving and opening the existing server-held envelope.
 - [ ] Prove synced cold unlock uses the same credential and envelope without
