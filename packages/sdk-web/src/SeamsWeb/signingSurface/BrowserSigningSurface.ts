@@ -54,6 +54,16 @@ import {
 import { Ed25519YaoPageLifecycleOwner } from '@/core/signingEngine/threshold/ed25519/yaoPageLifecycleOwner';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
+import { establishNearEd25519CustodyV1 } from '@/core/signingEngine/walletCustody/registrationCeremony';
+import { walletCustodyCeremonyStepRunner } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
+import { walletCustodyEd25519ActiveClientMetadataV1 } from '@/core/signingEngine/walletCustody/ceremonyActiveClientMetadata';
+import type { EstablishedWalletCustodyNearEd25519KeySetV1 } from './ports';
+import { RouterAbEd25519YaoHttpActivationTransportV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
+import {
+  ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
+  type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
+} from '@shared/utils/routerAbEd25519Yao';
+import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
 import type { SigningRuntime } from '@/core/runtime/runtime.types';
 import type {
   SignerWorkerKind,
@@ -1557,6 +1567,89 @@ export class BrowserSigningSurface {
     if (this.sealedRefreshStartupParityError) {
       throw this.sealedRefreshStartupParityError;
     }
+  }
+
+  /**
+   * Runs one wallet custody key set for NEAR, from the registration flow.
+   *
+   * The flow never touches the ceremony worker itself: a run's seed lives in
+   * that worker's wasm state across three steps, so this is the one place the
+   * channel is reached and the one place the Router round is wired to it.
+   *
+   * The Router round is performed through the same HTTP transport the
+   * PRF-derived path used, so the execute request goes to the same endpoint
+   * with the same trace context — only the root behind it changed.
+   */
+  async establishWalletCustodyNearEd25519KeySet(args: {
+    walletId: string;
+    factorJson: string;
+    factorSecret: ArrayBuffer;
+    nearEd25519SigningKeyId: string;
+    registrationCeremonyId: string;
+    admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+    admissionReceipt: unknown;
+    participantIds: readonly [number, number];
+    routerOrigin: string;
+    /** The signed setup: the Router authorizes the execute round against it. */
+    authorization: string;
+    traceContext?: RouterAbTraceContextV1;
+  }): Promise<EstablishedWalletCustodyNearEd25519KeySetV1> {
+    const transport = new RouterAbEd25519YaoHttpActivationTransportV1({
+      routerOrigin: args.routerOrigin,
+      authorization: args.authorization,
+      fetch: globalThis.fetch,
+      ...(args.traceContext ? { traceContext: args.traceContext } : {}),
+    });
+
+    let activationResultJson: string | null = null;
+    const established = await establishNearEd25519CustodyV1({
+      runStep: walletCustodyCeremonyStepRunner({
+        requestOperation: (operation) =>
+          this.signerWorkerManager.requestWorkerOperation(
+            operation as Parameters<SignerWorkerManager['requestWorkerOperation']>[0],
+          ),
+      }),
+      walletId: args.walletId,
+      factorJson: args.factorJson,
+      factorSecret: args.factorSecret,
+      nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+      registrationCeremonyId: args.registrationCeremonyId,
+      yaoAdmission: args.admissionReceipt,
+      yaoApplication: args.admissionRequest.application_binding,
+      participantIds: args.participantIds,
+      runRouterRound: async (yaoExecuteRequestJson: string) => {
+        const response = await transport.send({
+          kind: 'execute',
+          path: ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
+          body: JSON.parse(yaoExecuteRequestJson),
+        });
+        if (!response.ok) {
+          throw new Error(`Router Ed25519 Yao execute failed: ${response.message}`);
+        }
+        /* Kept so the metadata below is rebuilt from the same bytes the
+           ceremony completed against — re-fetching could return a different
+           activation and describe a key this run did not register. */
+        activationResultJson = JSON.stringify(response.value);
+        return activationResultJson;
+      },
+    });
+
+    if (!activationResultJson) {
+      throw new Error('the wallet custody NEAR run completed without a Router activation result');
+    }
+    if (!established.localMaterial) {
+      throw new Error('the wallet custody NEAR run sealed no local material');
+    }
+    return {
+      recoveryCodes: established.recoveryCodes,
+      commitPayload: established.commitPayload,
+      activationReference: established.activationReference,
+      localMaterial: established.localMaterial,
+      metadata: walletCustodyEd25519ActiveClientMetadataV1({
+        admissionRequest: args.admissionRequest,
+        activationResultJson,
+      }),
+    };
   }
 
   async assertSealedRefreshStartupParity(): Promise<void> {
