@@ -3243,6 +3243,23 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
       if (!finalized.ok || finalized.kind !== 'near_ed25519') {
         throw new Error('Deferred NEAR provisioning returned a different signer branch');
       }
+      /* The custody outcome is not advisory. Activation deliberately never
+         fails because of custody, so the leg reports it instead — and this run
+         showed the user ten recovery codes before sending the payload. Any
+         outcome but `committed` means those codes wrap a seed the server did
+         not store, so the wallet is not recoverable and must not be reported
+         as registered. `not_requested` is included: this path always sends a
+         payload, so it would mean the payload never arrived. */
+      if (established.commitPayload && finalized.walletCustody?.status !== 'committed') {
+        const status = finalized.walletCustody?.status ?? 'not_reported';
+        const reason =
+          finalized.walletCustody?.status === 'rejected'
+            ? `: ${finalized.walletCustody.reason}`
+            : '';
+        throw new Error(
+          `Wallet custody did not commit (${status})${reason}. The recovery codes shown are not usable.`,
+        );
+      }
       const finalizedPasskey = requireEd25519YaoRegistrationPublicResultMatches({
         clientPublicKey,
         finalized,
