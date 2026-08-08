@@ -553,6 +553,19 @@ export function createRouterApiRouteDefinitions(
       { kind: 'event', action: 'wallet_created' },
     ),
     publicRoute(
+      'wallet_recovery_credential_promote',
+      'POST',
+      '/wallets/recovery/promote',
+      'Install the replacement credential a recovery enrolled',
+      {
+        plane: 'public',
+        proof: 'recovery_proof',
+        rationale:
+          'Follows a spent recovery code. The envelope is sealed client-side under the new credential, so the server verifies the key-set outcomes and the wallet it names rather than the sealing it cannot check.',
+      },
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+    ),
+    publicRoute(
       'wallet_recovery_code_spend',
       'POST',
       '/wallets/recovery/spend',
