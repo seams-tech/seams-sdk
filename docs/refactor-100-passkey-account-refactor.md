@@ -1253,13 +1253,55 @@ repository evidence.
         parser does (`email-otp-rkid-v1-` plus 43 base64url chars), so the two
         sides already disagree about what an id is.
 
-      **Decision needed before implementing:** how a wallet custody recovery
-      code's id is derived, given it must serve a passkey-only wallet. The
-      shape mirrors the seed-derived cache key decision — a wallet-scoped
-      binding (wallet id, envelope id, recovery-set version) replacing the
-      enrollment fields, under its own domain — plus whether the
-      `email-otp-rkid-v1-` prefix and its parser move to a factor-neutral
-      spelling. Both halves are wire-visible and awkward to change later.
+      **DECIDED AND FROZEN (2026-08-09).** Issuance moves into Phase 2, because
+      establishing custody must atomically issue the recovery set. Phase 4
+      keeps recovery *use*: backup acknowledgement, rotation, status, and the
+      recovery UX.
+
+      The derivation, frozen verbatim:
+
+      ```text
+      digest = SHA-256(length-prefixed tuple(
+        "seams/wallet-recovery/recovery-key-id/v1",
+        base64url(recoveryCodeBytes),
+        walletId,
+        "wallet_recovery_envelope_set_v1"
+      ))
+
+      recoveryKeyId = "wallet-rkid-v1-" || base64url(digest)
+      ```
+
+      - **Factor-neutral id and prefix.** `email-otp-rkid-v1-` is neither
+        reused nor reinterpreted.
+      - **Not bound to `envelopeId`.** Recovery is wallet-scoped and must
+        survive adding, rewrapping, and revoking factor-specific envelopes; the
+        establishing envelope is incidental. (This corrects an earlier
+        suggestion here that included it.)
+      - **SHA-256 is intentional, not a shortcut.** This is an
+        identifier/verifier derived from a 160-bit random code, not key
+        material. The dedicated domain and canonical tuple provide separation
+        without implying the output is a key.
+      - **Derived inside Rust/WASM from `walletId + codeBytes`.**
+        `RecoveryCodeInputV1` does not accept a caller-supplied id; each sealed
+        wrap returns the id that was derived for it, and the same derivation is
+        exposed for recovery lookup. This removes the ceremony/parser
+        disagreement structurally rather than by convention, and needs
+        cross-boundary vectors.
+      - **`DerivedWalletRecoveryKeyId` and its parser are wallet-owned types.**
+        The canonical code constants and formatting implementation move under
+        `wallet-recovery`; Email OTP consumes those wallet primitives. The
+        Email-OTP-owned aliases and the old derivation are deleted when the
+        enrollment-escrow path is removed.
+
+      **Two boundary defects to fix while here** (both in the recovery-set
+      parser, both compatibility paths that hide a real invariant):
+
+      - `parseWalletRecoveryEnvelopeSetRecord` must require *exactly ten*
+        wraps. It accepts 1–10 today, though establishment and the durable
+        invariant both require ten lifecycle records.
+      - Remove stale `keyManifestDigestB64u` acceptance and its comments. The
+        manifest moved to per-key-set registration state; silently accepting
+        and dropping the retired field is a compatibility path.
 
       **The earlier note here was wrong and the shape of the work is different
       from what it described.** It said the ceremony needs both protocols
@@ -1775,7 +1817,11 @@ repository evidence.
 
 - [x] Preserve the existing ten-code backup, status, and rotation UX for Email
       OTP enrollment escrow.
-- [ ] Bind ten single-use codes to the wallet-scoped mixed-custody envelope set.
+- [ ] Recovery *use* only. Code **issuance** moved to Phase 2 (2026-08-09):
+      establishing custody must atomically issue the recovery set, so the
+      issuance primitive cannot live downstream of the ceremony that needs it.
+      What stays here is backup acknowledgement, rotation, status, and the
+      recovery UX.
 - [ ] Reuse the Email OTP authorization and Refactor 90 Wallet Session/
       `AuthorizedOperation` admission boundary; recovery-code custody remains
       separate from authorization and quota.
