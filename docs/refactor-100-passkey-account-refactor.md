@@ -1230,24 +1230,25 @@ repository evidence.
       true of the paired ceremony; with one key set per run it is not, and the
       two key sets can be provisioned in separate runs at separate times.
 
-      **Decision (2026-08-07): EVM registers a seed-derived share on the
-      router-ab registration route.** The route keeps its three legs —
-      setup → respond → activate — its `signedSetup`, and its relayer. What
-      changes is the ECDSA leg's payload kind: instead of running the strict
-      derivation rounds, the client sends the ceremony's bootstrap facts (the
-      seed-derived share public key and `contextBinding32`), and the relayer
-      composes the public identity exactly as its activate leg already does
-      when it builds the `ecdsa-derivation-role-local` bootstrap value
-      (`d1WalletRegistrationService.ts`). The strict rounds stop producing EVM
-      keys for new wallets: the custody seed is the derivation authority, which
-      also means no deriver pair can reconstruct the client share.
+      **Decision (2026-08-07, refined 2026-08-08): EVM registers a
+      seed-derived share on the router-ab registration route — with no wire or
+      Router change.** The route keeps its three legs, its `signedSetup`, its
+      relayer, and its existing payload kinds. The strict rounds keep running
+      (they provision the SigningWorker's relayer half); what changes is
+      client-side only: the activation facts are computed from the ceremony's
+      seed-derived share instead of the Deriver-delivered `xClientBase`, which
+      the server accepts because it never verified the client share's
+      provenance (see the flow map below for the proof chain). The custody
+      seed becomes the derivation authority for the client half, so no Deriver
+      pair can reconstruct the client share of a seed-root wallet.
 
-      Why the rounds cannot be kept and fed the seed root instead: in the
-      strict protocol the client is a *recipient* of `xClientBase`, derived
-      from the two derivers' root halves — there is no input slot for a
-      client-chosen root. That is unlike Yao, where the client was always a
-      contributing party, which is why the Ed25519 `_with_root` seam was cheap
-      and this one is a payload-kind change.
+      Why the rounds cannot be *fed* the seed root: in the strict protocol the
+      client is a *recipient* of `xClientBase`, derived from the two derivers'
+      root halves — there is no input slot for a client-chosen root. That is
+      unlike Yao, where the client was always a contributing party. But no
+      input slot is needed: the client simply does not use what the rounds
+      deliver for its half, and nothing server-side ever depended on it doing
+      so.
 
       Two earlier notes here are superseded: `thresholdEcdsaDerivationRoleLocalBootstrap`
       is *not* the carrier — it has no server counterpart at all; the
@@ -1289,14 +1290,34 @@ repository evidence.
         ceremony. The seed-root kind keeps this machine — what changes is what
         the pending branch holds (no Router bundles, no `pendingActivation`
         blob) and what activate forwards.
-      - **No existing Router path can be borrowed.** Recovery
-        (`lib.rs:5143`) and activation-refresh (`:5212`) both `futures::join!`
-        the two Deriver role Workers exactly as registration does, so every
-        ECDSA path in the Router forwards to the Derivers today. The seed-root
-        mode is a genuinely new Router path — new public path and purpose, a
-        request carrying the client's public key instead of Deriver envelopes,
-        an admission plan that does not Forward, and a SigningWorker call that
-        composes the identity — not a variation on something already tested.
+      - **SUPERSEDED (2026-08-08): no Router change is needed at all.** An
+        earlier note here concluded the seed-root mode was a new Router path.
+        Verifying that claim disproved it. The Router never checks the client
+        share's provenance: at activation the SigningWorker composes the
+        receipt identity from `client_activation.derivation_client_share_public_key33_b64u`
+        — the client's claimed facts — against its own opened material
+        (`lib.rs:3215`); the request's `validate()` pins only request-side
+        digests, and `transcript_digest` is a pure function of the registration
+        request (`to_threshold_prf_request()`), computable by the client
+        without opening a bundle. The Gateway's `requireActivatedEcdsaIdentity`
+        checks the receipt *echoes the claim* — consistency, not provenance.
+        The Deriver-derived `xClientBase` was always a derivation service *for
+        the client*, whose proofs the client verifies; the server never
+        depended on the client using it.
+
+        So the seed-root client share rides the existing protocol unchanged: the
+        client runs registration exactly as today, and presents activation
+        facts computed from its seed-derived share instead of `xClientBase`.
+        The rounds keep running because they still do necessary work — they
+        provision the SigningWorker's own output material (`y_relayer`), the
+        relayer half of the 2-of-2. "The strict rounds stop producing EVM keys"
+        is precise only as: they stop producing the *client* half. The
+        delivered-but-unused `xClientBase` is transitional dead weight;
+        skipping it is an optional later Router optimization, not a
+        prerequisite. No new payload kind is needed either — the wire shape of
+        the activation facts is identical, and the wallet's seed-root
+        provenance is already recorded by the custody commit itself (the EVM
+        key set's manifest digest on registration state).
       - The full inventory of files gating the kind literals (parsers,
         contracts, stored-branch decoders — including
         `d1RegistrationCeremonyRecords.ts:1200`, which hard-codes
