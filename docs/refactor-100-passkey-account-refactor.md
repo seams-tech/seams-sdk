@@ -685,7 +685,13 @@ What is left is the last mile — calling `openOrRejoinWalletCustodyEd25519V1`
 from the unlock surface, where the factor secret and the wallet session live,
 and driving `rejoinNearEd25519CustodyV1` on its rejoin branch.
 
-**But that last mile needs a decision first, and it is not a small one.** The
+**Cold unlock itself is now composed** (`coldUnlock.ts`): fetch, project,
+rejoin, persist, with the forced order tested and each retrieval failure
+keeping its own code. That path never reads a local cache — a new device has
+none by definition — so it did not need the decision below, which turned out
+to gate only the *warm* path.
+
+**The warm path does need that decision, and it is not a small one.** The
 hydration site (`ed25519YaoLocalMaterial.ts`, the
 `rehydrate_material_activation` branch) has the activation facts and the
 factor secret, and no custody envelope — because *the client never stores
@@ -712,7 +718,9 @@ Two ways out, and they differ in cost rather than correctness:
    continuity cache" does not suggest to a reader.
 
 This is recorded rather than decided because the migration is user-visible and
-the offline property is a product question, not an implementation detail.
+the offline property is a product question, not an implementation detail. It
+blocks warm-path latency, not correctness: cold unlock works without it, and
+a warm unlock that fetches its envelope is correct, just not offline.
 
 **And one finding that resizes those flows (2026-08-09).** The passkey-custody
 envelope storage layer is built, tested, and *entirely unwired from the running
