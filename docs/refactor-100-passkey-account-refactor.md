@@ -1475,6 +1475,39 @@ repository evidence.
         coupling this removes. The mutation survived until the binding's byte
         encoding was pinned field by field.
 
+      **The splice's real blocker, found 2026-08-08: nothing installs the
+      ceremony's material into a signing worker — for either key set.**
+      `ecdsaReadyStateBlobB64u` has existed on the commit payload since the
+      ceremony was built, and no production code reads it: it reaches the
+      shared wire type, a worker typecheck fixture, and tests, and stops there.
+      `ed25519LocalMaterialB64u` now joins it. So a spliced wallet of either
+      kind would register correctly, seal its custody, and hold material that
+      nothing can turn into a signing handle.
+
+      The destinations exist and are the seams to wire:
+
+      - **EVM.** `ecdsaCapabilityManifestStore.ts` already persists a
+        `readyStateBlobB64u` (encrypted), and
+        `ecdsa-derivation-client.worker.ts` already consumes one. The ceremony's
+        blob has to reach that store rather than a new one.
+      - **NEAR.** Today the activated-Client record is per factor and read
+        through two parallel paths —
+        `session/passkey/ed25519YaoLocalMaterial.ts`
+        (`readPasskeyEd25519YaoLocalMaterialLocatorV1`) and
+        `session/emailOtp/ed25519YaoLocalMaterial.ts`
+        (`readEmailOtpEd25519YaoLocalMaterialV1`). The seed-sealed record
+        replaces *both* with one wallet-scoped record, which is the point: two
+        readers exist only because there were two wrapping factors.
+
+      The import side is built and tested in Rust
+      (`import_activated_client_under_custody_seed_v1`) but is not exposed at
+      the wasm boundary, and cannot be exposed the obvious way: the cache key
+      derives from the seed, which never leaves the ceremony module. So the
+      unlock entry point belongs *in that module* — factor secret plus envelope
+      plus cache record in, signing handle out — rather than as another
+      `WasmActivatedClientV1` import arm taking a key JavaScript would have to
+      hold.
+
       **Do not splice NEAR alone for mixed wallets.** A mixed wallet whose NEAR
       key set came from the custody seed while its EVM key set is still
       PRF-derived is a wallet the recovery set only half covers — recovery
