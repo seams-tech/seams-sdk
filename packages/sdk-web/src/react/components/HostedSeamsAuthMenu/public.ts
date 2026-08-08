@@ -7,6 +7,8 @@ export type {
   HostedAuthMenuExternalAuthBroker,
   HostedAuthMenuExternalAuthEvidence,
   HostedAuthMenuExternalAuthRequest,
+  HostedAuthMenuDemoEmailOtpDelivery,
+  HostedAuthMenuDemoEmailOtpHandler,
   HostedAuthMenuExternalProvider,
   HostedAuthMenuMode,
   HostedAuthMenuOpenRequest,

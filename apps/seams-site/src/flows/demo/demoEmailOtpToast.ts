@@ -29,7 +29,7 @@ export async function showCopiedDemoEmailOtpToast(input: DemoEmailOtpToastInput)
   try {
     await navigator.clipboard.writeText(input.otpCode);
     if (activeDemoEmailOtpCodes.get(input.toastId) !== input.otpCode) return;
-    toast.success(`OTP code ${formattedCode} copied to clipboard!`, {
+    toast.success(`Code ${formattedCode} copied!`, {
       id: input.toastId,
       description: input.unavailableDescription,
       duration: Infinity,
