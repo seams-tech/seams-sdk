@@ -1409,7 +1409,30 @@ repository evidence.
       `committed` or `not_requested` must act on it rather than treat
       registration as done.
 
-      **The remaining route wiring, with its exact seams:**
+      **The route wiring landed 2026-08-08, at exactly these seams.** Both
+      registration legs now carry a custody payload in and an outcome back out,
+      and the client sends and parses both. Three route-level tests pin it, two
+      of them mutation-checked: restricting the commit to the ECDSA leg fails
+      the Ed25519 test (the exact regression the correction below prevents), and
+      dropping the outcome from the responses fails all three.
+
+      Two things the wiring settled that the seam list did not anticipate:
+
+      - **The inbound coercion is total and never throws**
+        (`walletCustodyCeremonyCommitPayloadFromWire`, shared beside the payload
+        type). Absent means no ceremony ran; *everything else* becomes a payload
+        the gate reports on. Rejecting malformed custody at the route would fail
+        a call whose wallet is already committed, and conflating it with absent
+        would let a wallet with an unrecoverable seed report as fully
+        registered.
+      - **The policy has to survive infrastructure, not just bad input.**
+        `commitRegistrationCustody` now catches store failures too: a D1 outage
+        after the registration commit must come back as a reported `rejected`
+        the client can retry from, never an exception that fails a leg whose
+        wallet exists. A rejection is logged, because it is a wallet whose seed
+        is not yet recoverable.
+
+      The seams as built:
 
       - `WalletRegistrationActivateInput` gains `walletCustodyCommit?`
         (`walletRegistrationInputs.ts:56`), parsed in the activate handler
@@ -1446,12 +1469,23 @@ repository evidence.
         `enrollmentId` and `enrollmentSealKeyVersion`. The finalize request
         already carries the seal key version; the id comes from the finalizer's
         result, so surface it rather than re-deriving it.
-      - Surface the outcome on the activate response. **This breaks the client
-        parser unless updated in the same change:**
-        `parseWalletRegistrationActivateResponseV2`
-        (`sdk-web/.../rpcClients/relayer/walletRegistration.ts:2937`) uses
-        `assertExactResponseKeys` with a fixed key list per branch, so a new
-        response key must be added there too.
+      - The outcome rides `WalletRegistrationFinalizeResponseBase`, so both the
+        activate and NEAR-provisioning responses carry it. The client's exact
+        key lists were updated in the same change — `walletCustody` added to
+        the finalize parser, the Ed25519-pending activate branch, and the
+        provisioning success list — and the outcome parser *throws* on an
+        unrecognised status rather than guessing, since that is version skew
+        between a client and its own Gateway.
+
+      **A test-fixture correction fell out of this** (2026-08-08). Driving the
+      deferred NEAR leg for the first time exposed that
+      `createActivatedFinalizeYaoRuntimeFixture` rebuilt its admission request
+      with invented `material_activation` ids and its own signing root, so the
+      request it returned never equalled the one admitted — finalize's
+      comparison against the stored signer branch rejected it. The fixture was
+      the inaccurate party (a real runtime returns the bytes it was admitted
+      with), so it now carries the incoming ref and derives its scope from the
+      incoming signing root. Route 4 is testable end to end as a result.
 
       **Decision (2026-08-07): the custody commit has no standalone route.**
       `commitWalletCustodyRegistration` and its store are built and tested but

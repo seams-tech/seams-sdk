@@ -16,6 +16,11 @@ import type {
   WebAuthnRpId,
 } from '@shared/utils/registrationIntent';
 import { parseNearEd25519SigningKeyId, walletIdFromString } from '@shared/utils/registrationIntent';
+import {
+  parseWalletCustodyRegistrationOutcome,
+  type WalletCustodyCeremonyCommitPayload,
+  type WalletCustodyRegistrationOutcome,
+} from '@shared/passkey-custody';
 import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/utils/near';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
@@ -96,9 +101,7 @@ import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  parseEcdsaThresholdKeyId,
-} from '@/core/signingEngine/session/keyMaterialBrands';
+import { parseEcdsaThresholdKeyId } from '@/core/signingEngine/session/keyMaterialBrands';
 import {
   normalizeThresholdRuntimePolicyScope,
   type Ed25519AuthorityScope,
@@ -980,6 +983,15 @@ type WalletRegistrationFinalizeResponseBase = {
   walletId: WalletId;
   authority: WalletAuthAuthority;
   registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
+  /**
+   * What became of the custody run that rode this leg, when one did. Absent
+   * means no custody payload was sent — never that a sent one succeeded.
+   *
+   * A caller must act on anything other than `committed`: the registration
+   * itself succeeded either way, so this is the only signal that the wallet's
+   * seed is not yet recoverable.
+   */
+  walletCustody?: WalletCustodyRegistrationOutcome;
 };
 
 export type WalletRegistrationFinalizeResponseAuthority =
@@ -1690,9 +1702,7 @@ function parseWalletRegistrationEd25519Result(
     ...publicResult,
     thresholdSessionId: thresholdSessionId.value,
     runtimePolicyScope,
-    routerAbNormalSigning: requireRouterAbEd25519NormalSigningState(
-      ed25519.routerAbNormalSigning,
-    ),
+    routerAbNormalSigning: requireRouterAbEd25519NormalSigningState(ed25519.routerAbNormalSigning),
   };
 }
 
@@ -2044,10 +2054,9 @@ export function parseWalletRegistrationEcdsaDerivationRespond(args: {
     actual: serverBootstrap.participantIds,
   });
 
-  const routerAbEcdsaDerivationNormalSigning =
-    requireRouterAbEcdsaDerivationNormalSigningStateV1(
-      serverBootstrap.routerAbEcdsaDerivationNormalSigning,
-    );
+  const routerAbEcdsaDerivationNormalSigning = requireRouterAbEcdsaDerivationNormalSigningStateV1(
+    serverBootstrap.routerAbEcdsaDerivationNormalSigning,
+  );
   const ecdsaThresholdKeyId = String(serverBootstrap.ecdsaThresholdKeyId || '').trim();
   const keyHandle = String(serverBootstrap.keyHandle || '').trim();
   const signingRootId = String(serverBootstrap.signingRootId || '').trim();
@@ -2627,7 +2636,10 @@ export type WalletRegistrationActivateEd25519PendingV2 = DistributiveOmit<
 };
 
 export type WalletRegistrationActivateResponseV2 =
-  | (Omit<Extract<WalletRegistrationFinalizeResponse, { ok: true; kind: 'evm_family_ecdsa' }>, 'appSessionJwt'> & {
+  | (Omit<
+      Extract<WalletRegistrationFinalizeResponse, { ok: true; kind: 'evm_family_ecdsa' }>,
+      'appSessionJwt'
+    > & {
       ecdsa: ActivateTerminalEcdsaPayload;
       registrationEstablishedSession: RegistrationEstablishedSession;
       /** Internal first-party passkey authority consumed before public return. */
@@ -2641,7 +2653,11 @@ function parseRegistrationEstablishedSession(
   expectedWalletId: WalletId,
 ): RegistrationEstablishedSession {
   const responseName = 'Wallet registration established session';
-  const record = requireResponseRecord({ responseName, field: 'registrationEstablishedSession', value });
+  const record = requireResponseRecord({
+    responseName,
+    field: 'registrationEstablishedSession',
+    value,
+  });
   assertExactResponseKeys(
     record,
     [
@@ -2784,7 +2800,13 @@ function parseRegistrationEstablishedEcdsaSession(
   });
   assertExactResponseKeys(
     record,
-    ['walletSessionJwt', 'thresholdSessionId', 'keyHandle', 'runtimePolicyScope', 'routerAbEcdsaDerivationNormalSigning'],
+    [
+      'walletSessionJwt',
+      'thresholdSessionId',
+      'keyHandle',
+      'runtimePolicyScope',
+      'routerAbEcdsaDerivationNormalSigning',
+    ],
     `${identity.responseName} ECDSA token`,
   );
   const walletSessionJwt = requireResponseString({
@@ -2812,11 +2834,13 @@ function parseRegistrationEstablishedEcdsaSession(
   if (!thresholdSessionId.ok || payload.thresholdSessionId !== thresholdSessionId.value) {
     throw new Error(`${identity.responseName} ECDSA threshold session is invalid`);
   }
-  const keyHandle = parseThresholdEcdsaKeyHandle(requireResponseString({
-    responseName: identity.responseName,
-    field: 'tokens.ecdsa.keyHandle',
-    value: record.keyHandle,
-  }));
+  const keyHandle = parseThresholdEcdsaKeyHandle(
+    requireResponseString({
+      responseName: identity.responseName,
+      field: 'tokens.ecdsa.keyHandle',
+      value: record.keyHandle,
+    }),
+  );
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(record.runtimePolicyScope);
   if (!runtimePolicyScope) {
     throw new Error(`${identity.responseName} ECDSA runtime policy is invalid`);
@@ -2852,7 +2876,14 @@ function parseRegistrationEstablishedEd25519Session(
   });
   assertExactResponseKeys(
     record,
-    ['walletSessionJwt', 'thresholdSessionId', 'nearAccountId', 'nearEd25519SigningKeyId', 'runtimePolicyScope', 'routerAbNormalSigning'],
+    [
+      'walletSessionJwt',
+      'thresholdSessionId',
+      'nearAccountId',
+      'nearEd25519SigningKeyId',
+      'runtimePolicyScope',
+      'routerAbNormalSigning',
+    ],
     `${identity.responseName} Ed25519 token`,
   );
   const walletSessionJwt = requireResponseString({
@@ -2899,9 +2930,7 @@ function parseRegistrationEstablishedEd25519Session(
   if (!runtimePolicyScope) {
     throw new Error(`${identity.responseName} Ed25519 runtime policy is invalid`);
   }
-  const normalSigning = requireRouterAbEd25519NormalSigningState(
-    record.routerAbNormalSigning,
-  );
+  const normalSigning = requireRouterAbEd25519NormalSigningState(record.routerAbNormalSigning);
   let parsedNearAccountId;
   const parsedImplicitNearAccountId = parseImplicitNearAccountId(nearAccountId);
   if (parsedImplicitNearAccountId.ok) {
@@ -2944,8 +2973,7 @@ function parseWalletRegistrationActivateResponseV2(
     registrationEstablishedSession: rawEstablishedSession,
     appSessionJwt: rawAppSessionJwt,
     ...terminal
-  } =
-    record;
+  } = record;
   if (record.kind === 'near_ed25519') {
     /* Ed25519-only: no ECDSA leg ran, so there is no activation payload and no
        local session to build. The wallet exists but cannot sign until the
@@ -2973,6 +3001,7 @@ function parseWalletRegistrationActivateResponseV2(
         'rpId',
         'authMethod',
         'appSessionJwt',
+        'walletCustody',
         'kind',
         'nearProvisioning',
       ],
@@ -3042,6 +3071,17 @@ function parseWalletRegistrationActivateResponseV2(
       ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
       authMethod: authorityBranch.authMethod,
       appSessionJwt,
+      /* An Ed25519-only wallet has no key set yet, so no custody run can have
+         ridden this call — but the field is carried rather than dropped, so a
+         Gateway that reports one is never silently ignored. */
+      ...(record.walletCustody === undefined
+        ? {}
+        : {
+            walletCustody: parseWalletCustodyRegistrationOutcome(
+              record.walletCustody,
+              responseName,
+            ),
+          }),
       nearProvisioning: { status: 'near_pending' },
     };
   }
@@ -3130,6 +3170,8 @@ type ActivateWalletRegistrationArgsBase = {
   idempotencyKey: string;
   emailOtpEnrollment?: WalletRegistrationEmailOtpEnrollmentMaterial;
   emailOtpBackupAck?: WalletRegistrationEmailOtpBackupAck;
+  /** The custody ceremony's sealed output for the key set this call activates. */
+  walletCustodyCommit?: WalletCustodyCeremonyCommitPayload;
   onServerTiming?: (header: string | null) => void;
 };
 
@@ -3163,6 +3205,7 @@ function walletRegistrationActivateBody(
   if (args.ecdsa) body.ecdsa = args.ecdsa;
   if (args.emailOtpEnrollment) body.emailOtpEnrollment = args.emailOtpEnrollment;
   if (args.emailOtpBackupAck) body.emailOtpBackupAck = args.emailOtpBackupAck;
+  if (args.walletCustodyCommit) body.walletCustodyCommit = args.walletCustodyCommit;
   return body;
 }
 
@@ -3202,7 +3245,7 @@ export type WalletRegistrationNearProvisioningResponseV2 =
       code: string;
       message: string;
       nearProvisioning?: { status: 'near_failed_retryable' };
-  };
+    };
 
 function parseWalletRegistrationNearProvisioningResponseV2(
   value: unknown,
@@ -3244,6 +3287,7 @@ function parseWalletRegistrationNearProvisioningResponseV2(
       'rpId',
       'authMethod',
       'appSessionJwt',
+      'walletCustody',
       'kind',
       'accountProvisioning',
       'resolvedAccount',
@@ -3263,8 +3307,11 @@ function parseWalletRegistrationNearProvisioningResponseV2(
   if (provisioning.status !== 'near_ready') {
     throw new Error(`${responseName} success status is invalid`);
   }
-  const { nearProvisioning: _nearProvisioning, registrationEstablishedSession, ...terminal } =
-    record;
+  const {
+    nearProvisioning: _nearProvisioning,
+    registrationEstablishedSession,
+    ...terminal
+  } = record;
   const finalized = parseWalletRegistrationFinalizeResponse({
     value: terminal,
     expectedKind: 'near_ed25519',
@@ -3297,6 +3344,11 @@ export async function completeWalletRegistrationNearProvisioning(args: {
         enrollment: WalletRegistrationEmailOtpEnrollmentMaterial;
         backupAck: WalletRegistrationEmailOtpBackupAck;
       };
+  /**
+   * The custody ceremony's sealed output. For an Ed25519-only wallet this is
+   * the call that establishes custody: activate had no key set to seal against.
+   */
+  walletCustodyCommit?: WalletCustodyCeremonyCommitPayload;
   onServerTiming?: (header: string | null) => void;
 }): Promise<WalletRegistrationNearProvisioningResponseV2> {
   const body: Record<string, unknown> = {
@@ -3310,6 +3362,7 @@ export async function completeWalletRegistrationNearProvisioning(args: {
     body.emailOtpEnrollment = args.auth.enrollment;
     body.emailOtpBackupAck = args.auth.backupAck;
   }
+  if (args.walletCustodyCommit) body.walletCustodyCommit = args.walletCustodyCommit;
   const response = await postJson<unknown>({
     relayerUrl: args.relayerUrl,
     path: WALLET_REGISTRATION_NEAR_PROVISIONING_PATH,
@@ -3742,6 +3795,7 @@ export function parseWalletRegistrationFinalizeResponse(args: {
       'rpId',
       'authMethod',
       'appSessionJwt',
+      'walletCustody',
       'kind',
       'authorityScope',
       'accountProvisioning',
@@ -3771,6 +3825,17 @@ export function parseWalletRegistrationFinalizeResponse(args: {
     response.registrationDiagnostics === undefined
       ? undefined
       : parseWalletRegistrationFinalizeDiagnostics(response.registrationDiagnostics);
+  /* Absent is a real state — no custody payload rode this leg — and distinct
+     from every reported outcome. It must not be conflated with `committed`. */
+  const walletCustody =
+    response.walletCustody === undefined
+      ? {}
+      : {
+          walletCustody: parseWalletCustodyRegistrationOutcome(
+            response.walletCustody,
+            responseName,
+          ),
+        };
 
   switch (response.kind) {
     case 'near_ed25519': {
@@ -3788,6 +3853,7 @@ export function parseWalletRegistrationFinalizeResponse(args: {
           walletId,
           authority,
           ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
+          ...walletCustody,
           rpId: authorityBranch.rpId,
           authMethod: authorityBranch.authMethod,
           kind: 'near_ed25519',
@@ -3802,6 +3868,7 @@ export function parseWalletRegistrationFinalizeResponse(args: {
         walletId,
         authority,
         ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
+        ...walletCustody,
         authMethod: authorityBranch.authMethod,
         appSessionJwt: authorityBranch.appSessionJwt,
         kind: 'near_ed25519',
@@ -3830,6 +3897,7 @@ export function parseWalletRegistrationFinalizeResponse(args: {
           walletId,
           authority,
           ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
+          ...walletCustody,
           rpId: authorityBranch.rpId,
           authMethod: authorityBranch.authMethod,
           kind: 'evm_family_ecdsa',
@@ -3841,6 +3909,7 @@ export function parseWalletRegistrationFinalizeResponse(args: {
         walletId,
         authority,
         ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
+        ...walletCustody,
         authMethod: authorityBranch.authMethod,
         appSessionJwt: authorityBranch.appSessionJwt,
         kind: 'evm_family_ecdsa',

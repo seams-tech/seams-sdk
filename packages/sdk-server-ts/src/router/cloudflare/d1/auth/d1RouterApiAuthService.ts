@@ -46,7 +46,10 @@ import type { D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import { normalizeLogger } from '../../../../core/logger';
 import { toPublicKeyStringFromSecretKey } from '../../../../core/nearKeys';
 import { signGasRelayerNearTransactionWithDeps } from '../../../../core/authService/nearTransactions';
-import { ensureSignerWasmRuntime, type SignerWasmRuntimeState } from '../../../../core/authService/wasm';
+import {
+  ensureSignerWasmRuntime,
+  type SignerWasmRuntimeState,
+} from '../../../../core/authService/wasm';
 import { MinimalNearClient } from '../../../../core/rpcClients/near/NearClient';
 import {
   executeSignedDelegateWithRelayer,
@@ -106,6 +109,7 @@ import {
   parseD1WalletRegistrationFinalizeTerminalResponse,
 } from '../registration/d1RegistrationCeremonyRecords';
 import { CloudflareD1WalletRegistrationCommitStore } from '../registration/d1WalletRegistrationCommitStore';
+import { CloudflareD1WalletCustodyCommitStore } from '../passkeyCustody/d1WalletCustodyCommitStore';
 import {
   CloudflareD1WalletAddSignerService,
   parseD1WalletAddSignerFinalizeSideEffectRecord,
@@ -242,10 +246,7 @@ type D1AuthorizationSessionRouteServiceAssembly = Pick<
   'authorizationService' | 'options'
 >;
 
-type D1ThresholdRuntimeRouteServiceAssembly = Pick<
-  CloudflareD1RouterApiAuthAssembly,
-  'options'
->;
+type D1ThresholdRuntimeRouteServiceAssembly = Pick<CloudflareD1RouterApiAuthAssembly, 'options'>;
 
 type D1NearFundingRouteServiceAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
@@ -256,10 +257,7 @@ type D1RecoveryRouteServiceAssembly = Pick<CloudflareD1RouterApiAuthAssembly, 's
 
 type D1EmailRecoveryAuthServiceAssembly = Pick<CloudflareD1RouterApiAuthAssembly, 'options'>;
 
-type D1RouterAccountRouteServiceAssembly = Pick<
-  CloudflareD1RouterApiAuthAssembly,
-  'options'
->;
+type D1RouterAccountRouteServiceAssembly = Pick<CloudflareD1RouterApiAuthAssembly, 'options'>;
 
 class CloudflareD1SignedDelegateExecutor {
   private signerWasmState: SignerWasmRuntimeState = { signerWasmReady: false };
@@ -552,12 +550,7 @@ function parseWalletRegistrationOperationPrepared(
 
 type RegistrationEstablishedSessionIdentity = Pick<
   RegistrationEstablishedSession,
-  | 'walletId'
-  | 'seamsSessionId'
-  | 'authorizationId'
-  | 'walletSessionId'
-  | 'quotaId'
-  | 'expiresAtMs'
+  'walletId' | 'seamsSessionId' | 'authorizationId' | 'walletSessionId' | 'quotaId' | 'expiresAtMs'
 >;
 
 function hasOnlyKeys(record: Record<string, unknown>, keys: readonly string[]): boolean {
@@ -620,17 +613,11 @@ function parseRegistrationEstablishedJwt(
   }
   if (payload.exp !== undefined) {
     const expMs = getSessionJwtExpiresAtMs(jwt);
-    if (
-      expMs === null ||
-      expMs > identity.expiresAtMs ||
-      identity.expiresAtMs - expMs >= 1_000
-    ) {
+    if (expMs === null || expMs > identity.expiresAtMs || identity.expiresAtMs - expMs >= 1_000) {
       return null;
     }
   }
-  if (
-    new Set([identity.authorizationId, identity.walletSessionId, identity.quotaId]).size !== 3
-  ) {
+  if (new Set([identity.authorizationId, identity.walletSessionId, identity.quotaId]).size !== 3) {
     return null;
   }
   return jwt;
@@ -640,13 +627,16 @@ function parseRegistrationEstablishedEcdsaToken(
   raw: unknown,
   identity: RegistrationEstablishedSessionIdentity,
 ): RegistrationEstablishedEcdsaSession | null {
-  if (!isRecordValue(raw) || !hasOnlyKeys(raw, [
-    'walletSessionJwt',
-    'thresholdSessionId',
-    'keyHandle',
-    'runtimePolicyScope',
-    'routerAbEcdsaDerivationNormalSigning',
-  ])) {
+  if (
+    !isRecordValue(raw) ||
+    !hasOnlyKeys(raw, [
+      'walletSessionJwt',
+      'thresholdSessionId',
+      'keyHandle',
+      'runtimePolicyScope',
+      'routerAbEcdsaDerivationNormalSigning',
+    ])
+  ) {
     return null;
   }
   try {
@@ -661,10 +651,9 @@ function parseRegistrationEstablishedEcdsaToken(
     if (!walletSessionJwt) return null;
     const keyHandle = parseThresholdEcdsaKeyHandle(raw.keyHandle);
     const runtimePolicyScope = normalizeRuntimePolicyScope(raw.runtimePolicyScope);
-    const routerAbEcdsaDerivationNormalSigning =
-      parseRouterAbEcdsaDerivationNormalSigningStateV1(
-        raw.routerAbEcdsaDerivationNormalSigning,
-      );
+    const routerAbEcdsaDerivationNormalSigning = parseRouterAbEcdsaDerivationNormalSigningStateV1(
+      raw.routerAbEcdsaDerivationNormalSigning,
+    );
     if (!routerAbEcdsaDerivationNormalSigning) return null;
     return {
       walletSessionJwt,
@@ -682,14 +671,17 @@ function parseRegistrationEstablishedEd25519Token(
   raw: unknown,
   identity: RegistrationEstablishedSessionIdentity,
 ): RegistrationEstablishedEd25519Session | null {
-  if (!isRecordValue(raw) || !hasOnlyKeys(raw, [
-    'walletSessionJwt',
-    'thresholdSessionId',
-    'nearAccountId',
-    'nearEd25519SigningKeyId',
-    'runtimePolicyScope',
-    'routerAbNormalSigning',
-  ])) {
+  if (
+    !isRecordValue(raw) ||
+    !hasOnlyKeys(raw, [
+      'walletSessionJwt',
+      'thresholdSessionId',
+      'nearAccountId',
+      'nearEd25519SigningKeyId',
+      'runtimePolicyScope',
+      'routerAbNormalSigning',
+    ])
+  ) {
     return null;
   }
   try {
@@ -710,13 +702,9 @@ function parseRegistrationEstablishedEd25519Token(
         ? namedNearAccountId.value
         : null;
     if (!nearAccountId) return null;
-    const nearEd25519SigningKeyId = parseNearEd25519SigningKeyId(
-      raw.nearEd25519SigningKeyId,
-    );
+    const nearEd25519SigningKeyId = parseNearEd25519SigningKeyId(raw.nearEd25519SigningKeyId);
     const runtimePolicyScope = normalizeRuntimePolicyScope(raw.runtimePolicyScope);
-    const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
-      raw.routerAbNormalSigning,
-    );
+    const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(raw.routerAbNormalSigning);
     if (!routerAbNormalSigning) return null;
     return {
       walletSessionJwt,
@@ -735,17 +723,20 @@ function parseRegistrationEstablishedSessionForD1(
   raw: unknown,
   expectedWalletId: RegistrationEstablishedSession['walletId'],
 ): RegistrationEstablishedSession | null {
-  if (!isRecordValue(raw) || !hasOnlyKeys(raw, [
-    'kind',
-    'walletId',
-    'seamsSessionId',
-    'authorizationId',
-    'walletSessionId',
-    'quotaId',
-    'expiresAtMs',
-    'remainingUses',
-    'tokens',
-  ])) {
+  if (
+    !isRecordValue(raw) ||
+    !hasOnlyKeys(raw, [
+      'kind',
+      'walletId',
+      'seamsSessionId',
+      'authorizationId',
+      'walletSessionId',
+      'quotaId',
+      'expiresAtMs',
+      'remainingUses',
+      'tokens',
+    ])
+  ) {
     return null;
   }
   if (raw.kind !== 'registration_established_wallet_session_v1') {
@@ -1152,18 +1143,20 @@ function walletRegistrationActivateSideEffectStore(
 function walletRegistrationNearProvisioningSideEffectStore(
   options: NormalizedCloudflareD1RouterApiAuthServiceOptions,
 ): D1WalletRegistrationNearProvisioningSideEffectStore {
-  return createCloudflareD1VersionedJsonRecordStore<D1WalletRegistrationNearProvisioningSideEffectRecord>({
-    database: options.database,
-    scope: {
-      namespace: options.namespace,
-      orgId: options.orgId,
-      projectId: options.projectId,
-      envId: options.envId,
+  return createCloudflareD1VersionedJsonRecordStore<D1WalletRegistrationNearProvisioningSideEffectRecord>(
+    {
+      database: options.database,
+      scope: {
+        namespace: options.namespace,
+        orgId: options.orgId,
+        projectId: options.projectId,
+        envId: options.envId,
+      },
+      keyPrefix: 'wallet-registration-near-provisioning:',
+      encode: (value) => value as unknown as VersionedJsonObject,
+      parse: parseWalletRegistrationNearProvisioningSideEffectRecord,
     },
-    keyPrefix: 'wallet-registration-near-provisioning:',
-    encode: (value) => value as unknown as VersionedJsonObject,
-    parse: parseWalletRegistrationNearProvisioningSideEffectRecord,
-  });
+  );
 }
 
 function walletAddSignerStartSideEffectStore(
@@ -1439,6 +1432,15 @@ function createCloudflareD1RouterApiAuthAssembly(
     projectId: options.projectId,
     envId: options.envId,
   });
+  const walletCustodyCommitStore = new CloudflareD1WalletCustodyCommitStore({
+    database: options.database,
+    scope: {
+      namespace: options.namespace,
+      orgId: options.orgId,
+      projectId: options.projectId,
+      envId: options.envId,
+    },
+  });
   const signedDelegateExecutor = new CloudflareD1SignedDelegateExecutor(options);
   const authorizationTenantId = parseTenantId(options.orgId);
   if (!authorizationTenantId.ok) {
@@ -1449,9 +1451,7 @@ function createCloudflareD1RouterApiAuthAssembly(
   const walletRegistrations = new CloudflareD1WalletRegistrationService({
     authorizationService,
     authorizationTenantId: authorizationTenantId.value,
-    getOrCreateAppSessionVersion: sessionService.getOrCreateAppSessionVersion.bind(
-      sessionService,
-    ),
+    getOrCreateAppSessionVersion: sessionService.getOrCreateAppSessionVersion.bind(sessionService),
     createSponsoredNamedNearAccount,
     emailOtpRegistrationEnrollmentFinalizer,
     getRegistrationCeremonyIntentStore,
@@ -1461,6 +1461,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     activateSideEffects: walletRegistrationActivateSideEffectStore(options),
     nearProvisioningSideEffects: walletRegistrationNearProvisioningSideEffectStore(options),
     walletRegistrationCommitStore,
+    walletCustodyCommitStore,
     walletAuthMethods,
   });
   const walletAddSigners = new CloudflareD1WalletAddSignerService({
@@ -1848,10 +1849,9 @@ function createD1AuthorizedOperationRouteService(
     admitAuthorizedOperation: assembly.authorizationService.admitAuthorizedOperation.bind(
       assembly.authorizationService,
     ),
-    completeAuthorizedOperation:
-      assembly.authorizationService.completeAuthorizedOperation.bind(
-        assembly.authorizationService,
-      ),
+    completeAuthorizedOperation: assembly.authorizationService.completeAuthorizedOperation.bind(
+      assembly.authorizationService,
+    ),
   };
 }
 

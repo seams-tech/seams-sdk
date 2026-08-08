@@ -72,3 +72,114 @@ export type WalletCustodyCeremonyCommitPayload = {
   /** Finalized role-local ECDSA material, still sealed to its own boundary. */
   readonly ecdsaReadyStateBlobB64u?: string;
 };
+
+/**
+ * What the registration leg reports back about the custody it was asked to
+ * commit — the response half of the same contract, so both halves stay in one
+ * place.
+ *
+ * **A registration leg never fails because of custody.** The wallet is already
+ * committed by the time custody is admitted, and the seed exists only in the
+ * client's worker, so the client is the one party that can retry, re-enter as a
+ * join, or abandon the run. Every outcome is therefore reported rather than
+ * thrown, and a client that sees anything but `committed` or `not_requested`
+ * must act on it rather than treat registration as done.
+ */
+export type WalletCustodyRegistrationOutcome =
+  /** No custody payload rode this leg. Registration is unaffected. */
+  | { readonly status: 'not_requested' }
+  | { readonly status: 'committed' }
+  /**
+   * A joining run: this key set's manifest digest, with no custody records
+   * written because the wallet already has its envelope and recovery set.
+   */
+  | { readonly status: 'joined'; readonly keyManifestDigestB64u: string }
+  /**
+   * Another ceremony established this wallet's custody first. The client must
+   * discard its run's seed and re-enter as a join of the existing envelope.
+   */
+  | { readonly status: 'custody_already_established' }
+  /** The payload was refused. Nothing was written. */
+  | { readonly status: 'rejected'; readonly reason: string };
+
+/**
+ * Reads a commit payload off the wire without judging it.
+ *
+ * Deliberately total: it never throws and never reports a payload as absent
+ * when one was sent. Malformed custody must reach the admission gate and come
+ * back as a reported `rejected`, because the two outcomes lead the client
+ * somewhere completely different — `not_requested` says custody was never
+ * asked for, and a client that believed that would treat a wallet with no
+ * recoverable seed as fully registered.
+ *
+ * Nothing here validates. The nested `establishedCustody` is carried through
+ * verbatim: every one of its fields is parsed by the commit builder through the
+ * same boundary parsers every other reader uses, and anything it cannot parse
+ * becomes a rejection there.
+ */
+export function walletCustodyCeremonyCommitPayloadFromWire(
+  value: unknown,
+): WalletCustodyCeremonyCommitPayload | undefined {
+  if (value === undefined || value === null) return undefined;
+  const record: Record<string, unknown> =
+    typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const custody = record.establishedCustody;
+  return {
+    walletId: asWireString(record.walletId),
+    keySet: asWireString(record.keySet),
+    keyManifestDigestB64u: asWireString(record.keyManifestDigestB64u),
+    ...(custody === undefined || custody === null
+      ? {}
+      : { establishedCustody: custody as EstablishedCustodyRecordsPayload }),
+    ...(record.registeredPublicKeyB64u === undefined
+      ? {}
+      : { registeredPublicKeyB64u: asWireString(record.registeredPublicKeyB64u) }),
+    ...(record.clientRootPublicKey33B64u === undefined
+      ? {}
+      : { clientRootPublicKey33B64u: asWireString(record.clientRootPublicKey33B64u) }),
+    ...(record.ecdsaReadyStateBlobB64u === undefined
+      ? {}
+      : { ecdsaReadyStateBlobB64u: asWireString(record.ecdsaReadyStateBlobB64u) }),
+  };
+}
+
+function asWireString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+/**
+ * Parses the outcome a registration response carries. Throws, because this runs
+ * on the client against its own Gateway's response: an unrecognised custody
+ * status is a version skew the client must not paper over by guessing.
+ */
+export function parseWalletCustodyRegistrationOutcome(
+  value: unknown,
+  label: string,
+): WalletCustodyRegistrationOutcome {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`${label} walletCustody must be an object`);
+  }
+  const record = value as Record<string, unknown>;
+  switch (record.status) {
+    case 'not_requested':
+    case 'committed':
+    case 'custody_already_established':
+      return { status: record.status };
+    case 'joined': {
+      const digest = record.keyManifestDigestB64u;
+      if (typeof digest !== 'string' || !digest) {
+        throw new Error(`${label} joined custody carries no key manifest digest`);
+      }
+      return { status: 'joined', keyManifestDigestB64u: digest };
+    }
+    case 'rejected': {
+      const reason = record.reason;
+      if (typeof reason !== 'string' || !reason) {
+        throw new Error(`${label} rejected custody carries no reason`);
+      }
+      return { status: 'rejected', reason };
+    }
+    default:
+      throw new Error(`${label} walletCustody status is unrecognised`);
+  }
+}

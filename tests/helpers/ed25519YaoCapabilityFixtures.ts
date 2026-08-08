@@ -53,11 +53,22 @@ export function buildEd25519YaoCapabilityFixture(input: {
   readonly lifecycleId?: string;
   /** Overrides the derived signer-set id, for the same reason. */
   readonly signerSetId?: string;
+  /**
+   * Overrides the synthetic material activation ref. Also for the same reason,
+   * and load-bearing past admission: finalize compares the activation the
+   * runtime returns against the ceremony's stored branch, so a fixture serving
+   * a real ceremony must carry that ceremony's own ref rather than ids it
+   * invented from the lifecycle id.
+   */
+  readonly materialActivation?: Record<string, unknown>;
 }): Ed25519YaoCapabilityFixture {
+  /* Derived, never overridable: the capability builder checks this against the
+     runtime policy scope, so a separate override could only ever desync them. */
   const signingRootId = `${input.runtimePolicyScope.projectId}:${input.runtimePolicyScope.envId}`;
   const lifecycleId = input.lifecycleId ?? `registration-fixture-${input.seed}`;
-  const signerSetId = input.signerSetId ?? String(registrationNearEd25519BranchKey(input.signerSlot));
-  const materialActivation = {
+  const signerSetId =
+    input.signerSetId ?? String(registrationNearEd25519BranchKey(input.signerSlot));
+  const materialActivation = input.materialActivation ?? {
     kind: 'mpc_material_activation_ref' as const,
     activation_id: `${lifecycleId}-activation`,
     capability: `${lifecycleId}-capability`,
@@ -105,16 +116,8 @@ export function buildEd25519YaoCapabilityFixture(input: {
   const registeredPublicKey = fixtureBytes(input.seed + 2);
   const activationResult = parseRouterAbEd25519YaoRegistrationActivationResultV1({
     binding,
-    deriver_a_client_package: activationClientPackageFixture(
-      session,
-      'deriver_a',
-      input.seed + 3,
-    ),
-    deriver_b_client_package: activationClientPackageFixture(
-      session,
-      'deriver_b',
-      input.seed + 3,
-    ),
+    deriver_a_client_package: activationClientPackageFixture(session, 'deriver_a', input.seed + 3),
+    deriver_b_client_package: activationClientPackageFixture(session, 'deriver_b', input.seed + 3),
     public_receipt: {
       transcript: fixtureBytes(input.seed + 3),
       registered_public_key: registeredPublicKey,

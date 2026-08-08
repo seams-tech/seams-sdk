@@ -72,7 +72,11 @@ import type {
   RouterApiProjectEnvironmentResolver,
   SessionAdapter,
 } from '../../framework/routerApi';
-import type { HeaderRecord, RouteResponse, RouteServices } from '../../framework/routeExecutionContext';
+import type {
+  HeaderRecord,
+  RouteResponse,
+  RouteServices,
+} from '../../framework/routeExecutionContext';
 import type { RouteDefinition } from '../../framework/routeDefinitions';
 import type { RouteErrorBody } from '../../framework/routeResponses';
 import { routeError, routeJson } from '../../framework/routeResponses';
@@ -119,9 +123,7 @@ import {
   normalizeRuntimePolicyScope,
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
-import {
-  isEmailOtpWalletAuthAuthority,
-} from '@shared/utils/walletAuthAuthority';
+import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
   parseRouterAbTraceContextV1,
   ROUTER_AB_TRACE_ID_HEADER_V1,
@@ -263,6 +265,7 @@ function buildPasskeyWalletRegistrationFinalizeRouteSuccess(
         registrationDiagnostics: result.registrationDiagnostics,
         rpId: result.rpId,
         authMethod: result.authMethod,
+        ...(result.walletCustody ? { walletCustody: result.walletCustody } : {}),
         kind: result.kind,
         authorityScope: result.authorityScope,
         accountProvisioning: result.accountProvisioning,
@@ -277,6 +280,7 @@ function buildPasskeyWalletRegistrationFinalizeRouteSuccess(
         registrationDiagnostics: result.registrationDiagnostics,
         rpId: result.rpId,
         authMethod: result.authMethod,
+        ...(result.walletCustody ? { walletCustody: result.walletCustody } : {}),
         kind: result.kind,
         ecdsa: result.ecdsa,
       };
@@ -297,6 +301,7 @@ function buildEmailOtpWalletRegistrationFinalizeRouteSuccess(
         authority: result.authority,
         registrationDiagnostics: result.registrationDiagnostics,
         authMethod: result.authMethod,
+        ...(result.walletCustody ? { walletCustody: result.walletCustody } : {}),
         kind: result.kind,
         authorityScope: result.authorityScope,
         accountProvisioning: result.accountProvisioning,
@@ -311,6 +316,7 @@ function buildEmailOtpWalletRegistrationFinalizeRouteSuccess(
         authority: result.authority,
         registrationDiagnostics: result.registrationDiagnostics,
         authMethod: result.authMethod,
+        ...(result.walletCustody ? { walletCustody: result.walletCustody } : {}),
         kind: result.kind,
         ecdsa: result.ecdsa,
         appSessionJwt,
@@ -2115,6 +2121,12 @@ export async function handleRouterApiWalletRegistrationActivate(
       ...(parsedActivation ? { ecdsa: parsedActivation } : {}),
       ...(body.emailOtpEnrollment ? { emailOtpEnrollment: body.emailOtpEnrollment } : {}),
       ...(body.emailOtpBackupAck ? { emailOtpBackupAck: body.emailOtpBackupAck } : {}),
+      /* Passed through untouched. Rejecting a malformed custody payload at the
+         route would fail an activation the wallet's registration survives, and
+         the client would learn nothing about its seed. */
+      ...(body.walletCustodyCommit !== undefined
+        ? { walletCustodyCommit: body.walletCustodyCommit }
+        : {}),
       verifier: session,
       session,
     },
@@ -2125,7 +2137,11 @@ export async function handleRouterApiWalletRegistrationActivate(
     !isEmailOtpWalletRegistrationActivateSuccessV2(result) &&
     !isPasskeyWalletRegistrationActivateSuccessV2(result)
   ) {
-    return routeError(500, 'internal', 'Wallet registration activation returned an invalid authority');
+    return routeError(
+      500,
+      'internal',
+      'Wallet registration activation returned an invalid authority',
+    );
   }
   if (typeof result.appSessionJwt !== 'string' || result.appSessionJwt.length === 0) {
     return routeError(500, 'internal', 'Wallet registration activation is missing app session');
@@ -2177,6 +2193,9 @@ export async function handleRouterApiWalletRegistrationNearProvisioning(
       ed25519,
       emailOtpEnrollment: body.emailOtpEnrollment,
       emailOtpBackupAck: body.emailOtpBackupAck,
+      ...(body.walletCustodyCommit !== undefined
+        ? { walletCustodyCommit: body.walletCustodyCommit }
+        : {}),
       verifier: session,
       session,
     },

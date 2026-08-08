@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { CloudflareD1WalletCustodyCommitStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
 import { commitRegistrationCustody } from '../../packages/sdk-server-ts/src/router/domains/passkeyCustody/registrationCustodyOutcome';
-import type { WalletCustodyCeremonyCommitPayload } from '../../packages/sdk-server-ts/src/router/domains/passkeyCustody/walletCustodyRegistrationCommit';
 import {
   buildEmailOtpWalletAuthAuthority,
   buildPasskeyWalletAuthAuthority,
@@ -11,16 +10,10 @@ import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helper
 import { applySignerMigrations } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
 import {
   ALT_DIGEST_B64U,
-  CIPHERTEXT_B64U,
-  CIPHERTEXT_DIGEST_B64U,
+  buildWalletCustodyCommitPayloadFixture,
   CREDENTIAL_ID_B64U,
-  DIGEST_B64U,
-  ENVELOPE_ID,
-  NONCE_12_B64U,
   RP_ID,
   WALLET_ID,
-  rawPasskeyFactor,
-  rawWalletCustodySeedBinding,
 } from './helpers/passkeyCustodyEnvelope.fixtures';
 
 /**
@@ -59,55 +52,6 @@ function emailOtpAuthority() {
   });
 }
 
-function recoveryWrap(index: number) {
-  return {
-    recoveryKeyId: `email-otp-rkid-v1-${DIGEST_B64U.slice(0, 42)}${'ABCDEFGHIJ'[index]}`,
-    nonceB64u: NONCE_12_B64U,
-    ciphertextB64u: CIPHERTEXT_B64U,
-    aadHashB64u: ALT_DIGEST_B64U,
-  };
-}
-
-function establishingPayload(
-  overrides: Partial<WalletCustodyCeremonyCommitPayload> = {},
-): WalletCustodyCeremonyCommitPayload {
-  return {
-    walletId: WALLET_ID,
-    keySet: 'evm_family_ecdsa_v1',
-    keyManifestDigestB64u: DIGEST_B64U,
-    establishedCustody: {
-      envelopeId: ENVELOPE_ID,
-      envelopeBindingJson: JSON.stringify({
-        walletId: WALLET_ID,
-        envelopeId: ENVELOPE_ID,
-        factor: rawPasskeyFactor(),
-        envelopeRevision: 1,
-        binding: rawWalletCustodySeedBinding(),
-      }),
-      envelopeNonceB64u: NONCE_12_B64U,
-      sealedCustodySecretB64u: CIPHERTEXT_B64U,
-      envelopeAadHashB64u: ALT_DIGEST_B64U,
-      envelopeCiphertextDigestB64u: CIPHERTEXT_DIGEST_B64U,
-      recoveryManifestKekWraps: Array.from({ length: 10 }, (_, index) => recoveryWrap(index)),
-      recoveryEntryNonceB64u: NONCE_12_B64U,
-      recoveryEntryCiphertextB64u: CIPHERTEXT_B64U,
-      recoveryEntryAadHashB64u: DIGEST_B64U,
-    },
-    clientRootPublicKey33B64u: DIGEST_B64U,
-    ecdsaReadyStateBlobB64u: CIPHERTEXT_B64U,
-    ...overrides,
-  };
-}
-
-function joiningPayload(): WalletCustodyCeremonyCommitPayload {
-  return {
-    walletId: WALLET_ID,
-    keySet: 'near_ed25519_v1',
-    keyManifestDigestB64u: ALT_DIGEST_B64U,
-    registeredPublicKeyB64u: DIGEST_B64U,
-  };
-}
-
 async function withStore(
   run: (store: CloudflareD1WalletCustodyCommitStore) => Promise<void>,
 ): Promise<void> {
@@ -135,7 +79,7 @@ test('a leg with no custody payload reports not_requested', async () => {
 test('an establishing run under a verified passkey authority commits', async () => {
   await withStore(async (store) => {
     const outcome = await commitRegistrationCustody({
-      payload: establishingPayload(),
+      payload: buildWalletCustodyCommitPayloadFixture({ walletId: WALLET_ID }),
       verifiedWalletId: WALLET_ID as WalletId,
       verifiedAuthority: passkeyAuthority(),
       nowMs: NOW_MS,
@@ -148,7 +92,12 @@ test('an establishing run under a verified passkey authority commits', async () 
 test('a joining run reports its digest and writes nothing', async () => {
   await withStore(async (store) => {
     const outcome = await commitRegistrationCustody({
-      payload: joiningPayload(),
+      payload: buildWalletCustodyCommitPayloadFixture({
+        walletId: WALLET_ID,
+        keySet: 'near_ed25519_v1',
+        keyManifestDigestB64u: ALT_DIGEST_B64U,
+        origin: 'join',
+      }),
       verifiedWalletId: WALLET_ID as WalletId,
       verifiedAuthority: passkeyAuthority(),
       nowMs: NOW_MS,
@@ -162,7 +111,7 @@ test('a joining run reports its digest and writes nothing', async () => {
 test('an Email OTP leg without its enrollment is rejected, not committed blindly', async () => {
   await withStore(async (store) => {
     const outcome = await commitRegistrationCustody({
-      payload: establishingPayload(),
+      payload: buildWalletCustodyCommitPayloadFixture({ walletId: WALLET_ID }),
       verifiedWalletId: WALLET_ID as WalletId,
       verifiedAuthority: emailOtpAuthority(),
       nowMs: NOW_MS,
@@ -175,7 +124,7 @@ test('an Email OTP leg without its enrollment is rejected, not committed blindly
     // Nothing was written, so the wallet can still establish custody once the
     // enrollment is supplied.
     const retried = await commitRegistrationCustody({
-      payload: establishingPayload(),
+      payload: buildWalletCustodyCommitPayloadFixture({ walletId: WALLET_ID }),
       verifiedWalletId: WALLET_ID as WalletId,
       verifiedAuthority: passkeyAuthority(),
       nowMs: NOW_MS,
@@ -188,7 +137,7 @@ test('an Email OTP leg without its enrollment is rejected, not committed blindly
 test('a payload for another wallet is rejected', async () => {
   await withStore(async (store) => {
     const outcome = await commitRegistrationCustody({
-      payload: establishingPayload({ walletId: 'mallory.testnet' }),
+      payload: buildWalletCustodyCommitPayloadFixture({ walletId: 'mallory.testnet' }),
       verifiedWalletId: WALLET_ID as WalletId,
       verifiedAuthority: passkeyAuthority(),
       nowMs: NOW_MS,
@@ -201,7 +150,7 @@ test('a payload for another wallet is rejected', async () => {
 test('a losing race is reported as custody_already_established, not as success', async () => {
   await withStore(async (store) => {
     const first = await commitRegistrationCustody({
-      payload: establishingPayload(),
+      payload: buildWalletCustodyCommitPayloadFixture({ walletId: WALLET_ID }),
       verifiedWalletId: WALLET_ID as WalletId,
       verifiedAuthority: passkeyAuthority(),
       nowMs: NOW_MS,
@@ -212,7 +161,10 @@ test('a losing race is reported as custody_already_established, not as success',
     // A second establishing run for the same wallet. The client must discard
     // its seed and re-enter as a join rather than believe it succeeded.
     const second = await commitRegistrationCustody({
-      payload: establishingPayload({ keyManifestDigestB64u: ALT_DIGEST_B64U }),
+      payload: buildWalletCustodyCommitPayloadFixture({
+        walletId: WALLET_ID,
+        keyManifestDigestB64u: ALT_DIGEST_B64U,
+      }),
       verifiedWalletId: WALLET_ID as WalletId,
       verifiedAuthority: passkeyAuthority(),
       nowMs: NOW_MS,
