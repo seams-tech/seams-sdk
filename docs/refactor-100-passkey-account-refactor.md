@@ -1269,15 +1269,39 @@ repository evidence.
         the PRF path read it off the active client it kept, and a ceremony
         keeps no client.
 
-      **What still blocks the call-site swap:** the Ed25519-only passkey path
-      (`registration.ts`, the `registerVerifiedPasskeyEd25519YaoV1` call before
-      route 4) ends by handing its `pending` registration to
-      `persistPasskeyRegistrationEd25519Material`, which seals material under
-      `PRF.first`. A ceremony produces a *seed-sealed* record instead and no
-      `pending`, so that persistence call has no counterpart until the
-      wallet-scoped Ed25519 material record exists — the Phase 3 item below.
-      Swapping the call site before then would register a wallet and persist
-      nothing.
+      **The persistence counterpart now exists too (2026-08-09).** The blocker
+      recorded here was that the Ed25519-only passkey path ends by handing its
+      `pending` registration to `persistPasskeyRegistrationEd25519Material`,
+      which seals under `PRF.first` — and a ceremony produces a seed-sealed
+      record and no `pending`. Both halves of that are built:
+
+      - `walletCustody/ed25519SeedMaterial.ts` stores the wallet-scoped record.
+        One row per wallet, replacing the two per-factor rows that existed only
+        because two factors wrapped them. Its binding names the key set and no
+        credential, and the builder takes ciphertext rather than a live client,
+        so it *cannot* seal — the wrapping key derives from the seed, which
+        never crosses the ceremony's wasm boundary.
+      - The ceremony now reports `ed25519ApplicationBindingDigestB64u`, because
+        opening the cache rebuilds the exact seal binding and that digest is
+        one of its fields. Reported rather than recomputed: a reader
+        reassembling it from loose application facts could differ by one byte
+        and hold a record that never opens.
+      - `walletCustody/ceremonyStepRunner.ts` adapts the worker transport to
+        the driver, and is the single place the ceremony's channel name is
+        spelled — a run's seed lives in one worker's state across all three
+        steps, so a step dispatched elsewhere finds no run to continue.
+
+      **All that remains of the splice is the call-site edit** in
+      `registration.ts`'s Ed25519-only passkey path: run the ceremony instead
+      of `registerVerifiedPasskeyEd25519YaoV1`, pass the projected payload as
+      `walletCustodyCommit` on route 4 with `established.activationReference`,
+      persist through `persistWalletCustodyEd25519MaterialV1`, act on the
+      returned `walletCustody` outcome, and surface the recovery codes. The
+      downstream calls in that path (`storeWalletEd25519RegistrationData`,
+      `upsertEd25519YaoPublicCapabilityLaneReference`,
+      `persistRegistrationPasskeyEd25519SealedRuntime`) still read the
+      PRF-path's `pending`, so each needs its facts sourced from the
+      ceremony's payload instead — that is the bulk of the remaining edit.
 
       **DECIDED AND FROZEN (2026-08-09).** Issuance moves into Phase 2, because
       establishing custody must atomically issue the recovery set. Phase 4
