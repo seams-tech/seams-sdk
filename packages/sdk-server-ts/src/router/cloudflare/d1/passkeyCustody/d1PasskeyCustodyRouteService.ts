@@ -13,6 +13,12 @@ import {
   type WalletRecoveryAttemptResult,
 } from '../../../domains/passkeyCustody/walletRecoveryAttempt';
 import type { WalletId } from '@shared/utils/domainIds';
+import {
+  promoteRecoveredWalletCredentialV1,
+  type WalletRecoveryPromotionResult,
+} from '../../../domains/passkeyCustody/walletRecoveryPromotion';
+import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import type { RecoveredKeySetOutcome } from '@shared/wallet-recovery/recoveryCodes';
 
 /**
  * The custody envelope layer's way into the router.
@@ -83,6 +89,21 @@ export interface RouterApiPasskeyCustodyService {
     readonly recoveryCodeBytes: Uint8Array;
     readonly reservationId: string;
   }): Promise<WalletRecoveryAttemptResult>;
+
+  /**
+   * Installs the credential a recovery enrolled and retires the old ones.
+   *
+   * Called after a spend, with an envelope the client sealed under the new
+   * credential. The server cannot verify that sealing — it never has the seed
+   * — so what it does verify is the key-set outcomes and the wallet the
+   * envelope names.
+   */
+  promoteRecoveredCredential(request: {
+    readonly walletId: string;
+    readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
+    readonly requiredKeySets: readonly string[];
+    readonly outcomes: readonly RecoveredKeySetOutcome[];
+  }): Promise<WalletRecoveryPromotionResult>;
 }
 
 /** How long a reservation may sit before another attempt may take the code. */
@@ -152,6 +173,16 @@ export function createD1PasskeyCustodyRouteService(assembly: {
         reservationId: request.reservationId,
         nowMs: (assembly.nowMs ?? Date.now)(),
         reservationTtlMs: RECOVERY_RESERVATION_TTL_MS,
+      }),
+
+    promoteRecoveredCredential: (request) =>
+      promoteRecoveredWalletCredentialV1({
+        envelopeStore: assembly.passkeyCustodyEnvelopes,
+        walletId: request.walletId,
+        replacementEnvelope: request.replacementEnvelope,
+        requiredKeySets: request.requiredKeySets,
+        outcomes: request.outcomes,
+        nowMs: (assembly.nowMs ?? Date.now)(),
       }),
   };
 }

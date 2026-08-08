@@ -20,6 +20,7 @@ import { decodeBase64UrlOrBase64 } from '../../../../core/authService/webauthnOi
 
 const ROUTE_ID = 'passkey_custody_envelope_retrieve';
 const RECOVERY_SPEND_ROUTE_ID = 'wallet_recovery_code_spend';
+const RECOVERY_PROMOTE_ROUTE_ID = 'wallet_recovery_credential_promote';
 
 export async function handlePasskeyCustody(ctx: FetchRouterApiContext): Promise<Response | null> {
   const route = findRouteDefinitionById(ctx.routeDefinitions, ROUTE_ID);
@@ -175,4 +176,81 @@ function trimmed(value: unknown): string {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Installing the credential a recovery enrolled.
+ *
+ * The envelope arrives sealed and is passed through unvalidated as ciphertext
+ * — the server has no seed and cannot check the sealing. What it checks is
+ * upstream: that the outcomes cover every required key set, and that the
+ * envelope names this wallet.
+ */
+export async function handleWalletRecoveryPromote(
+  ctx: FetchRouterApiContext,
+): Promise<Response | null> {
+  const route = findRouteDefinitionById(ctx.routeDefinitions, RECOVERY_PROMOTE_ROUTE_ID);
+  if (!route) throw new Error(`Missing route definition for ${RECOVERY_PROMOTE_ROUTE_ID}`);
+  if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
+
+  const body = (await readJson(ctx.request)) as Record<string, unknown> | null;
+  const walletId = trimmed(body?.walletId);
+  const replacementEnvelope = isObject(body?.replacementEnvelope) ? body.replacementEnvelope : null;
+  const requiredKeySets = stringList(body?.requiredKeySets);
+  const outcomes = Array.isArray(body?.outcomes) ? body.outcomes.filter(isObject) : [];
+  if (!walletId || !replacementEnvelope || requiredKeySets.length === 0) {
+    return toFetchRouteResponse({
+      status: 400,
+      body: {
+        ok: false,
+        code: 'invalid_request',
+        message: 'a promotion needs a wallet, a replacement envelope, and its required key sets',
+      },
+    });
+  }
+
+  const result = await ctx.service.passkeyCustody.promoteRecoveredCredential({
+    walletId,
+    replacementEnvelope: replacementEnvelope as never,
+    requiredKeySets,
+    outcomes: outcomes as never,
+  });
+
+  switch (result.kind) {
+    case 'promoted':
+      return toFetchRouteResponse({
+        status: 200,
+        body: {
+          ok: true,
+          storeVersion: result.storeVersion,
+          retiredEnvelopeIds: result.retiredEnvelopeIds,
+          /* Surfaced rather than swallowed: the wallet is recovered, but an
+             old credential still opens it and someone has to revoke it. */
+          ...(result.retireFailures ? { retireFailures: result.retireFailures } : {}),
+        },
+      });
+    case 'refused':
+      /* 409: the recovery did not reproduce every key set. Retryable in the
+         sense that finishing the outstanding ones makes it valid — unlike a
+         rejected envelope, which will not become valid by repeating. */
+      return toFetchRouteResponse({
+        status: 409,
+        body: { ok: false, code: 'promotion_incomplete', message: result.reason },
+      });
+    case 'envelope_rejected':
+      return toFetchRouteResponse({
+        status: 400,
+        body: { ok: false, code: 'envelope_rejected', message: result.reason },
+      });
+  }
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const entry of value) {
+    const text = trimmed(entry);
+    if (text) out.push(text);
+  }
+  return out;
 }
