@@ -57,6 +57,11 @@ import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/Sig
 import { establishNearEd25519CustodyV1 } from '@/core/signingEngine/walletCustody/registrationCeremony';
 import { walletCustodyCeremonyStepRunner } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
 import { walletCustodyEd25519ActiveClientMetadataV1 } from '@/core/signingEngine/walletCustody/ceremonyActiveClientMetadata';
+import {
+  persistWalletCustodyEd25519MaterialV1,
+  type WalletCustodyEd25519MaterialBindingV1,
+  type WalletCustodySealedEd25519MaterialV1,
+} from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
 import type { EstablishedWalletCustodyNearEd25519KeySetV1 } from './ports';
 import { RouterAbEd25519YaoHttpActivationTransportV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import {
@@ -1650,6 +1655,20 @@ export class BrowserSigningSurface {
         activationResultJson,
       }),
     };
+  }
+
+  async persistWalletCustodyEd25519Material(args: {
+    binding: WalletCustodyEd25519MaterialBindingV1;
+    sealed: WalletCustodySealedEd25519MaterialV1;
+  }): Promise<void> {
+    const context = this.signerWorkerManager.getContext();
+    await persistWalletCustodyEd25519MaterialV1({
+      store: context.nearKeyMaterialStore as Parameters<
+        typeof persistWalletCustodyEd25519MaterialV1
+      >[0]['store'],
+      binding: args.binding,
+      sealed: args.sealed,
+    });
   }
 
   async assertSealedRefreshStartupParity(): Promise<void> {

@@ -109,6 +109,10 @@ import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEng
 import type { RouterAbEd25519YaoRegistrationAdmissionRequestV1 } from '@shared/utils/routerAbEd25519Yao';
 import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
 import type { WalletCustodyCeremonyCommitPayload } from '@shared/passkey-custody';
+import type {
+  WalletCustodyEd25519MaterialBindingV1,
+  WalletCustodySealedEd25519MaterialV1,
+} from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
 import type { EmailOtpEd25519YaoPendingFactorHandle } from '@/core/signingEngine/session/emailOtp/ed25519YaoRootVault';
 import type { EmailOtpAppSessionBinding } from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
 import type { EmailOtpEd25519YaoPublicationInput } from '@/core/signingEngine/session/emailOtp/ed25519YaoPublication';
@@ -355,6 +359,17 @@ export interface WalletCustodyCeremonySurface {
     authorization: string;
     traceContext?: RouterAbTraceContextV1;
   }): Promise<EstablishedWalletCustodyNearEd25519KeySetV1>;
+
+  /**
+   * Persists the wallet-scoped continuity cache the ceremony sealed.
+   *
+   * Separate from establishing it because the record can only be written once
+   * the wallet profile exists, which registration creates between the two.
+   */
+  persistWalletCustodyEd25519Material(args: {
+    binding: WalletCustodyEd25519MaterialBindingV1;
+    sealed: WalletCustodySealedEd25519MaterialV1;
+  }): Promise<void>;
 }
 
 /**
