@@ -1903,7 +1903,17 @@ repository evidence.
       point a code at a wrap it does not open, and a code for another wallet
       finds nothing rather than being tried against every row. Tested against a
       real ceremony's output; all ten codes reach the same seed.
-- [ ] Recover every key in the exact manifest before credential promotion.
+- [x] Recover every key in the exact manifest before credential promotion.
+      `admitWalletRecoveryCredentialPromotion` is the only thing that decides
+      it, and it decides on the *set*: a mixed wallet that promoted after only
+      some key sets verified would leave the owner believing they had recovered
+      while part of the wallet still answers to a credential they no longer
+      hold — surfacing the first time that key set is used.
+
+      Silence is not success (a key set nothing reported on is outstanding),
+      conflicting reports for one key set are treated as failure, and an empty
+      manifest is refused rather than trivially satisfied — it means the caller
+      never loaded one.
 - [x] Consume a recovery code only with the activation commit.
       `runWalletRecoveryWithCode` makes the ordering structural rather than a
       rule each call site restates: it reserves before the work runs, consumes
