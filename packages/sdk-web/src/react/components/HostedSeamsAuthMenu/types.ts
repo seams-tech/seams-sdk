@@ -3,6 +3,7 @@ import type {
   HostedAuthMenuCopyInput,
   HostedAuthMenuExternalAuthEvidence,
   HostedAuthMenuExternalAuthRequest,
+  HostedAuthMenuDemoEmailOtpDelivery,
   HostedAuthMenuExternalProvider,
   HostedAuthMenuMode,
   HostedAuthMenuOpenRequest,
@@ -16,6 +17,7 @@ export type {
   HostedAuthMenuCopyInput,
   HostedAuthMenuExternalAuthEvidence,
   HostedAuthMenuExternalAuthRequest,
+  HostedAuthMenuDemoEmailOtpDelivery,
   HostedAuthMenuExternalProvider,
   HostedAuthMenuMode,
   HostedAuthMenuOpenRequest,
@@ -37,6 +39,9 @@ export type HostedAuthMenuExternalAuthBroker = (
 ) => HostedAuthMenuExternalAuthEvidence | Promise<HostedAuthMenuExternalAuthEvidence>;
 
 export type SeamsAuthMenuOutcomeHandler = (outcome: HostedAuthMenuOutcome) => void;
+export type HostedAuthMenuDemoEmailOtpHandler = (
+  delivery: HostedAuthMenuDemoEmailOtpDelivery['delivery'],
+) => void;
 
 export interface HostedSeamsAuthMenuProps {
   /** Initial view selected by the wallet-host menu. Defaults to login. */
@@ -51,6 +56,8 @@ export interface HostedSeamsAuthMenuProps {
   copy?: HostedAuthMenuCopyInput;
   /** App-origin provider broker, or null when no external provider is enabled. */
   externalAuthBroker?: HostedAuthMenuExternalAuthBroker | null;
+  /** Receives demo Email OTP delivery from the wallet origin. */
+  onDemoEmailOtp?: HostedAuthMenuDemoEmailOtpHandler;
   /** Receives exactly one terminal outcome for each mounted session. */
   onOutcome: SeamsAuthMenuOutcomeHandler;
 }

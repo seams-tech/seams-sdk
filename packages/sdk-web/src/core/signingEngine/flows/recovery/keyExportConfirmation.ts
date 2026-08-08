@@ -153,6 +153,30 @@ type ThresholdEcdsaExportViewerArgs =
   | ThresholdEcdsaExportViewerLoadingArgs
   | ThresholdEcdsaExportViewerReadyArgs;
 
+type Ed25519ExportViewerBaseArgs = {
+  walletId: string;
+  nearAccountId: string;
+  publicKey: string;
+  variant?: 'drawer' | 'modal';
+  theme?: 'dark' | 'light';
+  flowId: string;
+  onEvent?: KeyExportEventCallback;
+};
+
+type Ed25519ExportViewerLoadingArgs = Ed25519ExportViewerBaseArgs & {
+  state: 'loading';
+  viewerSessionId: string;
+  privateKey?: never;
+};
+
+type Ed25519ExportViewerReadyArgs = Ed25519ExportViewerBaseArgs & {
+  state: 'ready';
+  privateKey: string;
+  viewerSessionId?: string;
+};
+
+type Ed25519ExportViewerArgs = Ed25519ExportViewerLoadingArgs | Ed25519ExportViewerReadyArgs;
+
 const decryptPrivateKeyWithPrfType = 'decryptPrivateKeyWithPrf' as UiConfirmRequest['type'];
 const showSecurePrivateKeyUiType = 'showSecurePrivateKeyUi' as UiConfirmRequest['type'];
 
@@ -269,23 +293,15 @@ export async function requestEmailOtpEd25519KeyExportAuthorization(
 
 export async function showEd25519ExportViewer(
   deps: KeyExportConfirmationDeps,
-  args: {
-    walletId: string;
-    nearAccountId: string;
-    publicKey: string;
-    privateKey: string;
-    variant?: 'drawer' | 'modal';
-    theme?: 'dark' | 'light';
-    flowId: string;
-    onEvent?: KeyExportEventCallback;
-  },
+  args: Ed25519ExportViewerArgs,
 ): Promise<void> {
+  const isLoading = args.state === 'loading';
   const keys: Ed25519ExportPrivateKeyDisplayEntry[] = [
     {
       scheme: 'ed25519',
       label: 'NEAR Ed25519 private key',
       publicKey: args.publicKey,
-      privateKey: args.privateKey,
+      privateKey: isLoading ? '' : args.privateKey,
     },
   ];
   await deps.touchConfirm.requestUserConfirmation({
@@ -299,11 +315,12 @@ export async function showEd25519ExportViewer(
     },
     payload: {
       subject: { kind: 'near_wallet', nearAccountId: args.nearAccountId },
+      viewerSessionId: args.viewerSessionId,
       publicKey: args.publicKey,
       keys,
       variant: args.variant,
       theme: args.theme ?? deps.theme ?? 'dark',
-      loading: false,
+      loading: isLoading,
       onLifecycle: (event) => {
         emitKeyExportEvent(args.onEvent, {
           phase:
@@ -317,7 +334,7 @@ export async function showEd25519ExportViewer(
             kind: 'key_export_viewer',
             overlay: event === 'opened' ? 'show' : 'hide',
           },
-          data: { chain: 'near', curve: 'ed25519', loading: false },
+          data: { chain: 'near', curve: 'ed25519', loading: isLoading },
         });
         if (event === 'closed') {
           emitKeyExportEvent(args.onEvent, {
