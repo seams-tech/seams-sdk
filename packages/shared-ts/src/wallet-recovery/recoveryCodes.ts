@@ -28,3 +28,9 @@ export {
 } from './recoveryKeyId';
 
 export type { DerivedWalletRecoveryKeyId } from './recoveryKeyId';
+
+/* Issuance, which establishing custody performs in the same act as sealing —
+   see `recoveryCodeIssuance.ts`. */
+export { issueWalletRecoveryCodes, zeroizeIssuedWalletRecoveryCodes } from './recoveryCodeIssuance';
+
+export type { IssuedWalletRecoveryCodes } from './recoveryCodeIssuance';
