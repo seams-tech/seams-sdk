@@ -34,3 +34,11 @@ export type { DerivedWalletRecoveryKeyId } from './recoveryKeyId';
 export { issueWalletRecoveryCodes, zeroizeIssuedWalletRecoveryCodes } from './recoveryCodeIssuance';
 
 export type { IssuedWalletRecoveryCodes } from './recoveryCodeIssuance';
+
+/* The attempt that binds a code's lifecycle to its activation outcome. */
+export { runWalletRecoveryWithCode } from './recoveryCodeAttempt';
+
+export type {
+  WalletRecoveryActivationResult,
+  WalletRecoveryAttemptOutcome,
+} from './recoveryCodeAttempt';
