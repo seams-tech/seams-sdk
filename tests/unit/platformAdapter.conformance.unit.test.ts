@@ -8,7 +8,6 @@ import {
   buildEcdsaRoleLocalReadyRecord,
   buildRelayerKeyId,
   buildSecureEnclaveWrappedSecretSource,
-  buildWebAuthnPrfFirstSecretSourceFromParts,
   createBrowserPlatformRuntime,
   type AuthenticatorPort,
   type DurableRecordStore,
@@ -31,7 +30,12 @@ import {
 } from '@/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { SignerWorkerOperationError } from '@/core/signingEngine/workerManager/workerTypes';
-import { WorkerRequestType, WorkerResponseType } from '@/core/types/signer-worker';
+import {
+  EcdsaDerivationClientCustomRequestType,
+  EcdsaDerivationClientCustomResponseType,
+} from '@/core/signingEngine/workerManager/workerTypes';
+import { buildThresholdPrfXClientBaseSecretSource } from '@/core/platform/secretSources';
+import { fixtureEcdsaRoleLocalPublicCapability } from './helpers/ecdsaBootstrap.fixtures';
 
 type BrowserRuntimeDeps = NonNullable<Parameters<typeof createBrowserPlatformRuntime>[0]>;
 
@@ -121,10 +125,10 @@ function prepareInputFor(wallet = walletId) {
       relayerParticipantId: 2 as const,
       participantIds: [1, 2] as const,
     },
-    secretSource: buildWebAuthnPrfFirstSecretSourceFromParts({
-      prfFirstB64u: bytesB64u(32, 5),
-      rpId,
-      credentialIdB64u,
+    /* One legal ECDSA source: the threshold PRF x-client base. The PRF
+       credential is consumed upstream of this port. */
+    secretSource: buildThresholdPrfXClientBaseSecretSource({
+      xClientBaseB64u: bytesB64u(32, 5),
     }),
   };
 }
@@ -239,7 +243,8 @@ function createBrowserSignerCryptoConformancePort(): SignerCryptoPort {
   const workerCtx: WorkerOperationContext = {
     async requestWorkerOperation({ request }) {
       if (
-        request.type === WorkerRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap
+        request.type ===
+        EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap
       ) {
         const payload = request.payload as typeof prepareInput;
         if (payload.context.applicationBindingDigestB64u === timeoutApplicationBindingDigestB64u) {
@@ -260,7 +265,7 @@ function createBrowserSignerCryptoConformancePort(): SignerCryptoPort {
           });
         }
         return {
-          type: WorkerResponseType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
+          type: EcdsaDerivationClientCustomResponseType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
           payload: {
             pendingStateBlob,
             clientBootstrap: {
@@ -277,10 +282,11 @@ function createBrowserSignerCryptoConformancePort(): SignerCryptoPort {
         };
       }
       if (
-        request.type === WorkerRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap
+        request.type ===
+        EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap
       ) {
         return {
-          type: WorkerResponseType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
+          type: EcdsaDerivationClientCustomResponseType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
           payload: {
             stateBlob: readyStateBlob,
             publicFacts: {
@@ -362,6 +368,16 @@ function createPublicFacts(): EcdsaRoleLocalPublicFacts {
     groupPublicKey33B64u,
     ethereumAddress,
     contextBinding32B64u: bytesB64u(32, 11),
+    publicCapability: fixtureEcdsaRoleLocalPublicCapability({
+      walletId,
+      evmFamilySigningKeySlotId: String(walletKeyId),
+      ecdsaThresholdKeyId: String(ecdsaThresholdKeyId),
+      signingRootId: String(signingRootId),
+      signingRootVersion: String(signingRootVersion),
+      clientVerifyingShareB64u: derivationClientSharePublicKey33B64u,
+      thresholdEcdsaPublicKeyB64u: groupPublicKey33B64u,
+      ethereumAddress,
+    }),
   });
 }
 
@@ -383,6 +399,7 @@ function relayerPublicIdentity(): EcdsaRelayerPublicIdentity {
     relayerPublicKey33B64u: publicFacts.relayerPublicKey33B64u,
     groupPublicKey33B64u: publicFacts.groupPublicKey33B64u,
     ethereumAddress: publicFacts.ethereumAddress,
+    relayerShareRetryCounter: 0,
   };
 }
 
@@ -526,22 +543,6 @@ export function runSignerCryptoPortConformance(factory: () => SignerCryptoPort):
         ok: false,
         failure: 'invocation',
         code: 'native_binding_failure',
-      });
-    });
-
-    test('returns unsupported secret-source command failure', async () => {
-      const result = await factory().prepareEcdsaClientBootstrap({
-        ...prepareInput,
-        secretSource: buildSecureEnclaveWrappedSecretSource({
-          keyId: 'secure-key',
-          accessGroup: 'group',
-        }),
-      });
-
-      expect(result).toMatchObject({
-        ok: false,
-        failure: 'command',
-        code: 'unsupported_secret_source',
       });
     });
   });
