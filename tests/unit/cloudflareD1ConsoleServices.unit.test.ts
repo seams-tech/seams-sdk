@@ -674,6 +674,20 @@ test('local D1 Worker mounts direct sponsored EVM Router API route when local ex
       SIGNER_DB: database,
       SEAMS_TENANT_STORAGE_NAMESPACE: 'seams-local-test',
       SPONSORED_EVM_EXECUTORS_JSON: createLocalSponsoredEvmExecutorsJson(),
+      /* An executor alone does not make the route serviceable: its handler
+         refuses with 503 when spend pricing is unconfigured, and does so
+         before authenticating. Without pricing this test would assert that
+         gate rather than the publishable-key requirement it is named for. */
+      SPONSORED_EXECUTION_STATIC_PRICING_JSON: JSON.stringify({
+        evm: {
+          '42431': {
+            estimateFeePerGas: '1000000000',
+            minorPerFeeUnitNumerator: '1',
+            minorPerFeeUnitDenominator: '1000000000000',
+            pricingVersion: 'static-evm-42431-v1',
+          },
+        },
+      }),
     },
     createFakeExecutionContext(),
   );
@@ -1006,8 +1020,10 @@ test('local D1 Worker runs dashboard, signer, billing, and reconciliation smoke 
         consoleTables: 44,
         signerTables: 26,
       },
+      /* Admission moved to private D1, so readiness names the database it
+         proved the policy against rather than a Durable Object binding. */
       admission: {
-        durableObject: 'configured',
+        database: 'SIGNER_DB',
         policy: 'allowed',
       },
     });
