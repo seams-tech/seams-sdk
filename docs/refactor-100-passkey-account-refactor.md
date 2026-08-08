@@ -757,10 +757,18 @@ the ceremony can reach down to it, unlock could never have reached up.
 
 **And the same shape across all of Phase 4.** `runWalletRecoveryWithCode`,
 `admitWalletRecoveryCredentialPromotion` and the recovery-key-id derivation
-are exported, tested, and called only by their own tests. Phase 4 is not
-"unstarted" — its primitives are complete and unreachable, exactly as cold
+were exported, tested, and called only by their own tests. Phase 4 was never
+"unstarted" — its primitives were complete and unreachable, exactly as cold
 unlock's were. What it needs is a route, an RPC and a surface, which is the
 same three-piece shape, not more crypto.
+
+**Spending a code is now wired** (`walletRecoveryAttempt.ts`), and it needed
+no new store: each manifest KEK wrap already carries its own lifecycle, so a
+spend is a versioned update to the record registration already writes. Three
+properties are pinned there because each fails silently — an unknown code and
+a spent code answer byte-identically (otherwise the route counts how many of
+the user's ten remain), the spend is written before the payload is returned,
+and the write is guarded against the version the read observed.
 
 Five instances in one refactor is a pattern, not coincidence. Each was a
 half-built seam that typechecked and tested green because *nothing on the
