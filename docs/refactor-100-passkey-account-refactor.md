@@ -762,8 +762,9 @@ were exported, tested, and called only by their own tests. Phase 4 was never
 unlock's were. What it needs is a route, an RPC and a surface, which is the
 same three-piece shape, not more crypto.
 
-**Spending a code is now wired** (`walletRecoveryAttempt.ts`), and it needed
-no new store: each manifest KEK wrap already carries its own lifecycle, so a
+**Spending a code is now wired end to end** — domain
+(`walletRecoveryAttempt.ts`), route (`/wallets/recovery/spend`) and client RPC
+(`walletRecoverySpend.ts`). It needed no new store: each manifest KEK wrap already carries its own lifecycle, so a
 spend is a versioned update to the record registration already writes. Three
 properties are pinned there because each fails silently — an unknown code and
 a spent code answer byte-identically (otherwise the route counts how many of
