@@ -106,6 +106,9 @@ import type { LoginWithEmailOtpEd25519YaoCapabilityInternalArgs } from '@/core/s
 import type { PreparedColdEmailOtpEd25519YaoRecoveryV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoCapabilityRecovery';
 import type { EmailOtpEd25519YaoRecoveryBootstrapV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
+import type { RouterAbEd25519YaoRegistrationAdmissionRequestV1 } from '@shared/utils/routerAbEd25519Yao';
+import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
+import type { WalletCustodyCeremonyCommitPayload } from '@shared/passkey-custody';
 import type { EmailOtpEd25519YaoPendingFactorHandle } from '@/core/signingEngine/session/emailOtp/ed25519YaoRootVault';
 import type { EmailOtpAppSessionBinding } from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
 import type { EmailOtpEd25519YaoPublicationInput } from '@/core/signingEngine/session/emailOtp/ed25519YaoPublication';
@@ -323,6 +326,60 @@ export interface EcdsaRegistrationSurface {
 }
 
 export type Ed25519YaoRegistrationActivationSurface = ProductEd25519YaoCapabilityActivationPortV1;
+
+/**
+ * Running one wallet custody key set from the registration flow.
+ *
+ * A port rather than direct worker access, for the same reason every other
+ * signing operation is one: the operations layer never holds a worker handle.
+ * It matters more here — a run's seed lives in the ceremony worker's wasm state
+ * across three steps, so the flow that starts a run must not be able to route
+ * one of its steps somewhere else.
+ *
+ * The result deliberately splits what leaves the device from what stays on it.
+ * `commitPayload` is the wire projection; `localMaterial` is the continuity
+ * cache and never crosses.
+ */
+export interface WalletCustodyCeremonySurface {
+  establishWalletCustodyNearEd25519KeySet(args: {
+    walletId: string;
+    factorJson: string;
+    factorSecret: ArrayBuffer;
+    nearEd25519SigningKeyId: string;
+    registrationCeremonyId: string;
+    admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+    admissionReceipt: unknown;
+    participantIds: readonly [number, number];
+    routerOrigin: string;
+    /** The signed setup: the Router authorizes the execute round against it. */
+    authorization: string;
+    traceContext?: RouterAbTraceContextV1;
+  }): Promise<EstablishedWalletCustodyNearEd25519KeySetV1>;
+}
+
+/**
+ * What one established NEAR key set hands back to the registration flow.
+ *
+ * `recoveryCodes` are the only copy: the wraps are one-way, so a caller that
+ * discards them has issued ten codes nobody can ever produce.
+ */
+export type EstablishedWalletCustodyNearEd25519KeySetV1 = {
+  readonly recoveryCodes: readonly string[];
+  readonly commitPayload: WalletCustodyCeremonyCommitPayload;
+  readonly activationReference: {
+    readonly kind: 'router_ab_ed25519_yao_activation_reference_v1';
+    readonly lifecycle_id: string;
+    readonly session_id: readonly number[];
+  };
+  /** Rebuilt from the Router's receipt; every identity on it is the Router's. */
+  readonly metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+  /** The same-device cache. Stays on the device by construction. */
+  readonly localMaterial: {
+    readonly b64u: string;
+    readonly nonceB64u: string;
+    readonly applicationBindingDigestB64u: string;
+  };
+};
 
 export interface Ed25519MaterialOwnerQueueSurface {
   withExactEd25519MaterialOwner<T>(args: {
@@ -551,6 +608,7 @@ export interface EmailOtpRegistrationEnrollmentSurface {
 
 export type RegistrationSigningSurface = RpIdSurface &
   Ed25519YaoRegistrationActivationSurface &
+  WalletCustodyCeremonySurface &
   Pick<WalletIframeWarmupSurface, 'warmCriticalResources'> &
   RegistrationResourceWarmupSurface &
   Pick<

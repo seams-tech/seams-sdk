@@ -1,6 +1,7 @@
 import type {
   EcdsaLoginSessionSurface,
   EcdsaRegistrationSurface,
+  WalletCustodyCeremonySurface,
   Ed25519YaoRegistrationActivationSurface,
   EcdsaSessionBootstrapSurface,
   EcdsaSessionControlSurface,
@@ -113,6 +114,7 @@ export interface SeamsWebSigningSurface
     RegistrationAccountSurface,
     EcdsaRegistrationSurface,
     Ed25519YaoRegistrationActivationSurface,
+    WalletCustodyCeremonySurface,
     Ed25519MaterialOwnerQueueSurface,
     WebAuthnRegistrationConfirmationSurface,
     PasskeyLoginAssertionSurface,
