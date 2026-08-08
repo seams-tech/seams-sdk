@@ -111,6 +111,7 @@ test('the continuity cache is returned separately, not on the payload', async ()
     ...fixture,
     ed25519LocalMaterialB64u: 'bWF0ZXJpYWw',
     ed25519LocalMaterialNonceB64u: 'AQIDBAUGBwgJCgsM',
+    ed25519ApplicationBindingDigestB64u: 'ZGlnZXN0',
   };
   const args = establishArgs(steps);
   const established = await establishNearEd25519CustodyV1({
@@ -129,8 +130,12 @@ test('the continuity cache is returned separately, not on the payload', async ()
   expect(established.localMaterial).toEqual({
     b64u: 'bWF0ZXJpYWw',
     nonceB64u: 'AQIDBAUGBwgJCgsM',
+    applicationBindingDigestB64u: 'ZGlnZXN0',
   });
-  expect(Object.keys(established.commitPayload)).not.toContain('ed25519LocalMaterialB64u');
+  const keys = Object.keys(established.commitPayload);
+  expect(keys).not.toContain('ed25519LocalMaterialB64u');
+  // The digest is a field of the seal binding, so it stays client-side too.
+  expect(keys).not.toContain('ed25519ApplicationBindingDigestB64u');
 });
 
 test('the projection drops material from any payload, including an EVM run', async () => {

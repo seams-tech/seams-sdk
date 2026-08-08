@@ -220,6 +220,13 @@ pub struct CeremonyProtocolCompletedV1 {
 enum CompletedProtocolV1 {
     NearEd25519 {
         registered_public_key: [u8; 32],
+        /// The digest this key set's root and cache were bound to.
+        ///
+        /// Reported because opening the cache has to rebuild the exact seal
+        /// binding, and this is one of its fields. A reader that recomputed it
+        /// from loose application facts could differ by one byte and hold a
+        /// record that never opens.
+        application_binding_digest: [u8; 32],
         /// The activated Client's material, already sealed as the same-device
         /// continuity cache.
         ///
@@ -326,6 +333,9 @@ pub struct WalletCustodyCommitPayloadV1 {
     /// The nonce the cache record was sealed with. Generated here, never
     /// accepted, so one cannot be reused across two seals under the same key.
     pub ed25519_local_material_nonce_b64u: Option<String>,
+    /// The application binding digest this key set's cache was sealed against.
+    /// Absent on an EVM run.
+    pub ed25519_application_binding_digest_b64u: Option<String>,
     pub client_root_public_key33_b64u: Option<String>,
     pub ecdsa_ready_state_blob_b64u: Option<String>,
     /// The EVM-family run's registered public identity, as the client's
@@ -656,6 +666,7 @@ impl CeremonyProtocolPreparedV1 {
             origin: self.origin,
             completed: CompletedProtocolV1::NearEd25519 {
                 registered_public_key: activated.registered_public_key(),
+                application_binding_digest,
                 local_material_b64u,
                 local_material_nonce_b64u,
             },
@@ -815,6 +826,7 @@ impl CeremonyManifestEstablishedV1 {
                 registered_public_key,
                 local_material_b64u,
                 local_material_nonce_b64u,
+                ..
             } => (
                 Some(b64u(registered_public_key)),
                 Some((
@@ -858,6 +870,14 @@ impl CeremonyManifestEstablishedV1 {
                 None => (None, None),
             };
 
+        let ed25519_application_binding_digest_b64u = match &self.completed {
+            CompletedProtocolV1::NearEd25519 {
+                application_binding_digest,
+                ..
+            } => Some(b64u(application_binding_digest)),
+            CompletedProtocolV1::EvmFamilyEcdsa { .. } => None,
+        };
+
         Ok(WalletCustodyCommitPayloadV1 {
             wallet_id: self.wallet_id,
             key_set: self.verified.key_set().as_str().to_string(),
@@ -866,6 +886,7 @@ impl CeremonyManifestEstablishedV1 {
             registered_public_key_b64u,
             ed25519_local_material_b64u,
             ed25519_local_material_nonce_b64u,
+            ed25519_application_binding_digest_b64u,
             client_root_public_key33_b64u,
             ecdsa_ready_state_blob_b64u,
             ecdsa_public_facts,
@@ -1032,6 +1053,7 @@ mod tests {
             origin,
             completed: CompletedProtocolV1::NearEd25519 {
                 registered_public_key: REGISTERED_PUBLIC_KEY,
+                application_binding_digest: [51u8; 32],
                 local_material_b64u: b64u(&[9u8; 48]),
                 local_material_nonce_b64u: b64u(&[3u8; 12]),
             },

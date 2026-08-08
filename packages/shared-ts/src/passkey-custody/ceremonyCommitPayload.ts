@@ -85,6 +85,14 @@ export type WalletCustodyCeremonyCommitPayload = {
   readonly ed25519LocalMaterialB64u?: string;
   /** The nonce that record was sealed with. Generated inside the ceremony. */
   readonly ed25519LocalMaterialNonceB64u?: string;
+  /**
+   * The application binding digest the cache was sealed against.
+   *
+   * Reported rather than recomputed at the reader: it is a field of the seal
+   * binding, and a reader that rebuilt it from loose application facts could
+   * differ by one byte and hold a record that never opens.
+   */
+  readonly ed25519ApplicationBindingDigestB64u?: string;
   readonly clientRootPublicKey33B64u?: string;
   /** Finalized role-local ECDSA material, still sealed to its own boundary. */
   readonly ecdsaReadyStateBlobB64u?: string;
@@ -170,8 +178,8 @@ export function walletCustodyCeremonyCommitPayloadFromWire(
     ...(custody === undefined || custody === null
       ? {}
       : { establishedCustody: custody as EstablishedCustodyRecordsPayload }),
-    /* `ed25519LocalMaterial*` and `ecdsaReadyStateBlobB64u` are deliberately
-       absent. Both are the ceremony's output to its own client, not part of
+    /* `ed25519LocalMaterial*`, `ed25519ApplicationBindingDigestB64u`, and
+       `ecdsaReadyStateBlobB64u` are deliberately absent. Both are the ceremony's output to its own client, not part of
        the commit — and the ECDSA blob is the sharper case: it is not
        self-encrypted, and `extract_client_signing_share32_from_ready_state_blob`
        yields the client's signing share from its bytes with no key. Letting it

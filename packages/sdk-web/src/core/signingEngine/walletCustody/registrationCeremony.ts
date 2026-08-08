@@ -52,7 +52,12 @@ export type EstablishedNearEd25519Custody = {
    * Deliberately separate from `commitPayload` rather than a field the caller
    * must remember to strip: the type makes it impossible to send by accident.
    */
-  readonly localMaterial: { readonly b64u: string; readonly nonceB64u: string } | null;
+  readonly localMaterial: {
+    readonly b64u: string;
+    readonly nonceB64u: string;
+    /** A field of the seal binding, so opening the cache needs it verbatim. */
+    readonly applicationBindingDigestB64u: string;
+  } | null;
   /**
    * The one-use reference the deferred NEAR provisioning leg claims this run's
    * Yao result with.
@@ -131,10 +136,13 @@ export async function establishNearEd25519CustodyV1(
       },
       commitPayload: walletCustodyCommitPayloadForWire(payload),
       localMaterial:
-        payload.ed25519LocalMaterialB64u && payload.ed25519LocalMaterialNonceB64u
+        payload.ed25519LocalMaterialB64u &&
+        payload.ed25519LocalMaterialNonceB64u &&
+        payload.ed25519ApplicationBindingDigestB64u
           ? {
               b64u: payload.ed25519LocalMaterialB64u,
               nonceB64u: payload.ed25519LocalMaterialNonceB64u,
+              applicationBindingDigestB64u: payload.ed25519ApplicationBindingDigestB64u,
             }
           : null,
     };
@@ -160,6 +168,7 @@ export function walletCustodyCommitPayloadForWire(
   const {
     ed25519LocalMaterialB64u: _cache,
     ed25519LocalMaterialNonceB64u: _cacheNonce,
+    ed25519ApplicationBindingDigestB64u: _cacheBinding,
     ecdsaReadyStateBlobB64u: _readyState,
     ...wire
   } = payload;
