@@ -183,6 +183,45 @@ fn establish_custody_with_evm_key_set() -> WalletCustodyCommitPayloadV1 {
         .expect("custody committed")
 }
 
+#[test]
+fn evm_custody_commit_is_ready_before_activation_and_seed_free_completion_matches() {
+    let prepared = CeremonySeedHeldV1::establish(WALLET_ID)
+        .expect("custody established")
+        .prepare(KeySetProtocolInputsV1::EvmFamilyEcdsa {
+            application_binding_digest: ECDSA_BINDING_DIGEST,
+        })
+        .expect("ECDSA bootstrap prepared");
+    let relayer = relayer_identity(
+        &prepared
+            .ecdsa_client_share_public_key33_b64u()
+            .expect("client share key"),
+    );
+    let (pending, commit) = prepared
+        .prepare_evm_activation(
+            EVM_SLOT_ID.to_string(),
+            None,
+            Some((factor_inputs(), recovery_codes())),
+        )
+        .expect("pre-activation custody commit");
+
+    assert!(commit.established_custody.is_some());
+    assert!(commit.ecdsa_ready_state_blob_b64u.is_none());
+    assert!(commit.ecdsa_public_facts.is_none());
+
+    let completed = pending.complete(relayer).expect("activation completed");
+    assert_eq!(
+        completed.key_manifest_digest_b64u,
+        commit.key_manifest_digest_b64u
+    );
+    assert_eq!(
+        completed.client_root_public_key33_b64u,
+        commit
+            .client_root_public_key33_b64u
+            .expect("pre-activation client root")
+    );
+    assert!(!completed.ecdsa_ready_state_blob_b64u.is_empty());
+}
+
 /// Reaches the wallet's seed the way a later key set does: by opening the
 /// envelope the establishing run sealed.
 fn join_custody(records: &EstablishedCustodyRecordsV1) -> CeremonySeedHeldV1 {

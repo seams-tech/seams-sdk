@@ -14,10 +14,7 @@ import type {
 } from './seams';
 import type { SyncAccountResult, SignNEP413MessageResult } from '@/core/types/sdkPublicResults';
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
-import {
-  parseWalletSessionId,
-  type WalletSessionId,
-} from '@shared/authorization/capabilityKinds';
+import { parseWalletSessionId, type WalletSessionId } from '@shared/authorization/capabilityKinds';
 import { isWalletAuthMethod, type WalletAuthMethod } from '@shared/utils/signerDomain';
 import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
 
@@ -832,6 +829,20 @@ export interface AfterCall<T> {
   (success: false, result?: undefined, error?: Error): void | Promise<void>;
 }
 
+export type WalletRecoveryCodeBackupRequestV1 = {
+  readonly kind: 'wallet_recovery_code_backup_request_v1';
+  readonly walletId: string;
+  readonly recoveryCodes: readonly string[];
+};
+
+export type WalletRecoveryCodeBackupAcknowledgementV1 = {
+  readonly kind: 'wallet_recovery_codes_backed_up_v1';
+};
+
+export type WalletRecoveryCodeBackupHandlerV1 = (
+  request: WalletRecoveryCodeBackupRequestV1,
+) => Promise<WalletRecoveryCodeBackupAcknowledgementV1> | WalletRecoveryCodeBackupAcknowledgementV1;
+
 //////////////////////////////////
 /// Hooks Options
 //////////////////////////////////
@@ -841,6 +852,12 @@ export interface RegistrationHooksOptions {
   onEvent?: EventCallback<RegistrationFlowEvent>;
   onError?: (error: Error) => void;
   afterCall?: AfterCall<RegistrationResult>;
+  /**
+   * Receives the wallet-scoped recovery codes before custody is committed.
+   * Resolve only after the person registering the wallet has saved the set.
+   * When omitted, the SDK presents its built-in backup dialog.
+   */
+  backupWalletRecoveryCodes?: WalletRecoveryCodeBackupHandlerV1;
   /** Optional sink for sanitized Refactor 93 registration timing spans. */
   onTimingSpan?: RegistrationTimingSpanCallbackV1;
   // Signer provisioning options used during registration.

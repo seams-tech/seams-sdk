@@ -120,6 +120,15 @@ export type WalletCustodyEvmFamilyPublicFacts = {
   readonly relayerShareRetryCounter: number;
 };
 
+/** Local EVM material returned only after the Router activation receipt. */
+export type WalletCustodyEvmFamilyActivationCompletion = {
+  readonly walletId: string;
+  readonly keyManifestDigestB64u: string;
+  readonly clientRootPublicKey33B64u: string;
+  readonly ecdsaReadyStateBlobB64u: string;
+  readonly ecdsaPublicFacts: WalletCustodyEvmFamilyPublicFacts;
+};
+
 /**
  * What the registration leg reports back about the custody it was asked to
  * commit — the response half of the same contract, so both halves stay in one

@@ -30,9 +30,10 @@ use wasm_bindgen::prelude::*;
 use zeroize::Zeroizing;
 
 use crate::ceremony::{
-    CeremonyError, CeremonyManifestEstablishedV1, CeremonyProtocolCompletedV1,
-    CeremonyProtocolPreparedV1, CeremonySeedHeldV1, FactorSealInputsV1, KeySetIdentityInputsV1,
-    KeySetProtocolInputsV1, RecoveryCodeInputV1,
+    CeremonyError, CeremonyEvmActivationPendingV1, CeremonyManifestEstablishedV1,
+    CeremonyProtocolCompletedV1, CeremonyProtocolPreparedV1, CeremonySeedHeldV1,
+    EvmFamilyActivationCompletionV1, FactorSealInputsV1, KeySetIdentityInputsV1,
+    KeySetProtocolInputsV1, RecoveryCodeInputV1, WalletCustodyCommitPayloadV1,
 };
 
 fn js_error(message: impl core::fmt::Display) -> JsValue {
@@ -147,6 +148,35 @@ fn relayer_identity(wire: RelayerPublicIdentityV1) -> DecodeResult<RelayerPublic
     })
 }
 
+fn recorded_manifest_digest(value: Option<String>) -> DecodeResult<Option<[u8; 32]>> {
+    value
+        .as_deref()
+        .map(|digest| decode_fixed::<32>(digest, "recordedKeyManifestDigestB64u"))
+        .transpose()
+}
+
+fn factor_seal_inputs(factor_json: &str, factor_secret: &[u8]) -> DecodeResult<FactorSealInputsV1> {
+    let wire = serde_json::from_str::<FactorSealInputsWireV1>(factor_json)
+        .map_err(|error| error.to_string())?;
+    Ok(FactorSealInputsV1 {
+        envelope_id: wire.envelope_id,
+        factor: wire.factor,
+        factor_secret: Zeroizing::new(factor_secret.to_vec()),
+    })
+}
+
+fn recovery_code_inputs(recovery_codes_json: &str) -> DecodeResult<Vec<RecoveryCodeInputV1>> {
+    let wires = serde_json::from_str::<Vec<RecoveryCodeInputWireV1>>(recovery_codes_json)
+        .map_err(|error| error.to_string())?;
+    let mut recovery_codes = Vec::with_capacity(wires.len());
+    for wire in wires {
+        recovery_codes.push(RecoveryCodeInputV1 {
+            code_bytes: Zeroizing::new(decode_b64u(&wire.code_bytes_b64u, "codeBytesB64u")?),
+        });
+    }
+    Ok(recovery_codes)
+}
+
 /// State 1. Holds the wallet custody seed and nothing else.
 #[wasm_bindgen]
 pub struct WasmCeremonySeedHeldV1 {
@@ -157,6 +187,13 @@ pub struct WasmCeremonySeedHeldV1 {
 #[wasm_bindgen]
 pub struct WasmCeremonyProtocolPreparedV1 {
     inner: CeremonyProtocolPreparedV1,
+}
+
+/// EVM state after its custody payload is ready and before activation returns.
+#[wasm_bindgen]
+pub struct WasmCeremonyEvmActivationPendingV1 {
+    inner: CeremonyEvmActivationPendingV1,
+    commit_payload: WalletCustodyCommitPayloadV1,
 }
 
 /// State 3. The protocol returned; its public identity is known.
@@ -290,6 +327,10 @@ impl WasmCeremonyProtocolPreparedV1 {
         self.inner.ecdsa_client_share_public_key33_b64u()
     }
 
+    pub fn ecdsa_client_share_retry_counter(&self) -> Option<u32> {
+        self.inner.ecdsa_client_share_retry_counter()
+    }
+
     pub fn complete_near_ed25519(
         self,
         yao_result_json: &str,
@@ -314,6 +355,72 @@ impl WasmCeremonyProtocolPreparedV1 {
                 .complete_evm_family(relayer_identity(wire).map_err(js_error)?)
                 .map_err(ceremony_error)?,
         })
+    }
+
+    /// Seals new custody before activation while retaining only ECDSA pending state.
+    pub fn prepare_evm_activation_establishing_custody(
+        self,
+        evm_family_signing_key_slot_id: &str,
+        factor_json: &str,
+        factor_secret: &[u8],
+        recovery_codes_json: &str,
+    ) -> Result<WasmCeremonyEvmActivationPendingV1, JsValue> {
+        let (inner, commit_payload) = self
+            .inner
+            .prepare_evm_activation(
+                evm_family_signing_key_slot_id.to_string(),
+                None,
+                Some((
+                    factor_seal_inputs(factor_json, factor_secret).map_err(js_error)?,
+                    recovery_code_inputs(recovery_codes_json).map_err(js_error)?,
+                )),
+            )
+            .map_err(ceremony_error)?;
+        Ok(WasmCeremonyEvmActivationPendingV1 {
+            inner,
+            commit_payload,
+        })
+    }
+
+    /// Prepares an EVM key set that joins custody already opened at begin.
+    pub fn prepare_evm_activation_joining_custody(
+        self,
+        evm_family_signing_key_slot_id: &str,
+        recorded_key_manifest_digest_b64u: Option<String>,
+    ) -> Result<WasmCeremonyEvmActivationPendingV1, JsValue> {
+        let recorded =
+            recorded_manifest_digest(recorded_key_manifest_digest_b64u).map_err(js_error)?;
+        let (inner, commit_payload) = self
+            .inner
+            .prepare_evm_activation(
+                evm_family_signing_key_slot_id.to_string(),
+                recorded.as_ref().map(|digest| &digest[..]),
+                None,
+            )
+            .map_err(ceremony_error)?;
+        Ok(WasmCeremonyEvmActivationPendingV1 {
+            inner,
+            commit_payload,
+        })
+    }
+}
+
+#[wasm_bindgen]
+impl WasmCeremonyEvmActivationPendingV1 {
+    /// Ciphertext and public identity only; ready for the registration request.
+    pub fn commit_payload(&self) -> Result<JsValue, JsValue> {
+        serde_wasm_bindgen::to_value(&self.commit_payload).map_err(js_error)
+    }
+
+    /// Consumes the Router receipt and returns local role material plus public facts.
+    pub fn complete(self, relayer_public_identity_json: &str) -> Result<JsValue, JsValue> {
+        let wire = serde_json::from_str::<RelayerPublicIdentityV1>(relayer_public_identity_json)
+            .map_err(js_error)?;
+        let completion: EvmFamilyActivationCompletionV1 = self
+            .inner
+            .complete(relayer_identity(wire).map_err(js_error)?)
+            .map_err(ceremony_error)?;
+        serde_wasm_bindgen::to_value(&completion).map_err(js_error)
     }
 }
 
@@ -340,12 +447,8 @@ impl WasmCeremonyProtocolCompletedV1 {
             },
             _ => return Err(js_error("unknown wallet key set kind")),
         };
-        let recorded = match recorded_key_manifest_digest_b64u.as_deref() {
-            Some(value) => {
-                Some(decode_fixed::<32>(value, "recordedKeyManifestDigestB64u").map_err(js_error)?)
-            }
-            None => None,
-        };
+        let recorded =
+            recorded_manifest_digest(recorded_key_manifest_digest_b64u).map_err(js_error)?;
         Ok(WasmCeremonyManifestEstablishedV1 {
             inner: self
                 .inner
@@ -365,27 +468,11 @@ impl WasmCeremonyManifestEstablishedV1 {
         factor_secret: &[u8],
         recovery_codes_json: &str,
     ) -> Result<JsValue, JsValue> {
-        let factor_wire =
-            serde_json::from_str::<FactorSealInputsWireV1>(factor_json).map_err(js_error)?;
-        let code_wires = serde_json::from_str::<Vec<RecoveryCodeInputWireV1>>(recovery_codes_json)
-            .map_err(js_error)?;
-        let mut recovery_codes = Vec::with_capacity(code_wires.len());
-        for wire in code_wires {
-            recovery_codes.push(RecoveryCodeInputV1 {
-                code_bytes: Zeroizing::new(
-                    decode_b64u(&wire.code_bytes_b64u, "codeBytesB64u").map_err(js_error)?,
-                ),
-            });
-        }
         let payload = self
             .inner
             .finish(Some((
-                FactorSealInputsV1 {
-                    envelope_id: factor_wire.envelope_id,
-                    factor: factor_wire.factor,
-                    factor_secret: Zeroizing::new(factor_secret.to_vec()),
-                },
-                recovery_codes,
+                factor_seal_inputs(factor_json, factor_secret).map_err(js_error)?,
+                recovery_code_inputs(recovery_codes_json).map_err(js_error)?,
             )))
             .map_err(ceremony_error)?;
         serde_wasm_bindgen::to_value(&payload).map_err(js_error)

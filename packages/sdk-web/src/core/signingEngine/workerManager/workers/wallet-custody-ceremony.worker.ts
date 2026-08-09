@@ -1,13 +1,18 @@
 import init, {
   wallet_custody_ceremony_establish_v1,
   wallet_custody_ceremony_join_v1,
+  type WasmCeremonyEvmActivationPendingV1,
   type WasmCeremonyManifestEstablishedV1,
   type WasmCeremonyProtocolPreparedV1,
   type WasmCeremonySeedHeldV1,
 } from '../../../../../../../wasm/wallet_custody_ceremony/pkg/wallet_custody_ceremony.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { errorLogSummary, safeErrorMessage } from '@shared/utils/errors';
-import type { WalletCustodyKeySetKind } from '@shared/passkey-custody';
+import type {
+  WalletCustodyCeremonyCommitPayload,
+  WalletCustodyEvmFamilyActivationCompletion,
+} from '@shared/passkey-custody';
+import type { WalletCustodyCeremonyWorkerOperationMap } from '../workerTypes';
 
 /**
  * One wallet custody ceremony run, driven from a dedicated worker.
@@ -49,63 +54,27 @@ const MAX_CONCURRENT_CEREMONIES = 4;
  */
 type CeremonyState =
   | {
-      readonly step: 'prepared';
-      readonly keySet: WalletCustodyKeySetKind;
+      readonly step: 'near_prepared';
       readonly handle: WasmCeremonyProtocolPreparedV1;
     }
-  | { readonly step: 'established'; readonly handle: WasmCeremonyManifestEstablishedV1 };
+  | {
+      readonly step: 'evm_activation_pending';
+      readonly handle: WasmCeremonyEvmActivationPendingV1;
+    }
+  | { readonly step: 'near_established'; readonly handle: WasmCeremonyManifestEstablishedV1 };
 
 const ceremonies = new Map<string, CeremonyState>();
 
-type BeginRequest = {
+type WorkerRequest<TType extends keyof WalletCustodyCeremonyWorkerOperationMap> = {
   readonly id: string;
-  readonly type: 'beginWalletCustodyKeySetRun';
-  readonly payload: {
-    readonly ceremonyId: string;
-    readonly keySet: WalletCustodyKeySetKind;
-    readonly custody:
-      | { readonly origin: 'establish'; readonly walletId: string }
-      | {
-          readonly origin: 'join';
-          readonly custodyJson: string;
-          /** Opens the existing seed envelope. */
-          readonly factorSecret: ArrayBuffer | Uint8Array;
-        };
-    /** `NearEd25519ProtocolInputsWireV1` or `EvmFamilyProtocolInputsWireV1`. */
-    readonly protocolInputsJson: string;
-  };
+  readonly type: TType;
+  readonly payload: WalletCustodyCeremonyWorkerOperationMap[TType]['payload'];
 };
 
-type CompleteRequest = {
-  readonly id: string;
-  readonly type: 'completeWalletCustodyKeySetRun';
-  readonly payload: {
-    readonly ceremonyId: string;
-    readonly protocolResultJson: string;
-    readonly identityId: string;
-    readonly recordedKeyManifestDigestB64u?: string;
-  };
-};
-
-type FinishRequest = {
-  readonly id: string;
-  readonly type: 'finishWalletCustodyKeySetRun';
-  readonly payload: {
-    readonly ceremonyId: string;
-    readonly establishWith?: {
-      readonly factorJson: string;
-      /** The factor secret: a passkey PRF result, or the Email OTP factor key. */
-      readonly factorSecret: ArrayBuffer | Uint8Array;
-      readonly recoveryCodesJson: string;
-    };
-  };
-};
-
-type DiscardRequest = {
-  readonly id: string;
-  readonly type: 'discardWalletCustodyCeremony';
-  readonly payload: { readonly ceremonyId: string };
-};
+type BeginRequest = WorkerRequest<'beginWalletCustodyKeySetRun'>;
+type CompleteRequest = WorkerRequest<'completeWalletCustodyKeySetRun'>;
+type FinishRequest = WorkerRequest<'finishWalletCustodyKeySetRun'>;
+type DiscardRequest = WorkerRequest<'discardWalletCustodyCeremony'>;
 
 type WalletCustodyCeremonyWorkerRequest =
   | BeginRequest
@@ -154,6 +123,20 @@ function requireCeremonyId(value: unknown): string {
   return ceremonyId;
 }
 
+type BeginCustody = BeginRequest['payload']['custody'];
+
+function takeSeed(custody: BeginCustody): WasmCeremonySeedHeldV1 {
+  if (custody.origin === 'establish') {
+    return wallet_custody_ceremony_establish_v1(custody.walletId);
+  }
+  const factorSecret = toBytes(custody.factorSecret);
+  try {
+    return wallet_custody_ceremony_join_v1(factorSecret, custody.custodyJson);
+  } finally {
+    factorSecret.fill(0);
+  }
+}
+
 /**
  * Removes and returns a ceremony's state at the expected step.
  *
@@ -178,11 +161,6 @@ function takeCeremony<TStep extends CeremonyState['step']>(
   return state as Extract<CeremonyState, { step: TStep }>;
 }
 
-function requireKeySet(value: unknown): WalletCustodyKeySetKind {
-  if (value === 'near_ed25519_v1' || value === 'evm_family_ecdsa_v1') return value;
-  throw new Error(`Unknown wallet key set kind: ${String(value)}`);
-}
-
 /**
  * Starts a run: takes hold of the wallet's seed, then derives this key set's
  * root straight into its protocol.
@@ -199,37 +177,58 @@ function beginKeySetRun(request: BeginRequest): unknown {
   if (ceremonies.size >= MAX_CONCURRENT_CEREMONIES) {
     throw new Error('Too many wallet custody ceremonies are in flight');
   }
-  // Validated before the seed exists: `prepare_*` consumes the handle, so an
-  // unknown key set must fail while there is still nothing to drop.
-  const keySet = requireKeySet(request.payload.keySet);
+  // `prepare_*` consumes `seedHeld`; on failure the seed is dropped with it.
+  if (request.payload.keySet === 'near_ed25519_v1') {
+    const seedHeld = takeSeed(request.payload.custody);
+    const prepared = seedHeld.prepare_near_ed25519(request.payload.protocolInputsJson);
+    const yaoExecuteRequestJson = prepared.yao_execute_request_json();
+    if (!yaoExecuteRequestJson) throw new Error('NEAR custody preparation returned no request');
+    ceremonies.set(ceremonyId, { step: 'near_prepared', handle: prepared });
+    return { ceremonyId, keySet: 'near_ed25519_v1', yaoExecuteRequestJson };
+  }
 
   const custody = request.payload.custody;
-  let seedHeld: WasmCeremonySeedHeldV1;
-  if (custody?.origin === 'join') {
+  const seedHeld = takeSeed(custody);
+  const prepared = seedHeld.prepare_evm_family(request.payload.protocolInputsJson);
+  const contextBinding32B64u = prepared.ecdsa_context_binding32_b64u();
+  const clientSharePublicKey33B64u = prepared.ecdsa_client_share_public_key33_b64u();
+  const clientShareRetryCounter = prepared.ecdsa_client_share_retry_counter();
+  if (
+    !contextBinding32B64u ||
+    !clientSharePublicKey33B64u ||
+    clientShareRetryCounter === undefined
+  ) {
+    throw new Error('EVM custody preparation returned no bootstrap facts');
+  }
+
+  let pending: WasmCeremonyEvmActivationPendingV1;
+  if (custody.origin === 'establish') {
     const factorSecret = toBytes(custody.factorSecret);
     try {
-      seedHeld = wallet_custody_ceremony_join_v1(factorSecret, String(custody.custodyJson || ''));
+      pending = prepared.prepare_evm_activation_establishing_custody(
+        request.payload.evmFamilySigningKeySlotId,
+        custody.factorJson,
+        factorSecret,
+        custody.recoveryCodesJson,
+      );
     } finally {
       factorSecret.fill(0);
     }
-  } else if (custody?.origin === 'establish') {
-    seedHeld = wallet_custody_ceremony_establish_v1(String(custody.walletId || ''));
   } else {
-    throw new Error('A wallet custody run must either establish custody or join it');
+    pending = prepared.prepare_evm_activation_joining_custody(
+      request.payload.evmFamilySigningKeySlotId,
+      request.payload.recordedKeyManifestDigestB64u,
+    );
   }
-
-  // `prepare_*` consumes `seedHeld`; on failure the seed is dropped with it.
-  const prepared =
-    keySet === 'near_ed25519_v1'
-      ? seedHeld.prepare_near_ed25519(String(request.payload.protocolInputsJson || ''))
-      : seedHeld.prepare_evm_family(String(request.payload.protocolInputsJson || ''));
-  ceremonies.set(ceremonyId, { step: 'prepared', keySet, handle: prepared });
-
+  const preActivationCommitPayload = pending.commit_payload() as WalletCustodyCeremonyCommitPayload;
+  ceremonies.set(ceremonyId, { step: 'evm_activation_pending', handle: pending });
   return {
     ceremonyId,
-    yaoExecuteRequestJson: prepared.yao_execute_request_json(),
-    ecdsaContextBinding32B64u: prepared.ecdsa_context_binding32_b64u(),
-    ecdsaClientSharePublicKey33B64u: prepared.ecdsa_client_share_public_key33_b64u(),
+    keySet: 'evm_family_ecdsa_v1',
+    ecdsaContextBinding32B64u: contextBinding32B64u,
+    ecdsaClientSharePublicKey33B64u: clientSharePublicKey33B64u,
+    ecdsaClientShareRetryCounter: clientShareRetryCounter,
+    preActivationCommitPayload,
   };
 }
 
@@ -246,19 +245,23 @@ function beginKeySetRun(request: BeginRequest): unknown {
  */
 function completeKeySetRun(request: CompleteRequest): unknown {
   const ceremonyId = requireCeremonyId(request.payload.ceremonyId);
-  const { keySet, handle } = takeCeremony(ceremonyId, 'prepared');
-  const protocolResultJson = String(request.payload.protocolResultJson || '');
-  const completed =
-    keySet === 'near_ed25519_v1'
-      ? handle.complete_near_ed25519(protocolResultJson)
-      : handle.complete_evm_family(protocolResultJson);
+  if (request.payload.keySet === 'evm_family_ecdsa_v1') {
+    const { handle } = takeCeremony(ceremonyId, 'evm_activation_pending');
+    const activation = handle.complete(
+      request.payload.protocolResultJson,
+    ) as WalletCustodyEvmFamilyActivationCompletion;
+    return { ceremonyId, keySet: 'evm_family_ecdsa_v1', activation };
+  }
+
+  const { handle } = takeCeremony(ceremonyId, 'near_prepared');
+  const completed = handle.complete_near_ed25519(request.payload.protocolResultJson);
   const established = completed.establish_manifest(
-    keySet,
-    String(request.payload.identityId || ''),
+    'near_ed25519_v1',
+    request.payload.nearEd25519SigningKeyId,
     request.payload.recordedKeyManifestDigestB64u,
   );
-  ceremonies.set(ceremonyId, { step: 'established', handle: established });
-  return { ceremonyId };
+  ceremonies.set(ceremonyId, { step: 'near_established', handle: established });
+  return { ceremonyId, keySet: 'near_ed25519_v1' };
 }
 
 /**
@@ -270,7 +273,7 @@ function completeKeySetRun(request: CompleteRequest): unknown {
  */
 function finishKeySetRun(request: FinishRequest): unknown {
   const ceremonyId = requireCeremonyId(request.payload.ceremonyId);
-  const { handle } = takeCeremony(ceremonyId, 'established');
+  const { handle } = takeCeremony(ceremonyId, 'near_established');
   const establishWith = request.payload.establishWith;
   if (!establishWith) return handle.finish_joining_custody();
 

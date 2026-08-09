@@ -188,6 +188,19 @@ pub struct CeremonyProtocolPreparedV1 {
     protocol: PreparedProtocolV1,
 }
 
+/// EVM activation state after the custody commit is ready for the registration request.
+///
+/// The seed and recovery codes are already gone. Only the opaque ECDSA pending
+/// state remains, so the client can send the custody payload with `activate`
+/// and complete its local share from the Router receipt without holding the
+/// seed across the network round.
+pub struct CeremonyEvmActivationPendingV1 {
+    wallet_id: String,
+    verified: VerifiedWalletKeySetManifestDigestV1,
+    pending_state_blob: Zeroizing<Vec<u8>>,
+    client_root_public_key33: [u8; 33],
+}
+
 #[allow(clippy::large_enum_variant)]
 enum PreparedProtocolV1 {
     NearEd25519 {
@@ -206,6 +219,7 @@ enum PreparedProtocolV1 {
         pending_state_blob: Zeroizing<Vec<u8>>,
         context_binding32: [u8; 32],
         client_share_public_key33: [u8; 33],
+        client_share_retry_counter: u32,
     },
 }
 
@@ -358,6 +372,17 @@ pub struct EvmFamilyPublicFactsRecordV1 {
     pub relayer_share_retry_counter: u32,
 }
 
+/// Local EVM material produced after the registration activation receipt arrives.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvmFamilyActivationCompletionV1 {
+    pub wallet_id: String,
+    pub key_manifest_digest_b64u: String,
+    pub client_root_public_key33_b64u: String,
+    pub ecdsa_ready_state_blob_b64u: String,
+    pub ecdsa_public_facts: EvmFamilyPublicFactsRecordV1,
+}
+
 impl CeremonySeedHeldV1 {
     /// Establishes custody: generates the wallet custody seed inside this
     /// module. JavaScript cannot supply custody material, so a caller cannot
@@ -490,6 +515,9 @@ impl CeremonySeedHeldV1 {
                     client_share_public_key33: prepared
                         .public_facts
                         .derivation_client_share_public_key33,
+                    client_share_retry_counter: prepared
+                        .client_bootstrap
+                        .client_share_retry_counter,
                 }
             }
         };
@@ -556,6 +584,63 @@ fn require_wallet_id(wallet_id: &str) -> CeremonyResult<String> {
     Ok(wallet_id.to_string())
 }
 
+fn verify_key_set_manifest(
+    manifest: &WalletKeySetManifestV1,
+    recorded_key_manifest_digest: Option<&[u8]>,
+) -> CeremonyResult<VerifiedWalletKeySetManifestDigestV1> {
+    match recorded_key_manifest_digest {
+        Some(recorded) => verify_registered_wallet_key_set_manifest_v1(manifest, recorded)
+            .map_err(|error| CeremonyError::new(format!("key manifest: {error}"))),
+        None => establish_wallet_key_set_manifest_v1(manifest)
+            .map_err(|error| CeremonyError::new(format!("key manifest: {error}"))),
+    }
+}
+
+fn finalize_evm_protocol(
+    pending_state_blob: Zeroizing<Vec<u8>>,
+    relayer_public_identity: RelayerPublicIdentityInput,
+) -> CeremonyResult<(Zeroizing<Vec<u8>>, EvmFamilyPublicFactsV1)> {
+    let finalized = finalize_ecdsa_client_bootstrap(FinalizeEcdsaClientBootstrapCommand {
+        pending_state_blob: EcdsaRoleLocalPendingStateBlob {
+            state_blob: pending_state_blob.to_vec(),
+        },
+        relayer_public_identity,
+    })
+    .map_err(|error| CeremonyError::new(format!("ECDSA finalize: {error}")))?;
+    Ok((
+        Zeroizing::new(finalized.ready_state_blob.state_blob.clone()),
+        EvmFamilyPublicFactsV1 {
+            context_binding32: finalized.public_facts.context_binding32,
+            derivation_client_share_public_key33: finalized
+                .public_facts
+                .derivation_client_share_public_key33,
+            client_verifying_share33: finalized.public_facts.client_verifying_share33,
+            relayer_public_key33: finalized.public_facts.relayer_public_key33,
+            group_public_key33: finalized.public_facts.group_public_key33,
+            ethereum_address20: finalized.public_facts.ethereum_address20,
+            client_share_retry_counter: finalized.public_facts.client_share_retry_counter,
+            relayer_share_retry_counter: finalized.public_facts.relayer_share_retry_counter,
+        },
+    ))
+}
+
+fn ecdsa_public_facts_record(
+    public_facts: &EvmFamilyPublicFactsV1,
+) -> EvmFamilyPublicFactsRecordV1 {
+    EvmFamilyPublicFactsRecordV1 {
+        context_binding32_b64u: b64u(&public_facts.context_binding32),
+        derivation_client_share_public_key33_b64u: b64u(
+            &public_facts.derivation_client_share_public_key33,
+        ),
+        client_verifying_share33_b64u: b64u(&public_facts.client_verifying_share33),
+        relayer_public_key33_b64u: b64u(&public_facts.relayer_public_key33),
+        group_public_key33_b64u: b64u(&public_facts.group_public_key33),
+        ethereum_address: ethereum_address_0x(&public_facts.ethereum_address20),
+        client_share_retry_counter: public_facts.client_share_retry_counter,
+        relayer_share_retry_counter: public_facts.relayer_share_retry_counter,
+    }
+}
+
 impl CeremonyProtocolPreparedV1 {
     /// The opaque Router execution request, for a NEAR Ed25519 run.
     pub fn yao_execute_request_json(&self) -> Option<&str> {
@@ -586,6 +671,68 @@ impl CeremonyProtocolPreparedV1 {
             } => Some(b64u(client_share_public_key33)),
             _ => None,
         }
+    }
+
+    pub fn ecdsa_client_share_retry_counter(&self) -> Option<u32> {
+        match &self.protocol {
+            PreparedProtocolV1::EvmFamilyEcdsa {
+                client_share_retry_counter,
+                ..
+            } => Some(*client_share_retry_counter),
+            _ => None,
+        }
+    }
+
+    /// Produces the EVM custody commit before activation and retains only the
+    /// opaque pending ECDSA state needed to consume the Router receipt.
+    pub fn prepare_evm_activation(
+        self,
+        evm_family_signing_key_slot_id: String,
+        recorded_key_manifest_digest: Option<&[u8]>,
+        establish_with: Option<(FactorSealInputsV1, Vec<RecoveryCodeInputV1>)>,
+    ) -> CeremonyResult<(CeremonyEvmActivationPendingV1, WalletCustodyCommitPayloadV1)> {
+        let PreparedProtocolV1::EvmFamilyEcdsa {
+            pending_state_blob,
+            client_share_public_key33,
+            ..
+        } = self.protocol
+        else {
+            return Err(CeremonyError::new("this ceremony is not an EVM-family run"));
+        };
+        let manifest = WalletKeySetManifestV1::EvmFamilyEcdsa {
+            wallet_id: self.wallet_id.clone(),
+            evm_family_signing_key_slot_id,
+            client_root_public_key33: client_share_public_key33,
+        };
+        let verified = verify_key_set_manifest(&manifest, recorded_key_manifest_digest)?;
+        let established_custody = established_custody_for_origin(
+            &self.origin,
+            &self.wallet_id,
+            &self.seed,
+            establish_with,
+        )?;
+        let payload = WalletCustodyCommitPayloadV1 {
+            wallet_id: self.wallet_id.clone(),
+            key_set: verified.key_set().as_str().to_string(),
+            key_manifest_digest_b64u: verified.digest_b64u(),
+            established_custody,
+            registered_public_key_b64u: None,
+            ed25519_local_material_b64u: None,
+            ed25519_local_material_nonce_b64u: None,
+            ed25519_application_binding_digest_b64u: None,
+            client_root_public_key33_b64u: Some(b64u(&client_share_public_key33)),
+            ecdsa_ready_state_blob_b64u: None,
+            ecdsa_public_facts: None,
+        };
+        Ok((
+            CeremonyEvmActivationPendingV1 {
+                wallet_id: self.wallet_id,
+                verified,
+                pending_state_blob,
+                client_root_public_key33: client_share_public_key33,
+            },
+            payload,
+        ))
     }
 
     /// Completes the NEAR Ed25519 run from its terminal Router result.
@@ -640,33 +787,35 @@ impl CeremonyProtocolPreparedV1 {
         else {
             return Err(CeremonyError::new("this ceremony is not an EVM-family run"));
         };
-        let finalized = finalize_ecdsa_client_bootstrap(FinalizeEcdsaClientBootstrapCommand {
-            pending_state_blob: EcdsaRoleLocalPendingStateBlob {
-                state_blob: pending_state_blob.to_vec(),
-            },
-            relayer_public_identity,
-        })
-        .map_err(|error| CeremonyError::new(format!("ECDSA finalize: {error}")))?;
+        let (ready_state_blob, public_facts) =
+            finalize_evm_protocol(pending_state_blob, relayer_public_identity)?;
         Ok(CeremonyProtocolCompletedV1 {
             wallet_id: self.wallet_id,
             seed: self.seed,
             origin: self.origin,
             completed: CompletedProtocolV1::EvmFamilyEcdsa {
                 client_root_public_key33: client_share_public_key33,
-                ready_state_blob: Zeroizing::new(finalized.ready_state_blob.state_blob.clone()),
-                public_facts: EvmFamilyPublicFactsV1 {
-                    context_binding32: finalized.public_facts.context_binding32,
-                    derivation_client_share_public_key33: finalized
-                        .public_facts
-                        .derivation_client_share_public_key33,
-                    client_verifying_share33: finalized.public_facts.client_verifying_share33,
-                    relayer_public_key33: finalized.public_facts.relayer_public_key33,
-                    group_public_key33: finalized.public_facts.group_public_key33,
-                    ethereum_address20: finalized.public_facts.ethereum_address20,
-                    client_share_retry_counter: finalized.public_facts.client_share_retry_counter,
-                    relayer_share_retry_counter: finalized.public_facts.relayer_share_retry_counter,
-                },
+                ready_state_blob,
+                public_facts,
             },
+        })
+    }
+}
+
+impl CeremonyEvmActivationPendingV1 {
+    /// Completes local EVM material after the Router activation receipt.
+    pub fn complete(
+        self,
+        relayer_public_identity: RelayerPublicIdentityInput,
+    ) -> CeremonyResult<EvmFamilyActivationCompletionV1> {
+        let (ready_state_blob, public_facts) =
+            finalize_evm_protocol(self.pending_state_blob, relayer_public_identity)?;
+        Ok(EvmFamilyActivationCompletionV1 {
+            wallet_id: self.wallet_id,
+            key_manifest_digest_b64u: self.verified.digest_b64u(),
+            client_root_public_key33_b64u: b64u(&self.client_root_public_key33),
+            ecdsa_ready_state_blob_b64u: b64u(&ready_state_blob),
+            ecdsa_public_facts: ecdsa_public_facts_record(&public_facts),
         })
     }
 }
@@ -721,12 +870,7 @@ impl CeremonyProtocolCompletedV1 {
             }
         };
 
-        let verified = match recorded_key_manifest_digest {
-            Some(recorded) => verify_registered_wallet_key_set_manifest_v1(&manifest, recorded)
-                .map_err(|error| CeremonyError::new(format!("key manifest: {error}")))?,
-            None => establish_wallet_key_set_manifest_v1(&manifest)
-                .map_err(|error| CeremonyError::new(format!("key manifest: {error}")))?,
-        };
+        let verified = verify_key_set_manifest(&manifest, recorded_key_manifest_digest)?;
 
         Ok(CeremonyManifestEstablishedV1 {
             wallet_id: self.wallet_id,
@@ -752,23 +896,12 @@ impl CeremonyManifestEstablishedV1 {
         self,
         establish_with: Option<(FactorSealInputsV1, Vec<RecoveryCodeInputV1>)>,
     ) -> CeremonyResult<WalletCustodyCommitPayloadV1> {
-        let established_custody =
-            match (&self.origin, establish_with) {
-                (CustodyOriginV1::Establish, Some((factor, recovery_codes))) => {
-                    Some(self.seal_new_custody(factor, recovery_codes)?)
-                }
-                (CustodyOriginV1::Establish, None) => return Err(CeremonyError::new(
-                    "a run that establishes custody must seal the seed and issue a recovery set",
-                )),
-                (CustodyOriginV1::Join, Some(_)) => {
-                    // Sealing here would write a second seed envelope for a wallet
-                    // that already has one, and a second recovery set covering it.
-                    return Err(CeremonyError::new(
-                        "a run that joined existing custody must not seal a seed or issue codes",
-                    ));
-                }
-                (CustodyOriginV1::Join, None) => None,
-            };
+        let established_custody = established_custody_for_origin(
+            &self.origin,
+            &self.wallet_id,
+            &self.seed,
+            establish_with,
+        )?;
 
         let (
             registered_public_key_b64u,
@@ -803,18 +936,7 @@ impl CeremonyManifestEstablishedV1 {
         };
         let ecdsa_public_facts = match &self.completed {
             CompletedProtocolV1::EvmFamilyEcdsa { public_facts, .. } => {
-                Some(EvmFamilyPublicFactsRecordV1 {
-                    context_binding32_b64u: b64u(&public_facts.context_binding32),
-                    derivation_client_share_public_key33_b64u: b64u(
-                        &public_facts.derivation_client_share_public_key33,
-                    ),
-                    client_verifying_share33_b64u: b64u(&public_facts.client_verifying_share33),
-                    relayer_public_key33_b64u: b64u(&public_facts.relayer_public_key33),
-                    group_public_key33_b64u: b64u(&public_facts.group_public_key33),
-                    ethereum_address: ethereum_address_0x(&public_facts.ethereum_address20),
-                    client_share_retry_counter: public_facts.client_share_retry_counter,
-                    relayer_share_retry_counter: public_facts.relayer_share_retry_counter,
-                })
+                Some(ecdsa_public_facts_record(public_facts))
             }
             CompletedProtocolV1::NearEd25519 { .. } => None,
         };
@@ -848,7 +970,8 @@ impl CeremonyManifestEstablishedV1 {
     }
 
     fn seal_new_custody(
-        &self,
+        wallet_id: &str,
+        seed: &[u8; WALLET_CUSTODY_SEED_LEN],
         factor: FactorSealInputsV1,
         recovery_codes: Vec<RecoveryCodeInputV1>,
     ) -> CeremonyResult<EstablishedCustodyRecordsV1> {
@@ -863,7 +986,7 @@ impl CeremonyManifestEstablishedV1 {
         }
 
         let binding = PasskeyCustodyEnvelopeBindingV1 {
-            wallet_id: self.wallet_id.clone(),
+            wallet_id: wallet_id.to_string(),
             envelope_id: envelope_id.clone(),
             factor: factor.factor,
             envelope_revision: 1,
@@ -878,7 +1001,7 @@ impl CeremonyManifestEstablishedV1 {
             &factor.factor_secret,
             &binding,
             &envelope_nonce,
-            &self.seed[..],
+            seed,
         )
         .map_err(|error| CeremonyError::new(format!("seed envelope seal: {error}")))?;
 
@@ -888,9 +1011,8 @@ impl CeremonyManifestEstablishedV1 {
         let mut recovery_manifest_kek_wraps = Vec::with_capacity(recovery_codes.len());
         let mut seen_recovery_key_ids = BTreeSet::new();
         for code in &recovery_codes {
-            let recovery_key_id =
-                derive_wallet_recovery_key_id_v1(&self.wallet_id, &code.code_bytes)
-                    .map_err(|error| CeremonyError::new(format!("recovery key id: {error}")))?;
+            let recovery_key_id = derive_wallet_recovery_key_id_v1(wallet_id, &code.code_bytes)
+                .map_err(|error| CeremonyError::new(format!("recovery key id: {error}")))?;
             // Two identical codes derive one id and would silently reduce a
             // ten-code set to fewer usable codes, since a code is found by id.
             if !seen_recovery_key_ids.insert(recovery_key_id.clone()) {
@@ -902,7 +1024,7 @@ impl CeremonyManifestEstablishedV1 {
             random_bytes(&mut nonce)?;
             let wrap = seal_wallet_recovery_manifest_kek_v1(
                 &code.code_bytes,
-                &self.wallet_id,
+                wallet_id,
                 &recovery_key_id,
                 &nonce,
                 &manifest_kek[..],
@@ -918,13 +1040,8 @@ impl CeremonyManifestEstablishedV1 {
 
         let mut entry_nonce = [0u8; PASSKEY_CUSTODY_NONCE_LEN];
         random_bytes(&mut entry_nonce)?;
-        let entry = seal_wallet_recovery_entry_v1(
-            &manifest_kek[..],
-            &self.wallet_id,
-            &entry_nonce,
-            &self.seed[..],
-        )
-        .map_err(|error| CeremonyError::new(format!("recovery entry seal: {error}")))?;
+        let entry = seal_wallet_recovery_entry_v1(&manifest_kek[..], wallet_id, &entry_nonce, seed)
+            .map_err(|error| CeremonyError::new(format!("recovery entry seal: {error}")))?;
 
         Ok(EstablishedCustodyRecordsV1 {
             envelope_id,
@@ -939,6 +1056,31 @@ impl CeremonyManifestEstablishedV1 {
             recovery_entry_ciphertext_b64u: entry.ciphertext_b64u(),
             recovery_entry_aad_hash_b64u: entry.aad_hash_b64u(),
         })
+    }
+}
+
+fn established_custody_for_origin(
+    origin: &CustodyOriginV1,
+    wallet_id: &str,
+    seed: &[u8; WALLET_CUSTODY_SEED_LEN],
+    establish_with: Option<(FactorSealInputsV1, Vec<RecoveryCodeInputV1>)>,
+) -> CeremonyResult<Option<EstablishedCustodyRecordsV1>> {
+    match (origin, establish_with) {
+        (CustodyOriginV1::Establish, Some((factor, recovery_codes))) => {
+            Ok(Some(CeremonyManifestEstablishedV1::seal_new_custody(
+                wallet_id,
+                seed,
+                factor,
+                recovery_codes,
+            )?))
+        }
+        (CustodyOriginV1::Establish, None) => Err(CeremonyError::new(
+            "a run that establishes custody must seal the seed and issue a recovery set",
+        )),
+        (CustodyOriginV1::Join, Some(_)) => Err(CeremonyError::new(
+            "a run that joined existing custody must not seal a seed or issue codes",
+        )),
+        (CustodyOriginV1::Join, None) => Ok(None),
     }
 }
 

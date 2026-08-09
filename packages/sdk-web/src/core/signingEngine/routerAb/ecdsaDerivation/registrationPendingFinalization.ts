@@ -16,8 +16,10 @@ import {
 } from '@shared/threshold/signingRootScope';
 
 const PENDING_FINALIZATION_KIND = 'router_ab_ecdsa_registration_pending_finalization_v1';
+const WALLET_CUSTODY_PENDING_FINALIZATION_KIND =
+  'router_ab_ecdsa_registration_wallet_custody_pending_finalization_v1';
 
-export type RouterAbEcdsaRegistrationPendingFinalizationV1 = {
+export type LegacyRouterAbEcdsaRegistrationPendingFinalizationV1 = {
   readonly kind: typeof PENDING_FINALIZATION_KIND;
   readonly pendingStateBlob: EcdsaRoleLocalPendingStateBlob;
   readonly runtimePolicyScope: RuntimePolicyScope;
@@ -26,8 +28,21 @@ export type RouterAbEcdsaRegistrationPendingFinalizationV1 = {
   readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
 };
 
+export type WalletCustodyRouterAbEcdsaRegistrationPendingFinalizationV1 = {
+  readonly kind: typeof WALLET_CUSTODY_PENDING_FINALIZATION_KIND;
+  readonly runtimePolicyScope: RuntimePolicyScope;
+  readonly registrationFacts: RouterAbEcdsaRegistrationRequestFactsV1;
+  readonly registrationRequest: RouterAbEcdsaRegistrationRequestV1;
+  readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
+  readonly pendingStateBlob?: never;
+};
+
+export type RouterAbEcdsaRegistrationPendingFinalizationV1 =
+  | LegacyRouterAbEcdsaRegistrationPendingFinalizationV1
+  | WalletCustodyRouterAbEcdsaRegistrationPendingFinalizationV1;
+
 type BuildRouterAbEcdsaRegistrationPendingFinalizationV1Input = Omit<
-  RouterAbEcdsaRegistrationPendingFinalizationV1,
+  LegacyRouterAbEcdsaRegistrationPendingFinalizationV1,
   'kind'
 > & {
   readonly kind?: never;
@@ -96,6 +111,30 @@ function requireCanonicalBase64Url(value: unknown, label: string): string {
 function parsePendingFinalization(value: unknown): RouterAbEcdsaRegistrationPendingFinalizationV1 {
   const label = 'Router A/B ECDSA registration pending finalization';
   const record = requireRecord(value, label);
+  if (record.kind === WALLET_CUSTODY_PENDING_FINALIZATION_KIND) {
+    requireExactKeys(record, label, [
+      'kind',
+      'runtimePolicyScope',
+      'registrationFacts',
+      'registrationRequest',
+      'clientActivation',
+    ]);
+    const registrationFacts = parseRouterAbEcdsaRegistrationRequestFactsV1(
+      record.registrationFacts,
+    );
+    const registrationRequest = parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest);
+    assertRouterAbEcdsaRegistrationFactsMatchRequestV1({
+      facts: registrationFacts,
+      request: registrationRequest,
+    });
+    return {
+      kind: WALLET_CUSTODY_PENDING_FINALIZATION_KIND,
+      runtimePolicyScope: normalizeRuntimePolicyScope(record.runtimePolicyScope),
+      registrationFacts,
+      registrationRequest,
+      clientActivation: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.clientActivation),
+    };
+  }
   requireExactKeys(record, label, [
     'kind',
     'pendingStateBlob',
@@ -134,6 +173,22 @@ export function buildRouterAbEcdsaRegistrationPendingFinalizationV1(
     registrationRequest: input.registrationRequest,
     clientActivation: input.clientActivation,
   });
+}
+
+export function buildWalletCustodyRouterAbEcdsaRegistrationPendingFinalizationV1(
+  input: Omit<WalletCustodyRouterAbEcdsaRegistrationPendingFinalizationV1, 'kind'>,
+): WalletCustodyRouterAbEcdsaRegistrationPendingFinalizationV1 {
+  const parsed = parsePendingFinalization({
+    kind: WALLET_CUSTODY_PENDING_FINALIZATION_KIND,
+    runtimePolicyScope: input.runtimePolicyScope,
+    registrationFacts: input.registrationFacts,
+    registrationRequest: input.registrationRequest,
+    clientActivation: input.clientActivation,
+  });
+  if (parsed.kind !== WALLET_CUSTODY_PENDING_FINALIZATION_KIND) {
+    throw new Error('Wallet custody pending finalization parsed as legacy state');
+  }
+  return parsed;
 }
 
 export function encodeRouterAbEcdsaRegistrationPendingFinalizationV1(

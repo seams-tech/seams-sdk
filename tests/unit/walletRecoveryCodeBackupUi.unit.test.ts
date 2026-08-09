@@ -1,0 +1,96 @@
+import { resolve } from 'node:path';
+import { expect, test, type Page } from '@playwright/test';
+
+const MODULE_URL = `/@fs${resolve(
+  process.cwd(),
+  '../packages/sdk-web/src/SeamsWeb/operations/recovery/walletRecoveryCodeBackup.ts',
+)}`;
+
+function request() {
+  return {
+    kind: 'wallet_recovery_code_backup_request_v1' as const,
+    walletId: 'alice.testnet',
+    recoveryCodes: Array.from(
+      { length: 10 },
+      (_, index) => `AAAAA-BBBBB-CCCCC-DDD${String(index).padStart(2, '0')}`,
+    ),
+  };
+}
+
+async function openDialog(page: Page): Promise<void> {
+  await page.goto('/');
+  await page.evaluate(
+    async ({ moduleUrl, backupRequest }) => {
+      const module = await import(moduleUrl);
+      const result = module.showWalletRecoveryCodeBackupUi(backupRequest);
+      (
+        window as unknown as { walletRecoveryBackupResult: Promise<unknown> }
+      ).walletRecoveryBackupResult = result;
+    },
+    { moduleUrl: MODULE_URL, backupRequest: request() },
+  );
+}
+
+async function readResult(page: Page): Promise<unknown> {
+  return await page.evaluate(async () => {
+    return await (window as unknown as { walletRecoveryBackupResult: Promise<unknown> })
+      .walletRecoveryBackupResult;
+  });
+}
+
+test('wallet recovery backup requires an explicit saved-codes acknowledgement', async ({
+  page,
+}) => {
+  await openDialog(page);
+  const dialog = page.locator('[data-w3a-wallet-recovery-backup-dialog]');
+  await expect(dialog).toBeVisible();
+  await expect(
+    dialog.getByRole('heading', { name: 'Save your wallet recovery codes' }),
+  ).toBeVisible();
+  await expect(dialog.getByRole('listitem')).toHaveCount(10);
+
+  await dialog.getByRole('button', { name: 'Finish backup' }).click();
+  await expect(dialog.getByRole('status')).toHaveText(
+    'Confirm that you saved the recovery codes before continuing.',
+  );
+  await expect(dialog).toBeVisible();
+
+  await dialog
+    .getByRole('checkbox', { name: 'I saved these recovery codes somewhere private.' })
+    .check();
+  await dialog.getByRole('button', { name: 'Finish backup' }).click();
+  await expect(readResult(page)).resolves.toEqual({ kind: 'wallet_recovery_codes_backed_up_v1' });
+  await expect(dialog).toHaveCount(0);
+});
+
+test('wallet recovery backup starts on the acknowledgement and is keyboard completable', async ({
+  page,
+}) => {
+  await openDialog(page);
+  const acknowledgement = page.getByRole('checkbox', {
+    name: 'I saved these recovery codes somewhere private.',
+  });
+  await expect(acknowledgement).toBeFocused();
+  await page.keyboard.press('Space');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Enter');
+  await expect(readResult(page)).resolves.toEqual({ kind: 'wallet_recovery_codes_backed_up_v1' });
+});
+
+test('Escape cancels registration and removes the modal', async ({ page }) => {
+  await openDialog(page);
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  const error = await page.evaluate(async () => {
+    try {
+      await (window as unknown as { walletRecoveryBackupResult: Promise<unknown> })
+        .walletRecoveryBackupResult;
+      return '';
+    } catch (cause: unknown) {
+      return cause instanceof Error ? cause.message : String(cause);
+    }
+  });
+  expect(error).toContain('cancelled');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});

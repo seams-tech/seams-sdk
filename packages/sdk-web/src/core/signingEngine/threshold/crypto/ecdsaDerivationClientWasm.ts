@@ -321,6 +321,7 @@ export async function reconcileCanonicalEcdsaActivationWasm(input: {
     workerCtx: input.workerCtx,
     command: {
       kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
+      bootstrapOwner: 'legacy_prf',
       journalId: result.journalId,
       activationReceipt: result.activationReceipt,
       routerAbEcdsaDerivationNormalSigning: result.routerAbEcdsaDerivationNormalSigning,
@@ -533,12 +534,7 @@ export async function openEcdsaRoleLocalSigningMaterialWasm(input: {
       };
     case 'ecdsa_role_local_signing_material_opened_v1': {
       const materialRef = parseEcdsaRoleLocalPersistedMaterialRef(payload.materialRef);
-      if (
-        !mpcMaterialActivationRefsEqual(
-          materialActivation,
-          materialRef.materialActivation,
-        )
-      ) {
+      if (!mpcMaterialActivationRefsEqual(materialActivation, materialRef.materialActivation)) {
         throw new Error('ECDSA role-local signing material open changed its activation identity');
       }
       const liveHandle = parseEcdsaRoleLocalWorkerHandle(payload.liveHandle);

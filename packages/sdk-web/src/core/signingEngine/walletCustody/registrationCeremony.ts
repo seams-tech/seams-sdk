@@ -4,7 +4,10 @@ import {
   zeroizeIssuedWalletRecoveryCodes,
   type IssuedWalletRecoveryCodes,
 } from '@shared/wallet-recovery/recoveryCodes';
-import type { WalletCustodyCeremonyCommitPayload } from '@shared/passkey-custody';
+import type {
+  WalletCustodyCeremonyCommitPayload,
+  WalletCustodyEvmFamilyPublicFacts,
+} from '@shared/passkey-custody';
 import {
   runWalletCustodyKeySetCeremony,
   type WalletCustodyCeremonyStepRunner,
@@ -152,6 +155,126 @@ export async function establishNearEd25519CustodyV1(
   }
 }
 
+export type EstablishEvmFamilyCustodyInput = {
+  readonly runStep: WalletCustodyCeremonyStepRunner;
+  readonly walletId: string;
+  readonly factorJson: string;
+  readonly factorSecret: ArrayBuffer;
+  readonly evmFamilySigningKeySlotId: string;
+  readonly applicationBindingDigestB64u: string;
+  /** Must resolve before the activation payload is allowed onto the wire. */
+  readonly confirmRecoveryCodesBackedUp: (recoveryCodes: readonly string[]) => Promise<void>;
+  readonly runRelayerRound: (bootstrap: {
+    readonly contextBinding32B64u: string;
+    readonly clientSharePublicKey33B64u: string;
+    readonly clientShareRetryCounter: number;
+    readonly preActivationCommitPayload: WalletCustodyCeremonyCommitPayload;
+  }) => Promise<string>;
+};
+
+export type EstablishedEvmFamilyCustody = {
+  readonly recoveryCodes: readonly string[];
+  /** The exact payload admitted during activation, before local completion. */
+  readonly commitPayload: WalletCustodyCeremonyCommitPayload;
+  readonly clientBootstrap: {
+    readonly contextBinding32B64u: string;
+    readonly derivationClientSharePublicKey33B64u: string;
+    readonly clientShareRetryCounter: number;
+    readonly participantId: 1;
+  };
+  readonly localMaterial: {
+    readonly readyStateBlobB64u: string;
+    readonly publicFacts: WalletCustodyEvmFamilyPublicFacts;
+  };
+};
+
+export function joinCustodyJsonFromEstablishedCommitPayload(
+  payload: WalletCustodyCeremonyCommitPayload,
+): string {
+  const established = payload.establishedCustody;
+  if (!established) {
+    throw new Error('wallet custody join requires an established envelope');
+  }
+  let envelopeBinding: unknown;
+  try {
+    envelopeBinding = JSON.parse(established.envelopeBindingJson);
+  } catch {
+    throw new Error('wallet custody envelope binding is not JSON');
+  }
+  if (
+    typeof envelopeBinding !== 'object' ||
+    envelopeBinding === null ||
+    Array.isArray(envelopeBinding)
+  ) {
+    throw new Error('wallet custody envelope binding must be an object');
+  }
+  return JSON.stringify({
+    envelopeBinding,
+    nonceB64u: established.envelopeNonceB64u,
+    sealedCustodySecretB64u: established.sealedCustodySecretB64u,
+    aadHashB64u: established.envelopeAadHashB64u,
+    ciphertextDigestB64u: established.envelopeCiphertextDigestB64u,
+  });
+}
+
+export async function establishEvmFamilyCustodyV1(
+  input: EstablishEvmFamilyCustodyInput,
+): Promise<EstablishedEvmFamilyCustody> {
+  let issued: IssuedWalletRecoveryCodes | null = issueWalletRecoveryCodes();
+  let admittedCommitPayload: WalletCustodyCeremonyCommitPayload | null = null;
+  let clientBootstrap: EstablishedEvmFamilyCustody['clientBootstrap'] | null = null;
+  try {
+    const payload = await runWalletCustodyKeySetCeremony({
+      runStep: input.runStep,
+      custody: {
+        origin: 'establish',
+        walletId: input.walletId,
+        factorJson: input.factorJson,
+        factorSecret: input.factorSecret,
+        recoveryCodesJson: JSON.stringify(
+          issued.codeBytes.map((bytes) => ({ codeBytesB64u: base64UrlEncode(bytes) })),
+        ),
+      },
+      keySetRun: {
+        keySet: 'evm_family_ecdsa_v1',
+        protocolInputsJson: JSON.stringify({
+          applicationBindingDigestB64u: input.applicationBindingDigestB64u,
+        }),
+        evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
+        beforeRelayerRound: input.confirmRecoveryCodesBackedUp.bind(undefined, issued.codes),
+        runRelayerRound: async (bootstrap) => {
+          admittedCommitPayload = bootstrap.preActivationCommitPayload;
+          clientBootstrap = {
+            contextBinding32B64u: bootstrap.contextBinding32B64u,
+            derivationClientSharePublicKey33B64u: bootstrap.clientSharePublicKey33B64u,
+            clientShareRetryCounter: bootstrap.clientShareRetryCounter,
+            participantId: 1,
+          };
+          return await input.runRelayerRound(bootstrap);
+        },
+      },
+    });
+    if (!admittedCommitPayload || !clientBootstrap) {
+      throw new Error('the EVM custody ceremony reached no activation round');
+    }
+    if (!payload.ecdsaReadyStateBlobB64u || !payload.ecdsaPublicFacts) {
+      throw new Error('the EVM custody ceremony produced no local signing material');
+    }
+    return {
+      recoveryCodes: issued.codes,
+      commitPayload: admittedCommitPayload,
+      clientBootstrap,
+      localMaterial: {
+        readyStateBlobB64u: payload.ecdsaReadyStateBlobB64u,
+        publicFacts: payload.ecdsaPublicFacts,
+      },
+    };
+  } finally {
+    if (issued) zeroizeIssuedWalletRecoveryCodes(issued);
+    issued = null;
+  }
+}
+
 /**
  * Strips everything the server must never receive.
  *
@@ -235,6 +358,29 @@ export type RejoinedNearEd25519Custody = {
   readonly localMaterial: EstablishedNearEd25519Custody['localMaterial'];
 };
 
+export type JoinNearEd25519CustodyInput = Omit<
+  EstablishNearEd25519CustodyInput,
+  'walletId' | 'factorJson' | 'continuityRegisteredPublicKeyB64u'
+> & {
+  /** `JoinCustodyWireV1`: the envelope established by another key set. */
+  readonly custodyJson: string;
+};
+
+export type JoinedNearEd25519Custody = RejoinedNearEd25519Custody;
+
+/**
+ * Adds the wallet's first NEAR key set to custody established by EVM.
+ *
+ * This is a join without a continuity key because registration is creating
+ * the NEAR key set for the first time. The envelope and recovery set already
+ * exist, so this run writes only the NEAR manifest and local continuity cache.
+ */
+export async function joinNearEd25519CustodyV1(
+  input: JoinNearEd25519CustodyInput,
+): Promise<JoinedNearEd25519Custody> {
+  return await runJoiningNearEd25519Custody(input, undefined, 'registration join');
+}
+
 export async function rejoinNearEd25519CustodyV1(
   input: RejoinNearEd25519CustodyInput,
 ): Promise<RejoinedNearEd25519Custody> {
@@ -243,6 +389,14 @@ export async function rejoinNearEd25519CustodyV1(
     throw new Error('a cold unlock must name the key set it reproduces');
   }
 
+  return await runJoiningNearEd25519Custody(input, registeredPublicKeyB64u, 'cold unlock');
+}
+
+async function runJoiningNearEd25519Custody(
+  input: JoinNearEd25519CustodyInput,
+  continuityRegisteredPublicKeyB64u: string | undefined,
+  operation: 'registration join' | 'cold unlock',
+): Promise<RejoinedNearEd25519Custody> {
   let activationSessionId: readonly number[] | null = null;
   const payload = await runWalletCustodyKeySetCeremony({
     runStep: input.runStep,
@@ -258,9 +412,7 @@ export async function rejoinNearEd25519CustodyV1(
         yaoApplication: input.yaoApplication,
         clientParticipantId: input.participantIds[0],
         signingWorkerParticipantId: input.participantIds[1],
-        // Present means reproduce, absent means establish. This path must
-        // never establish: the wallet already has this key set.
-        continuityRegisteredPublicKeyB64u: registeredPublicKeyB64u,
+        ...(continuityRegisteredPublicKeyB64u ? { continuityRegisteredPublicKeyB64u } : {}),
       }),
       nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
       runRouterRound: async (yaoExecuteRequestJson: string) => {
@@ -272,17 +424,17 @@ export async function rejoinNearEd25519CustodyV1(
   });
 
   if (!activationSessionId) {
-    throw new Error('the NEAR cold unlock produced no activation session id');
+    throw new Error(`the NEAR ${operation} produced no activation session id`);
   }
   if (payload.establishedCustody) {
     /* Unreachable through the ceremony, which refuses to seal on a joining
        run. Checked anyway because the failure it guards against — a second
        envelope and a second recovery set for one wallet — is the one this
        whole design exists to prevent. */
-    throw new Error('a cold unlock must not establish custody');
+    throw new Error(`a NEAR ${operation} must not establish custody`);
   }
   if (!payload.ed25519LocalMaterialB64u || !payload.ed25519LocalMaterialNonceB64u) {
-    throw new Error('the NEAR cold unlock sealed no local material');
+    throw new Error(`the NEAR ${operation} sealed no local material`);
   }
 
   return {

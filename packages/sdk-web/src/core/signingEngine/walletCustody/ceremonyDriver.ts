@@ -31,6 +31,8 @@ import type { WalletCustodyCeremonyWorkerOperationMap } from '../workerManager/w
  */
 
 type CeremonyOperationMap = WalletCustodyCeremonyWorkerOperationMap;
+type BegunRun = CeremonyOperationMap['beginWalletCustodyKeySetRun']['result'];
+type CompletedRun = CeremonyOperationMap['completeWalletCustodyKeySetRun']['result'];
 
 /** Invokes one worker operation. Supplied by the caller so tests need no worker. */
 export type WalletCustodyCeremonyStepRunner = <T extends keyof CeremonyOperationMap>(
@@ -83,10 +85,14 @@ export type WalletCustodyCeremonyKeySetInput =
       /** `EvmFamilyProtocolInputsWireV1`. */
       readonly protocolInputsJson: string;
       readonly evmFamilySigningKeySlotId: string;
+      /** Local backup gate. Runs after the opaque commit exists, before network activation. */
+      readonly beforeRelayerRound: () => Promise<void>;
       /** Takes the client's bootstrap facts, returns the relayer public identity. */
       readonly runRelayerRound: (bootstrap: {
         readonly contextBinding32B64u: string;
         readonly clientSharePublicKey33B64u: string;
+        readonly clientShareRetryCounter: number;
+        readonly preActivationCommitPayload: WalletCustodyCeremonyCommitPayload;
       }) => Promise<string>;
     };
 
@@ -104,42 +110,50 @@ export type WalletCustodyKeySetCeremonyInput = {
   readonly ceremonyId?: string;
 };
 
-type BegunRun = CeremonyOperationMap['beginWalletCustodyKeySetRun']['result'];
-
-/**
- * Hands the run's public protocol messages to its counterparty.
- *
- * The absence checks are not defensive noise: for a NEAR run the execute
- * request is the whole round, and for an EVM run the bootstrap facts are. A
- * missing one means the worker prepared a different key set than this call
- * intended, and continuing would send the counterparty nothing.
- */
-async function runProtocolRound(
-  keySetRun: WalletCustodyCeremonyKeySetInput,
-  begun: BegunRun,
-): Promise<string> {
-  if (keySetRun.keySet === 'near_ed25519_v1') {
-    const { yaoExecuteRequestJson } = begun;
-    if (!yaoExecuteRequestJson) {
-      throw new Error('A NEAR Ed25519 run produced no Router execution request');
-    }
-    return keySetRun.runRouterRound(yaoExecuteRequestJson);
-  }
-
-  const { ecdsaContextBinding32B64u, ecdsaClientSharePublicKey33B64u } = begun;
-  if (!ecdsaContextBinding32B64u || !ecdsaClientSharePublicKey33B64u) {
-    throw new Error('An EVM-family run produced no ECDSA bootstrap facts');
-  }
-  return keySetRun.runRelayerRound({
-    contextBinding32B64u: ecdsaContextBinding32B64u,
-    clientSharePublicKey33B64u: ecdsaClientSharePublicKey33B64u,
-  });
+function ignoreDiscardFailure(): void {
+  return;
 }
 
-function identityIdFor(keySetRun: WalletCustodyCeremonyKeySetInput): string {
-  return keySetRun.keySet === 'near_ed25519_v1'
-    ? keySetRun.nearEd25519SigningKeyId
-    : keySetRun.evmFamilySigningKeySlotId;
+function requireNearBegunRun(
+  begun: BegunRun,
+): Extract<BegunRun, { readonly keySet: 'near_ed25519_v1' }> {
+  if (begun.keySet !== 'near_ed25519_v1') {
+    throw new Error('The custody worker began an EVM run for a NEAR request');
+  }
+  return begun;
+}
+
+function requireEvmBegunRun(
+  begun: BegunRun,
+): Extract<BegunRun, { readonly keySet: 'evm_family_ecdsa_v1' }> {
+  if (begun.keySet !== 'evm_family_ecdsa_v1') {
+    throw new Error('The custody worker began a NEAR run for an EVM request');
+  }
+  return begun;
+}
+
+function requireEvmCompletedRun(
+  completed: CompletedRun,
+): Extract<CompletedRun, { readonly keySet: 'evm_family_ecdsa_v1' }> {
+  if (completed.keySet !== 'evm_family_ecdsa_v1') {
+    throw new Error('The custody worker completed a NEAR run for an EVM request');
+  }
+  return completed;
+}
+
+function assertEvmCompletionMatchesCommit(
+  preActivation: WalletCustodyCeremonyCommitPayload,
+  completion: Extract<CompletedRun, { readonly keySet: 'evm_family_ecdsa_v1' }>,
+): void {
+  if (preActivation.walletId !== completion.activation.walletId) {
+    throw new Error('EVM custody activation changed the wallet identity');
+  }
+  if (preActivation.keyManifestDigestB64u !== completion.activation.keyManifestDigestB64u) {
+    throw new Error('EVM custody activation changed the key manifest digest');
+  }
+  if (preActivation.clientRootPublicKey33B64u !== completion.activation.clientRootPublicKey33B64u) {
+    throw new Error('EVM custody activation changed the client root public key');
+  }
 }
 
 export async function runWalletCustodyKeySetCeremony(
@@ -149,47 +163,86 @@ export async function runWalletCustodyKeySetCeremony(
     input.ceremonyId ||
     secureRandomId('wallet-custody-ceremony', 32, 'wallet custody ceremony IDs');
   const { custody, keySetRun } = input;
-
-  const begun = await input.runStep('beginWalletCustodyKeySetRun', {
-    ceremonyId,
-    keySet: keySetRun.keySet,
-    custody:
-      custody.origin === 'establish'
-        ? { origin: 'establish', walletId: custody.walletId }
-        : {
-            origin: 'join',
-            custodyJson: custody.custodyJson,
-            factorSecret: custody.factorSecret,
-          },
-    protocolInputsJson: keySetRun.protocolInputsJson,
-  });
+  let workerAcceptedBegin = false;
 
   try {
-    const protocolResultJson = await runProtocolRound(keySetRun, begun);
+    if (keySetRun.keySet === 'near_ed25519_v1') {
+      const begunResult = await input.runStep('beginWalletCustodyKeySetRun', {
+        ceremonyId,
+        keySet: 'near_ed25519_v1',
+        custody:
+          custody.origin === 'establish'
+            ? { origin: 'establish', walletId: custody.walletId }
+            : {
+                origin: 'join',
+                custodyJson: custody.custodyJson,
+                factorSecret: custody.factorSecret,
+              },
+        protocolInputsJson: keySetRun.protocolInputsJson,
+      });
+      workerAcceptedBegin = true;
+      const begun = requireNearBegunRun(begunResult);
+      const protocolResultJson = await keySetRun.runRouterRound(begun.yaoExecuteRequestJson);
+      await input.runStep('completeWalletCustodyKeySetRun', {
+        ceremonyId,
+        keySet: 'near_ed25519_v1',
+        protocolResultJson,
+        nearEd25519SigningKeyId: keySetRun.nearEd25519SigningKeyId,
+        recordedKeyManifestDigestB64u: input.recordedKeyManifestDigestB64u,
+      });
+      return await input.runStep('finishWalletCustodyKeySetRun', {
+        ceremonyId,
+        establishWith:
+          custody.origin === 'establish'
+            ? {
+                factorJson: custody.factorJson,
+                factorSecret: custody.factorSecret,
+                recoveryCodesJson: custody.recoveryCodesJson,
+              }
+            : undefined,
+      });
+    }
 
-    await input.runStep('completeWalletCustodyKeySetRun', {
+    const begunResult = await input.runStep('beginWalletCustodyKeySetRun', {
       ceremonyId,
-      protocolResultJson,
-      identityId: identityIdFor(keySetRun),
+      keySet: 'evm_family_ecdsa_v1',
+      custody,
+      protocolInputsJson: keySetRun.protocolInputsJson,
+      evmFamilySigningKeySlotId: keySetRun.evmFamilySigningKeySlotId,
       recordedKeyManifestDigestB64u: input.recordedKeyManifestDigestB64u,
     });
-
-    return await input.runStep('finishWalletCustodyKeySetRun', {
-      ceremonyId,
-      establishWith:
-        custody.origin === 'establish'
-          ? {
-              factorJson: custody.factorJson,
-              factorSecret: custody.factorSecret,
-              recoveryCodesJson: custody.recoveryCodesJson,
-            }
-          : undefined,
+    workerAcceptedBegin = true;
+    const begun = requireEvmBegunRun(begunResult);
+    await keySetRun.beforeRelayerRound();
+    const protocolResultJson = await keySetRun.runRelayerRound({
+      contextBinding32B64u: begun.ecdsaContextBinding32B64u,
+      clientSharePublicKey33B64u: begun.ecdsaClientSharePublicKey33B64u,
+      clientShareRetryCounter: begun.ecdsaClientShareRetryCounter,
+      preActivationCommitPayload: begun.preActivationCommitPayload,
     });
+    const completed = requireEvmCompletedRun(
+      await input.runStep('completeWalletCustodyKeySetRun', {
+        ceremonyId,
+        keySet: 'evm_family_ecdsa_v1',
+        protocolResultJson,
+      }),
+    );
+    assertEvmCompletionMatchesCommit(begun.preActivationCommitPayload, completed);
+    return {
+      ...begun.preActivationCommitPayload,
+      clientRootPublicKey33B64u: completed.activation.clientRootPublicKey33B64u,
+      ecdsaReadyStateBlobB64u: completed.activation.ecdsaReadyStateBlobB64u,
+      ecdsaPublicFacts: completed.activation.ecdsaPublicFacts,
+    };
   } catch (error: unknown) {
     // The worker already dropped the handle for a step that threw inside it,
     // but a protocol round that failed leaves a live run holding a seed.
     // Discarding covers both, and must not mask the original failure.
-    await input.runStep('discardWalletCustodyCeremony', { ceremonyId }).catch(() => undefined);
+    if (workerAcceptedBegin) {
+      await input
+        .runStep('discardWalletCustodyCeremony', { ceremonyId })
+        .catch(ignoreDiscardFailure);
+    }
     throw error;
   }
 }

@@ -30,6 +30,7 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type { MpcMaterialActivationRef, ThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import type {
   WalletCustodyCeremonyCommitPayload,
+  WalletCustodyEvmFamilyActivationCompletion,
   WalletCustodyKeySetKind,
 } from '@shared/passkey-custody';
 import type {
@@ -1722,44 +1723,67 @@ export type EcdsaDerivationRoleLocalMaterialOperationRequest<
  */
 export interface WalletCustodyCeremonyWorkerOperationMap {
   beginWalletCustodyKeySetRun: {
-    payload: {
-      ceremonyId: string;
-      keySet: WalletCustodyKeySetKind;
-      /**
-       * Where this run's seed comes from. A run that guessed wrong and
-       * generated a fresh seed would leave the wallet with two seeds, only one
-       * of which any recovery set covers — so this is not a flag the caller can
-       * omit.
-       */
-      custody:
-        | { origin: 'establish'; walletId: string }
-        | { origin: 'join'; custodyJson: string; factorSecret: ArrayBuffer };
-      /** `NearEd25519ProtocolInputsWireV1` or `EvmFamilyProtocolInputsWireV1`. */
-      protocolInputsJson: string;
-    };
-    result: {
-      ceremonyId: string;
-      /** A NEAR Ed25519 run only. Its absence is what "Yao never ran" looks like. */
-      yaoExecuteRequestJson?: string;
-      /** An EVM-family run only: the facts the relayer's bootstrap needs. */
-      ecdsaContextBinding32B64u?: string;
-      ecdsaClientSharePublicKey33B64u?: string;
-    };
+    payload:
+      | {
+          ceremonyId: string;
+          keySet: 'near_ed25519_v1';
+          custody:
+            | { origin: 'establish'; walletId: string }
+            | { origin: 'join'; custodyJson: string; factorSecret: ArrayBuffer };
+          protocolInputsJson: string;
+        }
+      | {
+          ceremonyId: string;
+          keySet: 'evm_family_ecdsa_v1';
+          custody:
+            | {
+                origin: 'establish';
+                walletId: string;
+                factorJson: string;
+                factorSecret: ArrayBuffer;
+                recoveryCodesJson: string;
+              }
+            | { origin: 'join'; custodyJson: string; factorSecret: ArrayBuffer };
+          protocolInputsJson: string;
+          evmFamilySigningKeySlotId: string;
+          recordedKeyManifestDigestB64u?: string;
+        };
+    result:
+      | {
+          ceremonyId: string;
+          keySet: 'near_ed25519_v1';
+          yaoExecuteRequestJson: string;
+        }
+      | {
+          ceremonyId: string;
+          keySet: 'evm_family_ecdsa_v1';
+          ecdsaContextBinding32B64u: string;
+          ecdsaClientSharePublicKey33B64u: string;
+          ecdsaClientShareRetryCounter: number;
+          preActivationCommitPayload: WalletCustodyCeremonyCommitPayload;
+        };
   };
   completeWalletCustodyKeySetRun: {
-    payload: {
-      ceremonyId: string;
-      /** The Yao result for a NEAR run, the relayer public identity for an EVM one. */
-      protocolResultJson: string;
-      /** `nearEd25519SigningKeyId` or `evmFamilySigningKeySlotId`, per key set. */
-      identityId: string;
-      /**
-       * The digest already riding this key set's registration state, when it
-       * has one. Present means the run must reproduce it and fails otherwise.
-       */
-      recordedKeyManifestDigestB64u?: string;
-    };
-    result: { ceremonyId: string };
+    payload:
+      | {
+          ceremonyId: string;
+          keySet: 'near_ed25519_v1';
+          protocolResultJson: string;
+          nearEd25519SigningKeyId: string;
+          recordedKeyManifestDigestB64u?: string;
+        }
+      | {
+          ceremonyId: string;
+          keySet: 'evm_family_ecdsa_v1';
+          protocolResultJson: string;
+        };
+    result:
+      | { ceremonyId: string; keySet: 'near_ed25519_v1' }
+      | {
+          ceremonyId: string;
+          keySet: 'evm_family_ecdsa_v1';
+          activation: WalletCustodyEvmFamilyActivationCompletion;
+        };
   };
   finishWalletCustodyKeySetRun: {
     payload: {

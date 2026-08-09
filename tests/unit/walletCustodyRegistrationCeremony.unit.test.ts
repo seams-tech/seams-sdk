@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import {
   establishNearEd25519CustodyV1,
+  joinCustodyJsonFromEstablishedCommitPayload,
+  joinNearEd25519CustodyV1,
   rejoinNearEd25519CustodyV1,
   walletCustodyCommitPayloadForWire,
 } from '../../packages/sdk-web/src/core/signingEngine/walletCustody/registrationCeremony';
@@ -26,9 +28,13 @@ function recordingRunner(steps: Step[]) {
     steps.push({ type, payload });
     switch (type) {
       case 'beginWalletCustodyKeySetRun':
-        return { yaoExecuteRequestJson: '{"execute":"request"}' };
+        return {
+          ceremonyId: String(payload.ceremonyId),
+          keySet: 'near_ed25519_v1',
+          yaoExecuteRequestJson: '{"execute":"request"}',
+        };
       case 'completeWalletCustodyKeySetRun':
-        return {};
+        return { ceremonyId: String(payload.ceremonyId), keySet: 'near_ed25519_v1' };
       case 'finishWalletCustodyKeySetRun':
         return buildWalletCustodyCommitPayloadFixture({
           walletId: WALLET_ID,
@@ -120,9 +126,16 @@ test('the continuity cache is returned separately, not on the payload', async ()
     runStep: (async (type: string, payload: Record<string, unknown>) => {
       steps.push({ type, payload });
       if (type === 'beginWalletCustodyKeySetRun') {
-        return { yaoExecuteRequestJson: '{"execute":"request"}' };
+        return {
+          ceremonyId: String(payload.ceremonyId),
+          keySet: 'near_ed25519_v1',
+          yaoExecuteRequestJson: '{"execute":"request"}',
+        };
       }
       if (type === 'finishWalletCustodyKeySetRun') return withCache;
+      if (type === 'completeWalletCustodyKeySetRun') {
+        return { ceremonyId: String(payload.ceremonyId), keySet: 'near_ed25519_v1' };
+      }
       return {};
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     }) as any,
@@ -179,6 +192,46 @@ test('a Router result with no session id fails the run', async () => {
   ).rejects.toThrow(/session id/);
 });
 
+test('a mixed-wallet NEAR key set joins the EVM-established envelope', async () => {
+  const steps: Step[] = [];
+  const { walletId: _walletId, factorJson: _factorJson, ...base } = establishArgs(steps);
+  const joined = await joinNearEd25519CustodyV1({
+    ...base,
+    runStep: rejoinArgs(steps).runStep,
+    custodyJson: joinCustodyJsonFromEstablishedCommitPayload(
+      buildWalletCustodyCommitPayloadFixture({
+        walletId: WALLET_ID,
+        keySet: 'evm_family_ecdsa_v1',
+      }),
+    ),
+  });
+
+  const begun = steps.find((step) => step.type === 'beginWalletCustodyKeySetRun');
+  expect((begun?.payload.custody as { origin: string }).origin).toBe('join');
+  const inputs = JSON.parse(String(begun?.payload.protocolInputsJson)) as Record<string, unknown>;
+  expect(inputs.continuityRegisteredPublicKeyB64u).toBeUndefined();
+  expect(joined.commitPayload.establishedCustody).toBeUndefined();
+});
+
+test('the established-envelope projection emits the exact join wire', () => {
+  const payload = buildWalletCustodyCommitPayloadFixture({
+    walletId: WALLET_ID,
+    keySet: 'evm_family_ecdsa_v1',
+  });
+  const wire = JSON.parse(joinCustodyJsonFromEstablishedCommitPayload(payload)) as Record<
+    string,
+    unknown
+  >;
+
+  expect(Object.keys(wire).sort()).toEqual([
+    'aadHashB64u',
+    'ciphertextDigestB64u',
+    'envelopeBinding',
+    'nonceB64u',
+    'sealedCustodySecretB64u',
+  ]);
+});
+
 /**
  * Synced-passkey cold unlock: a browser with empty IndexedDB reproduces the
  * wallet's key set from the server-held envelope and the same credential.
@@ -194,7 +247,11 @@ function rejoinArgs(steps: Step[], overrides: Record<string, unknown> = {}) {
     runStep: (async (type: string, payload: Record<string, unknown>) => {
       steps.push({ type, payload });
       if (type === 'beginWalletCustodyKeySetRun') {
-        return { yaoExecuteRequestJson: '{"execute":"request"}' };
+        return {
+          ceremonyId: String(payload.ceremonyId),
+          keySet: 'near_ed25519_v1',
+          yaoExecuteRequestJson: '{"execute":"request"}',
+        };
       }
       if (type === 'finishWalletCustodyKeySetRun') {
         return {
@@ -206,6 +263,9 @@ function rejoinArgs(steps: Step[], overrides: Record<string, unknown> = {}) {
           ed25519LocalMaterialNonceB64u: 'AQIDBAUGBwgJCgsM',
           ed25519ApplicationBindingDigestB64u: 'YmluZGluZw',
         };
+      }
+      if (type === 'completeWalletCustodyKeySetRun') {
+        return { ceremonyId: String(payload.ceremonyId), keySet: 'near_ed25519_v1' };
       }
       return {};
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -258,9 +318,13 @@ test('a cold unlock that somehow established custody is refused', async () => {
   await expect(
     rejoinNearEd25519CustodyV1({
       ...rejoinArgs(steps),
-      runStep: (async (type: string) => {
+      runStep: (async (type: string, payload: Record<string, unknown>) => {
         if (type === 'beginWalletCustodyKeySetRun') {
-          return { yaoExecuteRequestJson: '{"execute":"request"}' };
+          return {
+            ceremonyId: String(payload.ceremonyId),
+            keySet: 'near_ed25519_v1',
+            yaoExecuteRequestJson: '{"execute":"request"}',
+          };
         }
         if (type === 'finishWalletCustodyKeySetRun') {
           return {
@@ -272,6 +336,9 @@ test('a cold unlock that somehow established custody is refused', async () => {
             ed25519LocalMaterialNonceB64u: 'AQIDBAUGBwgJCgsM',
             ed25519ApplicationBindingDigestB64u: 'YmluZGluZw',
           };
+        }
+        if (type === 'completeWalletCustodyKeySetRun') {
+          return { ceremonyId: String(payload.ceremonyId), keySet: 'near_ed25519_v1' };
         }
         return {};
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
