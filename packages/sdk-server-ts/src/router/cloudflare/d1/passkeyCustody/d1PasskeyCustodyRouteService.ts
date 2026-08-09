@@ -627,6 +627,7 @@ async function finalizeRecoveryForRoute(
     readonly reservationId: RecoveryCodeReservationId;
     readonly challengeId: string;
     readonly replacementId: string;
+    readonly replacedCredentialIdB64u: string;
     readonly webauthnRegistration: unknown;
     readonly expectedOrigin: string;
     readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
