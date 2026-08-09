@@ -117,6 +117,7 @@ import type {
   PreparedWalletRecovery,
   WalletRecoveryRegistrationOptions,
 } from '@/core/rpcClients/relayer/walletRecoveryPrepare';
+import type { WalletAddAuthMethodRegistrationOptions } from '@/core/rpcClients/relayer/walletRegistration';
 import type { WalletRecoveryReplacementCredential } from '@/core/signingEngine/walletCustody/walletRecoveryCredential';
 import type {
   RecoveredWalletCustodyManifestV1,
@@ -670,6 +671,7 @@ export interface WebAuthnRegistrationConfirmationSurface {
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
     challengeB64u?: string;
+    registrationOptions?: WalletAddAuthMethodRegistrationOptions;
   }): Promise<RegistrationCredentialConfirmationPayload>;
   startPreparedPasskeyRegistrationCredential(args: {
     walletId: string;

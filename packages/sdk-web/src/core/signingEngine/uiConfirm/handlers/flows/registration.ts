@@ -34,6 +34,7 @@ import type { RegistrationCredentialPrompt } from '@/core/signingEngine/stepUpCo
 import type { WalletIframeRequestId } from '@/core/types/walletIframeIdentity';
 import type { ConfirmUISurfaceSource } from '../../ui/confirm-ui';
 import type { WalletRecoveryRegistrationOptions } from '@/core/rpcClients/relayer/walletRecoveryPrepare';
+import type { WalletAddAuthMethodRegistrationOptions } from '@/core/rpcClients/relayer/walletRegistration';
 
 function roundDurationMs(startedAt: number): number {
   return Math.max(0, Math.round(performance.now() - startedAt));
@@ -65,6 +66,13 @@ type BuildPasskeyRegistrationCredentialArgs = {
     }
   | {
       recoveryRegistration?: never;
+      addAuthMethodRegistration: WalletAddAuthMethodRegistrationOptions;
+      challengeB64u?: never;
+      signerSlot?: never;
+    }
+  | {
+      recoveryRegistration?: never;
+      addAuthMethodRegistration?: never;
       challengeB64u: string;
       signerSlot?: number;
     }
@@ -76,18 +84,26 @@ function buildPasskeyRegistrationCredentialArgs(args: BuildPasskeyRegistrationCr
     intendedUserName: args.walletId,
     prompt: args.prompt,
   };
-  return args.recoveryRegistration
-    ? {
-        ...common,
-        kind: 'wallet_recovery' as const,
-        recoveryRegistration: args.recoveryRegistration,
-      }
-    : {
-        ...common,
-        kind: 'wallet_registration' as const,
-        challengeB64u: args.challengeB64u,
-        signerSlot: args.signerSlot,
-      };
+  if (args.recoveryRegistration) {
+    return {
+      ...common,
+      kind: 'wallet_recovery' as const,
+      recoveryRegistration: args.recoveryRegistration,
+    };
+  }
+  if (args.addAuthMethodRegistration) {
+    return {
+      ...common,
+      kind: 'wallet_add_auth_method' as const,
+      registration: args.addAuthMethodRegistration,
+    };
+  }
+  return {
+    ...common,
+    kind: 'wallet_registration' as const,
+    challengeB64u: args.challengeB64u,
+    signerSlot: args.signerSlot,
+  };
 }
 
 export async function handleRegistrationFlow(
@@ -153,10 +169,13 @@ export async function handleRegistrationFlow(
   try {
     const requestSetupStartedAt = performance.now();
     const recoveryRegistration = request.payload.walletRecoveryRegistration;
+    const addAuthMethodRegistration = request.payload.walletAddAuthMethodRegistration;
     const requestedChallenge = request.payload.webauthnChallenge;
     const explicitChallengeB64u =
       recoveryRegistration
         ? recoveryRegistration.challengeB64u
+        : addAuthMethodRegistration
+        ? addAuthMethodRegistration.challengeB64u
         : requestedChallenge?.kind === 'intent_digest'
         ? String(requestedChallenge.challengeB64u || '').trim()
         : '';
@@ -171,7 +190,8 @@ export async function handleRegistrationFlow(
     };
 
     // 2) WebAuthn registration challenge (32 bytes, base64url)
-    const rpId = recoveryRegistration?.rpId ?? adapters.security.getRpId();
+    const rpId =
+      recoveryRegistration?.rpId ?? addAuthMethodRegistration?.rpId ?? adapters.security.getRpId();
     if (!rpId) throw new Error('Missing rpId for registration challenge');
 
     const initialSignerSlot = request.payload?.signerSlot ?? 1;
@@ -242,6 +262,12 @@ export async function handleRegistrationFlow(
                 recoveryRegistration,
                 prompt,
               })
+            : addAuthMethodRegistration
+            ? buildPasskeyRegistrationCredentialArgs({
+                walletId,
+                addAuthMethodRegistration,
+                prompt,
+              })
             : buildPasskeyRegistrationCredentialArgs({
                 walletId,
                 challengeB64u,
@@ -263,8 +289,8 @@ export async function handleRegistrationFlow(
               'Registration credential already exists for this wallet registration intent; create a fresh intent before retrying',
             );
           }
-          if (request.payload.walletRecoveryRegistration) {
-            throw new Error('Wallet recovery credential creation requires a fresh reservation');
+          if (request.payload.walletRecoveryRegistration || addAuthMethodRegistration) {
+            throw new Error('Server-issued registration requires a fresh ceremony');
           }
           const nextSignerSlot =
             signerSlot !== undefined && Number.isFinite(signerSlot) ? signerSlot + 1 : 2;

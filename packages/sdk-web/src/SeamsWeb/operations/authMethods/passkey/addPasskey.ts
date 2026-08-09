@@ -211,7 +211,7 @@ async function addPasskeyWalletAuthMethodInternal(args: {
             signerSlot: profile.defaultSignerSlot,
             confirmerText: args.options?.confirmerText,
             confirmationConfigOverride: args.options?.confirmationConfig,
-            challengeB64u: registration.challengeB64u,
+            registrationOptions: registration,
           });
         if (!confirmation.confirmed) {
           throw new Error('Wallet add-passkey registration was cancelled');

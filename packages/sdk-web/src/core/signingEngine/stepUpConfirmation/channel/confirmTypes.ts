@@ -21,6 +21,7 @@ import type {
 } from '../../nonce/nearTransactionReadiness';
 import type { NearOperationStepUpPreparationRef } from '../../interfaces/operationStepUpPreparation';
 import type { WalletRecoveryRegistrationOptions } from '@/core/rpcClients/relayer/walletRecoveryPrepare';
+import type { WalletAddAuthMethodRegistrationOptions } from '@/core/rpcClients/relayer/walletRegistration';
 
 export type {
   ForbiddenMainThreadSecrets,
@@ -272,6 +273,7 @@ export type RegisterAccountPayload =
       signerSlot?: number;
       webauthnChallenge?: Extract<WebAuthnChallenge, { kind: 'intent_digest' }>;
       walletRecoveryRegistration?: never;
+      walletAddAuthMethodRegistration?: never;
     }
   | {
       walletId: string;
@@ -279,6 +281,15 @@ export type RegisterAccountPayload =
       nearAccountId?: never;
       signerSlot?: never;
       webauthnChallenge?: never;
+      walletAddAuthMethodRegistration?: never;
+    }
+  | {
+      walletId: string;
+      walletAddAuthMethodRegistration: WalletAddAuthMethodRegistrationOptions;
+      nearAccountId?: never;
+      signerSlot?: never;
+      webauthnChallenge?: never;
+      walletRecoveryRegistration?: never;
     };
 
 export type LocalOnlyExportSubject =

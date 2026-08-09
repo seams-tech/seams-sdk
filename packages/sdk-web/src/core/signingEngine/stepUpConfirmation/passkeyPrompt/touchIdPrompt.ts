@@ -16,6 +16,7 @@ import {
 } from './webauthnPromptCoordinator';
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import type { WalletRecoveryRegistrationOptions } from '@/core/rpcClients/relayer/walletRecoveryPrepare';
+import type { WalletAddAuthMethodRegistrationOptions } from '@/core/rpcClients/relayer/walletRegistration';
 
 function isRegistrableSuffix(host: string, cand: string): boolean {
   if (!host || !cand) return false;
@@ -72,6 +73,12 @@ export type RegisterCredentialsArgs = RegisterCredentialsArgsCommon &
     | {
         kind: 'wallet_recovery';
         recoveryRegistration: WalletRecoveryRegistrationOptions;
+        challengeB64u?: never;
+        signerSlot?: never;
+      }
+    | {
+        kind: 'wallet_add_auth_method';
+        registration: WalletAddAuthMethodRegistrationOptions;
         challengeB64u?: never;
         signerSlot?: never;
       }
@@ -282,38 +289,41 @@ export class TouchIdPrompt {
     });
     const recoveryRegistration =
       args.kind === 'wallet_recovery' ? args.recoveryRegistration : null;
-    const rpId = recoveryRegistration?.rpId ?? configuredRpId;
-    if (recoveryRegistration && rpId !== configuredRpId) {
+    const addAuthMethodRegistration =
+      args.kind === 'wallet_add_auth_method' ? args.registration : null;
+    const serverRegistration = recoveryRegistration ?? addAuthMethodRegistration;
+    const rpId = serverRegistration?.rpId ?? configuredRpId;
+    if (serverRegistration && rpId !== configuredRpId) {
       throw new Error('Wallet recovery RP ID does not match the wallet origin');
     }
-    const publicKey: PublicKeyCredentialCreationOptions = recoveryRegistration
+    const publicKey: PublicKeyCredentialCreationOptions = serverRegistration
       ? {
-          challenge: decodeChallengeB64u(recoveryRegistration.challengeB64u) as BufferSource,
+          challenge: decodeChallengeB64u(serverRegistration.challengeB64u) as BufferSource,
           rp: { name: 'Seams Wallet', id: rpId },
           user: {
-            id: base64UrlDecode(recoveryRegistration.user.idB64u) as BufferSource,
-            name: recoveryRegistration.user.name,
-            displayName: recoveryRegistration.user.displayName,
+            id: base64UrlDecode(serverRegistration.user.idB64u) as BufferSource,
+            name: serverRegistration.user.name,
+            displayName: serverRegistration.user.displayName,
           },
-          pubKeyCredParams: recoveryRegistration.pubKeyCredParams.map((parameter) => ({
+          pubKeyCredParams: serverRegistration.pubKeyCredParams.map((parameter) => ({
             ...parameter,
           })),
-          authenticatorSelection: { ...recoveryRegistration.authenticatorSelection },
-          timeout: recoveryRegistration.timeoutMs,
-          attestation: recoveryRegistration.attestation,
+          authenticatorSelection: { ...serverRegistration.authenticatorSelection },
+          timeout: serverRegistration.timeoutMs,
+          attestation: serverRegistration.attestation,
           extensions: {
             prf: {
               eval: {
                 first: base64UrlDecode(
-                  recoveryRegistration.extensions.prf.eval.firstB64u,
+                  serverRegistration.extensions.prf.eval.firstB64u,
                 ) as BufferSource,
                 second: base64UrlDecode(
-                  recoveryRegistration.extensions.prf.eval.secondB64u,
+                  serverRegistration.extensions.prf.eval.secondB64u,
                 ) as BufferSource,
               },
             },
           },
-          excludeCredentials: recoveryRegistration.excludeCredentials.map((descriptor) => ({
+          excludeCredentials: serverRegistration.excludeCredentials.map((descriptor) => ({
             type: descriptor.type,
             id: base64UrlDecode(descriptor.id) as BufferSource,
           })),

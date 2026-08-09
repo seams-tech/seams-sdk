@@ -27,6 +27,7 @@ import { coerceThemeMode } from '@shared/utils/theme';
 import { isBoolean, isObject, isString } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
 import type { ConfirmUISurfaceSource } from '../../ui/confirm-ui';
+import type { WalletAddAuthMethodRegistrationOptions } from '@/core/rpcClients/relayer/walletRegistration';
 
 type RegistrationCredentialConfirmationArgs = {
   walletId: string;
@@ -35,6 +36,7 @@ type RegistrationCredentialConfirmationArgs = {
   confirmerText?: { title?: string; body?: string };
   confirmationConfig?: Partial<ConfirmationConfig>;
   challengeB64u?: string;
+  registrationOptions?: WalletAddAuthMethodRegistrationOptions;
 };
 
 type RegistrationCredentialDecisionInput = {
@@ -55,6 +57,7 @@ export async function requestRegistrationCredentialConfirmation({
   confirmerText,
   confirmationConfig,
   challengeB64u,
+  registrationOptions,
 }: {
   touchConfirm: Pick<UiConfirmRequestConfirmationPort, 'requestUserConfirmation'>;
 } & RegistrationCredentialConfirmationArgs): Promise<RegistrationCredentialConfirmationPayload> {
@@ -69,6 +72,7 @@ export async function requestRegistrationCredentialConfirmation({
     confirmerText,
     confirmationConfig,
     challengeB64u,
+    registrationOptions,
   });
   const decision = await touchConfirm.requestUserConfirmation(request);
   return parseRegistrationCredentialDecision({ requestId: request.requestId, decision });
@@ -83,6 +87,7 @@ export async function requestRegistrationCredentialConfirmationOnMainThread({
   confirmerText,
   confirmationConfig,
   challengeB64u,
+  registrationOptions,
 }: {
   ctx: UiConfirmContext;
   surface: ConfirmUISurfaceSource;
@@ -94,6 +99,7 @@ export async function requestRegistrationCredentialConfirmationOnMainThread({
     confirmerText,
     confirmationConfig,
     challengeB64u,
+    registrationOptions,
   });
   validateUserConfirmRequest(request);
   assertNoForbiddenMainThreadSigningSecrets(request);
@@ -119,6 +125,7 @@ function buildRegistrationCredentialConfirmationRequest({
   confirmerText,
   confirmationConfig,
   challengeB64u,
+  registrationOptions,
 }: RegistrationCredentialConfirmationArgs): RegistrationUserConfirmRequest {
   const requestId = secureRandomId('register', 32, 'registration credential confirmation IDs');
   const title = confirmerText?.title;
@@ -127,6 +134,24 @@ function buildRegistrationCredentialConfirmationRequest({
   const normalizedNearAccountId = String(nearAccountId || '').trim();
   if (!normalizedWalletId) {
     throw new Error('Registration credential confirmation requires walletId');
+  }
+  if (registrationOptions) {
+    return {
+      requestId,
+      type: UserConfirmationType.REGISTER_ACCOUNT,
+      summary: {
+        walletId: normalizedWalletId,
+        signerSlot,
+        ...(title != null ? { title } : {}),
+        ...(body != null ? { body } : {}),
+      },
+      payload: {
+        walletId: normalizedWalletId,
+        walletAddAuthMethodRegistration: registrationOptions,
+      },
+      confirmationConfig,
+      intentDigest: `register:${normalizedWalletId}:${registrationOptions.challengeId}`,
+    };
   }
   return {
     requestId,

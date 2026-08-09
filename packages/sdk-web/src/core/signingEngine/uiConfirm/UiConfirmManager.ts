@@ -272,6 +272,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         confirmerText: params.confirmerText,
         confirmationConfig: params.confirmationConfigOverride,
         challengeB64u: params.challengeB64u,
+        registrationOptions: params.registrationOptions,
       });
     } catch (error) {
       if (surface.kind === 'reuse_mounted') {
