@@ -401,7 +401,6 @@ export async function handleEmailOtpRegistrationFinalizeRoute(input: {
     enrollmentSealKeyVersion: body.enrollmentSealKeyVersion,
     clientUnlockPublicKeyB64u: body.clientUnlockPublicKeyB64u,
     unlockKeyVersion: body.unlockKeyVersion,
-    thresholdEcdsaClientVerifyingShareB64u: body.thresholdEcdsaClientVerifyingShareB64u,
     ...(googleEmailOtpRegistrationAttemptId ? { googleEmailOtpRegistrationAttemptId } : {}),
   });
 

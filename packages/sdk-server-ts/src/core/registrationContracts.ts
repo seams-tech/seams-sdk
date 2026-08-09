@@ -727,7 +727,6 @@ type WalletRegistrationFinalizeRequestBase = {
     enrollmentSealKeyVersion: string;
     clientUnlockPublicKeyB64u: string;
     unlockKeyVersion: string;
-    thresholdEcdsaClientVerifyingShareB64u: string;
   };
   emailOtpBackupAck?: {
     kind: 'email_otp_recovery_code_backup_ack_v1';

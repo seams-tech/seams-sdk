@@ -148,7 +148,6 @@ export type EmailOtpWalletEnrollmentRecord = {
   recoveryWrappedEnrollmentEscrowCount: number;
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
-  thresholdEcdsaClientVerifyingShareB64u: string;
   createdAtMs: number;
   updatedAtMs: number;
 };
@@ -1068,8 +1067,6 @@ function parseWalletEnrollmentRecord(raw: unknown): EmailOtpWalletEnrollmentReco
   const recoveryWrappedEnrollmentEscrowCount = Number(obj.recoveryWrappedEnrollmentEscrowCount);
   const clientUnlockPublicKeyB64u = toOptionalTrimmedString(obj.clientUnlockPublicKeyB64u);
   const unlockKeyVersion = toOptionalTrimmedString(obj.unlockKeyVersion);
-  const thresholdEcdsaClientVerifyingShareB64u =
-    toOptionalTrimmedString(obj.thresholdEcdsaClientVerifyingShareB64u) || '';
   const createdAtMs = Number(obj.createdAtMs);
   const updatedAtMs = Number(obj.updatedAtMs);
   if (version !== 'email_otp_wallet_enrollment_v1') return null;
@@ -1092,7 +1089,7 @@ function parseWalletEnrollmentRecord(raw: unknown): EmailOtpWalletEnrollmentReco
   ) {
     return null;
   }
-  if (!clientUnlockPublicKeyB64u || !unlockKeyVersion || !thresholdEcdsaClientVerifyingShareB64u) {
+  if (!clientUnlockPublicKeyB64u || !unlockKeyVersion) {
     return null;
   }
   if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return null;
@@ -1111,7 +1108,6 @@ function parseWalletEnrollmentRecord(raw: unknown): EmailOtpWalletEnrollmentReco
     recoveryWrappedEnrollmentEscrowCount: Math.floor(recoveryWrappedEnrollmentEscrowCount),
     clientUnlockPublicKeyB64u,
     unlockKeyVersion,
-    thresholdEcdsaClientVerifyingShareB64u,
     createdAtMs: Math.floor(createdAtMs),
     updatedAtMs: Math.floor(updatedAtMs),
   };
