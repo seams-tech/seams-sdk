@@ -1,5 +1,6 @@
 import {
   parseLaneShareEpoch,
+  parseLaneParticipantBindingDigestB64u,
   parseSigningLaneId,
   parseWalletKeyId,
   type SigningLaneKind,
@@ -16,7 +17,7 @@ function parseSigningLaneKind(value: unknown): SigningLaneKind {
     case 'owner_passkey':
     case 'owner_email_otp':
     case 'linked_device':
-    case 'delegated_agent':
+    case 'delegated_execution':
     case 'recovery':
     case 'break_glass':
       return value;
@@ -36,6 +37,12 @@ export function parseSigningLaneReference(raw: unknown): SigningLaneReference {
   if (!laneId.ok) throw new Error(laneId.error.message);
   const laneShareEpoch = parseLaneShareEpoch(raw.laneShareEpoch);
   if (!laneShareEpoch.ok) throw new Error(laneShareEpoch.error.message);
+  const participantBindingDigestB64u = parseLaneParticipantBindingDigestB64u(
+    raw.participantBindingDigestB64u,
+  );
+  if (!participantBindingDigestB64u.ok) {
+    throw new Error(participantBindingDigestB64u.error.message);
+  }
   return {
     kind: 'signing_lane_reference_v1',
     walletId: walletId.value,
@@ -43,5 +50,6 @@ export function parseSigningLaneReference(raw: unknown): SigningLaneReference {
     laneId: laneId.value,
     laneKind: parseSigningLaneKind(raw.laneKind),
     laneShareEpoch: laneShareEpoch.value,
+    participantBindingDigestB64u: participantBindingDigestB64u.value,
   };
 }
