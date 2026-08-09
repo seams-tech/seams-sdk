@@ -873,6 +873,49 @@ export class D1WalletStore implements WalletStore {
     return signers;
   }
 
+  async listEcdsaPendingSessionActivationsForLifecycle(input: {
+    walletId: WalletId;
+    lifecycleId: string;
+  }): Promise<readonly WalletEcdsaPendingSessionActivationRecord[]> {
+    await this.ensureSchema();
+    const lifecycleId = toOptionalTrimmedString(input.lifecycleId);
+    if (!lifecycleId) return [];
+    const result = await this.database
+      .prepare(
+        `SELECT record_json
+           FROM wallet_ecdsa_pending_session_activations
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND wallet_id = ?
+            AND lifecycle_id = ?
+            AND expires_at_ms > ?
+          ORDER BY request_id`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        input.walletId,
+        lifecycleId,
+        Date.now(),
+      )
+      .all<D1WalletRow>();
+    const records: WalletEcdsaPendingSessionActivationRecord[] = [];
+    for (const row of result.results || []) {
+      const record = parseWalletEcdsaPendingSessionActivationRecord(
+        parseD1JsonColumn(row.record_json),
+      );
+      if (!record || record.walletId !== input.walletId || record.lifecycleId !== lifecycleId) {
+        throw new Error('Wallet ECDSA recovery activation record is invalid');
+      }
+      records.push(record);
+    }
+    return records;
+  }
+
   async putEcdsaPendingSessionActivation(
     record: WalletEcdsaPendingSessionActivationRecord,
   ): Promise<void> {
@@ -1155,6 +1198,41 @@ export class D1WalletStore implements WalletStore {
     for (const row of result.results || []) {
       const signer = parseWalletEd25519SignerRecord(parseD1JsonColumn(row.record_json));
       if (!signer) throw new Error('Wallet Ed25519 signer record is invalid');
+      signers.push(signer);
+    }
+    return signers;
+  }
+
+  async listEd25519SignersForWallet(input: {
+    walletId: WalletId;
+  }): Promise<readonly WalletEd25519SignerRecord[]> {
+    await this.ensureSchema();
+    const result = await this.database
+      .prepare(
+        `SELECT record_json
+           FROM wallet_signers
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND wallet_id = ?
+            AND signer_family = 'ed25519'
+          ORDER BY signer_id`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        input.walletId,
+      )
+      .all<D1WalletRow>();
+    const signers: WalletEd25519SignerRecord[] = [];
+    for (const row of result.results || []) {
+      const signer = parseWalletEd25519SignerRecord(parseD1JsonColumn(row.record_json));
+      if (!signer || signer.walletId !== input.walletId) {
+        throw new Error('Wallet Ed25519 signer record is invalid');
+      }
       signers.push(signer);
     }
     return signers;

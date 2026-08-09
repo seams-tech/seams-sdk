@@ -39,10 +39,6 @@ export type { IssuedWalletRecoveryCodes } from './recoveryCodeIssuance';
 export { runWalletRecoveryWithCode } from './recoveryCodeAttempt';
 
 /* All-or-nothing promotion across the wallet's key sets. */
-export { admitWalletRecoveryCredentialPromotion } from './credentialPromotion';
-
-export type { CredentialPromotionAdmission, RecoveredKeySetOutcome } from './credentialPromotion';
-
 export type {
   WalletRecoveryActivationResult,
   WalletRecoveryAttemptOutcome,

@@ -199,6 +199,7 @@ type CloudflareD1RouterApiAuthAssembly = {
   readonly webAuthnAuthService: CloudflareD1WebAuthnAuthService;
   readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
   readonly walletRegistrations: CloudflareD1WalletRegistrationService;
+  readonly walletStore: D1WalletStore;
   readonly walletAddSigners: CloudflareD1WalletAddSignerService;
   readonly registrationIntents: CloudflareD1RegistrationIntentService;
   readonly signedDelegateExecutor: CloudflareD1SignedDelegateExecutor;
@@ -1325,6 +1326,7 @@ function createCloudflareD1RouterApiAuthAssembly(
   );
   const getWalletAuthMethodStore = getWalletAuthMethodStoreForState.bind(undefined, lazyStores);
   const getWalletStore = getWalletStoreForState.bind(undefined, lazyStores);
+  const walletStore = getWalletStore();
   const createSponsoredNamedNearAccount = createSponsoredNamedNearAccountForOptions.bind(
     undefined,
     options,
@@ -1547,6 +1549,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     webAuthnAuthService,
     walletAuthMethods,
     walletRegistrations,
+    walletStore,
     walletAddSigners,
     registrationIntents,
     signedDelegateExecutor,
@@ -1957,6 +1960,7 @@ export function createCloudflareD1RouterApiAuthService(
     passkeyCustody: createD1PasskeyCustodyRouteService({
       passkeyCustodyEnvelopes: assembly.passkeyCustodyEnvelopes,
       walletCustodyCommits: assembly.walletCustodyCommitStore,
+      walletStore: assembly.walletStore,
       webAuthnStore: assembly.webAuthnStore,
       logger: normalizeLogger(),
     }),

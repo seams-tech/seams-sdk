@@ -89,7 +89,10 @@ function storeStub(options: {
   };
 }
 
-const VERIFIED = [{ keySet: 'near_ed25519_v1', kind: 'verified' as const }];
+const VERIFIED = {
+  kind: 'verified' as const,
+  keySetIds: ['near_ed25519:ed25519-signer-1'] as const,
+};
 
 test('the new envelope is created before any old one is retired', async () => {
   const trace: string[] = [];
@@ -100,8 +103,7 @@ test('the new envelope is created before any old one is retired', async () => {
     walletId: WALLET_ID,
     reservationId: RESERVATION_ID,
     replacementEnvelope: envelope('new-1'),
-    requiredKeySets: ['near_ed25519_v1'],
-    outcomes: VERIFIED,
+    activationVerification: VERIFIED,
     nowMs: 5_000,
   });
 
@@ -120,8 +122,7 @@ test('a failed create retires nothing', async () => {
     walletId: WALLET_ID,
     reservationId: RESERVATION_ID,
     replacementEnvelope: envelope('new-1'),
-    requiredKeySets: ['near_ed25519_v1'],
-    outcomes: VERIFIED,
+    activationVerification: VERIFIED,
     nowMs: 5_000,
   });
 
@@ -131,7 +132,7 @@ test('a failed create retires nothing', async () => {
   expect(trace).toEqual(['list', 'commit']);
 });
 
-test('an unverified key set refuses before touching the store', async () => {
+test('an empty activation verification refuses before touching the store', async () => {
   const trace: string[] = [];
   const stores = storeStub({ existing: [envelope('old-1')], trace });
   const result = await finalizeRecoveredWalletCredentialV1({
@@ -140,8 +141,7 @@ test('an unverified key set refuses before touching the store', async () => {
     walletId: WALLET_ID,
     reservationId: RESERVATION_ID,
     replacementEnvelope: envelope('new-1'),
-    requiredKeySets: ['near_ed25519_v1', 'evm_family_ecdsa_v1'],
-    outcomes: VERIFIED,
+    activationVerification: { kind: 'verified', keySetIds: [] },
     nowMs: 5_000,
   });
 
@@ -158,8 +158,7 @@ test('an envelope naming another wallet is rejected', async () => {
     walletId: 'someone-else.testnet',
     reservationId: RESERVATION_ID,
     replacementEnvelope: envelope('new-1'),
-    requiredKeySets: ['near_ed25519_v1'],
-    outcomes: VERIFIED,
+    activationVerification: VERIFIED,
     nowMs: 5_000,
   });
 
@@ -176,8 +175,7 @@ test('a failed retire is reported without failing the recovery', async () => {
     walletId: WALLET_ID,
     reservationId: RESERVATION_ID,
     replacementEnvelope: envelope('new-1'),
-    requiredKeySets: ['near_ed25519_v1'],
-    outcomes: VERIFIED,
+    activationVerification: VERIFIED,
     nowMs: 5_000,
   });
 

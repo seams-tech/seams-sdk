@@ -37,8 +37,6 @@ test('the client keeps retireFailures, and defaults it to empty', async () => {
     sessionToken: 'app-session',
     reservationId: 'reservation-1',
     replacementEnvelope: {},
-    requiredKeySets: ['near_ed25519_v1'],
-    outcomes: [],
     fetchImpl: respondWith(200, {
       ok: true,
       storeVersion: '2',
@@ -54,8 +52,6 @@ test('the client keeps retireFailures, and defaults it to empty', async () => {
     sessionToken: 'app-session',
     reservationId: 'reservation-1',
     replacementEnvelope: {},
-    requiredKeySets: ['near_ed25519_v1'],
-    outcomes: [],
     fetchImpl: respondWith(200, { ok: true, storeVersion: '2', retiredEnvelopeIds: ['old-1'] }),
   });
   // Always an array: a caller checking `.length` should not need to know the
@@ -70,8 +66,6 @@ test('a finalization conflict remains distinct from incomplete activation', asyn
     sessionToken: 'app-session',
     reservationId: 'reservation-1',
     replacementEnvelope: {},
-    requiredKeySets: ['near_ed25519_v1'],
-    outcomes: [],
     fetchImpl: respondWith(409, {
       ok: false,
       code: 'recovery_conflict',

@@ -8,9 +8,9 @@ import {
  * Installing the replacement credential a recovery enrolled.
  *
  * Sent after activation, carrying an envelope this client sealed under the new
- * credential. The server cannot check that sealing — it has no seed — so a
- * `promoted` reply means the envelope was stored and the old credentials
- * retired. Activation receipts establish continuity before this call.
+ * credential. The server cannot open that ciphertext because it has no seed.
+ * It queries its signer registry and exact activation receipts before a
+ * `promoted` reply can consume the code and retire old credentials.
  *
  * `retireFailures` is the field callers forget. The wallet is recovered, but
  * a credential the user was replacing still opens it; surfacing it is the
@@ -41,8 +41,6 @@ export async function finalizeWalletRecovery(args: {
   readonly sessionToken: string;
   readonly reservationId: string;
   readonly replacementEnvelope: Record<string, unknown>;
-  readonly requiredKeySets: readonly string[];
-  readonly outcomes: readonly Record<string, unknown>[];
   readonly fetchImpl?: typeof fetch;
 }): Promise<WalletRecoveryFinalizeResult> {
   const url = `${normalizeRelayerBaseUrl(args.relayUrl)}${WALLET_RECOVERY_FINALIZE_PATH}`;
@@ -61,8 +59,6 @@ export async function finalizeWalletRecovery(args: {
           walletId: args.walletId,
           reservationId: args.reservationId,
           replacementEnvelope: args.replacementEnvelope,
-          requiredKeySets: args.requiredKeySets,
-          outcomes: args.outcomes,
         },
       }),
     );

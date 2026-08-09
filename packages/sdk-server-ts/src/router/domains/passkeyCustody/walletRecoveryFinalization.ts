@@ -1,7 +1,3 @@
-import {
-  admitWalletRecoveryCredentialPromotion,
-  type RecoveredKeySetOutcome,
-} from '@shared/wallet-recovery/recoveryCodes';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import type { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 import type { CloudflareD1WalletCustodyCommitStore } from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
@@ -11,6 +7,7 @@ import {
 } from '@shared/wallet-recovery/recoveryCodeReservation';
 import type { WalletRecoveryEnvelopeSetRecord } from '@shared/wallet-recovery';
 import type { WalletId } from '@shared/utils/domainIds';
+import type { WalletRecoveryActivationVerification } from './walletRecoveryKeyManifest';
 
 /**
  * Promoting the replacement credential a recovery enrolled.
@@ -26,12 +23,9 @@ import type { WalletId } from '@shared/utils/domainIds';
  * fail in. A failed retire leaves both credentials active, which is worth
  * reporting but is not a lockout — the old one can be revoked again.
  *
- * **Promotion is all-or-nothing across the key set.** A mixed wallet recovers
- * NEAR and EVM-family keys together, and promoting after only some verified
- * would leave a wallet the owner believes is recovered while part of it still
- * answers to a credential they no longer hold. That decision lives in
- * `admitWalletRecoveryCredentialPromotion`; this runs it before touching
- * anything.
+ * **Promotion is all-or-nothing across the key set.** The activation proof is
+ * built from the server's current signer registry and exact recovery receipts.
+ * A raw client outcome can never reach this function.
  */
 
 export type WalletRecoveryFinalizationResult =
@@ -57,18 +51,15 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
   readonly reservationId: RecoveryCodeReservationId;
   /** Sealed under the newly enrolled credential, by the client. */
   readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
-  readonly requiredKeySets: readonly string[];
-  readonly outcomes: readonly RecoveredKeySetOutcome[];
+  readonly activationVerification: Extract<
+    WalletRecoveryActivationVerification,
+    { readonly kind: 'verified' }
+  >;
   readonly nowMs: number;
 }): Promise<WalletRecoveryFinalizationResult> {
-  const admission = admitWalletRecoveryCredentialPromotion({
-    requiredKeySets: input.requiredKeySets,
-    outcomes: input.outcomes,
-  });
-  if (admission.kind === 'refused') {
-    return { kind: 'refused', reason: admission.reason };
+  if (input.activationVerification.keySetIds.length === 0) {
+    return { kind: 'refused', reason: 'wallet recovery verified no key capabilities' };
   }
-
   if (String(input.replacementEnvelope.walletId) !== String(input.walletId)) {
     /* An envelope naming another wallet would install a credential that opens
        someone else's custody. Checked here rather than trusted from the body
