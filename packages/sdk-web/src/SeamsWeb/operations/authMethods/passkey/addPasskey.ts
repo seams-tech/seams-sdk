@@ -26,6 +26,9 @@ import {
   linkWalletPasskeyCustody,
 } from '@/core/signingEngine/walletCustody/passkeyLink';
 import type { WalletCustodyCeremonyTransportPort } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
+export type AddPasskeyAuthorization =
+  | { readonly kind: 'existing_passkey' }
+  | { readonly kind: 'email_otp'; readonly challengeId: string; readonly otpCode: string };
 
 export type AddPasskeyResult = {
   readonly ok: true;
@@ -128,6 +131,7 @@ async function addPasskeyWalletAuthMethodInternal(args: {
   readonly context: RegistrationWebContext;
   readonly walletId: WalletId;
   readonly rpId: string;
+  readonly authorization: AddPasskeyAuthorization;
   readonly options?: RegistrationHooksOptions;
 }): Promise<AddPasskeyResult> {
   const relayerUrl = String(args.context.configs.network.relayer.url || '').trim();
@@ -162,6 +166,10 @@ async function addPasskeyWalletAuthMethodInternal(args: {
     intentResponse.intent.authMethod.rpId !== args.rpId
   ) {
     throw new Error('Add-auth-method intent identity changed');
+  }
+
+  if (args.authorization.kind !== 'existing_passkey') {
+    throw new Error('Email OTP add-passkey custody linking requires the worker custody continuation');
   }
 
   const profile = await IndexedDBManager.getProfile(String(args.walletId));
@@ -251,6 +259,7 @@ export async function addPasskeyWalletAuthMethod(args: {
   readonly context: RegistrationWebContext;
   readonly walletId: WalletId | string;
   readonly rpId: string;
+  readonly authorization: AddPasskeyAuthorization;
   readonly options?: RegistrationHooksOptions;
 }): Promise<AddPasskeyResult> {
   const walletId = walletIdFromString(String(args.walletId || '').trim());
@@ -261,6 +270,7 @@ export async function addPasskeyWalletAuthMethod(args: {
       context: args.context,
       walletId,
       rpId: parsedRpId.value,
+      authorization: args.authorization,
       options: args.options,
     });
     await args.options?.afterCall?.(true);

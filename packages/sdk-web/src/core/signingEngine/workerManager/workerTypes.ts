@@ -86,7 +86,11 @@ import {
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import type { NearResolvedEd25519SigningSessionState } from '../interfaces/near';
-import type { WalletRegistrationEd25519YaoBootstrapSession } from '@/core/rpcClients/relayer/walletRegistration';
+import type {
+  WalletAddAuthMethodRegistrationOptions,
+  WalletRegistrationEd25519YaoBootstrapSession,
+} from '@/core/rpcClients/relayer/walletRegistration';
+import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import type {
   RouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
   RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
@@ -646,6 +650,45 @@ export interface EmailOtpWorkerOperationMap {
     payload: { activeClientHandle: string };
     result: { removed: boolean };
   };
+  prepareEmailOtpPasskeyCustodyLink: {
+    payload: {
+      relayUrl: string;
+      walletId: string;
+      userId: string;
+      groupId: string;
+      routePlan: EmailOtpRoutePlan;
+      verification: {
+        kind: 'otp';
+        challengeId: string;
+        otpCode: string;
+      };
+    };
+    result: {
+      pendingHandleId: string;
+      walletId: string;
+      envelopeId: string;
+      envelopeRevision: number;
+      enrollmentId: string;
+      enrollmentSealKeyVersion: string;
+      expiresAtMs: number;
+    };
+  };
+  completeEmailOtpPasskeyCustodyLink: {
+    payload: {
+      pendingHandleId: string;
+      existingEnvelope: PasskeyCustodyEnvelopeRecord;
+      registration: WalletAddAuthMethodRegistrationOptions;
+      registrationCredential: WebAuthnRegistrationCredential;
+    };
+    result: {
+      registrationCredential: WebAuthnRegistrationCredential;
+      custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+    };
+  };
+  discardEmailOtpPasskeyCustodyLink: {
+    payload: { pendingHandleId: string };
+    result: { discarded: boolean };
+  };
   verifyEmailOtpCode: {
     payload: {
       relayUrl: string;
@@ -942,7 +985,10 @@ export type EmailOtpEnrollmentOperationType =
   | 'enrollEmailOtpWallet'
   | 'prepareEmailOtpRegistrationEnrollmentMaterial'
   | 'createEmailOtpEd25519YaoSigningShare'
-  | 'disposeEmailOtpEd25519YaoActiveClient';
+  | 'disposeEmailOtpEd25519YaoActiveClient'
+  | 'prepareEmailOtpPasskeyCustodyLink'
+  | 'completeEmailOtpPasskeyCustodyLink'
+  | 'discardEmailOtpPasskeyCustodyLink';
 export type EmailOtpRestoreOperationType =
   | 'restoreEmailOtpDeviceEnrollmentEscrow'
   | 'rotateEmailOtpRecoveryCodes'

@@ -1301,6 +1301,7 @@ export class SeamsWeb {
       context: this.getContext(),
       walletId: args.walletId,
       rpId: args.rpId,
+      authorization: args.authorization,
       options: args.options,
     });
   }
