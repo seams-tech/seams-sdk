@@ -36,15 +36,6 @@ pub const ED25519_YAO_PASSKEY_CLIENT_ROOT_KDF_EXPAND_INFO_DOMAIN_V1: &[u8] =
 /// Exact passkey Client-root HKDF expand-info length.
 pub const ED25519_YAO_PASSKEY_CLIENT_ROOT_KDF_EXPAND_INFO_LEN_V1: usize =
     ED25519_YAO_PASSKEY_CLIENT_ROOT_KDF_EXPAND_INFO_DOMAIN_V1.len() + 32;
-/// HKDF extract salt for deriving the Yao Client root from an Email OTP factor secret.
-pub const ED25519_YAO_EMAIL_OTP_CLIENT_ROOT_KDF_EXTRACT_SALT_V1: &[u8] =
-    b"seams/router-ab/ed25519-yao/client-root/email-otp-factor/hkdf-sha256/extract/v1";
-/// HKDF expand domain for the Email OTP-derived Yao Client root.
-pub const ED25519_YAO_EMAIL_OTP_CLIENT_ROOT_KDF_EXPAND_INFO_DOMAIN_V1: &[u8] =
-    b"seams/router-ab/ed25519-yao/client-root/email-otp-factor/hkdf-sha256/expand/v1";
-/// Exact Email OTP Client-root HKDF expand-info length.
-pub const ED25519_YAO_EMAIL_OTP_CLIENT_ROOT_KDF_EXPAND_INFO_LEN_V1: usize =
-    ED25519_YAO_EMAIL_OTP_CLIENT_ROOT_KDF_EXPAND_INFO_DOMAIN_V1.len() + 32;
 
 const ROLE_A_TAG: u8 = 0x01;
 const ROLE_B_TAG: u8 = 0x02;
@@ -297,28 +288,6 @@ pub fn derive_ed25519_yao_client_root_from_passkey_prf_first_v1(
     let mut root = Zeroizing::new([0_u8; 32]);
     hkdf.expand(&info, &mut *root)
         .map_err(|_| SignerCoreError::hkdf_error("Ed25519 Yao passkey Client root HKDF failed"))?;
-    Ok(Ed25519YaoClientDerivationRootV1::from_secret_bytes(
-        core::mem::take(&mut *root),
-    ))
-}
-
-/// Derives the stable Client root from the Email OTP enrollment factor secret.
-pub fn derive_ed25519_yao_client_root_from_email_otp_factor_v1(
-    email_otp_factor: &[u8; 32],
-    application_binding_digest: &[u8; 32],
-) -> CoreResult<Ed25519YaoClientDerivationRootV1> {
-    let hkdf = Hkdf::<Sha256>::new(
-        Some(ED25519_YAO_EMAIL_OTP_CLIENT_ROOT_KDF_EXTRACT_SALT_V1),
-        email_otp_factor,
-    );
-    let mut info = [0_u8; ED25519_YAO_EMAIL_OTP_CLIENT_ROOT_KDF_EXPAND_INFO_LEN_V1];
-    let domain_end = ED25519_YAO_EMAIL_OTP_CLIENT_ROOT_KDF_EXPAND_INFO_DOMAIN_V1.len();
-    info[..domain_end].copy_from_slice(ED25519_YAO_EMAIL_OTP_CLIENT_ROOT_KDF_EXPAND_INFO_DOMAIN_V1);
-    info[domain_end..].copy_from_slice(application_binding_digest);
-    let mut root = Zeroizing::new([0_u8; 32]);
-    hkdf.expand(&info, &mut *root).map_err(|_| {
-        SignerCoreError::hkdf_error("Ed25519 Yao Email OTP Client root HKDF failed")
-    })?;
     Ok(Ed25519YaoClientDerivationRootV1::from_secret_bytes(
         core::mem::take(&mut *root),
     ))
@@ -600,10 +569,7 @@ fn contribution_expand_info(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        derive_ed25519_yao_client_root_from_email_otp_factor_v1,
-        derive_ed25519_yao_client_root_from_passkey_prf_first_v1,
-    };
+    use super::derive_ed25519_yao_client_root_from_passkey_prf_first_v1;
 
     #[test]
     fn passkey_client_root_kdf_matches_independent_hkdf_vector() {
@@ -631,18 +597,4 @@ mod tests {
         assert_ne!(first.as_bytes(), second.as_bytes());
     }
 
-    #[test]
-    fn email_otp_client_root_kdf_binds_application_digest_and_factor_domain() {
-        let first =
-            derive_ed25519_yao_client_root_from_email_otp_factor_v1(&[0x42; 32], &[0x24; 32])
-                .expect("first Email OTP root");
-        let second =
-            derive_ed25519_yao_client_root_from_email_otp_factor_v1(&[0x42; 32], &[0x25; 32])
-                .expect("second Email OTP root");
-        let passkey =
-            derive_ed25519_yao_client_root_from_passkey_prf_first_v1(&[0x42; 32], &[0x24; 32])
-                .expect("passkey root");
-        assert_ne!(first.as_bytes(), second.as_bytes());
-        assert_ne!(first.as_bytes(), passkey.as_bytes());
-    }
 }
