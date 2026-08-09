@@ -228,7 +228,7 @@ const RECOVERY_LIFECYCLE_FIELDS = [
   'revokedAtMs',
 ] as const;
 
-function parseWalletRecoveryEnvelopeEntry(
+export function parseWalletRecoveryEnvelopeEntry(
   raw: unknown,
   label: string,
 ): WalletRecoveryEnvelopeEntry {
