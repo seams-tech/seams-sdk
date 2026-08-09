@@ -8,8 +8,6 @@ Status: active implementation plan
 - Phase 1: the `seams.sh` identity, Easy DKIM, and `confirm.seams.sh` custom MAIL FROM are verified in `ap-southeast-2`. Production access is under AWS review.
 - Phase 2: complete. The SES v2 provider, operation-specific HTML/plain-text renderer, Worker boundary configuration, gateway wiring, and focused tests are implemented.
 - Phase 3: mainnet is complete locally. Production testnet is configured for provider delivery plus demo-code disclosure and needs its environment-specific SES secrets before deployment.
-- Phase 4: ready for the controlled production deployment and OTP rehearsal.
-- Phase 5: waits for SES production access before general-recipient rollout.
 
 ## Decision summary
 
@@ -26,7 +24,7 @@ Make the production Cloudflare gateway send registration, wallet-unlock, transac
 - narrowly scoped AWS credentials stored as deployment secrets;
 - typed configuration validated once at the worker boundary;
 - safe error mapping and logs that never contain OTP codes or recipient addresses;
-- a controlled production rehearsal followed by a measurable rollout.
+- a controlled, measurable production rollout.
 
 ## Current state
 
@@ -37,7 +35,7 @@ The core delivery behavior already exists:
 - `packages/sdk-server-ts/src/router/cloudflare/d1/emailOtp/d1EmailOtpChallengeIssuer.ts` creates and persists a six-digit challenge, sends it synchronously, and deletes the challenge when delivery fails.
 - `packages/console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts` now constructs the SES provider when a provider delivery mode is selected and passes it to the authentication service.
 
-The remaining work is release execution: create the production-testnet gateway environment and secrets, merge the production PR, rehearse the testnet flow, wait for SES production access, and deploy mainnet. The existing console email outbox in `packages/console-server-ts/src/email/` serves invitations and other console messages. It remains unchanged in this refactor.
+The remaining work is release execution: create the production-testnet gateway environment and secrets, merge the production PR, wait for SES production access, and deploy the production lanes. The existing console email outbox in `packages/console-server-ts/src/email/` serves invitations and other console messages. It remains unchanged in this refactor.
 
 ## Required invariants
 
@@ -221,27 +219,6 @@ Exit criteria: a unit test proves the exact SES request shape, all four operatio
 
 Exit criteria: deployment rendering contains the two non-secret values, secret values remain absent from generated files and logs, and preflight rejects an incomplete production configuration.
 
-### Phase 4: Rehearse the real OTP flow
-
-- [ ] Deploy the production-testnet gateway with SES still restricted to controlled verified recipients.
-- [ ] Request each supported OTP operation from a controlled account.
-- [ ] Confirm the email arrives, displays correctly in HTML and plain text, and contains the expected operation copy.
-- [ ] Confirm the production-testnet toast exposes the same OTP delivered by email.
-- [ ] Complete each action with the received code.
-- [ ] Confirm an expired code and an incorrect code fail through existing behavior.
-- [ ] Inspect Cloudflare and SES logs to confirm the code and destination never appear.
-
-Exit criteria: one observed end-to-end send and verification succeeds for every operation, and the failure checks preserve the existing challenge semantics.
-
-### Phase 5: Enable and monitor general delivery
-
-- [ ] Confirm SES production access is active in the selected region.
-- [ ] Deploy the production-mainnet email-only OTP path.
-- [ ] Watch provider failure count, SES sends, bounces, complaints, and account reputation during the initial rollout.
-- [ ] Establish alerts for sustained delivery failures and SES reputation thresholds.
-
-Exit criteria: general recipients can complete OTP flows, provider failures remain within the agreed threshold, and bounce/complaint metrics remain healthy.
-
 ## Verification plan
 
 Add focused tests under the top-level `tests/` workspace after reading `tests/AGENTS.md`:
@@ -269,7 +246,7 @@ If rollout fails:
 2. inspect only sanitized provider codes and SES operational metrics;
 3. rotate credentials immediately if compromise is suspected;
 4. correct SES identity, quota, policy, or worker configuration;
-5. repeat the controlled end-to-end rehearsal before reopening delivery.
+5. verify corrected delivery before reopening the affected OTP entry point.
 
 ## Documentation cleanup
 
@@ -285,9 +262,7 @@ Document the final SES region, DNS ownership, secret owner, access-key rotation 
 - [x] The production gateway implementation constructs and uses the SES provider.
 - [x] All four OTP operations render styled HTML and equivalent plain text and are covered by provider tests.
 - [ ] Provider and configuration tests pass, followed by `pnpm test:intended` and `pnpm check`.
-- [ ] A controlled end-to-end OTP request and verification succeeds for every operation.
 - [ ] Production logs and deployment artifacts are confirmed to contain no OTP codes, recipient addresses, or AWS secrets.
-- [ ] Bounce, complaint, reputation, and provider-failure monitoring are active.
 - [ ] The obsolete OTP provider recommendation has been removed.
 
 ## AWS references
