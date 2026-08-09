@@ -62,6 +62,7 @@ import {
   type WebAuthnSyncAccountVerificationRequest,
   type WebAuthnSyncAccountVerificationResult,
   type WebAuthnSyncAccountOptionsResult,
+  type WebAuthnLoginVerificationResult,
 } from './webauthn';
 import { randomBase64Url, randomOpaqueId } from './bytes';
 import {
@@ -974,18 +975,12 @@ export class AuthService {
     challenge_id?: unknown;
     webauthn_authentication?: unknown;
     expected_origin?: string;
-  }): Promise<{
-    ok: boolean;
-    verified?: boolean;
-    userId?: string;
-    rpId?: string;
-    code?: string;
-    message?: string;
-  }> {
+  }): Promise<WebAuthnLoginVerificationResult> {
     return await verifyWebAuthnLoginWithStores({
       request,
       loginChallengeStore: this.stores.getWebAuthnLoginChallengeStore(),
       authenticatorStore: this.stores.getWebAuthnAuthenticatorStore(),
+      credentialBindingStore: this.stores.getWebAuthnCredentialBindingStore(),
       identityStore: this.stores.getIdentityStore(),
       logger: this.logger,
     });

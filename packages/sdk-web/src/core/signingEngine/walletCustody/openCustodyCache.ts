@@ -1,4 +1,5 @@
 import { base64UrlDecode } from '@shared/utils/base64';
+import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import {
   ROUTER_AB_ED25519_YAO_ACTIVE_CLIENT_KIND_V1,
   RouterAbEd25519YaoClientV1,
@@ -50,6 +51,24 @@ export type WalletCustodyCacheEnvelopeV1 = {
   readonly aadHashB64u: string;
   readonly ciphertextDigestB64u: string;
 };
+
+export function walletCustodyCacheEnvelopeFromRecordV1(
+  envelope: PasskeyCustodyEnvelopeRecord,
+): WalletCustodyCacheEnvelopeV1 {
+  return {
+    bindingJson: JSON.stringify({
+      walletId: envelope.walletId,
+      envelopeId: envelope.envelopeId,
+      factor: envelope.factor,
+      envelopeRevision: envelope.envelopeRevision,
+      binding: envelope.binding,
+    }),
+    nonceB64u: envelope.nonceB64u,
+    ciphertextB64u: envelope.sealedCustodySecretB64u,
+    aadHashB64u: envelope.aadHashB64u,
+    ciphertextDigestB64u: envelope.ciphertextDigestB64u,
+  };
+}
 
 export function walletCustodyActiveClientMetadataV1(input: {
   readonly material: LoadedWalletCustodyEd25519MaterialV1;

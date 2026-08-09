@@ -1029,14 +1029,31 @@ export type RouterApiMethodTypes = {
       readonly webauthn_authentication?: unknown;
       readonly expected_origin?: string;
     };
-    readonly result: {
-      readonly ok: boolean;
-      readonly verified?: boolean;
-      readonly userId?: string;
-      readonly rpId?: string;
-      readonly code?: string;
-      readonly message?: string;
-    };
+    readonly result:
+      | {
+          readonly ok: true;
+          readonly verified: true;
+          readonly userId: string;
+          readonly rpId: string;
+          readonly credentialIdB64u: string;
+          readonly ed25519:
+            | { readonly kind: 'absent' }
+            | {
+                readonly kind: 'active';
+                readonly nearAccountId: string;
+                readonly nearEd25519SigningKeyId: string;
+                readonly signerSlot: number;
+                readonly publicKey: string;
+                readonly relayerKeyId: string;
+                readonly participantIds: readonly [number, number];
+              };
+        }
+      | {
+          readonly ok: false;
+          readonly verified?: false;
+          readonly code: string;
+          readonly message: string;
+        };
   };
   verifyWebAuthnSyncAccount: {
     readonly input: {
