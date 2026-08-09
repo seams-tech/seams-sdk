@@ -70,9 +70,9 @@ import {
 } from '@/core/signingEngine/session/emailOtp/secretEscrow';
 import { buildEmailOtpWorkerIssuedSessionHandle } from '@/core/platform/secretSources';
 import {
-  parseWalletRecoveryPreparationKeyManifest,
-  type WalletRecoveryPreparationKeyManifest,
-  type WalletRecoveryPreparationKeyManifestEntry,
+  parseWalletCustodyUnlockKeyManifest,
+  type WalletCustodyUnlockKeyManifest,
+  type WalletCustodyUnlockKeyManifestEntry,
 } from '@/core/rpcClients/relayer/walletRecoveryPrepare';
 import { joinCustodyWireFromEnvelopeRecord } from '@/core/signingEngine/walletCustody/joinCustodyWire';
 import {
@@ -3227,7 +3227,7 @@ type EmailOtpWalletCustodyUnlockProjection = {
   readonly envelopeRevision: number;
   readonly storeVersion: string;
   readonly activeKeySetIds: readonly string[];
-  readonly keyManifest: WalletRecoveryPreparationKeyManifest;
+  readonly keyManifest: WalletCustodyUnlockKeyManifest;
   readonly envelope: PasskeyCustodyEnvelopeRecord;
 };
 
@@ -3276,7 +3276,7 @@ function parseEmailOtpWalletCustodyUnlockProjection(args: {
     throw new Error('Email OTP wallet custody envelope revision changed');
   }
   const storeVersion = readString(projection.storeVersion, 'walletCustody.storeVersion');
-  const keyManifest = parseWalletRecoveryPreparationKeyManifest(
+  const keyManifest = parseWalletCustodyUnlockKeyManifest(
     projection.keyManifest,
     walletId,
   );
@@ -3309,8 +3309,8 @@ function parseEmailOtpWalletCustodyUnlockProjection(args: {
 
 function emailOtpEcdsaKeyManifestEntry(args: {
   material: EmailOtpUnlockSecretMaterialRequest;
-  keyManifest: WalletRecoveryPreparationKeyManifest;
-}): Extract<WalletRecoveryPreparationKeyManifestEntry, { kind: 'evm_family_ecdsa' }> {
+  keyManifest: WalletCustodyUnlockKeyManifest;
+}): Extract<WalletCustodyUnlockKeyManifestEntry, { kind: 'evm_family_ecdsa' }> {
   const keyHandle =
     args.material.kind === 'wallet_unlock_capabilities'
       ? args.material.ecdsa.sessionHandleBinding.keyHandle
@@ -3318,7 +3318,7 @@ function emailOtpEcdsaKeyManifestEntry(args: {
         ? args.material.ecdsaSessionHandleBinding.keyHandle
         : '';
   const entry = args.keyManifest.entries.find(
-    (candidate): candidate is Extract<WalletRecoveryPreparationKeyManifestEntry, { kind: 'evm_family_ecdsa' }> =>
+    (candidate): candidate is Extract<WalletCustodyUnlockKeyManifestEntry, { kind: 'evm_family_ecdsa' }> =>
       candidate.kind === 'evm_family_ecdsa' && candidate.keyHandle === keyHandle,
   );
   if (!entry) {

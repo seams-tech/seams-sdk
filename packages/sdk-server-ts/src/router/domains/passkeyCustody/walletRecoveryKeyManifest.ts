@@ -2,8 +2,17 @@ import { alphabetizeStringify } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type { EcdsaClientRootPublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { WalletId } from '@shared/utils/domainIds';
-import { sameRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
+import type {
+  RouterAbEd25519YaoApplicationBindingFactsV1,
+  RouterAbEd25519YaoBytes32V1,
+  RouterAbEd25519YaoLifecycleScopeV1,
+} from '@shared/utils/routerAbEd25519Yao';
+import {
+  sameRouterAbMpcMaterialActivationRef,
+  type RouterAbMpcMaterialActivationRefWire,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   ecdsaPostRegistrationRequestMatchesCapability,
@@ -39,6 +48,9 @@ export type WalletRecoveryKeyManifestEntryV1 =
         readonly participantIds: readonly [number, number];
         readonly registeredPublicKey: readonly number[];
         readonly runtimePolicyScope: WalletEd25519SignerRecord['runtimePolicyScope'];
+        readonly activationTranscript: readonly number[];
+        readonly activationStateEpoch: number;
+        readonly signingWorkerVerifyingShare: readonly number[];
       };
     }
   | {
@@ -64,6 +76,38 @@ export type WalletRecoveryPreparationKeyManifestEntryV1 =
       readonly keySetId: `near_ed25519:${string}`;
       readonly signerId: string;
       readonly nearAccountId: string;
+      readonly recordedKeyManifestDigestB64u: string;
+      readonly recoveryBasis: WalletRecoveryPreparationNearRecoveryBasisV1;
+    }
+  | {
+      readonly kind: 'evm_family_ecdsa';
+      readonly keySetId: `evm_family_ecdsa:${string}`;
+      readonly keyHandle: string;
+      readonly evmFamilySigningKeySlotId: string;
+      readonly recordedKeyManifestDigestB64u: string;
+      readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+      readonly chainTargetKeys: readonly string[];
+    };
+
+export type WalletRecoveryPreparationNearRecoveryBasisV1 = {
+  readonly capabilityKind: 'registration' | 'recovery';
+  readonly activeCapabilityBinding: RouterAbEd25519YaoBytes32V1;
+  readonly scope: RouterAbEd25519YaoLifecycleScopeV1;
+  readonly applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1;
+  readonly participantIds: readonly [number, number];
+  readonly registeredPublicKey: RouterAbEd25519YaoBytes32V1;
+  readonly runtimePolicyScope: RuntimePolicyScope;
+  readonly activationTranscript: RouterAbEd25519YaoBytes32V1;
+  readonly activationStateEpoch: number;
+  readonly signingWorkerVerifyingShare: RouterAbEd25519YaoBytes32V1;
+};
+
+export type WalletUnlockKeyManifestEntryV1 =
+  | {
+      readonly kind: 'near_ed25519';
+      readonly keySetId: `near_ed25519:${string}`;
+      readonly signerId: string;
+      readonly nearAccountId: string;
       readonly nearEd25519SigningKeyId: string;
       readonly signerSlot: number;
       readonly registeredPublicKeyB64u: string;
@@ -80,6 +124,12 @@ export type WalletRecoveryPreparationKeyManifestEntryV1 =
       readonly applicationBindingDigestB64u: string;
       readonly chainTargetKeys: readonly string[];
     };
+
+export type WalletUnlockKeyManifestV1 = {
+  readonly version: 'wallet_custody_unlock_key_manifest_v1';
+  readonly walletId: WalletId;
+  readonly entries: readonly WalletUnlockKeyManifestEntryV1[];
+};
 
 export type WalletRecoveryPreparationKeyManifestV1 = {
   readonly version: 'wallet_recovery_preparation_key_manifest_v1';
@@ -138,9 +188,19 @@ export function projectWalletRecoveryPreparationKeyManifestV1(
   };
 }
 
-function projectWalletRecoveryPreparationEntryV1(
+export function projectWalletUnlockKeyManifestV1(
+  manifest: WalletRecoveryKeyManifestV1,
+): WalletUnlockKeyManifestV1 {
+  return {
+    version: 'wallet_custody_unlock_key_manifest_v1',
+    walletId: manifest.walletId,
+    entries: manifest.entries.map(projectWalletUnlockEntryV1),
+  };
+}
+
+function projectWalletUnlockEntryV1(
   entry: WalletRecoveryKeyManifestEntryV1,
-): WalletRecoveryPreparationKeyManifestEntryV1 {
+): WalletUnlockKeyManifestEntryV1 {
   switch (entry.kind) {
     case 'near_ed25519':
       return {
@@ -167,6 +227,96 @@ function projectWalletRecoveryPreparationEntryV1(
         chainTargetKeys: [...entry.chainTargetKeys],
       };
   }
+}
+
+function projectWalletRecoveryPreparationEntryV1(
+  entry: WalletRecoveryKeyManifestEntryV1,
+): WalletRecoveryPreparationKeyManifestEntryV1 {
+  switch (entry.kind) {
+    case 'near_ed25519':
+      return {
+        kind: entry.kind,
+        keySetId: entry.keySetId,
+        signerId: entry.signerId,
+        nearAccountId: entry.nearAccountId,
+        recordedKeyManifestDigestB64u: entry.recordedKeyManifestDigestB64u,
+        recoveryBasis: {
+          capabilityKind: entry.recoveryBasis.capabilityKind,
+          activeCapabilityBinding: [...entry.recoveryBasis.activeCapabilityBinding],
+          scope: projectEd25519LifecycleScope(entry.recoveryBasis.scope),
+          applicationBinding: projectEd25519ApplicationBinding(
+            entry.recoveryBasis.applicationBinding,
+          ),
+          participantIds: [
+            entry.recoveryBasis.participantIds[0],
+            entry.recoveryBasis.participantIds[1],
+          ],
+          registeredPublicKey: [...entry.recoveryBasis.registeredPublicKey],
+          runtimePolicyScope: projectRuntimePolicyScope(entry.recoveryBasis.runtimePolicyScope),
+          activationTranscript: [...entry.recoveryBasis.activationTranscript],
+          activationStateEpoch: entry.recoveryBasis.activationStateEpoch,
+          signingWorkerVerifyingShare: [...entry.recoveryBasis.signingWorkerVerifyingShare],
+        },
+      };
+    case 'evm_family_ecdsa':
+      return {
+        kind: entry.kind,
+        keySetId: entry.keySetId,
+        keyHandle: entry.keyHandle,
+        evmFamilySigningKeySlotId: entry.evmFamilySigningKeySlotId,
+        recordedKeyManifestDigestB64u: entry.recordedKeyManifestDigestB64u,
+        publicCapability: entry.publicCapability,
+        chainTargetKeys: [...entry.chainTargetKeys],
+      };
+  }
+}
+
+function projectEd25519LifecycleScope(
+  scope: RouterAbEd25519YaoLifecycleScopeV1,
+): RouterAbEd25519YaoLifecycleScopeV1 {
+  return {
+    lifecycle_id: scope.lifecycle_id,
+    root_share_epoch: scope.root_share_epoch,
+    account_id: scope.account_id,
+    threshold_session_id: scope.threshold_session_id,
+    signer_set_id: scope.signer_set_id,
+    signing_worker_id: scope.signing_worker_id,
+    material_activation: projectMaterialActivation(scope.material_activation),
+  };
+}
+
+function projectMaterialActivation(
+  materialActivation: RouterAbMpcMaterialActivationRefWire,
+): RouterAbMpcMaterialActivationRefWire {
+  return {
+    kind: materialActivation.kind,
+    activation_id: materialActivation.activation_id,
+    capability: materialActivation.capability,
+    material_owner: materialActivation.material_owner,
+    key_binding: materialActivation.key_binding,
+    lifecycle_binding: materialActivation.lifecycle_binding,
+    signing_worker: materialActivation.signing_worker,
+  };
+}
+
+function projectEd25519ApplicationBinding(
+  applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1,
+): RouterAbEd25519YaoApplicationBindingFactsV1 {
+  return {
+    wallet_id: applicationBinding.wallet_id,
+    near_ed25519_signing_key_id: applicationBinding.near_ed25519_signing_key_id,
+    signing_root_id: applicationBinding.signing_root_id,
+    key_creation_signer_slot: applicationBinding.key_creation_signer_slot,
+  };
+}
+
+function projectRuntimePolicyScope(scope: RuntimePolicyScope): RuntimePolicyScope {
+  return {
+    orgId: scope.orgId,
+    projectId: scope.projectId,
+    envId: scope.envId,
+    signingRootVersion: scope.signingRootVersion,
+  };
 }
 
 export async function verifyWalletRecoveryKeyActivationsV1(input: {
@@ -323,23 +473,25 @@ function recoveryBasisFromEd25519Signer(
   signer: WalletEd25519SignerRecord,
 ): Extract<WalletRecoveryKeyManifestEntryV1, { readonly kind: 'near_ed25519' }>['recoveryBasis'] {
   const capability = signer.activeYaoCapability;
+  const receipt = capability.activationResult.public_receipt;
   return {
     capabilityKind:
       capability.version === 'wallet_ed25519_yao_registration_capability_v1'
         ? 'registration'
         : 'recovery',
     activeCapabilityBinding: [...capability.activeCapabilityBinding],
-    activeMaterialActivation: capability.activationResult.public_receipt.material_activation,
+    activeMaterialActivation: receipt.material_activation,
     scope: capability.admissionRequest.scope,
     applicationBinding: capability.admissionRequest.application_binding,
     participantIds: [
       capability.admissionRequest.participant_ids[0],
       capability.admissionRequest.participant_ids[1],
     ],
-    registeredPublicKey: [
-      ...capability.activationResult.public_receipt.registered_public_key,
-    ],
+    registeredPublicKey: [...receipt.registered_public_key],
     runtimePolicyScope: capability.runtimePolicyScope,
+    activationTranscript: [...receipt.transcript],
+    activationStateEpoch: receipt.state_epoch,
+    signingWorkerVerifyingShare: [...receipt.signing_worker_verifying_share],
   };
 }
 
