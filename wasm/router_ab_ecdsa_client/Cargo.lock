@@ -831,7 +831,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "router_ab_ecdsa_derivation_client"
+name = "router_ab_ecdsa_client"
 version = "0.1.0"
 dependencies = [
  "base64ct",

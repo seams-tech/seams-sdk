@@ -1,21 +1,11 @@
-use crate::encoders::{base64_url_decode, base64_url_encode};
+use crate::encoders::base64_url_decode;
 use router_ab_ecdsa_client_protocol::{
     decode_ecdsa_client_proof_bundle_envelope_v1, finalize_ecdsa_prf_two_party_output_v1,
     open_ecdsa_client_proof_bundle_v1, pair_ecdsa_opened_client_proof_bundles_v1,
     EcdsaClientProofBundleDeliveryKindV1, EcdsaClientProofBundleDeliveryV1,
     EcdsaClientProofBundlePairDeliveryV1,
 };
-use serde::{Deserialize, Serialize};
-
-pub(crate) fn finalize_encrypted_client_proof_bundles_v1(
-    input_json: &str,
-    private_key: &[u8; 32],
-) -> Result<String, String> {
-    serialize_final_output(finalize_encrypted_client_proof_output_v1(
-        input_json,
-        private_key,
-    )?)
-}
+use serde::Deserialize;
 
 pub(crate) fn finalize_encrypted_client_proof_output_v1(
     input_json: &str,
@@ -64,14 +54,6 @@ fn open_client_wire_bundle(
     open_ecdsa_client_proof_bundle_v1(&envelope, private_key).map_err(protocol_error)
 }
 
-fn serialize_final_output(output: [u8; 32]) -> Result<String, String> {
-    serde_json::to_string(&FinalizeEcdsaPrfOutputResultV1 {
-        kind: FinalizeEcdsaPrfOutputResultKindV1::RouterAbEcdsaPrfOutputV1,
-        output32_b64u: base64_url_encode(&output),
-    })
-    .map_err(|error| error.to_string())
-}
-
 fn decode_fixed_base64<const N: usize>(value: &str, field: &str) -> Result<[u8; N], String> {
     let decoded = base64_url_decode(value).map_err(|error| format!("{field}: {error}"))?;
     decoded
@@ -88,7 +70,7 @@ fn decode_nonempty_base64(value: &str, field: &str) -> Result<Vec<u8>, String> {
 }
 
 fn protocol_error(error: router_ab_ecdsa_client_protocol::EcdsaClientProtocolError) -> String {
-    format!("Router A/B ECDSA PRF finalization failed: {error:?}")
+    format!("Router A/B ECDSA client-proof verification failed: {error:?}")
 }
 
 #[derive(Debug, Deserialize)]
@@ -102,17 +84,4 @@ pub(crate) struct FinalizeEncryptedClientProofBundlesInputV1 {
 enum FinalizeEncryptedClientProofBundlesKindV1 {
     #[serde(rename = "finalize_encrypted_client_proof_bundles_v1")]
     FinalizeEncryptedClientProofBundlesV1,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct FinalizeEcdsaPrfOutputResultV1 {
-    kind: FinalizeEcdsaPrfOutputResultKindV1,
-    output32_b64u: String,
-}
-
-#[derive(Debug, Serialize)]
-enum FinalizeEcdsaPrfOutputResultKindV1 {
-    #[serde(rename = "router_ab_ecdsa_prf_output_v1")]
-    RouterAbEcdsaPrfOutputV1,
 }

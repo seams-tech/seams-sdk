@@ -1,5 +1,5 @@
 mod ceremony;
-mod ecdsa_prf_finalizer;
+mod client_proof_verifier;
 mod ecdsa_role_local;
 mod encoders;
 

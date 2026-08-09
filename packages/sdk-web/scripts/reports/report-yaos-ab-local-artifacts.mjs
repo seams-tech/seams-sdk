@@ -24,7 +24,7 @@ const workerBundles = [
   {
     id: 'ecdsaDerivationClient',
     path: 'packages/sdk-web/dist/workers/ecdsa-derivation-client.worker.js',
-    ownedWasmArtifacts: ['router_ab_ecdsa_derivation_client_bg.wasm'],
+    ownedWasmArtifacts: ['router_ab_ecdsa_client_bg.wasm'],
   },
   {
     id: 'ecdsaPresignClient',
@@ -41,7 +41,7 @@ const workerBundles = [
     path: 'packages/sdk-web/dist/workers/email-otp.worker.js',
     ownedWasmArtifacts: [
       'email_otp_runtime_bg.wasm',
-      'router_ab_ecdsa_derivation_client_bg.wasm',
+      'router_ab_ecdsa_client_bg.wasm',
       'router_ab_ed25519_yao_client_bg.wasm',
     ],
   },
@@ -57,8 +57,8 @@ const targets = [
   },
   {
     id: 'ecdsaDerivationClient',
-    packageDirectory: 'wasm/router_ab_ecdsa_derivation_client/pkg',
-    moduleName: 'router_ab_ecdsa_derivation_client',
+    packageDirectory: 'wasm/router_ab_ecdsa_client/pkg',
+    moduleName: 'router_ab_ecdsa_client',
     wasmBudget: { raw: 630_000, gzip: 250_000 },
     firstOperation: 'client_ceremony_public_key',
   },
@@ -87,7 +87,7 @@ const operationLazyProfiles = [
   {
     operation: 'ecdsa_registration_recovery_refresh_export',
     workerBundles: ['ecdsaDerivationClient', 'emailOtp'],
-    requiredArtifacts: ['router_ab_ecdsa_derivation_client_bg.wasm'],
+    requiredArtifacts: ['router_ab_ecdsa_client_bg.wasm'],
   },
   {
     operation: 'ed25519_normal_signing',
@@ -98,7 +98,7 @@ const operationLazyProfiles = [
     operation: 'ecdsa_normal_signing_role_local',
     workerBundles: ['ecdsaDerivationClient', 'ecdsaPresignClient', 'ecdsaOnlineClient'],
     requiredArtifacts: [
-      'router_ab_ecdsa_derivation_client_bg.wasm',
+      'router_ab_ecdsa_client_bg.wasm',
       'router_ab_ecdsa_presign_client_bg.wasm',
       'router_ab_ecdsa_online_client_bg.wasm',
     ],

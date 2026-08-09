@@ -102,19 +102,19 @@ const strictWorkerBuildProfile = resolveStrictWorkerBuildProfile({
   help: options.help,
   receiptPath: strictBuildReceiptPath,
 });
-const ecdsaDerivationClientRoot = join(repoRoot, 'wasm', 'router_ab_ecdsa_derivation_client');
+const ecdsaClientRoot = join(repoRoot, 'wasm', 'router_ab_ecdsa_client');
 const ecdsaDerivationClientDependencyPath = join(
-  ecdsaDerivationClientRoot,
+  ecdsaClientRoot,
   'target',
   'wasm32-unknown-unknown',
   'release',
   'deps',
-  'router_ab_ecdsa_derivation_client.d',
+  'router_ab_ecdsa_client.d',
 );
 const ecdsaDerivationClientPackageWasmPath = join(
-  ecdsaDerivationClientRoot,
+  ecdsaClientRoot,
   'pkg',
-  'router_ab_ecdsa_derivation_client_bg.wasm',
+  'router_ab_ecdsa_client_bg.wasm',
 );
 const ecdsaDerivationClientSdkWasmPaths = [
   join(
@@ -123,7 +123,7 @@ const ecdsaDerivationClientSdkWasmPaths = [
     'sdk-web',
     'dist',
     'workers',
-    'router_ab_ecdsa_derivation_client_bg.wasm',
+    'router_ab_ecdsa_client_bg.wasm',
   ),
   join(
     repoRoot,
@@ -133,7 +133,7 @@ const ecdsaDerivationClientSdkWasmPaths = [
     'public',
     'sdk',
     'workers',
-    'router_ab_ecdsa_derivation_client_bg.wasm',
+    'router_ab_ecdsa_client_bg.wasm',
   ),
   join(
     repoRoot,
@@ -142,9 +142,9 @@ const ecdsaDerivationClientSdkWasmPaths = [
     'dist',
     'esm',
     'wasm',
-    'router_ab_ecdsa_derivation_client',
+    'router_ab_ecdsa_client',
     'pkg',
-    'router_ab_ecdsa_derivation_client_bg.wasm',
+    'router_ab_ecdsa_client_bg.wasm',
   ),
 ];
 let strictRuntime;

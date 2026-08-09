@@ -11,7 +11,7 @@ import {
   build_ecdsa_role_local_export_artifact_v1,
   finalize_ecdsa_client_bootstrap_v1,
   prepare_ecdsa_client_bootstrap_v1,
-} from '../../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js';
+} from '../../../wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,9 +34,9 @@ const ROUTER_AB_ECDSA_SIGNING_WORKER_WASM_PATH = path.join(
 const ECDSA_DERIVATION_CLIENT_WASM_PATH = path.join(
   REPO_ROOT,
   'wasm',
-  'router_ab_ecdsa_derivation_client',
+  'router_ab_ecdsa_client',
   'pkg',
-  'router_ab_ecdsa_derivation_client_bg.wasm',
+  'router_ab_ecdsa_client_bg.wasm',
 );
 
 let wasmReady = false;
@@ -292,7 +292,7 @@ function renderMarkdown(summary) {
   lines.push('');
   lines.push(`- Run ID: \`${summary.runId}\``);
   lines.push(
-    '- Runtime: Node-hosted WASM (`wasm/router_ab_ecdsa_signing_worker/pkg` + `wasm/router_ab_ecdsa_derivation_client/pkg`)',
+    '- Runtime: Node-hosted WASM (`wasm/router_ab_ecdsa_signing_worker/pkg` + `wasm/router_ab_ecdsa_client/pkg`)',
   );
   lines.push('- Scope: active role-local client/server/bootstrap/export boundary');
   lines.push('');
@@ -380,10 +380,10 @@ async function measureBrowserClientBootstrap(fixture) {
       const result = await page.evaluate(
         async ({ origin: pageOrigin, payload }) => {
           const mod = await import(
-            `${pageOrigin}/wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js`
+            `${pageOrigin}/wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client.js`
           );
           await mod.default(
-            `${pageOrigin}/wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client_bg.wasm`,
+            `${pageOrigin}/wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client_bg.wasm`,
           );
           for (let i = 0; i < 20; i += 1) {
             mod.prepare_ecdsa_client_bootstrap_v1(JSON.stringify(payload));

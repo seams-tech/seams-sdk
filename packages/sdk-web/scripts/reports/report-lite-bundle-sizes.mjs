@@ -115,7 +115,7 @@ const TARGETS = [
   {
     id: 'ecdsa-derivation-client-wasm',
     label: 'ECDSA derivation client WASM',
-    relPath: 'dist/workers/router_ab_ecdsa_derivation_client_bg.wasm',
+    relPath: 'dist/workers/router_ab_ecdsa_client_bg.wasm',
     budget: { raw: 630_000, gzip: 250_000, brotli: 200_000 },
   },
   {
