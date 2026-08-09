@@ -107,14 +107,14 @@ function assertBootstrapIdentity(args: {
   }
 }
 
-function buildWalletSessionState(args: {
+async function buildWalletSessionState(args: {
   bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
   identity: ActivationIdentity;
   providerSubject: string;
   emailHashHex: string;
   relayerUrl: string;
   authPolicy: EmailOtpAuthPolicy;
-}): ResolvedRouterAbEd25519WalletSessionState {
+}): Promise<ResolvedRouterAbEd25519WalletSessionState> {
   const session = args.bootstrap.session;
   const authorityScope = session.authorityScope;
   if (authorityScope.kind !== 'email_otp') {
@@ -236,7 +236,7 @@ export async function activateWalletCustodyEd25519CapabilityV1(args: {
   ) {
     throw new Error('Wallet custody Ed25519 active client metadata changed');
   }
-  const walletSessionState = buildWalletSessionState({
+  const walletSessionState = await buildWalletSessionState({
     bootstrap: args.bootstrap,
     identity,
     providerSubject: args.providerSubject,
