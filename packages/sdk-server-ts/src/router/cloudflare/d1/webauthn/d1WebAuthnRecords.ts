@@ -123,6 +123,7 @@ export type WebAuthnRecoveryRegistrationChallengeRecord = {
   walletId: string;
   reservationId: string;
   replacementId: string;
+  replacedCredentialIdB64u: string;
   rpId: string;
   challengeB64u: string;
   createdAtMs: number;
@@ -191,12 +192,21 @@ export function parseWebAuthnRecoveryRegistrationChallengeRecord(
   const walletId = toOptionalTrimmedString(record.walletId);
   const reservationId = toOptionalTrimmedString(record.reservationId);
   const replacementId = toOptionalTrimmedString(record.replacementId);
+  const replacedCredentialIdB64u = toOptionalTrimmedString(record.replacedCredentialIdB64u);
   const rpId = toOptionalTrimmedString(record.rpId);
   const challengeB64u = toOptionalTrimmedString(record.challengeB64u);
   const createdAtMs = positiveInteger(record.createdAtMs);
   const expiresAtMs = positiveInteger(record.expiresAtMs);
   if (version !== 'webauthn_recovery_registration_challenge_v1') return null;
-  if (!challengeId || !walletId || !reservationId || !replacementId || !rpId || !challengeB64u) {
+  if (
+    !challengeId ||
+    !walletId ||
+    !reservationId ||
+    !replacementId ||
+    !replacedCredentialIdB64u ||
+    !rpId ||
+    !challengeB64u
+  ) {
     return null;
   }
   if (createdAtMs === null || expiresAtMs === null || expiresAtMs <= createdAtMs) return null;
@@ -206,6 +216,7 @@ export function parseWebAuthnRecoveryRegistrationChallengeRecord(
     walletId,
     reservationId,
     replacementId,
+    replacedCredentialIdB64u,
     rpId,
     challengeB64u,
     createdAtMs,

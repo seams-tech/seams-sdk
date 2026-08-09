@@ -255,13 +255,21 @@ export async function handleWalletRecoveryPrepare(
   const recoveryCode = trimmed(body?.recoveryCode);
   const challengeId = trimmed(body?.challengeId);
   const otpCode = trimmed(body?.otpCode);
+  const replacedCredentialIdB64u = trimmed(body?.replacedCredentialIdB64u);
   let reservationId;
   try {
     reservationId = parseRecoveryCodeReservationId(body?.reservationId);
   } catch {
     reservationId = null;
   }
-  if (!walletId || !recoveryCode || !reservationId || !challengeId || !otpCode) {
+  if (
+    !walletId ||
+    !recoveryCode ||
+    !reservationId ||
+    !challengeId ||
+    !otpCode ||
+    !replacedCredentialIdB64u
+  ) {
     return toFetchRouteResponse({
       status: 400,
       body: {
@@ -313,6 +321,7 @@ export async function handleWalletRecoveryPrepare(
     recoveryCodeBytes,
     reservationId,
     authorityRef: authorization.context.authorityRef,
+    replacedCredentialIdB64u,
   });
 
   switch (result.kind) {
@@ -486,6 +495,7 @@ export async function handleWalletRecoveryFinalize(
     reservationId,
     challengeId,
     replacementId,
+    replacedCredentialIdB64u,
     webauthnRegistration,
     replacementEnvelope,
   } = requestBody;
@@ -579,6 +589,7 @@ type WalletRecoveryFinalizeBody = {
   readonly reservationId: ReturnType<typeof parseRecoveryCodeReservationId>;
   readonly challengeId: string;
   readonly replacementId: string;
+  readonly replacedCredentialIdB64u: string;
   readonly webauthnRegistration: Record<string, unknown>;
   readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
 };
@@ -590,12 +601,17 @@ function parseWalletRecoveryFinalizeBody(value: unknown): WalletRecoveryFinalize
   if (!walletId.ok) throw new Error('wallet recovery finalization wallet is invalid');
   const challengeId = requireNonEmptyString(value.challengeId, 'challengeId');
   const replacementId = requireNonEmptyString(value.replacementId, 'replacementId');
+  const replacedCredentialIdB64u = requireNonEmptyString(
+    value.replacedCredentialIdB64u,
+    'replacedCredentialIdB64u',
+  );
   const webauthnRegistration = requireObject(value.webauthnRegistration, 'webauthnRegistration');
   return {
     walletId: walletId.value,
     reservationId: parseRecoveryCodeReservationId(value.reservationId),
     challengeId,
     replacementId,
+    replacedCredentialIdB64u,
     webauthnRegistration,
     replacementEnvelope: parsePasskeyCustodyEnvelopeRecord(
       value.replacementEnvelope,
@@ -610,6 +626,7 @@ function requireExactFinalizeFields(value: Record<string, unknown>): void {
     'reservationId',
     'challengeId',
     'replacementId',
+    'replacedCredentialIdB64u',
     'webauthnRegistration',
     'replacementEnvelope',
   ]);

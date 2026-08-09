@@ -148,6 +148,7 @@ export interface RouterApiPasskeyCustodyService {
     readonly recoveryCodeBytes: Uint8Array;
     readonly reservationId: RecoveryCodeReservationId;
     readonly authorityRef: WalletAuthAuthorityRef;
+    readonly replacedCredentialIdB64u: string;
   }): Promise<WalletRecoveryRoutePreparationResult>;
 
   /**
@@ -163,6 +164,7 @@ export interface RouterApiPasskeyCustodyService {
     readonly reservationId: RecoveryCodeReservationId;
     readonly challengeId: string;
     readonly replacementId: string;
+    readonly replacedCredentialIdB64u: string;
     readonly webauthnRegistration: unknown;
     readonly expectedOrigin: string;
     readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
@@ -233,6 +235,7 @@ export type WalletRecoveryRegistrationOptions = {
   readonly challengeId: string;
   readonly challengeB64u: string;
   readonly replacementId: string;
+  readonly replacedCredentialIdB64u: string;
   readonly rpId: string;
   readonly user: {
     readonly idB64u: string;
@@ -448,6 +451,7 @@ async function prepareRecoveryForRoute(
     readonly recoveryCodeBytes: Uint8Array;
     readonly reservationId: RecoveryCodeReservationId;
     readonly authorityRef: WalletAuthAuthorityRef;
+    readonly replacedCredentialIdB64u: string;
   },
 ): Promise<WalletRecoveryRoutePreparationResult> {
   let walletId: WalletId;
@@ -478,6 +482,7 @@ async function prepareRecoveryForRoute(
       webAuthnStore: assembly.webAuthnStore,
       walletId,
       reservationId: request.reservationId,
+      replacedCredentialIdB64u: request.replacedCredentialIdB64u,
       nowMs: (assembly.nowMs ?? Date.now)(),
     });
     if (registration.kind !== 'ready') {
@@ -502,27 +507,22 @@ async function createWalletRecoveryRegistrationOptions(input: {
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
   readonly walletId: WalletId;
   readonly reservationId: RecoveryCodeReservationId;
+  readonly replacedCredentialIdB64u: string;
   readonly nowMs: number;
 }): Promise<
   | { readonly kind: 'ready'; readonly options: WalletRecoveryRegistrationOptions }
   | { readonly kind: 'unavailable'; readonly reason: string }
 > {
-  const bindings = await input.webAuthnStore.readBindingRows({
-    userId: String(input.walletId),
-  });
-  const rpIds = [...new Set(bindings.map((binding) => String(binding.rpId || '').trim()))].filter(
-    Boolean,
+  const selectedBinding = await input.webAuthnStore.readBindingByCredentialId(
+    input.replacedCredentialIdB64u,
   );
-  if (rpIds.length !== 1) {
+  if (!selectedBinding || selectedBinding.userId !== String(input.walletId)) {
     return {
       kind: 'unavailable',
-      reason:
-        rpIds.length === 0
-          ? 'wallet recovery has no existing WebAuthn relying party'
-          : 'wallet recovery has multiple WebAuthn relying parties',
+      reason: 'wallet recovery replacement credential is unavailable',
     };
   }
-  const parsedRpId = parseWebAuthnRpId(rpIds[0]);
+  const parsedRpId = parseWebAuthnRpId(selectedBinding.rpId);
   if (!parsedRpId.ok) {
     return { kind: 'unavailable', reason: 'wallet recovery relying party is invalid' };
   }
@@ -539,6 +539,7 @@ async function createWalletRecoveryRegistrationOptions(input: {
     walletId: String(input.walletId),
     reservationId: String(input.reservationId),
     replacementId,
+    replacedCredentialIdB64u: selectedBinding.credentialIdB64u,
     rpId: parsedRpId.value,
     challengeB64u,
     createdAtMs: input.nowMs,
@@ -550,6 +551,10 @@ async function createWalletRecoveryRegistrationOptions(input: {
     record,
     createdAtMs: input.nowMs,
     expiresAtMs,
+  });
+  const bindings = await input.webAuthnStore.readBindingRows({
+    userId: String(input.walletId),
+    rpId: parsedRpId.value,
   });
   const excludeCredentials = bindings
     .filter((binding) => String(binding.rpId) === String(parsedRpId.value))
@@ -564,6 +569,7 @@ async function createWalletRecoveryRegistrationOptions(input: {
       challengeId,
       challengeB64u,
       replacementId,
+      replacedCredentialIdB64u: selectedBinding.credentialIdB64u,
       rpId: parsedRpId.value,
       user: {
         idB64u: base64UrlEncode(new TextEncoder().encode(String(input.walletId))),
@@ -662,6 +668,7 @@ async function finalizeRecoveryForRoute(
     reservationId: request.reservationId,
     challengeId: request.challengeId,
     replacementId: request.replacementId,
+    replacedCredentialIdB64u: request.replacedCredentialIdB64u,
     webauthnRegistration: request.webauthnRegistration,
     expectedOrigin: request.expectedOrigin,
     webAuthnStore: assembly.webAuthnStore,
