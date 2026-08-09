@@ -220,7 +220,6 @@ const workerTargets = [
   [
     'registrationWasm',
     'ECDSA registration client WASM',
-    'dist/workers/ecdsa_registration_client_bg.wasm',
   ],
   [
     'derivationWasm',

@@ -1,13 +1,11 @@
 import { type WorkerResponseDiagnostics } from '@/core/types/signer-worker';
 import initEcdsaDerivationClient, {
   build_ecdsa_role_local_export_artifact_v1,
-  RouterAbEcdsaClientCeremonyV1,
-} from '../../../../../../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js';
-import initEcdsaRegistrationClient, {
   finalize_ecdsa_client_bootstrap_v1,
   open_ecdsa_role_local_signing_share_v1,
   prepare_ecdsa_client_bootstrap_v1,
-} from '../../../../../../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js';
+  RouterAbEcdsaClientCeremonyV1,
+} from '../../../../../../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import {
@@ -68,6 +66,7 @@ import {
   parseRouterAbEcdsaDerivationActivationRefreshRequestV1,
   parseRouterAbEcdsaDerivationExplicitExportRequestV1,
   parseRouterAbEcdsaDerivationExplicitExportProtocolRequestV1,
+  parseRouterAbEcdsaDerivationRecoveryRequestV1,
   parseRouterAbEcdsaVerifiedClientActivationFactsV1,
   type RouterAbEcdsaClientProofFinalizationV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
@@ -114,12 +113,7 @@ const ecdsaDerivationClientWasmUrl = resolveWasmUrl(
   'router_ab_ecdsa_derivation_client_bg.wasm',
   'ECDSA Derivation Client',
 );
-const ecdsaRegistrationClientWasmUrl = resolveWasmUrl(
-  'ecdsa_registration_client_bg.wasm',
-  'ECDSA Registration Client',
-);
 let ecdsaDerivationClientInitPromise: Promise<void> | null = null;
-let ecdsaRegistrationClientInitPromise: Promise<void> | null = null;
 let messageQueue: Promise<void> = Promise.resolve();
 let presignPort: MessagePort | null = null;
 const DIAGNOSTIC_BREAKDOWN_MAX_DEPTH = 2;
@@ -205,6 +199,12 @@ type ActiveRouterAbEcdsaPostRegistrationCeremony =
       kind: 'explicit_export';
       ceremony: RouterAbEcdsaClientCeremonyV1;
       request: ReturnType<typeof parseRouterAbEcdsaDerivationExplicitExportRequestV1>;
+      requestDigestB64u: string;
+    }
+  | {
+      kind: 'recovery';
+      ceremony: RouterAbEcdsaClientCeremonyV1;
+      request: ReturnType<typeof parseRouterAbEcdsaDerivationRecoveryRequestV1>;
       requestDigestB64u: string;
     }
   | {
@@ -1273,6 +1273,24 @@ function createRouterAbEcdsaPostRegistrationCeremony(
         };
         break;
       }
+      case 'create_router_ab_ecdsa_recovery_ceremony_v1': {
+        const recoveryRequest = parseRouterAbEcdsaDerivationRecoveryRequestV1(
+          JSON.parse(ceremony.build_recovery_request(JSON.stringify(request.request))),
+        );
+        result = {
+          kind: 'router_ab_ecdsa_recovery_ceremony_created_v1',
+          ceremonyId,
+          request: recoveryRequest,
+          requestDigestB64u: ceremony.recovery_request_digest_b64u(),
+        };
+        active = {
+          kind: 'recovery',
+          ceremony,
+          request: recoveryRequest,
+          requestDigestB64u: result.requestDigestB64u,
+        };
+        break;
+      }
       case 'create_router_ab_ecdsa_activation_refresh_ceremony_v1': {
         const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(
           request.publicCapability,
@@ -1815,28 +1833,6 @@ async function initializeEcdsaDerivationClientWasm(): Promise<void> {
   return ecdsaDerivationClientInitPromise;
 }
 
-async function loadEcdsaRegistrationClientWasm(): Promise<void> {
-  try {
-    await initEcdsaRegistrationClient({ module_or_path: ecdsaRegistrationClientWasmUrl });
-  } catch (error: unknown) {
-    ecdsaRegistrationClientInitPromise = null;
-    console.error(
-      '[derivation-client-worker]: ECDSA registration client WASM initialization failed:',
-      errorLogSummary(error),
-    );
-    throw new Error(
-      `ECDSA registration client WASM initialization failed: ${safeErrorMessage(error)}`,
-    );
-  }
-}
-
-async function initializeEcdsaRegistrationClientWasm(): Promise<void> {
-  if (!ecdsaRegistrationClientInitPromise) {
-    ecdsaRegistrationClientInitPromise = loadEcdsaRegistrationClientWasm();
-  }
-  return ecdsaRegistrationClientInitPromise;
-}
-
 async function initializeEcdsaDerivationOperationWasm(
   operationType: EcdsaDerivationWorkerOperationType,
 ): Promise<void> {
@@ -1844,35 +1840,18 @@ async function initializeEcdsaDerivationOperationWasm(
     case EcdsaDerivationClientCustomRequestType.CreateRouterAbEcdsaRegistrationCeremony:
     case EcdsaDerivationClientCustomRequestType.CreateRouterAbEcdsaPostRegistrationCeremony:
     case EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaExplicitExport:
-      await initializeEcdsaDerivationClientWasm();
-      return;
     case EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaRegistrationClientProofs:
-      // Proof opening stays with the ceremony WASM; role-local bootstrap belongs to registration.
-      await Promise.all([
-        initializeEcdsaDerivationClientWasm(),
-        initializeEcdsaRegistrationClientWasm(),
-      ]);
-      return;
     case EcdsaDerivationClientCustomRequestType.PrewarmEcdsaRegistrationCrypto:
-      await Promise.all([
-        initializeEcdsaDerivationClientWasm(),
-        initializeEcdsaRegistrationClientWasm(),
-      ]);
-      return;
     case EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaRegistrationActivation:
-      await initializeEcdsaRegistrationClientWasm();
+    case EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap:
+    case EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap:
+    case EcdsaDerivationClientCustomRequestType.BuildThresholdEcdsaDerivationRoleLocalExportArtifact:
+      await initializeEcdsaDerivationClientWasm();
       return;
     case EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaRegistrationCeremony:
     case EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaPostRegistrationCeremony:
     case EcdsaDerivationClientCustomRequestType.PersistInitialCanonicalEcdsaActivation:
     case EcdsaDerivationClientCustomRequestType.ReconcileCanonicalEcdsaActivation:
-      return;
-    case EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap:
-    case EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap:
-      await initializeEcdsaRegistrationClientWasm();
-      return;
-    case EcdsaDerivationClientCustomRequestType.BuildThresholdEcdsaDerivationRoleLocalExportArtifact:
-      await initializeEcdsaDerivationClientWasm();
       return;
     case EcdsaDerivationClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial:
     case EcdsaDerivationClientCustomRequestType.RehydrateEcdsaRoleLocalSigningMaterial:
@@ -2123,7 +2102,7 @@ async function handleAdditiveShareRequest(
   const request = event.data;
   if (request.kind !== 'ecdsa_derivation_additive_share_request_v1') return;
   try {
-    await initializeEcdsaRegistrationClientWasm();
+    await initializeEcdsaDerivationClientWasm();
     let expectedBindingDigest: string;
     switch (request.material.kind) {
       case 'persisted': {

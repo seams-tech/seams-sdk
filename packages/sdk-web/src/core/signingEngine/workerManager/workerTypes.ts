@@ -44,13 +44,8 @@ import type { EmailOtpRecoveryCodeSet } from '@shared/utils/emailOtpRecoveryKey'
 import type { EmailOtpChallengeDelivery } from '../session/emailOtp/publicTypes';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type { EmailOtpRoutePlan } from '../stepUpConfirmation/otpPrompt/authLane';
-import type {
-  EcdsaRoleLocalReadyStateBlob,
-  EmailOtpWorkerSessionSecretSource,
-  PrepareEcdsaClientBootstrapInput,
-} from '@/core/platform';
+import type { EcdsaRoleLocalReadyStateBlob } from '@/core/platform';
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
-import type { GeneratedPrepareEcdsaClientBootstrapOutput } from '@/core/platform/signerCoreCommandAdapters';
 import type {
   CloseRouterAbEcdsaPostRegistrationCeremonyRequestV1,
   CloseRouterAbEcdsaPostRegistrationCeremonyResultV1,
@@ -436,13 +431,6 @@ export type EmailOtpWorkerIssuedSessionHandlePayload =
   | EmailOtpEcdsaSessionBootstrapHandlePayload
   | EmailOtpWalletRegistrationEcdsaPrepareHandlePayload;
 
-export type EmailOtpPrepareEcdsaClientBootstrapInput = Omit<
-  PrepareEcdsaClientBootstrapInput,
-  'secretSource'
-> & {
-  secretSource: EmailOtpWorkerSessionSecretSource;
-};
-
 type EmailOtpEcdsaSessionBootstrapHandleBindingBase = {
   authSubjectId: string;
   action?: 'threshold_ecdsa_bootstrap';
@@ -762,12 +750,6 @@ export interface EmailOtpWorkerOperationMap {
       metadata: RouterAbEd25519YaoActiveClientMetadataV1;
       issuedAuthorization: EmailOtpEd25519YaoIssuedOperationAuthorizationV1;
     };
-  };
-  prepareEcdsaClientBootstrapFromEmailOtpHandle: {
-    payload: {
-      input: EmailOtpPrepareEcdsaClientBootstrapInput;
-    };
-    result: GeneratedPrepareEcdsaClientBootstrapOutput;
   };
   verifyEmailOtpCode: {
     payload: {
@@ -1103,7 +1085,6 @@ export type EmailOtpChallengeOperationType =
 export type EmailOtpEnrollmentOperationType =
   | 'enrollEmailOtpWallet'
   | 'prepareEmailOtpRegistrationEnrollmentMaterial'
-  | 'prepareEcdsaClientBootstrapFromEmailOtpHandle'
   | 'bindEmailOtpEd25519YaoRoot'
   | 'disposeEmailOtpEd25519YaoPendingFactor'
   | 'disposeEmailOtpEd25519YaoRoot'
