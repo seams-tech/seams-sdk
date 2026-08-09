@@ -82,7 +82,7 @@ function requiredBoundaryString(value: unknown, label: string): string {
   return value;
 }
 
-function canonicalRelayUrl(value: unknown): string {
+export function canonicalRelayUrl(value: unknown): string {
   if (typeof value !== 'string' || value.length === 0 || value.trim() !== value) {
     throw new Error('relayUrl must be a non-empty canonical string');
   }

@@ -57,7 +57,10 @@ export type EmailOtpWalletRequestType =
   | 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION'
   | 'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS'
   | 'PM_SHOW_EMAIL_OTP_RECOVERY_CODES'
-  | 'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES';
+  | 'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES'
+  | 'PM_REQUEST_WALLET_RECOVERY_CHALLENGE'
+  | 'PM_PREPARE_WALLET_RECOVERY'
+  | 'PM_COMPLETE_WALLET_RECOVERY';
 export type RecoveryWalletRequestType =
   | 'PM_GET_RECOVERY_EMAILS'
   | 'PM_SET_RECOVERY_EMAILS'
@@ -242,6 +245,9 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
     case 'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS':
     case 'PM_SHOW_EMAIL_OTP_RECOVERY_CODES':
     case 'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES':
+    case 'PM_REQUEST_WALLET_RECOVERY_CHALLENGE':
+    case 'PM_PREPARE_WALLET_RECOVERY':
+    case 'PM_COMPLETE_WALLET_RECOVERY':
       return { kind: 'email_otp', type: request.type, request };
 
     case 'PM_GET_RECOVERY_EMAILS':

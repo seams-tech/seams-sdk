@@ -8,6 +8,9 @@ import type { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinato
 export type RecoveryCapabilityDomainMethods = {
   getEmailOtpRecoveryCodeStatus: RecoveryCapability['getEmailOtpRecoveryCodeStatus'];
   rotateEmailOtpRecoveryCodes: RecoveryCapability['rotateEmailOtpRecoveryCodes'];
+  requestWalletRecoveryChallenge: RecoveryCapability['requestWalletRecoveryChallenge'];
+  prepareWalletRecovery: RecoveryCapability['prepareWalletRecovery'];
+  completeWalletRecovery: RecoveryCapability['completeWalletRecovery'];
 };
 
 export function createRecoveryCapability(deps: {
@@ -25,5 +28,8 @@ export function createRecoveryCapability(deps: {
     syncAccount: async (args) => await emailRecovery.syncAccount(args),
     getEmailOtpRecoveryCodeStatus: deps.domain.getEmailOtpRecoveryCodeStatus,
     rotateEmailOtpRecoveryCodes: deps.domain.rotateEmailOtpRecoveryCodes,
+    requestWalletRecoveryChallenge: deps.domain.requestWalletRecoveryChallenge,
+    prepareWalletRecovery: deps.domain.prepareWalletRecovery,
+    completeWalletRecovery: deps.domain.completeWalletRecovery,
   } satisfies RecoveryCapability;
 }

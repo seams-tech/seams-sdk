@@ -19,7 +19,7 @@ import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { parseEmailOtpChallengeId } from '@shared/utils/domainIds';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
-import { EMAIL_OTP_CHANNEL, WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
+import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import type { RecoveryCodeReservationId } from '@shared/wallet-recovery/recoveryCodeReservation';
 import type { AuthorizedOperation } from '../../../authorization/domain';
@@ -129,7 +129,7 @@ export async function admitWalletRecoveryEmailOtp(input: {
   if (input.context.existing) {
     return { ok: true, operation: input.context.existing };
   }
-  const verified = await input.emailOtp.verifyEmailOtpChallenge({
+  const verified = await input.emailOtp.verifyEmailOtpWalletRecoveryChallenge({
     userId: input.context.session.principalId,
     walletId: input.walletId,
     orgId: input.context.session.tenantId,
@@ -138,7 +138,6 @@ export async function admitWalletRecoveryEmailOtp(input: {
     otpChannel: EMAIL_OTP_CHANNEL,
     sessionHash: await hashEmailOtpAppSessionClaims(input.context.rawClaims),
     appSessionVersion: input.context.activeSession.appSessionVersion,
-    operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
   });
   if (!verified.ok) {
     return {

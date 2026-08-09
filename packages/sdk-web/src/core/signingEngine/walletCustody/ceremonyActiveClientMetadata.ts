@@ -1,5 +1,8 @@
 import {
   parseRouterAbEd25519YaoRegistrationActivationResultV1,
+  parseRouterAbEd25519YaoRecoveryActivationResultV1,
+  type RouterAbEd25519YaoRecoveryActivationReceiptV1,
+  type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import { parseMpcMaterialActivationRef } from '@shared/utils/domainIds';
@@ -75,6 +78,61 @@ export function walletCustodyEd25519ActiveClientMetadataV1(input: {
     stateEpoch: BigInt(receipt.state_epoch),
     transcript: Uint8Array.from(receipt.transcript),
     activeCapabilityBinding: activation.binding.session_id,
+    materialActivation: materialActivation.value,
+  };
+}
+
+export function walletRecoveryEd25519ActiveClientMetadataV1(input: {
+  readonly admissionRequest: RouterAbEd25519YaoRecoveryAdmissionRequestV1;
+  readonly activationResultJson: string;
+  readonly activationReceipt: RouterAbEd25519YaoRecoveryActivationReceiptV1;
+}): RouterAbEd25519YaoActiveClientMetadataV1 {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(input.activationResultJson);
+  } catch {
+    throw new Error('the Router recovery result is not JSON');
+  }
+  const parsed = parseRouterAbEd25519YaoRecoveryActivationResultV1(raw);
+  if (!parsed.ok) {
+    throw new Error(`Router recovery result is invalid: ${parsed.message}`);
+  }
+  const result = parsed.value;
+  if (result.binding.lifecycle.lifecycle_id !== input.admissionRequest.scope.lifecycle_id) {
+    throw new Error('the Router recovery result belongs to another lifecycle');
+  }
+  if (
+    input.activationReceipt.binding.lifecycle.lifecycle_id !==
+    input.admissionRequest.scope.lifecycle_id
+  ) {
+    throw new Error('the Router recovery activation belongs to another lifecycle');
+  }
+  const receipt = input.activationReceipt.public_receipt;
+  const materialActivation = parseMpcMaterialActivationRef({
+    kind: receipt.material_activation.kind,
+    activationId: receipt.material_activation.activation_id,
+    capability: receipt.material_activation.capability,
+    materialOwner: receipt.material_activation.material_owner,
+    keyBinding: receipt.material_activation.key_binding,
+    lifecycleBinding: receipt.material_activation.lifecycle_binding,
+    signingWorker: receipt.material_activation.signing_worker,
+  });
+  if (!materialActivation.ok) {
+    throw new Error(`Invalid recovery material reference: ${materialActivation.error.message}`);
+  }
+  return {
+    kind: ROUTER_AB_ED25519_YAO_ACTIVE_CLIENT_KIND_V1,
+    scope: input.admissionRequest.scope,
+    applicationBinding: input.admissionRequest.application_binding,
+    participantIds: [
+      input.admissionRequest.participant_ids[0],
+      input.admissionRequest.participant_ids[1],
+    ],
+    registeredPublicKey: Uint8Array.from(receipt.registered_public_key),
+    signingWorkerVerifyingShare: Uint8Array.from(receipt.signing_worker_verifying_share),
+    stateEpoch: BigInt(receipt.state_epoch),
+    transcript: Uint8Array.from(receipt.transcript),
+    activeCapabilityBinding: Uint8Array.from(input.activationReceipt.active_capability_binding),
     materialActivation: materialActivation.value,
   };
 }

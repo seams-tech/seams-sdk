@@ -75,6 +75,8 @@ export type {
   PreferencesCapability,
   RegistrationCapability,
   RecoveryCapability,
+  CompleteWalletRecoveryResult,
+  PrepareWalletWithCodeResult,
   ReconcileTempoNonceLaneArgs,
   ReportTempoBroadcastAcceptedArgs,
   ReportTempoBroadcastRejectedArgs,

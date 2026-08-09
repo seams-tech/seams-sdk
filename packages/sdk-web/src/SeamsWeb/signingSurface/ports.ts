@@ -114,6 +114,15 @@ import type {
   WalletCustodyEvmFamilyPublicFacts,
 } from '@shared/passkey-custody';
 import type {
+  PreparedWalletRecovery,
+  WalletRecoveryRegistrationOptions,
+} from '@/core/rpcClients/relayer/walletRecoveryPrepare';
+import type { WalletRecoveryReplacementCredential } from '@/core/signingEngine/walletCustody/walletRecoveryCredential';
+import type {
+  RecoveredWalletCustodyManifestV1,
+} from '@/core/signingEngine/walletCustody/walletRecoveryManifest';
+import type { WebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
+import type {
   LoadWalletCustodyEd25519MaterialResultV1,
   WalletCustodyEd25519MaterialBindingV1,
   WalletCustodySealedEd25519MaterialV1,
@@ -349,6 +358,22 @@ export type Ed25519YaoRegistrationActivationSurface = ProductEd25519YaoCapabilit
  * cache and never crosses.
  */
 export interface WalletCustodyCeremonySurface {
+  createWalletRecoveryReplacementCredential(args: {
+    walletId: string;
+    registration: WalletRecoveryRegistrationOptions;
+  }): Promise<WalletRecoveryReplacementCredential>;
+
+  recoverWalletCustodyManifest(args: {
+    walletId: string;
+    prepared: PreparedWalletRecovery;
+    custodyJson: string;
+    recoveryCodeBytes: Uint8Array;
+    replacementCredentialIdB64u: WebAuthnCredentialIdB64u;
+    replacementFactorSecret: ArrayBuffer;
+    relayUrl: string;
+    sessionToken: string;
+  }): Promise<RecoveredWalletCustodyManifestV1>;
+
   establishWalletCustodyNearEd25519KeySet(args: {
     walletId: string;
     factorJson: string;

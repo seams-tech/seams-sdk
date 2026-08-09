@@ -22,6 +22,7 @@ import type {
 } from '../../shared/messages';
 import {
   activeWalletOrHostedAppSessionJwt,
+  canonicalRelayUrl,
   redeemHostedWalletSeamsSession,
 } from '../hostedWalletSeamsSession';
 
@@ -49,6 +50,15 @@ function assertNoParentPostedAppSessionJwt(value: unknown): void {
   if (Object.prototype.hasOwnProperty.call(record, 'appSessionJwt')) {
     throw new Error('wallet iframe requests must not carry appSessionJwt');
   }
+}
+
+function requireWalletRelayUrl(value: string | undefined, expectedRelayUrl: string): string {
+  const expected = canonicalRelayUrl(expectedRelayUrl);
+  const requested = canonicalRelayUrl(value || expectedRelayUrl);
+  if (requested !== expected) {
+    throw new Error('wallet recovery relay URL does not match the wallet origin');
+  }
+  return expected;
 }
 
 function assertNoGoogleRegistrationOtpFields(payload: unknown): void {
@@ -203,15 +213,64 @@ function parseGetEmailOtpRecoveryCodeStatusPayload(
   appSessionJwt?: string;
 } {
   const record = recordFromPayload(value);
-  const relayUrl = readOptionalString(record, 'relayUrl');
+  const relayUrl = requireWalletRelayUrl(readOptionalString(record, 'relayUrl'), expectedRelayUrl);
   const walletId = readRequiredString(record, 'walletId');
   const appSessionJwt = activeWalletOrHostedAppSessionJwt(
-    relayUrl || expectedRelayUrl,
+    relayUrl,
     walletId,
   );
   return {
     walletId,
-    ...(relayUrl ? { relayUrl } : {}),
+    relayUrl,
+    ...(appSessionJwt ? { appSessionJwt } : {}),
+  };
+}
+
+function parsePrepareWalletRecoveryPayload(
+  value: unknown,
+  expectedRelayUrl: string,
+): {
+  walletId: string;
+  challengeId: string;
+  otpCode: string;
+  recoveryCode: string;
+  relayUrl?: string;
+  appSessionJwt?: string;
+} {
+  const record = recordFromPayload(value);
+  const relayUrl = requireWalletRelayUrl(readOptionalString(record, 'relayUrl'), expectedRelayUrl);
+  const walletId = readRequiredString(record, 'walletId');
+  const appSessionJwt = activeWalletOrHostedAppSessionJwt(
+    relayUrl,
+    walletId,
+  );
+  return {
+    walletId,
+    challengeId: readRequiredString(record, 'challengeId'),
+    otpCode: readRequiredString(record, 'otpCode'),
+    recoveryCode: readRequiredString(record, 'recoveryCode'),
+    relayUrl,
+    ...(appSessionJwt ? { appSessionJwt } : {}),
+  };
+}
+
+function parseCompleteWalletRecoveryPayload(
+  value: unknown,
+  expectedRelayUrl: string,
+): {
+  walletId: string;
+  recoveryOperationId: string;
+  relayUrl?: string;
+  appSessionJwt?: string;
+} {
+  const record = recordFromPayload(value);
+  const relayUrl = requireWalletRelayUrl(readOptionalString(record, 'relayUrl'), expectedRelayUrl);
+  const walletId = readRequiredString(record, 'walletId');
+  const appSessionJwt = activeWalletOrHostedAppSessionJwt(relayUrl, walletId);
+  return {
+    walletId,
+    recoveryOperationId: readRequiredString(record, 'recoveryOperationId'),
+    relayUrl,
     ...(appSessionJwt ? { appSessionJwt } : {}),
   };
 }
@@ -553,6 +612,35 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       const pm = deps.getSeamsWeb();
       const result = await pm.recovery.rotateEmailOtpRecoveryCodes(
         parseGetEmailOtpRecoveryCodeStatusPayload(req.payload, pm.configs.network.relayer.url),
+      );
+      respondOkResult(deps, req.requestId, result);
+    },
+
+    PM_REQUEST_WALLET_RECOVERY_CHALLENGE: async (
+      req: Req<'PM_REQUEST_WALLET_RECOVERY_CHALLENGE'>,
+    ) => {
+      assertNoParentPostedAppSessionJwt(req.payload);
+      const pm = deps.getSeamsWeb();
+      const result = await pm.recovery.requestWalletRecoveryChallenge(
+        parseGetEmailOtpRecoveryCodeStatusPayload(req.payload, pm.configs.network.relayer.url),
+      );
+      respondOkResult(deps, req.requestId, result);
+    },
+
+    PM_PREPARE_WALLET_RECOVERY: async (req: Req<'PM_PREPARE_WALLET_RECOVERY'>) => {
+      assertNoParentPostedAppSessionJwt(req.payload);
+      const pm = deps.getSeamsWeb();
+      const result = await pm.recovery.prepareWalletRecovery(
+        parsePrepareWalletRecoveryPayload(req.payload, pm.configs.network.relayer.url),
+      );
+      respondOkResult(deps, req.requestId, result);
+    },
+
+    PM_COMPLETE_WALLET_RECOVERY: async (req: Req<'PM_COMPLETE_WALLET_RECOVERY'>) => {
+      assertNoParentPostedAppSessionJwt(req.payload);
+      const pm = deps.getSeamsWeb();
+      const result = await pm.recovery.completeWalletRecovery(
+        parseCompleteWalletRecoveryPayload(req.payload, pm.configs.network.relayer.url),
       );
       respondOkResult(deps, req.requestId, result);
     },

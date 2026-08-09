@@ -9,6 +9,7 @@ import type {
   WalletCustodyCeremonyCommitPayload,
   WalletCustodyEvmFamilyPublicFacts,
 } from '@shared/passkey-custody';
+import type { RouterAbEd25519YaoRecoveryActivationReceiptV1 } from '@shared/utils/routerAbEd25519Yao';
 import {
   runWalletCustodyKeySetCeremony,
   type WalletCustodyCeremonyStepRunner,
@@ -653,11 +654,15 @@ export type RecoverNearEd25519CustodyInput = WalletRecoveryCustodyInput & {
   readonly participantIds: readonly [number, number];
   readonly registeredPublicKeyB64u: string;
   readonly runRouterRound: (yaoExecuteRequestJson: string) => Promise<string>;
-  readonly activateRouterRecovery: (protocolResultJson: string) => Promise<void>;
+  readonly activateRouterRecovery: (
+    protocolResultJson: string,
+  ) => Promise<RouterAbEd25519YaoRecoveryActivationReceiptV1>;
 };
 
 export type RecoveredNearEd25519Custody = {
   readonly localMaterial: RejoinedNearEd25519Custody['localMaterial'];
+  readonly activationResultJson: string;
+  readonly activationReceipt: RouterAbEd25519YaoRecoveryActivationReceiptV1;
   readonly recoveryReplacementEnvelope:
     | NonNullable<WalletCustodyCeremonyCommitPayload['recoveryReplacementEnvelope']>
     | null;
@@ -674,6 +679,8 @@ export async function recoverNearEd25519CustodyV1(
   if (expectedDigest !== input.recordedKeyManifestDigestB64u) {
     throw new Error('NEAR recovery manifest digest does not match the registered identity');
   }
+  let activationResultJson: string | null = null;
+  let activationReceipt: RouterAbEd25519YaoRecoveryActivationReceiptV1 | null = null;
   const payload = await runWalletCustodyKeySetCeremony({
     runStep: input.runStep,
     custody: recoveryCeremonyCustody(input),
@@ -687,8 +694,13 @@ export async function recoverNearEd25519CustodyV1(
         continuityRegisteredPublicKeyB64u: input.registeredPublicKeyB64u,
       }),
       nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
-      runRouterRound: input.runRouterRound,
-      afterRouterRoundCompleted: input.activateRouterRecovery,
+      runRouterRound: async (executeRequestJson) => {
+        activationResultJson = await input.runRouterRound(executeRequestJson);
+        return activationResultJson;
+      },
+      afterRouterRoundCompleted: async (protocolResultJson) => {
+        activationReceipt = await input.activateRouterRecovery(protocolResultJson);
+      },
     },
     recordedKeyManifestDigestB64u: input.recordedKeyManifestDigestB64u,
   });
@@ -698,12 +710,17 @@ export async function recoverNearEd25519CustodyV1(
   if (!payload.ed25519ApplicationBindingDigestB64u) {
     throw new Error('the NEAR recovery omitted its application binding digest');
   }
+  if (!activationResultJson || !activationReceipt) {
+    throw new Error('the NEAR recovery produced no Router activation');
+  }
   return {
     localMaterial: {
       b64u: payload.ed25519LocalMaterialB64u,
       nonceB64u: payload.ed25519LocalMaterialNonceB64u,
       applicationBindingDigestB64u: payload.ed25519ApplicationBindingDigestB64u,
     },
+    activationResultJson,
+    activationReceipt,
     recoveryReplacementEnvelope: payload.recoveryReplacementEnvelope ?? null,
   };
 }

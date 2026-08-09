@@ -524,6 +524,28 @@ export class SeamsWebIframe {
           relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
           ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
         }),
+      requestWalletRecoveryChallenge: async (args) =>
+        await this.router.requestWalletRecoveryChallenge({
+          walletId: args.walletId,
+          relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
+          ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+        }),
+      prepareWalletRecovery: async (args) =>
+        await this.router.prepareWalletRecovery({
+          walletId: args.walletId,
+          challengeId: args.challengeId,
+          otpCode: args.otpCode,
+          recoveryCode: args.recoveryCode,
+          relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
+          ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+        }),
+      completeWalletRecovery: async (args) =>
+        await this.router.completeWalletRecovery({
+          walletId: args.walletId,
+          recoveryOperationId: args.recoveryOperationId,
+          relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
+          ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+        }),
     } satisfies RecoveryCapability;
     this.devices = {
       startDevice2LinkingFlow: async (args) => {

@@ -15,7 +15,6 @@ import {
   getNearAccountId,
   getWalletId,
   getIntentDigest,
-  getRegisterAccountPayload,
 } from './adapters/request';
 import {
   isSerializedRegistrationCredential,
@@ -34,6 +33,7 @@ import {
 import type { RegistrationCredentialPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { WalletIframeRequestId } from '@/core/types/walletIframeIdentity';
 import type { ConfirmUISurfaceSource } from '../../ui/confirm-ui';
+import type { WalletRecoveryRegistrationOptions } from '@/core/rpcClients/relayer/walletRecoveryPrepare';
 
 function roundDurationMs(startedAt: number): number {
   return Math.max(0, Math.round(performance.now() - startedAt));
@@ -54,25 +54,40 @@ function buildPasskeyRegistrationConfirmDisplay(args: {
   };
 }
 
-function buildPasskeyRegistrationCredentialArgs(args: {
+type BuildPasskeyRegistrationCredentialArgs = {
   walletId: string;
-  challengeB64u: string;
-  signerSlot?: number;
   prompt: RegistrationCredentialPrompt;
-}): {
-  walletId: string;
-  challengeB64u: string;
-  signerSlot?: number;
-  intendedUserName: string;
-  prompt: RegistrationCredentialPrompt;
-} {
-  return {
+} & (
+  | {
+      recoveryRegistration: WalletRecoveryRegistrationOptions;
+      challengeB64u?: never;
+      signerSlot?: never;
+    }
+  | {
+      recoveryRegistration?: never;
+      challengeB64u: string;
+      signerSlot?: number;
+    }
+);
+
+function buildPasskeyRegistrationCredentialArgs(args: BuildPasskeyRegistrationCredentialArgs) {
+  const common = {
     walletId: args.walletId,
-    challengeB64u: args.challengeB64u,
-    signerSlot: args.signerSlot,
     intendedUserName: args.walletId,
     prompt: args.prompt,
   };
+  return args.recoveryRegistration
+    ? {
+        ...common,
+        kind: 'wallet_recovery' as const,
+        recoveryRegistration: args.recoveryRegistration,
+      }
+    : {
+        ...common,
+        kind: 'wallet_registration' as const,
+        challengeB64u: args.challengeB64u,
+        signerSlot: args.signerSlot,
+      };
 }
 
 export async function handleRegistrationFlow(
@@ -137,9 +152,12 @@ export async function handleRegistrationFlow(
 
   try {
     const requestSetupStartedAt = performance.now();
+    const recoveryRegistration = request.payload.walletRecoveryRegistration;
     const requestedChallenge = request.payload.webauthnChallenge;
     const explicitChallengeB64u =
-      requestedChallenge?.kind === 'intent_digest'
+      recoveryRegistration
+        ? recoveryRegistration.challengeB64u
+        : requestedChallenge?.kind === 'intent_digest'
         ? String(requestedChallenge.challengeB64u || '').trim()
         : '';
 
@@ -153,7 +171,7 @@ export async function handleRegistrationFlow(
     };
 
     // 2) WebAuthn registration challenge (32 bytes, base64url)
-    const rpId = adapters.security.getRpId();
+    const rpId = recoveryRegistration?.rpId ?? adapters.security.getRpId();
     if (!rpId) throw new Error('Missing rpId for registration challenge');
 
     const initialSignerSlot = request.payload?.signerSlot ?? 1;
@@ -211,18 +229,25 @@ export async function handleRegistrationFlow(
     const credentialCreateStartedAt = performance.now();
     try {
       try {
+        const prompt: RegistrationCredentialPrompt = {
+          kind: 'reserved',
+          reservation: promptReservation,
+          owner: promptOwner,
+          cancellation: { kind: 'none' },
+        };
         credential = await adapters.webauthn.createRegistrationCredential(
-          buildPasskeyRegistrationCredentialArgs({
-            walletId,
-            challengeB64u,
-            signerSlot,
-            prompt: {
-              kind: 'reserved',
-              reservation: promptReservation,
-              owner: promptOwner,
-              cancellation: { kind: 'none' },
-            },
-          }),
+          recoveryRegistration
+            ? buildPasskeyRegistrationCredentialArgs({
+                walletId,
+                recoveryRegistration,
+                prompt,
+              })
+            : buildPasskeyRegistrationCredentialArgs({
+                walletId,
+                challengeB64u,
+                signerSlot,
+                prompt,
+              }),
         );
       } catch (e: unknown) {
         const err = toError(e);
@@ -238,11 +263,14 @@ export async function handleRegistrationFlow(
               'Registration credential already exists for this wallet registration intent; create a fresh intent before retrying',
             );
           }
+          if (request.payload.walletRecoveryRegistration) {
+            throw new Error('Wallet recovery credential creation requires a fresh reservation');
+          }
           const nextSignerSlot =
             signerSlot !== undefined && Number.isFinite(signerSlot) ? signerSlot + 1 : 2;
           // Keep request payload and intentDigest in sync with the signer-slot retry.
           signerSlot = nextSignerSlot;
-          getRegisterAccountPayload(request).signerSlot = nextSignerSlot;
+          request.payload.signerSlot = nextSignerSlot;
           request.intentDigest =
             request.type === 'registerAccount'
               ? `register:${walletId}:${nextSignerSlot}`

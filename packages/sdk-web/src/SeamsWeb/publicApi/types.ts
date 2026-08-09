@@ -84,6 +84,14 @@ import type {
   SignNEP413MessageResult,
 } from '@/SeamsWeb/operations/near/signNEP413';
 import type { SyncAccountResult } from '@/SeamsWeb/operations/recovery/syncAccount';
+import type {
+  CompleteWalletRecoveryResult,
+  PrepareWalletWithCodeResult,
+} from '@/SeamsWeb/operations/recovery/walletRecovery';
+export type {
+  CompleteWalletRecoveryResult,
+  PrepareWalletWithCodeResult,
+} from '@/SeamsWeb/operations/recovery/walletRecovery';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import type {
   AvailableSigningLanes,
@@ -919,6 +927,33 @@ export interface RecoveryCapability {
     relayUrl?: string;
     appSessionJwt?: string;
   }): Promise<EmailOtpRecoveryCodeRotationResult>;
+
+  requestWalletRecoveryChallenge(args: {
+    walletId: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+  }): Promise<{
+    challengeId: string;
+    otpChannel: WalletEmailOtpChannel;
+    emailHint?: string;
+    expiresAtMs?: number;
+  }>;
+
+  prepareWalletRecovery(args: {
+    walletId: string;
+    challengeId: string;
+    otpCode: string;
+    recoveryCode: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+  }): Promise<PrepareWalletWithCodeResult>;
+
+  completeWalletRecovery(args: {
+    walletId: string;
+    recoveryOperationId: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+  }): Promise<CompleteWalletRecoveryResult>;
 }
 
 export interface DevicesCapability {
