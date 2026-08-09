@@ -1,20 +1,15 @@
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::error::{CoreResult, SignerCoreError};
-use hkdf::Hkdf;
 use router_ab_ecdsa_derivation::{
     compose_public_identity_from_public_keys, derive_client_share, encode_context,
     reconstruct_export_key, ClientRoleShare, RouterAbEcdsaDerivationError,
     RouterAbEcdsaDerivationErrorCode, RouterAbEcdsaDerivationStableKeyContext,
 };
-use sha2::Sha256;
 
 const PENDING_BLOB_MAGIC: &[u8; 8] = b"RAEDP2\0\0";
 const READY_BLOB_MAGIC: &[u8; 8] = b"RAEDR2\0\0";
 const ROUTER_AB_ECDSA_DERIVATION_CLIENT_PARTICIPANT_ID: u32 = 1;
-const PASSKEY_THRESHOLD_ECDSA_CLIENT_ROOT_INFO_V1: &[u8] =
-    b"seams/passkey/threshold-ecdsa-client-root/v1";
-const PASSKEY_THRESHOLD_ECDSA_CLIENT_ROOT_SALT_V1: [u8; 32] = [0u8; 32];
 
 #[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct EcdsaRoleLocalPendingStateBlob {
@@ -171,21 +166,6 @@ pub fn prepare_ecdsa_client_bootstrap(
         client_bootstrap,
         public_facts,
     })
-}
-
-pub fn derive_passkey_threshold_ecdsa_client_root_share32_from_prf_first(
-    prf_first32: &[u8; 32],
-) -> CoreResult<[u8; 32]> {
-    let hkdf = Hkdf::<Sha256>::new(
-        Some(&PASSKEY_THRESHOLD_ECDSA_CLIENT_ROOT_SALT_V1),
-        prf_first32,
-    );
-    let mut out = [0u8; 32];
-    hkdf.expand(PASSKEY_THRESHOLD_ECDSA_CLIENT_ROOT_INFO_V1, &mut out)
-        .map_err(|_| {
-            SignerCoreError::hkdf_error("failed to derive passkey threshold ECDSA client root")
-        })?;
-    Ok(out)
 }
 
 pub fn finalize_ecdsa_client_bootstrap(

@@ -550,7 +550,6 @@ fn hex_prefixed(bytes: &[u8]) -> String {
 mod command_tests {
     use super::*;
     use crate::ecdsa_role_local_client::{
-        derive_passkey_threshold_ecdsa_client_root_share32_from_prf_first,
         prepare_ecdsa_client_bootstrap as prepare_core_ecdsa_client_bootstrap,
         PrepareEcdsaClientBootstrapCommand as CorePrepareEcdsaClientBootstrapCommand,
     };
