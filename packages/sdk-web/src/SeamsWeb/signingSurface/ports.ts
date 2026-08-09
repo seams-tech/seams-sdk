@@ -612,6 +612,8 @@ export type LoginUnlockSigningSurface = WalletSessionReadSurface &
     WalletCustodyCeremonySurface,
     | 'loadWalletCustodyEd25519Material'
     | 'rejoinWalletCustodyNearEd25519KeySet'
+    | 'rejoinWalletCustodyEvmFamilyKeySet'
+    | 'restoreWalletCustodyEcdsaContinuity'
     | 'persistWalletCustodyEd25519Material'
   > &
   EcdsaLoginSessionSurface &
