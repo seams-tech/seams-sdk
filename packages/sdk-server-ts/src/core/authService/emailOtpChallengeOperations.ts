@@ -208,9 +208,6 @@ export type VerifyEmailOtpDeviceRecoveryChallengeResult =
         enrollmentId: string;
         enrollmentVersion: string;
         enrollmentSealKeyVersion: string;
-        signingRootId: string;
-        signingRootVersion: string;
-        recoveryWrappedEnrollmentEscrowCount: number;
       };
     }
   | {
@@ -481,10 +478,6 @@ export async function verifyEmailOtpDeviceRecoveryChallenge(
       enrollmentId: enrollment.enrollment.enrollmentId,
       enrollmentVersion: enrollment.enrollment.enrollmentVersion,
       enrollmentSealKeyVersion: enrollment.enrollment.enrollmentSealKeyVersion,
-      signingRootId: enrollment.enrollment.signingRootId,
-      signingRootVersion: enrollment.enrollment.signingRootVersion,
-      recoveryWrappedEnrollmentEscrowCount:
-        enrollment.enrollment.recoveryWrappedEnrollmentEscrowCount,
     },
   };
 }

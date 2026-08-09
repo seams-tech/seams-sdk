@@ -397,7 +397,6 @@ export async function handleEmailOtpRegistrationFinalizeRoute(input: {
     appSessionVersion: input.appSessionVersion,
     ...(proofEmail ? { proofEmail } : {}),
     clientIp: input.clientIp,
-    recoveryWrappedEnrollmentEscrows: body.recoveryWrappedEnrollmentEscrows,
     enrollmentSealKeyVersion: body.enrollmentSealKeyVersion,
     clientUnlockPublicKeyB64u: body.clientUnlockPublicKeyB64u,
     unlockKeyVersion: body.unlockKeyVersion,

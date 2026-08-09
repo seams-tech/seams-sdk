@@ -2262,7 +2262,6 @@ export async function handleRouterApiWalletRegistrationActivate(
       planKind,
       ...(parsedActivation ? { ecdsa: parsedActivation } : {}),
       ...(body.emailOtpEnrollment ? { emailOtpEnrollment: body.emailOtpEnrollment } : {}),
-      ...(body.emailOtpBackupAck ? { emailOtpBackupAck: body.emailOtpBackupAck } : {}),
       /* Passed through untouched. Rejecting a malformed custody payload at the
          route would fail an activation the wallet's registration survives, and
          the client would learn nothing about its seed. */
@@ -2334,7 +2333,6 @@ export async function handleRouterApiWalletRegistrationNearProvisioning(
       idempotencyKey,
       ed25519,
       emailOtpEnrollment: body.emailOtpEnrollment,
-      emailOtpBackupAck: body.emailOtpBackupAck,
       ...(body.walletCustodyCommit !== undefined
         ? { walletCustodyCommit: body.walletCustodyCommit }
         : {}),

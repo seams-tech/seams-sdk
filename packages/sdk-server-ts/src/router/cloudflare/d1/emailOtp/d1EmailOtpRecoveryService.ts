@@ -455,10 +455,6 @@ export class CloudflareD1EmailOtpRecoveryService {
         enrollmentId: verified.enrollment.enrollmentId,
         enrollmentVersion: verified.enrollment.enrollmentVersion,
         enrollmentSealKeyVersion: verified.enrollment.enrollmentSealKeyVersion,
-        signingRootId: verified.enrollment.signingRootId,
-        signingRootVersion: verified.enrollment.signingRootVersion,
-        recoveryWrappedEnrollmentEscrowCount:
-          verified.enrollment.recoveryWrappedEnrollmentEscrowCount,
       },
     };
   }
@@ -819,16 +815,19 @@ export class CloudflareD1EmailOtpRecoveryService {
         };
       }
 
+      const existingRecords = await this.emailOtpRecoveryEscrows.listForEnrollment(
+        enrollment.enrollment,
+      );
+      const signingRoot = existingRecords.find(activeEmailOtpRecoveryEscrow);
+      if (!signingRoot) return recoveryWrappedEscrowsMissing();
       const nextActiveRecords = await this.buildRotatedRecoveryEscrows({
         rawEscrows: parsed.value.rawEscrows,
         enrollment: enrollment.enrollment,
+        signingRoot,
         issuedAtMs,
       });
       if (!nextActiveRecords.ok) return nextActiveRecords.result;
 
-      const existingRecords = await this.emailOtpRecoveryEscrows.listForEnrollment(
-        enrollment.enrollment,
-      );
       const revokedRecords = revokedActiveRecoveryEscrows(existingRecords, issuedAtMs);
       await this.emailOtpRecoveryEscrows.putMany([...revokedRecords, ...nextActiveRecords.records]);
       const updatedRecords = await this.emailOtpRecoveryEscrows.listForEnrollment(
@@ -946,6 +945,10 @@ export class CloudflareD1EmailOtpRecoveryService {
   private async buildRotatedRecoveryEscrows(input: {
     readonly rawEscrows: readonly unknown[];
     readonly enrollment: EmailOtpWalletEnrollmentRecord;
+    readonly signingRoot: {
+      readonly signingRootId: string;
+      readonly signingRootVersion: string;
+    };
     readonly issuedAtMs: number;
   }): Promise<
     | {
@@ -964,6 +967,7 @@ export class CloudflareD1EmailOtpRecoveryService {
       const nextRecord = await activeEmailOtpRecoveryRotationEscrowRecord({
         raw: rawEscrow,
         enrollment: input.enrollment,
+        signingRoot: input.signingRoot,
         issuedAtMs: input.issuedAtMs,
         recoveryKeyIds,
         nonceB64us,

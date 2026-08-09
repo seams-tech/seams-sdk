@@ -96,7 +96,6 @@ export type EmailOtpRecoveryRotationEscrowResult =
     };
 
 export type EmailOtpEnrollmentMaterialBoundaryInput = {
-  readonly recoveryWrappedEnrollmentEscrows?: unknown;
   readonly enrollmentSealKeyVersion?: unknown;
   readonly clientUnlockPublicKeyB64u?: unknown;
   readonly unlockKeyVersion?: unknown;
@@ -105,7 +104,6 @@ export type EmailOtpEnrollmentMaterialBoundaryInput = {
 export type EmailOtpEnrollmentMaterialValidationResult =
   | {
       readonly ok: true;
-      readonly recoveryWrappedEnrollmentEscrows: EmailOtpRecoveryWrappedEnrollmentEscrowRecord[];
       readonly enrollmentSealKeyVersion: string;
       readonly clientUnlockPublicKeyB64u: string;
       readonly unlockKeyVersion: string;
@@ -276,11 +274,6 @@ export function parseEmailOtpWalletEnrollmentRecord(
   const enrollmentId = toOptionalTrimmedString(record.enrollmentId);
   const enrollmentVersion = toOptionalTrimmedString(record.enrollmentVersion);
   const enrollmentSealKeyVersion = toOptionalTrimmedString(record.enrollmentSealKeyVersion);
-  const signingRootId = toOptionalTrimmedString(record.signingRootId);
-  const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
-  const recoveryWrappedEnrollmentEscrowCount = positiveSafeInteger(
-    record.recoveryWrappedEnrollmentEscrowCount,
-  );
   const clientUnlockPublicKeyB64u = toOptionalTrimmedString(record.clientUnlockPublicKeyB64u);
   const unlockKeyVersion = toOptionalTrimmedString(record.unlockKeyVersion);
   const createdAtMs = positiveSafeInteger(record.createdAtMs);
@@ -294,9 +287,6 @@ export function parseEmailOtpWalletEnrollmentRecord(
     !enrollmentId ||
     !enrollmentVersion ||
     !enrollmentSealKeyVersion ||
-    !signingRootId ||
-    !signingRootVersion ||
-    !recoveryWrappedEnrollmentEscrowCount ||
     !clientUnlockPublicKeyB64u ||
     !unlockKeyVersion ||
     !createdAtMs ||
@@ -314,9 +304,6 @@ export function parseEmailOtpWalletEnrollmentRecord(
     enrollmentId,
     enrollmentVersion,
     enrollmentSealKeyVersion,
-    signingRootId,
-    signingRootVersion,
-    recoveryWrappedEnrollmentEscrowCount,
     clientUnlockPublicKeyB64u,
     unlockKeyVersion,
     createdAtMs,
@@ -979,37 +966,13 @@ export function recoveryRotationBindingMismatch(): EmailOtpRecoveryRotationFailu
 
 export async function validateEmailOtpEnrollmentMaterial(input: {
   readonly material: EmailOtpEnrollmentMaterialBoundaryInput;
-  readonly sha256Bytes: EmailOtpRecoveryRotationHash;
   readonly validateSecp256k1PublicKey33: EmailOtpPublicKey33Validator;
 }): Promise<EmailOtpEnrollmentMaterialValidationResult> {
   const enrollmentSealKeyVersion = toOptionalTrimmedString(input.material.enrollmentSealKeyVersion);
-  const rawRecoveryWrappedEnrollmentEscrows = Array.isArray(
-    input.material.recoveryWrappedEnrollmentEscrows,
-  )
-    ? input.material.recoveryWrappedEnrollmentEscrows
-    : [];
-  const parsedRecoveryWrappedEnrollmentEscrows: EmailOtpRecoveryEnrollmentEscrowBoundary[] = [];
-  const recoveryWrappedEnrollmentEscrows: EmailOtpRecoveryWrappedEnrollmentEscrowRecord[] = [];
-  for (const rawEscrow of rawRecoveryWrappedEnrollmentEscrows) {
-    const parsed = parseEmailOtpRecoveryEnrollmentEscrowBoundary(rawEscrow);
-    if (!parsed) continue;
-    parsedRecoveryWrappedEnrollmentEscrows.push(parsed);
-    recoveryWrappedEnrollmentEscrows.push(parsed.record);
-  }
   const clientUnlockPublicKeyB64u = toOptionalTrimmedString(
     input.material.clientUnlockPublicKeyB64u,
   );
   const unlockKeyVersion = toOptionalTrimmedString(input.material.unlockKeyVersion);
-  if (
-    rawRecoveryWrappedEnrollmentEscrows.length !== EMAIL_OTP_RECOVERY_KEY_COUNT ||
-    recoveryWrappedEnrollmentEscrows.length !== EMAIL_OTP_RECOVERY_KEY_COUNT
-  ) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: `Exactly ${EMAIL_OTP_RECOVERY_KEY_COUNT} recovery-wrapped enrollment escrows are required`,
-    };
-  }
   if (!enrollmentSealKeyVersion) {
     return {
       ok: false,
@@ -1017,11 +980,6 @@ export async function validateEmailOtpEnrollmentMaterial(input: {
       message: 'enrollmentSealKeyVersion is required',
     };
   }
-  const escrowSetValidation = await validateEmailOtpRecoveryWrappedEnrollmentEscrowSet({
-    records: parsedRecoveryWrappedEnrollmentEscrows,
-    sha256Bytes: input.sha256Bytes,
-  });
-  if (!escrowSetValidation.ok) return escrowSetValidation;
   if (!clientUnlockPublicKeyB64u) {
     return { ok: false, code: 'invalid_body', message: 'clientUnlockPublicKeyB64u is required' };
   }
@@ -1057,7 +1015,6 @@ export async function validateEmailOtpEnrollmentMaterial(input: {
 
   return {
     ok: true,
-    recoveryWrappedEnrollmentEscrows,
     enrollmentSealKeyVersion,
     clientUnlockPublicKeyB64u,
     unlockKeyVersion,
@@ -1067,6 +1024,10 @@ export async function validateEmailOtpEnrollmentMaterial(input: {
 export async function activeEmailOtpRecoveryRotationEscrowRecord(input: {
   readonly raw: unknown;
   readonly enrollment: EmailOtpWalletEnrollmentRecord;
+  readonly signingRoot: {
+    readonly signingRootId: string;
+    readonly signingRootVersion: string;
+  };
   readonly issuedAtMs: number;
   readonly recoveryKeyIds: Set<string>;
   readonly nonceB64us: Set<string>;
@@ -1125,8 +1086,8 @@ export async function activeEmailOtpRecoveryRotationEscrowRecord(input: {
     enrollmentId: input.enrollment.enrollmentId,
     enrollmentVersion: input.enrollment.enrollmentVersion,
     enrollmentSealKeyVersion: input.enrollment.enrollmentSealKeyVersion,
-    signingRootId: input.enrollment.signingRootId,
-    signingRootVersion: input.enrollment.signingRootVersion,
+    signingRootId: input.signingRoot.signingRootId,
+    signingRootVersion: input.signingRoot.signingRootVersion,
     recoveryKeyId,
   });
   const expectedAadHashB64u = base64UrlEncode(
@@ -1156,8 +1117,8 @@ export async function activeEmailOtpRecoveryRotationEscrowRecord(input: {
       enrollmentId: input.enrollment.enrollmentId,
       enrollmentVersion: input.enrollment.enrollmentVersion,
       enrollmentSealKeyVersion: input.enrollment.enrollmentSealKeyVersion,
-      signingRootId: input.enrollment.signingRootId,
-      signingRootVersion: input.enrollment.signingRootVersion,
+      signingRootId: input.signingRoot.signingRootId,
+      signingRootVersion: input.signingRoot.signingRootVersion,
       recoveryKeyId,
       recoveryKeyStatus: 'active',
       nonceB64u,
@@ -1188,9 +1149,7 @@ export function emailOtpRecoveryEscrowMatchesEnrollment(input: {
     input.escrow.authSubjectId === input.enrollment.providerUserId &&
     input.escrow.enrollmentId === input.enrollment.enrollmentId &&
     input.escrow.enrollmentVersion === input.enrollment.enrollmentVersion &&
-    input.escrow.enrollmentSealKeyVersion === input.enrollment.enrollmentSealKeyVersion &&
-    input.escrow.signingRootId === input.enrollment.signingRootId &&
-    input.escrow.signingRootVersion === input.enrollment.signingRootVersion
+    input.escrow.enrollmentSealKeyVersion === input.enrollment.enrollmentSealKeyVersion
   );
 }
 

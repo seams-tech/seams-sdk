@@ -253,15 +253,10 @@ type WalletRegistrationActivateAuthWorkV2 =
   | {
       authMethod: 'passkey';
       emailOtpEnrollment?: never;
-      emailOtpBackupAck?: never;
     }
   | {
       authMethod: 'email_otp';
       emailOtpEnrollment: NonNullable<FinalizeRequestBase['emailOtpEnrollment']>;
-      /* Required, not optional: the commit refuses enrollment without the
-         backup acknowledgement, because issuing recovery codes the user never
-         confirmed saving is how an account becomes unrecoverable. */
-      emailOtpBackupAck: NonNullable<FinalizeRequestBase['emailOtpBackupAck']>;
     };
 
 type WalletRegistrationActivateRequestBaseV2 = {
@@ -397,7 +392,6 @@ export type WalletRegistrationNearProvisioningRequestV2 = {
     { kind: 'near_ed25519' }
   >['ed25519'];
   emailOtpEnrollment?: NonNullable<WalletRegistrationFinalizeRequest['emailOtpEnrollment']>;
-  emailOtpBackupAck?: NonNullable<WalletRegistrationFinalizeRequest['emailOtpBackupAck']>;
 };
 
 type WalletRegistrationNearProvisioningPasskeySuccessV2 = Extract<

@@ -281,7 +281,6 @@ type EmailOtpEnrollmentVerifyInput = {
   readonly appSessionVersion: unknown;
   readonly proofEmail?: unknown;
   readonly clientIp?: unknown;
-  readonly recoveryWrappedEnrollmentEscrows?: unknown;
   readonly enrollmentSealKeyVersion?: unknown;
   readonly clientUnlockPublicKeyB64u?: unknown;
   readonly unlockKeyVersion?: unknown;
@@ -337,9 +336,6 @@ type EmailOtpDeviceRecoveryChallengeVerifyResult =
         readonly enrollmentId: string;
         readonly enrollmentVersion: string;
         readonly enrollmentSealKeyVersion: string;
-        readonly signingRootId: string;
-        readonly signingRootVersion: string;
-        readonly recoveryWrappedEnrollmentEscrowCount: number;
       };
     }
   | {

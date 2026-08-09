@@ -477,6 +477,18 @@ export async function rotateEmailOtpRecoveryKeys(input: {
     }
 
     const issuedAtMs = nowMs;
+    const oldActiveRecords = recordsForEnrollment({
+      records: await input.store.listActiveByWallet(walletId),
+      enrollment: enrollment.enrollment,
+    });
+    const signingRoot = oldActiveRecords[0];
+    if (!signingRoot) {
+      return {
+        ok: false,
+        code: 'recovery_wrapped_escrows_missing',
+        message: 'No active Email OTP recovery-wrapped enrollment escrows are available',
+      };
+    }
     const recoveryKeyIds = new Set<string>();
     const nonceB64us = new Set<string>();
     const nextActiveRecords: EmailOtpRecoveryWrappedEnrollmentEscrowRecord[] = [];
@@ -513,8 +525,8 @@ export async function rotateEmailOtpRecoveryKeys(input: {
         enrollmentId: enrollment.enrollment.enrollmentId,
         enrollmentVersion: enrollment.enrollment.enrollmentVersion,
         enrollmentSealKeyVersion: enrollment.enrollment.enrollmentSealKeyVersion,
-        signingRootId: enrollment.enrollment.signingRootId,
-        signingRootVersion: enrollment.enrollment.signingRootVersion,
+        signingRootId: signingRoot.signingRootId,
+        signingRootVersion: signingRoot.signingRootVersion,
         recoveryKeyId: parsed.recoveryKeyId,
       });
       const expectedAadHashB64u = base64UrlEncode(
@@ -539,8 +551,8 @@ export async function rotateEmailOtpRecoveryKeys(input: {
         enrollmentId: enrollment.enrollment.enrollmentId,
         enrollmentVersion: enrollment.enrollment.enrollmentVersion,
         enrollmentSealKeyVersion: enrollment.enrollment.enrollmentSealKeyVersion,
-        signingRootId: enrollment.enrollment.signingRootId,
-        signingRootVersion: enrollment.enrollment.signingRootVersion,
+        signingRootId: signingRoot.signingRootId,
+        signingRootVersion: signingRoot.signingRootVersion,
         recoveryKeyId: parsed.recoveryKeyId,
         recoveryKeyStatus: 'active',
         nonceB64u: parsed.nonceB64u,
@@ -551,10 +563,6 @@ export async function rotateEmailOtpRecoveryKeys(input: {
       });
     }
 
-    const oldActiveRecords = recordsForEnrollment({
-      records: await input.store.listActiveByWallet(walletId),
-      enrollment: enrollment.enrollment,
-    });
     const revokedRecords: EmailOtpRecoveryWrappedEnrollmentEscrowRecord[] = oldActiveRecords.map(
       (record) => ({
         version: record.version,

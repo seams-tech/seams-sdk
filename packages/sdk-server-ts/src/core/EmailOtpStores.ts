@@ -145,9 +145,6 @@ export type EmailOtpWalletEnrollmentRecord = {
   enrollmentId: string;
   enrollmentVersion: string;
   enrollmentSealKeyVersion: string;
-  signingRootId: string;
-  signingRootVersion: string;
-  recoveryWrappedEnrollmentEscrowCount: number;
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
   createdAtMs: number;

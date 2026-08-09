@@ -2685,7 +2685,6 @@ export class CloudflareD1WalletRegistrationService {
       idempotencyKey: args.input.idempotencyKey,
       ed25519: args.input.ed25519,
       emailOtpEnrollment: args.input.emailOtpEnrollment,
-      emailOtpBackupAck: args.input.emailOtpBackupAck,
       walletCustodyCommit: args.input.walletCustodyCommit,
     } as FinalizeWalletRegistrationInput);
     const finalized = committed.ok
@@ -2743,7 +2742,6 @@ export class CloudflareD1WalletRegistrationService {
             idempotencyKey: input.idempotencyKey,
             ed25519: input.ed25519,
             emailOtpEnrollment: input.emailOtpEnrollment,
-            emailOtpBackupAck: input.emailOtpBackupAck,
           }),
         ),
       );
@@ -2866,7 +2864,7 @@ export class CloudflareD1WalletRegistrationService {
     readonly session: SessionAdapter;
     readonly enrollment: Pick<
       FinalizeWalletRegistrationInput,
-      'emailOtpEnrollment' | 'emailOtpBackupAck'
+      'emailOtpEnrollment'
     >;
   }): Promise<WalletRegistrationActivateResponseV2> {
     const now = Date.now();
@@ -3249,7 +3247,6 @@ export class CloudflareD1WalletRegistrationService {
             idempotencyKey,
             ecdsa: input.ecdsa,
             ...(input.emailOtpEnrollment ? { emailOtpEnrollment: input.emailOtpEnrollment } : {}),
-            ...(input.emailOtpBackupAck ? { emailOtpBackupAck: input.emailOtpBackupAck } : {}),
           }),
         ),
       );
@@ -3350,9 +3347,6 @@ export class CloudflareD1WalletRegistrationService {
           ...(context.input.emailOtpEnrollment
             ? { emailOtpEnrollment: context.input.emailOtpEnrollment as never }
             : {}),
-          ...(context.input.emailOtpBackupAck
-            ? { emailOtpBackupAck: context.input.emailOtpBackupAck as never }
-            : {}),
         },
       });
     }
@@ -3400,9 +3394,6 @@ export class CloudflareD1WalletRegistrationService {
       ecdsa: { expectedKeyHandles: [keyHandle] as const },
       ...(context.input.emailOtpEnrollment
         ? { emailOtpEnrollment: context.input.emailOtpEnrollment }
-        : {}),
-      ...(context.input.emailOtpBackupAck
-        ? { emailOtpBackupAck: context.input.emailOtpBackupAck }
         : {}),
       ...(context.input.walletCustodyCommit !== undefined
         ? { walletCustodyCommit: context.input.walletCustodyCommit }

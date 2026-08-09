@@ -1420,7 +1420,6 @@ function createCloudflareD1RouterApiAuthAssembly(
   const emailOtpRegistrationEnrollmentFinalizer =
     new CloudflareD1EmailOtpRegistrationEnrollmentFinalizer({
       emailOtpEnrollments,
-      emailOtpRecoveryEscrows,
       googleEmailOtpSessions,
     });
   const emailOtpChallengeVerifier = new CloudflareD1EmailOtpChallengeVerifier({
