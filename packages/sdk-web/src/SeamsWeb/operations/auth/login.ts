@@ -2776,7 +2776,6 @@ type ThresholdLoginWarmEd25519State = {
   expiresAtMs: number;
   remainingUses: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope | null;
-  ecdsaDerivationPasskeyPrfFirstB64u: string;
 };
 
 type ThresholdLoginWarmSharedState = {
@@ -2839,8 +2838,6 @@ async function stageMintedLoginEd25519WalletSessionAuthority(
   context.sharedState.ed25519.expiresAtMs = minted.expiresAtMs;
   context.sharedState.ed25519.remainingUses = minted.remainingUses;
   context.sharedState.ed25519.runtimePolicyScope = minted.runtimePolicyScope;
-  context.sharedState.ed25519.ecdsaDerivationPasskeyPrfFirstB64u =
-    minted.ecdsaDerivationPasskeyPrfFirstB64u;
   if (context.ecdsaContextResolution.kind === 'resolve_after_ed25519') {
     context.sharedState.activeCanonicalEcdsaContext =
       await context.ecdsaContextResolution.resolveAfterEd25519(context.sharedState.ed25519);
@@ -3108,25 +3105,6 @@ async function bootstrapLoginEcdsaSession(args: {
   }
 }
 
-function resolveThresholdLoginWarmEcdsaPrfFirstB64u(args: {
-  ed25519State: ThresholdLoginWarmEd25519State;
-  credentialState: LoginWarmupCredentialState;
-}): string {
-  if (args.credentialState.kind === 'available') {
-    const prfFirstB64u = passkeyPrfFirstB64uFromCredential(args.credentialState.credential);
-    if (prfFirstB64u) return prfFirstB64u;
-  }
-  const fromEd25519Session = String(
-    args.ed25519State.ecdsaDerivationPasskeyPrfFirstB64u || '',
-  ).trim();
-  if (fromEd25519Session) {
-    return fromEd25519Session;
-  }
-  throw new Error(
-    '[login] threshold ECDSA warm-up requires passkey PRF.first or primed Ed25519 session material',
-  );
-}
-
 function buildLoginEd25519WalletSessionMintAuthorization(args: {
   routeAuthorization: LoginWarmupRouteAuthorization;
   credentialState: LoginWarmupCredentialState;
@@ -3310,7 +3288,6 @@ async function primeThresholdLoginWarmSigners(args: {
       expiresAtMs: 0,
       remainingUses: 0,
       runtimePolicyScope: null,
-      ecdsaDerivationPasskeyPrfFirstB64u: '',
     },
   };
   const authorityDeferred =
@@ -3461,14 +3438,6 @@ async function primeThresholdLoginWarmSigners(args: {
           });
         ed25519AuthorizationPersistenceDeferred?.resolve(undefined);
 
-        const connectedEcdsaDerivationPasskeyPrfFirstB64u = String(
-          connected.ecdsaDerivationPasskeyPrfFirstB64u || '',
-        ).trim();
-        if (signersToWarm.includes('ecdsa') && !connectedEcdsaDerivationPasskeyPrfFirstB64u) {
-          throw new Error(
-            '[login] threshold ECDSA warm-up missing passkey PRF.first from the primed Ed25519 session',
-          );
-        }
         if (args.ed25519MintPlan.kind === 'wallet_custody') {
           if (ed25519SessionAuthority.kind !== 'passkey') {
             throw new Error('[login] wallet custody requires passkey authority');
@@ -3476,9 +3445,9 @@ async function primeThresholdLoginWarmSigners(args: {
           const expectedMaterialActivation = requireLoginPasskeyMaterialActivation(
             ed25519ProvisioningIdentity,
           );
-          const passkeyPrfFirstB64u =
-            connectedEcdsaDerivationPasskeyPrfFirstB64u ||
-            (credential ? passkeyPrfFirstB64uFromCredential(credential) : '');
+          const passkeyPrfFirstB64u = credential
+            ? passkeyPrfFirstB64uFromCredential(credential)
+            : '';
           if (!passkeyPrfFirstB64u) {
             throw new Error('[login] wallet custody requires WebAuthn PRF.first');
           }
@@ -3563,11 +3532,10 @@ async function primeThresholdLoginWarmSigners(args: {
         ): void => {
           if (ecdsaAuthorizedEd25519Mint) return;
           const thresholdEcdsaSessionJwt = String(bootstrap.session.jwt || '').trim();
-          const passkeyPrfFirstB64u =
-            String(bootstrap.passkeyPrfFirstB64u || '').trim() ||
-            (credential ? passkeyPrfFirstB64uFromCredential(credential) : '');
+          const passkeyPrfFirstB64u = credential
+            ? passkeyPrfFirstB64uFromCredential(credential)
+            : '';
           const passkeyCredentialIdB64u =
-            String(bootstrap.passkeyCredentialIdB64u || '').trim() ||
             passkeyCredentialIdB64uFromAuthentication(credential || undefined) ||
             localPasskeyCredentialIdB64u;
           if (!thresholdEcdsaSessionJwt || !passkeyPrfFirstB64u || !passkeyCredentialIdB64u) {
@@ -3644,42 +3612,10 @@ async function primeThresholdLoginWarmSigners(args: {
               thresholdEcdsaChainTargetKey(target.chainTarget),
             );
           }
-          const bootstrappedPasskeyPrfFirstB64u = String(
-            ecdsaAuthorizedEd25519Mint?.passkeyPrfFirstB64u || '',
-          ).trim();
-          const hasPasskeyPrfSource = Boolean(
-            String(sharedState.ed25519.ecdsaDerivationPasskeyPrfFirstB64u || '').trim() ||
-            credential,
-          );
-          const passkeyPrfFirstB64u = bootstrappedPasskeyPrfFirstB64u
-            ? bootstrappedPasskeyPrfFirstB64u
-            : hasPasskeyPrfSource
-              ? resolveThresholdLoginWarmEcdsaPrfFirstB64u({
-                  ed25519State: sharedState.ed25519,
-                  credentialState: args.credentialState,
-                })
-              : '';
-          const currentBootstrapIdentity = passkeyPrfFirstB64u
-            ? resolveCurrentBootstrapIdentity()
-            : null;
-          const passkeyCredentialIdB64u = String(
-            passkeyCredentialIdB64uFromAuthentication(credential || undefined) ||
-              ecdsaAuthorizedEd25519Mint?.passkeyCredentialIdB64u ||
-              targetEcdsaKey.passkeyCredentialIdB64u ||
-              localPasskeyCredentialIdB64u ||
-              '',
-          ).trim();
-          const reconnectRouteAuth = isWalletSessionReconnectEcdsaRouteAuth(
-            currentBootstrapIdentity?.routeAuth,
-          )
-            ? currentBootstrapIdentity.routeAuth
-            : null;
+          if (!localPasskeyCredentialIdB64u) {
+            throw new Error('[login] ECDSA role-local activation requires passkey identity');
+          }
           if (matchingExchangeActivation) {
-            if (!passkeyPrfFirstB64u || !passkeyCredentialIdB64u) {
-              throw new Error(
-                '[login] passkey exchange ECDSA activation requires local PRF material',
-              );
-            }
             consumedPasskeyExchangeActivation = true;
             return await bootstrapLoginEcdsaSession({
               signingEngine: args.signingEngine,
@@ -3693,85 +3629,24 @@ async function primeThresholdLoginWarmSigners(args: {
                 lanePolicy,
                 publicCapability,
                 existingRoleLocalMaterial,
-                passkeyPrfFirstB64u,
-                passkeyCredentialIdB64u,
+                passkeyCredentialIdB64u: localPasskeyCredentialIdB64u,
                 sessionActivation: matchingExchangeActivation.response,
                 beforeAuthorizationPersistence,
               },
             });
           }
-          if (reconnectRouteAuth && passkeyPrfFirstB64u && passkeyCredentialIdB64u) {
-            return await bootstrapLoginEcdsaSession({
-              signingEngine: args.signingEngine,
-              runtimeScopeBootstrapState: args.runtimeScopeBootstrapState,
-              request: {
-                kind: 'wallet_session_reconnect_ecdsa_bootstrap',
-                source: 'login',
-                relayerUrl: args.relayerUrl,
-                keyHandle: toEvmFamilyEcdsaKeyHandle(targetEcdsaKey.keyHandle),
-                key: targetEcdsaKey.key,
-                lanePolicy,
-                publicCapability,
-                existingRoleLocalMaterial,
-                passkeyPrfFirstB64u,
-                passkeyCredentialIdB64u,
-                routeAuth: reconnectRouteAuth,
-                beforeAuthorizationPersistence,
-              },
-            });
-          }
-          const passkeyBootstrapProof =
-            passkeyPrfFirstB64u && credential
-              ? {
-                  passkeyPrfFirstB64u: passkeyPrfFirstB64u,
-                  webauthnAuthentication: credential,
-                }
-              : null;
-          if (passkeyBootstrapProof) {
-            const routeAuth = currentBootstrapIdentity?.routeAuth;
-            if (isWalletSessionReconnectEcdsaRouteAuth(routeAuth)) {
-              return await bootstrapLoginEcdsaSession({
-                signingEngine: args.signingEngine,
-                runtimeScopeBootstrapState: args.runtimeScopeBootstrapState,
-                request: {
-                  kind: 'passkey_fresh_ecdsa_bootstrap',
-                  source: 'login',
-                  relayerUrl: args.relayerUrl,
-                  keyHandle: toEvmFamilyEcdsaKeyHandle(targetEcdsaKey.keyHandle),
-                  key: targetEcdsaKey.key,
-                  lanePolicy,
-                  publicCapability,
-                  existingRoleLocalMaterial,
-                  routeAuth,
-                  passkeyPrfFirstB64u: passkeyBootstrapProof.passkeyPrfFirstB64u,
-                  webauthnAuthentication: passkeyBootstrapProof.webauthnAuthentication,
-                  beforeAuthorizationPersistence,
-                },
-              });
-            }
-            return await bootstrapLoginEcdsaSession({
-              signingEngine: args.signingEngine,
-              runtimeScopeBootstrapState: args.runtimeScopeBootstrapState,
-              request: {
-                kind: 'passkey_fresh_ecdsa_bootstrap',
-                source: 'login',
-                relayerUrl: args.relayerUrl,
-                keyHandle: toEvmFamilyEcdsaKeyHandle(targetEcdsaKey.keyHandle),
-                key: targetEcdsaKey.key,
-                lanePolicy,
-                publicCapability,
-                existingRoleLocalMaterial,
-                passkeyPrfFirstB64u: passkeyBootstrapProof.passkeyPrfFirstB64u,
-                webauthnAuthentication: passkeyBootstrapProof.webauthnAuthentication,
-                beforeAuthorizationPersistence,
-              },
-            });
+          const currentBootstrapIdentity = resolveCurrentBootstrapIdentity();
+          const reconnectRouteAuth = currentBootstrapIdentity.routeAuth;
+          if (!isWalletSessionReconnectEcdsaRouteAuth(reconnectRouteAuth)) {
+            throw new Error(
+              '[login] ECDSA role-local activation requires a verified Wallet Session',
+            );
           }
           return await bootstrapLoginEcdsaSession({
             signingEngine: args.signingEngine,
             runtimeScopeBootstrapState: args.runtimeScopeBootstrapState,
             request: {
-              kind: 'passkey_fresh_ecdsa_bootstrap',
+              kind: 'wallet_session_reconnect_ecdsa_bootstrap',
               source: 'login',
               relayerUrl: args.relayerUrl,
               keyHandle: toEvmFamilyEcdsaKeyHandle(targetEcdsaKey.keyHandle),
@@ -3779,6 +3654,8 @@ async function primeThresholdLoginWarmSigners(args: {
               lanePolicy,
               publicCapability,
               existingRoleLocalMaterial,
+              passkeyCredentialIdB64u: localPasskeyCredentialIdB64u,
+              routeAuth: reconnectRouteAuth,
               beforeAuthorizationPersistence,
             },
           });

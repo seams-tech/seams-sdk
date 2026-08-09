@@ -195,12 +195,10 @@ import {
   assertRegistrationEcdsaSessionMatchesWalletKeys,
   assertRegistrationWalletKeyCapabilities,
   assertSharedRegistrationEvmFamilyWalletKeyMaterial,
-  buildRegistrationPasskeyEcdsaWarmSessions,
   buildStrictRegistrationClientBootstrap,
   closeStrictEcdsaRegistrationCeremony,
   finalizeStrictEcdsaFamilyLocalActivation,
   measureStrictEcdsaCeremonyStep,
-  persistRegistrationPasskeyEcdsaWarmSessions,
   registrationChainTargetListsMatch,
   registrationRouteHeaders,
   runStrictEcdsaFamilyCeremony,
@@ -1195,7 +1193,6 @@ export type RegistrationPersistenceAuth =
       rpId: string;
       credential: WebAuthnRegistrationCredential;
       credentialPublicKeyB64u: string;
-      passkeyPrfFirstB64u: string;
       email?: never;
       registrationAuthorityId?: never;
       emailOtpAuthContext?: never;
@@ -1260,7 +1257,6 @@ async function buildRegistrationPersistenceAuth(args: {
           finalized: args.finalized,
           credential: args.passkeyAuthority.credential,
         }),
-        passkeyPrfFirstB64u: args.passkeyAuthority.prfFirstB64u,
       };
     }
     case 'email_otp': {
@@ -1911,15 +1907,6 @@ async function persistRegistrationEcdsaPlan(args: {
   plan: RegistrationPersistencePlan;
 }): Promise<void> {
   const walletKeys = await finalizeRegistrationEcdsaSessions(args);
-  const warmSessions =
-    args.plan.auth.kind === 'passkey'
-      ? buildRegistrationPasskeyEcdsaWarmSessions({
-          relayerUrl: args.relayerUrl,
-          session: args.plan.ecdsa.session,
-          walletKeys,
-          auth: args.plan.auth,
-        })
-      : [];
   const startedAt = performance.now();
   try {
     await persistRegistrationEcdsaLocalRecords({
@@ -1932,14 +1919,6 @@ async function persistRegistrationEcdsaPlan(args: {
       'ecdsaRegistrationLocalRecordPersistenceMs',
       roundDurationMs(startedAt),
     );
-  }
-  if (args.plan.auth.kind === 'passkey') {
-    await persistRegistrationPasskeyEcdsaWarmSessions({
-      context: args.context,
-      session: args.plan.ecdsa.session,
-      warmSessions,
-      auth: args.plan.auth,
-    });
   }
   await persistActiveWalletSessionAuthorizationFromRegistration(walletSessionAuthorizations, {
     authority: args.plan.ecdsa.session.authority,

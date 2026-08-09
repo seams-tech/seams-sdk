@@ -22,7 +22,6 @@ import type { WalletId } from '@shared/utils/registrationIntent';
 import { base64UrlDecode } from '@shared/utils/base64';
 import {
   toParticipantId,
-  toRpId,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   parseEcdsaClientVerifyingPublicKey33B64u,
@@ -72,7 +71,6 @@ import type {
   RegistrationEstablishedEcdsaSession,
   RegistrationEstablishedSession,
 } from '@shared/utils/registrationEstablishedSession';
-import type { SealedSigningSessionEcdsaRestoreMetadata } from '@shared/utils/signingSessionSeal';
 import {
   ROUTER_AB_TRACE_ID_HEADER_V1,
   type RouterAbTraceContextV1,
@@ -82,7 +80,6 @@ import {
   assertNever,
   isRegistrationBenchmarkDiagnosticsEnabled,
 } from './registrationTiming';
-import type { RegistrationPersistenceAuth } from './registration';
 export function registrationRouteHeaders(
   traceContext?: RouterAbTraceContextV1,
 ): Record<string, string> | undefined {
@@ -138,20 +135,6 @@ export type RegistrationLocalEcdsaWalletKeys = Awaited<
   ReturnType<RegistrationSigningSurface['finalizeWalletRegistrationEcdsaSessions']>
 >;
 
-type RegistrationPasskeyEcdsaWarmSession = {
-  readonly transport: {
-    readonly curve: 'ecdsa';
-    readonly authMethod: 'passkey';
-    readonly walletId: string;
-    readonly chainTarget: ThresholdEcdsaChainTarget;
-    readonly relayerUrl: string;
-    readonly walletSessionJwt: string;
-    readonly ecdsaRestore: Exclude<
-      SealedSigningSessionEcdsaRestoreMetadata,
-      { source: 'email_otp' }
-    >;
-  };
-};
 
 export function assertSharedRegistrationEvmFamilyWalletKeyMaterial(
   walletKeys: readonly WalletRegistrationEcdsaWalletKey[],
@@ -594,120 +577,6 @@ export function assertRegistrationEcdsaSessionMatchesWalletKeys(args: {
     ) {
       throw new Error('ECDSA registration material changed the established session identity');
     }
-  }
-}
-
-function buildRegistrationPasskeyEcdsaRestoreMetadata(args: {
-  session: RegistrationEcdsaSession;
-  walletKey: Awaited<
-    ReturnType<RegistrationSigningSurface['finalizeWalletRegistrationEcdsaSessions']>
-  >[number];
-  auth: Extract<RegistrationPersistenceAuth, { kind: 'passkey' }>;
-}): Exclude<SealedSigningSessionEcdsaRestoreMetadata, { source: 'email_otp' }> {
-  const token = registrationEstablishedEcdsaSession(args.session.registrationEstablishedSession);
-  if (args.walletKey.walletId !== String(args.session.authority.walletId)) {
-    throw new Error('Registration ECDSA runtime wallet does not match its authority');
-  }
-  if (
-    alphabetizeStringify(args.walletKey.roleLocalMaterialRef.materialActivation) !==
-    alphabetizeStringify(args.session.materialActivation)
-  ) {
-    throw new Error('Registration ECDSA runtime material activation does not match the session');
-  }
-  if (
-    !args.session.chainTargets.some(
-      (chainTarget) =>
-        thresholdEcdsaChainTargetKey(chainTarget) ===
-        thresholdEcdsaChainTargetKey(args.walletKey.chainTarget),
-    )
-  ) {
-    throw new Error('Registration ECDSA runtime target is outside the activated family');
-  }
-  const publicFacts = args.walletKey.ecdsaRoleLocalPublicFacts;
-  if (
-    publicFacts.walletId !== args.walletKey.walletId ||
-    thresholdEcdsaChainTargetKey(publicFacts.chainTarget) !==
-      thresholdEcdsaChainTargetKey(args.walletKey.chainTarget) ||
-    publicFacts.keyHandle !== args.walletKey.keyHandle ||
-    publicFacts.ecdsaThresholdKeyId !== args.walletKey.ecdsaThresholdKeyId ||
-    alphabetizeStringify(publicFacts.publicCapability) !==
-      alphabetizeStringify(args.session.publicCapability)
-  ) {
-    throw new Error('Registration ECDSA runtime public facts do not match the activated family');
-  }
-  const credentialIdB64u = String(
-    args.auth.credential.rawId || args.auth.credential.id || '',
-  ).trim();
-  if (!credentialIdB64u) {
-    throw new Error('Registration passkey authority is missing its credential identity');
-  }
-  return {
-    chainTarget: args.walletKey.chainTarget,
-    signingRootId: args.walletKey.signingRootId,
-    signingRootVersion: args.walletKey.signingRootVersion,
-    source: 'registration',
-    authority: args.session.authority,
-    roleLocalMaterialRef: args.walletKey.roleLocalMaterialRef,
-    rpId: toRpId(args.auth.rpId),
-    credentialIdB64u,
-    keyHandle: token.keyHandle,
-    ecdsaThresholdKeyId: args.walletKey.ecdsaThresholdKeyId,
-    ethereumAddress: args.walletKey.thresholdOwnerAddress,
-    relayerKeyId: args.walletKey.relayerKeyId,
-    clientVerifyingShareB64u:
-      args.walletKey.ecdsaRoleLocalPublicFacts.derivationClientSharePublicKey33B64u,
-    thresholdEcdsaPublicKeyB64u: args.walletKey.thresholdEcdsaPublicKeyB64u,
-    participantIds: [...args.walletKey.participantIds],
-    runtimePolicyScope: token.runtimePolicyScope,
-    routerAbEcdsaDerivationNormalSigning: token.routerAbEcdsaDerivationNormalSigning,
-    publicCapability: args.walletKey.publicCapability,
-  };
-}
-
-export function buildRegistrationPasskeyEcdsaWarmSessions(args: {
-  relayerUrl: string;
-  session: RegistrationEcdsaSession;
-  walletKeys: RegistrationLocalEcdsaWalletKeys;
-  auth: Extract<RegistrationPersistenceAuth, { kind: 'passkey' }>;
-}): RegistrationPasskeyEcdsaWarmSession[] {
-  const token = registrationEstablishedEcdsaSession(args.session.registrationEstablishedSession);
-  return args.walletKeys.map((walletKey) => {
-    const ecdsaRestore = buildRegistrationPasskeyEcdsaRestoreMetadata({
-      session: args.session,
-      walletKey,
-      auth: args.auth,
-    });
-    return {
-      transport: {
-        curve: 'ecdsa',
-        authMethod: 'passkey',
-        walletId: walletKey.walletId,
-        chainTarget: walletKey.chainTarget,
-        relayerUrl: args.relayerUrl,
-        walletSessionJwt: token.walletSessionJwt,
-        ecdsaRestore,
-      },
-    };
-  });
-}
-
-export async function persistRegistrationPasskeyEcdsaWarmSessions(args: {
-  context: RegistrationWebContext;
-  session: RegistrationEcdsaSession;
-  warmSessions: readonly RegistrationPasskeyEcdsaWarmSession[];
-  auth: Extract<RegistrationPersistenceAuth, { kind: 'passkey' }>;
-}): Promise<void> {
-  const token = registrationEstablishedEcdsaSession(args.session.registrationEstablishedSession);
-  const persistTransport =
-    args.context.configs.signing.sessionPersistenceMode === 'sealed_refresh_v1';
-  for (const warmSession of args.warmSessions) {
-    await args.context.signingEngine.hydrateSigningSession({
-      thresholdSessionId: token.thresholdSessionId,
-      prfFirstB64u: args.auth.passkeyPrfFirstB64u,
-      expiresAtMs: args.session.registrationEstablishedSession.expiresAtMs,
-      remainingUses: args.session.registrationEstablishedSession.remainingUses,
-      ...(persistTransport ? { transport: warmSession.transport } : {}),
-    });
   }
 }
 

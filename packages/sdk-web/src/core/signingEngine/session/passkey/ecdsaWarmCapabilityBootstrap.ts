@@ -93,13 +93,7 @@ function createProvisionThresholdEcdsaSessionDeps(
   return {
     queueByWallet: deps.queueByWallet,
     activationDeps: deps.activationDeps,
-    sealPersistence: deps.passkeyMpcSession,
     persistEcdsaRoleLocalReadyRecord: deps.persistEcdsaRoleLocalReadyRecord,
-    resolveSealTransport: ({ lane, authorization }) =>
-      deps.capabilityReader.resolveEcdsaSealTransportForLane({
-        lane,
-        authorization,
-      }),
   };
 }
 

@@ -4,7 +4,6 @@ import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touch
 import type { SignerWorkerManagerContext } from '../../workerManager/SignerWorkerManager';
 import type {
   ThresholdCredentialStorePort,
-  ThresholdWarmSessionMaterialPort,
 } from '../../threshold/crypto/webauthn';
 import {
   activateEcdsaSession,
@@ -23,8 +22,7 @@ import type {
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { ThresholdEcdsaDerivationRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
-import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
-import { SigningSessionIds, type SigningOperationIntent } from '../operationState/types';
+import type { SigningOperationIntent } from '../operationState/types';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
@@ -34,24 +32,18 @@ import {
   buildEcdsaSessionIdentity,
   type EcdsaSessionIdentity,
 } from '../warmCapabilities/ecdsaProvisionPlan';
-import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import {
   toEvmFamilyEcdsaKeyHandle,
-  toRpId,
   type EvmFamilyEcdsaKeyHandle,
   type EvmFamilyEcdsaKeyIdentity,
   type EvmFamilyEcdsaActivationLanePolicy,
 } from '../identity/evmFamilyEcdsaIdentity';
-import type { PasskeyEcdsaReadyPersistInput } from '../warmCapabilities/persistencePorts';
 import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaBootstrapSignerAuth } from '../warmCapabilities/ecdsaBootstrapPersistence';
 import type {
   RouterAbEcdsaDerivationPublicCapabilityV1,
   RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import { requireRouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
-import type { SealedSigningSessionEcdsaRestoreMetadata } from '@shared/utils/signingSessionSeal';
-import type { ThresholdEcdsaBackendBinding } from '@/core/signingEngine/interfaces/signing';
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { persistActiveWalletSessionAuthorizationFromEcdsaBootstrap } from '../persistence/walletSessionAuthorizationProjection';
@@ -114,26 +106,8 @@ type EmailOtpEcdsaBootstrapWorkerHandle = Extract<
   { action: 'threshold_ecdsa_bootstrap' }
 >;
 
-type PasskeyPromptBootstrapAuth = {
+type PasskeyCredentialBootstrapAuth = {
   passkeyPrfFirstB64u?: never;
-  passkeyCredentialIdB64u?: never;
-  webauthnAuthentication?: never;
-};
-
-type PasskeyWebAuthnBootstrapAuth = {
-  webauthnAuthentication: WebAuthnAuthenticationCredential;
-  passkeyPrfFirstB64u?: never;
-  passkeyCredentialIdB64u?: never;
-};
-
-type PasskeyWebAuthnPrfBootstrapAuth = {
-  webauthnAuthentication: WebAuthnAuthenticationCredential;
-  passkeyPrfFirstB64u: string;
-  passkeyCredentialIdB64u?: never;
-};
-
-type PasskeyPrfCredentialBootstrapAuth = {
-  passkeyPrfFirstB64u: string;
   passkeyCredentialIdB64u: string;
   webauthnAuthentication?: never;
 };
@@ -156,25 +130,10 @@ type PasskeyFreshEcdsaBootstrapExactRequestBase = EcdsaBootstrapExactRequestBase
   emailOtpAuthContext?: never;
 };
 
-type PasskeyFreshEcdsaBootstrapExactRequest =
-  | (PasskeyFreshEcdsaBootstrapExactRequestBase & {
-      routeAuth?: AppOrWalletSessionAuth;
-    } & PasskeyWebAuthnPrfBootstrapAuth)
-  | (PasskeyFreshEcdsaBootstrapExactRequestBase & {
-      routeAuth?: AppOrWalletSessionAuth;
-    } & PasskeyWebAuthnBootstrapAuth)
-  | (PasskeyFreshEcdsaBootstrapExactRequestBase & {
-      routeAuth: AppOrWalletSessionAuth;
-    } & PasskeyPrfCredentialBootstrapAuth)
-  | (PasskeyFreshEcdsaBootstrapExactRequestBase & {
-      routeAuth: AppOrWalletSessionAuth;
-    } & PasskeyPromptBootstrapAuth)
-  | (PasskeyFreshEcdsaBootstrapExactRequestBase & {
-      routeAuth?: never;
-    } & PasskeyPrfCredentialBootstrapAuth)
-  | (PasskeyFreshEcdsaBootstrapExactRequestBase & {
-      routeAuth?: never;
-    } & PasskeyPromptBootstrapAuth);
+type PasskeyFreshEcdsaBootstrapExactRequest = PasskeyFreshEcdsaBootstrapExactRequestBase &
+  PasskeyCredentialBootstrapAuth & {
+    routeAuth: AppOrWalletSessionAuth;
+  };
 
 type EcdsaExplicitExportBootstrapRequestBase = {
   readonly relayerUrl?: string;
@@ -188,7 +147,7 @@ export type PasskeyEcdsaExportBootstrapRequest = EcdsaExplicitExportBootstrapReq
 };
 
 export type PasskeyExchangeEcdsaBootstrapRequest = EcdsaBootstrapExactRequestBase &
-  PasskeyPrfCredentialBootstrapAuth & {
+  PasskeyCredentialBootstrapAuth & {
     kind: 'passkey_exchange_ecdsa_bootstrap';
     sessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
     routeAuth?: never;
@@ -200,7 +159,7 @@ export type WalletSessionReconnectEcdsaBootstrapRequest = EcdsaBootstrapExactReq
   routeAuth: Extract<AppOrWalletSessionAuth, { kind: 'wallet_session' }>;
   passkeyCredentialIdB64u: string;
   webauthnAuthentication?: never;
-  passkeyPrfFirstB64u: string;
+  passkeyPrfFirstB64u?: never;
   emailOtpAuthContext?: never;
 };
 
@@ -241,24 +200,14 @@ export type EcdsaBootstrapRequest =
   | WalletSessionReconnectEcdsaBootstrapRequest
   | EmailOtpEcdsaBootstrapRequest;
 
-export type PasskeyEcdsaBootstrapRequest =
-  | Extract<EcdsaBootstrapRequest, { kind: 'passkey_fresh_ecdsa_bootstrap' }>
-  | Extract<EcdsaBootstrapRequest, { kind: 'passkey_exchange_ecdsa_bootstrap' }>
-  | Extract<EcdsaBootstrapRequest, { kind: 'wallet_session_reconnect_ecdsa_bootstrap' }>;
-
 export type WalletSessionActivationDeps = {
   credentialStore: ThresholdCredentialStorePort;
   touchIdPrompt: Pick<
     TouchIdPrompt,
     'getRpId' | 'getAuthenticationCredentialsSerializedForChallengeB64u'
   >;
-  touchConfirm: ThresholdWarmSessionMaterialPort;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
   routerAbNormalSigning: RouterAbNormalSigningConfig;
-  getOrCreateActiveThresholdEcdsaSessionId: (
-    walletId: WalletId,
-    chainTarget: ThresholdEcdsaChainTarget,
-  ) => string;
   defaultRelayerUrl: string;
   persistThresholdEcdsaBootstrapForWalletTarget: (args: {
     walletId: WalletId;
@@ -277,122 +226,6 @@ function resolveRelayerUrl(
     throw new Error('Missing relayer url (configs.network.relayer.url)');
   }
   return relayerUrl;
-}
-
-export type PasskeyEcdsaRestoreSource = Exclude<
-  SealedSigningSessionEcdsaRestoreMetadata['source'],
-  'email_otp'
->;
-
-type PasskeyRoleLocalBackendBinding = Extract<
-  ThresholdEcdsaBackendBinding,
-  { materialKind: 'role_local_worker_handle' | 'role_local_durable_sealed_ref' }
->;
-
-export function requirePasskeyEcdsaRestoreSource(
-  source: ThresholdEcdsaSessionStoreSource | undefined,
-): PasskeyEcdsaRestoreSource {
-  switch (source) {
-    case 'login':
-    case 'registration':
-    case 'manual-bootstrap':
-      return source;
-    case undefined:
-    case 'email_otp':
-      throw new Error(
-        '[SigningEngine][ecdsa] passkey ECDSA bootstrap is missing an exact restore source',
-      );
-  }
-}
-
-export function requirePasskeyEcdsaBootstrapRequest(
-  request: EcdsaBootstrapRequest,
-): PasskeyEcdsaBootstrapRequest {
-  switch (request.kind) {
-    case 'passkey_fresh_ecdsa_bootstrap':
-    case 'passkey_exchange_ecdsa_bootstrap':
-    case 'wallet_session_reconnect_ecdsa_bootstrap':
-      return request;
-    case 'reuse_warm_ecdsa_bootstrap':
-    case 'email_otp_ecdsa_bootstrap':
-      throw new Error('[SigningEngine][ecdsa] exact Passkey ECDSA bootstrap request is required');
-  }
-  request satisfies never;
-  throw new Error('[SigningEngine][ecdsa] unsupported ECDSA bootstrap request');
-}
-
-function passkeyRoleLocalBackendBinding(
-  binding: ThresholdEcdsaBackendBinding,
-): PasskeyRoleLocalBackendBinding {
-  switch (binding.materialKind) {
-    case 'role_local_worker_handle':
-    case 'role_local_durable_sealed_ref':
-      return binding;
-    case 'email_otp_worker_handle':
-    case 'role_local_ready_state_blob':
-    case 'role_local_durable_public_anchor':
-    case 'metadata_only':
-      throw new Error(
-        '[SigningEngine][ecdsa] passkey ECDSA bootstrap is missing durable role-local material',
-      );
-  }
-}
-
-export function requirePasskeyEcdsaCredentialIdFromBootstrap(
-  bootstrap: ThresholdEcdsaSessionBootstrapResult,
-): string {
-  const credentialId = String(bootstrap.passkeyCredentialIdB64u || '').trim();
-  if (credentialId) return credentialId;
-  throw new Error(
-    '[SigningEngine][ecdsa] passkey ECDSA bootstrap is missing an exact credential id',
-  );
-}
-
-export function buildPasskeyEcdsaRestoreMetadataFromBootstrap(args: {
-  request: PasskeyEcdsaBootstrapRequest;
-  authority: WalletAuthAuthorityRef;
-  source: PasskeyEcdsaRestoreSource;
-  rpId: ReturnType<typeof toRpId>;
-  credentialIdB64u: string;
-  bootstrap: ThresholdEcdsaSessionBootstrapResult;
-}): Exclude<SealedSigningSessionEcdsaRestoreMetadata, { source: 'email_otp' }> {
-  if (
-    String(args.request.key.walletId) !== String(args.authority.walletId) ||
-    String(args.request.existingRoleLocalMaterial.authority.authorityDigest) !==
-      String(args.authority.authorityDigest)
-  ) {
-    throw new Error(
-      '[SigningEngine][ecdsa] passkey ECDSA restore authority does not bind the key identity',
-    );
-  }
-  const binding = passkeyRoleLocalBackendBinding(
-    args.bootstrap.thresholdEcdsaKeyRef.backendBinding,
-  );
-  const keyRef = args.bootstrap.thresholdEcdsaKeyRef;
-  const publicFacts = binding.publicFacts;
-  return {
-    chainTarget: keyRef.chainTarget,
-    signingRootId: String(publicFacts.signingRootId),
-    signingRootVersion: String(publicFacts.signingRootVersion),
-    source: args.source,
-    authority: args.authority,
-    roleLocalMaterialRef: binding.roleLocalMaterialRef,
-    rpId: args.rpId,
-    credentialIdB64u: args.credentialIdB64u,
-    keyHandle: String(keyRef.keyHandle),
-    ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId),
-    ethereumAddress: String(keyRef.ethereumAddress),
-    relayerKeyId: String(binding.relayerKeyId),
-    clientVerifyingShareB64u: String(binding.clientVerifyingShareB64u),
-    thresholdEcdsaPublicKeyB64u: String(keyRef.thresholdEcdsaPublicKeyB64u),
-    participantIds: [...keyRef.participantIds],
-    runtimePolicyScope: args.bootstrap.session.runtimePolicyScope,
-    routerAbEcdsaDerivationNormalSigning:
-      requireRouterAbEcdsaDerivationNormalSigningStateV1(
-        keyRef.routerAbEcdsaDerivationNormalSigning,
-      ),
-    publicCapability: publicFacts.publicCapability,
-  };
 }
 
 function hasExactEcdsaBootstrapIdentity(
@@ -418,47 +251,6 @@ export function ecdsaBootstrapChainTarget(
     : request.chainTarget;
 }
 
-function passkeyEcdsaBootstrapCredential(
-  request: EcdsaBootstrapRequest,
-): WebAuthnAuthenticationCredential | null {
-  return request.kind === 'passkey_fresh_ecdsa_bootstrap' &&
-    'webauthnAuthentication' in request &&
-    request.webauthnAuthentication
-    ? request.webauthnAuthentication
-    : null;
-}
-
-export function resolvePasskeyEcdsaBootstrapPersistenceSource(args: {
-  request: EcdsaBootstrapRequest;
-  thresholdSessionId: ReturnType<typeof SigningSessionIds.thresholdEcdsaSession>;
-}): PasskeyEcdsaReadyPersistInput['persistenceSource'] | null {
-  const credential = passkeyEcdsaBootstrapCredential(args.request);
-  if (credential) {
-    const credentialIdB64u = String(credential.rawId || credential.id || '').trim();
-    if (!credentialIdB64u) {
-      throw new Error('[SigningEngine][ecdsa] passkey ECDSA persistence requires credential id');
-    }
-    return {
-      kind: 'fresh_webauthn',
-      credentialIdB64u,
-    };
-  }
-  switch (args.request.kind) {
-    case 'wallet_session_reconnect_ecdsa_bootstrap':
-      return {
-        kind: 'session_reconnect',
-        restoredThresholdSessionId: args.thresholdSessionId,
-      };
-    case 'reuse_warm_ecdsa_bootstrap':
-    case 'passkey_fresh_ecdsa_bootstrap':
-    case 'passkey_exchange_ecdsa_bootstrap':
-    case 'email_otp_ecdsa_bootstrap':
-      return null;
-  }
-  args.request satisfies never;
-  return null;
-}
-
 function ecdsaBootstrapSignerAuth(
   request: EcdsaBootstrapRequest,
 ): ThresholdEcdsaBootstrapSignerAuth {
@@ -478,44 +270,6 @@ function toActivateEcdsaSessionRequest(
   request: Exclude<EcdsaBootstrapRequest, ReuseWarmEcdsaBootstrapRequest>,
   relayerUrl: string,
 ): ActivateEcdsaExistingSessionRequest {
-  const passkeyFreshActivationAuth = (
-    passkeyRequest: Extract<EcdsaBootstrapRequest, { kind: 'passkey_fresh_ecdsa_bootstrap' }>,
-  ): ActivateEcdsaSessionAuth => {
-    if ('webauthnAuthentication' in passkeyRequest && passkeyRequest.webauthnAuthentication) {
-      const passkeyPrfFirstB64u = String(passkeyRequest.passkeyPrfFirstB64u || '').trim();
-      if (passkeyPrfFirstB64u) {
-        return {
-          authKind: 'passkey_webauthn_prf_b64u',
-          webauthnAuthentication: passkeyRequest.webauthnAuthentication,
-          passkeyPrfFirstB64u,
-        };
-      }
-      return {
-        authKind: 'passkey_webauthn',
-        webauthnAuthentication: passkeyRequest.webauthnAuthentication,
-      };
-    }
-
-    const passkeyPrfFirstB64u = String(
-      'passkeyPrfFirstB64u' in passkeyRequest ? passkeyRequest.passkeyPrfFirstB64u : '',
-    ).trim();
-    if (passkeyPrfFirstB64u) {
-      const passkeyCredentialIdB64u = String(
-        'passkeyCredentialIdB64u' in passkeyRequest ? passkeyRequest.passkeyCredentialIdB64u : '',
-      ).trim();
-      if (!passkeyCredentialIdB64u) {
-        throw new Error('[SigningEngine][ecdsa] passkey PRF bootstrap requires credential id');
-      }
-      return {
-        authKind: 'passkey_prf_b64u',
-        passkeyPrfFirstB64u,
-        passkeyCredentialIdB64u,
-      };
-    }
-
-    return { authKind: 'passkey_prompt' };
-  };
-
   const exactSessionRequest = (
     exactRequest: Extract<EcdsaBootstrapRequest, { key: EvmFamilyEcdsaKeyIdentity }>,
     walletSessionRouteAuth: ThresholdEcdsaDerivationRouteAuth | undefined,
@@ -548,30 +302,25 @@ function toActivateEcdsaSessionRequest(
     publicCapability: exactRequest.publicCapability,
     existingRoleLocalMaterial: exactRequest.existingRoleLocalMaterial,
     ...(exactRequest.requestId ? { requestId: exactRequest.requestId } : {}),
-    authKind: 'passkey_prf_b64u',
-    passkeyPrfFirstB64u: exactRequest.passkeyPrfFirstB64u,
+    authKind: 'passkey',
     passkeyCredentialIdB64u: exactRequest.passkeyCredentialIdB64u,
     preauthorizedSessionActivation: exactRequest.sessionActivation,
     runtimeScopeBootstrap: exactRequest.runtimeScopeBootstrap,
   });
   switch (request.kind) {
     case 'passkey_fresh_ecdsa_bootstrap': {
-      return exactSessionRequest(request, request.routeAuth, passkeyFreshActivationAuth(request));
+      return exactSessionRequest(request, request.routeAuth, {
+        authKind: 'passkey',
+        passkeyCredentialIdB64u: request.passkeyCredentialIdB64u,
+      });
     }
     case 'passkey_exchange_ecdsa_bootstrap': {
       return preauthorizedExactSessionRequest(request);
     }
     case 'wallet_session_reconnect_ecdsa_bootstrap': {
-      const passkeyCredentialIdB64u = String(request.passkeyCredentialIdB64u || '').trim();
-      if (!passkeyCredentialIdB64u) {
-        throw new Error(
-          '[SigningEngine][ecdsa] Wallet Session reconnect bootstrap requires credential id',
-        );
-      }
       return exactSessionRequest(request, request.routeAuth, {
-        authKind: 'passkey_prf_b64u',
-        passkeyPrfFirstB64u: request.passkeyPrfFirstB64u,
-        passkeyCredentialIdB64u,
+        authKind: 'passkey',
+        passkeyCredentialIdB64u: request.passkeyCredentialIdB64u,
       });
     }
     case 'email_otp_ecdsa_bootstrap': {
@@ -641,88 +390,24 @@ export async function bootstrapEcdsaSessionValue(
 
   const signerWorkerCtx = deps.getSignerWorkerContext();
   const activationDeps = {
-    credentialStore: deps.credentialStore,
     touchIdPrompt: deps.touchIdPrompt,
     workerCtx: signerWorkerCtx,
     routerAbNormalSigning: deps.routerAbNormalSigning,
-    getOrCreateActiveThresholdEcdsaSessionId: (
-      activeWalletId: WalletId,
-      target: ThresholdEcdsaChainTarget,
-    ) => deps.getOrCreateActiveThresholdEcdsaSessionId(activeWalletId, target),
   };
 
   const activation = await activateEcdsaSession(
     activationDeps,
     toActivateEcdsaSessionRequest(request, relayerUrl),
   );
-  const walletSessionJwt = String(activation.session.jwt || '').trim();
-  const transport = {
-    curve: 'ecdsa' as const,
-    walletId: String(authority.walletId),
-    chainTarget,
-    relayerUrl,
-    walletSessionJwt,
-  };
   const canonicalBootstrap = activation;
 
   const signerAuth = ecdsaBootstrapSignerAuth(request);
-  const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession(
-    activation.session.thresholdSessionId,
-  );
-  const passkeyPersistenceSource = resolvePasskeyEcdsaBootstrapPersistenceSource({
-    request,
-    thresholdSessionId,
-  });
-  let readyPersistenceInput: PasskeyEcdsaReadyPersistInput | null = null;
-  if (request.kind !== 'email_otp_ecdsa_bootstrap' && passkeyPersistenceSource) {
-    const passkeyPrfFirstB64u = String(activation.passkeyPrfFirstB64u || '').trim();
-    if (!passkeyPrfFirstB64u) {
-      throw new Error('[SigningEngine][ecdsa] passkey ECDSA bootstrap returned empty PRF.first');
-    }
-    const passkeyRequest = requirePasskeyEcdsaBootstrapRequest(request);
-    const ecdsaRestore = buildPasskeyEcdsaRestoreMetadataFromBootstrap({
-      request: passkeyRequest,
-      authority: passkeyRequest.existingRoleLocalMaterial.authority,
-      source: requirePasskeyEcdsaRestoreSource(passkeyRequest.source),
-      rpId: toRpId(deps.touchIdPrompt.getRpId()),
-      credentialIdB64u: requirePasskeyEcdsaCredentialIdFromBootstrap(canonicalBootstrap),
-      bootstrap: canonicalBootstrap,
-    });
-    readyPersistenceInput = {
-      authMethod: 'passkey',
-      curve: 'ecdsa',
-      walletId: toWalletId(ecdsaRestore.authority.walletId),
-      chainTarget,
-      walletSessionId: activation.session.walletSessionId,
-      quotaId: activation.session.quotaId,
-      thresholdSessionId,
-      persistenceSource: passkeyPersistenceSource,
-      passkeyPrfSealMaterial: {
-        kind: 'ecdsa_prf_first',
-        passkeyPrfFirstB64u,
-        transport: {
-          ...transport,
-          authMethod: 'passkey',
-          ecdsaRestore,
-        },
-      },
-    };
-  }
   await deps.persistThresholdEcdsaBootstrapForWalletTarget({
     walletId,
     chainTarget,
     bootstrap: canonicalBootstrap,
     signerAuth,
   });
-  if (readyPersistenceInput) {
-    await deps.touchConfirm.putWarmSessionMaterial({
-      thresholdSessionId: readyPersistenceInput.thresholdSessionId,
-      prfFirstB64u: readyPersistenceInput.passkeyPrfSealMaterial.passkeyPrfFirstB64u,
-      expiresAtMs: Number(activation.session.expiresAtMs),
-      remainingUses: Number(activation.session.remainingUses),
-      transport: readyPersistenceInput.passkeyPrfSealMaterial.transport,
-    });
-  }
   // Combined unlock overlaps both curves, then commits their shared authorization in curve order.
   await request.beforeAuthorizationPersistence?.();
   await persistActiveWalletSessionAuthorizationFromEcdsaBootstrap(walletSessionAuthorizations, {
