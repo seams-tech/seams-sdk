@@ -8,6 +8,10 @@ import type {
 } from '../../packages/sdk-web/src/core/indexedDB/keyMaterial.types';
 import type { NearEd25519YaoOperationMaterial } from '../../packages/sdk-web/src/core/signingEngine/interfaces/near';
 import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  parseEcdsaRoleLocalBindingDigest,
+  parseEcdsaRoleLocalDurableMaterialRef,
+} from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
 import { nearEd25519YaoMaterialActivationFromMetadata } from '../../packages/sdk-web/src/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
 import {
   ROUTER_AB_ED25519_YAO_ACTIVE_CLIENT_KIND_V1,
@@ -33,8 +37,14 @@ import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '../../packages/shar
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '../../packages/shared-ts/src/utils/sessionTokens';
 import { isPlainObject } from '../../packages/shared-ts/src/utils/validation';
 import { mpcMaterialActivationRefsEqual } from '../../packages/shared-ts/src/utils/domainIds';
-import { routerAbMpcMaterialActivationRefToWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
+import {
+  routerAbMpcMaterialActivationRefFromWire,
+  routerAbMpcMaterialActivationRefToWire,
+} from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
+import type { WalletCustodyEvmFamilyPublicFacts } from '../../packages/shared-ts/src/passkey-custody/ceremonyCommitPayload';
+import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import { ecdsaCapabilityActivationFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import { rawPasskeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixtures';
 
 const RELAYER_URL = 'https://router.example.test';
@@ -79,6 +89,7 @@ class YaoScenario {
 type FetchScenario = {
   readonly optionsWalletId: string | null;
   readonly verifiedWalletId: string;
+  readonly ecdsaSigners: readonly Record<string, unknown>[];
   verifyRequest: Record<string, unknown> | null;
 };
 
@@ -343,7 +354,10 @@ function syncOptionsResponse(scenario: FetchScenario): Record<string, unknown> {
   };
 }
 
-function syncVerifyResponse(walletId: string): Record<string, unknown> {
+function syncVerifyResponse(
+  walletId: string,
+  ecdsaSigners: readonly Record<string, unknown>[],
+): Record<string, unknown> {
   const admissionRequest = registrationAdmissionRequest(walletId);
   const admissionReceipt = registrationAdmissionReceipt(walletId);
   return {
@@ -439,6 +453,10 @@ function syncVerifyResponse(walletId: string): Record<string, unknown> {
       }),
       storeVersion: 'custody-store-version-1',
     },
+    ecdsaCustody: {
+      kind: 'wallet_custody_ecdsa_sync_continuity_v1',
+      signers: ecdsaSigners,
+    },
   };
 }
 
@@ -512,7 +530,7 @@ async function syncAccountFetch(input: RequestInfo | URL, init?: RequestInit): P
   }
   if (url === `${RELAYER_URL}/sync-account/verify`) {
     scenario.verifyRequest = requireRequestJson(init);
-    return jsonResponse(syncVerifyResponse(scenario.verifiedWalletId));
+    return jsonResponse(syncVerifyResponse(scenario.verifiedWalletId, scenario.ecdsaSigners));
   }
   throw new Error(`unexpected syncAccount fetch: ${url}`);
 }
@@ -546,6 +564,13 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
   readonly sealedQueueStates: boolean[] = [];
   readonly queuedActivationIds: string[] = [];
   readonly laneReferences: Ed25519YaoPublicCapabilityLaneReferenceV1[] = [];
+  readonly ecdsaRejoinInputs: Array<
+    Parameters<AccountSyncSigningSurface['rejoinWalletCustodyEvmFamilyKeySet']>[0]
+  > = [];
+  readonly ecdsaRestoreInputs: Array<
+    Parameters<AccountSyncSigningSurface['restoreWalletCustodyEcdsaContinuity']>[0]
+  > = [];
+  ecdsaRejoinPublicFacts: WalletCustodyEvmFamilyPublicFacts | null = null;
   private walletAuthenticationState: WalletAuthenticationState = { kind: 'signed_out' };
   private insideMaterialOwnerQueue = false;
   failAuthenticatedWalletActivation = false;
@@ -738,6 +763,37 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
     }
   }
 
+  async rejoinWalletCustodyEvmFamilyKeySet(
+    args: Parameters<AccountSyncSigningSurface['rejoinWalletCustodyEvmFamilyKeySet']>[0],
+  ): ReturnType<AccountSyncSigningSurface['rejoinWalletCustodyEvmFamilyKeySet']> {
+    this.ecdsaRejoinInputs.push(args);
+    if (!this.ecdsaRejoinPublicFacts) {
+      throw new Error('ECDSA custody rejoin is outside the Ed25519-only sync fixture');
+    }
+    return {
+      readyStateBlobB64u: base64UrlEncode(new Uint8Array(64).fill(31)),
+      publicFacts: this.ecdsaRejoinPublicFacts,
+    };
+  }
+
+  async restoreWalletCustodyEcdsaContinuity(
+    args: Parameters<AccountSyncSigningSurface['restoreWalletCustodyEcdsaContinuity']>[0],
+  ): ReturnType<AccountSyncSigningSurface['restoreWalletCustodyEcdsaContinuity']> {
+    this.ecdsaRestoreInputs.push(args);
+    const materialActivation = routerAbMpcMaterialActivationRefFromWire(
+      args.activationReceipt.ecdsa_activation.material_activation,
+    );
+    return {
+      materialActivation,
+      materialRef: {
+        kind: 'ecdsa_role_local_persisted_material_ref_v1',
+        durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef('sync-fixture-material'),
+        bindingDigest: parseEcdsaRoleLocalBindingDigest(args.publicFacts.contextBinding32B64u),
+        materialActivation,
+      },
+    };
+  }
+
   async persistWalletCustodyEd25519Material(): Promise<void> {}
 }
 
@@ -750,10 +806,64 @@ function createContext(surface: SyncAccountSigningSurfaceFixture): AccountSyncWe
   };
 }
 
+function mixedWalletEcdsaSyncFixture(walletId: string): {
+  readonly signers: readonly Record<string, unknown>[];
+  readonly publicFacts: WalletCustodyEvmFamilyPublicFacts;
+} {
+  const targets = [
+    { kind: 'evm', namespace: 'eip155', chainId: 8453, networkSlug: 'base' },
+    { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-test' },
+  ] as const;
+  const fixture = ecdsaCapabilityActivationFixture({
+    walletId: walletIdFromString(walletId),
+    targetMemberships: targets,
+    signingRootId: 'project-sync:test',
+    signingRootVersion: ROOT_SHARE_EPOCH,
+  });
+  const binding = fixture.prepareInput.activationBinding;
+  const roleFacts = fixture.sealInput.roleLocalPublicFacts;
+  const receipt = fixture.serverCommit.protocolReceipt;
+  const walletKey = {
+    walletId,
+    keyHandle: String(binding.roleLocalBinding.keyHandle),
+    ecdsaThresholdKeyId: String(binding.roleLocalBinding.ecdsaThresholdKeyId),
+    signingRootId: String(binding.signer.signingRootId),
+    signingRootVersion: String(binding.signer.signingRootVersion),
+    relayerKeyId: String(binding.roleLocalBinding.relayerKeyId),
+    contextBinding32B64u: roleFacts.contextBinding32B64u,
+    derivationClientSharePublicKey33B64u: roleFacts.derivationClientSharePublicKey33B64u,
+    participantIds: [1, 2],
+    publicCapability: roleFacts.publicCapability,
+  };
+  return {
+    signers: targets.map((chainTarget, index) => ({
+      chainTarget:
+        index === 0
+          ? { kind: 'evm', namespace: 'eip155', chainId: chainTarget.chainId }
+          : chainTarget,
+      walletKey,
+      activationReceipt: receipt,
+      runtimePolicyScope: fixture.sealInput.runtimePolicyScope,
+    })),
+    publicFacts: {
+      contextBinding32B64u: roleFacts.contextBinding32B64u,
+      derivationClientSharePublicKey33B64u: roleFacts.derivationClientSharePublicKey33B64u,
+      clientVerifyingShare33B64u: roleFacts.derivationClientSharePublicKey33B64u,
+      relayerPublicKey33B64u: roleFacts.relayerPublicKey33B64u,
+      groupPublicKey33B64u: roleFacts.groupPublicKey33B64u,
+      ethereumAddress: roleFacts.ethereumAddress,
+      clientShareRetryCounter: receipt.ecdsa_activation.public_identity.client_share_retry_counter,
+      relayerShareRetryCounter:
+        receipt.ecdsa_activation.public_identity.server_share_retry_counter,
+    },
+  };
+}
+
 function configureTestScenario(input: {
   readonly optionsWalletId: string | null;
   readonly verifiedWalletId: string;
   readonly failRecovery?: boolean;
+  readonly ecdsaSigners?: readonly Record<string, unknown>[];
 }): YaoScenario {
   const yaoScenario = createYaoScenario();
   yaoScenario.failRecovery = input.failRecovery === true;
@@ -761,6 +871,7 @@ function configureTestScenario(input: {
   activeFetchScenario = {
     optionsWalletId: input.optionsWalletId,
     verifiedWalletId: input.verifiedWalletId,
+    ecdsaSigners: input.ecdsaSigners ?? [],
     verifyRequest: null,
   };
   return yaoScenario;
@@ -846,6 +957,43 @@ test.describe('public syncAccount Yao orchestration', () => {
     const persistence = requireActivePersistenceFixture();
     expect(persistence.appState.size).toBe(0);
     expect([...persistence.keyMaterial.values()].map((record) => record.keyKind)).toEqual([]);
+  });
+
+  test('mixed-wallet sync rejoins one ECDSA key and preserves its Router activation across targets', async () => {
+    const ecdsa = mixedWalletEcdsaSyncFixture(DISCOVERED_WALLET_ID);
+    configureTestScenario({
+      optionsWalletId: null,
+      verifiedWalletId: DISCOVERED_WALLET_ID,
+      ecdsaSigners: ecdsa.signers,
+    });
+    const surface = new SyncAccountSigningSurfaceFixture();
+    surface.ecdsaRejoinPublicFacts = ecdsa.publicFacts;
+
+    const result = await syncAccount(createContext(surface), null);
+
+    expect(result.success).toBe(true);
+    expect(surface.ecdsaRejoinInputs).toHaveLength(1);
+    expect(surface.ecdsaRestoreInputs).toHaveLength(1);
+    expect(surface.ecdsaRejoinInputs[0]).toMatchObject({
+      walletId: DISCOVERED_WALLET_ID,
+      applicationBindingDigestB64u:
+        surface.ecdsaRestoreInputs[0]!.publicCapability.context.application_binding_digest_b64u,
+      registeredClientRootPublicKey33B64u:
+        ecdsa.publicFacts.derivationClientSharePublicKey33B64u,
+    });
+    expect(
+      new Uint8Array(surface.ecdsaRejoinInputs[0]!.factorSecret).every((byte) => byte === 0),
+    ).toBe(true);
+    expect(surface.ecdsaRestoreInputs[0]!.chainTargets).toEqual([
+      { kind: 'evm', namespace: 'eip155', chainId: 8453, networkSlug: 'evm-8453' },
+      { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-test' },
+    ]);
+    expect(surface.ecdsaRestoreInputs[0]!.activationReceipt).toEqual(
+      ecdsa.signers[0]!.activationReceipt,
+    );
+    expect(surface.ecdsaRestoreInputs[0]!.readyStateBlobB64u).toBe(
+      base64UrlEncode(new Uint8Array(64).fill(31)),
+    );
   });
 
   test('rejects requested-wallet substitution and clears the recovered wallet capability', async () => {

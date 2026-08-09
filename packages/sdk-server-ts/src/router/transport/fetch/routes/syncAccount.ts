@@ -257,6 +257,9 @@ export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Res
           { status: custodyEnvelope.kind === 'conflict' ? 409 : 404 },
         );
       }
+      const ecdsaSigners = await ctx.service.walletRegistration.listWalletEcdsaCustodyContinuity({
+        walletId,
+      });
       responseBody = {
         ...result,
         thresholdEd25519: {
@@ -272,6 +275,15 @@ export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Res
           kind: 'wallet_custody_sync_bootstrap_v1',
           envelope: custodyEnvelope.envelope,
           storeVersion: custodyEnvelope.storeVersion,
+        },
+        ecdsaCustody: {
+          kind: 'wallet_custody_ecdsa_sync_continuity_v1',
+          signers: ecdsaSigners.map((signer) => ({
+            chainTarget: signer.chainTarget,
+            walletKey: signer.walletKey,
+            activationReceipt: signer.activationReceipt,
+            runtimePolicyScope: signer.runtimePolicyScope,
+          })),
         },
       };
     }

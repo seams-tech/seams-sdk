@@ -12,6 +12,7 @@ import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/parti
 import {
   normalizeRuntimePolicyScope,
   signingRootScopeFromRuntimePolicyScope,
+  type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
 import {
   parseRouterAbEd25519YaoRecoveryActivationResultV1,
@@ -20,7 +21,10 @@ import {
   parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
-import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type {
+  RouterAbEcdsaDerivationPublicCapabilityV1,
+  RouterAbEcdsaRegistrationActivationReceiptV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import {
   sameRouterAbMpcMaterialActivationRef,
   type RouterAbMpcMaterialActivationRefWire,
@@ -566,6 +570,8 @@ export function prepareD1WalletPutSignerStatement(input: {
 export function buildWalletEcdsaSignerRecord(input: {
   readonly walletId: WalletId;
   readonly walletKey: WalletRegistrationEcdsaWalletKey;
+  readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+  readonly runtimePolicyScope: RuntimePolicyScope;
   readonly createdAtMs: number;
   readonly updatedAtMs: number;
 }): WalletEcdsaSignerRecord {
@@ -577,6 +583,8 @@ export function buildWalletEcdsaSignerRecord(input: {
     chainTargetKey,
     chainTarget: input.walletKey.chainTarget,
     walletKey: walletEcdsaSignerKeyFromRegistration(input.walletKey),
+    activationReceipt: input.activationReceipt,
+    runtimePolicyScope: input.runtimePolicyScope,
     createdAtMs: input.createdAtMs,
     updatedAtMs: input.updatedAtMs,
   };
@@ -828,6 +836,41 @@ export class D1WalletStore implements WalletStore {
       throw new Error('Wallet has conflicting ECDSA post-registration identities');
     }
     return matches[0] ?? null;
+  }
+
+  async listEcdsaSignersForWallet(input: {
+    walletId: WalletId;
+  }): Promise<readonly WalletEcdsaSignerRecord[]> {
+    await this.ensureSchema();
+    const result = await this.database
+      .prepare(
+        `SELECT record_json
+           FROM wallet_signers
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND wallet_id = ?
+            AND signer_family = 'ecdsa'
+          ORDER BY signer_id`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        input.walletId,
+      )
+      .all<D1WalletRow>();
+    const signers: WalletEcdsaSignerRecord[] = [];
+    for (const row of result.results || []) {
+      const signer = parseWalletEcdsaSignerRecord(parseD1JsonColumn(row.record_json));
+      if (!signer || signer.walletId !== input.walletId) {
+        throw new Error('Wallet ECDSA signer record is invalid');
+      }
+      signers.push(signer);
+    }
+    return signers;
   }
 
   async putEcdsaPendingSessionActivation(

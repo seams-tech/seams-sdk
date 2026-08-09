@@ -792,6 +792,100 @@ test.describe('canonical ECDSA capability manifest store', () => {
     } catch {}
   });
 
+  test('imports a Router-committed custody activation as canonical readable material', async ({
+    page,
+  }) => {
+    const fixture = ecdsaCapabilityActivationFixture({
+      targetMemberships: [
+        { kind: 'evm', namespace: 'eip155', chainId: 8453, networkSlug: 'base' },
+        { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-test' },
+      ],
+    });
+    const roleFacts = fixture.sealInput.roleLocalPublicFacts;
+    const receipt = fixture.serverCommit.protocolReceipt;
+    const custodyPublicFacts = {
+      contextBinding32B64u: roleFacts.contextBinding32B64u,
+      derivationClientSharePublicKey33B64u: roleFacts.derivationClientSharePublicKey33B64u,
+      clientVerifyingShare33B64u: roleFacts.derivationClientSharePublicKey33B64u,
+      relayerPublicKey33B64u: roleFacts.relayerPublicKey33B64u,
+      groupPublicKey33B64u: roleFacts.groupPublicKey33B64u,
+      ethereumAddress: roleFacts.ethereumAddress,
+      clientShareRetryCounter: receipt.ecdsa_activation.public_identity.client_share_retry_counter,
+      relayerShareRetryCounter:
+        receipt.ecdsa_activation.public_identity.server_share_retry_counter,
+    };
+    await prepareStoreModulePage(page);
+
+    const result = await page.evaluate(
+      async ({ storeModule, fixture, custodyPublicFacts }) => {
+        await new Promise<void>((resolve) => {
+          const request = indexedDB.deleteDatabase('seams_wallet');
+          request.onsuccess = () => resolve();
+          request.onerror = () => resolve();
+          request.onblocked = () => resolve();
+        });
+        const module = await import(storeModule);
+        const store = new module.IndexedDbEcdsaCapabilityManifestStore();
+        const binding = fixture.prepareInput.activationBinding;
+        const roleFacts = fixture.sealInput.roleLocalPublicFacts;
+        const imported = await module.importWalletCustodyEcdsaContinuity({
+          store,
+          authority: binding.signer.authority,
+          chainTargets: binding.signer.scope.targetMemberships,
+          walletId: String(binding.signer.walletId),
+          keyHandle: String(binding.roleLocalBinding.keyHandle),
+          ecdsaThresholdKeyId: String(binding.roleLocalBinding.ecdsaThresholdKeyId),
+          signingRootId: String(binding.signer.signingRootId),
+          signingRootVersion: String(binding.signer.signingRootVersion),
+          relayerKeyId: String(binding.roleLocalBinding.relayerKeyId),
+          participantIds: [1, 2],
+          publicCapability: roleFacts.publicCapability,
+          activationReceipt: fixture.serverCommit.protocolReceipt,
+          runtimePolicyScope: fixture.sealInput.runtimePolicyScope,
+          readyStateBlobB64u: fixture.sealInput.readyStateBlobB64u,
+          publicFacts: custodyPublicFacts,
+        });
+        const selector = {
+          capability: binding.signer.capability,
+          authority: binding.signer.authority,
+        };
+        const lookup = await store.lookup(selector);
+        const opened = await store.openActiveMaterial(selector);
+        return {
+          importedKind: imported.kind,
+          lookupKind: lookup.kind,
+          materialActivation:
+            lookup.kind === 'active' ? lookup.manifest.activation.materialActivation : null,
+          targetMemberships:
+            lookup.kind === 'active' ? lookup.manifest.signer.scope.targetMemberships : null,
+          openedKind: opened.kind,
+          readyStateBlobB64u:
+            opened.kind === 'active' ? opened.readyStateBlobB64u : null,
+        };
+      },
+      { storeModule: STORE_MODULE, fixture, custodyPublicFacts },
+    );
+
+    const wireMaterialActivation =
+      fixture.serverCommit.protocolReceipt.ecdsa_activation.material_activation;
+    expect(result).toEqual({
+      importedKind: 'committed',
+      lookupKind: 'active',
+      materialActivation: {
+        kind: 'mpc_material_activation_ref',
+        activationId: wireMaterialActivation.activation_id,
+        capability: wireMaterialActivation.capability,
+        materialOwner: wireMaterialActivation.material_owner,
+        keyBinding: wireMaterialActivation.key_binding,
+        lifecycleBinding: wireMaterialActivation.lifecycle_binding,
+        signingWorker: wireMaterialActivation.signing_worker,
+      },
+      targetMemberships: fixture.prepareInput.activationBinding.signer.scope.targetMemberships,
+      openedKind: 'active',
+      readyStateBlobB64u: fixture.sealInput.readyStateBlobB64u,
+    });
+  });
+
   test('atomically finalizes material, manifest, pointer, and journal deletion', async ({
     page,
   }) => {

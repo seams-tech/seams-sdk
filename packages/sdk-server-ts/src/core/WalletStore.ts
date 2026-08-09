@@ -9,7 +9,10 @@ import {
   derivationClientSharePublicKey33B64uFromString,
   parseSdkEcdsaDerivationThresholdKeyId,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
-import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import {
+  normalizeRuntimePolicyScope,
+  type RuntimePolicyScope,
+} from '@shared/threshold/signingRootScope';
 import type {
   RouterAbEd25519YaoActivationResultV1,
   RouterAbEd25519YaoActivationAdmissionReceiptV1,
@@ -27,10 +30,12 @@ import {
   parseRouterAbEcdsaDerivationRecoveryRequestV1,
   parseRouterAbEcdsaStrictForwardedRegistrationResponseV1,
   parseRouterAbEcdsaDerivationPublicCapabilityV1,
+  parseRouterAbEcdsaRegistrationActivationReceiptV1,
   type RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1,
   type RouterAbEcdsaDerivationActivationRefreshRequestV1,
   type RouterAbEcdsaDerivationRecoveryRequestV1,
   type RouterAbEcdsaDerivationPublicCapabilityV1,
+  type RouterAbEcdsaRegistrationActivationReceiptV1,
   type RouterAbEcdsaStrictForwardedRegistrationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import { alphabetizeStringify } from '@shared/utils/digests';
@@ -116,6 +121,8 @@ export type WalletEcdsaSignerRecord = {
   chainTargetKey: string;
   chainTarget: ThresholdEcdsaChainTarget;
   walletKey: WalletEcdsaSignerKey;
+  activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+  runtimePolicyScope: RuntimePolicyScope;
   createdAtMs: number;
   updatedAtMs: number;
 };
@@ -167,6 +174,9 @@ export interface WalletStore {
     walletId: WalletId;
     request: WalletEcdsaPostRegistrationPublicRequest;
   }): Promise<WalletEcdsaSignerRecord | null>;
+  listEcdsaSignersForWallet(input: {
+    walletId: WalletId;
+  }): Promise<readonly WalletEcdsaSignerRecord[]>;
   putEcdsaPendingSessionActivation(
     record: WalletEcdsaPendingSessionActivationRecord,
   ): Promise<void>;
@@ -344,6 +354,14 @@ export function parseWalletEcdsaSignerRecord(raw: unknown): WalletEcdsaSignerRec
   const chainTarget = thresholdEcdsaChainTargetFromValue(raw.chainTarget);
   const walletKeyRaw = isObject(raw.walletKey) ? raw.walletKey : null;
   const walletKey = walletKeyRaw ? parseWalletEcdsaSignerKey(walletKeyRaw) : null;
+  let activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+  let runtimePolicyScope: RuntimePolicyScope;
+  try {
+    activationReceipt = parseRouterAbEcdsaRegistrationActivationReceiptV1(raw.activationReceipt);
+    runtimePolicyScope = normalizeRuntimePolicyScope(raw.runtimePolicyScope);
+  } catch {
+    return null;
+  }
   const createdAtMs = normalizeTimestampMs(raw.createdAtMs);
   const updatedAtMs = normalizeTimestampMs(raw.updatedAtMs);
   if (
@@ -367,6 +385,8 @@ export function parseWalletEcdsaSignerRecord(raw: unknown): WalletEcdsaSignerRec
     chainTargetKey,
     chainTarget,
     walletKey,
+    activationReceipt,
+    runtimePolicyScope,
     createdAtMs,
     updatedAtMs,
   };
@@ -580,6 +600,15 @@ class InMemoryWalletStore implements WalletStore {
     return matches[0] ?? null;
   }
 
+  async listEcdsaSignersForWallet(input: {
+    walletId: WalletId;
+  }): Promise<readonly WalletEcdsaSignerRecord[]> {
+    return [...this.signers.values()].filter(
+      (record): record is WalletEcdsaSignerRecord =>
+        record.version === 'wallet_signer_ecdsa_v1' && record.walletId === input.walletId,
+    );
+  }
+
   private readonly pendingEcdsaActivations = new Map<
     string,
     WalletEcdsaPendingSessionActivationRecord
@@ -791,6 +820,32 @@ class CloudflareDurableObjectWalletStore implements WalletStore {
       : null;
   }
 
+  async listEcdsaSignersForWallet(input: {
+    walletId: WalletId;
+  }): Promise<readonly WalletEcdsaSignerRecord[]> {
+    const response = await this.stub.fetch('https://threshold-store.invalid/', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        op: 'get',
+        key: this.key('signer', `${input.walletId}:ecdsa-list`),
+      }),
+    });
+    if (!response.ok) return [];
+    const current = (await response.json().catch(() => null)) as { value?: unknown } | null;
+    if (current?.value === undefined || current.value === null) return [];
+    if (!Array.isArray(current.value)) throw new Error('Wallet ECDSA signer list is invalid');
+    const signers: WalletEcdsaSignerRecord[] = [];
+    for (const raw of current.value) {
+      const signer = parseWalletEcdsaSignerRecord(raw);
+      if (!signer || signer.walletId !== input.walletId) {
+        throw new Error('Wallet ECDSA signer list contains an invalid record');
+      }
+      signers.push(signer);
+    }
+    return signers;
+  }
+
   async putEcdsaPendingSessionActivation(
     record: WalletEcdsaPendingSessionActivationRecord,
   ): Promise<void> {
@@ -885,6 +940,9 @@ class CloudflareDurableObjectWalletStore implements WalletStore {
         ),
         record,
       );
+      const current = await this.listEcdsaSignersForWallet({ walletId: record.walletId });
+      const next = current.filter((signer) => signer.chainTargetKey !== record.chainTargetKey);
+      await this.put(this.key('signer', `${record.walletId}:ecdsa-list`), [...next, record]);
     }
   }
 

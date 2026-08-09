@@ -72,6 +72,7 @@ import {
   parseRouterAbEcdsaStrictForwardedRegistrationResponseV1,
   parseRouterAbEcdsaVerifiedClientActivationFactsV1,
   type RouterAbEcdsaDerivationPublicCapabilityV1,
+  type RouterAbEcdsaRegistrationActivationReceiptV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import { parseStoredRouterAbEcdsaPendingActivationV1 } from '../../../domains/ecdsa/routerAbEcdsaStrictRegistration';
 import { registrationPreparationIdFromString } from '../../../../core/registrationContracts';
@@ -2249,6 +2250,8 @@ export function buildD1WalletRecord(input: {
 export function buildD1WalletEcdsaSignerRecords(input: {
   readonly walletId: WalletId;
   readonly walletKeys: readonly WalletRegistrationEcdsaWalletKey[];
+  readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+  readonly runtimePolicyScope: RuntimePolicyScope;
   readonly now: number;
 }): WalletEcdsaSignerRecord[] {
   const records: WalletEcdsaSignerRecord[] = [];
@@ -2257,6 +2260,8 @@ export function buildD1WalletEcdsaSignerRecords(input: {
       buildWalletEcdsaSignerRecord({
         walletId: input.walletId,
         walletKey,
+        activationReceipt: input.activationReceipt,
+        runtimePolicyScope: input.runtimePolicyScope,
         createdAtMs: input.now,
         updatedAtMs: input.now,
       }),
