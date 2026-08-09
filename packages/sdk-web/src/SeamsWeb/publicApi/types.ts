@@ -87,11 +87,15 @@ import type { SyncAccountResult } from '@/SeamsWeb/operations/recovery/syncAccou
 import type {
   CompleteWalletRecoveryResult,
   PrepareWalletWithCodeResult,
+  WalletRecoveryBootstrapChallengeResult,
+  WalletRecoveryBootstrapVerifyResult,
 } from '@/SeamsWeb/operations/recovery/walletRecovery';
 import type { AddPasskeyResult } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
 export type {
   CompleteWalletRecoveryResult,
   PrepareWalletWithCodeResult,
+  WalletRecoveryBootstrapChallengeResult,
+  WalletRecoveryBootstrapVerifyResult,
 } from '@/SeamsWeb/operations/recovery/walletRecovery';
 export type { AddPasskeyResult } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
@@ -950,13 +954,38 @@ export interface RecoveryCapability {
     expiresAtMs?: number;
   }>;
 
+  requestWalletRecoveryBootstrapChallenge(args: {
+    walletId: string;
+    orgId: string;
+    relayUrl?: string;
+  }): Promise<WalletRecoveryBootstrapChallengeResult>;
+
+  verifyWalletRecoveryBootstrap(args: {
+    walletId: string;
+    orgId: string;
+    challengeId: string;
+    otpCode: string;
+    relayUrl?: string;
+  }): Promise<WalletRecoveryBootstrapVerifyResult>;
+
   prepareWalletRecovery(args: {
     walletId: string;
     challengeId: string;
     otpCode: string;
     recoveryCode: string;
+    replacedCredentialIdB64u: string;
     relayUrl?: string;
     appSessionJwt?: string;
+  }): Promise<PrepareWalletWithCodeResult>;
+
+  prepareWalletRecoveryWithBootstrap(args: {
+    walletId: string;
+    orgId: string;
+    challengeId: string;
+    recoveryBootstrapGrant: string;
+    replacedCredentialIdB64u: string;
+    recoveryCode: string;
+    relayUrl?: string;
   }): Promise<PrepareWalletWithCodeResult>;
 
   completeWalletRecovery(args: {

@@ -234,6 +234,7 @@ function parsePrepareWalletRecoveryPayload(
   challengeId: string;
   otpCode: string;
   recoveryCode: string;
+  replacedCredentialIdB64u: string;
   relayUrl?: string;
   appSessionJwt?: string;
 } {
@@ -249,8 +250,65 @@ function parsePrepareWalletRecoveryPayload(
     challengeId: readRequiredString(record, 'challengeId'),
     otpCode: readRequiredString(record, 'otpCode'),
     recoveryCode: readRequiredString(record, 'recoveryCode'),
+    replacedCredentialIdB64u: readRequiredString(record, 'replacedCredentialIdB64u'),
     relayUrl,
     ...(appSessionJwt ? { appSessionJwt } : {}),
+  };
+}
+
+function parseWalletRecoveryBootstrapChallengePayload(
+  value: unknown,
+  expectedRelayUrl: string,
+): { walletId: string; orgId: string; relayUrl?: string } {
+  const record = recordFromPayload(value);
+  return {
+    walletId: readRequiredString(record, 'walletId'),
+    orgId: readRequiredString(record, 'orgId'),
+    relayUrl: requireWalletRelayUrl(readOptionalString(record, 'relayUrl'), expectedRelayUrl),
+  };
+}
+
+function parseWalletRecoveryBootstrapVerifyPayload(
+  value: unknown,
+  expectedRelayUrl: string,
+): {
+  walletId: string;
+  orgId: string;
+  challengeId: string;
+  otpCode: string;
+  relayUrl?: string;
+} {
+  const record = recordFromPayload(value);
+  return {
+    walletId: readRequiredString(record, 'walletId'),
+    orgId: readRequiredString(record, 'orgId'),
+    challengeId: readRequiredString(record, 'challengeId'),
+    otpCode: readRequiredString(record, 'otpCode'),
+    relayUrl: requireWalletRelayUrl(readOptionalString(record, 'relayUrl'), expectedRelayUrl),
+  };
+}
+
+function parsePrepareWalletRecoveryWithBootstrapPayload(
+  value: unknown,
+  expectedRelayUrl: string,
+): {
+  walletId: string;
+  orgId: string;
+  challengeId: string;
+  recoveryBootstrapGrant: string;
+  replacedCredentialIdB64u: string;
+  recoveryCode: string;
+  relayUrl?: string;
+} {
+  const record = recordFromPayload(value);
+  return {
+    walletId: readRequiredString(record, 'walletId'),
+    orgId: readRequiredString(record, 'orgId'),
+    challengeId: readRequiredString(record, 'challengeId'),
+    recoveryBootstrapGrant: readRequiredString(record, 'recoveryBootstrapGrant'),
+    replacedCredentialIdB64u: readRequiredString(record, 'replacedCredentialIdB64u'),
+    recoveryCode: readRequiredString(record, 'recoveryCode'),
+    relayUrl: requireWalletRelayUrl(readOptionalString(record, 'relayUrl'), expectedRelayUrl),
   };
 }
 
@@ -627,11 +685,47 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       respondOkResult(deps, req.requestId, result);
     },
 
+    PM_REQUEST_WALLET_RECOVERY_BOOTSTRAP_CHALLENGE: async (
+      req: Req<'PM_REQUEST_WALLET_RECOVERY_BOOTSTRAP_CHALLENGE'>,
+    ) => {
+      assertNoParentPostedAppSessionJwt(req.payload);
+      const pm = deps.getSeamsWeb();
+      const result = await pm.recovery.requestWalletRecoveryBootstrapChallenge(
+        parseWalletRecoveryBootstrapChallengePayload(req.payload, pm.configs.network.relayer.url),
+      );
+      respondOkResult(deps, req.requestId, result);
+    },
+
+    PM_VERIFY_WALLET_RECOVERY_BOOTSTRAP: async (
+      req: Req<'PM_VERIFY_WALLET_RECOVERY_BOOTSTRAP'>,
+    ) => {
+      assertNoParentPostedAppSessionJwt(req.payload);
+      const pm = deps.getSeamsWeb();
+      const result = await pm.recovery.verifyWalletRecoveryBootstrap(
+        parseWalletRecoveryBootstrapVerifyPayload(req.payload, pm.configs.network.relayer.url),
+      );
+      respondOkResult(deps, req.requestId, result);
+    },
+
     PM_PREPARE_WALLET_RECOVERY: async (req: Req<'PM_PREPARE_WALLET_RECOVERY'>) => {
       assertNoParentPostedAppSessionJwt(req.payload);
       const pm = deps.getSeamsWeb();
       const result = await pm.recovery.prepareWalletRecovery(
         parsePrepareWalletRecoveryPayload(req.payload, pm.configs.network.relayer.url),
+      );
+      respondOkResult(deps, req.requestId, result);
+    },
+
+    PM_PREPARE_WALLET_RECOVERY_WITH_BOOTSTRAP: async (
+      req: Req<'PM_PREPARE_WALLET_RECOVERY_WITH_BOOTSTRAP'>,
+    ) => {
+      assertNoParentPostedAppSessionJwt(req.payload);
+      const pm = deps.getSeamsWeb();
+      const result = await pm.recovery.prepareWalletRecoveryWithBootstrap(
+        parsePrepareWalletRecoveryWithBootstrapPayload(
+          req.payload,
+          pm.configs.network.relayer.url,
+        ),
       );
       respondOkResult(deps, req.requestId, result);
     },

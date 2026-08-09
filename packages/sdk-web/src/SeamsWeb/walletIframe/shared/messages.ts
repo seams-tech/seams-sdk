@@ -1259,10 +1259,35 @@ export interface PMRequestWalletRecoveryChallengePayload {
   relayUrl?: string;
 }
 
+export interface PMRequestWalletRecoveryBootstrapChallengePayload {
+  walletId: string;
+  orgId: string;
+  relayUrl?: string;
+}
+
+export interface PMVerifyWalletRecoveryBootstrapPayload {
+  walletId: string;
+  orgId: string;
+  challengeId: string;
+  otpCode: string;
+  relayUrl?: string;
+}
+
 export interface PMPrepareWalletRecoveryPayload {
   walletId: string;
   challengeId: string;
   otpCode: string;
+  recoveryCode: string;
+  replacedCredentialIdB64u: string;
+  relayUrl?: string;
+}
+
+export interface PMPrepareWalletRecoveryWithBootstrapPayload {
+  walletId: string;
+  orgId: string;
+  challengeId: string;
+  recoveryBootstrapGrant: string;
+  replacedCredentialIdB64u: string;
   recoveryCode: string;
   relayUrl?: string;
 }
@@ -1429,7 +1454,16 @@ export type ParentToChildEnvelope =
       'PM_REQUEST_WALLET_RECOVERY_CHALLENGE',
       PMRequestWalletRecoveryChallengePayload
     >
+  | RpcEnvelope<
+      'PM_REQUEST_WALLET_RECOVERY_BOOTSTRAP_CHALLENGE',
+      PMRequestWalletRecoveryBootstrapChallengePayload
+    >
+  | RpcEnvelope<'PM_VERIFY_WALLET_RECOVERY_BOOTSTRAP', PMVerifyWalletRecoveryBootstrapPayload>
   | RpcEnvelope<'PM_PREPARE_WALLET_RECOVERY', PMPrepareWalletRecoveryPayload>
+  | RpcEnvelope<
+      'PM_PREPARE_WALLET_RECOVERY_WITH_BOOTSTRAP',
+      PMPrepareWalletRecoveryWithBootstrapPayload
+    >
   | RpcEnvelope<'PM_COMPLETE_WALLET_RECOVERY', PMCompleteWalletRecoveryPayload>
   | RpcEnvelope<'PM_GET_RECOVERY_EMAILS', PMGetRecoveryEmailsPayload>
   | RpcEnvelope<'PM_SET_RECOVERY_EMAILS', PMSetRecoveryEmailsPayload>
