@@ -34,6 +34,7 @@ import type {
   EmailOtpEcdsaSessionBootstrapHandleBinding,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
   EmailOtpWorkerProgressEvent,
+  EmailOtpWalletCustodyEd25519MaterialRequest,
   EmailOtpWorkerSessionHandleOperation,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { EcdsaCommittedLane } from '../../flows/signEvmFamily/ecdsaSelection';
@@ -872,6 +873,10 @@ async function provisionEmailOtpAdditionalExistingKeySessionForTarget(
 export type EmailOtpEcdsaLoginPorts = {
   configs: SeamsConfigsReadonly;
   getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
+  loadWalletCustodyEd25519Material: (args: {
+    nearAccountId: string;
+    signerSlot: number;
+  }) => Promise<EmailOtpWalletCustodyEd25519MaterialRequest>;
   provisionThresholdEcdsaSession: (
     request: ThresholdEcdsaActivationRequest,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
@@ -1184,6 +1189,13 @@ async function runEmailOtpEcdsaCapability(
       `device_link_required: local threshold ECDSA material is unavailable for ${chainTarget.kind}:${chainTarget.chainId}`,
     );
   }
+  const walletCustodyEd25519Material =
+    args.ed25519YaoRecovery.kind === 'requested'
+      ? await ports.loadWalletCustodyEd25519Material({
+          nearAccountId: args.ed25519YaoRecovery.nearAccountId,
+          signerSlot: args.ed25519YaoRecovery.signerSlot,
+        })
+      : null;
   const runtimePolicyScope = existingKey.runtimePolicyScope;
   const reusableEd25519WalletSessionJwt =
     operation === WALLET_EMAIL_OTP_UNLOCK_OPERATION &&
@@ -1292,6 +1304,7 @@ async function runEmailOtpEcdsaCapability(
           nearAccountId: args.ed25519YaoRecovery.nearAccountId,
           expectedOperationalPublicKey: args.ed25519YaoRecovery.expectedOperationalPublicKey,
           expectedThresholdSessionId: args.ed25519YaoRecovery.expectedThresholdSessionId,
+          walletCustodyEd25519Material: walletCustodyEd25519Material || { kind: 'absent' },
           remainingUses,
           ecdsaSessionActivation: requirePreparedEmailOtpUnlockSessionActivation(
             preparedUnlockSessionActivation,

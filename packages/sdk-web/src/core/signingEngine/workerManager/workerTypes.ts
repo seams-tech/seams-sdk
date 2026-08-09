@@ -102,6 +102,7 @@ import type {
   Ed25519OperationStepUpProof,
   IssuedEd25519OperationStepUpAuthorization,
 } from '../threshold/ed25519/walletSession';
+import type { LoadedWalletCustodyEd25519MaterialV1 } from '../walletCustody/ed25519SeedMaterial';
 
 export type EmailOtpEd25519YaoFactorRequest =
   | { kind: 'requested'; providerSubject: string }
@@ -142,7 +143,19 @@ export type EmailOtpEd25519YaoActiveCapabilityDescriptorV1 = {
     readonly signingWorkerId: string;
   };
   readonly stateEpoch: number;
+  readonly registrationContinuity:
+    | {
+        readonly kind: 'registration';
+        readonly admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+        readonly admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
+        readonly activationTranscript: readonly number[];
+      }
+    | { readonly kind: 'recovery' };
 };
+
+export type EmailOtpWalletCustodyEd25519MaterialRequest =
+  | { readonly kind: 'found'; readonly material: LoadedWalletCustodyEd25519MaterialV1 }
+  | { readonly kind: 'absent' };
 
 export type EmailOtpEd25519YaoRecoveryBootstrapV1 = {
   readonly kind: typeof ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1;
@@ -193,6 +206,7 @@ export type EmailOtpWalletUnlockMaterialRequest =
       readonly nearAccountId: string;
       readonly expectedOperationalPublicKey: string;
       readonly expectedThresholdSessionId: string;
+      readonly walletCustodyEd25519Material: EmailOtpWalletCustodyEd25519MaterialRequest;
       readonly ecdsaSessionActivation?: never;
       readonly walletSessionAuth?: never;
       readonly ecdsaSessionHandleBinding?: never;
@@ -215,6 +229,7 @@ export type EmailOtpWalletUnlockMaterialRequest =
         readonly nearAccountId: string;
         readonly expectedOperationalPublicKey: string;
         readonly expectedThresholdSessionId: string;
+        readonly walletCustodyEd25519Material: EmailOtpWalletCustodyEd25519MaterialRequest;
       };
       readonly walletSessionAuth?: never;
     };
@@ -236,8 +251,7 @@ export type EmailOtpWalletUnlockMaterialResult =
         }
     ))
   | {
-      readonly kind: 'ed25519_yao_recovery';
-      readonly pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
+      readonly kind: 'wallet_custody_cache_absent';
       readonly ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryBootstrapV1;
       readonly emailOtpSessionHandle?: never;
     }
@@ -259,8 +273,7 @@ export type EmailOtpWalletUnlockMaterialResult =
       };
       readonly ed25519Yao:
         | {
-            readonly kind: 'recovery';
-            readonly pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
+            readonly kind: 'wallet_custody_cache_absent';
             readonly bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
           }
         | {
