@@ -250,6 +250,7 @@ import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain'
 import {
   activateWalletCustodyEd25519CapabilityV1,
 } from '@/core/signingEngine/walletCustody/activateEd25519Capability';
+import { disposeWalletCustodyEd25519ActiveClientV1 } from '@/core/signingEngine/walletCustody/ed25519ActiveClient';
 import {
   resolveWalletCustodyEd25519ProjectionV1,
   type WalletCustodyEd25519Projection,
@@ -3836,7 +3837,18 @@ export class BrowserSigningSurface {
       }),
     });
     if (unlock.kind === 'wallet_custody_cache_absent') {
-      throw new EmailOtpDeviceRecoveryRequiredError();
+      throw new Error('Email OTP wallet custody rejoin produced no active capability');
+    }
+    if (unlock.walletCustodyEd25519Material) {
+      try {
+        await this.persistWalletCustodyEd25519Material(unlock.walletCustodyEd25519Material);
+      } catch (error) {
+        await disposeWalletCustodyEd25519ActiveClientV1({
+          workerContext: this.signerWorkerManager.getContext(),
+          activeClientHandle: unlock.activeClientHandle,
+        }).catch(() => undefined);
+        throw error;
+      }
     }
     return await this.activateEmailOtpEd25519CustodyCapabilityInternal({
       walletSession: args.walletSession,
