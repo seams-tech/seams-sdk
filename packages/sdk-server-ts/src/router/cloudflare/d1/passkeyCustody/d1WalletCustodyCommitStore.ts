@@ -36,8 +36,23 @@ import {
   prepareD1WebAuthnCredentialBindingInsertStatement,
   type WebAuthnCredentialBindingRecord,
 } from '../../../../core/WebAuthnCredentialBindingStore';
+import {
+  prepareD1WalletDeleteEcdsaPendingSessionActivationStatement,
+  prepareD1WalletPromoteEcdsaSignerStatement,
+  type D1WalletStoreScope,
+} from '../../../../core/d1WalletStore';
+import type {
+  WalletEcdsaPendingSessionActivationRecord,
+  WalletEcdsaSignerRecord,
+} from '../../../../core/WalletStore';
 
 const WEB_AUTHN_RECOVERY_CHALLENGE_CAS_GUARD = `
+  INSERT INTO router_ab_yao_versioned_json_cas_guard (guard_id)
+  SELECT 1
+   WHERE changes() = 0
+`;
+
+const WALLET_ECDSA_RECOVERY_CAS_GUARD = `
   INSERT INTO router_ab_yao_versioned_json_cas_guard (guard_id)
   SELECT 1
    WHERE changes() = 0
@@ -115,6 +130,19 @@ export type WalletRecoveryAuthenticatorCommit = {
   readonly authenticator: WebAuthnAuthenticatorRecord;
   readonly binding: WebAuthnCredentialBindingRecord;
   readonly challengeDeleteStatement: D1PreparedStatementLike;
+};
+
+export type WalletRecoveryEcdsaSignerPromotionCommit = {
+  readonly current: WalletEcdsaSignerRecord;
+  readonly next: WalletEcdsaSignerRecord;
+  readonly recovery: Extract<
+    WalletEcdsaPendingSessionActivationRecord,
+    { readonly operation: 'recovery' }
+  >;
+  readonly refresh: Extract<
+    WalletEcdsaPendingSessionActivationRecord,
+    { readonly operation: 'refresh' }
+  >;
 };
 
 export function walletRecoveryEnvelopeSetRecordKey(walletId: WalletId): string {
@@ -333,6 +361,7 @@ export class CloudflareD1WalletCustodyCommitStore {
     readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
     readonly reservationId: RecoveryCodeReservationId;
     readonly authenticatorCommit: WalletRecoveryAuthenticatorCommit;
+    readonly ecdsaPromotions: readonly WalletRecoveryEcdsaSignerPromotionCommit[];
   }): Promise<WalletCustodyRecoveryPromotionCommitResult> {
     if (String(input.recoverySet.walletId) !== String(input.replacementEnvelope.walletId)) {
       return { kind: 'inconsistent', reason: 'recovery set and envelope name different wallets' };
@@ -379,6 +408,83 @@ export class CloudflareD1WalletCustodyCommitStore {
       };
     }
 
+    const walletScope: D1WalletStoreScope = {
+      namespace: this.scope.namespace,
+      orgId: this.scope.orgId,
+      projectId: this.scope.projectId,
+      envId: this.scope.envId,
+    };
+    const seenSignerIds = new Set<string>();
+    const seenPendingPairs = new Set<string>();
+    const ecdsaStatements: D1PreparedStatementLike[] = [];
+    try {
+      for (const promotion of input.ecdsaPromotions) {
+        if (
+          promotion.current.walletId !== input.recoverySet.walletId ||
+          promotion.next.walletId !== input.recoverySet.walletId ||
+          promotion.recovery.walletId !== input.recoverySet.walletId ||
+          promotion.refresh.walletId !== input.recoverySet.walletId ||
+          promotion.recovery.request.lifecycle.lifecycle_id !== promotion.recovery.lifecycleId ||
+          promotion.refresh.request.lifecycle.lifecycle_id !== promotion.refresh.lifecycleId ||
+          promotion.recovery.lifecycleId !== promotion.refresh.lifecycleId ||
+          promotion.recovery.request.lifecycle.lifecycle_id !== promotion.refresh.request.lifecycle.lifecycle_id
+        ) {
+          return {
+            kind: 'inconsistent',
+            reason: 'ECDSA recovery promotion records have inconsistent wallet or lifecycle bindings',
+          };
+        }
+        if (seenSignerIds.has(promotion.current.signerId)) {
+          return { kind: 'inconsistent', reason: 'ECDSA recovery promotion repeats a signer row' };
+        }
+        seenSignerIds.add(promotion.current.signerId);
+        if (
+          promotion.current.walletKey.publicCapability.activation_epoch ===
+            promotion.next.walletKey.publicCapability.activation_epoch ||
+          alphabetizeStringify(promotion.current.walletKey.publicCapability) ===
+            alphabetizeStringify(promotion.next.walletKey.publicCapability) ||
+          alphabetizeStringify(promotion.current.activationReceipt) ===
+            alphabetizeStringify(promotion.next.activationReceipt)
+        ) {
+          return { kind: 'inconsistent', reason: 'ECDSA recovery promotion is not a new activation' };
+        }
+        ecdsaStatements.push(
+          prepareD1WalletPromoteEcdsaSignerStatement({
+            database: this.database,
+            scope: walletScope,
+            current: promotion.current,
+            next: promotion.next,
+          }),
+          this.database.prepare(WALLET_ECDSA_RECOVERY_CAS_GUARD),
+        );
+        const pendingPairKey = [
+          promotion.recovery.lifecycleId,
+          promotion.recovery.requestId,
+          promotion.refresh.lifecycleId,
+          promotion.refresh.requestId,
+        ].join(':');
+        if (!seenPendingPairs.has(pendingPairKey)) {
+          seenPendingPairs.add(pendingPairKey);
+          ecdsaStatements.push(
+            prepareD1WalletDeleteEcdsaPendingSessionActivationStatement({
+              database: this.database,
+              scope: walletScope,
+              record: promotion.recovery,
+            }),
+            this.database.prepare(WALLET_ECDSA_RECOVERY_CAS_GUARD),
+            prepareD1WalletDeleteEcdsaPendingSessionActivationStatement({
+              database: this.database,
+              scope: walletScope,
+              record: promotion.refresh,
+            }),
+            this.database.prepare(WALLET_ECDSA_RECOVERY_CAS_GUARD),
+          );
+        }
+      }
+    } catch {
+      return { kind: 'inconsistent', reason: 'ECDSA recovery promotion records are invalid' };
+    }
+
     const envelopeKey = passkeyCustodyEnvelopeRecordKey(
       passkeyCustodyEnvelopeLocatorOf(input.replacementEnvelope),
     );
@@ -420,6 +526,7 @@ export class CloudflareD1WalletCustodyCommitStore {
           bindingStatement,
           input.authenticatorCommit.challengeDeleteStatement,
           this.database.prepare(WEB_AUTHN_RECOVERY_CHALLENGE_CAS_GUARD),
+          ...ecdsaStatements,
         ],
       );
     } catch {
