@@ -144,10 +144,6 @@ function parseBackedUpEnrollment(value: unknown): GoogleEmailOtpRegistrationBack
     'emailOtpEnrollment.recoveryCodeBackup',
   );
   return {
-    thresholdEcdsaClientVerifyingShareB64u: requireString(
-      record.thresholdEcdsaClientVerifyingShareB64u,
-      'emailOtpEnrollment.thresholdEcdsaClientVerifyingShareB64u',
-    ),
     recoveryCodesIssuedAtMs: requireTimestampMs(
       record.recoveryCodesIssuedAtMs,
       'emailOtpEnrollment.recoveryCodesIssuedAtMs',

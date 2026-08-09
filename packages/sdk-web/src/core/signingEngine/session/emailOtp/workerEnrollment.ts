@@ -128,10 +128,6 @@ function parseEmailOtpEnrollmentResult(value: unknown): EmailOtpEnrollmentResult
   const response = requireObjectJson(value, 'Email OTP enrollment result');
   const recoveryCodeMaterial = parseEmailOtpRecoveryCodeMaterial(response);
   return {
-    thresholdEcdsaClientVerifyingShareB64u: readString(
-      response.thresholdEcdsaClientVerifyingShareB64u,
-      'thresholdEcdsaClientVerifyingShareB64u',
-    ),
     recoveryKeys: recoveryCodeMaterial.recoveryKeys,
     recoveryCodesIssuedAtMs: recoveryCodeMaterial.recoveryCodesIssuedAtMs,
     challengeId: readString(response.challengeId, 'challengeId'),
@@ -153,31 +149,31 @@ function parseEmailOtpWalletRegistrationEcdsaPrepareHandle(
   value: unknown,
 ): EmailOtpWalletRegistrationEcdsaPrepareHandlePayload {
   const response = requireObjectJson(value, 'Email OTP registration ECDSA handle');
-  const kind = readString(response.kind, 'clientRootShareHandle.handle.kind');
+  const kind = readString(response.kind, 'emailOtpSessionHandle.handle.kind');
   if (kind !== 'email_otp_worker_session_handle_v1') {
     throw new Error(`Unsupported Email OTP worker handle kind: ${kind}`);
   }
-  const action = readString(response.action, 'clientRootShareHandle.handle.action');
+  const action = readString(response.action, 'emailOtpSessionHandle.handle.action');
   if (action !== 'wallet_registration_ecdsa_prepare') {
     throw new Error(`Unsupported Email OTP worker handle action: ${action}`);
   }
-  const operation = readString(response.operation, 'clientRootShareHandle.handle.operation');
+  const operation = readString(response.operation, 'emailOtpSessionHandle.handle.operation');
   if (operation !== 'registration') {
     throw new Error('Email OTP registration ECDSA handle requires registration operation');
   }
-  const keyScope = readString(response.keyScope, 'clientRootShareHandle.handle.keyScope');
+  const keyScope = readString(response.keyScope, 'emailOtpSessionHandle.handle.keyScope');
   if (keyScope !== 'evm-family') {
     throw new Error('Email OTP registration ECDSA handle requires evm-family keyScope');
   }
   return {
     kind: 'email_otp_worker_session_handle_v1',
-    sessionId: readString(response.sessionId, 'clientRootShareHandle.handle.sessionId'),
-    walletId: readString(response.walletId, 'clientRootShareHandle.handle.walletId'),
+    sessionId: readString(response.sessionId, 'emailOtpSessionHandle.handle.sessionId'),
+    walletId: readString(response.walletId, 'emailOtpSessionHandle.handle.walletId'),
     evmFamilySigningKeySlotId: readString(
       response.evmFamilySigningKeySlotId,
-      'clientRootShareHandle.handle.evmFamilySigningKeySlotId',
+      'emailOtpSessionHandle.handle.evmFamilySigningKeySlotId',
     ),
-    authSubjectId: readString(response.authSubjectId, 'clientRootShareHandle.handle.authSubjectId'),
+    authSubjectId: readString(response.authSubjectId, 'emailOtpSessionHandle.handle.authSubjectId'),
     action: 'wallet_registration_ecdsa_prepare',
     operation: 'registration',
     keyScope: 'evm-family',
@@ -199,7 +195,7 @@ function parseEmailOtpWalletRegistrationEcdsaPrepareHandleResult(
   value: unknown,
 ): EmailOtpWalletRegistrationEcdsaPrepareHandleResult {
   const response = requireObjectJson(value, 'Email OTP registration ECDSA handle result');
-  const kind = readString(response.kind, 'clientRootShareHandle.kind');
+  const kind = readString(response.kind, 'emailOtpSessionHandle.kind');
   switch (kind) {
     case 'available':
       if (!Array.isArray(response.handles) || response.handles.length === 0) {
@@ -319,10 +315,9 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
   appSessionJwt?: string;
   otpChannel?: WalletEmailOtpChannel;
   clientSecret32?: Uint8Array;
-  ecdsaClientRootHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleRequest;
+  ecdsaSessionHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleRequest;
   ed25519YaoFactor: EmailOtpEd25519YaoFactorRequest;
 }): Promise<{
-  thresholdEcdsaClientVerifyingShareB64u: string;
   recoveryKeys: EmailOtpRecoveryCodeSet;
   recoveryCodesIssuedAtMs: number;
   otpChannel: WalletEmailOtpChannel;
@@ -330,14 +325,13 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
   enrollmentSealKeyVersion: string;
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
-  clientRootShareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleResult;
+  emailOtpSessionHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleResult;
   ed25519YaoFactor: EmailOtpEd25519YaoFactorResult;
   emailOtpEnrollment: {
     recoveryWrappedEnrollmentEscrows: unknown[];
     enrollmentSealKeyVersion: string;
     clientUnlockPublicKeyB64u: string;
     unlockKeyVersion: string;
-    thresholdEcdsaClientVerifyingShareB64u: string;
   };
 }> {
   const workerCtx = requireWorkerCtx(args.workerCtx);
@@ -360,7 +354,7 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
             appSessionJwt: args.appSessionJwt,
           }),
           otpChannel: args.otpChannel || EMAIL_OTP_CHANNEL,
-          ecdsaClientRootHandle: args.ecdsaClientRootHandle,
+          ecdsaSessionHandle: args.ecdsaSessionHandle,
           ed25519YaoFactor: args.ed25519YaoFactor,
           ...(workerClientSecret32
             ? { clientSecret32: toArrayBufferCopy(workerClientSecret32) }
@@ -373,8 +367,8 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
       ...result,
       recoveryKeys: recoveryCodeMaterial.recoveryKeys,
       recoveryCodesIssuedAtMs: recoveryCodeMaterial.recoveryCodesIssuedAtMs,
-      clientRootShareHandle: parseEmailOtpWalletRegistrationEcdsaPrepareHandleResult(
-        result.clientRootShareHandle,
+      emailOtpSessionHandle: parseEmailOtpWalletRegistrationEcdsaPrepareHandleResult(
+        result.emailOtpSessionHandle,
       ),
       emailOtpEnrollment: result.emailOtpEnrollment,
     };

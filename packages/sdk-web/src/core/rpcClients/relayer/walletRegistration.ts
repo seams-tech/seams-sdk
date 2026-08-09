@@ -756,7 +756,6 @@ export type WalletRegistrationEmailOtpEnrollmentMaterial = {
   enrollmentSealKeyVersion: string;
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
-  thresholdEcdsaClientVerifyingShareB64u: string;
 };
 
 export type WalletRegistrationEmailOtpBackupAck = {

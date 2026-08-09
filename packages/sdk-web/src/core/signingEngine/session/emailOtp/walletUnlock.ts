@@ -30,7 +30,7 @@ export type EmailOtpWalletUnlockRecovery = {
 export type EmailOtpWalletUnlockResult = {
   kind: 'ecdsa';
   recovery: EmailOtpWalletUnlockRecovery;
-  clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
+  emailOtpSessionHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
 } & (
   | {
       operation: 'wallet_unlock';
@@ -118,18 +118,18 @@ export async function unlockEmailOtpWallet(
     runtimePolicyScope: ThresholdRuntimePolicyScope;
   } & (
       | {
-          ecdsaClientRootHandleBinding: Extract<
+          ecdsaSessionHandleBinding: Extract<
             EmailOtpWalletUnlockMaterialRequest,
             { kind: 'ecdsa'; ecdsaSessionActivation: unknown }
-          >['ecdsaClientRootHandleBinding'];
+          >['ecdsaSessionHandleBinding'];
           ecdsaSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
           walletSessionAuthorization: EmailOtpEcdsaWalletUnlockAuthorization;
         }
       | {
-          ecdsaClientRootHandleBinding: Extract<
+          ecdsaSessionHandleBinding: Extract<
             EmailOtpWalletUnlockMaterialRequest,
             { kind: 'ecdsa'; ecdsaSessionActivation?: never }
-          >['ecdsaClientRootHandleBinding'];
+          >['ecdsaSessionHandleBinding'];
           ecdsaSessionActivation?: never;
         }
     ),
@@ -139,14 +139,14 @@ export async function unlockEmailOtpWallet(
     material: args.ecdsaSessionActivation
       ? {
           kind: 'ecdsa',
-          ecdsaClientRootHandleBinding: args.ecdsaClientRootHandleBinding,
+          ecdsaSessionHandleBinding: args.ecdsaSessionHandleBinding,
           runtimePolicyScope: args.runtimePolicyScope,
           ecdsaSessionActivation: args.ecdsaSessionActivation,
           walletSessionAuthorization: args.walletSessionAuthorization,
         }
       : {
           kind: 'ecdsa',
-          ecdsaClientRootHandleBinding: args.ecdsaClientRootHandleBinding,
+          ecdsaSessionHandleBinding: args.ecdsaSessionHandleBinding,
           runtimePolicyScope: args.runtimePolicyScope,
         },
   });
@@ -161,18 +161,18 @@ export async function unlockEmailOtpWallet(
       kind: 'ecdsa',
       operation: 'wallet_unlock',
       recovery: result.recovery,
-      clientRootShareHandle: result.clientRootShareHandle,
+      emailOtpSessionHandle: result.emailOtpSessionHandle,
       ecdsaSession: result.ecdsaSession,
     };
   }
-  if (result.operation !== args.ecdsaClientRootHandleBinding.operation) {
+  if (result.operation !== args.ecdsaSessionHandleBinding.operation) {
     throw new Error('Email OTP ECDSA result operation does not match its request');
   }
   return {
     kind: 'ecdsa',
     operation: result.operation,
     recovery: result.recovery,
-    clientRootShareHandle: result.clientRootShareHandle,
+    emailOtpSessionHandle: result.emailOtpSessionHandle,
   };
 }
 
@@ -225,10 +225,10 @@ export async function unlockEmailOtpEd25519YaoCapability(
 
 export async function unlockEmailOtpWalletCapabilities(
   args: EmailOtpWalletUnlockBaseArgs & {
-    ecdsaClientRootHandleBinding: Extract<
+    ecdsaSessionHandleBinding: Extract<
       EmailOtpWalletUnlockMaterialRequest,
       { kind: 'wallet_unlock_capabilities' }
-    >['ecdsa']['clientRootHandleBinding'];
+    >['ecdsa']['sessionHandleBinding'];
     runtimePolicyScope: ThresholdRuntimePolicyScope;
     providerSubject: string;
     signerSlot: number;
@@ -244,7 +244,7 @@ export async function unlockEmailOtpWalletCapabilities(
     material: {
       kind: 'wallet_unlock_capabilities',
       ecdsa: {
-        clientRootHandleBinding: args.ecdsaClientRootHandleBinding,
+        sessionHandleBinding: args.ecdsaSessionHandleBinding,
         runtimePolicyScope: args.runtimePolicyScope,
         sessionActivation: args.ecdsaSessionActivation,
       },
@@ -272,7 +272,7 @@ export async function unlockEmailOtpWalletCapabilities(
       kind: 'ecdsa',
       operation: 'wallet_unlock',
       recovery: result.recovery,
-      clientRootShareHandle: result.ecdsa.clientRootShareHandle,
+      emailOtpSessionHandle: result.ecdsa.emailOtpSessionHandle,
       ecdsaSession: result.ecdsa.session,
     },
     ed25519Yao:

@@ -134,10 +134,6 @@ export function parseEmailOtpEnrollmentResult(value: unknown): EmailOtpEnrollmen
   const response = requireObjectJson(value, 'Email OTP enrollment result');
   const recoveryCodeMaterial = parseEmailOtpRecoveryCodeMaterial(response);
   return {
-    thresholdEcdsaClientVerifyingShareB64u: readString(
-      response.thresholdEcdsaClientVerifyingShareB64u,
-      'thresholdEcdsaClientVerifyingShareB64u',
-    ),
     recoveryKeys: recoveryCodeMaterial.recoveryKeys,
     recoveryCodesIssuedAtMs: recoveryCodeMaterial.recoveryCodesIssuedAtMs,
     challengeId: readString(response.challengeId, 'challengeId'),
