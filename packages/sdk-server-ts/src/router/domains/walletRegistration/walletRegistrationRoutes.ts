@@ -996,6 +996,10 @@ async function verifyEmailOtpAddAuthMethodAuthorization(input: {
   readonly walletId: string;
   readonly headers: HeaderRecord;
   readonly session?: SessionAdapter | null;
+  readonly walletRegistration: Pick<
+    RouterApiWalletRegistrationRouteService,
+    'validateAppSessionVersion'
+  >;
   readonly providerUserId: string;
   readonly enrollmentId: string;
   readonly enrollmentSealKeyVersion: string;
@@ -1037,7 +1041,7 @@ async function verifyEmailOtpAddAuthMethodAuthorization(input: {
       message: 'Email OTP authority reference does not match app session',
     };
   }
-  const sessionVersion = await input.session.validateAppSessionVersion({
+  const sessionVersion = await input.walletRegistration.validateAppSessionVersion({
     userId: appSessionClaims.sub,
     appSessionVersion: appSessionClaims.appSessionVersion,
   });
@@ -2567,6 +2571,7 @@ export async function handleRouterApiWalletAddAuthMethodStart(
         walletId,
         headers: input.headers,
         session: input.services.session,
+        walletRegistration: input.services.walletRegistration,
         ...authorization,
       }),
   );
