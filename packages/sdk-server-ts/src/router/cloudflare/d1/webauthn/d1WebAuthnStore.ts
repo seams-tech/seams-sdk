@@ -310,6 +310,24 @@ export class CloudflareD1WebAuthnStore {
     return parseWebAuthnBinding(row || {});
   }
 
+  /** Resolves a credential without trusting a caller-supplied relying party. */
+  async readBindingByCredentialId(
+    credentialIdB64u: string,
+  ): Promise<WebAuthnCredentialBindingRecord | null> {
+    const row = await this.prepare(
+      `SELECT record_json
+         FROM webauthn_credential_bindings
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND credential_id_b64u = ?
+        LIMIT 1`,
+      [credentialIdB64u],
+    ).first<D1RecordJsonRow>();
+    return parseWebAuthnBinding(row || {});
+  }
+
   async readAuthenticatorRows(userId: string): Promise<D1AuthenticatorRow[]> {
     const result = await this.prepare(
       `SELECT credential_id_b64u, created_at_ms, updated_at_ms, device_info_json

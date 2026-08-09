@@ -30,6 +30,7 @@ export type PrepareWalletWithCodeInput = {
   readonly challengeId: string;
   readonly otpCode: string;
   readonly recoveryCode: string;
+  readonly replacedCredentialIdB64u: string;
 };
 
 export type PrepareWalletWithCodeResult =
@@ -212,6 +213,7 @@ export class WalletRecoveryCoordinator {
         otpCode: input.otpCode,
         recoveryCode: base64UrlEncode(recoveryCodeBytes),
         reservationId: createReservationId(),
+        replacedCredentialIdB64u: input.replacedCredentialIdB64u,
       });
       if (prepared.kind !== 'prepared') return prepared;
       const recoveryOperationId = secureRandomId(
@@ -289,6 +291,7 @@ export class WalletRecoveryCoordinator {
         reservationId: operation.prepared.reservationId,
         challengeId: operation.prepared.registration.challengeId,
         replacementId: operation.prepared.registration.replacementId,
+        replacedCredentialIdB64u: operation.prepared.registration.replacedCredentialIdB64u,
         webauthnRegistration: operation.replacement.registration,
         replacementEnvelope: operation.recovered.replacementEnvelope,
       });

@@ -71,6 +71,7 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
   readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
   readonly challengeId: string;
   readonly replacementId: string;
+  readonly replacedCredentialIdB64u: string;
   readonly webauthnRegistration: unknown;
   readonly expectedOrigin: string;
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
@@ -127,6 +128,7 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
     challenge.walletId !== String(input.walletId) ||
     challenge.reservationId !== String(input.reservationId) ||
     challenge.replacementId !== input.replacementId ||
+    challenge.replacedCredentialIdB64u !== input.replacedCredentialIdB64u ||
     challenge.expiresAtMs <= input.nowMs
   ) {
     return {
@@ -172,12 +174,10 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
       reason: 'the replacement credential is already registered',
     };
   }
-  const sourceBindings = await input.webAuthnStore.readBindingRows({
-    userId: String(input.walletId),
-    rpId: parsedRpId.value,
-  });
-  const sourceBinding = sourceBindings[0];
-  if (!sourceBinding) {
+  const sourceBinding = await input.webAuthnStore.readBindingByCredentialId(
+    input.replacedCredentialIdB64u,
+  );
+  if (!sourceBinding || sourceBinding.userId !== String(input.walletId)) {
     return {
       kind: 'registration_rejected',
       reason: 'the wallet has no existing credential binding to replace',

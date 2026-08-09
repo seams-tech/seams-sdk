@@ -50,6 +50,7 @@ export async function finalizeWalletRecovery(args: {
   readonly reservationId: string;
   readonly challengeId: string;
   readonly replacementId: string;
+  readonly replacedCredentialIdB64u: string;
   readonly webauthnRegistration: WebAuthnRegistrationCredential;
   readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
   readonly fetchImpl?: typeof fetch;
@@ -101,6 +102,7 @@ export async function finalizeWalletRecovery(args: {
           reservationId: args.reservationId,
           challengeId: args.challengeId,
           replacementId: args.replacementId,
+          replacedCredentialIdB64u: args.replacedCredentialIdB64u,
           webauthnRegistration,
           replacementEnvelope,
         },

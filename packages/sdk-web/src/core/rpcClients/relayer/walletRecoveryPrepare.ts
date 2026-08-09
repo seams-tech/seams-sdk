@@ -175,6 +175,7 @@ export type WalletRecoveryRegistrationOptions = {
   readonly challengeId: string;
   readonly challengeB64u: string;
   readonly replacementId: string;
+  readonly replacedCredentialIdB64u: WebAuthnCredentialIdB64u;
   readonly rpId: WebAuthnRpId;
   readonly user: {
     readonly idB64u: string;
@@ -261,6 +262,7 @@ export async function prepareWalletRecovery(args: {
   /** Base64url of the decoded code. Not persisted, not logged. */
   readonly recoveryCode: string;
   readonly reservationId: string;
+  readonly replacedCredentialIdB64u: string;
   readonly fetchImpl?: typeof fetch;
 }): Promise<WalletRecoveryPrepareResult> {
   const url = `${normalizeRelayerBaseUrl(args.relayUrl)}${WALLET_RECOVERY_PREPARE_PATH}`;
@@ -281,6 +283,7 @@ export async function prepareWalletRecovery(args: {
           reservationId: args.reservationId,
           challengeId: args.challengeId,
           otpCode: args.otpCode,
+          replacedCredentialIdB64u: args.replacedCredentialIdB64u,
         },
       }),
     );
@@ -372,6 +375,7 @@ function parseWalletRecoveryRegistrationOptions(
       'challengeId',
       'challengeB64u',
       'replacementId',
+      'replacedCredentialIdB64u',
       'rpId',
       'user',
       'pubKeyCredParams',
@@ -398,6 +402,16 @@ function parseWalletRecoveryRegistrationOptions(
   const replacementId = requireResponseString(
     registration.replacementId,
     'registration.replacementId',
+  );
+  const replacedCredentialIdResult = parseWebAuthnCredentialIdB64u(
+    registration.replacedCredentialIdB64u,
+  );
+  if (!replacedCredentialIdResult.ok) {
+    throw new Error('walletRecoveryPrepare.registration.replacedCredentialIdB64u is invalid');
+  }
+  const replacedCredentialIdB64u = requireCanonicalNonEmptyB64u(
+    replacedCredentialIdResult.value,
+    'registration.replacedCredentialIdB64u',
   );
   const rpIdResult = parseWebAuthnRpId(registration.rpId);
   if (!rpIdResult.ok) throw new Error('walletRecoveryPrepare.registration.rpId is invalid');
@@ -440,6 +454,7 @@ function parseWalletRecoveryRegistrationOptions(
     challengeId,
     challengeB64u,
     replacementId,
+    replacedCredentialIdB64u,
     rpId: rpIdResult.value,
     user: { idB64u, name, displayName },
     pubKeyCredParams,
