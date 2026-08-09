@@ -29,6 +29,7 @@ import {
 } from '@shared/utils/signingSessionSeal';
 import {
   finalizeRecoveredWalletCredentialV1,
+  resolveCommittedRecoveryReplayV1,
   type WalletRecoveryFinalizationResult,
 } from '../../../domains/passkeyCustody/walletRecoveryFinalization';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
@@ -561,12 +562,44 @@ async function finalizeRecoveryForRoute(
   } catch {
     return { kind: 'refused', reason: 'wallet recovery identity is invalid' };
   }
+  const challenge = await assembly.webAuthnStore.readRecoveryRegistrationChallenge(
+    request.challengeId,
+  );
+  if (!challenge) {
+    const replay = await resolveCommittedRecoveryReplayV1({
+      envelopeStore: assembly.passkeyCustodyEnvelopes,
+      walletCustodyCommits: assembly.walletCustodyCommits,
+      walletId: request.walletId,
+      reservationId: request.reservationId,
+      replacementId: request.replacementId,
+      replacementEnvelope: request.replacementEnvelope,
+      webAuthnStore: assembly.webAuthnStore,
+      walletStore: assembly.walletStore,
+    });
+    if (replay.kind === 'rejected') {
+      return { kind: 'registration_rejected', reason: replay.reason };
+    }
+    return replay;
+  }
   const activationVerification = await verifyWalletRecoveryKeyActivationsV1({
     registry: assembly.walletStore,
     walletId,
     recoveryCorrelationId: request.reservationId,
   });
-  if (activationVerification.kind === 'refused') return activationVerification;
+  if (activationVerification.kind === 'refused') {
+    const replay = await resolveCommittedRecoveryReplayV1({
+      envelopeStore: assembly.passkeyCustodyEnvelopes,
+      walletCustodyCommits: assembly.walletCustodyCommits,
+      walletId: request.walletId,
+      reservationId: request.reservationId,
+      replacementId: request.replacementId,
+      replacementEnvelope: request.replacementEnvelope,
+      webAuthnStore: assembly.webAuthnStore,
+      walletStore: assembly.walletStore,
+    });
+    if (replay.kind !== 'rejected') return replay;
+    return activationVerification;
+  }
   return await finalizeRecoveredWalletCredentialV1({
     envelopeStore: assembly.passkeyCustodyEnvelopes,
     walletCustodyCommits: assembly.walletCustodyCommits,

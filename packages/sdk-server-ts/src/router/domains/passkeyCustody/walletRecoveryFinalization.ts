@@ -10,11 +10,13 @@ import type {
 } from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
 import type { CloudflareD1WebAuthnStore } from '../../cloudflare/d1/webauthn/d1WebAuthnStore';
 import type { D1WalletStore } from '../../../core/d1WalletStore';
+import type { WalletEcdsaSignerRecord } from '../../../core/WalletStore';
 import { verifyWebAuthnRegistrationCredentialForIntent } from '../../../core/authService/webauthn';
 import type { WebAuthnCredentialBindingRecord } from '../../../core/WebAuthnCredentialBindingStore';
 import type { D1PreparedStatementLike } from '../../../storage/tenantRoute';
 import {
   consumeReservedRecoveryCode,
+  deriveWalletRecoveryKeyLifecycleId,
   type RecoveryCodeReservationId,
 } from '@shared/wallet-recovery/recoveryCodeReservation';
 import type { WalletRecoveryEnvelopeSetRecord } from '@shared/wallet-recovery';
@@ -79,9 +81,6 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
   >;
   readonly nowMs: number;
 }): Promise<WalletRecoveryFinalizationResult> {
-  if (input.activationVerification.keySetIds.length === 0) {
-    return { kind: 'refused', reason: 'wallet recovery verified no key capabilities' };
-  }
   if (String(input.replacementEnvelope.walletId) !== String(input.walletId)) {
     /* An envelope naming another wallet would install a credential that opens
        someone else's custody. Checked here rather than trusted from the body
@@ -105,12 +104,24 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
     input.challengeId,
   );
   if (!challenge) {
-    const replay = await resolveCommittedRecoveryReplay(input);
+    const replay = await resolveCommittedRecoveryReplayV1({
+      envelopeStore: input.envelopeStore,
+      walletCustodyCommits: input.walletCustodyCommits,
+      walletId: input.walletId,
+      reservationId: input.reservationId,
+      replacementId: input.replacementId,
+      replacementEnvelope: input.replacementEnvelope,
+      webAuthnStore: input.webAuthnStore,
+      walletStore: input.walletStore,
+    });
     if (replay.kind === 'promoted' || replay.kind === 'conflict') return replay;
     return {
       kind: 'registration_rejected',
       reason: replay.reason,
     };
+  }
+  if (input.activationVerification.keySetIds.length === 0) {
+    return { kind: 'refused', reason: 'wallet recovery verified no key capabilities' };
   }
   if (
     challenge.walletId !== String(input.walletId) ||
@@ -292,24 +303,25 @@ type RecoveryReplayResolution =
   | Extract<WalletRecoveryFinalizationResult, { readonly kind: 'conflict' }>
   | { readonly kind: 'rejected'; readonly reason: string };
 
+type RecoveryReplayInputBase = {
+  readonly envelopeStore: CloudflareD1PasskeyCustodyEnvelopeStore;
+  readonly walletCustodyCommits: CloudflareD1WalletCustodyCommitStore;
+  readonly walletId: string;
+  readonly reservationId: RecoveryCodeReservationId;
+  readonly replacementId: string;
+  readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
+  readonly webAuthnStore: CloudflareD1WebAuthnStore;
+  readonly walletStore: D1WalletStore;
+};
+
 const RECOVERY_REPLAY_CHALLENGE_UNAVAILABLE =
   'the replacement registration challenge is unknown, expired, or already used';
 const RECOVERY_REPLAY_STATE_CONFLICT =
   'the recovery commit is incomplete; retry finalization or contact support';
 
-async function resolveCommittedRecoveryReplay(input: {
-  readonly envelopeStore: CloudflareD1PasskeyCustodyEnvelopeStore;
-  readonly walletCustodyCommits: CloudflareD1WalletCustodyCommitStore;
-  readonly walletId: string;
-  readonly reservationId: RecoveryCodeReservationId;
-  readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
-  readonly webAuthnStore: CloudflareD1WebAuthnStore;
-  readonly walletStore: D1WalletStore;
-  readonly activationVerification: Extract<
-    WalletRecoveryActivationVerification,
-    { readonly kind: 'verified' }
-  >;
-}): Promise<RecoveryReplayResolution> {
+export async function resolveCommittedRecoveryReplayV1(
+  input: RecoveryReplayInputBase,
+): Promise<RecoveryReplayResolution> {
   if (input.replacementEnvelope.factor.kind !== 'passkey') {
     return {
       kind: 'rejected',
@@ -343,6 +355,7 @@ async function resolveCommittedRecoveryReplay(input: {
 
   if (
     String(input.replacementEnvelope.walletId) !== String(input.walletId) ||
+    String(input.replacementEnvelope.envelopeId) !== String(input.replacementId) ||
     input.replacementEnvelope.envelopeRevision !== 1 ||
     input.replacementEnvelope.binding.kind !== 'wallet_custody_seed_v1'
   ) {
@@ -404,42 +417,8 @@ async function resolveCommittedRecoveryReplay(input: {
   }
 
   try {
-    const signerRows = await input.walletStore.listEcdsaSignersForWallet({
-      walletId: input.walletId as WalletId,
-    });
-    for (const promotion of input.activationVerification.ecdsaPromotions) {
-      const promotedRows = signerRows.filter(
-        (signer) => signer.walletKey.keyHandle === promotion.keyHandle,
-      );
-      if (promotedRows.length !== promotion.currentSigners.length) {
-        return { kind: 'conflict', reason: RECOVERY_REPLAY_STATE_CONFLICT };
-      }
-      for (const promoted of promotedRows) {
-        const expected = promotion.currentSigners.find(
-          (current) => current.signerId === promoted.signerId,
-        );
-        if (
-          !expected ||
-          promoted.chainTargetKey !== expected.chainTargetKey ||
-          promoted.walletKey.keyHandle !== expected.walletKey.keyHandle ||
-          alphabetizeStringify(promoted.walletKey.publicCapability) !==
-            alphabetizeStringify(promotion.nextPublicCapability) ||
-          alphabetizeStringify(promoted.activationReceipt) !==
-            alphabetizeStringify(promotion.nextActivationReceipt)
-        ) {
-          return { kind: 'conflict', reason: RECOVERY_REPLAY_STATE_CONFLICT };
-        }
-      }
-      const pending = await input.walletStore.listEcdsaPendingSessionActivationsForLifecycle({
-        walletId: input.walletId as WalletId,
-        lifecycleId: promotion.recovery.lifecycleId,
-      });
-      if (
-        pending.length !== 0 ||
-        promotion.recovery.request.lifecycle.lifecycle_id !== promotion.refresh.request.lifecycle.lifecycle_id
-      ) {
-        return { kind: 'conflict', reason: RECOVERY_REPLAY_STATE_CONFLICT };
-      }
+    if (!(await committedRecoverySignerStateMatches(input))) {
+      return { kind: 'conflict', reason: RECOVERY_REPLAY_STATE_CONFLICT };
     }
   } catch {
     return { kind: 'conflict', reason: RECOVERY_REPLAY_STATE_CONFLICT };
@@ -467,6 +446,123 @@ async function resolveCommittedRecoveryReplay(input: {
     retiredEnvelopeIds,
     ...(retireFailures.length > 0 ? { retireFailures } : {}),
   };
+}
+
+async function committedRecoverySignerStateMatches(
+  input: RecoveryReplayInputBase,
+): Promise<boolean> {
+  const [ed25519Signers, ecdsaSigners] = await Promise.all([
+    input.walletStore.listEd25519SignersForWallet({ walletId: input.walletId as WalletId }),
+    input.walletStore.listEcdsaSignersForWallet({ walletId: input.walletId as WalletId }),
+  ]);
+  if (ed25519Signers.length === 0 && ecdsaSigners.length === 0) return false;
+
+  for (const signer of ed25519Signers) {
+    const keySetId = `near_ed25519:${signer.signerId}` as const;
+    const lifecycleId = await deriveWalletRecoveryKeyLifecycleId({
+      reservationId: input.reservationId,
+      keySetId,
+    });
+    const expectedMaterialLifecycleBinding = `${lifecycleId}:material-activation`;
+    const capability = signer.activeYaoCapability;
+    if (
+      capability.version !== 'wallet_ed25519_yao_recovery_capability_v1' ||
+      capability.nearAccountId !== signer.nearAccountId ||
+      capability.admissionRequest.application_binding.wallet_id !== String(input.walletId) ||
+      capability.admissionRequest.application_binding.near_ed25519_signing_key_id !==
+        signer.nearEd25519SigningKeyId ||
+      capability.admissionRequest.application_binding.signing_root_id !== signer.signingRootId ||
+      capability.admissionRequest.application_binding.key_creation_signer_slot !==
+        signer.signerSlot ||
+      capability.admissionRequest.participant_ids[0] !== signer.participantIds[0] ||
+      capability.admissionRequest.participant_ids[1] !== signer.participantIds[1] ||
+      capability.admissionRequest.scope.account_id !== String(input.walletId) ||
+      capability.admissionRequest.scope.root_share_epoch !== signer.signingRootVersion ||
+      capability.admissionRequest.scope.threshold_session_id !== signer.thresholdSessionId ||
+      capability.admissionRequest.scope.signing_worker_id !== signer.signingWorkerId ||
+      capability.admissionRequest.scope.lifecycle_id !== lifecycleId ||
+      capability.admissionRequest.scope.material_activation.lifecycle_binding !==
+        expectedMaterialLifecycleBinding ||
+      capability.activationResult.binding.lifecycle.lifecycle_id !== lifecycleId ||
+      capability.activationResult.binding.lifecycle.account_id !== String(input.walletId) ||
+      capability.activationResult.binding.material_activation.lifecycle_binding !==
+        expectedMaterialLifecycleBinding ||
+      capability.activationResult.binding.lifecycle.root_share_epoch !==
+        capability.admissionRequest.scope.root_share_epoch ||
+      capability.activationResult.binding.lifecycle.session_id !==
+        capability.admissionRequest.scope.threshold_session_id ||
+      capability.activationResult.binding.lifecycle.signer_set_id !==
+        capability.admissionRequest.scope.signer_set_id ||
+      capability.activationResult.binding.lifecycle.selected_server_id !==
+        capability.admissionRequest.scope.signing_worker_id ||
+      alphabetizeStringify(capability.runtimePolicyScope) !==
+        alphabetizeStringify(signer.runtimePolicyScope) ||
+      alphabetizeStringify(capability.activationResult.public_receipt.material_activation) !==
+        alphabetizeStringify(capability.admissionRequest.scope.material_activation)
+    ) {
+      return false;
+    }
+  }
+
+  const ecdsaByKeyHandle = new Map<string, WalletEcdsaSignerRecord[]>();
+  for (const signer of ecdsaSigners) {
+    const keyHandle = signer.walletKey.keyHandle;
+    const existing = ecdsaByKeyHandle.get(keyHandle);
+    if (existing) {
+      existing.push(signer);
+    } else {
+      ecdsaByKeyHandle.set(keyHandle, [signer]);
+    }
+  }
+  for (const [keyHandle, signers] of ecdsaByKeyHandle) {
+    const keySetId = `evm_family_ecdsa:${keyHandle}` as const;
+    const lifecycleId = await deriveWalletRecoveryKeyLifecycleId({
+      reservationId: input.reservationId,
+      keySetId,
+    });
+    const expectedMaterialLifecycleBinding = `${lifecycleId}:material-activation`;
+    const first = signers[0];
+    if (!first) return false;
+    const capability = first.walletKey.publicCapability;
+    const activation = first.activationReceipt.ecdsa_activation;
+    if (
+      capability.client_id !== String(input.walletId) ||
+      capability.material_activation.material_owner !== String(input.walletId) ||
+      capability.material_activation.lifecycle_binding !== expectedMaterialLifecycleBinding ||
+      first.activationReceipt.lifecycle_id !== lifecycleId ||
+      activation.activation_epoch !== capability.activation_epoch ||
+      activation.material_activation.lifecycle_binding !== expectedMaterialLifecycleBinding ||
+      alphabetizeStringify(activation.context) !== alphabetizeStringify(capability.context) ||
+      alphabetizeStringify(activation.public_identity) !==
+        alphabetizeStringify(capability.public_identity) ||
+      alphabetizeStringify(activation.signing_worker) !==
+        alphabetizeStringify(capability.signer_set.selected_server) ||
+      alphabetizeStringify(activation.material_activation) !==
+        alphabetizeStringify(capability.material_activation)
+    ) {
+      return false;
+    }
+    for (const signer of signers) {
+      if (!sameEcdsaSignerActivation(signer, first)) return false;
+    }
+    const pending = await input.walletStore.listEcdsaPendingSessionActivationsForLifecycle({
+      walletId: input.walletId as WalletId,
+      lifecycleId,
+    });
+    if (pending.length !== 0) return false;
+  }
+  return true;
+}
+
+function sameEcdsaSignerActivation(
+  left: WalletEcdsaSignerRecord,
+  right: WalletEcdsaSignerRecord,
+): boolean {
+  return (
+    alphabetizeStringify(left.walletKey.publicCapability) ===
+      alphabetizeStringify(right.walletKey.publicCapability) &&
+    alphabetizeStringify(left.activationReceipt) === alphabetizeStringify(right.activationReceipt)
+  );
 }
 
 function buildRecoveryAuthenticatorCommit(input: {
