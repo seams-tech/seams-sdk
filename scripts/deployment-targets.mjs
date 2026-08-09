@@ -41,6 +41,10 @@ const GATEWAY_BASE_SECRET_NAMES = Object.freeze([
   'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
   'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK',
 ]);
+const AMAZON_SES_SECRET_NAMES = Object.freeze([
+  'EMAIL_OTP_SES_ACCESS_KEY_ID',
+  'EMAIL_OTP_SES_SECRET_ACCESS_KEY',
+]);
 
 export function backendLaneIds() {
   return BACKEND_LANE_IDS;
@@ -102,6 +106,9 @@ export function parseDeploymentTargets(value, sourceName = 'deployment targets')
 
 export function gatewaySecretNames(lane) {
   const names = [...GATEWAY_BASE_SECRET_NAMES];
+  if (lane.emailOtpDelivery.kind === 'email_provider') {
+    names.push(...AMAZON_SES_SECRET_NAMES);
+  }
   for (const capabilityName of CAPABILITY_NAMES) {
     const capability = lane.capabilities[capabilityName];
     if (capability.enabled) names.push(...capability.secrets);
@@ -215,6 +222,7 @@ function parseBackendLane(value, laneId, releaseId, network, branch, site) {
       'gatewayOrigin',
       'walletOrigin',
       'walletPagesProjectEnv',
+      'emailOtpDelivery',
       'resources',
       'capabilities',
       'provisioning',
@@ -233,6 +241,7 @@ function parseBackendLane(value, laneId, releaseId, network, branch, site) {
       lane.walletPagesProjectEnv,
       lanePath + '.walletPagesProjectEnv',
     ),
+    emailOtpDelivery: parseEmailOtpDelivery(lane.emailOtpDelivery, lanePath + '.emailOtpDelivery'),
     resources: parseResources(lane.resources, lanePath + '.resources'),
     capabilities: parseCapabilities(lane.capabilities, lanePath + '.capabilities'),
     provisioning: parseProvisioning(lane.provisioning, laneId, network, lanePath + '.provisioning'),
@@ -305,6 +314,9 @@ function assertLaneOrigins(lane) {
 function assertGatewayDeploymentConfigMatchesLane(lane) {
   const config = lane.provisioning.gatewayDeploymentConfig;
   const resources = lane.resources;
+  if (config.runtimeProfile.emailOtpDelivery.kind !== lane.emailOtpDelivery.kind) {
+    throw new Error('Gateway email OTP delivery does not match backend lane ' + lane.id);
+  }
   if (config.optional.googleOidcClientId !== lane.site.googleOidcClientId) {
     throw new Error('Gateway Google OIDC client does not match frontend site ' + lane.site.id);
   }
@@ -319,6 +331,32 @@ function assertGatewayDeploymentConfigMatchesLane(lane) {
   ) {
     throw new Error('gatewayDeploymentConfig does not match backend lane ' + lane.id);
   }
+}
+
+function parseEmailOtpDelivery(value, pathName) {
+  const delivery = requireObject(value, pathName);
+  const kind = requireString(delivery.kind, pathName + '.kind');
+  if (kind === 'demo_code_response') {
+    requireExactKeys(delivery, ['kind'], pathName);
+    return Object.freeze({ kind });
+  }
+  if (kind === 'email_provider') {
+    requireExactKeys(delivery, ['kind', 'region', 'fromAddress'], pathName);
+    return Object.freeze({
+      kind,
+      region: requirePattern(
+        delivery.region,
+        /^[a-z]{2}(?:-gov)?-[a-z]+-\d+$/u,
+        pathName + '.region',
+      ),
+      fromAddress: requirePattern(
+        delivery.fromAddress,
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/u,
+        pathName + '.fromAddress',
+      ),
+    });
+  }
+  throw new Error(pathName + '.kind must be demo_code_response or email_provider');
 }
 
 function parseResources(value, pathName) {
