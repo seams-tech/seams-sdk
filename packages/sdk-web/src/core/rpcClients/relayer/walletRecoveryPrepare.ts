@@ -3,6 +3,22 @@ import {
   buildRelayerJsonPostRequestInit,
   normalizeRelayerBaseUrl,
 } from './relayerHttp';
+import {
+  parseDigestField,
+  parseEnvelopeCiphertextB64u,
+  parseEnvelopeNonceB64u,
+  parseUnixMs,
+  rejectUnknownFields,
+  requireRecord,
+  type EnvelopeCiphertextB64u,
+  type EnvelopeNonceB64u,
+} from '@shared/passkey-custody';
+import {
+  parseWalletRecoveryEnvelopeEntry,
+  type WalletRecoveryEnvelopeEntry,
+} from '@shared/wallet-recovery';
+import type { DigestB64u } from '@shared/utils';
+import { parseWalletId } from '@shared/utils/domainIds';
 
 /**
  * Preparing an admitted wallet recovery.
@@ -27,11 +43,11 @@ export type WalletRecoveryPrepareResult =
   | {
       readonly kind: 'prepared';
       readonly wrap: {
-        readonly nonceB64u: string;
-        readonly wrappedManifestKekB64u: string;
-        readonly aadHashB64u: string;
+        readonly nonceB64u: EnvelopeNonceB64u;
+        readonly wrappedManifestKekB64u: EnvelopeCiphertextB64u;
+        readonly aadHashB64u: DigestB64u;
       };
-      readonly entries: readonly Record<string, unknown>[];
+      readonly entries: readonly [WalletRecoveryEnvelopeEntry];
       readonly reservationId: string;
       readonly reservationExpiresAtMs: number;
       readonly storeVersion: string;
@@ -41,6 +57,32 @@ export type WalletRecoveryPrepareResult =
   /** Another attempt landed first; this code may still be good. */
   | { readonly kind: 'conflict'; readonly message: string }
   | { readonly kind: 'transport_failed'; readonly message: string };
+
+export type PreparedWalletRecovery = Extract<
+  WalletRecoveryPrepareResult,
+  { readonly kind: 'prepared' }
+>;
+
+/**
+ * Builds the only recovery-custody wire accepted by the ceremony WASM.
+ *
+ * The recovery key id and code are absent. Rust derives the id from the code
+ * bytes supplied through the worker's separate secret field, so serialized
+ * custody can contain only the reserved wrap and the wallet's single seed
+ * entry.
+ */
+export function buildWalletRecoveryCeremonyCustodyJson(args: {
+  readonly walletId: string;
+  readonly prepared: PreparedWalletRecovery;
+}): string {
+  const walletId = parseWalletId(args.walletId);
+  if (!walletId.ok) throw new Error(`wallet recovery ${walletId.error.message}`);
+  return JSON.stringify({
+    walletId: String(walletId.value),
+    wrap: args.prepared.wrap,
+    entry: args.prepared.entries[0],
+  });
+}
 
 export async function prepareWalletRecovery(args: {
   readonly relayUrl: string;
@@ -86,35 +128,32 @@ export async function prepareWalletRecovery(args: {
   const message = typeof body.message === 'string' ? body.message : '';
 
   if (response.status === 200 && body.ok === true) {
-    const wrap = isRecord(body.wrap) ? body.wrap : null;
-    const nonceB64u = String(wrap?.nonceB64u || '').trim();
-    const wrappedManifestKekB64u = String(wrap?.wrappedManifestKekB64u || '').trim();
-    const aadHashB64u = String(wrap?.aadHashB64u || '').trim();
-    const reservationId = String(body.reservationId || '').trim();
-    const reservationExpiresAtMs = Number(body.reservationExpiresAtMs);
-    if (
-      !nonceB64u ||
-      !wrappedManifestKekB64u ||
-      !aadHashB64u ||
-      reservationId !== args.reservationId ||
-      !Number.isSafeInteger(reservationExpiresAtMs) ||
-      reservationExpiresAtMs <= 0
-    ) {
+    try {
+      const wrap = parsePreparedRecoveryWrap(body.wrap);
+      const entries = parsePreparedRecoveryEntries(body.entries);
+      const reservationId = requireResponseString(body.reservationId, 'reservationId');
+      const reservationExpiresAtMs = parseUnixMs(
+        body.reservationExpiresAtMs,
+        'walletRecoveryPrepare.reservationExpiresAtMs',
+      );
+      const storeVersion = requireResponseString(body.storeVersion, 'storeVersion');
+      if (reservationId !== args.reservationId) {
+        throw new Error('wallet recovery preparation changed the reservation identity');
+      }
+      return {
+        kind: 'prepared',
+        wrap,
+        entries,
+        reservationId,
+        reservationExpiresAtMs,
+        storeVersion,
+      };
+    } catch {
       return {
         kind: 'transport_failed',
         message: 'recovery preparation returned an unusable payload',
       };
     }
-    return {
-      kind: 'prepared',
-      wrap: { nonceB64u, wrappedManifestKekB64u, aadHashB64u },
-      entries: Array.isArray(body.entries)
-        ? (body.entries.filter(isRecord) as Record<string, unknown>[])
-        : [],
-      reservationId,
-      reservationExpiresAtMs,
-      storeVersion: String(body.storeVersion || '').trim(),
-    };
   }
 
   if (response.status === 409) {
@@ -131,4 +170,37 @@ export async function prepareWalletRecovery(args: {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+const PREPARED_WRAP_FIELDS = ['nonceB64u', 'wrappedManifestKekB64u', 'aadHashB64u'] as const;
+
+function parsePreparedRecoveryWrap(raw: unknown): {
+  readonly nonceB64u: EnvelopeNonceB64u;
+  readonly wrappedManifestKekB64u: EnvelopeCiphertextB64u;
+  readonly aadHashB64u: DigestB64u;
+} {
+  const wrap = requireRecord(raw, 'walletRecoveryPrepare.wrap');
+  rejectUnknownFields(wrap, PREPARED_WRAP_FIELDS, 'walletRecoveryPrepare.wrap');
+  return {
+    nonceB64u: parseEnvelopeNonceB64u(wrap.nonceB64u, 'walletRecoveryPrepare.wrap.nonceB64u'),
+    wrappedManifestKekB64u: parseEnvelopeCiphertextB64u(
+      wrap.wrappedManifestKekB64u,
+      'walletRecoveryPrepare.wrap.wrappedManifestKekB64u',
+    ),
+    aadHashB64u: parseDigestField(wrap.aadHashB64u, 'walletRecoveryPrepare.wrap.aadHashB64u'),
+  };
+}
+
+function parsePreparedRecoveryEntries(raw: unknown): readonly [WalletRecoveryEnvelopeEntry] {
+  if (!Array.isArray(raw) || raw.length !== 1) {
+    throw new Error('walletRecoveryPrepare.entries must contain exactly one custody seed');
+  }
+  return [parseWalletRecoveryEnvelopeEntry(raw[0], 'walletRecoveryPrepare.entries[0]')];
+}
+
+function requireResponseString(raw: unknown, field: string): string {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    throw new Error(`walletRecoveryPrepare.${field} must be a non-empty string`);
+  }
+  return raw.trim();
 }

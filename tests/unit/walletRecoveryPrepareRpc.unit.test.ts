@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  buildWalletRecoveryCeremonyCustodyJson,
   prepareWalletRecovery,
   type WalletRecoveryPrepareResult,
 } from '../../packages/sdk-web/src/core/rpcClients/relayer/walletRecoveryPrepare';
@@ -39,21 +40,46 @@ async function prepare(status: number, body: unknown): Promise<WalletRecoveryPre
   });
 }
 
-const GOOD_WRAP = { nonceB64u: 'n', wrappedManifestKekB64u: 'k', aadHashB64u: 'a' };
+const NONCE_B64U = 'AAAAAAAAAAAAAAAA';
+const CIPHERTEXT_B64U = 'AAAAAAAAAAAAAAAAAAAAAAA';
+const DIGEST_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const GOOD_WRAP = {
+  nonceB64u: NONCE_B64U,
+  wrappedManifestKekB64u: CIPHERTEXT_B64U,
+  aadHashB64u: DIGEST_B64U,
+};
+const GOOD_ENTRY = {
+  custodySecretKind: 'wallet_custody_seed_v1',
+  nonceB64u: NONCE_B64U,
+  wrappedCustodySecretB64u: CIPHERTEXT_B64U,
+  aadHashB64u: DIGEST_B64U,
+};
 
 test('preparation returns the wrapped payload and exact reservation', async () => {
   const result = await prepare(200, {
     ok: true,
     wrap: GOOD_WRAP,
-    entries: [{ custodySecretKind: 'wallet_custody_seed_v1' }],
+    entries: [GOOD_ENTRY],
     reservationId: 'reservation-1',
     reservationExpiresAtMs: 60_000,
     storeVersion: '5',
   });
   expect(result.kind).toBe('prepared');
   if (result.kind !== 'prepared') return;
-  expect(result.wrap.wrappedManifestKekB64u).toBe('k');
+  expect(result.wrap.wrappedManifestKekB64u).toBe(CIPHERTEXT_B64U);
   expect(result.entries).toHaveLength(1);
+  expect(
+    JSON.parse(
+      buildWalletRecoveryCeremonyCustodyJson({
+        walletId: 'alice.testnet',
+        prepared: result,
+      }),
+    ),
+  ).toEqual({
+    walletId: 'alice.testnet',
+    wrap: GOOD_WRAP,
+    entry: GOOD_ENTRY,
+  });
 });
 
 test('a 200 with an unusable payload is not reported as prepared', async () => {
@@ -65,6 +91,27 @@ test('a 200 with an unusable payload is not reported as prepared', async () => {
     storeVersion: '5',
   });
   expect(result.kind).toBe('transport_failed');
+});
+
+test('a prepared response must carry exactly one complete wallet seed entry', async () => {
+  const missing = await prepare(200, {
+    ok: true,
+    wrap: GOOD_WRAP,
+    entries: [],
+    reservationId: 'reservation-1',
+    reservationExpiresAtMs: 60_000,
+    storeVersion: '5',
+  });
+  const rival = await prepare(200, {
+    ok: true,
+    wrap: GOOD_WRAP,
+    entries: [GOOD_ENTRY, GOOD_ENTRY],
+    reservationId: 'reservation-1',
+    reservationExpiresAtMs: 60_000,
+    storeVersion: '5',
+  });
+  expect(missing.kind).toBe('transport_failed');
+  expect(rival.kind).toBe('transport_failed');
 });
 
 test('401 and 400 both read as a plain rejection', async () => {
