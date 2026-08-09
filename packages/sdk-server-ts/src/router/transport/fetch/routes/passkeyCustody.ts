@@ -7,6 +7,12 @@ import {
 import { toFetchRouteResponse } from '../../../framework/routeResponses';
 import { readJson } from '../../../framework/http';
 import { decodeBase64UrlOrBase64 } from '../../../../core/authService/webauthnOidcHelpers';
+import { parseRecoveryCodeReservationId } from '@shared/wallet-recovery/recoveryCodeReservation';
+import {
+  admitWalletRecoveryEmailOtp,
+  resolveWalletRecoveryAuthorizationContext,
+} from '../../../domains/passkeyCustody/walletRecoveryAuthorization';
+import type { AuthorizedOperation } from '../../../../authorization/domain';
 
 /**
  * The transport for custody envelope retrieval.
@@ -19,8 +25,8 @@ import { decodeBase64UrlOrBase64 } from '../../../../core/authService/webauthnOi
  */
 
 const ROUTE_ID = 'passkey_custody_envelope_retrieve';
-const RECOVERY_SPEND_ROUTE_ID = 'wallet_recovery_code_spend';
-const RECOVERY_PROMOTE_ROUTE_ID = 'wallet_recovery_credential_promote';
+const RECOVERY_PREPARE_ROUTE_ID = 'wallet_recovery_prepare';
+const RECOVERY_FINALIZE_ROUTE_ID = 'wallet_recovery_finalize';
 const RECOVERY_ACK_ROUTE_ID = 'wallet_recovery_backup_acknowledge';
 const RECOVERY_ROTATE_ROUTE_ID = 'wallet_recovery_codes_rotate';
 const RECOVERY_STATUS_ROUTE_ID = 'wallet_recovery_status';
@@ -55,26 +61,60 @@ export async function handlePasskeyCustody(ctx: FetchRouterApiContext): Promise<
  * route cannot be used to count how many of a user's ten codes remain, and
  * this must not helpfully re-separate them on the way out.
  */
-export async function handleWalletRecoverySpend(
+export async function handleWalletRecoveryPrepare(
   ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
-  const route = findRouteDefinitionById(ctx.routeDefinitions, RECOVERY_SPEND_ROUTE_ID);
-  if (!route) throw new Error(`Missing route definition for ${RECOVERY_SPEND_ROUTE_ID}`);
+  const route = findRouteDefinitionById(ctx.routeDefinitions, RECOVERY_PREPARE_ROUTE_ID);
+  if (!route) throw new Error(`Missing route definition for ${RECOVERY_PREPARE_ROUTE_ID}`);
   if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
 
   const body = (await readJson(ctx.request)) as Record<string, unknown> | null;
   const walletId = trimmed(body?.walletId);
   const recoveryCode = trimmed(body?.recoveryCode);
-  const reservationId = trimmed(body?.reservationId);
-  if (!walletId || !recoveryCode || !reservationId) {
+  const challengeId = trimmed(body?.challengeId);
+  const otpCode = trimmed(body?.otpCode);
+  let reservationId;
+  try {
+    reservationId = parseRecoveryCodeReservationId(body?.reservationId);
+  } catch {
+    reservationId = null;
+  }
+  if (!walletId || !recoveryCode || !reservationId || !challengeId || !otpCode) {
     return toFetchRouteResponse({
       status: 400,
       body: {
         ok: false,
         code: 'invalid_request',
-        message: 'a recovery spend needs a wallet, a code, and a reservation id',
+        message:
+          'recovery preparation needs a wallet, operation id, Email OTP challenge, and recovery code',
       },
     });
+  }
+
+  const authorization = await resolveWalletRecoveryAuthorizationContext({
+    headers: Object.fromEntries(ctx.request.headers.entries()),
+    session: ctx.opts.session,
+    walletId,
+    reservationId,
+    authorizedOperations: ctx.service.authorizedOperations,
+    authorizationSessions: ctx.service.authorizationSessions,
+  });
+  if (!authorization.ok) return authorizationFailure(authorization);
+  if (authorization.context.existing?.lifecycle === 'completed') {
+    return authorizedOperationReplay(authorization.context.existing);
+  }
+  const admitted = await admitWalletRecoveryEmailOtp({
+    context: authorization.context,
+    emailOtp: ctx.service.emailOtp,
+    walletId,
+    reservationId,
+    challengeId,
+    otpCode,
+    nowMs: Date.now(),
+  });
+  if (!admitted.ok) return authorizationFailure(admitted);
+  if (admitted.operation.lifecycle === 'completed') {
+    return authorizedOperationReplay(admitted.operation);
   }
 
   let recoveryCodeBytes: Uint8Array;
@@ -86,20 +126,22 @@ export async function handleWalletRecoverySpend(
     return toFetchRouteResponse(refusedSpend());
   }
 
-  const result = await ctx.service.passkeyCustody.spendRecoveryCode({
+  const result = await ctx.service.passkeyCustody.prepareRecovery({
     walletId,
     recoveryCodeBytes,
     reservationId,
   });
 
   switch (result.kind) {
-    case 'committed':
+    case 'prepared':
       return toFetchRouteResponse({
         status: 200,
         body: {
           ok: true,
           wrap: result.wrap,
           entries: result.entries,
+          reservationId: result.reservationId,
+          reservationExpiresAtMs: result.reservationExpiresAtMs,
           storeVersion: result.storeVersion,
         },
       });
@@ -195,31 +237,63 @@ function isObject(value: unknown): value is Record<string, unknown> {
  * upstream: that the outcomes cover every required key set, and that the
  * envelope names this wallet.
  */
-export async function handleWalletRecoveryPromote(
+export async function handleWalletRecoveryFinalize(
   ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
-  const route = findRouteDefinitionById(ctx.routeDefinitions, RECOVERY_PROMOTE_ROUTE_ID);
-  if (!route) throw new Error(`Missing route definition for ${RECOVERY_PROMOTE_ROUTE_ID}`);
+  const route = findRouteDefinitionById(ctx.routeDefinitions, RECOVERY_FINALIZE_ROUTE_ID);
+  if (!route) throw new Error(`Missing route definition for ${RECOVERY_FINALIZE_ROUTE_ID}`);
   if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
 
   const body = (await readJson(ctx.request)) as Record<string, unknown> | null;
   const walletId = trimmed(body?.walletId);
+  let reservationId;
+  try {
+    reservationId = parseRecoveryCodeReservationId(body?.reservationId);
+  } catch {
+    reservationId = null;
+  }
   const replacementEnvelope = isObject(body?.replacementEnvelope) ? body.replacementEnvelope : null;
   const requiredKeySets = stringList(body?.requiredKeySets);
   const outcomes = Array.isArray(body?.outcomes) ? body.outcomes.filter(isObject) : [];
-  if (!walletId || !replacementEnvelope || requiredKeySets.length === 0) {
+  if (!walletId || !reservationId || !replacementEnvelope || requiredKeySets.length === 0) {
     return toFetchRouteResponse({
       status: 400,
       body: {
         ok: false,
         code: 'invalid_request',
-        message: 'a promotion needs a wallet, a replacement envelope, and its required key sets',
+        message:
+          'recovery finalization needs a wallet, operation id, replacement envelope, and required key sets',
       },
     });
   }
 
-  const result = await ctx.service.passkeyCustody.promoteRecoveredCredential({
+  const authorization = await resolveWalletRecoveryAuthorizationContext({
+    headers: Object.fromEntries(ctx.request.headers.entries()),
+    session: ctx.opts.session,
     walletId,
+    reservationId,
+    authorizedOperations: ctx.service.authorizedOperations,
+    authorizationSessions: ctx.service.authorizationSessions,
+  });
+  if (!authorization.ok) return authorizationFailure(authorization);
+  const authorizedOperation = authorization.context.existing;
+  if (!authorizedOperation) {
+    return toFetchRouteResponse({
+      status: 403,
+      body: {
+        ok: false,
+        code: 'recovery_authorization_required',
+        message: 'wallet recovery must be prepared with fresh Email OTP authorization',
+      },
+    });
+  }
+  if (authorizedOperation.lifecycle === 'completed') {
+    return authorizedOperationReplay(authorizedOperation);
+  }
+
+  const result = await ctx.service.passkeyCustody.finalizeRecovery({
+    walletId,
+    reservationId,
     replacementEnvelope: replacementEnvelope as never,
     requiredKeySets,
     outcomes: outcomes as never,
@@ -227,7 +301,7 @@ export async function handleWalletRecoveryPromote(
 
   switch (result.kind) {
     case 'promoted':
-      return toFetchRouteResponse({
+      return await completeWalletRecoveryOperation(ctx, authorizedOperation, {
         status: 200,
         body: {
           ok: true,
@@ -246,12 +320,63 @@ export async function handleWalletRecoveryPromote(
         status: 409,
         body: { ok: false, code: 'promotion_incomplete', message: result.reason },
       });
+    case 'conflict':
+      return toFetchRouteResponse({
+        status: 409,
+        body: { ok: false, code: 'recovery_conflict', message: result.reason },
+      });
     case 'envelope_rejected':
       return toFetchRouteResponse({
         status: 400,
         body: { ok: false, code: 'envelope_rejected', message: result.reason },
       });
   }
+}
+
+function authorizationFailure(input: {
+  readonly status: number;
+  readonly code: string;
+  readonly message: string;
+}): Response {
+  return toFetchRouteResponse({
+    status: input.status,
+    body: { ok: false, code: input.code, message: input.message },
+  });
+}
+
+function authorizedOperationReplay(operation: AuthorizedOperation): Response {
+  if (operation.lifecycle !== 'completed') {
+    return toFetchRouteResponse({
+      status: 409,
+      body: {
+        ok: false,
+        code: 'recovery_in_progress',
+        message: 'wallet recovery is still in progress',
+      },
+    });
+  }
+  return new Response(operation.response.bodyText, {
+    status: operation.response.status,
+    headers: { 'content-type': operation.response.contentType },
+  });
+}
+
+async function completeWalletRecoveryOperation(
+  ctx: FetchRouterApiContext,
+  operation: AuthorizedOperation,
+  result: { readonly status: number; readonly body: Record<string, unknown> },
+): Promise<Response> {
+  const bodyText = JSON.stringify(result.body);
+  await ctx.service.authorizedOperations.completeAuthorizedOperation({
+    operation,
+    result: 'succeeded',
+    response: { status: result.status, contentType: 'application/json', bodyText },
+    completedAtMs: Date.now(),
+  });
+  return new Response(bodyText, {
+    status: result.status,
+    headers: { 'content-type': 'application/json' },
+  });
 }
 
 function stringList(value: unknown): string[] {

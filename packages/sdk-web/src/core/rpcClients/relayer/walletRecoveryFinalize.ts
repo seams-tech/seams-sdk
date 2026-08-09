@@ -1,13 +1,16 @@
-import { buildRelayerJsonPostRequestInit, normalizeRelayerBaseUrl } from './relayerHttp';
+import {
+  buildBearerAuthorizationHeader,
+  buildRelayerJsonPostRequestInit,
+  normalizeRelayerBaseUrl,
+} from './relayerHttp';
 
 /**
  * Installing the replacement credential a recovery enrolled.
  *
- * Sent after a spend, carrying an envelope this client sealed under the new
+ * Sent after activation, carrying an envelope this client sealed under the new
  * credential. The server cannot check that sealing — it has no seed — so a
  * `promoted` reply means the envelope was stored and the old credentials
- * retired, not that the new credential has been proven to open anything. The
- * proof of that is the next unlock.
+ * retired. Activation receipts establish continuity before this call.
  *
  * `retireFailures` is the field callers forget. The wallet is recovered, but
  * a credential the user was replacing still opens it; surfacing it is the
@@ -15,9 +18,9 @@ import { buildRelayerJsonPostRequestInit, normalizeRelayerBaseUrl } from './rela
  * about.
  */
 
-const WALLET_RECOVERY_PROMOTE_PATH = '/wallets/recovery/promote';
+const WALLET_RECOVERY_FINALIZE_PATH = '/wallets/recovery/finalize';
 
-export type WalletRecoveryPromoteResult =
+export type WalletRecoveryFinalizeResult =
   | {
       readonly kind: 'promoted';
       readonly storeVersion: string;
@@ -29,17 +32,20 @@ export type WalletRecoveryPromoteResult =
   | { readonly kind: 'incomplete'; readonly message: string }
   /** The envelope was refused; repeating will not help. */
   | { readonly kind: 'envelope_rejected'; readonly message: string }
+  | { readonly kind: 'conflict'; readonly message: string }
   | { readonly kind: 'transport_failed'; readonly message: string };
 
-export async function promoteRecoveredWalletCredential(args: {
+export async function finalizeWalletRecovery(args: {
   readonly relayUrl: string;
   readonly walletId: string;
+  readonly sessionToken: string;
+  readonly reservationId: string;
   readonly replacementEnvelope: Record<string, unknown>;
   readonly requiredKeySets: readonly string[];
   readonly outcomes: readonly Record<string, unknown>[];
   readonly fetchImpl?: typeof fetch;
-}): Promise<WalletRecoveryPromoteResult> {
-  const url = `${normalizeRelayerBaseUrl(args.relayUrl)}${WALLET_RECOVERY_PROMOTE_PATH}`;
+}): Promise<WalletRecoveryFinalizeResult> {
+  const url = `${normalizeRelayerBaseUrl(args.relayUrl)}${WALLET_RECOVERY_FINALIZE_PATH}`;
   const doFetch = args.fetchImpl || fetch;
 
   let response: Response;
@@ -47,8 +53,13 @@ export async function promoteRecoveredWalletCredential(args: {
     response = await doFetch(
       url,
       buildRelayerJsonPostRequestInit({
+        headers: buildBearerAuthorizationHeader({
+          token: args.sessionToken,
+          missingMessage: 'wallet recovery finalization requires an app session',
+        }),
         body: {
           walletId: args.walletId,
+          reservationId: args.reservationId,
           replacementEnvelope: args.replacementEnvelope,
           requiredKeySets: args.requiredKeySets,
           outcomes: args.outcomes,
@@ -58,7 +69,7 @@ export async function promoteRecoveredWalletCredential(args: {
   } catch (error: unknown) {
     return {
       kind: 'transport_failed',
-      message: error instanceof Error ? error.message : 'promotion request failed',
+      message: error instanceof Error ? error.message : 'recovery finalization request failed',
     };
   }
 
@@ -77,6 +88,9 @@ export async function promoteRecoveredWalletCredential(args: {
     };
   }
   if (response.status === 409) {
+    if (body.code === 'recovery_conflict') {
+      return { kind: 'conflict', message: message || 'recovery finalization conflicted' };
+    }
     return { kind: 'incomplete', message: message || 'recovery did not reproduce every key set' };
   }
   if (response.status === 400) {
@@ -87,7 +101,7 @@ export async function promoteRecoveredWalletCredential(args: {
   }
   return {
     kind: 'transport_failed',
-    message: message || `promotion failed (HTTP ${response.status})`,
+    message: message || `recovery finalization failed (HTTP ${response.status})`,
   };
 }
 

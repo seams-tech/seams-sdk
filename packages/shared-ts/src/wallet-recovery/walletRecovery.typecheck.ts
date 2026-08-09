@@ -39,6 +39,14 @@ const activeCodeHoldingReservation: RecoveryCodeLifecycleState = {
 };
 void activeCodeHoldingReservation;
 
+// @ts-expect-error A consumed code retains the recovery operation that spent it.
+const consumedCodeWithoutCorrelation: RecoveryCodeLifecycleState = {
+  state: 'consumed',
+  issuedAtMs: 1,
+  consumedAtMs: 2,
+};
+void consumedCodeWithoutCorrelation;
+
 // The owner entry is wallet-scoped: one seed covering every owner key.
 const seedEntry: WalletRecoveryEnvelopeEntry = {
   custodySecretKind: 'wallet_custody_seed_v1',

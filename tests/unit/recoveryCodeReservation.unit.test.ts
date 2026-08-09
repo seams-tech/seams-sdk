@@ -44,7 +44,12 @@ test('a reservation holds a code and consumption commits it', () => {
   });
   expect(consumed).toEqual({
     ok: true,
-    lifecycle: { state: 'consumed', issuedAtMs: ISSUED_AT, consumedAtMs: 3_000 },
+    lifecycle: {
+      state: 'consumed',
+      issuedAtMs: ISSUED_AT,
+      reservationId: RESERVATION,
+      consumedAtMs: 3_000,
+    },
   });
 });
 
@@ -159,6 +164,7 @@ test('consumption is terminal', () => {
   const consumed: RecoveryCodeLifecycleState = {
     state: 'consumed',
     issuedAtMs: ISSUED_AT,
+    reservationId: RESERVATION,
     consumedAtMs: 3_000,
   };
   expect(

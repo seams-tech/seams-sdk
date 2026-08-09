@@ -29,6 +29,19 @@ export type RecoveryCodeTransitionRejection =
   | 'reservation_expired'
   | 'reservation_mismatch';
 
+export function parseRecoveryCodeReservationId(value: unknown): RecoveryCodeReservationId {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > 512 ||
+    value.trim() !== value ||
+    /[\s\u0000-\u001f\u007f]/.test(value)
+  ) {
+    throw new Error('recovery code reservation id must be a compact opaque identifier');
+  }
+  return value as RecoveryCodeReservationId;
+}
+
 function reject(
   code: RecoveryCodeTransitionRejection,
   message: string,
@@ -137,6 +150,7 @@ export function consumeReservedRecoveryCode(args: {
     lifecycle: {
       state: 'consumed',
       issuedAtMs: lifecycle.issuedAtMs,
+      reservationId: args.reservationId,
       consumedAtMs: args.nowMs,
     },
   };

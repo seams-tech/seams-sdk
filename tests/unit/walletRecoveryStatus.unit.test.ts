@@ -40,13 +40,11 @@ function serviceReturning(result: unknown, seen: string[] = []) {
   };
 }
 
-test('status is credential-gated while spending is not', () => {
+test('status is credential-gated while admitted recovery uses the public transport plane', () => {
   const status = findRouteDefinitionById(routeDefinitions, 'wallet_recovery_status');
-  const spend = findRouteDefinitionById(routeDefinitions, 'wallet_recovery_code_spend');
-  // Spending must stay public: recovery exists for when every factor is gone,
-  // so there is nothing left to authenticate with. Counting must not.
+  const prepare = findRouteDefinitionById(routeDefinitions, 'wallet_recovery_prepare');
   expect(status?.auth.plane).toBe('api_credentials');
-  expect(spend?.auth.plane).toBe('public');
+  expect(prepare?.auth.plane).toBe('public');
 });
 
 test('status reports counts and the outstanding backup', async () => {

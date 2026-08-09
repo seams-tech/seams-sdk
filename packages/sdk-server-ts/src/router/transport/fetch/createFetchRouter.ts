@@ -9,8 +9,8 @@ import {
   handleWalletRecoveryBackupAcknowledge,
   handleWalletRecoveryRotate,
   handleWalletRecoveryStatus,
-  handleWalletRecoveryPromote,
-  handleWalletRecoverySpend,
+  handleWalletRecoveryFinalize,
+  handleWalletRecoveryPrepare,
 } from './routes/passkeyCustody';
 import {
   handleSessionState,
@@ -108,8 +108,8 @@ export function createFetchRouter(
     handleWellKnown,
     handleWalletRegistration,
     handlePasskeyCustody,
-    handleWalletRecoverySpend,
-    handleWalletRecoveryPromote,
+    handleWalletRecoveryPrepare,
+    handleWalletRecoveryFinalize,
     handleWalletRecoveryBackupAcknowledge,
     handleWalletRecoveryRotate,
     handleWalletRecoveryStatus,

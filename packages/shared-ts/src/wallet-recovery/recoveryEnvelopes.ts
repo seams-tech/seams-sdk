@@ -29,8 +29,8 @@ export type RecoveryCodeLifecycleState =
   | {
       state: 'consumed';
       issuedAtMs: number;
+      reservationId: RecoveryCodeReservationId;
       consumedAtMs: number;
-      reservationId?: never;
       reservedAtMs?: never;
       reservationExpiresAtMs?: never;
       revokedAtMs?: never;
