@@ -404,6 +404,54 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore {
     }).run();
   }
 
+  /**
+   * Prepares the guarded auth-method mutation used when a passkey and its
+   * custody envelopes are revoked in one D1 batch. The CAS guard turns a
+   * missing or concurrently changed active row into a transaction failure;
+   * callers must append these statements to the custody-store mutation batch.
+   */
+  preparePasskeyRevocationStatements(
+    record: WalletAuthMethodRecord,
+  ): readonly D1PreparedStatementLike[] {
+    if (record.kind !== 'passkey' || record.status !== 'revoked') {
+      throw new Error('Passkey revocation statements require a revoked passkey record');
+    }
+    const parsed = normalizeWalletAuthMethod(record);
+    if (!parsed || parsed.kind !== 'passkey' || parsed.status !== 'revoked') {
+      throw new Error('Invalid revoked passkey auth method record');
+    }
+    const authMethodId = walletAuthMethodId(parsed);
+    const update = this.database
+      .prepare(
+        `UPDATE wallet_auth_methods
+            SET status = 'revoked',
+                record_json = ?6,
+                updated_at_ms = ?7
+          WHERE namespace = ?1
+            AND org_id = ?2
+            AND project_id = ?3
+            AND env_id = ?4
+            AND wallet_auth_method_id = ?5
+            AND kind = 'passkey'
+            AND status = 'active'`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        authMethodId,
+        JSON.stringify(parsed),
+        parsed.updatedAtMs,
+      );
+    const guard = this.database.prepare(`
+      INSERT INTO router_ab_yao_versioned_json_cas_guard (guard_id)
+      SELECT 1
+       WHERE changes() = 0
+    `);
+    return [update, guard];
+  }
+
   async getPasskey(input: {
     rpId: string;
     credentialIdB64u: string;
