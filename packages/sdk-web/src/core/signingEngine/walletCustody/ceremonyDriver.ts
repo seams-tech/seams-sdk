@@ -92,6 +92,8 @@ export type WalletCustodyCeremonyKeySetInput =
       readonly nearEd25519SigningKeyId: string;
       /** Takes the Router execution request, returns the activation result. */
       readonly runRouterRound: (yaoExecuteRequestJson: string) => Promise<string>;
+      /** Runs after the worker has verified the result and sealed local material. */
+      readonly afterRouterRoundCompleted?: (protocolResultJson: string) => Promise<void>;
     }
   | {
       readonly keySet: 'evm_family_ecdsa_v1';
@@ -270,6 +272,7 @@ export async function runWalletCustodyKeySetCeremony(
         nearEd25519SigningKeyId: keySetRun.nearEd25519SigningKeyId,
         recordedKeyManifestDigestB64u: input.recordedKeyManifestDigestB64u,
       });
+      await keySetRun.afterRouterRoundCompleted?.(protocolResultJson);
       return await input.runStep('finishWalletCustodyKeySetRun', {
         ceremonyId,
         finish: buildFinishCustody(custody),

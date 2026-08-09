@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   computeWalletCustodyEvmFamilyKeyManifestDigestB64u,
+  computeWalletCustodyNearEd25519KeyManifestDigestB64u,
   establishNearEd25519CustodyV1,
   joinCustodyJsonFromEstablishedCommitPayload,
   joinNearEd25519CustodyV1,
@@ -30,6 +31,16 @@ test('the EVM custody manifest digest matches the Rust canonical vector', async 
       clientRootPublicKey33B64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
     }),
   ).resolves.toBe('oYYQddIgFfu_BhG0YNzHJe4k_M3g2PPx1h0DL31R7K4');
+});
+
+test('the NEAR custody manifest digest matches the Rust canonical encoding', async () => {
+  await expect(
+    computeWalletCustodyNearEd25519KeyManifestDigestB64u({
+      walletId: 'wallet-1',
+      nearEd25519SigningKeyId: 'near-key-1',
+      registeredPublicKeyB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    }),
+  ).resolves.toBe('EEFS54sZkjGaViW0WmHjANruU086Z6e7Jh-ScljlVos');
 });
 
 type Step = { type: string; payload: Record<string, unknown> };

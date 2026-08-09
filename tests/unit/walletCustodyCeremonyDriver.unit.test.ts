@@ -150,12 +150,14 @@ function recoveringAndResealingCustody(): WalletCustodyCeremonyCustodyInput {
 
 function nearRun(
   runRouterRound: (request: string) => Promise<string>,
+  afterRouterRoundCompleted?: (result: string) => Promise<void>,
 ): WalletCustodyCeremonyKeySetInput {
   return {
     keySet: 'near_ed25519_v1',
     protocolInputsJson: '{"clientParticipantId":1}',
     nearEd25519SigningKeyId: 'near-ed25519-key-1',
     runRouterRound,
+    ...(afterRouterRoundCompleted ? { afterRouterRoundCompleted } : {}),
   };
 }
 
@@ -254,6 +256,41 @@ test('a NEAR recovery run opens with the code and finishes with only a replaceme
     replacementFactorJson: '{"envelopeId":"replacement-envelope-1"}',
   });
   expect(recoveredPayload.establishedCustody).toBeUndefined();
+});
+
+test('a NEAR recovery activates only after the worker verifies its transcript', async () => {
+  const { runStep, calls } = recordingRunner();
+  const order: string[] = [];
+  const observingRunner = (async (type: string, payload: Record<string, unknown>) => {
+    const result = await runStep(
+      type as Parameters<WalletCustodyCeremonyStepRunner>[0],
+      payload as never,
+    );
+    order.push(type);
+    return result;
+  }) as WalletCustodyCeremonyStepRunner;
+
+  await runWalletCustodyKeySetCeremony({
+    runStep: observingRunner,
+    custody: recoveringAndResealingCustody(),
+    keySetRun: nearRun(
+      async () => '{"yao":"recovery-result"}',
+      async (result) => {
+        expect(result).toBe('{"yao":"recovery-result"}');
+        order.push('activateRouterRecovery');
+      },
+    ),
+    recordedKeyManifestDigestB64u: 'registered-manifest-digest',
+    ceremonyId: CEREMONY_ID,
+  });
+
+  expect(order).toEqual([
+    'beginWalletCustodyKeySetRun',
+    'completeWalletCustodyKeySetRun',
+    'activateRouterRecovery',
+    'finishWalletCustodyKeySetRun',
+  ]);
+  expect(calls.some((call) => call.type === 'discardWalletCustodyCeremony')).toBe(false);
 });
 
 test('recovery replacement ciphertext becomes one exact active passkey envelope', () => {
