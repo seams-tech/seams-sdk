@@ -175,6 +175,46 @@ export function prepareD1WebAuthnCredentialBindingPutStatement(input: {
     );
 }
 
+/** Insert-only binding write for credential promotion. */
+export function prepareD1WebAuthnCredentialBindingInsertStatement(input: {
+  readonly database: D1DatabaseLike;
+  readonly scope: D1WebAuthnCredentialBindingScope;
+  readonly record: WebAuthnCredentialBindingRecord;
+}): D1PreparedStatementLike {
+  const parsed = parseWebAuthnCredentialBindingRecord(input.record);
+  if (!parsed) throw new Error('Invalid credential binding record');
+  return input.database
+    .prepare(
+      `INSERT INTO webauthn_credential_bindings (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        rp_id,
+        credential_id_b64u,
+        user_id,
+        signer_slot,
+        record_json,
+        created_at_ms,
+        updated_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.scope.namespace,
+      input.scope.orgId,
+      input.scope.projectId,
+      input.scope.envId,
+      parsed.rpId,
+      parsed.credentialIdB64u,
+      parsed.userId,
+      parsed.signerSlot ?? null,
+      JSON.stringify(parsed),
+      parsed.createdAtMs,
+      parsed.updatedAtMs,
+    );
+}
+
 type D1WebAuthnCredentialBindingRow = {
   readonly record_json?: unknown;
   readonly max_signer_slot?: unknown;

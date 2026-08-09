@@ -17,6 +17,7 @@ import type { VersionedJsonObject } from '../../../framework/versionedJsonRecord
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
 import {
   CloudflareD1VersionedJsonRecordStore,
+  type CloudflareD1VersionedJsonRecordBatchPutResultV1,
   type CloudflareD1VersionedJsonRecordScopeV1,
 } from '../versionedJson/d1VersionedJsonRecordStore';
 import {
@@ -24,6 +25,20 @@ import {
   passkeyCustodyEnvelopeLocatorOf,
   passkeyCustodyEnvelopeRecordKey,
 } from './d1PasskeyCustodyEnvelopeStore';
+import {
+  prepareD1WebAuthnAuthenticatorInsertStatement,
+} from '../webauthn/d1WebAuthnStore';
+import type { WebAuthnAuthenticatorRecord } from '../webauthn/d1WebAuthnRecords';
+import {
+  prepareD1WebAuthnCredentialBindingInsertStatement,
+  type WebAuthnCredentialBindingRecord,
+} from '../../../../core/WebAuthnCredentialBindingStore';
+
+const WEB_AUTHN_RECOVERY_CHALLENGE_CAS_GUARD = `
+  INSERT INTO router_ab_yao_versioned_json_cas_guard (guard_id)
+  SELECT 1
+   WHERE changes() = 0
+`;
 
 /**
  * The registration commit: one custody envelope and one recovery envelope set,
@@ -92,6 +107,13 @@ export function walletRecoveryBackupAcknowledgementRecordKey(walletId: WalletId)
   return `wallet-recovery-backup-ack/${String(walletId)}`;
 }
 
+export type WalletRecoveryAuthenticatorCommit = {
+  readonly userId: string;
+  readonly authenticator: WebAuthnAuthenticatorRecord;
+  readonly binding: WebAuthnCredentialBindingRecord;
+  readonly challengeDeleteStatement: D1PreparedStatementLike;
+};
+
 export function walletRecoveryEnvelopeSetRecordKey(walletId: WalletId): string {
   return `recovery-set:${String(walletId)}`;
 }
@@ -145,9 +167,13 @@ function commitInconsistency(commit: WalletCustodyRegistrationCommit): string | 
 }
 
 export class CloudflareD1WalletCustodyCommitStore {
+  private readonly database: D1DatabaseLike;
+  private readonly scope: CloudflareD1VersionedJsonRecordScopeV1;
   private readonly records: CloudflareD1VersionedJsonRecordStore<WalletCustodyCommitRecord>;
 
   constructor(options: CloudflareD1WalletCustodyCommitStoreOptions) {
+    this.database = options.database;
+    this.scope = options.scope;
     this.records = new CloudflareD1VersionedJsonRecordStore<WalletCustodyCommitRecord>({
       database: options.database,
       scope: options.scope,
@@ -303,12 +329,14 @@ export class CloudflareD1WalletCustodyCommitStore {
     readonly expectedRecoverySetVersion: string;
     readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
     readonly reservationId: RecoveryCodeReservationId;
+    readonly authenticatorCommit: WalletRecoveryAuthenticatorCommit;
   }): Promise<WalletCustodyRecoveryPromotionCommitResult> {
     if (String(input.recoverySet.walletId) !== String(input.replacementEnvelope.walletId)) {
       return { kind: 'inconsistent', reason: 'recovery set and envelope name different wallets' };
     }
     if (
       input.replacementEnvelope.binding.kind !== 'wallet_custody_seed_v1' ||
+      input.replacementEnvelope.factor.kind !== 'passkey' ||
       input.replacementEnvelope.lifecycle.state !== 'active' ||
       Number(input.replacementEnvelope.envelopeRevision) !== 1
     ) {
@@ -328,19 +356,75 @@ export class CloudflareD1WalletCustodyCommitStore {
         reason: 'recovery promotion must consume exactly its reserved recovery code',
       };
     }
+    if (input.authenticatorCommit.userId !== String(input.recoverySet.walletId)) {
+      return {
+        kind: 'inconsistent',
+        reason: 'replacement authenticator names a different wallet',
+      };
+    }
+    if (
+      input.authenticatorCommit.authenticator.credentialIdB64u !==
+        input.authenticatorCommit.binding.credentialIdB64u ||
+      input.authenticatorCommit.binding.userId !== input.authenticatorCommit.userId ||
+      input.authenticatorCommit.binding.rpId !== input.replacementEnvelope.factor.rpId ||
+      input.authenticatorCommit.binding.credentialIdB64u !==
+        input.replacementEnvelope.factor.credentialIdB64u
+    ) {
+      return {
+        kind: 'inconsistent',
+        reason: 'replacement authenticator, binding, and envelope disagree',
+      };
+    }
 
     const envelopeKey = passkeyCustodyEnvelopeRecordKey(
       passkeyCustodyEnvelopeLocatorOf(input.replacementEnvelope),
     );
     const recoverySetKey = walletRecoveryEnvelopeSetRecordKey(input.recoverySet.walletId);
-    const stored = await this.records.putMany([
-      {
-        key: recoverySetKey,
-        value: input.recoverySet,
-        expectedVersion: input.expectedRecoverySetVersion,
+    const authenticatorStatement = prepareD1WebAuthnAuthenticatorInsertStatement({
+      database: this.database,
+      scope: {
+        namespace: this.scope.namespace,
+        orgId: this.scope.orgId,
+        projectId: this.scope.projectId,
+        envId: this.scope.envId,
       },
-      { key: envelopeKey, value: input.replacementEnvelope, expectedVersion: null },
-    ]);
+      userId: input.authenticatorCommit.userId,
+      record: input.authenticatorCommit.authenticator,
+    });
+    const bindingStatement = prepareD1WebAuthnCredentialBindingInsertStatement({
+      database: this.database,
+      scope: {
+        namespace: this.scope.namespace,
+        orgId: this.scope.orgId,
+        projectId: this.scope.projectId,
+        envId: this.scope.envId,
+      },
+      record: input.authenticatorCommit.binding,
+    });
+    let stored: CloudflareD1VersionedJsonRecordBatchPutResultV1;
+    try {
+      stored = await this.records.putManyWithAdditionalStatements(
+        [
+          {
+            key: recoverySetKey,
+            value: input.recoverySet,
+            expectedVersion: input.expectedRecoverySetVersion,
+          },
+          { key: envelopeKey, value: input.replacementEnvelope, expectedVersion: null },
+        ],
+        [
+          authenticatorStatement,
+          bindingStatement,
+          input.authenticatorCommit.challengeDeleteStatement,
+          this.database.prepare(WEB_AUTHN_RECOVERY_CHALLENGE_CAS_GUARD),
+        ],
+      );
+    } catch {
+      /* Insert-only authenticator/binding statements and the challenge CAS
+         guard roll back the complete batch on a race. The reservation remains
+         retryable and no replacement envelope is visible. */
+      return { kind: 'conflict' };
+    }
     if (stored.kind === 'version_mismatch') {
       const [recoveryRead, envelopeRead] = await Promise.all([
         this.readRecoveryEnvelopeSet(input.recoverySet.walletId),

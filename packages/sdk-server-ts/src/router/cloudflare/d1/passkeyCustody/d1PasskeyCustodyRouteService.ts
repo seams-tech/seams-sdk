@@ -16,12 +16,19 @@ import {
   prepareWalletRecoveryWithCodeV1,
   type WalletRecoveryPreparationResult,
 } from '../../../domains/passkeyCustody/walletRecoveryAttempt';
-import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
+import { parseWalletId, parseWebAuthnRpId, type WalletId } from '@shared/utils/domainIds';
+import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
+import { base64UrlEncode } from '@shared/utils/encoders';
+import {
+  PASSKEY_PRF_FIRST_SALT_V1,
+  PASSKEY_PRF_SECOND_SALT_V1,
+} from '@shared/utils/signingSessionSeal';
 import {
   finalizeRecoveredWalletCredentialV1,
   type WalletRecoveryFinalizationResult,
 } from '../../../domains/passkeyCustody/walletRecoveryFinalization';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import type { WebAuthnRecoveryRegistrationChallengeRecord } from '../webauthn/d1WebAuthnRecords';
 import {
   rotateWalletRecoveryCodesV1,
   type WalletRecoveryRotationResult,
@@ -124,6 +131,10 @@ export interface RouterApiPasskeyCustodyService {
   finalizeRecovery(request: {
     readonly walletId: string;
     readonly reservationId: RecoveryCodeReservationId;
+    readonly challengeId: string;
+    readonly replacementId: string;
+    readonly webauthnRegistration: unknown;
+    readonly expectedOrigin: string;
     readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
   }): Promise<WalletRecoveryFinalizationResult>;
 
@@ -180,9 +191,46 @@ const RECOVERY_RESERVATION_TTL_MS = 120_000;
 export type WalletRecoveryRoutePreparationResult =
   | (Extract<WalletRecoveryPreparationResult, { readonly kind: 'prepared' }> & {
       readonly keyManifest: WalletRecoveryPreparationKeyManifestV1;
+      readonly registration: WalletRecoveryRegistrationOptions;
     })
   | Exclude<WalletRecoveryPreparationResult, { readonly kind: 'prepared' }>
-  | { readonly kind: 'manifest_unavailable'; readonly reason: string };
+  | { readonly kind: 'manifest_unavailable'; readonly reason: string }
+  | { readonly kind: 'registration_unavailable'; readonly reason: string };
+
+export type WalletRecoveryRegistrationOptions = {
+  readonly kind: 'webauthn_recovery_registration_v1';
+  readonly challengeId: string;
+  readonly challengeB64u: string;
+  readonly replacementId: string;
+  readonly rpId: string;
+  readonly user: {
+    readonly idB64u: string;
+    readonly name: string;
+    readonly displayName: string;
+  };
+  readonly pubKeyCredParams: readonly [
+    { readonly type: 'public-key'; readonly alg: -7 },
+    { readonly type: 'public-key'; readonly alg: -257 },
+  ];
+  readonly authenticatorSelection: {
+    readonly residentKey: 'required';
+    readonly userVerification: 'preferred';
+  };
+  readonly timeoutMs: number;
+  readonly attestation: 'none';
+  readonly extensions: {
+    readonly prf: {
+      readonly eval: {
+        readonly firstB64u: string;
+        readonly secondB64u: string;
+      };
+    };
+  };
+  readonly excludeCredentials: readonly {
+    readonly type: 'public-key';
+    readonly id: string;
+  }[];
+};
 
 export function createD1PasskeyCustodyRouteService(assembly: {
   readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
@@ -328,6 +376,7 @@ async function prepareRecoveryForRoute(
   assembly: {
     readonly walletCustodyCommits: CloudflareD1WalletCustodyCommitStore;
     readonly walletStore: D1WalletStore;
+    readonly webAuthnStore: CloudflareD1WebAuthnStore;
     readonly nowMs?: () => number;
   },
   request: {
@@ -356,9 +405,19 @@ async function prepareRecoveryForRoute(
       registry: assembly.walletStore,
       walletId,
     });
+    const registration = await createWalletRecoveryRegistrationOptions({
+      webAuthnStore: assembly.webAuthnStore,
+      walletId,
+      reservationId: request.reservationId,
+      nowMs: (assembly.nowMs ?? Date.now)(),
+    });
+    if (registration.kind !== 'ready') {
+      return { kind: 'registration_unavailable', reason: registration.reason };
+    }
     return {
       ...prepared,
       keyManifest: projectWalletRecoveryPreparationKeyManifestV1(manifest),
+      registration: registration.options,
     };
   } catch (error: unknown) {
     return {
@@ -369,16 +428,116 @@ async function prepareRecoveryForRoute(
   }
 }
 
+async function createWalletRecoveryRegistrationOptions(input: {
+  readonly webAuthnStore: CloudflareD1WebAuthnStore;
+  readonly walletId: WalletId;
+  readonly reservationId: RecoveryCodeReservationId;
+  readonly nowMs: number;
+}): Promise<
+  | { readonly kind: 'ready'; readonly options: WalletRecoveryRegistrationOptions }
+  | { readonly kind: 'unavailable'; readonly reason: string }
+> {
+  const bindings = await input.webAuthnStore.readBindingRows({
+    userId: String(input.walletId),
+  });
+  const rpIds = [...new Set(bindings.map((binding) => String(binding.rpId || '').trim()))].filter(
+    Boolean,
+  );
+  if (rpIds.length !== 1) {
+    return {
+      kind: 'unavailable',
+      reason:
+        rpIds.length === 0
+          ? 'wallet recovery has no existing WebAuthn relying party'
+          : 'wallet recovery has multiple WebAuthn relying parties',
+    };
+  }
+  const parsedRpId = parseWebAuthnRpId(rpIds[0]);
+  if (!parsedRpId.ok) {
+    return { kind: 'unavailable', reason: 'wallet recovery relying party is invalid' };
+  }
+  const challengeId = secureRandomBase64Url(16, 'wallet recovery registration challenge id');
+  const challengeB64u = secureRandomBase64Url(32, 'wallet recovery registration challenge');
+  const replacementId = `wallet-recovery-replacement:${secureRandomBase64Url(
+    18,
+    'wallet recovery replacement id',
+  )}`;
+  const expiresAtMs = input.nowMs + RECOVERY_RESERVATION_TTL_MS;
+  const record: WebAuthnRecoveryRegistrationChallengeRecord = {
+    version: 'webauthn_recovery_registration_challenge_v1',
+    challengeId,
+    walletId: String(input.walletId),
+    reservationId: String(input.reservationId),
+    replacementId,
+    rpId: parsedRpId.value,
+    challengeB64u,
+    createdAtMs: input.nowMs,
+    expiresAtMs,
+  };
+  await input.webAuthnStore.writeChallenge({
+    challengeId,
+    challengeKind: 'recovery_registration',
+    record,
+    createdAtMs: input.nowMs,
+    expiresAtMs,
+  });
+  const excludeCredentials = bindings
+    .filter((binding) => String(binding.rpId) === String(parsedRpId.value))
+    .map((binding) => ({
+      type: 'public-key' as const,
+      id: String(binding.credentialIdB64u),
+    }));
+  return {
+    kind: 'ready',
+    options: {
+      kind: 'webauthn_recovery_registration_v1',
+      challengeId,
+      challengeB64u,
+      replacementId,
+      rpId: parsedRpId.value,
+      user: {
+        idB64u: base64UrlEncode(new TextEncoder().encode(String(input.walletId))),
+        name: String(input.walletId),
+        displayName: String(input.walletId),
+      },
+      pubKeyCredParams: [
+        { type: 'public-key', alg: -7 },
+        { type: 'public-key', alg: -257 },
+      ],
+      authenticatorSelection: {
+        residentKey: 'required',
+        userVerification: 'preferred',
+      },
+      timeoutMs: 60_000,
+      attestation: 'none',
+      extensions: {
+        prf: {
+          eval: {
+            firstB64u: base64UrlEncode(PASSKEY_PRF_FIRST_SALT_V1),
+            secondB64u: base64UrlEncode(PASSKEY_PRF_SECOND_SALT_V1),
+          },
+        },
+      },
+      excludeCredentials,
+    },
+  };
+}
+
 async function finalizeRecoveryForRoute(
   assembly: {
     readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
     readonly walletCustodyCommits: CloudflareD1WalletCustodyCommitStore;
     readonly walletStore: D1WalletStore;
+    readonly webAuthnStore: CloudflareD1WebAuthnStore;
     readonly nowMs?: () => number;
   },
   request: {
     readonly walletId: string;
     readonly reservationId: RecoveryCodeReservationId;
+    readonly challengeId: string;
+    readonly replacementId: string;
+    readonly webauthnRegistration: unknown;
+    readonly expectedOrigin: string;
     readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
   },
 ): Promise<WalletRecoveryFinalizationResult> {
@@ -399,6 +558,11 @@ async function finalizeRecoveryForRoute(
     walletCustodyCommits: assembly.walletCustodyCommits,
     walletId: request.walletId,
     reservationId: request.reservationId,
+    challengeId: request.challengeId,
+    replacementId: request.replacementId,
+    webauthnRegistration: request.webauthnRegistration,
+    expectedOrigin: request.expectedOrigin,
+    webAuthnStore: assembly.webAuthnStore,
     replacementEnvelope: request.replacementEnvelope,
     activationVerification,
     nowMs: (assembly.nowMs ?? Date.now)(),

@@ -89,7 +89,7 @@ export const WEBAUTHN_SYNC_CHALLENGE_STORE_D1_SCHEMA_SQL = Object.freeze([
       expires_at_ms INTEGER NOT NULL,
       PRIMARY KEY (namespace, org_id, project_id, env_id, challenge_id),
       CHECK (length(challenge_id) > 0),
-      CHECK (challenge_kind IN ('login', 'sync')),
+      CHECK (challenge_kind IN ('login', 'sync', 'recovery_registration')),
       CHECK (json_valid(record_json)),
       CHECK (created_at_ms > 0),
       CHECK (expires_at_ms > created_at_ms)
