@@ -29,6 +29,7 @@ import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/ac
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { MpcMaterialActivationRef, ThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import type {
+  PasskeyCustodyEnvelopeRecord,
   WalletCustodyCeremonyCommitPayload,
   WalletCustodyEvmFamilyActivationCompletion,
   WalletCustodyKeySetKind,
@@ -1686,6 +1687,20 @@ export interface WalletCustodyCeremonyWorkerOperationMap {
           };
     };
     result: WalletCustodyCeremonyCommitPayload;
+  };
+  linkWalletCustodyPasskey: {
+    payload: {
+      existingEnvelope: PasskeyCustodyEnvelopeRecord;
+      existingFactorSecret: ArrayBuffer;
+      replacementEnvelopeBindingJson: string;
+      replacementFactorSecret: ArrayBuffer;
+    };
+    result: {
+      nonceB64u: string;
+      sealedCustodySecretB64u: string;
+      aadHashB64u: string;
+      ciphertextDigestB64u: string;
+    };
   };
   discardWalletCustodyCeremony: {
     payload: { ceremonyId: string };

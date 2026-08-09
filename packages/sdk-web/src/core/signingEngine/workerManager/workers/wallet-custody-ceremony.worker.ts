@@ -7,12 +7,18 @@ import init, {
   type WasmCeremonyProtocolPreparedV1,
   type WasmCeremonySeedHeldV1,
 } from '../../../../../../../wasm/wallet_custody_ceremony/pkg/wallet_custody_ceremony.js';
+import initNearSigner, {
+  passkey_custody_open_wallet_seed_v1,
+  passkey_custody_reseal_wallet_seed_v1,
+} from '../../../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { errorLogSummary, safeErrorMessage } from '@shared/utils/errors';
 import type {
+  PasskeyCustodyEnvelopeRecord,
   WalletCustodyCeremonyCommitPayload,
   WalletCustodyEvmFamilyActivationCompletion,
 } from '@shared/passkey-custody';
+import { base64UrlDecode } from '@shared/utils/encoders';
 import type { WalletCustodyCeremonyWorkerOperationMap } from '../workerTypes';
 
 /**
@@ -34,7 +40,9 @@ import type { WalletCustodyCeremonyWorkerOperationMap } from '../workerTypes';
  */
 
 const wasmUrl = resolveWasmUrl('wallet_custody_ceremony_bg.wasm', 'Wallet Custody Ceremony');
+const nearSignerWasmUrl = resolveWasmUrl('wasm_signer_worker_bg.wasm', 'Signer Worker');
 let initPromise: Promise<void> | null = null;
+let nearSignerInitPromise: Promise<void> | null = null;
 
 /**
  * Ceremonies in flight. Bounded because each holds custody material: a caller
@@ -76,12 +84,14 @@ type BeginRequest = WorkerRequest<'beginWalletCustodyKeySetRun'>;
 type CompleteRequest = WorkerRequest<'completeWalletCustodyKeySetRun'>;
 type FinishRequest = WorkerRequest<'finishWalletCustodyKeySetRun'>;
 type DiscardRequest = WorkerRequest<'discardWalletCustodyCeremony'>;
+type LinkPasskeyRequest = WorkerRequest<'linkWalletCustodyPasskey'>;
 
 type WalletCustodyCeremonyWorkerRequest =
   | BeginRequest
   | CompleteRequest
   | FinishRequest
-  | DiscardRequest;
+  | DiscardRequest
+  | LinkPasskeyRequest;
 
 function postToMainThread(message: unknown): void {
   (self as unknown as { postMessage: (message: unknown) => void }).postMessage(message);
@@ -112,6 +122,19 @@ async function initializeWasm(): Promise<void> {
     );
   }
   return initPromise;
+}
+
+async function initializeNearSignerWasm(): Promise<void> {
+  if (!nearSignerInitPromise) {
+    nearSignerInitPromise = initNearSigner({ module_or_path: nearSignerWasmUrl }).then(
+      () => undefined,
+      (error: unknown) => {
+        nearSignerInitPromise = null;
+        throw new Error(`Signer WASM initialization failed: ${safeErrorMessage(error)}`);
+      },
+    );
+  }
+  return nearSignerInitPromise;
 }
 
 function toBytes(value: ArrayBuffer | Uint8Array): Uint8Array {
@@ -359,6 +382,50 @@ function discardCeremony(request: DiscardRequest): unknown {
   return { ceremonyId, discarded: existed };
 }
 
+function custodyEnvelopeBindingJson(envelope: PasskeyCustodyEnvelopeRecord): string {
+  return JSON.stringify({
+    walletId: envelope.walletId,
+    envelopeId: envelope.envelopeId,
+    factor: envelope.factor,
+    envelopeRevision: envelope.envelopeRevision,
+    binding: envelope.binding,
+  });
+}
+
+async function linkWalletCustodyPasskey(request: LinkPasskeyRequest): Promise<unknown> {
+  await initializeNearSignerWasm();
+  const envelope = request.payload.existingEnvelope;
+  const existingFactorSecret = toBytes(request.payload.existingFactorSecret);
+  const replacementFactorSecret = toBytes(request.payload.replacementFactorSecret);
+  const nonce = base64UrlDecode(envelope.nonceB64u);
+  let handle: ReturnType<typeof passkey_custody_open_wallet_seed_v1> | null = null;
+  try {
+    handle = passkey_custody_open_wallet_seed_v1(
+      existingFactorSecret,
+      custodyEnvelopeBindingJson(envelope),
+      nonce,
+      envelope.sealedCustodySecretB64u,
+      envelope.aadHashB64u,
+      envelope.ciphertextDigestB64u,
+    );
+    const resealed = passkey_custody_reseal_wallet_seed_v1(
+      handle,
+      replacementFactorSecret,
+      request.payload.replacementEnvelopeBindingJson,
+    ) as Record<string, unknown>;
+    return {
+      nonceB64u: String(resealed.nonceB64u || ''),
+      sealedCustodySecretB64u: String(resealed.sealedCustodySecretB64u || ''),
+      aadHashB64u: String(resealed.aadHashB64u || ''),
+      ciphertextDigestB64u: String(resealed.ciphertextDigestB64u || ''),
+    };
+  } finally {
+    handle?.free();
+    existingFactorSecret.fill(0);
+    replacementFactorSecret.fill(0);
+  }
+}
+
 async function handleRequest(request: WalletCustodyCeremonyWorkerRequest): Promise<void> {
   await initializeWasm();
   switch (request.type) {
@@ -373,6 +440,9 @@ async function handleRequest(request: WalletCustodyCeremonyWorkerRequest): Promi
       return;
     case 'discardWalletCustodyCeremony':
       postSucceeded(request.id, discardCeremony(request));
+      return;
+    case 'linkWalletCustodyPasskey':
+      postSucceeded(request.id, await linkWalletCustodyPasskey(request));
       return;
     default:
       throw new Error(
