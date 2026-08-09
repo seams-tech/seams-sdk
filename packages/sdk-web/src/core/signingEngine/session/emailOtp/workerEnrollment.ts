@@ -11,8 +11,6 @@ import {
 import { requireTrimmedString, toOptionalTrimmedNonEmptyString } from '@shared/utils/validation';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
-  EmailOtpEd25519YaoFactorRequest,
-  EmailOtpEd25519YaoFactorResult,
   EmailOtpWalletRegistrationEcdsaPrepareHandleRequest,
   EmailOtpWalletRegistrationEcdsaPrepareHandlePayload,
   EmailOtpWalletRegistrationEcdsaPrepareHandleResult,
@@ -316,7 +314,6 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
   otpChannel?: WalletEmailOtpChannel;
   clientSecret32?: Uint8Array;
   ecdsaSessionHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleRequest;
-  ed25519YaoFactor: EmailOtpEd25519YaoFactorRequest;
 }): Promise<{
   recoveryKeys: EmailOtpRecoveryCodeSet;
   recoveryCodesIssuedAtMs: number;
@@ -326,7 +323,6 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
   emailOtpSessionHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleResult;
-  ed25519YaoFactor: EmailOtpEd25519YaoFactorResult;
   emailOtpEnrollment: {
     recoveryWrappedEnrollmentEscrows: unknown[];
     enrollmentSealKeyVersion: string;
@@ -355,7 +351,6 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
           }),
           otpChannel: args.otpChannel || EMAIL_OTP_CHANNEL,
           ecdsaSessionHandle: args.ecdsaSessionHandle,
-          ed25519YaoFactor: args.ed25519YaoFactor,
           ...(workerClientSecret32
             ? { clientSecret32: toArrayBufferCopy(workerClientSecret32) }
             : {}),
