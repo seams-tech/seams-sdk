@@ -662,9 +662,9 @@ fn parse_scalar_32_be(bytes: &[u8], field_name: &str) -> RouterAbEcdsaDerivation
             bytes.len()
         )));
     }
-    let mut repr = Zeroizing::new(FieldBytes::default());
+    let mut repr = FieldBytes::default();
     repr.copy_from_slice(bytes);
-    Option::<Scalar>::from(Scalar::from_repr(*repr)).ok_or_else(|| {
+    Option::<Scalar>::from(Scalar::from_repr(repr)).ok_or_else(|| {
         RouterAbEcdsaDerivationError::invalid_input(format!(
             "{field_name} must be a canonical secp256k1 scalar"
         ))
