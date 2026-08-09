@@ -14,7 +14,10 @@ import type { WalletId } from '@shared/utils/domainIds';
 import type { RecoveryCodeReservationId } from '@shared/wallet-recovery/recoveryCodeReservation';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import type { VersionedJsonObject } from '../../../framework/versionedJsonRecordStore';
-import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
+import type {
+  D1DatabaseLike,
+  D1PreparedStatementLike,
+} from '../../../../storage/tenantRoute';
 import {
   CloudflareD1VersionedJsonRecordStore,
   type CloudflareD1VersionedJsonRecordBatchPutResultV1,
