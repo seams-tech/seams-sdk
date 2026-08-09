@@ -49,6 +49,7 @@ let litMounterInstalled = false;
 const FOREGROUND_CONFIRMATION_REQUEST_TYPES: ReadonlySet<ParentToChildType> = new Set([
   'PM_REGISTER_WALLET',
   'PM_ADD_WALLET_SIGNER',
+  'PM_ADD_PASSKEY',
   'PM_SIGN_TX_WITH_ACTIONS',
   'PM_SIGN_AND_SEND_TX',
   'PM_EXECUTE_ACTION',

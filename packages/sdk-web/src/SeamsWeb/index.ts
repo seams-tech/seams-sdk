@@ -30,6 +30,7 @@ export type { TempoFeeTokenValidation } from '@/core/signingEngine/chains/tempo/
 
 export type {
   AuthCapability,
+  AddPasskeyResult,
   BootstrapThresholdEcdsaSessionArgs,
   DevicesCapability,
   EmailOtpBackedUpEnrollmentResult,

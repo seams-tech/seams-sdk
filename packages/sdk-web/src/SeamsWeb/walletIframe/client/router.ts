@@ -142,6 +142,7 @@ import type {
   FundImplicitNearAccountForTestingResult,
   ResolveExactKeyExportLaneInput,
   ResolveExactKeyExportLaneResult,
+  AddPasskeyResult,
 } from '@/SeamsWeb/publicApi/types';
 import type {
   BootstrapThresholdEcdsaSessionArgs,
@@ -389,6 +390,7 @@ function requestSurfaceKindForMessage(
       return 'auth_menu';
     case 'PM_REGISTER_WALLET':
     case 'PM_ADD_WALLET_SIGNER':
+    case 'PM_ADD_PASSKEY':
     case 'PM_COMPLETE_WALLET_RECOVERY':
       return 'registration';
     case 'PM_SIGN_TX_WITH_ACTIONS':
@@ -1055,6 +1057,7 @@ function createTerminalProgressForRequest(args: {
   const common = { flowId, requestId, status, message, error };
   const registrationRequests = new Set<ParentToChildEnvelope['type']>([
     'PM_REGISTER_WALLET',
+    'PM_ADD_PASSKEY',
     'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE',
     'PM_ENROLL_EMAIL_OTP',
   ]);

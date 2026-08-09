@@ -178,6 +178,27 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       respondOkResult(deps, req.requestId, result);
     },
 
+    PM_ADD_PASSKEY: async (req: Req<'PM_ADD_PASSKEY'>) => {
+      const pm = deps.getSeamsWeb();
+      const payload = req.payload!;
+      if (deps.respondIfCancelled(req.requestId)) return;
+      const hooksOptions = withProgress(
+        deps,
+        req.requestId,
+        payload.options || {},
+      ) as RegistrationHooksOptions;
+      const result = await pm.registration.addPasskey({
+        walletId: payload.walletId,
+        rpId: payload.rpId,
+        options: {
+          ...hooksOptions,
+          ...(payload.confirmationConfig ? { confirmationConfig: payload.confirmationConfig } : {}),
+        },
+      });
+      if (deps.respondIfCancelled(req.requestId)) return;
+      respondOkResult(deps, req.requestId, result);
+    },
+
     PM_GET_NEAR_PROVISIONING_STATE: async (req: Req<'PM_GET_NEAR_PROVISIONING_STATE'>) => {
       const pm = deps.getSeamsWeb();
       const walletId = toWalletId(req.payload?.walletId);
