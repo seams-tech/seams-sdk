@@ -204,30 +204,97 @@ export type EmailOtpWalletRegistrationAuthorityInput = Extract<
   { kind: typeof WALLET_AUTH_METHODS.emailOtp }
 >;
 
+export type WalletAddAuthMethodAuthorityInput =
+  | {
+      kind: typeof WALLET_AUTH_METHODS.passkey;
+      webauthnRegistration?: never;
+      emailOtpRegistrationProof?: never;
+    }
+  | {
+      kind: typeof WALLET_AUTH_METHODS.emailOtp;
+      emailOtpRegistrationProof: EmailOtpRegistrationProof;
+      webauthnRegistration?: never;
+    };
+
 export type WalletAddAuthMethodStartRequest = {
   walletId: WalletId;
   addAuthMethodIntentGrant: AddAuthMethodIntentGrant;
   addAuthMethodIntentDigestB64u: string;
   intent: AddAuthMethodIntentV1;
   auth: AddAuthMethodExistingAuth;
-  authority: WalletRegistrationAuthorityInput;
+  authority: WalletAddAuthMethodAuthorityInput;
+};
+
+export type WalletAddAuthMethodRegistrationOptions = {
+  readonly kind: 'webauthn_add_auth_method_registration_v1';
+  readonly challengeId: string;
+  readonly challengeB64u: string;
+  readonly rpId: string;
+  readonly user: {
+    readonly idB64u: string;
+    readonly name: string;
+    readonly displayName: string;
+  };
+  readonly pubKeyCredParams: readonly [
+    { readonly type: 'public-key'; readonly alg: -7 },
+    { readonly type: 'public-key'; readonly alg: -257 },
+  ];
+  readonly authenticatorSelection: {
+    readonly residentKey: 'required';
+    readonly userVerification: 'preferred';
+  };
+  readonly timeoutMs: number;
+  readonly attestation: 'none';
+  readonly extensions: {
+    readonly prf: {
+      readonly eval: {
+        readonly firstB64u: string;
+        readonly secondB64u: string;
+      };
+    };
+  };
+  readonly excludeCredentials: readonly {
+    readonly type: 'public-key';
+    readonly id: string;
+  }[];
 };
 
 export type WalletAddAuthMethodStartResponse =
-  | {
+  | ({
       ok: true;
       addAuthMethodCeremonyId: string;
-      intent: AddAuthMethodIntentV1;
-    }
+      intent: AddAuthMethodIntentV1 & {
+        authMethod: Extract<AddAuthMethodInput, { kind: typeof WALLET_AUTH_METHODS.passkey }>;
+      };
+      custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+      registration: WalletAddAuthMethodRegistrationOptions;
+    })
+  | ({
+      ok: true;
+      addAuthMethodCeremonyId: string;
+      intent: AddAuthMethodIntentV1 & {
+        authMethod: Extract<AddAuthMethodInput, { kind: typeof WALLET_AUTH_METHODS.emailOtp }>;
+      };
+      custodyEnvelope?: never;
+      registration?: never;
+    })
   | {
       ok: false;
       code: string;
       message: string;
     };
 
-export type WalletAddAuthMethodFinalizeRequest = {
-  addAuthMethodCeremonyId: string;
-};
+export type WalletAddAuthMethodFinalizeRequest =
+  | {
+      addAuthMethodCeremonyId: string;
+      webauthnRegistration: unknown;
+      custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+    }
+  | {
+      addAuthMethodCeremonyId: string;
+      webauthnRegistration?: never;
+      custodyEnvelope?: never;
+    };
 
 export type WalletAuthMethodStatusAnnotation<Status extends WalletAuthMethodRecord['status']> = {
   kind: WalletAuthMethodRecord['kind'];

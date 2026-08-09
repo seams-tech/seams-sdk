@@ -6,7 +6,8 @@ import {
   parseProviderSubject,
 } from '@shared/utils/domainIds';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import { base64UrlEncode } from '@shared/utils/encoders';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import { PASSKEY_PRF_FIRST_SALT_V1, PASSKEY_PRF_SECOND_SALT_V1 } from '@shared/utils/signingSessionSeal';
 import {
   addAuthMethodIntentGrantFromString,
   computeAddAuthMethodIntentDigestB64u,
@@ -29,17 +30,22 @@ import {
   type EmailOtpWalletAuthAuthority,
   type PasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
-import type { D1WalletAuthMethodStore } from '../../../../core/d1WalletAuthMethodStore';
+import type {
+  D1WalletAuthMethodStore,
+  WalletAuthMethodRecord,
+} from '../../../../core/d1WalletAuthMethodStore';
 import type {
   WalletAddAuthMethodFinalizeResponse,
   WalletAddAuthMethodStartRequest,
   WalletAddAuthMethodStartResponse,
+  WalletAddAuthMethodRegistrationOptions,
   WalletAddSignerStartRequest,
   EmailOtpWalletRegistrationAuthorityInput,
   PasskeyWalletRegistrationAuthorityInput,
   WalletRegistrationAuthorityInput,
   WalletRevokeAuthMethodResponse,
 } from '../../../../core/registrationContracts';
+import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import { CloudflareD1EmailOtpChallengeVerifier } from '../emailOtp/d1EmailOtpChallengeVerifier';
 import { CloudflareD1RegistrationCeremonyIntentStore } from '../registration/d1RegistrationCeremonyStore';
 import { parseWalletIdForIntent } from '../registration/d1RegistrationCeremonyRecords';
@@ -124,10 +130,6 @@ function runtimePolicyScopeKeyForRegistrationIntent(input: unknown): string {
 
 function unreachableRegistrationStartAuthority(value: never): never {
   throw new Error(`Unhandled registration start authority kind: ${String(value)}`);
-}
-
-function unreachableAddAuthMethodAuthority(value: never): never {
-  throw new Error(`Unhandled add-auth-method authority kind: ${String(value)}`);
 }
 
 async function loadSimpleWebAuthnServer(): Promise<SimpleWebAuthnServerModule> {
@@ -227,31 +229,97 @@ export class CloudflareD1WalletAuthMethodService {
         };
       }
       const storedExpectedOrigin = toOptionalTrimmedString(storedIntent.expectedOrigin);
-      if (request.authority.kind === 'passkey' && !storedExpectedOrigin) {
+      const addAuthMethodCeremonyId = `wauthc_${secureRandomBase64Url(24)}`;
+      const expiresAtMs = Date.now() + 10 * 60_000;
+      if (request.authority.kind === 'passkey') {
+        if (storedIntent.intent.authMethod.kind !== 'passkey') {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'Passkey authority requires a passkey add-auth-method intent',
+          };
+        }
+        if (storedAuth.auth.kind !== 'webauthn_assertion') {
+          return {
+            ok: false,
+            code: 'unsupported',
+            message: 'Passkey custody linking requires an authenticated existing passkey',
+          };
+        }
+        if (!storedExpectedOrigin) {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'expected_origin is required for WebAuthn registration verification',
+          };
+        }
+        const envelopeLookup = await this.passkeyCustodyEnvelopes.lookupEnvelopeForFactor({
+          walletId,
+          factor: {
+            kind: 'passkey',
+            rpId: storedAuth.auth.rpId,
+            credentialIdB64u: storedAuth.auth.credentialIdB64u,
+          },
+        });
+        if (envelopeLookup.kind !== 'active') {
+          return {
+            ok: false,
+            code: 'invalid_state',
+            message: 'Authenticated passkey custody envelope is unavailable',
+          };
+        }
+        const registration = this.createPasskeyRegistrationOptions({
+          walletId,
+          rpId: storedIntent.intent.authMethod.rpId,
+          walletMethods: await this.getWalletAuthMethodStore().listForWallet({ walletId }),
+        });
+        await store.putAddAuthMethodCeremony({
+          kind: 'passkey',
+          addAuthMethodCeremonyId,
+          intent: storedIntent.intent,
+          digestB64u: storedIntent.digestB64u,
+          orgId: storedIntent.orgId,
+          ...(storedIntent.expectedOrigin ? { expectedOrigin: storedIntent.expectedOrigin } : {}),
+          expiresAtMs,
+          auth: storedAuth.auth,
+          passkeyRegistration: {
+            rpId: storedIntent.intent.authMethod.rpId,
+            challengeB64u: registration.challengeB64u,
+            options: registration,
+          },
+          custodyEnvelope: envelopeLookup.envelope,
+        });
+        return {
+          ok: true,
+          addAuthMethodCeremonyId,
+          intent: storedIntent.intent,
+          custodyEnvelope: envelopeLookup.envelope,
+          registration,
+        };
+      }
+
+      if (storedIntent.intent.authMethod.kind !== 'email_otp') {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'expected_origin is required for WebAuthn registration verification',
+          message: 'Email OTP authority requires an Email OTP add-auth-method intent',
         };
       }
-      const authority = await this.verifyAddAuthMethodAuthority({
+      const authority = await this.verifyAddAuthMethodEmailOtpAuthority({
         orgId: storedIntent.orgId,
         authority: request.authority,
         expectedDigestB64u: storedIntent.digestB64u,
-        expectedOrigin: storedExpectedOrigin || '',
         intent: storedIntent.intent,
-        userAgent: context?.userAgent,
       });
       if (!authority.ok) return authority;
-
-      const addAuthMethodCeremonyId = `wauthc_${secureRandomBase64Url(24)}`;
       await store.putAddAuthMethodCeremony({
+        kind: 'email_otp',
         addAuthMethodCeremonyId,
         intent: storedIntent.intent,
         digestB64u: storedIntent.digestB64u,
         orgId: storedIntent.orgId,
         ...(storedIntent.expectedOrigin ? { expectedOrigin: storedIntent.expectedOrigin } : {}),
-        expiresAtMs: Date.now() + 10 * 60_000,
+        expiresAtMs,
         auth: storedAuth.auth,
         authority: authority.authority,
       });
@@ -286,26 +354,176 @@ export class CloudflareD1WalletAuthMethodService {
           message: 'add-auth-method ceremony subject mismatch',
         };
       }
+      if (ceremony.kind === 'passkey') {
+        if (
+          !('webauthnRegistration' in request) ||
+          !('custodyEnvelope' in request) ||
+          request.webauthnRegistration === undefined ||
+          request.custodyEnvelope === undefined
+        ) {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'Passkey add-auth-method finalize requires registration and custody envelope',
+          };
+        }
+        const expectedOrigin = toOptionalTrimmedString(ceremony.expectedOrigin);
+        if (!expectedOrigin) {
+          return {
+            ok: false,
+            code: 'invalid_state',
+            message: 'Passkey add-auth-method ceremony has no expected origin',
+          };
+        }
+        const verified = await this.verifyRegistrationCredentialForIntent({
+          webauthnRegistration: request.webauthnRegistration,
+          expectedChallenge: ceremony.passkeyRegistration.challengeB64u,
+          expectedOrigin,
+          rpId: ceremony.passkeyRegistration.rpId,
+        });
+        if (!verified.ok) return verified;
+        const credential = verified.credential;
+        const duplicate = await this.getWalletAuthMethodStore().getPasskey({
+          rpId: ceremony.passkeyRegistration.rpId,
+          credentialIdB64u: credential.credentialIdB64u,
+        });
+        const duplicateAuthenticator = await this.webAuthnStore.readAuthenticator({
+          userId: String(walletId),
+          credentialIdB64u: credential.credentialIdB64u,
+        });
+        const duplicateBinding = await this.webAuthnStore.readBindingByCredential({
+          rpId: ceremony.passkeyRegistration.rpId,
+          credentialIdB64u: credential.credentialIdB64u,
+        });
+        if (duplicate || duplicateAuthenticator || duplicateBinding) {
+          return {
+            ok: false,
+            code: 'duplicate_auth_method',
+            message: 'Passkey credential is already registered',
+          };
+        }
+
+        let replacementEnvelope;
+        try {
+          replacementEnvelope = parsePasskeyCustodyEnvelopeRecord(request.custodyEnvelope);
+        } catch {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'custodyEnvelope is invalid',
+          };
+        }
+        const expectedCiphertextDigestB64u = base64UrlEncode(
+          await this.sha256Bytes(base64UrlDecode(replacementEnvelope.sealedCustodySecretB64u)),
+        );
+        if (
+          replacementEnvelope.walletId !== walletId ||
+          replacementEnvelope.factor.kind !== 'passkey' ||
+          replacementEnvelope.factor.rpId !== ceremony.passkeyRegistration.rpId ||
+          replacementEnvelope.factor.credentialIdB64u !== credential.credentialIdB64u ||
+          replacementEnvelope.envelopeRevision !== 1 ||
+          replacementEnvelope.lifecycle.state !== 'active' ||
+          replacementEnvelope.envelopeId === ceremony.custodyEnvelope.envelopeId ||
+          replacementEnvelope.ciphertextDigestB64u !== expectedCiphertextDigestB64u
+        ) {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'custodyEnvelope is not bound to the verified passkey',
+          };
+        }
+        const currentEnvelope = await this.passkeyCustodyEnvelopes.lookupEnvelopeForFactor({
+          walletId,
+          factor: {
+            kind: 'passkey',
+            rpId: ceremony.auth.kind === 'webauthn_assertion' ? ceremony.auth.rpId : ceremony.passkeyRegistration.rpId,
+            credentialIdB64u:
+              ceremony.auth.kind === 'webauthn_assertion'
+                ? ceremony.auth.credentialIdB64u
+                : replacementEnvelope.factor.credentialIdB64u,
+          },
+        });
+        if (
+          currentEnvelope.kind !== 'active' ||
+          currentEnvelope.envelope.envelopeId !== ceremony.custodyEnvelope.envelopeId
+        ) {
+          return {
+            ok: false,
+            code: 'conflict',
+            message: 'Existing passkey custody changed; retry add-auth-method linking',
+          };
+        }
+        const authority: RegistrationAuthority = {
+          kind: 'passkey',
+          walletId,
+          rpId: ceremony.passkeyRegistration.rpId,
+          credentialIdB64u: credential.credentialIdB64u,
+          credentialPublicKeyB64u: credential.credentialPublicKeyB64u,
+          counter: credential.counter,
+          device: credential.device,
+          registrationIntentDigestB64u: ceremony.digestB64u,
+        };
+        const now = Date.now();
+        const authMethod = walletAuthMethodRecordFromRegistrationAuthority({
+          authority,
+          now,
+        });
+        const binding = {
+          version: 'webauthn_credential_binding_v1' as const,
+          rpId: ceremony.passkeyRegistration.rpId,
+          credentialIdB64u: credential.credentialIdB64u,
+          userId: String(walletId),
+          createdAtMs: now,
+          updatedAtMs: now,
+        };
+        const link = await this.passkeyCustodyEnvelopes.linkPasskeyFactorAtomically({
+          envelope: replacementEnvelope,
+          additionalStatements: [
+            this.webAuthnStore.prepareAuthenticatorInsertStatement({
+              userId: String(walletId),
+              record: {
+                credentialIdB64u: credential.credentialIdB64u,
+                credentialPublicKeyB64u: credential.credentialPublicKeyB64u,
+                counter: credential.counter,
+                createdAtMs: now,
+                updatedAtMs: now,
+                deviceInfo: credential.device,
+              },
+            }),
+            this.webAuthnStore.prepareCredentialBindingInsertStatement(binding),
+            ...this.getWalletAuthMethodStore().preparePasskeyRegistrationStatements(authMethod),
+          ],
+        });
+        if (link.kind === 'version_mismatch' || link.kind === 'conflict') {
+          return {
+            ok: false,
+            code: 'conflict',
+            message: 'Passkey credential or custody envelope already exists',
+          };
+        }
+        await store.takeAddAuthMethodCeremony(ceremony.addAuthMethodCeremonyId);
+        return {
+          ok: true,
+          walletId,
+          authority: walletAuthAuthorityFromRegistrationAuthority(authority),
+          rpId: ceremony.passkeyRegistration.rpId,
+          authMethod: { kind: 'passkey', status: 'active' },
+        };
+      }
+
       const duplicate = await this.findDuplicateAuthority(ceremony.authority);
       if (duplicate) return duplicate;
       const consumed = await store.takeAddAuthMethodCeremony(ceremony.addAuthMethodCeremonyId);
-      if (!consumed) {
+      if (!consumed || consumed.kind !== 'email_otp') {
         return { ok: false, code: 'not_found', message: 'add-auth-method ceremony not found' };
       }
-      await this.persistAuthority({
-        authority: consumed.authority,
-        now: Date.now(),
-      });
+      await this.persistAuthority({ authority: consumed.authority, now: Date.now() });
       const authority = walletAuthAuthorityFromRegistrationAuthority(consumed.authority);
       return {
         ok: true,
         walletId: consumed.intent.walletId,
         authority,
-        ...(consumed.authority.kind === 'passkey' ? { rpId: consumed.authority.rpId } : {}),
-        authMethod: {
-          kind: consumed.authority.kind,
-          status: 'active',
-        },
+        authMethod: { kind: 'email_otp', status: 'active' },
       };
     } catch (error: unknown) {
       return {
@@ -490,35 +708,6 @@ export class CloudflareD1WalletAuthMethodService {
     }
   }
 
-  async verifyAddAuthMethodAuthority(input: {
-    readonly orgId: string;
-    readonly authority: StartWalletAddAuthMethodInput['authority'];
-    readonly expectedDigestB64u: string;
-    readonly expectedOrigin: string;
-    readonly intent: AddAuthMethodIntentV1;
-    readonly userAgent?: string;
-  }): Promise<WalletAuthMethodAuthorityResult> {
-    const authority = input.authority;
-    switch (authority.kind) {
-      case 'passkey':
-        return await this.verifyAddAuthMethodPasskeyAuthority({
-          authority,
-          expectedDigestB64u: input.expectedDigestB64u,
-          expectedOrigin: input.expectedOrigin,
-          intent: input.intent,
-          userAgent: input.userAgent,
-        });
-      case 'email_otp':
-        return await this.verifyAddAuthMethodEmailOtpAuthority({
-          orgId: input.orgId,
-          authority,
-          expectedDigestB64u: input.expectedDigestB64u,
-          intent: input.intent,
-        });
-    }
-    return unreachableAddAuthMethodAuthority(authority);
-  }
-
   async findDuplicateAuthority(
     authority: RegistrationAuthority,
   ): Promise<WalletAuthMethodError | null> {
@@ -571,6 +760,47 @@ export class CloudflareD1WalletAuthMethodService {
         now: input.now,
       }),
     );
+  }
+
+  private createPasskeyRegistrationOptions(input: {
+    readonly walletId: WalletId;
+    readonly rpId: string;
+    readonly walletMethods: readonly WalletAuthMethodRecord[];
+  }): WalletAddAuthMethodRegistrationOptions {
+    const challengeId = secureRandomBase64Url(16, 'add-auth-method registration challenge id');
+    const challengeB64u = secureRandomBase64Url(32, 'add-auth-method registration challenge');
+    return {
+      kind: 'webauthn_add_auth_method_registration_v1',
+      challengeId,
+      challengeB64u,
+      rpId: input.rpId,
+      user: {
+        idB64u: base64UrlEncode(new TextEncoder().encode(String(input.walletId))),
+        name: String(input.walletId),
+        displayName: String(input.walletId),
+      },
+      pubKeyCredParams: [
+        { type: 'public-key', alg: -7 },
+        { type: 'public-key', alg: -257 },
+      ],
+      authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
+      timeoutMs: 60_000,
+      attestation: 'none',
+      extensions: {
+        prf: {
+          eval: {
+            firstB64u: base64UrlEncode(PASSKEY_PRF_FIRST_SALT_V1),
+            secondB64u: base64UrlEncode(PASSKEY_PRF_SECOND_SALT_V1),
+          },
+        },
+      },
+      excludeCredentials: input.walletMethods
+        .filter(
+          (method): method is Extract<WalletAuthMethodRecord, { kind: 'passkey' }> =>
+            method.kind === 'passkey' && method.rpId === input.rpId,
+        )
+        .map((method) => ({ type: 'public-key' as const, id: method.credentialIdB64u })),
+    };
   }
 
   async revokeWalletAuthMethod(
@@ -1124,54 +1354,6 @@ export class CloudflareD1WalletAuthMethodService {
         orgId: orgId.value,
         appSessionVersion: appSessionVersion.value,
         challengePurpose: 'registration',
-        registrationIntentDigestB64u: input.expectedDigestB64u,
-      },
-    };
-  }
-
-  private async verifyAddAuthMethodPasskeyAuthority(input: {
-    readonly authority: PasskeyWalletRegistrationAuthorityInput;
-    readonly expectedDigestB64u: string;
-    readonly expectedOrigin: string;
-    readonly intent: AddAuthMethodIntentV1;
-    readonly userAgent?: string;
-  }): Promise<WalletAuthMethodAuthorityResult> {
-    if (input.intent.authMethod.kind !== 'passkey') {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'Passkey add-auth-method authority requires a passkey intent',
-      };
-    }
-    const verified = await this.verifyRegistrationCredentialForIntent({
-      webauthnRegistration: input.authority.webauthnRegistration,
-      expectedChallenge: input.expectedDigestB64u,
-      expectedOrigin: input.expectedOrigin,
-      rpId: input.intent.authMethod.rpId,
-      userAgent: input.userAgent,
-    });
-    if (!verified.ok) return verified;
-    const duplicateCredential = await this.getWalletAuthMethodStore().getPasskey({
-      rpId: input.intent.authMethod.rpId,
-      credentialIdB64u: verified.credential.credentialIdB64u,
-    });
-    if (duplicateCredential) {
-      return {
-        ok: false,
-        code: 'duplicate_auth_method',
-        message: 'Passkey credential is already registered',
-      };
-    }
-    return {
-      ok: true,
-      authority: {
-        kind: 'passkey',
-        walletId: input.intent.walletId,
-        rpId: input.intent.authMethod.rpId,
-        credentialIdB64u: verified.credential.credentialIdB64u,
-        credentialPublicKeyB64u: verified.credential.credentialPublicKeyB64u,
-        counter: verified.credential.counter,
-        device: verified.credential.device,
         registrationIntentDigestB64u: input.expectedDigestB64u,
       },
     };
