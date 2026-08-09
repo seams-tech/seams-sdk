@@ -1308,7 +1308,7 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
       if (!custodyRpId.ok || !custodyCredentialId.ok) {
         throw new Error('Verified passkey custody identity is invalid');
       }
-      const custodyEnvelope = await ctx.service.passkeyCustody.readVerifiedEnvelope({
+      const custodyEnvelope = await ctx.service.passkeyCustody.readVerifiedFactorCustody({
         walletId: walletIdFromString(verified.userId),
         factor: {
           kind: 'passkey',
@@ -2189,6 +2189,19 @@ export async function handleWalletUnlockVerify(
     body,
     origin: String(ctx.request.headers.get('origin') || '').trim() || undefined,
     service: ctx.service.walletUnlock,
+    resolveEmailOtpCustody: async ({
+      walletId,
+      enrollmentId,
+      enrollmentSealKeyVersion,
+    }) =>
+      await ctx.service.passkeyCustody.readVerifiedFactorCustody({
+        walletId: walletIdFromString(walletId),
+        factor: {
+          kind: 'email_otp',
+          enrollmentId,
+          enrollmentSealKeyVersion,
+        },
+      }),
     capabilityContext,
     ecdsaSession,
     emitRouterApiWebhook: async (event) => {
