@@ -2,6 +2,7 @@ import { alphabetizeStringify } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type { EcdsaClientRootPublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import type { EcdsaServerGeneration } from '@shared/utils/ecdsaCapabilityActivation';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { WalletId } from '@shared/utils/domainIds';
 import type {
@@ -85,7 +86,7 @@ export type WalletRecoveryPreparationKeyManifestEntryV1 =
       readonly keyHandle: string;
       readonly evmFamilySigningKeySlotId: string;
       readonly recordedKeyManifestDigestB64u: string;
-      readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+      readonly recoveryBasis: WalletRecoveryPreparationEcdsaRecoveryBasisV1;
       readonly chainTargetKeys: readonly string[];
     };
 
@@ -100,6 +101,11 @@ export type WalletRecoveryPreparationNearRecoveryBasisV1 = {
   readonly activationTranscript: RouterAbEd25519YaoBytes32V1;
   readonly activationStateEpoch: number;
   readonly signingWorkerVerifyingShare: RouterAbEd25519YaoBytes32V1;
+};
+
+export type WalletRecoveryPreparationEcdsaRecoveryBasisV1 = {
+  readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+  readonly serverGeneration: EcdsaServerGeneration;
 };
 
 export type WalletUnlockKeyManifestEntryV1 =
@@ -265,7 +271,10 @@ function projectWalletRecoveryPreparationEntryV1(
         keyHandle: entry.keyHandle,
         evmFamilySigningKeySlotId: entry.evmFamilySigningKeySlotId,
         recordedKeyManifestDigestB64u: entry.recordedKeyManifestDigestB64u,
-        publicCapability: entry.publicCapability,
+        recoveryBasis: {
+          publicCapability: entry.publicCapability,
+          serverGeneration: entry.activationReceipt.server_generation,
+        },
         chainTargetKeys: [...entry.chainTargetKeys],
       };
   }

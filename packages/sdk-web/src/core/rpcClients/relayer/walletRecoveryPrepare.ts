@@ -31,6 +31,10 @@ import {
   type RouterAbEcdsaDerivationPublicCapabilityV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
+  parseEcdsaServerGeneration,
+  type EcdsaServerGeneration,
+} from '@shared/utils/ecdsaCapabilityActivation';
+import {
   normalizeRuntimePolicyScope,
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
@@ -86,7 +90,7 @@ export type WalletRecoveryPreparationKeyManifestEntry =
       readonly keyHandle: string;
       readonly evmFamilySigningKeySlotId: string;
       readonly recordedKeyManifestDigestB64u: DigestB64u;
-      readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+      readonly recoveryBasis: WalletRecoveryPreparationEcdsaRecoveryBasis;
       readonly chainTargetKeys: readonly string[];
     };
 
@@ -101,6 +105,11 @@ export type WalletRecoveryPreparationNearRecoveryBasis = {
   readonly activationTranscript: RouterAbEd25519YaoBytes32V1;
   readonly activationStateEpoch: number;
   readonly signingWorkerVerifyingShare: RouterAbEd25519YaoBytes32V1;
+};
+
+export type WalletRecoveryPreparationEcdsaRecoveryBasis = {
+  readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+  readonly serverGeneration: EcdsaServerGeneration;
 };
 
 export type WalletCustodyUnlockKeyManifestEntry =
@@ -824,7 +833,7 @@ function parseWalletRecoveryPreparationKeyManifestEntry(
           'keyHandle',
           'evmFamilySigningKeySlotId',
           'recordedKeyManifestDigestB64u',
-          'publicCapability',
+          'recoveryBasis',
           'chainTargetKeys',
         ],
         'walletRecoveryPrepare.keyManifest.entries[].evm_family_ecdsa',
@@ -841,8 +850,8 @@ function parseWalletRecoveryPreparationKeyManifestEntry(
       if (!Array.isArray(entry.chainTargetKeys) || entry.chainTargetKeys.length === 0) {
         throw new Error('walletRecoveryPrepare ECDSA key set has no chain targets');
       }
-      const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(
-        entry.publicCapability,
+      const recoveryBasis = parseWalletRecoveryPreparationEcdsaRecoveryBasis(
+        entry.recoveryBasis,
       );
       return {
         kind: 'evm_family_ecdsa',
@@ -855,7 +864,7 @@ function parseWalletRecoveryPreparationKeyManifestEntry(
           entry.recordedKeyManifestDigestB64u,
           'walletRecoveryPrepare.keyManifest.entries[].recordedKeyManifestDigestB64u',
         ),
-        publicCapability,
+        recoveryBasis,
         chainTargetKeys: entry.chainTargetKeys.map((value) =>
           requireResponseString(value, 'keyManifest.entries[].chainTargetKeys[]'),
         ),
@@ -939,6 +948,23 @@ function parseWalletRecoveryPreparationNearRecoveryBasis(
     activationTranscript,
     activationStateEpoch,
     signingWorkerVerifyingShare,
+  };
+}
+
+function parseWalletRecoveryPreparationEcdsaRecoveryBasis(
+  raw: unknown,
+): WalletRecoveryPreparationEcdsaRecoveryBasis {
+  const basis = requireRecord(raw, 'walletRecoveryPrepare.keyManifest.entries[].recoveryBasis');
+  rejectUnknownFields(
+    basis,
+    ['publicCapability', 'serverGeneration'],
+    'walletRecoveryPrepare.keyManifest.entries[].recoveryBasis',
+  );
+  return {
+    publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(
+      basis.publicCapability,
+    ),
+    serverGeneration: parseEcdsaServerGeneration(basis.serverGeneration),
   };
 }
 
