@@ -15,6 +15,9 @@ import {
 } from '../emailOtp/emailOtpSessionRouteHelpers';
 import type { RouterAbEd25519YaoActiveCapabilityDescriptorV1 } from '../ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import type { RouterAbEcdsaPostRegistrationSessionActivationResponseV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbEcdsaRegistrationActivationReceiptV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbEcdsaPostRegistrationSessionActivationPolicyV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { WalletEcdsaSignerRecord } from '../../../core/WalletStore';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import type { WalletUnlockKeyManifestV1 } from '../passkeyCustody/walletRecoveryKeyManifest';
 import type {
@@ -89,10 +92,13 @@ export type WalletUnlockEcdsaSessionContext =
   | {
       readonly kind: 'provision_first_ecdsa_session';
       readonly walletId: string;
+      readonly policy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1;
       readonly provisionWalletSession: (input: WalletUnlockEcdsaAuthorization) => Promise<
         | {
             readonly ok: true;
             readonly activation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+            readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+            readonly continuity: WalletUnlockEcdsaCustodyContinuityV1;
           }
         | {
             readonly ok: false;
@@ -102,6 +108,30 @@ export type WalletUnlockEcdsaSessionContext =
           }
       >;
     };
+
+export type WalletUnlockEcdsaCustodySignerV1 = {
+  readonly chainTarget: WalletEcdsaSignerRecord['chainTarget'];
+  readonly walletKey: Pick<
+    WalletEcdsaSignerRecord['walletKey'],
+    | 'walletId'
+    | 'keyHandle'
+    | 'ecdsaThresholdKeyId'
+    | 'signingRootId'
+    | 'signingRootVersion'
+    | 'relayerKeyId'
+    | 'contextBinding32B64u'
+    | 'derivationClientSharePublicKey33B64u'
+    | 'participantIds'
+    | 'publicCapability'
+  >;
+  readonly activationReceipt: WalletEcdsaSignerRecord['activationReceipt'];
+  readonly runtimePolicyScope: WalletEcdsaSignerRecord['runtimePolicyScope'];
+};
+
+export type WalletUnlockEcdsaCustodyContinuityV1 = {
+  readonly kind: 'wallet_custody_ecdsa_sync_continuity_v1';
+  readonly signers: readonly WalletUnlockEcdsaCustodySignerV1[];
+};
 
 export type WalletUnlockEcdsaAuthorization =
   | {
@@ -144,6 +174,8 @@ type WalletUnlockEcdsaSessionResult =
   | {
       readonly ok: true;
       readonly activation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1 | null;
+      readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1 | null;
+      readonly continuity: WalletUnlockEcdsaCustodyContinuityV1 | null;
     }
   | { readonly ok: false; readonly response: WalletUnlockRouteResponse };
 
@@ -245,7 +277,7 @@ async function provisionFirstEcdsaWalletSession(input: {
 }): Promise<WalletUnlockEcdsaSessionResult> {
   switch (input.context.kind) {
     case 'no_ecdsa_session':
-      return { ok: true, activation: null };
+      return { ok: true, activation: null, activationReceipt: null, continuity: null };
     case 'provision_first_ecdsa_session': {
       if (input.context.walletId !== input.verifiedWalletId) {
         return {
@@ -274,7 +306,12 @@ async function provisionFirstEcdsaWalletSession(input: {
           },
         };
       }
-      return { ok: true, activation: provisioned.activation };
+      return {
+        ok: true,
+        activation: provisioned.activation,
+        activationReceipt: provisioned.activationReceipt,
+        continuity: provisioned.continuity,
+      };
     }
   }
 }
@@ -546,6 +583,10 @@ export async function handleWalletUnlockVerifyRoute(input: {
         unlockBackend,
         userId,
         ...(ecdsaSession.activation ? { ecdsaSession: ecdsaSession.activation } : {}),
+        ...(ecdsaSession.activationReceipt
+          ? { ecdsaActivationReceipt: ecdsaSession.activationReceipt }
+          : {}),
+        ...(ecdsaSession.continuity ? { ecdsaCustody: ecdsaSession.continuity } : {}),
       },
     };
   }
@@ -632,6 +673,10 @@ export async function handleWalletUnlockVerifyRoute(input: {
         userId: result.userId,
         walletCustody: emailOtpCustody.projection,
         ...(ecdsaSession.activation ? { ecdsaSession: ecdsaSession.activation } : {}),
+        ...(ecdsaSession.activationReceipt
+          ? { ecdsaActivationReceipt: ecdsaSession.activationReceipt }
+          : {}),
+        ...(ecdsaSession.continuity ? { ecdsaCustody: ecdsaSession.continuity } : {}),
       },
     };
   }
@@ -673,6 +718,10 @@ export async function handleWalletUnlockVerifyRoute(input: {
       walletCustody: emailOtpCustody.projection,
       ed25519YaoCapability: capabilityResult.value,
       ...(ecdsaSession.activation ? { ecdsaSession: ecdsaSession.activation } : {}),
+      ...(ecdsaSession.activationReceipt
+        ? { ecdsaActivationReceipt: ecdsaSession.activationReceipt }
+        : {}),
+      ...(ecdsaSession.continuity ? { ecdsaCustody: ecdsaSession.continuity } : {}),
     },
   };
 }

@@ -45,6 +45,7 @@ export function createStepUpRuntime(args: {
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
   thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey;
   loadWalletCustodyEd25519Material: EmailOtpWalletSessionCoordinatorDeps['loadWalletCustodyEd25519Material'];
+  restoreWalletCustodyEcdsaContinuity: EmailOtpWalletSessionCoordinatorDeps['restoreWalletCustodyEcdsaContinuity'];
   persistEcdsaRoleLocalReadyRecord: DurableRecordStore['persistEcdsaRoleLocalReadyRecord'];
   listActiveEcdsaCapabilityManifestsForWallet: (
     walletId: string,
@@ -57,6 +58,7 @@ export function createStepUpRuntime(args: {
     getRpId: () => args.touchIdPrompt.getRpId(),
     getSignerWorkerContext: args.getSignerWorkerContext,
     loadWalletCustodyEd25519Material: args.loadWalletCustodyEd25519Material,
+    restoreWalletCustodyEcdsaContinuity: args.restoreWalletCustodyEcdsaContinuity,
     readActiveWalletSessionAuthorization: walletSessionAuthorizations.readActiveForWallet.bind(
       walletSessionAuthorizations,
     ),

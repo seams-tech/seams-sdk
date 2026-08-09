@@ -27,6 +27,7 @@ import type { ThresholdEcdsaEmailOtpExportActivationRequest } from '@/core/signi
 import type { EmailOtpEcdsaExplicitExportBootstrapResult } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { EmailOtpWalletCustodyEd25519MaterialRequest } from '../../workerManager/workerTypes';
+import type { ImportWalletCustodyEcdsaContinuityInput } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 
 export type EmailOtpCoordinatorRuntimePorts = {
   configs: SeamsConfigsReadonly;
@@ -44,6 +45,9 @@ export type EmailOtpEcdsaSessionPorts = {
     nearAccountId: string;
     signerSlot: number;
   }) => Promise<EmailOtpWalletCustodyEd25519MaterialRequest>;
+  restoreWalletCustodyEcdsaContinuity: (
+    args: Omit<ImportWalletCustodyEcdsaContinuityInput, 'store'>,
+  ) => Promise<unknown>;
   withThresholdEcdsaSigningQueue: <T>(args: {
     queueKey: string;
     walletId: WalletId;

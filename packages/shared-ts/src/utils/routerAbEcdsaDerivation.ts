@@ -369,6 +369,17 @@ export type RouterAbEcdsaPostRegistrationSessionPolicyV1 = {
   runtime_policy_scope: RuntimePolicyScope;
 };
 
+/**
+ * Unlock callers select a persisted key by its exact handle and provide only
+ * the session budget. The authenticated router resolves the public capability
+ * before constructing the canonical activation request.
+ */
+export type RouterAbEcdsaPostRegistrationSessionActivationPolicyV1 = {
+  kind: 'router_ab_ecdsa_post_registration_session_activation_policy_v1';
+  key_handle: string;
+  session_policy: RouterAbEcdsaPostRegistrationSessionPolicyV1;
+};
+
 export type RouterAbEcdsaPostRegistrationSessionActivationRequestV1 = {
   kind: 'router_ab_ecdsa_post_registration_session_activation_v1';
   public_capability: RouterAbEcdsaDerivationPublicCapabilityV1;
@@ -2065,6 +2076,22 @@ function parsePostRegistrationSessionPolicy(
     ttl_ms: requirePositiveCounter(record.ttl_ms, `${label}.ttl_ms`),
     remaining_uses: requirePositiveCounter(record.remaining_uses, `${label}.remaining_uses`),
     runtime_policy_scope: normalizeRuntimePolicyScope(record.runtime_policy_scope),
+  };
+}
+
+export function parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1(
+  value: unknown,
+): RouterAbEcdsaPostRegistrationSessionActivationPolicyV1 {
+  const label = 'postRegistrationSessionActivationPolicy';
+  const record = requireRecord(value, label);
+  requireExactKeys(record, label, ['kind', 'key_handle', 'session_policy']);
+  if (record.kind !== 'router_ab_ecdsa_post_registration_session_activation_policy_v1') {
+    throw new Error(`${label}.kind is invalid`);
+  }
+  return {
+    kind: 'router_ab_ecdsa_post_registration_session_activation_policy_v1',
+    key_handle: requireAsciiNonEmptyString(record.key_handle, `${label}.key_handle`),
+    session_policy: parsePostRegistrationSessionPolicy(record.session_policy),
   };
 }
 

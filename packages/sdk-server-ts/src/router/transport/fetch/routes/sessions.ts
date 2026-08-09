@@ -11,17 +11,21 @@ import { emitRouterApiWebhookEvent } from '../../../framework/routerApiWebhooks'
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import { headersToRecord, json, readJson } from '../../../framework/http';
 import { resolveThresholdRuntimePolicyScope } from '../../../auth/commonRouterUtils';
+import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import { alphabetizeStringify } from '@shared/utils/digests';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   handleWalletUnlockChallengeRoute,
   handleWalletUnlockVerifyRoute,
+  type WalletUnlockEcdsaCustodySignerV1,
   type WalletUnlockEcdsaSessionContext,
   type WalletUnlockCapabilityContext,
 } from '../../../domains/walletUnlock/walletUnlockRouteHandlers';
 import { handleStrictEcdsaSessionActivation } from './thresholdEcdsa';
 import {
-  parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
+  parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
   parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
+  type RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
   type RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
@@ -200,20 +204,119 @@ async function dispatchSessionExchangeSucceeded(
   await emission;
 }
 
+function projectWalletUnlockEcdsaCustodySigner(
+  signer: Awaited<
+    ReturnType<FetchRouterApiContext['service']['walletRegistration']['listWalletEcdsaCustodyContinuity']>
+  >[number],
+): WalletUnlockEcdsaCustodySignerV1 {
+  return {
+    chainTarget: signer.chainTarget,
+    walletKey: {
+      walletId: signer.walletKey.walletId,
+      keyHandle: signer.walletKey.keyHandle,
+      ecdsaThresholdKeyId: signer.walletKey.ecdsaThresholdKeyId,
+      signingRootId: signer.walletKey.signingRootId,
+      signingRootVersion: signer.walletKey.signingRootVersion,
+      relayerKeyId: signer.walletKey.relayerKeyId,
+      contextBinding32B64u: signer.walletKey.contextBinding32B64u,
+      derivationClientSharePublicKey33B64u:
+        signer.walletKey.derivationClientSharePublicKey33B64u,
+      participantIds: signer.walletKey.participantIds,
+      publicCapability: signer.walletKey.publicCapability,
+    },
+    activationReceipt: signer.activationReceipt,
+    runtimePolicyScope: signer.runtimePolicyScope,
+  };
+}
+
+type WalletUnlockEcdsaAuthoredRequest = {
+  readonly request: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
+  readonly activationReceipt: WalletUnlockEcdsaCustodySignerV1['activationReceipt'];
+  readonly continuity: {
+    readonly kind: 'wallet_custody_ecdsa_sync_continuity_v1';
+    readonly signers: readonly WalletUnlockEcdsaCustodySignerV1[];
+  };
+};
+
+async function authorWalletUnlockEcdsaRequest(
+  ctx: FetchRouterApiContext,
+  walletId: string,
+  policy: ReturnType<typeof parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1>,
+): Promise<
+  | { readonly ok: true; readonly value: WalletUnlockEcdsaAuthoredRequest }
+  | { readonly ok: false; readonly status: number; readonly code: string; readonly message: string }
+> {
+  const signers = await ctx.service.walletRegistration.listWalletEcdsaCustodyContinuity({
+    walletId,
+  });
+  const matching = signers.filter((signer) => signer.walletKey.keyHandle === policy.key_handle);
+  const first = matching[0];
+  if (!first) {
+    return {
+      ok: false,
+      status: 404,
+      code: 'ecdsa_key_not_found',
+      message: 'ECDSA key handle is not active for this wallet',
+    };
+  }
+  const requestedScope = normalizeRuntimePolicyScope(policy.session_policy.runtime_policy_scope);
+  if (
+    matching.some(
+      (signer) =>
+        alphabetizeStringify(signer.runtimePolicyScope) !== alphabetizeStringify(requestedScope) ||
+        alphabetizeStringify(signer.walletKey.publicCapability) !==
+          alphabetizeStringify(first.walletKey.publicCapability) ||
+        alphabetizeStringify(signer.activationReceipt) !==
+          alphabetizeStringify(first.activationReceipt),
+    )
+  ) {
+    return {
+      ok: false,
+      status: 409,
+      code: 'ecdsa_key_continuity_conflict',
+      message: 'ECDSA key handle resolves to conflicting active custody records',
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      request: {
+        kind: 'router_ab_ecdsa_post_registration_session_activation_v1',
+        public_capability: first.walletKey.publicCapability,
+        session_policy: policy.session_policy,
+      },
+      activationReceipt: first.activationReceipt,
+      continuity: {
+        kind: 'wallet_custody_ecdsa_sync_continuity_v1',
+        signers: matching.map(projectWalletUnlockEcdsaCustodySigner),
+      },
+    },
+  };
+}
+
 function walletUnlockEcdsaSessionContext(
   ctx: FetchRouterApiContext,
   body: unknown,
 ): WalletUnlockEcdsaSessionContext {
-  if (!isPlainObject(body) || body.ecdsaSessionActivation === undefined) {
+  if (isPlainObject(body) && body.ecdsaSessionActivation !== undefined) {
+    throw new Error('ecdsaSessionActivation is no longer accepted; send ecdsaSessionPolicy');
+  }
+  if (!isPlainObject(body) || body.ecdsaSessionPolicy === undefined) {
     return { kind: 'no_ecdsa_session' };
   }
-  const request = parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1(
-    body.ecdsaSessionActivation,
+  const policy = parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1(
+    body.ecdsaSessionPolicy,
   );
+  const walletId = String(body.walletId || '').trim();
+  if (!walletId) throw new Error('walletId is required with ecdsaSessionPolicy');
   return {
     kind: 'provision_first_ecdsa_session',
-    walletId: request.public_capability.client_id,
+    walletId,
+    policy,
     provisionWalletSession: async (authorization) => {
+      const authored = await authorWalletUnlockEcdsaRequest(ctx, walletId, policy);
+      if (!authored.ok) return authored;
+      const { request, activationReceipt, continuity } = authored.value;
       let response: Response;
       if (authorization.kind === 'reuse_ed25519_wallet_session') {
         response = await handleStrictEcdsaSessionActivation({
@@ -227,7 +330,7 @@ function walletUnlockEcdsaSessionContext(
         if (authorization.verifiedProviderUserId) {
           const resolvedAuthority =
             await ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
-              walletId: request.public_capability.client_id,
+              walletId,
               providerUserId: authorization.verifiedProviderUserId,
             });
           if (!resolvedAuthority.ok) {
@@ -262,6 +365,8 @@ function walletUnlockEcdsaSessionContext(
       return {
         ok: true,
         activation: parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(responseBody),
+        activationReceipt,
+        continuity,
       };
     },
   };
@@ -1553,6 +1658,8 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
     );
     recordSessionExchangeTiming(timings, 'active_session_commit', activeSessionCommitStartedAt);
     let ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1 | undefined;
+    let ecdsaActivationReceipt: WalletUnlockEcdsaCustodySignerV1['activationReceipt'] | undefined;
+    let ecdsaCustody: WalletUnlockEcdsaAuthoredRequest['continuity'] | undefined;
     if (
       command.kind === 'passkey_assertion' &&
       command.ecdsaActivation.kind === 'activate_first_ecdsa_wallet_session'
@@ -1560,10 +1667,39 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
       if (!passkeyAuthorityRef) {
         throw new Error('verified passkey exchange did not resolve an authority');
       }
+      if (command.walletId !== userId) {
+        return json(
+          {
+            ok: false,
+            code: 'scope_mismatch',
+            message: 'Passkey ECDSA policy wallet does not match the verified passkey wallet',
+          },
+          { status: 403 },
+        );
+      }
+      const authored = await authorWalletUnlockEcdsaRequest(
+        ctx,
+        userId,
+        command.ecdsaActivation.policy,
+      );
+      if (!authored.ok) {
+        await emitSessionExchangeFailed(ctx, {
+          status: authored.status,
+          code: authored.code,
+          message: authored.message,
+          exchangeType,
+          sessionKind,
+          userId,
+        });
+        return json(
+          { ok: false, code: authored.code, message: authored.message },
+          { status: authored.status },
+        );
+      }
       const ecdsaActivationStartedAt = performance.now();
       const activationResponse = await handleStrictEcdsaSessionActivation({
         ctx,
-        body: command.ecdsaActivation.request,
+        body: authored.value.request,
         source: 'verified_passkey_session_exchange',
         authorization: {
           walletId: userId,
@@ -1587,6 +1723,8 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
         return json(activationBody, { status: activationResponse.status });
       }
       ecdsaSession = parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(activationBody);
+      ecdsaActivationReceipt = authored.value.activationReceipt;
+      ecdsaCustody = authored.value.continuity;
     }
     if (provider === 'passkey') {
       const strongAuthCommitStartedAt = performance.now();
@@ -1646,6 +1784,8 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
     const responseBody = {
       ok: true,
       ...(ecdsaSession ? { ecdsaSession } : {}),
+      ...(ecdsaActivationReceipt ? { ecdsaActivationReceipt } : {}),
+      ...(ecdsaCustody ? { ecdsaCustody } : {}),
       ...(passkeyCustodyUnlock ? { walletCustody: passkeyCustodyUnlock } : {}),
       session: {
         kind: 'app_session_v1',
