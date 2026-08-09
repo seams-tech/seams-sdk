@@ -40,7 +40,7 @@ import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/temp
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
-import type { ProductEd25519YaoCapabilityActivationPortV1 } from '@/core/signingEngine/flows/registration/services/ed25519YaoRegistration';
+import type { NearEd25519YaoOperationMaterial } from '@/core/signingEngine/interfaces/near';
 import type { Ed25519YaoActiveClientIdentityV1 } from '@/core/signingEngine/threshold/ed25519/yaoActiveClientRegistry';
 import type {
   Ed25519YaoPublicCapabilityLaneReferenceV1,
@@ -342,7 +342,11 @@ export interface EcdsaRegistrationSurface {
   ): Promise<StoreWalletEcdsaSignerRecordsResult>;
 }
 
-export type Ed25519YaoRegistrationActivationSurface = ProductEd25519YaoCapabilityActivationPortV1;
+export interface Ed25519YaoCapabilityActivationSurface {
+  activateVerifiedNearEd25519YaoMaterial(
+    material: NearEd25519YaoOperationMaterial,
+  ): Promise<Ed25519YaoActiveClientIdentityV1>;
+}
 
 /**
  * Running one wallet custody key set from the registration flow.
@@ -602,7 +606,7 @@ export type WalletSessionReadSurface = RuntimeStartupSurface &
 export type LoginUnlockSigningSurface = WalletSessionReadSurface &
   UserAccountLookupSurface &
   LoginWarmSigningSurface &
-  Ed25519YaoRegistrationActivationSurface &
+  Ed25519YaoCapabilityActivationSurface &
   Ed25519MaterialOwnerQueueSurface &
   Pick<WalletCustodyCeremonySurface, 'loadWalletCustodyEd25519Material'> &
   EcdsaLoginSessionSurface &
@@ -638,7 +642,7 @@ export type LocalLoginStateSurface = WalletSessionReadSurface &
   >;
 
 export type AccountSyncSigningSurface = LocalLoginStateSurface &
-  Ed25519YaoRegistrationActivationSurface &
+  Ed25519YaoCapabilityActivationSurface &
   WalletCustodyCeremonySurface &
   Ed25519MaterialOwnerQueueSurface &
   Pick<EcdsaSessionControlSurface, 'clearVolatileWarmSigningMaterial'> &
@@ -753,7 +757,7 @@ export interface EmailOtpRegistrationEnrollmentSurface {
 }
 
 export type RegistrationSigningSurface = RpIdSurface &
-  Ed25519YaoRegistrationActivationSurface &
+  Ed25519YaoCapabilityActivationSurface &
   WalletCustodyCeremonySurface &
   Pick<WalletIframeWarmupSurface, 'warmCriticalResources'> &
   RegistrationResourceWarmupSurface &
@@ -821,7 +825,7 @@ export type LocalLoginStateWebContext = SeamsWebBaseContext<LocalLoginStateSurfa
 export type AccountSyncWebContext = SeamsWebBaseContext<AccountSyncSigningSurface>;
 
 export type EmailRecoverySigningSurface = AccountSyncSigningSurface &
-  Ed25519YaoRegistrationActivationSurface &
+  Ed25519YaoCapabilityActivationSurface &
   WebAuthnRegistrationConfirmationSurface &
   Pick<RegistrationAccountSurface, 'storeWalletEd25519RecoveryRegistrationData'> &
   Pick<EcdsaRegistrationSurface, 'storeWalletEcdsaRecoverySignerRecords'>;
