@@ -106,7 +106,7 @@ export function parseDeploymentTargets(value, sourceName = 'deployment targets')
 
 export function gatewaySecretNames(lane) {
   const names = [...GATEWAY_BASE_SECRET_NAMES];
-  if (lane.emailOtpDelivery.kind === 'email_provider') {
+  if (lane.emailOtpDelivery.kind !== 'demo_code_response') {
     names.push(...AMAZON_SES_SECRET_NAMES);
   }
   for (const capabilityName of CAPABILITY_NAMES) {
@@ -340,7 +340,7 @@ function parseEmailOtpDelivery(value, pathName) {
     requireExactKeys(delivery, ['kind'], pathName);
     return Object.freeze({ kind });
   }
-  if (kind === 'email_provider') {
+  if (kind === 'email_provider' || kind === 'provider_and_demo_code') {
     requireExactKeys(delivery, ['kind', 'region', 'fromAddress'], pathName);
     return Object.freeze({
       kind,
@@ -356,7 +356,10 @@ function parseEmailOtpDelivery(value, pathName) {
       ),
     });
   }
-  throw new Error(pathName + '.kind must be demo_code_response or email_provider');
+  throw new Error(
+    pathName +
+      '.kind must be demo_code_response, email_provider, or provider_and_demo_code',
+  );
 }
 
 function parseResources(value, pathName) {

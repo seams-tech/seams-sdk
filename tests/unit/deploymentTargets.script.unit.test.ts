@@ -45,7 +45,7 @@ type BackendLane = {
   readonly emailOtpDelivery:
     | { readonly kind: 'demo_code_response' }
     | {
-        readonly kind: 'email_provider';
+        readonly kind: 'email_provider' | 'provider_and_demo_code';
         readonly region: string;
         readonly fromAddress: string;
       };
@@ -307,6 +307,12 @@ test('required secrets are derived from enabled capabilities', async () => {
   expect(module.componentSecretNames(mainnet, 'gateway')).toContain(
     'EMAIL_OTP_SES_SECRET_ACCESS_KEY',
   );
+
+  const productionTestnet = targets.backendLanes['production-testnet'];
+  expect(productionTestnet.emailOtpDelivery.kind).toBe('provider_and_demo_code');
+  expect(module.componentSecretNames(productionTestnet, 'gateway')).toContain(
+    'EMAIL_OTP_SES_ACCESS_KEY_ID',
+  );
 });
 
 test('email provider delivery requires a valid AWS region and sender address', async () => {
@@ -332,15 +338,17 @@ test('email provider delivery requires a valid AWS region and sender address', a
   ).toThrow(/emailOtpDelivery\.region/u);
 });
 
-test('production workflow supplies SES credentials as protected secrets', () => {
-  const workflow = readFileSync(
-    path.join(repoRoot, '.github/workflows/deploy-production-mainnet-backend.yml'),
-    'utf8',
-  );
-  expect(workflow).toContain(
-    'EMAIL_OTP_SES_ACCESS_KEY_ID: ${{ secrets.EMAIL_OTP_SES_ACCESS_KEY_ID }}',
-  );
-  expect(workflow).toContain(
-    'EMAIL_OTP_SES_SECRET_ACCESS_KEY: ${{ secrets.EMAIL_OTP_SES_SECRET_ACCESS_KEY }}',
-  );
+test('production workflows supply SES credentials as protected secrets', () => {
+  for (const workflowName of [
+    'deploy-production-testnet-backend.yml',
+    'deploy-production-mainnet-backend.yml',
+  ]) {
+    const workflow = readFileSync(path.join(repoRoot, '.github/workflows', workflowName), 'utf8');
+    expect(workflow).toContain(
+      'EMAIL_OTP_SES_ACCESS_KEY_ID: ${{ secrets.EMAIL_OTP_SES_ACCESS_KEY_ID }}',
+    );
+    expect(workflow).toContain(
+      'EMAIL_OTP_SES_SECRET_ACCESS_KEY: ${{ secrets.EMAIL_OTP_SES_SECRET_ACCESS_KEY }}',
+    );
+  }
 });

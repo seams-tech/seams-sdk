@@ -219,7 +219,9 @@
         "walletOrigin": "https://test.sign.seams.sh",
         "walletPagesProjectEnv": "CF_PAGES_PROJECT_WALLET_TESTNET",
         "emailOtpDelivery": {
-          "kind": "demo_code_response"
+          "kind": "provider_and_demo_code",
+          "region": "ap-southeast-2",
+          "fromAddress": "confirm@seams.sh"
         },
         "resources": {
           "gateway": {
@@ -289,7 +291,7 @@
                 "network": "near_testnet"
               },
               "emailOtpDelivery": {
-                "kind": "demo_code_response"
+                "kind": "provider_and_demo_code"
               }
             },
             "resources": {
