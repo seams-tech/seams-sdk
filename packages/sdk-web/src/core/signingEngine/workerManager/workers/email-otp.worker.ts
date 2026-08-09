@@ -97,8 +97,6 @@ import type {
   EmailOtpWorkerIssuedSessionHandlePayload,
   EmailOtpWorkerSessionHandleOperation,
   EmailOtpWorkerOperationRequestEnvelope,
-  EmailOtpEd25519YaoFactorRequest,
-  EmailOtpEd25519YaoFactorResult,
   EmailOtpEd25519YaoActiveCapabilityDescriptorV1,
   EmailOtpEd25519YaoRecoveryAugmentationV1,
   EmailOtpEd25519YaoRecoveryBootstrapV1,
@@ -111,28 +109,13 @@ import type {
 import { materialActivationKey } from '@/core/signingEngine/session/sealedRecovery/materialActivationKey';
 import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import {
-  EmailOtpEd25519YaoRootVault,
-  type EmailOtpEd25519YaoPendingFactorHandle,
-  type EmailOtpEd25519YaoRootHandle,
-  type EmailOtpEd25519YaoRootScope,
-} from '../../session/emailOtp/ed25519YaoRootVault';
-import {
   parseSigningSessionSealKeyVersion,
   type SigningSessionSealKeyVersion,
 } from '../../session/keyMaterialBrands';
 import {
-  recoverEmailOtpEd25519YaoV1,
-  registerEmailOtpEd25519YaoV1,
-} from '../../session/emailOtp/ed25519YaoActivation';
-import type {
-  ProductEd25519YaoBrowserMaterialPersistencePortV1,
-  ProductEd25519YaoPendingRegistrationPortV1,
-} from '../../flows/registration/services/ed25519YaoRegistration';
-import {
   RouterAbEd25519YaoClientV1,
   RouterAbEd25519YaoHttpActivationTransportV1,
   WasmRouterAbEd25519YaoActiveClientV1,
-  type RouterAbEd25519YaoSealableActiveClientV1,
   type RouterAbEd25519YaoExportArtifactV1,
   RouterAbEd25519YaoActiveClientMetadataV1,
   RouterAbEd25519YaoActiveClientV1,
@@ -143,24 +126,15 @@ import { issueEd25519OperationStepUpAuthorization } from '../../threshold/ed2551
 import type { NearResolvedEd25519SigningSessionState } from '../../interfaces/near';
 import { nearEd25519YaoMaterialActivationFromMetadata } from '../../session/material/nearEd25519YaoMaterialActivation';
 import {
-  EMAIL_OTP_ED25519_YAO_LOCAL_MATERIAL_ALGORITHM,
-  EMAIL_OTP_ED25519_YAO_LOCAL_MATERIAL_KEY_KIND,
   encodeEmailOtpEd25519YaoStableCustodyBindingV1,
-  persistEmailOtpEd25519YaoLocalMaterialV1,
   readEmailOtpEd25519YaoLocalMaterialByLocatorV1,
-  readEmailOtpEd25519YaoLocalMaterialV1,
   type EmailOtpEd25519YaoLocalMaterialV1,
-  type EmailOtpEd25519YaoStableCustodyBindingV1,
 } from '../../session/emailOtp/ed25519YaoLocalMaterial';
 import {
   deriveRouterAbEd25519YaoExportAuthorizationDigestV1,
   deriveRouterAbEd25519YaoExportConfirmationDigestV1,
   deriveRouterAbEd25519YaoRuntimePolicyBindingV1,
   parseRouterAbEd25519YaoExportAdmissionRequestV1,
-  parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
-  parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
-  parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
-  type RouterAbEd25519YaoRecoveryActivationReceiptV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import { type WalletRegistrationEd25519YaoBootstrapSession } from '@/core/rpcClients/relayer/walletRegistration';
 import {
@@ -433,12 +407,6 @@ type EmailOtpEcdsaSigningShareClaimResult =
   | { ok: true; clientSigningShare32: ArrayBuffer; remainingUses: number; expiresAtMs: number }
   | { ok: false; code: string; message: string };
 
-type EmailOtpEd25519YaoPendingRegistrationEntry = {
-  kind: 'pending_registration';
-  pending: ProductEd25519YaoPendingRegistrationPortV1;
-  factorSecret32: Uint8Array;
-};
-
 type EmailOtpEd25519YaoActiveClientEntry = {
   kind: 'active_client';
   activeClient: RouterAbEd25519YaoActiveClientV1;
@@ -449,144 +417,8 @@ type EmailOtpEd25519YaoWorkerActivationResult = {
   metadata: RouterAbEd25519YaoActiveClientMetadataV1;
 };
 
-function buildEmailOtpEd25519YaoStableCustodyBinding(args: {
-  metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-  walletIdentity: EmailOtpEd25519YaoLocalMaterialWalletIdentity;
-  enrollment: EmailOtpDeviceEnrollmentEscrowRecord;
-}): EmailOtpEd25519YaoStableCustodyBindingV1 {
-  const walletId = args.walletIdentity.walletId;
-  const nearAccountId = args.walletIdentity.nearAccountId;
-  if (
-    args.enrollment.walletId !== walletId ||
-    args.enrollment.authSubjectId !== args.walletIdentity.providerSubjectId
-  ) {
-    throw new Error('Email OTP Ed25519 local custody enrollment changed wallet identity');
-  }
-  return {
-    kind: EMAIL_OTP_ED25519_YAO_LOCAL_MATERIAL_KEY_KIND,
-    walletId,
-    nearAccountId,
-    provider: 'google',
-    providerSubjectId: args.walletIdentity.providerSubjectId,
-    enrollmentId: args.enrollment.enrollmentId,
-    enrollmentVersion: args.enrollment.enrollmentVersion,
-    enrollmentSealKeyVersion: args.enrollment.enrollmentSealKeyVersion,
-    signerSlot: args.metadata.applicationBinding.key_creation_signer_slot,
-    nearEd25519SigningKeyId: args.metadata.applicationBinding.near_ed25519_signing_key_id,
-    signingRootId: args.metadata.applicationBinding.signing_root_id,
-    signingRootVersion: args.walletIdentity.signingRootVersion,
-    lifecycleId: args.metadata.scope.lifecycle_id,
-    rootShareEpoch: args.metadata.scope.root_share_epoch,
-    signerSetId: args.metadata.scope.signer_set_id,
-    participantIds: args.metadata.participantIds,
-    signingWorkerId: args.metadata.scope.signing_worker_id,
-    materialActivation: args.metadata.materialActivation,
-    registeredPublicKeyB64u: base64UrlEncode(args.metadata.registeredPublicKey),
-    signingWorkerVerifyingShareB64u: base64UrlEncode(args.metadata.signingWorkerVerifyingShare),
-    stateEpoch: args.metadata.stateEpoch.toString(10),
-    activationTranscriptB64u: base64UrlEncode(args.metadata.transcript),
-    activeCapabilityBindingB64u: base64UrlEncode(
-      Uint8Array.from(args.metadata.activeCapabilityBinding),
-    ),
-    applicationBinding: {
-      walletId: args.metadata.applicationBinding.wallet_id,
-      nearEd25519SigningKeyId: args.metadata.applicationBinding.near_ed25519_signing_key_id,
-      signingRootId: args.metadata.applicationBinding.signing_root_id,
-      keyCreationSignerSlot: args.metadata.applicationBinding.key_creation_signer_slot,
-    },
-  };
-}
-
-type EmailOtpEd25519YaoLocalMaterialWalletIdentity = {
-  readonly walletId: string;
-  readonly nearAccountId: string;
-  readonly providerSubjectId: string;
-  readonly signingRootVersion: string;
-};
-
-async function persistEmailOtpEd25519YaoActiveClientLocalMaterial(args: {
-  activeClient: RouterAbEd25519YaoActiveClientV1;
-  metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-  walletIdentity: EmailOtpEd25519YaoLocalMaterialWalletIdentity;
-  enrollmentSecret32: Uint8Array;
-}): Promise<void> {
-  const enrollmentId = emailOtpDeviceEnrollmentId(
-    args.walletIdentity.walletId,
-    args.walletIdentity.providerSubjectId,
-  );
-  const enrollment = await readEmailOtpDeviceEnrollmentEscrowRecord({
-    walletId: args.walletIdentity.walletId,
-    authSubjectId: args.walletIdentity.providerSubjectId,
-    enrollmentId,
-  });
-  if (
-    !enrollment ||
-    enrollment.walletId !== args.walletIdentity.walletId ||
-    enrollment.authSubjectId !== args.walletIdentity.providerSubjectId ||
-    enrollment.enrollmentId !== enrollmentId
-  ) {
-    throw new Error('Email OTP Ed25519 local custody requires its device enrollment');
-  }
-  const binding = buildEmailOtpEd25519YaoStableCustodyBinding({
-    metadata: args.metadata,
-    walletIdentity: args.walletIdentity,
-    enrollment,
-  });
-  const nonce = new Uint8Array(12);
-  globalThis.crypto.getRandomValues(nonce);
-  if (!(args.activeClient instanceof WasmRouterAbEd25519YaoActiveClientV1)) {
-    throw new Error('Email OTP Ed25519 local custody requires a worker-owned WASM client');
-  }
-  const sealed = args.activeClient.sealEmailOtpLocalMaterial({
-    ownedEnrollmentSecret32: args.enrollmentSecret32.slice(),
-    binding: encodeEmailOtpEd25519YaoStableCustodyBindingV1(binding),
-    nonce,
-  });
-  await persistEmailOtpEd25519YaoLocalMaterialV1({
-    store: IndexedDBManager,
-    binding,
-    envelope: {
-      algorithm: EMAIL_OTP_ED25519_YAO_LOCAL_MATERIAL_ALGORITHM,
-      nonceB64u: base64UrlEncode(sealed.nonce),
-      ciphertextB64u: base64UrlEncode(sealed.ciphertext),
-    },
-  });
-  const verified = await readEmailOtpEd25519YaoLocalMaterialV1({
-    store: IndexedDBManager,
-    expectedBinding: binding,
-  });
-  if (verified.kind !== 'exact_material_ready') {
-    throw new Error('Email OTP Ed25519 local custody persistence verification failed');
-  }
-}
-
-class EmailOtpEd25519YaoRegistrationMaterialPersistencePort implements ProductEd25519YaoBrowserMaterialPersistencePortV1 {
-  constructor(
-    private readonly walletIdentity: EmailOtpEd25519YaoLocalMaterialWalletIdentity,
-    private readonly enrollmentSecret32: Uint8Array,
-  ) {}
-
-  async persist(
-    activeClient: RouterAbEd25519YaoSealableActiveClientV1,
-  ): Promise<RouterAbEd25519YaoActiveClientMetadataV1> {
-    const metadata = activeClient.metadata();
-    await persistEmailOtpEd25519YaoActiveClientLocalMaterial({
-      activeClient,
-      metadata,
-      walletIdentity: this.walletIdentity,
-      enrollmentSecret32: this.enrollmentSecret32,
-    });
-    return metadata;
-  }
-}
-
 const emailOtpWarmSessions = new Map<string, EmailOtpWarmSessionEntry>();
 const emailOtpEd25519YaoWarmFactors = new Map<string, EmailOtpEd25519YaoWarmFactorEntry>();
-const emailOtpEd25519YaoRootVault = new EmailOtpEd25519YaoRootVault();
-const emailOtpEd25519YaoPendingRegistrations = new Map<
-  string,
-  EmailOtpEd25519YaoPendingRegistrationEntry
->();
 const emailOtpEd25519YaoActiveClients = new Map<string, EmailOtpEd25519YaoActiveClientEntry>();
 const signingSessionSealApplyInFlight = new Map<string, Promise<EmailOtpWarmSessionSealResult>>();
 const signingSessionSealRemoveInFlight = new Map<
@@ -718,6 +550,7 @@ async function exportEmailOtpEd25519YaoSeed(args: {
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
   clientSecret32: Uint8Array;
+  walletCustodyEnvelope: PasskeyCustodyEnvelopeRecord;
 }): Promise<RouterAbEd25519YaoExportArtifactV1> {
   assertEmailOtpEd25519YaoExportCapabilityContinuity(args);
   const capability = args.capability;
@@ -782,9 +615,17 @@ async function exportEmailOtpEd25519YaoSeed(args: {
       throw new Error(`Invalid Email OTP Ed25519 Yao export admission: ${request.message}`);
     }
     const client = await getEmailOtpYaoClient();
+    const envelope = walletCustodyCacheEnvelopeFromRecordV1(args.walletCustodyEnvelope);
     const result = await client.exportSeed({
       request: request.value,
-      factor: { kind: 'email_otp_factor', ownedSecret32: args.clientSecret32 },
+      custodyEnvelope: {
+        factorSecret: args.clientSecret32,
+        bindingJson: envelope.bindingJson,
+        nonce: base64UrlDecode(envelope.nonceB64u),
+        ciphertext: base64UrlDecode(envelope.ciphertextB64u),
+        aadHash: base64UrlDecode(envelope.aadHashB64u),
+        ciphertextDigest: base64UrlDecode(envelope.ciphertextDigestB64u),
+      },
       authorization: {
         kind: 'email_otp_factor',
         providerSubjectId: args.providerSubjectId,
@@ -802,82 +643,6 @@ async function exportEmailOtpEd25519YaoSeed(args: {
   }
 }
 
-async function disposeEmailOtpEd25519YaoPendingRegistration(
-  pendingHandle: string,
-): Promise<boolean> {
-  const entry = emailOtpEd25519YaoPendingRegistrations.get(pendingHandle);
-  if (!entry) return false;
-  emailOtpEd25519YaoPendingRegistrations.delete(pendingHandle);
-  try {
-    await entry.pending.dispose();
-  } finally {
-    zeroizeBytes(entry.factorSecret32);
-  }
-  return true;
-}
-
-async function storeEmailOtpEd25519YaoPendingRegistration(
-  pending: ProductEd25519YaoPendingRegistrationPortV1,
-  factorSecret32: Uint8Array,
-): Promise<string> {
-  if (factorSecret32.length !== 32) {
-    zeroizeBytes(factorSecret32);
-    await pending.dispose();
-    throw new Error('Email OTP Ed25519 Yao factor must contain 32 bytes');
-  }
-  if (
-    emailOtpEd25519YaoPendingRegistrations.size >= MAX_EMAIL_OTP_ED25519_YAO_PENDING_REGISTRATIONS
-  ) {
-    zeroizeBytes(factorSecret32);
-    await pending.dispose();
-    throw new Error('Email OTP Ed25519 Yao pending registration capacity is exhausted');
-  }
-  const pendingHandle = secureRandomId(
-    'email-otp-ed25519-yao-pending-registration',
-    32,
-    'Email OTP Ed25519 Yao pending registration handles',
-  );
-  emailOtpEd25519YaoPendingRegistrations.set(pendingHandle, {
-    kind: 'pending_registration',
-    pending,
-    factorSecret32,
-  });
-  return pendingHandle;
-}
-
-function issueEmailOtpEd25519YaoPendingFactor(args: {
-  request: EmailOtpEd25519YaoFactorRequest;
-  purpose: EmailOtpEd25519YaoRootScope['purpose'];
-  walletId: string;
-  ownedFactorSecret32?: Uint8Array;
-}): EmailOtpEd25519YaoFactorResult {
-  switch (args.request.kind) {
-    case 'requested': {
-      const ownedFactorSecret32 = args.ownedFactorSecret32;
-      if (!(ownedFactorSecret32 instanceof Uint8Array)) {
-        throw new Error('Email OTP enrollment did not return the requested Yao factor');
-      }
-      const nowMs = Date.now();
-      return {
-        kind: 'issued',
-        pendingFactorHandle: emailOtpEd25519YaoRootVault.issuePendingOwned({
-          purpose: args.purpose,
-          walletId: args.walletId,
-          providerSubject: args.request.providerSubject,
-          ownedFactorSecret32,
-          expiresAtMs: nowMs + EMAIL_OTP_ED25519_YAO_HANDLE_TTL_MS,
-          nowMs,
-        }),
-      };
-    }
-    case 'not_requested':
-      zeroizeBytes(args.ownedFactorSecret32);
-      return { kind: 'not_requested' };
-    default:
-      return assertNeverEmailOtpWorker(args.request);
-  }
-}
-
 function cloneEmailOtpEd25519YaoSigningShare(
   share: RouterAbEd25519YaoClientSigningShareV1,
 ): RouterAbEd25519YaoClientSigningShareV1 {
@@ -889,18 +654,6 @@ function cloneEmailOtpEd25519YaoSigningShare(
     clientVerifyingShare: share.clientVerifyingShare.slice(),
     clientSignatureShareB64u: share.clientSignatureShareB64u,
   };
-}
-
-function rollbackEmailOtpEd25519YaoFactorResult(result: EmailOtpEd25519YaoFactorResult): void {
-  switch (result.kind) {
-    case 'issued':
-      emailOtpEd25519YaoRootVault.removePending(result.pendingFactorHandle);
-      return;
-    case 'not_requested':
-      return;
-    default:
-      return assertNeverEmailOtpWorker(result);
-  }
 }
 
 function parseEmailOtpEcdsaWarmSessionRehydrateArgs(args: {
@@ -3017,7 +2770,10 @@ type EmailOtpUnlockCompletionMaterial =
       kind: 'ecdsa';
       ecdsaSession?: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
     }
-  | { kind: 'ed25519_yao_export' }
+  | {
+      kind: 'ed25519_yao_export';
+      walletCustodyEnvelope: PasskeyCustodyEnvelopeRecord;
+    }
   | {
       kind: 'wallet_custody_cache_absent';
       ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryBootstrapV1;
@@ -3562,7 +3318,11 @@ async function completeEmailOtpUnlockFromSecret32(args: {
         };
       }
       case 'ed25519_yao_export':
-        return { kind: 'ed25519_yao_export', ...commonResult };
+        return {
+          kind: 'ed25519_yao_export',
+          ...commonResult,
+          walletCustodyEnvelope: walletCustody.envelope,
+        };
       case 'wallet_unlock_capabilities': {
         if (openedEd25519Client) {
           const ed25519YaoCapability = ed25519YaoBootstrap;
@@ -3880,6 +3640,7 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
     | {
         kind: 'ed25519_yao_export';
         clientSecret32: Uint8Array;
+        walletCustodyEnvelope: PasskeyCustodyEnvelopeRecord;
         ed25519YaoRecovery?: never;
       }
     | {
@@ -4093,6 +3854,7 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
           kind: 'ed25519_yao_export',
           ...commonResult,
           clientSecret32: ownedClientSecret32,
+          walletCustodyEnvelope: unlocked.walletCustodyEnvelope,
         };
       }
       case 'wallet_custody_cache_absent': {
@@ -4320,27 +4082,6 @@ function parseEmailOtpWarmMaterialTarget(value: unknown): EmailOtpWarmMaterialTa
     }
     default:
       throw new Error(`Unsupported Email OTP warm material target kind: ${kind}`);
-  }
-}
-
-function parseEmailOtpEd25519YaoFactorRequest(value: unknown): EmailOtpEd25519YaoFactorRequest {
-  const obj = workerPayloadObject(value);
-  if (!obj) throw new Error('Email OTP Ed25519 Yao factor request is required');
-  rejectUnknownEmailOtpYaoFields(obj, ['kind', 'providerSubject'], 'ed25519YaoFactor');
-  const kind = readString(obj.kind, 'ed25519YaoFactor.kind');
-  switch (kind) {
-    case 'requested':
-      return {
-        kind: 'requested',
-        providerSubject: readString(obj.providerSubject, 'ed25519YaoFactor.providerSubject'),
-      };
-    case 'not_requested':
-      if (obj.providerSubject != null) {
-        throw new Error('Email OTP Ed25519 Yao omitted factor rejects providerSubject');
-      }
-      return { kind: 'not_requested' };
-    default:
-      throw new Error(`Unsupported Email OTP Ed25519 Yao factor request: ${kind}`);
   }
 }
 
@@ -4906,142 +4647,6 @@ function parseEmailOtpEd25519YaoRecoveryBootstrap(
     kind: ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1,
     session: parseEmailOtpEd25519YaoBootstrapSession(obj.session),
     capability: parseEmailOtpEd25519YaoActiveCapability(obj.capability),
-  };
-}
-
-function parseEmailOtpEd25519YaoPurpose(value: unknown): EmailOtpEd25519YaoRootScope['purpose'] {
-  const purpose = readString(value, 'Email OTP Ed25519 Yao purpose');
-  switch (purpose) {
-    case 'registration':
-    case 'recovery':
-      return purpose;
-    default:
-      throw new Error(`Unsupported Email OTP Ed25519 Yao purpose: ${purpose}`);
-  }
-}
-
-function parseEmailOtpEd25519YaoPendingFactorHandle(
-  value: unknown,
-): EmailOtpEd25519YaoPendingFactorHandle {
-  const obj = workerPayloadObject(value);
-  if (!obj) throw new Error('Email OTP Ed25519 Yao pending factor handle is required');
-  rejectUnknownEmailOtpYaoFields(
-    obj,
-    ['kind', 'handleId', 'purpose', 'expiresAtMs'],
-    'pendingFactorHandle',
-  );
-  if (obj.kind !== 'email_otp_ed25519_yao_pending_factor_handle_v1') {
-    throw new Error('Invalid Email OTP Ed25519 Yao pending factor handle kind');
-  }
-  const expiresAtMs = normalizePositiveInteger(obj.expiresAtMs);
-  if (!expiresAtMs) {
-    throw new Error('Email OTP Ed25519 Yao pending factor handle expiry is invalid');
-  }
-  return {
-    kind: 'email_otp_ed25519_yao_pending_factor_handle_v1',
-    handleId: readString(obj.handleId, 'pendingFactorHandle.handleId'),
-    purpose: parseEmailOtpEd25519YaoPurpose(obj.purpose),
-    expiresAtMs,
-  };
-}
-
-function parseEmailOtpEd25519YaoRootHandle(value: unknown): EmailOtpEd25519YaoRootHandle {
-  const obj = workerPayloadObject(value);
-  if (!obj) throw new Error('Email OTP Ed25519 Yao root handle is required');
-  rejectUnknownEmailOtpYaoFields(obj, ['kind', 'handleId', 'purpose', 'expiresAtMs'], 'rootHandle');
-  if (obj.kind !== 'email_otp_ed25519_yao_root_handle_v1') {
-    throw new Error('Invalid Email OTP Ed25519 Yao root handle kind');
-  }
-  const expiresAtMs = normalizePositiveInteger(obj.expiresAtMs);
-  if (!expiresAtMs) throw new Error('Email OTP Ed25519 Yao root handle expiry is invalid');
-  return {
-    kind: 'email_otp_ed25519_yao_root_handle_v1',
-    handleId: readString(obj.handleId, 'rootHandle.handleId'),
-    purpose: parseEmailOtpEd25519YaoPurpose(obj.purpose),
-    expiresAtMs,
-  };
-}
-
-function parseEmailOtpEd25519YaoRootScope(value: unknown): EmailOtpEd25519YaoRootScope {
-  const obj = workerPayloadObject(value);
-  if (!obj) throw new Error('Email OTP Ed25519 Yao root scope is required');
-  rejectUnknownEmailOtpYaoFields(
-    obj,
-    [
-      'kind',
-      'purpose',
-      'walletId',
-      'providerSubject',
-      'nearEd25519SigningKeyId',
-      'signingRootId',
-      'signerSlot',
-      'participantIds',
-    ],
-    'scope',
-  );
-  if (obj.kind !== 'email_otp_ed25519_yao_root_scope_v1') {
-    throw new Error('Invalid Email OTP Ed25519 Yao root scope kind');
-  }
-  const participantIds = normalizeThresholdEd25519ParticipantIds(obj.participantIds);
-  if (!participantIds || participantIds.length !== 2) {
-    throw new Error('Email OTP Ed25519 Yao root scope requires two participants');
-  }
-  const signerSlot = normalizePositiveInteger(obj.signerSlot);
-  if (!signerSlot) throw new Error('Email OTP Ed25519 Yao root scope requires signerSlot');
-  return {
-    kind: 'email_otp_ed25519_yao_root_scope_v1',
-    purpose: parseEmailOtpEd25519YaoPurpose(obj.purpose),
-    walletId: readString(obj.walletId, 'scope.walletId'),
-    providerSubject: readString(obj.providerSubject, 'scope.providerSubject'),
-    nearEd25519SigningKeyId: readString(
-      obj.nearEd25519SigningKeyId,
-      'scope.nearEd25519SigningKeyId',
-    ),
-    signingRootId: readString(obj.signingRootId, 'scope.signingRootId'),
-    signerSlot,
-    participantIds: [participantIds[0], participantIds[1]],
-  };
-}
-
-function parseEmailOtpEd25519YaoRegistrationAdmission(value: unknown) {
-  const parsed = parseRouterAbEd25519YaoRegistrationAdmissionRequestV1(value);
-  if (!parsed.ok) throw new Error(parsed.message);
-  return parsed.value;
-}
-
-function parseEmailOtpEd25519YaoRegistrationAdmissionReceipt(value: unknown) {
-  const parsed = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(value);
-  if (!parsed.ok) throw new Error(parsed.message);
-  return parsed.value;
-}
-
-function parseEmailOtpEd25519YaoRecoveryAdmission(value: unknown) {
-  const parsed = parseRouterAbEd25519YaoRecoveryAdmissionRequestV1(value);
-  if (!parsed.ok) throw new Error(parsed.message);
-  return parsed.value;
-}
-
-function parseEmailOtpEd25519YaoSessionPolicy(value: unknown): {
-  thresholdSessionId: string;
-  expiresAtMs: number;
-  remainingUses: number;
-} {
-  const obj = workerPayloadObject(value);
-  if (!obj) throw new Error('Email OTP Ed25519 Yao session policy is required');
-  rejectUnknownEmailOtpYaoFields(
-    obj,
-    ['thresholdSessionId', 'expiresAtMs', 'remainingUses'],
-    'sessionPolicy',
-  );
-  const expiresAtMs = normalizePositiveInteger(obj.expiresAtMs);
-  const remainingUses = normalizePositiveInteger(obj.remainingUses);
-  if (!expiresAtMs || !remainingUses) {
-    throw new Error('Email OTP Ed25519 Yao session policy is invalid');
-  }
-  return {
-    thresholdSessionId: readString(obj.thresholdSessionId, 'sessionPolicy.thresholdSessionId'),
-    expiresAtMs,
-    remainingUses,
   };
 }
 
@@ -6035,119 +5640,9 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
             ? { clientSecret32: payload.clientSecret32 }
             : {}),
           ecdsaSessionHandle: handleRequest,
-          ed25519YaoFactor: parseEmailOtpEd25519YaoFactorRequest(payload.ed25519YaoFactor),
         },
       };
     }
-    case 'bindEmailOtpEd25519YaoRoot':
-      rejectUnknownEmailOtpYaoFields(payload, ['pendingFactorHandle', 'scope'], type);
-      return {
-        id,
-        type,
-        payload: {
-          pendingFactorHandle: parseEmailOtpEd25519YaoPendingFactorHandle(
-            payload.pendingFactorHandle,
-          ),
-          scope: parseEmailOtpEd25519YaoRootScope(payload.scope),
-        },
-      };
-    case 'disposeEmailOtpEd25519YaoPendingFactor':
-      rejectUnknownEmailOtpYaoFields(payload, ['pendingFactorHandle'], type);
-      return {
-        id,
-        type,
-        payload: {
-          pendingFactorHandle: parseEmailOtpEd25519YaoPendingFactorHandle(
-            payload.pendingFactorHandle,
-          ),
-        },
-      };
-    case 'disposeEmailOtpEd25519YaoRoot':
-      rejectUnknownEmailOtpYaoFields(payload, ['rootHandle'], type);
-      return {
-        id,
-        type,
-        payload: {
-          rootHandle: parseEmailOtpEd25519YaoRootHandle(payload.rootHandle),
-        },
-      };
-    case 'startEmailOtpEd25519YaoRegistration':
-      rejectUnknownEmailOtpYaoFields(
-        payload,
-        [
-          'rootHandle',
-          'admissionRequest',
-          'admissionReceipt',
-          'walletId',
-          'providerSubject',
-          'registrationAuthorityId',
-          'bearerToken',
-          'routerOrigin',
-        ],
-        type,
-      );
-      return {
-        id,
-        type,
-        payload: {
-          rootHandle: parseEmailOtpEd25519YaoRootHandle(payload.rootHandle),
-          admissionRequest: parseEmailOtpEd25519YaoRegistrationAdmission(payload.admissionRequest),
-          admissionReceipt: parseEmailOtpEd25519YaoRegistrationAdmissionReceipt(
-            payload.admissionReceipt,
-          ),
-          walletId: readString(payload.walletId, 'walletId'),
-          providerSubject: readString(payload.providerSubject, 'providerSubject'),
-          registrationAuthorityId: readString(
-            payload.registrationAuthorityId,
-            'registrationAuthorityId',
-          ),
-          bearerToken: readString(payload.bearerToken, 'bearerToken'),
-          routerOrigin: readString(payload.routerOrigin, 'routerOrigin'),
-        },
-      };
-    case 'disposeEmailOtpEd25519YaoRegistration':
-      rejectUnknownEmailOtpYaoFields(payload, ['pendingHandle'], type);
-      return {
-        id,
-        type,
-        payload: { pendingHandle: readString(payload.pendingHandle, 'pendingHandle') },
-      };
-    case 'recoverEmailOtpEd25519Yao':
-      rejectUnknownEmailOtpYaoFields(
-        payload,
-        [
-          'rootHandle',
-          'admissionRequest',
-          'walletId',
-          'nearAccountId',
-          'signingRootVersion',
-          'providerSubject',
-          'registrationAuthorityId',
-          'bearerToken',
-          'routerOrigin',
-          'sessionPolicy',
-        ],
-        type,
-      );
-      return {
-        id,
-        type,
-        payload: {
-          rootHandle: parseEmailOtpEd25519YaoRootHandle(payload.rootHandle),
-          admissionRequest: parseEmailOtpEd25519YaoRecoveryAdmission(payload.admissionRequest),
-          walletId: readString(payload.walletId, 'walletId'),
-          nearAccountId: readString(payload.nearAccountId, 'nearAccountId'),
-          signingRootVersion: readString(payload.signingRootVersion, 'signingRootVersion'),
-          providerSubject: readString(payload.providerSubject, 'providerSubject'),
-          registrationAuthorityId: readString(
-            payload.registrationAuthorityId,
-            'registrationAuthorityId',
-          ),
-          bearerToken: readString(payload.bearerToken, 'bearerToken'),
-          routerOrigin: readString(payload.routerOrigin, 'routerOrigin'),
-          sessionPolicy: parseEmailOtpEd25519YaoSessionPolicy(payload.sessionPolicy),
-        },
-      };
     case 'rehydrateEmailOtpEd25519YaoOperationMaterial': {
       rejectUnknownEmailOtpYaoFields(
         payload,
@@ -6648,7 +6143,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           userId: msg.payload.userId,
           groupId: readString(msg.payload.groupId, 'groupId'),
           routePlan,
-          returnClientSecret32: msg.payload.ed25519YaoFactor.kind === 'requested',
+          returnClientSecret32: false,
           skipServerFinalize: true,
           onProgress: (code) => postEmailOtpWorkerProgress(msg.id, code),
           ...(msg.payload.clientSecret32 instanceof ArrayBuffer
@@ -6664,12 +6159,6 @@ self.addEventListener('message', async (event: MessageEvent) => {
           const walletId = readString(msg.payload.walletId, 'walletId');
           const emailOtpSessionHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleResult =
             emailOtpWalletRegistrationEcdsaHandleResult(msg.payload.ecdsaSessionHandle);
-          const ed25519YaoFactor = issueEmailOtpEd25519YaoPendingFactor({
-            request: msg.payload.ed25519YaoFactor,
-            purpose: 'registration',
-            walletId,
-            ownedFactorSecret32: result.clientSecret32,
-          });
           try {
             postToMainThread({
               id: msg.id,
@@ -6683,272 +6172,14 @@ self.addEventListener('message', async (event: MessageEvent) => {
                 clientUnlockPublicKeyB64u: result.clientUnlockPublicKeyB64u,
                 unlockKeyVersion: result.unlockKeyVersion,
                 emailOtpSessionHandle,
-                ed25519YaoFactor,
                 emailOtpEnrollment: result.emailOtpEnrollment,
               },
             });
           } catch (error) {
-            rollbackEmailOtpEd25519YaoFactorResult(ed25519YaoFactor);
             throw error;
           }
         } finally {
           zeroizeBytes(result.clientSecret32);
-        }
-        return;
-      }
-      case 'bindEmailOtpEd25519YaoRoot': {
-        const rootHandle = emailOtpEd25519YaoRootVault.bindPending({
-          handle: msg.payload.pendingFactorHandle,
-          scope: msg.payload.scope,
-          expiresAtMs: msg.payload.pendingFactorHandle.expiresAtMs,
-          nowMs: Date.now(),
-        });
-        postToMainThread({ id: msg.id, ok: true, result: { rootHandle } });
-        return;
-      }
-      case 'disposeEmailOtpEd25519YaoPendingFactor': {
-        const removed = emailOtpEd25519YaoRootVault.removePending(msg.payload.pendingFactorHandle);
-        postToMainThread({ id: msg.id, ok: true, result: { removed } });
-        return;
-      }
-      case 'disposeEmailOtpEd25519YaoRoot': {
-        const removed = emailOtpEd25519YaoRootVault.remove(msg.payload.rootHandle);
-        postToMainThread({ id: msg.id, ok: true, result: { removed } });
-        return;
-      }
-      case 'startEmailOtpEd25519YaoRegistration': {
-        const result = await registerEmailOtpEd25519YaoV1({
-          vault: emailOtpEd25519YaoRootVault,
-          input: {
-            kind: 'email_otp_ed25519_yao_registration_input_v1',
-            rootHandle: msg.payload.rootHandle,
-            admissionRequest: msg.payload.admissionRequest,
-            admissionReceipt: msg.payload.admissionReceipt,
-            authority: {
-              kind: 'verified_email_otp_ed25519_yao_authority_v1',
-              walletId: msg.payload.walletId,
-              providerSubject: msg.payload.providerSubject,
-              registrationAuthorityId: msg.payload.registrationAuthorityId,
-              bearerToken: msg.payload.bearerToken,
-            },
-            transport: {
-              kind: 'email_otp_ed25519_yao_http_transport_v1',
-              routerOrigin: msg.payload.routerOrigin,
-              fetch: globalThis.fetch.bind(globalThis),
-            },
-            nowMs: Date.now(),
-          },
-        });
-        if (!result.ok) throw new Error(result.message);
-        const pending = result.value.registration;
-        const factorSecret32 = result.value.retainedFactorSecret32;
-        const operationalPublicKey = pending.publicKey();
-        const activationReference = pending.activationReference();
-        const pendingHandle = await storeEmailOtpEd25519YaoPendingRegistration(
-          pending,
-          factorSecret32,
-        );
-        try {
-          postToMainThread({
-            id: msg.id,
-            ok: true,
-            result: {
-              pendingHandle,
-              operationalPublicKey,
-              activationReference,
-              // Email OTP runs Yao in this worker, so the Router breakdown
-              // only reaches the main thread by riding this response.
-              ...(result.value.routerServerTiming
-                ? { routerServerTiming: result.value.routerServerTiming }
-                : {}),
-              ...(result.value.clientTimings ? { clientTimings: result.value.clientTimings } : {}),
-            },
-          });
-        } catch (error) {
-          await disposeEmailOtpEd25519YaoPendingRegistration(pendingHandle);
-          throw error;
-        }
-        return;
-      }
-      case 'persistEmailOtpEd25519YaoRegistrationMaterial': {
-        const entry = emailOtpEd25519YaoPendingRegistrations.get(msg.payload.pendingHandle);
-        if (!entry) {
-          throw new Error('Email OTP Ed25519 Yao pending registration is unavailable');
-        }
-        emailOtpEd25519YaoPendingRegistrations.delete(msg.payload.pendingHandle);
-        let persistedMetadata: RouterAbEd25519YaoActiveClientMetadataV1 | null = null;
-        let activationResult: EmailOtpEd25519YaoWorkerActivationResult | null = null;
-        try {
-          const metadata = await entry.pending.persistRegistrationMaterial({
-            kind: 'browser_owned',
-            persistence: new EmailOtpEd25519YaoRegistrationMaterialPersistencePort(
-              {
-                walletId: msg.payload.walletId,
-                nearAccountId: msg.payload.nearAccountId,
-                providerSubjectId: msg.payload.providerSubject,
-                signingRootVersion: msg.payload.signingRootVersion,
-              },
-              entry.factorSecret32,
-            ),
-          });
-          if (
-            `ed25519:${base58Encode(metadata.registeredPublicKey)}` !==
-              msg.payload.expectedOperationalPublicKey ||
-            metadata.applicationBinding.wallet_id !== msg.payload.walletId ||
-            metadata.applicationBinding.near_ed25519_signing_key_id !==
-              msg.payload.nearEd25519SigningKeyId ||
-            metadata.applicationBinding.key_creation_signer_slot !== msg.payload.signerSlot ||
-            metadata.scope.root_share_epoch !== msg.payload.signingRootVersion
-          ) {
-            throw new Error('Email OTP Ed25519 registration material changed signer identity');
-          }
-          persistedMetadata = metadata;
-          const localMaterial = await readEmailOtpEd25519YaoLocalMaterialByLocatorV1({
-            store: IndexedDBManager,
-            walletId: msg.payload.walletId,
-            nearAccountId: msg.payload.nearAccountId,
-            signerSlot: msg.payload.signerSlot,
-            providerSubjectId: msg.payload.providerSubject,
-            expectedOperationalPublicKey: msg.payload.expectedOperationalPublicKey,
-          });
-          if (localMaterial.kind !== 'exact_material_ready') {
-            throw new Error(
-              `Email OTP Ed25519 registration local material is unavailable (${localMaterial.kind})`,
-            );
-          }
-          activationResult = await importEmailOtpEd25519YaoLocalMaterial({
-            material: localMaterial.material,
-            expectedThresholdSessionId: msg.payload.sessionPolicy.thresholdSessionId,
-            enrollmentSecret32: entry.factorSecret32,
-          });
-          if (
-            !mpcMaterialActivationRefsEqual(
-              activationResult.metadata.materialActivation,
-              metadata.materialActivation,
-            ) ||
-            activationResult.metadata.scope.threshold_session_id !==
-              msg.payload.sessionPolicy.thresholdSessionId
-          ) {
-            throw new Error('Email OTP Ed25519 registration active material changed identity');
-          }
-          putEmailOtpEd25519YaoWarmFactor({
-            target: {
-              kind: 'ed25519_yao',
-              thresholdSessionId: msg.payload.sessionPolicy.thresholdSessionId,
-              materialActivation: metadata.materialActivation,
-            },
-            factorSecret32: entry.factorSecret32,
-            expiresAtMs: msg.payload.sessionPolicy.expiresAtMs,
-            remainingUses: msg.payload.sessionPolicy.remainingUses,
-          });
-        } catch (error) {
-          if (activationResult) {
-            removeEmailOtpEd25519YaoActiveClient(activationResult.activeClientHandle);
-            if (persistedMetadata) {
-              deleteEmailOtpEd25519YaoWarmFactor(persistedMetadata.materialActivation);
-            }
-          }
-          throw error;
-        } finally {
-          zeroizeBytes(entry.factorSecret32);
-          await entry.pending.dispose();
-        }
-        if (!persistedMetadata || !activationResult) {
-          throw new Error('Email OTP Ed25519 registration material was not persisted');
-        }
-        try {
-          postToMainThread({
-            id: msg.id,
-            ok: true,
-            result: {
-              metadata: persistedMetadata,
-              activeClientHandle: activationResult.activeClientHandle,
-            },
-          });
-        } catch (error) {
-          removeEmailOtpEd25519YaoActiveClient(activationResult.activeClientHandle);
-          throw error;
-        }
-        return;
-      }
-      case 'disposeEmailOtpEd25519YaoRegistration': {
-        const removed = await disposeEmailOtpEd25519YaoPendingRegistration(
-          msg.payload.pendingHandle,
-        );
-        postToMainThread({ id: msg.id, ok: true, result: { removed } });
-        return;
-      }
-      case 'recoverEmailOtpEd25519Yao': {
-        const result = await recoverEmailOtpEd25519YaoV1({
-          vault: emailOtpEd25519YaoRootVault,
-          input: {
-            kind: 'email_otp_ed25519_yao_recovery_input_v1',
-            rootHandle: msg.payload.rootHandle,
-            admissionRequest: msg.payload.admissionRequest,
-            authority: {
-              kind: 'verified_email_otp_ed25519_yao_authority_v1',
-              walletId: msg.payload.walletId,
-              providerSubject: msg.payload.providerSubject,
-              registrationAuthorityId: msg.payload.registrationAuthorityId,
-              bearerToken: msg.payload.bearerToken,
-            },
-            transport: {
-              kind: 'email_otp_ed25519_yao_http_transport_v1',
-              routerOrigin: msg.payload.routerOrigin,
-              fetch: globalThis.fetch.bind(globalThis),
-            },
-            nowMs: Date.now(),
-          },
-        });
-        if (!result.ok) throw new Error(result.message);
-        if (!result.value.recovery.ok) {
-          zeroizeBytes(result.value.retainedFactorSecret32);
-          throw new Error(result.value.recovery.message);
-        }
-        const activeClient = result.value.recovery.activeClient;
-        let activationResult: EmailOtpEd25519YaoWorkerActivationResult;
-        try {
-          activationResult = storeEmailOtpEd25519YaoActiveClient(activeClient);
-          await persistEmailOtpEd25519YaoActiveClientLocalMaterial({
-            activeClient,
-            metadata: activationResult.metadata,
-            walletIdentity: {
-              walletId: msg.payload.walletId,
-              nearAccountId: msg.payload.nearAccountId,
-              providerSubjectId: msg.payload.providerSubject,
-              signingRootVersion: msg.payload.signingRootVersion,
-            },
-            enrollmentSecret32: result.value.retainedFactorSecret32,
-          });
-          putEmailOtpEd25519YaoWarmFactor({
-            target: {
-              kind: 'ed25519_yao',
-              thresholdSessionId: msg.payload.sessionPolicy.thresholdSessionId,
-              materialActivation: nearEd25519YaoMaterialActivationFromMetadata(
-                activationResult.metadata,
-              ),
-            },
-            factorSecret32: result.value.retainedFactorSecret32,
-            expiresAtMs: msg.payload.sessionPolicy.expiresAtMs,
-            remainingUses: msg.payload.sessionPolicy.remainingUses,
-          });
-          zeroizeBytes(result.value.retainedFactorSecret32);
-        } catch (error) {
-          zeroizeBytes(result.value.retainedFactorSecret32);
-          activeClient.dispose();
-          throw error;
-        }
-        const activation: RouterAbEd25519YaoRecoveryActivationReceiptV1 =
-          result.value.recovery.activation;
-        try {
-          postToMainThread({
-            id: msg.id,
-            ok: true,
-            result: { ...activationResult, activation },
-          });
-        } catch (error) {
-          removeEmailOtpEd25519YaoActiveClient(activationResult.activeClientHandle);
-          throw error;
         }
         return;
       }
@@ -7322,6 +6553,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             runtimePolicyScope: msg.payload.material.capability.runtimePolicyScope,
             capability: msg.payload.material.capability,
             clientSecret32: recovered.clientSecret32,
+            walletCustodyEnvelope: recovered.walletCustodyEnvelope,
           });
           postToMainThread({ id: msg.id, ok: true, result: artifact });
         } finally {

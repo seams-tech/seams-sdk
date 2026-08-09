@@ -86,6 +86,7 @@ import {
   type SessionExchangeInput,
   type SessionExchangeRuntimeScope,
 } from '@/core/rpcClients/near/rpcCalls';
+import { rememberPasskeyCustodySessionEnvelope } from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
 import {
   fetchWalletEcdsaKeyFactsInventoryWithAppSession,
   fetchWalletEcdsaKeyFactsInventoryWithWebAuthn,
@@ -2150,6 +2151,10 @@ async function unlockInternal(
           loginCredential = completedExchange.credential;
           completedPasskeyExchangeEcdsaActivation = completedExchange.activation;
           completedPasskeySessionCustody = completedExchange.custody;
+          rememberPasskeySessionCustodyForExport({
+            walletId: String(walletIdentity.walletId),
+            exchange: completedExchange,
+          });
           exchanged = completedExchange.result;
         }
         if (!exchanged.success) {
@@ -2315,6 +2320,10 @@ async function unlockInternal(
         loginCredential = completedExchange.credential;
         completedPasskeyExchangeEcdsaActivation = completedExchange.activation;
         completedPasskeySessionCustody = completedExchange.custody;
+        rememberPasskeySessionCustodyForExport({
+          walletId: String(walletIdentity.walletId),
+          exchange: completedExchange,
+        });
         didPerformPasskeySessionExchange = true;
         emitUnlockEvent(onEvent, unlockSubjectId, {
           phase: UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SUCCEEDED,
@@ -2530,6 +2539,21 @@ type CompletedPasskeySessionExchange = {
   readonly custody: PasskeySessionCustodyUnlockV1;
   readonly result: Awaited<ReturnType<typeof exchangeSession>>;
 };
+
+function rememberPasskeySessionCustodyForExport(args: {
+  readonly walletId: string;
+  readonly exchange: CompletedPasskeySessionExchange;
+}): void {
+  const credentialIdB64u = String(
+    args.exchange.credential.rawId || args.exchange.credential.id || '',
+  ).trim();
+  if (!credentialIdB64u) throw new Error('[login] passkey assertion credential id is missing');
+  rememberPasskeyCustodySessionEnvelope({
+    walletId: args.walletId,
+    credentialIdB64u,
+    envelope: args.exchange.custody.envelope,
+  });
+}
 
 async function preparePasskeyExchangeEcdsaActivation(args: {
   context: LoginWebContext;
