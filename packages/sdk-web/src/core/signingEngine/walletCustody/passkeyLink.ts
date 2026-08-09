@@ -20,6 +20,7 @@ import {
 import {
   serializeRegistrationCredentialWithPRF,
 } from '../webauthnAuth/credentials/helpers';
+import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import { getPrfFirstB64uFromCredential } from '../webauthnAuth/credentials/credentialExtensions';
 import type { WalletCustodyCeremonyTransportPort } from './ceremonyStepRunner';
 
@@ -99,6 +100,7 @@ function requireCredentialId(value: string): WebAuthnCredentialIdB64u {
  */
 export async function createPasskeyCustodyLinkEnvelope(input: {
   readonly registration: WalletAddAuthMethodRegistrationOptions;
+  readonly registrationCredential?: WebAuthnRegistrationCredential;
   readonly existingEnvelope: PasskeyCustodyEnvelopeRecord;
   readonly existingFactorSecret: Uint8Array;
   readonly worker: WalletCustodyCeremonyTransportPort;
@@ -107,19 +109,20 @@ export async function createPasskeyCustodyLinkEnvelope(input: {
   readonly registration: PasskeyRegistrationCredential;
   readonly custodyEnvelope: PasskeyCustodyEnvelopeRecord;
 }> {
-  const credential = requireRegistrationCredential(
-    await navigator.credentials.create({
-      publicKey: publicKeyCreationOptions(input.registration),
-    }),
-  );
-  const registration = serializeRegistrationCredentialWithPRF({
-    credential,
-    firstPrfOutput: true,
-    secondPrfOutput: false,
-  });
+  const registration = input.registrationCredential
+    ? input.registrationCredential
+    : serializeRegistrationCredentialWithPRF({
+        credential: requireRegistrationCredential(
+          await navigator.credentials.create({
+            publicKey: publicKeyCreationOptions(input.registration),
+          }),
+        ),
+        firstPrfOutput: true,
+        secondPrfOutput: false,
+      });
   const prfFirstB64u = getPrfFirstB64uFromCredential(registration);
   if (!prfFirstB64u) throw new Error('New passkey did not return PRF.first');
-  const credentialId = requireCredentialId(credential.id);
+  const credentialId = requireCredentialId(registration.rawId || registration.id);
   const envelopeIdResult = parsePasskeyEnvelopeId(
     secureRandomId('wallet-custody-envelope', 24, 'wallet custody envelope ids'),
   );
@@ -132,7 +135,7 @@ export async function createPasskeyCustodyLinkEnvelope(input: {
     walletId: input.existingEnvelope.walletId,
     envelopeId: envelopeIdResult.value,
     factor,
-    envelopeRevision: input.existingEnvelope.envelopeRevision,
+    envelopeRevision: 1,
     binding: input.existingEnvelope.binding,
   });
   const existingFactorSecret = input.existingFactorSecret.slice();
@@ -166,7 +169,7 @@ export async function createPasskeyCustodyLinkEnvelope(input: {
         walletId: input.existingEnvelope.walletId,
         binding: input.existingEnvelope.binding,
         factor,
-        envelopeRevision: input.existingEnvelope.envelopeRevision,
+        envelopeRevision: 1,
         nonceB64u: resealed.nonceB64u,
         sealedCustodySecretB64u: resealed.sealedCustodySecretB64u,
         ciphertextDigestB64u: resealed.ciphertextDigestB64u,
@@ -189,8 +192,14 @@ export async function linkWalletPasskeyCustody(input: {
   readonly auth: AddAuthMethodAuth;
   readonly existingFactorSecret: Uint8Array;
   readonly worker: WalletCustodyCeremonyTransportPort;
+  readonly createRegistrationCredential?: (
+    registration: WalletAddAuthMethodRegistrationOptions,
+  ) => Promise<WebAuthnRegistrationCredential>;
   readonly nowMs?: () => number;
-}): Promise<Awaited<ReturnType<typeof finalizeWalletAddAuthMethod>>> {
+}): Promise<{
+  readonly finalized: Awaited<ReturnType<typeof finalizeWalletAddAuthMethod>>;
+  readonly registration: PasskeyRegistrationCredential;
+}> {
   const started = await startWalletAddAuthMethod({
     relayerUrl: input.relayerUrl,
     walletId: input.walletId,
@@ -208,13 +217,17 @@ export async function linkWalletPasskeyCustody(input: {
     existingEnvelope: started.custodyEnvelope,
     existingFactorSecret: input.existingFactorSecret,
     worker: input.worker,
+    ...(input.createRegistrationCredential
+      ? { registrationCredential: await input.createRegistrationCredential(started.registration) }
+      : {}),
     nowMs: input.nowMs,
   });
-  return await finalizeWalletAddAuthMethod({
+  const finalized = await finalizeWalletAddAuthMethod({
     relayerUrl: input.relayerUrl,
     walletId: input.walletId,
     addAuthMethodCeremonyId: started.addAuthMethodCeremonyId,
     webauthnRegistration: linked.registration,
     custodyEnvelope: linked.custodyEnvelope,
   });
+  return { finalized, registration: linked.registration };
 }

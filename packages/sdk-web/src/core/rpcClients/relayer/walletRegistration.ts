@@ -43,6 +43,7 @@ import {
   type RootShareEpoch,
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
+import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import type {
   MpcWalletSigningQuotaId,
   SeamsSessionId,
@@ -905,15 +906,29 @@ export type WalletAddAuthMethodStartResponse =
       registration?: never;
     };
 
-export type WalletAddAuthMethodFinalizeResponse = {
-  ok: true;
-  walletId: WalletId;
-  rpId: string;
-  authMethod: {
-    kind: 'passkey' | 'email_otp';
-    status: 'active' | 'revoked';
-  };
-};
+export type WalletAddAuthMethodFinalizeResponse =
+  | {
+      ok: true;
+      walletId: WalletId;
+      rpId: string;
+      authMethod: {
+        kind: 'passkey';
+        status: 'active';
+        credentialIdB64u: string;
+        credentialPublicKeyB64u: string;
+        counter: number;
+        device: WebAuthnAuthenticatorDeviceInfo;
+      };
+    }
+  | {
+      ok: true;
+      walletId: WalletId;
+      rpId?: never;
+      authMethod: {
+        kind: 'email_otp';
+        status: 'active';
+      };
+    };
 
 export type RevokeAuthMethodAuth =
   | {
@@ -1997,14 +2012,22 @@ export async function createWalletAddAuthMethodIntent(args: {
   relayerUrl: string;
   walletId: WalletId;
   request: CreateAddAuthMethodIntentRequest;
-  headers?: Record<string, string>;
+  auth: { publishableKey: string; environmentId: string };
 }): Promise<CreateAddAuthMethodIntentResponse> {
   const walletId = String(args.walletId || '').trim();
   if (!walletId) throw new Error('walletId is required for add-auth-method intent');
+  const publishableKey = String(args.auth.publishableKey || '').trim();
+  const environmentId = String(args.auth.environmentId || '').trim();
+  if (!publishableKey || !environmentId) {
+    throw new Error('add-auth-method intent requires a publishable key and environment id');
+  }
   return await postJson<CreateAddAuthMethodIntentResponse>({
     relayerUrl: args.relayerUrl,
     path: `/wallets/${encodeURIComponent(walletId)}/auth-methods/intent`,
-    headers: args.headers,
+    headers: {
+      Authorization: `Bearer ${publishableKey}`,
+      [ROUTER_API_ENVIRONMENT_ID_HEADER]: environmentId,
+    },
     body: args.request,
   });
 }

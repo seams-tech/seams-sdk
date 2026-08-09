@@ -7,6 +7,7 @@ import {
   registerWallet as registerWalletWithUnifiedCeremony,
   WALLET_IFRAME_TRANSPORT_TIMING_LABEL,
 } from '@/SeamsWeb/operations/registration/registration';
+import { addPasskeyWalletAuthMethod } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
 import {
   MinimalNearClient,
   type NearClient,
@@ -786,6 +787,7 @@ export class SeamsWeb {
             deliverNearProvisioningStateChanged.bind(null, listener),
           ),
         addWalletSigner: async (args) => await this.registerWalletSignerDomain(args),
+        addPasskey: async (args) => await this.addPasskeyDomain(args),
         registerWallet: async (args) => await this.registerWalletDomain(args),
         registerPasskey: async (options) => await this.registerPasskeyDomain(options),
         requestEmailOtpEnrollmentChallenge: async (args) =>
@@ -1176,6 +1178,30 @@ export class SeamsWeb {
       rpId: args.rpId,
       signerSelection: args.signerSelection,
       options: args.options || {},
+    });
+  }
+
+  private async addPasskeyDomain(
+    args: Parameters<RegistrationCapability['addPasskey']>[0],
+  ): Promise<Awaited<ReturnType<RegistrationCapability['addPasskey']>>> {
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      try {
+        const router = await this.walletIframe.requireRouter(String(args.walletId || ''));
+        const result = await router.addPasskey(args);
+        await args.options?.afterCall?.(true);
+        return result;
+      } catch (error: unknown) {
+        const normalized = toError(error);
+        await args.options?.onError?.(normalized);
+        await args.options?.afterCall?.(false);
+        throw normalized;
+      }
+    }
+    return await addPasskeyWalletAuthMethod({
+      context: this.getContext(),
+      walletId: args.walletId,
+      rpId: args.rpId,
+      options: args.options,
     });
   }
 

@@ -345,6 +345,7 @@ export class SeamsWebIframe {
       onNearProvisioningStateChanged: (listener) =>
         this.router.onSdkLifecycleEvent(deliverNearProvisioningStateChanged.bind(null, listener)),
       addWalletSigner: async (args) => await this.addWalletSignerDomain(args),
+      addPasskey: async (args) => await this.addPasskeyDomain(args),
       registerWallet: async (args) => await this.registerWalletDomain(args),
       registerWithEmailOtp: async (args) => await this.registerWalletDomain(args),
       registerPasskey: async (options) => await this.registerPasskeyDomain(options),
@@ -760,6 +761,22 @@ export class SeamsWebIframe {
       await this.requireRouterReady();
       const res = await this.router.addWalletSigner(args);
       await args.options?.afterCall?.(true, res);
+      return res;
+    } catch (err: unknown) {
+      const e = toError(err);
+      await args.options?.onError?.(e);
+      await args.options?.afterCall?.(false, undefined, e);
+      throw e;
+    }
+  }
+
+  private async addPasskeyDomain(
+    args: Parameters<RegistrationCapability['addPasskey']>[0],
+  ): Promise<Awaited<ReturnType<RegistrationCapability['addPasskey']>>> {
+    try {
+      await this.requireRouterReady();
+      const res = await this.router.addPasskey(args);
+      await args.options?.afterCall?.(true);
       return res;
     } catch (err: unknown) {
       const e = toError(err);

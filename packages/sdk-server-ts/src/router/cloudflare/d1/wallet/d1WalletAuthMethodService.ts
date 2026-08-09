@@ -507,7 +507,14 @@ export class CloudflareD1WalletAuthMethodService {
           walletId,
           authority: walletAuthAuthorityFromRegistrationAuthority(authority),
           rpId: ceremony.passkeyRegistration.rpId,
-          authMethod: { kind: 'passkey', status: 'active' },
+          authMethod: {
+            kind: 'passkey',
+            status: 'active',
+            credentialIdB64u: credential.credentialIdB64u,
+            credentialPublicKeyB64u: credential.credentialPublicKeyB64u,
+            counter: credential.counter,
+            device: credential.device,
+          },
         };
       }
 

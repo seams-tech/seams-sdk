@@ -804,6 +804,7 @@ export type ParentToChildType =
   // SeamsWeb API surface
   | 'PM_REGISTER_WALLET'
   | 'PM_ADD_WALLET_SIGNER'
+  | 'PM_ADD_PASSKEY'
   | 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION'
   | 'PM_UNLOCK'
   | 'PM_LOCK'
@@ -944,6 +945,13 @@ export interface PMAddWalletSignerPayload {
   walletId: WalletId | string;
   rpId: string;
   signerSelection: AddSignerSelection;
+  confirmationConfig?: Partial<ConfirmationConfig>;
+  options?: Record<string, unknown>;
+}
+
+export interface PMAddPasskeyPayload {
+  walletId: WalletId | string;
+  rpId: string;
   confirmationConfig?: Partial<ConfirmationConfig>;
   options?: Record<string, unknown>;
 }
@@ -1384,6 +1392,7 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_REDEEM_HOSTED_WALLET_SEAMS_SESSION', PMRedeemHostedWalletSeamsSessionPayload>
   | RpcEnvelope<'PM_REGISTER_WALLET', PMRegisterWalletPayload>
   | RpcEnvelope<'PM_ADD_WALLET_SIGNER', PMAddWalletSignerPayload>
+  | RpcEnvelope<'PM_ADD_PASSKEY', PMAddPasskeyPayload>
   | RpcEnvelope<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION', BootstrapThresholdEcdsaSessionArgs>
   | RpcEnvelope<'PM_UNLOCK', PMUnlockPayload>
   | RpcEnvelope<'PM_LOCK'>

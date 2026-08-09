@@ -6,6 +6,7 @@ import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { DerivationClientSharePublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import type { WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type {
   RouterAbEd25519YaoActivationAdmissionReceiptV1,
@@ -296,18 +297,30 @@ export type WalletAddAuthMethodFinalizeRequest =
       custodyEnvelope?: never;
     };
 
-export type WalletAuthMethodStatusAnnotation<Status extends WalletAuthMethodRecord['status']> = {
-  kind: WalletAuthMethodRecord['kind'];
-  status: Status;
-};
-
 export type WalletAddAuthMethodFinalizeResponse =
   | {
       ok: true;
       walletId: WalletId;
       authority: WalletAuthAuthority;
-      rpId?: string;
-      authMethod: WalletAuthMethodStatusAnnotation<'active'>;
+      rpId: WebAuthnRpId;
+      authMethod: {
+        kind: 'passkey';
+        status: 'active';
+        credentialIdB64u: string;
+        credentialPublicKeyB64u: string;
+        counter: number;
+        device: WebAuthnAuthenticatorDeviceInfo;
+      };
+    }
+  | {
+      ok: true;
+      walletId: WalletId;
+      authority: WalletAuthAuthority;
+      rpId?: never;
+      authMethod: {
+        kind: 'email_otp';
+        status: 'active';
+      };
     }
   | {
       ok: false;

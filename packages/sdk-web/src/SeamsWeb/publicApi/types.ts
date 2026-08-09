@@ -88,10 +88,12 @@ import type {
   CompleteWalletRecoveryResult,
   PrepareWalletWithCodeResult,
 } from '@/SeamsWeb/operations/recovery/walletRecovery';
+import type { AddPasskeyResult } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
 export type {
   CompleteWalletRecoveryResult,
   PrepareWalletWithCodeResult,
 } from '@/SeamsWeb/operations/recovery/walletRecovery';
+export type { AddPasskeyResult } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import type {
   AvailableSigningLanes,
@@ -774,6 +776,11 @@ export interface RegistrationCapability {
     signerSelection: AddSignerSelection;
     options?: RegistrationHooksOptions;
   }): Promise<RegistrationResult>;
+  addPasskey(args: {
+    walletId: WalletId | string;
+    rpId: string;
+    options?: RegistrationHooksOptions;
+  }): Promise<AddPasskeyResult>;
   registerWallet(args: {
     authMethod: RegistrationAuthMethodInput;
     wallet: RegisterWalletInput;
