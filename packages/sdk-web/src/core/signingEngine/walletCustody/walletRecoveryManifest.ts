@@ -146,7 +146,6 @@ export async function recoverWalletCustodyManifestV1(input: {
   readonly replacementCredentialIdB64u: WebAuthnCredentialIdB64u;
   readonly replacementFactorSecret: ArrayBuffer;
   readonly relayUrl: string;
-  readonly sessionToken: string;
   readonly runStep: WalletCustodyCeremonyStepRunner;
   readonly workerCtx: WorkerOperationContext;
   readonly nowMs?: () => number;
@@ -234,7 +233,7 @@ export async function recoverWalletCustodyManifestV1(input: {
               reservationId: input.prepared.reservationId,
               reservationExpiresAtMs: input.prepared.reservationExpiresAtMs,
               relayUrl: input.relayUrl,
-              sessionToken: input.sessionToken,
+              recoveryAuthorizationJwt: entry.recoveryAuthorizationJwt,
               workerCtx: input.workerCtx,
             });
             return activation.relayerPublicIdentityJson;

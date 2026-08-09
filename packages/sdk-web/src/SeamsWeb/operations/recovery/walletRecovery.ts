@@ -2,8 +2,13 @@ import type { EmailRecoveryWebContext } from '@/SeamsWeb/signingSurface/ports';
 import {
   buildWalletRecoveryCeremonyCustodyJson,
   prepareWalletRecovery,
+  prepareWalletRecoveryWithBootstrap,
   type WalletRecoveryPrepareResult,
 } from '@/core/rpcClients/relayer/walletRecoveryPrepare';
+import type {
+  WalletRecoveryBootstrapChallengeResult,
+  WalletRecoveryBootstrapVerifyResult,
+} from '@/core/rpcClients/relayer/walletRecoveryBootstrap';
 import {
   finalizeWalletRecovery,
   type WalletRecoveryFinalizeResult,
@@ -43,6 +48,8 @@ export type PrepareWalletWithCodeResult =
     }
   | Exclude<WalletRecoveryPrepareResult, { readonly kind: 'prepared' }>
   | { readonly kind: 'failed'; readonly message: string };
+
+export type { WalletRecoveryBootstrapChallengeResult, WalletRecoveryBootstrapVerifyResult };
 
 export type CompleteWalletRecoveryResult =
   | {
@@ -215,7 +222,10 @@ export class WalletRecoveryCoordinator {
         reservationId: createReservationId(),
         replacedCredentialIdB64u: input.replacedCredentialIdB64u,
       });
-      if (prepared.kind !== 'prepared') return prepared;
+      if (prepared.kind !== 'prepared') {
+        recoveryCodeBytes.fill(0);
+        return prepared;
+      }
       const recoveryOperationId = secureRandomId(
         'wallet-recovery-operation',
         24,
@@ -248,12 +258,71 @@ export class WalletRecoveryCoordinator {
     }
   }
 
+  async prepareWithBootstrap(input: {
+    readonly walletId: string;
+    readonly orgId: string;
+    readonly relayUrl: string;
+    readonly challengeId: string;
+    readonly recoveryBootstrapGrant: string;
+    readonly recoveryCode: string;
+    readonly replacedCredentialIdB64u: string;
+  }): Promise<PrepareWalletWithCodeResult> {
+    this.#pruneExpired();
+    let recoveryCodeBytes: Uint8Array | null = null;
+    try {
+      recoveryCodeBytes = decodeWalletRecoveryCode(input.recoveryCode);
+      const prepared = await prepareWalletRecoveryWithBootstrap({
+        relayUrl: input.relayUrl,
+        walletId: input.walletId,
+        orgId: input.orgId,
+        recoveryBootstrapGrant: input.recoveryBootstrapGrant,
+        challengeId: input.challengeId,
+        recoveryCode: base64UrlEncode(recoveryCodeBytes),
+        reservationId: createReservationId(),
+        replacedCredentialIdB64u: input.replacedCredentialIdB64u,
+      });
+      if (prepared.kind !== 'prepared') {
+        recoveryCodeBytes.fill(0);
+        return prepared;
+      }
+      const recoveryOperationId = secureRandomId(
+        'wallet-recovery-operation',
+        24,
+        'wallet recovery client operation handles',
+      );
+      this.#operations.set(recoveryOperationId, {
+        stage: 'prepared',
+        recoveryOperationId,
+        walletId: input.walletId,
+        prepared,
+        custodyJson: buildWalletRecoveryCeremonyCustodyJson({
+          walletId: input.walletId,
+          prepared,
+        }),
+        recoveryCodeBytes,
+      });
+      recoveryCodeBytes = null;
+      return {
+        kind: 'ready_for_passkey',
+        recoveryOperationId,
+        walletId: input.walletId,
+        reservationExpiresAtMs: prepared.reservationExpiresAtMs,
+        rpId: prepared.registration.rpId,
+      };
+    } catch (error: unknown) {
+      recoveryCodeBytes?.fill(0);
+      return {
+        kind: 'failed',
+        message: error instanceof Error ? error.message : 'wallet recovery preparation failed',
+      };
+    }
+  }
+
   async complete(input: {
     readonly context: EmailRecoveryWebContext;
     readonly recoveryOperationId: string;
     readonly walletId: string;
     readonly relayUrl: string;
-    readonly sessionToken: string;
   }): Promise<CompleteWalletRecoveryResult> {
     this.#pruneExpired();
     let operation = this.#operations.get(input.recoveryOperationId);
@@ -279,7 +348,6 @@ export class WalletRecoveryCoordinator {
           replacementCredentialIdB64u: operation.replacement.credentialIdB64u,
           replacementFactorSecret: operation.replacement.factorSecret,
           relayUrl: input.relayUrl,
-          sessionToken: input.sessionToken,
         });
         operation = { ...operation, stage: 'manifest_recovered', recovered };
         this.#operations.set(operation.recoveryOperationId, operation);
@@ -287,11 +355,11 @@ export class WalletRecoveryCoordinator {
       const finalized = await finalizeWalletRecovery({
         relayUrl: input.relayUrl,
         walletId: operation.walletId,
-        sessionToken: input.sessionToken,
         reservationId: operation.prepared.reservationId,
         challengeId: operation.prepared.registration.challengeId,
         replacementId: operation.prepared.registration.replacementId,
         replacedCredentialIdB64u: operation.prepared.registration.replacedCredentialIdB64u,
+        recoveryAuthorizationToken: operation.prepared.recoveryAuthorizationToken,
         webauthnRegistration: operation.replacement.registration,
         replacementEnvelope: operation.recovered.replacementEnvelope,
       });

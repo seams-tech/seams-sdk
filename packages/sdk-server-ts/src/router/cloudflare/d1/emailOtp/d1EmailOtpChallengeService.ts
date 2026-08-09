@@ -15,6 +15,7 @@ import type { CloudflareD1EmailOtpChallengeStore } from './d1EmailOtpChallengeSt
 import type { CloudflareD1EmailOtpChallengeVerifier } from './d1EmailOtpChallengeVerifier';
 import type { CloudflareD1EmailOtpGrantStore } from './d1EmailOtpGrantStore';
 import type { CloudflareD1EmailOtpRegistrationEnrollmentFinalizer } from './d1EmailOtpRegistrationEnrollmentFinalizer';
+import type { CloudflareD1EmailOtpEnrollmentStore } from './d1EmailOtpEnrollmentStore';
 import type { CloudflareD1GoogleEmailOtpRegistrationAttemptStore } from './d1GoogleEmailOtpRegistrationAttemptStore';
 
 type CreateEmailOtpChallengeInput =
@@ -65,6 +66,7 @@ export class CloudflareD1EmailOtpChallengeService {
   private readonly issuer: CloudflareD1EmailOtpChallengeIssuer;
   private readonly registrationAttempts: CloudflareD1GoogleEmailOtpRegistrationAttemptStore;
   private readonly verifier: CloudflareD1EmailOtpChallengeVerifier;
+  private readonly enrollments: CloudflareD1EmailOtpEnrollmentStore;
 
   constructor(input: {
     readonly challenges: CloudflareD1EmailOtpChallengeStore;
@@ -75,6 +77,7 @@ export class CloudflareD1EmailOtpChallengeService {
     readonly issuer: CloudflareD1EmailOtpChallengeIssuer;
     readonly registrationAttempts: CloudflareD1GoogleEmailOtpRegistrationAttemptStore;
     readonly verifier: CloudflareD1EmailOtpChallengeVerifier;
+    readonly enrollments: CloudflareD1EmailOtpEnrollmentStore;
   }) {
     this.challenges = input.challenges;
     this.devOutboxEnabled = input.devOutboxEnabled;
@@ -84,6 +87,109 @@ export class CloudflareD1EmailOtpChallengeService {
     this.issuer = input.issuer;
     this.registrationAttempts = input.registrationAttempts;
     this.verifier = input.verifier;
+    this.enrollments = input.enrollments;
+  }
+
+  async createEmailOtpWalletRecoveryBootstrapChallenge(
+    input: Parameters<
+      RouterApiEmailOtpRouteService['createEmailOtpWalletRecoveryBootstrapChallenge']
+    >[0],
+  ): Promise<
+    Awaited<ReturnType<RouterApiEmailOtpRouteService['createEmailOtpWalletRecoveryBootstrapChallenge']>>
+  > {
+    const walletId = toOptionalTrimmedString(input.walletId);
+    const orgId = toOptionalTrimmedString(input.orgId);
+    if (!walletId || !orgId) {
+      return { ok: false, code: 'invalid_body', message: 'wallet recovery requires walletId and orgId' };
+    }
+    const enrollment = await this.enrollments.readEnrollment(walletId);
+    if (!enrollment || enrollment.orgId !== orgId) {
+      return { ok: false, code: 'recovery_unavailable', message: 'wallet recovery is unavailable' };
+    }
+    const sessionHash = secureRandomBase64Url(24, 'wallet recovery bootstrap binding');
+    const appSessionVersion = `wallet-recovery-bootstrap:${secureRandomBase64Url(
+      12,
+      'wallet recovery bootstrap version',
+    )}`;
+    const result = await this.issuer.create({
+      userId: enrollment.providerUserId,
+      walletId,
+      orgId,
+      email: enrollment.verifiedEmail,
+      otpChannel: EMAIL_OTP_CHANNEL,
+      sessionHash,
+      appSessionVersion,
+      clientIp: input.clientIp,
+      requestOrigin: input.requestOrigin,
+      action: WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap,
+      operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+    });
+    if (!result.ok) return result;
+    return {
+      ok: true,
+      challengeId: result.challenge.challengeId,
+      otpChannel: EMAIL_OTP_CHANNEL,
+      expiresAtMs: result.challenge.expiresAtMs,
+      emailHint: maskEmail(enrollment.verifiedEmail),
+    };
+  }
+
+  async verifyEmailOtpWalletRecoveryBootstrap(
+    input: Parameters<RouterApiEmailOtpRouteService['verifyEmailOtpWalletRecoveryBootstrap']>[0],
+  ): Promise<
+    Awaited<ReturnType<RouterApiEmailOtpRouteService['verifyEmailOtpWalletRecoveryBootstrap']>>
+  > {
+    const walletId = toOptionalTrimmedString(input.walletId);
+    const orgId = toOptionalTrimmedString(input.orgId);
+    const challengeId = toOptionalTrimmedString(input.challengeId);
+    if (!walletId || !orgId || !challengeId) {
+      return { ok: false, code: 'invalid_body', message: 'wallet recovery verification is incomplete' };
+    }
+    const challenge = await this.challenges.read(challengeId);
+    if (!challenge || challenge.walletId !== walletId || challenge.orgId !== orgId) {
+      return { ok: false, code: 'challenge_expired_or_invalid', message: 'Email OTP challenge expired or invalid' };
+    }
+    const verified = await this.verifier.verifyExisting({
+      userId: challenge.challengeSubjectId,
+      walletId,
+      orgId,
+      challengeId,
+      otpCode: input.otpCode,
+      otpChannel: EMAIL_OTP_CHANNEL,
+      sessionHash: challenge.sessionHash,
+      appSessionVersion: challenge.appSessionVersion,
+      clientIp: input.clientIp,
+      action: WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap,
+      operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+    });
+    if (!verified.ok) return verified;
+    const issuedAtMs = Date.now();
+    const recoveryBootstrapGrantExpiresAtMs = issuedAtMs + this.grantTtlMs;
+    const recoveryBootstrapGrant = secureRandomBase64Url(
+      24,
+      'wallet recovery bootstrap grants',
+    );
+    await this.grants.put(
+      emailOtpGrantRecord({
+        grantToken: recoveryBootstrapGrant,
+        userId: verified.userId,
+        walletId: verified.walletId,
+        orgId: verified.orgId,
+        challengeId: verified.challengeId,
+        sessionHash: verified.sessionHash,
+        appSessionVersion: verified.appSessionVersion,
+        action: WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap,
+        issuedAtMs,
+        expiresAtMs: recoveryBootstrapGrantExpiresAtMs,
+      }),
+    );
+    return {
+      ok: true,
+      walletId: verified.walletId,
+      challengeId: verified.challengeId,
+      recoveryBootstrapGrant,
+      recoveryBootstrapGrantExpiresAtMs,
+    };
   }
 
   async createEmailOtpChallenge(

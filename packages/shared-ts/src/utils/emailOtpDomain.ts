@@ -24,6 +24,7 @@ export const WALLET_EMAIL_OTP_ACTIONS = {
   login: 'wallet_email_otp_login',
   registration: 'wallet_email_otp_registration',
   deviceRecovery: 'wallet_email_otp_device_recovery',
+  recoveryBootstrap: 'wallet_email_otp_recovery_bootstrap',
   unseal: 'wallet_email_otp_unseal',
 } as const;
 

@@ -662,6 +662,43 @@ export class CloudflareD1EmailOtpRecoveryService {
     }
   }
 
+  async consumeEmailOtpWalletRecoveryBootstrap(
+    input: Parameters<
+      RouterApiEmailOtpRouteService['consumeEmailOtpWalletRecoveryBootstrap']
+    >[0],
+  ): Promise<
+    Awaited<ReturnType<RouterApiEmailOtpRouteService['consumeEmailOtpWalletRecoveryBootstrap']>>
+  > {
+    const recoveryBootstrapGrant = toOptionalTrimmedString(input.recoveryBootstrapGrant);
+    const walletId = toOptionalTrimmedString(input.walletId);
+    const orgId = toOptionalTrimmedString(input.orgId);
+    if (!recoveryBootstrapGrant || !walletId || !orgId) {
+      return { ok: false, code: 'invalid_body', message: 'recovery bootstrap grant is incomplete' };
+    }
+    const record = await this.emailOtpGrants.consume(recoveryBootstrapGrant);
+    if (
+      !record ||
+      record.action !== WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap ||
+      record.walletId !== walletId ||
+      record.orgId !== orgId ||
+      Date.now() > record.expiresAtMs
+    ) {
+      return {
+        ok: false,
+        code: 'recovery_bootstrap_grant_invalid_or_expired',
+        message: 'Recovery bootstrap grant is invalid or expired',
+      };
+    }
+    return {
+      ok: true,
+      walletId: record.walletId,
+      providerUserId: record.userId,
+      orgId: record.orgId || orgId,
+      challengeId: record.challengeId,
+      grantExpiresAtMs: record.expiresAtMs,
+    };
+  }
+
   async consumeEmailOtpRecoveryKey(
     input: ConsumeEmailOtpRecoveryKeyInput,
   ): Promise<ConsumeEmailOtpRecoveryKeyResult> {

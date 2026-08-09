@@ -236,7 +236,13 @@ type RouterAbEcdsaPostRegistrationClientProofCall = {
 
 export type ThresholdEcdsaDerivationRouteAuth =
   | AppOrWalletSessionAuth
-  | { kind: 'publishable_key'; token: string };
+  | { kind: 'publishable_key'; token: string }
+  | {
+      kind: 'wallet_recovery';
+      jwt: string;
+      reservationId: string;
+      keySetId: string;
+    };
 
 function requireNonEmptyString(value: unknown, field: string): string {
   const text = String(value || '').trim();
@@ -423,6 +429,7 @@ function resolveBearerToken(auth?: ThresholdEcdsaDerivationRouteAuth): string {
   if (!auth) return '';
   if (auth.kind === 'app_session') return requireAppSessionJwt(auth.jwt);
   if (auth.kind === 'wallet_session') return requireWalletSessionJwt(auth.jwt);
+  if (auth.kind === 'wallet_recovery') return requireNonEmptyString(auth.jwt, 'wallet recovery JWT');
   return String(auth.token || '').trim();
 }
 

@@ -69,7 +69,11 @@ import {
   parseRouterAbEcdsaDerivationWalletSessionClaims,
   parseRouterAbEd25519WalletSessionClaims,
 } from '../../../../core/ThresholdService/validation';
-import { parseGoogleProviderSubject, parseVerifiedGoogleEmail } from '@shared/utils/domainIds';
+import {
+  parseGoogleProviderSubject,
+  parseVerifiedGoogleEmail,
+  parseWalletId,
+} from '@shared/utils/domainIds';
 import { parseWalletUnlockRequestedCapabilitiesRequest } from '../../../domains/walletUnlock/walletUnlockRequestedCapabilitiesValidation';
 import {
   buildPasskeyWalletAuthAuthority,
@@ -2541,6 +2545,133 @@ export async function handleWalletEmailOtpDeviceRecoveryChallenge(
     service: routerApiEmailOtpRouteService(ctx.service),
   });
   return json(response.body, { status: response.status });
+}
+
+/** Starts the recovery-only Email OTP path on a device with no app session. */
+export async function handleWalletEmailOtpRecoveryBootstrapChallenge(
+  ctx: FetchRouterApiContext,
+): Promise<Response | null> {
+  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-bootstrap/challenge') {
+    return null;
+  }
+  const body = await readJson(ctx.request);
+  const record = isPlainObject(body) ? body : {};
+  const walletId = typeof record.walletId === 'string' ? record.walletId.trim() : '';
+  const orgId = typeof record.orgId === 'string' ? record.orgId.trim() : '';
+  if (!walletId || !orgId) {
+    return json(
+      { ok: false, code: 'recovery_unavailable', message: 'wallet recovery is unavailable' },
+      { status: 404 },
+    );
+  }
+  const result = await ctx.service.emailOtp.createEmailOtpWalletRecoveryBootstrapChallenge({
+    walletId,
+    orgId,
+    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
+    requestOrigin: ctx.request.headers.get('origin'),
+  });
+  if (!result.ok) {
+    return json(
+      { ok: false, code: 'recovery_unavailable', message: 'wallet recovery is unavailable' },
+      { status: 404 },
+    );
+  }
+  return json(
+    {
+      ok: true,
+      challengeId: result.challengeId,
+      otpChannel: result.otpChannel,
+      expiresAtMs: result.expiresAtMs,
+      emailHint: result.emailHint,
+    },
+    { status: 200 },
+  );
+}
+
+/** Verifies the recovery-only challenge and returns a one-purpose grant. */
+export async function handleWalletEmailOtpRecoveryBootstrapVerify(
+  ctx: FetchRouterApiContext,
+): Promise<Response | null> {
+  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-bootstrap/verify') {
+    return null;
+  }
+  const body = await readJson(ctx.request);
+  const record = isPlainObject(body) ? body : {};
+  const walletId = typeof record.walletId === 'string' ? record.walletId.trim() : '';
+  const orgId = typeof record.orgId === 'string' ? record.orgId.trim() : '';
+  const challengeId = typeof record.challengeId === 'string' ? record.challengeId.trim() : '';
+  const otpCode = typeof record.otpCode === 'string' ? record.otpCode.trim() : '';
+  if (!walletId || !orgId || !challengeId || !otpCode) {
+    return json(
+      { ok: false, code: 'challenge_expired_or_invalid', message: 'Email OTP challenge expired or invalid' },
+      { status: 401 },
+    );
+  }
+  const result = await ctx.service.emailOtp.verifyEmailOtpWalletRecoveryBootstrap({
+    walletId,
+    orgId,
+    challengeId,
+    otpCode,
+    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
+  });
+  if (!result.ok) {
+    return json(
+      { ok: false, code: result.code, message: result.message },
+      { status: result.code === 'invalid_body' ? 400 : 401 },
+    );
+  }
+  const replaceableCredentials = await listWalletRecoveryBootstrapCredentialChoices(
+    ctx,
+    result.walletId,
+  );
+  if (!replaceableCredentials) {
+    return json(
+      { ok: false, code: 'recovery_unavailable', message: 'wallet recovery is unavailable' },
+      { status: 503 },
+    );
+  }
+  return json(
+    {
+      ok: true,
+      walletId: result.walletId,
+      challengeId: result.challengeId,
+      recoveryBootstrapGrant: result.recoveryBootstrapGrant,
+      recoveryBootstrapGrantExpiresAtMs: result.recoveryBootstrapGrantExpiresAtMs,
+      replaceableCredentials,
+    },
+    { status: 200 },
+  );
+}
+
+async function listWalletRecoveryBootstrapCredentialChoices(
+  ctx: FetchRouterApiContext,
+  walletId: string,
+): Promise<readonly { readonly credentialIdB64u: string; readonly label?: string }[] | null> {
+  const parsedWalletId = parseWalletId(walletId);
+  if (!parsedWalletId.ok) return null;
+  try {
+    const credentials = await ctx.service.passkeyCustody.listWalletCredentials({
+      walletId: parsedWalletId.value,
+    });
+    return credentials.flatMap((credential) => {
+      if (
+        credential.index.factor.kind !== 'passkey' ||
+        credential.index.lifecycle.kind !== 'active'
+      ) {
+        return [];
+      }
+      return [
+        {
+          credentialIdB64u: credential.index.factor.credentialIdB64u,
+          ...(credential.index.deviceLabel ?? credential.activity.label
+            ? { label: credential.index.deviceLabel ?? credential.activity.label }
+            : {}),
+        },
+      ];
+    });
+  } catch {
+    return null;
+  }
 }
 
 export async function handleWalletEmailOtpLoginVerify(

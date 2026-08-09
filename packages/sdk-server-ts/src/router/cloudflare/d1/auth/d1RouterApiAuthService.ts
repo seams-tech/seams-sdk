@@ -1522,6 +1522,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     issuer: emailOtpChallengeIssuer,
     registrationAttempts: googleEmailOtpRegistrationAttempts,
     verifier: emailOtpChallengeVerifier,
+    enrollments: emailOtpEnrollments,
   });
   const emailOtpRecoveryService = new CloudflareD1EmailOtpRecoveryService({
     challengeVerifier: emailOtpChallengeVerifier,
@@ -1691,6 +1692,10 @@ function createD1EmailOtpRouteService(
     consumeEmailOtpGrant: assembly.emailOtpRecoveryService.consumeEmailOtpGrant.bind(
       assembly.emailOtpRecoveryService,
     ),
+    consumeEmailOtpWalletRecoveryBootstrap:
+      assembly.emailOtpRecoveryService.consumeEmailOtpWalletRecoveryBootstrap.bind(
+        assembly.emailOtpRecoveryService,
+      ),
     consumeEmailOtpRecoveryKey: assembly.emailOtpRecoveryService.consumeEmailOtpRecoveryKey.bind(
       assembly.emailOtpRecoveryService,
     ),
@@ -1699,6 +1704,10 @@ function createD1EmailOtpRouteService(
     ),
     createEmailOtpDeviceRecoveryChallenge:
       assembly.emailOtpChallengeService.createEmailOtpDeviceRecoveryChallenge.bind(
+        assembly.emailOtpChallengeService,
+      ),
+    createEmailOtpWalletRecoveryBootstrapChallenge:
+      assembly.emailOtpChallengeService.createEmailOtpWalletRecoveryBootstrapChallenge.bind(
         assembly.emailOtpChallengeService,
       ),
     createEmailOtpEnrollmentChallenge:
@@ -1747,6 +1756,10 @@ function createD1EmailOtpRouteService(
     verifyEmailOtpDeviceRecoveryChallenge:
       assembly.emailOtpRecoveryService.verifyEmailOtpDeviceRecoveryChallenge.bind(
         assembly.emailOtpRecoveryService,
+      ),
+    verifyEmailOtpWalletRecoveryBootstrap:
+      assembly.emailOtpChallengeService.verifyEmailOtpWalletRecoveryBootstrap.bind(
+        assembly.emailOtpChallengeService,
       ),
     verifyEmailOtpWalletRecoveryChallenge:
       assembly.emailOtpChallengeService.verifyEmailOtpWalletRecoveryChallenge.bind(

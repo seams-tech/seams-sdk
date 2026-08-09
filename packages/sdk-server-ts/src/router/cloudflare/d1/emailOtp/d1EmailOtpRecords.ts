@@ -36,7 +36,8 @@ import {
 export type EmailOtpChallengeIssueAction =
   | typeof WALLET_EMAIL_OTP_ACTIONS.login
   | typeof WALLET_EMAIL_OTP_ACTIONS.registration
-  | typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery;
+  | typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery
+  | typeof WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap;
 
 export type EmailOtpRateLimitScope =
   | 'challenge'
@@ -813,7 +814,8 @@ export function parseEmailOtpGrantRecord(input: unknown): EmailOtpGrantRecord | 
   }
   if (
     action !== WALLET_EMAIL_OTP_ACTIONS.unseal &&
-    action !== WALLET_EMAIL_OTP_ACTIONS.deviceRecovery
+    action !== WALLET_EMAIL_OTP_ACTIONS.deviceRecovery &&
+    action !== WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap
   ) {
     return null;
   }
@@ -1394,6 +1396,7 @@ function parseEmailOtpChallengeAction(input: unknown): EmailOtpChallengeIssueAct
     case WALLET_EMAIL_OTP_ACTIONS.login:
     case WALLET_EMAIL_OTP_ACTIONS.registration:
     case WALLET_EMAIL_OTP_ACTIONS.deviceRecovery:
+    case WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap:
       return action;
     default:
       return null;
@@ -1410,6 +1413,7 @@ export function emailOtpChallengePurposeIsValid(input: {
     case WALLET_EMAIL_OTP_ACTIONS.registration:
       return input.operation === WALLET_EMAIL_OTP_REGISTRATION_OPERATION;
     case WALLET_EMAIL_OTP_ACTIONS.deviceRecovery:
+    case WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap:
       return input.operation === WALLET_EMAIL_OTP_UNLOCK_OPERATION;
   }
 }
