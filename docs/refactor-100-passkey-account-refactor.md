@@ -2052,9 +2052,18 @@ repository evidence.
       What remains of the box above is the surrounding flow: retrieving the
       server-held envelope on a browser with empty IndexedDB, and driving this
       from the unlock path.
-- [ ] Hand verified ECDSA custody material to the Refactor 90 activation journal
+- [x] Hand verified ECDSA custody material to the Refactor 90 activation journal
       and read-back path as an exact `MpcMaterialActivationRef`; do not write a
       second active ECDSA persistence record.
+
+      The wallet-custody branch now uses the same three-route activation
+      journal as every canonical Refactor 90 registration. It persists the
+      prepared journal before `/activate`, correlates the returned receipt with
+      that journal, and hands the custody-produced ready-state blob to
+      `finalizeRouterAbEcdsaRegistrationActivation`. Finalization seals and
+      installs the one active manifest through the journal transaction, then
+      returns the parsed material activation used by the registration session.
+      The custody ceremony never writes an ECDSA capability record itself.
 - [x] Bind opaque material handles only to wallet key, lane, epoch, participant
       set, exact material activation, and TTL. Compose the admitted reusable or
       step-up authorization branch only in prepared operation state; no
