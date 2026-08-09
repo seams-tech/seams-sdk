@@ -1128,7 +1128,8 @@ repository evidence.
 
       Why a module at all: custody lived in `near_signer`, Yao registration in
       `router-ab-ed25519-yao-client`, ECDSA bootstrap in
-      `router_ab_ecdsa_derivation_client`, and no module depended on the
+      `router_ab_ecdsa_client` (then named `router_ab_ecdsa_derivation_client`),
+      and no module depended on the
       others. A seed-derived root could not reach its protocol without crossing
       JavaScript as bytes, which invariant 3 forbids. One module reaching both
       protocol crates is the only way to close that gap; both already build as
@@ -1994,9 +1995,11 @@ repository evidence.
       SDK TypeScript build had been failing on this since that commit. Updated
       to the current surface: seed builders, factor builders, and the v2
       envelope version.
-- [ ] Shrink `wasm/ecdsa_registration_client` once registration leaves it:
-      rename around role-local material rehydration or fold the remainder into
-      its natural owner. Do not leave a compatibility shell under the old name.
+- [x] Consolidate `wasm/ecdsa_registration_client` into
+      `wasm/router_ab_ecdsa_client`. The module now owns the client lifecycle:
+      registration, recovery, activation refresh, explicit export, and
+      role-local material rehydration. The old package and its raw PRF-output
+      wire result are deleted.
 - [ ] Delete PRF-derived signing-root paths after replacement.
 
 ### Phase 3: Unlock And Signing

@@ -31,9 +31,9 @@ REQUIRED_WASM_OUTPUTS=(
   "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client.js"
   "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client.d.ts"
   "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client_bg.wasm"
-  "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client.js"
-  "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client.d.ts"
-  "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client_bg.wasm"
+  "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT/pkg/router_ab_ecdsa_client.js"
+  "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT/pkg/router_ab_ecdsa_client.d.ts"
+  "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT/pkg/router_ab_ecdsa_client_bg.wasm"
   "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client.js"
   "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client.d.ts"
   "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client_bg.wasm"
@@ -159,7 +159,7 @@ print_step "Copying worker WASM binaries next to worker JS..."
 if cp "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker_bg.wasm" "$BUILD_WORKERS/" 2>/dev/null; then print_success "Signer WASM copied"; else print_warning "Signer WASM not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker_bg.wasm" "$BUILD_WORKERS/near_signer.wasm" 2>/dev/null; then print_success "near_signer.wasm copied"; else print_warning "near_signer.wasm not found"; fi
 if cp "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client_bg.wasm" "$BUILD_WORKERS/$ED25519_YAO_CLIENT_WASM" 2>/dev/null; then print_success "Ed25519 Yao Client WASM copied"; else print_warning "Ed25519 Yao Client WASM not found"; fi
-if cp "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client_bg.wasm" "$BUILD_WORKERS/" 2>/dev/null; then print_success "ECDSA client signer WASM copied"; else print_warning "ECDSA client signer WASM not found"; fi
+if cp "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT/pkg/router_ab_ecdsa_client_bg.wasm" "$BUILD_WORKERS/" 2>/dev/null; then print_success "ECDSA client signer WASM copied"; else print_warning "ECDSA client signer WASM not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client_bg.wasm" "$BUILD_WORKERS/" 2>/dev/null; then print_success "ECDSA presign WASM copied"; else print_warning "ECDSA presign WASM not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg/router_ab_ecdsa_online_client_bg.wasm" "$BUILD_WORKERS/" 2>/dev/null; then print_success "ECDSA online WASM copied"; else print_warning "ECDSA online WASM not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_EVM_CRYPTO/pkg/evm_crypto_bg.wasm" "$BUILD_WORKERS/evm_crypto.wasm" 2>/dev/null; then print_success "evm_crypto.wasm copied"; else print_warning "evm_crypto.wasm not found"; fi
@@ -174,9 +174,9 @@ if cp "$SDK_ROOT/$SOURCE_WASM_WALLET_CUSTODY_CEREMONY/pkg/wallet_custody_ceremon
 if cp "$SDK_ROOT/$SOURCE_WASM_WALLET_CUSTODY_CEREMONY/pkg/wallet_custody_ceremony_bg.wasm" "$BUILD_WORKERS/wallet_custody_ceremony_bg.wasm" 2>/dev/null; then print_success "wallet_custody_ceremony_bg.wasm copied"; else print_warning "wallet_custody_ceremony_bg.wasm not found"; fi
 
 print_step "Copying browser ECDSA export client WASM binary into dist/esm..."
-ECDSA_DERIVATION_CLIENT_WASM_DIR="$BUILD_ESM/wasm/router_ab_ecdsa_derivation_client/pkg"
-mkdir -p "$ECDSA_DERIVATION_CLIENT_WASM_DIR"
-if cp "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client_bg.wasm" "$ECDSA_DERIVATION_CLIENT_WASM_DIR/" 2>/dev/null; then
+ECDSA_CLIENT_WASM_DIR="$BUILD_ESM/wasm/router_ab_ecdsa_client/pkg"
+mkdir -p "$ECDSA_CLIENT_WASM_DIR"
+if cp "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT/pkg/router_ab_ecdsa_client_bg.wasm" "$ECDSA_CLIENT_WASM_DIR/" 2>/dev/null; then
   print_success "Browser ECDSA export client WASM copied"
 else
   print_warning "Browser ECDSA export client WASM not found"

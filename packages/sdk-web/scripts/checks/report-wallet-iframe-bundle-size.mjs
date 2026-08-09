@@ -224,7 +224,7 @@ const workerTargets = [
   [
     'derivationWasm',
     'ECDSA deferred export client WASM',
-    'dist/workers/router_ab_ecdsa_derivation_client_bg.wasm',
+    'dist/workers/router_ab_ecdsa_client_bg.wasm',
   ],
   [
     'ecdsaPresignClientWorker',

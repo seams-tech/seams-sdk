@@ -1,8 +1,8 @@
 [package]
-name = "router_ab_ecdsa_derivation_client"
+name = "router_ab_ecdsa_client"
 version = "0.1.0"
 edition = "2021"
-description = "Browser-targeted ECDSA role-local client signer"
+description = "Browser-targeted Router A/B ECDSA client lifecycle"
 license = "Apache-2.0"
 
 [package.metadata.wasm-pack.profile.release]

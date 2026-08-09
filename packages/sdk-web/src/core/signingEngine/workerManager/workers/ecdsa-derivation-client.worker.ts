@@ -5,7 +5,7 @@ import initEcdsaDerivationClient, {
   open_ecdsa_role_local_signing_share_v1,
   prepare_ecdsa_client_bootstrap_v1,
   RouterAbEcdsaClientCeremonyV1,
-} from '../../../../../../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js';
+} from '../../../../../../../wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import {
@@ -110,7 +110,7 @@ import { resolveEcdsaCapabilityHydration } from '../../session/material/ecdsaCap
 import type { MpcCapabilityHydrationBlockedReason } from '../../session/material/mpcCapabilityHydration';
 
 const ecdsaDerivationClientWasmUrl = resolveWasmUrl(
-  'router_ab_ecdsa_derivation_client_bg.wasm',
+  'router_ab_ecdsa_client_bg.wasm',
   'ECDSA Derivation Client',
 );
 let ecdsaDerivationClientInitPromise: Promise<void> | null = null;
@@ -1074,22 +1074,9 @@ async function finalizeRouterAbEcdsaExplicitExport(
     throw new Error('ECDSA explicit export finalization requires an active export ceremony');
   }
   try {
-    const proofOutput = requireRecordPayload(
-      JSON.parse(
-        active.ceremony.finalize_encrypted_proof_bundles(
-          JSON.stringify(request.clientProofFinalization),
-        ),
-      ),
+    active.ceremony.verify_encrypted_proof_bundles(
+      JSON.stringify(request.clientProofFinalization),
     );
-    requireExactKeys(
-      proofOutput,
-      ['kind', 'output32B64u'],
-      'Router A/B ECDSA post-registration proof finalization',
-    );
-    if (proofOutput.kind !== 'router_ab_ecdsa_prf_output_v1') {
-      throw new Error('Router A/B ECDSA post-registration proof output kind is invalid');
-    }
-    readNonEmptyString(proofOutput, 'output32B64u');
     const exportBinding = {
       wallet_id: String(request.publicFacts.walletId),
       key_handle: request.publicFacts.keyHandle,
