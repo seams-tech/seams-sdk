@@ -2532,6 +2532,7 @@ export class WalletIframeRouter {
       payload: {
         walletId: payload.walletId,
         rpId: payload.rpId,
+        authorization: payload.authorization,
         options: safeOptions,
         ...(confirmationConfig ? { confirmationConfig } : {}),
       },
