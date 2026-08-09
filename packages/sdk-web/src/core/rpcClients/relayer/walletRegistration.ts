@@ -842,6 +842,11 @@ export type AddAuthMethodAuth =
       expectedChallengeDigestB64u: string;
     }
   | {
+      /** Email OTP authorization is carried by the authenticated app session header. */
+      kind: 'email_otp';
+      appSessionJwt: string;
+    }
+  | {
       kind: 'app_session';
       appSessionJwt: string;
       policy: AddAuthMethodAppSessionPolicy;
@@ -3628,6 +3633,12 @@ function addSignerAuthBody(auth: AddSignerAuth): unknown {
 }
 
 function addAuthMethodAuthHeaders(auth: AddAuthMethodAuth): Record<string, string> | undefined {
+  if (auth.kind === 'email_otp') {
+    return buildBearerAuthorizationHeader({
+      token: auth.appSessionJwt,
+      missingMessage: 'appSessionJwt is required for Email OTP add-auth-method auth',
+    });
+  }
   if (auth.kind !== 'app_session') return undefined;
   return buildBearerAuthorizationHeader({
     token: auth.appSessionJwt,
@@ -3644,6 +3655,8 @@ function addAuthMethodAuthBody(auth: AddAuthMethodAuth): unknown {
         credential: auth.credential,
         expectedChallengeDigestB64u: auth.expectedChallengeDigestB64u,
       };
+    case 'email_otp':
+      return { kind: 'email_otp' };
     case 'app_session':
       return {
         kind: 'app_session',

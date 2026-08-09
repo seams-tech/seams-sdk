@@ -125,7 +125,6 @@ import {
 } from '@shared/threshold/signingRootScope';
 import {
   isEmailOtpWalletAuthAuthority,
-  parseWalletAuthAuthorityRef,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import {
@@ -998,13 +997,16 @@ async function verifyEmailOtpAddAuthMethodAuthorization(input: {
   readonly session?: SessionAdapter | null;
   readonly walletRegistration: Pick<
     RouterApiWalletRegistrationRouteService,
-    'validateAppSessionVersion'
+    'validateAppSessionVersion' | 'readActiveEmailOtpEnrollment'
   >;
-  readonly providerUserId: string;
-  readonly enrollmentId: string;
-  readonly enrollmentSealKeyVersion: string;
-  readonly authorityRef: WalletAuthAuthorityRef;
-}): Promise<ParseResult<void>> {
+}): Promise<
+  ParseResult<{
+    readonly providerUserId: string;
+    readonly enrollmentId: string;
+    readonly enrollmentSealKeyVersion: string;
+    readonly authorityRef: WalletAuthAuthorityRef;
+  }>
+> {
   if (!input.session) {
     return { ok: false, code: 'invalid_body', message: 'Email OTP add-auth requires app session' };
   }
@@ -1019,26 +1021,15 @@ async function verifyEmailOtpAddAuthMethodAuthorization(input: {
   if (appSessionClaims.exp !== undefined && appSessionClaims.exp * 1000 <= Date.now()) {
     return { ok: false, code: 'invalid_body', message: 'App session is expired' };
   }
-  if (appSessionClaims.sub !== input.providerUserId) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'Email OTP provider identity does not match app session',
-    };
-  }
   if (resolveAppSessionWalletIdForWalletScope(appSessionClaims, input.walletId) !== input.walletId) {
     return { ok: false, code: 'invalid_body', message: 'App session does not match walletId' };
   }
   const sessionAuthorityRef = appSessionClaims.walletAuthAuthorityRef;
-  if (
-    !sessionAuthorityRef ||
-    sessionAuthorityRef.walletId !== input.authorityRef.walletId ||
-    sessionAuthorityRef.authorityDigest !== input.authorityRef.authorityDigest
-  ) {
+  if (!sessionAuthorityRef || sessionAuthorityRef.walletId !== input.walletId) {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'Email OTP authority reference does not match app session',
+      message: 'Email OTP app session has no wallet authority reference',
     };
   }
   const sessionVersion = await input.walletRegistration.validateAppSessionVersion({
@@ -1048,18 +1039,44 @@ async function verifyEmailOtpAddAuthMethodAuthorization(input: {
   if (!sessionVersion.ok) {
     return { ok: false, code: 'invalid_body', message: sessionVersion.message };
   }
-  return { ok: true, value: undefined };
+  const orgId = appSessionClaims.runtimePolicyScope?.orgId;
+  if (!orgId) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'Email OTP app session has no organization binding',
+    };
+  }
+  const enrollment = await input.walletRegistration.readActiveEmailOtpEnrollment({
+    walletId: input.walletId,
+    orgId,
+    providerUserId: appSessionClaims.sub,
+  });
+  if (!enrollment.ok) {
+    return { ok: false, code: 'invalid_body', message: enrollment.message };
+  }
+  return {
+    ok: true,
+    value: {
+      providerUserId: appSessionClaims.sub,
+      enrollmentId: enrollment.enrollment.enrollmentId,
+      enrollmentSealKeyVersion: enrollment.enrollment.enrollmentSealKeyVersion,
+      authorityRef: sessionAuthorityRef,
+    },
+  };
 }
 
 async function parseWalletAddAuthMethodStartBody(
   body: Record<string, unknown>,
   walletId: string,
-  verifyEmailOtpAuthorization: (input: {
-    readonly providerUserId: string;
-    readonly enrollmentId: string;
-    readonly enrollmentSealKeyVersion: string;
-    readonly authorityRef: WalletAuthAuthorityRef;
-  }) => Promise<ParseResult<void>>,
+  verifyEmailOtpAuthorization: () => Promise<
+    ParseResult<{
+      readonly providerUserId: string;
+      readonly enrollmentId: string;
+      readonly enrollmentSealKeyVersion: string;
+      readonly authorityRef: WalletAuthAuthorityRef;
+    }>
+  >,
 ): Promise<ParseResult<WalletAddAuthMethodStartRequest>> {
   const intent = isPlainObject(body.intent) ? body.intent : null;
   if (!intent || intent.version !== 'add_auth_method_intent_v1') {
@@ -1136,30 +1153,19 @@ async function parseWalletAddAuthMethodStartBody(
       expectedChallengeDigestB64u,
     };
   } else if (auth.kind === 'email_otp') {
-    const providerUserId = String(auth.providerUserId || '').trim();
-    const enrollmentId = String(auth.enrollmentId || '').trim();
-    const enrollmentSealKeyVersion = String(auth.enrollmentSealKeyVersion || '').trim();
-    const authorityRef = parseWalletAuthAuthorityRef(auth.authorityRef);
-    if (!providerUserId || !enrollmentId || !enrollmentSealKeyVersion || !authorityRef) {
+    const authKeys = Object.keys(auth).filter((key) => key !== 'kind');
+    if (authKeys.length !== 0) {
       return {
         ok: false,
         code: 'invalid_body',
-        message: 'Email OTP add-auth-method authorization is incomplete',
+        message: 'Email OTP add-auth-method authorization carries no identity fields',
       };
     }
-    const verifiedAuthorization = await verifyEmailOtpAuthorization({
-      providerUserId,
-      enrollmentId,
-      enrollmentSealKeyVersion,
-      authorityRef,
-    });
+    const verifiedAuthorization = await verifyEmailOtpAuthorization();
     if (!verifiedAuthorization.ok) return verifiedAuthorization;
     existingAuth = {
       kind: 'email_otp',
-      providerUserId,
-      enrollmentId,
-      enrollmentSealKeyVersion,
-      authorityRef,
+      ...verifiedAuthorization.value,
     };
   } else if (auth.kind === 'app_session') {
     const policy = isPlainObject(auth.policy) ? auth.policy : null;
@@ -2566,13 +2572,12 @@ export async function handleRouterApiWalletAddAuthMethodStart(
   const parsedBody = await parseWalletAddAuthMethodStartBody(
     input.body,
     walletId,
-    async (authorization) =>
+    async () =>
       await verifyEmailOtpAddAuthMethodAuthorization({
         walletId,
         headers: input.headers,
         session: input.services.session,
         walletRegistration: input.services.walletRegistration,
-        ...authorization,
       }),
   );
   if (!parsedBody.ok) return routeError(400, parsedBody.code, parsedBody.message);
