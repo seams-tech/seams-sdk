@@ -2120,31 +2120,6 @@ export class SeamsWeb {
     });
   }
 
-  private async resolveEmailOtpRecoveryCodeAppSessionJwt(args: {
-    walletId: string;
-    relayUrl: string;
-    appSessionJwt?: string;
-  }): Promise<string> {
-    const providedJwt = String(args.appSessionJwt || '').trim();
-    if (providedJwt) return providedJwt;
-    const walletId = toWalletId(args.walletId);
-    const session = await getWalletSessionDomain(this.getWalletAuthDeps(), walletId);
-    const walletSessionUserId =
-      session.appIdentity.kind === 'resolved' ? String(session.appIdentity.walletId).trim() : '';
-    if (walletSessionUserId !== String(walletId)) {
-      throw new Error(
-        '[SeamsWeb] recovery-code app-session resolution requires a wallet-bound session',
-      );
-    }
-    return await this.signingEngine.resolveEmailOtpAppSessionJwt({
-      walletSession: walletSessionRefFromSession({
-        walletId,
-        walletSessionUserId,
-      }),
-      relayUrl: args.relayUrl,
-    });
-  }
-
   private requireActiveWalletAppSessionJwt(relayUrl: string, walletId: string): string {
     const appSessionJwt = activeWalletOrHostedAppSessionJwt(relayUrl, walletId);
     if (!appSessionJwt) {

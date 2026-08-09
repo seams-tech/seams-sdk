@@ -16,13 +16,9 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
-  EmailOtpDeviceEnrollmentRemoveResult,
-  EmailOtpDeviceEnrollmentRestoreResult,
   EmailOtpChallengeDelivery,
   EmailOtpEnrollmentResult,
   EmailOtpRecoveryCodeBackupStatus,
-  EmailOtpRecoveryCodeLifecycleStatus,
-  EmailOtpRecoveryCodeStatus,
   GoogleEmailOtpSessionExchangeResult,
   DemoEmailOtpCodeResponse,
 } from '@/core/signingEngine/session/emailOtp/publicTypes';
@@ -489,12 +485,8 @@ export type EmailOtpChallengeResult = {
 };
 
 export type {
-  EmailOtpDeviceEnrollmentRemoveResult,
-  EmailOtpDeviceEnrollmentRestoreResult,
   EmailOtpEnrollmentResult,
   EmailOtpRecoveryCodeBackupStatus,
-  EmailOtpRecoveryCodeLifecycleStatus,
-  EmailOtpRecoveryCodeStatus,
   GoogleEmailOtpSessionExchangeResult,
 };
 
@@ -580,11 +572,6 @@ export type EmailOtpRecoveryCodeBackupAck = {
   walletId?: never;
   webauthn?: never;
   passkey?: never;
-};
-
-export type EmailOtpRecoveryCodeRotationResult = {
-  status: EmailOtpRecoveryCodeStatus;
-  recoveryCodeBackup: EmailOtpRecoveryCodeBackupStatus;
 };
 
 export type GoogleEmailOtpRegistrationCandidate = {

@@ -19,8 +19,6 @@ import {
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import type {
   EmailOtpChallengeDelivery,
-  EmailOtpDeviceEnrollmentRemoveResult,
-  EmailOtpDeviceEnrollmentRestoreResult,
   EmailOtpEnrollmentResult,
   EmailOtpRecoveryCodeBackupStatus,
   EmailOtpRecoveryCodeLifecycleStatus,
@@ -40,8 +38,6 @@ import {
 
 export type FetchLike = typeof fetch;
 export type {
-  EmailOtpDeviceEnrollmentRemoveResult,
-  EmailOtpDeviceEnrollmentRestoreResult,
   EmailOtpEnrollmentResult,
   EmailOtpRecoveryCodeBackupStatus,
   EmailOtpRecoveryCodeLifecycleStatus,
@@ -157,51 +153,6 @@ export function readString(value: unknown, label: string): string {
 
 export function readOptionalString(value: unknown): string | undefined {
   return toOptionalTrimmedNonEmptyString(value);
-}
-
-function readNonNegativeInteger(value: unknown, label: string): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new Error(`${label} must be a non-negative integer`);
-  }
-  return Math.floor(parsed);
-}
-
-export function parseEmailOtpDeviceEnrollmentRestoreResult(
-  value: unknown,
-): EmailOtpDeviceEnrollmentRestoreResult {
-  const response = requireObjectJson(value, 'Email OTP device enrollment restore result');
-  return {
-    walletId: readString(response.walletId, 'walletId'),
-    userId: readString(response.userId, 'userId'),
-    providerUserId: readString(response.authSubjectId, 'authSubjectId'),
-    enrollmentId: readString(response.enrollmentId, 'enrollmentId'),
-    enrollmentVersion: readString(response.enrollmentVersion, 'enrollmentVersion'),
-    enrollmentSealKeyVersion: readString(
-      response.enrollmentSealKeyVersion,
-      'enrollmentSealKeyVersion',
-    ),
-    recoveryKeyId: readString(response.recoveryKeyId, 'recoveryKeyId'),
-    activeRecoveryWrappedEnrollmentEscrowCount: readNonNegativeInteger(
-      response.activeRecoveryWrappedEnrollmentEscrowCount,
-      'activeRecoveryWrappedEnrollmentEscrowCount',
-    ),
-  };
-}
-
-export function parseEmailOtpDeviceEnrollmentRemoveResult(
-  value: unknown,
-): EmailOtpDeviceEnrollmentRemoveResult {
-  const response = requireObjectJson(value, 'Email OTP device enrollment remove result');
-  if (response.removed !== true) {
-    throw new Error('Email OTP device enrollment remove result must be removed');
-  }
-  return {
-    walletId: readString(response.walletId, 'walletId'),
-    providerUserId: readString(response.authSubjectId, 'authSubjectId'),
-    enrollmentId: readString(response.enrollmentId, 'enrollmentId'),
-    removed: true,
-  };
 }
 
 export function zeroizeBytes(bytes?: Uint8Array | null): void {
@@ -464,45 +415,6 @@ export async function requestEmailOtpEnrollmentChallenge(args: {
     result.appSessionVersion = appSessionVersion;
   }
   return result;
-}
-
-export async function requestEmailOtpDeviceRecoveryChallenge(args: {
-  relayUrl: string;
-  walletId: string;
-  appSessionJwt?: string;
-  otpChannel?: WalletEmailOtpChannel;
-  fetchImpl?: FetchLike;
-}): Promise<{
-  challengeId: string;
-  otpChannel: WalletEmailOtpChannel;
-  emailHint?: string;
-  expiresAtMs?: number;
-}> {
-  const response = await postJson({
-    url: joinNormalizedUrl(args.relayUrl, '/wallet/email-otp/recovery-challenge'),
-    appSessionJwt: args.appSessionJwt,
-    fetchImpl: args.fetchImpl,
-    body: {
-      walletId: readString(args.walletId, 'walletId'),
-      otpChannel: args.otpChannel || EMAIL_OTP_CHANNEL,
-    },
-  });
-  const challenge = requireObjectJson(response.challenge, 'wallet/email-otp/recovery-challenge');
-  const delivery =
-    response.delivery == null
-      ? {}
-      : requireObjectJson(response.delivery, 'wallet/email-otp/recovery-challenge delivery');
-  const expiresAtMs = Number(challenge.expiresAtMs);
-  const emailHint = readOptionalString(delivery.emailHint);
-  return {
-    challengeId: readString(
-      challenge.challengeId,
-      'wallet/email-otp/recovery-challenge challengeId',
-    ),
-    otpChannel: EMAIL_OTP_CHANNEL,
-    ...(emailHint ? { emailHint } : {}),
-    ...(Number.isFinite(expiresAtMs) ? { expiresAtMs } : {}),
-  };
 }
 
 export async function verifyEmailOtpCode(args: {

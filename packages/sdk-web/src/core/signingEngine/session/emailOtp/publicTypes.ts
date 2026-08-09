@@ -82,24 +82,6 @@ export type EmailOtpRecoveryCodeRotationMaterial = {
   totalRecoveryCodeCount: number;
 };
 
-export type EmailOtpDeviceEnrollmentRestoreResult = {
-  walletId: string;
-  userId: string;
-  providerUserId: string;
-  enrollmentId: string;
-  enrollmentVersion: string;
-  enrollmentSealKeyVersion: string;
-  recoveryKeyId: string;
-  activeRecoveryWrappedEnrollmentEscrowCount: number;
-};
-
-export type EmailOtpDeviceEnrollmentRemoveResult = {
-  walletId: string;
-  providerUserId: string;
-  enrollmentId: string;
-  removed: true;
-};
-
 export type GoogleEmailOtpSessionExchangeResult = {
   jwt?: string;
   session: {
