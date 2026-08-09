@@ -6,6 +6,7 @@ export {
   EMAIL_OTP_RECOVERY_KEY_GROUP_COUNT as WALLET_RECOVERY_CODE_GROUP_COUNT,
   EMAIL_OTP_RECOVERY_KEY_GROUP_LENGTH as WALLET_RECOVERY_CODE_GROUP_LENGTH,
   buildEmailOtpRecoveryCodeSet as buildWalletRecoveryCodeSet,
+  decodeEmailOtpRecoveryKey as decodeWalletRecoveryCode,
   formatEmailOtpRecoveryKey as formatWalletRecoveryCode,
   normalizeEmailOtpRecoveryKey as normalizeWalletRecoveryCode,
 } from '../utils/emailOtpRecoveryKey';

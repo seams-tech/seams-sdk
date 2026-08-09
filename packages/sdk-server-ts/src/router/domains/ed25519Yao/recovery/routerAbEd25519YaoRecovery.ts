@@ -316,7 +316,15 @@ export type RouterAbEd25519YaoRecoveryAuthorizationInput =
 export type RouterAbEd25519YaoRecoveryAuthorizationResult =
   | {
       readonly ok: true;
-      readonly claims: RouterAbEd25519WalletSessionClaims;
+      readonly claims:
+        | {
+            readonly kind: 'wallet_session';
+            readonly value: RouterAbEd25519WalletSessionClaims;
+          }
+        | {
+            readonly kind: 'wallet_recovery';
+            readonly walletId: string;
+          };
     }
   | {
       readonly ok: false;
@@ -2371,6 +2379,17 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
       body: parsed.value,
     });
     if (!authorization.ok) return routeFailureResponse(authorization);
+    if (authorization.claims.kind !== 'wallet_session') {
+      return json(
+        {
+          ok: false,
+          code: 'wallet_session_claims_invalid',
+          message: 'warm recovery requires a Wallet Session',
+        },
+        { status: 401 },
+      );
+    }
+    const walletSessionClaims = authorization.claims.value;
     const activeCapability = await this.capabilities.resolveActiveCapability({
       kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
       walletId: parsed.value.walletId,
@@ -2392,7 +2411,7 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
     if (
       !warmBootstrapCapabilityMatchesStableIdentity({
         request: parsed.value,
-        claims: authorization.claims,
+        claims: walletSessionClaims,
         capability: activeCapability.capability,
       })
     ) {
@@ -2405,7 +2424,7 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
         { status: 409 },
       );
     }
-    const participantIds = authorization.claims.participantIds;
+    const participantIds = walletSessionClaims.participantIds;
     const firstParticipantId = participantIds[0];
     const secondParticipantId = participantIds[1];
     if (firstParticipantId === undefined || secondParticipantId === undefined) {
@@ -2421,7 +2440,7 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
     let thresholdSessionId: ThresholdEd25519SessionId;
     try {
       thresholdSessionId = requireThresholdEd25519SessionId(
-        authorization.claims.thresholdSessionId,
+        walletSessionClaims.thresholdSessionId,
         'Wallet Session threshold session identity',
       );
     } catch {
@@ -2436,21 +2455,21 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
     }
     const response: RouterAbEd25519YaoWarmRecoveryBootstrapV1 = {
       kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1',
-      walletId: authorization.claims.walletId,
-      nearAccountId: authorization.claims.nearAccountId,
-      nearEd25519SigningKeyId: authorization.claims.nearEd25519SigningKeyId,
+      walletId: walletSessionClaims.walletId,
+      nearAccountId: walletSessionClaims.nearAccountId,
+      nearEd25519SigningKeyId: walletSessionClaims.nearEd25519SigningKeyId,
       signerSlot: parsed.value.signerSlot,
       thresholdSessionId,
-      walletSessionId: authorization.claims.walletSessionId,
-      quotaId: authorization.claims.quotaId,
-      signingWorkerId: authorization.claims.routerAbNormalSigning.signingWorkerId,
-      thresholdExpiresAtMs: authorization.claims.thresholdExpiresAtMs,
+      walletSessionId: walletSessionClaims.walletSessionId,
+      quotaId: walletSessionClaims.quotaId,
+      signingWorkerId: walletSessionClaims.routerAbNormalSigning.signingWorkerId,
+      thresholdExpiresAtMs: walletSessionClaims.thresholdExpiresAtMs,
       participantIds: [firstParticipantId, secondParticipantId],
-      authority: authorization.claims.authority,
-      authorityRef: await walletAuthAuthorityRef({ authority: authorization.claims.authority }),
-      authorityScope: authorization.claims.authorityScope,
-      runtimePolicyScope: authorization.claims.runtimePolicyScope,
-      routerAbNormalSigning: authorization.claims.routerAbNormalSigning,
+      authority: walletSessionClaims.authority,
+      authorityRef: await walletAuthAuthorityRef({ authority: walletSessionClaims.authority }),
+      authorityScope: walletSessionClaims.authorityScope,
+      runtimePolicyScope: walletSessionClaims.runtimePolicyScope,
+      routerAbNormalSigning: walletSessionClaims.routerAbNormalSigning,
       capability: activeCapability.capability,
     };
     return json(response, { status: 200 });

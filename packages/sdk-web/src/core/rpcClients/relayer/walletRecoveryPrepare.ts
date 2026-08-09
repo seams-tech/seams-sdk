@@ -92,6 +92,7 @@ export type WalletRecoveryPreparationKeyManifestEntry =
       readonly keySetId: `near_ed25519:${string}`;
       readonly signerId: string;
       readonly nearAccountId: string;
+      readonly recoveryAuthorizationJwt: string;
       readonly recordedKeyManifestDigestB64u: DigestB64u;
       readonly recoveryBasis: WalletRecoveryPreparationNearRecoveryBasis;
     }
@@ -813,6 +814,7 @@ function parseWalletRecoveryPreparationKeyManifestEntry(
           'keySetId',
           'signerId',
           'nearAccountId',
+          'recoveryAuthorizationJwt',
           'recordedKeyManifestDigestB64u',
           'recoveryBasis',
         ],
@@ -840,6 +842,10 @@ function parseWalletRecoveryPreparationKeyManifestEntry(
         keySetId,
         signerId,
         nearAccountId,
+        recoveryAuthorizationJwt: requireResponseString(
+          entry.recoveryAuthorizationJwt,
+          'keyManifest.entries[].recoveryAuthorizationJwt',
+        ),
         recordedKeyManifestDigestB64u: parseDigestField(
           entry.recordedKeyManifestDigestB64u,
           'walletRecoveryPrepare.keyManifest.entries[].recordedKeyManifestDigestB64u',

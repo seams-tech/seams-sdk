@@ -7,7 +7,11 @@ import {
 import { toFetchRouteResponse } from '../../../framework/routeResponses';
 import { readJson } from '../../../framework/http';
 import { decodeBase64UrlOrBase64 } from '../../../../core/authService/webauthnOidcHelpers';
-import { parseRecoveryCodeReservationId } from '@shared/wallet-recovery/recoveryCodeReservation';
+import {
+  deriveWalletRecoveryKeyLifecycleId,
+  parseRecoveryCodeReservationId,
+  type RecoveryCodeReservationId,
+} from '@shared/wallet-recovery/recoveryCodeReservation';
 import {
   admitWalletRecoveryEmailOtp,
   resolveWalletRecoveryAuthorizationContext,
@@ -16,6 +20,10 @@ import type { AuthorizedOperation } from '../../../../authorization/domain';
 import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import type {
+  WalletRecoveryPreparationKeyManifestEntryV1,
+  WalletRecoveryPreparationKeyManifestV1,
+} from '../../../domains/passkeyCustody/walletRecoveryKeyManifest';
 
 /**
  * The transport for custody envelope retrieval.
@@ -33,6 +41,59 @@ const RECOVERY_FINALIZE_ROUTE_ID = 'wallet_recovery_finalize';
 const RECOVERY_ACK_ROUTE_ID = 'wallet_recovery_backup_acknowledge';
 const RECOVERY_ROTATE_ROUTE_ID = 'wallet_recovery_codes_rotate';
 const RECOVERY_STATUS_ROUTE_ID = 'wallet_recovery_status';
+
+type WalletRecoveryAuthorizedNearEntry = Extract<
+  WalletRecoveryPreparationKeyManifestEntryV1,
+  { readonly kind: 'near_ed25519' }
+> & { readonly recoveryAuthorizationJwt: string };
+
+type WalletRecoveryAuthorizedKeyManifest = Omit<
+  WalletRecoveryPreparationKeyManifestV1,
+  'entries'
+> & {
+  readonly entries: readonly (
+    | WalletRecoveryAuthorizedNearEntry
+    | Extract<
+        WalletRecoveryPreparationKeyManifestEntryV1,
+        { readonly kind: 'evm_family_ecdsa' }
+      >
+  )[];
+};
+
+async function keyManifestWithRecoveryAuthorization(input: {
+  readonly session: NonNullable<FetchRouterApiContext['opts']['session']>;
+  readonly walletId: string;
+  readonly reservationId: RecoveryCodeReservationId;
+  readonly reservationExpiresAtMs: number;
+  readonly keyManifest: WalletRecoveryPreparationKeyManifestV1;
+}): Promise<WalletRecoveryAuthorizedKeyManifest> {
+  const entries = await Promise.all(
+    input.keyManifest.entries.map(async (entry) => {
+      if (entry.kind !== 'near_ed25519') return entry;
+      const keySetId = entry.keySetId;
+      const basis = entry.recoveryBasis;
+      const lifecycleId = await deriveWalletRecoveryKeyLifecycleId({
+        reservationId: input.reservationId,
+        keySetId,
+      });
+      const recoveryAuthorizationJwt = await input.session.signJwt(String(lifecycleId), {
+        kind: 'router_ab_ed25519_wallet_recovery_authorization_v1',
+        walletId: input.walletId,
+        reservationId: input.reservationId,
+        keySetId,
+        lifecycleId,
+        thresholdSessionId: `${lifecycleId}:threshold-session`,
+        rootShareEpoch: basis.scope.root_share_epoch,
+        signingWorkerId: basis.scope.signing_worker_id,
+        nearEd25519SigningKeyId: basis.applicationBinding.near_ed25519_signing_key_id,
+        participantIds: basis.participantIds,
+        expiresAtMs: input.reservationExpiresAtMs,
+      });
+      return { ...entry, recoveryAuthorizationJwt };
+    }),
+  );
+  return { ...input.keyManifest, entries };
+}
 
 export async function handlePasskeyCustody(ctx: FetchRouterApiContext): Promise<Response | null> {
   const route = findRouteDefinitionById(ctx.routeDefinitions, ROUTE_ID);
@@ -138,13 +199,30 @@ export async function handleWalletRecoveryPrepare(
 
   switch (result.kind) {
     case 'prepared':
+      if (!ctx.opts.session) {
+        return toFetchRouteResponse({
+          status: 503,
+          body: {
+            ok: false,
+            code: 'recovery_authorization_unavailable',
+            message: 'wallet recovery authorization is unavailable',
+          },
+        });
+      }
+      const keyManifest = await keyManifestWithRecoveryAuthorization({
+        session: ctx.opts.session,
+        walletId,
+        reservationId,
+        reservationExpiresAtMs: result.reservationExpiresAtMs,
+        keyManifest: result.keyManifest,
+      });
       return toFetchRouteResponse({
         status: 200,
         body: {
           ok: true,
           wrap: result.wrap,
           entries: result.entries,
-          keyManifest: result.keyManifest,
+          keyManifest,
           registration: result.registration,
           authorityRef: result.authorityRef,
           reservationId: result.reservationId,

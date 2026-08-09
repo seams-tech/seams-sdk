@@ -194,7 +194,7 @@ export interface RouterApiPasskeyCustodyService {
 }
 
 /** How long a reservation may sit before another attempt may take the code. */
-const RECOVERY_RESERVATION_TTL_MS = 120_000;
+const RECOVERY_RESERVATION_TTL_MS = 5 * 60 * 1000;
 
 export type WalletRecoveryRoutePreparationResult =
   | (Extract<WalletRecoveryPreparationResult, { readonly kind: 'prepared' }> & {

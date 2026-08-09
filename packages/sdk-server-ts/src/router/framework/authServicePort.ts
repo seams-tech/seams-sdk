@@ -942,6 +942,10 @@ export type RouterApiMethodTypes = {
     readonly input: EmailOtpDeviceRecoveryChallengeVerifyInput;
     readonly result: EmailOtpDeviceRecoveryChallengeVerifyResult;
   };
+  verifyEmailOtpWalletRecoveryChallenge: {
+    readonly input: EmailOtpDeviceRecoveryChallengeVerifyInput;
+    readonly result: EmailOtpChallengeVerifyResult;
+  };
   verifyEmailOtpEnrollment: {
     readonly input: EmailOtpEnrollmentVerifyInput;
     readonly result: EmailOtpEnrollmentVerifyResult;
@@ -1347,6 +1351,9 @@ export interface RouterApiEmailOtpRouteService extends RouterApiEmailOtpChalleng
   verifyEmailOtpDeviceRecoveryChallenge(
     input: RouterApiMethodTypes['verifyEmailOtpDeviceRecoveryChallenge']['input'],
   ): Promise<RouterApiMethodTypes['verifyEmailOtpDeviceRecoveryChallenge']['result']>;
+  verifyEmailOtpWalletRecoveryChallenge(
+    input: RouterApiMethodTypes['verifyEmailOtpWalletRecoveryChallenge']['input'],
+  ): Promise<RouterApiMethodTypes['verifyEmailOtpWalletRecoveryChallenge']['result']>;
   verifyEmailOtpEnrollment(
     input: RouterApiMethodTypes['verifyEmailOtpEnrollment']['input'],
   ): Promise<RouterApiMethodTypes['verifyEmailOtpEnrollment']['result']>;

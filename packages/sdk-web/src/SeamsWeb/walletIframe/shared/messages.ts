@@ -827,6 +827,9 @@ export type ParentToChildType =
   | 'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS'
   | 'PM_SHOW_EMAIL_OTP_RECOVERY_CODES'
   | 'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES'
+  | 'PM_REQUEST_WALLET_RECOVERY_CHALLENGE'
+  | 'PM_PREPARE_WALLET_RECOVERY'
+  | 'PM_COMPLETE_WALLET_RECOVERY'
   | 'PM_GET_RECOVERY_EMAILS'
   | 'PM_SET_RECOVERY_EMAILS'
   | 'PM_SIGN_TX_WITH_ACTIONS'
@@ -1241,6 +1244,25 @@ export interface PMRotateEmailOtpRecoveryCodesPayload {
   relayUrl?: string;
 }
 
+export interface PMRequestWalletRecoveryChallengePayload {
+  walletId: string;
+  relayUrl?: string;
+}
+
+export interface PMPrepareWalletRecoveryPayload {
+  walletId: string;
+  challengeId: string;
+  otpCode: string;
+  recoveryCode: string;
+  relayUrl?: string;
+}
+
+export interface PMCompleteWalletRecoveryPayload {
+  walletId: string;
+  recoveryOperationId: string;
+  relayUrl?: string;
+}
+
 export interface PMEmailOtpEcdsaCapabilityPayload {
   walletSession: WalletSessionRef;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -1382,6 +1404,12 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS', PMGetEmailOtpRecoveryCodeStatusPayload>
   | RpcEnvelope<'PM_SHOW_EMAIL_OTP_RECOVERY_CODES', PMShowEmailOtpRecoveryCodesPayload>
   | RpcEnvelope<'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES', PMRotateEmailOtpRecoveryCodesPayload>
+  | RpcEnvelope<
+      'PM_REQUEST_WALLET_RECOVERY_CHALLENGE',
+      PMRequestWalletRecoveryChallengePayload
+    >
+  | RpcEnvelope<'PM_PREPARE_WALLET_RECOVERY', PMPrepareWalletRecoveryPayload>
+  | RpcEnvelope<'PM_COMPLETE_WALLET_RECOVERY', PMCompleteWalletRecoveryPayload>
   | RpcEnvelope<'PM_GET_RECOVERY_EMAILS', PMGetRecoveryEmailsPayload>
   | RpcEnvelope<'PM_SET_RECOVERY_EMAILS', PMSetRecoveryEmailsPayload>
   | RpcEnvelope<'PM_SIGN_TX_WITH_ACTIONS', PMSignTxPayload>

@@ -132,6 +132,11 @@ import type {
   DeviceLinkingQRData,
 } from '@/core/types/linkDevice';
 import type { SyncAccountResult } from '@/SeamsWeb/operations/recovery/syncAccount';
+import type {
+  CompleteWalletRecoveryResult,
+  PrepareWalletWithCodeResult,
+} from '@/SeamsWeb/operations/recovery/walletRecovery';
+import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type { ExportKeypairWithUIInput } from '@/SeamsWeb/signingSurface/types';
 import type {
   FundImplicitNearAccountForTestingResult,
@@ -380,6 +385,7 @@ function requestSurfaceKindForMessage(
       return 'auth_menu';
     case 'PM_REGISTER_WALLET':
     case 'PM_ADD_WALLET_SIGNER':
+    case 'PM_COMPLETE_WALLET_RECOVERY':
       return 'registration';
     case 'PM_SIGN_TX_WITH_ACTIONS':
     case 'PM_SIGN_AND_SEND_TX':
@@ -2976,6 +2982,73 @@ export class WalletIframeRouter {
         timeoutMs: WALLET_IFRAME_EMAIL_OTP_BACKUP_TIMEOUT_MS,
         progressTimeoutExtensionFactor: 1,
       },
+    );
+    return res.result;
+  }
+
+  async requestWalletRecoveryChallenge(payload: {
+    walletId: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+  }): Promise<{
+    challengeId: string;
+    otpChannel: WalletEmailOtpChannel;
+    emailHint?: string;
+    expiresAtMs?: number;
+  }> {
+    const { appSessionJwt, ...wirePayload } = payload;
+    await this.ensureHostedWalletSeamsSession(
+      hostedWalletSeamsSessionSource({ relayUrl: payload.relayUrl, appSessionJwt }),
+    );
+    const res = await this.post<{
+      challengeId: string;
+      otpChannel: WalletEmailOtpChannel;
+      emailHint?: string;
+      expiresAtMs?: number;
+    }>({
+      type: 'PM_REQUEST_WALLET_RECOVERY_CHALLENGE',
+      payload: wirePayload,
+    });
+    return res.result;
+  }
+
+  async prepareWalletRecovery(payload: {
+    walletId: string;
+    challengeId: string;
+    otpCode: string;
+    recoveryCode: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+    abortSignal?: AbortSignal;
+  }): Promise<PrepareWalletWithCodeResult> {
+    const { appSessionJwt, abortSignal: _abortSignal, ...wirePayload } = payload;
+    await this.ensureHostedWalletSeamsSession(
+      hostedWalletSeamsSessionSource({ relayUrl: payload.relayUrl, appSessionJwt }),
+    );
+    const res = await this.post<PrepareWalletWithCodeResult>({
+      type: 'PM_PREPARE_WALLET_RECOVERY',
+      payload: wirePayload,
+    });
+    return res.result;
+  }
+
+  async completeWalletRecovery(payload: {
+    walletId: string;
+    recoveryOperationId: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+    abortSignal?: AbortSignal;
+  }): Promise<CompleteWalletRecoveryResult> {
+    const { appSessionJwt, abortSignal: _abortSignal, ...wirePayload } = payload;
+    await this.ensureHostedWalletSeamsSession(
+      hostedWalletSeamsSessionSource({ relayUrl: payload.relayUrl, appSessionJwt }),
+    );
+    const res = await this.post<CompleteWalletRecoveryResult>(
+      {
+        type: 'PM_COMPLETE_WALLET_RECOVERY',
+        payload: wirePayload,
+      },
+      { timeout: 'interactive' },
     );
     return res.result;
   }

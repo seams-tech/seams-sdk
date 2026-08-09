@@ -35,6 +35,12 @@ type VerifyEmailOtpChallengeInput =
 type VerifyEmailOtpChallengeResult = Awaited<
   ReturnType<RouterApiEmailOtpRouteService['verifyEmailOtpChallenge']>
 >;
+type VerifyEmailOtpWalletRecoveryChallengeInput = Parameters<
+  RouterApiEmailOtpRouteService['verifyEmailOtpWalletRecoveryChallenge']
+>[0];
+type VerifyEmailOtpWalletRecoveryChallengeResult = Awaited<
+  ReturnType<RouterApiEmailOtpRouteService['verifyEmailOtpWalletRecoveryChallenge']>
+>;
 type VerifyEmailOtpEnrollmentInput =
   Parameters<RouterApiEmailOtpRouteService['verifyEmailOtpEnrollment']>[0];
 type VerifyEmailOtpEnrollmentResult = Awaited<
@@ -331,6 +337,50 @@ export class CloudflareD1EmailOtpChallengeService {
       }),
     );
 
+    return {
+      ok: true,
+      challengeId: verified.challengeId,
+      loginGrant,
+      grantExpiresAtMs,
+      otpChannel: EMAIL_OTP_CHANNEL,
+    };
+  }
+
+  async verifyEmailOtpWalletRecoveryChallenge(
+    input: VerifyEmailOtpWalletRecoveryChallengeInput,
+  ): Promise<VerifyEmailOtpWalletRecoveryChallengeResult> {
+    const verified = await this.verifier.verifyExisting({
+      userId: input.userId,
+      walletId: input.walletId,
+      orgId: input.orgId,
+      challengeId: input.challengeId,
+      otpCode: input.otpCode,
+      otpChannel: input.otpChannel,
+      sessionHash: input.sessionHash,
+      appSessionVersion: input.appSessionVersion,
+      clientIp: input.clientIp,
+      action: WALLET_EMAIL_OTP_ACTIONS.deviceRecovery,
+      operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+    });
+    if (!verified.ok) return verified;
+
+    const issuedAtMs = Date.now();
+    const grantExpiresAtMs = issuedAtMs + this.grantTtlMs;
+    const loginGrant = secureRandomBase64Url(24, 'wallet recovery email otp grants');
+    await this.grants.put(
+      emailOtpGrantRecord({
+        grantToken: loginGrant,
+        userId: verified.userId,
+        walletId: verified.walletId,
+        orgId: verified.orgId,
+        challengeId: verified.challengeId,
+        sessionHash: verified.sessionHash,
+        appSessionVersion: verified.appSessionVersion,
+        action: WALLET_EMAIL_OTP_ACTIONS.unseal,
+        issuedAtMs,
+        expiresAtMs: grantExpiresAtMs,
+      }),
+    );
     return {
       ok: true,
       challengeId: verified.challengeId,

@@ -64,6 +64,7 @@ import {
 } from '@/core/signingEngine/walletCustody/registrationCeremony';
 import { walletCustodyCeremonyStepRunner } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
 import { walletCustodyEd25519ActiveClientMetadataV1 } from '@/core/signingEngine/walletCustody/ceremonyActiveClientMetadata';
+import { recoverWalletCustodyManifestV1 } from '@/core/signingEngine/walletCustody/walletRecoveryManifest';
 import {
   deleteWalletCustodyEd25519MaterialV1,
   loadWalletCustodyEd25519MaterialV1,
@@ -327,8 +328,17 @@ import type {
   WorkerResourceWarmupAccountContext,
   WorkerResourceWarmupDiagnostics,
 } from '@/core/signingEngine/assembly/warmup';
-import { serializeRegistrationCredentialWithPRF } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
+import {
+  isSerializedRegistrationCredential,
+  serializeRegistrationCredentialWithPRF,
+} from '@/core/signingEngine/webauthnAuth/credentials/helpers';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
+import { UserConfirmationType } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
+import type { WalletRecoveryRegistrationOptions } from '@/core/rpcClients/relayer/walletRecoveryPrepare';
+import {
+  walletRecoveryReplacementCredentialFromRegistrationV1,
+  type WalletRecoveryReplacementCredential,
+} from '@/core/signingEngine/walletCustody/walletRecoveryCredential';
 import type {
   RegistrationWebAuthnPromptOwner,
   ReservedRegistrationWebAuthnPrompt,
@@ -1659,6 +1669,52 @@ export class BrowserSigningSurface {
         activationResultJson,
       }),
     };
+  }
+
+  async recoverWalletCustodyManifest(
+    args: Omit<
+      Parameters<typeof recoverWalletCustodyManifestV1>[0],
+      'runStep' | 'workerCtx'
+    >,
+  ): Promise<Awaited<ReturnType<typeof recoverWalletCustodyManifestV1>>> {
+    return await recoverWalletCustodyManifestV1({
+      ...args,
+      runStep: walletCustodyCeremonyStepRunner({
+        requestOperation: (operation) =>
+          this.signerWorkerManager.requestWorkerOperation(
+            operation as Parameters<SignerWorkerManager['requestWorkerOperation']>[0],
+          ),
+      }),
+      workerCtx: this.signerWorkerManager.getContext(),
+    });
+  }
+
+  async createWalletRecoveryReplacementCredential(args: {
+    readonly walletId: string;
+    readonly registration: WalletRecoveryRegistrationOptions;
+  }): Promise<WalletRecoveryReplacementCredential> {
+    const requestId = `wallet-recovery:${args.registration.challengeId}`;
+    const decision = await this.touchConfirm.requestUserConfirmation({
+      requestId,
+      type: UserConfirmationType.REGISTER_ACCOUNT,
+      summary: {
+        walletId: args.walletId,
+        title: 'Recover wallet',
+        body: 'Create a replacement passkey to finish wallet recovery.',
+      },
+      payload: {
+        walletId: args.walletId,
+        walletRecoveryRegistration: args.registration,
+      },
+      intentDigest: `wallet-recovery:${args.walletId}:${args.registration.replacementId}`,
+    });
+    if (!decision.confirmed) {
+      throw new Error(decision.error || 'wallet recovery was cancelled');
+    }
+    if (!isSerializedRegistrationCredential(decision.credential)) {
+      throw new Error('wallet recovery confirmation returned no replacement passkey');
+    }
+    return walletRecoveryReplacementCredentialFromRegistrationV1(decision.credential);
   }
 
   async joinWalletCustodyNearEd25519KeySet(args: {
@@ -3600,6 +3656,7 @@ export class BrowserSigningSurface {
       throw new Error('Prepared registration rpId does not match the wallet runtime');
     }
     const credential = this.touchIdPrompt.generateRegistrationCredentialsInternal({
+      kind: 'wallet_registration',
       walletId: args.walletId,
       challengeB64u: args.challengeB64u,
       signerSlot: args.signerSlot,
