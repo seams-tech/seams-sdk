@@ -5,3 +5,5 @@ export * from './records';
 export * from './intents';
 export * from './rotation';
 export * from './evmFamilySigningKeySlotId';
+export * from './participants';
+export * from './participantDigest';
