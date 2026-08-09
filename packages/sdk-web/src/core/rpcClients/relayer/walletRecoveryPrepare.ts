@@ -1,8 +1,4 @@
-import {
-  buildBearerAuthorizationHeader,
-  buildRelayerJsonPostRequestInit,
-  normalizeRelayerBaseUrl,
-} from './relayerHttp';
+import { buildRelayerJsonPostRequestInit, normalizeRelayerBaseUrl } from './relayerHttp';
 import {
   parseDigestField,
   parseEnvelopeCiphertextB64u,
@@ -255,37 +251,6 @@ export function buildWalletRecoveryCeremonyCustodyJson(args: {
   });
 }
 
-export async function prepareWalletRecovery(args: {
-  readonly relayUrl: string;
-  readonly walletId: string;
-  readonly sessionToken: string;
-  readonly challengeId: string;
-  readonly otpCode: string;
-  /** Base64url of the decoded code. Not persisted, not logged. */
-  readonly recoveryCode: string;
-  readonly reservationId: string;
-  readonly replacedCredentialIdB64u: string;
-  readonly fetchImpl?: typeof fetch;
-}): Promise<WalletRecoveryPrepareResult> {
-  const requested = await requestWalletRecoveryPrepare({
-    relayUrl: args.relayUrl,
-    walletId: args.walletId,
-    sessionToken: args.sessionToken,
-    recoveryCode: args.recoveryCode,
-    reservationId: args.reservationId,
-    challengeId: args.challengeId,
-    otpCode: args.otpCode,
-    replacedCredentialIdB64u: args.replacedCredentialIdB64u,
-    fetchImpl: args.fetchImpl,
-  });
-  if (!requested.ok) return requested;
-  return await parseWalletRecoveryPrepareResponse({
-    response: requested.response,
-    walletId: args.walletId,
-    reservationId: args.reservationId,
-  });
-}
-
 /**
  * Starts recovery from a fresh device after the one-purpose Email OTP
  * bootstrap grant has been verified. This request intentionally carries no
@@ -326,13 +291,11 @@ export async function prepareWalletRecoveryWithBootstrap(args: {
 async function requestWalletRecoveryPrepare(args: {
   readonly relayUrl: string;
   readonly walletId: string;
-  readonly sessionToken?: string;
-  readonly orgId?: string;
-  readonly recoveryBootstrapGrant?: string;
+  readonly orgId: string;
+  readonly recoveryBootstrapGrant: string;
   readonly recoveryCode: string;
   readonly reservationId: string;
   readonly challengeId: string;
-  readonly otpCode?: string;
   readonly replacedCredentialIdB64u: string;
   readonly fetchImpl?: typeof fetch;
 }): Promise<
@@ -346,22 +309,13 @@ async function requestWalletRecoveryPrepare(args: {
     const response = await doFetch(
       url,
       buildRelayerJsonPostRequestInit({
-        headers: args.sessionToken
-          ? buildBearerAuthorizationHeader({
-              token: args.sessionToken,
-              missingMessage: 'wallet recovery preparation requires an app session',
-            })
-          : undefined,
         body: {
           walletId: args.walletId,
+          orgId: args.orgId,
           recoveryCode: args.recoveryCode,
           reservationId: args.reservationId,
           challengeId: args.challengeId,
-          ...(args.orgId ? { orgId: args.orgId } : {}),
-          ...(args.otpCode ? { otpCode: args.otpCode } : {}),
-          ...(args.recoveryBootstrapGrant
-            ? { recoveryBootstrapGrant: args.recoveryBootstrapGrant }
-            : {}),
+          recoveryBootstrapGrant: args.recoveryBootstrapGrant,
           replacedCredentialIdB64u: args.replacedCredentialIdB64u,
         },
       }),

@@ -1,7 +1,6 @@
 import type { EmailRecoveryWebContext } from '@/SeamsWeb/signingSurface/ports';
 import {
   buildWalletRecoveryCeremonyCustodyJson,
-  prepareWalletRecovery,
   prepareWalletRecoveryWithBootstrap,
   type WalletRecoveryPrepareResult,
 } from '@/core/rpcClients/relayer/walletRecoveryPrepare';
@@ -27,16 +26,6 @@ import {
   type RecoveryCodeReservationId,
 } from '@shared/wallet-recovery/recoveryCodeReservation';
 import { secureRandomId } from '@shared/utils/secureRandomId';
-
-export type PrepareWalletWithCodeInput = {
-  readonly walletId: string;
-  readonly relayUrl: string;
-  readonly sessionToken: string;
-  readonly challengeId: string;
-  readonly otpCode: string;
-  readonly recoveryCode: string;
-  readonly replacedCredentialIdB64u: string;
-};
 
 export type PrepareWalletWithCodeResult =
   | {
@@ -206,57 +195,6 @@ function disposeRecoveryOperation(operation: RecoveryOperation): void {
 
 export class WalletRecoveryCoordinator {
   readonly #operations = new Map<string, RecoveryOperation>();
-
-  async prepare(input: PrepareWalletWithCodeInput): Promise<PrepareWalletWithCodeResult> {
-    this.#pruneExpired();
-    let recoveryCodeBytes: Uint8Array | null = null;
-    try {
-      recoveryCodeBytes = decodeWalletRecoveryCode(input.recoveryCode);
-      const prepared = await prepareWalletRecovery({
-        relayUrl: input.relayUrl,
-        walletId: input.walletId,
-        sessionToken: input.sessionToken,
-        challengeId: input.challengeId,
-        otpCode: input.otpCode,
-        recoveryCode: base64UrlEncode(recoveryCodeBytes),
-        reservationId: createReservationId(),
-        replacedCredentialIdB64u: input.replacedCredentialIdB64u,
-      });
-      if (prepared.kind !== 'prepared') {
-        recoveryCodeBytes.fill(0);
-        return prepared;
-      }
-      const recoveryOperationId = secureRandomId(
-        'wallet-recovery-operation',
-        24,
-        'wallet recovery client operation handles',
-      );
-      this.#operations.set(recoveryOperationId, {
-        stage: 'prepared',
-        recoveryOperationId,
-        walletId: input.walletId,
-        prepared,
-        custodyJson: buildWalletRecoveryCeremonyCustodyJson({
-          walletId: input.walletId,
-          prepared,
-        }),
-        recoveryCodeBytes,
-      });
-      return {
-        kind: 'ready_for_passkey',
-        recoveryOperationId,
-        walletId: input.walletId,
-        reservationExpiresAtMs: prepared.reservationExpiresAtMs,
-        rpId: prepared.registration.rpId,
-      };
-    } catch (error: unknown) {
-      recoveryCodeBytes?.fill(0);
-      return {
-        kind: 'failed',
-        message: error instanceof Error ? error.message : 'wallet recovery preparation failed',
-      };
-    }
-  }
 
   async prepareWithBootstrap(input: {
     readonly walletId: string;

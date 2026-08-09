@@ -138,7 +138,6 @@ import type {
   WalletRecoveryBootstrapChallengeResult,
   WalletRecoveryBootstrapVerifyResult,
 } from '@/SeamsWeb/operations/recovery/walletRecovery';
-import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type { ExportKeypairWithUIInput } from '@/SeamsWeb/signingSurface/types';
 import type {
   FundImplicitNearAccountForTestingResult,
@@ -153,8 +152,6 @@ import type {
   EmailOtpEcdsaCapabilityResult,
   EmailOtpBackedUpEnrollmentResult,
   EmailOtpEnrollmentResult,
-  EmailOtpRecoveryCodeRotationResult,
-  EmailOtpRecoveryCodeStatus,
   GoogleEmailOtpSessionExchangeResult,
   GoogleEmailOtpWalletAuthFlow,
   GoogleEmailOtpWalletAuthRegistrationCompleted,
@@ -164,6 +161,11 @@ import type {
   GoogleEmailOtpWalletAuthSubmitSuccess,
   RegistrationCapability,
 } from '@/SeamsWeb/signingSurface/types';
+import type {
+  WalletRecoveryBackupAcknowledgementResult,
+  WalletRecoveryCodeStatusResult,
+} from '@/core/rpcClients/relayer/walletRecoveryRotate';
+import type { WalletRevokeAuthMethodResponse } from '@/core/rpcClients/relayer/walletRegistration';
 import {
   buildHostedAuthMenuCancelPayload,
   parseHostedAuthMenuOpenRequest,
@@ -330,9 +332,7 @@ type WalletIframeRequestSurfaceKind =
   | 'key_export_threshold'
   | 'unlock'
   | 'device_link'
-  | 'device_link_qr'
-  | 'recovery_codes_show'
-  | 'recovery_codes_rotate';
+  | 'device_link_qr';
 
 type Pending = {
   requestId: WalletIframeRequestId;
@@ -412,10 +412,6 @@ function requestSurfaceKindForMessage(
       return 'device_link';
     case 'PM_START_DEVICE2_LINKING_FLOW':
       return 'device_link_qr';
-    case 'PM_SHOW_EMAIL_OTP_RECOVERY_CODES':
-      return 'recovery_codes_show';
-    case 'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES':
-      return 'recovery_codes_rotate';
     default:
       return null;
   }
@@ -525,22 +521,6 @@ function requestSurfacePresentationFor(
     case 'device_link':
     case 'device_link_qr':
       return modalWalletIframeSurfacePresentation('Link a device');
-    case 'recovery_codes_show':
-      return confirmationUiModeForRequest(
-        'PM_SHOW_EMAIL_OTP_RECOVERY_CODES',
-        payload,
-        fallbackUiMode,
-      ) === 'drawer'
-        ? drawerWalletIframeSurfacePresentation('Recovery codes')
-        : modalWalletIframeSurfacePresentation('Recovery codes');
-    case 'recovery_codes_rotate':
-      return confirmationUiModeForRequest(
-        'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES',
-        payload,
-        fallbackUiMode,
-      ) === 'drawer'
-        ? drawerWalletIframeSurfacePresentation('Rotate recovery codes')
-        : modalWalletIframeSurfacePresentation('Rotate recovery codes');
     default:
       return assertNeverWalletIframeRequestSurfaceKind(kind);
   }
@@ -1802,32 +1782,6 @@ export class WalletIframeRouter {
           ),
         });
         break;
-      case 'recovery_codes_show':
-        result = this.transitionWalletIframeSurface({
-          kind: 'recovery_codes_modal_request_started',
-          connectionId,
-          identity,
-          presentation: requestSurfacePresentationFor(
-            'recovery_codes_show',
-            args.payload,
-            this.mirroredConfirmationUiMode ?? undefined,
-          ),
-          operation: 'show',
-        });
-        break;
-      case 'recovery_codes_rotate':
-        result = this.transitionWalletIframeSurface({
-          kind: 'recovery_codes_modal_request_started',
-          connectionId,
-          identity,
-          presentation: requestSurfacePresentationFor(
-            'recovery_codes_rotate',
-            args.payload,
-            this.mirroredConfirmationUiMode ?? undefined,
-          ),
-          operation: 'rotate',
-        });
-        break;
       default:
         return assertNeverWalletIframeRequestSurfaceKind(args.kind);
     }
@@ -2953,94 +2907,22 @@ export class WalletIframeRouter {
     return sanitizeEmailOtpIframeResult(res.result);
   }
 
-  async getEmailOtpRecoveryCodeStatus(payload: {
+  async getWalletRecoveryCodeStatus(payload: {
     walletId: string;
-    relayUrl?: string;
-    appSessionJwt?: string;
-  }): Promise<EmailOtpRecoveryCodeStatus> {
-    const { appSessionJwt, ...wirePayload } = payload;
-    await this.ensureHostedWalletSeamsSession(
-      hostedWalletSeamsSessionSource({ relayUrl: payload.relayUrl, appSessionJwt }),
-    );
-    const res = await this.post<EmailOtpRecoveryCodeStatus>({
-      type: 'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS',
-      payload: wirePayload,
+  }): Promise<WalletRecoveryCodeStatusResult> {
+    const res = await this.post<WalletRecoveryCodeStatusResult>({
+      type: 'PM_GET_WALLET_RECOVERY_CODE_STATUS',
+      payload,
     });
     return res.result;
   }
 
-  async showEmailOtpRecoveryCodes(payload: {
+  async acknowledgeWalletRecoveryCodeBackup(payload: {
     walletId: string;
-    relayUrl?: string;
-    appSessionJwt?: string;
-  }): Promise<{
-    status: EmailOtpRecoveryCodeStatus;
-    displayedStoredCodes: boolean;
-  }> {
-    const { appSessionJwt, ...wirePayload } = payload;
-    await this.ensureHostedWalletSeamsSession(
-      hostedWalletSeamsSessionSource({ relayUrl: payload.relayUrl, appSessionJwt }),
-    );
-    const res = await this.post<{
-      status: EmailOtpRecoveryCodeStatus;
-      displayedStoredCodes: boolean;
-    }>(
-      {
-        type: 'PM_SHOW_EMAIL_OTP_RECOVERY_CODES',
-        payload: wirePayload,
-      },
-      {
-        timeoutMs: WALLET_IFRAME_EMAIL_OTP_BACKUP_TIMEOUT_MS,
-        progressTimeoutExtensionFactor: 1,
-      },
-    );
-    return res.result;
-  }
-
-  async rotateEmailOtpRecoveryCodes(payload: {
-    walletId: string;
-    relayUrl?: string;
-    appSessionJwt?: string;
-  }): Promise<EmailOtpRecoveryCodeRotationResult> {
-    const { appSessionJwt, ...wirePayload } = payload;
-    await this.ensureHostedWalletSeamsSession(
-      hostedWalletSeamsSessionSource({ relayUrl: payload.relayUrl, appSessionJwt }),
-    );
-    const res = await this.post<EmailOtpRecoveryCodeRotationResult>(
-      {
-        type: 'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES',
-        payload: wirePayload,
-      },
-      {
-        timeoutMs: WALLET_IFRAME_EMAIL_OTP_BACKUP_TIMEOUT_MS,
-        progressTimeoutExtensionFactor: 1,
-      },
-    );
-    return res.result;
-  }
-
-  async requestWalletRecoveryChallenge(payload: {
-    walletId: string;
-    relayUrl?: string;
-    appSessionJwt?: string;
-  }): Promise<{
-    challengeId: string;
-    otpChannel: WalletEmailOtpChannel;
-    emailHint?: string;
-    expiresAtMs?: number;
-  }> {
-    const { appSessionJwt, ...wirePayload } = payload;
-    await this.ensureHostedWalletSeamsSession(
-      hostedWalletSeamsSessionSource({ relayUrl: payload.relayUrl, appSessionJwt }),
-    );
-    const res = await this.post<{
-      challengeId: string;
-      otpChannel: WalletEmailOtpChannel;
-      emailHint?: string;
-      expiresAtMs?: number;
-    }>({
-      type: 'PM_REQUEST_WALLET_RECOVERY_CHALLENGE',
-      payload: wirePayload,
+  }): Promise<WalletRecoveryBackupAcknowledgementResult> {
+    const res = await this.post<WalletRecoveryBackupAcknowledgementResult>({
+      type: 'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP',
+      payload,
     });
     return res.result;
   }
@@ -3069,27 +2951,6 @@ export class WalletIframeRouter {
     const res = await this.post<WalletRecoveryBootstrapVerifyResult>({
       type: 'PM_VERIFY_WALLET_RECOVERY_BOOTSTRAP',
       payload: { ...wirePayload, ...(relayUrl ? { relayUrl } : {}) },
-    });
-    return res.result;
-  }
-
-  async prepareWalletRecovery(payload: {
-    walletId: string;
-    challengeId: string;
-    otpCode: string;
-    recoveryCode: string;
-    replacedCredentialIdB64u: string;
-    relayUrl?: string;
-    appSessionJwt?: string;
-    abortSignal?: AbortSignal;
-  }): Promise<PrepareWalletWithCodeResult> {
-    const { appSessionJwt, abortSignal: _abortSignal, ...wirePayload } = payload;
-    await this.ensureHostedWalletSeamsSession(
-      hostedWalletSeamsSessionSource({ relayUrl: payload.relayUrl, appSessionJwt }),
-    );
-    const res = await this.post<PrepareWalletWithCodeResult>({
-      type: 'PM_PREPARE_WALLET_RECOVERY',
-      payload: wirePayload,
     });
     return res.result;
   }
@@ -3671,6 +3532,23 @@ export class WalletIframeRouter {
     const res = await this.post<WalletCredentialRenameResult>({
       type: 'PM_RENAME_WALLET_CREDENTIAL',
       payload,
+    });
+    return res.result;
+  }
+
+  async revokeWalletCredential(payload: {
+    walletId: string;
+    rpId: string;
+    credentialIdB64u: string;
+    appSessionJwt?: string;
+  }): Promise<WalletRevokeAuthMethodResponse> {
+    const { appSessionJwt, ...wirePayload } = payload;
+    await this.ensureHostedWalletSeamsSession(
+      hostedWalletSeamsSessionSource({ appSessionJwt }),
+    );
+    const res = await this.post<WalletRevokeAuthMethodResponse>({
+      type: 'PM_REVOKE_WALLET_CREDENTIAL',
+      payload: wirePayload,
     });
     return res.result;
   }

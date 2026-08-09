@@ -825,11 +825,11 @@ export type ParentToChildType =
   | 'PM_ENROLL_EMAIL_OTP'
   | 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
   | 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION'
-  | 'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS'
-  | 'PM_SHOW_EMAIL_OTP_RECOVERY_CODES'
-  | 'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES'
-  | 'PM_REQUEST_WALLET_RECOVERY_CHALLENGE'
-  | 'PM_PREPARE_WALLET_RECOVERY'
+  | 'PM_GET_WALLET_RECOVERY_CODE_STATUS'
+  | 'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP'
+  | 'PM_REQUEST_WALLET_RECOVERY_BOOTSTRAP_CHALLENGE'
+  | 'PM_VERIFY_WALLET_RECOVERY_BOOTSTRAP'
+  | 'PM_PREPARE_WALLET_RECOVERY_WITH_BOOTSTRAP'
   | 'PM_COMPLETE_WALLET_RECOVERY'
   | 'PM_GET_RECOVERY_EMAILS'
   | 'PM_SET_RECOVERY_EMAILS'
@@ -859,6 +859,7 @@ export type ParentToChildType =
   | 'PM_DELETE_DEVICE_KEY'
   | 'PM_LIST_WALLET_CREDENTIALS'
   | 'PM_RENAME_WALLET_CREDENTIAL'
+  | 'PM_REVOKE_WALLET_CREDENTIAL'
   | 'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA'
   | 'PM_START_DEVICE2_LINKING_FLOW'
   | 'PM_STOP_DEVICE2_LINKING_FLOW'
@@ -1239,24 +1240,8 @@ export interface PMEnrollEmailOtpPayload {
   appSessionJwt?: never;
 }
 
-export interface PMGetEmailOtpRecoveryCodeStatusPayload {
+export interface PMWalletRecoverySessionPayload {
   walletId: string;
-  relayUrl?: string;
-}
-
-export interface PMShowEmailOtpRecoveryCodesPayload {
-  walletId: string;
-  relayUrl?: string;
-}
-
-export interface PMRotateEmailOtpRecoveryCodesPayload {
-  walletId: string;
-  relayUrl?: string;
-}
-
-export interface PMRequestWalletRecoveryChallengePayload {
-  walletId: string;
-  relayUrl?: string;
 }
 
 export interface PMRequestWalletRecoveryBootstrapChallengePayload {
@@ -1270,15 +1255,6 @@ export interface PMVerifyWalletRecoveryBootstrapPayload {
   orgId: string;
   challengeId: string;
   otpCode: string;
-  relayUrl?: string;
-}
-
-export interface PMPrepareWalletRecoveryPayload {
-  walletId: string;
-  challengeId: string;
-  otpCode: string;
-  recoveryCode: string;
-  replacedCredentialIdB64u: string;
   relayUrl?: string;
 }
 
@@ -1358,6 +1334,12 @@ export interface PMRenameWalletCredentialPayload {
   walletId: string;
   envelopeId: string;
   label?: string;
+}
+
+export interface PMRevokeWalletCredentialPayload {
+  walletId: string;
+  rpId: string;
+  credentialIdB64u: string;
 }
 
 export interface PMGetRecoveryEmailsPayload {
@@ -1447,19 +1429,13 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_ENROLL_EMAIL_OTP', PMEnrollEmailOtpPayload>
   | RpcEnvelope<'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY', PMEmailOtpEcdsaCapabilityPayload>
   | RpcEnvelope<'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION', PMRefreshEmailOtpSigningSessionPayload>
-  | RpcEnvelope<'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS', PMGetEmailOtpRecoveryCodeStatusPayload>
-  | RpcEnvelope<'PM_SHOW_EMAIL_OTP_RECOVERY_CODES', PMShowEmailOtpRecoveryCodesPayload>
-  | RpcEnvelope<'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES', PMRotateEmailOtpRecoveryCodesPayload>
-  | RpcEnvelope<
-      'PM_REQUEST_WALLET_RECOVERY_CHALLENGE',
-      PMRequestWalletRecoveryChallengePayload
-    >
+  | RpcEnvelope<'PM_GET_WALLET_RECOVERY_CODE_STATUS', PMWalletRecoverySessionPayload>
+  | RpcEnvelope<'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP', PMWalletRecoverySessionPayload>
   | RpcEnvelope<
       'PM_REQUEST_WALLET_RECOVERY_BOOTSTRAP_CHALLENGE',
       PMRequestWalletRecoveryBootstrapChallengePayload
     >
   | RpcEnvelope<'PM_VERIFY_WALLET_RECOVERY_BOOTSTRAP', PMVerifyWalletRecoveryBootstrapPayload>
-  | RpcEnvelope<'PM_PREPARE_WALLET_RECOVERY', PMPrepareWalletRecoveryPayload>
   | RpcEnvelope<
       'PM_PREPARE_WALLET_RECOVERY_WITH_BOOTSTRAP',
       PMPrepareWalletRecoveryWithBootstrapPayload
@@ -1499,6 +1475,7 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_DELETE_DEVICE_KEY', PMDeleteDeviceKeyPayload>
   | RpcEnvelope<'PM_LIST_WALLET_CREDENTIALS', PMListWalletCredentialsPayload>
   | RpcEnvelope<'PM_RENAME_WALLET_CREDENTIAL', PMRenameWalletCredentialPayload>
+  | RpcEnvelope<'PM_REVOKE_WALLET_CREDENTIAL', PMRevokeWalletCredentialPayload>
   | RpcEnvelope<
       'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA',
       {

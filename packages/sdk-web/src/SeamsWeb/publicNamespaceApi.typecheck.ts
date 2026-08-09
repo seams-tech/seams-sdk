@@ -132,23 +132,8 @@ void seams.recovery.setRecoveryEmails({
   recoveryEmails: ['alice@example.com'],
   options: {},
 });
-void seams.recovery.getEmailOtpRecoveryCodeStatus({ walletId: 'alice.testnet' });
-void seams.recovery.rotateEmailOtpRecoveryCodes({ walletId: 'alice.testnet' });
-void seams.recovery.getEmailOtpRecoveryCodeStatus({
-  walletId: 'alice.testnet',
-  // @ts-expect-error public recovery status reads cannot accept plaintext recovery codes.
-  recoveryKeys: ['secret-code'],
-});
-void seams.recovery.rotateEmailOtpRecoveryCodes({
-  walletId: 'alice.testnet',
-  // @ts-expect-error public recovery rotation cannot accept caller-supplied recovery codes.
-  recoveryCodes: ['secret-code'],
-});
-void seams.recovery.rotateEmailOtpRecoveryCodes({
-  walletId: 'alice.testnet',
-  // @ts-expect-error public recovery rotation cannot accept optional recovery-code material.
-  recoveryKey: 'secret-code',
-});
+void seams.recovery.getWalletRecoveryCodeStatus({ walletId: 'frost-vermillion-k7p9m2' });
+void seams.recovery.acknowledgeWalletRecoveryCodeBackup({ walletId: 'frost-vermillion-k7p9m2' });
 
 void seams.devices.stopDevice2LinkingFlow();
 void seams.devices.deleteDeviceKey({
