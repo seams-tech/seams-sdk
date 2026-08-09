@@ -48,6 +48,8 @@ import type {
 } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import type { AccountId } from '@/core/types/accountIds';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { ImportWalletCustodyEcdsaContinuityInput } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
+import type { EcdsaRoleLocalPersistedMaterialRef } from '@/core/signingEngine/session/keyMaterialBrands';
 import type {
   ClientAuthenticatorData,
   ClientUserData,
@@ -405,6 +407,23 @@ export interface WalletCustodyCeremonySurface {
     }) => Promise<string>;
   }): Promise<EstablishedWalletCustodyEvmFamilyKeySetV1>;
 
+  rejoinWalletCustodyEvmFamilyKeySet(args: {
+    walletId: string;
+    custodyJson: string;
+    factorSecret: ArrayBuffer;
+    evmFamilySigningKeySlotId: string;
+    applicationBindingDigestB64u: string;
+    registeredClientRootPublicKey33B64u: string;
+    relayerPublicIdentityJson: string;
+  }): Promise<RejoinedWalletCustodyEvmFamilyKeySetV1>;
+
+  restoreWalletCustodyEcdsaContinuity(
+    args: Omit<ImportWalletCustodyEcdsaContinuityInput, 'store'>,
+  ): Promise<{
+    readonly materialActivation: MpcMaterialActivationRef;
+    readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
+  }>;
+
   /**
    * Persists the wallet-scoped continuity cache the ceremony sealed.
    *
@@ -459,6 +478,11 @@ export type EstablishedWalletCustodyEvmFamilyKeySetV1 = {
     readonly readyStateBlobB64u: string;
     readonly publicFacts: WalletCustodyEvmFamilyPublicFacts;
   };
+};
+
+export type RejoinedWalletCustodyEvmFamilyKeySetV1 = {
+  readonly readyStateBlobB64u: string;
+  readonly publicFacts: WalletCustodyEvmFamilyPublicFacts;
 };
 
 export interface Ed25519MaterialOwnerQueueSurface {

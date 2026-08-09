@@ -58,6 +58,7 @@ import {
   establishEvmFamilyCustodyV1,
   establishNearEd25519CustodyV1,
   joinNearEd25519CustodyV1,
+  rejoinEvmFamilyCustodyV1,
   rejoinNearEd25519CustodyV1,
 } from '@/core/signingEngine/walletCustody/registrationCeremony';
 import { walletCustodyCeremonyStepRunner } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
@@ -71,6 +72,7 @@ import type {
   EstablishedWalletCustodyEvmFamilyKeySetV1,
   EstablishedWalletCustodyNearEd25519KeySetV1,
   JoinedWalletCustodyNearEd25519KeySetV1,
+  RejoinedWalletCustodyEvmFamilyKeySetV1,
 } from './ports';
 import { RouterAbEd25519YaoHttpActivationTransportV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import {
@@ -88,6 +90,14 @@ import type {
   EmailOtpYaoPrewarmOutcome,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
+import {
+  importWalletCustodyEcdsaContinuity,
+  IndexedDbEcdsaCapabilityManifestStore,
+  type ImportWalletCustodyEcdsaContinuityInput,
+} from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
+import { openEcdsaRoleLocalSigningMaterialWasm } from '@/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm';
+import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import type { EcdsaRoleLocalPersistedMaterialRef } from '@/core/signingEngine/session/keyMaterialBrands';
 import type {
   PasskeyMpcSessionPort,
   UiConfirmSurfaceMeasurementBinding,
@@ -1815,6 +1825,53 @@ export class BrowserSigningSurface {
           ),
       }),
     });
+  }
+
+  async rejoinWalletCustodyEvmFamilyKeySet(args: {
+    walletId: string;
+    custodyJson: string;
+    factorSecret: ArrayBuffer;
+    evmFamilySigningKeySlotId: string;
+    applicationBindingDigestB64u: string;
+    registeredClientRootPublicKey33B64u: string;
+    relayerPublicIdentityJson: string;
+  }): Promise<RejoinedWalletCustodyEvmFamilyKeySetV1> {
+    return await rejoinEvmFamilyCustodyV1({
+      ...args,
+      runStep: walletCustodyCeremonyStepRunner({
+        requestOperation: (operation) =>
+          this.signerWorkerManager.requestWorkerOperation(
+            operation as Parameters<SignerWorkerManager['requestWorkerOperation']>[0],
+          ),
+      }),
+    });
+  }
+
+  async restoreWalletCustodyEcdsaContinuity(
+    args: Omit<ImportWalletCustodyEcdsaContinuityInput, 'store'>,
+  ): Promise<{
+    readonly materialActivation: MpcMaterialActivationRef;
+    readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
+  }> {
+    const imported = await importWalletCustodyEcdsaContinuity({
+      ...args,
+      store: new IndexedDbEcdsaCapabilityManifestStore(),
+    });
+    if (imported.kind !== 'committed') {
+      throw new Error(`wallet custody ECDSA import returned ${imported.kind}`);
+    }
+    const materialActivation = routerAbMpcMaterialActivationRefFromWire(
+      args.publicCapability.material_activation,
+    );
+    const opened = await openEcdsaRoleLocalSigningMaterialWasm({
+      workerCtx: this.signerWorkerManager.getContext(),
+      authority: args.authority,
+      materialActivation,
+    });
+    if (!opened.ok) {
+      throw new Error(`wallet custody ECDSA material open returned ${opened.reason}`);
+    }
+    return { materialActivation, materialRef: opened.materialRef };
   }
 
   async persistWalletCustodyEd25519Material(args: {

@@ -4,7 +4,9 @@ import type { WalletRegistrationEcdsaWalletKey } from '../../../packages/sdk-ser
 import { derivationClientSharePublicKey33B64uFromString } from '../../../packages/shared-ts/src/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { WalletId } from '../../../packages/shared-ts/src/utils/registrationIntent';
 import {
+  parseRouterAbEcdsaRegistrationActivationReceiptV1,
   parseRouterAbEcdsaDerivationPublicCapabilityV1,
+  type RouterAbEcdsaRegistrationActivationReceiptV1,
   type RouterAbEcdsaDerivationPublicCapabilityV1,
 } from '../../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 
@@ -90,6 +92,28 @@ function fixtureRegistrationEcdsaPublicCapability(args: {
   });
 }
 
+function fixtureRegistrationEcdsaActivationReceipt(
+  publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1,
+  activatedAtMs: number,
+): RouterAbEcdsaRegistrationActivationReceiptV1 {
+  return parseRouterAbEcdsaRegistrationActivationReceiptV1({
+    activation_correlation_id: 'registration-activation-correlation-fixture',
+    activation_request_digest: { bytes: new Array<number>(32).fill(0) },
+    server_generation: 'registration-server-generation-fixture',
+    ecdsa_activation: {
+      context: publicCapability.context,
+      public_identity: publicCapability.public_identity,
+      signing_worker: publicCapability.signer_set.selected_server,
+      material_activation: publicCapability.material_activation,
+      activation_epoch: publicCapability.activation_epoch,
+      activation_digest_b64u: VALID_ECDSA_DIGEST32_B64U,
+      activated_at_ms: Math.max(1, activatedAtMs),
+    },
+    lifecycle_id: publicCapability.material_activation.lifecycle_binding,
+    transcript_digest: { bytes: new Array<number>(32).fill(0) },
+  });
+}
+
 export type WalletEcdsaSignerRecordSeedArgs = {
   walletId: WalletId;
   now: number;
@@ -136,9 +160,20 @@ export function createWalletEcdsaSignerRecord(
     }),
     ...args.walletKeyOverrides,
   };
+  const activationReceipt = fixtureRegistrationEcdsaActivationReceipt(
+    walletKey.publicCapability,
+    args.now,
+  );
   return buildWalletEcdsaSignerRecord({
     walletId: args.walletId,
     walletKey,
+    activationReceipt,
+    runtimePolicyScope: {
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+      signingRootVersion: walletKey.signingRootVersion,
+    },
     createdAtMs: args.now,
     updatedAtMs: args.now,
   });

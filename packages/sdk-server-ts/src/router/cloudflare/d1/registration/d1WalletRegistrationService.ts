@@ -198,6 +198,7 @@ import { alphabetizeStringify, bytesToUnprefixedHex, sha256BytesUtf8 } from '@sh
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import {
   type WalletEcdsaSignerKey,
+  type WalletEcdsaSignerRecord,
   type WalletEcdsaPendingSessionActivationRecord,
   type WalletEd25519SignerRecord,
   type WalletSignerRecord,
@@ -1648,6 +1649,14 @@ export class CloudflareD1WalletRegistrationService {
       rpId: input.rpId,
       keyTargets: input.keyTargets,
       getEcdsaSignerByKeyHandle: store.getEcdsaSignerByKeyHandle.bind(store),
+    });
+  }
+
+  async listWalletEcdsaCustodyContinuity(input: {
+    readonly walletId: string;
+  }): Promise<readonly WalletEcdsaSignerRecord[]> {
+    return await this.getWalletStore().listEcdsaSignersForWallet({
+      walletId: walletIdFromString(input.walletId),
     });
   }
 
@@ -4145,11 +4154,15 @@ export class CloudflareD1WalletRegistrationService {
         walletId: ceremony.intent.walletId,
         now,
       });
-      const walletSigners: WalletSignerRecord[] = buildD1WalletEcdsaSignerRecords({
-        walletId: ceremony.intent.walletId,
-        walletKeys: ecdsaWalletKeys,
-        now,
-      });
+      const walletSigners: WalletSignerRecord[] = activatedEcdsaBranch
+        ? buildD1WalletEcdsaSignerRecords({
+            walletId: ceremony.intent.walletId,
+            walletKeys: ecdsaWalletKeys,
+            activationReceipt: activatedEcdsaBranch.activation,
+            runtimePolicyScope: activatedEcdsaBranch.prepare.runtimePolicyScope,
+            now,
+          })
+        : [];
       if (ed25519SignerRecord) walletSigners.push(ed25519SignerRecord);
       const persistenceTiming = startD1RegistrationRouteTiming('relayPersistenceMs');
       try {

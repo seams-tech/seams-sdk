@@ -1,4 +1,5 @@
-import { base64UrlEncode } from '@shared/utils/encoders';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import { sha256Bytes } from '@shared/utils/digests';
 import {
   issueWalletRecoveryCodes,
   zeroizeIssuedWalletRecoveryCodes,
@@ -273,6 +274,96 @@ export async function establishEvmFamilyCustodyV1(
     if (issued) zeroizeIssuedWalletRecoveryCodes(issued);
     issued = null;
   }
+}
+
+export type RejoinEvmFamilyCustodyInput = {
+  readonly runStep: WalletCustodyCeremonyStepRunner;
+  readonly walletId: string;
+  readonly custodyJson: string;
+  readonly factorSecret: ArrayBuffer;
+  readonly evmFamilySigningKeySlotId: string;
+  readonly applicationBindingDigestB64u: string;
+  readonly registeredClientRootPublicKey33B64u: string;
+  readonly relayerPublicIdentityJson: string;
+};
+
+export type RejoinedEvmFamilyCustody = {
+  readonly readyStateBlobB64u: string;
+  readonly publicFacts: WalletCustodyEvmFamilyPublicFacts;
+};
+
+export async function rejoinEvmFamilyCustodyV1(
+  input: RejoinEvmFamilyCustodyInput,
+): Promise<RejoinedEvmFamilyCustody> {
+  const recordedKeyManifestDigestB64u =
+    await computeWalletCustodyEvmFamilyKeyManifestDigestB64u({
+      walletId: input.walletId,
+      evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
+      clientRootPublicKey33B64u: input.registeredClientRootPublicKey33B64u,
+    });
+  const payload = await runWalletCustodyKeySetCeremony({
+    runStep: input.runStep,
+    custody: {
+      origin: 'join',
+      custodyJson: input.custodyJson,
+      factorSecret: input.factorSecret,
+    },
+    keySetRun: {
+      keySet: 'evm_family_ecdsa_v1',
+      protocolInputsJson: JSON.stringify({
+        applicationBindingDigestB64u: input.applicationBindingDigestB64u,
+      }),
+      evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
+      beforeRelayerRound: async () => undefined,
+      runRelayerRound: async () => input.relayerPublicIdentityJson,
+    },
+    recordedKeyManifestDigestB64u,
+  });
+  if (payload.establishedCustody) {
+    throw new Error('an EVM cold unlock must not establish custody');
+  }
+  if (!payload.ecdsaReadyStateBlobB64u || !payload.ecdsaPublicFacts) {
+    throw new Error('the EVM cold unlock produced no local signing material');
+  }
+  return {
+    readyStateBlobB64u: payload.ecdsaReadyStateBlobB64u,
+    publicFacts: payload.ecdsaPublicFacts,
+  };
+}
+
+function appendU32Be(output: number[], value: number): void {
+  output.push((value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff);
+}
+
+function appendManifestField(output: number[], label: string, value: Uint8Array): void {
+  const labelBytes = new TextEncoder().encode(label);
+  appendU32Be(output, labelBytes.length);
+  output.push(...labelBytes);
+  appendU32Be(output, value.length);
+  output.push(...value);
+}
+
+export async function computeWalletCustodyEvmFamilyKeyManifestDigestB64u(input: {
+  readonly walletId: string;
+  readonly evmFamilySigningKeySlotId: string;
+  readonly clientRootPublicKey33B64u: string;
+}): Promise<string> {
+  const walletId = String(input.walletId || '').trim();
+  const slotId = String(input.evmFamilySigningKeySlotId || '').trim();
+  const clientRootPublicKey = base64UrlDecode(input.clientRootPublicKey33B64u);
+  if (!walletId || !slotId || clientRootPublicKey.length !== 33) {
+    throw new Error('EVM custody continuity identity is invalid');
+  }
+  const fields: number[] = [];
+  appendManifestField(
+    fields,
+    'context',
+    new TextEncoder().encode('seams/wallet-custody/key-set-manifest/evm-family-ecdsa/v1'),
+  );
+  appendManifestField(fields, 'walletId', new TextEncoder().encode(walletId));
+  appendManifestField(fields, 'evmFamilySigningKeySlotId', new TextEncoder().encode(slotId));
+  appendManifestField(fields, 'clientRootPublicKey33', clientRootPublicKey);
+  return base64UrlEncode(await sha256Bytes(Uint8Array.from(fields)));
 }
 
 /**

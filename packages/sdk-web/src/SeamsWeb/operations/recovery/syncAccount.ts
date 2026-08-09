@@ -46,6 +46,17 @@ import {
   type WalletCustodyEd25519MaterialBindingV1,
 } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import {
+  parseRouterAbEcdsaDerivationPublicCapabilityV1,
+  parseRouterAbEcdsaRegistrationActivationReceiptV1,
+  type RouterAbEcdsaDerivationPublicCapabilityV1,
+  type RouterAbEcdsaRegistrationActivationReceiptV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
+import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
+import type { ThresholdEcdsaChainTarget } from '@/core/platform/types';
+import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { alphabetizeStringify } from '@shared/utils/digests';
 
 export type { SyncAccountResult };
 
@@ -67,6 +78,30 @@ export type PasskeyEd25519YaoUnlockRecoveryV1 = {
   readonly recovery: PasskeyEd25519YaoRecoveryResultV1;
   readonly credential: WebAuthnAuthenticationCredential;
   readonly verifiedBinding: RecoveryResolvedWalletBinding;
+  readonly ecdsaContinuity: ParsedWalletCustodyEcdsaContinuityV1;
+};
+
+type ParsedWalletCustodyEcdsaSignerV1 = {
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly walletKey: {
+    readonly walletId: string;
+    readonly keyHandle: string;
+    readonly ecdsaThresholdKeyId: string;
+    readonly signingRootId: string;
+    readonly signingRootVersion: string;
+    readonly relayerKeyId: string;
+    readonly contextBinding32B64u: string;
+    readonly derivationClientSharePublicKey33B64u: string;
+    readonly participantIds: readonly [number, number];
+    readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+  };
+  readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+  readonly runtimePolicyScope: ReturnType<typeof normalizeRuntimePolicyScope>;
+};
+
+type ParsedWalletCustodyEcdsaContinuityV1 = {
+  readonly kind: 'wallet_custody_ecdsa_sync_continuity_v1';
+  readonly signers: readonly ParsedWalletCustodyEcdsaSignerV1[];
 };
 
 export type RecoverPasskeyEd25519YaoForUnlockInputV1 = {
@@ -89,6 +124,8 @@ export type RecoverPasskeyEd25519YaoForUnlockInputV1 = {
     | 'upsertEd25519YaoPublicCapabilityLaneReference'
   >;
   readonly rejoinWalletCustodyNearEd25519KeySet: AccountSyncSigningSurface['rejoinWalletCustodyNearEd25519KeySet'];
+  readonly rejoinWalletCustodyEvmFamilyKeySet: AccountSyncSigningSurface['rejoinWalletCustodyEvmFamilyKeySet'];
+  readonly restoreWalletCustodyEcdsaContinuity: AccountSyncSigningSurface['restoreWalletCustodyEcdsaContinuity'];
   readonly persistWalletCustodyEd25519Material: AccountSyncSigningSurface['persistWalletCustodyEd25519Material'];
   readonly prepareLocalProfile: (
     parsed: ParsedPasskeyEd25519YaoSyncResponseV1,
@@ -150,6 +187,91 @@ function parseCredentialIds(value: unknown): readonly string[] {
     if (id) ids.push(id);
   }
   return ids;
+}
+
+function requireSyncString(record: Record<string, unknown>, field: string): string {
+  const value = String(record[field] || '').trim();
+  if (!value) throw new Error(`sync-account ${field} is required`);
+  return value;
+}
+
+function parseSyncEcdsaChainTarget(value: unknown): ThresholdEcdsaChainTarget {
+  if (!isPlainObject(value)) throw new Error('sync-account ECDSA chain target is invalid');
+  const chainId = Number(value.chainId);
+  if (!Number.isSafeInteger(chainId) || chainId <= 0) {
+    throw new Error('sync-account ECDSA chain id is invalid');
+  }
+  if (value.kind === 'evm' && value.namespace === 'eip155') {
+    const networkSlug = String(value.networkSlug || '').trim() || `evm-${chainId}`;
+    return { kind: 'evm', namespace: 'eip155', chainId, networkSlug };
+  }
+  if (value.kind === 'tempo') {
+    const networkSlug = String(value.networkSlug || '').trim() || `tempo-${chainId}`;
+    return { kind: 'tempo', chainId, networkSlug };
+  }
+  throw new Error('sync-account ECDSA chain family is invalid');
+}
+
+function parseSyncEcdsaParticipantIds(value: unknown): readonly [number, number] {
+  if (
+    !Array.isArray(value) ||
+    value.length !== 2 ||
+    value[0] !== 1 ||
+    value[1] !== 2
+  ) {
+    throw new Error('sync-account ECDSA participant ids are invalid');
+  }
+  return [1, 2];
+}
+
+function parseWalletCustodyEcdsaContinuity(
+  raw: unknown,
+  expectedWalletId: string,
+): ParsedWalletCustodyEcdsaContinuityV1 {
+  const response = isPlainObject(raw) ? raw : {};
+  const continuity = response.ecdsaCustody;
+  if (!isPlainObject(continuity) || continuity.kind !== 'wallet_custody_ecdsa_sync_continuity_v1') {
+    throw new Error('sync-account ECDSA custody continuity is invalid');
+  }
+  if (!Array.isArray(continuity.signers)) {
+    throw new Error('sync-account ECDSA custody signer list is invalid');
+  }
+  const signers: ParsedWalletCustodyEcdsaSignerV1[] = [];
+  for (const rawSigner of continuity.signers) {
+    if (!isPlainObject(rawSigner) || !isPlainObject(rawSigner.walletKey)) {
+      throw new Error('sync-account ECDSA custody signer is invalid');
+    }
+    const walletKey = rawSigner.walletKey;
+    const walletId = requireSyncString(walletKey, 'walletId');
+    if (walletId !== expectedWalletId) {
+      throw new Error('sync-account ECDSA custody signer changed the wallet identity');
+    }
+    signers.push({
+      chainTarget: parseSyncEcdsaChainTarget(rawSigner.chainTarget),
+      walletKey: {
+        walletId,
+        keyHandle: requireSyncString(walletKey, 'keyHandle'),
+        ecdsaThresholdKeyId: requireSyncString(walletKey, 'ecdsaThresholdKeyId'),
+        signingRootId: requireSyncString(walletKey, 'signingRootId'),
+        signingRootVersion: requireSyncString(walletKey, 'signingRootVersion'),
+        relayerKeyId: requireSyncString(walletKey, 'relayerKeyId'),
+        contextBinding32B64u: requireSyncString(walletKey, 'contextBinding32B64u'),
+        derivationClientSharePublicKey33B64u: requireSyncString(
+          walletKey,
+          'derivationClientSharePublicKey33B64u',
+        ),
+        participantIds: parseSyncEcdsaParticipantIds(walletKey.participantIds),
+        publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(
+          walletKey.publicCapability,
+        ),
+      },
+      activationReceipt: parseRouterAbEcdsaRegistrationActivationReceiptV1(
+        rawSigner.activationReceipt,
+      ),
+      runtimePolicyScope: normalizeRuntimePolicyScope(rawSigner.runtimePolicyScope),
+    });
+  }
+  return { kind: 'wallet_custody_ecdsa_sync_continuity_v1', signers };
 }
 
 async function readJsonOrNull(response: Response): Promise<unknown> {
@@ -496,6 +618,106 @@ async function recoverAndCommitPasskeyEd25519Unlock(
   }
 }
 
+function ethereumAddressFromAddress20B64u(value: string): `0x${string}` {
+  const bytes = base64UrlDecode(value);
+  if (bytes.length !== 20) throw new Error('ECDSA custody address must contain 20 bytes');
+  let hex = '0x';
+  for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
+  return hex as `0x${string}`;
+}
+
+function assertOneEcdsaCustodyIdentity(
+  continuity: ParsedWalletCustodyEcdsaContinuityV1,
+): ParsedWalletCustodyEcdsaSignerV1 | null {
+  const first = continuity.signers[0];
+  if (!first) return null;
+  const chainTargets = new Set<string>();
+  for (const signer of continuity.signers.slice(1)) {
+    if (
+      signer.walletKey.keyHandle !== first.walletKey.keyHandle ||
+      alphabetizeStringify(signer.walletKey.publicCapability) !==
+        alphabetizeStringify(first.walletKey.publicCapability) ||
+      alphabetizeStringify(signer.activationReceipt) !==
+        alphabetizeStringify(first.activationReceipt) ||
+      alphabetizeStringify(signer.runtimePolicyScope) !==
+        alphabetizeStringify(first.runtimePolicyScope)
+    ) {
+      throw new Error('sync-account returned conflicting ECDSA custody identities');
+    }
+  }
+  for (const signer of continuity.signers) {
+    const key = thresholdEcdsaChainTargetKey(signer.chainTarget);
+    if (chainTargets.has(key)) {
+      throw new Error('sync-account returned duplicate ECDSA custody chain targets');
+    }
+    chainTargets.add(key);
+  }
+  return first;
+}
+
+async function restoreWalletCustodyEcdsaContinuity(input: {
+  readonly signingSurface: Pick<
+    AccountSyncSigningSurface,
+    'rejoinWalletCustodyEvmFamilyKeySet' | 'restoreWalletCustodyEcdsaContinuity'
+  >;
+  readonly parsed: ParsedPasskeyEd25519YaoSyncResponseV1;
+  readonly continuity: ParsedWalletCustodyEcdsaContinuityV1;
+  readonly ownedFactorSecret: Uint8Array;
+}): Promise<void> {
+  const signer = assertOneEcdsaCustodyIdentity(input.continuity);
+  if (!signer) return;
+  const custodyWire = joinCustodyWireFromEnvelopeRecord(input.parsed.walletCustody.envelope);
+  if (!custodyWire.ok) throw new Error(custodyWire.reason);
+  const walletKey = signer.walletKey;
+  const identity = signer.activationReceipt.ecdsa_activation.public_identity;
+  const factorSecret = input.ownedFactorSecret.slice();
+  const [firstChainTarget, ...remainingChainTargets] = input.continuity.signers.map(
+    (entry) => entry.chainTarget,
+  );
+  if (!firstChainTarget) return;
+  try {
+    const rejoined = await input.signingSurface.rejoinWalletCustodyEvmFamilyKeySet({
+      walletId: walletKey.walletId,
+      custodyJson: custodyWire.custodyJson,
+      factorSecret: factorSecret.buffer,
+      evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+        walletId: walletKey.walletId,
+        signingRootId: walletKey.signingRootId,
+        signingRootVersion: walletKey.signingRootVersion,
+      }),
+      applicationBindingDigestB64u:
+        walletKey.publicCapability.context.application_binding_digest_b64u,
+      registeredClientRootPublicKey33B64u:
+        walletKey.derivationClientSharePublicKey33B64u,
+      relayerPublicIdentityJson: JSON.stringify({
+        relayerKeyId: walletKey.relayerKeyId,
+        relayerPublicKey33B64u: identity.server_public_key33_b64u,
+        groupPublicKey33B64u: identity.threshold_public_key33_b64u,
+        ethereumAddress: ethereumAddressFromAddress20B64u(identity.ethereum_address20_b64u),
+        relayerShareRetryCounter: identity.server_share_retry_counter,
+      }),
+    });
+    await input.signingSurface.restoreWalletCustodyEcdsaContinuity({
+      authority: input.parsed.authority,
+      chainTargets: [firstChainTarget, ...remainingChainTargets],
+      walletId: walletKey.walletId,
+      keyHandle: walletKey.keyHandle,
+      ecdsaThresholdKeyId: walletKey.ecdsaThresholdKeyId,
+      signingRootId: walletKey.signingRootId,
+      signingRootVersion: walletKey.signingRootVersion,
+      relayerKeyId: walletKey.relayerKeyId,
+      participantIds: walletKey.participantIds,
+      publicCapability: walletKey.publicCapability,
+      activationReceipt: signer.activationReceipt,
+      runtimePolicyScope: signer.runtimePolicyScope,
+      readyStateBlobB64u: rejoined.readyStateBlobB64u,
+      publicFacts: rejoined.publicFacts,
+    });
+  } finally {
+    factorSecret.fill(0);
+  }
+}
+
 export async function recoverPasskeyEd25519YaoForUnlockV1(
   input: RecoverPasskeyEd25519YaoForUnlockInputV1,
 ): Promise<PasskeyEd25519YaoUnlockRecoveryV1> {
@@ -540,6 +762,7 @@ export async function recoverPasskeyEd25519YaoForUnlockV1(
   const ownedPasskeyPrfFirst = base64UrlDecode(prfFirstB64u);
   try {
     const parsed = parsePasskeyEd25519YaoSyncResponseV1(verified);
+    const ecdsaContinuity = parseWalletCustodyEcdsaContinuity(verified, String(parsed.walletId));
     await input.prepareLocalProfile(parsed, credential);
     const recovery = await input.withExactEd25519MaterialOwner({
       materialActivation: parsed.capability.materialActivation,
@@ -561,7 +784,16 @@ export async function recoverPasskeyEd25519YaoForUnlockV1(
         persistWalletCustodyEd25519Material: input.persistWalletCustodyEd25519Material,
       }),
     });
-    return { recovery, credential, verifiedBinding };
+    await restoreWalletCustodyEcdsaContinuity({
+      signingSurface: {
+        rejoinWalletCustodyEvmFamilyKeySet: input.rejoinWalletCustodyEvmFamilyKeySet,
+        restoreWalletCustodyEcdsaContinuity: input.restoreWalletCustodyEcdsaContinuity,
+      },
+      parsed,
+      continuity: ecdsaContinuity,
+      ownedFactorSecret: ownedPasskeyPrfFirst,
+    });
+    return { recovery, credential, verifiedBinding, ecdsaContinuity };
   } finally {
     ownedPasskeyPrfFirst.fill(0);
   }
@@ -739,6 +971,10 @@ async function syncAccountInternal(
       sessionPersistence: context.signingEngine,
       rejoinWalletCustodyNearEd25519KeySet:
         context.signingEngine.rejoinWalletCustodyNearEd25519KeySet.bind(context.signingEngine),
+      rejoinWalletCustodyEvmFamilyKeySet:
+        context.signingEngine.rejoinWalletCustodyEvmFamilyKeySet.bind(context.signingEngine),
+      restoreWalletCustodyEcdsaContinuity:
+        context.signingEngine.restoreWalletCustodyEcdsaContinuity.bind(context.signingEngine),
       persistWalletCustodyEd25519Material:
         context.signingEngine.persistWalletCustodyEd25519Material.bind(context.signingEngine),
       prepareLocalProfile: prepareSyncedPasskeyLocalProfile.bind(undefined, context),

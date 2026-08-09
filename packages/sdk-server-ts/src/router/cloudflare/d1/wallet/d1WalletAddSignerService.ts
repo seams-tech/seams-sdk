@@ -1678,6 +1678,10 @@ export class CloudflareD1WalletAddSignerService {
     });
     if (!walletKeyResult.ok) return walletKeyResult;
     const walletKeys = walletKeyResult.walletKeys;
+    const runtimePolicyScope = parseD1RuntimePolicyScope(ceremony.intent.runtimePolicyScope);
+    if (!runtimePolicyScope) {
+      return { ok: false, code: 'invalid_state', message: 'ECDSA add-signer scope is invalid' };
+    }
     const signerWriteNow = prepared.signerWriteAtMs;
     const walletStore = this.getWalletStore();
     const wallet = await walletStore.getWallet({ walletId: ceremony.intent.walletId });
@@ -1685,6 +1689,8 @@ export class CloudflareD1WalletAddSignerService {
     const walletSigners = buildD1WalletEcdsaSignerRecords({
       walletId: ceremony.intent.walletId,
       walletKeys,
+      activationReceipt: ceremony.signerState.activation,
+      runtimePolicyScope,
       now: signerWriteNow,
     });
     await walletStore.putSigners(walletSigners);

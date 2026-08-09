@@ -32,7 +32,7 @@ import type {
 } from '../../core/RecoveryExecutionStore';
 import type { RecoverySessionRecord, RecoverySessionStatus } from '../../core/RecoverySessionStore';
 import type { RouterAbEcdsaPresignRuntime } from '../../core/routerAbSigning/RouterAbEcdsaPresignRuntime';
-import type { WalletEcdsaSignerKey } from '../../core/WalletStore';
+import type { WalletEcdsaSignerKey, WalletEcdsaSignerRecord } from '../../core/WalletStore';
 import type {
   FundImplicitNearAccountRequest,
   FundImplicitNearAccountResult,
@@ -1103,6 +1103,9 @@ export interface RouterApiEmailOtpChallengeService {
 }
 
 export interface RouterApiWalletRegistrationService {
+  listWalletEcdsaCustodyContinuity(input: {
+    readonly walletId: string;
+  }): Promise<readonly WalletEcdsaSignerRecord[]>;
   resolveEd25519MaterialActivation(input: {
     readonly walletId: string;
     readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
