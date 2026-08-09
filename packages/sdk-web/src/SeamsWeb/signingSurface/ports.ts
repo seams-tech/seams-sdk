@@ -608,7 +608,12 @@ export type LoginUnlockSigningSurface = WalletSessionReadSurface &
   LoginWarmSigningSurface &
   Ed25519YaoCapabilityActivationSurface &
   Ed25519MaterialOwnerQueueSurface &
-  Pick<WalletCustodyCeremonySurface, 'loadWalletCustodyEd25519Material'> &
+  Pick<
+    WalletCustodyCeremonySurface,
+    | 'loadWalletCustodyEd25519Material'
+    | 'rejoinWalletCustodyNearEd25519KeySet'
+    | 'persistWalletCustodyEd25519Material'
+  > &
   EcdsaLoginSessionSurface &
   PasskeyLoginAssertionSurface &
   Pick<EcdsaSessionControlSurface, 'clearVolatileWarmSigningMaterial'> &
