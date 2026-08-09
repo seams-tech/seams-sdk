@@ -4091,6 +4091,7 @@ export class CloudflareD1WalletRegistrationService {
           activeCapabilityBinding: consumed.activation.result.binding.session_id,
           nearAccountId,
           registrationAdmissionRequest: consumed.activation.admissionRequest,
+          registrationAdmissionReceipt: consumed.activation.admissionReceipt,
           registrationResult: consumed.activation.result,
           runtimePolicyScope,
         };

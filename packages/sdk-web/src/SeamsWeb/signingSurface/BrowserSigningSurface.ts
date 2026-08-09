@@ -58,6 +58,7 @@ import {
   establishEvmFamilyCustodyV1,
   establishNearEd25519CustodyV1,
   joinNearEd25519CustodyV1,
+  rejoinNearEd25519CustodyV1,
 } from '@/core/signingEngine/walletCustody/registrationCeremony';
 import { walletCustodyCeremonyStepRunner } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
 import { walletCustodyEd25519ActiveClientMetadataV1 } from '@/core/signingEngine/walletCustody/ceremonyActiveClientMetadata';
@@ -1719,6 +1720,74 @@ export class BrowserSigningSurface {
       commitPayload: joined.commitPayload,
       activationReference: joined.activationReference,
       localMaterial: joined.localMaterial,
+      metadata: walletCustodyEd25519ActiveClientMetadataV1({
+        admissionRequest: args.admissionRequest,
+        activationResultJson,
+      }),
+    };
+  }
+
+  async rejoinWalletCustodyNearEd25519KeySet(args: {
+    walletId: string;
+    custodyJson: string;
+    factorSecret: ArrayBuffer;
+    nearEd25519SigningKeyId: string;
+    registrationCeremonyId: string;
+    admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+    admissionReceipt: unknown;
+    participantIds: readonly [number, number];
+    registeredPublicKeyB64u: string;
+    routerOrigin: string;
+    walletSessionJwt: string;
+  }): Promise<JoinedWalletCustodyNearEd25519KeySetV1> {
+    let activationResultJson: string | null = null;
+    const rejoined = await rejoinNearEd25519CustodyV1({
+      runStep: walletCustodyCeremonyStepRunner({
+        requestOperation: (operation) =>
+          this.signerWorkerManager.requestWorkerOperation(
+            operation as Parameters<SignerWorkerManager['requestWorkerOperation']>[0],
+          ),
+      }),
+      walletId: args.walletId,
+      custodyJson: args.custodyJson,
+      factorSecret: args.factorSecret,
+      nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+      registrationCeremonyId: args.registrationCeremonyId,
+      yaoAdmission: args.admissionReceipt,
+      yaoApplication: args.admissionRequest.application_binding,
+      participantIds: args.participantIds,
+      registeredPublicKeyB64u: args.registeredPublicKeyB64u,
+      runRouterRound: async (yaoExecuteRequestJson: string) => {
+        const response = await globalThis.fetch(
+          joinNormalizedUrl(args.routerOrigin, '/sync-account/rejoin'),
+          {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${args.walletSessionJwt}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({ executeRequest: JSON.parse(yaoExecuteRequestJson) }),
+          },
+        );
+        const body: unknown = await response.json();
+        if (!response.ok || !body || typeof body !== 'object' || !('value' in body)) {
+          const message =
+            body && typeof body === 'object' && 'message' in body
+              ? String(body.message)
+              : `HTTP ${response.status}`;
+          throw new Error(`Router Ed25519 Yao cold rejoin failed: ${message}`);
+        }
+        activationResultJson = JSON.stringify(body.value);
+        return activationResultJson;
+      },
+    });
+    if (!activationResultJson || !rejoined.localMaterial) {
+      throw new Error('the wallet custody NEAR cold rejoin produced no local signing material');
+    }
+    return {
+      commitPayload: rejoined.commitPayload,
+      activationReference: rejoined.activationReference,
+      localMaterial: rejoined.localMaterial,
       metadata: walletCustodyEd25519ActiveClientMetadataV1({
         admissionRequest: args.admissionRequest,
         activationResultJson,

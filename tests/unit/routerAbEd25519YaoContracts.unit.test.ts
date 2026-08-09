@@ -627,6 +627,14 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     expect(retry).toEqual(activated);
     expect(backend.executeCalls).toBe(1);
 
+    expect(service.replayActivated(request)).toEqual(activated);
+    expect(service.replayActivated(parsedExecuteRequestWithCiphertextSeed(20))).toMatchObject({
+      ok: false,
+      status: 409,
+      code: 'binding_mismatch',
+    });
+    expect(backend.executeCalls).toBe(1);
+
     const substituted = await service.execute(parsedExecuteRequestWithCiphertextSeed(20));
     expect(substituted).toMatchObject({
       ok: false,

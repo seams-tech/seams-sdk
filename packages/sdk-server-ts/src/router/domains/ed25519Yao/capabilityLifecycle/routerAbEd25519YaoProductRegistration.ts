@@ -23,6 +23,8 @@ import type {
   RouterAbEd25519YaoActivationConsumptionRequestV1,
   RouterAbEd25519YaoActivationConsumptionResultV1,
   RouterAbEd25519YaoRegistrationAdmissionClaimV1,
+  RouterAbEd25519YaoRegistrationExecuteRequestV1,
+  RouterAbEd25519YaoRegistrationResultV1,
   RouterAbEd25519YaoRegistrationServiceResult,
 } from '../registration/routerAbEd25519YaoRegistration';
 import {
@@ -135,6 +137,11 @@ export type RouterAbEd25519YaoProductRegistrationRuntimeV1 =
       consumeActivated(
         request: RouterAbEd25519YaoActivationConsumptionRequestV1,
       ): Promise<RouterAbEd25519YaoActivationConsumptionResultV1>;
+      replayActivatedRegistration(
+        request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
+      ): Promise<
+        RouterAbEd25519YaoRegistrationServiceResult<RouterAbEd25519YaoRegistrationResultV1>
+      >;
       mintWalletSession(
         input: RouterAbEd25519YaoWalletSessionMintInputV1,
       ): Promise<RouterAbEd25519YaoWalletSessionMintResultV1>;
@@ -466,6 +473,12 @@ class RouterAbEd25519YaoProductRegistrationRuntime implements RouterAbEd25519Yao
     return await activationConsumer.consumeActivated(request);
   }
 
+  async replayActivatedRegistration(
+    request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
+  ): Promise<RouterAbEd25519YaoRegistrationServiceResult<RouterAbEd25519YaoRegistrationResultV1>> {
+    return this.input.registrationService.replayActivated(request);
+  }
+
   async installRegistrationFinalizeCapability(
     input: RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1,
   ): Promise<RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1> {
@@ -517,9 +530,7 @@ export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
     authority: sessionInput.authority,
     sessionInfo: {
       sessionKind: 'jwt',
-      ...(sessionInput.seamsSessionId
-        ? { seamsSessionId: sessionInput.seamsSessionId }
-        : {}),
+      ...(sessionInput.seamsSessionId ? { seamsSessionId: sessionInput.seamsSessionId } : {}),
       walletId: sessionInput.walletId,
       nearAccountId: sessionInput.nearAccountId,
       nearEd25519SigningKeyId: sessionInput.nearEd25519SigningKeyId,

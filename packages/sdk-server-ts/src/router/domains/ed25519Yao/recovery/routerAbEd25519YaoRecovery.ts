@@ -11,6 +11,7 @@ import {
   parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
   parseRouterAbEd25519YaoWarmRecoveryBootstrapRequestV1,
   parseRouterAbEd25519YaoRegistrationActivationResultV1,
+  parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
   type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoActivationBindingV1,
@@ -337,6 +338,7 @@ export type RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1 = {
   readonly activeCapabilityBinding: RouterAbEd25519YaoBytes32V1;
   readonly nearAccountId: string;
   readonly registrationAdmissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  readonly registrationAdmissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
   readonly registrationResult: RegistrationResult;
   readonly runtimePolicyScope: RuntimePolicyScope;
 };
@@ -429,6 +431,14 @@ export type RouterAbEd25519YaoActiveCapabilityDescriptorV1 = {
     readonly signingWorkerId: string;
   };
   readonly stateEpoch: number;
+  readonly registrationContinuity:
+    | {
+        readonly kind: 'registration';
+        readonly admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+        readonly admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
+        readonly activationTranscript: readonly number[];
+      }
+    | { readonly kind: 'recovery' };
 };
 
 export type RouterAbEd25519YaoActiveCapabilityLookupResultV1 =
@@ -875,11 +885,18 @@ function buildCapabilityIdentity(
     input.registrationAdmissionRequest,
   );
   if (!parsedRequest.ok) return invalidInstallation(parsedRequest.message);
+  const parsedReceipt = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(
+    input.registrationAdmissionReceipt,
+  );
+  if (!parsedReceipt.ok) return invalidInstallation(parsedReceipt.message);
   const parsedResult = parseRouterAbEd25519YaoRegistrationActivationResultV1(
     input.registrationResult,
   );
   if (!parsedResult.ok) return invalidInstallation(parsedResult.message);
-  if (!registrationResultMatchesAdmission(parsedRequest.value, parsedResult.value)) {
+  if (
+    !registrationResultMatchesAdmission(parsedRequest.value, parsedResult.value) ||
+    !equalWire(parsedReceipt.value.binding, parsedResult.value.binding)
+  ) {
     return invalidInstallation('registration result does not match its admitted lifecycle');
   }
   let runtimePolicyScope: RuntimePolicyScope;
@@ -908,6 +925,7 @@ function buildCapabilityIdentity(
     capabilityBinding,
     nearAccountId,
     registrationAdmissionRequest: parsedRequest.value,
+    registrationAdmissionReceipt: parsedReceipt.value,
     registrationResult: parsedResult.value,
     runtimePolicyScope,
   });
@@ -916,6 +934,7 @@ function buildCapabilityIdentity(
     activeCapabilityBinding: capabilityBinding,
     nearAccountId,
     admissionRequest: parsedRequest.value,
+    admissionReceipt: parsedReceipt.value,
     activationResult: parsedResult.value,
     runtimePolicyScope,
   };
@@ -946,6 +965,7 @@ function buildPersistedCapabilityIdentity(
         activeCapabilityBinding: input.activeCapabilityBinding,
         nearAccountId: input.nearAccountId,
         registrationAdmissionRequest: input.admissionRequest,
+        registrationAdmissionReceipt: input.admissionReceipt,
         registrationResult: input.activationResult,
         runtimePolicyScope: input.runtimePolicyScope,
       });
@@ -1472,6 +1492,17 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
           signingWorkerId: lifecycle.selected_server_id,
         },
         stateEpoch: matched.stateEpoch,
+        registrationContinuity:
+          matched.persisted.version === 'wallet_ed25519_yao_registration_capability_v1'
+            ? {
+                kind: 'registration',
+                admissionRequest: matched.persisted.admissionRequest,
+                admissionReceipt: matched.persisted.admissionReceipt,
+                activationTranscript: [
+                  ...matched.persisted.activationResult.public_receipt.transcript,
+                ],
+              }
+            : { kind: 'recovery' },
       },
     };
   }

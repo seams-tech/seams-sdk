@@ -41,6 +41,7 @@ import {
 } from '../helpers/sqliteD1';
 import { FixtureRouterAbEcdsaStrictRegistrationPort } from '../helpers/routerAbSigningRuntimeTestUtils';
 import { StaticWalletSessionAdapter } from './helpers/routerAbEd25519YaoRegistrationBridge.fixtures';
+import { passkeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixtures';
 
 const WALLET_ID = 'wallet-sync-1';
 const NEAR_ACCOUNT_ID = 'wallet-sync-1.testnet';
@@ -96,6 +97,7 @@ function activeCapabilityFixture(
       signingWorkerId: SIGNING_WORKER_ID,
     },
     stateEpoch: 2,
+    registrationContinuity: { kind: 'recovery' },
   };
 }
 
@@ -229,6 +231,12 @@ class RecordingYaoProductRuntime implements RouterAbEd25519YaoProductRegistratio
     throw new Error('registration activation is outside sync-account enrichment');
   }
 
+  replayActivatedRegistration(): ReturnType<
+    RouterAbEd25519YaoProductRegistrationRuntimeV1['replayActivatedRegistration']
+  > {
+    throw new Error('registration replay is outside sync-account enrichment');
+  }
+
   installRegistrationFinalizeCapability(
     _input: Parameters<
       RouterAbEd25519YaoProductRegistrationRuntimeV1['installRegistrationFinalizeCapability']
@@ -281,10 +289,27 @@ function replaceWebAuthnService(
     identity: service.identity,
     sessionVersions: service.sessionVersions,
     authorizationSessions: service.authorizationSessions,
+    authorizedOperations: service.authorizedOperations,
     thresholdRuntime: service.thresholdRuntime,
     nearFunding: service.nearFunding,
     recovery: service.recovery,
     router: service.router,
+    passkeyCustody: {
+      ...service.passkeyCustody,
+      readVerifiedEnvelope: async () => ({
+        kind: 'active',
+        envelope: passkeyCustodyEnvelope({
+          walletId: WALLET_ID,
+          factor: {
+            kind: 'passkey',
+            rpId: RP_ID,
+            credentialIdB64u: CREDENTIAL_ID,
+            kekVersion: 'passkey_prf_kek_hkdf_sha256_v1',
+          },
+        }),
+        storeVersion: 'sync-custody-store-version-1',
+      }),
+    },
   };
 }
 

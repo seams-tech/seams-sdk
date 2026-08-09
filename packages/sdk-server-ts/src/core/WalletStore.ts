@@ -12,6 +12,7 @@ import {
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type {
   RouterAbEd25519YaoActivationResultV1,
+  RouterAbEd25519YaoActivationAdmissionReceiptV1,
   RouterAbEd25519YaoBytes32V1,
   RouterAbEd25519YaoRecoveryAdmissionRequestV1,
   RouterAbEd25519YaoRegistrationAdmissionRequestV1,
@@ -66,6 +67,7 @@ export type WalletEd25519YaoActiveCapabilityRecord =
       readonly activeCapabilityBinding: RouterAbEd25519YaoBytes32V1;
       readonly nearAccountId: string;
       readonly admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+      readonly admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
       readonly activationResult: RouterAbEd25519YaoActivationResultV1<'registration'>;
       readonly runtimePolicyScope: RuntimePolicyScope;
     }

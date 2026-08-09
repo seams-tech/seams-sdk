@@ -1,4 +1,8 @@
-import type { CloudflareD1PasskeyCustodyEnvelopeStore } from './d1PasskeyCustodyEnvelopeStore';
+import type {
+  CloudflareD1PasskeyCustodyEnvelopeStore,
+  PasskeyCustodyEnvelopeFactorLookupResult,
+  WalletCustodyFactorRef,
+} from './d1PasskeyCustodyEnvelopeStore';
 import {
   handlePasskeyCustodyEnvelopeRetrieval,
   type PasskeyCustodyEnvelopeRetrievalRouteResponse,
@@ -73,6 +77,10 @@ export type PasskeyCustodyEnvelopeRetrievalWireRequest = {
 };
 
 export interface RouterApiPasskeyCustodyService {
+  readVerifiedEnvelope(request: {
+    readonly walletId: WalletId;
+    readonly factor: Extract<WalletCustodyFactorRef, { readonly kind: 'passkey' }>;
+  }): Promise<PasskeyCustodyEnvelopeFactorLookupResult>;
   /**
    * Fetch a wallet's custody envelope for a browser that has none locally.
    *
@@ -176,6 +184,8 @@ export function createD1PasskeyCustodyRouteService(assembly: {
 }): RouterApiPasskeyCustodyService {
   const authenticatorStore = authenticatorStoreView(assembly.webAuthnStore);
   return {
+    readVerifiedEnvelope: (request) =>
+      assembly.passkeyCustodyEnvelopes.lookupEnvelopeForFactor(request),
     retrieveEnvelope: async (request) => {
       const challengeId = String(request.challengeId || '').trim();
       const expectedOrigin = String(request.expectedOrigin || '').trim();

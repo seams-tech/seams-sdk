@@ -580,6 +580,18 @@ class FailureInjectingYaoRuntime implements RouterAbEd25519YaoProductRegistratio
     return result;
   }
 
+  async replayActivatedRegistration(
+    input: Parameters<
+      RouterAbEd25519YaoProductRegistrationRuntimeV1['replayActivatedRegistration']
+    >[0],
+  ): Promise<
+    Awaited<
+      ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['replayActivatedRegistration']>
+    >
+  > {
+    return await this.delegate.replayActivatedRegistration(input);
+  }
+
   async installRegistrationFinalizeCapability(
     input: Parameters<
       RouterAbEd25519YaoProductRegistrationRuntimeV1['installRegistrationFinalizeCapability']

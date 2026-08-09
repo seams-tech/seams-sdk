@@ -5,6 +5,7 @@ import {
 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import {
   parseRouterAbEd25519YaoRegistrationActivationResultV1,
+  parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '../../packages/shared-ts/src/utils/routerAbEd25519Yao';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../../packages/sdk-server-ts/src/core/WalletStore';
@@ -114,6 +115,15 @@ export function buildEd25519YaoCapabilityFixture(input: {
     material_activation: materialActivation,
   };
   const registeredPublicKey = fixtureBytes(input.seed + 2);
+  const admissionReceipt = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1({
+    binding,
+    keyset: {
+      deriver_a_input_public_key: fixtureBytes(input.seed + 8),
+      deriver_b_input_public_key: fixtureBytes(input.seed + 9),
+      signing_worker_recipient_public_key: fixtureBytes(input.seed + 10),
+    },
+  });
+  if (!admissionReceipt.ok) throw new Error(admissionReceipt.message);
   const activationResult = parseRouterAbEd25519YaoRegistrationActivationResultV1({
     binding,
     deriver_a_client_package: activationClientPackageFixture(session, 'deriver_a', input.seed + 3),
@@ -134,6 +144,7 @@ export function buildEd25519YaoCapabilityFixture(input: {
     activeCapabilityBinding: session,
     nearAccountId: input.nearAccountId,
     registrationAdmissionRequest: admissionRequest.value,
+    registrationAdmissionReceipt: admissionReceipt.value,
     registrationResult: activationResult.value,
     runtimePolicyScope: input.runtimePolicyScope,
   });

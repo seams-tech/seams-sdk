@@ -5,6 +5,7 @@ import {
   parseRouterAbEd25519YaoRecoveryActivationResultV1,
   parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
   parseRouterAbEd25519YaoRegistrationActivationResultV1,
+  parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
   type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoActivationExecuteRequestV1,
@@ -308,6 +309,7 @@ function capabilityReplacementFixture(
       activeCapabilityBinding: registrationActivation.binding.session_id,
       nearAccountId: identity.nearAccountId,
       admissionRequest: registrationRequest,
+      admissionReceipt: registrationAdmissionReceipt(identity),
       activationResult: registrationActivation,
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     },
@@ -375,6 +377,7 @@ function installActiveCapability(
     activeCapabilityBinding: bytes(identity.activeCapabilitySeed),
     nearAccountId: identity.nearAccountId,
     registrationAdmissionRequest: registrationAdmission(identity),
+    registrationAdmissionReceipt: registrationAdmissionReceipt(identity),
     registrationResult: registrationResult(identity),
     runtimePolicyScope: RUNTIME_POLICY_SCOPE,
   });
@@ -461,6 +464,19 @@ function registrationResult(identity: RecoveryFixtureIdentity) {
         identity.registeredPublicKeySeed,
         binding.material_activation,
       ),
+    }),
+  );
+}
+
+function registrationAdmissionReceipt(identity: RecoveryFixtureIdentity) {
+  return requireParsed(
+    parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1({
+      binding: registrationBinding(identity),
+      keyset: {
+        deriver_a_input_public_key: bytes(51),
+        deriver_b_input_public_key: bytes(52),
+        signing_worker_recipient_public_key: bytes(53),
+      },
     }),
   );
 }
