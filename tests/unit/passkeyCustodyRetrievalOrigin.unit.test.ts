@@ -23,8 +23,8 @@ function context(options: {
   readonly originHeader?: string;
   readonly seen: unknown[];
 }) {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (options.originHeader) headers.Origin = options.originHeader;
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  if (options.originHeader) headers.set('Origin', options.originHeader);
   return {
     routeDefinitions,
     method: 'POST',
