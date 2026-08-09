@@ -115,6 +115,7 @@ import type {
   WalletCustodyEvmFamilyPublicFacts,
 } from '@shared/passkey-custody';
 import type {
+  LoadWalletCustodyEd25519MaterialResultV1,
   WalletCustodyEd25519MaterialBindingV1,
   WalletCustodySealedEd25519MaterialV1,
 } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
@@ -449,6 +450,12 @@ export interface WalletCustodyCeremonySurface {
     sealed: WalletCustodySealedEd25519MaterialV1;
   }): Promise<void>;
 
+  loadWalletCustodyEd25519Material(args: {
+    nearAccountId: string;
+    signerSlot: number;
+    expectedRegisteredPublicKeyB64u: string;
+  }): Promise<LoadWalletCustodyEd25519MaterialResultV1>;
+
   deleteWalletCustodyEd25519Material(args: {
     nearAccountId: string;
     signerSlot: number;
@@ -616,10 +623,6 @@ export type AccountSyncSigningSurface = LocalLoginStateSurface &
   WalletCustodyCeremonySurface &
   Ed25519MaterialOwnerQueueSurface &
   Pick<EcdsaSessionControlSurface, 'clearVolatileWarmSigningMaterial'> &
-  Pick<
-    SigningSessionSurface,
-    'hydrateSigningSession' | 'persistSigningSessionSealForThresholdSession'
-  > &
   RpIdSurface &
   PasskeyLoginAssertionSurface &
   Pick<

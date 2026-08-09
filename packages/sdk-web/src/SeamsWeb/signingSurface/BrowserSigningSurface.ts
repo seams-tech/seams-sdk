@@ -66,6 +66,7 @@ import { walletCustodyCeremonyStepRunner } from '@/core/signingEngine/walletCust
 import { walletCustodyEd25519ActiveClientMetadataV1 } from '@/core/signingEngine/walletCustody/ceremonyActiveClientMetadata';
 import {
   deleteWalletCustodyEd25519MaterialV1,
+  loadWalletCustodyEd25519MaterialV1,
   persistWalletCustodyEd25519MaterialV1,
   type WalletCustodyEd25519MaterialBindingV1,
   type WalletCustodySealedEd25519MaterialV1,
@@ -1907,6 +1908,22 @@ export class BrowserSigningSurface {
       >[0]['store'],
       binding: args.binding,
       sealed: args.sealed,
+    });
+  }
+
+  async loadWalletCustodyEd25519Material(args: {
+    nearAccountId: string;
+    signerSlot: number;
+    expectedRegisteredPublicKeyB64u: string;
+  }) {
+    const context = this.signerWorkerManager.getContext();
+    return await loadWalletCustodyEd25519MaterialV1({
+      store: context.nearKeyMaterialStore as Parameters<
+        typeof loadWalletCustodyEd25519MaterialV1
+      >[0]['store'],
+      nearAccountId: args.nearAccountId,
+      signerSlot: args.signerSlot,
+      expectedRegisteredPublicKeyB64u: args.expectedRegisteredPublicKeyB64u,
     });
   }
 
