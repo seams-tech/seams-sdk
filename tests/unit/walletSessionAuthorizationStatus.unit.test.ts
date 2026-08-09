@@ -53,4 +53,51 @@ test.describe('Wallet Session authorization status client', () => {
       }),
     ).toThrow('walletSessionJwt must be a Wallet Session JWT');
   });
+
+  test('shares only concurrent reads for the exact authorization and status identity', async () => {
+    const walletSessionJwt = jwtWithPayload({ kind: 'router_ab_ed25519_wallet_session_v1' });
+    let requestCount = 0;
+    let releaseResponse!: () => void;
+    const responseGate = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
+    const fetchImpl: typeof fetch = async () => {
+      requestCount += 1;
+      await responseGate;
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 'active',
+          walletSessionId: 'wallet-session-1',
+          quotaId: 'wallet-quota-1',
+          remainingUses: 2,
+          expiresAtMs: Date.now() + 60_000,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    };
+    const firstPort = createRelayerReusableWalletSessionStatusPort({
+      relayerUrl: 'https://relayer.example.test',
+      auth: walletSessionJwtAuth(walletSessionJwt),
+      fetchImpl,
+    });
+    const secondPort = createRelayerReusableWalletSessionStatusPort({
+      relayerUrl: 'https://relayer.example.test',
+      auth: walletSessionJwtAuth(walletSessionJwt),
+      fetchImpl,
+    });
+    const identity = {
+      walletSessionId: 'wallet-session-1',
+      quotaId: 'wallet-quota-1',
+    } as const;
+
+    const firstRead = firstPort.read(identity);
+    const secondRead = secondPort.read(identity);
+    expect(requestCount).toBe(1);
+    releaseResponse();
+    await expect(Promise.all([firstRead, secondRead])).resolves.toHaveLength(2);
+
+    await firstPort.read(identity);
+    expect(requestCount).toBe(2);
+  });
 });

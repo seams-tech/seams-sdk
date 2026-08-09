@@ -278,7 +278,7 @@ export async function bootstrapWarmEcdsaCapabilityResult(
       };
     }
     case 'passkey_fresh_ecdsa_bootstrap':
-    case 'passkey_exchange_ecdsa_bootstrap':
+    case 'passkey_preauthorized_ecdsa_bootstrap':
     case 'wallet_session_reconnect_ecdsa_bootstrap':
     case 'email_otp_ecdsa_bootstrap':
       return {

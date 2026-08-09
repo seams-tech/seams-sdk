@@ -236,6 +236,25 @@ async function deriveAcceptedKeyHandles(input: {
   }
 }
 
+class SigningSessionSealKeyHandles {
+  private initialization: Promise<ReadonlyMap<string, number>> | null = null;
+
+  constructor(
+    private readonly config: SigningSessionSealShamir3PassRootConfig,
+    private readonly runtime: SigningSessionSealShamir3PassRuntime,
+  ) {}
+
+  get(): Promise<ReadonlyMap<string, number>> {
+    if (!this.initialization) {
+      this.initialization = deriveAcceptedKeyHandles({
+        config: this.config,
+        runtime: this.runtime,
+      });
+    }
+    return this.initialization;
+  }
+}
+
 function cipherFailure(code: string, message: string): SigningSessionSealCipherOperationResult {
   return { ok: false, code, message };
 }
@@ -260,7 +279,7 @@ export function createSigningSessionSealShamir3PassCipherAdapter(
   const config = normalizeConfig(options.config);
   options.config.rootSecret32.fill(0);
   const runtime = options.runtime ?? defaultRuntime();
-  const handles = deriveAcceptedKeyHandles({ config, runtime });
+  const handles = new SigningSessionSealKeyHandles(config, runtime);
 
   return createSigningSessionSealCipherAdapter({
     applyServerSeal: async (input) => {
@@ -272,7 +291,7 @@ export function createSigningSessionSealShamir3PassCipherAdapter(
         );
       }
       try {
-        const handle = (await handles).get(config.currentKeyVersion);
+        const handle = (await handles.get()).get(config.currentKeyVersion);
         if (handle === undefined) throw new Error('currentKeyVersion handle is unavailable');
         return {
           ok: true,
@@ -286,7 +305,7 @@ export function createSigningSessionSealShamir3PassCipherAdapter(
     removeServerSeal: async (input) => {
       const keyVersion = normalizeKeyVersion(input.keyVersion, 'keyVersion');
       try {
-        const handle = (await handles).get(keyVersion);
+        const handle = (await handles.get()).get(keyVersion);
         if (handle === undefined) {
           return cipherFailure('invalid_key_version', `Unknown keyVersion "${keyVersion}"`);
         }

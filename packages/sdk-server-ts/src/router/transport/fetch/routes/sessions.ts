@@ -3,7 +3,10 @@ import {
   deriveJwtExpiresAtIso,
   parseSessionKind,
 } from '../../../framework/routerApi';
-import { extractBearerCredential, resolveSourceIpFromFetchHeaders } from '../../../auth/routerApiKeyAuth';
+import {
+  extractBearerCredential,
+  resolveSourceIpFromFetchHeaders,
+} from '../../../auth/routerApiKeyAuth';
 import { emitRouterApiWebhookEvent } from '../../../framework/routerApiWebhooks';
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import { headersToRecord, json, readJson } from '../../../framework/http';
@@ -120,6 +123,82 @@ type PasskeySessionCustodyUnlockV1 = {
         readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
       };
 };
+
+type SessionExchangeTimingPhase =
+  | 'request_validation'
+  | 'webauthn_verification'
+  | 'runtime_scope'
+  | 'session_version'
+  | 'jwt_signing'
+  | 'active_session_commit'
+  | 'ecdsa_activation'
+  | 'strong_auth_commit'
+  | 'total';
+
+type SessionExchangeTimings = Partial<Record<SessionExchangeTimingPhase, number>>;
+
+function recordSessionExchangeTiming(
+  timings: SessionExchangeTimings,
+  phase: SessionExchangeTimingPhase,
+  startedAt: number,
+): void {
+  timings[phase] = Math.max(0, performance.now() - startedAt);
+}
+
+function sessionExchangeServerTiming(timings: SessionExchangeTimings): string {
+  return Object.entries(timings)
+    .map(([phase, durationMs]) => `${phase};dur=${Number(durationMs).toFixed(1)}`)
+    .join(', ');
+}
+
+async function emitSessionExchangeSucceeded(
+  ctx: FetchRouterApiContext,
+  input: {
+    provider: 'oidc' | 'passkey';
+    sessionKind: string;
+    appSessionVersion: string;
+    userId: string;
+    passkeyChallengeId?: string;
+  },
+): Promise<void> {
+  await emitRouterApiWebhookEvent({
+    logger: ctx.logger,
+    webhooks: ctx.opts.routerApiWebhooks,
+    eventType: 'session.warm.created',
+    userId: input.userId,
+    payload: {
+      kind: 'app_session_v1',
+      provider: input.provider,
+      sessionKind: input.sessionKind,
+      appSessionVersion: input.appSessionVersion,
+    },
+  });
+  if (input.provider !== 'passkey') return;
+  await emitRouterApiWebhookEvent({
+    logger: ctx.logger,
+    webhooks: ctx.opts.routerApiWebhooks,
+    eventType: 'wallet.unlocked',
+    userId: input.userId,
+    eventId: input.passkeyChallengeId,
+    payload: {
+      unlocked: true,
+      method: 'passkey',
+      ...(input.passkeyChallengeId ? { challengeId: input.passkeyChallengeId } : {}),
+    },
+  });
+}
+
+async function dispatchSessionExchangeSucceeded(
+  ctx: FetchRouterApiContext,
+  input: Parameters<typeof emitSessionExchangeSucceeded>[1],
+): Promise<void> {
+  const emission = emitSessionExchangeSucceeded(ctx, input);
+  if (input.provider === 'passkey' && ctx.runtime.kind === 'background') {
+    ctx.runtime.waitUntil(emission);
+    return;
+  }
+  await emission;
+}
 
 function walletUnlockEcdsaSessionContext(
   ctx: FetchRouterApiContext,
@@ -609,9 +688,7 @@ async function maybeEmitWarmExpiredFromValidationFailure(input: {
   });
 }
 
-export async function handleSessionState(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
+export async function handleSessionState(ctx: FetchRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'GET') return null;
   if (ctx.pathname !== ctx.mePath && ctx.pathname !== '/session/state') return null;
 
@@ -785,14 +862,16 @@ async function handleHostedWalletExchangeCodeRedeem(
   );
 }
 
-export async function handleSessionExchange(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
+export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/session/exchange') return null;
 
+  const exchangeStartedAt = performance.now();
+  const timings: SessionExchangeTimings = {};
   try {
+    const validationStartedAt = performance.now();
     const body = await readJson(ctx.request);
     const parsedExchange = parseSessionExchangeRouteCommand(body);
+    recordSessionExchangeTiming(timings, 'request_validation', validationStartedAt);
     if (!parsedExchange.ok) {
       await emitSessionExchangeFailed(ctx, {
         status: 400,
@@ -1190,11 +1269,13 @@ export async function handleSessionExchange(
         const headerOrigin = String(ctx.request.headers.get('origin') || '').trim();
         return headerOrigin || undefined;
       })();
+      const webauthnStartedAt = performance.now();
       const verified = await ctx.service.webAuthn.verifyWebAuthnLogin({
         challengeId,
         webauthn_authentication: webauthnAuthentication,
         expected_origin: expectedOrigin,
       });
+      recordSessionExchangeTiming(timings, 'webauthn_verification', webauthnStartedAt);
       if (!verified.ok || !verified.verified || !verified.userId) {
         const code = verified.code || 'not_verified';
         const status = code === 'internal' ? 500 : code === 'invalid_body' ? 400 : 401;
@@ -1289,13 +1370,17 @@ export async function handleSessionExchange(
     }
 
     if (!runtimePolicyScope) {
+      const runtimeScopeStartedAt = performance.now();
       const resolution = await resolveRuntimePolicyScopeForExchange(userId);
+      recordSessionExchangeTiming(timings, 'runtime_scope', runtimeScopeStartedAt);
       if (!resolution.ok) return resolution.response;
       runtimePolicyScope = resolution.scope;
     }
 
     if (!appSessionVersion) {
+      const sessionVersionStartedAt = performance.now();
       const appVersion = await ctx.service.sessionVersions.getOrCreateAppSessionVersion({ userId });
+      recordSessionExchangeTiming(timings, 'session_version', sessionVersionStartedAt);
       if (!appVersion.ok) {
         await emitSessionExchangeFailed(ctx, {
           status: appVersion.code === 'internal' ? 500 : 400,
@@ -1437,12 +1522,15 @@ export async function handleSessionExchange(
     if (emailOtpAuthorityRef) {
       sessionClaims.walletAuthAuthorityRef = emailOtpAuthorityRef;
     }
+    const jwtSigningStartedAt = performance.now();
     const jwt = await session.signJwt(userId, sessionClaims);
+    recordSessionExchangeTiming(timings, 'jwt_signing', jwtSigningStartedAt);
     const sessionExpiresAt = deriveJwtExpiresAtIso(jwt);
     const sessionExpiresAtMs = sessionExpiresAt ? Date.parse(sessionExpiresAt) : Number.NaN;
     if (!Number.isSafeInteger(sessionExpiresAtMs)) {
       throw new Error('signed app session did not contain a valid expiry');
     }
+    const activeSessionCommitStartedAt = performance.now();
     await ctx.service.authorizationSessions.recordActiveSession(
       buildActiveAuthorizationSession({
         tenantId: ctx.service.authorizationSessions.tenantId,
@@ -1463,6 +1551,7 @@ export async function handleSessionExchange(
         },
       }),
     );
+    recordSessionExchangeTiming(timings, 'active_session_commit', activeSessionCommitStartedAt);
     let ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1 | undefined;
     if (
       command.kind === 'passkey_assertion' &&
@@ -1471,6 +1560,7 @@ export async function handleSessionExchange(
       if (!passkeyAuthorityRef) {
         throw new Error('verified passkey exchange did not resolve an authority');
       }
+      const ecdsaActivationStartedAt = performance.now();
       const activationResponse = await handleStrictEcdsaSessionActivation({
         ctx,
         body: command.ecdsaActivation.request,
@@ -1482,6 +1572,7 @@ export async function handleSessionExchange(
           authority: passkeyAuthorityRef,
         },
       });
+      recordSessionExchangeTiming(timings, 'ecdsa_activation', ecdsaActivationStartedAt);
       const activationBody: unknown = await activationResponse.json();
       if (!activationResponse.ok) {
         const failure = isPlainObject(activationBody) ? activationBody : {};
@@ -1496,6 +1587,11 @@ export async function handleSessionExchange(
         return json(activationBody, { status: activationResponse.status });
       }
       ecdsaSession = parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(activationBody);
+    }
+    if (provider === 'passkey') {
+      const strongAuthCommitStartedAt = performance.now();
+      await ctx.service.emailOtp.markEmailOtpStrongAuthSatisfied({ walletId: userId });
+      recordSessionExchangeTiming(timings, 'strong_auth_commit', strongAuthCommitStartedAt);
     }
     if (
       isGoogleEmailOtpExchange &&
@@ -1609,40 +1705,34 @@ export async function handleSessionExchange(
         ...(oidcName ? { name: oidcName } : {}),
       },
     };
-    await emitRouterApiWebhookEvent({
-      logger: ctx.logger,
-      webhooks: ctx.opts.routerApiWebhooks,
-      eventType: 'session.warm.created',
+    await dispatchSessionExchangeSucceeded(ctx, {
+      provider,
+      sessionKind,
+      appSessionVersion,
       userId,
-      payload: {
-        kind: 'app_session_v1',
-        provider,
-        sessionKind,
-        appSessionVersion,
-      },
+      ...(passkeyChallengeId ? { passkeyChallengeId } : {}),
     });
-    if (provider === 'passkey') {
-      await ctx.service.emailOtp.markEmailOtpStrongAuthSatisfied({ walletId: userId });
-      await emitRouterApiWebhookEvent({
-        logger: ctx.logger,
-        webhooks: ctx.opts.routerApiWebhooks,
-        eventType: 'wallet.unlocked',
-        userId,
-        eventId: passkeyChallengeId,
-        payload: {
-          unlocked: true,
-          method: 'passkey',
-          ...(passkeyChallengeId ? { challengeId: passkeyChallengeId } : {}),
-        },
-      });
-    }
+    recordSessionExchangeTiming(timings, 'total', exchangeStartedAt);
+    ctx.logger.debug('[router-api][session-exchange] timing', {
+      provider,
+      sessionKind,
+      seamsSessionId,
+      timings,
+    });
+    const serverTiming = sessionExchangeServerTiming(timings);
     if (sessionKind === 'cookie') {
       return json(responseBody, {
         status: 200,
-        headers: { 'Set-Cookie': session.buildSetCookie(jwt) },
+        headers: {
+          'Set-Cookie': session.buildSetCookie(jwt),
+          'Server-Timing': serverTiming,
+        },
       });
     }
-    return json({ ...responseBody, jwt }, { status: 200 });
+    return json(
+      { ...responseBody, jwt },
+      { status: 200, headers: { 'Server-Timing': serverTiming } },
+    );
   } catch (error: unknown) {
     await emitSessionExchangeFailed(ctx, {
       status: 500,
@@ -1660,9 +1750,7 @@ export async function handleSessionExchange(
   }
 }
 
-export async function handleSessionRevoke(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
+export async function handleSessionRevoke(ctx: FetchRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/session/revoke') return null;
 
   const validated = await readAndValidateAppSession(ctx);
@@ -1706,9 +1794,7 @@ export async function handleSessionRevoke(
   );
 }
 
-export async function handleSessionRefresh(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
+export async function handleSessionRefresh(ctx: FetchRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/session/refresh') return null;
 
   const body = await readJson(ctx.request);

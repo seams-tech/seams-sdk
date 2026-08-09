@@ -52,6 +52,12 @@ export type RelayerReusableWalletSessionStatusPortOptions = {
   readonly fetchImpl?: typeof fetch;
 };
 
+const defaultStatusFetch: typeof fetch = (input, init) => globalThis.fetch(input, init);
+const statusReadsByFetch = new WeakMap<
+  typeof fetch,
+  Map<string, Promise<ReusableWalletSessionStatus>>
+>();
+
 const ACTIVE_FIELDS = [
   'ok',
   'status',
@@ -60,13 +66,7 @@ const ACTIVE_FIELDS = [
   'remainingUses',
   'expiresAtMs',
 ] as const;
-const EXPIRED_FIELDS = [
-  'ok',
-  'status',
-  'walletSessionId',
-  'quotaId',
-  'expiresAtMs',
-] as const;
+const EXPIRED_FIELDS = ['ok', 'status', 'walletSessionId', 'quotaId', 'expiresAtMs'] as const;
 const TERMINAL_FIELDS = ['ok', 'status', 'walletSessionId', 'quotaId'] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -150,17 +150,13 @@ export function parseReusableWalletSessionStatusResponse(
     case 'superseded':
     case 'missing':
     case 'invalid':
-      return hasExactFields(value, TERMINAL_FIELDS)
-        ? { status: value.status, ...identity }
-        : null;
+      return hasExactFields(value, TERMINAL_FIELDS) ? { status: value.status, ...identity } : null;
     default:
       return null;
   }
 }
 
-export class RelayerReusableWalletSessionStatusPort
-  implements ReusableWalletSessionStatusPort
-{
+export class RelayerReusableWalletSessionStatusPort implements ReusableWalletSessionStatusPort {
   private readonly relayerUrl: string;
   private readonly auth: ReusableWalletSessionStatusAuth;
   private readonly fetchImpl: typeof fetch;
@@ -169,10 +165,33 @@ export class RelayerReusableWalletSessionStatusPort
     this.relayerUrl = normalizeRelayerBaseUrl(options.relayerUrl);
     if (!this.relayerUrl) throw new Error('Relayer URL is required');
     this.auth = walletSessionJwtAuth(options.auth.jwt);
-    this.fetchImpl = options.fetchImpl ?? fetch.bind(globalThis);
+    this.fetchImpl = options.fetchImpl ?? defaultStatusFetch;
   }
 
   async read(input: ReusableWalletSessionStatusIdentity): Promise<ReusableWalletSessionStatus> {
+    let reads = statusReadsByFetch.get(this.fetchImpl);
+    if (!reads) {
+      reads = new Map();
+      statusReadsByFetch.set(this.fetchImpl, reads);
+    }
+    const readKey = [this.relayerUrl, this.auth.jwt, input.walletSessionId, input.quotaId].join(
+      '\u0000',
+    );
+    const existing = reads.get(readKey);
+    if (existing) return await existing;
+
+    const pending = this.readRemote(input);
+    reads.set(readKey, pending);
+    try {
+      return await pending;
+    } finally {
+      if (reads.get(readKey) === pending) reads.delete(readKey);
+    }
+  }
+
+  private async readRemote(
+    input: ReusableWalletSessionStatusIdentity,
+  ): Promise<ReusableWalletSessionStatus> {
     const response = await this.fetchImpl(
       `${this.relayerUrl}${REUSABLE_WALLET_SESSION_STATUS_PATH}`,
       {

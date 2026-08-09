@@ -70,6 +70,7 @@ test.describe('signing-session seal v2 root configuration', () => {
     const adapter = createSigningSessionSealShamir3PassCipherAdapter({ config, runtime });
 
     expect(Array.from(config.rootSecret32)).toEqual(Array(32).fill(0));
+    expect(derivations).toHaveLength(0);
 
     const applied = await adapter.run({
       operation: 'apply-server-seal',
