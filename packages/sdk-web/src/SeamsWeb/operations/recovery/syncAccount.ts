@@ -39,6 +39,7 @@ import { joinCustodyWireFromEnvelopeRecord } from '@/core/signingEngine/walletCu
 import {
   openOrRejoinWalletCustodyEd25519V1,
   openWalletCustodyEd25519ActiveClientV1,
+  walletCustodyCacheEnvelopeFromRecordV1,
   type WalletCustodyActivationFactsV1,
 } from '@/core/signingEngine/walletCustody/openCustodyCache';
 import {
@@ -445,22 +446,6 @@ type RecoverAndCommitPasskeyEd25519UnlockInput = {
   persistWalletCustodyEd25519Material: RecoverPasskeyEd25519YaoForUnlockInputV1['persistWalletCustodyEd25519Material'];
 };
 
-function walletCustodyCacheEnvelopeFromRecord(envelope: PasskeyCustodyEnvelopeRecord) {
-  return {
-    bindingJson: JSON.stringify({
-      walletId: envelope.walletId,
-      envelopeId: envelope.envelopeId,
-      factor: envelope.factor,
-      envelopeRevision: envelope.envelopeRevision,
-      binding: envelope.binding,
-    }),
-    nonceB64u: envelope.nonceB64u,
-    ciphertextB64u: envelope.sealedCustodySecretB64u,
-    aadHashB64u: envelope.aadHashB64u,
-    ciphertextDigestB64u: envelope.ciphertextDigestB64u,
-  };
-}
-
 function walletCustodyActivationFacts(
   parsed: ParsedPasskeyEd25519YaoSyncResponseV1,
 ): WalletCustodyActivationFactsV1 {
@@ -533,7 +518,7 @@ async function recoverAndCommitPasskeyEd25519Unlock(
   let openSecret: Uint8Array | null = null;
   let activeClient: PasskeyEd25519YaoRecoveryResultV1['activeClient'] | null = null;
   try {
-    const envelope = walletCustodyCacheEnvelopeFromRecord(
+    const envelope = walletCustodyCacheEnvelopeFromRecordV1(
       input.parsed.walletCustody.envelope,
     );
     const activation = walletCustodyActivationFacts(input.parsed);

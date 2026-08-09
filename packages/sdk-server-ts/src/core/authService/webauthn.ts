@@ -121,14 +121,31 @@ export type WebAuthnSyncAccountVerificationResult =
       message: string;
     };
 
-export type WebAuthnLoginVerificationResult = {
-  ok: boolean;
-  verified?: boolean;
-  userId?: string;
-  rpId?: string;
-  code?: string;
-  message?: string;
-};
+export type WebAuthnLoginVerificationResult =
+  | {
+      ok: true;
+      verified: true;
+      userId: string;
+      rpId: string;
+      credentialIdB64u: string;
+      ed25519:
+        | { readonly kind: 'absent' }
+        | {
+            readonly kind: 'active';
+            readonly nearAccountId: string;
+            readonly nearEd25519SigningKeyId: string;
+            readonly signerSlot: number;
+            readonly publicKey: string;
+            readonly relayerKeyId: string;
+            readonly participantIds: readonly [number, number];
+          };
+    }
+  | {
+      ok: false;
+      verified?: false;
+      code: string;
+      message: string;
+    };
 
 function readRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -975,6 +992,7 @@ export async function verifyWebAuthnLoginWithStores(input: {
   };
   loginChallengeStore: WebAuthnLoginChallengeStore;
   authenticatorStore: WebAuthnAuthenticatorStore;
+  credentialBindingStore: WebAuthnCredentialBindingStore;
   identityStore: IdentityStore;
   logger: NormalizedLogger;
 }): Promise<WebAuthnLoginVerificationResult> {
@@ -1023,12 +1041,55 @@ export async function verifyWebAuthnLoginWithStores(input: {
       };
     }
 
+    const credential = input.request
+      .webauthn_authentication as WebAuthnAuthenticationCredential;
+    const credentialIdB64u = String(credential.rawId || credential.id || '').trim();
+    const binding = credentialIdB64u
+      ? await input.credentialBindingStore.get(record.rpId, credentialIdB64u)
+      : null;
+    const walletBinding = binding
+      ? resolvedEd25519WalletBindingFromCredentialBinding({ binding })
+      : null;
+    const firstParticipantId = binding?.participantIds?.[0];
+    const secondParticipantId = binding?.participantIds?.[1];
+    if (!binding) {
+      return {
+        ok: false,
+        verified: false,
+        code: 'unknown_credential',
+        message: 'Credential has no wallet binding',
+      };
+    }
+    const ed25519 =
+      walletBinding &&
+      binding.publicKey &&
+      binding.relayerKeyId &&
+      firstParticipantId !== undefined &&
+      secondParticipantId !== undefined
+        ? {
+            kind: 'active' as const,
+            nearAccountId: walletBinding.nearAccountId,
+            nearEd25519SigningKeyId: walletBinding.nearEd25519SigningKeyId,
+            signerSlot: walletBinding.signerSlot,
+            publicKey: binding.publicKey,
+            relayerKeyId: binding.relayerKeyId,
+            participantIds: [firstParticipantId, secondParticipantId] as const,
+          }
+        : { kind: 'absent' as const };
+
     await linkNearSubjectForWebAuthnLogin({
       identityStore: input.identityStore,
       userId: record.userId,
     });
 
-    return { ok: true, verified: true, userId: record.userId, rpId: record.rpId };
+    return {
+      ok: true,
+      verified: true,
+      userId: record.userId,
+      rpId: record.rpId,
+      credentialIdB64u,
+      ed25519,
+    };
   } catch (e: unknown) {
     return {
       ok: false,

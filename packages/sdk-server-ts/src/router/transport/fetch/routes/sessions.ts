@@ -93,11 +93,33 @@ import {
   parseAppSessionVersion,
   parseProviderSubject,
   parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
   type DomainIdParseResult,
 } from '@shared/utils/domainIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
+import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import type { RouterAbEd25519YaoActiveCapabilityDescriptorV1 } from '../../../domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 
 const HOSTED_WALLET_SESSION_EXCHANGE_TTL_MS = 60_000;
+
+type PasskeySessionCustodyUnlockV1 = {
+  readonly kind: 'wallet_custody_passkey_login_v1';
+  readonly envelope: PasskeyCustodyEnvelopeRecord;
+  readonly storeVersion: string;
+  readonly ed25519:
+    | { readonly kind: 'absent' }
+    | {
+        readonly kind: 'active';
+        readonly nearAccountId: string;
+        readonly nearEd25519SigningKeyId: string;
+        readonly signerSlot: number;
+        readonly publicKey: string;
+        readonly relayerKeyId: string;
+        readonly participantIds: readonly [number, number];
+        readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
+      };
+};
 
 function walletUnlockEcdsaSessionContext(
   ctx: FetchRouterApiContext,
@@ -825,6 +847,7 @@ export async function handleSessionExchange(
     let passkeyChallengeId: string | undefined;
     let passkeyCredentialIdB64u: string | undefined;
     let passkeyAuthorityRef: WalletAuthAuthorityRef | undefined;
+    let passkeyCustodyUnlock: PasskeySessionCustodyUnlockV1 | undefined;
     let emailOtpAuthorityRef: WalletAuthAuthorityRef | undefined;
     let walletId: string | undefined;
     let googleEmailOtpResolution:
@@ -930,7 +953,7 @@ export async function handleSessionExchange(
         oidcProvider === 'google'
           ? await ctx.service.identity.verifyGoogleLogin({ idToken: command.token })
           : await ctx.service.identity.verifyOidcJwtExchange({ token: command.token });
-      if (!verified.ok || !verified.verified || !verified.userId) {
+      if (!verified.ok) {
         const code = verified.code || 'not_verified';
         const status =
           code === 'internal'
@@ -1191,8 +1214,7 @@ export async function handleSessionExchange(
       walletId = userId;
       provider = 'passkey';
       passkeyChallengeId = challengeId;
-      passkeyCredentialIdB64u =
-        command.webauthnAuthentication.rawId || command.webauthnAuthentication.id;
+      passkeyCredentialIdB64u = verified.credentialIdB64u;
       passkeyAuthorityRef = await walletAuthAuthorityRef({
         authority: buildPasskeyWalletAuthAuthority({
           walletId: userId,
@@ -1200,6 +1222,56 @@ export async function handleSessionExchange(
           credentialIdB64u: passkeyCredentialIdB64u,
         }),
       });
+      const custodyRpId = parseWebAuthnRpId(verified.rpId);
+      const custodyCredentialId = parseWebAuthnCredentialIdB64u(verified.credentialIdB64u);
+      if (!custodyRpId.ok || !custodyCredentialId.ok) {
+        throw new Error('Verified passkey custody identity is invalid');
+      }
+      const custodyEnvelope = await ctx.service.passkeyCustody.readVerifiedEnvelope({
+        walletId: walletIdFromString(verified.userId),
+        factor: {
+          kind: 'passkey',
+          rpId: custodyRpId.value,
+          credentialIdB64u: custodyCredentialId.value,
+        },
+      });
+      if (custodyEnvelope.kind !== 'active') {
+        throw new Error('Verified passkey has no unique active wallet custody envelope');
+      }
+      let ed25519: PasskeySessionCustodyUnlockV1['ed25519'] = { kind: 'absent' };
+      if (verified.ed25519.kind === 'active') {
+        const yaoRuntime = ctx.opts.routerAbEd25519YaoProduct;
+        if (!yaoRuntime) {
+          throw new Error('Ed25519 Yao product is not configured');
+        }
+        const capability = await yaoRuntime.resolveActiveCapability({
+          kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
+          walletId: userId,
+          nearEd25519SigningKeyId: verified.ed25519.nearEd25519SigningKeyId,
+          signerSlot: verified.ed25519.signerSlot,
+          signingWorkerId: verified.ed25519.relayerKeyId,
+          participantIds: verified.ed25519.participantIds,
+        });
+        if (!capability.ok) {
+          throw new Error(capability.message);
+        }
+        ed25519 = {
+          kind: 'active',
+          nearAccountId: verified.ed25519.nearAccountId,
+          nearEd25519SigningKeyId: verified.ed25519.nearEd25519SigningKeyId,
+          signerSlot: verified.ed25519.signerSlot,
+          publicKey: verified.ed25519.publicKey,
+          relayerKeyId: verified.ed25519.relayerKeyId,
+          participantIds: verified.ed25519.participantIds,
+          capability: capability.capability,
+        };
+      }
+      passkeyCustodyUnlock = {
+        kind: 'wallet_custody_passkey_login_v1',
+        envelope: custodyEnvelope.envelope,
+        storeVersion: custodyEnvelope.storeVersion,
+        ed25519,
+      };
     }
 
     if (!userId) {
@@ -1478,6 +1550,7 @@ export async function handleSessionExchange(
     const responseBody = {
       ok: true,
       ...(ecdsaSession ? { ecdsaSession } : {}),
+      ...(passkeyCustodyUnlock ? { walletCustody: passkeyCustodyUnlock } : {}),
       session: {
         kind: 'app_session_v1',
         userId,

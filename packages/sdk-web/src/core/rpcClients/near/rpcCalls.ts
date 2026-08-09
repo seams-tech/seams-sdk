@@ -28,6 +28,14 @@ import {
   type RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
   type RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import {
+  parseEd25519YaoRecoveryCapabilityV1,
+  type ParsedYaoRecoveryCapabilityV1,
+} from '../../signingEngine/flows/recovery/passkeyEd25519YaoRecovery';
+import {
+  parsePasskeyCustodyEnvelopeRecord,
+  type PasskeyCustodyEnvelopeRecord,
+} from '@shared/passkey-custody';
 
 export async function fetchNonceBlockHashAndHeight({
   nearClient,
@@ -250,6 +258,7 @@ type SessionExchangeFailure = {
   sessionUserId?: never;
   sessionExpiresAt?: never;
   ecdsaSession?: never;
+  walletCustody?: never;
   error: string;
 };
 
@@ -261,23 +270,51 @@ type SessionExchangeSuccessCore = {
   error?: never;
 };
 
+export type PasskeySessionCustodyUnlockV1 = {
+  readonly kind: 'wallet_custody_passkey_login_v1';
+  readonly envelope: PasskeyCustodyEnvelopeRecord;
+  readonly storeVersion: string;
+  readonly ed25519:
+    | { readonly kind: 'absent' }
+    | {
+        readonly kind: 'active';
+        readonly nearAccountId: string;
+        readonly nearEd25519SigningKeyId: string;
+        readonly signerSlot: number;
+        readonly publicKey: string;
+        readonly relayerKeyId: string;
+        readonly participantIds: readonly [number, number];
+        readonly capability: ParsedYaoRecoveryCapabilityV1;
+      };
+};
+
 export type SessionExchangeSuccessWithoutEcdsaActivation = SessionExchangeSuccessCore & {
   ecdsaSession?: never;
+  walletCustody?: never;
 };
 
 export type SessionExchangeSuccessWithEcdsaActivation = SessionExchangeSuccessCore & {
   ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+  walletCustody: PasskeySessionCustodyUnlockV1;
+};
+
+export type PasskeySessionExchangeSuccessWithoutEcdsaActivation = SessionExchangeSuccessCore & {
+  ecdsaSession?: never;
+  walletCustody: PasskeySessionCustodyUnlockV1;
 };
 
 export type SessionExchangeResult =
   | SessionExchangeFailure
   | SessionExchangeSuccessWithoutEcdsaActivation
+  | PasskeySessionExchangeSuccessWithoutEcdsaActivation
   | SessionExchangeSuccessWithEcdsaActivation;
 
 export type SessionExchangeResultFor<Input extends SessionExchangeInput> =
   Input extends PasskeySessionExchangeInputWithEcdsaActivation
     ? SessionExchangeFailure | SessionExchangeSuccessWithEcdsaActivation
-    : SessionExchangeFailure | SessionExchangeSuccessWithoutEcdsaActivation;
+    : Input extends PasskeySessionExchangeInputWithoutEcdsaActivation
+      ? SessionExchangeFailure | PasskeySessionExchangeSuccessWithoutEcdsaActivation
+      : SessionExchangeFailure | SessionExchangeSuccessWithoutEcdsaActivation;
 
 export type SessionExchangeRuntimeScope =
   | {
@@ -338,6 +375,65 @@ function buildSessionExchangeRequestTransport(
 
 function assertNeverSessionExchangeRuntimeScope(value: never): never {
   throw new Error(`Unsupported session exchange runtime scope: ${JSON.stringify(value)}`);
+}
+
+function parsePasskeySessionCustodyUnlockV1(raw: unknown): PasskeySessionCustodyUnlockV1 {
+  if (!isObject(raw) || raw.kind !== 'wallet_custody_passkey_login_v1') {
+    throw new Error('Passkey session exchange returned invalid wallet custody unlock data');
+  }
+  if (!isObject(raw.ed25519)) {
+    throw new Error('Passkey session exchange omitted Ed25519 custody continuity');
+  }
+  if (raw.ed25519.kind === 'absent') {
+    return {
+      kind: 'wallet_custody_passkey_login_v1',
+      envelope: parsePasskeyCustodyEnvelopeRecord(raw.envelope),
+      storeVersion: requireTrimmedString(raw.storeVersion, 'walletCustody.storeVersion'),
+      ed25519: { kind: 'absent' },
+    };
+  }
+  if (raw.ed25519.kind !== 'active') {
+    throw new Error('Passkey session exchange returned invalid Ed25519 custody state');
+  }
+  const signerSlot = Number(raw.ed25519.signerSlot);
+  const participantIds = raw.ed25519.participantIds;
+  if (
+    !Number.isSafeInteger(signerSlot) ||
+    signerSlot < 1 ||
+    !Array.isArray(participantIds) ||
+    participantIds.length !== 2 ||
+    !participantIds.every((value) => Number.isSafeInteger(value) && Number(value) > 0) ||
+    participantIds[0] === participantIds[1]
+  ) {
+    throw new Error('Passkey session exchange returned invalid Ed25519 signer identity');
+  }
+  return {
+    kind: 'wallet_custody_passkey_login_v1',
+    envelope: parsePasskeyCustodyEnvelopeRecord(raw.envelope),
+    storeVersion: requireTrimmedString(raw.storeVersion, 'walletCustody.storeVersion'),
+    ed25519: {
+      kind: 'active',
+      nearAccountId: requireTrimmedString(
+        raw.ed25519.nearAccountId,
+        'walletCustody.ed25519.nearAccountId',
+      ),
+      nearEd25519SigningKeyId: requireTrimmedString(
+        raw.ed25519.nearEd25519SigningKeyId,
+        'walletCustody.ed25519.nearEd25519SigningKeyId',
+      ),
+      signerSlot,
+      publicKey: requireTrimmedString(
+        raw.ed25519.publicKey,
+        'walletCustody.ed25519.publicKey',
+      ),
+      relayerKeyId: requireTrimmedString(
+        raw.ed25519.relayerKeyId,
+        'walletCustody.ed25519.relayerKeyId',
+      ),
+      participantIds: [Number(participantIds[0]), Number(participantIds[1])],
+      capability: parseEd25519YaoRecoveryCapabilityV1(raw.ed25519.capability),
+    },
+  };
 }
 
 export function exchangeSession<Input extends SessionExchangeInput>(
@@ -445,6 +541,10 @@ export async function exchangeSession(
     const jwt = typeof data.jwt === 'string' ? data.jwt : undefined;
     const requestedEcdsaActivation =
       input.type === 'passkey_assertion' && input.ecdsaSessionActivation !== undefined;
+    const walletCustody =
+      input.type === 'passkey_assertion'
+        ? parsePasskeySessionCustodyUnlockV1(data.walletCustody)
+        : undefined;
     let ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1 | undefined;
     if (requestedEcdsaActivation) {
       if (data.ecdsaSession === undefined) {
@@ -463,6 +563,16 @@ export async function exchangeSession(
         ...(sessionExpiresAt ? { sessionExpiresAt } : {}),
         ...(jwt ? { jwt } : {}),
         ecdsaSession,
+        walletCustody,
+      };
+    }
+    if (walletCustody) {
+      return {
+        success: true,
+        ...(sessionUserId ? { sessionUserId } : {}),
+        ...(sessionExpiresAt ? { sessionExpiresAt } : {}),
+        ...(jwt ? { jwt } : {}),
+        walletCustody,
       };
     }
     return {
