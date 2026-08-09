@@ -2564,6 +2564,30 @@ export class WalletIframeRouter {
     return res.result;
   }
 
+  async addPasskey(
+    payload: Parameters<RegistrationCapability['addPasskey']>[0],
+  ): Promise<AddPasskeyResult> {
+    const confirmationConfig = payload.options?.confirmationConfig;
+    if (confirmationConfig) {
+      const base = await this.getConfirmationConfig();
+      await this.setConfirmationConfig({ ...base, ...confirmationConfig });
+    }
+    const safeOptions = removeFunctionsFromOptions(payload.options);
+    const res = await this.post<AddPasskeyResult>({
+      type: 'PM_ADD_PASSKEY',
+      payload: {
+        walletId: payload.walletId,
+        rpId: payload.rpId,
+        options: safeOptions,
+        ...(confirmationConfig ? { confirmationConfig } : {}),
+      },
+      options: {
+        onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationFlowEvent),
+      },
+    });
+    return res.result;
+  }
+
   async bootstrapEcdsaSession(
     payload: BootstrapThresholdEcdsaSessionArgs,
   ): Promise<ThresholdEcdsaSessionBootstrapResult> {
