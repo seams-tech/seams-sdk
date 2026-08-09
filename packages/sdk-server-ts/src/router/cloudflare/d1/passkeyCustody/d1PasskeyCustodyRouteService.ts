@@ -41,9 +41,11 @@ import {
 import type { RecoveryCodeReservationId } from '@shared/wallet-recovery/recoveryCodeReservation';
 import type { D1WalletStore } from '../../../../core/d1WalletStore';
 import {
+  projectWalletUnlockKeyManifestV1,
   projectWalletRecoveryPreparationKeyManifestV1,
   resolveWalletRecoveryKeyManifestV1,
   verifyWalletRecoveryKeyActivationsV1,
+  type WalletUnlockKeyManifestV1,
   type WalletRecoveryPreparationKeyManifestV1,
 } from '../../../domains/passkeyCustody/walletRecoveryKeyManifest';
 
@@ -96,7 +98,7 @@ export interface RouterApiPasskeyCustodyService {
     readonly factor: WalletCustodyFactorRef;
   }): Promise<
     | (Extract<PasskeyCustodyEnvelopeFactorLookupResult, { readonly kind: 'active' }> & {
-        readonly keyManifest: WalletRecoveryPreparationKeyManifestV1;
+        readonly keyManifest: WalletUnlockKeyManifestV1;
       })
     | Exclude<PasskeyCustodyEnvelopeFactorLookupResult, { readonly kind: 'active' }>
     | { readonly kind: 'manifest_unavailable'; readonly reason: string }
@@ -253,7 +255,7 @@ export function createD1PasskeyCustodyRouteService(assembly: {
         });
         return {
           ...envelope,
-          keyManifest: projectWalletRecoveryPreparationKeyManifestV1(manifest),
+          keyManifest: projectWalletUnlockKeyManifestV1(manifest),
         };
       } catch (error: unknown) {
         return {

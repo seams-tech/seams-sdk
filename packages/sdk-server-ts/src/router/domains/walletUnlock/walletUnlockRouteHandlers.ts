@@ -16,7 +16,7 @@ import {
 import type { RouterAbEd25519YaoActiveCapabilityDescriptorV1 } from '../ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import type { RouterAbEcdsaPostRegistrationSessionActivationResponseV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
-import type { WalletRecoveryPreparationKeyManifestV1 } from '../passkeyCustody/walletRecoveryKeyManifest';
+import type { WalletUnlockKeyManifestV1 } from '../passkeyCustody/walletRecoveryKeyManifest';
 import type {
   WalletUnlockEmailOtpRequestedCapabilitiesRequestV1,
   WalletUnlockEmailOtpRequestedCapabilitiesV1,
@@ -123,7 +123,7 @@ export type WalletUnlockEmailOtpCustodyProjectionV1 = {
   readonly envelopeRevision: number;
   readonly storeVersion: string;
   readonly activeKeySetIds: readonly string[];
-  readonly keyManifest: WalletRecoveryPreparationKeyManifestV1;
+  readonly keyManifest: WalletUnlockKeyManifestV1;
   readonly envelope: PasskeyCustodyEnvelopeRecord;
 };
 
@@ -200,7 +200,7 @@ function projectEmailOtpCustody(
     factor.enrollmentId !== verifiedUnlock.enrollmentId ||
     factor.enrollmentSealKeyVersion !== verifiedUnlock.enrollmentSealKeyVersion ||
     String(manifest.walletId) !== verifiedUnlock.walletId ||
-    manifest.version !== 'wallet_recovery_preparation_key_manifest_v1' ||
+    manifest.version !== 'wallet_custody_unlock_key_manifest_v1' ||
     !Number.isSafeInteger(envelopeRevision) ||
     envelopeRevision < 1 ||
     activeKeySetIds.length === 0 ||
