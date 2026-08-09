@@ -640,6 +640,7 @@ export async function handleWalletRecoveryFinalize(
     reservationId,
     challengeId,
     replacementId,
+    replacedCredentialIdB64u,
     webauthnRegistration,
     expectedOrigin,
     replacementEnvelope,
