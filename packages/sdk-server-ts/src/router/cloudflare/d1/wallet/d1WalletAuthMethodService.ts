@@ -26,6 +26,7 @@ import {
 } from '@shared/utils/webauthnDeviceInfo';
 import {
   buildEmailOtpWalletAuthAuthority,
+  walletAuthAuthorityRef,
   type EmailOtpProvider,
   type EmailOtpWalletAuthAuthority,
   type PasskeyWalletAuthAuthority,
@@ -215,6 +216,7 @@ export class CloudflareD1WalletAuthMethodService {
       const storedAuth = await this.resolveAddAuthMethodExistingAuth({
         auth: request.auth,
         walletId,
+        orgId: intentPreview.orgId,
         intent: intentPreview.intent,
         nowMs: Date.now(),
       });
@@ -239,11 +241,11 @@ export class CloudflareD1WalletAuthMethodService {
             message: 'Passkey authority requires a passkey add-auth-method intent',
           };
         }
-        if (storedAuth.auth.kind !== 'webauthn_assertion') {
+        if (storedAuth.auth.kind === 'app_session') {
           return {
             ok: false,
             code: 'unsupported',
-            message: 'Passkey custody linking requires an authenticated existing passkey',
+            message: 'Passkey custody linking requires an authenticated passkey or Email OTP factor',
           };
         }
         if (!storedExpectedOrigin) {
@@ -253,13 +255,59 @@ export class CloudflareD1WalletAuthMethodService {
             message: 'expected_origin is required for WebAuthn registration verification',
           };
         }
+        if (storedAuth.auth.kind === 'email_otp') {
+          const authority = await this.resolveActiveEmailOtpAuthorityForVerifiedSubject({
+            walletId: String(walletId),
+            providerUserId: storedAuth.auth.providerUserId,
+          });
+          if (!authority.ok) return authority;
+          const expectedAuthorityRef = await walletAuthAuthorityRef({
+            authority: authority.authority,
+          });
+          if (
+            expectedAuthorityRef.walletId !== storedAuth.auth.authorityRef.walletId ||
+            expectedAuthorityRef.authorityDigest !==
+              storedAuth.auth.authorityRef.authorityDigest
+          ) {
+            return {
+              ok: false,
+              code: 'unauthorized',
+              message: 'Email OTP app-session authority does not match this wallet',
+            };
+          }
+          const enrollment = await this.emailOtpChallengeVerifier.readActiveEnrollmentForWallet({
+            walletId: String(walletId),
+            orgId: storedIntent.orgId,
+            providerUserId: storedAuth.auth.providerUserId,
+          });
+          if (!enrollment.ok) return enrollment;
+          if (
+            enrollment.enrollment.enrollmentId !== storedAuth.auth.enrollmentId ||
+            enrollment.enrollment.enrollmentSealKeyVersion !==
+              storedAuth.auth.enrollmentSealKeyVersion
+          ) {
+            return {
+              ok: false,
+              code: 'conflict',
+              message: 'Email OTP enrollment changed; retry passkey linking',
+            };
+          }
+        }
+        const custodyFactor =
+          storedAuth.auth.kind === 'webauthn_assertion'
+            ? {
+                kind: 'passkey' as const,
+                rpId: storedAuth.auth.rpId,
+                credentialIdB64u: storedAuth.auth.credentialIdB64u,
+              }
+            : {
+                kind: 'email_otp' as const,
+                enrollmentId: storedAuth.auth.enrollmentId,
+                enrollmentSealKeyVersion: storedAuth.auth.enrollmentSealKeyVersion,
+              };
         const envelopeLookup = await this.passkeyCustodyEnvelopes.lookupEnvelopeForFactor({
           walletId,
-          factor: {
-            kind: 'passkey',
-            rpId: storedAuth.auth.rpId,
-            credentialIdB64u: storedAuth.auth.credentialIdB64u,
-          },
+          factor: custodyFactor,
         });
         if (envelopeLookup.kind !== 'active') {
           return {
@@ -434,14 +482,18 @@ export class CloudflareD1WalletAuthMethodService {
         }
         const currentEnvelope = await this.passkeyCustodyEnvelopes.lookupEnvelopeForFactor({
           walletId,
-          factor: {
-            kind: 'passkey',
-            rpId: ceremony.auth.kind === 'webauthn_assertion' ? ceremony.auth.rpId : ceremony.passkeyRegistration.rpId,
-            credentialIdB64u:
-              ceremony.auth.kind === 'webauthn_assertion'
-                ? ceremony.auth.credentialIdB64u
-                : replacementEnvelope.factor.credentialIdB64u,
-          },
+          factor:
+            ceremony.auth.kind === 'webauthn_assertion'
+              ? {
+                  kind: 'passkey',
+                  rpId: ceremony.auth.rpId,
+                  credentialIdB64u: ceremony.auth.credentialIdB64u,
+                }
+              : {
+                  kind: 'email_otp',
+                  enrollmentId: ceremony.auth.enrollmentId,
+                  enrollmentSealKeyVersion: ceremony.auth.enrollmentSealKeyVersion,
+                },
         });
         if (
           currentEnvelope.kind !== 'active' ||
@@ -559,6 +611,7 @@ export class CloudflareD1WalletAuthMethodService {
   async resolveAddAuthMethodExistingAuth(input: {
     readonly auth: WalletAddAuthMethodStartRequest['auth'];
     readonly walletId: WalletId;
+    readonly orgId: string;
     readonly intent: AddAuthMethodIntentV1;
     readonly nowMs: number;
   }): Promise<D1AddAuthMethodExistingAuthResolution> {
@@ -569,6 +622,52 @@ export class CloudflareD1WalletAuthMethodService {
     const activeWalletMethods = walletMethods.filter(activeWalletAuthMethodRecord);
     if (activeWalletMethods.length === 0) {
       return { ok: false, code: 'not_found', message: 'wallet has no active auth methods' };
+    }
+    if (input.auth.kind === 'email_otp') {
+      const authority = await this.resolveActiveEmailOtpAuthorityForVerifiedSubject({
+        walletId: String(input.walletId),
+        providerUserId: input.auth.providerUserId,
+      });
+      if (!authority.ok) return authority;
+      const expectedAuthorityRef = await walletAuthAuthorityRef({
+        authority: authority.authority,
+      });
+      if (
+        expectedAuthorityRef.walletId !== input.auth.authorityRef.walletId ||
+        expectedAuthorityRef.authorityDigest !== input.auth.authorityRef.authorityDigest
+      ) {
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'Email OTP authority reference does not match this wallet',
+        };
+      }
+      const enrollment = await this.emailOtpChallengeVerifier.readActiveEnrollmentForWallet({
+        walletId: String(input.walletId),
+        orgId: input.orgId,
+        providerUserId: input.auth.providerUserId,
+      });
+      if (!enrollment.ok) return enrollment;
+      if (
+        enrollment.enrollment.enrollmentId !== input.auth.enrollmentId ||
+        enrollment.enrollment.enrollmentSealKeyVersion !== input.auth.enrollmentSealKeyVersion
+      ) {
+        return {
+          ok: false,
+          code: 'conflict',
+          message: 'Email OTP enrollment changed; retry passkey linking',
+        };
+      }
+      return {
+        ok: true,
+        auth: {
+          kind: 'email_otp',
+          providerUserId: input.auth.providerUserId,
+          enrollmentId: input.auth.enrollmentId,
+          enrollmentSealKeyVersion: input.auth.enrollmentSealKeyVersion,
+          authorityRef: input.auth.authorityRef,
+        },
+      };
     }
     return await resolveD1AddAuthMethodExistingAuth({
       auth: input.auth,
