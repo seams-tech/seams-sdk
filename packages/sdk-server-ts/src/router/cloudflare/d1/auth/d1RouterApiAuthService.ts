@@ -79,7 +79,6 @@ import { CloudflareD1EmailOtpDeliveryRuntime } from '../emailOtp/d1EmailOtpDeliv
 import { CloudflareD1EmailOtpEnrollmentStore } from '../emailOtp/d1EmailOtpEnrollmentStore';
 import { CloudflareD1EmailOtpGrantStore } from '../emailOtp/d1EmailOtpGrantStore';
 import { CloudflareD1EmailOtpRateLimitStore } from '../emailOtp/d1EmailOtpRateLimitStore';
-import { CloudflareD1EmailOtpRecoveryEscrowStore } from '../emailOtp/d1EmailOtpRecoveryEscrowStore';
 import { CloudflareD1EmailOtpServerSealRuntime } from '../emailOtp/d1EmailOtpServerSealRuntime';
 import { CloudflareD1EmailOtpRegistrationEnrollmentFinalizer } from '../emailOtp/d1EmailOtpRegistrationEnrollmentFinalizer';
 import { CloudflareD1EmailOtpChallengeVerifier } from '../emailOtp/d1EmailOtpChallengeVerifier';
@@ -1389,13 +1388,6 @@ function createCloudflareD1RouterApiAuthAssembly(
     prepare,
     rateLimits: options.emailOtp.rateLimits,
   });
-  const emailOtpRecoveryEscrows = new CloudflareD1EmailOtpRecoveryEscrowStore({
-    database: options.database,
-    namespace: options.namespace,
-    orgId: options.orgId,
-    projectId: options.projectId,
-    envId: options.envId,
-  });
   const emailOtpServerSeal = new CloudflareD1EmailOtpServerSealRuntime(options.emailOtpServerSeal);
   const googleEmailOtpSessions = new CloudflareD1GoogleEmailOtpSessionResolver({
     emailOtpEnrollments,
@@ -1529,9 +1521,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     emailOtpEnrollments,
     emailOtpGrants,
     emailOtpRateLimits,
-    emailOtpRecoveryEscrows,
     grantTtlMs: options.emailOtp.grantTtlMs,
-    sha256Bytes: sha256BytesPortable,
   });
 
   return {
@@ -1695,16 +1685,9 @@ function createD1EmailOtpRouteService(
       assembly.emailOtpRecoveryService.consumeEmailOtpWalletRecoveryBootstrap.bind(
         assembly.emailOtpRecoveryService,
       ),
-    consumeEmailOtpRecoveryKey: assembly.emailOtpRecoveryService.consumeEmailOtpRecoveryKey.bind(
-      assembly.emailOtpRecoveryService,
-    ),
     createEmailOtpChallenge: assembly.emailOtpChallengeService.createEmailOtpChallenge.bind(
       assembly.emailOtpChallengeService,
     ),
-    createEmailOtpDeviceRecoveryChallenge:
-      assembly.emailOtpChallengeService.createEmailOtpDeviceRecoveryChallenge.bind(
-        assembly.emailOtpChallengeService,
-      ),
     createEmailOtpWalletRecoveryBootstrapChallenge:
       assembly.emailOtpChallengeService.createEmailOtpWalletRecoveryBootstrapChallenge.bind(
         assembly.emailOtpChallengeService,
@@ -1712,10 +1695,6 @@ function createD1EmailOtpRouteService(
     createEmailOtpEnrollmentChallenge:
       assembly.emailOtpChallengeService.createEmailOtpEnrollmentChallenge.bind(
         assembly.emailOtpChallengeService,
-      ),
-    getEmailOtpRecoveryCodeStatus:
-      assembly.emailOtpRecoveryService.getEmailOtpRecoveryCodeStatus.bind(
-        assembly.emailOtpRecoveryService,
       ),
     isEmailOtpStrongAuthRequired:
       assembly.emailOtpRecoveryService.isEmailOtpStrongAuthRequired.bind(
@@ -1735,15 +1714,8 @@ function createD1EmailOtpRouteService(
     readEmailOtpOutboxEntry: assembly.emailOtpChallengeService.readEmailOtpOutboxEntry.bind(
       assembly.emailOtpChallengeService,
     ),
-    recordEmailOtpRecoveryKeyAttemptFailure:
-      assembly.emailOtpRecoveryService.recordEmailOtpRecoveryKeyAttemptFailure.bind(
-        assembly.emailOtpRecoveryService,
-      ),
     removeEmailOtpServerSeal: assembly.emailOtpServerSeal.removeEmailOtpServerSeal.bind(
       assembly.emailOtpServerSeal,
-    ),
-    rotateEmailOtpRecoveryKeys: assembly.emailOtpRecoveryService.rotateEmailOtpRecoveryKeys.bind(
-      assembly.emailOtpRecoveryService,
     ),
     validateGoogleEmailOtpRegistrationCandidateWallet:
       assembly.googleEmailOtpSessions.validateRegistrationCandidateWallet.bind(
@@ -1752,10 +1724,6 @@ function createD1EmailOtpRouteService(
     verifyEmailOtpChallenge: assembly.emailOtpChallengeService.verifyEmailOtpChallenge.bind(
       assembly.emailOtpChallengeService,
     ),
-    verifyEmailOtpDeviceRecoveryChallenge:
-      assembly.emailOtpRecoveryService.verifyEmailOtpDeviceRecoveryChallenge.bind(
-        assembly.emailOtpRecoveryService,
-      ),
     verifyEmailOtpWalletRecoveryBootstrap:
       assembly.emailOtpChallengeService.verifyEmailOtpWalletRecoveryBootstrap.bind(
         assembly.emailOtpChallengeService,

@@ -35,14 +35,8 @@ import {
 import {
   handleEmailOtpDevCleanupGoogleRegistrationRoute,
   handleEmailOtpDevOtpOutboxRoute,
-  handleEmailOtpDeviceRecoveryChallengeRoute,
   handleEmailOtpLoginChallengeRoute,
   handleEmailOtpLoginVerifyAndUnsealRoute,
-  handleEmailOtpRecoveryKeyAttemptFailedRoute,
-  handleEmailOtpRecoveryKeyConsumeRoute,
-  handleEmailOtpRecoveryKeyRotateRoute,
-  handleEmailOtpRecoveryKeyStatusRoute,
-  handleEmailOtpRecoveryWrappedEscrowsRoute,
   handleEmailOtpSigningSessionChallengeRoute,
   handleEmailOtpLoginVerifyRoute,
   handleEmailOtpSigningSessionVerifyRoute,
@@ -2519,35 +2513,6 @@ export async function handleWalletEmailOtpSigningSessionChallenge(
   return json(response.body, { status: response.status });
 }
 
-export async function handleWalletEmailOtpDeviceRecoveryChallenge(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-challenge') {
-    return null;
-  }
-  const body = await readJson(ctx.request);
-  const validated = await readAndValidateAppSession(ctx);
-  if (!validated.ok) {
-    await maybeEmitWarmExpiredFromValidationFailure({
-      ctx,
-      validated,
-      source: 'wallet.email_otp.recovery_challenge',
-    });
-    return validated.response;
-  }
-  const response = await handleEmailOtpDeviceRecoveryChallengeRoute({
-    body,
-    claims: validated.claims,
-    userId: validated.userId,
-    appSessionVersion: validated.appSessionVersion,
-    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    requestOrigin: ctx.request.headers.get('origin'),
-    service: routerApiEmailOtpRouteService(ctx.service),
-  });
-  return json(response.body, { status: response.status });
-}
-
-/** Starts the recovery-only Email OTP path on a device with no app session. */
 export async function handleWalletEmailOtpRecoveryBootstrapChallenge(
   ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
@@ -2770,141 +2735,6 @@ export async function handleWalletEmailOtpSigningSessionVerify(
         ...(event.walletId ? { walletId: event.walletId } : {}),
       });
     },
-  });
-  return json(response.body, { status: response.status });
-}
-
-export async function handleWalletEmailOtpRecoveryWrappedEscrows(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-wrapped-escrows') {
-    return null;
-  }
-  const body = await readJson(ctx.request);
-  const validated = await readAndValidateAppSession(ctx);
-  if (!validated.ok) {
-    await maybeEmitWarmExpiredFromValidationFailure({
-      ctx,
-      validated,
-      source: 'wallet.email_otp.recovery_wrapped_escrows',
-    });
-    return validated.response;
-  }
-  const response = await handleEmailOtpRecoveryWrappedEscrowsRoute({
-    body,
-    claims: validated.claims,
-    userId: validated.userId,
-    appSessionVersion: validated.appSessionVersion,
-    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: routerApiEmailOtpRouteService(ctx.service),
-  });
-  return json(response.body, { status: response.status });
-}
-
-export async function handleWalletEmailOtpRecoveryKeyConsume(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-key/consume') {
-    return null;
-  }
-  const body = await readJson(ctx.request);
-  const validated = await readAndValidateAppSession(ctx);
-  if (!validated.ok) {
-    await maybeEmitWarmExpiredFromValidationFailure({
-      ctx,
-      validated,
-      source: 'wallet.email_otp.recovery_key.consume',
-    });
-    return validated.response;
-  }
-  const response = await handleEmailOtpRecoveryKeyConsumeRoute({
-    body,
-    claims: validated.claims,
-    userId: validated.userId,
-    appSessionVersion: validated.appSessionVersion,
-    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: routerApiEmailOtpRouteService(ctx.service),
-  });
-  return json(response.body, { status: response.status });
-}
-
-export async function handleWalletEmailOtpRecoveryKeyStatus(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-key/status') {
-    return null;
-  }
-  const body = await readJson(ctx.request);
-  const validated = await readAndValidateAppSession(ctx);
-  if (!validated.ok) {
-    await maybeEmitWarmExpiredFromValidationFailure({
-      ctx,
-      validated,
-      source: 'wallet.email_otp.recovery_key.status',
-    });
-    return validated.response;
-  }
-  const response = await handleEmailOtpRecoveryKeyStatusRoute({
-    body,
-    claims: validated.claims,
-    userId: validated.userId,
-    appSessionVersion: validated.appSessionVersion,
-    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: routerApiEmailOtpRouteService(ctx.service),
-  });
-  return json(response.body, { status: response.status });
-}
-
-export async function handleWalletEmailOtpRecoveryKeyRotate(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-key/rotate') {
-    return null;
-  }
-  const body = await readJson(ctx.request);
-  const validated = await readAndValidateAppSession(ctx);
-  if (!validated.ok) {
-    await maybeEmitWarmExpiredFromValidationFailure({
-      ctx,
-      validated,
-      source: 'wallet.email_otp.recovery_key.rotate',
-    });
-    return validated.response;
-  }
-  const response = await handleEmailOtpRecoveryKeyRotateRoute({
-    body,
-    claims: validated.claims,
-    userId: validated.userId,
-    appSessionVersion: validated.appSessionVersion,
-    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: routerApiEmailOtpRouteService(ctx.service),
-  });
-  return json(response.body, { status: response.status });
-}
-
-export async function handleWalletEmailOtpRecoveryKeyAttemptFailed(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-key/attempt-failed') {
-    return null;
-  }
-  const body = await readJson(ctx.request);
-  const validated = await readAndValidateAppSession(ctx);
-  if (!validated.ok) {
-    await maybeEmitWarmExpiredFromValidationFailure({
-      ctx,
-      validated,
-      source: 'wallet.email_otp.recovery_key.attempt_failed',
-    });
-    return validated.response;
-  }
-  const response = await handleEmailOtpRecoveryKeyAttemptFailedRoute({
-    body,
-    claims: validated.claims,
-    userId: validated.userId,
-    appSessionVersion: validated.appSessionVersion,
-    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: routerApiEmailOtpRouteService(ctx.service),
   });
   return json(response.body, { status: response.status });
 }

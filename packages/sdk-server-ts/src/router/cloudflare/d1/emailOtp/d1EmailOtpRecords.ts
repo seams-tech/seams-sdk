@@ -1,5 +1,5 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import { base64UrlDecode } from '@shared/utils/encoders';
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_ACTIONS,
@@ -7,14 +7,6 @@ import {
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
   isWalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
-import {
-  EMAIL_OTP_RECOVERY_KEY_COUNT,
-  EMAIL_OTP_RECOVERY_WRAP_ALG,
-  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
-  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
-  buildEmailOtpRecoveryWrapBinding,
-  encodeEmailOtpRecoveryWrappedEnrollmentAad,
-} from '@shared/utils/emailOtpRecoveryKey';
 import type {
   EmailOtpAuthStateRecord,
   EmailOtpChallengeOperation,
@@ -22,7 +14,6 @@ import type {
   EmailOtpGrantAction,
   EmailOtpGrantRecord,
   EmailOtpLoginChallengeOperation,
-  EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
   EmailOtpUnlockChallengeRecord,
   EmailOtpWalletEnrollmentRecord,
 } from '../../../../core/EmailOtpStores';
@@ -36,20 +27,13 @@ import {
 export type EmailOtpChallengeIssueAction =
   | typeof WALLET_EMAIL_OTP_ACTIONS.login
   | typeof WALLET_EMAIL_OTP_ACTIONS.registration
-  | typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery
   | typeof WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap;
 
 export type EmailOtpRateLimitScope =
   | 'challenge'
   | 'verify'
   | 'grant'
-  | 'recoveryKeyAttempt'
   | 'googleRegistrationAttempt';
-
-export type EmailOtpRecoveryEnrollmentEscrowBoundary = {
-  readonly record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord;
-  readonly binding: ReturnType<typeof buildEmailOtpRecoveryWrapBinding>;
-};
 
 export type EmailOtpAuthStatePatch = {
   readonly otpFailureCount?: number | null;
@@ -59,41 +43,7 @@ export type EmailOtpAuthStatePatch = {
   readonly lastStrongAuthAtMs?: number | null;
 };
 
-export type EmailOtpRecoveryChallengeEscrow = Omit<
-  EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-  | 'recoveryKeyId'
-  | 'recoveryKeyStatus'
-  | 'issuedAtMs'
-  | 'updatedAtMs'
-  | 'consumedAtMs'
-  | 'revokedAtMs'
->;
-
-export type EmailOtpRecoveryRotationFailure =
-  | {
-      readonly ok: false;
-      readonly code: 'invalid_body';
-      readonly message: string;
-    }
-  | {
-      readonly ok: false;
-      readonly code: 'recovery_rotation_binding_mismatch';
-      readonly message: 'Recovery-code rotation does not match the active Email OTP enrollment';
-    };
-
-export type EmailOtpRecoveryRotationHash = (input: Uint8Array) => Promise<Uint8Array>;
-
 export type EmailOtpPublicKey33Validator = (input: Uint8Array) => Promise<unknown>;
-
-export type EmailOtpRecoveryRotationEscrowResult =
-  | {
-      readonly ok: true;
-      readonly record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord;
-    }
-  | {
-      readonly ok: false;
-      readonly result: EmailOtpRecoveryRotationFailure;
-    };
 
 export type EmailOtpEnrollmentMaterialBoundaryInput = {
   readonly enrollmentSealKeyVersion?: unknown;
@@ -143,11 +93,6 @@ export type EmailOtpRegistrationVerificationReceiptV1 = {
   };
   readonly verifiedAtMs: number;
   readonly expiresAtMs: number;
-};
-
-export type D1EmailOtpRecoveryEscrowRow = {
-  readonly record_json?: unknown;
-  readonly updated_at_ms?: unknown;
 };
 
 export type D1EmailOtpGrantRow = {
@@ -801,7 +746,6 @@ export function parseEmailOtpGrantRecord(input: unknown): EmailOtpGrantRecord | 
   }
   if (
     action !== WALLET_EMAIL_OTP_ACTIONS.unseal &&
-    action !== WALLET_EMAIL_OTP_ACTIONS.deviceRecovery &&
     action !== WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap
   ) {
     return null;
@@ -827,141 +771,6 @@ export function parseEmailOtpGrantRow(row: D1EmailOtpGrantRow | null): EmailOtpG
   const expiresAtMs = positiveSafeInteger(row?.expires_at_ms);
   if (!record || !expiresAtMs || record.expiresAtMs !== expiresAtMs) return null;
   return record;
-}
-
-export function parseEmailOtpRecoveryEscrowRecord(
-  input: unknown,
-): EmailOtpRecoveryWrappedEnrollmentEscrowRecord | null {
-  const record = parseJsonObject(input);
-  if (!record) return null;
-  const version = toOptionalTrimmedString(record.version);
-  const alg = toOptionalTrimmedString(record.alg);
-  const secretKind = toOptionalTrimmedString(record.secretKind);
-  const escrowKind = toOptionalTrimmedString(record.escrowKind);
-  const walletId = toOptionalTrimmedString(record.walletId);
-  const userId = toOptionalTrimmedString(record.userId);
-  const authSubjectId = toOptionalTrimmedString(record.authSubjectId);
-  const authMethod = toOptionalTrimmedString(record.authMethod);
-  const enrollmentId = toOptionalTrimmedString(record.enrollmentId);
-  const enrollmentVersion = toOptionalTrimmedString(record.enrollmentVersion);
-  const enrollmentSealKeyVersion = toOptionalTrimmedString(record.enrollmentSealKeyVersion);
-  const signingRootId = toOptionalTrimmedString(record.signingRootId);
-  const signingRootVersion = toOptionalTrimmedString(record.signingRootVersion);
-  const recoveryKeyId = toOptionalTrimmedString(record.recoveryKeyId);
-  const recoveryKeyLabel = toOptionalTrimmedString(record.recoveryKeyLabel);
-  const recoveryKeyStatus = toOptionalTrimmedString(record.recoveryKeyStatus);
-  const nonceB64u = toOptionalTrimmedString(record.nonceB64u);
-  const wrappedDeviceEnrollmentEscrowB64u = toOptionalTrimmedString(
-    record.wrappedDeviceEnrollmentEscrowB64u,
-  );
-  const aadHashB64u = toOptionalTrimmedString(record.aadHashB64u);
-  const issuedAtMs = positiveSafeInteger(record.issuedAtMs);
-  const updatedAtMs = positiveSafeInteger(record.updatedAtMs);
-  const consumedAtMs =
-    record.consumedAtMs == null ? undefined : positiveSafeInteger(record.consumedAtMs);
-  const revokedAtMs =
-    record.revokedAtMs == null ? undefined : positiveSafeInteger(record.revokedAtMs);
-  if (
-    version !== 'email_otp_recovery_wrapped_enrollment_escrow_v1' ||
-    alg !== EMAIL_OTP_RECOVERY_WRAP_ALG ||
-    secretKind !== EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND ||
-    escrowKind !== EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND ||
-    !walletId ||
-    !userId ||
-    !authSubjectId ||
-    authMethod !== 'google_sso_email_otp' ||
-    !enrollmentId ||
-    !enrollmentVersion ||
-    !enrollmentSealKeyVersion ||
-    !signingRootId ||
-    !signingRootVersion ||
-    !recoveryKeyId ||
-    !nonceB64u ||
-    !wrappedDeviceEnrollmentEscrowB64u ||
-    !aadHashB64u ||
-    !recoveryKeyStatus ||
-    !issuedAtMs ||
-    !updatedAtMs ||
-    userId !== authSubjectId ||
-    !isB64uString(nonceB64u) ||
-    !isB64uString(wrappedDeviceEnrollmentEscrowB64u) ||
-    !isB64uString(aadHashB64u) ||
-    hasRecordField(record, 'acknowledgedAtMs') ||
-    hasRecordField(record, 'abandonedAtMs') ||
-    hasRecordField(record, 'cleanupReason') ||
-    updatedAtMs < issuedAtMs
-  ) {
-    return null;
-  }
-  const base = {
-    version: 'email_otp_recovery_wrapped_enrollment_escrow_v1' as const,
-    alg: EMAIL_OTP_RECOVERY_WRAP_ALG,
-    secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
-    escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
-    walletId,
-    userId,
-    authSubjectId,
-    authMethod: 'google_sso_email_otp' as const,
-    enrollmentId,
-    enrollmentVersion,
-    enrollmentSealKeyVersion,
-    signingRootId,
-    signingRootVersion,
-    recoveryKeyId,
-    ...(recoveryKeyLabel ? { recoveryKeyLabel } : {}),
-    nonceB64u,
-    wrappedDeviceEnrollmentEscrowB64u,
-    aadHashB64u,
-    issuedAtMs,
-    updatedAtMs,
-  };
-  switch (recoveryKeyStatus) {
-    case 'active':
-      if (consumedAtMs !== undefined || revokedAtMs !== undefined) return null;
-      return { ...base, recoveryKeyStatus };
-    case 'consumed':
-      if (consumedAtMs == null || revokedAtMs !== undefined) return null;
-      return { ...base, recoveryKeyStatus, consumedAtMs };
-    case 'revoked':
-      if (consumedAtMs !== undefined || revokedAtMs == null) return null;
-      return { ...base, recoveryKeyStatus, revokedAtMs };
-    default:
-      return null;
-  }
-}
-
-export function parseEmailOtpRecoveryEnrollmentEscrowBoundary(
-  input: unknown,
-): EmailOtpRecoveryEnrollmentEscrowBoundary | null {
-  const record = parseEmailOtpRecoveryEscrowRecord(input);
-  if (!record) return null;
-  return {
-    record,
-    binding: buildEmailOtpRecoveryWrapBinding({
-      walletId: record.walletId,
-      userId: record.userId,
-      authSubjectId: record.authSubjectId,
-      authMethod: record.authMethod,
-      enrollmentId: record.enrollmentId,
-      enrollmentVersion: record.enrollmentVersion,
-      enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
-      signingRootId: record.signingRootId,
-      signingRootVersion: record.signingRootVersion,
-      recoveryKeyId: record.recoveryKeyId,
-    }),
-  };
-}
-
-export function invalidRecoveryRotationBody(message: string): EmailOtpRecoveryRotationFailure {
-  return { ok: false, code: 'invalid_body', message };
-}
-
-export function recoveryRotationBindingMismatch(): EmailOtpRecoveryRotationFailure {
-  return {
-    ok: false,
-    code: 'recovery_rotation_binding_mismatch',
-    message: 'Recovery-code rotation does not match the active Email OTP enrollment',
-  };
 }
 
 export async function validateEmailOtpEnrollmentMaterial(input: {
@@ -1021,293 +830,6 @@ export async function validateEmailOtpEnrollmentMaterial(input: {
   };
 }
 
-export async function activeEmailOtpRecoveryRotationEscrowRecord(input: {
-  readonly raw: unknown;
-  readonly enrollment: EmailOtpWalletEnrollmentRecord;
-  readonly signingRoot: {
-    readonly signingRootId: string;
-    readonly signingRootVersion: string;
-  };
-  readonly issuedAtMs: number;
-  readonly recoveryKeyIds: Set<string>;
-  readonly nonceB64us: Set<string>;
-  readonly sha256Bytes: EmailOtpRecoveryRotationHash;
-}): Promise<EmailOtpRecoveryRotationEscrowResult> {
-  const obj = recoveryRotationInputObject(input.raw);
-  if (!obj) {
-    return {
-      ok: false,
-      result: invalidRecoveryRotationBody('Invalid recovery escrow input'),
-    };
-  }
-  const recoveryKeyId = toOptionalTrimmedString(obj.recoveryKeyId);
-  const nonceB64u = toOptionalTrimmedString(obj.nonceB64u);
-  const wrappedDeviceEnrollmentEscrowB64u = toOptionalTrimmedString(
-    obj.wrappedDeviceEnrollmentEscrowB64u,
-  );
-  const aadHashB64u = toOptionalTrimmedString(obj.aadHashB64u);
-  if (!recoveryKeyId || !nonceB64u || !wrappedDeviceEnrollmentEscrowB64u || !aadHashB64u) {
-    return {
-      ok: false,
-      result: invalidRecoveryRotationBody(
-        'Recovery rotation escrow input is missing required fields',
-      ),
-    };
-  }
-  if (input.recoveryKeyIds.has(recoveryKeyId)) {
-    return {
-      ok: false,
-      result: invalidRecoveryRotationBody('Recovery rotation recoveryKeyId values must be unique'),
-    };
-  }
-  if (input.nonceB64us.has(nonceB64u)) {
-    return {
-      ok: false,
-      result: invalidRecoveryRotationBody('Recovery rotation nonce values must be unique'),
-    };
-  }
-  try {
-    base64UrlDecode(nonceB64u);
-    base64UrlDecode(wrappedDeviceEnrollmentEscrowB64u);
-    base64UrlDecode(aadHashB64u);
-  } catch {
-    return {
-      ok: false,
-      result: invalidRecoveryRotationBody(
-        'Recovery rotation escrow input must use base64url fields',
-      ),
-    };
-  }
-  const binding = buildEmailOtpRecoveryWrapBinding({
-    walletId: input.enrollment.walletId,
-    userId: input.enrollment.providerUserId,
-    authSubjectId: input.enrollment.providerUserId,
-    authMethod: 'google_sso_email_otp',
-    enrollmentId: input.enrollment.enrollmentId,
-    enrollmentVersion: input.enrollment.enrollmentVersion,
-    enrollmentSealKeyVersion: input.enrollment.enrollmentSealKeyVersion,
-    signingRootId: input.signingRoot.signingRootId,
-    signingRootVersion: input.signingRoot.signingRootVersion,
-    recoveryKeyId,
-  });
-  const expectedAadHashB64u = base64UrlEncode(
-    await input.sha256Bytes(encodeEmailOtpRecoveryWrappedEnrollmentAad(binding)),
-  );
-  if (aadHashB64u !== expectedAadHashB64u) {
-    return {
-      ok: false,
-      result: invalidRecoveryRotationBody(
-        'Recovery rotation aadHashB64u does not match enrollment metadata',
-      ),
-    };
-  }
-  input.recoveryKeyIds.add(recoveryKeyId);
-  input.nonceB64us.add(nonceB64u);
-  return {
-    ok: true,
-    record: {
-      version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
-      alg: EMAIL_OTP_RECOVERY_WRAP_ALG,
-      secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
-      escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
-      walletId: input.enrollment.walletId,
-      userId: input.enrollment.providerUserId,
-      authSubjectId: input.enrollment.providerUserId,
-      authMethod: 'google_sso_email_otp',
-      enrollmentId: input.enrollment.enrollmentId,
-      enrollmentVersion: input.enrollment.enrollmentVersion,
-      enrollmentSealKeyVersion: input.enrollment.enrollmentSealKeyVersion,
-      signingRootId: input.signingRoot.signingRootId,
-      signingRootVersion: input.signingRoot.signingRootVersion,
-      recoveryKeyId,
-      recoveryKeyStatus: 'active',
-      nonceB64u,
-      wrappedDeviceEnrollmentEscrowB64u,
-      aadHashB64u,
-      issuedAtMs: input.issuedAtMs,
-      updatedAtMs: input.issuedAtMs,
-    },
-  };
-}
-
-export function parseEmailOtpRecoveryEscrowRow(
-  row: D1EmailOtpRecoveryEscrowRow | null,
-): EmailOtpRecoveryWrappedEnrollmentEscrowRecord | null {
-  const record = parseEmailOtpRecoveryEscrowRecord(row?.record_json);
-  const updatedAtMs = positiveSafeInteger(row?.updated_at_ms);
-  if (!record || !updatedAtMs || record.updatedAtMs !== updatedAtMs) return null;
-  return record;
-}
-
-export function emailOtpRecoveryEscrowMatchesEnrollment(input: {
-  readonly escrow: EmailOtpRecoveryWrappedEnrollmentEscrowRecord;
-  readonly enrollment: EmailOtpWalletEnrollmentRecord;
-}): boolean {
-  return (
-    input.escrow.walletId === input.enrollment.walletId &&
-    input.escrow.userId === input.enrollment.providerUserId &&
-    input.escrow.authSubjectId === input.enrollment.providerUserId &&
-    input.escrow.enrollmentId === input.enrollment.enrollmentId &&
-    input.escrow.enrollmentVersion === input.enrollment.enrollmentVersion &&
-    input.escrow.enrollmentSealKeyVersion === input.enrollment.enrollmentSealKeyVersion
-  );
-}
-
-export function activeEmailOtpRecoveryEscrow(
-  record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-): record is Extract<
-  EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-  { readonly recoveryKeyStatus: 'active' }
-> {
-  return record.recoveryKeyStatus === 'active';
-}
-
-export function countActiveEmailOtpRecoveryEscrows(
-  records: readonly EmailOtpRecoveryWrappedEnrollmentEscrowRecord[],
-): number {
-  let count = 0;
-  for (const record of records) {
-    if (activeEmailOtpRecoveryEscrow(record)) count += 1;
-  }
-  return count;
-}
-
-export function redactEmailOtpRecoveryChallengeEscrow(
-  record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-): EmailOtpRecoveryChallengeEscrow {
-  return {
-    version: record.version,
-    alg: record.alg,
-    secretKind: record.secretKind,
-    escrowKind: record.escrowKind,
-    walletId: record.walletId,
-    userId: record.userId,
-    authSubjectId: record.authSubjectId,
-    authMethod: record.authMethod,
-    enrollmentId: record.enrollmentId,
-    enrollmentVersion: record.enrollmentVersion,
-    enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
-    signingRootId: record.signingRootId,
-    signingRootVersion: record.signingRootVersion,
-    nonceB64u: record.nonceB64u,
-    wrappedDeviceEnrollmentEscrowB64u: record.wrappedDeviceEnrollmentEscrowB64u,
-    aadHashB64u: record.aadHashB64u,
-  };
-}
-
-export function revokedEmailOtpRecoveryEscrowRecord(input: {
-  readonly record: Extract<
-    EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-    { readonly recoveryKeyStatus: 'active' }
-  >;
-  readonly revokedAtMs: number;
-}): EmailOtpRecoveryWrappedEnrollmentEscrowRecord {
-  return {
-    version: input.record.version,
-    alg: input.record.alg,
-    secretKind: input.record.secretKind,
-    escrowKind: input.record.escrowKind,
-    walletId: input.record.walletId,
-    userId: input.record.userId,
-    authSubjectId: input.record.authSubjectId,
-    authMethod: input.record.authMethod,
-    enrollmentId: input.record.enrollmentId,
-    enrollmentVersion: input.record.enrollmentVersion,
-    enrollmentSealKeyVersion: input.record.enrollmentSealKeyVersion,
-    signingRootId: input.record.signingRootId,
-    signingRootVersion: input.record.signingRootVersion,
-    recoveryKeyId: input.record.recoveryKeyId,
-    ...(input.record.recoveryKeyLabel ? { recoveryKeyLabel: input.record.recoveryKeyLabel } : {}),
-    recoveryKeyStatus: 'revoked',
-    nonceB64u: input.record.nonceB64u,
-    wrappedDeviceEnrollmentEscrowB64u: input.record.wrappedDeviceEnrollmentEscrowB64u,
-    aadHashB64u: input.record.aadHashB64u,
-    issuedAtMs: input.record.issuedAtMs,
-    updatedAtMs: input.revokedAtMs,
-    revokedAtMs: input.revokedAtMs,
-  };
-}
-
-export function consumedEmailOtpRecoveryEscrowRecord(input: {
-  readonly record: Extract<
-    EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-    { readonly recoveryKeyStatus: 'active' }
-  >;
-  readonly consumedAtMs: number;
-}): EmailOtpRecoveryWrappedEnrollmentEscrowRecord {
-  return {
-    version: input.record.version,
-    alg: input.record.alg,
-    secretKind: input.record.secretKind,
-    escrowKind: input.record.escrowKind,
-    walletId: input.record.walletId,
-    userId: input.record.userId,
-    authSubjectId: input.record.authSubjectId,
-    authMethod: input.record.authMethod,
-    enrollmentId: input.record.enrollmentId,
-    enrollmentVersion: input.record.enrollmentVersion,
-    enrollmentSealKeyVersion: input.record.enrollmentSealKeyVersion,
-    signingRootId: input.record.signingRootId,
-    signingRootVersion: input.record.signingRootVersion,
-    recoveryKeyId: input.record.recoveryKeyId,
-    ...(input.record.recoveryKeyLabel ? { recoveryKeyLabel: input.record.recoveryKeyLabel } : {}),
-    recoveryKeyStatus: 'consumed',
-    nonceB64u: input.record.nonceB64u,
-    wrappedDeviceEnrollmentEscrowB64u: input.record.wrappedDeviceEnrollmentEscrowB64u,
-    aadHashB64u: input.record.aadHashB64u,
-    issuedAtMs: input.record.issuedAtMs,
-    updatedAtMs: input.consumedAtMs,
-    consumedAtMs: input.consumedAtMs,
-  };
-}
-
-export function emailOtpRecoveryEscrowWithUpdatedAt(input: {
-  readonly record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord;
-  readonly updatedAtMs: number;
-}): EmailOtpRecoveryWrappedEnrollmentEscrowRecord {
-  const base = {
-    version: input.record.version,
-    alg: input.record.alg,
-    secretKind: input.record.secretKind,
-    escrowKind: input.record.escrowKind,
-    walletId: input.record.walletId,
-    userId: input.record.userId,
-    authSubjectId: input.record.authSubjectId,
-    authMethod: input.record.authMethod,
-    enrollmentId: input.record.enrollmentId,
-    enrollmentVersion: input.record.enrollmentVersion,
-    enrollmentSealKeyVersion: input.record.enrollmentSealKeyVersion,
-    signingRootId: input.record.signingRootId,
-    signingRootVersion: input.record.signingRootVersion,
-    recoveryKeyId: input.record.recoveryKeyId,
-    ...(input.record.recoveryKeyLabel ? { recoveryKeyLabel: input.record.recoveryKeyLabel } : {}),
-    nonceB64u: input.record.nonceB64u,
-    wrappedDeviceEnrollmentEscrowB64u: input.record.wrappedDeviceEnrollmentEscrowB64u,
-    aadHashB64u: input.record.aadHashB64u,
-    issuedAtMs: input.record.issuedAtMs,
-    updatedAtMs: input.updatedAtMs,
-  };
-  switch (input.record.recoveryKeyStatus) {
-    case 'active':
-      return {
-        ...base,
-        recoveryKeyStatus: 'active',
-      };
-    case 'consumed':
-      return {
-        ...base,
-        recoveryKeyStatus: 'consumed',
-        consumedAtMs: input.record.consumedAtMs,
-      };
-    case 'revoked':
-      return {
-        ...base,
-        recoveryKeyStatus: 'revoked',
-        revokedAtMs: input.record.revokedAtMs,
-      };
-  }
-}
-
 export function emailOtpAuthStateRecord(input: {
   readonly enrollment: EmailOtpWalletEnrollmentRecord;
   readonly existing: EmailOtpAuthStateRecord | null;
@@ -1354,7 +876,6 @@ function parseEmailOtpChallengeAction(input: unknown): EmailOtpChallengeIssueAct
   switch (action) {
     case WALLET_EMAIL_OTP_ACTIONS.login:
     case WALLET_EMAIL_OTP_ACTIONS.registration:
-    case WALLET_EMAIL_OTP_ACTIONS.deviceRecovery:
     case WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap:
       return action;
     default:
@@ -1371,7 +892,6 @@ export function emailOtpChallengePurposeIsValid(input: {
       return isWalletEmailOtpLoginOperation(input.operation);
     case WALLET_EMAIL_OTP_ACTIONS.registration:
       return input.operation === WALLET_EMAIL_OTP_REGISTRATION_OPERATION;
-    case WALLET_EMAIL_OTP_ACTIONS.deviceRecovery:
     case WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap:
       return input.operation === WALLET_EMAIL_OTP_UNLOCK_OPERATION;
   }
@@ -1406,106 +926,6 @@ function hasExactRecordFields(
   return (
     actualFields.length === expected.length &&
     actualFields.every((field, index) => field === expected[index])
-  );
-}
-
-function recoveryRotationInputObject(input: unknown): Record<string, unknown> | null {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
-  return input as Record<string, unknown>;
-}
-
-async function validateEmailOtpRecoveryWrappedEnrollmentEscrowSet(input: {
-  readonly records: readonly EmailOtpRecoveryEnrollmentEscrowBoundary[];
-  readonly sha256Bytes: EmailOtpRecoveryRotationHash;
-}): Promise<
-  { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string }
-> {
-  const first = input.records[0];
-  if (!first) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: `Exactly ${EMAIL_OTP_RECOVERY_KEY_COUNT} recovery-wrapped enrollment escrows are required`,
-    };
-  }
-
-  const recoveryKeyIds = new Set<string>();
-  const nonceB64us = new Set<string>();
-  for (const boundary of input.records) {
-    if (boundary.record.recoveryKeyStatus !== 'active') {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'Recovery-wrapped enrollment escrows must be active at enrollment',
-      };
-    }
-    const record = boundary.record;
-    if (recoveryKeyIds.has(record.recoveryKeyId)) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'Recovery-wrapped enrollment escrow recoveryKeyId values must be unique',
-      };
-    }
-    recoveryKeyIds.add(record.recoveryKeyId);
-
-    if (nonceB64us.has(record.nonceB64u)) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'Recovery-wrapped enrollment escrow nonce values must be unique',
-      };
-    }
-    nonceB64us.add(record.nonceB64u);
-
-    if (!recoveryEnrollmentEscrowsShareScope(record, first.record)) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'Recovery-wrapped enrollment escrow metadata must share one enrollment scope',
-      };
-    }
-
-    const expectedAadHashB64u = base64UrlEncode(
-      await input.sha256Bytes(encodeEmailOtpRecoveryWrappedEnrollmentAad(boundary.binding)),
-    );
-    if (record.aadHashB64u !== expectedAadHashB64u) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'Recovery-wrapped enrollment escrow aadHashB64u does not match metadata',
-      };
-    }
-  }
-
-  if (
-    recoveryKeyIds.size !== EMAIL_OTP_RECOVERY_KEY_COUNT ||
-    nonceB64us.size !== EMAIL_OTP_RECOVERY_KEY_COUNT
-  ) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: `Exactly ${EMAIL_OTP_RECOVERY_KEY_COUNT} distinct recovery-wrapped enrollment escrows are required`,
-    };
-  }
-
-  return { ok: true };
-}
-
-function recoveryEnrollmentEscrowsShareScope(
-  record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-  first: EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-): boolean {
-  return (
-    record.walletId === first.walletId &&
-    record.userId === first.userId &&
-    record.authSubjectId === first.authSubjectId &&
-    record.authMethod === first.authMethod &&
-    record.enrollmentId === first.enrollmentId &&
-    record.enrollmentVersion === first.enrollmentVersion &&
-    record.enrollmentSealKeyVersion === first.enrollmentSealKeyVersion &&
-    record.signingRootId === first.signingRootId &&
-    record.signingRootVersion === first.signingRootVersion
   );
 }
 
