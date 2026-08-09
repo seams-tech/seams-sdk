@@ -37,7 +37,7 @@ The core delivery behavior already exists:
 - `packages/sdk-server-ts/src/router/cloudflare/d1/emailOtp/d1EmailOtpChallengeIssuer.ts` creates and persists a six-digit challenge, sends it synchronously, and deletes the challenge when delivery fails.
 - `packages/console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts` now constructs the SES provider when a provider delivery mode is selected and passes it to the authentication service.
 
-The remaining implementation gap is deployment configuration and secret plumbing. The existing console email outbox in `packages/console-server-ts/src/email/` serves invitations and other console messages. It remains unchanged in this refactor.
+The remaining work is release execution: create the production-testnet gateway environment and secrets, merge the production PR, rehearse the testnet flow, wait for SES production access, and deploy mainnet. The existing console email outbox in `packages/console-server-ts/src/email/` serves invitations and other console messages. It remains unchanged in this refactor.
 
 ## Required invariants
 
@@ -192,52 +192,53 @@ Client-facing responses retain the current generic delivery failure. Server logs
 
 ### Phase 1: Provision and prove the SES identity
 
-1. Select the SES region.
-2. Verify `seams.sh`, Easy DKIM, and `confirm.seams.sh` custom MAIL FROM.
-3. Configure suppression and disable engagement tracking.
-4. Create the least-privilege IAM principal and protected secrets.
-5. Send one SES-console test to a controlled verified inbox while the account remains in the sandbox.
-6. Request production access.
+- [x] Select the SES region (`ap-southeast-2`).
+- [x] Verify `seams.sh`, Easy DKIM, and `confirm.seams.sh` custom MAIL FROM.
+- [ ] Configure suppression and disable engagement tracking.
+- [ ] Create the least-privilege IAM principal and protected secrets. The principal and production-mainnet secrets are configured; the `production-testnet-gateway` environment and its SES secrets remain.
+- [ ] Send one SES-console test to a controlled verified inbox while the account remains in the sandbox.
+- [x] Request production access. AWS review remains in progress.
 
 Exit criteria: SES reports a healthy identity and aligned MAIL FROM domain, and a controlled test message arrives with passing SPF and DKIM results.
 
 ### Phase 2: Implement the provider
 
-1. Add the SES v2 dependency to `packages/console-server-ts`.
-2. Add the operation-exhaustive HTML/plain-text renderer under `packages/console-server-ts/src/email/otp/`.
-3. Add the SES provider under the same directory and implement the existing `CloudflareD1EmailOtpDeliveryProvider` contract.
-4. Add a boundary parser for the four SES environment values.
-5. Construct the provider in `d1RouterApiStagingWorker.ts` when `email_provider` is selected and pass it to `createCloudflareD1RouterApiAuthService`.
+- [x] Add the SES v2 dependency to `packages/console-server-ts`.
+- [x] Add the operation-exhaustive HTML/plain-text renderer under `packages/console-server-ts/src/email/otp/`.
+- [x] Add the SES provider under the same directory and implement the existing `CloudflareD1EmailOtpDeliveryProvider` contract.
+- [x] Add a boundary parser for the four SES environment values.
+- [x] Construct the provider in `d1RouterApiStagingWorker.ts` when provider delivery is selected and pass it to `createCloudflareD1RouterApiAuthService`.
 
 Exit criteria: a unit test proves the exact SES request shape, all four operations render, and mapped failures return without exposing secrets or OTP content.
 
 ### Phase 3: Wire deployment configuration
 
-1. Extend the gateway deployment target schema and renderer with SES region and From address.
-2. Extend deployment preflight so production cannot deploy `email_provider` without all SES values.
-3. Add the two credential values to the `production-gateway` GitHub Environment secrets.
-4. Forward the secrets through the production gateway workflow into Cloudflare Worker secrets.
-5. Update checked-in environment examples with names and descriptions only.
+- [x] Extend the gateway deployment target schema and renderer with SES region and From address.
+- [x] Extend deployment preflight so provider delivery cannot deploy without all SES values.
+- [x] Add the two credential values to the `production-gateway` GitHub Environment secrets.
+- [x] Forward the secrets through the production gateway workflows into Cloudflare Worker secrets.
+- [x] Update checked-in environment examples with names and descriptions only.
 
 Exit criteria: deployment rendering contains the two non-secret values, secret values remain absent from generated files and logs, and preflight rejects an incomplete production configuration.
 
 ### Phase 4: Rehearse the real OTP flow
 
-1. Deploy the production gateway with SES still restricted to controlled verified recipients.
-2. Request each supported OTP operation from a controlled account.
-3. Confirm the email arrives, displays correctly in HTML and plain text, and contains the expected operation copy.
-4. Complete each action with the received code.
-5. Confirm an expired code and an incorrect code fail through existing behavior.
-6. Inspect Cloudflare and SES logs to confirm the code and destination never appear.
+- [ ] Deploy the production-testnet gateway with SES still restricted to controlled verified recipients.
+- [ ] Request each supported OTP operation from a controlled account.
+- [ ] Confirm the email arrives, displays correctly in HTML and plain text, and contains the expected operation copy.
+- [ ] Confirm the production-testnet toast exposes the same OTP delivered by email.
+- [ ] Complete each action with the received code.
+- [ ] Confirm an expired code and an incorrect code fail through existing behavior.
+- [ ] Inspect Cloudflare and SES logs to confirm the code and destination never appear.
 
 Exit criteria: one observed end-to-end send and verification succeeds for every operation, and the failure checks preserve the existing challenge semantics.
 
 ### Phase 5: Enable and monitor general delivery
 
-1. Confirm SES production access is active in the selected region.
-2. Enable the user-facing Email OTP path.
-3. Watch provider failure count, SES sends, bounces, complaints, and account reputation during the initial rollout.
-4. Establish alerts for sustained delivery failures and SES reputation thresholds.
+- [ ] Confirm SES production access is active in the selected region.
+- [ ] Deploy the production-mainnet email-only OTP path.
+- [ ] Watch provider failure count, SES sends, bounces, complaints, and account reputation during the initial rollout.
+- [ ] Establish alerts for sustained delivery failures and SES reputation thresholds.
 
 Exit criteria: general recipients can complete OTP flows, provider failures remain within the agreed threshold, and bounce/complaint metrics remain healthy.
 
@@ -245,16 +246,18 @@ Exit criteria: general recipients can complete OTP flows, provider failures rema
 
 Add focused tests under the top-level `tests/` workspace after reading `tests/AGENTS.md`:
 
-- provider request construction with a fake SES client;
-- HTML and text rendering for every OTP operation;
-- HTML escaping and absence of remote resources;
-- stable mapping for throttling, rejection, transport failure, and missing message ID;
-- worker configuration rejection when any required SES value is absent;
-- deployed gateway wiring passes the provider into the existing auth service;
-- deployment output contains no secret values;
-- the existing `cloudflareD1RouterApiEmailOtp.unit.test.ts` provider-delivery cases remain green.
+- [x] Provider request construction with a fake SES client.
+- [x] HTML and text rendering for every OTP operation.
+- [x] HTML escaping and absence of remote resources.
+- [x] Stable mapping for throttling, rejection, transport failure, and missing message ID.
+- [x] Worker configuration rejection when any required SES value is absent.
+- [x] Gateway wiring passes the provider into the existing auth service.
+- [x] Deployment output contains no secret values.
+- [x] The existing `cloudflareD1RouterApiEmailOtp.unit.test.ts` provider-delivery cases remain green.
 
-Run the narrow provider and deployment tests first. Run `pnpm test:intended` because the production authentication delivery path changes. Run `pnpm check` after the focused tests pass.
+- [x] Run the narrow provider and deployment tests.
+- [ ] Run `pnpm test:intended`. The latest attempt stopped on a Router health `502` before assertions.
+- [ ] Run `pnpm check`. The latest broad run was obstructed by unrelated `.claude/worktrees` content.
 
 ## Failure and rollback behavior
 
@@ -276,16 +279,16 @@ Document the final SES region, DNS ownership, secret owner, access-key rotation 
 
 ## Definition of done
 
-- SES identity, DKIM, SPF/custom MAIL FROM, and DMARC monitoring are configured for `seams.sh`.
-- SES production access is active in the selected region.
-- The dedicated IAM principal can call only the required SES send action for the intended identity.
-- The Cloudflare production gateway constructs and uses the SES provider.
-- All four OTP operations send styled HTML and equivalent plain text.
-- Provider and configuration tests pass, followed by `pnpm test:intended` and `pnpm check`.
-- A controlled end-to-end OTP request and verification succeeds for every operation.
-- Logs and deployment artifacts contain no OTP codes, recipient addresses, or AWS secrets.
-- Bounce, complaint, reputation, and provider-failure monitoring are active.
-- The obsolete OTP provider recommendation has been removed.
+- [x] SES identity, DKIM, SPF/custom MAIL FROM, and DMARC monitoring are configured for `seams.sh`.
+- [ ] SES production access is active in the selected region.
+- [x] The dedicated IAM principal can call only the required SES send action for the intended identity.
+- [x] The production gateway implementation constructs and uses the SES provider.
+- [x] All four OTP operations render styled HTML and equivalent plain text and are covered by provider tests.
+- [ ] Provider and configuration tests pass, followed by `pnpm test:intended` and `pnpm check`.
+- [ ] A controlled end-to-end OTP request and verification succeeds for every operation.
+- [ ] Production logs and deployment artifacts are confirmed to contain no OTP codes, recipient addresses, or AWS secrets.
+- [ ] Bounce, complaint, reputation, and provider-failure monitoring are active.
+- [ ] The obsolete OTP provider recommendation has been removed.
 
 ## AWS references
 
