@@ -1,5 +1,4 @@
 use router_ab_core::{
-    RouterAbEd25519YaoActivationAdmissionReceiptV1, RouterAbEd25519YaoActivationResultV1,
     RouterAbEd25519YaoApplicationBindingFactsV1, RouterAbEd25519YaoExportAdmissionReceiptV1,
     RouterAbEd25519YaoExportResultV1,
 };
@@ -7,10 +6,8 @@ use wasm_bindgen::prelude::*;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::{
-    complete_client_activation_v1, complete_client_export_v1, create_client_signing_share_v1,
-    prepare_client_export_from_custody_seed_v1, prepare_client_recovery_from_custody_seed_v1,
-    prepare_client_registration_from_custody_seed_v1,
-    ClientActivationEntropyV1, ClientActivationStateV1, ClientExportStateV1,
+    complete_client_export_v1, create_client_signing_share_v1,
+    prepare_client_export_from_custody_seed_v1, ClientActivationEntropyV1, ClientExportStateV1,
     ClientSigningRequestV1,
 };
 use crate::{
@@ -125,169 +122,6 @@ impl WasmCustodyEnvelopeExportSessionV1 {
     }
 }
 
-/// One-use wallet-custody registration session containing only Client-owned secret state.
-#[wasm_bindgen]
-pub struct WasmCustodySeedRegistrationSessionV1 {
-    execute_request_json: String,
-    state: Option<ClientActivationStateV1>,
-}
-
-#[wasm_bindgen]
-impl WasmCustodySeedRegistrationSessionV1 {
-    /// Prepares binding-specific A/B inputs from the wallet custody seed.
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        admission_json: &str,
-        application_json: &str,
-        client_participant_id: u16,
-        signing_worker_participant_id: u16,
-        custody_seed: &[u8],
-        recipient_key_material: &[u8],
-        deriver_a_seal_seed: &[u8],
-        deriver_b_seal_seed: &[u8],
-    ) -> Result<WasmCustodySeedRegistrationSessionV1, JsValue> {
-        let admission =
-            serde_json::from_str::<RouterAbEd25519YaoActivationAdmissionReceiptV1>(admission_json)
-                .map_err(js_error)?;
-        let application =
-            serde_json::from_str::<RouterAbEd25519YaoApplicationBindingFactsV1>(application_json)
-                .map_err(js_error)?;
-        let custody_seed = Zeroizing::new(parse_32(custody_seed, "wallet custody seed")?);
-        let recipient_key_material =
-            Zeroizing::new(parse_32(recipient_key_material, "recipient key material")?);
-        let deriver_a_seal_seed =
-            Zeroizing::new(parse_32(deriver_a_seal_seed, "Deriver A seal seed")?);
-        let deriver_b_seal_seed =
-            Zeroizing::new(parse_32(deriver_b_seal_seed, "Deriver B seal seed")?);
-        let entropy = ClientActivationEntropyV1::new(
-            *recipient_key_material,
-            *deriver_a_seal_seed,
-            *deriver_b_seal_seed,
-        )
-        .map_err(js_error)?;
-        let prepared = prepare_client_registration_from_custody_seed_v1(
-            &admission,
-            &application,
-            [client_participant_id, signing_worker_participant_id],
-            &*custody_seed,
-            entropy,
-        )
-        .map_err(js_error)?;
-        let (execute_request, state) = prepared.into_parts();
-        let execute_request_json = serde_json::to_string(&execute_request).map_err(js_error)?;
-        Ok(Self {
-            execute_request_json,
-            state: Some(state),
-        })
-    }
-
-    /// Returns the canonical opaque Router execution request JSON.
-    pub fn execute_request_json(&self) -> String {
-        self.execute_request_json.clone()
-    }
-
-    /// Opens and verifies a terminal Router result exactly once.
-    pub fn complete(&mut self, result_json: &str) -> Result<WasmActivatedClientV1, JsValue> {
-        let result = serde_json::from_str::<RouterAbEd25519YaoActivationResultV1>(result_json)
-            .map_err(js_error)?;
-        let state = self
-            .state
-            .take()
-            .ok_or_else(|| JsValue::from_str("Ed25519 Yao registration session was consumed"))?;
-        let activated = complete_client_activation_v1(state, &result).map_err(js_error)?;
-        Ok(WasmActivatedClientV1 {
-            client_scalar_share: Zeroizing::new(*activated.client_scalar_share()),
-            registered_public_key: activated.registered_public_key(),
-            state_epoch: activated.state_epoch(),
-        })
-    }
-}
-
-/// One-use wallet-custody recovery session containing only Client-owned secret state.
-#[wasm_bindgen]
-pub struct WasmCustodySeedRecoverySessionV1 {
-    execute_request_json: String,
-    state: Option<ClientActivationStateV1>,
-}
-
-#[wasm_bindgen]
-impl WasmCustodySeedRecoverySessionV1 {
-    /// Prepares seed-derived recovery inputs bound to the registered public key.
-    #[wasm_bindgen(constructor)]
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        admission_json: &str,
-        application_json: &str,
-        client_participant_id: u16,
-        signing_worker_participant_id: u16,
-        custody_seed: &[u8],
-        expected_registered_public_key: &[u8],
-        recipient_key_material: &[u8],
-        deriver_a_seal_seed: &[u8],
-        deriver_b_seal_seed: &[u8],
-    ) -> Result<WasmCustodySeedRecoverySessionV1, JsValue> {
-        let admission =
-            serde_json::from_str::<RouterAbEd25519YaoActivationAdmissionReceiptV1>(admission_json)
-                .map_err(js_error)?;
-        let application =
-            serde_json::from_str::<RouterAbEd25519YaoApplicationBindingFactsV1>(application_json)
-                .map_err(js_error)?;
-        let custody_seed = Zeroizing::new(parse_32(custody_seed, "wallet custody seed")?);
-        let expected_registered_public_key = parse_32(
-            expected_registered_public_key,
-            "expected registered public key",
-        )?;
-        let recipient_key_material =
-            Zeroizing::new(parse_32(recipient_key_material, "recipient key material")?);
-        let deriver_a_seal_seed =
-            Zeroizing::new(parse_32(deriver_a_seal_seed, "Deriver A seal seed")?);
-        let deriver_b_seal_seed =
-            Zeroizing::new(parse_32(deriver_b_seal_seed, "Deriver B seal seed")?);
-        let entropy = ClientActivationEntropyV1::new(
-            *recipient_key_material,
-            *deriver_a_seal_seed,
-            *deriver_b_seal_seed,
-        )
-        .map_err(js_error)?;
-        let prepared = prepare_client_recovery_from_custody_seed_v1(
-            &admission,
-            &application,
-            [client_participant_id, signing_worker_participant_id],
-            &*custody_seed,
-            expected_registered_public_key,
-            entropy,
-        )
-        .map_err(js_error)?;
-        let (execute_request, state) = prepared.into_parts();
-        let execute_request_json = serde_json::to_string(&execute_request).map_err(js_error)?;
-        Ok(Self {
-            execute_request_json,
-            state: Some(state),
-        })
-    }
-
-    /// Returns the canonical opaque Router execution request JSON.
-    pub fn execute_request_json(&self) -> String {
-        self.execute_request_json.clone()
-    }
-
-    /// Opens and verifies a terminal recovery result exactly once.
-    pub fn complete(&mut self, result_json: &str) -> Result<WasmActivatedClientV1, JsValue> {
-        let result = serde_json::from_str::<RouterAbEd25519YaoActivationResultV1>(result_json)
-            .map_err(js_error)?;
-        let state = self
-            .state
-            .take()
-            .ok_or_else(|| JsValue::from_str("Ed25519 Yao recovery session was consumed"))?;
-        let activated = complete_client_activation_v1(state, &result).map_err(js_error)?;
-        Ok(WasmActivatedClientV1 {
-            client_scalar_share: Zeroizing::new(*activated.client_scalar_share()),
-            registered_public_key: activated.registered_public_key(),
-            state_epoch: activated.state_epoch(),
-        })
-    }
-}
-
 /// One-use verified Ed25519 seed returned to the secure export viewer boundary.
 #[wasm_bindgen]
 pub struct WasmExportedEd25519SeedV1 {
@@ -347,26 +181,6 @@ impl WasmActivatedClientV1 {
         )
     }
 
-    /// Authenticates and encrypts active Client material under Email OTP enrollment custody.
-    pub fn seal_email_otp_local_material(
-        &self,
-        owned_enrollment_secret32: &[u8],
-        binding: &[u8],
-        nonce: &[u8],
-    ) -> Result<Vec<u8>, JsValue> {
-        let wrapping_secret = Zeroizing::new(parse_32(
-            owned_enrollment_secret32,
-            "Email OTP enrollment secret",
-        )?);
-        seal_activated_client_local_material(
-            self,
-            &wrapping_secret,
-            binding,
-            nonce,
-            LocalMaterialSealDomainV1::EmailOtpEnrollment,
-        )
-    }
-
     /// Opens a same-device envelope and re-verifies its public threshold relation.
     #[allow(clippy::too_many_arguments)]
     pub fn import_local_material(
@@ -391,36 +205,6 @@ impl WasmActivatedClientV1 {
             [client_participant_id, signing_worker_participant_id],
             signing_worker_verifying_share,
             LocalMaterialSealDomainV1::PasskeyPrfFirst,
-        )
-    }
-
-    /// Opens an Email OTP custody envelope and re-verifies its public threshold relation.
-    #[allow(clippy::too_many_arguments)]
-    pub fn import_email_otp_local_material(
-        owned_enrollment_secret32: &[u8],
-        binding: &[u8],
-        nonce: &[u8],
-        ciphertext: &[u8],
-        expected_registered_public_key: &[u8],
-        expected_state_epoch: u64,
-        client_participant_id: u16,
-        signing_worker_participant_id: u16,
-        signing_worker_verifying_share: &[u8],
-    ) -> Result<WasmActivatedClientV1, JsValue> {
-        let wrapping_secret = Zeroizing::new(parse_32(
-            owned_enrollment_secret32,
-            "Email OTP enrollment secret",
-        )?);
-        import_activated_client_local_material(
-            &wrapping_secret,
-            binding,
-            nonce,
-            ciphertext,
-            expected_registered_public_key,
-            expected_state_epoch,
-            [client_participant_id, signing_worker_participant_id],
-            signing_worker_verifying_share,
-            LocalMaterialSealDomainV1::EmailOtpEnrollment,
         )
     }
 

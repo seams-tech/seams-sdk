@@ -978,10 +978,9 @@ fn a_seed_sealed_cache_returns_material_that_reproduces_the_registered_key() {
 }
 
 #[test]
-fn a_seed_sealed_cache_does_not_open_under_a_factor_domain() {
-    // The three domains must not be interchangeable even when handed identical
-    // bytes: a record sealed for the wallet must never open as though a factor
-    // had sealed it, or the domain separation is decorative.
+fn a_seed_sealed_cache_does_not_open_under_the_passkey_factor_domain() {
+    // A record sealed for the wallet must never open as though a passkey factor
+    // had sealed it, even when both paths receive identical bytes.
     let (activated, registered_public_key, verifying_share) = activated_for_cache();
     let secret = [0x44; 32];
     let sealed = seal_activated_client_under_custody_seed_v1(
@@ -992,23 +991,18 @@ fn a_seed_sealed_cache_does_not_open_under_a_factor_domain() {
     )
     .expect("seal");
 
-    for domain in [
+    let opened = import_activated_client_material_v1(
+        &secret,
+        CACHE_BINDING,
+        &CACHE_NONCE,
+        &sealed,
+        &registered_public_key,
+        activated.state_epoch(),
+        [1, 2],
+        &verifying_share,
         LocalMaterialSealDomainV1::PasskeyPrfFirst,
-        LocalMaterialSealDomainV1::EmailOtpEnrollment,
-    ] {
-        let opened = import_activated_client_material_v1(
-            &secret,
-            CACHE_BINDING,
-            &CACHE_NONCE,
-            &sealed,
-            &registered_public_key,
-            activated.state_epoch(),
-            [1, 2],
-            &verifying_share,
-            domain,
-        );
-        assert_eq!(opened.err(), Some(LocalMaterialError::SealFailed));
-    }
+    );
+    assert_eq!(opened.err(), Some(LocalMaterialError::SealFailed));
 }
 
 #[test]

@@ -1,7 +1,5 @@
 import {
   WasmActivatedClientV1,
-  WasmCustodySeedRecoverySessionV1,
-  WasmCustodySeedRegistrationSessionV1,
   WasmCustodyEnvelopeExportSessionV1,
   openWalletCustodyEd25519MaterialV1,
   default as initializeYaoClientWasm,
@@ -21,10 +19,8 @@ import {
   type RouterAbEd25519YaoBytes32V1,
   type RouterAbEd25519YaoActivationExecuteRequestV1,
   type RouterAbEd25519YaoRecoveryActivationRequestV1,
-  type RouterAbEd25519YaoRecoveryActivationReceiptV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
   type RouterAbEd25519YaoRecoveryStatusRequestV1,
-  type RouterAbEd25519YaoRecoveryStatusV1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
   type RouterAbEd25519YaoExportAdmissionRequestV1,
   type RouterAbEd25519YaoExportAdmissionReceiptV1,
@@ -251,36 +247,6 @@ export type RouterAbEd25519YaoClientSigningShareV1 = {
   clientSignatureShareB64u: string;
 };
 
-export type RouterAbEd25519YaoRegistrationResultV1 =
-  | {
-      ok: true;
-      activeClient: RouterAbEd25519YaoSealableActiveClientV1;
-      /** Raw Router `Server-Timing` for the execute call. Diagnostics only. */
-      routerServerTiming?: string;
-      /** Client-observed Yao sub-steps in ms. Diagnostics only. */
-      clientTimings?: { admissionMs: number; sessionCreateMs: number };
-    }
-  | RouterAbEd25519YaoRegistrationFailureV1;
-
-export type RouterAbEd25519YaoRecoveryResultV1 =
-  | {
-      ok: true;
-      activeClient: RouterAbEd25519YaoSealableActiveClientV1;
-      activation: RouterAbEd25519YaoRecoveryActivationReceiptV1;
-    }
-  | RouterAbEd25519YaoRegistrationFailureV1;
-
-export type RouterAbEd25519YaoPreparedRecoveryInputV1 = {
-  request: RouterAbEd25519YaoRecoveryAdmissionRequestV1;
-  factor: RouterAbEd25519YaoCustodySeedV1;
-  transport: RouterAbEd25519YaoRecoveryTransportV1;
-  entropy: RouterAbEd25519YaoActivationEntropyV1;
-};
-
-export type RouterAbEd25519YaoRecoveryStatusResultV1 =
-  | { ok: true; status: RouterAbEd25519YaoRecoveryStatusV1 }
-  | RouterAbEd25519YaoRegistrationTransportFailureV1;
-
 export type RouterAbEd25519YaoHttpTransportConfigV1 = {
   routerOrigin: string;
   authorization: string;
@@ -338,11 +304,6 @@ function requireBytes12(value: Uint8Array, label: string): Uint8Array {
   return value;
 }
 
-export type RouterAbEd25519YaoCustodySeedV1 = {
-  kind: 'wallet_custody_seed';
-  ownedSeed32: Uint8Array;
-};
-
 export type RouterAbEd25519YaoExportSeedInputV1 = {
   request: RouterAbEd25519YaoExportAdmissionRequestV1;
   transport: RouterAbEd25519YaoExportTransportV1;
@@ -357,81 +318,7 @@ export type RouterAbEd25519YaoExportSeedInputV1 = {
   authorization: RouterAbEd25519YaoExportFreshAuthorizationV1;
 };
 
-type FactorSecretConsumptionResultV1 =
-  | { ok: true; value: Uint8Array }
-  | RouterAbEd25519YaoRegistrationFailureV1;
-
-function consumeOwnedCustodySeed(
-  factor: RouterAbEd25519YaoCustodySeedV1,
-): FactorSecretConsumptionResultV1 {
-  const owned = factor.ownedSeed32;
-  try {
-    return { ok: true, value: requireBytes32(owned.slice(), 'wallet custody seed') };
-  } catch (error) {
-    return {
-      ok: false,
-      code: 'invalid_factor_secret',
-      status: 0,
-      message: error instanceof Error ? error.message : String(error),
-    };
-  } finally {
-    owned.fill(0);
-  }
-}
-
-function reownConsumedCustodySeed(ownedSeed32: Uint8Array): RouterAbEd25519YaoCustodySeedV1 {
-  return { kind: 'wallet_custody_seed', ownedSeed32 };
-}
-
-type WasmRegistrationSessionV1 = WasmCustodySeedRegistrationSessionV1;
-
-type WasmRecoverySessionV1 = WasmCustodySeedRecoverySessionV1;
-
 type WasmExportSessionV1 = WasmCustodyEnvelopeExportSessionV1;
-
-function createRegistrationSession(args: {
-  admission: unknown;
-  applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1;
-  participantIds: readonly [number, number];
-  factor: RouterAbEd25519YaoCustodySeedV1['kind'];
-  secret32: Uint8Array;
-  entropy: RouterAbEd25519YaoActivationEntropyV1;
-}): WasmRegistrationSessionV1 {
-  const common = [
-    JSON.stringify(args.admission),
-    JSON.stringify(args.applicationBinding),
-    args.participantIds[0],
-    args.participantIds[1],
-    args.secret32,
-    args.entropy.recipientKeyMaterial,
-    args.entropy.deriverASealSeed,
-    args.entropy.deriverBSealSeed,
-  ] as const;
-  return new WasmCustodySeedRegistrationSessionV1(...common);
-}
-
-function createRecoverySession(args: {
-  admission: unknown;
-  applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1;
-  participantIds: readonly [number, number];
-  factor: RouterAbEd25519YaoCustodySeedV1['kind'];
-  secret32: Uint8Array;
-  registeredPublicKey: Uint8Array;
-  entropy: RouterAbEd25519YaoActivationEntropyV1;
-}): WasmRecoverySessionV1 {
-  const common = [
-    JSON.stringify(args.admission),
-    JSON.stringify(args.applicationBinding),
-    args.participantIds[0],
-    args.participantIds[1],
-    args.secret32,
-    args.registeredPublicKey,
-    args.entropy.recipientKeyMaterial,
-    args.entropy.deriverASealSeed,
-    args.entropy.deriverBSealSeed,
-  ] as const;
-  return new WasmCustodySeedRecoverySessionV1(...common);
-}
 
 function createExportSession(args: {
   admission: unknown;

@@ -46,10 +46,6 @@ pub const MAX_ACTIVATED_CLIENT_BINDING_LEN_V1: usize = 4096;
 
 const PASSKEY_SEAL_INFO_V1: &[u8] = b"seams/router-ab/ed25519-yao/activated-client-seal/v1";
 const PASSKEY_SEAL_SALT_V1: &[u8] = b"seams/router-ab/ed25519-yao/activated-client-seal/salt/v1";
-const EMAIL_OTP_SEAL_INFO_V1: &[u8] =
-    b"seams/router-ab/ed25519-yao/activated-client-seal/email-otp/v1";
-const EMAIL_OTP_SEAL_SALT_V1: &[u8] =
-    b"seams/router-ab/ed25519-yao/activated-client-seal/email-otp/salt/v1";
 /// The wallet-scoped domain. Its wrapping secret is the seed-derived cache key
 /// from `signer_core::wallet_seed_derivation`, never a factor secret and never
 /// a signing root.
@@ -69,9 +65,6 @@ const WALLET_CUSTODY_SEED_SEAL_SALT_V1: &[u8] =
 pub enum LocalMaterialSealDomainV1 {
     /// Wrapped by `PRF.first`. Opens only for the credential that registered.
     PasskeyPrfFirst,
-    /// Wrapped by the Email OTP enrollment secret. Opens only for that
-    /// enrollment.
-    EmailOtpEnrollment,
     /// Wrapped by the seed-derived cache key, so every factor that opens the
     /// wallet's custody envelope reaches the same record.
     WalletCustodySeed,
@@ -81,7 +74,6 @@ impl LocalMaterialSealDomainV1 {
     const fn salt(self) -> &'static [u8] {
         match self {
             Self::PasskeyPrfFirst => PASSKEY_SEAL_SALT_V1,
-            Self::EmailOtpEnrollment => EMAIL_OTP_SEAL_SALT_V1,
             Self::WalletCustodySeed => WALLET_CUSTODY_SEED_SEAL_SALT_V1,
         }
     }
@@ -89,7 +81,6 @@ impl LocalMaterialSealDomainV1 {
     const fn info(self) -> &'static [u8] {
         match self {
             Self::PasskeyPrfFirst => PASSKEY_SEAL_INFO_V1,
-            Self::EmailOtpEnrollment => EMAIL_OTP_SEAL_INFO_V1,
             Self::WalletCustodySeed => WALLET_CUSTODY_SEED_SEAL_INFO_V1,
         }
     }
