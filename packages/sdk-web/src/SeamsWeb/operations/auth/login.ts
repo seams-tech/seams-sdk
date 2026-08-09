@@ -2553,6 +2553,77 @@ type CompletedPasskeySessionExchange = {
   readonly result: Awaited<ReturnType<typeof exchangeSession>>;
 };
 
+function sameCanonicalEcdsaValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function assertPasskeyEcdsaExchangeContinuity(args: {
+  readonly walletId: string;
+  readonly prepared: PreparedPasskeyExchangeEcdsaActivation;
+  readonly response: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+  readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+  readonly continuity: PasskeySessionEcdsaCustodyContinuityV1;
+}): void {
+  const first = args.continuity.signers[0];
+  if (!first) throw new Error('Passkey ECDSA custody continuity is empty');
+  const capability = first.walletKey.publicCapability;
+  const receipt = first.activationReceipt;
+  const activation = receipt.ecdsa_activation;
+  const normalScope = args.response.normal_signing.scope;
+  if (
+    first.walletKey.walletId !== args.walletId ||
+    first.walletKey.keyHandle !== args.prepared.policy.key_handle ||
+    thresholdEcdsaChainTargetKey(first.chainTarget) !== args.prepared.targetKey ||
+    args.response.session.threshold_session_id !==
+      args.prepared.policy.session_policy.threshold_session_id ||
+    !sameCanonicalEcdsaValue(
+      first.runtimePolicyScope,
+      args.prepared.policy.session_policy.runtime_policy_scope,
+    ) ||
+    !sameCanonicalEcdsaValue(args.response.public_capability, capability) ||
+    !sameCanonicalEcdsaValue(args.activationReceipt, receipt) ||
+    !sameCanonicalEcdsaValue(capability.context, activation.context) ||
+    !sameCanonicalEcdsaValue(capability.public_identity, activation.public_identity) ||
+    !sameCanonicalEcdsaValue(capability.material_activation, activation.material_activation) ||
+    !sameCanonicalEcdsaValue(capability.signer_set.selected_server, activation.signing_worker) ||
+    capability.activation_epoch !== activation.activation_epoch ||
+    !sameCanonicalEcdsaValue(normalScope.context, activation.context) ||
+    !sameCanonicalEcdsaValue(normalScope.public_identity, activation.public_identity) ||
+    !sameCanonicalEcdsaValue(normalScope.material_activation, activation.material_activation) ||
+    !sameCanonicalEcdsaValue(normalScope.signing_worker, activation.signing_worker) ||
+    normalScope.activation_epoch !== activation.activation_epoch ||
+    normalScope.wallet_id !== args.walletId ||
+    normalScope.ecdsa_threshold_key_id !== first.walletKey.ecdsaThresholdKeyId ||
+    normalScope.signing_root_id !== first.walletKey.signingRootId ||
+    normalScope.signing_root_version !== first.walletKey.signingRootVersion
+  ) {
+    throw new Error('Passkey ECDSA session activation changed custody continuity');
+  }
+}
+
+function assertRejoinedPasskeyEcdsaPublicFacts(args: {
+  readonly publicFacts: Awaited<
+    ReturnType<LoginUnlockSigningSurface['rejoinWalletCustodyEvmFamilyKeySet']>
+  >['publicFacts'];
+  readonly signer: PasskeySessionEcdsaCustodyContinuityV1['signers'][number];
+}): void {
+  const identity = args.signer.walletKey.publicCapability.public_identity;
+  if (
+    args.publicFacts.contextBinding32B64u !== identity.context_binding_b64u ||
+    args.publicFacts.derivationClientSharePublicKey33B64u !==
+      identity.derivation_client_share_public_key33_b64u ||
+    args.publicFacts.relayerPublicKey33B64u !== identity.server_public_key33_b64u ||
+    args.publicFacts.groupPublicKey33B64u !== identity.threshold_public_key33_b64u ||
+    args.publicFacts.ethereumAddress !== ethereumAddressFromEcdsaIdentityB64u(
+      identity.ethereum_address20_b64u,
+    ) ||
+    args.publicFacts.clientShareRetryCounter !== identity.client_share_retry_counter ||
+    args.publicFacts.relayerShareRetryCounter !== identity.server_share_retry_counter
+  ) {
+    throw new Error('Passkey ECDSA custody rejoin changed registered public identity');
+  }
+}
+
 function rememberPasskeySessionCustodyForExport(args: {
   readonly walletId: string;
   readonly exchange: CompletedPasskeySessionExchange;
@@ -2721,6 +2792,20 @@ async function completePasskeySessionExchange(args: {
     (!result.ecdsaSession || !result.ecdsaActivationReceipt || !result.ecdsaCustody)
   ) {
     throw new Error('Passkey session exchange omitted the requested ECDSA activation');
+  }
+  if (
+    args.activation &&
+    result.ecdsaSession &&
+    result.ecdsaActivationReceipt &&
+    result.ecdsaCustody
+  ) {
+    assertPasskeyEcdsaExchangeContinuity({
+      walletId: String(args.walletIdentity.walletId),
+      prepared: args.activation,
+      response: result.ecdsaSession,
+      activationReceipt: result.ecdsaActivationReceipt,
+      continuity: result.ecdsaCustody,
+    });
   }
   if (args.activation?.requiresCustodyRejoin) {
     const passkeyPrfFirstB64u = passkeyPrfFirstB64uFromCredential(credential);
@@ -3492,6 +3577,10 @@ async function restorePasskeyEcdsaCustodyLogin(input: {
         relayerShareRetryCounter:
           first.activationReceipt.ecdsa_activation.public_identity.server_share_retry_counter,
       }),
+    });
+    assertRejoinedPasskeyEcdsaPublicFacts({
+      publicFacts: rejoined.publicFacts,
+      signer: first,
     });
     await input.signingEngine.restoreWalletCustodyEcdsaContinuity({
       authority: input.authority,
