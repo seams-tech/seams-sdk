@@ -1389,6 +1389,8 @@ export class BrowserSigningSurface {
       thresholdEcdsaSigningQueueByKey: this.thresholdEcdsaSigningQueueByKey,
       loadWalletCustodyEd25519Material:
         this.loadEmailOtpWalletCustodyEd25519Material.bind(this),
+      restoreWalletCustodyEcdsaContinuity:
+        this.restoreWalletCustodyEcdsaContinuity.bind(this),
       getWarmSigning: () => this.warmSigning,
       ensureSealedRefreshStartupParity: () => this.ensureSealedRefreshStartupParity(),
       listActiveEcdsaCapabilityManifestsForWallet:

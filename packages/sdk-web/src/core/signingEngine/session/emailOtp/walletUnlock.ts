@@ -8,6 +8,7 @@ import type {
   EmailOtpWorkerProgressEvent,
   EmailOtpWalletCustodyEd25519MaterialRequest,
   EmailOtpWalletUnlockMaterialRequest,
+  EmailOtpEcdsaCustodyRestoreV1,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { LoadedWalletCustodyEd25519MaterialV1 } from '../../walletCustody/ed25519SeedMaterial';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '../../threshold/ed25519/yaoClient';
@@ -16,7 +17,7 @@ import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy'
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import { ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1 } from '@shared/utils/routerAbEd25519Yao';
 import type {
-  RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
+  RouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
   RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 
@@ -37,6 +38,7 @@ export type EmailOtpWalletUnlockResult = {
   | {
       operation: 'wallet_unlock';
       ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+      ecdsaCustody: EmailOtpEcdsaCustodyRestoreV1;
     }
   | {
       operation: Exclude<
@@ -122,28 +124,28 @@ export async function unlockEmailOtpWallet(
       | {
           ecdsaSessionHandleBinding: Extract<
             EmailOtpWalletUnlockMaterialRequest,
-            { kind: 'ecdsa'; ecdsaSessionActivation: unknown }
+            { kind: 'ecdsa'; ecdsaSessionPolicy: unknown }
           >['ecdsaSessionHandleBinding'];
-          ecdsaSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
+          ecdsaSessionPolicy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1;
           walletSessionAuthorization: EmailOtpEcdsaWalletUnlockAuthorization;
         }
       | {
           ecdsaSessionHandleBinding: Extract<
             EmailOtpWalletUnlockMaterialRequest,
-            { kind: 'ecdsa'; ecdsaSessionActivation?: never }
+            { kind: 'ecdsa'; ecdsaSessionPolicy?: never }
           >['ecdsaSessionHandleBinding'];
-          ecdsaSessionActivation?: never;
+          ecdsaSessionPolicy?: never;
         }
     ),
 ): Promise<EmailOtpWalletUnlockResult> {
   const result = await requestEmailOtpWalletUnlock({
     base: args,
-    material: args.ecdsaSessionActivation
+    material: args.ecdsaSessionPolicy
       ? {
           kind: 'ecdsa',
           ecdsaSessionHandleBinding: args.ecdsaSessionHandleBinding,
           runtimePolicyScope: args.runtimePolicyScope,
-          ecdsaSessionActivation: args.ecdsaSessionActivation,
+          ecdsaSessionPolicy: args.ecdsaSessionPolicy,
           walletSessionAuthorization: args.walletSessionAuthorization,
         }
       : {
@@ -155,7 +157,7 @@ export async function unlockEmailOtpWallet(
   if (result.kind !== 'ecdsa') {
     throw new Error('Email OTP wallet unlock returned the wrong material branch');
   }
-  if (args.ecdsaSessionActivation) {
+  if (args.ecdsaSessionPolicy) {
     if (result.operation !== 'wallet_unlock') {
       throw new Error('Email OTP wallet unlock returned a non-unlock ECDSA result');
     }
@@ -165,6 +167,7 @@ export async function unlockEmailOtpWallet(
       recovery: result.recovery,
       emailOtpSessionHandle: result.emailOtpSessionHandle,
       ecdsaSession: result.ecdsaSession,
+      ecdsaCustody: result.ecdsaCustody,
     };
   }
   if (result.operation !== args.ecdsaSessionHandleBinding.operation) {
@@ -243,7 +246,7 @@ export async function unlockEmailOtpWalletCapabilities(
     expectedOperationalPublicKey: string;
     expectedThresholdSessionId: string;
     walletCustodyEd25519Material: EmailOtpWalletCustodyEd25519MaterialRequest;
-    ecdsaSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
+    ecdsaSessionPolicy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1;
   },
 ): Promise<EmailOtpWalletUnlockCapabilityResults> {
   const result = await requestEmailOtpWalletUnlock({
@@ -253,7 +256,7 @@ export async function unlockEmailOtpWalletCapabilities(
       ecdsa: {
         sessionHandleBinding: args.ecdsaSessionHandleBinding,
         runtimePolicyScope: args.runtimePolicyScope,
-        sessionActivation: args.ecdsaSessionActivation,
+        sessionPolicy: args.ecdsaSessionPolicy,
       },
       ed25519Yao: {
         providerSubject: args.providerSubject,
@@ -282,6 +285,7 @@ export async function unlockEmailOtpWalletCapabilities(
       recovery: result.recovery,
       emailOtpSessionHandle: result.ecdsa.emailOtpSessionHandle,
       ecdsaSession: result.ecdsa.session,
+      ecdsaCustody: result.ecdsa.custody,
     },
     ed25519Yao:
       result.ed25519Yao.kind === 'wallet_custody_cache_absent'

@@ -27,6 +27,7 @@ export class EmailOtpEcdsaLifecycleRuntime {
       configs: SeamsConfigsReadonly;
       getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
       loadWalletCustodyEd25519Material: EmailOtpWalletSessionCoordinatorDeps['loadWalletCustodyEd25519Material'];
+      restoreWalletCustodyEcdsaContinuity: EmailOtpWalletSessionCoordinatorDeps['restoreWalletCustodyEcdsaContinuity'];
       provisionThresholdEcdsaSession: (
         request: ThresholdEcdsaActivationRequest,
       ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
@@ -60,6 +61,7 @@ export class EmailOtpEcdsaLifecycleRuntime {
       configs: this.ports.configs,
       getSignerWorkerContext: this.ports.getSignerWorkerContext,
       loadWalletCustodyEd25519Material: this.ports.loadWalletCustodyEd25519Material,
+      restoreWalletCustodyEcdsaContinuity: this.ports.restoreWalletCustodyEcdsaContinuity,
       provisionThresholdEcdsaSession: this.ports.provisionThresholdEcdsaSession,
       provisionEmailOtpEcdsaExplicitExportSession:
         this.ports.provisionEmailOtpEcdsaExplicitExportSession,
@@ -77,6 +79,7 @@ export class EmailOtpEcdsaLifecycleRuntime {
     return await prepareEmailOtpEcdsaExportCapability(args, {
       configs: this.ports.configs,
       getSignerWorkerContext: this.ports.getSignerWorkerContext,
+      restoreWalletCustodyEcdsaContinuity: this.ports.restoreWalletCustodyEcdsaContinuity,
       provisionThresholdEcdsaSession: this.ports.provisionThresholdEcdsaSession,
       provisionEmailOtpEcdsaExplicitExportSession:
         this.ports.provisionEmailOtpEcdsaExplicitExportSession,

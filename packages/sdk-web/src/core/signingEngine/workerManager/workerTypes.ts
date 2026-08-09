@@ -88,8 +88,11 @@ import {
 import type { NearResolvedEd25519SigningSessionState } from '../interfaces/near';
 import type { WalletRegistrationEd25519YaoBootstrapSession } from '@/core/rpcClients/relayer/walletRegistration';
 import type {
+  RouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
   RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
   RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
+  RouterAbEcdsaDerivationPublicCapabilityV1,
+  RouterAbEcdsaRegistrationActivationReceiptV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import type {
@@ -153,6 +156,35 @@ export type EmailOtpEcdsaWalletUnlockAuthorization =
       readonly walletSessionJwt: string;
     };
 
+export type EmailOtpEcdsaCustodySignerV1 = {
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly walletKey: {
+    readonly walletId: string;
+    readonly keyHandle: string;
+    readonly ecdsaThresholdKeyId: string;
+    readonly signingRootId: string;
+    readonly signingRootVersion: string;
+    readonly relayerKeyId: string;
+    readonly contextBinding32B64u: string;
+    readonly derivationClientSharePublicKey33B64u: string;
+    readonly participantIds: readonly [number, number];
+    readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+  };
+  readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+  readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
+};
+
+export type EmailOtpEcdsaCustodyContinuityV1 = {
+  readonly kind: 'wallet_custody_ecdsa_sync_continuity_v1';
+  readonly signers: readonly EmailOtpEcdsaCustodySignerV1[];
+};
+
+export type EmailOtpEcdsaCustodyRestoreV1 = {
+  readonly continuity: EmailOtpEcdsaCustodyContinuityV1;
+  readonly readyStateBlobB64u: string;
+  readonly publicFacts: WalletCustodyEvmFamilyPublicFacts;
+};
+
 export type EmailOtpWalletUnlockMaterialRequest =
   | ({
       readonly kind: 'ecdsa';
@@ -167,7 +199,7 @@ export type EmailOtpWalletUnlockMaterialRequest =
             EmailOtpEcdsaSessionBootstrapHandleBinding,
             { operation: 'wallet_unlock' }
           >;
-          readonly ecdsaSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
+          readonly ecdsaSessionPolicy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1;
           readonly walletSessionAuthorization: EmailOtpEcdsaWalletUnlockAuthorization;
         }
       | {
@@ -175,7 +207,7 @@ export type EmailOtpWalletUnlockMaterialRequest =
             EmailOtpEcdsaSessionBootstrapHandleBinding,
             { operation: 'wallet_unlock' }
           >;
-          readonly ecdsaSessionActivation?: never;
+          readonly ecdsaSessionPolicy?: never;
           readonly walletSessionAuthorization?: never;
         }
     ))
@@ -187,7 +219,7 @@ export type EmailOtpWalletUnlockMaterialRequest =
       readonly expectedOperationalPublicKey: string;
       readonly expectedThresholdSessionId: string;
       readonly walletCustodyEd25519Material: EmailOtpWalletCustodyEd25519MaterialRequest;
-      readonly ecdsaSessionActivation?: never;
+      readonly ecdsaSessionPolicy?: never;
       readonly walletSessionAuth?: never;
       readonly ecdsaSessionHandleBinding?: never;
       readonly runtimePolicyScope?: never;
@@ -201,7 +233,7 @@ export type EmailOtpWalletUnlockMaterialRequest =
           { operation: 'wallet_unlock' }
         >;
         readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
-        readonly sessionActivation: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
+        readonly sessionPolicy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1;
       };
       readonly ed25519Yao: {
         readonly recovery: EmailOtpEd25519YaoRecoveryAugmentationV1;
@@ -224,6 +256,7 @@ export type EmailOtpWalletUnlockMaterialResult =
       | {
           readonly operation: 'wallet_unlock';
           readonly ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+          readonly ecdsaCustody: EmailOtpEcdsaCustodyRestoreV1;
         }
       | {
           readonly operation: Exclude<EmailOtpWorkerSessionHandleOperation, 'wallet_unlock'>;
@@ -251,6 +284,7 @@ export type EmailOtpWalletUnlockMaterialResult =
       readonly ecdsa: {
         readonly emailOtpSessionHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
         readonly session: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+        readonly custody: EmailOtpEcdsaCustodyRestoreV1;
       };
       readonly ed25519Yao:
         | {

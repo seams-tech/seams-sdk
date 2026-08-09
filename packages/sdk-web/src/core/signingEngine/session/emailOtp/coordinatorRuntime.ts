@@ -86,6 +86,7 @@ export class EmailOtpWalletSessionRuntime {
     this.ecdsaLifecycleRuntime = new EmailOtpEcdsaLifecycleRuntime({
       configs: deps.configs,
       getSignerWorkerContext: deps.getSignerWorkerContext,
+      restoreWalletCustodyEcdsaContinuity: deps.restoreWalletCustodyEcdsaContinuity,
       provisionThresholdEcdsaSession: deps.provisionThresholdEcdsaSession,
       provisionEmailOtpEcdsaExplicitExportSession: deps.provisionEmailOtpEcdsaExplicitExportSession,
       runtimeConfig: this.runtimeConfig,

@@ -16,7 +16,12 @@ import {
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { requireEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
-import { parsePasskeyCustodyEnvelopeRecord, type PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import {
+  parsePasskeyCustodyEnvelopeRecord,
+  type PasskeyCustodyEnvelopeRecord,
+  type WalletCustodyEvmFamilyActivationCompletion,
+  type WalletCustodyEvmFamilyPublicFacts,
+} from '@shared/passkey-custody';
 import { requireTrimmedString, toOptionalTrimmedNonEmptyString } from '@shared/utils/validation';
 import {
   joinNormalizedUrl,
@@ -103,6 +108,9 @@ import type {
   EmailOtpEd25519YaoRecoveryAugmentationV1,
   EmailOtpEd25519YaoRecoveryBootstrapV1,
   EmailOtpEcdsaWalletUnlockAuthorization,
+  EmailOtpEcdsaCustodyContinuityV1,
+  EmailOtpEcdsaCustodyRestoreV1,
+  EmailOtpEcdsaCustodySignerV1,
   EmailOtpWalletCustodyEd25519MaterialRequest,
   EmailOtpWalletUnlockMaterialRequest,
   EmailOtpWarmMaterialTarget,
@@ -140,8 +148,10 @@ import {
 } from '@shared/utils/routerAbEd25519Yao';
 import { type WalletRegistrationEd25519YaoBootstrapSession } from '@/core/rpcClients/relayer/walletRegistration';
 import {
-  parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
+  parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
   parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
+  parseRouterAbEcdsaDerivationPublicCapabilityV1,
+  parseRouterAbEcdsaRegistrationActivationReceiptV1,
   type RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
@@ -169,6 +179,7 @@ import initEmailOtpRuntime, {
 } from '../../../../../../../wasm/email_otp_runtime/pkg/email_otp_runtime.js';
 import initWalletCustodyCeremony, {
   wallet_custody_ceremony_join_v1,
+  type WasmCeremonyEvmActivationPendingV1,
   type WasmCeremonyManifestEstablishedV1,
   type WasmCeremonyProtocolCompletedV1,
   type WasmCeremonyProtocolPreparedV1,
@@ -847,7 +858,7 @@ function assertEmailOtpUnlockMaterialRouteAuth(args: {
   material: EmailOtpWalletUnlockMaterialRequest;
 }): void {
   const carriesEcdsaActivation =
-    (args.material.kind === 'ecdsa' && Boolean(args.material.ecdsaSessionActivation)) ||
+    (args.material.kind === 'ecdsa' && Boolean(args.material.ecdsaSessionPolicy)) ||
     args.material.kind === 'wallet_unlock_capabilities';
   if (carriesEcdsaActivation !== (args.routePlan.operation === WALLET_EMAIL_OTP_UNLOCK_OPERATION)) {
     throw new Error('Only Email OTP wallet unlock may carry first ECDSA session activation');
@@ -2773,6 +2784,7 @@ type EmailOtpUnlockCompletionMaterial =
   | {
       kind: 'ecdsa';
       ecdsaSession?: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+      ecdsaCustody?: EmailOtpEcdsaCustodyRestoreV1;
     }
   | {
       kind: 'ed25519_yao_export';
@@ -2793,6 +2805,7 @@ type EmailOtpUnlockCompletionMaterial =
       kind: 'wallet_unlock_capabilities';
       ecdsa: {
         session: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+        custody: EmailOtpEcdsaCustodyRestoreV1;
       };
       ed25519Yao:
         | {
@@ -2823,6 +2836,13 @@ function requireEmailOtpWorkerEcdsaSessionResponse(
   value: RouterAbEcdsaPostRegistrationSessionActivationResponseV1 | undefined,
 ): RouterAbEcdsaPostRegistrationSessionActivationResponseV1 {
   if (!value) throw new Error('Email OTP unlock did not return its first ECDSA Wallet Session');
+  return value;
+}
+
+function requireEmailOtpWorkerEcdsaCustodyRestore(
+  value: EmailOtpEcdsaCustodyRestoreV1 | undefined,
+): EmailOtpEcdsaCustodyRestoreV1 {
+  if (!value) throw new Error('Email OTP unlock did not restore ECDSA custody');
   return value;
 }
 
@@ -2867,7 +2887,7 @@ function buildEmailOtpRequestedCapabilities(args: {
 function emailOtpEd25519WalletSessionJwtForUnlockMaterial(
   material: EmailOtpUnlockSecretMaterialRequest,
 ): string | undefined {
-  if (material.kind !== 'ecdsa' || material.ecdsaSessionActivation === undefined) {
+  if (material.kind !== 'ecdsa' || material.ecdsaSessionPolicy === undefined) {
     return undefined;
   }
   const authorization = material.walletSessionAuthorization;
@@ -3088,11 +3108,122 @@ function emailOtpEcdsaKeyManifestEntry(args: {
   return entry;
 }
 
+function parseEmailOtpEcdsaCustodyContinuity(
+  raw: unknown,
+): EmailOtpEcdsaCustodyContinuityV1 {
+  const continuity = workerPayloadObject(raw);
+  if (!continuity || continuity.kind !== 'wallet_custody_ecdsa_sync_continuity_v1') {
+    throw new Error('Email OTP unlock returned invalid ECDSA custody continuity');
+  }
+  if (!Array.isArray(continuity.signers) || continuity.signers.length === 0) {
+    throw new Error('Email OTP unlock returned no ECDSA custody signers');
+  }
+  const signers: EmailOtpEcdsaCustodySignerV1[] = continuity.signers.map((rawSigner, index) => {
+    const signer = workerPayloadObject(rawSigner);
+    const walletKey = signer && workerPayloadObject(signer.walletKey);
+    if (!signer || !walletKey) {
+      throw new Error(`Email OTP ECDSA custody signer ${index} is invalid`);
+    }
+    const participantIds = walletKey.participantIds;
+    if (
+      !Array.isArray(participantIds) ||
+      participantIds.length !== 2 ||
+      participantIds[0] !== 1 ||
+      participantIds[1] !== 2
+    ) {
+      throw new Error('Email OTP ECDSA custody participants are invalid');
+    }
+    return {
+      chainTarget: parseWorkerChainTarget(signer.chainTarget),
+      walletKey: {
+        walletId: readString(walletKey.walletId, 'ecdsaCustody.walletKey.walletId'),
+        keyHandle: readString(walletKey.keyHandle, 'ecdsaCustody.walletKey.keyHandle'),
+        ecdsaThresholdKeyId: readString(
+          walletKey.ecdsaThresholdKeyId,
+          'ecdsaCustody.walletKey.ecdsaThresholdKeyId',
+        ),
+        signingRootId: readString(walletKey.signingRootId, 'ecdsaCustody.walletKey.signingRootId'),
+        signingRootVersion: readString(
+          walletKey.signingRootVersion,
+          'ecdsaCustody.walletKey.signingRootVersion',
+        ),
+        relayerKeyId: readString(walletKey.relayerKeyId, 'ecdsaCustody.walletKey.relayerKeyId'),
+        contextBinding32B64u: readString(
+          walletKey.contextBinding32B64u,
+          'ecdsaCustody.walletKey.contextBinding32B64u',
+        ),
+        derivationClientSharePublicKey33B64u: readString(
+          walletKey.derivationClientSharePublicKey33B64u,
+          'ecdsaCustody.walletKey.derivationClientSharePublicKey33B64u',
+        ),
+        participantIds: [1, 2],
+        publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(
+          walletKey.publicCapability,
+        ),
+      },
+      activationReceipt: parseRouterAbEcdsaRegistrationActivationReceiptV1(
+        signer.activationReceipt,
+      ),
+      runtimePolicyScope: parseWorkerRuntimePolicyScope(
+        signer.runtimePolicyScope,
+        'ecdsaCustody.runtimePolicyScope',
+      ),
+    };
+  });
+  return { kind: 'wallet_custody_ecdsa_sync_continuity_v1', signers };
+}
+
+function ethereumAddressFromEcdsaIdentityB64u(value: string): string {
+  const address = base64UrlDecode(value);
+  if (address.length !== 20) {
+    throw new Error('Email OTP ECDSA activation returned an invalid Ethereum address');
+  }
+  return `0x${Array.from(address, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+}
+
+function parseEmailOtpEcdsaPublicFacts(value: unknown): WalletCustodyEvmFamilyPublicFacts {
+  const facts = workerPayloadObject(value);
+  if (!facts) throw new Error('Email OTP ECDSA custody returned no public facts');
+  const clientShareRetryCounter = Number(facts.clientShareRetryCounter);
+  const relayerShareRetryCounter = Number(facts.relayerShareRetryCounter);
+  if (
+    !Number.isSafeInteger(clientShareRetryCounter) ||
+    clientShareRetryCounter < 0 ||
+    !Number.isSafeInteger(relayerShareRetryCounter) ||
+    relayerShareRetryCounter < 0
+  ) {
+    throw new Error('Email OTP ECDSA custody public facts retry counters are invalid');
+  }
+  return {
+    contextBinding32B64u: readString(facts.contextBinding32B64u, 'ecdsaPublicFacts.contextBinding32B64u'),
+    derivationClientSharePublicKey33B64u: readString(
+      facts.derivationClientSharePublicKey33B64u,
+      'ecdsaPublicFacts.derivationClientSharePublicKey33B64u',
+    ),
+    clientVerifyingShare33B64u: readString(
+      facts.clientVerifyingShare33B64u,
+      'ecdsaPublicFacts.clientVerifyingShare33B64u',
+    ),
+    relayerPublicKey33B64u: readString(
+      facts.relayerPublicKey33B64u,
+      'ecdsaPublicFacts.relayerPublicKey33B64u',
+    ),
+    groupPublicKey33B64u: readString(
+      facts.groupPublicKey33B64u,
+      'ecdsaPublicFacts.groupPublicKey33B64u',
+    ),
+    ethereumAddress: readString(facts.ethereumAddress, 'ecdsaPublicFacts.ethereumAddress'),
+    clientShareRetryCounter,
+    relayerShareRetryCounter,
+  };
+}
+
 async function restoreEmailOtpEcdsaMaterialFromCustody(args: {
   projection: EmailOtpWalletCustodyUnlockProjection;
   clientSecret32: Uint8Array;
   material: EmailOtpUnlockSecretMaterialRequest;
-}): Promise<void> {
+  continuity: EmailOtpEcdsaCustodyContinuityV1;
+}): Promise<EmailOtpEcdsaCustodyRestoreV1> {
   const wire = joinCustodyWireFromEnvelopeRecord(args.projection.envelope);
   if (!wire.ok) throw new Error(`Email OTP wallet custody envelope is unusable: ${wire.reason}`);
   const keySet = emailOtpEcdsaKeyManifestEntry({
@@ -3103,6 +3234,7 @@ async function restoreEmailOtpEcdsaMaterialFromCustody(args: {
   const factorSecret32 = args.clientSecret32.slice();
   let seedHeld: WasmCeremonySeedHeldV1 | null = null;
   let prepared: WasmCeremonyProtocolPreparedV1 | null = null;
+  let pending: WasmCeremonyEvmActivationPendingV1 | null = null;
   try {
     seedHeld = wallet_custody_ceremony_join_v1(factorSecret32, wire.custodyJson);
     prepared = seedHeld.prepare_evm_family(
@@ -3113,9 +3245,61 @@ async function restoreEmailOtpEcdsaMaterialFromCustody(args: {
     if (!derivedPublicKey || derivedPublicKey !== keySet.clientRootPublicKey33B64u) {
       throw new Error('Email OTP wallet custody ECDSA material does not match its key manifest');
     }
+    const first = args.continuity.signers[0];
+    if (!first || first.walletKey.keyHandle !== keySet.keyHandle) {
+      throw new Error('Email OTP ECDSA custody continuity does not match the requested key set');
+    }
+    for (const signer of args.continuity.signers) {
+      if (
+        signer.walletKey.walletId !== args.projection.walletId ||
+        signer.walletKey.keyHandle !== first.walletKey.keyHandle ||
+        signer.walletKey.ecdsaThresholdKeyId !== first.walletKey.ecdsaThresholdKeyId ||
+        signer.walletKey.signingRootId !== first.walletKey.signingRootId ||
+        signer.walletKey.signingRootVersion !== first.walletKey.signingRootVersion ||
+        signer.walletKey.relayerKeyId !== first.walletKey.relayerKeyId ||
+        JSON.stringify(signer.walletKey.publicCapability) !==
+          JSON.stringify(first.walletKey.publicCapability) ||
+        JSON.stringify(signer.activationReceipt) !== JSON.stringify(first.activationReceipt) ||
+        JSON.stringify(signer.runtimePolicyScope) !== JSON.stringify(first.runtimePolicyScope)
+      ) {
+        throw new Error('Email OTP ECDSA custody continuity conflicts across targets');
+      }
+    }
+    const identity = first.activationReceipt.ecdsa_activation.public_identity;
+    pending = prepared.prepare_evm_activation_joining_custody(
+      keySet.evmFamilySigningKeySlotId,
+      keySet.recordedKeyManifestDigestB64u,
+    );
+    prepared = null;
+    const completed = pending.complete(
+      JSON.stringify({
+        relayerKeyId: first.walletKey.relayerKeyId,
+        relayerPublicKey33B64u: identity.server_public_key33_b64u,
+        groupPublicKey33B64u: identity.threshold_public_key33_b64u,
+        ethereumAddress: ethereumAddressFromEcdsaIdentityB64u(identity.ethereum_address20_b64u),
+        relayerShareRetryCounter: identity.server_share_retry_counter,
+      }),
+    ) as WalletCustodyEvmFamilyActivationCompletion;
+    pending = null;
+    if (
+      completed.walletId !== args.projection.walletId ||
+      completed.keyManifestDigestB64u !== keySet.recordedKeyManifestDigestB64u ||
+      completed.clientRootPublicKey33B64u !== keySet.clientRootPublicKey33B64u
+    ) {
+      throw new Error('Email OTP ECDSA custody activation changed its registered identity');
+    }
+    return {
+      continuity: args.continuity,
+      readyStateBlobB64u: readString(
+        completed.ecdsaReadyStateBlobB64u,
+        'ecdsa custody ready state',
+      ),
+      publicFacts: parseEmailOtpEcdsaPublicFacts(completed.ecdsaPublicFacts),
+    };
   } finally {
     factorSecret32.fill(0);
     prepared?.free();
+    pending?.free();
     seedHeld?.free();
   }
 }
@@ -3463,10 +3647,10 @@ async function completeEmailOtpUnlockFromSecret32(args: {
           publicKey: clientUnlockPublicKeyB64u,
           signature: unlockSignatureB64u,
         },
-        ...(args.material.kind === 'ecdsa' && args.material.ecdsaSessionActivation
-          ? { ecdsaSessionActivation: args.material.ecdsaSessionActivation }
+        ...(args.material.kind === 'ecdsa' && args.material.ecdsaSessionPolicy
+          ? { ecdsaSessionPolicy: args.material.ecdsaSessionPolicy }
           : args.material.kind === 'wallet_unlock_capabilities'
-            ? { ecdsaSessionActivation: args.material.ecdsa.sessionActivation }
+            ? { ecdsaSessionPolicy: args.material.ecdsa.sessionPolicy }
             : {}),
         ...(emailOtpEd25519WalletSessionJwtForUnlockMaterial(args.material)
           ? {
@@ -3484,13 +3668,20 @@ async function completeEmailOtpUnlockFromSecret32(args: {
       enrollmentId: emailOtpDeviceEnrollmentId(walletId, userId),
       enrollmentSealKeyVersion: args.enrollmentSealKeyVersion,
     });
-    if (args.material.kind === 'ecdsa' || args.material.kind === 'wallet_unlock_capabilities') {
-      await restoreEmailOtpEcdsaMaterialFromCustody({
-        projection: walletCustody,
-        clientSecret32: args.clientSecret32,
-        material: args.material,
-      });
-    }
+    const ecdsaCustody =
+      args.material.kind === 'ecdsa' && args.material.ecdsaSessionPolicy
+        ? parseEmailOtpEcdsaCustodyContinuity(verified.ecdsaCustody)
+        : args.material.kind === 'wallet_unlock_capabilities'
+          ? parseEmailOtpEcdsaCustodyContinuity(verified.ecdsaCustody)
+          : undefined;
+    const ecdsaCustodyRestore = ecdsaCustody
+      ? await restoreEmailOtpEcdsaMaterialFromCustody({
+          projection: walletCustody,
+          clientSecret32: args.clientSecret32,
+          material: args.material,
+          continuity: ecdsaCustody,
+        })
+      : undefined;
     const ed25519YaoBootstrap =
       args.material.kind === 'ed25519_yao_recovery' ||
       args.material.kind === 'wallet_unlock_capabilities'
@@ -3514,7 +3705,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
       }
     }
     const ecdsaSession =
-      args.material.kind === 'ecdsa' && !args.material.ecdsaSessionActivation
+      args.material.kind === 'ecdsa' && !args.material.ecdsaSessionPolicy
         ? undefined
         : args.material.kind === 'ecdsa' || args.material.kind === 'wallet_unlock_capabilities'
           ? parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(verified.ecdsaSession)
@@ -3531,6 +3722,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
           kind: 'ecdsa',
           ...commonResult,
           ...(ecdsaSession ? { ecdsaSession } : {}),
+          ...(ecdsaCustodyRestore ? { ecdsaCustody: ecdsaCustodyRestore } : {}),
         };
       }
       case 'ed25519_yao_export':
@@ -3557,6 +3749,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
             ...commonResult,
             ecdsa: {
               session: requireEmailOtpWorkerEcdsaSessionResponse(ecdsaSession),
+              custody: requireEmailOtpWorkerEcdsaCustodyRestore(ecdsaCustodyRestore),
             },
             ed25519Yao: {
               kind: 'capability',
@@ -3574,6 +3767,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
           ...commonResult,
           ecdsa: {
             session: requireEmailOtpWorkerEcdsaSessionResponse(ecdsaSession),
+            custody: requireEmailOtpWorkerEcdsaCustodyRestore(ecdsaCustodyRestore),
           },
           ed25519Yao: {
             kind: 'wallet_custody_cache_absent',
@@ -3853,6 +4047,7 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
     | {
         kind: 'ecdsa';
         ecdsaSession?: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+        ecdsaCustody?: EmailOtpEcdsaCustodyRestoreV1;
         clientSecret32?: never;
         ed25519YaoRecovery?: never;
       }
@@ -3879,6 +4074,7 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
         kind: 'wallet_unlock_capabilities';
         ecdsa: {
           session: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+          custody: EmailOtpEcdsaCustodyRestoreV1;
         };
         ed25519Yao:
         | {
@@ -4066,6 +4262,7 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
           kind: 'ecdsa',
           ...commonResult,
           ...(unlocked.ecdsaSession ? { ecdsaSession: unlocked.ecdsaSession } : {}),
+          ...(unlocked.ecdsaCustody ? { ecdsaCustody: unlocked.ecdsaCustody } : {}),
         };
       case 'ed25519_yao_export': {
         const ownedClientSecret32 = clientSecret32;
@@ -4398,7 +4595,7 @@ function parseEmailOtpWalletUnlockMaterialRequest(
           'kind',
           'ecdsaSessionHandleBinding',
           'runtimePolicyScope',
-          'ecdsaSessionActivation',
+          'ecdsaSessionPolicy',
           'walletSessionAuthorization',
         ],
         'material',
@@ -4416,15 +4613,15 @@ function parseEmailOtpWalletUnlockMaterialRequest(
           kind: 'ecdsa',
           ecdsaSessionHandleBinding: { ...binding, operation: 'wallet_unlock' },
           runtimePolicyScope,
-          ecdsaSessionActivation: parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1(
-            obj.ecdsaSessionActivation,
+          ecdsaSessionPolicy: parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1(
+            obj.ecdsaSessionPolicy,
           ),
           walletSessionAuthorization: parseEmailOtpEcdsaWalletUnlockAuthorization(
             obj.walletSessionAuthorization,
           ),
         };
       }
-      if (obj.ecdsaSessionActivation !== undefined) {
+      if (obj.ecdsaSessionPolicy !== undefined) {
         throw new Error('Email OTP first ECDSA activation requires wallet-unlock binding');
       }
       if (obj.walletSessionAuthorization !== undefined) {
@@ -4476,7 +4673,7 @@ function parseEmailOtpWalletUnlockMaterialRequest(
       }
       rejectUnknownEmailOtpYaoFields(
         ecdsa,
-        ['sessionHandleBinding', 'runtimePolicyScope', 'sessionActivation'],
+        ['sessionHandleBinding', 'runtimePolicyScope', 'sessionPolicy'],
         'material.ecdsa',
       );
       rejectUnknownEmailOtpYaoFields(
@@ -4507,8 +4704,8 @@ function parseEmailOtpWalletUnlockMaterialRequest(
             ecdsa.runtimePolicyScope,
             'Email OTP capability wallet unlock',
           ),
-          sessionActivation: parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1(
-            ecdsa.sessionActivation,
+          sessionPolicy: parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1(
+            ecdsa.sessionPolicy,
           ),
         },
         ed25519Yao: {
@@ -6547,6 +6744,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
                   binding: material.ecdsaSessionHandleBinding,
                 }),
                 ...(result.ecdsaSession ? { ecdsaSession: result.ecdsaSession } : {}),
+                ...(result.ecdsaCustody ? { ecdsaCustody: result.ecdsaCustody } : {}),
               },
             });
             return;
@@ -6565,6 +6763,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
               const ecdsa = {
                 emailOtpSessionHandle,
                 session: result.ecdsa.session,
+                custody: result.ecdsa.custody,
               };
               postToMainThread({
                 id: msg.id,

@@ -63,6 +63,7 @@ import {
   walletAuthAuthorityRef,
   type EmailOtpProvider,
   type PasskeyWalletAuthAuthority,
+  type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import { IndexedDBManager } from '@/core/indexedDB';
 import {
@@ -82,6 +83,7 @@ import type {
 } from '@/core/accountData/near/nearAccountData.types';
 import {
   exchangeSession,
+  type PasskeySessionEcdsaCustodyContinuityV1,
   type PasskeySessionCustodyUnlockV1,
   type SessionExchangeInput,
   type SessionExchangeRuntimeScope,
@@ -106,7 +108,10 @@ import {
   STALE_ECDSA_KEY_IDENTITY_ERROR_CODE,
   type ThresholdEcdsaSessionBootstrapResult,
 } from '@/core/signingEngine/threshold/ecdsa/activation';
-import { buildStrictEcdsaPostRegistrationSessionActivationRequest } from '@/core/signingEngine/threshold/ecdsa/postRegistrationSessionActivation';
+import type {
+  RouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
+  RouterAbEcdsaRegistrationActivationReceiptV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import {
   type EmailOtpEd25519SessionPolicyAuthority,
   type Ed25519SessionPolicyAuthority,
@@ -138,12 +143,12 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   RouterAbEcdsaDerivationPublicCapabilityV1,
-  RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
   RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaSessionLanePolicy,
+  deriveEvmFamilySigningKeySlotId,
   evmFamilyEcdsaWalletKeyToIdentity,
   resolveThresholdEcdsaKeyIdFromRecord,
   resolveThresholdSigningRootBindingFromRuntimePolicyScope,
@@ -2531,11 +2536,14 @@ type ConfiguredThresholdEcdsaPublicationTarget = ReturnType<
 
 type PreparedPasskeyExchangeEcdsaActivation = {
   readonly targetKey: string;
-  readonly request: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
+  readonly policy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1;
+  readonly requiresCustodyRejoin: boolean;
 };
 
 type CompletedPasskeyExchangeEcdsaActivation = PreparedPasskeyExchangeEcdsaActivation & {
   readonly response: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+  readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+  readonly continuity: PasskeySessionEcdsaCustodyContinuityV1;
 };
 
 type CompletedPasskeySessionExchange = {
@@ -2584,18 +2592,13 @@ async function preparePasskeyExchangeEcdsaActivation(args: {
   );
   const targetKey = thresholdEcdsaChainTargetKey(target.chainTarget);
   const targetEcdsaKey = context.ecdsaKeys.find((candidate) => candidate.targetKey === targetKey);
-  if (!targetEcdsaKey?.key || !targetEcdsaKey.existingRoleLocalMaterial) {
+  if (!targetEcdsaKey) {
     throw createThresholdEcdsaDeviceLinkRequiredError(targetKey);
   }
   const runtimePolicyScope = context.runtimePolicyScope;
   if (!runtimePolicyScope) {
     throw new Error('[login] passkey exchange ECDSA activation requires runtime policy scope');
   }
-  const publicCapability = await resolvePersistedEcdsaPublicCapabilityForLogin({
-    walletId: args.walletIdentity.walletId,
-    chainTarget: target.chainTarget,
-    targetEcdsaKey,
-  });
   const thresholdSessionId = requireThresholdLoginEcdsaSessionId(
     createThresholdLoginWarmSessionId('threshold-ecdsa-login'),
   );
@@ -2604,14 +2607,18 @@ async function preparePasskeyExchangeEcdsaActivation(args: {
   );
   return {
     targetKey,
-    request: buildStrictEcdsaPostRegistrationSessionActivationRequest({
-      publicCapability,
-      thresholdSessionId,
-      walletSessionMintId,
-      ttlMs: args.ttlMs,
-      remainingUses: args.remainingUses,
-      runtimePolicyScope,
-    }),
+    requiresCustodyRejoin: !targetEcdsaKey.existingRoleLocalMaterial,
+    policy: {
+      kind: 'router_ab_ecdsa_post_registration_session_activation_policy_v1',
+      key_handle: targetEcdsaKey.keyHandle,
+      session_policy: {
+        threshold_session_id: thresholdSessionId,
+        wallet_session_mint_id: walletSessionMintId,
+        ttl_ms: args.ttlMs,
+        remaining_uses: args.remainingUses,
+        runtime_policy_scope: runtimePolicyScope,
+      },
+    },
   };
 }
 
@@ -2678,11 +2685,12 @@ async function completePasskeySessionExchange(args: {
   ).trim();
   const exchangeInput: SessionExchangeInput = args.activation
     ? {
-        type: 'passkey_assertion',
-        challengeId,
-        webauthn_authentication: credential,
-        ...(expectedOrigin ? { expected_origin: expectedOrigin } : {}),
-        ecdsaSessionActivation: args.activation.request,
+      type: 'passkey_assertion',
+      challengeId,
+      walletId: String(args.walletIdentity.walletId),
+      webauthn_authentication: credential,
+      ...(expectedOrigin ? { expected_origin: expectedOrigin } : {}),
+      ecdsaSessionPolicy: args.activation.policy,
       }
     : {
         type: 'passkey_assertion',
@@ -2708,14 +2716,44 @@ async function completePasskeySessionExchange(args: {
   if (!result.walletCustody) {
     throw new Error('Passkey session exchange omitted wallet custody continuity');
   }
-  if (args.activation && !result.ecdsaSession) {
+  if (
+    args.activation &&
+    (!result.ecdsaSession || !result.ecdsaActivationReceipt || !result.ecdsaCustody)
+  ) {
     throw new Error('Passkey session exchange omitted the requested ECDSA activation');
+  }
+  if (args.activation?.requiresCustodyRejoin) {
+    const passkeyPrfFirstB64u = passkeyPrfFirstB64uFromCredential(credential);
+    if (!passkeyPrfFirstB64u) {
+      throw new Error('Passkey ECDSA custody rejoin requires WebAuthn PRF.first');
+    }
+    const credentialIdB64u = passkeyCredentialIdB64uFromAuthentication(credential);
+    const authority = await walletAuthAuthorityRef({
+      authority: buildPasskeyWalletAuthAuthority({
+        walletId: String(args.walletIdentity.walletId),
+        rpId: args.rpId,
+        credentialIdB64u,
+      }),
+    });
+    await restorePasskeyEcdsaCustodyLogin({
+      signingEngine: args.context.signingEngine,
+      walletId: String(args.walletIdentity.walletId),
+      custody: result.walletCustody,
+      continuity: result.ecdsaCustody,
+      authority,
+      passkeyPrfFirstB64u,
+    });
   }
   return {
     credential,
     activation:
       args.activation && result.ecdsaSession
-        ? { ...args.activation, response: result.ecdsaSession }
+        ? {
+            ...args.activation,
+            response: result.ecdsaSession,
+            activationReceipt: result.ecdsaActivationReceipt,
+            continuity: result.ecdsaCustody,
+          }
         : null,
     custody: result.walletCustody,
     result,
@@ -3377,6 +3415,105 @@ async function openAndActivatePasskeyEd25519CustodyLogin(
   }
 }
 
+function ethereumAddressFromEcdsaIdentityB64u(value: string): `0x${string}` {
+  const bytes = base64UrlDecode(value);
+  if (bytes.length !== 20) throw new Error('[login] ECDSA custody address is invalid');
+  let hex = '0x';
+  for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
+  return hex as `0x${string}`;
+}
+
+function nonEmptyEcdsaCustodyChainTargets(
+  signers: readonly PasskeySessionEcdsaCustodyContinuityV1['signers'][number][],
+): readonly [
+  PasskeySessionEcdsaCustodyContinuityV1['signers'][number]['chainTarget'],
+  ...PasskeySessionEcdsaCustodyContinuityV1['signers'][number]['chainTarget'][]
+] {
+  const [first, ...rest] = signers;
+  if (!first) throw new Error('[login] passkey ECDSA custody continuity is empty');
+  return [first.chainTarget, ...rest.map((signer) => signer.chainTarget)];
+}
+
+async function restorePasskeyEcdsaCustodyLogin(input: {
+  readonly signingEngine: LoginUnlockSigningSurface;
+  readonly walletId: string;
+  readonly custody: PasskeySessionCustodyUnlockV1;
+  readonly continuity: PasskeySessionEcdsaCustodyContinuityV1;
+  readonly authority: WalletAuthAuthorityRef;
+  readonly passkeyPrfFirstB64u: string;
+}): Promise<void> {
+  const first = input.continuity.signers[0];
+  if (!first) throw new Error('[login] passkey ECDSA custody continuity is empty');
+  if (first.walletKey.walletId !== input.walletId) {
+    throw new Error('[login] passkey ECDSA custody continuity changed wallet identity');
+  }
+  for (const signer of input.continuity.signers) {
+    if (
+      signer.walletKey.walletId !== first.walletKey.walletId ||
+      signer.walletKey.keyHandle !== first.walletKey.keyHandle ||
+      signer.walletKey.ecdsaThresholdKeyId !== first.walletKey.ecdsaThresholdKeyId ||
+      signer.walletKey.signingRootId !== first.walletKey.signingRootId ||
+      signer.walletKey.signingRootVersion !== first.walletKey.signingRootVersion ||
+      signer.walletKey.relayerKeyId !== first.walletKey.relayerKeyId ||
+      JSON.stringify(signer.walletKey.publicCapability) !==
+        JSON.stringify(first.walletKey.publicCapability) ||
+      JSON.stringify(signer.activationReceipt) !== JSON.stringify(first.activationReceipt) ||
+      JSON.stringify(signer.runtimePolicyScope) !== JSON.stringify(first.runtimePolicyScope)
+    ) {
+      throw new Error('[login] passkey ECDSA custody continuity conflicts across targets');
+    }
+  }
+  const custodyWire = joinCustodyWireFromEnvelopeRecord(input.custody.envelope);
+  if (!custodyWire.ok) throw new Error(custodyWire.reason);
+  const factorSecret = base64UrlDecode(input.passkeyPrfFirstB64u);
+  try {
+    const rejoined = await input.signingEngine.rejoinWalletCustodyEvmFamilyKeySet({
+      walletId: input.walletId,
+      custodyJson: custodyWire.custodyJson,
+      factorSecret: factorSecret.buffer,
+      evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+        walletId: input.walletId,
+        signingRootId: first.walletKey.signingRootId,
+        signingRootVersion: first.walletKey.signingRootVersion,
+      }),
+      applicationBindingDigestB64u:
+        first.walletKey.publicCapability.context.application_binding_digest_b64u,
+      registeredClientRootPublicKey33B64u:
+        first.walletKey.derivationClientSharePublicKey33B64u,
+      relayerPublicIdentityJson: JSON.stringify({
+        relayerKeyId: first.walletKey.relayerKeyId,
+        relayerPublicKey33B64u:
+          first.activationReceipt.ecdsa_activation.public_identity.server_public_key33_b64u,
+        groupPublicKey33B64u:
+          first.activationReceipt.ecdsa_activation.public_identity.threshold_public_key33_b64u,
+        ethereumAddress: ethereumAddressFromEcdsaIdentityB64u(
+          first.activationReceipt.ecdsa_activation.public_identity.ethereum_address20_b64u,
+        ),
+        relayerShareRetryCounter:
+          first.activationReceipt.ecdsa_activation.public_identity.server_share_retry_counter,
+      }),
+    });
+    await input.signingEngine.restoreWalletCustodyEcdsaContinuity({
+      authority: input.authority,
+      chainTargets: nonEmptyEcdsaCustodyChainTargets(input.continuity.signers),
+      walletId: first.walletKey.walletId,
+      keyHandle: first.walletKey.keyHandle,
+      ecdsaThresholdKeyId: first.walletKey.ecdsaThresholdKeyId,
+      signingRootId: first.walletKey.signingRootId,
+      signingRootVersion: first.walletKey.signingRootVersion,
+      relayerKeyId: first.walletKey.relayerKeyId,
+      participantIds: first.walletKey.participantIds,
+      publicCapability: first.walletKey.publicCapability,
+      activationReceipt: first.activationReceipt,
+      runtimePolicyScope: first.runtimePolicyScope,
+      readyStateBlobB64u: rejoined.readyStateBlobB64u,
+      publicFacts: rejoined.publicFacts,
+    });
+  } finally {
+    factorSecret.fill(0);
+  }
+}
+
 async function primeThresholdLoginWarmSigners(args: {
   context: LoginWebContext;
   signingEngine: LoginUnlockSigningSurface;
@@ -3435,7 +3572,7 @@ async function primeThresholdLoginWarmSigners(args: {
       : null;
   const ecdsaThresholdSessionState: ThresholdLoginWarmEcdsaThresholdSessionState = {
     generatedThresholdSessionId:
-      args.passkeyExchangeEcdsaActivation?.request.session_policy.threshold_session_id || '',
+      args.passkeyExchangeEcdsaActivation?.policy.session_policy.threshold_session_id || '',
   };
   const unlockRemainingUses = args.unlockRemainingUses;
   const ecdsaBootstraps: ThresholdEcdsaSessionBootstrapResult[] = [];
