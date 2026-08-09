@@ -52,6 +52,8 @@ function serviceWith(store: ReturnType<typeof storeStub>, seen: unknown[]) {
         return null;
       },
     } as never,
+    walletCustodyCommits: {} as never,
+    walletStore: {} as never,
     webAuthnStore: store as never,
     logger: normalizeLogger(),
   });

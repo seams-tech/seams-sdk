@@ -13,6 +13,9 @@ import {
   resolveWalletRecoveryAuthorizationContext,
 } from '../../../domains/passkeyCustody/walletRecoveryAuthorization';
 import type { AuthorizedOperation } from '../../../../authorization/domain';
+import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
+import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 
 /**
  * The transport for custody envelope retrieval.
@@ -158,6 +161,15 @@ export async function handleWalletRecoveryPrepare(
       });
     case 'refused':
       return toFetchRouteResponse(refusedSpend());
+    case 'manifest_unavailable':
+      return toFetchRouteResponse({
+        status: 409,
+        body: {
+          ok: false,
+          code: 'recovery_manifest_unavailable',
+          message: result.reason,
+        },
+      });
   }
 }
 
@@ -232,10 +244,9 @@ function isObject(value: unknown): value is Record<string, unknown> {
 /**
  * Installing the credential a recovery enrolled.
  *
- * The envelope arrives sealed and is passed through unvalidated as ciphertext
- * — the server has no seed and cannot check the sealing. What it checks is
- * upstream: that the outcomes cover every required key set, and that the
- * envelope names this wallet.
+ * The envelope arrives sealed, but its complete wire shape is parsed here.
+ * The server has no seed and cannot open the ciphertext. Exact key coverage
+ * comes from its signer registry and durable activation receipts.
  */
 export async function handleWalletRecoveryFinalize(
   ctx: FetchRouterApiContext,
@@ -244,28 +255,23 @@ export async function handleWalletRecoveryFinalize(
   if (!route) throw new Error(`Missing route definition for ${RECOVERY_FINALIZE_ROUTE_ID}`);
   if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
 
-  const body = (await readJson(ctx.request)) as Record<string, unknown> | null;
-  const walletId = trimmed(body?.walletId);
-  let reservationId;
+  let requestBody: WalletRecoveryFinalizeBody | null;
   try {
-    reservationId = parseRecoveryCodeReservationId(body?.reservationId);
+    requestBody = parseWalletRecoveryFinalizeBody(await readJson(ctx.request));
   } catch {
-    reservationId = null;
+    requestBody = null;
   }
-  const replacementEnvelope = isObject(body?.replacementEnvelope) ? body.replacementEnvelope : null;
-  const requiredKeySets = stringList(body?.requiredKeySets);
-  const outcomes = Array.isArray(body?.outcomes) ? body.outcomes.filter(isObject) : [];
-  if (!walletId || !reservationId || !replacementEnvelope || requiredKeySets.length === 0) {
+  if (!requestBody) {
     return toFetchRouteResponse({
       status: 400,
       body: {
         ok: false,
         code: 'invalid_request',
-        message:
-          'recovery finalization needs a wallet, operation id, replacement envelope, and required key sets',
+        message: 'recovery finalization needs a wallet, operation id, and replacement envelope',
       },
     });
   }
+  const { walletId, reservationId, replacementEnvelope } = requestBody;
 
   const authorization = await resolveWalletRecoveryAuthorizationContext({
     headers: Object.fromEntries(ctx.request.headers.entries()),
@@ -294,9 +300,7 @@ export async function handleWalletRecoveryFinalize(
   const result = await ctx.service.passkeyCustody.finalizeRecovery({
     walletId,
     reservationId,
-    replacementEnvelope: replacementEnvelope as never,
-    requiredKeySets,
-    outcomes: outcomes as never,
+    replacementEnvelope,
   });
 
   switch (result.kind) {
@@ -331,6 +335,49 @@ export async function handleWalletRecoveryFinalize(
         body: { ok: false, code: 'envelope_rejected', message: result.reason },
       });
   }
+}
+
+type WalletRecoveryFinalizeBody = {
+  readonly walletId: WalletId;
+  readonly reservationId: ReturnType<typeof parseRecoveryCodeReservationId>;
+  readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
+};
+
+function parseWalletRecoveryFinalizeBody(value: unknown): WalletRecoveryFinalizeBody {
+  if (!isObject(value)) throw new Error('wallet recovery finalization body must be an object');
+  requireExactFinalizeFields(value);
+  const walletId = parseWalletId(value.walletId);
+  if (!walletId.ok) throw new Error('wallet recovery finalization wallet is invalid');
+  return {
+    walletId: walletId.value,
+    reservationId: parseRecoveryCodeReservationId(value.reservationId),
+    replacementEnvelope: parsePasskeyCustodyEnvelopeRecord(
+      value.replacementEnvelope,
+      'walletRecoveryFinalize.replacementEnvelope',
+    ),
+  };
+}
+
+function requireExactFinalizeFields(value: Record<string, unknown>): void {
+  const allowed = new Set(['walletId', 'reservationId', 'replacementEnvelope']);
+  for (const field of Object.keys(value)) {
+    if (!allowed.has(field)) {
+      throw new Error(`wallet recovery finalization.${field} is not allowed`);
+    }
+  }
+  if (!allowedKeysArePresent(value, allowed)) {
+    throw new Error('wallet recovery finalization is missing a required field');
+  }
+}
+
+function allowedKeysArePresent(
+  value: Record<string, unknown>,
+  allowed: ReadonlySet<string>,
+): boolean {
+  for (const field of allowed) {
+    if (!(field in value)) return false;
+  }
+  return true;
 }
 
 function authorizationFailure(input: {
@@ -377,16 +424,6 @@ async function completeWalletRecoveryOperation(
     status: result.status,
     headers: { 'content-type': 'application/json' },
   });
-}
-
-function stringList(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  const out: string[] = [];
-  for (const entry of value) {
-    const text = trimmed(entry);
-    if (text) out.push(text);
-  }
-  return out;
 }
 
 /**

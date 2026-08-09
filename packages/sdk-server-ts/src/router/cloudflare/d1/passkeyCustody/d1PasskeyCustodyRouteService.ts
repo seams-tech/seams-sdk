@@ -16,7 +16,7 @@ import {
   prepareWalletRecoveryWithCodeV1,
   type WalletRecoveryPreparationResult,
 } from '../../../domains/passkeyCustody/walletRecoveryAttempt';
-import type { WalletId } from '@shared/utils/domainIds';
+import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import {
   finalizeRecoveredWalletCredentialV1,
   type WalletRecoveryFinalizationResult,
@@ -30,9 +30,13 @@ import type { WalletRecoveryEnvelopeSetRecord } from '@shared/wallet-recovery/wa
 import {
   buildWalletRecoveryBackupAcknowledgementV1,
   walletRecoveryBackupIsOutstanding,
-  type RecoveredKeySetOutcome,
 } from '@shared/wallet-recovery/recoveryCodes';
 import type { RecoveryCodeReservationId } from '@shared/wallet-recovery/recoveryCodeReservation';
+import type { D1WalletStore } from '../../../../core/d1WalletStore';
+import {
+  resolveWalletRecoveryKeyManifestV1,
+  verifyWalletRecoveryKeyActivationsV1,
+} from '../../../domains/passkeyCustody/walletRecoveryKeyManifest';
 
 /**
  * The custody envelope layer's way into the router.
@@ -99,22 +103,20 @@ export interface RouterApiPasskeyCustodyService {
     readonly walletId: string;
     readonly recoveryCodeBytes: Uint8Array;
     readonly reservationId: RecoveryCodeReservationId;
-  }): Promise<WalletRecoveryPreparationResult>;
+  }): Promise<WalletRecoveryRoutePreparationResult>;
 
   /**
    * Installs the credential a recovery enrolled and retires the old ones.
    *
    * Called after activation, with an envelope the client sealed under the new
-   * credential. The server cannot verify that sealing — it never has the seed
-   * — so what it does verify is the key-set outcomes and the wallet the
-   * envelope names.
+   * credential. The server cannot verify that sealing because it never has the
+   * seed. It derives the exact wallet manifest and queries durable activation
+   * receipts before this method can consume the reserved code.
    */
   finalizeRecovery(request: {
     readonly walletId: string;
     readonly reservationId: RecoveryCodeReservationId;
     readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
-    readonly requiredKeySets: readonly string[];
-    readonly outcomes: readonly RecoveredKeySetOutcome[];
   }): Promise<WalletRecoveryFinalizationResult>;
 
   /**
@@ -167,9 +169,14 @@ export interface RouterApiPasskeyCustodyService {
 /** How long a reservation may sit before another attempt may take the code. */
 const RECOVERY_RESERVATION_TTL_MS = 120_000;
 
+export type WalletRecoveryRoutePreparationResult =
+  | WalletRecoveryPreparationResult
+  | { readonly kind: 'manifest_unavailable'; readonly reason: string };
+
 export function createD1PasskeyCustodyRouteService(assembly: {
   readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
   readonly walletCustodyCommits: CloudflareD1WalletCustodyCommitStore;
+  readonly walletStore: D1WalletStore;
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
   readonly logger: NormalizedLogger;
   /** Injected so the reservation window is testable without waiting. */
@@ -225,27 +232,9 @@ export function createD1PasskeyCustodyRouteService(assembly: {
       });
     },
 
-    prepareRecovery: (request) =>
-      prepareWalletRecoveryWithCodeV1({
-        store: assembly.walletCustodyCommits,
-        walletId: request.walletId as WalletId,
-        recoveryCodeBytes: request.recoveryCodeBytes,
-        reservationId: request.reservationId,
-        nowMs: (assembly.nowMs ?? Date.now)(),
-        reservationTtlMs: RECOVERY_RESERVATION_TTL_MS,
-      }),
+    prepareRecovery: prepareRecoveryForRoute.bind(undefined, assembly),
 
-    finalizeRecovery: (request) =>
-      finalizeRecoveredWalletCredentialV1({
-        envelopeStore: assembly.passkeyCustodyEnvelopes,
-        walletCustodyCommits: assembly.walletCustodyCommits,
-        walletId: request.walletId,
-        reservationId: request.reservationId,
-        replacementEnvelope: request.replacementEnvelope,
-        requiredKeySets: request.requiredKeySets,
-        outcomes: request.outcomes,
-        nowMs: (assembly.nowMs ?? Date.now)(),
-      }),
+    finalizeRecovery: finalizeRecoveryForRoute.bind(undefined, assembly),
 
     acknowledgeRecoveryBackup: async (request) => {
       const stored = await assembly.walletCustodyCommits.readRecoveryEnvelopeSet(
@@ -302,6 +291,90 @@ export function createD1PasskeyCustodyRouteService(assembly: {
         nowMs: (assembly.nowMs ?? Date.now)(),
       }),
   };
+}
+
+async function prepareRecoveryForRoute(
+  assembly: {
+    readonly walletCustodyCommits: CloudflareD1WalletCustodyCommitStore;
+    readonly walletStore: D1WalletStore;
+    readonly nowMs?: () => number;
+  },
+  request: {
+    readonly walletId: string;
+    readonly recoveryCodeBytes: Uint8Array;
+    readonly reservationId: RecoveryCodeReservationId;
+  },
+): Promise<WalletRecoveryRoutePreparationResult> {
+  let walletId: WalletId;
+  try {
+    walletId = requireWalletId(request.walletId);
+  } catch {
+    return { kind: 'refused', reason: 'that recovery code cannot be used' };
+  }
+  const prepared = await prepareWalletRecoveryWithCodeV1({
+    store: assembly.walletCustodyCommits,
+    walletId,
+    recoveryCodeBytes: request.recoveryCodeBytes,
+    reservationId: request.reservationId,
+    nowMs: (assembly.nowMs ?? Date.now)(),
+    reservationTtlMs: RECOVERY_RESERVATION_TTL_MS,
+  });
+  if (prepared.kind !== 'prepared') return prepared;
+  try {
+    await resolveWalletRecoveryKeyManifestV1({
+      registry: assembly.walletStore,
+      walletId,
+    });
+    return prepared;
+  } catch (error: unknown) {
+    return {
+      kind: 'manifest_unavailable',
+      reason:
+        error instanceof Error ? error.message : 'wallet recovery key manifest is unavailable',
+    };
+  }
+}
+
+async function finalizeRecoveryForRoute(
+  assembly: {
+    readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
+    readonly walletCustodyCommits: CloudflareD1WalletCustodyCommitStore;
+    readonly walletStore: D1WalletStore;
+    readonly nowMs?: () => number;
+  },
+  request: {
+    readonly walletId: string;
+    readonly reservationId: RecoveryCodeReservationId;
+    readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
+  },
+): Promise<WalletRecoveryFinalizationResult> {
+  let walletId: WalletId;
+  try {
+    walletId = requireWalletId(request.walletId);
+  } catch {
+    return { kind: 'refused', reason: 'wallet recovery identity is invalid' };
+  }
+  const activationVerification = await verifyWalletRecoveryKeyActivationsV1({
+    registry: assembly.walletStore,
+    walletId,
+    recoveryCorrelationId: request.reservationId,
+  });
+  if (activationVerification.kind === 'refused') return activationVerification;
+  return await finalizeRecoveredWalletCredentialV1({
+    envelopeStore: assembly.passkeyCustodyEnvelopes,
+    walletCustodyCommits: assembly.walletCustodyCommits,
+    walletId: request.walletId,
+    reservationId: request.reservationId,
+    replacementEnvelope: request.replacementEnvelope,
+    activationVerification,
+    nowMs: (assembly.nowMs ?? Date.now)(),
+  });
+}
+
+function requireWalletId(value: unknown): WalletId {
+  const parsed = parseWalletId(value);
+  if (!parsed.ok) throw new Error('wallet ID is invalid');
+  return parsed.value;
 }
 
 /**
