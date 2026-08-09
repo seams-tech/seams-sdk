@@ -1,20 +1,7 @@
 import React, { useEffect } from 'react';
 import { Theme, useTheme } from '../theme';
 import { useSeams } from '../../context';
-import type { EmailOtpRecoveryCodeStatus } from '@/SeamsWeb/signingSurface/types';
-import {
-  downloadRecoveryCodes,
-  type EmailOtpRecoveryCodeBackupUiInput,
-} from '@/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup';
-import {
-  emailOtpRecoveryCodeBackupRepository,
-  type StoredEmailOtpRecoveryCodeBackupRecord,
-} from '@/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups';
-import {
-  getEmailOtpRecoveryCodePresenter,
-  loadRecoveryCodesModalLoadedState,
-  type RecoveryCodesLoadedState,
-} from './RecoveryCodesModalState';
+import type { WalletRecoveryCodeStatusResult } from '@/SeamsWeb/publicApi/types';
 import './RecoveryCodesModal.css';
 
 interface RecoveryCodesModalProps {
@@ -26,54 +13,19 @@ interface RecoveryCodesModalProps {
 type RecoveryCodesLoadState =
   | { kind: 'idle' }
   | { kind: 'loading' }
-  | RecoveryCodesLoadedState
+  | { kind: 'loaded'; status: WalletRecoveryCodeStatusResult; actionError: string }
   | { kind: 'error'; message: string };
 
-function assertNever(value: never): never {
-  throw new Error(`Unhandled recovery-code modal state: ${String(value)}`);
-}
-
-function statusLabel(status: EmailOtpRecoveryCodeStatus['status']): string {
-  switch (status) {
+function statusLabel(status: WalletRecoveryCodeStatusResult): string {
+  switch (status.kind) {
     case 'ready':
-      return 'Backed up';
-    case 'incomplete':
-      return 'Rotation needed';
-    case 'not_enrolled':
-      return 'No Email OTP enrollment';
-    default:
-      return assertNever(status);
-  }
-}
-
-function formatTimestamp(value: number | null): string {
-  if (value === null) return 'None';
-  return new Date(value).toLocaleString();
-}
-
-function recoveryCodeBackupUiInput(
-  backup: StoredEmailOtpRecoveryCodeBackupRecord,
-): EmailOtpRecoveryCodeBackupUiInput {
-  return {
-    walletId: backup.walletId,
-    enrollmentId: backup.enrollmentId,
-    enrollmentSealKeyVersion: backup.enrollmentSealKeyVersion,
-    recoveryCodesIssuedAtMs: backup.recoveryCodesIssuedAtMs,
-    recoveryKeys: backup.recoveryKeys,
-  };
-}
-
-function loadedStatus(loadState: RecoveryCodesLoadState): EmailOtpRecoveryCodeStatus | null {
-  switch (loadState.kind) {
-    case 'loaded':
-    case 'delegated_to_iframe':
-      return loadState.status;
-    case 'idle':
-    case 'loading':
-    case 'error':
-      return null;
-    default:
-      return assertNever(loadState);
+      return status.backupOutstanding ? 'Backup confirmation needed' : 'Backed up';
+    case 'no_recovery_set':
+      return 'No recovery set';
+    case 'unauthorized':
+      return 'Authorization required';
+    case 'transport_failed':
+      return 'Could not load';
   }
 }
 
@@ -84,7 +36,7 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
 }) => {
   const { seams } = useSeams();
   const [loadState, setLoadState] = React.useState<RecoveryCodesLoadState>({ kind: 'idle' });
-  const [isRotating, setIsRotating] = React.useState(false);
+  const [isAcknowledging, setIsAcknowledging] = React.useState(false);
   const loadStatusSeq = React.useRef(0);
   const { theme, tokens } = useTheme();
   const scopedTokens = React.useMemo(
@@ -92,30 +44,24 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
     [theme, tokens],
   );
 
-  const loadRecoveryCodeStatus = React.useCallback(
-    async () => {
-      const requestSeq = loadStatusSeq.current + 1;
-      loadStatusSeq.current = requestSeq;
-      setLoadState({ kind: 'loading' });
-      try {
-        const loaded = await loadRecoveryCodesModalLoadedState({
-          walletId,
-          recovery: seams.recovery,
-          recoveryCodeBackupRepository: emailOtpRecoveryCodeBackupRepository,
-          showRecoveryCodes: getEmailOtpRecoveryCodePresenter(seams),
-        });
-        if (loadStatusSeq.current !== requestSeq) return;
-        setLoadState(loaded);
-      } catch (error: unknown) {
-        if (loadStatusSeq.current !== requestSeq) return;
+  const loadRecoveryCodeStatus = React.useCallback(async () => {
+    const requestSeq = loadStatusSeq.current + 1;
+    loadStatusSeq.current = requestSeq;
+    setLoadState({ kind: 'loading' });
+    try {
+      const status = await seams.recovery.getWalletRecoveryCodeStatus({ walletId });
+      if (loadStatusSeq.current === requestSeq) {
+        setLoadState({ kind: 'loaded', status, actionError: '' });
+      }
+    } catch (error: unknown) {
+      if (loadStatusSeq.current === requestSeq) {
         setLoadState({
           kind: 'error',
           message: error instanceof Error ? error.message : 'Could not load recovery-code status',
         });
       }
-    },
-    [walletId, seams],
-  );
+    }
+  }, [seams.recovery, walletId]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -133,64 +79,37 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
     if (!isOpen) {
       loadStatusSeq.current += 1;
       setLoadState({ kind: 'idle' });
-      setIsRotating(false);
+      setIsAcknowledging(false);
       return;
     }
     void loadRecoveryCodeStatus();
   }, [isOpen, loadRecoveryCodeStatus]);
 
-  const downloadRecoveryCodeBackup = React.useCallback(async () => {
-    const current = loadState;
-    if (current.kind !== 'loaded' || !current.localBackup) return;
-    const { localBackup } = current;
-    try {
-      downloadRecoveryCodes(recoveryCodeBackupUiInput(localBackup));
-    } catch {
-      setLoadState({ ...current, actionError: 'Download failed. Try again.' });
+  const acknowledgeBackup = React.useCallback(async () => {
+    if (loadState.kind !== 'loaded' || loadState.status.kind !== 'ready' || isAcknowledging) {
       return;
     }
+    setIsAcknowledging(true);
+    setLoadState({ ...loadState, actionError: '' });
     try {
-      const updated = await emailOtpRecoveryCodeBackupRepository.markDownloaded({
-        walletId: localBackup.walletId,
-        enrollmentId: localBackup.enrollmentId,
-        enrollmentSealKeyVersion: localBackup.enrollmentSealKeyVersion,
-      });
-      setLoadState({
-        ...current,
-        localBackup: updated || localBackup,
-        actionError: '',
-      });
-    } catch {
-      setLoadState({
-        ...current,
-        actionError: '',
-      });
-    }
-  }, [loadState]);
-
-  const rotateRecoveryCodes = React.useCallback(async () => {
-    const current = loadState;
-    if (current.kind !== 'loaded' || current.status.status === 'not_enrolled' || isRotating) {
-      return;
-    }
-    setIsRotating(true);
-    setLoadState({ ...current, actionError: '' });
-    try {
-      await seams.recovery.rotateEmailOtpRecoveryCodes({ walletId });
+      const result = await seams.recovery.acknowledgeWalletRecoveryCodeBackup({ walletId });
+      if (result.kind !== 'acknowledged') {
+        setLoadState({ ...loadState, actionError: result.message });
+        return;
+      }
       await loadRecoveryCodeStatus();
     } catch (error: unknown) {
       setLoadState({
-        ...current,
-        actionError:
-          error instanceof Error ? error.message : 'Could not rotate recovery codes. Try again.',
+        ...loadState,
+        actionError: error instanceof Error ? error.message : 'Could not confirm the backup',
       });
     } finally {
-      setIsRotating(false);
+      setIsAcknowledging(false);
     }
-  }, [isRotating, loadRecoveryCodeStatus, loadState, walletId, seams.recovery]);
+  }, [isAcknowledging, loadRecoveryCodeStatus, loadState, seams.recovery, walletId]);
 
   if (!isOpen) return null;
-  const status = loadedStatus(loadState);
+  const status = loadState.kind === 'loaded' ? loadState.status : null;
 
   return (
     <Theme theme={theme} tokens={scopedTokens}>
@@ -210,18 +129,14 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
           <button
             type="button"
             className="w3a-recovery-codes-modal-close"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onClose();
-            }}
+            onClick={onClose}
             aria-label="Close recovery codes"
           >
             ✕
           </button>
           <div className="w3a-recovery-codes-modal-header">
             <h2 id="w3a-recovery-codes-modal-title" className="w3a-recovery-codes-modal-title">
-              Email OTP recovery codes
+              Wallet recovery codes
             </h2>
           </div>
           <div className="w3a-recovery-codes-modal-body">
@@ -232,87 +147,37 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
             <div className="w3a-recovery-codes-status-row">
               <span className="w3a-recovery-codes-status-label">Status</span>
               <span className="w3a-recovery-codes-status-value">
-                {status
-                  ? statusLabel(status.status)
-                  : loadState.kind === 'error'
-                    ? 'Could not load'
-                    : 'Loading'}
+                {status ? statusLabel(status) : loadState.kind === 'error' ? 'Could not load' : 'Loading'}
               </span>
             </div>
-            {loadState.kind === 'delegated_to_iframe' ? (
-              <div className="w3a-recovery-codes-status-row">
-                <span className="w3a-recovery-codes-status-label">Backup</span>
-                <span className="w3a-recovery-codes-status-value">
-                  Recovery codes opened in the wallet.
-                </span>
-              </div>
-            ) : null}
-            {loadState.kind === 'loaded' ? (
+            {status?.kind === 'ready' ? (
               <>
-                {loadState.localBackup ? (
-                  <>
-                    <p className="w3a-recovery-codes-note">
-                      Each code can be used once. Store them somewhere private.
-                    </p>
-                    <ol className="w3a-recovery-codes-list">
-                      {loadState.localBackup.recoveryKeys.map((code, index) => (
-                        <li className="w3a-recovery-codes-list-item" key={code}>
-                          <span className="w3a-recovery-codes-list-index">{index + 1}.</span>
-                          <span className="w3a-recovery-codes-list-code">{code}</span>
-                        </li>
-                      ))}
-                    </ol>
-                    <button
-                      type="button"
-                      className="w3a-recovery-codes-primary-action"
-                      disabled={isRotating}
-                      onClick={() => void downloadRecoveryCodeBackup()}
-                    >
-                      Download
-                    </button>
-                    {loadState.actionError ? (
-                      <div className="w3a-recovery-codes-inline-error" role="alert">
-                        {loadState.actionError}
-                      </div>
-                    ) : null}
-                  </>
-                ) : loadState.status.status !== 'not_enrolled' ? (
-                  <div className="w3a-recovery-codes-status-row">
-                    <span className="w3a-recovery-codes-status-label">Backup</span>
-                    <span className="w3a-recovery-codes-status-value">
-                      Recovery codes are unavailable on this device.
-                    </span>
-                  </div>
-                ) : null}
-                {loadState.status.status !== 'not_enrolled' ? (
-                  <button
-                    type="button"
-                    className="w3a-recovery-codes-secondary-action"
-                    disabled={isRotating}
-                    onClick={() => void rotateRecoveryCodes()}
-                  >
-                    {isRotating ? 'Rotating codes...' : 'Rotate codes'}
-                  </button>
-                ) : null}
                 <div className="w3a-recovery-codes-status-row">
                   <span className="w3a-recovery-codes-status-label">Active codes</span>
                   <span className="w3a-recovery-codes-status-value">
-                    {loadState.status.activeRecoveryCodeCount} /{' '}
-                    {loadState.status.expectedRecoveryCodeCount}
+                    {status.activeCodeCount} / {status.totalCodeCount}
                   </span>
                 </div>
-                <div className="w3a-recovery-codes-status-row">
-                  <span className="w3a-recovery-codes-status-label">Last download</span>
-                  <span className="w3a-recovery-codes-status-value">
-                    {formatTimestamp(loadState.localBackup?.lastDownloadedAtMs ?? null)}
-                  </span>
-                </div>
+                {status.backupOutstanding ? (
+                  <button
+                    type="button"
+                    className="w3a-recovery-codes-primary-action"
+                    disabled={isAcknowledging}
+                    onClick={() => void acknowledgeBackup()}
+                  >
+                    {isAcknowledging ? 'Confirming...' : 'I saved my recovery codes'}
+                  </button>
+                ) : null}
+                {loadState.kind === 'loaded' && loadState.actionError ? (
+                  <div className="w3a-recovery-codes-inline-error" role="alert">
+                    {loadState.actionError}
+                  </div>
+                ) : null}
               </>
             ) : null}
             {loadState.kind === 'error' ? (
-              <div className="w3a-recovery-codes-status-row">
-                <span className="w3a-recovery-codes-status-label">Error</span>
-                <span className="w3a-recovery-codes-status-value">{loadState.message}</span>
+              <div className="w3a-recovery-codes-inline-error" role="alert">
+                {loadState.message}
               </div>
             ) : null}
           </div>

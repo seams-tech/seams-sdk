@@ -1325,9 +1325,9 @@ export function useSeamsAuthMenuController(
     setPostRecoveryRotationError('');
     void (async () => {
       try {
-        await runtime.seamsWeb.recovery.rotateEmailOtpRecoveryCodes({ walletId: prompt.walletId });
-        await runtime.refreshLoginState(prompt.walletId).catch(() => {});
-        setPostRecoveryRotationPromptState(null);
+        setPostRecoveryRotationError(
+          'Recovery-code rotation is unavailable until the wallet recovery wrap is refreshed.',
+        );
       } catch (error: unknown) {
         setPostRecoveryRotationError(
           getErrorMessage(error, 'Could not rotate recovery codes. Try again later.'),

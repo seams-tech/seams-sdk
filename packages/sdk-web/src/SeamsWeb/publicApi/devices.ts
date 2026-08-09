@@ -10,6 +10,7 @@ export type DevicesCapabilityDomainMethods = {
   deleteDeviceKey: DevicesCapability['deleteDeviceKey'];
   listWalletCredentials: DevicesCapability['listWalletCredentials'];
   renameWalletCredential: DevicesCapability['renameWalletCredential'];
+  revokeWalletCredential: DevicesCapability['revokeWalletCredential'];
 };
 
 export function createDevicesCapability(deps: {
@@ -31,5 +32,6 @@ export function createDevicesCapability(deps: {
     deleteDeviceKey: deps.domain.deleteDeviceKey,
     listWalletCredentials: deps.domain.listWalletCredentials,
     renameWalletCredential: deps.domain.renameWalletCredential,
+    revokeWalletCredential: deps.domain.revokeWalletCredential,
   } satisfies DevicesCapability;
 }

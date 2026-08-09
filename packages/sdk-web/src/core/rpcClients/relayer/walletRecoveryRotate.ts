@@ -10,6 +10,138 @@ import {
 
 const WALLET_RECOVERY_READ_PATH = '/wallets/recovery/read';
 const WALLET_RECOVERY_ROTATE_PATH = '/wallets/recovery/rotate';
+const WALLET_RECOVERY_ACK_PATH = '/wallets/recovery/acknowledge-backup';
+
+export type WalletRecoveryCodeStatusResult =
+  | {
+      readonly kind: 'ready';
+      readonly walletId: string;
+      readonly activeCodeCount: number;
+      readonly totalCodeCount: number;
+      readonly issuedAtMs: number;
+      readonly backupOutstanding: boolean;
+    }
+  | { readonly kind: 'no_recovery_set'; readonly message: string }
+  | { readonly kind: 'unauthorized'; readonly message: string }
+  | { readonly kind: 'transport_failed'; readonly message: string };
+
+export async function readWalletRecoveryCodeStatus(args: {
+  readonly relayUrl: string;
+  readonly walletId: string;
+  readonly sessionToken: string;
+  readonly fetchImpl?: typeof fetch;
+}): Promise<WalletRecoveryCodeStatusResult> {
+  const url = `${normalizeRelayerBaseUrl(args.relayUrl)}/wallets/${encodeURIComponent(
+    args.walletId,
+  )}/recovery/status`;
+  const doFetch = args.fetchImpl || fetch;
+  let response: Response;
+  try {
+    response = await doFetch(url, {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        Accept: 'application/json',
+        ...buildBearerAuthorizationHeader({
+          token: args.sessionToken,
+          missingMessage: 'wallet recovery status requires an app session',
+        }),
+      },
+    });
+  } catch (error: unknown) {
+    return {
+      kind: 'transport_failed',
+      message: error instanceof Error ? error.message : 'recovery status request failed',
+    };
+  }
+  const body = asRecord(await response.json().catch(() => ({})));
+  const message = typeof body.message === 'string' ? body.message : '';
+  if (response.status === 401 || response.status === 403) {
+    return { kind: 'unauthorized', message: message || 'recovery status is unauthorized' };
+  }
+  if (response.status === 404) {
+    return { kind: 'no_recovery_set', message: message || 'this wallet has no recovery set' };
+  }
+  if (response.status !== 200 || body.ok !== true) {
+    return {
+      kind: 'transport_failed',
+      message: message || `recovery status failed (HTTP ${response.status})`,
+    };
+  }
+  const activeCodeCount = Number(body.activeCodeCount);
+  const totalCodeCount = Number(body.totalCodeCount);
+  const issuedAtMs = Number(body.issuedAtMs);
+  if (
+    !Number.isSafeInteger(activeCodeCount) ||
+    activeCodeCount < 0 ||
+    !Number.isSafeInteger(totalCodeCount) ||
+    totalCodeCount < activeCodeCount ||
+    !Number.isSafeInteger(issuedAtMs) ||
+    issuedAtMs <= 0 ||
+    typeof body.backupOutstanding !== 'boolean'
+  ) {
+    return { kind: 'transport_failed', message: 'recovery status returned an unusable payload' };
+  }
+  return {
+    kind: 'ready',
+    walletId: args.walletId,
+    activeCodeCount,
+    totalCodeCount,
+    issuedAtMs,
+    backupOutstanding: body.backupOutstanding,
+  };
+}
+
+export type WalletRecoveryBackupAcknowledgementResult =
+  | { readonly kind: 'acknowledged'; readonly walletId: string; readonly issuedAtMs: number }
+  | { readonly kind: 'no_recovery_set'; readonly message: string }
+  | { readonly kind: 'unauthorized'; readonly message: string }
+  | { readonly kind: 'transport_failed'; readonly message: string };
+
+export async function acknowledgeWalletRecoveryBackup(args: {
+  readonly relayUrl: string;
+  readonly walletId: string;
+  readonly sessionToken: string;
+  readonly fetchImpl?: typeof fetch;
+}): Promise<WalletRecoveryBackupAcknowledgementResult> {
+  let response: Response;
+  try {
+    response = await postWalletRecoveryRoute({
+      relayUrl: args.relayUrl,
+      sessionToken: args.sessionToken,
+      path: WALLET_RECOVERY_ACK_PATH,
+      body: { walletId: args.walletId },
+      fetchImpl: args.fetchImpl,
+    });
+  } catch (error: unknown) {
+    return {
+      kind: 'transport_failed',
+      message: error instanceof Error ? error.message : 'recovery backup acknowledgement failed',
+    };
+  }
+  const body = asRecord(await response.json().catch(() => ({})));
+  const message = typeof body.message === 'string' ? body.message : '';
+  if (response.status === 401 || response.status === 403) {
+    return { kind: 'unauthorized', message: message || 'recovery backup acknowledgement is unauthorized' };
+  }
+  if (response.status === 404) {
+    return { kind: 'no_recovery_set', message: message || 'this wallet has no recovery set' };
+  }
+  if (response.status !== 200 || body.ok !== true) {
+    return {
+      kind: 'transport_failed',
+      message: message || `recovery backup acknowledgement failed (HTTP ${response.status})`,
+    };
+  }
+  const issuedAtMs = Number(body.issuedAtMs);
+  if (!Number.isSafeInteger(issuedAtMs) || issuedAtMs <= 0) {
+    return {
+      kind: 'transport_failed',
+      message: 'recovery backup acknowledgement returned an unusable payload',
+    };
+  }
+  return { kind: 'acknowledged', walletId: args.walletId, issuedAtMs };
+}
 
 export type WalletRecoverySetReadResult =
   | {

@@ -4,14 +4,8 @@ import {
   findRouteDefinitionById,
   matchesRouteDefinitionRequest,
 } from '../../../framework/routeDefinitions';
-import { enforceRoutePolicy } from '../../../framework/enforceRoutePolicy';
 import { toFetchRouteResponse } from '../../../framework/routeResponses';
 import { readJson } from '../../../framework/http';
-import { resolvePublishableKeyApiCredentialAuth } from '../../../auth/routerApiCredentialAuth';
-import {
-  extractRouterApiEnvironmentId,
-  resolveSourceIpFromFetchHeaders,
-} from '../../../auth/routerApiKeyAuth';
 import { decodeBase64UrlOrBase64 } from '../../../../core/authService/webauthnOidcHelpers';
 import {
   deriveWalletRecoveryKeyLifecycleId,
@@ -19,9 +13,7 @@ import {
   type RecoveryCodeReservationId,
 } from '@shared/wallet-recovery/recoveryCodeReservation';
 import {
-  admitWalletRecoveryEmailOtp,
   admitWalletRecoveryBootstrapGrant,
-  resolveWalletRecoveryAuthorizationContext,
   resolveWalletRecoveryBootstrapAuthorizationContext,
   resolveWalletRecoveryAuthorizationToken,
 } from '../../../domains/passkeyCustody/walletRecoveryAuthorization';
@@ -272,7 +264,6 @@ export async function handleWalletRecoveryPrepare(
   const recoveryCode = trimmed(body?.recoveryCode);
   const orgId = trimmed(body?.orgId);
   const challengeId = trimmed(body?.challengeId);
-  const otpCode = trimmed(body?.otpCode);
   const recoveryBootstrapGrant = trimmed(body?.recoveryBootstrapGrant);
   const replacedCredentialIdB64u = trimmed(body?.replacedCredentialIdB64u);
   let reservationId;
@@ -281,9 +272,7 @@ export async function handleWalletRecoveryPrepare(
   } catch {
     reservationId = null;
   }
-  const hasSessionAuthorization = Boolean(challengeId && otpCode);
-  const hasBootstrapAuthorization = Boolean(recoveryBootstrapGrant && challengeId && !otpCode);
-  if (hasBootstrapAuthorization && !trimmed(ctx.request.headers.get('origin'))) {
+  if (!trimmed(ctx.request.headers.get('origin'))) {
     return toFetchRouteResponse({
       status: 400,
       body: { ok: false, code: 'invalid_origin', message: 'wallet recovery requires the request Origin header' },
@@ -291,10 +280,13 @@ export async function handleWalletRecoveryPrepare(
   }
   if (
     !walletId ||
+    !orgId ||
     !recoveryCode ||
     !reservationId ||
     !replacedCredentialIdB64u ||
-    (hasSessionAuthorization === hasBootstrapAuthorization)
+    !challengeId ||
+    !recoveryBootstrapGrant ||
+    body?.otpCode !== undefined
   ) {
     return toFetchRouteResponse({
       status: 400,
@@ -307,41 +299,23 @@ export async function handleWalletRecoveryPrepare(
     });
   }
 
-  const authorization = hasBootstrapAuthorization
-    ? await resolveBootstrapRecoveryAuthorization(ctx, {
-        walletId,
-        orgId,
-        reservationId,
-        recoveryBootstrapGrant,
-      })
-    : await resolveWalletRecoveryAuthorizationContext({
-        headers: Object.fromEntries(ctx.request.headers.entries()),
-        session: ctx.opts.session,
-        walletId,
-        reservationId,
-        authorizedOperations: ctx.service.authorizedOperations,
-        authorizationSessions: ctx.service.authorizationSessions,
-      });
+  const authorization = await resolveBootstrapRecoveryAuthorization(ctx, {
+    walletId,
+    orgId,
+    reservationId,
+    challengeId,
+    recoveryBootstrapGrant,
+  });
   if (!authorization.ok) return authorizationFailure(authorization);
   if (authorization.context.existing?.lifecycle === 'completed') {
     return authorizedOperationReplay(authorization.context.existing);
   }
-  const admitted = hasBootstrapAuthorization
-    ? await admitWalletRecoveryBootstrapGrant({
-        context: authorization.context,
-        reservationId,
-        challengeId,
-        nowMs: Date.now(),
-      })
-    : await admitWalletRecoveryEmailOtp({
-        context: authorization.context,
-        emailOtp: ctx.service.emailOtp,
-        walletId,
-        reservationId,
-        challengeId,
-        otpCode,
-        nowMs: Date.now(),
-      });
+  const admitted = await admitWalletRecoveryBootstrapGrant({
+    context: authorization.context,
+    reservationId,
+    challengeId,
+    nowMs: Date.now(),
+  });
   if (!admitted.ok) return authorizationFailure(admitted);
   if (admitted.operation.lifecycle === 'completed') {
     return authorizedOperationReplay(admitted.operation);
@@ -983,9 +957,8 @@ export async function handleWalletRecoveryRead(
 /**
  * Reporting recovery status to the wallet's owner.
  *
- * The wallet comes from the path, and the route sits behind credentials —
- * that is what makes counting remaining codes safe here and unsafe on the
- * spend route beside it.
+ * The wallet comes from the path and the active wallet-bound session proves
+ * the caller may inspect it. Counting codes is an owner-only operation.
  *
  * Counts only, never identifiers. Which codes remain is not something even
  * the owner's browser needs, and a list would be one leak away from being
@@ -998,50 +971,18 @@ export async function handleWalletRecoveryStatus(
   if (!route) throw new Error(`Missing route definition for ${RECOVERY_STATUS_ROUTE_ID}`);
   if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
 
-  const publishableKeyAuth = ctx.opts.publishableKeyAuth;
-  if (!publishableKeyAuth) {
-    return toFetchRouteResponse({
-      status: 500,
-      body: {
-        ok: false,
-        code: 'route_auth_not_configured',
-        message: 'wallet recovery status requires publishable key auth on this server',
-      },
-    });
-  }
-  const headers = Object.fromEntries(ctx.request.headers.entries());
-  const resolved = await enforceRoutePolicy({
-    headers,
-    logger: ctx.logger,
-    request: { body: null, headers },
-    route,
-    services: { passkeyCustody: ctx.service.passkeyCustody },
-    sourceIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    resolvers: {
-      apiCredentials: async () =>
-        await resolvePublishableKeyApiCredentialAuth({
-          environmentId: extractRouterApiEnvironmentId(headers) || undefined,
-          headers,
-          missingEnvironmentMessage: 'Environment header is required for wallet recovery status',
-          missingOriginMessage: 'Origin header is required and must be a valid exact origin',
-          missingPublishableKeyMessage: 'Missing publishable key',
-          origin: String(ctx.request.headers.get('origin') || '').trim() || undefined,
-          publishableKeyAuth,
-          route,
-          routeAuthNotConfiguredMessage:
-            'Wallet recovery status requires API credential auth policy',
-        }),
-    },
-  });
-  if (!resolved.ok) {
-    return toFetchRouteResponse({ status: resolved.status, body: resolved.body });
-  }
-
   const walletId = walletIdFromPath(route.path, ctx.pathname);
   if (!walletId) {
     return toFetchRouteResponse({
       status: 400,
       body: { ok: false, code: 'invalid_request', message: 'status needs a wallet' },
+    });
+  }
+  const authenticated = await authenticateWalletRecoveryAuthority(ctx, walletId);
+  if (!authenticated.ok) {
+    return toFetchRouteResponse({
+      status: authenticated.error.status,
+      body: authenticated.error.body,
     });
   }
 

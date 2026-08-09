@@ -271,18 +271,21 @@ export function useSeamsWithSdkFlow(args: {
             setRecoveryEmails: (...args: Parameters<RecoveryCapability['setRecoveryEmails']>) =>
               recovery.setRecoveryEmails(...args),
             syncAccount: syncAccountWithSdkFlow,
-            getEmailOtpRecoveryCodeStatus: (
-              ...args: Parameters<RecoveryCapability['getEmailOtpRecoveryCodeStatus']>
-            ) => recovery.getEmailOtpRecoveryCodeStatus(...args),
-            rotateEmailOtpRecoveryCodes: (
-              ...args: Parameters<RecoveryCapability['rotateEmailOtpRecoveryCodes']>
-            ) => recovery.rotateEmailOtpRecoveryCodes(...args),
-            requestWalletRecoveryChallenge: (
-              ...args: Parameters<RecoveryCapability['requestWalletRecoveryChallenge']>
-            ) => recovery.requestWalletRecoveryChallenge(...args),
-            prepareWalletRecovery: (
-              ...args: Parameters<RecoveryCapability['prepareWalletRecovery']>
-            ) => recovery.prepareWalletRecovery(...args),
+            getWalletRecoveryCodeStatus: (
+              ...args: Parameters<RecoveryCapability['getWalletRecoveryCodeStatus']>
+            ) => recovery.getWalletRecoveryCodeStatus(...args),
+            acknowledgeWalletRecoveryCodeBackup: (
+              ...args: Parameters<RecoveryCapability['acknowledgeWalletRecoveryCodeBackup']>
+            ) => recovery.acknowledgeWalletRecoveryCodeBackup(...args),
+            requestWalletRecoveryBootstrapChallenge: (
+              ...args: Parameters<RecoveryCapability['requestWalletRecoveryBootstrapChallenge']>
+            ) => recovery.requestWalletRecoveryBootstrapChallenge(...args),
+            verifyWalletRecoveryBootstrap: (
+              ...args: Parameters<RecoveryCapability['verifyWalletRecoveryBootstrap']>
+            ) => recovery.verifyWalletRecoveryBootstrap(...args),
+            prepareWalletRecoveryWithBootstrap: (
+              ...args: Parameters<RecoveryCapability['prepareWalletRecoveryWithBootstrap']>
+            ) => recovery.prepareWalletRecoveryWithBootstrap(...args),
             completeWalletRecovery: (
               ...args: Parameters<RecoveryCapability['completeWalletRecovery']>
             ) => recovery.completeWalletRecovery(...args),

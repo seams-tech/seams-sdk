@@ -62,7 +62,11 @@ import type {
 } from '@/SeamsWeb/walletIframe/shared/messages';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import { isUserCancellationError, toError } from '@shared/utils/errors';
-import { parseMpcMaterialActivationRef } from '@shared/utils/domainIds';
+import {
+  parseMpcMaterialActivationRef,
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+} from '@shared/utils/domainIds';
 import { sha256HexUtf8 } from '@shared/utils/digests';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import {
@@ -112,6 +116,8 @@ import {
   listWalletCredentialActivity,
   renameWalletCredential,
 } from '@/core/rpcClients/relayer/walletCredentialActivity';
+import { revokeWalletAuthMethod } from '@/core/rpcClients/relayer/walletRegistration';
+import { activeWalletOrHostedAppSessionJwt } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
 import type { UiConfirmSurfaceMeasurementBinding } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type {
   EnrollEmailOtpInternalResult,
@@ -149,16 +155,15 @@ import type { EmailOtpWorkerProgressEvent } from '@/core/signingEngine/workerMan
 import {
   exchangeGoogleEmailOtpSession,
   requestEmailOtpChallenge,
-  requestEmailOtpDeviceRecoveryChallenge,
   requestEmailOtpEnrollmentChallenge,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/challenge';
 import { WalletRecoveryCoordinator } from '@/SeamsWeb/operations/recovery/walletRecovery';
 import { beginGoogleEmailOtpWalletAuth } from '@/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow';
 import { EmailOtpDeviceRecoveryRequiredError } from '@/SeamsWeb/operations/authMethods/emailOtp/errors';
 import {
-  getEmailOtpRecoveryCodeStatus,
-  storeRotatedEmailOtpRecoveryCodes,
-} from '@/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup';
+  acknowledgeWalletRecoveryBackup,
+  readWalletRecoveryCodeStatus,
+} from '@/core/rpcClients/relayer/walletRecoveryRotate';
 import {
   requestWalletRecoveryBootstrapChallenge,
   verifyWalletRecoveryBootstrap,
@@ -799,17 +804,14 @@ export class SeamsWeb {
         enrollEmailOtp: async (args) => await this.enrollEmailOtpDomain(args),
       },
       recovery: {
-        getEmailOtpRecoveryCodeStatus: async (args) =>
-          await this.getEmailOtpRecoveryCodeStatusDomain(args),
-        rotateEmailOtpRecoveryCodes: async (args) =>
-          await this.rotateEmailOtpRecoveryCodesDomain(args),
-        requestWalletRecoveryChallenge: async (args) =>
-          await this.requestWalletRecoveryChallengeDomain(args),
+        getWalletRecoveryCodeStatus: async (args) =>
+          await this.getWalletRecoveryCodeStatusDomain(args),
+        acknowledgeWalletRecoveryCodeBackup: async (args) =>
+          await this.acknowledgeWalletRecoveryCodeBackupDomain(args),
         requestWalletRecoveryBootstrapChallenge: async (args) =>
           await this.requestWalletRecoveryBootstrapChallengeDomain(args),
         verifyWalletRecoveryBootstrap: async (args) =>
           await this.verifyWalletRecoveryBootstrapDomain(args),
-        prepareWalletRecovery: async (args) => await this.prepareWalletRecoveryDomain(args),
         prepareWalletRecoveryWithBootstrap: async (args) =>
           await this.prepareWalletRecoveryWithBootstrapDomain(args),
         completeWalletRecovery: async (args) => await this.completeWalletRecoveryDomain(args),
@@ -819,6 +821,7 @@ export class SeamsWeb {
         deleteDeviceKey: async (args) => await this.deleteDeviceKeyDomain(args),
         listWalletCredentials: async (args) => await this.listWalletCredentialsDomain(args),
         renameWalletCredential: async (args) => await this.renameWalletCredentialDomain(args),
+        revokeWalletCredential: async (args) => await this.revokeWalletCredentialDomain(args),
       },
       keys: {
         resolveExactKeyExportLane: async (input) =>
@@ -1089,6 +1092,44 @@ export class SeamsWeb {
       walletId: args.walletId,
       envelopeId: args.envelopeId,
       ...(args.label === undefined ? {} : { label: args.label }),
+    });
+  }
+
+  private async revokeWalletCredentialDomain(args: {
+    readonly walletId: string;
+    readonly rpId: string;
+    readonly credentialIdB64u: string;
+  }) {
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(args.walletId);
+      return await router.revokeWalletCredential(args);
+    }
+    const walletId = walletIdFromString(args.walletId);
+    const rpId = parseWebAuthnRpId(args.rpId);
+    if (!rpId.ok) throw new Error(rpId.error.message);
+    const credentialId = parseWebAuthnCredentialIdB64u(args.credentialIdB64u);
+    if (!credentialId.ok) throw new Error(credentialId.error.message);
+    const relayUrl = String(this.configs.network.relayer.url || '').trim();
+    const appSessionJwt = this.requireActiveWalletAppSessionJwt(relayUrl, String(walletId));
+    const target = {
+      kind: 'passkey' as const,
+      rpId: rpId.value,
+      credentialIdB64u: credentialId.value,
+    };
+    return await revokeWalletAuthMethod({
+      relayerUrl: relayUrl,
+      walletId,
+      auth: {
+        kind: 'app_session',
+        appSessionJwt,
+        policy: {
+          permission: 'wallet_auth_method_revoke',
+          walletId,
+          target,
+          expiresAtMs: Date.now() + 5 * 60_000,
+        },
+      },
+      target,
     });
   }
 
@@ -1883,116 +1924,39 @@ export class SeamsWeb {
     }
   }
 
-  private async getEmailOtpRecoveryCodeStatusDomain(args: {
+  private async getWalletRecoveryCodeStatusDomain(args: {
     walletId: string;
-    relayUrl?: string;
-    appSessionJwt?: string;
   }) {
-    const relayUrl = String(args.relayUrl || this.configs.network.relayer.url || '').trim();
+    const relayUrl = String(this.configs.network.relayer.url || '').trim();
     if (this.walletIframe.shouldUseWalletIframe()) {
       const router = await this.walletIframe.requireRouter(args.walletId);
-      return await router.getEmailOtpRecoveryCodeStatus({
+      return await router.getWalletRecoveryCodeStatus({
         walletId: args.walletId,
-        relayUrl,
-        ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
       });
     }
-    const appSessionJwt = await this.resolveEmailOtpRecoveryCodeAppSessionJwt({
-      walletId: args.walletId,
-      relayUrl,
-      appSessionJwt: args.appSessionJwt,
-    });
-    return await getEmailOtpRecoveryCodeStatus({
+    const appSessionJwt = this.requireActiveWalletAppSessionJwt(relayUrl, args.walletId);
+    return await readWalletRecoveryCodeStatus({
       relayUrl,
       walletId: args.walletId,
-      ...(appSessionJwt ? { appSessionJwt } : {}),
+      sessionToken: appSessionJwt,
     });
   }
 
-  async showEmailOtpRecoveryCodesForAccountMenu(args: { walletId: string }) {
-    return await this.showEmailOtpRecoveryCodesDomain({
-      walletId: args.walletId,
-    });
-  }
-
-  private async showEmailOtpRecoveryCodesDomain(args: {
+  private async acknowledgeWalletRecoveryCodeBackupDomain(args: {
     walletId: string;
-    relayUrl?: string;
-    appSessionJwt?: string;
   }) {
-    const relayUrl = String(args.relayUrl || this.configs.network.relayer.url || '').trim();
+    const relayUrl = String(this.configs.network.relayer.url || '').trim();
     if (this.walletIframe.shouldUseWalletIframe()) {
       const router = await this.walletIframe.requireRouter(args.walletId);
-      return await router.showEmailOtpRecoveryCodes({
+      return await router.acknowledgeWalletRecoveryCodeBackup({
         walletId: args.walletId,
-        relayUrl,
-        ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
       });
     }
-    const status = await this.getEmailOtpRecoveryCodeStatusDomain(args);
-    return { status, displayedStoredCodes: false };
-  }
-
-  private async rotateEmailOtpRecoveryCodesDomain(args: {
-    walletId: string;
-    relayUrl?: string;
-    appSessionJwt?: string;
-  }) {
-    const relayUrl = String(args.relayUrl || this.configs.network.relayer.url || '').trim();
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter(args.walletId);
-      return await router.rotateEmailOtpRecoveryCodes({
-        walletId: args.walletId,
-        relayUrl,
-        ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
-      });
-    }
-    const appSessionJwt = await this.resolveEmailOtpRecoveryCodeAppSessionJwt({
-      walletId: args.walletId,
-      relayUrl,
-      appSessionJwt: args.appSessionJwt,
-    });
-    const rotation = await this.signingEngine.rotateEmailOtpRecoveryCodesInternal({
-      walletId: toWalletId(args.walletId),
-      relayUrl,
-      ...(appSessionJwt ? { appSessionJwt } : {}),
-    });
-    const recoveryCodeBackup = await storeRotatedEmailOtpRecoveryCodes({
-      walletId: args.walletId,
-      rotation,
-      storageScope: 'host_origin_indexeddb',
-    });
-    const status = await this.getEmailOtpRecoveryCodeStatusDomain({
-      walletId: args.walletId,
-      relayUrl,
-      ...(appSessionJwt ? { appSessionJwt } : {}),
-    });
-    return { status, recoveryCodeBackup };
-  }
-
-  private async requestWalletRecoveryChallengeDomain(args: {
-    walletId: string;
-    relayUrl?: string;
-    appSessionJwt?: string;
-  }) {
-    const relayUrl = String(args.relayUrl || this.configs.network.relayer.url || '').trim();
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter(args.walletId);
-      return await router.requestWalletRecoveryChallenge({
-        walletId: args.walletId,
-        relayUrl,
-        ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
-      });
-    }
-    const appSessionJwt = await this.resolveEmailOtpRecoveryCodeAppSessionJwt({
-      walletId: args.walletId,
-      relayUrl,
-      appSessionJwt: args.appSessionJwt,
-    });
-    return await requestEmailOtpDeviceRecoveryChallenge({
+    const appSessionJwt = this.requireActiveWalletAppSessionJwt(relayUrl, args.walletId);
+    return await acknowledgeWalletRecoveryBackup({
       relayUrl,
       walletId: args.walletId,
-      appSessionJwt,
+      sessionToken: appSessionJwt,
     });
   }
 
@@ -2041,44 +2005,6 @@ export class SeamsWeb {
       orgId: args.orgId,
       challengeId: args.challengeId,
       otpCode: args.otpCode,
-    });
-  }
-
-  private async prepareWalletRecoveryDomain(args: {
-    walletId: string;
-    challengeId: string;
-    otpCode: string;
-    recoveryCode: string;
-    replacedCredentialIdB64u: string;
-    relayUrl?: string;
-    appSessionJwt?: string;
-  }) {
-    const relayUrl = String(args.relayUrl || this.configs.network.relayer.url || '').trim();
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter(args.walletId);
-      return await router.prepareWalletRecovery({
-        walletId: args.walletId,
-        challengeId: args.challengeId,
-        otpCode: args.otpCode,
-        recoveryCode: args.recoveryCode,
-        replacedCredentialIdB64u: args.replacedCredentialIdB64u,
-        relayUrl,
-        ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
-      });
-    }
-    const sessionToken = await this.resolveEmailOtpRecoveryCodeAppSessionJwt({
-      walletId: args.walletId,
-      relayUrl,
-      appSessionJwt: args.appSessionJwt,
-    });
-    return await this.walletRecoveryCoordinator.prepare({
-      walletId: args.walletId,
-      relayUrl,
-      sessionToken,
-      challengeId: args.challengeId,
-      otpCode: args.otpCode,
-      recoveryCode: args.recoveryCode,
-      replacedCredentialIdB64u: args.replacedCredentialIdB64u,
     });
   }
 
@@ -2167,6 +2093,14 @@ export class SeamsWeb {
       }),
       relayUrl: args.relayUrl,
     });
+  }
+
+  private requireActiveWalletAppSessionJwt(relayUrl: string, walletId: string): string {
+    const appSessionJwt = activeWalletOrHostedAppSessionJwt(relayUrl, walletId);
+    if (!appSessionJwt) {
+      throw new Error('[SeamsWeb] an active wallet-bound session is required');
+    }
+    return appSessionJwt;
   }
 
   private async requireEmailOtpWalletAuthMethodEmailHashHex(walletId: WalletId): Promise<string> {

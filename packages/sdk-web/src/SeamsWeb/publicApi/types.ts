@@ -91,6 +91,11 @@ import type {
   WalletRecoveryBootstrapVerifyResult,
 } from '@/SeamsWeb/operations/recovery/walletRecovery';
 import type { AddPasskeyResult } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
+import type { WalletRevokeAuthMethodResponse } from '@/core/rpcClients/relayer/walletRegistration';
+import type {
+  WalletRecoveryBackupAcknowledgementResult,
+  WalletRecoveryCodeStatusResult,
+} from '@/core/rpcClients/relayer/walletRecoveryRotate';
 export type {
   CompleteWalletRecoveryResult,
   PrepareWalletWithCodeResult,
@@ -98,6 +103,10 @@ export type {
   WalletRecoveryBootstrapVerifyResult,
 } from '@/SeamsWeb/operations/recovery/walletRecovery';
 export type { AddPasskeyResult } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
+export type {
+  WalletRecoveryBackupAcknowledgementResult,
+  WalletRecoveryCodeStatusResult,
+} from '@/core/rpcClients/relayer/walletRecoveryRotate';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import type {
   AvailableSigningLanes,
@@ -931,28 +940,13 @@ export interface RecoveryCapability {
     options?: SyncAccountHooksOptions;
   }): Promise<SyncAccountResult>;
 
-  getEmailOtpRecoveryCodeStatus(args: {
+  getWalletRecoveryCodeStatus(args: {
     walletId: string;
-    relayUrl?: string;
-    appSessionJwt?: string;
-  }): Promise<EmailOtpRecoveryCodeStatus>;
+  }): Promise<WalletRecoveryCodeStatusResult>;
 
-  rotateEmailOtpRecoveryCodes(args: {
+  acknowledgeWalletRecoveryCodeBackup(args: {
     walletId: string;
-    relayUrl?: string;
-    appSessionJwt?: string;
-  }): Promise<EmailOtpRecoveryCodeRotationResult>;
-
-  requestWalletRecoveryChallenge(args: {
-    walletId: string;
-    relayUrl?: string;
-    appSessionJwt?: string;
-  }): Promise<{
-    challengeId: string;
-    otpChannel: WalletEmailOtpChannel;
-    emailHint?: string;
-    expiresAtMs?: number;
-  }>;
+  }): Promise<WalletRecoveryBackupAcknowledgementResult>;
 
   requestWalletRecoveryBootstrapChallenge(args: {
     walletId: string;
@@ -967,16 +961,6 @@ export interface RecoveryCapability {
     otpCode: string;
     relayUrl?: string;
   }): Promise<WalletRecoveryBootstrapVerifyResult>;
-
-  prepareWalletRecovery(args: {
-    walletId: string;
-    challengeId: string;
-    otpCode: string;
-    recoveryCode: string;
-    replacedCredentialIdB64u: string;
-    relayUrl?: string;
-    appSessionJwt?: string;
-  }): Promise<PrepareWalletWithCodeResult>;
 
   prepareWalletRecoveryWithBootstrap(args: {
     walletId: string;
@@ -1029,6 +1013,12 @@ export interface DevicesCapability {
     envelopeId: string;
     label?: string;
   }): Promise<WalletCredentialRenameResult>;
+
+  revokeWalletCredential(args: {
+    walletId: string;
+    rpId: string;
+    credentialIdB64u: string;
+  }): Promise<WalletRevokeAuthMethodResponse>;
 }
 
 export type KeyExportUiOptions = SigningEngineExportKeypairWithUIInput['options'];

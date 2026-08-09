@@ -11,9 +11,7 @@ import type {
 } from '@/SeamsWeb/signingSurface/types';
 import {
   backupEmailOtpRecoveryCodes,
-  showEmailOtpRecoveryCodeBackupUi,
 } from '../../../operations/authMethods/emailOtp/recoveryCodeBackup';
-import { emailOtpRecoveryCodeBackupRepository } from '../../../../core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups';
 import type {
   PMGoogleEmailOtpWalletAuthRegistrationWireFlow,
   PMGoogleEmailOtpWalletAuthRegistrationWireResult,
@@ -204,56 +202,11 @@ function burnFlow(value: unknown): GoogleEmailOtpWalletAuthFlow {
   return flow;
 }
 
-function parseGetEmailOtpRecoveryCodeStatusPayload(
+function parseWalletRecoverySessionPayload(
   value: unknown,
-  expectedRelayUrl: string,
-): {
-  walletId: string;
-  relayUrl?: string;
-  appSessionJwt?: string;
-} {
+): { walletId: string } {
   const record = recordFromPayload(value);
-  const relayUrl = requireWalletRelayUrl(readOptionalString(record, 'relayUrl'), expectedRelayUrl);
-  const walletId = readRequiredString(record, 'walletId');
-  const appSessionJwt = activeWalletOrHostedAppSessionJwt(
-    relayUrl,
-    walletId,
-  );
-  return {
-    walletId,
-    relayUrl,
-    ...(appSessionJwt ? { appSessionJwt } : {}),
-  };
-}
-
-function parsePrepareWalletRecoveryPayload(
-  value: unknown,
-  expectedRelayUrl: string,
-): {
-  walletId: string;
-  challengeId: string;
-  otpCode: string;
-  recoveryCode: string;
-  replacedCredentialIdB64u: string;
-  relayUrl?: string;
-  appSessionJwt?: string;
-} {
-  const record = recordFromPayload(value);
-  const relayUrl = requireWalletRelayUrl(readOptionalString(record, 'relayUrl'), expectedRelayUrl);
-  const walletId = readRequiredString(record, 'walletId');
-  const appSessionJwt = activeWalletOrHostedAppSessionJwt(
-    relayUrl,
-    walletId,
-  );
-  return {
-    walletId,
-    challengeId: readRequiredString(record, 'challengeId'),
-    otpCode: readRequiredString(record, 'otpCode'),
-    recoveryCode: readRequiredString(record, 'recoveryCode'),
-    replacedCredentialIdB64u: readRequiredString(record, 'replacedCredentialIdB64u'),
-    relayUrl,
-    ...(appSessionJwt ? { appSessionJwt } : {}),
-  };
+  return { walletId: readRequiredString(record, 'walletId') };
 }
 
 function parseWalletRecoveryBootstrapChallengePayload(
@@ -331,58 +284,6 @@ function parseCompleteWalletRecoveryPayload(
     relayUrl,
     ...(appSessionJwt ? { appSessionJwt } : {}),
   };
-}
-
-async function showEmailOtpRecoveryCodesInIframe(input: {
-  pm: ReturnType<HandlerDeps['getSeamsWeb']>;
-  walletId: string;
-  relayUrl?: string;
-  appSessionJwt?: string;
-}) {
-  const status = await input.pm.recovery.getEmailOtpRecoveryCodeStatus({
-    walletId: input.walletId,
-    ...(input.relayUrl ? { relayUrl: input.relayUrl } : {}),
-    ...(input.appSessionJwt ? { appSessionJwt: input.appSessionJwt } : {}),
-  });
-  if (!status.enrollmentId || !status.enrollmentSealKeyVersion) {
-    return { status, displayedStoredCodes: false };
-  }
-  const backup = await emailOtpRecoveryCodeBackupRepository.readMatching({
-    walletId: status.walletId,
-    enrollmentId: status.enrollmentId,
-    enrollmentSealKeyVersion: status.enrollmentSealKeyVersion,
-  });
-  if (!backup) return { status, displayedStoredCodes: false };
-  const displayed =
-    (await emailOtpRecoveryCodeBackupRepository
-      .markDisplayed({
-        walletId: backup.walletId,
-        enrollmentId: backup.enrollmentId,
-        enrollmentSealKeyVersion: backup.enrollmentSealKeyVersion,
-      })
-      .catch(() => null)) || backup;
-  await new Promise<void>((resolve) => {
-    showEmailOtpRecoveryCodeBackupUi(
-      {
-        walletId: displayed.walletId,
-        enrollmentId: displayed.enrollmentId,
-        enrollmentSealKeyVersion: displayed.enrollmentSealKeyVersion,
-        recoveryCodesIssuedAtMs: displayed.recoveryCodesIssuedAtMs,
-        recoveryKeys: displayed.recoveryKeys,
-      },
-      {
-        onDownloaded: async () => {
-          await emailOtpRecoveryCodeBackupRepository.markDownloaded({
-            walletId: displayed.walletId,
-            enrollmentId: displayed.enrollmentId,
-            enrollmentSealKeyVersion: displayed.enrollmentSealKeyVersion,
-          });
-        },
-        onClosed: resolve,
-      },
-    );
-  });
-  return { status, displayedStoredCodes: true };
 }
 
 async function storeEmailOtpRecoveryCodeBackupInIframe(input: {
@@ -638,49 +539,24 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       respondOkResult(deps, req.requestId, result);
     },
 
-    PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS: async (
-      req: Req<'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS'>,
+    PM_GET_WALLET_RECOVERY_CODE_STATUS: async (
+      req: Req<'PM_GET_WALLET_RECOVERY_CODE_STATUS'>,
     ) => {
       assertNoParentPostedAppSessionJwt(req.payload);
       const pm = deps.getSeamsWeb();
-      const result = await pm.recovery.getEmailOtpRecoveryCodeStatus(
-        parseGetEmailOtpRecoveryCodeStatusPayload(req.payload, pm.configs.network.relayer.url),
+      const result = await pm.recovery.getWalletRecoveryCodeStatus(
+        parseWalletRecoverySessionPayload(req.payload),
       );
       respondOkResult(deps, req.requestId, result);
     },
 
-    PM_SHOW_EMAIL_OTP_RECOVERY_CODES: async (req: Req<'PM_SHOW_EMAIL_OTP_RECOVERY_CODES'>) => {
-      assertNoParentPostedAppSessionJwt(req.payload);
-      const pm = deps.getSeamsWeb();
-      const payload = parseGetEmailOtpRecoveryCodeStatusPayload(
-        req.payload,
-        pm.configs.network.relayer.url,
-      );
-      const result = await showEmailOtpRecoveryCodesInIframe({
-        pm,
-        walletId: payload.walletId,
-        ...(payload.relayUrl ? { relayUrl: payload.relayUrl } : {}),
-        ...(payload.appSessionJwt ? { appSessionJwt: payload.appSessionJwt } : {}),
-      });
-      respondOkResult(deps, req.requestId, result);
-    },
-
-    PM_ROTATE_EMAIL_OTP_RECOVERY_CODES: async (req: Req<'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES'>) => {
-      assertNoParentPostedAppSessionJwt(req.payload);
-      const pm = deps.getSeamsWeb();
-      const result = await pm.recovery.rotateEmailOtpRecoveryCodes(
-        parseGetEmailOtpRecoveryCodeStatusPayload(req.payload, pm.configs.network.relayer.url),
-      );
-      respondOkResult(deps, req.requestId, result);
-    },
-
-    PM_REQUEST_WALLET_RECOVERY_CHALLENGE: async (
-      req: Req<'PM_REQUEST_WALLET_RECOVERY_CHALLENGE'>,
+    PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP: async (
+      req: Req<'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP'>,
     ) => {
       assertNoParentPostedAppSessionJwt(req.payload);
       const pm = deps.getSeamsWeb();
-      const result = await pm.recovery.requestWalletRecoveryChallenge(
-        parseGetEmailOtpRecoveryCodeStatusPayload(req.payload, pm.configs.network.relayer.url),
+      const result = await pm.recovery.acknowledgeWalletRecoveryCodeBackup(
+        parseWalletRecoverySessionPayload(req.payload),
       );
       respondOkResult(deps, req.requestId, result);
     },
@@ -703,15 +579,6 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       const pm = deps.getSeamsWeb();
       const result = await pm.recovery.verifyWalletRecoveryBootstrap(
         parseWalletRecoveryBootstrapVerifyPayload(req.payload, pm.configs.network.relayer.url),
-      );
-      respondOkResult(deps, req.requestId, result);
-    },
-
-    PM_PREPARE_WALLET_RECOVERY: async (req: Req<'PM_PREPARE_WALLET_RECOVERY'>) => {
-      assertNoParentPostedAppSessionJwt(req.payload);
-      const pm = deps.getSeamsWeb();
-      const result = await pm.recovery.prepareWalletRecovery(
-        parsePrepareWalletRecoveryPayload(req.payload, pm.configs.network.relayer.url),
       );
       respondOkResult(deps, req.requestId, result);
     },

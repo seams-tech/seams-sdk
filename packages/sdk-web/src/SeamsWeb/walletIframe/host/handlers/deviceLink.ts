@@ -112,5 +112,15 @@ export function createDeviceLinkWalletIframeHandlers(deps: HandlerDeps): Handler
       });
       respondOkResult(deps, req.requestId, result);
     },
+
+    PM_REVOKE_WALLET_CREDENTIAL: async (req: Req<'PM_REVOKE_WALLET_CREDENTIAL'>) => {
+      const pm = deps.getSeamsWeb();
+      const result = await pm.devices.revokeWalletCredential({
+        walletId: req.payload.walletId,
+        rpId: req.payload.rpId,
+        credentialIdB64u: req.payload.credentialIdB64u,
+      });
+      respondOkResult(deps, req.requestId, result);
+    },
   };
 }
