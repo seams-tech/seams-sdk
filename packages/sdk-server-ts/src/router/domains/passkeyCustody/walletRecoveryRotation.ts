@@ -38,10 +38,13 @@ export async function rotateWalletRecoveryCodesV1(input: {
   readonly walletId: WalletId;
   /** Ten fresh wraps of the *same* manifest KEK, built client-side. */
   readonly manifestKekWraps: WalletRecoveryEnvelopeSetRecord['manifestKekWraps'];
+  readonly expectedStoreVersion: string;
   readonly nowMs: number;
 }): Promise<WalletRecoveryRotationResult> {
   const stored = await input.store.readRecoveryEnvelopeSet(input.walletId);
   if (!stored) return { kind: 'no_recovery_set' };
+
+  if (stored.storeVersion !== input.expectedStoreVersion) return { kind: 'conflict' };
 
   if (input.nowMs <= Number(stored.record.issuedAtMs)) {
     /* Refused rather than clamped. A timestamp that does not advance leaves

@@ -49,6 +49,7 @@ const RECOVERY_PREPARE_ROUTE_ID = 'wallet_recovery_prepare';
 const RECOVERY_FINALIZE_ROUTE_ID = 'wallet_recovery_finalize';
 const RECOVERY_ACK_ROUTE_ID = 'wallet_recovery_backup_acknowledge';
 const RECOVERY_ROTATE_ROUTE_ID = 'wallet_recovery_codes_rotate';
+const RECOVERY_READ_ROUTE_ID = 'wallet_recovery_codes_read';
 const RECOVERY_STATUS_ROUTE_ID = 'wallet_recovery_status';
 
 function walletRecoveryAppSessionHeaders(ctx: FetchRouterApiContext): Record<string, string> {
@@ -777,10 +778,11 @@ export async function handleWalletRecoveryRotate(
 
   const body = (await readJson(ctx.request)) as Record<string, unknown> | null;
   const walletId = trimmed(body?.walletId);
+  const expectedStoreVersion = trimmed(body?.expectedStoreVersion);
   const manifestKekWraps = Array.isArray(body?.manifestKekWraps)
     ? body.manifestKekWraps.filter(isObject)
     : [];
-  if (!walletId || manifestKekWraps.length === 0) {
+  if (!walletId || !expectedStoreVersion || manifestKekWraps.length === 0) {
     return toFetchRouteResponse({
       status: 400,
       body: {
@@ -802,6 +804,7 @@ export async function handleWalletRecoveryRotate(
   const result = await ctx.service.passkeyCustody.rotateRecoveryCodes({
     walletId,
     manifestKekWraps: manifestKekWraps as never,
+    expectedStoreVersion,
   });
 
   switch (result.kind) {
@@ -833,6 +836,41 @@ export async function handleWalletRecoveryRotate(
         body: { ok: false, code: 'rotation_rejected', message: result.reason },
       });
   }
+}
+
+export async function handleWalletRecoveryRead(
+  ctx: FetchRouterApiContext,
+): Promise<Response | null> {
+  const route = findRouteDefinitionById(ctx.routeDefinitions, RECOVERY_READ_ROUTE_ID);
+  if (!route) throw new Error(`Missing route definition for ${RECOVERY_READ_ROUTE_ID}`);
+  if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
+  const body = (await readJson(ctx.request)) as Record<string, unknown> | null;
+  const walletId = trimmed(body?.walletId);
+  if (!walletId) {
+    return toFetchRouteResponse({
+      status: 400,
+      body: { ok: false, code: 'invalid_request', message: 'a read needs a wallet' },
+    });
+  }
+  const authenticated = await authenticateWalletRecoveryAuthority(ctx, walletId);
+  if (!authenticated.ok) {
+    return toFetchRouteResponse({ status: authenticated.error.status, body: authenticated.error.body });
+  }
+  const result = await ctx.service.passkeyCustody.readRecoverySet({ walletId });
+  if (result.kind === 'no_recovery_set') {
+    return toFetchRouteResponse({
+      status: 404,
+      body: { ok: false, code: 'no_recovery_set', message: 'this wallet has no issued recovery codes' },
+    });
+  }
+  return toFetchRouteResponse({
+    status: 200,
+    body: {
+      ok: true,
+      recoverySet: result.record,
+      storeVersion: result.storeVersion,
+    },
+  });
 }
 
 /**
