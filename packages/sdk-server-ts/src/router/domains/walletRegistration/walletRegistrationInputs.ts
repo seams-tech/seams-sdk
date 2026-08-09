@@ -72,7 +72,6 @@ export type WalletRegistrationActivateInput = {
     readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
   };
   readonly emailOtpEnrollment?: unknown;
-  readonly emailOtpBackupAck?: unknown;
   /** The custody ceremony's sealed output; the admission gate owns validation. */
   readonly walletCustodyCommit?: unknown;
   readonly verifier: WalletRegistrationSetupVerifier;
@@ -86,7 +85,6 @@ export type WalletRegistrationNearProvisioningInput = {
   readonly idempotencyKey: string;
   readonly ed25519: unknown;
   readonly emailOtpEnrollment?: unknown;
-  readonly emailOtpBackupAck?: unknown;
   /**
    * The custody ceremony's sealed output. An Ed25519-only wallet establishes
    * its custody *here* rather than at activate: activate returns

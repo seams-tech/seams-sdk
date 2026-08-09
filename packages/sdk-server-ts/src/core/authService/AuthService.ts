@@ -1304,9 +1304,6 @@ export class AuthService {
           enrollmentId: string;
           enrollmentVersion: string;
           enrollmentSealKeyVersion: string;
-          signingRootId: string;
-          signingRootVersion: string;
-          recoveryWrappedEnrollmentEscrowCount: number;
         };
       }
     | {
@@ -1336,7 +1333,6 @@ export class AuthService {
     /** Email asserted by the registration proof. It must match the challenged email. */
     proofEmail?: unknown;
     clientIp?: unknown;
-    recoveryWrappedEnrollmentEscrows?: unknown;
     enrollmentSealKeyVersion?: unknown;
     clientUnlockPublicKeyB64u?: unknown;
     unlockKeyVersion?: unknown;
@@ -1366,8 +1362,6 @@ export class AuthService {
       walletStore: this.stores.getWalletStore(),
       walletEnrollmentStore: this.stores.getEmailOtpWalletEnrollmentStore(),
       authStateStore: this.stores.getEmailOtpAuthStateStore(),
-      recoveryWrappedEnrollmentEscrowStore:
-        this.stores.getEmailOtpRecoveryWrappedEnrollmentEscrowStore(),
       registrationAttemptStore: this.stores.getEmailOtpRegistrationAttemptStore(),
       identityStore: this.stores.getIdentityStore(),
       verifyChallengeCode: this.verifyEmailOtpChallengeCode.bind(this),

@@ -39,7 +39,6 @@ function assertNever(value: never): never {
 export type EmailOtpRegistrationEnrollmentPersistence = {
   previousProviderWalletId?: string;
   enrollment: EmailOtpWalletEnrollmentRecord;
-  recoveryWrappedEnrollmentEscrows: readonly EmailOtpRecoveryWrappedEnrollmentEscrowRecord[];
   authState: EmailOtpAuthStateRecord;
 };
 
