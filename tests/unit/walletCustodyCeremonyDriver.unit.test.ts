@@ -5,6 +5,7 @@ import {
   type WalletCustodyCeremonyKeySetInput,
   type WalletCustodyCeremonyStepRunner,
 } from '../../packages/sdk-web/src/core/signingEngine/walletCustody/ceremonyDriver';
+import { buildRecoveredPasskeyCustodyEnvelopeRecord } from '../../packages/sdk-web/src/core/signingEngine/walletCustody/recoveryReplacementEnvelope';
 
 /**
  * The driver's job is ordering, key-set dispatch, and cleanup.
@@ -137,6 +138,16 @@ function joiningCustody(): WalletCustodyCeremonyCustodyInput {
   };
 }
 
+function recoveringAndResealingCustody(): WalletCustodyCeremonyCustodyInput {
+  return {
+    origin: 'recover_and_reseal',
+    custodyJson: '{"walletId":"alice.testnet"}',
+    recoveryCode: new ArrayBuffer(20),
+    replacementFactorJson: '{"envelopeId":"replacement-envelope-1"}',
+    replacementFactorSecret: new ArrayBuffer(32),
+  };
+}
+
 function nearRun(
   runRouterRound: (request: string) => Promise<string>,
 ): WalletCustodyCeremonyKeySetInput {
@@ -199,11 +210,97 @@ test('an establishing NEAR run: begin, the Router round, complete, then finish',
   expect(calls[1]!.payload.nearEd25519SigningKeyId).toBe('near-ed25519-key-1');
 
   // An establishing run must seal, so the finish carries the factor and codes.
-  const establishWith = calls[2]!.payload.establishWith as Record<string, unknown>;
-  expect(establishWith.factorJson).toBe('{"envelopeId":"envelope-1"}');
-  expect(establishWith.recoveryCodesJson).toBe('[]');
+  const finish = calls[2]!.payload.finish as Record<string, unknown>;
+  expect(finish.kind).toBe('establish');
+  expect(finish.factorJson).toBe('{"envelopeId":"envelope-1"}');
+  expect(finish.recoveryCodesJson).toBe('[]');
 
   for (const call of calls) expect(call.payload.ceremonyId).toBe(CEREMONY_ID);
+});
+
+test('a NEAR recovery run opens with the code and finishes with only a replacement envelope', async () => {
+  const recoveredPayload = {
+    walletId: WALLET_ID,
+    keySet: 'near_ed25519_v1',
+    keyManifestDigestB64u: 'digest',
+    registeredPublicKeyB64u: 'registered',
+    recoveryReplacementEnvelope: {
+      envelopeId: 'replacement-envelope-1',
+      envelopeBindingJson: '{}',
+      envelopeNonceB64u: 'nonce',
+      sealedCustodySecretB64u: 'ciphertext',
+      envelopeAadHashB64u: 'aad',
+      envelopeCiphertextDigestB64u: 'digest',
+    },
+  };
+  const { runStep, calls } = recordingRunner({}, BEGUN_NEAR, recoveredPayload);
+
+  const payload = await runWalletCustodyKeySetCeremony({
+    runStep,
+    custody: recoveringAndResealingCustody(),
+    keySetRun: nearRun(async () => '{"yao":"recovery-result"}'),
+    recordedKeyManifestDigestB64u: 'registered-manifest-digest',
+    ceremonyId: CEREMONY_ID,
+  });
+
+  expect(payload).toEqual(recoveredPayload);
+  expect(calls[0]!.payload.custody).toMatchObject({
+    origin: 'recover_and_reseal',
+    custodyJson: '{"walletId":"alice.testnet"}',
+  });
+  expect(calls[1]!.payload.recordedKeyManifestDigestB64u).toBe('registered-manifest-digest');
+  expect(calls[2]!.payload.finish).toMatchObject({
+    kind: 'recover_reseal',
+    replacementFactorJson: '{"envelopeId":"replacement-envelope-1"}',
+  });
+  expect(recoveredPayload.establishedCustody).toBeUndefined();
+});
+
+test('recovery replacement ciphertext becomes one exact active passkey envelope', () => {
+  const envelopeId = 'wallet-custody-recovery-envelope-1';
+  const binding = {
+    walletId: WALLET_ID,
+    envelopeId,
+    factor: {
+      kind: 'passkey',
+      rpId: 'wallet.example',
+      credentialIdB64u: 'credential-1',
+      kekVersion: 'passkey_prf_kek_hkdf_sha256_v1',
+    },
+    envelopeRevision: 1,
+    binding: {
+      kind: 'wallet_custody_seed_v1',
+      derivationScheme: 'wallet_seed_parallel_hkdf_sha256_v1',
+    },
+  };
+  const replacement = {
+    envelopeId,
+    envelopeBindingJson: JSON.stringify(binding),
+    envelopeNonceB64u: 'AAAAAAAAAAAAAAAA',
+    sealedCustodySecretB64u: 'AAAAAAAAAAAAAAAAAAAAAAA',
+    envelopeAadHashB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    envelopeCiphertextDigestB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+  };
+  const record = buildRecoveredPasskeyCustodyEnvelopeRecord({
+    expectedWalletId: WALLET_ID,
+    replacement,
+    activatedAtMs: 60_000,
+  });
+  expect(record).toMatchObject({
+    envelopeId,
+    walletId: WALLET_ID,
+    factor: binding.factor,
+    binding: binding.binding,
+    envelopeRevision: 1,
+    lifecycle: { state: 'active', activatedAtMs: 60_000 },
+  });
+  expect(() =>
+    buildRecoveredPasskeyCustodyEnvelopeRecord({
+      expectedWalletId: WALLET_ID,
+      replacement: { ...replacement, envelopeId: 'another-envelope' },
+      activatedAtMs: 60_000,
+    }),
+  ).toThrow(/envelope identity/);
 });
 
 test('a joining EVM run reaches the relayer and never seals', async () => {

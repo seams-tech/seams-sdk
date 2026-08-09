@@ -51,6 +51,7 @@ use signer_core::ecdsa_role_local_client::command::RelayerPublicIdentityInput;
 use signer_core::passkey_custody::open_wallet_custody_seed_envelope_v1;
 use signer_core::passkey_custody::{
     PasskeyCustodyEnvelopeBindingV1, EMAIL_OTP_FACTOR_KEK_VERSION_V1,
+    PASSKEY_CUSTODY_KEK_VERSION_V1,
 };
 use signer_core::wallet_seed_derivation::{
     derive_ed25519_local_material_cache_key_from_seed_v1, WalletKeySetKindV1,
@@ -124,6 +125,19 @@ fn factor_inputs() -> FactorSealInputsV1 {
             enrollment_id: "enrollment-1".to_string(),
             enrollment_seal_key_version: "seal-v1".to_string(),
             kek_version: EMAIL_OTP_FACTOR_KEK_VERSION_V1.to_string(),
+        },
+        factor_secret: zeroize::Zeroizing::new(FACTOR_SECRET.to_vec()),
+    }
+}
+
+fn replacement_passkey_factor_inputs() -> FactorSealInputsV1 {
+    use signer_core::passkey_custody::WalletCustodyEnvelopeFactorV1;
+    FactorSealInputsV1 {
+        envelope_id: "wallet-custody-recovery-envelope-1".to_string(),
+        factor: WalletCustodyEnvelopeFactorV1::Passkey {
+            rp_id: "wallet.example".to_string(),
+            credential_id_b64u: Base64UrlUnpadded::encode_string(&[0x44; 32]),
+            kek_version: PASSKEY_CUSTODY_KEK_VERSION_V1.to_string(),
         },
         factor_secret: zeroize::Zeroizing::new(FACTOR_SECRET.to_vec()),
     }
@@ -220,6 +234,64 @@ fn evm_custody_commit_is_ready_before_activation_and_seed_free_completion_matche
             .expect("pre-activation client root")
     );
     assert!(!completed.ecdsa_ready_state_blob_b64u.is_empty());
+}
+
+#[test]
+fn recovered_evm_custody_reproduces_the_manifest_and_reseals_before_activation() {
+    let established = establish_custody_with_evm_key_set();
+    let records = custody_records(&established);
+    let codes = recovery_codes();
+    let first_wrap = &records.recovery_manifest_kek_wraps[0];
+    let held = CeremonySeedHeldV1::recover_with_code(
+        &codes[0].code_bytes,
+        RecoveryCustodyOpenInputsV1 {
+            wallet_id: WALLET_ID.to_string(),
+            wrap_nonce: decode(&first_wrap.nonce_b64u),
+            wrapped_manifest_kek: decode(&first_wrap.ciphertext_b64u),
+            wrap_aad_hash: decode(&first_wrap.aad_hash_b64u)
+                .try_into()
+                .expect("manifest AAD hash"),
+            entry_nonce: decode(&records.recovery_entry_nonce_b64u),
+            wrapped_custody_seed: decode(&records.recovery_entry_ciphertext_b64u),
+            entry_aad_hash: decode(&records.recovery_entry_aad_hash_b64u)
+                .try_into()
+                .expect("entry AAD hash"),
+        },
+    )
+    .expect("recovery code opens custody");
+    let prepared = held
+        .prepare(KeySetProtocolInputsV1::EvmFamilyEcdsa {
+            application_binding_digest: ECDSA_BINDING_DIGEST,
+        })
+        .expect("recovered ECDSA bootstrap prepared");
+    let relayer = relayer_identity(
+        &prepared
+            .ecdsa_client_share_public_key33_b64u()
+            .expect("recovered client share key"),
+    );
+    let (pending, commit) = prepared
+        .prepare_evm_recovery_activation(
+            EVM_SLOT_ID.to_string(),
+            &decode(&established.key_manifest_digest_b64u),
+            replacement_passkey_factor_inputs(),
+        )
+        .expect("recovery pre-activation commit");
+
+    assert_eq!(
+        commit.key_manifest_digest_b64u,
+        established.key_manifest_digest_b64u,
+    );
+    assert!(commit.established_custody.is_none());
+    assert!(commit.recovery_replacement_envelope.is_some());
+    let completed = pending
+        .complete(relayer)
+        .expect("recovery activation completed");
+    assert_eq!(
+        completed.client_root_public_key33_b64u,
+        commit
+            .client_root_public_key33_b64u
+            .expect("recovered client root"),
+    );
 }
 
 /// Reaches the wallet's seed the way a later key set does: by opening the

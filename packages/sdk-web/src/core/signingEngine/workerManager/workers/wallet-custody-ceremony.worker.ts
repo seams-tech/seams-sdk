@@ -146,6 +146,14 @@ function takeSeed(custody: BeginCustody): WasmCeremonySeedHeldV1 {
         recoveryCode.fill(0);
       }
     }
+    case 'recover_and_reseal': {
+      const recoveryCode = toBytes(custody.recoveryCode);
+      try {
+        return wallet_custody_ceremony_recover_v1(recoveryCode, custody.custodyJson);
+      } finally {
+        recoveryCode.fill(0);
+      }
+    }
     default:
       return assertNever(custody);
   }
@@ -232,6 +240,18 @@ function beginKeySetRun(request: BeginRequest): unknown {
     } finally {
       factorSecret.fill(0);
     }
+  } else if (custody.origin === 'recover_and_reseal') {
+    const replacementFactorSecret = toBytes(custody.replacementFactorSecret);
+    try {
+      pending = prepared.prepare_evm_activation_recovering_custody(
+        request.payload.evmFamilySigningKeySlotId,
+        requireRecordedManifestDigest(request.payload.recordedKeyManifestDigestB64u),
+        custody.replacementFactorJson,
+        replacementFactorSecret,
+      );
+    } finally {
+      replacementFactorSecret.fill(0);
+    }
   } else {
     pending = prepared.prepare_evm_activation_joining_custody(
       request.payload.evmFamilySigningKeySlotId,
@@ -248,6 +268,12 @@ function beginKeySetRun(request: BeginRequest): unknown {
     ecdsaClientShareRetryCounter: clientShareRetryCounter,
     preActivationCommitPayload,
   };
+}
+
+function requireRecordedManifestDigest(value: unknown): string {
+  const digest = String(value || '').trim();
+  if (!digest) throw new Error('recovery requires a recorded key manifest digest');
+  return digest;
 }
 
 /**
@@ -292,20 +318,34 @@ function completeKeySetRun(request: CompleteRequest): unknown {
 function finishKeySetRun(request: FinishRequest): unknown {
   const ceremonyId = requireCeremonyId(request.payload.ceremonyId);
   const { handle } = takeCeremony(ceremonyId, 'near_established');
-  const establishWith = request.payload.establishWith;
-  if (!establishWith) return handle.finish_joining_custody();
-
-  const factorSecret = toBytes(establishWith.factorSecret);
-  try {
-    return handle.finish_establishing_custody(
-      String(establishWith.factorJson || ''),
-      factorSecret,
-      String(establishWith.recoveryCodesJson || ''),
-    );
-  } finally {
-    // The factor secret was copied into wasm; this view is the worker's own and
-    // is cleared whether or not the seal succeeded.
-    factorSecret.fill(0);
+  switch (request.payload.finish.kind) {
+    case 'existing':
+      return handle.finish_joining_custody();
+    case 'establish': {
+      const factorSecret = toBytes(request.payload.finish.factorSecret);
+      try {
+        return handle.finish_establishing_custody(
+          request.payload.finish.factorJson,
+          factorSecret,
+          request.payload.finish.recoveryCodesJson,
+        );
+      } finally {
+        factorSecret.fill(0);
+      }
+    }
+    case 'recover_reseal': {
+      const factorSecret = toBytes(request.payload.finish.replacementFactorSecret);
+      try {
+        return handle.finish_recovering_custody(
+          request.payload.finish.replacementFactorJson,
+          factorSecret,
+        );
+      } finally {
+        factorSecret.fill(0);
+      }
+    }
+    default:
+      return assertNever(request.payload.finish);
   }
 }
 

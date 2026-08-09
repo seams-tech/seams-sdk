@@ -471,6 +471,36 @@ impl WasmCeremonyProtocolPreparedV1 {
             commit_payload,
         })
     }
+
+    /// Prepares a recovered EVM key set and reseals the wallet seed under the
+    /// replacement passkey. A recorded manifest digest is mandatory: recovery
+    /// reproduces a registered key and cannot establish a new one.
+    pub fn prepare_evm_activation_recovering_custody(
+        self,
+        evm_family_signing_key_slot_id: &str,
+        recorded_key_manifest_digest_b64u: String,
+        replacement_factor_json: &str,
+        replacement_factor_secret: &[u8],
+    ) -> Result<WasmCeremonyEvmActivationPendingV1, JsValue> {
+        let recorded = decode_fixed::<32>(
+            &recorded_key_manifest_digest_b64u,
+            "recordedKeyManifestDigestB64u",
+        )
+        .map_err(js_error)?;
+        let (inner, commit_payload) = self
+            .inner
+            .prepare_evm_recovery_activation(
+                evm_family_signing_key_slot_id.to_string(),
+                &recorded,
+                factor_seal_inputs(replacement_factor_json, replacement_factor_secret)
+                    .map_err(js_error)?,
+            )
+            .map_err(ceremony_error)?;
+        Ok(WasmCeremonyEvmActivationPendingV1 {
+            inner,
+            commit_payload,
+        })
+    }
 }
 
 #[wasm_bindgen]
@@ -551,6 +581,23 @@ impl WasmCeremonyManifestEstablishedV1 {
     /// issued, because the wallet already has both.
     pub fn finish_joining_custody(self) -> Result<JsValue, JsValue> {
         let payload = self.inner.finish(None).map_err(ceremony_error)?;
+        serde_wasm_bindgen::to_value(&payload).map_err(js_error)
+    }
+
+    /// Finishes a recovered NEAR key set and reseals the wallet seed under the
+    /// replacement passkey factor. Recovery codes remain on the server.
+    pub fn finish_recovering_custody(
+        self,
+        replacement_factor_json: &str,
+        replacement_factor_secret: &[u8],
+    ) -> Result<JsValue, JsValue> {
+        let payload = self
+            .inner
+            .finish_recovery(
+                factor_seal_inputs(replacement_factor_json, replacement_factor_secret)
+                    .map_err(js_error)?,
+            )
+            .map_err(ceremony_error)?;
         serde_wasm_bindgen::to_value(&payload).map_err(js_error)
     }
 }

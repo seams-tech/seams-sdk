@@ -342,6 +342,22 @@ pub struct EstablishedCustodyRecordsV1 {
     pub recovery_entry_aad_hash_b64u: String,
 }
 
+/// A recovered seed resealed under the replacement passkey factor.
+///
+/// Recovery codes remain unchanged and are therefore absent. The server owns
+/// code consumption and stores this envelope only after every registered key
+/// has an exact activation receipt for the reservation.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveryReplacementEnvelopeV1 {
+    pub envelope_id: String,
+    pub envelope_binding_json: String,
+    pub envelope_nonce_b64u: String,
+    pub sealed_custody_secret_b64u: String,
+    pub envelope_aad_hash_b64u: String,
+    pub envelope_ciphertext_digest_b64u: String,
+}
+
 /// Everything the ceremony hands back: ciphertext and public facts only.
 ///
 /// The key set's manifest digest is here to be written onto that key set's
@@ -355,6 +371,9 @@ pub struct WalletCustodyCommitPayloadV1 {
     pub key_manifest_digest_b64u: String,
     /// Present only when this run established custody.
     pub established_custody: Option<EstablishedCustodyRecordsV1>,
+    /// Present only for a recovery continuity run chosen to reseal the seed
+    /// under the replacement passkey.
+    pub recovery_replacement_envelope: Option<RecoveryReplacementEnvelopeV1>,
     pub registered_public_key_b64u: Option<String>,
     /// The NEAR same-device continuity cache: the activated Client's material,
     /// sealed under a key derived from the wallet custody seed.
@@ -771,6 +790,38 @@ impl CeremonyProtocolPreparedV1 {
         recorded_key_manifest_digest: Option<&[u8]>,
         establish_with: Option<(FactorSealInputsV1, Vec<RecoveryCodeInputV1>)>,
     ) -> CeremonyResult<(CeremonyEvmActivationPendingV1, WalletCustodyCommitPayloadV1)> {
+        self.prepare_evm_activation_inner(
+            evm_family_signing_key_slot_id,
+            recorded_key_manifest_digest,
+            establish_with,
+            None,
+        )
+    }
+
+    /// Prepares EVM recovery activation and reseals the recovered seed under
+    /// the replacement passkey before the network round. The seed is dropped
+    /// here; only the opaque pending ECDSA state survives until the receipt.
+    pub fn prepare_evm_recovery_activation(
+        self,
+        evm_family_signing_key_slot_id: String,
+        recorded_key_manifest_digest: &[u8],
+        replacement_factor: FactorSealInputsV1,
+    ) -> CeremonyResult<(CeremonyEvmActivationPendingV1, WalletCustodyCommitPayloadV1)> {
+        self.prepare_evm_activation_inner(
+            evm_family_signing_key_slot_id,
+            Some(recorded_key_manifest_digest),
+            None,
+            Some(replacement_factor),
+        )
+    }
+
+    fn prepare_evm_activation_inner(
+        self,
+        evm_family_signing_key_slot_id: String,
+        recorded_key_manifest_digest: Option<&[u8]>,
+        establish_with: Option<(FactorSealInputsV1, Vec<RecoveryCodeInputV1>)>,
+        replacement_factor: Option<FactorSealInputsV1>,
+    ) -> CeremonyResult<(CeremonyEvmActivationPendingV1, WalletCustodyCommitPayloadV1)> {
         let PreparedProtocolV1::EvmFamilyEcdsa {
             pending_state_blob,
             client_share_public_key33,
@@ -791,11 +842,18 @@ impl CeremonyProtocolPreparedV1 {
             &self.seed,
             establish_with,
         )?;
+        let recovery_replacement_envelope = recovery_replacement_for_origin(
+            &self.origin,
+            &self.wallet_id,
+            &self.seed,
+            replacement_factor,
+        )?;
         let payload = WalletCustodyCommitPayloadV1 {
             wallet_id: self.wallet_id.clone(),
             key_set: verified.key_set().as_str().to_string(),
             key_manifest_digest_b64u: verified.digest_b64u(),
             established_custody,
+            recovery_replacement_envelope,
             registered_public_key_b64u: None,
             ed25519_local_material_b64u: None,
             ed25519_local_material_nonce_b64u: None,
@@ -976,11 +1034,34 @@ impl CeremonyManifestEstablishedV1 {
         self,
         establish_with: Option<(FactorSealInputsV1, Vec<RecoveryCodeInputV1>)>,
     ) -> CeremonyResult<WalletCustodyCommitPayloadV1> {
+        self.finish_inner(establish_with, None)
+    }
+
+    /// Finishes a verified recovery run and reseals the same seed under the
+    /// replacement passkey factor. The recovery set is preserved server-side.
+    pub fn finish_recovery(
+        self,
+        replacement_factor: FactorSealInputsV1,
+    ) -> CeremonyResult<WalletCustodyCommitPayloadV1> {
+        self.finish_inner(None, Some(replacement_factor))
+    }
+
+    fn finish_inner(
+        self,
+        establish_with: Option<(FactorSealInputsV1, Vec<RecoveryCodeInputV1>)>,
+        replacement_factor: Option<FactorSealInputsV1>,
+    ) -> CeremonyResult<WalletCustodyCommitPayloadV1> {
         let established_custody = established_custody_for_origin(
             &self.origin,
             &self.wallet_id,
             &self.seed,
             establish_with,
+        )?;
+        let recovery_replacement_envelope = recovery_replacement_for_origin(
+            &self.origin,
+            &self.wallet_id,
+            &self.seed,
+            replacement_factor,
         )?;
 
         let (
@@ -1039,6 +1120,7 @@ impl CeremonyManifestEstablishedV1 {
             key_set: self.verified.key_set().as_str().to_string(),
             key_manifest_digest_b64u: self.verified.digest_b64u(),
             established_custody,
+            recovery_replacement_envelope,
             registered_public_key_b64u,
             ed25519_local_material_b64u,
             ed25519_local_material_nonce_b64u,
@@ -1060,30 +1142,7 @@ impl CeremonyManifestEstablishedV1 {
                 "a recovery set carries exactly {WALLET_RECOVERY_CODE_COUNT} codes"
             )));
         }
-        let envelope_id = factor.envelope_id.trim().to_string();
-        if envelope_id.is_empty() {
-            return Err(CeremonyError::new("envelopeId must not be empty"));
-        }
-
-        let binding = PasskeyCustodyEnvelopeBindingV1 {
-            wallet_id: wallet_id.to_string(),
-            envelope_id: envelope_id.clone(),
-            factor: factor.factor,
-            envelope_revision: 1,
-            binding: PasskeyCustodySecretBindingV1::WalletCustodySeed {
-                derivation_scheme: WALLET_SEED_DERIVATION_SCHEME_V1.to_string(),
-            },
-        };
-
-        let mut envelope_nonce = [0u8; PASSKEY_CUSTODY_NONCE_LEN];
-        random_bytes(&mut envelope_nonce)?;
-        let sealed_envelope = seal_wallet_custody_seed_envelope_v1(
-            &factor.factor_secret,
-            &binding,
-            &envelope_nonce,
-            seed,
-        )
-        .map_err(|error| CeremonyError::new(format!("seed envelope seal: {error}")))?;
+        let envelope = Self::seal_factor_envelope(wallet_id, seed, factor)?;
 
         let mut manifest_kek = Zeroizing::new([0u8; PASSKEY_CUSTODY_KEY_LEN]);
         random_bytes(&mut manifest_kek[..])?;
@@ -1124,17 +1183,50 @@ impl CeremonyManifestEstablishedV1 {
             .map_err(|error| CeremonyError::new(format!("recovery entry seal: {error}")))?;
 
         Ok(EstablishedCustodyRecordsV1 {
-            envelope_id,
-            envelope_binding_json: serde_json::to_string(&binding)
-                .map_err(|error| CeremonyError::new(format!("envelope binding: {error}")))?,
-            envelope_nonce_b64u: b64u(&envelope_nonce),
-            sealed_custody_secret_b64u: sealed_envelope.ciphertext_b64u(),
-            envelope_aad_hash_b64u: sealed_envelope.aad_hash_b64u(),
-            envelope_ciphertext_digest_b64u: sealed_envelope.ciphertext_digest_b64u(),
+            envelope_id: envelope.envelope_id,
+            envelope_binding_json: envelope.envelope_binding_json,
+            envelope_nonce_b64u: envelope.envelope_nonce_b64u,
+            sealed_custody_secret_b64u: envelope.sealed_custody_secret_b64u,
+            envelope_aad_hash_b64u: envelope.envelope_aad_hash_b64u,
+            envelope_ciphertext_digest_b64u: envelope.envelope_ciphertext_digest_b64u,
             recovery_manifest_kek_wraps,
             recovery_entry_nonce_b64u: b64u(&entry_nonce),
             recovery_entry_ciphertext_b64u: entry.ciphertext_b64u(),
             recovery_entry_aad_hash_b64u: entry.aad_hash_b64u(),
+        })
+    }
+
+    fn seal_factor_envelope(
+        wallet_id: &str,
+        seed: &[u8; WALLET_CUSTODY_SEED_LEN],
+        factor: FactorSealInputsV1,
+    ) -> CeremonyResult<RecoveryReplacementEnvelopeV1> {
+        let envelope_id = factor.envelope_id.trim().to_string();
+        if envelope_id.is_empty() {
+            return Err(CeremonyError::new("envelopeId must not be empty"));
+        }
+        let binding = PasskeyCustodyEnvelopeBindingV1 {
+            wallet_id: wallet_id.to_string(),
+            envelope_id: envelope_id.clone(),
+            factor: factor.factor,
+            envelope_revision: 1,
+            binding: PasskeyCustodySecretBindingV1::WalletCustodySeed {
+                derivation_scheme: WALLET_SEED_DERIVATION_SCHEME_V1.to_string(),
+            },
+        };
+        let mut nonce = [0u8; PASSKEY_CUSTODY_NONCE_LEN];
+        random_bytes(&mut nonce)?;
+        let sealed =
+            seal_wallet_custody_seed_envelope_v1(&factor.factor_secret, &binding, &nonce, seed)
+                .map_err(|error| CeremonyError::new(format!("seed envelope seal: {error}")))?;
+        Ok(RecoveryReplacementEnvelopeV1 {
+            envelope_id,
+            envelope_binding_json: serde_json::to_string(&binding)
+                .map_err(|error| CeremonyError::new(format!("envelope binding: {error}")))?,
+            envelope_nonce_b64u: b64u(&nonce),
+            sealed_custody_secret_b64u: sealed.ciphertext_b64u(),
+            envelope_aad_hash_b64u: sealed.aad_hash_b64u(),
+            envelope_ciphertext_digest_b64u: sealed.ciphertext_digest_b64u(),
         })
     }
 }
@@ -1167,6 +1259,27 @@ fn established_custody_for_origin(
     }
 }
 
+fn recovery_replacement_for_origin(
+    origin: &CustodyOriginV1,
+    wallet_id: &str,
+    seed: &[u8; WALLET_CUSTODY_SEED_LEN],
+    replacement_factor: Option<FactorSealInputsV1>,
+) -> CeremonyResult<Option<RecoveryReplacementEnvelopeV1>> {
+    match (origin, replacement_factor) {
+        (CustodyOriginV1::Recover, Some(factor)) => Ok(Some(
+            CeremonyManifestEstablishedV1::seal_factor_envelope(wallet_id, seed, factor)?,
+        )),
+        (CustodyOriginV1::Recover, None)
+        | (CustodyOriginV1::Establish | CustodyOriginV1::Join, None) => Ok(None),
+        (CustodyOriginV1::Establish, Some(_)) => Err(CeremonyError::new(
+            "an establishing run already seals its custody factor",
+        )),
+        (CustodyOriginV1::Join, Some(_)) => Err(CeremonyError::new(
+            "a joining run cannot replace a recovery credential",
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! These own the ceremony's output contract: what an establishing run seals
@@ -1180,7 +1293,9 @@ mod tests {
     //! establish-then-join seam over a genuinely opened envelope.
 
     use super::*;
-    use signer_core::passkey_custody::EMAIL_OTP_FACTOR_KEK_VERSION_V1;
+    use signer_core::passkey_custody::{
+        EMAIL_OTP_FACTOR_KEK_VERSION_V1, PASSKEY_CUSTODY_KEK_VERSION_V1,
+    };
     use signer_core::wallet_recovery_custody::{
         open_wallet_recovery_entry_v1, open_wallet_recovery_manifest_kek_v1,
         WalletRecoveryCodeScopeV1, WalletRecoveryEntryScopeV1,
@@ -1258,6 +1373,18 @@ mod tests {
                 enrollment_id: "enrollment-1".to_string(),
                 enrollment_seal_key_version: "seal-v1".to_string(),
                 kek_version: EMAIL_OTP_FACTOR_KEK_VERSION_V1.to_string(),
+            },
+            factor_secret: Zeroizing::new(FACTOR_SECRET.to_vec()),
+        }
+    }
+
+    fn replacement_passkey_factor() -> FactorSealInputsV1 {
+        FactorSealInputsV1 {
+            envelope_id: "wallet-custody-recovery-envelope-1".to_string(),
+            factor: WalletCustodyEnvelopeFactorV1::Passkey {
+                rp_id: "wallet.example".to_string(),
+                credential_id_b64u: b64u(&[44u8; 32]),
+                kek_version: PASSKEY_CUSTODY_KEK_VERSION_V1.to_string(),
             },
             factor_secret: Zeroizing::new(FACTOR_SECRET.to_vec()),
         }
@@ -1417,6 +1544,45 @@ mod tests {
             recovery_open_input(records, &records.recovery_manifest_kek_wraps[0]),
         )
         .is_err());
+    }
+
+    #[test]
+    fn a_verified_recovery_run_reseals_only_the_factor_envelope() {
+        let recorded = near_completed(CustodyOriginV1::Establish)
+            .establish_manifest(near_identity(), None)
+            .expect("manifest established")
+            .verified
+            .digest_b64u();
+        let recovered = near_completed(CustodyOriginV1::Recover)
+            .establish_manifest(near_identity(), Some(&decode(&recorded)))
+            .expect("registered manifest reproduced")
+            .finish_recovery(replacement_passkey_factor())
+            .expect("recovered seed resealed");
+        assert!(recovered.established_custody.is_none());
+        let replacement = recovered
+            .recovery_replacement_envelope
+            .expect("replacement envelope");
+        let binding = serde_json::from_str::<PasskeyCustodyEnvelopeBindingV1>(
+            &replacement.envelope_binding_json,
+        )
+        .expect("replacement binding");
+        let (opened, admitted) = open_wallet_custody_seed_envelope_v1(
+            &FACTOR_SECRET,
+            &binding,
+            &decode(&replacement.envelope_nonce_b64u),
+            &decode(&replacement.sealed_custody_secret_b64u),
+            &decode(&replacement.envelope_aad_hash_b64u),
+            &decode(&replacement.envelope_ciphertext_digest_b64u),
+        )
+        .expect("replacement envelope opens");
+        assert_eq!(opened.as_slice(), seed().as_slice());
+        assert_eq!(admitted.wallet_id(), WALLET_ID);
+
+        assert!(near_completed(CustodyOriginV1::Join)
+            .establish_manifest(near_identity(), Some(&decode(&recorded)))
+            .expect("joined manifest")
+            .finish_recovery(replacement_passkey_factor())
+            .is_err());
     }
 
     #[test]

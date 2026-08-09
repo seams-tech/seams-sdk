@@ -92,8 +92,8 @@ test('the ceremony receives code bytes and no ids', async () => {
   await establishNearEd25519CustodyV1(establishArgs(steps));
 
   const begun = steps.find((step) => step.type === 'finishWalletCustodyKeySetRun');
-  const establishWith = begun?.payload.establishWith as { recoveryCodesJson: string };
-  const codes = JSON.parse(establishWith.recoveryCodesJson) as Record<string, unknown>[];
+  const finish = begun?.payload.finish as { recoveryCodesJson: string };
+  const codes = JSON.parse(finish.recoveryCodesJson) as Record<string, unknown>[];
 
   expect(codes).toHaveLength(10);
   for (const code of codes) {
@@ -168,12 +168,21 @@ test('the projection drops material from any payload, including an EVM run', asy
     ...buildWalletCustodyCommitPayloadFixture({ walletId: WALLET_ID }),
     ed25519LocalMaterialB64u: 'bWF0ZXJpYWw',
     ed25519LocalMaterialNonceB64u: 'AQIDBAUGBwgJCgsM',
+    recoveryReplacementEnvelope: {
+      envelopeId: 'replacement-envelope',
+      envelopeBindingJson: '{}',
+      envelopeNonceB64u: 'nonce',
+      sealedCustodySecretB64u: 'ciphertext',
+      envelopeAadHashB64u: 'aad',
+      envelopeCiphertextDigestB64u: 'digest',
+    },
   });
 
   const keys = Object.keys(projected);
   expect(keys).not.toContain('ecdsaReadyStateBlobB64u');
   expect(keys).not.toContain('ed25519LocalMaterialB64u');
   expect(keys).not.toContain('ed25519LocalMaterialNonceB64u');
+  expect(keys).not.toContain('recoveryReplacementEnvelope');
   expect(projected.keyManifestDigestB64u).toBeTruthy();
 });
 
@@ -294,11 +303,10 @@ test('a cold unlock joins existing custody and seals no envelope', async () => {
   const begun = steps.find((step) => step.type === 'beginWalletCustodyKeySetRun');
   expect((begun?.payload.custody as { origin: string }).origin).toBe('join');
 
-  // `finish` is called with nothing to establish — the ceremony refuses to
-  // combine that with a joining origin, which is what makes "no second
-  // envelope, no new codes" structural rather than a promise.
+  // `finish` names existing custody explicitly, so "no second envelope, no new
+  // codes" is structural rather than an omitted optional bag.
   const finished = steps.find((step) => step.type === 'finishWalletCustodyKeySetRun');
-  expect(finished?.payload.establishWith).toBeUndefined();
+  expect(finished?.payload.finish).toEqual({ kind: 'existing' });
   expect(rejoined.commitPayload.establishedCustody).toBeUndefined();
 });
 
