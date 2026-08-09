@@ -59,8 +59,8 @@ const WALLET_ECDSA_RECOVERY_CAS_GUARD = `
 `;
 
 /**
- * The registration commit: one custody envelope and one recovery envelope set,
- * written together or not at all.
+ * The registration commit: one custody envelope, one recovery envelope set,
+ * and its backup acknowledgement, written together or not at all.
  *
  * Atomicity is the reason this store exists rather than two sequential writes.
  * The two partial outcomes are not equally bad. A recovery set with no envelope
@@ -76,7 +76,10 @@ const WALLET_ECDSA_RECOVERY_CAS_GUARD = `
  * recovery-set key begins with `recovery-set:`.
  */
 
-type WalletCustodyCommitRecord = PasskeyCustodyEnvelopeRecord | WalletRecoveryEnvelopeSetRecord;
+type WalletCustodyCommitRecord =
+  | PasskeyCustodyEnvelopeRecord
+  | WalletRecoveryEnvelopeSetRecord
+  | WalletRecoveryBackupAcknowledgementV1;
 
 export type CloudflareD1WalletCustodyCommitStoreOptions = {
   readonly database: D1DatabaseLike;
@@ -86,6 +89,7 @@ export type CloudflareD1WalletCustodyCommitStoreOptions = {
 export type WalletCustodyRegistrationCommit = {
   readonly envelope: PasskeyCustodyEnvelopeRecord;
   readonly recoverySet: WalletRecoveryEnvelopeSetRecord;
+  readonly recoveryBackupAcknowledgement: WalletRecoveryBackupAcknowledgementV1;
 };
 
 export type WalletCustodyRegistrationCommitResult =
@@ -168,6 +172,9 @@ function parseRecordOrNull(raw: unknown): WalletCustodyCommitRecord | null {
   if (kind === 'wallet_recovery_envelope_set_v1') {
     return raw as WalletRecoveryEnvelopeSetRecord;
   }
+  if (kind === 'wallet_recovery_backup_ack_v1') {
+    return raw as WalletRecoveryBackupAcknowledgementV1;
+  }
   try {
     return parsePasskeyCustodyEnvelopeRecord(raw);
   } catch {
@@ -193,6 +200,12 @@ function commitInconsistency(commit: WalletCustodyRegistrationCommit): string | 
   // must agree here is which wallet's seed the pair covers.
   if (commit.recoverySet.entries.length !== 1) {
     return 'a recovery set carries exactly one custody entry';
+  }
+  if (
+    commit.recoveryBackupAcknowledgement.walletId !== String(commit.recoverySet.walletId) ||
+    commit.recoveryBackupAcknowledgement.issuedAtMs !== commit.recoverySet.issuedAtMs
+  ) {
+    return 'recovery backup acknowledgement does not match the issued recovery set';
   }
   return null;
 }
@@ -231,10 +244,18 @@ export class CloudflareD1WalletCustodyCommitStore {
       passkeyCustodyEnvelopeLocatorOf(commit.envelope),
     );
     const recoverySetKey = walletRecoveryEnvelopeSetRecordKey(commit.recoverySet.walletId);
+    const recoveryBackupAcknowledgementKey = walletRecoveryBackupAcknowledgementRecordKey(
+      commit.recoverySet.walletId,
+    );
 
     const stored = await this.records.putMany([
       { key: envelopeKey, value: commit.envelope, expectedVersion: null },
       { key: recoverySetKey, value: commit.recoverySet, expectedVersion: null },
+      {
+        key: recoveryBackupAcknowledgementKey,
+        value: commit.recoveryBackupAcknowledgement,
+        expectedVersion: null,
+      },
     ]);
     if (stored.kind === 'version_mismatch') {
       // Which record is the duplicate decides what the caller does next. The
@@ -250,7 +271,10 @@ export class CloudflareD1WalletCustodyCommitStore {
 
     const envelopeVersion = stored.versions.find((entry) => entry.key === envelopeKey);
     const recoverySetVersion = stored.versions.find((entry) => entry.key === recoverySetKey);
-    if (!envelopeVersion || !recoverySetVersion) {
+    const recoveryBackupAcknowledgementVersion = stored.versions.find(
+      (entry) => entry.key === recoveryBackupAcknowledgementKey,
+    );
+    if (!envelopeVersion || !recoverySetVersion || !recoveryBackupAcknowledgementVersion) {
       // The batch reported success without both keys, which would mean the
       // store wrote something other than what it was asked to.
       throw new Error('wallet custody commit did not report both record versions');

@@ -78,7 +78,11 @@ import {
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { base58Encode } from '@shared/utils/base58';
 import { parseWebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
-import { buildEmailOtpEnvelopeFactor, buildPasskeyEnvelopeFactor } from '@shared/passkey-custody';
+import {
+  buildEmailOtpEnvelopeFactor,
+  buildPasskeyEnvelopeFactor,
+  walletCustodyCommitPayloadWithRecoveryBackupAcknowledgement,
+} from '@shared/passkey-custody';
 import { WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
 import { joinCustodyJsonFromEstablishedCommitPayload } from '@/core/signingEngine/walletCustody/registrationCeremony';
 import {
@@ -2933,6 +2937,9 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       options.backupWalletRecoveryCodes,
       established.recoveryCodes,
     );
+    const walletCustodyCommit = walletCustodyCommitPayloadWithRecoveryBackupAcknowledgement(
+      established.commitPayload,
+    );
     const emailOtpBackupAck = await resolveEmailOtpBackupAck({
       authMethod: args.authMethod,
       backup: recoveryCodeBackup,
@@ -2977,7 +2984,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
           enrollment: materialForActivate.emailOtpEnrollment,
           backupAck: emailOtpBackupAck,
         },
-        walletCustodyCommit: established.commitPayload,
+        walletCustodyCommit,
       }),
     );
     if (!finalized.ok) {
@@ -3308,6 +3315,9 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
       options.backupWalletRecoveryCodes,
       established.recoveryCodes,
     );
+    const walletCustodyCommit = walletCustodyCommitPayloadWithRecoveryBackupAcknowledgement(
+      established.commitPayload,
+    );
     /* The custody ceremony and local recovery backup finish before activate.
        Activate stages the wallet as `near_pending`; Route 4 then commits the
        signer, custody envelope, and recovery set together. */
@@ -3347,7 +3357,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
       auth: { kind: 'passkey' },
       /* The projection, not the ceremony's output: the continuity cache and
            any role-local material stay on this device. */
-      walletCustodyCommit: established.commitPayload,
+      walletCustodyCommit,
     });
     if (!finalized.ok || finalized.kind !== 'near_ed25519') {
       throw new Error('Deferred NEAR provisioning returned a different signer branch');

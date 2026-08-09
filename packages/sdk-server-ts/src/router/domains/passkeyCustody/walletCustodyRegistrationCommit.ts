@@ -18,6 +18,7 @@ import {
   WALLET_RECOVERY_CODE_COUNT,
   type WalletRecoveryEnvelopeSetRecord,
 } from '@shared/wallet-recovery';
+import { buildWalletRecoveryBackupAcknowledgementV1 } from '@shared/wallet-recovery/recoveryCodes';
 import { isPlainObject } from '@shared/utils/validation';
 import type { PasskeyEnvelopeId, WalletId } from '@shared/utils/domainIds';
 
@@ -44,6 +45,9 @@ import type {
 export type WalletCustodyRegistrationRecords = {
   readonly envelope: PasskeyCustodyEnvelopeRecord;
   readonly recoverySet: WalletRecoveryEnvelopeSetRecord;
+  readonly recoveryBackupAcknowledgement: ReturnType<
+    typeof buildWalletRecoveryBackupAcknowledgementV1
+  >;
 };
 
 export type WalletCustodyRegistrationCommitOutcome =
@@ -85,6 +89,9 @@ export function buildWalletCustodyRegistrationRecords(args: {
   }
 
   const walletId = requireNonEmpty(payload.walletId, 'walletId') as WalletId;
+  if (payload.recoveryBackupAcknowledged !== true) {
+    throw new Error('wallet recovery-code backup acknowledgement is required');
+  }
   // A joining run writes no custody records: the wallet already has a seed
   // envelope and a recovery set, and issuing more would leave half its keys
   // covered by neither.
@@ -176,7 +183,15 @@ export function buildWalletCustodyRegistrationRecords(args: {
     updatedAtMs: nowMs,
   });
 
-  return { envelope, recoverySet };
+  return {
+    envelope,
+    recoverySet,
+    recoveryBackupAcknowledgement: buildWalletRecoveryBackupAcknowledgementV1({
+      walletId,
+      issuedAtMs: nowMs,
+      acknowledgedAtMs: nowMs,
+    }),
+  };
 }
 
 /**

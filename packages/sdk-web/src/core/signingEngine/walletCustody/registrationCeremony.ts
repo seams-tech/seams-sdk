@@ -5,9 +5,10 @@ import {
   zeroizeIssuedWalletRecoveryCodes,
   type IssuedWalletRecoveryCodes,
 } from '@shared/wallet-recovery/recoveryCodes';
-import type {
-  WalletCustodyCeremonyCommitPayload,
-  WalletCustodyEvmFamilyPublicFacts,
+import {
+  walletCustodyCommitPayloadWithRecoveryBackupAcknowledgement,
+  type WalletCustodyCeremonyCommitPayload,
+  type WalletCustodyEvmFamilyPublicFacts,
 } from '@shared/passkey-custody';
 import type { RouterAbEd25519YaoRecoveryActivationReceiptV1 } from '@shared/utils/routerAbEd25519Yao';
 import {
@@ -245,14 +246,18 @@ export async function establishEvmFamilyCustodyV1(
         evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
         beforeRelayerRound: input.confirmRecoveryCodesBackedUp.bind(undefined, issued.codes),
         runRelayerRound: async (bootstrap) => {
-          admittedCommitPayload = bootstrap.preActivationCommitPayload;
+          const preActivationCommitPayload =
+            walletCustodyCommitPayloadWithRecoveryBackupAcknowledgement(
+              bootstrap.preActivationCommitPayload,
+            );
+          admittedCommitPayload = preActivationCommitPayload;
           clientBootstrap = {
             contextBinding32B64u: bootstrap.contextBinding32B64u,
             derivationClientSharePublicKey33B64u: bootstrap.clientSharePublicKey33B64u,
             clientShareRetryCounter: bootstrap.clientShareRetryCounter,
             participantId: 1,
           };
-          return await input.runRelayerRound(bootstrap);
+          return await input.runRelayerRound({ ...bootstrap, preActivationCommitPayload });
         },
       },
     });
