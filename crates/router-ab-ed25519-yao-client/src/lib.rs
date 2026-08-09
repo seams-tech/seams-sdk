@@ -341,25 +341,6 @@ pub fn prepare_client_registration_with_root_v1(
     )
 }
 
-pub(crate) fn prepare_client_registration_from_custody_seed_v1(
-    admission: &RouterAbEd25519YaoActivationAdmissionReceiptV1,
-    application: &RouterAbEd25519YaoApplicationBindingFactsV1,
-    participant_ids: [u16; 2],
-    custody_seed: &[u8; 32],
-    entropy: ClientActivationEntropyV1,
-) -> Result<PreparedClientActivationV1, ClientActivationError> {
-    let digest = client_application_binding_digest_v1(application, participant_ids)?;
-    let root = derive_ed25519_yao_client_root_from_seed_v1(custody_seed, &digest)
-        .map_err(|_| ClientActivationError::DerivationFailed)?;
-    prepare_client_registration_with_root_v1(
-        admission,
-        application,
-        participant_ids,
-        Ed25519YaoClientDerivationRootV1::from_secret_bytes(*root),
-        entropy,
-    )
-}
-
 /// Prepares recovery from a Client root the caller already derived, preserving
 /// an existing registered public key.
 ///
@@ -385,30 +366,6 @@ pub fn prepare_client_recovery_with_root_v1(
         entropy,
         Ed25519YaoOperationV1::Recovery,
         ClientActivationContinuityV1::Preserve(expected_registered_public_key),
-    )
-}
-
-pub(crate) fn prepare_client_recovery_from_custody_seed_v1(
-    admission: &RouterAbEd25519YaoActivationAdmissionReceiptV1,
-    application: &RouterAbEd25519YaoApplicationBindingFactsV1,
-    participant_ids: [u16; 2],
-    custody_seed: &[u8; 32],
-    expected_registered_public_key: [u8; 32],
-    entropy: ClientActivationEntropyV1,
-) -> Result<PreparedClientActivationV1, ClientActivationError> {
-    if expected_registered_public_key.iter().all(|byte| *byte == 0) {
-        return Err(ClientActivationError::PublicKeyContinuityMismatch);
-    }
-    let digest = client_application_binding_digest_v1(application, participant_ids)?;
-    let root = derive_ed25519_yao_client_root_from_seed_v1(custody_seed, &digest)
-        .map_err(|_| ClientActivationError::DerivationFailed)?;
-    prepare_client_recovery_with_root_v1(
-        admission,
-        application,
-        participant_ids,
-        Ed25519YaoClientDerivationRootV1::from_secret_bytes(*root),
-        expected_registered_public_key,
-        entropy,
     )
 }
 
