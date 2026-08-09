@@ -4,8 +4,12 @@ import { unknownWebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDe
 import { alphabetizeStringify } from '@shared/utils/digests';
 import type { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 import type { CloudflareD1WalletCustodyCommitStore } from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
-import type { WalletRecoveryAuthenticatorCommit } from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
+import type {
+  WalletRecoveryAuthenticatorCommit,
+  WalletRecoveryEcdsaSignerPromotionCommit,
+} from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
 import type { CloudflareD1WebAuthnStore } from '../../cloudflare/d1/webauthn/d1WebAuthnStore';
+import type { D1WalletStore } from '../../../core/d1WalletStore';
 import { verifyWebAuthnRegistrationCredentialForIntent } from '../../../core/authService/webauthn';
 import type { WebAuthnCredentialBindingRecord } from '../../../core/WebAuthnCredentialBindingStore';
 import type { D1PreparedStatementLike } from '../../../storage/tenantRoute';
@@ -15,7 +19,10 @@ import {
 } from '@shared/wallet-recovery/recoveryCodeReservation';
 import type { WalletRecoveryEnvelopeSetRecord } from '@shared/wallet-recovery';
 import type { WalletId } from '@shared/utils/domainIds';
-import type { WalletRecoveryActivationVerification } from './walletRecoveryKeyManifest';
+import type {
+  WalletRecoveryActivationVerification,
+  WalletRecoveryEcdsaSignerPromotionV1,
+} from './walletRecoveryKeyManifest';
 
 /**
  * Promoting the replacement credential a recovery enrolled.
@@ -65,6 +72,7 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
   readonly webauthnRegistration: unknown;
   readonly expectedOrigin: string;
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
+  readonly walletStore: D1WalletStore;
   readonly activationVerification: Extract<
     WalletRecoveryActivationVerification,
     { readonly kind: 'verified' }
@@ -234,6 +242,10 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
     replacementEnvelope: input.replacementEnvelope,
     reservationId: input.reservationId,
     authenticatorCommit,
+    ecdsaPromotions: buildEcdsaRecoveryPromotionCommits({
+      promotions: input.activationVerification.ecdsaPromotions,
+      nowMs: input.nowMs,
+    }),
   });
   if (committed.kind === 'conflict') {
     return { kind: 'conflict', reason: 'the recovery state changed during finalization' };
@@ -292,6 +304,11 @@ async function resolveCommittedRecoveryReplay(input: {
   readonly reservationId: RecoveryCodeReservationId;
   readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
+  readonly walletStore: D1WalletStore;
+  readonly activationVerification: Extract<
+    WalletRecoveryActivationVerification,
+    { readonly kind: 'verified' }
+  >;
 }): Promise<RecoveryReplayResolution> {
   if (input.replacementEnvelope.factor.kind !== 'passkey') {
     return {
@@ -384,6 +401,48 @@ async function resolveCommittedRecoveryReplay(input: {
       kind: 'conflict',
       reason: RECOVERY_REPLAY_STATE_CONFLICT,
     };
+  }
+
+  try {
+    const signerRows = await input.walletStore.listEcdsaSignersForWallet({
+      walletId: input.walletId as WalletId,
+    });
+    for (const promotion of input.activationVerification.ecdsaPromotions) {
+      const promotedRows = signerRows.filter(
+        (signer) => signer.walletKey.keyHandle === promotion.keyHandle,
+      );
+      if (promotedRows.length !== promotion.currentSigners.length) {
+        return { kind: 'conflict', reason: RECOVERY_REPLAY_STATE_CONFLICT };
+      }
+      for (const promoted of promotedRows) {
+        const expected = promotion.currentSigners.find(
+          (current) => current.signerId === promoted.signerId,
+        );
+        if (
+          !expected ||
+          promoted.chainTargetKey !== expected.chainTargetKey ||
+          promoted.walletKey.keyHandle !== expected.walletKey.keyHandle ||
+          alphabetizeStringify(promoted.walletKey.publicCapability) !==
+            alphabetizeStringify(promotion.nextPublicCapability) ||
+          alphabetizeStringify(promoted.activationReceipt) !==
+            alphabetizeStringify(promotion.nextActivationReceipt)
+        ) {
+          return { kind: 'conflict', reason: RECOVERY_REPLAY_STATE_CONFLICT };
+        }
+      }
+      const pending = await input.walletStore.listEcdsaPendingSessionActivationsForLifecycle({
+        walletId: input.walletId as WalletId,
+        lifecycleId: promotion.recovery.lifecycleId,
+      });
+      if (
+        pending.length !== 0 ||
+        promotion.recovery.request.lifecycle.lifecycle_id !== promotion.refresh.request.lifecycle.lifecycle_id
+      ) {
+        return { kind: 'conflict', reason: RECOVERY_REPLAY_STATE_CONFLICT };
+      }
+    }
+  } catch {
+    return { kind: 'conflict', reason: RECOVERY_REPLAY_STATE_CONFLICT };
   }
 
   const envelopes = await input.envelopeStore.listWalletEnvelopes(input.walletId as WalletId);
@@ -490,4 +549,30 @@ function buildRecoveryAuthenticatorCommit(input: {
     binding,
     challengeDeleteStatement: input.challengeDeleteStatement,
   };
+}
+
+function buildEcdsaRecoveryPromotionCommits(input: {
+  readonly promotions: readonly WalletRecoveryEcdsaSignerPromotionV1[];
+  readonly nowMs: number;
+}): readonly WalletRecoveryEcdsaSignerPromotionCommit[] {
+  const commits: WalletRecoveryEcdsaSignerPromotionCommit[] = [];
+  for (const promotion of input.promotions) {
+    for (const current of promotion.currentSigners) {
+      commits.push({
+        current,
+        next: {
+          ...current,
+          walletKey: {
+            ...current.walletKey,
+            publicCapability: promotion.nextPublicCapability,
+          },
+          activationReceipt: promotion.nextActivationReceipt,
+          updatedAtMs: input.nowMs,
+        },
+        recovery: promotion.recovery,
+        refresh: promotion.refresh,
+      });
+    }
+  }
+  return commits;
 }

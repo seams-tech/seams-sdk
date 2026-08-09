@@ -565,6 +565,7 @@ async function finalizeRecoveryForRoute(
     webauthnRegistration: request.webauthnRegistration,
     expectedOrigin: request.expectedOrigin,
     webAuthnStore: assembly.webAuthnStore,
+    walletStore: assembly.walletStore,
     replacementEnvelope: request.replacementEnvelope,
     activationVerification,
     nowMs: (assembly.nowMs ?? Date.now)(),
