@@ -67,6 +67,13 @@ export type WalletCustodyCeremonyCustodyInput =
       /** `RecoveryCustodyWireV1`: one reserved wrap and the wallet seed entry. */
       readonly custodyJson: string;
       readonly recoveryCode: ArrayBuffer;
+    }
+  | {
+      readonly origin: 'recover_and_reseal';
+      readonly custodyJson: string;
+      readonly recoveryCode: ArrayBuffer;
+      readonly replacementFactorJson: string;
+      readonly replacementFactorSecret: ArrayBuffer;
     };
 
 /**
@@ -102,19 +109,30 @@ export type WalletCustodyCeremonyKeySetInput =
       }) => Promise<string>;
     };
 
-export type WalletCustodyKeySetCeremonyInput = {
+type WalletCustodyKeySetCeremonySharedInput = {
   readonly runStep: WalletCustodyCeremonyStepRunner;
-  readonly custody: WalletCustodyCeremonyCustodyInput;
   readonly keySetRun: WalletCustodyCeremonyKeySetInput;
-  /**
-   * The digest already riding this key set's registration state, when it has
-   * one. Present means the run must reproduce it — which is what stops an
-   * induced re-run from silently replacing a key set.
-   */
-  readonly recordedKeyManifestDigestB64u?: string;
   /** Overridable so tests are deterministic; production takes the default. */
   readonly ceremonyId?: string;
 };
+
+type RecoveryCustodyInput = Extract<
+  WalletCustodyCeremonyCustodyInput,
+  { readonly origin: 'recover' | 'recover_and_reseal' }
+>;
+
+export type WalletCustodyKeySetCeremonyInput = WalletCustodyKeySetCeremonySharedInput &
+  (
+    | {
+        readonly custody: Exclude<WalletCustodyCeremonyCustodyInput, RecoveryCustodyInput>;
+        readonly recordedKeyManifestDigestB64u?: string;
+      }
+    | {
+        readonly custody: RecoveryCustodyInput;
+        /** Recovery always reproduces an existing server-recorded key set. */
+        readonly recordedKeyManifestDigestB64u: string;
+      }
+  );
 
 function ignoreDiscardFailure(): void {
   return;
@@ -167,6 +185,39 @@ function buildNearBeginCustody(custody: WalletCustodyCeremonyCustodyInput): Near
         origin: 'recover',
         custodyJson: custody.custodyJson,
         recoveryCode: custody.recoveryCode,
+      };
+    case 'recover_and_reseal':
+      return {
+        origin: 'recover_and_reseal',
+        custodyJson: custody.custodyJson,
+        recoveryCode: custody.recoveryCode,
+        replacementFactorJson: custody.replacementFactorJson,
+        replacementFactorSecret: custody.replacementFactorSecret,
+      };
+    default:
+      return assertNeverCustodyOrigin(custody);
+  }
+}
+
+type FinishCustody = CeremonyOperationMap['finishWalletCustodyKeySetRun']['payload']['finish'];
+
+function buildFinishCustody(custody: WalletCustodyCeremonyCustodyInput): FinishCustody {
+  switch (custody.origin) {
+    case 'establish':
+      return {
+        kind: 'establish',
+        factorJson: custody.factorJson,
+        factorSecret: custody.factorSecret,
+        recoveryCodesJson: custody.recoveryCodesJson,
+      };
+    case 'join':
+    case 'recover':
+      return { kind: 'existing' };
+    case 'recover_and_reseal':
+      return {
+        kind: 'recover_reseal',
+        replacementFactorJson: custody.replacementFactorJson,
+        replacementFactorSecret: custody.replacementFactorSecret,
       };
     default:
       return assertNeverCustodyOrigin(custody);
@@ -221,14 +272,7 @@ export async function runWalletCustodyKeySetCeremony(
       });
       return await input.runStep('finishWalletCustodyKeySetRun', {
         ceremonyId,
-        establishWith:
-          custody.origin === 'establish'
-            ? {
-                factorJson: custody.factorJson,
-                factorSecret: custody.factorSecret,
-                recoveryCodesJson: custody.recoveryCodesJson,
-              }
-            : undefined,
+        finish: buildFinishCustody(custody),
       });
     }
 

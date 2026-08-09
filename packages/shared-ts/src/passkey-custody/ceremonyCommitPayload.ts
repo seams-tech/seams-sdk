@@ -54,6 +54,15 @@ export type EstablishedCustodyRecordsPayload = {
   readonly recoveryEntryAadHashB64u: string;
 };
 
+export type RecoveryReplacementEnvelopePayload = {
+  readonly envelopeId: string;
+  readonly envelopeBindingJson: string;
+  readonly envelopeNonceB64u: string;
+  readonly sealedCustodySecretB64u: string;
+  readonly envelopeAadHashB64u: string;
+  readonly envelopeCiphertextDigestB64u: string;
+};
+
 export type WalletCustodyCeremonyCommitPayload = {
   readonly walletId: string;
   /** `near_ed25519_v1` or `evm_family_ecdsa_v1`: one key set per run. */
@@ -67,6 +76,8 @@ export type WalletCustodyCeremonyCommitPayload = {
   readonly keyManifestDigestB64u: string;
   /** Present only when this run established custody. */
   readonly establishedCustody?: EstablishedCustodyRecordsPayload;
+  /** Present only when a recovery run resealed under the replacement passkey. */
+  readonly recoveryReplacementEnvelope?: RecoveryReplacementEnvelopePayload;
   readonly registeredPublicKeyB64u?: string;
   /**
    * The NEAR same-device continuity cache: the activated Yao Client's material,

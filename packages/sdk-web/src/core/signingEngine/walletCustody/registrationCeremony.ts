@@ -295,12 +295,11 @@ export type RejoinedEvmFamilyCustody = {
 export async function rejoinEvmFamilyCustodyV1(
   input: RejoinEvmFamilyCustodyInput,
 ): Promise<RejoinedEvmFamilyCustody> {
-  const recordedKeyManifestDigestB64u =
-    await computeWalletCustodyEvmFamilyKeyManifestDigestB64u({
-      walletId: input.walletId,
-      evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
-      clientRootPublicKey33B64u: input.registeredClientRootPublicKey33B64u,
-    });
+  const recordedKeyManifestDigestB64u = await computeWalletCustodyEvmFamilyKeyManifestDigestB64u({
+    walletId: input.walletId,
+    evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
+    clientRootPublicKey33B64u: input.registeredClientRootPublicKey33B64u,
+  });
   const payload = await runWalletCustodyKeySetCeremony({
     runStep: input.runStep,
     custody: {
@@ -384,6 +383,7 @@ export function walletCustodyCommitPayloadForWire(
     ed25519LocalMaterialNonceB64u: _cacheNonce,
     ed25519ApplicationBindingDigestB64u: _cacheBinding,
     ecdsaReadyStateBlobB64u: _readyState,
+    recoveryReplacementEnvelope: _recoveryReplacement,
     ...wire
   } = payload;
   return wire;

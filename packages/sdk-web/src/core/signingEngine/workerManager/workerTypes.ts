@@ -1730,7 +1730,14 @@ export interface WalletCustodyCeremonyWorkerOperationMap {
           custody:
             | { origin: 'establish'; walletId: string }
             | { origin: 'join'; custodyJson: string; factorSecret: ArrayBuffer }
-            | { origin: 'recover'; custodyJson: string; recoveryCode: ArrayBuffer };
+            | { origin: 'recover'; custodyJson: string; recoveryCode: ArrayBuffer }
+            | {
+                origin: 'recover_and_reseal';
+                custodyJson: string;
+                recoveryCode: ArrayBuffer;
+                replacementFactorJson: string;
+                replacementFactorSecret: ArrayBuffer;
+              };
           protocolInputsJson: string;
         }
       | {
@@ -1745,7 +1752,14 @@ export interface WalletCustodyCeremonyWorkerOperationMap {
                 recoveryCodesJson: string;
               }
             | { origin: 'join'; custodyJson: string; factorSecret: ArrayBuffer }
-            | { origin: 'recover'; custodyJson: string; recoveryCode: ArrayBuffer };
+            | { origin: 'recover'; custodyJson: string; recoveryCode: ArrayBuffer }
+            | {
+                origin: 'recover_and_reseal';
+                custodyJson: string;
+                recoveryCode: ArrayBuffer;
+                replacementFactorJson: string;
+                replacementFactorSecret: ArrayBuffer;
+              };
           protocolInputsJson: string;
           evmFamilySigningKeySlotId: string;
           recordedKeyManifestDigestB64u?: string;
@@ -1790,16 +1804,19 @@ export interface WalletCustodyCeremonyWorkerOperationMap {
   finishWalletCustodyKeySetRun: {
     payload: {
       ceremonyId: string;
-      /**
-       * Present only for a run that established custody. A joining run that
-       * sent this would be asking for a second seed envelope and a second
-       * recovery set; the ceremony refuses it.
-       */
-      establishWith?: {
-        factorJson: string;
-        factorSecret: ArrayBuffer;
-        recoveryCodesJson: string;
-      };
+      finish:
+        | { kind: 'existing' }
+        | {
+            kind: 'establish';
+            factorJson: string;
+            factorSecret: ArrayBuffer;
+            recoveryCodesJson: string;
+          }
+        | {
+            kind: 'recover_reseal';
+            replacementFactorJson: string;
+            replacementFactorSecret: ArrayBuffer;
+          };
     };
     result: WalletCustodyCeremonyCommitPayload;
   };
