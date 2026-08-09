@@ -4,9 +4,10 @@ import { readBackendLane } from '../../../scripts/deployment-targets.mjs';
 
 const argv = process.argv.slice(2).filter((arg) => arg !== '--');
 assertNoLegacyIdentityFlags();
+const apply = argv.includes('--apply');
 const laneId = readOption('--lane');
 const lane = laneId ? readBackendLane(laneId) : undefined;
-if (lane?.provisioning.kind === 'pending') {
+if (apply && lane?.provisioning.kind === 'pending') {
   throw new Error(`${lane.id} is pending provisioning; deployment key generation is blocked`);
 }
 const environmentName = lane
@@ -14,7 +15,6 @@ const environmentName = lane
     ? lane.resources.router.deploymentEnvironment.name
     : lane.release
   : undefined;
-const apply = argv.includes('--apply');
 const showSecrets = argv.includes('--show-secrets');
 const json = argv.includes('--json');
 const repo = readOption('--repo');

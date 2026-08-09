@@ -160,7 +160,10 @@ const verifyGeneration = argv.includes('--verify-generation');
 const allowIncomplete = argv.includes('--allow-incomplete');
 const requestedRepository = readOption('--repo');
 const deploymentComponent = readDeploymentComponent();
-const deploymentIdentity = resolveDeploymentIdentity(deploymentComponent);
+const deploymentIdentity = resolveDeploymentIdentity(
+  deploymentComponent,
+  apply || verifyGeneration,
+);
 const target = deploymentIdentity.release;
 const identityId = deploymentIdentity.id;
 const environmentPrefix = deploymentEnvironmentPrefix(deploymentIdentity);
@@ -364,7 +367,11 @@ output.manualInputs = collectManualInputs(output.environments);
 output.requiredManualInputs = collectRequiredManualInputs(output.environments);
 validateOutput(output);
 validateWorkflowCoverage(output);
-assertCompleteApplyInput(output, prepare, allowIncomplete, valuesFile);
+const completenessOutput =
+  prepare && deploymentIdentity.id === 'production-testnet'
+    ? buildPreparedComponentManifest(output, 'wallet-core')
+    : output;
+assertCompleteApplyInput(completenessOutput, prepare, allowIncomplete, valuesFile);
 const preparation = prepare ? writePreparedComponentManifests(output) : undefined;
 if (preparation) {
   progress.detail(`Saved wallet-core manifest to ${preparation.walletCoreManifestPath}`);
@@ -444,7 +451,7 @@ function assertNoLegacyIdentityFlags() {
   }
 }
 
-function resolveDeploymentIdentity(component) {
+function resolveDeploymentIdentity(component, requiresProvisionedLane) {
   const laneId = readOption('--lane');
   const siteId = readOption('--site');
   if (laneId && siteId) {
@@ -462,7 +469,9 @@ function resolveDeploymentIdentity(component) {
       throw new Error('--site cannot be used for wallet-core operations');
     }
     const lane = readBackendLane(laneId);
-    assertProvisionedDeployment(lane.id, lane.provisioning.kind);
+    if (requiresProvisionedLane) {
+      assertProvisionedDeployment(lane.id, lane.provisioning.kind);
+    }
     return { kind: 'lane', id: lane.id, release: lane.release, lane };
   }
   if (!siteId) {
@@ -707,7 +716,7 @@ function buildOutput(input) {
     laneId: input.laneId,
     siteId: input.siteId,
     deploymentComponent: input.deploymentComponent,
-    siteLanes: deploymentIdentity.site?.lanes || [deploymentIdentity.lane],
+    siteLanes: deploymentSiteLanes(deploymentIdentity),
     deployment: input.deployment,
     rootShares: input.rootShares,
     configuration: input.configuration,
@@ -735,6 +744,12 @@ function buildOutput(input) {
     environments,
     manualInputs: collectManualInputs(environments),
   };
+}
+
+function deploymentSiteLanes(identity) {
+  if (identity.kind === 'site') return identity.site.lanes;
+  if (identity.release === 'production') return readFrontendSite('production').lanes;
+  return [identity.lane];
 }
 
 function buildProductLaneHandoffs(input) {
@@ -994,13 +1009,15 @@ function buildProductionLaneVariables(input, lane) {
 
 function buildGatewayEnvironment(input) {
   const environmentName = `${input.environmentPrefix}-gateway`;
+  const consoleEmailEnabled =
+    input.configuration.runtimeProfile.kind !== GATEWAY_RUNTIME_PROFILE_KINDS.mainnetService;
   return [
     environmentName,
     {
       purpose: 'Gateway Worker, D1, tenant state, and public ceremony JWT issuer',
-      variables: {
-        CONSOLE_EMAIL_FROM: manual(`${input.environmentPrefix}-console-email-from`),
-      },
+      variables: consoleEmailEnabled
+        ? { CONSOLE_EMAIL_FROM: manual(`${input.environmentPrefix}-console-email-from`) }
+        : {},
       optionalVariables: {},
       secrets: {
         CLOUDFLARE_API_TOKEN: manual(`${environmentName}-cloudflare-worker-api-token`),
