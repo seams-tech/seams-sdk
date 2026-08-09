@@ -34,37 +34,21 @@ export type CreateRouterAbEcdsaRegistrationCeremonyResultV1 = {
 };
 
 export type VerifyRouterAbEcdsaRegistrationClientProofsRequestV1 =
-  | {
-      readonly kind: 'verify_router_ab_ecdsa_registration_client_proofs_v1';
-      readonly bootstrapOwner: 'legacy_prf';
-      readonly ceremonyId: string;
-      readonly clientProofFinalization: RouterAbEcdsaClientProofFinalizationV1;
-    }
-  | {
-      readonly kind: 'verify_router_ab_ecdsa_registration_client_proofs_v1';
-      readonly bootstrapOwner: 'wallet_custody';
-      readonly ceremonyId: string;
-      readonly clientProofFinalization: RouterAbEcdsaClientProofFinalizationV1;
-    };
+  {
+    readonly kind: 'verify_router_ab_ecdsa_registration_client_proofs_v1';
+    readonly bootstrapOwner: 'wallet_custody';
+    readonly ceremonyId: string;
+    readonly clientProofFinalization: RouterAbEcdsaClientProofFinalizationV1;
+  };
 
-export type VerifyRouterAbEcdsaRegistrationClientProofsResultV1 =
-  | {
-      readonly kind: 'router_ab_ecdsa_registration_client_proofs_verified_v1';
-      readonly bootstrapOwner: 'legacy_prf';
-      readonly ceremonyId: string;
-      readonly clientBootstrap: WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapResult['clientBootstrap'];
-      readonly publicFacts: RouterAbEcdsaVerifiedClientActivationFactsV1;
-    }
-  | {
-      readonly kind: 'router_ab_ecdsa_registration_wallet_custody_proofs_verified_v1';
-      readonly bootstrapOwner: 'wallet_custody';
-      readonly ceremonyId: string;
-      readonly applicationBindingDigestB64u: string;
-      readonly registrationRequestDigestB64u: string;
-      readonly proofTranscriptDigestB64u: string;
-      readonly clientBootstrap?: never;
-      readonly publicFacts?: never;
-    };
+export type VerifyRouterAbEcdsaRegistrationClientProofsResultV1 = {
+  readonly kind: 'router_ab_ecdsa_registration_wallet_custody_proofs_verified_v1';
+  readonly bootstrapOwner: 'wallet_custody';
+  readonly ceremonyId: string;
+  readonly applicationBindingDigestB64u: string;
+  readonly registrationRequestDigestB64u: string;
+  readonly proofTranscriptDigestB64u: string;
+};
 
 type PersistInitialCanonicalEcdsaActivationRequestBaseV1 = {
   readonly kind: 'persist_initial_canonical_ecdsa_activation_v1';
@@ -73,14 +57,10 @@ type PersistInitialCanonicalEcdsaActivationRequestBaseV1 = {
 };
 
 export type PersistInitialCanonicalEcdsaActivationRequestV1 =
-  | (PersistInitialCanonicalEcdsaActivationRequestBaseV1 & {
-      readonly bootstrapOwner: 'legacy_prf';
-      readonly clientActivation?: never;
-    })
-  | (PersistInitialCanonicalEcdsaActivationRequestBaseV1 & {
-      readonly bootstrapOwner: 'wallet_custody';
-      readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
-    });
+  PersistInitialCanonicalEcdsaActivationRequestBaseV1 & {
+    readonly bootstrapOwner: 'wallet_custody';
+    readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
+  };
 
 export type PersistInitialCanonicalEcdsaActivationFailureCode =
   | 'invalid_ceremony_state'
@@ -116,16 +96,11 @@ type FinalizeRouterAbEcdsaRegistrationActivationRequestBaseV1 = {
 };
 
 export type FinalizeRouterAbEcdsaRegistrationActivationRequestV1 =
-  | (FinalizeRouterAbEcdsaRegistrationActivationRequestBaseV1 & {
-      readonly bootstrapOwner: 'legacy_prf';
-      readonly readyStateBlobB64u?: never;
-      readonly walletCustodyPublicFacts?: never;
-    })
-  | (FinalizeRouterAbEcdsaRegistrationActivationRequestBaseV1 & {
-      readonly bootstrapOwner: 'wallet_custody';
-      readonly readyStateBlobB64u: string;
-      readonly walletCustodyPublicFacts: WalletCustodyEvmFamilyPublicFacts;
-    });
+  FinalizeRouterAbEcdsaRegistrationActivationRequestBaseV1 & {
+    readonly bootstrapOwner: 'wallet_custody';
+    readonly readyStateBlobB64u: string;
+    readonly walletCustodyPublicFacts: WalletCustodyEvmFamilyPublicFacts;
+  };
 
 export type FinalizeRouterAbEcdsaRegistrationActivationResultV1 = {
   readonly kind: 'router_ab_ecdsa_registration_activation_finalized_v1';
@@ -147,8 +122,10 @@ export type ReconcileCanonicalEcdsaActivationResultV1 =
   | {
       readonly kind: 'canonical_ecdsa_activation_reconciliation_pending_v1';
       readonly journalId: CorrelationId;
-      readonly reason: 'parent_confirmation_and_server_query_required';
-      readonly activationCommand: EcdsaServerActivationCommand;
+      readonly reason:
+        | 'parent_confirmation_and_server_query_required'
+        | 'wallet_custody_rejoin_required';
+      readonly activationCommand: EcdsaServerActivationCommand | null;
       readonly activation?: never;
       readonly code?: never;
     }

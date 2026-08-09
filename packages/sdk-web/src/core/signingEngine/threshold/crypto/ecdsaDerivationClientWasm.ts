@@ -30,6 +30,8 @@ import type {
   FinalizeRouterAbEcdsaExplicitExportRequestV1,
   FinalizeRouterAbEcdsaExplicitExportResultV1,
   RehydrateEcdsaRoleLocalSigningMaterialResultV1,
+  VerifyRouterAbEcdsaPostRegistrationProofsRequestV1,
+  VerifyRouterAbEcdsaPostRegistrationProofsResultV1,
 } from '../../workerManager/ecdsaClientWorkerChannels';
 import {
   parseEcdsaRoleLocalPersistedMaterialRef,
@@ -317,19 +319,11 @@ export async function reconcileCanonicalEcdsaActivationWasm(input: {
   if (result.kind !== 'canonical_ecdsa_activation_committed_finalization_required_v1') {
     return result;
   }
-  const activation = await finalizeRouterAbEcdsaRegistrationActivationWasm({
-    workerCtx: input.workerCtx,
-    command: {
-      kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
-      bootstrapOwner: 'legacy_prf',
-      journalId: result.journalId,
-      activationReceipt: result.activationReceipt,
-      routerAbEcdsaDerivationNormalSigning: result.routerAbEcdsaDerivationNormalSigning,
-    },
-  });
   return {
-    kind: 'canonical_ecdsa_activation_reconciliation_finalized_v1',
-    activation,
+    kind: 'canonical_ecdsa_activation_reconciliation_pending_v1',
+    journalId: result.journalId,
+    reason: 'wallet_custody_rejoin_required',
+    activationCommand: null,
   };
 }
 
@@ -413,6 +407,27 @@ export async function closeRouterAbEcdsaPostRegistrationCeremonyWasm(input: {
     EcdsaDerivationClientCustomResponseType.CloseRouterAbEcdsaPostRegistrationCeremonySuccess
   ) {
     throw new Error('Router A/B ECDSA post-registration ceremony close failed');
+  }
+  return response.payload;
+}
+
+export async function verifyRouterAbEcdsaPostRegistrationProofsWasm(input: {
+  command: VerifyRouterAbEcdsaPostRegistrationProofsRequestV1;
+  workerCtx: WorkerOperationContext;
+}): Promise<VerifyRouterAbEcdsaPostRegistrationProofsResultV1> {
+  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaPostRegistrationProofs,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: input.command,
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.VerifyRouterAbEcdsaPostRegistrationProofsSuccess
+  ) {
+    throw new Error('Router A/B ECDSA post-registration proof verification failed');
   }
   return response.payload;
 }

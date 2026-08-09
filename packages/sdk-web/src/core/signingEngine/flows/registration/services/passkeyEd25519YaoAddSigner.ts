@@ -9,7 +9,10 @@ import {
   registrationNearEd25519BranchKey,
 } from '@shared/utils/registrationIntent';
 import {
+  ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
+  parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
+  type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import {
@@ -57,6 +60,13 @@ export type VerifiedPasskeyEd25519YaoAddSignerInputV1 = {
   };
 };
 
+export type VerifiedPasskeyEd25519YaoAddSignerPreparationInputV1 = Omit<
+  VerifiedPasskeyEd25519YaoAddSignerInputV1,
+  'verifiedAuthority'
+> & {
+  verifiedAuthority: Omit<VerifiedPasskeyEd25519AddSignerAuthorityV1, 'ownedPasskeyPrfFirst'>;
+};
+
 export type PreparedPasskeyEd25519YaoAddSignerV1 = {
   kind: 'prepared_passkey_ed25519_yao_add_signer_v1';
   request: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
@@ -83,7 +93,7 @@ function requireMatchingParticipantIds(
 }
 
 function transportConfig(
-  input: VerifiedPasskeyEd25519YaoAddSignerInputV1,
+  input: VerifiedPasskeyEd25519YaoAddSignerPreparationInputV1,
 ): RouterAbEd25519YaoHttpTransportConfigV1 {
   const bearerToken = requireNonEmptyString(
     input.verifiedIntent.addSignerIntentGrant,
@@ -97,7 +107,7 @@ function transportConfig(
 }
 
 export async function prepareVerifiedPasskeyEd25519YaoAddSignerV1(
-  input: VerifiedPasskeyEd25519YaoAddSignerInputV1,
+  input: VerifiedPasskeyEd25519YaoAddSignerPreparationInputV1,
 ): Promise<PreparedPasskeyEd25519YaoAddSignerV1> {
   const intent = input.verifiedIntent.intent;
   const selection = intent.signerSelection.ed25519;
@@ -173,6 +183,32 @@ export async function prepareVerifiedPasskeyEd25519YaoAddSignerV1(
     kind: 'prepared_passkey_ed25519_yao_add_signer_v1',
     request: admission,
     transportConfig: transportConfig(input),
+  };
+}
+
+export async function admitVerifiedPasskeyEd25519YaoAddSignerV1(
+  input: VerifiedPasskeyEd25519YaoAddSignerPreparationInputV1,
+): Promise<{
+  readonly request: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  readonly receipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
+  readonly transportConfig: RouterAbEd25519YaoHttpTransportConfigV1;
+}> {
+  const prepared = await prepareVerifiedPasskeyEd25519YaoAddSignerV1(input);
+  const transport = new RouterAbEd25519YaoHttpActivationTransportV1(prepared.transportConfig);
+  const response = await transport.send({
+    kind: 'admit',
+    path: ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
+    body: prepared.request,
+  });
+  if (!response.ok) throw new Error(response.message);
+  const receipt = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(
+    response.value,
+  );
+  if (!receipt.ok) throw new Error(receipt.message);
+  return {
+    request: prepared.request,
+    receipt: receipt.value,
+    transportConfig: prepared.transportConfig,
   };
 }
 

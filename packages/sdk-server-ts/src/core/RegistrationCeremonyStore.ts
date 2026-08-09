@@ -9,6 +9,7 @@ import type {
   AddSignerIntentV1,
   RegistrationIntentV1,
   WalletAddSignerStartResponse,
+  WalletAddSignerFinalizeRequest,
   WalletAddSignerFinalizeResponse,
   WalletRegistrationStartResponse,
   WalletId,
@@ -124,8 +125,9 @@ type WalletRegistrationEcdsaStartPayload = NonNullable<
   Extract<WalletRegistrationStartResponse, { ok: true }>['ecdsa']
 >;
 
-type WalletAddSignerEcdsaStartPayload = NonNullable<
-  Extract<WalletAddSignerStartResponse, { ok: true }>['ecdsa']
+type WalletAddSignerEcdsaStartPayload = Omit<
+  NonNullable<Extract<WalletAddSignerStartResponse, { ok: true }>['ecdsa']>,
+  'custodyEnvelope'
 >;
 
 export type StoredWalletRegistrationRuntimePolicyContext =
@@ -702,6 +704,10 @@ export type StoredWalletAddSignerFinalizeRequest =
       kind: 'near_ed25519';
       addSignerCeremonyId: string;
       idempotencyKey: string;
+      custodyKeySet: Extract<
+        WalletAddSignerFinalizeRequest,
+        { readonly kind: 'near_ed25519' }
+      >['custodyKeySet'];
       activationReference: {
         lifecycleId: string;
         sessionId: RouterAbEd25519YaoBytes32V1;
@@ -712,6 +718,10 @@ export type StoredWalletAddSignerFinalizeRequest =
       kind: 'evm_family_ecdsa';
       addSignerCeremonyId: string;
       idempotencyKey: string;
+      custodyKeySet: Extract<
+        WalletAddSignerFinalizeRequest,
+        { readonly kind: 'evm_family_ecdsa' }
+      >['custodyKeySet'];
       expectedKeyHandles: readonly [string];
       activationReference?: never;
     };

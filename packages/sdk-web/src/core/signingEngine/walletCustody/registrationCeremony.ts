@@ -287,6 +287,65 @@ export type RejoinEvmFamilyCustodyInput = {
   readonly relayerPublicIdentityJson: string;
 };
 
+export type JoinEvmFamilyCustodyInput = Omit<
+  EstablishEvmFamilyCustodyInput,
+  'factorJson' | 'confirmRecoveryCodesBackedUp'
+> & {
+  readonly custodyJson: string;
+};
+
+export type JoinedEvmFamilyCustody = Omit<EstablishedEvmFamilyCustody, 'recoveryCodes'>;
+
+export async function joinEvmFamilyCustodyV1(
+  input: JoinEvmFamilyCustodyInput,
+): Promise<JoinedEvmFamilyCustody> {
+  let admittedCommitPayload: WalletCustodyCeremonyCommitPayload | null = null;
+  let clientBootstrap: EstablishedEvmFamilyCustody['clientBootstrap'] | null = null;
+  const payload = await runWalletCustodyKeySetCeremony({
+    runStep: input.runStep,
+    custody: {
+      origin: 'join',
+      custodyJson: input.custodyJson,
+      factorSecret: input.factorSecret,
+    },
+    keySetRun: {
+      keySet: 'evm_family_ecdsa_v1',
+      protocolInputsJson: JSON.stringify({
+        applicationBindingDigestB64u: input.applicationBindingDigestB64u,
+      }),
+      evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
+      beforeRelayerRound: async () => undefined,
+      runRelayerRound: async (bootstrap) => {
+        admittedCommitPayload = bootstrap.preActivationCommitPayload;
+        clientBootstrap = {
+          contextBinding32B64u: bootstrap.contextBinding32B64u,
+          derivationClientSharePublicKey33B64u: bootstrap.clientSharePublicKey33B64u,
+          clientShareRetryCounter: bootstrap.clientShareRetryCounter,
+          participantId: 1,
+        };
+        return await input.runRelayerRound(bootstrap);
+      },
+    },
+  });
+  if (!admittedCommitPayload || !clientBootstrap) {
+    throw new Error('the EVM custody join reached no activation round');
+  }
+  if (payload.establishedCustody) {
+    throw new Error('an EVM custody join must not establish a second wallet seed');
+  }
+  if (!payload.ecdsaReadyStateBlobB64u || !payload.ecdsaPublicFacts) {
+    throw new Error('the EVM custody join produced no local signing material');
+  }
+  return {
+    commitPayload: admittedCommitPayload,
+    clientBootstrap,
+    localMaterial: {
+      readyStateBlobB64u: payload.ecdsaReadyStateBlobB64u,
+      publicFacts: payload.ecdsaPublicFacts,
+    },
+  };
+}
+
 export type RejoinedEvmFamilyCustody = {
   readonly readyStateBlobB64u: string;
   readonly publicFacts: WalletCustodyEvmFamilyPublicFacts;

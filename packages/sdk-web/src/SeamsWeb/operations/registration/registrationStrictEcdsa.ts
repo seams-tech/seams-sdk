@@ -39,9 +39,10 @@ import {
   thresholdEcdsaChainTargetKey,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type {
-  RouterAbEcdsaVerifiedClientActivationFactsV1,
-  RouterAbPublicDigest32V1Wire,
+import {
+  parseRouterAbEcdsaVerifiedClientActivationFactsV1,
+  type RouterAbEcdsaVerifiedClientActivationFactsV1,
+  type RouterAbPublicDigest32V1Wire,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   buildCanonicalWalletAddSignerEcdsaActivationRequest,
@@ -56,6 +57,11 @@ import {
   type WalletRegistrationEcdsaWalletKey,
   type WalletRegistrationEcdsaPreparePayload,
 } from '@/core/rpcClients/relayer/walletRegistration';
+import type {
+  PasskeyCustodyEnvelopeRecord,
+  WalletCustodyEvmFamilyPublicFacts,
+} from '@shared/passkey-custody';
+import { joinCustodyWireFromEnvelopeRecord } from '@/core/signingEngine/walletCustody/joinCustodyWire';
 import type {
   FinalizeRouterAbEcdsaRegistrationActivationRequestV1,
   FinalizeRouterAbEcdsaRegistrationActivationResultV1,
@@ -88,6 +94,14 @@ export function registrationRouteHeaders(
   return Object.keys(headers).length > 0 ? headers : undefined;
 }
 
+function ethereumAddressFromAddress20B64u(value: string): `0x${string}` {
+  const bytes = base64UrlDecode(value);
+  if (bytes.length !== 20) throw new Error('ECDSA activation returned an invalid address');
+  let hex = '';
+  for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
+  return `0x${hex}`;
+}
+
 export type RegistrationEcdsaSession = {
   chainTargets: readonly [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]];
   authority: FinalizeRouterAbEcdsaRegistrationActivationResultV1['authority'];
@@ -109,6 +123,15 @@ type PendingRegistrationEcdsaLocalFinalization = {
   activatedThresholdSessionId: string;
   journalId: CorrelationId;
   activationReceipt: FinalizeRouterAbEcdsaRegistrationActivationRequestV1['activationReceipt'];
+  custodyKeySet: {
+    readonly kind: 'evm_family_ecdsa_v1';
+    readonly keyManifestDigestB64u: string;
+    readonly clientRootPublicKey33B64u: string;
+  };
+  custodyLocalMaterial: {
+    readonly readyStateBlobB64u: string;
+    readonly publicFacts: WalletCustodyEvmFamilyPublicFacts;
+  };
 };
 
 export type RegistrationLocalEcdsaWalletKeys = Awaited<
@@ -310,6 +333,8 @@ export async function runStrictEcdsaFamilyCeremony(args: {
   walletId: WalletId;
   addSignerCeremonyId: string;
   started: WalletRegistrationEcdsaPreparePayload;
+  custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+  factorSecret: ArrayBuffer;
   authority: WalletAuthAuthorityRef;
   registrationTiming: RegistrationTimingRecorder | null;
 }): Promise<PendingRegistrationEcdsaLocalFinalization> {
@@ -353,7 +378,7 @@ export async function runStrictEcdsaFamilyCeremony(args: {
         args.context.signingEngine,
         {
           kind: 'verify_router_ab_ecdsa_registration_client_proofs_v1',
-          bootstrapOwner: 'legacy_prf',
+          bootstrapOwner: 'wallet_custody',
           ceremonyId,
           clientProofFinalization: {
             kind: 'finalize_encrypted_client_proof_bundles_v1',
@@ -362,69 +387,113 @@ export async function runStrictEcdsaFamilyCeremony(args: {
         },
       ),
     });
-    if (verified.bootstrapOwner !== 'legacy_prf') {
-      throw new Error('Add-signer ECDSA verification returned wallet custody bindings');
-    }
-    const activationCommand = await buildAddSignerCanonicalActivationCommand({
-      addSignerCeremonyId: ceremonyId,
-      activationCorrelationId,
-      publicFacts: verified.publicFacts,
-    });
-    const expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire = {
-      bytes: Array.from(base64UrlDecode(String(activationCommand.requestDigest))),
+    const custodyWire = joinCustodyWireFromEnvelopeRecord(args.custodyEnvelope);
+    if (!custodyWire.ok) throw new Error(custodyWire.reason);
+    const activation = {
+      response: null as Awaited<
+        ReturnType<typeof activateAddSignerEcdsaWithReplayReconciliation>
+      > | null,
+      journalId: null as CorrelationId | null,
     };
-    const persisted = await args.context.signingEngine.persistInitialCanonicalEcdsaActivation({
-      kind: 'persist_initial_canonical_ecdsa_activation_v1',
-      bootstrapOwner: 'legacy_prf',
-      ceremonyId,
-      planInput: {
-        authority: args.authority,
-        targetMemberships: [firstChainTarget, ...remainingChainTargets],
-        evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
-          args.started.prepare.evmFamilySigningKeySlotId,
-          'registration ECDSA signing key slot',
-        ),
-        ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(args.started.prepare.ecdsaThresholdKeyId),
-        signingRootId: parseSdkEcdsaDerivationSigningRootId(args.started.prepare.signingRootId),
-        signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion(
-          args.started.prepare.signingRootVersion,
-        ),
-        runtimePolicyScope: args.started.prepare.runtimePolicyScope,
-        clientVerifyingPublicKey33B64u: parseEcdsaClientVerifyingPublicKey33B64u(
-          verified.publicFacts.derivationClientSharePublicKey33B64u,
-        ),
-        participantIds: [
-          toParticipantId(args.started.prepare.participantIds[0]),
-          toParticipantId(args.started.prepare.participantIds[1]),
-        ],
-        relayerKeyId: parseEcdsaRelayerKeyId(args.started.prepare.relayerKeyId),
-        bindingDigest: parseEcdsaRoleLocalBindingDigest(verified.publicFacts.contextBinding32B64u),
-        journalId: activationCorrelationId,
-        requestDigest: activationCommand.requestDigest,
-        canonicalRequest: activationCommand.canonicalRequest,
-        createdAt: parseIsoTimestamp(new Date().toISOString()),
+    const joined = await args.context.signingEngine.joinWalletCustodyEvmFamilyKeySet({
+      walletId: args.walletId,
+      custodyJson: custodyWire.custodyJson,
+      factorSecret: args.factorSecret,
+      evmFamilySigningKeySlotId: args.started.prepare.evmFamilySigningKeySlotId,
+      applicationBindingDigestB64u: verified.applicationBindingDigestB64u,
+      runRelayerRound: async (bootstrap) => {
+        const publicFacts = parseRouterAbEcdsaVerifiedClientActivationFactsV1({
+          registrationRequestDigestB64u: verified.registrationRequestDigestB64u,
+          proofTranscriptDigestB64u: verified.proofTranscriptDigestB64u,
+          contextBinding32B64u: bootstrap.contextBinding32B64u,
+          derivationClientSharePublicKey33B64u: bootstrap.clientSharePublicKey33B64u,
+          clientShareRetryCounter: bootstrap.clientShareRetryCounter,
+          participantId: 1,
+        });
+        const activationCommand = await buildAddSignerCanonicalActivationCommand({
+          addSignerCeremonyId: ceremonyId,
+          activationCorrelationId,
+          publicFacts,
+        });
+        const expectedActivationRequestDigest: RouterAbPublicDigest32V1Wire = {
+          bytes: Array.from(base64UrlDecode(String(activationCommand.requestDigest))),
+        };
+        const persisted = await args.context.signingEngine.persistInitialCanonicalEcdsaActivation({
+          kind: 'persist_initial_canonical_ecdsa_activation_v1',
+          bootstrapOwner: 'wallet_custody',
+          ceremonyId,
+          planInput: {
+            authority: args.authority,
+            targetMemberships: [firstChainTarget, ...remainingChainTargets],
+            evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
+              args.started.prepare.evmFamilySigningKeySlotId,
+              'registration ECDSA signing key slot',
+            ),
+            ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(
+              args.started.prepare.ecdsaThresholdKeyId,
+            ),
+            signingRootId: parseSdkEcdsaDerivationSigningRootId(
+              args.started.prepare.signingRootId,
+            ),
+            signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion(
+              args.started.prepare.signingRootVersion,
+            ),
+            runtimePolicyScope: args.started.prepare.runtimePolicyScope,
+            clientVerifyingPublicKey33B64u: parseEcdsaClientVerifyingPublicKey33B64u(
+              bootstrap.clientSharePublicKey33B64u,
+            ),
+            participantIds: [
+              toParticipantId(args.started.prepare.participantIds[0]),
+              toParticipantId(args.started.prepare.participantIds[1]),
+            ],
+            relayerKeyId: parseEcdsaRelayerKeyId(args.started.prepare.relayerKeyId),
+            bindingDigest: parseEcdsaRoleLocalBindingDigest(bootstrap.contextBinding32B64u),
+            journalId: activationCorrelationId,
+            requestDigest: activationCommand.requestDigest,
+            canonicalRequest: activationCommand.canonicalRequest,
+            createdAt: parseIsoTimestamp(new Date().toISOString()),
+          },
+        });
+        if (!persisted.ok) {
+          throw new Error(
+            `Canonical ECDSA activation persistence failed (${persisted.code}): ${persisted.message}`,
+          );
+        }
+        activation.journalId = persisted.journalId;
+        activation.response = await measureStrictEcdsaCeremonyStep({
+          registrationTiming: args.registrationTiming,
+          bucket: 'ecdsaRegistrationGatewayActivateMs',
+          operation: activateAddSignerEcdsaWithReplayReconciliation.bind(undefined, {
+            relayerUrl: args.relayerUrl,
+            walletId: args.walletId,
+            addSignerCeremonyId: ceremonyId,
+            activationCorrelationId,
+            publicFacts,
+            expectedActivationRequestDigest,
+          }),
+        });
+        const identity = activation.response.ecdsa.activation.ecdsa_activation.public_identity;
+        return JSON.stringify({
+          relayerKeyId: args.started.prepare.relayerKeyId,
+          relayerPublicKey33B64u: identity.server_public_key33_b64u,
+          groupPublicKey33B64u: identity.threshold_public_key33_b64u,
+          ethereumAddress: ethereumAddressFromAddress20B64u(identity.ethereum_address20_b64u),
+          relayerShareRetryCounter: identity.server_share_retry_counter,
+        });
       },
     });
-    if (!persisted.ok) {
-      throw new Error(
-        `Canonical ECDSA activation persistence failed (${persisted.code}): ${persisted.message}`,
-      );
+    if (!activation.response || !activation.journalId) {
+      throw new Error('Add-signer ECDSA custody join did not activate');
     }
-    const activated = await measureStrictEcdsaCeremonyStep({
-      registrationTiming: args.registrationTiming,
-      bucket: 'ecdsaRegistrationGatewayActivateMs',
-      operation: activateAddSignerEcdsaWithReplayReconciliation.bind(undefined, {
-        relayerUrl: args.relayerUrl,
-        walletId: args.walletId,
-        addSignerCeremonyId: ceremonyId,
-        activationCorrelationId,
-        publicFacts: verified.publicFacts,
-        expectedActivationRequestDigest,
-      }),
-    });
+    const activated = activation.response;
+    const journalId = activation.journalId;
+    const clientRootPublicKey33B64u = joined.commitPayload.clientRootPublicKey33B64u;
+    if (!clientRootPublicKey33B64u) {
+      throw new Error('Add-signer ECDSA custody join returned no client root public key');
+    }
     const clientBootstrap = buildStrictRegistrationClientBootstrap({
       prepare: args.started.prepare,
-      verified: verified.clientBootstrap,
+      verified: joined.clientBootstrap,
     });
     const bootstrap = parseWalletRegistrationEcdsaDerivationRespond({
       clientBootstrap,
@@ -436,8 +505,14 @@ export async function runStrictEcdsaFamilyCeremony(args: {
       clientBootstrap,
       bootstrap,
       activatedThresholdSessionId: activated.ecdsa.bootstrap.thresholdSessionId,
-      journalId: persisted.journalId,
+      journalId,
       activationReceipt: activated.ecdsa.activation,
+      custodyKeySet: {
+        kind: 'evm_family_ecdsa_v1',
+        keyManifestDigestB64u: joined.commitPayload.keyManifestDigestB64u,
+        clientRootPublicKey33B64u,
+      },
+      custodyLocalMaterial: joined.localMaterial,
     };
   } catch (error: unknown) {
     await closeStrictEcdsaRegistrationCeremony({
@@ -454,11 +529,13 @@ export async function finalizeStrictEcdsaFamilyLocalActivation(args: {
 }): Promise<Omit<RegistrationEcdsaSession, 'registrationEstablishedSession'>> {
   const finalized = await args.context.signingEngine.finalizeRouterAbEcdsaRegistrationActivation({
     kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
-    bootstrapOwner: 'legacy_prf',
+    bootstrapOwner: 'wallet_custody',
     journalId: args.pending.journalId,
     activationReceipt: args.pending.activationReceipt,
     routerAbEcdsaDerivationNormalSigning:
       args.pending.bootstrap.routerAbEcdsaDerivationNormalSigning,
+    readyStateBlobB64u: args.pending.custodyLocalMaterial.readyStateBlobB64u,
+    walletCustodyPublicFacts: args.pending.custodyLocalMaterial.publicFacts,
   });
   return {
     chainTargets: args.pending.chainTargets,

@@ -407,6 +407,20 @@ export interface WalletCustodyCeremonySurface {
     }) => Promise<string>;
   }): Promise<EstablishedWalletCustodyEvmFamilyKeySetV1>;
 
+  joinWalletCustodyEvmFamilyKeySet(args: {
+    walletId: string;
+    custodyJson: string;
+    factorSecret: ArrayBuffer;
+    evmFamilySigningKeySlotId: string;
+    applicationBindingDigestB64u: string;
+    runRelayerRound: (bootstrap: {
+      contextBinding32B64u: string;
+      clientSharePublicKey33B64u: string;
+      clientShareRetryCounter: number;
+      preActivationCommitPayload: WalletCustodyCeremonyCommitPayload;
+    }) => Promise<string>;
+  }): Promise<JoinedWalletCustodyEvmFamilyKeySetV1>;
+
   rejoinWalletCustodyEvmFamilyKeySet(args: {
     walletId: string;
     custodyJson: string;
@@ -433,6 +447,11 @@ export interface WalletCustodyCeremonySurface {
   persistWalletCustodyEd25519Material(args: {
     binding: WalletCustodyEd25519MaterialBindingV1;
     sealed: WalletCustodySealedEd25519MaterialV1;
+  }): Promise<void>;
+
+  deleteWalletCustodyEd25519Material(args: {
+    nearAccountId: string;
+    signerSlot: number;
   }): Promise<void>;
 }
 
@@ -484,6 +503,11 @@ export type RejoinedWalletCustodyEvmFamilyKeySetV1 = {
   readonly readyStateBlobB64u: string;
   readonly publicFacts: WalletCustodyEvmFamilyPublicFacts;
 };
+
+export type JoinedWalletCustodyEvmFamilyKeySetV1 = Omit<
+  EstablishedWalletCustodyEvmFamilyKeySetV1,
+  'recoveryCodes'
+>;
 
 export interface Ed25519MaterialOwnerQueueSurface {
   withExactEd25519MaterialOwner<T>(args: {

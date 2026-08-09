@@ -34,8 +34,10 @@ import {
 import type { RecoveryCodeReservationId } from '@shared/wallet-recovery/recoveryCodeReservation';
 import type { D1WalletStore } from '../../../../core/d1WalletStore';
 import {
+  projectWalletRecoveryPreparationKeyManifestV1,
   resolveWalletRecoveryKeyManifestV1,
   verifyWalletRecoveryKeyActivationsV1,
+  type WalletRecoveryPreparationKeyManifestV1,
 } from '../../../domains/passkeyCustody/walletRecoveryKeyManifest';
 
 /**
@@ -170,7 +172,10 @@ export interface RouterApiPasskeyCustodyService {
 const RECOVERY_RESERVATION_TTL_MS = 120_000;
 
 export type WalletRecoveryRoutePreparationResult =
-  | WalletRecoveryPreparationResult
+  | (Extract<WalletRecoveryPreparationResult, { readonly kind: 'prepared' }> & {
+      readonly keyManifest: WalletRecoveryPreparationKeyManifestV1;
+    })
+  | Exclude<WalletRecoveryPreparationResult, { readonly kind: 'prepared' }>
   | { readonly kind: 'manifest_unavailable'; readonly reason: string };
 
 export function createD1PasskeyCustodyRouteService(assembly: {
@@ -321,11 +326,14 @@ async function prepareRecoveryForRoute(
   });
   if (prepared.kind !== 'prepared') return prepared;
   try {
-    await resolveWalletRecoveryKeyManifestV1({
+    const manifest = await resolveWalletRecoveryKeyManifestV1({
       registry: assembly.walletStore,
       walletId,
     });
-    return prepared;
+    return {
+      ...prepared,
+      keyManifest: projectWalletRecoveryPreparationKeyManifestV1(manifest),
+    };
   } catch (error: unknown) {
     return {
       kind: 'manifest_unavailable',

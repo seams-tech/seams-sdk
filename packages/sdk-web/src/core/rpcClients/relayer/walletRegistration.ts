@@ -17,7 +17,9 @@ import type {
 } from '@shared/utils/registrationIntent';
 import { parseNearEd25519SigningKeyId, walletIdFromString } from '@shared/utils/registrationIntent';
 import {
+  parsePasskeyCustodyEnvelopeRecord,
   parseWalletCustodyRegistrationOutcome,
+  type PasskeyCustodyEnvelopeRecord,
   type WalletCustodyCeremonyCommitPayload,
   type WalletCustodyRegistrationOutcome,
 } from '@shared/passkey-custody';
@@ -905,24 +907,36 @@ export type WalletRevokeAuthMethodResponse =
       rpId?: never;
     };
 
-export type WalletAddSignerStartResponse = {
+type WalletAddSignerStartResponseBase = {
   ok: true;
   addSignerCeremonyId: string;
   intent: AddSignerIntentV1;
-} & (
-  | {
+};
+
+export type WalletAddSignerStartResponse =
+  | (WalletAddSignerStartResponseBase & {
+      readonly authorizationKind: 'webauthn_assertion';
       kind: 'near_ed25519';
       ed25519: {
         admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+        custodyEnvelope: PasskeyCustodyEnvelopeRecord;
       };
       ecdsa?: never;
-    }
-  | {
+    })
+  | (WalletAddSignerStartResponseBase & {
+      readonly authorizationKind: 'webauthn_assertion';
+      kind: 'evm_family_ecdsa';
+      ecdsa: WalletRegistrationEcdsaPreparePayload & {
+        readonly custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+      };
+      ed25519?: never;
+    })
+  | (WalletAddSignerStartResponseBase & {
+      readonly authorizationKind: 'app_session';
       kind: 'evm_family_ecdsa';
       ecdsa: WalletRegistrationEcdsaPreparePayload;
       ed25519?: never;
-    }
-);
+    });
 
 export type WalletAddSignerEcdsaRespondResponse = {
   ok: true;
@@ -1137,12 +1151,15 @@ function parseWalletAddSignerEcdsaPrepareContext(
 function parseWalletAddSignerEcdsaPrepare(
   value: unknown,
   expectedIntent: AddSignerIntentV1,
+  authorizationKind: 'webauthn_assertion' | 'app_session',
 ): WalletRegistrationEcdsaPreparePayload {
   const responseName = 'Wallet add-signer ECDSA start';
   const record = requireResponseRecord({ responseName, field: 'ecdsa', value });
   assertExactResponseKeys(
     record,
-    ['kind', 'chainTargets', 'prepare', 'strictRegistration'],
+    authorizationKind === 'webauthn_assertion'
+      ? ['kind', 'chainTargets', 'prepare', 'strictRegistration', 'custodyEnvelope']
+      : ['kind', 'chainTargets', 'prepare', 'strictRegistration'],
     responseName,
   );
   if (record.kind !== 'evm_family_ecdsa_keygen' || !Array.isArray(record.chainTargets)) {
@@ -1196,7 +1213,7 @@ export function parseWalletAddSignerStartResponse(args: {
   const record = requireResponseRecord({ responseName, field: 'body', value: args.value });
   assertExactResponseKeys(
     record,
-    ['ok', 'addSignerCeremonyId', 'intent', 'kind', 'ed25519', 'ecdsa'],
+    ['ok', 'addSignerCeremonyId', 'intent', 'authorizationKind', 'kind', 'ed25519', 'ecdsa'],
     responseName,
   );
   if (record.ok !== true) throw new Error(`${responseName} response is not successful`);
@@ -1206,9 +1223,19 @@ export function parseWalletAddSignerStartResponse(args: {
     value: record.addSignerCeremonyId,
   });
   const intent = requireExactAddSignerIntent(record.intent, args.expectedIntent);
+  if (
+    record.authorizationKind !== 'webauthn_assertion' &&
+    record.authorizationKind !== 'app_session'
+  ) {
+    throw new Error(`${responseName} response has invalid authorization kind`);
+  }
   switch (record.kind) {
     case 'near_ed25519': {
-      if (intent.signerSelection.mode !== 'ed25519' || record.ecdsa !== undefined) {
+      if (
+        record.authorizationKind !== 'webauthn_assertion' ||
+        intent.signerSelection.mode !== 'ed25519' ||
+        record.ecdsa !== undefined
+      ) {
         throw new Error(`${responseName} response substituted signer branch`);
       }
       const ed25519 = requireResponseRecord({
@@ -1216,7 +1243,7 @@ export function parseWalletAddSignerStartResponse(args: {
         field: 'ed25519',
         value: record.ed25519,
       });
-      assertExactResponseKeys(ed25519, ['admissionRequest'], responseName);
+      assertExactResponseKeys(ed25519, ['admissionRequest', 'custodyEnvelope'], responseName);
       const admission = parseRouterAbEd25519YaoRegistrationAdmissionRequestV1(
         ed25519.admissionRequest,
       );
@@ -1225,20 +1252,48 @@ export function parseWalletAddSignerStartResponse(args: {
         ok: true,
         addSignerCeremonyId,
         intent,
+        authorizationKind: 'webauthn_assertion',
         kind: 'near_ed25519',
-        ed25519: { admissionRequest: admission.value },
+        ed25519: {
+          admissionRequest: admission.value,
+          custodyEnvelope: parsePasskeyCustodyEnvelopeRecord(ed25519.custodyEnvelope),
+        },
       };
     }
     case 'evm_family_ecdsa':
       if (intent.signerSelection.mode !== 'ecdsa' || record.ed25519 !== undefined) {
         throw new Error(`${responseName} response substituted signer branch`);
       }
+      const ecdsa = parseWalletAddSignerEcdsaPrepare(
+        record.ecdsa,
+        intent,
+        record.authorizationKind,
+      );
+      if (record.authorizationKind === 'app_session') {
+        return {
+          ok: true,
+          addSignerCeremonyId,
+          intent,
+          authorizationKind: 'app_session',
+          kind: 'evm_family_ecdsa',
+          ecdsa,
+        };
+      }
+      const ecdsaRecord = requireResponseRecord({
+        responseName,
+        field: 'ecdsa',
+        value: record.ecdsa,
+      });
       return {
         ok: true,
         addSignerCeremonyId,
         intent,
+        authorizationKind: 'webauthn_assertion',
         kind: 'evm_family_ecdsa',
-        ecdsa: parseWalletAddSignerEcdsaPrepare(record.ecdsa, intent),
+        ecdsa: {
+          ...ecdsa,
+          custodyEnvelope: parsePasskeyCustodyEnvelopeRecord(ecdsaRecord.custodyEnvelope),
+        },
       };
     default:
       throw new Error(`${responseName} response has invalid kind`);
@@ -3679,12 +3734,22 @@ export type FinalizeWalletAddSignerArgs = {
       ed25519: {
         activationReference: WalletRegistrationEd25519YaoActivationReference;
       };
+      custodyKeySet: {
+        readonly kind: 'near_ed25519_v1';
+        readonly keyManifestDigestB64u: string;
+        readonly registeredPublicKeyB64u: string;
+      };
       ecdsa?: never;
     }
   | {
       kind: 'evm_family_ecdsa';
       ecdsa: {
         expectedKeyHandles?: string[];
+      };
+      custodyKeySet: {
+        readonly kind: 'evm_family_ecdsa_v1';
+        readonly keyManifestDigestB64u: string;
+        readonly clientRootPublicKey33B64u: string;
       };
       ed25519?: never;
     }
@@ -3698,6 +3763,7 @@ function addSignerFinalizeBody(args: FinalizeWalletAddSignerArgs): unknown {
         idempotencyKey: args.idempotencyKey,
         kind: args.kind,
         ed25519: args.ed25519,
+        custodyKeySet: args.custodyKeySet,
       };
     case 'evm_family_ecdsa':
       return {
@@ -3705,6 +3771,7 @@ function addSignerFinalizeBody(args: FinalizeWalletAddSignerArgs): unknown {
         idempotencyKey: args.idempotencyKey,
         kind: args.kind,
         ecdsa: args.ecdsa,
+        custodyKeySet: args.custodyKeySet,
       };
   }
 }

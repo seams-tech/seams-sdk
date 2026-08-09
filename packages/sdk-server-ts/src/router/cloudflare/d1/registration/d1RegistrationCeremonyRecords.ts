@@ -1,5 +1,9 @@
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
-import { derivationClientSharePublicKey33B64uFromString } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import {
+  ecdsaClientRootPublicKey33B64uFromString,
+  derivationClientSharePublicKey33B64uFromString,
+  type EcdsaClientRootPublicKey33B64u,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
 import {
   addAuthMethodIntentGrantFromString,
@@ -1458,14 +1462,34 @@ export function parseD1WalletAddSignerFinalizeRequest(
   const idempotencyKey = toOptionalTrimmedString(record?.idempotencyKey);
   if (!record || !addSignerCeremonyId || !idempotencyKey) return null;
   if (record.kind === 'near_ed25519') {
+    const custodyKeySet = toRecordValue(record.custodyKeySet);
     const activationReference = toRecordValue(record.activationReference);
     const lifecycleId = toOptionalTrimmedString(activationReference?.lifecycleId);
     const sessionId = parseD1Bytes32(activationReference?.sessionId);
-    if (!lifecycleId || !sessionId) return null;
+    if (
+      custodyKeySet?.kind !== 'near_ed25519_v1' ||
+      !lifecycleId ||
+      !sessionId
+    ) return null;
+    let keyManifestDigestB64u;
+    try {
+      keyManifestDigestB64u = parseDigestB64u(custodyKeySet.keyManifestDigestB64u);
+    } catch {
+      return null;
+    }
+    const registeredPublicKeyB64u = toOptionalTrimmedString(
+      custodyKeySet.registeredPublicKeyB64u,
+    );
+    if (!registeredPublicKeyB64u) return null;
     return {
       kind: 'near_ed25519',
       addSignerCeremonyId,
       idempotencyKey,
+      custodyKeySet: {
+        kind: 'near_ed25519_v1',
+        keyManifestDigestB64u,
+        registeredPublicKeyB64u,
+      },
       activationReference: { lifecycleId, sessionId },
     };
   }
@@ -1477,11 +1501,27 @@ export function parseD1WalletAddSignerFinalizeRequest(
     return null;
   }
   const expectedKeyHandle = toOptionalTrimmedString(record.expectedKeyHandles[0]);
-  if (!expectedKeyHandle) return null;
+  const custodyKeySet = toRecordValue(record.custodyKeySet);
+  if (!expectedKeyHandle || custodyKeySet?.kind !== 'evm_family_ecdsa_v1') return null;
+  let keyManifestDigestB64u;
+  let clientRootPublicKey33B64u;
+  try {
+    keyManifestDigestB64u = parseDigestB64u(custodyKeySet.keyManifestDigestB64u);
+    clientRootPublicKey33B64u = ecdsaClientRootPublicKey33B64uFromString(
+      String(custodyKeySet.clientRootPublicKey33B64u ?? ''),
+    );
+  } catch {
+    return null;
+  }
   return {
     kind: 'evm_family_ecdsa',
     addSignerCeremonyId,
     idempotencyKey,
+    custodyKeySet: {
+      kind: 'evm_family_ecdsa_v1',
+      keyManifestDigestB64u,
+      clientRootPublicKey33B64u,
+    },
     expectedKeyHandles: [expectedKeyHandle],
   };
 }
@@ -2252,6 +2292,8 @@ export function buildD1WalletEcdsaSignerRecords(input: {
   readonly walletKeys: readonly WalletRegistrationEcdsaWalletKey[];
   readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
   readonly runtimePolicyScope: RuntimePolicyScope;
+  readonly custodyKeyManifestDigestB64u: string;
+  readonly custodyClientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u;
   readonly now: number;
 }): WalletEcdsaSignerRecord[] {
   const records: WalletEcdsaSignerRecord[] = [];
@@ -2262,6 +2304,8 @@ export function buildD1WalletEcdsaSignerRecords(input: {
         walletKey,
         activationReceipt: input.activationReceipt,
         runtimePolicyScope: input.runtimePolicyScope,
+        custodyKeyManifestDigestB64u: input.custodyKeyManifestDigestB64u,
+        custodyClientRootPublicKey33B64u: input.custodyClientRootPublicKey33B64u,
         createdAtMs: input.now,
         updatedAtMs: input.now,
       }),

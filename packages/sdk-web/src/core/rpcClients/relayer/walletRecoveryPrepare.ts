@@ -19,6 +19,12 @@ import {
 } from '@shared/wallet-recovery';
 import type { DigestB64u } from '@shared/utils';
 import { parseWalletId } from '@shared/utils/domainIds';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import {
+  ecdsaClientRootPublicKey33B64uFromString,
+  type EcdsaClientRootPublicKey33B64u,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import { requireEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 
 /**
  * Preparing an admitted wallet recovery.
@@ -39,6 +45,35 @@ import { parseWalletId } from '@shared/utils/domainIds';
 
 const WALLET_RECOVERY_PREPARE_PATH = '/wallets/recovery/prepare';
 
+export type WalletRecoveryPreparationKeyManifestEntry =
+  | {
+      readonly kind: 'near_ed25519';
+      readonly keySetId: `near_ed25519:${string}`;
+      readonly signerId: string;
+      readonly nearAccountId: string;
+      readonly nearEd25519SigningKeyId: string;
+      readonly signerSlot: number;
+      readonly registeredPublicKeyB64u: string;
+      readonly recordedKeyManifestDigestB64u: DigestB64u;
+      readonly activeCapabilityBinding: readonly number[];
+    }
+  | {
+      readonly kind: 'evm_family_ecdsa';
+      readonly keySetId: `evm_family_ecdsa:${string}`;
+      readonly keyHandle: string;
+      readonly evmFamilySigningKeySlotId: string;
+      readonly recordedKeyManifestDigestB64u: DigestB64u;
+      readonly clientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u;
+      readonly applicationBindingDigestB64u: DigestB64u;
+      readonly chainTargetKeys: readonly string[];
+    };
+
+export type WalletRecoveryPreparationKeyManifest = {
+  readonly version: 'wallet_recovery_preparation_key_manifest_v1';
+  readonly walletId: string;
+  readonly entries: readonly WalletRecoveryPreparationKeyManifestEntry[];
+};
+
 export type WalletRecoveryPrepareResult =
   | {
       readonly kind: 'prepared';
@@ -48,6 +83,7 @@ export type WalletRecoveryPrepareResult =
         readonly aadHashB64u: DigestB64u;
       };
       readonly entries: readonly [WalletRecoveryEnvelopeEntry];
+      readonly keyManifest: WalletRecoveryPreparationKeyManifest;
       readonly reservationId: string;
       readonly reservationExpiresAtMs: number;
       readonly storeVersion: string;
@@ -131,6 +167,10 @@ export async function prepareWalletRecovery(args: {
     try {
       const wrap = parsePreparedRecoveryWrap(body.wrap);
       const entries = parsePreparedRecoveryEntries(body.entries);
+      const keyManifest = parseWalletRecoveryPreparationKeyManifest(
+        body.keyManifest,
+        args.walletId,
+      );
       const reservationId = requireResponseString(body.reservationId, 'reservationId');
       const reservationExpiresAtMs = parseUnixMs(
         body.reservationExpiresAtMs,
@@ -144,6 +184,7 @@ export async function prepareWalletRecovery(args: {
         kind: 'prepared',
         wrap,
         entries,
+        keyManifest,
         reservationId,
         reservationExpiresAtMs,
         storeVersion,
@@ -203,4 +244,181 @@ function requireResponseString(raw: unknown, field: string): string {
     throw new Error(`walletRecoveryPrepare.${field} must be a non-empty string`);
   }
   return raw.trim();
+}
+
+function parseWalletRecoveryPreparationKeyManifest(
+  raw: unknown,
+  expectedWalletId: string,
+): WalletRecoveryPreparationKeyManifest {
+  const manifest = requireRecord(raw, 'walletRecoveryPrepare.keyManifest');
+  rejectUnknownFields(
+    manifest,
+    ['version', 'walletId', 'entries'],
+    'walletRecoveryPrepare.keyManifest',
+  );
+  if (manifest.version !== 'wallet_recovery_preparation_key_manifest_v1') {
+    throw new Error('walletRecoveryPrepare.keyManifest version is invalid');
+  }
+  const walletId = requireResponseString(manifest.walletId, 'keyManifest.walletId');
+  if (walletId !== expectedWalletId) {
+    throw new Error('walletRecoveryPrepare.keyManifest changed the wallet identity');
+  }
+  if (!Array.isArray(manifest.entries) || manifest.entries.length === 0) {
+    throw new Error('walletRecoveryPrepare.keyManifest must contain a key set');
+  }
+  const entries = manifest.entries.map(parseWalletRecoveryPreparationKeyManifestEntry);
+  const keySetIds = new Set(entries.map((entry) => entry.keySetId));
+  if (keySetIds.size !== entries.length) {
+    throw new Error('walletRecoveryPrepare.keyManifest contains duplicate key sets');
+  }
+  return {
+    version: 'wallet_recovery_preparation_key_manifest_v1',
+    walletId,
+    entries,
+  };
+}
+
+function parseWalletRecoveryPreparationKeyManifestEntry(
+  raw: unknown,
+): WalletRecoveryPreparationKeyManifestEntry {
+  const entry = requireRecord(raw, 'walletRecoveryPrepare.keyManifest.entries[]');
+  switch (entry.kind) {
+    case 'near_ed25519': {
+      rejectUnknownFields(
+        entry,
+        [
+          'kind',
+          'keySetId',
+          'signerId',
+          'nearAccountId',
+          'nearEd25519SigningKeyId',
+          'signerSlot',
+          'registeredPublicKeyB64u',
+          'recordedKeyManifestDigestB64u',
+          'activeCapabilityBinding',
+        ],
+        'walletRecoveryPrepare.keyManifest.entries[].near_ed25519',
+      );
+      const signerId = requireResponseString(entry.signerId, 'keyManifest.entries[].signerId');
+      const suppliedKeySetId = requireResponseString(
+        entry.keySetId,
+        'keyManifest.entries[].keySetId',
+      );
+      const keySetId = `near_ed25519:${signerId}` as const;
+      if (suppliedKeySetId !== keySetId) {
+        throw new Error('walletRecoveryPrepare NEAR key-set identity is inconsistent');
+      }
+      const signerSlot = Number(entry.signerSlot);
+      if (!Number.isSafeInteger(signerSlot) || signerSlot <= 0) {
+        throw new Error('walletRecoveryPrepare NEAR signer slot is invalid');
+      }
+      return {
+        kind: 'near_ed25519',
+        keySetId,
+        signerId,
+        nearAccountId: requireResponseString(
+          entry.nearAccountId,
+          'keyManifest.entries[].nearAccountId',
+        ),
+        nearEd25519SigningKeyId: requireResponseString(
+          entry.nearEd25519SigningKeyId,
+          'keyManifest.entries[].nearEd25519SigningKeyId',
+        ),
+        signerSlot,
+        registeredPublicKeyB64u: requireCanonicalBytesB64u(
+          entry.registeredPublicKeyB64u,
+          32,
+          'registered public key',
+        ),
+        recordedKeyManifestDigestB64u: parseDigestField(
+          entry.recordedKeyManifestDigestB64u,
+          'walletRecoveryPrepare.keyManifest.entries[].recordedKeyManifestDigestB64u',
+        ),
+        activeCapabilityBinding: requireByteArray(
+          entry.activeCapabilityBinding,
+          32,
+          'active capability binding',
+        ),
+      };
+    }
+    case 'evm_family_ecdsa': {
+      rejectUnknownFields(
+        entry,
+        [
+          'kind',
+          'keySetId',
+          'keyHandle',
+          'evmFamilySigningKeySlotId',
+          'recordedKeyManifestDigestB64u',
+          'clientRootPublicKey33B64u',
+          'applicationBindingDigestB64u',
+          'chainTargetKeys',
+        ],
+        'walletRecoveryPrepare.keyManifest.entries[].evm_family_ecdsa',
+      );
+      const keyHandle = requireResponseString(entry.keyHandle, 'keyManifest.entries[].keyHandle');
+      const suppliedKeySetId = requireResponseString(
+        entry.keySetId,
+        'keyManifest.entries[].keySetId',
+      );
+      const keySetId = `evm_family_ecdsa:${keyHandle}` as const;
+      if (suppliedKeySetId !== keySetId) {
+        throw new Error('walletRecoveryPrepare ECDSA key-set identity is inconsistent');
+      }
+      if (!Array.isArray(entry.chainTargetKeys) || entry.chainTargetKeys.length === 0) {
+        throw new Error('walletRecoveryPrepare ECDSA key set has no chain targets');
+      }
+      return {
+        kind: 'evm_family_ecdsa',
+        keySetId,
+        keyHandle,
+        evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
+          entry.evmFamilySigningKeySlotId,
+        ),
+        recordedKeyManifestDigestB64u: parseDigestField(
+          entry.recordedKeyManifestDigestB64u,
+          'walletRecoveryPrepare.keyManifest.entries[].recordedKeyManifestDigestB64u',
+        ),
+        clientRootPublicKey33B64u: ecdsaClientRootPublicKey33B64uFromString(
+          requireResponseString(
+            entry.clientRootPublicKey33B64u,
+            'keyManifest.entries[].clientRootPublicKey33B64u',
+          ),
+        ),
+        applicationBindingDigestB64u: parseDigestField(
+          entry.applicationBindingDigestB64u,
+          'walletRecoveryPrepare.keyManifest.entries[].applicationBindingDigestB64u',
+        ),
+        chainTargetKeys: entry.chainTargetKeys.map((value) =>
+          requireResponseString(value, 'keyManifest.entries[].chainTargetKeys[]'),
+        ),
+      };
+    }
+    default:
+      throw new Error('walletRecoveryPrepare key-manifest entry kind is invalid');
+  }
+}
+
+function requireCanonicalBytesB64u(
+  raw: unknown,
+  length: number,
+  label: string,
+): string {
+  const value = requireResponseString(raw, label);
+  const bytes = base64UrlDecode(value);
+  if (bytes.length !== length || base64UrlEncode(bytes) !== value) {
+    throw new Error(`walletRecoveryPrepare ${label} is invalid`);
+  }
+  return value;
+}
+
+function requireByteArray(raw: unknown, length: number, label: string): readonly number[] {
+  if (
+    !Array.isArray(raw) ||
+    raw.length !== length ||
+    raw.some((value) => !Number.isInteger(value) || value < 0 || value > 255)
+  ) {
+    throw new Error(`walletRecoveryPrepare ${label} is invalid`);
+  }
+  return raw.map(Number);
 }
