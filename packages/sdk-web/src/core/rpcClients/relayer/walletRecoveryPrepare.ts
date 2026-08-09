@@ -45,6 +45,10 @@ import {
   type WebAuthnCredentialIdB64u,
   type WebAuthnRpId,
 } from '@shared/utils/domainIds';
+import {
+  parseWalletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
   PASSKEY_PRF_FIRST_SALT_V1,
@@ -52,8 +56,15 @@ import {
 } from '@shared/utils/signingSessionSeal';
 import {
   ecdsaClientRootPublicKey33B64uFromString,
+  parseSdkEcdsaDerivationSigningRootId,
+  parseSdkEcdsaDerivationSigningRootVersion,
+  parseSdkEcdsaDerivationThresholdKeyId,
   type EcdsaClientRootPublicKey33B64u,
+  type EcdsaThresholdKeyId,
+  type SigningRootId,
+  type SigningRootVersion,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import type { ThresholdEcdsaChainTarget } from '@/core/platform/types';
 import { requireEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 
 /**
@@ -91,7 +102,6 @@ export type WalletRecoveryPreparationKeyManifestEntry =
       readonly evmFamilySigningKeySlotId: string;
       readonly recordedKeyManifestDigestB64u: DigestB64u;
       readonly recoveryBasis: WalletRecoveryPreparationEcdsaRecoveryBasis;
-      readonly chainTargetKeys: readonly string[];
     };
 
 export type WalletRecoveryPreparationNearRecoveryBasis = {
@@ -110,6 +120,13 @@ export type WalletRecoveryPreparationNearRecoveryBasis = {
 export type WalletRecoveryPreparationEcdsaRecoveryBasis = {
   readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   readonly serverGeneration: EcdsaServerGeneration;
+  readonly clientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u;
+  readonly chainTargets: readonly [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]];
+  readonly ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  readonly signingRootId: SigningRootId;
+  readonly signingRootVersion: SigningRootVersion;
+  readonly runtimePolicyScope: RuntimePolicyScope;
+  readonly participantIds: readonly [1, 2];
 };
 
 export type WalletCustodyUnlockKeyManifestEntry =
@@ -195,6 +212,7 @@ export type WalletRecoveryPrepareResult =
       readonly entries: readonly [WalletRecoveryEnvelopeEntry];
       readonly keyManifest: WalletRecoveryPreparationKeyManifest;
       readonly registration: WalletRecoveryRegistrationOptions;
+      readonly authorityRef: WalletAuthAuthorityRef;
       readonly reservationId: string;
       readonly reservationExpiresAtMs: number;
       readonly storeVersion: string;
@@ -294,6 +312,10 @@ export async function prepareWalletRecovery(args: {
         'walletRecoveryPrepare.reservationExpiresAtMs',
       );
       const storeVersion = requireResponseString(body.storeVersion, 'storeVersion');
+      const authorityRef = parseWalletAuthAuthorityRef(body.authorityRef);
+      if (!authorityRef || String(authorityRef.walletId) !== args.walletId) {
+        throw new Error('wallet recovery preparation returned an invalid authority reference');
+      }
       if (reservationId !== args.reservationId) {
         throw new Error('wallet recovery preparation changed the reservation identity');
       }
@@ -303,6 +325,7 @@ export async function prepareWalletRecovery(args: {
         entries,
         keyManifest,
         registration,
+        authorityRef,
         reservationId,
         reservationExpiresAtMs,
         storeVersion,
@@ -834,7 +857,6 @@ function parseWalletRecoveryPreparationKeyManifestEntry(
           'evmFamilySigningKeySlotId',
           'recordedKeyManifestDigestB64u',
           'recoveryBasis',
-          'chainTargetKeys',
         ],
         'walletRecoveryPrepare.keyManifest.entries[].evm_family_ecdsa',
       );
@@ -847,11 +869,9 @@ function parseWalletRecoveryPreparationKeyManifestEntry(
       if (suppliedKeySetId !== keySetId) {
         throw new Error('walletRecoveryPrepare ECDSA key-set identity is inconsistent');
       }
-      if (!Array.isArray(entry.chainTargetKeys) || entry.chainTargetKeys.length === 0) {
-        throw new Error('walletRecoveryPrepare ECDSA key set has no chain targets');
-      }
       const recoveryBasis = parseWalletRecoveryPreparationEcdsaRecoveryBasis(
         entry.recoveryBasis,
+        expectedWalletId,
       );
       return {
         kind: 'evm_family_ecdsa',
@@ -865,9 +885,6 @@ function parseWalletRecoveryPreparationKeyManifestEntry(
           'walletRecoveryPrepare.keyManifest.entries[].recordedKeyManifestDigestB64u',
         ),
         recoveryBasis,
-        chainTargetKeys: entry.chainTargetKeys.map((value) =>
-          requireResponseString(value, 'keyManifest.entries[].chainTargetKeys[]'),
-        ),
       };
     }
     default:
@@ -953,19 +970,127 @@ function parseWalletRecoveryPreparationNearRecoveryBasis(
 
 function parseWalletRecoveryPreparationEcdsaRecoveryBasis(
   raw: unknown,
+  expectedWalletId: string,
 ): WalletRecoveryPreparationEcdsaRecoveryBasis {
   const basis = requireRecord(raw, 'walletRecoveryPrepare.keyManifest.entries[].recoveryBasis');
   rejectUnknownFields(
     basis,
-    ['publicCapability', 'serverGeneration'],
+    [
+      'publicCapability',
+      'serverGeneration',
+      'clientRootPublicKey33B64u',
+      'chainTargets',
+      'ecdsaThresholdKeyId',
+      'signingRootId',
+      'signingRootVersion',
+      'runtimePolicyScope',
+      'participantIds',
+    ],
     'walletRecoveryPrepare.keyManifest.entries[].recoveryBasis',
   );
+  const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(
+    basis.publicCapability,
+  );
+  if (publicCapability.client_id !== expectedWalletId) {
+    throw new Error('walletRecoveryPrepare ECDSA recovery capability changed the wallet scope');
+  }
+  const signingRootId = parseSdkEcdsaDerivationSigningRootId(basis.signingRootId);
+  const signingRootVersion = parseSdkEcdsaDerivationSigningRootVersion(
+    basis.signingRootVersion,
+  );
+  const runtimePolicyScope = parseWalletRecoveryRuntimePolicyScope(basis.runtimePolicyScope);
+  if (runtimePolicyScope.signingRootVersion !== signingRootVersion) {
+    throw new Error('walletRecoveryPrepare ECDSA recovery scope changed the signing root');
+  }
   return {
-    publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(
-      basis.publicCapability,
-    ),
+    publicCapability,
     serverGeneration: parseEcdsaServerGeneration(basis.serverGeneration),
+    clientRootPublicKey33B64u: ecdsaClientRootPublicKey33B64uFromString(
+      requireResponseString(
+        basis.clientRootPublicKey33B64u,
+        'keyManifest.entries[].recoveryBasis.clientRootPublicKey33B64u',
+      ),
+    ),
+    chainTargets: parseWalletRecoveryEcdsaChainTargets(basis.chainTargets),
+    ecdsaThresholdKeyId: parseSdkEcdsaDerivationThresholdKeyId(basis.ecdsaThresholdKeyId),
+    signingRootId,
+    signingRootVersion,
+    runtimePolicyScope,
+    participantIds: parseWalletRecoveryEcdsaParticipantIds(basis.participantIds),
   };
+}
+
+function parseWalletRecoveryEcdsaChainTargets(
+  raw: unknown,
+): readonly [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new Error('walletRecoveryPrepare ECDSA recovery chain targets are invalid');
+  }
+  const targets = raw.map((value, index) =>
+    parseWalletRecoveryEcdsaChainTarget(value, index),
+  );
+  const keys = new Set(targets.map(walletRecoveryEcdsaChainTargetKey));
+  if (keys.size !== targets.length) {
+    throw new Error('walletRecoveryPrepare ECDSA recovery chain targets are duplicated');
+  }
+  const first = targets[0];
+  if (!first) {
+    throw new Error('walletRecoveryPrepare ECDSA recovery chain targets are invalid');
+  }
+  return [first, ...targets.slice(1)];
+}
+
+function parseWalletRecoveryEcdsaChainTarget(
+  raw: unknown,
+  index: number,
+): ThresholdEcdsaChainTarget {
+  const target = requireRecord(
+    raw,
+    `walletRecoveryPrepare.keyManifest.entries[].recoveryBasis.chainTargets[${index}]`,
+  );
+  rejectUnknownFields(
+    target,
+    ['kind', 'namespace', 'chainId', 'networkSlug'],
+    `walletRecoveryPrepare ECDSA recovery chain target ${index}`,
+  );
+  const chainId = Number(target.chainId);
+  if (!Number.isSafeInteger(chainId) || chainId <= 0) {
+    throw new Error('walletRecoveryPrepare ECDSA recovery chain id is invalid');
+  }
+  const networkSlug =
+    typeof target.networkSlug === 'string' && target.networkSlug.trim()
+      ? target.networkSlug.trim()
+      : null;
+  if (target.kind === 'evm') {
+    if (target.namespace !== 'eip155') {
+      throw new Error('walletRecoveryPrepare ECDSA recovery EVM namespace is invalid');
+    }
+    return {
+      kind: 'evm',
+      namespace: 'eip155',
+      chainId,
+      networkSlug: networkSlug ?? `evm-${chainId}`,
+    };
+  }
+  if (target.kind === 'tempo') {
+    return {
+      kind: 'tempo',
+      chainId,
+      networkSlug: networkSlug ?? `tempo-${chainId}`,
+    };
+  }
+  throw new Error('walletRecoveryPrepare ECDSA recovery chain family is invalid');
+}
+
+function walletRecoveryEcdsaChainTargetKey(target: ThresholdEcdsaChainTarget): string {
+  return target.kind === 'evm' ? `evm:eip155:${target.chainId}` : `tempo:${target.chainId}`;
+}
+
+function parseWalletRecoveryEcdsaParticipantIds(raw: unknown): readonly [1, 2] {
+  if (!Array.isArray(raw) || raw.length !== 2 || raw[0] !== 1 || raw[1] !== 2) {
+    throw new Error('walletRecoveryPrepare ECDSA recovery participant IDs are invalid');
+  }
+  return [1, 2];
 }
 
 function parseWalletRecoveryNearLifecycleScope(

@@ -133,6 +133,7 @@ export async function handleWalletRecoveryPrepare(
     walletId,
     recoveryCodeBytes,
     reservationId,
+    authorityRef: authorization.context.authorityRef,
   });
 
   switch (result.kind) {
@@ -145,6 +146,7 @@ export async function handleWalletRecoveryPrepare(
           entries: result.entries,
           keyManifest: result.keyManifest,
           registration: result.registration,
+          authorityRef: result.authorityRef,
           reservationId: result.reservationId,
           reservationExpiresAtMs: result.reservationExpiresAtMs,
           storeVersion: result.storeVersion,
