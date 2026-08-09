@@ -2,6 +2,7 @@ import type {
   CloudflareD1PasskeyCustodyEnvelopeStore,
   PasskeyCustodyEnvelopeFactorLookupResult,
   WalletCustodyFactorRef,
+  WalletCredentialActivityProjection,
 } from './d1PasskeyCustodyEnvelopeStore';
 import {
   handlePasskeyCustodyEnvelopeRetrieval,
@@ -16,7 +17,12 @@ import {
   prepareWalletRecoveryWithCodeV1,
   type WalletRecoveryPreparationResult,
 } from '../../../domains/passkeyCustody/walletRecoveryAttempt';
-import { parseWalletId, parseWebAuthnRpId, type WalletId } from '@shared/utils/domainIds';
+import {
+  parsePasskeyEnvelopeId,
+  parseWalletId,
+  parseWebAuthnRpId,
+  type WalletId,
+} from '@shared/utils/domainIds';
 import {
   parseWalletAuthAuthorityRef,
   type WalletAuthAuthorityRef,
@@ -119,6 +125,22 @@ export interface RouterApiPasskeyCustodyService {
   retrieveEnvelope(
     request: PasskeyCustodyEnvelopeRetrievalWireRequest,
   ): Promise<PasskeyCustodyEnvelopeRetrievalRouteResponse>;
+
+  listWalletCredentials(request: {
+    readonly walletId: WalletId;
+  }): Promise<readonly WalletCredentialActivityProjection[]>;
+
+  renameWalletCredential(request: {
+    readonly walletId: WalletId;
+    readonly envelopeId: string;
+    readonly label?: string;
+  }): Promise<
+    | { readonly kind: 'updated'; readonly projection: WalletCredentialActivityProjection }
+    | { readonly kind: 'missing' }
+    | { readonly kind: 'conflict' }
+    | { readonly kind: 'invalid_label'; readonly reason: string }
+    | { readonly kind: 'invalid_envelope_id' }
+  >;
 
   /** Holds one code after Refactor 90 admits fresh Email OTP evidence. */
   prepareRecovery(request: {
@@ -260,6 +282,15 @@ export function createD1PasskeyCustodyRouteService(assembly: {
           registry: assembly.walletStore,
           walletId: request.walletId,
         });
+        if (request.factor.kind === 'passkey') {
+          await assembly.passkeyCustodyEnvelopes
+            .recordWalletCredentialUse({
+              walletId: request.walletId,
+              envelopeId: envelope.envelope.envelopeId,
+              usedAtMs: (assembly.nowMs ?? Date.now)(),
+            })
+            .catch(() => undefined);
+        }
         return {
           ...envelope,
           keyManifest: projectWalletUnlockKeyManifestV1(manifest),
@@ -273,6 +304,20 @@ export function createD1PasskeyCustodyRouteService(assembly: {
               : 'wallet custody key manifest is unavailable',
         };
       }
+    },
+    listWalletCredentials: async (request) =>
+      await assembly.passkeyCustodyEnvelopes.listWalletCredentialActivity(request.walletId),
+
+    renameWalletCredential: async (request) => {
+      const envelopeId = parsePasskeyEnvelopeId(request.envelopeId);
+      if (!envelopeId.ok) return { kind: 'invalid_envelope_id' };
+      const label = request.label === undefined ? undefined : String(request.label);
+      return await assembly.passkeyCustodyEnvelopes.renameWalletCredential({
+        walletId: request.walletId,
+        envelopeId: envelopeId.value,
+        ...(label === undefined ? {} : { label }),
+        nowMs: (assembly.nowMs ?? Date.now)(),
+      });
     },
     retrieveEnvelope: async (request) => {
       const challengeId = String(request.challengeId || '').trim();
@@ -302,7 +347,7 @@ export function createD1PasskeyCustodyRouteService(assembly: {
         };
       }
 
-      return handlePasskeyCustodyEnvelopeRetrieval({
+      const response = await handlePasskeyCustodyEnvelopeRetrieval({
         request: {
           locator: request.locator,
           /* From the issued challenge, never the request body. This is what
@@ -318,6 +363,16 @@ export function createD1PasskeyCustodyRouteService(assembly: {
         authenticatorStore,
         logger: assembly.logger,
       });
+      if (response.status === 200 && request.locator.factor.kind === 'passkey') {
+        await assembly.passkeyCustodyEnvelopes
+          .recordWalletCredentialUse({
+            walletId: request.locator.walletId,
+            envelopeId: request.locator.envelopeId,
+            usedAtMs: (assembly.nowMs ?? Date.now)(),
+          })
+          .catch(() => undefined);
+      }
+      return response;
     },
 
     prepareRecovery: prepareRecoveryForRoute.bind(undefined, assembly),

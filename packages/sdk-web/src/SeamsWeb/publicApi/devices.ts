@@ -8,6 +8,8 @@ import type { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinato
 export type DevicesCapabilityDomainMethods = {
   viewAccessKeyList: DevicesCapability['viewAccessKeyList'];
   deleteDeviceKey: DevicesCapability['deleteDeviceKey'];
+  listWalletCredentials: DevicesCapability['listWalletCredentials'];
+  renameWalletCredential: DevicesCapability['renameWalletCredential'];
 };
 
 export function createDevicesCapability(deps: {
@@ -27,5 +29,7 @@ export function createDevicesCapability(deps: {
       await deviceLinking.linkDeviceWithScannedQRData(qrData, options),
     viewAccessKeyList: deps.domain.viewAccessKeyList,
     deleteDeviceKey: deps.domain.deleteDeviceKey,
+    listWalletCredentials: deps.domain.listWalletCredentials,
+    renameWalletCredential: deps.domain.renameWalletCredential,
   } satisfies DevicesCapability;
 }

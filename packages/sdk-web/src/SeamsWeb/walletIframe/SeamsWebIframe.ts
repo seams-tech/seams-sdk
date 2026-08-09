@@ -570,6 +570,14 @@ export class SeamsWebIframe {
           },
         });
       },
+      listWalletCredentials: async (args) => {
+        await this.requireRouterReady();
+        return await this.router.listWalletCredentials({ walletId: args.walletId });
+      },
+      renameWalletCredential: async (args) => {
+        await this.requireRouterReady();
+        return await this.router.renameWalletCredential(args);
+      },
       viewAccessKeyList: async (args) => await this.viewAccessKeyListDomain(args),
       deleteDeviceKey: async (args) => await this.deleteDeviceKeyDomain(args),
     };

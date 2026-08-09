@@ -107,6 +107,10 @@ import type {
   TempoSignerCapability,
 } from '@/SeamsWeb/signingSurface/types';
 import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
+import {
+  listWalletCredentialActivity,
+  renameWalletCredential,
+} from '@/core/rpcClients/relayer/walletCredentialActivity';
 import type { UiConfirmSurfaceMeasurementBinding } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type {
   EnrollEmailOtpInternalResult,
@@ -801,6 +805,8 @@ export class SeamsWeb {
       devices: {
         viewAccessKeyList: async (args) => await this.viewAccessKeyListDomain(args),
         deleteDeviceKey: async (args) => await this.deleteDeviceKeyDomain(args),
+        listWalletCredentials: async (args) => await this.listWalletCredentialsDomain(args),
+        renameWalletCredential: async (args) => await this.renameWalletCredentialDomain(args),
       },
       keys: {
         resolveExactKeyExportLane: async (input) =>
@@ -1042,6 +1048,36 @@ export class SeamsWeb {
       });
     }
     return this.nearClient.viewAccessKeyList(accountId);
+  }
+
+  private async listWalletCredentialsDomain(args: {
+    readonly walletId: string;
+  }): Promise<Awaited<ReturnType<typeof listWalletCredentialActivity>>> {
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(args.walletId);
+      return await router.listWalletCredentials({ walletId: args.walletId });
+    }
+    return await listWalletCredentialActivity({
+      relayUrl: this.configs.network.relayer.url,
+      walletId: args.walletId,
+    });
+  }
+
+  private async renameWalletCredentialDomain(args: {
+    readonly walletId: string;
+    readonly envelopeId: string;
+    readonly label?: string;
+  }): Promise<Awaited<ReturnType<typeof renameWalletCredential>>> {
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(args.walletId);
+      return await router.renameWalletCredential(args);
+    }
+    return await renameWalletCredential({
+      relayUrl: this.configs.network.relayer.url,
+      walletId: args.walletId,
+      envelopeId: args.envelopeId,
+      ...(args.label === undefined ? {} : { label: args.label }),
+    });
   }
 
   private emitWalletIframeTransportTimingSummary(input: {

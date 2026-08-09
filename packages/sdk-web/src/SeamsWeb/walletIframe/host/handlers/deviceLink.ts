@@ -96,5 +96,21 @@ export function createDeviceLinkWalletIframeHandlers(deps: HandlerDeps): Handler
       if (deps.respondIfCancelled(req.requestId)) return;
       respondOkResult(deps, req.requestId, result);
     },
+
+    PM_LIST_WALLET_CREDENTIALS: async (req: Req<'PM_LIST_WALLET_CREDENTIALS'>) => {
+      const pm = deps.getSeamsWeb();
+      const result = await pm.devices.listWalletCredentials({ walletId: req.payload.walletId });
+      respondOkResult(deps, req.requestId, result);
+    },
+
+    PM_RENAME_WALLET_CREDENTIAL: async (req: Req<'PM_RENAME_WALLET_CREDENTIAL'>) => {
+      const pm = deps.getSeamsWeb();
+      const result = await pm.devices.renameWalletCredential({
+        walletId: req.payload.walletId,
+        envelopeId: req.payload.envelopeId,
+        ...(req.payload.label === undefined ? {} : { label: req.payload.label }),
+      });
+      respondOkResult(deps, req.requestId, result);
+    },
   };
 }

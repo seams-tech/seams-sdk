@@ -21,7 +21,8 @@ export type PasskeyDeviceEnvelopeIndexRecord = {
   custodySecretKind: PasskeyCustodySecretKind;
   factor: WalletCustodyEnvelopeFactor;
   envelopeId: PasskeyEnvelopeId;
-  deviceLabel: string;
+  /** Absent until the owner chooses a name for this credential. */
+  deviceLabel?: string;
   lifecycle: PasskeyCustodyEnvelopeLifecycle;
   walletKeyId?: WalletKeyId;
   laneId?: SigningLaneId;

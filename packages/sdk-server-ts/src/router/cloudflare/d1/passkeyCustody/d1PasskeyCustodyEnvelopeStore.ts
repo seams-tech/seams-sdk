@@ -2,8 +2,13 @@ import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
 import {
   parsePasskeyCustodyEnvelopeRecord,
+  type PasskeyDeviceEnvelopeIndexRecord,
   type PasskeyCustodyEnvelopeRecord,
 } from '@shared/passkey-custody';
+import {
+  parseWalletCredentialActivityRecordV1,
+  type WalletCredentialActivityRecordV1,
+} from '@shared/passkey-custody/credentialActivity';
 import type {
   PasskeyEnvelopeId,
   WalletId,
@@ -41,6 +46,7 @@ import {
  */
 
 export const PASSKEY_ENVELOPE_KEY_PREFIX = 'passkey-envelope';
+const PASSKEY_CREDENTIAL_ACTIVITY_KEY_PREFIX = 'passkey-credential-activity';
 
 export type CloudflareD1PasskeyCustodyEnvelopeStoreOptions = {
   readonly database: D1DatabaseLike;
@@ -156,6 +162,17 @@ export type PasskeyCustodyEnvelopePutResult =
   | { readonly kind: 'not_found' }
   | { readonly kind: 'terminal_lifecycle'; readonly state: 'revoked' };
 
+export type WalletCredentialActivityProjection = {
+  readonly index: PasskeyDeviceEnvelopeIndexRecord;
+  readonly activity: WalletCredentialActivityRecordV1;
+};
+
+export type WalletCredentialActivityMutationResult =
+  | { readonly kind: 'updated'; readonly projection: WalletCredentialActivityProjection }
+  | { readonly kind: 'missing' }
+  | { readonly kind: 'conflict' }
+  | { readonly kind: 'invalid_label'; readonly reason: string };
+
 function encodeEnvelope(envelope: PasskeyCustodyEnvelopeRecord): VersionedJsonObject {
   // The record is already a plain JSON-safe object; round-tripping it through
   // the parser on read is what enforces the schema, not this encoder.
@@ -168,6 +185,16 @@ function parseEnvelopeOrNull(raw: unknown): PasskeyCustodyEnvelopeRecord | null 
   } catch {
     return null;
   }
+}
+
+function parseActivityRecordOrNull(raw: unknown): WalletCredentialActivityRecordV1 | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
+  const walletId = (raw as Record<string, unknown>).walletId;
+  if (typeof walletId !== 'string' || !walletId.trim()) return null;
+  const parsed = parseWalletCredentialActivityRecordV1(raw, {
+    expectedWalletId: walletId,
+  });
+  return parsed.ok ? parsed.record : null;
 }
 
 async function ciphertextDigestB64u(sealedCustodySecretB64u: string): Promise<string> {
@@ -204,6 +231,7 @@ export function passkeyCustodyEnvelopeLocatorOf(
 
 export class CloudflareD1PasskeyCustodyEnvelopeStore {
   private readonly records: CloudflareD1VersionedJsonRecordStore<PasskeyCustodyEnvelopeRecord>;
+  private readonly activityRecords: CloudflareD1VersionedJsonRecordStore<WalletCredentialActivityRecordV1>;
 
   constructor(options: CloudflareD1PasskeyCustodyEnvelopeStoreOptions) {
     this.records = new CloudflareD1VersionedJsonRecordStore<PasskeyCustodyEnvelopeRecord>({
@@ -212,6 +240,13 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
       encode: encodeEnvelope,
       parse: parseEnvelopeOrNull,
       keyPrefix: PASSKEY_ENVELOPE_KEY_PREFIX,
+    });
+    this.activityRecords = new CloudflareD1VersionedJsonRecordStore<WalletCredentialActivityRecordV1>({
+      database: options.database,
+      scope: options.scope,
+      encode: (value) => value as unknown as VersionedJsonObject,
+      parse: parseActivityRecordOrNull,
+      keyPrefix: PASSKEY_CREDENTIAL_ACTIVITY_KEY_PREFIX,
     });
   }
 
@@ -333,6 +368,120 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
       envelopes.push(entry.result.value);
     }
     return envelopes;
+  }
+
+  /** Returns the public credential-management view; activity never enters envelope AAD. */
+  async listWalletCredentialActivity(
+    walletId: WalletId,
+  ): Promise<readonly WalletCredentialActivityProjection[]> {
+    const envelopes = (await this.listWalletEnvelopes(walletId)).filter(
+      (envelope) => envelope.factor.kind === 'passkey',
+    );
+    const projections: WalletCredentialActivityProjection[] = [];
+    for (const envelope of envelopes) {
+      const activity = await this.readActivity(walletId, envelope);
+      projections.push({
+        index: credentialEnvelopeIndex(envelope, activity),
+        activity,
+      });
+    }
+    return projections;
+  }
+
+  async renameWalletCredential(input: {
+    readonly walletId: WalletId;
+    readonly envelopeId: PasskeyEnvelopeId;
+    readonly label?: string;
+    readonly nowMs: number;
+  }): Promise<WalletCredentialActivityMutationResult> {
+    const envelope = await this.findPasskeyEnvelope(input.walletId, input.envelopeId);
+    if (!envelope) return { kind: 'missing' };
+    return await this.mutateActivity(envelope, (record) => {
+      const next = {
+        ...record,
+        ...(input.label === undefined ? { label: undefined } : { label: input.label }),
+        updatedAtMs: input.nowMs,
+      };
+      const parsed = parseWalletCredentialActivityRecordV1(next, {
+        expectedWalletId: String(input.walletId),
+      });
+      return parsed.ok ? parsed.record : parsed;
+    });
+  }
+
+  /** Called only after a passkey assertion has successfully opened custody. */
+  async recordWalletCredentialUse(input: {
+    readonly walletId: WalletId;
+    readonly envelopeId: PasskeyEnvelopeId;
+    readonly usedAtMs: number;
+  }): Promise<WalletCredentialActivityMutationResult> {
+    const envelope = await this.findPasskeyEnvelope(input.walletId, input.envelopeId);
+    if (!envelope) return { kind: 'missing' };
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const result = await this.mutateActivity(envelope, (record) => {
+        const lastUsedAtMs = Math.max(input.usedAtMs, record.lastUsedAtMs ?? 0);
+        return {
+          ...record,
+          lastUsedAtMs,
+          useCount: record.useCount + 1,
+          updatedAtMs: Math.max(input.usedAtMs, record.updatedAtMs),
+        };
+      });
+      if (result.kind !== 'conflict') return result;
+    }
+    return { kind: 'conflict' };
+  }
+
+  private async findPasskeyEnvelope(
+    walletId: WalletId,
+    envelopeId: PasskeyEnvelopeId,
+  ): Promise<PasskeyCustodyEnvelopeRecord | null> {
+    const envelopes = await this.listWalletEnvelopes(walletId);
+    return (
+      envelopes.find(
+        (envelope) =>
+          envelope.factor.kind === 'passkey' && String(envelope.envelopeId) === String(envelopeId),
+      ) ?? null
+    );
+  }
+
+  private async readActivity(
+    walletId: WalletId,
+    envelope: PasskeyCustodyEnvelopeRecord,
+  ): Promise<WalletCredentialActivityRecordV1> {
+    const read = await this.activityRecords.read(activityRecordKey(walletId, envelope.envelopeId));
+    if (read.kind === 'present') return read.value;
+    return initialActivityRecord(walletId, envelope);
+  }
+
+  private async mutateActivity(
+    envelope: PasskeyCustodyEnvelopeRecord,
+    mutate: (
+      record: WalletCredentialActivityRecordV1,
+    ) => WalletCredentialActivityRecordV1 | { readonly ok: false; readonly reason: string },
+  ): Promise<WalletCredentialActivityMutationResult> {
+    const walletId = envelope.walletId;
+    const key = activityRecordKey(walletId, envelope.envelopeId);
+    const current = await this.activityRecords.read(key);
+    const base =
+      current.kind === 'present' ? current.value : initialActivityRecord(walletId, envelope);
+    const next = mutate(base);
+    if ('ok' in next && next.ok === false) {
+      return { kind: 'invalid_label', reason: next.reason };
+    }
+    const stored = await this.activityRecords.put(
+      key,
+      next,
+      current.kind === 'present' ? current.version : null,
+    );
+    if (stored.kind === 'version_mismatch') return { kind: 'conflict' };
+    return {
+      kind: 'updated',
+      projection: {
+        index: credentialEnvelopeIndex(envelope, next),
+        activity: next,
+      },
+    };
   }
 
   async lookupEnvelopeForFactor(input: {
@@ -474,5 +623,45 @@ function envelopeLocator(envelope: PasskeyCustodyEnvelopeRecord): PasskeyCustody
     walletId: envelope.walletId,
     factor: envelopeFactorRef(envelope),
     envelopeId: envelope.envelopeId,
+  };
+}
+
+function activityRecordKey(walletId: WalletId, envelopeId: PasskeyEnvelopeId): string {
+  return JSON.stringify([String(walletId), String(envelopeId)]);
+}
+
+function initialActivityRecord(
+  walletId: WalletId,
+  envelope: PasskeyCustodyEnvelopeRecord,
+): WalletCredentialActivityRecordV1 {
+  const createdAtMs = Math.max(1, Number(envelope.createdAtMs));
+  const updatedAtMs = Math.max(createdAtMs, Number(envelope.updatedAtMs));
+  return {
+    kind: 'wallet_credential_activity_v1',
+    walletId: String(walletId),
+    envelopeId: String(envelope.envelopeId),
+    createdAtMs,
+    updatedAtMs,
+    useCount: 0,
+  };
+}
+
+function credentialEnvelopeIndex(
+  envelope: PasskeyCustodyEnvelopeRecord,
+  activity: WalletCredentialActivityRecordV1,
+): PasskeyDeviceEnvelopeIndexRecord {
+  if (envelope.factor.kind !== 'passkey') {
+    throw new Error('credential envelope index requires a passkey factor');
+  }
+  return {
+    kind: 'wallet_custody_envelope_index_v2',
+    walletId: envelope.walletId,
+    custodySecretKind: envelope.binding.kind,
+    factor: envelope.factor,
+    envelopeId: envelope.envelopeId,
+    ...(activity.label === undefined ? {} : { deviceLabel: activity.label }),
+    lifecycle: envelope.lifecycle,
+    createdAtMs: envelope.createdAtMs,
+    updatedAtMs: Math.max(envelope.updatedAtMs, activity.updatedAtMs),
   };
 }

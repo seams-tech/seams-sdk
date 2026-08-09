@@ -175,6 +175,10 @@ import type {
   StoreWalletEmailOtpEcdsaRegistrationInput,
 } from '@/core/signingEngine/flows/registration/accountLifecycle';
 import type { HydrateWarmSigningSessionInput } from '@/core/signingEngine/session/passkey/warmSessionHydration';
+import type {
+  WalletCredentialActivityListResult,
+  WalletCredentialRenameResult,
+} from '@/core/rpcClients/relayer/walletCredentialActivity';
 
 type PublicThresholdEcdsaSessionKeyRef = Omit<
   ThresholdEcdsaSessionBootstrapResult['thresholdEcdsaKeyRef'],
@@ -979,6 +983,16 @@ export interface DevicesCapability {
     publicKeyToDelete: string;
     options: ActionHooksOptions;
   }): Promise<ActionResult>;
+
+  listWalletCredentials(args: {
+    walletId: string;
+  }): Promise<WalletCredentialActivityListResult>;
+
+  renameWalletCredential(args: {
+    walletId: string;
+    envelopeId: string;
+    label?: string;
+  }): Promise<WalletCredentialRenameResult>;
 }
 
 export type KeyExportUiOptions = SigningEngineExportKeypairWithUIInput['options'];
