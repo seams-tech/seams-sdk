@@ -11,6 +11,8 @@ import {
   positiveInteger,
   toRecordValue,
 } from '../auth/d1RouterApiAuthBoundary';
+import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import type { ThresholdRuntimePolicyScope } from '../../../../core/types';
 
 export type D1AuthenticatorRow = {
   readonly credential_id_b64u?: unknown;
@@ -40,6 +42,7 @@ export type WebAuthnCredentialBindingRecord = {
   readonly clientParticipantId?: number;
   readonly relayerParticipantId?: number;
   readonly participantIds?: number[];
+  readonly runtimePolicyScope?: ThresholdRuntimePolicyScope;
   readonly createdAtMs?: number;
   readonly updatedAtMs?: number;
 };
@@ -113,6 +116,19 @@ export type WebAuthnSyncChallengeRecord = {
   readonly expiresAtMs: number;
 };
 
+/** A one-shot passkey replacement ceremony bound to a wallet recovery hold. */
+export type WebAuthnRecoveryRegistrationChallengeRecord = {
+  version: 'webauthn_recovery_registration_challenge_v1';
+  challengeId: string;
+  walletId: string;
+  reservationId: string;
+  replacementId: string;
+  rpId: string;
+  challengeB64u: string;
+  createdAtMs: number;
+  expiresAtMs: number;
+};
+
 export function parseWebAuthnLoginChallengeRecord(
   input: unknown,
 ): WebAuthnLoginChallengeRecord | null {
@@ -165,6 +181,38 @@ export function parseWebAuthnSyncChallengeRecord(
   };
 }
 
+export function parseWebAuthnRecoveryRegistrationChallengeRecord(
+  input: unknown,
+): WebAuthnRecoveryRegistrationChallengeRecord | null {
+  const record = parseJsonRecord(input);
+  if (!record) return null;
+  const version = toOptionalTrimmedString(record.version);
+  const challengeId = toOptionalTrimmedString(record.challengeId);
+  const walletId = toOptionalTrimmedString(record.walletId);
+  const reservationId = toOptionalTrimmedString(record.reservationId);
+  const replacementId = toOptionalTrimmedString(record.replacementId);
+  const rpId = toOptionalTrimmedString(record.rpId);
+  const challengeB64u = toOptionalTrimmedString(record.challengeB64u);
+  const createdAtMs = positiveInteger(record.createdAtMs);
+  const expiresAtMs = positiveInteger(record.expiresAtMs);
+  if (version !== 'webauthn_recovery_registration_challenge_v1') return null;
+  if (!challengeId || !walletId || !reservationId || !replacementId || !rpId || !challengeB64u) {
+    return null;
+  }
+  if (createdAtMs === null || expiresAtMs === null || expiresAtMs <= createdAtMs) return null;
+  return {
+    version: 'webauthn_recovery_registration_challenge_v1',
+    challengeId,
+    walletId,
+    reservationId,
+    replacementId,
+    rpId,
+    challengeB64u,
+    createdAtMs,
+    expiresAtMs,
+  };
+}
+
 export function parseWebAuthnAuthenticator(
   row: D1AuthenticatorRow | null,
 ): WebAuthnAuthenticatorRecord | null {
@@ -205,6 +253,16 @@ export function parseWebAuthnBinding(
   const clientParticipantId = optionalNonNegativeInteger(record.clientParticipantId);
   const relayerParticipantId = optionalNonNegativeInteger(record.relayerParticipantId);
   const participantIds = optionalNumberArray(record.participantIds);
+  const runtimePolicyScope =
+    record.runtimePolicyScope && typeof record.runtimePolicyScope === 'object'
+      ? (() => {
+          try {
+            return normalizeRuntimePolicyScope(record.runtimePolicyScope) satisfies ThresholdRuntimePolicyScope;
+          } catch {
+            return undefined;
+          }
+        })()
+      : undefined;
   const createdAtMs = optionalNonNegativeInteger(record.createdAtMs);
   const updatedAtMs = optionalNonNegativeInteger(record.updatedAtMs);
   return {
@@ -223,6 +281,7 @@ export function parseWebAuthnBinding(
     ...(clientParticipantId !== undefined ? { clientParticipantId } : {}),
     ...(relayerParticipantId !== undefined ? { relayerParticipantId } : {}),
     ...(participantIds ? { participantIds } : {}),
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(createdAtMs !== undefined ? { createdAtMs } : {}),
     ...(updatedAtMs !== undefined ? { updatedAtMs } : {}),
   };

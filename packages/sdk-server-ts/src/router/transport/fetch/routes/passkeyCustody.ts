@@ -144,6 +144,7 @@ export async function handleWalletRecoveryPrepare(
           wrap: result.wrap,
           entries: result.entries,
           keyManifest: result.keyManifest,
+          registration: result.registration,
           reservationId: result.reservationId,
           reservationExpiresAtMs: result.reservationExpiresAtMs,
           storeVersion: result.storeVersion,
@@ -168,6 +169,15 @@ export async function handleWalletRecoveryPrepare(
         body: {
           ok: false,
           code: 'recovery_manifest_unavailable',
+          message: result.reason,
+        },
+      });
+    case 'registration_unavailable':
+      return toFetchRouteResponse({
+        status: 409,
+        body: {
+          ok: false,
+          code: 'recovery_registration_unavailable',
           message: result.reason,
         },
       });
@@ -268,11 +278,30 @@ export async function handleWalletRecoveryFinalize(
       body: {
         ok: false,
         code: 'invalid_request',
-        message: 'recovery finalization needs a wallet, operation id, and replacement envelope',
+        message:
+          'recovery finalization needs a wallet, operation id, registration, and replacement envelope',
       },
     });
   }
-  const { walletId, reservationId, replacementEnvelope } = requestBody;
+  const {
+    walletId,
+    reservationId,
+    challengeId,
+    replacementId,
+    webauthnRegistration,
+    replacementEnvelope,
+  } = requestBody;
+  const expectedOrigin = trimmed(ctx.request.headers.get('origin'));
+  if (!expectedOrigin) {
+    return toFetchRouteResponse({
+      status: 400,
+      body: {
+        ok: false,
+        code: 'invalid_origin',
+        message: 'recovery finalization requires the request Origin header',
+      },
+    });
+  }
 
   const authorization = await resolveWalletRecoveryAuthorizationContext({
     headers: Object.fromEntries(ctx.request.headers.entries()),
@@ -301,6 +330,10 @@ export async function handleWalletRecoveryFinalize(
   const result = await ctx.service.passkeyCustody.finalizeRecovery({
     walletId,
     reservationId,
+    challengeId,
+    replacementId,
+    webauthnRegistration,
+    expectedOrigin,
     replacementEnvelope,
   });
 
@@ -335,12 +368,20 @@ export async function handleWalletRecoveryFinalize(
         status: 400,
         body: { ok: false, code: 'envelope_rejected', message: result.reason },
       });
+    case 'registration_rejected':
+      return toFetchRouteResponse({
+        status: 400,
+        body: { ok: false, code: 'registration_rejected', message: result.reason },
+      });
   }
 }
 
 type WalletRecoveryFinalizeBody = {
   readonly walletId: WalletId;
   readonly reservationId: ReturnType<typeof parseRecoveryCodeReservationId>;
+  readonly challengeId: string;
+  readonly replacementId: string;
+  readonly webauthnRegistration: Record<string, unknown>;
   readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
 };
 
@@ -349,9 +390,15 @@ function parseWalletRecoveryFinalizeBody(value: unknown): WalletRecoveryFinalize
   requireExactFinalizeFields(value);
   const walletId = parseWalletId(value.walletId);
   if (!walletId.ok) throw new Error('wallet recovery finalization wallet is invalid');
+  const challengeId = requireNonEmptyString(value.challengeId, 'challengeId');
+  const replacementId = requireNonEmptyString(value.replacementId, 'replacementId');
+  const webauthnRegistration = requireObject(value.webauthnRegistration, 'webauthnRegistration');
   return {
     walletId: walletId.value,
     reservationId: parseRecoveryCodeReservationId(value.reservationId),
+    challengeId,
+    replacementId,
+    webauthnRegistration,
     replacementEnvelope: parsePasskeyCustodyEnvelopeRecord(
       value.replacementEnvelope,
       'walletRecoveryFinalize.replacementEnvelope',
@@ -360,7 +407,14 @@ function parseWalletRecoveryFinalizeBody(value: unknown): WalletRecoveryFinalize
 }
 
 function requireExactFinalizeFields(value: Record<string, unknown>): void {
-  const allowed = new Set(['walletId', 'reservationId', 'replacementEnvelope']);
+  const allowed = new Set([
+    'walletId',
+    'reservationId',
+    'challengeId',
+    'replacementId',
+    'webauthnRegistration',
+    'replacementEnvelope',
+  ]);
   for (const field of Object.keys(value)) {
     if (!allowed.has(field)) {
       throw new Error(`wallet recovery finalization.${field} is not allowed`);
@@ -369,6 +423,18 @@ function requireExactFinalizeFields(value: Record<string, unknown>): void {
   if (!allowedKeysArePresent(value, allowed)) {
     throw new Error('wallet recovery finalization is missing a required field');
   }
+}
+
+function requireNonEmptyString(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`wallet recovery finalization.${field} is required`);
+  }
+  return value.trim();
+}
+
+function requireObject(value: unknown, field: string): Record<string, unknown> {
+  if (!isObject(value)) throw new Error(`wallet recovery finalization.${field} must be an object`);
+  return value;
 }
 
 function allowedKeysArePresent(

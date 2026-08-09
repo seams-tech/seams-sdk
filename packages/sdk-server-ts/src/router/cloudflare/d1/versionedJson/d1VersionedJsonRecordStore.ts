@@ -256,12 +256,26 @@ export class CloudflareD1VersionedJsonRecordStore<T> {
   async putMany(
     mutations: readonly CloudflareD1VersionedJsonRecordMutationV1<T>[],
   ): Promise<CloudflareD1VersionedJsonRecordBatchPutResultV1> {
+    return await this.putManyWithAdditionalStatements(mutations, []);
+  }
+
+  /**
+   * Applies versioned-record mutations and caller-owned D1 statements in the
+   * same transaction. The additional statements are used only where a domain
+   * commit spans this JSON store and a normalized table (for example, a
+   * recovery envelope plus its WebAuthn authenticator and binding).
+   */
+  async putManyWithAdditionalStatements(
+    mutations: readonly CloudflareD1VersionedJsonRecordMutationV1<T>[],
+    additionalStatements: readonly D1PreparedStatementLike[],
+  ): Promise<CloudflareD1VersionedJsonRecordBatchPutResultV1> {
     const prepared = this.prepareBatchMutations(mutations);
     const statements: D1PreparedStatementLike[] = [];
     for (const mutation of prepared) {
       statements.push(this.prepareMutationStatement(mutation));
       statements.push(this.database.prepare(CAS_GUARD_SQL));
     }
+    statements.push(...additionalStatements);
     try {
       const results = await this.database.batch<D1ResultLike>(statements);
       assertBatchSucceeded(results, statements.length);

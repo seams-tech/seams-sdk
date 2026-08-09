@@ -3,17 +3,19 @@ import type { D1DatabaseLike, D1PreparedStatementLike } from '../../../../storag
 import {
   parseWebAuthnAuthenticator,
   parseWebAuthnBinding,
+  parseWebAuthnRecoveryRegistrationChallengeRecord,
   parseWebAuthnLoginChallengeRecord,
   parseWebAuthnSyncChallengeRecord,
   type D1AuthenticatorRow,
   type D1RecordJsonRow,
   type WebAuthnAuthenticatorRecord,
   type WebAuthnCredentialBindingRecord,
+  type WebAuthnRecoveryRegistrationChallengeRecord,
   type WebAuthnLoginChallengeRecord,
   type WebAuthnSyncChallengeRecord,
 } from './d1WebAuthnRecords';
 
-type WebAuthnChallengeKind = 'login' | 'sync';
+type WebAuthnChallengeKind = 'login' | 'sync' | 'recovery_registration';
 
 export type D1WebAuthnStoreScope = {
   readonly namespace: string;
@@ -67,6 +69,47 @@ export function prepareD1WebAuthnAuthenticatorPutStatement(input: {
     );
 }
 
+/** Insert-only variant used by recovery promotion. A credential collision must
+ * abort the surrounding envelope/code transaction instead of reassigning an
+ * existing authenticator's public key. */
+export function prepareD1WebAuthnAuthenticatorInsertStatement(input: {
+  readonly database: D1DatabaseLike;
+  readonly scope: D1WebAuthnStoreScope;
+  readonly userId: string;
+  readonly record: WebAuthnAuthenticatorRecord;
+}): D1PreparedStatementLike {
+  return input.database
+    .prepare(
+      `INSERT INTO webauthn_authenticators (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        user_id,
+        credential_id_b64u,
+        credential_public_key_b64u,
+        counter,
+        created_at_ms,
+        updated_at_ms,
+        device_info_json
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.scope.namespace,
+      input.scope.orgId,
+      input.scope.projectId,
+      input.scope.envId,
+      input.userId,
+      input.record.credentialIdB64u,
+      input.record.credentialPublicKeyB64u,
+      input.record.counter,
+      input.record.createdAtMs,
+      input.record.updatedAtMs,
+      JSON.stringify(input.record.deviceInfo),
+    );
+}
+
 export class CloudflareD1WebAuthnStore {
   private readonly database: D1DatabaseLike;
   private readonly namespace: string;
@@ -91,7 +134,10 @@ export class CloudflareD1WebAuthnStore {
   async writeChallenge(input: {
     readonly challengeId: string;
     readonly challengeKind: WebAuthnChallengeKind;
-    readonly record: WebAuthnLoginChallengeRecord | WebAuthnSyncChallengeRecord;
+    readonly record:
+      | WebAuthnLoginChallengeRecord
+      | WebAuthnSyncChallengeRecord
+      | WebAuthnRecoveryRegistrationChallengeRecord;
     readonly createdAtMs: number;
     readonly expiresAtMs: number;
   }): Promise<void> {
@@ -138,6 +184,42 @@ export class CloudflareD1WebAuthnStore {
       challengeKind: 'sync',
     });
     return parseWebAuthnSyncChallengeRecord(row?.record_json);
+  }
+
+  async readRecoveryRegistrationChallenge(
+    challengeId: string,
+  ): Promise<WebAuthnRecoveryRegistrationChallengeRecord | null> {
+    const row = await this.prepare(
+      `SELECT record_json
+         FROM webauthn_challenges
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND challenge_id = ?
+          AND challenge_kind = 'recovery_registration'
+          AND expires_at_ms > ?
+        LIMIT 1`,
+      [challengeId, Date.now()],
+    ).first<D1RecordJsonRow>();
+    return parseWebAuthnRecoveryRegistrationChallengeRecord(row?.record_json);
+  }
+
+  /** Delete is paired with a CAS guard in the recovery commit batch. */
+  prepareRecoveryRegistrationChallengeDeleteStatement(
+    challengeId: string,
+  ): D1PreparedStatementLike {
+    return this.prepare(
+      `DELETE FROM webauthn_challenges
+        WHERE namespace = ?
+          AND org_id = ?
+          AND project_id = ?
+          AND env_id = ?
+          AND challenge_id = ?
+          AND challenge_kind = 'recovery_registration'
+          AND expires_at_ms > ?`,
+      [challengeId, Date.now()],
+    );
   }
 
   async readAuthenticator(input: {

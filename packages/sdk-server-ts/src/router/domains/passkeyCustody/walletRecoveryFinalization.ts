@@ -1,6 +1,13 @@
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
+import { unknownWebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import type { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 import type { CloudflareD1WalletCustodyCommitStore } from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
+import type { WalletRecoveryAuthenticatorCommit } from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
+import type { CloudflareD1WebAuthnStore } from '../../cloudflare/d1/webauthn/d1WebAuthnStore';
+import { verifyWebAuthnRegistrationCredentialForIntent } from '../../../core/authService/webauthn';
+import type { WebAuthnCredentialBindingRecord } from '../../../core/WebAuthnCredentialBindingStore';
+import type { D1PreparedStatementLike } from '../../../storage/tenantRoute';
 import {
   consumeReservedRecoveryCode,
   type RecoveryCodeReservationId,
@@ -42,7 +49,8 @@ export type WalletRecoveryFinalizationResult =
     }
   | { readonly kind: 'refused'; readonly reason: string }
   | { readonly kind: 'conflict'; readonly reason: string }
-  | { readonly kind: 'envelope_rejected'; readonly reason: string };
+  | { readonly kind: 'envelope_rejected'; readonly reason: string }
+  | { readonly kind: 'registration_rejected'; readonly reason: string };
 
 export async function finalizeRecoveredWalletCredentialV1(input: {
   readonly envelopeStore: CloudflareD1PasskeyCustodyEnvelopeStore;
@@ -51,6 +59,11 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
   readonly reservationId: RecoveryCodeReservationId;
   /** Sealed under the newly enrolled credential, by the client. */
   readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
+  readonly challengeId: string;
+  readonly replacementId: string;
+  readonly webauthnRegistration: unknown;
+  readonly expectedOrigin: string;
+  readonly webAuthnStore: CloudflareD1WebAuthnStore;
   readonly activationVerification: Extract<
     WalletRecoveryActivationVerification,
     { readonly kind: 'verified' }
@@ -69,6 +82,95 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
       reason: 'the replacement envelope names a different wallet',
     };
   }
+  if (
+    input.replacementEnvelope.factor.kind !== 'passkey' ||
+    String(input.replacementEnvelope.envelopeId) !== input.replacementId
+  ) {
+    return {
+      kind: 'envelope_rejected',
+      reason: 'the replacement envelope is not bound to the recovery replacement',
+    };
+  }
+
+  const challenge = await input.webAuthnStore.readRecoveryRegistrationChallenge(
+    input.challengeId,
+  );
+  if (!challenge) {
+    return {
+      kind: 'registration_rejected',
+      reason: 'the replacement registration challenge is unknown, expired, or already used',
+    };
+  }
+  if (
+    challenge.walletId !== String(input.walletId) ||
+    challenge.reservationId !== String(input.reservationId) ||
+    challenge.replacementId !== input.replacementId ||
+    challenge.expiresAtMs <= input.nowMs
+  ) {
+    return {
+      kind: 'registration_rejected',
+      reason: 'the replacement registration challenge is bound to another recovery',
+    };
+  }
+  const parsedRpId = parseWebAuthnRpId(challenge.rpId);
+  if (!parsedRpId.ok) {
+    return { kind: 'registration_rejected', reason: 'the replacement registration rpId is invalid' };
+  }
+  const verifiedRegistration = await verifyWebAuthnRegistrationCredentialForIntent({
+    webauthnRegistration: input.webauthnRegistration,
+    expectedChallenge: challenge.challengeB64u,
+    expectedOrigin: input.expectedOrigin,
+    rpId: parsedRpId.value,
+  });
+  if (!verifiedRegistration.ok) {
+    return { kind: 'registration_rejected', reason: verifiedRegistration.message };
+  }
+  if (
+    input.replacementEnvelope.factor.rpId !== parsedRpId.value ||
+    input.replacementEnvelope.factor.credentialIdB64u !==
+      verifiedRegistration.credential.credentialIdB64u
+  ) {
+    return {
+      kind: 'envelope_rejected',
+      reason: 'the replacement envelope is bound to a different credential',
+    };
+  }
+
+  const existingAuthenticator = await input.webAuthnStore.readAuthenticator({
+    userId: String(input.walletId),
+    credentialIdB64u: verifiedRegistration.credential.credentialIdB64u,
+  });
+  const existingBinding = await input.webAuthnStore.readBindingByCredential({
+    rpId: parsedRpId.value,
+    credentialIdB64u: verifiedRegistration.credential.credentialIdB64u,
+  });
+  if (existingAuthenticator || existingBinding) {
+    return {
+      kind: 'registration_rejected',
+      reason: 'the replacement credential is already registered',
+    };
+  }
+  const sourceBindings = await input.webAuthnStore.readBindingRows({
+    userId: String(input.walletId),
+    rpId: parsedRpId.value,
+  });
+  const sourceBinding = sourceBindings[0];
+  if (!sourceBinding) {
+    return {
+      kind: 'registration_rejected',
+      reason: 'the wallet has no existing credential binding to replace',
+    };
+  }
+  const authenticatorCommit = buildRecoveryAuthenticatorCommit({
+    sourceBinding,
+    userId: String(input.walletId),
+    rpId: parsedRpId.value,
+    credential: verifiedRegistration.credential,
+    nowMs: input.nowMs,
+    challengeDeleteStatement: input.webAuthnStore.prepareRecoveryRegistrationChallengeDeleteStatement(
+      input.challengeId,
+    ),
+  });
 
   const storedRecoverySet = await input.walletCustodyCommits.readRecoveryEnvelopeSet(
     input.walletId as WalletId,
@@ -128,6 +230,7 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
     expectedRecoverySetVersion: storedRecoverySet.storeVersion,
     replacementEnvelope: input.replacementEnvelope,
     reservationId: input.reservationId,
+    authenticatorCommit,
   });
   if (committed.kind === 'conflict') {
     return { kind: 'conflict', reason: 'the recovery state changed during finalization' };
@@ -166,5 +269,87 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
     storeVersion: committed.envelopeStoreVersion,
     retiredEnvelopeIds,
     ...(retireFailures.length > 0 ? { retireFailures } : {}),
+  };
+}
+
+function buildRecoveryAuthenticatorCommit(input: {
+  readonly sourceBinding: {
+    readonly rpId: string;
+    readonly credentialIdB64u: string;
+    readonly userId: string;
+    readonly nearAccountId?: string;
+    readonly nearEd25519SigningKeyId?: string;
+    readonly signerSlot?: number;
+    readonly publicKey?: string;
+    readonly relayerKeyId?: string;
+    readonly keyVersion?: string;
+    readonly recoveryExportCapable?: boolean;
+    readonly clientParticipantId?: number;
+    readonly relayerParticipantId?: number;
+    readonly participantIds?: number[];
+    readonly runtimePolicyScope?: WebAuthnCredentialBindingRecord['runtimePolicyScope'];
+  };
+  readonly userId: string;
+  readonly rpId: WebAuthnRpId;
+  readonly credential: {
+    readonly credentialIdB64u: string;
+    readonly credentialPublicKeyB64u: string;
+    readonly counter: number;
+  };
+  readonly nowMs: number;
+  readonly challengeDeleteStatement: D1PreparedStatementLike;
+}): WalletRecoveryAuthenticatorCommit {
+  const base = {
+    version: 'webauthn_credential_binding_v1' as const,
+    rpId: input.rpId,
+    credentialIdB64u: input.credential.credentialIdB64u,
+    userId: input.userId,
+    ...(input.sourceBinding.relayerKeyId
+      ? { relayerKeyId: input.sourceBinding.relayerKeyId }
+      : {}),
+    ...(input.sourceBinding.keyVersion ? { keyVersion: input.sourceBinding.keyVersion } : {}),
+    ...(typeof input.sourceBinding.recoveryExportCapable === 'boolean'
+      ? { recoveryExportCapable: input.sourceBinding.recoveryExportCapable }
+      : {}),
+    ...(input.sourceBinding.clientParticipantId !== undefined
+      ? { clientParticipantId: input.sourceBinding.clientParticipantId }
+      : {}),
+    ...(input.sourceBinding.relayerParticipantId !== undefined
+      ? { relayerParticipantId: input.sourceBinding.relayerParticipantId }
+      : {}),
+    ...(input.sourceBinding.participantIds
+      ? { participantIds: input.sourceBinding.participantIds }
+      : {}),
+    ...(input.sourceBinding.runtimePolicyScope
+      ? { runtimePolicyScope: input.sourceBinding.runtimePolicyScope }
+      : {}),
+    createdAtMs: input.nowMs,
+    updatedAtMs: input.nowMs,
+  };
+  const binding: WebAuthnCredentialBindingRecord =
+    input.sourceBinding.nearAccountId &&
+    input.sourceBinding.nearEd25519SigningKeyId &&
+    input.sourceBinding.publicKey &&
+    input.sourceBinding.signerSlot !== undefined
+      ? {
+          ...base,
+          nearAccountId: input.sourceBinding.nearAccountId,
+          nearEd25519SigningKeyId: input.sourceBinding.nearEd25519SigningKeyId,
+          publicKey: input.sourceBinding.publicKey,
+          signerSlot: input.sourceBinding.signerSlot,
+        }
+      : base;
+  return {
+    userId: input.userId,
+    authenticator: {
+      credentialIdB64u: input.credential.credentialIdB64u,
+      credentialPublicKeyB64u: input.credential.credentialPublicKeyB64u,
+      counter: input.credential.counter,
+      createdAtMs: input.nowMs,
+      updatedAtMs: input.nowMs,
+      deviceInfo: unknownWebAuthnAuthenticatorDeviceInfo(),
+    },
+    binding,
+    challengeDeleteStatement: input.challengeDeleteStatement,
   };
 }
