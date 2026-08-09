@@ -82,6 +82,7 @@ import type { RouteErrorBody } from '../../framework/routeResponses';
 import { routeError, routeJson } from '../../framework/routeResponses';
 import { isPlainObject } from '@shared/utils/validation';
 import { base64UrlDecode } from '@shared/utils/encoders';
+import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import {
   parseRouterAbEcdsaRegistrationActivationRequestV1,
   parseRouterAbEcdsaRegistrationRequestV1,
@@ -1124,11 +1125,15 @@ async function parseWalletAddAuthMethodStartBody(
   }
 
   let authority: WalletAddAuthMethodStartRequest['authority'];
-  if (Object.prototype.hasOwnProperty.call(body, 'webauthnRegistration')) {
-    authority = {
-      kind: 'passkey',
-      webauthnRegistration: body.webauthnRegistration,
-    };
+  if (normalizedIntent.authMethod.kind === 'passkey') {
+    if (Object.prototype.hasOwnProperty.call(body, 'webauthnRegistration')) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'webauthnRegistration belongs on add-auth-method finalize',
+      };
+    }
+    authority = { kind: 'passkey' };
   } else if (Object.prototype.hasOwnProperty.call(body, 'emailOtpRegistrationProof')) {
     const proof = normalizeEmailOtpRegistrationProof(body.emailOtpRegistrationProof);
     if (!proof) {
@@ -1576,6 +1581,33 @@ function parseWalletAddAuthMethodFinalizeRequest(
     'addAuthMethodCeremonyId is required',
   );
   if (!addAuthMethodCeremonyId.ok) return addAuthMethodCeremonyId;
+  const hasRegistration = Object.prototype.hasOwnProperty.call(body, 'webauthnRegistration');
+  const hasEnvelope = Object.prototype.hasOwnProperty.call(body, 'custodyEnvelope');
+  if (hasRegistration !== hasEnvelope) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'webauthnRegistration and custodyEnvelope must be provided together',
+    };
+  }
+  if (hasRegistration) {
+    try {
+      return {
+        ok: true,
+        value: {
+          addAuthMethodCeremonyId: addAuthMethodCeremonyId.value,
+          webauthnRegistration: body.webauthnRegistration,
+          custodyEnvelope: parsePasskeyCustodyEnvelopeRecord(body.custodyEnvelope),
+        },
+      };
+    } catch {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'custodyEnvelope is invalid',
+      };
+    }
+  }
   return {
     ok: true,
     value: {

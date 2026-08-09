@@ -79,6 +79,10 @@ import {
   type RouterAbEcdsaRegistrationActivationReceiptV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import { parseStoredRouterAbEcdsaPendingActivationV1 } from '../../../domains/ecdsa/routerAbEcdsaStrictRegistration';
+import {
+  parsePasskeyCustodyEnvelopeRecord,
+  type PasskeyCustodyEnvelopeRecord,
+} from '@shared/passkey-custody';
 import { registrationPreparationIdFromString } from '../../../../core/registrationContracts';
 import type {
   EcdsaDerivationClientBootstrapRequest,
@@ -95,6 +99,7 @@ import type {
   WalletEd25519YaoSignerPublicResult,
   WalletRegistrationEd25519YaoPublicResult,
   WalletAddSignerFinalizeResponse,
+  WalletAddAuthMethodRegistrationOptions,
 } from '../../../../core/registrationContracts';
 import { parseWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
@@ -2347,6 +2352,86 @@ export function parseD1StoredAddAuthMethodIntent(raw: unknown): StoredAddAuthMet
   };
 }
 
+function parseD1WalletAddAuthMethodRegistrationOptions(
+  raw: unknown,
+): WalletAddAuthMethodRegistrationOptions | null {
+  const record = toRecordValue(raw);
+  if (!record || record.kind !== 'webauthn_add_auth_method_registration_v1') return null;
+  const challengeId = toOptionalTrimmedString(record.challengeId);
+  const challengeB64u = toOptionalTrimmedString(record.challengeB64u);
+  const rpId = toOptionalTrimmedString(record.rpId);
+  const user = toRecordValue(record.user);
+  const userIdB64u = toOptionalTrimmedString(user?.idB64u);
+  const userName = toOptionalTrimmedString(user?.name);
+  const userDisplayName = toOptionalTrimmedString(user?.displayName);
+  const parameters = Array.isArray(record.pubKeyCredParams) ? record.pubKeyCredParams : null;
+  const firstParameter = toRecordValue(parameters?.[0]);
+  const secondParameter = toRecordValue(parameters?.[1]);
+  const selection = toRecordValue(record.authenticatorSelection);
+  const extensions = toRecordValue(record.extensions);
+  const prf = toRecordValue(extensions?.prf);
+  const evalRecord = toRecordValue(prf?.eval);
+  const excludeCredentials = Array.isArray(record.excludeCredentials)
+    ? record.excludeCredentials
+        .map((entry) => {
+          const descriptor = toRecordValue(entry);
+          const id = toOptionalTrimmedString(descriptor?.id);
+          return descriptor?.type === 'public-key' && id
+            ? ({ type: 'public-key' as const, id } as const)
+            : null;
+        })
+        .filter((entry): entry is { readonly type: 'public-key'; readonly id: string } => !!entry)
+    : null;
+  const timeoutMs = safeInteger(record.timeoutMs);
+  if (
+    !challengeId ||
+    !challengeB64u ||
+    !rpId ||
+    !userIdB64u ||
+    !userName ||
+    !userDisplayName ||
+    !parameters ||
+    parameters.length !== 2 ||
+    firstParameter?.type !== 'public-key' ||
+    Number(firstParameter.alg) !== -7 ||
+    secondParameter?.type !== 'public-key' ||
+    Number(secondParameter.alg) !== -257 ||
+    selection?.residentKey !== 'required' ||
+    selection?.userVerification !== 'preferred' ||
+    timeoutMs === null ||
+    timeoutMs <= 0 ||
+    record.attestation !== 'none' ||
+    !toOptionalTrimmedString(evalRecord?.firstB64u) ||
+    !toOptionalTrimmedString(evalRecord?.secondB64u) ||
+    !excludeCredentials
+  ) {
+    return null;
+  }
+  return {
+    kind: 'webauthn_add_auth_method_registration_v1',
+    challengeId,
+    challengeB64u,
+    rpId,
+    user: { idB64u: userIdB64u, name: userName, displayName: userDisplayName },
+    pubKeyCredParams: [
+      { type: 'public-key', alg: -7 },
+      { type: 'public-key', alg: -257 },
+    ],
+    authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
+    timeoutMs,
+    attestation: 'none',
+    extensions: {
+      prf: {
+        eval: {
+          firstB64u: toOptionalTrimmedString(evalRecord?.firstB64u) || '',
+          secondB64u: toOptionalTrimmedString(evalRecord?.secondB64u) || '',
+        },
+      },
+    },
+    excludeCredentials,
+  };
+}
+
 export function parseD1StoredWalletAddAuthMethodCeremony(
   raw: unknown,
 ): StoredWalletAddAuthMethodCeremony | null {
@@ -2358,19 +2443,61 @@ export function parseD1StoredWalletAddAuthMethodCeremony(
   const orgId = toOptionalTrimmedString(record.orgId);
   const expiresAtMs = safeInteger(record.expiresAtMs);
   const auth = parseD1StoredAddAuthMethodAuth(record.auth);
-  const authority = parseD1RegistrationAuthority(record.authority);
   if (
     !addAuthMethodCeremonyId ||
     !intent ||
     !digestB64u ||
     !orgId ||
     expiresAtMs === null ||
-    !auth ||
-    !authority
+    !auth
+  ) {
+    return null;
+  }
+  if (record.kind === 'email_otp') {
+    const authority = parseD1RegistrationAuthority(record.authority);
+    if (!authority || authority.kind !== 'email_otp') return null;
+    return {
+      kind: 'email_otp',
+      addAuthMethodCeremonyId,
+      intent,
+      digestB64u,
+      orgId,
+      ...(toOptionalTrimmedString(record.expectedOrigin)
+        ? { expectedOrigin: toOptionalTrimmedString(record.expectedOrigin) }
+        : {}),
+      expiresAtMs,
+      auth,
+      authority,
+    };
+  }
+  if (record.kind !== 'passkey') return null;
+  const passkeyRegistration = toRecordValue(record.passkeyRegistration);
+  const rpId = parseWebAuthnRpId(passkeyRegistration?.rpId);
+  const challengeB64u = toOptionalTrimmedString(passkeyRegistration?.challengeB64u);
+  const options = parseD1WalletAddAuthMethodRegistrationOptions(passkeyRegistration?.options);
+  let custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+  try {
+    custodyEnvelope = parsePasskeyCustodyEnvelopeRecord(record.custodyEnvelope);
+  } catch {
+    return null;
+  }
+  if (
+    !rpId.ok ||
+    !challengeB64u ||
+    !options ||
+    options.rpId !== rpId.value ||
+    options.challengeB64u !== challengeB64u ||
+    intent.authMethod.kind !== 'passkey' ||
+    intent.authMethod.rpId !== rpId.value ||
+    custodyEnvelope.walletId !== intent.walletId ||
+    custodyEnvelope.factor.kind !== 'passkey' ||
+    custodyEnvelope.factor.rpId !== rpId.value ||
+    custodyEnvelope.lifecycle.state !== 'active'
   ) {
     return null;
   }
   return {
+    kind: 'passkey',
     addAuthMethodCeremonyId,
     intent,
     digestB64u,
@@ -2380,7 +2507,8 @@ export function parseD1StoredWalletAddAuthMethodCeremony(
       : {}),
     expiresAtMs,
     auth,
-    authority,
+    passkeyRegistration: { rpId: rpId.value, challengeB64u, options },
+    custodyEnvelope,
   };
 }
 

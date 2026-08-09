@@ -11,6 +11,7 @@ import type {
   WalletAddSignerStartResponse,
   WalletAddSignerFinalizeRequest,
   WalletAddSignerFinalizeResponse,
+  WalletAddAuthMethodRegistrationOptions,
   WalletRegistrationStartResponse,
   WalletId,
 } from './registrationContracts';
@@ -21,6 +22,10 @@ import type {
   RegistrationSignerPlan,
   RegistrationSignerBranchKey,
 } from '@shared/utils/registrationIntent';
+import {
+  parsePasskeyCustodyEnvelopeRecord,
+  type PasskeyCustodyEnvelopeRecord,
+} from '@shared/passkey-custody';
 import {
   addAuthMethodIntentGrantFromString,
   normalizeAddAuthMethodInput,
@@ -726,7 +731,7 @@ export type StoredWalletAddSignerFinalizeRequest =
       activationReference?: never;
     };
 
-export type StoredWalletAddAuthMethodCeremony = {
+type StoredWalletAddAuthMethodCeremonyBase = {
   addAuthMethodCeremonyId: string;
   intent: AddAuthMethodIntentV1;
   digestB64u: string;
@@ -740,10 +745,27 @@ export type StoredWalletAddAuthMethodCeremony = {
         credentialIdB64u: string;
       }
     | {
-        kind: 'app_session';
-      };
-  authority: StoredRegistrationAuthority;
+      kind: 'app_session';
+    };
 };
+
+export type StoredWalletAddAuthMethodCeremony =
+  | (StoredWalletAddAuthMethodCeremonyBase & {
+      kind: 'email_otp';
+      authority: Extract<StoredRegistrationAuthority, { kind: 'email_otp' }>;
+      passkeyRegistration?: never;
+      custodyEnvelope?: never;
+    })
+  | (StoredWalletAddAuthMethodCeremonyBase & {
+      kind: 'passkey';
+      authority?: never;
+      passkeyRegistration: {
+        readonly rpId: string;
+        readonly challengeB64u: string;
+        readonly options: WalletAddAuthMethodRegistrationOptions;
+      };
+      custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+    });
 
 export interface RegistrationCeremonyStore {
   putAddAuthMethodIntent(intent: StoredAddAuthMethodIntent): Promise<void>;
@@ -1701,6 +1723,89 @@ function parseAddAuthMethodCeremonyAuth(
   };
 }
 
+function parseStoredWalletAddAuthMethodRegistrationOptions(
+  value: unknown,
+): WalletAddAuthMethodRegistrationOptions | null {
+  if (!isRecord(value) || value.kind !== 'webauthn_add_auth_method_registration_v1') {
+    return null;
+  }
+  const challengeId = trimString(value.challengeId);
+  const challengeB64u = trimString(value.challengeB64u);
+  const rpId = trimString(value.rpId);
+  const user = isRecord(value.user) ? value.user : null;
+  const userIdB64u = trimString(user?.idB64u);
+  const userName = trimString(user?.name);
+  const userDisplayName = trimString(user?.displayName);
+  const parameters = Array.isArray(value.pubKeyCredParams) ? value.pubKeyCredParams : null;
+  const firstParameter = parameters && isRecord(parameters[0]) ? parameters[0] : null;
+  const secondParameter = parameters && isRecord(parameters[1]) ? parameters[1] : null;
+  const selection = isRecord(value.authenticatorSelection)
+    ? value.authenticatorSelection
+    : null;
+  const extensions = isRecord(value.extensions) ? value.extensions : null;
+  const prf = isRecord(extensions?.prf) ? extensions.prf : null;
+  const evalRecord = isRecord(prf?.eval) ? prf.eval : null;
+  const excludeCredentials = Array.isArray(value.excludeCredentials)
+    ? value.excludeCredentials
+        .map((entry) => {
+          if (!isRecord(entry) || entry.type !== 'public-key') return null;
+          const id = trimString(entry.id);
+          return id ? { type: 'public-key' as const, id } : null;
+        })
+        .filter((entry): entry is { readonly type: 'public-key'; readonly id: string } => entry !== null)
+    : null;
+  const timeoutMs = Number(value.timeoutMs);
+  if (
+    !challengeId ||
+    !challengeB64u ||
+    !rpId ||
+    !userIdB64u ||
+    !userName ||
+    !userDisplayName ||
+    !parameters ||
+    parameters.length !== 2 ||
+    firstParameter?.type !== 'public-key' ||
+    Number(firstParameter.alg) !== -7 ||
+    secondParameter?.type !== 'public-key' ||
+    Number(secondParameter.alg) !== -257 ||
+    selection?.residentKey !== 'required' ||
+    selection?.userVerification !== 'preferred' ||
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs <= 0 ||
+    value.attestation !== 'none' ||
+    typeof evalRecord?.firstB64u !== 'string' ||
+    !evalRecord.firstB64u.trim() ||
+    typeof evalRecord?.secondB64u !== 'string' ||
+    !evalRecord.secondB64u.trim() ||
+    !excludeCredentials
+  ) {
+    return null;
+  }
+  return {
+    kind: 'webauthn_add_auth_method_registration_v1',
+    challengeId,
+    challengeB64u,
+    rpId,
+    user: { idB64u: userIdB64u, name: userName, displayName: userDisplayName },
+    pubKeyCredParams: [
+      { type: 'public-key', alg: -7 },
+      { type: 'public-key', alg: -257 },
+    ],
+    authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
+    timeoutMs,
+    attestation: 'none',
+    extensions: {
+      prf: {
+        eval: {
+          firstB64u: evalRecord.firstB64u,
+          secondB64u: evalRecord.secondB64u,
+        },
+      },
+    },
+    excludeCredentials,
+  };
+}
+
 function parseStoredWalletAddAuthMethodCeremony(
   value: unknown,
 ): StoredWalletAddAuthMethodCeremony | null {
@@ -1714,7 +1819,6 @@ function parseStoredWalletAddAuthMethodCeremony(
     return null;
   }
   const auth = parseAddAuthMethodCeremonyAuth(value.auth);
-  const authority = parseStoredRegistrationAuthority(value.authority);
   const intentRecord = parseStoredAddAuthMethodIntent({
     kind: 'add_auth_method_intent_allocated',
     grant: 'ignored',
@@ -1723,15 +1827,62 @@ function parseStoredWalletAddAuthMethodCeremony(
     orgId,
     expiresAtMs,
   });
-  if (!auth || !authority || !intentRecord) return null;
+  if (!auth || !intentRecord) return null;
+  const kind = value.kind;
+  if (kind === 'email_otp') {
+    const authority = parseStoredRegistrationAuthority(value.authority);
+    if (!authority || authority.kind !== 'email_otp') return null;
+    return {
+      kind: 'email_otp',
+      addAuthMethodCeremonyId,
+      intent: intentRecord.intent,
+      digestB64u,
+      orgId,
+      expiresAtMs: Math.floor(expiresAtMs),
+      auth,
+      authority,
+      ...(trimString(value.expectedOrigin)
+        ? { expectedOrigin: trimString(value.expectedOrigin) }
+        : {}),
+    };
+  }
+  if (kind !== 'passkey' || !isRecord(value.passkeyRegistration)) return null;
+  const rpId = parseWebAuthnRpId(value.passkeyRegistration.rpId);
+  const challengeB64u = trimString(value.passkeyRegistration.challengeB64u);
+  const options = parseStoredWalletAddAuthMethodRegistrationOptions(
+    value.passkeyRegistration.options,
+  );
+  let custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+  try {
+    custodyEnvelope = parsePasskeyCustodyEnvelopeRecord(value.custodyEnvelope);
+  } catch {
+    return null;
+  }
+  if (
+    !rpId.ok ||
+    !challengeB64u ||
+    !options ||
+    options.rpId !== rpId.value ||
+    options.challengeB64u !== challengeB64u ||
+    intentRecord.intent.authMethod.kind !== 'passkey' ||
+    intentRecord.intent.authMethod.rpId !== rpId.value ||
+    custodyEnvelope.walletId !== intentRecord.intent.walletId ||
+    custodyEnvelope.factor.kind !== 'passkey' ||
+    custodyEnvelope.factor.rpId !== rpId.value ||
+    custodyEnvelope.lifecycle.state !== 'active'
+  ) {
+    return null;
+  }
   return {
+    kind: 'passkey',
     addAuthMethodCeremonyId,
     intent: intentRecord.intent,
     digestB64u,
     orgId,
     expiresAtMs: Math.floor(expiresAtMs),
     auth,
-    authority,
+    passkeyRegistration: { rpId: rpId.value, challengeB64u, options },
+    custodyEnvelope,
     ...(trimString(value.expectedOrigin)
       ? { expectedOrigin: trimString(value.expectedOrigin) }
       : {}),

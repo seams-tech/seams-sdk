@@ -1,6 +1,10 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { D1DatabaseLike, D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import {
+  prepareD1WebAuthnCredentialBindingInsertStatement,
+  type WebAuthnCredentialBindingRecord,
+} from '../../../../core/WebAuthnCredentialBindingStore';
+import {
   parseWebAuthnAuthenticator,
   parseWebAuthnBinding,
   parseWebAuthnRecoveryRegistrationChallengeRecord,
@@ -256,6 +260,38 @@ export class CloudflareD1WebAuthnStore {
       userId: input.userId,
       record: input.record,
     }).run();
+  }
+
+  prepareAuthenticatorInsertStatement(input: {
+    readonly userId: string;
+    readonly record: WebAuthnAuthenticatorRecord;
+  }): D1PreparedStatementLike {
+    return prepareD1WebAuthnAuthenticatorInsertStatement({
+      database: this.database,
+      scope: {
+        namespace: this.namespace,
+        orgId: this.orgId,
+        projectId: this.projectId,
+        envId: this.envId,
+      },
+      userId: input.userId,
+      record: input.record,
+    });
+  }
+
+  prepareCredentialBindingInsertStatement(
+    record: WebAuthnCredentialBindingRecord,
+  ): D1PreparedStatementLike {
+    return prepareD1WebAuthnCredentialBindingInsertStatement({
+      database: this.database,
+      scope: {
+        namespace: this.namespace,
+        orgId: this.orgId,
+        projectId: this.projectId,
+        envId: this.envId,
+      },
+      record,
+    });
   }
 
   async updateAuthenticatorCounter(input: {

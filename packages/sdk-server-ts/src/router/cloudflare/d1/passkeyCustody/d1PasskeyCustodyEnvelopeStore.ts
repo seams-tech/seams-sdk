@@ -173,6 +173,11 @@ export type PasskeyCustodyEnvelopeRevocationResult =
   | { readonly kind: 'refused'; readonly reason: string }
   | { readonly kind: 'version_mismatch' };
 
+export type PasskeyCustodyEnvelopeLinkResult =
+  | { readonly kind: 'stored'; readonly storeVersion: string }
+  | { readonly kind: 'version_mismatch' }
+  | { readonly kind: 'conflict' };
+
 export type WalletCredentialActivityProjection = {
   readonly index: PasskeyDeviceEnvelopeIndexRecord;
   readonly activity: WalletCredentialActivityRecordV1;
@@ -211,6 +216,11 @@ function parseActivityRecordOrNull(raw: unknown): WalletCredentialActivityRecord
 async function ciphertextDigestB64u(sealedCustodySecretB64u: string): Promise<string> {
   const ciphertext = base64UrlDecode(sealedCustodySecretB64u);
   return base64UrlEncode(await sha256Bytes(ciphertext));
+}
+
+function isD1ConstraintError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return /constraint|unique|foreign key|not null/i.test(message);
 }
 
 /**
@@ -652,6 +662,43 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
       storeVersion: stored.version,
       envelopeRevision: Number(envelope.envelopeRevision),
     };
+  }
+
+  /**
+   * Inserts a new passkey envelope together with caller-owned authenticator,
+   * credential-binding, and wallet-auth-method statements in one D1 batch.
+   * The envelope row is insert-only, so a repeated envelope identity or any
+   * conflicting credential aborts the complete transaction.
+   */
+  async linkPasskeyFactorAtomically(input: {
+    readonly envelope: PasskeyCustodyEnvelopeRecord;
+    readonly additionalStatements: readonly D1PreparedStatementLike[];
+  }): Promise<PasskeyCustodyEnvelopeLinkResult> {
+    const envelope = input.envelope;
+    if (
+      envelope.factor.kind !== 'passkey' ||
+      Number(envelope.envelopeRevision) !== 1 ||
+      envelope.lifecycle.state !== 'active'
+    ) {
+      return { kind: 'conflict' };
+    }
+    if (input.additionalStatements.length === 0) {
+      throw new Error('Passkey custody linking requires credential and auth-method mutations');
+    }
+    const key = this.recordKey(envelopeLocator(envelope));
+    try {
+      const stored = await this.records.putManyWithAdditionalStatements(
+        [{ key, value: envelope, expectedVersion: null }],
+        input.additionalStatements,
+      );
+      if (stored.kind === 'version_mismatch') return { kind: 'version_mismatch' };
+      const version = stored.versions.find((entry) => entry.key === key)?.version;
+      if (!version) throw new Error('passkey custody link did not report envelope version');
+      return { kind: 'stored', storeVersion: version };
+    } catch (error: unknown) {
+      if (isD1ConstraintError(error)) return { kind: 'conflict' };
+      throw error;
+    }
   }
 
   /**
