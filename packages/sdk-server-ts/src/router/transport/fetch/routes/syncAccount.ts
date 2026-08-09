@@ -239,7 +239,7 @@ export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Res
           { status: 500 },
         );
       }
-      const custodyEnvelope = await ctx.service.passkeyCustody.readVerifiedEnvelope({
+      const custodyEnvelope = await ctx.service.passkeyCustody.readVerifiedFactorCustody({
         walletId: walletIdFromString(walletId),
         factor: {
           kind: 'passkey',
@@ -248,13 +248,20 @@ export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Res
         },
       });
       if (custodyEnvelope.kind !== 'active') {
+        const manifestUnavailable = custodyEnvelope.kind === 'manifest_unavailable';
         return json(
           {
             ok: false,
-            code: `custody_envelope_${custodyEnvelope.kind}`,
-            message: 'Verified passkey has no unique active wallet custody envelope',
+            code: manifestUnavailable
+              ? 'custody_manifest_unavailable'
+              : `custody_envelope_${custodyEnvelope.kind}`,
+            message: manifestUnavailable
+              ? 'Wallet custody key manifest is unavailable'
+              : 'Verified passkey has no unique active wallet custody envelope',
           },
-          { status: custodyEnvelope.kind === 'conflict' ? 409 : 404 },
+          {
+            status: manifestUnavailable ? 503 : custodyEnvelope.kind === 'conflict' ? 409 : 404,
+          },
         );
       }
       const ecdsaSigners = await ctx.service.walletRegistration.listWalletEcdsaCustodyContinuity({

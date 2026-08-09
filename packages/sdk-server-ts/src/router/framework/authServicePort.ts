@@ -285,7 +285,6 @@ type EmailOtpEnrollmentVerifyInput = {
   readonly enrollmentSealKeyVersion?: unknown;
   readonly clientUnlockPublicKeyB64u?: unknown;
   readonly unlockKeyVersion?: unknown;
-  readonly thresholdEcdsaClientVerifyingShareB64u?: unknown;
   readonly googleEmailOtpRegistrationAttemptId?: unknown;
 };
 
@@ -962,6 +961,8 @@ export type RouterApiMethodTypes = {
           readonly walletId: string;
           readonly providerUserId: string;
           readonly orgId: string;
+          readonly enrollmentId: string;
+          readonly enrollmentSealKeyVersion: string;
           readonly unlockKeyVersion: string;
         }
       | {

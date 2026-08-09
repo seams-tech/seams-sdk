@@ -84,10 +84,16 @@ export type PasskeyCustodyEnvelopeRetrievalWireRequest = {
 };
 
 export interface RouterApiPasskeyCustodyService {
-  readVerifiedEnvelope(request: {
+  readVerifiedFactorCustody(request: {
     readonly walletId: WalletId;
-    readonly factor: Extract<WalletCustodyFactorRef, { readonly kind: 'passkey' }>;
-  }): Promise<PasskeyCustodyEnvelopeFactorLookupResult>;
+    readonly factor: WalletCustodyFactorRef;
+  }): Promise<
+    | (Extract<PasskeyCustodyEnvelopeFactorLookupResult, { readonly kind: 'active' }> & {
+        readonly keyManifest: WalletRecoveryPreparationKeyManifestV1;
+      })
+    | Exclude<PasskeyCustodyEnvelopeFactorLookupResult, { readonly kind: 'active' }>
+    | { readonly kind: 'manifest_unavailable'; readonly reason: string }
+  >;
   /**
    * Fetch a wallet's custody envelope for a browser that has none locally.
    *
@@ -189,8 +195,28 @@ export function createD1PasskeyCustodyRouteService(assembly: {
 }): RouterApiPasskeyCustodyService {
   const authenticatorStore = authenticatorStoreView(assembly.webAuthnStore);
   return {
-    readVerifiedEnvelope: (request) =>
-      assembly.passkeyCustodyEnvelopes.lookupEnvelopeForFactor(request),
+    readVerifiedFactorCustody: async (request) => {
+      const envelope = await assembly.passkeyCustodyEnvelopes.lookupEnvelopeForFactor(request);
+      if (envelope.kind !== 'active') return envelope;
+      try {
+        const manifest = await resolveWalletRecoveryKeyManifestV1({
+          registry: assembly.walletStore,
+          walletId: request.walletId,
+        });
+        return {
+          ...envelope,
+          keyManifest: projectWalletRecoveryPreparationKeyManifestV1(manifest),
+        };
+      } catch (error: unknown) {
+        return {
+          kind: 'manifest_unavailable',
+          reason:
+            error instanceof Error
+              ? error.message
+              : 'wallet custody key manifest is unavailable',
+        };
+      }
+    },
     retrieveEnvelope: async (request) => {
       const challengeId = String(request.challengeId || '').trim();
       const expectedOrigin = String(request.expectedOrigin || '').trim();

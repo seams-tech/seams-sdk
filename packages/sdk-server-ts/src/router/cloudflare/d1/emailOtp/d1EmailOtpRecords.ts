@@ -99,7 +99,6 @@ export type EmailOtpEnrollmentMaterialBoundaryInput = {
   readonly enrollmentSealKeyVersion?: unknown;
   readonly clientUnlockPublicKeyB64u?: unknown;
   readonly unlockKeyVersion?: unknown;
-  readonly thresholdEcdsaClientVerifyingShareB64u?: unknown;
 };
 
 export type EmailOtpEnrollmentMaterialValidationResult =
@@ -109,7 +108,6 @@ export type EmailOtpEnrollmentMaterialValidationResult =
       readonly enrollmentSealKeyVersion: string;
       readonly clientUnlockPublicKeyB64u: string;
       readonly unlockKeyVersion: string;
-      readonly thresholdEcdsaClientVerifyingShareB64u: string;
     }
   | {
       readonly ok: false;
@@ -284,9 +282,6 @@ export function parseEmailOtpWalletEnrollmentRecord(
   );
   const clientUnlockPublicKeyB64u = toOptionalTrimmedString(record.clientUnlockPublicKeyB64u);
   const unlockKeyVersion = toOptionalTrimmedString(record.unlockKeyVersion);
-  const thresholdEcdsaClientVerifyingShareB64u = toOptionalTrimmedString(
-    record.thresholdEcdsaClientVerifyingShareB64u,
-  );
   const createdAtMs = positiveSafeInteger(record.createdAtMs);
   const updatedAtMs = positiveSafeInteger(record.updatedAtMs);
   if (
@@ -303,7 +298,6 @@ export function parseEmailOtpWalletEnrollmentRecord(
     !recoveryWrappedEnrollmentEscrowCount ||
     !clientUnlockPublicKeyB64u ||
     !unlockKeyVersion ||
-    !thresholdEcdsaClientVerifyingShareB64u ||
     !createdAtMs ||
     !updatedAtMs ||
     updatedAtMs < createdAtMs
@@ -324,7 +318,6 @@ export function parseEmailOtpWalletEnrollmentRecord(
     recoveryWrappedEnrollmentEscrowCount,
     clientUnlockPublicKeyB64u,
     unlockKeyVersion,
-    thresholdEcdsaClientVerifyingShareB64u,
     createdAtMs,
     updatedAtMs,
   };
@@ -1005,9 +998,6 @@ export async function validateEmailOtpEnrollmentMaterial(input: {
     input.material.clientUnlockPublicKeyB64u,
   );
   const unlockKeyVersion = toOptionalTrimmedString(input.material.unlockKeyVersion);
-  const thresholdEcdsaClientVerifyingShareB64u = toOptionalTrimmedString(
-    input.material.thresholdEcdsaClientVerifyingShareB64u,
-  );
   if (
     rawRecoveryWrappedEnrollmentEscrows.length !== EMAIL_OTP_RECOVERY_KEY_COUNT ||
     recoveryWrappedEnrollmentEscrows.length !== EMAIL_OTP_RECOVERY_KEY_COUNT
@@ -1036,14 +1026,6 @@ export async function validateEmailOtpEnrollmentMaterial(input: {
   if (!unlockKeyVersion) {
     return { ok: false, code: 'invalid_body', message: 'unlockKeyVersion is required' };
   }
-  if (!thresholdEcdsaClientVerifyingShareB64u) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'thresholdEcdsaClientVerifyingShareB64u is required',
-    };
-  }
-
   let unlockPublicKeyBytes: Uint8Array;
   try {
     unlockPublicKeyBytes = base64UrlDecode(clientUnlockPublicKeyB64u);
@@ -1071,41 +1053,12 @@ export async function validateEmailOtpEnrollmentMaterial(input: {
     };
   }
 
-  let clientVerifyingShareBytes: Uint8Array;
-  try {
-    clientVerifyingShareBytes = base64UrlDecode(thresholdEcdsaClientVerifyingShareB64u);
-  } catch {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'thresholdEcdsaClientVerifyingShareB64u must be valid base64url',
-    };
-  }
-  if (clientVerifyingShareBytes.length !== 33) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message:
-        'thresholdEcdsaClientVerifyingShareB64u must decode to 33 bytes (compressed secp256k1 pubkey)',
-    };
-  }
-  try {
-    await input.validateSecp256k1PublicKey33(clientVerifyingShareBytes);
-  } catch {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'thresholdEcdsaClientVerifyingShareB64u is not a valid secp256k1 public key',
-    };
-  }
-
   return {
     ok: true,
     recoveryWrappedEnrollmentEscrows,
     enrollmentSealKeyVersion,
     clientUnlockPublicKeyB64u,
     unlockKeyVersion,
-    thresholdEcdsaClientVerifyingShareB64u,
   };
 }
 

@@ -404,8 +404,6 @@ export class CloudflareD1EmailOtpRegistrationEnrollmentFinalizer {
         enrollmentMaterial.recoveryWrappedEnrollmentEscrows.length,
       clientUnlockPublicKeyB64u: enrollmentMaterial.clientUnlockPublicKeyB64u,
       unlockKeyVersion: enrollmentMaterial.unlockKeyVersion,
-      thresholdEcdsaClientVerifyingShareB64u:
-        enrollmentMaterial.thresholdEcdsaClientVerifyingShareB64u,
       createdAtMs: existing?.createdAtMs ?? input.nowMs,
       updatedAtMs: input.nowMs,
     };

@@ -609,6 +609,8 @@ export class CloudflareD1EmailOtpRecoveryService {
         walletId: enrollment.enrollment.walletId,
         providerUserId: enrollment.enrollment.providerUserId,
         orgId: enrollment.enrollment.orgId,
+        enrollmentId: enrollment.enrollment.enrollmentId,
+        enrollmentSealKeyVersion: enrollment.enrollment.enrollmentSealKeyVersion,
         unlockKeyVersion: enrollment.enrollment.unlockKeyVersion,
       };
     } catch (error: unknown) {

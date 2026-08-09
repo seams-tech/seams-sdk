@@ -1020,6 +1020,10 @@ export class AuthService {
         verified: true;
         userId: string;
         walletId: string;
+        providerUserId: string;
+        orgId: string;
+        enrollmentId: string;
+        enrollmentSealKeyVersion: string;
         unlockKeyVersion: string;
       }
     | { ok: false; verified: false; code: string; message: string }
@@ -1336,7 +1340,6 @@ export class AuthService {
     enrollmentSealKeyVersion?: unknown;
     clientUnlockPublicKeyB64u?: unknown;
     unlockKeyVersion?: unknown;
-    thresholdEcdsaClientVerifyingShareB64u?: unknown;
     googleEmailOtpRegistrationAttemptId?: unknown;
   }): Promise<
     | {

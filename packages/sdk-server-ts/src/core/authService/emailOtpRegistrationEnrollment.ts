@@ -50,7 +50,6 @@ export type EmailOtpEnrollmentMaterialValidationResult =
       enrollmentSealKeyVersion: string;
       clientUnlockPublicKeyB64u: string;
       unlockKeyVersion: string;
-      thresholdEcdsaClientVerifyingShareB64u: string;
     }
   | { ok: false; code: string; message: string };
 
@@ -82,7 +81,6 @@ export type VerifyEmailOtpEnrollmentRequest = {
   enrollmentSealKeyVersion?: unknown;
   clientUnlockPublicKeyB64u?: unknown;
   unlockKeyVersion?: unknown;
-  thresholdEcdsaClientVerifyingShareB64u?: unknown;
   googleEmailOtpRegistrationAttemptId?: unknown;
 };
 
@@ -91,7 +89,6 @@ export async function validateEmailOtpEnrollmentMaterial(request: {
   enrollmentSealKeyVersion?: unknown;
   clientUnlockPublicKeyB64u?: unknown;
   unlockKeyVersion?: unknown;
-  thresholdEcdsaClientVerifyingShareB64u?: unknown;
 }): Promise<
   | {
       ok: true;
@@ -99,7 +96,6 @@ export async function validateEmailOtpEnrollmentMaterial(request: {
       enrollmentSealKeyVersion: string;
       clientUnlockPublicKeyB64u: string;
       unlockKeyVersion: string;
-      thresholdEcdsaClientVerifyingShareB64u: string;
     }
   | { ok: false; code: string; message: string }
 > {
@@ -119,9 +115,6 @@ export async function validateEmailOtpEnrollmentMaterial(request: {
   );
   const clientUnlockPublicKeyB64u = toOptionalTrimmedString(request.clientUnlockPublicKeyB64u);
   const unlockKeyVersion = toOptionalTrimmedString(request.unlockKeyVersion);
-  const thresholdEcdsaClientVerifyingShareB64u = toOptionalTrimmedString(
-    request.thresholdEcdsaClientVerifyingShareB64u,
-  );
   if (
     rawRecoveryWrappedEnrollmentEscrows.length !== EMAIL_OTP_RECOVERY_KEY_COUNT ||
     recoveryWrappedEnrollmentEscrows.length !== EMAIL_OTP_RECOVERY_KEY_COUNT
@@ -149,14 +142,6 @@ export async function validateEmailOtpEnrollmentMaterial(request: {
   if (!unlockKeyVersion) {
     return { ok: false, code: 'invalid_body', message: 'unlockKeyVersion is required' };
   }
-  if (!thresholdEcdsaClientVerifyingShareB64u) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'thresholdEcdsaClientVerifyingShareB64u is required',
-    };
-  }
-
   let unlockPublicKeyBytes: Uint8Array;
   try {
     unlockPublicKeyBytes = base64UrlDecode(clientUnlockPublicKeyB64u);
@@ -184,41 +169,12 @@ export async function validateEmailOtpEnrollmentMaterial(request: {
     };
   }
 
-  let clientVerifyingShareBytes: Uint8Array;
-  try {
-    clientVerifyingShareBytes = base64UrlDecode(thresholdEcdsaClientVerifyingShareB64u);
-  } catch {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'thresholdEcdsaClientVerifyingShareB64u must be valid base64url',
-    };
-  }
-  if (clientVerifyingShareBytes.length !== 33) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message:
-        'thresholdEcdsaClientVerifyingShareB64u must decode to 33 bytes (compressed secp256k1 pubkey)',
-    };
-  }
-  try {
-    await validateSecp256k1PublicKey33(clientVerifyingShareBytes);
-  } catch {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'thresholdEcdsaClientVerifyingShareB64u is not a valid secp256k1 public key',
-    };
-  }
-
   return {
     ok: true,
     recoveryWrappedEnrollmentEscrows,
     enrollmentSealKeyVersion,
     clientUnlockPublicKeyB64u,
     unlockKeyVersion,
-    thresholdEcdsaClientVerifyingShareB64u,
   };
 }
 
@@ -390,8 +346,6 @@ export async function buildEmailOtpRegistrationEnrollmentPersistence(input: {
       enrollmentMaterial.recoveryWrappedEnrollmentEscrows.length,
     clientUnlockPublicKeyB64u: enrollmentMaterial.clientUnlockPublicKeyB64u,
     unlockKeyVersion: enrollmentMaterial.unlockKeyVersion,
-    thresholdEcdsaClientVerifyingShareB64u:
-      enrollmentMaterial.thresholdEcdsaClientVerifyingShareB64u,
     createdAtMs: existing?.createdAtMs ?? input.nowMs,
     updatedAtMs: input.nowMs,
   };
@@ -735,8 +689,6 @@ export async function verifyEmailOtpEnrollment(
       enrollmentMaterial.recoveryWrappedEnrollmentEscrows.length,
     clientUnlockPublicKeyB64u: enrollmentMaterial.clientUnlockPublicKeyB64u,
     unlockKeyVersion: enrollmentMaterial.unlockKeyVersion,
-    thresholdEcdsaClientVerifyingShareB64u:
-      enrollmentMaterial.thresholdEcdsaClientVerifyingShareB64u,
     createdAtMs: existing?.createdAtMs ?? nowMs,
     updatedAtMs: nowMs,
   };

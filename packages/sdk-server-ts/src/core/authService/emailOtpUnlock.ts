@@ -336,6 +336,8 @@ export async function verifyEmailOtpUnlockProof(
       walletId: enrollment.walletId,
       providerUserId: enrollment.providerUserId,
       orgId: enrollment.orgId,
+      enrollmentId: enrollment.enrollmentId,
+      enrollmentSealKeyVersion: enrollment.enrollmentSealKeyVersion,
       unlockKeyVersion: enrollment.unlockKeyVersion,
     };
   } catch (e: unknown) {

@@ -450,9 +450,6 @@ export function parseCurrentEmailOtpWalletEnrollmentRecord(
   );
   const clientUnlockPublicKeyB64u = toOptionalTrimmedString(obj.clientUnlockPublicKeyB64u);
   const unlockKeyVersion = toOptionalTrimmedString(obj.unlockKeyVersion);
-  const thresholdEcdsaClientVerifyingShareB64u = toOptionalTrimmedString(
-    obj.thresholdEcdsaClientVerifyingShareB64u,
-  );
   const createdAtMs = toPositiveSafeInt(obj.createdAtMs);
   const updatedAtMs = toPositiveSafeInt(obj.updatedAtMs);
   if (
@@ -469,7 +466,6 @@ export function parseCurrentEmailOtpWalletEnrollmentRecord(
     !recoveryWrappedEnrollmentEscrowCount ||
     !clientUnlockPublicKeyB64u ||
     !unlockKeyVersion ||
-    !thresholdEcdsaClientVerifyingShareB64u ||
     !createdAtMs ||
     !updatedAtMs
   ) {
@@ -490,7 +486,6 @@ export function parseCurrentEmailOtpWalletEnrollmentRecord(
     recoveryWrappedEnrollmentEscrowCount,
     clientUnlockPublicKeyB64u,
     unlockKeyVersion,
-    thresholdEcdsaClientVerifyingShareB64u,
     createdAtMs,
     updatedAtMs,
   };
