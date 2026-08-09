@@ -811,19 +811,9 @@ type WalletRegistrationFinalizeRequestBase = {
    */
   walletCustodyCommit?: unknown;
   emailOtpEnrollment?: {
-    recoveryWrappedEnrollmentEscrows: unknown[];
     enrollmentSealKeyVersion: string;
     clientUnlockPublicKeyB64u: string;
     unlockKeyVersion: string;
-  };
-  emailOtpBackupAck?: {
-    kind: 'email_otp_recovery_code_backup_ack_v1';
-    offerId?: string;
-    candidateId?: string;
-    recoveryCodesIssuedAtMs: number;
-    backupActionKind: 'download' | 'copy' | 'print' | 'manual';
-    acknowledgedAtMs: number;
-    idempotencyKey: string;
   };
 };
 
