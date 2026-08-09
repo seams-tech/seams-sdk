@@ -17,6 +17,10 @@ import {
   type WalletRecoveryPreparationResult,
 } from '../../../domains/passkeyCustody/walletRecoveryAttempt';
 import { parseWalletId, parseWebAuthnRpId, type WalletId } from '@shared/utils/domainIds';
+import {
+  parseWalletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import {
@@ -120,6 +124,7 @@ export interface RouterApiPasskeyCustodyService {
     readonly walletId: string;
     readonly recoveryCodeBytes: Uint8Array;
     readonly reservationId: RecoveryCodeReservationId;
+    readonly authorityRef: WalletAuthAuthorityRef;
   }): Promise<WalletRecoveryRoutePreparationResult>;
 
   /**
@@ -194,6 +199,7 @@ export type WalletRecoveryRoutePreparationResult =
   | (Extract<WalletRecoveryPreparationResult, { readonly kind: 'prepared' }> & {
       readonly keyManifest: WalletRecoveryPreparationKeyManifestV1;
       readonly registration: WalletRecoveryRegistrationOptions;
+      readonly authorityRef: WalletAuthAuthorityRef;
     })
   | Exclude<WalletRecoveryPreparationResult, { readonly kind: 'prepared' }>
   | { readonly kind: 'manifest_unavailable'; readonly reason: string }
@@ -385,12 +391,17 @@ async function prepareRecoveryForRoute(
     readonly walletId: string;
     readonly recoveryCodeBytes: Uint8Array;
     readonly reservationId: RecoveryCodeReservationId;
+    readonly authorityRef: WalletAuthAuthorityRef;
   },
 ): Promise<WalletRecoveryRoutePreparationResult> {
   let walletId: WalletId;
   try {
     walletId = requireWalletId(request.walletId);
   } catch {
+    return { kind: 'refused', reason: 'that recovery code cannot be used' };
+  }
+  const authorityRef = parseWalletAuthAuthorityRef(request.authorityRef);
+  if (!authorityRef || String(authorityRef.walletId) !== String(walletId)) {
     return { kind: 'refused', reason: 'that recovery code cannot be used' };
   }
   const prepared = await prepareWalletRecoveryWithCodeV1({
@@ -420,6 +431,7 @@ async function prepareRecoveryForRoute(
       ...prepared,
       keyManifest: projectWalletRecoveryPreparationKeyManifestV1(manifest),
       registration: registration.options,
+      authorityRef,
     };
   } catch (error: unknown) {
     return {
