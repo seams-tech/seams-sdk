@@ -239,6 +239,7 @@ export type EmailOtpWalletUnlockMaterialResult =
       readonly activeClientHandle: string;
       readonly metadata: RouterAbEd25519YaoActiveClientMetadataV1;
       readonly ed25519YaoCapability: EmailOtpEd25519YaoRecoveryBootstrapV1;
+      readonly walletCustodyEd25519Material?: LoadedWalletCustodyEd25519MaterialV1;
       readonly emailOtpSessionHandle?: never;
       readonly pendingFactorHandle?: never;
       readonly ed25519YaoRecovery?: never;

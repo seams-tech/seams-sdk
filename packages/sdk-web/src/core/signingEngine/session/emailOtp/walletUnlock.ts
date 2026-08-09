@@ -9,6 +9,7 @@ import type {
   EmailOtpWalletCustodyEd25519MaterialRequest,
   EmailOtpWalletUnlockMaterialRequest,
 } from '@/core/signingEngine/workerManager/workerTypes';
+import type { LoadedWalletCustodyEd25519MaterialV1 } from '../../walletCustody/ed25519SeedMaterial';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '../../threshold/ed25519/yaoClient';
 import type { EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
@@ -58,6 +59,7 @@ export type EmailOtpEd25519YaoUnlockResult =
       activeClientHandle: string;
       metadata: RouterAbEd25519YaoActiveClientMetadataV1;
       ed25519YaoCapability: EmailOtpEd25519YaoRecoveryBootstrapV1;
+      walletCustodyEd25519Material?: LoadedWalletCustodyEd25519MaterialV1;
     };
 
 export type EmailOtpWalletUnlockCapabilityResults = {
@@ -212,6 +214,9 @@ export async function unlockEmailOtpEd25519YaoCapability(
       activeClientHandle: result.activeClientHandle,
       metadata: result.metadata,
       ed25519YaoCapability: result.ed25519YaoCapability,
+      ...(result.walletCustodyEd25519Material
+        ? { walletCustodyEd25519Material: result.walletCustodyEd25519Material }
+        : {}),
     };
   }
   if (result.kind !== 'wallet_custody_cache_absent') {
