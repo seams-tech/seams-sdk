@@ -1,6 +1,7 @@
 import init, {
   wallet_custody_ceremony_establish_v1,
   wallet_custody_ceremony_join_v1,
+  wallet_custody_ceremony_recover_v1,
   type WasmCeremonyEvmActivationPendingV1,
   type WasmCeremonyManifestEstablishedV1,
   type WasmCeremonyProtocolPreparedV1,
@@ -126,15 +127,32 @@ function requireCeremonyId(value: unknown): string {
 type BeginCustody = BeginRequest['payload']['custody'];
 
 function takeSeed(custody: BeginCustody): WasmCeremonySeedHeldV1 {
-  if (custody.origin === 'establish') {
-    return wallet_custody_ceremony_establish_v1(custody.walletId);
+  switch (custody.origin) {
+    case 'establish':
+      return wallet_custody_ceremony_establish_v1(custody.walletId);
+    case 'join': {
+      const factorSecret = toBytes(custody.factorSecret);
+      try {
+        return wallet_custody_ceremony_join_v1(factorSecret, custody.custodyJson);
+      } finally {
+        factorSecret.fill(0);
+      }
+    }
+    case 'recover': {
+      const recoveryCode = toBytes(custody.recoveryCode);
+      try {
+        return wallet_custody_ceremony_recover_v1(recoveryCode, custody.custodyJson);
+      } finally {
+        recoveryCode.fill(0);
+      }
+    }
+    default:
+      return assertNever(custody);
   }
-  const factorSecret = toBytes(custody.factorSecret);
-  try {
-    return wallet_custody_ceremony_join_v1(factorSecret, custody.custodyJson);
-  } finally {
-    factorSecret.fill(0);
-  }
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unsupported custody origin: ${String(value)}`);
 }
 
 /**

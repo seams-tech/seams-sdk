@@ -48,13 +48,15 @@ use signer_core::ecdsa_role_local_client::command::{
 };
 use signer_core::ed25519_yao_derivation::Ed25519YaoClientDerivationRootV1;
 use signer_core::passkey_custody::{
-    open_wallet_custody_seed_envelope_v1, seal_wallet_custody_seed_envelope_v1,
+    open_wallet_custody_seed_envelope_v1, seal_wallet_custody_seed_envelope_v1, sha256_digest,
     PasskeyCustodyEnvelopeBindingV1, PasskeyCustodySecretBindingV1, WalletCustodyEnvelopeFactorV1,
     PASSKEY_CUSTODY_KEY_LEN, WALLET_SEED_DERIVATION_SCHEME_V1,
 };
 use signer_core::wallet_recovery_custody::{
-    derive_wallet_recovery_key_id_v1, seal_wallet_recovery_entry_v1,
-    seal_wallet_recovery_manifest_kek_v1, WALLET_RECOVERY_CODE_COUNT,
+    derive_wallet_recovery_key_id_v1, encode_recovery_entry_aad_v1,
+    encode_recovery_manifest_aad_v1, open_wallet_custody_seed_with_recovery_code_v1,
+    seal_wallet_recovery_entry_v1, seal_wallet_recovery_manifest_kek_v1, WalletRecoveryCodeScopeV1,
+    WalletRecoveryEntryScopeV1, WalletRecoveryManifestKekWrapV1, WALLET_RECOVERY_CODE_COUNT,
 };
 use signer_core::wallet_seed_derivation::{
     derive_ecdsa_client_root_share_from_seed_v1,
@@ -113,6 +115,13 @@ enum CustodyOriginV1 {
     /// successful open produces that — so carrying the proof further would be
     /// dead weight rather than extra evidence.
     Join,
+    /// Recovery opened the wallet seed with a reserved recovery code.
+    ///
+    /// This run may reproduce and reactivate a registered key set. It writes
+    /// neither a new recovery set nor the replacement factor envelope; the
+    /// latter is a separate terminal recovery transition after every key in
+    /// the server-resolved manifest has produced its activation receipt.
+    Recover,
 }
 
 /// Everything one protocol needs, all of it public.
@@ -171,6 +180,21 @@ pub struct FactorSealInputsV1 {
     pub envelope_id: String,
     pub factor: WalletCustodyEnvelopeFactorV1,
     pub factor_secret: Zeroizing<Vec<u8>>,
+}
+
+/// Opaque recovery-set ciphertext admitted at the wasm boundary.
+///
+/// The recovery key id is absent by construction. It is derived from the
+/// wallet and code bytes inside `recover_with_code`, then used to select the
+/// one wrap the code is allowed to open.
+pub struct RecoveryCustodyOpenInputsV1 {
+    pub wallet_id: String,
+    pub wrap_nonce: Vec<u8>,
+    pub wrapped_manifest_kek: Vec<u8>,
+    pub wrap_aad_hash: [u8; 32],
+    pub entry_nonce: Vec<u8>,
+    pub wrapped_custody_seed: Vec<u8>,
+    pub entry_aad_hash: [u8; 32],
 }
 
 /// State 1: a seed is held, and the run knows whether it owns custody.
@@ -428,6 +452,62 @@ impl CeremonySeedHeldV1 {
             wallet_id: require_wallet_id(admitted.wallet_id())?,
             seed: Zeroizing::new(seed),
             origin: CustodyOriginV1::Join,
+        })
+    }
+
+    /// Opens the wallet seed through one reserved recovery code.
+    ///
+    /// Stored AAD hashes are checked before decryption. The code's derived id
+    /// selects its wrap, so JavaScript cannot point a code at arbitrary
+    /// ciphertext or choose a recovery identity. The resulting seed remains
+    /// inside the ceremony and can only enter a registered-key continuity run.
+    pub fn recover_with_code(
+        recovery_code_bytes: &[u8],
+        input: RecoveryCustodyOpenInputsV1,
+    ) -> CeremonyResult<Self> {
+        let wallet_id = require_wallet_id(&input.wallet_id)?;
+        let recovery_key_id = derive_wallet_recovery_key_id_v1(&wallet_id, recovery_code_bytes)
+            .map_err(|error| CeremonyError::new(format!("recovery key id: {error}")))?;
+        let manifest_aad = encode_recovery_manifest_aad_v1(&WalletRecoveryCodeScopeV1 {
+            wallet_id: wallet_id.clone(),
+            recovery_key_id: recovery_key_id.clone(),
+        })
+        .map_err(|error| CeremonyError::new(format!("recovery manifest AAD: {error}")))?;
+        if sha256_digest(&manifest_aad) != input.wrap_aad_hash {
+            return Err(CeremonyError::new(
+                "recovery manifest AAD hash does not match",
+            ));
+        }
+        let entry_aad = encode_recovery_entry_aad_v1(&WalletRecoveryEntryScopeV1 {
+            wallet_id: wallet_id.clone(),
+        })
+        .map_err(|error| CeremonyError::new(format!("recovery entry AAD: {error}")))?;
+        if sha256_digest(&entry_aad) != input.entry_aad_hash {
+            return Err(CeremonyError::new("recovery entry AAD hash does not match"));
+        }
+
+        let wrap = WalletRecoveryManifestKekWrapV1 {
+            recovery_key_id: &recovery_key_id,
+            nonce: &input.wrap_nonce,
+            ciphertext: &input.wrapped_manifest_kek,
+        };
+        let seed = open_wallet_custody_seed_with_recovery_code_v1(
+            &wallet_id,
+            recovery_code_bytes,
+            &[wrap],
+            &input.entry_nonce,
+            &input.wrapped_custody_seed,
+        )
+        .map_err(|error| CeremonyError::new(format!("recovery custody open: {error}")))?
+        .ok_or_else(|| CeremonyError::new("that recovery code cannot open this wallet"))?;
+        let seed: [u8; WALLET_CUSTODY_SEED_LEN] = seed
+            .as_slice()
+            .try_into()
+            .map_err(|_| CeremonyError::new("recovered custody seed has an unexpected length"))?;
+        Ok(Self {
+            wallet_id,
+            seed: Zeroizing::new(seed),
+            origin: CustodyOriginV1::Recover,
         })
     }
 
@@ -1080,7 +1160,10 @@ fn established_custody_for_origin(
         (CustodyOriginV1::Join, Some(_)) => Err(CeremonyError::new(
             "a run that joined existing custody must not seal a seed or issue codes",
         )),
-        (CustodyOriginV1::Join, None) => Ok(None),
+        (CustodyOriginV1::Recover, Some(_)) => Err(CeremonyError::new(
+            "a recovery continuity run must not establish custody or issue codes",
+        )),
+        (CustodyOriginV1::Join | CustodyOriginV1::Recover, None) => Ok(None),
     }
 }
 
@@ -1280,6 +1363,60 @@ mod tests {
             .expect("recovery entry opens");
             assert_eq!(recovered.as_slice(), &seed()[..]);
         }
+    }
+
+    fn recovery_open_input(
+        records: &EstablishedCustodyRecordsV1,
+        wrap: &SealedRecoveryWrapRecordV1,
+    ) -> RecoveryCustodyOpenInputsV1 {
+        RecoveryCustodyOpenInputsV1 {
+            wallet_id: WALLET_ID.to_string(),
+            wrap_nonce: decode(&wrap.nonce_b64u),
+            wrapped_manifest_kek: decode(&wrap.ciphertext_b64u),
+            wrap_aad_hash: decode(&wrap.aad_hash_b64u)
+                .try_into()
+                .expect("manifest AAD hash"),
+            entry_nonce: decode(&records.recovery_entry_nonce_b64u),
+            wrapped_custody_seed: decode(&records.recovery_entry_ciphertext_b64u),
+            entry_aad_hash: decode(&records.recovery_entry_aad_hash_b64u)
+                .try_into()
+                .expect("entry AAD hash"),
+        }
+    }
+
+    #[test]
+    fn recovery_enters_the_ceremony_only_after_exact_aad_and_code_verification() {
+        let payload = established();
+        let records = custody_records(&payload);
+        let codes = recovery_codes(WALLET_RECOVERY_CODE_COUNT);
+        let opened = CeremonySeedHeldV1::recover_with_code(
+            &codes[0].code_bytes,
+            recovery_open_input(records, &records.recovery_manifest_kek_wraps[0]),
+        )
+        .expect("recovery enters the ceremony");
+        assert_eq!(opened.wallet_id, WALLET_ID);
+        assert_eq!(opened.seed.as_slice(), seed().as_slice());
+        assert!(matches!(opened.origin, CustodyOriginV1::Recover));
+
+        let mut wrong_wrap_aad =
+            recovery_open_input(records, &records.recovery_manifest_kek_wraps[0]);
+        wrong_wrap_aad.wrap_aad_hash[0] ^= 1;
+        assert!(
+            CeremonySeedHeldV1::recover_with_code(&codes[0].code_bytes, wrong_wrap_aad,).is_err()
+        );
+
+        let mut wrong_entry_aad =
+            recovery_open_input(records, &records.recovery_manifest_kek_wraps[0]);
+        wrong_entry_aad.entry_aad_hash[0] ^= 1;
+        assert!(
+            CeremonySeedHeldV1::recover_with_code(&codes[0].code_bytes, wrong_entry_aad,).is_err()
+        );
+
+        assert!(CeremonySeedHeldV1::recover_with_code(
+            &codes[1].code_bytes,
+            recovery_open_input(records, &records.recovery_manifest_kek_wraps[0]),
+        )
+        .is_err());
     }
 
     #[test]
