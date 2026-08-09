@@ -27,10 +27,6 @@ type CreateEmailOtpEnrollmentChallengeInput =
   Parameters<RouterApiEmailOtpRouteService['createEmailOtpEnrollmentChallenge']>[0];
 type CreateEmailOtpEnrollmentChallengeResult =
   Awaited<ReturnType<RouterApiEmailOtpRouteService['createEmailOtpEnrollmentChallenge']>>;
-type CreateEmailOtpDeviceRecoveryChallengeInput =
-  Parameters<RouterApiEmailOtpRouteService['createEmailOtpDeviceRecoveryChallenge']>[0];
-type CreateEmailOtpDeviceRecoveryChallengeResult =
-  Awaited<ReturnType<RouterApiEmailOtpRouteService['createEmailOtpDeviceRecoveryChallenge']>>;
 type VerifyEmailOtpChallengeInput =
   Parameters<RouterApiEmailOtpRouteService['verifyEmailOtpChallenge']>[0];
 type VerifyEmailOtpChallengeResult = Awaited<
@@ -266,42 +262,6 @@ export class CloudflareD1EmailOtpChallengeService {
     };
   }
 
-  async createEmailOtpDeviceRecoveryChallenge(
-    input: CreateEmailOtpDeviceRecoveryChallengeInput,
-  ): Promise<CreateEmailOtpDeviceRecoveryChallengeResult> {
-    const result = await this.issuer.create({
-      userId: input.userId,
-      walletId: input.walletId,
-      orgId: input.orgId,
-      email: input.email,
-      otpChannel: input.otpChannel,
-      sessionHash: input.sessionHash,
-      appSessionVersion: input.appSessionVersion,
-      clientIp: input.clientIp,
-      requestOrigin: input.requestOrigin,
-      action: WALLET_EMAIL_OTP_ACTIONS.deviceRecovery,
-      operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
-    });
-    if (!result.ok) return result;
-    return {
-      ok: true,
-      challenge: {
-        challengeId: result.challenge.challengeId,
-        issuedAtMs: result.challenge.issuedAtMs,
-        expiresAtMs: result.challenge.expiresAtMs,
-        userId: result.challenge.challengeSubjectId,
-        walletId: result.challenge.walletId,
-        orgId: result.challenge.orgId,
-        otpChannel: result.challenge.otpChannel,
-        sessionHash: result.challenge.sessionHash,
-        appSessionVersion: result.challenge.appSessionVersion,
-        action: WALLET_EMAIL_OTP_ACTIONS.deviceRecovery,
-        operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
-      },
-      delivery: result.delivery,
-    };
-  }
-
   async verifyEmailOtpEnrollment(
     input: VerifyEmailOtpEnrollmentInput,
   ): Promise<VerifyEmailOtpEnrollmentResult> {
@@ -465,7 +425,7 @@ export class CloudflareD1EmailOtpChallengeService {
       sessionHash: input.sessionHash,
       appSessionVersion: input.appSessionVersion,
       clientIp: input.clientIp,
-      action: WALLET_EMAIL_OTP_ACTIONS.deviceRecovery,
+      action: WALLET_EMAIL_OTP_ACTIONS.login,
       operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
     });
     if (!verified.ok) return verified;

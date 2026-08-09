@@ -4,14 +4,12 @@ import {
   createEmailOtpAuthStateStore,
   createEmailOtpChallengeStore,
   createEmailOtpGrantStore,
-  createEmailOtpRecoveryWrappedEnrollmentEscrowStore,
   createEmailOtpRegistrationAttemptStore,
   createEmailOtpUnlockChallengeStore,
   createEmailOtpWalletEnrollmentStore,
   type EmailOtpAuthStateStore,
   type EmailOtpChallengeStore,
   type EmailOtpGrantStore,
-  type EmailOtpRecoveryWrappedEnrollmentEscrowStore,
   type EmailOtpRegistrationAttemptStore,
   type EmailOtpUnlockChallengeStore,
   type EmailOtpWalletEnrollmentStore,
@@ -90,9 +88,6 @@ export class AuthServiceStoreRegistry {
   private emailOtpChallengeStore: EmailOtpChallengeStore | null = null;
   private emailOtpGrantStore: EmailOtpGrantStore | null = null;
   private emailOtpWalletEnrollmentStore: EmailOtpWalletEnrollmentStore | null = null;
-  private emailOtpRecoveryWrappedEnrollmentEscrowStore:
-    | EmailOtpRecoveryWrappedEnrollmentEscrowStore
-    | null = null;
   private emailOtpAuthStateStore: EmailOtpAuthStateStore | null = null;
   private emailOtpUnlockChallengeStore: EmailOtpUnlockChallengeStore | null = null;
   private emailOtpRegistrationAttemptStore: EmailOtpRegistrationAttemptStore | null = null;
@@ -169,12 +164,6 @@ export class AuthServiceStoreRegistry {
       createStoreFactoryInput(this.input),
     );
     return this.emailOtpWalletEnrollmentStore;
-  }
-
-  getEmailOtpRecoveryWrappedEnrollmentEscrowStore(): EmailOtpRecoveryWrappedEnrollmentEscrowStore {
-    this.emailOtpRecoveryWrappedEnrollmentEscrowStore ??=
-      createEmailOtpRecoveryWrappedEnrollmentEscrowStore(createStoreFactoryInput(this.input));
-    return this.emailOtpRecoveryWrappedEnrollmentEscrowStore;
   }
 
   getEmailOtpAuthStateStore(): EmailOtpAuthStateStore {

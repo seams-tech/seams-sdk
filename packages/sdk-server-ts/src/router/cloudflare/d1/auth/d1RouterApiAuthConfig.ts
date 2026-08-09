@@ -83,8 +83,6 @@ export interface CloudflareD1RouterApiAuthServiceOptions {
   readonly emailOtpVerifyRateLimitWindowMs?: number | string;
   readonly emailOtpGrantRateLimitMax?: number | string;
   readonly emailOtpGrantRateLimitWindowMs?: number | string;
-  readonly emailOtpRecoveryKeyAttemptRateLimitMax?: number | string;
-  readonly emailOtpRecoveryKeyAttemptRateLimitWindowMs?: number | string;
   readonly emailOtpGoogleRegistrationAttemptRateLimitMax?: number | string;
   readonly emailOtpGoogleRegistrationAttemptRateLimitWindowMs?: number | string;
   readonly routerAbEcdsaPresignRuntime?: RouterAbEcdsaPresignRuntime | null;
@@ -122,7 +120,6 @@ export type EmailOtpRuntimeConfig = {
     readonly challenge: EmailOtpRateLimitPolicy;
     readonly verify: EmailOtpRateLimitPolicy;
     readonly grant: EmailOtpRateLimitPolicy;
-    readonly recoveryKeyAttempt: EmailOtpRateLimitPolicy;
     readonly googleRegistrationAttempt: EmailOtpRateLimitPolicy;
   };
 };
@@ -172,8 +169,6 @@ export type NormalizedCloudflareD1RouterApiAuthServiceOptions = Omit<
   | 'emailOtpVerifyRateLimitWindowMs'
   | 'emailOtpGrantRateLimitMax'
   | 'emailOtpGrantRateLimitWindowMs'
-  | 'emailOtpRecoveryKeyAttemptRateLimitMax'
-  | 'emailOtpRecoveryKeyAttemptRateLimitWindowMs'
   | 'emailOtpGoogleRegistrationAttemptRateLimitMax'
   | 'emailOtpGoogleRegistrationAttemptRateLimitWindowMs'
   | 'routerAbEcdsaPresignRuntime'
@@ -427,9 +422,6 @@ function normalizeEmailOtpConfig(
   const grantDefault = production
     ? { limit: 30, windowMs: 60_000 }
     : { limit: 100, windowMs: 60_000 };
-  const recoveryKeyAttemptDefault = production
-    ? { limit: 10, windowMs: 5 * 60_000 }
-    : { limit: 100, windowMs: 60_000 };
   const googleRegistrationAttemptDefault = production
     ? { limit: 12, windowMs: 10 * 60_000 }
     : { limit: 200, windowMs: 60_000 };
@@ -506,15 +498,6 @@ function normalizeEmailOtpConfig(
         windowField: 'emailOtpGrantRateLimitWindowMs',
         windowRaw: input.emailOtpGrantRateLimitWindowMs,
         windowFallback: grantDefault.windowMs,
-      }),
-      recoveryKeyAttempt: emailOtpRateLimitPolicy({
-        limitField: 'emailOtpRecoveryKeyAttemptRateLimitMax',
-        limitRaw: input.emailOtpRecoveryKeyAttemptRateLimitMax,
-        limitFallback: recoveryKeyAttemptDefault.limit,
-        limitMax: 1000,
-        windowField: 'emailOtpRecoveryKeyAttemptRateLimitWindowMs',
-        windowRaw: input.emailOtpRecoveryKeyAttemptRateLimitWindowMs,
-        windowFallback: recoveryKeyAttemptDefault.windowMs,
       }),
       googleRegistrationAttempt: emailOtpRateLimitPolicy({
         limitField: 'emailOtpGoogleRegistrationAttemptRateLimitMax',

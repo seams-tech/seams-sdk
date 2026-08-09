@@ -15,8 +15,6 @@ import {
   parseCurrentEmailOtpAuthStateRow,
   parseCurrentEmailOtpGrantRecord,
   parseCurrentEmailOtpGrantRow,
-  parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-  parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRow,
   parseCurrentEmailOtpUnlockChallengeRecord,
   parseCurrentEmailOtpUnlockChallengeRow,
   parseCurrentEmailOtpWalletEnrollmentRecord,
@@ -36,23 +34,13 @@ import {
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
   isWalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
-import {
-  EMAIL_OTP_RECOVERY_WRAP_ALG,
-  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
-  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
-  buildEmailOtpRecoveryWrapBinding,
-  type EmailOtpRecoveryWrapBinding,
-} from '@shared/utils/emailOtpRecoveryKey';
-
 export type EmailOtpChannel = WalletEmailOtpChannel;
 export type EmailOtpGrantAction =
   | typeof WALLET_EMAIL_OTP_ACTIONS.unseal
-  | typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery
   | typeof WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap;
 export type EmailOtpChallengeAction =
   | typeof WALLET_EMAIL_OTP_ACTIONS.login
   | typeof WALLET_EMAIL_OTP_ACTIONS.registration
-  | typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery
   | typeof WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap;
 export type EmailOtpChallengeOperation = WalletEmailOtpOperation;
 export type EmailOtpLoginChallengeOperation = WalletEmailOtpLoginOperation;
@@ -159,99 +147,6 @@ export interface EmailOtpWalletEnrollmentStore {
   }): Promise<EmailOtpWalletEnrollmentRecord | null>;
   put(record: EmailOtpWalletEnrollmentRecord): Promise<void>;
   del(walletId: string): Promise<void>;
-}
-
-export type EmailOtpRecoveryWrappedEnrollmentEscrowStatus = 'active' | 'consumed' | 'revoked';
-
-type EmailOtpRecoveryWrappedEnrollmentEscrowBase = {
-  version: 'email_otp_recovery_wrapped_enrollment_escrow_v1';
-  alg: typeof EMAIL_OTP_RECOVERY_WRAP_ALG;
-  secretKind: typeof EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND;
-  escrowKind: typeof EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND;
-  walletId: string;
-  userId: string;
-  authSubjectId: string;
-  authMethod: 'google_sso_email_otp';
-  enrollmentId: string;
-  enrollmentVersion: string;
-  enrollmentSealKeyVersion: string;
-  signingRootId: string;
-  signingRootVersion: string;
-  recoveryKeyId: string;
-  recoveryKeyLabel?: string;
-  recoveryKeyStatus: EmailOtpRecoveryWrappedEnrollmentEscrowStatus;
-  nonceB64u: string;
-  wrappedDeviceEnrollmentEscrowB64u: string;
-  aadHashB64u: string;
-  issuedAtMs: number;
-  updatedAtMs: number;
-};
-
-export type ActiveEmailOtpRecoveryWrappedEnrollmentEscrowRecord =
-  EmailOtpRecoveryWrappedEnrollmentEscrowBase & {
-    recoveryKeyStatus: 'active';
-    consumedAtMs?: never;
-    revokedAtMs?: never;
-  };
-
-export type ConsumedEmailOtpRecoveryWrappedEnrollmentEscrowRecord =
-  EmailOtpRecoveryWrappedEnrollmentEscrowBase & {
-    recoveryKeyStatus: 'consumed';
-    consumedAtMs: number;
-    revokedAtMs?: never;
-  };
-
-export type RevokedEmailOtpRecoveryWrappedEnrollmentEscrowRecord =
-  EmailOtpRecoveryWrappedEnrollmentEscrowBase & {
-    recoveryKeyStatus: 'revoked';
-    consumedAtMs?: never;
-    revokedAtMs: number;
-  };
-
-export type EmailOtpRecoveryWrappedEnrollmentEscrowRecord =
-  | ActiveEmailOtpRecoveryWrappedEnrollmentEscrowRecord
-  | ConsumedEmailOtpRecoveryWrappedEnrollmentEscrowRecord
-  | RevokedEmailOtpRecoveryWrappedEnrollmentEscrowRecord;
-
-export type EmailOtpRecoveryWrappedEnrollmentEscrowBoundary =
-  | {
-      record: ActiveEmailOtpRecoveryWrappedEnrollmentEscrowRecord;
-      binding: EmailOtpRecoveryWrapBinding;
-      lifecycle: {
-        status: 'active';
-        consumedAtMs?: never;
-        revokedAtMs?: never;
-      };
-    }
-  | {
-      record: ConsumedEmailOtpRecoveryWrappedEnrollmentEscrowRecord;
-      binding: EmailOtpRecoveryWrapBinding;
-      lifecycle: {
-        status: 'consumed';
-        consumedAtMs: number;
-        revokedAtMs?: never;
-      };
-    }
-  | {
-      record: RevokedEmailOtpRecoveryWrappedEnrollmentEscrowRecord;
-      binding: EmailOtpRecoveryWrapBinding;
-      lifecycle: {
-        status: 'revoked';
-        consumedAtMs?: never;
-        revokedAtMs: number;
-      };
-    };
-
-export interface EmailOtpRecoveryWrappedEnrollmentEscrowStore {
-  get(input: {
-    walletId: string;
-    recoveryKeyId: string;
-  }): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord | null>;
-  listByWallet(walletId: string): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]>;
-  listActiveByWallet(walletId: string): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]>;
-  put(record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord): Promise<void>;
-  putMany(records: readonly EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]): Promise<void>;
-  del(input: { walletId: string; recoveryKeyId: string }): Promise<void>;
 }
 
 export type EmailOtpAuthStateRecord = {
@@ -656,39 +551,6 @@ export const EMAIL_OTP_STORE_D1_SCHEMA_SQL = Object.freeze([
       )
   `,
   `
-    CREATE TABLE IF NOT EXISTS email_otp_recovery_wrapped_enrollment_escrows (
-      namespace TEXT NOT NULL,
-      org_id TEXT NOT NULL,
-      project_id TEXT NOT NULL,
-      env_id TEXT NOT NULL,
-      wallet_id TEXT NOT NULL,
-      recovery_key_id TEXT NOT NULL,
-      recovery_key_status TEXT NOT NULL,
-      record_json TEXT NOT NULL,
-      issued_at_ms INTEGER NOT NULL,
-      updated_at_ms INTEGER NOT NULL,
-      PRIMARY KEY (namespace, org_id, project_id, env_id, wallet_id, recovery_key_id),
-      CHECK (length(wallet_id) > 0),
-      CHECK (length(recovery_key_id) > 0),
-      CHECK (recovery_key_status IN ('active', 'consumed', 'revoked')),
-      CHECK (json_valid(record_json)),
-      CHECK (issued_at_ms > 0),
-      CHECK (updated_at_ms > 0)
-    )
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS email_otp_recovery_wrapped_escrows_wallet_idx
-      ON email_otp_recovery_wrapped_enrollment_escrows (
-        namespace,
-        org_id,
-        project_id,
-        env_id,
-        wallet_id,
-        recovery_key_status,
-        updated_at_ms
-      )
-  `,
-  `
     CREATE TABLE IF NOT EXISTS email_otp_auth_states (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
@@ -953,7 +815,7 @@ function parseChallengeRecord(raw: unknown): EmailOtpChallengeRecord | null {
   if (
     action !== WALLET_EMAIL_OTP_ACTIONS.login &&
     action !== WALLET_EMAIL_OTP_ACTIONS.registration &&
-    action !== WALLET_EMAIL_OTP_ACTIONS.deviceRecovery
+    action !== WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap
   )
     return null;
   const operation: EmailOtpChallengeOperation =
@@ -1026,7 +888,7 @@ function parseGrantRecord(raw: unknown): EmailOtpGrantRecord | null {
   if (otpChannel !== EMAIL_OTP_CHANNEL) return null;
   if (
     action !== WALLET_EMAIL_OTP_ACTIONS.unseal &&
-    action !== WALLET_EMAIL_OTP_ACTIONS.deviceRecovery
+    action !== WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap
   ) {
     return null;
   }
@@ -1061,9 +923,6 @@ function parseWalletEnrollmentRecord(raw: unknown): EmailOtpWalletEnrollmentReco
   const enrollmentId = toOptionalTrimmedString(obj.enrollmentId);
   const enrollmentVersion = toOptionalTrimmedString(obj.enrollmentVersion);
   const enrollmentSealKeyVersion = toOptionalTrimmedString(obj.enrollmentSealKeyVersion);
-  const signingRootId = toOptionalTrimmedString(obj.signingRootId);
-  const signingRootVersion = toOptionalTrimmedString(obj.signingRootVersion);
-  const recoveryWrappedEnrollmentEscrowCount = Number(obj.recoveryWrappedEnrollmentEscrowCount);
   const clientUnlockPublicKeyB64u = toOptionalTrimmedString(obj.clientUnlockPublicKeyB64u);
   const unlockKeyVersion = toOptionalTrimmedString(obj.unlockKeyVersion);
   const createdAtMs = Number(obj.createdAtMs);
@@ -1076,15 +935,7 @@ function parseWalletEnrollmentRecord(raw: unknown): EmailOtpWalletEnrollmentReco
     !verifiedEmail ||
     !enrollmentId ||
     !enrollmentVersion ||
-    !enrollmentSealKeyVersion ||
-    !signingRootId ||
-    !signingRootVersion
-  ) {
-    return null;
-  }
-  if (
-    !Number.isFinite(recoveryWrappedEnrollmentEscrowCount) ||
-    recoveryWrappedEnrollmentEscrowCount <= 0
+    !enrollmentSealKeyVersion
   ) {
     return null;
   }
@@ -1102,70 +953,11 @@ function parseWalletEnrollmentRecord(raw: unknown): EmailOtpWalletEnrollmentReco
     enrollmentId,
     enrollmentVersion,
     enrollmentSealKeyVersion,
-    signingRootId,
-    signingRootVersion,
-    recoveryWrappedEnrollmentEscrowCount: Math.floor(recoveryWrappedEnrollmentEscrowCount),
     clientUnlockPublicKeyB64u,
     unlockKeyVersion,
     createdAtMs: Math.floor(createdAtMs),
     updatedAtMs: Math.floor(updatedAtMs),
   };
-}
-
-export function emailOtpRecoveryWrappedEnrollmentEscrowBoundaryFromRecord(
-  record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-): EmailOtpRecoveryWrappedEnrollmentEscrowBoundary {
-  const binding = buildEmailOtpRecoveryWrapBinding({
-    walletId: record.walletId,
-    userId: record.userId,
-    authSubjectId: record.authSubjectId,
-    authMethod: record.authMethod,
-    enrollmentId: record.enrollmentId,
-    enrollmentVersion: record.enrollmentVersion,
-    enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
-    signingRootId: record.signingRootId,
-    signingRootVersion: record.signingRootVersion,
-    recoveryKeyId: record.recoveryKeyId,
-  });
-  switch (record.recoveryKeyStatus) {
-    case 'active':
-      return {
-        record,
-        binding,
-        lifecycle: {
-          status: 'active',
-        },
-      };
-    case 'consumed':
-      return {
-        record,
-        binding,
-        lifecycle: {
-          status: 'consumed',
-          consumedAtMs: record.consumedAtMs,
-        },
-      };
-    case 'revoked':
-      return {
-        record,
-        binding,
-        lifecycle: {
-          status: 'revoked',
-          revokedAtMs: record.revokedAtMs,
-        },
-      };
-    default: {
-      const _exhaustive: never = record;
-      throw new Error(`Unsupported Email OTP recovery escrow lifecycle: ${String(_exhaustive)}`);
-    }
-  }
-}
-
-export function parseEmailOtpRecoveryWrappedEnrollmentEscrowBoundary(
-  raw: unknown,
-): EmailOtpRecoveryWrappedEnrollmentEscrowBoundary | null {
-  const record = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(raw);
-  return record ? emailOtpRecoveryWrappedEnrollmentEscrowBoundaryFromRecord(record) : null;
 }
 
 function parseAuthStateRecord(raw: unknown): EmailOtpAuthStateRecord | null {
@@ -1548,67 +1340,6 @@ class InMemoryEmailOtpWalletEnrollmentStore implements EmailOtpWalletEnrollmentS
     const key = toOptionalTrimmedString(walletId);
     if (!key) return;
     this.map.delete(key);
-  }
-}
-
-class InMemoryEmailOtpRecoveryWrappedEnrollmentEscrowStore implements EmailOtpRecoveryWrappedEnrollmentEscrowStore {
-  private readonly map = new Map<string, EmailOtpRecoveryWrappedEnrollmentEscrowRecord>();
-
-  private key(input: { walletId: string; recoveryKeyId: string }): string {
-    return `${input.walletId}\u0000${input.recoveryKeyId}`;
-  }
-
-  async get(input: {
-    walletId: string;
-    recoveryKeyId: string;
-  }): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord | null> {
-    const walletId = toOptionalTrimmedString(input.walletId);
-    const recoveryKeyId = toOptionalTrimmedString(input.recoveryKeyId);
-    if (!walletId || !recoveryKeyId) return null;
-    const record = this.map.get(this.key({ walletId, recoveryKeyId }));
-    return record ? cloneRecord(record) : null;
-  }
-
-  async listActiveByWallet(
-    walletId: string,
-  ): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]> {
-    const key = toOptionalTrimmedString(walletId);
-    if (!key) return [];
-    return Array.from(this.map.values())
-      .filter((record) => record.walletId === key && record.recoveryKeyStatus === 'active')
-      .map((record) => cloneRecord(record));
-  }
-
-  async listByWallet(walletId: string): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]> {
-    const key = toOptionalTrimmedString(walletId);
-    if (!key) return [];
-    return Array.from(this.map.values())
-      .filter((record) => record.walletId === key)
-      .map((record) => cloneRecord(record));
-  }
-
-  async put(record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord): Promise<void> {
-    const parsed = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(record);
-    if (!parsed) throw new Error('Invalid Email OTP recovery-wrapped enrollment escrow record');
-    this.map.set(this.key(parsed), cloneRecord(parsed));
-  }
-
-  async putMany(records: readonly EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]): Promise<void> {
-    const parsedRecords = records.map((record) => {
-      const parsed = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(record);
-      if (!parsed) throw new Error('Invalid Email OTP recovery-wrapped enrollment escrow record');
-      return parsed;
-    });
-    for (const parsed of parsedRecords) {
-      this.map.set(this.key(parsed), cloneRecord(parsed));
-    }
-  }
-
-  async del(input: { walletId: string; recoveryKeyId: string }): Promise<void> {
-    const walletId = toOptionalTrimmedString(input.walletId);
-    const recoveryKeyId = toOptionalTrimmedString(input.recoveryKeyId);
-    if (!walletId || !recoveryKeyId) return;
-    this.map.delete(this.key({ walletId, recoveryKeyId }));
   }
 }
 
@@ -2327,170 +2058,6 @@ export class D1EmailOtpWalletEnrollmentStore
   }
 }
 
-export class D1EmailOtpRecoveryWrappedEnrollmentEscrowStore
-  extends D1EmailOtpStoreBase
-  implements EmailOtpRecoveryWrappedEnrollmentEscrowStore
-{
-  readonly adapterKind = 'd1';
-
-  async get(input: {
-    walletId: string;
-    recoveryKeyId: string;
-  }): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord | null> {
-    await this.ensureSchema();
-    const walletId = toOptionalTrimmedString(input.walletId);
-    const recoveryKeyId = toOptionalTrimmedString(input.recoveryKeyId);
-    if (!walletId || !recoveryKeyId) return null;
-    const row = await this.bindScope(
-      `SELECT record_json, updated_at_ms, recovery_key_id
-         FROM email_otp_recovery_wrapped_enrollment_escrows
-        WHERE namespace = ?
-          AND org_id = ?
-          AND project_id = ?
-          AND env_id = ?
-          AND wallet_id = ?
-          AND recovery_key_id = ?
-        LIMIT 1`,
-      [walletId, recoveryKeyId],
-    ).first<D1EmailOtpRecordRow>();
-    const parsed = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRow({
-      recordJson: parseJsonRecord(row?.record_json),
-      updatedAtMs: row?.updated_at_ms,
-    });
-    if (!row) return null;
-    if (!parsed) {
-      await this.del({ walletId, recoveryKeyId });
-      return null;
-    }
-    return cloneRecord(parsed);
-  }
-
-  async listActiveByWallet(
-    walletId: string,
-  ): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]> {
-    return await this.listByWalletAndStatus({ walletId, status: 'active' });
-  }
-
-  async listByWallet(walletId: string): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]> {
-    return await this.listByWalletAndStatus({ walletId, status: null });
-  }
-
-  private async listByWalletAndStatus(input: {
-    walletId: string;
-    status: EmailOtpRecoveryWrappedEnrollmentEscrowStatus | null;
-  }): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]> {
-    await this.ensureSchema();
-    const key = toOptionalTrimmedString(input.walletId);
-    if (!key) return [];
-    const rows = await this.bindScope(
-      `SELECT record_json, updated_at_ms, recovery_key_id
-         FROM email_otp_recovery_wrapped_enrollment_escrows
-        WHERE namespace = ?
-          AND org_id = ?
-          AND project_id = ?
-          AND env_id = ?
-          AND wallet_id = ?
-          AND (? IS NULL OR recovery_key_status = ?)
-        ORDER BY updated_at_ms DESC, recovery_key_id ASC`,
-      [key, input.status, input.status],
-    ).all<D1EmailOtpRecordRow>();
-    const records: EmailOtpRecoveryWrappedEnrollmentEscrowRecord[] = [];
-    const malformedRecoveryKeyIds: string[] = [];
-    for (const row of rows.results || []) {
-      const parsed = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRow({
-        recordJson: parseJsonRecord(row.record_json),
-        updatedAtMs: row.updated_at_ms,
-      });
-      if (parsed) {
-        records.push(cloneRecord(parsed));
-        continue;
-      }
-      const recoveryKeyId = toOptionalTrimmedString(row.recovery_key_id);
-      if (recoveryKeyId) malformedRecoveryKeyIds.push(recoveryKeyId);
-    }
-    await Promise.all(
-      malformedRecoveryKeyIds.map((recoveryKeyId) => this.del({ walletId: key, recoveryKeyId })),
-    );
-    return records;
-  }
-
-  async put(record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord): Promise<void> {
-    await this.ensureSchema();
-    const parsed = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(record);
-    if (!parsed) throw new Error('Invalid Email OTP recovery-wrapped enrollment escrow record');
-    await this.putParsed(parsed);
-  }
-
-  async putMany(records: readonly EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]): Promise<void> {
-    await this.ensureSchema();
-    const statements: D1PreparedStatementLike[] = [];
-    for (const record of records) {
-      const parsed = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(record);
-      if (!parsed) throw new Error('Invalid Email OTP recovery-wrapped enrollment escrow record');
-      statements.push(this.putParsedStatement(parsed));
-    }
-    if (statements.length === 0) return;
-    await this.database.batch(statements);
-  }
-
-  private async putParsed(
-    parsed: EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-  ): Promise<void> {
-    await this.putParsedStatement(parsed).run();
-  }
-
-  private putParsedStatement(
-    parsed: EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-  ): D1PreparedStatementLike {
-    return this.bindScope(
-      `INSERT INTO email_otp_recovery_wrapped_enrollment_escrows (
-        namespace,
-        org_id,
-        project_id,
-        env_id,
-        wallet_id,
-        recovery_key_id,
-        recovery_key_status,
-        record_json,
-        issued_at_ms,
-        updated_at_ms
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT (namespace, org_id, project_id, env_id, wallet_id, recovery_key_id)
-      DO UPDATE SET
-        recovery_key_status = EXCLUDED.recovery_key_status,
-        record_json = EXCLUDED.record_json,
-        issued_at_ms = EXCLUDED.issued_at_ms,
-        updated_at_ms = EXCLUDED.updated_at_ms`,
-      [
-        parsed.walletId,
-        parsed.recoveryKeyId,
-        parsed.recoveryKeyStatus,
-        JSON.stringify(parsed),
-        parsed.issuedAtMs,
-        parsed.updatedAtMs,
-      ],
-    );
-  }
-
-  async del(input: { walletId: string; recoveryKeyId: string }): Promise<void> {
-    await this.ensureSchema();
-    const walletId = toOptionalTrimmedString(input.walletId);
-    const recoveryKeyId = toOptionalTrimmedString(input.recoveryKeyId);
-    if (!walletId || !recoveryKeyId) return;
-    await this.bindScope(
-      `DELETE FROM email_otp_recovery_wrapped_enrollment_escrows
-        WHERE namespace = ?
-          AND org_id = ?
-          AND project_id = ?
-          AND env_id = ?
-          AND wallet_id = ?
-          AND recovery_key_id = ?`,
-      [walletId, recoveryKeyId],
-    ).run();
-  }
-}
-
 export class D1EmailOtpAuthStateStore
   extends D1EmailOtpStoreBase
   implements EmailOtpAuthStateStore
@@ -2949,21 +2516,6 @@ export function createEmailOtpWalletEnrollmentStore(
   assertEmailOtpStoreKindKnown(input, 'enrollment');
   input?.logger?.info('[email-otp] Using in-memory wallet enrollment store (non-persistent)');
   return new InMemoryEmailOtpWalletEnrollmentStore();
-}
-
-export function createEmailOtpRecoveryWrappedEnrollmentEscrowStore(
-  input?: EmailOtpStoreFactoryInput,
-): EmailOtpRecoveryWrappedEnrollmentEscrowStore {
-  const d1 = resolveD1EmailOtpStoreOptions(input, 'recovery-wrapped enrollment escrow');
-  if (d1) {
-    input?.logger?.info('[email-otp] Using D1 recovery-wrapped enrollment escrow store');
-    return new D1EmailOtpRecoveryWrappedEnrollmentEscrowStore(d1);
-  }
-  assertEmailOtpStoreKindKnown(input, 'recovery-wrapped enrollment escrow');
-  input?.logger?.info(
-    '[email-otp] Using in-memory recovery-wrapped enrollment escrow store (non-persistent)',
-  );
-  return new InMemoryEmailOtpRecoveryWrappedEnrollmentEscrowStore();
 }
 
 export function createEmailOtpAuthStateStore(

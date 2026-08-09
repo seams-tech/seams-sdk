@@ -11,7 +11,6 @@ import type {
   EmailOtpAuthStateRecord,
   EmailOtpAuthStateStore,
   EmailOtpChannel,
-  EmailOtpRecoveryWrappedEnrollmentEscrowBoundary,
   EmailOtpRegistrationAttemptStore,
   EmailOtpWalletEnrollmentRecord,
   EmailOtpWalletEnrollmentStore,
@@ -136,21 +135,6 @@ export async function validateEmailOtpEnrollmentMaterial(request: {
     clientUnlockPublicKeyB64u,
     unlockKeyVersion,
   };
-}
-
-export function emailOtpRecoveryEscrowMatchesEnrollment(
-  boundary: EmailOtpRecoveryWrappedEnrollmentEscrowBoundary,
-  enrollment: EmailOtpWalletEnrollmentRecord,
-): boolean {
-  const { auth, enrollment: bindingEnrollment } = boundary.binding;
-  return (
-    auth.walletId === enrollment.walletId &&
-    auth.userId === enrollment.providerUserId &&
-    auth.authSubjectId === enrollment.providerUserId &&
-    bindingEnrollment.enrollmentId === enrollment.enrollmentId &&
-    bindingEnrollment.enrollmentVersion === enrollment.enrollmentVersion &&
-    bindingEnrollment.enrollmentSealKeyVersion === enrollment.enrollmentSealKeyVersion
-  );
 }
 
 export async function buildEmailOtpRegistrationEnrollmentPersistence(input: {

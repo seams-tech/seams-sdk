@@ -47,10 +47,6 @@ export type EmailOtpChallengeIssueInput =
       readonly operation: typeof WALLET_EMAIL_OTP_REGISTRATION_OPERATION;
     })
   | (EmailOtpChallengeIssueBaseInput & {
-      readonly action: typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery;
-      readonly operation: typeof WALLET_EMAIL_OTP_UNLOCK_OPERATION;
-    })
-  | (EmailOtpChallengeIssueBaseInput & {
       readonly action: typeof WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap;
       readonly operation: typeof WALLET_EMAIL_OTP_UNLOCK_OPERATION;
     });
