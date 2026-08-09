@@ -139,7 +139,8 @@ function buildWorkerVars(deployment, emailOtpDelivery) {
   const implicitNearTestFunding =
     deployment.runtimeProfile.nearFunding.kind === 'implicit_account_relayer';
   const demoEmailOtpDelivery =
-    deployment.runtimeProfile.emailOtpDelivery.kind === 'demo_code_response';
+    deployment.runtimeProfile.emailOtpDelivery.kind === 'demo_code_response' ||
+    deployment.runtimeProfile.emailOtpDelivery.kind === 'provider_and_demo_code';
   const vars = {
     SEAMS_TENANT_STORAGE_NAMESPACE: deployment.tenant.namespace,
     SEAMS_STAGING_ORG_ID: deployment.tenant.orgId,
@@ -196,7 +197,7 @@ function buildWorkerVars(deployment, emailOtpDelivery) {
   if (demoEmailOtpDelivery) {
     vars.EMAIL_OTP_DEMO_ALLOWED_ORIGINS = deployment.origins.allowedCors.join(',');
   }
-  if (emailOtpDelivery.kind === 'email_provider') {
+  if (emailOtpDelivery.kind !== 'demo_code_response') {
     vars.EMAIL_OTP_SES_REGION = emailOtpDelivery.region;
     vars.EMAIL_OTP_SES_FROM_ADDRESS = emailOtpDelivery.fromAddress;
   }

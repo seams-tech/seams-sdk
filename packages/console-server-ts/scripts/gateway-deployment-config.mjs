@@ -56,14 +56,20 @@ const BACKEND_LANE_DEFINITIONS = Object.freeze({
 export const GATEWAY_EMAIL_OTP_DELIVERY_KINDS = {
   emailProvider: 'email_provider',
   demoCodeResponse: 'demo_code_response',
+  providerAndDemoCode: 'provider_and_demo_code',
 };
 export function buildGatewayRuntimeProfile(kind, emailOtpDeliveryKind) {
   switch (kind) {
     case GATEWAY_RUNTIME_PROFILE_KINDS.testnetLiveDemo: {
       const deliveryKind =
         emailOtpDeliveryKind || GATEWAY_EMAIL_OTP_DELIVERY_KINDS.demoCodeResponse;
-      if (deliveryKind !== GATEWAY_EMAIL_OTP_DELIVERY_KINDS.demoCodeResponse) {
-        throw new Error('testnet_live_demo requires demo_code_response Email OTP delivery');
+      if (
+        deliveryKind !== GATEWAY_EMAIL_OTP_DELIVERY_KINDS.demoCodeResponse &&
+        deliveryKind !== GATEWAY_EMAIL_OTP_DELIVERY_KINDS.providerAndDemoCode
+      ) {
+        throw new Error(
+          'testnet_live_demo requires demo_code_response or provider_and_demo_code Email OTP delivery',
+        );
       }
       return {
         kind,

@@ -7,7 +7,7 @@ Status: active implementation plan
 
 - Phase 1: the `seams.sh` identity, Easy DKIM, and `confirm.seams.sh` custom MAIL FROM are verified in `ap-southeast-2`. Production access is under AWS review.
 - Phase 2: complete. The SES v2 provider, operation-specific HTML/plain-text renderer, Worker boundary configuration, gateway wiring, and focused tests are implemented.
-- Phase 3: complete locally. The production target, protected GitHub Environment secrets, workflow plumbing, deployment preflight, and Wrangler dry run are ready.
+- Phase 3: mainnet is complete locally. Production testnet is configured for provider delivery plus demo-code disclosure and needs its environment-specific SES secrets before deployment.
 - Phase 4: ready for the controlled production deployment and OTP rehearsal.
 - Phase 5: waits for SES production access before general-recipient rollout.
 
@@ -43,7 +43,7 @@ The remaining implementation gap is deployment configuration and secret plumbing
 
 1. The OTP is generated and verified only by the existing authentication domain.
 2. The SES adapter receives an already-valid `CloudflareD1EmailOtpDeliveryProviderInput`; it does not create, persist, verify, or retry challenges.
-3. Production continues to use `EMAIL_OTP_DELIVERY_MODE=email_provider` and `EMAIL_OTP_RUNTIME_PROFILE=mainnet_service`.
+3. Production mainnet uses `EMAIL_OTP_DELIVERY_MODE=email_provider` and `EMAIL_OTP_RUNTIME_PROFILE=mainnet_service`. Production testnet uses `provider_and_demo_code` with `testnet_live_demo` so the same challenge is emailed and shown in the demo toast.
 4. A send failure deletes the newly created challenge through the current issuer behavior. No unusable challenge remains active.
 5. Reusing an active challenge does not send another email. The existing rate-limit and reuse rules remain authoritative.
 6. OTP codes, email addresses, challenge IDs, wallet IDs, user IDs, and AWS credentials never appear in logs, exceptions returned to clients, analytics, or email metadata.
@@ -131,14 +131,14 @@ Add these gateway values:
 
 Keep the existing runtime values:
 
-| Name                        | Production value  |
-| --------------------------- | ----------------- |
-| `EMAIL_OTP_DELIVERY_MODE`   | `email_provider`  |
-| `EMAIL_OTP_RUNTIME_PROFILE` | `mainnet_service` |
+| Lane                | `EMAIL_OTP_DELIVERY_MODE` | `EMAIL_OTP_RUNTIME_PROFILE` |
+| ------------------- | ------------------------- | --------------------------- |
+| Production testnet  | `provider_and_demo_code`  | `testnet_live_demo`         |
+| Production mainnet  | `email_provider`          | `mainnet_service`           |
 
 Do not add an email-provider selector. SES is the sole provider for this path. A boundary parser must validate raw environment values and return a fully populated internal config before provider construction. Missing or malformed values must stop worker startup or deployment preflight with a field-specific error.
 
-The GitHub `production-gateway` environment should own the two secrets. The deployment workflow forwards them as Cloudflare Worker secrets. Region and From address may live in the checked-in deployment target when the target schema validates both values.
+The GitHub `production-testnet-gateway` and `production-gateway` environments should each own the two secrets. Their deployment workflows forward them as Cloudflare Worker secrets. Region and From address may live in the checked-in deployment target when the target schema validates both values.
 
 ## Email contract
 
