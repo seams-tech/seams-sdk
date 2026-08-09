@@ -18,8 +18,18 @@ import {
   type WalletRecoveryEnvelopeEntry,
 } from '@shared/wallet-recovery';
 import type { DigestB64u } from '@shared/utils';
-import { parseWalletId } from '@shared/utils/domainIds';
+import {
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+  parseWalletId,
+  type WebAuthnCredentialIdB64u,
+  type WebAuthnRpId,
+} from '@shared/utils/domainIds';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import {
+  PASSKEY_PRF_FIRST_SALT_V1,
+  PASSKEY_PRF_SECOND_SALT_V1,
+} from '@shared/utils/signingSessionSeal';
 import {
   ecdsaClientRootPublicKey33B64uFromString,
   type EcdsaClientRootPublicKey33B64u,
@@ -74,6 +84,43 @@ export type WalletRecoveryPreparationKeyManifest = {
   readonly entries: readonly WalletRecoveryPreparationKeyManifestEntry[];
 };
 
+export type WalletRecoveryRegistrationCredentialDescriptor = {
+  readonly type: 'public-key';
+  readonly id: WebAuthnCredentialIdB64u;
+};
+
+export type WalletRecoveryRegistrationOptions = {
+  readonly kind: 'webauthn_recovery_registration_v1';
+  readonly challengeId: string;
+  readonly challengeB64u: string;
+  readonly replacementId: string;
+  readonly rpId: WebAuthnRpId;
+  readonly user: {
+    readonly idB64u: string;
+    readonly name: string;
+    readonly displayName: string;
+  };
+  readonly pubKeyCredParams: readonly [
+    { readonly type: 'public-key'; readonly alg: -7 },
+    { readonly type: 'public-key'; readonly alg: -257 },
+  ];
+  readonly authenticatorSelection: {
+    readonly residentKey: 'required';
+    readonly userVerification: 'preferred';
+  };
+  readonly timeoutMs: number;
+  readonly attestation: 'none';
+  readonly extensions: {
+    readonly prf: {
+      readonly eval: {
+        readonly firstB64u: string;
+        readonly secondB64u: string;
+      };
+    };
+  };
+  readonly excludeCredentials: readonly WalletRecoveryRegistrationCredentialDescriptor[];
+};
+
 export type WalletRecoveryPrepareResult =
   | {
       readonly kind: 'prepared';
@@ -84,6 +131,7 @@ export type WalletRecoveryPrepareResult =
       };
       readonly entries: readonly [WalletRecoveryEnvelopeEntry];
       readonly keyManifest: WalletRecoveryPreparationKeyManifest;
+      readonly registration: WalletRecoveryRegistrationOptions;
       readonly reservationId: string;
       readonly reservationExpiresAtMs: number;
       readonly storeVersion: string;
@@ -92,6 +140,8 @@ export type WalletRecoveryPrepareResult =
   | { readonly kind: 'rejected'; readonly message: string }
   /** Another attempt landed first; this code may still be good. */
   | { readonly kind: 'conflict'; readonly message: string }
+  /** The wallet cannot currently produce a safe replacement registration. */
+  | { readonly kind: 'unavailable'; readonly message: string }
   | { readonly kind: 'transport_failed'; readonly message: string };
 
 export type PreparedWalletRecovery = Extract<
@@ -171,6 +221,10 @@ export async function prepareWalletRecovery(args: {
         body.keyManifest,
         args.walletId,
       );
+      const registration = parseWalletRecoveryRegistrationOptions(
+        body.registration,
+        args.walletId,
+      );
       const reservationId = requireResponseString(body.reservationId, 'reservationId');
       const reservationExpiresAtMs = parseUnixMs(
         body.reservationExpiresAtMs,
@@ -185,6 +239,7 @@ export async function prepareWalletRecovery(args: {
         wrap,
         entries,
         keyManifest,
+        registration,
         reservationId,
         reservationExpiresAtMs,
         storeVersion,
@@ -198,6 +253,15 @@ export async function prepareWalletRecovery(args: {
   }
 
   if (response.status === 409) {
+    if (
+      body.code === 'recovery_manifest_unavailable' ||
+      body.code === 'recovery_registration_unavailable'
+    ) {
+      return {
+        kind: 'unavailable',
+        message: message || 'wallet recovery is temporarily unavailable',
+      };
+    }
     return { kind: 'conflict', message: message || 'the recovery set changed; try again' };
   }
   if (response.status === 401 || response.status === 400) {
@@ -207,6 +271,222 @@ export async function prepareWalletRecovery(args: {
     kind: 'transport_failed',
     message: message || `recovery preparation failed (HTTP ${response.status})`,
   };
+}
+
+function parseWalletRecoveryRegistrationOptions(
+  raw: unknown,
+  expectedWalletId: string,
+): WalletRecoveryRegistrationOptions {
+  const registration = requireRecord(raw, 'walletRecoveryPrepare.registration');
+  rejectUnknownFields(
+    registration,
+    [
+      'kind',
+      'challengeId',
+      'challengeB64u',
+      'replacementId',
+      'rpId',
+      'user',
+      'pubKeyCredParams',
+      'authenticatorSelection',
+      'timeoutMs',
+      'attestation',
+      'extensions',
+      'excludeCredentials',
+    ],
+    'walletRecoveryPrepare.registration',
+  );
+  if (registration.kind !== 'webauthn_recovery_registration_v1') {
+    throw new Error('walletRecoveryPrepare.registration kind is invalid');
+  }
+  const challengeId = requireResponseString(
+    registration.challengeId,
+    'registration.challengeId',
+  );
+  const challengeB64u = requireCanonicalBytesB64u(
+    registration.challengeB64u,
+    32,
+    'registration.challengeB64u',
+  );
+  const replacementId = requireResponseString(
+    registration.replacementId,
+    'registration.replacementId',
+  );
+  const rpIdResult = parseWebAuthnRpId(registration.rpId);
+  if (!rpIdResult.ok) throw new Error('walletRecoveryPrepare.registration.rpId is invalid');
+
+  const user = requireRecord(registration.user, 'walletRecoveryPrepare.registration.user');
+  rejectUnknownFields(
+    user,
+    ['idB64u', 'name', 'displayName'],
+    'walletRecoveryPrepare.registration.user',
+  );
+  const expectedUserIdB64u = base64UrlEncode(new TextEncoder().encode(expectedWalletId));
+  const idB64u = requireCanonicalNonEmptyB64u(
+    user.idB64u,
+    'registration.user.idB64u',
+  );
+  if (idB64u !== expectedUserIdB64u) {
+    throw new Error('walletRecoveryPrepare.registration user is bound to another wallet');
+  }
+  const name = requireResponseString(user.name, 'registration.user.name');
+  const displayName = requireResponseString(user.displayName, 'registration.user.displayName');
+  if (name !== expectedWalletId || displayName !== expectedWalletId) {
+    throw new Error('walletRecoveryPrepare.registration user labels changed the wallet identity');
+  }
+
+  const pubKeyCredParams = parseRecoveryPublicKeyParameters(registration.pubKeyCredParams);
+  const authenticatorSelection = parseRecoveryAuthenticatorSelection(
+    registration.authenticatorSelection,
+  );
+  const timeoutMs = Number(registration.timeoutMs);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error('walletRecoveryPrepare.registration.timeoutMs is invalid');
+  }
+  if (registration.attestation !== 'none') {
+    throw new Error('walletRecoveryPrepare.registration.attestation is invalid');
+  }
+  const extensions = parseRecoveryPrfExtensions(registration.extensions);
+  const excludeCredentials = parseRecoveryExcludeCredentials(registration.excludeCredentials);
+  return {
+    kind: 'webauthn_recovery_registration_v1',
+    challengeId,
+    challengeB64u,
+    replacementId,
+    rpId: rpIdResult.value,
+    user: { idB64u, name, displayName },
+    pubKeyCredParams,
+    authenticatorSelection,
+    timeoutMs,
+    attestation: 'none',
+    extensions,
+    excludeCredentials,
+  };
+}
+
+function parseRecoveryPrfExtensions(
+  raw: unknown,
+): WalletRecoveryRegistrationOptions['extensions'] {
+  const extensions = requireRecord(raw, 'walletRecoveryPrepare.registration.extensions');
+  rejectUnknownFields(
+    extensions,
+    ['prf'],
+    'walletRecoveryPrepare.registration.extensions',
+  );
+  const prf = requireRecord(
+    extensions.prf,
+    'walletRecoveryPrepare.registration.extensions.prf',
+  );
+  rejectUnknownFields(
+    prf,
+    ['eval'],
+    'walletRecoveryPrepare.registration.extensions.prf',
+  );
+  const evaluation = requireRecord(
+    prf.eval,
+    'walletRecoveryPrepare.registration.extensions.prf.eval',
+  );
+  rejectUnknownFields(
+    evaluation,
+    ['firstB64u', 'secondB64u'],
+    'walletRecoveryPrepare.registration.extensions.prf.eval',
+  );
+  const firstB64u = requireCanonicalBytesB64u(
+    evaluation.firstB64u,
+    PASSKEY_PRF_FIRST_SALT_V1.length,
+    'registration.extensions.prf.eval.firstB64u',
+  );
+  const secondB64u = requireCanonicalBytesB64u(
+    evaluation.secondB64u,
+    PASSKEY_PRF_SECOND_SALT_V1.length,
+    'registration.extensions.prf.eval.secondB64u',
+  );
+  if (
+    firstB64u !== base64UrlEncode(PASSKEY_PRF_FIRST_SALT_V1) ||
+    secondB64u !== base64UrlEncode(PASSKEY_PRF_SECOND_SALT_V1)
+  ) {
+    throw new Error('walletRecoveryPrepare.registration PRF salts are unsupported');
+  }
+  return { prf: { eval: { firstB64u, secondB64u } } };
+}
+
+function parseRecoveryPublicKeyParameters(
+  raw: unknown,
+): WalletRecoveryRegistrationOptions['pubKeyCredParams'] {
+  if (!Array.isArray(raw) || raw.length !== 2) {
+    throw new Error('walletRecoveryPrepare.registration.pubKeyCredParams is invalid');
+  }
+  const first = requireRecord(raw[0], 'walletRecoveryPrepare.registration.pubKeyCredParams[0]');
+  const second = requireRecord(raw[1], 'walletRecoveryPrepare.registration.pubKeyCredParams[1]');
+  rejectUnknownFields(
+    first,
+    ['type', 'alg'],
+    'walletRecoveryPrepare.registration.pubKeyCredParams[0]',
+  );
+  rejectUnknownFields(
+    second,
+    ['type', 'alg'],
+    'walletRecoveryPrepare.registration.pubKeyCredParams[1]',
+  );
+  if (first.type !== 'public-key' || first.alg !== -7) {
+    throw new Error('walletRecoveryPrepare.registration.pubKeyCredParams[0] is invalid');
+  }
+  if (second.type !== 'public-key' || second.alg !== -257) {
+    throw new Error('walletRecoveryPrepare.registration.pubKeyCredParams[1] is invalid');
+  }
+  return [
+    { type: 'public-key', alg: -7 },
+    { type: 'public-key', alg: -257 },
+  ];
+}
+
+function parseRecoveryAuthenticatorSelection(
+  raw: unknown,
+): WalletRecoveryRegistrationOptions['authenticatorSelection'] {
+  const selection = requireRecord(
+    raw,
+    'walletRecoveryPrepare.registration.authenticatorSelection',
+  );
+  rejectUnknownFields(
+    selection,
+    ['residentKey', 'userVerification'],
+    'walletRecoveryPrepare.registration.authenticatorSelection',
+  );
+  if (selection.residentKey !== 'required' || selection.userVerification !== 'preferred') {
+    throw new Error('walletRecoveryPrepare.registration.authenticatorSelection is invalid');
+  }
+  return { residentKey: 'required', userVerification: 'preferred' };
+}
+
+function parseRecoveryExcludeCredentials(
+  raw: unknown,
+): readonly WalletRecoveryRegistrationCredentialDescriptor[] {
+  if (!Array.isArray(raw)) {
+    throw new Error('walletRecoveryPrepare.registration.excludeCredentials is invalid');
+  }
+  return raw.map((entry, index) => {
+    const descriptor = requireRecord(
+      entry,
+      `walletRecoveryPrepare.registration.excludeCredentials[${index}]`,
+    );
+    rejectUnknownFields(
+      descriptor,
+      ['type', 'id'],
+      `walletRecoveryPrepare.registration.excludeCredentials[${index}]`,
+    );
+    if (descriptor.type !== 'public-key') {
+      throw new Error('walletRecoveryPrepare.registration.excludeCredentials type is invalid');
+    }
+    const parsedId = parseWebAuthnCredentialIdB64u(descriptor.id);
+    if (!parsedId.ok) {
+      throw new Error('walletRecoveryPrepare.registration.excludeCredentials id is invalid');
+    }
+    requireCanonicalNonEmptyB64u(parsedId.value, 'registration.excludeCredentials.id');
+    return {
+      type: 'public-key',
+      id: parsedId.value,
+    };
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -246,7 +526,7 @@ function requireResponseString(raw: unknown, field: string): string {
   return raw.trim();
 }
 
-function parseWalletRecoveryPreparationKeyManifest(
+export function parseWalletRecoveryPreparationKeyManifest(
   raw: unknown,
   expectedWalletId: string,
 ): WalletRecoveryPreparationKeyManifest {
@@ -407,6 +687,15 @@ function requireCanonicalBytesB64u(
   const value = requireResponseString(raw, label);
   const bytes = base64UrlDecode(value);
   if (bytes.length !== length || base64UrlEncode(bytes) !== value) {
+    throw new Error(`walletRecoveryPrepare ${label} is invalid`);
+  }
+  return value;
+}
+
+function requireCanonicalNonEmptyB64u(raw: unknown, label: string): string {
+  const value = requireResponseString(raw, label);
+  const bytes = base64UrlDecode(value);
+  if (bytes.length === 0 || base64UrlEncode(bytes) !== value) {
     throw new Error(`walletRecoveryPrepare ${label} is invalid`);
   }
   return value;

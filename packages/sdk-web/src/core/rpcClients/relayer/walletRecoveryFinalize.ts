@@ -3,6 +3,12 @@ import {
   buildRelayerJsonPostRequestInit,
   normalizeRelayerBaseUrl,
 } from './relayerHttp';
+import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
+import { redactedPasskeyRegistrationCredential } from '@/SeamsWeb/operations/authMethods/passkey/ecdsaBootstrap';
+import {
+  parsePasskeyCustodyEnvelopeRecord,
+  type PasskeyCustodyEnvelopeRecord,
+} from '@shared/passkey-custody';
 
 /**
  * Installing the replacement credential a recovery enrolled.
@@ -32,6 +38,8 @@ export type WalletRecoveryFinalizeResult =
   | { readonly kind: 'incomplete'; readonly message: string }
   /** The envelope was refused; repeating will not help. */
   | { readonly kind: 'envelope_rejected'; readonly message: string }
+  /** The replacement WebAuthn registration was refused; retrying cannot fix it. */
+  | { readonly kind: 'registration_rejected'; readonly message: string }
   | { readonly kind: 'conflict'; readonly message: string }
   | { readonly kind: 'transport_failed'; readonly message: string };
 
@@ -40,11 +48,44 @@ export async function finalizeWalletRecovery(args: {
   readonly walletId: string;
   readonly sessionToken: string;
   readonly reservationId: string;
-  readonly replacementEnvelope: Record<string, unknown>;
+  readonly challengeId: string;
+  readonly replacementId: string;
+  readonly webauthnRegistration: WebAuthnRegistrationCredential;
+  readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
   readonly fetchImpl?: typeof fetch;
 }): Promise<WalletRecoveryFinalizeResult> {
   const url = `${normalizeRelayerBaseUrl(args.relayUrl)}${WALLET_RECOVERY_FINALIZE_PATH}`;
   const doFetch = args.fetchImpl || fetch;
+  let webauthnRegistration: WebAuthnRegistrationCredential;
+  try {
+    webauthnRegistration = redactedPasskeyRegistrationCredential(args.webauthnRegistration);
+  } catch {
+    return {
+      kind: 'registration_rejected',
+      message: 'the replacement registration is unusable',
+    };
+  }
+  let replacementEnvelope: PasskeyCustodyEnvelopeRecord;
+  try {
+    replacementEnvelope = parsePasskeyCustodyEnvelopeRecord(
+      args.replacementEnvelope,
+      'walletRecoveryFinalize.replacementEnvelope',
+    );
+    if (String(replacementEnvelope.walletId) !== String(args.walletId)) {
+      throw new Error('replacement envelope changed the wallet identity');
+    }
+    if (String(replacementEnvelope.envelopeId) !== String(args.replacementId)) {
+      throw new Error('replacement envelope changed the replacement identity');
+    }
+    if (replacementEnvelope.factor.kind !== 'passkey') {
+      throw new Error('replacement envelope is not bound to a passkey');
+    }
+  } catch {
+    return {
+      kind: 'envelope_rejected',
+      message: 'the replacement envelope is unusable',
+    };
+  }
 
   let response: Response;
   try {
@@ -58,7 +99,10 @@ export async function finalizeWalletRecovery(args: {
         body: {
           walletId: args.walletId,
           reservationId: args.reservationId,
-          replacementEnvelope: args.replacementEnvelope,
+          challengeId: args.challengeId,
+          replacementId: args.replacementId,
+          webauthnRegistration,
+          replacementEnvelope,
         },
       }),
     );
@@ -74,9 +118,16 @@ export async function finalizeWalletRecovery(args: {
   const message = typeof body.message === 'string' ? body.message : '';
 
   if (response.status === 200 && body.ok === true) {
+    const storeVersion = String(body.storeVersion || '').trim();
+    if (!storeVersion) {
+      return {
+        kind: 'transport_failed',
+        message: 'recovery finalization returned no store version',
+      };
+    }
     return {
       kind: 'promoted',
-      storeVersion: String(body.storeVersion || '').trim(),
+      storeVersion,
       retiredEnvelopeIds: stringList(body.retiredEnvelopeIds),
       /* Defaulted to empty rather than left undefined: a caller checking
          `.length` should not have to know the field is conditional. */
@@ -90,6 +141,12 @@ export async function finalizeWalletRecovery(args: {
     return { kind: 'incomplete', message: message || 'recovery did not reproduce every key set' };
   }
   if (response.status === 400) {
+    if (body.code === 'registration_rejected') {
+      return {
+        kind: 'registration_rejected',
+        message: message || 'the replacement registration was refused',
+      };
+    }
     return {
       kind: 'envelope_rejected',
       message: message || 'the replacement envelope was refused',
