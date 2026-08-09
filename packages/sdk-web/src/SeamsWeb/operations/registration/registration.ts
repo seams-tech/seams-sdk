@@ -209,7 +209,6 @@ import {
   RegistrationPasskeyAuthority,
   buildRegistrationEmailOtpEd25519SessionState,
   passkeyWalletAuthAuthorityFromCredential,
-  persistRegistrationPasskeyEd25519SealedRuntime,
   registrationEd25519MaterialFacts,
   registrationEstablishedEd25519Session,
   requireDeferredNearWork,
@@ -3478,28 +3477,6 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
         finalized.ed25519.nearEd25519SigningKeyId,
       ),
       signerSlot: finalized.ed25519.signerSlot,
-    });
-    await persistRegistrationPasskeyEd25519SealedRuntime({
-      context,
-      registrationEstablishedSession: finalized.registrationEstablishedSession,
-      walletId: toWalletId(finalized.walletId),
-      nearAccountId: finalized.ed25519.nearAccountId,
-      nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
-      thresholdSessionId: materialFacts.identity.thresholdSessionId,
-      runtimePolicyScope: materialFacts.stableServerScope.runtimePolicyScope,
-      signerSlot: finalized.ed25519.signerSlot,
-      relayerUrl,
-      auth: {
-        kind: 'passkey',
-        rpId: finalizedPasskey.rpId,
-        credential: passkeyAuthority.credential,
-        credentialPublicKeyB64u: requireFinalizedPasskeyCredentialPublicKeyB64u({
-          finalized,
-          credential: passkeyAuthority.credential,
-        }),
-        passkeyPrfFirstB64u: passkeyAuthority.prfFirstB64u,
-      },
-      metadata,
     });
     await persistActiveWalletSessionAuthorizationFromRegistration(walletSessionAuthorizations, {
       authority: await walletAuthAuthorityRef({

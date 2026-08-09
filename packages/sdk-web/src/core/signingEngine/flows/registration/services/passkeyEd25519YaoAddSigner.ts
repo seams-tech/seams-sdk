@@ -20,10 +20,6 @@ import {
   normalizeRuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
 import {
-  registerProductEd25519YaoV1,
-  type ProductEd25519YaoRegistrationResultV1,
-} from './ed25519YaoRegistration';
-import {
   RouterAbEd25519YaoHttpActivationTransportV1,
   type RouterAbEd25519YaoHttpTransportConfigV1,
 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
@@ -45,10 +41,9 @@ export type VerifiedPasskeyEd25519AddSignerAuthorityV1 = {
   walletId: WalletId;
   addSignerIntentDigestB64u: string;
   credentialIdB64u: string;
-  ownedPasskeyPrfFirst: Uint8Array;
 };
 
-export type VerifiedPasskeyEd25519YaoAddSignerInputV1 = {
+export type VerifiedPasskeyEd25519YaoAddSignerPreparationInputV1 = {
   kind: 'verified_passkey_ed25519_yao_add_signer_input_v1';
   verifiedIntent: VerifiedPasskeyEd25519AddSignerIntentV1;
   verifiedAuthority: VerifiedPasskeyEd25519AddSignerAuthorityV1;
@@ -58,13 +53,6 @@ export type VerifiedPasskeyEd25519YaoAddSignerInputV1 = {
     routerOrigin: string;
     fetch: typeof fetch;
   };
-};
-
-export type VerifiedPasskeyEd25519YaoAddSignerPreparationInputV1 = Omit<
-  VerifiedPasskeyEd25519YaoAddSignerInputV1,
-  'verifiedAuthority'
-> & {
-  verifiedAuthority: Omit<VerifiedPasskeyEd25519AddSignerAuthorityV1, 'ownedPasskeyPrfFirst'>;
 };
 
 export type PreparedPasskeyEd25519YaoAddSignerV1 = {
@@ -210,23 +198,4 @@ export async function admitVerifiedPasskeyEd25519YaoAddSignerV1(
     receipt: receipt.value,
     transportConfig: prepared.transportConfig,
   };
-}
-
-export async function registerVerifiedPasskeyEd25519YaoAddSignerV1(
-  input: VerifiedPasskeyEd25519YaoAddSignerInputV1,
-): Promise<ProductEd25519YaoRegistrationResultV1> {
-  try {
-    const prepared = await prepareVerifiedPasskeyEd25519YaoAddSignerV1(input);
-    return await registerProductEd25519YaoV1({
-      request: prepared.request,
-      factor: {
-        kind: 'passkey_prf_first',
-        ownedSecret32: input.verifiedAuthority.ownedPasskeyPrfFirst,
-      },
-      admission: { kind: 'transport_request' },
-      transport: new RouterAbEd25519YaoHttpActivationTransportV1(prepared.transportConfig),
-    });
-  } finally {
-    input.verifiedAuthority.ownedPasskeyPrfFirst.fill(0);
-  }
 }
