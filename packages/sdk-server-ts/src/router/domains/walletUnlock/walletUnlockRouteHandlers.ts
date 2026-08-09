@@ -16,7 +16,7 @@ import {
 import type { RouterAbEd25519YaoActiveCapabilityDescriptorV1 } from '../ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import type { RouterAbEcdsaPostRegistrationSessionActivationResponseV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
-import type { WalletRecoveryPreparationKeyManifestV1 } from '../../cloudflare/d1/passkeyCustody/walletRecoveryKeyManifest';
+import type { WalletRecoveryPreparationKeyManifestV1 } from '../passkeyCustody/walletRecoveryKeyManifest';
 import type {
   WalletUnlockEmailOtpRequestedCapabilitiesRequestV1,
   WalletUnlockEmailOtpRequestedCapabilitiesV1,
