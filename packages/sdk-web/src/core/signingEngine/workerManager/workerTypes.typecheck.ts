@@ -82,6 +82,7 @@ const persistInitialCanonicalEcdsaActivationRequest: EcdsaDerivationRoleLocalMat
   type: EcdsaDerivationClientCustomRequestType.PersistInitialCanonicalEcdsaActivation,
   payload: {
     kind: 'persist_initial_canonical_ecdsa_activation_v1',
+    bootstrapOwner: 'legacy_prf',
     ceremonyId: 'registration-ceremony',
     planInput: initialEcdsaActivationPlanInput,
   },
@@ -90,6 +91,7 @@ void persistInitialCanonicalEcdsaActivationRequest;
 
 const persistInitialActivationWithPendingSecret = {
   kind: 'persist_initial_canonical_ecdsa_activation_v1',
+  bootstrapOwner: 'legacy_prf',
   ceremonyId: 'registration-ceremony',
   planInput: initialEcdsaActivationPlanInput,
   // @ts-expect-error Pending registration secrets stay in live worker ceremony state.
@@ -99,6 +101,7 @@ void persistInitialActivationWithPendingSecret;
 
 const persistInitialActivationWithConstructedPlan = {
   kind: 'persist_initial_canonical_ecdsa_activation_v1',
+  bootstrapOwner: 'legacy_prf',
   ceremonyId: 'registration-ceremony',
   // @ts-expect-error The worker builds fresh proof objects from the narrow planner input.
   planInput: initialEcdsaActivationPlan,
@@ -107,6 +110,7 @@ void persistInitialActivationWithConstructedPlan;
 
 const finalizePersistedCanonicalEcdsaActivation = {
   kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
+  bootstrapOwner: 'legacy_prf',
   journalId: activationJournalId,
   activationReceipt,
   routerAbEcdsaDerivationNormalSigning: normalSigning,
@@ -150,6 +154,7 @@ void finalizedCanonicalEcdsaActivationWithoutAuthority;
 
 const finalizeCanonicalEcdsaActivationWithCallerRelayer = {
   kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
+  bootstrapOwner: 'legacy_prf',
   journalId: activationJournalId,
   activationReceipt,
   routerAbEcdsaDerivationNormalSigning: normalSigning,
@@ -160,8 +165,10 @@ void finalizeCanonicalEcdsaActivationWithCallerRelayer;
 
 const finalizeCanonicalEcdsaActivationWithCeremonyAlias = {
   kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
+  bootstrapOwner: 'legacy_prf',
   journalId: activationJournalId,
   activationReceipt,
+  routerAbEcdsaDerivationNormalSigning: normalSigning,
   // @ts-expect-error Canonical finalization accepts only the persisted journal identity.
   ceremonyId: 'legacy-ceremony-alias',
 } satisfies FinalizeRouterAbEcdsaRegistrationActivationRequestV1;
@@ -768,8 +775,15 @@ const walletCustodyCeremonyEstablish: SignerWorkerOperationRequest<
   payload: {
     ceremonyId: 'ceremony-1',
     keySet: 'evm_family_ecdsa_v1',
-    custody: { origin: 'establish', walletId: 'alice.testnet' },
+    custody: {
+      origin: 'establish',
+      walletId: 'alice.testnet',
+      factorJson: '{}',
+      factorSecret: new ArrayBuffer(32),
+      recoveryCodesJson: '[]',
+    },
     protocolInputsJson: '{}',
+    evmFamilySigningKeySlotId: 'evm-slot-1',
   },
 };
 void walletCustodyCeremonyEstablish;
@@ -797,8 +811,15 @@ const walletCustodyCeremonyBeginWithSeed: SignerWorkerOperationRequest<
   payload: {
     ceremonyId: 'ceremony-1',
     keySet: 'evm_family_ecdsa_v1',
-    custody: { origin: 'establish', walletId: 'alice.testnet' },
+    custody: {
+      origin: 'establish',
+      walletId: 'alice.testnet',
+      factorJson: '{}',
+      factorSecret: new ArrayBuffer(32),
+      recoveryCodesJson: '[]',
+    },
     protocolInputsJson: '{}',
+    evmFamilySigningKeySlotId: 'evm-slot-1',
     // @ts-expect-error a caller cannot supply the wallet custody seed.
     walletCustodySeed: new ArrayBuffer(32),
   },

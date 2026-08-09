@@ -108,7 +108,10 @@ import type { EmailOtpEd25519YaoRecoveryBootstrapV1 } from '@/core/signingEngine
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import type { RouterAbEd25519YaoRegistrationAdmissionRequestV1 } from '@shared/utils/routerAbEd25519Yao';
 import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
-import type { WalletCustodyCeremonyCommitPayload } from '@shared/passkey-custody';
+import type {
+  WalletCustodyCeremonyCommitPayload,
+  WalletCustodyEvmFamilyPublicFacts,
+} from '@shared/passkey-custody';
 import type {
   WalletCustodyEd25519MaterialBindingV1,
   WalletCustodySealedEd25519MaterialV1,
@@ -360,6 +363,34 @@ export interface WalletCustodyCeremonySurface {
     traceContext?: RouterAbTraceContextV1;
   }): Promise<EstablishedWalletCustodyNearEd25519KeySetV1>;
 
+  joinWalletCustodyNearEd25519KeySet(args: {
+    custodyJson: string;
+    factorSecret: ArrayBuffer;
+    nearEd25519SigningKeyId: string;
+    registrationCeremonyId: string;
+    admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+    admissionReceipt: unknown;
+    participantIds: readonly [number, number];
+    routerOrigin: string;
+    authorization: string;
+    traceContext?: RouterAbTraceContextV1;
+  }): Promise<JoinedWalletCustodyNearEd25519KeySetV1>;
+
+  establishWalletCustodyEvmFamilyKeySet(args: {
+    walletId: string;
+    factorJson: string;
+    factorSecret: ArrayBuffer;
+    evmFamilySigningKeySlotId: string;
+    applicationBindingDigestB64u: string;
+    confirmRecoveryCodesBackedUp: (recoveryCodes: readonly string[]) => Promise<void>;
+    runRelayerRound: (bootstrap: {
+      contextBinding32B64u: string;
+      clientSharePublicKey33B64u: string;
+      clientShareRetryCounter: number;
+      preActivationCommitPayload: WalletCustodyCeremonyCommitPayload;
+    }) => Promise<string>;
+  }): Promise<EstablishedWalletCustodyEvmFamilyKeySetV1>;
+
   /**
    * Persists the wallet-scoped continuity cache the ceremony sealed.
    *
@@ -393,6 +424,26 @@ export type EstablishedWalletCustodyNearEd25519KeySetV1 = {
     readonly b64u: string;
     readonly nonceB64u: string;
     readonly applicationBindingDigestB64u: string;
+  };
+};
+
+export type JoinedWalletCustodyNearEd25519KeySetV1 = Omit<
+  EstablishedWalletCustodyNearEd25519KeySetV1,
+  'recoveryCodes'
+>;
+
+export type EstablishedWalletCustodyEvmFamilyKeySetV1 = {
+  readonly recoveryCodes: readonly string[];
+  readonly commitPayload: WalletCustodyCeremonyCommitPayload;
+  readonly clientBootstrap: {
+    readonly contextBinding32B64u: string;
+    readonly derivationClientSharePublicKey33B64u: string;
+    readonly clientShareRetryCounter: number;
+    readonly participantId: 1;
+  };
+  readonly localMaterial: {
+    readonly readyStateBlobB64u: string;
+    readonly publicFacts: WalletCustodyEvmFamilyPublicFacts;
   };
 };
 

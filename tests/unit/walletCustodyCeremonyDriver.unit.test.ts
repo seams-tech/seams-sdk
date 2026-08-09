@@ -21,13 +21,23 @@ const WALLET_ID = 'alice.testnet';
 
 const BEGUN_NEAR = {
   ceremonyId: CEREMONY_ID,
+  keySet: 'near_ed25519_v1',
   yaoExecuteRequestJson: '{"yao":"execute"}',
+};
+
+const EVM_PREACTIVATION_PAYLOAD = {
+  walletId: WALLET_ID,
+  keySet: 'evm_family_ecdsa_v1',
+  keyManifestDigestB64u: 'other-digest',
+  clientRootPublicKey33B64u: 'client-root',
 };
 
 const BEGUN_EVM = {
   ceremonyId: CEREMONY_ID,
+  keySet: 'evm_family_ecdsa_v1',
   ecdsaContextBinding32B64u: 'context-binding',
   ecdsaClientSharePublicKey33B64u: 'client-share-key',
+  preActivationCommitPayload: EVM_PREACTIVATION_PAYLOAD,
 };
 
 const ESTABLISHED_PAYLOAD = {
@@ -50,11 +60,30 @@ const ESTABLISHED_PAYLOAD = {
 };
 
 const JOINED_PAYLOAD = {
-  walletId: WALLET_ID,
-  keySet: 'evm_family_ecdsa_v1',
-  keyManifestDigestB64u: 'other-digest',
-  clientRootPublicKey33B64u: 'client-root',
+  ...EVM_PREACTIVATION_PAYLOAD,
   ecdsaReadyStateBlobB64u: 'ready-blob',
+  ecdsaPublicFacts: {
+    contextBinding32B64u: 'context-binding',
+    derivationClientSharePublicKey33B64u: 'client-share-key',
+    clientVerifyingShare33B64u: 'client-verifying-share',
+    relayerPublicKey33B64u: 'relayer-public-key',
+    groupPublicKey33B64u: 'group-public-key',
+    ethereumAddress: '0x0000000000000000000000000000000000000001',
+    clientShareRetryCounter: 0,
+    relayerShareRetryCounter: 0,
+  },
+};
+
+const EVM_COMPLETION = {
+  ceremonyId: CEREMONY_ID,
+  keySet: 'evm_family_ecdsa_v1',
+  activation: {
+    walletId: WALLET_ID,
+    keyManifestDigestB64u: 'other-digest',
+    clientRootPublicKey33B64u: 'client-root',
+    ecdsaReadyStateBlobB64u: JOINED_PAYLOAD.ecdsaReadyStateBlobB64u,
+    ecdsaPublicFacts: JOINED_PAYLOAD.ecdsaPublicFacts,
+  },
 };
 
 type Call = { type: string; payload: Record<string, unknown> };
@@ -76,7 +105,9 @@ function recordingRunner(
       case 'beginWalletCustodyKeySetRun':
         return begun;
       case 'completeWalletCustodyKeySetRun':
-        return { ceremonyId: CEREMONY_ID };
+        return begun.keySet === 'evm_family_ecdsa_v1'
+          ? EVM_COMPLETION
+          : { ceremonyId: CEREMONY_ID, keySet: 'near_ed25519_v1' };
       case 'finishWalletCustodyKeySetRun':
         return finished;
       case 'discardWalletCustodyCeremony':
@@ -121,12 +152,15 @@ function evmRun(
   runRelayerRound: (bootstrap: {
     contextBinding32B64u: string;
     clientSharePublicKey33B64u: string;
+    preActivationCommitPayload: typeof EVM_PREACTIVATION_PAYLOAD;
   }) => Promise<string>,
+  beforeRelayerRound: () => Promise<void> = async () => undefined,
 ): WalletCustodyCeremonyKeySetInput {
   return {
     keySet: 'evm_family_ecdsa_v1',
     protocolInputsJson: '{"applicationBindingDigestB64u":"digest"}',
     evmFamilySigningKeySlotId: 'wallet-key:evm-family:alice.testnet:root-1:v1',
+    beforeRelayerRound,
     runRelayerRound,
   };
 }
@@ -162,7 +196,7 @@ test('an establishing NEAR run: begin, the Router round, complete, then finish',
   expect(begin.custody).toEqual({ origin: 'establish', walletId: WALLET_ID });
 
   // The identity recorded is this key set's own field.
-  expect(calls[1]!.payload.identityId).toBe('near-ed25519-key-1');
+  expect(calls[1]!.payload.nearEd25519SigningKeyId).toBe('near-ed25519-key-1');
 
   // An establishing run must seal, so the finish carries the factor and codes.
   const establishWith = calls[2]!.payload.establishWith as Record<string, unknown>;
@@ -192,6 +226,7 @@ test('a joining EVM run reaches the relayer and never seals', async () => {
   expect(sawBootstrap).toEqual({
     contextBinding32B64u: BEGUN_EVM.ecdsaContextBinding32B64u,
     clientSharePublicKey33B64u: BEGUN_EVM.ecdsaClientSharePublicKey33B64u,
+    preActivationCommitPayload: EVM_PREACTIVATION_PAYLOAD,
   });
 
   const begin = calls[0]!.payload;
@@ -201,11 +236,33 @@ test('a joining EVM run reaches the relayer and never seals', async () => {
   // finish: a joining run has no seed of its own to seal.
   expect((begin.custody as Record<string, unknown>).custodyJson).toBe('{"nonceB64u":"nonce"}');
 
-  expect(calls[1]!.payload.identityId).toBe('wallet-key:evm-family:alice.testnet:root-1:v1');
+  expect(begin.evmFamilySigningKeySlotId).toBe('wallet-key:evm-family:alice.testnet:root-1:v1');
+  expect(calls.map((call) => call.type)).toEqual([
+    'beginWalletCustodyKeySetRun',
+    'completeWalletCustodyKeySetRun',
+  ]);
+});
 
-  // The property that matters: sealing here would give the wallet a second seed
-  // and a second recovery set, leaving half its keys covered by neither.
-  expect(calls[2]!.payload.establishWith).toBeUndefined();
+test('an EVM run requires local recovery backup before relayer activation', async () => {
+  const { runStep } = recordingRunner({}, BEGUN_EVM, JOINED_PAYLOAD);
+  const order: string[] = [];
+
+  await runWalletCustodyKeySetCeremony({
+    runStep,
+    custody: joiningCustody(),
+    keySetRun: evmRun(
+      async () => {
+        order.push('relayer');
+        return '{"relayerKeyId":"relayer-1"}';
+      },
+      async () => {
+        order.push('backup');
+      },
+    ),
+    ceremonyId: CEREMONY_ID,
+  });
+
+  expect(order).toEqual(['backup', 'relayer']);
 });
 
 test('a recorded manifest digest reaches the completing step', async () => {
@@ -246,9 +303,7 @@ test('a failed protocol round discards the run and rethrows', async () => {
   ]);
 });
 
-test('a begin that prepared no protocol round fails before completing', async () => {
-  // An EVM begin answering a NEAR run: there is no execution request to send,
-  // and continuing would hand the Router nothing.
+test('a worker key-set mismatch fails before completing', async () => {
   const { runStep, calls } = recordingRunner({}, BEGUN_EVM);
 
   await expect(
@@ -258,7 +313,7 @@ test('a begin that prepared no protocol round fails before completing', async ()
       keySetRun: nearRun(async () => '{"yao":"result"}'),
       ceremonyId: CEREMONY_ID,
     }),
-  ).rejects.toThrow('no Router execution request');
+  ).rejects.toThrow('began an EVM run for a NEAR request');
 
   expect(calls.map((call) => call.type)).toEqual([
     'beginWalletCustodyKeySetRun',

@@ -54,7 +54,11 @@ import {
 import { Ed25519YaoPageLifecycleOwner } from '@/core/signingEngine/threshold/ed25519/yaoPageLifecycleOwner';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
-import { establishNearEd25519CustodyV1 } from '@/core/signingEngine/walletCustody/registrationCeremony';
+import {
+  establishEvmFamilyCustodyV1,
+  establishNearEd25519CustodyV1,
+  joinNearEd25519CustodyV1,
+} from '@/core/signingEngine/walletCustody/registrationCeremony';
 import { walletCustodyCeremonyStepRunner } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
 import { walletCustodyEd25519ActiveClientMetadataV1 } from '@/core/signingEngine/walletCustody/ceremonyActiveClientMetadata';
 import {
@@ -62,7 +66,11 @@ import {
   type WalletCustodyEd25519MaterialBindingV1,
   type WalletCustodySealedEd25519MaterialV1,
 } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
-import type { EstablishedWalletCustodyNearEd25519KeySetV1 } from './ports';
+import type {
+  EstablishedWalletCustodyEvmFamilyKeySetV1,
+  EstablishedWalletCustodyNearEd25519KeySetV1,
+  JoinedWalletCustodyNearEd25519KeySetV1,
+} from './ports';
 import { RouterAbEd25519YaoHttpActivationTransportV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import {
   ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
@@ -1655,6 +1663,89 @@ export class BrowserSigningSurface {
         activationResultJson,
       }),
     };
+  }
+
+  async joinWalletCustodyNearEd25519KeySet(args: {
+    custodyJson: string;
+    factorSecret: ArrayBuffer;
+    nearEd25519SigningKeyId: string;
+    registrationCeremonyId: string;
+    admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+    admissionReceipt: unknown;
+    participantIds: readonly [number, number];
+    routerOrigin: string;
+    authorization: string;
+    traceContext?: RouterAbTraceContextV1;
+  }): Promise<JoinedWalletCustodyNearEd25519KeySetV1> {
+    const transport = new RouterAbEd25519YaoHttpActivationTransportV1({
+      routerOrigin: args.routerOrigin,
+      authorization: args.authorization,
+      fetch: globalThis.fetch,
+      ...(args.traceContext ? { traceContext: args.traceContext } : {}),
+    });
+
+    let activationResultJson: string | null = null;
+    const joined = await joinNearEd25519CustodyV1({
+      runStep: walletCustodyCeremonyStepRunner({
+        requestOperation: (operation) =>
+          this.signerWorkerManager.requestWorkerOperation(
+            operation as Parameters<SignerWorkerManager['requestWorkerOperation']>[0],
+          ),
+      }),
+      custodyJson: args.custodyJson,
+      factorSecret: args.factorSecret,
+      nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+      registrationCeremonyId: args.registrationCeremonyId,
+      yaoAdmission: args.admissionReceipt,
+      yaoApplication: args.admissionRequest.application_binding,
+      participantIds: args.participantIds,
+      runRouterRound: async (yaoExecuteRequestJson: string) => {
+        const response = await transport.send({
+          kind: 'execute',
+          path: ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
+          body: JSON.parse(yaoExecuteRequestJson),
+        });
+        if (!response.ok) {
+          throw new Error(`Router Ed25519 Yao execute failed: ${response.message}`);
+        }
+        activationResultJson = JSON.stringify(response.value);
+        return activationResultJson;
+      },
+    });
+    if (!activationResultJson || !joined.localMaterial) {
+      throw new Error('the wallet custody NEAR join produced no local signing material');
+    }
+    return {
+      commitPayload: joined.commitPayload,
+      activationReference: joined.activationReference,
+      localMaterial: joined.localMaterial,
+      metadata: walletCustodyEd25519ActiveClientMetadataV1({
+        admissionRequest: args.admissionRequest,
+        activationResultJson,
+      }),
+    };
+  }
+
+  async establishWalletCustodyEvmFamilyKeySet(args: {
+    walletId: string;
+    factorJson: string;
+    factorSecret: ArrayBuffer;
+    evmFamilySigningKeySlotId: string;
+    applicationBindingDigestB64u: string;
+    confirmRecoveryCodesBackedUp: Parameters<
+      typeof establishEvmFamilyCustodyV1
+    >[0]['confirmRecoveryCodesBackedUp'];
+    runRelayerRound: Parameters<typeof establishEvmFamilyCustodyV1>[0]['runRelayerRound'];
+  }): Promise<EstablishedWalletCustodyEvmFamilyKeySetV1> {
+    return await establishEvmFamilyCustodyV1({
+      ...args,
+      runStep: walletCustodyCeremonyStepRunner({
+        requestOperation: (operation) =>
+          this.signerWorkerManager.requestWorkerOperation(
+            operation as Parameters<SignerWorkerManager['requestWorkerOperation']>[0],
+          ),
+      }),
+    });
   }
 
   async persistWalletCustodyEd25519Material(args: {

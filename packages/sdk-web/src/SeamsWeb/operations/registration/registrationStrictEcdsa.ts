@@ -217,11 +217,13 @@ export async function closeStrictEcdsaRegistrationCeremony(args: {
 
 export function buildStrictRegistrationClientBootstrap(args: {
   prepare: WalletRegistrationEcdsaPreparePayload['prepare'];
-  verified: Awaited<
-    ReturnType<
-      RegistrationWebContext['signingEngine']['verifyRouterAbEcdsaRegistrationClientProofs']
-    >
-  >['clientBootstrap'];
+  verified: NonNullable<
+    Awaited<
+      ReturnType<
+        RegistrationWebContext['signingEngine']['verifyRouterAbEcdsaRegistrationClientProofs']
+      >
+    >['clientBootstrap']
+  >;
 }): WalletRegistrationEcdsaClientBootstrap {
   const prepare = args.prepare;
   return {
@@ -351,6 +353,7 @@ export async function runStrictEcdsaFamilyCeremony(args: {
         args.context.signingEngine,
         {
           kind: 'verify_router_ab_ecdsa_registration_client_proofs_v1',
+          bootstrapOwner: 'legacy_prf',
           ceremonyId,
           clientProofFinalization: {
             kind: 'finalize_encrypted_client_proof_bundles_v1',
@@ -359,6 +362,9 @@ export async function runStrictEcdsaFamilyCeremony(args: {
         },
       ),
     });
+    if (verified.bootstrapOwner !== 'legacy_prf') {
+      throw new Error('Add-signer ECDSA verification returned wallet custody bindings');
+    }
     const activationCommand = await buildAddSignerCanonicalActivationCommand({
       addSignerCeremonyId: ceremonyId,
       activationCorrelationId,
@@ -369,6 +375,7 @@ export async function runStrictEcdsaFamilyCeremony(args: {
     };
     const persisted = await args.context.signingEngine.persistInitialCanonicalEcdsaActivation({
       kind: 'persist_initial_canonical_ecdsa_activation_v1',
+      bootstrapOwner: 'legacy_prf',
       ceremonyId,
       planInput: {
         authority: args.authority,
@@ -447,6 +454,7 @@ export async function finalizeStrictEcdsaFamilyLocalActivation(args: {
 }): Promise<Omit<RegistrationEcdsaSession, 'registrationEstablishedSession'>> {
   const finalized = await args.context.signingEngine.finalizeRouterAbEcdsaRegistrationActivation({
     kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
+    bootstrapOwner: 'legacy_prf',
     journalId: args.pending.journalId,
     activationReceipt: args.pending.activationReceipt,
     routerAbEcdsaDerivationNormalSigning:

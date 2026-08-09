@@ -2,6 +2,7 @@ use router_ab_ecdsa_client_protocol::{
     build_ecdsa_post_registration_request_v1, build_ecdsa_registration_request_v1,
     derive_ecdsa_client_ephemeral_keypair_v1, open_ecdsa_signing_worker_export_share_v1,
     EcdsaClientEphemeralKeyPairV1, EcdsaClientProtocolError, EcdsaDeriverRoleV1,
+    EcdsaMaterialActivationRefKindV1, EcdsaMaterialActivationRefV1,
     EcdsaPostRegistrationCeremonyV1, EcdsaPostRegistrationHeaderInputV1,
     EcdsaPostRegistrationHeaderV1, EcdsaPostRegistrationLifecycleV1,
     EcdsaPostRegistrationLifecycleWireV1, EcdsaPostRegistrationOperationV1,
@@ -12,13 +13,14 @@ use router_ab_ecdsa_client_protocol::{
     EcdsaRegistrationSealSeedsV1, EcdsaRegistrationSignerSetV1, EcdsaSelectedServerIdentityV1,
     EcdsaSignerEnvelopePublicKeyV1, EcdsaSignerIdentityV1, EcdsaSigningWorkerExportShareBindingV1,
     EcdsaSigningWorkerExportShareEnvelopeV1, EcdsaStableKeyContextV1,
-    EcdsaMaterialActivationRefKindV1, EcdsaMaterialActivationRefV1,
 };
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use zeroize::Zeroize;
 
-use crate::ecdsa_prf_finalizer::finalize_encrypted_client_proof_bundles_v1;
+use crate::ecdsa_prf_finalizer::{
+    finalize_encrypted_client_proof_bundles_v1, finalize_encrypted_client_proof_output_v1,
+};
 use crate::encoders::base64_url_encode;
 
 /// Rust-owned client ceremony whose X25519 private key never crosses WASM.
@@ -169,6 +171,18 @@ impl RouterAbEcdsaClientCeremonyV1 {
             self.active_keypair()?.private_key_bytes(),
         )
         .map_err(js_error)
+    }
+
+    /// Verifies strict registration proof bundles while discarding their
+    /// obsolete PRF output inside wasm.
+    pub fn verify_encrypted_proof_bundles(&self, input_json: &str) -> Result<(), JsValue> {
+        let mut output = finalize_encrypted_client_proof_output_v1(
+            input_json,
+            self.active_keypair()?.private_key_bytes(),
+        )
+        .map_err(js_error)?;
+        output.zeroize();
+        Ok(())
     }
 
     /// Returns the canonical explicit-export request digest held by this ceremony.
@@ -406,7 +420,9 @@ struct PostRegistrationCommonInputV1 {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum NormalSigningAuthorizationInputV1 {
-    ReusableWalletSession { wallet_session_id: String },
+    ReusableWalletSession {
+        wallet_session_id: String,
+    },
     OperationStepUp {
         #[serde(skip_serializing)]
         authorization_id: String,
