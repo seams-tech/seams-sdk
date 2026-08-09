@@ -93,6 +93,7 @@ test('Cloudflare D1 Router API auth service verifies Google OIDC tokens and link
       },
     });
     expect(exchange.status).toBe(200);
+    expect(exchange.headers.get('server-timing')).toContain('total;dur=');
     expect(signedClaims).toContainEqual(
       expect.objectContaining({
         sub: 'google:subject-123',

@@ -4,7 +4,10 @@ import type {
   WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
-import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type {
+  RouterAbEcdsaDerivationPublicCapabilityV1,
+  RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import { buildEmailOtpAuthContextForWalletAuthMethod } from '../identity/laneIdentity';
 import type {
   EvmFamilyEcdsaKeyHandle,
@@ -27,6 +30,7 @@ declare const key: EvmFamilyEcdsaKeyIdentity;
 declare const lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
 declare const passkeyCredentialIdB64u: string;
 declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+declare const sessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
 declare const existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
 
 const validReuseBootstrap = {
@@ -74,6 +78,53 @@ const validPasskeyFreshWebAuthnBootstrap = {
   webauthnAuthentication,
 } satisfies EcdsaBootstrapRequest;
 void validPasskeyFreshWebAuthnBootstrap;
+
+const validPasskeyPreauthorizedBootstrap = {
+  kind: 'passkey_preauthorized_ecdsa_bootstrap',
+  keyHandle,
+  key,
+  lanePolicy,
+  publicCapability,
+  existingRoleLocalMaterial,
+  source: 'login',
+  passkeyPrfFirstB64u: 'passkey-prf-first',
+  passkeyCredentialIdB64u,
+  sessionActivation,
+} satisfies EcdsaBootstrapRequest;
+void validPasskeyPreauthorizedBootstrap;
+
+// @ts-expect-error Preauthorized bootstrap requires the already-authorized session activation.
+const invalidPasskeyPreauthorizedBootstrapWithoutActivation: EcdsaBootstrapRequest = {
+  kind: 'passkey_preauthorized_ecdsa_bootstrap',
+  keyHandle,
+  key,
+  lanePolicy,
+  publicCapability,
+  existingRoleLocalMaterial,
+  source: 'login',
+  passkeyPrfFirstB64u: 'passkey-prf-first',
+  passkeyCredentialIdB64u,
+};
+void invalidPasskeyPreauthorizedBootstrapWithoutActivation;
+
+const invalidPasskeyPreauthorizedBootstrapWithRouteAuth: EcdsaBootstrapRequest = {
+  kind: 'passkey_preauthorized_ecdsa_bootstrap',
+  keyHandle,
+  key,
+  lanePolicy,
+  publicCapability,
+  existingRoleLocalMaterial,
+  source: 'login',
+  passkeyPrfFirstB64u: 'passkey-prf-first',
+  passkeyCredentialIdB64u,
+  sessionActivation,
+  routeAuth: {
+    // @ts-expect-error Preauthorized bootstrap cannot trigger another route authorization.
+    kind: 'wallet_session',
+    jwt: 'threshold-session-jwt',
+  },
+};
+void invalidPasskeyPreauthorizedBootstrapWithRouteAuth;
 
 // @ts-expect-error Fresh passkey bootstrap requires an exact existing key and material.
 const invalidTargetPasskeyFreshBootstrap: EcdsaBootstrapRequest = {

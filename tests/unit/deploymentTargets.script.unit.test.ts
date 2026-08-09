@@ -160,7 +160,7 @@ test('deployment topology keeps staging provisioning and isolates production ori
   const productionMainnet = targets.backendLanes['production-mainnet'];
 
   expect(staging.provisioning.kind).toBe('provisioned');
-  expect(productionTestnet.provisioning.kind).toBe('pending');
+  expect(productionTestnet.provisioning.kind).toBe('provisioned');
   expect(productionMainnet.provisioning.kind).toBe('pending');
   expect(staging.gatewayOrigin).toBe('https://staging.api.seams.sh');
   expect(productionTestnet.gatewayOrigin).toBe('https://test.api.seams.sh');
@@ -283,7 +283,7 @@ test('deployment target parsing rejects duplicate pending values', async () => {
           ...pending,
           provisioning: {
             ...provisioning,
-            requiredValues: ['RESEND_API_KEY', 'RESEND_API_KEY'],
+            requiredValues: ['STRIPE_API_SK', 'STRIPE_API_SK'],
           },
         },
       }),

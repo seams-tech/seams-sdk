@@ -146,9 +146,9 @@ export type PasskeyEcdsaExportBootstrapRequest = EcdsaExplicitExportBootstrapReq
   purpose: 'explicit_key_export';
 };
 
-export type PasskeyExchangeEcdsaBootstrapRequest = EcdsaBootstrapExactRequestBase &
+export type PasskeyPreauthorizedEcdsaBootstrapRequest = EcdsaBootstrapExactRequestBase &
   PasskeyCredentialBootstrapAuth & {
-    kind: 'passkey_exchange_ecdsa_bootstrap';
+    kind: 'passkey_preauthorized_ecdsa_bootstrap';
     sessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
     routeAuth?: never;
     emailOtpAuthContext?: never;
@@ -196,7 +196,7 @@ export type EmailOtpEcdsaExplicitExportBootstrapResult =
 export type EcdsaBootstrapRequest =
   | ReuseWarmEcdsaBootstrapRequest
   | PasskeyFreshEcdsaBootstrapExactRequest
-  | PasskeyExchangeEcdsaBootstrapRequest
+  | PasskeyPreauthorizedEcdsaBootstrapRequest
   | WalletSessionReconnectEcdsaBootstrapRequest
   | EmailOtpEcdsaBootstrapRequest;
 
@@ -291,7 +291,7 @@ function toActivateEcdsaSessionRequest(
     };
   };
   const preauthorizedExactSessionRequest = (
-    exactRequest: PasskeyExchangeEcdsaBootstrapRequest,
+    exactRequest: PasskeyPreauthorizedEcdsaBootstrapRequest,
   ): ActivateEcdsaExistingSessionRequest => ({
     kind: 'session_bootstrap',
     purpose: 'transaction_signing',
@@ -314,7 +314,7 @@ function toActivateEcdsaSessionRequest(
         passkeyCredentialIdB64u: request.passkeyCredentialIdB64u,
       });
     }
-    case 'passkey_exchange_ecdsa_bootstrap': {
+    case 'passkey_preauthorized_ecdsa_bootstrap': {
       return preauthorizedExactSessionRequest(request);
     }
     case 'wallet_session_reconnect_ecdsa_bootstrap': {

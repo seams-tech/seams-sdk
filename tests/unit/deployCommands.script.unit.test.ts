@@ -119,6 +119,20 @@ test('production-mainnet plan reports pending provisioning and blocks operations
   );
 });
 
+test('environment generation lets a pending production lane reach resource discovery', () => {
+  const result = runCommand(
+    environmentGeneratorScript,
+    ['--lane', 'production-mainnet', '--json'],
+    {
+      ...environmentWithoutDeploymentSecrets(),
+      GATEWAY_RUNTIME_PROFILE: 'mainnet_service',
+    },
+  );
+
+  expectFailure(result, /resources\.consoleD1\.id has an invalid format/u);
+  expect(`${result.stdout}\n${result.stderr}`).not.toContain('pending provisioning');
+});
+
 test('production-shaped project policy uses the canonical Seams environment id', () => {
   const source = readFileSync(environmentGeneratorScript, 'utf8');
   const policyBuilder = source.match(

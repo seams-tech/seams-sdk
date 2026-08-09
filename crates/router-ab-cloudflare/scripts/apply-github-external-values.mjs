@@ -32,10 +32,12 @@ const GATEWAY_SECRET_INPUTS = Object.freeze([
   ['SPONSORED_EVM_EXECUTORS_JSON', 'SPONSORED_EVM_EXECUTORS_JSON'],
   ['STRIPE_API_SK', 'STRIPE_API_SK'],
   ['STRIPE_WEBHOOK_SECRET', 'STRIPE_WEBHOOK_SECRET'],
-  ['RESEND_API_KEY', 'RESEND_API_KEY'],
   ['CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U', 'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U'],
 ]);
-const GATEWAY_VARIABLE_INPUTS = Object.freeze([['CONSOLE_EMAIL_FROM', 'CONSOLE_EMAIL_FROM']]);
+const GATEWAY_EMAIL_SECRET_INPUTS = Object.freeze([['RESEND_API_KEY', 'RESEND_API_KEY']]);
+const GATEWAY_EMAIL_VARIABLE_INPUTS = Object.freeze([
+  ['CONSOLE_EMAIL_FROM', 'CONSOLE_EMAIL_FROM'],
+]);
 const PRODUCTION_LANE_VARIABLE_SUFFIXES = Object.freeze([
   'SEAMS_PROJECT_ENVIRONMENT_ID',
   'SEAMS_PUBLISHABLE_KEY',
@@ -286,17 +288,25 @@ function buildBasePlan(options, repository, values) {
   } else {
     appendWalletCoreCloudflareDeploymentUpdates(plan, options.environmentPrefix, values);
     appendMappedUpdates(
-      plan.variables,
-      `${options.environmentPrefix}-gateway`,
-      values,
-      GATEWAY_VARIABLE_INPUTS,
-    );
-    appendMappedUpdates(
       plan.secrets,
       `${options.environmentPrefix}-gateway`,
       values,
       GATEWAY_SECRET_INPUTS,
     );
+    if (options.lane.id !== 'production-mainnet') {
+      appendMappedUpdates(
+        plan.variables,
+        `${options.environmentPrefix}-gateway`,
+        values,
+        GATEWAY_EMAIL_VARIABLE_INPUTS,
+      );
+      appendMappedUpdates(
+        plan.secrets,
+        `${options.environmentPrefix}-gateway`,
+        values,
+        GATEWAY_EMAIL_SECRET_INPUTS,
+      );
+    }
   }
   return plan;
 }
