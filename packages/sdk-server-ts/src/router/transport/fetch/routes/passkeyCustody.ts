@@ -43,6 +43,8 @@ import type {
  */
 
 const ROUTE_ID = 'passkey_custody_envelope_retrieve';
+const CREDENTIALS_LIST_ROUTE_ID = 'wallet_custody_credentials_list';
+const CREDENTIAL_LABEL_ROUTE_ID = 'wallet_custody_credential_label';
 const RECOVERY_PREPARE_ROUTE_ID = 'wallet_recovery_prepare';
 const RECOVERY_FINALIZE_ROUTE_ID = 'wallet_recovery_finalize';
 const RECOVERY_ACK_ROUTE_ID = 'wallet_recovery_backup_acknowledge';
@@ -140,6 +142,97 @@ export async function handlePasskeyCustody(ctx: FetchRouterApiContext): Promise<
 
   const response = await ctx.service.passkeyCustody.retrieveEnvelope(request);
   return toFetchRouteResponse(response);
+}
+
+/** Lists public passkey envelope identities with their sibling activity rows. */
+export async function handleWalletCustodyCredentialsList(
+  ctx: FetchRouterApiContext,
+): Promise<Response | null> {
+  const route = findRouteDefinitionById(ctx.routeDefinitions, CREDENTIALS_LIST_ROUTE_ID);
+  if (!route) throw new Error(`Missing route definition for ${CREDENTIALS_LIST_ROUTE_ID}`);
+  if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
+  const walletId = walletIdFromPath(route.path, ctx.pathname);
+  if (!walletId) {
+    return toFetchRouteResponse({
+      status: 400,
+      body: { ok: false, code: 'invalid_request', message: 'credential list needs a wallet' },
+    });
+  }
+  const authenticated = await authenticateWalletRecoveryAuthority(ctx, walletId);
+  if (!authenticated.ok) {
+    return toFetchRouteResponse({ status: authenticated.error.status, body: authenticated.error.body });
+  }
+  const parsedWalletId = parseWalletId(walletId);
+  if (!parsedWalletId.ok) {
+    return toFetchRouteResponse({
+      status: 400,
+      body: { ok: false, code: 'invalid_request', message: 'wallet id is invalid' },
+    });
+  }
+  const result = await ctx.service.passkeyCustody.listWalletCredentials({
+    walletId: parsedWalletId.value,
+  });
+  return toFetchRouteResponse({ status: 200, body: { ok: true, credentials: result } });
+}
+
+/** Renames one passkey credential; the label is metadata and never AAD. */
+export async function handleWalletCustodyCredentialLabel(
+  ctx: FetchRouterApiContext,
+): Promise<Response | null> {
+  const route = findRouteDefinitionById(ctx.routeDefinitions, CREDENTIAL_LABEL_ROUTE_ID);
+  if (!route) throw new Error(`Missing route definition for ${CREDENTIAL_LABEL_ROUTE_ID}`);
+  if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
+  const walletId = walletIdFromPath(route.path, ctx.pathname);
+  const body = (await readJson(ctx.request)) as Record<string, unknown> | null;
+  const envelopeId = trimmed(body?.envelopeId);
+  const label = body?.label;
+  if (!walletId || !envelopeId || (label !== undefined && typeof label !== 'string')) {
+    return toFetchRouteResponse({
+      status: 400,
+      body: {
+        ok: false,
+        code: 'invalid_request',
+        message: 'credential rename needs a wallet, envelope, and optional label',
+      },
+    });
+  }
+  const authenticated = await authenticateWalletRecoveryAuthority(ctx, walletId);
+  if (!authenticated.ok) {
+    return toFetchRouteResponse({ status: authenticated.error.status, body: authenticated.error.body });
+  }
+  const parsedWalletId = parseWalletId(walletId);
+  if (!parsedWalletId.ok) {
+    return toFetchRouteResponse({
+      status: 400,
+      body: { ok: false, code: 'invalid_request', message: 'wallet id is invalid' },
+    });
+  }
+  const result = await ctx.service.passkeyCustody.renameWalletCredential({
+    walletId: parsedWalletId.value,
+    envelopeId,
+    ...(label === undefined ? {} : { label }),
+  });
+  switch (result.kind) {
+    case 'updated':
+      return toFetchRouteResponse({ status: 200, body: { ok: true, credential: result.projection } });
+    case 'missing':
+      return toFetchRouteResponse({
+        status: 404,
+        body: { ok: false, code: 'credential_not_found', message: 'credential not found' },
+      });
+    case 'conflict':
+      return toFetchRouteResponse({
+        status: 409,
+        body: { ok: false, code: 'credential_activity_conflict', message: 'credential changed; retry' },
+      });
+    case 'invalid_envelope_id':
+      return toFetchRouteResponse({
+        status: 400,
+        body: { ok: false, code: 'invalid_envelope_id', message: 'credential envelope id is invalid' },
+      });
+    case 'invalid_label':
+      return toFetchRouteResponse({ status: 400, body: { ok: false, code: 'invalid_label', message: result.reason } });
+  }
 }
 
 /**

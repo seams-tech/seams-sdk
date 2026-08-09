@@ -251,6 +251,10 @@ import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain'
 import type { LoginUnlockRequest } from '@/core/types/login.types';
 import { buildPMUnlockPayload } from '../shared/unlockOptions';
 import type { WalletId } from '@shared/utils/domainIds';
+import type {
+  WalletCredentialActivityListResult,
+  WalletCredentialRenameResult,
+} from '@/core/rpcClients/relayer/walletCredentialActivity';
 import {
   exactSessionStateFromWalletSession,
   parseWalletIframeExactSessionLockResult,
@@ -3573,6 +3577,28 @@ export class WalletIframeRouter {
     return res.result;
   }
 
+  async listWalletCredentials(payload: {
+    walletId: string;
+  }): Promise<WalletCredentialActivityListResult> {
+    const res = await this.post<WalletCredentialActivityListResult>({
+      type: 'PM_LIST_WALLET_CREDENTIALS',
+      payload,
+    });
+    return res.result;
+  }
+
+  async renameWalletCredential(payload: {
+    walletId: string;
+    envelopeId: string;
+    label?: string;
+  }): Promise<WalletCredentialRenameResult> {
+    const res = await this.post<WalletCredentialRenameResult>({
+      type: 'PM_RENAME_WALLET_CREDENTIAL',
+      payload,
+    });
+    return res.result;
+  }
+
   async sendTransaction(args: {
     walletId: string;
     nearAccountId: string;
@@ -4131,6 +4157,9 @@ function exactSessionRequestWalletId(envelope: ParentToChildEnvelope): string | 
     case 'PM_RESOLVE_EXACT_KEY_EXPORT_LANE':
     case 'PM_EXPORT_KEYPAIR_UI':
       return envelope.payload.walletSession.walletId;
+    case 'PM_LIST_WALLET_CREDENTIALS':
+    case 'PM_RENAME_WALLET_CREDENTIAL':
+      return envelope.payload.walletId;
     default:
       return null;
   }

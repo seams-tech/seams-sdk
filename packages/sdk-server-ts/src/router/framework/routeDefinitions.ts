@@ -508,6 +508,20 @@ export function createRouterApiRouteDefinitions(
         `${ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH}/`,
       ],
     ),
+    sessionPrincipalRoute(
+      'wallet_custody_credentials_list',
+      'GET',
+      '/wallets/:walletId/custody/credentials',
+      'List wallet passkey credentials and descriptive activity history',
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+    ),
+    sessionPrincipalRoute(
+      'wallet_custody_credential_label',
+      'POST',
+      '/wallets/:walletId/custody/credentials/label',
+      'Rename one wallet passkey credential without changing custody',
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+    ),
     apiCredentialRoute(
       'wallet_registration_setup',
       'POST',

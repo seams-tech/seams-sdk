@@ -856,6 +856,8 @@ export type ParentToChildType =
   | 'PM_HAS_PASSKEY'
   | 'PM_VIEW_ACCESS_KEYS'
   | 'PM_DELETE_DEVICE_KEY'
+  | 'PM_LIST_WALLET_CREDENTIALS'
+  | 'PM_RENAME_WALLET_CREDENTIAL'
   | 'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA'
   | 'PM_START_DEVICE2_LINKING_FLOW'
   | 'PM_STOP_DEVICE2_LINKING_FLOW'
@@ -1315,6 +1317,16 @@ export interface PMDeleteDeviceKeyPayload {
   };
 }
 
+export interface PMListWalletCredentialsPayload {
+  walletId: string;
+}
+
+export interface PMRenameWalletCredentialPayload {
+  walletId: string;
+  envelopeId: string;
+  label?: string;
+}
+
 export interface PMGetRecoveryEmailsPayload {
   walletId: string;
 }
@@ -1442,6 +1454,8 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_HAS_PASSKEY', PMHasPasskeyPayload>
   | RpcEnvelope<'PM_VIEW_ACCESS_KEYS', PMViewAccessKeysPayload>
   | RpcEnvelope<'PM_DELETE_DEVICE_KEY', PMDeleteDeviceKeyPayload>
+  | RpcEnvelope<'PM_LIST_WALLET_CREDENTIALS', PMListWalletCredentialsPayload>
+  | RpcEnvelope<'PM_RENAME_WALLET_CREDENTIAL', PMRenameWalletCredentialPayload>
   | RpcEnvelope<
       'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA',
       {
