@@ -49,7 +49,7 @@ import {
 import { readNearProvisioningState } from '@/core/signingEngine/flows/registration/nearProvisioningRegistry';
 import { cloneAuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import { toAccountId } from '@/core/types/accountIds';
-import { IndexedDBManager } from '@/core/indexedDB';
+import { IndexedDBManager, type LocalWalletAuthMethodRecord } from '@/core/indexedDB';
 import { ActionType } from '@/core/types/actions';
 import type {
   HostedAuthMenuExternalAuthRequest,
@@ -698,6 +698,24 @@ function deliverNearProvisioningStateChanged(
   if (event.event === 'registration.near_provisioning_changed') listener(event);
 }
 
+function revokedLocalPasskeyAuthMethod(
+  record: LocalWalletAuthMethodRecord & { kind: 'passkey' },
+): LocalWalletAuthMethodRecord & { kind: 'passkey' } {
+  return {
+    version: record.version,
+    kind: record.kind,
+    status: 'revoked',
+    localStatus: record.localStatus,
+    walletId: record.walletId,
+    rpId: record.rpId,
+    credentialIdB64u: record.credentialIdB64u,
+    credentialPublicKeyB64u: record.credentialPublicKeyB64u,
+    counter: record.counter,
+    createdAtMs: record.createdAtMs,
+    updatedAtMs: Date.now(),
+  };
+}
+
 /**
  * Main SeamsWeb class that provides framework-agnostic passkey operations
  * with flexible event-based callbacks for custom UX implementation
@@ -1116,7 +1134,7 @@ export class SeamsWeb {
       rpId: rpId.value,
       credentialIdB64u: credentialId.value,
     };
-    return await revokeWalletAuthMethod({
+    const revoked = await revokeWalletAuthMethod({
       relayerUrl: relayUrl,
       walletId,
       auth: {
@@ -1131,6 +1149,37 @@ export class SeamsWeb {
       },
       target,
     });
+    if (
+      revoked.ok !== true ||
+      revoked.authMethod.kind !== 'passkey' ||
+      revoked.authMethod.status !== 'revoked' ||
+      String(revoked.walletId) !== String(walletId) ||
+      revoked.rpId !== rpId.value
+    ) {
+      throw new Error('[SeamsWeb] credential revocation returned a mismatched result');
+    }
+    try {
+      const localAuthMethods = await IndexedDBManager.listWalletAuthMethodsForWallet(
+        String(walletId),
+      );
+      let localPasskey: (LocalWalletAuthMethodRecord & { kind: 'passkey' }) | null = null;
+      for (const record of localAuthMethods) {
+        if (
+          record.kind === 'passkey' &&
+          record.rpId === rpId.value &&
+          record.credentialIdB64u === credentialId.value
+        ) {
+          localPasskey = record;
+          break;
+        }
+      }
+      if (localPasskey) {
+        await IndexedDBManager.upsertWalletAuthMethod(revokedLocalPasskeyAuthMethod(localPasskey));
+      }
+    } catch {
+      // Server revocation is authoritative; later synchronization repairs stale local state.
+    }
+    return revoked;
   }
 
   private emitWalletIframeTransportTimingSummary(input: {
