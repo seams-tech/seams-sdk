@@ -95,7 +95,7 @@ test('backend plan runs without deployment secrets and prints the complete lane 
   ]);
 });
 
-test('production-mainnet plan reports pending provisioning and blocks operations', () => {
+test('production-mainnet plan reports the provisioned mainnet service', () => {
   const plan = runCommand(
     backendScript,
     ['plan', '--lane', 'production-mainnet'],
@@ -104,19 +104,11 @@ test('production-mainnet plan reports pending provisioning and blocks operations
 
   expect(plan.status).toBe(0);
   expect(plan.stdout).toContain('Backend deployment plan: production-mainnet');
-  expect(plan.stdout).toContain('Provisioning: pending');
+  expect(plan.stdout).toContain('Provisioning: provisioned');
   expect(plan.stdout).toContain('Runtime profile: mainnet_service');
-  expect(plan.stdout).toContain('Required values:');
-
-  const preflight = runCommand(
-    backendScript,
-    ['preflight', '--lane', 'production-mainnet', '--component', 'gateway'],
-    environmentWithoutDeploymentSecrets(),
-  );
-  expectFailure(preflight, /pending provisioning/u);
-  expect(`${preflight.stdout}${preflight.stderr}`).not.toContain(
-    'CLOUDFLARE_API_TOKEN is required',
-  );
+  expect(plan.stdout).toContain('Network: mainnet');
+  expect(plan.stdout).toContain('Gateway: seams-sdk-d1-gateway');
+  expect(plan.stdout).not.toContain('Required values:');
 });
 
 test('production-shaped project policy uses the canonical Seams environment id', () => {
@@ -277,15 +269,6 @@ test('frontend commands reject a site branch mismatch before deployment work', (
   });
 
   expectFailure(result, /site staging requires branch dev/u);
-});
-
-test('frontend commands reject a site with pending lane provisioning before branch checks', () => {
-  const result = runCommand(frontendScript, ['smoke', '--site', 'production'], {
-    ...environmentWithoutDeploymentSecrets(),
-    GITHUB_REF: 'refs/heads/dev',
-  });
-
-  expectFailure(result, /pending lane provisioning.*production-mainnet/u);
 });
 
 test('backend workflows deploy independent workers concurrently before router', () => {

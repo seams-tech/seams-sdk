@@ -42,6 +42,13 @@ type BackendLane = {
   };
   readonly gatewayOrigin: string;
   readonly walletOrigin: string;
+  readonly emailOtpDelivery:
+    | { readonly kind: 'demo_code_response' }
+    | {
+        readonly kind: 'email_provider' | 'provider_and_demo_code';
+        readonly region: string;
+        readonly fromAddress: string;
+      };
   readonly resources: BackendResources;
   readonly capabilities: Readonly<Record<string, Capability>>;
   readonly provisioning:
@@ -160,8 +167,8 @@ test('deployment topology keeps staging provisioning and isolates production ori
   const productionMainnet = targets.backendLanes['production-mainnet'];
 
   expect(staging.provisioning.kind).toBe('provisioned');
-  expect(productionTestnet.provisioning.kind).toBe('pending');
-  expect(productionMainnet.provisioning.kind).toBe('pending');
+  expect(productionTestnet.provisioning.kind).toBe('provisioned');
+  expect(productionMainnet.provisioning.kind).toBe('provisioned');
   expect(staging.gatewayOrigin).toBe('https://staging.api.seams.sh');
   expect(productionTestnet.gatewayOrigin).toBe('https://test.api.seams.sh');
   expect(productionMainnet.gatewayOrigin).toBe('https://api.seams.sh');
@@ -269,28 +276,6 @@ test('deployment target parsing rejects cross-lane origin reuse', async () => {
   ).toThrow(/origin/u);
 });
 
-test('deployment target parsing rejects duplicate pending values', async () => {
-  const module = await deploymentTargetsModule;
-  const targets = validTargets();
-  const lane = targets.production as Record<string, unknown>;
-  const lanes = lane.lanes as Record<string, unknown>;
-  const pending = lanes.mainnet as Record<string, unknown>;
-  const provisioning = pending.provisioning as Record<string, unknown>;
-  expect(() =>
-    module.parseDeploymentTargets(
-      withProduction(targets, {
-        mainnet: {
-          ...pending,
-          provisioning: {
-            ...provisioning,
-            requiredValues: ['RESEND_API_KEY', 'RESEND_API_KEY'],
-          },
-        },
-      }),
-    ),
-  ).toThrow(/duplicate/u);
-});
-
 test('lane and site readers reject retired or unknown identities', async () => {
   const module = await deploymentTargetsModule;
   expect(() => module.readBackendLane('production')).toThrow(/backend lane/u);
@@ -316,4 +301,54 @@ test('required secrets are derived from enabled capabilities', async () => {
     'DERIVER_A_PEER_SIGNING_KEY',
     'DERIVER_A_ROLE_PRIVATE_D1_KEK',
   ]);
+
+  const mainnet = targets.backendLanes['production-mainnet'];
+  expect(module.componentSecretNames(mainnet, 'gateway')).toContain('EMAIL_OTP_SES_ACCESS_KEY_ID');
+  expect(module.componentSecretNames(mainnet, 'gateway')).toContain(
+    'EMAIL_OTP_SES_SECRET_ACCESS_KEY',
+  );
+
+  const productionTestnet = targets.backendLanes['production-testnet'];
+  expect(productionTestnet.emailOtpDelivery.kind).toBe('provider_and_demo_code');
+  expect(module.componentSecretNames(productionTestnet, 'gateway')).toContain(
+    'EMAIL_OTP_SES_ACCESS_KEY_ID',
+  );
+});
+
+test('email provider delivery requires a valid AWS region and sender address', async () => {
+  const module = await deploymentTargetsModule;
+  const targets = validTargets();
+  const production = targets.production as Record<string, unknown>;
+  const lanes = production.lanes as Record<string, unknown>;
+  const mainnet = lanes.mainnet as Record<string, unknown>;
+
+  expect(() =>
+    module.parseDeploymentTargets(
+      withProduction(targets, {
+        mainnet: {
+          ...mainnet,
+          emailOtpDelivery: {
+            kind: 'email_provider',
+            region: 'Sydney',
+            fromAddress: 'confirm.seams.sh',
+          },
+        },
+      }),
+    ),
+  ).toThrow(/emailOtpDelivery\.region/u);
+});
+
+test('production workflows supply SES credentials as protected secrets', () => {
+  for (const workflowName of [
+    'deploy-production-testnet-backend.yml',
+    'deploy-production-mainnet-backend.yml',
+  ]) {
+    const workflow = readFileSync(path.join(repoRoot, '.github/workflows', workflowName), 'utf8');
+    expect(workflow).toContain(
+      'EMAIL_OTP_SES_ACCESS_KEY_ID: ${{ secrets.EMAIL_OTP_SES_ACCESS_KEY_ID }}',
+    );
+    expect(workflow).toContain(
+      'EMAIL_OTP_SES_SECRET_ACCESS_KEY: ${{ secrets.EMAIL_OTP_SES_SECRET_ACCESS_KEY }}',
+    );
+  }
 });

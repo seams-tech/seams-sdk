@@ -86,6 +86,7 @@ import {
 } from '@seams/sdk-server/cloud-host';
 import { createCloudflareCron } from './cron';
 import type { RouterApiCloudflareConsoleWorkerEnv } from './cloudflareConsole.types';
+import { resolveAmazonSesEmailOtpDeliveryProviderFromEnv } from '../../email/otp/amazonSesEmailOtpProvider';
 
 interface CloudflareD1RouterApiStagingEnv
   extends
@@ -131,6 +132,10 @@ interface CloudflareD1RouterApiStagingEnv
   readonly SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS?: string;
   readonly EMAIL_OTP_DELIVERY_MODE?: string;
   readonly EMAIL_OTP_RUNTIME_PROFILE?: string;
+  readonly EMAIL_OTP_SES_REGION?: string;
+  readonly EMAIL_OTP_SES_FROM_ADDRESS?: string;
+  readonly EMAIL_OTP_SES_ACCESS_KEY_ID?: string;
+  readonly EMAIL_OTP_SES_SECRET_ACCESS_KEY?: string;
   readonly EMAIL_OTP_DEMO_ALLOWED_ORIGINS?: string;
   readonly EMAIL_OTP_PRODUCTION?: string;
   readonly EMAIL_OTP_DEV_OUTBOX_ENABLED?: string;
@@ -314,6 +319,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     emailOtpServerSeal: stagingEmailOtpServerSealConfig(env),
     emailOtpDeliveryMode: readEnvString(env, 'EMAIL_OTP_DELIVERY_MODE'),
     emailOtpRuntimeProfile: readEnvString(env, 'EMAIL_OTP_RUNTIME_PROFILE'),
+    emailOtpDeliveryProvider: resolveAmazonSesEmailOtpDeliveryProviderFromEnv(env),
     emailOtpDemoAllowedOrigins: readEnvString(env, 'EMAIL_OTP_DEMO_ALLOWED_ORIGINS'),
     emailOtpProduction: readEnvString(env, 'EMAIL_OTP_PRODUCTION'),
     emailOtpDevOutboxEnabled: readEnvString(env, 'EMAIL_OTP_DEV_OUTBOX_ENABLED'),
