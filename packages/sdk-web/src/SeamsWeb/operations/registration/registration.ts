@@ -970,9 +970,6 @@ function startEmailOtpRegistrationEnrollmentMaterial(input: {
   relayerUrl: string;
   walletId: string;
   providerSubject: string;
-  ed25519YaoFactor:
-    | { kind: 'ed25519_yao_factor_requested'; providerSubject: string }
-    | { kind: 'ed25519_yao_factor_not_requested'; providerSubject?: never };
   appSessionJwt: string;
   clientSecret32: Uint8Array;
 }): Promise<EmailOtpRegistrationEnrollmentMaterial> {
@@ -983,7 +980,6 @@ function startEmailOtpRegistrationEnrollmentMaterial(input: {
       relayerUrl: input.relayerUrl,
       walletId: input.walletId,
       providerSubject: input.providerSubject,
-      ed25519YaoFactor: input.ed25519YaoFactor,
       appSessionJwt: input.appSessionJwt,
       clientSecret32: input.clientSecret32,
     }),
@@ -1040,9 +1036,6 @@ async function resolveEmailOtpRegistrationEnrollmentMaterial(input: {
   relayerUrl: string;
   walletId: string;
   providerSubject: string;
-  ed25519YaoFactor:
-    | { kind: 'ed25519_yao_factor_requested'; providerSubject: string }
-    | { kind: 'ed25519_yao_factor_not_requested'; providerSubject?: never };
   appSessionJwt: string;
   clientSecret32: Uint8Array;
 }): Promise<EmailOtpRegistrationEnrollmentMaterial> {
@@ -1056,7 +1049,6 @@ async function resolveEmailOtpRegistrationEnrollmentMaterial(input: {
         walletId: toWalletId(input.walletId),
         userId: input.providerSubject,
         appSessionJwt: input.appSessionJwt,
-        ed25519YaoFactor: input.ed25519YaoFactor,
         clientSecret32: input.clientSecret32,
       });
     assertEmailOtpRegistrationHasNoLegacyEcdsaRoot(material);
@@ -2441,7 +2433,6 @@ async function registerEcdsaOrMixedWallet(
         relayerUrl,
         walletId: String(walletId),
         providerSubject: emailAuthority.providerSubject,
-        ed25519YaoFactor: { kind: 'ed25519_yao_factor_not_requested' },
         appSessionJwt: emailOtpAuthMethod.appSessionJwt,
         clientSecret32: emailOtpEnrollmentSecret,
       });
@@ -2875,7 +2866,6 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       relayerUrl,
       walletId: String(walletId),
       providerSubject: emailAuthority.providerSubject,
-      ed25519YaoFactor: { kind: 'ed25519_yao_factor_not_requested' },
       appSessionJwt: args.authMethod.appSessionJwt,
       clientSecret32: emailOtpEnrollmentSecret,
     });
