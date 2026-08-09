@@ -76,6 +76,8 @@ export type WalletCustodyCeremonyCommitPayload = {
   readonly keyManifestDigestB64u: string;
   /** Present only when this run established custody. */
   readonly establishedCustody?: EstablishedCustodyRecordsPayload;
+  /** Set by the browser only after the issued codes were visibly acknowledged. */
+  readonly recoveryBackupAcknowledged?: true;
   /** Present only when a recovery run resealed under the replacement passkey. */
   readonly recoveryReplacementEnvelope?: RecoveryReplacementEnvelopePayload;
   readonly registeredPublicKeyB64u?: string;
@@ -118,6 +120,15 @@ export type WalletCustodyCeremonyCommitPayload = {
    */
   readonly ecdsaPublicFacts?: WalletCustodyEvmFamilyPublicFacts;
 };
+
+export function walletCustodyCommitPayloadWithRecoveryBackupAcknowledgement(
+  payload: WalletCustodyCeremonyCommitPayload,
+): WalletCustodyCeremonyCommitPayload {
+  if (!payload.establishedCustody) {
+    throw new Error('only a custody-establishing commit issues recovery codes');
+  }
+  return { ...payload, recoveryBackupAcknowledged: true };
+}
 
 export type WalletCustodyEvmFamilyPublicFacts = {
   readonly contextBinding32B64u: string;
@@ -198,6 +209,9 @@ export function walletCustodyCeremonyCommitPayloadFromWire(
     ...(custody === undefined || custody === null
       ? {}
       : { establishedCustody: custody as EstablishedCustodyRecordsPayload }),
+    ...(record.recoveryBackupAcknowledged === true
+      ? { recoveryBackupAcknowledged: true as const }
+      : {}),
     /* `ed25519LocalMaterial*`, `ed25519ApplicationBindingDigestB64u`, and
        `ecdsaReadyStateBlobB64u` are deliberately absent. Both are the ceremony's output to its own client, not part of
        the commit — and the ECDSA blob is the sharper case: it is not

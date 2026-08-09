@@ -13,7 +13,7 @@ interface RecoveryCodesModalProps {
 type RecoveryCodesLoadState =
   | { kind: 'idle' }
   | { kind: 'loading' }
-  | { kind: 'loaded'; status: WalletRecoveryCodeStatusResult; actionError: string }
+  | { kind: 'loaded'; status: WalletRecoveryCodeStatusResult }
   | { kind: 'error'; message: string };
 
 function statusLabel(status: WalletRecoveryCodeStatusResult): string {
@@ -36,7 +36,6 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
 }) => {
   const { seams } = useSeams();
   const [loadState, setLoadState] = React.useState<RecoveryCodesLoadState>({ kind: 'idle' });
-  const [isAcknowledging, setIsAcknowledging] = React.useState(false);
   const loadStatusSeq = React.useRef(0);
   const { theme, tokens } = useTheme();
   const scopedTokens = React.useMemo(
@@ -51,7 +50,7 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
     try {
       const status = await seams.recovery.getWalletRecoveryCodeStatus({ walletId });
       if (loadStatusSeq.current === requestSeq) {
-        setLoadState({ kind: 'loaded', status, actionError: '' });
+        setLoadState({ kind: 'loaded', status });
       }
     } catch (error: unknown) {
       if (loadStatusSeq.current === requestSeq) {
@@ -79,34 +78,10 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
     if (!isOpen) {
       loadStatusSeq.current += 1;
       setLoadState({ kind: 'idle' });
-      setIsAcknowledging(false);
       return;
     }
     void loadRecoveryCodeStatus();
   }, [isOpen, loadRecoveryCodeStatus]);
-
-  const acknowledgeBackup = React.useCallback(async () => {
-    if (loadState.kind !== 'loaded' || loadState.status.kind !== 'ready' || isAcknowledging) {
-      return;
-    }
-    setIsAcknowledging(true);
-    setLoadState({ ...loadState, actionError: '' });
-    try {
-      const result = await seams.recovery.acknowledgeWalletRecoveryCodeBackup({ walletId });
-      if (result.kind !== 'acknowledged') {
-        setLoadState({ ...loadState, actionError: result.message });
-        return;
-      }
-      await loadRecoveryCodeStatus();
-    } catch (error: unknown) {
-      setLoadState({
-        ...loadState,
-        actionError: error instanceof Error ? error.message : 'Could not confirm the backup',
-      });
-    } finally {
-      setIsAcknowledging(false);
-    }
-  }, [isAcknowledging, loadRecoveryCodeStatus, loadState, seams.recovery, walletId]);
 
   if (!isOpen) return null;
   const status = loadState.kind === 'loaded' ? loadState.status : null;
@@ -159,19 +134,9 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
                   </span>
                 </div>
                 {status.backupOutstanding ? (
-                  <button
-                    type="button"
-                    className="w3a-recovery-codes-primary-action"
-                    disabled={isAcknowledging}
-                    onClick={() => void acknowledgeBackup()}
-                  >
-                    {isAcknowledging ? 'Confirming...' : 'I saved my recovery codes'}
-                  </button>
-                ) : null}
-                {loadState.kind === 'loaded' && loadState.actionError ? (
-                  <div className="w3a-recovery-codes-inline-error" role="alert">
-                    {loadState.actionError}
-                  </div>
+                  <p className="w3a-recovery-codes-note">
+                    Confirm the backup only while the recovery codes are visible during issuance.
+                  </p>
                 ) : null}
               </>
             ) : null}
