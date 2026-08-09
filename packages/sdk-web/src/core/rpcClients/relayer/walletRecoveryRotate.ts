@@ -5,6 +5,7 @@ import {
 } from './relayerHttp';
 import {
   parseWalletRecoveryEnvelopeSetRecord,
+  type WalletRecoverySetRotationWireV1,
   type WalletRecoveryEnvelopeSetRecord,
 } from '@shared/wallet-recovery/walletRecoveryEnvelopeSet';
 
@@ -177,7 +178,7 @@ export async function rotateWalletRecoverySet(args: {
   readonly walletId: string;
   readonly sessionToken: string;
   readonly expectedStoreVersion: string;
-  readonly manifestKekWraps: WalletRecoveryEnvelopeSetRecord['manifestKekWraps'];
+  readonly replacement: WalletRecoverySetRotationWireV1;
   readonly fetchImpl?: typeof fetch;
 }): Promise<WalletRecoverySetRotateResult> {
   const response = await postWalletRecoveryRoute({
@@ -187,7 +188,8 @@ export async function rotateWalletRecoverySet(args: {
     body: {
       walletId: args.walletId,
       expectedStoreVersion: args.expectedStoreVersion,
-      manifestKekWraps: args.manifestKekWraps,
+      manifestKekWraps: args.replacement.manifestKekWraps,
+      entries: [args.replacement.entry],
     },
     fetchImpl: args.fetchImpl,
   });

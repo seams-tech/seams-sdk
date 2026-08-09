@@ -72,6 +72,24 @@ export type WalletRecoveryEnvelopeSetRecord = {
   updatedAtMs: number;
 };
 
+/** Opaque records emitted by the custody worker for an active-factor rotation.
+ *
+ * Lifecycle timestamps are assigned by the server at the CAS boundary. The
+ * browser therefore cannot carry forward a consumed/reserved code or forge an
+ * issuance timestamp while still returning the exact ciphertext set produced
+ * by WASM.
+ */
+export type WalletRecoverySetRotationWireV1 = {
+  walletId: WalletId;
+  manifestKekWraps: readonly {
+    recoveryKeyId: DerivedWalletRecoveryKeyId;
+    nonceB64u: EnvelopeNonceB64u;
+    ciphertextB64u: EnvelopeCiphertextB64u;
+    aadHashB64u: DigestB64u;
+  }[];
+  entry: WalletRecoveryEnvelopeEntry;
+};
+
 export function buildWalletCustodySeedRecoveryEntry(args: {
   nonceB64u: EnvelopeNonceB64u;
   wrappedCustodySecretB64u: EnvelopeCiphertextB64u;
@@ -116,6 +134,65 @@ export function buildWalletRecoveryEnvelopeSetRecord(args: {
     issuedAtMs: args.issuedAtMs,
     updatedAtMs: args.updatedAtMs,
   };
+}
+
+/**
+ * Parses the worker's factor-neutral rotation projection at the request
+ * boundary. It deliberately accepts no lifecycle or timestamp fields; those
+ * are server-owned and are added only while replacing the durable set.
+ */
+export function parseWalletRecoverySetRotationWireV1(
+  raw: unknown,
+  options: { expectedWalletId: WalletId; label?: string },
+): WalletRecoverySetRotationWireV1 {
+  const label = options.label || 'walletRecoverySetRotation';
+  const record = requireRecord(raw, label);
+  rejectUnknownFields(record, ROTATION_SET_FIELDS, label);
+  const walletId = parseWalletId(record.walletId);
+  if (!walletId.ok) throw new Error(`${label}.walletId ${walletId.error.message}`);
+  if (String(walletId.value) !== String(options.expectedWalletId)) {
+    throw new Error(`${label}.walletId is outside the authenticated wallet`);
+  }
+  if (!Array.isArray(record.manifestKekWraps)) {
+    throw new Error(`${label}.manifestKekWraps must be an array`);
+  }
+  if (record.manifestKekWraps.length !== WALLET_RECOVERY_CODE_COUNT) {
+    throw new Error(
+      `${label}.manifestKekWraps must carry exactly ${WALLET_RECOVERY_CODE_COUNT} recovery-code wraps`,
+    );
+  }
+  const manifestKekWraps = record.manifestKekWraps.map((rawWrap, index) => {
+    const wrap = requireRecord(rawWrap, `${label}.manifestKekWraps[${index}]`);
+    rejectUnknownFields(wrap, ROTATION_WRAP_FIELDS, `${label}.manifestKekWraps[${index}]`);
+    return {
+      recoveryKeyId: parseDerivedWalletRecoveryKeyId(
+        wrap.recoveryKeyId,
+        `${label}.manifestKekWraps[${index}].recoveryKeyId`,
+      ),
+      nonceB64u: parseEnvelopeNonceB64u(
+        wrap.nonceB64u,
+        `${label}.manifestKekWraps[${index}].nonceB64u`,
+      ),
+      ciphertextB64u: parseEnvelopeCiphertextB64u(
+        wrap.ciphertextB64u,
+        `${label}.manifestKekWraps[${index}].ciphertextB64u`,
+      ),
+      aadHashB64u: parseDigestField(
+        wrap.aadHashB64u,
+        `${label}.manifestKekWraps[${index}].aadHashB64u`,
+      ),
+    };
+  });
+  const seen = new Set<string>();
+  for (const wrap of manifestKekWraps) {
+    const id = String(wrap.recoveryKeyId);
+    if (!seen.add(id)) throw new Error(`${label} contains duplicate recovery key ids`);
+  }
+  if (!Array.isArray(record.entries) || record.entries.length !== 1) {
+    throw new Error(`${label}.entries must carry exactly one wallet custody seed entry`);
+  }
+  const entry = parseWalletRecoveryEnvelopeEntry(record.entries[0], `${label}.entries[0]`);
+  return { walletId: walletId.value, manifestKekWraps, entry };
 }
 
 function parseRecoveryCodeLifecycleState(raw: unknown, label: string): RecoveryCodeLifecycleState {
@@ -196,6 +273,9 @@ const RECOVERY_ENTRY_FIELDS = [
   'wrappedCustodySecretB64u',
   'aadHashB64u',
 ] as const;
+
+const ROTATION_WRAP_FIELDS = ['recoveryKeyId', 'nonceB64u', 'ciphertextB64u', 'aadHashB64u'] as const;
+const ROTATION_SET_FIELDS = ['walletId', 'manifestKekWraps', 'entries'] as const;
 
 const MANIFEST_KEK_WRAP_FIELDS = [
   'recoveryKeyId',

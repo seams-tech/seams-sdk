@@ -44,7 +44,10 @@ import {
   rotateWalletRecoveryCodesV1,
   type WalletRecoveryRotationResult,
 } from '../../../domains/passkeyCustody/walletRecoveryRotation';
-import type { WalletRecoveryEnvelopeSetRecord } from '@shared/wallet-recovery/walletRecoveryEnvelopeSet';
+import type {
+  WalletRecoveryEnvelopeSetRecord,
+  WalletRecoverySetRotationWireV1,
+} from '@shared/wallet-recovery/walletRecoveryEnvelopeSet';
 import {
   buildWalletRecoveryBackupAcknowledgementV1,
   walletRecoveryBackupIsOutstanding,
@@ -185,13 +188,13 @@ export interface RouterApiPasskeyCustodyService {
   /**
    * Replaces the wallet's recovery codes with a freshly wrapped set.
    *
-   * The wraps are built client-side from the same manifest KEK, so the server
-   * swaps which codes unwrap it without ever holding the seed. The entries are
-   * untouched by design.
+   * The active factor opens the seed inside the custody worker and returns a
+   * full replacement set. The server receives opaque wraps plus the freshly
+   * sealed seed entry and CAS-replaces both the set and its backup ack.
    */
   rotateRecoveryCodes(request: {
     readonly walletId: string;
-    readonly manifestKekWraps: WalletRecoveryEnvelopeSetRecord['manifestKekWraps'];
+    readonly replacement: WalletRecoverySetRotationWireV1;
     readonly expectedStoreVersion: string;
   }): Promise<WalletRecoveryRotationResult>;
 
@@ -439,7 +442,7 @@ export function createD1PasskeyCustodyRouteService(assembly: {
       rotateWalletRecoveryCodesV1({
         store: assembly.walletCustodyCommits,
         walletId: request.walletId as WalletId,
-        manifestKekWraps: request.manifestKekWraps,
+        replacement: request.replacement,
         expectedStoreVersion: request.expectedStoreVersion,
         nowMs: (assembly.nowMs ?? Date.now)(),
       }),
