@@ -192,7 +192,13 @@ export interface RouterApiPasskeyCustodyService {
   rotateRecoveryCodes(request: {
     readonly walletId: string;
     readonly manifestKekWraps: WalletRecoveryEnvelopeSetRecord['manifestKekWraps'];
+    readonly expectedStoreVersion: string;
   }): Promise<WalletRecoveryRotationResult>;
+
+  readRecoverySet(request: { readonly walletId: string }): Promise<
+    | { readonly kind: 'ready'; readonly record: WalletRecoveryEnvelopeSetRecord; readonly storeVersion: string }
+    | { readonly kind: 'no_recovery_set' }
+  >;
 
   /**
    * How many codes remain and whether the owner has saved them.
@@ -434,8 +440,17 @@ export function createD1PasskeyCustodyRouteService(assembly: {
         store: assembly.walletCustodyCommits,
         walletId: request.walletId as WalletId,
         manifestKekWraps: request.manifestKekWraps,
+        expectedStoreVersion: request.expectedStoreVersion,
         nowMs: (assembly.nowMs ?? Date.now)(),
       }),
+    readRecoverySet: async (request) => {
+      const stored = await assembly.walletCustodyCommits.readRecoveryEnvelopeSet(
+        request.walletId as WalletId,
+      );
+      return stored
+        ? { kind: 'ready', record: stored.record, storeVersion: stored.storeVersion }
+        : { kind: 'no_recovery_set' };
+    },
   };
 }
 
