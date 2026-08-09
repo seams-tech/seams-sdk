@@ -6,24 +6,7 @@ use zeroize::Zeroize;
 type HmacSha256 = Hmac<Sha256>;
 
 const HKDF_SHA256_LENGTH: usize = 32;
-// v2: every purpose derives from `secret32` in parallel with its own label.
-//
-// The v1 scheme chained both the ECDSA client share and the unlock auth seed
-// from an intermediate salted `seams/email-otp/root/v1`, so any holder of that
-// intermediate could compute both from public context. That intermediate was a
-// sibling of the Ed25519 Yao Client root (derived in signer-core under its own
-// salt and application binding digest), never its parent, and no production
-// path ever derived it — the weakness was latent, not a live exposure.
-//
-// Both the chained paths and the intermediate itself are deleted rather than
-// versioned alongside. The intermediate was also badly named ("threshold
-// root"), colliding with the MPC threshold protocol and with five unrelated
-// "root" concepts; keeping dead, misleadingly named crypto invites exactly the
-// misreading it already caused. The tests below recompute it locally to prove
-// no live output is a function of it.
-const EMAIL_OTP_ECDSA_CLIENT_SHARE_SALT_V2: &str = "seams/email-otp/ecdsa-client-share/v2";
 const EMAIL_OTP_UNLOCK_AUTH_SALT_V2: &str = "seams/email-otp/unlock-auth/v2";
-const EMAIL_OTP_ECDSA_DERIVATION_PATH_V1: &str = "evm-signing";
 
 fn js_error(message: impl Into<String>) -> JsValue {
     JsValue::from_str(&message.into())
@@ -100,38 +83,6 @@ pub fn init_email_otp_runtime() {
 }
 
 #[wasm_bindgen]
-pub fn derive_email_otp_ecdsa_client_root_share32_from_secret32(
-    mut client_secret32: Vec<u8>,
-    wallet_id: String,
-    user_id: String,
-    derivation_path: Option<String>,
-) -> Result<Vec<u8>, JsValue> {
-    require_secret32(&client_secret32)?;
-    let wallet_id = wallet_id.trim();
-    let user_id = user_id.trim();
-    let derivation_path = derivation_path
-        .as_deref()
-        .unwrap_or(EMAIL_OTP_ECDSA_DERIVATION_PATH_V1)
-        .trim();
-    // Parallel derivation: the ECDSA client share comes from `secret32`, never
-    // from the retired root intermediate. The wallet binding moves into the
-    // info tuple because it no longer arrives via a chained parent.
-    let mut info = encode_email_otp_tuple(&[
-        wallet_id.as_bytes(),
-        user_id.as_bytes(),
-        derivation_path.as_bytes(),
-    ])?;
-    let result = hkdf_sha256(
-        &client_secret32,
-        EMAIL_OTP_ECDSA_CLIENT_SHARE_SALT_V2.as_bytes(),
-        &info,
-    );
-    client_secret32.zeroize();
-    info.zeroize();
-    result
-}
-
-#[wasm_bindgen]
 pub fn derive_email_otp_unlock_auth_seed_from_secret32(
     mut client_secret32: Vec<u8>,
     wallet_id: String,
@@ -147,122 +98,4 @@ pub fn derive_email_otp_unlock_auth_seed_from_secret32(
     client_secret32.zeroize();
     info.zeroize();
     result
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const SECRET: [u8; 32] = [7u8; 32];
-    const WALLET_ID: &str = "alice.testnet";
-    const USER_ID: &str = "alice.testnet";
-    const RETIRED_CHAIN_PARENT_SALT_V1: &str = "seams/email-otp/root/v1";
-
-    /// Recomputes the retired v1 chain parent. No production code derives this
-    /// any more; it lives here so the tests can prove that no live output is a
-    /// function of it.
-    fn retired_chain_parent() -> Vec<u8> {
-        let info = encode_email_otp_tuple(&[WALLET_ID.as_bytes()]).expect("retired parent info");
-        hkdf_sha256(&SECRET, RETIRED_CHAIN_PARENT_SALT_V1.as_bytes(), &info)
-            .expect("retired parent")
-    }
-
-    /// The v1 weakness: the ECDSA client share was HKDF-derived from the
-    /// retired chain parent plus public info, so any holder of that parent
-    /// could compute it. (That parent was never the Ed25519 Yao Client root —
-    /// it was a sibling derived from the same `secret32`.) This test
-    /// reconstructs the chained value and asserts the live derivation no longer
-    /// matches it under any of the scheme's labels.
-    #[test]
-    fn ecdsa_client_share_is_not_derivable_from_the_retired_chain_parent() {
-        let threshold_root = retired_chain_parent();
-        let share = derive_email_otp_ecdsa_client_root_share32_from_secret32(
-            SECRET.to_vec(),
-            WALLET_ID.into(),
-            USER_ID.into(),
-            None,
-        )
-        .expect("ecdsa share");
-
-        let chained_infos = [
-            encode_email_otp_tuple(&[
-                USER_ID.as_bytes(),
-                EMAIL_OTP_ECDSA_DERIVATION_PATH_V1.as_bytes(),
-            ])
-            .expect("v1 info"),
-            encode_email_otp_tuple(&[
-                WALLET_ID.as_bytes(),
-                USER_ID.as_bytes(),
-                EMAIL_OTP_ECDSA_DERIVATION_PATH_V1.as_bytes(),
-            ])
-            .expect("v2-shaped info"),
-        ];
-        let salts = [
-            "seams/email-otp/threshold-client-share/v1",
-            EMAIL_OTP_ECDSA_CLIENT_SHARE_SALT_V2,
-        ];
-        for info in &chained_infos {
-            for salt in salts {
-                let from_root =
-                    hkdf_sha256(&threshold_root, salt.as_bytes(), info).expect("chained candidate");
-                assert_ne!(
-                    share, from_root,
-                    "ECDSA share must not be computable from the Ed25519 root"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn unlock_auth_seed_is_not_derivable_from_the_retired_chain_parent() {
-        let threshold_root = retired_chain_parent();
-        let seed =
-            derive_email_otp_unlock_auth_seed_from_secret32(SECRET.to_vec(), WALLET_ID.into())
-                .expect("unlock seed");
-        let info = encode_email_otp_tuple(&[WALLET_ID.as_bytes()]).expect("info");
-        for salt in [
-            "seams/email-otp/unlock-auth/v1",
-            EMAIL_OTP_UNLOCK_AUTH_SALT_V2,
-        ] {
-            let from_root =
-                hkdf_sha256(&threshold_root, salt.as_bytes(), &info).expect("chained candidate");
-            assert_ne!(seed, from_root);
-        }
-    }
-
-    #[test]
-    fn purposes_and_wallets_are_domain_separated() {
-        let root = retired_chain_parent();
-        let share = derive_email_otp_ecdsa_client_root_share32_from_secret32(
-            SECRET.to_vec(),
-            WALLET_ID.into(),
-            USER_ID.into(),
-            None,
-        )
-        .expect("share");
-        let seed =
-            derive_email_otp_unlock_auth_seed_from_secret32(SECRET.to_vec(), WALLET_ID.into())
-                .expect("seed");
-        assert_ne!(root, share);
-        assert_ne!(root, seed);
-        assert_ne!(share, seed);
-
-        let other_wallet_share = derive_email_otp_ecdsa_client_root_share32_from_secret32(
-            SECRET.to_vec(),
-            "mallory.testnet".into(),
-            USER_ID.into(),
-            None,
-        )
-        .expect("other wallet share");
-        assert_ne!(share, other_wallet_share);
-
-        let again = derive_email_otp_ecdsa_client_root_share32_from_secret32(
-            SECRET.to_vec(),
-            WALLET_ID.into(),
-            USER_ID.into(),
-            None,
-        )
-        .expect("share again");
-        assert_eq!(share, again);
-    }
 }

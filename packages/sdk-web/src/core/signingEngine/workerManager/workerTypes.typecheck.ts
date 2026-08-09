@@ -202,22 +202,6 @@ const finalizedReconciledCanonicalEcdsaActivation = {
 } satisfies ReconcileCanonicalEcdsaActivationResultV1;
 void finalizedReconciledCanonicalEcdsaActivation;
 
-const clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload = {
-  kind: 'email_otp_worker_session_handle_v1',
-  sessionId: 'otp-root-session',
-  walletId: 'wallet.testnet',
-  keyHandle: 'ecdsa-key-handle',
-  authSubjectId: 'google:subject',
-  action: 'threshold_ecdsa_bootstrap',
-  operation: 'sign',
-  chainTarget,
-};
-
-const ecdsaDisposalPayload = {
-  clientRootShareHandle,
-} satisfies EmailOtpWorkerOperationMap['disposeEmailOtpEcdsaClientRootHandle']['payload'];
-void ecdsaDisposalPayload;
-
 const retiredEcdsaRegistrationHandle: EmailOtpEcdsaSessionBootstrapHandlePayload = {
   kind: 'email_otp_worker_session_handle_v1',
   sessionId: 'otp-registration-root-session',
@@ -243,12 +227,6 @@ const walletRegistrationEcdsaPrepareHandle: EmailOtpWalletRegistrationEcdsaPrepa
 };
 void walletRegistrationEcdsaPrepareHandle;
 
-const invalidEcdsaDisposalPayload = {
-  // @ts-expect-error Session-root disposal rejects wallet-registration prepare handles.
-  clientRootShareHandle: walletRegistrationEcdsaPrepareHandle,
-} satisfies EmailOtpWorkerOperationMap['disposeEmailOtpEcdsaClientRootHandle']['payload'];
-void invalidEcdsaDisposalPayload;
-
 // @ts-expect-error Registration-prep worker handles cannot be used for session bootstrap.
 const bootstrapHandleFromRegistrationPrepare: EmailOtpEcdsaSessionBootstrapHandlePayload =
   walletRegistrationEcdsaPrepareHandle;
@@ -272,7 +250,7 @@ type EmailOtpCapabilityWalletUnlockMaterial = Extract<
 
 const emailOtpEcdsaExplicitUnlockMaterial: EmailOtpEcdsaWalletUnlockMaterial = {
   kind: 'ecdsa',
-  ecdsaClientRootHandleBinding: {
+  ecdsaSessionHandleBinding: {
     keyHandle: 'ecdsa-key-handle',
     authSubjectId: 'provider-subject',
     operation: 'wallet_unlock',
@@ -286,7 +264,7 @@ void emailOtpEcdsaExplicitUnlockMaterial;
 
 const emailOtpSigningStepUpWithActivation: EmailOtpEcdsaWalletUnlockMaterial = {
   kind: 'ecdsa',
-  ecdsaClientRootHandleBinding: {
+  ecdsaSessionHandleBinding: {
     keyHandle: 'ecdsa-key-handle',
     authSubjectId: 'provider-subject',
     // @ts-expect-error signing step-up cannot mint a reusable ECDSA Wallet Session.
@@ -301,7 +279,7 @@ void emailOtpSigningStepUpWithActivation;
 // @ts-expect-error explicit unlock must carry its exact first-session activation.
 const emailOtpUnlockWithoutActivation: EmailOtpEcdsaWalletUnlockMaterial = {
   kind: 'ecdsa',
-  ecdsaClientRootHandleBinding: {
+  ecdsaSessionHandleBinding: {
     keyHandle: 'ecdsa-key-handle',
     authSubjectId: 'provider-subject',
     operation: 'wallet_unlock',
@@ -317,16 +295,12 @@ type EmailOtpEd25519YaoWalletUnlockMaterial = Extract<
 type EmailOtpYaoBindPayload = EmailOtpWorkerOperationMap['bindEmailOtpEd25519YaoRoot']['payload'];
 type EmailOtpYaoRootDisposalPayload =
   EmailOtpWorkerOperationMap['disposeEmailOtpEd25519YaoRoot']['payload'];
-type EmailOtpYaoRegistrationMaterialPayload =
-  EmailOtpWorkerOperationMap['persistEmailOtpEd25519YaoRegistrationMaterial']['payload'];
 type EmailOtpYaoRecoveryPayload =
   EmailOtpWorkerOperationMap['recoverEmailOtpEd25519Yao']['payload'];
 type EmailOtpDeviceEnrollmentRestoreResult =
   EmailOtpWorkerOperationMap['restoreEmailOtpDeviceEnrollmentEscrow']['result'];
 type EmailOtpRecoveryCodeRotationResult =
   EmailOtpWorkerOperationMap['rotateEmailOtpRecoveryCodes']['result'];
-type EmailOtpEd25519YaoLocalMaterialRehydratePayload =
-  EmailOtpWorkerOperationMap['rehydrateEmailOtpEd25519YaoLocalMaterial']['payload'];
 
 const emailOtpEd25519YaoLocalMaterialRehydrate: EmailOtpEd25519YaoLocalMaterialRehydratePayload = {
   target: {
@@ -414,7 +388,7 @@ void emailOtpEd25519YaoWalletUnlockMaterial;
 const emailOtpCapabilityWalletUnlockMaterial: EmailOtpCapabilityWalletUnlockMaterial = {
   kind: 'wallet_unlock_capabilities',
   ecdsa: {
-    clientRootHandleBinding: emailOtpEcdsaExplicitUnlockMaterial.ecdsaClientRootHandleBinding,
+    sessionHandleBinding: emailOtpEcdsaExplicitUnlockMaterial.ecdsaSessionHandleBinding,
     runtimePolicyScope,
     sessionActivation: ecdsaSessionActivation,
   },

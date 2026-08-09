@@ -170,7 +170,7 @@ export type EmailOtpWalletUnlockMaterialRequest =
       readonly providerSubject?: never;
     } & (
       | {
-          readonly ecdsaClientRootHandleBinding: Extract<
+          readonly ecdsaSessionHandleBinding: Extract<
             EmailOtpEcdsaSessionBootstrapHandleBinding,
             { operation: 'wallet_unlock' }
           >;
@@ -178,7 +178,7 @@ export type EmailOtpWalletUnlockMaterialRequest =
           readonly walletSessionAuthorization: EmailOtpEcdsaWalletUnlockAuthorization;
         }
       | {
-          readonly ecdsaClientRootHandleBinding: Exclude<
+          readonly ecdsaSessionHandleBinding: Exclude<
             EmailOtpEcdsaSessionBootstrapHandleBinding,
             { operation: 'wallet_unlock' }
           >;
@@ -195,14 +195,14 @@ export type EmailOtpWalletUnlockMaterialRequest =
       readonly expectedThresholdSessionId: string;
       readonly ecdsaSessionActivation?: never;
       readonly walletSessionAuth?: never;
-      readonly ecdsaClientRootHandleBinding?: never;
+      readonly ecdsaSessionHandleBinding?: never;
       readonly runtimePolicyScope?: never;
       readonly ed25519YaoCapability?: never;
     }
   | {
       readonly kind: 'wallet_unlock_capabilities';
       readonly ecdsa: {
-        readonly clientRootHandleBinding: Extract<
+        readonly sessionHandleBinding: Extract<
           EmailOtpEcdsaSessionBootstrapHandleBinding,
           { operation: 'wallet_unlock' }
         >;
@@ -222,7 +222,7 @@ export type EmailOtpWalletUnlockMaterialRequest =
 export type EmailOtpWalletUnlockMaterialResult =
   | ({
       readonly kind: 'ecdsa';
-      readonly clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
+      readonly emailOtpSessionHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
       readonly pendingFactorHandle?: never;
       readonly ed25519YaoRecovery?: never;
     } & (
@@ -239,14 +239,14 @@ export type EmailOtpWalletUnlockMaterialResult =
       readonly kind: 'ed25519_yao_recovery';
       readonly pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
       readonly ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryBootstrapV1;
-      readonly clientRootShareHandle?: never;
+      readonly emailOtpSessionHandle?: never;
     }
   | {
       readonly kind: 'ed25519_yao_capability';
       readonly activeClientHandle: string;
       readonly metadata: RouterAbEd25519YaoActiveClientMetadataV1;
       readonly ed25519YaoCapability: EmailOtpEd25519YaoRecoveryBootstrapV1;
-      readonly clientRootShareHandle?: never;
+      readonly emailOtpSessionHandle?: never;
       readonly pendingFactorHandle?: never;
       readonly ed25519YaoRecovery?: never;
     }
@@ -254,7 +254,7 @@ export type EmailOtpWalletUnlockMaterialResult =
       readonly kind: 'wallet_unlock_capabilities';
       readonly operation: 'wallet_unlock';
       readonly ecdsa: {
-        readonly clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
+        readonly emailOtpSessionHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
         readonly session: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
       };
       readonly ed25519Yao:
@@ -491,7 +491,7 @@ export type EmailOtpWalletRegistrationEcdsaPrepareHandleResult =
       handles?: never;
     };
 
-export type EmailOtpEcdsaClientRootHandleBinding =
+export type EmailOtpEcdsaSessionHandleBinding =
   | EmailOtpEcdsaSessionBootstrapHandleBinding
   | EmailOtpWalletRegistrationEcdsaPrepareHandleBinding;
 
@@ -584,7 +584,6 @@ export interface EmailOtpWorkerOperationMap {
       clientSecret32?: ArrayBuffer;
     };
     result: {
-      thresholdEcdsaClientVerifyingShareB64u: string;
       recoveryKeys: EmailOtpRecoveryCodeSet;
       recoveryCodesIssuedAtMs: number;
       challengeId: string;
@@ -604,11 +603,10 @@ export interface EmailOtpWorkerOperationMap {
       routePlan: EmailOtpRoutePlan;
       otpChannel?: WalletEmailOtpChannel;
       clientSecret32?: ArrayBuffer;
-      ecdsaClientRootHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleRequest;
+      ecdsaSessionHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleRequest;
       ed25519YaoFactor: EmailOtpEd25519YaoFactorRequest;
     };
     result: {
-      thresholdEcdsaClientVerifyingShareB64u: string;
       recoveryKeys: EmailOtpRecoveryCodeSet;
       recoveryCodesIssuedAtMs: number;
       otpChannel: WalletEmailOtpChannel;
@@ -616,14 +614,13 @@ export interface EmailOtpWorkerOperationMap {
       enrollmentSealKeyVersion: string;
       clientUnlockPublicKeyB64u: string;
       unlockKeyVersion: string;
-      clientRootShareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleResult;
+      emailOtpSessionHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleResult;
       ed25519YaoFactor: EmailOtpEd25519YaoFactorResult;
       emailOtpEnrollment: {
         recoveryWrappedEnrollmentEscrows: unknown[];
         enrollmentSealKeyVersion: string;
         clientUnlockPublicKeyB64u: string;
         unlockKeyVersion: string;
-        thresholdEcdsaClientVerifyingShareB64u: string;
       };
     };
   };
@@ -640,10 +637,6 @@ export interface EmailOtpWorkerOperationMap {
   };
   disposeEmailOtpEd25519YaoRoot: {
     payload: { rootHandle: EmailOtpEd25519YaoRootHandle };
-    result: { removed: boolean };
-  };
-  disposeEmailOtpEcdsaClientRootHandle: {
-    payload: { clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload };
     result: { removed: boolean };
   };
   startEmailOtpEd25519YaoRegistration: {
@@ -857,17 +850,6 @@ export interface EmailOtpWorkerOperationMap {
       };
     } & EmailOtpWalletUnlockMaterialResult;
   };
-  bindEmailOtpEcdsaWarmSessionFromWorkerHandle: {
-    payload: {
-      clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
-      thresholdSessionId: string;
-      remainingUses: number;
-      expiresAtMs: number;
-    };
-    result:
-      | { ok: true; remainingUses: number; expiresAtMs: number }
-      | { ok: false; code: string; message: string };
-  };
   getEmailOtpWarmSessionStatus: {
     payload: {
       target: EmailOtpWarmMaterialTarget;
@@ -939,7 +921,7 @@ export interface EmailOtpWorkerOperationMap {
           ok: true;
           remainingUses: number;
           expiresAtMs: number;
-          clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
+          emailOtpSessionHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
         }
       | { ok: false; code: string; message: string };
   };
@@ -1103,7 +1085,6 @@ export type EmailOtpRestoreOperationType =
   | 'rehydrateEmailOtpEd25519YaoOperationMaterial';
 export type EmailOtpWarmSessionOperationType =
   | 'loginWithEmailOtpWallet'
-  | 'bindEmailOtpEcdsaWarmSessionFromWorkerHandle'
   | 'getEmailOtpWarmSessionStatus'
   | 'consumeEmailOtpWarmSessionUses'
   | 'sealEmailOtpWarmSessionMaterial'
@@ -1111,7 +1092,6 @@ export type EmailOtpWarmSessionOperationType =
   | 'rehydrateEmailOtpEd25519YaoLocalMaterial'
   | 'clearEmailOtpWarmSessionMaterial';
 export type EmailOtpExportOperationType =
-  | 'disposeEmailOtpEcdsaClientRootHandle'
   | 'exportEmailOtpEd25519YaoSeedWithAuthorization';
 export type EmailOtpDomainOperationType =
   | EmailOtpChallengeOperationType

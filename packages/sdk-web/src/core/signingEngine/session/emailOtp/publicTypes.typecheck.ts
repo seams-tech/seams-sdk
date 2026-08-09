@@ -12,7 +12,6 @@ const invalidRecoveryCodeSet: EmailOtpRecoveryCodeSet = rawRecoveryKeys;
 void invalidRecoveryCodeSet;
 
 declare const rawWorkerEnrollmentOutput: {
-  thresholdEcdsaClientVerifyingShareB64u: string;
   recoveryKeys: string[];
   recoveryCodesIssuedAtMs: number;
   challengeId: string;

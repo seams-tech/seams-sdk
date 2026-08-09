@@ -926,8 +926,6 @@ function googleEmailOtpRegistrationMaterialToBackupEnrollment(input: {
         >)
       : {};
   return {
-    thresholdEcdsaClientVerifyingShareB64u:
-      input.material.emailOtpEnrollment.thresholdEcdsaClientVerifyingShareB64u,
     recoveryKeys: input.material.recoveryKeys,
     recoveryCodesIssuedAtMs: input.material.recoveryCodesIssuedAtMs,
     registrationAuthorityId: input.registrationAuthorityId,
@@ -1018,7 +1016,7 @@ async function startEmailOtpRecoveryCodeBackupAfterEnrollmentMaterial(input: {
 function assertEmailOtpRegistrationHasNoLegacyEcdsaRoot(
   material: EmailOtpRegistrationEnrollmentMaterial,
 ): void {
-  if (material.clientRootShareHandle.kind !== 'not_requested') {
+  if (material.emailOtpSessionHandle.kind !== 'not_requested') {
     throw new Error('Strict ECDSA registration received obsolete Email OTP root-share material');
   }
 }

@@ -360,7 +360,7 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterialInternal(
     workerCtx: deps.getSignerWorkerContext(),
     appSessionJwt: args.appSessionJwt,
     otpChannel: args.otpChannel,
-    ecdsaClientRootHandle: { kind: 'not_requested' },
+    ecdsaSessionHandle: { kind: 'not_requested' },
     ed25519YaoFactor: emailOtpRegistrationEd25519YaoFactorRequestFromBoundary(args),
     ...(args.clientSecret32 ? { clientSecret32: args.clientSecret32 } : {}),
   });

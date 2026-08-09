@@ -4,7 +4,6 @@ import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/
 import type {
   EmailOtpEd25519YaoIssuedOperationAuthorizationV1,
   EmailOtpEd25519YaoOperationStepUpProofV1,
-  EmailOtpEcdsaSessionBootstrapHandlePayload,
   EmailOtpWarmMaterialTarget,
   SignerWorkerOperationResult,
 } from '@/core/signingEngine/workerManager/workerTypes';
@@ -18,21 +17,6 @@ import type {
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '../../threshold/ed25519/yaoClient';
 
 type EmailOtpWorkerRequester = Pick<WorkerOperationContext, 'requestWorkerOperation'>;
-
-export async function requestDisposeEmailOtpEcdsaClientRootHandle(args: {
-  workerCtx: WorkerOperationContext;
-  clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
-}): Promise<boolean> {
-  const result = await args.workerCtx.requestWorkerOperation({
-    kind: 'emailOtp',
-    request: {
-      type: 'disposeEmailOtpEcdsaClientRootHandle',
-      timeoutMs: 5_000,
-      payload: { clientRootShareHandle: args.clientRootShareHandle },
-    },
-  });
-  return result.removed;
-}
 
 export type EmailOtpWarmSessionTransport = {
   relayerUrl: string;
@@ -69,30 +53,6 @@ export async function requestSealEmailOtpWarmSessionMaterial(args: {
       payload: {
         target: args.target,
         transport: args.transport,
-      },
-    },
-  });
-}
-
-export async function requestBindEmailOtpEcdsaWarmSessionFromWorkerHandle(args: {
-  workerCtx: WorkerOperationContext;
-  clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
-  thresholdSessionId: string;
-  remainingUses: number;
-  expiresAtMs: number;
-}): Promise<
-  SignerWorkerOperationResult<'emailOtp', 'bindEmailOtpEcdsaWarmSessionFromWorkerHandle'>
-> {
-  return await args.workerCtx.requestWorkerOperation({
-    kind: 'emailOtp',
-    request: {
-      type: 'bindEmailOtpEcdsaWarmSessionFromWorkerHandle',
-      timeoutMs: 5_000,
-      payload: {
-        clientRootShareHandle: args.clientRootShareHandle,
-        thresholdSessionId: args.thresholdSessionId,
-        remainingUses: args.remainingUses,
-        expiresAtMs: args.expiresAtMs,
       },
     },
   });

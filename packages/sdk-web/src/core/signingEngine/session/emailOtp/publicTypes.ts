@@ -33,7 +33,6 @@ export type EmailOtpTransactionSigningChallenge = {
 };
 
 export type EmailOtpEnrollmentResult = {
-  thresholdEcdsaClientVerifyingShareB64u: string;
   recoveryKeys: EmailOtpRecoveryCodeSet;
   recoveryCodesIssuedAtMs: number;
   challengeId: string;
