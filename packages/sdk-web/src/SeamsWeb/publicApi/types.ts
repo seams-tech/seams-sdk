@@ -90,7 +90,10 @@ import type {
   WalletRecoveryBootstrapChallengeResult,
   WalletRecoveryBootstrapVerifyResult,
 } from '@/SeamsWeb/operations/recovery/walletRecovery';
-import type { AddPasskeyResult } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
+import type {
+  AddPasskeyAuthorization,
+  AddPasskeyResult,
+} from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
 import type { WalletRevokeAuthMethodResponse } from '@/core/rpcClients/relayer/walletRegistration';
 import type {
   WalletRecoveryBackupAcknowledgementResult,
@@ -102,7 +105,10 @@ export type {
   WalletRecoveryBootstrapChallengeResult,
   WalletRecoveryBootstrapVerifyResult,
 } from '@/SeamsWeb/operations/recovery/walletRecovery';
-export type { AddPasskeyResult } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
+export type {
+  AddPasskeyAuthorization,
+  AddPasskeyResult,
+} from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
 export type {
   WalletRecoveryBackupAcknowledgementResult,
   WalletRecoveryCodeStatusResult,
@@ -792,6 +798,7 @@ export interface RegistrationCapability {
   addPasskey(args: {
     walletId: WalletId | string;
     rpId: string;
+    authorization: AddPasskeyAuthorization;
     options?: RegistrationHooksOptions;
   }): Promise<AddPasskeyResult>;
   registerWallet(args: {
