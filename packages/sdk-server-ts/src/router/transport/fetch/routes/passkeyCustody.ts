@@ -26,6 +26,7 @@ import type {
   WalletRecoveryPreparationKeyManifestEntryV1,
   WalletRecoveryPreparationKeyManifestV1,
 } from '../../../domains/passkeyCustody/walletRecoveryKeyManifest';
+import { parseWalletRecoverySetRotationWireV1 } from '@shared/wallet-recovery/walletRecoveryEnvelopeSet';
 
 /**
  * The transport for custody envelope retrieval.
@@ -863,14 +864,22 @@ export async function handleWalletRecoveryRotate(
   const manifestKekWraps = Array.isArray(body?.manifestKekWraps)
     ? body.manifestKekWraps.filter(isObject)
     : [];
-  if (!walletId || !expectedStoreVersion || manifestKekWraps.length === 0) {
+  const entries = Array.isArray(body?.entries) ? body.entries.filter(isObject) : [];
+  if (!walletId || !expectedStoreVersion || manifestKekWraps.length === 0 || entries.length !== 1) {
     return toFetchRouteResponse({
       status: 400,
       body: {
         ok: false,
         code: 'invalid_request',
-        message: 'a rotation needs a wallet and its replacement code wraps',
+        message: 'a rotation needs a wallet and its complete replacement recovery set',
       },
+    });
+  }
+  const parsedWalletId = parseWalletId(walletId);
+  if (!parsedWalletId.ok) {
+    return toFetchRouteResponse({
+      status: 400,
+      body: { ok: false, code: 'invalid_request', message: 'wallet id is invalid' },
     });
   }
 
@@ -882,9 +891,26 @@ export async function handleWalletRecoveryRotate(
     });
   }
 
+  let replacement: ReturnType<typeof parseWalletRecoverySetRotationWireV1>;
+  try {
+    replacement = parseWalletRecoverySetRotationWireV1(
+      { walletId, manifestKekWraps, entries },
+      { expectedWalletId: parsedWalletId.value },
+    );
+  } catch (error: unknown) {
+    return toFetchRouteResponse({
+      status: 400,
+      body: {
+        ok: false,
+        code: 'invalid_request',
+        message: error instanceof Error ? error.message : 'replacement recovery set is invalid',
+      },
+    });
+  }
+
   const result = await ctx.service.passkeyCustody.rotateRecoveryCodes({
     walletId,
-    manifestKekWraps: manifestKekWraps as never,
+    replacement,
     expectedStoreVersion,
   });
 

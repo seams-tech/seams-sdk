@@ -321,6 +321,18 @@ pub fn wallet_custody_ceremony_recover_v1(
 
 #[wasm_bindgen]
 impl WasmCeremonySeedHeldV1 {
+    /// Reseals the existing wallet seed under a fresh manifest KEK and ten
+    /// replacement recovery codes. The return value is opaque ciphertext
+    /// records; no seed or KEK crosses the wasm boundary.
+    pub fn rotate_recovery_codes(self, recovery_codes_json: &str) -> Result<String, JsValue> {
+        let recovery_codes = recovery_code_inputs(recovery_codes_json).map_err(js_error)?;
+        let rotated = self
+            .inner
+            .rotate_recovery_set(recovery_codes)
+            .map_err(ceremony_error)?;
+        serde_json::to_string(&rotated).map_err(js_error)
+    }
+
     /// Derives the NEAR Ed25519 root and starts the Yao protocol.
     pub fn prepare_near_ed25519(
         self,

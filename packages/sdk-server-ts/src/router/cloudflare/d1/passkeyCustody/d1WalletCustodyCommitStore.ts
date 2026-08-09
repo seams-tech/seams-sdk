@@ -374,6 +374,45 @@ export class CloudflareD1WalletCustodyCommitStore {
   }
 
   /**
+   * Replaces a complete recovery set and carries the backup-ack row through
+   * the same CAS. The acknowledgement still names the previous issuance, so
+   * status naturally reports the fresh set as outstanding until the UI calls
+   * the explicit acknowledge route. Both rows are guarded against races.
+   */
+  async replaceRecoveryEnvelopeSetAndPreserveBackupAcknowledgement(input: {
+    readonly record: WalletRecoveryEnvelopeSetRecord;
+    readonly expectedRecoverySetVersion: string;
+  }): Promise<{ kind: 'stored'; storeVersion: string } | { kind: 'conflict' }> {
+    const acknowledgementKey = walletRecoveryBackupAcknowledgementRecordKey(
+      input.record.walletId,
+    );
+    const existingAcknowledgement = await this.records.read(acknowledgementKey);
+    const mutations = [
+      {
+        key: walletRecoveryEnvelopeSetRecordKey(input.record.walletId),
+        value: input.record,
+        expectedVersion: input.expectedRecoverySetVersion,
+      },
+      ...(existingAcknowledgement.kind === 'present'
+        ? [
+            {
+              key: acknowledgementKey,
+              value: existingAcknowledgement.value,
+              expectedVersion: existingAcknowledgement.version,
+            },
+          ]
+        : []),
+    ] as const;
+    const stored = await this.records.putMany(mutations);
+    if (stored.kind === 'version_mismatch') return { kind: 'conflict' };
+    const version = stored.versions.find(
+      (entry) => entry.key === walletRecoveryEnvelopeSetRecordKey(input.record.walletId),
+    );
+    if (!version) throw new Error('recovery-set rotation did not report its store version');
+    return { kind: 'stored', storeVersion: version.version };
+  }
+
+  /**
    * Installs a recovered credential and consumes its held code in one D1
    * transaction. A process can fail after this returns without creating an
    * envelope whose recovery code is still usable, or consuming a code whose

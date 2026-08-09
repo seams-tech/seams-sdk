@@ -342,6 +342,20 @@ pub struct EstablishedCustodyRecordsV1 {
     pub recovery_entry_aad_hash_b64u: String,
 }
 
+/// The replacement recovery set produced by an active-factor rotation.
+///
+/// The seed and manifest KEK remain inside the ceremony. Only the opaque
+/// ciphertext records needed by the server's atomic CAS reach JavaScript.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RotatedRecoverySetV1 {
+    pub wallet_id: String,
+    pub recovery_manifest_kek_wraps: Vec<SealedRecoveryWrapRecordV1>,
+    pub recovery_entry_nonce_b64u: String,
+    pub recovery_entry_ciphertext_b64u: String,
+    pub recovery_entry_aad_hash_b64u: String,
+}
+
 /// A recovered seed resealed under the replacement passkey factor.
 ///
 /// Recovery codes remain unchanged and are therefore absent. The server owns
@@ -527,6 +541,27 @@ impl CeremonySeedHeldV1 {
             wallet_id,
             seed: Zeroizing::new(seed),
             origin: CustodyOriginV1::Recover,
+        })
+    }
+
+    /// Reseals the wallet seed under a fresh manifest KEK and ten new recovery
+    /// codes. The active factor has already opened the seed into this handle;
+    /// no factor material or seed crosses the boundary.
+    pub fn rotate_recovery_set(
+        self,
+        recovery_codes: Vec<RecoveryCodeInputV1>,
+    ) -> CeremonyResult<RotatedRecoverySetV1> {
+        let sealed = CeremonyManifestEstablishedV1::seal_recovery_set(
+            &self.wallet_id,
+            &self.seed,
+            recovery_codes,
+        )?;
+        Ok(RotatedRecoverySetV1 {
+            wallet_id: self.wallet_id,
+            recovery_manifest_kek_wraps: sealed.recovery_manifest_kek_wraps,
+            recovery_entry_nonce_b64u: b64u(&sealed.entry_nonce),
+            recovery_entry_ciphertext_b64u: sealed.entry_ciphertext_b64u,
+            recovery_entry_aad_hash_b64u: sealed.entry_aad_hash_b64u,
         })
     }
 
@@ -1137,12 +1172,33 @@ impl CeremonyManifestEstablishedV1 {
         factor: FactorSealInputsV1,
         recovery_codes: Vec<RecoveryCodeInputV1>,
     ) -> CeremonyResult<EstablishedCustodyRecordsV1> {
+        let envelope = Self::seal_factor_envelope(wallet_id, seed, factor)?;
+        let recovery = Self::seal_recovery_set(wallet_id, seed, recovery_codes)?;
+
+        Ok(EstablishedCustodyRecordsV1 {
+            envelope_id: envelope.envelope_id,
+            envelope_binding_json: envelope.envelope_binding_json,
+            envelope_nonce_b64u: envelope.envelope_nonce_b64u,
+            sealed_custody_secret_b64u: envelope.sealed_custody_secret_b64u,
+            envelope_aad_hash_b64u: envelope.envelope_aad_hash_b64u,
+            envelope_ciphertext_digest_b64u: envelope.envelope_ciphertext_digest_b64u,
+            recovery_manifest_kek_wraps: recovery.recovery_manifest_kek_wraps,
+            recovery_entry_nonce_b64u: b64u(&recovery.entry_nonce),
+            recovery_entry_ciphertext_b64u: recovery.entry_ciphertext_b64u,
+            recovery_entry_aad_hash_b64u: recovery.entry_aad_hash_b64u,
+        })
+    }
+
+    fn seal_recovery_set(
+        wallet_id: &str,
+        seed: &[u8; WALLET_CUSTODY_SEED_LEN],
+        recovery_codes: Vec<RecoveryCodeInputV1>,
+    ) -> CeremonyResult<SealedRecoverySetV1> {
         if recovery_codes.len() != WALLET_RECOVERY_CODE_COUNT {
             return Err(CeremonyError::new(format!(
                 "a recovery set carries exactly {WALLET_RECOVERY_CODE_COUNT} codes"
             )));
         }
-        let envelope = Self::seal_factor_envelope(wallet_id, seed, factor)?;
 
         let mut manifest_kek = Zeroizing::new([0u8; PASSKEY_CUSTODY_KEY_LEN]);
         random_bytes(&mut manifest_kek[..])?;
@@ -1182,17 +1238,11 @@ impl CeremonyManifestEstablishedV1 {
         let entry = seal_wallet_recovery_entry_v1(&manifest_kek[..], wallet_id, &entry_nonce, seed)
             .map_err(|error| CeremonyError::new(format!("recovery entry seal: {error}")))?;
 
-        Ok(EstablishedCustodyRecordsV1 {
-            envelope_id: envelope.envelope_id,
-            envelope_binding_json: envelope.envelope_binding_json,
-            envelope_nonce_b64u: envelope.envelope_nonce_b64u,
-            sealed_custody_secret_b64u: envelope.sealed_custody_secret_b64u,
-            envelope_aad_hash_b64u: envelope.envelope_aad_hash_b64u,
-            envelope_ciphertext_digest_b64u: envelope.envelope_ciphertext_digest_b64u,
+        Ok(SealedRecoverySetV1 {
             recovery_manifest_kek_wraps,
-            recovery_entry_nonce_b64u: b64u(&entry_nonce),
-            recovery_entry_ciphertext_b64u: entry.ciphertext_b64u(),
-            recovery_entry_aad_hash_b64u: entry.aad_hash_b64u(),
+            entry_nonce,
+            entry_ciphertext_b64u: entry.ciphertext_b64u(),
+            entry_aad_hash_b64u: entry.aad_hash_b64u(),
         })
     }
 
@@ -1229,6 +1279,13 @@ impl CeremonyManifestEstablishedV1 {
             envelope_ciphertext_digest_b64u: sealed.ciphertext_digest_b64u(),
         })
     }
+}
+
+struct SealedRecoverySetV1 {
+    recovery_manifest_kek_wraps: Vec<SealedRecoveryWrapRecordV1>,
+    entry_nonce: [u8; PASSKEY_CUSTODY_NONCE_LEN],
+    entry_ciphertext_b64u: String,
+    entry_aad_hash_b64u: String,
 }
 
 fn established_custody_for_origin(
