@@ -73,9 +73,7 @@ import {
   type EmailOtpEd25519YaoUnlockResult,
   type EmailOtpWalletUnlockResult,
 } from './walletUnlock';
-import {
-  disposeEmailOtpEd25519YaoActiveClientV1,
-} from './ed25519YaoWorkerClient';
+import { disposeWalletCustodyEd25519ActiveClientV1 } from '../../walletCustody/ed25519ActiveClient';
 import {
   DEFAULT_THRESHOLD_SESSION_POLICY,
   clampThresholdSessionPolicy,
@@ -200,7 +198,7 @@ async function disposeEmailOtpEd25519YaoWorkerResultAfterFailure(args: {
     case 'wallet_custody_cache_absent':
       return;
     case 'ed25519_yao_capability': {
-      const removed = await disposeEmailOtpEd25519YaoActiveClientV1({
+      const removed = await disposeWalletCustodyEd25519ActiveClientV1({
         workerContext: args.workerContext,
         activeClientHandle: args.workerResult.activeClientHandle,
       });

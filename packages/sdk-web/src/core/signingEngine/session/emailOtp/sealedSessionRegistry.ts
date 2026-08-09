@@ -10,7 +10,6 @@ import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/
 import {
   buildCurrentSealedSessionRecord,
   type BuildCurrentSealedSessionRecordInput,
-  type readExactEd25519SealedSession,
   type readExactSealedSession,
   type writeExactSealedSession,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
@@ -18,10 +17,6 @@ import {
   persistEmailOtpEcdsaSigningSessionForRefresh,
   type EmailOtpEcdsaPublicationPorts,
 } from './ecdsaPublication';
-import {
-  persistEmailOtpEd25519YaoCapabilityForRefresh,
-  type EmailOtpEd25519YaoPublicationPorts,
-} from './ed25519YaoPublication';
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
@@ -42,7 +37,6 @@ export class EmailOtpSealedSessionRegistry {
         authorization: ActiveWalletSessionAuthorizationProjection;
       }>;
       writeExactSealedSession: typeof writeExactSealedSession;
-      readExactEd25519SealedSession: typeof readExactEd25519SealedSession;
       readExactSealedSession: typeof readExactSealedSession;
       listActiveEcdsaCapabilityManifestsForWallet: EmailOtpEcdsaPublicationPorts['listActiveEcdsaCapabilityManifestsForWallet'];
       clearEcdsaRestoreCaches: () => void;
@@ -73,12 +67,6 @@ export class EmailOtpSealedSessionRegistry {
     };
   }
 
-  async persistEd25519YaoCapabilityForRefresh(
-    args: Parameters<typeof persistEmailOtpEd25519YaoCapabilityForRefresh>[0],
-  ): Promise<void> {
-    await persistEmailOtpEd25519YaoCapabilityForRefresh(args, this.ed25519YaoPublicationPorts());
-  }
-
   async persistEcdsaSessionForRefresh(args: {
     walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
@@ -100,12 +88,4 @@ export class EmailOtpSealedSessionRegistry {
     );
   }
 
-  private ed25519YaoPublicationPorts(): EmailOtpEd25519YaoPublicationPorts {
-    return {
-      configs: this.ports.configs,
-      getSignerWorkerContext: this.ports.getSignerWorkerContext,
-      registerSigningSession: (record) => this.registerSigningSession(record),
-      readExactEd25519SealedSession: this.ports.readExactEd25519SealedSession,
-    };
-  }
 }

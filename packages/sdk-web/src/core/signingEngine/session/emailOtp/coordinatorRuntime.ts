@@ -76,10 +76,10 @@ export class EmailOtpWalletSessionRuntime {
     this.sealedSessionRegistry = new EmailOtpSealedSessionRegistry({
       configs: deps.configs,
       getSignerWorkerContext: deps.getSignerWorkerContext,
+      loadWalletCustodyEd25519Material: deps.loadWalletCustodyEd25519Material,
       commitEvmFamilyThresholdEcdsaSessions: deps.commitEvmFamilyThresholdEcdsaSessions,
       listActiveEcdsaCapabilityManifestsForWallet: deps.listActiveEcdsaCapabilityManifestsForWallet,
       writeExactSealedSession: deps.writeExactSealedSession,
-      readExactEd25519SealedSession: deps.readExactEd25519SealedSession,
       readExactSealedSession: deps.readExactSealedSession,
       clearEcdsaRestoreCaches: () => this.clearEcdsaRestoreCaches(),
     });
@@ -140,12 +140,6 @@ export class EmailOtpWalletSessionRuntime {
       sealedRefreshPolicy: this.sealedRefreshPolicy,
       sealedRestoreOrchestrator: this.sealedRestoreOrchestrator,
     });
-  }
-
-  async persistEd25519YaoCapabilityForRefresh(
-    args: Parameters<EmailOtpSealedSessionRegistry['persistEd25519YaoCapabilityForRefresh']>[0],
-  ): Promise<void> {
-    await this.sealedSessionRegistry.persistEd25519YaoCapabilityForRefresh(args);
   }
 
   async persistEcdsaSessionForRefresh(

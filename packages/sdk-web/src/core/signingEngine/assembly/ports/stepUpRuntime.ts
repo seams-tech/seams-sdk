@@ -44,6 +44,7 @@ export function createStepUpRuntime(args: {
   provisionEmailOtpEcdsaExplicitExportSession: EmailOtpWalletSessionCoordinatorDeps['provisionEmailOtpEcdsaExplicitExportSession'];
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
   thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey;
+  loadWalletCustodyEd25519Material: EmailOtpWalletSessionCoordinatorDeps['loadWalletCustodyEd25519Material'];
   persistEcdsaRoleLocalReadyRecord: DurableRecordStore['persistEcdsaRoleLocalReadyRecord'];
   listActiveEcdsaCapabilityManifestsForWallet: (
     walletId: string,
@@ -55,6 +56,7 @@ export function createStepUpRuntime(args: {
     signerWorkerManager: args.signerWorkerManager,
     getRpId: () => args.touchIdPrompt.getRpId(),
     getSignerWorkerContext: args.getSignerWorkerContext,
+    loadWalletCustodyEd25519Material: args.loadWalletCustodyEd25519Material,
     readActiveWalletSessionAuthorization: walletSessionAuthorizations.readActiveForWallet.bind(
       walletSessionAuthorizations,
     ),
@@ -83,8 +85,6 @@ export function createStepUpRuntime(args: {
       args.listActiveEcdsaCapabilityManifestsForWallet(String(walletId)),
     resolveCurrentEcdsaCapabilityRuntime: resolveActiveEcdsaCapabilityRuntime,
     writeExactSealedSession: args.sealedSessionStore.writeExactSealedSession,
-    readExactEd25519SealedSession:
-      args.sealedSessionStore.readExactEd25519SealedSession,
     readExactSealedSession: args.sealedSessionStore.readExactSealedSession,
     listExactSealedSessionsForWallet: args.sealedSessionStore.listExactSealedSessionsForWallet,
     acquireSigningSessionRestoreLease: args.sealedSessionStore.acquireSigningSessionRestoreLease,
