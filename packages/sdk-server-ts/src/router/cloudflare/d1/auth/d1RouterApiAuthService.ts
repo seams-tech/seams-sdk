@@ -1496,6 +1496,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     ecdsaStrictRegistration: options.ecdsaStrictRegistration,
     getWalletStore,
     walletAuthMethods,
+    passkeyCustodyEnvelopes,
     startSideEffects: walletAddSignerStartSideEffectStore(options),
     finalizeSideEffects: walletAddSignerFinalizeSideEffectStore(options),
   });

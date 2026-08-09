@@ -1,4 +1,7 @@
 import type { RecoveryCodeLifecycleState } from './recoveryEnvelopes';
+import { base64UrlEncode } from '../utils/base64';
+import { alphabetizeStringify, sha256BytesUtf8 } from '../utils/digests';
+import { parseCorrelationId, type CorrelationId } from '../utils/canonicalPrimitives';
 
 /**
  * Recovery-code reservation lifecycle.
@@ -16,6 +19,32 @@ import type { RecoveryCodeLifecycleState } from './recoveryEnvelopes';
 export type RecoveryCodeReservationId = string & {
   readonly __recoveryCodeReservationIdBrand: 'RecoveryCodeReservationId';
 };
+
+export type WalletRecoveryKeySetId =
+  | `near_ed25519:${string}`
+  | `evm_family_ecdsa:${string}`;
+
+const WALLET_RECOVERY_KEY_LIFECYCLE_DOMAIN_V1 =
+  'seams/wallet-recovery/key-lifecycle/v1' as const;
+
+/** One protocol lifecycle below a wallet-scoped recovery reservation. */
+export async function deriveWalletRecoveryKeyLifecycleId(input: {
+  readonly reservationId: RecoveryCodeReservationId;
+  readonly keySetId: WalletRecoveryKeySetId;
+}): Promise<CorrelationId> {
+  const keySetId = String(input.keySetId || '').trim();
+  if (!/^(near_ed25519|evm_family_ecdsa):\S+$/.test(keySetId)) {
+    throw new Error('wallet recovery key-set id is invalid');
+  }
+  const digest = await sha256BytesUtf8(
+    alphabetizeStringify({
+      domain: WALLET_RECOVERY_KEY_LIFECYCLE_DOMAIN_V1,
+      reservationId: input.reservationId,
+      keySetId,
+    }),
+  );
+  return parseCorrelationId(`wallet-recovery-key-v1:${base64UrlEncode(digest)}`);
+}
 
 export type RecoveryCodeTransitionResult =
   | { ok: true; lifecycle: RecoveryCodeLifecycleState }

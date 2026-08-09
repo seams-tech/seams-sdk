@@ -89,6 +89,23 @@ export async function persistWalletCustodyEd25519MaterialV1(
   );
 }
 
+export async function deleteWalletCustodyEd25519MaterialV1(input: {
+  readonly store: PersistWalletCustodyEd25519MaterialInputV1['store'];
+  readonly nearAccountId: string;
+  readonly signerSlot: number;
+}): Promise<void> {
+  const target = await resolveAccountKeyMaterialTarget(input.store, {
+    accountRefs: buildNearAccountRefs(input.nearAccountId),
+  });
+  if (!target) return;
+  await input.store.deleteKeyMaterial(
+    target.profileId,
+    input.signerSlot,
+    target.chainIdKey,
+    WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
+  );
+}
+
 export type WalletCustodyEd25519MaterialTargetV1 = {
   readonly profileId: string;
   readonly chainIdKey: string;

@@ -143,6 +143,7 @@ export async function handleWalletRecoveryPrepare(
           ok: true,
           wrap: result.wrap,
           entries: result.entries,
+          keyManifest: result.keyManifest,
           reservationId: result.reservationId,
           reservationExpiresAtMs: result.reservationExpiresAtMs,
           storeVersion: result.storeVersion,

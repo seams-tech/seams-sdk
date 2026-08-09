@@ -55,6 +55,8 @@ import type {
   FinalizeRouterAbEcdsaExplicitExportResultV1,
   RehydrateEcdsaRoleLocalSigningMaterialRequestV1,
   RehydrateEcdsaRoleLocalSigningMaterialResultV1,
+  VerifyRouterAbEcdsaPostRegistrationProofsRequestV1,
+  VerifyRouterAbEcdsaPostRegistrationProofsResultV1,
 } from '@/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
 import type {
   CloseRouterAbEcdsaRegistrationCeremonyRequestV1,
@@ -1218,6 +1220,7 @@ export const EcdsaDerivationClientCustomRequestType = {
   PersistInitialCanonicalEcdsaActivation: 70_016,
   ReconcileCanonicalEcdsaActivation: 70_017,
   PrewarmEcdsaRegistrationCrypto: 70_018,
+  VerifyRouterAbEcdsaPostRegistrationProofs: 70_019,
 } as const;
 
 export type EcdsaDerivationClientCustomRequestType =
@@ -1239,6 +1242,7 @@ export const EcdsaDerivationClientCustomResponseType = {
   PersistInitialCanonicalEcdsaActivationSuccess: 70_116,
   ReconcileCanonicalEcdsaActivationSuccess: 70_117,
   PrewarmEcdsaRegistrationCryptoSuccess: 70_118,
+  VerifyRouterAbEcdsaPostRegistrationProofsSuccess: 70_119,
 } as const;
 
 export type EcdsaDerivationClientCustomResponseType =
@@ -1526,6 +1530,14 @@ type EcdsaDerivationClientCustomOperationMap = {
       diagnostics?: WorkerResponseDiagnostics;
     };
   };
+  [EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaPostRegistrationProofs]: {
+    payload: VerifyRouterAbEcdsaPostRegistrationProofsRequestV1;
+    result: {
+      type: typeof EcdsaDerivationClientCustomResponseType.VerifyRouterAbEcdsaPostRegistrationProofsSuccess;
+      payload: VerifyRouterAbEcdsaPostRegistrationProofsResultV1;
+      diagnostics?: WorkerResponseDiagnostics;
+    };
+  };
   [EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap]: {
     payload: WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapRequest;
     result: {
@@ -1674,6 +1686,7 @@ export type EcdsaDerivationRoleLocalMaterialOperationType =
   | typeof EcdsaDerivationClientCustomRequestType.CreateRouterAbEcdsaPostRegistrationCeremony
   | typeof EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaExplicitExport
   | typeof EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaPostRegistrationCeremony
+  | typeof EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaPostRegistrationProofs
   | typeof EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap
   | typeof EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap
   | typeof EcdsaDerivationClientCustomRequestType.BuildThresholdEcdsaDerivationRoleLocalExportArtifact

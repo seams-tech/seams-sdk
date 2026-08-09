@@ -30,6 +30,7 @@ pub struct RouterAbEcdsaClientCeremonyV1 {
     registration_binding: Option<RegistrationBindingV1>,
     explicit_export_request_digest: Option<[u8; 32]>,
     recovery_request_digest: Option<[u8; 32]>,
+    activation_refresh_request_digest: Option<[u8; 32]>,
 }
 
 #[wasm_bindgen]
@@ -45,6 +46,7 @@ impl RouterAbEcdsaClientCeremonyV1 {
             registration_binding: None,
             explicit_export_request_digest: None,
             recovery_request_digest: None,
+            activation_refresh_request_digest: None,
         })
     }
 
@@ -164,7 +166,7 @@ impl RouterAbEcdsaClientCeremonyV1 {
     }
 
     /// Builds a strict SigningWorker activation-refresh request.
-    pub fn build_activation_refresh_request(&self, input_json: &str) -> Result<String, JsValue> {
+    pub fn build_activation_refresh_request(&mut self, input_json: &str) -> Result<String, JsValue> {
         let input: ActivationRefreshRequestInputV1 = parse_json(input_json)?;
         let header = self.post_registration_header(
             &input.common,
@@ -183,6 +185,8 @@ impl RouterAbEcdsaClientCeremonyV1 {
             },
         )?;
         let request = self.build_post_request(header, &input.common.deriver_recipient_keys)?;
+        self.activation_refresh_request_digest =
+            Some(request.digest().map_err(protocol_error).map_err(js_error)?);
         serialize_refresh_request(input, request)
     }
 
@@ -223,6 +227,14 @@ impl RouterAbEcdsaClientCeremonyV1 {
         Ok(base64_url_encode(&digest))
     }
 
+    /// Returns the canonical activation-refresh request digest held by this ceremony.
+    pub fn activation_refresh_request_digest_b64u(&self) -> Result<String, JsValue> {
+        let digest = self.activation_refresh_request_digest.ok_or_else(|| {
+            JsValue::from_str("Router A/B ECDSA activation-refresh request was not built")
+        })?;
+        Ok(base64_url_encode(&digest))
+    }
+
     /// Opens the exact SigningWorker share only when every expected export binding matches.
     pub fn open_signing_worker_export_share(
         &self,
@@ -251,6 +263,7 @@ impl RouterAbEcdsaClientCeremonyV1 {
         self.registration_binding.take();
         self.explicit_export_request_digest.take();
         self.recovery_request_digest.take();
+        self.activation_refresh_request_digest.take();
         self.keypair.take();
     }
 }

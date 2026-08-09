@@ -8,6 +8,10 @@ import { deriveSigningRootId } from '@shared/threshold/signingRootScope';
 import { isPlainObject, toOptionalTrimmedString } from '@shared/utils/validation';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
+import {
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+} from '@shared/utils/domainIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import {
   DEFAULT_WALLET_SESSION_REMAINING_USES,
@@ -78,11 +82,52 @@ import {
   type RouterAbEd25519YaoRegistrationSideEffectRecordV1,
   type RouterAbEd25519YaoRegistrationSideEffectStoreV1,
 } from '../../../domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationSideEffectBoundary';
+import { CloudflareD1PasskeyCustodyEnvelopeStore } from '../passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 
 type StartWalletAddSignerInput = WalletAddSignerStartRequest;
 type RespondWalletAddSignerDerivationInput = WalletAddSignerEcdsaDerivationRespondRequest;
 type ActivateWalletAddSignerEcdsaInput = WalletAddSignerEcdsaActivationRequest;
 type FinalizeWalletAddSignerInput = WalletAddSignerFinalizeRequest;
+
+type WalletAddSignerStartCoreResponse =
+  | (Omit<
+      Extract<WalletAddSignerStartResponse, { readonly ok: true; readonly kind: 'near_ed25519' }>,
+      'ed25519'
+    > & {
+      readonly ed25519: Omit<
+        Extract<
+          WalletAddSignerStartResponse,
+          { readonly ok: true; readonly kind: 'near_ed25519' }
+        >['ed25519'],
+        'custodyEnvelope'
+      >;
+    })
+  | (Omit<
+      Extract<
+        WalletAddSignerStartResponse,
+        { readonly ok: true; readonly kind: 'evm_family_ecdsa' }
+      >,
+      'ecdsa'
+    > & {
+      readonly ecdsa: Omit<
+        Extract<
+          WalletAddSignerStartResponse,
+          { readonly ok: true; readonly kind: 'evm_family_ecdsa' }
+        >['ecdsa'],
+        'custodyEnvelope'
+      >;
+    })
+  | Extract<WalletAddSignerStartResponse, { readonly ok: false }>;
+
+type WalletAddSignerStartCoreSuccess = Extract<
+  WalletAddSignerStartCoreResponse,
+  { readonly ok: true }
+>;
+
+type WalletAddSignerStartWebAuthnCoreSuccess = Extract<
+  WalletAddSignerStartCoreSuccess,
+  { readonly authorizationKind: 'webauthn_assertion' }
+>;
 
 type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore;
 type WalletStoreProvider = () => D1WalletStore;
@@ -112,7 +157,7 @@ export type D1WalletAddSignerStartTerminalV1 =
   | {
       readonly kind: 'd1_wallet_add_signer_start_succeeded_v1';
       readonly ceremony: StoredWalletAddSignerCeremony;
-      readonly response: Extract<WalletAddSignerStartResponse, { readonly ok: true }>;
+      readonly response: WalletAddSignerStartCoreSuccess;
     }
   | {
       readonly kind: 'd1_wallet_add_signer_start_rejected_v1';
@@ -158,7 +203,7 @@ function addSignerRecordValue(value: unknown): Record<string, unknown> | null {
 
 function walletAddSignerStartResponseFromCeremony(
   ceremony: StoredWalletAddSignerCeremony,
-): Extract<WalletAddSignerStartResponse, { readonly ok: true }> | null {
+): WalletAddSignerStartCoreSuccess | null {
   const base = {
     ok: true as const,
     addSignerCeremonyId: ceremony.addSignerCeremonyId,
@@ -166,14 +211,17 @@ function walletAddSignerStartResponseFromCeremony(
   };
   switch (ceremony.signerState.kind) {
     case 'near_ed25519_yao_add_signer_authorized':
+      if (ceremony.auth.kind !== 'webauthn_assertion') return null;
       return {
         ...base,
+        authorizationKind: ceremony.auth.kind,
         kind: 'near_ed25519',
         ed25519: { admissionRequest: ceremony.signerState.admissionRequest },
       };
     case 'ecdsa_add_signer_prepared':
       return {
         ...base,
+        authorizationKind: ceremony.auth.kind,
         kind: 'evm_family_ecdsa',
         ecdsa: {
           kind: ceremony.signerState.derivationKind,
@@ -474,6 +522,7 @@ function normalizeWalletAddSignerFinalizeRequest(
       kind: 'near_ed25519',
       addSignerCeremonyId: request.addSignerCeremonyId,
       idempotencyKey,
+      custodyKeySet: request.custodyKeySet,
       activationReference: {
         lifecycleId: request.ed25519.activationReference.lifecycle_id,
         sessionId: request.ed25519.activationReference.session_id,
@@ -486,6 +535,7 @@ function normalizeWalletAddSignerFinalizeRequest(
     kind: 'evm_family_ecdsa',
     addSignerCeremonyId: request.addSignerCeremonyId,
     idempotencyKey,
+    custodyKeySet: request.custodyKeySet,
     expectedKeyHandles: [expectedKeyHandle],
   };
 }
@@ -546,6 +596,7 @@ export class CloudflareD1WalletAddSignerService {
   private readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
   private readonly getWalletStore: WalletStoreProvider;
   private readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
+  private readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
   private readonly startSideEffects: D1WalletAddSignerStartSideEffectStore;
   private readonly finalizeSideEffects: D1WalletAddSignerFinalizeSideEffectStore;
 
@@ -555,6 +606,7 @@ export class CloudflareD1WalletAddSignerService {
     readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
     readonly getWalletStore: WalletStoreProvider;
     readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
+    readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
     readonly startSideEffects: D1WalletAddSignerStartSideEffectStore;
     readonly finalizeSideEffects: D1WalletAddSignerFinalizeSideEffectStore;
   }) {
@@ -563,6 +615,7 @@ export class CloudflareD1WalletAddSignerService {
     this.ecdsaStrictRegistration = input.ecdsaStrictRegistration;
     this.getWalletStore = input.getWalletStore;
     this.walletAuthMethods = input.walletAuthMethods;
+    this.passkeyCustodyEnvelopes = input.passkeyCustodyEnvelopes;
     this.startSideEffects = input.startSideEffects;
     this.finalizeSideEffects = input.finalizeSideEffects;
   }
@@ -663,7 +716,13 @@ export class CloudflareD1WalletAddSignerService {
       switch (run.kind) {
         case 'executed':
         case 'exact_replay':
-          return run.value.response;
+          if (run.value.response.authorizationKind === 'app_session') {
+            return run.value.response;
+          }
+          return await this.attachWalletAddSignerCustodyEnvelope({
+            ceremony: run.value.ceremony,
+            response: run.value.response,
+          });
         case 'request_conflict':
           return {
             ok: false,
@@ -691,6 +750,63 @@ export class CloudflareD1WalletAddSignerService {
         code: 'internal',
         message: errorMessage(error) || 'Failed to start wallet add-signer ceremony',
       };
+    }
+  }
+
+  private async attachWalletAddSignerCustodyEnvelope(input: {
+    readonly ceremony: StoredWalletAddSignerCeremony;
+    readonly response: WalletAddSignerStartWebAuthnCoreSuccess;
+  }): Promise<WalletAddSignerStartResponse> {
+    if (input.ceremony.auth.kind !== 'webauthn_assertion') {
+      return {
+        ok: false,
+        code: 'invalid_state',
+        message: 'WebAuthn-authorized add-signer preparation lost its factor identity',
+      };
+    }
+    const rpId = parseWebAuthnRpId(input.ceremony.auth.rpId);
+    const credentialId = parseWebAuthnCredentialIdB64u(
+      input.ceremony.auth.credentialIdB64u,
+    );
+    if (!rpId.ok || !credentialId.ok) {
+      return {
+        ok: false,
+        code: 'invalid_state',
+        message: 'WebAuthn-authorized add-signer preparation has an invalid factor identity',
+      };
+    }
+    const lookup = await this.passkeyCustodyEnvelopes.lookupEnvelopeForFactor({
+      walletId: input.ceremony.intent.walletId,
+      factor: {
+        kind: 'passkey',
+        rpId: rpId.value,
+        credentialIdB64u: credentialId.value,
+      },
+    });
+    if (lookup.kind !== 'active') {
+      return {
+        ok: false,
+        code: 'custody_unavailable',
+        message: 'the verified passkey has no active wallet custody envelope',
+      };
+    }
+    switch (input.response.kind) {
+      case 'near_ed25519':
+        return {
+          ...input.response,
+          ed25519: {
+            ...input.response.ed25519,
+            custodyEnvelope: lookup.envelope,
+          },
+        };
+      case 'evm_family_ecdsa':
+        return {
+          ...input.response,
+          ecdsa: {
+            ...input.response.ecdsa,
+            custodyEnvelope: lookup.envelope,
+          },
+        };
     }
   }
 
@@ -1512,6 +1628,16 @@ export class CloudflareD1WalletAddSignerService {
         finalizingAtMs = currentState.finalizingAtMs;
       } else {
         const publicKeyBytes = activation.activation.result.public_receipt.registered_public_key;
+        if (
+          activation.finalizeRequest.custodyKeySet.registeredPublicKeyB64u !==
+          base64UrlEncode(Uint8Array.from(publicKeyBytes))
+        ) {
+          return {
+            ok: false,
+            code: 'scope_mismatch',
+            message: 'NEAR custody key set changed the activated public key',
+          };
+        }
         const publicKey = ed25519NearPublicKeyFromBytes(publicKeyBytes);
         const nearAccountId = implicitNearAccountIdFromEd25519PublicKeyBytes(publicKeyBytes);
         const nearEd25519SigningKeyId =
@@ -1563,6 +1689,8 @@ export class CloudflareD1WalletAddSignerService {
           signingRootVersion,
           runtimePolicyScope,
           activeYaoCapability: activeYaoCapability.record,
+          custodyKeyManifestDigestB64u:
+            activation.finalizeRequest.custodyKeySet.keyManifestDigestB64u,
           now: finalizingAtMs,
         });
         await store.updateAddSignerCeremony({
@@ -1691,6 +1819,9 @@ export class CloudflareD1WalletAddSignerService {
       walletKeys,
       activationReceipt: ceremony.signerState.activation,
       runtimePolicyScope,
+      custodyKeyManifestDigestB64u: finalizeRequest.custodyKeySet.keyManifestDigestB64u,
+      custodyClientRootPublicKey33B64u:
+        finalizeRequest.custodyKeySet.clientRootPublicKey33B64u,
       now: signerWriteNow,
     });
     await walletStore.putSigners(walletSigners);

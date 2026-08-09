@@ -9,6 +9,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from './thresholdEcdsaChainTarget';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import type { EcdsaClientRootPublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import {
   normalizeRuntimePolicyScope,
   signingRootScopeFromRuntimePolicyScope,
@@ -353,6 +354,9 @@ export function parseWalletEd25519SignerRecord(raw: unknown): WalletEd25519Signe
   const keyVersion = toOptionalTrimmedString(raw.keyVersion);
   const signingRootId = toOptionalTrimmedString(raw.signingRootId);
   const signingRootVersion = toOptionalTrimmedString(raw.signingRootVersion);
+  const custodyKeyManifestDigestB64u = toOptionalTrimmedString(
+    raw.custodyKeyManifestDigestB64u,
+  );
   const signerSlot = Math.floor(Number(raw.signerSlot));
   const createdAtMs = normalizeTimestampMs(raw.createdAtMs);
   const updatedAtMs = normalizeTimestampMs(raw.updatedAtMs);
@@ -376,6 +380,7 @@ export function parseWalletEd25519SignerRecord(raw: unknown): WalletEd25519Signe
     !keyVersion ||
     !signingRootId ||
     !signingRootVersion ||
+    !custodyKeyManifestDigestB64u ||
     signingRootId !== expectedSigningRoot.signingRootId ||
     signingRootVersion !== expectedSigningRoot.signingRootVersion ||
     !participantIds ||
@@ -429,6 +434,7 @@ export function parseWalletEd25519SignerRecord(raw: unknown): WalletEd25519Signe
     signingRootVersion,
     runtimePolicyScope,
     activeYaoCapability,
+    custodyKeyManifestDigestB64u,
     createdAtMs,
     updatedAtMs,
   };
@@ -572,6 +578,8 @@ export function buildWalletEcdsaSignerRecord(input: {
   readonly walletKey: WalletRegistrationEcdsaWalletKey;
   readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
   readonly runtimePolicyScope: RuntimePolicyScope;
+  readonly custodyKeyManifestDigestB64u: string;
+  readonly custodyClientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u;
   readonly createdAtMs: number;
   readonly updatedAtMs: number;
 }): WalletEcdsaSignerRecord {
@@ -585,6 +593,8 @@ export function buildWalletEcdsaSignerRecord(input: {
     walletKey: walletEcdsaSignerKeyFromRegistration(input.walletKey),
     activationReceipt: input.activationReceipt,
     runtimePolicyScope: input.runtimePolicyScope,
+    custodyKeyManifestDigestB64u: input.custodyKeyManifestDigestB64u,
+    custodyClientRootPublicKey33B64u: input.custodyClientRootPublicKey33B64u,
     createdAtMs: input.createdAtMs,
     updatedAtMs: input.updatedAtMs,
   };

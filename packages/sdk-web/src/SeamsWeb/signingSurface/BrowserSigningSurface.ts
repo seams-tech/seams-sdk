@@ -56,6 +56,7 @@ import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
 import {
   establishEvmFamilyCustodyV1,
+  joinEvmFamilyCustodyV1,
   establishNearEd25519CustodyV1,
   joinNearEd25519CustodyV1,
   rejoinEvmFamilyCustodyV1,
@@ -64,6 +65,7 @@ import {
 import { walletCustodyCeremonyStepRunner } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
 import { walletCustodyEd25519ActiveClientMetadataV1 } from '@/core/signingEngine/walletCustody/ceremonyActiveClientMetadata';
 import {
+  deleteWalletCustodyEd25519MaterialV1,
   persistWalletCustodyEd25519MaterialV1,
   type WalletCustodyEd25519MaterialBindingV1,
   type WalletCustodySealedEd25519MaterialV1,
@@ -72,6 +74,7 @@ import type {
   EstablishedWalletCustodyEvmFamilyKeySetV1,
   EstablishedWalletCustodyNearEd25519KeySetV1,
   JoinedWalletCustodyNearEd25519KeySetV1,
+  JoinedWalletCustodyEvmFamilyKeySetV1,
   RejoinedWalletCustodyEvmFamilyKeySetV1,
 } from './ports';
 import { RouterAbEd25519YaoHttpActivationTransportV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
@@ -1827,6 +1830,25 @@ export class BrowserSigningSurface {
     });
   }
 
+  async joinWalletCustodyEvmFamilyKeySet(args: {
+    walletId: string;
+    custodyJson: string;
+    factorSecret: ArrayBuffer;
+    evmFamilySigningKeySlotId: string;
+    applicationBindingDigestB64u: string;
+    runRelayerRound: Parameters<typeof joinEvmFamilyCustodyV1>[0]['runRelayerRound'];
+  }): Promise<JoinedWalletCustodyEvmFamilyKeySetV1> {
+    return await joinEvmFamilyCustodyV1({
+      ...args,
+      runStep: walletCustodyCeremonyStepRunner({
+        requestOperation: (operation) =>
+          this.signerWorkerManager.requestWorkerOperation(
+            operation as Parameters<SignerWorkerManager['requestWorkerOperation']>[0],
+          ),
+      }),
+    });
+  }
+
   async rejoinWalletCustodyEvmFamilyKeySet(args: {
     walletId: string;
     custodyJson: string;
@@ -1885,6 +1907,20 @@ export class BrowserSigningSurface {
       >[0]['store'],
       binding: args.binding,
       sealed: args.sealed,
+    });
+  }
+
+  async deleteWalletCustodyEd25519Material(args: {
+    nearAccountId: string;
+    signerSlot: number;
+  }): Promise<void> {
+    const context = this.signerWorkerManager.getContext();
+    await deleteWalletCustodyEd25519MaterialV1({
+      store: context.nearKeyMaterialStore as Parameters<
+        typeof deleteWalletCustodyEd25519MaterialV1
+      >[0]['store'],
+      nearAccountId: args.nearAccountId,
+      signerSlot: args.signerSlot,
     });
   }
 

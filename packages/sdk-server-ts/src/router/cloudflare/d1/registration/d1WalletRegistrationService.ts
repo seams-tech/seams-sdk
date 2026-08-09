@@ -47,6 +47,11 @@ import {
   type RouterAbMpcMaterialActivationRefWire,
 } from '@shared/utils/routerAbNormalSigningIdentity';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import {
+  ecdsaClientRootPublicKey33B64uFromString,
+  type EcdsaClientRootPublicKey33B64u,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import {
   parseThresholdEcdsaSessionId,
   parseThresholdEd25519SessionId,
@@ -3890,6 +3895,59 @@ export class CloudflareD1WalletRegistrationService {
          survive for the Ed25519 finalize to resume from. */
       const ed25519FinalizePending =
         finalizeEvmFamilyEcdsa !== null && requestedNearEd25519 !== null;
+      const walletCustodyCommitPayload = walletCustodyCeremonyCommitPayloadFromWire(
+        request.walletCustodyCommit,
+      );
+      if (!walletCustodyCommitPayload) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'registration finalize requires its wallet custody commit',
+        };
+      }
+      if (walletCustodyCommitPayload.walletId !== ceremony.intent.walletId) {
+        return {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'wallet custody commit does not name the registered wallet',
+        };
+      }
+      const expectedCustodyKeySet = finalizeEvmFamilyEcdsa
+        ? 'evm_family_ecdsa_v1'
+        : 'near_ed25519_v1';
+      if (walletCustodyCommitPayload.keySet !== expectedCustodyKeySet) {
+        return {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'wallet custody commit does not name the finalized key set',
+        };
+      }
+      let custodyKeyManifestDigestB64u;
+      try {
+        custodyKeyManifestDigestB64u = parseDigestB64u(
+          walletCustodyCommitPayload.keyManifestDigestB64u,
+        );
+      } catch {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'wallet custody commit carries an invalid key manifest digest',
+        };
+      }
+      let custodyClientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u | null = null;
+      if (finalizeEvmFamilyEcdsa) {
+        try {
+          custodyClientRootPublicKey33B64u = ecdsaClientRootPublicKey33B64uFromString(
+            walletCustodyCommitPayload.clientRootPublicKey33B64u ?? '',
+          );
+        } catch {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'ECDSA custody commit carries an invalid client root public key',
+          };
+        }
+      }
       const ecdsaWalletKeys: WalletRegistrationEcdsaWalletKey[] = [];
       let ecdsaFinalizeState: D1RegistrationEcdsaFinalizeState = {
         kind: 'ecdsa_registration_disabled',
@@ -4047,6 +4105,16 @@ export class CloudflareD1WalletRegistrationService {
         }
         const participantIds: readonly [number, number] = [firstParticipantId, secondParticipantId];
         const publicKeyBytes = consumed.activation.result.public_receipt.registered_public_key;
+        if (
+          walletCustodyCommitPayload.registeredPublicKeyB64u !==
+          base64UrlEncode(Uint8Array.from(publicKeyBytes))
+        ) {
+          return {
+            ok: false,
+            code: 'scope_mismatch',
+            message: 'NEAR custody commit changed the activated public key',
+          };
+        }
         const publicKey = ed25519NearPublicKeyFromBytes(publicKeyBytes);
         let nearAccountId = implicitNearAccountIdFromEd25519PublicKeyBytes(publicKeyBytes);
         let sponsoredTransactionHash: string | undefined;
@@ -4146,6 +4214,7 @@ export class CloudflareD1WalletRegistrationService {
           signingRootVersion: ceremony.preparedContext.signingRootVersion,
           runtimePolicyScope,
           activeYaoCapability: activeYaoCapability.record,
+          custodyKeyManifestDigestB64u,
           now,
         });
       }
@@ -4154,12 +4223,21 @@ export class CloudflareD1WalletRegistrationService {
         walletId: ceremony.intent.walletId,
         now,
       });
+      if (activatedEcdsaBranch && !custodyClientRootPublicKey33B64u) {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'ECDSA registration is missing its custody client root public key',
+        };
+      }
       const walletSigners: WalletSignerRecord[] = activatedEcdsaBranch
         ? buildD1WalletEcdsaSignerRecords({
             walletId: ceremony.intent.walletId,
             walletKeys: ecdsaWalletKeys,
             activationReceipt: activatedEcdsaBranch.activation,
             runtimePolicyScope: activatedEcdsaBranch.prepare.runtimePolicyScope,
+            custodyKeyManifestDigestB64u,
+            custodyClientRootPublicKey33B64u,
             now,
           })
         : [];
@@ -4226,9 +4304,6 @@ export class CloudflareD1WalletRegistrationService {
           };
         }
       }
-      const walletCustodyCommitPayload = walletCustodyCeremonyCommitPayloadFromWire(
-        request.walletCustodyCommit,
-      );
       /* The custody commit, and the only place it happens.
 
          Both legs reach here — activate's ECDSA branch and the deferred NEAR
@@ -4243,7 +4318,7 @@ export class CloudflareD1WalletRegistrationService {
          wallet-equality check the gate performs is only meaningful against a
          registration this leg actually committed. */
       const walletCustody = await commitRegistrationCustody({
-        ...(walletCustodyCommitPayload ? { payload: walletCustodyCommitPayload } : {}),
+        payload: walletCustodyCommitPayload,
         verifiedWalletId: ceremony.intent.walletId,
         /* The verified authority, never the payload: the factor is what the
            envelope's AAD binds the seed to, so a payload-supplied one could

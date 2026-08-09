@@ -6,8 +6,10 @@ import type {
 } from './types';
 import type { WalletRegistrationEcdsaWalletKey, WalletId } from './registrationContracts';
 import {
+  ecdsaClientRootPublicKey33B64uFromString,
   derivationClientSharePublicKey33B64uFromString,
   parseSdkEcdsaDerivationThresholdKeyId,
+  type EcdsaClientRootPublicKey33B64u,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import {
   normalizeRuntimePolicyScope,
@@ -102,6 +104,7 @@ export type WalletEd25519SignerRecord = {
   signingRootVersion: string;
   runtimePolicyScope: RuntimePolicyScope;
   activeYaoCapability: WalletEd25519YaoActiveCapabilityRecord;
+  custodyKeyManifestDigestB64u: string;
   createdAtMs: number;
   updatedAtMs: number;
 };
@@ -123,6 +126,8 @@ export type WalletEcdsaSignerRecord = {
   walletKey: WalletEcdsaSignerKey;
   activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
   runtimePolicyScope: RuntimePolicyScope;
+  custodyKeyManifestDigestB64u: string;
+  custodyClientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u;
   createdAtMs: number;
   updatedAtMs: number;
 };
@@ -356,12 +361,19 @@ export function parseWalletEcdsaSignerRecord(raw: unknown): WalletEcdsaSignerRec
   const walletKey = walletKeyRaw ? parseWalletEcdsaSignerKey(walletKeyRaw) : null;
   let activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
   let runtimePolicyScope: RuntimePolicyScope;
+  let custodyClientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u;
   try {
     activationReceipt = parseRouterAbEcdsaRegistrationActivationReceiptV1(raw.activationReceipt);
     runtimePolicyScope = normalizeRuntimePolicyScope(raw.runtimePolicyScope);
+    custodyClientRootPublicKey33B64u = ecdsaClientRootPublicKey33B64uFromString(
+      String(raw.custodyClientRootPublicKey33B64u ?? ''),
+    );
   } catch {
     return null;
   }
+  const custodyKeyManifestDigestB64u = toOptionalTrimmedString(
+    raw.custodyKeyManifestDigestB64u,
+  );
   const createdAtMs = normalizeTimestampMs(raw.createdAtMs);
   const updatedAtMs = normalizeTimestampMs(raw.updatedAtMs);
   if (
@@ -370,6 +382,7 @@ export function parseWalletEcdsaSignerRecord(raw: unknown): WalletEcdsaSignerRec
     !chainTargetKey ||
     !chainTarget ||
     !walletKey ||
+    !custodyKeyManifestDigestB64u ||
     createdAtMs === null ||
     updatedAtMs === null ||
     walletKey.walletId !== walletId.value ||
@@ -387,6 +400,8 @@ export function parseWalletEcdsaSignerRecord(raw: unknown): WalletEcdsaSignerRec
     walletKey,
     activationReceipt,
     runtimePolicyScope,
+    custodyKeyManifestDigestB64u,
+    custodyClientRootPublicKey33B64u,
     createdAtMs,
     updatedAtMs,
   };

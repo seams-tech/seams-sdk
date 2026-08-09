@@ -1,4 +1,7 @@
-import type { WalletCustodyRegistrationOutcome } from '@shared/passkey-custody';
+import type {
+  PasskeyCustodyEnvelopeRecord,
+  WalletCustodyRegistrationOutcome,
+} from '@shared/passkey-custody';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { DerivationClientSharePublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
@@ -324,6 +327,7 @@ export type WalletAddSignerStartRequest = {
 
 export type WalletAddSignerEd25519YaoStart = {
   admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  custodyEnvelope: PasskeyCustodyEnvelopeRecord;
 };
 
 export type WalletAddSignerStartResponse =
@@ -331,18 +335,28 @@ export type WalletAddSignerStartResponse =
       ok: true;
       addSignerCeremonyId: string;
       intent: AddSignerIntentV1;
-    } & (
-      | {
-          kind: 'near_ed25519';
-          ed25519: WalletAddSignerEd25519YaoStart;
-          ecdsa?: never;
-        }
-      | {
-          kind: 'evm_family_ecdsa';
-          ecdsa: WalletAddSignerEcdsaPreparePayload;
-          ed25519?: never;
-        }
-    ))
+    } &
+      (
+        | ({ readonly authorizationKind: 'webauthn_assertion' } &
+            (
+              | {
+                  kind: 'near_ed25519';
+                  ed25519: WalletAddSignerEd25519YaoStart;
+                  ecdsa?: never;
+                }
+              | {
+                  kind: 'evm_family_ecdsa';
+                  ecdsa: WalletAddSignerEcdsaPreparePayload;
+                  ed25519?: never;
+                }
+            ))
+        | {
+            readonly authorizationKind: 'app_session';
+            kind: 'evm_family_ecdsa';
+            ecdsa: WalletRegistrationEcdsaPreparePayload;
+            ed25519?: never;
+          }
+      ))
   | {
       ok: false;
       code: string;
@@ -412,12 +426,22 @@ export type WalletAddSignerFinalizeRequest = {
   | {
       kind: 'near_ed25519';
       ed25519: WalletRegistrationEd25519YaoFinalize;
+      custodyKeySet: {
+        readonly kind: 'near_ed25519_v1';
+        readonly keyManifestDigestB64u: string;
+        readonly registeredPublicKeyB64u: string;
+      };
       ecdsa?: never;
     }
   | {
       kind: 'evm_family_ecdsa';
       ecdsa: {
         expectedKeyHandles: readonly [string];
+      };
+      custodyKeySet: {
+        readonly kind: 'evm_family_ecdsa_v1';
+        readonly keyManifestDigestB64u: string;
+        readonly clientRootPublicKey33B64u: string;
       };
       ed25519?: never;
     }
@@ -493,7 +517,9 @@ export type WalletRegistrationEcdsaPreparePayload = {
   strictRegistration: RouterAbEcdsaRegistrationRequestFactsV1;
 };
 
-export type WalletAddSignerEcdsaPreparePayload = WalletRegistrationEcdsaPreparePayload;
+export type WalletAddSignerEcdsaPreparePayload = WalletRegistrationEcdsaPreparePayload & {
+  custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+};
 
 export type WalletRegistrationEcdsaClientBootstrap = {
   formatVersion: EcdsaDerivationRoleLocalFormatVersion;

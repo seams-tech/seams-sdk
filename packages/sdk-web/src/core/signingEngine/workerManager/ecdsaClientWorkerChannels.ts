@@ -292,6 +292,7 @@ export type CreateRouterAbEcdsaPostRegistrationCeremonyResultV1 =
       readonly kind: 'router_ab_ecdsa_activation_refresh_ceremony_created_v1';
       readonly ceremonyId: string;
       readonly request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
+      readonly requestDigestB64u: string;
     };
 
 export type FinalizeRouterAbEcdsaExplicitExportRequestV1 = {
@@ -317,6 +318,22 @@ export type FinalizeRouterAbEcdsaExplicitExportResultV1 = {
   readonly stateBlob?: never;
   readonly output32B64u?: never;
 };
+
+export type VerifyRouterAbEcdsaPostRegistrationProofsRequestV1 = {
+  readonly kind: 'verify_router_ab_ecdsa_post_registration_proofs_v1';
+  readonly ceremonyId: string;
+  readonly clientProofFinalization: RouterAbEcdsaClientProofFinalizationV1;
+};
+
+export type VerifyRouterAbEcdsaPostRegistrationProofsResultV1 =
+  | {
+      readonly kind: 'router_ab_ecdsa_recovery_proofs_verified_v1';
+      readonly ceremonyId: string;
+    }
+  | {
+      readonly kind: 'router_ab_ecdsa_activation_refresh_proofs_verified_v1';
+      readonly ceremonyId: string;
+    };
 
 export type CloseRouterAbEcdsaPostRegistrationCeremonyRequestV1 = {
   readonly kind: 'close_router_ab_ecdsa_post_registration_ceremony_v1';
