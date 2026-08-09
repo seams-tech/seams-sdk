@@ -73,10 +73,8 @@ import {
   type EmailOtpEd25519YaoUnlockResult,
   type EmailOtpWalletUnlockResult,
 } from './walletUnlock';
-import type { EmailOtpEd25519YaoPendingFactorHandle } from './ed25519YaoRootVault';
 import {
   disposeEmailOtpEd25519YaoActiveClientV1,
-  disposeEmailOtpEd25519YaoPendingFactorV1,
 } from './ed25519YaoWorkerClient';
 import {
   DEFAULT_THRESHOLD_SESSION_POLICY,
@@ -148,8 +146,7 @@ export type EmailOtpThresholdEcdsaLoginTimings = Record<
 type EmailOtpEd25519YaoLoginMaterial =
   | { kind: 'not_requested' }
   | {
-      kind: 'unlocked';
-      pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
+      kind: 'cache_absent';
       bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
     }
   | {
@@ -177,10 +174,9 @@ function emailOtpEd25519YaoLoginMaterialFromWorkerResult(
 ): EmailOtpEd25519YaoLoginMaterial {
   if (!workerResult) return { kind: 'not_requested' };
   switch (workerResult.kind) {
-    case 'ed25519_yao_recovery':
+    case 'wallet_custody_cache_absent':
       return {
-        kind: 'unlocked',
-        pendingFactorHandle: workerResult.pendingFactorHandle,
+        kind: 'cache_absent',
         bootstrap: workerResult.ed25519YaoRecovery,
       };
     case 'ed25519_yao_capability':
@@ -201,16 +197,8 @@ async function disposeEmailOtpEd25519YaoWorkerResultAfterFailure(args: {
 }): Promise<void> {
   if (!args.workerResult) return;
   switch (args.workerResult.kind) {
-    case 'ed25519_yao_recovery': {
-      const removed = await disposeEmailOtpEd25519YaoPendingFactorV1({
-        workerContext: args.workerContext,
-        pendingFactorHandle: args.workerResult.pendingFactorHandle,
-      });
-      if (!removed) {
-        throw new Error('Email OTP capability unlock pending Ed25519 factor was unavailable');
-      }
+    case 'wallet_custody_cache_absent':
       return;
-    }
     case 'ed25519_yao_capability': {
       const removed = await disposeEmailOtpEd25519YaoActiveClientV1({
         workerContext: args.workerContext,
@@ -501,7 +489,7 @@ function resolveEmailOtpLoginSigningBudget(args: {
   if (args.ed25519YaoResult) {
     return buildAuthoritativeEmailOtpMixedWalletSigningBudget({
       bootstrap:
-        args.ed25519YaoResult.kind === 'ed25519_yao_recovery'
+        args.ed25519YaoResult.kind === 'cache_absent'
           ? args.ed25519YaoResult.ed25519YaoRecovery
           : args.ed25519YaoResult.ed25519YaoCapability,
       expectedRemainingUses: args.requestedRemainingUses,
