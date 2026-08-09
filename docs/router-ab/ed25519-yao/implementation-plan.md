@@ -547,7 +547,7 @@ Neither mathematical output is decoded to either Deriver.
 
 ### Fixed Circuit Families
 
-The target has two production circuit artifact families:
+The target has three production circuit artifact families:
 
 1. `ed25519_yao_activation_v1`
    - registration;
@@ -561,6 +561,12 @@ The target has two production circuit artifact families:
    - masked `d` shares to the authorized client;
    - public transcript evidence and no other secret output;
    - a distinct circuit digest, authorization scope, and transcript domain.
+3. `ed25519_yao_lane_materialization_v1`
+   - creation of a recipient-isolated holder and SigningWorker pair for an
+     existing registered key;
+   - lane-scoped refresh of one existing recipient pair;
+   - fresh lane randomization while preserving the registered `A_pub`;
+   - no root, seed, base-share, or export output wires.
 
 Request kind remains part of the transcript even when several lifecycle
 operations use the same activation circuit. A normal ceremony cannot carry an
@@ -569,19 +575,93 @@ export field, export recipient, or seed-output branch.
 The product/control operation, canonical request kind, ideal functionality, and
 circuit family mapping is fixed as follows:
 
-| Product/control operation   | Request kind   | Ideal functionality         | Circuit family                                 |
-| --------------------------- | -------------- | --------------------------- | ---------------------------------------------- |
-| `registration_prepare`      | `registration` | `F_ed25519_registration_v1` | `ed25519_yao_activation_v1`                    |
-| `signing_worker_activation` | `activation`   | `F_ed25519_activation_v1`   | committed `ed25519_yao_activation_v1` packages |
-| `recovery`                  | `recovery`     | `F_ed25519_recovery_v1`     | `ed25519_yao_activation_v1`                    |
-| `server_share_refresh`      | `refresh`      | `F_ed25519_refresh_v1`      | `ed25519_yao_activation_v1`                    |
-| `key_export`                | `export`       | `F_ed25519_export_v1`       | `ed25519_yao_export_v1`                        |
+| Product/control operation   | Request kind        | Ideal functionality                   | Circuit family                                 |
+| --------------------------- | ------------------- | ------------------------------------- | ---------------------------------------------- |
+| `registration_prepare`      | `registration`      | `F_ed25519_registration_v1`           | `ed25519_yao_activation_v1`                    |
+| `signing_worker_activation` | `activation`        | `F_ed25519_activation_v1`             | committed `ed25519_yao_activation_v1` packages |
+| `recovery`                  | `recovery`          | `F_ed25519_recovery_v1`               | `ed25519_yao_activation_v1`                    |
+| `server_share_refresh`      | `refresh`           | `F_ed25519_refresh_v1`                | `ed25519_yao_activation_v1`                    |
+| `lane_provisioning`         | `lane_provisioning` | `F_ed25519_lane_provisioning_v1`      | `ed25519_yao_lane_materialization_v1`          |
+| `lane_refresh`              | `lane_refresh`      | `F_ed25519_lane_refresh_v1`           | `ed25519_yao_lane_materialization_v1`          |
+| `key_export`                | `export`            | `F_ed25519_export_v1`                 | `ed25519_yao_export_v1`                        |
 
 Router performs this conversion at the admitted request boundary. Callers never
 select the ideal functionality or circuit family. Activation consumes and
 verifies the previously committed activation-family packages; registration,
-recovery, and refresh perform the Yao evaluation that creates them. Only
-`F_ed25519_export_v1` has seed-output wires or seed-share packages.
+recovery, wallet-key refresh, lane provisioning, and lane refresh perform their
+mapped Yao evaluation. Only `F_ed25519_export_v1` has seed-output wires or
+seed-share packages.
+
+### Lane Materialization Functionality
+
+`F_ed25519_lane_provisioning_v1` and `F_ed25519_lane_refresh_v1` create a
+recipient pair for an existing registered Ed25519 key. They consume the same
+stable role roots and `StableKeyDerivationContextV1` as the registered key,
+recompute the existing mathematical bases inside the circuit, and randomize a
+new lane without changing those roots or persisted contributions.
+
+For one fresh protocol-generated scalar `lambda` sampled uniformly in `Z_l` by
+the selected randomized-output functionality:
+
+```text
+x_client_lane = x_client_base + lambda mod l
+x_server_lane = x_server_base + 2 * lambda mod l
+
+X_client_lane = x_client_lane * B
+X_server_lane = x_server_lane * B
+
+2 * X_client_lane - X_server_lane = A_pub
+```
+
+`lambda` is neither a request input nor an output. No party may retry based on
+its value, and the negligible `lambda = 0` outcome is accepted. Deriver A and
+Deriver B privately share each lane scalar with the same unbiased private-output
+mechanism used by the selected suite. They encrypt their holder subshares
+directly to the target holder recipient and their server subshares directly to
+the target SigningWorker recipient. Each recipient combines only its own A/B
+subshares and verifies its scalar against the public point in the terminal
+receipt.
+
+The terminal receipt binds:
+
+- wallet, Ed25519 wallet-key, registered `A_pub`, immutable key-creation slot,
+  and stable-context binding;
+- operation kind, operation ID, enrollment ID, idempotency key, authorization
+  binding, protocol version, suite, circuit digest, transcript root, and expiry;
+- source lane ID, source share epoch, source revocation epoch, and source
+  material activation;
+- target lane ID, target share epoch, fresh target material activation ID,
+  holder and SigningWorker participant bindings, and recipient-key digests;
+- `X_client_lane`, `X_server_lane`, complete A/B ciphertext digest sets, and
+  the checked relation to `A_pub`.
+
+The two operations have disjoint pre-state and promotion rules:
+
+| Operation | Required target pre-state | Target identity | Promotion |
+| --- | --- | --- | --- |
+| `lane_provisioning` | target lane ID absent | new lane ID, first share epoch | activate only through its parent enrollment |
+| `lane_refresh` | exact target lane active at the admitted epoch | same lane ID, strictly next share epoch | activate replacement, then retire the prior epoch |
+
+Both operations leave all existing lanes active until the product visibility
+commit. A refresh creates a fresh material activation ID and fresh `lambda`; it
+does not run `server_share_refresh`, change stable role contributions, or mutate
+another lane. Compromise of both participants in any one lane compromises the
+wallet key and requires wallet rekey. Combining participants from different
+lanes must not satisfy the public relation unless their lane and epoch match.
+
+The functionality has no export branch. Its request, circuit outputs, recipient
+packages, and receipts cannot carry seed bytes, base scalars, export recipients,
+or export authorization. Before `OutputCommitted`, failure discards the pending
+target. At and after `OutputCommitted`, the exact ciphertext packages and
+receipt are forward-only and may only be redelivered, activated, or durably
+revoked.
+
+This Refactor 102 extension is specification-complete and implementation-open.
+It does not reopen or rewrite the historical completion claims for registration,
+recovery, wallet-key refresh, export, or the local product. Refactor 102 Phase 3
+owns implementation of the two new request kinds and circuit family, and must
+rerun the selected-suite, recipient-isolation, source-isolation, lifecycle, and
+production-promotion gates before either operation is released.
 
 Phase 2A emits provisional construction-independent compiler, evaluator,
 schedule, and gate-count evidence. Phase 2B reconciles that evidence against the
@@ -608,6 +688,8 @@ Use disjoint request and state-transition types:
 | Activation   | registered key and inactive output shares           | activate recipient shares                                                                        | preserve registered `A_pub`                                 |
 | Recovery     | registered key plus approved recovery authorization | rewrap the same logical client root, issue fresh activation packages, and promote the credential | `d_after = d_before` and `A_pub_after = A_pub_before`       |
 | Refresh      | registered key plus current role epochs             | apply correlated deltas, issue fresh activation packages, and advance role/worker epochs         | joined `y`, joined `tau`, `d`, and `A_pub` remain unchanged |
+| Lane provisioning | registered key plus an active authorized source lane | create recipient-isolated holder and SigningWorker packages under a new lane and first epoch | registered roots and `A_pub` remain unchanged |
+| Lane refresh | registered key plus the exact active target lane and epoch | create recipient-isolated replacement packages under the same lane and next epoch | registered roots and `A_pub` remain unchanged |
 | Export       | registered key plus explicit export authorization   | audit/consume state only                                                                         | reconstructed `d` derives registered `A_pub`                |
 
 Version-one recovery is a same-root rewrap. Admission suspends the old

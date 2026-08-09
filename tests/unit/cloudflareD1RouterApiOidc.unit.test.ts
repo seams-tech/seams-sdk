@@ -1,10 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
 import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/createCloudflareRouter';
-import {
-  cleanupTemporaryD1Database,
-  createTemporaryD1Database,
-} from '../helpers/sqliteD1';
+import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import { callCf, makeSessionAdapter } from '../relayer/helpers';
 import {
   applySignerMigrations,
@@ -64,7 +61,9 @@ test('Cloudflare D1 Router API auth service verifies Google OIDC tokens and link
       emailVerified: true,
       hostedDomain: 'example.test',
     });
-    await expect(service.identity.listIdentities({ userId: 'google:subject-123' })).resolves.toEqual({
+    await expect(
+      service.identity.listIdentities({ userId: 'google:subject-123' }),
+    ).resolves.toEqual({
       ok: true,
       subjects: ['google:subject-123'],
     });
@@ -94,6 +93,7 @@ test('Cloudflare D1 Router API auth service verifies Google OIDC tokens and link
       },
     });
     expect(exchange.status).toBe(200);
+    expect(exchange.headers.get('server-timing')).toContain('total;dur=');
     expect(signedClaims).toContainEqual(
       expect.objectContaining({
         sub: 'google:subject-123',
@@ -200,12 +200,12 @@ test('Cloudflare D1 Router API auth service verifies generic OIDC exchange token
       given_name: 'OIDC',
       family_name: 'User',
     });
-    await expect(service.identity.listIdentities({ userId: 'linked-oidc-wallet.testnet' })).resolves.toEqual(
-      {
-        ok: true,
-        subjects: [providerSubject],
-      },
-    );
+    await expect(
+      service.identity.listIdentities({ userId: 'linked-oidc-wallet.testnet' }),
+    ).resolves.toEqual({
+      ok: true,
+      subjects: [providerSubject],
+    });
 
     const parts = token.split('.');
     const tamperedPayloadB64u = jsonBase64Url({
@@ -216,7 +216,9 @@ test('Cloudflare D1 Router API auth service verifies generic OIDC exchange token
       exp: nowSec + 300,
     });
     const tampered = `${parts[0]}.${tamperedPayloadB64u}.${parts[2]}`;
-    await expect(service.identity.verifyOidcJwtExchange({ token: tampered })).resolves.toMatchObject({
+    await expect(
+      service.identity.verifyOidcJwtExchange({ token: tampered }),
+    ).resolves.toMatchObject({
       ok: false,
       verified: false,
       code: 'invalid_signature',

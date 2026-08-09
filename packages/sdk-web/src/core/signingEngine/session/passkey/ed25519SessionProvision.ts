@@ -4,15 +4,14 @@ import { connectEd25519Session } from '../../threshold/ed25519/connectSession';
 import { cacheCredentialBoundarySetupExportPrfFirst, generateSessionId } from './prfCache';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type {
+  MintedEd25519WalletSessionAuthority,
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
 } from '../warmCapabilities/types';
 import type { PasskeyEd25519SessionPolicyAuthority } from '../../threshold/sessionPolicy';
 import { nearProtocolProjectionFromExactLane } from '../identity/exactSigningLaneIdentity';
 import { SigningSessionIds } from '../operationState/types';
-import {
-  buildPasskeyEd25519RestoreMetadata,
-} from './ed25519YaoSealedSession';
+import { buildPasskeyEd25519RestoreMetadata } from './ed25519YaoSealedSession';
 import type { PasskeyEd25519SealRestoreMetadata } from '@/core/types/secure-confirm-worker';
 import type { ThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import type {
@@ -176,8 +175,7 @@ export async function provisionThresholdEd25519Session(
     };
   }
 
-  const resolvedThresholdSessionId =
-    connected.thresholdSessionId || protocol.thresholdSessionId;
+  const resolvedThresholdSessionId = connected.thresholdSessionId || protocol.thresholdSessionId;
   const expiresAtMs = Number(connected.expiresAtMs);
   const remainingUses = Number(connected.remainingUses);
   const jwt = String(connected.jwt || '').trim();
@@ -212,15 +210,28 @@ export async function provisionThresholdEd25519Session(
     };
   }
 
+  const mintedAuthority: MintedEd25519WalletSessionAuthority = {
+    kind: 'minted_ed25519_wallet_session_authority',
+    thresholdSessionId: resolvedThresholdSessionId,
+    walletSessionId: connected.walletSessionId,
+    quotaId: connected.quotaId,
+    expiresAtMs,
+    remainingUses,
+    runtimePolicyScope,
+    jwt,
+    ecdsaDerivationPasskeyPrfFirstB64u: prfFirstB64u,
+  };
   const rpId = deps.touchIdPrompt.getRpId();
-  if (prfFirstB64u) {
-    if (args.source === 'email_otp') {
-      return {
-        ok: false,
-        code: 'invalid_result',
-        message: 'Passkey PRF material cannot seal an Email OTP Ed25519 session',
-      };
-    }
+  if (prfFirstB64u && args.source === 'email_otp') {
+    return {
+      ok: false,
+      code: 'invalid_result',
+      message: 'Passkey PRF material cannot seal an Email OTP Ed25519 session',
+    };
+  }
+  await args.onWalletSessionAuthorityReady?.(mintedAuthority);
+
+  if (prfFirstB64u && args.source !== 'email_otp') {
     const credentialIdB64u = passkeyCredentialIdB64uFromAuthority(args.authority);
     const ed25519Restore = buildPasskeyEd25519RestoreMetadata({
       rpId,

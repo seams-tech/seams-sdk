@@ -19,6 +19,8 @@ import { walletSessionRefFromSession } from '@/core/signingEngine/interfaces/ecd
 import { base58Encode } from '@shared/utils/base58';
 import type { EmailOtpWalletSessionExportAuthorizationDeps } from './keyExportConfirmation';
 import {
+  isExportViewerSessionOpen,
+  removeExportViewerHostIfPresent,
   requestEmailOtpEd25519KeyExportAuthorization,
   showEd25519ExportViewer,
 } from './keyExportConfirmation';
@@ -478,39 +480,63 @@ async function exportEd25519YaoKeyWithFreshEmailOtp(
     interaction: { kind: 'none', overlay: 'none' },
     data: { chain: 'near', curve: 'ed25519' },
   });
-  const artifact = await deps.withThresholdEd25519CommitQueue({
-    queueKey: resolveThresholdEd25519CommitQueueKey({
-      materialActivation: emailOtpEd25519ExportMaterialActivation(resolved.context),
-    }),
-    nearAccountId: args.nearAccountId,
-    enabled: true,
-    task: () =>
-      deps.emailOtp.exportSeedWithFreshAuthorization({
-        challengeId: authorization.challengeId,
-        otpCode: authorization.otpCode,
-        exportContext: resolved.context,
+  const viewerSessionId = createExportUiRequestId('export-ed25519-yao-viewer-session');
+  try {
+    await showEd25519ExportViewer(
+      { touchConfirm: deps.touchConfirm, theme: deps.theme },
+      {
+        state: 'loading',
+        walletId: String(args.walletId),
+        nearAccountId: String(args.nearAccountId),
+        publicKey,
+        variant: args.options.variant,
+        theme: args.options.theme,
+        viewerSessionId,
+        flowId: args.flowId,
+        onEvent: args.onEvent,
+      },
+    );
+    const artifact = await deps.withThresholdEd25519CommitQueue({
+      queueKey: resolveThresholdEd25519CommitQueueKey({
+        materialActivation: emailOtpEd25519ExportMaterialActivation(resolved.context),
       }),
-  });
-  emitKeyExportEvent(args.onEvent, {
-    phase: KeyExportEventPhase.STEP_03_MATERIAL_PREPARE_SUCCEEDED,
-    status: 'succeeded',
-    flowId: args.flowId,
-    accountId: String(args.nearAccountId),
-    interaction: { kind: 'none', overlay: 'none' },
-    data: { chain: 'near', curve: 'ed25519' },
-  });
-  await showEd25519ExportViewer(
-    { touchConfirm: deps.touchConfirm, theme: deps.theme },
-    {
-      walletId: String(args.walletId),
-      nearAccountId: String(args.nearAccountId),
-      publicKey: artifact.publicKey,
-      privateKey: artifact.privateKey,
-      variant: args.options.variant,
-      theme: args.options.theme,
+      nearAccountId: args.nearAccountId,
+      enabled: true,
+      task: () =>
+        deps.emailOtp.exportSeedWithFreshAuthorization({
+          challengeId: authorization.challengeId,
+          otpCode: authorization.otpCode,
+          exportContext: resolved.context,
+        }),
+    });
+    emitKeyExportEvent(args.onEvent, {
+      phase: KeyExportEventPhase.STEP_03_MATERIAL_PREPARE_SUCCEEDED,
+      status: 'succeeded',
       flowId: args.flowId,
-      onEvent: args.onEvent,
-    },
-  );
-  return { accountId: String(args.nearAccountId), exportedSchemes: ['ed25519'] };
+      accountId: String(args.nearAccountId),
+      interaction: { kind: 'none', overlay: 'none' },
+      data: { chain: 'near', curve: 'ed25519' },
+    });
+    if (isExportViewerSessionOpen(viewerSessionId)) {
+      await showEd25519ExportViewer(
+        { touchConfirm: deps.touchConfirm, theme: deps.theme },
+        {
+          state: 'ready',
+          walletId: String(args.walletId),
+          nearAccountId: String(args.nearAccountId),
+          publicKey: artifact.publicKey,
+          privateKey: artifact.privateKey,
+          variant: args.options.variant,
+          theme: args.options.theme,
+          viewerSessionId,
+          flowId: args.flowId,
+          onEvent: args.onEvent,
+        },
+      );
+    }
+    return { accountId: String(args.nearAccountId), exportedSchemes: ['ed25519'] };
+  } catch (error: unknown) {
+    removeExportViewerHostIfPresent();
+    throw error;
+  }
 }

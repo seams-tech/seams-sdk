@@ -16,6 +16,7 @@ import {
   hostedAuthMenuExternalAuthRequestIdFromBoundary,
   type HostedAuthMenuExternalAuthRequest,
   type HostedAuthMenuExternalAuthResolution,
+  type HostedAuthMenuDemoEmailOtpDelivery,
   type HostedAuthMenuExternalProvider,
   type HostedAuthMenuMode,
   type HostedAuthMenuOpenRequest,
@@ -121,12 +122,6 @@ export type AuthMenuSessionState =
       readonly kind: 'complete';
       readonly outcome: HostedAuthMenuOutcome;
     };
-
-export type AuthMenuSessionMount = {
-  readonly appearance: AppearanceConfig;
-  readonly hostname: string;
-  readonly send: (message: ChildToParentEnvelope) => void;
-};
 
 type OutcomeResolver = (outcome: HostedAuthMenuOutcome) => void;
 type PreparePasskey = (
@@ -334,7 +329,7 @@ export class AuthMenuSession {
   private loginPreparation: PrepareLoginPasskey | null = null;
   private loginAccountOptions: readonly AuthMenuAccountOption[] = [];
   private selectedLoginWalletId: string | null = null;
-  private sendToParent: ((message: ChildToParentEnvelope) => void) | null = null;
+  private readonly sendToParent: (message: ChildToParentEnvelope) => void;
   private measurementReporter: WalletIframeSurfaceMeasurementReporter | null = null;
   private preparationGeneration = 0;
   private googleGeneration = 0;
@@ -349,6 +344,7 @@ export class AuthMenuSession {
     beginGoogleEmailOtp: BeginGoogleEmailOtp;
     startDeviceLinking: StartDeviceLinking;
     stopDeviceLinking: StopDeviceLinking;
+    sendToParent: (message: ChildToParentEnvelope) => void;
   }) {
     this.identity = {
       authMenuSessionId: args.request.authMenuSessionId,
@@ -358,6 +354,7 @@ export class AuthMenuSession {
     this.beginGoogleEmailOtp = args.beginGoogleEmailOtp;
     this.startDeviceLinking = args.startDeviceLinking;
     this.stopDeviceLinking = args.stopDeviceLinking;
+    this.sendToParent = args.sendToParent;
     this.stateValue = {
       kind: 'preparing',
       viewModel: createPreparingViewModel({
@@ -440,7 +437,7 @@ export class AuthMenuSession {
     };
   }
 
-  mount(args: AuthMenuSessionMount): void {
+  mount(): void {
     if (this.element || this.cleanedUp) {
       throw new Error('Hosted auth-menu session is already mounted');
     }
@@ -450,7 +447,6 @@ export class AuthMenuSession {
       throw new Error('A hosted auth-menu surface is already mounted');
     }
     const element = document.createElement(AUTH_MENU_TAG) as SeamsAuthMenuSurfaceElement;
-    this.sendToParent = args.send;
     element.viewModel = this.currentViewModel();
     element.addEventListener(AUTH_MENU_INTENT_EVENT, this.onIntent);
     const root = document.body || document.documentElement;
@@ -677,6 +673,22 @@ export class AuthMenuSession {
           return;
         }
         this.googleCancellation = null;
+        const delivery = flow.delivery;
+        if (
+          delivery &&
+          (delivery.kind === 'demo_code_response' || delivery.kind === 'provider_and_demo_code')
+        ) {
+          const payload: HostedAuthMenuDemoEmailOtpDelivery = {
+            kind: 'hosted_auth_menu_demo_email_otp_delivery_v1',
+            authMenuSessionId: this.identity.authMenuSessionId,
+            delivery,
+          };
+          this.sendToParent({
+            type: 'AUTH_MENU_DEMO_EMAIL_OTP_DELIVERY',
+            requestId: this.identity.requestId,
+            payload,
+          });
+        }
         if (flow.mode === 'login') {
           this.stateValue = {
             kind: 'google_login',
@@ -716,7 +728,6 @@ export class AuthMenuSession {
 
   requestExternalAuth(
     provider: HostedAuthMenuExternalAuthRequest['provider'],
-    send: AuthMenuSessionMount['send'],
   ): HostedAuthMenuExternalAuthRequest | null {
     if (this.stateValue.kind === 'complete') return null;
     if (!this.request.enabledExternalProviders.includes(provider)) return null;
@@ -749,7 +760,7 @@ export class AuthMenuSession {
       request,
     };
     this.updateElement();
-    send({
+    this.sendToParent({
       type: 'AUTH_MENU_EXTERNAL_AUTH_REQUEST',
       requestId: this.identity.requestId,
       payload: request,
@@ -808,7 +819,7 @@ export class AuthMenuSession {
   }
 
   private postSurfaceMeasurement = (measurement: WalletIframeSurfaceMeasurement): void => {
-    this.sendToParent?.({ type: 'SURFACE_MEASUREMENT', payload: measurement });
+    this.sendToParent({ type: 'SURFACE_MEASUREMENT', payload: measurement });
   };
 
   private currentViewModel(): AuthMenuViewModel {
@@ -902,7 +913,7 @@ export class AuthMenuSession {
         }
         return;
       case 'external_auth':
-        this.requestExternalAuth(intent.provider, this.sendToParent ?? (() => {}));
+        this.requestExternalAuth(intent.provider);
         return;
       case 'google_otp_code_changed':
         this.updateGoogleOtpCode(intent.code);

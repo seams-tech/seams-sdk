@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import './PasskeyLoginMenu.css';
 import { FRONTEND_CONFIG } from '@/config';
 import { useAuthMenuControl } from '@/context/AuthMenuControl';
+import { showCopiedDemoEmailOtpToast } from './demoEmailOtpToast';
 import {
   ensureGoogleIdentityScriptLoaded,
   fetchGoogleAuthOptions,
@@ -129,6 +130,14 @@ function providerErrorEvidence(message: string): HostedAuthMenuExternalAuthEvide
   return { kind: 'failed', code: 'provider_error', message };
 }
 
+function showHostedDemoEmailOtp(delivery: { otpCode: string }): void {
+  void showCopiedDemoEmailOtpToast({
+    otpCode: delivery.otpCode,
+    toastId: 'google-email-otp-code',
+    unavailableDescription: 'Email delivery is not configured for this live demo.',
+  });
+}
+
 export function HostedPasskeyLoginMenu(props: HostedPasskeyLoginMenuProps) {
   const relayerBaseUrl = React.useMemo(
     () => normalizeBaseUrl(FRONTEND_CONFIG.relayerUrl || FRONTEND_CONFIG.consoleBaseUrl),
@@ -222,6 +231,7 @@ export function HostedPasskeyLoginMenu(props: HostedPasskeyLoginMenuProps) {
           register: { subtitle: 'Continue with Passkey or Google SSO' },
         }}
         externalAuthBroker={externalAuthBroker}
+        onDemoEmailOtp={showHostedDemoEmailOtp}
         onOutcome={(outcome) => handleHostedAuthMenuOutcome(outcome, refreshLoginState)}
       />
     </div>
