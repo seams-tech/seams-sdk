@@ -1,6 +1,7 @@
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { unknownWebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
+import { alphabetizeStringify } from '@shared/utils/digests';
 import type { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 import type { CloudflareD1WalletCustodyCommitStore } from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
 import type { WalletRecoveryAuthenticatorCommit } from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
@@ -96,9 +97,11 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
     input.challengeId,
   );
   if (!challenge) {
+    const replay = await resolveCommittedRecoveryReplay(input);
+    if (replay.kind === 'promoted' || replay.kind === 'conflict') return replay;
     return {
       kind: 'registration_rejected',
-      reason: 'the replacement registration challenge is unknown, expired, or already used',
+      reason: replay.reason,
     };
   }
   if (
@@ -267,6 +270,141 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
   return {
     kind: 'promoted',
     storeVersion: committed.envelopeStoreVersion,
+    retiredEnvelopeIds,
+    ...(retireFailures.length > 0 ? { retireFailures } : {}),
+  };
+}
+
+type RecoveryReplayResolution =
+  | Extract<WalletRecoveryFinalizationResult, { readonly kind: 'promoted' }>
+  | Extract<WalletRecoveryFinalizationResult, { readonly kind: 'conflict' }>
+  | { readonly kind: 'rejected'; readonly reason: string };
+
+const RECOVERY_REPLAY_CHALLENGE_UNAVAILABLE =
+  'the replacement registration challenge is unknown, expired, or already used';
+const RECOVERY_REPLAY_STATE_CONFLICT =
+  'the recovery commit is incomplete; retry finalization or contact support';
+
+async function resolveCommittedRecoveryReplay(input: {
+  readonly envelopeStore: CloudflareD1PasskeyCustodyEnvelopeStore;
+  readonly walletCustodyCommits: CloudflareD1WalletCustodyCommitStore;
+  readonly walletId: string;
+  readonly reservationId: RecoveryCodeReservationId;
+  readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
+  readonly webAuthnStore: CloudflareD1WebAuthnStore;
+}): Promise<RecoveryReplayResolution> {
+  if (input.replacementEnvelope.factor.kind !== 'passkey') {
+    return {
+      kind: 'rejected',
+      reason: RECOVERY_REPLAY_CHALLENGE_UNAVAILABLE,
+    };
+  }
+
+  const storedRecoverySet = await input.walletCustodyCommits.readRecoveryEnvelopeSet(
+    input.walletId as WalletId,
+  );
+  if (!storedRecoverySet) {
+    return {
+      kind: 'rejected',
+      reason: RECOVERY_REPLAY_CHALLENGE_UNAVAILABLE,
+    };
+  }
+  const consumedReservations = storedRecoverySet.record.manifestKekWraps.filter(
+    (wrap) =>
+      wrap.lifecycle.state === 'consumed' &&
+      wrap.lifecycle.reservationId === input.reservationId,
+  );
+  if (consumedReservations.length !== 1) {
+    return {
+      kind: consumedReservations.length === 0 ? 'rejected' : 'conflict',
+      reason:
+        consumedReservations.length === 0
+          ? RECOVERY_REPLAY_CHALLENGE_UNAVAILABLE
+          : RECOVERY_REPLAY_STATE_CONFLICT,
+    };
+  }
+
+  if (
+    String(input.replacementEnvelope.walletId) !== String(input.walletId) ||
+    input.replacementEnvelope.envelopeRevision !== 1 ||
+    input.replacementEnvelope.binding.kind !== 'wallet_custody_seed_v1'
+  ) {
+    return {
+      kind: 'rejected',
+      reason: RECOVERY_REPLAY_CHALLENGE_UNAVAILABLE,
+    };
+  }
+
+  const storedEnvelope = await input.envelopeStore.lookupEnvelope({
+    walletId: input.walletId as WalletId,
+    factor: {
+      kind: 'passkey',
+      rpId: input.replacementEnvelope.factor.rpId,
+      credentialIdB64u: input.replacementEnvelope.factor.credentialIdB64u,
+    },
+    envelopeId: input.replacementEnvelope.envelopeId,
+  });
+  if (storedEnvelope.kind !== 'active') {
+    return {
+      kind: 'rejected',
+      reason: RECOVERY_REPLAY_CHALLENGE_UNAVAILABLE,
+    };
+  }
+  if (
+    alphabetizeStringify(storedEnvelope.envelope) !==
+    alphabetizeStringify(input.replacementEnvelope)
+  ) {
+    return {
+      kind: 'rejected',
+      reason: RECOVERY_REPLAY_CHALLENGE_UNAVAILABLE,
+    };
+  }
+
+  const credentialIdB64u = String(input.replacementEnvelope.factor.credentialIdB64u);
+  const rpId = String(input.replacementEnvelope.factor.rpId);
+  const [authenticator, binding] = await Promise.all([
+    input.webAuthnStore.readAuthenticator({
+      userId: String(input.walletId),
+      credentialIdB64u,
+    }),
+    input.webAuthnStore.readBindingByCredential({
+      rpId,
+      credentialIdB64u,
+    }),
+  ]);
+  if (
+    !authenticator ||
+    !binding ||
+    binding.userId !== String(input.walletId) ||
+    binding.rpId !== rpId ||
+    binding.credentialIdB64u !== credentialIdB64u ||
+    authenticator.credentialIdB64u !== credentialIdB64u
+  ) {
+    return {
+      kind: 'conflict',
+      reason: RECOVERY_REPLAY_STATE_CONFLICT,
+    };
+  }
+
+  const envelopes = await input.envelopeStore.listWalletEnvelopes(input.walletId as WalletId);
+  const retiredEnvelopeIds = envelopes
+    .filter(
+      (envelope) =>
+        envelope.lifecycle.state === 'retired' &&
+        String(envelope.envelopeId) !== String(input.replacementEnvelope.envelopeId),
+    )
+    .map((envelope) => String(envelope.envelopeId));
+  const retireFailures = envelopes
+    .filter(
+      (envelope) =>
+        envelope.lifecycle.state === 'active' &&
+        String(envelope.envelopeId) !== String(input.replacementEnvelope.envelopeId),
+    )
+    .map((envelope) => String(envelope.envelopeId));
+
+  return {
+    kind: 'promoted',
+    storeVersion: storedEnvelope.storeVersion,
     retiredEnvelopeIds,
     ...(retireFailures.length > 0 ? { retireFailures } : {}),
   };
