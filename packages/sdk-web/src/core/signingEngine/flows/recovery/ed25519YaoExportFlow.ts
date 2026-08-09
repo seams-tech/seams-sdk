@@ -112,6 +112,7 @@ type ResolvedPasskeyEd25519YaoExportContext = {
   laneIdentity: ExactEd25519ExportMaterialIdentity<PasskeyEd25519LaneAuth>;
   relayerUrl: string;
   walletSessionJwt: string;
+  walletCustodyEnvelope: PasskeyEd25519YaoExportContextV1['walletCustodyEnvelope'];
   capability: RouterAbEd25519YaoExportWorkerPayloadV1['capability'];
 };
 
@@ -224,6 +225,7 @@ function requireDurablePasskeyExportContext(args: {
     laneIdentity: args.selectedLaneIdentity,
     relayerUrl: args.context.relayerUrl,
     walletSessionJwt,
+    walletCustodyEnvelope: args.context.walletCustodyEnvelope,
     capability: {
       materialActivation: descriptor.capability.materialActivation,
       scope: {
@@ -316,6 +318,7 @@ function buildWorkerPayload(args: {
       credentialIdB64u: args.resolved.laneIdentity.auth.credentialIdB64u,
       materialActivation: passkeyEd25519ExportMaterialActivation(args.resolved),
     },
+    walletCustodyEnvelope: args.resolved.walletCustodyEnvelope,
     capability: args.resolved.capability,
     variant: args.input.options.variant,
     theme: args.input.options.theme ?? args.theme,

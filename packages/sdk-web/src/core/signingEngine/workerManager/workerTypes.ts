@@ -73,11 +73,6 @@ import type {
   VerifyRouterAbEcdsaRegistrationClientProofsResultV1,
 } from '@/core/signingEngine/routerAb/ecdsaDerivation/clientCeremony';
 import type {
-  EmailOtpEd25519YaoPendingFactorHandle,
-  EmailOtpEd25519YaoRootHandle,
-  EmailOtpEd25519YaoRootScope,
-} from '../session/emailOtp/ed25519YaoRootVault';
-import type {
   RouterAbEd25519YaoActiveClientMetadataV1,
   RouterAbEd25519YaoClientSigningInputV1,
   RouterAbEd25519YaoClientSigningShareV1,
@@ -87,8 +82,6 @@ import {
   type RouterAbEd25519YaoApplicationBindingFactsV1,
   type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoBytes32V1,
-  type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
-  type RouterAbEd25519YaoRecoveryActivationReceiptV1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import type { NearResolvedEd25519SigningSessionState } from '../interfaces/near';
@@ -103,20 +96,6 @@ import type {
   IssuedEd25519OperationStepUpAuthorization,
 } from '../threshold/ed25519/walletSession';
 import type { LoadedWalletCustodyEd25519MaterialV1 } from '../walletCustody/ed25519SeedMaterial';
-
-export type EmailOtpEd25519YaoFactorRequest =
-  | { kind: 'requested'; providerSubject: string }
-  | { kind: 'not_requested'; providerSubject?: never };
-
-export type EmailOtpEd25519YaoFactorResult =
-  | {
-      kind: 'issued';
-      pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
-    }
-  | {
-      kind: 'not_requested';
-      pendingFactorHandle?: never;
-    };
 
 export type EmailOtpEd25519YaoRecoveryAugmentationV1 = {
   readonly kind: typeof ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1;
@@ -617,7 +596,6 @@ export interface EmailOtpWorkerOperationMap {
       otpChannel?: WalletEmailOtpChannel;
       clientSecret32?: ArrayBuffer;
       ecdsaSessionHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleRequest;
-      ed25519YaoFactor: EmailOtpEd25519YaoFactorRequest;
     };
     result: {
       recoveryKeys: EmailOtpRecoveryCodeSet;
@@ -628,104 +606,12 @@ export interface EmailOtpWorkerOperationMap {
       clientUnlockPublicKeyB64u: string;
       unlockKeyVersion: string;
       emailOtpSessionHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleResult;
-      ed25519YaoFactor: EmailOtpEd25519YaoFactorResult;
       emailOtpEnrollment: {
         recoveryWrappedEnrollmentEscrows: unknown[];
         enrollmentSealKeyVersion: string;
         clientUnlockPublicKeyB64u: string;
         unlockKeyVersion: string;
       };
-    };
-  };
-  bindEmailOtpEd25519YaoRoot: {
-    payload: {
-      pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
-      scope: EmailOtpEd25519YaoRootScope;
-    };
-    result: { rootHandle: EmailOtpEd25519YaoRootHandle };
-  };
-  disposeEmailOtpEd25519YaoPendingFactor: {
-    payload: { pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle };
-    result: { removed: boolean };
-  };
-  disposeEmailOtpEd25519YaoRoot: {
-    payload: { rootHandle: EmailOtpEd25519YaoRootHandle };
-    result: { removed: boolean };
-  };
-  startEmailOtpEd25519YaoRegistration: {
-    payload: {
-      rootHandle: EmailOtpEd25519YaoRootHandle;
-      admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
-      admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
-      walletId: string;
-      providerSubject: string;
-      registrationAuthorityId: string;
-      bearerToken: string;
-      routerOrigin: string;
-    };
-    result: {
-      pendingHandle: string;
-      operationalPublicKey: string;
-      activationReference: {
-        kind: 'router_ab_ed25519_yao_activation_reference_v1';
-        lifecycle_id: string;
-        session_id: readonly number[];
-      };
-      /**
-       * Yao timing breakdown observed inside the worker. Email OTP runs its
-       * ceremony here, so this is how the Router's `Server-Timing` reaches the
-       * main thread. Diagnostics only, and always optional.
-       */
-      routerServerTiming?: string;
-      clientTimings?: { admissionMs: number; sessionCreateMs: number };
-    };
-  };
-  persistEmailOtpEd25519YaoRegistrationMaterial: {
-    payload: {
-      pendingHandle: string;
-      walletId: string;
-      providerSubject: string;
-      nearAccountId: string;
-      nearEd25519SigningKeyId: string;
-      signerSlot: number;
-      signingRootVersion: string;
-      expectedOperationalPublicKey: string;
-      sessionPolicy: {
-        thresholdSessionId: string;
-        expiresAtMs: number;
-        remainingUses: number;
-      };
-    };
-    result: {
-      metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-      activeClientHandle: string;
-    };
-  };
-  disposeEmailOtpEd25519YaoRegistration: {
-    payload: { pendingHandle: string };
-    result: { removed: boolean };
-  };
-  recoverEmailOtpEd25519Yao: {
-    payload: {
-      rootHandle: EmailOtpEd25519YaoRootHandle;
-      admissionRequest: RouterAbEd25519YaoRecoveryAdmissionRequestV1;
-      walletId: string;
-      nearAccountId: string;
-      signingRootVersion: string;
-      providerSubject: string;
-      registrationAuthorityId: string;
-      bearerToken: string;
-      routerOrigin: string;
-      sessionPolicy: {
-        thresholdSessionId: string;
-        expiresAtMs: number;
-        remainingUses: number;
-      };
-    };
-    result: {
-      activeClientHandle: string;
-      metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-      activation: RouterAbEd25519YaoRecoveryActivationReceiptV1;
     };
   };
   createEmailOtpEd25519YaoSigningShare: {
@@ -1082,13 +968,6 @@ export type EmailOtpChallengeOperationType =
 export type EmailOtpEnrollmentOperationType =
   | 'enrollEmailOtpWallet'
   | 'prepareEmailOtpRegistrationEnrollmentMaterial'
-  | 'bindEmailOtpEd25519YaoRoot'
-  | 'disposeEmailOtpEd25519YaoPendingFactor'
-  | 'disposeEmailOtpEd25519YaoRoot'
-  | 'startEmailOtpEd25519YaoRegistration'
-  | 'persistEmailOtpEd25519YaoRegistrationMaterial'
-  | 'disposeEmailOtpEd25519YaoRegistration'
-  | 'recoverEmailOtpEd25519Yao'
   | 'createEmailOtpEd25519YaoSigningShare'
   | 'disposeEmailOtpEd25519YaoActiveClient';
 export type EmailOtpRestoreOperationType =

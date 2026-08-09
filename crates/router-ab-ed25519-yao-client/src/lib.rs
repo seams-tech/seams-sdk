@@ -27,12 +27,11 @@ use router_ab_ed25519_yao_protocol::{
 };
 use serde::Serialize;
 use signer_core::ed25519_yao_derivation::{
-    derive_ed25519_yao_client_contributions_v1,
-    derive_ed25519_yao_client_root_from_email_otp_factor_v1,
-    derive_ed25519_yao_client_root_from_passkey_prf_first_v1, Ed25519YaoClientDerivationRootV1,
+    derive_ed25519_yao_client_contributions_v1, Ed25519YaoClientDerivationRootV1,
 };
 use signer_core::near_ed25519_recovery::expand_ed25519_seed;
 use signer_core::near_threshold_frost::compute_threshold_ed25519_group_public_key_2p_from_verifying_shares;
+use signer_core::wallet_seed_derivation::derive_ed25519_yao_client_root_from_seed_v1;
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
@@ -56,10 +55,8 @@ pub use signing::{
 };
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindings"))]
 pub use wasm::{
-    WasmActivatedClientV1, WasmClientRecoverySessionV1, WasmClientRegistrationSessionV1,
-    WasmClientSigningShareV1, WasmEmailOtpClientExportSessionV1,
-    WasmEmailOtpClientRecoverySessionV1, WasmEmailOtpClientRegistrationSessionV1,
-    WasmExportedEd25519SeedV1, WasmPasskeyClientExportSessionV1,
+    WasmActivatedClientV1, WasmClientSigningShareV1, WasmExportedEd25519SeedV1,
+    WasmCustodyEnvelopeExportSessionV1,
 };
 
 type InputHpkeV1 = Hpke<DhKemX25519HkdfSha256, HkdfSha256, Aes256Gcm>;
@@ -320,144 +317,6 @@ impl fmt::Debug for ActivatedClientV1 {
     }
 }
 
-/// Derives the Client root inside Rust from passkey PRF.first and prepares registration.
-pub fn prepare_passkey_client_registration_v1(
-    admission: &RouterAbEd25519YaoActivationAdmissionReceiptV1,
-    application: &RouterAbEd25519YaoApplicationBindingFactsV1,
-    participant_ids: [u16; 2],
-    passkey_prf_first: [u8; 32],
-    entropy: ClientActivationEntropyV1,
-) -> Result<PreparedClientActivationV1, ClientActivationError> {
-    prepare_passkey_client_activation_v1(
-        admission,
-        application,
-        participant_ids,
-        passkey_prf_first,
-        entropy,
-        Ed25519YaoOperationV1::Registration,
-        ClientActivationContinuityV1::Establish,
-    )
-}
-
-/// Derives the retained Client root from the same passkey PRF.first and prepares recovery.
-pub fn prepare_passkey_client_recovery_v1(
-    admission: &RouterAbEd25519YaoActivationAdmissionReceiptV1,
-    application: &RouterAbEd25519YaoApplicationBindingFactsV1,
-    participant_ids: [u16; 2],
-    passkey_prf_first: [u8; 32],
-    expected_registered_public_key: [u8; 32],
-    entropy: ClientActivationEntropyV1,
-) -> Result<PreparedClientActivationV1, ClientActivationError> {
-    if expected_registered_public_key.iter().all(|byte| *byte == 0) {
-        return Err(ClientActivationError::PublicKeyContinuityMismatch);
-    }
-    prepare_passkey_client_activation_v1(
-        admission,
-        application,
-        participant_ids,
-        passkey_prf_first,
-        entropy,
-        Ed25519YaoOperationV1::Recovery,
-        ClientActivationContinuityV1::Preserve(expected_registered_public_key),
-    )
-}
-
-/// Derives the Client root from an Email OTP factor and prepares registration.
-pub fn prepare_email_otp_client_registration_v1(
-    admission: &RouterAbEd25519YaoActivationAdmissionReceiptV1,
-    application: &RouterAbEd25519YaoApplicationBindingFactsV1,
-    participant_ids: [u16; 2],
-    email_otp_factor: [u8; 32],
-    entropy: ClientActivationEntropyV1,
-) -> Result<PreparedClientActivationV1, ClientActivationError> {
-    prepare_email_otp_client_activation_v1(
-        admission,
-        application,
-        participant_ids,
-        email_otp_factor,
-        entropy,
-        Ed25519YaoOperationV1::Registration,
-        ClientActivationContinuityV1::Establish,
-    )
-}
-
-/// Derives the retained Client root from the Email OTP factor and prepares recovery.
-pub fn prepare_email_otp_client_recovery_v1(
-    admission: &RouterAbEd25519YaoActivationAdmissionReceiptV1,
-    application: &RouterAbEd25519YaoApplicationBindingFactsV1,
-    participant_ids: [u16; 2],
-    email_otp_factor: [u8; 32],
-    expected_registered_public_key: [u8; 32],
-    entropy: ClientActivationEntropyV1,
-) -> Result<PreparedClientActivationV1, ClientActivationError> {
-    if expected_registered_public_key.iter().all(|byte| *byte == 0) {
-        return Err(ClientActivationError::PublicKeyContinuityMismatch);
-    }
-    prepare_email_otp_client_activation_v1(
-        admission,
-        application,
-        participant_ids,
-        email_otp_factor,
-        entropy,
-        Ed25519YaoOperationV1::Recovery,
-        ClientActivationContinuityV1::Preserve(expected_registered_public_key),
-    )
-}
-
-fn prepare_email_otp_client_activation_v1(
-    admission: &RouterAbEd25519YaoActivationAdmissionReceiptV1,
-    application: &RouterAbEd25519YaoApplicationBindingFactsV1,
-    participant_ids: [u16; 2],
-    email_otp_factor: [u8; 32],
-    entropy: ClientActivationEntropyV1,
-    operation: Ed25519YaoOperationV1,
-    continuity: ClientActivationContinuityV1,
-) -> Result<PreparedClientActivationV1, ClientActivationError> {
-    let context = stable_key_derivation_context_v1(application, participant_ids)
-        .map_err(|_| ClientActivationError::DerivationFailed)?;
-    let root = derive_ed25519_yao_client_root_from_email_otp_factor_v1(
-        &email_otp_factor,
-        context.application_binding_digest(),
-    )
-    .map_err(|_| ClientActivationError::DerivationFailed)?;
-    prepare_client_activation_with_root_v1(
-        admission,
-        application,
-        participant_ids,
-        root,
-        entropy,
-        operation,
-        continuity,
-    )
-}
-
-fn prepare_passkey_client_activation_v1(
-    admission: &RouterAbEd25519YaoActivationAdmissionReceiptV1,
-    application: &RouterAbEd25519YaoApplicationBindingFactsV1,
-    participant_ids: [u16; 2],
-    passkey_prf_first: [u8; 32],
-    entropy: ClientActivationEntropyV1,
-    operation: Ed25519YaoOperationV1,
-    continuity: ClientActivationContinuityV1,
-) -> Result<PreparedClientActivationV1, ClientActivationError> {
-    let context = stable_key_derivation_context_v1(application, participant_ids)
-        .map_err(|_| ClientActivationError::DerivationFailed)?;
-    let root = derive_ed25519_yao_client_root_from_passkey_prf_first_v1(
-        &passkey_prf_first,
-        context.application_binding_digest(),
-    )
-    .map_err(|_| ClientActivationError::DerivationFailed)?;
-    prepare_client_activation_with_root_v1(
-        admission,
-        application,
-        participant_ids,
-        root,
-        entropy,
-        operation,
-        continuity,
-    )
-}
-
 /// Prepares registration from a Client root the caller already derived.
 ///
 /// This is the seam Refactor 100 registers through: the root comes from the
@@ -479,6 +338,25 @@ pub fn prepare_client_registration_with_root_v1(
         entropy,
         Ed25519YaoOperationV1::Registration,
         ClientActivationContinuityV1::Establish,
+    )
+}
+
+pub(crate) fn prepare_client_registration_from_custody_seed_v1(
+    admission: &RouterAbEd25519YaoActivationAdmissionReceiptV1,
+    application: &RouterAbEd25519YaoApplicationBindingFactsV1,
+    participant_ids: [u16; 2],
+    custody_seed: &[u8; 32],
+    entropy: ClientActivationEntropyV1,
+) -> Result<PreparedClientActivationV1, ClientActivationError> {
+    let digest = client_application_binding_digest_v1(application, participant_ids)?;
+    let root = derive_ed25519_yao_client_root_from_seed_v1(custody_seed, &digest)
+        .map_err(|_| ClientActivationError::DerivationFailed)?;
+    prepare_client_registration_with_root_v1(
+        admission,
+        application,
+        participant_ids,
+        Ed25519YaoClientDerivationRootV1::from_secret_bytes(*root),
+        entropy,
     )
 }
 
@@ -507,6 +385,30 @@ pub fn prepare_client_recovery_with_root_v1(
         entropy,
         Ed25519YaoOperationV1::Recovery,
         ClientActivationContinuityV1::Preserve(expected_registered_public_key),
+    )
+}
+
+pub(crate) fn prepare_client_recovery_from_custody_seed_v1(
+    admission: &RouterAbEd25519YaoActivationAdmissionReceiptV1,
+    application: &RouterAbEd25519YaoApplicationBindingFactsV1,
+    participant_ids: [u16; 2],
+    custody_seed: &[u8; 32],
+    expected_registered_public_key: [u8; 32],
+    entropy: ClientActivationEntropyV1,
+) -> Result<PreparedClientActivationV1, ClientActivationError> {
+    if expected_registered_public_key.iter().all(|byte| *byte == 0) {
+        return Err(ClientActivationError::PublicKeyContinuityMismatch);
+    }
+    let digest = client_application_binding_digest_v1(application, participant_ids)?;
+    let root = derive_ed25519_yao_client_root_from_seed_v1(custody_seed, &digest)
+        .map_err(|_| ClientActivationError::DerivationFailed)?;
+    prepare_client_recovery_with_root_v1(
+        admission,
+        application,
+        participant_ids,
+        Ed25519YaoClientDerivationRootV1::from_secret_bytes(*root),
+        expected_registered_public_key,
+        entropy,
     )
 }
 
@@ -646,13 +548,16 @@ pub fn complete_client_activation_v1(
     })
 }
 
-/// Derives the retained Client contribution from fresh passkey PRF.first and prepares export.
-#[allow(clippy::too_many_arguments)]
-pub fn prepare_passkey_client_export_v1(
+/// Prepares the explicit export protocol from a custody-derived Client root.
+///
+/// The root must come from the wallet custody seed. Factor secrets are
+/// authorization and envelope-opening material; they never define an Ed25519
+/// signing root.
+pub fn prepare_client_export_with_root_v1(
     admission: &RouterAbEd25519YaoExportAdmissionReceiptV1,
     application: &RouterAbEd25519YaoApplicationBindingFactsV1,
     participant_ids: [u16; 2],
-    passkey_prf_first: [u8; 32],
+    root: Ed25519YaoClientDerivationRootV1,
     entropy: ClientActivationEntropyV1,
 ) -> Result<PreparedClientExportV1, ClientActivationError> {
     let context = stable_key_derivation_context_v1(application, participant_ids)
@@ -663,40 +568,10 @@ pub fn prepare_passkey_client_export_v1(
     {
         return Err(ClientActivationError::BindingMismatch);
     }
-    let root = derive_ed25519_yao_client_root_from_passkey_prf_first_v1(
-        &passkey_prf_first,
-        context.application_binding_digest(),
-    )
-    .map_err(|_| ClientActivationError::DerivationFailed)?;
-    prepare_client_export_with_root_v1(admission, application, participant_ids, root, entropy)
+    prepare_client_export_from_root_v1(admission, application, participant_ids, root, entropy)
 }
 
-/// Derives the retained Client contribution from the Email OTP factor and prepares export.
-#[allow(clippy::too_many_arguments)]
-pub fn prepare_email_otp_client_export_v1(
-    admission: &RouterAbEd25519YaoExportAdmissionReceiptV1,
-    application: &RouterAbEd25519YaoApplicationBindingFactsV1,
-    participant_ids: [u16; 2],
-    email_otp_factor: [u8; 32],
-    entropy: ClientActivationEntropyV1,
-) -> Result<PreparedClientExportV1, ClientActivationError> {
-    let context = stable_key_derivation_context_v1(application, participant_ids)
-        .map_err(|_| ClientActivationError::DerivationFailed)?;
-    let ceremony = admission.binding().ceremony();
-    if ceremony.operation != Ed25519YaoOperationV1::Export
-        || context.binding_digest() != ceremony.stable_key_context_binding.into_bytes()
-    {
-        return Err(ClientActivationError::BindingMismatch);
-    }
-    let root = derive_ed25519_yao_client_root_from_email_otp_factor_v1(
-        &email_otp_factor,
-        context.application_binding_digest(),
-    )
-    .map_err(|_| ClientActivationError::DerivationFailed)?;
-    prepare_client_export_with_root_v1(admission, application, participant_ids, root, entropy)
-}
-
-fn prepare_client_export_with_root_v1(
+fn prepare_client_export_from_root_v1(
     admission: &RouterAbEd25519YaoExportAdmissionReceiptV1,
     application: &RouterAbEd25519YaoApplicationBindingFactsV1,
     participant_ids: [u16; 2],
@@ -763,6 +638,29 @@ fn prepare_client_export_with_root_v1(
             recipient_private_key,
         },
     })
+}
+
+pub(crate) fn prepare_client_export_from_custody_seed_v1(
+    admission: &RouterAbEd25519YaoExportAdmissionReceiptV1,
+    application: &RouterAbEd25519YaoApplicationBindingFactsV1,
+    participant_ids: [u16; 2],
+    custody_seed: &[u8; 32],
+    entropy: ClientActivationEntropyV1,
+) -> Result<PreparedClientExportV1, ClientActivationError> {
+    let context = stable_key_derivation_context_v1(application, participant_ids)
+        .map_err(|_| ClientActivationError::DerivationFailed)?;
+    let root = derive_ed25519_yao_client_root_from_seed_v1(
+        custody_seed,
+        context.application_binding_digest(),
+    )
+    .map_err(|_| ClientActivationError::DerivationFailed)?;
+    prepare_client_export_from_root_v1(
+        admission,
+        application,
+        participant_ids,
+        Ed25519YaoClientDerivationRootV1::from_secret_bytes(*root),
+        entropy,
+    )
 }
 
 /// Reconstructs and verifies the exact seed inside the Client boundary.

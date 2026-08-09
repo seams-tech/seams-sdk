@@ -52,6 +52,8 @@ import {
 } from '@shared/utils/routerAbEd25519Yao';
 import { normalizeThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import { normalizeAuthenticationCredential } from '../../webauthnAuth/credentials/helpers';
+import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import { walletCustodyCacheEnvelopeFromRecordV1 } from '../../walletCustody/openCustodyCache';
 
 type EcdsaDerivationThresholdExportWorkerPayload = Extract<
   ExportPrivateKeysWithUiWorkerPayload,
@@ -139,6 +141,19 @@ function parseWorkerBytes32(value: unknown): readonly number[] | null {
   return bytes;
 }
 
+function custodyEnvelopeInputForExport(
+  record: RouterAbEd25519YaoExportWorkerPayloadV1['walletCustodyEnvelope'],
+) {
+  const envelope = walletCustodyCacheEnvelopeFromRecordV1(record);
+  return {
+    bindingJson: envelope.bindingJson,
+    nonce: base64UrlDecode(envelope.nonceB64u),
+    ciphertext: base64UrlDecode(envelope.ciphertextB64u),
+    aadHash: base64UrlDecode(envelope.aadHashB64u),
+    ciphertextDigest: base64UrlDecode(envelope.ciphertextDigestB64u),
+  };
+}
+
 function parseEd25519YaoExportWorkerPayload(
   payload: Record<string, unknown>,
 ): RouterAbEd25519YaoExportWorkerPayloadV1 | null {
@@ -178,6 +193,12 @@ function parseEd25519YaoExportWorkerPayload(
   const activeCapabilityBinding = parseWorkerBytes32(capability.activeCapabilityBinding);
   const stateEpoch = normalizeNonNegativeInteger(capability.stateEpoch);
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(capability.runtimePolicyScope);
+  let walletCustodyEnvelope: RouterAbEd25519YaoExportWorkerPayloadV1['walletCustodyEnvelope'];
+  try {
+    walletCustodyEnvelope = parsePasskeyCustodyEnvelopeRecord(payload.walletCustodyEnvelope);
+  } catch {
+    return null;
+  }
   const activationIdentity = parseRouterAbEd25519YaoRegistrationAdmissionRequestV1({
     scope: capability.scope,
     application_binding: capability.applicationBinding,
@@ -194,7 +215,11 @@ function parseEd25519YaoExportWorkerPayload(
     !activeCapabilityBinding ||
     stateEpoch == null ||
     !runtimePolicyScope ||
-    !activationIdentity.ok
+    !activationIdentity.ok ||
+    String(walletCustodyEnvelope.walletId) !== String(parsedWalletId.value) ||
+    walletCustodyEnvelope.lifecycle.state !== 'active' ||
+    walletCustodyEnvelope.factor.kind !== 'passkey' ||
+    String(walletCustodyEnvelope.factor.credentialIdB64u) !== credentialIdB64u
   ) {
     return null;
   }
@@ -215,6 +240,7 @@ function parseEd25519YaoExportWorkerPayload(
       credentialIdB64u,
       materialActivation: materialActivationResult.value,
     },
+    walletCustodyEnvelope,
     capability: {
       materialActivation: capabilityMaterialActivationResult.value,
       scope: activationIdentity.value.scope,
@@ -567,7 +593,10 @@ async function runEd25519YaoExportWithUi(
     const client = await RouterAbEd25519YaoClientV1.initializeBundled();
     const result = await client.exportSeed({
       request: request.value,
-      factor: { kind: 'passkey_prf_first', ownedSecret32: prfFirst },
+      custodyEnvelope: {
+        factorSecret: prfFirst,
+        ...custodyEnvelopeInputForExport(payload.walletCustodyEnvelope),
+      },
       authorization: { kind: 'passkey', webauthnAuthentication: credential },
       transport: new RouterAbEd25519YaoHttpActivationTransportV1({
         routerOrigin: new URL(payload.relayerUrl).origin,
