@@ -336,6 +336,7 @@ import {
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import { UserConfirmationType } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { WalletRecoveryRegistrationOptions } from '@/core/rpcClients/relayer/walletRecoveryPrepare';
+import type { WalletAddAuthMethodRegistrationOptions } from '@/core/rpcClients/relayer/walletRegistration';
 import {
   walletRecoveryReplacementCredentialFromRegistrationV1,
   type WalletRecoveryReplacementCredential,
@@ -3627,6 +3628,7 @@ export class BrowserSigningSurface {
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
     challengeB64u?: string;
+    registrationOptions?: WalletAddAuthMethodRegistrationOptions;
   }): Promise<RegistrationCredentialConfirmationPayload> {
     return registrationPublic.requestRegistrationCredentialConfirmation(
       this.registrationPublicDeps,

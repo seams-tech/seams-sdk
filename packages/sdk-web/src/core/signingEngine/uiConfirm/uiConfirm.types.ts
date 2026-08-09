@@ -19,6 +19,7 @@ import type {
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { UserConfirmProgressEvent } from '../stepUpConfirmation/types';
 import type { ConfirmationConfig } from '../../types/signer-worker';
+import type { WalletAddAuthMethodRegistrationOptions } from '@/core/rpcClients/relayer/walletRegistration';
 import type { AppearanceConfig, ThemeMode, SeamsChainConfig } from '../../types/seams';
 import type { RegistrationCredentialConfirmationPayload } from '../workerManager/validation';
 import type {
@@ -122,6 +123,7 @@ export type RequestRegistrationCredentialConfirmationParams = {
   confirmerText?: { title?: string; body?: string };
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   challengeB64u?: string;
+  registrationOptions?: WalletAddAuthMethodRegistrationOptions;
 };
 
 export type OpenRegistrationPreparationModalParams = {
