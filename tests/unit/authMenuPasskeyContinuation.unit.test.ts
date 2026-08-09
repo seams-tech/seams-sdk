@@ -34,6 +34,7 @@ function authMenuSession(
       mode: 'login' | 'register';
       signal: AbortSignal;
     }) => Promise<GoogleEmailOtpWalletAuthLoginFlow>;
+    sendToParent?: (message: unknown) => void;
   } = {},
 ): AuthMenuSession {
   const sessionId = hostedAuthMenuSessionIdFromBoundary(
@@ -57,10 +58,17 @@ function authMenuSession(
       (async () => {
         throw new Error('Google flow fixture was not configured');
       }),
+    sendToParent: args.sendToParent ?? (() => {}),
   });
 }
 
-function googleLoginFlow(): GoogleEmailOtpWalletAuthLoginFlow {
+function googleLoginFlow(
+  delivery: GoogleEmailOtpWalletAuthLoginFlow['delivery'] = {
+    kind: 'provider',
+    status: 'sent',
+    emailHint: 'g***@example.test',
+  },
+): GoogleEmailOtpWalletAuthLoginFlow {
   const flow: GoogleEmailOtpWalletAuthLoginFlow = {
     kind: 'google_email_otp_wallet_auth_flow_v1',
     flowId: 'google-flow-test',
@@ -75,7 +83,7 @@ function googleLoginFlow(): GoogleEmailOtpWalletAuthLoginFlow {
       submitLabel: 'Verify',
       helperText: '',
     },
-    delivery: { kind: 'provider', status: 'sent', emailHint: 'g***@example.test' },
+    delivery,
     expiresAtMs: Date.now() + 60_000,
     cancel: async () => {},
     resend: async () => ({
@@ -219,7 +227,7 @@ test.describe('hosted auth-menu passkey continuation', () => {
         return googleLoginFlow();
       },
     });
-    const externalRequest = session.requestExternalAuth('google', () => {});
+    const externalRequest = session.requestExternalAuth('google');
     if (!externalRequest) throw new Error('external auth request fixture is invalid');
     const wrongRequestId = walletIframeRequestIdFromBoundary('different-open-request');
     const wrongResolution = buildHostedAuthMenuExternalAuthResolution({
@@ -242,6 +250,42 @@ test.describe('hosted auth-menu passkey continuation', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(receivedTokens).toEqual(['correct-token']);
     expect(session.state.kind).toBe('google_login');
+  });
+
+  test('forwards demo Google OTP delivery to the app-origin auth-menu session', async () => {
+    const messages: unknown[] = [];
+    const session = authMenuSession({
+      providers: ['google'],
+      beginGoogleEmailOtp: async () =>
+        googleLoginFlow({
+          kind: 'demo_code_response',
+          status: 'sent',
+          emailHint: 'g***@example.test',
+          otpCode: '654321',
+        }),
+      sendToParent: messages.push.bind(messages),
+    });
+    const externalRequest = session.requestExternalAuth('google');
+    if (!externalRequest) throw new Error('external auth request fixture is invalid');
+    const resolution = buildHostedAuthMenuExternalAuthResolution({
+      authMenuSessionId: externalRequest.authMenuSessionId,
+      externalAuthRequestId: externalRequest.externalAuthRequestId,
+      requestId: session.identity.requestId,
+      evidence: { kind: 'google_id_token', idToken: 'demo-token' },
+    });
+
+    expect(session.acceptExternalAuthResolution(resolution)).toBe(true);
+    await expect.poll(() => messages.length).toBe(2);
+    expect(messages[1]).toMatchObject({
+      type: 'AUTH_MENU_DEMO_EMAIL_OTP_DELIVERY',
+      requestId: session.identity.requestId,
+      payload: {
+        kind: 'hosted_auth_menu_demo_email_otp_delivery_v1',
+        authMenuSessionId: session.identity.authMenuSessionId,
+        delivery: { otpCode: '654321' },
+      },
+    });
+    session.cleanup();
   });
 
   test('marks idle prepared passkey state expired without starting a replacement preparation', async () => {

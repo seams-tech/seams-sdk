@@ -33,7 +33,7 @@ It consumes:
 
 It supplies the execution model consumed by:
 
-- [refactor-102-share-rotation.md](./refactor-102-share-rotation.md) for lane
+- [refactor-102-rotatable-signing-lanes.md](./refactor-102-rotatable-signing-lanes.md) for lane
   provisioning, refresh, activation, and revocation;
 - [refactor-103-device-linking.md](./refactor-103-device-linking.md) for physical
   linked-device enrollment;

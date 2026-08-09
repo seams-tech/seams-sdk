@@ -1,6 +1,15 @@
 import { expect, test } from '@playwright/test';
 import type { FetchHandler } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/cloudflare.types';
-import { dispatchHostedGatewayRequest } from '../../packages/console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker';
+import {
+  dispatchHostedGatewayRequest,
+  stagingSigningSessionSealOptions,
+} from '../../packages/console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker';
+
+const SIGNING_SESSION_SEAL_ENV = {
+  SIGNING_SESSION_SEAL_ROOT_SECRET_B64U: Buffer.alloc(32, 0x42).toString('base64url'),
+  SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION: 'signing-session-seal-staging-r2',
+  SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS: 'signing-session-seal-staging-r2',
+} as const;
 
 function markerHandler(marker: string): FetchHandler {
   return buildMarkerResponse.bind(null, marker);
@@ -28,4 +37,12 @@ test('hosted gateway dispatches every non-console route to the request-scoped Ro
   await expect(routePath('/session/exchange')).resolves.toBe('router-api');
   await expect(routePath('/wallets/register/setup')).resolves.toBe('router-api');
   await expect(routePath('/consolex')).resolves.toBe('router-api');
+});
+
+test('hosted gateway reuses one signing-session seal runtime per isolate', () => {
+  const first = stagingSigningSessionSealOptions(SIGNING_SESSION_SEAL_ENV);
+  const second = stagingSigningSessionSealOptions(SIGNING_SESSION_SEAL_ENV);
+
+  expect(first).toBeDefined();
+  expect(second).toBe(first);
 });

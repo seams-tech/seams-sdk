@@ -45,7 +45,7 @@ This plan consumes:
   authorization source;
 - [refactor-101-wallet-execution-lanes.md](./refactor-101-wallet-execution-lanes.md)
   for stable wallet-key identities and optional delegated-execution lanes;
-- [refactor-102-share-rotation.md](./refactor-102-share-rotation.md) when a direct
+- [refactor-102-rotatable-signing-lanes.md](./refactor-102-rotatable-signing-lanes.md) when a direct
   threshold-wallet adapter provisions an authorization-bound agent runtime
   lane;
 - `crates/router-ab-ecdsa-derivation` and the Ed25519 Yao implementation for
