@@ -5,7 +5,7 @@ import type {
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { DerivationClientSharePublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
-import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type { WalletAuthAuthority, WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import type { WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type {
@@ -177,6 +177,14 @@ export type AddAuthMethodExistingAuth =
       rpId: WebAuthnRpId;
       credential: WebAuthnAuthenticationCredential;
       expectedChallengeDigestB64u: string;
+    }
+  | {
+      /** Verified by the wallet-unlock route and bound to the active app session. */
+      kind: 'email_otp';
+      providerUserId: string;
+      enrollmentId: string;
+      enrollmentSealKeyVersion: string;
+      authorityRef: WalletAuthAuthorityRef;
     }
   | {
       kind: 'app_session';

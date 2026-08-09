@@ -101,7 +101,10 @@ import type {
   WalletAddSignerFinalizeResponse,
   WalletAddAuthMethodRegistrationOptions,
 } from '../../../../core/registrationContracts';
-import { parseWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  parseWalletAuthAuthority,
+  parseWalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import {
   parseThresholdEd25519AuthorityScope,
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
@@ -2481,6 +2484,15 @@ export function parseD1StoredWalletAddAuthMethodCeremony(
   } catch {
     return null;
   }
+  const custodyFactorMatchesAuth =
+    auth.kind === 'webauthn_assertion'
+      ? custodyEnvelope.factor.kind === 'passkey' &&
+        custodyEnvelope.factor.rpId === auth.rpId &&
+        custodyEnvelope.factor.credentialIdB64u === auth.credentialIdB64u
+      : auth.kind === 'email_otp' &&
+        custodyEnvelope.factor.kind === 'email_otp' &&
+        custodyEnvelope.factor.enrollmentId === auth.enrollmentId &&
+        custodyEnvelope.factor.enrollmentSealKeyVersion === auth.enrollmentSealKeyVersion;
   if (
     !rpId.ok ||
     !challengeB64u ||
@@ -2490,8 +2502,7 @@ export function parseD1StoredWalletAddAuthMethodCeremony(
     intent.authMethod.kind !== 'passkey' ||
     intent.authMethod.rpId !== rpId.value ||
     custodyEnvelope.walletId !== intent.walletId ||
-    custodyEnvelope.factor.kind !== 'passkey' ||
-    custodyEnvelope.factor.rpId !== rpId.value ||
+    !custodyFactorMatchesAuth ||
     custodyEnvelope.lifecycle.state !== 'active'
   ) {
     return null;
@@ -2561,6 +2572,21 @@ function parseD1StoredAddAuthMethodAuth(
   const record = toRecordValue(raw);
   const kind = toOptionalTrimmedString(record?.kind);
   if (kind === 'app_session') return { kind: 'app_session' };
+  if (kind === 'email_otp') {
+    const providerUserId = toOptionalTrimmedString(record?.providerUserId);
+    const enrollmentId = toOptionalTrimmedString(record?.enrollmentId);
+    const enrollmentSealKeyVersion = toOptionalTrimmedString(record?.enrollmentSealKeyVersion);
+    const authorityRef = parseWalletAuthAuthorityRef(record?.authorityRef);
+    return providerUserId && enrollmentId && enrollmentSealKeyVersion && authorityRef
+      ? {
+          kind: 'email_otp',
+          providerUserId,
+          enrollmentId,
+          enrollmentSealKeyVersion,
+          authorityRef,
+        }
+      : null;
+  }
   if (kind === 'webauthn_assertion') {
     const rpId = toOptionalTrimmedString(record?.rpId);
     const credentialIdB64u = toOptionalTrimmedString(record?.credentialIdB64u);

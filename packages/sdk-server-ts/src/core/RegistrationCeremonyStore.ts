@@ -78,6 +78,10 @@ import type {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbEcdsaPendingActivationV1 } from '../router/domains/ecdsa/routerAbEcdsaStrictRegistration';
 import type { WalletEd25519SignerRecord } from './WalletStore';
+import {
+  parseWalletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 
 export type StoredAddSignerIntent = {
   kind: 'add_signer_intent_allocated';
@@ -743,6 +747,13 @@ type StoredWalletAddAuthMethodCeremonyBase = {
         kind: 'webauthn_assertion';
         rpId: string;
         credentialIdB64u: string;
+      }
+    | {
+        kind: 'email_otp';
+        providerUserId: string;
+        enrollmentId: string;
+        enrollmentSealKeyVersion: string;
+        authorityRef: WalletAuthAuthorityRef;
       }
     | {
       kind: 'app_session';
@@ -1712,6 +1723,22 @@ function parseAddAuthMethodCeremonyAuth(
   if (value.kind === 'app_session') {
     return { kind: 'app_session' };
   }
+  if (value.kind === 'email_otp') {
+    const providerUserId = trimString(value.providerUserId);
+    const enrollmentId = trimString(value.enrollmentId);
+    const enrollmentSealKeyVersion = trimString(value.enrollmentSealKeyVersion);
+    const authorityRef = parseWalletAuthAuthorityRef(value.authorityRef);
+    if (!providerUserId || !enrollmentId || !enrollmentSealKeyVersion || !authorityRef) {
+      return null;
+    }
+    return {
+      kind: 'email_otp',
+      providerUserId,
+      enrollmentId,
+      enrollmentSealKeyVersion,
+      authorityRef,
+    };
+  }
   if (value.kind !== 'webauthn_assertion') return null;
   const rpId = trimString(value.rpId);
   const credentialIdB64u = trimString(value.credentialIdB64u);
@@ -1858,6 +1885,15 @@ function parseStoredWalletAddAuthMethodCeremony(
   } catch {
     return null;
   }
+  const custodyFactorMatchesAuth =
+    auth.kind === 'webauthn_assertion'
+      ? custodyEnvelope.factor.kind === 'passkey' &&
+        custodyEnvelope.factor.rpId === auth.rpId &&
+        custodyEnvelope.factor.credentialIdB64u === auth.credentialIdB64u
+      : auth.kind === 'email_otp' &&
+        custodyEnvelope.factor.kind === 'email_otp' &&
+        custodyEnvelope.factor.enrollmentId === auth.enrollmentId &&
+        custodyEnvelope.factor.enrollmentSealKeyVersion === auth.enrollmentSealKeyVersion;
   if (
     !rpId.ok ||
     !challengeB64u ||
@@ -1867,8 +1903,7 @@ function parseStoredWalletAddAuthMethodCeremony(
     intentRecord.intent.authMethod.kind !== 'passkey' ||
     intentRecord.intent.authMethod.rpId !== rpId.value ||
     custodyEnvelope.walletId !== intentRecord.intent.walletId ||
-    custodyEnvelope.factor.kind !== 'passkey' ||
-    custodyEnvelope.factor.rpId !== rpId.value ||
+    !custodyFactorMatchesAuth ||
     custodyEnvelope.lifecycle.state !== 'active'
   ) {
     return null;

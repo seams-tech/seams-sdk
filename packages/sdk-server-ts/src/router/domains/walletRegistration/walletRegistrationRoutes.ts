@@ -123,7 +123,11 @@ import {
   normalizeRuntimePolicyScope,
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
-import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  isEmailOtpWalletAuthAuthority,
+  parseWalletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import {
   parseRouterAbTraceContextV1,
   ROUTER_AB_TRACE_ID_HEADER_V1,
@@ -988,9 +992,70 @@ async function parseWalletAddSignerStartBody(
   };
 }
 
+async function verifyEmailOtpAddAuthMethodAuthorization(input: {
+  readonly walletId: string;
+  readonly headers: HeaderRecord;
+  readonly session?: SessionAdapter | null;
+  readonly providerUserId: string;
+  readonly enrollmentId: string;
+  readonly enrollmentSealKeyVersion: string;
+  readonly authorityRef: WalletAuthAuthorityRef;
+}): Promise<ParseResult<void>> {
+  if (!input.session) {
+    return { ok: false, code: 'invalid_body', message: 'Email OTP add-auth requires app session' };
+  }
+  const parsedSession = await input.session.parse(input.headers || {});
+  if (!parsedSession.ok) {
+    return { ok: false, code: 'invalid_body', message: 'Missing or invalid app session' };
+  }
+  const appSessionClaims = parseAppSessionClaims(parsedSession.claims);
+  if (!appSessionClaims) {
+    return { ok: false, code: 'invalid_body', message: 'App session claims are invalid' };
+  }
+  if (appSessionClaims.exp !== undefined && appSessionClaims.exp * 1000 <= Date.now()) {
+    return { ok: false, code: 'invalid_body', message: 'App session is expired' };
+  }
+  if (appSessionClaims.sub !== input.providerUserId) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'Email OTP provider identity does not match app session',
+    };
+  }
+  if (resolveAppSessionWalletIdForWalletScope(appSessionClaims, input.walletId) !== input.walletId) {
+    return { ok: false, code: 'invalid_body', message: 'App session does not match walletId' };
+  }
+  const sessionAuthorityRef = appSessionClaims.walletAuthAuthorityRef;
+  if (
+    !sessionAuthorityRef ||
+    sessionAuthorityRef.walletId !== input.authorityRef.walletId ||
+    sessionAuthorityRef.authorityDigest !== input.authorityRef.authorityDigest
+  ) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'Email OTP authority reference does not match app session',
+    };
+  }
+  const sessionVersion = await input.session.validateAppSessionVersion({
+    userId: appSessionClaims.sub,
+    appSessionVersion: appSessionClaims.appSessionVersion,
+  });
+  if (!sessionVersion.ok) {
+    return { ok: false, code: 'invalid_body', message: sessionVersion.message };
+  }
+  return { ok: true, value: undefined };
+}
+
 async function parseWalletAddAuthMethodStartBody(
   body: Record<string, unknown>,
   walletId: string,
+  verifyEmailOtpAuthorization: (input: {
+    readonly providerUserId: string;
+    readonly enrollmentId: string;
+    readonly enrollmentSealKeyVersion: string;
+    readonly authorityRef: WalletAuthAuthorityRef;
+  }) => Promise<ParseResult<void>>,
 ): Promise<ParseResult<WalletAddAuthMethodStartRequest>> {
   const intent = isPlainObject(body.intent) ? body.intent : null;
   if (!intent || intent.version !== 'add_auth_method_intent_v1') {
@@ -1065,6 +1130,32 @@ async function parseWalletAddAuthMethodStartBody(
       rpId: authRpId.value,
       credential: credential.value,
       expectedChallengeDigestB64u,
+    };
+  } else if (auth.kind === 'email_otp') {
+    const providerUserId = String(auth.providerUserId || '').trim();
+    const enrollmentId = String(auth.enrollmentId || '').trim();
+    const enrollmentSealKeyVersion = String(auth.enrollmentSealKeyVersion || '').trim();
+    const authorityRef = parseWalletAuthAuthorityRef(auth.authorityRef);
+    if (!providerUserId || !enrollmentId || !enrollmentSealKeyVersion || !authorityRef) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Email OTP add-auth-method authorization is incomplete',
+      };
+    }
+    const verifiedAuthorization = await verifyEmailOtpAuthorization({
+      providerUserId,
+      enrollmentId,
+      enrollmentSealKeyVersion,
+      authorityRef,
+    });
+    if (!verifiedAuthorization.ok) return verifiedAuthorization;
+    existingAuth = {
+      kind: 'email_otp',
+      providerUserId,
+      enrollmentId,
+      enrollmentSealKeyVersion,
+      authorityRef,
     };
   } else if (auth.kind === 'app_session') {
     const policy = isPlainObject(auth.policy) ? auth.policy : null;
@@ -2303,7 +2394,7 @@ export async function handleRouterApiWalletAddSignerStart(
         verified.message || 'Invalid add-signer WebAuthn authorization',
       );
     }
-  } else {
+  } else if (parsedBody.value.auth.kind === 'app_session') {
     const session = input.services.session;
     if (!session) {
       return routeError(401, 'unauthorized', 'App session auth is required');
@@ -2468,7 +2559,17 @@ export async function handleRouterApiWalletAddAuthMethodStart(
   if (!walletId) {
     return routeError(400, 'invalid_body', 'walletId is required');
   }
-  const parsedBody = await parseWalletAddAuthMethodStartBody(input.body, walletId);
+  const parsedBody = await parseWalletAddAuthMethodStartBody(
+    input.body,
+    walletId,
+    async (authorization) =>
+      await verifyEmailOtpAddAuthMethodAuthorization({
+        walletId,
+        headers: input.headers,
+        session: input.services.session,
+        ...authorization,
+      }),
+  );
   if (!parsedBody.ok) return routeError(400, parsedBody.code, parsedBody.message);
   if (parsedBody.value.auth.kind === 'webauthn_assertion') {
     const origin = requireWebAuthnExpectedOrigin(input);
@@ -2489,7 +2590,7 @@ export async function handleRouterApiWalletAddAuthMethodStart(
         verified.message || 'Invalid add-auth-method WebAuthn authorization',
       );
     }
-  } else {
+  } else if (parsedBody.value.auth.kind === 'app_session') {
     const session = input.services.session;
     if (!session) {
       return routeError(401, 'unauthorized', 'App session auth is required');
