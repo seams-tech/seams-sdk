@@ -2075,7 +2075,7 @@ function startDeferredNearWalletCustody(
       admissionReceipt: input.deferredNear.admissionReceipt,
       participantIds: admission.participant_ids,
       routerOrigin: new URL(base.relayerUrl).origin,
-      authorization: base.signedSetup,
+      authorization: `Bearer ${base.signedSetup}`,
       traceContext: base.traceContext,
     })
     .finally(zeroizeArrayBuffer.bind(undefined, factorSecret));
@@ -2962,7 +2962,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
         admissionReceipt: responded.ed25519.admissionReceipt,
         participantIds: responded.ed25519.admissionRequest.participant_ids,
         routerOrigin: new URL(relayerUrl).origin,
-        authorization: String(setup.signedSetup),
+        authorization: `Bearer ${String(setup.signedSetup)}`,
       });
     } finally {
       zeroizeArrayBuffer(emailOtpWalletCustodyFactorSecret);
@@ -3336,7 +3336,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
         admissionReceipt: responded.ed25519.admissionReceipt,
         participantIds: responded.ed25519.admissionRequest.participant_ids,
         routerOrigin: new URL(relayerUrl).origin,
-        authorization: String(setup.signedSetup),
+        authorization: `Bearer ${String(setup.signedSetup)}`,
         traceContext,
       });
     } finally {
