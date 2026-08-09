@@ -27,7 +27,11 @@ import {
 import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainWorkers';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { MpcMaterialActivationRef, ThresholdEd25519SessionId } from '@shared/utils/domainIds';
+import type {
+  MpcMaterialActivationRef,
+  ThresholdEd25519SessionId,
+  WebAuthnRpId,
+} from '@shared/utils/domainIds';
 import type {
   PasskeyCustodyEnvelopeRecord,
   WalletCustodyCeremonyCommitPayload,
@@ -41,7 +45,6 @@ import type {
 import type { EcdsaClientPresignPoolIdentity } from './ecdsaPresignPoolIdentity';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
-import type { EmailOtpRecoveryCodeSet } from '@shared/utils/emailOtpRecoveryKey';
 import type { EmailOtpChallengeDelivery } from '../session/emailOtp/publicTypes';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type { EmailOtpRoutePlan } from '../stepUpConfirmation/otpPrompt/authLane';
@@ -86,10 +89,7 @@ import {
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import type { NearResolvedEd25519SigningSessionState } from '../interfaces/near';
-import type {
-  WalletAddAuthMethodRegistrationOptions,
-  WalletRegistrationEd25519YaoBootstrapSession,
-} from '@/core/rpcClients/relayer/walletRegistration';
+import type { WalletRegistrationEd25519YaoBootstrapSession } from '@/core/rpcClients/relayer/walletRegistration';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import type {
   RouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
@@ -601,8 +601,6 @@ export interface EmailOtpWorkerOperationMap {
       clientSecret32?: ArrayBuffer;
     };
     result: {
-      recoveryKeys: EmailOtpRecoveryCodeSet;
-      recoveryCodesIssuedAtMs: number;
       challengeId: string;
       otpChannel: WalletEmailOtpChannel;
       enrollmentId: string;
@@ -623,8 +621,6 @@ export interface EmailOtpWorkerOperationMap {
       ecdsaSessionHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleRequest;
     };
     result: {
-      recoveryKeys: EmailOtpRecoveryCodeSet;
-      recoveryCodesIssuedAtMs: number;
       otpChannel: WalletEmailOtpChannel;
       enrollmentId: string;
       enrollmentSealKeyVersion: string;
@@ -632,7 +628,6 @@ export interface EmailOtpWorkerOperationMap {
       unlockKeyVersion: string;
       emailOtpSessionHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleResult;
       emailOtpEnrollment: {
-        recoveryWrappedEnrollmentEscrows: unknown[];
         enrollmentSealKeyVersion: string;
         clientUnlockPublicKeyB64u: string;
         unlockKeyVersion: string;
@@ -677,7 +672,10 @@ export interface EmailOtpWorkerOperationMap {
     payload: {
       pendingHandleId: string;
       existingEnvelope: PasskeyCustodyEnvelopeRecord;
-      registration: WalletAddAuthMethodRegistrationOptions;
+      registration: {
+        readonly kind: 'webauthn_add_auth_method_registration_v1';
+        readonly rpId: WebAuthnRpId;
+      };
       registrationCredential: WebAuthnRegistrationCredential;
     };
     result: {
@@ -702,63 +700,6 @@ export interface EmailOtpWorkerOperationMap {
       loginGrant: string;
       otpChannel: WalletEmailOtpChannel;
       enrollmentSealKeyVersion?: string;
-    };
-  };
-  restoreEmailOtpDeviceEnrollmentEscrow: {
-    payload: {
-      relayUrl: string;
-      walletId: string;
-      userId: string;
-      challengeId: string;
-      otpCode: string;
-      recoveryKey: string;
-      groupId: string;
-      routePlan: EmailOtpRoutePlan;
-      otpChannel?: WalletEmailOtpChannel;
-    };
-    result: {
-      walletId: string;
-      userId: string;
-      authSubjectId: string;
-      enrollmentId: string;
-      enrollmentVersion: string;
-      enrollmentSealKeyVersion: string;
-      recoveryKeyId: string;
-      activeRecoveryWrappedEnrollmentEscrowCount: number;
-    };
-  };
-  rotateEmailOtpRecoveryCodes: {
-    payload: {
-      relayUrl: string;
-      walletId: string;
-      userId: string;
-      routePlan: EmailOtpRoutePlan;
-    };
-    result: {
-      walletId: string;
-      userId: string;
-      authSubjectId: string;
-      enrollmentId: string;
-      enrollmentVersion: string;
-      enrollmentSealKeyVersion: string;
-      recoveryKeys: EmailOtpRecoveryCodeSet;
-      recoveryCodesIssuedAtMs: number;
-      activeRecoveryCodeCount: number;
-      revokedRecoveryCodeCount: number;
-      totalRecoveryCodeCount: number;
-    };
-  };
-  removeEmailOtpDeviceEnrollmentEscrowFromDevice: {
-    payload: {
-      walletId: string;
-      userId: string;
-      enrollmentId?: string;
-    };
-    result: {
-      walletId: string;
-      authSubjectId: string;
-      enrollmentId: string;
-      removed: true;
     };
   };
   loginWithEmailOtpWallet: {
@@ -989,10 +930,6 @@ export type EmailOtpEnrollmentOperationType =
   | 'prepareEmailOtpPasskeyCustodyLink'
   | 'completeEmailOtpPasskeyCustodyLink'
   | 'discardEmailOtpPasskeyCustodyLink';
-export type EmailOtpRestoreOperationType =
-  | 'restoreEmailOtpDeviceEnrollmentEscrow'
-  | 'rotateEmailOtpRecoveryCodes'
-  | 'removeEmailOtpDeviceEnrollmentEscrowFromDevice';
 export type EmailOtpWarmSessionOperationType =
   | 'loginWithEmailOtpWallet'
   | 'getEmailOtpWarmSessionStatus'
@@ -1005,15 +942,12 @@ export type EmailOtpExportOperationType =
 export type EmailOtpDomainOperationType =
   | EmailOtpChallengeOperationType
   | EmailOtpEnrollmentOperationType
-  | EmailOtpRestoreOperationType
   | EmailOtpWarmSessionOperationType
   | EmailOtpExportOperationType;
 
 export type EmailOtpChallengeOperationRequest<T extends EmailOtpChallengeOperationType> =
   EmailOtpWorkerOperationRequestEnvelopeFor<T>;
 export type EmailOtpEnrollmentOperationRequest<T extends EmailOtpEnrollmentOperationType> =
-  EmailOtpWorkerOperationRequestEnvelopeFor<T>;
-export type EmailOtpRestoreOperationRequest<T extends EmailOtpRestoreOperationType> =
   EmailOtpWorkerOperationRequestEnvelopeFor<T>;
 export type EmailOtpWarmSessionOperationRequest<T extends EmailOtpWarmSessionOperationType> =
   EmailOtpWorkerOperationRequestEnvelopeFor<T>;

@@ -7,7 +7,10 @@ import { secureRandomId } from '@shared/utils/secureRandomId';
 import {
   mpcMaterialActivationRefsEqual,
   parseMpcMaterialActivationRef,
+  parsePasskeyEnvelopeId,
   parseThresholdEd25519SessionId,
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
   type MpcMaterialActivationRef,
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
@@ -17,6 +20,8 @@ import {
 } from '@shared/authorization/capabilityKinds';
 import { requireEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
+  buildPasskeyCustodyEnvelopeRecord,
+  buildPasskeyEnvelopeFactor,
   parsePasskeyCustodyEnvelopeRecord,
   type PasskeyCustodyEnvelopeRecord,
   type WalletCustodyEvmFamilyActivationCompletion,
@@ -178,10 +183,13 @@ import initWalletCustodyCeremony, {
   type WasmCeremonySeedHeldV1,
 } from '../../../../../../../wasm/wallet_custody_ceremony/pkg/wallet_custody_ceremony.js';
 import initNearSignerRecoveryWasm, {
-  email_recovery_chacha20poly1305_decrypt,
-  email_recovery_chacha20poly1305_encrypt,
   init_worker as init_near_signer_recovery_worker,
+  passkey_custody_open_wallet_seed_v1,
+  passkey_custody_reseal_wallet_seed_v1,
+  type WasmPasskeyCustodyHandleV1,
 } from '../../../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
+import { getPrfFirstB64uFromCredential } from '../../webauthnAuth/credentials/credentialExtensions';
+import { normalizeRegistrationCredential } from '../../webauthnAuth/credentials/helpers';
 import { WorkerControlMessage, type EmailOtpWorkerProgressCode } from '../workerTypes';
 import { postEmailOtpJson } from './email-otp/fetch';
 import { getShamir3PassRuntime } from './shamir3pass/runtime';
@@ -194,25 +202,10 @@ import {
   type EmailOtpRoutePlan,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
 import {
-  deleteEmailOtpDeviceEnrollmentEscrowRecord,
   readEmailOtpDeviceEnrollmentEscrowRecord,
   writeEmailOtpDeviceEnrollmentEscrowRecord,
   type EmailOtpDeviceEnrollmentEscrowRecord,
 } from './email-otp/deviceEnrollmentEscrowStore';
-import {
-  EMAIL_OTP_RECOVERY_WRAP_ALG,
-  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
-  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
-  buildEmailOtpRecoveryWrapBinding,
-  deriveEmailOtpRecoveryKeyId,
-  encodeEmailOtpRecoveryWrappedEnrollmentAad,
-  generateEmailOtpRecoveryKeySet,
-  unwrapEmailOtpDeviceEnrollmentEscrow,
-  wrapEmailOtpDeviceEnrollmentEscrow,
-  type EmailOtpRecoveryCodeSet,
-  type EmailOtpRecoveryKeyIdBinding,
-  type EmailOtpRecoveryWrapBinding,
-} from '@shared/utils/emailOtpRecoveryKey';
 
 const EMAIL_OTP_UNLOCK_KEY_VERSION = 'email-otp-unlock-v1';
 const EMAIL_OTP_DEVICE_ENROLLMENT_VERSION = '1';
@@ -222,6 +215,8 @@ const EMAIL_OTP_ED25519_YAO_HANDLE_TTL_MS = 5 * 60_000;
 const MAX_EMAIL_OTP_ED25519_YAO_PENDING_REGISTRATIONS = 64;
 const MAX_EMAIL_OTP_ED25519_YAO_ACTIVE_CLIENTS = 64;
 const EMAIL_OTP_ED25519_YAO_EXPORT_AUTH_TTL_MS = 60_000;
+const EMAIL_OTP_PASSKEY_CUSTODY_LINK_TTL_MS = 2 * 60_000;
+const MAX_EMAIL_OTP_PASSKEY_CUSTODY_LINKS = 8;
 const ECDSA_DERIVATION_SIGNING_ROOT_VERSION_DEFAULT = 'default';
 
 function assertNeverEmailOtpWorker(value: never): never {
@@ -264,44 +259,6 @@ function resolveEmailOtpAuthSubjectId(args: {
   return readString(args.userId, 'userId');
 }
 
-type EmailOtpRecoveryWrappedEnrollmentEscrowPayload = {
-  version: 'email_otp_recovery_wrapped_enrollment_escrow_v1';
-  alg: typeof EMAIL_OTP_RECOVERY_WRAP_ALG;
-  secretKind: typeof EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND;
-  escrowKind: typeof EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND;
-  walletId: string;
-  userId: string;
-  authSubjectId: string;
-  authMethod: 'google_sso_email_otp';
-  enrollmentId: string;
-  enrollmentVersion: string;
-  enrollmentSealKeyVersion: string;
-  signingRootId: string;
-  signingRootVersion: string;
-  recoveryKeyId: string;
-  recoveryKeyStatus: 'active';
-  nonceB64u: string;
-  wrappedDeviceEnrollmentEscrowB64u: string;
-  aadHashB64u: string;
-  issuedAtMs: number;
-  updatedAtMs: number;
-};
-
-type EmailOtpRecoveryChallengeEscrowPayload = Omit<
-  EmailOtpRecoveryWrappedEnrollmentEscrowPayload,
-  'recoveryKeyId' | 'recoveryKeyStatus' | 'issuedAtMs' | 'updatedAtMs'
-> & {
-  recoveryKeyId: string;
-};
-
-type ParsedEmailOtpRecoveryWrappedEnrollmentEscrowPayload = {
-  payload: EmailOtpRecoveryChallengeEscrowPayload;
-  binding: EmailOtpRecoveryWrapBinding;
-  lifecycle: {
-    status: 'active';
-  };
-};
-
 type EmailOtpWorkerRequest = EmailOtpWorkerOperationRequestEnvelope;
 
 type WorkerErrorPayload = {
@@ -315,6 +272,12 @@ type EmailOtpWarmSessionEntry = {
   clientAdditiveShare32?: Uint8Array;
   expiresAtMs: number;
   remainingUses: number;
+};
+
+type EmailOtpPasskeyCustodyLinkEntry = {
+  readonly handle: WasmPasskeyCustodyHandleV1;
+  readonly envelope: PasskeyCustodyEnvelopeRecord;
+  readonly expiresAtMs: number;
 };
 
 type EmailOtpEd25519YaoWarmFactorEntry = {
@@ -427,6 +390,7 @@ type EmailOtpEd25519YaoWorkerActivationResult = {
 const emailOtpWarmSessions = new Map<string, EmailOtpWarmSessionEntry>();
 const emailOtpEd25519YaoWarmFactors = new Map<string, EmailOtpEd25519YaoWarmFactorEntry>();
 const emailOtpEd25519YaoActiveClients = new Map<string, EmailOtpEd25519YaoActiveClientEntry>();
+const emailOtpPasskeyCustodyLinks = new Map<string, EmailOtpPasskeyCustodyLinkEntry>();
 const signingSessionSealApplyInFlight = new Map<string, Promise<EmailOtpWarmSessionSealResult>>();
 const signingSessionSealRemoveInFlight = new Map<
   string,
@@ -1759,529 +1723,6 @@ async function ensureNearSignerRecoveryWasm(): Promise<void> {
   return nearSignerRecoveryInitPromise;
 }
 
-async function createEmailOtpRecoveryWrappedEnrollmentEscrows(args: {
-  walletId: string;
-  userId: string;
-  enrollmentId: string;
-  enrollmentVersion: string;
-  enrollmentSealKeyVersion: string;
-  signingRootId: string;
-  signingRootVersion: string;
-  encSB64u: string;
-}): Promise<{
-  recoveryKeys: EmailOtpRecoveryCodeSet;
-  recoveryCodesIssuedAtMs: number;
-  recoveryWrappedEnrollmentEscrows: EmailOtpRecoveryWrappedEnrollmentEscrowPayload[];
-}> {
-  await ensureNearSignerRecoveryWasm();
-  const recoveryKeys = generateEmailOtpRecoveryKeySet();
-  const encS = base64UrlDecode(args.encSB64u);
-  const issuedAtMs = Date.now();
-  const recoveryWrappedEnrollmentEscrows: EmailOtpRecoveryWrappedEnrollmentEscrowPayload[] = [];
-  try {
-    for (let index = 0; index < recoveryKeys.length; index += 1) {
-      const keyIdBinding: EmailOtpRecoveryKeyIdBinding = {
-        auth: {
-          walletId: args.walletId,
-          userId: args.userId,
-          authSubjectId: args.userId,
-          authMethod: 'google_sso_email_otp',
-        },
-        enrollment: {
-          enrollmentId: args.enrollmentId,
-          enrollmentVersion: args.enrollmentVersion,
-          enrollmentSealKeyVersion: args.enrollmentSealKeyVersion,
-        },
-        signingRoot: {
-          signingRootId: args.signingRootId,
-          signingRootVersion: args.signingRootVersion,
-        },
-      };
-      const recoveryKeyId = await deriveEmailOtpRecoveryKeyId({
-        recoveryKey: recoveryKeys[index],
-        binding: keyIdBinding,
-      });
-      const binding = buildEmailOtpRecoveryWrapBinding({
-        walletId: args.walletId,
-        userId: args.userId,
-        authSubjectId: args.userId,
-        authMethod: 'google_sso_email_otp',
-        enrollmentId: args.enrollmentId,
-        enrollmentVersion: args.enrollmentVersion,
-        enrollmentSealKeyVersion: args.enrollmentSealKeyVersion,
-        signingRootId: args.signingRootId,
-        signingRootVersion: args.signingRootVersion,
-        recoveryKeyId,
-      });
-      const wrapped = await wrapEmailOtpDeviceEnrollmentEscrow({
-        recoveryKey: recoveryKeys[index],
-        binding,
-        encS,
-        chacha20poly1305: {
-          encrypt: async (input) =>
-            email_recovery_chacha20poly1305_encrypt(
-              input.key32,
-              input.nonce12,
-              input.aad,
-              input.plaintext,
-            ),
-          decrypt: async () => {
-            throw new Error('Email OTP enrollment recovery wrapping does not decrypt');
-          },
-        },
-      });
-      const aad = encodeEmailOtpRecoveryWrappedEnrollmentAad(binding);
-      try {
-        recoveryWrappedEnrollmentEscrows.push({
-          version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
-          alg: EMAIL_OTP_RECOVERY_WRAP_ALG,
-          secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
-          escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
-          walletId: args.walletId,
-          userId: args.userId,
-          authSubjectId: args.userId,
-          authMethod: 'google_sso_email_otp',
-          enrollmentId: args.enrollmentId,
-          enrollmentVersion: args.enrollmentVersion,
-          enrollmentSealKeyVersion: args.enrollmentSealKeyVersion,
-          signingRootId: args.signingRootId,
-          signingRootVersion: args.signingRootVersion,
-          recoveryKeyId,
-          recoveryKeyStatus: 'active',
-          nonceB64u: base64UrlEncode(wrapped.nonce12),
-          wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(wrapped.ciphertext),
-          aadHashB64u: base64UrlEncode(await sha256Bytes(aad)),
-          issuedAtMs,
-          updatedAtMs: issuedAtMs,
-        });
-      } finally {
-        zeroizeBytes(aad);
-      }
-    }
-    return { recoveryKeys, recoveryCodesIssuedAtMs: issuedAtMs, recoveryWrappedEnrollmentEscrows };
-  } finally {
-    zeroizeBytes(encS);
-  }
-}
-
-async function parseEmailOtpRecoveryWrappedEnrollmentEscrowPayload(
-  value: unknown,
-  recoveryKey: string,
-): Promise<ParsedEmailOtpRecoveryWrappedEnrollmentEscrowPayload | null> {
-  const obj =
-    value && typeof value === 'object' && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : null;
-  if (!obj) return null;
-  if (
-    'recoveryKeyId' in obj ||
-    'recoveryKeyStatus' in obj ||
-    'issuedAtMs' in obj ||
-    'updatedAtMs' in obj ||
-    'consumedAtMs' in obj ||
-    'revokedAtMs' in obj
-  ) {
-    return null;
-  }
-  const baseRecord = {
-    version: readString(
-      obj.version,
-      'recoveryWrappedEnrollmentEscrow.version',
-    ) as 'email_otp_recovery_wrapped_enrollment_escrow_v1',
-    alg: readString(
-      obj.alg,
-      'recoveryWrappedEnrollmentEscrow.alg',
-    ) as typeof EMAIL_OTP_RECOVERY_WRAP_ALG,
-    secretKind: readString(
-      obj.secretKind,
-      'recoveryWrappedEnrollmentEscrow.secretKind',
-    ) as typeof EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
-    escrowKind: readString(
-      obj.escrowKind,
-      'recoveryWrappedEnrollmentEscrow.escrowKind',
-    ) as typeof EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
-    walletId: readString(obj.walletId, 'recoveryWrappedEnrollmentEscrow.walletId'),
-    userId: readString(obj.userId, 'recoveryWrappedEnrollmentEscrow.userId'),
-    authSubjectId: readString(obj.authSubjectId, 'recoveryWrappedEnrollmentEscrow.authSubjectId'),
-    authMethod: readString(
-      obj.authMethod,
-      'recoveryWrappedEnrollmentEscrow.authMethod',
-    ) as 'google_sso_email_otp',
-    enrollmentId: readString(obj.enrollmentId, 'recoveryWrappedEnrollmentEscrow.enrollmentId'),
-    enrollmentVersion: readString(
-      obj.enrollmentVersion,
-      'recoveryWrappedEnrollmentEscrow.enrollmentVersion',
-    ),
-    enrollmentSealKeyVersion: readString(
-      obj.enrollmentSealKeyVersion,
-      'recoveryWrappedEnrollmentEscrow.enrollmentSealKeyVersion',
-    ),
-    signingRootId: readString(obj.signingRootId, 'recoveryWrappedEnrollmentEscrow.signingRootId'),
-    signingRootVersion: readString(
-      obj.signingRootVersion,
-      'recoveryWrappedEnrollmentEscrow.signingRootVersion',
-    ),
-    nonceB64u: readString(obj.nonceB64u, 'recoveryWrappedEnrollmentEscrow.nonceB64u'),
-    wrappedDeviceEnrollmentEscrowB64u: readString(
-      obj.wrappedDeviceEnrollmentEscrowB64u,
-      'recoveryWrappedEnrollmentEscrow.wrappedDeviceEnrollmentEscrowB64u',
-    ),
-    aadHashB64u: readString(obj.aadHashB64u, 'recoveryWrappedEnrollmentEscrow.aadHashB64u'),
-  };
-  if (baseRecord.version !== 'email_otp_recovery_wrapped_enrollment_escrow_v1') return null;
-  if (baseRecord.alg !== EMAIL_OTP_RECOVERY_WRAP_ALG) return null;
-  if (baseRecord.secretKind !== EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND) return null;
-  if (baseRecord.escrowKind !== EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND) return null;
-  if (baseRecord.authMethod !== 'google_sso_email_otp') return null;
-  if ('acknowledgedAtMs' in obj || 'abandonedAtMs' in obj || 'cleanupReason' in obj) return null;
-  const keyIdBinding: EmailOtpRecoveryKeyIdBinding = {
-    auth: {
-      walletId: baseRecord.walletId,
-      userId: baseRecord.userId,
-      authSubjectId: baseRecord.authSubjectId,
-      authMethod: baseRecord.authMethod,
-    },
-    enrollment: {
-      enrollmentId: baseRecord.enrollmentId,
-      enrollmentVersion: baseRecord.enrollmentVersion,
-      enrollmentSealKeyVersion: baseRecord.enrollmentSealKeyVersion,
-    },
-    signingRoot: {
-      signingRootId: baseRecord.signingRootId,
-      signingRootVersion: baseRecord.signingRootVersion,
-    },
-  };
-  const recoveryKeyId = await deriveEmailOtpRecoveryKeyId({
-    recoveryKey,
-    binding: keyIdBinding,
-  });
-  const record: EmailOtpRecoveryChallengeEscrowPayload = {
-    ...baseRecord,
-    recoveryKeyId,
-  };
-  return {
-    payload: record,
-    binding: buildEmailOtpRecoveryWrapBinding({
-      walletId: record.walletId,
-      userId: record.userId,
-      authSubjectId: record.authSubjectId,
-      authMethod: record.authMethod,
-      enrollmentId: record.enrollmentId,
-      enrollmentVersion: record.enrollmentVersion,
-      enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
-      signingRootId: record.signingRootId,
-      signingRootVersion: record.signingRootVersion,
-      recoveryKeyId: record.recoveryKeyId,
-    }),
-    lifecycle: {
-      status: 'active',
-    },
-  };
-}
-
-async function writeAndVerifyEmailOtpDeviceEnrollmentEscrowRecord(
-  record: Parameters<typeof writeEmailOtpDeviceEnrollmentEscrowRecord>[0],
-  errorMessage: string,
-): Promise<void> {
-  await writeEmailOtpDeviceEnrollmentEscrowRecord(record);
-  const persisted = await readEmailOtpDeviceEnrollmentEscrowRecord({
-    walletId: record.walletId,
-    authSubjectId: record.authSubjectId,
-    enrollmentId: record.enrollmentId,
-  });
-  if (
-    !persisted ||
-    persisted.encSB64u !== record.encSB64u ||
-    persisted.enrollmentSealKeyVersion !== record.enrollmentSealKeyVersion ||
-    persisted.signingRootId !== record.signingRootId ||
-    persisted.signingRootVersion !== record.signingRootVersion
-  ) {
-    throw new Error(errorMessage);
-  }
-}
-
-async function reportEmailOtpRecoveryKeyAttemptFailure(args: {
-  relayUrl: string;
-  routeAuth: AppOrWalletSessionAuth | undefined;
-  walletId: string;
-  recoveryConsumeGrant: string;
-}): Promise<void> {
-  await postEmailOtpJson({
-    relayUrl: args.relayUrl,
-    route: '/wallet/email-otp/recovery-key/attempt-failed',
-    ...(args.routeAuth ? { sessionAuth: args.routeAuth } : {}),
-    body: {
-      walletId: args.walletId,
-      recoveryConsumeGrant: args.recoveryConsumeGrant,
-    },
-  });
-}
-
-async function restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey(args: {
-  relayUrl: string;
-  walletId: string;
-  userId?: unknown;
-  challengeId: string;
-  otpCode: string;
-  recoveryKey: string;
-  groupId: string;
-  routePlan: EmailOtpRoutePlan;
-}): Promise<{
-  walletId: string;
-  userId: string;
-  authSubjectId: string;
-  enrollmentId: string;
-  enrollmentVersion: string;
-  enrollmentSealKeyVersion: string;
-  recoveryKeyId: string;
-  activeRecoveryWrappedEnrollmentEscrowCount: number;
-}> {
-  await ensureNearSignerRecoveryWasm();
-  const relayUrl = readString(args.relayUrl, 'relayUrl');
-  const walletId = readString(args.walletId, 'walletId');
-  const requestedUserId = resolveEmailOtpAuthSubjectId({
-    walletId,
-    userId: args.userId,
-    routePlan: args.routePlan,
-  });
-  const routeAuth = authLaneToRouteAuth(args.routePlan.authLane);
-  const response = await postEmailOtpJson({
-    relayUrl,
-    route: '/wallet/email-otp/recovery-wrapped-escrows',
-    ...(routeAuth ? { sessionAuth: routeAuth } : {}),
-    body: {
-      walletId,
-      challengeId: readString(args.challengeId, 'challengeId'),
-      otpCode: readString(args.otpCode, 'otpCode'),
-      otpChannel: EMAIL_OTP_CHANNEL,
-    },
-  });
-  const rawRecords = Array.isArray(response.recoveryWrappedEnrollmentEscrows)
-    ? response.recoveryWrappedEnrollmentEscrows
-    : [];
-  const recoveryConsumeGrant = readString(response.recoveryConsumeGrant, 'recoveryConsumeGrant');
-  const recoveryKey = readString(args.recoveryKey, 'recoveryKey');
-  const records: ParsedEmailOtpRecoveryWrappedEnrollmentEscrowPayload[] = [];
-  for (const rawRecord of rawRecords) {
-    const parsed = await parseEmailOtpRecoveryWrappedEnrollmentEscrowPayload(
-      rawRecord,
-      recoveryKey,
-    );
-    if (parsed) records.push(parsed);
-  }
-  if (records.length <= 0) {
-    throw new Error('No active Email OTP recovery-wrapped enrollment escrows are available');
-  }
-
-  let sawRecoveryKeyUnwrapFailure = false;
-  for (const parsed of records) {
-    const { payload: record, binding } = parsed;
-    if (record.walletId !== walletId) continue;
-    if (requestedUserId && record.userId !== requestedUserId) continue;
-    const aad = encodeEmailOtpRecoveryWrappedEnrollmentAad(binding);
-    let encS: Uint8Array | null = null;
-    try {
-      const aadHashB64u = base64UrlEncode(await sha256Bytes(aad));
-      if (aadHashB64u !== record.aadHashB64u) continue;
-      encS = await unwrapEmailOtpDeviceEnrollmentEscrow({
-        recoveryKey,
-        binding,
-        wrapped: {
-          alg: record.alg,
-          nonce12: base64UrlDecode(record.nonceB64u),
-          ciphertext: base64UrlDecode(record.wrappedDeviceEnrollmentEscrowB64u),
-        },
-        chacha20poly1305: {
-          encrypt: async () => {
-            throw new Error('Email OTP enrollment recovery restore does not encrypt');
-          },
-          decrypt: async (input) =>
-            email_recovery_chacha20poly1305_decrypt(
-              input.key32,
-              input.nonce12,
-              input.aad,
-              input.ciphertext,
-            ),
-        },
-      });
-      await writeAndVerifyEmailOtpDeviceEnrollmentEscrowRecord(
-        {
-          walletId: record.walletId,
-          userId: record.userId,
-          authSubjectId: record.authSubjectId,
-          enrollmentId: record.enrollmentId,
-          enrollmentVersion: record.enrollmentVersion,
-          enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
-          signingRootId: record.signingRootId,
-          signingRootVersion: record.signingRootVersion,
-          groupId: readSigningSessionSealGroupId(args.groupId),
-          encSB64u: base64UrlEncode(encS),
-          issuedAtMs: Date.now(),
-          updatedAtMs: Date.now(),
-        },
-        'Email OTP recovery did not persist device-local enc_s(S)',
-      );
-      const consumeResponse = await postEmailOtpJson({
-        relayUrl,
-        route: '/wallet/email-otp/recovery-key/consume',
-        ...(routeAuth ? { sessionAuth: routeAuth } : {}),
-        body: {
-          walletId,
-          recoveryKeyId: record.recoveryKeyId,
-          recoveryConsumeGrant,
-        },
-      });
-      const activeRecoveryWrappedEnrollmentEscrowCount = Number(
-        consumeResponse.activeRecoveryWrappedEnrollmentEscrowCount,
-      );
-      return {
-        walletId: record.walletId,
-        userId: record.userId,
-        authSubjectId: record.authSubjectId,
-        enrollmentId: record.enrollmentId,
-        enrollmentVersion: record.enrollmentVersion,
-        enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
-        recoveryKeyId: record.recoveryKeyId,
-        activeRecoveryWrappedEnrollmentEscrowCount: Number.isFinite(
-          activeRecoveryWrappedEnrollmentEscrowCount,
-        )
-          ? activeRecoveryWrappedEnrollmentEscrowCount
-          : records.length - 1,
-      };
-    } catch {
-      if (encS) throw new Error('Email OTP recovery restore failed after successful unwrap');
-      sawRecoveryKeyUnwrapFailure = true;
-      continue;
-    } finally {
-      zeroizeBytes(aad);
-      zeroizeBytes(encS);
-    }
-  }
-
-  if (sawRecoveryKeyUnwrapFailure) {
-    await reportEmailOtpRecoveryKeyAttemptFailure({
-      relayUrl,
-      routeAuth,
-      walletId,
-      recoveryConsumeGrant,
-    });
-  }
-  throw new Error('Email OTP recovery unwrap failed');
-}
-
-async function rotateEmailOtpRecoveryCodesFromLocalDeviceEnrollment(args: {
-  relayUrl: string;
-  walletId: string;
-  userId?: unknown;
-  routePlan: EmailOtpRoutePlan;
-}): Promise<{
-  walletId: string;
-  userId: string;
-  authSubjectId: string;
-  enrollmentId: string;
-  enrollmentVersion: string;
-  enrollmentSealKeyVersion: string;
-  recoveryKeys: EmailOtpRecoveryCodeSet;
-  recoveryCodesIssuedAtMs: number;
-  activeRecoveryCodeCount: number;
-  revokedRecoveryCodeCount: number;
-  totalRecoveryCodeCount: number;
-}> {
-  const relayUrl = readString(args.relayUrl, 'relayUrl');
-  const walletId = readString(args.walletId, 'walletId');
-  const routePlan = readRoutePlan(args.routePlan, 'rotateEmailOtpRecoveryCodes');
-  const routeAuth = authLaneToRouteAuth(routePlan.authLane);
-  const authSubjectId = resolveEmailOtpAuthSubjectId({
-    walletId,
-    userId: args.userId,
-    routePlan,
-  });
-  const record = await readEmailOtpDeviceEnrollmentEscrowRecord({
-    walletId,
-    authSubjectId,
-    enrollmentId: emailOtpDeviceEnrollmentId(walletId, authSubjectId),
-  });
-  if (!record) {
-    throw new Error('Email OTP device enrollment escrow is unavailable on this device');
-  }
-  const localUserId = readOptionalString(record.userId) || record.authSubjectId;
-  if (record.authSubjectId !== authSubjectId) {
-    throw new Error('Email OTP device enrollment escrow does not match the requested user');
-  }
-
-  const { recoveryKeys, recoveryWrappedEnrollmentEscrows } =
-    await createEmailOtpRecoveryWrappedEnrollmentEscrows({
-      walletId: record.walletId,
-      userId: record.authSubjectId,
-      enrollmentId: record.enrollmentId,
-      enrollmentVersion: record.enrollmentVersion,
-      enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
-      signingRootId: record.signingRootId,
-      signingRootVersion: record.signingRootVersion,
-      encSB64u: record.encSB64u,
-    });
-  const response = await postEmailOtpJson({
-    relayUrl,
-    route: '/wallet/email-otp/recovery-key/rotate',
-    ...(routeAuth ? { sessionAuth: routeAuth } : {}),
-    body: {
-      walletId: record.walletId,
-      enrollmentId: record.enrollmentId,
-      enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
-      recoveryWrappedEnrollmentEscrows: recoveryWrappedEnrollmentEscrows.map((escrow) => ({
-        recoveryKeyId: escrow.recoveryKeyId,
-        nonceB64u: escrow.nonceB64u,
-        wrappedDeviceEnrollmentEscrowB64u: escrow.wrappedDeviceEnrollmentEscrowB64u,
-        aadHashB64u: escrow.aadHashB64u,
-      })),
-    },
-  });
-  const recoveryCodesIssuedAtMs = Math.floor(Number(response.issuedAtMs));
-  if (!Number.isFinite(recoveryCodesIssuedAtMs) || recoveryCodesIssuedAtMs <= 0) {
-    throw new Error('Email OTP recovery-code rotation response did not include issuedAtMs');
-  }
-  return {
-    walletId: record.walletId,
-    userId: localUserId,
-    authSubjectId,
-    enrollmentId: record.enrollmentId,
-    enrollmentVersion: record.enrollmentVersion,
-    enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
-    recoveryKeys,
-    recoveryCodesIssuedAtMs,
-    activeRecoveryCodeCount: Math.floor(Number(response.activeRecoveryCodeCount)),
-    revokedRecoveryCodeCount: Math.floor(Number(response.revokedRecoveryCodeCount)),
-    totalRecoveryCodeCount: Math.floor(Number(response.totalRecoveryCodeCount)),
-  };
-}
-
-async function removeEmailOtpDeviceEnrollmentEscrowFromDevice(args: {
-  walletId: string;
-  userId: unknown;
-  enrollmentId?: unknown;
-}): Promise<{
-  walletId: string;
-  authSubjectId: string;
-  enrollmentId: string;
-  removed: true;
-}> {
-  const walletId = readString(args.walletId, 'walletId');
-  const authSubjectId = readString(args.userId, 'userId');
-  const enrollmentId =
-    readOptionalString(args.enrollmentId) || emailOtpDeviceEnrollmentId(walletId, authSubjectId);
-  await deleteEmailOtpDeviceEnrollmentEscrowRecord({
-    walletId,
-    authSubjectId,
-    enrollmentId,
-  });
-  return {
-    walletId,
-    authSubjectId,
-    enrollmentId,
-    removed: true,
-  };
-}
-
 async function deriveEmailOtpUnlockAuthSeedInWorker(args: {
   clientSecret32: Uint8Array;
   walletId: string;
@@ -3267,8 +2708,6 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
   googleEmailOtpRegistrationAttemptId?: string;
   onProgress?: (code: EmailOtpWorkerProgressCode) => void;
 }): Promise<{
-  recoveryKeys: EmailOtpRecoveryCodeSet;
-  recoveryCodesIssuedAtMs: number;
   challengeId: string;
   otpChannel: WalletEmailOtpChannel;
   enrollmentId: string;
@@ -3276,7 +2715,6 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
   emailOtpEnrollment: {
-    recoveryWrappedEnrollmentEscrows: EmailOtpRecoveryWrappedEnrollmentEscrowPayload[];
     enrollmentSealKeyVersion: string;
     clientUnlockPublicKeyB64u: string;
     unlockKeyVersion: string;
@@ -3363,18 +2801,6 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
     const enrollmentVersion = EMAIL_OTP_DEVICE_ENROLLMENT_VERSION;
     const signingRootId = EMAIL_OTP_DEVICE_ENROLLMENT_SIGNING_ROOT_ID;
     const signingRootVersion = EMAIL_OTP_DEVICE_ENROLLMENT_SIGNING_ROOT_VERSION;
-    const { recoveryKeys, recoveryCodesIssuedAtMs, recoveryWrappedEnrollmentEscrows } =
-      await createEmailOtpRecoveryWrappedEnrollmentEscrows({
-        walletId,
-        userId,
-        enrollmentId,
-        enrollmentVersion,
-        enrollmentSealKeyVersion,
-        signingRootId,
-        signingRootVersion,
-        encSB64u: enrollmentEscrowCiphertextB64u,
-      });
-
     await writeAndVerifyEmailOtpDeviceEnrollmentEscrowRecord(
       {
         walletId,
@@ -3403,7 +2829,6 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
           challengeId,
           otpCode,
           otpChannel: EMAIL_OTP_CHANNEL,
-          recoveryWrappedEnrollmentEscrows,
           enrollmentSealKeyVersion,
           clientUnlockPublicKeyB64u,
           unlockKeyVersion: EMAIL_OTP_UNLOCK_KEY_VERSION,
@@ -3422,8 +2847,6 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
     }
 
     return {
-      recoveryKeys,
-      recoveryCodesIssuedAtMs,
       challengeId: challengeId || '',
       otpChannel: EMAIL_OTP_CHANNEL,
       enrollmentId,
@@ -3431,7 +2854,6 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
       clientUnlockPublicKeyB64u,
       unlockKeyVersion: EMAIL_OTP_UNLOCK_KEY_VERSION,
       emailOtpEnrollment: {
-        recoveryWrappedEnrollmentEscrows,
         enrollmentSealKeyVersion,
         clientUnlockPublicKeyB64u,
         unlockKeyVersion: EMAIL_OTP_UNLOCK_KEY_VERSION,
@@ -3749,6 +3171,218 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
     zeroizeBytes(clientSecret32);
     await runtime.destroyClientKeyHandle({ keyHandle }).catch(() => undefined);
   }
+}
+
+function walletCustodyEnvelopeBindingJson(envelope: PasskeyCustodyEnvelopeRecord): string {
+  return JSON.stringify({
+    walletId: envelope.walletId,
+    envelopeId: envelope.envelopeId,
+    factor: envelope.factor,
+    envelopeRevision: envelope.envelopeRevision,
+    binding: envelope.binding,
+  });
+}
+
+function disposeEmailOtpPasskeyCustodyLink(entry: EmailOtpPasskeyCustodyLinkEntry): void {
+  entry.handle.free();
+}
+
+function discardExpiredEmailOtpPasskeyCustodyLinks(nowMs: number): void {
+  for (const [pendingHandleId, entry] of emailOtpPasskeyCustodyLinks) {
+    if (entry.expiresAtMs > nowMs) continue;
+    emailOtpPasskeyCustodyLinks.delete(pendingHandleId);
+    disposeEmailOtpPasskeyCustodyLink(entry);
+  }
+}
+
+function storeEmailOtpPasskeyCustodyLink(entry: EmailOtpPasskeyCustodyLinkEntry): string {
+  const nowMs = Date.now();
+  discardExpiredEmailOtpPasskeyCustodyLinks(nowMs);
+  if (emailOtpPasskeyCustodyLinks.size >= MAX_EMAIL_OTP_PASSKEY_CUSTODY_LINKS) {
+    const oldest = emailOtpPasskeyCustodyLinks.entries().next().value as
+      | [string, EmailOtpPasskeyCustodyLinkEntry]
+      | undefined;
+    if (oldest) {
+      emailOtpPasskeyCustodyLinks.delete(oldest[0]);
+      disposeEmailOtpPasskeyCustodyLink(oldest[1]);
+    }
+  }
+  const pendingHandleId = secureRandomId(
+    'email-otp-passkey-custody-link',
+    24,
+    'Email OTP passkey custody link handle',
+  );
+  emailOtpPasskeyCustodyLinks.set(pendingHandleId, entry);
+  return pendingHandleId;
+}
+
+function takeEmailOtpPasskeyCustodyLink(pendingHandleIdRaw: unknown): EmailOtpPasskeyCustodyLinkEntry {
+  const pendingHandleId = readString(pendingHandleIdRaw, 'pendingHandleId');
+  const nowMs = Date.now();
+  discardExpiredEmailOtpPasskeyCustodyLinks(nowMs);
+  const entry = emailOtpPasskeyCustodyLinks.get(pendingHandleId);
+  if (!entry) throw new Error('Email OTP passkey custody link is missing or expired');
+  emailOtpPasskeyCustodyLinks.delete(pendingHandleId);
+  return entry;
+}
+
+function emailOtpPasskeySourceEnvelopeMatches(
+  expected: PasskeyCustodyEnvelopeRecord,
+  received: PasskeyCustodyEnvelopeRecord,
+): boolean {
+  return (
+    expected.walletId === received.walletId &&
+    expected.envelopeId === received.envelopeId &&
+    expected.envelopeVersion === received.envelopeVersion &&
+    expected.envelopeRevision === received.envelopeRevision &&
+    expected.nonceB64u === received.nonceB64u &&
+    expected.sealedCustodySecretB64u === received.sealedCustodySecretB64u &&
+    expected.aadHashB64u === received.aadHashB64u &&
+    expected.ciphertextDigestB64u === received.ciphertextDigestB64u &&
+    JSON.stringify(expected.binding) === JSON.stringify(received.binding) &&
+    JSON.stringify(expected.factor) === JSON.stringify(received.factor) &&
+    JSON.stringify(expected.lifecycle) === JSON.stringify(received.lifecycle)
+  );
+}
+
+async function prepareEmailOtpPasskeyCustodyLink(args: {
+  readonly relayUrl: string;
+  readonly walletId: string;
+  readonly userId: string;
+  readonly groupId: string;
+  readonly routePlan: EmailOtpRoutePlan;
+  readonly verification: { readonly kind: 'otp'; readonly challengeId: string; readonly otpCode: string };
+}): Promise<EmailOtpWorkerOperationMap['prepareEmailOtpPasskeyCustodyLink']['result']> {
+  const recovered = await loginWithEmailOtpAndUnlockWallet({
+    relayUrl: args.relayUrl,
+    walletId: args.walletId,
+    userId: args.userId,
+    groupId: args.groupId,
+    routePlan: args.routePlan,
+    verification: args.verification,
+    material: { kind: 'ed25519_yao_export' },
+  });
+  if (recovered.kind !== 'ed25519_yao_export') {
+    throw new Error('Email OTP passkey linking did not return wallet custody material');
+  }
+  const envelope = parsePasskeyCustodyEnvelopeRecord(recovered.walletCustodyEnvelope);
+  if (
+    envelope.walletId !== args.walletId ||
+    envelope.factor.kind !== 'email_otp' ||
+    envelope.lifecycle.state !== 'active'
+  ) {
+    zeroizeBytes(recovered.clientSecret32);
+    throw new Error('Email OTP passkey linking returned a mismatched custody envelope');
+  }
+  await ensureNearSignerRecoveryWasm();
+  let handle: WasmPasskeyCustodyHandleV1 | null = null;
+  try {
+    handle = passkey_custody_open_wallet_seed_v1(
+      recovered.clientSecret32,
+      walletCustodyEnvelopeBindingJson(envelope),
+      base64UrlDecode(envelope.nonceB64u),
+      envelope.sealedCustodySecretB64u,
+      envelope.aadHashB64u,
+      envelope.ciphertextDigestB64u,
+    );
+    const expiresAtMs = Date.now() + EMAIL_OTP_PASSKEY_CUSTODY_LINK_TTL_MS;
+    const pendingHandleId = storeEmailOtpPasskeyCustodyLink({ handle, envelope, expiresAtMs });
+    handle = null;
+    return {
+      pendingHandleId,
+      walletId: envelope.walletId,
+      envelopeId: envelope.envelopeId,
+      envelopeRevision: envelope.envelopeRevision,
+      enrollmentId: envelope.factor.enrollmentId,
+      enrollmentSealKeyVersion: envelope.factor.enrollmentSealKeyVersion,
+      expiresAtMs,
+    };
+  } finally {
+    handle?.free();
+    zeroizeBytes(recovered.clientSecret32);
+  }
+}
+
+function completeEmailOtpPasskeyCustodyLink(args: {
+  readonly pendingHandleId: string;
+  readonly existingEnvelope: PasskeyCustodyEnvelopeRecord;
+  readonly registration: EmailOtpWorkerOperationMap['completeEmailOtpPasskeyCustodyLink']['payload']['registration'];
+  readonly registrationCredential: EmailOtpWorkerOperationMap['completeEmailOtpPasskeyCustodyLink']['payload']['registrationCredential'];
+}): EmailOtpWorkerOperationMap['completeEmailOtpPasskeyCustodyLink']['result'] {
+  const entry = takeEmailOtpPasskeyCustodyLink(args.pendingHandleId);
+  const existingEnvelope = parsePasskeyCustodyEnvelopeRecord(args.existingEnvelope);
+  const credential = normalizeRegistrationCredential(args.registrationCredential);
+  const replacementFactorSecret = base64UrlDecode(
+    getPrfFirstB64uFromCredential(credential) || '',
+  );
+  try {
+    if (!emailOtpPasskeySourceEnvelopeMatches(entry.envelope, existingEnvelope)) {
+      throw new Error('Email OTP passkey linking source envelope changed');
+    }
+    if (replacementFactorSecret.byteLength !== 32) {
+      throw new Error('New passkey did not return a 32-byte PRF.first output');
+    }
+    const credentialId = parseWebAuthnCredentialIdB64u(credential.rawId || credential.id);
+    if (!credentialId.ok) throw new Error(credentialId.error.message);
+    const envelopeId = parsePasskeyEnvelopeId(
+      secureRandomId('wallet-custody-envelope', 24, 'wallet custody envelope ids'),
+    );
+    if (!envelopeId.ok) throw new Error(envelopeId.error.message);
+    const factor = buildPasskeyEnvelopeFactor({
+      rpId: args.registration.rpId,
+      credentialIdB64u: credentialId.value,
+    });
+    const replacementBindingJson = JSON.stringify({
+      walletId: existingEnvelope.walletId,
+      envelopeId: envelopeId.value,
+      factor,
+      envelopeRevision: 1,
+      binding: existingEnvelope.binding,
+    });
+    const resealed = passkey_custody_reseal_wallet_seed_v1(
+      entry.handle,
+      replacementFactorSecret,
+      replacementBindingJson,
+    ) as Record<string, unknown>;
+    const nowMs = Date.now();
+    return {
+      registrationCredential: credential,
+      custodyEnvelope: parsePasskeyCustodyEnvelopeRecord(
+        buildPasskeyCustodyEnvelopeRecord({
+          envelopeId: envelopeId.value,
+          walletId: existingEnvelope.walletId,
+          binding: existingEnvelope.binding,
+          factor,
+          envelopeRevision: 1,
+          nonceB64u: readString(resealed.nonceB64u, 'resealed.nonceB64u'),
+          sealedCustodySecretB64u: readString(
+            resealed.sealedCustodySecretB64u,
+            'resealed.sealedCustodySecretB64u',
+          ),
+          aadHashB64u: readString(resealed.aadHashB64u, 'resealed.aadHashB64u'),
+          ciphertextDigestB64u: readString(
+            resealed.ciphertextDigestB64u,
+            'resealed.ciphertextDigestB64u',
+          ),
+          lifecycle: { state: 'active', activatedAtMs: nowMs },
+          createdAtMs: nowMs,
+          updatedAtMs: nowMs,
+        }),
+      ),
+    };
+  } finally {
+    replacementFactorSecret.fill(0);
+    disposeEmailOtpPasskeyCustodyLink(entry);
+  }
+}
+
+function discardEmailOtpPasskeyCustodyLink(pendingHandleIdRaw: unknown): boolean {
+  const pendingHandleId = readString(pendingHandleIdRaw, 'pendingHandleId');
+  const entry = emailOtpPasskeyCustodyLinks.get(pendingHandleId);
+  if (!entry) return false;
+  emailOtpPasskeyCustodyLinks.delete(pendingHandleId);
+  disposeEmailOtpPasskeyCustodyLink(entry);
+  return true;
 }
 
 function postToMainThread(message: unknown, transfer?: Transferable[]): void {
@@ -5062,6 +4696,18 @@ function parseEmailOtpWalletUnlockVerification(
   }
 }
 
+function parseEmailOtpPasskeyRegistrationSummary(
+  raw: unknown,
+): EmailOtpWorkerOperationMap['completeEmailOtpPasskeyCustodyLink']['payload']['registration'] {
+  const value = workerPayloadObject(raw);
+  if (!value || value.kind !== 'webauthn_add_auth_method_registration_v1') {
+    throw new Error('Email OTP passkey linking requires registration options');
+  }
+  const rpId = parseWebAuthnRpId(readString(value.rpId, 'registration.rpId'));
+  if (!rpId.ok) throw new Error(rpId.error.message);
+  return { kind: 'webauthn_add_auth_method_registration_v1', rpId: rpId.value };
+}
+
 function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null {
   const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
   if (!obj) return null;
@@ -5187,6 +4833,47 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           activeClientHandle: readString(payload.activeClientHandle, 'activeClientHandle'),
         },
       };
+    case 'prepareEmailOtpPasskeyCustodyLink': {
+      const verification = workerPayloadObject(payload.verification);
+      if (!verification || verification.kind !== 'otp') {
+        throw new Error('Email OTP passkey linking requires OTP verification');
+      }
+      return {
+        id,
+        type,
+        payload: {
+          relayUrl: readString(payload.relayUrl, 'relayUrl'),
+          walletId: readString(payload.walletId, 'walletId'),
+          userId: readString(payload.userId, 'userId'),
+          groupId: readString(payload.groupId, 'groupId'),
+          routePlan: readRoutePlan(payload.routePlan, type),
+          verification: {
+            kind: 'otp',
+            challengeId: readString(verification.challengeId, 'verification.challengeId'),
+            otpCode: readString(verification.otpCode, 'verification.otpCode'),
+          },
+        },
+      };
+    }
+    case 'completeEmailOtpPasskeyCustodyLink':
+      return {
+        id,
+        type,
+        payload: {
+          pendingHandleId: readString(payload.pendingHandleId, 'pendingHandleId'),
+          existingEnvelope: parsePasskeyCustodyEnvelopeRecord(payload.existingEnvelope),
+          registration: parseEmailOtpPasskeyRegistrationSummary(payload.registration),
+          registrationCredential: normalizeRegistrationCredential(payload.registrationCredential),
+        },
+      };
+    case 'discardEmailOtpPasskeyCustodyLink':
+      return {
+        id,
+        type,
+        payload: {
+          pendingHandleId: readString(payload.pendingHandleId, 'pendingHandleId'),
+        },
+      };
     case 'verifyEmailOtpCode':
       return {
         id,
@@ -5199,47 +4886,6 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           routePlan: readRoutePlan(payload.routePlan, type),
           ...(optionalWorkerString(payload.otpChannel)
             ? { otpChannel: optionalWorkerString(payload.otpChannel)! as WalletEmailOtpChannel }
-            : {}),
-        },
-      };
-    case 'restoreEmailOtpDeviceEnrollmentEscrow':
-      return {
-        id,
-        type,
-        payload: {
-          relayUrl: readString(payload.relayUrl, 'relayUrl'),
-          walletId: readString(payload.walletId, 'walletId'),
-          userId: readString(payload.userId, 'userId'),
-          challengeId: readString(payload.challengeId, 'challengeId'),
-          otpCode: readString(payload.otpCode, 'otpCode'),
-          recoveryKey: readString(payload.recoveryKey, 'recoveryKey'),
-          groupId: readString(payload.groupId, 'groupId'),
-          routePlan: readRoutePlan(payload.routePlan, type),
-          ...(optionalWorkerString(payload.otpChannel)
-            ? { otpChannel: optionalWorkerString(payload.otpChannel)! as WalletEmailOtpChannel }
-            : {}),
-        },
-      };
-    case 'rotateEmailOtpRecoveryCodes':
-      return {
-        id,
-        type,
-        payload: {
-          relayUrl: readString(payload.relayUrl, 'relayUrl'),
-          walletId: readString(payload.walletId, 'walletId'),
-          userId: readString(payload.userId, 'userId'),
-          routePlan: readRoutePlan(payload.routePlan, type),
-        },
-      };
-    case 'removeEmailOtpDeviceEnrollmentEscrowFromDevice':
-      return {
-        id,
-        type,
-        payload: {
-          walletId: readString(payload.walletId, 'walletId'),
-          userId: readString(payload.userId, 'userId'),
-          ...(optionalWorkerString(payload.enrollmentId)
-            ? { enrollmentId: optionalWorkerString(payload.enrollmentId)! }
             : {}),
         },
       };
@@ -5556,9 +5202,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
         postToMainThread({
           id: msg.id,
           ok: true,
-              result: {
-                recoveryKeys: result.recoveryKeys,
-            recoveryCodesIssuedAtMs: result.recoveryCodesIssuedAtMs,
+          result: {
             challengeId: result.challengeId,
             otpChannel: result.otpChannel,
             enrollmentId: result.enrollmentId,
@@ -5601,8 +5245,6 @@ self.addEventListener('message', async (event: MessageEvent) => {
               id: msg.id,
               ok: true,
               result: {
-                recoveryKeys: result.recoveryKeys,
-                recoveryCodesIssuedAtMs: result.recoveryCodesIssuedAtMs,
                 otpChannel: result.otpChannel,
                 enrollmentId: result.enrollmentId,
                 enrollmentSealKeyVersion: result.enrollmentSealKeyVersion,
@@ -5641,6 +5283,21 @@ self.addEventListener('message', async (event: MessageEvent) => {
         postToMainThread({ id: msg.id, ok: true, result: { removed } });
         return;
       }
+      case 'prepareEmailOtpPasskeyCustodyLink': {
+        const result = await prepareEmailOtpPasskeyCustodyLink(msg.payload);
+        postToMainThread({ id: msg.id, ok: true, result });
+        return;
+      }
+      case 'completeEmailOtpPasskeyCustodyLink': {
+        const result = completeEmailOtpPasskeyCustodyLink(msg.payload);
+        postToMainThread({ id: msg.id, ok: true, result });
+        return;
+      }
+      case 'discardEmailOtpPasskeyCustodyLink': {
+        const discarded = discardEmailOtpPasskeyCustodyLink(msg.payload.pendingHandleId);
+        postToMainThread({ id: msg.id, ok: true, result: { discarded } });
+        return;
+      }
       case 'verifyEmailOtpCode': {
         const routePlan = readRoutePlan(msg.payload.routePlan, 'verifyEmailOtpCode');
         const sessionAuth = authLaneToRouteAuth(routePlan.authLane);
@@ -5666,56 +5323,6 @@ self.addEventListener('message', async (event: MessageEvent) => {
               ? { enrollmentSealKeyVersion: readOptionalString(response.enrollmentSealKeyVersion) }
               : {}),
           },
-        });
-        return;
-      }
-      case 'restoreEmailOtpDeviceEnrollmentEscrow': {
-        const routePlan = readRoutePlan(
-          msg.payload.routePlan,
-          'restoreEmailOtpDeviceEnrollmentEscrow',
-        );
-        const result = await restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey({
-          relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
-          walletId: readString(msg.payload.walletId, 'walletId'),
-          userId: msg.payload.userId,
-          challengeId: readString(msg.payload.challengeId, 'challengeId'),
-          otpCode: readString(msg.payload.otpCode, 'otpCode'),
-          recoveryKey: readString(msg.payload.recoveryKey, 'recoveryKey'),
-          groupId: readString(msg.payload.groupId, 'groupId'),
-          routePlan,
-        });
-        postToMainThread({
-          id: msg.id,
-          ok: true,
-          result,
-        });
-        return;
-      }
-      case 'rotateEmailOtpRecoveryCodes': {
-        const routePlan = readRoutePlan(msg.payload.routePlan, 'rotateEmailOtpRecoveryCodes');
-        const result = await rotateEmailOtpRecoveryCodesFromLocalDeviceEnrollment({
-          relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
-          walletId: readString(msg.payload.walletId, 'walletId'),
-          userId: msg.payload.userId,
-          routePlan,
-        });
-        postToMainThread({
-          id: msg.id,
-          ok: true,
-          result,
-        });
-        return;
-      }
-      case 'removeEmailOtpDeviceEnrollmentEscrowFromDevice': {
-        const result = await removeEmailOtpDeviceEnrollmentEscrowFromDevice({
-          walletId: readString(msg.payload.walletId, 'walletId'),
-          userId: msg.payload.userId,
-          enrollmentId: msg.payload.enrollmentId,
-        });
-        postToMainThread({
-          id: msg.id,
-          ok: true,
-          result,
         });
         return;
       }

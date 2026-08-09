@@ -12,6 +12,7 @@ import type { TempoFeeTokenPreferenceSigningRequest } from '@/core/signingEngine
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import type {
+  AddPasskeyAuthorization,
   EvmEip155ChainTarget,
   NearAccountRef,
   TempoChainTarget,
@@ -953,6 +954,7 @@ export interface PMAddWalletSignerPayload {
 export interface PMAddPasskeyPayload {
   walletId: WalletId | string;
   rpId: string;
+  authorization: AddPasskeyAuthorization;
   confirmationConfig?: Partial<ConfirmationConfig>;
   options?: Record<string, unknown>;
 }
