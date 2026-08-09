@@ -1,6 +1,7 @@
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
 import {
+  buildRevokedEnvelopeLifecycle,
   parsePasskeyCustodyEnvelopeRecord,
   type PasskeyDeviceEnvelopeIndexRecord,
   type PasskeyCustodyEnvelopeRecord,
@@ -16,11 +17,13 @@ import type {
   WebAuthnRpId,
 } from '@shared/utils/domainIds';
 import type { VersionedJsonObject } from '../../../framework/versionedJsonRecordStore';
-import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
+import type { D1DatabaseLike, D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import {
   CloudflareD1VersionedJsonRecordStore,
+  type CloudflareD1VersionedJsonRecordMutationV1,
   type CloudflareD1VersionedJsonRecordScopeV1,
 } from '../versionedJson/d1VersionedJsonRecordStore';
+import { admitEnvelopeRevocation } from '../../../domains/passkeyCustody/envelopeRevocationAdmission';
 
 /**
  * Opaque custody storage for factor-sealed custody envelopes.
@@ -162,6 +165,14 @@ export type PasskeyCustodyEnvelopePutResult =
   | { readonly kind: 'not_found' }
   | { readonly kind: 'terminal_lifecycle'; readonly state: 'revoked' };
 
+export type PasskeyCustodyEnvelopeRevocationResult =
+  | {
+      readonly kind: 'stored';
+      readonly revokedEnvelopeIds: readonly PasskeyEnvelopeId[];
+    }
+  | { readonly kind: 'refused'; readonly reason: string }
+  | { readonly kind: 'version_mismatch' };
+
 export type WalletCredentialActivityProjection = {
   readonly index: PasskeyDeviceEnvelopeIndexRecord;
   readonly activity: WalletCredentialActivityRecordV1;
@@ -232,8 +243,12 @@ export function passkeyCustodyEnvelopeLocatorOf(
 export class CloudflareD1PasskeyCustodyEnvelopeStore {
   private readonly records: CloudflareD1VersionedJsonRecordStore<PasskeyCustodyEnvelopeRecord>;
   private readonly activityRecords: CloudflareD1VersionedJsonRecordStore<WalletCredentialActivityRecordV1>;
+  private readonly database: D1DatabaseLike;
+  private readonly scope: CloudflareD1VersionedJsonRecordScopeV1;
 
   constructor(options: CloudflareD1PasskeyCustodyEnvelopeStoreOptions) {
+    this.database = options.database;
+    this.scope = options.scope;
     this.records = new CloudflareD1VersionedJsonRecordStore<PasskeyCustodyEnvelopeRecord>({
       database: options.database,
       scope: options.scope,
@@ -370,6 +385,101 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
     return envelopes;
   }
 
+  /**
+   * Revokes every active or retired envelope for one passkey factor while
+   * applying the caller's guarded auth-method mutation in the same D1 batch.
+   * The final active-envelope guard closes the concurrent last-factor race.
+   */
+  async revokePasskeyFactorAtomically(input: {
+    readonly walletId: WalletId;
+    readonly factor: Extract<WalletCustodyFactorRef, { readonly kind: 'passkey' }>;
+    readonly revokedAtMs: number;
+    readonly additionalStatements: readonly D1PreparedStatementLike[];
+  }): Promise<PasskeyCustodyEnvelopeRevocationResult> {
+    if (input.additionalStatements.length === 0) {
+      throw new Error('Passkey custody revocation requires an auth-method mutation');
+    }
+    const envelopes = await this.listWalletEnvelopes(input.walletId, { limit: 1000 });
+    const matching = envelopes.filter(
+      (envelope) =>
+        envelope.factor.kind === 'passkey' &&
+        factorRefsMatch(envelopeFactorRef(envelope), input.factor),
+    );
+    const revocable = matching.filter(
+      (envelope) =>
+        envelope.lifecycle.state === 'active' || envelope.lifecycle.state === 'retired',
+    );
+    const targetIds = new Set(revocable.map((envelope) => String(envelope.envelopeId)));
+    const activeTargets = revocable.filter((envelope) => envelope.lifecycle.state === 'active');
+
+    for (const target of activeTargets) {
+      const admission = admitEnvelopeRevocation({
+        envelopes,
+        envelopeId: target.envelopeId,
+      });
+      if (admission.kind === 'refused') return admission;
+    }
+    if (
+      activeTargets.length > 0 &&
+      !envelopes.some(
+        (envelope) =>
+          envelope.lifecycle.state === 'active' && !targetIds.has(String(envelope.envelopeId)),
+      )
+    ) {
+      return {
+        kind: 'refused',
+        reason:
+          'revoking the last active envelope would leave the wallet custody seed with no factor that can open it',
+      };
+    }
+
+    const additionalStatements =
+      activeTargets.length > 0
+        ? [
+            ...input.additionalStatements,
+            this.prepareRemainingActiveEnvelopeGuard(input.walletId),
+          ]
+        : input.additionalStatements;
+    if (revocable.length === 0) {
+      await this.database.batch(additionalStatements);
+      return { kind: 'stored', revokedEnvelopeIds: [] };
+    }
+
+    const mutations: CloudflareD1VersionedJsonRecordMutationV1<PasskeyCustodyEnvelopeRecord>[] = [];
+    for (const target of revocable) {
+      const current = await this.records.read(this.recordKey(envelopeLocator(target)));
+      if (current.kind === 'missing') return { kind: 'version_mismatch' };
+      if (
+        String(current.value.walletId) !== String(input.walletId) ||
+        String(current.value.envelopeId) !== String(target.envelopeId) ||
+        !factorRefsMatch(envelopeFactorRef(current.value), input.factor)
+      ) {
+        return { kind: 'version_mismatch' };
+      }
+      mutations.push({
+        key: this.recordKey(envelopeLocator(target)),
+        expectedVersion: current.version,
+        value: {
+          ...current.value,
+          lifecycle: buildRevokedEnvelopeLifecycle({
+            activatedAtMs: current.value.lifecycle.activatedAtMs,
+            revokedAtMs: input.revokedAtMs,
+          }),
+          updatedAtMs: input.revokedAtMs,
+        },
+      });
+    }
+    const stored = await this.records.putManyWithAdditionalStatements(
+      mutations,
+      additionalStatements,
+    );
+    if (stored.kind === 'version_mismatch') return stored;
+    return {
+      kind: 'stored',
+      revokedEnvelopeIds: revocable.map((envelope) => envelope.envelopeId),
+    };
+  }
+
   /** Returns the public credential-management view; activity never enters envelope AAD. */
   async listWalletCredentialActivity(
     walletId: WalletId,
@@ -482,6 +592,33 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
         activity: next,
       },
     };
+  }
+
+  private prepareRemainingActiveEnvelopeGuard(walletId: WalletId): D1PreparedStatementLike {
+    return this.database
+      .prepare(`
+        INSERT INTO router_ab_yao_versioned_json_cas_guard (guard_id)
+        SELECT 1
+         WHERE NOT EXISTS (
+           SELECT 1
+             FROM router_ab_yao_versioned_json_records
+            WHERE namespace = ?1
+              AND org_id = ?2
+              AND project_id = ?3
+              AND env_id = ?4
+              AND record_key LIKE ?5
+              AND json_extract(record_json, '$.walletId') = ?6
+              AND json_extract(record_json, '$.lifecycle.state') = 'active'
+         )
+      `)
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        `${PASSKEY_ENVELOPE_KEY_PREFIX}:%`,
+        String(walletId),
+      );
   }
 
   async lookupEnvelopeForFactor(input: {

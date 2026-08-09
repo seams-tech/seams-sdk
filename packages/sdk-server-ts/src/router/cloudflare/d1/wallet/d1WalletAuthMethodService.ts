@@ -29,7 +29,7 @@ import {
   type EmailOtpWalletAuthAuthority,
   type PasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
-import type { WalletAuthMethodStore } from '../../../../core/d1WalletAuthMethodStore';
+import type { D1WalletAuthMethodStore } from '../../../../core/d1WalletAuthMethodStore';
 import type {
   WalletAddAuthMethodFinalizeResponse,
   WalletAddAuthMethodStartRequest,
@@ -70,6 +70,7 @@ import {
   webAuthnOriginHostnameOrEmpty,
 } from '../../../auth/webAuthnCredentialCodecs';
 import type { CloudflareD1WebAuthnStore } from '../webauthn/d1WebAuthnStore';
+import type { CloudflareD1PasskeyCustodyEnvelopeStore } from '../passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 import type {
   FinalizeWalletAddAuthMethodCommand,
   RevokeWalletAuthMethodCommand,
@@ -101,7 +102,7 @@ type SimpleWebAuthnServerModule = {
 
 type Sha256Bytes = (input: Uint8Array) => Promise<Uint8Array>;
 type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore;
-type WalletAuthMethodStoreProvider = () => WalletAuthMethodStore;
+type WalletAuthMethodStoreProvider = () => D1WalletAuthMethodStore;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || '');
@@ -146,6 +147,7 @@ export class CloudflareD1WalletAuthMethodService {
   private readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
   private readonly getWalletAuthMethodStore: WalletAuthMethodStoreProvider;
   private readonly googleEmailOtpRegistrationAttempts: CloudflareD1GoogleEmailOtpRegistrationAttemptStore;
+  private readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
   private readonly sha256Bytes: Sha256Bytes;
   private readonly webAuthnStore: CloudflareD1WebAuthnStore;
 
@@ -154,6 +156,7 @@ export class CloudflareD1WalletAuthMethodService {
     readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
     readonly getWalletAuthMethodStore: WalletAuthMethodStoreProvider;
     readonly googleEmailOtpRegistrationAttempts: CloudflareD1GoogleEmailOtpRegistrationAttemptStore;
+    readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
     readonly sha256Bytes: Sha256Bytes;
     readonly webAuthnStore: CloudflareD1WebAuthnStore;
   }) {
@@ -161,6 +164,7 @@ export class CloudflareD1WalletAuthMethodService {
     this.getRegistrationCeremonyIntentStore = input.getRegistrationCeremonyIntentStore;
     this.getWalletAuthMethodStore = input.getWalletAuthMethodStore;
     this.googleEmailOtpRegistrationAttempts = input.googleEmailOtpRegistrationAttempts;
+    this.passkeyCustodyEnvelopes = input.passkeyCustodyEnvelopes;
     this.sha256Bytes = input.sha256Bytes;
     this.webAuthnStore = input.webAuthnStore;
   }
@@ -621,13 +625,38 @@ export class CloudflareD1WalletAuthMethodService {
           message: 'wallet must retain at least one active auth method',
         };
       }
-      await walletAuthMethodStore.put(
-        revokedD1WalletAuthMethodRecord({
-          record: targetRecord,
-          updatedAtMs: Date.now(),
-        }),
-      );
+      const revokedAtMs = Date.now();
+      const revokedRecord = revokedD1WalletAuthMethodRecord({
+        record: targetRecord,
+        updatedAtMs: revokedAtMs,
+      });
       if (targetRecord.kind === 'passkey') {
+        const custodyResult =
+          await this.passkeyCustodyEnvelopes.revokePasskeyFactorAtomically({
+            walletId: parsed.walletId,
+            factor: {
+              kind: 'passkey',
+              rpId: targetRecord.rpId,
+              credentialIdB64u: targetRecord.credentialIdB64u,
+            },
+            revokedAtMs,
+            additionalStatements:
+              walletAuthMethodStore.preparePasskeyRevocationStatements(revokedRecord),
+          });
+        if (custodyResult.kind === 'refused') {
+          return {
+            ok: false,
+            code: 'invalid_state',
+            message: custodyResult.reason,
+          };
+        }
+        if (custodyResult.kind === 'version_mismatch') {
+          return {
+            ok: false,
+            code: 'conflict',
+            message: 'passkey custody changed; retry revocation',
+          };
+        }
         return {
           ok: true,
           walletId: parsed.walletId,
@@ -638,6 +667,7 @@ export class CloudflareD1WalletAuthMethodService {
           rpId: targetRecord.rpId,
         };
       }
+      await walletAuthMethodStore.put(revokedRecord);
       return {
         ok: true,
         walletId: parsed.walletId,

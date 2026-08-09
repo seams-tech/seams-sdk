@@ -35,7 +35,6 @@ import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { WalletRegistrationActivateResponseV2 } from '../../../../core/threeRouteRegistrationContracts';
 import {
   D1WalletAuthMethodStore,
-  type WalletAuthMethodStore,
 } from '../../../../core/d1WalletAuthMethodStore';
 import { D1WalletStore } from '../../../../core/d1WalletStore';
 import { D1IdentityStore } from '../../../../core/d1IdentityStore';
@@ -181,7 +180,7 @@ type SponsoredNamedNearAccountInput = {
 type CloudflareD1RouterApiLazyStoreState = {
   readonly options: NormalizedCloudflareD1RouterApiAuthServiceOptions;
   walletStore: D1WalletStore | null;
-  walletAuthMethodStore: WalletAuthMethodStore | null;
+  walletAuthMethodStore: D1WalletAuthMethodStore | null;
   registrationCeremonyIntentStore: CloudflareD1RegistrationCeremonyIntentStore | null;
 };
 
@@ -388,7 +387,7 @@ function getRegistrationCeremonyIntentStoreForState(
 
 function getWalletAuthMethodStoreForState(
   state: CloudflareD1RouterApiLazyStoreState,
-): WalletAuthMethodStore {
+): D1WalletAuthMethodStore {
   if (state.walletAuthMethodStore) return state.walletAuthMethodStore;
   state.walletAuthMethodStore = new D1WalletAuthMethodStore({
     database: state.options.database,
@@ -1430,11 +1429,23 @@ function createCloudflareD1RouterApiAuthAssembly(
     emailOtpRateLimits,
     lockoutTtlMs: options.emailOtp.lockoutTtlMs,
   });
+  /* The custody envelope store is shared by registration, unlock, recovery,
+     and auth-method revocation; every route must address the same rows. */
+  const passkeyCustodyEnvelopes = new CloudflareD1PasskeyCustodyEnvelopeStore({
+    database: options.database,
+    scope: {
+      namespace: options.namespace,
+      orgId: options.orgId,
+      projectId: options.projectId,
+      envId: options.envId,
+    },
+  });
   const walletAuthMethods = new CloudflareD1WalletAuthMethodService({
     emailOtpChallengeVerifier,
     getRegistrationCeremonyIntentStore,
     getWalletAuthMethodStore,
     googleEmailOtpRegistrationAttempts,
+    passkeyCustodyEnvelopes,
     sha256Bytes: sha256BytesPortable,
     webAuthnStore,
   });
@@ -1446,19 +1457,6 @@ function createCloudflareD1RouterApiAuthAssembly(
     envId: options.envId,
   });
   const walletCustodyCommitStore = new CloudflareD1WalletCustodyCommitStore({
-    database: options.database,
-    scope: {
-      namespace: options.namespace,
-      orgId: options.orgId,
-      projectId: options.projectId,
-      envId: options.envId,
-    },
-  });
-  /* The custody envelope store. Until this line it was constructed only in
-     tests, which is why cold unlock could not be built end to end: the store,
-     its retrieval gate and its wire mapping all existed and none of them were
-     reachable from a running server. */
-  const passkeyCustodyEnvelopes = new CloudflareD1PasskeyCustodyEnvelopeStore({
     database: options.database,
     scope: {
       namespace: options.namespace,
