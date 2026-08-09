@@ -1729,7 +1729,8 @@ export interface WalletCustodyCeremonyWorkerOperationMap {
           keySet: 'near_ed25519_v1';
           custody:
             | { origin: 'establish'; walletId: string }
-            | { origin: 'join'; custodyJson: string; factorSecret: ArrayBuffer };
+            | { origin: 'join'; custodyJson: string; factorSecret: ArrayBuffer }
+            | { origin: 'recover'; custodyJson: string; recoveryCode: ArrayBuffer };
           protocolInputsJson: string;
         }
       | {
@@ -1743,7 +1744,8 @@ export interface WalletCustodyCeremonyWorkerOperationMap {
                 factorSecret: ArrayBuffer;
                 recoveryCodesJson: string;
               }
-            | { origin: 'join'; custodyJson: string; factorSecret: ArrayBuffer };
+            | { origin: 'join'; custodyJson: string; factorSecret: ArrayBuffer }
+            | { origin: 'recover'; custodyJson: string; recoveryCode: ArrayBuffer };
           protocolInputsJson: string;
           evmFamilySigningKeySlotId: string;
           recordedKeyManifestDigestB64u?: string;

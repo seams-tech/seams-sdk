@@ -61,6 +61,12 @@ export type WalletCustodyCeremonyCustodyInput =
       /** `JoinCustodyWireV1`: the envelope binding and its sealed seed. */
       readonly custodyJson: string;
       readonly factorSecret: ArrayBuffer;
+    }
+  | {
+      readonly origin: 'recover';
+      /** `RecoveryCustodyWireV1`: one reserved wrap and the wallet seed entry. */
+      readonly custodyJson: string;
+      readonly recoveryCode: ArrayBuffer;
     };
 
 /**
@@ -141,6 +147,36 @@ function requireEvmCompletedRun(
   return completed;
 }
 
+type NearBeginCustody = Extract<
+  CeremonyOperationMap['beginWalletCustodyKeySetRun']['payload'],
+  { readonly keySet: 'near_ed25519_v1' }
+>['custody'];
+
+function buildNearBeginCustody(custody: WalletCustodyCeremonyCustodyInput): NearBeginCustody {
+  switch (custody.origin) {
+    case 'establish':
+      return { origin: 'establish', walletId: custody.walletId };
+    case 'join':
+      return {
+        origin: 'join',
+        custodyJson: custody.custodyJson,
+        factorSecret: custody.factorSecret,
+      };
+    case 'recover':
+      return {
+        origin: 'recover',
+        custodyJson: custody.custodyJson,
+        recoveryCode: custody.recoveryCode,
+      };
+    default:
+      return assertNeverCustodyOrigin(custody);
+  }
+}
+
+function assertNeverCustodyOrigin(value: never): never {
+  throw new Error(`Unsupported wallet custody origin: ${String(value)}`);
+}
+
 function assertEvmCompletionMatchesCommit(
   preActivation: WalletCustodyCeremonyCommitPayload,
   completion: Extract<CompletedRun, { readonly keySet: 'evm_family_ecdsa_v1' }>,
@@ -170,14 +206,7 @@ export async function runWalletCustodyKeySetCeremony(
       const begunResult = await input.runStep('beginWalletCustodyKeySetRun', {
         ceremonyId,
         keySet: 'near_ed25519_v1',
-        custody:
-          custody.origin === 'establish'
-            ? { origin: 'establish', walletId: custody.walletId }
-            : {
-                origin: 'join',
-                custodyJson: custody.custodyJson,
-                factorSecret: custody.factorSecret,
-              },
+        custody: buildNearBeginCustody(custody),
         protocolInputsJson: keySetRun.protocolInputsJson,
       });
       workerAcceptedBegin = true;

@@ -33,7 +33,8 @@ use crate::ceremony::{
     CeremonyError, CeremonyEvmActivationPendingV1, CeremonyManifestEstablishedV1,
     CeremonyProtocolCompletedV1, CeremonyProtocolPreparedV1, CeremonySeedHeldV1,
     EvmFamilyActivationCompletionV1, FactorSealInputsV1, KeySetIdentityInputsV1,
-    KeySetProtocolInputsV1, RecoveryCodeInputV1, WalletCustodyCommitPayloadV1,
+    KeySetProtocolInputsV1, RecoveryCodeInputV1, RecoveryCustodyOpenInputsV1,
+    WalletCustodyCommitPayloadV1,
 };
 
 fn js_error(message: impl core::fmt::Display) -> JsValue {
@@ -133,6 +134,31 @@ struct JoinCustodyWireV1 {
     sealed_custody_secret_b64u: String,
     aad_hash_b64u: String,
     ciphertext_digest_b64u: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RecoveryManifestWrapWireV1 {
+    nonce_b64u: String,
+    wrapped_manifest_kek_b64u: String,
+    aad_hash_b64u: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RecoverySeedEntryWireV1 {
+    custody_secret_kind: String,
+    nonce_b64u: String,
+    wrapped_custody_secret_b64u: String,
+    aad_hash_b64u: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RecoveryCustodyWireV1 {
+    wallet_id: String,
+    wrap: RecoveryManifestWrapWireV1,
+    entry: RecoverySeedEntryWireV1,
 }
 
 fn relayer_identity(wire: RelayerPublicIdentityV1) -> DecodeResult<RelayerPublicIdentityInput> {
@@ -248,6 +274,48 @@ pub fn wallet_custody_ceremony_join_v1(
             &ciphertext_digest,
         )
         .map_err(ceremony_error)?,
+    })
+}
+
+/// Opens a wallet custody seed with a reserved recovery code.
+///
+/// The wire has no recovery key id. Rust derives it from the wallet and code,
+/// checks both stored AAD hashes, and opens exactly the matching wrap. The seed
+/// remains inside this typestate and can only proceed into a key-continuity
+/// protocol run.
+#[wasm_bindgen]
+pub fn wallet_custody_ceremony_recover_v1(
+    recovery_code_bytes: &[u8],
+    custody_json: &str,
+) -> Result<WasmCeremonySeedHeldV1, JsValue> {
+    let wire = serde_json::from_str::<RecoveryCustodyWireV1>(custody_json).map_err(js_error)?;
+    if wire.entry.custody_secret_kind != "wallet_custody_seed_v1" {
+        return Err(js_error(
+            "recovery entry must contain the wallet custody seed",
+        ));
+    }
+    let input = RecoveryCustodyOpenInputsV1 {
+        wallet_id: wire.wallet_id,
+        wrap_nonce: decode_b64u(&wire.wrap.nonce_b64u, "wrap.nonceB64u").map_err(js_error)?,
+        wrapped_manifest_kek: decode_b64u(
+            &wire.wrap.wrapped_manifest_kek_b64u,
+            "wrap.wrappedManifestKekB64u",
+        )
+        .map_err(js_error)?,
+        wrap_aad_hash: decode_fixed(&wire.wrap.aad_hash_b64u, "wrap.aadHashB64u")
+            .map_err(js_error)?,
+        entry_nonce: decode_b64u(&wire.entry.nonce_b64u, "entry.nonceB64u").map_err(js_error)?,
+        wrapped_custody_seed: decode_b64u(
+            &wire.entry.wrapped_custody_secret_b64u,
+            "entry.wrappedCustodySecretB64u",
+        )
+        .map_err(js_error)?,
+        entry_aad_hash: decode_fixed(&wire.entry.aad_hash_b64u, "entry.aadHashB64u")
+            .map_err(js_error)?,
+    };
+    Ok(WasmCeremonySeedHeldV1 {
+        inner: CeremonySeedHeldV1::recover_with_code(recovery_code_bytes, input)
+            .map_err(ceremony_error)?,
     })
 }
 
@@ -547,6 +615,33 @@ mod tests {
                 .to_string()
                 .contains("ed25519ApplicationBindingDigestB64u"),
             "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn recovery_wire_cannot_supply_a_recovery_key_id() {
+        let json = r#"{
+            "walletId": "alice.testnet",
+            "wrap": {
+                "recoveryKeyId": "caller-chosen",
+                "nonceB64u": "AAAAAAAAAAAAAAAA",
+                "wrappedManifestKekB64u": "AAAA",
+                "aadHashB64u": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+            },
+            "entry": {
+                "custodySecretKind": "wallet_custody_seed_v1",
+                "nonceB64u": "AAAAAAAAAAAAAAAA",
+                "wrappedCustodySecretB64u": "AAAA",
+                "aadHashB64u": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+            }
+        }"#;
+        let error = match serde_json::from_str::<RecoveryCustodyWireV1>(json) {
+            Ok(_) => panic!("a recovery key id must not cross this boundary"),
+            Err(error) => error,
+        };
+        assert!(
+            error.to_string().contains("recoveryKeyId"),
+            "unexpected error: {error}",
         );
     }
 }
