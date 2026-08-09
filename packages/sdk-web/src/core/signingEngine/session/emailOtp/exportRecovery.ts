@@ -7,7 +7,7 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import type { ResolvedEmailOtpEd25519YaoExportV1 } from './ed25519YaoSealedRecovery';
+import type { ResolvedWalletCustodyEd25519ExportV1 } from '../../walletCustody/ed25519ExportContext';
 import { throwEmailOtpSigningSessionAuthStateError } from './routePlan';
 import {
   walletAuthAuthorityRef,
@@ -247,7 +247,7 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
   args: {
     challengeId: string;
     otpCode: string;
-    exportContext: ResolvedEmailOtpEd25519YaoExportV1;
+    exportContext: ResolvedWalletCustodyEd25519ExportV1;
   },
 ): Promise<{ artifactKind: 'near-ed25519-seed-v1'; publicKey: string; privateKey: string }> {
   const workerCtx = ports.getSignerWorkerContext();

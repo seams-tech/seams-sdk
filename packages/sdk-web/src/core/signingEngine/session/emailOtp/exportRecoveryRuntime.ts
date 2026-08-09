@@ -7,7 +7,7 @@ import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold
 import type { VerifiedEcdsaPublicFacts } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
-import type { ResolvedEmailOtpEd25519YaoExportV1 } from './ed25519YaoSealedRecovery';
+import type { ResolvedWalletCustodyEd25519ExportV1 } from '../../walletCustody/ed25519ExportContext';
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { buildEmailOtpSigningSessionRoutePlan } from './routePlan';
 import {
@@ -80,7 +80,7 @@ export type ExportEcdsaKeyWithDurableAuthorizationArgs = {
 export type ExportEd25519YaoSeedWithFreshEmailOtpLaneArgs = {
   challengeId: string;
   otpCode: string;
-  exportContext: ResolvedEmailOtpEd25519YaoExportV1;
+  exportContext: ResolvedWalletCustodyEd25519ExportV1;
 };
 
 export class EmailOtpExportRecoveryRuntime {

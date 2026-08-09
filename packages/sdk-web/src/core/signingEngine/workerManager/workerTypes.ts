@@ -94,11 +94,6 @@ import type {
   RouterAbEcdsaDerivationPublicCapabilityV1,
   RouterAbEcdsaRegistrationActivationReceiptV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
-import type {
-  Ed25519OperationStepUpProof,
-  IssuedEd25519OperationStepUpAuthorization,
-} from '../threshold/ed25519/walletSession';
 import type { LoadedWalletCustodyEd25519MaterialV1 } from '../walletCustody/ed25519SeedMaterial';
 
 export type EmailOtpEd25519YaoRecoveryAugmentationV1 = {
@@ -539,16 +534,6 @@ export type EmailOtpYaoPrewarmWorkerResult =
       failureStage: 'yao_wasm_init';
     };
 
-export type EmailOtpEd25519YaoOperationStepUpProofV1 = Extract<
-  Ed25519OperationStepUpProof,
-  { kind: 'email_otp' }
->;
-
-export type EmailOtpEd25519YaoIssuedOperationAuthorizationV1 = Omit<
-  IssuedEd25519OperationStepUpAuthorization,
-  'materialRecovery'
->;
-
 export type EmailOtpWarmMaterialTarget =
   | {
       readonly kind: 'ecdsa';
@@ -660,26 +645,6 @@ export interface EmailOtpWorkerOperationMap {
   disposeEmailOtpEd25519YaoActiveClient: {
     payload: { activeClientHandle: string };
     result: { removed: boolean };
-  };
-  rehydrateEmailOtpEd25519YaoOperationMaterial: {
-    payload: {
-      relayUrl: string;
-      walletId: string;
-      nearAccountId: string;
-      signerSlot: number;
-      providerSubjectId: string;
-      expectedOperationalPublicKey: string;
-      expectedThresholdSessionId: ThresholdEd25519SessionId;
-      expectedMaterialActivation: MpcMaterialActivationRef;
-      normalSigningRequest: RouterAbNormalSigningPrepareRequestV2Wire;
-      displayDigest: string;
-      proof: EmailOtpEd25519YaoOperationStepUpProofV1;
-    };
-    result: {
-      activeClientHandle: string;
-      metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-      issuedAuthorization: EmailOtpEd25519YaoIssuedOperationAuthorizationV1;
-    };
   };
   verifyEmailOtpCode: {
     payload: {
@@ -860,34 +825,6 @@ export interface EmailOtpWorkerOperationMap {
         }
       | { ok: false; code: string; message: string };
   };
-  rehydrateEmailOtpEd25519YaoLocalMaterial: {
-    payload: {
-      target: Extract<EmailOtpWarmMaterialTarget, { kind: 'ed25519_yao' }>;
-      sealedSecretB64u: string;
-      remainingUses: number;
-      expiresAtMs: number;
-      transport: {
-        relayerUrl: string;
-        walletSessionJwt: string;
-        signingSessionSealKeyVersion: SigningSessionSealKeyVersion;
-        groupId: string;
-      };
-      restore: {
-        session: WalletRegistrationEd25519YaoBootstrapSession;
-        providerSubject: string;
-        signerSlot: number;
-        expectedOperationalPublicKey: string;
-      };
-    };
-    result:
-      | {
-          ok: true;
-          activeClientHandle: string;
-          metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-          ed25519YaoCapability: EmailOtpEd25519YaoRecoveryBootstrapV1;
-        }
-      | { ok: false; code: string; message: string };
-  };
   clearEmailOtpWarmSessionMaterial: {
     payload: {
       target: EmailOtpWarmMaterialTarget;
@@ -1009,15 +946,13 @@ export type EmailOtpEnrollmentOperationType =
 export type EmailOtpRestoreOperationType =
   | 'restoreEmailOtpDeviceEnrollmentEscrow'
   | 'rotateEmailOtpRecoveryCodes'
-  | 'removeEmailOtpDeviceEnrollmentEscrowFromDevice'
-  | 'rehydrateEmailOtpEd25519YaoOperationMaterial';
+  | 'removeEmailOtpDeviceEnrollmentEscrowFromDevice';
 export type EmailOtpWarmSessionOperationType =
   | 'loginWithEmailOtpWallet'
   | 'getEmailOtpWarmSessionStatus'
   | 'consumeEmailOtpWarmSessionUses'
   | 'sealEmailOtpWarmSessionMaterial'
   | 'rehydrateEmailOtpEcdsaWarmSessionMaterial'
-  | 'rehydrateEmailOtpEd25519YaoLocalMaterial'
   | 'clearEmailOtpWarmSessionMaterial';
 export type EmailOtpExportOperationType =
   | 'exportEmailOtpEd25519YaoSeedWithAuthorization';

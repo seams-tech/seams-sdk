@@ -24,7 +24,7 @@ import {
   requestEmailOtpEd25519KeyExportAuthorization,
   showEd25519ExportViewer,
 } from './keyExportConfirmation';
-import type { ResolvedEmailOtpEd25519YaoExportV1 } from '../../session/emailOtp/ed25519YaoSealedRecovery';
+import type { ResolvedWalletCustodyEd25519ExportV1 } from '../../walletCustody/ed25519ExportContext';
 import {
   resolveEmailOtpAuthLane,
   type EmailOtpSigningSessionAuthLane,
@@ -59,11 +59,11 @@ export type Ed25519YaoExportFlowDeps = {
     resolveExportContext: (args: {
       laneIdentity: ExactEd25519ExportMaterialIdentity<EmailOtpEd25519LaneAuth>;
       materialActivation: MpcMaterialActivationRef;
-    }) => Promise<ResolvedEmailOtpEd25519YaoExportV1>;
+    }) => Promise<ResolvedWalletCustodyEd25519ExportV1>;
     exportSeedWithFreshAuthorization: (args: {
       challengeId: string;
       otpCode: string;
-      exportContext: ResolvedEmailOtpEd25519YaoExportV1;
+      exportContext: ResolvedWalletCustodyEd25519ExportV1;
     }) => Promise<{
       artifactKind: 'near-ed25519-seed-v1';
       publicKey: string;
@@ -87,7 +87,7 @@ export type ExportEd25519YaoKeyArgs = {
 };
 
 function emailOtpExportAuthLane(
-  context: ResolvedEmailOtpEd25519YaoExportV1,
+  context: ResolvedWalletCustodyEd25519ExportV1,
 ): Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }> {
   const walletSessionJwt = walletSessionJwtForCurve(context.authorization, 'ed25519');
   if (!walletSessionJwt) {
@@ -120,7 +120,7 @@ function passkeyEd25519ExportMaterialActivation(resolved: ResolvedPasskeyEd25519
   return resolved.capability.materialActivation;
 }
 
-function emailOtpEd25519ExportMaterialActivation(context: ResolvedEmailOtpEd25519YaoExportV1) {
+function emailOtpEd25519ExportMaterialActivation(context: ResolvedWalletCustodyEd25519ExportV1) {
   return context.material.materialActivation;
 }
 
@@ -278,7 +278,7 @@ async function resolveExactEmailOtpExportContext(
   deps: Ed25519YaoExportFlowDeps,
   args: ExportEd25519YaoKeyArgs,
 ): Promise<{
-  context: ResolvedEmailOtpEd25519YaoExportV1;
+  context: ResolvedWalletCustodyEd25519ExportV1;
   laneIdentity: ExactEd25519ExportMaterialIdentity<EmailOtpEd25519LaneAuth>;
 }> {
   const laneIdentity = requireEmailOtpExportLaneIdentity(args);

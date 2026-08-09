@@ -26,10 +26,7 @@ import {
   EcdsaDerivationClientCustomRequestType,
   EcdsaPresignClientRequestType,
 } from './workerTypes';
-import {
-  parseSigningSessionSealKeyVersion,
-  type EcdsaRoleLocalPersistedMaterialRef,
-} from '../session/keyMaterialBrands';
+import type { EcdsaRoleLocalPersistedMaterialRef } from '../session/keyMaterialBrands';
 import type { WalletRegistrationEd25519YaoBootstrapSession } from '@/core/rpcClients/relayer/walletRegistration';
 import type {
   InitialEcdsaCapabilityActivationPlan,
@@ -292,41 +289,10 @@ type EmailOtpEd25519YaoWalletUnlockMaterial = Extract<
   EmailOtpWalletUnlockPayload['material'],
   { kind: 'ed25519_yao_recovery' }
 >;
-type EmailOtpYaoBindPayload = EmailOtpWorkerOperationMap['bindEmailOtpEd25519YaoRoot']['payload'];
-type EmailOtpYaoRootDisposalPayload =
-  EmailOtpWorkerOperationMap['disposeEmailOtpEd25519YaoRoot']['payload'];
-type EmailOtpYaoRecoveryPayload =
-  EmailOtpWorkerOperationMap['recoverEmailOtpEd25519Yao']['payload'];
 type EmailOtpDeviceEnrollmentRestoreResult =
   EmailOtpWorkerOperationMap['restoreEmailOtpDeviceEnrollmentEscrow']['result'];
 type EmailOtpRecoveryCodeRotationResult =
   EmailOtpWorkerOperationMap['rotateEmailOtpRecoveryCodes']['result'];
-type EmailOtpEd25519YaoLocalMaterialRehydratePayload =
-  EmailOtpWorkerOperationMap['rehydrateEmailOtpEd25519YaoLocalMaterial']['payload'];
-
-const emailOtpEd25519YaoLocalMaterialRehydrate: EmailOtpEd25519YaoLocalMaterialRehydratePayload = {
-  target: {
-    kind: 'ed25519_yao',
-    thresholdSessionId: emailOtpEd25519YaoSession.thresholdSessionId,
-    materialActivation,
-  },
-  sealedSecretB64u: 'sealed-ed25519-yao-factor',
-  remainingUses: 3,
-  expiresAtMs: Date.now() + 60_000,
-  transport: {
-    relayerUrl: 'https://relay.example.test',
-    walletSessionJwt: 'wallet.session.jwt',
-    signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion('seal-v1'),
-    groupId: 'shamir-prime',
-  },
-  restore: {
-    session: emailOtpEd25519YaoSession,
-    providerSubject: 'google:subject',
-    signerSlot: 1,
-    expectedOperationalPublicKey: 'ed25519:11111111111111111111111111111111',
-  },
-};
-void emailOtpEd25519YaoLocalMaterialRehydrate;
 
 const emailOtpEcdsaWarmMaterialTarget: EmailOtpWorkerOperationMap['getEmailOtpWarmSessionStatus']['payload'] =
   {
@@ -353,24 +319,6 @@ const emailOtpEcdsaWarmMaterialTargetWithActivation: EmailOtpWorkerOperationMap[
     target: { kind: 'ecdsa', thresholdSessionId: 'ecdsa-session', materialActivation },
   };
 void emailOtpEcdsaWarmMaterialTargetWithActivation;
-
-const emailOtpEd25519YaoLocalMaterialRehydrateWithOtp = {
-  ...emailOtpEd25519YaoLocalMaterialRehydrate,
-  // @ts-expect-error Silent durable recovery never accepts a fresh OTP challenge.
-  otpCode: '123456',
-} satisfies EmailOtpEd25519YaoLocalMaterialRehydratePayload;
-void emailOtpEd25519YaoLocalMaterialRehydrateWithOtp;
-
-const emailOtpEd25519YaoLocalMaterialRehydrateWithoutWalletSession = {
-  ...emailOtpEd25519YaoLocalMaterialRehydrate,
-  // @ts-expect-error Silent durable recovery requires its exact Wallet Session credential.
-  transport: {
-    relayerUrl: 'https://relay.example.test',
-    signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion('seal-v1'),
-    groupId: 'shamir-prime',
-  },
-} satisfies EmailOtpEd25519YaoLocalMaterialRehydratePayload;
-void emailOtpEd25519YaoLocalMaterialRehydrateWithoutWalletSession;
 
 const emailOtpEd25519YaoWalletUnlockMaterial: EmailOtpEd25519YaoWalletUnlockMaterial = {
   kind: 'ed25519_yao_recovery',
@@ -588,85 +536,6 @@ const emailOtpWalletUnlockPayloadWithoutRuntimeScope = {
 };
 // @ts-expect-error Email OTP wallet unlock must carry one exact material branch.
 emailOtpWalletUnlockPayloadWithoutRuntimeScope satisfies EmailOtpWalletUnlockPayload;
-
-declare const pendingFactorHandle: EmailOtpYaoBindPayload['pendingFactorHandle'];
-declare const emailOtpYaoRootScope: EmailOtpYaoBindPayload['scope'];
-declare const emailOtpYaoRootHandle: EmailOtpYaoRootDisposalPayload['rootHandle'];
-declare const emailOtpYaoRecoveryAdmission: EmailOtpYaoRecoveryPayload['admissionRequest'];
-
-const emailOtpYaoRootDisposalPayload: EmailOtpYaoRootDisposalPayload = {
-  rootHandle: emailOtpYaoRootHandle,
-};
-void emailOtpYaoRootDisposalPayload;
-
-const emailOtpYaoBindPayload: EmailOtpYaoBindPayload = {
-  pendingFactorHandle,
-  scope: emailOtpYaoRootScope,
-};
-void emailOtpYaoBindPayload;
-
-const emailOtpYaoBindPayloadWithCallerExpiry = {
-  pendingFactorHandle,
-  scope: emailOtpYaoRootScope,
-  // @ts-expect-error Pending-factor binding derives expiry from the issued handle.
-  expiresAtMs: 1_900_000_000_000,
-} satisfies EmailOtpYaoBindPayload;
-void emailOtpYaoBindPayloadWithCallerExpiry;
-
-const emailOtpYaoRegistrationMaterialPayload: EmailOtpYaoRegistrationMaterialPayload = {
-  pendingHandle: 'pending-registration',
-  walletId: 'wallet.testnet',
-  providerSubject: 'provider-user-1',
-  nearAccountId: 'wallet.testnet',
-  nearEd25519SigningKeyId: 'ed25519-key-1',
-  signerSlot: 1,
-  signingRootVersion: 'root-v1',
-  expectedOperationalPublicKey: 'ed25519:public-key',
-  sessionPolicy: {
-    thresholdSessionId: 'ed25519-session-1',
-    expiresAtMs: 1_900_000_000_000,
-    remainingUses: 10,
-  },
-};
-void emailOtpYaoRegistrationMaterialPayload;
-
-// @ts-expect-error Registration material persistence requires the exact signer identity.
-const emailOtpYaoRegistrationMaterialWithoutSigner: EmailOtpYaoRegistrationMaterialPayload = {
-  pendingHandle: 'pending-registration',
-};
-void emailOtpYaoRegistrationMaterialWithoutSigner;
-
-const emailOtpYaoRecoveryPayload: EmailOtpYaoRecoveryPayload = {
-  rootHandle: emailOtpYaoRootHandle,
-  admissionRequest: emailOtpYaoRecoveryAdmission,
-  walletId: 'wallet.testnet',
-  nearAccountId: 'wallet.testnet',
-  signingRootVersion: 'root-v1',
-  providerSubject: 'google:subject',
-  registrationAuthorityId: 'registration-authority',
-  bearerToken: 'wallet-session-jwt',
-  routerOrigin: 'https://relay.example',
-  sessionPolicy: {
-    thresholdSessionId: 'threshold-ed25519-session',
-    expiresAtMs: 1_900_000_000_000,
-    remainingUses: 3,
-  },
-};
-void emailOtpYaoRecoveryPayload;
-
-// @ts-expect-error Yao recovery must bind retained factor material to one exact session policy.
-const emailOtpYaoRecoveryWithoutSessionPolicy: EmailOtpYaoRecoveryPayload = {
-  rootHandle: emailOtpYaoRootHandle,
-  admissionRequest: emailOtpYaoRecoveryAdmission,
-  walletId: 'wallet.testnet',
-  nearAccountId: 'wallet.testnet',
-  signingRootVersion: 'root-v1',
-  providerSubject: 'google:subject',
-  registrationAuthorityId: 'registration-authority',
-  bearerToken: 'wallet-session-jwt',
-  routerOrigin: 'https://relay.example',
-};
-void emailOtpYaoRecoveryWithoutSessionPolicy;
 
 const emailOtpDeviceEnrollmentRestoreResult: EmailOtpDeviceEnrollmentRestoreResult = {
   walletId: 'wallet.testnet',
