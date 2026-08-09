@@ -376,6 +376,20 @@ export interface WalletCustodyCeremonySurface {
     traceContext?: RouterAbTraceContextV1;
   }): Promise<JoinedWalletCustodyNearEd25519KeySetV1>;
 
+  rejoinWalletCustodyNearEd25519KeySet(args: {
+    walletId: string;
+    custodyJson: string;
+    factorSecret: ArrayBuffer;
+    nearEd25519SigningKeyId: string;
+    registrationCeremonyId: string;
+    admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+    admissionReceipt: unknown;
+    participantIds: readonly [number, number];
+    registeredPublicKeyB64u: string;
+    routerOrigin: string;
+    walletSessionJwt: string;
+  }): Promise<JoinedWalletCustodyNearEd25519KeySetV1>;
+
   establishWalletCustodyEvmFamilyKeySet(args: {
     walletId: string;
     factorJson: string;
@@ -551,6 +565,7 @@ export type LocalLoginStateSurface = WalletSessionReadSurface &
 
 export type AccountSyncSigningSurface = LocalLoginStateSurface &
   Ed25519YaoRegistrationActivationSurface &
+  WalletCustodyCeremonySurface &
   Ed25519MaterialOwnerQueueSurface &
   Pick<EcdsaSessionControlSurface, 'clearVolatileWarmSigningMaterial'> &
   Pick<

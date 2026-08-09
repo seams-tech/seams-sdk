@@ -70,6 +70,29 @@ test('an active envelope round-trips through the opaque store', async () => {
   });
 });
 
+test('factor lookup selects one active envelope and rejects duplicate active wraps', async () => {
+  await withStore(async (store) => {
+    expect((await store.createEnvelope(passkeyCustodyEnvelope())).kind).toBe('stored');
+    const factor = LOCATOR.factor;
+    const selected = await store.lookupEnvelopeForFactor({ walletId: LOCATOR.walletId, factor });
+    expect(selected).toMatchObject({
+      kind: 'active',
+      envelope: { envelopeId: ENVELOPE_ID },
+    });
+
+    expect(
+      (
+        await store.createEnvelope(
+          passkeyCustodyEnvelope({ envelopeId: 'passkey-envelope-duplicate' }),
+        )
+      ).kind,
+    ).toBe('stored');
+    expect(await store.lookupEnvelopeForFactor({ walletId: LOCATOR.walletId, factor })).toEqual({
+      kind: 'conflict',
+    });
+  });
+});
+
 test('a missing envelope and a foreign wallet both read as missing', async () => {
   await withStore(async (store) => {
     expect((await store.lookupEnvelope(LOCATOR)).kind).toBe('missing');

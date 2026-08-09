@@ -605,11 +605,22 @@ async function buildLocalRegistrationCapability(): Promise<WalletEd25519YaoActiv
   const registrationResult = requireParsed(
     parseRouterAbEd25519YaoRegistrationActivationResultV1(activationResult(binding)),
   );
+  const registrationAdmissionReceipt = requireParsed(
+    parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1({
+      binding,
+      keyset: {
+        deriver_a_input_public_key: bytes(31),
+        deriver_b_input_public_key: bytes(32),
+        signing_worker_recipient_public_key: bytes(33),
+      },
+    }),
+  );
   const built = buildRouterAbEd25519YaoRegistrationCapabilityRecordV1({
     kind: 'router_ab_ed25519_yao_registration_finalize_capability_v1',
     activeCapabilityBinding: bytes(20),
     nearAccountId: localNearAccountId(),
     registrationAdmissionRequest: admissionRequest,
+    registrationAdmissionReceipt,
     registrationResult,
     runtimePolicyScope: localRuntimePolicyScope(),
   });

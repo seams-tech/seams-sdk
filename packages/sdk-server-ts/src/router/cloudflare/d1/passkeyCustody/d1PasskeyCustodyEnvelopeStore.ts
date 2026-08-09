@@ -132,6 +132,10 @@ export type PasskeyCustodyEnvelopeLookupResult =
       readonly actualCiphertextDigestB64u: string;
     };
 
+export type PasskeyCustodyEnvelopeFactorLookupResult =
+  | PasskeyCustodyEnvelopeLookupResult
+  | { readonly kind: 'conflict' };
+
 /**
  * Whether a browser's cached ciphertext may still be used. A cache is usable
  * only at the exact server revision and digest; anything else must be refetched.
@@ -329,6 +333,23 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
       envelopes.push(entry.result.value);
     }
     return envelopes;
+  }
+
+  async lookupEnvelopeForFactor(input: {
+    readonly walletId: WalletId;
+    readonly factor: WalletCustodyFactorRef;
+  }): Promise<PasskeyCustodyEnvelopeFactorLookupResult> {
+    const envelopes = await this.listWalletEnvelopes(input.walletId);
+    const matching = envelopes.filter((envelope) =>
+      factorRefsMatch(envelopeFactorRef(envelope), input.factor),
+    );
+    const active = matching.filter((envelope) => envelope.lifecycle.state === 'active');
+    if (active.length > 1) return { kind: 'conflict' };
+    const selected = active[0];
+    if (selected) return await this.lookupEnvelope(envelopeLocator(selected));
+    const terminal = matching[0];
+    if (!terminal) return { kind: 'missing' };
+    return await this.lookupEnvelope(envelopeLocator(terminal));
   }
 
   async createEnvelope(

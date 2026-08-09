@@ -12,7 +12,6 @@ import { nearEd25519YaoMaterialActivationFromMetadata } from '../../packages/sdk
 import {
   ROUTER_AB_ED25519_YAO_ACTIVE_CLIENT_KIND_V1,
   RouterAbEd25519YaoClientV1,
-  type RouterAbEd25519YaoRecoveryResultV1,
   type RouterAbEd25519YaoSealableActiveClientV1,
 } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoClient';
 import { MinimalNearClient } from '../../packages/sdk-web/src/core/rpcClients/near/NearClient';
@@ -33,16 +32,10 @@ import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '../../packages/shared-ts/src/utils/signingSessionSeal';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '../../packages/shared-ts/src/utils/sessionTokens';
 import { isPlainObject } from '../../packages/shared-ts/src/utils/validation';
-import {
-  mpcMaterialActivationRefsEqual,
-  parseMpcMaterialActivationRef,
-} from '../../packages/shared-ts/src/utils/domainIds';
-import {
-  parseRouterAbEd25519YaoRecoveryActivationReceiptV1,
-  parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
-  type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
-} from '../../packages/shared-ts/src/utils/routerAbEd25519Yao';
+import { mpcMaterialActivationRefsEqual } from '../../packages/shared-ts/src/utils/domainIds';
+import { routerAbMpcMaterialActivationRefToWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
+import { rawPasskeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixtures';
 
 const RELAYER_URL = 'https://router.example.test';
 const RP_ID = 'wallet.example.test';
@@ -74,9 +67,7 @@ class YaoScenario {
   readonly activeClient: MockActiveClient;
   failRecovery = false;
   capturedPrfFirst: Uint8Array | null = null;
-  recoveryRequest: RouterAbEd25519YaoRecoveryAdmissionRequestV1 | null = null;
   initializeCalls = 0;
-  recoverCalls = 0;
   disposeCalls = 0;
   disposed = false;
 
@@ -221,37 +212,20 @@ function requireActivePersistenceFixture(): SyncAccountPersistenceFixture {
   return activePersistenceFixture;
 }
 
-function requireRecoveryMaterialActivation(request: RouterAbEd25519YaoRecoveryAdmissionRequestV1) {
-  const wire = request.scope.material_activation;
-  const parsed = parseMpcMaterialActivationRef({
-    kind: wire.kind,
-    activationId: wire.activation_id,
-    capability: wire.capability,
-    materialOwner: wire.material_owner,
-    keyBinding: wire.key_binding,
-    lifecycleBinding: wire.lifecycle_binding,
-    signingWorker: wire.signing_worker,
-  });
-  if (!parsed.ok) throw new Error(parsed.error.message);
-  return parsed.value;
-}
-
 function createMockActiveClient(scenario: YaoScenario): MockActiveClient {
   return {
     metadata() {
-      const request = scenario.recoveryRequest;
-      if (!request) throw new Error('mock active client has no recovery request');
       return {
         kind: ROUTER_AB_ED25519_YAO_ACTIVE_CLIENT_KIND_V1,
-        scope: request.scope,
-        applicationBinding: request.application_binding,
-        participantIds: request.participant_ids,
-        stateEpoch: 2n,
+        scope: registrationAdmissionRequest(DISCOVERED_WALLET_ID).scope,
+        applicationBinding: registrationAdmissionRequest(DISCOVERED_WALLET_ID).application_binding,
+        participantIds: [1, 2],
+        stateEpoch: 1n,
         registeredPublicKey: REGISTERED_PUBLIC_KEY.slice(),
         signingWorkerVerifyingShare: new Uint8Array(32).fill(15),
         transcript: new Uint8Array(32).fill(11),
-        activeCapabilityBinding: request.replacement_capability_binding,
-        materialActivation: requireRecoveryMaterialActivation(request),
+        activeCapabilityBinding: new Array<number>(32).fill(8),
+        materialActivation: MATERIAL_ACTIVATION,
       };
     },
     async createSigningShare() {
@@ -281,82 +255,16 @@ function createYaoScenario(): YaoScenario {
   return new YaoScenario();
 }
 
-type MockPasskeyRecoveryFactorInput = {
-  readonly ownedSecret32: Uint8Array;
-  readonly request: RouterAbEd25519YaoRecoveryAdmissionRequestV1;
-};
-
-function requireMockRecoveryInput(value: unknown): MockPasskeyRecoveryFactorInput {
-  if (!isPlainObject(value) || !isPlainObject(value.factor)) {
-    throw new Error('mock recovery received invalid owned PRF input');
-  }
-  if (
-    value.factor.kind !== 'passkey_prf_first' ||
-    !(value.factor.ownedSecret32 instanceof Uint8Array)
-  ) {
-    throw new Error('mock recovery received invalid passkey factor');
-  }
-  const request = parseRouterAbEd25519YaoRecoveryAdmissionRequestV1(value.request);
-  if (!request.ok) throw new Error(request.message);
-  return { ownedSecret32: value.factor.ownedSecret32, request: request.value };
-}
-
-function requirePromotionReceipt(request: RouterAbEd25519YaoRecoveryAdmissionRequestV1) {
-  const parsed = parseRouterAbEd25519YaoRecoveryActivationReceiptV1({
-    binding: {
-      lifecycle: {
-        lifecycle_id: request.scope.lifecycle_id,
-        work_kind: 'recovery',
-        primitive_request_kind: 'recovery',
-        root_share_epoch: request.scope.root_share_epoch,
-        account_id: request.scope.account_id,
-        session_id: request.scope.threshold_session_id,
-        signer_set_id: request.scope.signer_set_id,
-        selected_server_id: request.scope.signing_worker_id,
-      },
-      operation: 'recovery',
-      session_id: new Array<number>(32).fill(7),
-      stable_key_context_binding: new Array<number>(32).fill(8),
-      material_activation: request.scope.material_activation,
-    },
-    public_receipt: {
-      transcript: new Array<number>(32).fill(11),
-      registered_public_key: request.registered_public_key,
-      joined_client_commitment: new Array<number>(32).fill(13),
-      joined_signing_worker_commitment: new Array<number>(32).fill(14),
-      signing_worker_verifying_share: new Array<number>(32).fill(15),
-      state_epoch: 2,
-      material_activation: request.scope.material_activation,
-    },
-    active_capability_binding: request.replacement_capability_binding,
-    retired_capability_binding: request.active_capability_binding,
-  });
-  if (!parsed.ok) throw new Error(parsed.message);
-  return parsed.value;
-}
-
-async function mockRecover(value: unknown): Promise<RouterAbEd25519YaoRecoveryResultV1> {
-  const scenario = requireActiveYaoScenario();
-  const input = requireMockRecoveryInput(value);
-  scenario.recoveryRequest = input.request;
-  scenario.recoverCalls += 1;
-  scenario.capturedPrfFirst = input.ownedSecret32;
-  try {
-    if (scenario.failRecovery) throw new Error('mock Yao recovery failed');
-    return {
-      ok: true,
-      activeClient: scenario.activeClient,
-      activation: requirePromotionReceipt(input.request),
-    };
-  } finally {
-    input.ownedSecret32.fill(0);
-  }
-}
-
 async function mockInitializeBundled(): Promise<unknown> {
   const scenario = requireActiveYaoScenario();
   scenario.initializeCalls += 1;
-  return { recoverPrepared: mockRecover };
+  return {
+    openCustodyCache(input: { ownedFactorSecret: Uint8Array }) {
+      scenario.capturedPrfFirst = input.ownedFactorSecret;
+      input.ownedFactorSecret.fill(0);
+      return scenario.activeClient;
+    },
+  };
 }
 
 function installYaoClientMock(): void {
@@ -436,6 +344,8 @@ function syncOptionsResponse(scenario: FetchScenario): Record<string, unknown> {
 }
 
 function syncVerifyResponse(walletId: string): Record<string, unknown> {
+  const admissionRequest = registrationAdmissionRequest(walletId);
+  const admissionReceipt = registrationAdmissionReceipt(walletId);
   return {
     ok: true,
     verified: true,
@@ -482,7 +392,7 @@ function syncVerifyResponse(walletId: string): Record<string, unknown> {
       },
       capability: {
         kind: 'router_ab_ed25519_yao_active_capability_v1',
-        materialActivation: MATERIAL_ACTIVATION,
+        materialActivation: routerAbMpcMaterialActivationRefToWire(MATERIAL_ACTIVATION),
         activeCapabilityBinding: new Array<number>(32).fill(8),
         registeredPublicKey: [...REGISTERED_PUBLIC_KEY],
         nearAccountId: NEAR_ACCOUNT_ID,
@@ -508,7 +418,74 @@ function syncVerifyResponse(walletId: string): Record<string, unknown> {
           signingWorkerId: SIGNING_WORKER_ID,
         },
         stateEpoch: 1,
+        registrationContinuity: {
+          kind: 'registration',
+          admissionRequest,
+          admissionReceipt,
+          activationTranscript: new Array<number>(32).fill(11),
+        },
       },
+    },
+    walletCustody: {
+      kind: 'wallet_custody_sync_bootstrap_v1',
+      envelope: rawPasskeyCustodyEnvelope({
+        walletId,
+        factor: {
+          kind: 'passkey',
+          rpId: RP_ID,
+          credentialIdB64u: CREDENTIAL_ID,
+          kekVersion: 'passkey_prf_kek_hkdf_sha256_v1',
+        },
+      }),
+      storeVersion: 'custody-store-version-1',
+    },
+  };
+}
+
+function registrationAdmissionRequest(walletId: string) {
+  return {
+    scope: {
+      lifecycle_id: 'sync-account-orchestration-lifecycle',
+      root_share_epoch: ROOT_SHARE_EPOCH,
+      account_id: walletId,
+      threshold_session_id: THRESHOLD_SESSION_ID,
+      signer_set_id: 'signer-set-sync-1',
+      signing_worker_id: SIGNING_WORKER_ID,
+      material_activation: routerAbMpcMaterialActivationRefToWire(MATERIAL_ACTIVATION),
+    },
+    application_binding: {
+      wallet_id: walletId,
+      near_ed25519_signing_key_id: NEAR_SIGNING_KEY_ID,
+      signing_root_id: 'project-sync:test',
+      key_creation_signer_slot: SIGNER_SLOT,
+    },
+    participant_ids: [1, 2] as const,
+  };
+}
+
+function registrationAdmissionReceipt(walletId: string) {
+  const request = registrationAdmissionRequest(walletId);
+  return {
+    binding: {
+      lifecycle: {
+        lifecycle_id: request.scope.lifecycle_id,
+        work_kind: 'registration_prepare',
+        primitive_request_kind: 'registration',
+        root_share_epoch: request.scope.root_share_epoch,
+        account_id: request.scope.account_id,
+        session_id: request.scope.threshold_session_id,
+        signer_set_id: request.scope.signer_set_id,
+        selected_server_id: request.scope.signing_worker_id,
+      },
+      operation: 'registration',
+      session_id: new Array<number>(32).fill(8),
+      stable_key_context_binding: new Array<number>(32).fill(9),
+      material_activation: request.scope.material_activation,
+    },
+    keyset: {
+      deriver_a_input_public_key: new Array<number>(32).fill(1),
+      deriver_b_input_public_key: new Array<number>(32).fill(2),
+      signing_worker_recipient_public_key: new Array<number>(32).fill(3),
     },
   };
 }
@@ -728,6 +705,40 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
   }
 
   async storeAuthenticator(): Promise<void> {}
+
+  async rejoinWalletCustodyNearEd25519KeySet(
+    args: Parameters<AccountSyncSigningSurface['rejoinWalletCustodyNearEd25519KeySet']>[0],
+  ): ReturnType<AccountSyncSigningSurface['rejoinWalletCustodyNearEd25519KeySet']> {
+    const scenario = requireActiveYaoScenario();
+    const factorSecret = new Uint8Array(args.factorSecret);
+    scenario.capturedPrfFirst = factorSecret;
+    try {
+      if (scenario.failRecovery) throw new Error('mock Yao recovery failed');
+      const metadata = scenario.activeClient.metadata();
+      return {
+        commitPayload: {
+          walletId: args.walletId,
+          keySet: 'near_ed25519_v1',
+          keyManifestDigestB64u: base64UrlEncode(new Uint8Array(32).fill(4)),
+        },
+        activationReference: {
+          kind: 'router_ab_ed25519_yao_activation_reference_v1',
+          lifecycle_id: args.registrationCeremonyId,
+          session_id: metadata.activeCapabilityBinding,
+        },
+        localMaterial: {
+          b64u: base64UrlEncode(new Uint8Array(48).fill(5)),
+          nonceB64u: base64UrlEncode(new Uint8Array(12).fill(6)),
+          applicationBindingDigestB64u: base64UrlEncode(new Uint8Array(32).fill(7)),
+        },
+        metadata,
+      };
+    } finally {
+      factorSecret.fill(0);
+    }
+  }
+
+  async persistWalletCustodyEd25519Material(): Promise<void> {}
 }
 
 function createContext(surface: SyncAccountSigningSurfaceFixture): AccountSyncWebContext {
@@ -786,7 +797,7 @@ test.describe('public syncAccount Yao orchestration', () => {
 
     const result = await syncAccount(createContext(surface), null);
 
-    expect(result).toMatchObject({
+    expect(result, JSON.stringify(result)).toMatchObject({
       success: true,
       walletId: DISCOVERED_WALLET_ID,
       accountId: DISCOVERED_WALLET_ID,
@@ -805,8 +816,8 @@ test.describe('public syncAccount Yao orchestration', () => {
     expect(surface.queuedActivationIds).toEqual([String(MATERIAL_ACTIVATION.activationId)]);
     expect(surface.activationQueueStates).toEqual([true]);
     expect(surface.hydratedSessionIds).toEqual([THRESHOLD_SESSION_ID]);
-    expect(surface.sealedSessionIds).toEqual([THRESHOLD_SESSION_ID]);
-    expect(surface.sealedQueueStates).toEqual([true]);
+    expect(surface.sealedSessionIds).toEqual([]);
+    expect(surface.sealedQueueStates).toEqual([]);
     expect(surface.laneReferences).toHaveLength(1);
     const freshMaterialActivation = nearEd25519YaoMaterialActivationFromMetadata(
       surface.activatedMaterials[0]!.activeClient.metadata(),
@@ -828,15 +839,13 @@ test.describe('public syncAccount Yao orchestration', () => {
     expect(freshMaterialActivation.materialOwner).toBe(MATERIAL_ACTIVATION.materialOwner);
     expect(freshMaterialActivation.keyBinding).toBe(MATERIAL_ACTIVATION.keyBinding);
     expect(freshMaterialActivation.signingWorker).toBe(MATERIAL_ACTIVATION.signingWorker);
-    expect(freshMaterialActivation.activationId).not.toBe(MATERIAL_ACTIVATION.activationId);
+    expect(freshMaterialActivation.activationId).toBe(MATERIAL_ACTIVATION.activationId);
     expect(surface.authenticatedWalletIds).toEqual([DISCOVERED_WALLET_ID, DISCOVERED_WALLET_ID]);
     expect(surface.lastUserWalletIds).toEqual([DISCOVERED_WALLET_ID]);
     expect(surface.clearWalletIds).toEqual([]);
     const persistence = requireActivePersistenceFixture();
     expect(persistence.appState.size).toBe(0);
-    expect([...persistence.keyMaterial.values()].map((record) => record.keyKind)).toEqual([
-      ROUTER_AB_ED25519_YAO_ACTIVE_CLIENT_KIND_V1,
-    ]);
+    expect([...persistence.keyMaterial.values()].map((record) => record.keyKind)).toEqual([]);
   });
 
   test('rejects requested-wallet substitution and clears the recovered wallet capability', async () => {

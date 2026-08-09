@@ -5,6 +5,9 @@ import {
   type RouterAbEd25519YaoActivationConsumptionResultV1,
   type RouterAbEd25519YaoRegistrationBackend,
   type RouterAbEd25519YaoRegistrationBackendResult,
+  type RouterAbEd25519YaoRegistrationExecuteRequestV1,
+  type RouterAbEd25519YaoRegistrationResultV1,
+  type RouterAbEd25519YaoRegistrationServiceResult,
 } from '../registration/routerAbEd25519YaoRegistration';
 import { InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter } from '../registration/routerAbEd25519YaoRegistrationIntentAuthorization';
 import type {
@@ -106,6 +109,13 @@ class RouterAbEd25519YaoProductRegistrationRequestScopedRuntime implements Route
     input: RouterAbEd25519YaoActivationConsumptionRequestV1,
   ): Promise<RouterAbEd25519YaoActivationConsumptionResultV1> {
     return await this.input.store.consumeRegistrationExecution(input);
+  }
+
+  async replayActivatedRegistration(
+    request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
+  ): Promise<RouterAbEd25519YaoRegistrationServiceResult<RouterAbEd25519YaoRegistrationResultV1>> {
+    const loaded = await this.input.store.load(request.binding.lifecycle.lifecycle_id);
+    return registrationService(loaded.state).replayActivated(request);
   }
 
   async installRegistrationFinalizeCapability(

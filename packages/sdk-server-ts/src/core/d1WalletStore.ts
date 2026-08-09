@@ -17,6 +17,7 @@ import {
   parseRouterAbEd25519YaoRecoveryActivationResultV1,
   parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
   parseRouterAbEd25519YaoRegistrationActivationResultV1,
+  parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
@@ -282,8 +283,12 @@ function parseWalletEd25519YaoActiveCapabilityRecord(
       const activationResult = parseRouterAbEd25519YaoRegistrationActivationResultV1(
         raw.activationResult,
       );
+      const admissionReceipt = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(
+        raw.admissionReceipt,
+      );
       if (
         !admissionRequest.ok ||
+        !admissionReceipt.ok ||
         !activationResult.ok ||
         !Array.isArray(raw.activeCapabilityBinding) ||
         !equalBytes(raw.activeCapabilityBinding, activationResult.value.binding.session_id)
@@ -295,6 +300,7 @@ function parseWalletEd25519YaoActiveCapabilityRecord(
         activeCapabilityBinding: [...activationResult.value.binding.session_id],
         nearAccountId,
         admissionRequest: admissionRequest.value,
+        admissionReceipt: admissionReceipt.value,
         activationResult: activationResult.value,
         runtimePolicyScope,
       };
@@ -347,9 +353,7 @@ export function parseWalletEd25519SignerRecord(raw: unknown): WalletEd25519Signe
   const createdAtMs = normalizeTimestampMs(raw.createdAtMs);
   const updatedAtMs = normalizeTimestampMs(raw.updatedAtMs);
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds);
-  const activeYaoCapability = parseWalletEd25519YaoActiveCapabilityRecord(
-    raw.activeYaoCapability,
-  );
+  const activeYaoCapability = parseWalletEd25519YaoActiveCapabilityRecord(raw.activeYaoCapability);
   let runtimePolicyScope;
   try {
     runtimePolicyScope = normalizeRuntimePolicyScope(raw.runtimePolicyScope);
@@ -934,9 +938,7 @@ export class D1WalletStore implements WalletStore {
       .all<D1WalletRow>();
     const records = (result.results || [])
       .map((row) =>
-        parseWalletEcdsaPendingSessionActivationRecord(
-          parseD1JsonColumn(row.record_json),
-        ),
+        parseWalletEcdsaPendingSessionActivationRecord(parseD1JsonColumn(row.record_json)),
       )
       .filter(
         (record): record is WalletEcdsaPendingSessionActivationRecord =>
@@ -958,9 +960,7 @@ export class D1WalletStore implements WalletStore {
         { readonly operation: 'refresh' }
       > => record.operation === 'refresh',
     );
-    return records.length === 2 && recovery && refresh
-      ? { recovery, refresh }
-      : null;
+    return records.length === 2 && recovery && refresh ? { recovery, refresh } : null;
   }
 
   async getEd25519Signer(input: {

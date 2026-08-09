@@ -1,7 +1,5 @@
 import type { NearResolvedEd25519SigningSessionState } from '@/core/signingEngine/interfaces/near';
-import type {
-  Ed25519YaoPublicCapabilityLaneReferenceV1,
-} from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
+import type { Ed25519YaoPublicCapabilityLaneReferenceV1 } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import { IndexedDBManager } from '@/core/indexedDB';
 import {
   openEd25519YaoRecoverySourceV1,
@@ -59,8 +57,16 @@ import {
 } from '@shared/utils/domainIds';
 import {
   parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
+  parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
+  parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
+  type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
+  type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
+import {
+  parsePasskeyCustodyEnvelopeRecord,
+  type PasskeyCustodyEnvelopeRecord,
+} from '@shared/passkey-custody';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import { isPlainObject } from '@shared/utils/validation';
@@ -116,6 +122,14 @@ export type ParsedYaoRecoveryCapabilityV1 = {
     readonly signingWorkerId: string;
   };
   readonly stateEpoch: number;
+  readonly registrationContinuity:
+    | {
+        readonly kind: 'registration';
+        readonly admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+        readonly admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
+        readonly activationTranscript: readonly number[];
+      }
+    | { readonly kind: 'recovery' };
 };
 
 export type ParsedPasskeyEd25519YaoRecoveryDescriptorV1 = {
@@ -144,6 +158,10 @@ function requireThresholdEd25519SessionId(
 
 export type ParsedPasskeyEd25519YaoSyncResponseV1 = ParsedPasskeyEd25519YaoRecoveryDescriptorV1 & {
   readonly credentialPublicKeyB64u: string;
+  readonly walletCustody: {
+    readonly envelope: PasskeyCustodyEnvelopeRecord;
+    readonly storeVersion: string;
+  };
 };
 
 export type PasskeyEd25519YaoRecoveryResultV1<
@@ -205,6 +223,53 @@ function requireBytes32(value: unknown, label: string): readonly number[] {
     bytes.push(byte);
   }
   return Object.freeze(bytes);
+}
+
+function requireBytes(value: unknown, label: string): readonly number[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${label} must contain bytes`);
+  }
+  return value.map((byte) => {
+    if (typeof byte !== 'number' || !Number.isInteger(byte) || byte < 0 || byte > 255) {
+      throw new Error(`${label} must contain bytes`);
+    }
+    return byte;
+  });
+}
+
+function parseRegistrationContinuity(
+  value: unknown,
+): ParsedYaoRecoveryCapabilityV1['registrationContinuity'] {
+  const record = requireRecord(value, 'capability.registrationContinuity');
+  if (record.kind === 'recovery') return { kind: 'recovery' };
+  if (record.kind !== 'registration') {
+    throw new Error('capability.registrationContinuity kind is invalid');
+  }
+  const admissionRequest = parseRouterAbEd25519YaoRegistrationAdmissionRequestV1(
+    record.admissionRequest,
+  );
+  const admissionReceipt = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(
+    record.admissionReceipt,
+  );
+  if (!admissionRequest.ok) {
+    throw new Error(
+      `capability registration continuity transcript is invalid: ${admissionRequest.message}`,
+    );
+  }
+  if (!admissionReceipt.ok) {
+    throw new Error(
+      `capability registration continuity transcript is invalid: ${admissionReceipt.message}`,
+    );
+  }
+  return {
+    kind: 'registration',
+    admissionRequest: admissionRequest.value,
+    admissionReceipt: admissionReceipt.value,
+    activationTranscript: requireBytes(
+      record.activationTranscript,
+      'capability.registrationContinuity.activationTranscript',
+    ),
+  };
 }
 
 function requireParticipantIds(value: unknown): readonly [number, number] {
@@ -324,6 +389,7 @@ export function parseEd25519YaoRecoveryCapabilityV1(raw: unknown): ParsedYaoReco
       signingWorkerId: requireString(lifecycle.signingWorkerId, 'lifecycle.signingWorkerId'),
     },
     stateEpoch: requirePositiveInteger(record.stateEpoch, 'capability.stateEpoch'),
+    registrationContinuity: parseRegistrationContinuity(record.registrationContinuity),
   };
 }
 
@@ -413,6 +479,10 @@ export function parsePasskeyEd25519YaoSyncResponseV1(
   if (!authority || String(authority.walletId) !== String(walletId)) {
     throw new Error('sync-account recovery authority is invalid');
   }
+  const custody = requireRecord(response.walletCustody, 'walletCustody');
+  if (custody.kind !== 'wallet_custody_sync_bootstrap_v1') {
+    throw new Error('walletCustody kind is invalid');
+  }
   const parsed: ParsedPasskeyEd25519YaoSyncResponseV1 = {
     authority,
     walletId,
@@ -436,6 +506,10 @@ export function parsePasskeyEd25519YaoSyncResponseV1(
       },
     ),
     capability: parseEd25519YaoRecoveryCapabilityV1(recovery.capability),
+    walletCustody: {
+      envelope: parsePasskeyCustodyEnvelopeRecord(custody.envelope),
+      storeVersion: requireString(custody.storeVersion, 'walletCustody.storeVersion'),
+    },
   };
   assertEd25519YaoRecoveryDescriptorContinuity(parsed);
   return parsed;
@@ -477,9 +551,7 @@ function recoveryAdmissionRequest(
         threshold_session_id: parsed.session.thresholdSessionId,
         signer_set_id: parsed.capability.lifecycle.signerSetId,
         signing_worker_id: parsed.capability.lifecycle.signingWorkerId,
-        material_activation: routerAbMpcMaterialActivationRefToWire(
-          replacementMaterialActivation,
-        ),
+        material_activation: routerAbMpcMaterialActivationRefToWire(replacementMaterialActivation),
       },
       active_material_activation: routerAbMpcMaterialActivationRefToWire(
         parsed.capability.materialActivation,
@@ -497,7 +569,7 @@ function recoveryAdmissionRequest(
   }
 }
 
-function buildRecoveredWalletSessionState(input: {
+export function buildRecoveredWalletSessionState(input: {
   readonly parsed: ParsedPasskeyEd25519YaoRecoveryDescriptorV1;
   readonly relayerUrl: string;
   readonly rpId: string;

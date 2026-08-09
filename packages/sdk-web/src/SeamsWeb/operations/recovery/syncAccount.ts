@@ -17,13 +17,13 @@ import {
 } from '@/core/signingEngine/webauthnAuth/credentials/credentialExtensions';
 import {
   parsePasskeyEd25519YaoSyncResponseV1,
+  buildRecoveredWalletSessionState,
   passkeyEd25519YaoLaneReferenceFromRecovery,
-  recoverParsedPasskeyEd25519YaoCapabilityV1,
   type PasskeyEd25519YaoRecoveryResultV1,
   type ParsedPasskeyEd25519YaoSyncResponseV1,
 } from '@/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery';
 import { restoreLocalLoginState } from '@/SeamsWeb/operations/session/restoreLocalLoginState';
-import { base64UrlDecode } from '@shared/utils/base64';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { errorMessage } from '@shared/utils/errors';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
@@ -37,12 +37,15 @@ import {
   buildPasskeyEd25519RestoreMetadata,
   persistPasskeyEd25519YaoSessionForRefresh,
 } from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
+import { nearEd25519YaoMaterialActivationFromMetadata } from '@/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
+import { joinCustodyWireFromEnvelopeRecord } from '@/core/signingEngine/walletCustody/joinCustodyWire';
+import { openWalletCustodyEd25519ActiveClientV1 } from '@/core/signingEngine/walletCustody/openCustodyCache';
 import {
-  nearEd25519YaoMaterialActivationFromMetadata,
-} from '@/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
-import {
-  mpcMaterialActivationRefsEqual,
-} from '@shared/utils/domainIds';
+  WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
+  type WalletCustodyEd25519MaterialBindingV1,
+} from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
+import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 
 export type { SyncAccountResult };
 
@@ -85,6 +88,12 @@ export type RecoverPasskeyEd25519YaoForUnlockInputV1 = {
     | 'persistSigningSessionSealForThresholdSession'
     | 'upsertEd25519YaoPublicCapabilityLaneReference'
   >;
+  readonly rejoinWalletCustodyNearEd25519KeySet: AccountSyncSigningSurface['rejoinWalletCustodyNearEd25519KeySet'];
+  readonly persistWalletCustodyEd25519Material: AccountSyncSigningSurface['persistWalletCustodyEd25519Material'];
+  readonly prepareLocalProfile: (
+    parsed: ParsedPasskeyEd25519YaoSyncResponseV1,
+    credential: WebAuthnAuthenticationCredential,
+  ) => Promise<void>;
   readonly onPromptStarted?: () => void;
   readonly onPromptSucceeded?: () => void;
   readonly onRelayVerifyStarted?: () => void;
@@ -312,20 +321,121 @@ type RecoverAndCommitPasskeyEd25519UnlockInput = {
   prfFirstB64u: string;
   sessionPersistence: RecoverPasskeyEd25519YaoForUnlockInputV1['sessionPersistence'];
   activateCapability: RecoverPasskeyEd25519YaoForUnlockInputV1['activateCapability'];
+  rejoinWalletCustodyNearEd25519KeySet: RecoverPasskeyEd25519YaoForUnlockInputV1['rejoinWalletCustodyNearEd25519KeySet'];
+  persistWalletCustodyEd25519Material: RecoverPasskeyEd25519YaoForUnlockInputV1['persistWalletCustodyEd25519Material'];
 };
+
+function walletCustodyCacheEnvelopeFromRecord(envelope: PasskeyCustodyEnvelopeRecord) {
+  return {
+    bindingJson: JSON.stringify({
+      walletId: envelope.walletId,
+      envelopeId: envelope.envelopeId,
+      factor: envelope.factor,
+      envelopeRevision: envelope.envelopeRevision,
+      binding: envelope.binding,
+    }),
+    nonceB64u: envelope.nonceB64u,
+    ciphertextB64u: envelope.sealedCustodySecretB64u,
+    aadHashB64u: envelope.aadHashB64u,
+    ciphertextDigestB64u: envelope.ciphertextDigestB64u,
+  };
+}
+
+function walletCustodyMaterialBinding(input: {
+  readonly parsed: ParsedPasskeyEd25519YaoSyncResponseV1;
+  readonly applicationBindingDigestB64u: string;
+  readonly metadata: Awaited<
+    ReturnType<AccountSyncSigningSurface['rejoinWalletCustodyNearEd25519KeySet']>
+  >['metadata'];
+}): WalletCustodyEd25519MaterialBindingV1 {
+  return {
+    kind: WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
+    applicationBindingDigestB64u: input.applicationBindingDigestB64u,
+    registeredPublicKeyB64u: base64UrlEncode(input.metadata.registeredPublicKey),
+    participantIds: input.metadata.participantIds,
+    stateEpoch: String(input.metadata.stateEpoch),
+    walletId: String(input.parsed.walletId),
+    nearAccountId: String(input.parsed.nearAccountId),
+    nearEd25519SigningKeyId: input.parsed.nearEd25519SigningKeyId,
+    signerSlot: input.parsed.signerSlot,
+    signingWorkerId: input.parsed.relayerKeyId,
+    signingWorkerVerifyingShareB64u: base64UrlEncode(input.metadata.signingWorkerVerifyingShare),
+  };
+}
 
 async function recoverAndCommitPasskeyEd25519Unlock(
   input: RecoverAndCommitPasskeyEd25519UnlockInput,
 ): Promise<PasskeyEd25519YaoRecoveryResultV1> {
-  let recovery: PasskeyEd25519YaoRecoveryResultV1 | null = null;
+  const continuity = input.parsed.capability.registrationContinuity;
+  if (continuity.kind !== 'registration') {
+    throw new Error('wallet custody cold unlock requires registration continuity');
+  }
+  const custodyWire = joinCustodyWireFromEnvelopeRecord(input.parsed.walletCustody.envelope);
+  if (!custodyWire.ok) throw new Error(custodyWire.reason);
+  const rejoinSecret = input.ownedPasskeyPrfFirst.slice();
+  const openSecret = input.ownedPasskeyPrfFirst.slice();
+  let activeClient: PasskeyEd25519YaoRecoveryResultV1['activeClient'] | null = null;
   try {
-    recovery = await recoverParsedPasskeyEd25519YaoCapabilityV1({
+    const rejoined = await input.rejoinWalletCustodyNearEd25519KeySet({
+      walletId: String(input.parsed.walletId),
+      custodyJson: custodyWire.custodyJson,
+      factorSecret: rejoinSecret.buffer,
+      nearEd25519SigningKeyId: input.parsed.nearEd25519SigningKeyId,
+      registrationCeremonyId: continuity.admissionRequest.scope.lifecycle_id,
+      admissionRequest: continuity.admissionRequest,
+      admissionReceipt: continuity.admissionReceipt,
+      participantIds: input.parsed.capability.participantIds,
+      registeredPublicKeyB64u: base64UrlEncode(
+        Uint8Array.from(input.parsed.capability.registeredPublicKey),
+      ),
+      routerOrigin: new URL(input.relayerUrl).origin,
+      walletSessionJwt: input.parsed.session.walletSessionJwt,
+    });
+    const materialBinding = walletCustodyMaterialBinding({
       parsed: input.parsed,
-      ownedPasskeyPrfFirst: input.ownedPasskeyPrfFirst,
+      applicationBindingDigestB64u: rejoined.localMaterial.applicationBindingDigestB64u,
+      metadata: rejoined.metadata,
+    });
+    await input.persistWalletCustodyEd25519Material({
+      binding: materialBinding,
+      sealed: {
+        ciphertextB64u: rejoined.localMaterial.b64u,
+        nonceB64u: rejoined.localMaterial.nonceB64u,
+      },
+    });
+    activeClient = await openWalletCustodyEd25519ActiveClientV1({
+      material: {
+        binding: materialBinding,
+        sealed: {
+          ciphertextB64u: rejoined.localMaterial.b64u,
+          nonceB64u: rejoined.localMaterial.nonceB64u,
+        },
+      },
+      activation: {
+        materialActivation: rejoined.metadata.materialActivation,
+        lifecycleId: rejoined.metadata.scope.lifecycle_id,
+        signingRootVersion: rejoined.metadata.scope.root_share_epoch,
+        signingRootId: rejoined.metadata.applicationBinding.signing_root_id,
+        signerSetId: rejoined.metadata.scope.signer_set_id,
+        thresholdSessionId: rejoined.metadata.scope.threshold_session_id,
+        activationTranscriptB64u: base64UrlEncode(rejoined.metadata.transcript),
+        activationCapabilityBindingB64u: base64UrlEncode(
+          Uint8Array.from(rejoined.metadata.activeCapabilityBinding),
+        ),
+      },
+      envelope: walletCustodyCacheEnvelopeFromRecord(input.parsed.walletCustody.envelope),
+      ownedFactorSecret: openSecret,
+    });
+    const walletSessionState = buildRecoveredWalletSessionState({
+      parsed: input.parsed,
       relayerUrl: input.relayerUrl,
       rpId: input.rpId,
-      fetch: input.fetch,
     });
+    const recovery: PasskeyEd25519YaoRecoveryResultV1 = {
+      activeClient,
+      walletSessionState,
+      parsed: input.parsed,
+    };
     assertRecoveredCapabilityBinding({
       requestedWalletId: input.requestedWalletId,
       rpId: input.rpId,
@@ -367,12 +477,7 @@ async function recoverAndCommitPasskeyEd25519Unlock(
         relayerUrl: recovery.walletSessionState.relayerUrl,
       },
     });
-    if (
-      !mpcMaterialActivationRefsEqual(
-        activated.materialActivation,
-        recoveredActivation,
-      )
-    ) {
+    if (!mpcMaterialActivationRefsEqual(activated.materialActivation, recoveredActivation)) {
       throw new Error('Passkey Ed25519 registry activation changed during recovery commit');
     }
     await input.sessionPersistence.upsertEd25519YaoPublicCapabilityLaneReference(
@@ -383,8 +488,11 @@ async function recoverAndCommitPasskeyEd25519Unlock(
     );
     return recovery;
   } catch (error) {
-    recovery?.activeClient.dispose();
+    activeClient?.dispose();
     throw error;
+  } finally {
+    rejoinSecret.fill(0);
+    openSecret.fill(0);
   }
 }
 
@@ -432,6 +540,7 @@ export async function recoverPasskeyEd25519YaoForUnlockV1(
   const ownedPasskeyPrfFirst = base64UrlDecode(prfFirstB64u);
   try {
     const parsed = parsePasskeyEd25519YaoSyncResponseV1(verified);
+    await input.prepareLocalProfile(parsed, credential);
     const recovery = await input.withExactEd25519MaterialOwner({
       materialActivation: parsed.capability.materialActivation,
       nearAccountId: parsed.nearAccountId,
@@ -448,6 +557,8 @@ export async function recoverPasskeyEd25519YaoForUnlockV1(
         prfFirstB64u,
         sessionPersistence: input.sessionPersistence,
         activateCapability: input.activateCapability,
+        rejoinWalletCustodyNearEd25519KeySet: input.rejoinWalletCustodyNearEd25519KeySet,
+        persistWalletCustodyEd25519Material: input.persistWalletCustodyEd25519Material,
       }),
     });
     return { recovery, credential, verifiedBinding };
@@ -458,10 +569,10 @@ export async function recoverPasskeyEd25519YaoForUnlockV1(
 
 async function persistRecoveredPasskey(input: {
   readonly context: AccountSyncWebContext;
-  readonly recovery: PasskeyEd25519YaoRecoveryResultV1;
+  readonly parsed: ParsedPasskeyEd25519YaoSyncResponseV1;
   readonly credential: WebAuthnAuthenticationCredential;
 }): Promise<void> {
-  const parsed = input.recovery.parsed;
+  const parsed = input.parsed;
   const credentialPublicKey = base64UrlDecode(parsed.credentialPublicKeyB64u);
   await input.context.signingEngine.storeUserData({
     walletId: String(parsed.walletId),
@@ -485,6 +596,14 @@ async function persistRecoveredPasskey(input: {
     syncedAt: new Date().toISOString(),
     signerSlot: parsed.signerSlot,
   });
+}
+
+async function prepareSyncedPasskeyLocalProfile(
+  context: AccountSyncWebContext,
+  parsed: ParsedPasskeyEd25519YaoSyncResponseV1,
+  credential: WebAuthnAuthenticationCredential,
+): Promise<void> {
+  await persistRecoveredPasskey({ context, parsed, credential });
 }
 
 type SyncAccountRecoveryCallbacksV1 = {
@@ -611,13 +730,18 @@ async function syncAccountInternal(
         ? { prepared: preparedChallenge.syncOptions, credential: preparedCredential }
         : {}),
       collectCredential: collectSyncAccountRecoveryCredential.bind(undefined, recoveryCallbacks),
-      activateCapability:
-        context.signingEngine.activateVerifiedNearEd25519YaoMaterial.bind(
-          context.signingEngine,
-        ),
-      withExactEd25519MaterialOwner:
-        context.signingEngine.withExactEd25519MaterialOwner.bind(context.signingEngine),
+      activateCapability: context.signingEngine.activateVerifiedNearEd25519YaoMaterial.bind(
+        context.signingEngine,
+      ),
+      withExactEd25519MaterialOwner: context.signingEngine.withExactEd25519MaterialOwner.bind(
+        context.signingEngine,
+      ),
       sessionPersistence: context.signingEngine,
+      rejoinWalletCustodyNearEd25519KeySet:
+        context.signingEngine.rejoinWalletCustodyNearEd25519KeySet.bind(context.signingEngine),
+      persistWalletCustodyEd25519Material:
+        context.signingEngine.persistWalletCustodyEd25519Material.bind(context.signingEngine),
+      prepareLocalProfile: prepareSyncedPasskeyLocalProfile.bind(undefined, context),
       onPromptStarted: emitSyncAccountPromptStarted.bind(undefined, recoveryCallbacks),
       onPromptSucceeded: emitSyncAccountPromptSucceeded.bind(undefined, recoveryCallbacks),
       onRelayVerifyStarted: emitSyncAccountRelayVerifyStarted.bind(undefined, recoveryCallbacks),
@@ -626,9 +750,8 @@ async function syncAccountInternal(
         recoveryCallbacks,
       ),
     });
-    const { credential, recovery, verifiedBinding } = recovered;
+    const { recovery, verifiedBinding } = recovered;
     recoveryOwnership = { kind: 'registry_owned', recovery };
-    await persistRecoveredPasskey({ context, recovery, credential });
     emitSyncAccountEvent({
       onEvent: options?.onEvent,
       flowId,

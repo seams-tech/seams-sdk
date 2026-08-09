@@ -536,8 +536,7 @@ function storedEcdsaAddSignerBootstrap(
     expiresAt: bootstrap.expiresAt,
     remainingUses: bootstrap.remainingUses,
     participantIds: [...exactEcdsaParticipantPair(bootstrap.participantIds)],
-    routerAbEcdsaDerivationNormalSigning:
-      bootstrap.routerAbEcdsaDerivationNormalSigning,
+    routerAbEcdsaDerivationNormalSigning: bootstrap.routerAbEcdsaDerivationNormalSigning,
   };
 }
 
@@ -1121,7 +1120,7 @@ export class CloudflareD1WalletAddSignerService {
         }
         if (
           alphabetizeStringify(state.publicFacts) !==
-            alphabetizeStringify(request.ecdsa.publicFacts)
+          alphabetizeStringify(request.ecdsa.publicFacts)
         ) {
           return {
             ok: false,
@@ -1522,6 +1521,7 @@ export class CloudflareD1WalletAddSignerService {
           activeCapabilityBinding: activation.activation.result.binding.session_id,
           nearAccountId,
           registrationAdmissionRequest: activation.activation.admissionRequest,
+          registrationAdmissionReceipt: activation.activation.admissionReceipt,
           registrationResult: activation.activation.result,
           runtimePolicyScope,
         } as const;
@@ -1592,7 +1592,8 @@ export class CloudflareD1WalletAddSignerService {
         signer.signerSlot !== response.ed25519.signerSlot ||
         signer.nearAccountId !== response.ed25519.nearAccountId ||
         signer.nearEd25519SigningKeyId !== response.ed25519.nearEd25519SigningKeyId ||
-        signer.thresholdSessionId !== activation.activation.admissionRequest.scope.threshold_session_id ||
+        signer.thresholdSessionId !==
+          activation.activation.admissionRequest.scope.threshold_session_id ||
         signer.publicKey !== response.ed25519.publicKey ||
         signer.signingWorkerId !== response.ed25519.relayerKeyId ||
         signer.keyVersion !== response.ed25519.keyVersion ||
