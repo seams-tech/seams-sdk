@@ -1,5 +1,16 @@
 export const EMAIL_OTP_CHANNEL = 'email_otp' as const;
 
+export const EMAIL_OTP_INITIAL_ENROLLMENT_VERSION = '1' as const;
+
+export function emailOtpDeviceEnrollmentId(walletId: string, providerSubject: string): string {
+  const normalizedWalletId = String(walletId || '').trim();
+  const normalizedProviderSubject = String(providerSubject || '').trim();
+  if (!normalizedWalletId || !normalizedProviderSubject) {
+    throw new Error('Email OTP enrollment identity requires wallet and provider subject');
+  }
+  return `email-otp-device-enrollment-v1:${normalizedWalletId}:${normalizedProviderSubject}`;
+}
+
 export const WALLET_UNLOCK_BACKENDS = ['passkey', EMAIL_OTP_CHANNEL] as const;
 
 export type WalletUnlockBackend = (typeof WALLET_UNLOCK_BACKENDS)[number];
@@ -23,7 +34,6 @@ export type WalletEmailOtpOperation =
 export const WALLET_EMAIL_OTP_ACTIONS = {
   login: 'wallet_email_otp_login',
   registration: 'wallet_email_otp_registration',
-  deviceRecovery: 'wallet_email_otp_device_recovery',
   recoveryBootstrap: 'wallet_email_otp_recovery_bootstrap',
   unseal: 'wallet_email_otp_unseal',
 } as const;
