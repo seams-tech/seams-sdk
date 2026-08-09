@@ -2398,7 +2398,7 @@ export async function handleRouterApiWalletAddSignerStart(
         verified.message || 'Invalid add-signer WebAuthn authorization',
       );
     }
-  } else if (parsedBody.value.auth.kind === 'app_session') {
+  } else {
     const session = input.services.session;
     if (!session) {
       return routeError(401, 'unauthorized', 'App session auth is required');
