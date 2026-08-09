@@ -464,16 +464,25 @@ function routerAbCeremonyJwksResponse(env: CloudflareD1RouterApiStagingEnv): Res
   });
 }
 
-function stagingSigningSessionSealOptions(
-  env: CloudflareD1RouterApiStagingEnv,
+let cachedStagingSigningSessionSealOptions: SigningSessionSealRoutesOptions | null = null;
+
+export function stagingSigningSessionSealOptions(
+  env: Pick<
+    CloudflareD1RouterApiStagingEnv,
+    | 'SIGNING_SESSION_SEAL_ROOT_SECRET_B64U'
+    | 'SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION'
+    | 'SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS'
+  >,
 ): SigningSessionSealRoutesOptions | undefined {
+  if (cachedStagingSigningSessionSealOptions) return cachedStagingSigningSessionSealOptions;
   const seal = stagingEmailOtpServerSealConfig(env);
   if (!seal) return undefined;
-  return createSigningSessionSealOptions({
+  cachedStagingSigningSessionSealOptions = createSigningSessionSealOptions({
     rootSecretB64u: seal.rootSecretB64u,
     currentKeyVersion: seal.currentKeyVersion,
     acceptedWarmKeyVersions: seal.acceptedWarmKeyVersions,
   });
+  return cachedStagingSigningSessionSealOptions;
 }
 
 function createStagingEcdsaPresignRuntime(
@@ -547,7 +556,12 @@ async function assertD1Tables(input: {
 }
 
 function stagingEmailOtpServerSealConfig(
-  env: CloudflareD1RouterApiStagingEnv,
+  env: Pick<
+    CloudflareD1RouterApiStagingEnv,
+    | 'SIGNING_SESSION_SEAL_ROOT_SECRET_B64U'
+    | 'SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION'
+    | 'SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS'
+  >,
 ): CloudflareD1EmailOtpServerSealConfig | undefined {
   const rootSecretB64u = readEnvString(env, 'SIGNING_SESSION_SEAL_ROOT_SECRET_B64U');
   const currentKeyVersion = readEnvString(env, 'SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION');
