@@ -292,6 +292,104 @@ export type RejoinedEvmFamilyCustody = {
   readonly publicFacts: WalletCustodyEvmFamilyPublicFacts;
 };
 
+export type RecoveryCredentialReplacement =
+  | { readonly kind: 'preserve_existing' }
+  | {
+      readonly kind: 'reseal_replacement_passkey';
+      readonly factorJson: string;
+      readonly factorSecret: ArrayBuffer;
+    };
+
+type WalletRecoveryCustodyInput = {
+  readonly custodyJson: string;
+  readonly recoveryCode: ArrayBuffer;
+  readonly recordedKeyManifestDigestB64u: string;
+  readonly credentialReplacement: RecoveryCredentialReplacement;
+};
+
+function recoveryCeremonyCustody(
+  input: WalletRecoveryCustodyInput,
+): Extract<
+  Parameters<typeof runWalletCustodyKeySetCeremony>[0]['custody'],
+  { readonly origin: 'recover' | 'recover_and_reseal' }
+> {
+  switch (input.credentialReplacement.kind) {
+    case 'preserve_existing':
+      return {
+        origin: 'recover',
+        custodyJson: input.custodyJson,
+        recoveryCode: input.recoveryCode,
+      };
+    case 'reseal_replacement_passkey':
+      return {
+        origin: 'recover_and_reseal',
+        custodyJson: input.custodyJson,
+        recoveryCode: input.recoveryCode,
+        replacementFactorJson: input.credentialReplacement.factorJson,
+        replacementFactorSecret: input.credentialReplacement.factorSecret,
+      };
+    default:
+      return assertNeverRecoveryCredentialReplacement(input.credentialReplacement);
+  }
+}
+
+function assertNeverRecoveryCredentialReplacement(value: never): never {
+  throw new Error(`unsupported recovery credential replacement: ${String(value)}`);
+}
+
+export type RecoverEvmFamilyCustodyInput = WalletRecoveryCustodyInput & {
+  readonly runStep: WalletCustodyCeremonyStepRunner;
+  readonly walletId: string;
+  readonly evmFamilySigningKeySlotId: string;
+  readonly applicationBindingDigestB64u: string;
+  readonly registeredClientRootPublicKey33B64u: string;
+  readonly runRelayerRecoveryAndRefresh: EstablishEvmFamilyCustodyInput['runRelayerRound'];
+};
+
+export type RecoveredEvmFamilyCustody = RejoinedEvmFamilyCustody & {
+  readonly recoveryReplacementEnvelope:
+    | NonNullable<WalletCustodyCeremonyCommitPayload['recoveryReplacementEnvelope']>
+    | null;
+};
+
+export async function recoverEvmFamilyCustodyV1(
+  input: RecoverEvmFamilyCustodyInput,
+): Promise<RecoveredEvmFamilyCustody> {
+  const expectedDigest = await computeWalletCustodyEvmFamilyKeyManifestDigestB64u({
+    walletId: input.walletId,
+    evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
+    clientRootPublicKey33B64u: input.registeredClientRootPublicKey33B64u,
+  });
+  if (expectedDigest !== input.recordedKeyManifestDigestB64u) {
+    throw new Error('EVM recovery manifest digest does not match the registered identity');
+  }
+  const payload = await runWalletCustodyKeySetCeremony({
+    runStep: input.runStep,
+    custody: recoveryCeremonyCustody(input),
+    keySetRun: {
+      keySet: 'evm_family_ecdsa_v1',
+      protocolInputsJson: JSON.stringify({
+        applicationBindingDigestB64u: input.applicationBindingDigestB64u,
+      }),
+      evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
+      beforeRelayerRound: async () => undefined,
+      runRelayerRound: input.runRelayerRecoveryAndRefresh,
+    },
+    recordedKeyManifestDigestB64u: input.recordedKeyManifestDigestB64u,
+  });
+  if (!payload.ecdsaReadyStateBlobB64u || !payload.ecdsaPublicFacts) {
+    throw new Error('the EVM recovery produced no local signing material');
+  }
+  if (payload.clientRootPublicKey33B64u !== input.registeredClientRootPublicKey33B64u) {
+    throw new Error('the EVM recovery changed the registered client root public key');
+  }
+  return {
+    readyStateBlobB64u: payload.ecdsaReadyStateBlobB64u,
+    publicFacts: payload.ecdsaPublicFacts,
+    recoveryReplacementEnvelope: payload.recoveryReplacementEnvelope ?? null,
+  };
+}
+
 export async function rejoinEvmFamilyCustodyV1(
   input: RejoinEvmFamilyCustodyInput,
 ): Promise<RejoinedEvmFamilyCustody> {
@@ -362,6 +460,33 @@ export async function computeWalletCustodyEvmFamilyKeyManifestDigestB64u(input: 
   appendManifestField(fields, 'walletId', new TextEncoder().encode(walletId));
   appendManifestField(fields, 'evmFamilySigningKeySlotId', new TextEncoder().encode(slotId));
   appendManifestField(fields, 'clientRootPublicKey33', clientRootPublicKey);
+  return base64UrlEncode(await sha256Bytes(Uint8Array.from(fields)));
+}
+
+export async function computeWalletCustodyNearEd25519KeyManifestDigestB64u(input: {
+  readonly walletId: string;
+  readonly nearEd25519SigningKeyId: string;
+  readonly registeredPublicKeyB64u: string;
+}): Promise<string> {
+  const walletId = String(input.walletId || '').trim();
+  const signingKeyId = String(input.nearEd25519SigningKeyId || '').trim();
+  const registeredPublicKey = base64UrlDecode(input.registeredPublicKeyB64u);
+  if (!walletId || !signingKeyId || registeredPublicKey.length !== 32) {
+    throw new Error('NEAR custody continuity identity is invalid');
+  }
+  const fields: number[] = [];
+  appendManifestField(
+    fields,
+    'context',
+    new TextEncoder().encode('seams/wallet-custody/key-set-manifest/near-ed25519/v1'),
+  );
+  appendManifestField(fields, 'walletId', new TextEncoder().encode(walletId));
+  appendManifestField(
+    fields,
+    'nearEd25519SigningKeyId',
+    new TextEncoder().encode(signingKeyId),
+  );
+  appendManifestField(fields, 'registeredPublicKey', registeredPublicKey);
   return base64UrlEncode(await sha256Bytes(Uint8Array.from(fields)));
 }
 
@@ -458,6 +583,71 @@ export type JoinNearEd25519CustodyInput = Omit<
 };
 
 export type JoinedNearEd25519Custody = RejoinedNearEd25519Custody;
+
+export type RecoverNearEd25519CustodyInput = WalletRecoveryCustodyInput & {
+  readonly runStep: WalletCustodyCeremonyStepRunner;
+  readonly walletId: string;
+  readonly nearEd25519SigningKeyId: string;
+  readonly recoveryLifecycleId: string;
+  readonly yaoAdmission: unknown;
+  readonly yaoApplication: unknown;
+  readonly participantIds: readonly [number, number];
+  readonly registeredPublicKeyB64u: string;
+  readonly runRouterRound: (yaoExecuteRequestJson: string) => Promise<string>;
+  readonly activateRouterRecovery: (protocolResultJson: string) => Promise<void>;
+};
+
+export type RecoveredNearEd25519Custody = {
+  readonly localMaterial: RejoinedNearEd25519Custody['localMaterial'];
+  readonly recoveryReplacementEnvelope:
+    | NonNullable<WalletCustodyCeremonyCommitPayload['recoveryReplacementEnvelope']>
+    | null;
+};
+
+export async function recoverNearEd25519CustodyV1(
+  input: RecoverNearEd25519CustodyInput,
+): Promise<RecoveredNearEd25519Custody> {
+  const expectedDigest = await computeWalletCustodyNearEd25519KeyManifestDigestB64u({
+    walletId: input.walletId,
+    nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
+    registeredPublicKeyB64u: input.registeredPublicKeyB64u,
+  });
+  if (expectedDigest !== input.recordedKeyManifestDigestB64u) {
+    throw new Error('NEAR recovery manifest digest does not match the registered identity');
+  }
+  const payload = await runWalletCustodyKeySetCeremony({
+    runStep: input.runStep,
+    custody: recoveryCeremonyCustody(input),
+    keySetRun: {
+      keySet: 'near_ed25519_v1',
+      protocolInputsJson: JSON.stringify({
+        yaoAdmission: input.yaoAdmission,
+        yaoApplication: input.yaoApplication,
+        clientParticipantId: input.participantIds[0],
+        signingWorkerParticipantId: input.participantIds[1],
+        continuityRegisteredPublicKeyB64u: input.registeredPublicKeyB64u,
+      }),
+      nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
+      runRouterRound: input.runRouterRound,
+      afterRouterRoundCompleted: input.activateRouterRecovery,
+    },
+    recordedKeyManifestDigestB64u: input.recordedKeyManifestDigestB64u,
+  });
+  if (!payload.ed25519LocalMaterialB64u || !payload.ed25519LocalMaterialNonceB64u) {
+    throw new Error('the NEAR recovery sealed no local signing material');
+  }
+  if (!payload.ed25519ApplicationBindingDigestB64u) {
+    throw new Error('the NEAR recovery omitted its application binding digest');
+  }
+  return {
+    localMaterial: {
+      b64u: payload.ed25519LocalMaterialB64u,
+      nonceB64u: payload.ed25519LocalMaterialNonceB64u,
+      applicationBindingDigestB64u: payload.ed25519ApplicationBindingDigestB64u,
+    },
+    recoveryReplacementEnvelope: payload.recoveryReplacementEnvelope ?? null,
+  };
+}
 
 /**
  * Adds the wallet's first NEAR key set to custody established by EVM.
