@@ -4,8 +4,14 @@ import {
   findRouteDefinitionById,
   matchesRouteDefinitionRequest,
 } from '../../../framework/routeDefinitions';
+import { enforceRoutePolicy } from '../../../framework/enforceRoutePolicy';
 import { toFetchRouteResponse } from '../../../framework/routeResponses';
 import { readJson } from '../../../framework/http';
+import { resolvePublishableKeyApiCredentialAuth } from '../../../auth/routerApiCredentialAuth';
+import {
+  extractRouterApiEnvironmentId,
+  resolveSourceIpFromFetchHeaders,
+} from '../../../auth/routerApiKeyAuth';
 import { decodeBase64UrlOrBase64 } from '../../../../core/authService/webauthnOidcHelpers';
 import {
   deriveWalletRecoveryKeyLifecycleId,
@@ -16,6 +22,7 @@ import {
   admitWalletRecoveryEmailOtp,
   resolveWalletRecoveryAuthorizationContext,
 } from '../../../domains/passkeyCustody/walletRecoveryAuthorization';
+import { authenticateRouterAbOperationStepUpAppSessionIdentity } from '../../../domains/signingOperations/routerAbPrivateSigningWorker';
 import type { AuthorizedOperation } from '../../../../authorization/domain';
 import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
@@ -41,6 +48,24 @@ const RECOVERY_FINALIZE_ROUTE_ID = 'wallet_recovery_finalize';
 const RECOVERY_ACK_ROUTE_ID = 'wallet_recovery_backup_acknowledge';
 const RECOVERY_ROTATE_ROUTE_ID = 'wallet_recovery_codes_rotate';
 const RECOVERY_STATUS_ROUTE_ID = 'wallet_recovery_status';
+
+function walletRecoveryAppSessionHeaders(ctx: FetchRouterApiContext): Record<string, string> {
+  return Object.fromEntries(ctx.request.headers.entries());
+}
+
+async function authenticateWalletRecoveryAuthority(
+  ctx: FetchRouterApiContext,
+  walletId: string,
+) {
+  return authenticateRouterAbOperationStepUpAppSessionIdentity({
+    headers: walletRecoveryAppSessionHeaders(ctx),
+    session: ctx.opts.session,
+    walletId,
+    materialOwner: walletId,
+    authorizedOperations: ctx.service.authorizedOperations,
+    authorizationSessions: ctx.service.authorizationSessions,
+  });
+}
 
 type WalletRecoveryAuthorizedNearEntry = Extract<
   WalletRecoveryPreparationKeyManifestEntryV1,
@@ -597,6 +622,14 @@ export async function handleWalletRecoveryBackupAcknowledge(
     });
   }
 
+  const authenticated = await authenticateWalletRecoveryAuthority(ctx, walletId);
+  if (!authenticated.ok) {
+    return toFetchRouteResponse({
+      status: authenticated.error.status,
+      body: authenticated.error.body,
+    });
+  }
+
   const result = await ctx.service.passkeyCustody.acknowledgeRecoveryBackup({ walletId });
   if (result.kind === 'no_recovery_set') {
     return toFetchRouteResponse({
@@ -645,6 +678,14 @@ export async function handleWalletRecoveryRotate(
         code: 'invalid_request',
         message: 'a rotation needs a wallet and its replacement code wraps',
       },
+    });
+  }
+
+  const authenticated = await authenticateWalletRecoveryAuthority(ctx, walletId);
+  if (!authenticated.ok) {
+    return toFetchRouteResponse({
+      status: authenticated.error.status,
+      body: authenticated.error.body,
     });
   }
 
@@ -701,6 +742,45 @@ export async function handleWalletRecoveryStatus(
   const route = findRouteDefinitionById(ctx.routeDefinitions, RECOVERY_STATUS_ROUTE_ID);
   if (!route) throw new Error(`Missing route definition for ${RECOVERY_STATUS_ROUTE_ID}`);
   if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
+
+  const publishableKeyAuth = ctx.opts.publishableKeyAuth;
+  if (!publishableKeyAuth) {
+    return toFetchRouteResponse({
+      status: 500,
+      body: {
+        ok: false,
+        code: 'route_auth_not_configured',
+        message: 'wallet recovery status requires publishable key auth on this server',
+      },
+    });
+  }
+  const headers = Object.fromEntries(ctx.request.headers.entries());
+  const resolved = await enforceRoutePolicy({
+    headers,
+    logger: ctx.logger,
+    request: { body: null, headers },
+    route,
+    services: { passkeyCustody: ctx.service.passkeyCustody },
+    sourceIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
+    resolvers: {
+      apiCredentials: async () =>
+        await resolvePublishableKeyApiCredentialAuth({
+          environmentId: extractRouterApiEnvironmentId(headers) || undefined,
+          headers,
+          missingEnvironmentMessage: 'Environment header is required for wallet recovery status',
+          missingOriginMessage: 'Origin header is required and must be a valid exact origin',
+          missingPublishableKeyMessage: 'Missing publishable key',
+          origin: String(ctx.request.headers.get('origin') || '').trim() || undefined,
+          publishableKeyAuth,
+          route,
+          routeAuthNotConfiguredMessage:
+            'Wallet recovery status requires API credential auth policy',
+        }),
+    },
+  });
+  if (!resolved.ok) {
+    return toFetchRouteResponse({ status: resolved.status, body: resolved.body });
+  }
 
   const walletId = walletIdFromPath(route.path, ctx.pathname);
   if (!walletId) {
