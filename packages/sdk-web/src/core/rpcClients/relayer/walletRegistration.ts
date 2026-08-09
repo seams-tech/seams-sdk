@@ -836,6 +836,7 @@ export type AddSignerAuth =
 export type AddAuthMethodAuth =
   | {
       kind: 'webauthn_assertion';
+      rpId: WebAuthnRpId;
       credential: WebAuthnAuthenticationCredential;
       expectedChallengeDigestB64u: string;
     }
@@ -848,7 +849,7 @@ export type AddAuthMethodAuth =
 export type WalletAddAuthMethodAuthority =
   | {
       kind: 'passkey';
-      webauthnRegistration: unknown;
+      webauthnRegistration?: never;
       emailOtpRegistrationProof?: never;
     }
   | {
@@ -857,11 +858,52 @@ export type WalletAddAuthMethodAuthority =
       webauthnRegistration?: never;
     };
 
-export type WalletAddAuthMethodStartResponse = {
-  ok: true;
-  addAuthMethodCeremonyId: string;
-  intent: AddAuthMethodIntentV1;
+export type WalletAddAuthMethodRegistrationOptions = {
+  readonly kind: 'webauthn_add_auth_method_registration_v1';
+  readonly challengeId: string;
+  readonly challengeB64u: string;
+  readonly rpId: WebAuthnRpId;
+  readonly user: {
+    readonly idB64u: string;
+    readonly name: string;
+    readonly displayName: string;
+  };
+  readonly pubKeyCredParams: readonly [
+    { readonly type: 'public-key'; readonly alg: -7 },
+    { readonly type: 'public-key'; readonly alg: -257 },
+  ];
+  readonly authenticatorSelection: {
+    readonly residentKey: 'required';
+    readonly userVerification: 'preferred';
+  };
+  readonly timeoutMs: number;
+  readonly attestation: 'none';
+  readonly extensions: {
+    readonly prf: {
+      readonly eval: {
+        readonly firstB64u: string;
+        readonly secondB64u: string;
+      };
+    };
+  };
+  readonly excludeCredentials: readonly { readonly type: 'public-key'; readonly id: string }[];
 };
+
+export type WalletAddAuthMethodStartResponse =
+  | {
+      ok: true;
+      addAuthMethodCeremonyId: string;
+      intent: AddAuthMethodIntentV1;
+      custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+      registration: WalletAddAuthMethodRegistrationOptions;
+    }
+  | {
+      ok: true;
+      addAuthMethodCeremonyId: string;
+      intent: AddAuthMethodIntentV1;
+      custodyEnvelope?: never;
+      registration?: never;
+    };
 
 export type WalletAddAuthMethodFinalizeResponse = {
   ok: true;
@@ -3575,6 +3617,7 @@ function addAuthMethodAuthBody(auth: AddAuthMethodAuth): unknown {
     case 'webauthn_assertion':
       return {
         kind: 'webauthn_assertion',
+        rpId: auth.rpId,
         credential: auth.credential,
         expectedChallengeDigestB64u: auth.expectedChallengeDigestB64u,
       };
@@ -3591,7 +3634,7 @@ function addAuthMethodAuthorityBody(
 ): Record<string, unknown> {
   switch (authority.kind) {
     case 'passkey':
-      return { webauthnRegistration: authority.webauthnRegistration };
+      return {};
     case 'email_otp':
       return { emailOtpRegistrationProof: authority.emailOtpRegistrationProof };
   }
@@ -3788,19 +3831,37 @@ export async function finalizeWalletAddSigner(
   return parseWalletAddSignerFinalizeResponse({ value, expectedKind: args.kind });
 }
 
-export async function finalizeWalletAddAuthMethod(args: {
-  relayerUrl: string;
-  walletId: WalletId;
-  addAuthMethodCeremonyId: string;
-}): Promise<WalletAddAuthMethodFinalizeResponse> {
+export async function finalizeWalletAddAuthMethod(
+  args:
+    | {
+        relayerUrl: string;
+        walletId: WalletId;
+        addAuthMethodCeremonyId: string;
+        webauthnRegistration: unknown;
+        custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+      }
+    | {
+        relayerUrl: string;
+        walletId: WalletId;
+        addAuthMethodCeremonyId: string;
+        webauthnRegistration?: never;
+        custodyEnvelope?: never;
+      },
+): Promise<WalletAddAuthMethodFinalizeResponse> {
   const walletId = String(args.walletId || '').trim();
   if (!walletId) throw new Error('walletId is required for add-auth-method finalize');
+  const body =
+    args.webauthnRegistration !== undefined && args.custodyEnvelope !== undefined
+      ? {
+          addAuthMethodCeremonyId: args.addAuthMethodCeremonyId,
+          webauthnRegistration: args.webauthnRegistration,
+          custodyEnvelope: parsePasskeyCustodyEnvelopeRecord(args.custodyEnvelope),
+        }
+      : { addAuthMethodCeremonyId: args.addAuthMethodCeremonyId };
   return await postJson<WalletAddAuthMethodFinalizeResponse>({
     relayerUrl: args.relayerUrl,
     path: `/wallets/${encodeURIComponent(walletId)}/auth-methods/finalize`,
-    body: {
-      addAuthMethodCeremonyId: args.addAuthMethodCeremonyId,
-    },
+    body,
   });
 }
 
