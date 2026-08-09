@@ -208,6 +208,11 @@ import {
   walletCustodyCacheEnvelopeFromRecordV1,
   type WalletCustodyActivationFactsV1,
 } from '@/core/signingEngine/walletCustody/openCustodyCache';
+import { joinCustodyWireFromEnvelopeRecord } from '@/core/signingEngine/walletCustody/joinCustodyWire';
+import {
+  WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
+  type WalletCustodyEd25519MaterialBindingV1,
+} from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
 import { reconcileCanonicalEcdsaActivationWasm } from '@/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm';
 import {
   resolveWalletUnlockSubjectSet,
@@ -3212,6 +3217,7 @@ type PasskeyEd25519CustodyLoginInput = {
   walletBinding: ResolvedLoginWalletBinding;
   signerSlot: number;
   passkeyPrfFirstB64u: string;
+  walletSessionJwt: string;
   thresholdSessionId: string;
   routerAbNormalSigning: ReturnType<typeof createRouterAbNormalSigningPolicy>;
   relayerUrl: string;
@@ -3270,16 +3276,73 @@ async function openAndActivatePasskeyEd25519CustodyLogin(
       Uint8Array.from(capability.registeredPublicKey),
     ),
   });
-  if (cached.kind !== 'found') {
-    throw createThresholdEd25519DeviceLinkRequiredError();
-  }
-  const activeClient = await openWalletCustodyEd25519ActiveClientV1({
-    material: cached.material,
-    activation: walletCustodyLoginActivationFacts(input.custody),
-    envelope: walletCustodyCacheEnvelopeFromRecordV1(input.custody.envelope),
-    ownedFactorSecret: base64UrlDecode(input.passkeyPrfFirstB64u),
-  });
+  const activation = walletCustodyLoginActivationFacts(input.custody);
+  const envelope = walletCustodyCacheEnvelopeFromRecordV1(input.custody.envelope);
+  let activeClient: Awaited<ReturnType<typeof openWalletCustodyEd25519ActiveClientV1>> | null = null;
+  let rejoinSecret: Uint8Array | null = null;
+  let openSecret: Uint8Array | null = null;
   try {
+    if (cached.kind === 'found') {
+      openSecret = base64UrlDecode(input.passkeyPrfFirstB64u);
+      activeClient = await openWalletCustodyEd25519ActiveClientV1({
+        material: cached.material,
+        activation,
+        envelope,
+        ownedFactorSecret: openSecret,
+      });
+    } else {
+      const continuity = capability.registrationContinuity;
+      if (continuity.kind !== 'registration') {
+        throw new Error('[login] wallet custody cold rejoin requires registration continuity');
+      }
+      const custodyWire = joinCustodyWireFromEnvelopeRecord(input.custody.envelope);
+      if (!custodyWire.ok) throw new Error(custodyWire.reason);
+      rejoinSecret = base64UrlDecode(input.passkeyPrfFirstB64u);
+      openSecret = base64UrlDecode(input.passkeyPrfFirstB64u);
+      const rejoined = await input.signingEngine.rejoinWalletCustodyNearEd25519KeySet({
+        walletId: String(input.walletBinding.walletId),
+        custodyJson: custodyWire.custodyJson,
+        factorSecret: rejoinSecret.buffer,
+        nearEd25519SigningKeyId: String(input.walletBinding.nearEd25519SigningKeyId),
+        registrationCeremonyId: continuity.admissionRequest.scope.lifecycle_id,
+        admissionRequest: continuity.admissionRequest,
+        admissionReceipt: continuity.admissionReceipt,
+        participantIds: capability.participantIds,
+        registeredPublicKeyB64u: base64UrlEncode(Uint8Array.from(capability.registeredPublicKey)),
+        routerOrigin: new URL(input.relayerUrl).origin,
+        walletSessionJwt: input.walletSessionJwt,
+      });
+      const materialBinding: WalletCustodyEd25519MaterialBindingV1 = {
+        kind: WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
+        applicationBindingDigestB64u: rejoined.localMaterial.applicationBindingDigestB64u,
+        registeredPublicKeyB64u: base64UrlEncode(rejoined.metadata.registeredPublicKey),
+        participantIds: rejoined.metadata.participantIds,
+        stateEpoch: String(rejoined.metadata.stateEpoch),
+        walletId: String(input.walletBinding.walletId),
+        nearAccountId: String(input.walletBinding.nearAccountId),
+        nearEd25519SigningKeyId: String(input.walletBinding.nearEd25519SigningKeyId),
+        signerSlot: input.signerSlot,
+        signingWorkerId: input.custody.ed25519.relayerKeyId,
+        signingWorkerVerifyingShareB64u: base64UrlEncode(
+          rejoined.metadata.signingWorkerVerifyingShare,
+        ),
+      };
+      const sealed = {
+        ciphertextB64u: rejoined.localMaterial.b64u,
+        nonceB64u: rejoined.localMaterial.nonceB64u,
+      };
+      await input.signingEngine.persistWalletCustodyEd25519Material({
+        binding: materialBinding,
+        sealed,
+      });
+      activeClient = await openWalletCustodyEd25519ActiveClientV1({
+        material: { binding: materialBinding, sealed },
+        activation,
+        envelope,
+        ownedFactorSecret: openSecret,
+      });
+    }
+    if (!activeClient) throw new Error('[login] wallet custody produced no active client');
     const activated = await input.signingEngine.activateVerifiedNearEd25519YaoMaterial({
       activeClient,
       facts: {
@@ -3306,8 +3369,11 @@ async function openAndActivatePasskeyEd25519CustodyLogin(
       throw new Error('[login] wallet custody activation changed during unlock');
     }
   } catch (error) {
-    activeClient.dispose();
+    activeClient?.dispose();
     throw error;
+  } finally {
+    rejoinSecret?.fill(0);
+    openSecret?.fill(0);
   }
 }
 
@@ -3531,6 +3597,7 @@ async function primeThresholdLoginWarmSigners(args: {
               walletBinding,
               signerSlot: args.signerSlot,
               passkeyPrfFirstB64u,
+              walletSessionJwt: connectedJwt,
               thresholdSessionId: connectedThresholdSessionId,
               routerAbNormalSigning: provisionScope.routerAbNormalSigning,
               relayerUrl: args.relayerUrl,
