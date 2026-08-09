@@ -1,4 +1,8 @@
-import { buildRelayerJsonPostRequestInit, normalizeRelayerBaseUrl } from './relayerHttp';
+import {
+  buildBearerAuthorizationHeader,
+  buildRelayerJsonPostRequestInit,
+  normalizeRelayerBaseUrl,
+} from './relayerHttp';
 
 /**
  * Replacing a wallet's recovery codes.
@@ -29,6 +33,7 @@ export type WalletRecoveryRotateResult =
 export async function rotateWalletRecoveryCodes(args: {
   readonly relayUrl: string;
   readonly walletId: string;
+  readonly sessionToken: string;
   /** Ten wraps of the same manifest KEK, under fresh codes. */
   readonly manifestKekWraps: readonly Record<string, unknown>[];
   readonly fetchImpl?: typeof fetch;
@@ -41,6 +46,10 @@ export async function rotateWalletRecoveryCodes(args: {
     response = await doFetch(
       url,
       buildRelayerJsonPostRequestInit({
+        headers: buildBearerAuthorizationHeader({
+          token: args.sessionToken,
+          missingMessage: 'wallet recovery rotation requires an app session',
+        }),
         body: { walletId: args.walletId, manifestKekWraps: args.manifestKekWraps },
       }),
     );
