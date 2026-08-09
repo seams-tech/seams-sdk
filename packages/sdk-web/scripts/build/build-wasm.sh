@@ -98,12 +98,6 @@ build_ed25519_yao_client() {
       wasm-pack build --locked --target web --out-dir pkg --out-name router_ab_ed25519_yao_client --release
 }
 
-build_ecdsa_registration_client() {
-  run_in_dir "$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT" \
-    with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/Cargo.lock" \
-      wasm-pack build --locked --target web --out-dir pkg --out-name ecdsa_registration_client --release
-}
-
 build_wallet_custody_ceremony() {
   run_in_dir "$SOURCE_WASM_WALLET_CUSTODY_CEREMONY" \
     with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_WALLET_CUSTODY_CEREMONY/Cargo.lock" \
@@ -251,7 +245,6 @@ GATEWAY_WASM_SOURCES=(
 )
 FULL_SDK_WASM_SOURCES=(
   "$SOURCE_ED25519_YAO_CLIENT"
-  "$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT"
   "$SOURCE_WASM_ECDSA_DERIVATION_CLIENT"
   "$SOURCE_WASM_ECDSA_PRESIGN_CLIENT"
   "$SOURCE_WASM_ECDSA_ONLINE_CLIENT"
@@ -282,7 +275,6 @@ else
   start_job "Shamir3Pass runtime WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_SHAMIR3PASS_RUNTIME" shamir3pass_runtime
   if [ "$WASM_SDK_BUILD_TARGET" = "all" ]; then
     start_job "Ed25519 Yao Client WASM (release)" build_ed25519_yao_client
-    start_job "ECDSA registration client WASM (release)" build_ecdsa_registration_client
     start_job "ECDSA client signer WASM (release)" build_router_ab_ecdsa_derivation_client
     start_job "ECDSA presign client WASM (release)" build_router_ab_ecdsa_presign_client
     start_job "ECDSA online client WASM (release)" build_router_ab_ecdsa_online_client
@@ -318,9 +310,6 @@ if [ "$WASM_SDK_BUILD_TARGET" = "all" ]; then
   require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client.js"
   require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client.d.ts"
   require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client_bg.wasm"
-  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg/ecdsa_registration_client.js"
-  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg/ecdsa_registration_client.d.ts"
-  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg/ecdsa_registration_client_bg.wasm"
   require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client.js"
   require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client.d.ts"
   require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client_bg.wasm"

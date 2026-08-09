@@ -29,6 +29,7 @@ pub struct RouterAbEcdsaClientCeremonyV1 {
     keypair: Option<EcdsaClientEphemeralKeyPairV1>,
     registration_binding: Option<RegistrationBindingV1>,
     explicit_export_request_digest: Option<[u8; 32]>,
+    recovery_request_digest: Option<[u8; 32]>,
 }
 
 #[wasm_bindgen]
@@ -43,6 +44,7 @@ impl RouterAbEcdsaClientCeremonyV1 {
             keypair: Some(keypair.map_err(js_error)?),
             registration_binding: None,
             explicit_export_request_digest: None,
+            recovery_request_digest: None,
         })
     }
 
@@ -141,6 +143,26 @@ impl RouterAbEcdsaClientCeremonyV1 {
         serialize_export_request(input, request, self.active_keypair()?.public_key())
     }
 
+    /// Builds a strict same-root client-recovery request.
+    pub fn build_recovery_request(&mut self, input_json: &str) -> Result<String, JsValue> {
+        let input: RecoveryRequestInputV1 = parse_json(input_json)?;
+        let header = self.post_registration_header(
+            &input.common,
+            EcdsaPostRegistrationCeremonyV1::Recovery,
+            EcdsaPostRegistrationRecipientV1::ClientProofBundles {
+                client_ephemeral_public_key: self.active_keypair()?.public_key().to_owned(),
+            },
+            EcdsaPostRegistrationOperationV1::Recovery {
+                authorization_digest_b64u: input.recovery_authorization_digest_b64u.clone(),
+                nonce: input.recovery_nonce.clone(),
+            },
+        )?;
+        let request = self.build_post_request(header, &input.common.deriver_recipient_keys)?;
+        self.recovery_request_digest =
+            Some(request.digest().map_err(protocol_error).map_err(js_error)?);
+        serialize_recovery_request(input, request, self.active_keypair()?.public_key())
+    }
+
     /// Builds a strict SigningWorker activation-refresh request.
     pub fn build_activation_refresh_request(&self, input_json: &str) -> Result<String, JsValue> {
         let input: ActivationRefreshRequestInputV1 = parse_json(input_json)?;
@@ -193,6 +215,14 @@ impl RouterAbEcdsaClientCeremonyV1 {
         Ok(base64_url_encode(&digest))
     }
 
+    /// Returns the canonical recovery request digest held by this ceremony.
+    pub fn recovery_request_digest_b64u(&self) -> Result<String, JsValue> {
+        let digest = self.recovery_request_digest.ok_or_else(|| {
+            JsValue::from_str("Router A/B ECDSA recovery request was not built")
+        })?;
+        Ok(base64_url_encode(&digest))
+    }
+
     /// Opens the exact SigningWorker share only when every expected export binding matches.
     pub fn open_signing_worker_export_share(
         &self,
@@ -220,6 +250,7 @@ impl RouterAbEcdsaClientCeremonyV1 {
     pub fn close(&mut self) {
         self.registration_binding.take();
         self.explicit_export_request_digest.take();
+        self.recovery_request_digest.take();
         self.keypair.take();
     }
 }
@@ -456,6 +487,15 @@ struct ExplicitExportRequestInputV1 {
     export_nonce: String,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct RecoveryRequestInputV1 {
+    #[serde(flatten)]
+    common: PostRegistrationCommonInputV1,
+    recovery_authorization_digest_b64u: String,
+    recovery_nonce: String,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct MaterialActivationRefInputV1 {
@@ -530,6 +570,22 @@ struct ExplicitExportRequestWireV1 {
     expires_at_ms: u64,
     deriver_a_export_envelope: EnvelopeWireV1,
     deriver_b_export_envelope: EnvelopeWireV1,
+}
+
+#[derive(Serialize)]
+struct RecoveryRequestWireV1 {
+    context: ContextInputV1,
+    lifecycle: LifecycleInputV1,
+    public_identity: PublicIdentityInputV1,
+    signer_set: SignerSetInputV1,
+    router_id: String,
+    client_id: String,
+    client_ephemeral_public_key: String,
+    recovery_authorization_digest_b64u: String,
+    recovery_nonce: String,
+    expires_at_ms: u64,
+    deriver_a_recovery_envelope: EnvelopeWireV1,
+    deriver_b_recovery_envelope: EnvelopeWireV1,
 }
 
 #[derive(Serialize)]
@@ -708,6 +764,27 @@ fn serialize_export_request(
         expires_at_ms: input.common.expires_at_ms,
         deriver_a_export_envelope: envelope_wire(request.deriver_a_envelope()),
         deriver_b_export_envelope: envelope_wire(request.deriver_b_envelope()),
+    })
+}
+
+fn serialize_recovery_request(
+    input: RecoveryRequestInputV1,
+    request: EcdsaPostRegistrationRequestV1,
+    public_key: &str,
+) -> Result<String, JsValue> {
+    serialize_json(&RecoveryRequestWireV1 {
+        context: input.common.context,
+        lifecycle: input.common.lifecycle,
+        public_identity: input.common.public_identity,
+        signer_set: input.common.signer_set,
+        router_id: input.common.router_id,
+        client_id: input.common.client_id,
+        client_ephemeral_public_key: public_key.to_owned(),
+        recovery_authorization_digest_b64u: input.recovery_authorization_digest_b64u,
+        recovery_nonce: input.recovery_nonce,
+        expires_at_ms: input.common.expires_at_ms,
+        deriver_a_recovery_envelope: envelope_wire(request.deriver_a_envelope()),
+        deriver_b_recovery_envelope: envelope_wire(request.deriver_b_envelope()),
     })
 }
 

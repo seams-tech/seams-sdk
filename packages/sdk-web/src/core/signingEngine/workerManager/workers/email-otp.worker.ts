@@ -67,10 +67,7 @@ import {
   emailOtpCorruptLocalCustodyError,
   type EmailOtpEscrowSecret32DecodeResult,
 } from '@/core/signingEngine/session/emailOtp/secretEscrow';
-import {
-  buildEmailOtpWorkerIssuedSessionHandle,
-  buildEmailOtpWorkerSessionSecretSource,
-} from '@/core/platform/secretSources';
+import { buildEmailOtpWorkerIssuedSessionHandle } from '@/core/platform/secretSources';
 import type {
   EmailOtpEcdsaSessionBootstrapHandleBinding,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
@@ -90,7 +87,6 @@ import type {
   EmailOtpEd25519YaoRecoveryBootstrapV1,
   EmailOtpEcdsaWalletUnlockAuthorization,
   EmailOtpWalletUnlockMaterialRequest,
-  EmailOtpPrepareEcdsaClientBootstrapInput,
   EmailOtpWarmMaterialTarget,
   EmailOtpWorkerOperationMap,
 } from '@/core/signingEngine/workerManager/workerTypes';
@@ -165,10 +161,6 @@ import {
   type ThresholdRuntimePolicyScope,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
-  type GeneratedFinalizeEcdsaClientBootstrapOutput,
-  type GeneratedPrepareEcdsaClientBootstrapOutput,
-} from '@/core/platform/signerCoreCommandAdapters';
-import {
   toEmailOtpAuthSubjectId,
 } from '@/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
@@ -177,12 +169,6 @@ import initEvmCrypto, {
   secp256k1_private_key_32_to_public_key_33,
   sign_secp256k1_recoverable,
 } from '../../../../../../../wasm/evm_crypto/pkg/evm_crypto.js';
-import initEcdsaDerivationClient from '../../../../../../../wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js';
-import initEcdsaRegistrationClient, {
-  finalize_ecdsa_client_bootstrap_v1,
-  open_ecdsa_role_local_signing_share_v1,
-  prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1,
-} from '../../../../../../../wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js';
 import initEmailOtpRuntime, {
   derive_email_otp_ecdsa_client_root_share32_from_secret32,
   derive_email_otp_unlock_auth_seed_from_secret32,
@@ -1683,95 +1669,6 @@ function issueEmailOtpWalletRegistrationEcdsaHandleResult(args: {
   }
 }
 
-function prepareEcdsaClientBootstrapFromResolvedEmailOtpRoot(args: {
-  context: EmailOtpPrepareEcdsaClientBootstrapInput['context'];
-  clientRootShare32: Uint8Array;
-}): GeneratedPrepareEcdsaClientBootstrapOutput {
-  const context = args.context;
-  return JSON.parse(
-    prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1(
-      JSON.stringify({
-        kind: 'prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1',
-        algorithm: 'router_ab_ecdsa_derivation_secp256k1_role_local_v1',
-        context: {
-          applicationBindingDigestB64u: readString(
-            context.applicationBindingDigestB64u,
-            'context.applicationBindingDigestB64u',
-          ),
-        },
-        participants: {
-          clientParticipantId: 1,
-          relayerParticipantId: 2,
-          participantIds: [1, 2],
-        },
-        resolvedEmailOtpRootShare32B64u: base64UrlEncode(args.clientRootShare32),
-      }),
-    ),
-  ) as GeneratedPrepareEcdsaClientBootstrapOutput;
-}
-
-function finalizeEcdsaClientBootstrapWithGeneratedCommand(args: {
-  pendingStateBlobB64u: string;
-  relayerKeyId: string;
-  relayerPublicKey33B64u: string;
-  groupPublicKey33B64u: string;
-  ethereumAddress: string;
-  relayerShareRetryCounter: number;
-}): GeneratedFinalizeEcdsaClientBootstrapOutput {
-  return JSON.parse(
-    finalize_ecdsa_client_bootstrap_v1(
-      JSON.stringify({
-        kind: 'finalize_ecdsa_client_bootstrap_v1',
-        pendingStateBlob: {
-          kind: 'ecdsa_role_local_pending_state_blob_v1',
-          curve: 'secp256k1',
-          encoding: 'base64url',
-          producer: 'signer_core',
-          stateBlobB64u: readString(args.pendingStateBlobB64u, 'pendingStateBlobB64u'),
-        },
-        relayerPublicIdentity: {
-          relayerKeyId: readString(args.relayerKeyId, 'relayerKeyId'),
-          relayerPublicKey33B64u: readString(args.relayerPublicKey33B64u, 'relayerPublicKey33B64u'),
-          groupPublicKey33B64u: readString(args.groupPublicKey33B64u, 'groupPublicKey33B64u'),
-          ethereumAddress: readString(args.ethereumAddress, 'ethereumAddress'),
-          relayerShareRetryCounter: requireNonNegativeInteger(
-            args.relayerShareRetryCounter,
-            'relayerShareRetryCounter',
-          ),
-        },
-      }),
-    ),
-  ) as GeneratedFinalizeEcdsaClientBootstrapOutput;
-}
-
-function prepareEcdsaClientBootstrapFromEmailOtpWorkerHandle(
-  input: EmailOtpPrepareEcdsaClientBootstrapInput,
-): GeneratedPrepareEcdsaClientBootstrapOutput {
-  if (input.secretSource.kind !== 'email_otp_worker_session') {
-    throw new Error('Email OTP ECDSA prepare requires an email_otp_worker_session secret source');
-  }
-  const handle = input.secretSource.handle;
-  if (handle.action !== 'threshold_ecdsa_bootstrap') {
-    throw new Error('Email OTP ECDSA prepare requires a threshold_ecdsa_bootstrap handle');
-  }
-  let clientRootShare32: Uint8Array | null = null;
-  try {
-    clientRootShare32 = claimEmailOtpEcdsaClientRootShare({
-      handle,
-      walletId: handle.walletId,
-      expectedIdentity: emailOtpEcdsaSessionHandleExpectedIdentity(handle),
-      authSubjectId: handle.authSubjectId,
-      chainTarget: handle.chainTarget,
-    });
-    return prepareEcdsaClientBootstrapFromResolvedEmailOtpRoot({
-      context: input.context,
-      clientRootShare32,
-    });
-  } finally {
-    zeroizeBytes(clientRootShare32);
-  }
-}
-
 function resolveEmailOtpWarmMaterialEntry(
   target: EmailOtpWarmMaterialTarget,
 ): EmailOtpWarmMaterialEntry | null {
@@ -2782,22 +2679,12 @@ async function sha256Bytes(input: Uint8Array): Promise<Uint8Array> {
 }
 
 const evmCryptoWasmUrl = resolveWasmUrl('evm_crypto.wasm', 'Email OTP');
-const ecdsaDerivationClientWasmUrl = resolveWasmUrl(
-  'router_ab_ecdsa_derivation_client_bg.wasm',
-  'Email OTP ECDSA DERIVATION',
-);
-const ecdsaRegistrationClientWasmUrl = resolveWasmUrl(
-  'ecdsa_registration_client_bg.wasm',
-  'Email OTP ECDSA REGISTRATION',
-);
 const emailOtpRuntimeWasmUrl = resolveWasmUrl('email_otp_runtime_bg.wasm', 'Email OTP Runtime');
 const nearSignerRecoveryWasmUrl = resolveWasmUrl(
   'wasm_signer_worker_bg.wasm',
   'Email OTP Recovery Wrap',
 );
 let evmCryptoInitPromise: Promise<void> | null = null;
-let ecdsaDerivationClientInitPromise: Promise<void> | null = null;
-let ecdsaRegistrationClientInitPromise: Promise<void> | null = null;
 let emailOtpRuntimeInitPromise: Promise<void> | null = null;
 let nearSignerRecoveryInitPromise: Promise<void> | null = null;
 let emailOtpYaoClientInitPromise: Promise<RouterAbEd25519YaoClientV1> | null = null;
@@ -2827,33 +2714,6 @@ async function ensureEvmCryptoWasm(): Promise<void> {
     });
   })();
   return evmCryptoInitPromise;
-}
-
-async function ensureEcdsaDerivationClientWasm(): Promise<void> {
-  if (ecdsaDerivationClientInitPromise) return ecdsaDerivationClientInitPromise;
-  ecdsaDerivationClientInitPromise = (async () => {
-    await initializeWasm({
-      workerName: 'Email OTP ECDSA DERIVATION',
-      wasmUrl: ecdsaDerivationClientWasmUrl,
-      initFunction: initEcdsaDerivationClient as unknown as (wasmModule?: unknown) => Promise<void>,
-    });
-  })();
-  return ecdsaDerivationClientInitPromise;
-}
-
-async function initializeEcdsaRegistrationClientWasm(): Promise<void> {
-  await initializeWasm({
-    workerName: 'Email OTP ECDSA REGISTRATION',
-    wasmUrl: ecdsaRegistrationClientWasmUrl,
-    initFunction: initEcdsaRegistrationClient as unknown as (wasmModule?: unknown) => Promise<void>,
-  });
-}
-
-async function ensureEcdsaRegistrationClientWasm(): Promise<void> {
-  if (!ecdsaRegistrationClientInitPromise) {
-    ecdsaRegistrationClientInitPromise = initializeEcdsaRegistrationClientWasm();
-  }
-  return ecdsaRegistrationClientInitPromise;
 }
 
 async function ensureEmailOtpRuntimeWasm(): Promise<void> {
@@ -5710,84 +5570,6 @@ function parseWorkerIssuedWalletRegistrationEcdsaPrepareClientRootHandle(
   };
 }
 
-function parseEmailOtpPrepareEcdsaClientBootstrapInput(
-  value: unknown,
-): EmailOtpPrepareEcdsaClientBootstrapInput {
-  const obj = workerPayloadObject(value);
-  if (!obj) {
-    throw new Error('Email OTP ECDSA prepare requires input');
-  }
-  const kind = readString(obj.kind, 'input.kind');
-  const algorithm = readString(obj.algorithm, 'input.algorithm');
-  if (kind !== 'prepare_ecdsa_client_bootstrap_v1') {
-    throw new Error(`Unsupported Email OTP ECDSA prepare command kind: ${kind}`);
-  }
-  if (algorithm !== 'router_ab_ecdsa_derivation_secp256k1_role_local_v1') {
-    throw new Error(`Unsupported Email OTP ECDSA prepare algorithm: ${algorithm}`);
-  }
-  const context = workerPayloadObject(obj.context);
-  if (!context) {
-    throw new Error('Email OTP ECDSA prepare requires context');
-  }
-  const participants = workerPayloadObject(obj.participants);
-  if (!participants) {
-    throw new Error('Email OTP ECDSA prepare requires participants');
-  }
-  const clientParticipantId = readNumber(
-    participants.clientParticipantId,
-    'participants.clientParticipantId',
-  );
-  const relayerParticipantId = readNumber(
-    participants.relayerParticipantId,
-    'participants.relayerParticipantId',
-  );
-  const participantIds = normalizeThresholdEd25519ParticipantIds(participants.participantIds);
-  if (
-    clientParticipantId !== 1 ||
-    relayerParticipantId !== 2 ||
-    !participantIds ||
-    participantIds.length !== 2 ||
-    participantIds[0] !== 1 ||
-    participantIds[1] !== 2
-  ) {
-    throw new Error('Email OTP ECDSA prepare requires participant ids [1, 2]');
-  }
-  const secretSource = workerPayloadObject(obj.secretSource);
-  if (!secretSource) {
-    throw new Error('Email OTP ECDSA prepare requires secretSource');
-  }
-  const secretSourceKind = readString(secretSource.kind, 'secretSource.kind');
-  if (secretSourceKind !== 'email_otp_worker_session') {
-    throw new Error(`Unsupported Email OTP ECDSA prepare secretSource: ${secretSourceKind}`);
-  }
-  const handle = parseWorkerIssuedEcdsaSessionBootstrapClientRootHandle(secretSource.handle);
-  const brandedHandle = buildEmailOtpWorkerIssuedSessionHandle({
-    sessionId: handle.sessionId,
-    walletId: toWalletId(handle.walletId),
-    keyHandle: handle.keyHandle,
-    authSubjectId: toEmailOtpAuthSubjectId(handle.authSubjectId),
-    action: 'threshold_ecdsa_bootstrap',
-    operation: handle.operation,
-    chainTarget: handle.chainTarget,
-  });
-  return {
-    kind: 'prepare_ecdsa_client_bootstrap_v1',
-    algorithm: 'router_ab_ecdsa_derivation_secp256k1_role_local_v1',
-    context: {
-      applicationBindingDigestB64u: readString(
-        context.applicationBindingDigestB64u,
-        'context.applicationBindingDigestB64u',
-      ),
-    },
-    participants: {
-      clientParticipantId: 1,
-      relayerParticipantId: 2,
-      participantIds: [1, 2],
-    },
-    secretSource: buildEmailOtpWorkerSessionSecretSource(brandedHandle),
-  };
-}
-
 function parseWorkerParticipantIds(value: unknown): number[] | undefined {
   const participantIds = normalizeThresholdEd25519ParticipantIds(value);
   return participantIds || undefined;
@@ -6592,14 +6374,6 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           activeClientHandle: readString(payload.activeClientHandle, 'activeClientHandle'),
         },
       };
-    case 'prepareEcdsaClientBootstrapFromEmailOtpHandle':
-      return {
-        id,
-        type,
-        payload: {
-          input: parseEmailOtpPrepareEcdsaClientBootstrapInput(payload.input),
-        },
-      };
     case 'verifyEmailOtpCode':
       return {
         id,
@@ -7380,15 +7154,6 @@ self.addEventListener('message', async (event: MessageEvent) => {
       case 'disposeEmailOtpEd25519YaoActiveClient': {
         const removed = removeEmailOtpEd25519YaoActiveClient(msg.payload.activeClientHandle);
         postToMainThread({ id: msg.id, ok: true, result: { removed } });
-        return;
-      }
-      case 'prepareEcdsaClientBootstrapFromEmailOtpHandle': {
-        await ensureEcdsaRegistrationClientWasm();
-        postToMainThread({
-          id: msg.id,
-          ok: true,
-          result: prepareEcdsaClientBootstrapFromEmailOtpWorkerHandle(msg.payload.input),
-        });
         return;
       }
       case 'verifyEmailOtpCode': {
