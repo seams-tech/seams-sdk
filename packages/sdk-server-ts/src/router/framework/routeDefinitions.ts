@@ -595,6 +595,13 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_PASSKEY_CUSTODY_SERVICES,
     ),
     sessionPrincipalRoute(
+      'wallet_recovery_codes_read',
+      'POST',
+      '/wallets/recovery/read',
+      'Read the opaque wallet recovery envelope set for client-side rotation',
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+    ),
+    sessionPrincipalRoute(
       'wallet_recovery_backup_acknowledge',
       'POST',
       '/wallets/recovery/acknowledge-backup',
