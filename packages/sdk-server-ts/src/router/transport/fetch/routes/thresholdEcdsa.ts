@@ -45,6 +45,7 @@ import {
   type RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire,
   type RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire,
   type RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
+  type RouterAbEcdsaDerivationPublicCapabilityV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   authenticateRouterAbOperationStepUpAppSessionIdentity,
@@ -127,6 +128,7 @@ import {
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { parseEmailOtpChallengeId } from '@shared/utils/domainIds';
+import { parseRecoveryCodeReservationId } from '@shared/wallet-recovery/recoveryCodeReservation';
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
@@ -1301,6 +1303,14 @@ type StrictEcdsaPostRegistrationAuthorization =
     }
   | WalletSessionBoundaryFailure;
 
+type WalletRecoveryEcdsaAuthorizationClaims = {
+  readonly walletId: string;
+  readonly reservationId: string;
+  readonly keySetId: string;
+  readonly lifecycleId: string;
+  readonly expiresAtMs: number;
+};
+
 type StrictEcdsaAuthorizationClaims = {
   readonly appSessionClaims: NonNullable<ReturnType<typeof parseAppSessionClaims>> | null;
   readonly ecdsaClaims: RouterAbEcdsaDerivationWalletSessionClaims | null;
@@ -1504,6 +1514,14 @@ async function authorizeStrictEcdsaPostRegistrationRequest(input: {
   if (!parsedSession.ok) {
     return parsedSession;
   }
+  const recoveryClaims = parseWalletRecoveryEcdsaAuthorizationClaims(parsedSession.claims);
+  if (recoveryClaims) {
+    return await authorizeWalletRecoveryEcdsaPostRegistrationRequest({
+      ctx: input.ctx,
+      request: input.request,
+      claims: recoveryClaims,
+    });
+  }
   const resolvedClaims = await resolveStrictEcdsaAuthorizationClaims({
     ctx: input.ctx,
     rawClaims: parsedSession.claims,
@@ -1556,6 +1574,135 @@ async function authorizeStrictEcdsaPostRegistrationRequest(input: {
     }
   }
   return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.scopeMismatch);
+}
+
+function parseWalletRecoveryEcdsaAuthorizationClaims(
+  claims: Record<string, unknown>,
+): WalletRecoveryEcdsaAuthorizationClaims | null {
+  if (claims.kind !== 'router_ab_ecdsa_wallet_recovery_authorization_v1') return null;
+  const walletId = typeof claims.walletId === 'string' ? claims.walletId.trim() : '';
+  const reservationId = typeof claims.reservationId === 'string' ? claims.reservationId.trim() : '';
+  const keySetId = typeof claims.keySetId === 'string' ? claims.keySetId.trim() : '';
+  const lifecycleId = typeof claims.lifecycleId === 'string' ? claims.lifecycleId.trim() : '';
+  const expiresAtMs = Number(claims.exp) * 1000;
+  const parsedReservation = parseRecoveryCodeReservationId(reservationId);
+  if (
+    !walletId ||
+    !keySetId ||
+    !lifecycleId ||
+    !parsedReservation.ok ||
+    !Number.isSafeInteger(expiresAtMs) ||
+    expiresAtMs <= Date.now()
+  ) {
+    return null;
+  }
+  return { walletId, reservationId, keySetId, lifecycleId, expiresAtMs };
+}
+
+async function authorizeWalletRecoveryEcdsaPostRegistrationRequest(input: {
+  readonly ctx: FetchRouterApiContext;
+  readonly request: StrictEcdsaPostRegistrationRequest;
+  readonly claims: WalletRecoveryEcdsaAuthorizationClaims;
+}): Promise<StrictEcdsaPostRegistrationAuthorization> {
+  if (input.request.kind === 'export') {
+    return {
+      ok: false,
+      code: 'unauthorized',
+      message: 'wallet recovery authorization cannot authorize ECDSA export',
+    };
+  }
+  const request = input.request.request;
+  const operation = input.request.kind === 'refresh' ? 'refresh' : 'recovery';
+  if (
+    request.client_id !== input.claims.walletId ||
+    request.lifecycle.lifecycle_id !== input.claims.lifecycleId ||
+    request.expires_at_ms > input.claims.expiresAtMs
+  ) {
+    return {
+      ok: false,
+      code: 'identity_mismatch',
+      message: 'wallet recovery authorization is not bound to this ECDSA lifecycle',
+    };
+  }
+  const expectedDigest = base64UrlEncode(
+    await sha256BytesUtf8(
+      alphabetizeStringify({
+        domain: 'seams/wallet-recovery/ecdsa-authorization/v1',
+        reservationId: input.claims.reservationId,
+        keySetId: input.claims.keySetId,
+        operation,
+      }),
+    ),
+  );
+  const suppliedDigest =
+    input.request.kind === 'refresh'
+      ? request.refresh_authorization_digest_b64u
+      : request.recovery_authorization_digest_b64u;
+  if (suppliedDigest !== expectedDigest) {
+    return {
+      ok: false,
+      code: 'identity_mismatch',
+      message: 'wallet recovery authorization digest is invalid',
+    };
+  }
+  if (!input.ctx.service.walletRegistration?.listWalletEcdsaCustodyContinuity) {
+    return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.unavailable);
+  }
+  let signers;
+  try {
+    signers = await input.ctx.service.walletRegistration.listWalletEcdsaCustodyContinuity({
+      walletId: input.claims.walletId,
+    });
+  } catch {
+    return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.unavailable);
+  }
+  const matching = signers.filter(
+    (signer) => `evm_family_ecdsa:${signer.walletKey.keyHandle}` === input.claims.keySetId,
+  );
+  if (
+    matching.length === 0 ||
+    matching.some(
+      (signer) =>
+        !ecdsaRecoveryRequestMatchesCapability({
+          request,
+          capability: signer.walletKey.publicCapability,
+        }),
+    )
+  ) {
+    return {
+      ok: false,
+      code: 'identity_mismatch',
+      message: 'wallet recovery authorization does not match active ECDSA custody',
+    };
+  }
+  return {
+    ok: true,
+    authority: strictEcdsaPostRegistrationRequestAuthority(input.request),
+    ecdsaClaims: null,
+  };
+}
+
+function ecdsaRecoveryRequestMatchesCapability(input: {
+  readonly request:
+    | RouterAbEcdsaDerivationRecoveryRequestV1
+    | RouterAbEcdsaDerivationActivationRefreshRequestV1;
+  readonly capability: RouterAbEcdsaDerivationPublicCapabilityV1;
+}): boolean {
+  const currentEpoch =
+    'previous_activation_epoch' in input.request
+      ? input.request.previous_activation_epoch
+      : input.request.lifecycle.root_share_epoch;
+  return (
+    alphabetizeStringify(input.capability.context) === alphabetizeStringify(input.request.context) &&
+    alphabetizeStringify(input.capability.public_identity) ===
+      alphabetizeStringify(input.request.public_identity) &&
+    alphabetizeStringify(input.capability.signer_set) ===
+      alphabetizeStringify(input.request.signer_set) &&
+    input.capability.router_id === input.request.router_id &&
+    input.capability.client_id === input.request.client_id &&
+    alphabetizeStringify(input.capability.activation_epoch) ===
+      alphabetizeStringify(currentEpoch)
+  );
 }
 
 async function handleStrictEcdsaPostRegistrationRoute(input: {

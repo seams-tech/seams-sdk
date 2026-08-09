@@ -142,7 +142,7 @@ export async function recoverAndRefreshWalletCustodyEcdsaV1(input: {
   readonly reservationId: string;
   readonly reservationExpiresAtMs: number;
   readonly relayUrl: string;
-  readonly sessionToken: string;
+  readonly recoveryAuthorizationJwt: string;
   readonly workerCtx: WorkerOperationContext;
 }): Promise<WalletRecoveryEcdsaActivation> {
   const reservationId = parseRecoveryCodeReservationId(input.reservationId);
@@ -157,7 +157,12 @@ export async function recoverAndRefreshWalletCustodyEcdsaV1(input: {
     24,
     'wallet recovery ECDSA request nonces',
   );
-  const auth = { kind: 'app_session' as const, jwt: input.sessionToken };
+  const auth = {
+    kind: 'wallet_recovery' as const,
+    jwt: input.recoveryAuthorizationJwt,
+    reservationId: String(reservationId),
+    keySetId: input.entry.keySetId,
+  };
   const recovery = await createRouterAbEcdsaPostRegistrationCeremonyWasm({
     workerCtx: input.workerCtx,
     command: {

@@ -20,7 +20,10 @@ import {
 } from '@shared/wallet-recovery/recoveryCodeReservation';
 import {
   admitWalletRecoveryEmailOtp,
+  admitWalletRecoveryBootstrapGrant,
   resolveWalletRecoveryAuthorizationContext,
+  resolveWalletRecoveryBootstrapAuthorizationContext,
+  resolveWalletRecoveryAuthorizationToken,
 } from '../../../domains/passkeyCustody/walletRecoveryAuthorization';
 import { authenticateRouterAbOperationStepUpAppSessionIdentity } from '../../../domains/signingOperations/routerAbPrivateSigningWorker';
 import type { AuthorizedOperation } from '../../../../authorization/domain';
@@ -74,6 +77,10 @@ type WalletRecoveryAuthorizedNearEntry = Extract<
   WalletRecoveryPreparationKeyManifestEntryV1,
   { readonly kind: 'near_ed25519' }
 > & { readonly recoveryAuthorizationJwt: string };
+type WalletRecoveryAuthorizedEcdsaEntry = Extract<
+  WalletRecoveryPreparationKeyManifestEntryV1,
+  { readonly kind: 'evm_family_ecdsa' }
+> & { readonly recoveryAuthorizationJwt: string };
 
 type WalletRecoveryAuthorizedKeyManifest = Omit<
   WalletRecoveryPreparationKeyManifestV1,
@@ -81,10 +88,7 @@ type WalletRecoveryAuthorizedKeyManifest = Omit<
 > & {
   readonly entries: readonly (
     | WalletRecoveryAuthorizedNearEntry
-    | Extract<
-        WalletRecoveryPreparationKeyManifestEntryV1,
-        { readonly kind: 'evm_family_ecdsa' }
-      >
+    | WalletRecoveryAuthorizedEcdsaEntry
   )[];
 };
 
@@ -97,25 +101,37 @@ async function keyManifestWithRecoveryAuthorization(input: {
 }): Promise<WalletRecoveryAuthorizedKeyManifest> {
   const entries = await Promise.all(
     input.keyManifest.entries.map(async (entry) => {
-      if (entry.kind !== 'near_ed25519') return entry;
       const keySetId = entry.keySetId;
-      const basis = entry.recoveryBasis;
       const lifecycleId = await deriveWalletRecoveryKeyLifecycleId({
         reservationId: input.reservationId,
         keySetId,
       });
+      if (entry.kind === 'near_ed25519') {
+        const basis = entry.recoveryBasis;
+        const recoveryAuthorizationJwt = await input.session.signJwt(String(lifecycleId), {
+          kind: 'router_ab_ed25519_wallet_recovery_authorization_v1',
+          walletId: input.walletId,
+          reservationId: input.reservationId,
+          keySetId,
+          lifecycleId,
+          thresholdSessionId: `${lifecycleId}:threshold-session`,
+          rootShareEpoch: basis.scope.root_share_epoch,
+          signingWorkerId: basis.scope.signing_worker_id,
+          nearEd25519SigningKeyId: basis.applicationBinding.near_ed25519_signing_key_id,
+          participantIds: basis.participantIds,
+          expiresAtMs: input.reservationExpiresAtMs,
+          exp: Math.floor(input.reservationExpiresAtMs / 1000),
+        });
+        return { ...entry, recoveryAuthorizationJwt };
+      }
       const recoveryAuthorizationJwt = await input.session.signJwt(String(lifecycleId), {
-        kind: 'router_ab_ed25519_wallet_recovery_authorization_v1',
+        kind: 'router_ab_ecdsa_wallet_recovery_authorization_v1',
         walletId: input.walletId,
         reservationId: input.reservationId,
         keySetId,
         lifecycleId,
-        thresholdSessionId: `${lifecycleId}:threshold-session`,
-        rootShareEpoch: basis.scope.root_share_epoch,
-        signingWorkerId: basis.scope.signing_worker_id,
-        nearEd25519SigningKeyId: basis.applicationBinding.near_ed25519_signing_key_id,
-        participantIds: basis.participantIds,
         expiresAtMs: input.reservationExpiresAtMs,
+        exp: Math.floor(input.reservationExpiresAtMs / 1000),
       });
       return { ...entry, recoveryAuthorizationJwt };
     }),
@@ -254,8 +270,10 @@ export async function handleWalletRecoveryPrepare(
   const body = (await readJson(ctx.request)) as Record<string, unknown> | null;
   const walletId = trimmed(body?.walletId);
   const recoveryCode = trimmed(body?.recoveryCode);
+  const orgId = trimmed(body?.orgId);
   const challengeId = trimmed(body?.challengeId);
   const otpCode = trimmed(body?.otpCode);
+  const recoveryBootstrapGrant = trimmed(body?.recoveryBootstrapGrant);
   const replacedCredentialIdB64u = trimmed(body?.replacedCredentialIdB64u);
   let reservationId;
   try {
@@ -263,13 +281,20 @@ export async function handleWalletRecoveryPrepare(
   } catch {
     reservationId = null;
   }
+  const hasSessionAuthorization = Boolean(challengeId && otpCode);
+  const hasBootstrapAuthorization = Boolean(recoveryBootstrapGrant && challengeId && !otpCode);
+  if (hasBootstrapAuthorization && !trimmed(ctx.request.headers.get('origin'))) {
+    return toFetchRouteResponse({
+      status: 400,
+      body: { ok: false, code: 'invalid_origin', message: 'wallet recovery requires the request Origin header' },
+    });
+  }
   if (
     !walletId ||
     !recoveryCode ||
     !reservationId ||
-    !challengeId ||
-    !otpCode ||
-    !replacedCredentialIdB64u
+    !replacedCredentialIdB64u ||
+    (hasSessionAuthorization === hasBootstrapAuthorization)
   ) {
     return toFetchRouteResponse({
       status: 400,
@@ -282,27 +307,41 @@ export async function handleWalletRecoveryPrepare(
     });
   }
 
-  const authorization = await resolveWalletRecoveryAuthorizationContext({
-    headers: Object.fromEntries(ctx.request.headers.entries()),
-    session: ctx.opts.session,
-    walletId,
-    reservationId,
-    authorizedOperations: ctx.service.authorizedOperations,
-    authorizationSessions: ctx.service.authorizationSessions,
-  });
+  const authorization = hasBootstrapAuthorization
+    ? await resolveBootstrapRecoveryAuthorization(ctx, {
+        walletId,
+        orgId,
+        reservationId,
+        recoveryBootstrapGrant,
+      })
+    : await resolveWalletRecoveryAuthorizationContext({
+        headers: Object.fromEntries(ctx.request.headers.entries()),
+        session: ctx.opts.session,
+        walletId,
+        reservationId,
+        authorizedOperations: ctx.service.authorizedOperations,
+        authorizationSessions: ctx.service.authorizationSessions,
+      });
   if (!authorization.ok) return authorizationFailure(authorization);
   if (authorization.context.existing?.lifecycle === 'completed') {
     return authorizedOperationReplay(authorization.context.existing);
   }
-  const admitted = await admitWalletRecoveryEmailOtp({
-    context: authorization.context,
-    emailOtp: ctx.service.emailOtp,
-    walletId,
-    reservationId,
-    challengeId,
-    otpCode,
-    nowMs: Date.now(),
-  });
+  const admitted = hasBootstrapAuthorization
+    ? await admitWalletRecoveryBootstrapGrant({
+        context: authorization.context,
+        reservationId,
+        challengeId,
+        nowMs: Date.now(),
+      })
+    : await admitWalletRecoveryEmailOtp({
+        context: authorization.context,
+        emailOtp: ctx.service.emailOtp,
+        walletId,
+        reservationId,
+        challengeId,
+        otpCode,
+        nowMs: Date.now(),
+      });
   if (!admitted.ok) return authorizationFailure(admitted);
   if (admitted.operation.lifecycle === 'completed') {
     return authorizedOperationReplay(admitted.operation);
@@ -344,6 +383,20 @@ export async function handleWalletRecoveryPrepare(
         reservationExpiresAtMs: result.reservationExpiresAtMs,
         keyManifest: result.keyManifest,
       });
+      const recoveryAuthorizationToken = await ctx.opts.session.signJwt(
+        String(reservationId),
+        {
+          kind: 'wallet_recovery_authorization_v1',
+          walletId,
+          reservationId,
+          authorityRef: result.authorityRef,
+          challengeId,
+          tenantId: authorization.context.session.tenantId,
+          principalId: authorization.context.session.principalId,
+          origin: trimmed(ctx.request.headers.get('origin')),
+          exp: Math.floor(result.reservationExpiresAtMs / 1000),
+        },
+      );
       return toFetchRouteResponse({
         status: 200,
         body: {
@@ -356,6 +409,7 @@ export async function handleWalletRecoveryPrepare(
           reservationId: result.reservationId,
           reservationExpiresAtMs: result.reservationExpiresAtMs,
           storeVersion: result.storeVersion,
+          recoveryAuthorizationToken,
         },
       });
     case 'conflict':
@@ -401,6 +455,47 @@ function refusedSpend() {
       message: 'that recovery code cannot be used',
     },
   };
+}
+
+async function resolveBootstrapRecoveryAuthorization(
+  ctx: FetchRouterApiContext,
+  input: {
+    readonly walletId: string;
+    readonly orgId: string;
+    readonly reservationId: RecoveryCodeReservationId;
+    readonly challengeId: string;
+    readonly recoveryBootstrapGrant: string;
+  },
+) {
+  const consumed = await ctx.service.emailOtp.consumeEmailOtpWalletRecoveryBootstrap({
+    recoveryBootstrapGrant: input.recoveryBootstrapGrant,
+    walletId: input.walletId,
+    orgId: input.orgId,
+  });
+  if (!consumed.ok) {
+    return {
+      ok: false as const,
+      status: 401,
+      code: consumed.code,
+      message: consumed.message,
+    };
+  }
+  if (consumed.challengeId !== input.challengeId) {
+    return {
+      ok: false as const,
+      status: 401,
+      code: 'recovery_bootstrap_grant_binding_mismatch',
+      message: 'Recovery bootstrap grant is invalid or expired',
+    };
+  }
+  return await resolveWalletRecoveryBootstrapAuthorizationContext({
+    grant: consumed,
+    reservationId: input.reservationId,
+    authorizedOperations: ctx.service.authorizedOperations,
+    authorizationSessions: ctx.service.authorizationSessions,
+    requestOrigin: trimmed(ctx.request.headers.get('origin')),
+    nowMs: Date.now(),
+  });
 }
 
 function decodeRecoveryCode(value: string): Uint8Array {
@@ -497,6 +592,7 @@ export async function handleWalletRecoveryFinalize(
     challengeId,
     replacementId,
     replacedCredentialIdB64u,
+    recoveryAuthorizationToken,
     webauthnRegistration,
     replacementEnvelope,
   } = requestBody;
@@ -512,13 +608,16 @@ export async function handleWalletRecoveryFinalize(
     });
   }
 
-  const authorization = await resolveWalletRecoveryAuthorizationContext({
-    headers: Object.fromEntries(ctx.request.headers.entries()),
+  const authorization = await resolveWalletRecoveryAuthorizationToken({
+    token: recoveryAuthorizationToken,
     session: ctx.opts.session,
     walletId,
     reservationId,
+    challengeId,
     authorizedOperations: ctx.service.authorizedOperations,
     authorizationSessions: ctx.service.authorizationSessions,
+    requestOrigin: expectedOrigin,
+    nowMs: Date.now(),
   });
   if (!authorization.ok) return authorizationFailure(authorization);
   const authorizedOperation = authorization.context.existing;
@@ -591,6 +690,7 @@ type WalletRecoveryFinalizeBody = {
   readonly challengeId: string;
   readonly replacementId: string;
   readonly replacedCredentialIdB64u: string;
+  readonly recoveryAuthorizationToken: string;
   readonly webauthnRegistration: Record<string, unknown>;
   readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
 };
@@ -606,6 +706,10 @@ function parseWalletRecoveryFinalizeBody(value: unknown): WalletRecoveryFinalize
     value.replacedCredentialIdB64u,
     'replacedCredentialIdB64u',
   );
+  const recoveryAuthorizationToken = requireNonEmptyString(
+    value.recoveryAuthorizationToken,
+    'recoveryAuthorizationToken',
+  );
   const webauthnRegistration = requireObject(value.webauthnRegistration, 'webauthnRegistration');
   return {
     walletId: walletId.value,
@@ -613,6 +717,7 @@ function parseWalletRecoveryFinalizeBody(value: unknown): WalletRecoveryFinalize
     challengeId,
     replacementId,
     replacedCredentialIdB64u,
+    recoveryAuthorizationToken,
     webauthnRegistration,
     replacementEnvelope: parsePasskeyCustodyEnvelopeRecord(
       value.replacementEnvelope,
@@ -628,6 +733,7 @@ function requireExactFinalizeFields(value: Record<string, unknown>): void {
     'challengeId',
     'replacementId',
     'replacedCredentialIdB64u',
+    'recoveryAuthorizationToken',
     'webauthnRegistration',
     'replacementEnvelope',
   ]);

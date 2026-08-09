@@ -426,6 +426,53 @@ type ThresholdEcdsaKeyInventoryRecord = {
   };
 };
 
+type EmailOtpWalletRecoveryBootstrapChallengeCreateInput = {
+  readonly walletId?: unknown;
+  readonly orgId?: unknown;
+  readonly clientIp?: unknown;
+  readonly requestOrigin?: unknown;
+};
+
+type EmailOtpWalletRecoveryBootstrapChallengeCreateResult =
+  | {
+      readonly ok: true;
+      readonly challengeId: string;
+      readonly otpChannel: EmailOtpChannel;
+      readonly expiresAtMs: number;
+      readonly emailHint: string;
+    }
+  | {
+      readonly ok: false;
+      readonly code: string;
+      readonly message: string;
+      readonly retryAfterMs?: number;
+      readonly lockedUntilMs?: number;
+    };
+
+type EmailOtpWalletRecoveryBootstrapVerifyInput = {
+  readonly walletId?: unknown;
+  readonly orgId?: unknown;
+  readonly challengeId?: unknown;
+  readonly otpCode?: unknown;
+  readonly clientIp?: unknown;
+};
+
+type EmailOtpWalletRecoveryBootstrapVerifyResult =
+  | {
+      readonly ok: true;
+      readonly walletId: string;
+      readonly challengeId: string;
+      readonly recoveryBootstrapGrant: string;
+      readonly recoveryBootstrapGrantExpiresAtMs: number;
+    }
+  | {
+      readonly ok: false;
+      readonly code: string;
+      readonly message: string;
+      readonly attemptsRemaining?: number;
+      readonly lockedUntilMs?: number;
+      readonly retryAfterMs?: number;
+    };
 type RouterApiOkFailure = {
   readonly ok: false;
   readonly code: string;
@@ -436,6 +483,23 @@ type RouterApiRateLimitedFailure = RouterApiOkFailure & {
   readonly retryAfterMs?: number;
   readonly resetAtMs?: number;
 };
+
+type EmailOtpWalletRecoveryBootstrapConsumeInput = {
+  readonly recoveryBootstrapGrant?: unknown;
+  readonly walletId?: unknown;
+  readonly orgId?: unknown;
+};
+
+type EmailOtpWalletRecoveryBootstrapConsumeResult =
+  | {
+      readonly ok: true;
+      readonly walletId: string;
+      readonly providerUserId: string;
+      readonly orgId: string;
+      readonly challengeId: string;
+      readonly grantExpiresAtMs: number;
+    }
+  | { readonly ok: false; readonly code: string; readonly message: string };
 
 export type RouterApiMethodTypes = {
   applyEmailOtpServerSeal: {
@@ -448,6 +512,7 @@ export type RouterApiMethodTypes = {
         }
       | RouterApiOkFailure;
   };
+
   cleanupGoogleEmailOtpDevRegistrationState: {
     readonly input: {
       readonly providerSubject?: unknown;
@@ -545,6 +610,10 @@ export type RouterApiMethodTypes = {
   createEmailOtpDeviceRecoveryChallenge: {
     readonly input: Omit<EmailOtpChallengeCreateInput, 'operation' | 'reuseActiveChallenge'>;
     readonly result: EmailOtpChallengeCreateResult;
+  };
+  createEmailOtpWalletRecoveryBootstrapChallenge: {
+    readonly input: EmailOtpWalletRecoveryBootstrapChallengeCreateInput;
+    readonly result: EmailOtpWalletRecoveryBootstrapChallengeCreateResult;
   };
   createEmailOtpEnrollmentChallenge: {
     readonly input: Omit<EmailOtpChallengeCreateInput, 'operation' | 'reuseActiveChallenge'>;
@@ -942,6 +1011,14 @@ export type RouterApiMethodTypes = {
     readonly input: EmailOtpDeviceRecoveryChallengeVerifyInput;
     readonly result: EmailOtpDeviceRecoveryChallengeVerifyResult;
   };
+  verifyEmailOtpWalletRecoveryBootstrap: {
+    readonly input: EmailOtpWalletRecoveryBootstrapVerifyInput;
+    readonly result: EmailOtpWalletRecoveryBootstrapVerifyResult;
+  };
+  consumeEmailOtpWalletRecoveryBootstrap: {
+    readonly input: EmailOtpWalletRecoveryBootstrapConsumeInput;
+    readonly result: EmailOtpWalletRecoveryBootstrapConsumeResult;
+  };
   verifyEmailOtpWalletRecoveryChallenge: {
     readonly input: EmailOtpDeviceRecoveryChallengeVerifyInput;
     readonly result: EmailOtpChallengeVerifyResult;
@@ -1119,6 +1196,9 @@ export interface RouterApiEmailOtpChallengeService {
   createEmailOtpDeviceRecoveryChallenge(
     input: RouterApiMethodTypes['createEmailOtpDeviceRecoveryChallenge']['input'],
   ): Promise<RouterApiMethodTypes['createEmailOtpDeviceRecoveryChallenge']['result']>;
+  createEmailOtpWalletRecoveryBootstrapChallenge(
+    input: RouterApiMethodTypes['createEmailOtpWalletRecoveryBootstrapChallenge']['input'],
+  ): Promise<RouterApiMethodTypes['createEmailOtpWalletRecoveryBootstrapChallenge']['result']>;
   createEmailOtpEnrollmentChallenge(
     input: RouterApiMethodTypes['createEmailOtpEnrollmentChallenge']['input'],
   ): Promise<RouterApiMethodTypes['createEmailOtpEnrollmentChallenge']['result']>;
@@ -1351,6 +1431,12 @@ export interface RouterApiEmailOtpRouteService extends RouterApiEmailOtpChalleng
   verifyEmailOtpDeviceRecoveryChallenge(
     input: RouterApiMethodTypes['verifyEmailOtpDeviceRecoveryChallenge']['input'],
   ): Promise<RouterApiMethodTypes['verifyEmailOtpDeviceRecoveryChallenge']['result']>;
+  verifyEmailOtpWalletRecoveryBootstrap(
+    input: RouterApiMethodTypes['verifyEmailOtpWalletRecoveryBootstrap']['input'],
+  ): Promise<RouterApiMethodTypes['verifyEmailOtpWalletRecoveryBootstrap']['result']>;
+  consumeEmailOtpWalletRecoveryBootstrap(
+    input: RouterApiMethodTypes['consumeEmailOtpWalletRecoveryBootstrap']['input'],
+  ): Promise<RouterApiMethodTypes['consumeEmailOtpWalletRecoveryBootstrap']['result']>;
   verifyEmailOtpWalletRecoveryChallenge(
     input: RouterApiMethodTypes['verifyEmailOtpWalletRecoveryChallenge']['input'],
   ): Promise<RouterApiMethodTypes['verifyEmailOtpWalletRecoveryChallenge']['result']>;

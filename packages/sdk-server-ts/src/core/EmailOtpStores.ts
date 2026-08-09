@@ -47,11 +47,13 @@ import {
 export type EmailOtpChannel = WalletEmailOtpChannel;
 export type EmailOtpGrantAction =
   | typeof WALLET_EMAIL_OTP_ACTIONS.unseal
-  | typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery;
+  | typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery
+  | typeof WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap;
 export type EmailOtpChallengeAction =
   | typeof WALLET_EMAIL_OTP_ACTIONS.login
   | typeof WALLET_EMAIL_OTP_ACTIONS.registration
-  | typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery;
+  | typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery
+  | typeof WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap;
 export type EmailOtpChallengeOperation = WalletEmailOtpOperation;
 export type EmailOtpLoginChallengeOperation = WalletEmailOtpLoginOperation;
 

@@ -1,5 +1,4 @@
 import {
-  buildBearerAuthorizationHeader,
   buildRelayerJsonPostRequestInit,
   normalizeRelayerBaseUrl,
 } from './relayerHttp';
@@ -46,11 +45,11 @@ export type WalletRecoveryFinalizeResult =
 export async function finalizeWalletRecovery(args: {
   readonly relayUrl: string;
   readonly walletId: string;
-  readonly sessionToken: string;
   readonly reservationId: string;
   readonly challengeId: string;
   readonly replacementId: string;
   readonly replacedCredentialIdB64u: string;
+  readonly recoveryAuthorizationToken: string;
   readonly webauthnRegistration: WebAuthnRegistrationCredential;
   readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
   readonly fetchImpl?: typeof fetch;
@@ -93,16 +92,13 @@ export async function finalizeWalletRecovery(args: {
     response = await doFetch(
       url,
       buildRelayerJsonPostRequestInit({
-        headers: buildBearerAuthorizationHeader({
-          token: args.sessionToken,
-          missingMessage: 'wallet recovery finalization requires an app session',
-        }),
         body: {
           walletId: args.walletId,
           reservationId: args.reservationId,
           challengeId: args.challengeId,
           replacementId: args.replacementId,
           replacedCredentialIdB64u: args.replacedCredentialIdB64u,
+          recoveryAuthorizationToken: args.recoveryAuthorizationToken,
           webauthnRegistration,
           replacementEnvelope,
         },

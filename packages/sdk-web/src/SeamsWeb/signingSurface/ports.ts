@@ -375,7 +375,6 @@ export interface WalletCustodyCeremonySurface {
     replacementCredentialIdB64u: WebAuthnCredentialIdB64u;
     replacementFactorSecret: ArrayBuffer;
     relayUrl: string;
-    sessionToken: string;
   }): Promise<RecoveredWalletCustodyManifestV1>;
 
   establishWalletCustodyNearEd25519KeySet(args: {
