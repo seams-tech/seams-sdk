@@ -531,14 +531,39 @@ export class SeamsWebIframe {
           relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
           ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
         }),
+      requestWalletRecoveryBootstrapChallenge: async (args) =>
+        await this.router.requestWalletRecoveryBootstrapChallenge({
+          walletId: args.walletId,
+          orgId: args.orgId,
+          relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
+        }),
+      verifyWalletRecoveryBootstrap: async (args) =>
+        await this.router.verifyWalletRecoveryBootstrap({
+          walletId: args.walletId,
+          orgId: args.orgId,
+          challengeId: args.challengeId,
+          otpCode: args.otpCode,
+          relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
+        }),
       prepareWalletRecovery: async (args) =>
         await this.router.prepareWalletRecovery({
           walletId: args.walletId,
           challengeId: args.challengeId,
           otpCode: args.otpCode,
           recoveryCode: args.recoveryCode,
+          replacedCredentialIdB64u: args.replacedCredentialIdB64u,
           relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
           ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+        }),
+      prepareWalletRecoveryWithBootstrap: async (args) =>
+        await this.router.prepareWalletRecoveryWithBootstrap({
+          walletId: args.walletId,
+          orgId: args.orgId,
+          challengeId: args.challengeId,
+          recoveryBootstrapGrant: args.recoveryBootstrapGrant,
+          replacedCredentialIdB64u: args.replacedCredentialIdB64u,
+          recoveryCode: args.recoveryCode,
+          relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
         }),
       completeWalletRecovery: async (args) =>
         await this.router.completeWalletRecovery({
