@@ -480,6 +480,13 @@ export class CloudflareD1WalletAuthMethodService {
             message: 'custodyEnvelope is not bound to the verified passkey',
           };
         }
+        if (ceremony.auth.kind === 'app_session') {
+          return {
+            ok: false,
+            code: 'invalid_state',
+            message: 'Passkey add-auth-method ceremony has no custody-opening factor',
+          };
+        }
         const currentEnvelope = await this.passkeyCustodyEnvelopes.lookupEnvelopeForFactor({
           walletId,
           factor:
