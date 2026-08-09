@@ -5,6 +5,7 @@ import { thresholdEd25519StatusCode } from '../../../threshold/statusCodes';
 import type {
   RouterApiWalletRegistrationService,
   RouterApiWalletUnlockService,
+  RouterApiPasskeyCustodyService,
 } from '../../framework/authServicePort';
 import { parseWalletUnlockBackend } from '../emailOtp/emailOtpRequestValidation';
 import {
@@ -14,6 +15,8 @@ import {
 } from '../emailOtp/emailOtpSessionRouteHelpers';
 import type { RouterAbEd25519YaoActiveCapabilityDescriptorV1 } from '../ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import type { RouterAbEcdsaPostRegistrationSessionActivationResponseV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import type { WalletRecoveryPreparationKeyManifestV1 } from '../../cloudflare/d1/passkeyCustody/walletRecoveryKeyManifest';
 import type {
   WalletUnlockEmailOtpRequestedCapabilitiesRequestV1,
   WalletUnlockEmailOtpRequestedCapabilitiesV1,
@@ -110,9 +113,27 @@ export type WalletUnlockEcdsaAuthorization =
       readonly walletSessionJwt: string;
     };
 
+export type WalletUnlockEmailOtpCustodyProjectionV1 = {
+  readonly kind: 'wallet_custody_email_otp_unlock_v1';
+  readonly walletId: string;
+  readonly enrollmentId: string;
+  readonly enrollmentSealKeyVersion: string;
+  readonly envelopeId: PasskeyCustodyEnvelopeRecord['envelopeId'];
+  readonly envelopeVersion: PasskeyCustodyEnvelopeRecord['envelopeVersion'];
+  readonly envelopeRevision: number;
+  readonly storeVersion: string;
+  readonly activeKeySetIds: readonly string[];
+  readonly keyManifest: WalletRecoveryPreparationKeyManifestV1;
+  readonly envelope: PasskeyCustodyEnvelopeRecord;
+};
+
 type VerifiedEmailOtpUnlockResult = Extract<
   Awaited<ReturnType<RouterApiWalletUnlockService['verifyEmailOtpUnlockProof']>>,
   { readonly ok: true }
+>;
+
+type WalletUnlockEmailOtpCustodyLookup = Awaited<
+  ReturnType<RouterApiPasskeyCustodyService['readVerifiedFactorCustody']>
 >;
 
 type WalletUnlockProvisionedCapabilityResult =
@@ -125,6 +146,97 @@ type WalletUnlockEcdsaSessionResult =
       readonly activation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1 | null;
     }
   | { readonly ok: false; readonly response: WalletUnlockRouteResponse };
+
+type WalletUnlockEmailOtpCustodyResult =
+  | { readonly ok: true; readonly projection: WalletUnlockEmailOtpCustodyProjectionV1 }
+  | { readonly ok: false; readonly response: WalletUnlockRouteResponse };
+
+function emailOtpCustodyFailureResponse(
+  lookup: Exclude<
+    WalletUnlockEmailOtpCustodyLookup,
+    Extract<WalletUnlockEmailOtpCustodyLookup, { readonly kind: 'active' }>
+  >,
+): WalletUnlockEmailOtpCustodyResult {
+  const status =
+    lookup.kind === 'manifest_unavailable'
+      ? 503
+      : lookup.kind === 'conflict'
+        ? 409
+        : lookup.kind === 'missing'
+          ? 404
+          : 409;
+  return {
+    ok: false,
+    response: {
+      status,
+      body: {
+        ok: false,
+        code:
+          lookup.kind === 'manifest_unavailable'
+            ? 'custody_manifest_unavailable'
+            : 'custody_envelope_unavailable',
+        message: 'Email OTP wallet custody is unavailable',
+      },
+    },
+  };
+}
+
+function projectEmailOtpCustody(
+  verifiedUnlock: VerifiedEmailOtpUnlockResult,
+  lookup: WalletUnlockEmailOtpCustodyLookup,
+): WalletUnlockEmailOtpCustodyResult {
+  if (lookup.kind !== 'active') return emailOtpCustodyFailureResponse(lookup);
+  const envelope = lookup.envelope;
+  const manifest = lookup.keyManifest;
+  const factor = envelope.factor;
+  const envelopeRevision = Number(envelope.envelopeRevision);
+  const activeKeySetIds = manifest.entries.map((entry) => entry.keySetId);
+  if (
+    envelope.lifecycle.state !== 'active' ||
+    String(envelope.walletId) !== verifiedUnlock.walletId ||
+    factor.kind !== 'email_otp' ||
+    !verifiedUnlock.enrollmentId.trim() ||
+    !verifiedUnlock.enrollmentSealKeyVersion.trim() ||
+    factor.enrollmentId !== verifiedUnlock.enrollmentId ||
+    factor.enrollmentSealKeyVersion !== verifiedUnlock.enrollmentSealKeyVersion ||
+    String(manifest.walletId) !== verifiedUnlock.walletId ||
+    manifest.version !== 'wallet_recovery_preparation_key_manifest_v1' ||
+    !Number.isSafeInteger(envelopeRevision) ||
+    envelopeRevision < 1 ||
+    activeKeySetIds.length === 0 ||
+    activeKeySetIds.some((keySetId) => !String(keySetId).trim()) ||
+    new Set(activeKeySetIds).size !== activeKeySetIds.length ||
+    !String(lookup.storeVersion).trim()
+  ) {
+    return {
+      ok: false,
+      response: {
+        status: 500,
+        body: {
+          ok: false,
+          code: 'custody_binding_mismatch',
+          message: 'Email OTP wallet custody binding is invalid',
+        },
+      },
+    };
+  }
+  return {
+    ok: true,
+    projection: {
+      kind: 'wallet_custody_email_otp_unlock_v1',
+      walletId: verifiedUnlock.walletId,
+      enrollmentId: verifiedUnlock.enrollmentId,
+      enrollmentSealKeyVersion: verifiedUnlock.enrollmentSealKeyVersion,
+      envelopeId: envelope.envelopeId,
+      envelopeVersion: envelope.envelopeVersion,
+      envelopeRevision,
+      storeVersion: lookup.storeVersion,
+      activeKeySetIds,
+      keyManifest: manifest,
+      envelope,
+    },
+  };
+}
 
 async function provisionFirstEcdsaWalletSession(input: {
   readonly context: WalletUnlockEcdsaSessionContext;
@@ -353,6 +465,11 @@ export async function handleWalletUnlockVerifyRoute(input: {
   body: unknown;
   origin?: string;
   service: RouterApiWalletUnlockService;
+  resolveEmailOtpCustody: (input: {
+    readonly walletId: string;
+    readonly enrollmentId: string;
+    readonly enrollmentSealKeyVersion: string;
+  }) => Promise<WalletUnlockEmailOtpCustodyLookup>;
   emitRouterApiWebhook: EmitWalletUnlockRouterApiWebhook;
   emitEmailOtpWebhook: EmitWalletUnlockEmailOtpWebhook;
   capabilityContext: WalletUnlockCapabilityContext;
@@ -470,6 +587,16 @@ export async function handleWalletUnlockVerifyRoute(input: {
     };
   }
 
+  const emailOtpCustody = projectEmailOtpCustody(
+    result,
+    await input.resolveEmailOtpCustody({
+      walletId: result.walletId,
+      enrollmentId: result.enrollmentId,
+      enrollmentSealKeyVersion: result.enrollmentSealKeyVersion,
+    }),
+  );
+  if (!emailOtpCustody.ok) return emailOtpCustody.response;
+
   if (
     input.capabilityContext.kind === 'email_otp' &&
     input.capabilityContext.request.requestedCapabilities.kind === 'none'
@@ -503,6 +630,7 @@ export async function handleWalletUnlockVerifyRoute(input: {
         unlocked: true,
         unlockBackend,
         userId: result.userId,
+        walletCustody: emailOtpCustody.projection,
         ...(ecdsaSession.activation ? { ecdsaSession: ecdsaSession.activation } : {}),
       },
     };
@@ -542,6 +670,7 @@ export async function handleWalletUnlockVerifyRoute(input: {
       unlocked: true,
       unlockBackend,
       userId: result.userId,
+      walletCustody: emailOtpCustody.projection,
       ed25519YaoCapability: capabilityResult.value,
       ...(ecdsaSession.activation ? { ecdsaSession: ecdsaSession.activation } : {}),
     },
