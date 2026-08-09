@@ -10,6 +10,7 @@ import type {
   WebAuthnRpId,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
+import { parseRecoveryCodeReservationId } from '../../packages/shared-ts/src/wallet-recovery/recoveryCodeReservation';
 import { applySignerMigrations } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
 import {
   CREDENTIAL_ID_B64U,
@@ -20,6 +21,7 @@ import {
   WALLET_ID,
   passkeyCustodyEnvelope,
   rawEmailOtpFactor,
+  rawPasskeyFactor,
   rawWalletCustodySeedBinding,
   rawWalletRecoveryEnvelopeSet,
 } from './helpers/passkeyCustodyEnvelope.fixtures';
@@ -188,5 +190,86 @@ test('two wallets keep separate custody', async () => {
     const other = await commit.readRecoveryEnvelopeSet(OTHER_WALLET_ID as WalletId);
     expect(String(first?.record.walletId)).toBe(WALLET_ID);
     expect(String(other?.record.walletId)).toBe(OTHER_WALLET_ID);
+  });
+});
+
+test('recovery finalization consumes the reservation with the replacement envelope', async () => {
+  await withStores(async ({ commit, envelopes }) => {
+    await commit.commitRegistration({
+      envelope: passkeyCustodyEnvelope(),
+      recoverySet: recoverySet(),
+    });
+    const current = await commit.readRecoveryEnvelopeSet(WALLET_ID as WalletId);
+    if (!current) throw new Error('recovery set fixture was not stored');
+    const reservationId = parseRecoveryCodeReservationId('recovery-operation-1');
+    const reservedSet = {
+      ...current.record,
+      manifestKekWraps: current.record.manifestKekWraps.map((wrap, index) =>
+        index === 0
+          ? {
+              ...wrap,
+              lifecycle: {
+                state: 'reserved' as const,
+                issuedAtMs: wrap.lifecycle.issuedAtMs,
+                reservationId,
+                reservedAtMs: 3_000,
+                reservationExpiresAtMs: 30_000,
+              },
+            }
+          : wrap,
+      ),
+      updatedAtMs: 3_000,
+    };
+    const reserved = await commit.writeRecoveryEnvelopeSet({
+      record: reservedSet,
+      expectedStoreVersion: current.storeVersion,
+    });
+    if (reserved.kind !== 'stored') throw new Error('recovery reservation fixture conflicted');
+    const consumedSet = {
+      ...reservedSet,
+      manifestKekWraps: reservedSet.manifestKekWraps.map((wrap, index) =>
+        index === 0
+          ? {
+              ...wrap,
+              lifecycle: {
+                state: 'consumed' as const,
+                issuedAtMs: wrap.lifecycle.issuedAtMs,
+                reservationId,
+                consumedAtMs: 4_000,
+              },
+            }
+          : wrap,
+      ),
+      updatedAtMs: 4_000,
+    };
+    const replacement = passkeyCustodyEnvelope({
+      envelopeId: 'replacement-envelope-1',
+      factor: rawPasskeyFactor({
+        credentialIdB64u: 'cmVwbGFjZW1lbnQtY3JlZGVudGlhbA',
+      }),
+    });
+    const finalized = await commit.commitRecoveryPromotion({
+      recoverySet: consumedSet,
+      expectedRecoverySetVersion: reserved.storeVersion,
+      replacementEnvelope: replacement,
+      reservationId,
+    });
+    expect(finalized.kind).toBe('committed');
+
+    const stored = await commit.readRecoveryEnvelopeSet(WALLET_ID as WalletId);
+    expect(stored?.record.manifestKekWraps[0]?.lifecycle).toMatchObject({
+      state: 'consumed',
+      reservationId,
+    });
+    const lookup = await envelopes.lookupEnvelope({
+      walletId: WALLET_ID as WalletId,
+      factor: {
+        kind: 'passkey',
+        rpId: RP_ID as WebAuthnRpId,
+        credentialIdB64u: 'cmVwbGFjZW1lbnQtY3JlZGVudGlhbA' as WebAuthnCredentialIdB64u,
+      },
+      envelopeId: 'replacement-envelope-1' as PasskeyEnvelopeId,
+    });
+    expect(lookup.kind).toBe('active');
   });
 });

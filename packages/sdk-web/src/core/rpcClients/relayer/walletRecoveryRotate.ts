@@ -20,7 +20,7 @@ export type WalletRecoveryRotateResult =
   | { readonly kind: 'rotated'; readonly issuedAtMs: number; readonly storeVersion: string }
   /** The wallet has no codes to replace. */
   | { readonly kind: 'no_recovery_set'; readonly message: string }
-  /** A spend or another rotation landed first; re-read and retry. */
+  /** Recovery finalization or another rotation landed first; re-read and retry. */
   | { readonly kind: 'conflict'; readonly message: string }
   /** The set was refused — wrong shape, or a clock that did not advance. */
   | { readonly kind: 'rejected'; readonly message: string }

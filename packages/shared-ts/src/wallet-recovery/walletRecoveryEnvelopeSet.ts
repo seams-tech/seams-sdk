@@ -16,7 +16,10 @@ import {
   rejectUnknownFields,
   requireRecord,
 } from '../passkey-custody';
-import type { RecoveryCodeReservationId } from './recoveryCodeReservation';
+import {
+  parseRecoveryCodeReservationId,
+  type RecoveryCodeReservationId,
+} from './recoveryCodeReservation';
 import type { DerivedWalletRecoveryKeyId } from './recoveryCodes';
 import { parseDerivedWalletRecoveryKeyId, WALLET_RECOVERY_CODE_COUNT } from './recoveryCodes';
 import type { RecoveryCodeLifecycleState } from './recoveryEnvelopes';
@@ -149,7 +152,7 @@ function parseRecoveryCodeLifecycleState(raw: unknown, label: string): RecoveryC
       return {
         state: 'reserved',
         issuedAtMs,
-        reservationId: record.reservationId as RecoveryCodeReservationId,
+        reservationId: parseRecoveryCodeReservationId(record.reservationId),
         reservedAtMs,
         reservationExpiresAtMs,
       };
@@ -158,11 +161,19 @@ function parseRecoveryCodeLifecycleState(raw: unknown, label: string): RecoveryC
       if (record.revokedAtMs !== undefined) {
         throw new Error(`${label} cannot be consumed and carry a revoked timestamp`);
       }
+      if (typeof record.reservationId !== 'string' || !record.reservationId) {
+        throw new Error(`${label}.reservationId is required after consumption`);
+      }
       const consumedAtMs = parseUnixMs(record.consumedAtMs, `${label}.consumedAtMs`);
       if (consumedAtMs < issuedAtMs) {
         throw new Error(`${label}.consumedAtMs cannot precede issuance`);
       }
-      return { state: 'consumed', issuedAtMs, consumedAtMs };
+      return {
+        state: 'consumed',
+        issuedAtMs,
+        reservationId: parseRecoveryCodeReservationId(record.reservationId),
+        consumedAtMs,
+      };
     }
     case 'revoked': {
       if (record.consumedAtMs !== undefined) {

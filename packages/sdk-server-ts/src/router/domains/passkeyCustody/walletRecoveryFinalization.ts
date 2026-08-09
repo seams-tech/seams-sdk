@@ -4,6 +4,13 @@ import {
 } from '@shared/wallet-recovery/recoveryCodes';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import type { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
+import type { CloudflareD1WalletCustodyCommitStore } from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
+import {
+  consumeReservedRecoveryCode,
+  type RecoveryCodeReservationId,
+} from '@shared/wallet-recovery/recoveryCodeReservation';
+import type { WalletRecoveryEnvelopeSetRecord } from '@shared/wallet-recovery';
+import type { WalletId } from '@shared/utils/domainIds';
 
 /**
  * Promoting the replacement credential a recovery enrolled.
@@ -27,7 +34,7 @@ import type { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../cloudflare/d
  * anything.
  */
 
-export type WalletRecoveryPromotionResult =
+export type WalletRecoveryFinalizationResult =
   | {
       readonly kind: 'promoted';
       readonly storeVersion: string;
@@ -40,17 +47,20 @@ export type WalletRecoveryPromotionResult =
       readonly retireFailures?: readonly string[];
     }
   | { readonly kind: 'refused'; readonly reason: string }
+  | { readonly kind: 'conflict'; readonly reason: string }
   | { readonly kind: 'envelope_rejected'; readonly reason: string };
 
-export async function promoteRecoveredWalletCredentialV1(input: {
+export async function finalizeRecoveredWalletCredentialV1(input: {
   readonly envelopeStore: CloudflareD1PasskeyCustodyEnvelopeStore;
+  readonly walletCustodyCommits: CloudflareD1WalletCustodyCommitStore;
   readonly walletId: string;
+  readonly reservationId: RecoveryCodeReservationId;
   /** Sealed under the newly enrolled credential, by the client. */
   readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
   readonly requiredKeySets: readonly string[];
   readonly outcomes: readonly RecoveredKeySetOutcome[];
   readonly nowMs: number;
-}): Promise<WalletRecoveryPromotionResult> {
+}): Promise<WalletRecoveryFinalizationResult> {
   const admission = admitWalletRecoveryCredentialPromotion({
     requiredKeySets: input.requiredKeySets,
     outcomes: input.outcomes,
@@ -69,6 +79,47 @@ export async function promoteRecoveredWalletCredentialV1(input: {
     };
   }
 
+  const storedRecoverySet = await input.walletCustodyCommits.readRecoveryEnvelopeSet(
+    input.walletId as WalletId,
+  );
+  if (!storedRecoverySet) {
+    return { kind: 'refused', reason: 'the recovery reservation is unavailable' };
+  }
+  const reservedIndex = storedRecoverySet.record.manifestKekWraps.findIndex(
+    (wrap) =>
+      (wrap.lifecycle.state === 'reserved' || wrap.lifecycle.state === 'consumed') &&
+      wrap.lifecycle.reservationId === input.reservationId,
+  );
+  if (reservedIndex < 0) {
+    return { kind: 'refused', reason: 'the recovery reservation is unavailable' };
+  }
+  const selected = storedRecoverySet.record.manifestKekWraps[reservedIndex];
+  if (!selected) {
+    return { kind: 'refused', reason: 'the recovery reservation is unavailable' };
+  }
+  const lifecycle =
+    selected.lifecycle.state === 'consumed'
+      ? selected.lifecycle
+      : consumeReservedRecoveryCode({
+          lifecycle: selected.lifecycle,
+          reservationId: input.reservationId,
+          nowMs: input.nowMs,
+        });
+  if ('ok' in lifecycle && !lifecycle.ok) {
+    return { kind: 'refused', reason: lifecycle.message };
+  }
+  const consumedLifecycle = 'ok' in lifecycle ? lifecycle.lifecycle : lifecycle;
+  if (consumedLifecycle.state !== 'consumed') {
+    return { kind: 'refused', reason: 'the recovery code was not consumed' };
+  }
+  const consumedRecoverySet: WalletRecoveryEnvelopeSetRecord = {
+    ...storedRecoverySet.record,
+    manifestKekWraps: storedRecoverySet.record.manifestKekWraps.map((wrap, index) =>
+      index === reservedIndex ? { ...wrap, lifecycle: consumedLifecycle } : wrap,
+    ),
+    updatedAtMs: input.nowMs,
+  };
+
   /* Read before the write, so the retire list is the set that was active when
      the promotion was admitted — not whatever exists after it lands, which
      would include the new envelope itself. */
@@ -81,12 +132,20 @@ export async function promoteRecoveredWalletCredentialV1(input: {
       String(envelope.envelopeId) !== String(input.replacementEnvelope.envelopeId),
   );
 
-  const created = await input.envelopeStore.createEnvelope(input.replacementEnvelope);
-  if (created.kind !== 'stored') {
+  const committed = await input.walletCustodyCommits.commitRecoveryPromotion({
+    recoverySet: consumedRecoverySet,
+    expectedRecoverySetVersion: storedRecoverySet.storeVersion,
+    replacementEnvelope: input.replacementEnvelope,
+    reservationId: input.reservationId,
+  });
+  if (committed.kind === 'conflict') {
+    return { kind: 'conflict', reason: 'the recovery state changed during finalization' };
+  }
+  if (committed.kind === 'inconsistent') {
     /* Nothing has been retired yet, so the wallet is untouched. */
     return {
       kind: 'envelope_rejected',
-      reason: `the replacement envelope was not stored: ${created.kind}`,
+      reason: committed.reason,
     };
   }
 
@@ -113,7 +172,7 @@ export async function promoteRecoveredWalletCredentialV1(input: {
 
   return {
     kind: 'promoted',
-    storeVersion: created.storeVersion,
+    storeVersion: committed.envelopeStoreVersion,
     retiredEnvelopeIds,
     ...(retireFailures.length > 0 ? { retireFailures } : {}),
   };

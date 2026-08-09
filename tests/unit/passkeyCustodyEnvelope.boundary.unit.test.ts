@@ -364,7 +364,12 @@ test('a consumed code wrap keeps the set parseable for the remaining codes', () 
   const wraps = rawManifestKekWrapSet();
   wraps[0] = {
     ...wraps[0],
-    lifecycle: { state: 'consumed', issuedAtMs: 1_000, consumedAtMs: 2_000 },
+    lifecycle: {
+      state: 'consumed',
+      issuedAtMs: 1_000,
+      reservationId: 'recovery-operation-1',
+      consumedAtMs: 2_000,
+    },
   };
 
   const parsed = parseWalletRecoveryEnvelopeSetRecord(

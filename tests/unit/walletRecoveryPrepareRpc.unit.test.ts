@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
 import {
-  spendWalletRecoveryCode,
-  type WalletRecoverySpendResult,
-} from '../../packages/sdk-web/src/core/rpcClients/relayer/walletRecoverySpend';
+  prepareWalletRecovery,
+  type WalletRecoveryPrepareResult,
+} from '../../packages/sdk-web/src/core/rpcClients/relayer/walletRecoveryPrepare';
 
 /**
- * The client's reading of a recovery spend.
+ * The client's reading of recovery preparation.
  *
  * Two things are load-bearing here, and both are about not being helpful.
  *
@@ -26,10 +26,13 @@ function respondWith(status: number, body: unknown): typeof fetch {
     })) as unknown as typeof fetch;
 }
 
-async function spend(status: number, body: unknown): Promise<WalletRecoverySpendResult> {
-  return spendWalletRecoveryCode({
+async function prepare(status: number, body: unknown): Promise<WalletRecoveryPrepareResult> {
+  return prepareWalletRecovery({
     relayUrl: 'https://relay.localhost',
     walletId: 'alice.testnet',
+    sessionToken: 'app-session',
+    challengeId: 'challenge-1',
+    otpCode: '123456',
     recoveryCode: 'QUJDREVG',
     reservationId: 'reservation-1',
     fetchImpl: respondWith(status, body),
@@ -38,42 +41,51 @@ async function spend(status: number, body: unknown): Promise<WalletRecoverySpend
 
 const GOOD_WRAP = { nonceB64u: 'n', wrappedManifestKekB64u: 'k', aadHashB64u: 'a' };
 
-test('a spend returns the wrapped payload', async () => {
-  const result = await spend(200, {
+test('preparation returns the wrapped payload and exact reservation', async () => {
+  const result = await prepare(200, {
     ok: true,
     wrap: GOOD_WRAP,
     entries: [{ custodySecretKind: 'wallet_custody_seed_v1' }],
+    reservationId: 'reservation-1',
+    reservationExpiresAtMs: 60_000,
     storeVersion: '5',
   });
-  expect(result.kind).toBe('spent');
-  if (result.kind !== 'spent') return;
+  expect(result.kind).toBe('prepared');
+  if (result.kind !== 'prepared') return;
   expect(result.wrap.wrappedManifestKekB64u).toBe('k');
   expect(result.entries).toHaveLength(1);
 });
 
-test('a 200 with an unusable payload is not reported as a spend', async () => {
-  // The code is burned server-side either way, so telling the caller this
-  // worked is the worst of the available answers.
-  const result = await spend(200, { ok: true, wrap: { nonceB64u: 'n' }, storeVersion: '5' });
+test('a 200 with an unusable payload is not reported as prepared', async () => {
+  const result = await prepare(200, {
+    ok: true,
+    wrap: { nonceB64u: 'n' },
+    reservationId: 'reservation-1',
+    reservationExpiresAtMs: 60_000,
+    storeVersion: '5',
+  });
   expect(result.kind).toBe('transport_failed');
 });
 
 test('401 and 400 both read as a plain rejection', async () => {
-  const unauthorized = await spend(401, { ok: false, code: 'recovery_code_rejected' });
-  const badRequest = await spend(400, { ok: false, code: 'invalid_request' });
+  const unauthorized = await prepare(401, { ok: false, code: 'recovery_code_rejected' });
+  const badRequest = await prepare(400, { ok: false, code: 'invalid_request' });
   expect(unauthorized.kind).toBe('rejected');
   expect(badRequest.kind).toBe('rejected');
 });
 
 test('a conflict stays distinct, because the code may still be good', async () => {
-  const result = await spend(409, { ok: false, code: 'recovery_set_conflict' });
+  const result = await prepare(409, { ok: false, code: 'recovery_set_conflict' });
   expect(result.kind).toBe('conflict');
 });
 
 test('a network failure is never a rejection', async () => {
-  const result = await spendWalletRecoveryCode({
+  const result = await prepareWalletRecovery({
     relayUrl: 'https://relay.localhost',
     walletId: 'alice.testnet',
+    sessionToken: 'app-session',
+    challengeId: 'challenge-1',
+    otpCode: '123456',
     recoveryCode: 'QUJDREVG',
     reservationId: 'reservation-1',
     fetchImpl: (async () => {

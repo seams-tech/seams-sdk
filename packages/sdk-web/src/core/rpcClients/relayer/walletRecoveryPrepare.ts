@@ -1,7 +1,11 @@
-import { buildRelayerJsonPostRequestInit, normalizeRelayerBaseUrl } from './relayerHttp';
+import {
+  buildBearerAuthorizationHeader,
+  buildRelayerJsonPostRequestInit,
+  normalizeRelayerBaseUrl,
+} from './relayerHttp';
 
 /**
- * Spending a recovery code.
+ * Preparing an admitted wallet recovery.
  *
  * The response is ciphertext: a wrapped manifest KEK and the entry ciphertexts
  * it opens. The code never leaves this call, and the server cannot open what
@@ -17,17 +21,19 @@ import { buildRelayerJsonPostRequestInit, normalizeRelayerBaseUrl } from './rela
  * failure where the same code is still worth trying again.
  */
 
-const WALLET_RECOVERY_SPEND_PATH = '/wallets/recovery/spend';
+const WALLET_RECOVERY_PREPARE_PATH = '/wallets/recovery/prepare';
 
-export type WalletRecoverySpendResult =
+export type WalletRecoveryPrepareResult =
   | {
-      readonly kind: 'spent';
+      readonly kind: 'prepared';
       readonly wrap: {
         readonly nonceB64u: string;
         readonly wrappedManifestKekB64u: string;
         readonly aadHashB64u: string;
       };
       readonly entries: readonly Record<string, unknown>[];
+      readonly reservationId: string;
+      readonly reservationExpiresAtMs: number;
       readonly storeVersion: string;
     }
   /** The code did not work. Deliberately without a reason. */
@@ -36,15 +42,18 @@ export type WalletRecoverySpendResult =
   | { readonly kind: 'conflict'; readonly message: string }
   | { readonly kind: 'transport_failed'; readonly message: string };
 
-export async function spendWalletRecoveryCode(args: {
+export async function prepareWalletRecovery(args: {
   readonly relayUrl: string;
   readonly walletId: string;
+  readonly sessionToken: string;
+  readonly challengeId: string;
+  readonly otpCode: string;
   /** Base64url of the decoded code. Not persisted, not logged. */
   readonly recoveryCode: string;
   readonly reservationId: string;
   readonly fetchImpl?: typeof fetch;
-}): Promise<WalletRecoverySpendResult> {
-  const url = `${normalizeRelayerBaseUrl(args.relayUrl)}${WALLET_RECOVERY_SPEND_PATH}`;
+}): Promise<WalletRecoveryPrepareResult> {
+  const url = `${normalizeRelayerBaseUrl(args.relayUrl)}${WALLET_RECOVERY_PREPARE_PATH}`;
   const doFetch = args.fetchImpl || fetch;
 
   let response: Response;
@@ -52,17 +61,23 @@ export async function spendWalletRecoveryCode(args: {
     response = await doFetch(
       url,
       buildRelayerJsonPostRequestInit({
+        headers: buildBearerAuthorizationHeader({
+          token: args.sessionToken,
+          missingMessage: 'wallet recovery preparation requires an app session',
+        }),
         body: {
           walletId: args.walletId,
           recoveryCode: args.recoveryCode,
           reservationId: args.reservationId,
+          challengeId: args.challengeId,
+          otpCode: args.otpCode,
         },
       }),
     );
   } catch (error: unknown) {
     return {
       kind: 'transport_failed',
-      message: error instanceof Error ? error.message : 'recovery spend request failed',
+      message: error instanceof Error ? error.message : 'recovery preparation request failed',
     };
   }
 
@@ -75,18 +90,29 @@ export async function spendWalletRecoveryCode(args: {
     const nonceB64u = String(wrap?.nonceB64u || '').trim();
     const wrappedManifestKekB64u = String(wrap?.wrappedManifestKekB64u || '').trim();
     const aadHashB64u = String(wrap?.aadHashB64u || '').trim();
-    if (!nonceB64u || !wrappedManifestKekB64u || !aadHashB64u) {
-      /* A 200 that cannot be opened is reported as a failure, not a spend.
-         The code is burned server-side either way, which is exactly why the
-         caller must not be told this succeeded. */
-      return { kind: 'transport_failed', message: 'recovery spend returned an unusable payload' };
+    const reservationId = String(body.reservationId || '').trim();
+    const reservationExpiresAtMs = Number(body.reservationExpiresAtMs);
+    if (
+      !nonceB64u ||
+      !wrappedManifestKekB64u ||
+      !aadHashB64u ||
+      reservationId !== args.reservationId ||
+      !Number.isSafeInteger(reservationExpiresAtMs) ||
+      reservationExpiresAtMs <= 0
+    ) {
+      return {
+        kind: 'transport_failed',
+        message: 'recovery preparation returned an unusable payload',
+      };
     }
     return {
-      kind: 'spent',
+      kind: 'prepared',
       wrap: { nonceB64u, wrappedManifestKekB64u, aadHashB64u },
       entries: Array.isArray(body.entries)
         ? (body.entries.filter(isRecord) as Record<string, unknown>[])
         : [],
+      reservationId,
+      reservationExpiresAtMs,
       storeVersion: String(body.storeVersion || '').trim(),
     };
   }
@@ -99,7 +125,7 @@ export async function spendWalletRecoveryCode(args: {
   }
   return {
     kind: 'transport_failed',
-    message: message || `recovery spend failed (HTTP ${response.status})`,
+    message: message || `recovery preparation failed (HTTP ${response.status})`,
   };
 }
 

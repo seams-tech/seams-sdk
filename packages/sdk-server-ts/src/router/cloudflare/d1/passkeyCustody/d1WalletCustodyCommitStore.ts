@@ -11,6 +11,8 @@ import {
   type PasskeyCustodyEnvelopeRecord,
 } from '@shared/passkey-custody';
 import type { WalletId } from '@shared/utils/domainIds';
+import type { RecoveryCodeReservationId } from '@shared/wallet-recovery/recoveryCodeReservation';
+import { alphabetizeStringify } from '@shared/utils/digests';
 import type { VersionedJsonObject } from '../../../framework/versionedJsonRecordStore';
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
 import {
@@ -78,6 +80,11 @@ export type WalletCustodyRegistrationCommitResult =
    */
   | { readonly kind: 'custody_already_established'; readonly walletId: WalletId }
   /** The two records describe different wallets. */
+  | { readonly kind: 'inconsistent'; readonly reason: string };
+
+export type WalletCustodyRecoveryPromotionCommitResult =
+  | { readonly kind: 'committed' | 'already_committed'; readonly envelopeStoreVersion: string }
+  | { readonly kind: 'conflict' }
   | { readonly kind: 'inconsistent'; readonly reason: string };
 
 /** Recovery sets are wallet-scoped: one set covers the wallet, not one factor. */
@@ -283,5 +290,81 @@ export class CloudflareD1WalletCustodyCommitStore {
     );
     if (result.kind !== 'stored') return { kind: 'conflict' };
     return { kind: 'stored', storeVersion: result.version };
+  }
+
+  /**
+   * Installs a recovered credential and consumes its held code in one D1
+   * transaction. A process can fail after this returns without creating an
+   * envelope whose recovery code is still usable, or consuming a code whose
+   * replacement envelope never landed.
+   */
+  async commitRecoveryPromotion(input: {
+    readonly recoverySet: WalletRecoveryEnvelopeSetRecord;
+    readonly expectedRecoverySetVersion: string;
+    readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
+    readonly reservationId: RecoveryCodeReservationId;
+  }): Promise<WalletCustodyRecoveryPromotionCommitResult> {
+    if (String(input.recoverySet.walletId) !== String(input.replacementEnvelope.walletId)) {
+      return { kind: 'inconsistent', reason: 'recovery set and envelope name different wallets' };
+    }
+    if (
+      input.replacementEnvelope.binding.kind !== 'wallet_custody_seed_v1' ||
+      input.replacementEnvelope.lifecycle.state !== 'active' ||
+      Number(input.replacementEnvelope.envelopeRevision) !== 1
+    ) {
+      return {
+        kind: 'inconsistent',
+        reason: 'recovery promotion requires a first-revision active wallet custody envelope',
+      };
+    }
+    const matchingConsumptions = input.recoverySet.manifestKekWraps.filter(
+      (wrap) =>
+        wrap.lifecycle.state === 'consumed' &&
+        wrap.lifecycle.reservationId === input.reservationId,
+    );
+    if (matchingConsumptions.length !== 1) {
+      return {
+        kind: 'inconsistent',
+        reason: 'recovery promotion must consume exactly its reserved recovery code',
+      };
+    }
+
+    const envelopeKey = passkeyCustodyEnvelopeRecordKey(
+      passkeyCustodyEnvelopeLocatorOf(input.replacementEnvelope),
+    );
+    const recoverySetKey = walletRecoveryEnvelopeSetRecordKey(input.recoverySet.walletId);
+    const stored = await this.records.putMany([
+      {
+        key: recoverySetKey,
+        value: input.recoverySet,
+        expectedVersion: input.expectedRecoverySetVersion,
+      },
+      { key: envelopeKey, value: input.replacementEnvelope, expectedVersion: null },
+    ]);
+    if (stored.kind === 'version_mismatch') {
+      const [recoveryRead, envelopeRead] = await Promise.all([
+        this.readRecoveryEnvelopeSet(input.recoverySet.walletId),
+        this.records.read(envelopeKey),
+      ]);
+      const alreadyConsumed = recoveryRead?.record.manifestKekWraps.some(
+        (wrap) =>
+          wrap.lifecycle.state === 'consumed' &&
+          wrap.lifecycle.reservationId === input.reservationId,
+      );
+      const sameEnvelope =
+        envelopeRead.kind === 'present' &&
+        envelopeRead.value.kind !== 'wallet_recovery_envelope_set_v1' &&
+        alphabetizeStringify(envelopeRead.value) ===
+          alphabetizeStringify(input.replacementEnvelope);
+      if (alreadyConsumed && sameEnvelope && envelopeRead.kind === 'present') {
+        return { kind: 'already_committed', envelopeStoreVersion: envelopeRead.version };
+      }
+      return { kind: 'conflict' };
+    }
+    const envelopeVersion = stored.versions.find((entry) => entry.key === envelopeKey);
+    if (!envelopeVersion) {
+      throw new Error('wallet recovery promotion did not report the envelope version');
+    }
+    return { kind: 'committed', envelopeStoreVersion: envelopeVersion.version };
   }
 }

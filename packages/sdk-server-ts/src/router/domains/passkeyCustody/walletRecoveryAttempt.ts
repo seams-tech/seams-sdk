@@ -1,7 +1,8 @@
+import { deriveWalletRecoveryKeyIdFromBytes } from '@shared/wallet-recovery/recoveryCodes';
 import {
-  deriveWalletRecoveryKeyIdFromBytes,
-  runWalletRecoveryWithCode,
-} from '@shared/wallet-recovery/recoveryCodes';
+  reserveRecoveryCode,
+  type RecoveryCodeReservationId,
+} from '@shared/wallet-recovery/recoveryCodeReservation';
 import type {
   WalletRecoveryEnvelopeSetRecord,
   WalletRecoveryManifestKekWrap,
@@ -10,18 +11,16 @@ import type { WalletId } from '@shared/utils/domainIds';
 import type { CloudflareD1WalletCustodyCommitStore } from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
 
 /**
- * Spending one recovery code.
+ * Preparing one recovery code for an admitted recovery operation.
  *
  * **The server never learns the seed.** It returns the wrapped manifest KEK
  * and the entry ciphertexts; opening them needs the code, which stays with the
  * user. So this flow is bookkeeping around an opaque payload — which is what
  * makes the bookkeeping the only thing that can go wrong, and worth the care.
  *
- * **A code is single-use, and that is a concurrency property.** Consuming one
- * is a read-modify-write on the wallet's shared recovery set, so the write is
- * version-guarded: two simultaneous attempts cannot both commit, and the loser
- * is told to retry rather than silently restoring the winner's spent code to
- * the active pool.
+ * **A code is single-use, and that is a concurrency property.** Reserving one
+ * is a read-modify-write on the wallet's shared recovery set. The
+ * version-guard ensures two simultaneous attempts cannot both hold it.
  *
  * **An unknown code and a spent code answer alike.** Both come back `refused`
  * with no detail about which wraps exist. Distinguishing them would turn the
@@ -29,9 +28,9 @@ import type { CloudflareD1WalletCustodyCommitStore } from '../../cloudflare/d1/p
  * exactly one kind of caller.
  */
 
-export type WalletRecoveryAttemptResult =
+export type WalletRecoveryPreparationResult =
   | {
-      readonly kind: 'committed';
+      readonly kind: 'prepared';
       /** Opaque to the server: the client opens these with the code. */
       readonly wrap: {
         readonly nonceB64u: string;
@@ -39,22 +38,24 @@ export type WalletRecoveryAttemptResult =
         readonly aadHashB64u: string;
       };
       readonly entries: WalletRecoveryEnvelopeSetRecord['entries'];
+      readonly reservationId: RecoveryCodeReservationId;
+      readonly reservationExpiresAtMs: number;
       readonly storeVersion: string;
     }
   /** No such wallet, no such code, or a code already spent. Deliberately one shape. */
   | { readonly kind: 'refused'; readonly reason: string }
-  /** Another attempt committed first. The caller re-reads and may retry. */
+  /** Another attempt changed the shared set first. The caller may retry. */
   | { readonly kind: 'conflict' };
 
-export async function attemptWalletRecoveryWithCodeV1(input: {
+export async function prepareWalletRecoveryWithCodeV1(input: {
   readonly store: CloudflareD1WalletCustodyCommitStore;
   readonly walletId: WalletId;
   /** The user's code, decoded. Never logged, never stored. */
   readonly recoveryCodeBytes: Uint8Array;
-  readonly reservationId: string;
+  readonly reservationId: RecoveryCodeReservationId;
   readonly nowMs: number;
   readonly reservationTtlMs: number;
-}): Promise<WalletRecoveryAttemptResult> {
+}): Promise<WalletRecoveryPreparationResult> {
   const stored = await input.store.readRecoveryEnvelopeSet(input.walletId);
   if (!stored) return refused();
 
@@ -69,36 +70,24 @@ export async function attemptWalletRecoveryWithCodeV1(input: {
 
   const wrap = stored.record.manifestKekWraps[index] as WalletRecoveryManifestKekWrap;
 
-  /* The lifecycle wrapper owns reserve/commit/release, including the case a
-     hand-written call site is most likely to miss: a throw inside `activate`
-     releases the code rather than burning it. */
-  const outcome = await runWalletRecoveryWithCode({
+  const reserved = reserveRecoveryCode({
     lifecycle: wrap.lifecycle,
-    reservationId: input.reservationId as never,
+    reservationId: input.reservationId,
     nowMs: input.nowMs,
     reservationTtlMs: input.reservationTtlMs,
-    activate: async () => ({ kind: 'committed' as const, value: wrap }),
   });
-
-  if (outcome.kind !== 'committed') {
-    /* Refused and released are both "this code did not work", and the
-       difference between them is about the code's own state — which is what
-       must not be reported. */
-    return refused();
-  }
+  if (!reserved.ok || reserved.lifecycle.state !== 'reserved') return refused();
 
   const next: WalletRecoveryEnvelopeSetRecord = {
     ...stored.record,
     manifestKekWraps: stored.record.manifestKekWraps.map((entry, entryIndex) =>
-      entryIndex === index ? { ...entry, lifecycle: outcome.lifecycle } : entry,
+      entryIndex === index ? { ...entry, lifecycle: reserved.lifecycle } : entry,
     ),
     updatedAtMs: input.nowMs,
   };
 
-  /* Written before the payload is returned, never after. A caller that
-     answered first and recorded the spend afterwards would hand out a working
-     recovery payload and then, on a failed write, leave the code spendable
-     again — the same code, twice. */
+  /* Persist the hold before returning the opaque payload. The code remains
+     usable if recovery never finalizes, once this bounded reservation expires. */
   const written = await input.store.writeRecoveryEnvelopeSet({
     record: next,
     expectedStoreVersion: stored.storeVersion,
@@ -106,17 +95,19 @@ export async function attemptWalletRecoveryWithCodeV1(input: {
   if (written.kind === 'conflict') return { kind: 'conflict' };
 
   return {
-    kind: 'committed',
+    kind: 'prepared',
     wrap: {
       nonceB64u: String(wrap.nonceB64u),
       wrappedManifestKekB64u: String(wrap.wrappedManifestKekB64u),
       aadHashB64u: String(wrap.aadHashB64u),
     },
     entries: stored.record.entries,
+    reservationId: input.reservationId,
+    reservationExpiresAtMs: reserved.lifecycle.reservationExpiresAtMs,
     storeVersion: written.storeVersion,
   };
 }
 
-function refused(): Extract<WalletRecoveryAttemptResult, { kind: 'refused' }> {
+function refused(): Extract<WalletRecoveryPreparationResult, { kind: 'refused' }> {
   return { kind: 'refused', reason: 'that recovery code cannot be used' };
 }

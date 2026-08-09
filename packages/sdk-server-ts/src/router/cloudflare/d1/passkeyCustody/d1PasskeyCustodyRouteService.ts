@@ -13,14 +13,14 @@ import type { CloudflareD1WebAuthnStore } from '../webauthn/d1WebAuthnStore';
 import type { NormalizedLogger } from '../../../../core/logger';
 import type { CloudflareD1WalletCustodyCommitStore } from './d1WalletCustodyCommitStore';
 import {
-  attemptWalletRecoveryWithCodeV1,
-  type WalletRecoveryAttemptResult,
+  prepareWalletRecoveryWithCodeV1,
+  type WalletRecoveryPreparationResult,
 } from '../../../domains/passkeyCustody/walletRecoveryAttempt';
 import type { WalletId } from '@shared/utils/domainIds';
 import {
-  promoteRecoveredWalletCredentialV1,
-  type WalletRecoveryPromotionResult,
-} from '../../../domains/passkeyCustody/walletRecoveryPromotion';
+  finalizeRecoveredWalletCredentialV1,
+  type WalletRecoveryFinalizationResult,
+} from '../../../domains/passkeyCustody/walletRecoveryFinalization';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import {
   rotateWalletRecoveryCodesV1,
@@ -32,6 +32,7 @@ import {
   walletRecoveryBackupIsOutstanding,
   type RecoveredKeySetOutcome,
 } from '@shared/wallet-recovery/recoveryCodes';
+import type { RecoveryCodeReservationId } from '@shared/wallet-recovery/recoveryCodeReservation';
 
 /**
  * The custody envelope layer's way into the router.
@@ -93,34 +94,28 @@ export interface RouterApiPasskeyCustodyService {
     request: PasskeyCustodyEnvelopeRetrievalWireRequest,
   ): Promise<PasskeyCustodyEnvelopeRetrievalRouteResponse>;
 
-  /**
-   * Spends one recovery code and returns the wrapped payload.
-   *
-   * The code is the proof — it is 160 bits of randomness and the server can
-   * only match its derived id against stored wraps. There is nothing else to
-   * authenticate with: recovery exists precisely for the case where every
-   * enrolled factor is gone.
-   */
-  spendRecoveryCode(request: {
+  /** Holds one code after Refactor 90 admits fresh Email OTP evidence. */
+  prepareRecovery(request: {
     readonly walletId: string;
     readonly recoveryCodeBytes: Uint8Array;
-    readonly reservationId: string;
-  }): Promise<WalletRecoveryAttemptResult>;
+    readonly reservationId: RecoveryCodeReservationId;
+  }): Promise<WalletRecoveryPreparationResult>;
 
   /**
    * Installs the credential a recovery enrolled and retires the old ones.
    *
-   * Called after a spend, with an envelope the client sealed under the new
+   * Called after activation, with an envelope the client sealed under the new
    * credential. The server cannot verify that sealing — it never has the seed
    * — so what it does verify is the key-set outcomes and the wallet the
    * envelope names.
    */
-  promoteRecoveredCredential(request: {
+  finalizeRecovery(request: {
     readonly walletId: string;
+    readonly reservationId: RecoveryCodeReservationId;
     readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
     readonly requiredKeySets: readonly string[];
     readonly outcomes: readonly RecoveredKeySetOutcome[];
-  }): Promise<WalletRecoveryPromotionResult>;
+  }): Promise<WalletRecoveryFinalizationResult>;
 
   /**
    * Records that the owner confirmed saving their recovery codes.
@@ -149,11 +144,9 @@ export interface RouterApiPasskeyCustodyService {
   /**
    * How many codes remain and whether the owner has saved them.
    *
-   * **This is the counting the spend route refuses to do**, and the
-   * difference is authentication. An unauthenticated caller learning how many
-   * of ten codes are left is an enumeration oracle; the wallet's own owner
-   * learning it is the entire point of a recovery settings screen. So this
-   * route sits behind credentials and the spend route does not.
+   * Counting is credential-gated. An unauthenticated caller learning how many
+   * of ten codes are left gains an enumeration oracle; the wallet owner needs
+   * the same count for the recovery settings screen.
    *
    * It returns counts, never identifiers: which codes remain is not something
    * even the owner's browser needs, and a list would be one leak away from
@@ -232,8 +225,8 @@ export function createD1PasskeyCustodyRouteService(assembly: {
       });
     },
 
-    spendRecoveryCode: (request) =>
-      attemptWalletRecoveryWithCodeV1({
+    prepareRecovery: (request) =>
+      prepareWalletRecoveryWithCodeV1({
         store: assembly.walletCustodyCommits,
         walletId: request.walletId as WalletId,
         recoveryCodeBytes: request.recoveryCodeBytes,
@@ -242,10 +235,12 @@ export function createD1PasskeyCustodyRouteService(assembly: {
         reservationTtlMs: RECOVERY_RESERVATION_TTL_MS,
       }),
 
-    promoteRecoveredCredential: (request) =>
-      promoteRecoveredWalletCredentialV1({
+    finalizeRecovery: (request) =>
+      finalizeRecoveredWalletCredentialV1({
         envelopeStore: assembly.passkeyCustodyEnvelopes,
+        walletCustodyCommits: assembly.walletCustodyCommits,
         walletId: request.walletId,
+        reservationId: request.reservationId,
         replacementEnvelope: request.replacementEnvelope,
         requiredKeySets: request.requiredKeySets,
         outcomes: request.outcomes,

@@ -600,28 +600,28 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_PASSKEY_CUSTODY_SERVICES,
     ),
     publicRoute(
-      'wallet_recovery_credential_promote',
+      'wallet_recovery_finalize',
       'POST',
-      '/wallets/recovery/promote',
-      'Install the replacement credential a recovery enrolled',
+      '/wallets/recovery/finalize',
+      'Finalize an admitted wallet recovery and install its replacement credential',
       {
         plane: 'public',
         proof: 'recovery_proof',
         rationale:
-          'Follows a spent recovery code. The envelope is sealed client-side under the new credential, so the server verifies the key-set outcomes and the wallet it names rather than the sealing it cannot check.',
+          'Continues one Refactor 90 admitted recovery operation. The Gateway verifies the complete activation result and consumes the reserved code with the replacement envelope commit.',
       },
       ROUTER_API_PASSKEY_CUSTODY_SERVICES,
     ),
     publicRoute(
-      'wallet_recovery_code_spend',
+      'wallet_recovery_prepare',
       'POST',
-      '/wallets/recovery/spend',
-      'Spend one wallet recovery code and return its wrapped custody payload',
+      '/wallets/recovery/prepare',
+      'Authorize wallet recovery, reserve one code, and return its wrapped custody payload',
       {
         plane: 'public',
         proof: 'recovery_proof',
         rationale:
-          'The recovery code is the proof. Recovery exists for the case where every enrolled factor is gone, so there is nothing else to authenticate with; the response is ciphertext only the code opens.',
+          'Fresh Email OTP evidence is admitted through Refactor 90. The recovery code remains a custody unwrap factor and is held until final activation commits.',
       },
       ROUTER_API_PASSKEY_CUSTODY_SERVICES,
     ),

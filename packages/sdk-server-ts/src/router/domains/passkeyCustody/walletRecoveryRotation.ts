@@ -20,9 +20,9 @@ import type { CloudflareD1WalletCustodyCommitStore } from '../../cloudflare/d1/p
  * still marked as having saved codes that no longer work — the exact silent
  * outcome the acknowledgement model exists to prevent.
  *
- * **Version-guarded.** A rotation and a code spend both rewrite the wrap list.
- * Without the guard, a rotation could land on top of a spend and resurrect the
- * consumed code, or a spend could land on top of a rotation and burn a code
+ * **Version-guarded.** Rotation and recovery finalization both rewrite the wrap list.
+ * Without the guard, rotation could land on top of finalization and resurrect the
+ * consumed code, or finalization could land on top of rotation and burn a code
  * from a set the user no longer holds.
  */
 
@@ -30,7 +30,7 @@ export type WalletRecoveryRotationResult =
   | { readonly kind: 'rotated'; readonly issuedAtMs: number; readonly storeVersion: string }
   | { readonly kind: 'no_recovery_set' }
   | { readonly kind: 'rejected'; readonly reason: string }
-  /** A spend or another rotation landed first; re-read and retry. */
+  /** Recovery finalization or another rotation landed first; re-read and retry. */
   | { readonly kind: 'conflict' };
 
 export async function rotateWalletRecoveryCodesV1(input: {

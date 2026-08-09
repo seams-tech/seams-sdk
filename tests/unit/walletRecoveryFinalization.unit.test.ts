@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { promoteRecoveredWalletCredentialV1 } from '../../packages/sdk-server-ts/src/router/domains/passkeyCustody/walletRecoveryPromotion';
+import { finalizeRecoveredWalletCredentialV1 } from '../../packages/sdk-server-ts/src/router/domains/passkeyCustody/walletRecoveryFinalization';
 
 /**
  * Promoting the credential a recovery enrolled.
@@ -13,6 +13,7 @@ import { promoteRecoveredWalletCredentialV1 } from '../../packages/sdk-server-ts
 
 const WALLET_ID = 'alice.testnet';
 const B64U_32 = 'A'.repeat(43);
+const RESERVATION_ID = 'reservation-1' as never;
 
 function envelope(envelopeId: string, state: 'active' | 'retired' = 'active') {
   return {
@@ -40,32 +41,64 @@ function storeStub(options: {
   readonly retireFails?: boolean;
 }) {
   return {
-    listWalletEnvelopes: async () => {
-      options.trace.push('list');
-      return options.existing;
+    envelopeStore: {
+      listWalletEnvelopes: async () => {
+        options.trace.push('list');
+        return options.existing;
+      },
+      retireEnvelope: async (args: { locator: { envelopeId: string } }) => {
+        options.trace.push(`retire:${args.locator.envelopeId}`);
+        return options.retireFails
+          ? { kind: 'version_mismatch' }
+          : { kind: 'stored', storeVersion: '3' };
+      },
     },
-    createEnvelope: async () => {
-      options.trace.push('create');
-      return options.createFails
-        ? { kind: 'revision_conflict', expectedRevision: 1 }
-        : { kind: 'stored', storeVersion: '2', envelopeRevision: 1 };
+    walletCustodyCommits: {
+      readRecoveryEnvelopeSet: async () => ({
+        storeVersion: '4',
+        record: {
+          kind: 'wallet_recovery_envelope_set_v1',
+          walletId: WALLET_ID,
+          manifestKekWraps: [
+            {
+              recoveryKeyId: `wallet-rkid-v1-${'A'.repeat(43)}`,
+              nonceB64u: 'B'.repeat(16),
+              wrappedManifestKekB64u: 'C'.repeat(64),
+              aadHashB64u: B64U_32,
+              lifecycle: {
+                state: 'reserved',
+                issuedAtMs: 1,
+                reservationId: RESERVATION_ID,
+                reservedAtMs: 2,
+                reservationExpiresAtMs: 10_000,
+              },
+            },
+          ],
+          entries: [],
+          issuedAtMs: 1,
+          updatedAtMs: 2,
+        },
+      }),
+      commitRecoveryPromotion: async () => {
+        options.trace.push('commit');
+        return options.createFails
+          ? { kind: 'inconsistent', reason: 'replacement envelope rejected' }
+          : { kind: 'committed', envelopeStoreVersion: '2' };
+      },
     },
-    retireEnvelope: async (args: { locator: { envelopeId: string } }) => {
-      options.trace.push(`retire:${args.locator.envelopeId}`);
-      return options.retireFails
-        ? { kind: 'version_mismatch' }
-        : { kind: 'stored', storeVersion: '3' };
-    },
-  } as never;
+  };
 }
 
 const VERIFIED = [{ keySet: 'near_ed25519_v1', kind: 'verified' as const }];
 
 test('the new envelope is created before any old one is retired', async () => {
   const trace: string[] = [];
-  const result = await promoteRecoveredWalletCredentialV1({
-    envelopeStore: storeStub({ existing: [envelope('old-1')], trace }),
+  const stores = storeStub({ existing: [envelope('old-1')], trace });
+  const result = await finalizeRecoveredWalletCredentialV1({
+    envelopeStore: stores.envelopeStore as never,
+    walletCustodyCommits: stores.walletCustodyCommits as never,
     walletId: WALLET_ID,
+    reservationId: RESERVATION_ID,
     replacementEnvelope: envelope('new-1'),
     requiredKeySets: ['near_ed25519_v1'],
     outcomes: VERIFIED,
@@ -75,14 +108,17 @@ test('the new envelope is created before any old one is retired', async () => {
   expect(result.kind).toBe('promoted');
   // The order, not just the outcome: retiring first would open a window with
   // no active envelope, and a failed create would make it permanent.
-  expect(trace).toEqual(['list', 'create', 'retire:old-1']);
+  expect(trace).toEqual(['list', 'commit', 'retire:old-1']);
 });
 
 test('a failed create retires nothing', async () => {
   const trace: string[] = [];
-  const result = await promoteRecoveredWalletCredentialV1({
-    envelopeStore: storeStub({ existing: [envelope('old-1')], trace, createFails: true }),
+  const stores = storeStub({ existing: [envelope('old-1')], trace, createFails: true });
+  const result = await finalizeRecoveredWalletCredentialV1({
+    envelopeStore: stores.envelopeStore as never,
+    walletCustodyCommits: stores.walletCustodyCommits as never,
     walletId: WALLET_ID,
+    reservationId: RESERVATION_ID,
     replacementEnvelope: envelope('new-1'),
     requiredKeySets: ['near_ed25519_v1'],
     outcomes: VERIFIED,
@@ -92,14 +128,17 @@ test('a failed create retires nothing', async () => {
   expect(result.kind).toBe('envelope_rejected');
   // The wallet is untouched: still openable by the credential being replaced,
   // which is the safe direction to fail in.
-  expect(trace).toEqual(['list', 'create']);
+  expect(trace).toEqual(['list', 'commit']);
 });
 
 test('an unverified key set refuses before touching the store', async () => {
   const trace: string[] = [];
-  const result = await promoteRecoveredWalletCredentialV1({
-    envelopeStore: storeStub({ existing: [envelope('old-1')], trace }),
+  const stores = storeStub({ existing: [envelope('old-1')], trace });
+  const result = await finalizeRecoveredWalletCredentialV1({
+    envelopeStore: stores.envelopeStore as never,
+    walletCustodyCommits: stores.walletCustodyCommits as never,
     walletId: WALLET_ID,
+    reservationId: RESERVATION_ID,
     replacementEnvelope: envelope('new-1'),
     requiredKeySets: ['near_ed25519_v1', 'evm_family_ecdsa_v1'],
     outcomes: VERIFIED,
@@ -112,9 +151,12 @@ test('an unverified key set refuses before touching the store', async () => {
 
 test('an envelope naming another wallet is rejected', async () => {
   const trace: string[] = [];
-  const result = await promoteRecoveredWalletCredentialV1({
-    envelopeStore: storeStub({ existing: [], trace }),
+  const stores = storeStub({ existing: [], trace });
+  const result = await finalizeRecoveredWalletCredentialV1({
+    envelopeStore: stores.envelopeStore as never,
+    walletCustodyCommits: stores.walletCustodyCommits as never,
     walletId: 'someone-else.testnet',
+    reservationId: RESERVATION_ID,
     replacementEnvelope: envelope('new-1'),
     requiredKeySets: ['near_ed25519_v1'],
     outcomes: VERIFIED,
@@ -127,9 +169,12 @@ test('an envelope naming another wallet is rejected', async () => {
 
 test('a failed retire is reported without failing the recovery', async () => {
   const trace: string[] = [];
-  const result = await promoteRecoveredWalletCredentialV1({
-    envelopeStore: storeStub({ existing: [envelope('old-1')], trace, retireFails: true }),
+  const stores = storeStub({ existing: [envelope('old-1')], trace, retireFails: true });
+  const result = await finalizeRecoveredWalletCredentialV1({
+    envelopeStore: stores.envelopeStore as never,
+    walletCustodyCommits: stores.walletCustodyCommits as never,
     walletId: WALLET_ID,
+    reservationId: RESERVATION_ID,
     replacementEnvelope: envelope('new-1'),
     requiredKeySets: ['near_ed25519_v1'],
     outcomes: VERIFIED,

@@ -1,16 +1,15 @@
 import { expect, test } from '@playwright/test';
-import { attemptWalletRecoveryWithCodeV1 } from '../../packages/sdk-server-ts/src/router/domains/passkeyCustody/walletRecoveryAttempt';
+import { prepareWalletRecoveryWithCodeV1 } from '../../packages/sdk-server-ts/src/router/domains/passkeyCustody/walletRecoveryAttempt';
 import { deriveWalletRecoveryKeyIdFromBytes } from '../../packages/shared-ts/src/wallet-recovery/recoveryCodes';
 
 /**
- * Spending a recovery code, end to end against a store stub.
+ * Reserving a recovery code, end to end against a store stub.
  *
  * Three properties, each of which fails silently if it regresses:
  *
  * - a spent code and an unknown code answer identically, so the route is not
  *   an oracle for how many of a user's ten codes remain;
- * - the spend is written *before* the payload is returned, so a failed write
- *   cannot leave a handed-out code still spendable;
+ * - the reservation is written before the payload is returned;
  * - the write is version-guarded, so two concurrent attempts cannot both
  *   commit and quietly restore each other's spent code.
  */
@@ -37,7 +36,12 @@ async function recoverySet(lifecycleState: 'active' | 'consumed' = 'active') {
         lifecycle:
           lifecycleState === 'active'
             ? { state: 'active' }
-            : { state: 'consumed', consumedAtMs: 1_000 },
+            : {
+                state: 'consumed',
+                issuedAtMs: 1,
+                reservationId: 'prior-recovery',
+                consumedAtMs: 1_000,
+              },
       },
     ],
     entries: [
@@ -63,37 +67,40 @@ function storeStub(record: unknown, options: { writes: unknown[]; conflict?: boo
   } as never;
 }
 
-test('a valid code returns the wrapped payload and records the spend first', async () => {
+test('a valid code returns the wrapped payload and records only a reservation', async () => {
   const writes: unknown[] = [];
-  const result = await attemptWalletRecoveryWithCodeV1({
+  const result = await prepareWalletRecoveryWithCodeV1({
     store: storeStub(await recoverySet(), { writes }),
     walletId: WALLET_ID as never,
     recoveryCodeBytes: CODE,
-    reservationId: 'reservation-1',
+    reservationId: 'reservation-1' as never,
     nowMs: 2_000,
     reservationTtlMs: 60_000,
   });
 
-  expect(result.kind).toBe('committed');
-  // The spend was written, and with the version the read observed.
+  expect(result.kind).toBe('prepared');
   expect(writes).toHaveLength(1);
   expect((writes[0] as { expectedStoreVersion: string }).expectedStoreVersion).toBe('4');
+  const written = writes[0] as {
+    record: { manifestKekWraps: readonly [{ lifecycle: { state: string } }] };
+  };
+  expect(written.record.manifestKekWraps[0].lifecycle.state).toBe('reserved');
 });
 
 test('an unknown code and a spent code are indistinguishable', async () => {
-  const unknown = await attemptWalletRecoveryWithCodeV1({
+  const unknown = await prepareWalletRecoveryWithCodeV1({
     store: storeStub(await recoverySet(), { writes: [] }),
     walletId: WALLET_ID as never,
     recoveryCodeBytes: OTHER_CODE,
-    reservationId: 'reservation-1',
+    reservationId: 'reservation-1' as never,
     nowMs: 2_000,
     reservationTtlMs: 60_000,
   });
-  const spent = await attemptWalletRecoveryWithCodeV1({
+  const spent = await prepareWalletRecoveryWithCodeV1({
     store: storeStub(await recoverySet('consumed'), { writes: [] }),
     walletId: WALLET_ID as never,
     recoveryCodeBytes: CODE,
-    reservationId: 'reservation-1',
+    reservationId: 'reservation-1' as never,
     nowMs: 2_000,
     reservationTtlMs: 60_000,
   });
@@ -103,11 +110,11 @@ test('an unknown code and a spent code are indistinguishable', async () => {
 });
 
 test('a wallet with no recovery set answers like a wrong code', async () => {
-  const missing = await attemptWalletRecoveryWithCodeV1({
+  const missing = await prepareWalletRecoveryWithCodeV1({
     store: storeStub(null, { writes: [] }),
     walletId: WALLET_ID as never,
     recoveryCodeBytes: CODE,
-    reservationId: 'reservation-1',
+    reservationId: 'reservation-1' as never,
     nowMs: 2_000,
     reservationTtlMs: 60_000,
   });
@@ -116,11 +123,11 @@ test('a wallet with no recovery set answers like a wrong code', async () => {
 
 test('a losing concurrent attempt is a conflict, never a silent success', async () => {
   const writes: unknown[] = [];
-  const result = await attemptWalletRecoveryWithCodeV1({
+  const result = await prepareWalletRecoveryWithCodeV1({
     store: storeStub(await recoverySet(), { writes, conflict: true }),
     walletId: WALLET_ID as never,
     recoveryCodeBytes: CODE,
-    reservationId: 'reservation-1',
+    reservationId: 'reservation-1' as never,
     nowMs: 2_000,
     reservationTtlMs: 60_000,
   });

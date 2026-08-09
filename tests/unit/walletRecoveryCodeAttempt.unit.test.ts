@@ -68,7 +68,12 @@ test('the activation never runs when the code cannot be held', async () => {
   // Work must not start against a code this attempt does not own.
   let ran = false;
   const outcome = await runWalletRecoveryWithCode({
-    lifecycle: { state: 'consumed', issuedAtMs: 1_000, consumedAtMs: 2_000 },
+    lifecycle: {
+      state: 'consumed',
+      issuedAtMs: 1_000,
+      reservationId: RESERVATION,
+      consumedAtMs: 2_000,
+    },
     reservationId: RESERVATION,
     nowMs: NOW,
     reservationTtlMs: TTL,
@@ -82,7 +87,12 @@ test('the activation never runs when the code cannot be held', async () => {
   expect(outcome.kind).toBe('refused');
   expect(outcome.kind === 'refused' && outcome.code).toBe('already_consumed');
   // Untouched: the attempt never held it.
-  expect(outcome.lifecycle).toEqual({ state: 'consumed', issuedAtMs: 1_000, consumedAtMs: 2_000 });
+  expect(outcome.lifecycle).toEqual({
+    state: 'consumed',
+    issuedAtMs: 1_000,
+    reservationId: RESERVATION,
+    consumedAtMs: 2_000,
+  });
 });
 
 test('a code another recovery holds is refused', async () => {
