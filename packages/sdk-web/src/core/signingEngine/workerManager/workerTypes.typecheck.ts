@@ -301,6 +301,8 @@ type EmailOtpDeviceEnrollmentRestoreResult =
   EmailOtpWorkerOperationMap['restoreEmailOtpDeviceEnrollmentEscrow']['result'];
 type EmailOtpRecoveryCodeRotationResult =
   EmailOtpWorkerOperationMap['rotateEmailOtpRecoveryCodes']['result'];
+type EmailOtpEd25519YaoLocalMaterialRehydratePayload =
+  EmailOtpWorkerOperationMap['rehydrateEmailOtpEd25519YaoLocalMaterial']['payload'];
 
 const emailOtpEd25519YaoLocalMaterialRehydrate: EmailOtpEd25519YaoLocalMaterialRehydratePayload = {
   target: {
