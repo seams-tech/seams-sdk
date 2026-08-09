@@ -18,7 +18,6 @@ import type {
   deleteDurableSealedSessionRecord,
   listExactSealedSessionsForWallet,
   releaseSigningSessionRestoreLease,
-  readExactEd25519SealedSession,
   readExactSealedSession,
   updateExactSealedSessionPolicy,
   writeExactSealedSession,
@@ -27,6 +26,7 @@ import type { ThresholdEcdsaActivationRequest } from '@/core/signingEngine/sessi
 import type { ThresholdEcdsaEmailOtpExportActivationRequest } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
 import type { EmailOtpEcdsaExplicitExportBootstrapResult } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import type { EmailOtpWalletCustodyEd25519MaterialRequest } from '../../workerManager/workerTypes';
 
 export type EmailOtpCoordinatorRuntimePorts = {
   configs: SeamsConfigsReadonly;
@@ -40,6 +40,10 @@ export type EmailOtpCoordinatorRuntimePorts = {
 };
 
 export type EmailOtpEcdsaSessionPorts = {
+  loadWalletCustodyEd25519Material: (args: {
+    nearAccountId: string;
+    signerSlot: number;
+  }) => Promise<EmailOtpWalletCustodyEd25519MaterialRequest>;
   withThresholdEcdsaSigningQueue: <T>(args: {
     queueKey: string;
     walletId: WalletId;
@@ -71,7 +75,6 @@ export type EmailOtpEcdsaSessionPorts = {
 
 export type EmailOtpSealedSessionStorePorts = {
   writeExactSealedSession: typeof writeExactSealedSession;
-  readExactEd25519SealedSession: typeof readExactEd25519SealedSession;
   readExactSealedSession: typeof readExactSealedSession;
   listExactSealedSessionsForWallet: typeof listExactSealedSessionsForWallet;
   acquireSigningSessionRestoreLease: typeof acquireSigningSessionRestoreLease;

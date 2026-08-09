@@ -32,6 +32,9 @@ export function createBrowserStepUpRuntime(args: {
   getEnginePorts: () => SigningEnginePorts;
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
   thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey;
+  loadWalletCustodyEd25519Material: Parameters<
+    typeof createStepUpRuntime
+  >[0]['loadWalletCustodyEd25519Material'];
   getWarmSigning: () => WarmSigningPorts;
   ensureSealedRefreshStartupParity: () => Promise<void>;
   listActiveEcdsaCapabilityManifestsForWallet: (
@@ -68,6 +71,7 @@ export function createBrowserStepUpRuntime(args: {
       ),
     thresholdEcdsaBootstrapQueueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
     thresholdEcdsaSigningQueueByKey: args.thresholdEcdsaSigningQueueByKey,
+    loadWalletCustodyEd25519Material: args.loadWalletCustodyEd25519Material,
     persistEcdsaRoleLocalReadyRecord: args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
     listActiveEcdsaCapabilityManifestsForWallet:
       args.listActiveEcdsaCapabilityManifestsForWallet,

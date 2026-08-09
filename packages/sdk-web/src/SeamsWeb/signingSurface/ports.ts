@@ -104,8 +104,7 @@ import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey
 import type { ConnectEd25519SessionArgs } from '@/core/signingEngine/session/passkey/public';
 import type { HydrateWarmSigningSessionInput } from '@/core/signingEngine/session/passkey/warmSessionHydration';
 import type { EmailOtpBootstrapRecovery } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/bootstrapRecovery';
-import type { LoginWithEmailOtpEd25519YaoCapabilityInternalArgs } from '@/core/signingEngine/session/emailOtp/ed25519YaoLogin';
-import type { PreparedColdEmailOtpEd25519YaoRecoveryV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoCapabilityRecovery';
+import type { LoginWithEmailOtpWalletCustodyEd25519Args } from '@/core/signingEngine/walletCustody/ed25519Login';
 import type { EmailOtpEd25519YaoRecoveryBootstrapV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import type { RouterAbEd25519YaoRegistrationAdmissionRequestV1 } from '@shared/utils/routerAbEd25519Yao';
@@ -119,9 +118,8 @@ import type {
   WalletCustodyEd25519MaterialBindingV1,
   WalletCustodySealedEd25519MaterialV1,
 } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
-import type { EmailOtpEd25519YaoPendingFactorHandle } from '@/core/signingEngine/session/emailOtp/ed25519YaoRootVault';
 import type { EmailOtpAppSessionBinding } from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
-import type { EmailOtpEd25519YaoPublicationInput } from '@/core/signingEngine/session/emailOtp/ed25519YaoPublication';
+import type { WalletCustodyEd25519Projection } from '@/core/signingEngine/walletCustody/ed25519Projection';
 import type {
   EnrollEmailOtpInternalArgs,
   EnrollEmailOtpInternalResult,
@@ -664,27 +662,22 @@ export interface PasskeyLoginAssertionSurface {
 export interface EmailOtpSigningSessionSurface {
   rememberEmailOtpAppSessionBinding(binding: EmailOtpAppSessionBinding): void;
   rememberEmailOtpAppSessionJwt(walletId: WalletId, appSessionJwt: string): void;
-  persistEmailOtpEd25519YaoCapabilityForRefreshInternal(
-    input: EmailOtpEd25519YaoPublicationInput,
-  ): Promise<void>;
-  prepareEmailOtpEd25519YaoLoginRecoveryInternal(args: {
+  resolveEmailOtpEd25519CustodyProjectionInternal(args: {
     walletSession: WalletSessionRef;
-    remainingUses: number;
+  }): Promise<WalletCustodyEd25519Projection | null>;
+  activateEmailOtpEd25519CustodyCapabilityInternal(args: {
+    walletSession: WalletSessionRef;
+    providerSubject: string;
     emailHashHex: string;
-  }): Promise<PreparedColdEmailOtpEd25519YaoRecoveryV1 | null>;
-  activateEmailOtpEd25519YaoUnlockedRecoveryInternal(args: {
-    prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
-    bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
-    pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
-  }): Promise<NearEd25519SignerBinding>;
-  activateEmailOtpEd25519YaoLocalCapabilityInternal(args: {
-    prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
+    signerSlot: number;
+    expectedOperationalPublicKey: string;
+    expectedThresholdSessionId: string;
     bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
     activeClientHandle: string;
     metadata: RouterAbEd25519YaoActiveClientMetadataV1;
   }): Promise<NearEd25519SignerBinding>;
-  loginWithEmailOtpEd25519YaoCapabilityInternal(
-    args: LoginWithEmailOtpEd25519YaoCapabilityInternalArgs,
+  loginWithEmailOtpWalletCustodyEd25519Internal(
+    args: LoginWithEmailOtpWalletCustodyEd25519Args,
   ): Promise<NearEd25519SignerBinding>;
   loginWithEmailOtpEcdsaCapabilityInternal(
     args: LoginWithEmailOtpEcdsaCapabilityInternalArgs,
@@ -749,7 +742,7 @@ export type RegistrationSigningSurface = RpIdSurface &
   > &
   Pick<
     EmailOtpSigningSessionSurface,
-    'rememberEmailOtpAppSessionBinding' | 'persistEmailOtpEd25519YaoCapabilityForRefreshInternal'
+    'rememberEmailOtpAppSessionBinding'
   > &
   SignerWorkerContextSurface &
   PasskeyLoginAssertionSurface &

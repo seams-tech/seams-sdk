@@ -40,9 +40,7 @@ import type { MpcWalletSigningQuotaId, WalletSessionId } from '@shared/authoriza
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { NearEd25519YaoSigningPreparation } from '../session/material/nearEd25519YaoSigningPreparation';
 import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
-import type {
-  Ed25519OperationStepUpProof,
-} from '../threshold/ed25519/walletSession';
+import type { Ed25519OperationStepUpProof } from '../threshold/ed25519/walletSession';
 export type NearResolvedEd25519WalletSessionAuth = {
   kind: 'wallet_session_jwt';
   walletSessionJwt: string;

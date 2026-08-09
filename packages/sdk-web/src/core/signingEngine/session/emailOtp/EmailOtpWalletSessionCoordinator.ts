@@ -21,12 +21,6 @@ export class EmailOtpWalletSessionCoordinator {
     this.runtime = new EmailOtpWalletSessionRuntime(deps);
   }
 
-  persistEd25519YaoCapabilityForRefresh(
-    args: Parameters<EmailOtpWalletSessionRuntime['persistEd25519YaoCapabilityForRefresh']>[0],
-  ): ReturnType<EmailOtpWalletSessionRuntime['persistEd25519YaoCapabilityForRefresh']> {
-    return this.runtime.persistEd25519YaoCapabilityForRefresh(args);
-  }
-
   persistEcdsaSessionForRefresh(
     args: Parameters<EmailOtpWalletSessionRuntime['persistEcdsaSessionForRefresh']>[0],
   ): ReturnType<EmailOtpWalletSessionRuntime['persistEcdsaSessionForRefresh']> {
