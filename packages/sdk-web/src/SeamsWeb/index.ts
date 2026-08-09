@@ -40,8 +40,6 @@ export type {
   EmailOtpEcdsaCapabilityResult,
   EmailOtpEnrollmentResult,
   EmailOtpRecoveryCodeBackupStatus,
-  EmailOtpRecoveryCodeRotationResult,
-  EmailOtpRecoveryCodeStatus,
   ExportKeypairWithUIInput,
   GoogleEmailOtpSessionExchangeResult,
   EmailOtpRecoveryCodeBackupAck,

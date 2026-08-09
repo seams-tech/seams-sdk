@@ -16,7 +16,6 @@
     "unit/d1WalletRegistrationCommitStore.unit.test.ts",
     "unit/ecdsaOperationStepUpChallengeBinding.unit.test.ts",
     "unit/ecdsaSealedRuntime.unit.test.ts",
-    "unit/emailOtpRecoveryWrappedEnrollmentEscrowStore.unit.test.ts",
     "unit/emailOtpWalletSessionCoordinator.unit.test.ts",
     "unit/evmFamilyEcdsaIdentity.unit.test.ts",
     "unit/evmFamilyStepUpProvisionPlan.unit.test.ts",
