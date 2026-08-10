@@ -70,6 +70,7 @@ function isArcNativeGasPreflightFailure(error: unknown): error is ArcNativeGasPr
 }
 
 export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
+  const { lock } = useSeams();
   const {
     canSignEvm,
     walletId,
@@ -207,6 +208,18 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
         resolvedError && typeof resolvedError === 'object' && 'code' in resolvedError
           ? String((resolvedError as { code?: unknown }).code || '')
           : '';
+      if (errorCode === 'wallet_session_expired') {
+        toast.error('Your session expired. Sign in again to continue.', {
+          id: toastId,
+          description: null,
+        });
+        console.error('[DemoPage][ArcWalletSessionExpired]', {
+          atIso: new Date().toISOString(),
+          error: resolvedError,
+        });
+        lock();
+        return;
+      }
       if (errorCode === 'post_finalization_state_mismatch') {
         toast.error(`EVM transaction finalized, but post-finalization refresh failed: ${message}`, {
           id: toastId,
@@ -280,6 +293,7 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
     arcGreetingInput,
     canSignEvm,
     fetchArcGreeting,
+    lock,
     refreshThresholdOwnerAddress,
     resolveThresholdOwnerAddressForEvmFamily,
     seams,

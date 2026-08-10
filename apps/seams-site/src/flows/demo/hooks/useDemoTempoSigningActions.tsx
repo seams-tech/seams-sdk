@@ -62,6 +62,7 @@ type UseDemoTempoSigningActionsArgs = {
 };
 
 export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs) {
+  const { lock } = useSeams();
   const {
     isLoggedIn,
     walletId,
@@ -293,6 +294,18 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
         resolvedError && typeof resolvedError === 'object' && 'code' in resolvedError
           ? String((resolvedError as { code?: unknown }).code || '')
           : '';
+      if (errorCode === 'wallet_session_expired') {
+        toast.error('Your session expired. Sign in again to continue.', {
+          id: toastId,
+          description: null,
+        });
+        console.error('[DemoPage][TempoWalletSessionExpired]', {
+          atIso: new Date().toISOString(),
+          error: resolvedError,
+        });
+        lock();
+        return;
+      }
       if (errorCode === 'post_finalization_state_mismatch') {
         toast.error(
           `Tempo transaction finalized, but post-finalization refresh failed: ${message}`,
@@ -351,6 +364,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
     canSignTempo,
     fetchTempoGreeting,
     frontendConfig,
+    lock,
     refreshTempoUserFeeToken,
     refreshTempoUserFeeTokenBalance,
     refreshThresholdOwnerAddress,

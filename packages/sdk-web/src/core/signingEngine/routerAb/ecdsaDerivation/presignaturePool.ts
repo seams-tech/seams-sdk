@@ -775,6 +775,17 @@ async function runPresignHandshakeAttempt(args: RouterAbEcdsaPresignHandshakeArg
       message: 'Router A/B ECDSA derivation pool-fill init returned empty presignSessionId',
     };
   }
+  const materialExpiresAtMs = clientPresignatureExpiresAtMs({
+    serverExpiresAtMs: init.materialExpiresAtMs,
+    requestedExpiresAtMs: args.routerAbEcdsaDerivationPoolFill.expiresAtMs,
+  });
+  if (materialExpiresAtMs === null) {
+    return {
+      ok: false,
+      code: 'invalid_pool_fill_expiry',
+      message: 'Router A/B ECDSA derivation pool-fill init returned invalid material expiry',
+    };
+  }
 
   const localSessionId = presignSessionId;
   const poolIdentity = makeClientPresignPoolIdentity({
@@ -799,7 +810,7 @@ async function runPresignHandshakeAttempt(args: RouterAbEcdsaPresignHandshakeArg
     const localInit = await args.clientSigningMaterial.initClientPresignSession({
       sessionId: localSessionId,
       groupPublicKey33: args.groupPublicKey33,
-      materialExpiresAtMs: clientPresignatureExpiresAtMs(args.routerAbEcdsaDerivationPoolFill),
+      materialExpiresAtMs,
       poolIdentity,
       workerCtx: args.workerCtx,
     });
@@ -928,7 +939,7 @@ async function runPresignHandshakeAttempt(args: RouterAbEcdsaPresignHandshakeArg
           bigRB64u: localBigRB64u,
           materialHandle: localPresignatureHandle,
           createdAtMs,
-          expiresAtMs: clientPresignatureExpiresAtMs(args.routerAbEcdsaDerivationPoolFill),
+          expiresAtMs: materialExpiresAtMs,
         },
       };
     } finally {
@@ -984,10 +995,21 @@ function routerAbEcdsaDerivationSigningIdentityFromScope(
   };
 }
 
-function clientPresignatureExpiresAtMs(
-  poolFill: RouterAbEcdsaDerivationPresignaturePoolFill,
-): number {
-  return Math.floor(Number(poolFill.expiresAtMs));
+function clientPresignatureExpiresAtMs(input: {
+  serverExpiresAtMs: unknown;
+  requestedExpiresAtMs: number;
+}): number | null {
+  const serverExpiresAtMs = Math.floor(Number(input.serverExpiresAtMs));
+  const requestedExpiresAtMs = Math.floor(Number(input.requestedExpiresAtMs));
+  if (
+    !Number.isSafeInteger(serverExpiresAtMs) ||
+    !Number.isSafeInteger(requestedExpiresAtMs) ||
+    serverExpiresAtMs <= Date.now() ||
+    serverExpiresAtMs > requestedExpiresAtMs
+  ) {
+    return null;
+  }
+  return serverExpiresAtMs;
 }
 
 function resolveSigningRequestExpiresAtMs(input: {
@@ -1009,6 +1031,7 @@ function resolveSigningRequestExpiresAtMs(input: {
 
 function isExpiredRouterAbEcdsaDerivationPresignatureError(message: string): boolean {
   const normalized = message.toLowerCase();
+  if (normalized.includes('presignature material is expired')) return true;
   if (normalized.includes('expiredlocalrequest') && normalized.includes('presignature pool')) {
     return true;
   }
