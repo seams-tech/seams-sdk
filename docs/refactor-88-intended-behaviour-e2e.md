@@ -1626,7 +1626,7 @@ Initial audit:
 | `tests/unit/ed25519MaterialAuthPlan.unit.test.ts` | keep | Ed25519 material auth-plan coverage. It validates auth-plan selection for NEAR material. |
 | `tests/unit/ed25519TransactionLaneSelection.unit.test.ts` | keep | Ed25519 transaction lane-selection coverage. It validates exact NEAR lane selection directly. |
 | `tests/unit/emailEncryption.test.ts` | keep | Email encryption helper coverage. It validates crypto/interoperability primitives used by Email OTP and recovery. |
-| `tests/unit/emailEncryptionOutlayerInteroperability.test.ts` | keep | Email encryption outlayer interoperability coverage. It validates protocol compatibility for encrypted email payloads. |
+| `tests/unit/emailEncryptionOutlayerInteroperability.test.ts` | deleted | Deleted with its outdated captured-email fixtures. Current email encryption primitives remain covered by `emailEncryption.test.ts`. |
 | `tests/unit/emailOtp.records.unit.test.ts` | keep | Email OTP record coverage. It validates persistence record shape and parsing. |
 | `tests/unit/emailOtpAppSessionJwtCache.unit.test.ts` | keep | Email OTP app-session JWT cache coverage. It validates cache behavior at the auth/session boundary. |
 | `tests/unit/emailOtpAuthLane.unit.test.ts` | keep | Email OTP auth-lane coverage. It validates lane selection and auth binding behavior directly. |
@@ -1641,12 +1641,12 @@ Initial audit:
 | `tests/unit/emailOtpRegistrationRoute.unit.test.ts` | keep | Email OTP registration route coverage. It validates route input/output behavior directly. |
 | `tests/unit/emailOtpSigningSessionUnsealRoute.unit.test.ts` | keep | Email OTP signing-session unseal route coverage. It validates route boundary behavior that intended contracts consume. |
 | `tests/unit/emailOtpWalletSessionCoordinator.unit.test.ts` | keep | Email OTP wallet-session coordinator coverage. It validates focused session coordination behavior. |
-| `tests/unit/emailRecoveryService.test.ts` | keep | Email recovery service coverage. It validates service-domain behavior; recovery browser lifecycle coverage is deferred to the fifth spec. |
+| `tests/unit/emailRecoveryService.test.ts` | deleted | Deleted with its outdated captured-email fixture. Current recovery behavior remains owned by parser/domain coverage and the recovery intended contract. |
 | `tests/unit/emailRecoveryVerifiedRequest.source.script.ts` | deleted | Deleted 70-line source-evidence fixture with its last importer. Recovery request parsing and recovery lifecycle behavior stay covered by retained parser/domain tests plus the recovery intended contract. |
 | `tests/unit/emailRecoveryVerifiedRequest.source.script.unit.test.ts` | deleted | Deleted 104-line source-evidence wrapper. It spawned a TSX fixture to prove source-level recovery request shape; retained recovery parser/domain tests and the recovery intended contract own current behavior. |
 | `tests/unit/emailSubjectParsing.test.ts` | keep | Email subject parsing coverage. It validates parser behavior directly. |
-| `tests/unit/emails/gmail_reset_full.eml` | keep | Email fixture used by retained email parsing tests. Delete only when its parser-test importer disappears. |
-| `tests/unit/emails/gmail_reset_full2.eml` | keep | Email fixture used by retained email parsing tests. Delete only when its parser-test importer disappears. |
+| `tests/unit/emails/gmail_reset_full.eml` | deleted | Deleted after its final importer was removed. |
+| `tests/unit/emails/gmail_reset_full2.eml` | deleted | Deleted after its final importer was removed. |
 | `tests/unit/ecdsaPresignMaterialStore.unit.test.ts` | keep | ECDSA Client presign material persistence coverage. It validates encrypted storage, one-use consumption, destructive recovery, and exact-scope retirement in a real browser IndexedDB. |
 | `tests/unit/evmFamily.requestBoundary.unit.test.ts` | keep | EVM-family request-boundary coverage. It validates request parsing and chain-target identity directly. |
 | `tests/unit/evmFamilyAccountAuth.unit.test.ts` | keep | EVM-family account-auth coverage. It validates account/auth binding behavior for EVM-family signing. |

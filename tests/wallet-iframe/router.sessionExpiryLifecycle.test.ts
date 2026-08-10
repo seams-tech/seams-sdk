@@ -68,7 +68,7 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
           .executeAction({
             walletId,
             nearAccountId: 'refactor-92.testnet',
-            receiverId: 'w3a-v1.testnet',
+            receiverId: 'seams-v1.testnet',
             actionArgs: { type: 'Transfer', amount: '1' } as any,
             options: {},
           })
@@ -196,7 +196,7 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
             .executeAction({
               walletId,
               nearAccountId: 'refactor-92.testnet',
-              receiverId: 'w3a-v1.testnet',
+              receiverId: 'seams-v1.testnet',
               actionArgs: { type: 'Transfer', amount: '1' } as any,
               options: {},
             })

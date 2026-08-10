@@ -279,10 +279,16 @@ export async function signEvmFamily(
     admissionRetryState: { kind: 'initial_admission' },
     operationIds: createEvmFamilySigningOperationIds(args.signingOperationId),
   };
-  if (args.request.senderSignatureAlgorithm !== 'secp256k1') {
+  await deps.touchConfirm.openTransactionPreparationModal({
+    walletLabel: String(args.walletSession.walletId),
+    chain: args.chainTarget.kind,
+    confirmationConfigOverride: args.confirmationConfigOverride,
+  });
+  try {
     return await signEvmFamilyAttempt(deps, args, attempt);
+  } finally {
+    deps.touchConfirm.closeTransactionPreparationModal();
   }
-  return await signEvmFamilyAttempt(deps, args, attempt);
 }
 
 async function signEvmFamilyAttempt(
