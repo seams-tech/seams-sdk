@@ -109,10 +109,18 @@ export function normalizeScope(scope: CloudflareD1LaneScopeV1): CloudflareD1Lane
 function requiredScopeString(value: string, label: string): string {
   const normalized = value.trim();
   if (!normalized) throw new Error(`R102 lane ${label} is required`);
-  if (/[\u0000-\u001f\u007f]/.test(normalized)) {
+  if (hasControlCharacter(normalized)) {
     throw new Error(`R102 lane ${label} contains control characters`);
   }
   return normalized;
+}
+
+function hasControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (code <= 31 || code === 127) return true;
+  }
+  return false;
 }
 
 export function parseVersion(value: unknown, label: string): number {
