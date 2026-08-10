@@ -193,58 +193,6 @@ const PAPER_LIGHT_COLORS: Record<string, string> = {
   highlightAmount: '#000000',
 };
 
-// "Midnight" — deep navy surfaces with a soft mint accent.
-const MIDNIGHT_DARK_COLORS: Record<string, string> = {
-  primary: '#b4e8c0',
-  primaryHover: '#9fdcaf',
-  secondary: '#7fb890',
-  secondaryHover: '#b4e8c0',
-  accent: '#b4e8c0',
-
-  textPrimary: '#f3faf6',
-  textSecondary: '#c4d2ce',
-  textMuted: '#7d898a',
-  textButton: '#141820',
-
-  buttonBackground: '#b4e8c0',
-  buttonHoverBackground: '#9fdcaf',
-  secondaryButtonBackground: '#23352f',
-  secondaryButtonHoverBackground: '#2c453d',
-  secondaryButtonBorder: '#3d564e',
-  secondaryButtonText: '#b4e8c0',
-
-  colorBackground: '#141820',
-  surface: '#181e28',
-  surface2: '#202735',
-  surface3: '#293241',
-  surface4: '#34404f',
-  txDetailsBackground: '#202735',
-
-  hover: '#202735',
-  active: '#293241',
-  focus: '#b4e8c0',
-
-  success: '#b4e8c0',
-  warning: '#f0d994',
-  error: '#ff8f8f',
-  info: '#9fdcaf',
-
-  borderPrimary: '#2c3440',
-  borderSecondary: '#242c38',
-  borderHover: '#465361',
-
-  gradientPrimary: 'linear-gradient(120deg, #141820 0%, #b4e8c0 100%)',
-  gradientSecondary: 'linear-gradient(120deg, #141820 0%, #23352f 100%)',
-  gradientTertiary: 'linear-gradient(120deg, #141820 0%, #202735 100%)',
-
-  highlightPrimary: '#b4e8c0',
-  highlightRow: 'rgba(180, 232, 192, 0.14)',
-  highlightHalo: '#d1f4da',
-  highlightReceiver: '#b4e8c0',
-  highlightMethodName: '#f3faf6',
-  highlightAmount: '#b4e8c0',
-};
-
 // "Greenhouse" — the Ironclad palette (ironcladapp.com, from their own color
 // presets): navy ink on layered creams with the Ironclad green pair
 // (#308970 brand / #00ca88 logo) doing the accent work.
@@ -292,67 +240,6 @@ const GREENHOUSE_LIGHT_COLORS: Record<string, string> = {
   highlightReceiver: '#308970',
   highlightMethodName: '#1c212b',
   highlightAmount: '#308970',
-};
-
-// "Sage" — the Andon Labs store palette (andonlabs.com/store): the muted
-// sage hero gradient (#919690 → #c7d0cf) over zinc neutrals, ink CTAs, and
-// their deep evergreen (chart-1, oklch 35% chroma .07 hue 171 ≈ #004737)
-// carrying links and highlights.
-const SAGE_LIGHT_COLORS: Record<string, string> = {
-  primary: '#004737',
-  primaryHover: '#0b5a48',
-  secondary: '#18181b',
-  secondaryHover: '#004737',
-  accent: '#9bc4cb',
-
-  textPrimary: '#09090b',
-  textSecondary: '#71717a',
-  textMuted: '#a1a1aa',
-  textButton: '#fafafa',
-
-  buttonBackground: '#18181b',
-  buttonHoverBackground: '#27272a',
-  // quiet bordered-white secondary (Google SSO): one ink CTA per card, the
-  // same button hierarchy Andon uses on the store page
-  secondaryButtonBackground: '#ffffff',
-  secondaryButtonHoverBackground: '#f4f4f5',
-  secondaryButtonBorder: '#e4e4e7',
-  secondaryButtonText: '#18181b',
-
-  colorBackground: '#ffffff',
-  surface: '#fafafa',
-  passkeyHaloBackground: '#f4f4f5',
-  surface2: '#f4f4f5',
-  surface3: '#e4e4e7',
-  surface4: '#d4d4d8',
-  txDetailsBackground: '#f4f4f5',
-
-  hover: '#f4f4f5',
-  active: '#e4e4e7',
-  focus: '#004737',
-
-  success: '#004737',
-  warning: '#b45309',
-  error: '#dc2626',
-  info: '#4c7f88',
-
-  borderPrimary: '#e4e4e7',
-  borderSecondary: '#f4f4f5',
-  borderHover: '#d4d4d8',
-
-  // the store hero gradient, verbatim, plus derived companions
-  gradientPrimary: 'linear-gradient(160deg, #919690 0%, #c7d0cf 100%)',
-  gradientSecondary: 'linear-gradient(160deg, #004737 0%, #919690 100%)',
-  gradientTertiary: 'linear-gradient(160deg, #fafafa 0%, #c7d0cf 100%)',
-
-  highlightPrimary: '#004737',
-  highlightRow: 'rgba(0, 71, 55, 0.08)',
-  highlightHalo: '#9bc4cb',
-  // Andon-style accent discipline: the receiver carries the evergreen,
-  // method names and amounts read in ink.
-  highlightReceiver: '#004737',
-  highlightMethodName: '#09090b',
-  highlightAmount: '#09090b',
 };
 
 // "Pastel Dark" — the Pastel Rainbow palette on charcoal (Outlander-dashboard
@@ -469,11 +356,9 @@ const PASTEL_LIGHT_COLORS: Record<string, string> = {
 
 export type DemoThemeId =
   | 'paper'
-  | 'midnight'
   | 'rose-pine-dark'
   | 'rose-pine-light'
   | 'greenhouse'
-  | 'sage'
   | 'pastel'
   | 'pastel-dark';
 
@@ -514,13 +399,6 @@ export const DEMO_THEME_PRESETS: DemoThemePreset[] = [
     colors: GREENHOUSE_LIGHT_COLORS,
   },
   {
-    id: 'sage',
-    label: 'Sage',
-    mode: 'light',
-    swatch: '#919690',
-    colors: SAGE_LIGHT_COLORS,
-  },
-  {
     id: 'pastel',
     label: 'Pastel',
     mode: 'light',
@@ -534,13 +412,6 @@ export const DEMO_THEME_PRESETS: DemoThemePreset[] = [
     mode: 'dark',
     swatch: '#1e1d22',
     colors: PASTEL_DARK_COLORS,
-  },
-  {
-    id: 'midnight',
-    label: 'Midnight',
-    mode: 'dark',
-    swatch: '#141820',
-    colors: MIDNIGHT_DARK_COLORS,
   },
 ];
 
