@@ -6,6 +6,7 @@ use serde::de::DeserializeOwned;
 use wasm_bindgen::prelude::*;
 use zeroize::{Zeroize, Zeroizing};
 
+use crate::lane_holder::{verify_holder_package, LaneCustodySealV1, LaneHolderRecipientV1};
 use crate::{
     complete_client_export_v1, create_client_signing_share_v1,
     prepare_client_export_from_custody_seed_v1, ClientActivationEntropyV1, ClientExportStateV1,
@@ -27,6 +28,119 @@ use signer_core::near_threshold_ed25519::CommitmentsWire;
 use signer_core::passkey_custody::open_wallet_custody_seed_envelope_v1;
 use signer_core::passkey_custody::PasskeyCustodyEnvelopeBindingV1;
 use signer_core::wallet_seed_derivation::derive_ed25519_yao_client_root_from_seed_v1;
+
+/// Worker-owned factor context for sealing one target lane share.
+///
+/// Factor material remains inside Rust memory. The supported branches are the
+/// two existing custody factors (`passkey` and `email_otp`); future factor
+/// strings fail closed until signer-core defines their KEK context.
+#[wasm_bindgen]
+pub struct WasmLaneCustodySealV1 {
+    inner: LaneCustodySealV1,
+}
+
+#[wasm_bindgen]
+impl WasmLaneCustodySealV1 {
+    /// Loads one already-authorized custody factor into an opaque seal handle.
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        factor_kind: &str,
+        factor_secret: &[u8],
+        envelope_binding_json: &str,
+        custody_binding_id: &str,
+        custody_binding_digest_b64u: &str,
+    ) -> Result<WasmLaneCustodySealV1, JsValue> {
+        let factor_secret = Zeroizing::new(parse_32(factor_secret, "lane custody factor secret")?);
+        let binding =
+            serde_json::from_str::<PasskeyCustodyEnvelopeBindingV1>(envelope_binding_json)
+                .map_err(js_error)?;
+        Ok(Self {
+            inner: LaneCustodySealV1::from_factor(
+                factor_kind,
+                *factor_secret,
+                binding,
+                custody_binding_id.to_owned(),
+                custody_binding_digest_b64u.to_owned(),
+            )
+            .map_err(js_error)?,
+        })
+    }
+}
+
+/// One-use target-holder X25519 recipient retained inside the worker WASM.
+#[wasm_bindgen]
+pub struct WasmLaneHolderRecipientV1 {
+    inner: LaneHolderRecipientV1,
+}
+
+#[wasm_bindgen]
+impl WasmLaneHolderRecipientV1 {
+    /// Creates a recipient from worker-generated key material.
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        operation_id: &str,
+        recipient_key_material: &[u8],
+    ) -> Result<WasmLaneHolderRecipientV1, JsValue> {
+        let key_material = Zeroizing::new(parse_32(
+            recipient_key_material,
+            "lane holder recipient key material",
+        )?);
+        Ok(Self {
+            inner: LaneHolderRecipientV1::new(operation_id.to_owned(), *key_material)
+                .map_err(js_error)?,
+        })
+    }
+
+    /// Returns the public X25519 recipient key.
+    pub fn hpke_public_key_b64u(&self) -> String {
+        self.inner.public_key_b64u().to_owned()
+    }
+
+    /// Returns the SHA-256 digest of the public recipient key.
+    pub fn hpke_public_key_digest_b64u(&self) -> String {
+        self.inner.public_key_digest_b64u().to_owned()
+    }
+
+    /// Opens one exact committed package and seals the share to custody.
+    #[allow(clippy::too_many_arguments)]
+    pub fn open_and_seal(
+        &mut self,
+        custody: &WasmLaneCustodySealV1,
+        job_json: &str,
+        receipt_json: &str,
+        holder_package_json: &str,
+        nonce12: &[u8],
+    ) -> Result<JsValue, JsValue> {
+        let output = self
+            .inner
+            .open_and_seal(
+                &custody.inner,
+                job_json,
+                receipt_json,
+                holder_package_json,
+                nonce12,
+            )
+            .map_err(js_error)?;
+        serde_wasm_bindgen::to_value(&output).map_err(js_error)
+    }
+
+    /// Immediately zeroizes the recipient private key.
+    pub fn destroy(&mut self) {
+        self.inner.destroy();
+    }
+}
+
+/// Verifies a committed holder package without opening recipient ciphertext.
+#[wasm_bindgen]
+pub fn verify_lane_holder_package_commitment_v1(
+    job_json: &str,
+    receipt_json: &str,
+    holder_package_json: &str,
+) -> Result<JsValue, JsValue> {
+    let output =
+        verify_holder_package(job_json, receipt_json, holder_package_json).map_err(js_error)?;
+    serde_wasm_bindgen::to_value(&output).map_err(js_error)
+}
 
 /// One-use explicit export session opened from the wallet custody envelope.
 ///
