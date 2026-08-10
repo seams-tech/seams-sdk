@@ -62,6 +62,8 @@ import type {
   RehydrateEcdsaRoleLocalSigningMaterialResultV1,
   VerifyRouterAbEcdsaPostRegistrationProofsRequestV1,
   VerifyRouterAbEcdsaPostRegistrationProofsResultV1,
+  SignWalletRecoveryEcdsaMaterialPossessionProofRequestV1,
+  SignWalletRecoveryEcdsaMaterialPossessionProofResultV1,
 } from '@/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
 import type {
   CloseRouterAbEcdsaRegistrationCeremonyRequestV1,
@@ -1062,6 +1064,7 @@ export const EcdsaDerivationClientCustomRequestType = {
   ReconcileCanonicalEcdsaActivation: 70_017,
   PrewarmEcdsaRegistrationCrypto: 70_018,
   VerifyRouterAbEcdsaPostRegistrationProofs: 70_019,
+  SignWalletRecoveryEcdsaMaterialPossessionProof: 70_020,
 } as const;
 
 export type EcdsaDerivationClientCustomRequestType =
@@ -1084,6 +1087,7 @@ export const EcdsaDerivationClientCustomResponseType = {
   ReconcileCanonicalEcdsaActivationSuccess: 70_117,
   PrewarmEcdsaRegistrationCryptoSuccess: 70_118,
   VerifyRouterAbEcdsaPostRegistrationProofsSuccess: 70_119,
+  SignWalletRecoveryEcdsaMaterialPossessionProofSuccess: 70_120,
 } as const;
 
 export type EcdsaDerivationClientCustomResponseType =
@@ -1415,6 +1419,14 @@ type EcdsaDerivationClientCustomOperationMap = {
       diagnostics?: WorkerResponseDiagnostics;
     };
   };
+  [EcdsaDerivationClientCustomRequestType.SignWalletRecoveryEcdsaMaterialPossessionProof]: {
+    payload: SignWalletRecoveryEcdsaMaterialPossessionProofRequestV1;
+    result: {
+      type: typeof EcdsaDerivationClientCustomResponseType.SignWalletRecoveryEcdsaMaterialPossessionProofSuccess;
+      payload: SignWalletRecoveryEcdsaMaterialPossessionProofResultV1;
+      diagnostics?: WorkerResponseDiagnostics;
+    };
+  };
 };
 
 export const EcdsaPresignClientRequestType = {
@@ -1532,7 +1544,8 @@ export type EcdsaDerivationRoleLocalMaterialOperationType =
   | typeof EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap
   | typeof EcdsaDerivationClientCustomRequestType.BuildThresholdEcdsaDerivationRoleLocalExportArtifact
   | typeof EcdsaDerivationClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial
-  | typeof EcdsaDerivationClientCustomRequestType.RehydrateEcdsaRoleLocalSigningMaterial;
+  | typeof EcdsaDerivationClientCustomRequestType.RehydrateEcdsaRoleLocalSigningMaterial
+  | typeof EcdsaDerivationClientCustomRequestType.SignWalletRecoveryEcdsaMaterialPossessionProof;
 
 export type EcdsaDerivationRoleLocalMaterialOperationRequest<
   T extends EcdsaDerivationRoleLocalMaterialOperationType,

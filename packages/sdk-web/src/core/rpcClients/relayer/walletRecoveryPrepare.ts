@@ -14,9 +14,7 @@ import {
   type WalletRecoveryEnvelopeEntry,
 } from '@shared/wallet-recovery';
 import type { DigestB64u } from '@shared/utils';
-import {
-  parseRouterAbMpcMaterialActivationRef,
-} from '@shared/utils/routerAbNormalSigningIdentity';
+import { parseRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   RouterAbEd25519YaoApplicationBindingFactsV1,
   RouterAbEd25519YaoBytes32V1,
@@ -24,8 +22,14 @@ import type {
 } from '@shared/utils/routerAbEd25519Yao';
 import {
   parseRouterAbEcdsaDerivationPublicCapabilityV1,
+  parseRouterAbEcdsaRegistrationActivationReceiptV1,
+  type RouterAbEcdsaRegistrationActivationReceiptV1,
   type RouterAbEcdsaDerivationPublicCapabilityV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import {
+  parseWalletRecoveryEcdsaPossessionChallengeV1,
+  type WalletRecoveryEcdsaPossessionChallengeV1,
+} from '@shared/wallet-recovery/walletRecoveryEcdsaPossession';
 import {
   parseEcdsaServerGeneration,
   type EcdsaServerGeneration,
@@ -117,6 +121,7 @@ export type WalletRecoveryPreparationNearRecoveryBasis = {
 
 export type WalletRecoveryPreparationEcdsaRecoveryBasis = {
   readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+  readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
   readonly serverGeneration: EcdsaServerGeneration;
   readonly clientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u;
   readonly chainTargets: readonly [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]];
@@ -125,6 +130,7 @@ export type WalletRecoveryPreparationEcdsaRecoveryBasis = {
   readonly signingRootVersion: SigningRootVersion;
   readonly runtimePolicyScope: RuntimePolicyScope;
   readonly participantIds: readonly [1, 2];
+  readonly possessionChallenge: WalletRecoveryEcdsaPossessionChallengeV1;
 };
 
 export type WalletCustodyUnlockKeyManifestEntry =
@@ -348,10 +354,7 @@ async function parseWalletRecoveryPrepareResponse(args: {
         body.keyManifest,
         args.walletId,
       );
-      const registration = parseWalletRecoveryRegistrationOptions(
-        body.registration,
-        args.walletId,
-      );
+      const registration = parseWalletRecoveryRegistrationOptions(body.registration, args.walletId);
       const reservationId = requireResponseString(body.reservationId, 'reservationId');
       const reservationExpiresAtMs = parseUnixMs(
         body.reservationExpiresAtMs,
@@ -437,10 +440,7 @@ function parseWalletRecoveryRegistrationOptions(
   if (registration.kind !== 'webauthn_recovery_registration_v1') {
     throw new Error('walletRecoveryPrepare.registration kind is invalid');
   }
-  const challengeId = requireResponseString(
-    registration.challengeId,
-    'registration.challengeId',
-  );
+  const challengeId = requireResponseString(registration.challengeId, 'registration.challengeId');
   const challengeB64u = requireCanonicalBytesB64u(
     registration.challengeB64u,
     32,
@@ -477,10 +477,7 @@ function parseWalletRecoveryRegistrationOptions(
     'walletRecoveryPrepare.registration.user',
   );
   const expectedUserIdB64u = base64UrlEncode(new TextEncoder().encode(expectedWalletId));
-  const idB64u = requireCanonicalNonEmptyB64u(
-    user.idB64u,
-    'registration.user.idB64u',
-  );
+  const idB64u = requireCanonicalNonEmptyB64u(user.idB64u, 'registration.user.idB64u');
   if (idB64u !== expectedUserIdB64u) {
     throw new Error('walletRecoveryPrepare.registration user is bound to another wallet');
   }
@@ -520,24 +517,11 @@ function parseWalletRecoveryRegistrationOptions(
   };
 }
 
-function parseRecoveryPrfExtensions(
-  raw: unknown,
-): WalletRecoveryRegistrationOptions['extensions'] {
+function parseRecoveryPrfExtensions(raw: unknown): WalletRecoveryRegistrationOptions['extensions'] {
   const extensions = requireRecord(raw, 'walletRecoveryPrepare.registration.extensions');
-  rejectUnknownFields(
-    extensions,
-    ['prf'],
-    'walletRecoveryPrepare.registration.extensions',
-  );
-  const prf = requireRecord(
-    extensions.prf,
-    'walletRecoveryPrepare.registration.extensions.prf',
-  );
-  rejectUnknownFields(
-    prf,
-    ['eval'],
-    'walletRecoveryPrepare.registration.extensions.prf',
-  );
+  rejectUnknownFields(extensions, ['prf'], 'walletRecoveryPrepare.registration.extensions');
+  const prf = requireRecord(extensions.prf, 'walletRecoveryPrepare.registration.extensions.prf');
+  rejectUnknownFields(prf, ['eval'], 'walletRecoveryPrepare.registration.extensions.prf');
   const evaluation = requireRecord(
     prf.eval,
     'walletRecoveryPrepare.registration.extensions.prf.eval',
@@ -599,10 +583,7 @@ function parseRecoveryPublicKeyParameters(
 function parseRecoveryAuthenticatorSelection(
   raw: unknown,
 ): WalletRecoveryRegistrationOptions['authenticatorSelection'] {
-  const selection = requireRecord(
-    raw,
-    'walletRecoveryPrepare.registration.authenticatorSelection',
-  );
+  const selection = requireRecord(raw, 'walletRecoveryPrepare.registration.authenticatorSelection');
   rejectUnknownFields(
     selection,
     ['residentKey', 'userVerification'],
@@ -1057,6 +1038,7 @@ function parseWalletRecoveryPreparationEcdsaRecoveryBasis(
     basis,
     [
       'publicCapability',
+      'activationReceipt',
       'serverGeneration',
       'clientRootPublicKey33B64u',
       'chainTargets',
@@ -1065,26 +1047,42 @@ function parseWalletRecoveryPreparationEcdsaRecoveryBasis(
       'signingRootVersion',
       'runtimePolicyScope',
       'participantIds',
+      'possessionChallenge',
     ],
     'walletRecoveryPrepare.keyManifest.entries[].recoveryBasis',
   );
-  const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(
-    basis.publicCapability,
+  const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(basis.publicCapability);
+  const activationReceipt = parseRouterAbEcdsaRegistrationActivationReceiptV1(
+    basis.activationReceipt,
   );
   if (publicCapability.client_id !== expectedWalletId) {
     throw new Error('walletRecoveryPrepare ECDSA recovery capability changed the wallet scope');
   }
   const signingRootId = parseSdkEcdsaDerivationSigningRootId(basis.signingRootId);
-  const signingRootVersion = parseSdkEcdsaDerivationSigningRootVersion(
-    basis.signingRootVersion,
-  );
+  const signingRootVersion = parseSdkEcdsaDerivationSigningRootVersion(basis.signingRootVersion);
   const runtimePolicyScope = parseWalletRecoveryRuntimePolicyScope(basis.runtimePolicyScope);
   if (runtimePolicyScope.signingRootVersion !== signingRootVersion) {
     throw new Error('walletRecoveryPrepare ECDSA recovery scope changed the signing root');
   }
+  const serverGeneration = parseEcdsaServerGeneration(basis.serverGeneration);
+  if (String(activationReceipt.server_generation) !== String(serverGeneration)) {
+    throw new Error('walletRecoveryPrepare ECDSA activation receipt changed server generation');
+  }
+  const possessionChallenge = parseWalletRecoveryEcdsaPossessionChallengeV1(
+    basis.possessionChallenge,
+  );
+  if (
+    possessionChallenge.walletId !== expectedWalletId ||
+    possessionChallenge.expectedServerGeneration !== String(serverGeneration) ||
+    possessionChallenge.derivationClientSharePublicKey33B64u !==
+      publicCapability.public_identity.derivation_client_share_public_key33_b64u
+  ) {
+    throw new Error('walletRecoveryPrepare ECDSA possession challenge changed its capability');
+  }
   return {
     publicCapability,
-    serverGeneration: parseEcdsaServerGeneration(basis.serverGeneration),
+    activationReceipt,
+    serverGeneration,
     clientRootPublicKey33B64u: ecdsaClientRootPublicKey33B64uFromString(
       requireResponseString(
         basis.clientRootPublicKey33B64u,
@@ -1097,6 +1095,7 @@ function parseWalletRecoveryPreparationEcdsaRecoveryBasis(
     signingRootVersion,
     runtimePolicyScope,
     participantIds: parseWalletRecoveryEcdsaParticipantIds(basis.participantIds),
+    possessionChallenge,
   };
 }
 
@@ -1106,9 +1105,7 @@ function parseWalletRecoveryEcdsaChainTargets(
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new Error('walletRecoveryPrepare ECDSA recovery chain targets are invalid');
   }
-  const targets = raw.map((value, index) =>
-    parseWalletRecoveryEcdsaChainTarget(value, index),
-  );
+  const targets = raw.map((value, index) => parseWalletRecoveryEcdsaChainTarget(value, index));
   const keys = new Set(targets.map(walletRecoveryEcdsaChainTargetKey));
   if (keys.size !== targets.length) {
     throw new Error('walletRecoveryPrepare ECDSA recovery chain targets are duplicated');
@@ -1173,9 +1170,7 @@ function parseWalletRecoveryEcdsaParticipantIds(raw: unknown): readonly [1, 2] {
   return [1, 2];
 }
 
-function parseWalletRecoveryNearLifecycleScope(
-  raw: unknown,
-): RouterAbEd25519YaoLifecycleScopeV1 {
+function parseWalletRecoveryNearLifecycleScope(raw: unknown): RouterAbEd25519YaoLifecycleScopeV1 {
   const scope = requireRecord(
     raw,
     'walletRecoveryPrepare.keyManifest.entries[].recoveryBasis.scope',
@@ -1287,11 +1282,7 @@ function requireParticipantPair(raw: unknown, label: string): readonly [number, 
   return [Number(raw[0]), Number(raw[1])];
 }
 
-function requireCanonicalBytesB64u(
-  raw: unknown,
-  length: number,
-  label: string,
-): string {
+function requireCanonicalBytesB64u(raw: unknown, length: number, label: string): string {
   const value = requireResponseString(raw, label);
   const bytes = base64UrlDecode(value);
   if (bytes.length !== length || base64UrlEncode(bytes) !== value) {

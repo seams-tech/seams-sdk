@@ -16,12 +16,17 @@ import type {
   EcdsaRoleLocalWorkerHandle,
 } from '@/core/signingEngine/session/keyMaterialBrands';
 import type { EcdsaRoleLocalPublicFacts } from '@/core/platform';
+import type { EcdsaRoleLocalReadyStateBlob } from '@/core/platform';
 import type { EcdsaClientPresignPoolIdentity } from './ecdsaPresignPoolIdentity';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import type {
+  WalletRecoveryEcdsaPossessionChallengeV1,
+  WalletRecoveryEcdsaPossessionProofV1,
+} from '@shared/wallet-recovery/walletRecoveryEcdsaPossession';
 
 export const EcdsaClientWorkerControlKind = {
   AttachDerivationToPresign: 'attach_ecdsa_derivation_to_presign_v1',
@@ -95,6 +100,19 @@ export type RehydrateEcdsaRoleLocalSigningMaterialResultV1 =
       readonly materialRef?: never;
     };
 
+export type SignWalletRecoveryEcdsaMaterialPossessionProofRequestV1 = {
+  readonly kind: 'sign_wallet_recovery_ecdsa_material_possession_proof_v1';
+  readonly challenge: WalletRecoveryEcdsaPossessionChallengeV1;
+  readonly stateBlob: EcdsaRoleLocalReadyStateBlob;
+};
+
+export type SignWalletRecoveryEcdsaMaterialPossessionProofResultV1 = {
+  readonly kind: 'ecdsa_wallet_recovery_material_possession_proof_v1';
+  readonly proof: WalletRecoveryEcdsaPossessionProofV1;
+  readonly challengeDigestB64u: DigestB64u;
+  readonly derivationClientSharePublicKey33B64u: string;
+};
+
 export type EmailOtpEcdsaSigningShareRequest = {
   readonly kind: 'email_otp_ecdsa_signing_share_request_v1';
   readonly requestId: string;
@@ -161,13 +179,15 @@ type RouterAbEcdsaReusableExplicitExportRequestWasmInputV1 =
     readonly authorization_id?: never;
   };
 
-type RouterAbEcdsaOperationStepUpExplicitExportRequestWasmInputV1 =
-  Omit<RouterAbEcdsaExplicitExportRequestFactsBaseV1, 'authorization'> & {
-    readonly authorization: {
-      readonly kind: 'operation_step_up';
-      readonly authorization_id: DigestB64u;
-    };
+type RouterAbEcdsaOperationStepUpExplicitExportRequestWasmInputV1 = Omit<
+  RouterAbEcdsaExplicitExportRequestFactsBaseV1,
+  'authorization'
+> & {
+  readonly authorization: {
+    readonly kind: 'operation_step_up';
+    readonly authorization_id: DigestB64u;
   };
+};
 
 export type RouterAbEcdsaExplicitExportRequestWasmInputV1 =
   | RouterAbEcdsaReusableExplicitExportRequestWasmInputV1
@@ -182,11 +202,7 @@ function isOperationStepUpExplicitExportFacts(
 function projectReusableExplicitExportRequestForWasm(
   request: RouterAbEcdsaReusableExplicitExportRequestFactsV1,
 ): RouterAbEcdsaReusableExplicitExportRequestWasmInputV1 {
-  const {
-    operation: _operation,
-    authorization_id: _authorizationId,
-    ...wasmInput
-  } = request;
+  const { operation: _operation, authorization_id: _authorizationId, ...wasmInput } = request;
   return wasmInput;
 }
 

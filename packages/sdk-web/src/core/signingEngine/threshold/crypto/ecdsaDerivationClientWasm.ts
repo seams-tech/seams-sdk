@@ -30,6 +30,8 @@ import type {
   FinalizeRouterAbEcdsaExplicitExportRequestV1,
   FinalizeRouterAbEcdsaExplicitExportResultV1,
   RehydrateEcdsaRoleLocalSigningMaterialResultV1,
+  SignWalletRecoveryEcdsaMaterialPossessionProofRequestV1,
+  SignWalletRecoveryEcdsaMaterialPossessionProofResultV1,
   VerifyRouterAbEcdsaPostRegistrationProofsRequestV1,
   VerifyRouterAbEcdsaPostRegistrationProofsResultV1,
 } from '../../workerManager/ecdsaClientWorkerChannels';
@@ -569,6 +571,32 @@ export async function openEcdsaRoleLocalSigningMaterialWasm(input: {
       );
     }
   }
+}
+
+export async function signWalletRecoveryEcdsaMaterialPossessionProofWasm(input: {
+  readonly challenge: SignWalletRecoveryEcdsaMaterialPossessionProofRequestV1['challenge'];
+  readonly stateBlob: SignWalletRecoveryEcdsaMaterialPossessionProofRequestV1['stateBlob'];
+  readonly workerCtx: WorkerOperationContext;
+}): Promise<SignWalletRecoveryEcdsaMaterialPossessionProofResultV1> {
+  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.SignWalletRecoveryEcdsaMaterialPossessionProof,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: {
+        kind: 'sign_wallet_recovery_ecdsa_material_possession_proof_v1',
+        challenge: input.challenge,
+        stateBlob: input.stateBlob,
+      },
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.SignWalletRecoveryEcdsaMaterialPossessionProofSuccess
+  ) {
+    throw new Error('Wallet recovery ECDSA possession proof signing failed');
+  }
+  return response.payload;
 }
 
 function asEcdsaDerivationPresignProgress(

@@ -12,7 +12,7 @@ import {
   executeWalletRecoveryEd25519RoundV1,
 } from './walletRecoveryEd25519';
 import {
-  recoverAndRefreshWalletCustodyEcdsaV1,
+  signRecoveredWalletCustodyEcdsa,
   type WalletRecoveryEcdsaActivation,
 } from './walletRecoveryEcdsa';
 import { walletRecoveryEd25519ActiveClientMetadataV1 } from './ceremonyActiveClientMetadata';
@@ -30,7 +30,7 @@ import type {
   RecoveryReplacementEnvelopePayload,
   WalletCustodyEvmFamilyPublicFacts,
 } from '@shared/passkey-custody';
-import { base64UrlEncode } from '@shared/utils/encoders';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { buildPasskeyEnvelopeFactor } from '@shared/passkey-custody';
 import type { WebAuthnCredentialIdB64u, WebAuthnRpId } from '@shared/utils/domainIds';
 
@@ -98,6 +98,13 @@ function zeroizeCredentialReplacement(replacement: RecoveryCredentialReplacement
   }
 }
 
+function ethereumAddressFromAddress20B64u(value: string): `0x${string}` {
+  const address = base64UrlDecode(value);
+  if (address.length !== 20)
+    throw new Error('wallet recovery ECDSA identity has an invalid address');
+  return `0x${Array.from(address, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+}
+
 function requireMatchingEcdsaBootstrap(input: {
   readonly entry: EcdsaRecoveryEntry;
   readonly bootstrap: {
@@ -128,16 +135,6 @@ function recordReplacementEnvelope(input: {
   return input.candidate;
 }
 
-function requireEcdsaActivation(
-  activation: WalletRecoveryEcdsaActivation | null,
-  keySetId: string,
-): WalletRecoveryEcdsaActivation {
-  if (!activation) {
-    throw new Error(`wallet recovery produced no ECDSA activation for ${keySetId}`);
-  }
-  return activation;
-}
-
 export async function recoverWalletCustodyManifestV1(input: {
   readonly walletId: string;
   readonly prepared: PreparedWalletRecovery;
@@ -165,94 +162,104 @@ export async function recoverWalletCustodyManifestV1(input: {
     });
     try {
       switch (entry.kind) {
-      case 'near_ed25519': {
-        const transport = new RouterAbEd25519YaoHttpActivationTransportV1({
-          routerOrigin: new URL(input.relayUrl).origin,
-          authorization: `Bearer ${entry.recoveryAuthorizationJwt}`,
-          fetch: globalThis.fetch,
-        });
-        const request = await buildWalletRecoveryEd25519AdmissionRequestV1({
-          reservationId: input.prepared.reservationId,
-          entry,
-        });
-        const admitted = await admitWalletRecoveryEd25519V1({ request, transport });
-        const recovered = await recoverNearEd25519CustodyV1({
-          runStep: input.runStep,
-          walletId: input.walletId,
-          custodyJson: input.custodyJson,
-          recoveryCode,
-          recordedKeyManifestDigestB64u: entry.recordedKeyManifestDigestB64u,
-          credentialReplacement,
-          nearEd25519SigningKeyId:
-            entry.recoveryBasis.applicationBinding.near_ed25519_signing_key_id,
-          recoveryLifecycleId: request.scope.lifecycle_id,
-          yaoAdmission: admitted.receipt,
-          yaoApplication: admitted.request.application_binding,
-          participantIds: admitted.request.participant_ids,
-          registeredPublicKeyB64u: base64UrlEncode(
-            Uint8Array.from(entry.recoveryBasis.registeredPublicKey),
-          ),
-          runRouterRound: (executeRequestJson) =>
-            executeWalletRecoveryEd25519RoundV1({ executeRequestJson, transport }),
-          activateRouterRecovery: (protocolResultJson) =>
-            activateWalletRecoveryEd25519V1({ request, protocolResultJson, transport }),
-        });
-        if (!recovered.localMaterial) {
-          throw new Error('wallet recovery produced no NEAR local material');
-        }
-        replacementEnvelope = recordReplacementEnvelope({
-          current: replacementEnvelope,
-          candidate: recovered.recoveryReplacementEnvelope,
-        });
-        nearKeySets.push({
-          entry,
-          metadata: walletRecoveryEd25519ActiveClientMetadataV1({
-            admissionRequest: request,
-            activationResultJson: recovered.activationResultJson,
-            activationReceipt: recovered.activationReceipt,
-          }),
-          localMaterial: recovered.localMaterial,
-        });
+        case 'near_ed25519': {
+          const transport = new RouterAbEd25519YaoHttpActivationTransportV1({
+            routerOrigin: new URL(input.relayUrl).origin,
+            authorization: `Bearer ${entry.recoveryAuthorizationJwt}`,
+            fetch: globalThis.fetch,
+          });
+          const request = await buildWalletRecoveryEd25519AdmissionRequestV1({
+            reservationId: input.prepared.reservationId,
+            entry,
+          });
+          const admitted = await admitWalletRecoveryEd25519V1({ request, transport });
+          const recovered = await recoverNearEd25519CustodyV1({
+            runStep: input.runStep,
+            walletId: input.walletId,
+            custodyJson: input.custodyJson,
+            recoveryCode,
+            recordedKeyManifestDigestB64u: entry.recordedKeyManifestDigestB64u,
+            credentialReplacement,
+            nearEd25519SigningKeyId:
+              entry.recoveryBasis.applicationBinding.near_ed25519_signing_key_id,
+            recoveryLifecycleId: request.scope.lifecycle_id,
+            yaoAdmission: admitted.receipt,
+            yaoApplication: admitted.request.application_binding,
+            participantIds: admitted.request.participant_ids,
+            registeredPublicKeyB64u: base64UrlEncode(
+              Uint8Array.from(entry.recoveryBasis.registeredPublicKey),
+            ),
+            runRouterRound: (executeRequestJson) =>
+              executeWalletRecoveryEd25519RoundV1({ executeRequestJson, transport }),
+            activateRouterRecovery: (protocolResultJson) =>
+              activateWalletRecoveryEd25519V1({ request, protocolResultJson, transport }),
+          });
+          if (!recovered.localMaterial) {
+            throw new Error('wallet recovery produced no NEAR local material');
+          }
+          replacementEnvelope = recordReplacementEnvelope({
+            current: replacementEnvelope,
+            candidate: recovered.recoveryReplacementEnvelope,
+          });
+          nearKeySets.push({
+            entry,
+            metadata: walletRecoveryEd25519ActiveClientMetadataV1({
+              admissionRequest: request,
+              activationResultJson: recovered.activationResultJson,
+              activationReceipt: recovered.activationReceipt,
+            }),
+            localMaterial: recovered.localMaterial,
+          });
           break;
-      }
-      case 'evm_family_ecdsa': {
-        let activation: WalletRecoveryEcdsaActivation | null = null;
-        const recovered = await recoverEvmFamilyCustodyV1({
-          runStep: input.runStep,
-          walletId: input.walletId,
-          custodyJson: input.custodyJson,
-          recoveryCode,
-          recordedKeyManifestDigestB64u: entry.recordedKeyManifestDigestB64u,
-          credentialReplacement,
-          evmFamilySigningKeySlotId: entry.evmFamilySigningKeySlotId,
-          applicationBindingDigestB64u:
-            entry.recoveryBasis.publicCapability.context.application_binding_digest_b64u,
-          registeredClientRootPublicKey33B64u:
-            entry.recoveryBasis.clientRootPublicKey33B64u,
-          runRelayerRecoveryAndRefresh: async (bootstrap) => {
-            requireMatchingEcdsaBootstrap({ entry, bootstrap });
-            activation = await recoverAndRefreshWalletCustodyEcdsaV1({
-              entry,
-              reservationId: input.prepared.reservationId,
-              reservationExpiresAtMs: input.prepared.reservationExpiresAtMs,
-              relayUrl: input.relayUrl,
-              recoveryAuthorizationJwt: entry.recoveryAuthorizationJwt,
-              workerCtx: input.workerCtx,
-            });
-            return activation.relayerPublicIdentityJson;
-          },
-        });
-        const completedActivation = requireEcdsaActivation(activation, entry.keySetId);
-        replacementEnvelope = recordReplacementEnvelope({
-          current: replacementEnvelope,
-          candidate: recovered.recoveryReplacementEnvelope,
-        });
-        ecdsaKeySets.push({
-          entry,
-          activation: completedActivation,
-          readyStateBlobB64u: recovered.readyStateBlobB64u,
-          publicFacts: recovered.publicFacts,
-        });
+        }
+        case 'evm_family_ecdsa': {
+          const recovered = await recoverEvmFamilyCustodyV1({
+            runStep: input.runStep,
+            walletId: input.walletId,
+            custodyJson: input.custodyJson,
+            recoveryCode,
+            recordedKeyManifestDigestB64u: entry.recordedKeyManifestDigestB64u,
+            credentialReplacement,
+            evmFamilySigningKeySlotId: entry.evmFamilySigningKeySlotId,
+            applicationBindingDigestB64u:
+              entry.recoveryBasis.publicCapability.context.application_binding_digest_b64u,
+            registeredClientRootPublicKey33B64u: entry.recoveryBasis.clientRootPublicKey33B64u,
+            runRelayerRecoveryAndRefresh: async (bootstrap) => {
+              requireMatchingEcdsaBootstrap({ entry, bootstrap });
+              return JSON.stringify({
+                relayerKeyId:
+                  entry.recoveryBasis.publicCapability.signer_set.selected_server.server_id,
+                relayerPublicKey33B64u:
+                  entry.recoveryBasis.publicCapability.public_identity.server_public_key33_b64u,
+                groupPublicKey33B64u:
+                  entry.recoveryBasis.publicCapability.public_identity.threshold_public_key33_b64u,
+                ethereumAddress: ethereumAddressFromAddress20B64u(
+                  entry.recoveryBasis.publicCapability.public_identity.ethereum_address20_b64u,
+                ),
+                relayerShareRetryCounter:
+                  entry.recoveryBasis.publicCapability.public_identity.server_share_retry_counter,
+              });
+            },
+          });
+          const completedActivation = await signRecoveredWalletCustodyEcdsa({
+            entry,
+            walletId: input.walletId,
+            reservationId: input.prepared.reservationId,
+            replacementId: input.prepared.registration.replacementId,
+            readyStateBlobB64u: recovered.readyStateBlobB64u,
+            publicFacts: recovered.publicFacts,
+            workerCtx: input.workerCtx,
+          });
+          replacementEnvelope = recordReplacementEnvelope({
+            current: replacementEnvelope,
+            candidate: recovered.recoveryReplacementEnvelope,
+          });
+          ecdsaKeySets.push({
+            entry,
+            activation: completedActivation,
+            readyStateBlobB64u: recovered.readyStateBlobB64u,
+            publicFacts: recovered.publicFacts,
+          });
           break;
         }
       }
