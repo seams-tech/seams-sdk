@@ -112,8 +112,10 @@ test.describe('R102 holder delivery worker boundary', () => {
       input: {
         operationId: job.operationId,
         enrollmentId: job.enrollmentId,
+        walletKeyId: job.walletKeyId,
         targetLaneId: job.target.laneId,
         targetLaneShareEpoch: job.target.laneShareEpoch,
+        targetMaterialActivationId: job.targetMaterialActivationId,
         targetHolderParticipantId: job.targetHolder.participantId,
         targetHolderParticipantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
         custodyBindingId: job.targetHolder.custodyBindingId,
@@ -158,8 +160,10 @@ test.describe('R102 holder delivery worker boundary', () => {
       input: {
         operationId: job.operationId,
         enrollmentId: job.enrollmentId,
+        walletKeyId: job.walletKeyId,
         targetLaneId: job.target.laneId,
         targetLaneShareEpoch: job.target.laneShareEpoch,
+        targetMaterialActivationId: job.targetMaterialActivationId,
         targetHolderParticipantId: job.targetHolder.participantId,
         targetHolderParticipantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
         custodyBindingId: job.targetHolder.custodyBindingId,

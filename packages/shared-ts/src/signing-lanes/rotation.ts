@@ -1001,8 +1001,10 @@ export type LaneHolderRecipientWorkerV1 = {
   createLaneHolderRecipientV1(input: {
     operationId: LaneOperationId;
     enrollmentId: LaneEnrollmentId;
+    walletKeyId: WalletKeyId;
     targetLaneId: SigningLaneId;
     targetLaneShareEpoch: LaneShareEpoch;
+    targetMaterialActivationId: MpcMaterialActivationId;
     targetHolderParticipantId: LaneHolderParticipantId;
     targetHolderParticipantBindingDigestB64u: LaneParticipantBindingDigestB64u;
     custodyBindingId: LaneHolderCustodyBindingId;

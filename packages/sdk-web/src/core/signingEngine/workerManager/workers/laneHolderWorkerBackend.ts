@@ -372,8 +372,11 @@ class ConcreteLaneHolderWorker implements LaneHolderRecipientWorkerV1, ConcreteL
   ): Promise<void> {
     for (const [key, session] of this.#sessions) {
       if (
+        String(session.input.walletKeyId) !== String(input.walletKeyId) ||
         String(session.input.targetLaneId) !== String(input.laneId) ||
-        String(session.input.targetLaneShareEpoch) !== String(input.laneShareEpoch)
+        String(session.input.targetLaneShareEpoch) !== String(input.laneShareEpoch) ||
+        String(session.input.targetMaterialActivationId) !==
+          String(input.materialActivation.activationId)
       ) {
         continue;
       }

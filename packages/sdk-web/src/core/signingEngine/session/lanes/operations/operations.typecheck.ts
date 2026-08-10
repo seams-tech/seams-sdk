@@ -50,6 +50,7 @@ declare const activationPlanInput: Parameters<typeof buildLaneActivationEffectPl
 declare const activationPlan: LaneActivationEffectPlanV1;
 void buildLaneActivationEffectPlanV1(activationPlanInput);
 void activationPlan.commitCommand;
+void activationPlan.orderedPostCommitInvalidations;
 
 declare const refreshJob: Extract<
   EcdsaAdditiveLaneJobV1,
@@ -83,4 +84,4 @@ const invalidationPlan = buildLaneMaterialInvalidationPlanV1({
   reason: 'refresh',
   keyFamily: 'ecdsa_secp256k1',
 });
-invalidationPlan.orderedEffects;
+invalidationPlan.effect;

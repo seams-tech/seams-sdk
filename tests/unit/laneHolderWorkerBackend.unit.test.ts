@@ -10,6 +10,7 @@ import { passkeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixture
 import {
   buildR102LaneJob,
   buildR102ProtocolCommitReceipt,
+  buildR102ServerActivationReceipt,
 } from './helpers/r102LaneGateway.fixtures';
 
 const DIGEST_B64U = base64UrlEncode(new Uint8Array(32));
@@ -149,8 +150,10 @@ function createInput(job: Ed25519YaoLaneJobV1) {
   return {
     operationId: job.operationId,
     enrollmentId: job.enrollmentId,
+    walletKeyId: job.walletKeyId,
     targetLaneId: job.target.laneId,
     targetLaneShareEpoch: job.target.laneShareEpoch,
+    targetMaterialActivationId: job.targetMaterialActivationId,
     targetHolderParticipantId: job.targetHolder.participantId,
     targetHolderParticipantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
     custodyBindingId: job.targetHolder.custodyBindingId,
@@ -287,4 +290,34 @@ test('verify-only replay carries public protocol records and no custody handle',
   expect(JSON.stringify(factory.verifyCalls[0])).not.toContain('envelopeBinding');
   expect(JSON.stringify(factory.verifyCalls[0])).not.toContain('custodySealHandle');
   runtime.backend.destroy();
+});
+
+test('exact invalidation destroys only the matching recipient curve state and is idempotent', async () => {
+  const job = edJob();
+  const unrelatedJob = buildR102LaneJob('holder-backend-unrelated');
+  const factory = new FakeLaneHolderWasmFactory(job);
+  const runtime = loadedBackend(job, factory);
+  await runtime.backend.worker.createLaneHolderRecipientV1(createInput(job));
+  await runtime.backend.worker.createLaneHolderRecipientV1({
+    ...createInput(unrelatedJob),
+    custodyBindingId: job.targetHolder.custodyBindingId,
+    custodyBindingDigestB64u: job.targetHolder.custodyBindingDigestB64u,
+  });
+  const target = {
+    walletKeyId: job.walletKeyId,
+    laneId: job.target.laneId,
+    laneShareEpoch: job.target.laneShareEpoch,
+    materialActivation: buildR102ServerActivationReceipt(job).targetMaterialActivation,
+  };
+
+  await runtime.backend.worker.invalidateLaneMaterialV1(target);
+  await runtime.backend.worker.invalidateLaneMaterialV1(target);
+
+  expect(factory.recipients[0].destroyCalls).toBe(1);
+  expect(factory.recipients[0].freeCalls).toBe(1);
+  expect(factory.recipients[1].destroyCalls).toBe(0);
+  expect(factory.recipients[1].freeCalls).toBe(0);
+  runtime.backend.destroy();
+  expect(factory.recipients[1].destroyCalls).toBe(1);
+  expect(factory.recipients[1].freeCalls).toBe(1);
 });

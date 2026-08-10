@@ -7,7 +7,11 @@ import type {
 import type { LaneProtocolCommitReceiptV1 } from '@shared/signing-lanes/rotation';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
-import { parseLaneHolderRecipientHandleV1, parseLaneOperationId } from '@shared/utils/domainIds';
+import {
+  parseLaneHolderRecipientHandleV1,
+  parseLaneOperationId,
+  parseMpcMaterialActivationId,
+} from '@shared/utils/domainIds';
 import {
   parseLaneHolderPackageWireV1,
   parseLaneProtocolCommitReceiptV1,
@@ -168,8 +172,10 @@ function parseCreateRecipientInput(value: unknown): CreateRecipientInputV1 {
     [
       'operationId',
       'enrollmentId',
+      'walletKeyId',
       'targetLaneId',
       'targetLaneShareEpoch',
+      'targetMaterialActivationId',
       'targetHolderParticipantId',
       'targetHolderParticipantBindingDigestB64u',
       'custodyBindingId',
@@ -183,6 +189,10 @@ function parseCreateRecipientInput(value: unknown): CreateRecipientInputV1 {
       parseLaneEnrollmentId(input.enrollmentId),
       'lane recipient-create enrollmentId',
     ),
+    walletKeyId: parsedDomainValue(
+      parseWalletKeyId(input.walletKeyId),
+      'lane recipient-create walletKeyId',
+    ),
     targetLaneId: parsedDomainValue(
       parseSigningLaneId(input.targetLaneId),
       'lane recipient-create targetLaneId',
@@ -190,6 +200,10 @@ function parseCreateRecipientInput(value: unknown): CreateRecipientInputV1 {
     targetLaneShareEpoch: parsedDomainValue(
       parseLaneShareEpoch(input.targetLaneShareEpoch),
       'lane recipient-create targetLaneShareEpoch',
+    ),
+    targetMaterialActivationId: parsedDomainValue(
+      parseMpcMaterialActivationId(input.targetMaterialActivationId),
+      'lane recipient-create targetMaterialActivationId',
     ),
     targetHolderParticipantId: parsedDomainValue(
       parseLaneHolderParticipantId(input.targetHolderParticipantId),
@@ -572,10 +586,8 @@ export function createRegisteredLaneHolderRecipientWorkerV1(
   };
 }
 
-type LaneHolderRecipientSessionStateV1 = 'open' | 'sealing' | 'sealed';
-
 type LaneHolderRecipientSessionV1 = {
-  state: LaneHolderRecipientSessionStateV1;
+  state: 'open' | 'sealing' | 'sealed';
   readonly input: CreateRecipientInputV1;
   readonly descriptor: ReturnType<typeof parseCreateResponse>;
 };
@@ -669,8 +681,10 @@ function assertRecipientSessionMatchesJob(
   if (
     String(input.operationId) !== String(job.operationId) ||
     String(input.enrollmentId) !== String(job.enrollmentId) ||
+    String(input.walletKeyId) !== String(job.walletKeyId) ||
     String(input.targetLaneId) !== String(job.target.laneId) ||
     String(input.targetLaneShareEpoch) !== String(job.target.laneShareEpoch) ||
+    String(input.targetMaterialActivationId) !== String(job.targetMaterialActivationId) ||
     String(input.targetHolderParticipantId) !== String(job.targetHolder.participantId) ||
     input.targetHolderParticipantBindingDigestB64u !==
       job.targetHolder.participantBindingDigestB64u ||
@@ -851,8 +865,11 @@ class AuthorizedLaneHolderWorkerRequestHandler implements AuthorizedLaneHolderWo
     });
     for (const [key, session] of this.#sessions) {
       if (
+        String(session.input.walletKeyId) !== String(request.walletKeyId) ||
         String(session.input.targetLaneId) !== String(request.laneId) ||
-        String(session.input.targetLaneShareEpoch) !== String(request.laneShareEpoch)
+        String(session.input.targetLaneShareEpoch) !== String(request.laneShareEpoch) ||
+        String(session.input.targetMaterialActivationId) !==
+          String(request.materialActivation.activationId)
       ) {
         continue;
       }
