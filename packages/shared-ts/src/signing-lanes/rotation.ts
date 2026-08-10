@@ -5,6 +5,7 @@ import type {
   MpcMaterialActivationRef,
   ThresholdEcdsaSessionId,
   WalletId,
+  LaneHolderRecipientHandleV1,
 } from '../utils/domainIds';
 import type {
   EcdsaCapabilityManifestId,
@@ -30,6 +31,10 @@ import type {
 } from './ids';
 import type {
   LaneHolderParticipantId,
+  HpkePublicKeyB64u,
+  HpkePublicKeyDigestB64u,
+  LaneCustodyBindingDigestB64u,
+  LaneParticipantBindingDigestB64u,
   SigningWorkerParticipantId,
   SigningWorkerRecipientKeyId,
 } from './participants';
@@ -69,18 +74,18 @@ export type ActiveLaneProtocolSourceV1 = {
 
 export type LaneTargetHolderV1 = {
   participantId: LaneHolderParticipantId;
-  participantBindingDigestB64u: string;
-  custodyBindingDigestB64u: string;
-  hpkePublicKeyB64u: string;
-  hpkePublicKeyDigestB64u: string;
+  participantBindingDigestB64u: LaneParticipantBindingDigestB64u;
+  custodyBindingDigestB64u: LaneCustodyBindingDigestB64u;
+  hpkePublicKeyB64u: HpkePublicKeyB64u;
+  hpkePublicKeyDigestB64u: HpkePublicKeyDigestB64u;
 };
 
 export type LaneTargetSigningWorkerV1 = {
   participantId: SigningWorkerParticipantId;
-  participantBindingDigestB64u: string;
+  participantBindingDigestB64u: LaneParticipantBindingDigestB64u;
   recipientKeyId: SigningWorkerRecipientKeyId;
-  hpkePublicKeyB64u: string;
-  hpkePublicKeyDigestB64u: string;
+  hpkePublicKeyB64u: HpkePublicKeyB64u;
+  hpkePublicKeyDigestB64u: HpkePublicKeyDigestB64u;
 };
 
 export type LaneCreationTargetV1 = {
@@ -759,8 +764,17 @@ export type EcdsaLaneProtocolWasmV1 = {
   }): Promise<EcdsaAdditiveLaneServerRoundV1>;
 };
 
-export type LaneHolderRecipientHandleV1 = string & {
-  readonly __laneHolderRecipientHandleV1Brand: 'LaneHolderRecipientHandleV1';
+export type { LaneHolderRecipientHandleV1 } from '../utils/domainIds';
+
+export type LaneHolderRecipientDescriptorV1 = {
+  recipientHandle: LaneHolderRecipientHandleV1;
+  hpkePublicKeyB64u: HpkePublicKeyB64u;
+  hpkePublicKeyDigestB64u: HpkePublicKeyDigestB64u;
+};
+
+export type SealedLaneHolderMaterialV1 = {
+  sealedHolderMaterialB64u: string;
+  sealedHolderRecordDigestB64u: string;
 };
 
 export type WasmEd25519YaoLaneClientV1 = {
@@ -795,17 +809,23 @@ export type ActivateLaneServerMaterialV1 = {
 };
 
 export type LaneHolderRecipientWorkerV1 = {
-  createLaneHolderRecipientV1(
-    input: LaneTargetHolderV1,
-  ): Promise<{ recipientKeyId: LaneHolderRecipientHandleV1 }>;
-  openAndSealLaneHolderPackageV1(input: {
-    ciphertextB64u: string;
-    recipientKeyId: LaneHolderRecipientHandleV1;
+  createLaneHolderRecipientV1(input: {
+    operationId: LaneOperationId;
+    enrollmentId: LaneEnrollmentId;
     targetLaneId: SigningLaneId;
     targetLaneShareEpoch: LaneShareEpoch;
-  }): Promise<{ sealedHolderRecordDigestB64u: string }>;
+    targetHolderParticipantId: LaneHolderParticipantId;
+    targetHolderParticipantBindingDigestB64u: LaneParticipantBindingDigestB64u;
+    custodyBindingDigestB64u: LaneCustodyBindingDigestB64u;
+  }): Promise<LaneHolderRecipientDescriptorV1>;
+  openAndSealLaneHolderPackageV1(input: {
+    job: RotatableSigningLaneJobV1;
+    protocolCommitReceipt: LaneProtocolCommitReceiptV1;
+    ciphertextB64u: string;
+    recipientHandle: LaneHolderRecipientHandleV1;
+  }): Promise<SealedLaneHolderMaterialV1>;
   discardLaneHolderRecipientV1(input: {
-    recipientKeyId: LaneHolderRecipientHandleV1;
+    recipientHandle: LaneHolderRecipientHandleV1;
     operationId: LaneOperationId;
   }): Promise<void>;
   invalidateLaneMaterialV1(input: {

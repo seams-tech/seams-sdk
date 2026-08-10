@@ -116,6 +116,31 @@ export type WalletExecutionLaneHydrationResult =
   | ActiveWalletExecutionLaneHydration
   | WalletExecutionLaneRefusal;
 
+export type RotatableWalletExecutionLaneHydrationInputV1 = {
+  readonly walletKey: unknown;
+  readonly lane: unknown;
+  readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
+  readonly laneShareEpoch: unknown;
+  readonly materialActivation: MpcMaterialActivationRef;
+  readonly participantBindingDigestB64u: string;
+};
+
+export type ActiveRotatableWalletExecutionLaneHydrationV1 = {
+  readonly kind: 'active_rotatable_wallet_execution_lane_v1';
+  readonly keyFamily: WalletKeyRecord['keyFamily'];
+  readonly walletKey: WalletKeyRecord;
+  readonly lane: ActiveSigningLaneReference;
+  readonly materialActivation: MpcMaterialActivationRef;
+  readonly laneShareEpoch: LaneShareEpoch;
+  readonly activationReceiptDigestB64u: string;
+  readonly participantBindingDigestB64u: string;
+  readonly publicIdentity: WalletExecutionLanePublicIdentity;
+};
+
+export type RotatableWalletExecutionLaneHydrationResultV1 =
+  | ActiveRotatableWalletExecutionLaneHydrationV1
+  | WalletExecutionLaneRefusal;
+
 function parseLaneEpoch(raw: unknown): LaneShareEpoch {
   const parsed = parseLaneShareEpoch(raw);
   if (!parsed.ok) throw new Error(parsed.error.message);
@@ -433,4 +458,72 @@ export function hydrateWalletExecutionLane(
   } catch {
     return invalidBoundaryRefusal();
   }
+}
+
+/**
+ * Hydrate linked/delegated lanes through their exact lane activation. Owner
+ * continuity is intentionally absent for these rotatable lanes; the caller
+ * supplies the already verified material activation and participant digest.
+ */
+export function hydrateRotatableWalletExecutionLaneV1(
+  input: RotatableWalletExecutionLaneHydrationInputV1,
+): RotatableWalletExecutionLaneHydrationResultV1 {
+  let records: ParsedWalletExecutionLaneRecords;
+  try {
+    records = parseWalletExecutionLaneRecords(input);
+  } catch {
+    return invalidBoundaryRefusal();
+  }
+  const { walletKey, lane } = records;
+  if (walletKey.lifecycle.state !== 'active') return refusal('wallet_key_inactive', records);
+  if (lane.lifecycle.state !== 'active') return refusal('lane_inactive', records);
+  if (walletKey.keyFamily !== input.keyFamily) return refusal('key_family_mismatch', records);
+  if (lane.laneKind !== 'linked_device') {
+    return refusal('unsupported_lane_kind', records);
+  }
+  let laneShareEpoch: LaneShareEpoch;
+  try {
+    laneShareEpoch = parseLaneEpoch(input.laneShareEpoch);
+  } catch {
+    return invalidBoundaryRefusal();
+  }
+  if (
+    String(laneShareEpoch) !== String(lane.laneShareEpoch) ||
+    String(input.participantBindingDigestB64u) !== String(lane.participantBindingDigestB64u) ||
+    !String(input.materialActivation.activationId).trim()
+  ) {
+    return refusal('participant_binding_mismatch', records);
+  }
+  if (
+    String(lane.holderParticipant.participantBindingDigestB64u) !==
+      String(input.participantBindingDigestB64u) ||
+    String(lane.serverParticipant.participantBindingDigestB64u) !==
+      String(input.participantBindingDigestB64u)
+  ) {
+    return refusal('participant_binding_mismatch', records);
+  }
+  return {
+    kind: 'active_rotatable_wallet_execution_lane_v1',
+    keyFamily: walletKey.keyFamily,
+    walletKey,
+    lane: activeLaneReference({ lane, materialActivation: input.materialActivation }),
+    materialActivation: input.materialActivation,
+    laneShareEpoch,
+    activationReceiptDigestB64u: lane.lifecycle.activationReceiptDigestB64u,
+    participantBindingDigestB64u: input.participantBindingDigestB64u,
+    publicIdentity:
+      walletKey.keyFamily === 'ed25519'
+        ? {
+            keyFamily: 'ed25519',
+            registeredPublicKeyB64u: walletKey.registeredPublicKeyB64u,
+            nearEd25519SigningKeyId: walletKey.nearEd25519SigningKeyId,
+            keyCreationSignerSlot: walletKey.keyCreationSignerSlot,
+          }
+        : {
+            keyFamily: 'ecdsa_secp256k1',
+            thresholdPublicKey33B64u: walletKey.thresholdPublicKey33B64u,
+            evmAddress: walletKey.evmAddress,
+            evmFamilySigningKeySlotId: walletKey.evmFamilySigningKeySlotId,
+          },
+  };
 }

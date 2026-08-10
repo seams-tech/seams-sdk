@@ -53,6 +53,7 @@ import {
 } from './evmFamilySigningKeySlotId';
 import {
   parseHpkePublicKeyB64u,
+  parseLaneCustodyBindingDigestB64u,
   parseLaneHolderCustodyBindingId,
   parseLaneHolderParticipantId,
   parseLaneParticipantBindingDigestB64u,
@@ -366,8 +367,8 @@ function parseTargetHolder(raw: unknown, label = 'targetHolder') {
       parseLaneParticipantBindingDigestB64u(record.participantBindingDigestB64u),
       `${label}.participantBindingDigestB64u`,
     ),
-    custodyBindingDigestB64u: digest(
-      record.custodyBindingDigestB64u,
+    custodyBindingDigestB64u: resultValue(
+      parseLaneCustodyBindingDigestB64u(record.custodyBindingDigestB64u),
       `${label}.custodyBindingDigestB64u`,
     ),
     hpkePublicKeyB64u: resultValue(
