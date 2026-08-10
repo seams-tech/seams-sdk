@@ -5,6 +5,7 @@ import initEcdsaDerivationClient, {
   open_ecdsa_role_local_signing_share_v1,
   prepare_ecdsa_client_bootstrap_v1,
   sign_ecdsa_wallet_recovery_material_possession_proof_v1,
+  EcdsaLaneHolderSessionV1,
   RouterAbEcdsaClientCeremonyV1,
 } from '../../../../../../../wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
@@ -52,7 +53,14 @@ import {
   type VerifyRouterAbEcdsaPostRegistrationProofsResultV1,
   type SignWalletRecoveryEcdsaMaterialPossessionProofRequestV1,
   type SignWalletRecoveryEcdsaMaterialPossessionProofResultV1,
+  parsePrepareEcdsaAdditiveLaneHolderRequestV1,
+  type PrepareEcdsaAdditiveLaneHolderResultV1,
 } from '../ecdsaClientWorkerChannels';
+import {
+  prepareEcdsaLaneHolderInWorkerV1,
+  type CanonicalEcdsaLaneSourceMaterialV1,
+  type EcdsaLaneHolderSessionFactoryV1,
+} from './ecdsaLaneHolderWorkerRuntime';
 import type {
   CloseRouterAbEcdsaRegistrationCeremonyRequestV1,
   CloseRouterAbEcdsaRegistrationCeremonyResultV1,
@@ -1263,6 +1271,34 @@ function signWalletRecoveryEcdsaMaterialPossessionProof(
   };
 }
 
+function collectCanonicalEcdsaLaneSourceMaterials(): CanonicalEcdsaLaneSourceMaterialV1[] {
+  const candidates: CanonicalEcdsaLaneSourceMaterialV1[] = [];
+  for (const material of ecdsaRoleLocalSigningMaterialStore.values()) {
+    if (!material.materialActivation) continue;
+    if (material.activationBinding.kind !== 'strict_router_ab_activation_v1') continue;
+    candidates.push({
+      materialActivation: material.materialActivation,
+      stateBlobB64u: material.stateBlobB64u,
+    });
+  }
+  return candidates;
+}
+
+const ecdsaLaneHolderSessionFactory: EcdsaLaneHolderSessionFactoryV1 = {
+  create(stateBlobB64u) {
+    return new EcdsaLaneHolderSessionV1(stateBlobB64u);
+  },
+};
+
+function prepareEcdsaAdditiveLaneHolder(raw: unknown): PrepareEcdsaAdditiveLaneHolderResultV1 {
+  const request = parsePrepareEcdsaAdditiveLaneHolderRequestV1(raw);
+  return prepareEcdsaLaneHolderInWorkerV1({
+    request,
+    candidates: collectCanonicalEcdsaLaneSourceMaterials(),
+    sessionFactory: ecdsaLaneHolderSessionFactory,
+  });
+}
+
 function openEcdsaRoleLocalAdditiveShareFromHandle(payload: unknown): unknown {
   const record = requireRecordPayload(payload);
   const materialHandle = readNonEmptyString(record, 'materialHandle');
@@ -1632,6 +1668,7 @@ async function initializeEcdsaDerivationOperationWasm(
     case EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap:
     case EcdsaDerivationClientCustomRequestType.BuildThresholdEcdsaDerivationRoleLocalExportArtifact:
     case EcdsaDerivationClientCustomRequestType.SignWalletRecoveryEcdsaMaterialPossessionProof:
+    case EcdsaDerivationClientCustomRequestType.PrepareEcdsaAdditiveLaneHolder:
       await initializeEcdsaDerivationClientWasm();
       return;
     case EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaRegistrationCeremony:
@@ -1760,6 +1797,11 @@ async function executeEcdsaDerivationRequest(
         type: EcdsaDerivationClientCustomResponseType.BuildThresholdEcdsaDerivationRoleLocalExportArtifactSuccess,
         payload: JSON.parse(build_ecdsa_role_local_export_artifact_v1(JSON.stringify(payload))),
       };
+    case EcdsaDerivationClientCustomRequestType.PrepareEcdsaAdditiveLaneHolder:
+      return {
+        type: EcdsaDerivationClientCustomResponseType.PrepareEcdsaAdditiveLaneHolderSuccess,
+        payload: prepareEcdsaAdditiveLaneHolder(payload),
+      };
     case EcdsaDerivationClientCustomRequestType.PrewarmEcdsaRegistrationCrypto:
       throw new Error('ECDSA registration crypto prewarm does not execute an operation');
   }
@@ -1785,6 +1827,7 @@ function parseEcdsaDerivationOperationType(value: unknown): EcdsaDerivationWorke
     case EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap:
     case EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap:
     case EcdsaDerivationClientCustomRequestType.BuildThresholdEcdsaDerivationRoleLocalExportArtifact:
+    case EcdsaDerivationClientCustomRequestType.PrepareEcdsaAdditiveLaneHolder:
       return value;
     default:
       throw new Error(`Unsupported DERIVATION client request type: ${String(value)}`);

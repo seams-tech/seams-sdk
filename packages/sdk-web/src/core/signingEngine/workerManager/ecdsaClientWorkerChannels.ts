@@ -26,6 +26,11 @@ import type {
   WalletRecoveryEcdsaPossessionChallengeV1,
   WalletRecoveryEcdsaPossessionProofV1,
 } from '@shared/wallet-recovery/walletRecoveryEcdsaPossession';
+import type {
+  EcdsaAdditiveLaneHolderPreparationV1,
+  EcdsaAdditiveLaneJobV1,
+} from '@shared/signing-lanes/rotation';
+import { parseRotatableSigningLaneJobV1 } from '@shared/signing-lanes/rotationParsers';
 
 export const EcdsaClientWorkerControlKind = {
   AttachDerivationToPresign: 'attach_ecdsa_derivation_to_presign_v1',
@@ -111,6 +116,51 @@ export type SignWalletRecoveryEcdsaMaterialPossessionProofResultV1 = {
   readonly challengeDigestB64u: DigestB64u;
   readonly derivationClientSharePublicKey33B64u: string;
 };
+
+export type PrepareEcdsaAdditiveLaneHolderRequestV1 = {
+  readonly kind: 'prepare_ecdsa_additive_lane_holder_v1';
+  readonly job: EcdsaAdditiveLaneJobV1;
+  readonly holderCommittedAtMs: number;
+};
+
+export type PrepareEcdsaAdditiveLaneHolderResultV1 = EcdsaAdditiveLaneHolderPreparationV1;
+
+export function parsePrepareEcdsaAdditiveLaneHolderRequestV1(
+  raw: unknown,
+): PrepareEcdsaAdditiveLaneHolderRequestV1 {
+  if (!isObject(raw) || Array.isArray(raw)) {
+    throw new Error('ECDSA lane holder request must be an object');
+  }
+  const fields = Object.keys(raw);
+  if (
+    fields.length !== 3 ||
+    !fields.includes('kind') ||
+    !fields.includes('job') ||
+    !fields.includes('holderCommittedAtMs')
+  ) {
+    throw new Error('ECDSA lane holder request has invalid fields');
+  }
+  if (raw.kind !== 'prepare_ecdsa_additive_lane_holder_v1') {
+    throw new Error('ECDSA lane holder request kind is invalid');
+  }
+  const job = parseRotatableSigningLaneJobV1(raw.job, 'ecdsaLaneHolderRequest.job');
+  if (job.keyFamily !== 'ecdsa_secp256k1') {
+    throw new Error('ECDSA lane holder request requires an ECDSA lane job');
+  }
+  const holderCommittedAtMs = raw.holderCommittedAtMs;
+  if (
+    typeof holderCommittedAtMs !== 'number' ||
+    !Number.isSafeInteger(holderCommittedAtMs) ||
+    holderCommittedAtMs < 0
+  ) {
+    throw new Error('ECDSA lane holder request holderCommittedAtMs is invalid');
+  }
+  return {
+    kind: 'prepare_ecdsa_additive_lane_holder_v1',
+    job,
+    holderCommittedAtMs,
+  };
+}
 
 export type EmailOtpEcdsaSigningShareRequest = {
   readonly kind: 'email_otp_ecdsa_signing_share_request_v1';
