@@ -700,7 +700,6 @@ const staleRouterApiRenameTokens = [
   'emailEncryptionOutlayerCompat',
   'Email encryption compatibility with Outlayer worker seed',
   'email encryption Outlayer compat test unavailable',
-  'gmail_reset_full.eml encryption compat test unavailable',
   'allowed by the relay',
   'served by the relay',
   'relay validates token audience',

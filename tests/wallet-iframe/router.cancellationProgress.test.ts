@@ -117,7 +117,7 @@ test.describe('WalletIframeRouter cancellation progress', () => {
           router.executeAction({
             walletId: 'alice.testnet',
             nearAccountId: 'alice.testnet',
-            receiverId: 'w3a-v1.testnet',
+            receiverId: 'seams-v1.testnet',
             actionArgs: { type: 'Transfer', amount: '1' } as any,
             options: { onEvent: (event: any) => events.signing.push(event) },
           }),

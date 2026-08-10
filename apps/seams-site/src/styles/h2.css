@@ -389,9 +389,8 @@ body:has(.h2-page) {
   }
 }
 
-/* Sage variant: the hero content sits on a rounded panel carrying the
-   Andon-style sage gradient (same stops as the Sage theme preset), with
-   light ink on top. */
+/* Sage variant: the hero content sits on a rounded panel carrying an
+   Andon-style sage gradient with light ink on top. */
 .h2-hero-simple--sage {
   padding: 68px 0 16px;
 }

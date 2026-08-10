@@ -31,6 +31,7 @@ import {
   handleIntentDigestSigningFlow,
   handleTransactionSigningFlow,
 } from './flows/signing';
+import type { ConfirmUISurfaceSource } from '../ui/confirm-ui';
 
 /**
  * Handles secure confirmation requests from the worker with robust error handling
@@ -41,6 +42,7 @@ export async function handlePromptFromWorker(
   ctx: UiConfirmContext,
   message: UserConfirmPromptEnvelope,
   worker: Worker,
+  options?: { signingSurface: ConfirmUISurfaceSource },
 ): Promise<void> {
   const scopedWorker = createUserConfirmScopedWorker(worker, {
     channelToken: message.channelToken,
@@ -103,6 +105,7 @@ export async function handlePromptFromWorker(
       confirmationConfig,
       transactionSummary,
       theme,
+      signingSurface: options?.signingSurface ?? { kind: 'mount_new' },
     });
   } catch (e: unknown) {
     console.error('[UserConfirm][Host] handler failed', e);
@@ -123,6 +126,7 @@ type HandlerArgs = {
   confirmationConfig: NormalizedConfirmationConfig;
   transactionSummary: TransactionSummary;
   theme: ThemeMode;
+  signingSurface: ConfirmUISurfaceSource;
 };
 
 type Handler = (args: HandlerArgs) => Promise<void>;
@@ -218,11 +222,13 @@ const HANDLERS: Partial<Record<UserConfirmationType, Handler>> = {
     confirmationConfig,
     transactionSummary,
     theme,
+    signingSurface,
   }) => {
     await handleTransactionSigningFlow(ctx, request as SigningUserConfirmRequest, worker, {
       confirmationConfig,
       transactionSummary,
       theme,
+      surface: signingSurface,
     });
   },
   [UserConfirmationType.SIGN_NEP413_MESSAGE]: async ({
@@ -232,11 +238,13 @@ const HANDLERS: Partial<Record<UserConfirmationType, Handler>> = {
     confirmationConfig,
     transactionSummary,
     theme,
+    signingSurface,
   }) => {
     await handleTransactionSigningFlow(ctx, request as SigningUserConfirmRequest, worker, {
       confirmationConfig,
       transactionSummary,
       theme,
+      surface: signingSurface,
     });
   },
   [UserConfirmationType.SIGN_INTENT_DIGEST]: async ({
@@ -246,11 +254,13 @@ const HANDLERS: Partial<Record<UserConfirmationType, Handler>> = {
     confirmationConfig,
     transactionSummary,
     theme,
+    signingSurface,
   }) => {
     await handleIntentDigestSigningFlow(ctx, request as IntentDigestUserConfirmRequest, worker, {
       confirmationConfig,
       transactionSummary,
       theme,
+      surface: signingSurface,
     });
   },
 };
