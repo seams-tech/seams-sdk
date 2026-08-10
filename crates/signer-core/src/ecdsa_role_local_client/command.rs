@@ -1,5 +1,10 @@
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+use router_ab_ecdsa_client_protocol::{
+    sign_ecdsa_wallet_recovery_material_possession_proof_v1, EcdsaClientMaterialPossessionProofV1,
+    EcdsaWalletRecoveryMaterialPossessionChallengeV1,
+};
+
 use crate::error::{CoreResult, SignerCoreError};
 use router_ab_ecdsa_derivation::{
     compose_public_identity_from_public_keys, derive_client_share, encode_context,
@@ -228,6 +233,31 @@ pub fn extract_client_signing_share32_from_ready_state_blob(
     ready_state_blob: &EcdsaRoleLocalReadyStateBlob,
 ) -> CoreResult<[u8; 32]> {
     Ok(parse_ready_state(&ready_state_blob.state_blob)?.x_client32)
+}
+
+/// Signs a no-refresh wallet-recovery challenge from an opened role-local
+/// ready-state blob without returning the client scalar.
+pub fn sign_wallet_recovery_material_possession_proof(
+    ready_state_blob: &EcdsaRoleLocalReadyStateBlob,
+    challenge: &EcdsaWalletRecoveryMaterialPossessionChallengeV1,
+    aux_rand32: &[u8; 32],
+) -> CoreResult<EcdsaClientMaterialPossessionProofV1> {
+    let ready_state = parse_ready_state(&ready_state_blob.state_blob)?;
+    sign_ecdsa_wallet_recovery_material_possession_proof_v1(
+        challenge,
+        &ready_state.x_client32,
+        aux_rand32,
+    )
+    .map_err(|error| match error {
+        router_ab_ecdsa_client_protocol::EcdsaClientMaterialPossessionError::InvalidShape => {
+            SignerCoreError::invalid_input("wallet-recovery possession challenge is invalid")
+        }
+        router_ab_ecdsa_client_protocol::EcdsaClientMaterialPossessionError::InvalidProof => {
+            SignerCoreError::crypto_error(
+                "wallet-recovery possession scalar does not match the active client public key",
+            )
+        }
+    })
 }
 
 pub fn build_ecdsa_role_local_export_artifact(

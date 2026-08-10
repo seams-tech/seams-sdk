@@ -1021,6 +1021,7 @@ dependencies = [
  "hkdf 0.12.4",
  "num-bigint",
  "num-traits",
+ "router-ab-ecdsa-client-protocol",
  "router-ab-ecdsa-derivation",
  "serde",
  "serde_json",
