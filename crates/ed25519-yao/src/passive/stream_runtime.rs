@@ -16,7 +16,7 @@ use super::runtime::{
 use super::schedule::{self, GateRecord, ValidatedSchedule};
 use super::stream::{
     ActivationStream, ExactTableStreamReceipt, ExportStream, FixedChunkProfile, FixedStreamFamily,
-    ValidatedTableFrame,
+    LaneMaterializationStream, ValidatedTableFrame,
 };
 use super::{Evaluator, EvaluatorWire, GarbledAndGate, Garbler, GarblerWire, AND_GATE_BYTES};
 
@@ -145,6 +145,19 @@ pub(super) fn export_garbler_machine<C: FixedChunkProfile>(
     GarblerMachine::new(
         garbler,
         schedule::phase4_export().map_err(CircuitRunError::from)?,
+        inputs,
+        returned_output_count,
+    )
+}
+
+pub(super) fn lane_materialization_garbler_machine<C: FixedChunkProfile>(
+    garbler: Garbler,
+    inputs: Vec<GarblerWire>,
+    returned_output_count: usize,
+) -> Result<GarblerMachine<LaneMaterializationStream, C>, StreamRuntimeError> {
+    GarblerMachine::new(
+        garbler,
+        schedule::lane_materialization().map_err(CircuitRunError::from)?,
         inputs,
         returned_output_count,
     )
@@ -390,6 +403,19 @@ pub(super) fn export_evaluator_machine<C: FixedChunkProfile>(
     EvaluatorMachine::new(
         evaluator,
         schedule::phase4_export().map_err(CircuitRunError::from)?,
+        inputs,
+        returned_output_count,
+    )
+}
+
+pub(super) fn lane_materialization_evaluator_machine<C: FixedChunkProfile>(
+    evaluator: Evaluator,
+    inputs: Vec<EvaluatorWire>,
+    returned_output_count: usize,
+) -> Result<EvaluatorMachine<LaneMaterializationStream, C>, StreamRuntimeError> {
+    EvaluatorMachine::new(
+        evaluator,
+        schedule::lane_materialization().map_err(CircuitRunError::from)?,
         inputs,
         returned_output_count,
     )

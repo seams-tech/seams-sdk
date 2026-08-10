@@ -152,6 +152,17 @@ impl OtFamily for ExportOtFamily {
     const OT_COUNT: usize = 768;
 }
 
+/// The fixed 768-choice lane-materialization family OT shape.
+#[derive(Debug)]
+pub(super) struct LaneMaterializationOtFamily;
+
+impl sealed::Sealed for LaneMaterializationOtFamily {}
+
+impl OtFamily for LaneMaterializationOtFamily {
+    const CODE: u8 = 3;
+    const OT_COUNT: usize = 768;
+}
+
 #[derive(Zeroize, ZeroizeOnDrop)]
 struct PayloadPair {
     zero: [u8; LABEL_BYTES],

@@ -5,7 +5,11 @@ import {
   encodeLaneProtocolCommitReceiptV1,
   encodeLaneServerActivationReceiptV1,
 } from '../../packages/shared-ts/src/signing-lanes/rotationDigests';
-import { buildRevokeSigningLaneV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
+import { computeLaneParticipantSetBindingDigestV1 } from '../../packages/shared-ts/src/signing-lanes/participantDigest';
+import {
+  buildRevokeLaneEnrollmentV1,
+  buildRevokeSigningLaneV1,
+} from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import type {
   AggregateLaneActivationChildReceiptV1,
   LaneHolderDeliveryReceiptV1,
@@ -80,6 +84,17 @@ test.describe('R102 lane lifecycle D1 gateway', () => {
       if (activated.outcome === 'conflict') throw new Error('fixture visibility commit conflicted');
       expect(activated.productEpochs).toHaveLength(2);
       expect(activated.productEpochs.every((epoch) => epoch.state === 'active')).toBe(true);
+      for (const epoch of activated.productEpochs) {
+        expect(epoch.revocationEpoch).toBe(0);
+        expect(epoch.holderParticipant.kind).toBe('lane_holder_participant_v1');
+        expect(epoch.signingWorkerParticipant.kind).toBe('signing_worker_participant_v1');
+        await expect(
+          computeLaneParticipantSetBindingDigestV1({
+            holderParticipant: epoch.holderParticipant,
+            signingWorkerParticipant: epoch.signingWorkerParticipant,
+          }),
+        ).resolves.toBe(epoch.participantSetBindingDigestB64u);
+      }
       const persisted = await store.listEnrollmentProductEpochs(fixture.manifest.enrollmentId);
       expect(persisted.map((epoch) => epoch.state)).toEqual(['active', 'active']);
     } finally {
@@ -171,6 +186,40 @@ test.describe('R102 lane lifecycle D1 gateway', () => {
         laneShareEpoch: targetShareEpoch(fixture.children[1]),
       });
       expect(unrelated?.state).toBe('active');
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
+  test('conflicts an enrollment revocation substitution after the exact fence', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+      const fixture = buildR102LaneEnrollmentFixture();
+      const store = new CloudflareD1LaneLifecycleStore({
+        database: temporary.database,
+        scope,
+        now: () => 1_000,
+      });
+      const gateway = new CloudflareD1LaneEnrollmentGateway({ lifecycleStore: store });
+      await activateFixture(gateway, fixture);
+      const manifestDigestB64u = await computeLaneEnrollmentManifestDigestV1(fixture.manifest);
+      const command = buildRevokeLaneEnrollmentV1({
+        enrollmentId: fixture.manifest.enrollmentId,
+        walletId: fixture.manifest.walletId,
+        manifestDigestB64u,
+        reason: 'user_revoked',
+        requestedAtMs: 7_000,
+      });
+      await expect(gateway.revokeLaneEnrollmentV1(command)).resolves.toMatchObject({
+        outcome: 'applied',
+      });
+      await expect(gateway.revokeLaneEnrollmentV1(command)).resolves.toMatchObject({
+        outcome: 'replayed',
+      });
+      await expect(
+        gateway.revokeLaneEnrollmentV1({ ...command, reason: 'device_compromise' }),
+      ).resolves.toMatchObject({ outcome: 'conflict' });
     } finally {
       cleanupTemporaryD1Database(temporary.tempDir);
     }

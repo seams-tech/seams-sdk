@@ -14,19 +14,23 @@ use ed25519_yao::local_protocol::{
     ActivationDeriverAInputs as YaoActivationDeriverAInputs,
     ActivationDeriverBInputs as YaoActivationDeriverBInputs, BenchmarkRoleError,
     Export128KiBDeriverA, Export128KiBDeriverB, ExportDeriverAInputs as YaoExportDeriverAInputs,
-    ExportDeriverBInputs as YaoExportDeriverBInputs,
+    ExportDeriverBInputs as YaoExportDeriverBInputs, LaneDeriverAInputs as YaoLaneDeriverAInputs,
+    LaneDeriverBInputs as YaoLaneDeriverBInputs, LaneMaterialization128KiBDeriverA,
+    LaneMaterialization128KiBDeriverB,
 };
 use router_ab_core::{
     Ed25519YaoCeremonyBindingV1, Ed25519YaoCircuitFamilyV1, Ed25519YaoOperationV1,
     Ed25519YaoSessionIdV1,
 };
 pub use router_ab_ed25519_yao_protocol::{
-    ed25519_yao_input_aad_v1, ed25519_yao_recipient_package_aad_v1,
+    ed25519_yao_input_aad_v1, ed25519_yao_lane_input_aad_v1,
+    ed25519_yao_lane_recipient_package_aad_v1, ed25519_yao_recipient_package_aad_v1,
     LocalEd25519YaoActivationDeriverARequestV1, LocalEd25519YaoActivationDeriverBRequestV1,
     LocalEd25519YaoActivationRecipientsV1, LocalEd25519YaoClientContributionV1,
     LocalEd25519YaoExportDeriverARequestV1, LocalEd25519YaoExportDeriverBRequestV1,
     LocalEd25519YaoExportRecipientV1, LocalEd25519YaoRefreshDeriverARequestV1,
     LocalEd25519YaoRefreshDeriverBRequestV1, ED25519_YAO_INPUT_HPKE_INFO_V1,
+    ED25519_YAO_LANE_INPUT_HPKE_INFO_V1, ED25519_YAO_LANE_RECIPIENT_PACKAGE_HPKE_INFO_V1,
     ED25519_YAO_RECIPIENT_PACKAGE_HPKE_INFO_V1,
 };
 use signer_core::ed25519_yao_derivation::{
@@ -40,10 +44,12 @@ mod activation;
 mod crypto;
 pub mod duplex;
 mod execution;
+mod lane;
 mod product;
 pub use activation::*;
 pub use crypto::*;
 pub use execution::*;
+pub use lane::*;
 pub use product::*;
 
 /// Fixed activation Deriver A engine used by local composition.
@@ -54,6 +60,10 @@ pub type ActivationDeriverB = Activation128KiBDeriverB;
 pub type ExportDeriverA = Export128KiBDeriverA;
 /// Fixed export Deriver B engine used by local composition.
 pub type ExportDeriverB = Export128KiBDeriverB;
+/// Fixed lane-materialization Deriver A engine used by local composition.
+pub type LaneMaterializationDeriverA = LaneMaterialization128KiBDeriverA;
+/// Fixed lane-materialization Deriver B engine used by local composition.
+pub type LaneMaterializationDeriverB = LaneMaterialization128KiBDeriverB;
 
 /// Relay and exact-EOF types consumed by local transport adapters.
 pub mod relay {
@@ -65,8 +75,11 @@ pub mod relay {
         ActivationPublicReceipt, BenchmarkRoleError, DirectionalEofEvidence,
         DirectionalWireDecoder, DirectionalWireEncoder, ExportDeriverAClientPackage,
         ExportDeriverACompletion, ExportDeriverBClientPackage, ExportDeriverBCompletion,
-        RelayEvent, RelayInstruction, RelayStep, StreamMetrics, WireByteLedger, WireDirection,
-        WireMessage, WireMessageKind,
+        LaneDeriverACompletion, LaneDeriverAHolderPackage, LaneDeriverAInputs,
+        LaneDeriverASigningWorkerPackage, LaneDeriverBCompletion, LaneDeriverBHolderPackage,
+        LaneDeriverBInputs, LaneDeriverBSigningWorkerPackage, LaneMaterialization128KiBDeriverA,
+        LaneMaterialization128KiBDeriverB, RelayEvent, RelayInstruction, RelayStep, StreamMetrics,
+        WireByteLedger, WireDirection, WireMessage, WireMessageKind,
     };
 }
 

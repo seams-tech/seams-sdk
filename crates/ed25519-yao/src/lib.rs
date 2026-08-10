@@ -56,8 +56,12 @@ pub mod local_protocol {
         DirectionalWireDecoder, DirectionalWireEncoder, Export128KiBDeriverA, Export128KiBDeriverB,
         ExportDeriverAClientPackage, ExportDeriverACompletion, ExportDeriverAInputs,
         ExportDeriverBClientPackage, ExportDeriverBCompletion, ExportDeriverBInputs,
-        ExportedSeed32, RelayEvent, RelayInstruction, RelayStep, SigningWorkerBaseScalar,
-        StreamMetrics, WireByteLedger, WireDirection, WireMessage, WireMessageKind,
+        ExportedSeed32, LaneDeriverACompletion, LaneDeriverAHolderPackage, LaneDeriverAInputs,
+        LaneDeriverASigningWorkerPackage, LaneDeriverBCompletion, LaneDeriverBHolderPackage,
+        LaneDeriverBInputs, LaneDeriverBSigningWorkerPackage, LaneMaterialization128KiBDeriverA,
+        LaneMaterialization128KiBDeriverB, RelayEvent, RelayInstruction, RelayStep,
+        SigningWorkerBaseScalar, StreamMetrics, WireByteLedger, WireDirection, WireMessage,
+        WireMessageKind,
     };
 }
 
