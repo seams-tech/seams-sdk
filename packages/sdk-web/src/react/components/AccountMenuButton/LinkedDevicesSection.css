@@ -56,7 +56,7 @@
   cursor: pointer;
 }
 
-/* Cap the list height so many signers scroll instead of stretching the menu */
+/* Cap the list height so many linked devices scroll instead of stretching the menu */
 .w3a-linked-devices-list {
   display: flex;
   flex-direction: column;
@@ -98,36 +98,4 @@
 
 .w3a-linked-devices-revoke-consequence {
   line-height: 1.35;
-}
-
-.w3a-linked-devices-slot {
-  flex: 0 0 auto;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--w3a-colors-textPrimary);
-  white-space: nowrap;
-}
-
-.w3a-linked-devices-active {
-  flex: 0 0 auto;
-  padding: 1px 7px;
-  border: 1px solid var(--w3a-colors-borderPrimary);
-  border-radius: 9999px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--w3a-colors-textSecondary);
-}
-
-/* "Chrome on macOS · iCloud Keychain" — truncates before it can widen the menu */
-.w3a-linked-devices-device {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: right;
-  font-size: 12px;
-  color: var(--w3a-colors-textSecondary);
 }
