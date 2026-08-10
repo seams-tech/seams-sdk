@@ -211,6 +211,7 @@ fn complete_server_artifact(
     )
     .map_err(protocol_error)?;
     let transcript = EcdsaAdditiveLaneTranscriptV1 {
+        kind: "ecdsa_additive_lane_transcript_v1".to_owned(),
         preamble_hash_b64u: Base64UrlUnpadded::encode_string(&preamble_hash),
         holder_round_hash_b64u: Base64UrlUnpadded::encode_string(&holder_hash),
         server_round_hash_b64u: Base64UrlUnpadded::encode_string(
