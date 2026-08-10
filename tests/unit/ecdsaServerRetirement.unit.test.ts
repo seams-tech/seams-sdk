@@ -112,7 +112,10 @@ test('verifies the canonical ECDSA retirement receipt before returning the Gatew
 
   expect(verified.outcome).toBe('applied');
   expect(verified.receipt).toEqual(receipt);
-  expect(verified.retirementReceiptDigestB64u).toBe(command.retirementEffectBindingDigestB64u);
+  expect(verified.retirementEffectBindingDigestB64u).toBe(
+    command.retirementEffectBindingDigestB64u,
+  );
+  expect(verified.retirementReceiptDigestB64u).toBe(receipt.receiptDigestB64u);
   const request = buildEcdsaServerRetirementRequestV1({
     command,
     binding: {

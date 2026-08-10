@@ -7,6 +7,7 @@ import type {
   LaneServerActivationReceiptV1,
   LaneHolderPackageWireV1,
   LaneProductEpochActiveV1,
+  LaneProductEpochRevocationPendingV1,
   LaneProductEpochRevokedV1,
   LaneProtocolLifecycle,
   RevokeSigningLaneV1,
@@ -58,6 +59,7 @@ export type SigningWorkerLaneRetirementProjectionV1 = {
   readonly kind: 'signing_worker_lane_retirement_projection_v1';
   readonly outcome: LaneMaterialMutationOutcomeV1;
   readonly command: RevokeSigningLaneV1;
+  readonly retirementEffectBindingDigestB64u: string;
   readonly retirementReceiptDigestB64u: string;
 };
 
@@ -234,7 +236,9 @@ export class LaneLifecycleStoreEcdsaLanePrivateBindingResolverV1
     if (
       product === null ||
       product.keyFamily !== 'ecdsa_secp256k1' ||
-      (product.state !== 'active' && product.state !== 'revoked') ||
+      (product.state !== 'active' &&
+        product.state !== 'revocation_pending' &&
+        product.state !== 'revoked') ||
       !retirementProductMatchesCommandV1(product, input.command)
     ) {
       throw new Error('ECDSA retirement source product is not the exact active epoch');
@@ -352,6 +356,7 @@ export class CloudflareSigningWorkerEcdsaRetirementTransportV1
       kind: 'signing_worker_lane_retirement_projection_v1',
       outcome: effect.outcome,
       command: input.command,
+      retirementEffectBindingDigestB64u: effect.retirementEffectBindingDigestB64u,
       retirementReceiptDigestB64u: effect.retirementReceiptDigestB64u,
     };
   }
@@ -529,15 +534,22 @@ function retirementExecution(
   requireProjection(projection, 'signing_worker_lane_retirement_projection_v1');
   const command = parseRevokeSigningLaneV1(projection.command);
   if (
+    typeof projection.retirementEffectBindingDigestB64u !== 'string' ||
+    projection.retirementEffectBindingDigestB64u.length === 0
+  )
+    throw new Error('SigningWorker lane retirement effect binding digest is invalid');
+  if (
     typeof projection.retirementReceiptDigestB64u !== 'string' ||
     projection.retirementReceiptDigestB64u.length === 0
-  ) {
+  )
     throw new Error('SigningWorker lane retirement receipt digest is invalid');
-  }
   return {
     kind: 'lane_lifecycle_retirement_execution_v1',
     command,
-    retirementReceiptDigestB64u: projection.retirementReceiptDigestB64u,
+    retirementEffectBindingDigestB64u: parseDigestB64u(
+      projection.retirementEffectBindingDigestB64u,
+    ),
+    retirementReceiptDigestB64u: parseDigestB64u(projection.retirementReceiptDigestB64u),
   };
 }
 
@@ -571,7 +583,10 @@ function requiredTextValue(value: unknown, label: string): string {
 }
 
 function identityFromActiveProductV1(
-  product: LaneProductEpochActiveV1 | LaneProductEpochRevokedV1,
+  product:
+    | LaneProductEpochActiveV1
+    | LaneProductEpochRevocationPendingV1
+    | LaneProductEpochRevokedV1,
   lifecycle: Extract<LaneProtocolLifecycle, { state: 'active' }>,
 ): EcdsaSigningWorkerLaneMaterialIdentityV1 {
   if (product.keyFamily !== 'ecdsa_secp256k1') {
@@ -599,7 +614,10 @@ function identityFromActiveProductV1(
 }
 
 function retirementProductMatchesCommandV1(
-  product: LaneProductEpochActiveV1 | LaneProductEpochRevokedV1,
+  product:
+    | LaneProductEpochActiveV1
+    | LaneProductEpochRevocationPendingV1
+    | LaneProductEpochRevokedV1,
   command: RevokeSigningLaneV1,
 ): boolean {
   if (product.state === 'active') {
@@ -607,7 +625,7 @@ function retirementProductMatchesCommandV1(
   }
   return (
     product.revocationEpoch === command.expectedRevocationEpoch + 1 &&
-    product.revocationReceiptDigestB64u === command.retirementEffectBindingDigestB64u
+    product.retirementEffectBindingDigestB64u === command.retirementEffectBindingDigestB64u
   );
 }
 

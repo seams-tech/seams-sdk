@@ -11,11 +11,13 @@ import type {
   LaneProtocolCasResultV1,
   LaneProtocolCommitReceiptV1,
   LaneServerActivationReceiptV1,
+  LaneSigningLaneRevocationFenceResultV1,
   LaneSigningLaneRevocationResultV1,
   RevokeSigningLaneV1,
   RotatableSigningLaneJobV1,
 } from '../../packages/shared-ts/src/signing-lanes';
 import {
+  buildLaneProductEpochRevocationPendingV1,
   buildLaneProductEpochRevokedV1,
   buildRevokeSigningLaneV1,
 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
@@ -23,7 +25,10 @@ import {
   parseLaneHolderParticipantRecordV1,
   parseSigningWorkerParticipantRecordV1,
 } from '../../packages/shared-ts/src/signing-lanes/participants';
-import { parseCorrelationId } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
+import {
+  parseCorrelationId,
+  parseDigestB64u,
+} from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import {
   buildR102HolderDeliveryReceipt,
   buildR102EcdsaLaneJob,
@@ -32,8 +37,8 @@ import {
   buildR102ServerActivationReceipt,
 } from './helpers/r102LaneGateway.fixtures';
 
-const DIGEST_B64U = Buffer.alloc(32, 0).toString('base64url');
-const OTHER_DIGEST_B64U = Buffer.alloc(32, 1).toString('base64url');
+const DIGEST_B64U = parseDigestB64u(Buffer.alloc(32, 0).toString('base64url'));
+const OTHER_DIGEST_B64U = parseDigestB64u(Buffer.alloc(32, 1).toString('base64url'));
 
 function unsupported(): Promise<never> {
   return Promise.reject(new Error('unsupported test gateway operation'));
@@ -49,9 +54,11 @@ function protocolConflict(): LaneProtocolCasResultV1 {
   };
 }
 
-function laneRevocationConflict(command: RevokeSigningLaneV1): LaneSigningLaneRevocationResultV1 {
+function laneRevocationConflict(
+  command: RevokeSigningLaneV1,
+): LaneSigningLaneRevocationFenceResultV1 {
   return {
-    kind: 'lane_signing_lane_revocation_result_v1',
+    kind: 'lane_signing_lane_revocation_fence_result_v1',
     outcome: 'conflict',
     walletKeyId: command.walletKeyId,
     laneId: command.laneId,
@@ -70,9 +77,14 @@ function gateway(
     revocations: string[];
     order: string[];
   },
-  revocationResult: (
+  revocationFence: (
     command: RevokeSigningLaneV1,
-  ) => LaneSigningLaneRevocationResultV1 = laneRevocationConflict,
+  ) => LaneSigningLaneRevocationFenceResultV1 = laneRevocationConflict,
+  revocationCompletion: (
+    input: Parameters<LaneEnrollmentGatewayV1['completeSigningLaneRevocationV1']>[0],
+  ) => LaneSigningLaneRevocationResultV1 = () => {
+    throw new Error('unexpected revocation completion');
+  },
 ): LaneEnrollmentGatewayV1 {
   return {
     prepareLaneEnrollmentV1: unsupported,
@@ -87,18 +99,77 @@ function gateway(
       return protocolConflict();
     },
     commitLaneEnrollmentActivationV1: unsupported,
-    revokeSigningLaneV1: async (command) => {
-      calls.order.push('gateway.revocation');
+    fenceSigningLaneRevocationV1: async (command) => {
+      calls.order.push('gateway.revocation.fence');
       calls.revocations.push(command.retirementEffectBindingDigestB64u);
-      return revocationResult(command);
+      return revocationFence(command);
+    },
+    completeSigningLaneRevocationV1: async (input) => {
+      calls.order.push('gateway.revocation.complete');
+      return revocationCompletion(input);
     },
     revokeLaneEnrollmentV1: unsupported,
+  };
+}
+
+function laneRevocationFencePending(
+  job: RotatableSigningLaneJobV1,
+  command: RevokeSigningLaneV1,
+): LaneSigningLaneRevocationFenceResultV1 {
+  if (job.target.operation !== 'create_lane') throw new Error('fixture target must be creation');
+  const activation = buildR102ServerActivationReceipt(job).targetMaterialActivation;
+  const productEpoch = buildLaneProductEpochRevocationPendingV1({
+    walletId: job.walletId,
+    walletKeyId: job.walletKeyId,
+    laneId: job.target.laneId,
+    laneKind: job.target.laneKind,
+    laneShareEpoch: job.target.laneShareEpoch,
+    keyFamily: job.keyFamily,
+    enrollmentId: job.enrollmentId,
+    operationId: job.operationId,
+    targetMaterialActivationId: job.targetMaterialActivationId,
+    materialActivation: activation,
+    publicIdentityDigestB64u: DIGEST_B64U,
+    holderParticipant: parseLaneHolderParticipantRecordV1({
+      kind: 'lane_holder_participant_v1',
+      participantId: job.targetHolder.participantId,
+      custodyBindingId: job.targetHolder.custodyBindingId,
+      custodyBindingDigestB64u: job.targetHolder.custodyBindingDigestB64u,
+      hpkePublicKeyB64u: job.targetHolder.hpkePublicKeyB64u,
+      hpkePublicKeyDigestB64u: job.targetHolder.hpkePublicKeyDigestB64u,
+      participantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
+    }),
+    signingWorkerParticipant: parseSigningWorkerParticipantRecordV1({
+      kind: 'signing_worker_participant_v1',
+      participantId: job.targetSigningWorker.participantId,
+      recipientKeyId: job.targetSigningWorker.recipientKeyId,
+      hpkePublicKeyB64u: job.targetSigningWorker.hpkePublicKeyB64u,
+      hpkePublicKeyDigestB64u: job.targetSigningWorker.hpkePublicKeyDigestB64u,
+      participantBindingDigestB64u: job.targetSigningWorker.participantBindingDigestB64u,
+    }),
+    participantSetBindingDigestB64u: DIGEST_B64U,
+    revocationEpoch: command.expectedRevocationEpoch + 1,
+    createdAtMs: 1_000,
+    revocationReason: command.reason,
+    retirementEffectBindingDigestB64u: command.retirementEffectBindingDigestB64u,
+    revocationRequestedAtMs: command.requestedAtMs,
+  });
+  return {
+    kind: 'lane_signing_lane_revocation_fence_result_v1',
+    outcome: 'applied',
+    walletKeyId: command.walletKeyId,
+    laneId: command.laneId,
+    laneShareEpoch: command.laneShareEpoch,
+    version: 2,
+    commandDigestB64u: DIGEST_B64U,
+    productEpoch,
   };
 }
 
 function laneRevocationApplied(
   job: RotatableSigningLaneJobV1,
   command: RevokeSigningLaneV1,
+  receiptDigestB64u = command.retirementEffectBindingDigestB64u,
 ): LaneSigningLaneRevocationResultV1 {
   if (job.target.operation !== 'create_lane') throw new Error('fixture target must be creation');
   const activation = buildR102ServerActivationReceipt(job).targetMaterialActivation;
@@ -135,7 +206,8 @@ function laneRevocationApplied(
     revocationEpoch: command.expectedRevocationEpoch + 1,
     createdAtMs: 1_000,
     revocationReason: command.reason,
-    revocationReceiptDigestB64u: command.retirementEffectBindingDigestB64u,
+    retirementEffectBindingDigestB64u: command.retirementEffectBindingDigestB64u,
+    revocationReceiptDigestB64u: receiptDigestB64u,
     revokedAtMs: command.requestedAtMs,
   });
   return {
@@ -252,6 +324,7 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
         retirementCommand: {
           kind: 'lane_lifecycle_retirement_execution_v1',
           command: commandFor(job),
+          retirementEffectBindingDigestB64u: DIGEST_B64U,
           retirementReceiptDigestB64u: DIGEST_B64U,
         },
         calls: calls.order,
@@ -286,6 +359,7 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
         retirementCommand: {
           kind: 'lane_lifecycle_retirement_execution_v1',
           command: commandFor(job),
+          retirementEffectBindingDigestB64u: DIGEST_B64U,
           retirementReceiptDigestB64u: DIGEST_B64U,
         },
         calls: calls.order,
@@ -312,7 +386,11 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
     const substitutedCommand = { ...command, requestedAtMs: command.requestedAtMs + 1 };
     const calls = applicationCalls();
     const service = new LaneLifecycleApplicationService({
-      gateway: gateway(calls, (fencedCommand) => laneRevocationApplied(job, fencedCommand)),
+      gateway: gateway(
+        calls,
+        (fencedCommand) => laneRevocationFencePending(job, fencedCommand),
+        (completion) => laneRevocationApplied(job, completion.command),
+      ),
       authorization: authorization(calls.order),
       execution: executionPorts({
         protocolReceipt: buildR102ProtocolCommitReceipt(job),
@@ -320,6 +398,7 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
         retirementCommand: {
           kind: 'lane_lifecycle_retirement_execution_v1',
           command: substitutedCommand,
+          retirementEffectBindingDigestB64u: DIGEST_B64U,
           retirementReceiptDigestB64u: DIGEST_B64U,
         },
         calls: calls.order,
@@ -331,7 +410,7 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
     );
     expect(calls.order).toEqual([
       'revoke_signing_lane_v1',
-      'gateway.revocation',
+      'gateway.revocation.fence',
       'ed25519.retirement',
     ]);
     expect(calls.revocations).toEqual([DIGEST_B64U]);
@@ -344,7 +423,11 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
     const command = commandFor(job);
     const calls = applicationCalls();
     const service = new LaneLifecycleApplicationService({
-      gateway: gateway(calls, (fencedCommand) => laneRevocationApplied(job, fencedCommand)),
+      gateway: gateway(
+        calls,
+        (fencedCommand) => laneRevocationFencePending(job, fencedCommand),
+        (completion) => laneRevocationApplied(job, completion.command),
+      ),
       authorization: authorization(calls.order),
       execution: executionPorts({
         protocolReceipt: buildR102ProtocolCommitReceipt(job),
@@ -352,6 +435,7 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
         retirementCommand: {
           kind: 'lane_lifecycle_retirement_execution_v1',
           command,
+          retirementEffectBindingDigestB64u: OTHER_DIGEST_B64U,
           retirementReceiptDigestB64u: OTHER_DIGEST_B64U,
         },
         calls: calls.order,
@@ -359,11 +443,11 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
     });
 
     await expect(service.revokeSigningLaneV1({ curve: 'ed25519_yao', command })).rejects.toThrow(
-      'receipt digest does not match',
+      'effect binding digest does not match',
     );
     expect(calls.order).toEqual([
       'revoke_signing_lane_v1',
-      'gateway.revocation',
+      'gateway.revocation.fence',
       'ed25519.retirement',
     ]);
   });
@@ -374,13 +458,25 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
     const command = commandFor(rawJob);
     const calls = applicationCalls();
     const service = new LaneLifecycleApplicationService({
-      gateway: gateway(calls, (fencedCommand) => laneRevocationApplied(rawJob, fencedCommand)),
+      gateway: gateway(
+        calls,
+        (fencedCommand) => laneRevocationFencePending(rawJob, fencedCommand),
+        (completion) => {
+          expect(completion.retirementReceiptDigestB64u).toBe(OTHER_DIGEST_B64U);
+          return laneRevocationApplied(
+            rawJob,
+            completion.command,
+            completion.retirementReceiptDigestB64u,
+          );
+        },
+      ),
       authorization: authorization(calls.order),
       execution: ecdsaRetirementExecutionPorts({
         retirementCommand: {
           kind: 'lane_lifecycle_retirement_execution_v1',
           command,
-          retirementReceiptDigestB64u: DIGEST_B64U,
+          retirementEffectBindingDigestB64u: DIGEST_B64U,
+          retirementReceiptDigestB64u: OTHER_DIGEST_B64U,
         },
         calls: calls.order,
       }),
@@ -391,9 +487,48 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
     expect(result.outcome).toBe('applied');
     expect(calls.order).toEqual([
       'revoke_signing_lane_v1',
-      'gateway.revocation',
+      'gateway.revocation.fence',
       'ecdsa.retirement',
+      'gateway.revocation.complete',
     ]);
+  });
+
+  test('returns an exact completed replay without re-dispatching retirement', async () => {
+    const rawJob = buildR102LaneJob('application-completed-replay');
+    if (rawJob.keyFamily !== 'ed25519') throw new Error('fixture key family changed');
+    const command = commandFor(rawJob);
+    const completed = laneRevocationApplied(rawJob, command);
+    const calls = applicationCalls();
+    const service = new LaneLifecycleApplicationService({
+      gateway: gateway(calls, () => ({
+        kind: 'lane_signing_lane_revocation_fence_result_v1',
+        outcome: 'already_completed',
+        walletKeyId: command.walletKeyId,
+        laneId: command.laneId,
+        laneShareEpoch: command.laneShareEpoch,
+        version: completed.version,
+        commandDigestB64u: completed.commandDigestB64u,
+        productEpoch: completed.productEpoch,
+      })),
+      authorization: authorization(calls.order),
+      execution: executionPorts({
+        protocolReceipt: buildR102ProtocolCommitReceipt(rawJob),
+        activationReceipt: buildR102ServerActivationReceipt(rawJob),
+        retirementCommand: {
+          kind: 'lane_lifecycle_retirement_execution_v1',
+          command,
+          retirementEffectBindingDigestB64u: DIGEST_B64U,
+          retirementReceiptDigestB64u: DIGEST_B64U,
+        },
+        calls: calls.order,
+      }),
+    });
+
+    const result = await service.revokeSigningLaneV1({ curve: 'ed25519_yao', command });
+
+    expect(result.outcome).toBe('replayed');
+    expect(result.productEpoch).toEqual(completed.productEpoch);
+    expect(calls.order).toEqual(['revoke_signing_lane_v1', 'gateway.revocation.fence']);
   });
 
   test('does not execute curve work when internal authorization denies the request', async () => {
@@ -410,6 +545,7 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
         retirementCommand: {
           kind: 'lane_lifecycle_retirement_execution_v1',
           command: commandFor(job),
+          retirementEffectBindingDigestB64u: DIGEST_B64U,
           retirementReceiptDigestB64u: DIGEST_B64U,
         },
         calls: calls.order,
