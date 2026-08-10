@@ -1,17 +1,18 @@
 import type {
   LaneEnrollmentGatewayV1,
   LaneHolderDeliveryReceiptV1,
+  LaneHolderPackageWireV1,
   LaneProtocolCasResultV1,
   LaneProtocolCommitReceiptV1,
   RotatableSigningLaneJobV1,
 } from '@shared/signing-lanes/rotation';
-import { base64UrlEncode } from '@shared/utils/base64';
-import { sha256BytesUtf8 } from '@shared/utils/digests';
 import {
+  parseLaneHolderPackageWireV1,
   parseLaneHolderDeliveryReceiptV1,
   parseLaneProtocolCommitReceiptV1,
   parseRotatableSigningLaneJobV1,
 } from '@shared/signing-lanes/rotationParsers';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { LaneHolderRecipientWorkerV1 } from '@shared/signing-lanes/rotation';
 import type {
   LaneSealedHolderMaterialRepositoryV1,
@@ -29,11 +30,6 @@ export type LaneHolderDeliveryResultV1 = {
   readonly state: SealedLaneHolderRecipientV1;
   readonly replayed: boolean;
 };
-
-function nonEmpty(value: unknown, label: string): string {
-  if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} is required`);
-  return value.trim();
-}
 
 function timestamp(value: unknown, label: string): number {
   if (!Number.isSafeInteger(value) || Number(value) < 0) {
@@ -70,6 +66,8 @@ function assertCommitJobIdentity(
     String(job.walletId) !== String(commit.walletId) ||
     String(job.walletKeyId) !== String(commit.walletKeyId) ||
     String(job.source.laneId) !== String(commit.sourceLaneId) ||
+    String(job.source.laneShareEpoch) !== String(commit.sourceLaneShareEpoch) ||
+    String(job.source.revocationEpoch) !== String(commit.sourceRevocationEpoch) ||
     String(job.target.laneId) !== String(commit.targetLaneId) ||
     String(job.target.laneShareEpoch) !== String(commit.targetLaneShareEpoch) ||
     String(job.targetMaterialActivationId) !== String(commit.targetMaterialActivationId) ||
@@ -94,6 +92,7 @@ function sealedStateFromRecord(
     String(record.laneShareEpoch) !== String(job.target.laneShareEpoch) ||
     String(record.targetMaterialActivationId) !== String(job.targetMaterialActivationId) ||
     record.transcriptHashB64u !== commit.transcriptHashB64u ||
+    record.holderParticipantBindingDigestB64u !== job.targetHolder.participantBindingDigestB64u ||
     record.holderRecipientKeyDigestB64u !== job.targetHolder.hpkePublicKeyDigestB64u ||
     record.holderCiphertextDigestSetB64u !== commit.targetHolderCiphertextDigestSetB64u
   ) {
@@ -133,13 +132,24 @@ function sealedStateFromRecord(
   };
 }
 
-async function assertReplayCiphertext(
+async function assertReplayHolderPackage(
   record: NonNullable<Awaited<ReturnType<LaneSealedHolderMaterialRepositoryV1['get']>>>,
-  ciphertext: string,
+  job: RotatableSigningLaneJobV1,
+  commit: LaneProtocolCommitReceiptV1,
+  holderPackage: LaneHolderPackageWireV1,
+  worker: LaneHolderRecipientWorkerV1,
 ): Promise<void> {
-  const digest = base64UrlEncode(await sha256BytesUtf8(ciphertext));
-  if (record.holderCiphertextDigestSetB64u !== digest) {
-    throw new Error('holder redelivery attempted to substitute ciphertext');
+  const verified = await worker.verifyLaneHolderPackageCommitmentV1({
+    job,
+    protocolCommitReceipt: commit,
+    holderPackage,
+  });
+  const verifiedDigest = parseDigestB64u(verified.verifiedHolderCiphertextDigestSetB64u);
+  if (
+    record.holderCiphertextDigestSetB64u !== verifiedDigest ||
+    commit.targetHolderCiphertextDigestSetB64u !== verifiedDigest
+  ) {
+    throw new Error('holder redelivery attempted to substitute its exact package');
   }
 }
 
@@ -174,24 +184,35 @@ async function replaySealedHolderDelivery(args: {
   };
 }
 
-export async function deliverLaneHolderPackageV1(args: {
+type LaneHolderDeliveryInputCommonV1 = {
   readonly job: unknown;
   readonly protocolCommitReceipt: unknown;
-  readonly holderCiphertextB64u: unknown;
+  readonly holderPackage: unknown;
   readonly expectedVersion: number;
-  readonly recipient: OpenLaneHolderRecipientV1;
   readonly worker: LaneHolderRecipientWorkerV1;
   readonly gateway: LaneEnrollmentGatewayV1;
   readonly repository: LaneSealedHolderMaterialRepositoryV1;
   readonly nowMs: () => number;
-}): Promise<LaneHolderDeliveryResultV1> {
+};
+
+export type LaneHolderDeliveryInputV1 =
+  | (LaneHolderDeliveryInputCommonV1 & {
+      readonly recipient: OpenLaneHolderRecipientV1;
+    })
+  | (LaneHolderDeliveryInputCommonV1 & {
+      readonly recipient?: never;
+    });
+
+export async function deliverLaneHolderPackageV1(
+  args: LaneHolderDeliveryInputV1,
+): Promise<LaneHolderDeliveryResultV1> {
   const job = parseJob(args.job);
   const commit = parseCommit(args.protocolCommitReceipt);
   assertCommitJobIdentity(job, commit);
-  const holderCiphertextB64u = nonEmpty(args.holderCiphertextB64u, 'holderCiphertextB64u');
+  const holderPackage = parseLaneHolderPackageWireV1(args.holderPackage);
   const existing = await args.repository.get(lookupForJob(job));
   if (existing) {
-    await assertReplayCiphertext(existing, holderCiphertextB64u);
+    await assertReplayHolderPackage(existing, job, commit, holderPackage, args.worker);
     return await replaySealedHolderDelivery({
       job,
       commit,
@@ -200,11 +221,14 @@ export async function deliverLaneHolderPackageV1(args: {
       expectedVersion: args.expectedVersion,
     });
   }
+  if (!args.recipient) {
+    throw new Error('an open holder recipient is required for first delivery');
+  }
   const state = await sealLaneHolderMaterialV1({
     state: args.recipient,
     job,
     protocolCommitReceipt: commit,
-    holderCiphertextB64u,
+    holderPackage,
     repository: args.repository,
     worker: args.worker,
     acknowledgedAtMs: timestamp(args.nowMs(), 'nowMs'),

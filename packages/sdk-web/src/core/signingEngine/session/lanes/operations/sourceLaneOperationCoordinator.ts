@@ -1,5 +1,7 @@
 import type {
+  LaneEnrollmentPreparationResultV1,
   LaneEnrollmentManifestV1,
+  LaneProtocolCasResultV1,
   LaneProtocolCommitReceiptV1,
   RotatableSigningLaneJobV1,
 } from '@shared/signing-lanes/rotation';
@@ -26,21 +28,35 @@ export type PreparedLaneProtocolOperationV1 = {
     LaneProtocolCommitReceiptV1,
     ...LaneProtocolCommitReceiptV1[],
   ];
-  readonly gatewayPreparation: unknown;
+  readonly protocolCommitResults: readonly [LaneProtocolCasResultV1, ...LaneProtocolCasResultV1[]];
+  readonly gatewayPreparation: LaneEnrollmentPreparationResultV1;
 };
 
 function nonEmptyJobs(
   children: readonly RotatableSigningLaneJobV1[],
 ): [RotatableSigningLaneJobV1, ...RotatableSigningLaneJobV1[]] {
   if (children.length === 0) throw new Error('lane enrollment must contain at least one child');
-  return children as [RotatableSigningLaneJobV1, ...RotatableSigningLaneJobV1[]];
+  const [first, ...rest] = children;
+  if (!first) throw new Error('lane enrollment must contain at least one child');
+  return [first, ...rest];
 }
 
 function nonEmptyReceipts(
   receipts: readonly LaneProtocolCommitReceiptV1[],
 ): [LaneProtocolCommitReceiptV1, ...LaneProtocolCommitReceiptV1[]] {
   if (receipts.length === 0) throw new Error('lane enrollment produced no protocol receipts');
-  return receipts as [LaneProtocolCommitReceiptV1, ...LaneProtocolCommitReceiptV1[]];
+  const [first, ...rest] = receipts;
+  if (!first) throw new Error('lane enrollment produced no protocol receipts');
+  return [first, ...rest];
+}
+
+function nonEmptyCasResults(
+  results: readonly LaneProtocolCasResultV1[],
+): [LaneProtocolCasResultV1, ...LaneProtocolCasResultV1[]] {
+  if (results.length === 0) throw new Error('lane enrollment produced no protocol CAS results');
+  const [first, ...rest] = results;
+  if (!first) throw new Error('lane enrollment produced no protocol CAS results');
+  return [first, ...rest];
 }
 
 function assertChildMatchesManifest(
@@ -95,6 +111,8 @@ function assertProtocolCommitMatchesJob(
     String(job.walletId) !== String(receipt.walletId) ||
     String(job.walletKeyId) !== String(receipt.walletKeyId) ||
     String(job.source.laneId) !== String(receipt.sourceLaneId) ||
+    String(job.source.laneShareEpoch) !== String(receipt.sourceLaneShareEpoch) ||
+    String(job.source.revocationEpoch) !== String(receipt.sourceRevocationEpoch) ||
     String(job.target.laneId) !== String(receipt.targetLaneId) ||
     String(job.target.laneShareEpoch) !== String(receipt.targetLaneShareEpoch) ||
     String(job.targetMaterialActivationId) !== String(receipt.targetMaterialActivationId) ||
@@ -168,6 +186,53 @@ async function commitChild(
   }
 }
 
+function assertProtocolRecordMatchesChild(
+  child: RotatableSigningLaneJobV1,
+  record: RotatableSigningLaneJobV1,
+): void {
+  if (
+    String(child.operationId) !== String(record.operationId) ||
+    String(child.enrollmentId) !== String(record.enrollmentId) ||
+    String(child.walletId) !== String(record.walletId) ||
+    String(child.walletKeyId) !== String(record.walletKeyId) ||
+    child.keyFamily !== record.keyFamily ||
+    String(child.source.laneId) !== String(record.source.laneId) ||
+    String(child.source.laneShareEpoch) !== String(record.source.laneShareEpoch) ||
+    String(child.source.revocationEpoch) !== String(record.source.revocationEpoch) ||
+    String(child.target.laneId) !== String(record.target.laneId) ||
+    String(child.target.laneShareEpoch) !== String(record.target.laneShareEpoch) ||
+    String(child.targetMaterialActivationId) !== String(record.targetMaterialActivationId)
+  ) {
+    throw new Error('Gateway protocol record does not match its exact child job');
+  }
+}
+
+async function recordProtocolCommit(args: {
+  readonly child: RotatableSigningLaneJobV1;
+  readonly receipt: LaneProtocolCommitReceiptV1;
+  readonly expectedVersion: number;
+  readonly gateway: LaneOperationSourcePortsV1['gateway'];
+}): Promise<LaneProtocolCasResultV1> {
+  const result = await args.gateway.recordLaneProtocolCommitV1({
+    receipt: args.receipt,
+    expectedVersion: args.expectedVersion,
+  });
+  if (result.outcome === 'conflict') {
+    throw new Error(`Gateway rejected protocol commitment for ${String(args.child.operationId)}`);
+  }
+  assertProtocolRecordMatchesChild(args.child, result.record.job);
+  if (
+    result.record.lifecycle.state !== 'committed_awaiting_holder_delivery' &&
+    result.record.lifecycle.state !== 'awaiting_server_activation' &&
+    result.record.lifecycle.state !== 'ready_for_parent_visibility' &&
+    result.record.lifecycle.state !== 'active' &&
+    result.record.lifecycle.state !== 'committed_completion_required'
+  ) {
+    throw new Error('Gateway protocol record did not commit its exact receipt');
+  }
+  return result;
+}
+
 function hasEcdsaChild(children: readonly RotatableSigningLaneJobV1[]): boolean {
   return children.some((child) => child.keyFamily === 'ecdsa_secp256k1');
 }
@@ -199,14 +264,34 @@ export async function prepareAndCommitSourceLaneOperationV1(args: {
     manifest,
     children,
   });
+  if (gatewayPreparation.outcome === 'conflict') {
+    throw new Error('Gateway rejected lane enrollment preparation');
+  }
+  if (gatewayPreparation.orderedProtocols.length !== children.length) {
+    throw new Error('Gateway preparation protocol order does not match the manifest');
+  }
   const receipts: LaneProtocolCommitReceiptV1[] = [];
-  for (const child of children) {
-    receipts.push(await commitChild(child, args.ports));
+  const protocolCommitResults: LaneProtocolCasResultV1[] = [];
+  for (const [index, child] of children.entries()) {
+    const preparedProtocol = gatewayPreparation.orderedProtocols[index];
+    if (!preparedProtocol) throw new Error(`Gateway preparation child ${index} is missing`);
+    assertProtocolRecordMatchesChild(child, preparedProtocol.record.job);
+    const receipt = await commitChild(child, args.ports);
+    receipts.push(receipt);
+    protocolCommitResults.push(
+      await recordProtocolCommit({
+        child,
+        receipt,
+        expectedVersion: preparedProtocol.version,
+        gateway: args.ports.gateway,
+      }),
+    );
   }
   return {
     manifest,
     children,
     protocolCommitReceipts: nonEmptyReceipts(receipts),
+    protocolCommitResults: nonEmptyCasResults(protocolCommitResults),
     gatewayPreparation,
   };
 }

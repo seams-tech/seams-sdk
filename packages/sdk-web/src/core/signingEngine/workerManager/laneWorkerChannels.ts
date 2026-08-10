@@ -1,15 +1,21 @@
 import type {
+  LaneHolderPackageWireV1,
   LaneHolderRecipientHandleV1,
   LaneHolderRecipientWorkerV1,
   RotatableSigningLaneJobV1,
 } from '@shared/signing-lanes/rotation';
 import type { LaneProtocolCommitReceiptV1 } from '@shared/signing-lanes/rotation';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
-import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   parseLaneHolderRecipientHandleV1,
   parseLaneOperationId,
 } from '@shared/utils/domainIds';
+import {
+  parseLaneHolderPackageWireV1,
+  parseLaneProtocolCommitReceiptV1,
+  parseRotatableSigningLaneJobV1,
+} from '@shared/signing-lanes/rotationParsers';
 import {
   parseHpkePublicKeyB64u,
   parseSigningWorkerRecipientKeyDigestB64u,
@@ -31,8 +37,14 @@ export type LaneWorkerChannelRequestV1 =
       readonly kind: 'lane_holder_package_open_seal_v1';
       readonly job: RotatableSigningLaneJobV1;
       readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
-      readonly ciphertextB64u: string;
+      readonly holderPackage: LaneHolderPackageWireV1;
       readonly recipientHandle: LaneHolderRecipientHandleV1;
+    }
+  | {
+      readonly kind: 'lane_holder_package_verify_v1';
+      readonly job: RotatableSigningLaneJobV1;
+      readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
+      readonly holderPackage: LaneHolderPackageWireV1;
     }
   | {
       readonly kind: 'lane_holder_recipient_discard_v1';
@@ -79,6 +91,14 @@ function parseOperationId(value: unknown): CreateRecipientInputV1['operationId']
   throw new Error(result.error.message);
 }
 
+function parseJob(value: unknown): RotatableSigningLaneJobV1 {
+  return parseRotatableSigningLaneJobV1(value);
+}
+
+function parseCommit(value: unknown): LaneProtocolCommitReceiptV1 {
+  return parseLaneProtocolCommitReceiptV1(value);
+}
+
 function parseHpkeKey(value: unknown): HpkePublicKeyB64u {
   const result = parseHpkePublicKeyB64u(value);
   if (result.ok) return result.value;
@@ -91,7 +111,7 @@ function parseRecipientDigest(value: unknown): SigningWorkerRecipientKeyDigestB6
   throw new Error(result.error.message);
 }
 
-function parseDigest(value: unknown, label: string): string {
+function parseDigest(value: unknown, label: string): DigestB64u {
   try {
     return parseDigestB64u(value);
   } catch (error) {
@@ -132,9 +152,10 @@ function parseSealResponse(value: unknown): Awaited<ReturnType<LaneHolderRecipie
   const response = requireRecord(value, 'lane holder-seal response');
   const fields = Object.keys(response);
   if (
-    fields.length !== 2 ||
+    fields.length !== 3 ||
     !fields.includes('sealedHolderMaterialB64u') ||
-    !fields.includes('sealedHolderRecordDigestB64u')
+    !fields.includes('sealedHolderRecordDigestB64u') ||
+    !fields.includes('verifiedHolderCiphertextDigestSetB64u')
   ) {
     throw new Error('lane holder-seal response has invalid fields');
   }
@@ -146,6 +167,26 @@ function parseSealResponse(value: unknown): Awaited<ReturnType<LaneHolderRecipie
     sealedHolderRecordDigestB64u: parseDigest(
       response.sealedHolderRecordDigestB64u,
       'sealedHolderRecordDigestB64u',
+    ),
+    verifiedHolderCiphertextDigestSetB64u: parseDigest(
+      response.verifiedHolderCiphertextDigestSetB64u,
+      'verifiedHolderCiphertextDigestSetB64u',
+    ),
+  };
+}
+
+function parseVerifyResponse(
+  value: unknown,
+): Awaited<ReturnType<LaneHolderRecipientWorkerV1['verifyLaneHolderPackageCommitmentV1']>> {
+  const response = requireRecord(value, 'lane holder-package verify response');
+  const fields = Object.keys(response);
+  if (fields.length !== 1 || !fields.includes('verifiedHolderCiphertextDigestSetB64u')) {
+    throw new Error('lane holder-package verify response has invalid fields');
+  }
+  return {
+    verifiedHolderCiphertextDigestSetB64u: parseDigest(
+      response.verifiedHolderCiphertextDigestSetB64u,
+      'verifiedHolderCiphertextDigestSetB64u',
     ),
   };
 }
@@ -163,21 +204,30 @@ export function createLaneWorkerChannelsV1(
       );
     },
     async openAndSealLaneHolderPackageV1(input) {
-      const ciphertextB64u = nonEmpty(input.ciphertextB64u, 'ciphertextB64u');
       return parseSealResponse(
         await transport.request({
           kind: 'lane_holder_package_open_seal_v1',
-          job: input.job,
-          protocolCommitReceipt: input.protocolCommitReceipt,
-          ciphertextB64u,
-          recipientHandle: input.recipientHandle,
+          job: parseJob(input.job),
+          protocolCommitReceipt: parseCommit(input.protocolCommitReceipt),
+          holderPackage: parseLaneHolderPackageWireV1(input.holderPackage),
+          recipientHandle: parseHandle(input.recipientHandle),
+        }),
+      );
+    },
+    async verifyLaneHolderPackageCommitmentV1(input) {
+      return parseVerifyResponse(
+        await transport.request({
+          kind: 'lane_holder_package_verify_v1',
+          job: parseJob(input.job),
+          protocolCommitReceipt: parseCommit(input.protocolCommitReceipt),
+          holderPackage: parseLaneHolderPackageWireV1(input.holderPackage),
         }),
       );
     },
     async discardLaneHolderRecipientV1(input) {
       await transport.request({
         kind: 'lane_holder_recipient_discard_v1',
-        recipientHandle: input.recipientHandle,
+        recipientHandle: parseHandle(input.recipientHandle),
         operationId: parseOperationId(input.operationId),
       });
     },

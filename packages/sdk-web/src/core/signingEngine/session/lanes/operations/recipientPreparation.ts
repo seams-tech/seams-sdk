@@ -1,17 +1,21 @@
-import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
-import { sha256BytesUtf8 } from '@shared/utils/digests';
 import type {
   LaneHolderDeliveryReceiptV1,
+  LaneHolderPackageWireV1,
   LaneHolderRecipientHandleV1,
   LaneHolderRecipientWorkerV1,
   LaneProtocolCommitReceiptV1,
   RotatableSigningLaneJobV1,
 } from '@shared/signing-lanes/rotation';
 import {
+  parseLaneHolderPackageWireV1,
   parseLaneProtocolCommitReceiptV1,
   parseRotatableSigningLaneJobV1,
 } from '@shared/signing-lanes/rotationParsers';
+import {
+  parseHpkePublicKeyB64u,
+  parseSigningWorkerRecipientKeyDigestB64u,
+} from '@shared/signing-lanes/participants';
 import { parseLaneHolderRecipientHandleV1 } from '@shared/utils/domainIds';
 import type {
   LaneEnrollmentId,
@@ -108,6 +112,18 @@ function parseHandle(value: unknown): LaneHolderRecipientHandleV1 {
   throw new Error(result.error.message);
 }
 
+function parseHpkePublicKey(value: unknown): string {
+  const result = parseHpkePublicKeyB64u(value);
+  if (result.ok) return result.value;
+  throw new Error(result.error.message);
+}
+
+function parseRecipientKeyDigest(value: unknown): string {
+  const result = parseSigningWorkerRecipientKeyDigestB64u(value);
+  if (result.ok) return result.value;
+  throw new Error(result.error.message);
+}
+
 function assertJobCommitIdentity(
   job: RotatableSigningLaneJobV1,
   receipt: LaneProtocolCommitReceiptV1,
@@ -147,14 +163,14 @@ function assertCreationTargetMatchesJob(
   }
 }
 
-async function ciphertextDigest(ciphertextB64u: string): Promise<string> {
-  return base64UrlEncode(await sha256BytesUtf8(ciphertextB64u));
+function parseHolderPackage(value: unknown): LaneHolderPackageWireV1 {
+  return parseLaneHolderPackageWireV1(value);
 }
 
 function holderDeliveryReceipt(args: {
   readonly job: RotatableSigningLaneJobV1;
   readonly commit: LaneProtocolCommitReceiptV1;
-  readonly ciphertextDigestB64u: string;
+  readonly verifiedHolderCiphertextDigestSetB64u: string;
   readonly sealedHolderRecordDigestB64u: string;
   readonly acknowledgedAtMs: number;
 }): LaneHolderDeliveryReceiptV1 {
@@ -167,7 +183,7 @@ function holderDeliveryReceipt(args: {
     targetMaterialActivationId: args.job.targetMaterialActivationId,
     holderParticipantBindingDigestB64u: args.job.targetHolder.participantBindingDigestB64u,
     holderRecipientKeyDigestB64u: args.job.targetHolder.hpkePublicKeyDigestB64u,
-    holderCiphertextDigestSetB64u: args.ciphertextDigestB64u,
+    holderCiphertextDigestSetB64u: args.verifiedHolderCiphertextDigestSetB64u,
     sealedHolderRecordDigestB64u: args.sealedHolderRecordDigestB64u,
     transcriptHashB64u: args.commit.transcriptHashB64u,
     acknowledgedAtMs: args.acknowledgedAtMs,
@@ -194,23 +210,32 @@ export async function prepareLaneHolderRecipientV1(args: {
 }): Promise<OpenLaneHolderRecipientV1> {
   const descriptor = await args.worker.createLaneHolderRecipientV1(args.input);
   const recipientHandle = parseHandle(descriptor.recipientHandle);
-  const hpkePublicKeyB64u = nonEmpty(descriptor.hpkePublicKeyB64u, 'hpkePublicKeyB64u');
-  const hpkePublicKeyDigestB64u = digest(
-    descriptor.hpkePublicKeyDigestB64u,
-    'hpkePublicKeyDigestB64u',
-  );
-  return {
-    state: 'open',
-    operationId: args.input.operationId,
-    enrollmentId: args.input.enrollmentId,
-    targetLaneId: args.input.targetLaneId,
-    targetLaneShareEpoch: args.input.targetLaneShareEpoch,
-    holderParticipantBindingDigestB64u: args.input.targetHolderParticipantBindingDigestB64u,
-    custodyBindingDigestB64u: args.input.custodyBindingDigestB64u,
-    recipientHandle,
-    hpkePublicKeyB64u,
-    hpkePublicKeyDigestB64u,
-  };
+  try {
+    const hpkePublicKeyB64u = parseHpkePublicKey(descriptor.hpkePublicKeyB64u);
+    const hpkePublicKeyDigestB64u = parseRecipientKeyDigest(
+      descriptor.hpkePublicKeyDigestB64u,
+    );
+    return {
+      state: 'open',
+      operationId: args.input.operationId,
+      enrollmentId: args.input.enrollmentId,
+      targetLaneId: args.input.targetLaneId,
+      targetLaneShareEpoch: args.input.targetLaneShareEpoch,
+      holderParticipantBindingDigestB64u: args.input.targetHolderParticipantBindingDigestB64u,
+      custodyBindingDigestB64u: args.input.custodyBindingDigestB64u,
+      recipientHandle,
+      hpkePublicKeyB64u,
+      hpkePublicKeyDigestB64u,
+    };
+  } catch (error) {
+    await args.worker
+      .discardLaneHolderRecipientV1({
+        recipientHandle,
+        operationId: args.input.operationId,
+      })
+      .catch(() => undefined);
+    throw error instanceof Error ? error : new Error(String(error));
+  }
 }
 
 export const openLaneHolderRecipientV1 = prepareLaneHolderRecipientV1;
@@ -220,7 +245,7 @@ export async function sealLaneHolderMaterialV1(args: {
   readonly state: OpenLaneHolderRecipientV1;
   readonly job: unknown;
   readonly protocolCommitReceipt: unknown;
-  readonly holderCiphertextB64u: unknown;
+  readonly holderPackage: unknown;
   readonly repository: LaneSealedHolderMaterialRepositoryV1;
   readonly worker: LaneHolderRecipientWorkerV1;
   readonly acknowledgedAtMs: number;
@@ -231,17 +256,20 @@ export async function sealLaneHolderMaterialV1(args: {
     const commit = parseCommit(args.protocolCommitReceipt);
     assertJobCommitIdentity(job, commit);
     assertCreationTargetMatchesJob(args.state, job);
-    const holderCiphertextB64u = nonEmpty(args.holderCiphertextB64u, 'holderCiphertextB64u');
-    const ciphertextDigestB64u = await ciphertextDigest(holderCiphertextB64u);
-    if (commit.targetHolderCiphertextDigestSetB64u !== ciphertextDigestB64u) {
-      throw new Error('holder ciphertext digest does not match the protocol commitment');
-    }
+    const holderPackage = parseHolderPackage(args.holderPackage);
     const sealed = await args.worker.openAndSealLaneHolderPackageV1({
       job,
       protocolCommitReceipt: commit,
-      ciphertextB64u: holderCiphertextB64u,
+      holderPackage,
       recipientHandle: args.state.recipientHandle,
     });
+    const verifiedHolderCiphertextDigestSetB64u = digest(
+      sealed.verifiedHolderCiphertextDigestSetB64u,
+      'verifiedHolderCiphertextDigestSetB64u',
+    );
+    if (commit.targetHolderCiphertextDigestSetB64u !== verifiedHolderCiphertextDigestSetB64u) {
+      throw new Error('holder package digest does not match the protocol commitment');
+    }
     const sealedHolderRecordDigestB64u = digest(
       sealed.sealedHolderRecordDigestB64u,
       'sealedHolderRecordDigestB64u',
@@ -259,7 +287,7 @@ export async function sealLaneHolderMaterialV1(args: {
     const deliveryReceipt = holderDeliveryReceipt({
       job,
       commit,
-      ciphertextDigestB64u,
+      verifiedHolderCiphertextDigestSetB64u,
       sealedHolderRecordDigestB64u,
       acknowledgedAtMs,
     });
@@ -274,7 +302,7 @@ export async function sealLaneHolderMaterialV1(args: {
       targetMaterialActivationId: job.targetMaterialActivationId,
       holderParticipantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
       holderRecipientKeyDigestB64u: job.targetHolder.hpkePublicKeyDigestB64u,
-      holderCiphertextDigestSetB64u: ciphertextDigestB64u,
+      holderCiphertextDigestSetB64u: verifiedHolderCiphertextDigestSetB64u,
       sealedHolderRecordDigestB64u,
       transcriptHashB64u: commit.transcriptHashB64u,
       sealedHolderMaterialB64u,
@@ -293,7 +321,7 @@ export async function sealLaneHolderMaterialV1(args: {
       targetMaterialActivationId: job.targetMaterialActivationId,
       holderParticipantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
       holderRecipientKeyDigestB64u: job.targetHolder.hpkePublicKeyDigestB64u,
-      holderCiphertextDigestSetB64u: ciphertextDigestB64u,
+      holderCiphertextDigestSetB64u: verifiedHolderCiphertextDigestSetB64u,
       sealedHolderRecordDigestB64u,
       transcriptHashB64u: commit.transcriptHashB64u,
       sealedHolderMaterialB64u,
