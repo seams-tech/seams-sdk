@@ -18,11 +18,11 @@ export const DEFAULT_TEST_CONFIG: PasskeyTestConfig = {
   frontendUrl: FRONTEND_URL,
   nearNetwork: 'testnet',
   nearRpcUrl: 'https://test.rpc.fastnear.com',
-  relayerAccount: 'w3a-v1.testnet',
+  relayerAccount: 'seams-v1.testnet',
   walletOrigin: WALLET_ORIGIN,
   rpId: RP_ID,
   relayer: {
     url: 'https://router-api.localhost',
   },
-  testReceiverAccountId: 'w3a-v1.testnet',
+  testReceiverAccountId: 'seams-v1.testnet',
 };

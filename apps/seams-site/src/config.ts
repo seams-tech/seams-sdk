@@ -14,7 +14,7 @@ const DEFAULT_TEMPO_EXPLORER_URL = 'https://explore.testnet.tempo.xyz';
 const DEFAULT_TEMPO_FEE_TOKEN = '0x20c0000000000000000000000000000000000001';
 const DEFAULT_ARC_RPC_URL = 'https://rpc.drpc.testnet.arc.network';
 const DEFAULT_ARC_EXPLORER_URL = 'https://testnet.arcscan.app';
-const DEFAULT_DEMO_CONTRACT_ID = 'w3a-v1.testnet';
+const DEFAULT_DEMO_CONTRACT_ID = 'seams-v1.testnet';
 
 export type FrontendNetwork = 'testnet' | 'mainnet';
 
