@@ -1,5 +1,7 @@
 import {
   buildLaneEnrollmentManifestV1,
+  buildLaneProductEpochActiveV1,
+  buildLaneProductEpochRevokedV1,
   buildLaneHolderDeliveryReceiptV1,
   buildLaneProtocolCommitReceiptV1,
   buildLaneServerActivationReceiptV1,
@@ -12,7 +14,16 @@ import type {
   LaneProtocolCommitReceiptV1,
   LaneServerActivationReceiptV1,
   RotatableSigningLaneJobV1,
+  LaneProductEpochActiveV1,
+  LaneProductEpochRevokedV1,
+  RevokeSigningLaneV1,
 } from '../../../packages/shared-ts/src/signing-lanes/rotation';
+import {
+  parseLaneHolderParticipantRecordV1,
+  parseSigningWorkerParticipantRecordV1,
+} from '../../../packages/shared-ts/src/signing-lanes/participants';
+import { computeLaneParticipantSetBindingDigestV1 } from '../../../packages/shared-ts/src/signing-lanes/participantDigest';
+import { computeLaneEnrollmentManifestDigestV1 } from '../../../packages/shared-ts/src/signing-lanes/rotationDigests';
 import {
   buildMpcMaterialActivationRef,
   parseCapabilityInstanceRef,
@@ -34,6 +45,7 @@ import type {
   WalletKeyId,
 } from '../../../packages/shared-ts/src/signing-lanes/ids';
 import type { LaneEffectRecordV1 } from '../../../packages/sdk-server-ts/src/core/signingLanes/LaneEffectJournalStore';
+import type { LaneEnrollmentAdmissionRecord } from '../../../packages/sdk-server-ts/src/core/signingLanes/LaneLifecycleStore';
 
 function requiredId<T>(
   parser: (raw: unknown) => { ok: true; value: T } | { ok: false; error: { message: string } },
@@ -99,6 +111,25 @@ export function buildR102LaneEnrollmentFixture(): R102LaneEnrollmentFixture {
     expiresAtMs: 100_000,
   });
   return { manifest, children };
+}
+
+export async function buildR102EnrollmentAdmissionRecordFixture(
+  fixture: R102LaneEnrollmentFixture,
+): Promise<LaneEnrollmentAdmissionRecord> {
+  const manifestDigestB64u = await computeLaneEnrollmentManifestDigestV1(fixture.manifest);
+  return {
+    value: {
+      manifest: fixture.manifest,
+      lifecycle: {
+        state: 'active',
+        manifestDigestB64u,
+        aggregateReceiptDigestB64u: DIGEST_B64U,
+        activatedAtMs: 4_000,
+      },
+    },
+    version: 1,
+    commandDigestB64u: DIGEST_B64U,
+  };
 }
 
 export function buildR102ManifestChild(
@@ -376,6 +407,81 @@ export function buildR102ServerActivationReceipt(
     serverCiphertextDigestSetB64u: DIGEST_B64U,
     transcriptHashB64u: DIGEST_B64U,
     activatedAtMs,
+  });
+}
+
+export async function buildR102ActiveProductEpoch(
+  job: RotatableSigningLaneJobV1,
+): Promise<LaneProductEpochActiveV1> {
+  if (job.target.operation !== 'create_lane') throw new Error('fixture target must be creation');
+  const holderParticipant = parseLaneHolderParticipantRecordV1({
+    kind: 'lane_holder_participant_v1',
+    participantId: job.targetHolder.participantId,
+    custodyBindingId: job.targetHolder.custodyBindingId,
+    custodyBindingDigestB64u: job.targetHolder.custodyBindingDigestB64u,
+    hpkePublicKeyB64u: job.targetHolder.hpkePublicKeyB64u,
+    hpkePublicKeyDigestB64u: job.targetHolder.hpkePublicKeyDigestB64u,
+    participantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
+  });
+  const signingWorkerParticipant = parseSigningWorkerParticipantRecordV1({
+    kind: 'signing_worker_participant_v1',
+    participantId: job.targetSigningWorker.participantId,
+    recipientKeyId: job.targetSigningWorker.recipientKeyId,
+    hpkePublicKeyB64u: job.targetSigningWorker.hpkePublicKeyB64u,
+    hpkePublicKeyDigestB64u: job.targetSigningWorker.hpkePublicKeyDigestB64u,
+    participantBindingDigestB64u: job.targetSigningWorker.participantBindingDigestB64u,
+  });
+  return buildLaneProductEpochActiveV1({
+    walletId: job.walletId,
+    walletKeyId: job.walletKeyId,
+    laneId: job.target.laneId,
+    laneKind: job.target.laneKind,
+    laneShareEpoch: job.target.laneShareEpoch,
+    keyFamily: job.keyFamily,
+    enrollmentId: job.enrollmentId,
+    operationId: job.operationId,
+    targetMaterialActivationId: job.targetMaterialActivationId,
+    materialActivation: buildR102ServerActivationReceipt(job).targetMaterialActivation,
+    publicIdentityDigestB64u: DIGEST_B64U,
+    holderParticipant,
+    signingWorkerParticipant,
+    participantSetBindingDigestB64u: await computeLaneParticipantSetBindingDigestV1({
+      holderParticipant,
+      signingWorkerParticipant,
+    }),
+    revocationEpoch: job.source.revocationEpoch,
+    createdAtMs: 1_000,
+    aggregateManifestDigestB64u: DIGEST_B64U,
+    aggregateActivationReceiptDigestB64u: DIGEST_B64U,
+    activatedAtMs: 4_000,
+  });
+}
+
+export function buildR102RevokedProductEpoch(
+  active: LaneProductEpochActiveV1,
+  command: RevokeSigningLaneV1,
+): LaneProductEpochRevokedV1 {
+  return buildLaneProductEpochRevokedV1({
+    walletId: active.walletId,
+    walletKeyId: active.walletKeyId,
+    laneId: active.laneId,
+    laneKind: active.laneKind,
+    laneShareEpoch: active.laneShareEpoch,
+    keyFamily: active.keyFamily,
+    enrollmentId: active.enrollmentId,
+    operationId: active.operationId,
+    targetMaterialActivationId: active.targetMaterialActivationId,
+    materialActivation: active.materialActivation,
+    publicIdentityDigestB64u: active.publicIdentityDigestB64u,
+    holderParticipant: active.holderParticipant,
+    signingWorkerParticipant: active.signingWorkerParticipant,
+    participantSetBindingDigestB64u: active.participantSetBindingDigestB64u,
+    revocationEpoch: command.expectedRevocationEpoch + 1,
+    createdAtMs: active.createdAtMs,
+    revocationReason: command.reason,
+    retirementEffectBindingDigestB64u: command.retirementEffectBindingDigestB64u,
+    revocationReceiptDigestB64u: command.retirementRequestDigestB64u,
+    revokedAtMs: command.requestedAtMs,
   });
 }
 
