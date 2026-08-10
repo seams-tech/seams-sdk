@@ -278,7 +278,7 @@ export type LinkedDeviceReceiptAcknowledgementV1 = {
   readonly linkSessionId: LinkDeviceSessionId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
-  readonly receipt: LinkedDeviceEnrollmentChildReceiptV1;
+  readonly receipt: LinkedDeviceEnrollmentReceiptV1;
   readonly acknowledgedAtMs: number;
 };
 

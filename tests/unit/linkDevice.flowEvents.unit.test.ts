@@ -11,12 +11,18 @@ import type {
 import { DeviceLinkingErrorCode } from '@/core/types/linkDevice';
 import {
   buildActiveLinkedDeviceSessionState,
+  buildAwaitingTargetPasskeyLinkedDeviceSessionState,
+  buildCommittedCompletionRequiredLinkedDeviceSessionState,
   buildDisplayingQrLinkedDeviceSessionState,
   buildQrLinkedDeviceSessionPayloadV4,
   parseQrLinkedDeviceSessionPayloadV4,
 } from '../../packages/shared-ts/src/device-linking';
-import type { LinkedDeviceSessionState } from '../../packages/shared-ts/src/device-linking';
-import type { LinkedDeviceApprovalV1 } from '../../packages/shared-ts/src/device-linking';
+import type {
+  LinkedDeviceApprovalV1,
+  LinkedDeviceReceiptAcknowledgementV1,
+  LinkedDeviceSessionState,
+  LinkedDeviceSessionTransportEventV1,
+} from '../../packages/shared-ts/src/device-linking';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import { parseWebAuthnCredentialIdB64u } from '../../packages/shared-ts/src/utils/domainIds';
 
@@ -25,6 +31,8 @@ function createPorts(
   onApproval?: (approval: LinkedDeviceApprovalV1) => void,
   onTransportBind?: () => void,
   approvalResult?: (state: LinkedDeviceSessionState) => LinkedDeviceApprovalResultV1,
+  onSessionEventHandler?: (handler: (event: LinkedDeviceSessionTransportEventV1) => void) => void,
+  onReceiptAcknowledgement?: (acknowledgement: LinkedDeviceReceiptAcknowledgementV1) => void,
 ): DeviceLinkingFlowPortsV1 {
   const fixture = buildR103DeviceLinkFixture();
   const now = Date.now();
@@ -68,8 +76,9 @@ function createPorts(
     async registerTargetCredentialV1() {
       calls.push('credential');
     },
-    async acknowledgeReceiptV1() {
+    async acknowledgeReceiptV1(input) {
       calls.push('ack');
+      onReceiptAcknowledgement?.(input.acknowledgement);
     },
     async retryCommittedDeliveryV1() {
       calls.push('retry');
@@ -79,12 +88,19 @@ function createPorts(
     },
     async subscribeSessionV1(input) {
       calls.push('subscribe');
-      input.onEvent({
-        kind: 'linked_device_session_event_v1',
-        linkSessionId: payload.linkSessionId,
-        state,
-        emittedAtMs: now,
-      });
+      if (onSessionEventHandler) {
+        onSessionEventHandler((event) => {
+          state = event.state;
+          input.onEvent(event);
+        });
+      } else {
+        input.onEvent({
+          kind: 'linked_device_session_event_v1',
+          linkSessionId: payload.linkSessionId,
+          state,
+          emittedAtMs: now,
+        });
+      }
       return { close: () => undefined };
     },
   };
@@ -123,9 +139,44 @@ function createPorts(
       return {
         outcome: 'active',
         state,
-        manifestDigestB64u: input.approval.policyDigestB64u,
+        manifestDigestB64u: fixture.receipt.manifestDigestB64u,
         receipt: fixture.receipt,
       };
+    },
+    async getApprovalV1() {
+      calls.push('get-approval-owner');
+      return {
+        outcome: 'active',
+        state:
+          state.state === 'active'
+            ? state
+            : buildActiveLinkedDeviceSessionState({
+                linkSessionId: payload.linkSessionId,
+                walletId: fixture.approval.walletId,
+                enrollmentId: fixture.approval.enrollmentId,
+                activatedAtMs: now,
+              }),
+        manifestDigestB64u: fixture.receipt.manifestDigestB64u,
+        receipt: fixture.receipt,
+      };
+    },
+    async subscribeApprovalV1(input) {
+      calls.push('subscribe-approval');
+      const subscribedResult = approvalResult?.(state);
+      input.onResult(
+        subscribedResult ?? {
+          outcome: 'active',
+          state: buildActiveLinkedDeviceSessionState({
+            linkSessionId: payload.linkSessionId,
+            walletId: fixture.approval.walletId,
+            enrollmentId: fixture.approval.enrollmentId,
+            activatedAtMs: now,
+          }),
+          manifestDigestB64u: fixture.receipt.manifestDigestB64u,
+          receipt: fixture.receipt,
+        },
+      );
+      return { close: () => undefined };
     },
     createAuthenticatedSessionTransportV1() {
       calls.push('bind-transport');
@@ -247,10 +298,44 @@ test.describe('linked-device browser orchestration', () => {
     expect(result.success).toBe(true);
     if (!result.success) throw new Error('expected successful link approval');
     expect(result.enrollmentId).toBe(fixture.approval.enrollmentId);
+    expect(result.manifestDigestB64u).toBe(fixture.receipt.manifestDigestB64u);
     expect(calls).toEqual(['authenticate', 'claim', 'approve']);
     expect(events).toEqual(['started', 'succeeded']);
     expect(calls).not.toContain('keygen');
     expect(recordedApproval?.ownerAuthorization).toEqual(fixture.approval.ownerAuthorization);
+  });
+
+  test('Device 1 waits for pending approval through authenticated subscribe and poll', async () => {
+    const calls: string[] = [];
+    const fixture = buildR103DeviceLinkFixture();
+    const pendingState = buildAwaitingTargetPasskeyLinkedDeviceSessionState({
+      linkSessionId: fixture.approval.linkSessionId,
+      walletId: fixture.approval.walletId,
+      enrollmentId: fixture.approval.enrollmentId,
+      credentialDeadlineMs: Date.now() + 30_000,
+    });
+    const ports = createPorts(calls, undefined, undefined, () => ({
+      outcome: 'pending',
+      state: pendingState,
+    }));
+    const qrData = buildQrLinkedDeviceSessionPayloadV4({
+      linkSessionId: fixture.payload.linkSessionId,
+      linkPublicKeyB64u: fixture.payload.linkPublicKeyB64u,
+      devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
+      issuedAtMs: Date.now() - 1_000,
+      expiresAtMs: Date.now() + 60_000,
+    });
+
+    const result = await scanAndLinkDevice(undefined, qrData, {}, ports);
+
+    expect(result.success).toBe(true);
+    expect(calls).toEqual([
+      'authenticate',
+      'claim',
+      'approve',
+      'subscribe-approval',
+      'get-approval-owner',
+    ]);
   });
 
   test('Device 1 accepts a committed approval replay only with its receipt', async () => {
@@ -269,7 +354,7 @@ test.describe('linked-device browser orchestration', () => {
                 enrollmentId: fixture.approval.enrollmentId,
                 activatedAtMs: fixture.approval.approvedAtMs,
               }),
-        manifestDigestB64u: fixture.approval.policyDigestB64u,
+        manifestDigestB64u: fixture.receipt.manifestDigestB64u,
         receipt: fixture.receipt,
       },
     }));
@@ -286,6 +371,42 @@ test.describe('linked-device browser orchestration', () => {
     expect(result.success).toBe(true);
     if (!result.success) throw new Error('expected replayed approval success');
     expect(result.receipt).toEqual(fixture.receipt);
+  });
+
+  test('Device 2 retries committed delivery before acknowledging the full receipt', async () => {
+    const calls: string[] = [];
+    const fixture = buildR103DeviceLinkFixture();
+    let emitSessionEvent: ((event: LinkedDeviceSessionTransportEventV1) => void) | undefined;
+    let acknowledgement: LinkedDeviceReceiptAcknowledgementV1 | undefined;
+    const ports = createPorts(
+      calls,
+      undefined,
+      undefined,
+      undefined,
+      (handler) => {
+        emitSessionEvent = handler;
+      },
+      (value) => {
+        acknowledgement = value;
+      },
+    );
+    const flow = new LinkDeviceFlow(undefined, {}, ports);
+    const generated = await flow.generateQR();
+    emitSessionEvent?.({
+      kind: 'linked_device_session_event_v1',
+      linkSessionId: generated.qrData.linkSessionId,
+      state: buildCommittedCompletionRequiredLinkedDeviceSessionState({
+        linkSessionId: generated.qrData.linkSessionId,
+        walletId: fixture.approval.walletId,
+        enrollmentId: fixture.approval.enrollmentId,
+        transcriptSetDigestB64u: fixture.receipt.manifestDigestB64u,
+      }),
+      emittedAtMs: Date.now(),
+    });
+    await expect
+      .poll(() => calls.slice(-3), { timeout: 5_000 })
+      .toEqual(['retry', 'resume-delivery', 'ack']);
+    expect(acknowledgement?.receipt).toEqual(fixture.receipt);
   });
 
   test('strict QR validation rejects the superseded shape', () => {

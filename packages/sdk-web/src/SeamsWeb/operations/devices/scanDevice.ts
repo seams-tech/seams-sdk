@@ -14,8 +14,12 @@ import {
   LinkDeviceEventPhase,
   type CreateLinkDeviceFlowEventInput,
 } from '@/core/types/sdkSentEvents';
-import type { Device1LinkingFlowPortsV1 } from './deviceLinkingPorts';
-import type { LinkedDeviceApprovalResultV1 } from './deviceLinkingPorts';
+import type {
+  Device1LinkingFlowPortsV1,
+  LinkedDeviceApprovalResultV1,
+  LinkSessionOwnerTransportPortV1,
+  LinkSessionSubscriptionV1,
+} from './deviceLinkingPorts';
 import { errorMessage } from '@shared/utils/errors';
 
 const QR_CLOCK_SKEW_MS = 60 * 1000;
@@ -174,7 +178,13 @@ export async function scanAndLinkDevice(
       approval,
       authentication: owner.authentication,
     });
-    const activeApproval = requireActiveApprovalResult(recorded);
+    const activeApproval = await awaitActiveApprovalResult({
+      result: recorded,
+      transport: ports.transport,
+      linkSessionId: claim.linkSessionId,
+      authentication: owner.authentication,
+      expiresAtMs: Math.min(owner.expiresAtMs, claim.claimExpiresAtMs),
+    });
     const result: LinkDeviceResult = {
       success: true,
       walletId: claim.walletId,
@@ -210,35 +220,97 @@ export async function scanAndLinkDevice(
   }
 }
 
-function requireActiveApprovalResult(
+type ActiveApprovalResult = Extract<LinkedDeviceApprovalResultV1, { readonly outcome: 'active' }>;
+
+function activeApprovalFromResult(
   result: LinkedDeviceApprovalResultV1,
-): Extract<LinkedDeviceApprovalResultV1, { readonly outcome: 'active' }> {
+): ActiveApprovalResult | null {
   switch (result.outcome) {
     case 'active':
-      return result;
+      return {
+        ...result,
+        manifestDigestB64u: result.receipt.manifestDigestB64u,
+      };
     case 'pending':
-      throw new DeviceLinkingError(
-        'Device-link approval is pending target provisioning',
-        DeviceLinkingErrorCode.REGISTRATION_FAILED,
-        'registration',
-      );
+      return null;
     case 'replayed':
       if (result.replay.state === 'active') {
         return {
           outcome: 'active',
           state: result.replay.session,
-          manifestDigestB64u: result.replay.manifestDigestB64u,
+          manifestDigestB64u: result.replay.receipt.manifestDigestB64u,
           receipt: result.replay.receipt,
         };
       }
-      throw new DeviceLinkingError(
-        'Device-link approval replay is pending target provisioning',
-        DeviceLinkingErrorCode.REGISTRATION_FAILED,
-        'registration',
-      );
+      return null;
     default: {
       const exhaustive: never = result;
       throw new Error(`unsupported approval result: ${String(exhaustive)}`);
     }
   }
+}
+
+async function awaitActiveApprovalResult(input: {
+  readonly result: LinkedDeviceApprovalResultV1;
+  readonly transport: LinkSessionOwnerTransportPortV1;
+  readonly linkSessionId: QrLinkedDeviceSessionPayloadV4['linkSessionId'];
+  readonly authentication: Parameters<
+    LinkSessionOwnerTransportPortV1['getApprovalV1']
+  >[0]['authentication'];
+  readonly expiresAtMs: number;
+}): Promise<ActiveApprovalResult> {
+  const immediate = activeApprovalFromResult(input.result);
+  if (immediate) return immediate;
+
+  let resolveActive!: (result: ActiveApprovalResult) => void;
+  let rejectPending!: (error: Error) => void;
+  let settled = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const activeResult = new Promise<ActiveApprovalResult>((resolve, reject) => {
+    resolveActive = resolve;
+    rejectPending = reject;
+  });
+  const onApprovalResult = (result: LinkedDeviceApprovalResultV1): void => {
+    if (settled) return;
+    const active = activeApprovalFromResult(result);
+    if (active) {
+      settled = true;
+      resolveActive(active);
+    }
+  };
+  let subscription: LinkSessionSubscriptionV1 | null = null;
+  try {
+    subscription = await input.transport.subscribeApprovalV1({
+      linkSessionId: input.linkSessionId,
+      authentication: input.authentication,
+      onResult: onApprovalResult,
+    });
+    if (settled) return await activeResult;
+    const polled = await input.transport.getApprovalV1({
+      linkSessionId: input.linkSessionId,
+      authentication: input.authentication,
+    });
+    const polledActive = activeApprovalFromResult(polled);
+    if (polledActive) return polledActive;
+    const timeoutMs = input.expiresAtMs - Date.now();
+    if (timeoutMs <= 0) throw approvalWaitExpired();
+    timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      rejectPending(approvalWaitExpired());
+    }, timeoutMs);
+    return await activeResult;
+  } finally {
+    settled = true;
+    if (timer !== undefined) clearTimeout(timer);
+    await subscription?.close();
+  }
+}
+
+function approvalWaitExpired(): DeviceLinkingError {
+  return new DeviceLinkingError(
+    'Device-link approval expired before target provisioning completed',
+    DeviceLinkingErrorCode.SESSION_EXPIRED,
+    'registration',
+  );
 }

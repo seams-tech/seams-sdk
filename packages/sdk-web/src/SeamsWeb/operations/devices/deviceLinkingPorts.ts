@@ -69,7 +69,6 @@ type LinkedDeviceApprovalReplayV1 =
   | {
       readonly state: 'pending';
       readonly session: LinkedDevicePendingSessionState;
-      readonly manifestDigestB64u: DigestB64u;
     }
   | {
       readonly state: 'active';
@@ -82,7 +81,6 @@ export type LinkedDeviceApprovalResultV1 =
   | {
       readonly outcome: 'pending';
       readonly state: LinkedDevicePendingSessionState;
-      readonly manifestDigestB64u: DigestB64u;
     }
   | {
       readonly outcome: 'active';
@@ -148,6 +146,15 @@ export type LinkSessionOwnerTransportPortV1 = {
     readonly approval: LinkedDeviceApprovalV1;
     readonly authentication: LinkSessionAuthenticationV1;
   }): Promise<LinkedDeviceApprovalResultV1>;
+  getApprovalV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly authentication: LinkSessionAuthenticationV1;
+  }): Promise<LinkedDeviceApprovalResultV1>;
+  subscribeApprovalV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly authentication: LinkSessionAuthenticationV1;
+    readonly onResult: (result: LinkedDeviceApprovalResultV1) => void;
+  }): Promise<LinkSessionSubscriptionV1>;
 };
 
 export type LinkSessionTransportPortV1 = LinkSessionOwnerTransportPortV1 & {

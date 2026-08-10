@@ -1,5 +1,8 @@
 import type {
   LinkedDeviceApprovalV1,
+  LinkedDeviceEnrollmentChildReceiptV1,
+  LinkedDeviceEnrollmentReceiptV1,
+  LinkedDeviceReceiptAcknowledgementV1,
   LinkedDeviceRevokeResultV1,
   LinkedDeviceSummaryV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
@@ -42,6 +45,8 @@ declare const workerParticipantId: SigningWorkerParticipantId;
 declare const operationId: LaneOperationId;
 declare const idempotencyKey: LaneOperationIdempotencyKey;
 declare const digest: DigestB64u;
+declare const enrollmentReceipt: LinkedDeviceEnrollmentReceiptV1;
+declare const enrollmentChildReceipt: LinkedDeviceEnrollmentChildReceiptV1;
 declare const walletSessionId: WalletSessionId;
 declare const authorizationId: WalletSessionAuthorizationId;
 
@@ -160,6 +165,25 @@ const summary: LinkedDeviceSummaryV1 = {
   revocationEpoch: 0,
 };
 
+const validReceiptAcknowledgement: LinkedDeviceReceiptAcknowledgementV1 = {
+  kind: 'linked_device_receipt_acknowledgement_v1',
+  linkSessionId,
+  enrollmentId,
+  deviceId,
+  receipt: enrollmentReceipt,
+  acknowledgedAtMs: 3,
+};
+
+const invalidChildReceiptAcknowledgement: LinkedDeviceReceiptAcknowledgementV1 = {
+  kind: 'linked_device_receipt_acknowledgement_v1',
+  linkSessionId,
+  enrollmentId,
+  deviceId,
+  // @ts-expect-error acknowledgements cover the full aggregate enrollment receipt
+  receipt: enrollmentChildReceipt,
+  acknowledgedAtMs: 3,
+};
+
 const invalidSummaryState: LinkedDeviceSummaryV1 = {
   ...summary,
   // @ts-expect-error management projections have an exhaustive lifecycle
@@ -205,6 +229,8 @@ void invalidPermissionPresence;
 void invalidOwnerAuthorization;
 void invalidEmptyApprovalManifest;
 void summary;
+void validReceiptAcknowledgement;
+void invalidChildReceiptAcknowledgement;
 void invalidSummaryState;
 void invalidRevokeResult;
 void invalidUnclaimedCancel;
