@@ -78,7 +78,7 @@ test.describe('WalletIframeRouter connection teardown', () => {
           .executeAction({
             walletId: 'connection-closed-request.testnet',
             nearAccountId: 'connection-closed-request.testnet',
-            receiverId: 'w3a-v1.testnet',
+            receiverId: 'seams-v1.testnet',
             actionArgs: { type: 'Transfer', amount: '1' } as any,
             options: {},
           })
