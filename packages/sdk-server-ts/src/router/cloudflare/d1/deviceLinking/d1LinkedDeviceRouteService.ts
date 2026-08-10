@@ -59,12 +59,12 @@ export function createD1LinkedDeviceRouteServiceV1(
     claimSessionV1: sessionService.claimSessionV1.bind(sessionService),
     recordOwnerApprovalV1: sessionService.recordOwnerApprovalV1.bind(sessionService),
     cancelSessionV1: sessionService.cancelSessionV1.bind(sessionService),
-    // The route must obtain the persisted QR key before proof authentication.
-    // This lookup stays read-only; expiry projection follows authentication.
+    // A string input is the pre-proof, read-only QR lookup. Authenticated reads
+    // use the core service so expiry projection receives the request clock.
     getSessionV1: async (input) =>
-      await sessionStore.getSessionV1(
-        typeof input === 'string' ? input : input.linkSessionId,
-      ),
+      typeof input === 'string'
+        ? await sessionStore.getSessionV1(input)
+        : await sessionService.getSessionV1(input),
   };
   return {
     sessionService: routeSessionService,

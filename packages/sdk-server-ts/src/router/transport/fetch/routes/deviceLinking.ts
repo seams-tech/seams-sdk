@@ -13,7 +13,11 @@ import {
   parseQrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking/parsers';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
-import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
+import {
+  parseLinkDeviceSessionId,
+  type LinkedDeviceId,
+  type LinkDeviceSessionId,
+} from '@shared/signing-lanes/ids';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { sha256Bytes } from '@shared/utils/digests';
 import type {
@@ -386,11 +390,13 @@ async function authenticateDeviceForSession(
   nowMs: number,
 ): Promise<DeviceLinkingDeviceAuthenticatedContextV1> {
   const linkSessionId = parseBoundary(() => parseSessionId(rawLinkSessionId));
-  const session = await service.sessionService.getSessionV1({ linkSessionId, nowMs });
-  if (!session) return { kind: 'not_found' };
+  // Resolve the persisted QR key before proof verification. The string form is
+  // deliberately a raw read; expiry projection runs only after authentication.
+  const rawSession = await service.sessionService.getSessionV1(linkSessionId);
+  if (!rawSession) return { kind: 'not_found' };
   const bodyDigestB64u = await requestBodyDigest(ctx.request);
   const devicePublicKeyDigestB64u = await computeDevicePublicKeyDigestB64u(
-    session.qrPayload.devicePublicKeyB64u,
+    rawSession.qrPayload.devicePublicKeyB64u,
   );
   const requestProof = parseBoundary(() => parseRequestProofHeader(ctx.request));
   validateRequestProof(
@@ -408,7 +414,7 @@ async function authenticateDeviceForSession(
     pathname: ctx.pathname,
     linkSessionId: String(linkSessionId),
     bodyDigestB64u,
-    expectedDevicePublicKeyB64u: session.qrPayload.devicePublicKeyB64u,
+    expectedDevicePublicKeyB64u: rawSession.qrPayload.devicePublicKeyB64u,
     expectedDevicePublicKeyDigestB64u: devicePublicKeyDigestB64u,
     proof: requestProof,
     requestedAtMs: nowMs,
@@ -423,6 +429,8 @@ async function authenticateDeviceForSession(
     devicePublicKeyDigestB64u,
     nowMs,
   );
+  const session = await service.sessionService.getSessionV1({ linkSessionId, nowMs });
+  if (!session) return { kind: 'not_found' };
   return {
     kind: 'authorized',
     body: authentication.body,
@@ -485,16 +493,69 @@ function parseSessionId(raw: string): LinkDeviceSessionId {
   return parsed.value;
 }
 
-function projectSession(record: LinkedDeviceSessionRecordV1): Record<string, unknown> {
-  return {
+type DeviceLinkingSessionProjectionV1 = {
+  readonly kind: 'linked_device_session_projection_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly qrPayload: QrLinkedDeviceSessionPayloadV4;
+  readonly revision: number;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+} & (
+  | {
+      readonly state: UnclaimedDeviceLinkingSessionRecordV1['state'];
+      readonly deviceId?: never;
+    }
+  | {
+      readonly state: ClaimedDeviceLinkingSessionRecordV1['state'];
+      readonly deviceId: LinkedDeviceId;
+    }
+);
+
+type UnclaimedDeviceLinkingSessionRecordV1 = Extract<
+  LinkedDeviceSessionRecordV1,
+  {
+    readonly state: {
+      readonly state: 'displaying_qr' | 'expired_unclaimed' | 'cancelled_unclaimed';
+    };
+  }
+>;
+
+type ClaimedDeviceLinkingSessionRecordV1 = Exclude<
+  LinkedDeviceSessionRecordV1,
+  UnclaimedDeviceLinkingSessionRecordV1
+>;
+
+function projectSession(record: LinkedDeviceSessionRecordV1): DeviceLinkingSessionProjectionV1 {
+  const base = {
     kind: 'linked_device_session_projection_v1',
     linkSessionId: record.linkSessionId,
     qrPayload: record.qrPayload,
-    state: record.state,
     revision: record.revision,
     createdAtMs: record.createdAtMs,
     updatedAtMs: record.updatedAtMs,
+  } as const;
+  if (isUnclaimedSessionRecord(record)) {
+    return { ...base, state: record.state };
+  }
+  return {
+    ...base,
+    state: record.state,
+    deviceId: requireClaimedDeviceId(record),
   };
+}
+
+function isUnclaimedSessionRecord(
+  record: LinkedDeviceSessionRecordV1,
+): record is UnclaimedDeviceLinkingSessionRecordV1 {
+  return (
+    record.state.state === 'displaying_qr' ||
+    record.state.state === 'expired_unclaimed' ||
+    record.state.state === 'cancelled_unclaimed'
+  );
+}
+
+function requireClaimedDeviceId(record: ClaimedDeviceLinkingSessionRecordV1): LinkedDeviceId {
+  return record.claimTranscript.value.deviceId;
 }
 
 function sessionProjectionResponse(record: LinkedDeviceSessionRecordV1, outcome: 'applied' | 'replayed'): Response {
