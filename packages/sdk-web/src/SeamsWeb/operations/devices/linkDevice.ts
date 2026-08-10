@@ -100,6 +100,7 @@ export class LinkDeviceFlow {
   private subscription: LinkSessionSubscriptionV1 | null = null;
   private error?: Error;
   private cancelled = false;
+  private keyMaterialDiscarded = false;
   private readonly handledStates = new Set<LinkedDeviceSessionState['state']>();
 
   constructor(
@@ -116,6 +117,7 @@ export class LinkDeviceFlow {
     if (this.session && !this.cancelled) throw new Error('Device-link QR flow is already running');
     const ports = this.ports;
     this.cancelled = false;
+    this.keyMaterialDiscarded = false;
     this.error = undefined;
     this.emit({
       phase: LinkDeviceEventPhase.STEP_01_QR_PREPARE_STARTED,
@@ -177,6 +179,7 @@ export class LinkDeviceFlow {
       await this.options.options?.afterCall?.(true, result);
       return result;
     } catch (error: unknown) {
+      await this.discardKeyMaterial();
       const failure = errorForFailure(error, 'generation');
       this.error = failure;
       this.emitFailure(failure, 'generation');
@@ -265,6 +268,7 @@ export class LinkDeviceFlow {
       } finally {
         await this.subscription?.close();
         this.subscription = null;
+        await this.discardKeyMaterial();
       }
     }
     this.emit({
@@ -279,6 +283,7 @@ export class LinkDeviceFlow {
     void this.subscription?.close();
     this.subscription = null;
     this.session = null;
+    void this.discardKeyMaterial();
     this.keyMaterialHandle = null;
     this.authenticatedTransport = null;
     this.error = undefined;
@@ -349,6 +354,7 @@ export class LinkDeviceFlow {
           data: { role: 'display' },
           interaction: { kind: 'qr_display', overlay: 'hide' },
         });
+        await this.discardKeyMaterial();
         return;
       case 'expired_unclaimed':
       case 'expired_claimed': {
@@ -446,6 +452,13 @@ export class LinkDeviceFlow {
       );
     }
     return this.authenticatedTransport;
+  }
+
+  private async discardKeyMaterial(): Promise<void> {
+    const handle = this.keyMaterialHandle;
+    if (!handle || this.keyMaterialDiscarded) return;
+    this.keyMaterialDiscarded = true;
+    await this.ports.keyMaterial.discardKeyMaterialV1({ handle }).catch(() => undefined);
   }
 
   private emitFailure(error: DeviceLinkingError, phase: DeviceLinkingError['phase']): void {

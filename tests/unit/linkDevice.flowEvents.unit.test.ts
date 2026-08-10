@@ -195,6 +195,9 @@ function createPorts(
           devicePublicKeyB64u: payload.devicePublicKeyB64u,
         };
       },
+      async discardKeyMaterialV1() {
+        calls.push('key-discard');
+      },
       async signDeviceSessionRequestV1() {
         return { signatureB64u: 'test-signature' };
       },
@@ -270,7 +273,14 @@ test.describe('linked-device browser orchestration', () => {
     await flow.generateQR();
     await flow.cancel();
 
-    expect(calls).toEqual(['keygen', 'bind-transport', 'create', 'subscribe', 'cancel']);
+    expect(calls).toEqual([
+      'keygen',
+      'bind-transport',
+      'create',
+      'subscribe',
+      'cancel',
+      'key-discard',
+    ]);
   });
 
   test('Device 1 authenticates once, claims, and approves the exact manifest', async () => {
