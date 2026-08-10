@@ -91,11 +91,11 @@ test.describe('Wallet iframe overlay specs on cancel', () => {
             return pred();
           };
 
-          const parentAccountId = String(cfg.relayerAccount || 'w3a-v1.testnet')
+          const parentAccountId = String(cfg.relayerAccount || 'seams-v1.testnet')
             .trim()
             .replace(/^\./, '');
           const nearAccountId = `e2etest${Date.now()}.${parentAccountId}`;
-          const receiverId = cfg.testReceiverAccountId || 'w3a-v1.testnet';
+          const receiverId = cfg.testReceiverAccountId || 'seams-v1.testnet';
 
           const events: Record<string, any[]> = {};
           const registrationSignerSet = {
