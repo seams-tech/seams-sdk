@@ -1,9 +1,11 @@
 import type {
+  Ed25519YaoLaneClientCompletionV1,
   Ed25519YaoLaneJobV1,
   LaneProtocolCommitReceiptV1,
   WasmEd25519YaoLaneClientV1,
 } from '@shared/signing-lanes/rotation';
 import {
+  parseLaneHolderPackageWireV1,
   parseLaneProtocolCommitReceiptV1,
   parseRotatableSigningLaneJobV1,
 } from '@shared/signing-lanes/rotationParsers';
@@ -50,15 +52,19 @@ export async function prepareEd25519YaoLaneV1(
 export async function completeEd25519YaoLaneV1(
   wasm: WasmEd25519YaoLaneClientV1,
   input: { readonly job: unknown; readonly responseJson: unknown },
-): Promise<LaneProtocolCommitReceiptV1> {
+): Promise<Ed25519YaoLaneClientCompletionV1> {
   const job = parseEdJob(input.job);
-  const receipt = await wasm.complete({
+  const completion = await wasm.complete({
     job,
     responseJson: responseJson(input.responseJson),
   });
-  const parsed = parseCommitReceipt(receipt);
-  assertReceiptJobIdentity(parsed, job);
-  return parsed;
+  const receipt = parseCommitReceipt(completion.protocolCommitReceipt);
+  const holderPackage = parseLaneHolderPackageWireV1(completion.holderPackage);
+  if (holderPackage.kind !== 'ed25519_yao_lane_holder_package_set_v1') {
+    throw new Error('Yao lane completion returned the wrong holder package family');
+  }
+  assertReceiptJobIdentity(receipt, job);
+  return { protocolCommitReceipt: receipt, holderPackage };
 }
 
 function assertReceiptJobIdentity(
