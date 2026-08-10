@@ -154,8 +154,6 @@ test.describe('threshold ECDSA derivation WASM surface', () => {
       'finalize_ecdsa_client_bootstrap_v1',
       'open_ecdsa_role_local_signing_share_v1',
       'routerabecdsaclientceremonyv1_finalize_registration_client_bootstrap',
-      'routerabecdsaclientceremonyv1_finalize_recovery_client_bootstrap',
-      'routerabecdsaclientceremonyv1_recovery_transcript_digest_b64u',
     ]) {
       expect(forbidden in exportClientExports, forbidden).toBe(false);
     }

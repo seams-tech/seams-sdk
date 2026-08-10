@@ -4,10 +4,7 @@ import { unknownWebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDe
 import { alphabetizeStringify } from '@shared/utils/digests';
 import type { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 import type { CloudflareD1WalletCustodyCommitStore } from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
-import type {
-  WalletRecoveryAuthenticatorCommit,
-  WalletRecoveryEcdsaSignerPromotionCommit,
-} from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
+import type { WalletRecoveryAuthenticatorCommit } from '../../cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
 import type { CloudflareD1WebAuthnStore } from '../../cloudflare/d1/webauthn/d1WebAuthnStore';
 import type { D1WalletStore } from '../../../core/d1WalletStore';
 import type { WalletEcdsaSignerRecord } from '../../../core/WalletStore';
@@ -22,10 +19,7 @@ import {
 } from '@shared/wallet-recovery/recoveryCodeReservation';
 import type { WalletRecoveryEnvelopeSetRecord } from '@shared/wallet-recovery';
 import type { WalletId } from '@shared/utils/domainIds';
-import type {
-  WalletRecoveryActivationVerification,
-  WalletRecoveryEcdsaSignerPromotionV1,
-} from './walletRecoveryKeyManifest';
+import type { WalletRecoveryActivationVerification } from './walletRecoveryKeyManifest';
 
 /**
  * Promoting the replacement credential a recovery enrolled.
@@ -259,10 +253,6 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
     replacementEnvelope: input.replacementEnvelope,
     reservationId: input.reservationId,
     authenticatorCommit,
-    ecdsaPromotions: buildEcdsaRecoveryPromotionCommits({
-      promotions: input.activationVerification.ecdsaPromotions,
-      nowMs: input.nowMs,
-    }),
   });
   if (committed.kind === 'conflict') {
     return { kind: 'conflict', reason: 'the recovery state changed during finalization' };
@@ -664,30 +654,4 @@ function buildRecoveryAuthenticatorCommit(input: {
     binding,
     challengeDeleteStatement: input.challengeDeleteStatement,
   };
-}
-
-function buildEcdsaRecoveryPromotionCommits(input: {
-  readonly promotions: readonly WalletRecoveryEcdsaSignerPromotionV1[];
-  readonly nowMs: number;
-}): readonly WalletRecoveryEcdsaSignerPromotionCommit[] {
-  const commits: WalletRecoveryEcdsaSignerPromotionCommit[] = [];
-  for (const promotion of input.promotions) {
-    for (const current of promotion.currentSigners) {
-      commits.push({
-        current,
-        next: {
-          ...current,
-          walletKey: {
-            ...current.walletKey,
-            publicCapability: promotion.nextPublicCapability,
-          },
-          activationReceipt: promotion.nextActivationReceipt,
-          updatedAtMs: input.nowMs,
-        },
-        recovery: promotion.recovery,
-        refresh: promotion.refresh,
-      });
-    }
-  }
-  return commits;
 }

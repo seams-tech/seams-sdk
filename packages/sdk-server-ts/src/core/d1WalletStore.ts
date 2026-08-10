@@ -354,9 +354,7 @@ export function parseWalletEd25519SignerRecord(raw: unknown): WalletEd25519Signe
   const keyVersion = toOptionalTrimmedString(raw.keyVersion);
   const signingRootId = toOptionalTrimmedString(raw.signingRootId);
   const signingRootVersion = toOptionalTrimmedString(raw.signingRootVersion);
-  const custodyKeyManifestDigestB64u = toOptionalTrimmedString(
-    raw.custodyKeyManifestDigestB64u,
-  );
+  const custodyKeyManifestDigestB64u = toOptionalTrimmedString(raw.custodyKeyManifestDigestB64u);
   const signerSlot = Math.floor(Number(raw.signerSlot));
   const createdAtMs = normalizeTimestampMs(raw.createdAtMs);
   const updatedAtMs = normalizeTimestampMs(raw.updatedAtMs);
@@ -570,92 +568,6 @@ export function prepareD1WalletPutSignerStatement(input: {
       JSON.stringify(parsed),
       parsed.createdAtMs,
       parsed.updatedAtMs,
-    );
-}
-
-/**
- * Compare-and-swap an ECDSA signer row during recovery promotion. The row's
- * complete parsed JSON is part of the predicate, so a concurrent activation
- * or identity change aborts the surrounding custody transaction.
- */
-export function prepareD1WalletPromoteEcdsaSignerStatement(input: {
-  readonly database: D1DatabaseLike;
-  readonly scope: D1WalletStoreScope;
-  readonly current: WalletEcdsaSignerRecord;
-  readonly next: WalletEcdsaSignerRecord;
-}): D1PreparedStatementLike {
-  const current = parseWalletEcdsaSignerRecord(input.current);
-  const next = parseWalletEcdsaSignerRecord(input.next);
-  if (!current || !next) throw new Error('Invalid ECDSA signer promotion record');
-  if (
-    current.walletId !== next.walletId ||
-    current.signerId !== next.signerId ||
-    current.chainTargetKey !== next.chainTargetKey ||
-    current.walletKey.keyHandle !== next.walletKey.keyHandle ||
-    current.walletKey.ecdsaThresholdKeyId !== next.walletKey.ecdsaThresholdKeyId ||
-    current.walletKey.signingRootId !== next.walletKey.signingRootId ||
-    current.walletKey.signingRootVersion !== next.walletKey.signingRootVersion ||
-    alphabetizeStringify(current.chainTarget) !== alphabetizeStringify(next.chainTarget)
-  ) {
-    throw new Error('ECDSA signer promotion changed stable key identity');
-  }
-  return input.database
-    .prepare(
-      `UPDATE wallet_signers
-          SET record_json = ?,
-              updated_at_ms = ?
-        WHERE namespace = ?
-          AND org_id = ?
-          AND project_id = ?
-          AND env_id = ?
-          AND wallet_id = ?
-          AND signer_family = 'ecdsa'
-          AND signer_id = ?
-          AND chain_target_key = ?
-          AND record_json = ?`,
-    )
-    .bind(
-      JSON.stringify(next),
-      next.updatedAtMs,
-      input.scope.namespace,
-      input.scope.orgId,
-      input.scope.projectId,
-      input.scope.envId,
-      next.walletId,
-      next.signerId,
-      next.chainTargetKey,
-      JSON.stringify(current),
-    );
-}
-
-export function prepareD1WalletDeleteEcdsaPendingSessionActivationStatement(input: {
-  readonly database: D1DatabaseLike;
-  readonly scope: D1WalletStoreScope;
-  readonly record: WalletEcdsaPendingSessionActivationRecord;
-}): D1PreparedStatementLike {
-  const parsed = parseWalletEcdsaPendingSessionActivationRecord(input.record);
-  if (!parsed) throw new Error('Invalid ECDSA pending activation record');
-  return input.database
-    .prepare(
-      `DELETE FROM wallet_ecdsa_pending_session_activations
-        WHERE namespace = ?
-          AND org_id = ?
-          AND project_id = ?
-          AND env_id = ?
-          AND wallet_id = ?
-          AND lifecycle_id = ?
-          AND request_id = ?
-          AND record_json = ?`,
-    )
-    .bind(
-      input.scope.namespace,
-      input.scope.orgId,
-      input.scope.projectId,
-      input.scope.envId,
-      parsed.walletId,
-      parsed.lifecycleId,
-      parsed.requestId,
-      JSON.stringify(parsed),
     );
 }
 
@@ -1051,98 +963,6 @@ export class D1WalletStore implements WalletStore {
         record.expiresAtMs,
       )
       .run();
-  }
-
-  async takeEcdsaPendingSessionActivationPair(input: {
-    walletId: WalletId;
-    recovery: { readonly lifecycleId: string; readonly requestId: string };
-    refresh: { readonly lifecycleId: string; readonly requestId: string };
-  }): Promise<{
-    readonly recovery: Extract<
-      WalletEcdsaPendingSessionActivationRecord,
-      { readonly operation: 'recovery' }
-    >;
-    readonly refresh: Extract<
-      WalletEcdsaPendingSessionActivationRecord,
-      { readonly operation: 'refresh' }
-    >;
-  } | null> {
-    await this.ensureSchema();
-    const result = await this.database
-      .prepare(
-        `DELETE FROM wallet_ecdsa_pending_session_activations
-          WHERE namespace = ?
-            AND org_id = ?
-            AND project_id = ?
-            AND env_id = ?
-            AND wallet_id = ?
-            AND (
-              (lifecycle_id = ? AND request_id = ?)
-              OR
-              (lifecycle_id = ? AND request_id = ?)
-            )
-            AND 2 = (
-              SELECT COUNT(*)
-                FROM wallet_ecdsa_pending_session_activations AS pending
-               WHERE pending.namespace = ?
-                 AND pending.org_id = ?
-                 AND pending.project_id = ?
-                 AND pending.env_id = ?
-                 AND pending.wallet_id = ?
-                 AND (
-                   (pending.lifecycle_id = ? AND pending.request_id = ?)
-                   OR
-                   (pending.lifecycle_id = ? AND pending.request_id = ?)
-                 )
-            )
-          RETURNING record_json`,
-      )
-      .bind(
-        this.scope.namespace,
-        this.scope.orgId,
-        this.scope.projectId,
-        this.scope.envId,
-        input.walletId,
-        input.recovery.lifecycleId,
-        input.recovery.requestId,
-        input.refresh.lifecycleId,
-        input.refresh.requestId,
-        this.scope.namespace,
-        this.scope.orgId,
-        this.scope.projectId,
-        this.scope.envId,
-        input.walletId,
-        input.recovery.lifecycleId,
-        input.recovery.requestId,
-        input.refresh.lifecycleId,
-        input.refresh.requestId,
-      )
-      .all<D1WalletRow>();
-    const records = (result.results || [])
-      .map((row) =>
-        parseWalletEcdsaPendingSessionActivationRecord(parseD1JsonColumn(row.record_json)),
-      )
-      .filter(
-        (record): record is WalletEcdsaPendingSessionActivationRecord =>
-          record !== null && record.expiresAtMs > Date.now(),
-      );
-    const recovery = records.find(
-      (
-        record,
-      ): record is Extract<
-        WalletEcdsaPendingSessionActivationRecord,
-        { readonly operation: 'recovery' }
-      > => record.operation === 'recovery',
-    );
-    const refresh = records.find(
-      (
-        record,
-      ): record is Extract<
-        WalletEcdsaPendingSessionActivationRecord,
-        { readonly operation: 'refresh' }
-      > => record.operation === 'refresh',
-    );
-    return records.length === 2 && recovery && refresh ? { recovery, refresh } : null;
   }
 
   async getEd25519Signer(input: {

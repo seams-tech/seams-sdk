@@ -357,7 +357,10 @@ function checkRegistrationProofVerificationInitializesBothWasmOwners() {
   );
   const nextReturn = source.indexOf('      return;', verifyCase);
   assert.ok(verifyCase >= 0, 'registration proof verification operation is missing');
-  assert.ok(nextReturn > verifyCase, 'registration proof verification initialization is incomplete');
+  assert.ok(
+    nextReturn > verifyCase,
+    'registration proof verification initialization is incomplete',
+  );
   const initializationBlock = source.slice(verifyCase, nextReturn);
   assert.ok(
     initializationBlock.includes('initializeEcdsaDerivationClientWasm()'),
@@ -935,7 +938,6 @@ function checkGeneratedEcdsaRegistrationClientArtifactSurface() {
     'build_ecdsa_role_local_export_artifact_v1',
     'RouterAbEcdsaClientCeremonyV1',
     'build_explicit_export_request',
-    'build_recovery_request',
     'build_activation_refresh_request',
   ]) {
     assert.equal(

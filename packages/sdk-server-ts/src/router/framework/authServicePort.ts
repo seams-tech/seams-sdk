@@ -136,9 +136,7 @@ import type {
   RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1,
   RouterAbEcdsaDerivationActivationRefreshRequestV1,
   RouterAbEcdsaDerivationNormalSigningStateV1,
-  RouterAbEcdsaDerivationRecoveryRequestV1,
   RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
-  RouterAbEcdsaStrictForwardedRegistrationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
   ActiveAuthorizationSession,
@@ -1131,19 +1129,11 @@ export interface RouterApiWalletRegistrationService {
   provisionEd25519YaoWalletSession(
     input: RouterAbEd25519YaoVerifiedWalletUnlockRequestV1,
   ): Promise<RouterAbEd25519YaoVerifiedWalletUnlockResponseV1>;
-  recordEcdsaPostRegistrationProof(
-    input:
-      | {
-          readonly operation: 'recovery';
-          readonly request: RouterAbEcdsaDerivationRecoveryRequestV1;
-          readonly response: RouterAbEcdsaStrictForwardedRegistrationResponseV1;
-        }
-      | {
-          readonly operation: 'refresh';
-          readonly request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
-          readonly response: RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1;
-        },
-  ): Promise<
+  recordEcdsaPostRegistrationProof(input: {
+    readonly operation: 'refresh';
+    readonly request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
+    readonly response: RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1;
+  }): Promise<
     { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string }
   >;
   activateEcdsaPostRegistrationSession(

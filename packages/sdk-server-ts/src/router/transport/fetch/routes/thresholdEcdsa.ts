@@ -20,7 +20,6 @@ import {
   parseRouterAbEcdsaDerivationActivationRefreshCommitRequestV1,
   parseRouterAbEcdsaDerivationExplicitExportRequestV1,
   parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
-  parseRouterAbEcdsaDerivationRecoveryRequestV1,
   parseRouterAbEcdsaOperationStepUpAuthorizationRequestV1,
   parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
   parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
@@ -33,19 +32,16 @@ import {
   ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_PATH,
   ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH,
   ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH,
-  ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH,
   ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH,
   ROUTER_AB_ECDSA_DERIVATION_SESSION_ACTIVATION_PATH,
   type RouterAbEcdsaDerivationActivationRefreshCommitRequestV1,
   type RouterAbEcdsaDerivationActivationRefreshRequestV1,
   type RouterAbEcdsaDerivationExplicitExportRequestV1,
-  type RouterAbEcdsaDerivationRecoveryRequestV1,
   type RouterAbEcdsaOperationStepUpAuthorizationRequestV1Wire,
   type RouterAbEcdsaOperationStepUpPreparationV1Wire,
   type RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire,
   type RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire,
   type RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
-  type RouterAbEcdsaDerivationPublicCapabilityV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   authenticateRouterAbOperationStepUpAppSessionIdentity,
@@ -72,7 +68,8 @@ import type {
 } from '../../../../core/types';
 import type {
   RouterAbEcdsaStrictPostRegistrationPort,
-  RouterAbEcdsaStrictPostRegistrationResult,
+  RouterAbEcdsaStrictExportResult,
+  RouterAbEcdsaStrictRefreshResult,
   RouterAbEcdsaStrictExportAuthority,
   RouterAbEcdsaStrictRegistrationAuthority,
 } from '../../../domains/ecdsa/routerAbEcdsaStrictRegistration';
@@ -128,7 +125,6 @@ import {
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { parseEmailOtpChallengeId } from '@shared/utils/domainIds';
-import { parseRecoveryCodeReservationId } from '@shared/wallet-recovery/recoveryCodeReservation';
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
@@ -625,9 +621,7 @@ async function issueEcdsaOperationStepUpAuthorization(input: {
     parseAuthorizationEvidenceSetId(`ecdsa-step-up-evidence-set:${requestId}`),
   );
   const expiresAtMs = Math.min(operation.expires_at_ms, authenticated.expiresAtMs);
-  let emailOtpUnseal:
-    | { readonly grant: string; readonly challengeId: string }
-    | undefined;
+  let emailOtpUnseal: { readonly grant: string; readonly challengeId: string } | undefined;
   let factor!: VerifiedAuthorizationFactorResult;
   switch (proof.kind) {
     case 'passkey': {
@@ -1279,11 +1273,6 @@ type StrictEcdsaPostRegistrationRequest =
       readonly requestDigestB64u: string;
     }
   | {
-      readonly kind: 'recovery';
-      readonly request: RouterAbEcdsaDerivationRecoveryRequestV1;
-      readonly requestDigestB64u: string;
-    }
-  | {
       readonly kind: 'refresh';
       readonly command: RouterAbEcdsaDerivationActivationRefreshCommitRequestV1;
       readonly request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
@@ -1302,14 +1291,6 @@ type StrictEcdsaPostRegistrationAuthorization =
       readonly message: string;
     }
   | WalletSessionBoundaryFailure;
-
-type WalletRecoveryEcdsaAuthorizationClaims = {
-  readonly walletId: string;
-  readonly reservationId: string;
-  readonly keySetId: string;
-  readonly lifecycleId: string;
-  readonly expiresAtMs: number;
-};
 
 type StrictEcdsaAuthorizationClaims = {
   readonly appSessionClaims: NonNullable<ReturnType<typeof parseAppSessionClaims>> | null;
@@ -1437,14 +1418,6 @@ function parseStrictEcdsaPostRegistrationRequest(
         requestDigestB64u: envelope.requestDigestB64u,
       };
     }
-    case ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH: {
-      const envelope = parseStrictEcdsaRequestDigestEnvelope(body, 'recovery');
-      return {
-        kind: 'recovery',
-        request: parseRouterAbEcdsaDerivationRecoveryRequestV1(envelope.request),
-        requestDigestB64u: envelope.requestDigestB64u,
-      };
-    }
     case ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH: {
       const envelope = parseStrictEcdsaRequestDigestEnvelope(body, 'refresh');
       const command = parseRouterAbEcdsaDerivationActivationRefreshCommitRequestV1(
@@ -1514,14 +1487,6 @@ async function authorizeStrictEcdsaPostRegistrationRequest(input: {
   if (!parsedSession.ok) {
     return parsedSession;
   }
-  const recoveryClaims = parseWalletRecoveryEcdsaAuthorizationClaims(parsedSession.claims);
-  if (recoveryClaims) {
-    return await authorizeWalletRecoveryEcdsaPostRegistrationRequest({
-      ctx: input.ctx,
-      request: input.request,
-      claims: recoveryClaims,
-    });
-  }
   const resolvedClaims = await resolveStrictEcdsaAuthorizationClaims({
     ctx: input.ctx,
     rawClaims: parsedSession.claims,
@@ -1574,138 +1539,6 @@ async function authorizeStrictEcdsaPostRegistrationRequest(input: {
     }
   }
   return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.scopeMismatch);
-}
-
-function parseWalletRecoveryEcdsaAuthorizationClaims(
-  claims: Record<string, unknown>,
-): WalletRecoveryEcdsaAuthorizationClaims | null {
-  if (claims.kind !== 'router_ab_ecdsa_wallet_recovery_authorization_v1') return null;
-  const walletId = typeof claims.walletId === 'string' ? claims.walletId.trim() : '';
-  const reservationId = typeof claims.reservationId === 'string' ? claims.reservationId.trim() : '';
-  const keySetId = typeof claims.keySetId === 'string' ? claims.keySetId.trim() : '';
-  const lifecycleId = typeof claims.lifecycleId === 'string' ? claims.lifecycleId.trim() : '';
-  const expiresAtMs = Number(claims.exp) * 1000;
-  try {
-    parseRecoveryCodeReservationId(reservationId);
-  } catch {
-    return null;
-  }
-  if (
-    !walletId ||
-    !keySetId ||
-    !lifecycleId ||
-    !Number.isSafeInteger(expiresAtMs) ||
-    expiresAtMs <= Date.now()
-  ) {
-    return null;
-  }
-  return { walletId, reservationId, keySetId, lifecycleId, expiresAtMs };
-}
-
-async function authorizeWalletRecoveryEcdsaPostRegistrationRequest(input: {
-  readonly ctx: FetchRouterApiContext;
-  readonly request: StrictEcdsaPostRegistrationRequest;
-  readonly claims: WalletRecoveryEcdsaAuthorizationClaims;
-}): Promise<StrictEcdsaPostRegistrationAuthorization> {
-  if (input.request.kind === 'export') {
-    return {
-      ok: false,
-      code: 'unauthorized',
-      message: 'wallet recovery authorization cannot authorize ECDSA export',
-    };
-  }
-  const request = input.request.request;
-  const operation = input.request.kind === 'refresh' ? 'refresh' : 'recovery';
-  if (
-    request.client_id !== input.claims.walletId ||
-    request.lifecycle.lifecycle_id !== input.claims.lifecycleId ||
-    request.expires_at_ms > input.claims.expiresAtMs
-  ) {
-    return {
-      ok: false,
-      code: 'identity_mismatch',
-      message: 'wallet recovery authorization is not bound to this ECDSA lifecycle',
-    };
-  }
-  const expectedDigest = base64UrlEncode(
-    await sha256BytesUtf8(
-      alphabetizeStringify({
-        domain: 'seams/wallet-recovery/ecdsa-authorization/v1',
-        reservationId: input.claims.reservationId,
-        keySetId: input.claims.keySetId,
-        operation,
-      }),
-    ),
-  );
-  const suppliedDigest =
-    input.request.kind === 'refresh'
-      ? input.request.request.refresh_authorization_digest_b64u
-      : input.request.request.recovery_authorization_digest_b64u;
-  if (suppliedDigest !== expectedDigest) {
-    return {
-      ok: false,
-      code: 'identity_mismatch',
-      message: 'wallet recovery authorization digest is invalid',
-    };
-  }
-  if (!input.ctx.service.walletRegistration?.listWalletEcdsaCustodyContinuity) {
-    return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.unavailable);
-  }
-  let signers;
-  try {
-    signers = await input.ctx.service.walletRegistration.listWalletEcdsaCustodyContinuity({
-      walletId: input.claims.walletId,
-    });
-  } catch {
-    return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.unavailable);
-  }
-  const matching = signers.filter(
-    (signer) => `evm_family_ecdsa:${signer.walletKey.keyHandle}` === input.claims.keySetId,
-  );
-  if (
-    matching.length === 0 ||
-    matching.some(
-      (signer) =>
-        !ecdsaRecoveryRequestMatchesCapability({
-          request,
-          capability: signer.walletKey.publicCapability,
-        }),
-    )
-  ) {
-    return {
-      ok: false,
-      code: 'identity_mismatch',
-      message: 'wallet recovery authorization does not match active ECDSA custody',
-    };
-  }
-  return {
-    ok: true,
-    authority: strictEcdsaPostRegistrationRequestAuthority(input.request),
-    ecdsaClaims: null,
-  };
-}
-
-function ecdsaRecoveryRequestMatchesCapability(input: {
-  readonly request:
-    | RouterAbEcdsaDerivationRecoveryRequestV1
-    | RouterAbEcdsaDerivationActivationRefreshRequestV1;
-  readonly capability: RouterAbEcdsaDerivationPublicCapabilityV1;
-}): boolean {
-  const currentEpoch =
-    'previous_activation_epoch' in input.request
-      ? input.request.previous_activation_epoch
-      : input.request.lifecycle.root_share_epoch;
-  return (
-    alphabetizeStringify(input.capability.context) === alphabetizeStringify(input.request.context) &&
-    alphabetizeStringify(input.capability.public_identity) ===
-      alphabetizeStringify(input.request.public_identity) &&
-    alphabetizeStringify(input.capability.signer_set) ===
-      alphabetizeStringify(input.request.signer_set) &&
-    input.capability.router_id === input.request.router_id &&
-    input.capability.client_id === input.request.client_id &&
-    alphabetizeStringify(input.capability.activation_epoch) ===
-      alphabetizeStringify(currentEpoch)
-  );
 }
 
 async function handleStrictEcdsaPostRegistrationRoute(input: {
@@ -1767,23 +1600,6 @@ async function handleStrictEcdsaPostRegistrationRoute(input: {
         authority: exportAuthorization.authority,
       });
       if (!result.ok) return strictPostRegistrationFailureResponse(result);
-      return json(result.value, { status: 200 });
-    }
-    case 'recovery': {
-      const result = await input.port.recover({
-        request: parsed.request,
-        requestDigestB64u: parsed.requestDigestB64u,
-        authority: authorized.authority,
-      });
-      if (!result.ok) return strictPostRegistrationFailureResponse(result);
-      const recorded = await input.ctx.service.walletRegistration.recordEcdsaPostRegistrationProof({
-        operation: 'recovery',
-        request: parsed.request,
-        response: result.value,
-      });
-      if (!recorded.ok) {
-        return json(recorded, { status: recorded.code === 'internal' ? 500 : 400 });
-      }
       return json(result.value, { status: 200 });
     }
     case 'refresh': {
@@ -2224,7 +2040,10 @@ async function authorizeStrictEcdsaExport(input: {
 }
 
 function strictPostRegistrationFailureResponse(
-  result: Extract<RouterAbEcdsaStrictPostRegistrationResult, { readonly ok: false }>,
+  result: Extract<
+    RouterAbEcdsaStrictExportResult | RouterAbEcdsaStrictRefreshResult,
+    { readonly ok: false }
+  >,
 ): Response {
   return json(
     {
@@ -2706,9 +2525,7 @@ export async function handleStrictEcdsaSessionActivation(
   );
 }
 
-export async function handleThresholdEcdsa(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
+export async function handleThresholdEcdsa(ctx: FetchRouterApiContext): Promise<Response | null> {
   if (ctx.method === 'GET' && ctx.pathname === ROUTER_AB_ECDSA_DERIVATION_HEALTH_PATH) {
     const runtime = ctx.service.thresholdRuntime.getRouterAbEcdsaPresignRuntime();
     if (!runtime) {
@@ -2731,7 +2548,6 @@ export async function handleThresholdEcdsa(
   const pathname = ctx.pathname;
   if (
     pathname !== ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH &&
-    pathname !== ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH &&
     pathname !== ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH &&
     pathname !== ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PATH &&
     pathname !== ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_PATH &&
@@ -2769,7 +2585,6 @@ export async function handleThresholdEcdsa(
   }
   if (
     pathname === ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH ||
-    pathname === ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH ||
     pathname === ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH
   ) {
     return handleStrictEcdsaPostRegistrationRoute({

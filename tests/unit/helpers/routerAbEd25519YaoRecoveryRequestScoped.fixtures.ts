@@ -272,8 +272,10 @@ export async function buildSecondRouterAbEd25519YaoRecoveryRequestScopedFixture(
   return recoveryFixture(SECONDARY_IDENTITY, store);
 }
 
-export function buildRouterAbEd25519YaoCapabilityReplacementFixture(): RouterAbEd25519YaoCapabilityReplacementFixture {
-  return capabilityReplacementFixture(PRIMARY_IDENTITY);
+export function buildRouterAbEd25519YaoCapabilityReplacementFixture(
+  lifecycleId: string = PRIMARY_IDENTITY.lifecycleId,
+): RouterAbEd25519YaoCapabilityReplacementFixture {
+  return capabilityReplacementFixture({ ...PRIMARY_IDENTITY, lifecycleId });
 }
 
 function capabilityReplacementFixture(
