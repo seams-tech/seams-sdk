@@ -346,6 +346,7 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
     return {
       ok: true,
       presignSessionId,
+      materialExpiresAtMs: expiresAtMs,
       stage: started.value.stage,
       outgoingMessagesB64u: started.value.outgoingMessagesB64u,
     };

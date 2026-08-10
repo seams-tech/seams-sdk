@@ -32,11 +32,13 @@ export type WalletSessionFailure =
 
 export class WalletSessionFailureError extends Error {
   readonly failure: WalletSessionFailure;
+  readonly code: WalletSessionFailureCode;
 
   constructor(args: { readonly failure: WalletSessionFailure; readonly message: string }) {
     super(args.message);
     this.name = 'WalletSessionFailureError';
     this.failure = args.failure;
+    this.code = args.failure.code;
   }
 }
 

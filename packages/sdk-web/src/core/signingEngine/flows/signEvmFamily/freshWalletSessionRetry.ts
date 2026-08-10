@@ -43,6 +43,9 @@ export type EvmFamilyWalletSessionExpiryContext =
       readonly state: ExpiredWalletSessionAuthorizationState;
     }
   | {
+      readonly kind: 'expired_without_exact_lane';
+    }
+  | {
       readonly kind: 'not_expired';
     };
 
@@ -54,7 +57,7 @@ export function resolveEvmFamilyWalletSessionExpiryContext(args: {
   const failure = walletSessionFailureFromError(args.error);
   if (failure?.kind !== 'expired') return { kind: 'not_expired' };
   if (args.candidate.kind === 'unavailable') {
-    throw new Error('[SigningEngine][ecdsa] expired Wallet Session exact lane is unavailable');
+    return { kind: 'expired_without_exact_lane' };
   }
   return {
     kind: 'authoritative_expiry',
@@ -74,14 +77,29 @@ async function invalidateAuthoritativeEvmFamilyWalletSessionExpiry(args: {
   readonly context: EvmFamilyWalletSessionExpiryContext;
   readonly coordinator: SigningSessionCoordinator;
 }): Promise<void> {
-  if (args.context.kind === 'not_expired') return;
-  const result = await args.coordinator.invalidateExpiredWalletSession({
-    state: args.context.state,
-    source: SIGNING_SESSION_EXPIRY_DETECTION_SOURCES.serverRejection,
-  });
-  if (result.kind === 'unavailable') {
-    throw new Error('[SigningEngine][ecdsa] expired Wallet Session cleanup failed');
+  switch (args.context.kind) {
+    case 'not_expired':
+    case 'expired_without_exact_lane':
+      return;
+    case 'authoritative_expiry': {
+      const result = await args.coordinator.invalidateExpiredWalletSession({
+        state: args.context.state,
+        source: SIGNING_SESSION_EXPIRY_DETECTION_SOURCES.serverRejection,
+      });
+      if (result.kind === 'unavailable') {
+        throw new Error('[SigningEngine][ecdsa] expired Wallet Session cleanup failed');
+      }
+      return;
+    }
+    default:
+      return assertNeverEvmFamilyWalletSessionExpiryContext(args.context);
   }
+}
+
+function assertNeverEvmFamilyWalletSessionExpiryContext(value: never): never {
+  throw new Error(
+    `[SigningEngine][ecdsa] unsupported Wallet Session expiry context: ${String(value)}`,
+  );
 }
 
 export async function retryEvmFamilyWithFreshWalletSessionAuthWhenRequired(args: {
