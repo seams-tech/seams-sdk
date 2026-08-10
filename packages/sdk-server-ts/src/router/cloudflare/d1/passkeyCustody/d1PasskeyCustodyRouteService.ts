@@ -29,6 +29,8 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { base64UrlEncode } from '@shared/utils/encoders';
+import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   PASSKEY_PRF_FIRST_SALT_V1,
   PASSKEY_PRF_SECOND_SALT_V1,
@@ -53,6 +55,11 @@ import {
   walletRecoveryBackupIsOutstanding,
 } from '@shared/wallet-recovery/recoveryCodes';
 import type { RecoveryCodeReservationId } from '@shared/wallet-recovery/recoveryCodeReservation';
+import type {
+  WalletRecoveryEcdsaPossessionChallengeV1,
+  WalletRecoveryEcdsaPossessionProofV1,
+} from '@shared/wallet-recovery/walletRecoveryEcdsaPossession';
+import type { RouterAbEcdsaRegistrationActivationReceiptV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { D1WalletStore } from '../../../../core/d1WalletStore';
 import {
   projectWalletUnlockKeyManifestV1,
@@ -171,6 +178,16 @@ export interface RouterApiPasskeyCustodyService {
     readonly webauthnRegistration: unknown;
     readonly expectedOrigin: string;
     readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
+    readonly authorityRef: WalletAuthAuthorityRef;
+    readonly ecdsaMaterialPossessionProofs: readonly {
+      readonly keySetId: string;
+      readonly proof: WalletRecoveryEcdsaPossessionProofV1;
+    }[];
+    readonly ecdsaPossessionChallenges: readonly WalletRecoveryEcdsaPossessionChallengeV1[];
+    readonly ecdsaActivationReceipts: readonly {
+      readonly keySetId: string;
+      readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+    }[];
   }): Promise<WalletRecoveryFinalizationResult>;
 
   /**
@@ -198,8 +215,14 @@ export interface RouterApiPasskeyCustodyService {
     readonly expectedStoreVersion: string;
   }): Promise<WalletRecoveryRotationResult>;
 
-  readRecoverySet(request: { readonly walletId: string }): Promise<
-    | { readonly kind: 'ready'; readonly record: WalletRecoveryEnvelopeSetRecord; readonly storeVersion: string }
+  readRecoverySet(request: {
+    readonly walletId: string;
+  }): Promise<
+    | {
+        readonly kind: 'ready';
+        readonly record: WalletRecoveryEnvelopeSetRecord;
+        readonly storeVersion: string;
+      }
     | { readonly kind: 'no_recovery_set' }
   >;
 
@@ -311,9 +334,7 @@ export function createD1PasskeyCustodyRouteService(assembly: {
         return {
           kind: 'manifest_unavailable',
           reason:
-            error instanceof Error
-              ? error.message
-              : 'wallet custody key manifest is unavailable',
+            error instanceof Error ? error.message : 'wallet custody key manifest is unavailable',
         };
       }
     },
@@ -506,9 +527,17 @@ async function prepareRecoveryForRoute(
     if (registration.kind !== 'ready') {
       return { kind: 'registration_unavailable', reason: registration.reason };
     }
+    const possessionChallenges = await buildEcdsaPossessionChallenges({
+      manifest,
+      walletId,
+      reservationId: request.reservationId,
+      replacementId: registration.options.replacementId,
+      authorityRef,
+      expiresAtMs: prepared.reservationExpiresAtMs,
+    });
     return {
       ...prepared,
-      keyManifest: projectWalletRecoveryPreparationKeyManifestV1(manifest),
+      keyManifest: projectWalletRecoveryPreparationKeyManifestV1(manifest, possessionChallenges),
       registration: registration.options,
       authorityRef,
     };
@@ -634,6 +663,16 @@ async function finalizeRecoveryForRoute(
     readonly webauthnRegistration: unknown;
     readonly expectedOrigin: string;
     readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
+    readonly authorityRef: WalletAuthAuthorityRef;
+    readonly ecdsaMaterialPossessionProofs: readonly {
+      readonly keySetId: string;
+      readonly proof: WalletRecoveryEcdsaPossessionProofV1;
+    }[];
+    readonly ecdsaPossessionChallenges: readonly WalletRecoveryEcdsaPossessionChallengeV1[];
+    readonly ecdsaActivationReceipts: readonly {
+      readonly keySetId: string;
+      readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+    }[];
   },
 ): Promise<WalletRecoveryFinalizationResult> {
   let walletId: WalletId;
@@ -655,6 +694,7 @@ async function finalizeRecoveryForRoute(
       replacementEnvelope: request.replacementEnvelope,
       webAuthnStore: assembly.webAuthnStore,
       walletStore: assembly.walletStore,
+      ecdsaActivationReceipts: request.ecdsaActivationReceipts,
     });
     if (replay.kind === 'rejected') {
       return { kind: 'registration_rejected', reason: replay.reason };
@@ -665,6 +705,12 @@ async function finalizeRecoveryForRoute(
     registry: assembly.walletStore,
     walletId,
     recoveryCorrelationId: request.reservationId,
+    replacementId: request.replacementId,
+    authorityRef: request.authorityRef,
+    ecdsaPossessionChallenges: request.ecdsaPossessionChallenges,
+    ecdsaActivationReceipts: request.ecdsaActivationReceipts,
+    ecdsaMaterialPossessionProofs: request.ecdsaMaterialPossessionProofs,
+    nowMs: (assembly.nowMs ?? Date.now)(),
   });
   if (activationVerification.kind === 'refused') {
     const replay = await resolveCommittedRecoveryReplayV1({
@@ -676,6 +722,7 @@ async function finalizeRecoveryForRoute(
       replacementEnvelope: request.replacementEnvelope,
       webAuthnStore: assembly.webAuthnStore,
       walletStore: assembly.walletStore,
+      ecdsaActivationReceipts: request.ecdsaActivationReceipts,
     });
     if (replay.kind !== 'rejected') return replay;
     return activationVerification;
@@ -694,8 +741,49 @@ async function finalizeRecoveryForRoute(
     walletStore: assembly.walletStore,
     replacementEnvelope: request.replacementEnvelope,
     activationVerification,
+    ecdsaActivationReceipts: request.ecdsaActivationReceipts,
     nowMs: (assembly.nowMs ?? Date.now)(),
   });
+}
+
+async function buildEcdsaPossessionChallenges(input: {
+  readonly manifest: Awaited<ReturnType<typeof resolveWalletRecoveryKeyManifestV1>>;
+  readonly walletId: WalletId;
+  readonly reservationId: RecoveryCodeReservationId;
+  readonly replacementId: string;
+  readonly authorityRef: WalletAuthAuthorityRef;
+  readonly expiresAtMs: number;
+}): Promise<ReadonlyMap<`evm_family_ecdsa:${string}`, WalletRecoveryEcdsaPossessionChallengeV1>> {
+  const challenges = new Map<
+    `evm_family_ecdsa:${string}`,
+    WalletRecoveryEcdsaPossessionChallengeV1
+  >();
+  for (const entry of input.manifest.entries) {
+    if (entry.kind !== 'evm_family_ecdsa') continue;
+    const publicCapabilityDigestB64u = parseDigestB64u(
+      base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(entry.publicCapability))),
+    );
+    const challenge: WalletRecoveryEcdsaPossessionChallengeV1 = {
+      kind: 'wallet_recovery_ecdsa_possession_challenge_v1',
+      walletId: String(input.walletId),
+      reservationId: String(input.reservationId),
+      replacementId: input.replacementId,
+      keySetId: entry.keySetId,
+      keyHandle: entry.keyHandle,
+      recordedKeyManifestDigestB64u: parseDigestB64u(entry.recordedKeyManifestDigestB64u),
+      publicCapabilityDigestB64u,
+      authorityRefDigestB64u: parseDigestB64u(input.authorityRef.authorityDigest),
+      derivationClientSharePublicKey33B64u:
+        entry.publicCapability.public_identity.derivation_client_share_public_key33_b64u,
+      expectedServerGeneration: entry.activationReceipt.server_generation,
+      expiresAtMs: input.expiresAtMs,
+      serverNonceB64u: parseDigestB64u(
+        secureRandomBase64Url(32, 'wallet recovery ECDSA possession server nonce'),
+      ),
+    };
+    challenges.set(entry.keySetId, challenge);
+  }
+  return challenges;
 }
 
 function requireWalletId(value: unknown): WalletId {

@@ -11,6 +11,7 @@ import type {
 import type { CloudflareD1WebAuthnStore } from '../../cloudflare/d1/webauthn/d1WebAuthnStore';
 import type { D1WalletStore } from '../../../core/d1WalletStore';
 import type { WalletEcdsaSignerRecord } from '../../../core/WalletStore';
+import type { RouterAbEcdsaRegistrationActivationReceiptV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import { verifyWebAuthnRegistrationCredentialForIntent } from '../../../core/authService/webauthn';
 import type { WebAuthnCredentialBindingRecord } from '../../../core/WebAuthnCredentialBindingStore';
 import type { D1PreparedStatementLike } from '../../../storage/tenantRoute';
@@ -80,6 +81,10 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
     WalletRecoveryActivationVerification,
     { readonly kind: 'verified' }
   >;
+  readonly ecdsaActivationReceipts: readonly {
+    readonly keySetId: string;
+    readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+  }[];
   readonly nowMs: number;
 }): Promise<WalletRecoveryFinalizationResult> {
   if (String(input.replacementEnvelope.walletId) !== String(input.walletId)) {
@@ -101,9 +106,7 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
     };
   }
 
-  const challenge = await input.webAuthnStore.readRecoveryRegistrationChallenge(
-    input.challengeId,
-  );
+  const challenge = await input.webAuthnStore.readRecoveryRegistrationChallenge(input.challengeId);
   if (!challenge) {
     const replay = await resolveCommittedRecoveryReplayV1({
       envelopeStore: input.envelopeStore,
@@ -114,6 +117,7 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
       replacementEnvelope: input.replacementEnvelope,
       webAuthnStore: input.webAuthnStore,
       walletStore: input.walletStore,
+      ecdsaActivationReceipts: input.ecdsaActivationReceipts,
     });
     if (replay.kind === 'promoted' || replay.kind === 'conflict') return replay;
     return {
@@ -138,7 +142,10 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
   }
   const parsedRpId = parseWebAuthnRpId(challenge.rpId);
   if (!parsedRpId.ok) {
-    return { kind: 'registration_rejected', reason: 'the replacement registration rpId is invalid' };
+    return {
+      kind: 'registration_rejected',
+      reason: 'the replacement registration rpId is invalid',
+    };
   }
   const verifiedRegistration = await verifyWebAuthnRegistrationCredentialForIntent({
     webauthnRegistration: input.webauthnRegistration,
@@ -189,9 +196,8 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
     rpId: parsedRpId.value,
     credential: verifiedRegistration.credential,
     nowMs: input.nowMs,
-    challengeDeleteStatement: input.webAuthnStore.prepareRecoveryRegistrationChallengeDeleteStatement(
-      input.challengeId,
-    ),
+    challengeDeleteStatement:
+      input.webAuthnStore.prepareRecoveryRegistrationChallengeDeleteStatement(input.challengeId),
   });
 
   const storedRecoverySet = await input.walletCustodyCommits.readRecoveryEnvelopeSet(
@@ -312,6 +318,10 @@ type RecoveryReplayInputBase = {
   readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
   readonly walletStore: D1WalletStore;
+  readonly ecdsaActivationReceipts: readonly {
+    readonly keySetId: string;
+    readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+  }[];
 };
 
 const RECOVERY_REPLAY_CHALLENGE_UNAVAILABLE =
@@ -340,8 +350,7 @@ export async function resolveCommittedRecoveryReplayV1(
   }
   const consumedReservations = storedRecoverySet.record.manifestKekWraps.filter(
     (wrap) =>
-      wrap.lifecycle.state === 'consumed' &&
-      wrap.lifecycle.reservationId === input.reservationId,
+      wrap.lifecycle.state === 'consumed' && wrap.lifecycle.reservationId === input.reservationId,
   );
   if (consumedReservations.length !== 1) {
     return {
@@ -520,18 +529,29 @@ async function committedRecoverySignerStateMatches(
       reservationId: input.reservationId,
       keySetId,
     });
-    const expectedMaterialLifecycleBinding = `${lifecycleId}:material-activation`;
     const first = signers[0];
     if (!first) return false;
     const capability = first.walletKey.publicCapability;
     const activation = first.activationReceipt.ecdsa_activation;
+    const matchingReceiptInputs = input.ecdsaActivationReceipts.filter(
+      (receipt) => receipt.keySetId === keySetId,
+    );
+    const expectedUnchangedReceipt = input.ecdsaActivationReceipts.find(
+      (receipt) => receipt.keySetId === keySetId,
+    )?.activationReceipt;
     if (
+      matchingReceiptInputs.length !== 1 ||
+      !expectedUnchangedReceipt ||
+      alphabetizeStringify(first.activationReceipt) !==
+        alphabetizeStringify(expectedUnchangedReceipt) ||
       capability.client_id !== String(input.walletId) ||
       capability.material_activation.material_owner !== String(input.walletId) ||
-      capability.material_activation.lifecycle_binding !== expectedMaterialLifecycleBinding ||
-      first.activationReceipt.lifecycle_id !== lifecycleId ||
+      capability.material_activation.lifecycle_binding !==
+        expectedUnchangedReceipt.ecdsa_activation.material_activation.lifecycle_binding ||
+      first.activationReceipt.lifecycle_id !== expectedUnchangedReceipt.lifecycle_id ||
       activation.activation_epoch !== capability.activation_epoch ||
-      activation.material_activation.lifecycle_binding !== expectedMaterialLifecycleBinding ||
+      activation.material_activation.lifecycle_binding !==
+        expectedUnchangedReceipt.ecdsa_activation.material_activation.lifecycle_binding ||
       alphabetizeStringify(activation.context) !== alphabetizeStringify(capability.context) ||
       alphabetizeStringify(activation.public_identity) !==
         alphabetizeStringify(capability.public_identity) ||
@@ -551,6 +571,7 @@ async function committedRecoverySignerStateMatches(
     });
     if (pending.length !== 0) return false;
   }
+  if (input.ecdsaActivationReceipts.length !== ecdsaByKeyHandle.size) return false;
   return true;
 }
 
@@ -597,9 +618,7 @@ function buildRecoveryAuthenticatorCommit(input: {
     rpId: input.rpId,
     credentialIdB64u: input.credential.credentialIdB64u,
     userId: input.userId,
-    ...(input.sourceBinding.relayerKeyId
-      ? { relayerKeyId: input.sourceBinding.relayerKeyId }
-      : {}),
+    ...(input.sourceBinding.relayerKeyId ? { relayerKeyId: input.sourceBinding.relayerKeyId } : {}),
     ...(input.sourceBinding.keyVersion ? { keyVersion: input.sourceBinding.keyVersion } : {}),
     ...(typeof input.sourceBinding.recoveryExportCapable === 'boolean'
       ? { recoveryExportCapable: input.sourceBinding.recoveryExportCapable }

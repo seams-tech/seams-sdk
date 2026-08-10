@@ -1,4 +1,4 @@
-import initEvmCryptoWasm, {
+import {
   add_secp256k1_public_keys_33,
   compute_eip1559_tx_hash,
   encode_eip1559_signed_tx_from_signature65,
@@ -8,9 +8,18 @@ import initEvmCryptoWasm, {
   sha256_bytes,
   sign_secp256k1_recoverable,
   validate_secp256k1_public_key_33,
+  verify_secp256k1_bip340_signature_against_public_key_33,
   verify_secp256k1_recoverable_signature_against_public_key_33,
 } from '../../../../../wasm/evm_crypto/pkg/evm_crypto.js';
-import type { InitInput } from '../../../../../wasm/evm_crypto/pkg/evm_crypto.js';
+import * as evmCryptoWasmModule from '../../../../../wasm/evm_crypto/pkg/evm_crypto.js';
+
+type EvmCryptoWasmInitializer = (input: { readonly module_or_path: unknown }) => Promise<unknown>;
+
+const importedEvmCryptoInitializer = (
+  evmCryptoWasmModule as unknown as { readonly default?: EvmCryptoWasmInitializer }
+).default;
+const initEvmCryptoWasm: EvmCryptoWasmInitializer | undefined =
+  typeof importedEvmCryptoInitializer === 'function' ? importedEvmCryptoInitializer : undefined;
 
 const EVM_CRYPTO_WASM_PATH_CANDIDATES = [
   '../../wasm/evm_crypto/pkg/evm_crypto_bg.wasm',
@@ -62,7 +71,9 @@ async function loadBundledEvmCryptoWasmModule(): Promise<WebAssembly.Module | nu
 }
 
 async function initEvmCryptoFromCompiledModule(module: WebAssembly.Module): Promise<void> {
-  await initEvmCryptoWasm({ module_or_path: module as unknown as InitInput });
+  if (initEvmCryptoWasm) {
+    await initEvmCryptoWasm({ module_or_path: module });
+  }
   init_evm_crypto();
   evmCryptoWasmReady = true;
 }
@@ -104,7 +115,12 @@ export async function ensureEvmCryptoWasm(): Promise<void> {
     }
     for (const url of urls) {
       try {
-        await initEvmCryptoWasm({ module_or_path: url as unknown as InitInput });
+        if (!initEvmCryptoWasm) {
+          init_evm_crypto();
+          evmCryptoWasmReady = true;
+          return;
+        }
+        await initEvmCryptoWasm({ module_or_path: url });
         init_evm_crypto();
         evmCryptoWasmReady = true;
         return;
@@ -233,6 +249,23 @@ export async function verifySecp256k1RecoverableSignatureAgainstPublicKey33(
     out,
     33,
   );
+}
+
+export async function verifySecp256k1Bip340SignatureAgainstPublicKey33(
+  digest32: Uint8Array,
+  signature64: Uint8Array,
+  publicKey33: Uint8Array,
+): Promise<void> {
+  const checkedDigest = checkedBytes('BIP340 digest', digest32, 32);
+  const checkedSignature = checkedBytes('BIP340 signature', signature64, 64);
+  const checkedPublicKey = checkedBytes('BIP340 public key', publicKey33, 33);
+  await ensureEvmCryptoWasm();
+  const out = verify_secp256k1_bip340_signature_against_public_key_33(
+    checkedDigest,
+    checkedSignature,
+    checkedPublicKey,
+  ) as Uint8Array;
+  checkedBytes('verify_secp256k1_bip340_signature_against_public_key_33 output', out, 0);
 }
 
 export async function encodeEip1559SignedTxFromSignature65(input: {
