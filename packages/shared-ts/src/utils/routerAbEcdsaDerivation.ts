@@ -63,8 +63,6 @@ export const ROUTER_AB_ECDSA_DERIVATION_HEALTH_PATH =
 export const ROUTER_AB_ECDSA_DERIVATION_BOOTSTRAP_PATH =
   '/router-ab/ecdsa-derivation/bootstrap' as const;
 export const ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH = '/router-ab/ecdsa-derivation/export' as const;
-export const ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH =
-  '/router-ab/ecdsa-derivation/recover' as const;
 export const ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH =
   '/router-ab/ecdsa-derivation/presignature-pool/fill/init' as const;
 export const ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH =
@@ -135,9 +133,6 @@ export type RouterAbEcdsaDerivationPostRegistrationLifecycleScopeV1<
 
 export type RouterAbEcdsaDerivationExportLifecycleScopeV1 =
   RouterAbEcdsaDerivationPostRegistrationLifecycleScopeV1<'key_export', 'export'>;
-
-export type RouterAbEcdsaDerivationRecoveryLifecycleScopeV1 =
-  RouterAbEcdsaDerivationPostRegistrationLifecycleScopeV1<'recovery', 'recovery'>;
 
 export type RouterAbEcdsaDerivationRefreshLifecycleScopeV1 =
   RouterAbEcdsaDerivationPostRegistrationLifecycleScopeV1<'server_share_refresh', 'refresh'>;
@@ -468,21 +463,6 @@ export function projectRouterAbEcdsaDerivationExplicitExportRequestToProtocolV1(
   }
 }
 
-export type RouterAbEcdsaDerivationRecoveryRequestV1 = {
-  context: RouterAbEcdsaDerivationStableKeyContextV1;
-  lifecycle: RouterAbEcdsaDerivationRecoveryLifecycleScopeV1;
-  public_identity: RouterAbEcdsaDerivationPublicIdentityV1;
-  signer_set: RouterAbEcdsaDerivationSignerSetV1;
-  router_id: string;
-  client_id: string;
-  client_ephemeral_public_key: string;
-  recovery_authorization_digest_b64u: string;
-  recovery_nonce: string;
-  expires_at_ms: number;
-  deriver_a_recovery_envelope: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'signer_a'>;
-  deriver_b_recovery_envelope: RouterAbEcdsaDerivationRoleEncryptedEnvelopeV1<'signer_b'>;
-};
-
 export type RouterAbEcdsaDerivationActivationRefreshRequestV1 = {
   context: RouterAbEcdsaDerivationStableKeyContextV1;
   lifecycle: RouterAbEcdsaDerivationRefreshLifecycleScopeV1;
@@ -762,19 +742,17 @@ export function parseRouterAbEcdsaOperationStepUpAuthorizationResponseV1(
   let parsedUnseal: RouterAbEcdsaOperationStepUpUnsealV1Wire;
   switch (unsealKind) {
     case 'not_requested':
-      requireExactKeys(
-        unseal,
-        'operationStepUpAuthorizationResponse.authorization.unseal',
-        ['kind'],
-      );
+      requireExactKeys(unseal, 'operationStepUpAuthorizationResponse.authorization.unseal', [
+        'kind',
+      ]);
       parsedUnseal = { kind: 'not_requested' };
       break;
     case 'email_otp_grant':
-      requireExactKeys(
-        unseal,
-        'operationStepUpAuthorizationResponse.authorization.unseal',
-        ['kind', 'grant', 'challenge_id'],
-      );
+      requireExactKeys(unseal, 'operationStepUpAuthorizationResponse.authorization.unseal', [
+        'kind',
+        'grant',
+        'challenge_id',
+      ]);
       parsedUnseal = {
         kind: 'email_otp_grant',
         grant: requireAsciiNonEmptyString(
@@ -788,9 +766,7 @@ export function parseRouterAbEcdsaOperationStepUpAuthorizationResponseV1(
       };
       break;
     default:
-      throw new Error(
-        'operationStepUpAuthorizationResponse.authorization.unseal.kind is invalid',
-      );
+      throw new Error('operationStepUpAuthorizationResponse.authorization.unseal.kind is invalid');
   }
   const parsedAuthorization = {
     kind: 'operation_step_up' as const,
@@ -1837,11 +1813,11 @@ export function parseRouterAbEcdsaRegistrationActivationReceiptV1(
     activation.signing_worker,
     `${activationLabel}.signing_worker`,
   );
-  const materialActivation = parseRouterAbMpcMaterialActivationRef(
-    activation.material_activation,
-  );
+  const materialActivation = parseRouterAbMpcMaterialActivationRef(activation.material_activation);
   if (materialActivation.signing_worker !== signingWorker.server_id) {
-    throw new Error(`${activationLabel}.material_activation.signing_worker does not match signing_worker`);
+    throw new Error(
+      `${activationLabel}.material_activation.signing_worker does not match signing_worker`,
+    );
   }
   const activationDigestB64u = requireBase64UrlFixed(
     activation.activation_digest_b64u,
@@ -2380,64 +2356,6 @@ function parseExplicitExportRequestProtocolFields(
   return parsed;
 }
 
-export function parseRouterAbEcdsaDerivationRecoveryRequestV1(
-  value: unknown,
-): RouterAbEcdsaDerivationRecoveryRequestV1 {
-  const label = 'recovery';
-  const record = requireRecord(value, label);
-  requireExactKeys(record, label, [
-    'context',
-    'lifecycle',
-    'public_identity',
-    'signer_set',
-    'router_id',
-    'client_id',
-    'client_ephemeral_public_key',
-    'recovery_authorization_digest_b64u',
-    'recovery_nonce',
-    'expires_at_ms',
-    'deriver_a_recovery_envelope',
-    'deriver_b_recovery_envelope',
-  ]);
-  const lifecycle = parsePostRegistrationLifecycleScope(
-    record.lifecycle,
-    `${label}.lifecycle`,
-    'recovery',
-    'recovery',
-  );
-  const signerSet = parsePostRegistrationSignerSet(record.signer_set, `${label}.signer_set`);
-  requirePostRegistrationBindings(label, lifecycle, signerSet);
-  return {
-    context: parseStableKeyContext(record.context),
-    lifecycle,
-    public_identity: parsePublicIdentity(record.public_identity),
-    signer_set: signerSet,
-    router_id: requireAsciiNonEmptyString(record.router_id, `${label}.router_id`),
-    client_id: requireAsciiNonEmptyString(record.client_id, `${label}.client_id`),
-    client_ephemeral_public_key: requireX25519PublicKey(
-      record.client_ephemeral_public_key,
-      `${label}.client_ephemeral_public_key`,
-    ),
-    recovery_authorization_digest_b64u: requireBase64UrlFixed(
-      record.recovery_authorization_digest_b64u,
-      `${label}.recovery_authorization_digest_b64u`,
-      32,
-    ),
-    recovery_nonce: requireAsciiNonEmptyString(record.recovery_nonce, `${label}.recovery_nonce`),
-    expires_at_ms: requirePositiveUnixMs(record.expires_at_ms, `${label}.expires_at_ms`),
-    deriver_a_recovery_envelope: parsePostRegistrationRoleEnvelope(
-      record.deriver_a_recovery_envelope,
-      `${label}.deriver_a_recovery_envelope`,
-      'signer_a',
-    ),
-    deriver_b_recovery_envelope: parsePostRegistrationRoleEnvelope(
-      record.deriver_b_recovery_envelope,
-      `${label}.deriver_b_recovery_envelope`,
-      'signer_b',
-    ),
-  };
-}
-
 export function parseRouterAbEcdsaDerivationActivationRefreshRequestV1(
   value: unknown,
 ): RouterAbEcdsaDerivationActivationRefreshRequestV1 {
@@ -2487,7 +2405,9 @@ export function parseRouterAbEcdsaDerivationActivationRefreshRequestV1(
     materialActivation.material_owner !== lifecycle.account_id ||
     materialActivation.signing_worker !== signerSet.selected_server.server_id
   ) {
-    throw new Error('refresh.material_activation is not bound to lifecycle owner and selected server');
+    throw new Error(
+      'refresh.material_activation is not bound to lifecycle owner and selected server',
+    );
   }
   return {
     context: parseStableKeyContext(record.context),
@@ -3133,7 +3053,9 @@ export function parseRouterAbEcdsaOperationStepUpAuthorizationRequestV1(
         'webauthn_authentication',
       ]);
       if (!authority || !isPasskeyWalletAuthAuthority(authority)) {
-          throw new Error('operationStepUpAuthorizationRequest.proof requires an exact passkey authority');
+        throw new Error(
+          'operationStepUpAuthorizationRequest.proof requires an exact passkey authority',
+        );
       }
       parsedProof = {
         kind: 'passkey',
@@ -3151,7 +3073,9 @@ export function parseRouterAbEcdsaOperationStepUpAuthorizationRequestV1(
         'otp_code',
       ]);
       if (!authority || !isEmailOtpWalletAuthAuthority(authority)) {
-        throw new Error('operationStepUpAuthorizationRequest.proof requires an exact Email OTP authority');
+        throw new Error(
+          'operationStepUpAuthorizationRequest.proof requires an exact Email OTP authority',
+        );
       }
       parsedProof = {
         kind: 'email_otp',
@@ -3579,9 +3503,7 @@ function parseActiveSigningWorkerState(value: unknown): RouterAbActiveSigningWor
       record.account_id,
       'receipt.active_signing_worker_state.account_id',
     ),
-    material_activation: parseRouterAbMpcMaterialActivationRef(
-      record.material_activation,
-    ),
+    material_activation: parseRouterAbMpcMaterialActivationRef(record.material_activation),
     account_public_key: requireAsciiNonEmptyString(
       record.account_public_key,
       'receipt.active_signing_worker_state.account_public_key',

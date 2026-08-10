@@ -87,7 +87,6 @@ import {
   type RouterAbEcdsaDerivationActivationRefreshRequestV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
   type RouterAbEcdsaDerivationPublicCapabilityV1,
-  type RouterAbEcdsaDerivationRecoveryRequestV1,
   type RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
   type RouterAbEcdsaRegistrationActivationReceiptV1,
   type RouterAbEcdsaRegistrationRequestFactsV1,
@@ -962,27 +961,16 @@ export async function buildActivatedEcdsaFamilyBootstrap(input: {
   };
 }
 
-type EcdsaPostRegistrationProofInput =
-  | {
-      readonly operation: 'recovery';
-      readonly request: RouterAbEcdsaDerivationRecoveryRequestV1;
-      readonly response: RouterAbEcdsaStrictForwardedRegistrationResponseV1;
-    }
-  | {
-      readonly operation: 'refresh';
-      readonly request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
-      readonly response: RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1;
-    };
+type EcdsaPostRegistrationProofInput = {
+  readonly operation: 'refresh';
+  readonly request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
+  readonly response: RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1;
+};
 
 function postRegistrationProofResponse(
   input: EcdsaPostRegistrationProofInput,
 ): RouterAbEcdsaStrictForwardedRegistrationResponseV1['response'] {
-  switch (input.operation) {
-    case 'recovery':
-      return input.response.response;
-    case 'refresh':
-      return input.response.response;
-  }
+  return input.response.response;
 }
 
 function postRegistrationProofMatchesRequest(input: EcdsaPostRegistrationProofInput): boolean {
@@ -993,12 +981,7 @@ function postRegistrationProofMatchesRequest(input: EcdsaPostRegistrationProofIn
 }
 
 function postRegistrationRequestId(input: EcdsaPostRegistrationProofInput): string {
-  switch (input.operation) {
-    case 'recovery':
-      return input.request.recovery_nonce;
-    case 'refresh':
-      return input.request.refresh_nonce;
-  }
+  return input.request.refresh_nonce;
 }
 
 function pendingEcdsaSessionActivationRecord(input: {
@@ -1017,22 +1000,12 @@ function pendingEcdsaSessionActivationRecord(input: {
     createdAtMs: input.nowMs,
     expiresAtMs: input.proof.request.expires_at_ms,
   } as const;
-  switch (input.proof.operation) {
-    case 'recovery':
-      return {
-        ...base,
-        operation: 'recovery',
-        request: input.proof.request,
-        response: input.proof.response,
-      };
-    case 'refresh':
-      return {
-        ...base,
-        operation: 'refresh',
-        request: input.proof.request,
-        response: input.proof.response,
-      };
-  }
+  return {
+    ...base,
+    operation: 'refresh',
+    request: input.proof.request,
+    response: input.proof.response,
+  };
 }
 
 function buildPostRegistrationEcdsaNormalSigningState(input: {
@@ -1700,12 +1673,8 @@ export class CloudflareD1WalletRegistrationService {
         };
       }
       if (
-        (input.operation === 'recovery' &&
-          input.request.lifecycle.root_share_epoch !==
-            signer.walletKey.publicCapability.activation_epoch) ||
-        (input.operation === 'refresh' &&
-          input.request.previous_activation_epoch !==
-            signer.walletKey.publicCapability.activation_epoch)
+        input.request.previous_activation_epoch !==
+        signer.walletKey.publicCapability.activation_epoch
       ) {
         return {
           ok: false,
@@ -2862,10 +2831,7 @@ export class CloudflareD1WalletRegistrationService {
     readonly ceremony: StoredWalletRegistrationCeremony;
     readonly authority: StoredRegistrationAuthority;
     readonly session: SessionAdapter;
-    readonly enrollment: Pick<
-      FinalizeWalletRegistrationInput,
-      'emailOtpEnrollment'
-    >;
+    readonly enrollment: Pick<FinalizeWalletRegistrationInput, 'emailOtpEnrollment'>;
   }): Promise<WalletRegistrationActivateResponseV2> {
     const now = Date.now();
     const ceremony = input.ceremony;

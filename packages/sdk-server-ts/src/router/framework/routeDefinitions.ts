@@ -14,7 +14,6 @@ import {
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH,
   ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH,
   ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH,
-  ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH,
   ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH,
   ROUTER_AB_ECDSA_DERIVATION_SESSION_ACTIVATION_PATH,
 } from '@shared/utils/routerAbEcdsaDerivation';
@@ -877,14 +876,6 @@ export function createRouterApiRouteDefinitions(
       'POST',
       ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH,
       'Export authorized Router A/B ECDSA derivation material',
-      'ecdsa',
-      ROUTER_API_ECDSA_STRICT_LIFECYCLE_SERVICES,
-    ),
-    capabilityGrantRoute(
-      'router_ab_ecdsa_derivation_recovery',
-      'POST',
-      ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH,
-      'Recover Router A/B ECDSA derivation material',
       'ecdsa',
       ROUTER_API_ECDSA_STRICT_LIFECYCLE_SERVICES,
     ),

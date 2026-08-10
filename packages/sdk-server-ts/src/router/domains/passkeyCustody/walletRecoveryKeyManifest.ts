@@ -12,18 +12,12 @@ import type {
   RouterAbEd25519YaoBytes32V1,
   RouterAbEd25519YaoLifecycleScopeV1,
 } from '@shared/utils/routerAbEd25519Yao';
+import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
-  sameRouterAbMpcMaterialActivationRef,
-  type RouterAbMpcMaterialActivationRefWire,
-} from '@shared/utils/routerAbNormalSigningIdentity';
-import {
-  parseRouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaRegistrationActivationReceiptV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
-  ecdsaPostRegistrationRequestMatchesCapability,
-  type WalletEcdsaPendingSessionActivationRecord,
   type WalletEcdsaSignerRecord,
   type WalletEd25519SignerRecord,
 } from '../../../core/WalletStore';
@@ -176,30 +170,8 @@ export type WalletRecoveryActivationVerification =
   | {
       readonly kind: 'verified';
       readonly keySetIds: readonly WalletRecoveryKeySetId[];
-      readonly ecdsaPromotions: readonly WalletRecoveryEcdsaSignerPromotionV1[];
     }
   | { readonly kind: 'refused'; readonly reason: string };
-
-/**
- * The exact ECDSA state transition admitted by recovery verification. The
- * signer rows and pending protocol pair are carried into the commit store so
- * their CAS writes and deletes share the custody promotion transaction.
- */
-export type WalletRecoveryEcdsaSignerPromotionV1 = {
-  readonly keySetId: `evm_family_ecdsa:${string}`;
-  readonly keyHandle: string;
-  readonly currentSigners: readonly WalletEcdsaSignerRecord[];
-  readonly recovery: Extract<
-    WalletEcdsaPendingSessionActivationRecord,
-    { readonly operation: 'recovery' }
-  >;
-  readonly refresh: Extract<
-    WalletEcdsaPendingSessionActivationRecord,
-    { readonly operation: 'refresh' }
-  >;
-  readonly nextPublicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
-  readonly nextActivationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
-};
 
 export type WalletRecoveryEcdsaMaterialPossessionProofInputV1 = {
   readonly keySetId: string;
@@ -465,7 +437,6 @@ export async function verifyWalletRecoveryKeyActivationsV1(input: {
   ) {
     return refused('wallet recovery ECDSA possession set does not match the key manifest');
   }
-  const ecdsaPromotions: WalletRecoveryEcdsaSignerPromotionV1[] = [];
   for (const entry of manifest.entries) {
     const keyLifecycleId = await deriveWalletRecoveryKeyLifecycleId({
       reservationId: recoveryReservationId,
@@ -526,19 +497,7 @@ export async function verifyWalletRecoveryKeyActivationsV1(input: {
   return {
     kind: 'verified',
     keySetIds: manifest.entries.map(manifestEntryKeySetId),
-    ecdsaPromotions,
   };
-}
-
-function recordsForPublicCapability(
-  records: readonly WalletEcdsaPendingSessionActivationRecord[],
-  publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1,
-): readonly WalletEcdsaPendingSessionActivationRecord[] {
-  const matching: WalletEcdsaPendingSessionActivationRecord[] = [];
-  for (const record of records) {
-    if (samePublicCapability(record.publicCapability, publicCapability)) matching.push(record);
-  }
-  return matching;
 }
 
 function ed25519ManifestEntries(
@@ -576,6 +535,15 @@ function ecdsaManifestEntries(
   const byKeyHandle = new Map<string, EcdsaManifestAccumulator>();
   for (const signer of signers) {
     const keyHandle = signer.walletKey.keyHandle;
+    if (
+      !ecdsaActivationReceiptMatchesCapability({
+        walletId: signer.walletId,
+        activationReceipt: signer.activationReceipt,
+        publicCapability: signer.walletKey.publicCapability,
+      })
+    ) {
+      throw new Error(`wallet has invalid ECDSA activation receipt ${keyHandle}`);
+    }
     const current = byKeyHandle.get(keyHandle);
     if (!current) {
       byKeyHandle.set(keyHandle, {
@@ -589,9 +557,10 @@ function ecdsaManifestEntries(
       !samePublicCapability(
         current.signer.walletKey.publicCapability,
         signer.walletKey.publicCapability,
-      )
+      ) ||
+      !samePublicValue(current.signer.activationReceipt, signer.activationReceipt)
     ) {
-      throw new Error(`wallet has conflicting ECDSA capability ${keyHandle}`);
+      throw new Error(`wallet has conflicting ECDSA activation state ${keyHandle}`);
     }
     if (!current.chainTargetKeys.includes(signer.chainTargetKey)) {
       current.chainTargetKeys.push(signer.chainTargetKey);
@@ -684,72 +653,6 @@ function verifyEd25519RecoveryActivation(
   return null;
 }
 
-function verifyEcdsaRecoveryActivation(input: {
-  readonly entry: Extract<WalletRecoveryKeyManifestEntryV1, { readonly kind: 'evm_family_ecdsa' }>;
-  readonly records: readonly WalletEcdsaPendingSessionActivationRecord[];
-  readonly keyLifecycleId: string;
-}): string | null {
-  if (input.records.length !== 2) {
-    return `wallet recovery needs one ECDSA recovery and refresh receipt for ${input.entry.keySetId}`;
-  }
-  const recovery = input.records.find(isEcdsaRecoveryRecord);
-  const refresh = input.records.find(isEcdsaRefreshRecord);
-  if (!recovery || !refresh) {
-    return `wallet recovery ECDSA receipt pair is incomplete for ${input.entry.keySetId}`;
-  }
-  if (
-    recovery.lifecycleId !== input.keyLifecycleId ||
-    refresh.lifecycleId !== input.keyLifecycleId ||
-    recovery.request.lifecycle.lifecycle_id !== input.keyLifecycleId ||
-    refresh.request.lifecycle.lifecycle_id !== input.keyLifecycleId
-  ) {
-    return `wallet recovery ECDSA activation correlation does not match ${input.entry.keySetId}`;
-  }
-  if (
-    !ecdsaPostRegistrationRequestMatchesCapability({
-      request: recovery.request,
-      capability: input.entry.publicCapability,
-    }) ||
-    !ecdsaPostRegistrationRequestMatchesCapability({
-      request: refresh.request,
-      capability: input.entry.publicCapability,
-    })
-  ) {
-    return `wallet recovery ECDSA public identity changed for ${input.entry.keySetId}`;
-  }
-  const activation = refresh.response.signing_worker_activation;
-  if (
-    recovery.request.lifecycle.root_share_epoch !== input.entry.publicCapability.activation_epoch ||
-    refresh.request.previous_activation_epoch !== input.entry.publicCapability.activation_epoch ||
-    activation.lifecycle_id !== input.keyLifecycleId ||
-    activation.ecdsa_activation.activation_epoch !== refresh.request.next_activation_epoch ||
-    !samePublicValue(activation.ecdsa_activation.context, refresh.request.context) ||
-    !samePublicValue(
-      activation.ecdsa_activation.public_identity,
-      refresh.request.public_identity,
-    ) ||
-    !samePublicValue(
-      activation.ecdsa_activation.signing_worker,
-      refresh.request.signer_set.selected_server,
-    ) ||
-    !sameRouterAbMpcMaterialActivationRef(
-      activation.ecdsa_activation.material_activation,
-      refresh.request.material_activation,
-    )
-  ) {
-    return `wallet recovery ECDSA activation receipt does not match ${input.entry.keySetId}`;
-  }
-  if (
-    sameRouterAbMpcMaterialActivationRef(
-      activation.ecdsa_activation.material_activation,
-      input.entry.publicCapability.material_activation,
-    )
-  ) {
-    return `wallet recovery ECDSA activation is stale for ${input.entry.keySetId}`;
-  }
-  return null;
-}
-
 async function verifyEcdsaMaterialPossessionActivation(input: {
   readonly entry: Extract<WalletRecoveryKeyManifestEntryV1, { readonly kind: 'evm_family_ecdsa' }>;
   readonly walletId: WalletId;
@@ -825,35 +728,6 @@ async function verifyEcdsaMaterialPossessionActivation(input: {
     return 'wallet recovery ECDSA possession proof set is incomplete';
   }
   return null;
-}
-
-function deriveEcdsaRecoveryPublicCapability(input: {
-  readonly current: RouterAbEcdsaDerivationPublicCapabilityV1;
-  readonly receipt: RouterAbEcdsaRegistrationActivationReceiptV1;
-}): RouterAbEcdsaDerivationPublicCapabilityV1 {
-  return parseRouterAbEcdsaDerivationPublicCapabilityV1({
-    ...input.current,
-    material_activation: input.receipt.ecdsa_activation.material_activation,
-    activation_epoch: input.receipt.ecdsa_activation.activation_epoch,
-    proof_transcript_digest_b64u: base64UrlEncode(
-      Uint8Array.from(input.receipt.transcript_digest.bytes),
-    ),
-  });
-}
-
-function isEcdsaRecoveryRecord(
-  record: WalletEcdsaPendingSessionActivationRecord,
-): record is Extract<
-  WalletEcdsaPendingSessionActivationRecord,
-  { readonly operation: 'recovery' }
-> {
-  return record.operation === 'recovery';
-}
-
-function isEcdsaRefreshRecord(
-  record: WalletEcdsaPendingSessionActivationRecord,
-): record is Extract<WalletEcdsaPendingSessionActivationRecord, { readonly operation: 'refresh' }> {
-  return record.operation === 'refresh';
 }
 
 function samePublicCapability(

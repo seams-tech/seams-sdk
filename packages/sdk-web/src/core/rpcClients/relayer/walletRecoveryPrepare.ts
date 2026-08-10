@@ -101,7 +101,6 @@ export type WalletRecoveryPreparationKeyManifestEntry =
       readonly keySetId: `evm_family_ecdsa:${string}`;
       readonly keyHandle: string;
       readonly evmFamilySigningKeySlotId: string;
-      readonly recoveryAuthorizationJwt: string;
       readonly recordedKeyManifestDigestB64u: DigestB64u;
       readonly recoveryBasis: WalletRecoveryPreparationEcdsaRecoveryBasis;
     };
@@ -911,7 +910,6 @@ function parseWalletRecoveryPreparationKeyManifestEntry(
           'keySetId',
           'keyHandle',
           'evmFamilySigningKeySlotId',
-          'recoveryAuthorizationJwt',
           'recordedKeyManifestDigestB64u',
           'recoveryBasis',
         ],
@@ -936,10 +934,6 @@ function parseWalletRecoveryPreparationKeyManifestEntry(
         keyHandle,
         evmFamilySigningKeySlotId: requireEvmFamilySigningKeySlotId(
           entry.evmFamilySigningKeySlotId,
-        ),
-        recoveryAuthorizationJwt: requireResponseString(
-          entry.recoveryAuthorizationJwt,
-          'keyManifest.entries[].recoveryAuthorizationJwt',
         ),
         recordedKeyManifestDigestB64u: parseDigestField(
           entry.recordedKeyManifestDigestB64u,

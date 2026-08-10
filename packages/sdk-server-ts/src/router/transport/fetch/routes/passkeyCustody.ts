@@ -80,7 +80,7 @@ type WalletRecoveryAuthorizedNearEntry = Extract<
 type WalletRecoveryAuthorizedEcdsaEntry = Extract<
   WalletRecoveryPreparationKeyManifestEntryV1,
   { readonly kind: 'evm_family_ecdsa' }
-> & { readonly recoveryAuthorizationJwt: string };
+>;
 
 type WalletRecoveryAuthorizedKeyManifest = Omit<
   WalletRecoveryPreparationKeyManifestV1,
@@ -124,17 +124,7 @@ async function keyManifestWithRecoveryAuthorization(input: {
         });
         return { ...entry, recoveryAuthorizationJwt };
       }
-      const recoveryAuthorizationJwt = await input.session.signJwt(String(lifecycleId), {
-        kind: 'router_ab_ecdsa_wallet_recovery_authorization_v1',
-        walletId: input.walletId,
-        reservationId: input.reservationId,
-        keySetId,
-        lifecycleId,
-        possessionChallenge: entry.recoveryBasis.possessionChallenge,
-        expiresAtMs: input.reservationExpiresAtMs,
-        exp: Math.floor(input.reservationExpiresAtMs / 1000),
-      });
-      return { ...entry, recoveryAuthorizationJwt };
+      return entry;
     }),
   );
   return { ...input.keyManifest, entries };

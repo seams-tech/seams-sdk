@@ -29,16 +29,12 @@ import {
 import {
   parseRouterAbEcdsaDerivationActivationRefreshResponseV1,
   parseRouterAbEcdsaDerivationActivationRefreshRequestV1,
-  parseRouterAbEcdsaDerivationRecoveryRequestV1,
-  parseRouterAbEcdsaStrictForwardedRegistrationResponseV1,
   parseRouterAbEcdsaDerivationPublicCapabilityV1,
   parseRouterAbEcdsaRegistrationActivationReceiptV1,
   type RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1,
   type RouterAbEcdsaDerivationActivationRefreshRequestV1,
-  type RouterAbEcdsaDerivationRecoveryRequestV1,
   type RouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaRegistrationActivationReceiptV1,
-  type RouterAbEcdsaStrictForwardedRegistrationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT, THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
@@ -145,20 +141,14 @@ type WalletEcdsaPostRegistrationProofRecordBase = {
 };
 
 export type WalletEcdsaPendingSessionActivationRecord =
-  | (WalletEcdsaPostRegistrationProofRecordBase & {
-      operation: 'recovery';
-      request: RouterAbEcdsaDerivationRecoveryRequestV1;
-      response: RouterAbEcdsaStrictForwardedRegistrationResponseV1;
-    })
-  | (WalletEcdsaPostRegistrationProofRecordBase & {
-      operation: 'refresh';
-      request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
-      response: RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1;
-    });
+  WalletEcdsaPostRegistrationProofRecordBase & {
+    operation: 'refresh';
+    request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
+    response: RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1;
+  };
 
 export type WalletEcdsaPostRegistrationPublicRequest =
-  | RouterAbEcdsaDerivationRecoveryRequestV1
-  | RouterAbEcdsaDerivationActivationRefreshRequestV1;
+  RouterAbEcdsaDerivationActivationRefreshRequestV1;
 
 export interface WalletStore {
   getWallet(input: { walletId: WalletId }): Promise<WalletRecord | null>;
@@ -185,20 +175,6 @@ export interface WalletStore {
   putEcdsaPendingSessionActivation(
     record: WalletEcdsaPendingSessionActivationRecord,
   ): Promise<void>;
-  takeEcdsaPendingSessionActivationPair(input: {
-    walletId: WalletId;
-    recovery: { readonly lifecycleId: string; readonly requestId: string };
-    refresh: { readonly lifecycleId: string; readonly requestId: string };
-  }): Promise<{
-    readonly recovery: Extract<
-      WalletEcdsaPendingSessionActivationRecord,
-      { readonly operation: 'recovery' }
-    >;
-    readonly refresh: Extract<
-      WalletEcdsaPendingSessionActivationRecord,
-      { readonly operation: 'refresh' }
-    >;
-  } | null>;
   putSubject(record: WalletRecord): Promise<void>;
   putSigner(record: WalletSignerRecord): Promise<void>;
   putSigners(records: readonly WalletSignerRecord[]): Promise<void>;
@@ -233,24 +209,13 @@ export function parseWalletEcdsaPendingSessionActivationRecord(
       createdAtMs,
       expiresAtMs,
     } as const;
-    switch (raw.operation) {
-      case 'recovery':
-        return {
-          ...base,
-          operation: 'recovery',
-          request: parseRouterAbEcdsaDerivationRecoveryRequestV1(raw.request),
-          response: parseRouterAbEcdsaStrictForwardedRegistrationResponseV1(raw.response),
-        };
-      case 'refresh':
-        return {
-          ...base,
-          operation: 'refresh',
-          request: parseRouterAbEcdsaDerivationActivationRefreshRequestV1(raw.request),
-          response: parseForwardedEcdsaRefreshResponse(raw.response),
-        };
-      default:
-        return null;
-    }
+    if (raw.operation !== 'refresh') return null;
+    return {
+      ...base,
+      operation: 'refresh',
+      request: parseRouterAbEcdsaDerivationActivationRefreshRequestV1(raw.request),
+      response: parseForwardedEcdsaRefreshResponse(raw.response),
+    };
   } catch {
     return null;
   }
@@ -371,9 +336,7 @@ export function parseWalletEcdsaSignerRecord(raw: unknown): WalletEcdsaSignerRec
   } catch {
     return null;
   }
-  const custodyKeyManifestDigestB64u = toOptionalTrimmedString(
-    raw.custodyKeyManifestDigestB64u,
-  );
+  const custodyKeyManifestDigestB64u = toOptionalTrimmedString(raw.custodyKeyManifestDigestB64u);
   const createdAtMs = normalizeTimestampMs(raw.createdAtMs);
   const updatedAtMs = normalizeTimestampMs(raw.updatedAtMs);
   if (
@@ -638,38 +601,6 @@ class InMemoryWalletStore implements WalletStore {
     );
   }
 
-  async takeEcdsaPendingSessionActivationPair(input: {
-    walletId: WalletId;
-    recovery: { readonly lifecycleId: string; readonly requestId: string };
-    refresh: { readonly lifecycleId: string; readonly requestId: string };
-  }): Promise<{
-    readonly recovery: Extract<
-      WalletEcdsaPendingSessionActivationRecord,
-      { readonly operation: 'recovery' }
-    >;
-    readonly refresh: Extract<
-      WalletEcdsaPendingSessionActivationRecord,
-      { readonly operation: 'refresh' }
-    >;
-  } | null> {
-    const recoveryKey = `${input.walletId}:${input.recovery.lifecycleId}:${input.recovery.requestId}`;
-    const refreshKey = `${input.walletId}:${input.refresh.lifecycleId}:${input.refresh.requestId}`;
-    const recovery = this.pendingEcdsaActivations.get(recoveryKey);
-    const refresh = this.pendingEcdsaActivations.get(refreshKey);
-    const now = Date.now();
-    if (
-      recovery?.operation !== 'recovery' ||
-      refresh?.operation !== 'refresh' ||
-      recovery.expiresAtMs <= now ||
-      refresh.expiresAtMs <= now
-    ) {
-      return null;
-    }
-    this.pendingEcdsaActivations.delete(recoveryKey);
-    this.pendingEcdsaActivations.delete(refreshKey);
-    return { recovery, refresh };
-  }
-
   async putSubject(record: WalletRecord): Promise<void> {
     this.subjects.set(`${this.prefix}${record.walletId}`, record);
   }
@@ -871,54 +802,6 @@ class CloudflareDurableObjectWalletStore implements WalletStore {
       ),
       record,
     );
-  }
-
-  async takeEcdsaPendingSessionActivationPair(input: {
-    walletId: WalletId;
-    recovery: { readonly lifecycleId: string; readonly requestId: string };
-    refresh: { readonly lifecycleId: string; readonly requestId: string };
-  }): Promise<{
-    readonly recovery: Extract<
-      WalletEcdsaPendingSessionActivationRecord,
-      { readonly operation: 'recovery' }
-    >;
-    readonly refresh: Extract<
-      WalletEcdsaPendingSessionActivationRecord,
-      { readonly operation: 'refresh' }
-    >;
-  } | null> {
-    const response = await this.stub.fetch('https://threshold-store.invalid/', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        op: 'walletTakeEcdsaPendingSessionActivationPair',
-        recoveryKey: this.key(
-          'ecdsa-session-activation',
-          `${input.walletId}:${input.recovery.lifecycleId}:${input.recovery.requestId}`,
-        ),
-        refreshKey: this.key(
-          'ecdsa-session-activation',
-          `${input.walletId}:${input.refresh.lifecycleId}:${input.refresh.requestId}`,
-        ),
-      }),
-    });
-    if (!response.ok) return null;
-    const current: unknown = await response.json().catch(() => null);
-    if (!isObject(current) || current.ok !== true || !isObject(current.value)) {
-      return null;
-    }
-    const recovery = parseWalletEcdsaPendingSessionActivationRecord(current.value.recovery);
-    const refresh = parseWalletEcdsaPendingSessionActivationRecord(current.value.refresh);
-    const now = Date.now();
-    if (
-      recovery?.operation !== 'recovery' ||
-      refresh?.operation !== 'refresh' ||
-      recovery.expiresAtMs <= now ||
-      refresh.expiresAtMs <= now
-    ) {
-      return null;
-    }
-    return { recovery, refresh };
   }
 
   async putSigner(record: WalletSignerRecord): Promise<void> {
