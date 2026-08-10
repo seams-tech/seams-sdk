@@ -804,6 +804,45 @@ impl RouterAbEd25519YaoLaneResultV1 {
         ] {
             decode_digest32(field, value)?;
         }
+        let holder_digest = decode_digest32(
+            "target_holder_ciphertext_digest_set_b64u",
+            &self.target_holder_ciphertext_digest_set_b64u,
+        )?;
+        if holder_digest
+            != lane_ciphertext_digest_set(
+                b"holder",
+                &self.deriver_a_holder_package,
+                &self.deriver_b_holder_package,
+            )
+        {
+            return Err(invalid_lane(
+                "lane holder ciphertext digest set does not match packages",
+            ));
+        }
+        let worker_digest = decode_digest32(
+            "target_server_ciphertext_digest_set_b64u",
+            &self.target_server_ciphertext_digest_set_b64u,
+        )?;
+        if worker_digest
+            != lane_ciphertext_digest_set(
+                b"signing-worker",
+                &self.deriver_a_signing_worker_package,
+                &self.deriver_b_signing_worker_package,
+            )
+        {
+            return Err(invalid_lane(
+                "lane SigningWorker ciphertext digest set does not match packages",
+            ));
+        }
+        if self.holder_recipient_key_digest_b64u
+            != self.job.target_holder.hpke_public_key_digest_b64u
+            || self.server_recipient_key_digest_b64u
+                != self.job.target_signing_worker.hpke_public_key_digest_b64u
+        {
+            return Err(invalid_lane(
+                "lane recipient-key digest does not match the admitted target",
+            ));
+        }
         require_positive("committed_at_ms", self.committed_at_ms)
     }
 }
@@ -836,6 +875,26 @@ fn decode_digest32(field: &str, value: &str) -> RouterAbProtocolResult<[u8; 32]>
         )
     })?;
     Ok(decoded)
+}
+
+fn lane_ciphertext_digest_set(
+    recipient_domain: &[u8],
+    deriver_a: &Ed25519YaoEncryptedPackageV1,
+    deriver_b: &Ed25519YaoEncryptedPackageV1,
+) -> [u8; 32] {
+    Sha256::new()
+        .chain_update(b"seams/rotatable-signing-lanes/ed25519-ciphertext-set/v1")
+        .chain_update(recipient_domain)
+        .chain_update([deriver_a.deriver().wire_tag()])
+        .chain_update([deriver_a.kind().wire_tag()])
+        .chain_update(deriver_a.encapsulated_key())
+        .chain_update(deriver_a.ciphertext())
+        .chain_update([deriver_b.deriver().wire_tag()])
+        .chain_update([deriver_b.kind().wire_tag()])
+        .chain_update(deriver_b.encapsulated_key())
+        .chain_update(deriver_b.ciphertext())
+        .finalize()
+        .into()
 }
 
 /// Terminal protocol receipt for committed lane packages.
@@ -1135,7 +1194,13 @@ mod lane_material_activation_serde {
         D: Deserializer<'de>,
     {
         let wire = WireActivation::deserialize(deserializer)?;
-        let _kind = wire.kind;
+        if wire.kind
+            != super::super::lifecycle::MpcMaterialActivationRefKindV1::MpcMaterialActivationRef
+        {
+            return Err(serde::de::Error::custom(
+                "lane material activation kind is invalid",
+            ));
+        }
         MpcMaterialActivationRefV1::new(
             wire.activation_id,
             wire.capability,
