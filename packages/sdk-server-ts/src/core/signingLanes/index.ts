@@ -5,3 +5,4 @@ export * from './LaneLifecycleStore';
 export * from './LaneEffectJournalStore';
 export * from './LaneEnrollmentActivation';
 export * from './LaneEnrollmentRevocation';
+export * from './LaneLifecycleApplicationService';
