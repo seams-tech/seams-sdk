@@ -58,6 +58,15 @@ function fixture(): FixtureDoc {
   return doc;
 }
 
+function browserCommitPayload(
+  payload: WalletCustodyCeremonyCommitPayload,
+): WalletCustodyCeremonyCommitPayload {
+  // Rust emits the pre-acknowledgement payload. The browser adds this marker
+  // after the user visibly confirms the recovery backup before calling the
+  // server adapter.
+  return { ...payload, recoveryBackupAcknowledged: true };
+}
+
 const NOW_MS = 1_700_000_000_000;
 
 test('the Rust establish payload parses into records through the production adapter', () => {
@@ -66,7 +75,7 @@ test('the Rust establish payload parses into records through the production adap
   expect(custody).toBeTruthy();
 
   const records = buildWalletCustodyRegistrationRecords({
-    payload: doc.establishCommitPayload,
+    payload: browserCommitPayload(doc.establishCommitPayload),
     factor: buildEmailOtpEnvelopeFactor({
       enrollmentId: doc.inputs.enrollmentId,
       enrollmentSealKeyVersion: doc.inputs.enrollmentSealKeyVersion,
@@ -88,7 +97,7 @@ test('the Rust join payload is refused: a joining run commits no custody records
   const doc = fixture();
   expect(() =>
     buildWalletCustodyRegistrationRecords({
-      payload: doc.joinCommitPayload,
+      payload: browserCommitPayload(doc.joinCommitPayload),
       factor: buildEmailOtpEnvelopeFactor({
         enrollmentId: doc.inputs.enrollmentId,
         enrollmentSealKeyVersion: doc.inputs.enrollmentSealKeyVersion,
