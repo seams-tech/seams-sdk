@@ -336,29 +336,13 @@ export type Ed25519OperationStepUpProof =
       authority?: never;
     };
 
-export type Ed25519OperationStepUpMaterialRecoveryRequest =
-  | {
-      kind: 'not_requested';
-      wrappedCiphertext?: never;
-      enrollmentSealKeyVersion?: never;
-    }
-  | {
-      kind: 'email_otp_local_material_v1';
-      wrappedCiphertext: string;
-      enrollmentSealKeyVersion: string;
-    };
+export type Ed25519OperationStepUpMaterialRecoveryRequest = {
+  kind: 'not_requested';
+};
 
-export type Ed25519OperationStepUpMaterialRecoveryResponse =
-  | {
-      kind: 'not_requested';
-      ciphertext?: never;
-      enrollmentSealKeyVersion?: never;
-    }
-  | {
-      kind: 'email_otp_local_material_v1';
-      ciphertext: string;
-      enrollmentSealKeyVersion: string;
-    };
+export type Ed25519OperationStepUpMaterialRecoveryResponse = {
+  kind: 'not_requested';
+};
 
 type Ed25519EmailOtpOperationStepUpProof = Extract<
   Ed25519OperationStepUpProof,
@@ -367,10 +351,6 @@ type Ed25519EmailOtpOperationStepUpProof = Extract<
 type Ed25519NoMaterialRecoveryRequest = Extract<
   Ed25519OperationStepUpMaterialRecoveryRequest,
   { kind: 'not_requested' }
->;
-type Ed25519EmailOtpLocalMaterialRecoveryRequest = Extract<
-  Ed25519OperationStepUpMaterialRecoveryRequest,
-  { kind: 'email_otp_local_material_v1' }
 >;
 
 type Ed25519OperationStepUpAuthorizationRequestBase = {
@@ -385,17 +365,11 @@ export type Ed25519OperationStepUpCredential = Exclude<
   { kind: 'wallet_session_jwt' }
 >;
 
-export type Ed25519OperationStepUpAuthorizationRequest = Ed25519OperationStepUpAuthorizationRequestBase &
-  (
-    | {
-        proof: Ed25519OperationStepUpProof;
-        materialRecovery: Ed25519NoMaterialRecoveryRequest;
-      }
-    | {
-        proof: Ed25519EmailOtpOperationStepUpProof;
-        materialRecovery: Ed25519EmailOtpLocalMaterialRecoveryRequest;
-      }
-  );
+export type Ed25519OperationStepUpAuthorizationRequest =
+  Ed25519OperationStepUpAuthorizationRequestBase & {
+    proof: Ed25519OperationStepUpProof;
+    materialRecovery: Ed25519NoMaterialRecoveryRequest;
+  };
 
 type Ed25519OperationStepUpProofWire =
   | {
@@ -429,10 +403,7 @@ function serializeEd25519OperationStepUpProof(
           proof.providerSubjectId,
           'providerSubjectId',
         ),
-        challenge_id: requireNonEmptyEd25519SecretSourceString(
-          proof.challengeId,
-          'challengeId',
-        ),
+        challenge_id: requireNonEmptyEd25519SecretSourceString(proof.challengeId, 'challengeId'),
         otp_code: requireNonEmptyEd25519SecretSourceString(proof.otpCode, 'otpCode'),
       };
     default:
@@ -483,34 +454,9 @@ function requireNormalizedEd25519OperationStepUpString(value: unknown, field: st
 }
 
 function buildEd25519OperationStepUpMaterialRecoveryRequest(
-  request: Ed25519OperationStepUpAuthorizationRequest,
+  _request: Ed25519OperationStepUpAuthorizationRequest,
 ): Ed25519OperationStepUpMaterialRecoveryRequest {
-  switch (request.materialRecovery.kind) {
-    case 'not_requested':
-      return { kind: 'not_requested' };
-    case 'email_otp_local_material_v1': {
-      if (request.proof.kind !== 'email_otp') {
-        throw new Error(
-          '[threshold-ed25519] Passkey operation step-up cannot request Email OTP material recovery',
-        );
-      }
-      return {
-        kind: 'email_otp_local_material_v1',
-        wrappedCiphertext: requireNormalizedEd25519OperationStepUpString(
-          request.materialRecovery.wrappedCiphertext,
-          'materialRecovery.wrappedCiphertext',
-        ),
-        enrollmentSealKeyVersion: requireNormalizedEd25519OperationStepUpString(
-          request.materialRecovery.enrollmentSealKeyVersion,
-          'materialRecovery.enrollmentSealKeyVersion',
-        ),
-      };
-    }
-    default: {
-      const exhaustive: never = request.materialRecovery;
-      return exhaustive;
-    }
-  }
+  return { kind: 'not_requested' };
 }
 
 function parseEd25519OperationStepUpMaterialRecoveryResponse(args: {
@@ -534,35 +480,6 @@ function parseEd25519OperationStepUpMaterialRecoveryResponse(args: {
         );
       }
       return { kind: 'not_requested' };
-    }
-    case 'email_otp_local_material_v1': {
-      requireExactEd25519OperationStepUpResponseKeys(
-        response,
-        ['kind', 'ciphertext', 'enrollmentSealKeyVersion'],
-        'operation step-up material recovery',
-      );
-      if (args.requested.kind !== 'email_otp_local_material_v1') {
-        throw new Error(
-          '[threshold-ed25519] operation step-up material recovery response does not match the request',
-        );
-      }
-      const enrollmentSealKeyVersion = requireNormalizedEd25519OperationStepUpString(
-        response.enrollmentSealKeyVersion,
-        'materialRecovery.enrollmentSealKeyVersion',
-      );
-      if (enrollmentSealKeyVersion !== args.requested.enrollmentSealKeyVersion) {
-        throw new Error(
-          '[threshold-ed25519] operation step-up material recovery key version changed',
-        );
-      }
-      return {
-        kind: 'email_otp_local_material_v1',
-        ciphertext: requireNormalizedEd25519OperationStepUpString(
-          response.ciphertext,
-          'materialRecovery.ciphertext',
-        ),
-        enrollmentSealKeyVersion,
-      };
     }
     default:
       throw new Error('[threshold-ed25519] operation step-up material recovery kind is invalid');

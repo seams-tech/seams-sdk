@@ -32,7 +32,6 @@ import {
   D1EmailOtpAuthStateStore,
   D1EmailOtpChallengeStore,
   D1EmailOtpGrantStore,
-  D1EmailOtpRecoveryWrappedEnrollmentEscrowStore,
   D1EmailOtpRegistrationAttemptStore,
   D1EmailOtpUnlockChallengeStore,
   D1EmailOtpWalletEnrollmentStore,
@@ -161,7 +160,6 @@ import {
   buildD1EmailOtpChallengeRecord,
   buildD1EmailOtpGrantRecord,
   buildD1EmailOtpWalletEnrollmentRecord,
-  buildD1EmailOtpEscrowRecord,
   buildD1EmailOtpRegistrationAttemptRecord,
   D1_MIGRATION_TARGETS,
   type SqliteJsonRow,
@@ -657,7 +655,7 @@ test.describe('D1 migration smoke', () => {
             orgId: 'org-d1-email-otp-schema',
             challengeId: 'email-otp-challenge-raw-schema',
             otpChannel: 'email_otp',
-            action: 'wallet_email_otp_unseal',
+            action: 'wallet_email_otp_factor_release',
             issuedAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
             expiresAtMs: Date.parse('2026-06-27T00:10:00.000Z'),
           }),
@@ -4593,8 +4591,6 @@ test.describe('D1 adapter contracts', () => {
       const otherEnvGrantStore = new D1EmailOtpGrantStore(otherEnvScope);
       const enrollmentStore = new D1EmailOtpWalletEnrollmentStore(scope);
       const otherEnvEnrollmentStore = new D1EmailOtpWalletEnrollmentStore(otherEnvScope);
-      const escrowStore = new D1EmailOtpRecoveryWrappedEnrollmentEscrowStore(scope);
-      const otherEnvEscrowStore = new D1EmailOtpRecoveryWrappedEnrollmentEscrowStore(otherEnvScope);
       const authStateStore = new D1EmailOtpAuthStateStore(scope);
       const otherEnvAuthStateStore = new D1EmailOtpAuthStateStore(otherEnvScope);
       const unlockChallengeStore = new D1EmailOtpUnlockChallengeStore(scope);
@@ -4680,39 +4676,6 @@ test.describe('D1 adapter contracts', () => {
         }),
       ).resolves.toMatchObject({ walletId: 'wallet-d1-email-otp' });
       await expect(otherEnvEnrollmentStore.get('wallet-d1-email-otp')).resolves.toBeNull();
-
-      const activeEscrow = buildD1EmailOtpEscrowRecord({
-        recoveryKeyId: 'recovery-key-active',
-        recoveryKeyStatus: 'active',
-        updatedAtMs: Date.parse('2026-06-27T10:02:00.000Z'),
-      });
-      const consumedEscrow = buildD1EmailOtpEscrowRecord({
-        recoveryKeyId: 'recovery-key-consumed',
-        recoveryKeyStatus: 'consumed',
-        updatedAtMs: Date.parse('2026-06-27T10:03:00.000Z'),
-      });
-      await escrowStore.putMany([activeEscrow, consumedEscrow]);
-      await expect(
-        escrowStore.get({
-          walletId: 'wallet-d1-email-otp',
-          recoveryKeyId: 'recovery-key-active',
-        }),
-      ).resolves.toMatchObject({ recoveryKeyStatus: 'active' });
-      await expect(escrowStore.listActiveByWallet('wallet-d1-email-otp')).resolves.toHaveLength(1);
-      await expect(escrowStore.listByWallet('wallet-d1-email-otp')).resolves.toHaveLength(2);
-      await expect(otherEnvEscrowStore.listByWallet('wallet-d1-email-otp')).resolves.toHaveLength(
-        0,
-      );
-      await escrowStore.del({
-        walletId: 'wallet-d1-email-otp',
-        recoveryKeyId: 'recovery-key-active',
-      });
-      await expect(
-        escrowStore.get({
-          walletId: 'wallet-d1-email-otp',
-          recoveryKeyId: 'recovery-key-active',
-        }),
-      ).resolves.toBeNull();
 
       await authStateStore.put({
         version: 'email_otp_auth_state_v1',

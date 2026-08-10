@@ -83,17 +83,20 @@ export type PasskeyCustodyEnvelopeLocator = {
 
 /** The factor address a stored envelope actually carries. */
 function envelopeFactorRef(envelope: PasskeyCustodyEnvelopeRecord): WalletCustodyFactorRef {
-  return envelope.factor.kind === 'passkey'
-    ? {
+  switch (envelope.factor.kind) {
+    case 'passkey':
+      return {
         kind: 'passkey',
         rpId: envelope.factor.rpId,
         credentialIdB64u: envelope.factor.credentialIdB64u,
-      }
-    : {
+      };
+    case 'email_otp':
+      return {
         kind: 'email_otp',
         enrollmentId: envelope.factor.enrollmentId,
         enrollmentSealKeyVersion: envelope.factor.enrollmentSealKeyVersion,
       };
+  }
 }
 
 /**
@@ -102,9 +105,12 @@ function envelopeFactorRef(envelope: PasskeyCustodyEnvelopeRecord): WalletCustod
  * resolve an envelope the caller's factor cannot actually open.
  */
 function factorKeyPart(factor: WalletCustodyFactorRef): readonly string[] {
-  return factor.kind === 'passkey'
-    ? ['passkey', String(factor.rpId), String(factor.credentialIdB64u)]
-    : ['email_otp', factor.enrollmentId, factor.enrollmentSealKeyVersion];
+  switch (factor.kind) {
+    case 'passkey':
+      return ['passkey', String(factor.rpId), String(factor.credentialIdB64u)];
+    case 'email_otp':
+      return ['email_otp', factor.enrollmentId, factor.enrollmentSealKeyVersion];
+  }
 }
 
 function factorRefsMatch(left: WalletCustodyFactorRef, right: WalletCustodyFactorRef): boolean {
@@ -276,13 +282,14 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
       parse: parseEnvelopeOrNull,
       keyPrefix: PASSKEY_ENVELOPE_KEY_PREFIX,
     });
-    this.activityRecords = new CloudflareD1VersionedJsonRecordStore<WalletCredentialActivityRecordV1>({
-      database: options.database,
-      scope: options.scope,
-      encode: (value) => value as unknown as VersionedJsonObject,
-      parse: parseActivityRecordOrNull,
-      keyPrefix: PASSKEY_CREDENTIAL_ACTIVITY_KEY_PREFIX,
-    });
+    this.activityRecords =
+      new CloudflareD1VersionedJsonRecordStore<WalletCredentialActivityRecordV1>({
+        database: options.database,
+        scope: options.scope,
+        encode: (value) => value as unknown as VersionedJsonObject,
+        parse: parseActivityRecordOrNull,
+        keyPrefix: PASSKEY_CREDENTIAL_ACTIVITY_KEY_PREFIX,
+      });
   }
 
   private recordKey(locator: PasskeyCustodyEnvelopeLocator): string {
@@ -426,8 +433,7 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
         factorRefsMatch(envelopeFactorRef(envelope), input.factor),
     );
     const revocable = matching.filter(
-      (envelope) =>
-        envelope.lifecycle.state === 'active' || envelope.lifecycle.state === 'retired',
+      (envelope) => envelope.lifecycle.state === 'active' || envelope.lifecycle.state === 'retired',
     );
     const targetIds = new Set(revocable.map((envelope) => String(envelope.envelopeId)));
     const activeTargets = revocable.filter((envelope) => envelope.lifecycle.state === 'active');
@@ -455,10 +461,7 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
 
     const additionalStatements =
       activeTargets.length > 0
-        ? [
-            ...input.additionalStatements,
-            this.prepareRemainingActiveEnvelopeGuard(input.walletId),
-          ]
+        ? [...input.additionalStatements, this.prepareRemainingActiveEnvelopeGuard(input.walletId)]
         : input.additionalStatements;
     if (revocable.length === 0) {
       await this.database.batch(additionalStatements);
@@ -586,9 +589,7 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
 
   private async mutateActivity(
     envelope: PasskeyCustodyEnvelopeRecord,
-    mutate: (
-      record: WalletCredentialActivityRecordV1,
-    ) => ActivityMutationResult,
+    mutate: (record: WalletCredentialActivityRecordV1) => ActivityMutationResult,
   ): Promise<WalletCredentialActivityMutationResult> {
     const walletId = envelope.walletId;
     const key = activityRecordKey(walletId, envelope.envelopeId);
@@ -619,7 +620,8 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
 
   private prepareRemainingActiveEnvelopeGuard(walletId: WalletId): D1PreparedStatementLike {
     return this.database
-      .prepare(`
+      .prepare(
+        `
         INSERT INTO router_ab_yao_versioned_json_cas_guard (guard_id)
         SELECT 1
          WHERE NOT EXISTS (
@@ -633,7 +635,8 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
               AND json_extract(record_json, '$.walletId') = ?6
               AND json_extract(record_json, '$.lifecycle.state') = 'active'
          )
-      `)
+      `,
+      )
       .bind(
         this.scope.namespace,
         this.scope.orgId,

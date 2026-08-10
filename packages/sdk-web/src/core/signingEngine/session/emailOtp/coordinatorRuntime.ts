@@ -98,6 +98,7 @@ export class EmailOtpWalletSessionRuntime {
       getSignerWorkerContext: deps.getSignerWorkerContext,
       requireRelayUrl: () => this.runtimeConfig.requireRelayUrl(),
       requireSigningSessionSealGroupId: () => this.runtimeConfig.requireSigningSessionSealGroupId(),
+      resolveAppSessionJwtForWallet: (request) => this.resolveAppSessionJwtForWallet(request),
       prepareEcdsaExportCapability: (request) =>
         this.ecdsaLifecycleRuntime.prepareEcdsaExportCapability(request),
     });

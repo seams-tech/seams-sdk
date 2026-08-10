@@ -4,6 +4,7 @@ import {
   parseRouterAbEd25519YaoRecoveryActivationRequestV1,
   parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
   parseRouterAbEd25519YaoRegistrationActivationResultV1,
+  parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
   ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
@@ -119,7 +120,10 @@ class AllowRecoveryAuthorization implements RouterAbEd25519YaoRecoveryAuthorizat
     input: RouterAbEd25519YaoRecoveryAuthorizationInput,
   ): RouterAbEd25519YaoRecoveryAuthorizationResult {
     this.inputs.push(input);
-    return { ok: true, claims: walletSessionClaimsFixture() };
+    return {
+      ok: true,
+      claims: { kind: 'wallet_session', value: walletSessionClaimsFixture() },
+    };
   }
 }
 
@@ -216,6 +220,19 @@ function registrationResult(): RegistrationResult {
       deriver_a_client_package: activationClientPackage(binding, 'deriver_a'),
       deriver_b_client_package: activationClientPackage(binding, 'deriver_b'),
       public_receipt: publicReceipt(1, binding.material_activation),
+    }),
+  );
+}
+
+function registrationAdmissionReceipt() {
+  return requireParsed(
+    parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1({
+      binding: registrationBinding(),
+      keyset: {
+        deriver_a_input_public_key: bytes(1),
+        deriver_b_input_public_key: bytes(2),
+        signing_worker_recipient_public_key: bytes(3),
+      },
     }),
   );
 }
@@ -397,6 +414,7 @@ function registrationCapabilityInstallation(): RouterAbEd25519YaoRegistrationFin
     activeCapabilityBinding: bytes(20),
     nearAccountId: 'wallet-1.testnet',
     registrationAdmissionRequest: registrationAdmissionRequest(),
+    registrationAdmissionReceipt: registrationAdmissionReceipt(),
     registrationResult: registrationResult(),
     runtimePolicyScope: {
       orgId: 'org-recovery',
@@ -695,6 +713,7 @@ function installationRejectsUnboundRuntimePolicy(): void {
     activeCapabilityBinding: bytes(20),
     nearAccountId: 'wallet-1.testnet',
     registrationAdmissionRequest: registrationAdmissionRequest(),
+    registrationAdmissionReceipt: registrationAdmissionReceipt(),
     registrationResult: registrationResult(),
     runtimePolicyScope: {
       orgId: 'org-recovery',

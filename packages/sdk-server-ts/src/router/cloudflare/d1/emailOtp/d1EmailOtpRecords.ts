@@ -29,11 +29,7 @@ export type EmailOtpChallengeIssueAction =
   | typeof WALLET_EMAIL_OTP_ACTIONS.registration
   | typeof WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap;
 
-export type EmailOtpRateLimitScope =
-  | 'challenge'
-  | 'verify'
-  | 'grant'
-  | 'googleRegistrationAttempt';
+export type EmailOtpRateLimitScope = 'challenge' | 'verify' | 'grant' | 'googleRegistrationAttempt';
 
 export type EmailOtpAuthStatePatch = {
   readonly otpFailureCount?: number | null;
@@ -49,6 +45,7 @@ export type EmailOtpEnrollmentMaterialBoundaryInput = {
   readonly enrollmentSealKeyVersion?: unknown;
   readonly clientUnlockPublicKeyB64u?: unknown;
   readonly unlockKeyVersion?: unknown;
+  readonly serverSealedFactorCiphertextB64u?: unknown;
 };
 
 export type EmailOtpEnrollmentMaterialValidationResult =
@@ -57,6 +54,7 @@ export type EmailOtpEnrollmentMaterialValidationResult =
       readonly enrollmentSealKeyVersion: string;
       readonly clientUnlockPublicKeyB64u: string;
       readonly unlockKeyVersion: string;
+      readonly serverSealedFactorCiphertextB64u: string;
     }
   | {
       readonly ok: false;
@@ -221,6 +219,9 @@ export function parseEmailOtpWalletEnrollmentRecord(
   const enrollmentSealKeyVersion = toOptionalTrimmedString(record.enrollmentSealKeyVersion);
   const clientUnlockPublicKeyB64u = toOptionalTrimmedString(record.clientUnlockPublicKeyB64u);
   const unlockKeyVersion = toOptionalTrimmedString(record.unlockKeyVersion);
+  const serverSealedFactorCiphertextB64u = toOptionalTrimmedString(
+    record.serverSealedFactorCiphertextB64u,
+  );
   const createdAtMs = positiveSafeInteger(record.createdAtMs);
   const updatedAtMs = positiveSafeInteger(record.updatedAtMs);
   if (
@@ -234,6 +235,7 @@ export function parseEmailOtpWalletEnrollmentRecord(
     !enrollmentSealKeyVersion ||
     !clientUnlockPublicKeyB64u ||
     !unlockKeyVersion ||
+    !serverSealedFactorCiphertextB64u ||
     !createdAtMs ||
     !updatedAtMs ||
     updatedAtMs < createdAtMs
@@ -251,6 +253,7 @@ export function parseEmailOtpWalletEnrollmentRecord(
     enrollmentSealKeyVersion,
     clientUnlockPublicKeyB64u,
     unlockKeyVersion,
+    serverSealedFactorCiphertextB64u,
     createdAtMs,
     updatedAtMs,
   };
@@ -782,6 +785,9 @@ export async function validateEmailOtpEnrollmentMaterial(input: {
     input.material.clientUnlockPublicKeyB64u,
   );
   const unlockKeyVersion = toOptionalTrimmedString(input.material.unlockKeyVersion);
+  const serverSealedFactorCiphertextB64u = toOptionalTrimmedString(
+    input.material.serverSealedFactorCiphertextB64u,
+  );
   if (!enrollmentSealKeyVersion) {
     return {
       ok: false,
@@ -794,6 +800,13 @@ export async function validateEmailOtpEnrollmentMaterial(input: {
   }
   if (!unlockKeyVersion) {
     return { ok: false, code: 'invalid_body', message: 'unlockKeyVersion is required' };
+  }
+  if (!serverSealedFactorCiphertextB64u) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'serverSealedFactorCiphertextB64u is required',
+    };
   }
   let unlockPublicKeyBytes: Uint8Array;
   try {
@@ -827,6 +840,7 @@ export async function validateEmailOtpEnrollmentMaterial(input: {
     enrollmentSealKeyVersion,
     clientUnlockPublicKeyB64u,
     unlockKeyVersion,
+    serverSealedFactorCiphertextB64u,
   };
 }
 

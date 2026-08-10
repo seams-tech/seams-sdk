@@ -5,7 +5,10 @@ import type {
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { DerivationClientSharePublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
-import type { WalletAuthAuthority, WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import type {
+  WalletAuthAuthority,
+  WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import type { WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type {
@@ -269,7 +272,7 @@ export type WalletAddAuthMethodRegistrationOptions = {
 };
 
 export type WalletAddAuthMethodStartResponse =
-  | ({
+  | {
       ok: true;
       addAuthMethodCeremonyId: string;
       intent: AddAuthMethodIntentV1 & {
@@ -277,8 +280,8 @@ export type WalletAddAuthMethodStartResponse =
       };
       custodyEnvelope: PasskeyCustodyEnvelopeRecord;
       registration: WalletAddAuthMethodRegistrationOptions;
-    })
-  | ({
+    }
+  | {
       ok: true;
       addAuthMethodCeremonyId: string;
       intent: AddAuthMethodIntentV1 & {
@@ -286,7 +289,7 @@ export type WalletAddAuthMethodStartResponse =
       };
       custodyEnvelope?: never;
       registration?: never;
-    })
+    }
   | {
       ok: false;
       code: string;
@@ -305,9 +308,7 @@ export type WalletAddAuthMethodFinalizeRequest =
       custodyEnvelope?: never;
     };
 
-export type WalletAuthMethodStatusAnnotation<
-  Status extends WalletAuthMethodRecord['status'],
-> = {
+export type WalletAuthMethodStatusAnnotation<Status extends WalletAuthMethodRecord['status']> = {
   kind: WalletAuthMethodRecord['kind'];
   status: Status;
 };
@@ -430,28 +431,26 @@ export type WalletAddSignerStartResponse =
       ok: true;
       addSignerCeremonyId: string;
       intent: AddSignerIntentV1;
-    } &
-      (
-        | ({ readonly authorizationKind: 'webauthn_assertion' } &
-            (
-              | {
-                  kind: 'near_ed25519';
-                  ed25519: WalletAddSignerEd25519YaoStart;
-                  ecdsa?: never;
-                }
-              | {
-                  kind: 'evm_family_ecdsa';
-                  ecdsa: WalletAddSignerEcdsaPreparePayload;
-                  ed25519?: never;
-                }
-            ))
-        | {
-            readonly authorizationKind: 'app_session';
-            kind: 'evm_family_ecdsa';
-            ecdsa: WalletRegistrationEcdsaPreparePayload;
-            ed25519?: never;
-          }
-      ))
+    } & (
+      | ({ readonly authorizationKind: 'webauthn_assertion' } & (
+          | {
+              kind: 'near_ed25519';
+              ed25519: WalletAddSignerEd25519YaoStart;
+              ecdsa?: never;
+            }
+          | {
+              kind: 'evm_family_ecdsa';
+              ecdsa: WalletAddSignerEcdsaPreparePayload;
+              ed25519?: never;
+            }
+        ))
+      | {
+          readonly authorizationKind: 'app_session';
+          kind: 'evm_family_ecdsa';
+          ecdsa: WalletRegistrationEcdsaPreparePayload;
+          ed25519?: never;
+        }
+    ))
   | {
       ok: false;
       code: string;
@@ -821,6 +820,7 @@ type WalletRegistrationFinalizeRequestBase = {
     enrollmentSealKeyVersion: string;
     clientUnlockPublicKeyB64u: string;
     unlockKeyVersion: string;
+    serverSealedFactorCiphertextB64u: string;
   };
 };
 

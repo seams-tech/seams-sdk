@@ -652,7 +652,9 @@ export class AuthService {
     return createEmailOtpShamirCipherFromConfig({
       rootSecretB64u: this.readConfigValue('SIGNING_SESSION_SEAL_ROOT_SECRET_B64U'),
       currentKeyVersion: this.readConfigValue('SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION'),
-      acceptedWarmKeyVersions: this.readConfigValue('SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS')
+      acceptedWarmKeyVersions: this.readConfigValue(
+        'SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS',
+      )
         .split(',')
         .map((value) => value.trim())
         .filter(Boolean),
@@ -1234,6 +1236,7 @@ export class AuthService {
     proofEmail?: unknown;
     clientIp?: unknown;
     enrollmentSealKeyVersion?: unknown;
+    serverSealedFactorCiphertextB64u?: unknown;
     clientUnlockPublicKeyB64u?: unknown;
     unlockKeyVersion?: unknown;
     googleEmailOtpRegistrationAttemptId?: unknown;

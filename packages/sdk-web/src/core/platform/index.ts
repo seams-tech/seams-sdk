@@ -102,3 +102,4 @@ export {
   parseRawEcdsaRoleLocalRecord,
   serializeEcdsaRoleLocalReadyRecord,
 } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+export type { ThresholdEcdsaChainTarget } from './ecdsaRoleLocalRecords';

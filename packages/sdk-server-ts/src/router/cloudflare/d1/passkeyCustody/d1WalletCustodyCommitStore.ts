@@ -10,7 +10,7 @@ import {
   parsePasskeyCustodyEnvelopeRecord,
   type PasskeyCustodyEnvelopeRecord,
 } from '@shared/passkey-custody';
-import type { WalletId } from '@shared/utils/domainIds';
+import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import type { RecoveryCodeReservationId } from '@shared/wallet-recovery/recoveryCodeReservation';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import type { VersionedJsonObject } from '../../../framework/versionedJsonRecordStore';
@@ -37,6 +37,12 @@ const WEB_AUTHN_RECOVERY_CHALLENGE_CAS_GUARD = `
   SELECT 1
    WHERE changes() = 0
 `;
+
+function requireWalletId(value: unknown): WalletId {
+  const parsed = parseWalletId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
 
 /**
  * The registration commit: one custody envelope, one recovery envelope set,
@@ -307,7 +313,7 @@ export class CloudflareD1WalletCustodyCommitStore {
   async writeBackupAcknowledgement(
     record: WalletRecoveryBackupAcknowledgementV1,
   ): Promise<{ kind: 'stored' } | { kind: 'conflict' }> {
-    const key = walletRecoveryBackupAcknowledgementRecordKey(record.walletId as WalletId);
+    const key = walletRecoveryBackupAcknowledgementRecordKey(requireWalletId(record.walletId));
     const existing = await this.records.read(key);
     const result = await this.records.put(
       key,

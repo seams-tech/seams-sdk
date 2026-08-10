@@ -47,6 +47,7 @@ const allowedTypesTsFiles = new Set([
   'packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types.ts',
   'packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/TxTree/renderers/types.ts',
   'packages/sdk-web/src/react/components/AccountMenuButton/types.ts',
+  'packages/sdk-web/src/react/components/HostedSeamsAuthMenu/types.ts',
   'packages/sdk-web/src/react/components/SeamsAuthMenu/types.ts',
   'packages/sdk-web/src/react/types.ts',
   'tests/setup/types.ts',

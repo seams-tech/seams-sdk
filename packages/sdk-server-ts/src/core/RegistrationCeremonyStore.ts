@@ -576,13 +576,9 @@ export function parseTerminalRegistrationCeremonyCancellationResult(
   if (!isRecord(value)) return null;
   switch (value.kind) {
     case 'cancelled':
-      return value.ceremonyDeleted === true
-        ? { kind: 'cancelled', ceremonyDeleted: true }
-        : null;
+      return value.ceremonyDeleted === true ? { kind: 'cancelled', ceremonyDeleted: true } : null;
     case 'not_found':
-      return value.ceremonyDeleted === false
-        ? { kind: 'not_found', ceremonyDeleted: false }
-        : null;
+      return value.ceremonyDeleted === false ? { kind: 'not_found', ceremonyDeleted: false } : null;
     default:
       return null;
   }
@@ -758,8 +754,8 @@ type StoredWalletAddAuthMethodCeremonyBase = {
         authorityRef: WalletAuthAuthorityRef;
       }
     | {
-      kind: 'app_session';
-    };
+        kind: 'app_session';
+      };
 };
 
 export type StoredWalletAddAuthMethodCeremony =
@@ -1153,11 +1149,7 @@ function parseStoredWalletAddSignerFinalizeRequest(
     if (!isRecord(value.activationReference)) return null;
     const lifecycleId = trimString(value.activationReference.lifecycleId);
     const sessionId = parseStoredBytes32(value.activationReference.sessionId);
-    if (
-      custodyKeySet?.kind !== 'near_ed25519_v1' ||
-      !lifecycleId ||
-      !sessionId
-    ) return null;
+    if (custodyKeySet?.kind !== 'near_ed25519_v1' || !lifecycleId || !sessionId) return null;
     let keyManifestDigestB64u: string;
     try {
       keyManifestDigestB64u = parseDigestB64u(custodyKeySet.keyManifestDigestB64u);
@@ -1786,6 +1778,30 @@ function parseAddAuthMethodCeremonyAuth(
   };
 }
 
+function addAuthMethodCustodyFactorMatches(
+  auth: StoredWalletAddAuthMethodCeremony['auth'],
+  custodyEnvelope: PasskeyCustodyEnvelopeRecord,
+): boolean {
+  switch (auth.kind) {
+    case 'webauthn_assertion':
+      return (
+        custodyEnvelope.factor.kind === 'passkey' &&
+        custodyEnvelope.factor.rpId === auth.rpId &&
+        custodyEnvelope.factor.credentialIdB64u === auth.credentialIdB64u
+      );
+    case 'email_otp':
+      return (
+        custodyEnvelope.factor.kind === 'email_otp' &&
+        custodyEnvelope.factor.enrollmentId === auth.enrollmentId &&
+        custodyEnvelope.factor.enrollmentSealKeyVersion === auth.enrollmentSealKeyVersion
+      );
+    case 'app_session':
+      return false;
+    default:
+      return assertNever(auth);
+  }
+}
+
 function parseStoredWalletAddAuthMethodRegistrationOptions(
   value: unknown,
 ): WalletAddAuthMethodRegistrationOptions | null {
@@ -1802,9 +1818,7 @@ function parseStoredWalletAddAuthMethodRegistrationOptions(
   const parameters = Array.isArray(value.pubKeyCredParams) ? value.pubKeyCredParams : null;
   const firstParameter = parameters && isRecord(parameters[0]) ? parameters[0] : null;
   const secondParameter = parameters && isRecord(parameters[1]) ? parameters[1] : null;
-  const selection = isRecord(value.authenticatorSelection)
-    ? value.authenticatorSelection
-    : null;
+  const selection = isRecord(value.authenticatorSelection) ? value.authenticatorSelection : null;
   const extensions = isRecord(value.extensions) ? value.extensions : null;
   const prf = isRecord(extensions?.prf) ? extensions.prf : null;
   const evalRecord = isRecord(prf?.eval) ? prf.eval : null;
@@ -1815,7 +1829,9 @@ function parseStoredWalletAddAuthMethodRegistrationOptions(
           const id = trimString(entry.id);
           return id ? { type: 'public-key' as const, id } : null;
         })
-        .filter((entry): entry is { readonly type: 'public-key'; readonly id: string } => entry !== null)
+        .filter(
+          (entry): entry is { readonly type: 'public-key'; readonly id: string } => entry !== null,
+        )
     : null;
   const timeoutMs = Number(value.timeoutMs);
   if (
@@ -1921,15 +1937,7 @@ function parseStoredWalletAddAuthMethodCeremony(
   } catch {
     return null;
   }
-  const custodyFactorMatchesAuth =
-    auth.kind === 'webauthn_assertion'
-      ? custodyEnvelope.factor.kind === 'passkey' &&
-        custodyEnvelope.factor.rpId === auth.rpId &&
-        custodyEnvelope.factor.credentialIdB64u === auth.credentialIdB64u
-      : auth.kind === 'email_otp' &&
-        custodyEnvelope.factor.kind === 'email_otp' &&
-        custodyEnvelope.factor.enrollmentId === auth.enrollmentId &&
-        custodyEnvelope.factor.enrollmentSealKeyVersion === auth.enrollmentSealKeyVersion;
+  const custodyFactorMatchesAuth = addAuthMethodCustodyFactorMatches(auth, custodyEnvelope);
   if (
     !rpId.ok ||
     !challengeB64u ||

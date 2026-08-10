@@ -1,5 +1,10 @@
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
-import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
+import {
+  parseWalletId,
+  parseWebAuthnRpId,
+  type WalletId,
+  type WebAuthnRpId,
+} from '@shared/utils/domainIds';
 import { unknownWebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import type { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
@@ -18,7 +23,6 @@ import {
   type RecoveryCodeReservationId,
 } from '@shared/wallet-recovery/recoveryCodeReservation';
 import type { WalletRecoveryEnvelopeSetRecord } from '@shared/wallet-recovery';
-import type { WalletId } from '@shared/utils/domainIds';
 import type { WalletRecoveryActivationVerification } from './walletRecoveryKeyManifest';
 
 /**
@@ -57,6 +61,12 @@ export type WalletRecoveryFinalizationResult =
   | { readonly kind: 'envelope_rejected'; readonly reason: string }
   | { readonly kind: 'registration_rejected'; readonly reason: string };
 
+function requireWalletId(value: unknown): WalletId {
+  const parsed = parseWalletId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
 export async function finalizeRecoveredWalletCredentialV1(input: {
   readonly envelopeStore: CloudflareD1PasskeyCustodyEnvelopeStore;
   readonly walletCustodyCommits: CloudflareD1WalletCustodyCommitStore;
@@ -81,6 +91,7 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
   }[];
   readonly nowMs: number;
 }): Promise<WalletRecoveryFinalizationResult> {
+  const walletId = requireWalletId(input.walletId);
   if (String(input.replacementEnvelope.walletId) !== String(input.walletId)) {
     /* An envelope naming another wallet would install a credential that opens
        someone else's custody. Checked here rather than trusted from the body
@@ -194,9 +205,7 @@ export async function finalizeRecoveredWalletCredentialV1(input: {
       input.webAuthnStore.prepareRecoveryRegistrationChallengeDeleteStatement(input.challengeId),
   });
 
-  const storedRecoverySet = await input.walletCustodyCommits.readRecoveryEnvelopeSet(
-    input.walletId as WalletId,
-  );
+  const storedRecoverySet = await input.walletCustodyCommits.readRecoveryEnvelopeSet(walletId);
   if (!storedRecoverySet) {
     return { kind: 'refused', reason: 'the recovery reservation is unavailable' };
   }
@@ -322,6 +331,7 @@ const RECOVERY_REPLAY_STATE_CONFLICT =
 export async function resolveCommittedRecoveryReplayV1(
   input: RecoveryReplayInputBase,
 ): Promise<RecoveryReplayResolution> {
+  const walletId = requireWalletId(input.walletId);
   if (input.replacementEnvelope.factor.kind !== 'passkey') {
     return {
       kind: 'rejected',
@@ -329,9 +339,7 @@ export async function resolveCommittedRecoveryReplayV1(
     };
   }
 
-  const storedRecoverySet = await input.walletCustodyCommits.readRecoveryEnvelopeSet(
-    input.walletId as WalletId,
-  );
+  const storedRecoverySet = await input.walletCustodyCommits.readRecoveryEnvelopeSet(walletId);
   if (!storedRecoverySet) {
     return {
       kind: 'rejected',
@@ -365,7 +373,7 @@ export async function resolveCommittedRecoveryReplayV1(
   }
 
   const storedEnvelope = await input.envelopeStore.lookupEnvelope({
-    walletId: input.walletId as WalletId,
+    walletId,
     factor: {
       kind: 'passkey',
       rpId: input.replacementEnvelope.factor.rpId,
@@ -423,7 +431,7 @@ export async function resolveCommittedRecoveryReplayV1(
     return { kind: 'conflict', reason: RECOVERY_REPLAY_STATE_CONFLICT };
   }
 
-  const envelopes = await input.envelopeStore.listWalletEnvelopes(input.walletId as WalletId);
+  const envelopes = await input.envelopeStore.listWalletEnvelopes(walletId);
   const retiredEnvelopeIds = envelopes
     .filter(
       (envelope) =>
@@ -450,9 +458,10 @@ export async function resolveCommittedRecoveryReplayV1(
 async function committedRecoverySignerStateMatches(
   input: RecoveryReplayInputBase,
 ): Promise<boolean> {
+  const walletId = requireWalletId(input.walletId);
   const [ed25519Signers, ecdsaSigners] = await Promise.all([
-    input.walletStore.listEd25519SignersForWallet({ walletId: input.walletId as WalletId }),
-    input.walletStore.listEcdsaSignersForWallet({ walletId: input.walletId as WalletId }),
+    input.walletStore.listEd25519SignersForWallet({ walletId }),
+    input.walletStore.listEcdsaSignersForWallet({ walletId }),
   ]);
   if (ed25519Signers.length === 0 && ecdsaSigners.length === 0) return false;
 
@@ -556,7 +565,7 @@ async function committedRecoverySignerStateMatches(
       if (!sameEcdsaSignerActivation(signer, first)) return false;
     }
     const pending = await input.walletStore.listEcdsaPendingSessionActivationsForLifecycle({
-      walletId: input.walletId as WalletId,
+      walletId,
       lifecycleId,
     });
     if (pending.length !== 0) return false;

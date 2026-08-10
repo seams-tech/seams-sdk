@@ -1474,20 +1474,14 @@ export function parseD1WalletAddSignerFinalizeRequest(
     const activationReference = toRecordValue(record.activationReference);
     const lifecycleId = toOptionalTrimmedString(activationReference?.lifecycleId);
     const sessionId = parseD1Bytes32(activationReference?.sessionId);
-    if (
-      custodyKeySet?.kind !== 'near_ed25519_v1' ||
-      !lifecycleId ||
-      !sessionId
-    ) return null;
+    if (custodyKeySet?.kind !== 'near_ed25519_v1' || !lifecycleId || !sessionId) return null;
     let keyManifestDigestB64u;
     try {
       keyManifestDigestB64u = parseDigestB64u(custodyKeySet.keyManifestDigestB64u);
     } catch {
       return null;
     }
-    const registeredPublicKeyB64u = toOptionalTrimmedString(
-      custodyKeySet.registeredPublicKeyB64u,
-    );
+    const registeredPublicKeyB64u = toOptionalTrimmedString(custodyKeySet.registeredPublicKeyB64u);
     if (!registeredPublicKeyB64u) return null;
     return {
       kind: 'near_ed25519',
@@ -2435,6 +2429,30 @@ function parseD1WalletAddAuthMethodRegistrationOptions(
   };
 }
 
+function d1AddAuthMethodCustodyFactorMatches(
+  auth: StoredWalletAddAuthMethodCeremony['auth'],
+  custodyEnvelope: PasskeyCustodyEnvelopeRecord,
+): boolean {
+  switch (auth.kind) {
+    case 'webauthn_assertion':
+      return (
+        custodyEnvelope.factor.kind === 'passkey' &&
+        custodyEnvelope.factor.rpId === auth.rpId &&
+        custodyEnvelope.factor.credentialIdB64u === auth.credentialIdB64u
+      );
+    case 'email_otp':
+      return (
+        custodyEnvelope.factor.kind === 'email_otp' &&
+        custodyEnvelope.factor.enrollmentId === auth.enrollmentId &&
+        custodyEnvelope.factor.enrollmentSealKeyVersion === auth.enrollmentSealKeyVersion
+      );
+    case 'app_session':
+      return false;
+    default:
+      return unreachableAddAuthMethodInput(auth);
+  }
+}
+
 export function parseD1StoredWalletAddAuthMethodCeremony(
   raw: unknown,
 ): StoredWalletAddAuthMethodCeremony | null {
@@ -2484,15 +2502,7 @@ export function parseD1StoredWalletAddAuthMethodCeremony(
   } catch {
     return null;
   }
-  const custodyFactorMatchesAuth =
-    auth.kind === 'webauthn_assertion'
-      ? custodyEnvelope.factor.kind === 'passkey' &&
-        custodyEnvelope.factor.rpId === auth.rpId &&
-        custodyEnvelope.factor.credentialIdB64u === auth.credentialIdB64u
-      : auth.kind === 'email_otp' &&
-        custodyEnvelope.factor.kind === 'email_otp' &&
-        custodyEnvelope.factor.enrollmentId === auth.enrollmentId &&
-        custodyEnvelope.factor.enrollmentSealKeyVersion === auth.enrollmentSealKeyVersion;
+  const custodyFactorMatchesAuth = d1AddAuthMethodCustodyFactorMatches(auth, custodyEnvelope);
   if (
     !rpId.ok ||
     !challengeB64u ||

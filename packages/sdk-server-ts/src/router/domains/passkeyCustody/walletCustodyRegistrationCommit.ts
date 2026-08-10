@@ -20,7 +20,7 @@ import {
 } from '@shared/wallet-recovery';
 import { buildWalletRecoveryBackupAcknowledgementV1 } from '@shared/wallet-recovery/recoveryCodes';
 import { isPlainObject } from '@shared/utils/validation';
-import type { PasskeyEnvelopeId, WalletId } from '@shared/utils/domainIds';
+import { parsePasskeyEnvelopeId, parseWalletId, type WalletId } from '@shared/utils/domainIds';
 
 export type { WalletCustodyCeremonyCommitPayload };
 import type {
@@ -70,6 +70,18 @@ function requireNonEmpty(value: unknown, label: string): string {
   return text;
 }
 
+function requireWalletId(value: unknown): WalletId {
+  const parsed = parseWalletId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+function requirePasskeyEnvelopeId(value: unknown) {
+  const parsed = parsePasskeyEnvelopeId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
 /**
  * Builds both records from the payload.
  *
@@ -88,7 +100,7 @@ export function buildWalletCustodyRegistrationRecords(args: {
     throw new Error('nowMs must be a positive integer');
   }
 
-  const walletId = requireNonEmpty(payload.walletId, 'walletId') as WalletId;
+  const walletId = requireWalletId(payload.walletId);
   if (payload.recoveryBackupAcknowledged !== true) {
     throw new Error('wallet recovery-code backup acknowledgement is required');
   }
@@ -119,7 +131,7 @@ export function buildWalletCustodyRegistrationRecords(args: {
 
   const factor = parseWalletCustodyEnvelopeFactor(args.factor, 'walletCustodyCommit.factor');
   const envelope = buildPasskeyCustodyEnvelopeRecord({
-    envelopeId: requireNonEmpty(custody.envelopeId, 'envelopeId') as PasskeyEnvelopeId,
+    envelopeId: requirePasskeyEnvelopeId(custody.envelopeId),
     walletId,
     binding,
     factor,

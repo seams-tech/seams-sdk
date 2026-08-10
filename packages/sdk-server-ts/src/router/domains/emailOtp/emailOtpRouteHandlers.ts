@@ -1,4 +1,5 @@
 import { toOptionalRecordString } from '@shared/utils/validation';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { parseOrgId, parseProviderSubject, parseWalletId } from '@shared/utils/domainIds';
 import { EMAIL_OTP_CHANNEL, WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
 import type {
@@ -43,6 +44,110 @@ export type EmitEmailOtpRouteWebhook = (input: {
   userId: string;
   walletId?: string;
 }) => Promise<void>;
+
+const EMAIL_OTP_FACTOR_RELEASE_AAD_DOMAIN = 'seams/email-otp/factor-release/v1';
+
+function emailOtpFactorReleaseAad(input: {
+  readonly walletId: string;
+  readonly enrollmentId: string;
+  readonly enrollmentSealKeyVersion: string;
+  readonly challengeId: string;
+}): Uint8Array {
+  return new TextEncoder().encode(
+    [
+      EMAIL_OTP_FACTOR_RELEASE_AAD_DOMAIN,
+      input.walletId,
+      input.enrollmentId,
+      input.enrollmentSealKeyVersion,
+      input.challengeId,
+    ].join('\0'),
+  );
+}
+
+async function sealEmailOtpFactorSecretForWorker(input: {
+  readonly factorSecret32B64u: string;
+  readonly workerEphemeralPublicKey65B64u: string;
+  readonly walletId: string;
+  readonly enrollmentId: string;
+  readonly enrollmentSealKeyVersion: string;
+  readonly challengeId: string;
+}): Promise<
+  | {
+      readonly ok: true;
+      readonly serverEphemeralPublicKey65B64u: string;
+      readonly nonce12B64u: string;
+      readonly ciphertextB64u: string;
+    }
+  | { readonly ok: false; readonly code: string; readonly message: string }
+> {
+  let factorSecret32: Uint8Array;
+  let workerPublicKey65: Uint8Array;
+  try {
+    factorSecret32 = base64UrlDecode(input.factorSecret32B64u);
+    workerPublicKey65 = base64UrlDecode(input.workerEphemeralPublicKey65B64u);
+  } catch {
+    return { ok: false, code: 'invalid_body', message: 'Email OTP factor release key is invalid' };
+  }
+  if (
+    factorSecret32.length !== 32 ||
+    workerPublicKey65.length !== 65 ||
+    workerPublicKey65[0] !== 4
+  ) {
+    factorSecret32.fill(0);
+    return { ok: false, code: 'invalid_body', message: 'Email OTP factor release key is invalid' };
+  }
+  try {
+    const workerPublicKey = await crypto.subtle.importKey(
+      'raw',
+      workerPublicKey65,
+      { name: 'ECDH', namedCurve: 'P-256' },
+      false,
+      [],
+    );
+    const serverKeyPair = (await crypto.subtle.generateKey(
+      { name: 'ECDH', namedCurve: 'P-256' },
+      false,
+      ['deriveKey'],
+    )) as CryptoKeyPair;
+    const encryptionKey = await crypto.subtle.deriveKey(
+      { name: 'ECDH', public: workerPublicKey },
+      serverKeyPair.privateKey,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt'],
+    );
+    const nonce12 = crypto.getRandomValues(new Uint8Array(12));
+    const ciphertext = new Uint8Array(
+      await crypto.subtle.encrypt(
+        {
+          name: 'AES-GCM',
+          iv: nonce12,
+          additionalData: emailOtpFactorReleaseAad(input),
+          tagLength: 128,
+        },
+        encryptionKey,
+        factorSecret32,
+      ),
+    );
+    const serverPublicKey65 = new Uint8Array(
+      await crypto.subtle.exportKey('raw', serverKeyPair.publicKey),
+    );
+    return {
+      ok: true,
+      serverEphemeralPublicKey65B64u: base64UrlEncode(serverPublicKey65),
+      nonce12B64u: base64UrlEncode(nonce12),
+      ciphertextB64u: base64UrlEncode(ciphertext),
+    };
+  } catch {
+    return {
+      ok: false,
+      code: 'factor_release_failed',
+      message: 'Email OTP factor release encryption failed',
+    };
+  } finally {
+    factorSecret32.fill(0);
+  }
+}
 
 function providerEmailOtpGrantSubject(input: {
   readonly orgId: string;
@@ -398,6 +503,7 @@ export async function handleEmailOtpRegistrationFinalizeRoute(input: {
     ...(proofEmail ? { proofEmail } : {}),
     clientIp: input.clientIp,
     enrollmentSealKeyVersion: body.enrollmentSealKeyVersion,
+    serverSealedFactorCiphertextB64u: body.serverSealedFactorCiphertextB64u,
     clientUnlockPublicKeyB64u: body.clientUnlockPublicKeyB64u,
     unlockKeyVersion: body.unlockKeyVersion,
     ...(googleEmailOtpRegistrationAttemptId ? { googleEmailOtpRegistrationAttemptId } : {}),
@@ -972,71 +1078,6 @@ export async function handleEmailOtpLoginVerifyRoute(input: {
   return { status: emailOtpStatusCode(result.code), body: result };
 }
 
-export async function handleEmailOtpLoginVerifyAndUnsealRoute(input: {
-  body: unknown;
-  claims: Record<string, unknown>;
-  userId: string;
-  appSessionVersion: string;
-  clientIp?: string;
-  service: RouterApiEmailOtpRouteService;
-  opts: RouterApiOptions;
-  emitWebhook: EmitEmailOtpRouteWebhook;
-}): Promise<EmailOtpRouteResponse> {
-  const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
-  if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
-
-  const body = bodyValidation.body;
-  const wrappedCiphertextValidation = validateEmailOtpRequiredString(body, 'wrappedCiphertext');
-  if (!wrappedCiphertextValidation.ok) {
-    return {
-      status: wrappedCiphertextValidation.status,
-      body: wrappedCiphertextValidation.body,
-    };
-  }
-
-  const verified = await handleEmailOtpLoginVerifyRoute(input);
-  if (verified.status !== 200 || verified.body.ok !== true) return verified;
-
-  const loginGrant = String(verified.body.loginGrant || '').trim();
-  const sessionWalletId = getSessionWalletId(input.claims, input.userId);
-  const providerUser = resolveEmailOtpProviderUserId({
-    claims: input.claims,
-    userId: input.userId,
-  });
-  if (!providerUser.ok) return providerUser.response;
-  const subject = providerEmailOtpGrantSubject({
-    orgId: readEmailOtpOrgIdFromClaims(input.claims),
-    providerUserId: providerUser.providerUserId,
-    walletId: sessionWalletId,
-  });
-  if (!subject) {
-    return { status: 400, body: { ok: false, code: 'invalid_body', message: 'Invalid OTP subject' } };
-  }
-  const grant = await input.service.consumeEmailOtpGrant({
-    subject,
-    loginGrant,
-    otpChannel: EMAIL_OTP_CHANNEL,
-    clientIp: input.clientIp,
-  });
-  if (!grant.ok) return { status: emailOtpStatusCode(grant.code), body: grant };
-
-  const unsealed = await input.service.removeEmailOtpServerSeal({
-    wrappedCiphertext: wrappedCiphertextValidation.value,
-  });
-  if (!unsealed.ok) return { status: emailOtpStatusCode(unsealed.code), body: unsealed };
-
-  return {
-    status: 200,
-    body: {
-      ok: true,
-      challengeId: verified.body.challengeId,
-      ciphertext: unsealed.ciphertext,
-      otpChannel: verified.body.otpChannel,
-      enrollmentSealKeyVersion: unsealed.enrollmentSealKeyVersion,
-    },
-  };
-}
-
 export async function handleEmailOtpSigningSessionVerifyRoute(input: {
   body: unknown;
   claims: Record<string, unknown>;
@@ -1210,7 +1251,7 @@ export async function handleEmailOtpSigningSessionVerifyRoute(input: {
   return { status: emailOtpStatusCode(result.code), body: result };
 }
 
-export async function handleEmailOtpUnsealRoute(input: {
+export async function handleEmailOtpFactorReleaseRoute(input: {
   body: unknown;
   claims: Record<string, unknown>;
   userId: string;
@@ -1223,22 +1264,47 @@ export async function handleEmailOtpUnsealRoute(input: {
   if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
 
   const body = bodyValidation.body;
+  const walletIdValidation = validateEmailOtpWalletId({
+    body,
+    claims: input.claims,
+    userId: input.userId,
+  });
+  if (!walletIdValidation.ok) {
+    return { status: walletIdValidation.status, body: walletIdValidation.body };
+  }
   const loginGrantValidation = validateEmailOtpRequiredString(body, 'loginGrant');
   if (!loginGrantValidation.ok) {
     return { status: loginGrantValidation.status, body: loginGrantValidation.body };
   }
   const loginGrant = loginGrantValidation.value;
 
-  const wrappedCiphertextValidation = validateEmailOtpRequiredString(body, 'wrappedCiphertext');
-  if (!wrappedCiphertextValidation.ok) {
+  const workerPublicKeyValidation = validateEmailOtpRequiredString(
+    body,
+    'workerEphemeralPublicKey65B64u',
+  );
+  if (!workerPublicKeyValidation.ok) {
     return {
-      status: wrappedCiphertextValidation.status,
-      body: wrappedCiphertextValidation.body,
+      status: workerPublicKeyValidation.status,
+      body: workerPublicKeyValidation.body,
     };
   }
-  const wrappedCiphertext = wrappedCiphertextValidation.value;
+  try {
+    const workerPublicKey65 = base64UrlDecode(workerPublicKeyValidation.value);
+    if (workerPublicKey65.length !== 65 || workerPublicKey65[0] !== 4) {
+      throw new Error('invalid worker public key');
+    }
+  } catch {
+    return {
+      status: 400,
+      body: {
+        ok: false,
+        code: 'invalid_body',
+        message: 'workerEphemeralPublicKey65B64u is invalid',
+      },
+    };
+  }
 
-  const sessionWalletId = getSessionWalletId(input.claims, input.userId);
+  const sessionWalletId = walletIdValidation.walletId;
   const providerUser = resolveEmailOtpProviderUserId({
     claims: input.claims,
     userId: input.userId,
@@ -1250,7 +1316,10 @@ export async function handleEmailOtpUnsealRoute(input: {
     walletId: sessionWalletId,
   });
   if (!subject) {
-    return { status: 400, body: { ok: false, code: 'invalid_body', message: 'Invalid OTP subject' } };
+    return {
+      status: 400,
+      body: { ok: false, code: 'invalid_body', message: 'Invalid OTP subject' },
+    };
   }
   const grant = await input.service.consumeEmailOtpGrant({
     subject,
@@ -1260,109 +1329,50 @@ export async function handleEmailOtpUnsealRoute(input: {
   });
   if (!grant.ok) return { status: emailOtpStatusCode(grant.code), body: grant };
 
+  const enrollment = await input.service.readActiveEmailOtpEnrollment({
+    walletId: sessionWalletId,
+    orgId: subject.orgId,
+    providerUserId: subject.providerSubject,
+  });
+  if (!enrollment.ok) {
+    return { status: emailOtpStatusCode(enrollment.code), body: enrollment };
+  }
   const result = await input.service.removeEmailOtpServerSeal({
-    wrappedCiphertext,
+    wrappedCiphertext: enrollment.enrollment.serverSealedFactorCiphertextB64u,
   });
   if (!result.ok) return { status: emailOtpStatusCode(result.code), body: result };
+  if (result.enrollmentSealKeyVersion !== enrollment.enrollment.enrollmentSealKeyVersion) {
+    return {
+      status: 409,
+      body: {
+        ok: false,
+        code: 'scope_mismatch',
+        message: 'Email OTP factor release seal key version changed',
+      },
+    };
+  }
+  const sealed = await sealEmailOtpFactorSecretForWorker({
+    factorSecret32B64u: result.ciphertext,
+    workerEphemeralPublicKey65B64u: workerPublicKeyValidation.value,
+    walletId: sessionWalletId,
+    enrollmentId: enrollment.enrollment.enrollmentId,
+    enrollmentSealKeyVersion: enrollment.enrollment.enrollmentSealKeyVersion,
+    challengeId: grant.challengeId,
+  });
+  if (!sealed.ok) return { status: emailOtpStatusCode(sealed.code), body: sealed };
 
   return {
     status: 200,
     body: {
       ok: true,
-      ciphertext: result.ciphertext,
-      enrollmentSealKeyVersion: result.enrollmentSealKeyVersion,
+      kind: 'email_otp_factor_release_v1',
+      challengeId: grant.challengeId,
+      enrollmentId: enrollment.enrollment.enrollmentId,
+      enrollmentSealKeyVersion: enrollment.enrollment.enrollmentSealKeyVersion,
+      serverEphemeralPublicKey65B64u: sealed.serverEphemeralPublicKey65B64u,
+      nonce12B64u: sealed.nonce12B64u,
+      ciphertextB64u: sealed.ciphertextB64u,
     },
-  };
-}
-
-export async function handleEmailOtpSigningSessionUnsealRoute(input: {
-  body: unknown;
-  claims: Record<string, unknown>;
-  userId: string;
-  appSessionVersion: string;
-  sessionHash: string;
-  clientIp?: string;
-  service: RouterApiEmailOtpRouteService;
-  emitWebhook: EmitEmailOtpRouteWebhook;
-}): Promise<EmailOtpRouteResponse> {
-  const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
-  if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
-
-  const body = bodyValidation.body;
-  const walletValidation = validateSigningSessionWalletId({
-    body,
-    claims: input.claims,
-    userId: input.userId,
-  });
-  if (!walletValidation.ok) return walletValidation.response;
-  const walletId = walletValidation.walletId;
-
-  const loginGrantValidation = validateEmailOtpRequiredString(body, 'loginGrant');
-  if (!loginGrantValidation.ok) {
-    return { status: loginGrantValidation.status, body: loginGrantValidation.body };
-  }
-  const loginGrant = loginGrantValidation.value;
-
-  const wrappedCiphertextValidation = validateEmailOtpRequiredString(body, 'wrappedCiphertext');
-  if (!wrappedCiphertextValidation.ok) {
-    return {
-      status: wrappedCiphertextValidation.status,
-      body: wrappedCiphertextValidation.body,
-    };
-  }
-  const wrappedCiphertext = wrappedCiphertextValidation.value;
-
-  const email = await readServerKnownEmailOtpAddress({
-    service: input.service,
-    walletId,
-    orgId: readEmailOtpOrgIdFromClaims(input.claims),
-  });
-  if (!email.ok) return { status: email.status, body: email.body };
-
-  const subject = providerEmailOtpGrantSubject({
-    orgId: email.orgId,
-    providerUserId: email.providerUserId,
-    walletId,
-  });
-  if (!subject) {
-    return { status: 400, body: { ok: false, code: 'invalid_body', message: 'Invalid OTP subject' } };
-  }
-
-  const grant = await input.service.consumeEmailOtpGrant({
-    subject,
-    loginGrant,
-    otpChannel: EMAIL_OTP_CHANNEL,
-    clientIp: input.clientIp,
-  });
-  if (!grant.ok) return { status: emailOtpStatusCode(grant.code), body: grant };
-
-  const result = await input.service.removeEmailOtpServerSeal({
-    wrappedCiphertext,
-  });
-  if (!result.ok) return { status: emailOtpStatusCode(result.code), body: result };
-
-  const enrollment = await input.service.readEmailOtpEnrollment({
-    walletId,
-    orgId: email.orgId,
-  });
-  if (
-    enrollment.ok &&
-    (enrollment.enrollment.walletId !== walletId ||
-      enrollment.enrollment.orgId !== email.orgId)
-  ) {
-    return {
-      status: 403,
-      body: {
-        ok: false,
-        code: 'forbidden',
-        message: 'Email OTP enrollment does not match the restored signing session',
-      },
-    };
-  }
-
-  return {
-    status: 200,
-    body: emailOtpServerSealResponseBody(result, walletId),
   };
 }
 

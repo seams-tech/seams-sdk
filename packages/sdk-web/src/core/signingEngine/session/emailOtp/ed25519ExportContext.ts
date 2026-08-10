@@ -31,7 +31,9 @@ function resolveActiveEmailOtpAuthorization(args: {
   result: WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>;
 }): ActiveWalletSessionAuthorizationProjection {
   if (args.result.kind !== 'found') {
-    throw new Error('[SigningEngine][ed25519-export] active Wallet Session authorization is unavailable');
+    throw new Error(
+      '[SigningEngine][ed25519-export] active Wallet Session authorization is unavailable',
+    );
   }
   const authorization = args.result.projection;
   if (
@@ -41,7 +43,9 @@ function resolveActiveEmailOtpAuthorization(args: {
     authorization.authMethod !== 'email_otp' ||
     authorization.expiresAtMs <= Date.now()
   ) {
-    throw new Error('[SigningEngine][ed25519-export] Email OTP Wallet Session authorization is invalid');
+    throw new Error(
+      '[SigningEngine][ed25519-export] Email OTP Wallet Session authorization is invalid',
+    );
   }
   return authorization;
 }
@@ -59,7 +63,8 @@ function capabilityFromActiveMaterial(args: {
   if (
     !mpcMaterialActivationRefsEqual(metadata.materialActivation, args.expectedMaterialActivation) ||
     args.material.facts.signer.account.wallet.walletId !== signer.account.wallet.walletId ||
-    String(args.material.facts.signer.account.nearAccountId) !== String(signer.account.nearAccountId) ||
+    String(args.material.facts.signer.account.nearAccountId) !==
+      String(signer.account.nearAccountId) ||
     args.material.facts.signer.nearEd25519SigningKeyId !== signer.nearEd25519SigningKeyId ||
     args.material.facts.signer.signerSlot !== signer.signerSlot ||
     metadata.applicationBinding.wallet_id !== signer.account.wallet.walletId ||
@@ -119,7 +124,9 @@ export async function resolveWalletCustodyEd25519ExportContextV1(input: {
     input.expectedMaterialActivation,
   );
   if (!material) {
-    throw new Error('[SigningEngine][ed25519-export] active wallet custody material is unavailable');
+    throw new Error(
+      '[SigningEngine][ed25519-export] active wallet custody material is unavailable',
+    );
   }
   return {
     kind: 'wallet_custody_ed25519_export_context_v1',

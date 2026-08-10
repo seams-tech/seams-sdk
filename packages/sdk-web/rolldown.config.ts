@@ -38,8 +38,7 @@ const ECDSA_CLIENT_WASM_JS_ABS = path.resolve(
   SDK_ROOT_ABS,
   '../../wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client.js',
 );
-const ECDSA_CLIENT_WASM_JS_OUT =
-  'wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client.js';
+const ECDSA_CLIENT_WASM_JS_OUT = 'wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client.js';
 const NEAR_SIGNER_WORKER_ENUM_EXPORTS = [
   'ConfirmationBehavior',
   'ConfirmationUIMode',
@@ -467,7 +466,6 @@ const configs = [
       'src/core/accountData/near/keyMaterial.ts',
       'src/core/indexedDB/seamsWalletDB/repositories.ts',
       // Keep Email OTP device-local escrow store as a stable deep import for worker wiring/tests.
-      'src/core/signingEngine/workerManager/workers/email-otp/deviceEnrollmentEscrowStore.ts',
       // Keep sealed signing-session persistence stable for worker wiring/tests.
       'src/core/signingEngine/session/persistence/sealedSessionStore.ts',
       // Keep worker-facing WASM wrapper exports stable for deep imports used by tests/tools.
@@ -661,18 +659,14 @@ const configs = [
     output: {
       dir: BUILD_PATHS.BUILD.ESM,
       format: 'esm',
-      entryFileNames:
-        'wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client.js',
+      entryFileNames: 'wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client.js',
     },
     plugins: [
       {
         name: 'emit-router-ab-ecdsa-derivation-client-wasm',
         generateBundle(_options, bundle) {
           for (const output of Object.values(bundle)) {
-            if (
-              output.type !== 'chunk' ||
-              output.fileName !== ECDSA_CLIENT_WASM_JS_OUT
-            ) {
+            if (output.type !== 'chunk' || output.fileName !== ECDSA_CLIENT_WASM_JS_OUT) {
               continue;
             }
           }
@@ -685,8 +679,7 @@ const configs = [
             );
             (this as any).emitFile({
               type: 'asset',
-              fileName:
-                'wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client_bg.wasm',
+              fileName: 'wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client_bg.wasm',
               source,
             });
             console.log(

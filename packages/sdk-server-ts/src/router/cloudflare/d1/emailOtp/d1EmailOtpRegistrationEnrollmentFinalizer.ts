@@ -213,6 +213,7 @@ export class CloudflareD1EmailOtpRegistrationEnrollmentFinalizer {
       enrollmentSealKeyVersion: material.enrollmentSealKeyVersion,
       clientUnlockPublicKeyB64u: material.clientUnlockPublicKeyB64u,
       unlockKeyVersion: material.unlockKeyVersion,
+      serverSealedFactorCiphertextB64u: material.serverSealedFactorCiphertextB64u,
       createdAtMs: existing?.createdAtMs ?? input.nowMs,
       updatedAtMs: input.nowMs,
     };

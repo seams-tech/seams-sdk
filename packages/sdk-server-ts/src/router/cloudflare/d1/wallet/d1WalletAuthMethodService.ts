@@ -11,7 +11,10 @@ import {
 } from '@shared/utils/domainIds';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
-import { PASSKEY_PRF_FIRST_SALT_V1, PASSKEY_PRF_SECOND_SALT_V1 } from '@shared/utils/signingSessionSeal';
+import {
+  PASSKEY_PRF_FIRST_SALT_V1,
+  PASSKEY_PRF_SECOND_SALT_V1,
+} from '@shared/utils/signingSessionSeal';
 import {
   addAuthMethodIntentGrantFromString,
   computeAddAuthMethodIntentDigestB64u,
@@ -39,6 +42,7 @@ import type {
   D1WalletAuthMethodStore,
   WalletAuthMethodRecord,
 } from '../../../../core/d1WalletAuthMethodStore';
+import type { StoredWalletAddAuthMethodCeremony } from '../../../../core/RegistrationCeremonyStore';
 import type {
   WalletAddAuthMethodFinalizeResponse,
   WalletAddAuthMethodStartRequest,
@@ -168,6 +172,27 @@ function unreachableRegistrationStartAuthority(value: never): never {
   throw new Error(`Unhandled registration start authority kind: ${String(value)}`);
 }
 
+function custodyFactorFromAddAuthMethodAuth(auth: StoredWalletAddAuthMethodCeremony['auth']) {
+  switch (auth.kind) {
+    case 'webauthn_assertion':
+      return {
+        kind: 'passkey' as const,
+        rpId: requireStoredRpId(auth.rpId),
+        credentialIdB64u: requireStoredCredentialId(auth.credentialIdB64u),
+      };
+    case 'email_otp':
+      return {
+        kind: 'email_otp' as const,
+        enrollmentId: auth.enrollmentId,
+        enrollmentSealKeyVersion: auth.enrollmentSealKeyVersion,
+      };
+    case 'app_session':
+      throw new Error('App-session authorization has no custody-opening factor');
+    default:
+      return unreachableRegistrationStartAuthority(auth);
+  }
+}
+
 async function loadSimpleWebAuthnServer(): Promise<SimpleWebAuthnServerModule> {
   try {
     return (await import('@simplewebauthn/server')) as SimpleWebAuthnServerModule;
@@ -281,7 +306,8 @@ export class CloudflareD1WalletAuthMethodService {
           return {
             ok: false,
             code: 'unsupported',
-            message: 'Passkey custody linking requires an authenticated passkey or Email OTP factor',
+            message:
+              'Passkey custody linking requires an authenticated passkey or Email OTP factor',
           };
         }
         if (!storedExpectedOrigin) {
@@ -302,8 +328,7 @@ export class CloudflareD1WalletAuthMethodService {
           });
           if (
             expectedAuthorityRef.walletId !== storedAuth.auth.authorityRef.walletId ||
-            expectedAuthorityRef.authorityDigest !==
-              storedAuth.auth.authorityRef.authorityDigest
+            expectedAuthorityRef.authorityDigest !== storedAuth.auth.authorityRef.authorityDigest
           ) {
             return {
               ok: false,
@@ -329,18 +354,7 @@ export class CloudflareD1WalletAuthMethodService {
             };
           }
         }
-        const custodyFactor =
-          storedAuth.auth.kind === 'webauthn_assertion'
-            ? {
-                kind: 'passkey' as const,
-                rpId: requireStoredRpId(storedAuth.auth.rpId),
-                credentialIdB64u: requireStoredCredentialId(storedAuth.auth.credentialIdB64u),
-              }
-            : {
-                kind: 'email_otp' as const,
-                enrollmentId: storedAuth.auth.enrollmentId,
-                enrollmentSealKeyVersion: storedAuth.auth.enrollmentSealKeyVersion,
-              };
+        const custodyFactor = custodyFactorFromAddAuthMethodAuth(storedAuth.auth);
         const envelopeLookup = await this.passkeyCustodyEnvelopes.lookupEnvelopeForFactor({
           walletId,
           factor: custodyFactor,
@@ -526,18 +540,7 @@ export class CloudflareD1WalletAuthMethodService {
         }
         const currentEnvelope = await this.passkeyCustodyEnvelopes.lookupEnvelopeForFactor({
           walletId,
-          factor:
-            ceremony.auth.kind === 'webauthn_assertion'
-              ? {
-                  kind: 'passkey',
-                  rpId: requireStoredRpId(ceremony.auth.rpId),
-                  credentialIdB64u: requireStoredCredentialId(ceremony.auth.credentialIdB64u),
-                }
-              : {
-                  kind: 'email_otp',
-                  enrollmentId: ceremony.auth.enrollmentId,
-                  enrollmentSealKeyVersion: ceremony.auth.enrollmentSealKeyVersion,
-                },
+          factor: custodyFactorFromAddAuthMethodAuth(ceremony.auth),
         });
         if (
           currentEnvelope.kind !== 'active' ||
@@ -1011,18 +1014,17 @@ export class CloudflareD1WalletAuthMethodService {
         updatedAtMs: revokedAtMs,
       });
       if (targetRecord.kind === 'passkey') {
-        const custodyResult =
-          await this.passkeyCustodyEnvelopes.revokePasskeyFactorAtomically({
-            walletId: parsed.walletId,
-            factor: {
-              kind: 'passkey',
-              rpId: requireStoredRpId(targetRecord.rpId),
-              credentialIdB64u: requireStoredCredentialId(targetRecord.credentialIdB64u),
-            },
-            revokedAtMs,
-            additionalStatements:
-              walletAuthMethodStore.preparePasskeyRevocationStatements(revokedRecord),
-          });
+        const custodyResult = await this.passkeyCustodyEnvelopes.revokePasskeyFactorAtomically({
+          walletId: parsed.walletId,
+          factor: {
+            kind: 'passkey',
+            rpId: requireStoredRpId(targetRecord.rpId),
+            credentialIdB64u: requireStoredCredentialId(targetRecord.credentialIdB64u),
+          },
+          revokedAtMs,
+          additionalStatements:
+            walletAuthMethodStore.preparePasskeyRevocationStatements(revokedRecord),
+        });
         if (custodyResult.kind === 'refused') {
           return {
             ok: false,
@@ -1108,9 +1110,7 @@ export class CloudflareD1WalletAuthMethodService {
         message: 'expected_origin is required for WebAuthn registration verification',
       };
     }
-    if (
-      !d1HostIsWithinWebAuthnRpId(webAuthnOriginHostnameOrEmpty(clientData.origin), input.rpId)
-    ) {
+    if (!d1HostIsWithinWebAuthnRpId(webAuthnOriginHostnameOrEmpty(clientData.origin), input.rpId)) {
       return { ok: false, code: 'invalid_origin', message: 'WebAuthn origin is not within rpId' };
     }
 

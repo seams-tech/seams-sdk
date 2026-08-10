@@ -3,7 +3,6 @@ import {
   parseCurrentEmailOtpAuthStateRow,
   parseCurrentEmailOtpChallengeRow,
   parseCurrentEmailOtpGrantRow,
-  parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRow,
   parseCurrentEmailOtpUnlockChallengeRow,
   parseCurrentEmailOtpWalletEnrollmentRow,
   parseCurrentGoogleEmailOtpRegistrationAttemptRow,
@@ -139,7 +138,7 @@ test.describe('email otp records', () => {
           otpChannel: 'email_otp',
           sessionHash: 'session-hash',
           appSessionVersion: 'app-session-v1',
-          action: 'wallet_email_otp_unseal',
+          action: 'wallet_email_otp_factor_release',
           issuedAtMs: 100,
           expiresAtMs: 200,
         },
@@ -291,7 +290,7 @@ test.describe('email otp records', () => {
     ).toBeNull();
   });
 
-  test('requires current enrollment, escrow, and auth-state rows', () => {
+  test('requires current enrollment and auth-state rows', () => {
     expect(
       parseCurrentEmailOtpWalletEnrollmentRow({
         recordJson: {
@@ -303,12 +302,9 @@ test.describe('email otp records', () => {
           enrollmentId: 'enrollment-id',
           enrollmentVersion: 'enrollment-v1',
           enrollmentSealKeyVersion: 'seal-key-v1',
-          signingRootId: 'signing-root-id',
-          signingRootVersion: 'default',
-          recoveryWrappedEnrollmentEscrowCount: 2,
+          serverSealedFactorCiphertextB64u: 'server-sealed-factor',
           clientUnlockPublicKeyB64u: 'unlock-public-key',
           unlockKeyVersion: 'unlock-key-v1',
-          thresholdEcdsaClientVerifyingShareB64u: 'client-share',
           createdAtMs: 100,
           updatedAtMs: 120,
         },
@@ -323,62 +319,10 @@ test.describe('email otp records', () => {
       enrollmentId: 'enrollment-id',
       enrollmentVersion: 'enrollment-v1',
       enrollmentSealKeyVersion: 'seal-key-v1',
-      signingRootId: 'signing-root-id',
-      signingRootVersion: 'default',
-      recoveryWrappedEnrollmentEscrowCount: 2,
+      serverSealedFactorCiphertextB64u: 'server-sealed-factor',
       clientUnlockPublicKeyB64u: 'unlock-public-key',
       unlockKeyVersion: 'unlock-key-v1',
-      thresholdEcdsaClientVerifyingShareB64u: 'client-share',
       createdAtMs: 100,
-      updatedAtMs: 120,
-    });
-
-    expect(
-      parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRow({
-        recordJson: {
-          version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
-          alg: 'chacha20poly1305-hkdf-sha256-v1',
-          secretKind: 'email_otp_device_enrollment_escrow',
-          escrowKind: 'recovery_wrapped_enrollment_escrow',
-          walletId: 'wallet-id',
-          authSubjectId: 'auth-subject-id',
-          userId: 'auth-subject-id',
-          authMethod: 'google_sso_email_otp',
-          enrollmentId: 'enrollment-id',
-          enrollmentVersion: 'enrollment-v1',
-          enrollmentSealKeyVersion: 'seal-key-v1',
-          signingRootId: 'signing-root-id',
-          signingRootVersion: 'default',
-          recoveryKeyId: 'recovery-key-id',
-          recoveryKeyStatus: 'active',
-          nonceB64u: 'nonce_b64u',
-          wrappedDeviceEnrollmentEscrowB64u: 'wrapped_b64u',
-          aadHashB64u: 'aad_hash_b64u',
-          issuedAtMs: 100,
-          updatedAtMs: 120,
-        },
-        updatedAtMs: 120,
-      }),
-    ).toEqual({
-      version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
-      alg: 'chacha20poly1305-hkdf-sha256-v1',
-      secretKind: 'email_otp_device_enrollment_escrow',
-      escrowKind: 'recovery_wrapped_enrollment_escrow',
-      walletId: 'wallet-id',
-      authSubjectId: 'auth-subject-id',
-      userId: 'auth-subject-id',
-      authMethod: 'google_sso_email_otp',
-      enrollmentId: 'enrollment-id',
-      enrollmentVersion: 'enrollment-v1',
-      enrollmentSealKeyVersion: 'seal-key-v1',
-      signingRootId: 'signing-root-id',
-      signingRootVersion: 'default',
-      recoveryKeyId: 'recovery-key-id',
-      recoveryKeyStatus: 'active',
-      nonceB64u: 'nonce_b64u',
-      wrappedDeviceEnrollmentEscrowB64u: 'wrapped_b64u',
-      aadHashB64u: 'aad_hash_b64u',
-      issuedAtMs: 100,
       updatedAtMs: 120,
     });
 

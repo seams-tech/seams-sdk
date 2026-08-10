@@ -52,14 +52,3 @@ export function readPasskeyCustodySessionEnvelope(args: {
     ) || null
   );
 }
-
-export function clearPasskeyCustodySessionEnvelopes(walletId?: string): void {
-  const prefix = String(walletId || '').trim();
-  if (!prefix) {
-    activePasskeyCustodyEnvelopes.clear();
-    return;
-  }
-  for (const key of activePasskeyCustodyEnvelopes.keys()) {
-    if (key.startsWith(`${prefix}:`)) activePasskeyCustodyEnvelopes.delete(key);
-  }
-}

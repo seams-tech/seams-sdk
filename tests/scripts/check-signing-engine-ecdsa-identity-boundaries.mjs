@@ -597,7 +597,6 @@ function checkWalletUnlockKeepsRawEcdsaParsingAtBoundaries() {
     'metadata.ecdsaThresholdKeyId',
     'metadata.signingRootId',
     'metadata.signingRootVersion',
-    'metadata.participantIds',
     'metadata.thresholdOwnerAddress',
     'metadata.ownerAddress',
     'const records = inventory.records',

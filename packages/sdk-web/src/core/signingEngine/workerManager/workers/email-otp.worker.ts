@@ -3002,6 +3002,7 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
       };
   groupId: string;
   routePlan: EmailOtpRoutePlan;
+  factorReleaseSessionAuth?: AppOrWalletSessionAuth;
   material: EmailOtpUnlockSecretMaterialRequest;
   onProgress?: (code: EmailOtpWorkerProgressCode) => void;
 }): Promise<
@@ -3129,7 +3130,7 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
       walletId,
       loginGrant,
       challengeId,
-      sessionAuth,
+      sessionAuth: args.factorReleaseSessionAuth || sessionAuth,
     });
     const enrollmentSealKeyVersion = released.enrollmentSealKeyVersion;
     clientSecret32 = released.factorSecret32;
@@ -5061,7 +5062,16 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
     case 'exportEmailOtpEd25519YaoSeedWithAuthorization': {
       rejectUnknownEmailOtpYaoFields(
         payload,
-        ['relayUrl', 'challengeId', 'otpCode', 'groupId', 'lane', 'authorization', 'material'],
+        [
+          'relayUrl',
+          'factorReleaseAppSessionJwt',
+          'challengeId',
+          'otpCode',
+          'groupId',
+          'lane',
+          'authorization',
+          'material',
+        ],
         type,
       );
       const lane = workerPayloadObject(payload.lane);
@@ -5090,6 +5100,10 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         type,
         payload: {
           relayUrl: readString(payload.relayUrl, 'relayUrl'),
+          factorReleaseAppSessionJwt: readString(
+            payload.factorReleaseAppSessionJwt,
+            'factorReleaseAppSessionJwt',
+          ),
           challengeId: readString(payload.challengeId, 'challengeId'),
           otpCode: readString(payload.otpCode, 'otpCode'),
           groupId: readString(payload.groupId, 'groupId'),
@@ -5641,6 +5655,10 @@ self.addEventListener('message', async (event: MessageEvent) => {
         });
         const recovered = await loginWithEmailOtpAndUnlockWallet({
           relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
+          factorReleaseSessionAuth: {
+            kind: 'app_session',
+            jwt: readString(msg.payload.factorReleaseAppSessionJwt, 'factorReleaseAppSessionJwt'),
+          },
           walletId: readString(msg.payload.lane.walletId, 'lane.walletId'),
           orgId: msg.payload.material.capability.runtimePolicyScope.orgId,
           userId: readString(msg.payload.lane.providerSubjectId, 'lane.providerSubjectId'),

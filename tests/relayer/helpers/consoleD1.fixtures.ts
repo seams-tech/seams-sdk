@@ -28,7 +28,6 @@ import {
   type EmailOtpChallengeContextInput,
   type EmailOtpChallengeRecord,
   type EmailOtpGrantRecord,
-  type EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
   type EmailOtpWalletEnrollmentRecord,
   type GoogleEmailOtpRegistrationAttemptRecord,
 } from '../../../packages/sdk-server-ts/src/core/EmailOtpStores';
@@ -40,11 +39,6 @@ import {
   WALLET_EMAIL_OTP_ACTIONS,
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
 } from '../../../packages/shared-ts/src/utils/emailOtpDomain';
-import {
-  EMAIL_OTP_RECOVERY_WRAP_ALG,
-  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
-  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
-} from '../../../packages/shared-ts/src/utils/emailOtpRecoveryKey';
 import type { RecordSponsoredExecutionInput } from '../../../packages/console-server-ts/src/router/sponsorshipExecution';
 import type {
   SponsorshipSpendPricingEstimateInput,
@@ -1269,7 +1263,7 @@ export function buildRawD1EmailOtpGrantInsertInput(
   const walletId = input.walletId ?? 'wallet-raw-email-otp';
   const recordOrgId = input.recordOrgId ?? 'org-d1-email-otp-schema';
   const challengeId = input.challengeId ?? 'email-otp-challenge-raw-schema';
-  const action = input.action ?? 'wallet_email_otp_unseal';
+  const action = input.action ?? 'wallet_email_otp_factor_release';
   return {
     namespace: input.namespace ?? 'd1-contracts',
     orgId: input.orgId ?? 'org-d1-email-otp-schema',
@@ -2839,7 +2833,7 @@ export function buildD1EmailOtpGrantRecord(input: {
     otpChannel: EMAIL_OTP_CHANNEL,
     sessionHash: 'session-hash-d1-email-otp',
     appSessionVersion: 'app-session-v1',
-    action: WALLET_EMAIL_OTP_ACTIONS.unseal,
+    action: WALLET_EMAIL_OTP_ACTIONS.factorRelease,
     issuedAtMs: input.issuedAtMs,
     expiresAtMs: input.expiresAtMs,
   };
@@ -2857,50 +2851,11 @@ export function buildD1EmailOtpWalletEnrollmentRecord(input: {
     enrollmentId: 'email-otp-enrollment-d1',
     enrollmentVersion: 'enrollment-v1',
     enrollmentSealKeyVersion: 'seal-key-v1',
-    signingRootId: 'signing-root-email-otp-d1',
-    signingRootVersion: 'signing-root-version-v1',
-    recoveryWrappedEnrollmentEscrowCount: 2,
     clientUnlockPublicKeyB64u: 'clientUnlockPublicKeyB64u',
     unlockKeyVersion: 'unlock-key-v1',
-    thresholdEcdsaClientVerifyingShareB64u: 'thresholdEcdsaClientVerifyingShareB64u',
+    serverSealedFactorCiphertextB64u: 'serverSealedFactorCiphertextB64u',
     createdAtMs: Date.parse('2026-06-27T10:00:00.000Z'),
     updatedAtMs: input.updatedAtMs,
-  };
-}
-
-export function buildD1EmailOtpEscrowRecord(input: {
-  readonly recoveryKeyId: string;
-  readonly recoveryKeyStatus: 'active' | 'consumed';
-  readonly updatedAtMs: number;
-}): EmailOtpRecoveryWrappedEnrollmentEscrowRecord {
-  const base = {
-    version: 'email_otp_recovery_wrapped_enrollment_escrow_v1' as const,
-    alg: EMAIL_OTP_RECOVERY_WRAP_ALG,
-    secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
-    escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
-    walletId: 'wallet-d1-email-otp',
-    userId: 'google-subject-d1-email-otp',
-    authSubjectId: 'google-subject-d1-email-otp',
-    authMethod: 'google_sso_email_otp' as const,
-    enrollmentId: 'email-otp-enrollment-d1',
-    enrollmentVersion: 'enrollment-v1',
-    enrollmentSealKeyVersion: 'seal-key-v1',
-    signingRootId: 'signing-root-email-otp-d1',
-    signingRootVersion: 'signing-root-version-v1',
-    recoveryKeyId: input.recoveryKeyId,
-    nonceB64u: 'AAAAAAAAAAAA',
-    wrappedDeviceEnrollmentEscrowB64u: 'BBBBBBBBBBBB',
-    aadHashB64u: 'CCCCCCCCCCCC',
-    issuedAtMs: Date.parse('2026-06-27T10:00:00.000Z'),
-    updatedAtMs: input.updatedAtMs,
-  };
-  if (input.recoveryKeyStatus === 'active') {
-    return { ...base, recoveryKeyStatus: 'active' };
-  }
-  return {
-    ...base,
-    recoveryKeyStatus: 'consumed',
-    consumedAtMs: input.updatedAtMs,
   };
 }
 

@@ -12,7 +12,7 @@ import type { NearClient } from './NearClient';
 import type { AccountId } from '../../types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
 import type { ManagedRuntimeScopeBootstrap } from '../../config/managedRuntimeScope';
-import type { ThresholdEcdsaChainTarget } from '../../platform/ecdsaRoleLocalRecords';
+import type { ThresholdEcdsaChainTarget } from '../../platform';
 
 import { TransactionContext } from '../../types/rpc';
 import { errorMessage } from '@shared/utils/errors';

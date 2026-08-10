@@ -1044,13 +1044,6 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     sessionPrincipalRoute(
-      'wallet_email_otp_login_verify_and_unseal',
-      'POST',
-      '/wallet/email-otp/login/verify-and-unseal',
-      'Verify Email OTP login challenge and remove the server seal in one request',
-      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
-    ),
-    sessionPrincipalRoute(
       'wallet_email_otp_signing_session_verify',
       'POST',
       '/wallet/email-otp/signing-session/verify',
@@ -1058,17 +1051,10 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     sessionPrincipalRoute(
-      'wallet_email_otp_unseal',
+      'wallet_email_otp_factor_release',
       'POST',
-      '/wallet/email-otp/unseal',
-      'Remove the server Shamir seal after Email OTP authorization',
-      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
-    ),
-    sessionPrincipalRoute(
-      'wallet_email_otp_signing_session_unseal',
-      'POST',
-      '/wallet/email-otp/signing-session/unseal',
-      'Remove the server Shamir seal after signing-session Email OTP authorization',
+      '/wallet/email-otp/factor-release',
+      'Release the enrolled Email OTP factor to an authorized signing worker',
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     publicRoute(

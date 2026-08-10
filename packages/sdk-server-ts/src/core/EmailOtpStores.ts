@@ -90,7 +90,9 @@ export interface EmailOtpChallengeStore {
   get(challengeId: string): Promise<EmailOtpChallengeRecord | null>;
   deleteExpired(nowMs: number): Promise<EmailOtpChallengeRecord[]>;
   countActiveByContext(input: EmailOtpChallengeContextInput): Promise<number>;
-  findLatestActiveByContext(input: EmailOtpChallengeContextInput): Promise<EmailOtpChallengeRecord | null>;
+  findLatestActiveByContext(
+    input: EmailOtpChallengeContextInput,
+  ): Promise<EmailOtpChallengeRecord | null>;
   deleteOldestActiveByContext(
     input: EmailOtpChallengeContextInput,
   ): Promise<EmailOtpChallengeRecord | null>;
@@ -135,6 +137,7 @@ export type EmailOtpWalletEnrollmentRecord = {
   enrollmentSealKeyVersion: string;
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
+  serverSealedFactorCiphertextB64u: string;
   createdAtMs: number;
   updatedAtMs: number;
 };
@@ -925,6 +928,9 @@ function parseWalletEnrollmentRecord(raw: unknown): EmailOtpWalletEnrollmentReco
   const enrollmentSealKeyVersion = toOptionalTrimmedString(obj.enrollmentSealKeyVersion);
   const clientUnlockPublicKeyB64u = toOptionalTrimmedString(obj.clientUnlockPublicKeyB64u);
   const unlockKeyVersion = toOptionalTrimmedString(obj.unlockKeyVersion);
+  const serverSealedFactorCiphertextB64u = toOptionalTrimmedString(
+    obj.serverSealedFactorCiphertextB64u,
+  );
   const createdAtMs = Number(obj.createdAtMs);
   const updatedAtMs = Number(obj.updatedAtMs);
   if (version !== 'email_otp_wallet_enrollment_v1') return null;
@@ -939,7 +945,7 @@ function parseWalletEnrollmentRecord(raw: unknown): EmailOtpWalletEnrollmentReco
   ) {
     return null;
   }
-  if (!clientUnlockPublicKeyB64u || !unlockKeyVersion) {
+  if (!clientUnlockPublicKeyB64u || !unlockKeyVersion || !serverSealedFactorCiphertextB64u) {
     return null;
   }
   if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return null;
@@ -955,6 +961,7 @@ function parseWalletEnrollmentRecord(raw: unknown): EmailOtpWalletEnrollmentReco
     enrollmentSealKeyVersion,
     clientUnlockPublicKeyB64u,
     unlockKeyVersion,
+    serverSealedFactorCiphertextB64u,
     createdAtMs: Math.floor(createdAtMs),
     updatedAtMs: Math.floor(updatedAtMs),
   };
@@ -1495,10 +1502,7 @@ abstract class D1EmailOtpStoreBase {
     this.schemaReady = true;
   }
 
-  protected bindScope(
-    statement: string,
-    values: readonly unknown[] = [],
-  ): D1PreparedStatementLike {
+  protected bindScope(statement: string, values: readonly unknown[] = []): D1PreparedStatementLike {
     return bindD1EmailOtpScope(this.database, this.scope, statement, values);
   }
 }

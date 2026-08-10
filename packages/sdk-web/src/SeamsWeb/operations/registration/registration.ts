@@ -1220,6 +1220,44 @@ type RegistrationThreeRouteAuthority =
       walletCustodyFactorSecret: ArrayBuffer;
     };
 
+function registrationThreeRouteAuthorityPayload(authority: RegistrationThreeRouteAuthority) {
+  switch (authority.kind) {
+    case 'passkey':
+      return {
+        kind: 'passkey' as const,
+        webauthnRegistration: authority.webauthnRegistration,
+      };
+    case 'email_otp':
+      return {
+        kind: 'email_otp' as const,
+        emailOtpRegistrationProof: authority.emailOtpRegistrationProof,
+      };
+    default:
+      return assertNever(authority);
+  }
+}
+
+function registrationEd25519LaneAuth(
+  auth: RegistrationPersistenceAuth,
+  passkeyCredentialIdB64u: string,
+) {
+  switch (auth.kind) {
+    case 'passkey':
+      return {
+        kind: 'passkey' as const,
+        rpId: toRpId(auth.rpId),
+        credentialIdB64u: passkeyCredentialIdB64u,
+      };
+    case 'email_otp':
+      return {
+        kind: 'email_otp' as const,
+        providerSubjectId: emailOtpAuthContextProviderUserId(auth.emailOtpAuthContext),
+      };
+    default:
+      return assertNever(auth);
+  }
+}
+
 async function buildThreeRouteCanonicalActivationCommand(args: {
   registrationCeremonyId: string;
   activationCorrelationId: CorrelationId;
@@ -1478,15 +1516,7 @@ export async function runEcdsaEnabledThreeRouteRegistrationCeremony(args: {
           strictRegistration: created.registrationRequest,
           requestDigestB64u: created.registrationRequestDigestB64u,
         },
-        ...(args.authority.kind === 'passkey'
-          ? {
-              kind: 'passkey' as const,
-              webauthnRegistration: args.authority.webauthnRegistration,
-            }
-          : {
-              kind: 'email_otp' as const,
-              emailOtpRegistrationProof: args.authority.emailOtpRegistrationProof,
-            }),
+        ...registrationThreeRouteAuthorityPayload(args.authority),
         onServerTiming: (header) =>
           recordStrictEcdsaServerTimingBuckets(args.registrationTiming, 'respond', header),
       }),
@@ -2065,17 +2095,7 @@ async function commitDeferredEd25519Registration(args: {
       thresholdSessionId: materialFacts.identity.thresholdSessionId,
       runtimePolicyScope: materialFacts.stableServerScope.runtimePolicyScope,
       materialActivation: nearEd25519YaoMaterialActivationFromMetadata(metadata),
-      auth:
-        auth.kind === 'passkey'
-          ? {
-              kind: 'passkey',
-              rpId: toRpId(auth.rpId),
-              credentialIdB64u: passkeyCredentialIdB64u,
-            }
-          : {
-              kind: 'email_otp',
-              providerSubjectId: emailOtpAuthContextProviderUserId(auth.emailOtpAuthContext),
-            },
+      auth: registrationEd25519LaneAuth(auth, passkeyCredentialIdB64u),
       nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(
         finalized.ed25519.nearEd25519SigningKeyId,
       ),
@@ -3714,16 +3734,13 @@ async function addPasskeyEd25519YaoWalletSigner(
         fetch: globalThis.fetch,
       },
     });
-    const custodyWire = joinCustodyWireFromEnvelopeRecord(
-      input.started.ed25519.custodyEnvelope,
-    );
+    const custodyWire = joinCustodyWireFromEnvelopeRecord(input.started.ed25519.custodyEnvelope);
     if (!custodyWire.ok) throw new Error(custodyWire.reason);
     factorSecret = Uint8Array.from(base64UrlDecode(input.passkeyPrfFirstB64u)).buffer;
     const joined = await input.context.signingEngine.joinWalletCustodyNearEd25519KeySet({
       custodyJson: custodyWire.custodyJson,
       factorSecret,
-      nearEd25519SigningKeyId:
-        admitted.request.application_binding.near_ed25519_signing_key_id,
+      nearEd25519SigningKeyId: admitted.request.application_binding.near_ed25519_signing_key_id,
       registrationCeremonyId: input.started.addSignerCeremonyId,
       admissionRequest: admitted.request,
       admissionReceipt: admitted.receipt,
@@ -3797,9 +3814,7 @@ async function addPasskeyEd25519YaoWalletSigner(
         nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
         signerSlot: finalized.ed25519.signerSlot,
         signingWorkerId: metadata.scope.signing_worker_id,
-        signingWorkerVerifyingShareB64u: base64UrlEncode(
-          metadata.signingWorkerVerifyingShare,
-        ),
+        signingWorkerVerifyingShareB64u: base64UrlEncode(metadata.signingWorkerVerifyingShare),
       },
       sealed: {
         ciphertextB64u: joined.localMaterial.b64u,

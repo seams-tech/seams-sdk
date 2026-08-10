@@ -36,15 +36,13 @@ import {
   handleEmailOtpDevCleanupGoogleRegistrationRoute,
   handleEmailOtpDevOtpOutboxRoute,
   handleEmailOtpLoginChallengeRoute,
-  handleEmailOtpLoginVerifyAndUnsealRoute,
+  handleEmailOtpFactorReleaseRoute,
   handleEmailOtpSigningSessionChallengeRoute,
   handleEmailOtpLoginVerifyRoute,
   handleEmailOtpSigningSessionVerifyRoute,
   handleEmailOtpRegistrationChallengeRoute,
   handleEmailOtpRegistrationFinalizeRoute,
   handleEmailOtpRegistrationSealRoute,
-  handleEmailOtpUnsealRoute,
-  handleEmailOtpSigningSessionUnsealRoute,
 } from '../../../domains/emailOtp/emailOtpRouteHandlers';
 import {
   emailOtpChallengeResponseBody,
@@ -204,7 +202,9 @@ async function dispatchSessionExchangeSucceeded(
 
 function projectWalletUnlockEcdsaCustodySigner(
   signer: Awaited<
-    ReturnType<FetchRouterApiContext['service']['walletRegistration']['listWalletEcdsaCustodyContinuity']>
+    ReturnType<
+      FetchRouterApiContext['service']['walletRegistration']['listWalletEcdsaCustodyContinuity']
+    >
   >[number],
 ): WalletUnlockEcdsaCustodySignerV1 {
   return {
@@ -217,8 +217,7 @@ function projectWalletUnlockEcdsaCustodySigner(
       signingRootVersion: signer.walletKey.signingRootVersion,
       relayerKeyId: signer.walletKey.relayerKeyId,
       contextBinding32B64u: signer.walletKey.contextBinding32B64u,
-      derivationClientSharePublicKey33B64u:
-        signer.walletKey.derivationClientSharePublicKey33B64u,
+      derivationClientSharePublicKey33B64u: signer.walletKey.derivationClientSharePublicKey33B64u,
       participantIds: signer.walletKey.participantIds,
       publicCapability: signer.walletKey.publicCapability,
     },
@@ -2327,11 +2326,7 @@ export async function handleWalletUnlockVerify(
     body,
     origin: String(ctx.request.headers.get('origin') || '').trim() || undefined,
     service: ctx.service.walletUnlock,
-    resolveEmailOtpCustody: async ({
-      walletId,
-      enrollmentId,
-      enrollmentSealKeyVersion,
-    }) =>
+    resolveEmailOtpCustody: async ({ walletId, enrollmentId, enrollmentSealKeyVersion }) =>
       await ctx.service.passkeyCustody.readVerifiedFactorCustody({
         walletId: walletIdFromString(walletId),
         factor: {
@@ -2568,7 +2563,11 @@ export async function handleWalletEmailOtpRecoveryBootstrapVerify(
   const otpCode = typeof record.otpCode === 'string' ? record.otpCode.trim() : '';
   if (!walletId || !orgId || !challengeId || !otpCode) {
     return json(
-      { ok: false, code: 'challenge_expired_or_invalid', message: 'Email OTP challenge expired or invalid' },
+      {
+        ok: false,
+        code: 'challenge_expired_or_invalid',
+        message: 'Email OTP challenge expired or invalid',
+      },
       { status: 401 },
     );
   }
@@ -2628,7 +2627,7 @@ async function listWalletRecoveryBootstrapCredentialChoices(
       return [
         {
           credentialIdB64u: credential.index.factor.credentialIdB64u,
-          ...(credential.index.deviceLabel ?? credential.activity.label
+          ...((credential.index.deviceLabel ?? credential.activity.label)
             ? { label: credential.index.deviceLabel ?? credential.activity.label }
             : {}),
         },
@@ -2654,42 +2653,6 @@ export async function handleWalletEmailOtpLoginVerify(
     return validated.response;
   }
   const response = await handleEmailOtpLoginVerifyRoute({
-    body,
-    claims: validated.claims,
-    userId: validated.userId,
-    appSessionVersion: validated.appSessionVersion,
-    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: routerApiEmailOtpRouteService(ctx.service),
-    opts: ctx.opts,
-    emitWebhook: async (event) => {
-      await emitEmailOtpWebhookDescriptor(ctx, {
-        descriptor: event.descriptor,
-        claims: event.claims,
-        userId: event.userId,
-        ...(event.walletId ? { walletId: event.walletId } : {}),
-      });
-    },
-  });
-  return json(response.body, { status: response.status });
-}
-
-export async function handleWalletEmailOtpLoginVerifyAndUnseal(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/login/verify-and-unseal') {
-    return null;
-  }
-  const body = await readJson(ctx.request);
-  const validated = await readAndValidateAppSession(ctx);
-  if (!validated.ok) {
-    await maybeEmitWarmExpiredFromValidationFailure({
-      ctx,
-      validated,
-      source: 'wallet.email_otp.login.verify_and_unseal',
-    });
-    return validated.response;
-  }
-  const response = await handleEmailOtpLoginVerifyAndUnsealRoute({
     body,
     claims: validated.claims,
     userId: validated.userId,
@@ -2739,54 +2702,25 @@ export async function handleWalletEmailOtpSigningSessionVerify(
   return json(response.body, { status: response.status });
 }
 
-export async function handleWalletEmailOtpUnseal(
+export async function handleWalletEmailOtpFactorRelease(
   ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/unseal') return null;
+  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/factor-release') return null;
   const body = await readJson(ctx.request);
   const validated = await readAndValidateAppSession(ctx);
   if (!validated.ok) {
     await maybeEmitWarmExpiredFromValidationFailure({
       ctx,
       validated,
-      source: 'wallet.email_otp.unseal',
+      source: 'wallet.email_otp.factor_release',
     });
     return validated.response;
   }
-  const response = await handleEmailOtpUnsealRoute({
+  const response = await handleEmailOtpFactorReleaseRoute({
     body,
     claims: validated.claims,
     userId: validated.userId,
     appSessionVersion: validated.appSessionVersion,
-    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: routerApiEmailOtpRouteService(ctx.service),
-    emitWebhook: async (event) => {
-      await emitEmailOtpWebhookDescriptor(ctx, {
-        descriptor: event.descriptor,
-        claims: event.claims,
-        userId: event.userId,
-        ...(event.walletId ? { walletId: event.walletId } : {}),
-      });
-    },
-  });
-  return json(response.body, { status: response.status });
-}
-
-export async function handleWalletEmailOtpSigningSessionUnseal(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/signing-session/unseal') {
-    return null;
-  }
-  const body = await readJson(ctx.request);
-  const validated = await readAndValidateEmailOtpSigningSession(ctx);
-  if (!validated.ok) return validated.response;
-  const response = await handleEmailOtpSigningSessionUnsealRoute({
-    body,
-    claims: validated.claims,
-    userId: validated.userId,
-    appSessionVersion: validated.appSessionVersion,
-    sessionHash: validated.sessionHash,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
     service: routerApiEmailOtpRouteService(ctx.service),
     emitWebhook: async (event) => {

@@ -844,6 +844,7 @@ export interface EmailOtpWorkerOperationMap {
   exportEmailOtpEd25519YaoSeedWithAuthorization: {
     payload: {
       relayUrl: string;
+      factorReleaseAppSessionJwt: string;
       challengeId: string;
       otpCode: string;
       groupId: string;

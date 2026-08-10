@@ -48,29 +48,13 @@ export type RouterAbEd25519YaoSessionRouteCommandV1 = {
   readonly sessionKind: 'jwt';
 };
 
-export type RouterAbEd25519YaoOperationStepUpMaterialRecoveryRequest =
-  | {
-      readonly kind: 'not_requested';
-      readonly wrappedCiphertext?: never;
-      readonly enrollmentSealKeyVersion?: never;
-    }
-  | {
-      readonly kind: 'email_otp_local_material_v1';
-      readonly wrappedCiphertext: string;
-      readonly enrollmentSealKeyVersion: string;
-    };
+export type RouterAbEd25519YaoOperationStepUpMaterialRecoveryRequest = {
+  readonly kind: 'not_requested';
+};
 
-export type RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse =
-  | {
-      readonly kind: 'not_requested';
-      readonly ciphertext?: never;
-      readonly enrollmentSealKeyVersion?: never;
-    }
-  | {
-      readonly kind: 'email_otp_local_material_v1';
-      readonly ciphertext: string;
-      readonly enrollmentSealKeyVersion: string;
-    };
+export type RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse = {
+  readonly kind: 'not_requested';
+};
 
 type RouterAbEd25519YaoOperationStepUpGrantCommandBase = {
   readonly kind: 'router_ab_ed25519_yao_operation_step_up_grant_v1';

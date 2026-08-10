@@ -970,9 +970,7 @@ async function validateEd25519ReusableAuthorizedOperation(input: {
       ctx: input.ctx,
       operation: operationResult,
     });
-    return revalidated.ok
-      ? { ok: true, receipt, operation: revalidated.operation }
-      : revalidated;
+    return revalidated.ok ? { ok: true, receipt, operation: revalidated.operation } : revalidated;
   } catch (error: unknown) {
     return {
       ok: false,
@@ -1115,9 +1113,7 @@ async function validateEd25519VerifiedStepUpAuthorizedOperation(input: {
       ctx: input.ctx,
       operation: operationResult,
     });
-    return revalidated.ok
-      ? { ok: true, receipt, operation: revalidated.operation }
-      : revalidated;
+    return revalidated.ok ? { ok: true, receipt, operation: revalidated.operation } : revalidated;
   } catch (error: unknown) {
     return {
       ok: false,
@@ -1160,9 +1156,7 @@ export function replayCompletedEd25519Operation(operation: AuthorizedOperation):
  * operation must never fall back to the live upstream response after the
  * completion write, since that would make retries non-idempotent.
  */
-export function requireCompletedEd25519OperationResponse(
-  operation: AuthorizedOperation,
-): Response {
+export function requireCompletedEd25519OperationResponse(operation: AuthorizedOperation): Response {
   const replay = replayCompletedEd25519Operation(operation);
   if (!replay) throw new Error('Ed25519 operation completion readback is not completed');
   return replay;
@@ -1243,55 +1237,6 @@ export function isRouterAbEd25519OperationInProgressResponse(input: {
     input.bodyText.includes('ReplayedLocalRequest:') &&
     input.bodyText.includes('SigningWorker normal-signing effect is already in progress')
   );
-}
-
-type Ed25519OperationStepUpMaterialRecoveryResult =
-  | {
-      readonly ok: true;
-      readonly recovery: RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse;
-    }
-  | {
-      readonly ok: false;
-      readonly code: string;
-      readonly message: string;
-    };
-
-export async function recoverEd25519OperationStepUpMaterial(input: {
-  readonly request: RouterAbEd25519YaoOperationStepUpMaterialRecoveryRequest;
-  readonly removeEmailOtpServerSeal: (input: { readonly wrappedCiphertext: string }) => Promise<
-    | {
-        readonly ok: true;
-        readonly ciphertext: string;
-        readonly enrollmentSealKeyVersion: string;
-      }
-    | { readonly ok: false; readonly code: string; readonly message: string }
-  >;
-}): Promise<Ed25519OperationStepUpMaterialRecoveryResult> {
-  switch (input.request.kind) {
-    case 'not_requested':
-      return { ok: true, recovery: { kind: 'not_requested' } };
-    case 'email_otp_local_material_v1': {
-      const unsealed = await input.removeEmailOtpServerSeal({
-        wrappedCiphertext: input.request.wrappedCiphertext,
-      });
-      if (!unsealed.ok) return unsealed;
-      if (unsealed.enrollmentSealKeyVersion !== input.request.enrollmentSealKeyVersion) {
-        return {
-          ok: false,
-          code: 'scope_mismatch',
-          message: 'Email OTP operation step-up enrollment seal key version changed',
-        };
-      }
-      return {
-        ok: true,
-        recovery: {
-          kind: 'email_otp_local_material_v1',
-          ciphertext: unsealed.ciphertext,
-          enrollmentSealKeyVersion: unsealed.enrollmentSealKeyVersion,
-        },
-      };
-    }
-  }
 }
 
 async function issueEd25519OperationStepUpGrant(input: {
@@ -1531,23 +1476,7 @@ async function issueEd25519OperationStepUpGrant(input: {
       if (!consumed.ok) {
         return json(consumed, { status: consumed.code === 'invalid_body' ? 400 : 401 });
       }
-      const recoveredMaterial = await recoverEd25519OperationStepUpMaterial({
-        request: input.request.materialRecovery,
-        removeEmailOtpServerSeal: input.ctx.service.emailOtp.removeEmailOtpServerSeal.bind(
-          input.ctx.service.emailOtp,
-        ),
-      });
-      if (!recoveredMaterial.ok) {
-        return json(
-          {
-            ok: false,
-            code: recoveredMaterial.code,
-            message: recoveredMaterial.message,
-          },
-          { status: emailOtpStatusCode(recoveredMaterial.code) },
-        );
-      }
-      materialRecovery = recoveredMaterial.recovery;
+      materialRecovery = { kind: 'not_requested' };
       factor = buildVerifiedEmailOtpFactorResult({
         tenantId: authenticated.session.tenantId,
         principalId: authenticated.session.principalId,
@@ -1907,9 +1836,7 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
   return requireCompletedEd25519OperationResponse(completed);
 }
 
-export async function handleThresholdEd25519(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
+export async function handleThresholdEd25519(ctx: FetchRouterApiContext): Promise<Response | null> {
   if (ctx.method === 'GET' && ctx.pathname === ROUTER_AB_ED25519_HEALTH_PATH) {
     if (!ctx.opts.routerAbNormalSigningRouterProxy) {
       const body = {

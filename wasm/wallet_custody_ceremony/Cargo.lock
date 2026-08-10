@@ -1724,6 +1724,7 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "rand_core 0.6.4",
+ "router-ab-ecdsa-client-protocol",
  "router-ab-ecdsa-derivation",
  "serde",
  "serde_json",

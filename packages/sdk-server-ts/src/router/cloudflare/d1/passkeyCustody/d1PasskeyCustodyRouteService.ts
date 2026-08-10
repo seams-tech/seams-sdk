@@ -215,9 +215,7 @@ export interface RouterApiPasskeyCustodyService {
     readonly expectedStoreVersion: string;
   }): Promise<WalletRecoveryRotationResult>;
 
-  readRecoverySet(request: {
-    readonly walletId: string;
-  }): Promise<
+  readRecoverySet(request: { readonly walletId: string }): Promise<
     | {
         readonly kind: 'ready';
         readonly record: WalletRecoveryEnvelopeSetRecord;
@@ -414,7 +412,7 @@ export function createD1PasskeyCustodyRouteService(assembly: {
 
     acknowledgeRecoveryBackup: async (request) => {
       const stored = await assembly.walletCustodyCommits.readRecoveryEnvelopeSet(
-        request.walletId as WalletId,
+        requireWalletId(request.walletId),
       );
       /* The acknowledgement names the issuance it covers, so there has to be
          one. Acknowledging nothing would write a row that silences the prompt
@@ -434,12 +432,12 @@ export function createD1PasskeyCustodyRouteService(assembly: {
 
     readRecoveryStatus: async (request) => {
       const stored = await assembly.walletCustodyCommits.readRecoveryEnvelopeSet(
-        request.walletId as WalletId,
+        requireWalletId(request.walletId),
       );
       if (!stored) return { kind: 'no_recovery_set' };
 
       const acknowledgement = await assembly.walletCustodyCommits.readBackupAcknowledgement(
-        request.walletId as WalletId,
+        requireWalletId(request.walletId),
       );
       const issuedAtMs = Number(stored.record.issuedAtMs);
       return {
@@ -462,14 +460,14 @@ export function createD1PasskeyCustodyRouteService(assembly: {
     rotateRecoveryCodes: (request) =>
       rotateWalletRecoveryCodesV1({
         store: assembly.walletCustodyCommits,
-        walletId: request.walletId as WalletId,
+        walletId: requireWalletId(request.walletId),
         replacement: request.replacement,
         expectedStoreVersion: request.expectedStoreVersion,
         nowMs: (assembly.nowMs ?? Date.now)(),
       }),
     readRecoverySet: async (request) => {
       const stored = await assembly.walletCustodyCommits.readRecoveryEnvelopeSet(
-        request.walletId as WalletId,
+        requireWalletId(request.walletId),
       );
       return stored
         ? { kind: 'ready', record: stored.record, storeVersion: stored.storeVersion }

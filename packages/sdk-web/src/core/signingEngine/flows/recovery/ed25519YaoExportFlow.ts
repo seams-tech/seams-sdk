@@ -24,7 +24,7 @@ import {
   requestEmailOtpEd25519KeyExportAuthorization,
   showEd25519ExportViewer,
 } from './keyExportConfirmation';
-import type { ResolvedWalletCustodyEd25519ExportV1 } from '../../walletCustody/ed25519ExportContext';
+import type { ResolvedWalletCustodyEd25519ExportV1 } from '../../session/emailOtp/ed25519ExportContext';
 import {
   resolveEmailOtpAuthLane,
   type EmailOtpSigningSessionAuthLane,

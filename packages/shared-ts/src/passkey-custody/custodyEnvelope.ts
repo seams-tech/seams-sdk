@@ -32,8 +32,6 @@ export type WalletCustodyEnvelopeVersion = typeof WALLET_CUSTODY_ENVELOPE_VERSIO
 export type PasskeyPrfKekVersion = typeof PASSKEY_PRF_KEK_VERSION_V1;
 export type EmailOtpFactorKekVersion = typeof EMAIL_OTP_FACTOR_KEK_VERSION_V1;
 
-export type WalletCustodyFactorKind = 'passkey' | 'email_otp';
-
 /**
  * Which enrolled factor sealed this envelope.
  *
@@ -61,6 +59,8 @@ export type WalletCustodyEnvelopeFactor =
       rpId?: never;
       credentialIdB64u?: never;
     };
+
+export type WalletCustodyFactorKind = WalletCustodyEnvelopeFactor['kind'];
 
 export type PasskeyCustodyEnvelopeLifecycle =
   | {
