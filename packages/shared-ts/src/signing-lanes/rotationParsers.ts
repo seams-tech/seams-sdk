@@ -1311,9 +1311,12 @@ export function parseLaneEnrollmentManifestV1(
   if (record.kind !== 'lane_enrollment_manifest_v1') throw new Error(`${label}.kind is invalid`);
   const childrenRaw = requiredArray(record.orderedChildren, `${label}.orderedChildren`);
   if (childrenRaw.length === 0) throw new Error(`${label}.orderedChildren must be non-empty`);
-  const orderedChildren = childrenRaw.map((child, index) =>
-    parseManifestChild(child, `${label}.orderedChildren[${index}]`),
-  ) as [LaneEnrollmentManifestChildV1, ...LaneEnrollmentManifestChildV1[]];
+  const orderedChildren = nonEmptyTuple(
+    childrenRaw.map((child, index) =>
+      parseManifestChild(child, `${label}.orderedChildren[${index}]`),
+    ),
+    `${label}.orderedChildren`,
+  );
   assertUniqueChildren(orderedChildren, `${label}.orderedChildren`);
   const createdAtMs = requiredInteger(record.createdAtMs, `${label}.createdAtMs`);
   const expiresAtMs = requiredInteger(record.expiresAtMs, `${label}.expiresAtMs`);
@@ -1394,9 +1397,12 @@ export function parseAggregateLaneActivationReceiptV1(
     throw new Error(`${label}.kind is invalid`);
   const childrenRaw = requiredArray(record.orderedChildReceipts, `${label}.orderedChildReceipts`);
   if (childrenRaw.length === 0) throw new Error(`${label}.orderedChildReceipts must be non-empty`);
-  const orderedChildReceipts = childrenRaw.map((child, index) =>
-    parseAggregateActivationChild(child, `${label}.orderedChildReceipts[${index}]`),
-  ) as [AggregateLaneActivationChildReceiptV1, ...AggregateLaneActivationChildReceiptV1[]];
+  const orderedChildReceipts = nonEmptyTuple(
+    childrenRaw.map((child, index) =>
+      parseAggregateActivationChild(child, `${label}.orderedChildReceipts[${index}]`),
+    ),
+    `${label}.orderedChildReceipts`,
+  );
   assertUniqueAggregateActivationChildren(orderedChildReceipts, `${label}.orderedChildReceipts`);
   return {
     kind: 'aggregate_lane_activation_receipt_v1',
@@ -1504,9 +1510,12 @@ export function parseAggregateLaneRevocationReceiptV1(
     throw new Error(`${label}.kind is invalid`);
   const childrenRaw = requiredArray(record.orderedChildReceipts, `${label}.orderedChildReceipts`);
   if (childrenRaw.length === 0) throw new Error(`${label}.orderedChildReceipts must be non-empty`);
-  const orderedChildReceipts = childrenRaw.map((child, index) =>
-    parseAggregateRevocationChild(child, `${label}.orderedChildReceipts[${index}]`),
-  ) as [AggregateLaneRevocationChildReceiptV1, ...AggregateLaneRevocationChildReceiptV1[]];
+  const orderedChildReceipts = nonEmptyTuple(
+    childrenRaw.map((child, index) =>
+      parseAggregateRevocationChild(child, `${label}.orderedChildReceipts[${index}]`),
+    ),
+    `${label}.orderedChildReceipts`,
+  );
   return {
     kind: 'aggregate_lane_revocation_receipt_v1',
     enrollmentId: parseEnrollmentId(record.enrollmentId, `${label}.enrollmentId`),
@@ -2088,9 +2097,12 @@ export function parseLaneEnrollmentLifecycleV1(
       return {
         state: 'committed_completion_required',
         manifestDigestB64u: digest(value.manifestDigestB64u, `${label}.manifestDigestB64u`),
-        committedChildOperationIds: ids.map((id, index) =>
-          parseLaneOperationId(id, `${label}.committedChildOperationIds[${index}]`),
-        ) as [LaneOperationId, ...LaneOperationId[]],
+        committedChildOperationIds: nonEmptyTuple(
+          ids.map((id, index) =>
+            parseLaneOperationId(id, `${label}.committedChildOperationIds[${index}]`),
+          ),
+          `${label}.committedChildOperationIds`,
+        ),
         markedAtMs: requiredInteger(value.markedAtMs, `${label}.markedAtMs`),
       };
     }
