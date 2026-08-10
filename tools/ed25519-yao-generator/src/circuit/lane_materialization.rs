@@ -4,9 +4,12 @@
 //! Yao-produced offset share.  Outputs remain role-separated holder and
 //! SigningWorker shares; no seed, root, or combined scalar is represented.
 
+#[cfg(test)]
 use curve25519_dalek::scalar::Scalar;
 
-use super::families::{field_bits, input_bytes_to_lsb0_bits, lsb0_bits_to_32_bytes};
+use super::families::field_bits;
+#[cfg(test)]
+use super::families::{input_bytes_to_lsb0_bits, lsb0_bits_to_32_bytes};
 use super::ir::{CanonicalBooleanCircuitV1, CircuitBuilder};
 use super::scalar::add_mod_l_bits;
 use super::schedule::{CanonicalLivenessScheduleV1, ProvisionalScheduleMetricsV1};
@@ -24,7 +27,8 @@ const FIELD_BITS: usize = 256;
 const INPUT_BITS: u32 = 6 * FIELD_BITS as u32;
 const OUTPUT_BITS: usize = 4 * FIELD_BITS;
 
-/// Role-local canonical lane input tuple for public synthetic evaluation.
+/// Role-local canonical lane input tuple for the test-only synthetic oracle.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy)]
 pub struct PublicSyntheticLaneMaterializationInputsV1 {
     /// Deriver A source holder share.
@@ -41,6 +45,7 @@ pub struct PublicSyntheticLaneMaterializationInputsV1 {
     pub b_offset_share: [u8; 32],
 }
 
+#[cfg(test)]
 impl PublicSyntheticLaneMaterializationInputsV1 {
     /// Validates all role-local scalar fields once at the harness boundary.
     pub fn new(
@@ -89,11 +94,13 @@ impl PublicSyntheticLaneMaterializationInputsV1 {
     }
 }
 
-/// Invalid canonical scalar at the public synthetic boundary.
+/// Invalid canonical scalar at the test-only synthetic boundary.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LaneMaterializationInputErrorV1;
 
 /// Role-separated target shares from one synthetic circuit evaluation.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PublicSyntheticLaneMaterializationOutputsV1 {
     /// Deriver A target holder share.
@@ -135,7 +142,8 @@ pub struct LaneMaterializationCoreV1 {
 }
 
 impl LaneMaterializationCoreV1 {
-    /// Evaluates role-separated outputs over public synthetic shares.
+    /// Evaluates role-separated outputs over test-only synthetic shares.
+    #[cfg(test)]
     pub fn evaluate_public_synthetic(
         &self,
         inputs: &PublicSyntheticLaneMaterializationInputsV1,
@@ -213,6 +221,7 @@ pub fn compile_lane_materialization_v1() -> LaneMaterializationCoreV1 {
     LaneMaterializationCoreV1 { circuit, schedule }
 }
 
+#[cfg(test)]
 fn input_bits(inputs: &PublicSyntheticLaneMaterializationInputsV1) -> Vec<bool> {
     input_bytes_to_lsb0_bits(&inputs.canonical_input_bytes())
 }

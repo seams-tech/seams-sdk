@@ -51,9 +51,8 @@ pub use phase4_families::{
 
 pub use lane_materialization::{
     compile_lane_materialization_v1, LaneMaterializationCoreDigest32V1, LaneMaterializationCoreV1,
-    LaneMaterializationInputErrorV1, LaneMaterializationScheduleDigest32V1,
-    PublicSyntheticLaneMaterializationInputsV1, PublicSyntheticLaneMaterializationOutputsV1,
-    LANE_MATERIALIZATION_INPUT_SCHEMA_V1, LANE_MATERIALIZATION_OUTPUT_SCHEMA_V1,
+    LaneMaterializationScheduleDigest32V1, LANE_MATERIALIZATION_INPUT_SCHEMA_V1,
+    LANE_MATERIALIZATION_OUTPUT_SCHEMA_V1,
 };
 
 pub use sha512::{
