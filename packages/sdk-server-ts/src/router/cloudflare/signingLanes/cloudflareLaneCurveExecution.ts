@@ -39,7 +39,10 @@ import {
   parseAndVerifyEcdsaServerRetirementEffectV1,
   type EcdsaServerRetirementBindingV1,
 } from '../../../core/signingLanes/ecdsaServerRetirement';
-import type { EcdsaSigningWorkerLaneMaterialIdentityV1 } from '../../../core/signingLanes/signingWorkerLaneMaterialIdentity';
+import type {
+  EcdsaSigningWorkerLaneMaterialIdentityV1,
+  SigningWorkerLaneMaterialIdentityV1,
+} from '../../../core/signingLanes/signingWorkerLaneMaterialIdentity';
 import type { CloudflareEd25519LaneProtocolTransportV1 } from './cloudflareLaneProtocolCommitter';
 
 type LaneMaterialMutationOutcomeV1 = 'applied' | 'replayed';
@@ -103,6 +106,8 @@ export const CLOUDFLARE_SIGNING_WORKER_ECDSA_LANE_EXECUTE_PATH_V1 =
   '/router-ab/internal/signing-worker/ecdsa-additive-lane/execute' as const;
 export const CLOUDFLARE_SIGNING_WORKER_ECDSA_LANE_ACTIVATE_PATH_V1 =
   '/router-ab/internal/signing-worker/ecdsa-additive-lane/activate' as const;
+export const CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_LANE_ACTIVATE_PATH_V1 =
+  '/router-ab/internal/signing-worker/ed25519-yao-lane/activate' as const;
 export const CLOUDFLARE_SIGNING_WORKER_ECDSA_LANE_RETIRE_PATH_V1 =
   '/router-ab/internal/signing-worker/ecdsa-additive-lane/retire' as const;
 
@@ -430,29 +435,43 @@ export class CloudflareSigningWorkerEcdsaLaneTransportV1
           readonly holderDeliveryReceipt: LaneHolderDeliveryReceiptV1;
         },
   ): Promise<SigningWorkerLaneServerActivationProjectionV1> {
-    if (input.curve !== 'ecdsa_additive') {
-      throw new Error('Ed25519 activation requires its dedicated SigningWorker transport');
-    }
-    const binding = await this.options.bindingResolver.resolveActivationBindingV1({
-      job: input.job,
-      protocolCommitReceipt: input.protocolCommitReceipt,
-    });
+    const binding =
+      input.curve === 'ecdsa_additive'
+        ? await this.options.bindingResolver.resolveActivationBindingV1({
+            job: input.job,
+            protocolCommitReceipt: input.protocolCommitReceipt,
+          })
+        : await buildEd25519ActivationBindingV1({
+            job: input.job,
+            protocolCommitReceipt: input.protocolCommitReceipt,
+          });
     const response = await postSigningWorkerJsonV1({
       binding: this.options.signingWorker,
       internalServiceAuth: this.internalServiceAuth,
-      path: CLOUDFLARE_SIGNING_WORKER_ECDSA_LANE_ACTIVATE_PATH_V1,
+      path:
+        input.curve === 'ecdsa_additive'
+          ? CLOUDFLARE_SIGNING_WORKER_ECDSA_LANE_ACTIVATE_PATH_V1
+          : CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_LANE_ACTIVATE_PATH_V1,
       body: {
         identity: binding.identity,
         targetMaterialActivation: binding.targetMaterialActivation,
         holderDeliveryReceipt: input.holderDeliveryReceipt,
       },
     });
-    const effect = exactRecord(response, ['outcome', 'receipt'], 'ecdsaLaneActivateEffect');
+    const effect = exactRecord(
+      response,
+      ['outcome', 'receipt'],
+      input.curve === 'ecdsa_additive'
+        ? 'ecdsaLaneActivateEffect'
+        : 'ed25519LaneActivateEffect',
+    );
     return {
       kind: 'signing_worker_lane_server_activation_projection_v1',
       outcome: parseMutationOutcome(
         Reflect.get(effect, 'outcome'),
-        'ecdsaLaneActivateEffect.outcome',
+        input.curve === 'ecdsa_additive'
+          ? 'ecdsaLaneActivateEffect.outcome'
+          : 'ed25519LaneActivateEffect.outcome',
       ),
       receipt: parseLaneServerActivationReceiptV1(Reflect.get(effect, 'receipt')),
     };
@@ -659,6 +678,64 @@ async function identityFromProtocolReceiptV1(
     protocolCommitReceiptDigestB64u: parseDigestB64u(
       base64UrlEncode(await sha256Bytes(encodeLaneProtocolCommitReceiptV1(receipt))),
     ),
+  };
+}
+
+async function buildEd25519ActivationBindingV1(input: {
+  readonly job: Ed25519YaoLaneJobV1;
+  readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
+}): Promise<{
+  readonly identity: SigningWorkerLaneMaterialIdentityV1<'ed25519'>;
+  readonly targetMaterialActivation: MpcMaterialActivationRef;
+}> {
+  const receipt = parseLaneProtocolCommitReceiptV1(input.protocolCommitReceipt);
+  if (
+    receipt.operationId !== input.job.operationId ||
+    receipt.enrollmentId !== input.job.enrollmentId ||
+    receipt.walletId !== input.job.walletId ||
+    receipt.walletKeyId !== input.job.walletKeyId ||
+    receipt.targetLaneId !== input.job.target.laneId ||
+    receipt.targetLaneShareEpoch !== input.job.target.laneShareEpoch ||
+    receipt.targetMaterialActivationId !== input.job.targetMaterialActivationId ||
+    receipt.keyFamily !== 'ed25519'
+  ) {
+    throw new Error('Ed25519 protocol receipt does not match the admitted job');
+  }
+  const targetSigningWorker = parseMpcSigningWorkerRef(
+    input.job.targetSigningWorker.participantId,
+  );
+  if (!targetSigningWorker.ok) {
+    throw new Error(`Ed25519 target SigningWorker is invalid: ${targetSigningWorker.error.message}`);
+  }
+  return {
+    identity: {
+      operationId: input.job.operationId,
+      enrollmentId: input.job.enrollmentId,
+      walletId: input.job.walletId,
+      walletKeyId: input.job.walletKeyId,
+      targetLaneId: input.job.target.laneId,
+      targetLaneShareEpoch: input.job.target.laneShareEpoch,
+      targetMaterialActivationId: input.job.targetMaterialActivationId,
+      keyFamily: 'ed25519',
+      holderParticipantBindingDigestB64u:
+        input.job.targetHolder.participantBindingDigestB64u,
+      signingWorkerParticipantBindingDigestB64u:
+        input.job.targetSigningWorker.participantBindingDigestB64u,
+      holderRecipientKeyDigestB64u: input.job.targetHolder.hpkePublicKeyDigestB64u,
+      serverRecipientKeyDigestB64u: input.job.targetSigningWorker.hpkePublicKeyDigestB64u,
+      transcriptHashB64u: parseDigestB64u(receipt.transcriptHashB64u),
+      protocolCommitReceiptDigestB64u: parseDigestB64u(
+        base64UrlEncode(await sha256Bytes(encodeLaneProtocolCommitReceiptV1(receipt))),
+      ),
+    },
+    targetMaterialActivation: buildMpcMaterialActivationRef({
+      activationId: input.job.targetMaterialActivationId,
+      capability: input.job.source.materialActivation.capability,
+      materialOwner: input.job.source.materialActivation.materialOwner,
+      keyBinding: input.job.source.materialActivation.keyBinding,
+      lifecycleBinding: input.job.source.materialActivation.lifecycleBinding,
+      signingWorker: targetSigningWorker.value,
+    }),
   };
 }
 

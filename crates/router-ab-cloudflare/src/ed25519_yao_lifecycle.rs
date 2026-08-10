@@ -3955,6 +3955,7 @@ mod tests {
             execution_id,
             started_at_ms: 100,
             input: Box::new(input),
+            work: crate::CloudflareEd25519YaoPairWorkV1::Ceremony,
         };
         let completed = completed_pair_record_if_running(
             &running,
