@@ -151,7 +151,7 @@ import type {
   EmailOtpChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
   EmailOtpEcdsaCapabilityResult,
-  EmailOtpBackedUpEnrollmentResult,
+  EmailOtpEnrollmentResult,
   EmailOtpEnrollmentResult,
   GoogleEmailOtpSessionExchangeResult,
   GoogleEmailOtpWalletAuthFlow,
@@ -683,7 +683,7 @@ function buildSignTempoIframePayload(
     chainTarget: payload.chainTarget,
   };
 }
-const WALLET_IFRAME_EMAIL_OTP_BACKUP_TIMEOUT_MS = 5 * 60 * 1000;
+const WALLET_IFRAME_EMAIL_OTP_ENROLLMENT_TIMEOUT_MS = 5 * 60 * 1000;
 
 type WalletIframeLoginStatusSnapshot = {
   isLoggedIn: boolean;
@@ -2843,19 +2843,19 @@ export class WalletIframeRouter {
     groupId?: string;
     appSessionJwt?: string;
     onEvent?: (ev: RegistrationFlowEvent) => void;
-  }): Promise<EmailOtpBackedUpEnrollmentResult> {
+  }): Promise<EmailOtpEnrollmentResult> {
     const { onEvent, appSessionJwt, ...wirePayload } = payload;
     await this.ensureHostedWalletSeamsSession(
       hostedWalletSeamsSessionSource({ relayUrl: payload.relayUrl, appSessionJwt }),
     );
-    const res = await this.post<EmailOtpBackedUpEnrollmentResult>(
+    const res = await this.post<EmailOtpEnrollmentResult>(
       {
         type: 'PM_ENROLL_EMAIL_OTP',
         payload: wirePayload,
         options: { onProgress: this.wrapOnEvent(onEvent, isRegistrationFlowEvent) },
       },
       {
-        timeoutMs: WALLET_IFRAME_EMAIL_OTP_BACKUP_TIMEOUT_MS,
+        timeoutMs: WALLET_IFRAME_EMAIL_OTP_ENROLLMENT_TIMEOUT_MS,
         progressTimeoutExtensionFactor: 1,
       },
     );
@@ -4127,6 +4127,8 @@ function exactSessionRequestWalletId(envelope: ParentToChildEnvelope): string | 
       return envelope.payload.walletSession.walletId;
     case 'PM_LIST_WALLET_CREDENTIALS':
     case 'PM_RENAME_WALLET_CREDENTIAL':
+    case 'PM_REVOKE_WALLET_CREDENTIAL':
+    case 'PM_ROTATE_WALLET_RECOVERY_CODES':
       return envelope.payload.walletId;
     default:
       return null;

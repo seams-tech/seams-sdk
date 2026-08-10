@@ -121,7 +121,6 @@ import {
   type WalletRegistrationRespondEd25519DeferredWork,
   type WalletRegistrationEcdsaWalletKey,
   type WalletRegistrationEmailOtpEnrollmentMaterial,
-  type WalletRegistrationEmailOtpBackupAck,
   type WalletRegistrationFinalizeResponse,
   type WalletRegistrationEcdsaPreparePayload,
   type WalletRegistrationEcdsaClientBootstrap,
@@ -133,9 +132,7 @@ import {
   collectPasskeyRegistrationAuthority,
   collectPasskeyRegistrationAuthorityFromCredential,
 } from '@/SeamsWeb/operations/authMethods/passkey/registrationAuthority';
-import { backupEmailOtpRecoveryCodes } from '@/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup';
 import { showWalletRecoveryCodeBackupUi } from '@/SeamsWeb/operations/recovery/walletRecoveryCodeBackup';
-import type { GoogleEmailOtpRegistrationBackupEnrollmentInput } from '@/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup';
 import type { RegistrationFinalizeIdempotencyKey } from '@/SeamsWeb/publicApi/types';
 import { registrationFinalizeIdempotencyKeyFromString } from '@/SeamsWeb/publicApi/types';
 import { collectEmailOtpRegistrationAuthority } from '@/SeamsWeb/operations/authMethods/emailOtp/registrationAuthority';
@@ -270,18 +267,6 @@ type EmitRegistrationEventInput = Omit<
 };
 
 type EmailOtpRegistrationAuthMethod = Extract<RegistrationAuthMethodInput, { kind: 'email_otp' }>;
-
-type EmailOtpRecoveryCodeBackupOutcome =
-  | {
-      ok: true;
-      backedUpEnrollment: Awaited<ReturnType<typeof backupEmailOtpRecoveryCodes>>;
-      error?: never;
-    }
-  | {
-      ok: false;
-      error: unknown;
-      backedUpEnrollment?: never;
-    };
 
 export type RegisterWalletOperationInput = {
   context: RegistrationWebContext;
@@ -892,73 +877,6 @@ function createRegistrationOperationIdempotencyKey(
   return registrationFinalizeIdempotencyKeyFromString(`${label}:${hex}`);
 }
 
-function emailOtpBackupAckFromStoredBackup(input: {
-  authMethod: RegistrationAuthMethodInput;
-  backedUpEnrollment: Awaited<ReturnType<typeof backupEmailOtpRecoveryCodes>>;
-}): WalletRegistrationEmailOtpBackupAck {
-  const backupAckIdempotencyKey = createRegistrationOperationIdempotencyKey(
-    'email-otp-recovery-code-backup-ack',
-  );
-  const googleOffer =
-    input.authMethod.kind === 'email_otp' &&
-    input.authMethod.proofKind === 'google_sso_registration'
-      ? {
-          offerId: input.authMethod.googleEmailOtpRegistrationOfferId,
-          candidateId: input.authMethod.googleEmailOtpRegistrationCandidateId,
-        }
-      : {};
-  return {
-    kind: 'email_otp_recovery_code_backup_ack_v1',
-    ...googleOffer,
-    recoveryCodesIssuedAtMs: input.backedUpEnrollment.recoveryCodesIssuedAtMs,
-    backupActionKind: 'manual',
-    acknowledgedAtMs: Date.now(),
-    idempotencyKey: backupAckIdempotencyKey,
-  };
-}
-
-function googleEmailOtpRegistrationMaterialToBackupEnrollment(input: {
-  material: EmailOtpRegistrationEnrollmentMaterial;
-  registrationAuthorityId: string;
-}): GoogleEmailOtpRegistrationBackupEnrollmentInput {
-  return {
-    recoveryKeys: input.material.recoveryKeys,
-    recoveryCodesIssuedAtMs: input.material.recoveryCodesIssuedAtMs,
-    registrationAuthorityId: input.registrationAuthorityId,
-    otpChannel: EMAIL_OTP_CHANNEL,
-    enrollmentId: input.material.enrollmentId,
-    enrollmentSealKeyVersion: input.material.emailOtpEnrollment.enrollmentSealKeyVersion,
-    clientUnlockPublicKeyB64u: input.material.emailOtpEnrollment.clientUnlockPublicKeyB64u,
-    unlockKeyVersion: input.material.emailOtpEnrollment.unlockKeyVersion,
-  };
-}
-
-function startEmailOtpRecoveryCodeBackup(input: {
-  recorder: RegistrationTimingRecorder;
-  authMethod: EmailOtpRegistrationAuthMethod;
-  relayerUrl: string;
-  walletId: string;
-  enrollmentMaterial: EmailOtpRegistrationEnrollmentMaterial;
-  registrationAuthorityId: string;
-}): Promise<EmailOtpRecoveryCodeBackupOutcome> {
-  return input.recorder
-    .measure('emailOtpRecoveryCodeBackupMs', () =>
-      backupEmailOtpRecoveryCodes({
-        relayUrl: input.relayerUrl,
-        walletId: input.walletId,
-        appSessionJwt: input.authMethod.appSessionJwt,
-        enrollment: googleEmailOtpRegistrationMaterialToBackupEnrollment({
-          material: input.enrollmentMaterial,
-          registrationAuthorityId: input.registrationAuthorityId,
-        }),
-      }),
-    )
-    .then(
-      (backedUpEnrollment) => ({ ok: true as const, backedUpEnrollment }),
-      (error: unknown) => ({ ok: false as const, error }),
-    );
-}
-
 function startEmailOtpRegistrationEnrollmentMaterial(input: {
   recorder: RegistrationTimingRecorder;
   context: RegistrationWebContext;
@@ -982,48 +900,12 @@ function startEmailOtpRegistrationEnrollmentMaterial(input: {
   );
 }
 
-async function startEmailOtpRecoveryCodeBackupAfterEnrollmentMaterial(input: {
-  recorder: RegistrationTimingRecorder;
-  authMethod: EmailOtpRegistrationAuthMethod;
-  relayerUrl: string;
-  walletId: string;
-  enrollmentMaterial: Promise<EmailOtpRegistrationEnrollmentMaterial>;
-  registrationAuthorityId: string;
-}): Promise<EmailOtpRecoveryCodeBackupOutcome> {
-  try {
-    const enrollmentMaterial = await input.enrollmentMaterial;
-    return await startEmailOtpRecoveryCodeBackup({
-      recorder: input.recorder,
-      authMethod: input.authMethod,
-      relayerUrl: input.relayerUrl,
-      walletId: input.walletId,
-      enrollmentMaterial,
-      registrationAuthorityId: input.registrationAuthorityId,
-    });
-  } catch (error: unknown) {
-    return { ok: false, error };
-  }
-}
-
 function assertEmailOtpRegistrationHasNoLegacyEcdsaRoot(
   material: EmailOtpRegistrationEnrollmentMaterial,
 ): void {
   if (material.emailOtpSessionHandle.kind !== 'not_requested') {
     throw new Error('Strict ECDSA registration received obsolete Email OTP root-share material');
   }
-}
-
-async function resolveEmailOtpBackupAck(input: {
-  authMethod: RegistrationAuthMethodInput;
-  backup: Promise<EmailOtpRecoveryCodeBackupOutcome> | null;
-}): Promise<WalletRegistrationEmailOtpBackupAck | undefined> {
-  if (input.authMethod.kind !== 'email_otp' || !input.backup) return undefined;
-  const outcome = await input.backup;
-  if (!outcome.ok) throw outcome.error;
-  return emailOtpBackupAckFromStoredBackup({
-    authMethod: input.authMethod,
-    backedUpEnrollment: outcome.backedUpEnrollment,
-  });
 }
 
 async function resolveEmailOtpRegistrationEnrollmentMaterial(input: {
@@ -1538,7 +1420,6 @@ export async function runEcdsaEnabledThreeRouteRegistrationCeremony(args: {
    */
   resolveActivateEmailOtp: () => Promise<{
     enrollment: WalletRegistrationEmailOtpEnrollmentMaterial | null;
-    backupAck: WalletRegistrationEmailOtpBackupAck | null;
     walletCustodyFactorJson: string | null;
   }>;
   traceContext?: RouterAbTraceContextV1;
@@ -1557,7 +1438,6 @@ export async function runEcdsaEnabledThreeRouteRegistrationCeremony(args: {
   /** Returned so the deferred NEAR commit reuses it instead of resolving twice. */
   activateEmailOtp: {
     enrollment: WalletRegistrationEmailOtpEnrollmentMaterial | null;
-    backupAck: WalletRegistrationEmailOtpBackupAck | null;
   };
   walletCustody: Awaited<
     ReturnType<RegistrationWebContext['signingEngine']['establishWalletCustodyEvmFamilyKeySet']>
@@ -1710,9 +1590,6 @@ export async function runEcdsaEnabledThreeRouteRegistrationCeremony(args: {
             ...(activateEmailOtp.enrollment
               ? { emailOtpEnrollment: activateEmailOtp.enrollment }
               : {}),
-            ...(activateEmailOtp.backupAck
-              ? { emailOtpBackupAck: activateEmailOtp.backupAck }
-              : {}),
             onServerTiming: (header) =>
               recordStrictEcdsaServerTimingBuckets(args.registrationTiming, 'activate', header),
           }),
@@ -1784,7 +1661,6 @@ export async function runEcdsaEnabledThreeRouteRegistrationCeremony(args: {
       deferredNear,
       activateEmailOtp: {
         enrollment: activateEmailOtp.enrollment,
-        backupAck: activateEmailOtp.backupAck,
       },
       walletCustody: established,
       deferredNearCustodyWork,
@@ -1977,25 +1853,22 @@ type DeferredRegistrationFinalizeAuthMaterial =
   | {
       kind: 'email_otp';
       enrollment: WalletRegistrationEmailOtpEnrollmentMaterial;
-      backupAck: WalletRegistrationEmailOtpBackupAck;
     };
 
 function buildDeferredRegistrationFinalizeAuthMaterial(args: {
   auth: RegistrationPersistenceAuth;
   emailOtpEnrollment: WalletRegistrationEmailOtpEnrollmentMaterial | null;
-  emailOtpBackupAck: WalletRegistrationEmailOtpBackupAck | null;
 }): DeferredRegistrationFinalizeAuthMaterial {
   switch (args.auth.kind) {
     case 'passkey':
       return { kind: 'passkey' };
     case 'email_otp':
-      if (!args.emailOtpEnrollment || !args.emailOtpBackupAck) {
-        throw new Error('Deferred Email OTP registration requires enrollment and backup material');
+      if (!args.emailOtpEnrollment) {
+        throw new Error('Deferred Email OTP registration requires enrollment material');
       }
       return {
         kind: 'email_otp',
         enrollment: args.emailOtpEnrollment,
-        backupAck: args.emailOtpBackupAck,
       };
     default:
       return assertNever(args.auth);
@@ -2350,7 +2223,6 @@ async function registerEcdsaOrMixedWallet(
     let emailOtpProviderSubject = '';
     let emailOtpProvider: EmailOtpProvider | null = null;
     let emailOtpAppSessionBinding: EmailOtpAppSessionBinding | null = null;
-    let emailOtpRecoveryCodeBackup: Promise<EmailOtpRecoveryCodeBackupOutcome> | null = null;
     let emailOtpWalletCustodyFactorSecret: ArrayBuffer | null = null;
     let passkeyAuthority: RegistrationPasskeyAuthority | null = null;
     let startAuthority: RegistrationThreeRouteAuthority;
@@ -2436,14 +2308,6 @@ async function registerEcdsaOrMixedWallet(
       emailOtpEmail = emailAuthority.email;
       emailOtpProviderSubject = emailAuthority.providerSubject;
       emailOtpProvider = emailOtpProviderFromRegistrationProof(emailAuthority.proof);
-      emailOtpRecoveryCodeBackup = startEmailOtpRecoveryCodeBackupAfterEnrollmentMaterial({
-        recorder: registrationTiming,
-        authMethod: emailOtpAuthMethod,
-        relayerUrl,
-        walletId: String(walletId),
-        enrollmentMaterial: emailOtpEnrollmentMaterial,
-        registrationAuthorityId: emailAuthority.registrationAuthorityId,
-      });
       startAuthority = {
         kind: 'email_otp',
         emailOtpRegistrationProof: emailAuthority.proof,
@@ -2521,11 +2385,6 @@ async function registerEcdsaOrMixedWallet(
             return {
               enrollment,
               walletCustodyFactorJson,
-              backupAck:
-                (await resolveEmailOtpBackupAck({
-                  authMethod: args.authMethod,
-                  backup: emailOtpRecoveryCodeBackup,
-                })) ?? null,
             };
           },
           traceContext,
@@ -2561,7 +2420,6 @@ async function registerEcdsaOrMixedWallet(
     }
     const finalized = finalizeResponseViewFromActivatedEcdsa(ceremony.activated);
     const emailOtpEnrollment = ceremony.activateEmailOtp.enrollment;
-    const emailOtpBackupAck = ceremony.activateEmailOtp.backupAck;
     /* Commit #1 finalizes the ECDSA branch alone, on both the ECDSA-only and
        the mixed plan, so this no longer compares against `args.kind`. */
     if (finalized.kind !== 'evm_family_ecdsa') {
@@ -2639,7 +2497,6 @@ async function registerEcdsaOrMixedWallet(
       const deferredAuthMaterial = buildDeferredRegistrationFinalizeAuthMaterial({
         auth: persistencePlan.auth,
         emailOtpEnrollment,
-        emailOtpBackupAck,
       });
       try {
         await context.signingEngine.setWalletNearProvisioningState({
@@ -2865,15 +2722,6 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       appSessionJwt: args.authMethod.appSessionJwt,
       clientSecret32: emailOtpEnrollmentSecret,
     });
-    const recoveryCodeBackup = startEmailOtpRecoveryCodeBackupAfterEnrollmentMaterial({
-      recorder: registrationTiming,
-      authMethod: args.authMethod,
-      relayerUrl,
-      walletId: String(walletId),
-      enrollmentMaterial,
-      registrationAuthorityId: emailAuthority.registrationAuthorityId,
-    });
-
     emitRegistrationEvent(options.onEvent, eventAccountId, {
       authMethod: 'email_otp',
       phase: RegistrationEventPhase.STEP_05_ED25519_SIGNER_PREPARE_STARTED,
@@ -2932,13 +2780,6 @@ async function registerEmailOtpEd25519YaoWalletOnly(
     const walletCustodyCommit = walletCustodyCommitPayloadWithRecoveryBackupAcknowledgement(
       established.commitPayload,
     );
-    const emailOtpBackupAck = await resolveEmailOtpBackupAck({
-      authMethod: args.authMethod,
-      backup: recoveryCodeBackup,
-    });
-    if (!emailOtpBackupAck) {
-      throw new Error('Email OTP registration requires recovery backup acknowledgment');
-    }
     /* The custody ceremony and local recovery backup finish before activate.
        Activate stages the wallet as `near_pending`; Route 4 then commits the
        signer, custody envelope, and recovery set together. */
@@ -2950,7 +2791,6 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       headers: registrationRouteHeaders(),
       idempotencyKey: finalizeIdempotencyKey,
       emailOtpEnrollment: materialForActivate.emailOtpEnrollment,
-      ...(emailOtpBackupAck ? { emailOtpBackupAck } : {}),
     });
     if (
       activated.kind !== 'near_ed25519' ||
@@ -2974,7 +2814,6 @@ async function registerEmailOtpEd25519YaoWalletOnly(
         auth: {
           kind: 'email_otp',
           enrollment: materialForActivate.emailOtpEnrollment,
-          backupAck: emailOtpBackupAck,
         },
         walletCustodyCommit,
       }),

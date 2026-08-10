@@ -28,7 +28,6 @@ import {
   linkWalletPasskeyCustody,
 } from '@/core/signingEngine/walletCustody/passkeyLink';
 import type { WalletCustodyCeremonyTransportPort } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
-import { activeWalletOrHostedAppSessionJwt } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
 import { buildEmailOtpRoutePlan } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
@@ -172,10 +171,13 @@ async function addPasskeyWithEmailOtpAuthorization(args: {
   readonly options?: RegistrationHooksOptions;
 }): Promise<AddPasskeyResult> {
   const relayerUrl = String(args.context.configs.network.relayer.url || '').trim();
-  const appSessionJwt = activeWalletOrHostedAppSessionJwt(relayerUrl, String(args.walletId));
-  if (!appSessionJwt) {
-    throw new Error('Email OTP add-passkey requires an active wallet-bound app session');
-  }
+  const appSessionJwt = await args.context.signingEngine.resolveEmailOtpAppSessionJwt({
+    walletSession: {
+      walletId: args.walletId,
+      walletSessionUserId: String(args.walletId),
+    },
+    relayUrl,
+  });
   const worker = args.context.signingEngine.getSignerWorkerContext();
   const routePlan = buildEmailOtpRoutePlan({
     routeFamily: 'login',

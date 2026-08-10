@@ -774,7 +774,7 @@ export type RegistrationSigningSurface = RpIdSurface &
   > &
   Pick<
     EmailOtpSigningSessionSurface,
-    'rememberEmailOtpAppSessionBinding'
+    'rememberEmailOtpAppSessionBinding' | 'resolveEmailOtpAppSessionJwt'
   > &
   SignerWorkerContextSurface &
   PasskeyLoginAssertionSurface &

@@ -7,10 +7,6 @@ import {
   type WalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
-import {
-  buildEmailOtpRecoveryCodeSet,
-  type EmailOtpRecoveryCodeSet,
-} from '@shared/utils/emailOtpRecoveryKey';
 import { requireTrimmedString, toOptionalTrimmedNonEmptyString } from '@shared/utils/validation';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import {
@@ -20,7 +16,6 @@ import {
 import type {
   EmailOtpChallengeDelivery,
   EmailOtpEnrollmentResult,
-  EmailOtpRecoveryCodeBackupStatus,
   GoogleEmailOtpSessionExchangeResult,
 } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import {
@@ -37,8 +32,6 @@ import {
 export type FetchLike = typeof fetch;
 export type {
   EmailOtpEnrollmentResult,
-  EmailOtpRecoveryCodeBackupStatus,
-  EmailOtpRecoveryCodeSet,
   GoogleEmailOtpSessionExchangeResult,
   WalletEmailOtpChannel,
 };
@@ -98,36 +91,9 @@ function requireObjectJson(value: unknown, label: string): JsonObject {
   return value as JsonObject;
 }
 
-function requireFiniteTimestampMs(value: unknown, label: string): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`${label} must be a positive timestamp`);
-  }
-  return Math.floor(parsed);
-}
-
-export function parseEmailOtpRecoveryCodeMaterial(value: unknown): {
-  recoveryKeys: EmailOtpRecoveryCodeSet;
-  recoveryCodesIssuedAtMs: number;
-} {
-  const response = requireObjectJson(value, 'Email OTP recovery-code material');
-  return {
-    recoveryKeys: buildEmailOtpRecoveryCodeSet(
-      Array.isArray(response.recoveryKeys) ? response.recoveryKeys.map(String) : [],
-    ),
-    recoveryCodesIssuedAtMs: requireFiniteTimestampMs(
-      response.recoveryCodesIssuedAtMs,
-      'recoveryCodesIssuedAtMs',
-    ),
-  };
-}
-
 export function parseEmailOtpEnrollmentResult(value: unknown): EmailOtpEnrollmentResult {
   const response = requireObjectJson(value, 'Email OTP enrollment result');
-  const recoveryCodeMaterial = parseEmailOtpRecoveryCodeMaterial(response);
   return {
-    recoveryKeys: recoveryCodeMaterial.recoveryKeys,
-    recoveryCodesIssuedAtMs: recoveryCodeMaterial.recoveryCodesIssuedAtMs,
     challengeId: readString(response.challengeId, 'challengeId'),
     otpChannel: EMAIL_OTP_CHANNEL,
     enrollmentId: readString(response.enrollmentId, 'enrollmentId'),

@@ -247,7 +247,15 @@ function readAppSessionAuthSubjectIdFromRoutePlan(routePlan: EmailOtpRoutePlan):
   const lane = routePlan.authLane;
   if (lane.kind !== 'app_session') return '';
   const payload = readJwtPayloadObject(lane.jwt);
-  return readOptionalString(payload?.providerSubject) || readOptionalString(payload?.sub) || '';
+  return readOptionalString(payload?.providerSubject) || '';
+}
+
+function readAppSessionOrgIdFromRoutePlan(routePlan: EmailOtpRoutePlan): string {
+  const lane = routePlan.authLane;
+  if (lane.kind !== 'app_session') return '';
+  const payload = readJwtPayloadObject(lane.jwt);
+  const runtimePolicyScope = workerPayloadObject(payload?.runtimePolicyScope);
+  return readOptionalString(runtimePolicyScope?.orgId) || '';
 }
 
 function resolveEmailOtpAuthSubjectId(args: {
@@ -3254,12 +3262,15 @@ async function prepareEmailOtpPasskeyCustodyLink(args: {
   readonly routePlan: EmailOtpRoutePlan;
   readonly verification: { readonly kind: 'otp'; readonly challengeId: string; readonly otpCode: string };
 }): Promise<EmailOtpWorkerOperationMap['prepareEmailOtpPasskeyCustodyLink']['result']> {
+  const orgId = readAppSessionOrgIdFromRoutePlan(args.routePlan);
+  if (!orgId) throw new Error('Email OTP passkey linking app session has no organization');
   const recovered = await loginWithEmailOtpAndUnlockWallet({
     relayUrl: args.relayUrl,
     walletId: args.walletId,
     userId: args.userId,
     groupId: args.groupId,
     routePlan: args.routePlan,
+    orgId,
     verification: args.verification,
     material: { kind: 'ed25519_yao_export' },
   });
@@ -3313,12 +3324,15 @@ async function rotateEmailOtpWalletRecoverySet(args: {
   readonly verification: { readonly kind: 'otp'; readonly challengeId: string; readonly otpCode: string };
   readonly recoveryCodesJson: string;
 }): Promise<EmailOtpWorkerOperationMap['rotateEmailOtpWalletRecoverySet']['result']> {
+  const orgId = readAppSessionOrgIdFromRoutePlan(args.routePlan);
+  if (!orgId) throw new Error('Email OTP recovery rotation app session has no organization');
   const recovered = await loginWithEmailOtpAndUnlockWallet({
     relayUrl: args.relayUrl,
     walletId: args.walletId,
     userId: args.userId,
     groupId: args.groupId,
     routePlan: args.routePlan,
+    orgId,
     verification: args.verification,
     material: { kind: 'ed25519_yao_export' },
   });

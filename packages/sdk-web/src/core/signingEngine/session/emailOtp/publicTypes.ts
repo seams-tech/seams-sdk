@@ -1,5 +1,4 @@
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
-import type { EmailOtpRecoveryCodeSet } from '@shared/utils/emailOtpRecoveryKey';
 import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 
 export type EmailOtpChallengeDeliveryStatus = 'sent' | 'reused';
@@ -33,24 +32,12 @@ export type EmailOtpTransactionSigningChallenge = {
 };
 
 export type EmailOtpEnrollmentResult = {
-  recoveryKeys: EmailOtpRecoveryCodeSet;
-  recoveryCodesIssuedAtMs: number;
   challengeId: string;
   otpChannel: WalletEmailOtpChannel;
   enrollmentId: string;
   enrollmentSealKeyVersion: string;
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
-};
-
-export type EmailOtpRecoveryCodeBackupStatus = {
-  status: 'active';
-  walletId: string;
-  enrollmentId: string;
-  recoveryCodeCount: number;
-  issuedAtMs: number;
-  storedAtMs: number;
-  activeRecoveryCodeCountAtBackup: number;
 };
 
 export type GoogleEmailOtpSessionExchangeResult = {
