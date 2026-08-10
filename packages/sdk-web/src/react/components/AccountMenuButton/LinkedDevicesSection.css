@@ -99,3 +99,32 @@
 .w3a-linked-devices-revoke-consequence {
   line-height: 1.35;
 }
+
+.w3a-linked-devices-live-status {
+  min-height: 1px;
+  color: var(--w3a-colors-textSecondary);
+  font-size: 11px;
+}
+
+.w3a-linked-devices-revoke {
+  min-height: 32px;
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: var(--w3a-shape-item, 8px);
+  background: transparent;
+  color: var(--w3a-colors-textPrimary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+}
+
+.w3a-linked-devices-revoke:focus-visible,
+.w3a-linked-devices-retry:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.w3a-linked-devices-revoke:disabled {
+  cursor: default;
+  opacity: 0.6;
+}

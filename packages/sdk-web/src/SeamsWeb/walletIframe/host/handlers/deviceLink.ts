@@ -3,6 +3,8 @@ import { respondOk, respondOkResult, withProgress } from './shared';
 import {
   parseLinkedDeviceListRequestV1,
   parseLinkedDeviceListResultV1,
+  parseLinkedDeviceRevokeRequestV1,
+  parseLinkedDeviceRevokeResultV1,
   parseQrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking';
 
@@ -60,6 +62,26 @@ export function createDeviceLinkWalletIframeHandlers(deps: HandlerDeps): Handler
       });
       const result = await pm.devices.listLinkedDevices({ walletId: String(request.walletId) });
       respondOkResult(deps, req.requestId, parseLinkedDeviceListResultV1(result));
+    },
+
+    PM_REVOKE_LINKED_DEVICE: async (req: Req<'PM_REVOKE_LINKED_DEVICE'>) => {
+      const pm = deps.getSeamsWeb();
+      const payload = req.payload;
+      if (!payload) throw new Error('PM_REVOKE_LINKED_DEVICE requires a payload');
+      if (deps.respondIfCancelled(req.requestId)) return;
+      const request = parseLinkedDeviceRevokeRequestV1({
+        kind: 'linked_device_revoke_request_v1',
+        walletId: payload.walletId,
+        deviceId: payload.deviceId,
+        requestedAtMs: payload.requestedAtMs,
+      });
+      const result = await pm.devices.revokeLinkedDevice({
+        walletId: String(request.walletId),
+        deviceId: String(request.deviceId),
+        requestedAtMs: request.requestedAtMs,
+      });
+      if (deps.respondIfCancelled(req.requestId)) return;
+      respondOkResult(deps, req.requestId, parseLinkedDeviceRevokeResultV1(result));
     },
   };
 }

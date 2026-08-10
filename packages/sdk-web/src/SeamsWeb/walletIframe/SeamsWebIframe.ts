@@ -584,6 +584,10 @@ export class SeamsWebIframe {
         await this.requireRouterReady();
         return await this.router.listLinkedDevices({ walletId: args.walletId });
       },
+      revokeLinkedDevice: async (args) => {
+        await this.requireRouterReady();
+        return await this.router.revokeLinkedDevice(args);
+      },
     };
     this.keys = {
       resolveExactKeyExportLane: async (input) => await this.resolveExactKeyExportLaneDomain(input),
