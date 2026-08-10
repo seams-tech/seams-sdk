@@ -809,6 +809,7 @@ mod tests {
                     .expect("client ceremony keypair"),
             ),
             registration_binding: None,
+            activation_refresh_request_digest: None,
             explicit_export_request_digest: None,
         }
     }
