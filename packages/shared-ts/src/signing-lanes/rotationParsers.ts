@@ -2377,25 +2377,49 @@ export function buildCommitLaneEnrollmentRevocationV1(
 export function buildLaneProductEpochPendingVisibilityV1(
   args: Omit<LaneProductEpochPendingVisibilityV1, 'kind' | 'state'>,
 ): LaneProductEpochPendingVisibilityV1 {
-  return { kind: 'lane_product_epoch_record_v1', state: 'pending_visibility', ...args };
+  const value = parseLaneProductEpochRecordV1({
+    kind: 'lane_product_epoch_record_v1',
+    state: 'pending_visibility',
+    ...args,
+  });
+  if (value.state !== 'pending_visibility') throw new Error('product epoch state changed');
+  return value;
 }
 
 export function buildLaneProductEpochActiveV1(
   args: Omit<LaneProductEpochActiveV1, 'kind' | 'state'>,
 ): LaneProductEpochActiveV1 {
-  return { kind: 'lane_product_epoch_record_v1', state: 'active', ...args };
+  const value = parseLaneProductEpochRecordV1({
+    kind: 'lane_product_epoch_record_v1',
+    state: 'active',
+    ...args,
+  });
+  if (value.state !== 'active') throw new Error('product epoch state changed');
+  return value;
 }
 
 export function buildLaneProductEpochRetiredV1(
   args: Omit<LaneProductEpochRetiredV1, 'kind' | 'state'>,
 ): LaneProductEpochRetiredV1 {
-  return { kind: 'lane_product_epoch_record_v1', state: 'retired', ...args };
+  const value = parseLaneProductEpochRecordV1({
+    kind: 'lane_product_epoch_record_v1',
+    state: 'retired',
+    ...args,
+  });
+  if (value.state !== 'retired') throw new Error('product epoch state changed');
+  return value;
 }
 
 export function buildLaneProductEpochRevokedV1(
   args: Omit<LaneProductEpochRevokedV1, 'kind' | 'state'>,
 ): LaneProductEpochRevokedV1 {
-  return { kind: 'lane_product_epoch_record_v1', state: 'revoked', ...args };
+  const value = parseLaneProductEpochRecordV1({
+    kind: 'lane_product_epoch_record_v1',
+    state: 'revoked',
+    ...args,
+  });
+  if (value.state !== 'revoked') throw new Error('product epoch state changed');
+  return value;
 }
 
 export function parseEcdsaAdditiveLaneTranscriptPreambleV1(
