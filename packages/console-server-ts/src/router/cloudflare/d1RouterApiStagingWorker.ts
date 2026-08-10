@@ -142,8 +142,6 @@ interface CloudflareD1RouterApiStagingEnv
   readonly EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS?: string;
   readonly EMAIL_OTP_MAX_ATTEMPTS?: string;
   readonly EMAIL_OTP_LOCKOUT_TTL_MS?: string;
-  readonly EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX?: string;
-  readonly EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS?: string;
   readonly EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX?: string;
   readonly EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS?: string;
   readonly SPONSORED_EVM_EXECUTORS_JSON?: string;
@@ -328,14 +326,6 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     emailOtpGrantRateLimitWindowMs: readEnvString(env, 'EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS'),
     emailOtpMaxAttempts: readEnvString(env, 'EMAIL_OTP_MAX_ATTEMPTS'),
     emailOtpLockoutTtlMs: readEnvString(env, 'EMAIL_OTP_LOCKOUT_TTL_MS'),
-    emailOtpRecoveryKeyAttemptRateLimitMax: readEnvString(
-      env,
-      'EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX',
-    ),
-    emailOtpRecoveryKeyAttemptRateLimitWindowMs: readEnvString(
-      env,
-      'EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS',
-    ),
     emailOtpGoogleRegistrationAttemptRateLimitMax: readEnvString(
       env,
       'EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX',
