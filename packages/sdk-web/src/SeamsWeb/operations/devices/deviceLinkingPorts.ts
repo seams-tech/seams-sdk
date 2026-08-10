@@ -115,12 +115,16 @@ export type DeviceLinkingKeyMaterialHandleV1 = {
   readonly handleId: string;
 };
 
+export type DeviceLinkingKeyMaterialBundleV1 = {
+  readonly handle: DeviceLinkingKeyMaterialHandleV1;
+  /** X25519/HPKE link public key; the private key remains in the worker. */
+  readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
+  /** Ed25519 device identity public key; the private key remains in the worker. */
+  readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
+};
+
 export type DeviceLinkingKeyMaterialPortV1 = {
-  createBootstrapKeyMaterialV1(): Promise<{
-    readonly handle: DeviceLinkingKeyMaterialHandleV1;
-    readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
-    readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
-  }>;
+  createBootstrapKeyMaterialV1(): Promise<DeviceLinkingKeyMaterialBundleV1>;
   signDeviceSessionRequestV1(input: {
     readonly handle: DeviceLinkingKeyMaterialHandleV1;
     readonly linkSessionId: LinkDeviceSessionId;
