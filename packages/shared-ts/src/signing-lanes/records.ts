@@ -1,4 +1,9 @@
-import type { DomainId, MpcMaterialActivationRef, WalletId } from '../utils/domainIds';
+import type {
+  DomainId,
+  MpcMaterialActivationRef,
+  WalletAuthMethodId,
+  WalletId,
+} from '../utils/domainIds';
 import type { KeyCreationSignerSlot } from '../passkey-custody/primitives';
 import type {
   Ed25519PublicKeyB64u,
@@ -10,13 +15,9 @@ import type {
   LaneParticipantBindingDigestB64u,
   SigningWorkerParticipantRecordV1,
 } from './participants';
-import type {
-  LaneShareEpoch,
-  LinkedDeviceId,
-  SigningLaneId,
-  WalletKeyId,
-} from './ids';
+import type { LaneShareEpoch, LinkedDeviceId, SigningLaneId, WalletKeyId } from './ids';
 import type { EvmFamilySigningKeySlotId } from './evmFamilySigningKeySlotId';
+import type { OwnerLaneParticipantContinuityV1 } from './ownerContinuity';
 
 export type WalletKeyVersion = DomainId<'WalletKeyVersion'>;
 
@@ -106,11 +107,7 @@ export type SigningLaneLifecycle =
       readonly state: 'revoked';
       readonly revocationEpoch: number;
       readonly revokedAtMs: number;
-      readonly revokeReason:
-        | 'user_revoked'
-        | 'device_compromise'
-        | 'agent_compromise'
-        | 'rotation';
+      readonly revokeReason: 'user_revoked' | 'device_compromise' | 'agent_compromise' | 'rotation';
     };
 
 export type ActiveSigningLaneReference = SigningLaneReference & {
@@ -119,12 +116,31 @@ export type ActiveSigningLaneReference = SigningLaneReference & {
 };
 
 type SigningLaneRecordBase = SigningLaneReference & {
-  readonly holderParticipant: LaneHolderParticipantRecordV1;
-  readonly serverParticipant: SigningWorkerParticipantRecordV1;
   readonly lifecycle: SigningLaneLifecycle;
 };
 
-export type OwnerPasskeySigningLaneRecord = SigningLaneRecordBase & {
+type OwnerAuthSigningLaneRecordBase = SigningLaneRecordBase & {
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly ownerParticipantContinuity: OwnerLaneParticipantContinuityV1;
+  readonly holderParticipant?: never;
+  readonly serverParticipant?: never;
+};
+
+type PrivilegedOwnerSigningLaneRecordBase = SigningLaneRecordBase & {
+  readonly ownerParticipantContinuity: OwnerLaneParticipantContinuityV1;
+  readonly walletAuthMethodId?: never;
+  readonly holderParticipant?: never;
+  readonly serverParticipant?: never;
+};
+
+type RotatableSigningLaneRecordBase = SigningLaneRecordBase & {
+  readonly holderParticipant: LaneHolderParticipantRecordV1;
+  readonly serverParticipant: SigningWorkerParticipantRecordV1;
+  readonly ownerParticipantContinuity?: never;
+  readonly walletAuthMethodId?: never;
+};
+
+export type OwnerPasskeySigningLaneRecord = OwnerAuthSigningLaneRecordBase & {
   readonly laneKind: 'owner_passkey';
   readonly linkedDeviceId?: never;
   readonly authorizationId?: never;
@@ -133,7 +149,7 @@ export type OwnerPasskeySigningLaneRecord = SigningLaneRecordBase & {
   readonly authorizationBindingDigestB64u?: never;
 };
 
-export type OwnerEmailOtpSigningLaneRecord = SigningLaneRecordBase & {
+export type OwnerEmailOtpSigningLaneRecord = OwnerAuthSigningLaneRecordBase & {
   readonly laneKind: 'owner_email_otp';
   readonly linkedDeviceId?: never;
   readonly authorizationId?: never;
@@ -142,7 +158,7 @@ export type OwnerEmailOtpSigningLaneRecord = SigningLaneRecordBase & {
   readonly authorizationBindingDigestB64u?: never;
 };
 
-export type LinkedDeviceSigningLaneRecord = SigningLaneRecordBase & {
+export type LinkedDeviceSigningLaneRecord = RotatableSigningLaneRecordBase & {
   readonly laneKind: 'linked_device';
   readonly linkedDeviceId: LinkedDeviceId;
   readonly authorizationId?: never;
@@ -155,7 +171,7 @@ export type DelegatedSpendAuthorizationId = DomainId<'DelegatedSpendAuthorizatio
 export type AgentIdentityKeyId = DomainId<'AgentIdentityKeyId'>;
 export type AgentCustodyBindingId = DomainId<'AgentCustodyBindingId'>;
 
-export type DelegatedExecutionSigningLaneRecord = SigningLaneRecordBase & {
+export type DelegatedExecutionSigningLaneRecord = RotatableSigningLaneRecordBase & {
   readonly laneKind: 'delegated_execution';
   readonly authorizationId: DelegatedSpendAuthorizationId;
   readonly agentIdentityKeyId: AgentIdentityKeyId;
@@ -164,7 +180,7 @@ export type DelegatedExecutionSigningLaneRecord = SigningLaneRecordBase & {
   readonly linkedDeviceId?: never;
 };
 
-export type RecoverySigningLaneRecord = SigningLaneRecordBase & {
+export type RecoverySigningLaneRecord = PrivilegedOwnerSigningLaneRecordBase & {
   readonly laneKind: 'recovery';
   readonly linkedDeviceId?: never;
   readonly authorizationId?: never;
@@ -173,7 +189,7 @@ export type RecoverySigningLaneRecord = SigningLaneRecordBase & {
   readonly authorizationBindingDigestB64u?: never;
 };
 
-export type BreakGlassSigningLaneRecord = SigningLaneRecordBase & {
+export type BreakGlassSigningLaneRecord = PrivilegedOwnerSigningLaneRecordBase & {
   readonly laneKind: 'break_glass';
   readonly linkedDeviceId?: never;
   readonly authorizationId?: never;

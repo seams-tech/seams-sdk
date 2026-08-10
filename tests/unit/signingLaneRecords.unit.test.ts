@@ -27,6 +27,8 @@ import {
 import { requireEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes/evmFamilySigningKeySlotId';
 import {
   parseMpcMaterialActivationRef,
+  parseMpcSigningWorkerRef,
+  parseWalletAuthMethodId,
   parseWalletId,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import {
@@ -35,6 +37,10 @@ import {
   parseSecp256k1CompressedPublicKeyB64u,
 } from '../../packages/shared-ts/src/passkey-custody/primitives';
 import { parseNearEd25519SigningKeyId } from '../../packages/shared-ts/src/utils/registrationIntent';
+import {
+  buildOwnerLaneParticipantContinuityV1,
+  parseWalletSignerId,
+} from '../../packages/shared-ts/src/signing-lanes/ownerContinuity';
 
 const DIGEST_B64U = Buffer.alloc(32, 7).toString('base64url');
 const HPKE_PUBLIC_KEY_B64U = Buffer.alloc(32, 8).toString('base64url');
@@ -57,6 +63,9 @@ const walletKeyId = resultValue(parseWalletKeyId('wallet-key:lane-records'));
 const laneId = resultValue(parseSigningLaneId('lane:owner'));
 const laneShareEpoch = resultValue(parseLaneShareEpoch('epoch:1'));
 const linkedDeviceId = resultValue(parseLinkedDeviceId('device:owner'));
+const walletAuthMethodId = resultValue(
+  parseWalletAuthMethodId('passkey:wallet.example.test:credential-owner'),
+);
 const participantBindingDigestB64u = resultValue(
   parseLaneParticipantBindingDigestB64u(DIGEST_B64U),
 );
@@ -88,6 +97,13 @@ const materialActivation = resultValue(
     signingWorker: 'signing-worker:owner',
   }),
 );
+const ownerParticipantContinuity = buildOwnerLaneParticipantContinuityV1({
+  signerId: parseWalletSignerId('signer:owner'),
+  participantIds: [1, 2],
+  signingWorkerId: resultValue(parseMpcSigningWorkerRef('signing-worker:owner')),
+  custodyKeyManifestDigestB64u: DIGEST_B64U,
+  sourceIdentityDigestB64u: DIGEST_B64U,
+});
 
 function activeLaneLifecycle() {
   return buildActiveSigningLaneLifecycle({
@@ -106,6 +122,18 @@ function laneBase() {
     participantBindingDigestB64u,
     holderParticipant,
     serverParticipant,
+    lifecycle: activeLaneLifecycle(),
+  } as const;
+}
+
+function ownerLaneBase() {
+  return {
+    walletId,
+    walletKeyId,
+    laneId,
+    laneShareEpoch,
+    participantBindingDigestB64u,
+    ownerParticipantContinuity,
     lifecycle: activeLaneLifecycle(),
   } as const;
 }
@@ -207,7 +235,7 @@ test.describe('R101 signing lane record boundaries', () => {
   });
 
   test('parses all lane branches and preserves exact participant/lifecycle bindings', () => {
-    const owner = buildOwnerPasskeySigningLaneRecord(laneBase());
+    const owner = buildOwnerPasskeySigningLaneRecord({ ...ownerLaneBase(), walletAuthMethodId });
     expect(parseSigningLaneRecord(owner)).toEqual(owner);
 
     const linked = buildLinkedDeviceSigningLaneRecord({
@@ -233,16 +261,28 @@ test.describe('R101 signing lane record boundaries', () => {
     expect(parseSigningLaneRecord({ ...owner, laneKind: 'owner_email_otp' })).toMatchObject({
       laneKind: 'owner_email_otp',
     });
-    expect(parseSigningLaneRecord({ ...owner, laneKind: 'recovery' })).toMatchObject({
+    expect(
+      parseSigningLaneRecord({
+        ...ownerLaneBase(),
+        kind: 'signing_lane_reference_v1',
+        laneKind: 'recovery',
+      }),
+    ).toMatchObject({
       laneKind: 'recovery',
     });
-    expect(parseSigningLaneRecord({ ...owner, laneKind: 'break_glass' })).toMatchObject({
+    expect(
+      parseSigningLaneRecord({
+        ...ownerLaneBase(),
+        kind: 'signing_lane_reference_v1',
+        laneKind: 'break_glass',
+      }),
+    ).toMatchObject({
       laneKind: 'break_glass',
     });
   });
 
   test('rejects lane branch mixing and lifecycle states before exposing an active reference', () => {
-    const owner = buildOwnerPasskeySigningLaneRecord(laneBase());
+    const owner = buildOwnerPasskeySigningLaneRecord({ ...ownerLaneBase(), walletAuthMethodId });
     expect(() =>
       parseSigningLaneRecord({ ...owner, authorizationId: 'authorization:wrong-branch' }),
     ).toThrow(/authorizationId/);

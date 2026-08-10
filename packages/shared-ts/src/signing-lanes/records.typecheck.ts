@@ -17,7 +17,12 @@ import type {
   SigningWorkerParticipantRecordV1,
 } from './participants';
 import type { LaneShareEpoch, LinkedDeviceId, SigningLaneId, WalletKeyId } from './ids';
-import type { DomainId, MpcMaterialActivationRef, WalletId } from '../utils/domainIds';
+import type {
+  DomainId,
+  MpcMaterialActivationRef,
+  WalletAuthMethodId,
+  WalletId,
+} from '../utils/domainIds';
 import type {
   Ed25519PublicKeyB64u,
   KeyCreationSignerSlot,
@@ -40,6 +45,7 @@ import {
   buildRecoverySigningLaneRecord,
   buildRetiredWalletKeyLifecycle,
 } from './recordParsers';
+import type { OwnerLaneParticipantContinuityV1 } from './ownerContinuity';
 
 declare const walletId: WalletId;
 declare const walletKeyId: WalletKeyId;
@@ -49,6 +55,8 @@ declare const laneShareEpoch: LaneShareEpoch;
 declare const participantBindingDigestB64u: LaneParticipantBindingDigestB64u;
 declare const holderParticipant: LaneHolderParticipantRecordV1;
 declare const serverParticipant: SigningWorkerParticipantRecordV1;
+declare const ownerParticipantContinuity: OwnerLaneParticipantContinuityV1;
+declare const walletAuthMethodId: WalletAuthMethodId;
 declare const materialActivation: MpcMaterialActivationRef;
 declare const nearEd25519SigningKeyId: NearEd25519SigningKeyId;
 declare const keyCreationSignerSlot: KeyCreationSignerSlot;
@@ -99,21 +107,33 @@ const ownerBase = {
   laneId,
   laneShareEpoch,
   participantBindingDigestB64u,
+  ownerParticipantContinuity,
+  lifecycle: activeLaneLifecycle,
+} as const;
+
+const ownerAuthBase = { ...ownerBase, walletAuthMethodId } as const;
+
+const rotatableBase = {
+  walletId,
+  walletKeyId,
+  laneId,
+  laneShareEpoch,
+  participantBindingDigestB64u,
   holderParticipant,
   serverParticipant,
   lifecycle: activeLaneLifecycle,
 } as const;
 
 const ownerPasskeyLane: OwnerPasskeySigningLaneRecord =
-  buildOwnerPasskeySigningLaneRecord(ownerBase);
-const ownerEmailOtpLane = buildOwnerEmailOtpSigningLaneRecord(ownerBase);
+  buildOwnerPasskeySigningLaneRecord(ownerAuthBase);
+const ownerEmailOtpLane = buildOwnerEmailOtpSigningLaneRecord(ownerAuthBase);
 const linkedDeviceLane: LinkedDeviceSigningLaneRecord = buildLinkedDeviceSigningLaneRecord({
-  ...ownerBase,
+  ...rotatableBase,
   linkedDeviceId,
 });
 const delegatedLane: DelegatedExecutionSigningLaneRecord = buildDelegatedExecutionSigningLaneRecord(
   {
-    ...ownerBase,
+    ...rotatableBase,
     authorizationId,
     agentIdentityKeyId,
     custodyBindingId,
