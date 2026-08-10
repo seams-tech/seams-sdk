@@ -22,15 +22,22 @@ import type {
   LinkedDeviceSessionServiceResultV1,
   LinkedDeviceSessionServiceV1,
 } from '../../../../core/deviceLinking/linkedDeviceSession';
+import {
+  computeLinkedDevicePublicKeyDigestV1,
+  LINKED_DEVICE_REQUEST_PROOF_HEADER_V1,
+  LINKED_DEVICE_REQUEST_PROOF_MAX_TTL_MS_V1,
+  parseLinkedDeviceRequestProofV1,
+  type LinkedDeviceRequestProofV1,
+} from '../../../../core/deviceLinking/requestProof';
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import { json, readJson } from '../../../framework/http';
 
 const DEVICE_LINKING_BASE = '/wallet/device-linking/v1/sessions';
-export const DEVICE_LINKING_REQUEST_PROOF_HEADER_V1 = 'x-seams-linked-device-proof-v1';
+export const DEVICE_LINKING_REQUEST_PROOF_HEADER_V1 = LINKED_DEVICE_REQUEST_PROOF_HEADER_V1;
 
-type DeviceLinkingAuthDeniedV1 = {
+export type DeviceLinkingAuthDeniedV1 = {
   readonly kind: 'denied';
-  readonly code: 'unauthorized' | 'expired' | 'invalid';
+  readonly code: 'unauthorized' | 'expired' | 'invalid' | 'replayed';
   readonly message: string;
 };
 
@@ -50,19 +57,17 @@ export type DeviceLinkingRequestBindingV1 = {
   readonly expiresAtMs: number;
 };
 
-/** Signed Device2 proof. The verifier must reject a nonce replay durably. */
-export type DeviceLinkingRequestProofV1 = {
-  readonly kind: 'linked_device_request_proof_v1';
-  readonly linkSessionId: LinkDeviceSessionId;
-  readonly devicePublicKeyDigestB64u: DigestB64u;
-  readonly requestNonceB64u: string;
-  readonly method: 'GET' | 'POST';
-  readonly canonicalPath: string;
+export type DeviceLinkingOwnerRequestInputV1 = {
+  readonly request: Request;
+  readonly method: string;
+  readonly pathname: string;
+  /** SHA-256 of the exact request body bytes, computed before authentication. */
   readonly bodyDigestB64u: DigestB64u;
-  readonly issuedAtMs: number;
-  readonly expiresAtMs: number;
-  readonly signatureB64u: string;
+  readonly requestedAtMs: number;
 };
+
+/** Signed Device2 proof. The verifier must reject a nonce replay durably. */
+export type DeviceLinkingRequestProofV1 = LinkedDeviceRequestProofV1;
 
 export type DeviceLinkingDeviceAuthenticatedRequestV1 = {
   readonly kind: 'authorized';
@@ -107,14 +112,7 @@ export type DeviceLinkingRouteServiceV1 = {
     readonly devicePublicKeyDigestB64u: DigestB64u;
     readonly requestedAtMs: number;
   }): Promise<{ readonly kind: 'authorized' } | DeviceLinkingAuthDeniedV1>;
-  authenticateOwnerRequestV1(input: {
-    readonly request: Request;
-    readonly method: string;
-    readonly pathname: string;
-    /** SHA-256 of the exact request body bytes, computed before authentication. */
-    readonly bodyDigestB64u: DigestB64u;
-    readonly requestedAtMs: number;
-  }): Promise<DeviceLinkingAuthenticatedRequestV1 | DeviceLinkingAuthDeniedV1>;
+  authenticateOwnerRequestV1(input: DeviceLinkingOwnerRequestInputV1): Promise<DeviceLinkingAuthenticatedRequestV1 | DeviceLinkingAuthDeniedV1>;
   authenticateDeviceRequestV1(input: {
     readonly request: Request;
     readonly method: string;
@@ -122,6 +120,7 @@ export type DeviceLinkingRouteServiceV1 = {
     readonly linkSessionId: string;
     /** SHA-256 of the exact request body bytes, computed before authentication. */
     readonly bodyDigestB64u: DigestB64u;
+    readonly expectedDevicePublicKeyB64u: string;
     readonly expectedDevicePublicKeyDigestB64u: DigestB64u;
     readonly proof: DeviceLinkingRequestProofV1;
     readonly requestedAtMs: number;
@@ -409,6 +408,7 @@ async function authenticateDeviceForSession(
     pathname: ctx.pathname,
     linkSessionId: String(linkSessionId),
     bodyDigestB64u,
+    expectedDevicePublicKeyB64u: session.qrPayload.devicePublicKeyB64u,
     expectedDevicePublicKeyDigestB64u: devicePublicKeyDigestB64u,
     proof: requestProof,
     requestedAtMs: nowMs,
@@ -573,50 +573,11 @@ function parseRequestProofHeader(request: Request): DeviceLinkingRequestProofV1 
   } catch {
     throw new Error('device-linking request proof is not valid JSON');
   }
-  const record = requireRecord(raw, 'device-linking request proof');
-  requireExactKeys(record, [
-    'kind',
-    'linkSessionId',
-    'devicePublicKeyDigestB64u',
-    'requestNonceB64u',
-    'method',
-    'canonicalPath',
-    'bodyDigestB64u',
-    'issuedAtMs',
-    'expiresAtMs',
-    'signatureB64u',
-  ]);
-  if (record.kind !== 'linked_device_request_proof_v1') {
-    throw new Error('device-linking request proof kind is invalid');
+  try {
+    return parseLinkedDeviceRequestProofV1(raw);
+  } catch (error: unknown) {
+    throw new Error(errorMessage(error));
   }
-  const linkSessionId = parseSessionId(requireString(record.linkSessionId, 'request proof linkSessionId'));
-  const method = requireMethod(record.method);
-  const canonicalPath = requireCanonicalPath(record.canonicalPath);
-  const requestNonceB64u = parseFixedB64u(
-    record.requestNonceB64u,
-    32,
-    'request proof nonce',
-  );
-  const devicePublicKeyDigestB64u = parseDigestField(
-    record.devicePublicKeyDigestB64u,
-    'request proof device public-key digest',
-  );
-  const bodyDigestB64u = parseDigestField(record.bodyDigestB64u, 'request proof body digest');
-  const issuedAtMs = requireSafeTimestamp(record.issuedAtMs, 'request proof issuedAtMs');
-  const expiresAtMs = requireSafeTimestamp(record.expiresAtMs, 'request proof expiresAtMs');
-  const signatureB64u = parseB64u(requireString(record.signatureB64u, 'request proof signature'), 'request proof signature');
-  return {
-    kind: 'linked_device_request_proof_v1',
-    linkSessionId,
-    devicePublicKeyDigestB64u,
-    requestNonceB64u,
-    method,
-    canonicalPath,
-    bodyDigestB64u,
-    issuedAtMs,
-    expiresAtMs,
-    signatureB64u,
-  };
 }
 
 function validateRequestProof(
@@ -628,8 +589,10 @@ function validateRequestProof(
   devicePublicKeyDigestB64u: DigestB64u,
   nowMs: number,
 ): void {
-  if (proof.kind !== 'linked_device_request_proof_v1') {
-    throw new DeviceLinkingInputError('request proof kind is invalid');
+  try {
+    parseLinkedDeviceRequestProofV1(proof);
+  } catch (error: unknown) {
+    throw new DeviceLinkingInputError(errorMessage(error));
   }
   if (
     proof.method !== method ||
@@ -638,20 +601,19 @@ function validateRequestProof(
   ) {
     throw new DeviceLinkingInputError('request proof does not match method, path, or session');
   }
-  parseFixedB64u(proof.requestNonceB64u, 32, 'request proof nonce');
-  parseDigestField(proof.devicePublicKeyDigestB64u, 'request proof device public-key digest');
-  parseDigestField(proof.bodyDigestB64u, 'request proof body digest');
-  parseB64u(proof.signatureB64u, 'request proof signature');
   if (proof.bodyDigestB64u !== bodyDigestB64u) {
     throw new DeviceLinkingInputError('request body digest does not match authenticated bytes');
   }
   if (proof.devicePublicKeyDigestB64u !== devicePublicKeyDigestB64u) {
     throw new DeviceLinkingInputError('request proof device identity does not match QR session');
   }
-  const issuedAtMs = requireSafeTimestamp(proof.issuedAtMs, 'request proof issuedAtMs');
-  const expiresAtMs = requireSafeTimestamp(proof.expiresAtMs, 'request proof expiresAtMs');
+  const issuedAtMs = proof.issuedAtMs;
+  const expiresAtMs = proof.expiresAtMs;
   if (expiresAtMs <= nowMs || issuedAtMs > nowMs || expiresAtMs <= issuedAtMs) {
     throw new DeviceLinkingInputError('request proof is expired');
+  }
+  if (expiresAtMs - issuedAtMs > LINKED_DEVICE_REQUEST_PROOF_MAX_TTL_MS_V1) {
+    throw new DeviceLinkingInputError('request proof lifetime exceeds the maximum');
   }
 }
 
@@ -682,58 +644,25 @@ async function requestBodyDigest(request: Request): Promise<DigestB64u> {
 }
 
 async function computeDevicePublicKeyDigestB64u(publicKeyB64u: string): Promise<DigestB64u> {
-  const publicKeyBytes = base64UrlDecode(publicKeyB64u);
-  if (publicKeyBytes.length === 0 || base64UrlEncode(publicKeyBytes) !== publicKeyB64u) {
-    throw new DeviceLinkingInputError('QR device public key is not canonical base64url');
+  try {
+    return await computeLinkedDevicePublicKeyDigestV1(publicKeyB64u);
+  } catch (error: unknown) {
+    throw new DeviceLinkingInputError(errorMessage(error));
   }
-  return parseDigestB64u(base64UrlEncode(await sha256Bytes(publicKeyBytes)));
 }
 
 function requireRecord(raw: unknown, field: string): Record<string, unknown> {
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(`${field} must be an object`);
-  return raw as Record<string, unknown>;
-}
-
-function requireString(raw: unknown, field: string): string {
-  if (typeof raw !== 'string' || raw.length === 0 || raw.trim() !== raw) {
-    throw new Error(`${field} must be a non-empty canonical string`);
-  }
+  if (!isRecord(raw)) throw new Error(`${field} must be an object`);
   return raw;
 }
 
-function requireMethod(raw: unknown): 'GET' | 'POST' {
-  if (raw !== 'GET' && raw !== 'POST') throw new Error('request proof method is invalid');
-  return raw;
-}
-
-function requireCanonicalPath(raw: unknown): string {
-  const pathname = requireString(raw, 'request proof canonicalPath');
-  if (!pathname.startsWith('/')) throw new Error('request proof canonicalPath is invalid');
-  return pathname;
-}
-
-function parseDigestField(raw: unknown, field: string): DigestB64u {
-  try {
-    return parseDigestB64u(raw);
-  } catch {
-    throw new Error(`${field} is invalid`);
-  }
-}
-
-function parseFixedB64u(raw: unknown, length: number, field: string): string {
-  const value = parseB64u(requireString(raw, field), field);
-  if (base64UrlDecode(value).length !== length) throw new Error(`${field} has invalid length`);
-  return value;
+function isRecord(raw: unknown): raw is Record<string, unknown> {
+  return raw !== null && typeof raw === 'object' && !Array.isArray(raw);
 }
 
 function parseB64uBytes(raw: unknown, field: string): Uint8Array {
   const value = parseB64u(raw, field);
   return base64UrlDecode(value);
-}
-
-function requireSafeTimestamp(raw: unknown, field: string): number {
-  if (!Number.isSafeInteger(raw) || Number(raw) <= 0) throw new Error(`${field} is invalid`);
-  return Number(raw);
 }
 
 function requireExactKeys(record: Record<string, unknown>, expected: readonly string[]): void {
