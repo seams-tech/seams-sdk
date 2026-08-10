@@ -370,6 +370,7 @@ export function buildR102ServerActivationReceipt(
     targetMaterialActivation: buildR102MaterialActivation(
       String(job.targetMaterialActivationId),
       String(job.targetMaterialActivationId),
+      String(job.targetSigningWorker.participantId),
     ),
     signingWorkerParticipantBindingDigestB64u: job.targetSigningWorker.participantBindingDigestB64u,
     serverCiphertextDigestSetB64u: DIGEST_B64U,
@@ -378,7 +379,11 @@ export function buildR102ServerActivationReceipt(
   });
 }
 
-function buildR102MaterialActivation(suffix: string, activationIdValue?: string) {
+function buildR102MaterialActivation(
+  suffix: string,
+  activationIdValue?: string,
+  signingWorkerValue?: string,
+) {
   const activationId = requiredId(
     parseMpcMaterialActivationId,
     activationIdValue ?? `activation-r102-${suffix}`,
@@ -390,7 +395,10 @@ function buildR102MaterialActivation(suffix: string, activationIdValue?: string)
     parseMpcLifecycleBindingRef,
     `lifecycle-binding-r102-${suffix}`,
   );
-  const signingWorker = requiredId(parseMpcSigningWorkerRef, `worker-r102-${suffix}`);
+  const signingWorker = requiredId(
+    parseMpcSigningWorkerRef,
+    signingWorkerValue ?? `worker-r102-${suffix}`,
+  );
   return buildMpcMaterialActivationRef({
     activationId,
     capability,
