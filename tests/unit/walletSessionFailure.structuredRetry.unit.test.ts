@@ -5,6 +5,7 @@ import {
   classifyEvmFamilyFreshAuthRetry,
   type EvmFamilyFreshAuthRetryDecision,
 } from '@/core/signingEngine/flows/signEvmFamily/freshAuthRetryPolicy';
+import { resolveEvmFamilyWalletSessionExpiryContext } from '@/core/signingEngine/flows/signEvmFamily/freshWalletSessionRetry';
 import {
   WalletSessionFailureError,
   walletSessionFailureErrorFromPayload,
@@ -41,6 +42,7 @@ test('Refactor 92 retries an authoritative EVM-family expiry once', () => {
     },
     message: 'authoritative expiry',
   });
+  expect(failure.code).toBe(WALLET_SESSION_FAILURE_CODES.expired);
   expect(classifyWalletSessionRetry(failure)).toEqual({
     kind: 'retry',
     trigger: 'wallet_session_reauthorization_required',
@@ -53,6 +55,24 @@ test('Refactor 92 retries an authoritative EVM-family expiry once', () => {
     sideEffectState: 'no_auth_side_effect_started',
     blockedReason: 'already_retrying',
   });
+});
+
+test('Refactor 92 preserves an authoritative expiry when no exact ECDSA lane is available', () => {
+  const failure = new WalletSessionFailureError({
+    failure: {
+      kind: 'expired',
+      code: WALLET_SESSION_FAILURE_CODES.expired,
+    },
+    message: 'Signing session expired. Sign in again to continue.',
+  });
+
+  expect(
+    resolveEvmFamilyWalletSessionExpiryContext({
+      error: failure,
+      candidate: { kind: 'unavailable' },
+      detectedAtMs: 1_000,
+    }),
+  ).toEqual({ kind: 'expired_without_exact_lane' });
 });
 
 for (const code of [
