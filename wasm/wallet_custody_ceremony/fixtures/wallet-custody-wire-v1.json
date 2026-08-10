@@ -90,6 +90,7 @@
     },
     "keyManifestDigestB64u": "UWh4QLklmBymCOJEmEC0RyMGhmaqohTdITzNPPRaGpM",
     "keySet": "evm_family_ecdsa_v1",
+    "recoveryReplacementEnvelope": null,
     "registeredPublicKeyB64u": null,
     "walletId": "alice.testnet"
   },
@@ -159,6 +160,7 @@
     "establishedCustody": null,
     "keyManifestDigestB64u": "AzggIw_gMdb9rPSlR3e1gXM4Oc6Y2RPqzppeoKFMeIw",
     "keySet": "near_ed25519_v1",
+    "recoveryReplacementEnvelope": null,
     "registeredPublicKeyB64u": "Ly8vLy8vLy8vLy8vLy8vLy8vLy8vLy8vLy8vLy8vLy8",
     "walletId": "alice.testnet"
   },
