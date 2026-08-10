@@ -753,7 +753,6 @@ export function isEmailOtpWalletRegistrationFinalizeResponse(
 }
 
 export type WalletRegistrationEmailOtpEnrollmentMaterial = {
-  recoveryWrappedEnrollmentEscrows: unknown[];
   enrollmentSealKeyVersion: string;
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;

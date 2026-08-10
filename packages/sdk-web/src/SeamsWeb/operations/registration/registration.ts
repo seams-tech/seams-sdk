@@ -921,20 +921,12 @@ function googleEmailOtpRegistrationMaterialToBackupEnrollment(input: {
   material: EmailOtpRegistrationEnrollmentMaterial;
   registrationAuthorityId: string;
 }): GoogleEmailOtpRegistrationBackupEnrollmentInput {
-  const recoveryEscrow =
-    input.material.emailOtpEnrollment.recoveryWrappedEnrollmentEscrows[0] &&
-    typeof input.material.emailOtpEnrollment.recoveryWrappedEnrollmentEscrows[0] === 'object'
-      ? (input.material.emailOtpEnrollment.recoveryWrappedEnrollmentEscrows[0] as Record<
-          string,
-          unknown
-        >)
-      : {};
   return {
     recoveryKeys: input.material.recoveryKeys,
     recoveryCodesIssuedAtMs: input.material.recoveryCodesIssuedAtMs,
     registrationAuthorityId: input.registrationAuthorityId,
     otpChannel: EMAIL_OTP_CHANNEL,
-    enrollmentId: String(recoveryEscrow.enrollmentId || '').trim(),
+    enrollmentId: input.material.enrollmentId,
     enrollmentSealKeyVersion: input.material.emailOtpEnrollment.enrollmentSealKeyVersion,
     clientUnlockPublicKeyB64u: input.material.emailOtpEnrollment.clientUnlockPublicKeyB64u,
     unlockKeyVersion: input.material.emailOtpEnrollment.unlockKeyVersion,

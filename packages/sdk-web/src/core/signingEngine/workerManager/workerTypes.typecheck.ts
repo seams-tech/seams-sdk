@@ -289,10 +289,6 @@ type EmailOtpEd25519YaoWalletUnlockMaterial = Extract<
   EmailOtpWalletUnlockPayload['material'],
   { kind: 'ed25519_yao_recovery' }
 >;
-type EmailOtpDeviceEnrollmentRestoreResult =
-  EmailOtpWorkerOperationMap['restoreEmailOtpDeviceEnrollmentEscrow']['result'];
-type EmailOtpRecoveryCodeRotationResult =
-  EmailOtpWorkerOperationMap['rotateEmailOtpRecoveryCodes']['result'];
 
 const emailOtpEcdsaWarmMaterialTarget: EmailOtpWorkerOperationMap['getEmailOtpWarmSessionStatus']['payload'] =
   {
@@ -536,49 +532,6 @@ const emailOtpWalletUnlockPayloadWithoutRuntimeScope = {
 };
 // @ts-expect-error Email OTP wallet unlock must carry one exact material branch.
 emailOtpWalletUnlockPayloadWithoutRuntimeScope satisfies EmailOtpWalletUnlockPayload;
-
-const emailOtpDeviceEnrollmentRestoreResult: EmailOtpDeviceEnrollmentRestoreResult = {
-  walletId: 'wallet.testnet',
-  userId: 'wallet.testnet',
-  authSubjectId: 'google:subject',
-  enrollmentId: 'enrollment',
-  enrollmentVersion: 'v1',
-  enrollmentSealKeyVersion: 'seal-v1',
-  recoveryKeyId: 'recovery-key',
-  activeRecoveryWrappedEnrollmentEscrowCount: 1,
-};
-void emailOtpDeviceEnrollmentRestoreResult;
-
-const emailOtpDeviceEnrollmentRestoreResultWithSigningRoot = {
-  ...emailOtpDeviceEnrollmentRestoreResult,
-  // @ts-expect-error Email OTP enrollment restore result keeps signing-root binding internal.
-  signingRootId: 'signing-root',
-} satisfies EmailOtpDeviceEnrollmentRestoreResult;
-void emailOtpDeviceEnrollmentRestoreResultWithSigningRoot;
-
-declare const recoveryKeys: EmailOtpRecoveryCodeRotationResult['recoveryKeys'];
-
-const emailOtpRecoveryCodeRotationResult: EmailOtpRecoveryCodeRotationResult = {
-  walletId: 'wallet.testnet',
-  userId: 'wallet.testnet',
-  authSubjectId: 'google:subject',
-  enrollmentId: 'enrollment',
-  enrollmentVersion: 'v1',
-  enrollmentSealKeyVersion: 'seal-v1',
-  recoveryKeys,
-  recoveryCodesIssuedAtMs: 1_900_000_000_000,
-  activeRecoveryCodeCount: 8,
-  revokedRecoveryCodeCount: 1,
-  totalRecoveryCodeCount: 9,
-};
-void emailOtpRecoveryCodeRotationResult;
-
-const emailOtpRecoveryCodeRotationResultWithSigningRoot = {
-  ...emailOtpRecoveryCodeRotationResult,
-  // @ts-expect-error Email OTP recovery-code rotation result keeps signing-root binding internal.
-  signingRootVersion: 'root-v1',
-} satisfies EmailOtpRecoveryCodeRotationResult;
-void emailOtpRecoveryCodeRotationResultWithSigningRoot;
 
 const emailOtpEd25519YaoExportPayload: EmailOtpEd25519YaoExportPayload = {
   relayUrl: 'https://relay.example',

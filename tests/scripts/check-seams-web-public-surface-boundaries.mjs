@@ -34,8 +34,6 @@ const authMethods = [
 
 const registrationMethods = ['requestEmailOtpEnrollmentChallenge', 'enrollEmailOtp'];
 
-const recoveryMethods = ['getEmailOtpRecoveryCodeStatus', 'rotateEmailOtpRecoveryCodes'];
-
 const deviceMethodFragments = [
   'startDevice2LinkingFlow',
   'stopDevice2LinkingFlow',
@@ -268,12 +266,6 @@ function collectEmailOtpNamespaceViolations() {
     /export interface RegistrationCapability\s*{[\s\S]*?^}/m,
     'RegistrationCapability',
   );
-  const recoveryCapabilityBlock = sourceBlock(
-    interfacesSource,
-    /export interface RecoveryCapability\s*{[\s\S]*?^}/m,
-    'RecoveryCapability',
-  );
-
   for (const methodName of authMethods) {
     if (!authCapabilityBlock.includes(methodName)) {
       violations.push(`AuthCapability missing Email OTP method ${methodName}`);
@@ -284,12 +276,7 @@ function collectEmailOtpNamespaceViolations() {
       violations.push(`RegistrationCapability missing Email OTP method ${methodName}`);
     }
   }
-  for (const methodName of recoveryMethods) {
-    if (!recoveryCapabilityBlock.includes(methodName)) {
-      violations.push(`RecoveryCapability missing Email OTP method ${methodName}`);
-    }
-  }
-  for (const methodName of [...authMethods, ...registrationMethods, ...recoveryMethods]) {
+  for (const methodName of [...authMethods, ...registrationMethods]) {
     if (new RegExp(`^\\s*async\\s+${methodName}\\s*\\(`, 'm').test(seamsWebSource)) {
       violations.push(`SeamsWeb exposes top-level Email OTP method ${methodName}`);
     }

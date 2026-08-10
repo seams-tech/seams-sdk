@@ -1,4 +1,3 @@
-import { joinNormalizedUrl } from '@shared/utils/normalize';
 import type { EmailOtpRecoveryCodeSet } from '@shared/utils/emailOtpRecoveryKey';
 import type {
   EmailOtpBackedUpEnrollmentResult,
@@ -10,14 +9,6 @@ import {
   type EmailOtpRecoveryCodeBackupStorageScope,
   emailOtpRecoveryCodeBackupRepository,
 } from '@/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups';
-import type { EmailOtpRecoveryCodeStatus } from './challenge';
-import type { EmailOtpRecoveryCodeRotationMaterial } from '@/core/signingEngine/session/emailOtp/publicTypes';
-import {
-  postJson,
-  readString,
-  type FetchLike,
-} from './challenge';
-
 export type EmailOtpRecoveryCodeBackupUiInput = {
   walletId: string;
   enrollmentId: string;
@@ -299,76 +290,5 @@ export async function backupEmailOtpRecoveryCodes(input: {
       walletId: input.walletId,
       storedAtMs: stored.createdAtMs,
     },
-  };
-}
-
-export async function storeRotatedEmailOtpRecoveryCodes(input: {
-  walletId: string;
-  rotation: EmailOtpRecoveryCodeRotationMaterial;
-  storageScope?: EmailOtpRecoveryCodeBackupStorageScope;
-}): Promise<EmailOtpRecoveryCodeBackupStatus> {
-  const storageScope = input.storageScope || 'host_origin_indexeddb';
-  const stored = await emailOtpRecoveryCodeBackupRepository.write({
-    storageScope,
-    walletId: input.walletId,
-    enrollmentId: input.rotation.enrollmentId,
-    enrollmentSealKeyVersion: input.rotation.enrollmentSealKeyVersion,
-    recoveryCodesIssuedAtMs: input.rotation.recoveryCodesIssuedAtMs,
-    recoveryKeys: input.rotation.recoveryKeys,
-  });
-  return {
-    status: 'active',
-    walletId: input.walletId,
-    enrollmentId: input.rotation.enrollmentId,
-    recoveryCodeCount: input.rotation.recoveryKeys.length,
-    issuedAtMs: input.rotation.recoveryCodesIssuedAtMs,
-    storedAtMs: stored.createdAtMs,
-    activeRecoveryCodeCountAtBackup: input.rotation.activeRecoveryCodeCount,
-  };
-}
-
-function parseNullableNumber(value: unknown): number | null {
-  if (value === null || value === undefined) return null;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) return null;
-  return Math.floor(parsed);
-}
-
-export async function getEmailOtpRecoveryCodeStatus(args: {
-  relayUrl: string;
-  walletId: string;
-  appSessionJwt?: string;
-  fetchImpl?: FetchLike;
-}): Promise<EmailOtpRecoveryCodeStatus> {
-  const response = await postJson({
-    url: joinNormalizedUrl(args.relayUrl, '/wallet/email-otp/recovery-key/status'),
-    appSessionJwt: args.appSessionJwt,
-    fetchImpl: args.fetchImpl,
-    body: {
-      walletId: readString(args.walletId, 'walletId'),
-    },
-  });
-  const status = readString(response.status, 'recovery-code status');
-  if (
-    status !== 'ready' &&
-    status !== 'incomplete' &&
-    status !== 'not_enrolled'
-  ) {
-    throw new Error('Unexpected Email OTP recovery-code status');
-  }
-  return {
-    status,
-    walletId: readString(response.walletId, 'recovery-code status walletId'),
-    enrollmentId: readString(response.enrollmentId, 'recovery-code status enrollmentId'),
-    enrollmentSealKeyVersion: readString(
-      response.enrollmentSealKeyVersion,
-      'recovery-code status enrollmentSealKeyVersion',
-    ),
-    expectedRecoveryCodeCount: Math.floor(Number(response.expectedRecoveryCodeCount)),
-    activeRecoveryCodeCount: Math.floor(Number(response.activeRecoveryCodeCount)),
-    consumedRecoveryCodeCount: Math.floor(Number(response.consumedRecoveryCodeCount)),
-    revokedRecoveryCodeCount: Math.floor(Number(response.revokedRecoveryCodeCount)),
-    totalRecoveryCodeCount: Math.floor(Number(response.totalRecoveryCodeCount)),
-    issuedAtMs: parseNullableNumber(response.issuedAtMs),
   };
 }

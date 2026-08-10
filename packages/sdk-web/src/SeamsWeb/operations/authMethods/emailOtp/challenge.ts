@@ -21,8 +21,6 @@ import type {
   EmailOtpChallengeDelivery,
   EmailOtpEnrollmentResult,
   EmailOtpRecoveryCodeBackupStatus,
-  EmailOtpRecoveryCodeLifecycleStatus,
-  EmailOtpRecoveryCodeStatus,
   GoogleEmailOtpSessionExchangeResult,
 } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import {
@@ -40,9 +38,7 @@ export type FetchLike = typeof fetch;
 export type {
   EmailOtpEnrollmentResult,
   EmailOtpRecoveryCodeBackupStatus,
-  EmailOtpRecoveryCodeLifecycleStatus,
   EmailOtpRecoveryCodeSet,
-  EmailOtpRecoveryCodeStatus,
   GoogleEmailOtpSessionExchangeResult,
   WalletEmailOtpChannel,
 };
