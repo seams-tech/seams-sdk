@@ -2,6 +2,10 @@ import { expect, test } from '@playwright/test';
 import { buildLinkedDeviceSigningLaneRecord } from '../../packages/shared-ts/src/signing-lanes/recordParsers';
 import { parseLinkedDeviceId } from '../../packages/shared-ts/src/signing-lanes/ids';
 import {
+  parseLaneHolderParticipantRecordV1,
+  parseSigningWorkerParticipantRecordV1,
+} from '../../packages/shared-ts/src/signing-lanes/participants';
+import {
   admitAndDispatchOwnerWalletExecution,
   prepareOwnerWalletExecution,
 } from '../../packages/sdk-server-ts/src/router/domains/signingOperations/walletExecutionAdmission';
@@ -34,14 +38,31 @@ test.describe('R101 wallet execution admission', () => {
     const evidence = await buildOwnerWalletExecutionEvidenceFixture();
     const linkedDeviceId = parseLinkedDeviceId('linked-device:wallet-authorization');
     if (!linkedDeviceId.ok) throw new Error(linkedDeviceId.error.message);
+    const participantDigestB64u = Buffer.alloc(32, 11).toString('base64url');
+    const hpkePublicKeyB64u = Buffer.alloc(32, 12).toString('base64url');
     const linkedLane = buildLinkedDeviceSigningLaneRecord({
       walletId: evidence.lane.walletId,
       walletKeyId: evidence.lane.walletKeyId,
       laneId: evidence.lane.laneId,
       laneShareEpoch: evidence.lane.laneShareEpoch,
       participantBindingDigestB64u: evidence.lane.participantBindingDigestB64u,
-      holderParticipant: evidence.lane.holderParticipant,
-      serverParticipant: evidence.lane.serverParticipant,
+      holderParticipant: parseLaneHolderParticipantRecordV1({
+        kind: 'lane_holder_participant_v1',
+        participantId: 'linked-holder:wallet-authorization',
+        custodyBindingId: 'linked-custody:wallet-authorization',
+        custodyBindingDigestB64u: participantDigestB64u,
+        hpkePublicKeyB64u,
+        hpkePublicKeyDigestB64u: participantDigestB64u,
+        participantBindingDigestB64u: participantDigestB64u,
+      }),
+      serverParticipant: parseSigningWorkerParticipantRecordV1({
+        kind: 'signing_worker_participant_v1',
+        participantId: 'linked-worker:wallet-authorization',
+        recipientKeyId: 'linked-recipient:wallet-authorization',
+        hpkePublicKeyB64u,
+        hpkePublicKeyDigestB64u: participantDigestB64u,
+        participantBindingDigestB64u: participantDigestB64u,
+      }),
       lifecycle: evidence.lane.lifecycle,
       linkedDeviceId: linkedDeviceId.value,
     });

@@ -7,25 +7,17 @@ import {
   parseWalletKeyId,
 } from '../../../packages/shared-ts/src/signing-lanes/ids';
 import {
-  buildLaneHolderCustodyIdentityV1,
-  buildSigningWorkerRecipientIdentityV1,
-  parseHpkePublicKeyB64u,
-  parseLaneCustodyBindingDigestB64u,
-  parseLaneHolderCustodyBindingId,
-  parseLaneHolderParticipantId,
-  parseSigningWorkerParticipantId,
-  parseSigningWorkerRecipientKeyDigestB64u,
-  parseSigningWorkerRecipientKeyId,
-} from '../../../packages/shared-ts/src/signing-lanes/participants';
-import {
-  buildLaneHolderParticipantRecordWithDigestV1,
-  buildSigningWorkerParticipantRecordWithDigestV1,
-} from '../../../packages/shared-ts/src/signing-lanes/participantDigest';
+  buildOwnerLaneParticipantContinuityV1,
+  computeOwnerLaneParticipantBindingDigestV1,
+  parseWalletSignerId,
+} from '../../../packages/shared-ts/src/signing-lanes/ownerContinuity';
 import { parseSecp256k1CompressedPublicKeyB64u } from '../../../packages/shared-ts/src/passkey-custody/primitives';
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
 import {
   parseMpcMaterialActivationRef,
+  parseMpcSigningWorkerRef,
+  parseWalletAuthMethodId,
   parseWalletId,
 } from '../../../packages/shared-ts/src/utils/domainIds';
 import type { OwnerWalletExecutionEvidence } from '../../../packages/sdk-server-ts/src/router/domains/signingOperations/walletExecutionAdmission';
@@ -43,27 +35,17 @@ export async function buildOwnerWalletExecutionEvidenceFixture(): Promise<OwnerW
   const walletId = parsed(parseWalletId('wallet-authorization'));
   const walletKeyId = parsed(parseWalletKeyId('wallet-key:evm:authorization'));
   const digestB64u = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(7)));
-  const hpkePublicKeyB64u = parsed(
-    parseHpkePublicKeyB64u(base64UrlEncode(new Uint8Array(32).fill(8))),
+  const signingWorkerId = parsed(parseMpcSigningWorkerRef('worker:wallet-authorization'));
+  const ownerParticipantContinuity = buildOwnerLaneParticipantContinuityV1({
+    signerId: parseWalletSignerId('ecdsa:eip155:1'),
+    participantIds: [1, 2],
+    signingWorkerId,
+    custodyKeyManifestDigestB64u: digestB64u,
+    sourceIdentityDigestB64u: digestB64u,
+  });
+  const participantBindingDigestB64u = await computeOwnerLaneParticipantBindingDigestV1(
+    ownerParticipantContinuity,
   );
-  const hpkePublicKeyDigestB64u = parsed(parseSigningWorkerRecipientKeyDigestB64u(digestB64u));
-  const holderParticipant = await buildLaneHolderParticipantRecordWithDigestV1({
-    participantId: parsed(parseLaneHolderParticipantId('holder:wallet-authorization')),
-    custody: buildLaneHolderCustodyIdentityV1({
-      custodyBindingId: parsed(parseLaneHolderCustodyBindingId('custody:wallet-authorization')),
-      custodyBindingDigestB64u: parsed(parseLaneCustodyBindingDigestB64u(digestB64u)),
-    }),
-    hpkePublicKeyB64u,
-    hpkePublicKeyDigestB64u,
-  });
-  const serverParticipant = await buildSigningWorkerParticipantRecordWithDigestV1({
-    participantId: parsed(parseSigningWorkerParticipantId('worker:wallet-authorization')),
-    recipient: buildSigningWorkerRecipientIdentityV1({
-      recipientKeyId: parsed(parseSigningWorkerRecipientKeyId('recipient:wallet-authorization')),
-      hpkePublicKeyB64u,
-      hpkePublicKeyDigestB64u,
-    }),
-  });
   const materialActivation = parsed(
     parseMpcMaterialActivationRef({
       kind: 'mpc_material_activation_ref',
@@ -72,7 +54,7 @@ export async function buildOwnerWalletExecutionEvidenceFixture(): Promise<OwnerW
       materialOwner: walletId,
       keyBinding: 'key-binding:wallet-authorization',
       lifecycleBinding: 'lifecycle:wallet-authorization',
-      signingWorker: serverParticipant.participantId,
+      signingWorker: signingWorkerId,
     }),
   );
   const walletKey = buildEvmFamilyWalletKeyRecord({
@@ -93,9 +75,11 @@ export async function buildOwnerWalletExecutionEvidenceFixture(): Promise<OwnerW
     walletKeyId,
     laneId: parsed(parseSigningLaneId('lane:owner-passkey:wallet-authorization')),
     laneShareEpoch: parsed(parseLaneShareEpoch('lane-share-epoch:1')),
-    participantBindingDigestB64u: serverParticipant.participantBindingDigestB64u,
-    holderParticipant,
-    serverParticipant,
+    participantBindingDigestB64u,
+    walletAuthMethodId: parsed(
+      parseWalletAuthMethodId('passkey:wallet.example.test:credential-owner'),
+    ),
+    ownerParticipantContinuity,
     lifecycle: {
       state: 'active',
       revocationEpoch: 1,

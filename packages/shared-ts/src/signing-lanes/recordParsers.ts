@@ -7,6 +7,7 @@ import type {
 import {
   hasWhitespaceOrControlCharacters,
   parseMpcMaterialActivationRef,
+  parseWalletAuthMethodId,
   parseWalletId,
 } from '../utils/domainIds';
 import {
@@ -62,6 +63,10 @@ import type {
   WalletKeyRecord,
   WalletKeyVersion,
 } from './records';
+import {
+  parseOwnerLaneParticipantContinuityV1,
+  type OwnerLaneParticipantContinuityV1,
+} from './ownerContinuity';
 
 type ActiveSigningLaneLifecycle = Extract<SigningLaneLifecycle, { readonly state: 'active' }>;
 
@@ -80,10 +85,22 @@ export type SigningLaneReferenceBuilderArgs = {
   readonly participantBindingDigestB64u: LaneParticipantBindingDigestB64u;
 };
 
-export type SigningLaneRecordBuilderBaseArgs = SigningLaneReferenceBuilderArgs & {
+type SigningLaneRecordBuilderCommonArgs = SigningLaneReferenceBuilderArgs & {
+  readonly lifecycle: SigningLaneLifecycle;
+};
+
+export type RotatableSigningLaneRecordBuilderArgs = SigningLaneRecordBuilderCommonArgs & {
   readonly holderParticipant: LaneHolderParticipantRecordV1;
   readonly serverParticipant: SigningWorkerParticipantRecordV1;
-  readonly lifecycle: SigningLaneLifecycle;
+};
+
+export type OwnerAuthSigningLaneRecordBuilderArgs = SigningLaneRecordBuilderCommonArgs & {
+  readonly walletAuthMethodId: NonNullable<OwnerPasskeySigningLaneRecord['walletAuthMethodId']>;
+  readonly ownerParticipantContinuity: OwnerLaneParticipantContinuityV1;
+};
+
+export type PrivilegedOwnerSigningLaneRecordBuilderArgs = SigningLaneRecordBuilderCommonArgs & {
+  readonly ownerParticipantContinuity: OwnerLaneParticipantContinuityV1;
 };
 
 export type ActiveSigningLaneReferenceBuilderArgs = SigningLaneReferenceBuilderArgs & {
@@ -136,25 +153,39 @@ const ACTIVE_SIGNING_LANE_REFERENCE_FIELDS = [
   'lifecycle',
   'materialActivation',
 ] as const;
-const SIGNING_LANE_COMMON_RECORD_FIELDS = [
-  ...SIGNING_LANE_REFERENCE_FIELDS,
+const SIGNING_LANE_RECORD_BASE_FIELDS = [...SIGNING_LANE_REFERENCE_FIELDS, 'lifecycle'] as const;
+const OWNER_AUTH_SIGNING_LANE_FIELDS = [
+  ...SIGNING_LANE_RECORD_BASE_FIELDS,
+  'walletAuthMethodId',
+  'ownerParticipantContinuity',
+] as const;
+const PRIVILEGED_OWNER_SIGNING_LANE_FIELDS = [
+  ...SIGNING_LANE_RECORD_BASE_FIELDS,
+  'ownerParticipantContinuity',
+] as const;
+const ROTATABLE_SIGNING_LANE_FIELDS = [
+  ...SIGNING_LANE_RECORD_BASE_FIELDS,
   'holderParticipant',
   'serverParticipant',
-  'lifecycle',
 ] as const;
 const DELEGATED_SIGNING_LANE_FIELDS = [
-  ...SIGNING_LANE_COMMON_RECORD_FIELDS,
+  ...ROTATABLE_SIGNING_LANE_FIELDS,
   'authorizationId',
   'agentIdentityKeyId',
   'custodyBindingId',
   'authorizationBindingDigestB64u',
 ] as const;
 const LINKED_DEVICE_SIGNING_LANE_FIELDS = [
-  ...SIGNING_LANE_COMMON_RECORD_FIELDS,
+  ...ROTATABLE_SIGNING_LANE_FIELDS,
   'linkedDeviceId',
 ] as const;
 const ALL_SIGNING_LANE_RECORD_FIELDS: readonly string[] = Array.from(
-  new Set([...DELEGATED_SIGNING_LANE_FIELDS, ...LINKED_DEVICE_SIGNING_LANE_FIELDS]),
+  new Set([
+    ...OWNER_AUTH_SIGNING_LANE_FIELDS,
+    ...PRIVILEGED_OWNER_SIGNING_LANE_FIELDS,
+    ...DELEGATED_SIGNING_LANE_FIELDS,
+    ...LINKED_DEVICE_SIGNING_LANE_FIELDS,
+  ]),
 );
 
 const ALL_SIGNING_LANE_LIFECYCLE_FIELDS = [
@@ -167,6 +198,21 @@ const ALL_SIGNING_LANE_LIFECYCLE_FIELDS = [
   'revokedAtMs',
   'revokeReason',
 ] as const;
+
+function signingLaneRecordFields(laneKind: SigningLaneKind): readonly string[] {
+  switch (laneKind) {
+    case 'owner_passkey':
+    case 'owner_email_otp':
+      return OWNER_AUTH_SIGNING_LANE_FIELDS;
+    case 'recovery':
+    case 'break_glass':
+      return PRIVILEGED_OWNER_SIGNING_LANE_FIELDS;
+    case 'linked_device':
+      return LINKED_DEVICE_SIGNING_LANE_FIELDS;
+    case 'delegated_execution':
+      return DELEGATED_SIGNING_LANE_FIELDS;
+  }
+}
 
 function requireResult<T>(result: DomainIdParseResult<T>, label: string): T {
   if (result.ok) return result.value;
@@ -201,7 +247,7 @@ function parseNonNegativeSafeInteger(raw: unknown, label: string): number {
   return raw;
 }
 
-function parseWalletKeyVersion(raw: unknown, label: string): WalletKeyVersion {
+export function parseWalletKeyVersion(raw: unknown, label = 'walletKeyVersion'): WalletKeyVersion {
   return parseRequiredDomainId<'WalletKeyVersion'>(raw, label);
 }
 
@@ -381,10 +427,10 @@ function parseSigningLaneReferenceFields(
   });
 }
 
-function parseSigningLaneRecordBase(
+function parseSigningLaneRecordCommon(
   record: Record<string, unknown>,
   label: string,
-): SigningLaneRecordBuilderBaseArgs {
+): SigningLaneRecordBuilderCommonArgs {
   const reference = parseSigningLaneReferenceFields(record, label);
   return {
     walletId: reference.walletId,
@@ -392,6 +438,45 @@ function parseSigningLaneRecordBase(
     laneId: reference.laneId,
     laneShareEpoch: reference.laneShareEpoch,
     participantBindingDigestB64u: reference.participantBindingDigestB64u,
+    lifecycle: parseSigningLaneLifecycleState(record.lifecycle, `${label}.lifecycle`),
+  };
+}
+
+function parseOwnerAuthSigningLaneRecordBase(
+  record: Record<string, unknown>,
+  label: string,
+): OwnerAuthSigningLaneRecordBuilderArgs {
+  const common = parseSigningLaneRecordCommon(record, label);
+  const walletAuthMethodId = parseWalletAuthMethodId(record.walletAuthMethodId);
+  return {
+    ...common,
+    walletAuthMethodId: requireResult(walletAuthMethodId, `${label}.walletAuthMethodId`),
+    ownerParticipantContinuity: parseOwnerLaneParticipantContinuityV1(
+      record.ownerParticipantContinuity,
+      `${label}.ownerParticipantContinuity`,
+    ),
+  };
+}
+
+function parsePrivilegedOwnerSigningLaneRecordBase(
+  record: Record<string, unknown>,
+  label: string,
+): PrivilegedOwnerSigningLaneRecordBuilderArgs {
+  return {
+    ...parseSigningLaneRecordCommon(record, label),
+    ownerParticipantContinuity: parseOwnerLaneParticipantContinuityV1(
+      record.ownerParticipantContinuity,
+      `${label}.ownerParticipantContinuity`,
+    ),
+  };
+}
+
+function parseRotatableSigningLaneRecordBase(
+  record: Record<string, unknown>,
+  label: string,
+): RotatableSigningLaneRecordBuilderArgs {
+  return {
+    ...parseSigningLaneRecordCommon(record, label),
     holderParticipant: parseLaneHolderParticipantRecordV1(
       record.holderParticipant,
       `${label}.holderParticipant`,
@@ -400,7 +485,6 @@ function parseSigningLaneRecordBase(
       record.serverParticipant,
       `${label}.serverParticipant`,
     ),
-    lifecycle: parseSigningLaneLifecycleState(record.lifecycle, `${label}.lifecycle`),
   };
 }
 
@@ -536,7 +620,7 @@ export function buildRevokedSigningLaneLifecycle(args: {
 }
 
 export function buildOwnerPasskeySigningLaneRecord(
-  args: SigningLaneRecordBuilderBaseArgs,
+  args: OwnerAuthSigningLaneRecordBuilderArgs,
 ): OwnerPasskeySigningLaneRecord {
   return {
     kind: 'signing_lane_reference_v1',
@@ -546,14 +630,14 @@ export function buildOwnerPasskeySigningLaneRecord(
     laneKind: 'owner_passkey',
     laneShareEpoch: args.laneShareEpoch,
     participantBindingDigestB64u: args.participantBindingDigestB64u,
-    holderParticipant: args.holderParticipant,
-    serverParticipant: args.serverParticipant,
+    walletAuthMethodId: args.walletAuthMethodId,
+    ownerParticipantContinuity: args.ownerParticipantContinuity,
     lifecycle: args.lifecycle,
   };
 }
 
 export function buildOwnerEmailOtpSigningLaneRecord(
-  args: SigningLaneRecordBuilderBaseArgs,
+  args: OwnerAuthSigningLaneRecordBuilderArgs,
 ): OwnerEmailOtpSigningLaneRecord {
   return {
     kind: 'signing_lane_reference_v1',
@@ -563,14 +647,14 @@ export function buildOwnerEmailOtpSigningLaneRecord(
     laneKind: 'owner_email_otp',
     laneShareEpoch: args.laneShareEpoch,
     participantBindingDigestB64u: args.participantBindingDigestB64u,
-    holderParticipant: args.holderParticipant,
-    serverParticipant: args.serverParticipant,
+    walletAuthMethodId: args.walletAuthMethodId,
+    ownerParticipantContinuity: args.ownerParticipantContinuity,
     lifecycle: args.lifecycle,
   };
 }
 
 export function buildLinkedDeviceSigningLaneRecord(
-  args: SigningLaneRecordBuilderBaseArgs & { readonly linkedDeviceId: LinkedDeviceId },
+  args: RotatableSigningLaneRecordBuilderArgs & { readonly linkedDeviceId: LinkedDeviceId },
 ): LinkedDeviceSigningLaneRecord {
   return {
     kind: 'signing_lane_reference_v1',
@@ -588,7 +672,7 @@ export function buildLinkedDeviceSigningLaneRecord(
 }
 
 export function buildDelegatedExecutionSigningLaneRecord(
-  args: SigningLaneRecordBuilderBaseArgs & {
+  args: RotatableSigningLaneRecordBuilderArgs & {
     readonly authorizationId: DelegatedSpendAuthorizationId;
     readonly agentIdentityKeyId: AgentIdentityKeyId;
     readonly custodyBindingId: AgentCustodyBindingId;
@@ -614,7 +698,7 @@ export function buildDelegatedExecutionSigningLaneRecord(
 }
 
 export function buildRecoverySigningLaneRecord(
-  args: SigningLaneRecordBuilderBaseArgs,
+  args: PrivilegedOwnerSigningLaneRecordBuilderArgs,
 ): RecoverySigningLaneRecord {
   return {
     kind: 'signing_lane_reference_v1',
@@ -624,14 +708,13 @@ export function buildRecoverySigningLaneRecord(
     laneKind: 'recovery',
     laneShareEpoch: args.laneShareEpoch,
     participantBindingDigestB64u: args.participantBindingDigestB64u,
-    holderParticipant: args.holderParticipant,
-    serverParticipant: args.serverParticipant,
+    ownerParticipantContinuity: args.ownerParticipantContinuity,
     lifecycle: args.lifecycle,
   };
 }
 
 export function buildBreakGlassSigningLaneRecord(
-  args: SigningLaneRecordBuilderBaseArgs,
+  args: PrivilegedOwnerSigningLaneRecordBuilderArgs,
 ): BreakGlassSigningLaneRecord {
   return {
     kind: 'signing_lane_reference_v1',
@@ -641,8 +724,7 @@ export function buildBreakGlassSigningLaneRecord(
     laneKind: 'break_glass',
     laneShareEpoch: args.laneShareEpoch,
     participantBindingDigestB64u: args.participantBindingDigestB64u,
-    holderParticipant: args.holderParticipant,
-    serverParticipant: args.serverParticipant,
+    ownerParticipantContinuity: args.ownerParticipantContinuity,
     lifecycle: args.lifecycle,
   };
 }
@@ -739,20 +821,17 @@ export function parseSigningLaneRecord(
     throw new Error(`${label}.kind must be signing_lane_reference_v1`);
   }
   const laneKind = parseSigningLaneKind(record.laneKind, `${label}.laneKind`);
-  const allowedFields =
-    laneKind === 'linked_device'
-      ? LINKED_DEVICE_SIGNING_LANE_FIELDS
-      : laneKind === 'delegated_execution'
-        ? DELEGATED_SIGNING_LANE_FIELDS
-        : SIGNING_LANE_COMMON_RECORD_FIELDS;
+  const allowedFields = signingLaneRecordFields(laneKind);
   rejectUnknownFields(record, allowedFields, label, ALL_SIGNING_LANE_RECORD_FIELDS);
-  const base = parseSigningLaneRecordBase(record, label);
   switch (laneKind) {
     case 'owner_passkey':
-      return buildOwnerPasskeySigningLaneRecord(base);
+      return buildOwnerPasskeySigningLaneRecord(parseOwnerAuthSigningLaneRecordBase(record, label));
     case 'owner_email_otp':
-      return buildOwnerEmailOtpSigningLaneRecord(base);
-    case 'linked_device':
+      return buildOwnerEmailOtpSigningLaneRecord(
+        parseOwnerAuthSigningLaneRecordBase(record, label),
+      );
+    case 'linked_device': {
+      const base = parseRotatableSigningLaneRecordBase(record, label);
       return buildLinkedDeviceSigningLaneRecord({
         walletId: base.walletId,
         walletKeyId: base.walletKeyId,
@@ -767,7 +846,9 @@ export function parseSigningLaneRecord(
           `${label}.linkedDeviceId`,
         ),
       });
-    case 'delegated_execution':
+    }
+    case 'delegated_execution': {
+      const base = parseRotatableSigningLaneRecordBase(record, label);
       return buildDelegatedExecutionSigningLaneRecord({
         walletId: base.walletId,
         walletKeyId: base.walletKeyId,
@@ -794,10 +875,15 @@ export function parseSigningLaneRecord(
           `${label}.authorizationBindingDigestB64u`,
         ),
       });
+    }
     case 'recovery':
-      return buildRecoverySigningLaneRecord(base);
+      return buildRecoverySigningLaneRecord(
+        parsePrivilegedOwnerSigningLaneRecordBase(record, label),
+      );
     case 'break_glass':
-      return buildBreakGlassSigningLaneRecord(base);
+      return buildBreakGlassSigningLaneRecord(
+        parsePrivilegedOwnerSigningLaneRecordBase(record, label),
+      );
   }
 }
 

@@ -4,8 +4,7 @@ import {
   NEAR_ED25519_MPC_OPERATION_KINDS,
 } from '@shared/authorization/capabilityKinds';
 import {
-  assertLaneHolderParticipantBindingDigestV1,
-  assertSigningWorkerParticipantBindingDigestV1,
+  computeOwnerLaneParticipantBindingDigestV1,
   type ActiveSigningLaneReference,
   type LaneParticipantBindingDigestB64u,
   type SigningLaneRecord,
@@ -126,17 +125,15 @@ export async function prepareOwnerWalletExecution(input: {
   }
   if (
     lane.participantBindingDigestB64u !== input.evidence.verifiedLaneParticipantBindingDigestB64u ||
-    String(lane.serverParticipant.participantId) !==
+    String(lane.ownerParticipantContinuity.signingWorkerId) !==
       String(input.evidence.materialActivation.signingWorker)
   ) {
     return refused('participant_binding_mismatch');
   }
-  try {
-    await Promise.all([
-      assertLaneHolderParticipantBindingDigestV1(lane.holderParticipant),
-      assertSigningWorkerParticipantBindingDigestV1(lane.serverParticipant),
-    ]);
-  } catch {
+  const canonicalParticipantBindingDigestB64u = await computeOwnerLaneParticipantBindingDigestV1(
+    lane.ownerParticipantContinuity,
+  );
+  if (canonicalParticipantBindingDigestB64u !== lane.participantBindingDigestB64u) {
     return refused('participant_binding_mismatch');
   }
   if (
