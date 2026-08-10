@@ -42,8 +42,9 @@ mod signing;
 mod wasm;
 
 pub use lane::{
-    complete_client_lane_v1, prepare_client_lane_v1, ClientLaneError,
-    Ed25519YaoLaneClientCompletionV1, Ed25519YaoLaneHolderPackageWireV1, PreparedClientLaneV1,
+    complete_client_lane_v1, prepare_client_lane_dispatch_with_root_v1, prepare_client_lane_v1,
+    ClientLaneError, ClientLaneExecutionEntropyV1, Ed25519YaoLaneClientCompletionV1,
+    Ed25519YaoLaneHolderPackageWireV1, PreparedClientLaneDispatchV1, PreparedClientLaneV1,
 };
 pub use local_material::{
     ed25519_local_material_binding_v1, import_activated_client_material_v1,
@@ -61,7 +62,7 @@ pub use signing::{
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindings"))]
 pub use wasm::{
     WasmActivatedClientV1, WasmClientSigningShareV1, WasmCustodyEnvelopeExportSessionV1,
-    WasmEd25519YaoLaneClientV1, WasmExportedEd25519SeedV1,
+    WasmEd25519YaoLaneClientV1, WasmEd25519YaoLaneSourceV1, WasmExportedEd25519SeedV1,
 };
 
 type InputHpkeV1 = Hpke<DhKemX25519HkdfSha256, HkdfSha256, Aes256Gcm>;

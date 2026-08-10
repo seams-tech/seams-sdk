@@ -41,6 +41,9 @@ pub const CLOUDFLARE_ROUTER_ED25519_YAO_EXECUTE_PRIVATE_REQUEST_PATH: &str =
 /// Private Router endpoint for promoting a verified recovery result.
 pub const CLOUDFLARE_ROUTER_ED25519_YAO_RECOVERY_PROMOTE_PRIVATE_REQUEST_PATH: &str =
     "/router-ab/router/ed25519-yao/recovery/promote";
+/// Authenticated internal Router endpoint for an admitted Ed25519 lane ceremony.
+pub const CLOUDFLARE_ROUTER_ED25519_YAO_LANE_EXECUTE_PRIVATE_REQUEST_PATH: &str =
+    "/router-ab/internal/ed25519-yao/lane/execute";
 
 /// Returns the exact configured browser Origin allowed for normal-signing CORS.
 pub fn cloudflare_router_normal_signing_cors_allowed_origin_v1(
@@ -118,6 +121,9 @@ pub const CLOUDFLARE_SIGNING_WORKER_ECDSA_PRESIGN_SESSION_DO_STEP_PATH: &str =
     "/router-ab/internal/signing-worker/ecdsa-presign-session/step";
 /// Private SigningWorker endpoint for normal signing.
 pub const CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH: &str = "/router-ab/signing-worker/sign";
+/// Authenticated private SigningWorker lane-material reducer endpoint.
+pub const CLOUDFLARE_SIGNING_WORKER_LANE_MATERIAL_COMMAND_PATH: &str =
+    "/router-ab/internal/signing-worker/lane-material/command";
 /// Private SigningWorker endpoint for normal-signing round-1 prepare.
 pub const CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_ROUND1_PREPARE_PATH: &str =
     "/router-ab/signing-worker/sign/prepare";

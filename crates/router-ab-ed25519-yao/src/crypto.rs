@@ -4,19 +4,21 @@ use hpke_ng::{Aes256Gcm, DhKemX25519HkdfSha256, HkdfSha256, Hpke, Kem};
 use rand_core_09::{CryptoRng, RngCore};
 use router_ab_core::{
     Ed25519YaoCeremonyBindingV1, Ed25519YaoDeriverRoleV1, Ed25519YaoEncryptedInputV1,
-    Ed25519YaoEncryptedPackageV1, Ed25519YaoInputKindV1, Ed25519YaoOperationV1,
-    Ed25519YaoPackageKindV1, Ed25519YaoRefreshBindingV1, RouterAbProtocolError,
-    RouterAbProtocolErrorCode, RouterAbProtocolResult,
+    Ed25519YaoEncryptedPackageV1, Ed25519YaoInputKindV1, Ed25519YaoLaneJobV1,
+    Ed25519YaoOperationV1, Ed25519YaoPackageKindV1, Ed25519YaoRefreshBindingV1,
+    RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
 };
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::{
-    ed25519_yao_input_aad_v1, ed25519_yao_lane_recipient_package_aad_v1,
-    ed25519_yao_recipient_package_aad_v1, LocalEd25519YaoActivationDeriverARequestV1,
-    LocalEd25519YaoActivationDeriverBRequestV1, LocalEd25519YaoExportDeriverARequestV1,
-    LocalEd25519YaoExportDeriverBRequestV1, ED25519_YAO_INPUT_HPKE_INFO_V1,
+    ed25519_yao_input_aad_v1, ed25519_yao_lane_input_aad_v1,
+    ed25519_yao_lane_recipient_package_aad_v1, ed25519_yao_recipient_package_aad_v1,
+    LocalEd25519YaoActivationDeriverARequestV1, LocalEd25519YaoActivationDeriverBRequestV1,
+    LocalEd25519YaoExportDeriverARequestV1, LocalEd25519YaoExportDeriverBRequestV1,
+    LocalEd25519YaoLaneDeriverARequestV1, LocalEd25519YaoLaneDeriverBRequestV1,
+    ED25519_YAO_INPUT_HPKE_INFO_V1, ED25519_YAO_LANE_INPUT_HPKE_INFO_V1,
     ED25519_YAO_LANE_RECIPIENT_PACKAGE_HPKE_INFO_V1, ED25519_YAO_RECIPIENT_PACKAGE_HPKE_INFO_V1,
 };
 
@@ -140,6 +142,34 @@ pub fn open_ed25519_yao_export_deriver_b_input_v1(
     )
 }
 
+/// Opens one exact Deriver A lane-materialization input.
+pub fn open_ed25519_yao_lane_deriver_a_input_v1(
+    envelope: &Ed25519YaoEncryptedInputV1,
+    expected_job: &Ed25519YaoLaneJobV1,
+    private_key: &Ed25519YaoRecipientPrivateKeyV1,
+) -> RouterAbProtocolResult<LocalEd25519YaoLaneDeriverARequestV1> {
+    open_lane_input(
+        envelope,
+        Ed25519YaoDeriverRoleV1::DeriverA,
+        expected_job,
+        private_key,
+    )
+}
+
+/// Opens one exact Deriver B lane-materialization input.
+pub fn open_ed25519_yao_lane_deriver_b_input_v1(
+    envelope: &Ed25519YaoEncryptedInputV1,
+    expected_job: &Ed25519YaoLaneJobV1,
+    private_key: &Ed25519YaoRecipientPrivateKeyV1,
+) -> RouterAbProtocolResult<LocalEd25519YaoLaneDeriverBRequestV1> {
+    open_lane_input(
+        envelope,
+        Ed25519YaoDeriverRoleV1::DeriverB,
+        expected_job,
+        private_key,
+    )
+}
+
 /// Seals one circuit output to its exact recipient.
 pub fn seal_ed25519_yao_package_v1<R>(
     rng: &mut R,
@@ -242,6 +272,68 @@ where
     )
 }
 
+/// Computes the canonical digest of one validated opaque target lane id.
+pub fn ed25519_yao_lane_target_id_digest_v1(
+    target_lane_id: &str,
+) -> RouterAbProtocolResult<[u8; 32]> {
+    if target_lane_id.is_empty()
+        || !target_lane_id
+            .bytes()
+            .all(|byte| (0x21..=0x7e).contains(&byte))
+    {
+        return Err(invalid_crypto_config(
+            "target lane id must contain visible ASCII bytes",
+        ));
+    }
+    Ok(Sha256::digest(target_lane_id.as_bytes()).into())
+}
+
+/// Opens one exact holder or SigningWorker lane recipient package.
+#[allow(clippy::too_many_arguments)]
+pub fn open_ed25519_yao_lane_recipient_package_v1(
+    envelope: &Ed25519YaoEncryptedPackageV1,
+    private_key: &Ed25519YaoRecipientPrivateKeyV1,
+    expected_kind: Ed25519YaoPackageKindV1,
+    expected_deriver: Ed25519YaoDeriverRoleV1,
+    expected_session: [u8; 32],
+    expected_transcript: [u8; 32],
+    expected_target_lane_id_digest: [u8; 32],
+) -> RouterAbProtocolResult<Zeroizing<Vec<u8>>> {
+    envelope.validate()?;
+    if !matches!(
+        expected_kind,
+        Ed25519YaoPackageKindV1::LaneHolder | Ed25519YaoPackageKindV1::LaneSigningWorker
+    ) || envelope.kind() != expected_kind
+        || envelope.deriver() != expected_deriver
+        || envelope.session() != expected_session
+        || envelope.transcript() != expected_transcript
+    {
+        return Err(malformed_envelope(
+            "lane recipient package metadata does not match its admitted target",
+        ));
+    }
+    let encapsulated_key = DhKemX25519HkdfSha256::enc_from_bytes(envelope.encapsulated_key())
+        .map_err(map_hpke_envelope_error)?;
+    let private_key = DhKemX25519HkdfSha256::sk_from_bytes(private_key.as_bytes())
+        .map_err(map_hpke_config_error)?;
+    let aad = ed25519_yao_lane_recipient_package_aad_v1(
+        expected_kind,
+        expected_deriver,
+        expected_session,
+        expected_transcript,
+        expected_target_lane_id_digest,
+    );
+    ProductHpkeV1::open_base(
+        &encapsulated_key,
+        &private_key,
+        ED25519_YAO_LANE_RECIPIENT_PACKAGE_HPKE_INFO_V1,
+        &aad,
+        envelope.ciphertext(),
+    )
+    .map(Zeroizing::new)
+    .map_err(map_hpke_envelope_error)
+}
+
 /// Opens one Client recipient package.
 pub fn open_ed25519_yao_client_package_v1(
     envelope: &Ed25519YaoEncryptedPackageV1,
@@ -338,6 +430,73 @@ where
     Ok(request)
 }
 
+fn open_lane_input<Request>(
+    envelope: &Ed25519YaoEncryptedInputV1,
+    expected_deriver: Ed25519YaoDeriverRoleV1,
+    expected_job: &Ed25519YaoLaneJobV1,
+    private_key: &Ed25519YaoRecipientPrivateKeyV1,
+) -> RouterAbProtocolResult<Request>
+where
+    Request: DeserializeOwned + BoundLaneInput,
+{
+    expected_job.validate()?;
+    envelope.validate()?;
+    if envelope.kind() != Ed25519YaoInputKindV1::LaneMaterialization
+        || envelope.deriver() != expected_deriver
+        || !matches!(
+            envelope.operation(),
+            Ed25519YaoOperationV1::LaneProvisioning | Ed25519YaoOperationV1::LaneRefresh
+        )
+        || envelope.operation() != expected_job.yao_request_kind.operation()
+        || envelope.session() != expected_job.session_v1()?
+        || envelope.stable_context_binding() != expected_job.stable_context_binding_v1()?
+    {
+        return Err(malformed_envelope(
+            "lane Deriver input metadata does not match the admitted job",
+        ));
+    }
+    let encapsulated_key = DhKemX25519HkdfSha256::enc_from_bytes(envelope.encapsulated_key())
+        .map_err(map_hpke_envelope_error)?;
+    let private_key = DhKemX25519HkdfSha256::sk_from_bytes(private_key.as_bytes())
+        .map_err(map_hpke_config_error)?;
+    let aad = ed25519_yao_lane_input_aad_v1(
+        envelope.deriver(),
+        envelope.operation(),
+        envelope.session(),
+        envelope.stable_context_binding(),
+        expected_job.transcript_digest_v1()?,
+    );
+    let mut plaintext = Zeroizing::new(
+        ProductHpkeV1::open_base(
+            &encapsulated_key,
+            &private_key,
+            ED25519_YAO_LANE_INPUT_HPKE_INFO_V1,
+            &aad,
+            envelope.ciphertext(),
+        )
+        .map_err(map_hpke_envelope_error)?,
+    );
+    let request = serde_json::from_slice::<Request>(&plaintext)
+        .map_err(|_| malformed_envelope("lane Deriver input plaintext is malformed"))?;
+    plaintext.zeroize();
+    request.job().validate()?;
+    if request.job() != expected_job
+        || request.binding().operation != envelope.operation()
+        || request.binding().session_id.into_bytes() != envelope.session()
+        || request.binding().stable_key_context_binding.into_bytes()
+            != envelope.stable_context_binding()
+        || request.job().yao_request_kind.operation() != envelope.operation()
+        || request.job().session_v1()? != envelope.session()
+        || request.job().stable_context_binding_v1()? != envelope.stable_context_binding()
+        || request.binding().material_activation() != &request.job().source.material_activation
+    {
+        return Err(malformed_envelope(
+            "lane Deriver input does not match its admitted job and binding",
+        ));
+    }
+    Ok(request)
+}
+
 fn open_package(
     envelope: &Ed25519YaoEncryptedPackageV1,
     private_key: &Ed25519YaoRecipientPrivateKeyV1,
@@ -401,8 +560,36 @@ macro_rules! impl_bound_input {
 impl_bound_input!(
     LocalEd25519YaoActivationDeriverARequestV1,
     LocalEd25519YaoActivationDeriverBRequestV1,
+    LocalEd25519YaoLaneDeriverARequestV1,
+    LocalEd25519YaoLaneDeriverBRequestV1,
     LocalEd25519YaoExportDeriverARequestV1,
     LocalEd25519YaoExportDeriverBRequestV1,
+);
+
+trait BoundLaneInput {
+    fn binding(&self) -> &Ed25519YaoCeremonyBindingV1;
+    fn job(&self) -> &Ed25519YaoLaneJobV1;
+}
+
+macro_rules! impl_bound_lane_input {
+    ($($request:ty),+ $(,)?) => {
+        $(
+            impl BoundLaneInput for $request {
+                fn binding(&self) -> &Ed25519YaoCeremonyBindingV1 {
+                    &self.binding
+                }
+
+                fn job(&self) -> &Ed25519YaoLaneJobV1 {
+                    &self.job
+                }
+            }
+        )+
+    };
+}
+
+impl_bound_lane_input!(
+    LocalEd25519YaoLaneDeriverARequestV1,
+    LocalEd25519YaoLaneDeriverBRequestV1,
 );
 
 fn operation_matches_kind(operation: Ed25519YaoOperationV1, kind: Ed25519YaoInputKindV1) -> bool {
@@ -412,6 +599,10 @@ fn operation_matches_kind(operation: Ed25519YaoOperationV1, kind: Ed25519YaoInpu
             Ed25519YaoOperationV1::Registration | Ed25519YaoOperationV1::Recovery,
             Ed25519YaoInputKindV1::Activation
         ) | (Ed25519YaoOperationV1::Export, Ed25519YaoInputKindV1::Export)
+            | (
+                Ed25519YaoOperationV1::LaneProvisioning | Ed25519YaoOperationV1::LaneRefresh,
+                Ed25519YaoInputKindV1::LaneMaterialization
+            )
     )
 }
 
@@ -435,4 +626,86 @@ fn invalid_crypto_config(message: &'static str) -> RouterAbProtocolError {
 
 fn malformed_envelope(message: &'static str) -> RouterAbProtocolError {
     RouterAbProtocolError::new(RouterAbProtocolErrorCode::MalformedWirePayload, message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TestRng(u64);
+
+    impl RngCore for TestRng {
+        fn next_u32(&mut self) -> u32 {
+            self.next_u64() as u32
+        }
+
+        fn next_u64(&mut self) -> u64 {
+            self.0 = self
+                .0
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
+            self.0
+        }
+
+        fn fill_bytes(&mut self, destination: &mut [u8]) {
+            for chunk in destination.chunks_mut(8) {
+                let bytes = self.next_u64().to_le_bytes();
+                chunk.copy_from_slice(&bytes[..chunk.len()]);
+            }
+        }
+    }
+
+    impl CryptoRng for TestRng {}
+
+    #[test]
+    fn lane_recipient_open_rejects_session_and_target_substitution() {
+        let key_pair =
+            derive_ed25519_yao_recipient_key_pair_v1(&[7_u8; 32]).expect("recipient key pair");
+        let session = [1_u8; 32];
+        let transcript = [2_u8; 32];
+        let target = ed25519_yao_lane_target_id_digest_v1("lane-1").expect("target digest");
+        let mut rng = TestRng(9);
+        let envelope = seal_ed25519_yao_lane_package_v1(
+            &mut rng,
+            Ed25519YaoPackageKindV1::LaneHolder,
+            Ed25519YaoDeriverRoleV1::DeriverA,
+            session,
+            transcript,
+            target,
+            key_pair.public_key,
+            b"lane package",
+        )
+        .expect("sealed lane package");
+        let opened = open_ed25519_yao_lane_recipient_package_v1(
+            &envelope,
+            &key_pair.private_key,
+            Ed25519YaoPackageKindV1::LaneHolder,
+            Ed25519YaoDeriverRoleV1::DeriverA,
+            session,
+            transcript,
+            target,
+        )
+        .expect("open exact lane package");
+        assert_eq!(opened.as_slice(), b"lane package");
+        assert!(open_ed25519_yao_lane_recipient_package_v1(
+            &envelope,
+            &key_pair.private_key,
+            Ed25519YaoPackageKindV1::LaneHolder,
+            Ed25519YaoDeriverRoleV1::DeriverA,
+            transcript,
+            session,
+            target,
+        )
+        .is_err());
+        assert!(open_ed25519_yao_lane_recipient_package_v1(
+            &envelope,
+            &key_pair.private_key,
+            Ed25519YaoPackageKindV1::LaneHolder,
+            Ed25519YaoDeriverRoleV1::DeriverA,
+            session,
+            transcript,
+            ed25519_yao_lane_target_id_digest_v1("lane-2").expect("other target digest"),
+        )
+        .is_err());
+    }
 }

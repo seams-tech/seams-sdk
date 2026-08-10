@@ -397,9 +397,12 @@ impl LocalEd25519YaoSigningWorkerStateV1 {
                     )
                 })
             }
-            Ed25519YaoOperationV1::Refresh | Ed25519YaoOperationV1::Export => Err(
-                invalid_activation("SigningWorker activation operation is invalid"),
-            ),
+            Ed25519YaoOperationV1::Refresh
+            | Ed25519YaoOperationV1::Export
+            | Ed25519YaoOperationV1::LaneProvisioning
+            | Ed25519YaoOperationV1::LaneRefresh => Err(invalid_activation(
+                "SigningWorker activation operation is invalid",
+            )),
         }
     }
 

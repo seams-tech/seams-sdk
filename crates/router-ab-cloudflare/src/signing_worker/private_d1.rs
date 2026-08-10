@@ -6,7 +6,7 @@ use crate::hpke::{
 use hpke_ng::Kem;
 use serde::de::DeserializeOwned;
 use wasm_bindgen::JsValue;
-use worker::{D1Database, D1DatabaseSession, D1SessionConstraint, Env};
+use worker::{D1Database, D1DatabaseSession, D1SessionConstraint, Env, Method, Request, Response};
 
 pub const SIGNING_WORKER_PRIVATE_D1_BINDING_V1: &str = "SIGNING_WORKER_PRIVATE_DB";
 pub const SIGNING_WORKER_PRIVATE_D1_KEK_SECRET_V1: &str = "SIGNING_WORKER_PRIVATE_D1_KEK";
@@ -973,6 +973,42 @@ pub async fn execute_cloudflare_signing_worker_lane_material_command_v1(
         RouterAbProtocolErrorCode::ConflictingPair,
         "SigningWorker lane material changed concurrently",
     ))
+}
+
+/// Applies one authenticated private lane-material command and returns its
+/// receipt-only effect projection.
+pub async fn handle_cloudflare_signing_worker_lane_material_command_private_fetch_v1(
+    mut request: Request,
+    env: &Env,
+) -> worker::Result<Response> {
+    if let Err(error) = crate::require_cloudflare_internal_service_auth_request_v1(&request, env) {
+        return crate::cloudflare_private_service_auth_error_response_v1(error);
+    }
+    if request.method() != Method::Post {
+        return Response::error(
+            "SigningWorker lane-material command route requires POST",
+            405,
+        );
+    }
+    let command = match request
+        .json::<CloudflareSigningWorkerLaneMaterialCommandV1>()
+        .await
+    {
+        Ok(command) => command,
+        Err(error) => {
+            return Response::error(
+                format!("SigningWorker lane-material command JSON is malformed: {error}"),
+                400,
+            )
+        }
+    };
+    match execute_cloudflare_signing_worker_lane_material_command_v1(env, &command).await {
+        Ok(effect) => Response::from_json(&effect),
+        Err(error) => Response::error(
+            format!("{:?}: {}", error.code(), error.message()),
+            crate::cloudflare_router_error_status(error.code()),
+        ),
+    }
 }
 
 async fn activation_row_by_material_key_v1(

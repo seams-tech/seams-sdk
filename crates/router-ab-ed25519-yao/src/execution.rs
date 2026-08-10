@@ -153,6 +153,8 @@ impl Ed25519YaoExportRoleExecutionV1 {
 pub struct Ed25519YaoLaneRoleExecutionV1 {
     /// Immutable lane job admitted before the role protocol started.
     pub job: Ed25519YaoLaneJobV1,
+    /// Canonical lane session derived from the immutable job.
+    pub session: [u8; 32],
     /// Producing Deriver role.
     pub deriver: Ed25519YaoDeriverRoleV1,
     /// Joint terminal transcript.
@@ -178,8 +180,10 @@ impl Ed25519YaoLaneRoleExecutionV1 {
         holder_package: Ed25519YaoEncryptedPackageV1,
         signing_worker_package: Ed25519YaoEncryptedPackageV1,
     ) -> RouterAbProtocolResult<Self> {
+        let session = job.session_v1()?;
         let execution = Self {
             job,
+            session,
             deriver,
             transcript,
             holder_commitment,
@@ -194,6 +198,9 @@ impl Ed25519YaoLaneRoleExecutionV1 {
     /// Validates exact lane job, transcript, role, and recipient package bindings.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.job.validate()?;
+        if self.session != self.job.session_v1()? {
+            return Err(invalid_execution("lane role session does not match job"));
+        }
         let expected_transcript = self.job.transcript_digest_v1()?;
         if self.transcript != expected_transcript {
             return Err(invalid_execution("lane role transcript does not match job"));
@@ -203,19 +210,18 @@ impl Ed25519YaoLaneRoleExecutionV1 {
             self.signing_worker_commitment,
             "lane SigningWorker commitment",
         )?;
-        let session = self.job.session_v1()?;
         validate_lane_package(
             &self.holder_package,
             Ed25519YaoPackageKindV1::LaneHolder,
             self.deriver,
-            session,
+            self.session,
             self.transcript,
         )?;
         validate_lane_package(
             &self.signing_worker_package,
             Ed25519YaoPackageKindV1::LaneSigningWorker,
             self.deriver,
-            session,
+            self.session,
             self.transcript,
         )
     }
@@ -229,6 +235,8 @@ pub enum Ed25519YaoRoleExecutionV1 {
     Activation(Ed25519YaoActivationRoleExecutionV1),
     /// Explicit exact-seed export result.
     Export(Ed25519YaoExportRoleExecutionV1),
+    /// Recipient-isolated lane materialization result.
+    Lane(Ed25519YaoLaneRoleExecutionV1),
 }
 
 impl Ed25519YaoRoleExecutionV1 {
@@ -237,6 +245,7 @@ impl Ed25519YaoRoleExecutionV1 {
         match self {
             Self::Activation(execution) => execution.validate(),
             Self::Export(execution) => execution.validate(),
+            Self::Lane(execution) => execution.validate(),
         }
     }
 
@@ -245,6 +254,7 @@ impl Ed25519YaoRoleExecutionV1 {
         match self {
             Self::Activation(execution) => execution.binding.session_id.into_bytes(),
             Self::Export(execution) => execution.binding.session_id.into_bytes(),
+            Self::Lane(execution) => execution.session,
         }
     }
 
@@ -253,6 +263,7 @@ impl Ed25519YaoRoleExecutionV1 {
         match self {
             Self::Activation(execution) => execution.deriver,
             Self::Export(execution) => execution.deriver,
+            Self::Lane(execution) => execution.deriver,
         }
     }
 }
@@ -410,7 +421,7 @@ where
 {
     job.validate()?;
     let session = job.session_v1()?;
-    let target_lane_id_digest: [u8; 32] = Sha256::digest(job.target_lane_id().as_bytes()).into();
+    let target_lane_id_digest = crate::ed25519_yao_lane_target_id_digest_v1(job.target_lane_id())?;
     let holder_public_key = decode_lane_digest(&job.target_holder.hpke_public_key_b64u)?;
     let signing_worker_public_key =
         decode_lane_digest(&job.target_signing_worker.hpke_public_key_b64u)?;
@@ -526,7 +537,7 @@ pub fn lane_protocol_commit_receipt_v1(
         result.job.wallet_id.clone(),
         result.job.wallet_key_id.clone(),
         result.job.source.lane_id.clone(),
-        result.job.source.lane_share_epoch,
+        result.job.source.lane_share_epoch.clone(),
         result.job.source.revocation_epoch,
         result.job.source.material_activation.clone(),
         target,

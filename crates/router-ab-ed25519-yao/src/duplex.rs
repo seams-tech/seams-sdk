@@ -212,6 +212,14 @@ pub async fn run_lane_materialization_deriver_b<T: YaoDuplexTransport>(
     run_role(role, transport).await
 }
 
+/// Runs lane-materialization Deriver B while leaving the completed transport open.
+pub async fn run_lane_materialization_deriver_b_open<T: YaoDuplexTransport>(
+    role: LaneMaterializationDeriverB,
+    transport: T,
+) -> Result<YaoOpenRoleCompletion<LaneDeriverBCompletion, T>, YaoRoleDriverError<T::Error>> {
+    run_role_open(role, transport).await
+}
+
 /// Runs export Deriver B while leaving the completed transport open.
 pub async fn run_export_deriver_b_open<T: YaoDuplexTransport>(
     role: ExportDeriverB,

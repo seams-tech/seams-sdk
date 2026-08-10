@@ -39,6 +39,10 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
                 Err(err) => cloudflare_protocol_error_response_v1(err),
             }
         }
+        CLOUDFLARE_SIGNING_WORKER_LANE_MATERIAL_COMMAND_PATH => {
+            handle_cloudflare_signing_worker_lane_material_command_private_fetch_v1(request, &env)
+                .await
+        }
         CLOUDFLARE_SIGNING_WORKER_PROOF_BUNDLE_ACTIVATION_PATH => {
             handle_cloudflare_signing_worker_recipient_proof_bundle_activation_fetch_v1(
                 request, &env, &runtime,
@@ -182,9 +186,10 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
         }
         _ => Response::error(
             format!(
-                "SigningWorker strict Worker route must be served at {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, or {}",
+                "SigningWorker strict Worker route must be served at {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, or {}",
                 CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_PACKAGES_PATH,
                 CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
+                CLOUDFLARE_SIGNING_WORKER_LANE_MATERIAL_COMMAND_PATH,
                 CLOUDFLARE_SIGNING_WORKER_PROOF_BUNDLE_ACTIVATION_PATH,
                 CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PATH,
                 CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH,

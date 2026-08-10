@@ -564,11 +564,18 @@ fn completed_execution_matches_pair_v1(
     execution: &Ed25519YaoRoleExecutionV1,
     pair_binding: &router_ab_core::Ed25519YaoInputPairBindingV1,
 ) -> bool {
-    let execution_binding = match execution {
-        Ed25519YaoRoleExecutionV1::Activation(execution) => &execution.binding,
-        Ed25519YaoRoleExecutionV1::Export(execution) => &execution.binding,
-    };
-    execution_binding == pair_binding.binding()
+    match execution {
+        Ed25519YaoRoleExecutionV1::Activation(execution) => {
+            &execution.binding == pair_binding.binding()
+        }
+        Ed25519YaoRoleExecutionV1::Export(execution) => {
+            &execution.binding == pair_binding.binding()
+        }
+        Ed25519YaoRoleExecutionV1::Lane(execution) => {
+            execution.session == pair_binding.session()
+                && execution.job.yao_request_kind.operation() == pair_binding.binding().operation
+        }
+    }
 }
 
 fn build_deriver_a_activation_from_effective_state(
@@ -623,9 +630,12 @@ fn build_deriver_a_activation_from_effective_state(
                 build_local_activation_deriver_a_with_server_v1(request, contribution)?;
             Ok((binding, role, None))
         }
-        Ed25519YaoOperationV1::Refresh | Ed25519YaoOperationV1::Export => Err(
-            invalid_worker_state("Deriver A activation request selected an invalid operation"),
-        ),
+        Ed25519YaoOperationV1::Refresh
+        | Ed25519YaoOperationV1::Export
+        | Ed25519YaoOperationV1::LaneProvisioning
+        | Ed25519YaoOperationV1::LaneRefresh => Err(invalid_worker_state(
+            "Deriver A activation request selected an invalid operation",
+        )),
     }
 }
 
@@ -681,9 +691,12 @@ fn build_deriver_b_activation_from_effective_state(
                 build_local_activation_deriver_b_with_server_v1(request, contribution)?;
             Ok((binding, role, None))
         }
-        Ed25519YaoOperationV1::Refresh | Ed25519YaoOperationV1::Export => Err(
-            invalid_worker_state("Deriver B activation request selected an invalid operation"),
-        ),
+        Ed25519YaoOperationV1::Refresh
+        | Ed25519YaoOperationV1::Export
+        | Ed25519YaoOperationV1::LaneProvisioning
+        | Ed25519YaoOperationV1::LaneRefresh => Err(invalid_worker_state(
+            "Deriver B activation request selected an invalid operation",
+        )),
     }
 }
 
@@ -1432,6 +1445,11 @@ fn execute_local_pair_deriver_a_inner_v1(
                 )?),
                 deriver_b_sealed_execution,
             )
+        }
+        router_ab_core::Ed25519YaoInputKindV1::LaneMaterialization => {
+            return Err(pair_execution_error(
+                "legacy local Deriver HTTP does not support authenticated lane dispatch",
+            ));
         }
     };
     state.pair_roles.insert(
@@ -2296,6 +2314,12 @@ fn execute_local_pair_deriver_b_inner_v1(
                 completed_response,
             )
         }
+        router_ab_core::Ed25519YaoInputKindV1::LaneMaterialization => {
+            return Err(io::Error::other(
+                "legacy local Deriver HTTP does not support authenticated lane dispatch",
+            )
+            .into());
+        }
     };
     let serialized_execution = serde_json::to_vec(&execution_result)?;
     state.pair_roles.insert(
@@ -2459,8 +2483,8 @@ mod tests {
     use router_ab_core::{
         Ed25519YaoCeremonyIdentityV1, Ed25519YaoEpochTransitionV1, Ed25519YaoInputKindV1,
         Ed25519YaoInputPairBindingV1, Ed25519YaoRefreshEpochsV1, Ed25519YaoSessionIdV1,
-        Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1, LifecycleScopeV1, PublicDigest32,
-        MpcMaterialActivationRefV1, RootShareEpoch,
+        Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1, LifecycleScopeV1,
+        MpcMaterialActivationRefV1, PublicDigest32, RootShareEpoch,
     };
     use signer_core::ed25519_yao_derivation::{
         derive_ed25519_yao_joint_refresh_delta_v1, Ed25519YaoDeriverARefreshDeltaContributionV1,

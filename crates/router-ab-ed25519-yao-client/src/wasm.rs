@@ -1,7 +1,8 @@
 use router_ab_core::{
-    RouterAbEd25519YaoApplicationBindingFactsV1, RouterAbEd25519YaoExportAdmissionReceiptV1,
-    RouterAbEd25519YaoExportResultV1,
+    Ed25519YaoCeremonyBindingV1, Ed25519YaoLaneJobV1, RouterAbEd25519YaoApplicationBindingFactsV1,
+    RouterAbEd25519YaoExportAdmissionReceiptV1, RouterAbEd25519YaoExportResultV1,
 };
+use serde::de::DeserializeOwned;
 use wasm_bindgen::prelude::*;
 use zeroize::{Zeroize, Zeroizing};
 
@@ -10,7 +11,10 @@ use crate::{
     prepare_client_export_from_custody_seed_v1, ClientActivationEntropyV1, ClientExportStateV1,
     ClientSigningRequestV1,
 };
-use crate::{complete_client_lane_v1, prepare_client_lane_v1, PreparedClientLaneV1};
+use crate::{
+    complete_client_lane_v1, prepare_client_lane_dispatch_with_root_v1, prepare_client_lane_v1,
+    ClientLaneExecutionEntropyV1, Ed25519YaoClientDerivationRootV1, PreparedClientLaneV1,
+};
 use crate::{
     ed25519_local_material_binding_v1, import_activated_client_material_v1,
     open_wallet_custody_ed25519_material_v1, seal_activated_client_material_v1,
@@ -22,6 +26,7 @@ use signer_core::near_ed25519_recovery::{
 use signer_core::near_threshold_ed25519::CommitmentsWire;
 use signer_core::passkey_custody::open_wallet_custody_seed_envelope_v1;
 use signer_core::passkey_custody::PasskeyCustodyEnvelopeBindingV1;
+use signer_core::wallet_seed_derivation::derive_ed25519_yao_client_root_from_seed_v1;
 
 /// One-use explicit export session opened from the wallet custody envelope.
 ///
@@ -455,13 +460,79 @@ fn js_error(error: impl core::fmt::Display) -> JsValue {
     JsValue::from_str(&error.to_string())
 }
 
+fn parse_js_domain_value<T: DeserializeOwned>(value: JsValue) -> Result<T, JsValue> {
+    if let Some(json) = value.as_string() {
+        serde_json::from_str(&json).map_err(js_error)
+    } else {
+        serde_wasm_bindgen::from_value(value).map_err(js_error)
+    }
+}
+
+/// Opaque wallet-custody source for Ed25519 Yao lane preparation.
+///
+/// This handle must be created and retained inside the dedicated signing
+/// worker. Neither the custody seed nor stable Client root crosses into JS.
+#[wasm_bindgen]
+pub struct WasmEd25519YaoLaneSourceV1 {
+    root: Ed25519YaoClientDerivationRootV1,
+}
+
+#[wasm_bindgen]
+impl WasmEd25519YaoLaneSourceV1 {
+    /// Opens the custody envelope and retains only the derived Client root.
+    #[wasm_bindgen(constructor)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        factor_secret: &[u8],
+        envelope_binding_json: &str,
+        envelope_nonce: &[u8],
+        envelope_ciphertext: &[u8],
+        envelope_aad_hash: &[u8],
+        envelope_ciphertext_digest: &[u8],
+        application_binding_digest: &[u8],
+    ) -> Result<Self, JsValue> {
+        let envelope_binding =
+            serde_json::from_str::<PasskeyCustodyEnvelopeBindingV1>(envelope_binding_json)
+                .map_err(js_error)?;
+        let factor_secret = Zeroizing::new(factor_secret.to_vec());
+        let (seed, _) = open_wallet_custody_seed_envelope_v1(
+            &factor_secret,
+            &envelope_binding,
+            envelope_nonce,
+            envelope_ciphertext,
+            envelope_aad_hash,
+            envelope_ciphertext_digest,
+        )
+        .map_err(js_error)?;
+        let application_binding_digest = parse_32(
+            application_binding_digest,
+            "Ed25519 Yao application binding digest",
+        )?;
+        let root = derive_ed25519_yao_client_root_from_seed_v1(&seed, &application_binding_digest)
+            .map_err(js_error)?;
+        Ok(Self {
+            root: Ed25519YaoClientDerivationRootV1::from_secret_bytes(*root),
+        })
+    }
+}
+
+#[derive(Debug)]
+enum WasmEd25519YaoLaneClientStateV1 {
+    Empty,
+    Prepared {
+        request_json: String,
+        completion: PreparedClientLaneV1,
+    },
+    Consumed,
+}
+
 /// One-use WASM typestate client for Ed25519 Yao lane provisioning/refresh.
 ///
-/// The local adapter prepares only the immutable public job. Transport callers
-/// execute the returned request through the Router lane endpoint.
+/// The source root and derived contributions remain inside this boundary. The
+/// returned request contains only recipient-encrypted Deriver inputs.
 #[wasm_bindgen]
 pub struct WasmEd25519YaoLaneClientV1 {
-    prepared: Option<PreparedClientLaneV1>,
+    state: WasmEd25519YaoLaneClientStateV1,
 }
 
 #[wasm_bindgen]
@@ -469,24 +540,65 @@ impl WasmEd25519YaoLaneClientV1 {
     /// Creates an empty one-use lane client.
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
-        Self { prepared: None }
+        Self {
+            state: WasmEd25519YaoLaneClientStateV1::Empty,
+        }
     }
 
-    /// Validates a lane job and returns `{ requestJson }` for Router execution.
-    pub fn prepare(&mut self, job_input: JsValue) -> Result<JsValue, JsValue> {
-        if self.prepared.is_some() {
+    /// Prepares the exact authenticated internal dispatch artifact and returns
+    /// `{ requestJson }` for Router execution.
+    #[allow(clippy::too_many_arguments)]
+    pub fn prepare(
+        &mut self,
+        job_input: JsValue,
+        binding_input: JsValue,
+        application_input: JsValue,
+        client_participant_id: u16,
+        signing_worker_participant_id: u16,
+        source: &WasmEd25519YaoLaneSourceV1,
+        deriver_a_input_public_key: &[u8],
+        deriver_b_input_public_key: &[u8],
+        deriver_a_seal_seed: &[u8],
+        deriver_b_seal_seed: &[u8],
+    ) -> Result<JsValue, JsValue> {
+        if !matches!(self.state, WasmEd25519YaoLaneClientStateV1::Empty) {
             return Err(JsValue::from_str(
                 "Ed25519 Yao lane client is already prepared",
             ));
         }
-        let job = if let Some(job_json) = job_input.as_string() {
-            serde_json::from_str(&job_json).map_err(js_error)?
-        } else {
-            serde_wasm_bindgen::from_value(job_input).map_err(js_error)?
-        };
+        let job = parse_js_domain_value::<Ed25519YaoLaneJobV1>(job_input)?;
+        let binding = parse_js_domain_value::<Ed25519YaoCeremonyBindingV1>(binding_input)?;
+        let application = parse_js_domain_value::<RouterAbEd25519YaoApplicationBindingFactsV1>(
+            application_input,
+        )?;
+        let deriver_a_input_public_key =
+            parse_32(deriver_a_input_public_key, "Deriver A input public key")?;
+        let deriver_b_input_public_key =
+            parse_32(deriver_b_input_public_key, "Deriver B input public key")?;
+        let deriver_a_seal_seed =
+            Zeroizing::new(parse_32(deriver_a_seal_seed, "Deriver A seal seed")?);
+        let deriver_b_seal_seed =
+            Zeroizing::new(parse_32(deriver_b_seal_seed, "Deriver B seal seed")?);
         let prepared = prepare_client_lane_v1(job).map_err(js_error)?;
-        let request_json = prepared.execute_request_json().to_owned();
-        self.prepared = Some(prepared);
+        let entropy = ClientLaneExecutionEntropyV1::new(*deriver_a_seal_seed, *deriver_b_seal_seed)
+            .map_err(js_error)?;
+        let dispatch = prepare_client_lane_dispatch_with_root_v1(
+            prepared,
+            &binding,
+            &application,
+            [client_participant_id, signing_worker_participant_id],
+            &source.root,
+            deriver_a_input_public_key,
+            deriver_b_input_public_key,
+            entropy,
+        )
+        .map_err(js_error)?;
+        let (execute_request, completion) = dispatch.into_parts();
+        let request_json = serde_json::to_string(&execute_request).map_err(js_error)?;
+        self.state = WasmEd25519YaoLaneClientStateV1::Prepared {
+            request_json: request_json.clone(),
+            completion,
+        };
         let object = js_sys::Object::new();
         js_sys::Reflect::set(
             &object,
@@ -500,19 +612,29 @@ impl WasmEd25519YaoLaneClientV1 {
     /// Returns the prepared request JSON for callers that use the Rust-style
     /// getter convention.
     pub fn execute_request_json(&self) -> Result<String, JsValue> {
-        self.prepared
-            .as_ref()
-            .map(|prepared| prepared.execute_request_json().to_owned())
-            .ok_or_else(|| JsValue::from_str("Ed25519 Yao lane client is not prepared"))
+        match &self.state {
+            WasmEd25519YaoLaneClientStateV1::Prepared { request_json, .. } => {
+                Ok(request_json.clone())
+            }
+            WasmEd25519YaoLaneClientStateV1::Empty | WasmEd25519YaoLaneClientStateV1::Consumed => {
+                Err(JsValue::from_str("Ed25519 Yao lane client is not prepared"))
+            }
+        }
     }
 
     /// Consumes the one-use state and returns the immutable receipt plus the
     /// opaque holder package set required for later delivery.
     pub fn complete(&mut self, result_input: JsValue) -> Result<JsValue, JsValue> {
-        let prepared = self
-            .prepared
-            .take()
-            .ok_or_else(|| JsValue::from_str("Ed25519 Yao lane client was consumed"))?;
+        let state = core::mem::replace(&mut self.state, WasmEd25519YaoLaneClientStateV1::Consumed);
+        let WasmEd25519YaoLaneClientStateV1::Prepared {
+            completion: prepared,
+            ..
+        } = state
+        else {
+            return Err(JsValue::from_str(
+                "Ed25519 Yao lane client was not prepared",
+            ));
+        };
         let response_json = if let Some(response_json) = result_input.as_string() {
             response_json
         } else {

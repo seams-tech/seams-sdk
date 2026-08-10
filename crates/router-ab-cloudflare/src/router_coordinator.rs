@@ -20,18 +20,22 @@ use crate::{
     CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH,
     CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_PACKAGES_PATH,
     CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH,
+    CLOUDFLARE_SIGNING_WORKER_LANE_MATERIAL_COMMAND_PATH,
 };
 use router_ab_core::{
     ed25519_yao_recipient_set_digest_v1, Ed25519YaoDeriverRoleV1, Ed25519YaoInputPairBindingV1,
     Ed25519YaoOperationV1, Ed25519YaoRoleReadinessReceiptV1, PublicDigest32,
     RouterAbEd25519YaoActivationPublicReceiptV1, RouterAbEd25519YaoActivationResultV1,
-    RouterAbEd25519YaoExportResultV1, RouterAbProtocolError, RouterAbProtocolErrorCode,
+    RouterAbEd25519YaoExportResultV1, RouterAbEd25519YaoLaneDispatchRequestV1,
+    RouterAbEd25519YaoLaneDispatchResponseV1, RouterAbProtocolError, RouterAbProtocolErrorCode,
     RouterAbProtocolResult, RouterEd25519YaoExecuteRequestV1, RouterEd25519YaoExecuteResultV1,
     RouterEd25519YaoExecuteSuccessV1, RouterEd25519YaoGatewayExecuteRequestV1,
 };
 use router_ab_ed25519_yao::{
+    commit_ed25519_yao_lane_result_v1, lane_protocol_commit_receipt_v1,
     Ed25519YaoActivationRoleExecutionV1, Ed25519YaoExportRoleExecutionV1,
-    Ed25519YaoRoleExecutionV1, Ed25519YaoSigningWorkerPackageDeliveryV1,
+    Ed25519YaoLaneRoleExecutionV1, Ed25519YaoRoleExecutionV1,
+    Ed25519YaoSigningWorkerPackageDeliveryV1,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use worker::{Env, Method, Request, RequestInit, Response};
@@ -197,6 +201,104 @@ pub async fn handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1(
     Ok(response)
 }
 
+/// Executes one authenticated, already-admitted Ed25519 lane command.
+pub async fn handle_cloudflare_router_ed25519_yao_lane_execute_private_fetch_v1(
+    mut request: Request,
+    env: &Env,
+) -> worker::Result<Response> {
+    if request.method() != Method::Post {
+        return Response::error("Router Ed25519 lane execute route requires POST", 405);
+    }
+    if let Err(error) = require_cloudflare_internal_service_auth_request_v1(&request, env) {
+        return crate::cloudflare_private_service_auth_error_response_v1(error);
+    }
+    let trace_id = match parse_cloudflare_trace_id_from_request_v1(&request) {
+        Ok(trace_id) => trace_id,
+        Err(error) => return protocol_error_response(error),
+    };
+    let dispatch = match request
+        .json::<RouterAbEd25519YaoLaneDispatchRequestV1>()
+        .await
+    {
+        Ok(dispatch) => dispatch,
+        Err(error) => {
+            return protocol_error_response(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("Router Ed25519 lane dispatch JSON is malformed: {error}"),
+            ))
+        }
+    };
+    let now_ms = match cloudflare_now_unix_ms_v1() {
+        Ok(now_ms) => now_ms,
+        Err(error) => return protocol_error_response(error),
+    };
+    if dispatch.request.job.expires_at_ms <= now_ms {
+        return protocol_error_response(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ExpiredLocalRequest,
+            "Router Ed25519 lane job expired before execution",
+        ));
+    }
+    let runtime = match CloudflareRouterWorkerRuntimeV1::from_worker_env(env) {
+        Ok(runtime) => runtime,
+        Err(error) => return protocol_error_response(error),
+    };
+    let recipient_set_digest = match router_recipient_set_digest_v1(env) {
+        Ok(digest) => digest,
+        Err(error) => return protocol_error_response(error),
+    };
+    let execute_request = match dispatch.into_router_execute_request(
+        recipient_set_digest,
+        now_ms,
+        now_ms.saturating_add(ROUTER_AUTHORITY_TTL_MS),
+    ) {
+        Ok(request) => request,
+        Err(error) => return protocol_error_response(error),
+    };
+    let mut timing = RouterExecutionTimingV1::default();
+    let execute_result = match execute_router_ceremony_v1(
+        env,
+        &runtime,
+        execute_request,
+        now_ms,
+        trace_id,
+        true,
+        &mut timing,
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(error) => return protocol_error_response(error),
+    };
+    let lane_result = match execute_result {
+        RouterEd25519YaoExecuteResultV1::Succeeded { result } => match *result {
+            RouterEd25519YaoExecuteSuccessV1::LaneProvisioning { result }
+            | RouterEd25519YaoExecuteSuccessV1::LaneRefresh { result } => result,
+            RouterEd25519YaoExecuteSuccessV1::Registration { .. }
+            | RouterEd25519YaoExecuteSuccessV1::Recovery { .. }
+            | RouterEd25519YaoExecuteSuccessV1::Export { .. } => {
+                return protocol_error_response(invalid_coordinator(
+                    "Router lane dispatch returned a ceremony result",
+                ))
+            }
+        },
+        RouterEd25519YaoExecuteResultV1::RecoverableFailure { .. }
+        | RouterEd25519YaoExecuteResultV1::Rejected { .. }
+        | RouterEd25519YaoExecuteResultV1::Burned { .. } => {
+            return protocol_error_response(invalid_coordinator(
+                "Router lane dispatch did not produce a committed result",
+            ))
+        }
+    };
+    let receipt = match lane_protocol_commit_receipt_v1(&lane_result) {
+        Ok(receipt) => receipt,
+        Err(error) => return protocol_error_response(error),
+    };
+    match RouterAbEd25519YaoLaneDispatchResponseV1::new(lane_result, receipt) {
+        Ok(response) => Response::from_json(&response),
+        Err(error) => protocol_error_response(error),
+    }
+}
+
 fn router_recipient_set_digest_v1(env: &Env) -> RouterAbProtocolResult<PublicDigest32> {
     let keyset = build_cloudflare_router_public_keyset_v2(&CloudflareWorkerEnvReaderV1::new(env))?;
     let deriver_a = crate::hpke::cloudflare_hpke_x25519_public_key_bytes_v1(
@@ -288,6 +390,7 @@ async fn execute_router_ceremony_v1(
         parse_cloudflare_deriver_peer_verifying_key_set_v1(&CloudflareWorkerEnvReaderV1::new(env))?;
     let operation = request.operation();
     let pair_binding = request.pair_binding().clone();
+    let work = pair_work(&request);
 
     if replay {
         if let Some(result) = reconcile_router_replay_v1(
@@ -308,10 +411,12 @@ async fn execute_router_ceremony_v1(
     let prepare_started_at_ms = cloudflare_now_unix_ms_v1()?;
     let prepare_request_a = CloudflareEd25519YaoPairPrepareRequestV1 {
         pair_binding: pair_binding.clone(),
+        work: work.clone(),
         input: input_a.clone(),
     };
     let prepare_request_b = CloudflareEd25519YaoPairPrepareRequestV1 {
         pair_binding: pair_binding.clone(),
+        work: work.clone(),
         input: input_b,
     };
     let prepare_a = post_role_json_for_ceremony_with_span::<_, Ed25519YaoRoleReadinessReceiptV1>(
@@ -401,6 +506,7 @@ async fn execute_router_ceremony_v1(
         "Deriver A pair execution",
         &CloudflareEd25519YaoPairExecuteRequestV1 {
             pair_binding: pair_binding.clone(),
+            work,
             input: input_a,
             local_receipt: receipt_a,
             peer_receipt: receipt_b,
@@ -747,6 +853,9 @@ async fn finalize_router_result_v1(
                 Ed25519YaoOperationV1::Export | Ed25519YaoOperationV1::Refresh => {
                     unreachable!("activation branch excludes this operation")
                 }
+                Ed25519YaoOperationV1::LaneProvisioning | Ed25519YaoOperationV1::LaneRefresh => {
+                    unreachable!("activation branch excludes lane operations")
+                }
             }
         }
         Ed25519YaoOperationV1::Export => {
@@ -769,8 +878,150 @@ async fn finalize_router_result_v1(
                 "Refresh is not an admitted Ed25519 Yao operation",
             ))
         }
+        Ed25519YaoOperationV1::LaneProvisioning | Ed25519YaoOperationV1::LaneRefresh => {
+            let expected_job = match request {
+                RouterEd25519YaoExecuteRequestV1::LaneProvisioning { job, .. }
+                | RouterEd25519YaoExecuteRequestV1::LaneRefresh { job, .. } => job,
+                _ => {
+                    return Err(invalid_coordinator(
+                        "lane operation is missing its admitted job",
+                    ))
+                }
+            };
+            let result = commit_ed25519_yao_lane_result_v1(
+                lane_execution(&execution)?.clone(),
+                lane_execution(&completed_b)?.clone(),
+                cloudflare_now_unix_ms_v1()?,
+            )?;
+            if &result.job != expected_job {
+                return Err(invalid_coordinator(
+                    "lane role execution does not match the admitted job",
+                ));
+            }
+            let receipt = lane_protocol_commit_receipt_v1(&result)?;
+            commit_lane_material_to_signing_worker_v1(env, runtime, &result, &receipt, trace_id)
+                .await?;
+            match operation {
+                Ed25519YaoOperationV1::LaneProvisioning => {
+                    RouterEd25519YaoExecuteSuccessV1::lane_provisioning(result)?
+                }
+                Ed25519YaoOperationV1::LaneRefresh => {
+                    RouterEd25519YaoExecuteSuccessV1::lane_refresh(result)?
+                }
+                Ed25519YaoOperationV1::Registration
+                | Ed25519YaoOperationV1::Recovery
+                | Ed25519YaoOperationV1::Refresh
+                | Ed25519YaoOperationV1::Export => {
+                    unreachable!("lane branch excludes ceremony operations")
+                }
+            }
+        }
     };
     Ok(RouterEd25519YaoExecuteResultV1::succeeded(success))
+}
+
+async fn commit_lane_material_to_signing_worker_v1(
+    env: &Env,
+    runtime: &CloudflareRouterWorkerRuntimeV1,
+    result: &router_ab_core::RouterAbEd25519YaoLaneResultV1,
+    receipt: &router_ab_core::Ed25519YaoLaneProtocolCommittedV1,
+    trace_id: Option<crate::CloudflareTraceIdV1>,
+) -> RouterAbProtocolResult<()> {
+    use crate::{
+        CloudflareSigningWorkerLaneArtifactKindV1, CloudflareSigningWorkerLaneArtifactV1,
+        CloudflareSigningWorkerLaneCommittedArtifactsV1, CloudflareSigningWorkerLaneKeyFamilyV1,
+        CloudflareSigningWorkerLaneMaterialCommandV1, CloudflareSigningWorkerLaneMaterialEffectV1,
+        CloudflareSigningWorkerLaneMaterialIdentityV1,
+    };
+
+    let holder_package = CloudflareSigningWorkerLaneArtifactV1::from_bytes(
+        CloudflareSigningWorkerLaneArtifactKindV1::HolderPackage,
+        &serde_json::to_vec(&(
+            &result.deriver_a_holder_package,
+            &result.deriver_b_holder_package,
+        ))
+        .map_err(|_| invalid_coordinator("lane holder package set could not be serialized"))?,
+    )?;
+    let signing_worker_package = CloudflareSigningWorkerLaneArtifactV1::from_bytes(
+        CloudflareSigningWorkerLaneArtifactKindV1::SigningWorkerPackage,
+        &serde_json::to_vec(&(
+            &result.deriver_a_signing_worker_package,
+            &result.deriver_b_signing_worker_package,
+        ))
+        .map_err(|_| {
+            invalid_coordinator("lane SigningWorker package set could not be serialized")
+        })?,
+    )?;
+    let protocol_commit_receipt = CloudflareSigningWorkerLaneArtifactV1::from_bytes(
+        CloudflareSigningWorkerLaneArtifactKindV1::ProtocolCommitReceipt,
+        &serde_json::to_vec(receipt)
+            .map_err(|_| invalid_coordinator("lane protocol receipt could not be serialized"))?,
+    )?;
+    let transcript = CloudflareSigningWorkerLaneArtifactV1::from_bytes(
+        CloudflareSigningWorkerLaneArtifactKindV1::Transcript,
+        result.transcript_hash_b64u.as_bytes(),
+    )?;
+    let identity = CloudflareSigningWorkerLaneMaterialIdentityV1 {
+        operation_id: result.job.operation_id.clone(),
+        enrollment_id: result.job.enrollment_id.clone(),
+        wallet_id: result.job.wallet_id.clone(),
+        wallet_key_id: result.job.wallet_key_id.clone(),
+        target_lane_id: result.job.target_lane_id().to_owned(),
+        target_lane_share_epoch: result.job.target_lane_share_epoch().to_owned(),
+        target_material_activation_id: result.job.target_material_activation_id.clone(),
+        key_family: CloudflareSigningWorkerLaneKeyFamilyV1::Ed25519,
+        holder_participant_binding_digest_b64u: result
+            .job
+            .target_holder
+            .participant_binding_digest_b64u
+            .clone(),
+        signing_worker_participant_binding_digest_b64u: result
+            .job
+            .target_signing_worker
+            .participant_binding_digest_b64u
+            .clone(),
+        holder_recipient_key_digest_b64u: result.holder_recipient_key_digest_b64u.clone(),
+        server_recipient_key_digest_b64u: result.server_recipient_key_digest_b64u.clone(),
+        transcript_hash_b64u: result.transcript_hash_b64u.clone(),
+        protocol_commit_receipt_digest_b64u: protocol_commit_receipt.storage_digest_b64u.clone(),
+    };
+    let expected_identity_digest = identity.digest_b64u()?;
+    let expected_receipt = protocol_commit_receipt.clone();
+    let command = CloudflareSigningWorkerLaneMaterialCommandV1::Commit {
+        identity,
+        committed_artifacts: CloudflareSigningWorkerLaneCommittedArtifactsV1::Ed25519Yao {
+            holder_package,
+            signing_worker_package,
+            protocol_commit_receipt,
+            transcript,
+        },
+        committed_at_ms: result.committed_at_ms,
+    };
+    let effect = post_role_json::<_, CloudflareSigningWorkerLaneMaterialEffectV1>(
+        env,
+        runtime.signing_worker_peer().binding_name.as_str(),
+        SIGNING_WORKER_SERVICE_URL,
+        CLOUDFLARE_SIGNING_WORKER_LANE_MATERIAL_COMMAND_PATH,
+        "SigningWorker lane-material commitment",
+        &command,
+        trace_id,
+    )
+    .await?;
+    match effect {
+        CloudflareSigningWorkerLaneMaterialEffectV1::ProtocolCommitted {
+            identity_digest_b64u,
+            receipt,
+            ..
+        } if identity_digest_b64u == expected_identity_digest && receipt == expected_receipt => {
+            Ok(())
+        }
+        CloudflareSigningWorkerLaneMaterialEffectV1::ProtocolCommitted { .. }
+        | CloudflareSigningWorkerLaneMaterialEffectV1::HolderDeliveryRecorded { .. }
+        | CloudflareSigningWorkerLaneMaterialEffectV1::ServerMaterialActivated { .. }
+        | CloudflareSigningWorkerLaneMaterialEffectV1::Retired { .. } => Err(invalid_coordinator(
+            "SigningWorker lane-material commitment effect does not match the submitted receipt",
+        )),
+    }
 }
 
 fn pair_status_is_completed(status: &CloudflareEd25519YaoPairStatusResponseV1) -> bool {
@@ -835,6 +1086,36 @@ fn request_parts(
             deriver_a_input.clone(),
             deriver_b_input.clone(),
         ),
+        RouterEd25519YaoExecuteRequestV1::LaneProvisioning {
+            binding,
+            deriver_a_input,
+            deriver_b_input,
+            ..
+        }
+        | RouterEd25519YaoExecuteRequestV1::LaneRefresh {
+            binding,
+            deriver_a_input,
+            deriver_b_input,
+            ..
+        } => (
+            binding.clone(),
+            deriver_a_input.clone(),
+            deriver_b_input.clone(),
+        ),
+    }
+}
+
+fn pair_work(request: &RouterEd25519YaoExecuteRequestV1) -> crate::CloudflareEd25519YaoPairWorkV1 {
+    match request {
+        RouterEd25519YaoExecuteRequestV1::Registration { .. }
+        | RouterEd25519YaoExecuteRequestV1::Recovery { .. }
+        | RouterEd25519YaoExecuteRequestV1::Export { .. } => {
+            crate::CloudflareEd25519YaoPairWorkV1::Ceremony
+        }
+        RouterEd25519YaoExecuteRequestV1::LaneProvisioning { job, .. }
+        | RouterEd25519YaoExecuteRequestV1::LaneRefresh { job, .. } => {
+            crate::CloudflareEd25519YaoPairWorkV1::Lane { job: job.clone() }
+        }
     }
 }
 
@@ -859,7 +1140,20 @@ fn validate_execution(
     binding: &router_ab_core::Ed25519YaoCeremonyBindingV1,
     transcript: Option<[u8; 32]>,
 ) -> RouterAbProtocolResult<()> {
-    if execution.deriver() != role || execution_binding(execution) != binding {
+    let binding_matches = match execution {
+        Ed25519YaoRoleExecutionV1::Activation(value) => &value.binding == binding,
+        Ed25519YaoRoleExecutionV1::Export(value) => &value.binding == binding,
+        Ed25519YaoRoleExecutionV1::Lane(value) => {
+            value.job.yao_request_kind.operation() == binding.operation
+                && value.session == binding.session_id.into_bytes()
+                && value
+                    .job
+                    .stable_context_binding_v1()
+                    .is_ok_and(|stable| stable == binding.stable_key_context_binding.into_bytes())
+                && value.job.source.material_activation == *binding.material_activation()
+        }
+    };
+    if execution.deriver() != role || !binding_matches {
         return Err(invalid_coordinator("role execution binding mismatch"));
     }
     if let Some(transcript) = transcript {
@@ -870,19 +1164,11 @@ fn validate_execution(
     Ok(())
 }
 
-fn execution_binding(
-    execution: &Ed25519YaoRoleExecutionV1,
-) -> &router_ab_core::Ed25519YaoCeremonyBindingV1 {
-    match execution {
-        Ed25519YaoRoleExecutionV1::Activation(value) => &value.binding,
-        Ed25519YaoRoleExecutionV1::Export(value) => &value.binding,
-    }
-}
-
 fn execution_transcript(execution: &Ed25519YaoRoleExecutionV1) -> [u8; 32] {
     match execution {
         Ed25519YaoRoleExecutionV1::Activation(value) => value.transcript,
         Ed25519YaoRoleExecutionV1::Export(value) => value.transcript,
+        Ed25519YaoRoleExecutionV1::Lane(value) => value.transcript,
     }
 }
 
@@ -894,6 +1180,9 @@ fn activation_execution(
         Ed25519YaoRoleExecutionV1::Export(_) => Err(invalid_coordinator(
             "activation operation returned an export role execution",
         )),
+        Ed25519YaoRoleExecutionV1::Lane(_) => Err(invalid_coordinator(
+            "activation operation returned a lane role execution",
+        )),
     }
 }
 
@@ -904,6 +1193,23 @@ fn export_execution(
         Ed25519YaoRoleExecutionV1::Export(value) => Ok(value),
         Ed25519YaoRoleExecutionV1::Activation(_) => Err(invalid_coordinator(
             "export operation returned an activation role execution",
+        )),
+        Ed25519YaoRoleExecutionV1::Lane(_) => Err(invalid_coordinator(
+            "export operation returned a lane role execution",
+        )),
+    }
+}
+
+fn lane_execution(
+    execution: &Ed25519YaoRoleExecutionV1,
+) -> RouterAbProtocolResult<&Ed25519YaoLaneRoleExecutionV1> {
+    match execution {
+        Ed25519YaoRoleExecutionV1::Lane(value) => Ok(value),
+        Ed25519YaoRoleExecutionV1::Activation(_) => Err(invalid_coordinator(
+            "lane operation returned an activation role execution",
+        )),
+        Ed25519YaoRoleExecutionV1::Export(_) => Err(invalid_coordinator(
+            "lane operation returned an export role execution",
         )),
     }
 }
@@ -999,6 +1305,11 @@ impl SigningWorkerReceiptV1 {
             (Ed25519YaoOperationV1::Export | Ed25519YaoOperationV1::Refresh, _) => Err(
                 invalid_coordinator("activation delivery cannot produce this operation receipt"),
             ),
+            (Ed25519YaoOperationV1::LaneProvisioning | Ed25519YaoOperationV1::LaneRefresh, _) => {
+                Err(invalid_coordinator(
+                    "activation delivery cannot produce a lane operation receipt",
+                ))
+            }
         }
     }
 
@@ -1288,6 +1599,8 @@ fn operation_label(operation: Ed25519YaoOperationV1) -> &'static str {
         Ed25519YaoOperationV1::Recovery => "recovery",
         Ed25519YaoOperationV1::Export => "export",
         Ed25519YaoOperationV1::Refresh => "refresh",
+        Ed25519YaoOperationV1::LaneProvisioning => "lane_provisioning",
+        Ed25519YaoOperationV1::LaneRefresh => "lane_refresh",
     }
 }
 
