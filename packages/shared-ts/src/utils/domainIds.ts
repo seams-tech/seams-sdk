@@ -159,6 +159,7 @@ export type LaneOperationIdempotencyKey = DomainId<'LaneOperationIdempotencyKey'
 export type LinkedDeviceEnrollmentId = DomainId<'LinkedDeviceEnrollmentId'>;
 export type Ed25519YaoSuiteId = DomainId<'Ed25519YaoSuiteId'>;
 export type EcdsaRelayerKeyId = DomainId<'EcdsaRelayerKeyId'>;
+export type LaneHolderRecipientHandleV1 = DomainId<'LaneHolderRecipientHandleV1'>;
 
 // Canonical delegated intent digest.
 export type DelegatedIntentDigest = DomainId<'DelegatedIntentDigest'>;
@@ -597,6 +598,12 @@ export function parseEd25519YaoSuiteId(raw: unknown): DomainIdParseResult<Ed2551
 
 export function parseEcdsaRelayerKeyId(raw: unknown): DomainIdParseResult<EcdsaRelayerKeyId> {
   return parseDomainId(raw, 'ecdsaRelayerKeyId');
+}
+
+export function parseLaneHolderRecipientHandleV1(
+  raw: unknown,
+): DomainIdParseResult<LaneHolderRecipientHandleV1> {
+  return parseDomainId(raw, 'laneHolderRecipientHandle');
 }
 
 export function parseDelegatedIntentDigest(
