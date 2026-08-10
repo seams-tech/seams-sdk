@@ -131,6 +131,12 @@ export type OpenRegistrationPreparationModalParams = {
   signerSlot: number;
 };
 
+export type OpenTransactionPreparationModalParams = {
+  walletLabel: string;
+  chain: 'evm' | 'tempo';
+  confirmationConfigOverride?: Partial<ConfirmationConfig>;
+};
+
 export interface WarmSessionStatusReader {
   getWarmSessionStatus(args: { thresholdSessionId: string }): Promise<WarmSessionStatusResult>;
 }
@@ -267,6 +273,8 @@ export interface UiConfirmContextPort {
 }
 
 export interface UiConfirmSigningPort {
+  openTransactionPreparationModal(params: OpenTransactionPreparationModalParams): Promise<void>;
+  closeTransactionPreparationModal(): void;
   orchestrateSigningConfirmation(
     params: Extract<OrchestrateSigningConfirmationParams, { kind: 'intentDigest' }>,
   ): Promise<SigningConfirmationResultIntentDigest>;

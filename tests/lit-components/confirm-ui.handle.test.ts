@@ -1121,7 +1121,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
 
         const txSigningRequests = [
           {
-            receiverId: 'w3a-v1.testnet',
+            receiverId: 'seams-v1.testnet',
             actions: [
               {
                 action_type: 'FunctionCall',

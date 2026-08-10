@@ -40,6 +40,7 @@ import {
   createConfirmTxFlowAdapters,
   type NearContextFetchResult,
 } from './adapters/adapters';
+import type { ConfirmUISurfaceSource } from '../../ui/confirm-ui';
 import { computeUiIntentDigestFromNep413 } from '@/utils/intentDigest';
 import {
   clearIntentDigestPreparation,
@@ -284,9 +285,10 @@ export async function handleTransactionSigningFlow(
     confirmationConfig: NormalizedConfirmationConfig;
     transactionSummary: TransactionSummary;
     theme: ThemeMode;
+    surface: ConfirmUISurfaceSource;
   },
 ): Promise<void> {
-  const { confirmationConfig, transactionSummary, theme } = opts;
+  const { confirmationConfig, transactionSummary, theme, surface } = opts;
   const adapters = createConfirmTxFlowAdapters(ctx);
   const session = createConfirmSession({
     adapters,
@@ -295,7 +297,7 @@ export async function handleTransactionSigningFlow(
     confirmationConfig,
     transactionSummary,
     theme,
-    surface: { kind: 'mount_new' },
+    surface,
   });
   const nearAccountId = getNearAccountId(request);
   let operationStepUpPreparation:
@@ -755,9 +757,10 @@ export async function handleIntentDigestSigningFlow(
     confirmationConfig: NormalizedConfirmationConfig;
     transactionSummary: TransactionSummary;
     theme: ThemeMode;
+    surface: ConfirmUISurfaceSource;
   },
 ): Promise<void> {
-  const { confirmationConfig, transactionSummary, theme } = opts;
+  const { confirmationConfig, transactionSummary, theme, surface } = opts;
   const adapters = createConfirmTxFlowAdapters(ctx);
   const session = createConfirmSession({
     adapters,
@@ -766,7 +769,7 @@ export async function handleIntentDigestSigningFlow(
     confirmationConfig,
     transactionSummary,
     theme,
-    surface: { kind: 'mount_new' },
+    surface,
   });
 
   const signingSubject = getSignIntentDigestSubject(request);

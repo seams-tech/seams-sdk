@@ -13,6 +13,7 @@ import { BUILD_PATHS } from '../../../../build-paths';
 import { resolveWorkerUrl } from '../../walletRuntimePaths';
 import {
   UserConfirmMessageType,
+  UserConfirmationType,
   type UserConfirmDecision,
   type UserConfirmPromptEnvelope,
   type UserConfirmRequest,
@@ -36,11 +37,13 @@ import {
 } from './ui/confirm-ui';
 import type {
   OpenRegistrationPreparationModalParams,
+  OpenTransactionPreparationModalParams,
   RequestRegistrationCredentialConfirmationParams,
   RequestUserConfirmationOptions,
   UiConfirmContext,
   UiConfirmManager,
 } from './uiConfirm.types';
+import { normalizeConfirmationConfig } from '@/core/types/confirmationConfig';
 
 type PendingWorkerRequest = {
   id: string;
@@ -53,6 +56,11 @@ type PendingWorkerRequest = {
 };
 
 type RegistrationPreparationModalState =
+  | { kind: 'closed'; generation: number }
+  | { kind: 'opening'; generation: number }
+  | { kind: 'open'; generation: number; handle: MountedConfirmUIHandle };
+
+type TransactionPreparationModalState =
   | { kind: 'closed'; generation: number }
   | { kind: 'opening'; generation: number }
   | { kind: 'open'; generation: number; handle: MountedConfirmUIHandle };
@@ -149,6 +157,10 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   private readonly boundHandleWorkerMessage = this.handleWorkerMessage.bind(this);
   private readonly boundHandleWorkerError = this.handleWorkerError.bind(this);
   private registrationPreparationModalState: RegistrationPreparationModalState = {
+    kind: 'closed',
+    generation: 0,
+  };
+  private transactionPreparationModalState: TransactionPreparationModalState = {
     kind: 'closed',
     generation: 0,
   };
@@ -252,6 +264,86 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     | SigningConfirmationResultSignatureOnly
   > {
     return orchestrateSigningConfirmation(params);
+  }
+
+  async openTransactionPreparationModal(
+    params: OpenTransactionPreparationModalParams,
+  ): Promise<void> {
+    const walletLabel = String(params.walletLabel || '').trim();
+    if (!walletLabel) {
+      throw new Error('Transaction preparation modal requires a wallet label');
+    }
+
+    this.closeTransactionPreparationModal();
+    const storedConfig = this.context.userPreferencesManager.getConfirmationConfig();
+    const override = Object.fromEntries(
+      Object.entries(params.confirmationConfigOverride || {}).filter(
+        ([, value]) => value !== undefined && value !== null,
+      ),
+    );
+    const confirmationConfig = normalizeConfirmationConfig({ ...storedConfig, ...override });
+    if (confirmationConfig.kind === 'silent') return;
+
+    const generation = this.transactionPreparationModalState.generation + 1;
+    this.transactionPreparationModalState = { kind: 'opening', generation };
+    const handle = await mountConfirmUI({
+      ctx: this.getContext(),
+      summary: {
+        title: 'Confirm transaction',
+        body: 'Preparing transaction details…',
+      },
+      model: {
+        chain: params.chain,
+        signerAccount: walletLabel,
+        operations: [
+          {
+            id: `${params.chain}.pending`,
+            kind: 'raw.fallback',
+            label: 'Loading transaction details...',
+            raw: '',
+          },
+        ],
+      },
+      loading: true,
+      theme: this.context.getTheme?.() ?? 'dark',
+      uiMode: confirmationConfig.uiMode,
+      nearAccountIdOverride: walletLabel,
+    });
+    const state = this.transactionPreparationModalState;
+    if (state.kind !== 'opening' || state.generation !== generation) {
+      handle.close(false);
+      return;
+    }
+    this.transactionPreparationModalState = { kind: 'open', generation, handle };
+  }
+
+  closeTransactionPreparationModal(): void {
+    const state = this.transactionPreparationModalState;
+    this.transactionPreparationModalState = {
+      kind: 'closed',
+      generation: state.generation,
+    };
+    if (state.kind === 'open') {
+      state.handle.close(false);
+    }
+  }
+
+  private takeTransactionConfirmationSurface(): ConfirmUISurfaceSource {
+    const state = this.transactionPreparationModalState;
+    switch (state.kind) {
+      case 'closed':
+        return { kind: 'mount_new' };
+      case 'opening':
+        throw new Error('Transaction confirmation started before its preparation modal opened');
+      case 'open':
+        this.transactionPreparationModalState = {
+          kind: 'closed',
+          generation: state.generation,
+        };
+        return { kind: 'reuse_mounted', handle: state.handle };
+      default:
+        return assertNever(state);
+    }
   }
 
   /**
@@ -639,7 +731,14 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         );
         return;
       }
-      void handlePromptFromWorker(ctx, promptEnv, sourceWorker).catch((error) => {
+      const signingSurface =
+        promptEnv.data.type === UserConfirmationType.SIGN_TRANSACTION ||
+        promptEnv.data.type === UserConfirmationType.SIGN_NEP413_MESSAGE ||
+        promptEnv.data.type === UserConfirmationType.SIGN_INTENT_DIGEST
+          ? this.takeTransactionConfirmationSurface()
+          : { kind: 'mount_new' as const };
+      void handlePromptFromWorker(ctx, promptEnv, sourceWorker, { signingSurface }).catch(
+        (error) => {
         console.error('[UserConfirmWorker] failed to handle confirmation prompt:', error);
         this.postPromptEnvelopeError(
           sourceWorker,
@@ -647,7 +746,8 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           promptEnv.channelToken || '',
           'Secure confirmation failed',
         );
-      });
+        },
+      );
       return;
     }
 

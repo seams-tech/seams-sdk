@@ -36,7 +36,7 @@ test.describe('useAccountInput refresh prefill behavior', () => {
             wallet: { mode: 'popup' },
             network: {
               relayer: {
-                accountId: 'w3a-v1.testnet',
+                accountId: 'seams-v1.testnet',
                 url: 'https://router-api.localhost',
               },
             },
@@ -44,8 +44,12 @@ test.describe('useAccountInput refresh prefill behavior', () => {
           auth: {
             async getRecentUnlocks() {
               return {
-                accountIds: ['alice.w3a-v1.testnet'],
-                lastUsedAccount: { nearAccountId: 'alice.w3a-v1.testnet' },
+                accountIds: ['alice.seams-v1.testnet'],
+                lastUsedAccount: {
+                  walletId: 'alice.seams-v1.testnet',
+                  displayName: 'alice.seams-v1.testnet',
+                  nearAccountId: 'alice.seams-v1.testnet',
+                },
               };
             },
             async hasPasskeyCredential() {
@@ -67,8 +71,8 @@ test.describe('useAccountInput refresh prefill behavior', () => {
         function Harness() {
           const hook = useAccountInput({
             seams,
-            accountDomain: 'w3a-v1.testnet',
-            currentNearAccountId: null,
+            accountDomain: 'seams-v1.testnet',
+            currentWalletId: null,
             isLoggedIn: false,
           });
 
