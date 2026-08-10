@@ -557,3 +557,68 @@ pub async fn handle_cloudflare_signing_worker_ed25519_lane_activate_private_fetc
         Err(error) => protocol_error_response(error),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn digest(byte: u8) -> String {
+        URL_SAFE_NO_PAD.encode([byte; 32])
+    }
+
+    fn identity() -> CloudflareSigningWorkerLaneMaterialIdentityV1 {
+        CloudflareSigningWorkerLaneMaterialIdentityV1 {
+            operation_id: "operation".to_owned(),
+            enrollment_id: "enrollment".to_owned(),
+            wallet_id: "wallet".to_owned(),
+            wallet_key_id: "wallet-key".to_owned(),
+            target_lane_id: "target-lane".to_owned(),
+            target_lane_share_epoch: "epoch".to_owned(),
+            target_material_activation_id: "target-activation".to_owned(),
+            key_family: CloudflareSigningWorkerLaneKeyFamilyV1::Ed25519,
+            holder_participant_binding_digest_b64u: digest(1),
+            signing_worker_participant_binding_digest_b64u: digest(2),
+            holder_recipient_key_digest_b64u: digest(3),
+            server_recipient_key_digest_b64u: digest(4),
+            transcript_hash_b64u: digest(5),
+            protocol_commit_receipt_digest_b64u: digest(6),
+        }
+    }
+
+    #[test]
+    fn package_ciphertext_digest_substitution_is_rejected_before_open() {
+        let session = [7; 32];
+        let transcript = [8; 32];
+        let deriver_a = Ed25519YaoEncryptedPackageV1::new(
+            Ed25519YaoPackageKindV1::LaneSigningWorker,
+            Ed25519YaoDeriverRoleV1::DeriverA,
+            session,
+            transcript,
+            [9; 32],
+            vec![10; 16],
+        )
+        .expect("Deriver A package");
+        let deriver_b = Ed25519YaoEncryptedPackageV1::new(
+            Ed25519YaoPackageKindV1::LaneSigningWorker,
+            Ed25519YaoDeriverRoleV1::DeriverB,
+            session,
+            transcript,
+            [11; 32],
+            vec![12; 16],
+        )
+        .expect("Deriver B package");
+        let artifact = CloudflareSigningWorkerLaneArtifactV1::from_bytes(
+            CloudflareSigningWorkerLaneArtifactKindV1::SigningWorkerPackage,
+            &serde_json::to_vec(&(deriver_a, deriver_b)).expect("package set JSON"),
+        )
+        .expect("package artifact");
+        let private_key = Ed25519YaoRecipientPrivateKeyV1::from_bytes([13; 32]);
+        let error =
+            decode_and_combine_server_packages(&identity(), &artifact, &digest(99), &private_key)
+                .expect_err("substituted ciphertext digest must be rejected");
+        assert_eq!(
+            error.code(),
+            RouterAbProtocolErrorCode::ReplayedLocalRequest
+        );
+    }
+}
