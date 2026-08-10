@@ -269,6 +269,11 @@ function hydrateEd25519(
     return refusal('public_identity_mismatch', records);
   }
   if (
+    String(lane.serverParticipant.participantId) !== String(plan.materialActivation.signingWorker)
+  ) {
+    return refusal('participant_binding_mismatch', records);
+  }
+  if (
     material.metadata.participantIds.length !== 2 ||
     material.metadata.participantIds[0] === material.metadata.participantIds[1] ||
     material.metadata.participantIds.some(
@@ -349,6 +354,11 @@ function hydrateEcdsa(
     String(receipt.activationDigest) !== String(lane.lifecycle.activationReceiptDigestB64u)
   ) {
     return refusal('activation_receipt_mismatch', records);
+  }
+  if (
+    String(lane.serverParticipant.participantId) !== String(plan.materialActivation.signingWorker)
+  ) {
+    return refusal('participant_binding_mismatch', records);
   }
   if (
     facts.participantIds.length < 2 ||
