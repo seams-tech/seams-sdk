@@ -114,7 +114,7 @@ async function ceremonyArgs(overrides: Record<string, unknown> = {}) {
       walletCustodyFactorSecret: new ArrayBuffer(32),
     },
     idempotencyKey: 'idem-1',
-    resolveActivateEmailOtp: async () => ({ enrollment: null, backupAck: null }),
+    resolveActivateEmailOtp: async () => ({ enrollment: null, walletCustodyFactorJson: null }),
     registrationTiming: null,
     confirmRecoveryCodesBackedUp: async () => undefined,
     startDeferredNearCustody: async () => ({}),

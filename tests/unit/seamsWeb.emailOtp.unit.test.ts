@@ -637,20 +637,6 @@ test.describe('SeamsWeb Email OTP runtime', () => {
             Array.from(clientSecret32),
           );
           return {
-            thresholdEcdsaClientVerifyingShareB64u: 'threshold-verifier-b64u',
-            recoveryKeys: [
-              '0123-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ',
-              '1123-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ',
-              '2123-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ',
-              '3123-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ',
-              '4123-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ',
-              '5123-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ',
-              '6123-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ',
-              '7123-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ',
-              '8123-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ',
-              '9123-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ',
-            ],
-            recoveryCodesIssuedAtMs: 1_700_000_000_000,
             challengeId: 'enroll-1',
             otpChannel: 'email_otp',
             enrollmentId: 'email-otp-device-enrollment-v1:alice.testnet:alice.testnet',
@@ -663,7 +649,6 @@ test.describe('SeamsWeb Email OTP runtime', () => {
     });
 
     expect(result.challengeId).toBe('enroll-1');
-    expect(result.thresholdEcdsaClientVerifyingShareB64u).toBe('threshold-verifier-b64u');
     expect(workerCalls).toHaveLength(1);
     expect(workerCalls[0]).toMatchObject({
       kind: 'emailOtp',

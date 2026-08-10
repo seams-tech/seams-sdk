@@ -16,7 +16,6 @@ import { CloudflareD1WalletCustodyCommitStore } from '../../packages/sdk-server-
 import { buildWalletCustodyCommitPayloadFixture } from './helpers/passkeyCustodyEnvelope.fixtures';
 import {
   applySignerMigrations,
-  makeRecoveryWrappedEnrollmentEscrows,
   createWebAuthnRegistrationCredential,
   RecordingDurableObjectNamespace,
   requireParsedDomainId,
@@ -649,31 +648,15 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
     if (!responded.ok) throw new Error(`respond: ${responded.code}: ${responded.message}`);
     expect(responded.ed25519).toMatchObject({ status: 'deferred' });
 
-    const recoveryCodesIssuedAtMs = Date.now();
     const activateRequest = {
       registrationCeremonyId: setup.registrationCeremonyId,
       signedSetup: setup.signedSetup,
       idempotencyKey: 'ed25519-otp-activate',
       planKind: 'near_ed25519',
       emailOtpEnrollment: {
-        recoveryWrappedEnrollmentEscrows: makeRecoveryWrappedEnrollmentEscrows({
-          walletId: setup.walletId,
-          userId: providerSubject,
-          enrollmentId: `enrollment-${setup.walletId}`,
-          enrollmentSealKeyVersion: 'seal-v1',
-          issuedAtMs: recoveryCodesIssuedAtMs,
-        }),
         enrollmentSealKeyVersion: 'seal-v1',
         clientUnlockPublicKeyB64u: unlockPublicKeyB64u,
         unlockKeyVersion: 'unlock-v1',
-        thresholdEcdsaClientVerifyingShareB64u: unlockPublicKeyB64u,
-      },
-      emailOtpBackupAck: {
-        kind: 'email_otp_recovery_code_backup_ack_v1',
-        recoveryCodesIssuedAtMs,
-        backupActionKind: 'download',
-        acknowledgedAtMs: Date.now(),
-        idempotencyKey: 'ed25519-otp-backup-ack',
       },
       session: signer,
       verifier: signer,
