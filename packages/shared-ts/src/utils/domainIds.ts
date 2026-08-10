@@ -150,6 +150,16 @@ export type MandatePolicyId = DomainId<'MandatePolicyId'>;
 // Rotation or lane-creation operation identity.
 export type RotationOperationId = DomainId<'RotationOperationId'>;
 
+// Immutable identities for one rotatable signing-lane protocol operation and
+// its aggregate enrollment. These remain distinct from the retired generic
+// rotation operation identity.
+export type LaneOperationId = DomainId<'LaneOperationId'>;
+export type LaneEnrollmentId = DomainId<'LaneEnrollmentId'>;
+export type LaneOperationIdempotencyKey = DomainId<'LaneOperationIdempotencyKey'>;
+export type LinkedDeviceEnrollmentId = DomainId<'LinkedDeviceEnrollmentId'>;
+export type Ed25519YaoSuiteId = DomainId<'Ed25519YaoSuiteId'>;
+export type EcdsaRelayerKeyId = DomainId<'EcdsaRelayerKeyId'>;
+
 // Canonical delegated intent digest.
 export type DelegatedIntentDigest = DomainId<'DelegatedIntentDigest'>;
 
@@ -559,6 +569,34 @@ export function parseMandatePolicyId(raw: unknown): DomainIdParseResult<MandateP
 
 export function parseRotationOperationId(raw: unknown): DomainIdParseResult<RotationOperationId> {
   return parseDomainId(raw, 'rotationOperationId');
+}
+
+export function parseLaneOperationId(raw: unknown): DomainIdParseResult<LaneOperationId> {
+  return parseDomainId(raw, 'laneOperationId');
+}
+
+export function parseLaneEnrollmentId(raw: unknown): DomainIdParseResult<LaneEnrollmentId> {
+  return parseDomainId(raw, 'laneEnrollmentId');
+}
+
+export function parseLaneOperationIdempotencyKey(
+  raw: unknown,
+): DomainIdParseResult<LaneOperationIdempotencyKey> {
+  return parseDomainId(raw, 'laneOperationIdempotencyKey');
+}
+
+export function parseLinkedDeviceEnrollmentId(
+  raw: unknown,
+): DomainIdParseResult<LinkedDeviceEnrollmentId> {
+  return parseDomainId(raw, 'linkedDeviceEnrollmentId');
+}
+
+export function parseEd25519YaoSuiteId(raw: unknown): DomainIdParseResult<Ed25519YaoSuiteId> {
+  return parseDomainId(raw, 'ed25519YaoSuiteId');
+}
+
+export function parseEcdsaRelayerKeyId(raw: unknown): DomainIdParseResult<EcdsaRelayerKeyId> {
+  return parseDomainId(raw, 'ecdsaRelayerKeyId');
 }
 
 export function parseDelegatedIntentDigest(

@@ -1,4 +1,3 @@
-import type { DomainId } from '../utils/domainIds';
 import type {
   EcdsaCapabilityManifestId,
   EcdsaCapabilityManifestRevision,
@@ -9,29 +8,19 @@ export type {
   DelegatedIdempotencyKey,
   DelegatedIntentDigest,
   LaneShareEpoch,
+  LaneEnrollmentId,
+  LaneOperationId,
+  LaneOperationIdempotencyKey,
   LinkedDeviceId,
+  LinkedDeviceEnrollmentId,
   LinkDeviceSessionId,
   MandatePolicyId,
   RotationOperationId,
   SigningLaneId,
   WalletKeyId,
+  Ed25519YaoSuiteId,
+  EcdsaRelayerKeyId,
 } from '../utils/domainIds';
-
-// Lane protocol identities are deliberately distinct from the legacy
-// delegated-operation and rotation ids. A protocol operation and its parent
-// enrollment are immutable transcript identities.
-export type LaneOperationId = DomainId<'LaneOperationId'>;
-export type LaneEnrollmentId = DomainId<'LaneEnrollmentId'>;
-export type LaneOperationIdempotencyKey = DomainId<'LaneOperationIdempotencyKey'>;
-export type LinkedDeviceEnrollmentId = DomainId<'LinkedDeviceEnrollmentId'>;
-
-// These protocol bindings are public identifiers, never private key material.
-export type Ed25519YaoSuiteId = string & {
-  readonly __ed25519YaoSuiteIdBrand: 'Ed25519YaoSuiteId';
-};
-export type EcdsaRelayerKeyId = string & {
-  readonly __ecdsaRelayerKeyIdBrand: 'EcdsaRelayerKeyId';
-};
 export type EcdsaManifestIdentity = {
   manifestId: EcdsaCapabilityManifestId;
   manifestRevision: EcdsaCapabilityManifestRevision;
@@ -57,10 +46,16 @@ export {
   parseDelegatedIdempotencyKey,
   parseDelegatedIntentDigest,
   parseLaneShareEpoch,
+  parseLaneEnrollmentId,
+  parseLaneOperationId,
+  parseLaneOperationIdempotencyKey,
   parseLinkedDeviceId,
+  parseLinkedDeviceEnrollmentId,
   parseLinkDeviceSessionId,
   parseMandatePolicyId,
   parseRotationOperationId,
   parseSigningLaneId,
   parseWalletKeyId,
+  parseEd25519YaoSuiteId,
+  parseEcdsaRelayerKeyId,
 } from '../utils/domainIds';
