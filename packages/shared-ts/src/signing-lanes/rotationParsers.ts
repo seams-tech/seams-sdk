@@ -109,6 +109,7 @@ import type {
   EcdsaAdditiveLaneTranscriptPreambleV1,
   EcdsaAdditiveLaneTranscriptV1,
   EcdsaServerRetirementReceiptV1,
+  Ed25519ServerRetirementReceiptV1,
   EcdsaSourceCapabilityBindingV1,
   EcdsaTargetCapabilityBindingV1,
   EcdsaTargetThresholdSessionBindingV1,
@@ -135,6 +136,7 @@ import type {
   LaneRefreshTargetV1,
   LaneServerActivationReceiptV1,
   LaneServerRetirementReceiptV1,
+  SigningWorkerLaneMaterialIdentityV1,
   RevokeLaneEnrollmentV1,
   RevokeSigningLaneV1,
   RotatableSigningLaneJobV1,
@@ -234,7 +236,7 @@ function resultValue<T>(result: DomainIdParseResult<T>, label: string): T {
   throw new Error(`${label} ${result.error.message}`);
 }
 
-function digest(raw: unknown, label: string): string {
+function digest(raw: unknown, label: string): DigestB64u {
   try {
     return parseDigestB64u(raw);
   } catch (error) {
@@ -1698,14 +1700,7 @@ export function parseCompleteSigningLaneRevocationV1(
 ): CompleteSigningLaneRevocationV1 {
   const record = exactRecord(
     raw,
-    [
-      'kind',
-      'command',
-      'expectedVersion',
-      'commandDigestB64u',
-      'retirementReceipt',
-      'revokedAtMs',
-    ],
+    ['kind', 'command', 'expectedVersion', 'commandDigestB64u', 'retirementReceipt', 'revokedAtMs'],
     label,
   );
   if (record.kind !== 'complete_signing_lane_revocation_v1')
@@ -2740,6 +2735,129 @@ export function parseEcdsaServerRetirementReceiptV1(
   };
 }
 
+export function parseSigningWorkerLaneMaterialIdentityV1<
+  TKeyFamily extends 'ed25519' | 'ecdsa_secp256k1',
+>(
+  raw: unknown,
+  expectedKeyFamily: TKeyFamily,
+  label = 'signingWorkerLaneMaterialIdentity',
+): SigningWorkerLaneMaterialIdentityV1<TKeyFamily> {
+  const record = exactRecord(
+    raw,
+    [
+      'operationId',
+      'enrollmentId',
+      'walletId',
+      'walletKeyId',
+      'targetLaneId',
+      'targetLaneShareEpoch',
+      'targetMaterialActivationId',
+      'keyFamily',
+      'holderParticipantBindingDigestB64u',
+      'signingWorkerParticipantBindingDigestB64u',
+      'holderRecipientKeyDigestB64u',
+      'serverRecipientKeyDigestB64u',
+      'transcriptHashB64u',
+      'protocolCommitReceiptDigestB64u',
+    ],
+    label,
+  );
+  if (record.keyFamily !== expectedKeyFamily) throw new Error(`${label}.keyFamily is invalid`);
+  return {
+    operationId: resultValue(
+      parseLaneOperationIdFromIds(record.operationId),
+      `${label}.operationId`,
+    ),
+    enrollmentId: resultValue(
+      parseLaneEnrollmentIdFromIds(record.enrollmentId),
+      `${label}.enrollmentId`,
+    ),
+    walletId: resultValue(parseWalletId(record.walletId), `${label}.walletId`),
+    walletKeyId: resultValue(parseWalletKeyIdFromIds(record.walletKeyId), `${label}.walletKeyId`),
+    targetLaneId: resultValue(
+      parseSigningLaneIdFromIds(record.targetLaneId),
+      `${label}.targetLaneId`,
+    ),
+    targetLaneShareEpoch: resultValue(
+      parseLaneShareEpochFromIds(record.targetLaneShareEpoch),
+      `${label}.targetLaneShareEpoch`,
+    ),
+    targetMaterialActivationId: resultValue(
+      parseMpcMaterialActivationId(record.targetMaterialActivationId),
+      `${label}.targetMaterialActivationId`,
+    ),
+    keyFamily: expectedKeyFamily,
+    holderParticipantBindingDigestB64u: digest(
+      record.holderParticipantBindingDigestB64u,
+      `${label}.holderParticipantBindingDigestB64u`,
+    ),
+    signingWorkerParticipantBindingDigestB64u: digest(
+      record.signingWorkerParticipantBindingDigestB64u,
+      `${label}.signingWorkerParticipantBindingDigestB64u`,
+    ),
+    holderRecipientKeyDigestB64u: digest(
+      record.holderRecipientKeyDigestB64u,
+      `${label}.holderRecipientKeyDigestB64u`,
+    ),
+    serverRecipientKeyDigestB64u: digest(
+      record.serverRecipientKeyDigestB64u,
+      `${label}.serverRecipientKeyDigestB64u`,
+    ),
+    transcriptHashB64u: digest(record.transcriptHashB64u, `${label}.transcriptHashB64u`),
+    protocolCommitReceiptDigestB64u: digest(
+      record.protocolCommitReceiptDigestB64u,
+      `${label}.protocolCommitReceiptDigestB64u`,
+    ),
+  };
+}
+
+export function parseEd25519ServerRetirementReceiptV1(
+  raw: unknown,
+  label = 'ed25519RetirementReceipt',
+): Ed25519ServerRetirementReceiptV1 {
+  const record = exactRecord(
+    raw,
+    [
+      'kind',
+      'identity',
+      'revocationEpoch',
+      'retirementReason',
+      'retirementCorrelationId',
+      'retirementRequestDigestB64u',
+      'receiptDigestB64u',
+      'retiredAtMs',
+    ],
+    label,
+  );
+  if (record.kind !== 'ed25519_server_retirement_receipt_v1')
+    throw new Error(`${label}.kind is invalid`);
+  const retirementReason = record.retirementReason;
+  if (
+    retirementReason !== 'lane_revoked' &&
+    retirementReason !== 'device_compromise' &&
+    retirementReason !== 'agent_compromise' &&
+    retirementReason !== 'rotation'
+  )
+    throw new Error(`${label}.retirementReason is invalid`);
+  return {
+    kind: 'ed25519_server_retirement_receipt_v1',
+    identity: parseSigningWorkerLaneMaterialIdentityV1(
+      record.identity,
+      'ed25519',
+      `${label}.identity`,
+    ),
+    revocationEpoch: requiredInteger(record.revocationEpoch, `${label}.revocationEpoch`),
+    retirementReason,
+    retirementCorrelationId: parseCorrelationId(record.retirementCorrelationId),
+    retirementRequestDigestB64u: digest(
+      record.retirementRequestDigestB64u,
+      `${label}.retirementRequestDigestB64u`,
+    ),
+    receiptDigestB64u: digest(record.receiptDigestB64u, `${label}.receiptDigestB64u`),
+    retiredAtMs: requiredInteger(record.retiredAtMs, `${label}.retiredAtMs`),
+  };
+}
+
 export function parseLaneServerRetirementReceiptV1(
   raw: unknown,
   label = 'laneServerRetirementReceipt',
@@ -2748,6 +2866,8 @@ export function parseLaneServerRetirementReceiptV1(
   switch (record.kind) {
     case 'ecdsa_server_retirement_receipt_v1':
       return parseEcdsaServerRetirementReceiptV1(record, label);
+    case 'ed25519_server_retirement_receipt_v1':
+      return parseEd25519ServerRetirementReceiptV1(record, label);
     default:
       throw new Error(`${label}.kind is invalid`);
   }

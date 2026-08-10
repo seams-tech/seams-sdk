@@ -484,7 +484,39 @@ export type EcdsaServerRetirementReceiptV1 = {
   retiredAt: IsoTimestamp;
 };
 
-export type LaneServerRetirementReceiptV1 = EcdsaServerRetirementReceiptV1;
+export type SigningWorkerLaneMaterialIdentityV1<
+  TKeyFamily extends 'ed25519' | 'ecdsa_secp256k1' = 'ed25519' | 'ecdsa_secp256k1',
+> = {
+  operationId: LaneOperationId;
+  enrollmentId: LaneEnrollmentId;
+  walletId: WalletId;
+  walletKeyId: WalletKeyId;
+  targetLaneId: SigningLaneId;
+  targetLaneShareEpoch: LaneShareEpoch;
+  targetMaterialActivationId: MpcMaterialActivationId;
+  keyFamily: TKeyFamily;
+  holderParticipantBindingDigestB64u: DigestB64u;
+  signingWorkerParticipantBindingDigestB64u: DigestB64u;
+  holderRecipientKeyDigestB64u: DigestB64u;
+  serverRecipientKeyDigestB64u: DigestB64u;
+  transcriptHashB64u: DigestB64u;
+  protocolCommitReceiptDigestB64u: DigestB64u;
+};
+
+export type Ed25519ServerRetirementReceiptV1 = {
+  kind: 'ed25519_server_retirement_receipt_v1';
+  identity: SigningWorkerLaneMaterialIdentityV1<'ed25519'>;
+  revocationEpoch: number;
+  retirementReason: 'lane_revoked' | 'device_compromise' | 'agent_compromise' | 'rotation';
+  retirementCorrelationId: CorrelationId;
+  retirementRequestDigestB64u: DigestB64u;
+  receiptDigestB64u: DigestB64u;
+  retiredAtMs: number;
+};
+
+export type LaneServerRetirementReceiptV1 =
+  | EcdsaServerRetirementReceiptV1
+  | Ed25519ServerRetirementReceiptV1;
 
 export type LaneProductEpochRecordCommonV1 = {
   kind: 'lane_product_epoch_record_v1';

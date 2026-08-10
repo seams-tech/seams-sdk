@@ -28,6 +28,7 @@ import {
   encodeLaneProtocolCommitReceiptV1,
   encodeLaneServerActivationReceiptV1,
   computeEcdsaServerRetirementReceiptDigestV1,
+  computeEd25519ServerRetirementReceiptDigestV1,
 } from '@shared/signing-lanes/rotationDigests';
 import { computeLaneParticipantSetBindingDigestV1 } from '@shared/signing-lanes/participantDigest';
 import { sha256Bytes } from '@shared/utils/digests';
@@ -1535,13 +1536,14 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
       );
     const receiptInsert = this.database
       .prepare(
-        `INSERT INTO ${RECEIPT_TABLE} (namespace, org_id, project_id, env_id, receipt_id, enrollment_id, operation_id, receipt_kind, receipt_digest_b64u, receipt_json, created_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'ecdsa_server_retirement', ?8, ?9, ?10)`,
+        `INSERT INTO ${RECEIPT_TABLE} (namespace, org_id, project_id, env_id, receipt_id, enrollment_id, operation_id, receipt_kind, receipt_digest_b64u, receipt_json, created_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
       )
       .bind(
         ...scopeValues(this.scope),
         serverRetirementReceiptId(product),
         String(product.enrollmentId),
         String(product.operationId),
+        serverRetirementReceiptKind(product),
         retirementReceiptDigestB64u,
         JSON.stringify(retirementReceipt),
         completion.revokedAtMs,
@@ -2055,9 +2057,13 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
   ): Promise<LaneServerRetirementReceiptV1> {
     const row = await this.database
       .prepare(
-        `SELECT receipt_id, receipt_digest_b64u, receipt_json FROM ${RECEIPT_TABLE} WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4 AND operation_id = ?5 AND receipt_kind = 'ecdsa_server_retirement'`,
+        `SELECT receipt_id, receipt_digest_b64u, receipt_json FROM ${RECEIPT_TABLE} WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4 AND operation_id = ?5 AND receipt_kind = ?6`,
       )
-      .bind(...scopeValues(this.scope), String(product.operationId))
+      .bind(
+        ...scopeValues(this.scope),
+        String(product.operationId),
+        serverRetirementReceiptKind(product),
+      )
       .first<{
         readonly receipt_id?: unknown;
         readonly receipt_digest_b64u?: unknown;
@@ -2122,15 +2128,55 @@ async function verifyServerRetirementReceiptV1(input: {
   readonly receipt: LaneServerRetirementReceiptV1;
 }): Promise<string> {
   const protocol = await input.store.getProtocol(input.product.operationId);
-  if (
-    protocol === null ||
-    protocol.value.job.keyFamily !== 'ecdsa_secp256k1' ||
-    input.product.keyFamily !== 'ecdsa_secp256k1'
-  ) {
-    throw new Error('ECDSA server retirement receipt has no exact protocol operation');
-  }
+  if (protocol === null)
+    throw new Error('server retirement receipt has no exact protocol operation');
   const job = protocol.value.job;
   const receipt = input.receipt;
+  if (receipt.kind === 'ed25519_server_retirement_receipt_v1') {
+    if (
+      job.keyFamily !== 'ed25519' ||
+      input.product.keyFamily !== 'ed25519' ||
+      protocol.value.lifecycle.state !== 'active'
+    ) {
+      throw new Error('Ed25519 server retirement receipt has no active protocol operation');
+    }
+    const identity = receipt.identity;
+    if (
+      String(input.product.walletId) !== String(input.command.walletId) ||
+      identity.operationId !== input.product.operationId ||
+      identity.enrollmentId !== input.product.enrollmentId ||
+      identity.walletId !== input.product.walletId ||
+      identity.walletKeyId !== input.command.walletKeyId ||
+      identity.targetLaneId !== input.command.laneId ||
+      identity.targetLaneShareEpoch !== input.command.laneShareEpoch ||
+      identity.targetMaterialActivationId !== input.product.targetMaterialActivationId ||
+      identity.keyFamily !== 'ed25519' ||
+      identity.holderParticipantBindingDigestB64u !==
+        input.product.holderParticipant.participantBindingDigestB64u ||
+      identity.signingWorkerParticipantBindingDigestB64u !==
+        input.product.signingWorkerParticipant.participantBindingDigestB64u ||
+      identity.holderRecipientKeyDigestB64u !== job.targetHolder.hpkePublicKeyDigestB64u ||
+      identity.serverRecipientKeyDigestB64u !== job.targetSigningWorker.hpkePublicKeyDigestB64u ||
+      identity.transcriptHashB64u !== protocol.value.lifecycle.transcriptHashB64u ||
+      identity.protocolCommitReceiptDigestB64u !==
+        protocol.value.lifecycle.protocolCommitReceiptDigestB64u ||
+      receipt.revocationEpoch !== input.command.expectedRevocationEpoch ||
+      receipt.retirementReason !== retirementReceiptReasonV1(input.command.reason) ||
+      receipt.retirementCorrelationId !== input.command.retirementCorrelationId ||
+      receipt.retirementRequestDigestB64u !== input.command.retirementRequestDigestB64u ||
+      input.product.revocationEpoch !== input.command.expectedRevocationEpoch + 1
+    ) {
+      throw new Error('Ed25519 server retirement receipt differs from the frozen lane epoch');
+    }
+    const digest = await computeEd25519ServerRetirementReceiptDigestV1(receipt);
+    if (receipt.receiptDigestB64u !== digest) {
+      throw new Error('Ed25519 server retirement receipt self-digest is invalid');
+    }
+    return digest;
+  }
+  if (job.keyFamily !== 'ecdsa_secp256k1' || input.product.keyFamily !== 'ecdsa_secp256k1') {
+    throw new Error('ECDSA server retirement receipt has no exact protocol operation');
+  }
   if (
     String(input.product.walletId) !== String(input.command.walletId) ||
     String(receipt.manifest.manifestId) !== String(job.targetCapability.manifestId) ||
@@ -2173,7 +2219,18 @@ function retirementReceiptReasonV1(
 }
 
 function serverRetirementReceiptId(product: LaneProductEpochRecordV1): string {
-  return `${String(product.operationId)}:ecdsa_server_retirement:${String(product.laneId)}:${String(product.laneShareEpoch)}`;
+  return `${String(product.operationId)}:${serverRetirementReceiptKind(product)}:${String(product.laneId)}:${String(product.laneShareEpoch)}`;
+}
+
+function serverRetirementReceiptKind(
+  product: LaneProductEpochRecordV1,
+): 'ed25519_server_retirement' | 'ecdsa_server_retirement' {
+  switch (product.keyFamily) {
+    case 'ed25519':
+      return 'ed25519_server_retirement';
+    case 'ecdsa_secp256k1':
+      return 'ecdsa_server_retirement';
+  }
 }
 
 async function admissionChildrenMatch(
