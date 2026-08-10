@@ -24,7 +24,7 @@ function main() {
   const lane = readBackendLane(options.lane);
   const deployment = requireProvisionedGatewayDeploymentConfig(options.lane, lane.provisioning);
   assertNearRelayerSecretConsistency(deployment.optional.nearRelayer);
-  const config = buildConfig(deployment, process.cwd());
+  const config = buildConfig(deployment, lane.emailOtpDelivery, process.cwd());
   writePrivateJson(options.output, config);
   process.stdout.write(`${path.resolve(process.cwd(), options.output)}\n`);
 }
@@ -76,12 +76,12 @@ function writePrivateJson(relativePath, value) {
   fs.writeFileSync(outputPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
 }
 
-function buildConfig(deployment, packageRoot) {
+function buildConfig(deployment, emailOtpDelivery, packageRoot) {
   const resources = deployment.resources;
   if (resources.consoleD1.id === resources.signerD1.id) {
     throw new Error('resources.consoleD1.id and resources.signerD1.id must be different');
   }
-  const vars = buildWorkerVars(deployment);
+  const vars = buildWorkerVars(deployment, emailOtpDelivery);
   return {
     name: resources.workerName,
     main: path.join(packageRoot, 'src/router/cloudflare/d1RouterApiWorker.ts'),
@@ -134,12 +134,13 @@ function buildConfig(deployment, packageRoot) {
   };
 }
 
-function buildWorkerVars(deployment) {
+function buildWorkerVars(deployment, emailOtpDelivery) {
   const production = deployment.lane !== 'staging-testnet';
   const implicitNearTestFunding =
     deployment.runtimeProfile.nearFunding.kind === 'implicit_account_relayer';
   const demoEmailOtpDelivery =
-    deployment.runtimeProfile.emailOtpDelivery.kind === 'demo_code_response';
+    deployment.runtimeProfile.emailOtpDelivery.kind === 'demo_code_response' ||
+    deployment.runtimeProfile.emailOtpDelivery.kind === 'provider_and_demo_code';
   const vars = {
     SEAMS_TENANT_STORAGE_NAMESPACE: deployment.tenant.namespace,
     SEAMS_STAGING_ORG_ID: deployment.tenant.orgId,
@@ -192,6 +193,10 @@ function buildWorkerVars(deployment) {
   };
   if (demoEmailOtpDelivery) {
     vars.EMAIL_OTP_DEMO_ALLOWED_ORIGINS = deployment.origins.allowedCors.join(',');
+  }
+  if (emailOtpDelivery.kind !== 'demo_code_response') {
+    vars.EMAIL_OTP_SES_REGION = emailOtpDelivery.region;
+    vars.EMAIL_OTP_SES_FROM_ADDRESS = emailOtpDelivery.fromAddress;
   }
   addNearRelayerVars(vars, deployment.optional.nearRelayer);
   addOptionalStringVar(vars, 'GOOGLE_OIDC_CLIENT_ID', deployment.optional.googleOidcClientId);

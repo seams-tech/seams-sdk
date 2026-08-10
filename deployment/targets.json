@@ -13,6 +13,9 @@
         "gatewayOrigin": "https://staging.api.seams.sh",
         "walletOrigin": "https://staging.sign.seams.sh",
         "walletPagesProjectEnv": "CF_PAGES_PROJECT_WALLET",
+        "emailOtpDelivery": {
+          "kind": "demo_code_response"
+        },
         "resources": {
           "gateway": {
             "workerName": "seams-sdk-d1-gateway-staging",
@@ -215,6 +218,11 @@
         "gatewayOrigin": "https://test.api.seams.sh",
         "walletOrigin": "https://test.sign.seams.sh",
         "walletPagesProjectEnv": "CF_PAGES_PROJECT_WALLET_TESTNET",
+        "emailOtpDelivery": {
+          "kind": "provider_and_demo_code",
+          "region": "ap-southeast-2",
+          "fromAddress": "confirm@seams.sh"
+        },
         "resources": {
           "gateway": {
             "workerName": "seams-sdk-d1-gateway-testnet",
@@ -283,7 +291,7 @@
                 "network": "near_testnet"
               },
               "emailOtpDelivery": {
-                "kind": "demo_code_response"
+                "kind": "provider_and_demo_code"
               }
             },
             "resources": {
@@ -299,9 +307,9 @@
             },
             "tenant": {
               "namespace": "seams-production-testnet",
-              "orgId": "org_production",
-              "projectId": "project_production",
-              "environmentId": "production"
+              "orgId": "org_production_testnet",
+              "projectId": "project_production_testnet",
+              "environmentId": "production-testnet"
             },
             "origins": {
               "gateway": "https://test.api.seams.sh",
@@ -405,6 +413,11 @@
         "gatewayOrigin": "https://api.seams.sh",
         "walletOrigin": "https://sign.seams.sh",
         "walletPagesProjectEnv": "CF_PAGES_PROJECT_WALLET_MAINNET",
+        "emailOtpDelivery": {
+          "kind": "email_provider",
+          "region": "ap-southeast-2",
+          "fromAddress": "confirm@seams.sh"
+        },
         "resources": {
           "gateway": {
             "workerName": "seams-sdk-d1-gateway",
@@ -458,46 +471,127 @@
           }
         },
         "provisioning": {
-          "kind": "pending",
-          "runtimeProfileKind": "mainnet_service",
-          "requiredValues": [
-            "GATEWAY_CONSOLE_D1_DATABASE_ID",
-            "GATEWAY_SIGNER_D1_DATABASE_ID",
-            "ROUTER_AB_DERIVER_A_PRIVATE_D1_ID",
-            "ROUTER_AB_DERIVER_B_PRIVATE_D1_ID",
-            "ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_ID",
-            "ROUTER_AB_JWT_JWKS_JSON",
-            "ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK",
-            "ROUTER_AB_CEREMONY_JWT_KEY_ID",
-            "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET",
-            "ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY",
-            "ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY",
-            "ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY",
-            "ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX",
-            "ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX",
-            "ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY",
-            "ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY",
-            "ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY",
-            "ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION",
-            "ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION",
-            "ROUTER_AB_SIGNING_WORKER_PRIVATE_D1_KEK_VERSION",
-            "DERIVER_A_ROOT_SHARE_WIRE_SECRET",
-            "DERIVER_B_ROOT_SHARE_WIRE_SECRET",
-            "DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY",
-            "DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY",
-            "DERIVER_A_PEER_SIGNING_KEY",
-            "DERIVER_B_PEER_SIGNING_KEY",
-            "DERIVER_A_ROLE_PRIVATE_D1_KEK",
-            "DERIVER_B_ROLE_PRIVATE_D1_KEK",
-            "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY",
-            "SIGNING_WORKER_PRIVATE_D1_KEK",
-            "RELAY_SESSION_HMAC_SECRET",
-            "ACCOUNT_ID_DERIVATION_SECRET",
-            "SIGNING_SESSION_SEAL_ROOT_SECRET_B64U",
-            "STRIPE_API_SK",
-            "STRIPE_WEBHOOK_SECRET",
-            "ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON"
-          ]
+          "kind": "provisioned",
+          "gatewayDeploymentConfig": {
+            "schemaVersion": 4,
+            "runtimeProfile": {
+              "kind": "mainnet_service",
+              "nearFunding": {
+                "kind": "disabled"
+              },
+              "emailOtpDelivery": {
+                "kind": "email_provider"
+              }
+            },
+            "resources": {
+              "workerName": "seams-sdk-d1-gateway",
+              "consoleD1": {
+                "name": "seams-console",
+                "id": "6d9ec624-7dc0-4619-ba67-af2e329ed5f1"
+              },
+              "signerD1": {
+                "name": "seams-signer",
+                "id": "3f9eab6f-99ee-4512-b09f-02d2bf931d62"
+              }
+            },
+            "tenant": {
+              "namespace": "seams-production",
+              "orgId": "org_production",
+              "projectId": "project_production",
+              "environmentId": "production"
+            },
+            "origins": {
+              "gateway": "https://api.seams.sh",
+              "allowedCors": ["https://seams.sh", "https://sign.seams.sh"]
+            },
+            "session": {
+              "issuer": "seams-gateway-production"
+            },
+            "signingSessionSeal": {
+              "algorithm": "shamir3pass-v2",
+              "groupId": "rfc2409-group2",
+              "currentKeyVersion": "signing-session-seal-production-r2",
+              "acceptedWarmKeyVersions": ["signing-session-seal-production-r2"]
+            },
+            "routerAb": {
+              "ceremonyJwtAudience": "router-ab",
+              "ceremonyJwtKeyId": "router-ab-ceremony-production-r1",
+              "publicKeyset": {
+                "keyset_version": "router_ab_keyset_v2",
+                "signer_envelope_hpke": {
+                  "current": {
+                    "deriver_a": {
+                      "role": "signer_a",
+                      "key_epoch": "epoch-1",
+                      "public_key": "x25519:7647ee5b2d70291af58ccc66c87cbaf474f3128bc45accc30c2654fbf12e4816"
+                    },
+                    "deriver_b": {
+                      "role": "signer_b",
+                      "key_epoch": "epoch-1",
+                      "public_key": "x25519:74cc588915daaae1b37643d437dcdbb296c19dbfce10dc283d305549f8cad134"
+                    }
+                  }
+                },
+                "signer_peer_verifying_keys": {
+                  "deriver_a": {
+                    "role": "signer_a",
+                    "verifying_key_hex": "3d42e6bbd83c0499f753348823327aaaa3e530c134944d017c6a6c37acc1d86f"
+                  },
+                  "deriver_b": {
+                    "role": "signer_b",
+                    "verifying_key_hex": "f863ee15ad7539d61dfce758047c892dd5998b5c9fe8f4a69cd02a81a247f23b"
+                  }
+                },
+                "signing_worker_server_output_hpke": {
+                  "key_epoch": "epoch-1",
+                  "public_key": "x25519:8a4fa1b06071d252f1f5d25fd8f78aacbc9d0f90d44f97f4cf965359d25f2659"
+                }
+              },
+              "registrationTopology": {
+                "routerId": "router-ab-mpc-router",
+                "signerSet": {
+                  "signer_set_id": "router-ab-production-signers-r1",
+                  "policy": "all_2",
+                  "signer_a": {
+                    "role": "signer_a",
+                    "signer_id": "signer-a",
+                    "key_epoch": "epoch-1"
+                  },
+                  "signer_b": {
+                    "role": "signer_b",
+                    "signer_id": "signer-b",
+                    "key_epoch": "epoch-1"
+                  },
+                  "selected_server": {
+                    "server_id": "router-ab-signing-worker",
+                    "key_epoch": "epoch-1",
+                    "recipient_encryption_key": "x25519:8a4fa1b06071d252f1f5d25fd8f78aacbc9d0f90d44f97f4cf965359d25f2659"
+                  }
+                },
+                "deriverRecipientKeys": {
+                  "deriver_a": {
+                    "role": "signer_a",
+                    "key_epoch": "epoch-1",
+                    "public_key": "x25519:7647ee5b2d70291af58ccc66c87cbaf474f3128bc45accc30c2654fbf12e4816"
+                  },
+                  "deriver_b": {
+                    "role": "signer_b",
+                    "key_epoch": "epoch-1",
+                    "public_key": "x25519:74cc588915daaae1b37643d437dcdbb296c19dbfce10dc283d305549f8cad134"
+                  }
+                }
+              },
+              "deriverAYaoInputPublicKey": "x25519:7647ee5b2d70291af58ccc66c87cbaf474f3128bc45accc30c2654fbf12e4816",
+              "deriverBYaoInputPublicKey": "x25519:74cc588915daaae1b37643d437dcdbb296c19dbfce10dc283d305549f8cad134",
+              "signingWorkerOutputPublicKey": "x25519:8a4fa1b06071d252f1f5d25fd8f78aacbc9d0f90d44f97f4cf965359d25f2659"
+            },
+            "optional": {
+              "nearRelayer": null,
+              "googleOidcClientId": "971053349716-p10qdg7lsjh24lcocbsckt4f85is5igs.apps.googleusercontent.com",
+              "oidcExchange": null
+            },
+            "lane": "production-mainnet"
+          }
         }
       }
     }
