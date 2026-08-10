@@ -127,7 +127,7 @@ test.describe('SeamsWeb Email OTP runtime', () => {
           routePlan: {
             routeFamily: 'registration',
             authLane: { kind: 'app_session', jwt: 'app-session-jwt' },
-            operation: 'wallet_unlock',
+            operation: 'registration',
           },
           otpChannel: 'email_otp',
         },
@@ -623,9 +623,9 @@ test.describe('SeamsWeb Email OTP runtime', () => {
       relayUrl: 'https://relay.example',
       walletId: 'alice.testnet',
       userId: 'alice.testnet',
+      groupId: 'email-otp-group',
       challengeId: 'enroll-1',
       otpCode: '123456',
-      shamirPrimeB64u: 'prime-b64u',
       appSessionJwt: 'app-session-jwt',
       clientSecret32,
       workerCtx: {
@@ -641,6 +641,7 @@ test.describe('SeamsWeb Email OTP runtime', () => {
             otpChannel: 'email_otp',
             enrollmentId: 'email-otp-device-enrollment-v1:alice.testnet:alice.testnet',
             enrollmentSealKeyVersion: 'email-otp-kv-1',
+            serverSealedFactorCiphertextB64u: 'server-sealed-factor-ciphertext',
             clientUnlockPublicKeyB64u: 'unlock-public-key-b64u',
             unlockKeyVersion: 'email-otp-unlock-v1',
           };
@@ -657,13 +658,13 @@ test.describe('SeamsWeb Email OTP runtime', () => {
         relayUrl: 'https://relay.example',
         walletId: 'alice.testnet',
         userId: 'alice.testnet',
+        groupId: 'email-otp-group',
         challengeId: 'enroll-1',
         otpCode: '123456',
-        shamirPrimeB64u: 'prime-b64u',
         routePlan: {
           routeFamily: 'registration',
           authLane: { kind: 'app_session', jwt: 'app-session-jwt' },
-          operation: 'wallet_unlock',
+          operation: 'registration',
         },
         otpChannel: 'email_otp',
       },
