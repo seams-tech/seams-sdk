@@ -1138,28 +1138,18 @@ only when the wallet key itself and at least one side of the lane remain trusted
 
 ## Current Implementation Gaps
 
-- `ShareRotationJob` treats Ed25519 and ECDSA as one protocol family.
-- the dormant `AdditiveDeltaReshareCommitment` type lacks a key-family,
-  operation, lane, and epoch binding;
-- job lifecycle omits committed delivery and forward-only recovery states;
-- source-lane creation and same-lane refresh share overly broad types;
-- parent enrollment activation and aggregate receipts do not exist;
-- the frozen Yao `lane_provisioning` and `lane_refresh` request kinds and
-  lane-materialization circuit are not implemented;
-- ECDSA additive target-lane resharing is unimplemented;
-- Refactor 90's canonical ECDSA manifest, activation journal, hydration, and
-  exact `MpcMaterialActivationRef` are landed; the lane-aware source-material
-  adapter remains open;
-- the exact ECDSA lane-retirement receipt and lane-specific hydration mapping
-  remain open;
-- Gateway, SigningWorker, and Deriver owner adapters for lane delivery and
-  activation remain open;
-- Refactor 101 owner-lane projection and normal-signing admission are landed;
-  independently provisioned lanes must extend that exact lookup without a
-  parallel admission path.
+The R102 internal execution path is landed: curve-specific jobs, forward-only
+lifecycles, Gateway persistence, Ed25519 Yao lane materialization, ECDSA
+additive resharing, recipient-isolated delivery, private SigningWorker
+activation, exact retirement, replay, and cross-language wire vectors.
 
-Replace these scaffolds directly. Do not retain a universal rotation job or
-protocol fallback.
+Refactor 103 owns the authenticated device-link claim, target-device custody
+worker bootstrap, public link-session transport, and linked-device Wallet
+Session admission. Its bootstrap must install the R102 holder worker with an
+authorized passkey or Email OTP custody-seal context before replacing the
+fail-closed default endpoint. Refactor 104 owns delegated-execution admission.
+Wallet-key root refresh remains deferred until its authoritative root protocol
+can enumerate and replace every active lane atomically.
 
 ## Parallel Delivery Strategy
 
@@ -1386,12 +1376,12 @@ Subagents do not independently run the full repository suite.
 
 ### Phase 1: Correct Domain Types
 
-- [ ] Replace universal rotation jobs with curve-specific creation and refresh
+- [x] Replace universal rotation jobs with curve-specific creation and refresh
       unions.
-- [ ] Add committed forward-only lifecycle states.
-- [ ] Add enrollment manifests, aggregate receipts, and activation decisions.
-- [ ] Add type fixtures for creation-versus-refresh and curve separation.
-- [ ] Require a fresh target `MpcMaterialActivationId` for every lane create or
+- [x] Add committed forward-only lifecycle states.
+- [x] Add enrollment manifests, aggregate receipts, and activation decisions.
+- [x] Add type fixtures for creation-versus-refresh and curve separation.
+- [x] Require a fresh target `MpcMaterialActivationId` for every lane create or
       refresh and bind the resulting reference to the lane and share epoch.
 
 ### Phase 2: ECDSA Lane Protocol
@@ -1399,37 +1389,37 @@ Subagents do not independently run the full repository suite.
 - [x] Resolve the exact active source material through Refactor 90's landed
       `ActiveEcdsaCapabilityManifest` and hydration contract after reconciling
       any pending activation journal.
-- [ ] Add the lane-aware source-material adapter that binds the manifest,
+- [x] Add the lane-aware source-material adapter that binds the manifest,
       lane/epoch, participants, and exact `MpcMaterialActivationRef`.
-- [ ] Implement holder-sampled target share and transient delta handling.
-- [ ] Verify public-key and address continuity.
-- [ ] Seal target relayer shares and bind target threshold sessions.
-- [ ] Emit and hydrate the exact `EcdsaServerRetirementReceipt` for lane
+- [x] Implement holder-sampled target share and transient delta handling.
+- [x] Verify public-key and address continuity.
+- [x] Seal target relayer shares and bind target threshold sessions.
+- [x] Emit and hydrate the exact `EcdsaServerRetirementReceipt` for lane
       revocation; do not encode revocation as `replaced`.
-- [ ] Add replay, parity, tamper, and zeroization tests.
+- [x] Add replay, parity, tamper, and zeroization tests.
 
 ### Phase 3: Ed25519 Yao Lane Protocol
 
-- [ ] Implement admitted recipient provisioning through the selected Yao suite.
-- [ ] Deliver separate target Client and SigningWorker packages.
-- [ ] Verify registered `A_pub` and immutable key-creation identity.
-- [ ] Preserve zero-Deriver ordinary signing.
-- [ ] Add output-commit redelivery and recovery tests.
+- [x] Implement admitted recipient provisioning through the selected Yao suite.
+- [x] Deliver separate target Client and SigningWorker packages.
+- [x] Verify registered `A_pub` and immutable key-creation identity.
+- [x] Preserve zero-Deriver ordinary signing.
+- [x] Add output-commit redelivery and recovery tests.
 
 ### Phase 4: Aggregate Activation
 
-- [ ] Implement enrollment locks and manifest receipts.
-- [ ] Activate child lanes through one parent visibility commit.
-- [ ] Resume partial committed work after crashes.
-- [ ] Keep every partial enrollment unavailable to signing.
+- [x] Implement enrollment locks and manifest receipts.
+- [x] Activate child lanes through one parent visibility commit.
+- [x] Resume partial committed work after crashes.
+- [x] Keep every partial enrollment unavailable to signing.
 
 ### Phase 5: Refresh And Revocation
 
-- [ ] Add owner and linked-device lane refresh. Refactor 104 owns any later
+- [x] Add owner and linked-device lane refresh. Refactor 104 owns any later
       delegated-execution adapter.
-- [ ] Add immediate lane and aggregate enrollment revocation.
-- [ ] Invalidate warm capabilities and reject stale epochs.
-- [ ] Ensure Wallet Session expiry preserves active lane material and activation
+- [x] Add immediate lane and aggregate enrollment revocation.
+- [x] Invalidate warm capabilities and reject stale epochs.
+- [x] Ensure Wallet Session expiry preserves active lane material and activation
       references; require the same property from future authorization adapters.
 - [ ] Add wallet-key root refresh integration after authoritative protocol
       support exists.

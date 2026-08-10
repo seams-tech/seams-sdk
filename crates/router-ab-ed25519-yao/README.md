@@ -2,7 +2,8 @@
 
 This crate is the single transport-neutral composition boundary between
 `router-ab-core` lifecycle admission and the fixed Ed25519 Yao role engines.
-It is a Phase 9C local precursor with `production_eligible = false`.
+The Cloudflare runtime uses its selected lane-materialization role runners for
+R102 provisioning and refresh. Local profile evidence remains test-only.
 
 The public builders consume one admitted ceremony binding plus one Deriver's
 zeroizing contribution. They return one move-only 128 KiB role engine. A
