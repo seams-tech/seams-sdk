@@ -197,6 +197,9 @@ export async function recoverWalletCustodyManifestV1(input: {
           activateRouterRecovery: (protocolResultJson) =>
             activateWalletRecoveryEd25519V1({ request, protocolResultJson, transport }),
         });
+        if (!recovered.localMaterial) {
+          throw new Error('wallet recovery produced no NEAR local material');
+        }
         replacementEnvelope = recordReplacementEnvelope({
           current: replacementEnvelope,
           candidate: recovered.recoveryReplacementEnvelope,

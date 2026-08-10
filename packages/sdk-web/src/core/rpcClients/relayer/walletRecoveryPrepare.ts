@@ -456,10 +456,17 @@ function parseWalletRecoveryRegistrationOptions(
   if (!replacedCredentialIdResult.ok) {
     throw new Error('walletRecoveryPrepare.registration.replacedCredentialIdB64u is invalid');
   }
-  const replacedCredentialIdB64u = requireCanonicalNonEmptyB64u(
+  const canonicalReplacedCredentialIdB64u = requireCanonicalNonEmptyB64u(
     replacedCredentialIdResult.value,
     'registration.replacedCredentialIdB64u',
   );
+  const canonicalReplacedCredentialIdResult = parseWebAuthnCredentialIdB64u(
+    canonicalReplacedCredentialIdB64u,
+  );
+  if (!canonicalReplacedCredentialIdResult.ok) {
+    throw new Error('walletRecoveryPrepare.registration.replacedCredentialIdB64u is invalid');
+  }
+  const replacedCredentialIdB64u = canonicalReplacedCredentialIdResult.value;
   const rpIdResult = parseWebAuthnRpId(registration.rpId);
   if (!rpIdResult.ok) throw new Error('walletRecoveryPrepare.registration.rpId is invalid');
 

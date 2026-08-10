@@ -18,7 +18,8 @@ import {
   parseRootShareEpoch,
 } from '@shared/utils/domainIds';
 import { secureRandomId } from '@shared/utils/secureRandomId';
-import { SigningSessionIds } from '@shared/utils/signingSessionIds';
+import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
+import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   deriveWalletRecoveryKeyLifecycleId,
   parseRecoveryCodeReservationId,
@@ -74,13 +75,14 @@ function freshMaterialActivation(input: {
   if (!activationId.ok || !lifecycleBinding.ok) {
     throw new Error('wallet recovery ECDSA material activation identity is invalid');
   }
+  const currentActivation = routerAbMpcMaterialActivationRefFromWire(input.current);
   const activation = buildMpcMaterialActivationRef({
     activationId: activationId.value,
-    capability: input.current.capability,
-    materialOwner: input.current.material_owner,
-    keyBinding: input.current.key_binding,
+    capability: currentActivation.capability,
+    materialOwner: currentActivation.materialOwner,
+    keyBinding: currentActivation.keyBinding,
     lifecycleBinding: lifecycleBinding.value,
-    signingWorker: input.current.signing_worker,
+    signingWorker: currentActivation.signingWorker,
   });
   return {
     kind: activation.kind,

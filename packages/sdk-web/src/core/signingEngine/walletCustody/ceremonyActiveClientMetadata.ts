@@ -132,7 +132,7 @@ export function walletRecoveryEd25519ActiveClientMetadataV1(input: {
     signingWorkerVerifyingShare: Uint8Array.from(receipt.signing_worker_verifying_share),
     stateEpoch: BigInt(receipt.state_epoch),
     transcript: Uint8Array.from(receipt.transcript),
-    activeCapabilityBinding: Uint8Array.from(input.activationReceipt.active_capability_binding),
+    activeCapabilityBinding: [...input.activationReceipt.active_capability_binding],
     materialActivation: materialActivation.value,
   };
 }

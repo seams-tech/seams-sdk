@@ -1,10 +1,17 @@
 import {
   buildPasskeyCustodyEnvelopeRecord,
   buildPasskeyEnvelopeFactor,
+  parseDigestField,
+  parseEnvelopeCiphertextB64u,
+  parseEnvelopeNonceB64u,
+  parseEnvelopeRevision,
   parsePasskeyCustodyEnvelopeRecord,
   type PasskeyCustodyEnvelopeRecord,
+  type EnvelopeCiphertextB64u,
+  type EnvelopeNonceB64u,
 } from '@shared/passkey-custody';
 import { base64UrlDecode } from '@shared/utils/base64';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   parsePasskeyEnvelopeId,
   parseWebAuthnCredentialIdB64u,
@@ -67,23 +74,27 @@ function publicKeyCreationOptions(
 }
 
 function requireResealedEnvelope(value: unknown): {
-  readonly nonceB64u: string;
-  readonly sealedCustodySecretB64u: string;
-  readonly aadHashB64u: string;
-  readonly ciphertextDigestB64u: string;
+  readonly nonceB64u: EnvelopeNonceB64u;
+  readonly sealedCustodySecretB64u: EnvelopeCiphertextB64u;
+  readonly aadHashB64u: DigestB64u;
+  readonly ciphertextDigestB64u: DigestB64u;
 } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Passkey custody worker returned no resealed envelope');
   }
   const record = value as Record<string, unknown>;
-  const nonceB64u = String(record.nonceB64u || '').trim();
-  const sealedCustodySecretB64u = String(record.sealedCustodySecretB64u || '').trim();
-  const aadHashB64u = String(record.aadHashB64u || '').trim();
-  const ciphertextDigestB64u = String(record.ciphertextDigestB64u || '').trim();
-  if (!nonceB64u || !sealedCustodySecretB64u || !aadHashB64u || !ciphertextDigestB64u) {
-    throw new Error('Passkey custody worker returned incomplete resealed envelope');
-  }
-  return { nonceB64u, sealedCustodySecretB64u, aadHashB64u, ciphertextDigestB64u };
+  return {
+    nonceB64u: parseEnvelopeNonceB64u(record.nonceB64u, 'resealed envelope nonceB64u'),
+    sealedCustodySecretB64u: parseEnvelopeCiphertextB64u(
+      record.sealedCustodySecretB64u,
+      'resealed envelope sealedCustodySecretB64u',
+    ),
+    aadHashB64u: parseDigestField(record.aadHashB64u, 'resealed envelope aadHashB64u'),
+    ciphertextDigestB64u: parseDigestField(
+      record.ciphertextDigestB64u,
+      'resealed envelope ciphertextDigestB64u',
+    ),
+  };
 }
 
 function requireCredentialId(value: string): WebAuthnCredentialIdB64u {
@@ -169,7 +180,7 @@ export async function createPasskeyCustodyLinkEnvelope(input: {
         walletId: input.existingEnvelope.walletId,
         binding: input.existingEnvelope.binding,
         factor,
-        envelopeRevision: 1,
+        envelopeRevision: parseEnvelopeRevision(1),
         nonceB64u: resealed.nonceB64u,
         sealedCustodySecretB64u: resealed.sealedCustodySecretB64u,
         ciphertextDigestB64u: resealed.ciphertextDigestB64u,

@@ -10,6 +10,7 @@ import {
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   mpcMaterialActivationRefsEqual,
+  parseThresholdEd25519SessionId,
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 
@@ -67,6 +68,12 @@ function capabilityFromActiveMaterial(args: {
   ) {
     throw new Error('[SigningEngine][ed25519-export] wallet custody client changed the exact lane');
   }
+  const thresholdSessionId = parseThresholdEd25519SessionId(metadata.scope.threshold_session_id);
+  if (!thresholdSessionId.ok) {
+    throw new Error(
+      `[SigningEngine][ed25519-export] threshold session id is invalid: ${thresholdSessionId.error.message}`,
+    );
+  }
   return {
     kind: 'router_ab_ed25519_yao_active_capability_v1',
     materialActivation: metadata.materialActivation,
@@ -80,7 +87,7 @@ function capabilityFromActiveMaterial(args: {
       lifecycleId: metadata.scope.lifecycle_id,
       rootShareEpoch: metadata.scope.root_share_epoch,
       accountId: metadata.scope.account_id,
-      thresholdSessionId: metadata.scope.threshold_session_id,
+      thresholdSessionId: thresholdSessionId.value,
       signerSetId: metadata.scope.signer_set_id,
       signingWorkerId: metadata.scope.signing_worker_id,
     },
