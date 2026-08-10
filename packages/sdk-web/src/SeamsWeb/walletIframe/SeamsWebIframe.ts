@@ -521,6 +521,11 @@ export class SeamsWebIframe {
         await this.router.acknowledgeWalletRecoveryCodeBackup({
           walletId: args.walletId,
         }),
+      rotateWalletRecoveryCodes: async (args) =>
+        await this.router.rotateWalletRecoveryCodes({
+          walletId: args.walletId,
+          authorization: args.authorization,
+        }),
       requestWalletRecoveryBootstrapChallenge: async (args) =>
         await this.router.requestWalletRecoveryBootstrapChallenge({
           walletId: args.walletId,

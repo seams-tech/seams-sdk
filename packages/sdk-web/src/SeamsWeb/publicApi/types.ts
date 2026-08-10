@@ -95,6 +95,10 @@ import type {
   WalletRecoveryBackupAcknowledgementResult,
   WalletRecoveryCodeStatusResult,
 } from '@/core/rpcClients/relayer/walletRecoveryRotate';
+import type {
+  WalletRecoveryRotationAuthorization,
+} from '@/SeamsWeb/operations/recovery/walletRecoveryRotation';
+import type { WalletRecoveryRotationOutcome } from '@/core/signingEngine/walletCustody/walletRecoveryRotation';
 export type {
   CompleteWalletRecoveryResult,
   PrepareWalletWithCodeResult,
@@ -109,6 +113,8 @@ export type {
   WalletRecoveryBackupAcknowledgementResult,
   WalletRecoveryCodeStatusResult,
 } from '@/core/rpcClients/relayer/walletRecoveryRotate';
+export type { WalletRecoveryRotationAuthorization } from '@/SeamsWeb/operations/recovery/walletRecoveryRotation';
+export type { WalletRecoveryRotationOutcome } from '@/core/signingEngine/walletCustody/walletRecoveryRotation';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import type {
   AvailableSigningLanes,
@@ -941,6 +947,11 @@ export interface RecoveryCapability {
   acknowledgeWalletRecoveryCodeBackup(args: {
     walletId: string;
   }): Promise<WalletRecoveryBackupAcknowledgementResult>;
+
+  rotateWalletRecoveryCodes(args: {
+    walletId: string;
+    authorization: WalletRecoveryRotationAuthorization;
+  }): Promise<WalletRecoveryRotationOutcome>;
 
   requestWalletRecoveryBootstrapChallenge(args: {
     walletId: string;

@@ -158,6 +158,7 @@ import {
   requestEmailOtpEnrollmentChallenge,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/challenge';
 import { WalletRecoveryCoordinator } from '@/SeamsWeb/operations/recovery/walletRecovery';
+import { rotateWalletRecoveryCodes } from '@/SeamsWeb/operations/recovery/walletRecoveryRotation';
 import { beginGoogleEmailOtpWalletAuth } from '@/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow';
 import { EmailOtpDeviceRecoveryRequiredError } from '@/SeamsWeb/operations/authMethods/emailOtp/errors';
 import {
@@ -826,6 +827,8 @@ export class SeamsWeb {
           await this.getWalletRecoveryCodeStatusDomain(args),
         acknowledgeWalletRecoveryCodeBackup: async (args) =>
           await this.acknowledgeWalletRecoveryCodeBackupDomain(args),
+        rotateWalletRecoveryCodes: async (args) =>
+          await this.rotateWalletRecoveryCodesDomain(args),
         requestWalletRecoveryBootstrapChallenge: async (args) =>
           await this.requestWalletRecoveryBootstrapChallengeDomain(args),
         verifyWalletRecoveryBootstrap: async (args) =>
@@ -2007,6 +2010,24 @@ export class SeamsWeb {
       relayUrl,
       walletId: args.walletId,
       sessionToken: appSessionJwt,
+    });
+  }
+
+  private async rotateWalletRecoveryCodesDomain(
+    args: Parameters<RecoveryCapability['rotateWalletRecoveryCodes']>[0],
+  ) {
+    const relayUrl = String(this.configs.network.relayer.url || '').trim();
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(args.walletId);
+      return await router.rotateWalletRecoveryCodes(args);
+    }
+    const appSessionJwt = this.requireActiveWalletAppSessionJwt(relayUrl, args.walletId);
+    return await rotateWalletRecoveryCodes({
+      context: this.getContext(),
+      relayUrl,
+      walletId: args.walletId,
+      sessionToken: appSessionJwt,
+      authorization: args.authorization,
     });
   }
 

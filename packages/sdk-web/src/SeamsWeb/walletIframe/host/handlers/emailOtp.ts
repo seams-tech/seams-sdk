@@ -209,6 +209,33 @@ function parseWalletRecoverySessionPayload(
   return { walletId: readRequiredString(record, 'walletId') };
 }
 
+function parseWalletRecoveryRotationPayload(value: unknown): {
+  walletId: string;
+  authorization:
+    | { kind: 'existing_passkey' }
+    | { kind: 'email_otp'; challengeId: string; otpCode: string };
+} {
+  const record = recordFromPayload(value);
+  const authorization = recordFromPayload(record.authorization);
+  if (authorization.kind === 'existing_passkey') {
+    return {
+      walletId: readRequiredString(record, 'walletId'),
+      authorization: { kind: 'existing_passkey' },
+    };
+  }
+  if (authorization.kind === 'email_otp') {
+    return {
+      walletId: readRequiredString(record, 'walletId'),
+      authorization: {
+        kind: 'email_otp',
+        challengeId: readRequiredString(authorization, 'challengeId'),
+        otpCode: readRequiredString(authorization, 'otpCode'),
+      },
+    };
+  }
+  throw new Error('Wallet recovery rotation authorization is invalid');
+}
+
 function parseWalletRecoveryBootstrapChallengePayload(
   value: unknown,
   expectedRelayUrl: string,
@@ -557,6 +584,17 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       const pm = deps.getSeamsWeb();
       const result = await pm.recovery.acknowledgeWalletRecoveryCodeBackup(
         parseWalletRecoverySessionPayload(req.payload),
+      );
+      respondOkResult(deps, req.requestId, result);
+    },
+
+    PM_ROTATE_WALLET_RECOVERY_CODES: async (
+      req: Req<'PM_ROTATE_WALLET_RECOVERY_CODES'>,
+    ) => {
+      assertNoParentPostedAppSessionJwt(req.payload);
+      const pm = deps.getSeamsWeb();
+      const result = await pm.recovery.rotateWalletRecoveryCodes(
+        parseWalletRecoveryRotationPayload(req.payload),
       );
       respondOkResult(deps, req.requestId, result);
     },
