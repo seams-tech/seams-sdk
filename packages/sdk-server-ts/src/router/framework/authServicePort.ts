@@ -45,6 +45,7 @@ import type {
 } from '../../core/RecoveryExecutionStore';
 import type { RecoverySessionRecord, RecoverySessionStatus } from '../../core/RecoverySessionStore';
 import type { RouterAbEcdsaPresignRuntime } from '../../core/routerAbSigning/RouterAbEcdsaPresignRuntime';
+import type { DeviceLinkingRouteServiceV1 } from '../transport/fetch/routes/deviceLinking';
 import type { WalletEcdsaSignerKey, WalletEcdsaSignerRecord } from '../../core/WalletStore';
 import type {
   FundImplicitNearAccountRequest,
@@ -1437,6 +1438,8 @@ export interface RouterApiServiceBag {
    * a port on the bag is what makes it callable from a route.
    */
   passkeyCustody: RouterApiPasskeyCustodyService;
+  /** Durable R103 link-session transport; omitted by deployments that disable linking. */
+  deviceLinking?: DeviceLinkingRouteServiceV1;
 }
 
 export interface RouterApiAuthorizedOperationService {
