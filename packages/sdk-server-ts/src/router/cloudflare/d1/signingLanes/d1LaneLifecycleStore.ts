@@ -1593,6 +1593,22 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
         (candidate) => String(candidate.operationId) === String(product.operationId),
       );
       if (!child) throw new Error('revocation receipt omits a product epoch');
+      const expectedRevocationEpoch =
+        product.state === 'revocation_pending' || product.state === 'revoked'
+          ? product.revocationEpoch
+          : product.revocationEpoch + 1;
+      if (
+        String(child.walletKeyId) !== String(product.walletKeyId) ||
+        String(child.targetLaneId) !== String(product.laneId) ||
+        String(child.targetLaneShareEpoch) !== String(product.laneShareEpoch) ||
+        !mpcMaterialActivationRefsEqual(
+          child.targetMaterialActivation,
+          product.materialActivation,
+        ) ||
+        child.revocationEpoch !== expectedRevocationEpoch
+      ) {
+        throw new Error('revocation receipt child differs from its product epoch');
+      }
       if (product.state === 'revoked') {
         if (
           product.revocationEpoch !== child.revocationEpoch ||
