@@ -14,6 +14,7 @@ import type {
   EcdsaAdditiveLaneTranscriptPreambleV1,
   EcdsaAdditiveLaneTranscriptV1,
   EcdsaServerRetirementReceiptV1,
+  Ed25519ServerRetirementReceiptV1,
   Ed25519YaoLaneJobV1,
   LaneEnrollmentManifestChildV1,
   LaneEnrollmentManifestV1,
@@ -21,6 +22,7 @@ import type {
   LaneProductEpochRecordV1,
   RevokeSigningLaneV1,
   RotatableSigningLaneJobV1,
+  SigningWorkerLaneMaterialIdentityV1,
 } from './rotation';
 
 const ENROLLMENT_MANIFEST_DOMAIN = 'seams/rotatable-signing-lanes/enrollment-manifest/v1';
@@ -37,6 +39,8 @@ const HOLDER_DELIVERY_RECEIPT_DOMAIN = 'seams/rotatable-signing-lanes/holder-del
 const SERVER_ACTIVATION_RECEIPT_DOMAIN =
   'seams/rotatable-signing-lanes/server-activation-receipt/v1';
 const ECDSA_RETIREMENT_RECEIPT_DOMAIN = 'seams/rotatable-signing-lanes/ecdsa-retirement-receipt/v1';
+const ED25519_RETIREMENT_RECEIPT_DOMAIN =
+  'seams/rotatable-signing-lanes/ed25519-retirement-receipt/v1';
 
 const TEXT_ENCODER = new TextEncoder();
 
@@ -667,6 +671,55 @@ export async function computeEcdsaServerRetirementReceiptDigestV1(
 ): Promise<DigestB64u> {
   return parseDigestB64u(
     base64UrlEncode(await sha256Bytes(encodeEcdsaServerRetirementReceiptCanonicalPayloadV1(value))),
+  );
+}
+
+export function encodeSigningWorkerLaneMaterialIdentityV1(
+  value: SigningWorkerLaneMaterialIdentityV1,
+): Uint8Array {
+  return concat([
+    text(value.operationId, 'identity.operationId'),
+    text(value.enrollmentId, 'identity.enrollmentId'),
+    text(value.walletId, 'identity.walletId'),
+    text(value.walletKeyId, 'identity.walletKeyId'),
+    text(value.targetLaneId, 'identity.targetLaneId'),
+    text(value.targetLaneShareEpoch, 'identity.targetLaneShareEpoch'),
+    text(value.targetMaterialActivationId, 'identity.targetMaterialActivationId'),
+    text(value.keyFamily, 'identity.keyFamily'),
+    digest(value.holderParticipantBindingDigestB64u, 'identity.holderParticipantBindingDigestB64u'),
+    digest(
+      value.signingWorkerParticipantBindingDigestB64u,
+      'identity.signingWorkerParticipantBindingDigestB64u',
+    ),
+    digest(value.holderRecipientKeyDigestB64u, 'identity.holderRecipientKeyDigestB64u'),
+    digest(value.serverRecipientKeyDigestB64u, 'identity.serverRecipientKeyDigestB64u'),
+    digest(value.transcriptHashB64u, 'identity.transcriptHashB64u'),
+    digest(value.protocolCommitReceiptDigestB64u, 'identity.protocolCommitReceiptDigestB64u'),
+  ]);
+}
+
+export function encodeEd25519ServerRetirementReceiptCanonicalPayloadV1(
+  value: Ed25519ServerRetirementReceiptV1,
+): Uint8Array {
+  return concat([
+    recordDomain(ED25519_RETIREMENT_RECEIPT_DOMAIN),
+    text(value.kind, 'kind'),
+    encodeSigningWorkerLaneMaterialIdentityV1(value.identity),
+    u64(value.revocationEpoch, 'revocationEpoch'),
+    text(value.retirementReason, 'retirementReason'),
+    text(value.retirementCorrelationId, 'retirementCorrelationId'),
+    digest(value.retirementRequestDigestB64u, 'retirementRequestDigestB64u'),
+    u64(value.retiredAtMs, 'retiredAtMs'),
+  ]);
+}
+
+export async function computeEd25519ServerRetirementReceiptDigestV1(
+  value: Ed25519ServerRetirementReceiptV1,
+): Promise<DigestB64u> {
+  return parseDigestB64u(
+    base64UrlEncode(
+      await sha256Bytes(encodeEd25519ServerRetirementReceiptCanonicalPayloadV1(value)),
+    ),
   );
 }
 

@@ -2,6 +2,7 @@ import type {
   EcdsaAdditiveLaneCreationJobV1,
   EcdsaAdditiveLaneJobV1,
   CompleteSigningLaneRevocationV1,
+  Ed25519ServerRetirementReceiptV1,
   Ed25519YaoLaneCreationJobV1,
   LaneServerRetirementReceiptV1,
   LaneCreationTargetV1,
@@ -24,6 +25,7 @@ declare const pendingEpoch: LaneProductEpochPendingVisibilityV1;
 declare const revocationPendingEpoch: LaneProductEpochRevocationPendingV1;
 declare const revokedEpoch: LaneProductEpochRevokedV1;
 declare const serverRetirementReceipt: LaneServerRetirementReceiptV1;
+declare const ed25519ServerRetirementReceipt: Ed25519ServerRetirementReceiptV1;
 declare const digestOnlyRevocationCompletion: Omit<
   CompleteSigningLaneRevocationV1,
   'retirementReceipt'
@@ -86,6 +88,15 @@ const invalidRevocationPendingReceipt: LaneProductEpochRevocationPendingV1 = {
 // @ts-expect-error a fenced lane is not fully revoked until a participant receipt is committed
 const invalidCompletedRevocation: LaneProductEpochRevokedV1 = revocationPendingEpoch;
 
+const invalidEd25519RetirementIdentity: Ed25519ServerRetirementReceiptV1 = {
+  ...ed25519ServerRetirementReceipt,
+  identity: {
+    ...ed25519ServerRetirementReceipt.identity,
+    // @ts-expect-error Ed25519 retirement receipts cannot carry an ECDSA identity
+    keyFamily: 'ecdsa_secp256k1',
+  },
+};
+
 // @ts-expect-error completion requires the exact participant-issued receipt
 const invalidDigestOnlyCompletion: CompleteSigningLaneRevocationV1 = digestOnlyRevocationCompletion;
 
@@ -98,6 +109,7 @@ void invalidActiveEpochParticipantSet;
 void invalidActiveEpochRevocationEpoch;
 void invalidPendingEpoch;
 void invalidRevocationPendingReceipt;
+void invalidEd25519RetirementIdentity;
 void invalidCompletedRevocation;
 void invalidDigestOnlyCompletion;
 void serverRetirementReceipt;

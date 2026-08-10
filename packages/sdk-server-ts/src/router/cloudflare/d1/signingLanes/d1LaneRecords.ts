@@ -302,6 +302,10 @@ export function parseReceiptRow(row: LaneReceiptRow): {
         return parseLaneServerRetirementReceiptV1(
           parseJsonRecord(raw, 'ECDSA server retirement receipt'),
         );
+      case 'ed25519_server_retirement':
+        return parseLaneServerRetirementReceiptV1(
+          parseJsonRecord(raw, 'Ed25519 server retirement receipt'),
+        );
       case 'aggregate_activation':
         return parseAggregateLaneActivationReceiptV1(
           parseJsonRecord(raw, 'aggregate lane activation receipt'),
