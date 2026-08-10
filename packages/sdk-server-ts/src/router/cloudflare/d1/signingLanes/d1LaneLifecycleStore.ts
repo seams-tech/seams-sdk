@@ -919,6 +919,30 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
       );
       statements.push(this.database.prepare(LANE_CAS_GUARD_SQL));
     }
+    for (const retirement of retirements) {
+      const retired = retireLaneProductEpochV1(retirement.previous, {
+        retirementReason: 'rotation',
+        retirementReceiptDigestB64u: aggregateDigest,
+        retiredAtMs: input.activatedAtMs,
+      });
+      statements.push(
+        this.database
+          .prepare(
+            `UPDATE ${PRODUCT_TABLE} SET state = 'retired', product_json = ?5, version = version + 1, command_digest_b64u = ?6, updated_at_ms = ?7 WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4 AND wallet_key_id = ?8 AND lane_id = ?9 AND target_material_activation_id = ?10 AND version = ?11 AND state = 'active'`,
+          )
+          .bind(
+            ...values,
+            JSON.stringify(retired),
+            aggregateDigest,
+            input.activatedAtMs,
+            String(retirement.previous.walletKeyId),
+            String(retirement.previous.laneId),
+            String(retirement.previous.targetMaterialActivationId),
+            retirement.version,
+          ),
+      );
+      statements.push(this.database.prepare(LANE_CAS_GUARD_SQL));
+    }
     for (const child of input.orderedChildReceipts) {
       const pending = products.find(
         (candidate) => String(candidate.operationId) === String(child.operationId),
@@ -940,30 +964,6 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
             aggregateDigest,
             input.activatedAtMs,
             String(child.operationId),
-          ),
-      );
-      statements.push(this.database.prepare(LANE_CAS_GUARD_SQL));
-    }
-    for (const retirement of retirements) {
-      const retired = retireLaneProductEpochV1(retirement.previous, {
-        retirementReason: 'rotation',
-        retirementReceiptDigestB64u: aggregateDigest,
-        retiredAtMs: input.activatedAtMs,
-      });
-      statements.push(
-        this.database
-          .prepare(
-            `UPDATE ${PRODUCT_TABLE} SET state = 'retired', product_json = ?5, version = version + 1, command_digest_b64u = ?6, updated_at_ms = ?7 WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4 AND wallet_key_id = ?8 AND lane_id = ?9 AND target_material_activation_id = ?10 AND version = ?11 AND state = 'active'`,
-          )
-          .bind(
-            ...values,
-            JSON.stringify(retired),
-            aggregateDigest,
-            input.activatedAtMs,
-            String(retirement.previous.walletKeyId),
-            String(retirement.previous.laneId),
-            String(retirement.previous.targetMaterialActivationId),
-            retirement.version,
           ),
       );
       statements.push(this.database.prepare(LANE_CAS_GUARD_SQL));
