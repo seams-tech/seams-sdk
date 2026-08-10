@@ -318,10 +318,15 @@ function assertProductsMatchManifest(
       product.enrollmentId !== manifest.enrollmentId ||
       product.walletId !== manifest.walletId ||
       product.walletKeyId !== child.walletKeyId ||
+      product.laneKind !== 'linked_device' ||
       product.laneId !== child.targetLaneId ||
       product.laneShareEpoch !== child.targetLaneShareEpoch ||
       product.targetMaterialActivationId !== child.targetMaterialActivationId ||
-      product.keyFamily !== child.keyFamily
+      product.keyFamily !== child.keyFamily ||
+      product.holderParticipant.participantBindingDigestB64u !==
+        child.holderParticipantBindingDigestB64u ||
+      product.signingWorkerParticipant.participantBindingDigestB64u !==
+        child.signingWorkerParticipantBindingDigestB64u
     ) {
       throw new Error('lane enrollment product does not match its manifest child');
     }
