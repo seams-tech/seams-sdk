@@ -46,6 +46,10 @@ import { handleAuth } from './routes/auth';
 import { handleNearPublicKeys } from './routes/nearPublicKeys';
 import { handleWellKnown } from './routes/wellKnown';
 import { handleDeviceLinking } from './routes/deviceLinking';
+import {
+  handleDeviceManagement,
+  LINKED_DEVICE_MANAGEMENT_BASE_V1,
+} from './routes/deviceManagement';
 import { validateRouterApiRorOptions } from '../../framework/ror/provider';
 import { handleSigningSessionSealRoutes } from '../../../threshold/session/signingSessionSeal/transport/fetch';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../../framework/routerApi';
@@ -106,6 +110,21 @@ export function createFetchRouter(
     handleWellKnown,
     handleWalletRegistration,
     handleDeviceLinking,
+    async (context: FetchRouterApiContext) => {
+      if (!context.pathname.startsWith(LINKED_DEVICE_MANAGEMENT_BASE_V1)) return null;
+      const service = context.service.deviceManagement;
+      if (!service) {
+        return json(
+          {
+            ok: false,
+            code: 'not_supported',
+            message: 'Linked-device management is not configured',
+          },
+          { status: 501 },
+        );
+      }
+      return await handleDeviceManagement(context, service);
+    },
     handlePasskeyCustody,
     handleWalletCustodyCredentialsList,
     handleWalletCustodyCredentialLabel,
