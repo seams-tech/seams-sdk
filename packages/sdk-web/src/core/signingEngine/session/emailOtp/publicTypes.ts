@@ -53,35 +53,6 @@ export type EmailOtpRecoveryCodeBackupStatus = {
   activeRecoveryCodeCountAtBackup: number;
 };
 
-export type EmailOtpRecoveryCodeLifecycleStatus = 'ready' | 'incomplete' | 'not_enrolled';
-
-export type EmailOtpRecoveryCodeStatus = {
-  status: EmailOtpRecoveryCodeLifecycleStatus;
-  walletId: string;
-  enrollmentId: string;
-  enrollmentSealKeyVersion: string;
-  expectedRecoveryCodeCount: number;
-  activeRecoveryCodeCount: number;
-  consumedRecoveryCodeCount: number;
-  revokedRecoveryCodeCount: number;
-  totalRecoveryCodeCount: number;
-  issuedAtMs: number | null;
-};
-
-export type EmailOtpRecoveryCodeRotationMaterial = {
-  walletId: string;
-  userId: string;
-  providerUserId: string;
-  enrollmentId: string;
-  enrollmentVersion: string;
-  enrollmentSealKeyVersion: string;
-  recoveryKeys: EmailOtpRecoveryCodeSet;
-  recoveryCodesIssuedAtMs: number;
-  activeRecoveryCodeCount: number;
-  revokedRecoveryCodeCount: number;
-  totalRecoveryCodeCount: number;
-};
-
 export type GoogleEmailOtpSessionExchangeResult = {
   jwt?: string;
   session: {

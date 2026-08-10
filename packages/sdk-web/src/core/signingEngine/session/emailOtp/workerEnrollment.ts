@@ -26,7 +26,6 @@ import {
   type EmailOtpRouteFamily,
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpEnrollmentResult } from './publicTypes';
-import type { EmailOtpRecoveryCodeRotationMaterial } from './publicTypes';
 import { zeroizeBytes } from './zeroize';
 
 type JsonObject = Record<string, unknown>;
@@ -68,14 +67,6 @@ function readString(value: unknown, label: string): string {
 
 function readOptionalString(value: unknown): string | undefined {
   return toOptionalTrimmedNonEmptyString(value);
-}
-
-function readNonNegativeInteger(value: unknown, label: string): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new Error(`${label} must be a non-negative integer`);
-  }
-  return Math.floor(parsed);
 }
 
 function toArrayBufferCopy(bytes: Uint8Array): ArrayBuffer {
@@ -223,38 +214,6 @@ function parseEmailOtpWalletRegistrationEcdsaPrepareHandleResult(
   }
 }
 
-function parseEmailOtpRecoveryCodeRotationMaterial(
-  value: unknown,
-): EmailOtpRecoveryCodeRotationMaterial {
-  const response = requireObjectJson(value, 'Email OTP recovery-code rotation result');
-  const recoveryCodeMaterial = parseEmailOtpRecoveryCodeMaterial(response);
-  return {
-    walletId: readString(response.walletId, 'walletId'),
-    userId: readString(response.userId, 'userId'),
-    providerUserId: readString(response.authSubjectId, 'authSubjectId'),
-    enrollmentId: readString(response.enrollmentId, 'enrollmentId'),
-    enrollmentVersion: readString(response.enrollmentVersion, 'enrollmentVersion'),
-    enrollmentSealKeyVersion: readString(
-      response.enrollmentSealKeyVersion,
-      'enrollmentSealKeyVersion',
-    ),
-    recoveryKeys: recoveryCodeMaterial.recoveryKeys,
-    recoveryCodesIssuedAtMs: recoveryCodeMaterial.recoveryCodesIssuedAtMs,
-    activeRecoveryCodeCount: readNonNegativeInteger(
-      response.activeRecoveryCodeCount,
-      'activeRecoveryCodeCount',
-    ),
-    revokedRecoveryCodeCount: readNonNegativeInteger(
-      response.revokedRecoveryCodeCount,
-      'revokedRecoveryCodeCount',
-    ),
-    totalRecoveryCodeCount: readNonNegativeInteger(
-      response.totalRecoveryCodeCount,
-      'totalRecoveryCodeCount',
-    ),
-  };
-}
-
 export async function enrollEmailOtpWallet(args: {
   relayUrl: string;
   walletId: string;
@@ -324,7 +283,6 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
   unlockKeyVersion: string;
   emailOtpSessionHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleResult;
   emailOtpEnrollment: {
-    recoveryWrappedEnrollmentEscrows: unknown[];
     enrollmentSealKeyVersion: string;
     clientUnlockPublicKeyB64u: string;
     unlockKeyVersion: string;
@@ -370,31 +328,4 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
   } finally {
     zeroizeBytes(workerClientSecret32);
   }
-}
-
-export async function rotateEmailOtpRecoveryCodesWithWorker(args: {
-  relayUrl: string;
-  walletId: string;
-  userId: string;
-  workerCtx: WorkerOperationContext;
-  appSessionJwt?: string;
-}): Promise<EmailOtpRecoveryCodeRotationMaterial> {
-  const workerCtx = requireWorkerCtx(args.workerCtx);
-  return parseEmailOtpRecoveryCodeRotationMaterial(
-    await workerCtx.requestWorkerOperation({
-      kind: 'emailOtp',
-      request: {
-        type: 'rotateEmailOtpRecoveryCodes',
-        payload: {
-          relayUrl: readString(args.relayUrl, 'relayUrl'),
-          walletId: readString(args.walletId, 'walletId'),
-          userId: readString(args.userId, 'userId'),
-          routePlan: buildWorkerEmailOtpRoutePlan({
-            routeFamily: 'login',
-            appSessionJwt: args.appSessionJwt,
-          }),
-        },
-      },
-    }),
-  );
 }

@@ -137,8 +137,6 @@ import type {
   LoginWithEmailOtpEcdsaCapabilityInternalResult,
   PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs,
   PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult,
-  RotateEmailOtpRecoveryCodesInternalArgs,
-  RotateEmailOtpRecoveryCodesInternalResult,
 } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { RegistrationCredentialConfirmationPayload } from '@/core/signingEngine/workerManager/validation';
@@ -744,9 +742,6 @@ export interface EmailOtpSigningSessionSurface {
     relayUrl: string;
   }): Promise<string>;
   enrollEmailOtpInternal(args: EnrollEmailOtpInternalArgs): Promise<EnrollEmailOtpInternalResult>;
-  rotateEmailOtpRecoveryCodesInternal(
-    args: RotateEmailOtpRecoveryCodesInternalArgs,
-  ): Promise<RotateEmailOtpRecoveryCodesInternalResult>;
 }
 
 export interface KeyExportSigningSurface {
