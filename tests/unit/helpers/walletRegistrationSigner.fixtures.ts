@@ -1,7 +1,10 @@
 import { buildWalletEcdsaSignerRecord } from '../../../packages/sdk-server-ts/src/core/d1WalletStore';
 import type { WalletEcdsaSignerRecord } from '../../../packages/sdk-server-ts/src/core/WalletStore';
 import type { WalletRegistrationEcdsaWalletKey } from '../../../packages/sdk-server-ts/src/core/registrationContracts';
-import { derivationClientSharePublicKey33B64uFromString } from '../../../packages/shared-ts/src/threshold/ecdsaDerivationRoleLocalBootstrap';
+import {
+  derivationClientSharePublicKey33B64uFromString,
+  ecdsaClientRootPublicKey33B64uFromString,
+} from '../../../packages/shared-ts/src/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { WalletId } from '../../../packages/shared-ts/src/utils/registrationIntent';
 import {
   parseRouterAbEcdsaRegistrationActivationReceiptV1,
@@ -174,6 +177,10 @@ export function createWalletEcdsaSignerRecord(
       envId: 'env-a',
       signingRootVersion: walletKey.signingRootVersion,
     },
+    custodyKeyManifestDigestB64u: VALID_ECDSA_DIGEST32_B64U,
+    custodyClientRootPublicKey33B64u: ecdsaClientRootPublicKey33B64uFromString(
+      VALID_ECDSA_CLIENT_SHARE_PUBLIC_KEY33_B64U,
+    ),
     createdAtMs: args.now,
     updatedAtMs: args.now,
   });
