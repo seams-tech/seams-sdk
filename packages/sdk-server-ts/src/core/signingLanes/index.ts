@@ -1,4 +1,5 @@
 export * from './SigningLaneStore';
+export * from './WalletKeyStore';
 export * from './SigningLaneRotationStore';
 export * from './SigningLaneLockStore';
 export * from './LinkedDeviceLaneStore';

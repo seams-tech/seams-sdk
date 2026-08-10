@@ -5,10 +5,7 @@ import {
   parseLaneHolderParticipantRecordV1,
   parseSigningWorkerParticipantRecordV1,
 } from '../../packages/shared-ts/src/signing-lanes/participants';
-import {
-  admitAndDispatchOwnerWalletExecution,
-  prepareOwnerWalletExecution,
-} from '../../packages/sdk-server-ts/src/router/domains/signingOperations/walletExecutionAdmission';
+import { prepareOwnerWalletExecution } from '../../packages/sdk-server-ts/src/router/domains/signingOperations/walletExecutionAdmission';
 import { proxyOwnerLaneAdmittedNormalSigningRequest } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/normalSigningRouterProxy';
 import { routerAbMpcMaterialActivationRefToWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import {
@@ -18,24 +15,29 @@ import {
 import { buildOwnerWalletExecutionEvidenceFixture } from './helpers/walletExecutionLane.fixtures';
 
 test.describe('R101 wallet execution admission', () => {
-  test('dispatches only a claimed operation bound to the exact active owner lane', async () => {
+  test('prepares only a claimed operation bound to the exact active owner lane', async () => {
     const authorization = await buildReusableAuthorizationCoreFixture();
     const evidence = await buildOwnerWalletExecutionEvidenceFixture();
-    let dispatchCount = 0;
-    const result = await admitAndDispatchOwnerWalletExecution({
+    const result = await prepareOwnerWalletExecution({
       authorizedOperation: authorization.authorizedOperation,
-      resolveEvidence: async () => evidence,
-      dispatch: async (execution) => {
-        dispatchCount += 1;
-        return execution.lane.laneId;
-      },
+      evidence,
     });
 
-    expect(result).toEqual({ kind: 'dispatched', result: evidence.lane.laneId });
-    expect(dispatchCount).toBe(1);
+    expect(result).toMatchObject({
+      kind: 'prepared',
+      execution: {
+        kind: 'prepared_owner_wallet_execution',
+        lane: { laneId: evidence.lane.laneId },
+        authorization: {
+          authorizedOperationId: authorization.authorizedOperation.authorizedOperationId,
+          operationFingerprintDigest: authorization.authorizedOperation.operationFingerprintDigest,
+          capabilityId: authorization.authorizedOperation.operation.capabilityId,
+        },
+      },
+    });
   });
 
-  test('refuses linked-device lanes before dispatch until R103 owns their admission', async () => {
+  test('refuses linked-device lanes until R103 owns their admission', async () => {
     const authorization = await buildReusableAuthorizationCoreFixture();
     const evidence = await buildOwnerWalletExecutionEvidenceFixture();
     const linkedDeviceId = parseLinkedDeviceId('linked-device:wallet-authorization');
@@ -68,17 +70,12 @@ test.describe('R101 wallet execution admission', () => {
       lifecycle: evidence.lane.lifecycle,
       linkedDeviceId: linkedDeviceId.value,
     });
-    let dispatchCount = 0;
-    const result = await admitAndDispatchOwnerWalletExecution({
+    const result = await prepareOwnerWalletExecution({
       authorizedOperation: authorization.authorizedOperation,
-      resolveEvidence: async () => ({ ...evidence, lane: linkedLane }),
-      dispatch: async () => {
-        dispatchCount += 1;
-      },
+      evidence: { ...evidence, lane: linkedLane },
     });
 
     expect(result).toEqual({ kind: 'refused', reason: 'unsupported_lane' });
-    expect(dispatchCount).toBe(0);
   });
 
   test('refuses stale material activation before dispatch', async () => {
@@ -98,25 +95,15 @@ test.describe('R101 wallet execution admission', () => {
     expect(result).toEqual({ kind: 'refused', reason: 'material_activation_mismatch' });
   });
 
-  test('does not resolve lane evidence after operation completion', async () => {
+  test('refuses an operation after completion', async () => {
     const authorization = await buildReusableAuthorizationCoreFixture();
     const completed = await buildCompletedAuthorizedOperationFixture(authorization);
-    let resolutionCount = 0;
-    let dispatchCount = 0;
-    const result = await admitAndDispatchOwnerWalletExecution({
+    const result = await prepareOwnerWalletExecution({
       authorizedOperation: completed,
-      resolveEvidence: async () => {
-        resolutionCount += 1;
-        return await buildOwnerWalletExecutionEvidenceFixture();
-      },
-      dispatch: async () => {
-        dispatchCount += 1;
-      },
+      evidence: await buildOwnerWalletExecutionEvidenceFixture(),
     });
 
     expect(result).toEqual({ kind: 'refused', reason: 'operation_not_claimed' });
-    expect(resolutionCount).toBe(0);
-    expect(dispatchCount).toBe(0);
   });
 
   test('performs zero Router calls when the current owner lane is unavailable', async () => {

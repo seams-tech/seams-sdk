@@ -4,9 +4,11 @@ import {
   NEAR_ED25519_MPC_OPERATION_KINDS,
 } from '@shared/authorization/capabilityKinds';
 import {
+  buildPreparedOwnerWalletExecution,
   computeOwnerLaneParticipantBindingDigestV1,
-  type ActiveSigningLaneReference,
+  type ClaimedWalletExecutionAuthorization,
   type LaneParticipantBindingDigestB64u,
+  type PreparedOwnerWalletExecution,
   type SigningLaneRecord,
   type WalletKeyRecord,
 } from '@shared/signing-lanes';
@@ -35,14 +37,6 @@ type OwnerSigningLaneRecord = Extract<
 
 type ActiveOwnerSigningLaneRecord = OwnerSigningLaneRecord & {
   readonly lifecycle: Extract<SigningLaneRecord['lifecycle'], { readonly state: 'active' }>;
-};
-
-export type PreparedOwnerWalletExecution = {
-  readonly kind: 'prepared_owner_wallet_execution';
-  readonly laneKind: ActiveOwnerSigningLaneRecord['laneKind'];
-  readonly authorizedOperation: ClaimedAuthorizedOperation;
-  readonly materialActivation: MpcMaterialActivationRef;
-  readonly lane: ActiveSigningLaneReference;
 };
 
 export type WalletExecutionAdmissionRefusalReason =
@@ -145,10 +139,8 @@ export async function prepareOwnerWalletExecution(input: {
 
   return {
     kind: 'prepared',
-    execution: {
-      kind: 'prepared_owner_wallet_execution',
-      laneKind: lane.laneKind,
-      authorizedOperation: claimedOperation,
+    execution: buildPreparedOwnerWalletExecution({
+      authorization: claimedExecutionAuthorization(claimedOperation),
       materialActivation: input.evidence.materialActivation,
       lane: {
         kind: 'signing_lane_reference_v1',
@@ -161,29 +153,18 @@ export async function prepareOwnerWalletExecution(input: {
         lifecycle: lane.lifecycle,
         materialActivation: input.evidence.materialActivation,
       },
-    },
+    }),
   };
 }
 
-export async function admitAndDispatchOwnerWalletExecution<TResult>(input: {
-  readonly authorizedOperation: AuthorizedOperation;
-  readonly resolveEvidence: () => Promise<OwnerWalletExecutionEvidence>;
-  readonly dispatch: (execution: PreparedOwnerWalletExecution) => Promise<TResult>;
-}): Promise<
-  | { readonly kind: 'dispatched'; readonly result: TResult }
-  | Extract<WalletExecutionAdmissionResult, { readonly kind: 'refused' }>
-> {
-  if (input.authorizedOperation.lifecycle !== 'claimed') {
-    return refused('operation_not_claimed');
-  }
-  const admission = await prepareOwnerWalletExecution({
-    authorizedOperation: input.authorizedOperation,
-    evidence: await input.resolveEvidence(),
-  });
-  if (admission.kind === 'refused') return admission;
+function claimedExecutionAuthorization(
+  operation: ClaimedAuthorizedOperation,
+): ClaimedWalletExecutionAuthorization {
   return {
-    kind: 'dispatched',
-    result: await input.dispatch(admission.execution),
+    kind: 'claimed_wallet_execution_authorization_v1',
+    authorizedOperationId: operation.authorizedOperationId,
+    operationFingerprintDigest: operation.operationFingerprintDigest,
+    capabilityId: operation.operation.capabilityId,
   };
 }
 
