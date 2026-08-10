@@ -623,6 +623,17 @@ Conflict rules:
 
 ## R101 Completion Boundary
 
+Implementation status:
+
+- [x] Land strict shared wallet-key, lane, lifecycle, and active-reference parsers and type rejection.
+- [x] Project current Ed25519 and ECDSA signer rows into exact owner wallet keys and lanes.
+- [x] Hydrate both owner curves through their canonical browser capability paths with fail-closed checks.
+- [x] Admit prepared owner execution only after the claimed operation and exact active lane agree.
+- [x] Wire Gateway projection and server admission into the current owner normal-signing route.
+- [x] Remove duplicate lane-reference and dormant `delegated_agent` core shapes.
+- [ ] Connect the browser owner-lane hydration result to the current owner signing-flow composition.
+- [ ] Run and repair the full intended-behavior, source-guard, and wallet-iframe integration gates.
+
 R101 is complete when existing owner passkey and Email OTP signer records:
 
 1. project to exact curve-specific wallet keys and owner lanes;
