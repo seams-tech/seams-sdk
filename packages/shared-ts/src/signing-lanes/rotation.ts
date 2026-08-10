@@ -754,6 +754,32 @@ export type LaneProtocolCasResultV1 =
       storedCommandDigestB64u: string;
     };
 
+export type PreparedLaneProtocolRecordV1 = {
+  version: number;
+  commandDigestB64u: DigestB64u;
+  record: LaneProtocolRecordV1;
+};
+
+export type LaneEnrollmentPreparationResultV1 =
+  | {
+      kind: 'lane_enrollment_preparation_result_v1';
+      outcome: 'applied' | 'replayed';
+      enrollmentId: LaneEnrollmentId;
+      version: number;
+      commandDigestB64u: DigestB64u;
+      lifecycle: LaneEnrollmentLifecycleV1;
+      orderedProtocols: readonly [PreparedLaneProtocolRecordV1, ...PreparedLaneProtocolRecordV1[]];
+    }
+  | {
+      kind: 'lane_enrollment_preparation_result_v1';
+      outcome: 'conflict';
+      enrollmentId: LaneEnrollmentId;
+      expectedVersion: number | null;
+      actualVersion: number;
+      requestedCommandDigestB64u: DigestB64u;
+      storedCommandDigestB64u: DigestB64u;
+    };
+
 export type EcdsaLaneProtocolWasmV1 = {
   prepareEcdsaAdditiveLaneHolderRoundV1(
     input: EcdsaAdditiveLaneJobV1,
@@ -822,6 +848,11 @@ export type RecordLaneHolderDeliveryV1 = {
   expectedVersion: number;
 };
 
+export type RecordLaneProtocolCommitV1 = {
+  receipt: LaneProtocolCommitReceiptV1;
+  expectedVersion: number;
+};
+
 export type ActivateLaneServerMaterialV1 = {
   receipt: LaneServerActivationReceiptV1;
   expectedVersion: number;
@@ -863,10 +894,11 @@ export type LaneHolderRecipientWorkerV1 = {
 export type LaneEnrollmentGatewayV1 = {
   prepareLaneEnrollmentV1(
     input: PrepareLaneEnrollmentV1,
-  ): Promise<LaneEnrollmentActivationResultV1 | LaneProtocolCasResultV1>;
+  ): Promise<LaneEnrollmentPreparationResultV1>;
   resumeLaneProtocolOperationV1(
     input: ResumeLaneProtocolOperationV1,
   ): Promise<LaneProtocolCasResultV1>;
+  recordLaneProtocolCommitV1(input: RecordLaneProtocolCommitV1): Promise<LaneProtocolCasResultV1>;
   recordLaneHolderDeliveryV1(input: RecordLaneHolderDeliveryV1): Promise<LaneProtocolCasResultV1>;
   activateLaneServerMaterialV1(
     input: ActivateLaneServerMaterialV1,
