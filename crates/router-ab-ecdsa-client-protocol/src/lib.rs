@@ -21,6 +21,8 @@ use subtle::ConstantTimeEq;
 mod activation;
 #[cfg(feature = "hpke")]
 mod export_share;
+#[cfg(feature = "hpke")]
+mod lane_resharing;
 mod material_possession;
 #[cfg(feature = "hpke")]
 mod post_registration;
@@ -36,6 +38,22 @@ pub use export_share::{
     open_ecdsa_signing_worker_export_share_v1, seal_ecdsa_signing_worker_export_share_v1,
     EcdsaSigningWorkerExportShareBindingV1, EcdsaSigningWorkerExportShareEnvelopeV1,
 };
+#[cfg(feature = "hpke")]
+pub use lane_resharing::{
+    complete_ecdsa_additive_lane_server_round_v1, prepare_ecdsa_additive_lane_holder_round_v1,
+    verify_ecdsa_additive_lane_transcript_v1, verify_ecdsa_server_retirement_receipt_v1,
+    ActiveEcdsaLaneProtocolSourceV1, EcdsaAdditiveLaneHolderRoundV1, EcdsaAdditiveLaneJobV1,
+    EcdsaAdditiveLaneServerRoundV1, EcdsaAdditiveLaneTranscriptV1, EcdsaLaneAuthorizationBindingV1,
+    EcdsaLaneChainTargetV1, EcdsaLaneEncryptedPayloadV1, EcdsaLaneManifestIdentityV1,
+    EcdsaLaneTargetHolderV1, EcdsaLaneTargetOperationV1, EcdsaLaneTargetSigningWorkerV1,
+    EcdsaServerRetirementReceiptV1, EcdsaSourceCapabilityBindingV1, EcdsaTargetCapabilityBindingV1,
+    EcdsaTargetThresholdSessionBindingV1, ECDSA_ADDITIVE_LANE_ENVELOPE_DOMAIN_V1,
+    ECDSA_ADDITIVE_LANE_HOLDER_ROUND_DOMAIN_V1, ECDSA_ADDITIVE_LANE_PREAMBLE_DOMAIN_V1,
+    ECDSA_ADDITIVE_LANE_SERVER_ROUND_DOMAIN_V1, ECDSA_ADDITIVE_LANE_TRANSCRIPT_DOMAIN_V1,
+    ECDSA_SERVER_RETIREMENT_RECEIPT_DOMAIN_V1,
+};
+#[cfg(feature = "hpke")]
+pub use lane_resharing::{open_ecdsa_lane_payload_v1, seal_ecdsa_lane_payload_v1};
 pub use material_possession::{
     sign_ecdsa_wallet_recovery_material_possession_proof_v1,
     verify_ecdsa_client_material_possession_proof_v1,

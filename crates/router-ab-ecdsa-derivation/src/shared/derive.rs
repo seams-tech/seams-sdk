@@ -213,6 +213,186 @@ pub fn derive_ecdsa_lane_delta_v1(
     EcdsaLaneDelta::from_bytes(field_bytes_to_array32(&delta.to_repr()))
 }
 
+/// Computes the transient additive delta from an already-opened client share.
+///
+/// This boundary is used by the browser lane ceremony after the signer-core
+/// ready-state parser has opened the holder material. The source scalar is
+/// consumed by the call and never appears in a protocol record.
+pub fn derive_ecdsa_lane_delta_from_source_share32_v1(
+    source_client_share32: [u8; 32],
+    target_client_share: &EcdsaLaneClientShare,
+) -> RouterAbEcdsaDerivationResult<EcdsaLaneDelta> {
+    let source_client = parse_nonzero_scalar_32_be(&source_client_share32, "source client share")?;
+    let target_client =
+        parse_nonzero_scalar_32_be(target_client_share.secret_bytes(), "target client share")?;
+    let delta = *source_client.as_ref() - *target_client.as_ref();
+    EcdsaLaneDelta::from_bytes(field_bytes_to_array32(&delta.to_repr()))
+}
+
+/// Public facts required to rebind one relayer share without loading a
+/// mutable lane record. Every point is checked before a target scalar is
+/// returned.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EcdsaLanePublicIdentityBindingV1 {
+    /// Source client verifying share.
+    pub source_client_public_key33: [u8; 33],
+    /// Source relayer verifying share.
+    pub source_relayer_public_key33: [u8; 33],
+    /// Source threshold public key.
+    pub threshold_public_key33: [u8; 33],
+    /// Source EVM address.
+    pub threshold_ethereum_address20: [u8; 20],
+}
+
+/// Target relayer material produced by an additive lane rebind.
+#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+pub struct EcdsaLaneRelayerRebindV1 {
+    /// Target relayer scalar. It is never serialized by the protocol layer.
+    pub target_relayer_share32: [u8; 32],
+    /// Target relayer verifying share.
+    #[zeroize(skip)]
+    pub target_relayer_public_key33: [u8; 33],
+    /// Public target client verifying share used by the relation check.
+    #[zeroize(skip)]
+    pub target_client_public_key33: [u8; 33],
+    /// Public target threshold key.
+    #[zeroize(skip)]
+    pub target_threshold_public_key33: [u8; 33],
+    /// Target EVM address.
+    #[zeroize(skip)]
+    pub target_ethereum_address20: [u8; 20],
+}
+
+impl fmt::Debug for EcdsaLaneRelayerRebindV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EcdsaLaneRelayerRebindV1")
+            .field("target_relayer_share32", &"<redacted>")
+            .field(
+                "target_relayer_public_key33",
+                &self.target_relayer_public_key33,
+            )
+            .field(
+                "target_client_public_key33",
+                &self.target_client_public_key33,
+            )
+            .field(
+                "target_threshold_public_key33",
+                &self.target_threshold_public_key33,
+            )
+            .field("target_ethereum_address20", &self.target_ethereum_address20)
+            .finish()
+    }
+}
+
+/// Rebinds a relayer scalar from public source facts and a transient delta.
+///
+/// This is the SigningWorker-side primitive. It does not accept or return a
+/// holder scalar and fails closed when either source or target relation is
+/// inconsistent with the threshold key or EVM address.
+pub fn rebind_ecdsa_lane_relayer_share_bytes_v1(
+    source_relayer_share32: [u8; 32],
+    source_identity: &EcdsaLanePublicIdentityBindingV1,
+    delta: &EcdsaLaneDelta,
+    target_client_public_key33: [u8; 33],
+) -> RouterAbEcdsaDerivationResult<EcdsaLaneRelayerRebindV1> {
+    let source_client_public_key33 = validate_public_key33(
+        &source_identity.source_client_public_key33,
+        "source client public key",
+    )?;
+    let source_relayer_public_key33 = validate_public_key33(
+        &source_identity.source_relayer_public_key33,
+        "source relayer public key",
+    )?;
+    let source_threshold_public_key33 = validate_public_key33(
+        &source_identity.threshold_public_key33,
+        "source threshold public key",
+    )?;
+    let expected_source_threshold = add_public_keys_non_identity_33(
+        &source_client_public_key33,
+        &source_relayer_public_key33,
+        "source threshold public key",
+    )?;
+    if expected_source_threshold != source_threshold_public_key33 {
+        return Err(RouterAbEcdsaDerivationError::invalid_input(
+            "source threshold public key is inconsistent",
+        ));
+    }
+    let source_address = vec_to_fixed_20(
+        secp256k1_public_key_33_to_ethereum_address_20(&source_threshold_public_key33)?,
+        "source threshold ethereum address",
+    )?;
+    if source_address != source_identity.threshold_ethereum_address20 {
+        return Err(RouterAbEcdsaDerivationError::invalid_input(
+            "source threshold ethereum address is inconsistent",
+        ));
+    }
+
+    let source_relayer_scalar =
+        parse_nonzero_scalar_32_be(&source_relayer_share32, "source relayer share")?;
+    let source_relayer_public_from_scalar =
+        private_key_to_public_key33(&source_relayer_share32, "source relayer public key")?;
+    if source_relayer_public_from_scalar != source_relayer_public_key33 {
+        return Err(RouterAbEcdsaDerivationError::invalid_input(
+            "source relayer share public key is inconsistent",
+        ));
+    }
+
+    let target_client_public_key33 =
+        validate_public_key33(&target_client_public_key33, "target client public key")?;
+    let delta_scalar = parse_scalar_32_be(delta.as_bytes(), "delta32")?;
+    let source_client_point =
+        PublicKey::from_sec1_bytes(&source_client_public_key33).map_err(|_| {
+            RouterAbEcdsaDerivationError::decode_error("source client public key is invalid")
+        })?;
+    let expected_target_client =
+        target_client_public_key_from_delta(&source_client_point, &delta_scalar)?;
+    if expected_target_client != target_client_public_key33 {
+        return Err(RouterAbEcdsaDerivationError::invalid_input(
+            "target client public key does not match source client public key and delta",
+        ));
+    }
+
+    let target_relayer_scalar = *source_relayer_scalar.as_ref() + delta_scalar;
+    let target_relayer_scalar = Option::<NonZeroScalar>::from(NonZeroScalar::new(
+        target_relayer_scalar,
+    ))
+    .ok_or_else(|| {
+        RouterAbEcdsaDerivationError::invalid_input(
+            "target relayer share must remain a non-zero scalar",
+        )
+    })?;
+    let target_relayer_share32 = nonzero_scalar_to_32_be(&target_relayer_scalar);
+    let target_relayer_public_key33 =
+        private_key_to_public_key33(&target_relayer_share32, "target relayer public key")?;
+    let target_threshold_public_key33 = add_public_keys_non_identity_33(
+        &target_client_public_key33,
+        &target_relayer_public_key33,
+        "target threshold public key",
+    )?;
+    if target_threshold_public_key33 != source_threshold_public_key33 {
+        return Err(RouterAbEcdsaDerivationError::invalid_input(
+            "target threshold public key does not preserve source identity",
+        ));
+    }
+    let target_ethereum_address20 = vec_to_fixed_20(
+        secp256k1_public_key_33_to_ethereum_address_20(&target_threshold_public_key33)?,
+        "target threshold ethereum address",
+    )?;
+    if target_ethereum_address20 != source_identity.threshold_ethereum_address20 {
+        return Err(RouterAbEcdsaDerivationError::invalid_input(
+            "target threshold ethereum address does not preserve source identity",
+        ));
+    }
+
+    Ok(EcdsaLaneRelayerRebindV1 {
+        target_relayer_share32,
+        target_relayer_public_key33,
+        target_client_public_key33,
+        target_threshold_public_key33,
+        target_ethereum_address20,
+    })
+}
+
 pub fn derive_relayer_share(
     context: &RouterAbEcdsaDerivationStableKeyContext,
     y_relayer32_le: [u8; 32],
