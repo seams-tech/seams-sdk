@@ -93,9 +93,9 @@ lifecycle_binding: string,
  */
 signing_worker: string, };
 
-export type RouterAbEd25519YaoCircuitFamilyV1 = "activation" | "export";
+export type RouterAbEd25519YaoCircuitFamilyV1 = "activation" | "export" | "lane_materialization";
 
-export type RouterAbEd25519YaoOperationV1 = "registration" | "recovery" | "refresh" | "export";
+export type RouterAbEd25519YaoOperationV1 = "registration" | "recovery" | "refresh" | "export" | "lane_provisioning" | "lane_refresh";
 
 export type RouterAbEd25519YaoCeremonyBindingV1 = {
 /**
@@ -115,7 +115,7 @@ session_id: RouterAbEd25519YaoSessionIdV1,
  */
 stable_key_context_binding: RouterAbEd25519YaoStableKeyContextBindingV1, material_activation: RouterAbMpcMaterialActivationRefV1, };
 
-export type RouterAbEd25519YaoCircuitIdV1 = "activation_v1" | "export_v1";
+export type RouterAbEd25519YaoCircuitIdV1 = "activation_v1" | "export_v1" | "lane_materialization_v1";
 
 export type RouterAbEd25519YaoProtocolIdV1 = "v1";
 

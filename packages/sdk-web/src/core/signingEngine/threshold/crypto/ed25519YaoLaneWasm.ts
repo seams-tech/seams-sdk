@@ -9,6 +9,16 @@ import {
   parseLaneProtocolCommitReceiptV1,
   parseRotatableSigningLaneJobV1,
 } from '@shared/signing-lanes/rotationParsers';
+import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import type {
+  RouterAbEd25519YaoApplicationBindingFactsV1,
+  RouterAbEd25519YaoCeremonyBindingV1,
+} from '@shared/utils/routerAbEd25519Yao';
+import { alphabetizeStringify } from '@shared/utils/digests';
+import {
+  executeWorkerOperation,
+  type WorkerOperationContext,
+} from '../../workerManager/executeWorkerOperation';
 
 function parseEdJob(value: unknown): Ed25519YaoLaneJobV1 {
   const parsed = parseRotatableSigningLaneJobV1(value);
@@ -58,6 +68,13 @@ export async function completeEd25519YaoLaneV1(
     job,
     responseJson: responseJson(input.responseJson),
   });
+  return parseEd25519YaoLaneCompletionV1(job, completion);
+}
+
+function parseEd25519YaoLaneCompletionV1(
+  job: Ed25519YaoLaneJobV1,
+  completion: Ed25519YaoLaneClientCompletionV1,
+): Ed25519YaoLaneClientCompletionV1 {
   const receipt = parseCommitReceipt(completion.protocolCommitReceipt);
   const holderPackage = parseLaneHolderPackageWireV1(completion.holderPackage);
   if (holderPackage.kind !== 'ed25519_yao_lane_holder_package_set_v1') {
@@ -101,3 +118,135 @@ export function createEd25519YaoLaneWasmAdapterV1(
 }
 
 export const createEd25519YaoLaneWasmAdapter = createEd25519YaoLaneWasmAdapterV1;
+
+export type Ed25519YaoLaneWorkerSourceV1 = {
+  readonly sourceHandle: string;
+  discard(): Promise<void>;
+};
+
+export async function openEd25519YaoLaneWorkerSourceV1(args: {
+  readonly workerCtx: WorkerOperationContext;
+  readonly factorSecret: ArrayBuffer;
+  readonly envelope: PasskeyCustodyEnvelopeRecord;
+  readonly applicationBindingDigestB64u: string;
+}): Promise<Ed25519YaoLaneWorkerSourceV1> {
+  const opened = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: 'walletCustodyCeremony',
+    request: {
+      type: 'openEd25519YaoLaneSource',
+      payload: {
+        factorSecret: args.factorSecret,
+        envelope: args.envelope,
+        applicationBindingDigestB64u: args.applicationBindingDigestB64u,
+      },
+      transfer: [args.factorSecret],
+    },
+  });
+  return new Ed25519YaoLaneWorkerSource(args.workerCtx, opened.sourceHandle);
+}
+
+class Ed25519YaoLaneWorkerSource implements Ed25519YaoLaneWorkerSourceV1 {
+  #discarded = false;
+
+  constructor(
+    private readonly workerCtx: WorkerOperationContext,
+    readonly sourceHandle: string,
+  ) {}
+
+  async discard(): Promise<void> {
+    if (this.#discarded) return;
+    this.#discarded = true;
+    await executeWorkerOperation({
+      ctx: this.workerCtx,
+      kind: 'walletCustodyCeremony',
+      request: {
+        type: 'discardEd25519YaoLaneSource',
+        payload: { sourceHandle: this.sourceHandle },
+      },
+    });
+  }
+}
+
+export type Ed25519YaoLaneDerivationWorkerWasmV1Config = {
+  readonly workerCtx: WorkerOperationContext;
+  readonly source: Ed25519YaoLaneWorkerSourceV1;
+  readonly ceremonyBinding: RouterAbEd25519YaoCeremonyBindingV1;
+  readonly applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1;
+  readonly participantIds: readonly [number, number];
+  readonly deriverAInputPublicKeyB64u: string;
+  readonly deriverBInputPublicKeyB64u: string;
+};
+
+type Ed25519YaoLaneWorkerClientStateV1 =
+  | { readonly state: 'empty' }
+  | {
+      readonly state: 'prepared';
+      readonly job: Ed25519YaoLaneJobV1;
+      readonly sessionHandle: string;
+    }
+  | { readonly state: 'consumed' };
+
+class Ed25519YaoLaneDerivationWorkerWasmV1 implements WasmEd25519YaoLaneClientV1 {
+  #state: Ed25519YaoLaneWorkerClientStateV1 = { state: 'empty' };
+
+  constructor(private readonly config: Ed25519YaoLaneDerivationWorkerWasmV1Config) {}
+
+  async prepare(input: Ed25519YaoLaneJobV1): Promise<{ requestJson: string }> {
+    if (this.#state.state !== 'empty') {
+      throw new Error('Ed25519 Yao lane worker client is already prepared');
+    }
+    const job = parseEdJob(input);
+    const prepared = await executeWorkerOperation({
+      ctx: this.config.workerCtx,
+      kind: 'walletCustodyCeremony',
+      request: {
+        type: 'prepareEd25519YaoLane',
+        payload: {
+          sourceHandle: this.config.source.sourceHandle,
+          job,
+          ceremonyBinding: this.config.ceremonyBinding,
+          applicationBinding: this.config.applicationBinding,
+          participantIds: this.config.participantIds,
+          deriverAInputPublicKeyB64u: this.config.deriverAInputPublicKeyB64u,
+          deriverBInputPublicKeyB64u: this.config.deriverBInputPublicKeyB64u,
+        },
+      },
+    });
+    this.#state = { state: 'prepared', job, sessionHandle: prepared.sessionHandle };
+    return { requestJson: requestJson(prepared.requestJson) };
+  }
+
+  async complete(input: {
+    job: Ed25519YaoLaneJobV1;
+    responseJson: string;
+  }): Promise<Ed25519YaoLaneClientCompletionV1> {
+    if (this.#state.state !== 'prepared') {
+      throw new Error('Ed25519 Yao lane worker client is not prepared');
+    }
+    const prepared = this.#state;
+    this.#state = { state: 'consumed' };
+    const job = parseEdJob(input.job);
+    if (alphabetizeStringify(job) !== alphabetizeStringify(prepared.job)) {
+      throw new Error('Ed25519 Yao lane completion changed the prepared job');
+    }
+    const completion = await executeWorkerOperation({
+      ctx: this.config.workerCtx,
+      kind: 'walletCustodyCeremony',
+      request: {
+        type: 'completeEd25519YaoLane',
+        payload: {
+          sessionHandle: prepared.sessionHandle,
+          responseJson: responseJson(input.responseJson),
+        },
+      },
+    });
+    return parseEd25519YaoLaneCompletionV1(prepared.job, completion);
+  }
+}
+
+export function createEd25519YaoLaneDerivationWorkerWasmV1(
+  config: Ed25519YaoLaneDerivationWorkerWasmV1Config,
+): WasmEd25519YaoLaneClientV1 {
+  return new Ed25519YaoLaneDerivationWorkerWasmV1(config);
+}

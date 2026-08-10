@@ -89,10 +89,15 @@ import type {
 import {
   ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1,
   type RouterAbEd25519YaoApplicationBindingFactsV1,
+  type RouterAbEd25519YaoCeremonyBindingV1,
   type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoBytes32V1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
+import type {
+  Ed25519YaoLaneClientCompletionV1,
+  Ed25519YaoLaneJobV1,
+} from '@shared/signing-lanes/rotation';
 import type { NearResolvedEd25519SigningSessionState } from '../interfaces/near';
 import type { WalletRegistrationEd25519YaoBootstrapSession } from '@/core/rpcClients/relayer/walletRegistration';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
@@ -1587,6 +1592,34 @@ export type EcdsaDerivationRoleLocalMaterialOperationRequest<
  * copy either way.
  */
 export interface WalletCustodyCeremonyWorkerOperationMap {
+  openEd25519YaoLaneSource: {
+    payload: {
+      factorSecret: ArrayBuffer;
+      envelope: PasskeyCustodyEnvelopeRecord;
+      applicationBindingDigestB64u: string;
+    };
+    result: { sourceHandle: string };
+  };
+  prepareEd25519YaoLane: {
+    payload: {
+      sourceHandle: string;
+      job: Ed25519YaoLaneJobV1;
+      ceremonyBinding: RouterAbEd25519YaoCeremonyBindingV1;
+      applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1;
+      participantIds: readonly [number, number];
+      deriverAInputPublicKeyB64u: string;
+      deriverBInputPublicKeyB64u: string;
+    };
+    result: { sessionHandle: string; requestJson: string };
+  };
+  completeEd25519YaoLane: {
+    payload: { sessionHandle: string; responseJson: string };
+    result: Ed25519YaoLaneClientCompletionV1;
+  };
+  discardEd25519YaoLaneSource: {
+    payload: { sourceHandle: string };
+    result: { discarded: boolean };
+  };
   beginWalletCustodyKeySetRun: {
     payload:
       | {
