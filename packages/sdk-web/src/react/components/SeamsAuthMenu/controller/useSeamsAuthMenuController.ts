@@ -3,7 +3,6 @@ import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import type { StoredAccountOption } from '@/react/types';
 import {
-  EMAIL_OTP_RECOVERY_KEY_COUNT,
   EMAIL_OTP_RECOVERY_KEY_CHAR_LENGTH,
   EMAIL_OTP_RECOVERY_KEY_GROUP_LENGTH,
   formatEmailOtpRecoveryKey,
@@ -174,16 +173,6 @@ export interface SeamsAuthMenuRegistrationPromptController {
   onBack: () => void;
 }
 
-export interface SeamsAuthMenuPostRecoveryRotationPromptController {
-  walletId: string;
-  activeRecoveryCodeCount: number;
-  expectedRecoveryCodeCount: number;
-  rotating: boolean;
-  error?: string;
-  onRotate: () => void;
-  onDismiss: () => void;
-}
-
 export interface SeamsAuthMenuController {
   mode: AuthMenuMode;
   title: { title: string; subtitle: string };
@@ -192,7 +181,6 @@ export interface SeamsAuthMenuController {
   showScanDevice: boolean;
   otpPrompt: SeamsAuthMenuOtpPromptController | null;
   registrationPrompt: SeamsAuthMenuRegistrationPromptController | null;
-  postRecoveryRotationPrompt: SeamsAuthMenuPostRecoveryRotationPromptController | null;
   methodError?: string;
   currentValue: string;
   showAccountInput: boolean;
@@ -257,13 +245,6 @@ type ActiveRegistrationPromptState = {
   onRerollAccount: NonNullable<SeamsAuthMenuRegistrationPrompt['onRerollAccount']>;
   onCancel?: SeamsAuthMenuRegistrationPrompt['onCancel'];
   refreshLoginStateAfterSubmit: boolean;
-};
-
-type ActivePostRecoveryRotationPromptState = {
-  kind: 'post_recovery_rotation_prompt';
-  walletId: string;
-  activeRecoveryCodeCount: number;
-  expectedRecoveryCodeCount: number;
 };
 
 function resolveOtpPrompt(
@@ -453,32 +434,6 @@ function isRecoveryKeyReady(input: string): boolean {
   } catch {
     return false;
   }
-}
-
-function postRecoveryRotationPromptFromSubmitResult(input: {
-  result: unknown;
-  fallbackWalletId: string;
-}): ActivePostRecoveryRotationPromptState | null {
-  const obj =
-    input.result && typeof input.result === 'object' && !Array.isArray(input.result)
-      ? (input.result as Record<string, unknown>)
-      : null;
-  if (!obj) return null;
-  const activeRecoveryCodeCount = Number(obj.activeRecoveryWrappedEnrollmentEscrowCount);
-  if (
-    !Number.isFinite(activeRecoveryCodeCount) ||
-    activeRecoveryCodeCount >= EMAIL_OTP_RECOVERY_KEY_COUNT
-  ) {
-    return null;
-  }
-  const walletId = String(obj.walletId || input.fallbackWalletId || '').trim();
-  if (!walletId) return null;
-  return {
-    kind: 'post_recovery_rotation_prompt',
-    walletId,
-    activeRecoveryCodeCount: Math.max(0, Math.floor(activeRecoveryCodeCount)),
-    expectedRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
-  };
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {
@@ -726,8 +681,6 @@ export function useSeamsAuthMenuController(
   const [otpPromptState, setOtpPromptState] = React.useState<ActiveOtpPromptState | null>(null);
   const [registrationPromptState, setRegistrationPromptState] =
     React.useState<ActiveRegistrationPromptState | null>(null);
-  const [postRecoveryRotationPromptState, setPostRecoveryRotationPromptState] =
-    React.useState<ActivePostRecoveryRotationPromptState | null>(null);
   const [otpCode, setOtpCode] = React.useState('');
   const [otpRecoveryKey, setOtpRecoveryKey] = React.useState('');
   const [otpSubmitting, setOtpSubmitting] = React.useState(false);
@@ -741,8 +694,6 @@ export function useSeamsAuthMenuController(
   const [otpResendUntilMs, setOtpResendUntilMs] = React.useState(0);
   const [otpResendStatus, setOtpResendStatus] = React.useState('');
   const [otpResendNowMs, setOtpResendNowMs] = React.useState(() => Date.now());
-  const [postRecoveryRotationBusy, setPostRecoveryRotationBusy] = React.useState(false);
-  const [postRecoveryRotationError, setPostRecoveryRotationError] = React.useState('');
   const [methodError, setMethodError] = React.useState<string>('');
   const [lastUsedLoginMethod, setLastUsedLoginMethod] =
     React.useState<LastUsedLoginMethod>(NO_LAST_USED_LOGIN_METHOD);
@@ -963,7 +914,6 @@ export function useSeamsAuthMenuController(
     setWaitingReason(null);
     setOtpPromptState(null);
     setRegistrationPromptState(null);
-    setPostRecoveryRotationPromptState(null);
     setOtpCode('');
     setOtpRecoveryKey('');
     setOtpError('');
@@ -977,8 +927,6 @@ export function useSeamsAuthMenuController(
     setOtpResendBusy(false);
     setOtpResendUntilMs(0);
     setOtpResendStatus('');
-    setPostRecoveryRotationBusy(false);
-    setPostRecoveryRotationError('');
     if (showScanDevice) {
       closeLinkDeviceView('user');
     } else {
@@ -1028,8 +976,6 @@ export function useSeamsAuthMenuController(
     }
     setWaiting(true);
     setWaitingReason(shouldRestoreSyncedPasskey ? 'restore' : 'passkey');
-    setPostRecoveryRotationPromptState(null);
-    setPostRecoveryRotationError('');
 
     void (async () => {
       try {
@@ -1121,8 +1067,6 @@ export function useSeamsAuthMenuController(
       setWaitingReason('social');
       setOtpError('');
       setMethodError('');
-      setPostRecoveryRotationPromptState(null);
-      setPostRecoveryRotationError('');
       const socialAuthRequestGeneration = advanceAsyncRequestGeneration(
         socialAuthRequestGenerationRef,
       );
@@ -1312,32 +1256,6 @@ export function useSeamsAuthMenuController(
     setOtpResendStatus('');
   }, [otpPromptState]);
 
-  const onPostRecoveryRotationDismiss = React.useCallback(() => {
-    setPostRecoveryRotationPromptState(null);
-    setPostRecoveryRotationBusy(false);
-    setPostRecoveryRotationError('');
-  }, []);
-
-  const onPostRecoveryRotationSubmit = React.useCallback(() => {
-    const prompt = postRecoveryRotationPromptState;
-    if (!prompt || postRecoveryRotationBusy) return;
-    setPostRecoveryRotationBusy(true);
-    setPostRecoveryRotationError('');
-    void (async () => {
-      try {
-        setPostRecoveryRotationError(
-          'Recovery-code rotation is unavailable until the wallet recovery wrap is refreshed.',
-        );
-      } catch (error: unknown) {
-        setPostRecoveryRotationError(
-          getErrorMessage(error, 'Could not rotate recovery codes. Try again later.'),
-        );
-      } finally {
-        setPostRecoveryRotationBusy(false);
-      }
-    })();
-  }, [postRecoveryRotationBusy, postRecoveryRotationPromptState, runtime]);
-
   const onRegistrationPromptBack = React.useCallback(() => {
     advanceAsyncRequestGeneration(socialAuthRequestGenerationRef);
     const cancel = registrationPromptState?.onCancel;
@@ -1520,23 +1438,14 @@ export function useSeamsAuthMenuController(
     setOtpError('');
     void (async () => {
       try {
-        const submitResult = await activePrompt.onSubmit(
-          otpCode,
-          recoveryKey ? { recoveryKey } : undefined,
-        );
+        await activePrompt.onSubmit(otpCode, recoveryKey ? { recoveryKey } : undefined);
         const username = String(activePrompt.username || '').trim();
         if (username && activePrompt.refreshLoginStateAfterSubmit) {
           await runtime.refreshLoginState(username).catch(() => {});
         }
-        const postRecoveryRotationPrompt = postRecoveryRotationPromptFromSubmitResult({
-          result: submitResult,
-          fallbackWalletId: String(activePrompt.accountId || activePrompt.username || '').trim(),
-        });
         setOtpPromptState(null);
         setOtpCode('');
         setOtpRecoveryKey('');
-        setPostRecoveryRotationError('');
-        setPostRecoveryRotationPromptState(postRecoveryRotationPrompt);
       } catch (error: unknown) {
         const message =
           error instanceof Error && error.message
@@ -1666,26 +1575,6 @@ export function useSeamsAuthMenuController(
     onRegistrationPromptBack,
   ]);
 
-  const postRecoveryRotationPrompt: SeamsAuthMenuPostRecoveryRotationPromptController | null =
-    React.useMemo(() => {
-      if (!postRecoveryRotationPromptState) return null;
-      return {
-        walletId: postRecoveryRotationPromptState.walletId,
-        activeRecoveryCodeCount: postRecoveryRotationPromptState.activeRecoveryCodeCount,
-        expectedRecoveryCodeCount: postRecoveryRotationPromptState.expectedRecoveryCodeCount,
-        rotating: postRecoveryRotationBusy,
-        ...(postRecoveryRotationError ? { error: postRecoveryRotationError } : {}),
-        onRotate: onPostRecoveryRotationSubmit,
-        onDismiss: onPostRecoveryRotationDismiss,
-      };
-    }, [
-      postRecoveryRotationBusy,
-      postRecoveryRotationError,
-      postRecoveryRotationPromptState,
-      onPostRecoveryRotationSubmit,
-      onPostRecoveryRotationDismiss,
-    ]);
-
   const linkDevice: SeamsAuthMenuLinkDeviceController = React.useMemo(
     () => ({
       isOpen: showScanDevice,
@@ -1704,7 +1593,6 @@ export function useSeamsAuthMenuController(
     showScanDevice,
     otpPrompt,
     registrationPrompt,
-    postRecoveryRotationPrompt,
     ...(methodError ? { methodError } : {}),
     currentValue: displayedCurrentValue,
     showAccountInput,
