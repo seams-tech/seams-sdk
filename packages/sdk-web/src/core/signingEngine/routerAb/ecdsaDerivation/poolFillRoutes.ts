@@ -99,6 +99,7 @@ export type RouterAbEcdsaDerivationPoolFillProgress = {
   ok: boolean;
   code?: string;
   message?: string;
+  materialExpiresAtMs?: number;
   stage?: 'triples' | 'triples_done' | 'presign' | 'done';
   event?: 'none' | 'triples_done' | 'presign_done';
   outgoingMessagesB64u?: string[];
@@ -176,6 +177,7 @@ async function postEcdsaPresignInit(
     code: string;
     message: string;
     presignSessionId: string;
+    materialExpiresAtMs: number;
     stage: 'triples' | 'triples_done' | 'presign' | 'done';
     outgoingMessagesB64u: string[];
   }>;
@@ -208,6 +210,9 @@ async function postEcdsaPresignInit(
     return {
       ok: data.ok === true,
       presignSessionId: data.presignSessionId,
+      ...(Number.isSafeInteger(data.materialExpiresAtMs)
+        ? { materialExpiresAtMs: data.materialExpiresAtMs }
+        : {}),
       stage: data.stage,
       outgoingMessagesB64u: Array.isArray(data.outgoingMessagesB64u)
         ? data.outgoingMessagesB64u
