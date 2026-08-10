@@ -147,12 +147,8 @@ export type LinkedDeviceId = DomainId<'LinkedDeviceId'>;
 // Delegated mandate policy identity.
 export type MandatePolicyId = DomainId<'MandatePolicyId'>;
 
-// Rotation or lane-creation operation identity.
-export type RotationOperationId = DomainId<'RotationOperationId'>;
-
 // Immutable identities for one rotatable signing-lane protocol operation and
-// its aggregate enrollment. These remain distinct from the retired generic
-// rotation operation identity.
+// its aggregate enrollment.
 export type LaneOperationId = DomainId<'LaneOperationId'>;
 export type LaneEnrollmentId = DomainId<'LaneEnrollmentId'>;
 export type LaneOperationIdempotencyKey = DomainId<'LaneOperationIdempotencyKey'>;
@@ -566,10 +562,6 @@ export function parseLinkedDeviceId(raw: unknown): DomainIdParseResult<LinkedDev
 
 export function parseMandatePolicyId(raw: unknown): DomainIdParseResult<MandatePolicyId> {
   return parseDomainId(raw, 'mandatePolicyId');
-}
-
-export function parseRotationOperationId(raw: unknown): DomainIdParseResult<RotationOperationId> {
-  return parseDomainId(raw, 'rotationOperationId');
 }
 
 export function parseLaneOperationId(raw: unknown): DomainIdParseResult<LaneOperationId> {
