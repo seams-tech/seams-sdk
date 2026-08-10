@@ -1926,7 +1926,10 @@ async function unlockInternal(
           if (warmupInput.ed25519SessionAuthority.kind !== 'passkey') {
             throw new Error('[login] wallet custody requires passkey wallet authority');
           }
-          if (!completedPasskeySessionCustody || completedPasskeySessionCustody.ed25519.kind !== 'active') {
+          if (
+            !completedPasskeySessionCustody ||
+            completedPasskeySessionCustody.ed25519.kind !== 'active'
+          ) {
             throw createThresholdEd25519DeviceLinkRequiredError();
           }
           ed25519MintPlan = {
@@ -2614,9 +2617,8 @@ function assertRejoinedPasskeyEcdsaPublicFacts(args: {
       identity.derivation_client_share_public_key33_b64u ||
     args.publicFacts.relayerPublicKey33B64u !== identity.server_public_key33_b64u ||
     args.publicFacts.groupPublicKey33B64u !== identity.threshold_public_key33_b64u ||
-    args.publicFacts.ethereumAddress !== ethereumAddressFromEcdsaIdentityB64u(
-      identity.ethereum_address20_b64u,
-    ) ||
+    args.publicFacts.ethereumAddress !==
+      ethereumAddressFromEcdsaIdentityB64u(identity.ethereum_address20_b64u) ||
     args.publicFacts.clientShareRetryCounter !== identity.client_share_retry_counter ||
     args.publicFacts.relayerShareRetryCounter !== identity.server_share_retry_counter
   ) {
@@ -2756,12 +2758,12 @@ async function completePasskeySessionExchange(args: {
   ).trim();
   const exchangeInput: SessionExchangeInput = args.activation
     ? {
-      type: 'passkey_assertion',
-      challengeId,
-      walletId: String(args.walletIdentity.walletId),
-      webauthn_authentication: credential,
-      ...(expectedOrigin ? { expected_origin: expectedOrigin } : {}),
-      ecdsaSessionPolicy: args.activation.policy,
+        type: 'passkey_assertion',
+        challengeId,
+        walletId: String(args.walletIdentity.walletId),
+        webauthn_authentication: credential,
+        ...(expectedOrigin ? { expected_origin: expectedOrigin } : {}),
+        ecdsaSessionPolicy: args.activation.policy,
       }
     : {
         type: 'passkey_assertion',
@@ -2808,6 +2810,9 @@ async function completePasskeySessionExchange(args: {
     });
   }
   if (args.activation?.requiresCustodyRejoin) {
+    if (!('ecdsaCustody' in result) || !result.ecdsaCustody) {
+      throw new Error('Passkey ECDSA custody rejoin requires server continuity');
+    }
     const passkeyPrfFirstB64u = passkeyPrfFirstB64uFromCredential(credential);
     if (!passkeyPrfFirstB64u) {
       throw new Error('Passkey ECDSA custody rejoin requires WebAuthn PRF.first');
@@ -3401,7 +3406,8 @@ async function openAndActivatePasskeyEd25519CustodyLogin(
   });
   const activation = walletCustodyLoginActivationFacts(input.custody);
   const envelope = walletCustodyCacheEnvelopeFromRecordV1(input.custody.envelope);
-  let activeClient: Awaited<ReturnType<typeof openWalletCustodyEd25519ActiveClientV1>> | null = null;
+  let activeClient: Awaited<ReturnType<typeof openWalletCustodyEd25519ActiveClientV1>> | null =
+    null;
   let rejoinSecret: Uint8Array | null = null;
   let openSecret: Uint8Array | null = null;
   try {
@@ -3466,10 +3472,14 @@ async function openAndActivatePasskeyEd25519CustodyLogin(
       });
     }
     if (!activeClient) throw new Error('[login] wallet custody produced no active client');
+    const thresholdSessionId = parseThresholdEd25519SessionId(input.thresholdSessionId);
+    if (!thresholdSessionId.ok) {
+      throw new Error('[login] wallet custody returned an invalid threshold session identity');
+    }
     const activated = await input.signingEngine.activateVerifiedNearEd25519YaoMaterial({
       activeClient,
       facts: {
-        thresholdSessionId: input.thresholdSessionId,
+        thresholdSessionId: thresholdSessionId.value,
         signer: nearEd25519SignerBindingFromBoundaryFields({
           walletId: input.walletBinding.walletId,
           nearAccountId: input.walletBinding.nearAccountId,
@@ -3484,10 +3494,7 @@ async function openAndActivatePasskeyEd25519CustodyLogin(
       },
     });
     if (
-      !mpcMaterialActivationRefsEqual(
-        activated.materialActivation,
-        capability.materialActivation,
-      )
+      !mpcMaterialActivationRefsEqual(activated.materialActivation, capability.materialActivation)
     ) {
       throw new Error('[login] wallet custody activation changed during unlock');
     }
@@ -3512,7 +3519,7 @@ function nonEmptyEcdsaCustodyChainTargets(
   signers: readonly PasskeySessionEcdsaCustodyContinuityV1['signers'][number][],
 ): readonly [
   PasskeySessionEcdsaCustodyContinuityV1['signers'][number]['chainTarget'],
-  ...PasskeySessionEcdsaCustodyContinuityV1['signers'][number]['chainTarget'][]
+  ...PasskeySessionEcdsaCustodyContinuityV1['signers'][number]['chainTarget'][],
 ] {
   const [first, ...rest] = signers;
   if (!first) throw new Error('[login] passkey ECDSA custody continuity is empty');
@@ -3563,8 +3570,7 @@ async function restorePasskeyEcdsaCustodyLogin(input: {
       }),
       applicationBindingDigestB64u:
         first.walletKey.publicCapability.context.application_binding_digest_b64u,
-      registeredClientRootPublicKey33B64u:
-        first.walletKey.derivationClientSharePublicKey33B64u,
+      registeredClientRootPublicKey33B64u: first.walletKey.derivationClientSharePublicKey33B64u,
       relayerPublicIdentityJson: JSON.stringify({
         relayerKeyId: first.walletKey.relayerKeyId,
         relayerPublicKey33B64u:

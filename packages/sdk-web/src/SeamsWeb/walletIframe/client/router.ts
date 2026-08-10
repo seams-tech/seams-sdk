@@ -152,7 +152,6 @@ import type {
   EmailOtpEcdsaCapabilityArgs,
   EmailOtpEcdsaCapabilityResult,
   EmailOtpEnrollmentResult,
-  EmailOtpEnrollmentResult,
   GoogleEmailOtpSessionExchangeResult,
   GoogleEmailOtpWalletAuthFlow,
   GoogleEmailOtpWalletAuthRegistrationCompleted,
@@ -3557,9 +3556,7 @@ export class WalletIframeRouter {
     appSessionJwt?: string;
   }): Promise<WalletRevokeAuthMethodResponse> {
     const { appSessionJwt, ...wirePayload } = payload;
-    await this.ensureHostedWalletSeamsSession(
-      hostedWalletSeamsSessionSource({ appSessionJwt }),
-    );
+    await this.ensureHostedWalletSeamsSession(hostedWalletSeamsSessionSource({ appSessionJwt }));
     const res = await this.post<WalletRevokeAuthMethodResponse>({
       type: 'PM_REVOKE_WALLET_CREDENTIAL',
       payload: wirePayload,

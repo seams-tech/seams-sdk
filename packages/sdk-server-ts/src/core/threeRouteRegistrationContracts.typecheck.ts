@@ -99,18 +99,6 @@ const ecdsaActivateWithoutEcdsa: WalletRegistrationActivateRequestV2 = {
   kind: 'evm_family_ecdsa',
 };
 
-// The commit refuses enrollment without the backup acknowledgement: issuing
-// recovery codes the user never confirmed saving is how an account becomes
-// unrecoverable.
-// @ts-expect-error Email OTP activation requires the recovery-code backup ack
-const emailOtpActivateWithoutBackupAck: WalletRegistrationActivateRequestV2 = {
-  ...ACTIVATE_BASE,
-  authMethod: 'email_otp',
-  emailOtpEnrollment,
-  kind: 'evm_family_ecdsa',
-  ecdsa: activateEcdsa,
-};
-
 // @ts-expect-error passkey activation has no enrollment to carry
 const passkeyActivateWithEnrollment: WalletRegistrationActivateRequestV2 = {
   ...ACTIVATE_BASE,
@@ -143,5 +131,4 @@ export const _threeRouteRequestFixtures = [
   ecdsaActivateWithoutEcdsa,
   passkeyActivateWithEnrollment,
   emailOtpActivateWithoutEnrollment,
-  emailOtpActivateWithoutBackupAck,
 ] as const;

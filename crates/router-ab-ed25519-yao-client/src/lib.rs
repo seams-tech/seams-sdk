@@ -55,8 +55,8 @@ pub use signing::{
 };
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindings"))]
 pub use wasm::{
-    WasmActivatedClientV1, WasmClientSigningShareV1, WasmExportedEd25519SeedV1,
-    WasmCustodyEnvelopeExportSessionV1,
+    WasmActivatedClientV1, WasmClientSigningShareV1, WasmCustodyEnvelopeExportSessionV1,
+    WasmExportedEd25519SeedV1,
 };
 
 type InputHpkeV1 = Hpke<DhKemX25519HkdfSha256, HkdfSha256, Aes256Gcm>;

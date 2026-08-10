@@ -79,6 +79,7 @@ export class EmailOtpEcdsaLifecycleRuntime {
     return await prepareEmailOtpEcdsaExportCapability(args, {
       configs: this.ports.configs,
       getSignerWorkerContext: this.ports.getSignerWorkerContext,
+      loadWalletCustodyEd25519Material: this.ports.loadWalletCustodyEd25519Material,
       restoreWalletCustodyEcdsaContinuity: this.ports.restoreWalletCustodyEcdsaContinuity,
       provisionThresholdEcdsaSession: this.ports.provisionThresholdEcdsaSession,
       provisionEmailOtpEcdsaExplicitExportSession:

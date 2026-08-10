@@ -494,7 +494,7 @@ function resolveEmailOtpLoginSigningBudget(args: {
   if (args.ed25519YaoResult) {
     return buildAuthoritativeEmailOtpMixedWalletSigningBudget({
       bootstrap:
-        args.ed25519YaoResult.kind === 'cache_absent'
+        args.ed25519YaoResult.kind === 'wallet_custody_cache_absent'
           ? args.ed25519YaoResult.ed25519YaoRecovery
           : args.ed25519YaoResult.ed25519YaoCapability,
       expectedRemainingUses: args.requestedRemainingUses,
@@ -536,8 +536,8 @@ function buildEmailOtpUnlockSessionPolicy(args: {
     kind: 'router_ab_ecdsa_post_registration_session_activation_policy_v1',
     key_handle: String(args.keyHandle),
     session_policy: {
-      threshold_session_id: args.thresholdSessionId,
-      wallet_session_mint_id: args.walletSessionMintId,
+      threshold_session_id: requireEmailOtpUnlockThresholdSessionId(args.thresholdSessionId),
+      wallet_session_mint_id: requireEmailOtpUnlockWalletSessionMintId(args.walletSessionMintId),
       ttl_ms: args.ttlMs,
       remaining_uses: args.remainingUses,
       runtime_policy_scope: args.runtimePolicyScope,
@@ -599,7 +599,11 @@ async function restoreEmailOtpEcdsaCustodyContinuity(args: {
   readonly restoreWalletCustodyEcdsaContinuity: EmailOtpEcdsaLoginPorts['restoreWalletCustodyEcdsaContinuity'];
 }): Promise<void> {
   const custody = args.restore.ecdsaCustody;
-  const signer = requireEmailOtpEcdsaCustodySigner(custody.continuity, args.walletId, args.keyHandle);
+  const signer = requireEmailOtpEcdsaCustodySigner(
+    custody.continuity,
+    args.walletId,
+    args.keyHandle,
+  );
   await args.restoreWalletCustodyEcdsaContinuity({
     authority: args.authority,
     chainTargets: nonEmptyEmailOtpEcdsaChainTargets(custody.continuity),
@@ -1299,22 +1303,20 @@ async function runEmailOtpEcdsaCapability(
         })
       : null;
   const reusableEd25519WalletSessionJwt =
-    isWalletUnlock &&
-    args.ed25519YaoRecovery.kind === 'not_requested'
+    isWalletUnlock && args.ed25519YaoRecovery.kind === 'not_requested'
       ? existingKey
         ? await reusableEd25519WalletSessionJwtForEcdsaUnlock({
-          walletId: args.walletSession.walletId,
-          authority: existingKey.persistedRoleLocalMaterial.authority,
+            walletId: args.walletSession.walletId,
+            authority: existingKey.persistedRoleLocalMaterial.authority,
           })
         : null
       : null;
-  const preparedUnlockSessionPolicy =
-    isWalletUnlock
-      ? clampThresholdSessionPolicy({
-          ttlMs: args.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
-          remainingUses,
-        })
-      : null;
+  const preparedUnlockSessionPolicy = isWalletUnlock
+    ? clampThresholdSessionPolicy({
+        ttlMs: args.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
+        remainingUses,
+      })
+    : null;
   const preparedUnlockThresholdSessionId = preparedUnlockSessionPolicy
     ? requireEmailOtpUnlockThresholdSessionId(generateSessionId('threshold-ecdsa-login'))
     : null;
@@ -1536,7 +1538,7 @@ async function runEmailOtpEcdsaCapability(
       ttlMs: sessionPolicy.ttlMs,
       remainingUses: sessionPolicy.remainingUses,
       emailOtpAuthContext,
-        emailOtpSessionHandle: workerResult.emailOtpSessionHandle,
+      emailOtpSessionHandle: workerResult.emailOtpSessionHandle,
       primarySession: effectivePreparedUnlockSessionActivation
         ? {
             kind: 'preauthorized_wallet_unlock',
@@ -1579,7 +1581,7 @@ async function runEmailOtpEcdsaCapability(
         bootstrap,
         authorization,
         authorizations,
-      emailOtpSessionHandle: workerResult.emailOtpSessionHandle,
+        emailOtpSessionHandle: workerResult.emailOtpSessionHandle,
         ed25519YaoRecovery: emailOtpEd25519YaoLoginMaterialFromWorkerResult(ed25519YaoResult),
         timings,
       },

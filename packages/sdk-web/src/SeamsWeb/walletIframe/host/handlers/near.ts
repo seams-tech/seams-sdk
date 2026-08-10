@@ -7,6 +7,7 @@ import type {
   SignNEP413HooksOptions,
   SignTransactionHooksOptions,
 } from '@/core/types/sdkSentEvents';
+import type { AddPasskeyHooksOptions } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
 import {
   type PMExecuteActionPayload,
   type PMFundImplicitNearAccountForTestingPayload,
@@ -113,11 +114,9 @@ function walletOriginRegistrationAuthMethod(
             proofKind: 'google_sso_registration',
             email: authMethod.email,
             appSessionJwt,
-            googleEmailOtpRegistrationAttemptId:
-              authMethod.googleEmailOtpRegistrationAttemptId,
+            googleEmailOtpRegistrationAttemptId: authMethod.googleEmailOtpRegistrationAttemptId,
             googleEmailOtpRegistrationOfferId: authMethod.googleEmailOtpRegistrationOfferId,
-            googleEmailOtpRegistrationCandidateId:
-              authMethod.googleEmailOtpRegistrationCandidateId,
+            googleEmailOtpRegistrationCandidateId: authMethod.googleEmailOtpRegistrationCandidateId,
           };
         default:
           return assertNeverRegistrationAuthMethod(authMethod);
@@ -186,7 +185,7 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
         deps,
         req.requestId,
         payload.options || {},
-      ) as RegistrationHooksOptions;
+      ) as AddPasskeyHooksOptions;
       const result = await pm.registration.addPasskey({
         walletId: payload.walletId,
         rpId: payload.rpId,

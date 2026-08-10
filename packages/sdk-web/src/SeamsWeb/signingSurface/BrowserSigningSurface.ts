@@ -247,9 +247,7 @@ import { unlockEmailOtpEd25519YaoCapability } from '@/core/signingEngine/session
 import { buildFreshEmailOtpRoutePlan } from '@/core/signingEngine/session/emailOtp/routePlan';
 import { resolveEmailOtpAuthLane } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
-import {
-  activateWalletCustodyEd25519CapabilityV1,
-} from '@/core/signingEngine/walletCustody/activateEd25519Capability';
+import { activateWalletCustodyEd25519CapabilityV1 } from '@/core/signingEngine/walletCustody/activateEd25519Capability';
 import { disposeWalletCustodyEd25519ActiveClientV1 } from '@/core/signingEngine/walletCustody/ed25519ActiveClient';
 import {
   resolveWalletCustodyEd25519ProjectionV1,
@@ -1388,10 +1386,8 @@ export class BrowserSigningSurface {
       getEnginePorts: () => this.enginePorts,
       thresholdEcdsaBootstrapQueueByWallet: this.thresholdEcdsaBootstrapQueueByWallet,
       thresholdEcdsaSigningQueueByKey: this.thresholdEcdsaSigningQueueByKey,
-      loadWalletCustodyEd25519Material:
-        this.loadEmailOtpWalletCustodyEd25519Material.bind(this),
-      restoreWalletCustodyEcdsaContinuity:
-        this.restoreWalletCustodyEcdsaContinuity.bind(this),
+      loadWalletCustodyEd25519Material: this.loadEmailOtpWalletCustodyEd25519Material.bind(this),
+      restoreWalletCustodyEcdsaContinuity: this.restoreWalletCustodyEcdsaContinuity.bind(this),
       getWarmSigning: () => this.warmSigning,
       ensureSealedRefreshStartupParity: () => this.ensureSealedRefreshStartupParity(),
       listActiveEcdsaCapabilityManifestsForWallet:
@@ -1676,10 +1672,7 @@ export class BrowserSigningSurface {
   }
 
   async recoverWalletCustodyManifest(
-    args: Omit<
-      Parameters<typeof recoverWalletCustodyManifestV1>[0],
-      'runStep' | 'workerCtx'
-    >,
+    args: Omit<Parameters<typeof recoverWalletCustodyManifestV1>[0], 'runStep' | 'workerCtx'>,
   ): Promise<Awaited<ReturnType<typeof recoverWalletCustodyManifestV1>>> {
     return await recoverWalletCustodyManifestV1({
       ...args,
@@ -1986,9 +1979,7 @@ export class BrowserSigningSurface {
   }): Promise<void> {
     const context = this.signerWorkerManager.getContext();
     await deleteWalletCustodyEd25519MaterialV1({
-      store: context.nearKeyMaterialStore as Parameters<
-        typeof deleteWalletCustodyEd25519MaterialV1
-      >[0]['store'],
+      store: context.nearKeyMaterialStore,
       nearAccountId: args.nearAccountId,
       signerSlot: args.signerSlot,
     });
@@ -2496,8 +2487,18 @@ export class BrowserSigningSurface {
             identity,
           })
         : null;
+    const activeForAccount = this.enginePorts.ed25519YaoActiveClients.resolveForWalletAccount({
+      walletId: identity.signer.account.wallet.walletId,
+      nearAccountId: identity.signer.account.nearAccountId,
+    });
     const materialActivation =
-      sealedRuntime?.sealedRecord.ed25519Restore.materialActivation ?? identity.materialActivation;
+      sealedRuntime?.sealedRecord.ed25519Restore.materialActivation ??
+      (activeForAccount
+        ? nearEd25519YaoMaterialActivationFromMetadata(activeForAccount.activeClient.metadata())
+        : null);
+    if (!materialActivation) {
+      throw new Error('[SigningEngine][near] Ed25519 material activation is unavailable');
+    }
     const activeCapability = this.enginePorts.ed25519YaoActiveClients.resolve({
       walletId: identity.signer.account.wallet.walletId,
       nearAccountId: identity.signer.account.nearAccountId,
@@ -2507,6 +2508,9 @@ export class BrowserSigningSurface {
     let hydration: MpcCapabilityHydrationPlan;
     switch (identity.auth.kind) {
       case WALLET_AUTH_METHODS.passkey: {
+        if (!sealedRuntime) {
+          throw new Error('[SigningEngine][near] passkey sealed runtime is unavailable');
+        }
         const activeAuthorization = await resolveActiveEd25519WalletSessionAuthorization(
           sealedRuntime.walletId,
         );
@@ -2833,6 +2837,10 @@ export class BrowserSigningSurface {
           material,
         };
       }
+      case 'rehydrate_material_activation':
+        throw new Error(
+          '[SigningEngine][near] Email OTP custody cache is unavailable; link the device before signing',
+        );
       case 'reauthorize_public_anchor':
         throw new Error('[SigningEngine][near] retired Email OTP material cannot sign');
       case 'blocked':

@@ -43,10 +43,7 @@ export function useSeamsWithSdkFlow(args: {
     type SyncAccountFn = RecoveryCapability['syncAccount'];
     type SetThemeFn = SeamsWeb['setTheme'];
 
-    const loginWithSdkFlow: LoginFn = async (
-      walletId: string,
-      options?: LoginHooksOptions,
-    ) => {
+    const loginWithSdkFlow: LoginFn = async (walletId: string, options?: LoginHooksOptions) => {
       const seq = beginSdkFlow('login', walletId);
       const wrappedOptions: LoginHooksOptions = {
         ...options,
@@ -277,6 +274,9 @@ export function useSeamsWithSdkFlow(args: {
             acknowledgeWalletRecoveryCodeBackup: (
               ...args: Parameters<RecoveryCapability['acknowledgeWalletRecoveryCodeBackup']>
             ) => recovery.acknowledgeWalletRecoveryCodeBackup(...args),
+            rotateWalletRecoveryCodes: (
+              ...args: Parameters<RecoveryCapability['rotateWalletRecoveryCodes']>
+            ) => recovery.rotateWalletRecoveryCodes(...args),
             requestWalletRecoveryBootstrapChallenge: (
               ...args: Parameters<RecoveryCapability['requestWalletRecoveryBootstrapChallenge']>
             ) => recovery.requestWalletRecoveryBootstrapChallenge(...args),

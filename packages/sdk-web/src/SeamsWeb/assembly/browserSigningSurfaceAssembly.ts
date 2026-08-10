@@ -724,7 +724,9 @@ export function createBrowserSigningSurfaceEnginePorts(
       readPersistedAvailableSigningLanesForSigningOperation(
         {
           readActiveWalletSessionAuthorization: async (walletId) => {
-            const read = await walletSessionAuthorizations.readActiveForWallet(toWalletId(walletId));
+            const read = await walletSessionAuthorizations.readActiveForWallet(
+              toWalletId(walletId),
+            );
             return read.kind === 'found' ? read.projection : null;
           },
           listEcdsaSigningCapabilitiesForWallet: (input) =>
@@ -738,14 +740,8 @@ export function createBrowserSigningSurfaceEnginePorts(
         {
           queueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
           activationDeps: args.getEnginePorts().walletSessionActivationDeps,
-          sealPersistence: args.passkeyMpcSession,
           persistEcdsaRoleLocalReadyRecord:
             args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
-          resolveSealTransport: ({ lane, authorization }) =>
-            args.warmSigning.capabilityReader.resolveEcdsaSealTransportForLane({
-              lane,
-              authorization,
-            }),
         },
         provisionArgs,
       ),
