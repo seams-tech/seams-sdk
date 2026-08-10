@@ -4,7 +4,7 @@ use core::fmt;
 
 use curve25519_dalek::scalar::Scalar;
 use sha2::{Digest, Sha256};
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::{CircuitDigest32, ScheduleDigest32};
 
@@ -512,16 +512,12 @@ fn parse_lane_output(
     if decoded.len() != LANE_MATERIALIZATION_OUTPUT_BITS_PER_ROLE / 8 {
         return Err(RoleBoundaryError::DecodedOutputLength);
     }
-    let mut holder_bytes = [0_u8; 32];
-    let mut worker_bytes = [0_u8; 32];
+    let mut holder_bytes = Zeroizing::new([0_u8; 32]);
+    let mut worker_bytes = Zeroizing::new([0_u8; 32]);
     holder_bytes.copy_from_slice(&decoded[..32]);
     worker_bytes.copy_from_slice(&decoded[32..]);
-    let holder = parse_canonical_scalar(holder_bytes).map(LaneHolderShare);
-    holder_bytes.zeroize();
-    let holder = holder?;
-    let worker = parse_canonical_scalar(worker_bytes).map(LaneSigningWorkerShare);
-    worker_bytes.zeroize();
-    let worker = worker?;
+    let holder = parse_canonical_scalar(*holder_bytes).map(LaneHolderShare)?;
+    let worker = parse_canonical_scalar(*worker_bytes).map(LaneSigningWorkerShare)?;
     Ok((holder, worker))
 }
 
