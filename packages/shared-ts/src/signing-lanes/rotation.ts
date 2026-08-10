@@ -792,6 +792,10 @@ export type SealedLaneHolderMaterialV1 = {
   verifiedHolderCiphertextDigestSetB64u: DigestB64u;
 };
 
+export type VerifiedLaneHolderPackageV1 = {
+  verifiedHolderCiphertextDigestSetB64u: DigestB64u;
+};
+
 export type WasmEd25519YaoLaneClientV1 = {
   prepare(input: Ed25519YaoLaneJobV1): Promise<{ requestJson: string }>;
   executeRequestJson(input: { requestJson: string }): Promise<{ responseJson: string }>;
@@ -839,6 +843,11 @@ export type LaneHolderRecipientWorkerV1 = {
     holderPackage: LaneHolderPackageWireV1;
     recipientHandle: LaneHolderRecipientHandleV1;
   }): Promise<SealedLaneHolderMaterialV1>;
+  verifyLaneHolderPackageCommitmentV1(input: {
+    job: RotatableSigningLaneJobV1;
+    protocolCommitReceipt: LaneProtocolCommitReceiptV1;
+    holderPackage: LaneHolderPackageWireV1;
+  }): Promise<VerifiedLaneHolderPackageV1>;
   discardLaneHolderRecipientV1(input: {
     recipientHandle: LaneHolderRecipientHandleV1;
     operationId: LaneOperationId;
