@@ -428,8 +428,8 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async () =>
       new Response(
-        'InvalidTimeRange: SigningWorker ECDSA presignature pool record expires before prepare request',
-        { status: 400 },
+        'InvalidLocalServiceConfig: presignature material is expired',
+        { status: 500 },
       );
     try {
       const result = await signRouterAbEcdsaDerivationDigestWithPoolHit({
