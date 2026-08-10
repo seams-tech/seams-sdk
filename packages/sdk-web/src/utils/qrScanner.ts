@@ -297,7 +297,7 @@ export class ScanQRCodeFlow {
   }
 
   private parseAndValidateQRData(qrData: string): DeviceLinkingQRData {
-    let parsedData: DeviceLinkingQRData;
+    let parsedData: unknown;
     try {
       parsedData = JSON.parse(qrData);
     } catch {
@@ -310,9 +310,7 @@ export class ScanQRCodeFlow {
       throw new Error('Invalid QR code format - expected JSON device linking data');
     }
 
-    // Use the validation function from scanDevice.ts
-    validateDeviceLinkingQRData(parsedData);
-    return parsedData;
+    return validateDeviceLinkingQRData(parsedData);
   }
 
   private handleSuccess(qrData: DeviceLinkingQRData): void {
@@ -468,7 +466,7 @@ async function scanQRFromImageData(imageData: ImageData): Promise<string | null>
 }
 
 function parseAndValidateQRData(qrData: string): DeviceLinkingQRData {
-  let parsedData: DeviceLinkingQRData;
+  let parsedData: unknown;
   try {
     parsedData = JSON.parse(qrData);
   } catch {
@@ -481,9 +479,7 @@ function parseAndValidateQRData(qrData: string): DeviceLinkingQRData {
     throw new Error('Invalid QR code format - expected JSON device linking data');
   }
 
-  // Use the validation function from scanDevice.ts
-  validateDeviceLinkingQRData(parsedData);
-  return parsedData;
+  return validateDeviceLinkingQRData(parsedData);
 }
 
 function createQRError(message: string): DeviceLinkingError {

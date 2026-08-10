@@ -1489,7 +1489,6 @@ export type ParentToChildEnvelope =
       'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA',
       {
         qrData: DeviceLinkingQRData;
-        fundingAmount: string;
         options?: {
           confirmationConfig?: Partial<ConfirmationConfig>;
           confirmerText?: { title?: string; body?: string };
@@ -1501,7 +1500,6 @@ export type ParentToChildEnvelope =
       {
         ui?: 'modal' | 'inline';
         cameraId?: string;
-        signerSlot?: number;
         options?: {
           confirmationConfig?: Partial<ConfirmationConfig>;
           confirmerText?: { title?: string; body?: string };

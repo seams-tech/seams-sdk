@@ -571,7 +571,6 @@ export class SeamsWebIframe {
         await this.requireRouterReady();
         return await this.router.linkDeviceWithScannedQRData({
           qrData,
-          fundingAmount: options.fundingAmount,
           options: {
             onEvent: options.onEvent,
             ...(options.confirmerText ? { confirmerText: options.confirmerText } : {}),

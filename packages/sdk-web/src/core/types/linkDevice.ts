@@ -1,32 +1,59 @@
 import type { ActionResult } from './seams';
 import type { AfterCall, EventCallback, LinkDeviceFlowEvent } from './sdkSentEvents';
-import { LinkDeviceEventPhase } from './sdkSentEvents';
-import { AccountId } from './accountIds';
 import type { ConfirmationConfig } from './signer-worker';
+import type {
+  LinkedDeviceEnrollmentReceiptV1,
+  LinkedDeviceSessionState,
+  QrLinkedDeviceSessionPayloadV4,
+} from '@shared/device-linking';
+import type {
+  LinkedDeviceEnrollmentId,
+  LinkedDeviceId,
+  LinkDeviceSessionId,
+} from '@shared/signing-lanes/ids';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import type { WalletId } from '@shared/utils/domainIds';
 
 export { LinkDeviceEventPhase } from './sdkSentEvents';
 
-export interface DeviceLinkingQRData {
-  sessionId: string;
-  accountId?: AccountId;
-  timestamp: number;
-  version: string;
-}
+/**
+ * The only QR value accepted by the browser boundary. Keep this alias so the
+ * existing public surface cannot accidentally grow a second QR schema.
+ */
+export type DeviceLinkingQRData = QrLinkedDeviceSessionPayloadV4;
 
-export interface DeviceLinkingSession {
-  sessionId: string;
-  phase: LinkDeviceEventPhase;
-  createdAt: number;
-  expiresAt: number;
-}
+/** Public browser projection of the exhaustive shared session state. */
+export type DeviceLinkingSession = {
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly state: LinkedDeviceSessionState;
+  readonly qrData: DeviceLinkingQRData;
+};
 
-export type LinkDeviceResult = Extract<ActionResult, { success: false }>;
+export type LinkDeviceResult =
+  | {
+      readonly success: true;
+      readonly walletId: WalletId;
+      readonly enrollmentId: LinkedDeviceEnrollmentId;
+      readonly deviceId: LinkedDeviceId;
+      readonly manifestDigestB64u: DigestB64u;
+      readonly receipt: LinkedDeviceEnrollmentReceiptV1;
+      readonly error?: never;
+    }
+  | (Extract<ActionResult, { success: false }> & {
+      readonly walletId?: never;
+      readonly enrollmentId?: never;
+      readonly deviceId?: never;
+      readonly manifestDigestB64u?: never;
+      readonly receipt?: never;
+    });
 
 export class DeviceLinkingError extends Error {
+  readonly name = 'DeviceLinkingError';
+
   constructor(
     message: string,
-    public code: DeviceLinkingErrorCode,
-    public phase: 'generation' | 'authorization' | 'registration',
+    readonly code: DeviceLinkingErrorCode,
+    readonly phase: 'generation' | 'authorization' | 'registration',
   ) {
     super(message);
   }
@@ -44,16 +71,11 @@ export enum DeviceLinkingErrorCode {
 
 export type StartDevice2LinkingFlowArgs = {
   ui?: 'modal' | 'inline';
-  /**
-   * Optional preferred signer slot for the new passkey credential (1-indexed).
-   * When omitted, device2 will attempt `2` and auto-increment on duplicate.
-   */
-  signerSlot?: number;
 } & StartDeviceLinkingOptionsDevice2;
 
 export interface StartDevice2LinkingFlowResults {
-  qrData: DeviceLinkingQRData;
-  qrCodeDataURL: string;
+  readonly qrData: DeviceLinkingQRData;
+  readonly qrCodeDataURL: string;
 }
 
 export interface StartDeviceLinkingOptionsDevice2 {
@@ -61,17 +83,20 @@ export interface StartDeviceLinkingOptionsDevice2 {
   options?: {
     onEvent?: EventCallback<LinkDeviceFlowEvent>;
     onError?: (error: Error) => void;
-    afterCall?: AfterCall<any>;
+    afterCall?: AfterCall<StartDevice2LinkingFlowResults>;
     confirmationConfig?: Partial<ConfirmationConfig>;
     confirmerText?: { title?: string; body?: string };
+    /** Internal-only test/runtime port injection; omitted from serialized API requests. */
+    readonly ports?: never;
   };
 }
 
 export interface ScanAndLinkDeviceOptionsDevice1 {
-  fundingAmount: string;
   onEvent?: EventCallback<LinkDeviceFlowEvent>;
   onError?: (error: Error) => void;
-  afterCall?: AfterCall<any>;
+  afterCall?: AfterCall<LinkDeviceResult>;
   confirmationConfig?: Partial<ConfirmationConfig>;
   confirmerText?: { title?: string; body?: string };
 }
+
+export type { LinkDevicePublicKeyB64u } from '@shared/device-linking';

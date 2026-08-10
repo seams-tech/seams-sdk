@@ -19,6 +19,7 @@ export function createDevicesCapability(deps: {
   domain: DevicesCapabilityDomainMethods;
 }): DevicesCapability {
   const deviceLinking = new DeviceLinkingDomain({
+    kind: 'iframe',
     getContext: deps.getContext,
     walletIframe: deps.walletIframe,
   });

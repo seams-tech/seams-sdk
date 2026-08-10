@@ -1,187 +1,527 @@
+import QRCode from 'qrcode';
 import type { DeviceLinkingWebContext } from '@/SeamsWeb/signingSurface/types';
 import type {
+  DeviceLinkingQRData,
   DeviceLinkingSession,
   LinkDeviceResult,
   ScanAndLinkDeviceOptionsDevice1,
   StartDevice2LinkingFlowArgs,
   StartDevice2LinkingFlowResults,
-  DeviceLinkingQRData,
 } from '@/core/types/linkDevice';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '@/core/types/linkDevice';
 import {
-  createLinkDeviceFlowEvent,
-  LinkDeviceEventPhase,
-  type CreateLinkDeviceFlowEventInput,
-} from '@/core/types/sdkSentEvents';
+  buildCancelledClaimedPrecommitLinkedDeviceSessionState,
+  buildCancelledUnclaimedLinkedDeviceSessionState,
+  buildQrLinkedDeviceSessionPayloadV4,
+  buildLinkedDeviceReceiptAcknowledgementV1,
+  buildLinkedDeviceSessionCancelClaimedRequestV1,
+  buildLinkedDeviceSessionCancelUnclaimedRequestV1,
+  buildLinkedDeviceTargetCredentialRegistrationV1,
+  buildDisplayingQrLinkedDeviceSessionState,
+  assertNeverLinkedDeviceSessionState,
+} from '@shared/device-linking';
+import type {
+  LinkedDeviceSessionState,
+  LinkedDeviceSessionTransportEventV1,
+} from '@shared/device-linking';
+import { parseLinkDeviceSessionId } from '@shared/signing-lanes/ids';
+import { secureRandomId } from '@shared/utils/secureRandomId';
+import { errorMessage } from '@shared/utils/errors';
 import type { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
 import { linkDeviceWithScannedQRData as linkDeviceWithScannedQRDataDevice1 } from '@/SeamsWeb/operations/devices/scanDevice';
-import { errorMessage } from '@shared/utils/errors';
-
-const LINK_DEVICE_REFACTOR_84_MESSAGE =
-  'Linked-device lane creation is disabled until refactor 84 lands';
-const LINK_DEVICE_STUB_FLOW_ID = 'link-device:refactor-84-stub';
+import type {
+  Device2LinkingFlowPortsV1,
+  DeviceLinkingAuthenticatedTransportPortV1,
+  DeviceLinkingFlowPortsV1,
+  DeviceLinkingKeyMaterialHandleV1,
+  LinkSessionSubscriptionV1,
+} from './deviceLinkingPorts';
+import { LinkDeviceEventPhase, createLinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
+import type { CreateLinkDeviceFlowEventInput } from '@/core/types/sdkSentEvents';
 
 type EmitLinkDeviceEventInput = Omit<CreateLinkDeviceFlowEventInput, 'flowId' | 'accountId'> & {
-  accountId?: string;
+  readonly accountId?: string;
 };
-type StartDevice2LinkingCallbacks = NonNullable<StartDevice2LinkingFlowArgs['options']>;
+function createLinkSessionId(): import('@shared/signing-lanes/ids').LinkDeviceSessionId {
+  const parsed = parseLinkDeviceSessionId(secureRandomId('link-session', 32));
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
 
-function createUnsupportedLinkDeviceError(
-  phase: DeviceLinkingError['phase'],
-): DeviceLinkingError {
+function createFlowId(): string {
+  return secureRandomId('link-flow', 16);
+}
+
+function notifyError(callback: ((error: Error) => void) | undefined, error: Error): void {
+  try {
+    callback?.(error);
+  } catch {
+    // Consumer callback failures do not replace the domain error.
+  }
+}
+
+function phaseForState(state: LinkedDeviceSessionState): LinkDeviceEventPhase {
+  switch (state.state) {
+    case 'displaying_qr':
+    case 'expired_unclaimed':
+    case 'cancelled_unclaimed':
+      return LinkDeviceEventPhase.STEP_01_QR_PREPARE_STARTED;
+    case 'claimed_by_owner':
+    case 'awaiting_target_passkey':
+    case 'provisioning':
+    case 'awaiting_aggregate_receipt':
+    case 'active':
+    case 'expired_claimed':
+    case 'cancelled_claimed_precommit':
+    case 'committed_completion_required':
+      return LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED;
+    default:
+      return assertNeverLinkedDeviceSessionState(state);
+  }
+}
+
+function errorForFailure(error: unknown, phase: DeviceLinkingError['phase']): DeviceLinkingError {
+  if (error instanceof DeviceLinkingError) return error;
   return new DeviceLinkingError(
-    LINK_DEVICE_REFACTOR_84_MESSAGE,
-    DeviceLinkingErrorCode.UNSUPPORTED,
+    errorMessage(error) || 'Device linking failed',
+    DeviceLinkingErrorCode.REGISTRATION_FAILED,
     phase,
   );
 }
 
-function emitLinkDeviceStubEvent(
-  onEvent: StartDevice2LinkingCallbacks['onEvent'] | undefined,
-  event: EmitLinkDeviceEventInput,
-): void {
-  onEvent?.(
-    createLinkDeviceFlowEvent({
-      flowId: LINK_DEVICE_STUB_FLOW_ID,
-      ...(event.accountId ? { accountId: event.accountId } : {}),
-      ...event,
-    }),
-  );
-}
-
-function notifyLinkDeviceError(
-  onError: StartDevice2LinkingCallbacks['onError'] | undefined,
-  error: Error,
-): void {
-  try {
-    onError?.(error);
-  } catch {
-    // Callback failures must not replace the link-device stub error.
-  }
-}
-
-function createStubSession(): DeviceLinkingSession {
-  const createdAt = Date.now();
-  return {
-    sessionId: LINK_DEVICE_STUB_FLOW_ID,
-    phase: LinkDeviceEventPhase.FAILED,
-    createdAt,
-    expiresAt: createdAt,
-  };
-}
-
 export class LinkDeviceFlow {
   private readonly options: StartDevice2LinkingFlowArgs;
+  private readonly ports: Device2LinkingFlowPortsV1;
+  private readonly flowId: string;
   private session: DeviceLinkingSession | null = null;
+  private keyMaterialHandle: DeviceLinkingKeyMaterialHandleV1 | null = null;
+  private authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1 | null = null;
+  private subscription: LinkSessionSubscriptionV1 | null = null;
   private error?: Error;
   private cancelled = false;
+  private readonly handledStates = new Set<LinkedDeviceSessionState['state']>();
 
-  constructor(_context: DeviceLinkingWebContext, options: StartDevice2LinkingFlowArgs = {}) {
+  constructor(
+    _context: unknown,
+    options: StartDevice2LinkingFlowArgs = {},
+    ports: Device2LinkingFlowPortsV1,
+  ) {
     this.options = options;
+    this.flowId = createFlowId();
+    this.ports = ports;
   }
 
   async generateQR(): Promise<StartDevice2LinkingFlowResults> {
-    const error = createUnsupportedLinkDeviceError('generation');
-    this.error = error;
-    this.session = createStubSession();
+    if (this.session && !this.cancelled) throw new Error('Device-link QR flow is already running');
+    const ports = this.ports;
+    this.cancelled = false;
+    this.error = undefined;
     this.emit({
-      phase: LinkDeviceEventPhase.FAILED,
-      status: 'failed',
-      message: error.message,
-      data: {
-        role: 'display',
-      },
-      interaction: {
-        kind: 'qr_display',
-        overlay: 'hide',
-      },
-      error: {
-        code: error.code,
-        message: error.message,
-        retryable: false,
-      },
+      phase: LinkDeviceEventPhase.STEP_01_QR_PREPARE_STARTED,
+      status: 'started',
+      message: 'Preparing device link',
+      data: { role: 'display' },
+      interaction: { kind: 'qr_display', overlay: 'show' },
     });
-    notifyLinkDeviceError(this.options.options?.onError, error);
-    throw error;
+
+    try {
+      const keyMaterial = await ports.keyMaterial.createBootstrapKeyMaterialV1();
+      const issuedAtMs = Date.now();
+      const linkSessionId = createLinkSessionId();
+      const qrData = buildQrLinkedDeviceSessionPayloadV4({
+        linkSessionId,
+        linkPublicKeyB64u: keyMaterial.linkPublicKeyB64u,
+        devicePublicKeyB64u: keyMaterial.devicePublicKeyB64u,
+        issuedAtMs,
+        expiresAtMs: issuedAtMs + 15 * 60 * 1000,
+      });
+      const state = buildDisplayingQrLinkedDeviceSessionState({
+        linkSessionId,
+        expiresAtMs: qrData.expiresAtMs,
+      });
+      this.keyMaterialHandle = keyMaterial.handle;
+      const authenticatedTransport = ports.transport.createAuthenticatedSessionTransportV1({
+        keyMaterial: keyMaterial.handle,
+        devicePublicKeyB64u: keyMaterial.devicePublicKeyB64u,
+      });
+      this.authenticatedTransport = authenticatedTransport;
+      this.session = { linkSessionId, state, qrData };
+      await authenticatedTransport.createUnclaimedSessionV1({
+        payload: qrData,
+        state,
+      });
+      this.subscription = await authenticatedTransport.subscribeSessionV1({
+        linkSessionId,
+        onEvent: (event) => {
+          void this.handleSessionEvent(event).catch((error: unknown) => {
+            const failure = errorForFailure(error, 'registration');
+            this.error = failure;
+            this.emitFailure(failure, 'registration');
+            notifyError(this.options.options?.onError, failure);
+          });
+        },
+      });
+      const qrCodeDataURL = await QRCode.toDataURL(JSON.stringify(qrData), {
+        errorCorrectionLevel: 'M',
+        margin: 2,
+      });
+      const result = { qrData, qrCodeDataURL } satisfies StartDevice2LinkingFlowResults;
+      this.emit({
+        phase: LinkDeviceEventPhase.STEP_01_QR_PREPARE_STARTED,
+        status: 'succeeded',
+        message: 'Device-link QR ready',
+        data: { role: 'display' },
+        interaction: { kind: 'qr_display', overlay: 'show' },
+      });
+      await this.options.options?.afterCall?.(true, result);
+      return result;
+    } catch (error: unknown) {
+      const failure = errorForFailure(error, 'generation');
+      this.error = failure;
+      this.emitFailure(failure, 'generation');
+      notifyError(this.options.options?.onError, failure);
+      await this.options.options?.afterCall?.(false, undefined, failure);
+      throw failure;
+    }
   }
 
   getState(): {
-    phase: LinkDeviceEventPhase;
-    session: DeviceLinkingSession | null;
-    error?: Error;
-    cancelled: boolean;
+    readonly phase: LinkDeviceEventPhase;
+    readonly session: DeviceLinkingSession | null;
+    readonly error?: Error;
+    readonly cancelled: boolean;
   } {
     return {
-      phase: this.session?.phase ?? LinkDeviceEventPhase.STEP_01_QR_PREPARE_STARTED,
+      phase: this.session
+        ? phaseForState(this.session.state)
+        : LinkDeviceEventPhase.STEP_01_QR_PREPARE_STARTED,
       session: this.session,
       ...(this.error ? { error: this.error } : {}),
       cancelled: this.cancelled,
     };
   }
 
-  cancel(): void {
+  async cancel(): Promise<void> {
     if (this.cancelled) return;
     this.cancelled = true;
-    this.session = this.session
-      ? { ...this.session, phase: LinkDeviceEventPhase.CANCELLED }
-      : null;
+    const session = this.session;
+    const keyMaterialHandle = this.keyMaterialHandle;
+    const authenticatedTransport = this.authenticatedTransport;
+    if (session && keyMaterialHandle && authenticatedTransport) {
+      const now = Date.now();
+      try {
+        switch (session.state.state) {
+          case 'displaying_qr':
+            await authenticatedTransport.cancelSessionV1({
+              request: buildLinkedDeviceSessionCancelUnclaimedRequestV1({
+                linkSessionId: session.linkSessionId,
+                requestedAtMs: now,
+              }),
+            });
+            this.session = {
+              ...session,
+              state: buildCancelledUnclaimedLinkedDeviceSessionState({
+                linkSessionId: session.linkSessionId,
+                cancelledAtMs: now,
+              }),
+            };
+            break;
+          case 'claimed_by_owner':
+          case 'awaiting_target_passkey':
+          case 'provisioning':
+            await authenticatedTransport.cancelSessionV1({
+              request: buildLinkedDeviceSessionCancelClaimedRequestV1({
+                linkSessionId: session.linkSessionId,
+                enrollmentId: session.state.enrollmentId,
+                deviceId: await this.requireDeviceId(session.state),
+                reason: 'user_cancelled',
+                requestedAtMs: now,
+              }),
+            });
+            this.session = {
+              ...session,
+              state: buildCancelledClaimedPrecommitLinkedDeviceSessionState({
+                linkSessionId: session.linkSessionId,
+                walletId: session.state.walletId,
+                enrollmentId: session.state.enrollmentId,
+                cancelledAtMs: now,
+              }),
+            };
+            break;
+          case 'committed_completion_required':
+            // Once protocol commitment exists, cancellation is completion recovery.
+            break;
+          case 'awaiting_aggregate_receipt':
+          case 'active':
+          case 'expired_unclaimed':
+          case 'expired_claimed':
+          case 'cancelled_unclaimed':
+          case 'cancelled_claimed_precommit':
+            break;
+          default:
+            assertNeverLinkedDeviceSessionState(session.state);
+        }
+      } finally {
+        await this.subscription?.close();
+        this.subscription = null;
+      }
+    }
     this.emit({
       phase: LinkDeviceEventPhase.CANCELLED,
       status: 'cancelled',
-      message: 'Link-device flow cancelled',
-      interaction: {
-        kind: 'qr_display',
-        overlay: 'hide',
-      },
+      message: 'Device-link flow cancelled',
+      interaction: { kind: 'qr_display', overlay: 'hide' },
     });
   }
 
   reset(): void {
+    void this.subscription?.close();
+    this.subscription = null;
     this.session = null;
+    this.keyMaterialHandle = null;
+    this.authenticatedTransport = null;
     this.error = undefined;
     this.cancelled = false;
+    this.handledStates.clear();
+  }
+
+  private async requireDeviceId(
+    session: Extract<
+      DeviceLinkingSession['state'],
+      {
+        state:
+          | 'claimed_by_owner'
+          | 'awaiting_target_passkey'
+          | 'provisioning'
+          | 'committed_completion_required';
+      }
+    >,
+  ): Promise<import('@shared/signing-lanes/ids').LinkedDeviceId> {
+    if (!this.session) throw new Error('device-link session is unavailable');
+    const authenticatedTransport = this.requireAuthenticatedTransport();
+    const snapshot = await authenticatedTransport.getSessionV1({
+      linkSessionId: session.linkSessionId,
+    });
+    switch (snapshot.state.state) {
+      case 'displaying_qr':
+      case 'expired_unclaimed':
+      case 'cancelled_unclaimed':
+        throw new Error('claimed device identity is unavailable');
+      default:
+        if (!snapshot.deviceId) throw new Error('claimed device identity is unavailable');
+        return snapshot.deviceId;
+    }
+  }
+
+  private async handleSessionEvent(event: LinkedDeviceSessionTransportEventV1): Promise<void> {
+    if (this.cancelled || !this.session || event.linkSessionId !== this.session.linkSessionId)
+      return;
+    this.session = { ...this.session, state: event.state };
+    if (this.handledStates.has(event.state.state)) return;
+    this.handledStates.add(event.state.state);
+    switch (event.state.state) {
+      case 'displaying_qr':
+        return;
+      case 'claimed_by_owner':
+        this.emit({
+          phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
+          status: 'running',
+          message: 'Device link claimed by owner',
+          data: { role: 'display' },
+          interaction: { kind: 'qr_display', overlay: 'show' },
+        });
+        return;
+      case 'awaiting_target_passkey':
+        await this.createTargetCredential(event.state);
+        return;
+      case 'provisioning':
+      case 'awaiting_aggregate_receipt':
+        return;
+      case 'committed_completion_required':
+        await this.resumeCommittedDelivery(event.state);
+        return;
+      case 'active':
+        this.emit({
+          phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
+          status: 'succeeded',
+          message: 'Linked device active',
+          data: { role: 'display' },
+          interaction: { kind: 'qr_display', overlay: 'hide' },
+        });
+        return;
+      case 'expired_unclaimed':
+      case 'expired_claimed': {
+        const error = new DeviceLinkingError(
+          'Device-link session expired',
+          DeviceLinkingErrorCode.SESSION_EXPIRED,
+          'registration',
+        );
+        this.error = error;
+        this.emitFailure(error, 'registration');
+        notifyError(this.options.options?.onError, error);
+        return;
+      }
+      case 'cancelled_unclaimed':
+      case 'cancelled_claimed_precommit':
+        this.cancelled = true;
+        return;
+      default:
+        return assertNeverLinkedDeviceSessionState(event.state);
+    }
+  }
+
+  private async createTargetCredential(
+    state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_passkey' }>,
+  ): Promise<void> {
+    if (!this.keyMaterialHandle || !this.session)
+      throw new Error('device-link key material is unavailable');
+    const authenticatedTransport = this.requireAuthenticatedTransport();
+    const credential = await this.ports.targetCredential.createTargetCredentialV1({
+      walletId: state.walletId,
+      enrollmentId: state.enrollmentId,
+      deviceId: await this.requireDeviceId(state),
+      keyMaterial: this.keyMaterialHandle,
+    });
+    await authenticatedTransport.registerTargetCredentialV1({
+      registration: buildLinkedDeviceTargetCredentialRegistrationV1({
+        linkSessionId: state.linkSessionId,
+        walletId: state.walletId,
+        enrollmentId: state.enrollmentId,
+        deviceId: await this.requireDeviceId(state),
+        credentialIdB64u: credential.credentialIdB64u,
+        registeredAtMs: Date.now(),
+      }),
+    });
+    await this.ports.laneProvisioning.installAuthorizedLaneHolderWorkerV1({
+      walletId: state.walletId,
+      enrollmentId: state.enrollmentId,
+      deviceId: await this.requireDeviceId(state),
+      credentialIdB64u: credential.credentialIdB64u,
+    });
+  }
+
+  private async resumeCommittedDelivery(
+    state: Extract<LinkedDeviceSessionState, { state: 'committed_completion_required' }>,
+  ): Promise<void> {
+    if (!this.keyMaterialHandle) {
+      throw new DeviceLinkingError(
+        'Lane provisioning port is not configured',
+        DeviceLinkingErrorCode.UNSUPPORTED,
+        'registration',
+      );
+    }
+    const receipt = await this.ports.laneProvisioning.resumeCommittedDeliveryV1({
+      state,
+      keyMaterial: this.keyMaterialHandle,
+    });
+    if (!receipt || !this.session) return;
+    await this.requireAuthenticatedTransport().acknowledgeReceiptV1({
+      acknowledgement: buildLinkedDeviceReceiptAcknowledgementV1({
+        linkSessionId: state.linkSessionId,
+        enrollmentId: state.enrollmentId,
+        deviceId: await this.requireDeviceId(state),
+        receipt: receipt.orderedChildReceipts[0],
+        acknowledgedAtMs: Date.now(),
+      }),
+    });
+  }
+
+  private requireAuthenticatedTransport(): DeviceLinkingAuthenticatedTransportPortV1 {
+    if (!this.authenticatedTransport) {
+      throw new DeviceLinkingError(
+        'Authenticated link-session transport is unavailable',
+        DeviceLinkingErrorCode.UNSUPPORTED,
+        'registration',
+      );
+    }
+    return this.authenticatedTransport;
+  }
+
+  private emitFailure(error: DeviceLinkingError, phase: DeviceLinkingError['phase']): void {
+    this.emit({
+      phase:
+        phase === 'generation'
+          ? LinkDeviceEventPhase.STEP_01_QR_PREPARE_STARTED
+          : LinkDeviceEventPhase.FAILED,
+      status: 'failed',
+      message: error.message,
+      data: { role: 'display' },
+      interaction: { kind: 'qr_display', overlay: 'hide' },
+      error: {
+        code: error.code,
+        message: error.message,
+        retryable: error.code !== DeviceLinkingErrorCode.UNSUPPORTED,
+      },
+    });
   }
 
   private emit(event: EmitLinkDeviceEventInput): void {
-    emitLinkDeviceStubEvent(this.options.options?.onEvent, event);
+    this.options.options?.onEvent?.(createLinkDeviceFlowEvent({ flowId: this.flowId, ...event }));
   }
 }
 
-export type DeviceLinkingDomainDeps = {
-  getContext: () => DeviceLinkingWebContext;
-  walletIframe: Pick<WalletIframeCoordinator, 'shouldUseWalletIframe' | 'requireRouter'>;
-};
+export type DeviceLinkingDomainDeps =
+  | {
+      readonly kind: 'iframe';
+      readonly getContext: () => DeviceLinkingWebContext;
+      readonly walletIframe: Pick<
+        WalletIframeCoordinator,
+        'shouldUseWalletIframe' | 'requireRouter'
+      >;
+    }
+  | {
+      readonly kind: 'direct';
+      readonly getContext: () => DeviceLinkingWebContext;
+      readonly walletIframe: Pick<
+        WalletIframeCoordinator,
+        'shouldUseWalletIframe' | 'requireRouter'
+      >;
+      readonly ports: DeviceLinkingFlowPortsV1;
+    };
 
 export class DeviceLinkingDomain {
-  private readonly getContext: () => DeviceLinkingWebContext;
+  private readonly deps: DeviceLinkingDomainDeps;
   private activeDeviceLinkFlow: LinkDeviceFlow | null = null;
 
   constructor(deps: DeviceLinkingDomainDeps) {
-    this.getContext = deps.getContext;
+    this.deps = deps;
   }
 
   async startDevice2LinkingFlow(
     args: StartDevice2LinkingFlowArgs = {},
   ): Promise<StartDevice2LinkingFlowResults> {
-    const flow = new LinkDeviceFlow(this.getContext(), args);
-    this.activeDeviceLinkFlow = flow;
-    return await flow.generateQR();
+    if (this.deps.kind === 'direct' && !this.deps.walletIframe.shouldUseWalletIframe()) {
+      const flow = new LinkDeviceFlow(this.deps.getContext(), args, this.deps.ports);
+      this.activeDeviceLinkFlow = flow;
+      return await flow.generateQR();
+    }
+    const router = await this.deps.walletIframe.requireRouter();
+    return await router.startDevice2LinkingFlow(args);
   }
 
   async stopDevice2LinkingFlow(): Promise<void> {
-    this.activeDeviceLinkFlow?.cancel();
-    this.activeDeviceLinkFlow = null;
+    if (this.deps.kind === 'direct' && !this.deps.walletIframe.shouldUseWalletIframe()) {
+      await this.activeDeviceLinkFlow?.cancel();
+      this.activeDeviceLinkFlow = null;
+      return;
+    }
+    const router = await this.deps.walletIframe.requireRouter();
+    await router.stopDevice2LinkingFlow();
   }
 
   async linkDeviceWithScannedQRData(
     qrData: DeviceLinkingQRData,
     options: ScanAndLinkDeviceOptionsDevice1,
   ): Promise<LinkDeviceResult> {
-    return await linkDeviceWithScannedQRDataDevice1(this.getContext(), qrData, options);
+    if (this.deps.kind === 'direct' && !this.deps.walletIframe.shouldUseWalletIframe()) {
+      return await linkDeviceWithScannedQRDataDevice1(
+        this.deps.getContext(),
+        qrData,
+        options,
+        this.deps.ports,
+      );
+    }
+    const router = await this.deps.walletIframe.requireRouter();
+    return await router.linkDeviceWithScannedQRData({ qrData, options });
   }
-}
-
-export async function linkDeviceErrorResult(message: string, err?: unknown): Promise<never> {
-  const detail = err ? `: ${errorMessage(err)}` : '';
-  throw new Error(`${message}${detail}`);
 }

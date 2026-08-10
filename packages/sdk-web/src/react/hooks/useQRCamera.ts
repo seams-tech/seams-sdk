@@ -96,11 +96,12 @@ export const useQRCamera = (options: UseQRCameraOptions): UseQRCameraReturn => {
       },
       {
         onQRDetected: (qrData) => {
-          const sessionId = String(qrData.sessionId || '').trim();
+          const sessionId = String(qrData.linkSessionId).trim();
           console.log('useQRCamera: Valid QR data detected -', {
             sessionId,
-            accountId: qrData.accountId,
-            timestamp: new Date(qrData.timestamp || 0).toISOString(),
+            purpose: qrData.purpose,
+            issuedAt: new Date(qrData.issuedAtMs).toISOString(),
+            expiresAt: new Date(qrData.expiresAtMs).toISOString(),
           });
           setIsProcessing(false);
           setIsScanning(false);
