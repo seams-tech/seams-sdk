@@ -362,6 +362,7 @@ function fixtureSealedEcdsaWalletSessionJwt(args: {
     encode({ alg: 'none', typ: 'JWT' }),
     encode({
       kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
+      authorizationKind: 'owner_wallet_session',
       sub: args.walletId,
       walletId: args.walletId,
       keyHandle: args.keyHandle,

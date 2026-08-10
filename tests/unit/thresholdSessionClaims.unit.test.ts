@@ -455,6 +455,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
         relayerKeyId: 'relayer-key-1',
         sessionInfo: {
           sessionKind: 'jwt',
+          authorizationKind: 'owner_wallet_session',
           walletId: 'alice.testnet',
           nearAccountId: 'alice.testnet',
           nearEd25519SigningKeyId: 'alice.testnet',
@@ -480,6 +481,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
         relayerKeyId: 'relayer-key-1',
         sessionInfo: {
           sessionKind: 'jwt',
+          authorizationKind: 'owner_wallet_session',
           walletId: 'alice.testnet',
           nearAccountId: 'alice.testnet',
           nearEd25519SigningKeyId: 'alice.testnet',
@@ -517,6 +519,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
         relayerKeyId: ecdsaBootstrap.relayerKeyId,
         sessionInfo: {
           sessionKind: 'jwt',
+          authorizationKind: 'owner_wallet_session',
           authorizationSessionId: 'authorization-session-1',
           authorizationId: 'authorization-grant-ecdsa',
           walletSessionId: 'wallet-session-1',
@@ -582,6 +585,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
         relayerKeyId: 'ecdsa-relayer-key-1',
         sessionInfo: {
           sessionKind: 'jwt',
+          authorizationKind: 'owner_wallet_session',
           authorizationSessionId: 'authorization-session-1',
           authorizationId: 'authorization-grant-ecdsa',
           walletSessionId: 'wallet-session-1',
@@ -607,6 +611,7 @@ test.describe('Router A/B Wallet Session token claims', () => {
       ...routerAbEcdsaIssuerBinding(),
       routerAbEcdsaDerivationIssuerBinding: routerAbEcdsaIssuerBinding(),
       sessionKind: 'jwt' as const,
+      authorizationKind: 'owner_wallet_session' as const,
       authorizationSessionId: 'authorization-session-1',
       authorizationId: 'authorization-grant-ecdsa',
       walletSessionId: 'wallet-session-1',

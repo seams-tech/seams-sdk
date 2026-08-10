@@ -45,7 +45,7 @@ import type {
   RouterApiRouteExtension,
 } from '../../../framework/routeExtensions';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../../core/WalletStore';
-import type { RouterAbEd25519WalletSessionClaims } from '../../../../core/ThresholdService/validation';
+import type { RouterAbEd25519OwnerWalletSessionClaims } from '../../../../core/ThresholdService/validation';
 import {
   walletAuthAuthorityRef,
   type WalletAuthAuthorityRef,
@@ -319,7 +319,7 @@ export type RouterAbEd25519YaoRecoveryAuthorizationResult =
       readonly claims:
         | {
             readonly kind: 'wallet_session';
-            readonly value: RouterAbEd25519WalletSessionClaims;
+            readonly value: RouterAbEd25519OwnerWalletSessionClaims;
           }
         | {
             readonly kind: 'wallet_recovery';
@@ -464,16 +464,16 @@ export type RouterAbEd25519YaoWarmRecoveryBootstrapV1 = {
   readonly nearEd25519SigningKeyId: string;
   readonly signerSlot: number;
   readonly thresholdSessionId: ThresholdEd25519SessionId;
-  readonly walletSessionId: RouterAbEd25519WalletSessionClaims['walletSessionId'];
-  readonly quotaId: RouterAbEd25519WalletSessionClaims['quotaId'];
+  readonly walletSessionId: RouterAbEd25519OwnerWalletSessionClaims['walletSessionId'];
+  readonly quotaId: RouterAbEd25519OwnerWalletSessionClaims['quotaId'];
   readonly signingWorkerId: string;
   readonly thresholdExpiresAtMs: number;
   readonly participantIds: readonly [number, number];
-  readonly authority: RouterAbEd25519WalletSessionClaims['authority'];
+  readonly authority: RouterAbEd25519OwnerWalletSessionClaims['authority'];
   readonly authorityRef: WalletAuthAuthorityRef;
-  readonly authorityScope: RouterAbEd25519WalletSessionClaims['authorityScope'];
-  readonly runtimePolicyScope: RouterAbEd25519WalletSessionClaims['runtimePolicyScope'];
-  readonly routerAbNormalSigning: RouterAbEd25519WalletSessionClaims['routerAbNormalSigning'];
+  readonly authorityScope: RouterAbEd25519OwnerWalletSessionClaims['authorityScope'];
+  readonly runtimePolicyScope: RouterAbEd25519OwnerWalletSessionClaims['runtimePolicyScope'];
+  readonly routerAbNormalSigning: RouterAbEd25519OwnerWalletSessionClaims['routerAbNormalSigning'];
   readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
 };
 
@@ -703,7 +703,7 @@ function exactRuntimePolicyScope(left: RuntimePolicyScope, right: RuntimePolicyS
 
 export function warmBootstrapCapabilityMatchesStableIdentity(input: {
   readonly request: RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1;
-  readonly claims: RouterAbEd25519WalletSessionClaims;
+  readonly claims: RouterAbEd25519OwnerWalletSessionClaims;
   readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
 }): boolean {
   const request = input.request;

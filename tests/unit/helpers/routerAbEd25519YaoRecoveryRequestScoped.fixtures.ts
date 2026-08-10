@@ -642,6 +642,7 @@ function recoveryClaims(identity: RecoveryFixtureIdentity) {
   });
   const claims = parseRouterAbEd25519WalletSessionClaims({
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    authorizationKind: 'owner_wallet_session',
     sub: identity.walletId,
     walletId: identity.walletId,
     nearAccountId: identity.nearAccountId,

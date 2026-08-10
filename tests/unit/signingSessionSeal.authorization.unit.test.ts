@@ -67,6 +67,7 @@ async function walletSessionFixture(
     authority,
     sessionInfo: {
       sessionKind: 'jwt',
+      authorizationKind: 'owner_wallet_session',
       walletId: WALLET_ID,
       nearAccountId: WALLET_ID,
       nearEd25519SigningKeyId: 'near-ed25519-signing-key-seal-authorization',

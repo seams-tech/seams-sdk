@@ -43,6 +43,7 @@ function walletSessionClaimsFixture() {
   });
   return {
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    authorizationKind: 'owner_wallet_session',
     sub: 'wallet-1',
     walletId: 'wallet-1',
     nearAccountId: 'wallet-1.testnet',

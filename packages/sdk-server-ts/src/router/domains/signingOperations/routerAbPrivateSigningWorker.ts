@@ -6,16 +6,16 @@ import type { RouterAbNormalSigningRuntime } from '../../../core/routerAbSigning
 import type { ThresholdEd25519AuthorityScope } from '../../../core/types';
 import { postRouterAbInternalServiceJson } from '../../../core/ThresholdService/routerAb/internalServiceHttp';
 import type {
-  RouterAbEcdsaDerivationWalletSessionClaims,
-  RouterAbEd25519WalletSessionClaims,
+  RouterAbEcdsaDerivationOwnerWalletSessionClaims,
+  RouterAbEd25519OwnerWalletSessionClaims,
 } from '../../../core/ThresholdService/validation';
 import {
   parseAppSessionClaims,
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
 } from '../../../core/ThresholdService/validation';
 import type {
-  VerifiedEcdsaWalletSessionAuth,
-  VerifiedEd25519WalletSessionAuth,
+  VerifiedOwnerEcdsaWalletSessionAuth,
+  VerifiedOwnerEd25519WalletSessionAuth,
 } from '../../auth/verifiedWalletSessionAuth';
 import {
   validateRouterAbEcdsaDerivationWalletSessionInputs,
@@ -370,16 +370,16 @@ export type RouterAbNormalSigningAdmissionEvaluationInput =
       adapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
       curve: 'ed25519';
       phase: 'prepare' | 'finalize';
-      claims: RouterAbEd25519WalletSessionClaims;
-      walletSessionAuth: VerifiedEd25519WalletSessionAuth;
+      claims: RouterAbEd25519OwnerWalletSessionClaims;
+      walletSessionAuth: VerifiedOwnerEd25519WalletSessionAuth;
       admission: AcceptedRouteAdmission;
     }
   | {
       adapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
       curve: 'ecdsa';
       phase: 'prepare' | 'finalize';
-      claims: RouterAbEcdsaDerivationWalletSessionClaims;
-      walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
+      claims: RouterAbEcdsaDerivationOwnerWalletSessionClaims;
+      walletSessionAuth: VerifiedOwnerEcdsaWalletSessionAuth;
       admission: AcceptedEcdsaRouteAdmission;
     };
 
@@ -484,7 +484,7 @@ type RouterAbOperationStepUpAppSession = {
 type RouterAbEd25519PrivateSigningAuthorization =
   | {
       readonly kind: 'reusable_wallet_session';
-      readonly claims: RouterAbEd25519WalletSessionClaims;
+      readonly claims: RouterAbEd25519OwnerWalletSessionClaims;
     }
   | {
       readonly kind: 'operation_step_up';
@@ -494,7 +494,7 @@ type RouterAbEd25519PrivateSigningAuthorization =
 type RouterAbEcdsaPrivateSigningAuthorization =
   | {
       readonly kind: 'reusable_wallet_session';
-      readonly claims: RouterAbEcdsaDerivationWalletSessionClaims;
+      readonly claims: RouterAbEcdsaDerivationOwnerWalletSessionClaims;
     }
   | {
       readonly kind: 'operation_step_up';
@@ -2179,8 +2179,8 @@ function errorMessage(error: unknown): string {
 }
 
 export function validateRouterAbEd25519NormalSigningRequestScope(input: {
-  claims: RouterAbEd25519WalletSessionClaims;
-  walletSessionAuth: VerifiedEd25519WalletSessionAuth;
+  claims: RouterAbEd25519OwnerWalletSessionClaims;
+  walletSessionAuth: VerifiedOwnerEd25519WalletSessionAuth;
   body: Record<string, unknown>;
 }): RouterAbNormalSigningRouteAdmission {
   let scope: RouterAbEd25519NormalSigningScopeV2;
@@ -2257,8 +2257,8 @@ export function validateRouterAbEd25519NormalSigningRequestScope(input: {
 }
 
 export function validateRouterAbEcdsaDerivationNormalSigningPrepareRequest(input: {
-  claims: RouterAbEcdsaDerivationWalletSessionClaims;
-  walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
+  claims: RouterAbEcdsaDerivationOwnerWalletSessionClaims;
+  walletSessionAuth: VerifiedOwnerEcdsaWalletSessionAuth;
   body: Record<string, unknown>;
 }): RouterAbEcdsaNormalSigningRouteAdmission {
   const normalSigning = input.claims.routerAbEcdsaDerivationNormalSigning;
@@ -2367,8 +2367,8 @@ export async function resolveFreshRouterAbEcdsaMaterialActivation(input: {
 }
 
 export function validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest(input: {
-  claims: RouterAbEcdsaDerivationWalletSessionClaims;
-  walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
+  claims: RouterAbEcdsaDerivationOwnerWalletSessionClaims;
+  walletSessionAuth: VerifiedOwnerEcdsaWalletSessionAuth;
   body: Record<string, unknown>;
 }): RouterAbEcdsaNormalSigningRouteAdmission {
   const normalSigning = input.claims.routerAbEcdsaDerivationNormalSigning;
@@ -2443,7 +2443,7 @@ export function validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest(inpu
 export async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
   request: RouterAbEcdsaOperationStepUpRequest;
   materialActivation: RouterAbMpcMaterialActivationRefWire;
-  claims: RouterAbEcdsaDerivationWalletSessionClaims;
+  claims: RouterAbEcdsaDerivationOwnerWalletSessionClaims;
   authorizedOperations: Pick<
     RouterApiAuthorizedOperationService,
     'tenantId' | 'admitAuthorizedOperation'

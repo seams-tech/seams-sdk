@@ -3,9 +3,9 @@ import { json, readJson } from '../../../framework/http';
 import {
   parseAppSessionClaims,
   parseRouterAbEcdsaDerivationWalletSessionClaims,
-  type RouterAbEcdsaDerivationWalletSessionClaims,
+  type RouterAbEcdsaDerivationOwnerWalletSessionClaims,
   parseRouterAbEd25519WalletSessionClaims,
-  type RouterAbEd25519WalletSessionClaims,
+  type RouterAbEd25519OwnerWalletSessionClaims,
   resolveAppSessionWalletIdForWalletScope,
   resolveAppSessionProviderUserIdForWalletScope,
 } from '../../../../core/ThresholdService/validation';
@@ -869,7 +869,7 @@ async function issueEcdsaOperationStepUpAuthorization(input: {
 }
 
 type RouterAbEcdsaPoolFillClaims = Pick<
-  RouterAbEcdsaDerivationWalletSessionClaims,
+  RouterAbEcdsaDerivationOwnerWalletSessionClaims,
   | 'walletId'
   | 'relayerKeyId'
   | 'keyHandle'
@@ -1120,6 +1120,19 @@ async function authorizeEcdsaPoolFill(input: {
           },
         };
       }
+      if (!validated.claims.runtimePolicyScope) {
+        return {
+          ok: false,
+          error: {
+            status: 403,
+            body: {
+              ok: false,
+              code: WALLET_SESSION_FAILURE_CODES.scopeMismatch,
+              message: 'Pool-fill Wallet Session runtime policy scope is missing',
+            },
+          },
+        };
+      }
       const normalSigning = validated.claims.routerAbEcdsaDerivationNormalSigning;
       const requestedPoolFillMaterial = poolFillMaterialActivation(input.request);
       const activeMaterial =
@@ -1171,7 +1184,16 @@ async function authorizeEcdsaPoolFill(input: {
       }
       return {
         ok: true,
-        claims: validated.claims,
+        claims: {
+          walletId: validated.claims.walletId,
+          relayerKeyId: validated.claims.relayerKeyId,
+          keyHandle: validated.claims.keyHandle,
+          runtimePolicyScope: validated.claims.runtimePolicyScope,
+          participantIds: validated.claims.participantIds,
+          thresholdExpiresAtMs: validated.claims.thresholdExpiresAtMs,
+          routerAbEcdsaDerivationNormalSigning:
+            validated.claims.routerAbEcdsaDerivationNormalSigning,
+        },
       };
     }
     case 'operation_step_up': {
@@ -1311,7 +1333,7 @@ type StrictEcdsaPostRegistrationAuthorization =
   | {
       readonly ok: true;
       readonly authority: RouterAbEcdsaStrictRegistrationAuthority;
-      readonly ecdsaClaims: RouterAbEcdsaDerivationWalletSessionClaims | null;
+      readonly ecdsaClaims: RouterAbEcdsaDerivationOwnerWalletSessionClaims | null;
     }
   | {
       readonly ok: false;
@@ -1322,10 +1344,8 @@ type StrictEcdsaPostRegistrationAuthorization =
 
 type StrictEcdsaAuthorizationClaims = {
   readonly appSessionClaims: NonNullable<ReturnType<typeof parseAppSessionClaims>> | null;
-  readonly ecdsaClaims: RouterAbEcdsaDerivationWalletSessionClaims | null;
-  readonly ed25519Claims: NonNullable<
-    ReturnType<typeof parseRouterAbEd25519WalletSessionClaims>
-  > | null;
+  readonly ecdsaClaims: RouterAbEcdsaDerivationOwnerWalletSessionClaims | null;
+  readonly ed25519Claims: RouterAbEd25519OwnerWalletSessionClaims | null;
   readonly expiresAtMs: number;
 };
 
@@ -1367,8 +1387,12 @@ async function resolveStrictEcdsaAuthorizationClaims(input: {
   readonly rawClaims: Record<string, unknown>;
 }): Promise<StrictEcdsaAuthorizationClaimsResult> {
   const appSessionClaims = parseAppSessionClaims(input.rawClaims);
-  const ecdsaClaims = parseRouterAbEcdsaDerivationWalletSessionClaims(input.rawClaims);
-  const ed25519Claims = parseRouterAbEd25519WalletSessionClaims(input.rawClaims);
+  const parsedEcdsaClaims = parseRouterAbEcdsaDerivationWalletSessionClaims(input.rawClaims);
+  const parsedEd25519Claims = parseRouterAbEd25519WalletSessionClaims(input.rawClaims);
+  const ecdsaClaims =
+    parsedEcdsaClaims?.authorizationKind === 'owner_wallet_session' ? parsedEcdsaClaims : null;
+  const ed25519Claims =
+    parsedEd25519Claims?.authorizationKind === 'owner_wallet_session' ? parsedEd25519Claims : null;
   if (!appSessionClaims && !ecdsaClaims && !ed25519Claims) {
     return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.claimsInvalid);
   }
@@ -2095,7 +2119,7 @@ type StrictEcdsaReusableWalletSessionAuthorization =
       readonly expiresAtMs: number;
       readonly remainingUses: number;
       readonly authorityRef: WalletAuthAuthorityRef;
-      readonly authSource: RouterAbEcdsaDerivationWalletSessionClaims['authSource'];
+      readonly authSource: RouterAbEcdsaDerivationOwnerWalletSessionClaims['authSource'];
     }
   | {
       readonly ok: false;
@@ -2107,7 +2131,7 @@ type StrictEcdsaReusableWalletSessionAuthorization =
 async function authorizeStrictEcdsaSessionActivationFromEd25519Claims(input: {
   readonly ctx: FetchRouterApiContext;
   readonly walletId: string;
-  readonly claims: RouterAbEd25519WalletSessionClaims;
+  readonly claims: RouterAbEd25519OwnerWalletSessionClaims;
 }): Promise<StrictEcdsaReusableWalletSessionAuthorization> {
   const { claims } = input;
   if (claims.walletId !== input.walletId || !claims.sid) {
@@ -2173,7 +2197,7 @@ async function authorizeStrictEcdsaSessionActivation(input: {
       readonly principalId: PrincipalId;
       readonly authorizationSessionId: SeamsSessionId;
       readonly authority: WalletAuthAuthorityRef;
-      readonly authSource: RouterAbEcdsaDerivationWalletSessionClaims['authSource'];
+      readonly authSource: RouterAbEcdsaDerivationOwnerWalletSessionClaims['authSource'];
     }
   | StrictEcdsaReusableWalletSessionAuthorization
 > {
@@ -2393,7 +2417,7 @@ type StrictEcdsaSessionActivationInput =
         readonly principalId: PrincipalId;
         readonly authorizationSessionId: SeamsSessionId;
         readonly authority: WalletAuthAuthorityRef;
-        readonly authSource: RouterAbEcdsaDerivationWalletSessionClaims['authSource'];
+        readonly authSource: RouterAbEcdsaDerivationOwnerWalletSessionClaims['authSource'];
       };
     };
 
@@ -2462,7 +2486,7 @@ export async function handleStrictEcdsaSessionActivation(
   let quotaId: MpcWalletSigningQuotaId;
   let authorizationId: WalletSessionAuthorizationId;
   let walletAuthAuthorityRef: WalletAuthAuthorityRef;
-  let authSource: RouterAbEcdsaDerivationWalletSessionClaims['authSource'];
+  let authSource: RouterAbEcdsaDerivationOwnerWalletSessionClaims['authSource'];
   let expiresAtMs = activated.session.expiresAtMs;
   let remainingUses = activated.session.remainingUses;
   if (authorized.kind === 'issue_reusable_wallet_session') {
@@ -2509,6 +2533,7 @@ export async function handleStrictEcdsaSessionActivation(
     relayerKeyId: walletKey.relayerKeyId,
     sessionInfo: {
       sessionKind: 'jwt',
+      authorizationKind: 'owner_wallet_session',
       authorizationSessionId: authorized.authorizationSessionId,
       authorizationId,
       thresholdSessionId: activated.session.thresholdSessionId,

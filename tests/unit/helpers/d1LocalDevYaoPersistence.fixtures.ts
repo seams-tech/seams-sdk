@@ -676,6 +676,7 @@ async function issueLocalWalletSessionToken(
   });
   const claims = parseRouterAbEd25519WalletSessionClaims({
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    authorizationKind: 'owner_wallet_session',
     sub: localWalletId(),
     walletId: localWalletId(),
     nearAccountId: capability.nearAccountId,
