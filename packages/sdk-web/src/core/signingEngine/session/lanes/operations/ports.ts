@@ -25,6 +25,7 @@ export type LaneProtocolCommitterV1 = {
   executeAndRecordEcdsaAdditiveLaneV1(input: {
     readonly job: EcdsaAdditiveLaneJobV1;
     readonly holderRound: EcdsaAdditiveLaneHolderRoundV1;
+    readonly encryptedDeltaPackageJson: string;
     readonly expectedVersion: number;
   }): Promise<LaneProtocolCommitExecutionResultV1>;
   executeAndRecordEd25519YaoLaneV1(input: {

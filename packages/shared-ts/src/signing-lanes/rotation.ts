@@ -787,7 +787,7 @@ export type LaneEnrollmentPreparationResultV1 =
 export type EcdsaLaneProtocolWasmV1 = {
   prepareEcdsaAdditiveLaneHolderRoundV1(
     input: EcdsaAdditiveLaneJobV1,
-  ): Promise<EcdsaAdditiveLaneHolderRoundV1>;
+  ): Promise<EcdsaAdditiveLaneHolderPreparationV1>;
 };
 
 export type { LaneHolderRecipientHandleV1 } from '../utils/domainIds';
@@ -812,6 +812,24 @@ export type LaneHolderPackageWireV1 =
       deriverBEncryptedPackageJson?: never;
     };
 
+export type EcdsaAdditiveLaneHolderPreparationV1 = {
+  kind: 'ecdsa_additive_lane_holder_preparation_v1';
+  holderRound: EcdsaAdditiveLaneHolderRoundV1;
+  holderPackage: Extract<
+    LaneHolderPackageWireV1,
+    { kind: 'ecdsa_additive_lane_holder_package_v1' }
+  >;
+  encryptedDeltaPackageJson: string;
+};
+
+export type Ed25519YaoLaneClientCompletionV1 = {
+  protocolCommitReceipt: LaneProtocolCommitReceiptV1;
+  holderPackage: Extract<
+    LaneHolderPackageWireV1,
+    { kind: 'ed25519_yao_lane_holder_package_set_v1' }
+  >;
+};
+
 export type SealedLaneHolderMaterialV1 = {
   sealedHolderMaterialB64u: string;
   sealedHolderRecordDigestB64u: DigestB64u;
@@ -827,7 +845,7 @@ export type WasmEd25519YaoLaneClientV1 = {
   complete(input: {
     job: Ed25519YaoLaneJobV1;
     responseJson: string;
-  }): Promise<LaneProtocolCommitReceiptV1>;
+  }): Promise<Ed25519YaoLaneClientCompletionV1>;
 };
 
 export type PrepareLaneEnrollmentV1 = {

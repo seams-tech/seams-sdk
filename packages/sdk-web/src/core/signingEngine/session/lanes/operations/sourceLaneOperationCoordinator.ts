@@ -1,6 +1,7 @@
 import type {
   LaneEnrollmentPreparationResultV1,
   LaneEnrollmentManifestV1,
+  LaneHolderPackageWireV1,
   LaneProtocolCasResultV1,
   LaneProtocolCommitReceiptV1,
   RotatableSigningLaneJobV1,
@@ -23,12 +24,18 @@ import type { LaneOperationSourcePortsV1 } from './ports';
 export type PreparedLaneProtocolOperationV1 = {
   readonly manifest: LaneEnrollmentManifestV1;
   readonly children: readonly [RotatableSigningLaneJobV1, ...RotatableSigningLaneJobV1[]];
-  readonly protocolCommitReceipts: readonly [
-    LaneProtocolCommitReceiptV1,
-    ...LaneProtocolCommitReceiptV1[],
+  readonly committedChildren: readonly [
+    PreparedLaneProtocolChildV1,
+    ...PreparedLaneProtocolChildV1[],
   ];
-  readonly protocolCommitResults: readonly [LaneProtocolCasResultV1, ...LaneProtocolCasResultV1[]];
   readonly gatewayPreparation: LaneEnrollmentPreparationResultV1;
+};
+
+export type PreparedLaneProtocolChildV1 = {
+  readonly job: RotatableSigningLaneJobV1;
+  readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
+  readonly protocolCommitResult: LaneProtocolCasResultV1;
+  readonly holderPackage: LaneHolderPackageWireV1;
 };
 
 function nonEmptyJobs(
@@ -40,21 +47,12 @@ function nonEmptyJobs(
   return [first, ...rest];
 }
 
-function nonEmptyReceipts(
-  receipts: readonly LaneProtocolCommitReceiptV1[],
-): [LaneProtocolCommitReceiptV1, ...LaneProtocolCommitReceiptV1[]] {
-  if (receipts.length === 0) throw new Error('lane enrollment produced no protocol receipts');
-  const [first, ...rest] = receipts;
-  if (!first) throw new Error('lane enrollment produced no protocol receipts');
-  return [first, ...rest];
-}
-
-function nonEmptyCasResults(
-  results: readonly LaneProtocolCasResultV1[],
-): [LaneProtocolCasResultV1, ...LaneProtocolCasResultV1[]] {
-  if (results.length === 0) throw new Error('lane enrollment produced no protocol CAS results');
-  const [first, ...rest] = results;
-  if (!first) throw new Error('lane enrollment produced no protocol CAS results');
+function nonEmptyCommittedChildren(
+  children: readonly PreparedLaneProtocolChildV1[],
+): [PreparedLaneProtocolChildV1, ...PreparedLaneProtocolChildV1[]] {
+  if (children.length === 0) throw new Error('lane enrollment produced no protocol commitments');
+  const [first, ...rest] = children;
+  if (!first) throw new Error('lane enrollment produced no protocol commitments');
   return [first, ...rest];
 }
 
@@ -128,23 +126,29 @@ async function commitEcdsaChild(args: {
 }): Promise<{
   readonly receipt: LaneProtocolCommitReceiptV1;
   readonly protocolCasResult: LaneProtocolCasResultV1;
+  readonly holderPackage: LaneHolderPackageWireV1;
 }> {
-  const holderRound = await prepareEcdsaAdditiveLaneHolderRoundV1(
-    args.ports.wasm.ecdsa,
-    args.child,
-  );
+  const prepared = await prepareEcdsaAdditiveLaneHolderRoundV1(args.ports.wasm.ecdsa, args.child);
   const committed = await args.ports.protocolCommitter.executeAndRecordEcdsaAdditiveLaneV1({
     job: args.child,
-    holderRound,
+    holderRound: prepared.holderRound,
+    encryptedDeltaPackageJson: prepared.encryptedDeltaPackageJson,
     expectedVersion: args.expectedVersion,
   });
   const receipt = parseLaneProtocolCommitReceiptV1(committed.receipt);
   assertProtocolCommitMatchesJob(args.child, receipt);
-  if (receipt.targetHolderPublicCommitmentB64u !== holderRound.targetHolderPublicCommitment33B64u) {
+  if (
+    receipt.targetHolderPublicCommitmentB64u !==
+    prepared.holderRound.targetHolderPublicCommitment33B64u
+  ) {
     throw new Error('ECDSA protocol receipt changed the holder commitment');
   }
   await assertRecordedProtocolCommit(args.child, receipt, committed.protocolCasResult);
-  return { receipt, protocolCasResult: committed.protocolCasResult };
+  return {
+    receipt,
+    protocolCasResult: committed.protocolCasResult,
+    holderPackage: prepared.holderPackage,
+  };
 }
 
 async function commitEd25519Child(args: {
@@ -154,6 +158,7 @@ async function commitEd25519Child(args: {
 }): Promise<{
   readonly receipt: LaneProtocolCommitReceiptV1;
   readonly protocolCasResult: LaneProtocolCasResultV1;
+  readonly holderPackage: LaneHolderPackageWireV1;
 }> {
   const prepared = await prepareEd25519YaoLaneV1(args.ports.wasm.ed25519Yao, args.child);
   const committed = await args.ports.protocolCommitter.executeAndRecordEd25519YaoLaneV1({
@@ -161,17 +166,21 @@ async function commitEd25519Child(args: {
     requestJson: prepared.requestJson,
     expectedVersion: args.expectedVersion,
   });
-  const receipt = await completeEd25519YaoLaneV1(args.ports.wasm.ed25519Yao, {
+  const completion = await completeEd25519YaoLaneV1(args.ports.wasm.ed25519Yao, {
     job: args.child,
     responseJson: committed.responseJson,
   });
   const serverReceipt = parseLaneProtocolCommitReceiptV1(committed.receipt);
   assertProtocolCommitMatchesJob(args.child, serverReceipt);
-  if (!laneProtocolCommitReceiptsEqual(receipt, serverReceipt)) {
+  if (!laneProtocolCommitReceiptsEqual(completion.protocolCommitReceipt, serverReceipt)) {
     throw new Error('Ed25519 client verification and server commitment disagree');
   }
   await assertRecordedProtocolCommit(args.child, serverReceipt, committed.protocolCasResult);
-  return { receipt: serverReceipt, protocolCasResult: committed.protocolCasResult };
+  return {
+    receipt: serverReceipt,
+    protocolCasResult: committed.protocolCasResult,
+    holderPackage: completion.holderPackage,
+  };
 }
 
 async function commitChild(
@@ -181,6 +190,7 @@ async function commitChild(
 ): Promise<{
   readonly receipt: LaneProtocolCommitReceiptV1;
   readonly protocolCasResult: LaneProtocolCasResultV1;
+  readonly holderPackage: LaneHolderPackageWireV1;
 }> {
   switch (child.keyFamily) {
     case 'ecdsa_secp256k1':
@@ -226,14 +236,6 @@ async function assertRecordedProtocolCommit(
     await sha256Bytes(encodeLaneProtocolCommitReceiptV1(receipt)),
   );
   if (
-    result.commandDigestB64u !== receiptDigestB64u ||
-    result.record.lifecycle.state === 'awaiting_protocol_commitment' ||
-    result.record.lifecycle.state === 'aborted_precommit' ||
-    result.record.lifecycle.protocolCommitReceiptDigestB64u !== receiptDigestB64u
-  ) {
-    throw new Error('Gateway protocol commitment result does not bind the exact receipt');
-  }
-  if (
     result.record.lifecycle.state !== 'committed_awaiting_holder_delivery' &&
     result.record.lifecycle.state !== 'awaiting_server_activation' &&
     result.record.lifecycle.state !== 'ready_for_parent_visibility' &&
@@ -241,6 +243,12 @@ async function assertRecordedProtocolCommit(
     result.record.lifecycle.state !== 'committed_completion_required'
   ) {
     throw new Error('Gateway protocol record did not commit its exact receipt');
+  }
+  if (
+    result.commandDigestB64u !== receiptDigestB64u ||
+    result.record.lifecycle.protocolCommitReceiptDigestB64u !== receiptDigestB64u
+  ) {
+    throw new Error('Gateway protocol commitment result does not bind the exact receipt');
   }
 }
 
@@ -297,21 +305,23 @@ export async function prepareAndCommitSourceLaneOperationV1(args: {
   if (gatewayPreparation.orderedProtocols.length !== children.length) {
     throw new Error('Gateway preparation protocol order does not match the manifest');
   }
-  const receipts: LaneProtocolCommitReceiptV1[] = [];
-  const protocolCommitResults: LaneProtocolCasResultV1[] = [];
+  const committedChildren: PreparedLaneProtocolChildV1[] = [];
   for (const [index, child] of children.entries()) {
     const preparedProtocol = gatewayPreparation.orderedProtocols[index];
     if (!preparedProtocol) throw new Error(`Gateway preparation child ${index} is missing`);
     assertProtocolRecordMatchesChild(child, preparedProtocol.record.job);
     const committed = await commitChild(child, preparedProtocol.version, args.ports);
-    receipts.push(committed.receipt);
-    protocolCommitResults.push(committed.protocolCasResult);
+    committedChildren.push({
+      job: child,
+      protocolCommitReceipt: committed.receipt,
+      protocolCommitResult: committed.protocolCasResult,
+      holderPackage: committed.holderPackage,
+    });
   }
   return {
     manifest,
     children,
-    protocolCommitReceipts: nonEmptyReceipts(receipts),
-    protocolCommitResults: nonEmptyCasResults(protocolCommitResults),
+    committedChildren: nonEmptyCommittedChildren(committedChildren),
     gatewayPreparation,
   };
 }
