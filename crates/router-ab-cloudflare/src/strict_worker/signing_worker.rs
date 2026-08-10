@@ -43,6 +43,22 @@ pub(super) async fn handle_strict_signing_worker_fetch_v1(
             handle_cloudflare_signing_worker_lane_material_command_private_fetch_v1(request, &env)
                 .await
         }
+        CLOUDFLARE_SIGNING_WORKER_ECDSA_LANE_EXECUTE_PATH => {
+            handle_cloudflare_signing_worker_ecdsa_lane_execute_private_fetch_v1(
+                request, &env, &runtime,
+            )
+            .await
+        }
+        CLOUDFLARE_SIGNING_WORKER_ECDSA_LANE_ACTIVATE_PATH => {
+            handle_cloudflare_signing_worker_ecdsa_lane_activate_private_fetch_v1(
+                request, &env, &runtime,
+            )
+            .await
+        }
+        CLOUDFLARE_SIGNING_WORKER_ECDSA_LANE_RETIRE_PATH => {
+            handle_cloudflare_signing_worker_ecdsa_lane_retire_private_fetch_v1(request, &env)
+                .await
+        }
         CLOUDFLARE_SIGNING_WORKER_PROOF_BUNDLE_ACTIVATION_PATH => {
             handle_cloudflare_signing_worker_recipient_proof_bundle_activation_fetch_v1(
                 request, &env, &runtime,

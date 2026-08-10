@@ -5,6 +5,7 @@ import type {
   LaneEnrollmentGatewayV1,
   LaneProtocolCasResultV1,
   LaneProtocolCommitReceiptV1,
+  LaneHolderPackageWireV1,
 } from '@shared/signing-lanes';
 import {
   parseLaneProtocolCommitReceiptV1,
@@ -142,6 +143,10 @@ export class CloudflareLaneProtocolCommitterV1 {
   async executeAndRecordEcdsaAdditiveLaneV1(input: {
     readonly job: EcdsaAdditiveLaneJobV1;
     readonly holderRound: EcdsaAdditiveLaneHolderRoundV1;
+    readonly holderPackage: Extract<
+      LaneHolderPackageWireV1,
+      { kind: 'ecdsa_additive_lane_holder_package_v1' }
+    >;
     readonly encryptedDeltaPackageJson: string;
     readonly expectedVersion: number;
   }): Promise<CloudflareEcdsaLaneProtocolCommitResultV1> {
@@ -159,6 +164,7 @@ export class CloudflareLaneProtocolCommitterV1 {
       curve: 'ecdsa_additive',
       job: input.job,
       holderRound: input.holderRound,
+      holderPackage: input.holderPackage,
       encryptedDeltaPackageJson: input.encryptedDeltaPackageJson,
       expectedVersion: input.expectedVersion,
     });

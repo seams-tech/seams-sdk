@@ -26,6 +26,7 @@ import {
 import { parseCorrelationId } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import {
   buildR102HolderDeliveryReceipt,
+  buildR102EcdsaLaneJob,
   buildR102LaneJob,
   buildR102ProtocolCommitReceipt,
   buildR102ServerActivationReceipt,
@@ -175,6 +176,27 @@ function executionPorts(input: {
     executeServerRetirementV1: unsupported,
   } satisfies LaneLifecycleCurveExecutionPortsV1['ecdsa'];
   return { ed25519, ecdsa };
+}
+
+function ecdsaRetirementExecutionPorts(input: {
+  readonly retirementCommand: LaneLifecycleRetirementExecutionV1;
+  readonly calls: string[];
+}): LaneLifecycleCurveExecutionPortsV1 {
+  return {
+    ed25519: {
+      executeProtocolCommitV1: unsupported,
+      executeServerActivationV1: unsupported,
+      executeServerRetirementV1: unsupported,
+    },
+    ecdsa: {
+      executeProtocolCommitV1: unsupported,
+      executeServerActivationV1: unsupported,
+      async executeServerRetirementV1() {
+        input.calls.push('ecdsa.retirement');
+        return input.retirementCommand;
+      },
+    },
+  };
 }
 
 function commandFor(job: RotatableSigningLaneJobV1) {
@@ -343,6 +365,34 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
       'revoke_signing_lane_v1',
       'gateway.revocation',
       'ed25519.retirement',
+    ]);
+  });
+
+  test('completes ECDSA retirement after the durable Gateway fence', async () => {
+    const rawJob = buildR102EcdsaLaneJob('application-ecdsa-retirement');
+    if (rawJob.keyFamily !== 'ecdsa_secp256k1') throw new Error('fixture key family changed');
+    const command = commandFor(rawJob);
+    const calls = applicationCalls();
+    const service = new LaneLifecycleApplicationService({
+      gateway: gateway(calls, (fencedCommand) => laneRevocationApplied(rawJob, fencedCommand)),
+      authorization: authorization(calls.order),
+      execution: ecdsaRetirementExecutionPorts({
+        retirementCommand: {
+          kind: 'lane_lifecycle_retirement_execution_v1',
+          command,
+          retirementReceiptDigestB64u: DIGEST_B64U,
+        },
+        calls: calls.order,
+      }),
+    });
+
+    const result = await service.revokeSigningLaneV1({ curve: 'ecdsa_additive', command });
+
+    expect(result.outcome).toBe('applied');
+    expect(calls.order).toEqual([
+      'revoke_signing_lane_v1',
+      'gateway.revocation',
+      'ecdsa.retirement',
     ]);
   });
 

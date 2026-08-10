@@ -7,6 +7,7 @@ import type {
   LaneHolderRecipientWorkerV1,
   LaneProtocolCasResultV1,
   LaneProtocolCommitReceiptV1,
+  LaneHolderPackageWireV1,
   RotatableSigningLaneJobV1,
   WasmEd25519YaoLaneClientV1,
 } from '@shared/signing-lanes/rotation';
@@ -25,6 +26,10 @@ export type LaneProtocolCommitterV1 = {
   executeAndRecordEcdsaAdditiveLaneV1(input: {
     readonly job: EcdsaAdditiveLaneJobV1;
     readonly holderRound: EcdsaAdditiveLaneHolderRoundV1;
+    readonly holderPackage: Extract<
+      LaneHolderPackageWireV1,
+      { kind: 'ecdsa_additive_lane_holder_package_v1' }
+    >;
     readonly encryptedDeltaPackageJson: string;
     readonly expectedVersion: number;
   }): Promise<LaneProtocolCommitExecutionResultV1>;
