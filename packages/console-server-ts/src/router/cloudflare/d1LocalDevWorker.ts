@@ -144,8 +144,6 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS?: string;
   readonly EMAIL_OTP_MAX_ATTEMPTS?: string;
   readonly EMAIL_OTP_LOCKOUT_TTL_MS?: string;
-  readonly EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX?: string;
-  readonly EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS?: string;
   readonly EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX?: string;
   readonly EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS?: string;
   readonly SPONSORED_EVM_EXECUTORS_JSON?: string;
@@ -597,7 +595,6 @@ const SIGNER_READY_TABLES = Object.freeze([
   'email_otp_challenges',
   'email_otp_grants',
   'email_otp_wallet_enrollments',
-  'email_otp_recovery_wrapped_enrollment_escrows',
   'email_otp_auth_states',
   'email_otp_unlock_challenges',
   'email_otp_registration_attempts',
@@ -1132,9 +1129,6 @@ function localD1RouterApiAuthServiceOptions(
     emailOtpGrantRateLimitWindowMs: env.EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS,
     emailOtpMaxAttempts: env.EMAIL_OTP_MAX_ATTEMPTS,
     emailOtpLockoutTtlMs: env.EMAIL_OTP_LOCKOUT_TTL_MS,
-    emailOtpRecoveryKeyAttemptRateLimitMax: env.EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX,
-    emailOtpRecoveryKeyAttemptRateLimitWindowMs:
-      env.EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS,
     emailOtpGoogleRegistrationAttemptRateLimitMax:
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX,
     emailOtpGoogleRegistrationAttemptRateLimitWindowMs:
