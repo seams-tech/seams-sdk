@@ -457,9 +457,8 @@ fn js_error(error: impl core::fmt::Display) -> JsValue {
 
 /// One-use WASM typestate client for Ed25519 Yao lane provisioning/refresh.
 ///
-/// The local adapter prepares only the immutable public job.  Execution stays
-/// behind the Router's lane endpoint; while this crate has no reviewed
-/// production evaluator, `execute_request_json` fails closed.
+/// The local adapter prepares only the immutable public job. Transport callers
+/// execute the returned request through the Router lane endpoint.
 #[wasm_bindgen]
 pub struct WasmEd25519YaoLaneClientV1 {
     prepared: Option<PreparedClientLaneV1>,
@@ -505,17 +504,6 @@ impl WasmEd25519YaoLaneClientV1 {
             .as_ref()
             .map(|prepared| prepared.execute_request_json().to_owned())
             .ok_or_else(|| JsValue::from_str("Ed25519 Yao lane client is not prepared"))
-    }
-
-    /// Fails closed because no production Yao evaluator is linked here.
-    #[wasm_bindgen(js_name = executeRequestJson)]
-    pub fn execute_request_json_with_input(
-        &self,
-        _request_json: JsValue,
-    ) -> Result<JsValue, JsValue> {
-        Err(JsValue::from_str(
-            "Ed25519 Yao lane execution is unavailable in the passive client",
-        ))
     }
 
     /// Consumes the one-use state and returns the immutable receipt plus the
