@@ -1,5 +1,6 @@
 import type {
   LinkedDeviceApprovalV1,
+  LinkedDeviceApprovalResultV1,
   LinkedDeviceEnrollmentKeyBindingV1,
   LinkedDeviceEnrollmentReceiptV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
@@ -7,6 +8,7 @@ import type {
   LinkedDeviceReceiptAcknowledgementV1,
   LinkedDeviceSessionClaimRequestV1,
   LinkedDeviceSessionClaimV1,
+  LinkedDeviceSessionProjectionV1,
   LinkedDeviceSessionState,
   LinkedDeviceSessionTransportEventV1,
   LinkedDeviceSessionTransportRequestV1,
@@ -35,63 +37,8 @@ export type LinkSessionSubscriptionV1 = {
   readonly close: () => void | Promise<void>;
 };
 
-export type LinkSessionSnapshotV1 =
-  | {
-      readonly state: Extract<
-        LinkedDeviceSessionState,
-        { readonly state: 'displaying_qr' | 'expired_unclaimed' | 'cancelled_unclaimed' }
-      >;
-      readonly deviceId?: never;
-    }
-  | {
-      readonly state: Exclude<
-        LinkedDeviceSessionState,
-        Extract<
-          LinkedDeviceSessionState,
-          { readonly state: 'displaying_qr' | 'expired_unclaimed' | 'cancelled_unclaimed' }
-        >
-      >;
-      readonly deviceId: LinkedDeviceId;
-    };
-
-type LinkedDevicePendingSessionState = Extract<
-  LinkedDeviceSessionState,
-  {
-    readonly state:
-      | 'awaiting_target_passkey'
-      | 'provisioning'
-      | 'awaiting_aggregate_receipt'
-      | 'committed_completion_required';
-  }
->;
-
-type LinkedDeviceApprovalReplayV1 =
-  | {
-      readonly state: 'pending';
-      readonly session: LinkedDevicePendingSessionState;
-    }
-  | {
-      readonly state: 'active';
-      readonly session: Extract<LinkedDeviceSessionState, { readonly state: 'active' }>;
-      readonly manifestDigestB64u: DigestB64u;
-      readonly receipt: LinkedDeviceEnrollmentReceiptV1;
-    };
-
-export type LinkedDeviceApprovalResultV1 =
-  | {
-      readonly outcome: 'pending';
-      readonly state: LinkedDevicePendingSessionState;
-    }
-  | {
-      readonly outcome: 'active';
-      readonly state: Extract<LinkedDeviceSessionState, { readonly state: 'active' }>;
-      readonly manifestDigestB64u: DigestB64u;
-      readonly receipt: LinkedDeviceEnrollmentReceiptV1;
-    }
-  | {
-      readonly outcome: 'replayed';
-      readonly replay: LinkedDeviceApprovalReplayV1;
-    };
+export type LinkSessionSnapshotV1 = LinkedDeviceSessionProjectionV1;
+export type { LinkedDeviceApprovalResultV1 };
 
 /**
  * This adapter owns challenge exchange, canonical request bytes, and worker
@@ -105,9 +52,6 @@ export type DeviceLinkingAuthenticatedTransportPortV1 = {
   getSessionV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
   }): Promise<LinkSessionSnapshotV1>;
-  getApprovalV1(input: {
-    readonly linkSessionId: LinkDeviceSessionId;
-  }): Promise<LinkedDeviceApprovalV1>;
   registerTargetCredentialV1(input: {
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
   }): Promise<void>;
@@ -167,6 +111,8 @@ export type LinkSessionTransportPortV1 = LinkSessionOwnerTransportPortV1 & {
 /** A worker-owned handle. The browser receives no private key representation. */
 export type DeviceLinkingKeyMaterialHandleV1 = {
   readonly kind: 'device_linking_key_material_handle_v1';
+  /** Opaque worker-owned key slot; it carries no key bytes. */
+  readonly handleId: string;
 };
 
 export type DeviceLinkingKeyMaterialPortV1 = {
@@ -175,6 +121,17 @@ export type DeviceLinkingKeyMaterialPortV1 = {
     readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
     readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
   }>;
+  signDeviceSessionRequestV1(input: {
+    readonly handle: DeviceLinkingKeyMaterialHandleV1;
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly method: 'GET' | 'POST';
+    readonly canonicalPath: string;
+    readonly bodyDigestB64u: DigestB64u;
+    readonly devicePublicKeyDigestB64u: DigestB64u;
+    readonly challengeB64u: string;
+    readonly issuedAtMs: number;
+    readonly expiresAtMs: number;
+  }): Promise<{ readonly signatureB64u: string }>;
 };
 
 export type DeviceLinkingOwnerAuthorizationPortV1 = {
