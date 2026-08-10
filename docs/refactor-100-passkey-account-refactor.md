@@ -644,37 +644,19 @@ and product behavior.
   lane envelopes remain active.
 - Credential replacement and device revocation are separate user operations.
 
-## Where This Stands (2026-08-09)
+## Where This Stands (2026-08-10)
 
-57 of 71 boxes. Phase 2 is complete; Phase 3's NEAR half is complete; Phases 4
-and 5 have their load-bearing primitives with every guard mutation-checked.
-The refactor's defining property is proven in a circuit test: register a wallet
-under one factor, enrol a second by resealing the envelope, unlock with the
-second alone.
+The Refactor-100 production paths are implemented on the isolated
+`refactor-100-passkey-custody` branch. Registration, ordinary cold unlock,
+wallet-scoped recovery, active-factor ten-code rotation, explicit-authorized
+passkey addition, and credential list/rename/revoke have direct and iframe
+orchestration. Email OTP's separate device-escrow recovery system and the
+factor-derived Ed25519 root APIs are deleted.
 
-**Verified by types, unit and circuit tests — never yet against running
-services.** The spliced registration path compiles and its parts are tested in
-isolation; no wallet has been registered through it end to end. Two of the open
-boxes exist for exactly that.
-
-The fourteen open boxes are not more of the same work, and it is worth knowing
-which is which before picking one up:
-
-- **One is a decision** — the ECDSA ownership handoff under *Decisions
-  Required*. It cannot be implemented around: minting an
-  `MpcMaterialActivationRef` locally would be a second owner for state Refactor
-  90 owns, which Invariant 11 forbids. The Ed25519 path only avoided it because
-  the Router mints that identity in its receipt.
-- **Three are blocked behind that decision** — the EVM install, shrinking
-  `wasm/ecdsa_registration_client`, and deleting the PRF-derived signing-root
-  paths. The last also needs the Email OTP and mixed registration paths spliced,
-  which was deliberately not done: splicing NEAR alone for a mixed wallet leaves
-  a half-covered recovery set.
-- **Three need Refactor 102** to deliver lane holder material first.
-- **Two need a live stack** — the dev-wallet wipe, and proving synced cold
-  unlock end to end.
-- **Five are flows**, each spanning server routes, client wiring and UI. Their
-  cores exist as primitives; what remains is the orchestration.
+Runtime verification is intentionally pending. No tests, typechecks, proofs,
+or live-stack checks were run during the final integration pass; the manual
+verification matrix must complete before merging. Refactor-102 lane refresh
+and Refactor-103 linked-device work remain separate follow-on refactors.
 
 **Cold unlock (2026-08-09).** Every piece now exists, is tested, and is
 reachable from JavaScript: the store has a DI site and a service-bag port, the
@@ -824,9 +806,8 @@ root derivation after random-root registration lands.
 - [x] Delete obsolete custody envelope types and fixtures. The generic
       `PasskeyHolderShareEnvelopeRecord`, `RecoveryWrappedHolderShareEnvelopeRecord`,
       their single-purpose KEK contexts, and their fixtures are gone.
-- [ ] Delete the deterministic PRF-root lifecycle types themselves. These stay
-      until Phase 2 lands a random-root registration path: they are the live
-      Ed25519 and ECDSA root sources, not scaffolding.
+- [x] Delete the deterministic PRF-root lifecycle types themselves. Wallet
+      custody seed derivation is the only owner-root source.
 
 ### Phase 1: Envelope Crypto
 
@@ -2000,7 +1981,7 @@ repository evidence.
       registration, recovery, activation refresh, explicit export, and
       role-local material rehydration. The old package and its raw PRF-output
       wire result are deleted.
-- [ ] Delete PRF-derived signing-root paths after replacement.
+- [x] Delete PRF-derived signing-root paths after replacement.
 
 ### Phase 3: Unlock And Signing
 
@@ -2088,19 +2069,22 @@ repository evidence.
       established it in Refactor 89 was a browser-visible call count, and only
       an end-to-end run can produce that again. A unit assertion here would
       restate the type rather than observe the network.
-- [ ] Preserve exact ECDSA public and material identity while allowing a fresh
-      threshold session and server generation.
+- [x] Preserve exact ECDSA public and material identity while allowing a fresh
+      threshold session and server generation. Passkey and Email OTP cold
+      unlock use the server-authored capability and restore canonical Refactor-90
+      continuity from the custody envelope.
 
 ### Phase 4: Wallet-Scoped Recovery
 
-- [x] Preserve the existing ten-code backup, status, and rotation UX for Email
-      OTP enrollment escrow.
-- [ ] Recovery *use* only. Code **issuance** moved to Phase 2 (2026-08-09):
+- [x] Preserve the ten-code backup, status, and rotation UX as wallet-scoped
+      recovery. The separate Email OTP enrollment-escrow recovery system is
+      retired.
+- [x] Recovery *use* only. Code **issuance** moved to Phase 2 (2026-08-09):
       establishing custody must atomically issue the recovery set, so the
       issuance primitive cannot live downstream of the ceremony that needs it.
       What stays here is backup acknowledgement, rotation, status, and the
       recovery UX.
-- [ ] Reuse the Email OTP authorization and Refactor 90 Wallet Session/
+- [x] Reuse the Email OTP authorization and Refactor 90 Wallet Session/
       `AuthorizedOperation` admission boundary; recovery-code custody remains
       separate from authorization and quota.
 - [x] The recovery read side: `open_wallet_custody_seed_with_recovery_code_v1`
