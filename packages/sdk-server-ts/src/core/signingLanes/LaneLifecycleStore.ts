@@ -2,6 +2,7 @@ import type {
   AggregateLaneActivationReceiptV1,
   AggregateLaneRevocationReceiptV1,
   CommitLaneEnrollmentActivationV1,
+  CompleteSigningLaneRevocationV1,
   LaneEnrollmentLifecycleV1,
   LaneEnrollmentManifestV1,
   LaneProductEpochRecordV1,
@@ -220,7 +221,9 @@ export interface LaneLifecycleStore {
   commitEnrollmentVisibility(
     input: CommitLaneEnrollmentActivationV1,
   ): Promise<LaneEnrollmentVisibilityCommitResult>;
-  fenceLaneRevocation(input: RevokeSigningLaneV1): Promise<LaneSigningLaneRevocationMutationResult>;
+  fenceLaneRevocation(
+    input: RevokeSigningLaneV1,
+  ): Promise<LaneSigningLaneRevocationFenceMutationResult>;
   fenceEnrollmentRevocation(
     input: RevokeLaneEnrollmentV1,
   ): Promise<LaneAdmissionMutationResult<LaneEnrollmentAdmissionRecord['value']>>;
@@ -231,6 +234,27 @@ export interface LaneLifecycleStore {
     input: LaneSigningLaneRevocationCommitInput,
   ): Promise<LaneSigningLaneRevocationMutationResult>;
 }
+
+export type LaneSigningLaneRevocationFenceMutationResult =
+  | {
+      readonly outcome: 'applied' | 'replayed';
+      readonly version: number;
+      readonly commandDigestB64u: string;
+      readonly productEpoch: Extract<LaneProductEpochRecordV1, { state: 'revocation_pending' }>;
+    }
+  | {
+      readonly outcome: 'already_completed';
+      readonly version: number;
+      readonly commandDigestB64u: string;
+      readonly productEpoch: Extract<LaneProductEpochRecordV1, { state: 'revoked' }>;
+    }
+  | {
+      readonly outcome: 'conflict';
+      readonly expectedVersion: number;
+      readonly actualVersion: number;
+      readonly requestedCommandDigestB64u: string;
+      readonly storedCommandDigestB64u: string;
+    };
 
 export type LaneSigningLaneRevocationMutationResult =
   | {
@@ -248,9 +272,7 @@ export type LaneSigningLaneRevocationMutationResult =
     };
 
 export type LaneSigningLaneRevocationCommitInput = {
-  readonly command: RevokeSigningLaneV1;
-  readonly expectedVersion: number;
-  readonly commandDigestB64u: string;
+  readonly completion: CompleteSigningLaneRevocationV1;
 };
 
 export type LaneEnrollmentRevocationCommitInput = {

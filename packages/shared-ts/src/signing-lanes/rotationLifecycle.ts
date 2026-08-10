@@ -4,6 +4,7 @@ import type {
   LaneEnrollmentLifecycleV1,
   LaneProductEpochActiveV1,
   LaneProductEpochPendingVisibilityV1,
+  LaneProductEpochRevocationPendingV1,
   LaneProductEpochRecordV1,
   LaneProductEpochRetiredV1,
   LaneProductEpochRevokedV1,
@@ -400,20 +401,53 @@ export function retireLaneProductEpochV1(
   };
 }
 
-export function revokeLaneProductEpochV1(
+export function beginLaneProductEpochRevocationV1(
   current: LaneProductEpochPendingVisibilityV1 | LaneProductEpochActiveV1,
   args: {
     readonly revocationEpoch: number;
     readonly revocationReason: LaneProductEpochRevokedV1['revocationReason'];
+    readonly retirementEffectBindingDigestB64u: string;
+    readonly revocationRequestedAtMs: number;
+  },
+): LaneProductEpochRevocationPendingV1 {
+  const previousAt =
+    current.state === 'pending_visibility' ? current.pendingSinceMs : current.activatedAtMs;
+  requireForwardTime(previousAt, args.revocationRequestedAtMs, 'revocationRequestedAtMs');
+  if (!Number.isSafeInteger(args.revocationEpoch) || args.revocationEpoch < 0)
+    throw new Error('revocationEpoch must be a non-negative safe integer');
+  return {
+    kind: 'lane_product_epoch_record_v1',
+    state: 'revocation_pending',
+    walletId: current.walletId,
+    walletKeyId: current.walletKeyId,
+    laneId: current.laneId,
+    laneKind: current.laneKind,
+    laneShareEpoch: current.laneShareEpoch,
+    keyFamily: current.keyFamily,
+    enrollmentId: current.enrollmentId,
+    operationId: current.operationId,
+    targetMaterialActivationId: current.targetMaterialActivationId,
+    materialActivation: current.materialActivation,
+    publicIdentityDigestB64u: current.publicIdentityDigestB64u,
+    holderParticipant: current.holderParticipant,
+    signingWorkerParticipant: current.signingWorkerParticipant,
+    participantSetBindingDigestB64u: current.participantSetBindingDigestB64u,
+    createdAtMs: current.createdAtMs,
+    revocationEpoch: args.revocationEpoch,
+    revocationReason: args.revocationReason,
+    retirementEffectBindingDigestB64u: args.retirementEffectBindingDigestB64u,
+    revocationRequestedAtMs: args.revocationRequestedAtMs,
+  };
+}
+
+export function completeLaneProductEpochRevocationV1(
+  current: LaneProductEpochRevocationPendingV1,
+  args: {
     readonly revocationReceiptDigestB64u: string;
     readonly revokedAtMs: number;
   },
 ): LaneProductEpochRevokedV1 {
-  const previousAt =
-    current.state === 'pending_visibility' ? current.pendingSinceMs : current.activatedAtMs;
-  requireForwardTime(previousAt, args.revokedAtMs, 'revokedAtMs');
-  if (!Number.isSafeInteger(args.revocationEpoch) || args.revocationEpoch < 0)
-    throw new Error('revocationEpoch must be a non-negative safe integer');
+  requireForwardTime(current.revocationRequestedAtMs, args.revokedAtMs, 'revokedAtMs');
   return {
     kind: 'lane_product_epoch_record_v1',
     state: 'revoked',
@@ -432,8 +466,9 @@ export function revokeLaneProductEpochV1(
     signingWorkerParticipant: current.signingWorkerParticipant,
     participantSetBindingDigestB64u: current.participantSetBindingDigestB64u,
     createdAtMs: current.createdAtMs,
-    revocationEpoch: args.revocationEpoch,
-    revocationReason: args.revocationReason,
+    revocationEpoch: current.revocationEpoch,
+    revocationReason: current.revocationReason,
+    retirementEffectBindingDigestB64u: current.retirementEffectBindingDigestB64u,
     revocationReceiptDigestB64u: args.revocationReceiptDigestB64u,
     revokedAtMs: args.revokedAtMs,
   };
@@ -444,6 +479,7 @@ export function assertForwardOnlyLaneProductEpochV1(value: LaneProductEpochRecor
     case 'pending_visibility':
     case 'active':
     case 'retired':
+    case 'revocation_pending':
     case 'revoked':
       requireSafeTimestamp(value.createdAtMs, 'createdAtMs');
       break;

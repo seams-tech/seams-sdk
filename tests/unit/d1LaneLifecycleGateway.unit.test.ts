@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   computeLaneEnrollmentManifestDigestV1,
+  computeRevokeSigningLaneDigestV1,
   encodeLaneHolderDeliveryReceiptV1,
   encodeLaneProtocolCommitReceiptV1,
   encodeLaneServerActivationReceiptV1,
@@ -8,6 +9,7 @@ import {
 import { computeLaneParticipantSetBindingDigestV1 } from '../../packages/shared-ts/src/signing-lanes/participantDigest';
 import {
   buildAggregateLaneActivationChildReceiptV1,
+  buildCompleteSigningLaneRevocationV1,
   buildRevokeLaneEnrollmentV1,
   buildRevokeSigningLaneV1,
 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
@@ -203,16 +205,42 @@ test.describe('R102 lane lifecycle D1 gateway', () => {
         retirementEffectBindingDigestB64u: base64UrlEncode(new Uint8Array(32).fill(9)),
         requestedAtMs: 6_000,
       });
-      await expect(gateway.revokeSigningLaneV1(command)).resolves.toMatchObject({
-        kind: 'lane_signing_lane_revocation_result_v1',
+      const fenced = await gateway.fenceSigningLaneRevocationV1(command);
+      expect(fenced).toMatchObject({
+        kind: 'lane_signing_lane_revocation_fence_result_v1',
         outcome: 'applied',
-        productEpoch: { state: 'revoked', revocationEpoch: 1 },
+        productEpoch: { state: 'revocation_pending', revocationEpoch: 1 },
       });
-      await expect(gateway.revokeSigningLaneV1(command)).resolves.toMatchObject({
+      await expect(gateway.fenceSigningLaneRevocationV1(command)).resolves.toMatchObject({
         outcome: 'replayed',
       });
+      if (fenced.outcome !== 'applied') throw new Error('lane revocation fence was not applied');
+      const retirementReceiptDigestB64u = base64UrlEncode(new Uint8Array(32).fill(10));
+      const completion = buildCompleteSigningLaneRevocationV1({
+        command,
+        expectedVersion: fenced.version,
+        commandDigestB64u: await computeRevokeSigningLaneDigestV1(command),
+        retirementReceiptDigestB64u,
+        revokedAtMs: 7_000,
+      });
+      await expect(gateway.completeSigningLaneRevocationV1(completion)).resolves.toMatchObject({
+        kind: 'lane_signing_lane_revocation_result_v1',
+        outcome: 'applied',
+        productEpoch: {
+          state: 'revoked',
+          revocationEpoch: 1,
+          retirementEffectBindingDigestB64u: command.retirementEffectBindingDigestB64u,
+          revocationReceiptDigestB64u: retirementReceiptDigestB64u,
+        },
+      });
+      await expect(gateway.completeSigningLaneRevocationV1(completion)).resolves.toMatchObject({
+        outcome: 'replayed',
+      });
+      await expect(gateway.fenceSigningLaneRevocationV1(command)).resolves.toMatchObject({
+        outcome: 'already_completed',
+      });
       await expect(
-        gateway.revokeSigningLaneV1({
+        gateway.fenceSigningLaneRevocationV1({
           ...command,
           retirementCorrelationId: 'correlation-r102-revocation-substitution',
         }),

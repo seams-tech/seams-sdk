@@ -100,6 +100,7 @@ import type {
   AggregateLaneRevocationReceiptV1,
   CommitLaneEnrollmentActivationV1,
   CommitLaneEnrollmentRevocationV1,
+  CompleteSigningLaneRevocationV1,
   EcdsaAdditiveLaneCreationJobV1,
   EcdsaAdditiveLaneHolderRoundV1,
   EcdsaAdditiveLaneJobV1,
@@ -123,6 +124,7 @@ import type {
   LaneOperationAuthorizationBindingV1,
   LaneProductEpochActiveV1,
   LaneProductEpochPendingVisibilityV1,
+  LaneProductEpochRevocationPendingV1,
   LaneProductEpochRecordCommonV1,
   LaneProductEpochRecordV1,
   LaneProductEpochRetiredV1,
@@ -1689,6 +1691,37 @@ export function parseRevokeSigningLaneV1(
   };
 }
 
+export function parseCompleteSigningLaneRevocationV1(
+  raw: unknown,
+  label = 'completeSigningLaneRevocation',
+): CompleteSigningLaneRevocationV1 {
+  const record = exactRecord(
+    raw,
+    [
+      'kind',
+      'command',
+      'expectedVersion',
+      'commandDigestB64u',
+      'retirementReceiptDigestB64u',
+      'revokedAtMs',
+    ],
+    label,
+  );
+  if (record.kind !== 'complete_signing_lane_revocation_v1')
+    throw new Error(`${label}.kind is invalid`);
+  return {
+    kind: 'complete_signing_lane_revocation_v1',
+    command: parseRevokeSigningLaneV1(record.command, `${label}.command`),
+    expectedVersion: requiredInteger(record.expectedVersion, `${label}.expectedVersion`),
+    commandDigestB64u: digest(record.commandDigestB64u, `${label}.commandDigestB64u`),
+    retirementReceiptDigestB64u: digest(
+      record.retirementReceiptDigestB64u,
+      `${label}.retirementReceiptDigestB64u`,
+    ),
+    revokedAtMs: requiredInteger(record.revokedAtMs, `${label}.revokedAtMs`),
+  };
+}
+
 export function parseCommitLaneEnrollmentRevocationV1(
   raw: unknown,
   label = 'commitLaneEnrollmentRevocation',
@@ -1760,6 +1793,21 @@ function parseProductEpochCommon(
     revocationEpoch: requiredInteger(record.revocationEpoch, `${label}.revocationEpoch`),
     createdAtMs: requiredInteger(record.createdAtMs, `${label}.createdAtMs`),
   };
+}
+
+function parseProductRevocationReason(
+  raw: unknown,
+  label: string,
+): LaneProductEpochRevokedV1['revocationReason'] {
+  if (
+    raw !== 'user_revoked' &&
+    raw !== 'policy_revoked' &&
+    raw !== 'device_compromise' &&
+    raw !== 'agent_compromise' &&
+    raw !== 'rotation'
+  )
+    throw new Error(`${label}.revocationReason is invalid`);
+  return raw;
 }
 
 export function parseLaneProductEpochRecordV1(
@@ -1913,6 +1961,52 @@ export function parseLaneProductEpochRecordV1(
         retiredAtMs: requiredInteger(value.retiredAtMs, `${label}.retiredAtMs`),
       };
     }
+    case 'revocation_pending': {
+      const value = exactRecord(
+        record,
+        [
+          'kind',
+          'walletId',
+          'walletKeyId',
+          'laneId',
+          'laneKind',
+          'laneShareEpoch',
+          'keyFamily',
+          'enrollmentId',
+          'operationId',
+          'targetMaterialActivationId',
+          'materialActivation',
+          'publicIdentityDigestB64u',
+          'holderParticipant',
+          'signingWorkerParticipant',
+          'participantSetBindingDigestB64u',
+          'revocationEpoch',
+          'createdAtMs',
+          'state',
+          'revocationReason',
+          'retirementEffectBindingDigestB64u',
+          'revocationRequestedAtMs',
+        ],
+        label,
+      );
+      if (value.kind !== 'lane_product_epoch_record_v1')
+        throw new Error(`${label}.kind is invalid`);
+      const reason = parseProductRevocationReason(value.revocationReason, label);
+      return {
+        ...parseProductEpochCommon(value, label),
+        state: 'revocation_pending',
+        revocationEpoch: requiredInteger(value.revocationEpoch, `${label}.revocationEpoch`),
+        revocationReason: reason,
+        retirementEffectBindingDigestB64u: digest(
+          value.retirementEffectBindingDigestB64u,
+          `${label}.retirementEffectBindingDigestB64u`,
+        ),
+        revocationRequestedAtMs: requiredInteger(
+          value.revocationRequestedAtMs,
+          `${label}.revocationRequestedAtMs`,
+        ),
+      };
+    }
     case 'revoked': {
       const value = exactRecord(
         record,
@@ -1936,6 +2030,7 @@ export function parseLaneProductEpochRecordV1(
           'createdAtMs',
           'state',
           'revocationReason',
+          'retirementEffectBindingDigestB64u',
           'revocationReceiptDigestB64u',
           'revokedAtMs',
         ],
@@ -1943,20 +2038,16 @@ export function parseLaneProductEpochRecordV1(
       );
       if (value.kind !== 'lane_product_epoch_record_v1')
         throw new Error(`${label}.kind is invalid`);
-      const reason = value.revocationReason;
-      if (
-        reason !== 'user_revoked' &&
-        reason !== 'policy_revoked' &&
-        reason !== 'device_compromise' &&
-        reason !== 'agent_compromise' &&
-        reason !== 'rotation'
-      )
-        throw new Error(`${label}.revocationReason is invalid`);
+      const reason = parseProductRevocationReason(value.revocationReason, label);
       return {
         ...parseProductEpochCommon(value, label),
         state: 'revoked',
         revocationEpoch: requiredInteger(value.revocationEpoch, `${label}.revocationEpoch`),
         revocationReason: reason,
+        retirementEffectBindingDigestB64u: digest(
+          value.retirementEffectBindingDigestB64u,
+          `${label}.retirementEffectBindingDigestB64u`,
+        ),
         revocationReceiptDigestB64u: digest(
           value.revocationReceiptDigestB64u,
           `${label}.revocationReceiptDigestB64u`,
@@ -2377,6 +2468,15 @@ export function buildRevokeSigningLaneV1(
   return parseRevokeSigningLaneV1({ kind: 'revoke_signing_lane_v1', ...args });
 }
 
+export function buildCompleteSigningLaneRevocationV1(
+  args: Omit<CompleteSigningLaneRevocationV1, 'kind'>,
+): CompleteSigningLaneRevocationV1 {
+  return parseCompleteSigningLaneRevocationV1({
+    kind: 'complete_signing_lane_revocation_v1',
+    ...args,
+  });
+}
+
 export function buildCommitLaneEnrollmentRevocationV1(
   args: Omit<CommitLaneEnrollmentRevocationV1, 'kind'>,
 ): CommitLaneEnrollmentRevocationV1 {
@@ -2419,6 +2519,18 @@ export function buildLaneProductEpochRetiredV1(
     ...args,
   });
   if (value.state !== 'retired') throw new Error('product epoch state changed');
+  return value;
+}
+
+export function buildLaneProductEpochRevocationPendingV1(
+  args: Omit<LaneProductEpochRevocationPendingV1, 'kind' | 'state'>,
+): LaneProductEpochRevocationPendingV1 {
+  const value = parseLaneProductEpochRecordV1({
+    kind: 'lane_product_epoch_record_v1',
+    state: 'revocation_pending',
+    ...args,
+  });
+  if (value.state !== 'revocation_pending') throw new Error('product epoch state changed');
   return value;
 }
 

@@ -1,7 +1,9 @@
 import type {
   CommitLaneEnrollmentRevocationV1,
+  CompleteSigningLaneRevocationV1,
   AggregateLaneRevocationReceiptV1,
   LaneSigningLaneRevocationResultV1,
+  LaneSigningLaneRevocationFenceResultV1,
   LaneEnrollmentRevocationResultV1,
   LaneEnrollmentGatewayV1,
   RevokeLaneEnrollmentV1,
@@ -60,14 +62,14 @@ export class LaneEnrollmentRevocation {
     };
   }
 
-  async revokeSigningLaneV1(
+  async fenceSigningLaneRevocationV1(
     input: RevokeSigningLaneV1,
-  ): Promise<LaneSigningLaneRevocationResultV1> {
+  ): Promise<LaneSigningLaneRevocationFenceResultV1> {
     const commandDigestB64u = await computeRevokeSigningLaneDigestV1(input);
     const result = await this.lifecycleStore.fenceLaneRevocation(input);
     if (result.outcome === 'conflict') {
       return {
-        kind: 'lane_signing_lane_revocation_result_v1',
+        kind: 'lane_signing_lane_revocation_fence_result_v1',
         outcome: 'conflict',
         walletKeyId: input.walletKeyId,
         laneId: input.laneId,
@@ -78,14 +80,55 @@ export class LaneEnrollmentRevocation {
         storedCommandDigestB64u: result.storedCommandDigestB64u,
       };
     }
+    if (result.outcome === 'already_completed') {
+      return {
+        kind: 'lane_signing_lane_revocation_fence_result_v1',
+        outcome: 'already_completed',
+        walletKeyId: input.walletKeyId,
+        laneId: input.laneId,
+        laneShareEpoch: input.laneShareEpoch,
+        version: result.version,
+        commandDigestB64u,
+        productEpoch: result.productEpoch,
+      };
+    }
     return {
-      kind: 'lane_signing_lane_revocation_result_v1',
+      kind: 'lane_signing_lane_revocation_fence_result_v1',
       outcome: result.outcome,
       walletKeyId: input.walletKeyId,
       laneId: input.laneId,
       laneShareEpoch: input.laneShareEpoch,
       version: result.version,
       commandDigestB64u,
+      productEpoch: result.productEpoch,
+    };
+  }
+
+  async completeSigningLaneRevocationV1(
+    input: CompleteSigningLaneRevocationV1,
+  ): Promise<LaneSigningLaneRevocationResultV1> {
+    const result = await this.lifecycleStore.commitLaneRevocation({ completion: input });
+    if (result.outcome === 'conflict') {
+      return {
+        kind: 'lane_signing_lane_revocation_result_v1',
+        outcome: 'conflict',
+        walletKeyId: input.command.walletKeyId,
+        laneId: input.command.laneId,
+        laneShareEpoch: input.command.laneShareEpoch,
+        expectedVersion: result.expectedVersion,
+        actualVersion: result.actualVersion,
+        requestedCommandDigestB64u: result.requestedCommandDigestB64u,
+        storedCommandDigestB64u: result.storedCommandDigestB64u,
+      };
+    }
+    return {
+      kind: 'lane_signing_lane_revocation_result_v1',
+      outcome: result.outcome,
+      walletKeyId: input.command.walletKeyId,
+      laneId: input.command.laneId,
+      laneShareEpoch: input.command.laneShareEpoch,
+      version: result.version,
+      commandDigestB64u: result.commandDigestB64u,
       productEpoch: result.productEpoch,
     };
   }
