@@ -179,6 +179,7 @@ const NON_EMPTY_FIELDS = {
   holder: [
     'participantId',
     'participantBindingDigestB64u',
+    'custodyBindingId',
     'custodyBindingDigestB64u',
     'hpkePublicKeyB64u',
     'hpkePublicKeyDigestB64u',
@@ -384,6 +385,10 @@ function parseTargetHolder(raw: unknown, label = 'targetHolder') {
     participantBindingDigestB64u: resultValue(
       parseLaneParticipantBindingDigestB64u(record.participantBindingDigestB64u),
       `${label}.participantBindingDigestB64u`,
+    ),
+    custodyBindingId: resultValue(
+      parseLaneHolderCustodyBindingId(record.custodyBindingId),
+      `${label}.custodyBindingId`,
     ),
     custodyBindingDigestB64u: resultValue(
       parseLaneCustodyBindingDigestB64u(record.custodyBindingDigestB64u),

@@ -24,6 +24,7 @@ import type {
   SigningLaneId,
 } from '@shared/signing-lanes/ids';
 import type { MpcMaterialActivationId, WalletId, WalletKeyId } from '@shared/utils/domainIds';
+import type { LaneHolderCustodyBindingId } from '@shared/signing-lanes/participants';
 import type {
   LaneSealedHolderMaterialRepositoryV1,
   LaneSealedHolderRecordV1,
@@ -40,6 +41,7 @@ export type OpenLaneHolderRecipientV1 = {
   readonly targetLaneId: SigningLaneId;
   readonly targetLaneShareEpoch: LaneShareEpoch;
   readonly holderParticipantBindingDigestB64u: string;
+  readonly custodyBindingId: LaneHolderCustodyBindingId;
   readonly custodyBindingDigestB64u: string;
   readonly recipientHandle: LaneHolderRecipientHandleV1;
   readonly hpkePublicKeyB64u: string;
@@ -56,6 +58,7 @@ export type SealedLaneHolderRecipientV1 = {
   readonly targetLaneShareEpoch: LaneShareEpoch;
   readonly targetMaterialActivationId: MpcMaterialActivationId;
   readonly holderParticipantBindingDigestB64u: string;
+  readonly custodyBindingId: LaneHolderCustodyBindingId;
   readonly holderRecipientKeyDigestB64u: string;
   readonly holderCiphertextDigestSetB64u: string;
   readonly sealedHolderRecordDigestB64u: string;
@@ -155,6 +158,7 @@ function assertCreationTargetMatchesJob(
     String(state.targetLaneId) !== String(job.target.laneId) ||
     String(state.targetLaneShareEpoch) !== String(job.target.laneShareEpoch) ||
     state.holderParticipantBindingDigestB64u !== job.targetHolder.participantBindingDigestB64u ||
+    state.custodyBindingId !== job.targetHolder.custodyBindingId ||
     state.custodyBindingDigestB64u !== job.targetHolder.custodyBindingDigestB64u ||
     state.hpkePublicKeyB64u !== job.targetHolder.hpkePublicKeyB64u ||
     state.hpkePublicKeyDigestB64u !== job.targetHolder.hpkePublicKeyDigestB64u
@@ -222,6 +226,7 @@ export async function prepareLaneHolderRecipientV1(args: {
       targetLaneId: args.input.targetLaneId,
       targetLaneShareEpoch: args.input.targetLaneShareEpoch,
       holderParticipantBindingDigestB64u: args.input.targetHolderParticipantBindingDigestB64u,
+      custodyBindingId: args.input.custodyBindingId,
       custodyBindingDigestB64u: args.input.custodyBindingDigestB64u,
       recipientHandle,
       hpkePublicKeyB64u,
@@ -301,6 +306,7 @@ export async function sealLaneHolderMaterialV1(args: {
       laneShareEpoch: job.target.laneShareEpoch,
       targetMaterialActivationId: job.targetMaterialActivationId,
       holderParticipantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
+      custodyBindingId: job.targetHolder.custodyBindingId,
       holderRecipientKeyDigestB64u: job.targetHolder.hpkePublicKeyDigestB64u,
       holderCiphertextDigestSetB64u: verifiedHolderCiphertextDigestSetB64u,
       sealedHolderRecordDigestB64u,
@@ -320,6 +326,7 @@ export async function sealLaneHolderMaterialV1(args: {
       targetLaneShareEpoch: job.target.laneShareEpoch,
       targetMaterialActivationId: job.targetMaterialActivationId,
       holderParticipantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
+      custodyBindingId: job.targetHolder.custodyBindingId,
       holderRecipientKeyDigestB64u: job.targetHolder.hpkePublicKeyDigestB64u,
       holderCiphertextDigestSetB64u: verifiedHolderCiphertextDigestSetB64u,
       sealedHolderRecordDigestB64u,

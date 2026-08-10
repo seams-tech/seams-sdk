@@ -131,6 +131,8 @@ pub struct EcdsaLaneTargetHolderV1 {
     pub participant_id: String,
     /// Target participant binding digest.
     pub participant_binding_digest_b64u: String,
+    /// Exact custody binding identity receiving the client package.
+    pub custody_binding_id: String,
     /// Target custody binding digest.
     pub custody_binding_digest_b64u: String,
     /// Target holder HPKE public key.
@@ -796,6 +798,7 @@ fn encode_holder(
 ) -> Result<(), EcdsaClientProtocolError> {
     text(out, &holder.participant_id);
     text(out, &holder.participant_binding_digest_b64u);
+    text(out, &holder.custody_binding_id);
     digest_text(out, &holder.custody_binding_digest_b64u)?;
     text(out, &holder.hpke_public_key_b64u);
     digest_text(out, &holder.hpke_public_key_digest_b64u)
@@ -942,7 +945,11 @@ fn validate_source(
 }
 
 fn validate_holder(holder: &EcdsaLaneTargetHolderV1) -> Result<(), EcdsaClientProtocolError> {
-    for value in [&holder.participant_id, &holder.hpke_public_key_b64u] {
+    for value in [
+        &holder.participant_id,
+        &holder.custody_binding_id,
+        &holder.hpke_public_key_b64u,
+    ] {
         require_non_empty(value)?;
     }
     validate_digest_b64(&holder.participant_binding_digest_b64u)?;
@@ -1268,6 +1275,7 @@ mod tests {
             target_holder: EcdsaLaneTargetHolderV1 {
                 participant_id: "holder-2".to_owned(),
                 participant_binding_digest_b64u: b64_bytes::<32>(2),
+                custody_binding_id: "custody-2".to_owned(),
                 custody_binding_digest_b64u: b64_bytes::<32>(3),
                 hpke_public_key_b64u: b64_bytes::<32>(4),
                 hpke_public_key_digest_b64u: b64_bytes::<32>(5),

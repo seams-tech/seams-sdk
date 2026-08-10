@@ -146,6 +146,7 @@ function encodeTargetHolder(value: RotatableSigningLaneJobV1['targetHolder']): U
   return concat([
     text(value.participantId, 'targetHolder.participantId'),
     digest(value.participantBindingDigestB64u, 'targetHolder.participantBindingDigestB64u'),
+    text(value.custodyBindingId, 'targetHolder.custodyBindingId'),
     digest(value.custodyBindingDigestB64u, 'targetHolder.custodyBindingDigestB64u'),
     text(value.hpkePublicKeyB64u, 'targetHolder.hpkePublicKeyB64u'),
     digest(value.hpkePublicKeyDigestB64u, 'targetHolder.hpkePublicKeyDigestB64u'),
