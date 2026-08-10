@@ -467,7 +467,7 @@ export type LaneEnrollmentLifecycleV1 =
       revokedAtMs: number;
     };
 
-export type EcdsaServerRetirementReceipt = {
+export type EcdsaServerRetirementReceiptV1 = {
   kind: 'ecdsa_server_retirement_receipt_v1';
   manifest: EcdsaManifestIdentity;
   materialActivation: MpcMaterialActivationRef;
