@@ -11,7 +11,7 @@ import {
   CloudflareEd25519LaneProtocolTransportV1,
   CloudflareLaneProtocolCommitterV1,
   type CloudflareLaneServiceBindingV1,
-  type Ed25519YaoLaneSourcePreparationPortV1,
+  type Ed25519YaoLaneBindingResolverPortV1,
 } from '../../packages/sdk-server-ts/src/router/cloudflare/signingLanes/cloudflareLaneProtocolCommitter';
 import {
   buildR102LaneJob,
@@ -70,40 +70,44 @@ function unusedExecution(): LaneLifecycleCurveExecutionPortsV1 {
   };
 }
 
-function sourcePreparation(order: string[]): Ed25519YaoLaneSourcePreparationPortV1 {
+function bindingResolver(order: string[]): Ed25519YaoLaneBindingResolverPortV1 {
   return {
-    async prepareSourceV1({ job }) {
-      order.push('prepare');
+    async resolveBindingV1({ job }) {
+      order.push('resolve_binding');
       return {
-        binding: {
-          lifecycle: {
-            lifecycle_id: `lane-lifecycle:${job.operationId}`,
-            work_kind: 'server_share_refresh',
-            primitive_request_kind: 'refresh',
-            root_share_epoch: String(job.source.laneShareEpoch),
-            account_id: String(job.source.materialActivation.materialOwner),
-            session_id: `lane-session:${job.operationId}`,
-            signer_set_id: 'lane-signer-set',
-            selected_server_id: String(job.source.materialActivation.signingWorker),
-          },
-          operation: 'refresh',
-          session_id: [...Buffer.alloc(32, 0x11)],
-          stable_key_context_binding: [...Buffer.alloc(32, 0x22)],
-          material_activation: {
-            kind: 'mpc_material_activation_ref',
-            activation_id: String(job.source.materialActivation.activationId),
-            capability: job.source.materialActivation.capability,
-            material_owner: String(job.source.materialActivation.materialOwner),
-            key_binding: job.source.materialActivation.keyBinding,
-            lifecycle_binding: job.source.materialActivation.lifecycleBinding,
-            signing_worker: job.source.materialActivation.signingWorker,
-          },
+        lifecycle: {
+          lifecycle_id: `lane-lifecycle:${job.operationId}`,
+          work_kind: 'server_share_refresh',
+          primitive_request_kind: 'refresh',
+          root_share_epoch: String(job.source.laneShareEpoch),
+          account_id: String(job.source.materialActivation.materialOwner),
+          session_id: `lane-session:${job.operationId}`,
+          signer_set_id: 'lane-signer-set',
+          selected_server_id: String(job.source.materialActivation.signingWorker),
         },
-        deriverAInput: { opaque: 'deriver-a' },
-        deriverBInput: { opaque: 'deriver-b' },
+        operation: 'refresh',
+        session_id: [...Buffer.alloc(32, 0x11)],
+        stable_key_context_binding: [...Buffer.alloc(32, 0x22)],
+        material_activation: {
+          kind: 'mpc_material_activation_ref',
+          activation_id: String(job.source.materialActivation.activationId),
+          capability: job.source.materialActivation.capability,
+          material_owner: String(job.source.materialActivation.materialOwner),
+          key_binding: job.source.materialActivation.keyBinding,
+          lifecycle_binding: job.source.materialActivation.lifecycleBinding,
+          signing_worker: job.source.materialActivation.signingWorker,
+        },
       };
     },
   };
+}
+
+function dispatchJson(job: ReturnType<typeof buildR102LaneJob>): string {
+  return JSON.stringify({
+    job,
+    deriverAInput: { opaque: 'deriver-a' },
+    deriverBInput: { opaque: 'deriver-b' },
+  });
 }
 
 function routerResult(job: ReturnType<typeof buildR102LaneJob>, receipt: LaneProtocolCommitReceiptV1) {
@@ -137,13 +141,13 @@ function committer(input: {
     ed25519Transport: new CloudflareEd25519LaneProtocolTransportV1({
       router: input.binding,
       internalServiceAuth: 'internal-lane-secret',
-      sourcePreparation: sourcePreparation(input.order),
+      bindingResolver: bindingResolver(input.order),
     }),
   });
 }
 
 test.describe('R102 Cloudflare lane protocol committer', () => {
-  test('prepares the admitted source privately, dispatches once, then records the exact receipt', async () => {
+  test('forwards the encrypted client dispatch with its admitted binding, then records the exact receipt', async () => {
     const rawJob = buildR102LaneJob('cloudflare-committer');
     if (rawJob.keyFamily !== 'ed25519') throw new Error('fixture key family changed');
     const job = rawJob;
@@ -162,12 +166,12 @@ test.describe('R102 Cloudflare lane protocol committer', () => {
     const result = await committer({ order, binding, received }).executeAndRecordEd25519YaoLaneV1(
       {
         job,
-        requestJson: JSON.stringify({ kind: 'ed25519_yao_lane_client_prepare_v1', job }),
+        requestJson: dispatchJson(job),
         expectedVersion: 1,
       },
     );
 
-    expect(order).toEqual(['authorize', 'prepare', 'dispatch', 'gateway']);
+    expect(order).toEqual(['authorize', 'resolve_binding', 'dispatch', 'gateway']);
     expect(received).toEqual([receipt]);
     expect(result.receipt).toEqual(receipt);
     expect(result.protocolCasResult.outcome).toBe('conflict');
@@ -210,7 +214,7 @@ test.describe('R102 Cloudflare lane protocol committer', () => {
 
     await committer({ order, binding, received }).executeAndRecordEd25519YaoLaneV1({
       job,
-      requestJson: JSON.stringify({ kind: 'ed25519_yao_lane_client_prepare_v1', job }),
+      requestJson: dispatchJson(job),
       expectedVersion: 1,
     });
 
@@ -239,11 +243,11 @@ test.describe('R102 Cloudflare lane protocol committer', () => {
     await expect(
       committer({ order, binding, received }).executeAndRecordEd25519YaoLaneV1({
         job,
-        requestJson: JSON.stringify({ kind: 'ed25519_yao_lane_client_prepare_v1', job }),
+        requestJson: dispatchJson(job),
         expectedVersion: 1,
       }),
     ).rejects.toThrow('receipt does not match the committed result');
     expect(received).toEqual([]);
-    expect(order).toEqual(['authorize', 'prepare', 'dispatch']);
+    expect(order).toEqual(['authorize', 'resolve_binding', 'dispatch']);
   });
 });

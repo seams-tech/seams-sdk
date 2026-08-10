@@ -29,26 +29,20 @@ export interface CloudflareLaneServiceBindingV1 {
   fetch(request: Request): Promise<Response>;
 }
 
-export type PreparedEd25519YaoLaneSourceV1 = {
-  readonly binding: RouterAbEd25519YaoCeremonyBindingV1;
-  readonly deriverAInput: JsonRecord;
-  readonly deriverBInput: JsonRecord;
-};
-
 /**
- * Resolves the active source capability and creates recipient-bound Deriver
- * inputs inside the private server topology. Browser input is only an intent.
+ * Resolves the public admitted binding for an already-encrypted client lane
+ * dispatch. Client-root contributions and Deriver envelopes stay client-side.
  */
-export interface Ed25519YaoLaneSourcePreparationPortV1 {
-  prepareSourceV1(input: {
+export interface Ed25519YaoLaneBindingResolverPortV1 {
+  resolveBindingV1(input: {
     readonly job: Ed25519YaoLaneJobV1;
-  }): Promise<PreparedEd25519YaoLaneSourceV1>;
+  }): Promise<RouterAbEd25519YaoCeremonyBindingV1>;
 }
 
 export type CloudflareEd25519LaneProtocolTransportOptionsV1 = {
   readonly router: CloudflareLaneServiceBindingV1;
   readonly internalServiceAuth: string;
-  readonly sourcePreparation: Ed25519YaoLaneSourcePreparationPortV1;
+  readonly bindingResolver: Ed25519YaoLaneBindingResolverPortV1;
 };
 
 export type CloudflareEd25519LaneProtocolExecutionV1 = {
@@ -70,21 +64,16 @@ export class CloudflareEd25519LaneProtocolTransportV1 {
     readonly job: Ed25519YaoLaneJobV1;
     readonly requestJson: string;
   }): Promise<CloudflareEd25519LaneProtocolExecutionV1> {
-    const intentJob = parseClientLaneIntent(input.requestJson);
-    assertSameLaneJob(input.job, intentJob);
-    const prepared = await this.options.sourcePreparation.prepareSourceV1({ job: input.job });
-    const request = {
-      job: input.job,
-      deriverAInput: requireJsonRecord(prepared.deriverAInput, 'deriverAInput'),
-      deriverBInput: requireJsonRecord(prepared.deriverBInput, 'deriverBInput'),
-    };
+    const request = parseClientLaneDispatch(input.requestJson);
+    assertSameLaneJob(input.job, request.job);
+    const binding = await this.options.bindingResolver.resolveBindingV1({ job: input.job });
     const response = await postAuthenticatedJsonWithReplayV1({
       binding: this.options.router,
       internalServiceAuth: this.internalServiceAuth,
       path: ROUTER_AB_ED25519_YAO_LANE_EXECUTE_PATH_V1,
       body: {
-        binding: requireJsonRecord(prepared.binding, 'binding'),
-        request,
+        binding: requireJsonRecord(binding, 'binding'),
+        request: request.wire,
       },
     });
     return parseEd25519LaneExecuteResponse(response, input.job);
@@ -198,7 +187,10 @@ async function fetchInternal(
   );
 }
 
-function parseClientLaneIntent(requestJson: string): Ed25519YaoLaneJobV1 {
+function parseClientLaneDispatch(requestJson: string): {
+  readonly job: Ed25519YaoLaneJobV1;
+  readonly wire: JsonRecord;
+} {
   let raw: unknown;
   try {
     raw = JSON.parse(requireNonEmpty(requestJson, 'requestJson'));
@@ -207,17 +199,16 @@ function parseClientLaneIntent(requestJson: string): Ed25519YaoLaneJobV1 {
   }
   const record = exactJsonRecord(
     raw,
-    ['kind', 'job'],
-    'ed25519YaoLaneClientPrepare',
+    ['job', 'deriverAInput', 'deriverBInput'],
+    'ed25519YaoLaneClientDispatch',
   );
-  if (record.kind !== 'ed25519_yao_lane_client_prepare_v1') {
-    throw new Error('ed25519YaoLaneClientPrepare.kind is invalid');
-  }
-  const job = parseRotatableSigningLaneJobV1(record.job, 'ed25519YaoLaneClientPrepare.job');
+  const job = parseRotatableSigningLaneJobV1(record.job, 'ed25519YaoLaneClientDispatch.job');
   if (job.keyFamily !== 'ed25519') {
-    throw new Error('ed25519YaoLaneClientPrepare.job key family is invalid');
+    throw new Error('ed25519YaoLaneClientDispatch.job key family is invalid');
   }
-  return job;
+  requireJsonRecord(record.deriverAInput, 'ed25519YaoLaneClientDispatch.deriverAInput');
+  requireJsonRecord(record.deriverBInput, 'ed25519YaoLaneClientDispatch.deriverBInput');
+  return { job, wire: record };
 }
 
 function parseEd25519LaneExecuteResponse(
