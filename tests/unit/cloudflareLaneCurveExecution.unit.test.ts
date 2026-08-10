@@ -4,6 +4,7 @@ import { CloudflareEd25519LaneProtocolTransportV1 } from '../../packages/sdk-ser
 import {
   createCloudflareLaneCurveExecutionPortsV1,
   CloudflareSigningWorkerEcdsaLaneTransportV1,
+  CloudflareSigningWorkerEcdsaRetirementTransportV1,
   LaneLifecycleStoreEcdsaLanePrivateBindingResolverV1,
   type SigningWorkerLaneMaterialReceiptPortV1,
 } from '../../packages/sdk-server-ts/src/router/cloudflare/signingLanes/cloudflareLaneCurveExecution';
@@ -14,6 +15,15 @@ import {
   buildR102ProtocolCommitReceipt,
   buildR102ServerActivationReceipt,
 } from './helpers/r102LaneGateway.fixtures';
+import { buildRevokeSigningLaneV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
+import {
+  parseCorrelationId,
+  parseDigestB64u,
+} from '../../packages/shared-ts/src/utils/canonicalPrimitives';
+import {
+  buildR102Ed25519LaneMaterialIdentityFixture,
+  buildR102Ed25519ServerRetirementReceiptFixture,
+} from './helpers/ed25519ServerRetirement.fixtures';
 
 const DIGEST_B64U = Buffer.alloc(32, 0x33).toString('base64url');
 
@@ -135,10 +145,10 @@ test('composite SigningWorker transport routes Ed25519 activation to its private
     signingWorker: {
       async fetch(input) {
         request = input;
-        return new Response(
-          JSON.stringify({ outcome: 'applied', receipt: activationReceipt }),
-          { status: 200, headers: { 'content-type': 'application/json' } },
-        );
+        return new Response(JSON.stringify({ outcome: 'applied', receipt: activationReceipt }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
       },
     },
     internalServiceAuth: 'ed25519-activation-route-secret',
@@ -166,4 +176,52 @@ test('composite SigningWorker transport routes Ed25519 activation to its private
     readonly identity: { readonly keyFamily: string };
   };
   expect(body.identity.keyFamily).toBe('ed25519');
+});
+
+test('routes Ed25519 retirement and returns only the verified exact receipt', async () => {
+  const identity = await buildR102Ed25519LaneMaterialIdentityFixture();
+  const command = buildRevokeSigningLaneV1({
+    walletId: identity.walletId,
+    walletKeyId: identity.walletKeyId,
+    laneId: identity.targetLaneId,
+    laneShareEpoch: identity.targetLaneShareEpoch,
+    expectedRevocationEpoch: 2,
+    reason: 'user_revoked',
+    retirementCorrelationId: parseCorrelationId('ed25519-private-retirement'),
+    retirementRequestDigestB64u: parseDigestB64u(Buffer.alloc(32, 6).toString('base64url')),
+    retirementEffectBindingDigestB64u: parseDigestB64u(Buffer.alloc(32, 7).toString('base64url')),
+    requestedAtMs: 9_000,
+  });
+  const receipt = await buildR102Ed25519ServerRetirementReceiptFixture({ command, identity });
+  let request: Request | undefined;
+  const transport = new CloudflareSigningWorkerEcdsaRetirementTransportV1({
+    signingWorker: {
+      async fetch(input) {
+        request = input;
+        return new Response(JSON.stringify({ outcome: 'applied', receipt }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      },
+    },
+    internalServiceAuth: 'ed25519-retirement-secret',
+    bindingResolver: { resolveRetirementBindingV1: unsupported },
+    ed25519BindingResolver: {
+      async resolveRetirementBindingV1() {
+        return { identity };
+      },
+    },
+  });
+
+  const projection = await transport.retireServerMaterialV1({
+    curve: 'ed25519_yao',
+    command,
+  });
+
+  expect(projection.retirementReceipt).toEqual(receipt);
+  expect(Object.keys(projection)).not.toContain('record');
+  expect(request).toBeDefined();
+  expect(new URL(request!.url).pathname).toBe(
+    '/router-ab/internal/signing-worker/ed25519-yao-lane/retire',
+  );
 });

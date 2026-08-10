@@ -605,6 +605,14 @@ export function encodeLaneProtocolCommitReceiptV1(
   ]);
 }
 
+export async function computeLaneProtocolCommitReceiptDigestV1(
+  value: import('./rotation').LaneProtocolCommitReceiptV1,
+): Promise<DigestB64u> {
+  return parseDigestB64u(
+    base64UrlEncode(await sha256Bytes(encodeLaneProtocolCommitReceiptV1(value))),
+  );
+}
+
 export function encodeLaneHolderDeliveryReceiptV1(
   value: import('./rotation').LaneHolderDeliveryReceiptV1,
 ): Uint8Array {

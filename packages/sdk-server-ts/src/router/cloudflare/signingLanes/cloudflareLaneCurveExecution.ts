@@ -39,6 +39,11 @@ import {
   parseAndVerifyEcdsaServerRetirementEffectV1,
   type EcdsaServerRetirementBindingV1,
 } from '../../../core/signingLanes/ecdsaServerRetirement';
+import {
+  buildEd25519ServerRetirementRequestV1,
+  parseAndVerifyEd25519ServerRetirementEffectV1,
+  type Ed25519ServerRetirementBindingV1,
+} from '../../../core/signingLanes/ed25519ServerRetirement';
 import type {
   EcdsaSigningWorkerLaneMaterialIdentityV1,
   SigningWorkerLaneMaterialIdentityV1,
@@ -110,6 +115,8 @@ export const CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_LANE_ACTIVATE_PATH_V1 =
   '/router-ab/internal/signing-worker/ed25519-yao-lane/activate' as const;
 export const CLOUDFLARE_SIGNING_WORKER_ECDSA_LANE_RETIRE_PATH_V1 =
   '/router-ab/internal/signing-worker/ecdsa-additive-lane/retire' as const;
+export const CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_LANE_RETIRE_PATH_V1 =
+  '/router-ab/internal/signing-worker/ed25519-yao-lane/retire' as const;
 
 export interface EcdsaLanePrivateBindingResolverPortV1 {
   resolveSourceMaterialV1(input: {
@@ -125,6 +132,50 @@ export interface EcdsaLanePrivateBindingResolverPortV1 {
   resolveRetirementBindingV1(input: {
     readonly command: RevokeSigningLaneV1;
   }): Promise<EcdsaServerRetirementBindingV1>;
+}
+
+export interface Ed25519LanePrivateBindingResolverPortV1 {
+  resolveRetirementBindingV1(input: {
+    readonly command: RevokeSigningLaneV1;
+  }): Promise<Ed25519ServerRetirementBindingV1>;
+}
+
+export class LaneLifecycleStoreEd25519LanePrivateBindingResolverV1 implements Ed25519LanePrivateBindingResolverPortV1 {
+  constructor(
+    private readonly lifecycleStore: Pick<LaneLifecycleStore, 'getProductEpoch' | 'getProtocol'>,
+  ) {}
+
+  async resolveRetirementBindingV1(input: {
+    readonly command: RevokeSigningLaneV1;
+  }): Promise<Ed25519ServerRetirementBindingV1> {
+    const product = await this.lifecycleStore.getProductEpoch({
+      walletId: input.command.walletId,
+      walletKeyId: input.command.walletKeyId,
+      laneId: input.command.laneId,
+      laneShareEpoch: input.command.laneShareEpoch,
+    });
+    if (
+      product === null ||
+      product.keyFamily !== 'ed25519' ||
+      (product.state !== 'active' &&
+        product.state !== 'revocation_pending' &&
+        product.state !== 'revoked') ||
+      !retirementProductMatchesCommandV1(product, input.command)
+    ) {
+      throw new Error('Ed25519 retirement source product is not the exact active epoch');
+    }
+    const protocol = await this.lifecycleStore.getProtocol(product.operationId);
+    if (
+      protocol === null ||
+      protocol.value.lifecycle.state !== 'active' ||
+      protocol.value.job.keyFamily !== 'ed25519'
+    ) {
+      throw new Error('Ed25519 retirement protocol is not active');
+    }
+    return {
+      identity: ed25519IdentityFromActiveProductV1(product, protocol.value.lifecycle),
+    };
+  }
 }
 
 export type CloudflareEcdsaLaneSourceMaterialV1 =
@@ -144,14 +195,9 @@ export type CloudflareEcdsaLaneSourceMaterialV1 =
       };
     };
 
-export class LaneLifecycleStoreEcdsaLanePrivateBindingResolverV1
-  implements EcdsaLanePrivateBindingResolverPortV1
-{
+export class LaneLifecycleStoreEcdsaLanePrivateBindingResolverV1 implements EcdsaLanePrivateBindingResolverPortV1 {
   constructor(
-    private readonly lifecycleStore: Pick<
-      LaneLifecycleStore,
-      'getProductEpoch' | 'getProtocol'
-    >,
+    private readonly lifecycleStore: Pick<LaneLifecycleStore, 'getProductEpoch' | 'getProtocol'>,
   ) {}
 
   async resolveSourceMaterialV1(input: {
@@ -313,11 +359,13 @@ export type CloudflareSigningWorkerEcdsaRetirementTransportOptionsV1 = {
     EcdsaLanePrivateBindingResolverPortV1,
     'resolveRetirementBindingV1'
   >;
+  readonly ed25519BindingResolver: Ed25519LanePrivateBindingResolverPortV1;
 };
 
-export class CloudflareSigningWorkerEcdsaRetirementTransportV1
-  implements Pick<SigningWorkerLaneMaterialReceiptPortV1, 'retireServerMaterialV1'>
-{
+export class CloudflareSigningWorkerEcdsaRetirementTransportV1 implements Pick<
+  SigningWorkerLaneMaterialReceiptPortV1,
+  'retireServerMaterialV1'
+> {
   private readonly internalServiceAuth: string;
 
   constructor(private readonly options: CloudflareSigningWorkerEcdsaRetirementTransportOptionsV1) {
@@ -328,8 +376,28 @@ export class CloudflareSigningWorkerEcdsaRetirementTransportV1
     readonly curve: 'ed25519_yao' | 'ecdsa_additive';
     readonly command: RevokeSigningLaneV1;
   }): Promise<SigningWorkerLaneRetirementProjectionV1> {
-    if (input.curve !== 'ecdsa_additive') {
-      throw new Error('Ed25519 retirement requires its dedicated SigningWorker transport');
+    if (input.curve === 'ed25519_yao') {
+      const binding = await this.options.ed25519BindingResolver.resolveRetirementBindingV1({
+        command: input.command,
+      });
+      const request = buildEd25519ServerRetirementRequestV1({
+        command: input.command,
+        binding,
+      });
+      const raw = await postSigningWorkerJsonV1({
+        binding: this.options.signingWorker,
+        internalServiceAuth: this.internalServiceAuth,
+        path: CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_LANE_RETIRE_PATH_V1,
+        body: request,
+      });
+      const effect = await parseAndVerifyEd25519ServerRetirementEffectV1({ raw, request });
+      return {
+        kind: 'signing_worker_lane_retirement_projection_v1',
+        outcome: effect.outcome,
+        command: input.command,
+        retirementEffectBindingDigestB64u: effect.retirementEffectBindingDigestB64u,
+        retirementReceipt: effect.receipt,
+      };
     }
     const binding = await this.options.bindingResolver.resolveRetirementBindingV1({
       command: input.command,
@@ -368,9 +436,7 @@ export class CloudflareSigningWorkerEcdsaRetirementTransportV1
   }
 }
 
-export class CloudflareSigningWorkerEcdsaLaneTransportV1
-  implements SigningWorkerLaneMaterialReceiptPortV1
-{
+export class CloudflareSigningWorkerEcdsaLaneTransportV1 implements SigningWorkerLaneMaterialReceiptPortV1 {
   private readonly internalServiceAuth: string;
 
   constructor(private readonly options: CloudflareSigningWorkerEcdsaLaneTransportOptionsV1) {
@@ -461,9 +527,7 @@ export class CloudflareSigningWorkerEcdsaLaneTransportV1
     const effect = exactRecord(
       response,
       ['outcome', 'receipt'],
-      input.curve === 'ecdsa_additive'
-        ? 'ecdsaLaneActivateEffect'
-        : 'ed25519LaneActivateEffect',
+      input.curve === 'ecdsa_additive' ? 'ecdsaLaneActivateEffect' : 'ed25519LaneActivateEffect',
     );
     return {
       kind: 'signing_worker_lane_server_activation_projection_v1',
@@ -504,10 +568,7 @@ export function createCloudflareLaneCurveExecutionPortsV1(
           curve: 'ed25519_yao',
           ...input,
         });
-        requireProjection(
-          projection,
-          'signing_worker_lane_server_activation_projection_v1',
-        );
+        requireProjection(projection, 'signing_worker_lane_server_activation_projection_v1');
         return parseLaneServerActivationReceiptV1(projection.receipt);
       },
       async executeServerRetirementV1(input) {
@@ -530,10 +591,7 @@ export function createCloudflareLaneCurveExecutionPortsV1(
           curve: 'ecdsa_additive',
           ...input,
         });
-        requireProjection(
-          projection,
-          'signing_worker_lane_server_activation_projection_v1',
-        );
+        requireProjection(projection, 'signing_worker_lane_server_activation_projection_v1');
         return parseLaneServerActivationReceiptV1(projection.receipt);
       },
       async executeServerRetirementV1(input) {
@@ -622,9 +680,36 @@ function identityFromActiveProductV1(
     holderRecipientKeyDigestB64u: product.holderParticipant.hpkePublicKeyDigestB64u,
     serverRecipientKeyDigestB64u: product.signingWorkerParticipant.hpkePublicKeyDigestB64u,
     transcriptHashB64u: parseDigestB64u(lifecycle.transcriptHashB64u),
-    protocolCommitReceiptDigestB64u: parseDigestB64u(
-      lifecycle.protocolCommitReceiptDigestB64u,
-    ),
+    protocolCommitReceiptDigestB64u: parseDigestB64u(lifecycle.protocolCommitReceiptDigestB64u),
+  };
+}
+
+function ed25519IdentityFromActiveProductV1(
+  product:
+    | LaneProductEpochActiveV1
+    | LaneProductEpochRevocationPendingV1
+    | LaneProductEpochRevokedV1,
+  lifecycle: Extract<LaneProtocolLifecycle, { state: 'active' }>,
+): SigningWorkerLaneMaterialIdentityV1<'ed25519'> {
+  if (product.keyFamily !== 'ed25519') {
+    throw new Error('Ed25519 source product has the wrong key family');
+  }
+  return {
+    operationId: product.operationId,
+    enrollmentId: product.enrollmentId,
+    walletId: product.walletId,
+    walletKeyId: product.walletKeyId,
+    targetLaneId: product.laneId,
+    targetLaneShareEpoch: product.laneShareEpoch,
+    targetMaterialActivationId: product.targetMaterialActivationId,
+    keyFamily: 'ed25519',
+    holderParticipantBindingDigestB64u: product.holderParticipant.participantBindingDigestB64u,
+    signingWorkerParticipantBindingDigestB64u:
+      product.signingWorkerParticipant.participantBindingDigestB64u,
+    holderRecipientKeyDigestB64u: product.holderParticipant.hpkePublicKeyDigestB64u,
+    serverRecipientKeyDigestB64u: product.signingWorkerParticipant.hpkePublicKeyDigestB64u,
+    transcriptHashB64u: parseDigestB64u(lifecycle.transcriptHashB64u),
+    protocolCommitReceiptDigestB64u: parseDigestB64u(lifecycle.protocolCommitReceiptDigestB64u),
   };
 }
 
@@ -670,8 +755,7 @@ async function identityFromProtocolReceiptV1(
     targetMaterialActivationId: job.targetMaterialActivationId,
     keyFamily: 'ecdsa_secp256k1',
     holderParticipantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
-    signingWorkerParticipantBindingDigestB64u:
-      job.targetSigningWorker.participantBindingDigestB64u,
+    signingWorkerParticipantBindingDigestB64u: job.targetSigningWorker.participantBindingDigestB64u,
     holderRecipientKeyDigestB64u: job.targetHolder.hpkePublicKeyDigestB64u,
     serverRecipientKeyDigestB64u: job.targetSigningWorker.hpkePublicKeyDigestB64u,
     transcriptHashB64u: parseDigestB64u(receipt.transcriptHashB64u),
@@ -701,11 +785,11 @@ async function buildEd25519ActivationBindingV1(input: {
   ) {
     throw new Error('Ed25519 protocol receipt does not match the admitted job');
   }
-  const targetSigningWorker = parseMpcSigningWorkerRef(
-    input.job.targetSigningWorker.participantId,
-  );
+  const targetSigningWorker = parseMpcSigningWorkerRef(input.job.targetSigningWorker.participantId);
   if (!targetSigningWorker.ok) {
-    throw new Error(`Ed25519 target SigningWorker is invalid: ${targetSigningWorker.error.message}`);
+    throw new Error(
+      `Ed25519 target SigningWorker is invalid: ${targetSigningWorker.error.message}`,
+    );
   }
   return {
     identity: {
@@ -717,8 +801,7 @@ async function buildEd25519ActivationBindingV1(input: {
       targetLaneShareEpoch: input.job.target.laneShareEpoch,
       targetMaterialActivationId: input.job.targetMaterialActivationId,
       keyFamily: 'ed25519',
-      holderParticipantBindingDigestB64u:
-        input.job.targetHolder.participantBindingDigestB64u,
+      holderParticipantBindingDigestB64u: input.job.targetHolder.participantBindingDigestB64u,
       signingWorkerParticipantBindingDigestB64u:
         input.job.targetSigningWorker.participantBindingDigestB64u,
       holderRecipientKeyDigestB64u: input.job.targetHolder.hpkePublicKeyDigestB64u,
@@ -743,9 +826,7 @@ async function digestSigningWorkerLaneIdentityV1(
   identity: EcdsaSigningWorkerLaneMaterialIdentityV1,
 ): Promise<DigestB64u> {
   const encoder = new TextEncoder();
-  const chunks: Uint8Array[] = [
-    encoder.encode('seams/signing-worker/lane-material-identity/v1'),
-  ];
+  const chunks: Uint8Array[] = [encoder.encode('seams/signing-worker/lane-material-identity/v1')];
   for (const value of [
     identity.operationId,
     identity.enrollmentId,
@@ -837,11 +918,7 @@ function requireObject(value: unknown, label: string): object {
   return value;
 }
 
-function exactObject(
-  value: unknown,
-  fields: readonly string[],
-  label: string,
-): object {
+function exactObject(value: unknown, fields: readonly string[], label: string): object {
   const record = requireObject(value, label);
   const allowed = new Set(fields);
   for (const key of Object.keys(record)) {
