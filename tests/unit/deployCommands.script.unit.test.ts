@@ -1,10 +1,14 @@
 import { expect, test } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
+import { generateKeyPairSync } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { assertExpectedWorkerServices } from '../../scripts/deploy-backend.mjs';
+import {
+  assertExpectedWorkerServices,
+  validateDeploymentKeyPairs,
+} from '../../scripts/deploy-backend.mjs';
 
 type CommandResult = {
   readonly status: number | null;
@@ -64,6 +68,28 @@ function expectOrdered(output: string, labels: readonly string[]): void {
     expect(index, `plan step ${label} is out of order`).toBeGreaterThan(previousIndex);
     previousIndex = index;
   }
+}
+
+function generateX25519Pair(): { readonly privateKeyHex: string; readonly publicKey: string } {
+  const { publicKey, privateKey } = generateKeyPairSync('x25519');
+  const privateJwk = privateKey.export({ format: 'jwk' });
+  const publicJwk = publicKey.export({ format: 'jwk' });
+  if (!privateJwk.d || !publicJwk.x) throw new Error('X25519 JWK export is incomplete');
+  return {
+    privateKeyHex: Buffer.from(privateJwk.d, 'base64url').toString('hex'),
+    publicKey: `x25519:${Buffer.from(publicJwk.x, 'base64url').toString('hex')}`,
+  };
+}
+
+function validateMismatchedDeriverAKeyPair(): void {
+  const current = generateX25519Pair();
+  const mismatched = generateX25519Pair();
+  validateDeploymentKeyPairs('deriver-a', {
+    DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY: `hpke-x25519-private-v1:${current.privateKeyHex}`,
+    DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: mismatched.publicKey,
+    DERIVER_A_ROLE_PRIVATE_D1_KEK: `hpke-x25519-role-private-d1-private-v1:${current.privateKeyHex}`,
+    DERIVER_A_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY: current.publicKey,
+  });
 }
 
 test('backend plan runs without deployment secrets and prints the complete lane order', () => {
@@ -226,6 +252,12 @@ test('backend preflight rejects a missing required secret without printing value
 
   expectFailure(result, /SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY is required/u);
   expect(`${result.stdout}${result.stderr}`).not.toContain(secretValue);
+});
+
+test('backend deployment rejects an HPKE private key that does not match its public key', () => {
+  expect(validateMismatchedDeriverAKeyPair).toThrow(
+    /DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY does not match DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY/u,
+  );
 });
 
 test('backend service binding validation rejects a wrong service hidden by a later block', () => {
