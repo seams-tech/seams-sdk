@@ -4,6 +4,7 @@ import type {
   ActiveSigningLaneReference,
   Ed25519WalletKeyRecord,
   EvmFamilyWalletKeyRecord,
+  OwnerLaneParticipantContinuityV1,
   SigningLaneRecord,
   WalletKeyRecord,
 } from '@shared/signing-lanes';
@@ -104,14 +105,7 @@ export type ActiveWalletExecutionLaneHydration = {
   readonly keyFamily: WalletKeyRecord['keyFamily'];
   readonly walletKey: WalletKeyRecord;
   readonly lane: ActiveSigningLaneReference;
-  readonly holderParticipant: Extract<
-    SigningLaneRecord,
-    { holderParticipant: unknown }
-  >['holderParticipant'];
-  readonly serverParticipant: Extract<
-    SigningLaneRecord,
-    { serverParticipant: unknown }
-  >['serverParticipant'];
+  readonly ownerParticipantContinuity: OwnerLaneParticipantContinuityV1;
   readonly materialActivation: MpcMaterialActivationRef;
   readonly laneShareEpoch: LaneShareEpoch;
   readonly activationReceiptDigestB64u: string;
@@ -182,6 +176,33 @@ function activeLaneReference(args: {
   };
 }
 
+function ownerParticipantContinuityForLane(
+  lane: SigningLaneRecord,
+): OwnerLaneParticipantContinuityV1 | null {
+  switch (lane.laneKind) {
+    case 'owner_passkey':
+    case 'owner_email_otp':
+    case 'recovery':
+    case 'break_glass':
+      return lane.ownerParticipantContinuity;
+    case 'linked_device':
+    case 'delegated_execution':
+      return null;
+  }
+}
+
+function participantIdsMatch(
+  ownerParticipantContinuity: OwnerLaneParticipantContinuityV1,
+  materialParticipantIds: readonly number[],
+): boolean {
+  return (
+    materialParticipantIds.length === ownerParticipantContinuity.participantIds.length &&
+    materialParticipantIds.every(
+      (participantId, index) => participantId === ownerParticipantContinuity.participantIds[index],
+    )
+  );
+}
+
 function commonRefusal(
   records: ParsedWalletExecutionLaneRecords,
   material: WalletExecutionLaneMaterialHydrationInput,
@@ -201,6 +222,8 @@ function commonRefusal(
   if (lane.laneKind === 'linked_device' || lane.laneKind === 'delegated_execution') {
     return refusal('unsupported_lane_kind', records);
   }
+  const ownerParticipantContinuity = ownerParticipantContinuityForLane(lane);
+  if (ownerParticipantContinuity === null) return invalidBoundaryRefusal();
   let materialEpoch: LaneShareEpoch;
   try {
     materialEpoch = parseLaneEpoch(material.laneShareEpoch);
@@ -212,9 +235,9 @@ function commonRefusal(
   }
   if (
     !String(lane.participantBindingDigestB64u) ||
-    !String(lane.holderParticipant.participantBindingDigestB64u) ||
-    !String(lane.serverParticipant.participantBindingDigestB64u) ||
-    String(lane.holderParticipant.participantId) === String(lane.serverParticipant.participantId)
+    !String(ownerParticipantContinuity.signerId) ||
+    !String(ownerParticipantContinuity.signingWorkerId) ||
+    ownerParticipantContinuity.participantIds.length !== 2
   ) {
     return refusal('participant_binding_mismatch', records);
   }
@@ -238,9 +261,11 @@ function hydrateEd25519(
   if (common) return common;
   const walletKey = records.walletKey;
   const lane = records.lane;
+  const ownerParticipantContinuity = ownerParticipantContinuityForLane(lane);
   if (walletKey.keyFamily !== 'ed25519' || lane.lifecycle.state !== 'active') {
     return refusal('key_family_mismatch', records);
   }
+  if (ownerParticipantContinuity === null) return invalidBoundaryRefusal();
   const plan = resolveNearEd25519YaoCapabilityHydrationV1(material.hydration);
   if (!isActiveHydrationPlan(plan)) return refusal('hydration_blocked', records);
   if (
@@ -261,6 +286,8 @@ function hydrateEd25519(
     String(plan.authority.walletId) !== String(walletKey.walletId) ||
     String(application.wallet_id) !== String(walletKey.walletId) ||
     String(material.metadata.scope.account_id) !== String(application.wallet_id) ||
+    String(material.metadata.scope.signing_worker_id) !==
+      String(plan.materialActivation.signingWorker) ||
     String(application.near_ed25519_signing_key_id) !== String(walletKey.nearEd25519SigningKeyId) ||
     application.key_creation_signer_slot !== walletKey.keyCreationSignerSlot ||
     base64UrlEncode(material.metadata.registeredPublicKey) !==
@@ -269,7 +296,9 @@ function hydrateEd25519(
     return refusal('public_identity_mismatch', records);
   }
   if (
-    String(lane.serverParticipant.participantId) !== String(plan.materialActivation.signingWorker)
+    String(ownerParticipantContinuity.signingWorkerId) !==
+      String(plan.materialActivation.signingWorker) ||
+    !participantIdsMatch(ownerParticipantContinuity, material.metadata.participantIds)
   ) {
     return refusal('participant_binding_mismatch', records);
   }
@@ -288,8 +317,7 @@ function hydrateEd25519(
     keyFamily: 'ed25519',
     walletKey,
     lane: activeLaneReference({ lane, materialActivation }),
-    holderParticipant: lane.holderParticipant,
-    serverParticipant: lane.serverParticipant,
+    ownerParticipantContinuity,
     materialActivation,
     laneShareEpoch: lane.laneShareEpoch,
     activationReceiptDigestB64u: lane.lifecycle.activationReceiptDigestB64u,
@@ -310,9 +338,11 @@ function hydrateEcdsa(
   if (common) return common;
   const walletKey = records.walletKey;
   const lane = records.lane;
+  const ownerParticipantContinuity = ownerParticipantContinuityForLane(lane);
   if (walletKey.keyFamily !== 'ecdsa_secp256k1' || lane.lifecycle.state !== 'active') {
     return refusal('key_family_mismatch', records);
   }
+  if (ownerParticipantContinuity === null) return invalidBoundaryRefusal();
   const hydrationInput: EcdsaCapabilityHydrationInput = {
     lookup: material.lookup,
     runtime: material.runtime,
@@ -356,14 +386,9 @@ function hydrateEcdsa(
     return refusal('activation_receipt_mismatch', records);
   }
   if (
-    String(lane.serverParticipant.participantId) !== String(plan.materialActivation.signingWorker)
-  ) {
-    return refusal('participant_binding_mismatch', records);
-  }
-  if (
-    facts.participantIds.length < 2 ||
-    new Set(facts.participantIds.map((participantId) => Number(participantId))).size !==
-      facts.participantIds.length
+    String(ownerParticipantContinuity.signingWorkerId) !==
+      String(plan.materialActivation.signingWorker) ||
+    !participantIdsMatch(ownerParticipantContinuity, facts.participantIds)
   ) {
     return refusal('participant_binding_mismatch', records);
   }
@@ -373,8 +398,7 @@ function hydrateEcdsa(
     keyFamily: 'ecdsa_secp256k1',
     walletKey,
     lane: activeLaneReference({ lane, materialActivation }),
-    holderParticipant: lane.holderParticipant,
-    serverParticipant: lane.serverParticipant,
+    ownerParticipantContinuity,
     materialActivation,
     laneShareEpoch: lane.laneShareEpoch,
     activationReceiptDigestB64u: lane.lifecycle.activationReceiptDigestB64u,
