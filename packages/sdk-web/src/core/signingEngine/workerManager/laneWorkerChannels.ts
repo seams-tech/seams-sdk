@@ -15,11 +15,22 @@ import {
 } from '@shared/signing-lanes/rotationParsers';
 import {
   parseHpkePublicKeyB64u,
+  parseLaneCustodyBindingDigestB64u,
+  parseLaneHolderCustodyBindingId,
+  parseLaneHolderParticipantId,
+  parseLaneParticipantBindingDigestB64u,
   parseSigningWorkerRecipientKeyDigestB64u,
   type HpkePublicKeyB64u,
   type SigningWorkerRecipientKeyDigestB64u,
 } from '@shared/signing-lanes/participants';
-import type { LaneOperationId } from '@shared/signing-lanes/ids';
+import {
+  parseLaneEnrollmentId,
+  parseLaneShareEpoch,
+  parseSigningLaneId,
+  parseWalletKeyId,
+  type LaneOperationId,
+} from '@shared/signing-lanes/ids';
+import { parseMpcMaterialActivationRef } from '@shared/utils/domainIds';
 
 type CreateRecipientInputV1 = Parameters<
   LaneHolderRecipientWorkerV1['createLaneHolderRecipientV1']
@@ -100,6 +111,22 @@ function requireRecord(value: unknown, label: string): Record<string, unknown> {
   return value;
 }
 
+function exactRecord(
+  value: unknown,
+  fields: readonly string[],
+  label: string,
+): Record<string, unknown> {
+  const record = requireRecord(value, label);
+  const allowed = new Set(fields);
+  for (const field of Object.keys(record)) {
+    if (!allowed.has(field)) throw new Error(`${label}.${field} is not supported`);
+  }
+  for (const field of fields) {
+    if (!(field in record)) throw new Error(`${label}.${field} is required`);
+  }
+  return record;
+}
+
 function nonEmpty(value: unknown, label: string): string {
   if (typeof value !== 'string') throw new Error(`${label} must be a string`);
   const normalized = value.trim();
@@ -119,12 +146,148 @@ function parseOperationId(value: unknown): CreateRecipientInputV1['operationId']
   throw new Error(result.error.message);
 }
 
+function parsedDomainValue<T>(
+  result: { ok: true; value: T } | { ok: false; error: { message: string } },
+  label: string,
+): T {
+  if (result.ok) return result.value;
+  throw new Error(`${label} ${result.error.message}`);
+}
+
 function parseJob(value: unknown): RotatableSigningLaneJobV1 {
   return parseRotatableSigningLaneJobV1(value);
 }
 
 function parseCommit(value: unknown): LaneProtocolCommitReceiptV1 {
   return parseLaneProtocolCommitReceiptV1(value);
+}
+
+function parseCreateRecipientInput(value: unknown): CreateRecipientInputV1 {
+  const input = exactRecord(
+    value,
+    [
+      'operationId',
+      'enrollmentId',
+      'targetLaneId',
+      'targetLaneShareEpoch',
+      'targetHolderParticipantId',
+      'targetHolderParticipantBindingDigestB64u',
+      'custodyBindingId',
+      'custodyBindingDigestB64u',
+    ],
+    'lane recipient-create input',
+  );
+  return {
+    operationId: parseOperationId(input.operationId),
+    enrollmentId: parsedDomainValue(
+      parseLaneEnrollmentId(input.enrollmentId),
+      'lane recipient-create enrollmentId',
+    ),
+    targetLaneId: parsedDomainValue(
+      parseSigningLaneId(input.targetLaneId),
+      'lane recipient-create targetLaneId',
+    ),
+    targetLaneShareEpoch: parsedDomainValue(
+      parseLaneShareEpoch(input.targetLaneShareEpoch),
+      'lane recipient-create targetLaneShareEpoch',
+    ),
+    targetHolderParticipantId: parsedDomainValue(
+      parseLaneHolderParticipantId(input.targetHolderParticipantId),
+      'lane recipient-create targetHolderParticipantId',
+    ),
+    targetHolderParticipantBindingDigestB64u: parsedDomainValue(
+      parseLaneParticipantBindingDigestB64u(input.targetHolderParticipantBindingDigestB64u),
+      'lane recipient-create targetHolderParticipantBindingDigestB64u',
+    ),
+    custodyBindingId: parsedDomainValue(
+      parseLaneHolderCustodyBindingId(input.custodyBindingId),
+      'lane recipient-create custodyBindingId',
+    ),
+    custodyBindingDigestB64u: parsedDomainValue(
+      parseLaneCustodyBindingDigestB64u(input.custodyBindingDigestB64u),
+      'lane recipient-create custodyBindingDigestB64u',
+    ),
+  };
+}
+
+function parseLaneWorkerChannelRequestV1(value: unknown): LaneWorkerChannelRequestV1 {
+  const record = requireRecord(value, 'lane holder worker request');
+  switch (record.kind) {
+    case 'lane_holder_recipient_create_v1': {
+      const request = exactRecord(record, ['kind', 'input'], 'lane holder worker request');
+      return {
+        kind: 'lane_holder_recipient_create_v1',
+        input: parseCreateRecipientInput(request.input),
+      };
+    }
+    case 'lane_holder_package_open_seal_v1': {
+      const request = exactRecord(
+        record,
+        ['kind', 'job', 'protocolCommitReceipt', 'holderPackage', 'recipientHandle'],
+        'lane holder worker request',
+      );
+      return {
+        kind: 'lane_holder_package_open_seal_v1',
+        job: parseJob(request.job),
+        protocolCommitReceipt: parseCommit(request.protocolCommitReceipt),
+        holderPackage: parseLaneHolderPackageWireV1(request.holderPackage),
+        recipientHandle: parseHandle(request.recipientHandle),
+      };
+    }
+    case 'lane_holder_package_verify_v1': {
+      const request = exactRecord(
+        record,
+        ['kind', 'job', 'protocolCommitReceipt', 'holderPackage'],
+        'lane holder worker request',
+      );
+      return {
+        kind: 'lane_holder_package_verify_v1',
+        job: parseJob(request.job),
+        protocolCommitReceipt: parseCommit(request.protocolCommitReceipt),
+        holderPackage: parseLaneHolderPackageWireV1(request.holderPackage),
+      };
+    }
+    case 'lane_holder_recipient_discard_v1': {
+      const request = exactRecord(
+        record,
+        ['kind', 'recipientHandle', 'operationId'],
+        'lane holder worker request',
+      );
+      return {
+        kind: 'lane_holder_recipient_discard_v1',
+        recipientHandle: parseHandle(request.recipientHandle),
+        operationId: parseOperationId(request.operationId),
+      };
+    }
+    case 'lane_material_invalidate_v1': {
+      const request = exactRecord(
+        record,
+        ['kind', 'walletKeyId', 'laneId', 'laneShareEpoch', 'materialActivation'],
+        'lane holder worker request',
+      );
+      return {
+        kind: 'lane_material_invalidate_v1',
+        walletKeyId: parsedDomainValue(
+          parseWalletKeyId(request.walletKeyId),
+          'lane material invalidation walletKeyId',
+        ),
+        laneId: parsedDomainValue(
+          parseSigningLaneId(request.laneId),
+          'lane material invalidation laneId',
+        ),
+        laneShareEpoch: parsedDomainValue(
+          parseLaneShareEpoch(request.laneShareEpoch),
+          'lane material invalidation laneShareEpoch',
+        ),
+        materialActivation: parsedDomainValue(
+          parseMpcMaterialActivationRef(request.materialActivation),
+          'lane material invalidation materialActivation',
+        ),
+      };
+    }
+    default:
+      throw new Error('lane holder worker request.kind is invalid');
+  }
 }
 
 function parseHpkeKey(value: unknown): HpkePublicKeyB64u {
@@ -296,10 +459,20 @@ function parseWorkerResponseFrame(value: unknown): LaneWorkerResponseFrameV1 | n
 }
 
 function workerRequestId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return `lane-holder-${crypto.randomUUID()}`;
+  if (
+    typeof globalThis.crypto !== 'undefined' &&
+    typeof globalThis.crypto.randomUUID === 'function'
+  ) {
+    return `lane-holder-${globalThis.crypto.randomUUID()}`;
   }
-  return `lane-holder-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  if (
+    typeof globalThis.crypto !== 'undefined' &&
+    typeof globalThis.crypto.getRandomValues === 'function'
+  ) {
+    const entropy = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    return `lane-holder-${base64UrlEncode(entropy)}`;
+  }
+  throw new Error('secure randomness is unavailable for lane holder worker requests');
 }
 
 function workerError(value: unknown): Error {
@@ -397,6 +570,379 @@ export function createRegisteredLaneHolderRecipientWorkerV1(
     transport,
     worker: createLaneWorkerChannelsV1(transport),
   };
+}
+
+type LaneHolderRecipientSessionStateV1 = 'open' | 'sealing' | 'sealed';
+
+type LaneHolderRecipientSessionV1 = {
+  state: LaneHolderRecipientSessionStateV1;
+  readonly input: CreateRecipientInputV1;
+  readonly descriptor: ReturnType<typeof parseCreateResponse>;
+};
+
+export type AuthorizedLaneHolderWorkerRequestHandlerV1 = {
+  request(value: unknown): Promise<unknown>;
+  close(): Promise<void>;
+};
+
+export type LaneHolderWorkerRequestScopeV1 = {
+  postMessage(message: unknown): void;
+  addEventListener(type: 'message', listener: (event: MessageEvent) => void): void;
+  removeEventListener(type: 'message', listener: (event: MessageEvent) => void): void;
+};
+
+export type InstalledLaneHolderWorkerRequestHandlerV1 = {
+  close(): Promise<void>;
+};
+
+function assertSameMaterialActivation(
+  left: LaneProtocolCommitReceiptV1['sourceMaterialActivation'],
+  right: RotatableSigningLaneJobV1['source']['materialActivation'],
+): void {
+  if (
+    left.kind !== right.kind ||
+    String(left.activationId) !== String(right.activationId) ||
+    left.capability !== right.capability ||
+    left.materialOwner !== right.materialOwner ||
+    left.keyBinding !== right.keyBinding ||
+    left.lifecycleBinding !== right.lifecycleBinding ||
+    left.signingWorker !== right.signingWorker
+  ) {
+    throw new Error('lane protocol receipt changed the source material activation');
+  }
+}
+
+function assertProtocolCommitMatchesExactJob(
+  job: RotatableSigningLaneJobV1,
+  receipt: LaneProtocolCommitReceiptV1,
+): void {
+  if (
+    String(job.operationId) !== String(receipt.operationId) ||
+    String(job.enrollmentId) !== String(receipt.enrollmentId) ||
+    String(job.walletId) !== String(receipt.walletId) ||
+    String(job.walletKeyId) !== String(receipt.walletKeyId) ||
+    String(job.source.laneId) !== String(receipt.sourceLaneId) ||
+    String(job.source.laneShareEpoch) !== String(receipt.sourceLaneShareEpoch) ||
+    job.source.revocationEpoch !== receipt.sourceRevocationEpoch ||
+    String(job.target.laneId) !== String(receipt.targetLaneId) ||
+    String(job.target.laneShareEpoch) !== String(receipt.targetLaneShareEpoch) ||
+    String(job.targetMaterialActivationId) !== String(receipt.targetMaterialActivationId) ||
+    job.keyFamily !== receipt.keyFamily ||
+    job.targetHolder.hpkePublicKeyDigestB64u !== receipt.holderRecipientKeyDigestB64u ||
+    job.targetSigningWorker.hpkePublicKeyDigestB64u !== receipt.serverRecipientKeyDigestB64u
+  ) {
+    throw new Error('lane holder package does not match its exact job and protocol receipt');
+  }
+  assertSameMaterialActivation(receipt.sourceMaterialActivation, job.source.materialActivation);
+}
+
+function assertHolderPackageFamily(
+  job: RotatableSigningLaneJobV1,
+  holderPackage: LaneHolderPackageWireV1,
+): void {
+  switch (job.keyFamily) {
+    case 'ed25519':
+      if (holderPackage.kind !== 'ed25519_yao_lane_holder_package_set_v1') {
+        throw new Error('Ed25519 lane received an ECDSA holder package');
+      }
+      return;
+    case 'ecdsa_secp256k1':
+      if (holderPackage.kind !== 'ecdsa_additive_lane_holder_package_v1') {
+        throw new Error('ECDSA lane received an Ed25519 holder package');
+      }
+      return;
+    default:
+      return assertNeverLaneJob(job);
+  }
+}
+
+function assertNeverLaneJob(value: never): never {
+  throw new Error(`unsupported lane holder job: ${String(value)}`);
+}
+
+function assertRecipientSessionMatchesJob(
+  session: LaneHolderRecipientSessionV1,
+  job: RotatableSigningLaneJobV1,
+): void {
+  const input = session.input;
+  const descriptor = session.descriptor;
+  if (
+    String(input.operationId) !== String(job.operationId) ||
+    String(input.enrollmentId) !== String(job.enrollmentId) ||
+    String(input.targetLaneId) !== String(job.target.laneId) ||
+    String(input.targetLaneShareEpoch) !== String(job.target.laneShareEpoch) ||
+    String(input.targetHolderParticipantId) !== String(job.targetHolder.participantId) ||
+    input.targetHolderParticipantBindingDigestB64u !==
+      job.targetHolder.participantBindingDigestB64u ||
+    input.custodyBindingId !== job.targetHolder.custodyBindingId ||
+    input.custodyBindingDigestB64u !== job.targetHolder.custodyBindingDigestB64u ||
+    descriptor.hpkePublicKeyB64u !== job.targetHolder.hpkePublicKeyB64u ||
+    descriptor.hpkePublicKeyDigestB64u !== job.targetHolder.hpkePublicKeyDigestB64u
+  ) {
+    throw new Error('lane holder recipient does not match the exact target job');
+  }
+}
+
+function assertVerifiedHolderDigest(
+  receipt: LaneProtocolCommitReceiptV1,
+  digest: DigestB64u,
+): void {
+  if (receipt.targetHolderCiphertextDigestSetB64u !== digest) {
+    throw new Error('lane holder package digest does not match the committed transcript');
+  }
+}
+
+function sessionKey(handle: LaneHolderRecipientHandleV1): string {
+  return String(handle);
+}
+
+class AuthorizedLaneHolderWorkerRequestHandler implements AuthorizedLaneHolderWorkerRequestHandlerV1 {
+  readonly #backend: LaneHolderRecipientWorkerV1;
+  readonly #sessions = new Map<string, LaneHolderRecipientSessionV1>();
+  #closed = false;
+
+  constructor(backend: LaneHolderRecipientWorkerV1) {
+    this.#backend = backend;
+  }
+
+  async request(value: unknown): Promise<unknown> {
+    if (this.#closed) throw new Error('lane holder worker request handler is closed');
+    const request = parseLaneWorkerChannelRequestV1(value);
+    switch (request.kind) {
+      case 'lane_holder_recipient_create_v1':
+        return await this.#createRecipient(request.input);
+      case 'lane_holder_package_open_seal_v1':
+        return await this.#openAndSeal(request);
+      case 'lane_holder_package_verify_v1':
+        return await this.#verifyPackage(request);
+      case 'lane_holder_recipient_discard_v1':
+        await this.#discardRecipient(request.recipientHandle, request.operationId);
+        return undefined;
+      case 'lane_material_invalidate_v1':
+        await this.#invalidateMaterial(request);
+        return undefined;
+      default:
+        return assertNeverLaneWorkerRequest(request);
+    }
+  }
+
+  async close(): Promise<void> {
+    if (this.#closed) return;
+    this.#closed = true;
+    let cleanupError: Error | null = null;
+    for (const session of this.#sessions.values()) {
+      try {
+        await this.#backend.discardLaneHolderRecipientV1({
+          recipientHandle: session.descriptor.recipientHandle,
+          operationId: session.input.operationId,
+        });
+      } catch (error) {
+        cleanupError ??= workerError(error);
+      }
+    }
+    this.#sessions.clear();
+    if (cleanupError) throw cleanupError;
+  }
+
+  async #createRecipient(
+    input: CreateRecipientInputV1,
+  ): Promise<ReturnType<typeof parseCreateResponse>> {
+    const descriptor = parseCreateResponse(await this.#backend.createLaneHolderRecipientV1(input));
+    const key = sessionKey(descriptor.recipientHandle);
+    const existing = this.#sessions.get(key);
+    if (existing) {
+      await this.#backend
+        .discardLaneHolderRecipientV1({
+          recipientHandle: existing.descriptor.recipientHandle,
+          operationId: existing.input.operationId,
+        })
+        .catch(ignoreCleanupFailure);
+      this.#sessions.delete(key);
+      throw new Error('lane holder backend reused an active recipient handle');
+    }
+    this.#sessions.set(key, { state: 'open', input, descriptor });
+    return descriptor;
+  }
+
+  async #openAndSeal(
+    request: Extract<LaneWorkerChannelRequestV1, { kind: 'lane_holder_package_open_seal_v1' }>,
+  ): Promise<ReturnType<typeof parseSealResponse>> {
+    const key = sessionKey(request.recipientHandle);
+    const session = this.#sessions.get(key);
+    if (!session) throw new Error('lane holder recipient handle is unknown or discarded');
+    if (session.state !== 'open') {
+      throw new Error(`lane holder recipient cannot seal from ${session.state} state`);
+    }
+    session.state = 'sealing';
+    try {
+      assertProtocolCommitMatchesExactJob(request.job, request.protocolCommitReceipt);
+      assertHolderPackageFamily(request.job, request.holderPackage);
+      assertRecipientSessionMatchesJob(session, request.job);
+      const sealed = parseSealResponse(
+        await this.#backend.openAndSealLaneHolderPackageV1({
+          job: request.job,
+          protocolCommitReceipt: request.protocolCommitReceipt,
+          holderPackage: request.holderPackage,
+          recipientHandle: request.recipientHandle,
+        }),
+      );
+      assertVerifiedHolderDigest(
+        request.protocolCommitReceipt,
+        sealed.verifiedHolderCiphertextDigestSetB64u,
+      );
+      session.state = 'sealed';
+      return sealed;
+    } catch (error) {
+      await this.#backend
+        .discardLaneHolderRecipientV1({
+          recipientHandle: session.descriptor.recipientHandle,
+          operationId: session.input.operationId,
+        })
+        .catch(ignoreCleanupFailure);
+      this.#sessions.delete(key);
+      throw workerError(error);
+    }
+  }
+
+  async #verifyPackage(
+    request: Extract<LaneWorkerChannelRequestV1, { kind: 'lane_holder_package_verify_v1' }>,
+  ): Promise<ReturnType<typeof parseVerifyResponse>> {
+    assertProtocolCommitMatchesExactJob(request.job, request.protocolCommitReceipt);
+    assertHolderPackageFamily(request.job, request.holderPackage);
+    const verified = parseVerifyResponse(
+      await this.#backend.verifyLaneHolderPackageCommitmentV1({
+        job: request.job,
+        protocolCommitReceipt: request.protocolCommitReceipt,
+        holderPackage: request.holderPackage,
+      }),
+    );
+    assertVerifiedHolderDigest(
+      request.protocolCommitReceipt,
+      verified.verifiedHolderCiphertextDigestSetB64u,
+    );
+    return verified;
+  }
+
+  async #discardRecipient(
+    recipientHandle: LaneHolderRecipientHandleV1,
+    operationId: LaneOperationId,
+  ): Promise<void> {
+    const key = sessionKey(recipientHandle);
+    const session = this.#sessions.get(key);
+    if (!session) return;
+    if (String(session.input.operationId) !== String(operationId)) {
+      throw new Error('lane holder recipient discard has the wrong operation');
+    }
+    if (session.state === 'sealing') {
+      throw new Error('lane holder recipient cannot be discarded while sealing');
+    }
+    await this.#backend.discardLaneHolderRecipientV1({ recipientHandle, operationId });
+    this.#sessions.delete(key);
+  }
+
+  async #invalidateMaterial(
+    request: Extract<LaneWorkerChannelRequestV1, { kind: 'lane_material_invalidate_v1' }>,
+  ): Promise<void> {
+    await this.#backend.invalidateLaneMaterialV1({
+      walletKeyId: request.walletKeyId,
+      laneId: request.laneId,
+      laneShareEpoch: request.laneShareEpoch,
+      materialActivation: request.materialActivation,
+    });
+    for (const [key, session] of this.#sessions) {
+      if (
+        String(session.input.targetLaneId) !== String(request.laneId) ||
+        String(session.input.targetLaneShareEpoch) !== String(request.laneShareEpoch)
+      ) {
+        continue;
+      }
+      await this.#backend.discardLaneHolderRecipientV1({
+        recipientHandle: session.descriptor.recipientHandle,
+        operationId: session.input.operationId,
+      });
+      this.#sessions.delete(key);
+    }
+  }
+}
+
+function ignoreCleanupFailure(): void {}
+
+function assertNeverLaneWorkerRequest(value: never): never {
+  throw new Error(`unsupported lane holder worker request: ${String(value)}`);
+}
+
+export function createAuthorizedLaneHolderWorkerRequestHandlerV1(
+  authorizedBackend: LaneHolderRecipientWorkerV1,
+): AuthorizedLaneHolderWorkerRequestHandlerV1 {
+  return new AuthorizedLaneHolderWorkerRequestHandler(authorizedBackend);
+}
+
+type LaneHolderWorkerRequestFrameV1 = {
+  readonly id: string;
+  readonly request: unknown;
+};
+
+function parseLaneHolderWorkerRequestFrameV1(value: unknown): LaneHolderWorkerRequestFrameV1 {
+  const frame = exactRecord(value, ['id', 'request'], 'lane holder worker frame');
+  const id = nonEmpty(frame.id, 'lane holder worker frame.id');
+  if (id.length > 256) throw new Error('lane holder worker frame.id is too long');
+  return { id, request: frame.request };
+}
+
+class InstalledLaneHolderWorkerRequestHandler implements InstalledLaneHolderWorkerRequestHandlerV1 {
+  readonly #scope: LaneHolderWorkerRequestScopeV1;
+  readonly #handler: AuthorizedLaneHolderWorkerRequestHandlerV1;
+  readonly #listener: (event: MessageEvent) => void;
+  #closed = false;
+
+  constructor(
+    scope: LaneHolderWorkerRequestScopeV1,
+    handler: AuthorizedLaneHolderWorkerRequestHandlerV1,
+  ) {
+    this.#scope = scope;
+    this.#handler = handler;
+    this.#listener = this.#onMessage.bind(this);
+    this.#scope.addEventListener('message', this.#listener);
+  }
+
+  async close(): Promise<void> {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#scope.removeEventListener('message', this.#listener);
+    await this.#handler.close();
+  }
+
+  #onMessage(event: MessageEvent): void {
+    void this.#respond(event.data);
+  }
+
+  async #respond(value: unknown): Promise<void> {
+    let id: string | null = null;
+    try {
+      const frame = parseLaneHolderWorkerRequestFrameV1(value);
+      id = frame.id;
+      const result = await this.#handler.request(frame.request);
+      this.#scope.postMessage({ id, ok: true, result } satisfies LaneWorkerResponseFrameV1);
+    } catch (error) {
+      if (id) {
+        this.#scope.postMessage({
+          id,
+          ok: false,
+          error: workerError(error).message,
+        } satisfies LaneWorkerResponseFrameV1);
+      }
+    }
+  }
+}
+
+export function installAuthorizedLaneHolderWorkerRequestHandlerV1(args: {
+  readonly scope: LaneHolderWorkerRequestScopeV1;
+  readonly authorizedBackend: LaneHolderRecipientWorkerV1;
+}): InstalledLaneHolderWorkerRequestHandlerV1 {
+  return new InstalledLaneHolderWorkerRequestHandler(
+    args.scope,
+    createAuthorizedLaneHolderWorkerRequestHandlerV1(args.authorizedBackend),
+  );
 }
 
 function normalizeTimeout(value: number | undefined): number {
