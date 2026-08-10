@@ -89,7 +89,7 @@ function digest(value: unknown, label: string): string {
   }
 }
 
-function safeTimestamp(value: unknown, label: string): number {
+function safeTimestamp(value: number, label: string): number {
   if (!Number.isSafeInteger(value) || Number(value) < 0) {
     throw new Error(`${label} must be a non-negative safe integer`);
   }
