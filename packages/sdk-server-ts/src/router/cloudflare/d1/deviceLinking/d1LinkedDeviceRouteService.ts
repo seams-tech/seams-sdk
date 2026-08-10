@@ -15,6 +15,8 @@ import {
   D1LinkedDeviceSessionStoreV1,
   type D1LinkedDeviceSessionScopeV1,
 } from './d1LinkedDeviceSessionStore';
+import { CloudflareD1LaneLifecycleStore } from '../signingLanes/d1LaneLifecycleStore';
+import { D1LinkedDeviceAggregateActivationVerifierV1 } from './d1LinkedDeviceAggregateActivationVerifier';
 import type {
   DeviceLinkingAuthenticatedRequestV1,
   DeviceLinkingAuthDeniedV1,
@@ -50,9 +52,18 @@ export function createD1LinkedDeviceRouteServiceV1(
     scope: options.scope,
   });
   const proofVerifier = new LinkedDeviceRequestProofVerifierV1({ nonceStore: proofNonceStore });
+  const lifecycleStore = new CloudflareD1LaneLifecycleStore({
+    database: options.database,
+    scope: options.scope,
+    now: nowV1,
+  });
+  const aggregateActivationVerifier = new D1LinkedDeviceAggregateActivationVerifierV1({
+    lifecycleStore,
+  });
   const sessionService = new LinkedDeviceSessionServiceV1({
     store: sessionStore,
     authorization: options.ownerAuthorization,
+    aggregateActivationVerifier,
   });
   const routeSessionService: DeviceLinkingRouteServiceV1['sessionService'] = {
     createUnclaimedSessionV1: sessionService.createUnclaimedSessionV1.bind(sessionService),

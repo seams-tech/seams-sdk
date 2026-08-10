@@ -19,6 +19,7 @@ import {
 import {
   LinkedDeviceSessionServiceV1,
   parseLinkedDeviceSessionRecordV1,
+  type LinkedDeviceAggregateActivationVerifierV1,
   type LinkedDeviceOwnerAuthorizationPortV1,
 } from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
 import {
@@ -38,6 +39,10 @@ const scope: D1LinkedDeviceSessionScopeV1 = {
 
 const nowMs = 1_800_000_000_000;
 
+const aggregateActivationVerifier = {
+  verifyAggregateActivationV1: async () => ({ kind: 'verified' as const }),
+} satisfies LinkedDeviceAggregateActivationVerifierV1;
+
 let temporary: TemporaryD1Database | undefined;
 
 test.afterEach(() => {
@@ -50,7 +55,11 @@ test('claims exactly once, replays the exact claim, and never writes identity be
   await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
   const auth = ownerAuth();
-  const service = new LinkedDeviceSessionServiceV1({ store, authorization: auth });
+  const service = new LinkedDeviceSessionServiceV1({
+    store,
+    authorization: auth,
+    aggregateActivationVerifier,
+  });
   const payload = qrPayload('session-one');
 
   const created = await service.createUnclaimedSessionV1({ payload, nowMs });
@@ -74,7 +83,11 @@ test('expires an unclaimed session through the read projection and preserves ter
   temporary = createTemporaryD1Database();
   await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
-  const service = new LinkedDeviceSessionServiceV1({ store, authorization: ownerAuth() });
+  const service = new LinkedDeviceSessionServiceV1({
+    store,
+    authorization: ownerAuth(),
+    aggregateActivationVerifier,
+  });
   const payload = { ...qrPayload('session-two'), expiresAtMs: nowMs + 5 };
   await service.createUnclaimedSessionV1({ payload, nowMs });
 
@@ -94,6 +107,7 @@ test('records owner approval exactly once, rejects a conflicting transcript, and
   const service = new LinkedDeviceSessionServiceV1({
     store,
     authorization: ownerAuthForFixture(),
+    aggregateActivationVerifier,
   });
   const created = await service.createUnclaimedSessionV1({ payload: fixture.payload, nowMs: 3_000 });
   expect(created.outcome).toBe('applied');
@@ -131,7 +145,11 @@ test('refuses postcommit cancellation, records completion-required state, and re
   await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
   const fixture = buildR103DeviceLinkFixture();
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
-  const service = new LinkedDeviceSessionServiceV1({ store, authorization: ownerAuthForFixture() });
+  const service = new LinkedDeviceSessionServiceV1({
+    store,
+    authorization: ownerAuthForFixture(),
+    aggregateActivationVerifier,
+  });
   await service.createUnclaimedSessionV1({ payload: fixture.payload, nowMs: 3_000 });
   await service.claimSessionV1({ payload: fixture.payload, nowMs: 3_001 });
   const approval = { ...fixture.approval, expiresAtMs: 8_000 };
@@ -214,7 +232,11 @@ test('rejects aggregate activation unless the approved manifest and child set ma
   await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
   const fixture = buildR103DeviceLinkFixture();
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
-  const service = new LinkedDeviceSessionServiceV1({ store, authorization: ownerAuthForFixture() });
+  const service = new LinkedDeviceSessionServiceV1({
+    store,
+    authorization: ownerAuthForFixture(),
+    aggregateActivationVerifier,
+  });
   await service.createUnclaimedSessionV1({ payload: fixture.payload, nowMs: 3_000 });
   await service.claimSessionV1({ payload: fixture.payload, nowMs: 3_001 });
   const approval = { ...fixture.approval, expiresAtMs: 8_000 };
@@ -313,7 +335,11 @@ test('rejects tampered durable record and transcript rows', async () => {
   await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
   const fixture = buildR103DeviceLinkFixture();
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
-  const service = new LinkedDeviceSessionServiceV1({ store, authorization: ownerAuthForFixture() });
+  const service = new LinkedDeviceSessionServiceV1({
+    store,
+    authorization: ownerAuthForFixture(),
+    aggregateActivationVerifier,
+  });
   await service.createUnclaimedSessionV1({ payload: fixture.payload, nowMs: 3_000 });
   const claimed = await service.claimSessionV1({ payload: fixture.payload, nowMs: 3_001 });
   expect(claimed.outcome).toBe('applied');

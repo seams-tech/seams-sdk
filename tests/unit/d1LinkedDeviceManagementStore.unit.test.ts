@@ -1,7 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { parseWalletId } from '@shared/utils/domainIds';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
-import { LinkedDeviceSessionServiceV1 } from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
+import {
+  LinkedDeviceSessionServiceV1,
+  type LinkedDeviceAggregateActivationVerifierV1,
+} from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
 import { D1LinkedDeviceManagementStoreV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceManagementStore';
 import {
   D1LinkedDeviceSessionStoreV1,
@@ -23,6 +26,10 @@ const scope: D1LinkedDeviceSessionScopeV1 = {
 };
 
 let temporary: TemporaryD1Database | undefined;
+
+const aggregateActivationVerifier = {
+  verifyAggregateActivationV1: async () => ({ kind: 'verified' as const }),
+} satisfies LinkedDeviceAggregateActivationVerifierV1;
 
 test.afterEach(() => {
   if (temporary) cleanupTemporaryD1Database(temporary.tempDir);
@@ -51,6 +58,7 @@ test('uses the core session clock before projecting management rows', async () =
       }),
       authorizeOwnerApprovalV1: async () => ({ kind: 'authorized' as const }),
     },
+    aggregateActivationVerifier,
   });
   expect(
     (await sessionService.createUnclaimedSessionV1({ payload: fixture.payload, nowMs: 3_000 })).outcome,

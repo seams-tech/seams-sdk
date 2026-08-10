@@ -10,6 +10,7 @@ import { sha256Bytes } from '@shared/utils/digests';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import {
   LinkedDeviceSessionServiceV1,
+  type LinkedDeviceAggregateActivationVerifierV1,
   type LinkedDeviceOwnerAuthorizationPortV1,
 } from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
 import {
@@ -40,6 +41,10 @@ const scope: D1LinkedDeviceSessionScopeV1 = {
 
 let temporary: TemporaryD1Database | undefined;
 
+const aggregateActivationVerifier = {
+  verifyAggregateActivationV1: async () => ({ kind: 'verified' as const }),
+} satisfies LinkedDeviceAggregateActivationVerifierV1;
+
 test.afterEach(() => {
   if (temporary) cleanupTemporaryD1Database(temporary.tempDir);
   temporary = undefined;
@@ -53,6 +58,7 @@ test('creates and polls a session projection without transcript or authorization
   const sessionService = new LinkedDeviceSessionServiceV1({
     store,
     authorization: ownerAuthorization(),
+    aggregateActivationVerifier,
   });
   const routeService = routeServiceFor(sessionService, 3_000);
 
@@ -90,6 +96,7 @@ test('projects the claimed device identity after owner claim', async () => {
   const sessionService = new LinkedDeviceSessionServiceV1({
     store,
     authorization: ownerAuthorization(),
+    aggregateActivationVerifier,
   });
   const routeService = routeServiceFor(sessionService, 3_000, {
     authenticateOwnerRequestV1: async ({ request, method, pathname, bodyDigestB64u }) => ({
@@ -152,6 +159,7 @@ test('authenticates owner before parsing claim and returns no session secrets', 
   const sessionService = new LinkedDeviceSessionServiceV1({
     store,
     authorization: ownerAuthorization(),
+    aggregateActivationVerifier,
   });
   let ownerAuthCalls = 0;
   const routeService = routeServiceFor(sessionService, 3_000, {
@@ -189,6 +197,7 @@ test('rejects a replayed device signature when the authenticated request body ch
   const sessionService = new LinkedDeviceSessionServiceV1({
     store,
     authorization: ownerAuthorization(),
+    aggregateActivationVerifier,
   });
   let firstProof: DeviceLinkingRequestProofV1 | undefined;
   const observed: Array<{ method: string; pathname: string; linkSessionId: string; bodyDigestB64u: string }> = [];
