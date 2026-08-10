@@ -226,6 +226,8 @@ async function handleLinkedDeviceNormalSigning(
           operation: admission.operation,
           envelope,
           localPresence: localPresence.evidence,
+          walletSessionId: input.authenticated.claims.walletSessionId,
+          quotaId: input.authenticated.claims.quotaId,
           linkedDeviceExecution,
           body: stripLinkedDeviceNormalSigningBoundaryFields(input.body),
         });
@@ -250,6 +252,14 @@ async function executeLinkedDeviceSigning(input: {
   readonly operation: AuthorizedOperation;
   readonly envelope: ReturnType<typeof parseLinkedDeviceExecutionEnvelopeV1>;
   readonly localPresence: LinkedDeviceLocalPresenceEvidenceV1;
+  readonly walletSessionId: Extract<
+    Awaited<ReturnType<typeof parseLinkedDeviceWalletSessionForCurve>>,
+    { readonly kind: 'linked_device' }
+  >['claims']['walletSessionId'];
+  readonly quotaId: Extract<
+    Awaited<ReturnType<typeof parseLinkedDeviceWalletSessionForCurve>>,
+    { readonly kind: 'linked_device' }
+  >['claims']['quotaId'];
   readonly linkedDeviceExecution: LinkedDeviceExecutionAdmissionResolverV1;
 }): Promise<Response> {
   const upstream = await proxyLinkedDeviceLaneAdmittedNormalSigningRequest({
@@ -263,6 +273,8 @@ async function executeLinkedDeviceSigning(input: {
     walletKeyId: input.envelope.walletKeyId,
     laneId: input.envelope.laneId,
     laneShareEpoch: input.envelope.laneShareEpoch,
+    walletSessionId: input.walletSessionId,
+    quotaId: input.quotaId,
     expectedMaterialActivation: input.envelope.materialActivation,
     localPresence: input.localPresence,
     linkedDeviceExecution: input.linkedDeviceExecution,

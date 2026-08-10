@@ -34,6 +34,9 @@ import type {
 import type {
   AuthorizedOperationId,
   LinkedDeviceWalletSessionAuthorizationId,
+  MpcWalletSigningQuotaId,
+  TenantId,
+  WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import type { SigningLaneId, LaneShareEpoch } from '@shared/signing-lanes/ids';
 import type { RouterAbNormalSigningMaterialSourceV1 } from './routerAbPrivateSigningWorker';
@@ -178,6 +181,9 @@ export type LinkedDeviceExecutionProjectionResult =
 
 export interface LinkedDeviceExecutionAdmissionResolverV1 {
   resolveActiveLinkedDeviceExecutionV1(input: {
+    readonly tenantId: TenantId;
+    readonly walletSessionId: WalletSessionId;
+    readonly quotaId: MpcWalletSigningQuotaId;
     readonly walletId: WalletId;
     readonly enrollmentId: LinkedDeviceEnrollmentId;
     readonly deviceId: LinkedDeviceId;
