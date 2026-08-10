@@ -26,7 +26,6 @@ import type {
   OrgId,
   ProviderSubject,
   RootShareEpoch,
-  RotationOperationId,
   SigningLaneId,
   ThresholdEcdsaSessionId,
   ThresholdEd25519SessionId,
@@ -69,7 +68,6 @@ declare const laneShareEpoch: LaneShareEpoch;
 declare const agentPrincipalId: AgentPrincipalId;
 declare const linkedDeviceId: LinkedDeviceId;
 declare const mandatePolicyId: MandatePolicyId;
-declare const rotationOperationId: RotationOperationId;
 declare const delegatedIntentDigest: DelegatedIntentDigest;
 declare const delegatedIdempotencyKey: DelegatedIdempotencyKey;
 declare const linkDeviceSessionId: LinkDeviceSessionId;
@@ -173,10 +171,6 @@ function acceptsMandatePolicyId(value: MandatePolicyId): void {
   void value;
 }
 
-function acceptsRotationOperationId(value: RotationOperationId): void {
-  void value;
-}
-
 function acceptsDelegatedIntentDigest(value: DelegatedIntentDigest): void {
   void value;
 }
@@ -250,7 +244,6 @@ acceptsLaneShareEpoch(laneShareEpoch);
 acceptsAgentPrincipalId(agentPrincipalId);
 acceptsLinkedDeviceId(linkedDeviceId);
 acceptsMandatePolicyId(mandatePolicyId);
-acceptsRotationOperationId(rotationOperationId);
 acceptsDelegatedIntentDigest(delegatedIntentDigest);
 acceptsDelegatedIdempotencyKey(delegatedIdempotencyKey);
 acceptsLinkDeviceSessionId(linkDeviceSessionId);
@@ -362,9 +355,6 @@ acceptsLinkedDeviceId(agentPrincipalId);
 
 // @ts-expect-error Linked devices are not agent principals.
 acceptsAgentPrincipalId(linkedDeviceId);
-
-// @ts-expect-error Mandate policies are not rotation operations.
-acceptsRotationOperationId(mandatePolicyId);
 
 // @ts-expect-error Delegated intent digests are not idempotency keys.
 acceptsDelegatedIdempotencyKey(delegatedIntentDigest);
