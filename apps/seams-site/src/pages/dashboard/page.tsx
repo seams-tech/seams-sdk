@@ -283,6 +283,12 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
   const isWaitingForCurrentOrgOnboardingState = Boolean(
     currentOrgId && onboardingGateEnabled && onboardingStateOrgId !== currentOrgId,
   );
+  const isDashboardEntryRoutePending = Boolean(
+    pathname === '/dashboard' &&
+    consoleSession.claims &&
+    (isRecoveringOrganizationContext ||
+      (onboardingGateEnabled && (!onboardingState || isWaitingForCurrentOrgOnboardingState))),
+  );
 
   React.useEffect(() => {
     const claims = consoleSession.claims;
@@ -1025,15 +1031,18 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     [visibleSidebarGroups],
   );
 
-  /* No claims means no console. Rendering the shell while the session check is
-     in flight (or after a sign-out, before the redirect effect runs) shows the
-     chrome of a workspace the visitor has no session for. `sessionForbidden`
-     keeps rendering because that state has its own in-shell message. */
-  if (!consoleSession.claims && !sessionForbidden) {
+  /* Keep the shell hidden until session and dashboard-entry routing decisions
+     resolve. The provisional entry route points at onboarding, so mounting it
+     here would expose the wizard before an existing workspace loads. */
+  if ((!consoleSession.claims && !sessionForbidden) || isDashboardEntryRoutePending) {
     return (
       <main className="dashboard-session-gate" aria-label="Dashboard workspace" aria-busy>
         <p className="dashboard-session-gate__note" role="status">
-          {consoleSession.loading ? 'Checking your session...' : 'Redirecting to sign in...'}
+          {consoleSession.claims
+            ? 'Opening dashboard...'
+            : consoleSession.loading
+              ? 'Checking your session...'
+              : 'Redirecting to sign in...'}
         </p>
       </main>
     );

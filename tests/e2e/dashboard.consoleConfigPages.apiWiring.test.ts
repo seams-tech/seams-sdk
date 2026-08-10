@@ -496,6 +496,11 @@ test.describe('dashboard console config page api wiring', () => {
     baseURL,
   }) => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    let releaseOnboardingStateResponse!: () => void;
+    const onboardingStateResponseReleased = new Promise<void>((resolve) => {
+      releaseOnboardingStateResponse = resolve;
+    });
+    let onboardingStateCalls = 0;
 
     await page.route(`${consoleOrigin}/console/**`, async (route) => {
       const req = route.request();
@@ -521,6 +526,8 @@ test.describe('dashboard console config page api wiring', () => {
       }
 
       if (pathname === '/console/onboarding/state' && method === 'GET') {
+        onboardingStateCalls += 1;
+        await onboardingStateResponseReleased;
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -641,6 +648,12 @@ test.describe('dashboard console config page api wiring', () => {
     });
 
     await page.goto('/dashboard');
+    await expect.poll(() => onboardingStateCalls).toBeGreaterThan(0);
+    await expect(page.getByText('Opening dashboard...')).toBeVisible();
+    await expect(page.locator('#dashboard-main-title')).toHaveCount(0);
+    await expect(page.locator('[aria-label="Onboarding wizard page"]')).toHaveCount(0);
+
+    releaseOnboardingStateResponse();
     await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/overview');
     await expect(page.locator('#dashboard-main-title')).toHaveText(/overview/i);
   });
