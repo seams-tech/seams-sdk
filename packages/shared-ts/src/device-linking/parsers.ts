@@ -44,6 +44,7 @@ import { parseUnixMs, requireRecord, rejectUnknownFields } from '../passkey-cust
 import {
   assertNeverLinkedDeviceSessionState,
   type LinkedDeviceApprovalV1,
+  type LinkedDeviceApprovalResultV1,
   type LinkedDeviceEnrollmentChildReceiptV1,
   type LinkedDeviceEnrollmentKeyBindingV1,
   type LinkedDeviceEnrollmentReceiptV1,
@@ -58,7 +59,9 @@ import {
   type LinkedDeviceReceiptAcknowledgementV1,
   type LinkedDeviceSessionClaimRequestV1,
   type LinkedDeviceSessionClaimV1,
+  type LinkedDeviceSessionProjectionV1,
   type LinkedDeviceSessionState,
+  type LinkedDeviceSessionUnclaimedState,
   type LinkedDeviceSessionTransportEventV1,
   type LinkedDeviceSessionTransportRequestV1,
   type LinkedDeviceTargetCredentialRegistrationV1,
@@ -162,6 +165,26 @@ const RECEIPT_ACK_FIELDS = [
   'deviceId',
   'receipt',
   'acknowledgedAtMs',
+] as const;
+const SESSION_PROJECTION_BASE_FIELDS = [
+  'kind',
+  'linkSessionId',
+  'qrPayload',
+  'revision',
+  'createdAtMs',
+  'updatedAtMs',
+  'state',
+] as const;
+const SESSION_PROJECTION_CLAIMED_FIELDS = [...SESSION_PROJECTION_BASE_FIELDS, 'deviceId'] as const;
+const APPROVAL_PENDING_FIELDS = ['outcome', 'state'] as const;
+const APPROVAL_ACTIVE_FIELDS = ['outcome', 'state', 'manifestDigestB64u', 'receipt'] as const;
+const APPROVAL_REPLAY_FIELDS = ['outcome', 'replay'] as const;
+const APPROVAL_REPLAY_PENDING_FIELDS = ['state', 'session'] as const;
+const APPROVAL_REPLAY_ACTIVE_FIELDS = [
+  'state',
+  'session',
+  'manifestDigestB64u',
+  'receipt',
 ] as const;
 const LINKED_DEVICE_SUMMARY_FIELDS = [
   'deviceId',
@@ -291,11 +314,15 @@ function parsePublicKey(raw: unknown, label: string): LinkDevicePublicKeyB64u {
   }
   try {
     const decoded = base64UrlDecode(raw);
-    if (decoded.length === 0 || base64UrlEncode(decoded) !== raw) throw new Error('non-canonical');
+    if (decoded.length !== 32 || base64UrlEncode(decoded) !== raw) throw new Error('non-canonical');
   } catch {
-    throw new Error(`${label} must be canonical unpadded base64url`);
+    throw new Error(`${label} must be a canonical 32-byte unpadded base64url key`);
   }
   return raw as LinkDevicePublicKeyB64u;
+}
+
+export function parseLinkDevicePublicKeyB64u(raw: unknown): LinkDevicePublicKeyB64u {
+  return parsePublicKey(raw, 'LinkDevicePublicKeyB64u');
 }
 
 function parseCredential(raw: unknown, label: string): WebAuthnCredentialIdB64u {
@@ -714,6 +741,145 @@ function parseStateRecord(record: UnknownRecord): LinkedDeviceSessionState {
 
 export function parseLinkedDeviceSessionState(raw: unknown): LinkedDeviceSessionState {
   return parseStateRecord(requireRecord(raw, 'LinkedDeviceSessionState'));
+}
+
+function isUnclaimedSessionState(
+  state: LinkedDeviceSessionState,
+): state is Extract<
+  LinkedDeviceSessionState,
+  { readonly state: LinkedDeviceSessionUnclaimedState['state'] }
+> {
+  return (
+    state.state === 'displaying_qr' ||
+    state.state === 'expired_unclaimed' ||
+    state.state === 'cancelled_unclaimed'
+  );
+}
+
+function isPendingApprovalState(state: LinkedDeviceSessionState): state is Extract<
+  LinkedDeviceSessionState,
+  {
+    readonly state:
+      | 'awaiting_target_passkey'
+      | 'provisioning'
+      | 'awaiting_aggregate_receipt'
+      | 'committed_completion_required';
+  }
+> {
+  return (
+    state.state === 'awaiting_target_passkey' ||
+    state.state === 'provisioning' ||
+    state.state === 'awaiting_aggregate_receipt' ||
+    state.state === 'committed_completion_required'
+  );
+}
+
+export function parseLinkedDeviceSessionProjectionV1(
+  raw: unknown,
+): LinkedDeviceSessionProjectionV1 {
+  const initial = requireRecord(raw, 'LinkedDeviceSessionProjectionV1');
+  const state = parseLinkedDeviceSessionState(initial.state);
+  const record = exactRecord(
+    initial,
+    isUnclaimedSessionState(state)
+      ? SESSION_PROJECTION_BASE_FIELDS
+      : SESSION_PROJECTION_CLAIMED_FIELDS,
+    'LinkedDeviceSessionProjectionV1',
+  );
+  if (record.kind !== 'linked_device_session_projection_v1') {
+    throw new Error('LinkedDeviceSessionProjectionV1.kind is invalid');
+  }
+  const base = {
+    kind: 'linked_device_session_projection_v1' as const,
+    linkSessionId: parseSessionId(
+      record.linkSessionId,
+      'LinkedDeviceSessionProjectionV1.linkSessionId',
+    ),
+    qrPayload: parseQrLinkedDeviceSessionPayloadV4(record.qrPayload),
+    revision: parseNonNegativeSafeInteger(
+      record.revision,
+      'LinkedDeviceSessionProjectionV1.revision',
+    ),
+    createdAtMs: parseUnixTime(record.createdAtMs, 'LinkedDeviceSessionProjectionV1.createdAtMs'),
+    updatedAtMs: parseUnixTime(record.updatedAtMs, 'LinkedDeviceSessionProjectionV1.updatedAtMs'),
+  } as const;
+  if (isUnclaimedSessionState(state)) return { ...base, state };
+  return {
+    ...base,
+    state,
+    deviceId: parseDeviceId(record.deviceId, 'LinkedDeviceSessionProjectionV1.deviceId'),
+  };
+}
+
+export function parseLinkedDeviceApprovalResultV1(raw: unknown): LinkedDeviceApprovalResultV1 {
+  const initial = requireRecord(raw, 'LinkedDeviceApprovalResultV1');
+  if (initial.outcome === 'pending') {
+    const record = exactRecord(initial, APPROVAL_PENDING_FIELDS, 'LinkedDeviceApprovalResultV1');
+    if (record.outcome !== 'pending')
+      throw new Error('LinkedDeviceApprovalResultV1.outcome is invalid');
+    const state = parseLinkedDeviceSessionState(record.state);
+    if (!isPendingApprovalState(state)) {
+      throw new Error('LinkedDeviceApprovalResultV1.pending state is invalid');
+    }
+    return { outcome: 'pending', state };
+  }
+  if (initial.outcome === 'active') {
+    const record = exactRecord(initial, APPROVAL_ACTIVE_FIELDS, 'LinkedDeviceApprovalResultV1');
+    if (record.outcome !== 'active')
+      throw new Error('LinkedDeviceApprovalResultV1.outcome is invalid');
+    const state = parseLinkedDeviceSessionState(record.state);
+    if (state.state !== 'active')
+      throw new Error('LinkedDeviceApprovalResultV1.active state is invalid');
+    const receipt = parseLinkedDeviceEnrollmentReceiptV1(record.receipt);
+    const manifestDigestB64u = parseDigest(
+      record.manifestDigestB64u,
+      'LinkedDeviceApprovalResultV1.manifestDigestB64u',
+    );
+    if (manifestDigestB64u !== receipt.manifestDigestB64u) {
+      throw new Error('LinkedDeviceApprovalResultV1 manifest digest does not match receipt');
+    }
+    return { outcome: 'active', state, manifestDigestB64u, receipt };
+  }
+  if (initial.outcome !== 'replayed') {
+    throw new Error('LinkedDeviceApprovalResultV1.outcome is invalid');
+  }
+  const outer = exactRecord(initial, APPROVAL_REPLAY_FIELDS, 'LinkedDeviceApprovalResultV1');
+  const replay = requireRecord(outer.replay, 'LinkedDeviceApprovalResultV1.replay');
+  if (replay.state === 'pending') {
+    const record = exactRecord(
+      replay,
+      APPROVAL_REPLAY_PENDING_FIELDS,
+      'LinkedDeviceApprovalResultV1.replay',
+    );
+    const state = parseLinkedDeviceSessionState(record.session);
+    if (!isPendingApprovalState(state)) {
+      throw new Error('LinkedDeviceApprovalResultV1.replay pending state is invalid');
+    }
+    return { outcome: 'replayed', replay: { state: 'pending', session: state } };
+  }
+  if (replay.state !== 'active')
+    throw new Error('LinkedDeviceApprovalResultV1.replay.state is invalid');
+  const record = exactRecord(
+    replay,
+    APPROVAL_REPLAY_ACTIVE_FIELDS,
+    'LinkedDeviceApprovalResultV1.replay',
+  );
+  const state = parseLinkedDeviceSessionState(record.session);
+  if (state.state !== 'active') {
+    throw new Error('LinkedDeviceApprovalResultV1.replay active state is invalid');
+  }
+  const receipt = parseLinkedDeviceEnrollmentReceiptV1(record.receipt);
+  const manifestDigestB64u = parseDigest(
+    record.manifestDigestB64u,
+    'LinkedDeviceApprovalResultV1.replay.manifestDigestB64u',
+  );
+  if (manifestDigestB64u !== receipt.manifestDigestB64u) {
+    throw new Error('LinkedDeviceApprovalResultV1.replay manifest digest does not match receipt');
+  }
+  return {
+    outcome: 'replayed',
+    replay: { state: 'active', session: state, manifestDigestB64u, receipt },
+  };
 }
 
 export function parseLinkedDeviceSessionClaimRequestV1(

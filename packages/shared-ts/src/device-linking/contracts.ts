@@ -316,6 +316,62 @@ export type LinkedDeviceSessionTransportEventV1 = {
   readonly emittedAtMs: number;
 };
 
+/** Authenticated relay projection returned to the device that owns a session. */
+export type LinkedDeviceSessionProjectionV1 = {
+  readonly kind: 'linked_device_session_projection_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly qrPayload: QrLinkedDeviceSessionPayloadV4;
+  readonly revision: number;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+} & (
+  | {
+      readonly state: LinkedDeviceSessionUnclaimedState;
+      readonly deviceId?: never;
+    }
+  | {
+      readonly state: Exclude<LinkedDeviceSessionState, LinkedDeviceSessionUnclaimedState>;
+      readonly deviceId: LinkedDeviceId;
+    }
+);
+
+type LinkedDevicePendingSessionStateV1 = Extract<
+  LinkedDeviceSessionState,
+  {
+    readonly state:
+      | 'awaiting_target_passkey'
+      | 'provisioning'
+      | 'awaiting_aggregate_receipt'
+      | 'committed_completion_required';
+  }
+>;
+
+export type LinkedDeviceApprovalResultV1 =
+  | {
+      readonly outcome: 'pending';
+      readonly state: LinkedDevicePendingSessionStateV1;
+    }
+  | {
+      readonly outcome: 'active';
+      readonly state: Extract<LinkedDeviceSessionState, { readonly state: 'active' }>;
+      readonly manifestDigestB64u: DigestB64u;
+      readonly receipt: LinkedDeviceEnrollmentReceiptV1;
+    }
+  | {
+      readonly outcome: 'replayed';
+      readonly replay:
+        | {
+            readonly state: 'pending';
+            readonly session: LinkedDevicePendingSessionStateV1;
+          }
+        | {
+            readonly state: 'active';
+            readonly session: Extract<LinkedDeviceSessionState, { readonly state: 'active' }>;
+            readonly manifestDigestB64u: DigestB64u;
+            readonly receipt: LinkedDeviceEnrollmentReceiptV1;
+          };
+    };
+
 /** Public wallet-scoped projection for linked-device management. */
 export type LinkedDeviceSummaryV1 = {
   readonly deviceId: LinkedDeviceId;
