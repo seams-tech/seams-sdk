@@ -1141,7 +1141,8 @@ only when the wallet key itself and at least one side of the lane remain trusted
 The R102 internal execution path is landed: curve-specific jobs, forward-only
 lifecycles, Gateway persistence, Ed25519 Yao lane materialization, ECDSA
 additive resharing, recipient-isolated delivery, private SigningWorker
-activation, exact retirement, replay, and cross-language wire vectors.
+activation, exact ECDSA retirement, replay, and cross-language wire vectors.
+Exact Ed25519 private-material retirement remains required before R102 closes.
 
 Refactor 103 owns the authenticated device-link claim, target-device custody
 worker bootstrap, public link-session transport, and linked-device Wallet
@@ -1417,7 +1418,8 @@ Subagents do not independently run the full repository suite.
 
 - [x] Add owner and linked-device lane refresh. Refactor 104 owns any later
       delegated-execution adapter.
-- [x] Add immediate lane revocation with exact material-owner receipts.
+- [x] Add immediate ECDSA lane revocation with exact material-owner receipts.
+- [ ] Add immediate Ed25519 lane revocation with exact material-owner receipts.
 - [ ] Add aggregate enrollment revocation by retiring each child through the
       same exact lane workflow before committing the parent receipt.
 - [x] Invalidate warm capabilities and reject stale epochs.
