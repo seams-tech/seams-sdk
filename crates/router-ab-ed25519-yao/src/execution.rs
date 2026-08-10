@@ -462,27 +462,13 @@ pub fn commit_ed25519_yao_lane_result_v1(
             "lane role outputs are not one exact ceremony",
         ));
     }
-    let registered = CompressedEdwardsY(decode_lane_digest(
-        &deriver_a.job.registered_public_key_b64u,
-    )?)
-    .decompress()
-    .ok_or_else(|| invalid_execution("registered Ed25519 identity is not a point"))?;
-    if registered.is_identity() {
-        return Err(invalid_execution(
-            "registered Ed25519 identity is the identity",
-        ));
-    }
-    let holder = decode_commitment(deriver_a.holder_commitment)?
-        + decode_commitment(deriver_b.holder_commitment)?;
-    let signing_worker = decode_commitment(deriver_a.signing_worker_commitment)?
-        + decode_commitment(deriver_b.signing_worker_commitment)?;
-    if holder + holder - signing_worker != registered {
-        return Err(invalid_execution(
-            "lane output commitments do not satisfy 2*X_holder-X_worker=A_pub",
-        ));
-    }
-    let holder_commitment = holder.compress().to_bytes();
-    let signing_worker_commitment = signing_worker.compress().to_bytes();
+    let (holder_commitment, signing_worker_commitment) = checked_lane_public_relation(
+        decode_lane_digest(&deriver_a.job.registered_public_key_b64u)?,
+        deriver_a.holder_commitment,
+        deriver_b.holder_commitment,
+        deriver_a.signing_worker_commitment,
+        deriver_b.signing_worker_commitment,
+    )?;
     let public_identity_digest = lane_public_identity_digest(
         deriver_a.transcript,
         holder_commitment,
@@ -722,12 +708,52 @@ fn decode_commitment(
     let point = CompressedEdwardsY(bytes)
         .decompress()
         .ok_or_else(|| invalid_execution("lane commitment is not an Ed25519 point"))?;
-    if point.compress().to_bytes() != bytes || point.is_small_order() || !point.is_torsion_free() {
+    if point.compress().to_bytes() != bytes
+        || (!point.is_identity() && (point.is_small_order() || !point.is_torsion_free()))
+    {
         return Err(invalid_execution(
             "lane commitment encoding is not canonical",
         ));
     }
     Ok(point)
+}
+
+fn checked_lane_public_relation(
+    registered_bytes: [u8; 32],
+    deriver_a_holder: [u8; 32],
+    deriver_b_holder: [u8; 32],
+    deriver_a_signing_worker: [u8; 32],
+    deriver_b_signing_worker: [u8; 32],
+) -> RouterAbProtocolResult<([u8; 32], [u8; 32])> {
+    let registered = CompressedEdwardsY(registered_bytes)
+        .decompress()
+        .ok_or_else(|| invalid_execution("registered Ed25519 identity is not a point"))?;
+    if registered.is_identity()
+        || registered.is_small_order()
+        || !registered.is_torsion_free()
+        || registered.compress().to_bytes() != registered_bytes
+    {
+        return Err(invalid_execution(
+            "registered Ed25519 identity is not a canonical prime-subgroup point",
+        ));
+    }
+    let holder = decode_commitment(deriver_a_holder)? + decode_commitment(deriver_b_holder)?;
+    let signing_worker =
+        decode_commitment(deriver_a_signing_worker)? + decode_commitment(deriver_b_signing_worker)?;
+    if holder.is_identity() || signing_worker.is_identity() {
+        return Err(invalid_execution(
+            "joined lane output commitment cannot be the identity",
+        ));
+    }
+    if holder + holder - signing_worker != registered {
+        return Err(invalid_execution(
+            "lane output commitments do not satisfy 2*X_holder-X_worker=A_pub",
+        ));
+    }
+    Ok((
+        holder.compress().to_bytes(),
+        signing_worker.compress().to_bytes(),
+    ))
 }
 
 fn lane_public_identity_digest(
@@ -796,4 +822,44 @@ fn invalid_execution(message: impl Into<String>) -> RouterAbProtocolError {
         RouterAbProtocolErrorCode::InvalidLifecycleState,
         message.into(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use curve25519_dalek::{
+        constants::ED25519_BASEPOINT_POINT, edwards::EdwardsPoint, traits::Identity,
+    };
+
+    fn identity_bytes() -> [u8; 32] {
+        EdwardsPoint::identity().compress().to_bytes()
+    }
+
+    #[test]
+    fn zero_individual_lane_share_commitments_are_accepted() {
+        let identity = identity_bytes();
+        let base = ED25519_BASEPOINT_POINT.compress().to_bytes();
+        let (holder, signing_worker) =
+            checked_lane_public_relation(base, identity, base, base, identity)
+                .expect("zero additive role shares remain valid");
+        assert_eq!(holder, base);
+        assert_eq!(signing_worker, base);
+    }
+
+    #[test]
+    fn joined_identity_lane_share_commitment_is_rejected() {
+        let identity = identity_bytes();
+        let base_point = ED25519_BASEPOINT_POINT;
+        let base = base_point.compress().to_bytes();
+        let negative_base = (-base_point).compress().to_bytes();
+        assert!(
+            checked_lane_public_relation(base, identity, identity, negative_base, identity)
+                .is_err(),
+            "joined holder identity must be rejected even when the arithmetic relation holds"
+        );
+        assert!(
+            checked_lane_public_relation(base, identity, base, base, identity).is_ok(),
+            "a non-identity joined holder and worker remain valid"
+        );
+    }
 }
