@@ -5,6 +5,8 @@ import type {
   LaneProtocolCommitReceiptV1,
   RotatableSigningLaneJobV1,
 } from '@shared/signing-lanes/rotation';
+import { base64UrlEncode } from '@shared/utils/base64';
+import { sha256BytesUtf8 } from '@shared/utils/digests';
 import {
   parseLaneHolderDeliveryReceiptV1,
   parseLaneProtocolCommitReceiptV1,
@@ -16,8 +18,8 @@ import type {
   LaneSealedHolderRecordLookupV1,
 } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
 import {
-  openLaneHolderRecipientV1,
   sealLaneHolderMaterialV1,
+  type OpenLaneHolderRecipientV1,
   type SealedLaneHolderRecipientV1,
 } from './recipientPreparation';
 
@@ -122,18 +124,21 @@ function sealedStateFromRecord(
     targetMaterialActivationId: record.targetMaterialActivationId,
     holderParticipantBindingDigestB64u: record.holderParticipantBindingDigestB64u,
     holderRecipientKeyDigestB64u: record.holderRecipientKeyDigestB64u,
-    recipientKeyId: record.recipientKeyId,
     holderCiphertextDigestSetB64u: record.holderCiphertextDigestSetB64u,
     sealedHolderRecordDigestB64u: record.sealedHolderRecordDigestB64u,
     transcriptHashB64u: record.transcriptHashB64u,
-    holderCiphertextB64u: record.holderCiphertextB64u,
+    sealedHolderMaterialB64u: record.sealedHolderMaterialB64u,
     acknowledgedAtMs: record.acknowledgedAtMs,
     holderDeliveryReceipt,
   };
 }
 
-function assertReplayCiphertext(record: NonNullable<Awaited<ReturnType<LaneSealedHolderMaterialRepositoryV1['get']>>>, ciphertext: string): void {
-  if (record.holderCiphertextB64u !== ciphertext) {
+async function assertReplayCiphertext(
+  record: NonNullable<Awaited<ReturnType<LaneSealedHolderMaterialRepositoryV1['get']>>>,
+  ciphertext: string,
+): Promise<void> {
+  const digest = base64UrlEncode(await sha256BytesUtf8(ciphertext));
+  if (record.holderCiphertextDigestSetB64u !== digest) {
     throw new Error('holder redelivery attempted to substitute ciphertext');
   }
 }
@@ -153,20 +158,10 @@ async function replaySealedHolderDelivery(args: {
   readonly job: RotatableSigningLaneJobV1;
   readonly commit: LaneProtocolCommitReceiptV1;
   readonly record: NonNullable<Awaited<ReturnType<LaneSealedHolderMaterialRepositoryV1['get']>>>;
-  readonly worker: LaneHolderRecipientWorkerV1;
   readonly gateway: LaneEnrollmentGatewayV1;
   readonly expectedVersion: number;
 }): Promise<LaneHolderDeliveryResultV1> {
   const state = sealedStateFromRecord(args.job, args.commit, args.record);
-  const resealed = await args.worker.openAndSealLaneHolderPackageV1({
-    ciphertextB64u: args.record.holderCiphertextB64u,
-    recipientKeyId: args.record.recipientKeyId,
-    targetLaneId: args.job.target.laneId,
-    targetLaneShareEpoch: args.job.target.laneShareEpoch,
-  });
-  if (resealed.sealedHolderRecordDigestB64u !== args.record.sealedHolderRecordDigestB64u) {
-    throw new Error('holder redelivery produced a different sealed record');
-  }
   return {
     holderDeliveryReceipt: state.holderDeliveryReceipt,
     gatewayResult: await recordHolderDelivery({
@@ -184,6 +179,7 @@ export async function deliverLaneHolderPackageV1(args: {
   readonly protocolCommitReceipt: unknown;
   readonly holderCiphertextB64u: unknown;
   readonly expectedVersion: number;
+  readonly recipient: OpenLaneHolderRecipientV1;
   readonly worker: LaneHolderRecipientWorkerV1;
   readonly gateway: LaneEnrollmentGatewayV1;
   readonly repository: LaneSealedHolderMaterialRepositoryV1;
@@ -195,19 +191,17 @@ export async function deliverLaneHolderPackageV1(args: {
   const holderCiphertextB64u = nonEmpty(args.holderCiphertextB64u, 'holderCiphertextB64u');
   const existing = await args.repository.get(lookupForJob(job));
   if (existing) {
-    assertReplayCiphertext(existing, holderCiphertextB64u);
+    await assertReplayCiphertext(existing, holderCiphertextB64u);
     return await replaySealedHolderDelivery({
       job,
       commit,
       record: existing,
-      worker: args.worker,
       gateway: args.gateway,
       expectedVersion: args.expectedVersion,
     });
   }
-  const open = await openLaneHolderRecipientV1({ job, worker: args.worker });
   const state = await sealLaneHolderMaterialV1({
-    state: open,
+    state: args.recipient,
     job,
     protocolCommitReceipt: commit,
     holderCiphertextB64u,
