@@ -107,7 +107,7 @@ import type {
   EcdsaAdditiveLaneServerRoundV1,
   EcdsaAdditiveLaneTranscriptPreambleV1,
   EcdsaAdditiveLaneTranscriptV1,
-  EcdsaServerRetirementReceipt,
+  EcdsaServerRetirementReceiptV1,
   EcdsaSourceCapabilityBindingV1,
   EcdsaTargetCapabilityBindingV1,
   EcdsaTargetThresholdSessionBindingV1,
@@ -2552,7 +2552,7 @@ export function parseEcdsaAdditiveLaneTranscriptV1(
 export function parseEcdsaServerRetirementReceiptV1(
   raw: unknown,
   label = 'ecdsaRetirementReceipt',
-): EcdsaServerRetirementReceipt {
+): EcdsaServerRetirementReceiptV1 {
   const record = exactRecord(
     raw,
     [

@@ -1,5 +1,5 @@
 import { base64UrlDecode, base64UrlEncode } from '../utils/base64';
-import { parseDigestB64u } from '../utils/canonicalPrimitives';
+import { parseDigestB64u, type DigestB64u } from '../utils/canonicalPrimitives';
 import { sha256Bytes } from '../utils/digests';
 import { laneParticipantSetCanonicalBytesV1 } from './participantDigest';
 import type { MpcMaterialActivationRef } from '../utils/domainIds';
@@ -13,7 +13,7 @@ import type {
   EcdsaAdditiveLaneServerRoundV1,
   EcdsaAdditiveLaneTranscriptPreambleV1,
   EcdsaAdditiveLaneTranscriptV1,
-  EcdsaServerRetirementReceipt,
+  EcdsaServerRetirementReceiptV1,
   Ed25519YaoLaneJobV1,
   LaneEnrollmentManifestChildV1,
   LaneEnrollmentManifestV1,
@@ -641,10 +641,11 @@ export function encodeLaneServerActivationReceiptV1(
 }
 
 export function encodeEcdsaServerRetirementReceiptV1(
-  value: EcdsaServerRetirementReceipt,
+  value: EcdsaServerRetirementReceiptV1,
 ): Uint8Array {
   return concat([
     recordDomain(ECDSA_RETIREMENT_RECEIPT_DOMAIN),
+    text(value.kind, 'kind'),
     text(value.manifest.manifestId, 'manifest.manifestId'),
     u64(value.manifest.manifestRevision, 'manifest.manifestRevision'),
     activationField(value.materialActivation, 'materialActivation'),
@@ -657,9 +658,16 @@ export function encodeEcdsaServerRetirementReceiptV1(
     digest(value.retirementRequestDigestB64u, 'retirementRequestDigestB64u'),
     text(value.serverGeneration, 'serverGeneration'),
     text(value.lifecycleId, 'lifecycleId'),
-    digest(value.receiptDigestB64u, 'receiptDigestB64u'),
     text(value.retiredAt, 'retiredAt'),
   ]);
+}
+
+export async function computeEcdsaServerRetirementReceiptDigestV1(
+  value: EcdsaServerRetirementReceiptV1,
+): Promise<DigestB64u> {
+  return parseDigestB64u(
+    base64UrlEncode(await sha256Bytes(encodeEcdsaServerRetirementReceiptV1(value))),
+  );
 }
 
 export function encodeLaneProductEpochRecordV1(value: LaneProductEpochRecordV1): Uint8Array {

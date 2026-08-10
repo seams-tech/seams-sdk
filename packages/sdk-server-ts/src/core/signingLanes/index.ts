@@ -6,3 +6,4 @@ export * from './LaneEffectJournalStore';
 export * from './LaneEnrollmentActivation';
 export * from './LaneEnrollmentRevocation';
 export * from './LaneLifecycleApplicationService';
+export * from './ecdsaServerRetirement';
