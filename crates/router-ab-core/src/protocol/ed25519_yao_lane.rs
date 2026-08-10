@@ -441,9 +441,13 @@ impl Ed25519YaoLaneJobV1 {
                     ));
                 }
                 require_text("target.lane_share_epoch", lane_share_epoch)?;
-                if self.source.lane_id == *lane_id {
+                if matches!(
+                    self.source.lane_kind.as_str(),
+                    "linked_device" | "delegated_execution"
+                ) || self.source.lane_id == *lane_id
+                {
                     return Err(invalid_lane(
-                        "lane provisioning target must differ from source",
+                        "lane provisioning requires an owner-controlled source and a distinct target",
                     ));
                 }
                 if !matches!(
@@ -470,6 +474,7 @@ impl Ed25519YaoLaneJobV1 {
                 require_text("target.lane_share_epoch", lane_share_epoch)?;
                 if expected_target_state != "active_previous_epoch"
                     || *lane_id != self.source.lane_id
+                    || *lane_kind != self.source.lane_kind
                     || self.source.lane_share_epoch == *lane_share_epoch
                     || prior_material_activation != &self.source.material_activation
                 {
@@ -1316,6 +1321,28 @@ mod tests {
             owner_lane_refresh_digest_b64u: DIGEST.to_owned(),
         };
         assert!(job.validate().is_err());
+    }
+
+    #[test]
+    fn creation_requires_owner_source_and_refresh_preserves_lane_kind() {
+        let mut linked_source = create_job();
+        linked_source.source.lane_kind = "linked_device".to_owned();
+        assert!(linked_source.validate().is_err());
+
+        let mut changed_kind = create_job();
+        changed_kind.yao_request_kind = Ed25519YaoLaneRequestKindV1::LaneRefresh;
+        changed_kind.target = Ed25519YaoLaneTargetV1::RefreshLane {
+            lane_id: changed_kind.source.lane_id.clone(),
+            lane_kind: "owner_email_otp".to_owned(),
+            lane_share_epoch: "epoch-2".to_owned(),
+            expected_target_state: "active_previous_epoch".to_owned(),
+            prior_material_activation: changed_kind.source.material_activation.clone(),
+        };
+        changed_kind.authorization = Ed25519YaoLaneAuthorizationV1::OwnerLaneRefresh {
+            authorized_operation_id: changed_kind.operation_id.clone(),
+            owner_lane_refresh_digest_b64u: DIGEST.to_owned(),
+        };
+        assert!(changed_kind.validate().is_err());
     }
 
     #[test]

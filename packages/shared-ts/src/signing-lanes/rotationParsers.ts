@@ -481,6 +481,9 @@ function parseTarget(
       laneId: parseLaneId(value.laneId, `${label}.laneId`),
       laneShareEpoch: parseShareEpoch(value.laneShareEpoch, `${label}.laneShareEpoch`),
     });
+    if (source.laneKind === 'linked_device' || source.laneKind === 'delegated_execution') {
+      throw new Error(`${label} creation requires an owner-controlled source lane`);
+    }
     if (String(target.laneId) === String(source.laneId)) {
       throw new Error(`${label}.laneId must differ from source.laneId for creation`);
     }
@@ -511,6 +514,9 @@ function parseTarget(
       throw new Error(`${label}.laneShareEpoch must advance source.laneShareEpoch`);
     }
     const laneKind = parseLaneKind(value.laneKind, `${label}.laneKind`);
+    if (laneKind !== source.laneKind) {
+      throw new Error(`${label}.laneKind must match source.laneKind for refresh`);
+    }
     if (laneKind !== 'delegated_execution') {
       return buildLaneRefreshTargetV1({
         laneId,

@@ -191,3 +191,32 @@ test('frozen custody, participant, recipient, session, job-digest, and receipt s
     expect(actualDigest, substitution).not.toBe(vector.protocolCommitReceiptDigestB64u);
   }
 });
+
+test('lane creation requires an owner source and refresh preserves the lane kind', () => {
+  const vector = fixture();
+  const linkedSource = structuredClone(record(vector.job, 'job'));
+  nested(linkedSource, 'source').laneKind = 'linked_device';
+  expect(() => parseRotatableSigningLaneJobV1(linkedSource)).toThrow(
+    'creation requires an owner-controlled source lane',
+  );
+
+  const changedKind = structuredClone(record(vector.job, 'job'));
+  const source = nested(changedKind, 'source');
+  changedKind.yaoRequestKind = 'lane_refresh';
+  changedKind.target = {
+    operation: 'refresh_lane',
+    laneId: source.laneId,
+    laneKind: 'owner_email_otp',
+    laneShareEpoch: 'opaque/refresh-epoch:B',
+    expectedTargetState: 'active_previous_epoch',
+    priorMaterialActivation: source.materialActivation,
+  };
+  changedKind.authorization = {
+    kind: 'owner_lane_refresh',
+    authorizedOperationId: changedKind.operationId,
+    ownerLaneRefreshDigestB64u: digestByte(29),
+  };
+  expect(() => parseRotatableSigningLaneJobV1(changedKind)).toThrow(
+    'laneKind must match source.laneKind for refresh',
+  );
+});
