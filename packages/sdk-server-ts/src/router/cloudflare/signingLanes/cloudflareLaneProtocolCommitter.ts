@@ -1,4 +1,6 @@
 import type {
+  EcdsaAdditiveLaneHolderRoundV1,
+  EcdsaAdditiveLaneJobV1,
   Ed25519YaoLaneJobV1,
   LaneEnrollmentGatewayV1,
   LaneProtocolCasResultV1,
@@ -93,6 +95,11 @@ export type CloudflareEd25519LaneProtocolCommitResultV1 = {
   readonly responseJson: string;
 };
 
+export type CloudflareEcdsaLaneProtocolCommitResultV1 = {
+  readonly receipt: LaneProtocolCommitReceiptV1;
+  readonly protocolCasResult: LaneProtocolCasResultV1;
+};
+
 /**
  * Runs one private MPC effect, then records its exact receipt through Gateway
  * CAS. A transport retry submits byte-identical input and relies on the
@@ -107,18 +114,11 @@ export class CloudflareLaneProtocolCommitterV1 {
     readonly expectedVersion: number;
   }): Promise<CloudflareEd25519LaneProtocolCommitResultV1> {
     const capture: { value?: CloudflareEd25519LaneProtocolExecutionV1 } = {};
-    const execution: LaneLifecycleCurveExecutionPortsV1 = {
-      ed25519: {
-        ...this.options.execution.ed25519,
-        executeProtocolCommitV1: async (request) => {
-          if (capture.value) throw new Error('Ed25519 lane protocol effect executed twice');
-          const value = await this.options.ed25519Transport.executeProtocolCommitV1(request);
-          capture.value = value;
-          return value.receipt;
-        },
-      },
-      ecdsa: this.options.execution.ecdsa,
-    };
+    const execution = ed25519ExecutionWithCaptureV1({
+      execution: this.options.execution,
+      transport: this.options.ed25519Transport,
+      capture,
+    });
     const service = new LaneLifecycleApplicationService({
       gateway: this.options.gateway,
       authorization: this.options.authorization,
@@ -138,6 +138,85 @@ export class CloudflareLaneProtocolCommitterV1 {
       responseJson: committed.responseJson,
     };
   }
+
+  async executeAndRecordEcdsaAdditiveLaneV1(input: {
+    readonly job: EcdsaAdditiveLaneJobV1;
+    readonly holderRound: EcdsaAdditiveLaneHolderRoundV1;
+    readonly encryptedDeltaPackageJson: string;
+    readonly expectedVersion: number;
+  }): Promise<CloudflareEcdsaLaneProtocolCommitResultV1> {
+    const capture: { value?: LaneProtocolCommitReceiptV1 } = {};
+    const execution = ecdsaExecutionWithCaptureV1({
+      execution: this.options.execution,
+      capture,
+    });
+    const service = new LaneLifecycleApplicationService({
+      gateway: this.options.gateway,
+      authorization: this.options.authorization,
+      execution,
+    });
+    const protocolCasResult = await service.recordLaneProtocolCommitV1({
+      curve: 'ecdsa_additive',
+      job: input.job,
+      holderRound: input.holderRound,
+      encryptedDeltaPackageJson: input.encryptedDeltaPackageJson,
+      expectedVersion: input.expectedVersion,
+    });
+    const receipt = capture.value;
+    if (!receipt) throw new Error('ECDSA lane protocol effect returned no committed receipt');
+    return { receipt, protocolCasResult };
+  }
+}
+
+function ed25519ExecutionWithCaptureV1(input: {
+  readonly execution: LaneLifecycleCurveExecutionPortsV1;
+  readonly transport: CloudflareEd25519LaneProtocolTransportV1;
+  readonly capture: { value?: CloudflareEd25519LaneProtocolExecutionV1 };
+}): LaneLifecycleCurveExecutionPortsV1 {
+  const ed25519 = input.execution.ed25519;
+  return {
+    ed25519: {
+      async executeProtocolCommitV1(request) {
+        if (input.capture.value) throw new Error('Ed25519 lane protocol effect executed twice');
+        const value = await input.transport.executeProtocolCommitV1(request);
+        input.capture.value = value;
+        return value.receipt;
+      },
+      executeServerActivationV1(request) {
+        return ed25519.executeServerActivationV1(request);
+      },
+      executeServerRetirementV1(request) {
+        return ed25519.executeServerRetirementV1(request);
+      },
+    },
+    ecdsa: input.execution.ecdsa,
+  };
+}
+
+function ecdsaExecutionWithCaptureV1(input: {
+  readonly execution: LaneLifecycleCurveExecutionPortsV1;
+  readonly capture: { value?: LaneProtocolCommitReceiptV1 };
+}): LaneLifecycleCurveExecutionPortsV1 {
+  const ecdsa = input.execution.ecdsa;
+  return {
+    ed25519: input.execution.ed25519,
+    ecdsa: {
+      async executeProtocolCommitV1(request) {
+        if (input.capture.value) throw new Error('ECDSA lane protocol effect executed twice');
+        const receipt = parseLaneProtocolCommitReceiptV1(
+          await ecdsa.executeProtocolCommitV1(request),
+        );
+        input.capture.value = receipt;
+        return receipt;
+      },
+      executeServerActivationV1(request) {
+        return ecdsa.executeServerActivationV1(request);
+      },
+      executeServerRetirementV1(request) {
+        return ecdsa.executeServerRetirementV1(request);
+      },
+    },
+  };
 }
 
 async function postAuthenticatedJsonWithReplayV1(input: {
