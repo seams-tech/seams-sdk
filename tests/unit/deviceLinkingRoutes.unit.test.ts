@@ -79,6 +79,45 @@ test('creates and polls a session projection without transcript or authorization
   const polledBody = await polled.json();
   expect(polledBody.session.state.state).toBe('displaying_qr');
   expect(polledBody.session).not.toHaveProperty('claimTranscript');
+  expect(polledBody.session).not.toHaveProperty('deviceId');
+});
+
+test('projects the claimed device identity after owner claim', async () => {
+  temporary = createTemporaryD1Database();
+  await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+  const fixture = buildR103DeviceLinkFixture();
+  const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
+  const sessionService = new LinkedDeviceSessionServiceV1({
+    store,
+    authorization: ownerAuthorization(),
+  });
+  const routeService = routeServiceFor(sessionService, 3_000, {
+    authenticateOwnerRequestV1: async ({ request, method, pathname, bodyDigestB64u }) => ({
+      kind: 'authorized' as const,
+      body: await request.json(),
+      binding: requestBinding(method, pathname, bodyDigestB64u, 3_000),
+    }),
+  });
+
+  const created = await invoke(routeService, {
+    method: 'POST',
+    pathname: '/wallet/device-linking/v1/sessions',
+    body: {
+      kind: 'linked_device_session_create_request_v1',
+      payload: fixture.payload,
+    },
+  });
+  expect(created.status).toBe(200);
+
+  const claimed = await invoke(routeService, {
+    method: 'POST',
+    pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/claim`,
+    body: fixture.claimRequest,
+  });
+  expect(claimed.status).toBe(200);
+  const claimedBody = await claimed.json();
+  expect(claimedBody.session.state.state).toBe('claimed_by_owner');
+  expect(claimedBody.session.deviceId).toBe(String(fixture.approval.deviceId));
 });
 
 test('authenticates owner before parsing claim and returns no session secrets', async () => {
@@ -187,8 +226,18 @@ function routeServiceFor(
   nowMs: number,
   overrides: Partial<DeviceLinkingRouteServiceV1> = {},
 ): DeviceLinkingRouteServiceV1 {
+  const routeSessionService: DeviceLinkingRouteServiceV1['sessionService'] = {
+    createUnclaimedSessionV1: sessionService.createUnclaimedSessionV1.bind(sessionService),
+    claimSessionV1: sessionService.claimSessionV1.bind(sessionService),
+    recordOwnerApprovalV1: sessionService.recordOwnerApprovalV1.bind(sessionService),
+    cancelSessionV1: sessionService.cancelSessionV1.bind(sessionService),
+    getSessionV1: (input) =>
+      typeof input === 'string'
+        ? sessionService.getSessionV1({ linkSessionId: input, nowMs: 1 })
+        : sessionService.getSessionV1(input),
+  };
   const defaults: DeviceLinkingRouteServiceV1 = {
-    sessionService,
+    sessionService: routeSessionService,
     nowV1: () => nowMs,
     verifyPublicSessionProofV1: async () => ({ kind: 'authorized' as const }),
     authenticateOwnerRequestV1: async ({ request, method, pathname, bodyDigestB64u }) => ({
