@@ -1453,6 +1453,8 @@ dependencies = [
 name = "router-ab-ed25519-yao"
 version = "0.1.0"
 dependencies = [
+ "base64ct",
+ "curve25519-dalek",
  "ed25519-yao",
  "hpke-ng",
  "rand_core 0.9.5",
@@ -1683,6 +1685,7 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "rand_core 0.6.4",
+ "router-ab-ecdsa-client-protocol",
  "router-ab-ecdsa-derivation",
  "serde",
  "sha2 0.10.9",
