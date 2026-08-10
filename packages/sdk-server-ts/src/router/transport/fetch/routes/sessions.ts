@@ -597,7 +597,7 @@ async function readWalletUnlockSourceSession(ctx: FetchRouterApiContext): Promis
     const parsed = await session.parse(headersToRecord(ctx.request.headers));
     if (!parsed.ok) throw new Error('No valid authorization session');
     const ed25519WalletSession = parseRouterAbEd25519WalletSessionClaims(parsed.claims);
-    if (ed25519WalletSession) {
+    if (ed25519WalletSession?.authorizationKind === 'owner_wallet_session') {
       const sessionId = ed25519WalletSession.sid;
       if (!sessionId) throw new Error('Wallet Session app-session binding is missing');
       const principalSubject =
@@ -706,9 +706,14 @@ async function readAndValidateEmailOtpSigningSession(ctx: FetchRouterApiContext)
     };
   }
   const claims = parsed.claims;
+  const parsedEcdsaWalletSession = parseRouterAbEcdsaDerivationWalletSessionClaims(claims);
+  const parsedEd25519WalletSession = parseRouterAbEd25519WalletSessionClaims(claims);
   const walletSession =
-    parseRouterAbEcdsaDerivationWalletSessionClaims(claims) ||
-    parseRouterAbEd25519WalletSessionClaims(claims);
+    parsedEcdsaWalletSession?.authorizationKind === 'owner_wallet_session'
+      ? parsedEcdsaWalletSession
+      : parsedEd25519WalletSession?.authorizationKind === 'owner_wallet_session'
+        ? parsedEd25519WalletSession
+        : null;
   if (!walletSession) {
     return {
       ok: false,
@@ -2107,9 +2112,14 @@ async function readAndValidateWalletSessionStatusAuthorization(
     };
   }
 
+  const parsedEcdsaWalletSession = parseRouterAbEcdsaDerivationWalletSessionClaims(parsed.claims);
+  const parsedEd25519WalletSession = parseRouterAbEd25519WalletSessionClaims(parsed.claims);
   const walletSession =
-    parseRouterAbEcdsaDerivationWalletSessionClaims(parsed.claims) ||
-    parseRouterAbEd25519WalletSessionClaims(parsed.claims);
+    parsedEcdsaWalletSession?.authorizationKind === 'owner_wallet_session'
+      ? parsedEcdsaWalletSession
+      : parsedEd25519WalletSession?.authorizationKind === 'owner_wallet_session'
+        ? parsedEd25519WalletSession
+        : null;
   if (!walletSession) {
     return {
       ok: false,

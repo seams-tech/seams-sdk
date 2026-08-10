@@ -65,6 +65,7 @@ function walletSessionJwtFixture(expiresAtMs: number): string {
   const payload = Buffer.from(
     JSON.stringify({
       kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+      authorizationKind: 'owner_wallet_session',
       walletId: String(LANE.identity.signer.account.wallet.walletId),
       authorizationId: 'refactor-92-authorization',
       walletSessionId: 'refactor-92-wallet-session',

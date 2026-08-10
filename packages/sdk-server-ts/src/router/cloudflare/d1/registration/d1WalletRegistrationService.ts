@@ -210,7 +210,7 @@ import {
 import type { D1WalletStore } from '../../../../core/d1WalletStore';
 import {
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
-  type RouterAbEcdsaDerivationWalletSessionClaims,
+  type RouterAbEcdsaDerivationOwnerWalletSessionClaims,
 } from '../../../../core/ThresholdService/validation';
 import {
   isEmailOtpWalletAuthAuthority,
@@ -384,7 +384,7 @@ function reusableWalletSessionPrincipalId(authority: WalletAuthAuthority): Princ
 
 function walletSessionAuthSourceFromAuthority(
   authority: WalletAuthAuthority,
-): RouterAbEcdsaDerivationWalletSessionClaims['authSource'] {
+): RouterAbEcdsaDerivationOwnerWalletSessionClaims['authSource'] {
   if (authority.factor.kind === 'passkey') {
     return {
       kind: 'passkey',
@@ -1402,6 +1402,7 @@ export class CloudflareD1WalletRegistrationService {
       invalidPayloadErrorMessage: 'Registration-established ECDSA Wallet Session is invalid',
       sessionInfo: {
         sessionKind: 'jwt',
+        authorizationKind: 'owner_wallet_session',
         thresholdSessionId: thresholdSessionId.value,
         authorizationId: base.authorizationId,
         walletSessionId: base.walletSessionId,
@@ -1474,6 +1475,7 @@ export class CloudflareD1WalletRegistrationService {
       invalidPayloadErrorMessage: 'Registration-established Ed25519 Wallet Session is invalid',
       sessionInfo: {
         sessionKind: 'jwt',
+        authorizationKind: 'owner_wallet_session',
         seamsSessionId: base.seamsSessionId,
         walletId: input.authority.walletId,
         nearAccountId: publicResult.nearAccountId,

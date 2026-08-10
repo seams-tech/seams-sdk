@@ -626,6 +626,7 @@ function claimsForAuthorityWithThresholdSession(
 ): SessionClaims {
   return {
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    authorizationKind: 'owner_wallet_session',
     sub: WALLET_ID,
     walletId: WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
@@ -682,6 +683,7 @@ function namedAccountClaimsForCapability(
   });
   return {
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    authorizationKind: 'owner_wallet_session',
     sub: walletId,
     walletId,
     nearAccountId: capability.nearAccountId,

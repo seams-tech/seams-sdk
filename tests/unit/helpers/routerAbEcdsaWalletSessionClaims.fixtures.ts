@@ -27,6 +27,7 @@ export function buildRouterAbEcdsaWalletSessionClaimsFixture(
 ): RouterAbEcdsaDerivationWalletSessionClaims {
   const claims = parseRouterAbEcdsaDerivationWalletSessionClaims({
     kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
+    authorizationKind: 'owner_wallet_session',
     sub: input.walletId,
     walletId: input.walletId,
     sid: input.authorizationSessionId ?? 'authorization-session-fixture',

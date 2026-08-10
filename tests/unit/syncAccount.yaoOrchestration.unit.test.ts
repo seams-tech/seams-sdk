@@ -332,6 +332,7 @@ function unsignedWalletSessionJwt(walletId: string): string {
     new TextEncoder().encode(
       JSON.stringify({
         kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+        authorizationKind: 'owner_wallet_session',
         walletId,
         nearAccountId: NEAR_ACCOUNT_ID,
         nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
@@ -853,8 +854,7 @@ function mixedWalletEcdsaSyncFixture(walletId: string): {
       groupPublicKey33B64u: roleFacts.groupPublicKey33B64u,
       ethereumAddress: roleFacts.ethereumAddress,
       clientShareRetryCounter: receipt.ecdsa_activation.public_identity.client_share_retry_counter,
-      relayerShareRetryCounter:
-        receipt.ecdsa_activation.public_identity.server_share_retry_counter,
+      relayerShareRetryCounter: receipt.ecdsa_activation.public_identity.server_share_retry_counter,
     },
   };
 }
@@ -978,8 +978,7 @@ test.describe('public syncAccount Yao orchestration', () => {
       walletId: DISCOVERED_WALLET_ID,
       applicationBindingDigestB64u:
         surface.ecdsaRestoreInputs[0]!.publicCapability.context.application_binding_digest_b64u,
-      registeredClientRootPublicKey33B64u:
-        ecdsa.publicFacts.derivationClientSharePublicKey33B64u,
+      registeredClientRootPublicKey33B64u: ecdsa.publicFacts.derivationClientSharePublicKey33B64u,
     });
     expect(
       new Uint8Array(surface.ecdsaRejoinInputs[0]!.factorSecret).every((byte) => byte === 0),

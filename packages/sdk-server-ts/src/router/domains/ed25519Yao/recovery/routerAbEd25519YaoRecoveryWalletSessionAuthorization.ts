@@ -1,7 +1,7 @@
 import type { RouterAbEd25519YaoActivationBindingV1 } from '@shared/utils/routerAbEd25519Yao';
 import {
   parseRouterAbEd25519WalletSessionClaims,
-  type RouterAbEd25519WalletSessionClaims,
+  type RouterAbEd25519OwnerWalletSessionClaims,
 } from '../../../../core/ThresholdService/validation';
 import { headersToRecord } from '../../../framework/http';
 import type { SessionAdapter } from '../../../framework/routerApi';
@@ -35,7 +35,7 @@ function authorizationFailure(input: {
 }
 
 function exactParticipants(
-  claims: RouterAbEd25519WalletSessionClaims,
+  claims: RouterAbEd25519OwnerWalletSessionClaims,
   participantIds: readonly [number, number],
 ): boolean {
   return (
@@ -46,7 +46,7 @@ function exactParticipants(
 }
 
 function claimsMatchBinding(
-  claims: RouterAbEd25519WalletSessionClaims,
+  claims: RouterAbEd25519OwnerWalletSessionClaims,
   binding: RouterAbEd25519YaoActivationBindingV1<'recovery'>,
 ): boolean {
   const lifecycle = binding.lifecycle;
@@ -59,7 +59,7 @@ function claimsMatchBinding(
 }
 
 function claimsMatchAdmission(
-  claims: RouterAbEd25519WalletSessionClaims,
+  claims: RouterAbEd25519OwnerWalletSessionClaims,
   input: Extract<RouterAbEd25519YaoRecoveryAuthorizationInput, { kind: 'admit' }>,
 ): boolean {
   const body = input.body;
@@ -76,7 +76,7 @@ function claimsMatchAdmission(
 }
 
 function claimsMatchBootstrap(
-  claims: RouterAbEd25519WalletSessionClaims,
+  claims: RouterAbEd25519OwnerWalletSessionClaims,
   input: Extract<RouterAbEd25519YaoRecoveryAuthorizationInput, { kind: 'bootstrap' }>,
 ): boolean {
   const body = input.body;
@@ -92,7 +92,7 @@ function claimsMatchBootstrap(
 }
 
 function claimsAuthorizeRecovery(
-  claims: RouterAbEd25519WalletSessionClaims,
+  claims: RouterAbEd25519OwnerWalletSessionClaims,
   input: RouterAbEd25519YaoRecoveryAuthorizationInput,
 ): boolean {
   switch (input.kind) {
@@ -222,9 +222,7 @@ async function recoveryClaimsAuthorize(
   }
 }
 
-export class RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter
-  implements RouterAbEd25519YaoRecoveryAuthorizationAdapter
-{
+export class RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter implements RouterAbEd25519YaoRecoveryAuthorizationAdapter {
   constructor(private readonly session: SessionAdapter) {}
 
   async authorize(
@@ -249,7 +247,7 @@ export class RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter
       });
     }
     const walletSessionClaims = parseRouterAbEd25519WalletSessionClaims(parsed.claims);
-    if (walletSessionClaims) {
+    if (walletSessionClaims?.authorizationKind === 'owner_wallet_session') {
       if (walletSessionClaims.thresholdExpiresAtMs <= Date.now()) {
         return authorizationFailure({
           status: 401,

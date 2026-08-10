@@ -278,6 +278,7 @@ function validClaimsFixture(input?: Partial<ClaimsFixtureInput>): SessionClaims 
   });
   return {
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    authorizationKind: 'owner_wallet_session',
     sub: values.walletId,
     walletId: values.walletId,
     nearAccountId: values.nearAccountId,
@@ -348,6 +349,7 @@ test.describe('Router A/B Ed25519 Yao recovery Wallet Session authorization', ()
   test('rejects malformed Router A/B Ed25519 Wallet Session claims', async () => {
     const authorized = await authorizeWithClaims(authorizationInputFixture('admit', true), {
       kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+      authorizationKind: 'owner_wallet_session',
       sub: WALLET_ID,
     });
 
