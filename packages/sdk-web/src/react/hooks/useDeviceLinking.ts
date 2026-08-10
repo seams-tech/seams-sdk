@@ -8,7 +8,6 @@ export interface UseDeviceLinkingOptions {
   onError?: (error: Error) => void;
   onClose?: () => void;
   onEvent?: (event: LinkDeviceFlowEvent) => void;
-  fundingAmount?: string;
 }
 
 export interface UseDeviceLinkingReturn {
@@ -17,7 +16,7 @@ export interface UseDeviceLinkingReturn {
 
 export const useDeviceLinking = (options: UseDeviceLinkingOptions): UseDeviceLinkingReturn => {
   const { seams } = useSeams();
-  const { onError, onClose, onEvent, fundingAmount = '0.05' } = options;
+  const { onError, onClose, onEvent } = options;
 
   const callbacksRef = useRef({
     onError,
@@ -36,7 +35,6 @@ export const useDeviceLinking = (options: UseDeviceLinkingOptions): UseDeviceLin
       const { onError, onClose, onEvent } = callbacksRef.current;
       try {
         await seams.devices.linkDeviceWithScannedQRData(qrData, {
-          fundingAmount,
           onEvent,
         });
       } catch (linkingError: unknown) {
@@ -44,7 +42,7 @@ export const useDeviceLinking = (options: UseDeviceLinkingOptions): UseDeviceLin
         onClose?.();
       }
     },
-    [fundingAmount, seams],
+    [seams],
   );
 
   return {

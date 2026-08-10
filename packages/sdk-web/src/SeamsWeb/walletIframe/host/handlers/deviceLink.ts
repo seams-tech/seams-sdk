@@ -11,12 +11,11 @@ export function createDeviceLinkWalletIframeHandlers(deps: HandlerDeps): Handler
   return {
     PM_START_DEVICE2_LINKING_FLOW: async (req: Req<'PM_START_DEVICE2_LINKING_FLOW'>) => {
       const pm = deps.getSeamsWeb();
-      const { ui, cameraId, signerSlot, options } = req.payload || {};
+      const { ui, cameraId, options } = req.payload || {};
       if (deps.respondIfCancelled(req.requestId)) return;
       const result = await pm.devices.startDevice2LinkingFlow({
         ...(ui ? { ui } : {}),
         ...(cameraId ? { cameraId } : {}),
-        ...(typeof signerSlot === 'number' ? { signerSlot } : {}),
         options: {
           ...withProgress(deps, req.requestId, options || {}),
         },
@@ -37,12 +36,12 @@ export function createDeviceLinkWalletIframeHandlers(deps: HandlerDeps): Handler
       req: Req<'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA'>,
     ) => {
       const pm = deps.getSeamsWeb();
-      const { qrData, fundingAmount, options } = req.payload!;
+      const { qrData, options } = req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
-      const result = await pm.devices.linkDeviceWithScannedQRData(qrData, {
-        fundingAmount: String(fundingAmount || ''),
-        ...withProgress(deps, req.requestId, options || {}),
-      });
+      const result = await pm.devices.linkDeviceWithScannedQRData(
+        qrData,
+        withProgress(deps, req.requestId, options || {}),
+      );
       if (deps.respondIfCancelled(req.requestId)) return;
       respondOkResult(deps, req.requestId, result);
     },

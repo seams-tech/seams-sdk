@@ -70,7 +70,7 @@ function resolveDefaultPortalTarget(
 
 /**
  * Account Menu Button Component
- * Provides user settings, account management, and the refactor-84 device-link scanner shell.
+ * Provides user settings, account management, and the device-link scanner shell.
  * **Important:** This component should be used inside a SeamsWeb context.
  * Wrap your app with PasskeyProvider or ensure SeamsWeb is available in context via useSeams.
  *
@@ -490,7 +490,6 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
           <QRCodeScanner
             key="profile-qr-scanner"
             isOpen={showQRScanner}
-            fundingAmount={deviceLinkingScannerParams?.fundingAmount || '0.05'}
             onError={(error) => {
               deviceLinkingScannerParams?.onError?.(error);
               setShowQRScanner(false);

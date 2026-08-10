@@ -1,79 +1,301 @@
 import { expect, test } from '@playwright/test';
 import { LinkDeviceFlow } from '@/SeamsWeb/operations/devices/linkDevice';
 import { linkDeviceWithScannedQRData } from '@/SeamsWeb/operations/devices/scanDevice';
+import type {
+  DeviceLinkingAuthenticatedTransportPortV1,
+  LinkedDeviceApprovalResultV1,
+  DeviceLinkingFlowPortsV1,
+  LinkSessionAuthenticationV1,
+  LinkSessionTransportPortV1,
+} from '@/SeamsWeb/operations/devices/deviceLinkingPorts';
 import { DeviceLinkingErrorCode } from '@/core/types/linkDevice';
-import { LinkDeviceEventPhase } from '@/core/types/sdkSentEvents';
+import {
+  buildActiveLinkedDeviceSessionState,
+  buildDisplayingQrLinkedDeviceSessionState,
+  buildQrLinkedDeviceSessionPayloadV4,
+  parseQrLinkedDeviceSessionPayloadV4,
+} from '../../packages/shared-ts/src/device-linking';
+import type { LinkedDeviceSessionState } from '../../packages/shared-ts/src/device-linking';
+import type { LinkedDeviceApprovalV1 } from '../../packages/shared-ts/src/device-linking';
+import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
+import { parseWebAuthnCredentialIdB64u } from '../../packages/shared-ts/src/utils/domainIds';
 
-function createDisplayContext() {
-  return {} as any;
+function createPorts(
+  calls: string[],
+  onApproval?: (approval: LinkedDeviceApprovalV1) => void,
+  onTransportBind?: () => void,
+  approvalResult?: (state: LinkedDeviceSessionState) => LinkedDeviceApprovalResultV1,
+): DeviceLinkingFlowPortsV1 {
+  const fixture = buildR103DeviceLinkFixture();
+  const now = Date.now();
+  const payload = buildQrLinkedDeviceSessionPayloadV4({
+    linkSessionId: fixture.payload.linkSessionId,
+    linkPublicKeyB64u: fixture.payload.linkPublicKeyB64u,
+    devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
+    issuedAtMs: now - 1_000,
+    expiresAtMs: now + 60_000,
+  });
+  let state: LinkedDeviceSessionState = buildDisplayingQrLinkedDeviceSessionState({
+    linkSessionId: payload.linkSessionId,
+    expiresAtMs: payload.expiresAtMs,
+  });
+  const authentication: LinkSessionAuthenticationV1 = {
+    kind: 'link_session_authenticated_request_v1',
+    source: fixture.approval.ownerAuthorization,
+    proofDigestB64u: fixture.approval.policyDigestB64u,
+  };
+  const credentialIdResult = parseWebAuthnCredentialIdB64u('credential:r103');
+  if (!credentialIdResult.ok) throw new Error(credentialIdResult.error.message);
+  const authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1 = {
+    async createUnclaimedSessionV1() {
+      calls.push('create');
+    },
+    async getSessionV1() {
+      calls.push('get');
+      if (
+        state.state === 'displaying_qr' ||
+        state.state === 'expired_unclaimed' ||
+        state.state === 'cancelled_unclaimed'
+      ) {
+        return { state };
+      }
+      return { state, deviceId: fixture.approval.deviceId };
+    },
+    async getApprovalV1() {
+      calls.push('get-approval');
+      return fixture.approval;
+    },
+    async registerTargetCredentialV1() {
+      calls.push('credential');
+    },
+    async acknowledgeReceiptV1() {
+      calls.push('ack');
+    },
+    async retryCommittedDeliveryV1() {
+      calls.push('retry');
+    },
+    async cancelSessionV1() {
+      calls.push('cancel');
+    },
+    async subscribeSessionV1(input) {
+      calls.push('subscribe');
+      input.onEvent({
+        kind: 'linked_device_session_event_v1',
+        linkSessionId: payload.linkSessionId,
+        state,
+        emittedAtMs: now,
+      });
+      return { close: () => undefined };
+    },
+  };
+  const transport: LinkSessionTransportPortV1 = {
+    async claimSessionV1() {
+      calls.push('claim');
+      state = {
+        state: 'claimed_by_owner',
+        linkSessionId: payload.linkSessionId,
+        walletId: fixture.approval.walletId,
+        enrollmentId: fixture.approval.enrollmentId,
+        claimExpiresAtMs: now + 30_000,
+      };
+      return {
+        kind: 'linked_device_session_claim_v1',
+        linkSessionId: payload.linkSessionId,
+        walletId: fixture.approval.walletId,
+        enrollmentId: fixture.approval.enrollmentId,
+        deviceId: fixture.approval.deviceId,
+        devicePublicKeyB64u: payload.devicePublicKeyB64u,
+        claimedAtMs: now,
+        claimExpiresAtMs: now + 30_000,
+      };
+    },
+    async recordOwnerApprovalV1(input) {
+      calls.push('approve');
+      onApproval?.(input.approval);
+      state = buildActiveLinkedDeviceSessionState({
+        linkSessionId: input.approval.linkSessionId,
+        walletId: input.approval.walletId,
+        enrollmentId: input.approval.enrollmentId,
+        activatedAtMs: input.approval.approvedAtMs,
+      });
+      const result = approvalResult?.(state);
+      if (result) return result;
+      return {
+        outcome: 'active',
+        state,
+        manifestDigestB64u: input.approval.policyDigestB64u,
+        receipt: fixture.receipt,
+      };
+    },
+    createAuthenticatedSessionTransportV1() {
+      calls.push('bind-transport');
+      onTransportBind?.();
+      return authenticatedTransport;
+    },
+  };
+  return {
+    transport,
+    keyMaterial: {
+      async createBootstrapKeyMaterialV1() {
+        calls.push('keygen');
+        return {
+          handle: { kind: 'device_linking_key_material_handle_v1' },
+          linkPublicKeyB64u: payload.linkPublicKeyB64u,
+          devicePublicKeyB64u: payload.devicePublicKeyB64u,
+        };
+      },
+    },
+    ownerAuthorization: {
+      async authenticateOwnerForLinkingV1() {
+        calls.push('authenticate');
+        return {
+          authentication,
+          walletId: fixture.approval.walletId,
+          ownerAuthorization: fixture.approval.ownerAuthorization,
+          policyDigestB64u: fixture.approval.policyDigestB64u,
+          operationId: fixture.approval.operationId,
+          idempotencyKey: fixture.approval.idempotencyKey,
+          orderedKeyBindings: fixture.approval.orderedKeyBindings,
+          protocolVersions: fixture.approval.protocolVersions,
+          expiresAtMs: now + 30_000,
+        };
+      },
+    },
+    targetCredential: {
+      async createTargetCredentialV1() {
+        calls.push('target-passkey');
+        return { credentialIdB64u: credentialIdResult.value };
+      },
+    },
+    laneProvisioning: {
+      async installAuthorizedLaneHolderWorkerV1() {
+        calls.push('worker-install');
+      },
+      async prepareLinkedDeviceLanesV1() {
+        calls.push('prepare-lanes');
+        return fixture.receipt;
+      },
+      async resumeCommittedDeliveryV1() {
+        calls.push('resume-delivery');
+        return fixture.receipt;
+      },
+    },
+  };
 }
 
-test.describe('link-device stubs', () => {
-  test('device2 QR flow fails with the refactor-84 stub error', async () => {
-    const events: any[] = [];
-    const errors: Error[] = [];
-    const flow = new LinkDeviceFlow(createDisplayContext(), {
-      options: {
-        onEvent: (event: any) => events.push(event),
-        onError: (error: Error) => errors.push(error),
+test.describe('linked-device browser orchestration', () => {
+  test('Device 2 generates public-only QR material before registering the session', async () => {
+    const calls: string[] = [];
+    const events: string[] = [];
+    let transportBound = false;
+    const ports = createPorts(calls, undefined, () => {
+      transportBound = true;
+    });
+    const flow = new LinkDeviceFlow(
+      undefined,
+      {
+        options: { onEvent: (event) => events.push(event.status) },
       },
-    } as any);
-
-    await expect(flow.generateQR()).rejects.toThrow(
-      'Linked-device lane creation is disabled until refactor 84 lands',
+      ports,
     );
 
-    expect(events.map((event) => event.phase)).toEqual([LinkDeviceEventPhase.FAILED]);
-    expect(events.at(-1)).toMatchObject({
-      flow: 'link_device',
-      status: 'failed',
-      error: {
-        code: DeviceLinkingErrorCode.UNSUPPORTED,
-        retryable: false,
-      },
-    });
-    expect(errors).toHaveLength(1);
-    expect(flow.getState()).toMatchObject({
-      phase: LinkDeviceEventPhase.FAILED,
-      cancelled: false,
-    });
+    const result = await flow.generateQR();
+    expect(parseQrLinkedDeviceSessionPayloadV4(result.qrData)).toEqual(result.qrData);
+    expect(result.qrData).not.toHaveProperty('walletId');
+    expect(calls.slice(0, 4)).toEqual(['keygen', 'bind-transport', 'create', 'subscribe']);
+    expect(transportBound).toBe(true);
+    expect(events).toContain('succeeded');
+    expect(String(result.qrData.linkSessionId)).toMatch(/^link-session-/);
   });
 
-  test('scanner flow validates QR envelope then fails with the refactor-84 stub error', async () => {
-    const events: any[] = [];
-    const errors: Error[] = [];
+  test('Device 2 routes cancellation through the bound authenticated transport', async () => {
+    const calls: string[] = [];
+    const ports = createPorts(calls);
+    const flow = new LinkDeviceFlow(undefined, {}, ports);
 
-    await expect(
-      linkDeviceWithScannedQRData(
-        {} as any,
-        {
-          sessionId: 'ldsess-valid',
-          timestamp: Date.now(),
-          version: 'refactor-84-stub',
-        },
-        {
-          fundingAmount: '0',
-          onEvent: (event: any) => events.push(event),
-          onError: (error: Error) => errors.push(error),
-        },
-      ),
-    ).rejects.toThrow('Linked-device lane creation is disabled until refactor 84 lands');
+    await flow.generateQR();
+    await flow.cancel();
 
-    expect(events.map((event) => event.phase)).toEqual([
-      LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
-      LinkDeviceEventPhase.FAILED,
-    ]);
-    expect(events.map((event) => event.flow)).toEqual(['link_device', 'link_device']);
-    expect(events.at(-1)).toMatchObject({
-      status: 'failed',
-      data: {
-        role: 'scanner',
-      },
-      error: {
-        code: DeviceLinkingErrorCode.UNSUPPORTED,
-        retryable: false,
-      },
+    expect(calls).toEqual(['keygen', 'bind-transport', 'create', 'subscribe', 'cancel']);
+  });
+
+  test('Device 1 authenticates once, claims, and approves the exact manifest', async () => {
+    const calls: string[] = [];
+    const events: string[] = [];
+    const fixture = buildR103DeviceLinkFixture();
+    let recordedApproval: LinkedDeviceApprovalV1 | undefined;
+    const ports = createPorts(calls, (approval) => {
+      recordedApproval = approval;
     });
-    expect(errors).toHaveLength(1);
+    const qrData = buildQrLinkedDeviceSessionPayloadV4({
+      linkSessionId: fixture.payload.linkSessionId,
+      linkPublicKeyB64u: fixture.payload.linkPublicKeyB64u,
+      devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
+      issuedAtMs: Date.now() - 1_000,
+      expiresAtMs: Date.now() + 60_000,
+    });
+
+    const result = await linkDeviceWithScannedQRData(
+      undefined,
+      qrData,
+      {
+        onEvent: (event) => events.push(event.status),
+      },
+      ports,
+    );
+
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('expected successful link approval');
+    expect(result.enrollmentId).toBe(fixture.approval.enrollmentId);
+    expect(calls).toEqual(['authenticate', 'claim', 'approve']);
+    expect(events).toEqual(['started', 'succeeded']);
+    expect(calls).not.toContain('keygen');
+    expect(recordedApproval?.ownerAuthorization).toEqual(fixture.approval.ownerAuthorization);
+  });
+
+  test('Device 1 accepts a committed approval replay only with its receipt', async () => {
+    const calls: string[] = [];
+    const fixture = buildR103DeviceLinkFixture();
+    const ports = createPorts(calls, undefined, undefined, (state) => ({
+      outcome: 'replayed',
+      replay: {
+        state: 'active',
+        session:
+          state.state === 'active'
+            ? state
+            : buildActiveLinkedDeviceSessionState({
+                linkSessionId: fixture.approval.linkSessionId,
+                walletId: fixture.approval.walletId,
+                enrollmentId: fixture.approval.enrollmentId,
+                activatedAtMs: fixture.approval.approvedAtMs,
+              }),
+        manifestDigestB64u: fixture.approval.policyDigestB64u,
+        receipt: fixture.receipt,
+      },
+    }));
+    const qrData = buildQrLinkedDeviceSessionPayloadV4({
+      linkSessionId: fixture.payload.linkSessionId,
+      linkPublicKeyB64u: fixture.payload.linkPublicKeyB64u,
+      devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
+      issuedAtMs: Date.now() - 1_000,
+      expiresAtMs: Date.now() + 60_000,
+    });
+
+    const result = await linkDeviceWithScannedQRData(undefined, qrData, {}, ports);
+
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('expected replayed approval success');
+    expect(result.receipt).toEqual(fixture.receipt);
+  });
+
+  test('strict QR validation rejects the superseded shape', () => {
+    expect(() =>
+      parseQrLinkedDeviceSessionPayloadV4({
+        sessionId: 'legacy-session',
+        timestamp: Date.now(),
+        version: 'v3',
+      }),
+    ).toThrow();
+    expect(DeviceLinkingErrorCode.UNSUPPORTED).toBe('UNSUPPORTED');
   });
 });

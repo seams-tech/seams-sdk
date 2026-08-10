@@ -3368,7 +3368,6 @@ export class WalletIframeRouter {
 
   async linkDeviceWithScannedQRData(payload: {
     qrData: DeviceLinkingQRData;
-    fundingAmount: string;
     options?: {
       onEvent?: (ev: LinkDeviceFlowEvent) => void;
       confirmationConfig?: Partial<ConfirmationConfig>;
@@ -3379,7 +3378,6 @@ export class WalletIframeRouter {
       type: 'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA',
       payload: {
         qrData: payload.qrData,
-        fundingAmount: payload.fundingAmount,
         ...(payload.options
           ? {
               options: {
@@ -3406,7 +3404,6 @@ export class WalletIframeRouter {
       payload: {
         ...(payload?.ui ? { ui: payload.ui } : {}),
         ...(payload?.cameraId ? { cameraId: payload.cameraId } : {}),
-        ...(typeof payload?.signerSlot === 'number' ? { signerSlot: payload.signerSlot } : {}),
         ...(payload?.options
           ? {
               options: {
