@@ -250,7 +250,7 @@ pub struct EcdsaLanePublicIdentityBindingV1 {
 #[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct EcdsaLaneRelayerRebindV1 {
     /// Target relayer scalar. It is never serialized by the protocol layer.
-    pub target_relayer_share32: [u8; 32],
+    target_relayer_share32: [u8; 32],
     /// Target relayer verifying share.
     #[zeroize(skip)]
     pub target_relayer_public_key33: [u8; 33],
@@ -263,6 +263,23 @@ pub struct EcdsaLaneRelayerRebindV1 {
     /// Target EVM address.
     #[zeroize(skip)]
     pub target_ethereum_address20: [u8; 20],
+}
+
+impl EcdsaLaneRelayerRebindV1 {
+    /// Consumes the rebind result at the SigningWorker sealing boundary.
+    ///
+    /// The scalar has no public-record representation and is unavailable once
+    /// this one-shot extraction has been handed to the sealing primitive.
+    pub fn into_target_relayer_share32(self) -> [u8; 32] {
+        let Self {
+            target_relayer_share32,
+            target_relayer_public_key33: _,
+            target_client_public_key33: _,
+            target_threshold_public_key33: _,
+            target_ethereum_address20: _,
+        } = self;
+        target_relayer_share32
+    }
 }
 
 impl fmt::Debug for EcdsaLaneRelayerRebindV1 {
