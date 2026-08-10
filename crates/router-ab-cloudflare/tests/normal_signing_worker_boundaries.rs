@@ -94,23 +94,26 @@ fn signing_worker_normal_signing_loads_active_material_before_handler() {
         &lib_rs,
         "execute_claimed_cloudflare_signing_worker_normal_signing_v1",
     );
-    let state_lookup = body
-        .find("active_signing_worker_state_get_request")
-        .expect("normal signing must load active SigningWorker state");
-    let material_lookup = body
-        .find("signing_worker_output_material_get_request")
-        .expect("normal signing must load active SigningWorker material");
+    let material_loader = body
+        .find("load_cloudflare_signing_worker_normal_signing_material_v1")
+        .expect("normal signing must load its admitted SigningWorker material");
     let handler_call = body
         .find("handle_cloudflare_signing_worker_normal_signing_finalize_private_request_v2")
         .expect("normal signing must call the materialized handler");
 
     assert!(
-        state_lookup < material_lookup,
-        "normal signing must load active state before material"
+        material_loader < handler_call,
+        "normal signing must load material before invoking the handler"
+    );
+    let loader = extract_function_body(
+        &lib_rs,
+        "load_cloudflare_signing_worker_normal_signing_material_v1",
     );
     assert!(
-        material_lookup < handler_call,
-        "normal signing must load material before invoking the handler"
+        loader.contains("active_signing_worker_state_get_request")
+            && loader.contains("signing_worker_output_material_get_request")
+            && loader.contains("CloudflareSigningWorkerNormalSigningMaterialSourceV1::RotatableLane"),
+        "the shared material loader must support registration and admitted lane material"
     );
 }
 
@@ -396,6 +399,10 @@ fn strict_signing_worker_entrypoint_routes_normal_signing() {
         "handle_cloudflare_signing_worker_ed25519_yao_packages_v1",
         "CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_RECOVERY_PROMOTE_PATH",
         "handle_cloudflare_signing_worker_ed25519_yao_recovery_promote_v1",
+        "CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_LANE_ACTIVATE_PATH",
+        "handle_cloudflare_signing_worker_ed25519_lane_activate_private_fetch_v1",
+        "CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_LANE_RETIRE_PATH",
+        "handle_cloudflare_signing_worker_ed25519_lane_retire_private_fetch_v1",
         "CLOUDFLARE_SIGNING_WORKER_PROOF_BUNDLE_ACTIVATION_PATH",
         "handle_cloudflare_signing_worker_recipient_proof_bundle_activation_fetch_v1",
         "CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PATH",

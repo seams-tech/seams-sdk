@@ -19,6 +19,14 @@ mod private_d1;
 pub use private_d1::*;
 mod ecdsa_lane;
 pub use ecdsa_lane::*;
+#[cfg(feature = "workers-rs")]
+mod ed25519_lane_activation;
+#[cfg(feature = "workers-rs")]
+pub use ed25519_lane_activation::*;
+#[cfg(feature = "workers-rs")]
+mod ed25519_lane_retirement;
+#[cfg(feature = "workers-rs")]
+pub use ed25519_lane_retirement::*;
 mod lane_private_d1;
 pub use lane_private_d1::*;
 

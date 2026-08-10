@@ -130,6 +130,12 @@ pub const CLOUDFLARE_SIGNING_WORKER_ECDSA_LANE_EXECUTE_PATH: &str =
 /// Authenticated private SigningWorker endpoint for ECDSA lane activation.
 pub const CLOUDFLARE_SIGNING_WORKER_ECDSA_LANE_ACTIVATE_PATH: &str =
     "/router-ab/internal/signing-worker/ecdsa-additive-lane/activate";
+/// Authenticated private SigningWorker endpoint for Ed25519 Yao lane activation.
+pub const CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_LANE_ACTIVATE_PATH: &str =
+    "/router-ab/internal/signing-worker/ed25519-yao-lane/activate";
+/// Authenticated private SigningWorker endpoint for exact Ed25519 Yao lane retirement.
+pub const CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_LANE_RETIRE_PATH: &str =
+    "/router-ab/internal/signing-worker/ed25519-yao-lane/retire";
 /// Authenticated private SigningWorker endpoint for exact ECDSA lane retirement.
 pub const CLOUDFLARE_SIGNING_WORKER_ECDSA_LANE_RETIRE_PATH: &str =
     "/router-ab/internal/signing-worker/ecdsa-additive-lane/retire";

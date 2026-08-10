@@ -3,11 +3,13 @@ import { parseEcdsaAdditiveLaneHolderRoundV1 } from '../../packages/shared-ts/sr
 import { CloudflareEd25519LaneProtocolTransportV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/signingLanes/cloudflareLaneProtocolCommitter';
 import {
   createCloudflareLaneCurveExecutionPortsV1,
+  CloudflareSigningWorkerEcdsaLaneTransportV1,
   LaneLifecycleStoreEcdsaLanePrivateBindingResolverV1,
   type SigningWorkerLaneMaterialReceiptPortV1,
 } from '../../packages/sdk-server-ts/src/router/cloudflare/signingLanes/cloudflareLaneCurveExecution';
 import {
   buildR102EcdsaLaneJob,
+  buildR102LaneJob,
   buildR102HolderDeliveryReceipt,
   buildR102ProtocolCommitReceipt,
   buildR102ServerActivationReceipt,
@@ -121,4 +123,47 @@ test('target activation binds the admitted target SigningWorker', async () => {
   expect(binding.targetMaterialActivation.signingWorker).not.toBe(
     rawJob.source.materialActivation.signingWorker,
   );
+});
+
+test('composite SigningWorker transport routes Ed25519 activation to its private lane path', async () => {
+  const job = buildR102LaneJob('ed25519-activation-route');
+  const protocolReceipt = buildR102ProtocolCommitReceipt(job);
+  const holderDeliveryReceipt = buildR102HolderDeliveryReceipt(job);
+  const activationReceipt = buildR102ServerActivationReceipt(job);
+  let request: Request | undefined;
+  const transport = new CloudflareSigningWorkerEcdsaLaneTransportV1({
+    signingWorker: {
+      async fetch(input) {
+        request = input;
+        return new Response(
+          JSON.stringify({ outcome: 'applied', receipt: activationReceipt }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      },
+    },
+    internalServiceAuth: 'ed25519-activation-route-secret',
+    bindingResolver: {
+      resolveSourceMaterialV1: unsupported,
+      resolveActivationBindingV1: unsupported,
+      resolveRetirementBindingV1: unsupported,
+    },
+    retirementTransport: { retireServerMaterialV1: unsupported },
+  });
+
+  const projection = await transport.activateServerMaterialV1({
+    curve: 'ed25519_yao',
+    job,
+    protocolCommitReceipt: protocolReceipt,
+    holderDeliveryReceipt,
+  });
+
+  expect(projection.receipt).toEqual(activationReceipt);
+  expect(request).toBeDefined();
+  expect(new URL(request!.url).pathname).toBe(
+    '/router-ab/internal/signing-worker/ed25519-yao-lane/activate',
+  );
+  const body = JSON.parse(await request!.text()) as {
+    readonly identity: { readonly keyFamily: string };
+  };
+  expect(body.identity.keyFamily).toBe('ed25519');
 });

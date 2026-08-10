@@ -3,8 +3,8 @@
 use crate::{
     build_cloudflare_router_public_keyset_v2, cloudflare_now_unix_ms_v1,
     cloudflare_router_error_status, cloudflare_service_json_request_body_v1,
-    parse_cloudflare_deriver_peer_verifying_key_set_v1, parse_cloudflare_trace_id_from_request_v1,
-    require_cloudflare_internal_service_auth_request_v1,
+    encode_base64url_bytes_v1, parse_cloudflare_deriver_peer_verifying_key_set_v1,
+    parse_cloudflare_trace_id_from_request_v1, require_cloudflare_internal_service_auth_request_v1,
     set_cloudflare_internal_service_auth_header_v1, set_cloudflare_trace_id_header_v1,
     CloudflareEd25519YaoPackagePairDeliveryV1, CloudflareEd25519YaoPairExecuteRequestV1,
     CloudflareEd25519YaoPairExecuteResponseV1, CloudflareEd25519YaoPairLookupRequestV1,
@@ -983,7 +983,7 @@ async fn commit_lane_material_to_signing_worker_v1(
         holder_recipient_key_digest_b64u: result.holder_recipient_key_digest_b64u.clone(),
         server_recipient_key_digest_b64u: result.server_recipient_key_digest_b64u.clone(),
         transcript_hash_b64u: result.transcript_hash_b64u.clone(),
-        protocol_commit_receipt_digest_b64u: protocol_commit_receipt.storage_digest_b64u.clone(),
+        protocol_commit_receipt_digest_b64u: encode_base64url_bytes_v1(&receipt.digest_v1()?),
     };
     let expected_identity_digest = identity.digest_b64u()?;
     let expected_receipt = protocol_commit_receipt.clone();
