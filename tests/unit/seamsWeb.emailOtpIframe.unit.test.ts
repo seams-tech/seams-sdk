@@ -250,15 +250,11 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
         rememberWallet(data.payload?.walletId || data.payload?.nearAccountId || '');
         rememberNearAccount(data.payload?.nearAccountId || 'alice.testnet');
         respond({
-          thresholdEcdsaClientVerifyingShareB64u: 'threshold-verifier-b64u',
           challengeId: 'enrollment-challenge-1',
           otpChannel: 'email_otp',
           enrollmentSealKeyVersion: 'email-otp-kv-1',
-          recoveryKeys: [secretSentinel],
           clientUnlockPublicKeyB64u: 'unlock-public-key-b64u',
           unlockKeyVersion: 'unlock-kv-1',
-          clientRootShare32B64u: secretSentinel,
-          clientSecret32: secretSentinel,
         });
       }
       if (data.type === 'PM_REQUEST_EMAIL_OTP_SIGNING_SESSION_CHALLENGE') {
