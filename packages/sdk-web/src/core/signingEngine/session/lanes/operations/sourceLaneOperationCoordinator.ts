@@ -10,13 +10,12 @@ import {
   parseLaneProtocolCommitReceiptV1,
   parseRotatableSigningLaneJobV1,
 } from '@shared/signing-lanes/rotationParsers';
-import {
-  completeEcdsaAdditiveLaneServerRoundV1,
-  prepareEcdsaAdditiveLaneHolderRoundV1,
-} from '@/core/signingEngine/threshold/crypto/ecdsaLaneWasm';
+import { encodeLaneProtocolCommitReceiptV1 } from '@shared/signing-lanes/rotationDigests';
+import { base64UrlEncode } from '@shared/utils/base64';
+import { sha256Bytes } from '@shared/utils/digests';
+import { prepareEcdsaAdditiveLaneHolderRoundV1 } from '@/core/signingEngine/threshold/crypto/ecdsaLaneWasm';
 import {
   completeEd25519YaoLaneV1,
-  executeEd25519YaoLaneRequestJsonV1,
   prepareEd25519YaoLaneV1,
 } from '@/core/signingEngine/threshold/crypto/ed25519YaoLaneWasm';
 import type { LaneOperationSourcePortsV1 } from './ports';
@@ -124,63 +123,70 @@ function assertProtocolCommitMatchesJob(
 
 async function commitEcdsaChild(args: {
   readonly child: Extract<RotatableSigningLaneJobV1, { keyFamily: 'ecdsa_secp256k1' }>;
+  readonly expectedVersion: number;
   readonly ports: LaneOperationSourcePortsV1;
-}): Promise<LaneProtocolCommitReceiptV1> {
-  const holderRound = await prepareEcdsaAdditiveLaneHolderRoundV1(args.ports.wasm.ecdsa, args.child);
-  const serverRound = await completeEcdsaAdditiveLaneServerRoundV1(args.ports.wasm.ecdsa, {
+}): Promise<{
+  readonly receipt: LaneProtocolCommitReceiptV1;
+  readonly protocolCasResult: LaneProtocolCasResultV1;
+}> {
+  const holderRound = await prepareEcdsaAdditiveLaneHolderRoundV1(
+    args.ports.wasm.ecdsa,
+    args.child,
+  );
+  const committed = await args.ports.protocolCommitter.executeAndRecordEcdsaAdditiveLaneV1({
     job: args.child,
     holderRound,
+    expectedVersion: args.expectedVersion,
   });
-  if (serverRound.preambleHashB64u !== holderRound.preambleHashB64u) {
-    throw new Error('ECDSA server round is bound to a different preamble');
-  }
-  const rawReceipt = await args.ports.protocolCommitter.commitEcdsaAdditiveLaneV1({
-    job: args.child,
-    holderRound,
-    serverRound,
-  });
-  const receipt = parseLaneProtocolCommitReceiptV1(rawReceipt);
+  const receipt = parseLaneProtocolCommitReceiptV1(committed.receipt);
   assertProtocolCommitMatchesJob(args.child, receipt);
-  if (
-    receipt.targetHolderPublicCommitmentB64u !== holderRound.targetHolderPublicCommitment33B64u ||
-    receipt.targetServerPublicCommitmentB64u !== serverRound.targetServerPublicCommitment33B64u
-  ) {
-    throw new Error('ECDSA protocol receipt commitments do not match its transcript rounds');
+  if (receipt.targetHolderPublicCommitmentB64u !== holderRound.targetHolderPublicCommitment33B64u) {
+    throw new Error('ECDSA protocol receipt changed the holder commitment');
   }
-  return receipt;
+  await assertRecordedProtocolCommit(args.child, receipt, committed.protocolCasResult);
+  return { receipt, protocolCasResult: committed.protocolCasResult };
 }
 
 async function commitEd25519Child(args: {
   readonly child: Extract<RotatableSigningLaneJobV1, { keyFamily: 'ed25519' }>;
+  readonly expectedVersion: number;
   readonly ports: LaneOperationSourcePortsV1;
-}): Promise<LaneProtocolCommitReceiptV1> {
+}): Promise<{
+  readonly receipt: LaneProtocolCommitReceiptV1;
+  readonly protocolCasResult: LaneProtocolCasResultV1;
+}> {
   const prepared = await prepareEd25519YaoLaneV1(args.ports.wasm.ed25519Yao, args.child);
-  const response = await executeEd25519YaoLaneRequestJsonV1(args.ports.wasm.ed25519Yao, prepared);
+  const committed = await args.ports.protocolCommitter.executeAndRecordEd25519YaoLaneV1({
+    job: args.child,
+    requestJson: prepared.requestJson,
+    expectedVersion: args.expectedVersion,
+  });
   const receipt = await completeEd25519YaoLaneV1(args.ports.wasm.ed25519Yao, {
     job: args.child,
-    responseJson: response.responseJson,
+    responseJson: committed.responseJson,
   });
-  const rawCommitReceipt = await args.ports.protocolCommitter.commitEd25519YaoLaneV1({
-    job: args.child,
-    protocolReceipt: receipt,
-  });
-  const committed = parseLaneProtocolCommitReceiptV1(rawCommitReceipt);
-  assertProtocolCommitMatchesJob(args.child, committed);
-  if (committed.transcriptHashB64u !== receipt.transcriptHashB64u) {
-    throw new Error('Ed25519 protocol receipt changed during Gateway commitment');
+  const serverReceipt = parseLaneProtocolCommitReceiptV1(committed.receipt);
+  assertProtocolCommitMatchesJob(args.child, serverReceipt);
+  if (!laneProtocolCommitReceiptsEqual(receipt, serverReceipt)) {
+    throw new Error('Ed25519 client verification and server commitment disagree');
   }
-  return committed;
+  await assertRecordedProtocolCommit(args.child, serverReceipt, committed.protocolCasResult);
+  return { receipt: serverReceipt, protocolCasResult: committed.protocolCasResult };
 }
 
 async function commitChild(
   child: RotatableSigningLaneJobV1,
+  expectedVersion: number,
   ports: LaneOperationSourcePortsV1,
-): Promise<LaneProtocolCommitReceiptV1> {
+): Promise<{
+  readonly receipt: LaneProtocolCommitReceiptV1;
+  readonly protocolCasResult: LaneProtocolCasResultV1;
+}> {
   switch (child.keyFamily) {
     case 'ecdsa_secp256k1':
-      return await commitEcdsaChild({ child, ports });
+      return await commitEcdsaChild({ child, expectedVersion, ports });
     case 'ed25519':
-      return await commitEd25519Child({ child, ports });
+      return await commitEd25519Child({ child, expectedVersion, ports });
     default:
       return assertNever(child);
   }
@@ -207,20 +213,26 @@ function assertProtocolRecordMatchesChild(
   }
 }
 
-async function recordProtocolCommit(args: {
-  readonly child: RotatableSigningLaneJobV1;
-  readonly receipt: LaneProtocolCommitReceiptV1;
-  readonly expectedVersion: number;
-  readonly gateway: LaneOperationSourcePortsV1['gateway'];
-}): Promise<LaneProtocolCasResultV1> {
-  const result = await args.gateway.recordLaneProtocolCommitV1({
-    receipt: args.receipt,
-    expectedVersion: args.expectedVersion,
-  });
+async function assertRecordedProtocolCommit(
+  child: RotatableSigningLaneJobV1,
+  receipt: LaneProtocolCommitReceiptV1,
+  result: LaneProtocolCasResultV1,
+): Promise<void> {
   if (result.outcome === 'conflict') {
-    throw new Error(`Gateway rejected protocol commitment for ${String(args.child.operationId)}`);
+    throw new Error(`Gateway rejected protocol commitment for ${String(child.operationId)}`);
   }
-  assertProtocolRecordMatchesChild(args.child, result.record.job);
+  assertProtocolRecordMatchesChild(child, result.record.job);
+  const receiptDigestB64u = base64UrlEncode(
+    await sha256Bytes(encodeLaneProtocolCommitReceiptV1(receipt)),
+  );
+  if (
+    result.commandDigestB64u !== receiptDigestB64u ||
+    result.record.lifecycle.state === 'awaiting_protocol_commitment' ||
+    result.record.lifecycle.state === 'aborted_precommit' ||
+    result.record.lifecycle.protocolCommitReceiptDigestB64u !== receiptDigestB64u
+  ) {
+    throw new Error('Gateway protocol commitment result does not bind the exact receipt');
+  }
   if (
     result.record.lifecycle.state !== 'committed_awaiting_holder_delivery' &&
     result.record.lifecycle.state !== 'awaiting_server_activation' &&
@@ -230,7 +242,20 @@ async function recordProtocolCommit(args: {
   ) {
     throw new Error('Gateway protocol record did not commit its exact receipt');
   }
-  return result;
+}
+
+function laneProtocolCommitReceiptsEqual(
+  left: LaneProtocolCommitReceiptV1,
+  right: LaneProtocolCommitReceiptV1,
+): boolean {
+  const leftBytes = encodeLaneProtocolCommitReceiptV1(left);
+  const rightBytes = encodeLaneProtocolCommitReceiptV1(right);
+  if (leftBytes.length !== rightBytes.length) return false;
+  let difference = 0;
+  for (let index = 0; index < leftBytes.length; index += 1) {
+    difference |= (leftBytes[index] ?? 0) ^ (rightBytes[index] ?? 0);
+  }
+  return difference === 0;
 }
 
 function hasEcdsaChild(children: readonly RotatableSigningLaneJobV1[]): boolean {
@@ -247,7 +272,9 @@ export async function prepareAndCommitSourceLaneOperationV1(args: {
   readonly ports: LaneOperationSourcePortsV1;
 }): Promise<PreparedLaneProtocolOperationV1> {
   const manifest = parseLaneEnrollmentManifestV1(args.manifest);
-  const children = nonEmptyJobs(args.children.map((child) => parseRotatableSigningLaneJobV1(child)));
+  const children = nonEmptyJobs(
+    args.children.map((child) => parseRotatableSigningLaneJobV1(child)),
+  );
   assertChildMatchesManifest(manifest, children);
   assertUniqueChildOperations(children);
   if (hasEcdsaChild(children)) {
@@ -276,16 +303,9 @@ export async function prepareAndCommitSourceLaneOperationV1(args: {
     const preparedProtocol = gatewayPreparation.orderedProtocols[index];
     if (!preparedProtocol) throw new Error(`Gateway preparation child ${index} is missing`);
     assertProtocolRecordMatchesChild(child, preparedProtocol.record.job);
-    const receipt = await commitChild(child, args.ports);
-    receipts.push(receipt);
-    protocolCommitResults.push(
-      await recordProtocolCommit({
-        child,
-        receipt,
-        expectedVersion: preparedProtocol.version,
-        gateway: args.ports.gateway,
-      }),
-    );
+    const committed = await commitChild(child, preparedProtocol.version, args.ports);
+    receipts.push(committed.receipt);
+    protocolCommitResults.push(committed.protocolCasResult);
   }
   return {
     manifest,

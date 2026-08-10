@@ -47,17 +47,6 @@ export async function prepareEd25519YaoLaneV1(
   return { requestJson: requestJson(result.requestJson) };
 }
 
-export async function executeEd25519YaoLaneRequestJsonV1(
-  wasm: WasmEd25519YaoLaneClientV1,
-  input: { readonly requestJson: unknown },
-): Promise<{ readonly responseJson: string }> {
-  return {
-    responseJson: responseJson(
-      (await wasm.executeRequestJson({ requestJson: requestJson(input.requestJson) })).responseJson,
-    ),
-  };
-}
-
 export async function completeEd25519YaoLaneV1(
   wasm: WasmEd25519YaoLaneClientV1,
   input: { readonly job: unknown; readonly responseJson: unknown },
@@ -98,9 +87,6 @@ export function createEd25519YaoLaneWasmAdapterV1(
   return {
     async prepare(input) {
       return await prepareEd25519YaoLaneV1(wasm, input);
-    },
-    async executeRequestJson(input) {
-      return await executeEd25519YaoLaneRequestJsonV1(wasm, input);
     },
     async complete(input) {
       return await completeEd25519YaoLaneV1(wasm, input);
