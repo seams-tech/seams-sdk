@@ -11,6 +11,8 @@ import type {
   LaneProtocolCasResultV1,
 } from '../../packages/shared-ts/src/signing-lanes/rotation';
 import type { LaneSealedHolderRecordV1 } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
+import { LaneSealedHolderMaterialRepository } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
+import { SigningSessionSealsRepository } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/signingSessionSeals';
 import { parseLaneHolderPackageWireV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import { parseLaneHolderRecipientHandleV1 } from '../../packages/shared-ts/src/utils/domainIds';
 import {
@@ -50,6 +52,12 @@ function casResult(): LaneProtocolCasResultV1 {
 
 function unsupported(): Promise<never> {
   return Promise.reject(new Error('unsupported test gateway operation'));
+}
+
+class UnavailableSigningSessionSealsRepository extends SigningSessionSealsRepository {
+  override async putSealedRecord(): Promise<boolean> {
+    return false;
+  }
 }
 
 function gateway(calls: { holderDeliveries: number[] }): LaneEnrollmentGatewayV1 {
@@ -183,5 +191,13 @@ test.describe('R102 holder delivery worker boundary', () => {
     expect(verifyCalls).toHaveLength(1);
     expect(openCalls).toHaveLength(2);
     expect(holderDeliveries).toEqual([1]);
+
+    if (!replayRepository.record) throw new Error('expected sealed holder material fixture');
+    const durableRepository = new LaneSealedHolderMaterialRepository(
+      new UnavailableSigningSessionSealsRepository(),
+    );
+    await expect(durableRepository.put(replayRepository.record)).rejects.toThrow(
+      'Canonical lane holder material persistence is unavailable',
+    );
   });
 });

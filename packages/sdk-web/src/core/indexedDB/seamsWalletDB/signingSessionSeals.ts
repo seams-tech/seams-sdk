@@ -141,12 +141,13 @@ export class SigningSessionSealsRepository {
     return entries;
   }
 
-  async putSealedRecord(row: Record<string, unknown>): Promise<void> {
+  async putSealedRecord(row: Record<string, unknown>): Promise<boolean> {
     const db = await getSigningSessionSealsDb();
-    if (!db) return;
+    if (!db) return false;
     const tx = db.transaction(SIGNING_SESSION_SEALS_STORE_NAME, 'readwrite');
     tx.objectStore(SIGNING_SESSION_SEALS_STORE_NAME).put(row);
-    await transactionDone(tx).catch(() => undefined);
+    await transactionDone(tx);
+    return true;
   }
 
   async replaceSealedRecord(args: {
