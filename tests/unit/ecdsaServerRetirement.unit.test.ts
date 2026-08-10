@@ -12,7 +12,7 @@ import {
 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import {
   computeEcdsaServerRetirementReceiptDigestV1,
-  encodeEcdsaServerRetirementReceiptV1,
+  encodeEcdsaServerRetirementReceiptCanonicalPayloadV1,
 } from '../../packages/shared-ts/src/signing-lanes/rotationDigests';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import {
@@ -251,7 +251,7 @@ test('matches the Rust ECDSA retirement canonical digest vector', async () => {
   expect(await computeEcdsaServerRetirementReceiptDigestV1(receipt)).toBe(
     'tJ6cqtqwFRbT5OjrT23nQ9RgTdebD9M6p7ALDl8tne8',
   );
-  expect(base64UrlEncode(encodeEcdsaServerRetirementReceiptV1(receipt))).toBe(
+  expect(base64UrlEncode(encodeEcdsaServerRetirementReceiptCanonicalPayloadV1(receipt))).toBe(
     'AAAAOXNlYW1zL3JvdGF0YWJsZS1zaWduaW5nLWxhbmVzL2VjZHNhLXJldGlyZW1lbnQtcmVjZWlwdC92MQAAACJlY2RzYV9zZXJ2ZXJfcmV0aXJlbWVudF9yZWNlaXB0X3YxAAAACm1hbmlmZXN0LTEAAAAAAAAAAQAAAH8AAAAbbXBjX21hdGVyaWFsX2FjdGl2YXRpb25fcmVmAAAADGFjdGl2YXRpb24tMQAAAAxjYXBhYmlsaXR5LTEAAAAId2FsbGV0LTEAAAANa2V5LWJpbmRpbmctMQAAABNsaWZlY3ljbGUtYmluZGluZy0xAAAACHdvcmtlci0xAAAADHdhbGxldC1rZXktMQAAAApvd25lci1sYW5lAAAAB2Vwb2NoLTEAAAAAAAAAAgAAAAhyb3RhdGlvbgAAAAxyZXRpcmVtZW50LTEAAAAgFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYAAAAMZ2VuZXJhdGlvbi0xAAAAC2xpZmVjeWNsZS0xAAAAGDIwMjYtMDgtMTFUMDA6MDA6MDAuMDAwWg',
   );
 });
