@@ -192,6 +192,19 @@ export type LinkedDeviceOwnerAuthorizationPortV1 = {
   ): Promise<{ readonly kind: 'authorized' } | LinkedDeviceOwnerAuthorizationDeniedV1>;
 };
 
+export type LinkedDeviceAggregateActivationVerifierV1 = {
+  verifyAggregateActivationV1(input: {
+    readonly enrollmentId: LinkedDeviceEnrollmentId;
+    readonly walletId: WalletId;
+    readonly deviceId: LinkedDeviceId;
+    readonly manifestDigestB64u: DigestB64u;
+    readonly orderedChildReceipts: readonly LinkedDeviceEnrollmentChildReceiptV1[];
+  }): Promise<
+    | { readonly kind: 'verified' }
+    | { readonly kind: 'rejected'; readonly message: string }
+  >;
+};
+
 export type LinkedDeviceSessionStoreV1 = {
   createUnclaimedSessionV1(
     record: LinkedDeviceSessionRecordV1,
@@ -311,13 +324,16 @@ export type LinkedDeviceSessionAggregateActivationInputV1 = {
 export class LinkedDeviceSessionServiceV1 {
   private readonly store: LinkedDeviceSessionStoreV1;
   private readonly authorization: LinkedDeviceOwnerAuthorizationPortV1;
+  private readonly aggregateActivationVerifier: LinkedDeviceAggregateActivationVerifierV1;
 
   constructor(input: {
     readonly store: LinkedDeviceSessionStoreV1;
     readonly authorization: LinkedDeviceOwnerAuthorizationPortV1;
+    readonly aggregateActivationVerifier: LinkedDeviceAggregateActivationVerifierV1;
   }) {
     this.store = input.store;
     this.authorization = input.authorization;
+    this.aggregateActivationVerifier = input.aggregateActivationVerifier;
   }
 
   async createUnclaimedSessionV1(
@@ -516,6 +532,16 @@ export class LinkedDeviceSessionServiceV1 {
         return { outcome: 'invalid_input', message: 'aggregate receipt identity does not match session' };
       }
       validateAggregateReceiptMatchesApproval(existing, receipt);
+      const verification = await this.aggregateActivationVerifier.verifyAggregateActivationV1({
+        enrollmentId: existing.state.enrollmentId,
+        walletId: existing.state.walletId,
+        deviceId: deviceIdFromRecord(existing),
+        manifestDigestB64u: receipt.manifestDigestB64u,
+        orderedChildReceipts: receipt.orderedChildReceipts,
+      });
+      if (verification.kind === 'rejected') {
+        return { outcome: 'invalid_input', message: verification.message };
+      }
       const nextState: LinkedDeviceSessionState = {
         state: 'active',
         linkSessionId: existing.linkSessionId,

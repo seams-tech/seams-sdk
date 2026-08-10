@@ -3,9 +3,16 @@ import {
   computeLinkedDevicePublicKeyDigestV1,
 } from '../../packages/sdk-server-ts/src/core/deviceLinking/requestProof';
 import { createD1LinkedDeviceRouteServiceV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking';
+import { D1LinkedDeviceAggregateActivationVerifierV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceAggregateActivationVerifier';
 import type { LinkedDeviceOwnerAuthorizationPortV1 } from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
-import { parseLinkDeviceSessionId } from '@shared/signing-lanes/ids';
+import {
+  parseLinkedDeviceEnrollmentId,
+  parseLinkedDeviceId,
+  parseLinkDeviceSessionId,
+} from '@shared/signing-lanes/ids';
 import { base64UrlEncode } from '@shared/utils/base64';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { parseWalletId } from '@shared/utils/domainIds';
 import { buildSignedDeviceRequestProofFixtureV1 } from './helpers/deviceRequestProof.fixtures';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import {
@@ -29,6 +36,28 @@ let temporary: TemporaryD1Database | undefined;
 test.afterEach(() => {
   if (temporary) cleanupTemporaryD1Database(temporary.tempDir);
   temporary = undefined;
+});
+
+test('rejects linked activation when the R102 enrollment is absent', async () => {
+  const verifier = new D1LinkedDeviceAggregateActivationVerifierV1({
+    lifecycleStore: {
+      getEnrollment: async () => null,
+      getProtocol: async () => null,
+      listEnrollmentProductEpochs: async () => [],
+    },
+  });
+  const enrollmentId = parseLinkedDeviceEnrollmentId('linked-device-enrollment-missing');
+  const walletId = parseWalletId('wallet-route-service').value;
+  const deviceId = parseLinkedDeviceId('device-route-service').value;
+  if (!enrollmentId.ok) throw new Error('fixture enrollment id is invalid');
+  const result = await verifier.verifyAggregateActivationV1({
+    enrollmentId: enrollmentId.value,
+    walletId,
+    deviceId,
+    manifestDigestB64u: parseDigestB64u(base64UrlEncode(new Uint8Array(32))),
+    orderedChildReceipts: [],
+  });
+  expect(result).toEqual({ kind: 'rejected', message: 'R102 lane enrollment is not admitted' });
 });
 
 test('composes D1 session and proof stores and authenticates before reading JSON', async () => {
