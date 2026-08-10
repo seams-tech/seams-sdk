@@ -14,6 +14,7 @@ import type {
   EcdsaAdditiveLaneTranscriptPreambleV1,
   EcdsaAdditiveLaneTranscriptV1,
   EcdsaServerRetirementReceipt,
+  Ed25519YaoLaneJobV1,
   LaneEnrollmentManifestChildV1,
   LaneEnrollmentManifestV1,
   LaneOperationAuthorizationBindingV1,
@@ -29,6 +30,8 @@ const ECDSA_PREAMBLE_DOMAIN = 'seams/rotatable-signing-lanes/ecdsa-preamble/v1';
 const ECDSA_HOLDER_ROUND_DOMAIN = 'seams/rotatable-signing-lanes/ecdsa-holder-round/v1';
 const ECDSA_SERVER_ROUND_DOMAIN = 'seams/rotatable-signing-lanes/ecdsa-server-round/v1';
 const ECDSA_TRANSCRIPT_DOMAIN = 'seams/rotatable-signing-lanes/ecdsa-transcript/v1';
+const ED25519_JOB_TRANSCRIPT_DOMAIN = 'seams/rotatable-signing-lanes/ed25519-job/v1';
+const ED25519_SESSION_DOMAIN = 'seams/rotatable-signing-lanes/ed25519-session/v1';
 const PROTOCOL_COMMIT_RECEIPT_DOMAIN = 'seams/rotatable-signing-lanes/protocol-commit-receipt/v1';
 const HOLDER_DELIVERY_RECEIPT_DOMAIN = 'seams/rotatable-signing-lanes/holder-delivery-receipt/v1';
 const SERVER_ACTIVATION_RECEIPT_DOMAIN =
@@ -262,6 +265,111 @@ function encodeEcdsaJob(value: EcdsaAdditiveLaneJobV1): Uint8Array {
     digest(value.reshareChannelBindingDigestB64u, 'reshareChannelBindingDigestB64u'),
     text(value.transcriptEncoding, 'transcriptEncoding'),
   ]);
+}
+
+export function encodeEd25519YaoLaneJobTranscriptV1(value: Ed25519YaoLaneJobV1): Uint8Array {
+  const target =
+    value.target.operation === 'create_lane'
+      ? concat([
+          text(value.target.operation, 'target.operation'),
+          text(value.target.laneKind, 'target.laneKind'),
+          text(value.target.expectedTargetState, 'target.expectedTargetState'),
+        ])
+      : concat([
+          text(value.target.operation, 'target.operation'),
+          text(value.target.laneKind, 'target.laneKind'),
+          text(value.target.expectedTargetState, 'target.expectedTargetState'),
+          activation(value.target.priorMaterialActivation),
+        ]);
+  const authorization =
+    value.authorization.kind === 'linked_device_enrollment'
+      ? concat([
+          text(value.authorization.kind, 'authorization.kind'),
+          text(value.authorization.authorizedOperationId, 'authorization.authorizedOperationId'),
+          text(
+            value.authorization.linkedDeviceEnrollmentId,
+            'authorization.linkedDeviceEnrollmentId',
+          ),
+          text(
+            value.authorization.linkedDevicePermissionDigestB64u,
+            'authorization.linkedDevicePermissionDigestB64u',
+          ),
+        ])
+      : concat([
+          text(value.authorization.kind, 'authorization.kind'),
+          text(value.authorization.authorizedOperationId, 'authorization.authorizedOperationId'),
+          text(
+            value.authorization.ownerLaneRefreshDigestB64u,
+            'authorization.ownerLaneRefreshDigestB64u',
+          ),
+        ]);
+  return concat([
+    recordDomain(ED25519_JOB_TRANSCRIPT_DOMAIN),
+    text(value.kind, 'kind'),
+    text(value.yaoRequestKind, 'yaoRequestKind'),
+    text(value.operationId, 'operationId'),
+    text(value.enrollmentId, 'enrollmentId'),
+    text(value.idempotencyKey, 'idempotencyKey'),
+    text(value.walletId, 'walletId'),
+    text(value.walletKeyId, 'walletKeyId'),
+    text(value.source.laneId, 'source.laneId'),
+    text(value.source.laneKind, 'source.laneKind'),
+    text(value.source.laneShareEpoch, 'source.laneShareEpoch'),
+    u64(value.source.revocationEpoch, 'source.revocationEpoch'),
+    text(value.source.holderParticipantId, 'source.holderParticipantId'),
+    text(value.source.signingWorkerParticipantId, 'source.signingWorkerParticipantId'),
+    text(value.source.signingWorkerRecipientKeyId, 'source.signingWorkerRecipientKeyId'),
+    text(value.source.participantBindingDigestB64u, 'source.participantBindingDigestB64u'),
+    activation(value.source.materialActivation),
+    target,
+    text(value.target.laneId, 'target.laneId'),
+    text(value.target.laneShareEpoch, 'target.laneShareEpoch'),
+    text(value.targetMaterialActivationId, 'targetMaterialActivationId'),
+    text(value.targetHolder.participantId, 'targetHolder.participantId'),
+    text(
+      value.targetHolder.participantBindingDigestB64u,
+      'targetHolder.participantBindingDigestB64u',
+    ),
+    text(value.targetHolder.custodyBindingId, 'targetHolder.custodyBindingId'),
+    text(value.targetHolder.custodyBindingDigestB64u, 'targetHolder.custodyBindingDigestB64u'),
+    text(value.targetHolder.hpkePublicKeyB64u, 'targetHolder.hpkePublicKeyB64u'),
+    text(value.targetHolder.hpkePublicKeyDigestB64u, 'targetHolder.hpkePublicKeyDigestB64u'),
+    text(value.targetSigningWorker.participantId, 'targetSigningWorker.participantId'),
+    text(
+      value.targetSigningWorker.participantBindingDigestB64u,
+      'targetSigningWorker.participantBindingDigestB64u',
+    ),
+    text(value.targetSigningWorker.recipientKeyId, 'targetSigningWorker.recipientKeyId'),
+    text(value.targetSigningWorker.hpkePublicKeyB64u, 'targetSigningWorker.hpkePublicKeyB64u'),
+    text(
+      value.targetSigningWorker.hpkePublicKeyDigestB64u,
+      'targetSigningWorker.hpkePublicKeyDigestB64u',
+    ),
+    authorization,
+    text(value.registeredPublicKeyB64u, 'registeredPublicKeyB64u'),
+    u64(value.keyCreationSignerSlot, 'keyCreationSignerSlot'),
+    text(value.stableContextBindingB64u, 'stableContextBindingB64u'),
+    text(value.nearEd25519SigningKeyId, 'nearEd25519SigningKeyId'),
+    text(value.yaoSuiteId, 'yaoSuiteId'),
+    text(value.circuitDigestB64u, 'circuitDigestB64u'),
+    text(value.protocolVersion, 'protocolVersion'),
+    u64(value.expiresAtMs, 'expiresAtMs'),
+  ]);
+}
+
+export async function computeEd25519YaoLaneJobTranscriptDigestV1(
+  value: Ed25519YaoLaneJobV1,
+): Promise<string> {
+  return base64UrlEncode(await sha256Bytes(encodeEd25519YaoLaneJobTranscriptV1(value)));
+}
+
+export async function computeEd25519YaoLaneSessionDigestV1(
+  value: Ed25519YaoLaneJobV1,
+): Promise<string> {
+  const jobDigest = await sha256Bytes(encodeEd25519YaoLaneJobTranscriptV1(value));
+  return base64UrlEncode(
+    await sha256Bytes(concat([TEXT_ENCODER.encode(ED25519_SESSION_DOMAIN), jobDigest])),
+  );
 }
 
 export function encodeEcdsaAdditiveLaneTranscriptPreambleV1(

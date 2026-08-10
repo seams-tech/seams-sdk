@@ -511,8 +511,8 @@ impl Ed25519YaoLaneJobV1 {
         self.target.lane_share_epoch()
     }
 
-    /// Computes the canonical digest used for package AAD and replay checks.
-    pub fn transcript_digest_v1(&self) -> RouterAbProtocolResult<[u8; 32]> {
+    /// Returns the canonical job transcript bytes used across Rust and TypeScript.
+    pub fn canonical_transcript_bytes_v1(&self) -> RouterAbProtocolResult<Vec<u8>> {
         self.validate()?;
         let mut bytes = Vec::new();
         push_text(&mut bytes, "seams/rotatable-signing-lanes/ed25519-job/v1");
@@ -605,7 +605,12 @@ impl Ed25519YaoLaneJobV1 {
         push_text(&mut bytes, &self.circuit_digest_b64u);
         push_text(&mut bytes, &self.protocol_version);
         push_u64(&mut bytes, self.expires_at_ms);
-        Ok(Sha256::digest(bytes).into())
+        Ok(bytes)
+    }
+
+    /// Computes the canonical digest used for package AAD and replay checks.
+    pub fn transcript_digest_v1(&self) -> RouterAbProtocolResult<[u8; 32]> {
+        Ok(Sha256::digest(self.canonical_transcript_bytes_v1()?).into())
     }
 
     /// Decodes the stable context binding carried by the lane job.
@@ -1073,6 +1078,45 @@ impl Ed25519YaoLaneProtocolCommittedV1 {
         require_positive("committed_at_ms", self.committed_at_ms)
     }
 
+    /// Returns the product receipt's canonical cross-language bytes.
+    pub fn canonical_bytes_v1(&self) -> RouterAbProtocolResult<Vec<u8>> {
+        self.validate()?;
+        let mut bytes = Vec::new();
+        push_text(
+            &mut bytes,
+            "seams/rotatable-signing-lanes/protocol-commit-receipt/v1",
+        );
+        push_text(&mut bytes, &self.operation_id);
+        push_text(&mut bytes, &self.enrollment_id);
+        push_text(&mut bytes, &self.wallet_id);
+        push_text(&mut bytes, &self.wallet_key_id);
+        push_text(&mut bytes, &self.source_lane_id);
+        push_text(&mut bytes, &self.source_lane_share_epoch);
+        push_u64(&mut bytes, self.source_revocation_epoch);
+        let mut activation = Vec::new();
+        push_activation_ref(&mut activation, &self.source_material_activation);
+        push_bytes(&mut bytes, &activation);
+        push_text(&mut bytes, &self.target_lane_id);
+        push_text(&mut bytes, &self.target_lane_share_epoch);
+        push_text(&mut bytes, &self.target_material_activation_id);
+        push_text(&mut bytes, &self.key_family);
+        push_digest(&mut bytes, &self.public_identity_digest_b64u)?;
+        push_text(&mut bytes, &self.target_holder_public_commitment_b64u);
+        push_text(&mut bytes, &self.target_server_public_commitment_b64u);
+        push_digest(&mut bytes, &self.target_holder_ciphertext_digest_set_b64u)?;
+        push_digest(&mut bytes, &self.target_server_ciphertext_digest_set_b64u)?;
+        push_digest(&mut bytes, &self.holder_recipient_key_digest_b64u)?;
+        push_digest(&mut bytes, &self.server_recipient_key_digest_b64u)?;
+        push_digest(&mut bytes, &self.transcript_hash_b64u)?;
+        push_u64(&mut bytes, self.committed_at_ms);
+        Ok(bytes)
+    }
+
+    /// Computes the digest-addressed product receipt identity.
+    pub fn digest_v1(&self) -> RouterAbProtocolResult<[u8; 32]> {
+        Ok(Sha256::digest(self.canonical_bytes_v1()?).into())
+    }
+
     /// Returns true when a delivery can be redelivered under this receipt.
     pub fn accepts_redelivery(&self, operation_id: &str, transcript_hash_b64u: &str) -> bool {
         self.operation_id == operation_id && self.transcript_hash_b64u == transcript_hash_b64u
@@ -1122,9 +1166,17 @@ fn require_positive(field: &str, value: u64) -> RouterAbProtocolResult<()> {
 }
 
 fn push_text(out: &mut Vec<u8>, value: &str) {
-    let bytes = value.as_bytes();
-    out.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
-    out.extend_from_slice(bytes);
+    push_bytes(out, value.as_bytes());
+}
+
+fn push_bytes(out: &mut Vec<u8>, value: &[u8]) {
+    out.extend_from_slice(&(value.len() as u32).to_be_bytes());
+    out.extend_from_slice(value);
+}
+
+fn push_digest(out: &mut Vec<u8>, value: &str) -> RouterAbProtocolResult<()> {
+    push_bytes(out, &decode_digest32("canonical receipt digest", value)?);
+    Ok(())
 }
 
 fn push_activation_ref(out: &mut Vec<u8>, activation: &MpcMaterialActivationRefV1) {
