@@ -4,9 +4,14 @@
 //! lane job carries public bindings only; private role contributions and the
 //! random lane offset are owned by the Yao adapter.
 
+use base64ct::{Base64UrlUnpadded, Encoding};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use super::ed25519_yao::{
+    Ed25519YaoDeriverRoleV1, Ed25519YaoEncryptedInputV1, Ed25519YaoEncryptedPackageV1,
+    Ed25519YaoInputKindV1,
+};
 use crate::protocol::error::{
     RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
 };
@@ -47,17 +52,22 @@ pub enum Ed25519YaoLaneAuthorizationV1 {
     /// Owner-approved linked-device enrollment.
     LinkedDeviceEnrollment {
         /// Authorized operation identifier.
+        #[serde(rename = "authorizedOperationId")]
         authorized_operation_id: String,
         /// Linked-device enrollment identifier.
+        #[serde(rename = "linkedDeviceEnrollmentId")]
         linked_device_enrollment_id: String,
         /// Permission policy digest.
+        #[serde(rename = "linkedDevicePermissionDigestB64u")]
         linked_device_permission_digest_b64u: String,
     },
     /// Owner-authorized refresh of an existing lane.
     OwnerLaneRefresh {
         /// Authorized operation identifier.
+        #[serde(rename = "authorizedOperationId")]
         authorized_operation_id: String,
         /// Owner refresh authorization digest.
+        #[serde(rename = "ownerLaneRefreshDigestB64u")]
         owner_lane_refresh_digest_b64u: String,
     },
 }
@@ -114,25 +124,37 @@ pub enum Ed25519YaoLaneTargetV1 {
     /// New lane target.  No prior activation is accepted on this branch.
     CreateLane {
         /// Target lane identifier.
+        #[serde(rename = "laneId")]
         lane_id: String,
         /// Target lane kind; first-release creation is linked-device only.
+        #[serde(rename = "laneKind")]
         lane_kind: String,
         /// First share epoch for the target lane.
+        #[serde(rename = "laneShareEpoch")]
         lane_share_epoch: u64,
         /// Required target pre-state.
+        #[serde(rename = "expectedTargetState")]
         expected_target_state: String,
     },
     /// Existing lane target.  Refresh must carry its exact prior activation.
     RefreshLane {
         /// Existing lane identifier.
+        #[serde(rename = "laneId")]
         lane_id: String,
         /// Existing lane kind.
+        #[serde(rename = "laneKind")]
         lane_kind: String,
         /// Strictly next share epoch.
+        #[serde(rename = "laneShareEpoch")]
         lane_share_epoch: u64,
         /// Required target pre-state.
+        #[serde(rename = "expectedTargetState")]
         expected_target_state: String,
         /// Exact activation being replaced.
+        #[serde(
+            rename = "priorMaterialActivation",
+            with = "lane_material_activation_serde"
+        )]
         prior_material_activation: MpcMaterialActivationRefV1,
     },
 }
@@ -176,10 +198,12 @@ impl Ed25519YaoLaneTargetV1 {
 
 /// Public source-lane identity pinned before any Yao work starts.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Ed25519YaoLaneSourceV1 {
     /// Source lane identifier.
     pub lane_id: String,
+    /// Source lane kind.
+    pub lane_kind: String,
     /// Source lane share epoch.
     pub lane_share_epoch: u64,
     /// Source lane revocation epoch.
@@ -188,9 +212,12 @@ pub struct Ed25519YaoLaneSourceV1 {
     pub holder_participant_id: String,
     /// Source SigningWorker participant identity.
     pub signing_worker_participant_id: String,
+    /// Source SigningWorker recipient key identifier.
+    pub signing_worker_recipient_key_id: String,
     /// Source participant-binding digest.
     pub participant_binding_digest_b64u: String,
     /// Exact source material activation.
+    #[serde(with = "lane_material_activation_serde")]
     pub material_activation: MpcMaterialActivationRefV1,
 }
 
@@ -198,11 +225,16 @@ impl Ed25519YaoLaneSourceV1 {
     /// Validates the source lane identity.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         require_text("source.lane_id", &self.lane_id)?;
+        require_lane_kind("source.lane_kind", &self.lane_kind)?;
         require_positive("source.lane_share_epoch", self.lane_share_epoch)?;
         require_text("source.holder_participant_id", &self.holder_participant_id)?;
         require_text(
             "source.signing_worker_participant_id",
             &self.signing_worker_participant_id,
+        )?;
+        require_text(
+            "source.signing_worker_recipient_key_id",
+            &self.signing_worker_recipient_key_id,
         )?;
         require_digest(
             "source.participant_binding_digest_b64u",
@@ -212,9 +244,81 @@ impl Ed25519YaoLaneSourceV1 {
     }
 }
 
+/// Public target holder recipient binding.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Ed25519YaoLaneTargetHolderV1 {
+    /// Holder participant identity.
+    pub participant_id: String,
+    /// Holder participant-binding digest.
+    pub participant_binding_digest_b64u: String,
+    /// Holder custody binding digest.
+    pub custody_binding_digest_b64u: String,
+    /// Holder HPKE public key.
+    pub hpke_public_key_b64u: String,
+    /// Holder HPKE public-key digest.
+    pub hpke_public_key_digest_b64u: String,
+}
+
+impl Ed25519YaoLaneTargetHolderV1 {
+    /// Validates the target holder recipient binding.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_text("targetHolder.participantId", &self.participant_id)?;
+        require_digest(
+            "targetHolder.participantBindingDigestB64u",
+            &self.participant_binding_digest_b64u,
+        )?;
+        require_digest(
+            "targetHolder.custodyBindingDigestB64u",
+            &self.custody_binding_digest_b64u,
+        )?;
+        require_digest("targetHolder.hpkePublicKeyB64u", &self.hpke_public_key_b64u)?;
+        require_digest(
+            "targetHolder.hpkePublicKeyDigestB64u",
+            &self.hpke_public_key_digest_b64u,
+        )
+    }
+}
+
+/// Public target SigningWorker recipient binding.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Ed25519YaoLaneTargetSigningWorkerV1 {
+    /// SigningWorker participant identity.
+    pub participant_id: String,
+    /// SigningWorker participant-binding digest.
+    pub participant_binding_digest_b64u: String,
+    /// SigningWorker recipient key identifier.
+    pub recipient_key_id: String,
+    /// SigningWorker HPKE public key.
+    pub hpke_public_key_b64u: String,
+    /// SigningWorker HPKE public-key digest.
+    pub hpke_public_key_digest_b64u: String,
+}
+
+impl Ed25519YaoLaneTargetSigningWorkerV1 {
+    /// Validates the target SigningWorker recipient binding.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_text("targetSigningWorker.participantId", &self.participant_id)?;
+        require_digest(
+            "targetSigningWorker.participantBindingDigestB64u",
+            &self.participant_binding_digest_b64u,
+        )?;
+        require_text("targetSigningWorker.recipientKeyId", &self.recipient_key_id)?;
+        require_digest(
+            "targetSigningWorker.hpkePublicKeyB64u",
+            &self.hpke_public_key_b64u,
+        )?;
+        require_digest(
+            "targetSigningWorker.hpkePublicKeyDigestB64u",
+            &self.hpke_public_key_digest_b64u,
+        )
+    }
+}
+
 /// Ed25519 lane job admitted by the Router boundary.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Ed25519YaoLaneJobV1 {
     /// Fixed wire discriminator.
     pub kind: String,
@@ -240,26 +344,12 @@ pub struct Ed25519YaoLaneJobV1 {
     pub authorization: Ed25519YaoLaneAuthorizationV1,
     /// Fresh target material activation id.
     pub target_material_activation_id: String,
-    /// Holder participant identity.
-    pub target_holder_participant_id: String,
-    /// Holder participant-binding digest.
-    pub target_holder_participant_binding_digest_b64u: String,
-    /// Holder custody binding digest.
-    pub target_holder_custody_binding_digest_b64u: String,
-    /// Holder HPKE public key.
-    pub target_holder_hpke_public_key_b64u: String,
-    /// Holder HPKE public-key digest.
-    pub target_holder_hpke_public_key_digest_b64u: String,
-    /// SigningWorker participant identity.
-    pub target_signing_worker_participant_id: String,
-    /// SigningWorker participant-binding digest.
-    pub target_signing_worker_participant_binding_digest_b64u: String,
-    /// SigningWorker recipient key identifier.
-    pub target_signing_worker_recipient_key_id: String,
-    /// SigningWorker HPKE public key.
-    pub target_signing_worker_hpke_public_key_b64u: String,
-    /// SigningWorker HPKE public-key digest.
-    pub target_signing_worker_hpke_public_key_digest_b64u: String,
+    /// Target holder recipient binding.
+    pub target_holder: Ed25519YaoLaneTargetHolderV1,
+    /// Target SigningWorker recipient binding.
+    pub target_signing_worker: Ed25519YaoLaneTargetSigningWorkerV1,
+    /// Protocol-version discriminator.
+    pub protocol_version: String,
     /// Registered Ed25519 public identity.
     pub registered_public_key_b64u: String,
     /// Immutable key-creation signer slot.
@@ -301,46 +391,11 @@ impl Ed25519YaoLaneJobV1 {
             "target_material_activation_id",
             &self.target_material_activation_id,
         )?;
-        require_text(
-            "target_holder_participant_id",
-            &self.target_holder_participant_id,
-        )?;
-        require_digest(
-            "target_holder_participant_binding_digest_b64u",
-            &self.target_holder_participant_binding_digest_b64u,
-        )?;
-        require_digest(
-            "target_holder_custody_binding_digest_b64u",
-            &self.target_holder_custody_binding_digest_b64u,
-        )?;
-        require_digest(
-            "target_holder_hpke_public_key_b64u",
-            &self.target_holder_hpke_public_key_b64u,
-        )?;
-        require_digest(
-            "target_holder_hpke_public_key_digest_b64u",
-            &self.target_holder_hpke_public_key_digest_b64u,
-        )?;
-        require_text(
-            "target_signing_worker_participant_id",
-            &self.target_signing_worker_participant_id,
-        )?;
-        require_digest(
-            "target_signing_worker_participant_binding_digest_b64u",
-            &self.target_signing_worker_participant_binding_digest_b64u,
-        )?;
-        require_text(
-            "target_signing_worker_recipient_key_id",
-            &self.target_signing_worker_recipient_key_id,
-        )?;
-        require_digest(
-            "target_signing_worker_hpke_public_key_b64u",
-            &self.target_signing_worker_hpke_public_key_b64u,
-        )?;
-        require_digest(
-            "target_signing_worker_hpke_public_key_digest_b64u",
-            &self.target_signing_worker_hpke_public_key_digest_b64u,
-        )?;
+        self.target_holder.validate()?;
+        self.target_signing_worker.validate()?;
+        if self.protocol_version != "rotatable_signing_lane_protocol_v1" {
+            return Err(invalid_lane("Ed25519 lane protocol version is invalid"));
+        }
         require_digest(
             "registered_public_key_b64u",
             &self.registered_public_key_b64u,
@@ -403,10 +458,10 @@ impl Ed25519YaoLaneJobV1 {
                 Ed25519YaoLaneRequestKindV1::LaneRefresh,
             ) => {
                 require_text("target.lane_id", lane_id)?;
-                require_text("target.lane_kind", lane_kind)?;
+                require_lane_kind("target.lane_kind", lane_kind)?;
                 if expected_target_state != "active_previous_epoch"
                     || *lane_id != self.source.lane_id
-                    || *lane_share_epoch <= self.source.lane_share_epoch
+                    || self.source.lane_share_epoch.checked_add(1) != Some(*lane_share_epoch)
                     || prior_material_activation != &self.source.material_activation
                 {
                     return Err(invalid_lane(
@@ -460,42 +515,332 @@ impl Ed25519YaoLaneJobV1 {
         push_text(&mut bytes, &self.wallet_id);
         push_text(&mut bytes, &self.wallet_key_id);
         push_text(&mut bytes, &self.source.lane_id);
+        push_text(&mut bytes, &self.source.lane_kind);
         push_u64(&mut bytes, self.source.lane_share_epoch);
         push_u64(&mut bytes, self.source.revocation_epoch);
+        push_text(&mut bytes, &self.source.holder_participant_id);
+        push_text(&mut bytes, &self.source.signing_worker_participant_id);
+        push_text(&mut bytes, &self.source.signing_worker_recipient_key_id);
+        push_text(&mut bytes, &self.source.participant_binding_digest_b64u);
+        push_activation_ref(&mut bytes, &self.source.material_activation);
+        match &self.target {
+            Ed25519YaoLaneTargetV1::CreateLane {
+                lane_kind,
+                expected_target_state,
+                ..
+            } => {
+                push_text(&mut bytes, "create_lane");
+                push_text(&mut bytes, lane_kind);
+                push_text(&mut bytes, expected_target_state);
+            }
+            Ed25519YaoLaneTargetV1::RefreshLane {
+                lane_kind,
+                expected_target_state,
+                prior_material_activation,
+                ..
+            } => {
+                push_text(&mut bytes, "refresh_lane");
+                push_text(&mut bytes, lane_kind);
+                push_text(&mut bytes, expected_target_state);
+                push_activation_ref(&mut bytes, prior_material_activation);
+            }
+        }
         push_text(&mut bytes, self.target_lane_id());
         push_u64(&mut bytes, self.target_lane_share_epoch());
         push_text(&mut bytes, &self.target_material_activation_id);
-        push_text(&mut bytes, &self.target_holder_participant_id);
+        push_text(&mut bytes, &self.target_holder.participant_id);
         push_text(
             &mut bytes,
-            &self.target_holder_participant_binding_digest_b64u,
+            &self.target_holder.participant_binding_digest_b64u,
         );
-        push_text(&mut bytes, &self.target_holder_custody_binding_digest_b64u);
-        push_text(&mut bytes, &self.target_holder_hpke_public_key_digest_b64u);
-        push_text(&mut bytes, &self.target_signing_worker_participant_id);
+        push_text(&mut bytes, &self.target_holder.custody_binding_digest_b64u);
+        push_text(&mut bytes, &self.target_holder.hpke_public_key_b64u);
+        push_text(&mut bytes, &self.target_holder.hpke_public_key_digest_b64u);
+        push_text(&mut bytes, &self.target_signing_worker.participant_id);
         push_text(
             &mut bytes,
-            &self.target_signing_worker_participant_binding_digest_b64u,
+            &self.target_signing_worker.participant_binding_digest_b64u,
         );
-        push_text(&mut bytes, &self.target_signing_worker_recipient_key_id);
+        push_text(&mut bytes, &self.target_signing_worker.recipient_key_id);
+        push_text(&mut bytes, &self.target_signing_worker.hpke_public_key_b64u);
         push_text(
             &mut bytes,
-            &self.target_signing_worker_hpke_public_key_digest_b64u,
+            &self.target_signing_worker.hpke_public_key_digest_b64u,
         );
+        match &self.authorization {
+            Ed25519YaoLaneAuthorizationV1::LinkedDeviceEnrollment {
+                authorized_operation_id,
+                linked_device_enrollment_id,
+                linked_device_permission_digest_b64u,
+            } => {
+                push_text(&mut bytes, "linked_device_enrollment");
+                push_text(&mut bytes, authorized_operation_id);
+                push_text(&mut bytes, linked_device_enrollment_id);
+                push_text(&mut bytes, linked_device_permission_digest_b64u);
+            }
+            Ed25519YaoLaneAuthorizationV1::OwnerLaneRefresh {
+                authorized_operation_id,
+                owner_lane_refresh_digest_b64u,
+            } => {
+                push_text(&mut bytes, "owner_lane_refresh");
+                push_text(&mut bytes, authorized_operation_id);
+                push_text(&mut bytes, owner_lane_refresh_digest_b64u);
+            }
+        }
         push_text(&mut bytes, &self.registered_public_key_b64u);
         push_u64(&mut bytes, self.key_creation_signer_slot as u64);
         push_text(&mut bytes, &self.stable_context_binding_b64u);
         push_text(&mut bytes, &self.near_ed25519_signing_key_id);
         push_text(&mut bytes, &self.yao_suite_id);
         push_text(&mut bytes, &self.circuit_digest_b64u);
+        push_text(&mut bytes, &self.protocol_version);
         push_u64(&mut bytes, self.expires_at_ms);
         Ok(Sha256::digest(bytes).into())
     }
+
+    /// Decodes the stable context binding carried by the lane job.
+    pub fn stable_context_binding_v1(&self) -> RouterAbProtocolResult<[u8; 32]> {
+        decode_digest32(
+            "stable_context_binding_b64u",
+            &self.stable_context_binding_b64u,
+        )
+    }
+
+    /// Derives the opaque Yao session binding from this immutable job.
+    pub fn session_v1(&self) -> RouterAbProtocolResult<[u8; 32]> {
+        let transcript = self.transcript_digest_v1()?;
+        let mut input = b"seams/rotatable-signing-lanes/ed25519-session/v1".to_vec();
+        input.extend_from_slice(&transcript);
+        Ok(Sha256::digest(input).into())
+    }
+}
+
+/// Opaque A/B inputs submitted for one admitted lane-provisioning or
+/// same-lane refresh execution.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RouterAbEd25519YaoLaneExecuteRequestV1 {
+    /// Immutable lane job pinned at admission.
+    pub job: Ed25519YaoLaneJobV1,
+    /// Deriver A's recipient-bound opaque input.
+    pub deriver_a_input: Ed25519YaoEncryptedInputV1,
+    /// Deriver B's recipient-bound opaque input.
+    pub deriver_b_input: Ed25519YaoEncryptedInputV1,
+}
+
+impl RouterAbEd25519YaoLaneExecuteRequestV1 {
+    /// Creates a checked lane execution request.
+    pub fn new(
+        job: Ed25519YaoLaneJobV1,
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    ) -> RouterAbProtocolResult<Self> {
+        job.validate()?;
+        let session = job.session_v1()?;
+        let stable = job.stable_context_binding_v1()?;
+        validate_lane_input(
+            &deriver_a_input,
+            Ed25519YaoDeriverRoleV1::DeriverA,
+            job.yao_request_kind.operation(),
+            session,
+            stable,
+        )?;
+        validate_lane_input(
+            &deriver_b_input,
+            Ed25519YaoDeriverRoleV1::DeriverB,
+            job.yao_request_kind.operation(),
+            session,
+            stable,
+        )?;
+        Ok(Self {
+            job,
+            deriver_a_input,
+            deriver_b_input,
+        })
+    }
+
+    /// Returns the immutable lane job.
+    pub const fn job(&self) -> &Ed25519YaoLaneJobV1 {
+        &self.job
+    }
+
+    /// Returns Deriver A's opaque input.
+    pub const fn deriver_a_input(&self) -> &Ed25519YaoEncryptedInputV1 {
+        &self.deriver_a_input
+    }
+
+    /// Returns Deriver B's opaque input.
+    pub const fn deriver_b_input(&self) -> &Ed25519YaoEncryptedInputV1 {
+        &self.deriver_b_input
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RawRouterAbEd25519YaoLaneExecuteRequestV1 {
+    job: Ed25519YaoLaneJobV1,
+    deriver_a_input: Ed25519YaoEncryptedInputV1,
+    deriver_b_input: Ed25519YaoEncryptedInputV1,
+}
+
+impl<'de> Deserialize<'de> for RouterAbEd25519YaoLaneExecuteRequestV1 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = RawRouterAbEd25519YaoLaneExecuteRequestV1::deserialize(deserializer)?;
+        Self::new(raw.job, raw.deriver_a_input, raw.deriver_b_input)
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+/// Public metadata returned after the lane circuit has committed all four
+/// recipient packages.  Ciphertexts remain opaque to the Client boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RouterAbEd25519YaoLaneResultV1 {
+    /// Immutable job echoed by the Router.
+    pub job: Ed25519YaoLaneJobV1,
+    /// Canonical transcript hash.
+    pub transcript_hash_b64u: String,
+    /// Public identity digest covering the checked Ed25519 relation.
+    pub public_identity_digest_b64u: String,
+    /// Target-holder public commitment.
+    pub target_holder_public_commitment_b64u: String,
+    /// Target SigningWorker public commitment.
+    pub target_server_public_commitment_b64u: String,
+    /// Digest of the ordered holder ciphertext set.
+    pub target_holder_ciphertext_digest_set_b64u: String,
+    /// Digest of the ordered SigningWorker ciphertext set.
+    pub target_server_ciphertext_digest_set_b64u: String,
+    /// Target holder recipient-key digest.
+    pub holder_recipient_key_digest_b64u: String,
+    /// Target SigningWorker recipient-key digest.
+    pub server_recipient_key_digest_b64u: String,
+    /// Four immutable opaque recipient packages.
+    pub deriver_a_holder_package: Ed25519YaoEncryptedPackageV1,
+    /// Deriver B holder package.
+    pub deriver_b_holder_package: Ed25519YaoEncryptedPackageV1,
+    /// Deriver A SigningWorker package.
+    pub deriver_a_signing_worker_package: Ed25519YaoEncryptedPackageV1,
+    /// Deriver B SigningWorker package.
+    pub deriver_b_signing_worker_package: Ed25519YaoEncryptedPackageV1,
+    /// Commit timestamp.
+    pub committed_at_ms: u64,
+}
+
+impl RouterAbEd25519YaoLaneResultV1 {
+    /// Validates that package metadata is immutable and matches the job.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.job.validate()?;
+        let session = self.job.session_v1()?;
+        let transcript = decode_digest32("transcript_hash_b64u", &self.transcript_hash_b64u)?;
+        if self.job.transcript_digest_v1()? != transcript {
+            return Err(invalid_lane(
+                "lane result transcript does not match the job",
+            ));
+        }
+        let expected = [
+            (
+                &self.deriver_a_holder_package,
+                Ed25519YaoDeriverRoleV1::DeriverA,
+                super::ed25519_yao::Ed25519YaoPackageKindV1::LaneHolder,
+            ),
+            (
+                &self.deriver_b_holder_package,
+                Ed25519YaoDeriverRoleV1::DeriverB,
+                super::ed25519_yao::Ed25519YaoPackageKindV1::LaneHolder,
+            ),
+            (
+                &self.deriver_a_signing_worker_package,
+                Ed25519YaoDeriverRoleV1::DeriverA,
+                super::ed25519_yao::Ed25519YaoPackageKindV1::LaneSigningWorker,
+            ),
+            (
+                &self.deriver_b_signing_worker_package,
+                Ed25519YaoDeriverRoleV1::DeriverB,
+                super::ed25519_yao::Ed25519YaoPackageKindV1::LaneSigningWorker,
+            ),
+        ];
+        for (package, deriver, kind) in expected {
+            package.validate()?;
+            if package.deriver() != deriver
+                || package.kind() != kind
+                || package.session() != session
+                || package.transcript() != transcript
+            {
+                return Err(invalid_lane("lane result package binding is inconsistent"));
+            }
+        }
+        for (field, value) in [
+            (
+                "public_identity_digest_b64u",
+                self.public_identity_digest_b64u.as_str(),
+            ),
+            (
+                "target_holder_public_commitment_b64u",
+                self.target_holder_public_commitment_b64u.as_str(),
+            ),
+            (
+                "target_server_public_commitment_b64u",
+                self.target_server_public_commitment_b64u.as_str(),
+            ),
+            (
+                "target_holder_ciphertext_digest_set_b64u",
+                self.target_holder_ciphertext_digest_set_b64u.as_str(),
+            ),
+            (
+                "target_server_ciphertext_digest_set_b64u",
+                self.target_server_ciphertext_digest_set_b64u.as_str(),
+            ),
+            (
+                "holder_recipient_key_digest_b64u",
+                self.holder_recipient_key_digest_b64u.as_str(),
+            ),
+            (
+                "server_recipient_key_digest_b64u",
+                self.server_recipient_key_digest_b64u.as_str(),
+            ),
+        ] {
+            decode_digest32(field, value)?;
+        }
+        require_positive("committed_at_ms", self.committed_at_ms)
+    }
+}
+
+fn validate_lane_input(
+    input: &Ed25519YaoEncryptedInputV1,
+    deriver: Ed25519YaoDeriverRoleV1,
+    operation: super::ed25519_yao::Ed25519YaoOperationV1,
+    session: [u8; 32],
+    stable: [u8; 32],
+) -> RouterAbProtocolResult<()> {
+    input.validate()?;
+    if input.kind() != Ed25519YaoInputKindV1::LaneMaterialization
+        || input.deriver() != deriver
+        || input.operation() != operation
+        || input.session() != session
+        || input.stable_context_binding() != stable
+    {
+        return Err(invalid_lane("lane input metadata does not match its job"));
+    }
+    Ok(())
+}
+
+fn decode_digest32(field: &str, value: &str) -> RouterAbProtocolResult<[u8; 32]> {
+    let mut decoded = [0_u8; 32];
+    Base64UrlUnpadded::decode(value, &mut decoded).map_err(|_| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("Ed25519 lane {field} must be an unpadded base64url 32-byte digest"),
+        )
+    })?;
+    Ok(decoded)
 }
 
 /// Terminal protocol receipt for committed lane packages.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Ed25519YaoLaneProtocolCommittedV1 {
     /// Fixed wire discriminator.
     pub kind: String,
@@ -513,12 +858,17 @@ pub struct Ed25519YaoLaneProtocolCommittedV1 {
     pub source_lane_share_epoch: u64,
     /// Source revocation epoch.
     pub source_revocation_epoch: u64,
+    /// Exact source material activation.
+    #[serde(with = "lane_material_activation_serde")]
+    pub source_material_activation: MpcMaterialActivationRefV1,
     /// Target lane identifier.
     pub target_lane_id: String,
     /// Target lane share epoch.
     pub target_lane_share_epoch: u64,
     /// Fresh target material activation id.
     pub target_material_activation_id: String,
+    /// Curve family discriminator.
+    pub key_family: String,
     /// Registered public identity digest.
     pub public_identity_digest_b64u: String,
     /// Target holder public commitment.
@@ -550,9 +900,11 @@ impl Ed25519YaoLaneProtocolCommittedV1 {
         source_lane_id: impl Into<String>,
         source_lane_share_epoch: u64,
         source_revocation_epoch: u64,
+        source_material_activation: MpcMaterialActivationRefV1,
         target_lane_id: impl Into<String>,
         target_lane_share_epoch: u64,
         target_material_activation_id: impl Into<String>,
+        key_family: impl Into<String>,
         public_identity_digest_b64u: impl Into<String>,
         target_holder_public_commitment_b64u: impl Into<String>,
         target_server_public_commitment_b64u: impl Into<String>,
@@ -572,9 +924,11 @@ impl Ed25519YaoLaneProtocolCommittedV1 {
             source_lane_id: source_lane_id.into(),
             source_lane_share_epoch,
             source_revocation_epoch,
+            source_material_activation,
             target_lane_id: target_lane_id.into(),
             target_lane_share_epoch,
             target_material_activation_id: target_material_activation_id.into(),
+            key_family: key_family.into(),
             public_identity_digest_b64u: public_identity_digest_b64u.into(),
             target_holder_public_commitment_b64u: target_holder_public_commitment_b64u.into(),
             target_server_public_commitment_b64u: target_server_public_commitment_b64u.into(),
@@ -614,6 +968,10 @@ impl Ed25519YaoLaneProtocolCommittedV1 {
         }
         require_positive("source_lane_share_epoch", self.source_lane_share_epoch)?;
         require_positive("target_lane_share_epoch", self.target_lane_share_epoch)?;
+        self.source_material_activation.validate()?;
+        if self.key_family != "ed25519" {
+            return Err(invalid_lane("lane protocol receipt key family is invalid"));
+        }
         require_digest(
             "public_identity_digest_b64u",
             &self.public_identity_digest_b64u,
@@ -662,6 +1020,17 @@ fn require_text(field: &str, value: &str) -> RouterAbProtocolResult<()> {
     Ok(())
 }
 
+fn require_lane_kind(field: &str, value: &str) -> RouterAbProtocolResult<()> {
+    require_text(field, value)?;
+    if !matches!(
+        value,
+        "owner_passkey" | "owner_email_otp" | "linked_device" | "recovery" | "break_glass"
+    ) {
+        return Err(invalid_lane("Ed25519 lane kind is invalid"));
+    }
+    Ok(())
+}
+
 fn require_digest(field: &str, value: &str) -> RouterAbProtocolResult<()> {
     require_text(field, value)?;
     if value.len() < 16 {
@@ -689,10 +1058,92 @@ fn push_text(out: &mut Vec<u8>, value: &str) {
     out.extend_from_slice(bytes);
 }
 
+fn push_activation_ref(out: &mut Vec<u8>, activation: &MpcMaterialActivationRefV1) {
+    push_text(out, "mpc_material_activation_ref");
+    push_text(out, &activation.activation_id);
+    push_text(out, &activation.capability);
+    push_text(out, &activation.material_owner);
+    push_text(out, &activation.key_binding);
+    push_text(out, &activation.lifecycle_binding);
+    push_text(out, &activation.signing_worker);
+}
+
 fn push_u64(out: &mut Vec<u8>, value: u64) {
     out.extend_from_slice(&value.to_be_bytes());
 }
 
 fn invalid_lane(message: &'static str) -> RouterAbProtocolError {
     RouterAbProtocolError::new(RouterAbProtocolErrorCode::MalformedWirePayload, message)
+}
+
+/// The shared lifecycle record predates the lane wire contract and keeps its
+/// Rust field names for the existing activation protocol.  Lane jobs are
+/// emitted in the public camelCase wire shape, so the nested record gets an
+/// explicit boundary adapter instead of changing unrelated activation JSON.
+mod lane_material_activation_serde {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use super::MpcMaterialActivationRefV1;
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct WireActivation {
+        kind: super::super::lifecycle::MpcMaterialActivationRefKindV1,
+        activation_id: String,
+        capability: String,
+        material_owner: String,
+        key_binding: String,
+        lifecycle_binding: String,
+        signing_worker: String,
+    }
+
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct WireActivationRef<'a> {
+        kind: super::super::lifecycle::MpcMaterialActivationRefKindV1,
+        activation_id: &'a str,
+        capability: &'a str,
+        material_owner: &'a str,
+        key_binding: &'a str,
+        lifecycle_binding: &'a str,
+        signing_worker: &'a str,
+    }
+
+    pub(super) fn serialize<S>(
+        value: &MpcMaterialActivationRefV1,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        WireActivationRef {
+            kind: value.kind,
+            activation_id: &value.activation_id,
+            capability: &value.capability,
+            material_owner: &value.material_owner,
+            key_binding: &value.key_binding,
+            lifecycle_binding: &value.lifecycle_binding,
+            signing_worker: &value.signing_worker,
+        }
+        .serialize(serializer)
+    }
+
+    pub(super) fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<MpcMaterialActivationRefV1, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = WireActivation::deserialize(deserializer)?;
+        let _kind = wire.kind;
+        MpcMaterialActivationRefV1::new(
+            wire.activation_id,
+            wire.capability,
+            wire.material_owner,
+            wire.key_binding,
+            wire.lifecycle_binding,
+            wire.signing_worker,
+        )
+        .map_err(serde::de::Error::custom)
+    }
 }

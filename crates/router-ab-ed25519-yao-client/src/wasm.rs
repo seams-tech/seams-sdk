@@ -10,6 +10,7 @@ use crate::{
     prepare_client_export_from_custody_seed_v1, ClientActivationEntropyV1, ClientExportStateV1,
     ClientSigningRequestV1,
 };
+use crate::{complete_client_lane_v1, prepare_client_lane_v1, PreparedClientLaneV1};
 use crate::{
     ed25519_local_material_binding_v1, import_activated_client_material_v1,
     open_wallet_custody_ed25519_material_v1, seal_activated_client_material_v1,
@@ -452,4 +453,88 @@ fn parse_32(value: &[u8], label: &str) -> Result<[u8; 32], JsValue> {
 
 fn js_error(error: impl core::fmt::Display) -> JsValue {
     JsValue::from_str(&error.to_string())
+}
+
+/// One-use WASM typestate client for Ed25519 Yao lane provisioning/refresh.
+///
+/// The local adapter prepares only the immutable public job.  Execution stays
+/// behind the Router's lane endpoint; while this crate has no reviewed
+/// production evaluator, `execute_request_json` fails closed.
+#[wasm_bindgen]
+pub struct WasmEd25519YaoLaneClientV1 {
+    prepared: Option<PreparedClientLaneV1>,
+}
+
+#[wasm_bindgen]
+impl WasmEd25519YaoLaneClientV1 {
+    /// Creates an empty one-use lane client.
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self { prepared: None }
+    }
+
+    /// Validates a lane job and returns `{ requestJson }` for Router execution.
+    pub fn prepare(&mut self, job_input: JsValue) -> Result<JsValue, JsValue> {
+        if self.prepared.is_some() {
+            return Err(JsValue::from_str(
+                "Ed25519 Yao lane client is already prepared",
+            ));
+        }
+        let job = if let Some(job_json) = job_input.as_string() {
+            serde_json::from_str(&job_json).map_err(js_error)?
+        } else {
+            serde_wasm_bindgen::from_value(job_input).map_err(js_error)?
+        };
+        let prepared = prepare_client_lane_v1(job).map_err(js_error)?;
+        let request_json = prepared.execute_request_json().to_owned();
+        self.prepared = Some(prepared);
+        let object = js_sys::Object::new();
+        js_sys::Reflect::set(
+            &object,
+            &JsValue::from_str("requestJson"),
+            &JsValue::from_str(&request_json),
+        )
+        .map_err(|_| JsValue::from_str("failed to construct lane request"))?;
+        Ok(object.into())
+    }
+
+    /// Returns the prepared request JSON for callers that use the Rust-style
+    /// getter convention.
+    pub fn execute_request_json(&self) -> Result<String, JsValue> {
+        self.prepared
+            .as_ref()
+            .map(|prepared| prepared.execute_request_json().to_owned())
+            .ok_or_else(|| JsValue::from_str("Ed25519 Yao lane client is not prepared"))
+    }
+
+    /// Fails closed because no production Yao evaluator is linked here.
+    #[wasm_bindgen(js_name = executeRequestJson)]
+    pub fn execute_request_json_with_input(
+        &self,
+        _request_json: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        Err(JsValue::from_str(
+            "Ed25519 Yao lane execution is unavailable in the passive client",
+        ))
+    }
+
+    /// Consumes the one-use state and returns the immutable receipt plus the
+    /// opaque holder package set required for later delivery.
+    pub fn complete(&mut self, result_input: JsValue) -> Result<JsValue, JsValue> {
+        let prepared = self
+            .prepared
+            .take()
+            .ok_or_else(|| JsValue::from_str("Ed25519 Yao lane client was consumed"))?;
+        let response_json = if let Some(response_json) = result_input.as_string() {
+            response_json
+        } else {
+            let value = js_sys::Reflect::get(&result_input, &JsValue::from_str("responseJson"))
+                .map_err(|_| JsValue::from_str("lane responseJson is missing"))?;
+            value
+                .as_string()
+                .ok_or_else(|| JsValue::from_str("lane responseJson must be a string"))?
+        };
+        let receipt = complete_client_lane_v1(prepared, &response_json).map_err(js_error)?;
+        serde_wasm_bindgen::to_value(&receipt).map_err(js_error)
+    }
 }

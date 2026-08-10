@@ -1454,6 +1454,8 @@ dependencies = [
 name = "router-ab-ed25519-yao"
 version = "0.1.0"
 dependencies = [
+ "base64ct",
+ "curve25519-dalek",
  "ed25519-yao",
  "hpke-ng",
  "rand_core 0.9.5",
@@ -1476,6 +1478,7 @@ dependencies = [
  "getrandom 0.2.17",
  "hkdf 0.12.4",
  "hpke-ng",
+ "js-sys",
  "rand_chacha",
  "rand_core 0.9.5",
  "router-ab-core",
@@ -1483,6 +1486,7 @@ dependencies = [
  "router-ab-ed25519-yao",
  "router-ab-ed25519-yao-protocol",
  "serde",
+ "serde-wasm-bindgen",
  "serde_json",
  "sha2 0.10.9",
  "signer-core",
@@ -1579,6 +1583,17 @@ checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
  "serde_derive",
+]
+
+[[package]]
+name = "serde-wasm-bindgen"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
+dependencies = [
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
 ]
 
 [[package]]

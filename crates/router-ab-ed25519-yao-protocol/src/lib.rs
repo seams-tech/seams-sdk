@@ -25,11 +25,13 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 
 pub use recipient::{
     combine_client_activation_packages, combine_export_packages, combine_lane_holder_packages_v1,
-    combine_lane_signing_worker_packages_v1, ActivationDeriverAClientPackage,
-    ActivationDeriverBClientPackage, ClientBaseScalar, ExportDeriverAClientPackage,
-    ExportDeriverBClientPackage, ExportedSeed32, LaneDeriverAHolderPackage,
-    LaneDeriverASigningWorkerPackage, LaneDeriverBHolderPackage, LaneDeriverBSigningWorkerPackage,
-    LaneHolderScalar, LaneSigningWorkerScalar, RecipientPackageError,
+    combine_lane_signing_worker_packages_v1, encode_lane_scalar_share_package_v1,
+    lane_materialization_circuit_digest_v1, lane_materialization_schedule_digest_v1,
+    ActivationDeriverAClientPackage, ActivationDeriverBClientPackage, ClientBaseScalar,
+    ExportDeriverAClientPackage, ExportDeriverBClientPackage, ExportedSeed32,
+    LaneDeriverAHolderPackage, LaneDeriverASigningWorkerPackage, LaneDeriverBHolderPackage,
+    LaneDeriverBSigningWorkerPackage, LaneHolderScalar, LaneSigningWorkerScalar,
+    RecipientPackageError,
 };
 
 /// HPKE info for Client-to-Deriver role-input encryption.

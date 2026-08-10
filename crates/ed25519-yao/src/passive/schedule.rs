@@ -32,6 +32,10 @@ const PHASE4_EXPORT_SCHEDULE: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/artifacts/passive-benchmark-v1/export-private-output.schedule.bin"
 ));
+const LANE_MATERIALIZATION_SCHEDULE: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/artifacts/passive-benchmark-v1/lane-materialization.schedule.bin"
+));
 
 #[cfg(test)]
 static ACTIVATION_VALIDATION: OnceLock<Result<ValidatedSchedule<'static>, ScheduleError>> =
@@ -43,6 +47,9 @@ static PHASE4_ACTIVATION_VALIDATION: OnceLock<Result<ValidatedSchedule<'static>,
     OnceLock::new();
 static PHASE4_EXPORT_VALIDATION: OnceLock<Result<ValidatedSchedule<'static>, ScheduleError>> =
     OnceLock::new();
+static LANE_MATERIALIZATION_VALIDATION: OnceLock<
+    Result<ValidatedSchedule<'static>, ScheduleError>,
+> = OnceLock::new();
 
 #[cfg(test)]
 const ACTIVATION_SPEC: FixedScheduleSpec = FixedScheduleSpec {
@@ -128,6 +135,27 @@ const PHASE4_EXPORT_SPEC: FixedScheduleSpec = FixedScheduleSpec {
     xor_count: 6_365,
     and_count: 1_275,
     inv_count: 260,
+};
+
+const LANE_MATERIALIZATION_SPEC: FixedScheduleSpec = FixedScheduleSpec {
+    component: 0x95,
+    ir_digest: [
+        0xba, 0x88, 0xdc, 0xab, 0x5c, 0x70, 0xa3, 0x08, 0xd6, 0xe5, 0x00, 0xb6, 0x66, 0x44, 0x24,
+        0xd1, 0xa7, 0xaf, 0x26, 0x68, 0xa2, 0x1d, 0x87, 0x49, 0x87, 0x8d, 0x42, 0xb5, 0x2a, 0x48,
+        0x69, 0x19,
+    ],
+    schedule_digest: [
+        0xa4, 0xed, 0x46, 0x17, 0x49, 0x3e, 0x0a, 0xd7, 0xed, 0x46, 0x86, 0x5d, 0x4a, 0xa8, 0x66,
+        0xd1, 0x9e, 0x00, 0xae, 0xb0, 0xd7, 0xb9, 0x55, 0x5f, 0x36, 0x02, 0xfa, 0x00, 0x7b, 0xa3,
+        0xab, 0xaa,
+    ],
+    input_count: 1_536,
+    gate_count: 21_056,
+    output_count: 1_024,
+    slot_count: 1_794,
+    xor_count: 14_268,
+    and_count: 4_590,
+    inv_count: 2_198,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -350,6 +378,14 @@ pub(super) fn phase4_export() -> Result<&'static ValidatedSchedule<'static>, Sch
     )
 }
 
+pub(super) fn lane_materialization() -> Result<&'static ValidatedSchedule<'static>, ScheduleError> {
+    cached_validation(
+        &LANE_MATERIALIZATION_VALIDATION,
+        LANE_MATERIALIZATION_SCHEDULE,
+        LANE_MATERIALIZATION_SPEC,
+    )
+}
+
 fn cached_validation(
     cache: &'static OnceLock<Result<ValidatedSchedule<'static>, ScheduleError>>,
     bytes: &'static [u8],
@@ -535,6 +571,18 @@ mod tests {
         assert_eq!(export.and_count(), 1_275);
         assert_eq!(export.gates().len(), 7_900);
         assert_eq!(export.output_slots().len(), 512);
+    }
+
+    #[test]
+    fn lane_materialization_schedule_validates_distinct_ir_and_counts() {
+        let lane = lane_materialization().expect("lane materialization schedule");
+        assert_eq!(lane.input_count(), 1_536);
+        assert_eq!(lane.gate_count(), 21_056);
+        assert_eq!(lane.output_count(), 1_024);
+        assert_eq!(lane.slot_count(), 1_794);
+        assert_eq!(lane.and_count(), 4_590);
+        assert_eq!(lane.gates().len(), 21_056);
+        assert_eq!(lane.output_slots().len(), 1_024);
     }
 
     #[test]

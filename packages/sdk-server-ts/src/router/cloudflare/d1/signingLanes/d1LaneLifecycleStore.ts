@@ -25,6 +25,7 @@ import {
   encodeLaneProtocolCommitReceiptV1,
   encodeLaneServerActivationReceiptV1,
 } from '@shared/signing-lanes/rotationDigests';
+import { computeLaneParticipantSetBindingDigestV1 } from '@shared/signing-lanes/participantDigest';
 import { sha256Bytes } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/base64';
 import type {
@@ -602,10 +603,12 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
         `INSERT INTO ${PRODUCT_TABLE} (
            namespace, org_id, project_id, env_id, wallet_id, wallet_key_id,
            lane_id, lane_share_epoch, enrollment_id, operation_id,
-           target_material_activation_id, material_activation_json, lane_kind,
-           key_family, public_identity_digest_b64u, state, product_json,
+           target_material_activation_id, material_activation_json,
+           holder_participant_json, signing_worker_participant_json,
+           participant_set_binding_digest_b64u, revocation_epoch,
+           lane_kind, key_family, public_identity_digest_b64u, state, product_json,
            version, command_digest_b64u, created_at_ms, updated_at_ms
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18, ?19, ?19)`,
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, 1, ?22, ?23, ?23)`,
       )
       .bind(
         ...values,
@@ -617,6 +620,10 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
         String(productEpoch.operationId),
         String(productEpoch.targetMaterialActivationId),
         JSON.stringify(productEpoch.materialActivation),
+        JSON.stringify(productEpoch.holderParticipant),
+        JSON.stringify(productEpoch.signingWorkerParticipant),
+        productEpoch.participantSetBindingDigestB64u,
+        productEpoch.revocationEpoch,
         productEpoch.laneKind,
         productEpoch.keyFamily,
         productEpoch.publicIdentityDigestB64u,
@@ -1086,13 +1093,14 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
   async fenceEnrollmentRevocation(
     input: RevokeLaneEnrollmentV1,
   ): Promise<LaneAdmissionMutationResult<LaneEnrollmentAdmissionRecord['value']>> {
+    const commandDigestB64u = await digestLaneEnrollmentRevocationCommand(input);
     const parent = await this.getEnrollment(input.enrollmentId);
     if (!parent)
       return {
         outcome: 'conflict',
         expectedVersion: 1,
         actualVersion: 0,
-        requestedCommandDigestB64u: input.manifestDigestB64u,
+        requestedCommandDigestB64u: commandDigestB64u,
         storedCommandDigestB64u: '',
       };
     if (String(parent.value.manifest.walletId) !== String(input.walletId)) {
@@ -1100,7 +1108,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
         outcome: 'conflict',
         expectedVersion: parent.version,
         actualVersion: parent.version,
-        requestedCommandDigestB64u: input.manifestDigestB64u,
+        requestedCommandDigestB64u: commandDigestB64u,
         storedCommandDigestB64u: parent.commandDigestB64u,
       };
     }
@@ -1110,15 +1118,25 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
         outcome: 'conflict',
         expectedVersion: parent.version,
         actualVersion: parent.version,
-        requestedCommandDigestB64u: input.manifestDigestB64u,
+        requestedCommandDigestB64u: commandDigestB64u,
         storedCommandDigestB64u: manifestDigest,
       };
     }
+    const storedFenceDigest = await this.getEnrollmentRevocationFenceDigest(input.enrollmentId);
     if (parent.value.lifecycle.state === 'revoked') {
+      if (storedFenceDigest !== commandDigestB64u) {
+        return {
+          outcome: 'conflict',
+          expectedVersion: parent.version,
+          actualVersion: parent.version,
+          requestedCommandDigestB64u: commandDigestB64u,
+          storedCommandDigestB64u: storedFenceDigest ?? parent.commandDigestB64u,
+        };
+      }
       return {
         outcome: 'replayed',
         version: parent.version,
-        commandDigestB64u: parent.commandDigestB64u,
+        commandDigestB64u,
         value: parent.value,
       };
     }
@@ -1145,12 +1163,13 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
       case 'revoking_committed_targets':
         if (
           parent.value.lifecycle.reason === reason &&
-          parent.value.lifecycle.manifestDigestB64u === input.manifestDigestB64u
+          parent.value.lifecycle.manifestDigestB64u === input.manifestDigestB64u &&
+          storedFenceDigest === commandDigestB64u
         ) {
           return {
             outcome: 'replayed',
             version: parent.version,
-            commandDigestB64u: parent.commandDigestB64u,
+            commandDigestB64u,
             value: parent.value,
           };
         }
@@ -1158,8 +1177,8 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
           outcome: 'conflict',
           expectedVersion: parent.version,
           actualVersion: parent.version,
-          requestedCommandDigestB64u: input.manifestDigestB64u,
-          storedCommandDigestB64u: parent.commandDigestB64u,
+          requestedCommandDigestB64u: commandDigestB64u,
+          storedCommandDigestB64u: storedFenceDigest ?? parent.commandDigestB64u,
         };
       case 'preparing':
       case 'cancelled_precommit':
@@ -1167,21 +1186,52 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
           outcome: 'conflict',
           expectedVersion: parent.version,
           actualVersion: parent.version,
-          requestedCommandDigestB64u: input.manifestDigestB64u,
+          requestedCommandDigestB64u: commandDigestB64u,
           storedCommandDigestB64u: parent.commandDigestB64u,
         };
       default:
         return assertNeverEnrollmentLifecycle(parent.value.lifecycle);
     }
-    const commandDigestB64u = await digestLaneEnrollmentRevocationCommand(input);
     if (lifecycle.state !== 'revoking_committed_targets')
       throw new Error('lane enrollment revocation fence did not produce revoking state');
-    return await this.compareAndSetEnrollmentLifecycle({
-      enrollmentId: input.enrollmentId,
-      expectedVersion: parent.version,
+    const updated = await this.updateEnrollmentRevocationFence(
+      input.enrollmentId,
+      parent.version,
       commandDigestB64u,
       lifecycle,
-    });
+    );
+    if (!updated) {
+      const raced = await this.getEnrollment(input.enrollmentId);
+      const racedFenceDigest = await this.getEnrollmentRevocationFenceDigest(input.enrollmentId);
+      if (
+        raced?.value.lifecycle.state === 'revoking_committed_targets' &&
+        raced.value.lifecycle.reason === reason &&
+        raced.value.lifecycle.manifestDigestB64u === input.manifestDigestB64u &&
+        racedFenceDigest === commandDigestB64u
+      ) {
+        return {
+          outcome: 'replayed',
+          version: raced.version,
+          commandDigestB64u,
+          value: raced.value,
+        };
+      }
+      return {
+        outcome: 'conflict',
+        expectedVersion: parent.version,
+        actualVersion: raced?.version ?? 0,
+        requestedCommandDigestB64u: commandDigestB64u,
+        storedCommandDigestB64u: racedFenceDigest ?? raced?.commandDigestB64u ?? '',
+      };
+    }
+    const result = await this.getEnrollment(input.enrollmentId);
+    if (!result) throw new Error('lane enrollment disappeared after revocation fence');
+    return {
+      outcome: 'applied',
+      version: result.version,
+      commandDigestB64u,
+      value: result.value,
+    };
   }
 
   async commitLaneRevocation(
@@ -1231,6 +1281,18 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
         productEpoch: product,
       };
     if (
+      product.state !== 'revoked' &&
+      product.revocationEpoch !== command.expectedRevocationEpoch
+    ) {
+      return {
+        outcome: 'conflict',
+        expectedVersion: input.expectedVersion,
+        actualVersion: Number.isSafeInteger(currentVersion) ? currentVersion : 0,
+        requestedCommandDigestB64u: input.commandDigestB64u,
+        storedCommandDigestB64u: storedDigest,
+      };
+    }
+    if (
       !Number.isSafeInteger(currentVersion) ||
       currentVersion < 1 ||
       currentVersion !== input.expectedVersion
@@ -1259,10 +1321,11 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
     });
     const result = await this.database
       .prepare(
-        `UPDATE ${PRODUCT_TABLE} SET state = 'revoked', product_json = ?5, version = version + 1, command_digest_b64u = ?6, updated_at_ms = ?7 WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4 AND wallet_key_id = ?8 AND lane_id = ?9 AND lane_share_epoch = ?10 AND version = ?11 AND state IN ('active', 'pending_visibility')`,
+        `UPDATE ${PRODUCT_TABLE} SET state = 'revoked', revocation_epoch = ?5, product_json = ?6, version = version + 1, command_digest_b64u = ?7, updated_at_ms = ?8 WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4 AND wallet_key_id = ?9 AND lane_id = ?10 AND lane_share_epoch = ?11 AND version = ?12 AND state IN ('active', 'pending_visibility')`,
       )
       .bind(
         ...scopeValues(this.scope),
+        command.expectedRevocationEpoch + 1,
         JSON.stringify(revoked),
         input.commandDigestB64u,
         command.requestedAtMs,
@@ -1401,6 +1464,9 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
           targetMaterialActivationId: product.targetMaterialActivationId,
           materialActivation: product.materialActivation,
           publicIdentityDigestB64u: product.publicIdentityDigestB64u,
+          holderParticipant: product.holderParticipant,
+          signingWorkerParticipant: product.signingWorkerParticipant,
+          participantSetBindingDigestB64u: product.participantSetBindingDigestB64u,
           createdAtMs: product.createdAtMs,
           revocationEpoch: child.revocationEpoch,
           revocationReason: 'user_revoked',
@@ -1441,10 +1507,11 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
       statements.push(
         this.database
           .prepare(
-            `UPDATE ${PRODUCT_TABLE} SET state = 'revoked', product_json = ?5, version = version + 1, command_digest_b64u = ?6, updated_at_ms = ?7 WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4 AND wallet_key_id = ?8 AND lane_id = ?9 AND lane_share_epoch = ?10 AND state IN ('active', 'pending_visibility')`,
+            `UPDATE ${PRODUCT_TABLE} SET state = 'revoked', revocation_epoch = ?5, product_json = ?6, version = version + 1, command_digest_b64u = ?7, updated_at_ms = ?8 WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4 AND wallet_key_id = ?9 AND lane_id = ?10 AND lane_share_epoch = ?11 AND state IN ('active', 'pending_visibility')`,
           )
           .bind(
             ...values,
+            product.revocationEpoch,
             JSON.stringify(product),
             input.commandDigestB64u,
             input.command.revokedAtMs,
@@ -1599,6 +1666,63 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
       )
       .run();
     return d1ChangedRows(result) === 1;
+  }
+
+  private async getEnrollmentRevocationFenceDigest(
+    enrollmentId: LaneEnrollmentId,
+  ): Promise<string | null> {
+    const row = await this.database
+      .prepare(
+        `SELECT revocation_fence_command_digest_b64u
+           FROM ${ENROLLMENT_TABLE}
+          WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4
+            AND enrollment_id = ?5`,
+      )
+      .bind(...scopeValues(this.scope), String(enrollmentId))
+      .first<{ readonly revocation_fence_command_digest_b64u?: unknown }>();
+    if (!row || row.revocation_fence_command_digest_b64u === null) return null;
+    return parseRequiredString(
+      row.revocation_fence_command_digest_b64u,
+      'revocation fence command digest',
+    );
+  }
+
+  private async updateEnrollmentRevocationFence(
+    enrollmentId: LaneEnrollmentId,
+    expectedVersion: number,
+    commandDigestB64u: string,
+    lifecycle: LaneEnrollmentLifecycleV1,
+  ): Promise<boolean> {
+    const values = scopeValues(this.scope);
+    try {
+      const results = await this.database.batch([
+        this.database
+          .prepare(
+            `UPDATE ${ENROLLMENT_TABLE}
+                SET lifecycle_json = ?5,
+                    version = version + 1,
+                    command_digest_b64u = ?6,
+                    revocation_fence_command_digest_b64u = ?7,
+                    updated_at_ms = ?8
+              WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4
+                AND enrollment_id = ?9 AND version = ?10`,
+          )
+          .bind(
+            ...values,
+            JSON.stringify(lifecycle),
+            commandDigestB64u,
+            commandDigestB64u,
+            this.now(),
+            String(enrollmentId),
+            expectedVersion,
+          ),
+        this.database.prepare(LANE_CAS_GUARD_SQL),
+      ]);
+      assertD1Success(firstBatchResult(results, 0), 'lane enrollment revocation fence');
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private async putReceipt<
@@ -1929,6 +2053,28 @@ async function buildPendingProductEpoch(input: {
   readonly manifestDigestB64u: string;
 }): Promise<Extract<LaneProductEpochRecordV1, { state: 'pending_visibility' }>> {
   const target = input.protocol.job.target;
+  const holderParticipant = {
+    kind: 'lane_holder_participant_v1' as const,
+    participantId: input.protocol.job.targetHolder.participantId,
+    custodyBindingId: input.protocol.job.targetHolder.custodyBindingId,
+    custodyBindingDigestB64u: input.protocol.job.targetHolder.custodyBindingDigestB64u,
+    hpkePublicKeyB64u: input.protocol.job.targetHolder.hpkePublicKeyB64u,
+    hpkePublicKeyDigestB64u: input.protocol.job.targetHolder.hpkePublicKeyDigestB64u,
+    participantBindingDigestB64u: input.protocol.job.targetHolder.participantBindingDigestB64u,
+  };
+  const signingWorkerParticipant = {
+    kind: 'signing_worker_participant_v1' as const,
+    participantId: input.protocol.job.targetSigningWorker.participantId,
+    recipientKeyId: input.protocol.job.targetSigningWorker.recipientKeyId,
+    hpkePublicKeyB64u: input.protocol.job.targetSigningWorker.hpkePublicKeyB64u,
+    hpkePublicKeyDigestB64u: input.protocol.job.targetSigningWorker.hpkePublicKeyDigestB64u,
+    participantBindingDigestB64u:
+      input.protocol.job.targetSigningWorker.participantBindingDigestB64u,
+  };
+  const participantSetBindingDigestB64u = await computeLaneParticipantSetBindingDigestV1({
+    holderParticipant,
+    signingWorkerParticipant,
+  });
   return buildLaneProductEpochPendingVisibilityV1({
     walletId: input.protocol.job.walletId,
     walletKeyId: input.protocol.job.walletKeyId,
@@ -1941,6 +2087,10 @@ async function buildPendingProductEpoch(input: {
     targetMaterialActivationId: input.protocol.job.targetMaterialActivationId,
     materialActivation: input.serverReceipt.targetMaterialActivation,
     publicIdentityDigestB64u: input.protocolReceipt.publicIdentityDigestB64u,
+    holderParticipant,
+    signingWorkerParticipant,
+    participantSetBindingDigestB64u,
+    revocationEpoch: input.protocol.job.source.revocationEpoch,
     createdAtMs: input.protocolReceipt.committedAtMs,
     aggregateManifestDigestB64u: input.manifestDigestB64u,
     protocolCommitReceiptDigestB64u: base64UrlEncode(

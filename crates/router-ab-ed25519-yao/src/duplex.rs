@@ -5,10 +5,14 @@ use std::fmt;
 
 use crate::relay::{
     ActivationDeriverACompletion, ActivationDeriverBCompletion, BenchmarkRoleError,
-    DirectionalEofEvidence, ExportDeriverACompletion, ExportDeriverBCompletion, RelayEvent,
-    RelayInstruction, RelayStep, WireMessage, WireMessageKind,
+    DirectionalEofEvidence, ExportDeriverACompletion, ExportDeriverBCompletion,
+    LaneDeriverACompletion, LaneDeriverBCompletion, RelayEvent, RelayInstruction, RelayStep,
+    WireMessage, WireMessageKind,
 };
-use crate::{ActivationDeriverA, ActivationDeriverB, ExportDeriverA, ExportDeriverB};
+use crate::{
+    ActivationDeriverA, ActivationDeriverB, ExportDeriverA, ExportDeriverB,
+    LaneMaterializationDeriverA, LaneMaterializationDeriverB,
+};
 
 /// One inbound protocol event normalized by a duplex transport adapter.
 pub enum YaoInboundEvent {
@@ -136,6 +140,8 @@ implement_fixed_role!(ActivationDeriverA, ActivationDeriverACompletion);
 implement_fixed_role!(ActivationDeriverB, ActivationDeriverBCompletion);
 implement_fixed_role!(ExportDeriverA, ExportDeriverACompletion);
 implement_fixed_role!(ExportDeriverB, ExportDeriverBCompletion);
+implement_fixed_role!(LaneMaterializationDeriverA, LaneDeriverACompletion);
+implement_fixed_role!(LaneMaterializationDeriverB, LaneDeriverBCompletion);
 
 /// Runs the fixed activation Deriver A role over one selected duplex transport.
 pub async fn run_activation_deriver_a<T: YaoDuplexTransport>(
@@ -184,6 +190,24 @@ pub async fn run_export_deriver_b<T: YaoDuplexTransport>(
     role: ExportDeriverB,
     transport: T,
 ) -> Result<YaoRoleCompletion<ExportDeriverBCompletion, T::Completion>, YaoRoleDriverError<T::Error>>
+{
+    run_role(role, transport).await
+}
+
+/// Runs lane-materialization Deriver A over one selected duplex transport.
+pub async fn run_lane_materialization_deriver_a<T: YaoDuplexTransport>(
+    role: LaneMaterializationDeriverA,
+    transport: T,
+) -> Result<YaoRoleCompletion<LaneDeriverACompletion, T::Completion>, YaoRoleDriverError<T::Error>>
+{
+    run_role(role, transport).await
+}
+
+/// Runs lane-materialization Deriver B over one selected duplex transport.
+pub async fn run_lane_materialization_deriver_b<T: YaoDuplexTransport>(
+    role: LaneMaterializationDeriverB,
+    transport: T,
+) -> Result<YaoRoleCompletion<LaneDeriverBCompletion, T::Completion>, YaoRoleDriverError<T::Error>>
 {
     run_role(role, transport).await
 }

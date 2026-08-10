@@ -35,11 +35,16 @@ use signer_core::wallet_seed_derivation::derive_ed25519_yao_client_root_from_see
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
+mod lane;
 mod local_material;
 mod signing;
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindings"))]
 mod wasm;
 
+pub use lane::{
+    complete_client_lane_v1, prepare_client_lane_v1, ClientLaneError,
+    Ed25519YaoLaneClientCompletionV1, Ed25519YaoLaneHolderPackageWireV1, PreparedClientLaneV1,
+};
 pub use local_material::{
     ed25519_local_material_binding_v1, import_activated_client_material_v1,
     import_activated_client_under_custody_seed_v1, open_wallet_custody_ed25519_material_v1,
@@ -56,7 +61,7 @@ pub use signing::{
 #[cfg(all(target_arch = "wasm32", feature = "wasm-bindings"))]
 pub use wasm::{
     WasmActivatedClientV1, WasmClientSigningShareV1, WasmCustodyEnvelopeExportSessionV1,
-    WasmExportedEd25519SeedV1,
+    WasmEd25519YaoLaneClientV1, WasmExportedEd25519SeedV1,
 };
 
 type InputHpkeV1 = Hpke<DhKemX25519HkdfSha256, HkdfSha256, Aes256Gcm>;

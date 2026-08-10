@@ -13,10 +13,11 @@ use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::{
-    ed25519_yao_input_aad_v1, ed25519_yao_recipient_package_aad_v1,
-    LocalEd25519YaoActivationDeriverARequestV1, LocalEd25519YaoActivationDeriverBRequestV1,
-    LocalEd25519YaoExportDeriverARequestV1, LocalEd25519YaoExportDeriverBRequestV1,
-    ED25519_YAO_INPUT_HPKE_INFO_V1, ED25519_YAO_RECIPIENT_PACKAGE_HPKE_INFO_V1,
+    ed25519_yao_input_aad_v1, ed25519_yao_lane_recipient_package_aad_v1,
+    ed25519_yao_recipient_package_aad_v1, LocalEd25519YaoActivationDeriverARequestV1,
+    LocalEd25519YaoActivationDeriverBRequestV1, LocalEd25519YaoExportDeriverARequestV1,
+    LocalEd25519YaoExportDeriverBRequestV1, ED25519_YAO_INPUT_HPKE_INFO_V1,
+    ED25519_YAO_LANE_RECIPIENT_PACKAGE_HPKE_INFO_V1, ED25519_YAO_RECIPIENT_PACKAGE_HPKE_INFO_V1,
 };
 
 type ProductHpkeV1 = Hpke<DhKemX25519HkdfSha256, HkdfSha256, Aes256Gcm>;
@@ -164,6 +165,65 @@ where
         rng,
         &public_key,
         ED25519_YAO_RECIPIENT_PACKAGE_HPKE_INFO_V1,
+        &aad,
+        plaintext,
+    )
+    .map_err(map_hpke_config_error)?;
+    let encapsulated_key = encapsulated_key
+        .as_ref()
+        .try_into()
+        .map_err(|_| invalid_crypto_config("HPKE encapsulated key has wrong length"))?;
+    Ed25519YaoEncryptedPackageV1::new(
+        kind,
+        deriver,
+        session,
+        transcript,
+        encapsulated_key,
+        ciphertext,
+    )
+}
+
+/// Seals one lane-materialization output to exactly one target recipient.
+///
+/// Lane packages use a dedicated HPKE info string and AAD domain.  This keeps
+/// activation/export ciphertexts from being accepted by a lane recipient.
+pub fn seal_ed25519_yao_lane_package_v1<R>(
+    rng: &mut R,
+    kind: Ed25519YaoPackageKindV1,
+    deriver: Ed25519YaoDeriverRoleV1,
+    session: [u8; 32],
+    transcript: [u8; 32],
+    target_lane_id_digest: [u8; 32],
+    recipient_public_key: [u8; 32],
+    plaintext: &[u8],
+) -> RouterAbProtocolResult<Ed25519YaoEncryptedPackageV1>
+where
+    R: CryptoRng + RngCore,
+{
+    if !matches!(
+        kind,
+        Ed25519YaoPackageKindV1::LaneHolder | Ed25519YaoPackageKindV1::LaneSigningWorker
+    ) {
+        return Err(invalid_crypto_config(
+            "lane package kind must be holder or SigningWorker",
+        ));
+    }
+    if plaintext.is_empty() {
+        return Err(invalid_crypto_config("lane package plaintext is empty"));
+    }
+    let public_key = DhKemX25519HkdfSha256::pk_from_bytes(&recipient_public_key)
+        .map_err(map_hpke_config_error)?;
+    let aad = ed25519_yao_lane_recipient_package_aad_v1(
+        kind,
+        deriver,
+        session,
+        transcript,
+        target_lane_id_digest,
+    );
+    let (encapsulated_key, ciphertext) = ProductHpkeV1::seal_base(
+        rng,
+        &public_key,
+        ED25519_YAO_LANE_RECIPIENT_PACKAGE_HPKE_INFO_V1,
         &aad,
         plaintext,
     )

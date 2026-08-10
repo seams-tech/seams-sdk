@@ -1125,6 +1125,7 @@ dependencies = [
 name = "router-ab-ecdsa-client-protocol"
 version = "0.1.0"
 dependencies = [
+ "base64ct",
  "curve25519-dalek",
  "k256",
  "serde",
@@ -1136,7 +1137,9 @@ dependencies = [
 name = "router-ab-ed25519-yao"
 version = "0.1.0"
 dependencies = [
+ "base64ct",
  "bs58",
+ "curve25519-dalek",
  "ed25519-dalek",
  "ed25519-yao",
  "frost-ed25519",

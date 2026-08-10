@@ -3,22 +3,28 @@
 #![allow(dead_code)]
 
 use super::packages::{
-    DeriverAClientScalarPackage, DeriverAExportSeedPackage, DeriverASigningWorkerScalarPackage,
-    DeriverBClientScalarPackage, DeriverBExportSeedPackage, DeriverBSigningWorkerScalarPackage,
-    EncodedRecipientPackage, RecipientPackageError,
+    DeriverAClientScalarPackage, DeriverAExportSeedPackage, DeriverALaneHolderPackage,
+    DeriverALaneSigningWorkerPackage, DeriverASigningWorkerScalarPackage,
+    DeriverBClientScalarPackage, DeriverBExportSeedPackage, DeriverBLaneHolderPackage,
+    DeriverBLaneSigningWorkerPackage, DeriverBSigningWorkerScalarPackage, EncodedRecipientPackage,
+    RecipientPackageError,
 };
 use super::roles::{
     ActivationDeriverAInputs, ActivationDeriverAStart, ActivationDeriverBInputs,
     ActivationDeriverBStart, ActivationSessionBinding, DecodedDeriverAActivationShares,
-    DecodedDeriverAExportSeedShare, DecodedDeriverBActivationShares,
-    DecodedDeriverBExportSeedShare, DeriverAClientScalarOutputCoin, DeriverAClientTau,
-    DeriverAClientY, DeriverASeedOutputCoin, DeriverAServerTau, DeriverAServerY,
+    DecodedDeriverAExportSeedShare, DecodedDeriverALaneShares, DecodedDeriverBActivationShares,
+    DecodedDeriverBExportSeedShare, DecodedDeriverBLaneShares, DeriverAClientScalarOutputCoin,
+    DeriverAClientTau, DeriverAClientY, DeriverASeedOutputCoin, DeriverAServerTau, DeriverAServerY,
     DeriverASigningWorkerScalarOutputCoin, DeriverBClientScalarOutputCoin, DeriverBClientTau,
     DeriverBClientY, DeriverBSeedOutputCoin, DeriverBServerTau, DeriverBServerY,
     DeriverBSigningWorkerScalarOutputCoin, ExportDeriverAInputs, ExportDeriverAStart,
-    ExportDeriverBInputs, ExportDeriverBStart, ExportSessionBinding, RoleBoundaryError, SessionId,
-    TranscriptDigest32, ACTIVATION_INPUT_BITS_PER_ROLE, ACTIVATION_OUTPUT_BITS_PER_ROLE,
+    ExportDeriverBInputs, ExportDeriverBStart, ExportSessionBinding, LaneDeriverAHolderShare,
+    LaneDeriverAInputs, LaneDeriverAOffsetShare, LaneDeriverASigningWorkerShare, LaneDeriverAStart,
+    LaneDeriverBHolderShare, LaneDeriverBInputs, LaneDeriverBOffsetShare,
+    LaneDeriverBSigningWorkerShare, LaneDeriverBStart, LaneSessionBinding, RoleBoundaryError,
+    SessionId, TranscriptDigest32, ACTIVATION_INPUT_BITS_PER_ROLE, ACTIVATION_OUTPUT_BITS_PER_ROLE,
     EXPORT_INPUT_BITS_PER_ROLE, EXPORT_OUTPUT_BITS_PER_ROLE,
+    LANE_MATERIALIZATION_INPUT_BITS_PER_ROLE, LANE_MATERIALIZATION_OUTPUT_BITS_PER_ROLE,
 };
 
 const ZERO: [u8; 32] = [0_u8; 32];
@@ -42,6 +48,12 @@ pub(super) const ACTIVATION_RETURNED_MESSAGE_BYTES: usize =
     ROLE_MESSAGE_HEADER_BYTES + ACTIVATION_OUTPUT_BITS_PER_ROLE * LABEL_BYTES;
 pub(super) const EXPORT_RETURNED_MESSAGE_BYTES: usize =
     ROLE_MESSAGE_HEADER_BYTES + EXPORT_OUTPUT_BITS_PER_ROLE * LABEL_BYTES;
+pub(super) const LANE_MATERIALIZATION_DIRECT_MESSAGE_BYTES: usize =
+    ROLE_MESSAGE_HEADER_BYTES + LANE_MATERIALIZATION_INPUT_BITS_PER_ROLE * LABEL_BYTES;
+pub(super) const LANE_MATERIALIZATION_TRANSLATION_MESSAGE_BYTES: usize =
+    ROLE_MESSAGE_HEADER_BYTES + LANE_MATERIALIZATION_OUTPUT_BITS_PER_ROLE / 8;
+pub(super) const LANE_MATERIALIZATION_RETURNED_MESSAGE_BYTES: usize =
+    ROLE_MESSAGE_HEADER_BYTES + LANE_MATERIALIZATION_OUTPUT_BITS_PER_ROLE * LABEL_BYTES;
 
 pub(super) fn activation_deriver_a_fixture_start(
     session: [u8; 32],
@@ -101,6 +113,34 @@ pub(super) fn export_deriver_b_fixture_start(
             DeriverBClientY::from_secret_bytes(ZERO),
             DeriverBServerY::from_secret_bytes(ZERO),
             DeriverBSeedOutputCoin::random_os()?,
+        ),
+    ))
+}
+
+pub(super) fn lane_deriver_a_fixture_start(
+    session: [u8; 32],
+) -> Result<LaneDeriverAStart, RoleBoundaryError> {
+    let binding = LaneSessionBinding::new(SessionId::new(session)?);
+    Ok(LaneDeriverAStart::new(
+        binding,
+        LaneDeriverAInputs::new(
+            LaneDeriverAHolderShare::from_canonical_secret_bytes(ZERO)?,
+            LaneDeriverASigningWorkerShare::from_canonical_secret_bytes(ZERO)?,
+            LaneDeriverAOffsetShare::from_canonical_secret_bytes(ZERO)?,
+        ),
+    ))
+}
+
+pub(super) fn lane_deriver_b_fixture_start(
+    session: [u8; 32],
+) -> Result<LaneDeriverBStart, RoleBoundaryError> {
+    let binding = LaneSessionBinding::new(SessionId::new(session)?);
+    Ok(LaneDeriverBStart::new(
+        binding,
+        LaneDeriverBInputs::new(
+            LaneDeriverBHolderShare::from_canonical_secret_bytes(ZERO)?,
+            LaneDeriverBSigningWorkerShare::from_canonical_secret_bytes(ZERO)?,
+            LaneDeriverBOffsetShare::from_canonical_secret_bytes(ZERO)?,
         ),
     ))
 }
@@ -165,6 +205,52 @@ pub(super) struct CompletedDeriverBExport {
     package: DeriverBExportSeedPackage,
 }
 
+pub(super) struct CompletedDeriverALane {
+    holder_package: DeriverALaneHolderPackage,
+    signing_worker_package: DeriverALaneSigningWorkerPackage,
+}
+
+impl CompletedDeriverALane {
+    pub(super) fn holder_commitment(&self) -> [u8; 32] {
+        *self.holder_package.commitment().as_bytes()
+    }
+
+    pub(super) fn signing_worker_commitment(&self) -> [u8; 32] {
+        *self.signing_worker_package.commitment().as_bytes()
+    }
+
+    pub(super) fn encode_holder_package(&self) -> EncodedRecipientPackage {
+        self.holder_package.encode()
+    }
+
+    pub(super) fn encode_signing_worker_package(&self) -> EncodedRecipientPackage {
+        self.signing_worker_package.encode()
+    }
+}
+
+pub(super) struct CompletedDeriverBLane {
+    holder_package: DeriverBLaneHolderPackage,
+    signing_worker_package: DeriverBLaneSigningWorkerPackage,
+}
+
+impl CompletedDeriverBLane {
+    pub(super) fn holder_commitment(&self) -> [u8; 32] {
+        *self.holder_package.commitment().as_bytes()
+    }
+
+    pub(super) fn signing_worker_commitment(&self) -> [u8; 32] {
+        *self.signing_worker_package.commitment().as_bytes()
+    }
+
+    pub(super) fn encode_holder_package(&self) -> EncodedRecipientPackage {
+        self.holder_package.encode()
+    }
+
+    pub(super) fn encode_signing_worker_package(&self) -> EncodedRecipientPackage {
+        self.signing_worker_package.encode()
+    }
+}
+
 impl CompletedDeriverBExport {
     pub(super) fn encode_package(&self) -> EncodedRecipientPackage {
         self.package.encode()
@@ -219,4 +305,34 @@ pub(super) fn complete_export_deriver_b(
     CompletedDeriverBExport {
         package: DeriverBExportSeedPackage::new(binding, final_transcript, &share),
     }
+}
+
+pub(super) fn complete_lane_deriver_a(
+    binding: LaneSessionBinding,
+    final_transcript: TranscriptDigest32,
+    shares: DecodedDeriverALaneShares,
+) -> Result<CompletedDeriverALane, RecipientPackageError> {
+    Ok(CompletedDeriverALane {
+        holder_package: DeriverALaneHolderPackage::new(binding, final_transcript, &shares)?,
+        signing_worker_package: DeriverALaneSigningWorkerPackage::new(
+            binding,
+            final_transcript,
+            &shares,
+        )?,
+    })
+}
+
+pub(super) fn complete_lane_deriver_b(
+    binding: LaneSessionBinding,
+    final_transcript: TranscriptDigest32,
+    shares: DecodedDeriverBLaneShares,
+) -> Result<CompletedDeriverBLane, RecipientPackageError> {
+    Ok(CompletedDeriverBLane {
+        holder_package: DeriverBLaneHolderPackage::new(binding, final_transcript, &shares)?,
+        signing_worker_package: DeriverBLaneSigningWorkerPackage::new(
+            binding,
+            final_transcript,
+            &shares,
+        )?,
+    })
 }
