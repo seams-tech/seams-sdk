@@ -22,6 +22,7 @@ import {
   buildLaneProductEpochRevokedV1,
   buildRevokeSigningLaneV1,
 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
+import { encodeLaneProtocolCommitReceiptV1 } from '../../packages/shared-ts/src/signing-lanes/rotationDigests';
 import {
   parseLaneHolderParticipantRecordV1,
   parseSigningWorkerParticipantRecordV1,
@@ -30,9 +31,12 @@ import {
   parseCorrelationId,
   parseDigestB64u,
 } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
+import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
+import { sha256Bytes } from '../../packages/shared-ts/src/utils/digests';
 import {
   buildR102HolderDeliveryReceipt,
   buildR102EcdsaLaneJob,
+  buildR102EcdsaRefreshJob,
   buildR102LaneJob,
   buildR102ProtocolCommitReceipt,
   buildR102ServerActivationReceipt,
@@ -497,6 +501,74 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
       'gateway.revocation.fence',
       'ecdsa.retirement',
       'gateway.revocation.complete',
+    ]);
+  });
+
+  test('fences a refresh predecessor before exact private retirement and leaves completion to the atomic activation commit', async () => {
+    const sourceJob = buildR102EcdsaLaneJob('application-ecdsa-refresh-source');
+    if (sourceJob.keyFamily !== 'ecdsa_secp256k1') throw new Error('fixture key family changed');
+    const refreshJob = buildR102EcdsaRefreshJob(sourceJob);
+    const protocolCommitReceipt = buildR102ProtocolCommitReceipt(refreshJob);
+    const retirementRequestDigestB64u = parseDigestB64u(
+      base64UrlEncode(await sha256Bytes(encodeLaneProtocolCommitReceiptV1(protocolCommitReceipt))),
+    );
+    const command = buildRevokeSigningLaneV1({
+      walletId: refreshJob.walletId,
+      walletKeyId: refreshJob.walletKeyId,
+      laneId: refreshJob.source.laneId,
+      laneShareEpoch: refreshJob.source.laneShareEpoch,
+      expectedRevocationEpoch: refreshJob.source.revocationEpoch,
+      reason: 'rotation',
+      retirementCorrelationId: parseCorrelationId(refreshJob.operationId),
+      retirementRequestDigestB64u,
+      retirementEffectBindingDigestB64u: refreshJob.authorization.ownerLaneRefreshDigestB64u,
+      requestedAtMs: 6_000,
+    });
+    const retirementReceipt = await buildR102EcdsaServerRetirementReceipt(sourceJob, {
+      materialActivation: refreshJob.source.materialActivation,
+      revocationEpoch: command.expectedRevocationEpoch,
+      retirementReason: command.reason,
+      retirementCorrelationId: command.retirementCorrelationId,
+      retirementRequestDigestB64u: command.retirementRequestDigestB64u,
+      lifecycleId: String(refreshJob.source.materialActivation.lifecycleBinding),
+    });
+    const calls = applicationCalls();
+    const service = new LaneLifecycleApplicationService({
+      gateway: gateway(calls, (fencedCommand) => {
+        expect(fencedCommand).toEqual(command);
+        return laneRevocationFencePending(sourceJob, fencedCommand);
+      }),
+      authorization: authorization(calls.order),
+      execution: ecdsaRetirementExecutionPorts({
+        retirementCommand: {
+          kind: 'lane_lifecycle_retirement_execution_v1',
+          command,
+          retirementEffectBindingDigestB64u: command.retirementEffectBindingDigestB64u,
+          retirementReceipt,
+        },
+        calls: calls.order,
+      }),
+    });
+
+    await expect(
+      service.retireLaneRefreshPredecessorV1({
+        curve: 'ecdsa_additive',
+        job: refreshJob,
+        protocolCommitReceipt,
+        requestedAtMs: command.requestedAtMs,
+      }),
+    ).resolves.toEqual({
+      refreshOperationId: refreshJob.operationId,
+      sourceLaneId: refreshJob.source.laneId,
+      sourceLaneShareEpoch: refreshJob.source.laneShareEpoch,
+      sourceMaterialActivation: refreshJob.source.materialActivation,
+      retirementEffectBindingDigestB64u: command.retirementEffectBindingDigestB64u,
+      retirementReceipt,
+    });
+    expect(calls.order).toEqual([
+      'revoke_signing_lane_v1',
+      'gateway.revocation.fence',
+      'ecdsa.retirement',
     ]);
   });
 

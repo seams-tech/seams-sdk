@@ -9,8 +9,11 @@ import {
 import { computeLaneParticipantSetBindingDigestV1 } from '../../packages/shared-ts/src/signing-lanes/participantDigest';
 import {
   buildAggregateLaneActivationChildReceiptV1,
+  buildCommitLaneEnrollmentActivationV1,
   buildCompleteSigningLaneRevocationV1,
+  buildLaneEnrollmentManifestV1,
   buildRevokeSigningLaneV1,
+  parseLaneRefreshPredecessorRetirementV1,
 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import type {
   AggregateLaneActivationChildReceiptV1,
@@ -35,7 +38,9 @@ import {
 } from '../helpers/sqliteD1';
 import {
   buildR102HolderDeliveryReceipt,
+  buildR102EcdsaRefreshJob,
   buildR102LaneEnrollmentFixture,
+  buildR102ManifestChild,
   buildR102MixedLaneEnrollmentFixture,
   buildR102ProtocolCommitReceipt,
   buildR102ServerActivationReceipt,
@@ -105,6 +110,7 @@ test.describe('R102 lane lifecycle D1 gateway', () => {
             }),
             orderedChildReceipts[1]!,
           ],
+          orderedPredecessorRetirements: [],
           activatedAtMs: 5_000,
         }),
       ).rejects.toThrow('product epoch is not pending or differs from aggregate receipt');
@@ -114,6 +120,7 @@ test.describe('R102 lane lifecycle D1 gateway', () => {
         walletId: fixture.manifest.walletId,
         manifestDigestB64u,
         orderedChildReceipts: [orderedChildReceipts[0]!, orderedChildReceipts[1]!],
+        orderedPredecessorRetirements: [],
         activatedAtMs: 5_000,
       });
       expect(activated).toMatchObject({
@@ -305,13 +312,139 @@ test.describe('R102 lane lifecycle D1 gateway', () => {
       cleanupTemporaryD1Database(temporary.tempDir);
     }
   });
+
+  test('atomically retires a fenced refresh predecessor with its exact receipt and rejects stored receipt tampering on replay', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+      const initial = buildR102MixedLaneEnrollmentFixture();
+      const store = new CloudflareD1LaneLifecycleStore({
+        database: temporary.database,
+        scope,
+        now: () => 1_000,
+      });
+      const gateway = new CloudflareD1LaneEnrollmentGateway({ lifecycleStore: store });
+      await activateFixture(gateway, initial);
+      const source = initial.children[1];
+      if (source.keyFamily !== 'ecdsa_secp256k1')
+        throw new Error('refresh fixture source must be ECDSA');
+      const refreshJob = buildR102EcdsaRefreshJob(source);
+      const refreshManifest = buildLaneEnrollmentManifestV1({
+        enrollmentId: refreshJob.enrollmentId,
+        walletId: refreshJob.walletId,
+        authorization: refreshJob.authorization,
+        orderedChildren: [buildR102ManifestChild(refreshJob)],
+        createdAtMs: 1_000,
+        expiresAtMs: 200_000,
+      });
+      await expect(
+        gateway.prepareLaneEnrollmentV1({ manifest: refreshManifest, children: [refreshJob] }),
+      ).resolves.toMatchObject({ outcome: 'applied' });
+      const refreshChild = await completeChild(gateway, refreshJob);
+      const retiredAt = '2026-08-11T00:00:00.000Z';
+      const retiredAtMs = Date.parse(retiredAt);
+      const command = buildRevokeSigningLaneV1({
+        walletId: refreshJob.walletId,
+        walletKeyId: refreshJob.walletKeyId,
+        laneId: refreshJob.source.laneId,
+        laneShareEpoch: refreshJob.source.laneShareEpoch,
+        expectedRevocationEpoch: refreshJob.source.revocationEpoch,
+        reason: 'rotation',
+        retirementCorrelationId: String(refreshJob.operationId),
+        retirementRequestDigestB64u: refreshChild.protocolCommitReceiptDigestB64u,
+        retirementEffectBindingDigestB64u: refreshJob.authorization.ownerLaneRefreshDigestB64u,
+        requestedAtMs: retiredAtMs,
+      });
+      await expect(gateway.fenceSigningLaneRevocationV1(command)).resolves.toMatchObject({
+        outcome: 'applied',
+        productEpoch: { state: 'revocation_pending', revocationEpoch: 1 },
+      });
+      const retirementReceipt = await buildR102EcdsaServerRetirementReceipt(source, {
+        materialActivation: refreshJob.source.materialActivation,
+        revocationEpoch: command.expectedRevocationEpoch,
+        retirementReason: command.reason,
+        retirementCorrelationId: command.retirementCorrelationId,
+        retirementRequestDigestB64u: command.retirementRequestDigestB64u,
+        lifecycleId: String(refreshJob.source.materialActivation.lifecycleBinding),
+        retiredAt,
+      });
+      const predecessorRetirement = parseLaneRefreshPredecessorRetirementV1({
+        refreshOperationId: refreshJob.operationId,
+        sourceLaneId: refreshJob.source.laneId,
+        sourceLaneShareEpoch: refreshJob.source.laneShareEpoch,
+        sourceMaterialActivation: refreshJob.source.materialActivation,
+        retirementEffectBindingDigestB64u: refreshJob.authorization.ownerLaneRefreshDigestB64u,
+        retirementReceipt,
+      });
+      const manifestDigestB64u = await computeLaneEnrollmentManifestDigestV1(refreshManifest);
+      const commit = buildCommitLaneEnrollmentActivationV1({
+        enrollmentId: refreshManifest.enrollmentId,
+        walletId: refreshManifest.walletId,
+        manifestDigestB64u,
+        orderedChildReceipts: [refreshChild],
+        orderedPredecessorRetirements: [predecessorRetirement],
+        activatedAtMs: retiredAtMs,
+      });
+      await expect(gateway.commitLaneEnrollmentActivationV1(commit)).resolves.toMatchObject({
+        outcome: 'applied',
+        lifecycle: { state: 'active' },
+        productEpochs: [{ state: 'active', laneShareEpoch: refreshJob.target.laneShareEpoch }],
+      });
+      await expect(
+        store.getProductEpoch({
+          walletId: refreshJob.walletId,
+          walletKeyId: refreshJob.walletKeyId,
+          laneId: refreshJob.source.laneId,
+          laneShareEpoch: refreshJob.source.laneShareEpoch,
+        }),
+      ).resolves.toMatchObject({
+        state: 'retired',
+        retirementReason: 'rotation',
+        retirementReceiptDigestB64u: retirementReceipt.receiptDigestB64u,
+      });
+      await expect(gateway.commitLaneEnrollmentActivationV1(commit)).resolves.toMatchObject({
+        outcome: 'replayed',
+      });
+      const missingRetirementReplay = buildCommitLaneEnrollmentActivationV1({
+        enrollmentId: refreshManifest.enrollmentId,
+        walletId: refreshManifest.walletId,
+        manifestDigestB64u,
+        orderedChildReceipts: [refreshChild],
+        orderedPredecessorRetirements: [],
+        activatedAtMs: retiredAtMs,
+      });
+      await expect(
+        gateway.commitLaneEnrollmentActivationV1(missingRetirementReplay),
+      ).rejects.toThrow('stored refresh child has no exact predecessor retirement');
+      await temporary.database
+        .prepare(
+          `UPDATE lane_receipts SET receipt_json = ?1 WHERE namespace = ?2 AND org_id = ?3 AND project_id = ?4 AND env_id = ?5 AND operation_id = ?6 AND receipt_kind = 'lane_refresh_predecessor_retirement'`,
+        )
+        .bind(
+          JSON.stringify({
+            ...retirementReceipt,
+            receiptDigestB64u: base64UrlEncode(new Uint8Array(32).fill(12)),
+          }),
+          scope.namespace,
+          scope.orgId,
+          scope.projectId,
+          scope.envId,
+          String(refreshJob.operationId),
+        )
+        .run();
+      await expect(gateway.commitLaneEnrollmentActivationV1(commit)).rejects.toThrow(
+        'refresh predecessor receipt replay differs from persisted receipt',
+      );
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
 });
 
 async function completeChild(
   gateway: CloudflareD1LaneEnrollmentGateway,
   job: RotatableSigningLaneJobV1,
 ): Promise<AggregateLaneActivationChildReceiptV1> {
-  if (job.target.operation !== 'create_lane') throw new Error('fixture target must be creation');
   const protocolReceipt = buildR102ProtocolCommitReceipt(job);
   const protocol = await gateway.recordLaneProtocolCommitV1({
     receipt: protocolReceipt,
@@ -356,6 +489,7 @@ async function activateFixture(
     walletId: fixture.manifest.walletId,
     manifestDigestB64u,
     orderedChildReceipts: [childReceipts[0]!, childReceipts[1]!],
+    orderedPredecessorRetirements: [],
     activatedAtMs: 5_000,
   });
 }
@@ -386,12 +520,10 @@ async function receiptDigest(
 }
 
 function targetLaneId(job: RotatableSigningLaneJobV1) {
-  if (job.target.operation !== 'create_lane') throw new Error('fixture target must be creation');
   return job.target.laneId;
 }
 
 function targetShareEpoch(job: RotatableSigningLaneJobV1) {
-  if (job.target.operation !== 'create_lane') throw new Error('fixture target must be creation');
   return job.target.laneShareEpoch;
 }
 

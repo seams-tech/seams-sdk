@@ -5,8 +5,16 @@ import type {
 } from './recipientPreparation';
 import {
   buildLaneActivationEffectPlanV1,
+  type LaneActivationChildInputV1,
   type LaneActivationEffectPlanV1,
 } from './activationCoordinator';
+import type {
+  EcdsaAdditiveLaneJobV1,
+  LaneHolderDeliveryReceiptV1,
+  LaneProtocolCommitReceiptV1,
+  LaneRefreshPredecessorRetirementV1,
+  LaneServerActivationReceiptV1,
+} from '@shared/signing-lanes';
 import {
   buildLaneMaterialInvalidationPlanV1,
   type ExactLaneMaterialInvalidationTargetV1,
@@ -43,10 +51,36 @@ declare const activationPlan: LaneActivationEffectPlanV1;
 void buildLaneActivationEffectPlanV1(activationPlanInput);
 void activationPlan.commitCommand;
 
+declare const refreshJob: Extract<
+  EcdsaAdditiveLaneJobV1,
+  { target: { operation: 'refresh_lane' } }
+>;
+declare const protocolCommitReceipt: LaneProtocolCommitReceiptV1;
+declare const holderDeliveryReceipt: LaneHolderDeliveryReceiptV1;
+declare const serverActivationReceipt: LaneServerActivationReceiptV1;
+declare const predecessorRetirement: LaneRefreshPredecessorRetirementV1;
+
+const refreshActivationChild: LaneActivationChildInputV1 = {
+  job: refreshJob,
+  protocolCommitReceipt,
+  holderDeliveryReceipt,
+  serverActivationReceipt,
+  predecessorRetirement,
+};
+void refreshActivationChild;
+
+// @ts-expect-error A refresh target cannot reach activation without exact predecessor retirement.
+const refreshWithoutRetirement: LaneActivationChildInputV1 = {
+  job: refreshJob,
+  protocolCommitReceipt,
+  holderDeliveryReceipt,
+  serverActivationReceipt,
+};
+void refreshWithoutRetirement;
+
 const invalidationPlan = buildLaneMaterialInvalidationPlanV1({
   target,
   reason: 'refresh',
   keyFamily: 'ecdsa_secp256k1',
 });
 invalidationPlan.orderedEffects;
-

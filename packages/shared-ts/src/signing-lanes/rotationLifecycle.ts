@@ -367,15 +367,16 @@ export function activateLaneProductEpochV1(
   };
 }
 
-export function retireLaneProductEpochV1(
-  current: LaneProductEpochActiveV1,
+export function retireFencedLaneProductEpochV1(
+  current: LaneProductEpochRevocationPendingV1,
   args: {
-    readonly retirementReason: LaneProductEpochRetiredV1['retirementReason'];
     readonly retirementReceiptDigestB64u: string;
     readonly retiredAtMs: number;
   },
 ): LaneProductEpochRetiredV1 {
-  requireForwardTime(current.activatedAtMs, args.retiredAtMs, 'retiredAtMs');
+  requireForwardTime(current.revocationRequestedAtMs, args.retiredAtMs, 'retiredAtMs');
+  if (current.revocationReason !== 'rotation')
+    throw new Error('only a rotation fence can retire a refresh predecessor');
   return {
     kind: 'lane_product_epoch_record_v1',
     state: 'retired',
@@ -395,7 +396,7 @@ export function retireLaneProductEpochV1(
     participantSetBindingDigestB64u: current.participantSetBindingDigestB64u,
     revocationEpoch: current.revocationEpoch,
     createdAtMs: current.createdAtMs,
-    retirementReason: args.retirementReason,
+    retirementReason: 'rotation',
     retirementReceiptDigestB64u: args.retirementReceiptDigestB64u,
     retiredAtMs: args.retiredAtMs,
   };

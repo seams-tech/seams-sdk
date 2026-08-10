@@ -9,6 +9,7 @@ import {
   parseLaneHolderDeliveryReceiptV1,
   parseLaneServerActivationReceiptV1,
   parseLaneServerRetirementReceiptV1,
+  parseLaneRefreshPredecessorRetirementV1,
   parseRevokeSigningLaneV1,
   parseLaneProductEpochRecordV1,
 } from '@shared/signing-lanes/rotationParsers';
@@ -16,7 +17,7 @@ import {
   activateLaneProductEpochV1,
   beginLaneProductEpochRevocationV1,
   completeLaneProductEpochRevocationV1,
-  retireLaneProductEpochV1,
+  retireFencedLaneProductEpochV1,
   transitionLaneEnrollmentLifecycleV1,
 } from '@shared/signing-lanes/rotationLifecycle';
 import {
@@ -47,6 +48,7 @@ import type {
   LaneProtocolCasResultV1,
   LaneServerActivationReceiptV1,
   LaneServerRetirementReceiptV1,
+  LaneRefreshPredecessorRetirementV1,
   RevokeLaneEnrollmentV1,
   RevokeSigningLaneV1,
 } from '@shared/signing-lanes';
@@ -774,6 +776,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
     const aggregateDigest = await computeAggregateLaneActivationReceiptDigestV1(receipt);
     if (parent.value.lifecycle.state === 'active') {
       if (parent.value.lifecycle.aggregateReceiptDigestB64u === aggregateDigest) {
+        await this.verifyStoredRefreshPredecessorRetirements(input);
         const productEpochs = await activeProductEpochs(this, input.enrollmentId);
         if (productEpochs.length === 0) throw new Error('active enrollment has no product epochs');
         return {
@@ -831,9 +834,13 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
     }> = [];
     const products = await this.listEnrollmentProductEpochs(input.enrollmentId);
     const retirements: Array<{
-      readonly previous: Extract<LaneProductEpochRecordV1, { state: 'active' }>;
+      readonly previous: Extract<LaneProductEpochRecordV1, { state: 'revocation_pending' }>;
       readonly version: number;
+      readonly refresh: LaneRefreshPredecessorRetirementV1;
+      readonly receiptDigestB64u: string;
+      readonly retiredAtMs: number;
     }> = [];
+    let refreshRetirementIndex = 0;
     for (const child of input.orderedChildReceipts) {
       const protocol = await this.getProtocol(child.operationId);
       if (!protocol || protocol.value.lifecycle.state !== 'ready_for_parent_visibility')
@@ -869,16 +876,36 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
           'lane child product epoch is not pending or differs from aggregate receipt',
         );
       if (protocol.value.job.target.operation === 'refresh_lane') {
-        const previous = await this.getActiveProductEpochByActivation(
+        const previous = await this.getFencedProductEpochByActivation(
           protocol.value.job.walletKeyId,
           protocol.value.job.target.laneId,
           protocol.value.job.target.priorMaterialActivation.activationId,
         );
-        if (!previous) throw new Error('lane refresh target has no active prior product epoch');
-        retirements.push({ previous: previous.product, version: previous.version });
+        if (!previous) throw new Error('lane refresh target has no fenced prior product epoch');
+        const refresh = input.orderedPredecessorRetirements[refreshRetirementIndex];
+        if (!refresh)
+          throw new Error('lane refresh target has no exact predecessor retirement result');
+        const parsedRefresh = parseLaneRefreshPredecessorRetirementV1(refresh);
+        const verifiedRetirement = await verifyRefreshPredecessorRetirementV1({
+          previous: previous.product,
+          previousProtocol: await this.getProtocol(previous.product.operationId),
+          refreshProtocol: protocol,
+          refresh: parsedRefresh,
+          activatedAtMs: input.activatedAtMs,
+        });
+        retirements.push({
+          previous: previous.product,
+          version: previous.version,
+          refresh: parsedRefresh,
+          receiptDigestB64u: verifiedRetirement.receiptDigestB64u,
+          retiredAtMs: verifiedRetirement.retiredAtMs,
+        });
+        refreshRetirementIndex += 1;
       }
       protocols.push({ operationId: child.operationId, row: protocol });
     }
+    if (refreshRetirementIndex !== input.orderedPredecessorRetirements.length)
+      throw new Error('predecessor retirement results do not match refresh children exactly');
     const now = this.now();
     const values = scopeValues(this.scope);
     const statements: D1PreparedStatementLike[] = [];
@@ -928,15 +955,14 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
       statements.push(this.database.prepare(LANE_CAS_GUARD_SQL));
     }
     for (const retirement of retirements) {
-      const retired = retireLaneProductEpochV1(retirement.previous, {
-        retirementReason: 'rotation',
-        retirementReceiptDigestB64u: aggregateDigest,
-        retiredAtMs: input.activatedAtMs,
+      const retired = retireFencedLaneProductEpochV1(retirement.previous, {
+        retirementReceiptDigestB64u: retirement.receiptDigestB64u,
+        retiredAtMs: retirement.retiredAtMs,
       });
       statements.push(
         this.database
           .prepare(
-            `UPDATE ${PRODUCT_TABLE} SET state = 'retired', product_json = ?5, version = version + 1, command_digest_b64u = ?6, updated_at_ms = ?7 WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4 AND wallet_key_id = ?8 AND lane_id = ?9 AND target_material_activation_id = ?10 AND version = ?11 AND state = 'active'`,
+            `UPDATE ${PRODUCT_TABLE} SET state = 'retired', product_json = ?5, version = version + 1, command_digest_b64u = ?6, updated_at_ms = ?7 WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4 AND wallet_key_id = ?8 AND lane_id = ?9 AND target_material_activation_id = ?10 AND version = ?11 AND state = 'revocation_pending'`,
           )
           .bind(
             ...values,
@@ -947,6 +973,22 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
             String(retirement.previous.laneId),
             String(retirement.previous.targetMaterialActivationId),
             retirement.version,
+          ),
+      );
+      statements.push(this.database.prepare(LANE_CAS_GUARD_SQL));
+      statements.push(
+        this.database
+          .prepare(
+            `INSERT INTO ${RECEIPT_TABLE} (namespace, org_id, project_id, env_id, receipt_id, enrollment_id, operation_id, receipt_kind, receipt_digest_b64u, receipt_json, created_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'lane_refresh_predecessor_retirement', ?8, ?9, ?10)`,
+          )
+          .bind(
+            ...values,
+            refreshPredecessorRetirementReceiptId(retirement.refresh),
+            String(input.enrollmentId),
+            String(retirement.refresh.refreshOperationId),
+            retirement.receiptDigestB64u,
+            JSON.stringify(retirement.refresh.retirementReceipt),
+            input.activatedAtMs,
           ),
       );
       statements.push(this.database.prepare(LANE_CAS_GUARD_SQL));
@@ -1001,6 +1043,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
         raced?.value.lifecycle.state === 'active' &&
         raced.value.lifecycle.aggregateReceiptDigestB64u === aggregateDigest
       ) {
+        await this.verifyStoredRefreshPredecessorRetirements(input);
         const productEpochs = await activeProductEpochs(this, input.enrollmentId);
         if (productEpochs.length === 0) throw error;
         return {
@@ -1819,12 +1862,12 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
     };
   }
 
-  private async getActiveProductEpochByActivation(
+  private async getFencedProductEpochByActivation(
     walletKeyId: WalletKeyId,
     laneId: SigningLaneId,
     activationId: string,
   ): Promise<{
-    readonly product: Extract<LaneProductEpochRecordV1, { state: 'active' }>;
+    readonly product: Extract<LaneProductEpochRecordV1, { state: 'revocation_pending' }>;
     readonly version: number;
   } | null> {
     const row = await this.database
@@ -1833,13 +1876,13 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
            FROM ${PRODUCT_TABLE}
           WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4
             AND wallet_key_id = ?5 AND lane_id = ?6 AND target_material_activation_id = ?7
-            AND state = 'active'`,
+            AND state = 'revocation_pending'`,
       )
       .bind(...scopeValues(this.scope), String(walletKeyId), String(laneId), activationId)
       .first<{ readonly product_json?: unknown; readonly version?: unknown }>();
     if (!row) return null;
     const product = parseProductEpochRecordV1(row.product_json);
-    if (product.state !== 'active') return null;
+    if (product.state !== 'revocation_pending') return null;
     return { product, version: parseVersion(row.version, 'prior lane product epoch version') };
   }
 
@@ -2094,6 +2137,69 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
     return receipt;
   }
 
+  private async verifyStoredRefreshPredecessorRetirements(
+    input: CommitLaneEnrollmentActivationV1,
+  ): Promise<void> {
+    const retirements = new Map(
+      input.orderedPredecessorRetirements.map((raw) => {
+        const refresh = parseLaneRefreshPredecessorRetirementV1(raw);
+        return [String(refresh.refreshOperationId), refresh] as const;
+      }),
+    );
+    let refreshCount = 0;
+    for (const child of input.orderedChildReceipts) {
+      const protocol = await this.getProtocol(child.operationId);
+      if (protocol?.value.job.target.operation !== 'refresh_lane') continue;
+      refreshCount += 1;
+      const refresh = retirements.get(String(child.operationId));
+      if (!refresh) throw new Error('stored refresh child has no exact predecessor retirement');
+      const product = await this.getProductEpoch({
+        walletId: input.walletId,
+        walletKeyId: child.walletKeyId,
+        laneId: refresh.sourceLaneId,
+        laneShareEpoch: refresh.sourceLaneShareEpoch,
+      });
+      const digest = await laneServerRetirementReceiptDigestV1(refresh.retirementReceipt);
+      if (
+        product?.state !== 'retired' ||
+        product.retirementReason !== 'rotation' ||
+        product.retirementReceiptDigestB64u !== digest ||
+        !mpcMaterialActivationRefsEqual(
+          product.materialActivation,
+          refresh.sourceMaterialActivation,
+        )
+      ) {
+        throw new Error('retired predecessor product differs from its exact receipt');
+      }
+      const row = await this.database
+        .prepare(
+          `SELECT receipt_id, receipt_digest_b64u, receipt_json FROM ${RECEIPT_TABLE} WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4 AND operation_id = ?5 AND receipt_kind = 'lane_refresh_predecessor_retirement'`,
+        )
+        .bind(...scopeValues(this.scope), String(refresh.refreshOperationId))
+        .first<{
+          readonly receipt_id?: unknown;
+          readonly receipt_digest_b64u?: unknown;
+          readonly receipt_json?: unknown;
+        }>();
+      if (
+        !row ||
+        parseRequiredString(row.receipt_id, 'refresh predecessor receipt id') !==
+          refreshPredecessorRetirementReceiptId(refresh) ||
+        parseRequiredString(row.receipt_digest_b64u, 'refresh predecessor receipt digest') !==
+          digest
+      ) {
+        throw new Error('refresh predecessor receipt persistence is missing or invalid');
+      }
+      const stored = parseLaneServerRetirementReceiptV1(
+        parseJsonRecord(row.receipt_json, 'refresh predecessor receipt'),
+      );
+      if (!equalLaneRecords(stored, refresh.retirementReceipt))
+        throw new Error('refresh predecessor receipt replay differs from persisted receipt');
+    }
+    if (refreshCount !== retirements.size)
+      throw new Error('stored predecessor retirements do not match refresh children exactly');
+  }
+
   private async readReceipt(
     operationId: LaneOperationId,
     kind: string,
@@ -2200,6 +2306,129 @@ async function verifyServerRetirementReceiptV1(input: {
     throw new Error('ECDSA server retirement receipt self-digest is invalid');
   }
   return digest;
+}
+
+async function verifyRefreshPredecessorRetirementV1(input: {
+  readonly previous: Extract<LaneProductEpochRecordV1, { state: 'revocation_pending' }>;
+  readonly previousProtocol: LaneProtocolAdmissionRecord | null;
+  readonly refreshProtocol: LaneProtocolAdmissionRecord;
+  readonly refresh: LaneRefreshPredecessorRetirementV1;
+  readonly activatedAtMs: number;
+}): Promise<{ readonly receiptDigestB64u: string; readonly retiredAtMs: number }> {
+  const refreshJob = input.refreshProtocol.value.job;
+  if (
+    refreshJob.target.operation !== 'refresh_lane' ||
+    input.refreshProtocol.value.lifecycle.state !== 'ready_for_parent_visibility' ||
+    input.previousProtocol === null ||
+    input.previousProtocol.value.lifecycle.state !== 'active' ||
+    input.refresh.refreshOperationId !== refreshJob.operationId ||
+    input.refresh.sourceLaneId !== refreshJob.source.laneId ||
+    input.refresh.sourceLaneShareEpoch !== refreshJob.source.laneShareEpoch ||
+    !mpcMaterialActivationRefsEqual(
+      input.refresh.sourceMaterialActivation,
+      refreshJob.source.materialActivation,
+    ) ||
+    !mpcMaterialActivationRefsEqual(
+      input.refresh.sourceMaterialActivation,
+      input.previous.materialActivation,
+    ) ||
+    input.refresh.retirementEffectBindingDigestB64u !==
+      refreshJob.authorization.ownerLaneRefreshDigestB64u ||
+    input.previous.revocationEpoch !== refreshJob.source.revocationEpoch + 1 ||
+    input.previous.revocationReason !== 'rotation' ||
+    input.previous.retirementEffectBindingDigestB64u !==
+      input.refresh.retirementEffectBindingDigestB64u
+  ) {
+    throw new Error('lane refresh predecessor retirement differs from the admitted source');
+  }
+  const receipt = input.refresh.retirementReceipt;
+  const requestDigestB64u = input.refreshProtocol.value.lifecycle.protocolCommitReceiptDigestB64u;
+  if (
+    receipt.retirementReason !== 'rotation' ||
+    String(receipt.retirementCorrelationId) !== String(refreshJob.operationId) ||
+    receipt.retirementRequestDigestB64u !== requestDigestB64u ||
+    receipt.revocationEpoch !== refreshJob.source.revocationEpoch
+  ) {
+    throw new Error('lane refresh predecessor receipt is not bound to the refresh transcript');
+  }
+  if (receipt.kind === 'ed25519_server_retirement_receipt_v1') {
+    const previousJob = input.previousProtocol.value.job;
+    const identity = receipt.identity;
+    if (
+      refreshJob.keyFamily !== 'ed25519' ||
+      previousJob.keyFamily !== 'ed25519' ||
+      input.previous.keyFamily !== 'ed25519' ||
+      identity.operationId !== input.previous.operationId ||
+      identity.enrollmentId !== input.previous.enrollmentId ||
+      identity.walletId !== input.previous.walletId ||
+      identity.walletKeyId !== input.previous.walletKeyId ||
+      identity.targetLaneId !== input.previous.laneId ||
+      identity.targetLaneShareEpoch !== input.previous.laneShareEpoch ||
+      identity.targetMaterialActivationId !== input.previous.targetMaterialActivationId ||
+      identity.holderParticipantBindingDigestB64u !==
+        input.previous.holderParticipant.participantBindingDigestB64u ||
+      identity.signingWorkerParticipantBindingDigestB64u !==
+        input.previous.signingWorkerParticipant.participantBindingDigestB64u ||
+      identity.holderRecipientKeyDigestB64u !== previousJob.targetHolder.hpkePublicKeyDigestB64u ||
+      identity.serverRecipientKeyDigestB64u !==
+        previousJob.targetSigningWorker.hpkePublicKeyDigestB64u ||
+      identity.transcriptHashB64u !== input.previousProtocol.value.lifecycle.transcriptHashB64u ||
+      identity.protocolCommitReceiptDigestB64u !==
+        input.previousProtocol.value.lifecycle.protocolCommitReceiptDigestB64u ||
+      receipt.retiredAtMs < input.previous.revocationRequestedAtMs ||
+      receipt.retiredAtMs > input.activatedAtMs
+    ) {
+      throw new Error('Ed25519 refresh predecessor receipt differs from the active source epoch');
+    }
+    const digest = await computeEd25519ServerRetirementReceiptDigestV1(receipt);
+    if (receipt.receiptDigestB64u !== digest)
+      throw new Error('Ed25519 refresh predecessor receipt self-digest is invalid');
+    return { receiptDigestB64u: digest, retiredAtMs: receipt.retiredAtMs };
+  }
+  const previousJob = input.previousProtocol.value.job;
+  const retiredAtMs = Date.parse(receipt.retiredAt);
+  if (
+    refreshJob.keyFamily !== 'ecdsa_secp256k1' ||
+    previousJob.keyFamily !== 'ecdsa_secp256k1' ||
+    input.previous.keyFamily !== 'ecdsa_secp256k1' ||
+    !mpcMaterialActivationRefsEqual(
+      receipt.materialActivation,
+      input.previous.materialActivation,
+    ) ||
+    receipt.walletKeyId !== input.previous.walletKeyId ||
+    receipt.laneId !== input.previous.laneId ||
+    receipt.laneShareEpoch !== input.previous.laneShareEpoch ||
+    receipt.manifest.manifestId !== previousJob.targetCapability.manifestId ||
+    receipt.manifest.manifestRevision !== previousJob.targetCapability.manifestRevision ||
+    receipt.serverGeneration !== previousJob.sourceCapability.serverGeneration ||
+    String(receipt.lifecycleId) !== String(input.previous.materialActivation.lifecycleBinding) ||
+    !Number.isFinite(retiredAtMs) ||
+    retiredAtMs < input.previous.revocationRequestedAtMs ||
+    retiredAtMs > input.activatedAtMs
+  ) {
+    throw new Error('ECDSA refresh predecessor receipt differs from the active source epoch');
+  }
+  const digest = await computeEcdsaServerRetirementReceiptDigestV1(receipt);
+  if (receipt.receiptDigestB64u !== digest)
+    throw new Error('ECDSA refresh predecessor receipt self-digest is invalid');
+  return { receiptDigestB64u: digest, retiredAtMs };
+}
+
+function refreshPredecessorRetirementReceiptId(
+  refresh: LaneRefreshPredecessorRetirementV1,
+): string {
+  return `${String(refresh.refreshOperationId)}:lane_refresh_predecessor_retirement:${String(refresh.sourceLaneId)}:${String(refresh.sourceLaneShareEpoch)}`;
+}
+
+async function laneServerRetirementReceiptDigestV1(
+  receipt: LaneServerRetirementReceiptV1,
+): Promise<string> {
+  switch (receipt.kind) {
+    case 'ed25519_server_retirement_receipt_v1':
+      return await computeEd25519ServerRetirementReceiptDigestV1(receipt);
+    case 'ecdsa_server_retirement_receipt_v1':
+      return await computeEcdsaServerRetirementReceiptDigestV1(receipt);
+  }
 }
 
 function retirementReceiptReasonV1(

@@ -134,6 +134,7 @@ import type {
   LaneProtocolLifecycle,
   LaneProtocolRecordV1,
   LaneRefreshTargetV1,
+  LaneRefreshPredecessorRetirementV1,
   LaneServerActivationReceiptV1,
   LaneServerRetirementReceiptV1,
   SigningWorkerLaneMaterialIdentityV1,
@@ -1507,6 +1508,7 @@ export function parseCommitLaneEnrollmentActivationV1(
       'walletId',
       'manifestDigestB64u',
       'orderedChildReceipts',
+      'orderedPredecessorRetirements',
       'activatedAtMs',
     ],
     label,
@@ -1524,13 +1526,70 @@ export function parseCommitLaneEnrollmentActivationV1(
     },
     `${label}.receipt`,
   );
+  const predecessorRetirementsRaw = requiredArray(
+    record.orderedPredecessorRetirements,
+    `${label}.orderedPredecessorRetirements`,
+  );
+  const orderedPredecessorRetirements = predecessorRetirementsRaw.map((value, index) =>
+    parseLaneRefreshPredecessorRetirementV1(
+      value,
+      `${label}.orderedPredecessorRetirements[${index}]`,
+    ),
+  );
+  const refreshOperationIds = orderedPredecessorRetirements.map((value) =>
+    String(value.refreshOperationId),
+  );
+  if (new Set(refreshOperationIds).size !== refreshOperationIds.length)
+    throw new Error(`${label}.orderedPredecessorRetirements contains duplicate refresh operation`);
   return {
     kind: 'commit_lane_enrollment_activation_v1',
     enrollmentId: receipt.enrollmentId,
     walletId: receipt.walletId,
     manifestDigestB64u: receipt.manifestDigestB64u,
     orderedChildReceipts: receipt.orderedChildReceipts,
+    orderedPredecessorRetirements,
     activatedAtMs: receipt.activatedAtMs,
+  };
+}
+
+export function parseLaneRefreshPredecessorRetirementV1(
+  raw: unknown,
+  label = 'laneRefreshPredecessorRetirement',
+): LaneRefreshPredecessorRetirementV1 {
+  const record = exactRecord(
+    raw,
+    [
+      'refreshOperationId',
+      'sourceLaneId',
+      'sourceLaneShareEpoch',
+      'sourceMaterialActivation',
+      'retirementEffectBindingDigestB64u',
+      'retirementReceipt',
+    ],
+    label,
+  );
+  return {
+    refreshOperationId: parseLaneOperationId(
+      record.refreshOperationId,
+      `${label}.refreshOperationId`,
+    ),
+    sourceLaneId: parseLaneId(record.sourceLaneId, `${label}.sourceLaneId`),
+    sourceLaneShareEpoch: parseShareEpoch(
+      record.sourceLaneShareEpoch,
+      `${label}.sourceLaneShareEpoch`,
+    ),
+    sourceMaterialActivation: parseMpcActivation(
+      record.sourceMaterialActivation,
+      `${label}.sourceMaterialActivation`,
+    ),
+    retirementEffectBindingDigestB64u: digest(
+      record.retirementEffectBindingDigestB64u,
+      `${label}.retirementEffectBindingDigestB64u`,
+    ),
+    retirementReceipt: parseLaneServerRetirementReceiptV1(
+      record.retirementReceipt,
+      `${label}.retirementReceipt`,
+    ),
   };
 }
 
