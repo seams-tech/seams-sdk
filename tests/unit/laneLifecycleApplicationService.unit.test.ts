@@ -110,7 +110,6 @@ function gateway(
       calls.order.push('gateway.revocation.complete');
       return revocationCompletion(input);
     },
-    revokeLaneEnrollmentV1: unsupported,
   };
 }
 
