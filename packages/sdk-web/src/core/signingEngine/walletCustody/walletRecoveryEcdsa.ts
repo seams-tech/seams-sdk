@@ -27,7 +27,6 @@ export type WalletRecoveryEcdsaActivation = {
   readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
   readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   readonly possessionProof: WalletRecoveryEcdsaPossessionProofV1;
-  readonly relayerPublicIdentityJson: string;
 };
 
 function ethereumAddressFromAddress20B64u(value: string): `0x${string}` {
@@ -119,20 +118,6 @@ function readyStateBlobFromRecoveryOutput(stateBlobB64u: string): EcdsaRoleLocal
   };
 }
 
-function relayerPublicIdentityJson(
-  publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1,
-  activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1,
-): string {
-  const identity = activationReceipt.ecdsa_activation.public_identity;
-  return JSON.stringify({
-    relayerKeyId: publicCapability.signer_set.selected_server.server_id,
-    relayerPublicKey33B64u: identity.server_public_key33_b64u,
-    groupPublicKey33B64u: identity.threshold_public_key33_b64u,
-    ethereumAddress: ethereumAddressFromAddress20B64u(identity.ethereum_address20_b64u),
-    relayerShareRetryCounter: identity.server_share_retry_counter,
-  });
-}
-
 export async function signRecoveredWalletCustodyEcdsa(input: {
   readonly entry: EcdsaRecoveryEntry;
   readonly walletId: string;
@@ -190,6 +175,5 @@ export async function signRecoveredWalletCustodyEcdsa(input: {
     activationReceipt,
     publicCapability,
     possessionProof: signed.proof,
-    relayerPublicIdentityJson: relayerPublicIdentityJson(publicCapability, activationReceipt),
   };
 }
