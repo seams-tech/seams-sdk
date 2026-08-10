@@ -4,10 +4,8 @@ import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { RegistrationConfirmationDiagnostics } from '@/core/signingEngine/stepUpConfirmation/types';
 import type { WebAuthnRegistrationConfirmationSurface } from '@/SeamsWeb/signingSurface/types';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  redactedPasskeyRegistrationCredential,
-  requirePasskeyPrfFirstB64u,
-} from '@/SeamsWeb/operations/authMethods/passkey/ecdsaBootstrap';
+import { requirePasskeyPrfFirstB64u } from '@/SeamsWeb/operations/authMethods/passkey/ecdsaBootstrap';
+import { redactedPasskeyRegistrationCredential } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
 
 export type PasskeyRegistrationAuthorityMaterial = {
   kind: 'passkey';

@@ -17,9 +17,7 @@ import type {
 } from '../EmailOtpStores';
 import type { IdentityStore } from '../IdentityStore';
 import type { WalletStore } from '../WalletStore';
-import type {
-  WalletRegistrationFinalizeRequest
-} from '../registrationContracts';
+import type { WalletRegistrationFinalizeRequest } from '../registrationContracts';
 import { validateSecp256k1PublicKey33 } from '../ThresholdService/evmCryptoWasm';
 import {
   parseRawEmailOtpRegistrationChallengeProofInput,
@@ -39,6 +37,7 @@ export type EmailOtpEnrollmentMaterialValidationResult =
   | {
       ok: true;
       enrollmentSealKeyVersion: string;
+      serverSealedFactorCiphertextB64u: string;
       clientUnlockPublicKeyB64u: string;
       unlockKeyVersion: string;
     }
@@ -68,6 +67,7 @@ export type VerifyEmailOtpEnrollmentRequest = {
   proofEmail?: unknown;
   clientIp?: unknown;
   enrollmentSealKeyVersion?: unknown;
+  serverSealedFactorCiphertextB64u?: unknown;
   clientUnlockPublicKeyB64u?: unknown;
   unlockKeyVersion?: unknown;
   googleEmailOtpRegistrationAttemptId?: unknown;
@@ -77,18 +77,23 @@ export async function validateEmailOtpEnrollmentMaterial(request: {
   enrollmentSealKeyVersion?: unknown;
   clientUnlockPublicKeyB64u?: unknown;
   unlockKeyVersion?: unknown;
+  serverSealedFactorCiphertextB64u?: unknown;
 }): Promise<
   | {
       ok: true;
       enrollmentSealKeyVersion: string;
       clientUnlockPublicKeyB64u: string;
       unlockKeyVersion: string;
+      serverSealedFactorCiphertextB64u: string;
     }
   | { ok: false; code: string; message: string }
 > {
   const enrollmentSealKeyVersion = toOptionalTrimmedString(request.enrollmentSealKeyVersion);
   const clientUnlockPublicKeyB64u = toOptionalTrimmedString(request.clientUnlockPublicKeyB64u);
   const unlockKeyVersion = toOptionalTrimmedString(request.unlockKeyVersion);
+  const serverSealedFactorCiphertextB64u = toOptionalTrimmedString(
+    request.serverSealedFactorCiphertextB64u,
+  );
   if (!enrollmentSealKeyVersion) {
     return {
       ok: false,
@@ -101,6 +106,13 @@ export async function validateEmailOtpEnrollmentMaterial(request: {
   }
   if (!unlockKeyVersion) {
     return { ok: false, code: 'invalid_body', message: 'unlockKeyVersion is required' };
+  }
+  if (!serverSealedFactorCiphertextB64u) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'serverSealedFactorCiphertextB64u is required',
+    };
   }
   let unlockPublicKeyBytes: Uint8Array;
   try {
@@ -134,6 +146,7 @@ export async function validateEmailOtpEnrollmentMaterial(request: {
     enrollmentSealKeyVersion,
     clientUnlockPublicKeyB64u,
     unlockKeyVersion,
+    serverSealedFactorCiphertextB64u,
   };
 }
 
@@ -174,16 +187,16 @@ export async function buildEmailOtpRegistrationEnrollmentPersistence(input: {
     enrollmentId: emailOtpDeviceEnrollmentId(walletId, authSubjectId),
     enrollmentVersion: EMAIL_OTP_INITIAL_ENROLLMENT_VERSION,
     enrollmentSealKeyVersion: enrollmentMaterial.enrollmentSealKeyVersion,
+    serverSealedFactorCiphertextB64u: enrollmentMaterial.serverSealedFactorCiphertextB64u,
     clientUnlockPublicKeyB64u: enrollmentMaterial.clientUnlockPublicKeyB64u,
     unlockKeyVersion: enrollmentMaterial.unlockKeyVersion,
     createdAtMs: existing?.createdAtMs ?? input.nowMs,
     updatedAtMs: input.nowMs,
   };
-  const existingProviderEnrollment =
-    await input.walletEnrollmentStore.getByProviderUserId({
-      providerUserId: enrollment.providerUserId,
-      orgId: enrollment.orgId,
-    });
+  const existingProviderEnrollment = await input.walletEnrollmentStore.getByProviderUserId({
+    providerUserId: enrollment.providerUserId,
+    orgId: enrollment.orgId,
+  });
   const authState: EmailOtpAuthStateRecord = {
     version: 'email_otp_auth_state_v1',
     walletId: enrollment.walletId,
@@ -213,8 +226,7 @@ export async function buildEmailOtpRegistrationEnrollmentPersistence(input: {
   return {
     ok: true,
     persistence: {
-      ...(existingProviderEnrollment &&
-      existingProviderEnrollment.walletId !== enrollment.walletId
+      ...(existingProviderEnrollment && existingProviderEnrollment.walletId !== enrollment.walletId
         ? { previousProviderWalletId: existingProviderEnrollment.walletId }
         : {}),
       enrollment,
@@ -287,9 +299,7 @@ export async function resolveEmailOtpRegistrationChallengeProof(input: {
   const proofInput = input.proofInput;
   switch (proofInput.kind) {
     case 'google_registration_attempt': {
-      const attempt = await input.registrationAttemptStore.get(
-        proofInput.registrationAttemptId,
-      );
+      const attempt = await input.registrationAttemptStore.get(proofInput.registrationAttemptId);
       if (!attempt) {
         return {
           ok: false,
@@ -351,9 +361,7 @@ export async function resolveEmailOtpRegistrationChallengeProof(input: {
   return assertNever(proofInput);
 }
 
-export async function verifyEmailOtpEnrollment(
-  input: VerifyEmailOtpEnrollmentInput,
-): Promise<
+export async function verifyEmailOtpEnrollment(input: VerifyEmailOtpEnrollmentInput): Promise<
   | {
       ok: true;
       walletId: string;
@@ -436,22 +444,19 @@ export async function verifyEmailOtpEnrollment(
     providerUserId: verified.challengeSubjectId,
     orgId,
     verifiedEmail,
-    enrollmentId: emailOtpDeviceEnrollmentId(
-      verified.walletId,
-      verified.challengeSubjectId,
-    ),
+    enrollmentId: emailOtpDeviceEnrollmentId(verified.walletId, verified.challengeSubjectId),
     enrollmentVersion: EMAIL_OTP_INITIAL_ENROLLMENT_VERSION,
     enrollmentSealKeyVersion: enrollmentMaterial.enrollmentSealKeyVersion,
+    serverSealedFactorCiphertextB64u: enrollmentMaterial.serverSealedFactorCiphertextB64u,
     clientUnlockPublicKeyB64u: enrollmentMaterial.clientUnlockPublicKeyB64u,
     unlockKeyVersion: enrollmentMaterial.unlockKeyVersion,
     createdAtMs: existing?.createdAtMs ?? nowMs,
     updatedAtMs: nowMs,
   };
-  const existingProviderEnrollment =
-    await input.walletEnrollmentStore.getByProviderUserId({
-      providerUserId: enrollmentRecord.providerUserId,
-      orgId: enrollmentRecord.orgId,
-    });
+  const existingProviderEnrollment = await input.walletEnrollmentStore.getByProviderUserId({
+    providerUserId: enrollmentRecord.providerUserId,
+    orgId: enrollmentRecord.orgId,
+  });
   if (
     existingProviderEnrollment &&
     existingProviderEnrollment.walletId !== enrollmentRecord.walletId

@@ -416,6 +416,9 @@ export function parseCurrentEmailOtpWalletEnrollmentRecord(
   const enrollmentId = toOptionalTrimmedString(obj.enrollmentId);
   const enrollmentVersion = toOptionalTrimmedString(obj.enrollmentVersion);
   const enrollmentSealKeyVersion = toOptionalTrimmedString(obj.enrollmentSealKeyVersion);
+  const serverSealedFactorCiphertextB64u = toOptionalTrimmedString(
+    obj.serverSealedFactorCiphertextB64u,
+  );
   const clientUnlockPublicKeyB64u = toOptionalTrimmedString(obj.clientUnlockPublicKeyB64u);
   const unlockKeyVersion = toOptionalTrimmedString(obj.unlockKeyVersion);
   const createdAtMs = toPositiveSafeInt(obj.createdAtMs);
@@ -429,6 +432,7 @@ export function parseCurrentEmailOtpWalletEnrollmentRecord(
     !enrollmentId ||
     !enrollmentVersion ||
     !enrollmentSealKeyVersion ||
+    !serverSealedFactorCiphertextB64u ||
     !clientUnlockPublicKeyB64u ||
     !unlockKeyVersion ||
     !createdAtMs ||
@@ -446,6 +450,7 @@ export function parseCurrentEmailOtpWalletEnrollmentRecord(
     enrollmentId,
     enrollmentVersion,
     enrollmentSealKeyVersion,
+    serverSealedFactorCiphertextB64u,
     clientUnlockPublicKeyB64u,
     unlockKeyVersion,
     createdAtMs,

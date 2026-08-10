@@ -159,7 +159,7 @@ import {
 import { WalletRecoveryCoordinator } from '@/SeamsWeb/operations/recovery/walletRecovery';
 import { rotateWalletRecoveryCodes } from '@/SeamsWeb/operations/recovery/walletRecoveryRotation';
 import { beginGoogleEmailOtpWalletAuth } from '@/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow';
-import { EmailOtpDeviceRecoveryRequiredError } from '@/SeamsWeb/operations/authMethods/emailOtp/errors';
+import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
 import {
   acknowledgeWalletRecoveryBackup,
   readWalletRecoveryCodeStatus,
@@ -2143,31 +2143,10 @@ export class SeamsWeb {
     return appSessionJwt;
   }
 
-  private async requireEmailOtpWalletAuthMethodEmailHashHex(walletId: WalletId): Promise<string> {
-    const normalizedWalletId = String(walletId || '').trim();
-    if (!normalizedWalletId) {
-      throw new Error('[SeamsWeb][email-otp] walletId is required for auth-method binding');
-    }
-    const authMethods = await IndexedDBManager.listWalletAuthMethodsForWallet(normalizedWalletId);
-    const matches = authMethods.filter(
-      (record) => record.kind === 'email_otp' && record.status === 'active',
-    );
-    if (matches.length !== 1) {
-      throw new EmailOtpDeviceRecoveryRequiredError();
-    }
-    const emailHashHex = String(matches[0].emailHashHex || '').trim();
-    if (!emailHashHex) {
-      throw new EmailOtpDeviceRecoveryRequiredError();
-    }
-    return emailHashHex;
-  }
-
   private async loginWithEmailOtpEd25519YaoCapabilityDomain(
     args: EmailOtpWalletCustodyEd25519LoginDomainArgs,
   ): Promise<void> {
-    const emailHashHex = await this.requireEmailOtpWalletAuthMethodEmailHashHex(
-      args.walletSession.walletId,
-    );
+    const emailHashHex = await this.emailOtpEmailHashHex(args.appSessionJwt);
     const signer = await this.signingEngine.loginWithEmailOtpWalletCustodyEd25519Internal({
       ...args,
       emailHashHex,
@@ -2181,8 +2160,9 @@ export class SeamsWeb {
     );
   }
 
-  private async emailOtpEmailHashHex(email: string | undefined): Promise<string> {
-    const normalizedEmail = String(email || '')
+  private async emailOtpEmailHashHex(appSessionJwt: string): Promise<string> {
+    const claims = decodeJwtPayloadRecord(appSessionJwt);
+    const normalizedEmail = String(claims?.email || '')
       .trim()
       .toLowerCase();
     if (!normalizedEmail) {
@@ -2281,7 +2261,10 @@ export class SeamsWeb {
         this.emitEmailOtpUnlockEvent(args.onEvent, input);
       };
       let timingStartedAtMs = nowMs();
-      const emailHashHex = await this.requireEmailOtpWalletAuthMethodEmailHashHex(walletId);
+      const relayUrl = String(args.relayUrl || this.configs.network.relayer.url).trim();
+      const appSessionJwt =
+        args.appSessionJwt || this.requireActiveWalletAppSessionJwt(relayUrl, String(walletId));
+      const emailHashHex = await this.emailOtpEmailHashHex(appSessionJwt);
       recordEmailOtpUnlockTiming(unlockTiming.timings, 'emailHashLookupMs', timingStartedAtMs);
       timingStartedAtMs = nowMs();
       const ed25519CustodyProjection =
@@ -2332,7 +2315,7 @@ export class SeamsWeb {
               });
             break;
           case 'cache_absent':
-            throw new EmailOtpDeviceRecoveryRequiredError();
+            throw new Error('Email OTP Ed25519 custody rejoin did not return active material');
           case 'not_requested':
             throw new Error('Email OTP capability unlock omitted Ed25519 Yao session material');
           default:

@@ -214,12 +214,11 @@ export function routeFamilyForAuthLane(args: {
 
 export function emailOtpRoutePath(
   plan: EmailOtpRoutePlan,
-  action: 'challenge' | 'verify' | 'verifyAndUnseal' | 'unseal' | 'seal' | 'finalize',
+  action: 'challenge' | 'verify' | 'seal' | 'finalize',
 ): string {
   if (plan.routeFamily === 'signing_session') {
     if (action === 'challenge') return '/wallet/email-otp/signing-session/challenge';
     if (action === 'verify') return '/wallet/email-otp/signing-session/verify';
-    if (action === 'unseal') return '/wallet/email-otp/signing-session/unseal';
   }
   if (plan.routeFamily === 'registration') {
     if (action === 'challenge') return '/wallet/email-otp/registration/challenge';
@@ -229,8 +228,6 @@ export function emailOtpRoutePath(
   if (plan.routeFamily === 'login') {
     if (action === 'challenge') return '/wallet/email-otp/login/challenge';
     if (action === 'verify') return '/wallet/email-otp/login/verify';
-    if (action === 'verifyAndUnseal') return '/wallet/email-otp/login/verify-and-unseal';
-    if (action === 'unseal') return '/wallet/email-otp/unseal';
   }
   throw new Error(`Email OTP ${plan.routeFamily} route does not support ${action}`);
 }

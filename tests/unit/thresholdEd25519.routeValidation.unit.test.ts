@@ -132,9 +132,7 @@ async function acceptsExactEmailOtpOperationStepUpProof(): Promise<void> {
         otp_code: '123456',
       },
       {
-        kind: 'email_otp_local_material_v1',
-        wrappedCiphertext: 'wrapped-ciphertext',
-        enrollmentSealKeyVersion: 'enrollment-seal-v1',
+        kind: 'not_requested',
       },
     ),
   );
@@ -149,9 +147,7 @@ async function acceptsExactEmailOtpOperationStepUpProof(): Promise<void> {
     otpCode: '123456',
   });
   expect(parsed.request.materialRecovery).toEqual({
-    kind: 'email_otp_local_material_v1',
-    wrappedCiphertext: 'wrapped-ciphertext',
-    enrollmentSealKeyVersion: 'enrollment-seal-v1',
+    kind: 'not_requested',
   });
 }
 
@@ -236,7 +232,7 @@ function rejectsPasskeyMaterialRecovery(): void {
   );
 }
 
-async function rejectsUnknownEmailOtpMaterialRecoveryField(): Promise<void> {
+async function rejectsRetiredEmailOtpMaterialRecovery(): Promise<void> {
   const authority = buildEmailOtpWalletAuthAuthority({
     walletId: 'frost-vermillion-k7p9m2',
     provider: 'email',
@@ -256,13 +252,10 @@ async function rejectsUnknownEmailOtpMaterialRecoveryField(): Promise<void> {
         },
         {
           kind: 'email_otp_local_material_v1',
-          wrappedCiphertext: 'wrapped-ciphertext',
-          enrollmentSealKeyVersion: 'enrollment-seal-v1',
-          walletSessionId: 'retired-session-coupling',
         },
       ),
     ),
-    'Unsupported Email OTP operation step-up material recovery field: walletSessionId',
+    'Email OTP operation step-up materialRecovery.kind is invalid',
   );
 }
 
@@ -439,6 +432,6 @@ test(
   rejectsPasskeyMaterialRecovery,
 );
 test(
-  'threshold-ed25519 operation step-up rejects unknown Email OTP material recovery fields',
-  rejectsUnknownEmailOtpMaterialRecoveryField,
+  'threshold-ed25519 operation step-up rejects retired Email OTP material recovery',
+  rejectsRetiredEmailOtpMaterialRecovery,
 );

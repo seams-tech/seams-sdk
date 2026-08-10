@@ -275,6 +275,7 @@ type EmailOtpEnrollmentVerifyInput = {
   readonly proofEmail?: unknown;
   readonly clientIp?: unknown;
   readonly enrollmentSealKeyVersion?: unknown;
+  readonly serverSealedFactorCiphertextB64u?: unknown;
   readonly clientUnlockPublicKeyB64u?: unknown;
   readonly unlockKeyVersion?: unknown;
   readonly googleEmailOtpRegistrationAttemptId?: unknown;

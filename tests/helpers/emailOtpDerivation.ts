@@ -1,11 +1,6 @@
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 
-// v2: every purpose derives from `secret32` in parallel with its own label.
-// The v1 chained scheme (ECDSA share and unlock seed derived from the Ed25519
-// threshold root) let any holder of that root compute both; it is deleted.
-export const EMAIL_OTP_ECDSA_CLIENT_SHARE_SALT_V2 = 'seams/email-otp/ecdsa-client-share/v2';
 export const EMAIL_OTP_UNLOCK_AUTH_SALT_V2 = 'seams/email-otp/unlock-auth/v2';
-export const EMAIL_OTP_ECDSA_DERIVATION_PATH = 'evm-signing';
 
 const HKDF_SHA256_LENGTH = 32;
 const textEncoder = new TextEncoder();
@@ -152,64 +147,6 @@ export function decodeEmailOtpClientSecret32B64u(clientSecretB64u: string): Uint
     throw new Error('Email OTP client secret must decode to 32 bytes');
   }
   return secret;
-}
-
-export async function deriveEmailOtpEcdsaClientRootShare32FromSecret32(args: {
-  clientSecret32: Uint8Array;
-  walletId: string;
-  userId: string;
-  derivationPath?: string;
-}): Promise<Uint8Array> {
-  if (!(args.clientSecret32 instanceof Uint8Array) || args.clientSecret32.length !== 32) {
-    throw new Error('Email OTP client secret must be 32 bytes');
-  }
-  const info = encodeEmailOtpTuple([
-    String(args.walletId || '').trim(),
-    String(args.userId || '').trim(),
-    String(args.derivationPath || EMAIL_OTP_ECDSA_DERIVATION_PATH).trim(),
-  ]);
-  try {
-    return await hkdfSha256({
-      ikm: args.clientSecret32,
-      salt: EMAIL_OTP_ECDSA_CLIENT_SHARE_SALT_V2,
-      info,
-    });
-  } finally {
-    zeroizeBytes(info);
-  }
-}
-
-export async function deriveEmailOtpEcdsaClientRootShare32(args: {
-  clientSecretB64u: string;
-  walletId: string;
-  userId: string;
-  derivationPath?: string;
-}): Promise<Uint8Array> {
-  const clientSecret32 = decodeEmailOtpClientSecret32B64u(args.clientSecretB64u);
-  try {
-    return await deriveEmailOtpEcdsaClientRootShare32FromSecret32({
-      clientSecret32,
-      walletId: args.walletId,
-      userId: args.userId,
-      derivationPath: args.derivationPath,
-    });
-  } finally {
-    zeroizeBytes(clientSecret32);
-  }
-}
-
-export async function deriveEmailOtpEcdsaClientRootShare32B64u(args: {
-  clientSecretB64u: string;
-  walletId: string;
-  userId: string;
-  derivationPath?: string;
-}): Promise<string> {
-  const clientRootShare32 = await deriveEmailOtpEcdsaClientRootShare32(args);
-  try {
-    return base64UrlEncode(clientRootShare32);
-  } finally {
-    zeroizeBytes(clientRootShare32);
-  }
 }
 
 export async function deriveEmailOtpUnlockAuthSeedFromSecret32(args: {

@@ -70,7 +70,7 @@ function checkWalletScopedUnlockAvoidsCollapsedNearBindingError() {
 
 function checkRegistrationTimingUsesSpanCoverage() {
   const registration = readRepoSource(
-    'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
+    'packages/sdk-web/src/SeamsWeb/operations/registration/registrationTiming.ts',
   );
   assertNotContains(registration, 'registration_timing_summary_v1', 'registration timing schema');
   assertContains(registration, 'registration_timing_summary_v2', 'registration timing schema');

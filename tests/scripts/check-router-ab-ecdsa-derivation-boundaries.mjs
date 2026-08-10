@@ -5,23 +5,14 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { brotliCompressSync, constants as zlibConstants, gzipSync } from 'node:zlib';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const ecdsaRegistrationClientManifest = 'wasm/ecdsa_registration_client/Cargo.toml';
-const ecdsaRegistrationClientWasm =
-  'wasm/ecdsa_registration_client/pkg/ecdsa_registration_client_bg.wasm';
-const ecdsaRegistrationClientGeneratedJs =
-  'wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js';
-const ecdsaRegistrationClientGeneratedTypes =
-  'wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.d.ts';
-const ecdsaDerivationClientManifest = 'wasm/router_ab_ecdsa_derivation_client/Cargo.toml';
-const ecdsaDerivationClientWasm =
-  'wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client_bg.wasm';
+const ecdsaDerivationClientManifest = 'wasm/router_ab_ecdsa_client/Cargo.toml';
+const ecdsaDerivationClientWasm = 'wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client_bg.wasm';
 const ecdsaDerivationClientGeneratedJs =
-  'wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js';
+  'wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client.js';
 const ecdsaDerivationClientGeneratedTypes =
-  'wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.d.ts';
+  'wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client.d.ts';
 
 const forbiddenEcdsaDerivationClientPackages = new Map([
   ['threshold-signatures', 'threshold signing, triples, and presign protocol driver'],
@@ -39,27 +30,27 @@ const forbiddenEcdsaDerivationClientPackages = new Map([
   ['hss_client_signer', 'retired mixed HSS client artifact'],
 ]);
 
-const allowedEcdsaRegistrationClientExports = new Set([
+const allowedEcdsaDerivationClientExports = new Set([
+  'build_ecdsa_role_local_export_artifact_v1',
   'finalize_ecdsa_client_bootstrap_v1',
   'open_ecdsa_role_local_signing_share_v1',
-  'prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1',
   'prepare_ecdsa_client_bootstrap_v1',
+  'sign_ecdsa_wallet_recovery_material_possession_proof_v1',
 ]);
-
-const allowedEcdsaDerivationClientExports = new Set(['build_ecdsa_role_local_export_artifact_v1']);
 
 const allowedEcdsaClientCeremonyWasmExports = new Set([
   '__wbg_routerabecdsaclientceremonyv1_free',
+  'routerabecdsaclientceremonyv1_activation_refresh_request_digest_b64u',
   'routerabecdsaclientceremonyv1_build_activation_refresh_request',
   'routerabecdsaclientceremonyv1_build_explicit_export_request',
   'routerabecdsaclientceremonyv1_build_registration_request',
   'routerabecdsaclientceremonyv1_close',
   'routerabecdsaclientceremonyv1_explicit_export_request_digest_b64u',
-  'routerabecdsaclientceremonyv1_finalize_encrypted_proof_bundles',
   'routerabecdsaclientceremonyv1_new',
   'routerabecdsaclientceremonyv1_open_signing_worker_export_share',
   'routerabecdsaclientceremonyv1_public_key',
   'routerabecdsaclientceremonyv1_registration_binding',
+  'routerabecdsaclientceremonyv1_verify_encrypted_proof_bundles',
 ]);
 
 const requiredEcdsaClientCeremonyTypeMethods = [
@@ -69,9 +60,10 @@ const requiredEcdsaClientCeremonyTypeMethods = [
   'registration_binding',
   'build_explicit_export_request',
   'build_activation_refresh_request',
+  'activation_refresh_request_digest_b64u',
   'explicit_export_request_digest_b64u',
   'open_signing_worker_export_share',
-  'finalize_encrypted_proof_bundles',
+  'verify_encrypted_proof_bundles',
   'close',
 ];
 
@@ -163,8 +155,7 @@ function checkNoRuntimeV1DerivationSurfaces() {
     'packages/sdk-server-ts/src',
     'packages/shared-ts/src',
     'wasm/evm_crypto/src',
-    'wasm/ecdsa_registration_client/src',
-    'wasm/router_ab_ecdsa_derivation_client/src',
+    'wasm/router_ab_ecdsa_client/src',
     'wasm/router_ab_ecdsa_online_client/src',
     'wasm/router_ab_ecdsa_presign_client/src',
     'wasm/router_ab_ecdsa_signing_worker/src',
@@ -348,7 +339,7 @@ function checkEcdsaDerivationClientHasOneExplicitOwner() {
   assertNoOffenders('ECDSA derivation client must have one explicit ECDSA owner', offenders);
 }
 
-function checkRegistrationProofVerificationInitializesBothWasmOwners() {
+function checkRegistrationProofVerificationInitializesClientWasm() {
   const source = readRepoFile(
     'packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsa-derivation-client.worker.ts',
   );
@@ -366,10 +357,6 @@ function checkRegistrationProofVerificationInitializesBothWasmOwners() {
     initializationBlock.includes('initializeEcdsaDerivationClientWasm()'),
     'registration proof verification must initialize the derivation ceremony WASM',
   );
-  assert.ok(
-    initializationBlock.includes('initializeEcdsaRegistrationClientWasm()'),
-    'registration proof verification must initialize the registration bootstrap WASM',
-  );
 }
 
 function checkActiveSourceUsesCurrentVocabulary() {
@@ -385,8 +372,7 @@ function checkActiveSourceUsesCurrentVocabulary() {
     'packages/sdk-web/src',
     'packages/shared-ts/src',
     'wasm/evm_crypto/src',
-    'wasm/ecdsa_registration_client/src',
-    'wasm/router_ab_ecdsa_derivation_client/src',
+    'wasm/router_ab_ecdsa_client/src',
     'wasm/router_ab_ecdsa_online_client/src',
     'wasm/router_ab_ecdsa_presign_client/src',
     'wasm/router_ab_ecdsa_signing_worker/src',
@@ -803,14 +789,9 @@ function checkLockedEcdsaClientDependencyTree(input) {
 
 function checkLockedEcdsaClientDependencyTrees() {
   checkLockedEcdsaClientDependencyTree({
-    manifest: ecdsaRegistrationClientManifest,
-    rootPackage: 'ecdsa_registration_client',
-    label: 'ECDSA registration client',
-  });
-  checkLockedEcdsaClientDependencyTree({
     manifest: ecdsaDerivationClientManifest,
-    rootPackage: 'router_ab_ecdsa_derivation_client',
-    label: 'ECDSA export client',
+    rootPackage: 'router_ab_ecdsa_client',
+    label: 'ECDSA client',
   });
 }
 
@@ -851,8 +832,7 @@ function checkOpaqueEcdsaClientCeremonySourceBoundary() {
   const roots = [
     'packages/sdk-web/src',
     'packages/shared-ts/src',
-    'wasm/ecdsa_registration_client/src',
-    'wasm/router_ab_ecdsa_derivation_client/src',
+    'wasm/router_ab_ecdsa_client/src',
   ];
   const offenders = [];
   for (const relativeRoot of roots) {
@@ -868,115 +848,6 @@ function checkOpaqueEcdsaClientCeremonySourceBoundary() {
   assertNoOffenders(
     'Router A/B ECDSA client private material must remain inside the opaque Rust ceremony',
     offenders,
-  );
-}
-
-function checkGeneratedEcdsaRegistrationClientArtifactSurface() {
-  const wasmPath = path.join(repoRoot, ecdsaRegistrationClientWasm);
-  const generatedJsPath = path.join(repoRoot, ecdsaRegistrationClientGeneratedJs);
-  const generatedTypesPath = path.join(repoRoot, ecdsaRegistrationClientGeneratedTypes);
-  for (const requiredPath of [wasmPath, generatedJsPath, generatedTypesPath]) {
-    assert.ok(
-      fs.existsSync(requiredPath),
-      `missing generated ECDSA registration client artifact: ${path.relative(repoRoot, requiredPath)}; run pnpm -C packages/sdk-web build:wasm`,
-    );
-  }
-
-  const wasmBytes = fs.readFileSync(wasmPath);
-  const module = new WebAssembly.Module(wasmBytes);
-  const wasmImports = WebAssembly.Module.imports(module);
-  const wasmExports = WebAssembly.Module.exports(module);
-  const unexpectedImports = [];
-  for (const entry of wasmImports) {
-    const allowedName = entry.name.startsWith('__wbindgen_') || entry.name.startsWith('__wbg_');
-    if (entry.module !== 'wbg' || entry.kind !== 'function' || !allowedName) {
-      unexpectedImports.push(`${entry.module}.${entry.name}:${entry.kind}`);
-    }
-  }
-  assertNoOffenders(
-    'generated ECDSA registration client WASM has unexpected host imports',
-    unexpectedImports,
-  );
-
-  const namedWasmExports = wasmExports.map((entry) => entry.name);
-  const unexpectedExports = wasmExports
-    .filter((entry) => {
-      return (
-        !allowedEcdsaRegistrationClientExports.has(entry.name) &&
-        !isAllowedWasmBindgenRuntimeExport(entry.name)
-      );
-    })
-    .map((entry) => `${entry.name}:${entry.kind}`);
-  assertNoOffenders(
-    'generated ECDSA registration client WASM exposes a post-registration API',
-    unexpectedExports,
-  );
-  for (const requiredExport of allowedEcdsaRegistrationClientExports) {
-    assert.ok(
-      namedWasmExports.includes(requiredExport),
-      `generated ECDSA registration client WASM is missing ${requiredExport}`,
-    );
-  }
-
-  const generatedJs = fs.readFileSync(generatedJsPath, 'utf8');
-  const generatedTypes = fs.readFileSync(generatedTypesPath, 'utf8');
-  const typeFunctionExports = generatedTypeScriptFunctionExports(generatedTypes);
-  const unexpectedTypeExports = typeFunctionExports.filter((exportName) => {
-    return exportName !== 'initSync' && !allowedEcdsaRegistrationClientExports.has(exportName);
-  });
-  assertNoOffenders(
-    'generated ECDSA registration client TypeScript exposes a post-registration API',
-    unexpectedTypeExports,
-  );
-  for (const requiredExport of allowedEcdsaRegistrationClientExports) {
-    assert.ok(
-      typeFunctionExports.includes(requiredExport),
-      `generated ECDSA registration client TypeScript is missing ${requiredExport}`,
-    );
-  }
-  for (const forbiddenToken of [
-    'build_ecdsa_role_local_export_artifact_v1',
-    'RouterAbEcdsaClientCeremonyV1',
-    'build_explicit_export_request',
-    'build_activation_refresh_request',
-  ]) {
-    assert.equal(
-      generatedJs.includes(forbiddenToken) || generatedTypes.includes(forbiddenToken),
-      false,
-      `generated ECDSA registration client artifact contains ${forbiddenToken}`,
-    );
-  }
-
-  const gzipBytes = gzipSync(wasmBytes, { level: 9 }).length;
-  const brotliBytes = brotliCompressSync(wasmBytes, {
-    params: {
-      [zlibConstants.BROTLI_PARAM_QUALITY]: 11,
-    },
-  }).length;
-  assert.ok(
-    gzipBytes <= 100 * 1024,
-    `ECDSA registration client WASM exceeds the 100 KiB gzip budget: ${gzipBytes} bytes`,
-  );
-  assert.ok(
-    brotliBytes <= 85 * 1024,
-    `ECDSA registration client WASM exceeds the 85 KiB Brotli budget: ${brotliBytes} bytes`,
-  );
-
-  const importAndExportNames = [...namedWasmExports, ...typeFunctionExports];
-  for (const entry of wasmImports) {
-    importAndExportNames.push(entry.module, entry.name);
-  }
-  checkForbiddenArtifactTokens(
-    'generated ECDSA registration client import/export names retain forbidden ownership',
-    importAndExportNames,
-  );
-  checkForbiddenArtifactSource(
-    `${ecdsaRegistrationClientGeneratedJs} retains forbidden ownership`,
-    generatedJs,
-  );
-  checkForbiddenArtifactSource(
-    `${ecdsaRegistrationClientGeneratedTypes} retains forbidden ownership`,
-    generatedTypes,
   );
 }
 
@@ -1095,14 +966,13 @@ checkNoRuntimeV1DerivationSurfaces();
 checkProductionBridgeDoesNotExposeRootMaterial();
 checkEcdsaDerivationCrateHasNoOldContextVersionApi();
 checkEcdsaDerivationClientHasOneExplicitOwner();
-checkRegistrationProofVerificationInitializesBothWasmOwners();
+checkRegistrationProofVerificationInitializesClientWasm();
 checkActiveSourceUsesCurrentVocabulary();
 checkRuntimeArtifactsAreNotSourceSurfaces();
 checkRepositorySurfacesUseCurrentVocabulary();
 checkNormalSigningHasOneRuntimeOwner();
 checkLockedEcdsaClientDependencyTrees();
 checkOpaqueEcdsaClientCeremonySourceBoundary();
-checkGeneratedEcdsaRegistrationClientArtifactSurface();
 checkGeneratedEcdsaDerivationClientArtifactSurface();
 
 console.log('[check-router-ab-ecdsa-derivation-boundaries] passed');

@@ -296,7 +296,7 @@ function replaceWebAuthnService(
     router: service.router,
     passkeyCustody: {
       ...service.passkeyCustody,
-      readVerifiedEnvelope: async () => ({
+      readVerifiedFactorCustody: async () => ({
         kind: 'active',
         envelope: passkeyCustodyEnvelope({
           walletId: WALLET_ID,
@@ -308,6 +308,11 @@ function replaceWebAuthnService(
           },
         }),
         storeVersion: 'sync-custody-store-version-1',
+        keyManifest: {
+          version: 'wallet_custody_unlock_key_manifest_v1',
+          walletId: walletIdFromString(WALLET_ID),
+          entries: [],
+        },
       }),
     },
   };

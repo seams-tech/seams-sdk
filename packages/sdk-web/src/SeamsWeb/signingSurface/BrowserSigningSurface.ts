@@ -280,7 +280,7 @@ import { activeWalletOrHostedAppSessionJwt } from '@/SeamsWeb/walletIframe/host/
 import {
   resolveWalletCustodyEd25519ExportContextV1,
   type ResolvedWalletCustodyEd25519ExportV1,
-} from '@/core/signingEngine/walletCustody/ed25519ExportContext';
+} from '@/core/signingEngine/session/emailOtp/ed25519ExportContext';
 import {
   emailOtpAppSessionBindingFromJwt,
   emailOtpAppSessionSourceFromPayload,

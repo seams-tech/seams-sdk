@@ -67,7 +67,7 @@ for (const marker of [
     `${registrationOperationPath} contains obsolete add-signer placeholder ${marker}`,
   );
 }
-assert.match(registrationOperation, /await registerVerifiedPasskeyEd25519YaoAddSignerV1\(/);
+assert.match(registrationOperation, /await admitVerifiedPasskeyEd25519YaoAddSignerV1\(/);
 
 const ed25519AddSignerOperation = requireSourceSlice(
   registrationOperation,
@@ -84,7 +84,7 @@ const ecdsaAddSignerOperation = requireSourceSlice(
 
 for (const marker of [
   "kind: 'near_ed25519'",
-  'activationReference: pending.activationReference()',
+  'admissionReceipt: admitted.receipt',
   "'wallet-ed25519-add-signer-finalize'",
 ]) {
   assert.ok(
@@ -110,7 +110,7 @@ for (const marker of [
 }
 
 for (const marker of [
-  'registerVerifiedPasskeyEd25519YaoAddSignerV1',
+  'admitVerifiedPasskeyEd25519YaoAddSignerV1',
   'PendingProductEd25519YaoRegistrationV1',
   'router_ab_ed25519_yao_activation_reference_v1',
 ]) {
@@ -185,7 +185,7 @@ for (const forbidden of [
   /Hss|HSS|hssLifecycle/,
   /seedB64u/,
   /deriver_[ab]_client_package/,
-  /localStorage|indexedDB|setAppState|console\.(?:log|warn|error)/,
+  /\blocalStorage\b|\bindexedDB\.|setAppState|console\.(?:log|warn|error)/,
 ]) {
   assert.doesNotMatch(
     ed25519ExportOperation,
@@ -249,10 +249,8 @@ const retiredSplitDerivationPatterns = [
 ];
 
 for (const relativePath of [
-  'wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.d.ts',
-  'wasm/ecdsa_registration_client/pkg/ecdsa_registration_client.js',
-  'wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.d.ts',
-  'wasm/router_ab_ecdsa_derivation_client/pkg/router_ab_ecdsa_derivation_client.js',
+  'wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client.d.ts',
+  'wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client.js',
   'wasm/near_signer/pkg/wasm_signer_worker.d.ts',
   'wasm/near_signer/pkg/wasm_signer_worker.js',
 ]) {

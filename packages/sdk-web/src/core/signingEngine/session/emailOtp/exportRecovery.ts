@@ -7,7 +7,7 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import type { ResolvedWalletCustodyEd25519ExportV1 } from '../../walletCustody/ed25519ExportContext';
+import type { ResolvedWalletCustodyEd25519ExportV1 } from './ed25519ExportContext';
 import { throwEmailOtpSigningSessionAuthStateError } from './routePlan';
 import {
   walletAuthAuthorityRef,
@@ -227,7 +227,9 @@ function buildEcdsaExportVerificationRoutePlan(
   authorization: EcdsaExplicitExportOperationAuthorization,
 ): EmailOtpRoutePlan {
   if (authorization.sessionAuth.kind !== 'app_session') {
-    throw new Error('Email OTP ECDSA export requires the app-session authority used for its challenge');
+    throw new Error(
+      'Email OTP ECDSA export requires the app-session authority used for its challenge',
+    );
   }
   return buildEmailOtpRoutePlan({
     routeFamily: 'login',
@@ -243,7 +245,12 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
   ports: Pick<
     EmailOtpWorkerPorts,
     'getSignerWorkerContext' | 'requireRelayUrl' | 'requireSigningSessionSealGroupId'
-  >,
+  > & {
+    resolveAppSessionJwtForWallet: (args: {
+      walletId: WalletId;
+      relayUrl: string;
+    }) => Promise<string>;
+  },
   args: {
     challengeId: string;
     otpCode: string;
@@ -255,6 +262,11 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
     throw new Error('Email OTP Ed25519 Yao export requires the dedicated emailOtp worker');
   }
   const relayUrl = ports.requireRelayUrl();
+  const walletId = args.exportContext.lane.signer.account.wallet.walletId;
+  const factorReleaseAppSessionJwt = await ports.resolveAppSessionJwtForWallet({
+    walletId,
+    relayUrl,
+  });
   const walletSessionJwt = walletSessionJwtForCurve(args.exportContext.authorization, 'ed25519');
   if (!walletSessionJwt) {
     throw new Error(
@@ -268,11 +280,12 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
       timeoutMs: 60_000,
       payload: {
         relayUrl,
+        factorReleaseAppSessionJwt,
         challengeId: args.challengeId,
         otpCode: args.otpCode,
         groupId: ports.requireSigningSessionSealGroupId(),
         lane: {
-          walletId: String(args.exportContext.lane.signer.account.wallet.walletId),
+          walletId: String(walletId),
           providerSubjectId: args.exportContext.lane.auth.providerSubjectId,
           nearAccountId: String(args.exportContext.lane.signer.account.nearAccountId),
           nearEd25519SigningKeyId: String(args.exportContext.lane.signer.nearEd25519SigningKeyId),
@@ -288,10 +301,7 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
 }
 
 export async function exportEcdsaKeyWithDurableAuthorization(
-  ports: Pick<
-    EmailOtpWorkerPorts,
-    'getSignerWorkerContext' | 'requireRelayUrl'
-  >,
+  ports: Pick<EmailOtpWorkerPorts, 'getSignerWorkerContext' | 'requireRelayUrl'>,
   args: {
     walletSession: WalletSessionRef;
     chainTarget: ThresholdEcdsaChainTarget;

@@ -8,6 +8,8 @@ import type {
 } from '../session/operationState/types';
 import { SigningSessionIds } from '../session/operationState/types';
 export type { NonceLeaseRef } from '../interfaces/nonceLease';
+export { buildNearNonceLane } from './nearNonceLaneIdentity';
+export type { NearFundingRequest, NearTransactionReadiness } from './nearTransactionReadiness';
 export {
   EvmNonceOutcomeReason,
   NearNonceOutcomeKind,

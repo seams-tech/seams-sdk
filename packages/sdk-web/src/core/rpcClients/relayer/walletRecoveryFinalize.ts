@@ -1,6 +1,6 @@
 import { buildRelayerJsonPostRequestInit, normalizeRelayerBaseUrl } from './relayerHttp';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
-import { redactedPasskeyRegistrationCredential } from '@/SeamsWeb/operations/authMethods/passkey/ecdsaBootstrap';
+import { redactedPasskeyRegistrationCredential } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
 import {
   parsePasskeyCustodyEnvelopeRecord,
   type PasskeyCustodyEnvelopeRecord,

@@ -550,6 +550,7 @@ emailOtpWalletUnlockPayloadWithoutRuntimeScope satisfies EmailOtpWalletUnlockPay
 
 const emailOtpEd25519YaoExportPayload: EmailOtpEd25519YaoExportPayload = {
   relayUrl: 'https://relay.example',
+  factorReleaseAppSessionJwt: 'app-session-jwt',
   challengeId: 'challenge-ed25519-export',
   otpCode: '123456',
   groupId: 'prime',
