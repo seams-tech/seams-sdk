@@ -7,7 +7,6 @@ use router_ab_core::{
     parse_router_ab_ecdsa_derivation_evm_digest_signing_request_v1_json,
     parse_router_ab_ecdsa_derivation_explicit_export_request_v1_json,
     parse_router_ab_ecdsa_derivation_normal_signing_scope_v1_json,
-    parse_router_ab_ecdsa_derivation_recovery_request_v1_json,
     parse_router_ab_ecdsa_derivation_registration_bootstrap_request_v1_json,
     router_ab_ecdsa_rerandomization_client_commitment_v1, EncryptedPayloadV1, ExpensiveWorkKindV1,
     LifecycleScopeV1, MpcMaterialActivationRefV1, NormalSigningAuthorizationV1, PublicDigest32,
@@ -20,8 +19,7 @@ use router_ab_core::{
     RouterAbEcdsaDerivationEvmDigestSigningResponseV1,
     RouterAbEcdsaDerivationExplicitExportRequestV1, RouterAbEcdsaDerivationNormalSigningScopeV1,
     RouterAbEcdsaDerivationOperationDigestsV1, RouterAbEcdsaDerivationOutputKindV1,
-    RouterAbEcdsaDerivationPublicIdentityV1, RouterAbEcdsaDerivationRecoveryRequestV1,
-    RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
+    RouterAbEcdsaDerivationPublicIdentityV1, RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
     RouterAbEcdsaDerivationRegistrationPurposeV1, RouterAbEcdsaDerivationStableKeyContextV1,
     RouterAbProtocolErrorCode, ServerIdentityV1, SignerIdentityV1, SignerSetV1,
     ROUTER_AB_ECDSA_DERIVATION_KEY_SCOPE_V1, ROUTER_AB_ECDSA_DERIVATION_PROTOCOL_VERSION_V1,
@@ -179,23 +177,6 @@ fn export_request() -> RouterAbEcdsaDerivationExplicitExportRequestV1 {
         expires_at_ms: 1_900_000_000_000,
         deriver_a_export_envelope: envelope(Role::SignerA, b"export-a"),
         deriver_b_export_envelope: envelope(Role::SignerB, b"export-b"),
-    }
-}
-
-fn recovery_request() -> RouterAbEcdsaDerivationRecoveryRequestV1 {
-    RouterAbEcdsaDerivationRecoveryRequestV1 {
-        context: context(),
-        lifecycle: lifecycle(ExpensiveWorkKindV1::Recovery, "ecdsa-recovery-lifecycle-1"),
-        public_identity: public_identity(),
-        signer_set: signer_set(),
-        router_id: "router-1".to_owned(),
-        client_id: "client-device-1".to_owned(),
-        client_ephemeral_public_key: "client-recovery-ephemeral-public-key-1".to_owned(),
-        recovery_authorization_digest_b64u: digest_b64u(b"recovery authorization"),
-        recovery_nonce: "recovery-nonce-1".to_owned(),
-        expires_at_ms: 1_900_000_000_000,
-        deriver_a_recovery_envelope: envelope(Role::SignerA, b"recovery-a"),
-        deriver_b_recovery_envelope: envelope(Role::SignerB, b"recovery-b"),
     }
 }
 
@@ -610,7 +591,10 @@ fn router_ab_ecdsa_derivation_deriver_plaintext_rejects_wrong_output_kind() {
 #[test]
 fn router_ab_ecdsa_derivation_deriver_plaintext_rejects_wrong_work_kind() {
     let mut request = export_request();
-    request.lifecycle = lifecycle(ExpensiveWorkKindV1::Recovery, "wrong-export-work-kind");
+    request.lifecycle = lifecycle(
+        ExpensiveWorkKindV1::RegistrationPrepare,
+        "wrong-export-work-kind",
+    );
 
     let err = RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1::export_for_request(
         &request,
@@ -688,19 +672,7 @@ fn router_ab_ecdsa_derivation_deriver_plaintext_rejects_wrong_deriver_identity()
 }
 
 #[test]
-fn router_ab_ecdsa_derivation_deriver_plaintext_covers_recovery_and_refresh_branches() {
-    let recovery = recovery_request();
-    let recovery_plaintext =
-        RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1::recovery_for_request(
-            &recovery,
-            Role::SignerA,
-            recovery.deriver_a_recovery_envelope.aad_digest,
-        )
-        .expect("recovery plaintext");
-    recovery_plaintext
-        .validate_for_envelope(&recovery.deriver_a_recovery_envelope)
-        .expect("recovery plaintext binds envelope");
-
+fn router_ab_ecdsa_derivation_deriver_plaintext_covers_refresh_branch() {
     let refresh = activation_refresh_request();
     let refresh_plaintext = RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1::refresh_for_request(
         &refresh,
@@ -712,13 +684,9 @@ fn router_ab_ecdsa_derivation_deriver_plaintext_covers_recovery_and_refresh_bran
         .validate_for_envelope(&refresh.deriver_b_refresh_envelope)
         .expect("refresh plaintext binds envelope");
 
-    assert_ne!(
-        recovery_plaintext
-            .plaintext_digest()
-            .expect("recovery digest"),
-        refresh_plaintext
-            .plaintext_digest()
-            .expect("refresh digest")
+    assert_eq!(
+        refresh_plaintext.request_kind(),
+        router_ab_core::RouterAbEcdsaDerivationRequestKindV1::Refresh
     );
 }
 
@@ -753,16 +721,6 @@ fn router_ab_ecdsa_derivation_request_digests_bind_replay_nonces() {
             .request_digest()
             .expect("changed export digest"),
         export.request_digest().expect("export digest")
-    );
-
-    let recovery = recovery_request();
-    let mut changed_recovery = recovery.clone();
-    changed_recovery.recovery_nonce = "different-recovery-nonce".to_owned();
-    assert_ne!(
-        changed_recovery
-            .request_digest()
-            .expect("changed recovery digest"),
-        recovery.request_digest().expect("recovery digest")
     );
 
     let refresh = activation_refresh_request();
@@ -902,82 +860,6 @@ fn router_ab_ecdsa_derivation_export_request_rejects_activation_id_only_wire() {
     assert_eq!(
         error.code(),
         RouterAbProtocolErrorCode::MalformedWirePayload
-    );
-}
-
-#[test]
-fn router_ab_ecdsa_derivation_recovery_request_parses_and_uses_recovery_domain() {
-    let request = recovery_request();
-    let json = serde_json::to_vec(&request).expect("serialize");
-    let parsed = parse_router_ab_ecdsa_derivation_recovery_request_v1_json(&json).expect("parse");
-
-    assert_eq!(
-        parsed.request_digest().expect("digest"),
-        request.request_digest().expect("digest")
-    );
-    assert_ne!(
-        parsed.request_digest().expect("recovery digest"),
-        export_request().request_digest().expect("export digest")
-    );
-}
-
-#[test]
-fn router_ab_ecdsa_derivation_recovery_request_rejects_wrong_lifecycle_kind() {
-    let mut request = recovery_request();
-    request.lifecycle = lifecycle(ExpensiveWorkKindV1::KeyExport, "wrong-recovery-lifecycle");
-
-    let err = request
-        .validate()
-        .expect_err("wrong recovery lifecycle rejects");
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidLifecycleState);
-}
-
-#[test]
-fn router_ab_ecdsa_derivation_recovery_request_rejects_swapped_deriver_envelope() {
-    let mut request = recovery_request();
-    request.deriver_a_recovery_envelope = envelope(Role::SignerB, b"wrong-recovery-a");
-
-    let err = request
-        .validate()
-        .expect_err("wrong recovery envelope role rejects");
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidRole);
-}
-
-#[test]
-fn router_ab_ecdsa_derivation_recovery_request_rejects_unknown_json_fields() {
-    let mut value = serde_json::to_value(recovery_request()).expect("json");
-    value
-        .as_object_mut()
-        .expect("object")
-        .insert("legacy_v1".to_owned(), serde_json::json!(true));
-
-    let err = parse_router_ab_ecdsa_derivation_recovery_request_v1_json(
-        serde_json::to_string(&value).expect("json").as_bytes(),
-    )
-    .expect_err("unknown field rejects");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
-}
-
-#[test]
-fn router_ab_ecdsa_derivation_recovery_request_builds_fixed_threshold_prf_request() {
-    let request = recovery_request();
-    let public_request = request
-        .to_threshold_prf_request()
-        .expect("public router request");
-
-    public_request
-        .validate()
-        .expect("generic request validates");
-    assert_eq!(public_request.request_nonce, request.recovery_nonce);
-    assert_eq!(public_request.lifecycle, request.lifecycle);
-    assert_eq!(
-        public_request.signer_a_envelope,
-        request.deriver_a_recovery_envelope
-    );
-    assert_eq!(
-        public_request.signer_b_envelope,
-        request.deriver_b_recovery_envelope
     );
 }
 

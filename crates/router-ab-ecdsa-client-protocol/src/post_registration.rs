@@ -13,7 +13,6 @@ use super::{
 };
 
 const EXPORT_REQUEST_VERSION_V1: &[u8] = b"router-ab-ecdsa-derivation/export-request/v1";
-const RECOVERY_REQUEST_VERSION_V1: &[u8] = b"router-ab-ecdsa-derivation/recovery-request/v1";
 const REFRESH_REQUEST_VERSION_V1: &[u8] = b"router-ab-ecdsa-derivation/refresh-request/v1";
 const PUBLIC_IDENTITY_VERSION_V1: &[u8] = b"router-ab-ecdsa-derivation/public-identity/v1";
 const DERIVER_PLAINTEXT_VERSION_V1: &[u8] =
@@ -31,8 +30,6 @@ const KEY_SCOPE_V1: &str = "evm-family";
 pub enum EcdsaPostRegistrationCeremonyV1 {
     /// Explicit user-authorized client export.
     ExplicitExport,
-    /// Same-root client recovery.
-    Recovery,
     /// SigningWorker activation refresh.
     ActivationRefresh,
 }
@@ -52,7 +49,6 @@ impl EcdsaPostRegistrationCeremonyV1 {
     fn work_kind(self) -> &'static str {
         match self {
             Self::ExplicitExport => "key_export",
-            Self::Recovery => "recovery",
             Self::ActivationRefresh => "server_share_refresh",
         }
     }
@@ -60,7 +56,6 @@ impl EcdsaPostRegistrationCeremonyV1 {
     fn primitive_kind(self) -> &'static str {
         match self {
             Self::ExplicitExport => "export",
-            Self::Recovery => "recovery",
             Self::ActivationRefresh => "refresh",
         }
     }
@@ -68,14 +63,13 @@ impl EcdsaPostRegistrationCeremonyV1 {
     fn request_kind(self) -> &'static str {
         match self {
             Self::ExplicitExport => "explicit_key_export",
-            Self::Recovery => "recovery",
             Self::ActivationRefresh => "refresh",
         }
     }
 
     fn output_kind(self) -> &'static str {
         match self {
-            Self::ExplicitExport | Self::Recovery => CLIENT_EXPORT_OUTPUT_V1,
+            Self::ExplicitExport => CLIENT_EXPORT_OUTPUT_V1,
             Self::ActivationRefresh => SIGNING_WORKER_ACTIVATION_OUTPUT_V1,
         }
     }
@@ -83,7 +77,6 @@ impl EcdsaPostRegistrationCeremonyV1 {
     fn header_version(self) -> &'static [u8] {
         match self {
             Self::ExplicitExport => EXPORT_REQUEST_VERSION_V1,
-            Self::Recovery => RECOVERY_REQUEST_VERSION_V1,
             Self::ActivationRefresh => REFRESH_REQUEST_VERSION_V1,
         }
     }
@@ -315,7 +308,7 @@ impl EcdsaPublicIdentityV1 {
 /// Recipient class for post-registration output proof bundles.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EcdsaPostRegistrationRecipientV1 {
-    /// Export/recovery proof bundles encrypted to the client.
+    /// Export proof bundles encrypted to the client.
     ClientProofBundles {
         /// Client ephemeral X25519 public key.
         client_ephemeral_public_key: String,
@@ -410,13 +403,6 @@ pub enum EcdsaPostRegistrationOperationV1 {
         /// Export replay nonce.
         nonce: String,
     },
-    /// Recovery authorization.
-    Recovery {
-        /// Fresh recovery authorization digest in unpadded base64url.
-        authorization_digest_b64u: String,
-        /// Recovery replay nonce.
-        nonce: String,
-    },
     /// SigningWorker activation refresh authorization.
     ActivationRefresh {
         /// Fresh refresh authorization digest in unpadded base64url.
@@ -436,7 +422,6 @@ impl EcdsaPostRegistrationOperationV1 {
     fn ceremony(&self) -> EcdsaPostRegistrationCeremonyV1 {
         match self {
             Self::ExplicitExport { .. } => EcdsaPostRegistrationCeremonyV1::ExplicitExport,
-            Self::Recovery { .. } => EcdsaPostRegistrationCeremonyV1::Recovery,
             Self::ActivationRefresh { .. } => EcdsaPostRegistrationCeremonyV1::ActivationRefresh,
         }
     }
@@ -444,10 +429,6 @@ impl EcdsaPostRegistrationOperationV1 {
     fn authorization_digest_b64u(&self) -> &str {
         match self {
             Self::ExplicitExport {
-                authorization_digest_b64u,
-                ..
-            }
-            | Self::Recovery {
                 authorization_digest_b64u,
                 ..
             }
@@ -460,9 +441,7 @@ impl EcdsaPostRegistrationOperationV1 {
 
     fn nonce(&self) -> &str {
         match self {
-            Self::ExplicitExport { nonce, .. }
-            | Self::Recovery { nonce, .. }
-            | Self::ActivationRefresh { nonce, .. } => nonce,
+            Self::ExplicitExport { nonce, .. } | Self::ActivationRefresh { nonce, .. } => nonce,
         }
     }
 }
@@ -490,7 +469,7 @@ pub struct EcdsaPostRegistrationHeaderInputV1 {
     pub expires_at_ms: u64,
 }
 
-/// Canonical explicit-export, recovery, or activation-refresh header.
+/// Canonical explicit-export or activation-refresh header.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EcdsaPostRegistrationHeaderV1 {
     input: EcdsaPostRegistrationHeaderInputV1,
@@ -810,7 +789,7 @@ impl EcdsaPostRegistrationRequestV1 {
     }
 }
 
-/// Builds and seals one explicit-export, recovery, or activation-refresh request.
+/// Builds and seals one explicit-export or activation-refresh request.
 pub fn build_ecdsa_post_registration_request_v1(
     header: EcdsaPostRegistrationHeaderV1,
     recipient_keys: EcdsaRegistrationRecipientKeysV1,
@@ -850,8 +829,7 @@ fn validate_recipient_branch(
 ) -> Result<(), EcdsaClientProtocolError> {
     match (ceremony, recipient) {
         (
-            EcdsaPostRegistrationCeremonyV1::ExplicitExport
-            | EcdsaPostRegistrationCeremonyV1::Recovery,
+            EcdsaPostRegistrationCeremonyV1::ExplicitExport,
             EcdsaPostRegistrationRecipientV1::ClientProofBundles { .. },
         )
         | (
@@ -887,8 +865,7 @@ fn validate_export_authorization(
             }
             Ok(())
         }
-        EcdsaPostRegistrationOperationV1::Recovery { .. }
-        | EcdsaPostRegistrationOperationV1::ActivationRefresh { .. } => Ok(()),
+        EcdsaPostRegistrationOperationV1::ActivationRefresh { .. } => Ok(()),
     }
 }
 
@@ -917,8 +894,7 @@ fn validate_refresh_epochs(
             }
             Ok(())
         }
-        EcdsaPostRegistrationOperationV1::ExplicitExport { .. }
-        | EcdsaPostRegistrationOperationV1::Recovery { .. } => Ok(()),
+        EcdsaPostRegistrationOperationV1::ExplicitExport { .. } => Ok(()),
     }
 }
 

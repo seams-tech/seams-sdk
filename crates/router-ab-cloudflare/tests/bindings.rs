@@ -58,7 +58,6 @@ use router_ab_cloudflare::{
     validate_cloudflare_router_ab_ecdsa_derivation_activation_refresh_request_for_router_payload_v1,
     validate_cloudflare_router_ab_ecdsa_derivation_export_request_for_router_payload_v1,
     validate_cloudflare_router_ab_ecdsa_derivation_normal_signing_active_material_v1,
-    validate_cloudflare_router_ab_ecdsa_derivation_recovery_request_for_router_payload_v1,
     validate_cloudflare_router_ab_ecdsa_derivation_registration_request_for_router_payload_v1,
     validate_cloudflare_signer_private_request_plaintext_v1,
     validate_cloudflare_signer_private_request_v1,
@@ -75,12 +74,10 @@ use router_ab_cloudflare::{
     CloudflareRouterAbEcdsaDerivationActivationRefreshAdmissionResponseV1,
     CloudflareRouterAbEcdsaDerivationDeriverActivationRefreshPrivateRequestV1,
     CloudflareRouterAbEcdsaDerivationDeriverExportPrivateRequestV1,
-    CloudflareRouterAbEcdsaDerivationDeriverRecoveryPrivateRequestV1,
     CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1,
     CloudflareRouterAbEcdsaDerivationEvmDigestFinalizeAdmissionCandidateV1,
     CloudflareRouterAbEcdsaDerivationEvmDigestPrepareAdmissionCandidateV1,
     CloudflareRouterAbEcdsaDerivationPendingSigningWorkerActivationV1,
-    CloudflareRouterAbEcdsaDerivationRecoveryAdmissionResponseV1,
     CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1,
     CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRefreshRequestV1,
     CloudflareRouterAbEcdsaDerivationSigningWorkerActivationRequestV1,
@@ -194,8 +191,7 @@ use router_ab_core::{
     RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningResponseV1,
     RouterAbEcdsaDerivationExplicitExportRequestV1, RouterAbEcdsaDerivationOperationDigestsV1,
-    RouterAbEcdsaDerivationPublicIdentityV1, RouterAbEcdsaDerivationRecoveryRequestV1,
-    RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
+    RouterAbEcdsaDerivationPublicIdentityV1, RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
     RouterAbEcdsaDerivationRegistrationPurposeV1, RouterAbEcdsaDerivationStableKeyContextV1,
     RouterAbEd25519NormalSigningFinalizeProtocolV2, RouterAbEd25519NormalSigningFinalizeRequestV2,
     RouterAbEd25519NormalSigningIntentV2, RouterAbEd25519NormalSigningPrepareBindingV2,
@@ -1368,61 +1364,6 @@ fn router_ab_ecdsa_derivation_export_request_with_aad_bound_envelopes(
     request
         .validate()
         .expect("AAD-bound Router A/B ECDSA derivation export request");
-    request
-}
-
-fn router_ab_ecdsa_derivation_recovery_lifecycle_scope() -> LifecycleScopeV1 {
-    router_ab_ecdsa_derivation_lifecycle_scope_for(
-        "ecdsa-recovery-lifecycle-1",
-        ExpensiveWorkKindV1::Recovery,
-        root_epoch(),
-    )
-}
-
-fn router_ab_ecdsa_derivation_recovery_request_with_aad_bound_envelopes(
-) -> RouterAbEcdsaDerivationRecoveryRequestV1 {
-    let registration = router_ab_ecdsa_derivation_registration_request();
-    let base = RouterAbEcdsaDerivationRecoveryRequestV1 {
-        context: registration.context,
-        lifecycle: router_ab_ecdsa_derivation_recovery_lifecycle_scope(),
-        public_identity: router_ab_ecdsa_derivation_public_identity(),
-        signer_set: signer_set(),
-        router_id: "router-1".to_owned(),
-        client_id: "client-1".to_owned(),
-        client_ephemeral_public_key: "x25519:client-recovery-ephemeral-public-key".to_owned(),
-        recovery_authorization_digest_b64u: b64u(&[0x45; 32]),
-        recovery_nonce: "ecdsa-recovery-nonce-1".to_owned(),
-        expires_at_ms: 2_000,
-        deriver_a_recovery_envelope: role_envelope(Role::SignerA, 0xe3),
-        deriver_b_recovery_envelope: role_envelope(Role::SignerB, 0xf3),
-    };
-    base.validate()
-        .expect("base Router A/B ECDSA derivation recovery request");
-    let public_request = base
-        .to_threshold_prf_request()
-        .expect("base Router A/B ECDSA derivation recovery public request");
-    let aad_a = role_envelope_aad_for_request(Role::SignerA, &public_request);
-    let aad_b = role_envelope_aad_for_request(Role::SignerB, &public_request);
-    let request = RouterAbEcdsaDerivationRecoveryRequestV1 {
-        deriver_a_recovery_envelope: RoleEncryptedEnvelopeV1::new(
-            Role::SignerA,
-            digest(0xe3),
-            aad_a.digest(),
-            EncryptedPayloadV1::new(vec![0xe3, 0xe4]).expect("ECDSA recovery signer a ciphertext"),
-        )
-        .expect("ECDSA recovery signer a aad-bound envelope"),
-        deriver_b_recovery_envelope: RoleEncryptedEnvelopeV1::new(
-            Role::SignerB,
-            digest(0xf3),
-            aad_b.digest(),
-            EncryptedPayloadV1::new(vec![0xf3, 0xf4]).expect("ECDSA recovery signer b ciphertext"),
-        )
-        .expect("ECDSA recovery signer b aad-bound envelope"),
-        ..base
-    };
-    request
-        .validate()
-        .expect("AAD-bound Router A/B ECDSA derivation recovery request");
     request
 }
 
@@ -4687,117 +4628,6 @@ fn router_ab_ecdsa_derivation_deriver_export_private_request_rejects_payload_dri
 }
 
 #[test]
-fn router_ab_ecdsa_derivation_deriver_recovery_private_request_accepts_matching_payload() {
-    let recovery_request = router_ab_ecdsa_derivation_recovery_request_with_aad_bound_envelopes();
-    let public_request = recovery_request
-        .to_threshold_prf_request()
-        .expect("Router A/B ECDSA derivation recovery public request");
-    let (deriver_a_message, _) = public_request
-        .to_signer_wire_messages()
-        .expect("Router A/B ECDSA derivation recovery signer messages");
-    let bootstrap = cloudflare_signer_private_bootstrap_from_public_request_v1(
-        CloudflareWorkerRoleV1::DeriverA,
-        &public_request,
-        deriver_a_message.clone(),
-    )
-    .expect("Router A/B ECDSA derivation recovery bootstrap");
-    let router_payload = decode_router_to_signer_payload_v1(deriver_a_message.payload.as_bytes())
-        .expect("Router A/B ECDSA derivation recovery Router payload");
-
-    validate_cloudflare_router_ab_ecdsa_derivation_recovery_request_for_router_payload_v1(
-        &recovery_request,
-        &router_payload,
-    )
-    .expect("Router A/B ECDSA derivation recovery payload binding");
-    let private_request = CloudflareRouterAbEcdsaDerivationDeriverRecoveryPrivateRequestV1::new(
-        CloudflareWorkerRoleV1::DeriverA,
-        recovery_request,
-        bootstrap,
-    )
-    .expect("Router A/B ECDSA derivation recovery private request");
-
-    private_request
-        .validate_for_worker_role(CloudflareWorkerRoleV1::DeriverA)
-        .expect("Router A/B ECDSA derivation recovery private request validates");
-}
-
-#[test]
-fn router_ab_ecdsa_derivation_recovery_public_admission_response_validates_client_bundles() {
-    let recovery_request = router_ab_ecdsa_derivation_recovery_request_with_aad_bound_envelopes();
-    let public_request = recovery_request
-        .to_threshold_prf_request()
-        .expect("Router A/B ECDSA derivation recovery public request");
-    let (deriver_a_message, _) = public_request
-        .to_signer_wire_messages()
-        .expect("Router A/B ECDSA derivation recovery signer messages");
-    let router_payload = decode_router_to_signer_payload_v1(deriver_a_message.payload.as_bytes())
-        .expect("Router A/B ECDSA derivation recovery Router payload");
-    let signer_a_response = CloudflareSignerClientRecipientProofBundleResponseV1::new(
-        Role::SignerA,
-        client_proof_bundle_wire(&router_payload, Role::SignerA, 0x51),
-    )
-    .expect("Deriver A recovery client bundle");
-    let signer_b_response = CloudflareSignerClientRecipientProofBundleResponseV1::new(
-        Role::SignerB,
-        client_proof_bundle_wire(&router_payload, Role::SignerB, 0x52),
-    )
-    .expect("Deriver B recovery client bundle");
-    let router_response = CloudflareRouterRecipientProofBundleResponseV1::new(
-        signer_a_response.client_bundle.clone(),
-        signer_b_response.client_bundle.clone(),
-    )
-    .expect("Router A/B ECDSA derivation recovery Router response");
-    router_response
-        .validate_for_router_payload(&router_payload)
-        .expect("Router A/B ECDSA derivation recovery Router response matches payload");
-
-    let admission =
-        CloudflareRouterAbEcdsaDerivationRecoveryAdmissionResponseV1::forwarded(router_response)
-            .expect("Router A/B ECDSA derivation recovery admission response");
-    admission
-        .validate()
-        .expect("Router A/B ECDSA derivation recovery admission validates");
-
-    let swapped = CloudflareRouterRecipientProofBundleResponseV1::new(
-        signer_b_response.client_bundle,
-        signer_a_response.client_bundle,
-    )
-    .expect_err("swapped recovery client bundles must fail");
-    assert_eq!(
-        swapped.code(),
-        RouterAbProtocolErrorCode::InvalidSignerIdentity
-    );
-}
-
-#[test]
-fn router_ab_ecdsa_derivation_deriver_recovery_private_request_rejects_payload_drift() {
-    let mut recovery_request =
-        router_ab_ecdsa_derivation_recovery_request_with_aad_bound_envelopes();
-    let public_request = recovery_request
-        .to_threshold_prf_request()
-        .expect("Router A/B ECDSA derivation recovery public request");
-    let (deriver_a_message, _) = public_request
-        .to_signer_wire_messages()
-        .expect("Router A/B ECDSA derivation recovery signer messages");
-    let bootstrap = cloudflare_signer_private_bootstrap_from_public_request_v1(
-        CloudflareWorkerRoleV1::DeriverA,
-        &public_request,
-        deriver_a_message,
-    )
-    .expect("Router A/B ECDSA derivation recovery bootstrap");
-    recovery_request.recovery_nonce = "ecdsa-recovery-nonce-drift".to_owned();
-
-    let err = CloudflareRouterAbEcdsaDerivationDeriverRecoveryPrivateRequestV1::new(
-        CloudflareWorkerRoleV1::DeriverA,
-        recovery_request,
-        bootstrap,
-    )
-    .expect_err("payload drift must fail");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
-}
-
-#[test]
 fn router_ab_ecdsa_derivation_deriver_activation_refresh_private_request_accepts_matching_payload()
 {
     let refresh_request =
@@ -4890,16 +4720,12 @@ fn router_ab_ecdsa_derivation_lifecycles_enforce_exact_client_and_signing_worker
     let export = router_ab_ecdsa_derivation_export_request_with_aad_bound_envelopes()
         .to_threshold_prf_request()
         .expect("export threshold-PRF request");
-    let recovery = router_ab_ecdsa_derivation_recovery_request_with_aad_bound_envelopes()
-        .to_threshold_prf_request()
-        .expect("recovery threshold-PRF request");
     let refresh = router_ab_ecdsa_derivation_activation_refresh_request_with_aad_bound_envelopes()
         .to_threshold_prf_request()
         .expect("refresh threshold-PRF request");
     let cases = [
         ("registration", first_router_payload(&registration), true),
         ("export", first_router_payload(&export), false),
-        ("recovery", first_router_payload(&recovery), true),
         ("refresh", first_router_payload(&refresh), true),
     ];
 

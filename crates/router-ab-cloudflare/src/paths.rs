@@ -26,9 +26,6 @@ pub const CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ADD_SIGNER_PUBLIC_REQUEST_PATH: 
 /// Public Router endpoint for Router A/B ECDSA derivation Router A/B explicit export.
 pub const CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PUBLIC_REQUEST_PATH: &str =
     "/router-ab/ecdsa-derivation/export";
-/// Public Router endpoint for Router A/B ECDSA derivation recovery.
-pub const CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PUBLIC_REQUEST_PATH: &str =
-    "/router-ab/ecdsa-derivation/recover";
 /// Public Router endpoint for Router A/B ECDSA derivation activation refresh.
 pub const CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PUBLIC_REQUEST_PATH: &str =
     "/router-ab/ecdsa-derivation/refresh";
@@ -79,12 +76,6 @@ pub const CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST
 /// Private Deriver B service-binding endpoint for Router A/B ECDSA derivation explicit export.
 pub const CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_PATH: &str =
     "/router-ab/deriver-b/ecdsa-derivation/export";
-/// Private Deriver A service-binding endpoint for Router A/B ECDSA derivation recovery.
-pub const CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PRIVATE_REQUEST_PATH: &str =
-    "/router-ab/deriver-a/ecdsa-derivation/recover";
-/// Private Deriver B service-binding endpoint for Router A/B ECDSA derivation recovery.
-pub const CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PRIVATE_REQUEST_PATH: &str =
-    "/router-ab/deriver-b/ecdsa-derivation/recover";
 /// Private Deriver A service-binding endpoint for Router A/B ECDSA derivation activation refresh.
 pub const CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PRIVATE_REQUEST_PATH: &str =
     "/router-ab/deriver-a/ecdsa-derivation/refresh";
@@ -156,16 +147,6 @@ const CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_URL
 const CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_URL: &str = concat!(
     "https://router-ab-deriver-b.internal",
     "/router-ab/deriver-b/ecdsa-derivation/export"
-);
-#[cfg(feature = "workers-rs")]
-const CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PRIVATE_REQUEST_URL: &str = concat!(
-    "https://router-ab-deriver-a.internal",
-    "/router-ab/deriver-a/ecdsa-derivation/recover"
-);
-#[cfg(feature = "workers-rs")]
-const CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PRIVATE_REQUEST_URL: &str = concat!(
-    "https://router-ab-deriver-b.internal",
-    "/router-ab/deriver-b/ecdsa-derivation/recover"
 );
 #[cfg(feature = "workers-rs")]
 const CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PRIVATE_REQUEST_URL: &str = concat!(
@@ -285,18 +266,6 @@ pub(crate) fn cloudflare_router_ab_ecdsa_derivation_deriver_export_service_url(
         CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_URL,
         CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_URL,
         "Router A/B ECDSA derivation export can forward Deriver work only to signer peers",
-    )
-}
-
-#[cfg(feature = "workers-rs")]
-pub(crate) fn cloudflare_router_ab_ecdsa_derivation_deriver_recovery_service_url(
-    peer: &CloudflarePeerBindingV1,
-) -> RouterAbProtocolResult<&'static str> {
-    cloudflare_deriver_peer_url(
-        peer,
-        CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PRIVATE_REQUEST_URL,
-        CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PRIVATE_REQUEST_URL,
-        "Router A/B ECDSA derivation recovery can forward Deriver work only to signer peers",
     )
 }
 

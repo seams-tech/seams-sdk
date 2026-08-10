@@ -252,7 +252,6 @@ fn router_ab_ecdsa_derivation_deriver_envelope_plaintext_carries_only_public_met
         "RouterAbEcdsaDerivationDeriverEnvelopeCommonV1",
         "RouterAbEcdsaDerivationDeriverRegistrationEnvelopePlaintextV1",
         "RouterAbEcdsaDerivationDeriverExportEnvelopePlaintextV1",
-        "RouterAbEcdsaDerivationDeriverRecoveryEnvelopePlaintextV1",
         "RouterAbEcdsaDerivationDeriverRefreshEnvelopePlaintextV1",
     ] {
         let block = extract_struct_block(&router_ab_ecdsa_derivation_rs, struct_name);

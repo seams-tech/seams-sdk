@@ -108,7 +108,6 @@ mod trace_context;
 use paths::{
     cloudflare_deriver_peer_service_url,
     cloudflare_router_ab_ecdsa_derivation_deriver_export_service_url,
-    cloudflare_router_ab_ecdsa_derivation_deriver_recovery_service_url,
     cloudflare_router_ab_ecdsa_derivation_deriver_refresh_service_url,
     cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_url,
     cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_refresh_service_url,
@@ -212,8 +211,7 @@ use router_ab_core::{
     RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningResponseV1,
     RouterAbEcdsaDerivationExplicitExportRequestV1, RouterAbEcdsaDerivationNormalSigningScopeV1,
-    RouterAbEcdsaDerivationPublicIdentityV1, RouterAbEcdsaDerivationRecoveryRequestV1,
-    RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
+    RouterAbEcdsaDerivationPublicIdentityV1, RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
     RouterAbEcdsaDerivationStableKeyContextV1, RouterAbEd25519NormalSigningAdmissionMaterialV2,
     RouterAbEd25519NormalSigningFinalizeProtocolV2, RouterAbEd25519NormalSigningFinalizeRequestV2,
     RouterAbEd25519NormalSigningPrepareRequestV2, RouterAbLifecycleStateV1,
@@ -4042,48 +4040,6 @@ impl CloudflareRouterAbEcdsaDerivationExportAdmissionResponseV1 {
     }
 }
 
-/// Strict Router result for Router A/B ECDSA derivation recovery.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "result", rename_all = "snake_case")]
-pub enum CloudflareRouterAbEcdsaDerivationRecoveryAdmissionResponseV1 {
-    /// Request was accepted and client recovery bundles were aggregated.
-    Forwarded {
-        /// Public client proof-bundle response.
-        response: CloudflareRouterRecipientProofBundleResponseV1,
-    },
-    /// Request stopped at the Router gate before signer forwarding.
-    Stopped {
-        /// Trusted Router-owned gate decision.
-        decision: ExpensiveWorkGateDecisionV1,
-    },
-}
-
-impl CloudflareRouterAbEcdsaDerivationRecoveryAdmissionResponseV1 {
-    /// Creates a forwarded Router A/B ECDSA derivation recovery response.
-    pub fn forwarded(
-        response: CloudflareRouterRecipientProofBundleResponseV1,
-    ) -> RouterAbProtocolResult<Self> {
-        let result = Self::Forwarded { response };
-        result.validate()?;
-        Ok(result)
-    }
-
-    /// Creates a stopped Router A/B ECDSA derivation recovery response.
-    pub fn stopped(decision: ExpensiveWorkGateDecisionV1) -> RouterAbProtocolResult<Self> {
-        let result = Self::Stopped { decision };
-        result.validate()?;
-        Ok(result)
-    }
-
-    /// Validates Router A/B ECDSA derivation recovery response fields.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        match self {
-            Self::Forwarded { response } => response.validate(),
-            Self::Stopped { decision } => decision.validate(),
-        }
-    }
-}
-
 /// Strict Router result for Router A/B ECDSA derivation activation refresh.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "result", rename_all = "snake_case")]
@@ -5293,77 +5249,6 @@ where
                 trusted_admission.decision.clone(),
             )
         }
-    }
-}
-
-/// Handles an authenticated public Router Router A/B ECDSA derivation recovery request.
-#[cfg(feature = "workers-rs")]
-pub async fn handle_cloudflare_router_ab_ecdsa_derivation_recovery_authenticated_public_request_v1<
-    Verifier,
->(
-    env: &worker::Env,
-    runtime: &CloudflareRouterWorkerRuntimeV1,
-    now_unix_ms: u64,
-    request: RouterAbEcdsaDerivationRecoveryRequestV1,
-    authorization: CloudflareRouterBearerAuthorizationV1,
-    trusted_source_digest: PublicDigest32,
-    verifier: Verifier,
-) -> RouterAbProtocolResult<CloudflareRouterAbEcdsaDerivationRecoveryAdmissionResponseV1>
-where
-    Verifier: CloudflareRouterJwtVerifierV1,
-{
-    request.validate_at(now_unix_ms)?;
-    let public_request = request.to_threshold_prf_request()?;
-    let public_request_for_derivers = public_request.clone();
-    let trusted_admission = derive_cloudflare_router_trusted_admission_from_worker_jwt_v1(
-        runtime,
-        now_unix_ms,
-        &public_request,
-        request.request_digest()?,
-        authorization,
-        trusted_source_digest,
-        verifier,
-    )?;
-    let plan =
-        runtime.public_request_admission_plan_at(now_unix_ms, public_request, trusted_admission)?;
-    match &plan {
-        CloudflareRouterPublicAdmissionPlanV1::Forward {
-            deriver_a_message,
-            deriver_b_message,
-            ..
-        } => {
-            let (deriver_a_result, deriver_b_result) = futures::join!(
-                execute_cloudflare_router_ab_ecdsa_derivation_deriver_recovery_service_call_v1(
-                    env,
-                    runtime.deriver_a_peer(),
-                    &request,
-                    &public_request_for_derivers,
-                    deriver_a_message,
-                ),
-                execute_cloudflare_router_ab_ecdsa_derivation_deriver_recovery_service_call_v1(
-                    env,
-                    runtime.deriver_b_peer(),
-                    &request,
-                    &public_request_for_derivers,
-                    deriver_b_message,
-                ),
-            );
-            let deriver_a_response = deriver_a_result?;
-            let deriver_b_response = deriver_b_result?;
-            let router_payload =
-                decode_router_to_signer_payload_v1(deriver_a_message.payload.as_bytes())?;
-            let response = CloudflareRouterRecipientProofBundleResponseV1::new(
-                deriver_a_response.client_bundle,
-                deriver_b_response.client_bundle,
-            )?;
-            response.validate_for_router_payload(&router_payload)?;
-            CloudflareRouterAbEcdsaDerivationRecoveryAdmissionResponseV1::forwarded(response)
-        }
-        CloudflareRouterPublicAdmissionPlanV1::Stop {
-            trusted_admission, ..
-        } => CloudflareRouterAbEcdsaDerivationRecoveryAdmissionResponseV1::stopped(
-            trusted_admission.decision.clone(),
-        ),
     }
 }
 
@@ -7917,57 +7802,6 @@ impl CloudflareRouterAbEcdsaDerivationDeriverExportPrivateRequestV1 {
     }
 }
 
-/// Strict private Deriver request for Router A/B ECDSA derivation recovery.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareRouterAbEcdsaDerivationDeriverRecoveryPrivateRequestV1 {
-    /// Typed public recovery request admitted by Router.
-    pub recovery_request: RouterAbEcdsaDerivationRecoveryRequestV1,
-    /// Router-to-Deriver bootstrap body carrying role-envelope AAD.
-    pub signer_bootstrap: CloudflareSignerPrivateBootstrapRequestV1,
-}
-
-impl CloudflareRouterAbEcdsaDerivationDeriverRecoveryPrivateRequestV1 {
-    /// Creates a validated Router A/B ECDSA derivation recovery Deriver request.
-    pub fn new(
-        worker_role: CloudflareWorkerRoleV1,
-        recovery_request: RouterAbEcdsaDerivationRecoveryRequestV1,
-        signer_bootstrap: CloudflareSignerPrivateBootstrapRequestV1,
-    ) -> RouterAbProtocolResult<Self> {
-        let request = Self {
-            recovery_request,
-            signer_bootstrap,
-        };
-        request.validate_for_worker_role(worker_role)?;
-        Ok(request)
-    }
-
-    /// Validates that typed recovery metadata matches the Router-to-signer payload.
-    pub fn validate_for_worker_role(
-        &self,
-        worker_role: CloudflareWorkerRoleV1,
-    ) -> RouterAbProtocolResult<()> {
-        self.recovery_request.validate()?;
-        self.signer_bootstrap
-            .validate_for_worker_role(worker_role)?;
-        let expected_router_request_digest = self
-            .recovery_request
-            .to_threshold_prf_request()?
-            .request_context_digest()?;
-        if self.signer_bootstrap.router_request_digest != expected_router_request_digest {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                "Router A/B ECDSA derivation recovery bootstrap digest does not match typed recovery request",
-            ));
-        }
-        let router_payload =
-            decode_router_to_signer_payload_v1(self.signer_bootstrap.message.payload.as_bytes())?;
-        validate_cloudflare_router_ab_ecdsa_derivation_recovery_request_for_router_payload_v1(
-            &self.recovery_request,
-            &router_payload,
-        )
-    }
-}
-
 /// Strict private Deriver request for Router A/B ECDSA derivation activation refresh.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudflareRouterAbEcdsaDerivationDeriverActivationRefreshPrivateRequestV1 {
@@ -8099,29 +7933,6 @@ pub fn validate_cloudflare_router_ab_ecdsa_derivation_export_request_for_router_
     Err(RouterAbProtocolError::new(
         RouterAbProtocolErrorCode::InvalidLifecycleState,
         "Router A/B ECDSA derivation export request does not match Router-to-Deriver payload",
-    ))
-}
-
-/// Validates that a Router A/B ECDSA derivation recovery request owns a Router-to-signer payload.
-pub fn validate_cloudflare_router_ab_ecdsa_derivation_recovery_request_for_router_payload_v1(
-    recovery_request: &RouterAbEcdsaDerivationRecoveryRequestV1,
-    router_payload: &RouterToSignerPayloadV1,
-) -> RouterAbProtocolResult<()> {
-    recovery_request.validate()?;
-    router_payload.validate()?;
-    let public_request = recovery_request.to_threshold_prf_request()?;
-    let (expected_a, expected_b) = public_request.to_signer_payloads()?;
-    let expected = match router_payload.recipient_role() {
-        Role::SignerA => expected_a,
-        Role::SignerB => expected_b,
-        _ => unreachable!("RouterToSignerPayloadV1 targets only signer roles"),
-    };
-    if router_payload == &expected {
-        return Ok(());
-    }
-    Err(RouterAbProtocolError::new(
-        RouterAbProtocolErrorCode::InvalidLifecycleState,
-        "Router A/B ECDSA derivation recovery request does not match Router-to-Deriver payload",
     ))
 }
 
@@ -9000,70 +8811,6 @@ pub async fn decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_export_sig
     .await?;
     validate_cloudflare_router_ab_ecdsa_derivation_export_request_for_router_payload_v1(
         &export_request,
-        validated.router_payload(),
-    )?;
-    validate_cloudflare_peer_signing_key_matches_request_v1(
-        worker_role,
-        peer_signing_key,
-        &validated,
-    )?;
-    let mut peer_signing_key_bytes =
-        load_cloudflare_deriver_peer_signing_key_bytes_v1(env, peer_signing_key)?;
-    let mut encryptor = CloudflareHpkeRecipientProofBundleEncryptorV1::new();
-    let response =
-        handle_cloudflare_validated_mpc_prf_client_recipient_proof_bundle_signer_request_v1(
-            host,
-            &peer_signing_key_bytes,
-            &validated,
-            &mut encryptor,
-        );
-    peer_signing_key_bytes.zeroize();
-    let response = response?;
-    validate_cloudflare_signer_client_recipient_proof_bundle_private_response_v1(
-        worker_role,
-        validated.message(),
-        &response,
-    )?;
-    Ok(response)
-}
-
-/// Decrypts, validates, and handles a Router A/B ECDSA derivation recovery signer request.
-#[cfg(feature = "workers-rs")]
-pub async fn decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_recovery_signer_private_request_v1(
-    env: &worker::Env,
-    worker_role: CloudflareWorkerRoleV1,
-    host: &CloudflarePreloadedSignerHostV1,
-    request: CloudflareRouterAbEcdsaDerivationDeriverRecoveryPrivateRequestV1,
-    envelope_decrypt_keys: &CloudflareSignerEnvelopeHpkeDecryptKeyBindingSetV1,
-    peer_signing_key: &CloudflareSignerPeerSigningKeyBindingV1,
-    root_share_metadata: &CloudflareRootShareStartupMetadataV1,
-    now_unix_ms: u64,
-) -> RouterAbProtocolResult<CloudflareSignerClientRecipientProofBundleResponseV1> {
-    request.validate_for_worker_role(worker_role)?;
-    let CloudflareRouterAbEcdsaDerivationDeriverRecoveryPrivateRequestV1 {
-        recovery_request,
-        signer_bootstrap: bootstrap,
-    } = request;
-    let expected_plaintext =
-        RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1::recovery_for_request(
-            &recovery_request,
-            cloudflare_worker_signer_role_v1(worker_role)?,
-            bootstrap.aad.digest(),
-        )?;
-    let validated = decrypt_cloudflare_validated_ecdsa_derivation_signer_private_request_v1(
-        env,
-        worker_role,
-        bootstrap.message,
-        envelope_decrypt_keys,
-        &bootstrap.aad,
-        bootstrap.router_request_digest,
-        root_share_metadata,
-        &expected_plaintext,
-        now_unix_ms,
-    )
-    .await?;
-    validate_cloudflare_router_ab_ecdsa_derivation_recovery_request_for_router_payload_v1(
-        &recovery_request,
         validated.router_payload(),
     )?;
     validate_cloudflare_peer_signing_key_matches_request_v1(
@@ -11686,46 +11433,6 @@ async fn execute_cloudflare_router_ab_ecdsa_derivation_deriver_export_service_ca
         env,
         &peer.binding_name,
         cloudflare_router_ab_ecdsa_derivation_deriver_export_service_url(peer)?,
-        &label,
-        &private_request,
-    )
-    .await?;
-    validate_cloudflare_signer_client_recipient_proof_bundle_private_response_v1(
-        peer.peer_role,
-        message,
-        &response,
-    )?;
-    Ok(response)
-}
-
-#[cfg(feature = "workers-rs")]
-async fn execute_cloudflare_router_ab_ecdsa_derivation_deriver_recovery_service_call_v1(
-    env: &worker::Env,
-    peer: &CloudflarePeerBindingV1,
-    recovery_request: &RouterAbEcdsaDerivationRecoveryRequestV1,
-    public_request: &EcdsaThresholdPrfRequestV1,
-    message: &WireMessageV1,
-) -> RouterAbProtocolResult<CloudflareSignerClientRecipientProofBundleResponseV1> {
-    peer.validate()?;
-    validate_cloudflare_signer_private_request_v1(peer.peer_role, message)?;
-    let signer_bootstrap = cloudflare_signer_private_bootstrap_from_public_request_v1(
-        peer.peer_role,
-        public_request,
-        message.clone(),
-    )?;
-    let private_request = CloudflareRouterAbEcdsaDerivationDeriverRecoveryPrivateRequestV1::new(
-        peer.peer_role,
-        recovery_request.clone(),
-        signer_bootstrap,
-    )?;
-    let label = format!(
-        "{} Router A/B ECDSA derivation recovery service request",
-        peer.peer_role.as_str()
-    );
-    let response: CloudflareSignerClientRecipientProofBundleResponseV1 = post_service_json(
-        env,
-        &peer.binding_name,
-        cloudflare_router_ab_ecdsa_derivation_deriver_recovery_service_url(peer)?,
         &label,
         &private_request,
     )

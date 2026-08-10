@@ -37,8 +37,6 @@ const ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_REQUEST_VERSION_V1: &[u8] =
     b"router-ab-ecdsa-derivation/registration-request/v1";
 const ROUTER_AB_ECDSA_DERIVATION_EXPORT_REQUEST_VERSION_V1: &[u8] =
     b"router-ab-ecdsa-derivation/export-request/v1";
-const ROUTER_AB_ECDSA_DERIVATION_RECOVERY_REQUEST_VERSION_V1: &[u8] =
-    b"router-ab-ecdsa-derivation/recovery-request/v1";
 const ROUTER_AB_ECDSA_DERIVATION_REFRESH_REQUEST_VERSION_V1: &[u8] =
     b"router-ab-ecdsa-derivation/refresh-request/v1";
 const ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_SCOPE_VERSION_V1: &[u8] =
@@ -60,8 +58,6 @@ pub enum RouterAbEcdsaDerivationRequestKindV1 {
     RegistrationBootstrap,
     /// Explicit user-authorized key export.
     ExplicitKeyExport,
-    /// Recovery ceremony for an existing Router A/B ECDSA derivation identity.
-    Recovery,
     /// SigningWorker activation refresh after Deriver A/B root rotation.
     Refresh,
     /// Normal ECDSA signing through an active SigningWorker state.
@@ -94,7 +90,6 @@ impl RouterAbEcdsaDerivationRequestKindV1 {
         match self {
             Self::RegistrationBootstrap => "registration_bootstrap",
             Self::ExplicitKeyExport => "explicit_key_export",
-            Self::Recovery => "recovery",
             Self::Refresh => "refresh",
             Self::NormalSigning => "normal_signing",
         }
@@ -129,8 +124,6 @@ pub enum RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1 {
     RegistrationBootstrap(RouterAbEcdsaDerivationDeriverRegistrationEnvelopePlaintextV1),
     /// Explicit export material for the client export runtime.
     ExplicitKeyExport(RouterAbEcdsaDerivationDeriverExportEnvelopePlaintextV1),
-    /// Recovery material for the client recovery runtime.
-    Recovery(RouterAbEcdsaDerivationDeriverRecoveryEnvelopePlaintextV1),
     /// Refresh material for the next SigningWorker activation epoch.
     Refresh(RouterAbEcdsaDerivationDeriverRefreshEnvelopePlaintextV1),
 }
@@ -202,35 +195,6 @@ impl RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1 {
         Ok(Self::ExplicitKeyExport(plaintext))
     }
 
-    /// Builds recovery plaintext for one Deriver envelope.
-    pub fn recovery_for_request(
-        request: &RouterAbEcdsaDerivationRecoveryRequestV1,
-        recipient_role: Role,
-        aad_digest: PublicDigest32,
-    ) -> RouterAbProtocolResult<Self> {
-        request.validate()?;
-        let plaintext = RouterAbEcdsaDerivationDeriverRecoveryEnvelopePlaintextV1 {
-            common: RouterAbEcdsaDerivationDeriverEnvelopeCommonV1::from_parts(
-                request.context.clone(),
-                request.lifecycle.clone(),
-                request.signer_set.clone(),
-                recipient_role,
-                request.router_id.clone(),
-                request.client_id.clone(),
-                request.client_ephemeral_public_key.clone(),
-                request.request_header_digest()?,
-                aad_digest,
-                request.expires_at_ms,
-            )?,
-            output_kind: RouterAbEcdsaDerivationOutputKindV1::ClientExport,
-            public_identity: request.public_identity.clone(),
-            recovery_authorization_digest_b64u: request.recovery_authorization_digest_b64u.clone(),
-            recovery_nonce: request.recovery_nonce.clone(),
-        };
-        plaintext.validate()?;
-        Ok(Self::Recovery(plaintext))
-    }
-
     /// Builds activation-refresh plaintext for one Deriver envelope.
     pub fn refresh_for_request(
         request: &RouterAbEcdsaDerivationActivationRefreshRequestV1,
@@ -270,7 +234,6 @@ impl RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1 {
                 RouterAbEcdsaDerivationRequestKindV1::RegistrationBootstrap
             }
             Self::ExplicitKeyExport(_) => RouterAbEcdsaDerivationRequestKindV1::ExplicitKeyExport,
-            Self::Recovery(_) => RouterAbEcdsaDerivationRequestKindV1::Recovery,
             Self::Refresh(_) => RouterAbEcdsaDerivationRequestKindV1::Refresh,
         }
     }
@@ -280,7 +243,6 @@ impl RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1 {
         match self {
             Self::RegistrationBootstrap(plaintext) => plaintext.output_kind,
             Self::ExplicitKeyExport(plaintext) => plaintext.output_kind,
-            Self::Recovery(plaintext) => plaintext.output_kind,
             Self::Refresh(plaintext) => plaintext.output_kind,
         }
     }
@@ -290,7 +252,6 @@ impl RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1 {
         match self {
             Self::RegistrationBootstrap(plaintext) => &plaintext.common,
             Self::ExplicitKeyExport(plaintext) => &plaintext.common,
-            Self::Recovery(plaintext) => &plaintext.common,
             Self::Refresh(plaintext) => &plaintext.common,
         }
     }
@@ -300,7 +261,6 @@ impl RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1 {
         match self {
             Self::RegistrationBootstrap(plaintext) => plaintext.validate(),
             Self::ExplicitKeyExport(plaintext) => plaintext.validate(),
-            Self::Recovery(plaintext) => plaintext.validate(),
             Self::Refresh(plaintext) => plaintext.validate(),
         }
     }
@@ -355,19 +315,6 @@ impl RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1 {
                     plaintext.export_authorization_digest_b64u.as_bytes(),
                 );
                 push_len32(&mut out, plaintext.export_nonce.as_bytes());
-            }
-            Self::Recovery(plaintext) => {
-                push_len32(
-                    &mut out,
-                    &plaintext
-                        .public_identity
-                        .canonical_public_identity_bytes()?,
-                );
-                push_len32(
-                    &mut out,
-                    plaintext.recovery_authorization_digest_b64u.as_bytes(),
-                );
-                push_len32(&mut out, plaintext.recovery_nonce.as_bytes());
             }
             Self::Refresh(plaintext) => {
                 push_len32(
@@ -560,45 +507,6 @@ impl RouterAbEcdsaDerivationDeriverExportEnvelopePlaintextV1 {
     }
 }
 
-/// Recovery Deriver plaintext.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RouterAbEcdsaDerivationDeriverRecoveryEnvelopePlaintextV1 {
-    /// Shared public Deriver envelope metadata.
-    pub common: RouterAbEcdsaDerivationDeriverEnvelopeCommonV1,
-    /// Recovery must produce client-recipient recovery/export material.
-    pub output_kind: RouterAbEcdsaDerivationOutputKindV1,
-    /// Public identity being recovered.
-    pub public_identity: RouterAbEcdsaDerivationPublicIdentityV1,
-    /// User-confirmed recovery authorization digest encoded as unpadded base64url.
-    pub recovery_authorization_digest_b64u: String,
-    /// Request-scoped recovery replay nonce.
-    pub recovery_nonce: String,
-}
-
-impl RouterAbEcdsaDerivationDeriverRecoveryEnvelopePlaintextV1 {
-    /// Validates recovery Deriver plaintext.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        self.common
-            .validate_for_work_kind(ExpensiveWorkKindV1::Recovery)?;
-        require_output_kind(
-            "recovery_deriver_plaintext.output_kind",
-            self.output_kind,
-            RouterAbEcdsaDerivationOutputKindV1::ClientExport,
-        )?;
-        self.public_identity
-            .validate_for_context(&self.common.context)?;
-        decode_base64url_fixed_32(
-            "recovery_deriver_plaintext.recovery_authorization_digest_b64u",
-            &self.recovery_authorization_digest_b64u,
-        )?;
-        require_ascii_non_empty(
-            "recovery_deriver_plaintext.recovery_nonce",
-            &self.recovery_nonce,
-        )
-    }
-}
-
 /// Activation-refresh Deriver plaintext.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -683,7 +591,7 @@ pub enum RouterAbEcdsaDerivationSignatureSchemeV1 {
     EcdsaSecp256k1RecoverableV1,
 }
 
-/// Router A/B ECDSA derivation stable context bound into registration, export, recovery, and refresh.
+/// Router A/B ECDSA derivation stable context bound into registration, export, and refresh.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RouterAbEcdsaDerivationStableKeyContextV1 {
@@ -1356,171 +1264,6 @@ impl RouterAbEcdsaDerivationExplicitExportRequestV1 {
             context.derivation_transcript_digest()?,
             self.deriver_a_export_envelope.clone(),
             self.deriver_b_export_envelope.clone(),
-        )
-    }
-}
-
-/// Client-facing typed Router A/B ECDSA derivation recovery request.
-///
-/// Recovery uses the same primitive derivation class as export, but its
-/// transcript domain, authorization digest, nonce, and envelope labels remain
-/// recovery-specific.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RouterAbEcdsaDerivationRecoveryRequestV1 {
-    /// Stable Router A/B ECDSA derivation context.
-    pub context: RouterAbEcdsaDerivationStableKeyContextV1,
-    /// Router lifecycle scope for the A/B recovery ceremony.
-    pub lifecycle: LifecycleScopeV1,
-    /// Public identity being recovered.
-    pub public_identity: RouterAbEcdsaDerivationPublicIdentityV1,
-    /// Router A/B signer set selected for this request.
-    pub signer_set: SignerSetV1,
-    /// Router identity bound into the A/B transcript.
-    pub router_id: String,
-    /// Client identity bound into the A/B transcript.
-    pub client_id: String,
-    /// Client ephemeral public key used for recovery-output encryption.
-    pub client_ephemeral_public_key: String,
-    /// User-confirmed recovery authorization digest encoded as unpadded base64url.
-    pub recovery_authorization_digest_b64u: String,
-    /// Request-scoped recovery replay nonce.
-    pub recovery_nonce: String,
-    /// Request expiry in Unix milliseconds.
-    pub expires_at_ms: u64,
-    /// Deriver A encrypted Router A/B ECDSA derivation recovery envelope.
-    pub deriver_a_recovery_envelope: RoleEncryptedEnvelopeV1,
-    /// Deriver B encrypted Router A/B ECDSA derivation recovery envelope.
-    pub deriver_b_recovery_envelope: RoleEncryptedEnvelopeV1,
-}
-
-impl RouterAbEcdsaDerivationRecoveryRequestV1 {
-    /// Validates the request without consulting clock state.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        self.context.validate()?;
-        self.lifecycle.validate()?;
-        validate_lifecycle_work_kind(
-            "recovery.lifecycle",
-            &self.lifecycle,
-            ExpensiveWorkKindV1::Recovery,
-        )?;
-        self.public_identity.validate_for_context(&self.context)?;
-        self.signer_set.validate()?;
-        require_ascii_non_empty("recovery.router_id", &self.router_id)?;
-        require_ascii_non_empty("recovery.client_id", &self.client_id)?;
-        require_ascii_non_empty(
-            "recovery.client_ephemeral_public_key",
-            &self.client_ephemeral_public_key,
-        )?;
-        validate_lifecycle_for_context("recovery.lifecycle", &self.lifecycle, &self.context)?;
-        decode_base64url_fixed_32(
-            "recovery.recovery_authorization_digest_b64u",
-            &self.recovery_authorization_digest_b64u,
-        )?;
-        require_ascii_non_empty("recovery.recovery_nonce", &self.recovery_nonce)?;
-        require_positive_ms("recovery.expires_at_ms", self.expires_at_ms)?;
-        self.deriver_a_recovery_envelope.validate()?;
-        self.deriver_b_recovery_envelope.validate()?;
-        require_envelope_role(
-            "recovery.deriver_a_recovery_envelope",
-            &self.deriver_a_recovery_envelope,
-            Role::SignerA,
-        )?;
-        require_envelope_role(
-            "recovery.deriver_b_recovery_envelope",
-            &self.deriver_b_recovery_envelope,
-            Role::SignerB,
-        )?;
-        Ok(())
-    }
-
-    /// Validates the request against Router time.
-    pub fn validate_at(&self, now_unix_ms: u64) -> RouterAbProtocolResult<()> {
-        self.validate()?;
-        if now_unix_ms >= self.expires_at_ms {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::ExpiredLocalRequest,
-                "Router A/B ECDSA derivation recovery request expired",
-            ));
-        }
-        Ok(())
-    }
-
-    /// Returns canonical recovery header bytes before role envelopes are sealed.
-    pub fn canonical_request_header_bytes(&self) -> RouterAbProtocolResult<Vec<u8>> {
-        self.validate()?;
-        let mut out = Vec::new();
-        push_len32(
-            &mut out,
-            ROUTER_AB_ECDSA_DERIVATION_RECOVERY_REQUEST_VERSION_V1,
-        );
-        push_len32(&mut out, &self.context.canonical_context_bytes()?);
-        push_lifecycle_scope(&mut out, &self.lifecycle);
-        push_len32(
-            &mut out,
-            &self.public_identity.canonical_public_identity_bytes()?,
-        );
-        push_signer_set(&mut out, &self.signer_set);
-        push_len32(&mut out, self.router_id.as_bytes());
-        push_len32(&mut out, self.client_id.as_bytes());
-        push_len32(&mut out, self.client_ephemeral_public_key.as_bytes());
-        push_len32(&mut out, self.recovery_authorization_digest_b64u.as_bytes());
-        push_len32(&mut out, self.recovery_nonce.as_bytes());
-        push_u64(&mut out, self.expires_at_ms);
-        Ok(out)
-    }
-
-    /// Returns the pre-envelope recovery header digest used by HPKE AAD and plaintext.
-    pub fn request_header_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
-        Ok(public_digest(&self.canonical_request_header_bytes()?))
-    }
-
-    /// Returns canonical recovery request bytes including sealed role envelopes.
-    pub fn canonical_request_bytes(&self) -> RouterAbProtocolResult<Vec<u8>> {
-        let mut out = self.canonical_request_header_bytes()?;
-        push_digest(
-            &mut out,
-            role_encrypted_envelope_digest_v1(&self.deriver_a_recovery_envelope)?,
-        );
-        push_digest(
-            &mut out,
-            role_encrypted_envelope_digest_v1(&self.deriver_b_recovery_envelope)?,
-        );
-        Ok(out)
-    }
-
-    /// Returns the recovery request digest.
-    pub fn request_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
-        Ok(public_digest(&self.canonical_request_bytes()?))
-    }
-
-    /// Converts this typed request into the shared Router A/B proof-bundle transport.
-    pub fn to_threshold_prf_request(&self) -> RouterAbProtocolResult<EcdsaThresholdPrfRequestV1> {
-        self.validate()?;
-        let context = EcdsaThresholdPrfRequestContextV1::new(
-            self.recovery_nonce.clone(),
-            self.expires_at_ms,
-            self.lifecycle.clone(),
-            self.signer_set.clone(),
-            ROUTER_AB_ECDSA_DERIVATION_KEY_SCOPE_V1.to_owned(),
-            self.public_identity.threshold_public_key33_b64u.clone(),
-            self.router_id.clone(),
-            self.client_id.clone(),
-            self.client_ephemeral_public_key.clone(),
-        )?;
-        EcdsaThresholdPrfRequestV1::new(
-            self.recovery_nonce.clone(),
-            self.expires_at_ms,
-            self.lifecycle.clone(),
-            self.signer_set.clone(),
-            ROUTER_AB_ECDSA_DERIVATION_KEY_SCOPE_V1.to_owned(),
-            self.public_identity.threshold_public_key33_b64u.clone(),
-            self.router_id.clone(),
-            self.client_id.clone(),
-            self.client_ephemeral_public_key.clone(),
-            context.derivation_transcript_digest()?,
-            self.deriver_a_recovery_envelope.clone(),
-            self.deriver_b_recovery_envelope.clone(),
         )
     }
 }
@@ -2415,18 +2158,6 @@ pub fn parse_router_ab_ecdsa_derivation_explicit_export_request_v1_json(
 ) -> RouterAbProtocolResult<RouterAbEcdsaDerivationExplicitExportRequestV1> {
     let request = parse_boundary_json::<RouterAbEcdsaDerivationExplicitExportRequestV1>(
         "Router A/B ECDSA derivation explicit export request",
-        bytes,
-    )?;
-    request.validate()?;
-    Ok(request)
-}
-
-/// Parses and validates a raw JSON Router A/B ECDSA derivation recovery request.
-pub fn parse_router_ab_ecdsa_derivation_recovery_request_v1_json(
-    bytes: &[u8],
-) -> RouterAbProtocolResult<RouterAbEcdsaDerivationRecoveryRequestV1> {
-    let request = parse_boundary_json::<RouterAbEcdsaDerivationRecoveryRequestV1>(
-        "Router A/B ECDSA derivation recovery request",
         bytes,
     )?;
     request.validate()?;
