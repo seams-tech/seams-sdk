@@ -1033,7 +1033,7 @@ export function parseLinkedDeviceReceiptAcknowledgementV1(
       'LinkedDeviceReceiptAcknowledgementV1.enrollmentId',
     ),
     deviceId: parseDeviceId(record.deviceId, 'LinkedDeviceReceiptAcknowledgementV1.deviceId'),
-    receipt: parseLinkedDeviceEnrollmentChildReceiptV1(record.receipt),
+    receipt: parseLinkedDeviceEnrollmentReceiptV1(record.receipt),
     acknowledgedAtMs: parseUnixTime(
       record.acknowledgedAtMs,
       'LinkedDeviceReceiptAcknowledgementV1.acknowledgedAtMs',

@@ -15,6 +15,7 @@ import {
   buildLinkedDeviceReceiptAcknowledgementV1,
   buildLinkedDeviceSessionCancelClaimedRequestV1,
   buildLinkedDeviceSessionCancelUnclaimedRequestV1,
+  buildLinkedDeviceSessionRetryCommittedDeliveryRequestV1,
   buildLinkedDeviceTargetCredentialRegistrationV1,
   buildDisplayingQrLinkedDeviceSessionState,
   assertNeverLinkedDeviceSessionState,
@@ -410,17 +411,27 @@ export class LinkDeviceFlow {
         'registration',
       );
     }
+    const authenticatedTransport = this.requireAuthenticatedTransport();
+    const deviceId = await this.requireDeviceId(state);
+    await authenticatedTransport.retryCommittedDeliveryV1({
+      request: buildLinkedDeviceSessionRetryCommittedDeliveryRequestV1({
+        linkSessionId: state.linkSessionId,
+        enrollmentId: state.enrollmentId,
+        deviceId,
+        requestedAtMs: Date.now(),
+      }),
+    });
     const receipt = await this.ports.laneProvisioning.resumeCommittedDeliveryV1({
       state,
       keyMaterial: this.keyMaterialHandle,
     });
     if (!receipt || !this.session) return;
-    await this.requireAuthenticatedTransport().acknowledgeReceiptV1({
+    await authenticatedTransport.acknowledgeReceiptV1({
       acknowledgement: buildLinkedDeviceReceiptAcknowledgementV1({
         linkSessionId: state.linkSessionId,
         enrollmentId: state.enrollmentId,
-        deviceId: await this.requireDeviceId(state),
-        receipt: receipt.orderedChildReceipts[0],
+        deviceId,
+        receipt,
         acknowledgedAtMs: Date.now(),
       }),
     });
