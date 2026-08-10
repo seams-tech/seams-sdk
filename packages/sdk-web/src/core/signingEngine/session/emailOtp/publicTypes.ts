@@ -36,6 +36,7 @@ export type EmailOtpEnrollmentResult = {
   otpChannel: WalletEmailOtpChannel;
   enrollmentId: string;
   enrollmentSealKeyVersion: string;
+  serverSealedFactorCiphertextB64u: string;
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
 };

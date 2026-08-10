@@ -107,6 +107,10 @@ function parseRegistrationEnrollment(value: unknown): GoogleEmailOtpRegistration
       record.enrollmentSealKeyVersion,
       'emailOtpEnrollment.enrollmentSealKeyVersion',
     ),
+    serverSealedFactorCiphertextB64u: requireString(
+      record.serverSealedFactorCiphertextB64u,
+      'emailOtpEnrollment.serverSealedFactorCiphertextB64u',
+    ),
     clientUnlockPublicKeyB64u: requireString(
       record.clientUnlockPublicKeyB64u,
       'emailOtpEnrollment.clientUnlockPublicKeyB64u',

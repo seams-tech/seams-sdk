@@ -1,5 +1,4 @@
 import { initializeWasm, resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
-import { IndexedDBManager } from '@/core/indexedDB';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { base58Encode } from '@shared/utils/base58';
 import { errorMessage } from '@shared/utils/errors';
@@ -83,7 +82,6 @@ import { parseEmailOtpChallengeDelivery } from '@/core/signingEngine/session/ema
 import type { EmailOtpChallengeDelivery } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import {
   decodeEmailOtpEscrowSecret32,
-  emailOtpCorruptLocalCustodyError,
   type EmailOtpEscrowSecret32DecodeResult,
 } from '@/core/signingEngine/session/emailOtp/secretEscrow';
 import { buildEmailOtpWorkerIssuedSessionHandle } from '@/core/platform/secretSources';
@@ -208,16 +206,8 @@ import {
   resolveEmailOtpAuthLane,
   type EmailOtpRoutePlan,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
-import {
-  readEmailOtpDeviceEnrollmentEscrowRecord,
-  writeEmailOtpDeviceEnrollmentEscrowRecord,
-  type EmailOtpDeviceEnrollmentEscrowRecord,
-} from './email-otp/deviceEnrollmentEscrowStore';
 
 const EMAIL_OTP_UNLOCK_KEY_VERSION = 'email-otp-unlock-v1';
-const EMAIL_OTP_DEVICE_ENROLLMENT_VERSION = '1';
-const EMAIL_OTP_DEVICE_ENROLLMENT_SIGNING_ROOT_ID = 'email_otp_default_signing_root';
-const EMAIL_OTP_DEVICE_ENROLLMENT_SIGNING_ROOT_VERSION = 'default';
 const EMAIL_OTP_ED25519_YAO_HANDLE_TTL_MS = 5 * 60_000;
 const MAX_EMAIL_OTP_ED25519_YAO_PENDING_REGISTRATIONS = 64;
 const MAX_EMAIL_OTP_ED25519_YAO_ACTIVE_CLIENTS = 64;
@@ -259,27 +249,6 @@ function readJwtPayloadObject(jwtRaw: unknown): Record<string, unknown> | null {
       : null;
   } catch {
     return null;
-  }
-}
-
-async function writeAndVerifyEmailOtpDeviceEnrollmentEscrowRecord(
-  record: Parameters<typeof writeEmailOtpDeviceEnrollmentEscrowRecord>[0],
-  errorMessage: string,
-): Promise<void> {
-  await writeEmailOtpDeviceEnrollmentEscrowRecord(record);
-  const persisted = await readEmailOtpDeviceEnrollmentEscrowRecord({
-    walletId: record.walletId,
-    authSubjectId: record.authSubjectId,
-    enrollmentId: record.enrollmentId,
-  });
-  if (
-    !persisted ||
-    persisted.encSB64u !== record.encSB64u ||
-    persisted.enrollmentSealKeyVersion !== record.enrollmentSealKeyVersion ||
-    persisted.signingRootId !== record.signingRootId ||
-    persisted.signingRootVersion !== record.signingRootVersion
-  ) {
-    throw new Error(errorMessage);
   }
 }
 
@@ -1807,6 +1776,125 @@ async function addClientSealFromBytes(args: {
   );
 }
 
+const EMAIL_OTP_FACTOR_RELEASE_AAD_PREFIX = 'seams/email-otp/factor-release/v1';
+
+async function releaseEmailOtpFactorSecret(args: {
+  relayUrl: string;
+  walletId: string;
+  loginGrant: string;
+  challengeId: string;
+  sessionAuth: AppOrWalletSessionAuth | undefined;
+}): Promise<{
+  challengeId: string;
+  enrollmentId: string;
+  enrollmentSealKeyVersion: string;
+  factorSecret32: Uint8Array;
+}> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) throw new Error('Email OTP factor release requires WebCrypto');
+  const generated = await subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, [
+    'deriveBits',
+  ]);
+  if (!('privateKey' in generated) || !('publicKey' in generated)) {
+    throw new Error('Email OTP factor release generated an invalid ECDH key pair');
+  }
+  const workerPublicKey = new Uint8Array(await subtle.exportKey('raw', generated.publicKey));
+  if (workerPublicKey.length !== 65) {
+    throw new Error('Email OTP factor release generated an invalid public key');
+  }
+  let serverPublicKey: Uint8Array | null = null;
+  let nonce: Uint8Array | null = null;
+  let ciphertext: Uint8Array | null = null;
+  let sharedSecret: Uint8Array | null = null;
+  let aad: Uint8Array | null = null;
+  let factorSecret32: Uint8Array | null = null;
+  try {
+    const released = await postEmailOtpJson({
+      relayUrl: args.relayUrl,
+      route: '/wallet/email-otp/factor-release',
+      ...(args.sessionAuth ? { sessionAuth: args.sessionAuth } : {}),
+      body: {
+        walletId: args.walletId,
+        loginGrant: args.loginGrant,
+        workerEphemeralPublicKey65B64u: base64UrlEncode(workerPublicKey),
+      },
+    });
+    if (readString(released.kind, 'factor-release.kind') !== 'email_otp_factor_release_v1') {
+      throw new Error('Email OTP factor release returned an invalid response kind');
+    }
+    const releasedChallengeId = readString(released.challengeId, 'factor-release.challengeId');
+    if (releasedChallengeId !== args.challengeId) {
+      throw new Error('Email OTP factor release challenge binding changed');
+    }
+    const enrollmentId = readString(released.enrollmentId, 'factor-release.enrollmentId');
+    const enrollmentSealKeyVersion = readString(
+      released.enrollmentSealKeyVersion,
+      'factor-release.enrollmentSealKeyVersion',
+    );
+    serverPublicKey = base64UrlDecode(
+      readString(
+        released.serverEphemeralPublicKey65B64u,
+        'factor-release.serverEphemeralPublicKey65B64u',
+      ),
+    );
+    if (serverPublicKey.length !== 65) {
+      throw new Error('Email OTP factor release returned an invalid server public key');
+    }
+    nonce = base64UrlDecode(readString(released.nonce12B64u, 'factor-release.nonce12B64u'));
+    if (nonce.length !== 12) {
+      throw new Error('Email OTP factor release returned an invalid nonce');
+    }
+    ciphertext = base64UrlDecode(
+      readString(released.ciphertextB64u, 'factor-release.ciphertextB64u'),
+    );
+    if (ciphertext.length < 16) {
+      throw new Error('Email OTP factor release returned an invalid ciphertext');
+    }
+    const serverKey = await subtle.importKey(
+      'raw',
+      serverPublicKey,
+      { name: 'ECDH', namedCurve: 'P-256' },
+      false,
+      [],
+    );
+    sharedSecret = new Uint8Array(
+      await subtle.deriveBits({ name: 'ECDH', public: serverKey }, generated.privateKey, 256),
+    );
+    const aesKey = await subtle.importKey('raw', sharedSecret, { name: 'AES-GCM' }, false, [
+      'decrypt',
+    ]);
+    aad = new TextEncoder().encode(
+      `${EMAIL_OTP_FACTOR_RELEASE_AAD_PREFIX}\0${args.walletId}\0${enrollmentId}\0${enrollmentSealKeyVersion}\0${releasedChallengeId}`,
+    );
+    factorSecret32 = new Uint8Array(
+      await subtle.decrypt(
+        { name: 'AES-GCM', iv: nonce, additionalData: aad, tagLength: 128 },
+        aesKey,
+        ciphertext,
+      ),
+    );
+    if (factorSecret32.length !== 32) {
+      throw new Error('Email OTP factor release plaintext must contain exactly 32 bytes');
+    }
+    const ownedFactorSecret32 = factorSecret32;
+    factorSecret32 = null;
+    return {
+      challengeId: releasedChallengeId,
+      enrollmentId,
+      enrollmentSealKeyVersion,
+      factorSecret32: ownedFactorSecret32,
+    };
+  } finally {
+    zeroizeBytes(workerPublicKey);
+    zeroizeBytes(serverPublicKey);
+    zeroizeBytes(nonce);
+    zeroizeBytes(ciphertext);
+    zeroizeBytes(sharedSecret);
+    zeroizeBytes(aad);
+    zeroizeBytes(factorSecret32);
+  }
+}
+
 type EmailOtpUnlockCompletionMaterial =
   | {
       kind: 'ecdsa';
@@ -2752,10 +2840,12 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
   otpChannel: WalletEmailOtpChannel;
   enrollmentId: string;
   enrollmentSealKeyVersion: string;
+  serverSealedFactorCiphertextB64u: string;
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
   emailOtpEnrollment: {
     enrollmentSealKeyVersion: string;
+    serverSealedFactorCiphertextB64u: string;
     clientUnlockPublicKeyB64u: string;
     unlockKeyVersion: string;
   };
@@ -2823,12 +2913,12 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
       'enrollmentSealKeyVersion',
     );
     const clientCiphertext = readString(applied.ciphertext, 'ciphertext');
-    const enrollmentEscrowCiphertextB64u = readString(
+    const serverSealedFactorCiphertextB64u = readString(
       await runtime.removeClientSealWithKeyHandle({
         ciphertextB64u: clientCiphertext,
         keyHandle,
       }),
-      'enrollmentEscrowCiphertextB64u',
+      'serverSealedFactorCiphertextB64u',
     );
 
     unlockPrivateKey32 = await deriveEmailOtpUnlockAuthSeedInWorker({
@@ -2838,24 +2928,6 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
     unlockPublicKey33 = secp256k1_private_key_32_to_public_key_33(unlockPrivateKey32) as Uint8Array;
     const clientUnlockPublicKeyB64u = base64UrlEncode(unlockPublicKey33);
     const enrollmentId = emailOtpDeviceEnrollmentId(walletId, userId);
-    const enrollmentVersion = EMAIL_OTP_DEVICE_ENROLLMENT_VERSION;
-    const signingRootId = EMAIL_OTP_DEVICE_ENROLLMENT_SIGNING_ROOT_ID;
-    const signingRootVersion = EMAIL_OTP_DEVICE_ENROLLMENT_SIGNING_ROOT_VERSION;
-    await writeAndVerifyEmailOtpDeviceEnrollmentEscrowRecord(
-      {
-        walletId,
-        userId,
-        authSubjectId: userId,
-        enrollmentId,
-        enrollmentVersion,
-        enrollmentSealKeyVersion,
-        signingRootId,
-        signingRootVersion,
-        encSB64u: enrollmentEscrowCiphertextB64u,
-        groupId,
-      },
-      'Email OTP enrollment did not persist device-local enc_s(S)',
-    );
     if (!args.skipServerFinalize) {
       const googleEmailOtpRegistrationAttemptId = readOptionalString(
         args.googleEmailOtpRegistrationAttemptId,
@@ -2870,6 +2942,7 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
           otpCode,
           otpChannel: EMAIL_OTP_CHANNEL,
           enrollmentSealKeyVersion,
+          serverSealedFactorCiphertextB64u,
           clientUnlockPublicKeyB64u,
           unlockKeyVersion: EMAIL_OTP_UNLOCK_KEY_VERSION,
           ...(googleEmailOtpRegistrationAttemptId ? { googleEmailOtpRegistrationAttemptId } : {}),
@@ -2891,10 +2964,12 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
       otpChannel: EMAIL_OTP_CHANNEL,
       enrollmentId,
       enrollmentSealKeyVersion,
+      serverSealedFactorCiphertextB64u,
       clientUnlockPublicKeyB64u,
       unlockKeyVersion: EMAIL_OTP_UNLOCK_KEY_VERSION,
       emailOtpEnrollment: {
         enrollmentSealKeyVersion,
+        serverSealedFactorCiphertextB64u,
         clientUnlockPublicKeyB64u,
         unlockKeyVersion: EMAIL_OTP_UNLOCK_KEY_VERSION,
       },
@@ -2984,14 +3059,9 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
       }
   )
 > {
-  const runtime = await getShamir3PassRuntime();
   const relayUrl = readString(args.relayUrl, 'relayUrl');
   const walletId = readString(args.walletId, 'walletId');
   const groupId = readString(args.groupId, 'groupId');
-  const keyHandle = readString(
-    (await runtime.createClientKeyHandle({ groupId: SIGNING_SESSION_SEAL_GROUP_ID })).keyHandle,
-    'keyHandle',
-  );
   let clientSecret32: Uint8Array | null = null;
   try {
     const sessionAuth = authLaneToRouteAuth(args.routePlan.authLane);
@@ -3029,51 +3099,9 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
       userId: args.userId,
       routePlan: args.routePlan,
     });
-    const localEnrollmentEscrow = await readEmailOtpDeviceEnrollmentEscrowRecord({
-      walletId,
-      authSubjectId: userId,
-      enrollmentId: emailOtpDeviceEnrollmentId(walletId, userId),
-    });
-    if (!localEnrollmentEscrow) {
-      throw new Error('Email OTP device-local enc_s(S) is missing; recovery is required');
-    }
-    const wrappedCiphertext = readString(
-      await runtime.addClientSealWithKeyHandle({
-        ciphertextB64u: localEnrollmentEscrow.encSB64u,
-        keyHandle,
-      }),
-      'wrappedCiphertext',
-    );
-    let unsealed: Record<string, unknown>;
+    let loginGrant: string;
     if (args.verification.kind === 'email_otp_unseal_grant') {
-      unsealed = await postEmailOtpJson({
-        relayUrl,
-        route: emailOtpRoutePath(args.routePlan, 'unseal'),
-        ...(sessionAuth ? { sessionAuth } : {}),
-        body: {
-          walletId,
-          loginGrant: args.verification.grant,
-          wrappedCiphertext,
-        },
-      });
-    } else if (args.routePlan.routeFamily === 'login') {
-      unsealed = await postEmailOtpJson({
-        relayUrl,
-        route: emailOtpRoutePath(args.routePlan, 'verifyAndUnseal'),
-        ...(sessionAuth ? { sessionAuth } : {}),
-        body: {
-          walletId,
-          challengeId: readString(challengeId, 'challengeId'),
-          otpCode: readString(
-            args.verification.kind === 'otp' ? args.verification.otpCode : undefined,
-            'otpCode',
-          ),
-          otpChannel: EMAIL_OTP_CHANNEL,
-          operation: args.routePlan.operation,
-          wrappedCiphertext,
-        },
-      });
-      args.onProgress?.('otp.verify.succeeded');
+      loginGrant = args.verification.grant;
     } else {
       const verified = await postEmailOtpJson({
         relayUrl,
@@ -3090,48 +3118,21 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
           operation: args.routePlan.operation,
         },
       });
-      const verifiedEnrollmentSealKeyVersion = readOptionalString(
-        verified.enrollmentSealKeyVersion,
-      );
-      if (
-        verifiedEnrollmentSealKeyVersion &&
-        localEnrollmentEscrow.enrollmentSealKeyVersion !== verifiedEnrollmentSealKeyVersion
-      ) {
-        throw new Error('Email OTP device-local enc_s(S) metadata mismatch; recovery is required');
-      }
-      const loginGrant = readString(verified.loginGrant, 'loginGrant');
+      loginGrant = readString(verified.loginGrant, 'loginGrant');
       args.onProgress?.('otp.verify.succeeded');
-      unsealed = await postEmailOtpJson({
-        relayUrl,
-        route: emailOtpRoutePath(args.routePlan, 'unseal'),
-        ...(sessionAuth ? { sessionAuth } : {}),
-        body: {
-          walletId,
-          loginGrant,
-          wrappedCiphertext,
-        },
-      });
     }
-    const enrollmentSealKeyVersion = readString(
-      unsealed.enrollmentSealKeyVersion,
-      'enrollmentSealKeyVersion',
-    );
-    if (localEnrollmentEscrow.enrollmentSealKeyVersion !== enrollmentSealKeyVersion) {
-      throw new Error('Email OTP device-local enc_s(S) metadata mismatch; recovery is required');
-    }
-    const clientCiphertext = readString(unsealed.ciphertext, 'ciphertext');
-    const unsealedSecret = await removeClientSealToSecret32({
-      runtime,
-      ciphertextB64u: clientCiphertext,
-      keyHandle,
-    });
-    if (unsealedSecret.kind === 'corrupt_local_custody') {
-      throw emailOtpCorruptLocalCustodyError(unsealedSecret);
-    }
-    clientSecret32 = unsealedSecret.secret32;
     if (!sessionAuth) {
       throw new Error('Email OTP wallet unlock requires app-session authorization');
     }
+    const released = await releaseEmailOtpFactorSecret({
+      relayUrl,
+      walletId,
+      loginGrant,
+      challengeId,
+      sessionAuth,
+    });
+    const enrollmentSealKeyVersion = released.enrollmentSealKeyVersion;
+    clientSecret32 = released.factorSecret32;
     const unlocked = await completeEmailOtpUnlockFromSecret32({
       relayUrl,
       walletId,
@@ -3209,7 +3210,6 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
     }
   } finally {
     zeroizeBytes(clientSecret32);
-    await runtime.destroyClientKeyHandle({ keyHandle }).catch(() => undefined);
   }
 }
 
@@ -5290,6 +5290,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             otpChannel: result.otpChannel,
             enrollmentId: result.enrollmentId,
             enrollmentSealKeyVersion: result.enrollmentSealKeyVersion,
+            serverSealedFactorCiphertextB64u: result.serverSealedFactorCiphertextB64u,
             clientUnlockPublicKeyB64u: result.clientUnlockPublicKeyB64u,
             unlockKeyVersion: result.unlockKeyVersion,
           },
@@ -5331,6 +5332,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
                 otpChannel: result.otpChannel,
                 enrollmentId: result.enrollmentId,
                 enrollmentSealKeyVersion: result.enrollmentSealKeyVersion,
+                serverSealedFactorCiphertextB64u: result.serverSealedFactorCiphertextB64u,
                 clientUnlockPublicKeyB64u: result.clientUnlockPublicKeyB64u,
                 unlockKeyVersion: result.unlockKeyVersion,
                 emailOtpSessionHandle,

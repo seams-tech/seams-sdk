@@ -33,6 +33,7 @@ const OBSOLETE_STORE_NAMES = [
   'seams_signing_session_seals',
   'seams_signing_session_restore_leases',
   'seams_email_otp_escrows',
+  'email_otp_escrows',
   'ecdsa_role_local_sealing_keys',
   'ecdsa_role_local_active_material',
 ] as const;

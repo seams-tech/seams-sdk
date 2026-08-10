@@ -754,6 +754,7 @@ export function isEmailOtpWalletRegistrationFinalizeResponse(
 
 export type WalletRegistrationEmailOtpEnrollmentMaterial = {
   enrollmentSealKeyVersion: string;
+  serverSealedFactorCiphertextB64u: string;
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
 };
