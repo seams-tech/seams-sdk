@@ -39,7 +39,6 @@ const runtimePolicyScope = {
   envId: 'env-1',
   signingRootVersion: 'default',
 };
-const passkeyCredentialIdB64u = 'passkey-credential-id';
 declare const webauthnAuthentication: WebAuthnAuthenticationCredential;
 declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 declare const existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
@@ -139,7 +138,6 @@ void buildPasskeyRegistrationEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
-  passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
   walletSessionRouteAuth,
 });
@@ -148,7 +146,6 @@ void buildPasskeyRegistrationEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
-  passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
   walletSessionRouteAuth,
 });
@@ -164,7 +161,6 @@ void buildPasskeyRegistrationEcdsaActivation({
   lanePolicy,
   sessionIdentity,
   sessionKind: 'jwt',
-  passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
   walletSessionRouteAuth,
 });
@@ -198,7 +194,6 @@ void buildPasskeyRegistrationEcdsaActivation({
   ...broadActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
-  passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
   walletSessionRouteAuth,
 });
@@ -207,7 +202,6 @@ void buildPasskeyRegistrationEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
-  passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
   walletSessionRouteAuth,
   // @ts-expect-error passkey activation must not accept Wallet Session auth
@@ -218,7 +212,6 @@ void buildPasskeyRegistrationEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
-  passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
   walletSessionRouteAuth,
   // @ts-expect-error exact activation derives walletId from key
@@ -266,7 +259,6 @@ void buildPasskeyRegistrationEcdsaActivation({
   walletKey,
   sessionIdentity,
   sessionKind: 'jwt',
-  passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
   walletSessionRouteAuth,
 });
@@ -281,7 +273,6 @@ void buildPasskeyRegistrationEcdsaActivation({
   lanePolicy,
   sessionIdentity,
   sessionKind: 'jwt',
-  passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
   walletSessionRouteAuth,
 });
@@ -290,7 +281,6 @@ void buildPasskeyRegistrationEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
-  passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
   walletSessionRouteAuth,
   // @ts-expect-error exact activation requires walletKey; separate key identity projection is rejected.
@@ -301,7 +291,6 @@ void buildPasskeyRegistrationEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
-  passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
   walletSessionRouteAuth,
   // @ts-expect-error exact activation requires walletKey; separate keyHandle projection is rejected.
@@ -314,7 +303,6 @@ const validPasskeyLifecycleCommand = {
     ...exactActivationCommon,
     sessionIdentity,
     sessionKind: 'jwt',
-    passkeyPrfFirstB64u: 'client-root',
     webauthnAuthentication,
     walletSessionRouteAuth,
   }),
@@ -329,7 +317,6 @@ const invalidLifecycleCommandWithBroadIdentity = {
     ...broadActivationCommon,
     sessionIdentity,
     sessionKind: 'jwt',
-    passkeyPrfFirstB64u: 'client-root',
     webauthnAuthentication,
   },
 } satisfies EcdsaBootstrapLifecycleCommand;
