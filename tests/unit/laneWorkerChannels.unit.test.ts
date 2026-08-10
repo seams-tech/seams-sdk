@@ -11,6 +11,7 @@ import type {
 import {
   buildR102LaneJob,
   buildR102ProtocolCommitReceipt,
+  buildR102ServerActivationReceipt,
 } from './helpers/r102LaneGateway.fixtures';
 import {
   parseLaneHolderPackageWireV1,
@@ -54,10 +55,12 @@ function authorizedBackend(
   job: ReturnType<typeof buildR102LaneJob>,
   calls: BackendCalls,
 ): LaneHolderRecipientWorkerV1 {
-  const recipientHandle = value(parseLaneHolderRecipientHandleV1('recipient-handle:r102-worker'));
   return {
     createLaneHolderRecipientV1: async (input) => {
       calls.create.push(String(input.operationId));
+      const recipientHandle = value(
+        parseLaneHolderRecipientHandleV1(`recipient-handle:${String(input.operationId)}`),
+      );
       return {
         recipientHandle,
         hpkePublicKeyB64u: job.targetHolder.hpkePublicKeyB64u,
@@ -91,8 +94,10 @@ function recipientCreateRequest(job: ReturnType<typeof buildR102LaneJob>) {
     input: {
       operationId: job.operationId,
       enrollmentId: job.enrollmentId,
+      walletKeyId: job.walletKeyId,
       targetLaneId: job.target.laneId,
       targetLaneShareEpoch: job.target.laneShareEpoch,
+      targetMaterialActivationId: job.targetMaterialActivationId,
       targetHolderParticipantId: job.targetHolder.participantId,
       targetHolderParticipantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
       custodyBindingId: job.targetHolder.custodyBindingId,
@@ -158,8 +163,10 @@ test.describe('R102 lane holder worker transport', () => {
       input: {
         operationId: job.operationId,
         enrollmentId: job.enrollmentId,
+        walletKeyId: job.walletKeyId,
         targetLaneId: job.target.laneId,
         targetLaneShareEpoch: job.target.laneShareEpoch,
+        targetMaterialActivationId: job.targetMaterialActivationId,
         targetHolderParticipantId: job.targetHolder.participantId,
         targetHolderParticipantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
         custodyBindingId: job.targetHolder.custodyBindingId,
@@ -180,8 +187,10 @@ test.describe('R102 lane holder worker transport', () => {
       input: {
         operationId: job.operationId,
         enrollmentId: job.enrollmentId,
+        walletKeyId: job.walletKeyId,
         targetLaneId: job.target.laneId,
         targetLaneShareEpoch: job.target.laneShareEpoch,
+        targetMaterialActivationId: job.targetMaterialActivationId,
         targetHolderParticipantId: job.targetHolder.participantId,
         targetHolderParticipantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
         custodyBindingId: job.targetHolder.custodyBindingId,
@@ -281,19 +290,40 @@ test.describe('R102 authorized lane holder worker request handler', () => {
 
   test('invalidates the exact material and releases matching open recipients', async () => {
     const job = buildR102LaneJob('worker-handler-invalidate');
+    const unrelatedJob = buildR102LaneJob('worker-handler-unrelated');
     const calls = backendCalls();
     const handler = createAuthorizedLaneHolderWorkerRequestHandlerV1(authorizedBackend(job, calls));
-    await handler.request(recipientCreateRequest(job));
+    const descriptor = (await handler.request(recipientCreateRequest(job))) as {
+      recipientHandle: string;
+    };
+    const unrelatedDescriptor = (await handler.request(recipientCreateRequest(unrelatedJob))) as {
+      recipientHandle: string;
+    };
+    await handler.request({
+      kind: 'lane_holder_package_open_seal_v1',
+      job,
+      protocolCommitReceipt: buildR102ProtocolCommitReceipt(job),
+      holderPackage: ed25519HolderPackage(),
+      recipientHandle: descriptor.recipientHandle,
+    });
+    await handler.request({
+      kind: 'lane_holder_package_open_seal_v1',
+      job: unrelatedJob,
+      protocolCommitReceipt: buildR102ProtocolCommitReceipt(unrelatedJob),
+      holderPackage: ed25519HolderPackage(),
+      recipientHandle: unrelatedDescriptor.recipientHandle,
+    });
     await handler.request({
       kind: 'lane_material_invalidate_v1',
       walletKeyId: job.walletKeyId,
       laneId: job.target.laneId,
       laneShareEpoch: job.target.laneShareEpoch,
-      materialActivation: job.source.materialActivation,
+      materialActivation: buildR102ServerActivationReceipt(job).targetMaterialActivation,
     });
     expect(calls.invalidate).toEqual([String(job.target.laneId)]);
     expect(calls.discard).toEqual([String(job.operationId)]);
     await handler.close();
+    expect(calls.discard).toEqual([String(job.operationId), String(unrelatedJob.operationId)]);
   });
 
   test('fails closed on unknown fields and releases open recipients at shutdown', async () => {

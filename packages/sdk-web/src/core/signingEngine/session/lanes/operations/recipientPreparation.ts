@@ -33,8 +33,10 @@ export type OpenLaneHolderRecipientV1 = {
   readonly state: 'open';
   readonly operationId: LaneOperationId;
   readonly enrollmentId: LaneEnrollmentId;
+  readonly walletKeyId: WalletKeyId;
   readonly targetLaneId: SigningLaneId;
   readonly targetLaneShareEpoch: LaneShareEpoch;
+  readonly targetMaterialActivationId: MpcMaterialActivationId;
   readonly holderParticipantBindingDigestB64u: string;
   readonly custodyBindingId: LaneHolderCustodyBindingId;
   readonly custodyBindingDigestB64u: string;
@@ -142,8 +144,10 @@ function assertCreationTargetMatchesJob(
   if (
     String(state.operationId) !== String(job.operationId) ||
     String(state.enrollmentId) !== String(job.enrollmentId) ||
+    String(state.walletKeyId) !== String(job.walletKeyId) ||
     String(state.targetLaneId) !== String(job.target.laneId) ||
     String(state.targetLaneShareEpoch) !== String(job.target.laneShareEpoch) ||
+    String(state.targetMaterialActivationId) !== String(job.targetMaterialActivationId) ||
     state.holderParticipantBindingDigestB64u !== job.targetHolder.participantBindingDigestB64u ||
     state.custodyBindingId !== job.targetHolder.custodyBindingId ||
     state.custodyBindingDigestB64u !== job.targetHolder.custodyBindingDigestB64u ||
@@ -204,8 +208,10 @@ export async function prepareLaneHolderRecipientV1(args: {
       state: 'open',
       operationId: args.input.operationId,
       enrollmentId: args.input.enrollmentId,
+      walletKeyId: args.input.walletKeyId,
       targetLaneId: args.input.targetLaneId,
       targetLaneShareEpoch: args.input.targetLaneShareEpoch,
+      targetMaterialActivationId: args.input.targetMaterialActivationId,
       holderParticipantBindingDigestB64u: args.input.targetHolderParticipantBindingDigestB64u,
       custodyBindingId: args.input.custodyBindingId,
       custodyBindingDigestB64u: args.input.custodyBindingDigestB64u,

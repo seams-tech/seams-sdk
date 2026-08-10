@@ -2,14 +2,14 @@
 
 Date created: June 15, 2026
 
-Last reconciled: August 10, 2026
+Last reconciled: August 11, 2026
 
-Status: active cryptographic plan. Shared rotation types and server store
-interfaces exist. Current owner flows now preserve local Ed25519 material and
-durable ECDSA material identity, while no lane-provisioning protocol is
-registered. The previous plan's universal additive-reshare design has been
-removed because Ed25519 lane provisioning belongs to the Streaming Yao
-lifecycle.
+Status: implemented for the authenticated internal R102 lifecycle. Ed25519 Yao
+and ECDSA additive lanes support creation, refresh, activation, normal signing,
+exact retirement, aggregate revocation, and crash-safe replay. Refactor 103
+owns public device-link and target-device bootstrap, Refactor 104 owns delegated
+execution, and wallet-key root refresh remains deferred to its authoritative
+root protocol.
 
 ## Dependencies And Authority
 
@@ -1136,13 +1136,17 @@ The compromise response is fixed:
 A replacement lane always requires fresh owner approval. Refresh is appropriate
 only when the wallet key itself and at least one side of the lane remain trusted.
 
-## Current Implementation Gaps
+## Current Implementation Boundary
 
 The R102 internal execution path is landed: curve-specific jobs, forward-only
 lifecycles, Gateway persistence, Ed25519 Yao lane materialization, ECDSA
 additive resharing, recipient-isolated delivery, private SigningWorker
-activation, exact ECDSA retirement, replay, and cross-language wire vectors.
-Exact Ed25519 private-material retirement remains required before R102 closes.
+activation, exact ECDSA and Ed25519 retirement, active-lane normal signing,
+aggregate child retirement, replay, and cross-language wire vectors. Refresh
+and explicit revocation invalidate the exact predecessor's local holder-worker
+and curve session state after durable completion. An offline device defers that
+local cleanup; Gateway admission and retired SigningWorker material remain the
+authoritative revocation boundary.
 
 Refactor 103 owns the authenticated device-link claim, target-device custody
 worker bootstrap, public link-session transport, and linked-device Wallet
@@ -1419,10 +1423,12 @@ Subagents do not independently run the full repository suite.
 - [x] Add owner and linked-device lane refresh. Refactor 104 owns any later
       delegated-execution adapter.
 - [x] Add immediate ECDSA lane revocation with exact material-owner receipts.
-- [ ] Add immediate Ed25519 lane revocation with exact material-owner receipts.
-- [ ] Add aggregate enrollment revocation by retiring each child through the
+- [x] Add immediate Ed25519 lane revocation with exact material-owner receipts.
+- [x] Add aggregate enrollment revocation by retiring each child through the
       same exact lane workflow before committing the parent receipt.
-- [x] Invalidate warm capabilities and reject stale epochs.
+- [x] Invalidate exact local holder-worker and curve session state after durable
+      refresh or revocation; reject stale epochs authoritatively when a device
+      is offline.
 - [x] Ensure Wallet Session expiry preserves active lane material and activation
       references; require the same property from future authorization adapters.
 - [ ] Add wallet-key root refresh integration after authoritative protocol

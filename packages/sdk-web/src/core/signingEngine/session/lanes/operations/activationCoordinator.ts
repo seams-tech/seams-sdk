@@ -18,6 +18,10 @@ import {
 } from '@shared/signing-lanes/rotationDigests';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
+import {
+  buildLaneMaterialInvalidationPlanV1,
+  type LaneMaterialInvalidationPlanV1,
+} from './laneMaterialInvalidation';
 
 type LaneActivationChildReceiptsV1 = {
   readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
@@ -41,6 +45,7 @@ export type LaneActivationEffectPlanV1 = {
   readonly aggregateActivationReceipt: AggregateLaneActivationReceiptV1;
   readonly aggregateActivationReceiptDigestB64u: string;
   readonly commitCommand: CommitLaneEnrollmentActivationV1;
+  readonly orderedPostCommitInvalidations: readonly LaneMaterialInvalidationPlanV1[];
 };
 
 function nonEmpty<T>(values: readonly T[], label: string): [T, ...T[]] {
@@ -136,6 +141,7 @@ export async function buildLaneActivationEffectPlanV1(args: {
   const parsedChildren: LaneActivationChildInputV1[] = [];
   const aggregateChildren: AggregateLaneActivationChildReceiptV1[] = [];
   const predecessorRetirements: LaneRefreshPredecessorRetirementV1[] = [];
+  const orderedPostCommitInvalidations: LaneMaterialInvalidationPlanV1[] = [];
   for (const [index, child] of args.children.entries()) {
     const {
       job,
@@ -159,6 +165,18 @@ export async function buildLaneActivationEffectPlanV1(args: {
         throw new Error(`lane refresh predecessor retirement ${index} changed source identity`);
       }
       predecessorRetirements.push(retirement);
+      orderedPostCommitInvalidations.push(
+        buildLaneMaterialInvalidationPlanV1({
+          target: {
+            walletKeyId: job.walletKeyId,
+            laneId: job.source.laneId,
+            laneShareEpoch: job.source.laneShareEpoch,
+            materialActivation: job.source.materialActivation,
+          },
+          reason: 'refresh',
+          keyFamily: job.keyFamily,
+        }),
+      );
     }
     parsedChildren.push(child);
     aggregateChildren.push(await aggregateChild({ job, protocol, holder, server }));
@@ -180,6 +198,7 @@ export async function buildLaneActivationEffectPlanV1(args: {
     orderedChildren: nonEmpty(parsedChildren, 'orderedChildren'),
     aggregateActivationReceipt,
     aggregateActivationReceiptDigestB64u,
+    orderedPostCommitInvalidations,
     commitCommand: {
       kind: 'commit_lane_enrollment_activation_v1',
       enrollmentId: manifest.enrollmentId,

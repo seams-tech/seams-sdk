@@ -30,6 +30,11 @@ import {
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { CloudflareD1LaneEnrollmentGateway } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/signingLanes/d1LaneEnrollmentGateway';
 import { CloudflareD1LaneLifecycleStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/signingLanes/d1LaneLifecycleStore';
+import { buildLaneActivationEffectPlanV1 } from '../../packages/sdk-web/src/core/signingEngine/session/lanes/operations/activationCoordinator';
+import {
+  invalidateRefreshPredecessorsAfterActivationV1,
+  invalidateRevokedLaneAfterCompletionV1,
+} from '../../packages/sdk-web/src/core/signingEngine/session/lanes/operations/laneMaterialInvalidation';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -239,7 +244,8 @@ test.describe('R102 lane lifecycle D1 gateway', () => {
         retirementReceipt,
         revokedAtMs: 7_000,
       });
-      await expect(gateway.completeSigningLaneRevocationV1(completion)).resolves.toMatchObject({
+      const appliedRevocation = await gateway.completeSigningLaneRevocationV1(completion);
+      expect(appliedRevocation).toMatchObject({
         kind: 'lane_signing_lane_revocation_result_v1',
         outcome: 'applied',
         productEpoch: {
@@ -250,6 +256,36 @@ test.describe('R102 lane lifecycle D1 gateway', () => {
         },
         retirementReceipt,
       });
+      if (appliedRevocation.outcome === 'conflict')
+        throw new Error('fixture lane revocation completion conflicted');
+      const invalidated: unknown[] = [];
+      await expect(
+        invalidateRevokedLaneAfterCompletionV1({
+          revocation: appliedRevocation,
+          worker: {
+            state: 'available',
+            worker: {
+              async invalidateLaneMaterialV1(input) {
+                invalidated.push(input);
+              },
+            },
+          },
+        }),
+      ).resolves.toMatchObject({ outcome: 'completed' });
+      expect(invalidated).toEqual([
+        {
+          walletKeyId: target.walletKeyId,
+          laneId: target.target.laneId,
+          laneShareEpoch: target.target.laneShareEpoch,
+          materialActivation: targetActivation,
+        },
+      ]);
+      await expect(
+        invalidateRevokedLaneAfterCompletionV1({
+          revocation: appliedRevocation,
+          worker: { state: 'offline' },
+        }),
+      ).resolves.toMatchObject({ outcome: 'deferred_offline' });
       await expect(gateway.completeSigningLaneRevocationV1(completion)).resolves.toMatchObject({
         outcome: 'replayed',
       });
@@ -376,20 +412,52 @@ test.describe('R102 lane lifecycle D1 gateway', () => {
         retirementEffectBindingDigestB64u: refreshJob.authorization.ownerLaneRefreshDigestB64u,
         retirementReceipt,
       });
-      const manifestDigestB64u = await computeLaneEnrollmentManifestDigestV1(refreshManifest);
-      const commit = buildCommitLaneEnrollmentActivationV1({
-        enrollmentId: refreshManifest.enrollmentId,
-        walletId: refreshManifest.walletId,
-        manifestDigestB64u,
-        orderedChildReceipts: [refreshChild],
-        orderedPredecessorRetirements: [predecessorRetirement],
+      const activationPlan = await buildLaneActivationEffectPlanV1({
+        manifest: refreshManifest,
+        children: [
+          {
+            job: refreshJob,
+            protocolCommitReceipt: buildR102ProtocolCommitReceipt(refreshJob),
+            holderDeliveryReceipt: buildR102HolderDeliveryReceipt(refreshJob),
+            serverActivationReceipt: buildR102ServerActivationReceipt(refreshJob),
+            predecessorRetirement,
+          },
+        ],
         activatedAtMs: retiredAtMs,
       });
+      const manifestDigestB64u = activationPlan.manifestDigestB64u;
+      const commit = activationPlan.commitCommand;
       await expect(gateway.commitLaneEnrollmentActivationV1(commit)).resolves.toMatchObject({
         outcome: 'applied',
         lifecycle: { state: 'active' },
         productEpochs: [{ state: 'active', laneShareEpoch: refreshJob.target.laneShareEpoch }],
       });
+      const activation = await gateway.commitLaneEnrollmentActivationV1(commit);
+      if (activation.outcome === 'conflict')
+        throw new Error('fixture lane refresh activation conflicted');
+      const invalidated: unknown[] = [];
+      await expect(
+        invalidateRefreshPredecessorsAfterActivationV1({
+          activation,
+          plan: activationPlan,
+          worker: {
+            state: 'available',
+            worker: {
+              async invalidateLaneMaterialV1(input) {
+                invalidated.push(input);
+              },
+            },
+          },
+        }),
+      ).resolves.toMatchObject([{ outcome: 'completed' }]);
+      expect(invalidated).toEqual([
+        {
+          walletKeyId: refreshJob.walletKeyId,
+          laneId: refreshJob.source.laneId,
+          laneShareEpoch: refreshJob.source.laneShareEpoch,
+          materialActivation: refreshJob.source.materialActivation,
+        },
+      ]);
       await expect(
         store.getProductEpoch({
           walletId: refreshJob.walletId,
