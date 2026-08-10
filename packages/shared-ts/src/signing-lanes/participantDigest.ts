@@ -150,11 +150,12 @@ export async function computeSigningWorkerParticipantBindingDigestV1(
   input: SigningWorkerParticipantBindingInputV1,
 ): Promise<LaneParticipantBindingDigestB64u> {
   return await digestCanonicalBytes(
-    signingWorkerParticipantCanonicalBytesV1({
-      kind: 'signing_worker_participant_v1',
-      ...input,
-      participantBindingDigestB64u: placeholderParticipantDigest(),
-    }),
+    signingWorkerParticipantCanonicalBytesV1(
+      buildSigningWorkerParticipantRecordV1({
+        ...input,
+        participantBindingDigestB64u: placeholderParticipantDigest(),
+      }),
+    ),
   );
 }
 
