@@ -185,8 +185,14 @@ export function parseEnrollmentRow(row: LaneEnrollmentRow): {
     enrollmentId: parseRequiredString(row.enrollment_id, 'enrollment_id'),
     walletId: parseRequiredString(row.wallet_id, 'wallet_id'),
     manifestDigestB64u: parseRequiredString(row.manifest_digest_b64u, 'manifest_digest_b64u'),
-    manifest: parseLaneEnrollmentManifestV1(row.manifest_json, 'lane enrollment manifest'),
-    lifecycle: parseLaneEnrollmentLifecycleV1(row.lifecycle_json, 'lane enrollment lifecycle'),
+    manifest: parseLaneEnrollmentManifestV1(
+      parseJsonRecord(row.manifest_json, 'lane enrollment manifest'),
+      'lane enrollment manifest',
+    ),
+    lifecycle: parseLaneEnrollmentLifecycleV1(
+      parseJsonRecord(row.lifecycle_json, 'lane enrollment lifecycle'),
+      'lane enrollment lifecycle',
+    ),
     version: parseVersion(row.version, 'enrollment version'),
     commandDigestB64u: parseRequiredString(row.command_digest_b64u, 'command_digest_b64u'),
     createdAtMs: parseTimestamp(row.created_at_ms, 'enrollment created_at_ms'),
@@ -211,8 +217,14 @@ export function parseProtocolRow(row: LaneProtocolRow): {
   readonly createdAtMs: number;
   readonly updatedAtMs: number;
 } {
-  const job = parseLaneProtocolJobV1(row.job_json, 'lane protocol job');
-  const lifecycle = parseLaneProtocolLifecycleV1(row.lifecycle_json, 'lane protocol lifecycle');
+  const job = parseLaneProtocolJobV1(
+    parseJsonRecord(row.job_json, 'lane protocol job'),
+    'lane protocol job',
+  );
+  const lifecycle = parseLaneProtocolLifecycleV1(
+    parseJsonRecord(row.lifecycle_json, 'lane protocol lifecycle'),
+    'lane protocol lifecycle',
+  );
   return {
     operationId: parseRequiredString(row.operation_id, 'operation_id'),
     enrollmentId: parseRequiredString(row.enrollment_id, 'enrollment_id'),
@@ -242,7 +254,10 @@ export function parseProtocolRow(row: LaneProtocolRow): {
 }
 
 export function parseProductEpochRow(row: LaneProductEpochRow): LaneProductEpochRecordV1 {
-  return parseLaneProductEpochRecordV1(row.product_json, 'lane product epoch');
+  return parseLaneProductEpochRecordV1(
+    parseJsonRecord(row.product_json, 'lane product epoch'),
+    'lane product epoch',
+  );
 }
 
 export function parseReceiptRow(row: LaneReceiptRow): {
@@ -261,15 +276,25 @@ export function parseReceiptRow(row: LaneReceiptRow): {
   const value = (() => {
     switch (receiptKind) {
       case 'lane_protocol_commit':
-        return parseLaneProtocolCommitReceiptV1(raw);
+        return parseLaneProtocolCommitReceiptV1(
+          parseJsonRecord(raw, 'lane protocol commit receipt'),
+        );
       case 'lane_holder_delivery':
-        return parseLaneHolderDeliveryReceiptV1(raw);
+        return parseLaneHolderDeliveryReceiptV1(
+          parseJsonRecord(raw, 'lane holder delivery receipt'),
+        );
       case 'lane_server_activation':
-        return parseLaneServerActivationReceiptV1(raw);
+        return parseLaneServerActivationReceiptV1(
+          parseJsonRecord(raw, 'lane server activation receipt'),
+        );
       case 'aggregate_activation':
-        return parseAggregateLaneActivationReceiptV1(raw);
+        return parseAggregateLaneActivationReceiptV1(
+          parseJsonRecord(raw, 'aggregate lane activation receipt'),
+        );
       case 'aggregate_revocation':
-        return parseAggregateLaneRevocationReceiptV1(raw);
+        return parseAggregateLaneRevocationReceiptV1(
+          parseJsonRecord(raw, 'aggregate lane revocation receipt'),
+        );
       default:
         throw new Error(`unknown R102 receipt kind ${receiptKind}`);
     }
