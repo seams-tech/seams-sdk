@@ -60,7 +60,13 @@ import type {
 } from './capabilityPolicy';
 import type { AuthorizationEvidenceRequirement } from '@shared/authorization/capabilityKinds';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
-import type { LinkedDeviceEnrollmentId, LinkedDeviceId, WalletId } from '@shared/utils/domainIds';
+import type {
+  LinkedDeviceEnrollmentId,
+  LinkedDeviceId,
+  WalletId,
+  WalletKeyId,
+} from '@shared/utils/domainIds';
+import type { LaneShareEpoch, SigningLaneId } from '@shared/signing-lanes';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
@@ -145,7 +151,7 @@ export interface AuthorizedOperationPort {
   }): Promise<AuthorizedOperation | null>;
   admitAuthorizedOperation(input: {
     readonly operation: AuthorizedOperationInput;
-    readonly material?: EcdsaMaterialActivationScope;
+    readonly material?: AuthorizedOperationMaterialScope;
   }): Promise<AuthorizedOperationAdmissionResult>;
   completeAuthorizedOperation(input: {
     readonly operation: AuthorizedOperation;
@@ -173,6 +179,22 @@ export type EcdsaMaterialActivationScope = Readonly<{
   readonly runtimePolicyScope: RuntimePolicyScope;
   readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
 }>;
+
+export type LinkedDeviceMaterialActivationScopeV1 = Readonly<{
+  readonly kind: 'linked_device_lane';
+  readonly walletId: WalletId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
+  readonly walletKeyId: WalletKeyId;
+  readonly laneId: SigningLaneId;
+  readonly laneShareEpoch: LaneShareEpoch;
+  readonly revocationEpoch: number;
+  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+}>;
+
+export type AuthorizedOperationMaterialScope =
+  | (EcdsaMaterialActivationScope & { readonly kind?: 'ecdsa_material_activation' })
+  | LinkedDeviceMaterialActivationScopeV1;
 
 export type AuthorizationServicePorts = {
   readonly policy: CapabilityPolicyPort;
@@ -351,7 +373,7 @@ export class AuthorizationService {
 
   async admitAuthorizedOperation(input: {
     readonly operation: AuthorizedOperationInput;
-    readonly material?: EcdsaMaterialActivationScope;
+    readonly material?: AuthorizedOperationMaterialScope;
   }): Promise<AuthorizedOperationAdmissionResult> {
     return await this.ports.authorizedOperations.admitAuthorizedOperation(input);
   }

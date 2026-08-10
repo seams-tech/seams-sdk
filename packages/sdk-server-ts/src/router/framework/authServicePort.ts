@@ -173,6 +173,7 @@ import type {
   IssueReusableWalletSessionInput,
   IssuedReusableWalletSession,
   EcdsaMaterialActivationScope,
+  LinkedDeviceMaterialActivationScopeV1,
 } from '../../authorization/service';
 import type { PrincipalId, SeamsSessionId, TenantId } from '@shared/authorization/capabilityKinds';
 
@@ -1456,7 +1457,7 @@ export interface RouterApiAuthorizedOperationService {
   }): Promise<AuthorizedOperation | null>;
   admitAuthorizedOperation(input: {
     readonly operation: AuthorizedOperationInput;
-    readonly material?: EcdsaMaterialActivationScope;
+    readonly material?: EcdsaMaterialActivationScope | LinkedDeviceMaterialActivationScopeV1;
   }): Promise<
     | { readonly kind: 'claimed'; readonly operation: AuthorizedOperation }
     | { readonly kind: 'replayed'; readonly operation: AuthorizedOperation }

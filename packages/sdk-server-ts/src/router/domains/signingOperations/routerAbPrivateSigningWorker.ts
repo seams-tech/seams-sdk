@@ -948,7 +948,9 @@ function requireMpcMaterialActivationId(value: unknown): MpcMaterialActivationId
   return parsed.value;
 }
 
-function requirePrivateSigningScope(value: unknown): RouterAbEd25519NormalSigningScopeV2 {
+export function parseRouterAbEd25519NormalSigningScopeV2(
+  value: unknown,
+): RouterAbEd25519NormalSigningScopeV2 {
   const scope = requirePrivateSigningRecord(value, 'scope');
   requirePrivateSigningExactFields(
     scope,
@@ -1190,6 +1192,17 @@ async function privateSigningAdmissionMaterial(input: {
   return { intentDigest, signingPayloadDigest, admittedSigningDigest };
 }
 
+export async function computeRouterAbEd25519NormalSigningAdmissionMaterial(input: {
+  readonly intent: unknown;
+  readonly signingPayload: unknown;
+}): Promise<{
+  readonly intentDigest: RouterAbPublicDigest32V1Wire;
+  readonly signingPayloadDigest: RouterAbPublicDigest32V1Wire;
+  readonly admittedSigningDigest: RouterAbPublicDigest32V1Wire;
+}> {
+  return await privateSigningAdmissionMaterial(input);
+}
+
 async function privateSigningRound1BindingDigest(input: {
   readonly scope: RouterAbEd25519NormalSigningScopeV2;
   readonly expiresAtMs: number;
@@ -1352,7 +1365,7 @@ type RouterAbEd25519PrivateSigningWorkerBuildInput =
 export async function buildRouterAbEd25519PrivateSigningWorkerBody(
   input: RouterAbEd25519PrivateSigningWorkerBuildInput,
 ): Promise<RouterAbEd25519PrivateSigningWorkerBody> {
-  const scope = requirePrivateSigningScope(input.body.scope);
+  const scope = parseRouterAbEd25519NormalSigningScopeV2(input.body.scope);
   const signingContext = privateSigningAuthorizationContext(scope, input.authorization);
   const trustedSourceDigest = await privateSigningTrustedSourceDigest(input.headers);
   if (input.phase === 'finalize') {
@@ -1960,7 +1973,7 @@ export async function authenticateRouterAbEcdsaOperationStepUpAppSession(input: 
 export function parseRouterAbEd25519OperationStepUpScope(
   value: unknown,
 ): RouterAbEd25519NormalSigningScopeV2 {
-  return requirePrivateSigningScope(value);
+  return parseRouterAbEd25519NormalSigningScopeV2(value);
 }
 
 export function parseRouterAbOperationStepUpOperation(value: unknown):
@@ -2056,7 +2069,7 @@ export async function authorizeRouterAbEd25519NormalSigningRoute(input: {
 
   let scope: RouterAbEd25519NormalSigningScopeV2;
   try {
-    scope = requirePrivateSigningScope(input.body.scope);
+    scope = parseRouterAbEd25519NormalSigningScopeV2(input.body.scope);
   } catch {
     return {
       ok: false,
@@ -2185,7 +2198,7 @@ export function validateRouterAbEd25519NormalSigningRequestScope(input: {
 }): RouterAbNormalSigningRouteAdmission {
   let scope: RouterAbEd25519NormalSigningScopeV2;
   try {
-    scope = requirePrivateSigningScope(input.body.scope);
+    scope = parseRouterAbEd25519NormalSigningScopeV2(input.body.scope);
   } catch {
     return {
       ok: false,
