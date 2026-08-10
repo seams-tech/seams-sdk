@@ -2,7 +2,7 @@
 
 Date created: June 15, 2026
 
-Last reconciled: August 8, 2026
+Last reconciled: August 10, 2026
 
 Status: active cryptographic plan. Shared rotation types and server store
 interfaces exist. Current owner flows now preserve local Ed25519 material and
@@ -1163,8 +1163,8 @@ protocol fallback.
 
 ## Parallel Delivery Strategy
 
-R102 starts with one short contract seed owned by the integrator. The seed
-freezes:
+R102 uses four implementation subagents after one short contract seed owned by
+the integrator. The seed is the only serial step. It freezes:
 
 - curve-specific lane-create and lane-refresh job unions;
 - canonical transcript, protocol-receipt, activation-receipt, and retirement-
@@ -1172,31 +1172,32 @@ freezes:
 - forward-only lifecycle states and legal transitions;
 - fresh target `MpcMaterialActivationId` rules;
 - aggregate child-manifest and enrollment-receipt shapes;
-- exact Rust, WASM, TypeScript, and Gateway port names.
+- exact Rust, WASM, TypeScript, Gateway, and worker port names;
+- versioned CAS outcomes and exact-replay behavior;
+- a persisted lane-epoch product record that represents pending visibility,
+  active, retired, and revoked epochs without duplicating projected owner
+  lanes.
 
-The seed contains types and interfaces only. It does not implement crypto,
+The integrator owns these seed files:
+
+- `packages/shared-ts/src/signing-lanes/rotation.ts`;
+- `packages/shared-ts/src/signing-lanes/rotationParsers.ts`;
+- `packages/shared-ts/src/signing-lanes/rotationDigests.ts`;
+- `packages/shared-ts/src/signing-lanes/rotationLifecycle.ts`;
+- `packages/shared-ts/src/signing-lanes/rotation.typecheck.ts`;
+- the signing-lanes barrel export.
+
+The seed contains types, parsers, canonical encoders, builders, transition
+functions, interfaces, and static fixtures only. It does not implement crypto,
 persistence, route behavior, browser orchestration, or compatibility paths.
-After it lands, five disjoint ownership lanes proceed against those frozen
-contracts.
+Every subagent receives one positive cross-language fixture and one
+field-substitution fixture for each wire record it consumes.
 
-### Agent A: Shared Domain Contracts
+### Subagent 1: ECDSA Additive Lane Protocol
 
-Own only `packages/shared-ts/src/signing-lanes/` and dedicated type fixtures.
-
-- replace `ShareRotationJob` with separate Ed25519 and ECDSA create/refresh
-  unions;
-- add forward-only job lifecycle records;
-- add enrollment manifests, aggregate receipts, and activation decisions;
-- add strict boundary parsers and branch-specific builders;
-- prove curve mixing and create-versus-refresh mixing fail statically.
-
-Do not edit Rust, server orchestration, SDK workers, central barrels, or shared
-test helpers.
-
-### Agent B: ECDSA Lane Protocol
-
-Own ECDSA protocol crates, ECDSA client WASM, and new isolated ECDSA adapter
-modules. The integrator owns central Cloudflare dispatch files.
+Own ECDSA protocol crates, ECDSA Client and SigningWorker WASM, and isolated
+ECDSA lane adapter modules. The integrator owns shared contracts and central
+Cloudflare dispatch files.
 
 - resolve the exact R101 source lane and R90 capability manifest;
 - sample target holder material and keep the additive delta transient;
@@ -1206,10 +1207,19 @@ modules. The integrator owns central Cloudflare dispatch files.
 - emit exact server activation and retirement receipts;
 - add replay, parity, substitution, tamper, and zeroization vectors.
 
-Expose pure protocol functions and typed ports. Do not add Gateway route
-registration, aggregate enrollment state, or browser APIs.
+Primary owned modules:
 
-### Agent C: Ed25519 Streaming Yao Protocol
+- `crates/router-ab-ecdsa-client-protocol/src/lane_resharing.rs`;
+- ECDSA lane primitives under `crates/router-ab-ecdsa-derivation/`;
+- `wasm/router_ab_ecdsa_client/src/lane_resharing.rs`;
+- `wasm/router_ab_ecdsa_signing_worker/src/lane_resharing.rs`;
+- focused Rust, WASM, and frozen-vector tests.
+
+Expose pure protocol functions and typed ports. JavaScript never receives a
+plaintext target share or additive delta. Do not add Gateway routes, aggregate
+state, browser APIs, or shared contract variants.
+
+### Subagent 2: Ed25519 Streaming Yao Protocol
 
 Own Ed25519-Yao protocol and circuit code, Yao client WASM, and new isolated
 Ed25519 adapter modules. The integrator owns central Cloudflare dispatch files.
@@ -1222,14 +1232,29 @@ Ed25519 adapter modules. The integrator owns central Cloudflare dispatch files.
 - add recipient-swap, package-substitution, replay, and commitment-recovery
   vectors.
 
-This lane is the critical path. It starts immediately after the contract seed.
+Primary owned modules:
 
-### Agent D: Gateway Persistence And Aggregate Lifecycle
+- the lane family in `crates/router-ab-core/src/protocol/ed25519_yao.rs`;
+- new lane modules in `crates/router-ab-ed25519-yao-protocol/`,
+  `crates/router-ab-ed25519-yao/`, and
+  `crates/router-ab-ed25519-yao-client/`;
+- the distinct lane-materialization circuit and fixtures under
+  `tools/ed25519-yao-generator/`;
+- narrow passive-runtime package/schedule additions under
+  `crates/ed25519-yao/`;
+- focused Yao, circuit, recipient, and redelivery vectors.
+
+This lane is the critical path and starts immediately after the contract seed.
+It must use distinct lane package tags and circuit digests; activation or export
+families cannot be reused.
+
+### Subagent 3: Gateway Persistence And Aggregate Lifecycle
 
 Own `packages/sdk-server-ts/src/core/signingLanes/`, new isolated D1 store
 modules, and their focused tests.
 
-- persist curve-specific job lifecycle records;
+- replace blind-write scaffolds with versioned CAS stores and exact replay;
+- persist curve-specific job lifecycle and product-epoch records;
 - implement wallet-key and enrollment locks;
 - persist parent enrollment manifests without duplicating curve capability
   state;
@@ -1238,10 +1263,22 @@ modules, and their focused tests.
 - fence revocation ahead of creation, refresh, and queued signing;
 - revoke aggregate enrollments while preserving unrelated owner lanes.
 
-Build against typed fake curve receipts until Agents B and C land. Do not edit
-route definitions, dependency injection, or public SDK files.
+Primary owned modules:
 
-### Agent E: Browser And Worker Orchestration
+- lifecycle, effect-journal, aggregate activation, and revocation ports under
+  `packages/sdk-server-ts/src/core/signingLanes/`;
+- one normalized D1 migration for enrollment, operation, product-epoch,
+  receipt, effect-journal, and lock records;
+- isolated D1 implementations under
+  `packages/sdk-server-ts/src/router/cloudflare/d1/signingLanes/`;
+- focused CAS, crash-reconciliation, atomic-visibility, and revocation tests.
+
+Build against typed fake curve receipts from the contract seed. The atomic
+visibility transaction performs zero network calls. Do not edit route
+definitions, dependency injection, public SDK files, or canonical owner-lane
+projection.
+
+### Subagent 4: Browser And Worker Orchestration
 
 Own SDK worker channels, WASM adapters, lane-operation coordinators, and their
 focused tests.
@@ -1253,13 +1290,27 @@ focused tests.
 - invalidate warm handles after refresh or revocation;
 - exercise the workflow through fake Gateway and WASM ports.
 
-Do not edit public API unions, iframe messages, central worker registration,
-dependency injection, or shared domain contracts.
+Primary owned modules:
+
+- isolated coordinators under
+  `packages/sdk-web/src/core/signingEngine/session/lanes/operations/`;
+- isolated `laneWorkerChannels.ts` and curve-specific lane WASM adapters;
+- lane-scoped sealed holder persistence;
+- narrow linked-lane support in `walletExecutionLaneHydration.ts`;
+- exact activation invalidation in Ed25519 and ECDSA runtime registries;
+- worker-boundary, delivery, hydration, invalidation, and crash tests.
+
+Build against fake Gateway and WASM ports immediately after the seed. Recipient
+private keys and plaintext lane material remain worker-bound. Hydration uses the
+exact lane `MpcMaterialActivationRef`; chain-only or wallet-only selection is
+forbidden. Do not edit public API unions, iframe messages, central worker
+registration, dependency injection, or shared domain contracts.
 
 ### Integrator Ownership
 
 Only the integrator edits:
 
+- the contract-seed files listed above;
 - route definitions and fetch-router registration;
 - server dependency injection and central service barrels;
 - central Cloudflare route dispatch;
@@ -1268,34 +1319,43 @@ Only the integrator edits:
 - shared test helpers, source guards, and this plan;
 - cross-curve activation, refresh, and revocation tests.
 
-No agent restores another agent's files, adds compatibility shims around a
-frozen contract, or edits outside its assigned ownership. Each agent commits
-only its owned files.
+The integrator also removes the obsolete universal rotation store and transcript
+types after all consumers move to the frozen contracts. No subagent restores
+another subagent's files, adds compatibility shims, or edits outside its
+ownership. Every subagent commits only its owned files.
 
 ### Execution Waves
 
-The current execution environment permits the root integrator and three
-subagents concurrently. Schedule the five logical lanes in two waves:
+With four child-agent slots, all four subagents start immediately after the
+seed:
 
 ```text
 contract seed — root integrator
 
-wave 1
-  Agent B: ECDSA protocol
-  Agent C: Ed25519 Yao protocol
-  Agent D: Gateway persistence
-  root: shared contracts and integration scaffolding
-
-wave 2
-  Agent E: browser and worker orchestration
-  first available crypto agent: adversarial vectors
-  first available server agent: aggregate and revocation tests
-  root: central wiring and cross-curve integration
+parallel implementation
+  Subagent 1: ECDSA protocol and vectors
+  Subagent 2: Ed25519 Yao protocol, circuit, and vectors
+  Subagent 3: Gateway persistence and aggregate lifecycle
+  Subagent 4: browser and worker orchestration against fake ports
+  root: central wiring, review, and cross-curve integration
 ```
 
-Agent E begins against the frozen mock WASM and Gateway ports as soon as one
-Wave 1 slot opens. Aggregate activation uses mock child receipts until both
-curve adapters are available.
+The current Codex session permits the root plus three child agents. In that
+environment, start Subagents 1, 2, and 3 first. The root performs central
+integration scaffolding, then Subagent 4 starts as soon as either crypto agent
+finishes its first mergeable slice. This is a scheduling limit rather than a
+technical dependency: Subagent 4 builds against frozen fake ports, and
+Subagent 3 uses fake curve receipts.
+
+Each subagent delivers small mergeable slices instead of one terminal commit:
+
+1. boundary types and positive-path adapter;
+2. lifecycle or secret-containment behavior;
+3. adversarial and replay tests;
+4. cleanup of superseded owned scaffolds.
+
+The integrator merges by contract dependency, not by completion time: seed,
+pure curve adapters, stores, browser adapters, central wiring, then broad tests.
 
 ### Per-Lane Merge Gates
 
