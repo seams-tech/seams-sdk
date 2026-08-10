@@ -10,7 +10,6 @@ import { computeLaneParticipantSetBindingDigestV1 } from '../../packages/shared-
 import {
   buildAggregateLaneActivationChildReceiptV1,
   buildCompleteSigningLaneRevocationV1,
-  buildRevokeLaneEnrollmentV1,
   buildRevokeSigningLaneV1,
 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import type {
@@ -302,40 +301,6 @@ test.describe('R102 lane lifecycle D1 gateway', () => {
       await expect(gateway.fenceSigningLaneRevocationV1(command)).rejects.toThrow(
         'self-digest is invalid',
       );
-    } finally {
-      cleanupTemporaryD1Database(temporary.tempDir);
-    }
-  });
-
-  test('conflicts an enrollment revocation substitution after the exact fence', async () => {
-    const temporary = createTemporaryD1Database();
-    try {
-      await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
-      const fixture = buildR102LaneEnrollmentFixture();
-      const store = new CloudflareD1LaneLifecycleStore({
-        database: temporary.database,
-        scope,
-        now: () => 1_000,
-      });
-      const gateway = new CloudflareD1LaneEnrollmentGateway({ lifecycleStore: store });
-      await activateFixture(gateway, fixture);
-      const manifestDigestB64u = await computeLaneEnrollmentManifestDigestV1(fixture.manifest);
-      const command = buildRevokeLaneEnrollmentV1({
-        enrollmentId: fixture.manifest.enrollmentId,
-        walletId: fixture.manifest.walletId,
-        manifestDigestB64u,
-        reason: 'user_revoked',
-        requestedAtMs: 7_000,
-      });
-      await expect(gateway.revokeLaneEnrollmentV1(command)).resolves.toMatchObject({
-        outcome: 'applied',
-      });
-      await expect(gateway.revokeLaneEnrollmentV1(command)).resolves.toMatchObject({
-        outcome: 'replayed',
-      });
-      await expect(
-        gateway.revokeLaneEnrollmentV1({ ...command, reason: 'device_compromise' }),
-      ).resolves.toMatchObject({ outcome: 'conflict' });
     } finally {
       cleanupTemporaryD1Database(temporary.tempDir);
     }

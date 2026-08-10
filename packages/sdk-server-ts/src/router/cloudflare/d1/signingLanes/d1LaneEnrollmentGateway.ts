@@ -64,10 +64,4 @@ export class CloudflareD1LaneEnrollmentGateway implements LaneEnrollmentGatewayV
   ): ReturnType<LaneEnrollmentGatewayV1['completeSigningLaneRevocationV1']> {
     return await this.revocation.completeSigningLaneRevocationV1(...args);
   }
-
-  async revokeLaneEnrollmentV1(
-    ...args: Parameters<LaneEnrollmentGatewayV1['revokeLaneEnrollmentV1']>
-  ): ReturnType<LaneEnrollmentGatewayV1['revokeLaneEnrollmentV1']> {
-    return await this.revocation.revokeLaneEnrollmentV1(...args);
-  }
 }

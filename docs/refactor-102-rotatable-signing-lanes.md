@@ -1417,7 +1417,9 @@ Subagents do not independently run the full repository suite.
 
 - [x] Add owner and linked-device lane refresh. Refactor 104 owns any later
       delegated-execution adapter.
-- [x] Add immediate lane and aggregate enrollment revocation.
+- [x] Add immediate lane revocation with exact material-owner receipts.
+- [ ] Add aggregate enrollment revocation by retiring each child through the
+      same exact lane workflow before committing the parent receipt.
 - [x] Invalidate warm capabilities and reject stale epochs.
 - [x] Ensure Wallet Session expiry preserves active lane material and activation
       references; require the same property from future authorization adapters.
