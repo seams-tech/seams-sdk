@@ -609,6 +609,7 @@ export interface EmailOtpWorkerOperationMap {
       otpChannel: WalletEmailOtpChannel;
       enrollmentId: string;
       enrollmentSealKeyVersion: string;
+      serverSealedFactorCiphertextB64u: string;
       clientUnlockPublicKeyB64u: string;
       unlockKeyVersion: string;
     };
@@ -628,11 +629,13 @@ export interface EmailOtpWorkerOperationMap {
       otpChannel: WalletEmailOtpChannel;
       enrollmentId: string;
       enrollmentSealKeyVersion: string;
+      serverSealedFactorCiphertextB64u: string;
       clientUnlockPublicKeyB64u: string;
       unlockKeyVersion: string;
       emailOtpSessionHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleResult;
       emailOtpEnrollment: {
         enrollmentSealKeyVersion: string;
+        serverSealedFactorCiphertextB64u: string;
         clientUnlockPublicKeyB64u: string;
         unlockKeyVersion: string;
       };

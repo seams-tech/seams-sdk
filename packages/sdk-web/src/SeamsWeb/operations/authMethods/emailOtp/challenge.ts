@@ -101,6 +101,10 @@ export function parseEmailOtpEnrollmentResult(value: unknown): EmailOtpEnrollmen
       response.enrollmentSealKeyVersion,
       'enrollmentSealKeyVersion',
     ),
+    serverSealedFactorCiphertextB64u: readString(
+      response.serverSealedFactorCiphertextB64u,
+      'serverSealedFactorCiphertextB64u',
+    ),
     clientUnlockPublicKeyB64u: readString(
       response.clientUnlockPublicKeyB64u,
       'clientUnlockPublicKeyB64u',

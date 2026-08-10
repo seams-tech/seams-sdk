@@ -17,7 +17,6 @@ const recoveryKeysAllowedSourceFiles = new Set([
   'packages/sdk-web/src/SeamsWeb/googleEmailOtpWalletAuth.typecheck.ts',
   'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/registrationOffer.ts',
   'packages/sdk-web/src/SeamsWeb/walletIframe/client/router.ts',
-  'packages/sdk-web/src/core/indexedDB/seamsWalletDB/emailOtpDeviceEnrollmentEscrows.ts',
 ]);
 
 const retainedBackupRecordAllowedSourceFiles = new Set();

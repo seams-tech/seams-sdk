@@ -95,6 +95,10 @@ function parseEmailOtpEnrollmentResult(value: unknown): EmailOtpEnrollmentResult
       response.enrollmentSealKeyVersion,
       'enrollmentSealKeyVersion',
     ),
+    serverSealedFactorCiphertextB64u: readString(
+      response.serverSealedFactorCiphertextB64u,
+      'serverSealedFactorCiphertextB64u',
+    ),
     clientUnlockPublicKeyB64u: readString(
       response.clientUnlockPublicKeyB64u,
       'clientUnlockPublicKeyB64u',
@@ -246,11 +250,13 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
   otpChannel: WalletEmailOtpChannel;
   enrollmentId: string;
   enrollmentSealKeyVersion: string;
+  serverSealedFactorCiphertextB64u: string;
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
   emailOtpSessionHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleResult;
   emailOtpEnrollment: {
     enrollmentSealKeyVersion: string;
+    serverSealedFactorCiphertextB64u: string;
     clientUnlockPublicKeyB64u: string;
     unlockKeyVersion: string;
   };
