@@ -1,17 +1,21 @@
 import { expect, test } from '@playwright/test';
-import { buildLinkedDeviceSigningLaneRecord } from '../../packages/shared-ts/src/signing-lanes/recordParsers';
-import { parseLinkedDeviceId } from '../../packages/shared-ts/src/signing-lanes/ids';
 import {
-  parseLaneHolderParticipantRecordV1,
-  parseSigningWorkerParticipantRecordV1,
-} from '../../packages/shared-ts/src/signing-lanes/participants';
-import { prepareOwnerWalletExecution } from '../../packages/sdk-server-ts/src/router/domains/signingOperations/walletExecutionAdmission';
-import { proxyOwnerLaneAdmittedNormalSigningRequest } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/normalSigningRouterProxy';
+  prepareLinkedDeviceWalletExecution,
+  prepareOwnerWalletExecution,
+} from '../../packages/sdk-server-ts/src/router/domains/signingOperations/walletExecutionAdmission';
+import {
+  proxyLinkedDeviceLaneAdmittedNormalSigningRequest,
+  proxyOwnerLaneAdmittedNormalSigningRequest,
+} from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/normalSigningRouterProxy';
 import { routerAbMpcMaterialActivationRefToWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
+import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
+import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
+import { parseSigningLaneId } from '../../packages/shared-ts/src/signing-lanes/ids';
 import {
   buildCompletedAuthorizedOperationFixture,
   buildReusableAuthorizationCoreFixture,
 } from './helpers/authorizationCore.fixtures';
+import { buildLinkedDeviceWalletExecutionFixture } from './helpers/linkedDeviceWalletExecution.fixtures';
 import { buildOwnerWalletExecutionEvidenceFixture } from './helpers/walletExecutionLane.fixtures';
 
 test.describe('R101 wallet execution admission', () => {
@@ -37,45 +41,109 @@ test.describe('R101 wallet execution admission', () => {
     });
   });
 
-  test('refuses linked-device lanes until R103 owns their admission', async () => {
-    const authorization = await buildReusableAuthorizationCoreFixture();
-    const evidence = await buildOwnerWalletExecutionEvidenceFixture();
-    const linkedDeviceId = parseLinkedDeviceId('linked-device:wallet-authorization');
-    if (!linkedDeviceId.ok) throw new Error(linkedDeviceId.error.message);
-    const participantDigestB64u = Buffer.alloc(32, 11).toString('base64url');
-    const hpkePublicKeyB64u = Buffer.alloc(32, 12).toString('base64url');
-    const linkedLane = buildLinkedDeviceSigningLaneRecord({
-      walletId: evidence.lane.walletId,
-      walletKeyId: evidence.lane.walletKeyId,
-      laneId: evidence.lane.laneId,
-      laneShareEpoch: evidence.lane.laneShareEpoch,
-      participantBindingDigestB64u: evidence.lane.participantBindingDigestB64u,
-      holderParticipant: parseLaneHolderParticipantRecordV1({
-        kind: 'lane_holder_participant_v1',
-        participantId: 'linked-holder:wallet-authorization',
-        custodyBindingId: 'linked-custody:wallet-authorization',
-        custodyBindingDigestB64u: participantDigestB64u,
-        hpkePublicKeyB64u,
-        hpkePublicKeyDigestB64u: participantDigestB64u,
-        participantBindingDigestB64u: participantDigestB64u,
-      }),
-      serverParticipant: parseSigningWorkerParticipantRecordV1({
-        kind: 'signing_worker_participant_v1',
-        participantId: 'linked-worker:wallet-authorization',
-        recipientKeyId: 'linked-recipient:wallet-authorization',
-        hpkePublicKeyB64u,
-        hpkePublicKeyDigestB64u: participantDigestB64u,
-        participantBindingDigestB64u: participantDigestB64u,
-      }),
-      lifecycle: evidence.lane.lifecycle,
-      linkedDeviceId: linkedDeviceId.value,
-    });
-    const result = await prepareOwnerWalletExecution({
-      authorizedOperation: authorization.authorizedOperation,
-      evidence: { ...evidence, lane: linkedLane },
+  test('prepares a linked-device operation only with exact active enrollment and local presence', async () => {
+    const fixture = await buildLinkedDeviceWalletExecutionFixture();
+    const result = await prepareLinkedDeviceWalletExecution({
+      authorizedOperation: fixture.authorizedOperation,
+      evidence: {
+        ...fixture.projection,
+        expectedMaterialActivation: fixture.projection.materialActivation,
+      },
+      localPresence: fixture.localPresence,
     });
 
-    expect(result).toEqual({ kind: 'refused', reason: 'unsupported_lane' });
+    expect(result).toMatchObject({
+      kind: 'prepared',
+      execution: {
+        kind: 'prepared_linked_device_wallet_execution',
+        laneKind: 'linked_device',
+        linkedDeviceEnrollmentId: fixture.authorization.enrollmentId,
+        lane: { laneId: fixture.projection.lane.laneId },
+        authorization: {
+          authorizedOperationId: fixture.authorizedOperation.authorizedOperationId,
+          capabilityId: fixture.authorizedOperation.operation.capabilityId,
+        },
+      },
+    });
+  });
+
+  test('refuses a substituted linked-device grant before private work', async () => {
+    const fixture = await buildLinkedDeviceWalletExecutionFixture();
+    const result = await prepareLinkedDeviceWalletExecution({
+      authorizedOperation: fixture.authorizedOperation,
+      evidence: {
+        ...fixture.projection,
+        authorization: {
+          ...fixture.authorization,
+          authorizationGrantRef: {
+            ...fixture.authorization.authorizationGrantRef,
+            authorizationId: 'authorization:substituted',
+          },
+        },
+        expectedMaterialActivation: fixture.projection.materialActivation,
+      },
+      localPresence: fixture.localPresence,
+    });
+
+    expect(result).toEqual({ kind: 'refused', reason: 'authorization_grant_mismatch' });
+  });
+
+  test('refuses a revoked linked-device enrollment before private work', async () => {
+    const fixture = await buildLinkedDeviceWalletExecutionFixture();
+    const result = await prepareLinkedDeviceWalletExecution({
+      authorizedOperation: fixture.authorizedOperation,
+      evidence: {
+        ...fixture.projection,
+        enrollment: { ...fixture.projection.enrollment, revocationEpoch: 1 },
+        expectedMaterialActivation: fixture.projection.materialActivation,
+      },
+      localPresence: fixture.localPresence,
+    });
+
+    expect(result).toEqual({ kind: 'refused', reason: 'revocation_epoch_mismatch' });
+  });
+
+  test('refuses local presence for a different intent', async () => {
+    const fixture = await buildLinkedDeviceWalletExecutionFixture();
+    const result = await prepareLinkedDeviceWalletExecution({
+      authorizedOperation: fixture.authorizedOperation,
+      evidence: {
+        ...fixture.projection,
+        expectedMaterialActivation: fixture.projection.materialActivation,
+      },
+      localPresence: {
+        ...fixture.localPresence,
+        intentDigestB64u: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(10))),
+      },
+    });
+
+    expect(result).toEqual({ kind: 'refused', reason: 'local_presence_mismatch' });
+  });
+
+  test('refuses a substituted rotatable material source', async () => {
+    const fixture = await buildLinkedDeviceWalletExecutionFixture();
+    const substitutedLaneIdResult = parseSigningLaneId('lane:substituted');
+    if (!substitutedLaneIdResult.ok) throw new Error(substitutedLaneIdResult.error.message);
+    const result = await prepareLinkedDeviceWalletExecution({
+      authorizedOperation: fixture.authorizedOperation,
+      evidence: {
+        ...fixture.projection,
+        materialSource: {
+          ...fixture.projection.materialSource,
+          lookup: {
+            ...fixture.projection.materialSource.lookup,
+            identity: {
+              ...fixture.projection.materialSource.lookup.identity,
+              targetLaneId: substitutedLaneIdResult.value,
+            },
+          },
+        },
+        expectedMaterialActivation: fixture.projection.materialActivation,
+      },
+      localPresence: fixture.localPresence,
+    });
+
+    expect(result).toEqual({ kind: 'refused', reason: 'material_activation_mismatch' });
   });
 
   test('refuses stale material activation before dispatch', async () => {
@@ -139,6 +207,86 @@ test.describe('R101 wallet execution admission', () => {
         resolveActiveOwnerWalletExecutionLane: async () => ({
           kind: 'refused',
           reason: 'auth_method_inactive',
+        }),
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(routerCalls).toBe(0);
+  });
+
+  test('forwards an admitted linked-device lane through the rotatable material source proxy', async () => {
+    const fixture = await buildLinkedDeviceWalletExecutionFixture();
+    let routerBody: Record<string, unknown> | null = null;
+    const response = await proxyLinkedDeviceLaneAdmittedNormalSigningRequest({
+      request: new Request('https://wallet.example.test/sign', { method: 'POST' }),
+      proxy: {
+        internalServiceAuthSecret: 'test-router-secret',
+        fetch: async (request) => {
+          routerBody = (await request.clone().json()) as Record<string, unknown>;
+          return new Response('{"ok":true}', { status: 200 });
+        },
+      },
+      body: { intent: 'linked-device' },
+      authorizedOperation: fixture.authorizedOperation,
+      walletId: fixture.projection.walletKey.walletId,
+      enrollmentId: fixture.projection.enrollment.enrollmentId,
+      deviceId: fixture.projection.enrollment.deviceId,
+      walletKeyId: fixture.projection.lane.walletKeyId,
+      laneId: fixture.projection.lane.laneId,
+      laneShareEpoch: fixture.projection.lane.laneShareEpoch,
+      expectedMaterialActivation: routerAbMpcMaterialActivationRefToWire(
+        fixture.projection.materialActivation,
+      ),
+      localPresence: fixture.localPresence,
+      linkedDeviceExecution: {
+        resolveActiveLinkedDeviceExecutionV1: async () => ({
+          kind: 'projected' as const,
+          projection: fixture.projection,
+        }),
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(routerBody).toMatchObject({
+      intent: 'linked-device',
+      material_source: { kind: 'rotatable_lane' },
+    });
+  });
+
+  test('refuses a resolver projection for a substituted lane coordinate before Router dispatch', async () => {
+    const fixture = await buildLinkedDeviceWalletExecutionFixture();
+    const substitutedLaneIdResult = parseSigningLaneId('lane:substituted-projection');
+    if (!substitutedLaneIdResult.ok) throw new Error(substitutedLaneIdResult.error.message);
+    let routerCalls = 0;
+    const response = await proxyLinkedDeviceLaneAdmittedNormalSigningRequest({
+      request: new Request('https://wallet.example.test/sign', { method: 'POST' }),
+      proxy: {
+        internalServiceAuthSecret: 'test-router-secret',
+        fetch: async () => {
+          routerCalls += 1;
+          return new Response('{}', { status: 200 });
+        },
+      },
+      body: { intent: 'linked-device' },
+      authorizedOperation: fixture.authorizedOperation,
+      walletId: fixture.projection.walletKey.walletId,
+      enrollmentId: fixture.projection.enrollment.enrollmentId,
+      deviceId: fixture.projection.enrollment.deviceId,
+      walletKeyId: fixture.projection.lane.walletKeyId,
+      laneId: fixture.projection.lane.laneId,
+      laneShareEpoch: fixture.projection.lane.laneShareEpoch,
+      expectedMaterialActivation: routerAbMpcMaterialActivationRefToWire(
+        fixture.projection.materialActivation,
+      ),
+      localPresence: fixture.localPresence,
+      linkedDeviceExecution: {
+        resolveActiveLinkedDeviceExecutionV1: async () => ({
+          kind: 'projected' as const,
+          projection: {
+            ...fixture.projection,
+            lane: { ...fixture.projection.lane, laneId: substitutedLaneIdResult.value },
+          },
         }),
       },
     });

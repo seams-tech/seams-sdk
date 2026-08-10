@@ -4,17 +4,39 @@ import {
   NEAR_ED25519_MPC_OPERATION_KINDS,
 } from '@shared/authorization/capabilityKinds';
 import {
+  computeLaneParticipantSetBindingDigestV1,
   buildPreparedOwnerWalletExecution,
+  buildPreparedLinkedDeviceWalletExecution,
   computeOwnerLaneParticipantBindingDigestV1,
   type ClaimedWalletExecutionAuthorization,
   type LaneParticipantBindingDigestB64u,
+  type LaneProductEpochActiveV1,
+  type LinkedDeviceSigningLaneRecord,
   type PreparedOwnerWalletExecution,
+  type PreparedLinkedDeviceWalletExecution,
   type SigningLaneRecord,
   type WalletKeyRecord,
 } from '@shared/signing-lanes';
-import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
-import type { MpcMaterialActivationRef, WalletId } from '@shared/utils/domainIds';
-import type { AuthorizedOperation } from '../../../authorization/domain';
+import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
+import {
+  mpcMaterialActivationRefsEqual,
+  type LinkedDeviceEnrollmentId,
+  type LinkedDeviceId,
+  type MpcMaterialActivationRef,
+  type WalletId,
+  type WalletKeyId,
+  type WebAuthnCredentialIdB64u,
+} from '@shared/utils/domainIds';
+import type {
+  AuthorizedOperation,
+  LinkedDeviceWalletSessionAuthorizationV1,
+} from '../../../authorization/domain';
+import type {
+  AuthorizedOperationId,
+  LinkedDeviceWalletSessionAuthorizationId,
+} from '@shared/authorization/capabilityKinds';
+import type { SigningLaneId, LaneShareEpoch } from '@shared/signing-lanes/ids';
+import type { RouterAbNormalSigningMaterialSourceV1 } from './routerAbPrivateSigningWorker';
 
 export type ClaimedAuthorizedOperation = AuthorizedOperation & {
   readonly lifecycle: 'claimed';
@@ -52,6 +74,20 @@ export type WalletExecutionAdmissionRefusalReason =
   | 'participant_binding_mismatch'
   | 'activation_receipt_mismatch';
 
+export type LinkedDeviceWalletExecutionAdmissionRefusalReason =
+  | WalletExecutionAdmissionRefusalReason
+  | 'authorization_grant_mismatch'
+  | 'authorization_expired'
+  | 'authorization_permission_mismatch'
+  | 'linked_device_mismatch'
+  | 'linked_enrollment_mismatch'
+  | 'linked_product_mismatch'
+  | 'linked_participant_mismatch'
+  | 'revocation_epoch_mismatch'
+  | 'local_presence_missing'
+  | 'local_presence_mismatch'
+  | 'linked_execution_unavailable';
+
 export type WalletExecutionAdmissionResult =
   | {
       readonly kind: 'prepared';
@@ -71,6 +107,102 @@ export type OwnerWalletExecutionEvidence = {
   readonly verifiedLaneParticipantBindingDigestB64u: LaneParticipantBindingDigestB64u;
   readonly verifiedActivationReceiptDigestB64u: DigestB64u;
 };
+
+/** Durable linked-device enrollment facts required by signing admission. */
+export type ActiveLinkedDeviceEnrollmentExecutionRecordV1 = {
+  readonly kind: 'active_linked_device_enrollment_v1';
+  readonly walletId: WalletId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
+  readonly keyManifestDigestB64u: DigestB64u;
+  readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+  readonly revocationEpoch: number;
+  readonly lifecycle: {
+    readonly state: 'active';
+    readonly activatedAtMs: number;
+  };
+};
+
+/** The local WebAuthn proof is verified before this kernel is called. */
+export type LinkedDeviceLocalPresenceEvidenceV1 =
+  | {
+      readonly kind: 'linked_device_local_presence_evidence_v1';
+      readonly authorizedOperationId: AuthorizedOperationId;
+      readonly deviceId: LinkedDeviceId;
+      readonly enrollmentId: LinkedDeviceEnrollmentId;
+      readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+      readonly intentDigestB64u: DigestB64u;
+      readonly verifiedAtMs: number;
+      readonly assertionDigestB64u: DigestB64u;
+      readonly challengeDigestB64u?: never;
+    }
+  | {
+      readonly kind: 'linked_device_local_presence_evidence_v1';
+      readonly authorizedOperationId: AuthorizedOperationId;
+      readonly deviceId: LinkedDeviceId;
+      readonly enrollmentId: LinkedDeviceEnrollmentId;
+      readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+      readonly intentDigestB64u: DigestB64u;
+      readonly verifiedAtMs: number;
+      readonly assertionDigestB64u?: never;
+      readonly challengeDigestB64u: DigestB64u;
+    };
+
+export type ActiveLinkedDeviceExecutionProjectionV1 = {
+  readonly kind: 'active_linked_device_execution_projection_v1';
+  readonly authorization: LinkedDeviceWalletSessionAuthorizationV1;
+  readonly enrollment: ActiveLinkedDeviceEnrollmentExecutionRecordV1;
+  readonly walletKey: WalletKeyRecord;
+  readonly lane: LinkedDeviceSigningLaneRecord;
+  readonly product: LaneProductEpochActiveV1;
+  readonly materialActivation: MpcMaterialActivationRef;
+  readonly verifiedLaneParticipantBindingDigestB64u: LaneParticipantBindingDigestB64u;
+  readonly verifiedActivationReceiptDigestB64u: DigestB64u;
+  readonly materialSource: Extract<
+    RouterAbNormalSigningMaterialSourceV1,
+    {
+      readonly kind: 'rotatable_lane';
+    }
+  >;
+};
+
+export type LinkedDeviceExecutionProjectionResult =
+  | {
+      readonly kind: 'projected';
+      readonly projection: ActiveLinkedDeviceExecutionProjectionV1;
+    }
+  | {
+      readonly kind: 'refused';
+      readonly reason: LinkedDeviceWalletExecutionAdmissionRefusalReason;
+    };
+
+export interface LinkedDeviceExecutionAdmissionResolverV1 {
+  resolveActiveLinkedDeviceExecutionV1(input: {
+    readonly walletId: WalletId;
+    readonly enrollmentId: LinkedDeviceEnrollmentId;
+    readonly deviceId: LinkedDeviceId;
+    readonly walletKeyId: WalletKeyId;
+    readonly laneId: SigningLaneId;
+    readonly laneShareEpoch: LaneShareEpoch;
+    readonly materialActivation: MpcMaterialActivationRef;
+    readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+    readonly authorizedOperationId: AuthorizedOperationId;
+  }): Promise<LinkedDeviceExecutionProjectionResult>;
+}
+
+export type LinkedDeviceWalletExecutionEvidenceV1 = ActiveLinkedDeviceExecutionProjectionV1 & {
+  readonly expectedMaterialActivation: MpcMaterialActivationRef;
+};
+
+export type LinkedDeviceWalletExecutionAdmissionResult =
+  | {
+      readonly kind: 'prepared';
+      readonly execution: PreparedLinkedDeviceWalletExecution;
+    }
+  | {
+      readonly kind: 'refused';
+      readonly reason: LinkedDeviceWalletExecutionAdmissionRefusalReason;
+    };
 
 export async function prepareOwnerWalletExecution(input: {
   readonly authorizedOperation: AuthorizedOperation;
@@ -157,6 +289,286 @@ export async function prepareOwnerWalletExecution(input: {
   };
 }
 
+export async function prepareLinkedDeviceWalletExecution(input: {
+  readonly authorizedOperation: AuthorizedOperation;
+  readonly evidence: LinkedDeviceWalletExecutionEvidenceV1;
+  readonly localPresence: LinkedDeviceLocalPresenceEvidenceV1;
+}): Promise<LinkedDeviceWalletExecutionAdmissionResult> {
+  const operation = input.authorizedOperation;
+  if (operation.lifecycle !== 'claimed') return linkedRefused('operation_not_claimed');
+
+  const grantRef = linkedGrantRef(operation);
+  if (!grantRef) return linkedRefused('authorization_grant_mismatch');
+
+  const evidence = input.evidence;
+  const grant = evidence.authorization;
+  const enrollment = evidence.enrollment;
+  const product = evidence.product;
+  const lane = evidence.lane;
+  const walletKey = evidence.walletKey;
+
+  if (walletKey.lifecycle.state !== 'active') return linkedRefused('wallet_key_inactive');
+  if (lane.lifecycle.state !== 'active') return linkedRefused('lane_inactive');
+  if (enrollment.lifecycle.state !== 'active') return linkedRefused('linked_enrollment_mismatch');
+  if (product.state !== 'active') return linkedRefused('linked_product_mismatch');
+  if (lane.laneKind !== 'linked_device') return linkedRefused('unsupported_lane');
+
+  if (
+    String(grant.authorizationGrantRef.authorizationId) !== String(grantRef.authorizationId) ||
+    grant.authorizationGrantRef.kind !== grantRef.kind
+  ) {
+    return linkedRefused('authorization_grant_mismatch');
+  }
+  if (
+    operation.tenantId !== grant.tenantId ||
+    operation.operation.principalId !== grant.principalId ||
+    grant.walletId !== evidence.walletKey.walletId
+  ) {
+    return linkedRefused('authorization_grant_mismatch');
+  }
+  if (operation.claimedAtMs < grant.issuedAtMs || operation.claimedAtMs >= grant.expiresAtMs) {
+    return linkedRefused('authorization_expired');
+  }
+  if (
+    grant.permission.kind !== 'owner_equivalent_signing' ||
+    grant.permission.administrationScope !== 'signing_only' ||
+    grant.permission.localUserPresence !== 'required'
+  ) {
+    return linkedRefused('authorization_permission_mismatch');
+  }
+  if (
+    operation.quota.kind !== 'consume_reusable_wallet_session' ||
+    String(operation.quota.quotaId) !== String(grant.quotaId)
+  ) {
+    return linkedRefused('authorization_grant_mismatch');
+  }
+
+  if (
+    enrollment.walletId !== grant.walletId ||
+    String(enrollment.enrollmentId) !== String(grant.enrollmentId) ||
+    enrollment.deviceId !== grant.deviceId ||
+    enrollment.keyManifestDigestB64u !== grant.keyManifestDigestB64u
+  ) {
+    return linkedRefused('linked_enrollment_mismatch');
+  }
+  if (
+    product.walletId !== grant.walletId ||
+    product.laneKind !== 'linked_device' ||
+    product.aggregateManifestDigestB64u !== grant.keyManifestDigestB64u ||
+    product.revocationEpoch !== grant.revocationEpoch ||
+    product.walletKeyId !== walletKey.walletKeyId ||
+    product.laneId !== lane.laneId ||
+    String(product.enrollmentId) !== String(grant.enrollmentId) ||
+    product.laneShareEpoch !== lane.laneShareEpoch
+  ) {
+    return linkedRefused('linked_product_mismatch');
+  }
+  if (
+    lane.walletId !== grant.walletId ||
+    lane.walletKeyId !== walletKey.walletKeyId ||
+    lane.linkedDeviceId !== grant.deviceId ||
+    lane.laneId !== product.laneId ||
+    lane.laneShareEpoch !== product.laneShareEpoch ||
+    lane.lifecycle.revocationEpoch !== product.revocationEpoch
+  ) {
+    return linkedRefused('linked_device_mismatch');
+  }
+  if (
+    enrollment.revocationEpoch !== grant.revocationEpoch ||
+    enrollment.revocationEpoch !== product.revocationEpoch ||
+    enrollment.revocationEpoch !== lane.lifecycle.revocationEpoch
+  ) {
+    return linkedRefused('revocation_epoch_mismatch');
+  }
+  if (
+    !mpcMaterialActivationRefsEqual(
+      evidence.materialActivation,
+      evidence.expectedMaterialActivation,
+    ) ||
+    !mpcMaterialActivationRefsEqual(product.materialActivation, evidence.materialActivation) ||
+    product.targetMaterialActivationId !== evidence.materialActivation.activationId ||
+    String(evidence.materialActivation.materialOwner) !== String(grant.walletId) ||
+    String(evidence.materialActivation.capability) !== String(operation.operation.capabilityId)
+  ) {
+    return linkedRefused('material_activation_mismatch');
+  }
+  if (
+    String(evidence.verifiedActivationReceiptDigestB64u) !==
+      String(product.aggregateActivationReceiptDigestB64u) ||
+    String(lane.lifecycle.activationReceiptDigestB64u) !==
+      String(evidence.verifiedActivationReceiptDigestB64u)
+  ) {
+    return linkedRefused('activation_receipt_mismatch');
+  }
+  if (
+    lane.participantBindingDigestB64u !== evidence.verifiedLaneParticipantBindingDigestB64u ||
+    product.participantSetBindingDigestB64u !== evidence.verifiedLaneParticipantBindingDigestB64u ||
+    !sameLaneHolderParticipant(lane.holderParticipant, product.holderParticipant) ||
+    !sameSigningWorkerParticipant(lane.serverParticipant, product.signingWorkerParticipant)
+  ) {
+    return linkedRefused('linked_participant_mismatch');
+  }
+  try {
+    const participantBindingDigestB64u = await computeLaneParticipantSetBindingDigestV1({
+      holderParticipant: lane.holderParticipant,
+      signingWorkerParticipant: lane.serverParticipant,
+    });
+    if (participantBindingDigestB64u !== evidence.verifiedLaneParticipantBindingDigestB64u) {
+      return linkedRefused('linked_participant_mismatch');
+    }
+  } catch {
+    return linkedRefused('linked_participant_mismatch');
+  }
+  if (!materialSourceMatchesActiveLinkedProduct(evidence)) {
+    return linkedRefused('material_activation_mismatch');
+  }
+
+  const localPresenceRefusal = validateLinkedDeviceLocalPresence({
+    operation,
+    enrollment,
+    localPresence: input.localPresence,
+  });
+  if (localPresenceRefusal) return linkedRefused(localPresenceRefusal);
+  if (!operationMatchesWalletKey(operation, walletKey)) return linkedRefused('curve_mismatch');
+
+  return {
+    kind: 'prepared',
+    execution: buildPreparedLinkedDeviceWalletExecution({
+      authorization: claimedExecutionAuthorization(operation),
+      materialActivation: evidence.materialActivation,
+      linkedDeviceEnrollmentId: grant.enrollmentId,
+      lane: {
+        kind: 'signing_lane_reference_v1',
+        walletId: lane.walletId,
+        walletKeyId: lane.walletKeyId,
+        laneId: lane.laneId,
+        laneKind: lane.laneKind,
+        laneShareEpoch: lane.laneShareEpoch,
+        participantBindingDigestB64u: lane.participantBindingDigestB64u,
+        lifecycle: lane.lifecycle,
+        materialActivation: evidence.materialActivation,
+      },
+    }),
+  };
+}
+
+function linkedGrantRef(operation: ClaimedAuthorizedOperation):
+  | (Extract<
+      ClaimedAuthorizedOperation['authorization'],
+      { readonly kind: 'authorization_grant' }
+    >['authorizationGrantRef'] & {
+      readonly kind: 'linked_device_wallet_session_authorization_v1';
+    })
+  | null {
+  if (operation.authorization.kind !== 'authorization_grant') return null;
+  if (
+    operation.authorization.authorizationGrantRef.kind !==
+    'linked_device_wallet_session_authorization_v1'
+  ) {
+    return null;
+  }
+  return operation.authorization.authorizationGrantRef;
+}
+
+function validateLinkedDeviceLocalPresence(input: {
+  readonly operation: ClaimedAuthorizedOperation;
+  readonly enrollment: ActiveLinkedDeviceEnrollmentExecutionRecordV1;
+  readonly localPresence: LinkedDeviceLocalPresenceEvidenceV1;
+}):
+  | Extract<LinkedDeviceWalletExecutionAdmissionResult, { readonly kind: 'refused' }>['reason']
+  | null {
+  const presence = input.localPresence;
+  if (presence.kind !== 'linked_device_local_presence_evidence_v1') {
+    return 'local_presence_missing';
+  }
+  if (
+    presence.authorizedOperationId !== input.operation.authorizedOperationId ||
+    presence.deviceId !== input.enrollment.deviceId ||
+    presence.enrollmentId !== input.enrollment.enrollmentId ||
+    presence.credentialIdB64u !== input.enrollment.credentialIdB64u ||
+    presence.intentDigestB64u !== input.operation.operation.digests.intentDigest ||
+    !Number.isSafeInteger(presence.verifiedAtMs) ||
+    presence.verifiedAtMs <= 0
+  ) {
+    return 'local_presence_mismatch';
+  }
+  try {
+    const proofDigest =
+      'assertionDigestB64u' in presence
+        ? presence.assertionDigestB64u
+        : presence.challengeDigestB64u;
+    parseDigestB64u(proofDigest);
+  } catch {
+    return 'local_presence_mismatch';
+  }
+  return null;
+}
+
+function sameLaneHolderParticipant(
+  left: LinkedDeviceSigningLaneRecord['holderParticipant'],
+  right: LaneProductEpochActiveV1['holderParticipant'],
+): boolean {
+  return (
+    left.kind === right.kind &&
+    left.participantId === right.participantId &&
+    left.custodyBindingId === right.custodyBindingId &&
+    left.custodyBindingDigestB64u === right.custodyBindingDigestB64u &&
+    left.hpkePublicKeyB64u === right.hpkePublicKeyB64u &&
+    left.hpkePublicKeyDigestB64u === right.hpkePublicKeyDigestB64u &&
+    left.participantBindingDigestB64u === right.participantBindingDigestB64u
+  );
+}
+
+function sameSigningWorkerParticipant(
+  left: LinkedDeviceSigningLaneRecord['serverParticipant'],
+  right: LaneProductEpochActiveV1['signingWorkerParticipant'],
+): boolean {
+  return (
+    left.kind === right.kind &&
+    left.participantId === right.participantId &&
+    left.recipientKeyId === right.recipientKeyId &&
+    left.hpkePublicKeyB64u === right.hpkePublicKeyB64u &&
+    left.hpkePublicKeyDigestB64u === right.hpkePublicKeyDigestB64u &&
+    left.participantBindingDigestB64u === right.participantBindingDigestB64u
+  );
+}
+
+function materialSourceMatchesActiveLinkedProduct(
+  evidence: LinkedDeviceWalletExecutionEvidenceV1,
+): boolean {
+  const identity = evidence.materialSource.lookup.identity;
+  const product = evidence.product;
+  if (
+    identity.operationId !== product.operationId ||
+    identity.enrollmentId !== product.enrollmentId ||
+    identity.walletId !== product.walletId ||
+    identity.walletKeyId !== product.walletKeyId ||
+    identity.targetLaneId !== product.laneId ||
+    identity.targetLaneShareEpoch !== product.laneShareEpoch ||
+    identity.targetMaterialActivationId !== product.targetMaterialActivationId ||
+    identity.keyFamily !== product.keyFamily ||
+    identity.holderParticipantBindingDigestB64u !==
+      product.holderParticipant.participantBindingDigestB64u ||
+    identity.signingWorkerParticipantBindingDigestB64u !==
+      product.signingWorkerParticipant.participantBindingDigestB64u ||
+    identity.holderRecipientKeyDigestB64u !== product.holderParticipant.hpkePublicKeyDigestB64u ||
+    identity.serverRecipientKeyDigestB64u !==
+      product.signingWorkerParticipant.hpkePublicKeyDigestB64u ||
+    String(identity.targetMaterialActivationId) !== String(evidence.materialActivation.activationId)
+  ) {
+    return false;
+  }
+  try {
+    parseDigestB64u(evidence.materialSource.lookup.admittedLaneIdentityDigestB64u);
+  } catch {
+    return false;
+  }
+  if (evidence.walletKey.keyFamily === 'ecdsa_secp256k1') {
+    return evidence.materialSource.group_public_key === evidence.walletKey.thresholdPublicKey33B64u;
+  }
+  return evidence.materialSource.group_public_key.length > 0;
+}
+
 function claimedExecutionAuthorization(
   operation: ClaimedAuthorizedOperation,
 ): ClaimedWalletExecutionAuthorization {
@@ -217,5 +629,11 @@ function sameMaterialActivation(
 function refused(
   reason: WalletExecutionAdmissionRefusalReason,
 ): Extract<WalletExecutionAdmissionResult, { readonly kind: 'refused' }> {
+  return { kind: 'refused', reason };
+}
+
+function linkedRefused(
+  reason: LinkedDeviceWalletExecutionAdmissionRefusalReason,
+): Extract<LinkedDeviceWalletExecutionAdmissionResult, { readonly kind: 'refused' }> {
   return { kind: 'refused', reason };
 }
