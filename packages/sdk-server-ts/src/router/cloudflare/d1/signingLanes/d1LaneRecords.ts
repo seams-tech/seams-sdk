@@ -9,6 +9,7 @@ import {
   parseLaneProtocolJobV1,
   parseLaneProtocolLifecycleV1,
   parseLaneServerActivationReceiptV1,
+  parseLaneServerRetirementReceiptV1,
 } from '@shared/signing-lanes/rotationParsers';
 import type {
   AggregateLaneActivationReceiptV1,
@@ -20,6 +21,7 @@ import type {
   LaneProtocolCommitReceiptV1,
   LaneProtocolRecordV1,
   LaneServerActivationReceiptV1,
+  LaneServerRetirementReceiptV1,
   RevokeLaneEnrollmentV1,
 } from '@shared/signing-lanes';
 import { base64UrlEncode } from '@shared/utils/base64';
@@ -276,6 +278,7 @@ export function parseReceiptRow(row: LaneReceiptRow): {
     | LaneProtocolCommitReceiptV1
     | LaneHolderDeliveryReceiptV1
     | LaneServerActivationReceiptV1
+    | LaneServerRetirementReceiptV1
     | AggregateLaneActivationReceiptV1
     | AggregateLaneRevocationReceiptV1;
 } {
@@ -294,6 +297,10 @@ export function parseReceiptRow(row: LaneReceiptRow): {
       case 'lane_server_activation':
         return parseLaneServerActivationReceiptV1(
           parseJsonRecord(raw, 'lane server activation receipt'),
+        );
+      case 'ecdsa_server_retirement':
+        return parseLaneServerRetirementReceiptV1(
+          parseJsonRecord(raw, 'ECDSA server retirement receipt'),
         );
       case 'aggregate_activation':
         return parseAggregateLaneActivationReceiptV1(

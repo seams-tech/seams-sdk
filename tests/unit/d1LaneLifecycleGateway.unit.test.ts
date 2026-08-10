@@ -37,9 +37,11 @@ import {
 import {
   buildR102HolderDeliveryReceipt,
   buildR102LaneEnrollmentFixture,
+  buildR102MixedLaneEnrollmentFixture,
   buildR102ProtocolCommitReceipt,
   buildR102ServerActivationReceipt,
 } from './helpers/r102LaneGateway.fixtures';
+import { buildR102EcdsaServerRetirementReceipt } from './helpers/ecdsaServerRetirement.fixtures';
 
 const scope = {
   namespace: 'r102-lifecycle-namespace',
@@ -182,7 +184,7 @@ test.describe('R102 lane lifecycle D1 gateway', () => {
     const temporary = createTemporaryD1Database();
     try {
       await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
-      const fixture = buildR102LaneEnrollmentFixture();
+      const fixture = buildR102MixedLaneEnrollmentFixture();
       const store = new CloudflareD1LaneLifecycleStore({
         database: temporary.database,
         scope,
@@ -190,7 +192,8 @@ test.describe('R102 lane lifecycle D1 gateway', () => {
       });
       const gateway = new CloudflareD1LaneEnrollmentGateway({ lifecycleStore: store });
       await activateFixture(gateway, fixture);
-      const target = fixture.children[0];
+      const target = fixture.children[1];
+      if (target.keyFamily !== 'ecdsa_secp256k1') throw new Error('fixture target must be ECDSA');
       if (target.target.operation !== 'create_lane')
         throw new Error('fixture target must be creation');
       const command = buildRevokeSigningLaneV1({
@@ -215,12 +218,19 @@ test.describe('R102 lane lifecycle D1 gateway', () => {
         outcome: 'replayed',
       });
       if (fenced.outcome !== 'applied') throw new Error('lane revocation fence was not applied');
-      const retirementReceiptDigestB64u = base64UrlEncode(new Uint8Array(32).fill(10));
+      const targetActivation = buildR102ServerActivationReceipt(target).targetMaterialActivation;
+      const retirementReceipt = await buildR102EcdsaServerRetirementReceipt(target, {
+        materialActivation: targetActivation,
+        revocationEpoch: command.expectedRevocationEpoch,
+        retirementCorrelationId: command.retirementCorrelationId,
+        retirementRequestDigestB64u: command.retirementRequestDigestB64u,
+        lifecycleId: String(targetActivation.lifecycleBinding),
+      });
       const completion = buildCompleteSigningLaneRevocationV1({
         command,
         expectedVersion: fenced.version,
         commandDigestB64u: await computeRevokeSigningLaneDigestV1(command),
-        retirementReceiptDigestB64u,
+        retirementReceipt,
         revokedAtMs: 7_000,
       });
       await expect(gateway.completeSigningLaneRevocationV1(completion)).resolves.toMatchObject({
@@ -230,17 +240,26 @@ test.describe('R102 lane lifecycle D1 gateway', () => {
           state: 'revoked',
           revocationEpoch: 1,
           retirementEffectBindingDigestB64u: command.retirementEffectBindingDigestB64u,
-          revocationReceiptDigestB64u: retirementReceiptDigestB64u,
+          revocationReceiptDigestB64u: retirementReceipt.receiptDigestB64u,
         },
+        retirementReceipt,
       });
       await expect(gateway.completeSigningLaneRevocationV1(completion)).resolves.toMatchObject({
         outcome: 'replayed',
+      });
+      const substitutedReceipt = await buildR102EcdsaServerRetirementReceipt(target, {
+        materialActivation: targetActivation,
+        revocationEpoch: command.expectedRevocationEpoch,
+        retirementCorrelationId: command.retirementCorrelationId,
+        retirementRequestDigestB64u: command.retirementRequestDigestB64u,
+        lifecycleId: String(targetActivation.lifecycleBinding),
+        retiredAt: '2026-08-11T00:00:01.000Z',
       });
       const substitutedCompletion = buildCompleteSigningLaneRevocationV1({
         command,
         expectedVersion: fenced.version,
         commandDigestB64u: await computeRevokeSigningLaneDigestV1(command),
-        retirementReceiptDigestB64u: base64UrlEncode(new Uint8Array(32).fill(11)),
+        retirementReceipt: substitutedReceipt,
         revokedAtMs: 7_000,
       });
       await expect(
@@ -248,6 +267,7 @@ test.describe('R102 lane lifecycle D1 gateway', () => {
       ).resolves.toMatchObject({ outcome: 'conflict' });
       await expect(gateway.fenceSigningLaneRevocationV1(command)).resolves.toMatchObject({
         outcome: 'already_completed',
+        retirementReceipt,
       });
       await expect(
         gateway.fenceSigningLaneRevocationV1({
@@ -257,11 +277,31 @@ test.describe('R102 lane lifecycle D1 gateway', () => {
       ).resolves.toMatchObject({ outcome: 'conflict' });
       const unrelated = await store.getProductEpoch({
         walletId: fixture.manifest.walletId,
-        walletKeyId: fixture.children[1].walletKeyId,
-        laneId: targetLaneId(fixture.children[1]),
-        laneShareEpoch: targetShareEpoch(fixture.children[1]),
+        walletKeyId: fixture.children[0].walletKeyId,
+        laneId: targetLaneId(fixture.children[0]),
+        laneShareEpoch: targetShareEpoch(fixture.children[0]),
       });
       expect(unrelated?.state).toBe('active');
+      const tamperedReceipt = {
+        ...retirementReceipt,
+        receiptDigestB64u: base64UrlEncode(new Uint8Array(32).fill(12)),
+      };
+      await temporary.database
+        .prepare(
+          `UPDATE lane_receipts SET receipt_json = ?1 WHERE namespace = ?2 AND org_id = ?3 AND project_id = ?4 AND env_id = ?5 AND operation_id = ?6 AND receipt_kind = 'ecdsa_server_retirement'`,
+        )
+        .bind(
+          JSON.stringify(tamperedReceipt),
+          scope.namespace,
+          scope.orgId,
+          scope.projectId,
+          scope.envId,
+          String(target.operationId),
+        )
+        .run();
+      await expect(gateway.fenceSigningLaneRevocationV1(command)).rejects.toThrow(
+        'self-digest is invalid',
+      );
     } finally {
       cleanupTemporaryD1Database(temporary.tempDir);
     }

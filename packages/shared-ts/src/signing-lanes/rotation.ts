@@ -484,6 +484,8 @@ export type EcdsaServerRetirementReceiptV1 = {
   retiredAt: IsoTimestamp;
 };
 
+export type LaneServerRetirementReceiptV1 = EcdsaServerRetirementReceiptV1;
+
 export type LaneProductEpochRecordCommonV1 = {
   kind: 'lane_product_epoch_record_v1';
   walletId: WalletId;
@@ -620,7 +622,7 @@ export type CompleteSigningLaneRevocationV1 = {
   command: RevokeSigningLaneV1;
   expectedVersion: number;
   commandDigestB64u: string;
-  retirementReceiptDigestB64u: string;
+  retirementReceipt: LaneServerRetirementReceiptV1;
   revokedAtMs: number;
 };
 
@@ -756,6 +758,7 @@ export type LaneSigningLaneRevocationResultV1 =
       version: number;
       commandDigestB64u: string;
       productEpoch: LaneProductEpochRevokedV1;
+      retirementReceipt: LaneServerRetirementReceiptV1;
     }
   | {
       kind: 'lane_signing_lane_revocation_result_v1';
@@ -766,6 +769,7 @@ export type LaneSigningLaneRevocationResultV1 =
       version: number;
       commandDigestB64u: string;
       productEpoch: LaneProductEpochRevokedV1;
+      retirementReceipt: LaneServerRetirementReceiptV1;
     }
   | {
       kind: 'lane_signing_lane_revocation_result_v1';
@@ -799,6 +803,7 @@ export type LaneSigningLaneRevocationFenceResultV1 =
       version: number;
       commandDigestB64u: string;
       productEpoch: LaneProductEpochRevokedV1;
+      retirementReceipt: LaneServerRetirementReceiptV1;
     }
   | {
       kind: 'lane_signing_lane_revocation_fence_result_v1';

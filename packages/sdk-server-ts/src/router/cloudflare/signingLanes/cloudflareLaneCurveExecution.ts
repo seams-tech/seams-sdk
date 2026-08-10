@@ -5,6 +5,7 @@ import type {
   LaneHolderDeliveryReceiptV1,
   LaneProtocolCommitReceiptV1,
   LaneServerActivationReceiptV1,
+  LaneServerRetirementReceiptV1,
   LaneHolderPackageWireV1,
   LaneProductEpochActiveV1,
   LaneProductEpochRevocationPendingV1,
@@ -60,7 +61,7 @@ export type SigningWorkerLaneRetirementProjectionV1 = {
   readonly outcome: LaneMaterialMutationOutcomeV1;
   readonly command: RevokeSigningLaneV1;
   readonly retirementEffectBindingDigestB64u: string;
-  readonly retirementReceiptDigestB64u: string;
+  readonly retirementReceipt: LaneServerRetirementReceiptV1;
 };
 
 /**
@@ -357,7 +358,7 @@ export class CloudflareSigningWorkerEcdsaRetirementTransportV1
       outcome: effect.outcome,
       command: input.command,
       retirementEffectBindingDigestB64u: effect.retirementEffectBindingDigestB64u,
-      retirementReceiptDigestB64u: effect.retirementReceiptDigestB64u,
+      retirementReceipt: effect.receipt,
     };
   }
 }
@@ -538,18 +539,13 @@ function retirementExecution(
     projection.retirementEffectBindingDigestB64u.length === 0
   )
     throw new Error('SigningWorker lane retirement effect binding digest is invalid');
-  if (
-    typeof projection.retirementReceiptDigestB64u !== 'string' ||
-    projection.retirementReceiptDigestB64u.length === 0
-  )
-    throw new Error('SigningWorker lane retirement receipt digest is invalid');
   return {
     kind: 'lane_lifecycle_retirement_execution_v1',
     command,
     retirementEffectBindingDigestB64u: parseDigestB64u(
       projection.retirementEffectBindingDigestB64u,
     ),
-    retirementReceiptDigestB64u: parseDigestB64u(projection.retirementReceiptDigestB64u),
+    retirementReceipt: projection.retirementReceipt,
   };
 }
 

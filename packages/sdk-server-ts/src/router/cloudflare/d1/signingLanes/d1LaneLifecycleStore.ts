@@ -8,6 +8,7 @@ import {
   parseLaneProtocolCommitReceiptV1,
   parseLaneHolderDeliveryReceiptV1,
   parseLaneServerActivationReceiptV1,
+  parseLaneServerRetirementReceiptV1,
   parseRevokeSigningLaneV1,
   parseLaneProductEpochRecordV1,
 } from '@shared/signing-lanes/rotationParsers';
@@ -26,6 +27,7 @@ import {
   encodeLaneHolderDeliveryReceiptV1,
   encodeLaneProtocolCommitReceiptV1,
   encodeLaneServerActivationReceiptV1,
+  computeEcdsaServerRetirementReceiptDigestV1,
 } from '@shared/signing-lanes/rotationDigests';
 import { computeLaneParticipantSetBindingDigestV1 } from '@shared/signing-lanes/participantDigest';
 import { sha256Bytes } from '@shared/utils/digests';
@@ -43,6 +45,7 @@ import type {
   LaneProtocolRecordV1,
   LaneProtocolCasResultV1,
   LaneServerActivationReceiptV1,
+  LaneServerRetirementReceiptV1,
   RevokeLaneEnrollmentV1,
   RevokeSigningLaneV1,
 } from '@shared/signing-lanes';
@@ -1072,11 +1075,13 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
     }
     if (product.state === 'revoked') {
       if (storedDigest === commandDigestB64u) {
+        const retirementReceipt = await this.readAndVerifyServerRetirementReceipt(product, command);
         return {
           outcome: 'already_completed',
           version,
           commandDigestB64u: storedDigest,
           productEpoch: product,
+          retirementReceipt,
         };
       }
       return {
@@ -1296,13 +1301,16 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
         storedCommandDigestB64u: storedDigest,
       };
     }
-    if (product.state === 'revoked' && storedDigest === input.commandDigestB64u)
+    if (product.state === 'revoked' && storedDigest === input.commandDigestB64u) {
+      const retirementReceipt = await this.readAndVerifyServerRetirementReceipt(product, command);
       return {
         outcome: 'already_completed',
         version: currentVersion,
         commandDigestB64u: storedDigest,
         productEpoch: product,
+        retirementReceipt,
       };
+    }
     if (product.state === 'revocation_pending' && storedDigest === input.commandDigestB64u)
       return {
         outcome: 'replayed',
@@ -1447,18 +1455,49 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
       row.command_digest_b64u,
       'lane product epoch command digest',
     );
+    if (product.state !== 'revocation_pending' && product.state !== 'revoked') {
+      return {
+        outcome: 'conflict',
+        expectedVersion: completion.expectedVersion,
+        actualVersion: currentVersion,
+        requestedCommandDigestB64u: completion.commandDigestB64u,
+        storedCommandDigestB64u: storedDigest,
+      };
+    }
+    const retirementReceipt = parseLaneServerRetirementReceiptV1(
+      completion.retirementReceipt,
+      'lane revocation completion retirement receipt',
+    );
+    const retirementReceiptDigestB64u = await verifyServerRetirementReceiptV1({
+      store: this,
+      product,
+      command,
+      receipt: retirementReceipt,
+    });
     if (
       product.state === 'revoked' &&
       storedDigest === completion.commandDigestB64u &&
       product.retirementEffectBindingDigestB64u === command.retirementEffectBindingDigestB64u &&
-      product.revocationReceiptDigestB64u === completion.retirementReceiptDigestB64u
-    )
+      product.revocationReceiptDigestB64u === retirementReceiptDigestB64u
+    ) {
+      const storedReceipt = await this.readAndVerifyServerRetirementReceipt(product, command);
+      if (!equalLaneRecords(storedReceipt, retirementReceipt)) {
+        return {
+          outcome: 'conflict',
+          expectedVersion: completion.expectedVersion,
+          actualVersion: currentVersion,
+          requestedCommandDigestB64u: retirementReceiptDigestB64u,
+          storedCommandDigestB64u: product.revocationReceiptDigestB64u,
+        };
+      }
       return {
         outcome: 'replayed',
         version: currentVersion,
         commandDigestB64u: storedDigest,
         productEpoch: product,
+        retirementReceipt: storedReceipt,
       };
+    }
     if (
       product.state !== 'revocation_pending' ||
       currentVersion !== completion.expectedVersion ||
@@ -1475,12 +1514,12 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
       };
     const revoked = parseLaneProductEpochRecordV1(
       completeLaneProductEpochRevocationV1(product, {
-        revocationReceiptDigestB64u: completion.retirementReceiptDigestB64u,
+        revocationReceiptDigestB64u: retirementReceiptDigestB64u,
         revokedAtMs: completion.revokedAtMs,
       }),
     );
     if (revoked.state !== 'revoked') throw new Error('lane revocation completion state changed');
-    const result = await this.database
+    const update = this.database
       .prepare(
         `UPDATE ${PRODUCT_TABLE} SET state = 'revoked', product_json = ?5, version = version + 1, updated_at_ms = ?6 WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4 AND wallet_key_id = ?7 AND lane_id = ?8 AND lane_share_epoch = ?9 AND version = ?10 AND state = 'revocation_pending' AND command_digest_b64u = ?11`,
       )
@@ -1493,9 +1532,35 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
         String(command.laneShareEpoch),
         completion.expectedVersion,
         completion.commandDigestB64u,
+      );
+    const receiptInsert = this.database
+      .prepare(
+        `INSERT INTO ${RECEIPT_TABLE} (namespace, org_id, project_id, env_id, receipt_id, enrollment_id, operation_id, receipt_kind, receipt_digest_b64u, receipt_json, created_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'ecdsa_server_retirement', ?8, ?9, ?10)`,
       )
-      .run();
-    if (d1ChangedRows(result) !== 1) {
+      .bind(
+        ...scopeValues(this.scope),
+        serverRetirementReceiptId(product),
+        String(product.enrollmentId),
+        String(product.operationId),
+        retirementReceiptDigestB64u,
+        JSON.stringify(retirementReceipt),
+        completion.revokedAtMs,
+      );
+    let applied = false;
+    try {
+      const results = await this.database.batch([
+        update,
+        this.database.prepare(LANE_CAS_GUARD_SQL),
+        receiptInsert,
+        this.database.prepare(LANE_CAS_GUARD_SQL),
+      ]);
+      assertD1Success(firstBatchResult(results, 0), 'lane revocation completion');
+      assertD1Success(firstBatchResult(results, 2), 'lane retirement receipt persistence');
+      applied = d1ChangedRows(firstBatchResult(results, 0)) === 1;
+    } catch {
+      applied = false;
+    }
+    if (!applied) {
       const raced = await this.getProductEpoch({
         walletId: command.walletId,
         walletKeyId: command.walletKeyId,
@@ -1505,14 +1570,20 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
       if (
         raced?.state === 'revoked' &&
         raced.retirementEffectBindingDigestB64u === command.retirementEffectBindingDigestB64u &&
-        raced.revocationReceiptDigestB64u === completion.retirementReceiptDigestB64u
-      )
+        raced.revocationReceiptDigestB64u === retirementReceiptDigestB64u
+      ) {
+        const storedReceipt = await this.readAndVerifyServerRetirementReceipt(raced, command);
+        if (!equalLaneRecords(storedReceipt, retirementReceipt)) {
+          throw new Error('stored lane retirement receipt differs from completion receipt');
+        }
         return {
           outcome: 'replayed',
           version: completion.expectedVersion + 1,
           commandDigestB64u: completion.commandDigestB64u,
           productEpoch: raced,
+          retirementReceipt: storedReceipt,
         };
+      }
       return {
         outcome: 'conflict',
         expectedVersion: completion.expectedVersion,
@@ -1526,6 +1597,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
       version: completion.expectedVersion + 1,
       commandDigestB64u: completion.commandDigestB64u,
       productEpoch: revoked,
+      retirementReceipt,
     };
   }
 
@@ -1977,6 +2049,45 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
     }
   }
 
+  private async readAndVerifyServerRetirementReceipt(
+    product: Extract<LaneProductEpochRecordV1, { state: 'revoked' }>,
+    command: RevokeSigningLaneV1,
+  ): Promise<LaneServerRetirementReceiptV1> {
+    const row = await this.database
+      .prepare(
+        `SELECT receipt_id, receipt_digest_b64u, receipt_json FROM ${RECEIPT_TABLE} WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4 AND operation_id = ?5 AND receipt_kind = 'ecdsa_server_retirement'`,
+      )
+      .bind(...scopeValues(this.scope), String(product.operationId))
+      .first<{
+        readonly receipt_id?: unknown;
+        readonly receipt_digest_b64u?: unknown;
+        readonly receipt_json?: unknown;
+      }>();
+    if (!row) throw new Error('revoked lane has no persisted server retirement receipt');
+    if (
+      parseRequiredString(row.receipt_id, 'server retirement receipt id') !==
+      serverRetirementReceiptId(product)
+    ) {
+      throw new Error('server retirement receipt id differs from the revoked lane epoch');
+    }
+    const receipt = parseLaneServerRetirementReceiptV1(
+      parseJsonRecord(row.receipt_json, 'server retirement receipt'),
+    );
+    const digest = await verifyServerRetirementReceiptV1({
+      store: this,
+      product,
+      command,
+      receipt,
+    });
+    if (
+      parseRequiredString(row.receipt_digest_b64u, 'server retirement receipt digest') !== digest ||
+      product.revocationReceiptDigestB64u !== digest
+    ) {
+      throw new Error('persisted server retirement receipt digest is invalid');
+    }
+    return receipt;
+  }
+
   private async readReceipt(
     operationId: LaneOperationId,
     kind: string,
@@ -2002,6 +2113,67 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
         throw new Error(`unknown lane receipt kind ${kind}`);
     }
   }
+}
+
+async function verifyServerRetirementReceiptV1(input: {
+  readonly store: Pick<CloudflareD1LaneLifecycleStore, 'getProtocol'>;
+  readonly product: Extract<LaneProductEpochRecordV1, { state: 'revocation_pending' | 'revoked' }>;
+  readonly command: RevokeSigningLaneV1;
+  readonly receipt: LaneServerRetirementReceiptV1;
+}): Promise<string> {
+  const protocol = await input.store.getProtocol(input.product.operationId);
+  if (
+    protocol === null ||
+    protocol.value.job.keyFamily !== 'ecdsa_secp256k1' ||
+    input.product.keyFamily !== 'ecdsa_secp256k1'
+  ) {
+    throw new Error('ECDSA server retirement receipt has no exact protocol operation');
+  }
+  const job = protocol.value.job;
+  const receipt = input.receipt;
+  if (
+    String(input.product.walletId) !== String(input.command.walletId) ||
+    String(receipt.manifest.manifestId) !== String(job.targetCapability.manifestId) ||
+    receipt.manifest.manifestRevision !== job.targetCapability.manifestRevision ||
+    !mpcMaterialActivationRefsEqual(receipt.materialActivation, input.product.materialActivation) ||
+    String(receipt.walletKeyId) !== String(input.command.walletKeyId) ||
+    String(receipt.laneId) !== String(input.command.laneId) ||
+    String(receipt.laneShareEpoch) !== String(input.command.laneShareEpoch) ||
+    receipt.revocationEpoch !== input.command.expectedRevocationEpoch ||
+    receipt.retirementReason !== retirementReceiptReasonV1(input.command.reason) ||
+    String(receipt.retirementCorrelationId) !== String(input.command.retirementCorrelationId) ||
+    receipt.retirementRequestDigestB64u !== input.command.retirementRequestDigestB64u ||
+    String(receipt.serverGeneration) !== String(job.sourceCapability.serverGeneration) ||
+    String(receipt.lifecycleId) !== String(input.product.materialActivation.lifecycleBinding) ||
+    input.product.revocationEpoch !== input.command.expectedRevocationEpoch + 1
+  ) {
+    throw new Error('ECDSA server retirement receipt differs from the frozen lane epoch');
+  }
+  const digest = await computeEcdsaServerRetirementReceiptDigestV1(receipt);
+  if (receipt.receiptDigestB64u !== digest) {
+    throw new Error('ECDSA server retirement receipt self-digest is invalid');
+  }
+  return digest;
+}
+
+function retirementReceiptReasonV1(
+  reason: RevokeSigningLaneV1['reason'],
+): LaneServerRetirementReceiptV1['retirementReason'] {
+  switch (reason) {
+    case 'user_revoked':
+    case 'policy_revoked':
+      return 'lane_revoked';
+    case 'device_compromise':
+      return 'device_compromise';
+    case 'agent_compromise':
+      return 'agent_compromise';
+    case 'rotation':
+      return 'rotation';
+  }
+}
+
+function serverRetirementReceiptId(product: LaneProductEpochRecordV1): string {
+  return `${String(product.operationId)}:ecdsa_server_retirement:${String(product.laneId)}:${String(product.laneShareEpoch)}`;
 }
 
 async function admissionChildrenMatch(

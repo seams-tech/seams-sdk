@@ -12,6 +12,7 @@ import type {
   LaneProtocolCasResultV1,
   LaneProtocolCommitReceiptV1,
   LaneServerActivationReceiptV1,
+  LaneServerRetirementReceiptV1,
   LaneHolderPackageWireV1,
   LaneProductEpochRevocationPendingV1,
   LaneSigningLaneRevocationFenceResultV1,
@@ -110,7 +111,7 @@ export type LaneLifecycleRetirementExecutionV1 = {
   readonly kind: 'lane_lifecycle_retirement_execution_v1';
   readonly command: RevokeSigningLaneV1;
   readonly retirementEffectBindingDigestB64u: DigestB64u;
-  readonly retirementReceiptDigestB64u: DigestB64u;
+  readonly retirementReceipt: LaneServerRetirementReceiptV1;
 };
 
 export type LaneLifecycleEd25519ExecutionPortV1 = {
@@ -248,7 +249,7 @@ export class LaneLifecycleApplicationService {
       command,
       expectedVersion: fenced.version,
       commandDigestB64u: fenced.commandDigestB64u,
-      retirementReceiptDigestB64u: execution.retirementReceiptDigestB64u,
+      retirementReceipt: execution.retirementReceipt,
       revokedAtMs: command.requestedAtMs,
     });
   }
@@ -284,6 +285,7 @@ function completedRevocation(
     version: result.version,
     commandDigestB64u: result.commandDigestB64u,
     productEpoch: result.productEpoch,
+    retirementReceipt: result.retirementReceipt,
   };
 }
 
