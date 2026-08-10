@@ -1,0 +1,61 @@
+import type {
+  EcdsaAdditiveLaneCreationJobV1,
+  EcdsaAdditiveLaneJobV1,
+  Ed25519YaoLaneCreationJobV1,
+  LaneCreationTargetV1,
+  LaneProductEpochActiveV1,
+  LaneProductEpochPendingVisibilityV1,
+  LaneRefreshTargetV1,
+} from './rotation';
+import type { MpcMaterialActivationRef } from '../utils/domainIds';
+
+declare const activation: MpcMaterialActivationRef;
+declare const creationTarget: LaneCreationTargetV1;
+declare const refreshTarget: LaneRefreshTargetV1;
+declare const ed25519CreationJob: Ed25519YaoLaneCreationJobV1;
+declare const ecdsaCreationJob: EcdsaAdditiveLaneCreationJobV1;
+declare const activeEpoch: LaneProductEpochActiveV1;
+declare const pendingEpoch: LaneProductEpochPendingVisibilityV1;
+
+// Creation never carries a prior activation. Refresh always carries one.
+const invalidCreationTarget: LaneCreationTargetV1 = {
+  ...creationTarget,
+  // @ts-expect-error creation target cannot carry a prior material activation
+  priorMaterialActivation: activation,
+};
+
+const invalidRefreshTarget: LaneRefreshTargetV1 = {
+  ...refreshTarget,
+  // @ts-expect-error refresh target cannot omit its prior material activation
+  priorMaterialActivation: undefined,
+};
+
+// Curve-specific jobs reject fields owned by the other curve.
+// @ts-expect-error Ed25519 jobs cannot be assigned an ECDSA job
+const invalidCurveJob: Ed25519YaoLaneCreationJobV1 = ecdsaCreationJob;
+
+// ECDSA jobs cannot be assigned an Ed25519 job.
+// @ts-expect-error ECDSA jobs cannot be assigned an Ed25519 job
+const invalidReverseCurveJob: EcdsaAdditiveLaneCreationJobV1 = ed25519CreationJob;
+
+// A visible product epoch always retains the exact material activation.
+const invalidActiveEpoch: LaneProductEpochActiveV1 = {
+  ...activeEpoch,
+  // @ts-expect-error active product epochs cannot drop exact activation identity
+  materialActivation: undefined,
+};
+
+// Pending visibility also carries the exact private activation reference; it is
+// fenced from active/retired/revoked-only fields.
+const invalidPendingEpoch: LaneProductEpochPendingVisibilityV1 = {
+  ...pendingEpoch,
+  // @ts-expect-error pending visibility cannot expose an activation timestamp
+  activatedAtMs: 1,
+};
+
+void invalidCreationTarget;
+void invalidRefreshTarget;
+void invalidCurveJob;
+void invalidReverseCurveJob;
+void invalidActiveEpoch;
+void invalidPendingEpoch;
