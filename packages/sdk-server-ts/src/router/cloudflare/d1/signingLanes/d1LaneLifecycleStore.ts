@@ -1694,13 +1694,14 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
       .bind(...scopeValues(this.scope), String(operationId), kind)
       .first<{ readonly receipt_json?: unknown }>();
     if (!row) return null;
+    const receiptRecord = parseJsonRecord(row.receipt_json, 'lane receipt');
     switch (kind) {
       case 'lane_protocol_commit':
-        return parseLaneProtocolCommitReceiptV1(row.receipt_json);
+        return parseLaneProtocolCommitReceiptV1(receiptRecord);
       case 'lane_holder_delivery':
-        return parseLaneHolderDeliveryReceiptV1(row.receipt_json);
+        return parseLaneHolderDeliveryReceiptV1(receiptRecord);
       case 'lane_server_activation':
-        return parseLaneServerActivationReceiptV1(row.receipt_json);
+        return parseLaneServerActivationReceiptV1(receiptRecord);
       default:
         throw new Error(`unknown lane receipt kind ${kind}`);
     }
@@ -1914,7 +1915,10 @@ async function exactReceiptDigest(
 }
 
 function parseProductEpochRecordV1(raw: unknown): LaneProductEpochRecordV1 {
-  return parseLaneProductEpochRecordV1(raw, 'lane product epoch');
+  return parseLaneProductEpochRecordV1(
+    parseJsonRecord(raw, 'lane product epoch'),
+    'lane product epoch',
+  );
 }
 
 async function buildPendingProductEpoch(input: {
