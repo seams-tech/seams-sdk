@@ -9434,29 +9434,17 @@ where
             cloudflare_router_error_status(err.code()),
         );
     }
-    let lookup = match CloudflareActiveSigningWorkerStateLookupV1::from_normal_signing_scope(
-        &parsed.scope,
-    ) {
-        Ok(lookup) => lookup,
-        Err(err) => {
-            return worker::Response::error(
-                format!("{:?}: {}", err.code(), err.message()),
-                cloudflare_router_error_status(err.code()),
-            );
-        }
-    };
-    let call = match runtime.active_signing_worker_state_get_request(lookup) {
-        Ok(call) => call,
-        Err(err) => {
-            return worker::Response::error(
-                format!("{:?}: {}", err.code(), err.message()),
-                cloudflare_router_error_status(err.code()),
-            );
-        }
-    };
-    let active_response =
-        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &call).await {
-            Ok(response) => response,
+    let (active_signing_worker, material) =
+        match load_cloudflare_signing_worker_normal_signing_material_v1(
+            env,
+            runtime,
+            &parsed.scope,
+            &parsed.material_source,
+            now_unix_ms,
+        )
+        .await
+        {
+            Ok(value) => value,
             Err(err) => {
                 return worker::Response::error(
                     format!("{:?}: {}", err.code(), err.message()),
@@ -9464,57 +9452,6 @@ where
                 );
             }
         };
-    let active_signing_worker =
-        match require_signing_worker_output_active_state_get_response_v1(&call, active_response) {
-            Ok(active_signing_worker) => active_signing_worker,
-            Err(err) => {
-                return worker::Response::error(
-                    format!("{:?}: {}", err.code(), err.message()),
-                    cloudflare_router_error_status(err.code()),
-                );
-            }
-        };
-    let material_lookup =
-        match CloudflareSigningWorkerOutputMaterialLookupV1::new(active_signing_worker.clone()) {
-            Ok(lookup) => lookup,
-            Err(err) => {
-                return worker::Response::error(
-                    format!("{:?}: {}", err.code(), err.message()),
-                    cloudflare_router_error_status(err.code()),
-                );
-            }
-        };
-    let material_call = match runtime.signing_worker_output_material_get_request(material_lookup) {
-        Ok(call) => call,
-        Err(err) => {
-            return worker::Response::error(
-                format!("{:?}: {}", err.code(), err.message()),
-                cloudflare_router_error_status(err.code()),
-            );
-        }
-    };
-    let material_response =
-        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &material_call).await {
-            Ok(response) => response,
-            Err(err) => {
-                return worker::Response::error(
-                    format!("{:?}: {}", err.code(), err.message()),
-                    cloudflare_router_error_status(err.code()),
-                );
-            }
-        };
-    let material = match require_signing_worker_output_material_get_response_v1(
-        &material_call,
-        material_response,
-    ) {
-        Ok(material) => material,
-        Err(err) => {
-            return worker::Response::error(
-                format!("{:?}: {}", err.code(), err.message()),
-                cloudflare_router_error_status(err.code()),
-            );
-        }
-    };
     let prepared = match handle_cloudflare_signing_worker_normal_signing_prepare_private_request_v2(
         handler,
         now_unix_ms,
@@ -9598,6 +9535,216 @@ async fn load_cloudflare_signing_worker_active_ecdsa_derivation_material_v1(
         &material,
     )?;
     Ok((active_signing_worker, material))
+}
+
+#[cfg(feature = "workers-rs")]
+fn cloudflare_signing_worker_lane_material_record_v1(
+    identity: &CloudflareSigningWorkerLaneMaterialIdentityV1,
+    signing_worker: &ServerIdentityV1,
+    bytes: [u8; 32],
+) -> RouterAbProtocolResult<CloudflareServerOutputMaterialRecordV1> {
+    let transcript = decode_base64url_fixed_32_v1(
+        "lane material identity transcript_hash_b64u",
+        &identity.transcript_hash_b64u,
+    )?;
+    CloudflareServerOutputMaterialRecordV1::new(
+        PublicDigest32::new(transcript),
+        router_ab_core::OpenedShareKind::XServerBase,
+        router_ab_core::Role::Server,
+        signing_worker.server_id.clone(),
+        CloudflareSecretMaterial32V1::new(bytes),
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+fn cloudflare_signing_worker_lane_active_state_for_scope_v1(
+    scope: &NormalSigningScopeV1,
+    identity: &CloudflareSigningWorkerLaneMaterialIdentityV1,
+    group_public_key: &str,
+    now_unix_ms: u64,
+) -> RouterAbProtocolResult<ActiveSigningWorkerStateV1> {
+    let identity_digest =
+        decode_base64url_fixed_32_v1("lane material identity digest", &identity.digest_b64u()?)?;
+    let signing_worker = ServerIdentityV1::new(
+        scope.signing_worker_id.clone(),
+        "lane-material",
+        identity.server_recipient_key_digest_b64u.clone(),
+    )?;
+    ActiveSigningWorkerStateV1::new(
+        scope.account_id.clone(),
+        scope.material_activation.clone(),
+        group_public_key.to_owned(),
+        signing_worker,
+        PublicDigest32::new(decode_base64url_fixed_32_v1(
+            "lane material identity transcript_hash_b64u",
+            &identity.transcript_hash_b64u,
+        )?),
+        PublicDigest32::new(identity_digest),
+        format!("lane-material/{}", identity.target_material_activation_id),
+        now_unix_ms,
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+async fn load_cloudflare_signing_worker_normal_signing_material_v1(
+    env: &worker::Env,
+    runtime: &CloudflareSigningWorkerRuntimeV1,
+    scope: &NormalSigningScopeV1,
+    source: &CloudflareSigningWorkerNormalSigningMaterialSourceV1,
+    now_unix_ms: u64,
+) -> RouterAbProtocolResult<(
+    ActiveSigningWorkerStateV1,
+    CloudflareServerOutputMaterialRecordV1,
+)> {
+    source.validate_for_normal_scope(scope)?;
+    match source {
+        CloudflareSigningWorkerNormalSigningMaterialSourceV1::RegistrationActivation { lookup } => {
+            let call = runtime.active_signing_worker_state_get_request(lookup.clone())?;
+            let response =
+                execute_cloudflare_signing_worker_private_d1_request_v1(env, &call).await?;
+            let active =
+                require_signing_worker_output_active_state_get_response_v1(&call, response)?;
+            let material_lookup =
+                CloudflareSigningWorkerOutputMaterialLookupV1::new(active.clone())?;
+            let material_call =
+                runtime.signing_worker_output_material_get_request(material_lookup)?;
+            let material_response =
+                execute_cloudflare_signing_worker_private_d1_request_v1(env, &material_call)
+                    .await?;
+            let material = require_signing_worker_output_material_get_response_v1(
+                &material_call,
+                material_response,
+            )?;
+            Ok((active, material))
+        }
+        CloudflareSigningWorkerNormalSigningMaterialSourceV1::RotatableLane {
+            lookup,
+            group_public_key,
+        } => {
+            let artifact =
+                load_cloudflare_signing_worker_normal_signing_lane_material_v1(env, lookup).await?;
+            artifact
+                .validate_kind(CloudflareSigningWorkerLaneArtifactKindV1::ActiveServerMaterial)?;
+            let bytes = decode_base64url_bytes_v1(
+                "lane active server material artifact",
+                &artifact.payload_b64u,
+            )?;
+            let active_bytes = match lookup.identity.key_family {
+                CloudflareSigningWorkerLaneKeyFamilyV1::EcdsaSecp256k1 => {
+                    let parsed: CloudflareEcdsaLaneActiveServerMaterialV1 =
+                        serde_json::from_slice(&bytes).map_err(|_| {
+                            RouterAbProtocolError::new(
+                                RouterAbProtocolErrorCode::MalformedWirePayload,
+                                "ECDSA lane active server material is invalid",
+                            )
+                        })?;
+                    parsed.share32()?.to_vec()
+                }
+                CloudflareSigningWorkerLaneKeyFamilyV1::Ed25519 => {
+                    let parsed: CloudflareEd25519LaneActiveServerMaterialV1 =
+                        serde_json::from_slice(&bytes).map_err(|_| {
+                            RouterAbProtocolError::new(
+                                RouterAbProtocolErrorCode::MalformedWirePayload,
+                                "Ed25519 lane active server material is invalid",
+                            )
+                        })?;
+                    parsed.scalar32()?.to_vec()
+                }
+            };
+            let active_bytes: [u8; 32] = active_bytes.try_into().map_err(|_| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MalformedWirePayload,
+                    "lane active server material must contain 32 bytes",
+                )
+            })?;
+            let active = cloudflare_signing_worker_lane_active_state_for_scope_v1(
+                scope,
+                &lookup.identity,
+                group_public_key,
+                now_unix_ms,
+            )?;
+            let material = cloudflare_signing_worker_lane_material_record_v1(
+                &lookup.identity,
+                &active.signing_worker,
+                active_bytes,
+            )?;
+            Ok((active, material))
+        }
+    }
+}
+
+#[cfg(feature = "workers-rs")]
+fn cloudflare_signing_worker_lane_active_ecdsa_state_v1(
+    scope: &RouterAbEcdsaDerivationNormalSigningScopeV1,
+    identity: &CloudflareSigningWorkerLaneMaterialIdentityV1,
+    now_unix_ms: u64,
+) -> RouterAbProtocolResult<ActiveSigningWorkerStateV1> {
+    let identity_digest =
+        decode_base64url_fixed_32_v1("lane material identity digest", &identity.digest_b64u()?)?;
+    ActiveSigningWorkerStateV1::new(
+        scope.wallet_id.clone(),
+        scope.material_activation.clone(),
+        "lane-material",
+        scope.signing_worker.clone(),
+        PublicDigest32::new(decode_base64url_fixed_32_v1(
+            "lane material identity transcript_hash_b64u",
+            &identity.transcript_hash_b64u,
+        )?),
+        PublicDigest32::new(identity_digest),
+        format!("lane-material/{}", identity.target_material_activation_id),
+        now_unix_ms,
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+async fn load_cloudflare_signing_worker_ecdsa_normal_signing_material_v1(
+    env: &worker::Env,
+    runtime: &CloudflareSigningWorkerRuntimeV1,
+    scope: &RouterAbEcdsaDerivationNormalSigningScopeV1,
+    source: &CloudflareSigningWorkerNormalSigningMaterialSourceV1,
+    now_unix_ms: u64,
+) -> RouterAbProtocolResult<(
+    ActiveSigningWorkerStateV1,
+    CloudflareServerOutputMaterialRecordV1,
+)> {
+    source.validate_for_ecdsa_scope(scope)?;
+    match source {
+        CloudflareSigningWorkerNormalSigningMaterialSourceV1::RegistrationActivation { .. } => {
+            load_cloudflare_signing_worker_active_ecdsa_derivation_material_v1(env, runtime, scope)
+                .await
+        }
+        CloudflareSigningWorkerNormalSigningMaterialSourceV1::RotatableLane { lookup, .. } => {
+            let artifact =
+                load_cloudflare_signing_worker_normal_signing_lane_material_v1(env, lookup).await?;
+            artifact
+                .validate_kind(CloudflareSigningWorkerLaneArtifactKindV1::ActiveServerMaterial)?;
+            let bytes = decode_base64url_bytes_v1(
+                "ECDSA lane active server material artifact",
+                &artifact.payload_b64u,
+            )?;
+            let parsed: CloudflareEcdsaLaneActiveServerMaterialV1 = serde_json::from_slice(&bytes)
+                .map_err(|_| {
+                    RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MalformedWirePayload,
+                        "ECDSA lane active server material is invalid",
+                    )
+                })?;
+            let active = cloudflare_signing_worker_lane_active_ecdsa_state_v1(
+                scope,
+                &lookup.identity,
+                now_unix_ms,
+            )?;
+            let material = cloudflare_signing_worker_lane_material_record_v1(
+                &lookup.identity,
+                &active.signing_worker,
+                parsed.share32()?,
+            )?;
+            validate_cloudflare_router_ab_ecdsa_derivation_normal_signing_active_material_v1(
+                scope, &active, &material,
+            )?;
+            Ok((active, material))
+        }
+    }
 }
 
 #[cfg(feature = "workers-rs")]
@@ -9974,11 +10121,17 @@ pub async fn handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_presign
             cloudflare_router_error_status(err.code()),
         );
     }
-    let lookup =
-        match CloudflareActiveSigningWorkerStateLookupV1::from_router_ab_ecdsa_derivation_normal_signing_scope(
+    let (active_signing_worker, active_material) =
+        match load_cloudflare_signing_worker_ecdsa_normal_signing_material_v1(
+            env,
+            runtime,
             &parsed.scope,
-        ) {
-            Ok(lookup) => lookup,
+            &parsed.material_source,
+            now_unix_ms,
+        )
+        .await
+        {
+            Ok(value) => value,
             Err(err) => {
                 return worker::Response::error(
                     format!("{:?}: {}", err.code(), err.message()),
@@ -9986,78 +10139,6 @@ pub async fn handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_presign
                 );
             }
         };
-    let active_call = match runtime.active_signing_worker_state_get_request(lookup) {
-        Ok(call) => call,
-        Err(err) => {
-            return worker::Response::error(
-                format!("{:?}: {}", err.code(), err.message()),
-                cloudflare_router_error_status(err.code()),
-            );
-        }
-    };
-    let active_response =
-        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &active_call).await {
-            Ok(response) => response,
-            Err(err) => {
-                return worker::Response::error(
-                    format!("{:?}: {}", err.code(), err.message()),
-                    cloudflare_router_error_status(err.code()),
-                );
-            }
-        };
-    let active_signing_worker = match require_signing_worker_output_active_state_get_response_v1(
-        &active_call,
-        active_response,
-    ) {
-        Ok(active_signing_worker) => active_signing_worker,
-        Err(err) => {
-            return worker::Response::error(
-                format!("{:?}: {}", err.code(), err.message()),
-                cloudflare_router_error_status(err.code()),
-            );
-        }
-    };
-    let material_lookup =
-        match CloudflareSigningWorkerOutputMaterialLookupV1::new(active_signing_worker.clone()) {
-            Ok(lookup) => lookup,
-            Err(err) => {
-                return worker::Response::error(
-                    format!("{:?}: {}", err.code(), err.message()),
-                    cloudflare_router_error_status(err.code()),
-                );
-            }
-        };
-    let material_call = match runtime.signing_worker_output_material_get_request(material_lookup) {
-        Ok(call) => call,
-        Err(err) => {
-            return worker::Response::error(
-                format!("{:?}: {}", err.code(), err.message()),
-                cloudflare_router_error_status(err.code()),
-            );
-        }
-    };
-    let material_response =
-        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &material_call).await {
-            Ok(response) => response,
-            Err(err) => {
-                return worker::Response::error(
-                    format!("{:?}: {}", err.code(), err.message()),
-                    cloudflare_router_error_status(err.code()),
-                );
-            }
-        };
-    let active_material = match require_signing_worker_output_material_get_response_v1(
-        &material_call,
-        material_response,
-    ) {
-        Ok(material) => material,
-        Err(err) => {
-            return worker::Response::error(
-                format!("{:?}: {}", err.code(), err.message()),
-                cloudflare_router_error_status(err.code()),
-            );
-        }
-    };
     let record = match parsed.to_pool_record(active_signing_worker, &active_material, now_unix_ms) {
         Ok(record) => record,
         Err(err) => {
@@ -10162,11 +10243,17 @@ pub async fn handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_dig
         );
     }
     let client_presignature_id = parsed.request.client_presignature_id.clone();
-    let lookup =
-        match CloudflareActiveSigningWorkerStateLookupV1::from_router_ab_ecdsa_derivation_normal_signing_scope(
+    let (active_signing_worker, material) =
+        match load_cloudflare_signing_worker_ecdsa_normal_signing_material_v1(
+            env,
+            runtime,
             &parsed.request.scope,
-        ) {
-            Ok(lookup) => lookup,
+            &parsed.material_source,
+            now_unix_ms,
+        )
+        .await
+        {
+            Ok(value) => value,
             Err(err) => {
                 return worker::Response::error(
                     format!("{:?}: {}", err.code(), err.message()),
@@ -10174,76 +10261,6 @@ pub async fn handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_dig
                 );
             }
         };
-    let call = match runtime.active_signing_worker_state_get_request(lookup) {
-        Ok(call) => call,
-        Err(err) => {
-            return worker::Response::error(
-                format!("{:?}: {}", err.code(), err.message()),
-                cloudflare_router_error_status(err.code()),
-            );
-        }
-    };
-    let active_response =
-        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &call).await {
-            Ok(response) => response,
-            Err(err) => {
-                return worker::Response::error(
-                    format!("{:?}: {}", err.code(), err.message()),
-                    cloudflare_router_error_status(err.code()),
-                );
-            }
-        };
-    let active_signing_worker =
-        match require_signing_worker_output_active_state_get_response_v1(&call, active_response) {
-            Ok(active_signing_worker) => active_signing_worker,
-            Err(err) => {
-                return worker::Response::error(
-                    format!("{:?}: {}", err.code(), err.message()),
-                    cloudflare_router_error_status(err.code()),
-                );
-            }
-        };
-    let material_lookup =
-        match CloudflareSigningWorkerOutputMaterialLookupV1::new(active_signing_worker.clone()) {
-            Ok(lookup) => lookup,
-            Err(err) => {
-                return worker::Response::error(
-                    format!("{:?}: {}", err.code(), err.message()),
-                    cloudflare_router_error_status(err.code()),
-                );
-            }
-        };
-    let material_call = match runtime.signing_worker_output_material_get_request(material_lookup) {
-        Ok(call) => call,
-        Err(err) => {
-            return worker::Response::error(
-                format!("{:?}: {}", err.code(), err.message()),
-                cloudflare_router_error_status(err.code()),
-            );
-        }
-    };
-    let material_response =
-        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &material_call).await {
-            Ok(response) => response,
-            Err(err) => {
-                return worker::Response::error(
-                    format!("{:?}: {}", err.code(), err.message()),
-                    cloudflare_router_error_status(err.code()),
-                );
-            }
-        };
-    let material = match require_signing_worker_output_material_get_response_v1(
-        &material_call,
-        material_response,
-    ) {
-        Ok(material) => material,
-        Err(err) => {
-            return worker::Response::error(
-                format!("{:?}: {}", err.code(), err.message()),
-                cloudflare_router_error_status(err.code()),
-            );
-        }
-    };
     let materialized =
         match CloudflareSigningWorkerMaterializedRouterAbEcdsaDerivationEvmDigestSigningRequestV1::new(
             parsed,
@@ -10521,6 +10538,26 @@ where
             );
         }
     }
+    // Resolve the exact active lane material before touching one-use pool state.
+    // Revoked or stale lane admissions fail before any private pool mutation.
+    let (active_signing_worker, material) =
+        match load_cloudflare_signing_worker_ecdsa_normal_signing_material_v1(
+            env,
+            runtime,
+            &parsed.request.scope,
+            &parsed.material_source,
+            now_unix_ms,
+        )
+        .await
+        {
+            Ok(value) => value,
+            Err(err) => {
+                return worker::Response::error(
+                    format!("{:?}: {}", err.code(), err.message()),
+                    cloudflare_router_error_status(err.code()),
+                );
+            }
+        };
     let prepare_request_digest = match parsed.request.prepare_request_digest() {
         Ok(digest) => digest,
         Err(err) => {
@@ -10568,88 +10605,6 @@ where
                 cloudflare_router_error_status(
                     RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
                 ),
-            );
-        }
-    };
-    let lookup =
-        match CloudflareActiveSigningWorkerStateLookupV1::from_router_ab_ecdsa_derivation_normal_signing_scope(
-            &parsed.request.scope,
-        ) {
-            Ok(lookup) => lookup,
-            Err(err) => {
-                return worker::Response::error(
-                    format!("{:?}: {}", err.code(), err.message()),
-                    cloudflare_router_error_status(err.code()),
-                );
-            }
-        };
-    let call = match runtime.active_signing_worker_state_get_request(lookup) {
-        Ok(call) => call,
-        Err(err) => {
-            return worker::Response::error(
-                format!("{:?}: {}", err.code(), err.message()),
-                cloudflare_router_error_status(err.code()),
-            );
-        }
-    };
-    let active_response =
-        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &call).await {
-            Ok(response) => response,
-            Err(err) => {
-                return worker::Response::error(
-                    format!("{:?}: {}", err.code(), err.message()),
-                    cloudflare_router_error_status(err.code()),
-                );
-            }
-        };
-    let active_signing_worker =
-        match require_signing_worker_output_active_state_get_response_v1(&call, active_response) {
-            Ok(active_signing_worker) => active_signing_worker,
-            Err(err) => {
-                return worker::Response::error(
-                    format!("{:?}: {}", err.code(), err.message()),
-                    cloudflare_router_error_status(err.code()),
-                );
-            }
-        };
-    let material_lookup =
-        match CloudflareSigningWorkerOutputMaterialLookupV1::new(active_signing_worker.clone()) {
-            Ok(lookup) => lookup,
-            Err(err) => {
-                return worker::Response::error(
-                    format!("{:?}: {}", err.code(), err.message()),
-                    cloudflare_router_error_status(err.code()),
-                );
-            }
-        };
-    let material_call = match runtime.signing_worker_output_material_get_request(material_lookup) {
-        Ok(call) => call,
-        Err(err) => {
-            return worker::Response::error(
-                format!("{:?}: {}", err.code(), err.message()),
-                cloudflare_router_error_status(err.code()),
-            );
-        }
-    };
-    let material_response =
-        match execute_cloudflare_signing_worker_private_d1_request_v1(env, &material_call).await {
-            Ok(response) => response,
-            Err(err) => {
-                return worker::Response::error(
-                    format!("{:?}: {}", err.code(), err.message()),
-                    cloudflare_router_error_status(err.code()),
-                );
-            }
-        };
-    let material = match require_signing_worker_output_material_get_response_v1(
-        &material_call,
-        material_response,
-    ) {
-        Ok(material) => material,
-        Err(err) => {
-            return worker::Response::error(
-                format!("{:?}: {}", err.code(), err.message()),
-                cloudflare_router_error_status(err.code()),
             );
         }
     };
@@ -10753,20 +10708,15 @@ async fn execute_claimed_cloudflare_signing_worker_normal_signing_v1<Handler>(
 where
     Handler: CloudflareSigningWorkerNormalSigningFinalizeHandlerV2,
 {
-    let lookup = CloudflareActiveSigningWorkerStateLookupV1::from_normal_signing_scope(
-        &request.request.scope,
-    )?;
-    let call = runtime.active_signing_worker_state_get_request(lookup)?;
-    let response = execute_cloudflare_signing_worker_private_d1_request_v1(env, &call).await?;
-    let active_signing_worker =
-        require_signing_worker_output_active_state_get_response_v1(&call, response)?;
-    let material_lookup =
-        CloudflareSigningWorkerOutputMaterialLookupV1::new(active_signing_worker.clone())?;
-    let material_call = runtime.signing_worker_output_material_get_request(material_lookup)?;
-    let material_response =
-        execute_cloudflare_signing_worker_private_d1_request_v1(env, &material_call).await?;
-    let material =
-        require_signing_worker_output_material_get_response_v1(&material_call, material_response)?;
+    let (active_signing_worker, material) =
+        load_cloudflare_signing_worker_normal_signing_material_v1(
+            env,
+            runtime,
+            &request.request.scope,
+            &request.material_source,
+            now_unix_ms,
+        )
+        .await?;
     let round1_lookup = CloudflareSigningWorkerRound1LookupV1::new(
         active_signing_worker.clone(),
         request.request.server_round1_handle().to_owned(),

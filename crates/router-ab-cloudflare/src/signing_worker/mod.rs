@@ -182,6 +182,8 @@ pub struct CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequ
     pub server_sigma_share32_b64u: String,
     /// Expiry timestamp in Unix milliseconds.
     pub expires_at_ms: u64,
+    /// Exact active material source selected by the Gateway.
+    pub material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
 }
 
 impl CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1 {
@@ -194,6 +196,10 @@ impl CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1 
         server_sigma_share32_b64u: impl Into<String>,
         expires_at_ms: u64,
     ) -> RouterAbProtocolResult<Self> {
+        let material_source =
+            CloudflareSigningWorkerNormalSigningMaterialSourceV1::registration_for_ecdsa_scope(
+                &scope,
+            )?;
         let request = Self {
             scope,
             server_presignature_id: server_presignature_id.into(),
@@ -201,6 +207,29 @@ impl CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1 
             server_k_share32_b64u: server_k_share32_b64u.into(),
             server_sigma_share32_b64u: server_sigma_share32_b64u.into(),
             expires_at_ms,
+            material_source,
+        };
+        request.validate()?;
+        Ok(request)
+    }
+
+    pub fn new_with_material_source(
+        scope: RouterAbEcdsaDerivationNormalSigningScopeV1,
+        server_presignature_id: impl Into<String>,
+        server_big_r33_b64u: impl Into<String>,
+        server_k_share32_b64u: impl Into<String>,
+        server_sigma_share32_b64u: impl Into<String>,
+        expires_at_ms: u64,
+        material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self {
+            scope,
+            server_presignature_id: server_presignature_id.into(),
+            server_big_r33_b64u: server_big_r33_b64u.into(),
+            server_k_share32_b64u: server_k_share32_b64u.into(),
+            server_sigma_share32_b64u: server_sigma_share32_b64u.into(),
+            expires_at_ms,
+            material_source,
         };
         request.validate()?;
         Ok(request)
@@ -209,6 +238,7 @@ impl CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1 
     /// Validates request fields without applying wall-clock expiry.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.scope.validate()?;
+        self.material_source.validate_for_ecdsa_scope(&self.scope)?;
         require_non_empty("server_presignature_id", &self.server_presignature_id)?;
         decode_base64url_fixed_33_v1("server_big_r33_b64u", &self.server_big_r33_b64u)?;
         decode_base64url_fixed_32_v1("server_k_share32_b64u", &self.server_k_share32_b64u)?;
@@ -266,6 +296,112 @@ impl CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1 
     }
 }
 
+/// Exact active material source selected by Gateway admission.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CloudflareSigningWorkerNormalSigningMaterialSourceV1 {
+    /// Owner registration material selected from the SigningWorker activation index.
+    RegistrationActivation {
+        lookup: CloudflareActiveSigningWorkerStateLookupV1,
+    },
+    /// Rotatable lane material selected from the committed active child product.
+    RotatableLane {
+        lookup: CloudflareSigningWorkerNormalSigningLaneMaterialLookupV1,
+        /// Stable group public key for Ed25519/FROST aggregation. This is public
+        /// protocol metadata and never contains private lane material.
+        group_public_key: String,
+    },
+}
+
+impl CloudflareSigningWorkerNormalSigningMaterialSourceV1 {
+    pub fn registration_for_scope(scope: &NormalSigningScopeV1) -> RouterAbProtocolResult<Self> {
+        Ok(Self::RegistrationActivation {
+            lookup: CloudflareActiveSigningWorkerStateLookupV1::from_normal_signing_scope(scope)?,
+        })
+    }
+
+    pub fn registration_for_ecdsa_scope(
+        scope: &RouterAbEcdsaDerivationNormalSigningScopeV1,
+    ) -> RouterAbProtocolResult<Self> {
+        Ok(Self::RegistrationActivation {
+            lookup: CloudflareActiveSigningWorkerStateLookupV1::from_router_ab_ecdsa_derivation_normal_signing_scope(scope)?,
+        })
+    }
+
+    pub fn validate_for_normal_scope(
+        &self,
+        scope: &NormalSigningScopeV1,
+    ) -> RouterAbProtocolResult<()> {
+        scope.validate()?;
+        match self {
+            Self::RegistrationActivation { lookup } => {
+                let expected =
+                    CloudflareActiveSigningWorkerStateLookupV1::from_normal_signing_scope(scope)?;
+                if lookup == &expected {
+                    return Ok(());
+                }
+            }
+            Self::RotatableLane {
+                lookup,
+                group_public_key,
+            } => {
+                lookup.validate()?;
+                require_non_empty("normal-signing lane group_public_key", group_public_key)?;
+                let identity = &lookup.identity;
+                if identity.wallet_id == scope.account_id
+                    && identity.target_material_activation_id
+                        == scope.material_activation.activation_id
+                    && identity.key_family == CloudflareSigningWorkerLaneKeyFamilyV1::Ed25519
+                {
+                    return Ok(());
+                }
+            }
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidGateDecision,
+            "normal-signing material source does not match scope",
+        ))
+    }
+
+    pub fn validate_for_ecdsa_scope(
+        &self,
+        scope: &RouterAbEcdsaDerivationNormalSigningScopeV1,
+    ) -> RouterAbProtocolResult<()> {
+        scope.validate()?;
+        match self {
+            Self::RegistrationActivation { lookup } => {
+                let expected = CloudflareActiveSigningWorkerStateLookupV1::from_router_ab_ecdsa_derivation_normal_signing_scope(scope)?;
+                if lookup == &expected {
+                    return Ok(());
+                }
+            }
+            Self::RotatableLane {
+                lookup,
+                group_public_key,
+            } => {
+                lookup.validate()?;
+                require_non_empty(
+                    "ECDSA normal-signing lane group_public_key",
+                    group_public_key,
+                )?;
+                let identity = &lookup.identity;
+                if identity.wallet_id == scope.wallet_id
+                    && identity.wallet_key_id == scope.ecdsa_threshold_key_id
+                    && identity.target_material_activation_id
+                        == scope.material_activation.activation_id
+                    && identity.key_family == CloudflareSigningWorkerLaneKeyFamilyV1::EcdsaSecp256k1
+                {
+                    return Ok(());
+                }
+            }
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidGateDecision,
+            "ECDSA normal-signing material source does not match scope",
+        ))
+    }
+}
+
 /// Router-admitted v2 prepare request sent to SigningWorker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2 {
@@ -277,6 +413,8 @@ pub struct CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2 {
     pub admission_candidate: CloudflareRouterNormalSigningPrepareAdmissionCandidateV2,
     /// Accepted Router store admission decision for this request.
     pub trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
+    /// Exact active material source selected by the Gateway.
+    pub material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
 }
 
 impl CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2 {
@@ -287,11 +425,33 @@ impl CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2 {
         admission_candidate: CloudflareRouterNormalSigningPrepareAdmissionCandidateV2,
         trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
     ) -> RouterAbProtocolResult<Self> {
+        let material_source =
+            CloudflareSigningWorkerNormalSigningMaterialSourceV1::registration_for_scope(&scope)?;
         let request = Self {
             scope,
             expires_at_ms,
             admission_candidate,
             trusted_admission,
+            material_source,
+        };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates a request with the Gateway-admitted source branch.
+    pub fn new_with_material_source(
+        scope: NormalSigningScopeV1,
+        expires_at_ms: u64,
+        admission_candidate: CloudflareRouterNormalSigningPrepareAdmissionCandidateV2,
+        trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
+        material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self {
+            scope,
+            expires_at_ms,
+            admission_candidate,
+            trusted_admission,
+            material_source,
         };
         request.validate()?;
         Ok(request)
@@ -300,6 +460,8 @@ impl CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2 {
     /// Validates Router admission accepted this exact v2 prepare request.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.scope.validate()?;
+        self.material_source
+            .validate_for_normal_scope(&self.scope)?;
         require_positive_ms(
             "normal-signing v2 prepare expires_at_ms",
             self.expires_at_ms,
@@ -365,6 +527,8 @@ pub struct CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2 {
     pub authorized_operation_identity: CloudflareSigningWorkerAuthorizedOperationIdentityV1,
     /// Exact claim that the SigningWorker must commit before evaluating crypto.
     pub effect_claim: CloudflareSigningWorkerNormalSigningEffectClaimV1,
+    /// Exact active material source selected by the Gateway.
+    pub material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
 }
 
 /// Authorization-specific effect claim committed by SigningWorker private D1.
@@ -778,12 +942,38 @@ impl CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2 {
         authorized_operation_identity: CloudflareSigningWorkerAuthorizedOperationIdentityV1,
         effect_claim: CloudflareSigningWorkerNormalSigningEffectClaimV1,
     ) -> RouterAbProtocolResult<Self> {
+        let material_source =
+            CloudflareSigningWorkerNormalSigningMaterialSourceV1::registration_for_scope(
+                &request.scope,
+            )?;
         let request = Self {
             request,
             admission_candidate,
             trusted_admission,
             authorized_operation_identity,
             effect_claim,
+            material_source,
+        };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates a finalize request with the Gateway-admitted source branch.
+    pub fn new_with_material_source(
+        request: RouterAbEd25519NormalSigningFinalizeRequestV2,
+        admission_candidate: CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2,
+        trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
+        authorized_operation_identity: CloudflareSigningWorkerAuthorizedOperationIdentityV1,
+        effect_claim: CloudflareSigningWorkerNormalSigningEffectClaimV1,
+        material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self {
+            request,
+            admission_candidate,
+            trusted_admission,
+            authorized_operation_identity,
+            effect_claim,
+            material_source,
         };
         request.validate()?;
         Ok(request)
@@ -792,6 +982,8 @@ impl CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2 {
     /// Validates Router admission accepted this exact v2 finalize request.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.request.validate()?;
+        self.material_source
+            .validate_for_normal_scope(&self.request.scope)?;
         self.admission_candidate
             .validate_for_finalize_request(&self.request)?;
         self.trusted_admission
@@ -979,6 +1171,8 @@ pub struct CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestSignin
     pub request: RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     /// Accepted Router store admission decision for this request.
     pub trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
+    /// Exact active material source selected by the Gateway.
+    pub material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
 }
 
 impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestSigningRequestV1 {
@@ -987,9 +1181,28 @@ impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestSigningReque
         request: RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
         trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
     ) -> RouterAbProtocolResult<Self> {
+        let material_source =
+            CloudflareSigningWorkerNormalSigningMaterialSourceV1::registration_for_ecdsa_scope(
+                &request.scope,
+            )?;
         let request = Self {
             request,
             trusted_admission,
+            material_source,
+        };
+        request.validate()?;
+        Ok(request)
+    }
+
+    pub fn new_with_material_source(
+        request: RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+        trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
+        material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self {
+            request,
+            trusted_admission,
+            material_source,
         };
         request.validate()?;
         Ok(request)
@@ -998,6 +1211,8 @@ impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestSigningReque
     /// Validates Router-admitted Router A/B ECDSA derivation normal-signing material.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.request.validate()?;
+        self.material_source
+            .validate_for_ecdsa_scope(&self.request.scope)?;
         self.trusted_admission.validate()?;
         if self.trusted_admission.metadata.account_id != self.request.scope.wallet_id {
             return Err(RouterAbProtocolError::new(
@@ -1051,6 +1266,8 @@ pub struct CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinali
     pub authorized_operation_identity: CloudflareSigningWorkerAuthorizedOperationIdentityV1,
     /// Exact Gateway authorization claim converted by Router into the worker effect claim.
     pub effect_claim: CloudflareSigningWorkerNormalSigningEffectClaimV1,
+    /// Exact active material source selected by the Gateway.
+    pub material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
 }
 
 impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1 {
@@ -1061,11 +1278,34 @@ impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequ
         authorized_operation_identity: CloudflareSigningWorkerAuthorizedOperationIdentityV1,
         effect_claim: CloudflareSigningWorkerNormalSigningEffectClaimV1,
     ) -> RouterAbProtocolResult<Self> {
+        let material_source =
+            CloudflareSigningWorkerNormalSigningMaterialSourceV1::registration_for_ecdsa_scope(
+                &request.scope,
+            )?;
         let request = Self {
             request,
             trusted_admission,
             authorized_operation_identity,
             effect_claim,
+            material_source,
+        };
+        request.validate()?;
+        Ok(request)
+    }
+
+    pub fn new_with_material_source(
+        request: RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
+        trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
+        authorized_operation_identity: CloudflareSigningWorkerAuthorizedOperationIdentityV1,
+        effect_claim: CloudflareSigningWorkerNormalSigningEffectClaimV1,
+        material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self {
+            request,
+            trusted_admission,
+            authorized_operation_identity,
+            effect_claim,
+            material_source,
         };
         request.validate()?;
         Ok(request)
@@ -1074,6 +1314,8 @@ impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequ
     /// Validates Router admission accepted this exact Router A/B ECDSA derivation finalize body.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.request.validate()?;
+        self.material_source
+            .validate_for_ecdsa_scope(&self.request.scope)?;
         self.trusted_admission.validate()?;
         if self.trusted_admission.metadata.account_id != self.request.scope.wallet_id {
             return Err(RouterAbProtocolError::new(
