@@ -13,9 +13,12 @@ import type {
   LaneProtocolCommitReceiptV1,
   LaneServerActivationReceiptV1,
   LaneHolderPackageWireV1,
+  LaneProductEpochRevocationPendingV1,
+  LaneSigningLaneRevocationFenceResultV1,
   LaneSigningLaneRevocationResultV1,
   RevokeSigningLaneV1,
 } from '@shared/signing-lanes';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 
 export type LaneLifecycleProtocolCommitRequestV1 =
   | {
@@ -106,7 +109,8 @@ export interface LaneLifecycleAuthorizationPortV1 {
 export type LaneLifecycleRetirementExecutionV1 = {
   readonly kind: 'lane_lifecycle_retirement_execution_v1';
   readonly command: RevokeSigningLaneV1;
-  readonly retirementReceiptDigestB64u: string;
+  readonly retirementEffectBindingDigestB64u: DigestB64u;
+  readonly retirementReceiptDigestB64u: DigestB64u;
 };
 
 export type LaneLifecycleEd25519ExecutionPortV1 = {
@@ -217,8 +221,10 @@ export class LaneLifecycleApplicationService {
       command,
     });
 
-    const fenced = await this.input.gateway.revokeSigningLaneV1(command);
-    if (fenced.outcome === 'conflict') return fenced;
+    const fenced = await this.input.gateway.fenceSigningLaneRevocationV1(command);
+    if (fenced.outcome === 'conflict') return revocationConflict(command, fenced);
+    if (fenced.outcome === 'already_completed') return completedRevocation(command, fenced);
+    assertRevocationFenceMatchesCommand(fenced.productEpoch, command);
 
     const execution =
       request.curve === 'ed25519_yao'
@@ -227,14 +233,74 @@ export class LaneLifecycleApplicationService {
     if (execution.kind !== 'lane_lifecycle_retirement_execution_v1') {
       throw new Error('lane retirement execution result kind is invalid');
     }
-    if (execution.retirementReceiptDigestB64u !== command.retirementEffectBindingDigestB64u) {
+    if (
+      execution.retirementEffectBindingDigestB64u !==
+      command.retirementEffectBindingDigestB64u
+    ) {
       throw new Error(
-        'lane retirement receipt digest does not match the authorized effect binding',
+        'lane retirement effect binding digest does not match the authorized effect binding',
       );
     }
     const executedCommand = parseRevokeSigningLaneV1(execution.command);
     assertRevokeSigningLaneCommandEqual(command, executedCommand);
-    return fenced;
+    return await this.input.gateway.completeSigningLaneRevocationV1({
+      kind: 'complete_signing_lane_revocation_v1',
+      command,
+      expectedVersion: fenced.version,
+      commandDigestB64u: fenced.commandDigestB64u,
+      retirementReceiptDigestB64u: execution.retirementReceiptDigestB64u,
+      revokedAtMs: command.requestedAtMs,
+    });
+  }
+}
+
+function revocationConflict(
+  command: RevokeSigningLaneV1,
+  result: Extract<LaneSigningLaneRevocationFenceResultV1, { outcome: 'conflict' }>,
+): LaneSigningLaneRevocationResultV1 {
+  return {
+    kind: 'lane_signing_lane_revocation_result_v1',
+    outcome: 'conflict',
+    walletKeyId: command.walletKeyId,
+    laneId: command.laneId,
+    laneShareEpoch: command.laneShareEpoch,
+    expectedVersion: result.expectedVersion,
+    actualVersion: result.actualVersion,
+    requestedCommandDigestB64u: result.requestedCommandDigestB64u,
+    storedCommandDigestB64u: result.storedCommandDigestB64u,
+  };
+}
+
+function completedRevocation(
+  command: RevokeSigningLaneV1,
+  result: Extract<LaneSigningLaneRevocationFenceResultV1, { outcome: 'already_completed' }>,
+): Extract<LaneSigningLaneRevocationResultV1, { outcome: 'replayed' }> {
+  return {
+    kind: 'lane_signing_lane_revocation_result_v1',
+    outcome: 'replayed',
+    walletKeyId: command.walletKeyId,
+    laneId: command.laneId,
+    laneShareEpoch: command.laneShareEpoch,
+    version: result.version,
+    commandDigestB64u: result.commandDigestB64u,
+    productEpoch: result.productEpoch,
+  };
+}
+
+function assertRevocationFenceMatchesCommand(
+  product: LaneProductEpochRevocationPendingV1,
+  command: RevokeSigningLaneV1,
+): void {
+  if (
+    String(product.walletId) !== String(command.walletId) ||
+    String(product.walletKeyId) !== String(command.walletKeyId) ||
+    String(product.laneId) !== String(command.laneId) ||
+    String(product.laneShareEpoch) !== String(command.laneShareEpoch) ||
+    product.revocationEpoch !== command.expectedRevocationEpoch + 1 ||
+    product.revocationReason !== command.reason ||
+    product.retirementEffectBindingDigestB64u !== command.retirementEffectBindingDigestB64u
+  ) {
+    throw new Error('lane revocation fence does not match the authorized command');
   }
 }
 
@@ -329,7 +395,9 @@ function assertServerActivationReceiptMatchesJob(
     receipt.enrollmentId !== job.enrollmentId ||
     receipt.targetLaneId !== job.target.laneId ||
     receipt.targetLaneShareEpoch !== job.target.laneShareEpoch ||
-    receipt.targetMaterialActivation.activationId !== job.targetMaterialActivationId
+    receipt.targetMaterialActivation.activationId !== job.targetMaterialActivationId ||
+    String(receipt.targetMaterialActivation.signingWorker) !==
+      String(job.targetSigningWorker.participantId)
   ) {
     throw new Error('lane server activation receipt does not match the admitted job');
   }

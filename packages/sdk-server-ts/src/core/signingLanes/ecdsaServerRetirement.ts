@@ -62,7 +62,9 @@ export type EcdsaServerRetirementRequestV1 = {
 export type EcdsaServerRetirementEffectV1 = {
   readonly outcome: 'applied' | 'replayed';
   readonly receipt: EcdsaServerRetirementReceiptV1;
-  /** The effect fence that the Gateway completion must retain. */
+  /** The effect fence authorized by the Gateway command. */
+  readonly retirementEffectBindingDigestB64u: DigestB64u;
+  /** The exact self-digest emitted by the server retirement receipt. */
   readonly retirementReceiptDigestB64u: DigestB64u;
 };
 
@@ -123,7 +125,8 @@ export async function parseAndVerifyEcdsaServerRetirementEffectV1(input: {
   return {
     outcome,
     receipt,
-    retirementReceiptDigestB64u: input.expectation.retirementEffectBindingDigestB64u,
+    retirementEffectBindingDigestB64u: input.expectation.retirementEffectBindingDigestB64u,
+    retirementReceiptDigestB64u: parseDigestB64u(receipt.receiptDigestB64u),
   };
 }
 
