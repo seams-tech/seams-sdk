@@ -8,6 +8,7 @@ import {
   type WalletRecoverySetRotationWireV1,
   type WalletRecoveryEnvelopeSetRecord,
 } from '@shared/wallet-recovery/walletRecoveryEnvelopeSet';
+import { parseWalletId } from '@shared/utils/domainIds';
 
 const WALLET_RECOVERY_READ_PATH = '/wallets/recovery/read';
 const WALLET_RECOVERY_ROTATE_PATH = '/wallets/recovery/rotate';
@@ -217,6 +218,10 @@ async function requestWalletRecoverySet(args: {
   readonly body: Record<string, unknown>;
   readonly fetchImpl?: typeof fetch;
 }): Promise<WalletRecoverySetReadResult> {
+  const walletId = parseWalletId(args.walletId);
+  if (!walletId.ok) {
+    return { kind: 'transport_failed', message: 'wallet recovery read has an invalid wallet id' };
+  }
   const response = await postWalletRecoveryRoute(args);
   const body = asRecord(await response.json().catch(() => ({})));
   const message = typeof body.message === 'string' ? body.message : '';
@@ -231,7 +236,7 @@ async function requestWalletRecoverySet(args: {
   }
   try {
     const recoverySet = parseWalletRecoveryEnvelopeSetRecord(body.recoverySet, {
-      expectedWalletId: args.walletId,
+      expectedWalletId: walletId.value,
       label: 'walletRecoveryRead.recoverySet',
     });
     const storeVersion = String(body.storeVersion || '').trim();

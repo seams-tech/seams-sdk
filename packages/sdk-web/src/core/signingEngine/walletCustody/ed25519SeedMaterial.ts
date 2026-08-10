@@ -75,6 +75,16 @@ export type PersistWalletCustodyEd25519MaterialInputV1 = {
   readonly sealed: WalletCustodySealedEd25519MaterialV1;
 };
 
+type WalletCustodyEd25519MaterialStorePort = AccountKeyMaterialDeps['clientDB'] &
+  AccountKeyMaterialDeps['keyMaterialStore'] & {
+    deleteKeyMaterial(
+      profileId: string,
+      signerSlot: number,
+      chainIdKey: string,
+      keyKind: typeof WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
+    ): Promise<void>;
+  };
+
 export async function persistWalletCustodyEd25519MaterialV1(
   input: PersistWalletCustodyEd25519MaterialInputV1,
 ): Promise<void> {
@@ -90,7 +100,7 @@ export async function persistWalletCustodyEd25519MaterialV1(
 }
 
 export async function deleteWalletCustodyEd25519MaterialV1(input: {
-  readonly store: PersistWalletCustodyEd25519MaterialInputV1['store'];
+  readonly store: WalletCustodyEd25519MaterialStorePort;
   readonly nearAccountId: string;
   readonly signerSlot: number;
 }): Promise<void> {

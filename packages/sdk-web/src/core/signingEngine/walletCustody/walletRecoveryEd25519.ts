@@ -17,7 +17,10 @@ import {
   parseMpcLifecycleBindingRef,
   parseMpcMaterialActivationId,
 } from '@shared/utils/domainIds';
-import { sameRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
+import {
+  routerAbMpcMaterialActivationRefFromWire,
+  sameRouterAbMpcMaterialActivationRef,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import {
   deriveWalletRecoveryKeyLifecycleId,
@@ -74,13 +77,14 @@ export async function buildWalletRecoveryEd25519AdmissionRequestV1(input: {
   if (!activationId.ok || !lifecycleBinding.ok) {
     throw new Error('wallet recovery Ed25519 material activation identity is invalid');
   }
+  const currentActivation = routerAbMpcMaterialActivationRefFromWire(current);
   const materialActivation = buildMpcMaterialActivationRef({
     activationId: activationId.value,
-    capability: current.capability,
-    materialOwner: current.material_owner,
-    keyBinding: current.key_binding,
+    capability: currentActivation.capability,
+    materialOwner: currentActivation.materialOwner,
+    keyBinding: currentActivation.keyBinding,
     lifecycleBinding: lifecycleBinding.value,
-    signingWorker: current.signing_worker,
+    signingWorker: currentActivation.signingWorker,
   });
   const replacementCapabilityBinding = new Uint8Array(32);
   globalThis.crypto.getRandomValues(replacementCapabilityBinding);
