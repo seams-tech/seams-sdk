@@ -16,17 +16,11 @@ import type { WalletId } from '@shared/utils/domainIds';
 
 export { LinkDeviceEventPhase } from './sdkSentEvents';
 
-/**
- * The only QR value accepted by the browser boundary. Keep this alias so the
- * existing public surface cannot accidentally grow a second QR schema.
- */
-export type DeviceLinkingQRData = QrLinkedDeviceSessionPayloadV4;
-
 /** Public browser projection of the exhaustive shared session state. */
 export type DeviceLinkingSession = {
   readonly linkSessionId: LinkDeviceSessionId;
   readonly state: LinkedDeviceSessionState;
-  readonly qrData: DeviceLinkingQRData;
+  readonly qrData: QrLinkedDeviceSessionPayloadV4;
 };
 
 export type LinkDeviceResult =
@@ -74,7 +68,7 @@ export type StartDevice2LinkingFlowArgs = {
 } & StartDeviceLinkingOptionsDevice2;
 
 export interface StartDevice2LinkingFlowResults {
-  readonly qrData: DeviceLinkingQRData;
+  readonly qrData: QrLinkedDeviceSessionPayloadV4;
   readonly qrCodeDataURL: string;
 }
 

@@ -67,10 +67,37 @@
 
 .w3a-linked-devices-row {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
   padding: 8px 10px;
   border-radius: var(--w3a-shape-item, 8px);
+}
+
+.w3a-linked-devices-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--w3a-colors-textPrimary);
+  font-size: 12px;
+}
+
+.w3a-linked-devices-heading span,
+.w3a-linked-devices-meta,
+.w3a-linked-devices-revoke-consequence {
+  color: var(--w3a-colors-textSecondary);
+  font-size: 11px;
+}
+
+.w3a-linked-devices-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.w3a-linked-devices-revoke-consequence {
+  line-height: 1.35;
 }
 
 .w3a-linked-devices-slot {

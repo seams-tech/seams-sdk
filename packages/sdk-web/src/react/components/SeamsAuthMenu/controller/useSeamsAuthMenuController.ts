@@ -888,10 +888,10 @@ export function useSeamsAuthMenuController(
   const handleLinkDeviceCancelled = props.linkDeviceOptions?.onCancelled;
 
   const stopLinkDeviceFlow = React.useCallback(() => {
-    const stopper = runtime.stopDevice2LinkingFlow;
+    const stopper = runtime.cancelDeviceLinking;
     if (!stopper) return;
     void stopper().catch(() => {});
-  }, [runtime.stopDevice2LinkingFlow]);
+  }, [runtime.cancelDeviceLinking]);
 
   const closeLinkDeviceView = React.useCallback(
     (reason: 'user' | 'flow') => {

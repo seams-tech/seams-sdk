@@ -36,10 +36,10 @@ const registrationMethods = ['requestEmailOtpEnrollmentChallenge', 'enrollEmailO
 
 const deviceMethodFragments = [
   'startDevice2LinkingFlow',
-  'stopDevice2LinkingFlow',
-  'linkDeviceWithScannedQRData',
-  'viewAccessKeyList',
-  'deleteDeviceKey',
+  'scanAndLinkDevice',
+  'cancelDeviceLinking',
+  'listLinkedDevices',
+  'revokeLinkedDevice',
 ];
 
 const preferencesMethodFragments = [

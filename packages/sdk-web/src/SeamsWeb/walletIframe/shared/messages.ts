@@ -3,7 +3,7 @@ import type { WalletUIRegistry } from '../host/lit-ui/iframe-lit-element-registr
 import type { BootstrapThresholdEcdsaSessionArgs } from '@/SeamsWeb/signingSurface/types';
 import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import { ActionArgs, TransactionInput } from '@/core/types';
-import { type DeviceLinkingQRData } from '@/core/types/linkDevice';
+import type { QrLinkedDeviceSessionPayloadV4 } from '@shared/device-linking';
 import type { DelegateActionInput } from '@/core/types/delegate';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
@@ -858,14 +858,11 @@ export type ParentToChildType =
   | 'PM_SET_CONFIRMATION_CONFIG'
   | 'PM_GET_CONFIRMATION_CONFIG'
   | 'PM_HAS_PASSKEY'
-  | 'PM_VIEW_ACCESS_KEYS'
-  | 'PM_DELETE_DEVICE_KEY'
-  | 'PM_LIST_WALLET_CREDENTIALS'
-  | 'PM_RENAME_WALLET_CREDENTIAL'
-  | 'PM_REVOKE_WALLET_CREDENTIAL'
-  | 'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA'
+  | 'PM_LIST_LINKED_DEVICES'
+  | 'PM_REVOKE_LINKED_DEVICE'
+  | 'PM_SCAN_AND_LINK_DEVICE'
   | 'PM_START_DEVICE2_LINKING_FLOW'
-  | 'PM_STOP_DEVICE2_LINKING_FLOW'
+  | 'PM_CANCEL_DEVICE_LINKING'
   | 'PM_SYNC_ACCOUNT_FLOW';
 
 export type ChildToParentType =
@@ -1320,34 +1317,14 @@ export interface PMHasPasskeyPayload {
   walletId: string;
 }
 
-export interface PMViewAccessKeysPayload {
-  walletId: string;
-  nearAccountId: string;
-}
-
-export interface PMDeleteDeviceKeyPayload {
-  walletId: string;
-  nearAccountId: string;
-  publicKeyToDelete: string;
-  options: {
-    [key: string]: unknown;
-  };
-}
-
-export interface PMListWalletCredentialsPayload {
+export interface PMListLinkedDevicesPayload {
   walletId: string;
 }
 
-export interface PMRenameWalletCredentialPayload {
+export interface PMRevokeLinkedDevicePayload {
   walletId: string;
-  envelopeId: string;
-  label?: string;
-}
-
-export interface PMRevokeWalletCredentialPayload {
-  walletId: string;
-  rpId: string;
-  credentialIdB64u: string;
+  deviceId: string;
+  requestedAtMs: number;
 }
 
 export interface PMGetRecoveryEmailsPayload {
@@ -1480,15 +1457,12 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_SET_CONFIRMATION_CONFIG', PMSetConfirmationConfigPayload>
   | RpcEnvelope<'PM_GET_CONFIRMATION_CONFIG'>
   | RpcEnvelope<'PM_HAS_PASSKEY', PMHasPasskeyPayload>
-  | RpcEnvelope<'PM_VIEW_ACCESS_KEYS', PMViewAccessKeysPayload>
-  | RpcEnvelope<'PM_DELETE_DEVICE_KEY', PMDeleteDeviceKeyPayload>
-  | RpcEnvelope<'PM_LIST_WALLET_CREDENTIALS', PMListWalletCredentialsPayload>
-  | RpcEnvelope<'PM_RENAME_WALLET_CREDENTIAL', PMRenameWalletCredentialPayload>
-  | RpcEnvelope<'PM_REVOKE_WALLET_CREDENTIAL', PMRevokeWalletCredentialPayload>
+  | RpcEnvelope<'PM_LIST_LINKED_DEVICES', PMListLinkedDevicesPayload>
+  | RpcEnvelope<'PM_REVOKE_LINKED_DEVICE', PMRevokeLinkedDevicePayload>
   | RpcEnvelope<
-      'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA',
+      'PM_SCAN_AND_LINK_DEVICE',
       {
-        qrData: DeviceLinkingQRData;
+        qrData: QrLinkedDeviceSessionPayloadV4;
         options?: {
           confirmationConfig?: Partial<ConfirmationConfig>;
           confirmerText?: { title?: string; body?: string };
@@ -1506,7 +1480,7 @@ export type ParentToChildEnvelope =
         };
       }
     >
-  | RpcEnvelope<'PM_STOP_DEVICE2_LINKING_FLOW'>
+  | RpcEnvelope<'PM_CANCEL_DEVICE_LINKING'>
   | RpcEnvelope<'PM_SYNC_ACCOUNT_FLOW', { walletId?: string }>;
 
 export type ChildToParentEnvelope =

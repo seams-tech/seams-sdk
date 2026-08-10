@@ -1,5 +1,7 @@
 import type {
   LinkedDeviceApprovalV1,
+  LinkedDeviceRevokeResultV1,
+  LinkedDeviceSummaryV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
   LinkedDeviceSessionState,
   LinkedDeviceSessionTransportRequestV1,
@@ -143,6 +145,32 @@ const approval: LinkedDeviceApprovalV1 = {
   expiresAtMs: 2,
 };
 
+const summary: LinkedDeviceSummaryV1 = {
+  deviceId,
+  enrollmentId,
+  walletId,
+  label: 'Target device',
+  platform: 'browser',
+  permission: payload.requestedPermission,
+  keyManifestDigestB64u: digest,
+  coveredWalletKeys: [walletKeyId],
+  state: 'provisioning',
+  createdAtMs: 1,
+  lastActivityAtMs: 2,
+  revocationEpoch: 0,
+};
+
+const invalidSummaryState: LinkedDeviceSummaryV1 = {
+  ...summary,
+  // @ts-expect-error management projections have an exhaustive lifecycle
+  state: 'pending',
+};
+
+// @ts-expect-error successful revocation results require enrollment receipt identity
+const invalidRevokeResult: LinkedDeviceRevokeResultV1 = {
+  kind: 'revoked',
+};
+
 // Approval always contains a non-empty ordered manifest.
 const invalidEmptyApprovalManifest: LinkedDeviceApprovalV1 = {
   ...approval,
@@ -176,5 +204,8 @@ void invalidPermissionPayload;
 void invalidPermissionPresence;
 void invalidOwnerAuthorization;
 void invalidEmptyApprovalManifest;
+void summary;
+void invalidSummaryState;
+void invalidRevokeResult;
 void invalidUnclaimedCancel;
 void invalidClaimedCancel;

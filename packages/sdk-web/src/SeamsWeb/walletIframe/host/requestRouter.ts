@@ -70,14 +70,11 @@ export type RecoveryWalletRequestType =
 export type ExportWalletRequestType = 'PM_RESOLVE_EXACT_KEY_EXPORT_LANE' | 'PM_EXPORT_KEYPAIR_UI';
 export type DeviceLinkWalletRequestType =
   | 'PM_HAS_PASSKEY'
-  | 'PM_VIEW_ACCESS_KEYS'
-  | 'PM_DELETE_DEVICE_KEY'
-  | 'PM_LIST_WALLET_CREDENTIALS'
-  | 'PM_RENAME_WALLET_CREDENTIAL'
-  | 'PM_REVOKE_WALLET_CREDENTIAL'
-  | 'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA'
+  | 'PM_LIST_LINKED_DEVICES'
+  | 'PM_REVOKE_LINKED_DEVICE'
+  | 'PM_SCAN_AND_LINK_DEVICE'
   | 'PM_START_DEVICE2_LINKING_FLOW'
-  | 'PM_STOP_DEVICE2_LINKING_FLOW'
+  | 'PM_CANCEL_DEVICE_LINKING'
   | 'PM_SYNC_ACCOUNT_FLOW';
 export type PreferencesWalletRequestType =
   | 'PM_GET_RECOVERY_EMAILS'
@@ -267,14 +264,11 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
       return { kind: 'export', type: request.type, request };
 
     case 'PM_HAS_PASSKEY':
-    case 'PM_VIEW_ACCESS_KEYS':
-    case 'PM_DELETE_DEVICE_KEY':
-    case 'PM_LIST_WALLET_CREDENTIALS':
-    case 'PM_RENAME_WALLET_CREDENTIAL':
-    case 'PM_REVOKE_WALLET_CREDENTIAL':
-    case 'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA':
+    case 'PM_LIST_LINKED_DEVICES':
+    case 'PM_REVOKE_LINKED_DEVICE':
+    case 'PM_SCAN_AND_LINK_DEVICE':
     case 'PM_START_DEVICE2_LINKING_FLOW':
-    case 'PM_STOP_DEVICE2_LINKING_FLOW':
+    case 'PM_CANCEL_DEVICE_LINKING':
       return { kind: 'device_link', type: request.type, request };
 
     case 'PM_SET_CONFIRM_BEHAVIOR':

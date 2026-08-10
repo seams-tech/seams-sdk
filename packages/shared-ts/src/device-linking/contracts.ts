@@ -316,6 +316,53 @@ export type LinkedDeviceSessionTransportEventV1 = {
   readonly emittedAtMs: number;
 };
 
+/** Public wallet-scoped projection for linked-device management. */
+export type LinkedDeviceSummaryV1 = {
+  readonly deviceId: LinkedDeviceId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly walletId: WalletId;
+  readonly label: string;
+  readonly platform: string;
+  readonly permission: QrLinkedDevicePermissionRequest;
+  readonly keyManifestDigestB64u: DigestB64u;
+  readonly coveredWalletKeys: readonly WalletKeyId[];
+  readonly state: 'provisioning' | 'active' | 'suspended' | 'expired' | 'revoked';
+  readonly createdAtMs: number;
+  readonly lastActivityAtMs: number;
+  readonly revocationEpoch: number;
+};
+
+export type LinkedDeviceListRequestV1 = {
+  readonly kind: 'linked_device_list_request_v1';
+  readonly walletId: WalletId;
+};
+
+export type LinkedDeviceListResultV1 = {
+  readonly devices: readonly LinkedDeviceSummaryV1[];
+};
+
+export type LinkedDeviceRevokeRequestV1 = {
+  readonly kind: 'linked_device_revoke_request_v1';
+  readonly walletId: WalletId;
+  readonly deviceId: LinkedDeviceId;
+  readonly requestedAtMs: number;
+};
+
+export type LinkedDeviceRevokeResultV1 =
+  | {
+      readonly kind: 'revoked' | 'replayed';
+      readonly enrollmentId: LinkedDeviceEnrollmentId;
+      readonly revocationEpoch: number;
+      readonly aggregateReceiptDigestB64u: DigestB64u;
+    }
+  | {
+      readonly kind: 'not_found' | 'conflict' | 'unauthorized';
+    };
+
+export type LinkedDeviceManagementRequestV1 =
+  | LinkedDeviceListRequestV1
+  | LinkedDeviceRevokeRequestV1;
+
 export function assertNeverLinkedDeviceSessionState(value: never): never {
   throw new Error(`[LinkedDeviceSessionState] unsupported state: ${String(value)}`);
 }

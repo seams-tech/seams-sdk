@@ -11,7 +11,6 @@ import { addPasskeyWalletAuthMethod } from '@/SeamsWeb/operations/authMethods/pa
 import {
   MinimalNearClient,
   type NearClient,
-  type AccessKeyList,
 } from '@/core/rpcClients/near/NearClient';
 import type {
   ActionResult,
@@ -49,8 +48,7 @@ import {
 import { readNearProvisioningState } from '@/core/signingEngine/flows/registration/nearProvisioningRegistry';
 import { cloneAuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import { toAccountId } from '@/core/types/accountIds';
-import { IndexedDBManager, type LocalWalletAuthMethodRecord } from '@/core/indexedDB';
-import { ActionType } from '@/core/types/actions';
+import { IndexedDBManager } from '@/core/indexedDB';
 import type {
   HostedAuthMenuExternalAuthRequest,
   HostedAuthMenuDemoEmailOtpDelivery,
@@ -64,8 +62,6 @@ import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode'
 import { isUserCancellationError, toError } from '@shared/utils/errors';
 import {
   parseMpcMaterialActivationRef,
-  parseWebAuthnCredentialIdB64u,
-  parseWebAuthnRpId,
 } from '@shared/utils/domainIds';
 import { sha256HexUtf8 } from '@shared/utils/digests';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
@@ -93,7 +89,11 @@ import {
   getWalletSessionDomain,
   type WalletAuthDomainDeps,
 } from '@/SeamsWeb/operations/auth/walletAuth';
-import { createPublicApi, type WalletIframeControlCapability } from './publicApi';
+import {
+  createPublicApi,
+  type LinkedDeviceManagementPortV1,
+  type WalletIframeControlCapability,
+} from './publicApi';
 import type {
   AuthCapability,
   DevicesCapability,
@@ -111,11 +111,6 @@ import type {
   TempoSignerCapability,
 } from '@/SeamsWeb/signingSurface/types';
 import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
-import {
-  listWalletCredentialActivity,
-  renameWalletCredential,
-} from '@/core/rpcClients/relayer/walletCredentialActivity';
-import { revokeWalletAuthMethod } from '@/core/rpcClients/relayer/walletRegistration';
 import { activeWalletOrHostedAppSessionJwt } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
 import type { UiConfirmSurfaceMeasurementBinding } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type {
@@ -172,10 +167,7 @@ import {
   activateEmailOtpWalletAfterUnlock,
   type EmailOtpWalletPostUnlockActivation,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/walletActivation';
-import {
-  walletIdFromString,
-  type RegistrationSignerSetSelection,
-} from '@shared/utils/registrationIntent';
+import type { RegistrationSignerSetSelection } from '@shared/utils/registrationIntent';
 import {
   nearAccountBindingFromRaw,
   type NearAccountBinding,
@@ -649,6 +641,10 @@ function resolveRuntimeAppearance(
 }
 
 type SeamsWebRuntimeMode = 'application' | 'wallet_host';
+type SeamsWebInternalOptions = {
+  readonly allowDirectWalletMode?: 'wallet_host';
+  readonly linkedDeviceManagement: LinkedDeviceManagementPortV1;
+};
 
 type SeamsWebLifecycleEventSource =
   | {
@@ -661,7 +657,7 @@ type SeamsWebLifecycleEventSource =
     };
 
 function resolveSeamsWebRuntimeMode(
-  internalOptions: { allowDirectWalletMode?: 'wallet_host' } | undefined,
+  internalOptions: Pick<SeamsWebInternalOptions, 'allowDirectWalletMode'> | undefined,
 ): SeamsWebRuntimeMode {
   if (internalOptions?.allowDirectWalletMode === 'wallet_host') return 'wallet_host';
   return 'application';
@@ -698,24 +694,6 @@ function deliverNearProvisioningStateChanged(
   if (event.event === 'registration.near_provisioning_changed') listener(event);
 }
 
-function revokedLocalPasskeyAuthMethod(
-  record: LocalWalletAuthMethodRecord & { kind: 'passkey' },
-): LocalWalletAuthMethodRecord & { kind: 'passkey' } {
-  return {
-    version: record.version,
-    kind: record.kind,
-    status: 'revoked',
-    localStatus: record.localStatus,
-    walletId: record.walletId,
-    rpId: record.rpId,
-    credentialIdB64u: record.credentialIdB64u,
-    credentialPublicKeyB64u: record.credentialPublicKeyB64u,
-    counter: record.counter,
-    createdAtMs: record.createdAtMs,
-    updatedAtMs: Date.now(),
-  };
-}
-
 /**
  * Main SeamsWeb class that provides framework-agnostic passkey operations
  * with flexible event-based callbacks for custom UX implementation
@@ -727,6 +705,7 @@ export class SeamsWeb {
   private appearance: AppearanceConfig;
   theme: ThemeMode;
   private readonly walletIframe: WalletIframeCoordinator;
+  private readonly linkedDeviceManagement: LinkedDeviceManagementPortV1;
   private readonly lifecycleEventSource: SeamsWebLifecycleEventSource;
   readonly recovery: RecoveryCapability;
   readonly devices: DevicesCapability;
@@ -743,9 +722,10 @@ export class SeamsWeb {
 
   constructor(
     configs: SeamsConfigsInput,
-    nearClient?: NearClient,
-    internalOptions?: { allowDirectWalletMode?: 'wallet_host' },
+    nearClient: NearClient,
+    internalOptions: SeamsWebInternalOptions,
   ) {
+    this.linkedDeviceManagement = internalOptions.linkedDeviceManagement;
     this.configs = buildConfigsFromEnv(configs, {
       ...(internalOptions?.allowDirectWalletMode === 'wallet_host'
         ? { allowDirectWalletMode: 'wallet_host' }
@@ -836,11 +816,7 @@ export class SeamsWeb {
         completeWalletRecovery: async (args) => await this.completeWalletRecoveryDomain(args),
       },
       devices: {
-        viewAccessKeyList: async (args) => await this.viewAccessKeyListDomain(args),
-        deleteDeviceKey: async (args) => await this.deleteDeviceKeyDomain(args),
-        listWalletCredentials: async (args) => await this.listWalletCredentialsDomain(args),
-        renameWalletCredential: async (args) => await this.renameWalletCredentialDomain(args),
-        revokeWalletCredential: async (args) => await this.revokeWalletCredentialDomain(args),
+        linkedDeviceManagement: this.linkedDeviceManagement,
       },
       keys: {
         resolveExactKeyExportLane: async (input) =>
@@ -1065,122 +1041,6 @@ export class SeamsWeb {
         scope: prewarmScope,
       };
     }
-  }
-
-  /**
-   */
-  private async viewAccessKeyListDomain(args: {
-    walletSession: WalletSessionRef;
-    nearAccount: NearAccountRef;
-  }): Promise<AccessKeyList> {
-    const accountId = String(args.nearAccount.accountId);
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter(args.walletSession.walletId);
-      return await router.viewAccessKeyList({
-        walletId: args.walletSession.walletId,
-        nearAccountId: accountId,
-      });
-    }
-    return this.nearClient.viewAccessKeyList(accountId);
-  }
-
-  private async listWalletCredentialsDomain(args: {
-    readonly walletId: string;
-  }): Promise<Awaited<ReturnType<typeof listWalletCredentialActivity>>> {
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter(args.walletId);
-      return await router.listWalletCredentials({ walletId: args.walletId });
-    }
-    return await listWalletCredentialActivity({
-      relayUrl: this.configs.network.relayer.url,
-      walletId: args.walletId,
-    });
-  }
-
-  private async renameWalletCredentialDomain(args: {
-    readonly walletId: string;
-    readonly envelopeId: string;
-    readonly label?: string;
-  }): Promise<Awaited<ReturnType<typeof renameWalletCredential>>> {
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter(args.walletId);
-      return await router.renameWalletCredential(args);
-    }
-    return await renameWalletCredential({
-      relayUrl: this.configs.network.relayer.url,
-      walletId: args.walletId,
-      envelopeId: args.envelopeId,
-      ...(args.label === undefined ? {} : { label: args.label }),
-    });
-  }
-
-  private async revokeWalletCredentialDomain(args: {
-    readonly walletId: string;
-    readonly rpId: string;
-    readonly credentialIdB64u: string;
-  }) {
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter(args.walletId);
-      return await router.revokeWalletCredential(args);
-    }
-    const walletId = walletIdFromString(args.walletId);
-    const rpId = parseWebAuthnRpId(args.rpId);
-    if (!rpId.ok) throw new Error(rpId.error.message);
-    const credentialId = parseWebAuthnCredentialIdB64u(args.credentialIdB64u);
-    if (!credentialId.ok) throw new Error(credentialId.error.message);
-    const relayUrl = String(this.configs.network.relayer.url || '').trim();
-    const appSessionJwt = this.requireActiveWalletAppSessionJwt(relayUrl, String(walletId));
-    const target = {
-      kind: 'passkey' as const,
-      rpId: rpId.value,
-      credentialIdB64u: credentialId.value,
-    };
-    const revoked = await revokeWalletAuthMethod({
-      relayerUrl: relayUrl,
-      walletId,
-      auth: {
-        kind: 'app_session',
-        appSessionJwt,
-        policy: {
-          permission: 'wallet_auth_method_revoke',
-          walletId,
-          target,
-          expiresAtMs: Date.now() + 5 * 60_000,
-        },
-      },
-      target,
-    });
-    if (
-      revoked.ok !== true ||
-      revoked.authMethod.kind !== 'passkey' ||
-      revoked.authMethod.status !== 'revoked' ||
-      String(revoked.walletId) !== String(walletId) ||
-      revoked.rpId !== rpId.value
-    ) {
-      throw new Error('[SeamsWeb] credential revocation returned a mismatched result');
-    }
-    try {
-      const localAuthMethods = await IndexedDBManager.listWalletAuthMethodsForWallet(
-        String(walletId),
-      );
-      let localPasskey: (LocalWalletAuthMethodRecord & { kind: 'passkey' }) | null = null;
-      for (const record of localAuthMethods) {
-        if (
-          record.kind === 'passkey' &&
-          record.rpId === rpId.value &&
-          record.credentialIdB64u === credentialId.value
-        ) {
-          localPasskey = record;
-          break;
-        }
-      }
-      if (localPasskey) {
-        await IndexedDBManager.upsertWalletAuthMethod(revokedLocalPasskeyAuthMethod(localPasskey));
-      }
-    } catch {
-      // Server revocation is authoritative; later synchronization repairs stale local state.
-    }
-    return revoked;
   }
 
   private emitWalletIframeTransportTimingSummary(input: {
@@ -2642,40 +2502,4 @@ export class SeamsWeb {
     await this.signingEngine.exportKeypairWithUI(resolvedInput);
   }
 
-  /**
-   * Delete a device key from an account
-   */
-  private async deleteDeviceKeyDomain(
-    args: Parameters<DevicesCapability['deleteDeviceKey']>[0],
-  ): Promise<ActionResult> {
-    const accountId = String(args.nearAccount.accountId);
-    // Validate that we're not deleting the last key
-    const keysView = await this.viewAccessKeyListDomain({
-      walletSession: args.walletSession,
-      nearAccount: args.nearAccount,
-    });
-    if (keysView.keys.length <= 1) {
-      throw new Error('Cannot delete the last access key from an account');
-    }
-
-    // Find the key to delete
-    const keyToDelete = keysView.keys.find(
-      (k: { public_key: string }) => k.public_key === args.publicKeyToDelete,
-    );
-    if (!keyToDelete) {
-      throw new Error(`Access key ${args.publicKeyToDelete} not found on account ${accountId}`);
-    }
-
-    // Use NEAR signer executeAction with DeleteKey action
-    return this.near.executeAction({
-      walletSession: args.walletSession,
-      nearAccount: args.nearAccount,
-      receiverId: accountId,
-      actionArgs: {
-        type: ActionType.DeleteKey,
-        publicKey: args.publicKeyToDelete,
-      },
-      options: args.options,
-    });
-  }
 }

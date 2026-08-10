@@ -129,8 +129,16 @@ import type {
   LinkDeviceResult,
   StartDevice2LinkingFlowArgs,
   StartDevice2LinkingFlowResults,
-  DeviceLinkingQRData,
 } from '@/core/types/linkDevice';
+import {
+  parseLinkedDeviceListRequestV1,
+  parseLinkedDeviceListResultV1,
+  parseLinkedDeviceRevokeRequestV1,
+  parseLinkedDeviceRevokeResultV1,
+  type QrLinkedDeviceSessionPayloadV4,
+  type LinkedDeviceListResultV1,
+  type LinkedDeviceRevokeResultV1,
+} from '@shared/device-linking';
 import type { SyncAccountResult } from '@/SeamsWeb/operations/recovery/syncAccount';
 import type {
   CompleteWalletRecoveryResult,
@@ -249,7 +257,6 @@ import { joinNormalizedUrl, stripTrailingSlashes } from '@shared/utils/normalize
 import { needsExplicitActivation } from '@/utils/deviceDetection';
 import type { AuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import { type ConfirmationConfig } from '@/core/types/signer-worker';
-import type { AccessKeyList } from '@/core/rpcClients/near/NearClient';
 import type { SignNEP413MessageResult } from '@/SeamsWeb/operations/near';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
 import { cloneResolvedChainConfig } from '@/core/config/chains';
@@ -257,10 +264,6 @@ import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain'
 import type { LoginUnlockRequest } from '@/core/types/login.types';
 import { buildPMUnlockPayload } from '../shared/unlockOptions';
 import type { WalletId } from '@shared/utils/domainIds';
-import type {
-  WalletCredentialActivityListResult,
-  WalletCredentialRenameResult,
-} from '@/core/rpcClients/relayer/walletCredentialActivity';
 import {
   exactSessionStateFromWalletSession,
   parseWalletIframeExactSessionLockResult,
@@ -410,7 +413,7 @@ function requestSurfaceKindForMessage(
         : 'key_export_near';
     case 'PM_UNLOCK':
       return 'unlock';
-    case 'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA':
+    case 'PM_SCAN_AND_LINK_DEVICE':
       return 'device_link';
     case 'PM_START_DEVICE2_LINKING_FLOW':
       return 'device_link_qr';
@@ -1065,12 +1068,11 @@ function createTerminalProgressForRequest(args: {
     'PM_REPORT_TEMPO_DROPPED_OR_REPLACED',
     'PM_RECONCILE_TEMPO_NONCE_LANE',
     'PM_SET_RECOVERY_EMAILS',
-    'PM_DELETE_DEVICE_KEY',
   ]);
   const linkDeviceRequests = new Set<ParentToChildEnvelope['type']>([
-    'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA',
+    'PM_SCAN_AND_LINK_DEVICE',
     'PM_START_DEVICE2_LINKING_FLOW',
-    'PM_STOP_DEVICE2_LINKING_FLOW',
+    'PM_CANCEL_DEVICE_LINKING',
   ]);
   if (registrationRequests.has(requestType)) {
     return createRegistrationFlowEvent({
@@ -3366,8 +3368,8 @@ export class WalletIframeRouter {
     return res.result as SyncAccountResult;
   }
 
-  async linkDeviceWithScannedQRData(payload: {
-    qrData: DeviceLinkingQRData;
+  async scanAndLinkDevice(payload: {
+    qrData: QrLinkedDeviceSessionPayloadV4;
     options?: {
       onEvent?: (ev: LinkDeviceFlowEvent) => void;
       confirmationConfig?: Partial<ConfirmationConfig>;
@@ -3375,7 +3377,7 @@ export class WalletIframeRouter {
     };
   }): Promise<LinkDeviceResult> {
     const res = await this.post<LinkDeviceResult>({
-      type: 'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA',
+      type: 'PM_SCAN_AND_LINK_DEVICE',
       payload: {
         qrData: payload.qrData,
         ...(payload.options
@@ -3425,8 +3427,8 @@ export class WalletIframeRouter {
     return res.result as StartDevice2LinkingFlowResults;
   }
 
-  async stopDevice2LinkingFlow(): Promise<void> {
-    await this.post<void>({ type: 'PM_STOP_DEVICE2_LINKING_FLOW' });
+  async cancelDeviceLinking(): Promise<void> {
+    await this.post<void>({ type: 'PM_CANCEL_DEVICE_LINKING' });
     this.finishDeviceLinkQrSurface();
   }
 
@@ -3494,71 +3496,38 @@ export class WalletIframeRouter {
     return !!res?.result;
   }
 
-  async viewAccessKeyList(args: {
-    walletId: string;
-    nearAccountId: string;
-  }): Promise<AccessKeyList> {
-    const res = await this.post<AccessKeyList>({
-      type: 'PM_VIEW_ACCESS_KEYS',
-      payload: { walletId: args.walletId, nearAccountId: args.nearAccountId },
+  async listLinkedDevices(payload: { walletId: string }): Promise<LinkedDeviceListResultV1> {
+    const request = parseLinkedDeviceListRequestV1({
+      kind: 'linked_device_list_request_v1',
+      walletId: payload.walletId,
     });
-    return res.result;
+    const res = await this.post<unknown>({
+      type: 'PM_LIST_LINKED_DEVICES',
+      payload: { walletId: String(request.walletId) },
+    });
+    return parseLinkedDeviceListResultV1(res.result);
   }
 
-  async deleteDeviceKey(payload: {
+  async revokeLinkedDevice(payload: {
     walletId: string;
-    nearAccountId: string;
-    publicKeyToDelete: string;
-    options: { onEvent?: (ev: SigningFlowEvent) => void };
-  }): Promise<ActionResult> {
-    const res = await this.post<ActionResult>({
-      type: 'PM_DELETE_DEVICE_KEY',
+    deviceId: string;
+    requestedAtMs: number;
+  }): Promise<LinkedDeviceRevokeResultV1> {
+    const request = parseLinkedDeviceRevokeRequestV1({
+      kind: 'linked_device_revoke_request_v1',
+      walletId: payload.walletId,
+      deviceId: payload.deviceId,
+      requestedAtMs: payload.requestedAtMs,
+    });
+    const res = await this.post<unknown>({
+      type: 'PM_REVOKE_LINKED_DEVICE',
       payload: {
-        walletId: payload.walletId,
-        nearAccountId: payload.nearAccountId,
-        publicKeyToDelete: payload.publicKeyToDelete,
-        options: {},
+        walletId: String(request.walletId),
+        deviceId: String(request.deviceId),
+        requestedAtMs: request.requestedAtMs,
       },
-      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isSigningFlowEvent) },
     });
-    return res.result;
-  }
-
-  async listWalletCredentials(payload: {
-    walletId: string;
-  }): Promise<WalletCredentialActivityListResult> {
-    const res = await this.post<WalletCredentialActivityListResult>({
-      type: 'PM_LIST_WALLET_CREDENTIALS',
-      payload,
-    });
-    return res.result;
-  }
-
-  async renameWalletCredential(payload: {
-    walletId: string;
-    envelopeId: string;
-    label?: string;
-  }): Promise<WalletCredentialRenameResult> {
-    const res = await this.post<WalletCredentialRenameResult>({
-      type: 'PM_RENAME_WALLET_CREDENTIAL',
-      payload,
-    });
-    return res.result;
-  }
-
-  async revokeWalletCredential(payload: {
-    walletId: string;
-    rpId: string;
-    credentialIdB64u: string;
-    appSessionJwt?: string;
-  }): Promise<WalletRevokeAuthMethodResponse> {
-    const { appSessionJwt, ...wirePayload } = payload;
-    await this.ensureHostedWalletSeamsSession(hostedWalletSeamsSessionSource({ appSessionJwt }));
-    const res = await this.post<WalletRevokeAuthMethodResponse>({
-      type: 'PM_REVOKE_WALLET_CREDENTIAL',
-      payload: wirePayload,
-    });
-    return res.result;
+    return parseLinkedDeviceRevokeResultV1(res.result);
   }
 
   async sendTransaction(args: {
@@ -4119,9 +4088,8 @@ function exactSessionRequestWalletId(envelope: ParentToChildEnvelope): string | 
     case 'PM_RESOLVE_EXACT_KEY_EXPORT_LANE':
     case 'PM_EXPORT_KEYPAIR_UI':
       return envelope.payload.walletSession.walletId;
-    case 'PM_LIST_WALLET_CREDENTIALS':
-    case 'PM_RENAME_WALLET_CREDENTIAL':
-    case 'PM_REVOKE_WALLET_CREDENTIAL':
+    case 'PM_LIST_LINKED_DEVICES':
+    case 'PM_REVOKE_LINKED_DEVICE':
     case 'PM_ROTATE_WALLET_RECOVERY_CODES':
       return envelope.payload.walletId;
     default:

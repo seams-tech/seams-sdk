@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { LinkDeviceFlow } from '@/SeamsWeb/operations/devices/linkDevice';
-import { linkDeviceWithScannedQRData } from '@/SeamsWeb/operations/devices/scanDevice';
+import { scanAndLinkDevice } from '@/SeamsWeb/operations/devices/scanDevice';
 import type {
   DeviceLinkingAuthenticatedTransportPortV1,
   LinkedDeviceApprovalResultV1,
@@ -235,7 +235,7 @@ test.describe('linked-device browser orchestration', () => {
       expiresAtMs: Date.now() + 60_000,
     });
 
-    const result = await linkDeviceWithScannedQRData(
+    const result = await scanAndLinkDevice(
       undefined,
       qrData,
       {
@@ -281,7 +281,7 @@ test.describe('linked-device browser orchestration', () => {
       expiresAtMs: Date.now() + 60_000,
     });
 
-    const result = await linkDeviceWithScannedQRData(undefined, qrData, {}, ports);
+    const result = await scanAndLinkDevice(undefined, qrData, {}, ports);
 
     expect(result.success).toBe(true);
     if (!result.success) throw new Error('expected replayed approval success');
