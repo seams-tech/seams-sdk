@@ -2,6 +2,11 @@ import {
   CAPABILITY_KINDS,
   EVM_ECDSA_MPC_OPERATION_KINDS,
   NEAR_ED25519_MPC_OPERATION_KINDS,
+  parseAuthorizationGrantRef,
+  parseMpcWalletSigningQuotaId,
+  parsePrincipalId,
+  parseTenantId,
+  parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import type {
   CapabilityOperationRef,
@@ -9,6 +14,7 @@ import type {
   AuthorizationGrantRef,
   AuthorizedOperationId,
   WalletSessionAuthorizationId,
+  LinkedDeviceWalletSessionAuthorizationId,
   DeviceId,
   AuthorizationEvidenceId,
   AuthorizationEvidenceKind,
@@ -25,6 +31,7 @@ export {
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 export type {
+  LinkedDeviceWalletSessionAuthorizationId,
   MpcWalletSigningQuotaId,
   WalletSessionAuthorizationId,
   WalletSessionId,
@@ -34,7 +41,15 @@ import type {
   CapabilityOperationFingerprintDigest,
 } from '@shared/authorization/operationFingerprint';
 import { computeCapabilityOperationFingerprintDigest } from '@shared/authorization/operationFingerprint';
-import type { DomainId, WalletId } from '@shared/utils/domainIds';
+import {
+  parseLinkedDeviceEnrollmentId,
+  parseLinkedDeviceId,
+  parseWalletId,
+  type DomainId,
+  type LinkedDeviceEnrollmentId,
+  type LinkedDeviceId,
+  type WalletId,
+} from '@shared/utils/domainIds';
 import {
   parseAppSessionVersion,
   parseProviderSubject,
@@ -43,11 +58,11 @@ import {
   type ProviderSubject,
   type WebAuthnCredentialIdB64u,
 } from '@shared/utils/domainIds';
-import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
-import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import type { QrLinkedDevicePermissionRequest } from '@shared/device-linking/contracts';
 
 export type HostedWalletSeamsSessionExchangeCode = DomainId<'HostedWalletSeamsSessionExchangeCode'>;
 export type HostedWalletSeamsSessionExchangeNonce =
@@ -170,7 +185,32 @@ export type WalletSessionAuthorization = {
   readonly expiresAtMs: number;
 };
 
-export type AuthorizationGrant = WalletSessionAuthorization;
+export type LinkedDeviceWalletSessionPermissionV1 = QrLinkedDevicePermissionRequest;
+
+export type LinkedDeviceWalletSessionAuthorizationV1 = {
+  readonly kind: 'linked_device_wallet_session_authorization_v1';
+  readonly tenantId: TenantId;
+  readonly principalId: PrincipalId;
+  readonly authorizationGrantRef: Extract<
+    AuthorizationGrantRef,
+    { readonly kind: 'linked_device_wallet_session_authorization_v1' }
+  >;
+  readonly walletId: WalletId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+  readonly keyManifestDigestB64u: DigestB64u;
+  readonly permission: LinkedDeviceWalletSessionPermissionV1;
+  readonly revocationEpoch: number;
+  readonly issuedAtMs: number;
+  readonly expiresAtMs: number;
+};
+
+export type LinkedDeviceWalletSessionAuthorization = LinkedDeviceWalletSessionAuthorizationV1;
+export type AuthorizationGrant =
+  | WalletSessionAuthorization
+  | LinkedDeviceWalletSessionAuthorizationV1;
 
 export type OperationAuthorizationSource =
   | {
@@ -334,6 +374,53 @@ export type ReusableWalletSessionStatus =
       readonly remainingUses?: never;
       readonly expiresAtMs?: never;
     });
+
+export type LinkedDeviceWalletSessionStatusIdentity = {
+  readonly tenantId: TenantId;
+  readonly principalId: PrincipalId;
+  readonly deviceId: LinkedDeviceId;
+  readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+  readonly walletId: WalletId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+  readonly keyManifestDigestB64u: DigestB64u;
+  readonly revocationEpoch: number;
+};
+
+export type LinkedDeviceWalletSessionStatus =
+  | (LinkedDeviceWalletSessionStatusIdentity & {
+      readonly kind: 'active';
+      readonly remainingUses: number;
+      readonly expiresAtMs: number;
+    })
+  | (LinkedDeviceWalletSessionStatusIdentity & {
+      readonly kind: 'exhausted';
+      readonly remainingUses: 0;
+      readonly expiresAtMs: number;
+    })
+  | (LinkedDeviceWalletSessionStatusIdentity & {
+      readonly kind: 'expired';
+      readonly expiresAtMs: number;
+      readonly remainingUses?: never;
+    })
+  | (LinkedDeviceWalletSessionStatusIdentity & {
+      readonly kind: 'revoked';
+      readonly revokedAtMs: number;
+      readonly remainingUses?: never;
+      readonly expiresAtMs: number;
+    })
+  | {
+      readonly kind: 'missing' | 'invalid';
+      readonly tenantId: TenantId;
+      readonly principalId: PrincipalId;
+      readonly deviceId: LinkedDeviceId;
+      readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+      readonly walletSessionId: WalletSessionId;
+      readonly quotaId: MpcWalletSigningQuotaId;
+      readonly remainingUses?: never;
+      readonly expiresAtMs?: never;
+    };
 
 export type CompletedCapabilityOperationResult =
   | 'succeeded'
@@ -506,7 +593,9 @@ export function buildWalletSessionAuthorization(
     authorizationId === quotaId ||
     walletSessionId === quotaId
   ) {
-    throw new Error('authorization, Wallet Session, and quota identities must be pairwise distinct');
+    throw new Error(
+      'authorization, Wallet Session, and quota identities must be pairwise distinct',
+    );
   }
   return {
     kind: 'wallet_session_authorization',
@@ -521,6 +610,114 @@ export function buildWalletSessionAuthorization(
     createdAtMs: fields.createdAtMs,
     expiresAtMs: fields.expiresAtMs,
   };
+}
+
+export function buildLinkedDevicePrincipalId(deviceId: LinkedDeviceId): PrincipalId {
+  const parsed = parsePrincipalId(`linked-device:${String(deviceId)}`);
+  if (!parsed.ok) throw new Error('linked device principal identity is invalid');
+  return parsed.value;
+}
+
+export function buildLinkedDeviceWalletSessionAuthorization(
+  fields: Omit<LinkedDeviceWalletSessionAuthorizationV1, 'kind' | 'principalId'>,
+): LinkedDeviceWalletSessionAuthorizationV1 {
+  const principalId = buildLinkedDevicePrincipalId(fields.deviceId);
+  requireOrderedTimes(fields.issuedAtMs, fields.expiresAtMs, 'linked-device Wallet Session');
+  requireNonnegativeInteger(fields.revocationEpoch, 'linked-device revocation epoch');
+  parseDigestB64u(fields.keyManifestDigestB64u);
+  requireLinkedDeviceWalletSessionPermission(fields.permission);
+  if (fields.authorizationGrantRef.kind !== 'linked_device_wallet_session_authorization_v1') {
+    throw new Error('linked-device authorization must carry its linked grant reference');
+  }
+  if (
+    String(fields.authorizationGrantRef.authorizationId) === String(fields.walletSessionId) ||
+    String(fields.authorizationGrantRef.authorizationId) === String(fields.quotaId) ||
+    String(fields.walletSessionId) === String(fields.quotaId)
+  ) {
+    throw new Error(
+      'linked-device authorization, Wallet Session, and quota identities must be pairwise distinct',
+    );
+  }
+  return {
+    kind: 'linked_device_wallet_session_authorization_v1',
+    tenantId: fields.tenantId,
+    principalId,
+    authorizationGrantRef: fields.authorizationGrantRef,
+    walletId: fields.walletId,
+    enrollmentId: fields.enrollmentId,
+    deviceId: fields.deviceId,
+    walletSessionId: fields.walletSessionId,
+    quotaId: fields.quotaId,
+    keyManifestDigestB64u: fields.keyManifestDigestB64u,
+    permission: fields.permission,
+    revocationEpoch: fields.revocationEpoch,
+    issuedAtMs: fields.issuedAtMs,
+    expiresAtMs: fields.expiresAtMs,
+  };
+}
+
+export function parseLinkedDeviceWalletSessionAuthorization(
+  value: unknown,
+): LinkedDeviceWalletSessionAuthorizationV1 {
+  if (!isRecord(value)) throw new Error('linked-device authorization must be an object');
+  const expectedKeys = [
+    'authorizationGrantRef',
+    'deviceId',
+    'enrollmentId',
+    'expiresAtMs',
+    'issuedAtMs',
+    'keyManifestDigestB64u',
+    'kind',
+    'permission',
+    'principalId',
+    'quotaId',
+    'revocationEpoch',
+    'tenantId',
+    'walletId',
+    'walletSessionId',
+  ];
+  const keys = Object.keys(value).sort();
+  if (
+    keys.length !== expectedKeys.length ||
+    keys.some((key, index) => key !== expectedKeys[index])
+  ) {
+    throw new Error('linked-device authorization contains unexpected fields');
+  }
+  if (value.kind !== 'linked_device_wallet_session_authorization_v1') {
+    throw new Error('linked-device authorization kind is invalid');
+  }
+  const grantRef = parseAuthorizationGrantRef(value.authorizationGrantRef);
+  if (!grantRef.ok || grantRef.value.kind !== 'linked_device_wallet_session_authorization_v1') {
+    throw new Error('linked-device authorization grant reference is invalid');
+  }
+  const tenantId = parseTenantIdRequired(value.tenantId);
+  const principalId = parsePrincipalIdRequired(value.principalId);
+  const deviceId = parseLinkedDeviceIdRequired(value.deviceId);
+  const enrollmentId = parseLinkedDeviceEnrollmentIdRequired(value.enrollmentId);
+  const walletId = parseWalletIdRequired(value.walletId);
+  const walletSessionId = parseWalletSessionIdRequired(value.walletSessionId);
+  const quotaId = parseMpcWalletSigningQuotaIdRequired(value.quotaId);
+  const authorization = buildLinkedDeviceWalletSessionAuthorization({
+    tenantId,
+    authorizationGrantRef: grantRef.value,
+    walletId,
+    enrollmentId,
+    deviceId,
+    walletSessionId,
+    quotaId,
+    keyManifestDigestB64u: parseDigestB64u(value.keyManifestDigestB64u),
+    permission: parseLinkedDeviceWalletSessionPermission(value.permission),
+    revocationEpoch: requireNonnegativeInteger(
+      value.revocationEpoch,
+      'linked-device revocation epoch',
+    ),
+    issuedAtMs: requirePositiveTimestamp(value.issuedAtMs, 'linked-device issuedAtMs'),
+    expiresAtMs: requirePositiveTimestamp(value.expiresAtMs, 'linked-device expiresAtMs'),
+  });
+  if (authorization.principalId !== principalId) {
+    throw new Error('linked-device authorization principalId does not match deviceId');
+  }
+  return authorization;
 }
 
 function parseAuthorizationDomainId<TName extends string>(
@@ -540,10 +737,107 @@ function parseAuthorizationDomainId<TName extends string>(
   return value as DomainId<TName>;
 }
 
+function parseTenantIdRequired(value: unknown): TenantId {
+  const parsed = parseTenantId(value);
+  if (!parsed.ok) throw new Error(`linked-device authorization tenantId: ${parsed.error.message}`);
+  return parsed.value;
+}
+
+function parsePrincipalIdRequired(value: unknown): PrincipalId {
+  const parsed = parsePrincipalId(value);
+  if (!parsed.ok) {
+    throw new Error(`linked-device authorization principalId: ${parsed.error.message}`);
+  }
+  return parsed.value;
+}
+
+function parseLinkedDeviceIdRequired(value: unknown): LinkedDeviceId {
+  const parsed = parseLinkedDeviceId(value);
+  if (!parsed.ok) throw new Error(`linked-device authorization deviceId: ${parsed.error.message}`);
+  return parsed.value;
+}
+
+function parseLinkedDeviceEnrollmentIdRequired(value: unknown): LinkedDeviceEnrollmentId {
+  const parsed = parseLinkedDeviceEnrollmentId(value);
+  if (!parsed.ok) {
+    throw new Error(`linked-device authorization enrollmentId: ${parsed.error.message}`);
+  }
+  return parsed.value;
+}
+
+function parseWalletIdRequired(value: unknown): WalletId {
+  const parsed = parseWalletId(value);
+  if (!parsed.ok) throw new Error(`linked-device authorization walletId: ${parsed.error.message}`);
+  return parsed.value;
+}
+
+function parseWalletSessionIdRequired(value: unknown): WalletSessionId {
+  const parsed = parseWalletSessionId(value);
+  if (!parsed.ok) {
+    throw new Error(`linked-device authorization walletSessionId: ${parsed.error.message}`);
+  }
+  return parsed.value;
+}
+
+function parseMpcWalletSigningQuotaIdRequired(value: unknown): MpcWalletSigningQuotaId {
+  const parsed = parseMpcWalletSigningQuotaId(value);
+  if (!parsed.ok) {
+    throw new Error(`linked-device authorization quotaId: ${parsed.error.message}`);
+  }
+  return parsed.value;
+}
+
+function parseLinkedDeviceWalletSessionPermission(
+  value: unknown,
+): LinkedDeviceWalletSessionPermissionV1 {
+  if (!isRecord(value)) throw new Error('linked-device authorization permission must be an object');
+  const keys = Object.keys(value).sort();
+  if (
+    keys.length !== 3 ||
+    keys[0] !== 'administrationScope' ||
+    keys[1] !== 'kind' ||
+    keys[2] !== 'localUserPresence'
+  ) {
+    throw new Error('linked-device authorization permission contains unexpected fields');
+  }
+  if (
+    value.kind !== 'owner_equivalent_signing' ||
+    value.administrationScope !== 'signing_only' ||
+    value.localUserPresence !== 'required'
+  ) {
+    throw new Error('linked-device authorization permission is unsupported');
+  }
+  return {
+    kind: 'owner_equivalent_signing',
+    administrationScope: 'signing_only',
+    localUserPresence: 'required',
+  };
+}
+
+function requireLinkedDeviceWalletSessionPermission(
+  value: LinkedDeviceWalletSessionPermissionV1,
+): void {
+  parseLinkedDeviceWalletSessionPermission(value);
+}
+
 function requirePositiveCount(value: number, label: string): void {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new Error(`${label} must be a positive safe integer`);
   }
+}
+
+function requireNonnegativeInteger(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${label} must be a nonnegative safe integer`);
+  }
+  return value;
+}
+
+function requirePositiveTimestamp(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${label} must be a positive safe integer`);
+  }
+  return value;
 }
 
 function requirePositiveTime(value: number, label: string): void {

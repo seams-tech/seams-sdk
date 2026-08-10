@@ -12,6 +12,8 @@ import type {
   RedeemHostedWalletSeamsSessionExchangeInput,
   RedeemHostedWalletSeamsSessionExchangeResult,
   ReusableWalletSessionStatus,
+  LinkedDeviceWalletSessionAuthorization,
+  LinkedDeviceWalletSessionStatus,
   SessionOrigin,
   VerifiedAuthorizationEvidenceSet,
   WalletSessionAuthorization,
@@ -19,6 +21,8 @@ import type {
 import {
   buildActiveWalletSessionQuota,
   buildAuthorizedOperation,
+  buildLinkedDevicePrincipalId,
+  buildLinkedDeviceWalletSessionAuthorization,
   buildWalletSessionAuthorization,
   parseHostedWalletSeamsSessionExchangeCode,
   parseHostedWalletSeamsSessionExchangeNonce,
@@ -26,10 +30,12 @@ import {
   parseWalletSessionId,
 } from './domain';
 import {
+  buildLinkedDeviceWalletSessionAuthorizationRef,
   parseHostedWalletSessionExchangeCodeId,
   parseSeamsSessionId,
   parseWalletSessionAuthorizationId,
   type MpcWalletSigningQuotaId,
+  type LinkedDeviceWalletSessionAuthorizationId,
   type PrincipalId,
   type ReusableWalletSessionMintId,
   type SeamsSessionId,
@@ -53,7 +59,8 @@ import type {
   ParseAuthorizationEvidenceRequirementResult,
 } from './capabilityPolicy';
 import type { AuthorizationEvidenceRequirement } from '@shared/authorization/capabilityKinds';
-import type { WalletId } from '@shared/utils/domainIds';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import type { LinkedDeviceEnrollmentId, LinkedDeviceId, WalletId } from '@shared/utils/domainIds';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
@@ -99,6 +106,36 @@ export interface AuthorizationGrantPort {
     readonly mintId: ReusableWalletSessionMintId;
     readonly nowMs: number;
   }): Promise<IssuedReusableWalletSession | null>;
+  putLinkedDeviceWalletSessionAuthorization(input: {
+    readonly authorization: LinkedDeviceWalletSessionAuthorization;
+    readonly quota: ActiveWalletSessionQuota;
+  }): Promise<void>;
+  readLinkedDeviceWalletSessionAuthorization(input: {
+    readonly tenantId: TenantId;
+    readonly deviceId: LinkedDeviceId;
+    readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+    readonly walletSessionId: WalletSessionId;
+    readonly quotaId: MpcWalletSigningQuotaId;
+    readonly nowMs: number;
+  }): Promise<IssuedLinkedDeviceWalletSession | null>;
+  getLinkedDeviceWalletSessionStatus(input: {
+    readonly tenantId: TenantId;
+    readonly principalId: PrincipalId;
+    readonly deviceId: LinkedDeviceId;
+    readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+    readonly walletSessionId: WalletSessionId;
+    readonly quotaId: MpcWalletSigningQuotaId;
+    readonly nowMs: number;
+  }): Promise<LinkedDeviceWalletSessionStatus>;
+  revokeLinkedDeviceWalletSession(input: {
+    readonly tenantId: TenantId;
+    readonly principalId: PrincipalId;
+    readonly deviceId: LinkedDeviceId;
+    readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+    readonly walletSessionId: WalletSessionId;
+    readonly quotaId: MpcWalletSigningQuotaId;
+    readonly nowMs: number;
+  }): Promise<void>;
 }
 
 export interface AuthorizedOperationPort {
@@ -160,6 +197,27 @@ export type IssueReusableWalletSessionInput = {
 export type IssuedReusableWalletSession = {
   readonly session: WalletSessionAuthorization;
   readonly quota: ActiveWalletSessionQuota;
+};
+
+export type IssuedLinkedDeviceWalletSession = {
+  readonly authorization: LinkedDeviceWalletSessionAuthorization;
+  readonly quota: ActiveWalletSessionQuota;
+};
+
+export type IssueLinkedDeviceWalletSessionInput = {
+  readonly tenantId: TenantId;
+  readonly deviceId: LinkedDeviceId;
+  readonly walletId: WalletId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+  readonly keyManifestDigestB64u: DigestB64u;
+  readonly permission: LinkedDeviceWalletSessionAuthorization['permission'];
+  readonly revocationEpoch: number;
+  readonly remainingUses: number;
+  readonly issuedAtMs: number;
+  readonly expiresAtMs: number;
 };
 
 export class AuthorizationService {
@@ -364,6 +422,79 @@ export class AuthorizationService {
     readonly nowMs: number;
   }): Promise<IssuedReusableWalletSession | null> {
     return await this.ports.grants.readWalletSessionAuthorizationByMint(input);
+  }
+
+  async issueLinkedDeviceWalletSession(
+    input: IssueLinkedDeviceWalletSessionInput,
+  ): Promise<IssuedLinkedDeviceWalletSession> {
+    const authorization = buildLinkedDeviceWalletSessionAuthorization({
+      tenantId: input.tenantId,
+      authorizationGrantRef: buildLinkedDeviceWalletSessionAuthorizationRef(input.authorizationId),
+      walletId: input.walletId,
+      enrollmentId: input.enrollmentId,
+      deviceId: input.deviceId,
+      walletSessionId: input.walletSessionId,
+      quotaId: input.quotaId,
+      keyManifestDigestB64u: input.keyManifestDigestB64u,
+      permission: input.permission,
+      revocationEpoch: input.revocationEpoch,
+      issuedAtMs: input.issuedAtMs,
+      expiresAtMs: input.expiresAtMs,
+    });
+    const quota = buildActiveWalletSessionQuota({
+      tenantId: authorization.tenantId,
+      principalId: authorization.principalId,
+      walletSessionId: authorization.walletSessionId,
+      quotaId: authorization.quotaId,
+      remainingUses: input.remainingUses,
+      expiresAtMs: authorization.expiresAtMs,
+    });
+    await this.ports.grants.putLinkedDeviceWalletSessionAuthorization({
+      authorization,
+      quota,
+    });
+    const persisted = await this.ports.grants.readLinkedDeviceWalletSessionAuthorization({
+      tenantId: authorization.tenantId,
+      deviceId: authorization.deviceId,
+      authorizationId: authorization.authorizationGrantRef.authorizationId,
+      walletSessionId: authorization.walletSessionId,
+      quotaId: authorization.quotaId,
+      nowMs: input.issuedAtMs,
+    });
+    if (!persisted) {
+      throw new Error('linked-device Wallet Session authorization was not persisted');
+    }
+    return persisted;
+  }
+
+  async getLinkedDeviceWalletSessionStatus(input: {
+    readonly tenantId: TenantId;
+    readonly deviceId: LinkedDeviceId;
+    readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+    readonly walletSessionId: WalletSessionId;
+    readonly quotaId: MpcWalletSigningQuotaId;
+    readonly nowMs: number;
+  }): Promise<LinkedDeviceWalletSessionStatus> {
+    const principalId = buildLinkedDevicePrincipalId(input.deviceId);
+    return await this.ports.grants.getLinkedDeviceWalletSessionStatus({
+      ...input,
+      principalId,
+    });
+  }
+
+  async revokeLinkedDeviceWalletSession(input: {
+    readonly tenantId: TenantId;
+    readonly deviceId: LinkedDeviceId;
+    readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+    readonly walletSessionId: WalletSessionId;
+    readonly quotaId: MpcWalletSigningQuotaId;
+    readonly nowMs: number;
+  }): Promise<void> {
+    const principalId = buildLinkedDevicePrincipalId(input.deviceId);
+    await this.ports.grants.revokeLinkedDeviceWalletSession({
+      ...input,
+      principalId,
+    });
   }
 
   parseEvidenceRequirement(value: unknown): ParseAuthorizationEvidenceRequirementResult {
