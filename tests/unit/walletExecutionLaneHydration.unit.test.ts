@@ -18,6 +18,7 @@ function laneRaw(args: {
   laneShareEpoch?: string;
   activationReceiptDigestB64u: string;
   laneKind?: 'owner_passkey' | 'linked_device';
+  serverParticipantId?: string;
 }): Record<string, unknown> {
   const laneKind = args.laneKind ?? 'owner_passkey';
   return {
@@ -39,7 +40,7 @@ function laneRaw(args: {
     },
     serverParticipant: {
       kind: 'signing_worker_participant_v1',
-      participantId: 'worker:owner',
+      participantId: args.serverParticipantId ?? 'worker:owner',
       recipientKeyId: 'recipient:owner',
       hpkePublicKeyB64u: HPKE_PUBLIC_KEY_B64U,
       hpkePublicKeyDigestB64u: DIGEST_B64U,
@@ -102,6 +103,7 @@ function ed25519Input(): WalletExecutionLaneHydrationInput {
       walletKeyId,
       laneId: 'lane:owner',
       activationReceiptDigestB64u: DIGEST_B64U,
+      serverParticipantId: String(fixture.materialActivation.signingWorker),
     }),
     material: {
       keyFamily: 'ed25519',
@@ -146,6 +148,7 @@ function ecdsaInput(): WalletExecutionLaneHydrationInput {
       activationReceiptDigestB64u: String(
         manifest.activation.serverActivation.serverActivationReceipt.activationDigest,
       ),
+      serverParticipantId: String(manifest.activation.materialActivation.signingWorker),
     }),
     material: {
       keyFamily: 'ecdsa_secp256k1',
@@ -196,6 +199,7 @@ test.describe('R101 browser wallet execution lane hydration', () => {
         walletKeyId: 'wallet-key:ecdsa-owner',
         laneId: 'lane:owner',
         activationReceiptDigestB64u: DIGEST_B64U,
+        serverParticipantId: 'signing-worker-fixture',
       }),
     });
     expect(drifted).toMatchObject({
