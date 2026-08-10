@@ -224,7 +224,7 @@ export async function recoverWalletCustodyManifestV1(input: {
             applicationBindingDigestB64u:
               entry.recoveryBasis.publicCapability.context.application_binding_digest_b64u,
             registeredClientRootPublicKey33B64u: entry.recoveryBasis.clientRootPublicKey33B64u,
-            runRelayerRecoveryAndRefresh: async (bootstrap) => {
+            resolveRelayerPublicIdentity: async (bootstrap) => {
               requireMatchingEcdsaBootstrap({ entry, bootstrap });
               return JSON.stringify({
                 relayerKeyId:

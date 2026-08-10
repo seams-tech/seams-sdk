@@ -75,7 +75,6 @@ import {
   parseRouterAbEcdsaDerivationActivationRefreshRequestV1,
   parseRouterAbEcdsaDerivationExplicitExportRequestV1,
   parseRouterAbEcdsaDerivationExplicitExportProtocolRequestV1,
-  parseRouterAbEcdsaDerivationRecoveryRequestV1,
   type RouterAbEcdsaClientProofFinalizationV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
   type RouterAbEcdsaRegistrationRequestFactsV1,
@@ -197,12 +196,6 @@ type ActiveRouterAbEcdsaPostRegistrationCeremony =
       kind: 'explicit_export';
       ceremony: RouterAbEcdsaClientCeremonyV1;
       request: ReturnType<typeof parseRouterAbEcdsaDerivationExplicitExportRequestV1>;
-      requestDigestB64u: string;
-    }
-  | {
-      kind: 'recovery';
-      ceremony: RouterAbEcdsaClientCeremonyV1;
-      request: ReturnType<typeof parseRouterAbEcdsaDerivationRecoveryRequestV1>;
       requestDigestB64u: string;
     }
   | {
@@ -1001,24 +994,6 @@ function createRouterAbEcdsaPostRegistrationCeremony(
         };
         break;
       }
-      case 'create_router_ab_ecdsa_recovery_ceremony_v1': {
-        const recoveryRequest = parseRouterAbEcdsaDerivationRecoveryRequestV1(
-          JSON.parse(ceremony.build_recovery_request(JSON.stringify(request.request))),
-        );
-        result = {
-          kind: 'router_ab_ecdsa_recovery_ceremony_created_v1',
-          ceremonyId,
-          request: recoveryRequest,
-          requestDigestB64u: ceremony.recovery_request_digest_b64u(),
-        };
-        active = {
-          kind: 'recovery',
-          ceremony,
-          request: recoveryRequest,
-          requestDigestB64u: result.requestDigestB64u,
-        };
-        break;
-      }
       case 'create_router_ab_ecdsa_activation_refresh_ceremony_v1': {
         const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(
           request.publicCapability,
@@ -1180,9 +1155,7 @@ function verifyRouterAbEcdsaPostRegistrationProofs(
   }
   try {
     active.ceremony.verify_encrypted_proof_bundles(JSON.stringify(request.clientProofFinalization));
-    return active.kind === 'recovery'
-      ? { kind: 'router_ab_ecdsa_recovery_proofs_verified_v1', ceremonyId }
-      : { kind: 'router_ab_ecdsa_activation_refresh_proofs_verified_v1', ceremonyId };
+    return { kind: 'router_ab_ecdsa_activation_refresh_proofs_verified_v1', ceremonyId };
   } finally {
     closeRouterAbEcdsaPostRegistrationCeremonyState(ceremonyId, active);
   }
