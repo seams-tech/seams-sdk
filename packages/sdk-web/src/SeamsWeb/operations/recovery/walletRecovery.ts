@@ -80,11 +80,7 @@ type RecoveryOperation =
 
 function createReservationId(): RecoveryCodeReservationId {
   return parseRecoveryCodeReservationId(
-    secureRandomId(
-      'wallet-recovery-reservation',
-      32,
-      'wallet recovery operation reservations',
-    ),
+    secureRandomId('wallet-recovery-reservation', 32, 'wallet recovery operation reservations'),
   );
 }
 
@@ -112,9 +108,7 @@ async function persistRecoveredNearKeySet(input: {
       nearEd25519SigningKeyId: application.near_ed25519_signing_key_id,
       signerSlot: application.key_creation_signer_slot,
       signingWorkerId: metadata.scope.signing_worker_id,
-      signingWorkerVerifyingShareB64u: base64UrlEncode(
-        metadata.signingWorkerVerifyingShare,
-      ),
+      signingWorkerVerifyingShareB64u: base64UrlEncode(metadata.signingWorkerVerifyingShare),
     },
     sealed: {
       ciphertextB64u: input.recovered.localMaterial.b64u,
@@ -140,8 +134,8 @@ async function persistRecoveredEcdsaKeySet(input: {
     ecdsaThresholdKeyId: basis.ecdsaThresholdKeyId,
     signingRootId: basis.signingRootId,
     signingRootVersion: basis.signingRootVersion,
-    relayerKeyId: input.recovered.activation.activationReceipt.ecdsa_activation.signing_worker
-      .server_id,
+    relayerKeyId:
+      input.recovered.activation.activationReceipt.ecdsa_activation.signing_worker.server_id,
     participantIds: basis.participantIds,
     publicCapability: input.recovered.activation.publicCapability,
     activationReceipt: input.recovered.activation.activationReceipt,
@@ -300,6 +294,10 @@ export class WalletRecoveryCoordinator {
         recoveryAuthorizationToken: operation.prepared.recoveryAuthorizationToken,
         webauthnRegistration: operation.replacement.registration,
         replacementEnvelope: operation.recovered.replacementEnvelope,
+        ecdsaMaterialPossessionProofs: operation.recovered.ecdsaKeySets.map((keySet) => ({
+          keySetId: keySet.entry.keySetId,
+          proof: keySet.activation.possessionProof,
+        })),
       });
       if (finalized.kind !== 'promoted') return finalized;
       const localContinuity = await persistRecoveredLocalContinuity({
@@ -314,9 +312,7 @@ export class WalletRecoveryCoordinator {
         storeVersion: finalized.storeVersion,
         retiredEnvelopeIds: finalized.retiredEnvelopeIds,
         retireFailures: finalized.retireFailures,
-        recoveredKeySetIds: operation.prepared.keyManifest.entries.map(
-          (entry) => entry.keySetId,
-        ),
+        recoveredKeySetIds: operation.prepared.keyManifest.entries.map((entry) => entry.keySetId),
         localContinuity,
       };
       this.#operations.delete(operation.recoveryOperationId);

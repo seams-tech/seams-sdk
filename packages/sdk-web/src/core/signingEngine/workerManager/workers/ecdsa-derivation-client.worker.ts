@@ -4,6 +4,7 @@ import initEcdsaDerivationClient, {
   finalize_ecdsa_client_bootstrap_v1,
   open_ecdsa_role_local_signing_share_v1,
   prepare_ecdsa_client_bootstrap_v1,
+  sign_ecdsa_wallet_recovery_material_possession_proof_v1,
   RouterAbEcdsaClientCeremonyV1,
 } from '../../../../../../../wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
@@ -23,6 +24,10 @@ import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { parseRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
 import { errorLogSummary, safeErrorMessage } from '@shared/utils/errors';
 import { alphabetizeStringify } from '@shared/utils/digests';
+import {
+  parseWalletRecoveryEcdsaPossessionProofV1,
+  type WalletRecoveryEcdsaPossessionProofV1,
+} from '@shared/wallet-recovery/walletRecoveryEcdsaPossession';
 import {
   EcdsaDerivationClientCustomRequestType,
   EcdsaDerivationClientCustomResponseType,
@@ -45,6 +50,8 @@ import {
   type RehydrateEcdsaRoleLocalSigningMaterialResultV1,
   type VerifyRouterAbEcdsaPostRegistrationProofsRequestV1,
   type VerifyRouterAbEcdsaPostRegistrationProofsResultV1,
+  type SignWalletRecoveryEcdsaMaterialPossessionProofRequestV1,
+  type SignWalletRecoveryEcdsaMaterialPossessionProofResultV1,
 } from '../ecdsaClientWorkerChannels';
 import type {
   CloseRouterAbEcdsaRegistrationCeremonyRequestV1,
@@ -1074,9 +1081,7 @@ async function finalizeRouterAbEcdsaExplicitExport(
     throw new Error('ECDSA explicit export finalization requires an active export ceremony');
   }
   try {
-    active.ceremony.verify_encrypted_proof_bundles(
-      JSON.stringify(request.clientProofFinalization),
-    );
+    active.ceremony.verify_encrypted_proof_bundles(JSON.stringify(request.clientProofFinalization));
     const exportBinding = {
       wallet_id: String(request.publicFacts.walletId),
       key_handle: request.publicFacts.keyHandle,
@@ -1174,9 +1179,7 @@ function verifyRouterAbEcdsaPostRegistrationProofs(
     throw new Error('ECDSA explicit export proofs require export finalization');
   }
   try {
-    active.ceremony.verify_encrypted_proof_bundles(
-      JSON.stringify(request.clientProofFinalization),
-    );
+    active.ceremony.verify_encrypted_proof_bundles(JSON.stringify(request.clientProofFinalization));
     return active.kind === 'recovery'
       ? { kind: 'router_ab_ecdsa_recovery_proofs_verified_v1', ceremonyId }
       : { kind: 'router_ab_ecdsa_activation_refresh_proofs_verified_v1', ceremonyId };
@@ -1213,6 +1216,78 @@ function storeEcdsaRoleLocalSigningMaterial(payload: unknown): StoredEcdsaRoleLo
   };
   ecdsaRoleLocalSigningMaterialStore.set(materialHandle, stored);
   return stored;
+}
+
+function signWalletRecoveryEcdsaMaterialPossessionProof(
+  request: SignWalletRecoveryEcdsaMaterialPossessionProofRequestV1,
+): SignWalletRecoveryEcdsaMaterialPossessionProofResultV1 {
+  if (request.kind !== 'sign_wallet_recovery_ecdsa_material_possession_proof_v1') {
+    throw new Error('wallet recovery ECDSA possession proof request kind is invalid');
+  }
+  const rustChallenge = {
+    kind: 'seams_wallet_recovery_ecdsa_existing_material_possession_challenge_v1' as const,
+    walletId: request.challenge.walletId,
+    reservationId: request.challenge.reservationId,
+    replacementId: request.challenge.replacementId,
+    keySetId: request.challenge.keySetId,
+    keyHandle: request.challenge.keyHandle,
+    recordedKeyManifestDigestB64u: request.challenge.recordedKeyManifestDigestB64u,
+    publicCapabilityDigestB64u: request.challenge.publicCapabilityDigestB64u,
+    authorityRefDigestB64u: request.challenge.authorityRefDigestB64u,
+    derivationClientSharePublicKey33B64u: request.challenge.derivationClientSharePublicKey33B64u,
+    expectedServerGeneration: request.challenge.expectedServerGeneration,
+    serverNonceB64u: request.challenge.serverNonceB64u,
+    expiresAtMs: request.challenge.expiresAtMs,
+  };
+  const output = requireRecordPayload(
+    JSON.parse(
+      sign_ecdsa_wallet_recovery_material_possession_proof_v1(
+        JSON.stringify({
+          stateBlobB64u: request.stateBlob.stateBlobB64u,
+          challenge: rustChallenge,
+        }),
+      ),
+    ),
+  );
+  requireExactKeys(
+    output,
+    [
+      'kind',
+      'scheme',
+      'signature64B64u',
+      'challengeDigestB64u',
+      'derivationClientSharePublicKey33B64u',
+    ],
+    'wallet recovery ECDSA possession proof',
+  );
+  if (output.kind !== 'wallet_recovery_ecdsa_possession_proof_v1') {
+    throw new Error('wallet recovery ECDSA possession proof kind changed');
+  }
+  if (output.scheme !== 'secp256k1_bip340_sha256_v1') {
+    throw new Error('wallet recovery ECDSA possession proof scheme changed');
+  }
+  if (
+    output.derivationClientSharePublicKey33B64u !==
+    request.challenge.derivationClientSharePublicKey33B64u
+  ) {
+    throw new Error('wallet recovery ECDSA possession proof changed its client public key');
+  }
+  const challengeDigestB64u = parseDigestB64u(readNonEmptyString(output, 'challengeDigestB64u'));
+  const derivationClientSharePublicKey33B64u = readNonEmptyString(
+    output,
+    'derivationClientSharePublicKey33B64u',
+  );
+  const proof: WalletRecoveryEcdsaPossessionProofV1 = parseWalletRecoveryEcdsaPossessionProofV1({
+    kind: output.kind,
+    scheme: output.scheme,
+    signature64B64u: output.signature64B64u,
+  });
+  return {
+    kind: 'ecdsa_wallet_recovery_material_possession_proof_v1',
+    proof,
+    challengeDigestB64u,
+    derivationClientSharePublicKey33B64u,
+  };
 }
 
 function openEcdsaRoleLocalAdditiveShareFromHandle(payload: unknown): unknown {
@@ -1583,6 +1658,7 @@ async function initializeEcdsaDerivationOperationWasm(
     case EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap:
     case EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap:
     case EcdsaDerivationClientCustomRequestType.BuildThresholdEcdsaDerivationRoleLocalExportArtifact:
+    case EcdsaDerivationClientCustomRequestType.SignWalletRecoveryEcdsaMaterialPossessionProof:
       await initializeEcdsaDerivationClientWasm();
       return;
     case EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaRegistrationCeremony:
@@ -1689,6 +1765,13 @@ async function executeEcdsaDerivationRequest(
           payload as RehydrateEcdsaRoleLocalSigningMaterialRequestV1,
         ),
       };
+    case EcdsaDerivationClientCustomRequestType.SignWalletRecoveryEcdsaMaterialPossessionProof:
+      return {
+        type: EcdsaDerivationClientCustomResponseType.SignWalletRecoveryEcdsaMaterialPossessionProofSuccess,
+        payload: signWalletRecoveryEcdsaMaterialPossessionProof(
+          payload as SignWalletRecoveryEcdsaMaterialPossessionProofRequestV1,
+        ),
+      };
     case EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap:
       return {
         type: EcdsaDerivationClientCustomResponseType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
@@ -1725,6 +1808,7 @@ function parseEcdsaDerivationOperationType(value: unknown): EcdsaDerivationWorke
     case EcdsaDerivationClientCustomRequestType.CloseRouterAbEcdsaPostRegistrationCeremony:
     case EcdsaDerivationClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial:
     case EcdsaDerivationClientCustomRequestType.RehydrateEcdsaRoleLocalSigningMaterial:
+    case EcdsaDerivationClientCustomRequestType.SignWalletRecoveryEcdsaMaterialPossessionProof:
     case EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap:
     case EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap:
     case EcdsaDerivationClientCustomRequestType.BuildThresholdEcdsaDerivationRoleLocalExportArtifact:
