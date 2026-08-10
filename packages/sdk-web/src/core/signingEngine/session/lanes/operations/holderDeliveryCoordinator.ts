@@ -122,6 +122,7 @@ function sealedStateFromRecord(
     targetLaneShareEpoch: record.laneShareEpoch,
     targetMaterialActivationId: record.targetMaterialActivationId,
     holderParticipantBindingDigestB64u: record.holderParticipantBindingDigestB64u,
+    custodyBindingId: record.custodyBindingId,
     holderRecipientKeyDigestB64u: record.holderRecipientKeyDigestB64u,
     holderCiphertextDigestSetB64u: record.holderCiphertextDigestSetB64u,
     sealedHolderRecordDigestB64u: record.sealedHolderRecordDigestB64u,

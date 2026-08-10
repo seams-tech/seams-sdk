@@ -35,6 +35,7 @@ import type {
   HpkePublicKeyDigestB64u,
   LaneCustodyBindingDigestB64u,
   LaneParticipantBindingDigestB64u,
+  LaneHolderCustodyBindingId,
   SigningWorkerParticipantId,
   SigningWorkerRecipientKeyId,
 } from './participants';
@@ -75,6 +76,7 @@ export type ActiveLaneProtocolSourceV1 = {
 export type LaneTargetHolderV1 = {
   participantId: LaneHolderParticipantId;
   participantBindingDigestB64u: LaneParticipantBindingDigestB64u;
+  custodyBindingId: LaneHolderCustodyBindingId;
   custodyBindingDigestB64u: LaneCustodyBindingDigestB64u;
   hpkePublicKeyB64u: HpkePublicKeyB64u;
   hpkePublicKeyDigestB64u: HpkePublicKeyDigestB64u;
@@ -866,6 +868,7 @@ export type LaneHolderRecipientWorkerV1 = {
     targetLaneShareEpoch: LaneShareEpoch;
     targetHolderParticipantId: LaneHolderParticipantId;
     targetHolderParticipantBindingDigestB64u: LaneParticipantBindingDigestB64u;
+    custodyBindingId: LaneHolderCustodyBindingId;
     custodyBindingDigestB64u: LaneCustodyBindingDigestB64u;
   }): Promise<LaneHolderRecipientDescriptorV1>;
   openAndSealLaneHolderPackageV1(input: {

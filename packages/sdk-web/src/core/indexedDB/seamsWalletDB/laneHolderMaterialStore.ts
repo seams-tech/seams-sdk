@@ -17,6 +17,10 @@ import {
   type WalletId,
 } from '@shared/utils/domainIds';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import {
+  parseLaneHolderCustodyBindingId,
+  type LaneHolderCustodyBindingId,
+} from '@shared/signing-lanes/participants';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import {
   signingSessionSealsRepository,
@@ -33,6 +37,7 @@ export type LaneSealedHolderRecordV1 = {
   readonly laneShareEpoch: LaneShareEpoch;
   readonly targetMaterialActivationId: MpcMaterialActivationId;
   readonly holderParticipantBindingDigestB64u: string;
+  readonly custodyBindingId: LaneHolderCustodyBindingId;
   readonly holderRecipientKeyDigestB64u: string;
   readonly holderCiphertextDigestSetB64u: string;
   readonly sealedHolderRecordDigestB64u: string;
@@ -66,14 +71,14 @@ function nonEmpty(value: unknown, label: string): string {
 }
 
 function storeKey(input: LaneSealedHolderRecordLookupV1): string {
-  return [
+  return JSON.stringify([
     STORE_KEY_PREFIX,
     nonEmpty(input.enrollmentId, 'enrollmentId'),
     nonEmpty(input.operationId, 'operationId'),
     nonEmpty(input.targetLaneId, 'targetLaneId'),
     nonEmpty(input.targetLaneShareEpoch, 'targetLaneShareEpoch'),
     nonEmpty(input.targetMaterialActivationId, 'targetMaterialActivationId'),
-  ].join(':');
+  ]);
 }
 
 function assertSafeTimestamp(value: unknown, label: string): number {
@@ -124,6 +129,7 @@ function parseRecord(value: unknown): LaneSealedHolderRecordV1 {
     'laneShareEpoch',
     'targetMaterialActivationId',
     'holderParticipantBindingDigestB64u',
+    'custodyBindingId',
     'holderRecipientKeyDigestB64u',
     'holderCiphertextDigestSetB64u',
     'sealedHolderRecordDigestB64u',
@@ -157,6 +163,10 @@ function parseRecord(value: unknown): LaneSealedHolderRecordV1 {
     holderParticipantBindingDigestB64u: parsedDigest(
       record.holderParticipantBindingDigestB64u,
       'holderParticipantBindingDigestB64u',
+    ),
+    custodyBindingId: parsed(
+      parseLaneHolderCustodyBindingId(record.custodyBindingId),
+      'custodyBindingId',
     ),
     holderRecipientKeyDigestB64u: parsedDigest(
       record.holderRecipientKeyDigestB64u,
@@ -226,8 +236,8 @@ export class LaneSealedHolderMaterialRepository implements LaneSealedHolderMater
     if (current && JSON.stringify(current) !== JSON.stringify(record)) {
       throw new Error('lane sealed holder record conflicts with its exact store key');
     }
-    this.volatileRecords.set(key, record);
     await this.seals.putSealedRecord(rowForRecord(record));
+    this.volatileRecords.set(key, record);
   }
 
   async get(input: LaneSealedHolderRecordLookupV1): Promise<LaneSealedHolderRecordV1 | null> {
