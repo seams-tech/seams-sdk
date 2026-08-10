@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS lane_product_epochs (
   CHECK (length(participant_set_binding_digest_b64u) > 0),
   CHECK (revocation_epoch >= 0),
   CHECK (json_valid(product_json)),
-  CHECK (state IN ('pending_visibility', 'active', 'retired', 'revoked')),
+  CHECK (state IN ('pending_visibility', 'active', 'retired', 'revocation_pending', 'revoked')),
   CHECK (lane_kind IN ('owner_passkey', 'owner_email_otp', 'linked_device', 'delegated_execution', 'recovery', 'break_glass')),
   CHECK (length(command_digest_b64u) > 0),
   CHECK (version > 0),

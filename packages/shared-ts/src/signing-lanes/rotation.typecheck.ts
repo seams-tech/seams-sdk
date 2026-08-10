@@ -6,6 +6,8 @@ import type {
   LaneHolderPackageWireV1,
   LaneProductEpochActiveV1,
   LaneProductEpochPendingVisibilityV1,
+  LaneProductEpochRevocationPendingV1,
+  LaneProductEpochRevokedV1,
   LaneRefreshTargetV1,
 } from './rotation';
 import type { MpcMaterialActivationRef } from '../utils/domainIds';
@@ -17,6 +19,8 @@ declare const ed25519CreationJob: Ed25519YaoLaneCreationJobV1;
 declare const ecdsaCreationJob: EcdsaAdditiveLaneCreationJobV1;
 declare const activeEpoch: LaneProductEpochActiveV1;
 declare const pendingEpoch: LaneProductEpochPendingVisibilityV1;
+declare const revocationPendingEpoch: LaneProductEpochRevocationPendingV1;
+declare const revokedEpoch: LaneProductEpochRevokedV1;
 
 // Creation never carries a prior activation. Refresh always carries one.
 const invalidCreationTarget: LaneCreationTargetV1 = {
@@ -66,6 +70,15 @@ const invalidPendingEpoch: LaneProductEpochPendingVisibilityV1 = {
   activatedAtMs: 1,
 };
 
+const invalidRevocationPendingReceipt: LaneProductEpochRevocationPendingV1 = {
+  ...revocationPendingEpoch,
+  // @ts-expect-error pending revocation cannot claim a participant retirement receipt
+  revocationReceiptDigestB64u: revokedEpoch.revocationReceiptDigestB64u,
+};
+
+// @ts-expect-error a fenced lane is not fully revoked until a participant receipt is committed
+const invalidCompletedRevocation: LaneProductEpochRevokedV1 = revocationPendingEpoch;
+
 void invalidCreationTarget;
 void invalidRefreshTarget;
 void invalidCurveJob;
@@ -74,6 +87,8 @@ void invalidActiveEpoch;
 void invalidActiveEpochParticipantSet;
 void invalidActiveEpochRevocationEpoch;
 void invalidPendingEpoch;
+void invalidRevocationPendingReceipt;
+void invalidCompletedRevocation;
 
 // @ts-expect-error Ed25519 holder packages cannot carry ECDSA envelopes
 const invalidEd25519HolderPackage: LaneHolderPackageWireV1 = {

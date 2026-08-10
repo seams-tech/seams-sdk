@@ -3,6 +3,7 @@ import {
   buildLaneProductEpochRevokedV1,
   parseAggregateLaneActivationReceiptV1,
   parseAggregateLaneRevocationReceiptV1,
+  parseCompleteSigningLaneRevocationV1,
   parseLaneEnrollmentManifestV1,
   parseLaneProtocolCommitReceiptV1,
   parseLaneHolderDeliveryReceiptV1,
@@ -12,8 +13,9 @@ import {
 } from '@shared/signing-lanes/rotationParsers';
 import {
   activateLaneProductEpochV1,
+  beginLaneProductEpochRevocationV1,
+  completeLaneProductEpochRevocationV1,
   retireLaneProductEpochV1,
-  revokeLaneProductEpochV1,
   transitionLaneEnrollmentLifecycleV1,
 } from '@shared/signing-lanes/rotationLifecycle';
 import {
@@ -68,6 +70,7 @@ import type {
   LaneProtocolAdmissionRecord,
   LaneProtocolLifecycleCasInput,
   LaneSigningLaneRevocationCommitInput,
+  LaneSigningLaneRevocationFenceMutationResult,
   LaneSigningLaneRevocationMutationResult,
 } from '../../../../core/signingLanes/LaneLifecycleStore';
 import { d1ChangedRows } from '../../../../storage/d1Sql';
@@ -543,9 +546,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
       protocolReceipt: commitReceipt,
       holderReceipt,
       serverReceipt: receipt,
-      manifestDigestB64u: await computeLaneEnrollmentManifestDigestV1(
-        enrollment.value.manifest,
-      ),
+      manifestDigestB64u: await computeLaneEnrollmentManifestDigestV1(enrollment.value.manifest),
     });
     const result = await this.putReceipt(
       receipt.operationId,
@@ -858,10 +859,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
         String(product.laneShareEpoch) !== String(child.targetLaneShareEpoch) ||
         String(product.targetMaterialActivationId) !==
           String(child.targetMaterialActivation.activationId) ||
-        !mpcMaterialActivationRefsEqual(
-          product.materialActivation,
-          child.targetMaterialActivation,
-        )
+        !mpcMaterialActivationRefsEqual(product.materialActivation, child.targetMaterialActivation)
       )
         throw new Error(
           'lane child product epoch is not pending or differs from aggregate receipt',
@@ -1027,7 +1025,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
 
   async fenceLaneRevocation(
     input: RevokeSigningLaneV1,
-  ): Promise<LaneSigningLaneRevocationMutationResult> {
+  ): Promise<LaneSigningLaneRevocationFenceMutationResult> {
     const command = parseRevokeSigningLaneV1(input);
     const commandDigestB64u = await computeRevokeSigningLaneDigestV1(command);
     const row = await this.database
@@ -1075,6 +1073,23 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
     if (product.state === 'revoked') {
       if (storedDigest === commandDigestB64u) {
         return {
+          outcome: 'already_completed',
+          version,
+          commandDigestB64u: storedDigest,
+          productEpoch: product,
+        };
+      }
+      return {
+        outcome: 'conflict',
+        expectedVersion: version,
+        actualVersion: version,
+        requestedCommandDigestB64u: commandDigestB64u,
+        storedCommandDigestB64u: storedDigest,
+      };
+    }
+    if (product.state === 'revocation_pending') {
+      if (storedDigest === commandDigestB64u) {
+        return {
           outcome: 'replayed',
           version,
           commandDigestB64u: storedDigest,
@@ -1089,7 +1104,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
         storedCommandDigestB64u: storedDigest,
       };
     }
-    return await this.commitLaneRevocation({
+    return await this.commitLaneRevocationFence({
       command,
       expectedVersion: version,
       commandDigestB64u,
@@ -1240,9 +1255,11 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
     };
   }
 
-  async commitLaneRevocation(
-    input: LaneSigningLaneRevocationCommitInput,
-  ): Promise<LaneSigningLaneRevocationMutationResult> {
+  private async commitLaneRevocationFence(input: {
+    readonly command: RevokeSigningLaneV1;
+    readonly expectedVersion: number;
+    readonly commandDigestB64u: string;
+  }): Promise<LaneSigningLaneRevocationFenceMutationResult> {
     const command = parseRevokeSigningLaneV1(input.command);
     const row = await this.database
       .prepare(
@@ -1281,6 +1298,13 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
     }
     if (product.state === 'revoked' && storedDigest === input.commandDigestB64u)
       return {
+        outcome: 'already_completed',
+        version: currentVersion,
+        commandDigestB64u: storedDigest,
+        productEpoch: product,
+      };
+    if (product.state === 'revocation_pending' && storedDigest === input.commandDigestB64u)
+      return {
         outcome: 'replayed',
         version: currentVersion,
         commandDigestB64u: storedDigest,
@@ -1288,6 +1312,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
       };
     if (
       product.state !== 'revoked' &&
+      product.state !== 'revocation_pending' &&
       product.revocationEpoch !== command.expectedRevocationEpoch
     ) {
       return {
@@ -1319,20 +1344,20 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
         storedCommandDigestB64u: storedDigest,
       };
     }
-    const revoked = revokeLaneProductEpochV1(product, {
+    const pending = beginLaneProductEpochRevocationV1(product, {
       revocationEpoch: command.expectedRevocationEpoch + 1,
       revocationReason: command.reason,
-      revocationReceiptDigestB64u: command.retirementEffectBindingDigestB64u,
-      revokedAtMs: command.requestedAtMs,
+      retirementEffectBindingDigestB64u: command.retirementEffectBindingDigestB64u,
+      revocationRequestedAtMs: command.requestedAtMs,
     });
     const result = await this.database
       .prepare(
-        `UPDATE ${PRODUCT_TABLE} SET state = 'revoked', revocation_epoch = ?5, product_json = ?6, version = version + 1, command_digest_b64u = ?7, updated_at_ms = ?8 WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4 AND wallet_key_id = ?9 AND lane_id = ?10 AND lane_share_epoch = ?11 AND version = ?12 AND state IN ('active', 'pending_visibility')`,
+        `UPDATE ${PRODUCT_TABLE} SET state = 'revocation_pending', revocation_epoch = ?5, product_json = ?6, version = version + 1, command_digest_b64u = ?7, updated_at_ms = ?8 WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4 AND wallet_key_id = ?9 AND lane_id = ?10 AND lane_share_epoch = ?11 AND version = ?12 AND state IN ('active', 'pending_visibility')`,
       )
       .bind(
         ...scopeValues(this.scope),
         command.expectedRevocationEpoch + 1,
-        JSON.stringify(revoked),
+        JSON.stringify(pending),
         input.commandDigestB64u,
         command.requestedAtMs,
         String(command.walletKeyId),
@@ -1360,7 +1385,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
       const racedProduct = raced ? parseProductEpochRecordV1(raced.product_json) : null;
       const racedDigest =
         typeof raced?.command_digest_b64u === 'string' ? raced.command_digest_b64u : '';
-      if (racedProduct?.state === 'revoked' && racedDigest === input.commandDigestB64u)
+      if (racedProduct?.state === 'revocation_pending' && racedDigest === input.commandDigestB64u)
         return {
           outcome: 'replayed',
           version: Number(raced?.version),
@@ -1379,6 +1404,127 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
       outcome: 'applied',
       version: input.expectedVersion + 1,
       commandDigestB64u: input.commandDigestB64u,
+      productEpoch: pending,
+    };
+  }
+
+  async commitLaneRevocation(
+    input: LaneSigningLaneRevocationCommitInput,
+  ): Promise<LaneSigningLaneRevocationMutationResult> {
+    const completion = parseCompleteSigningLaneRevocationV1(input.completion);
+    const command = parseRevokeSigningLaneV1(completion.command);
+    const computedCommandDigest = await computeRevokeSigningLaneDigestV1(command);
+    if (computedCommandDigest !== completion.commandDigestB64u)
+      throw new Error('lane revocation completion command digest is invalid');
+    const row = await this.database
+      .prepare(
+        `SELECT product_json, version, command_digest_b64u FROM ${PRODUCT_TABLE} WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4 AND wallet_key_id = ?5 AND lane_id = ?6 AND lane_share_epoch = ?7`,
+      )
+      .bind(
+        ...scopeValues(this.scope),
+        String(command.walletKeyId),
+        String(command.laneId),
+        String(command.laneShareEpoch),
+      )
+      .first<{
+        readonly product_json?: unknown;
+        readonly version?: unknown;
+        readonly command_digest_b64u?: unknown;
+      }>();
+    if (!row)
+      return {
+        outcome: 'conflict',
+        expectedVersion: completion.expectedVersion,
+        actualVersion: 0,
+        requestedCommandDigestB64u: completion.commandDigestB64u,
+        storedCommandDigestB64u: '',
+      };
+    const product = parseLaneProductEpochRecordV1(
+      parseJsonRecord(row.product_json, 'product_json'),
+    );
+    const currentVersion = parseVersion(row.version, 'lane product epoch version');
+    const storedDigest = parseRequiredString(
+      row.command_digest_b64u,
+      'lane product epoch command digest',
+    );
+    if (
+      product.state === 'revoked' &&
+      storedDigest === completion.commandDigestB64u &&
+      product.retirementEffectBindingDigestB64u === command.retirementEffectBindingDigestB64u &&
+      product.revocationReceiptDigestB64u === completion.retirementReceiptDigestB64u
+    )
+      return {
+        outcome: 'replayed',
+        version: currentVersion,
+        commandDigestB64u: storedDigest,
+        productEpoch: product,
+      };
+    if (
+      product.state !== 'revocation_pending' ||
+      currentVersion !== completion.expectedVersion ||
+      storedDigest !== completion.commandDigestB64u ||
+      product.retirementEffectBindingDigestB64u !== command.retirementEffectBindingDigestB64u ||
+      product.revocationEpoch !== command.expectedRevocationEpoch + 1
+    )
+      return {
+        outcome: 'conflict',
+        expectedVersion: completion.expectedVersion,
+        actualVersion: currentVersion,
+        requestedCommandDigestB64u: completion.commandDigestB64u,
+        storedCommandDigestB64u: storedDigest,
+      };
+    const revoked = parseLaneProductEpochRecordV1(
+      completeLaneProductEpochRevocationV1(product, {
+        revocationReceiptDigestB64u: completion.retirementReceiptDigestB64u,
+        revokedAtMs: completion.revokedAtMs,
+      }),
+    );
+    if (revoked.state !== 'revoked') throw new Error('lane revocation completion state changed');
+    const result = await this.database
+      .prepare(
+        `UPDATE ${PRODUCT_TABLE} SET state = 'revoked', product_json = ?5, version = version + 1, updated_at_ms = ?6 WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4 AND wallet_key_id = ?7 AND lane_id = ?8 AND lane_share_epoch = ?9 AND version = ?10 AND state = 'revocation_pending' AND command_digest_b64u = ?11`,
+      )
+      .bind(
+        ...scopeValues(this.scope),
+        JSON.stringify(revoked),
+        completion.revokedAtMs,
+        String(command.walletKeyId),
+        String(command.laneId),
+        String(command.laneShareEpoch),
+        completion.expectedVersion,
+        completion.commandDigestB64u,
+      )
+      .run();
+    if (d1ChangedRows(result) !== 1) {
+      const raced = await this.getProductEpoch({
+        walletId: command.walletId,
+        walletKeyId: command.walletKeyId,
+        laneId: command.laneId,
+        laneShareEpoch: command.laneShareEpoch,
+      });
+      if (
+        raced?.state === 'revoked' &&
+        raced.retirementEffectBindingDigestB64u === command.retirementEffectBindingDigestB64u &&
+        raced.revocationReceiptDigestB64u === completion.retirementReceiptDigestB64u
+      )
+        return {
+          outcome: 'replayed',
+          version: completion.expectedVersion + 1,
+          commandDigestB64u: completion.commandDigestB64u,
+          productEpoch: raced,
+        };
+      return {
+        outcome: 'conflict',
+        expectedVersion: completion.expectedVersion,
+        actualVersion: completion.expectedVersion,
+        requestedCommandDigestB64u: completion.commandDigestB64u,
+        storedCommandDigestB64u: storedDigest,
+      };
+    }
+    return {
+      outcome: 'applied',
+      version: completion.expectedVersion + 1,
+      commandDigestB64u: completion.commandDigestB64u,
       productEpoch: revoked,
     };
   }
@@ -1436,7 +1582,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
         product,
       ): product is Extract<
         LaneProductEpochRecordV1,
-        { state: 'pending_visibility' | 'active' | 'revoked' }
+        { state: 'pending_visibility' | 'active' | 'revocation_pending' | 'revoked' }
       > => product.state !== 'retired',
     );
     if (productEpochs.length !== receipt.orderedChildReceipts.length)
@@ -1476,6 +1622,10 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
           createdAtMs: product.createdAtMs,
           revocationEpoch: child.revocationEpoch,
           revocationReason: 'user_revoked',
+          retirementEffectBindingDigestB64u:
+            product.state === 'revocation_pending'
+              ? product.retirementEffectBindingDigestB64u
+              : aggregateDigest,
           revocationReceiptDigestB64u: child.retirementReceiptDigestB64u,
           revokedAtMs: input.command.revokedAtMs,
         }),

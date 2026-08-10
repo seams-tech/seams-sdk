@@ -518,6 +518,8 @@ export type LaneProductEpochPendingVisibilityV1 = LaneProductEpochRecordCommonV1
   revokedAtMs?: never;
   revocationReason?: never;
   revocationReceiptDigestB64u?: never;
+  retirementEffectBindingDigestB64u?: never;
+  revocationRequestedAtMs?: never;
 };
 
 export type LaneProductEpochActiveV1 = LaneProductEpochRecordCommonV1 & {
@@ -535,6 +537,8 @@ export type LaneProductEpochActiveV1 = LaneProductEpochRecordCommonV1 & {
   revokedAtMs?: never;
   revocationReason?: never;
   revocationReceiptDigestB64u?: never;
+  retirementEffectBindingDigestB64u?: never;
+  revocationRequestedAtMs?: never;
 };
 
 export type LaneProductEpochRetiredV1 = LaneProductEpochRecordCommonV1 & {
@@ -552,6 +556,32 @@ export type LaneProductEpochRetiredV1 = LaneProductEpochRecordCommonV1 & {
   revokedAtMs?: never;
   revocationReason?: never;
   revocationReceiptDigestB64u?: never;
+  retirementEffectBindingDigestB64u?: never;
+  revocationRequestedAtMs?: never;
+};
+
+export type LaneProductEpochRevocationPendingV1 = LaneProductEpochRecordCommonV1 & {
+  state: 'revocation_pending';
+  revocationReason:
+    | 'user_revoked'
+    | 'policy_revoked'
+    | 'device_compromise'
+    | 'agent_compromise'
+    | 'rotation';
+  retirementEffectBindingDigestB64u: string;
+  revocationRequestedAtMs: number;
+  pendingSinceMs?: never;
+  aggregateManifestDigestB64u?: never;
+  protocolCommitReceiptDigestB64u?: never;
+  holderDeliveryReceiptDigestB64u?: never;
+  serverActivationReceiptDigestB64u?: never;
+  aggregateActivationReceiptDigestB64u?: never;
+  activatedAtMs?: never;
+  retiredAtMs?: never;
+  retirementReason?: never;
+  retirementReceiptDigestB64u?: never;
+  revokedAtMs?: never;
+  revocationReceiptDigestB64u?: never;
 };
 
 export type LaneProductEpochRevokedV1 = LaneProductEpochRecordCommonV1 & {
@@ -562,6 +592,7 @@ export type LaneProductEpochRevokedV1 = LaneProductEpochRecordCommonV1 & {
     | 'device_compromise'
     | 'agent_compromise'
     | 'rotation';
+  retirementEffectBindingDigestB64u: string;
   revocationReceiptDigestB64u: string;
   revokedAtMs: number;
   pendingSinceMs?: never;
@@ -574,13 +605,24 @@ export type LaneProductEpochRevokedV1 = LaneProductEpochRecordCommonV1 & {
   retiredAtMs?: never;
   retirementReason?: never;
   retirementReceiptDigestB64u?: never;
+  revocationRequestedAtMs?: never;
 };
 
 export type LaneProductEpochRecordV1 =
   | LaneProductEpochPendingVisibilityV1
   | LaneProductEpochActiveV1
   | LaneProductEpochRetiredV1
+  | LaneProductEpochRevocationPendingV1
   | LaneProductEpochRevokedV1;
+
+export type CompleteSigningLaneRevocationV1 = {
+  kind: 'complete_signing_lane_revocation_v1';
+  command: RevokeSigningLaneV1;
+  expectedVersion: number;
+  commandDigestB64u: string;
+  retirementReceiptDigestB64u: string;
+  revokedAtMs: number;
+};
 
 export type AggregateLaneRevocationChildReceiptV1 = {
   operationId: LaneOperationId;
@@ -727,6 +769,39 @@ export type LaneSigningLaneRevocationResultV1 =
     }
   | {
       kind: 'lane_signing_lane_revocation_result_v1';
+      outcome: 'conflict';
+      walletKeyId: WalletKeyId;
+      laneId: SigningLaneId;
+      laneShareEpoch: LaneShareEpoch;
+      expectedVersion: number;
+      actualVersion: number;
+      requestedCommandDigestB64u: string;
+      storedCommandDigestB64u: string;
+    };
+
+export type LaneSigningLaneRevocationFenceResultV1 =
+  | {
+      kind: 'lane_signing_lane_revocation_fence_result_v1';
+      outcome: 'applied' | 'replayed';
+      walletKeyId: WalletKeyId;
+      laneId: SigningLaneId;
+      laneShareEpoch: LaneShareEpoch;
+      version: number;
+      commandDigestB64u: string;
+      productEpoch: LaneProductEpochRevocationPendingV1;
+    }
+  | {
+      kind: 'lane_signing_lane_revocation_fence_result_v1';
+      outcome: 'already_completed';
+      walletKeyId: WalletKeyId;
+      laneId: SigningLaneId;
+      laneShareEpoch: LaneShareEpoch;
+      version: number;
+      commandDigestB64u: string;
+      productEpoch: LaneProductEpochRevokedV1;
+    }
+  | {
+      kind: 'lane_signing_lane_revocation_fence_result_v1';
       outcome: 'conflict';
       walletKeyId: WalletKeyId;
       laneId: SigningLaneId;
@@ -924,6 +999,11 @@ export type LaneEnrollmentGatewayV1 = {
   commitLaneEnrollmentActivationV1(
     input: CommitLaneEnrollmentActivationV1,
   ): Promise<LaneEnrollmentActivationResultV1>;
-  revokeSigningLaneV1(input: RevokeSigningLaneV1): Promise<LaneSigningLaneRevocationResultV1>;
+  fenceSigningLaneRevocationV1(
+    input: RevokeSigningLaneV1,
+  ): Promise<LaneSigningLaneRevocationFenceResultV1>;
+  completeSigningLaneRevocationV1(
+    input: CompleteSigningLaneRevocationV1,
+  ): Promise<LaneSigningLaneRevocationResultV1>;
   revokeLaneEnrollmentV1(input: RevokeLaneEnrollmentV1): Promise<LaneEnrollmentRevocationResultV1>;
 };

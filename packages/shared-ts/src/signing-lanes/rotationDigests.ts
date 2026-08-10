@@ -720,11 +720,19 @@ export function encodeLaneProductEpochRecordV1(value: LaneProductEpochRecordV1):
         digest(value.retirementReceiptDigestB64u, 'retirementReceiptDigestB64u'),
         u64(value.retiredAtMs, 'retiredAtMs'),
       ]);
+    case 'revocation_pending':
+      return concat([
+        ...common,
+        text(value.revocationReason, 'revocationReason'),
+        digest(value.retirementEffectBindingDigestB64u, 'retirementEffectBindingDigestB64u'),
+        u64(value.revocationRequestedAtMs, 'revocationRequestedAtMs'),
+      ]);
     case 'revoked':
       return concat([
         ...common,
         u64(value.revocationEpoch, 'revocationEpoch'),
         text(value.revocationReason, 'revocationReason'),
+        digest(value.retirementEffectBindingDigestB64u, 'retirementEffectBindingDigestB64u'),
         digest(value.revocationReceiptDigestB64u, 'revocationReceiptDigestB64u'),
         u64(value.revokedAtMs, 'revokedAtMs'),
       ]);
