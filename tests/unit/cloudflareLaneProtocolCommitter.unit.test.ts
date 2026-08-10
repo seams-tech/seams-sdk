@@ -44,8 +44,8 @@ function gateway(order: string[], received: LaneProtocolCommitReceiptV1[]): Lane
     recordLaneHolderDeliveryV1: unsupported,
     activateLaneServerMaterialV1: unsupported,
     commitLaneEnrollmentActivationV1: unsupported,
-    revokeSigningLaneV1: unsupported,
-    revokeLaneEnrollmentV1: unsupported,
+    fenceSigningLaneRevocationV1: unsupported,
+    completeSigningLaneRevocationV1: unsupported,
   };
 }
 

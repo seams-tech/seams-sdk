@@ -119,11 +119,11 @@ function sourcePorts(args: {
       commitLaneEnrollmentActivationV1: async () => {
         throw new Error('unexpected aggregate activation');
       },
-      revokeSigningLaneV1: async () => {
+      fenceSigningLaneRevocationV1: async () => {
         throw new Error('unexpected lane revocation');
       },
-      revokeLaneEnrollmentV1: async () => {
-        throw new Error('unexpected enrollment revocation');
+      completeSigningLaneRevocationV1: async () => {
+        throw new Error('unexpected lane revocation completion');
       },
     },
     wasm: {
