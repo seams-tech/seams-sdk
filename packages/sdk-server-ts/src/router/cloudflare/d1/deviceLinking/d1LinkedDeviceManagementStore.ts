@@ -20,7 +20,8 @@ import type {
 } from '../../../../core/deviceLinking/linkedDeviceManagement';
 import type { LinkedDeviceSummaryV1 } from '@shared/device-linking/contracts';
 import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
-import type { D1LinkedDeviceSessionStoreV1, D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
+import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
+import type { LinkedDeviceSessionServiceV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import { CloudflareD1LaneLifecycleStore } from '../signingLanes/d1LaneLifecycleStore';
 import type { CloudflareD1LaneScopeV1 } from '../signingLanes/d1LaneRecords';
 import type { LaneEnrollmentAdmissionRecord } from '../../../../core/signingLanes/LaneLifecycleStore';
@@ -44,7 +45,8 @@ export type D1LinkedDeviceManagementMetadataPortV1 = {
 export type D1LinkedDeviceManagementStoreOptionsV1 = {
   readonly database: D1DatabaseLike;
   readonly scope: D1LinkedDeviceSessionScopeV1;
-  readonly sessions: Pick<D1LinkedDeviceSessionStoreV1, 'getSessionV1'>;
+  readonly sessionService: Pick<LinkedDeviceSessionServiceV1, 'getSessionV1'>;
+  readonly nowV1: () => number;
   readonly metadata: D1LinkedDeviceManagementMetadataPortV1;
 };
 
@@ -53,14 +55,16 @@ export class D1LinkedDeviceManagementStoreV1
 {
   private readonly database: D1DatabaseLike;
   private readonly scope: D1LinkedDeviceSessionScopeV1;
-  private readonly sessions: Pick<D1LinkedDeviceSessionStoreV1, 'getSessionV1'>;
+  private readonly sessionService: Pick<LinkedDeviceSessionServiceV1, 'getSessionV1'>;
+  private readonly nowV1: () => number;
   private readonly metadata: D1LinkedDeviceManagementMetadataPortV1;
   private readonly lanes: CloudflareD1LaneLifecycleStore;
 
   constructor(options: D1LinkedDeviceManagementStoreOptionsV1) {
     this.database = options.database;
     this.scope = normalizeScope(options.scope);
-    this.sessions = options.sessions;
+    this.sessionService = options.sessionService;
+    this.nowV1 = options.nowV1;
     this.metadata = options.metadata;
     const laneScope: CloudflareD1LaneScopeV1 = {
       namespace: this.scope.namespace,
@@ -115,7 +119,10 @@ export class D1LinkedDeviceManagementStoreV1
     const records: LinkedDeviceSessionRecordV1[] = [];
     for (const row of rows) {
       const sessionId = parseRequiredSessionId(field(row, 'link_session_id'));
-      const session = await this.sessions.getSessionV1(sessionId);
+      const session = await this.sessionService.getSessionV1({
+        linkSessionId: sessionId,
+        nowMs: this.nowV1(),
+      });
       if (!session || !session.claimTranscript || !session.approvalTranscript) continue;
       records.push(session);
     }
