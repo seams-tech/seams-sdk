@@ -6,11 +6,31 @@
 
 use core::fmt;
 
+use base64ct::{Base64UrlUnpadded, Encoding};
+use hpke_ng::{DhKemX25519HkdfSha256, Kem};
+use rand_chacha::ChaCha20Rng;
+use rand_core::SeedableRng;
 use router_ab_core::{
-    Ed25519YaoDeriverRoleV1, Ed25519YaoEncryptedPackageV1, Ed25519YaoLaneJobV1,
-    Ed25519YaoLaneProtocolCommittedV1, Ed25519YaoPackageKindV1, RouterAbEd25519YaoLaneResultV1,
+    Ed25519YaoCeremonyBindingV1, Ed25519YaoDeriverRoleV1, Ed25519YaoEncryptedInputV1,
+    Ed25519YaoEncryptedPackageV1, Ed25519YaoInputKindV1, Ed25519YaoLaneJobV1,
+    Ed25519YaoLaneProtocolCommittedV1, Ed25519YaoPackageKindV1,
+    RouterAbEd25519YaoApplicationBindingFactsV1, RouterAbEd25519YaoLaneExecuteRequestV1,
+    RouterAbEd25519YaoLaneResultV1,
+};
+use router_ab_ed25519_yao_protocol::{
+    ed25519_yao_lane_input_aad_v1, stable_key_derivation_context_v1,
+    LocalEd25519YaoClientContributionV1, LocalEd25519YaoLaneDeriverARequestV1,
+    LocalEd25519YaoLaneDeriverBRequestV1, LocalEd25519YaoLaneRecipientsV1,
+    ED25519_YAO_LANE_INPUT_HPKE_INFO_V1,
 };
 use serde::{Deserialize, Serialize};
+use signer_core::ed25519_yao_derivation::{
+    derive_ed25519_yao_client_contributions_v1, Ed25519YaoClientDerivationRootV1,
+};
+use subtle::ConstantTimeEq;
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
+
+use super::InputHpkeV1;
 
 /// Client lane preparation/completion failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,6 +41,12 @@ pub enum ClientLaneError {
     InvalidResponse,
     /// The one-use preparation state was already consumed.
     Consumed,
+    /// The source capability, ceremony binding, or recipient keys did not match.
+    BindingMismatch,
+    /// Stable Client contribution derivation failed.
+    DerivationFailed,
+    /// Lane role-input encryption failed.
+    HpkeFailed,
 }
 
 impl fmt::Display for ClientLaneError {
@@ -29,18 +55,14 @@ impl fmt::Display for ClientLaneError {
             Self::InvalidJob => "Ed25519 Yao lane job is invalid",
             Self::InvalidResponse => "Ed25519 Yao lane response is invalid",
             Self::Consumed => "Ed25519 Yao lane preparation was consumed",
+            Self::BindingMismatch => "Ed25519 Yao lane source binding is invalid",
+            Self::DerivationFailed => "Ed25519 Yao lane source derivation failed",
+            Self::HpkeFailed => "Ed25519 Yao lane role input encryption failed",
         })
     }
 }
 
 impl std::error::Error for ClientLaneError {}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct LaneClientPrepareRequestV1 {
-    kind: &'static str,
-    job: Ed25519YaoLaneJobV1,
-}
 
 /// The holder-only package set returned with a committed lane receipt.
 ///
@@ -123,32 +145,217 @@ impl Ed25519YaoLaneClientCompletionV1 {
 #[derive(Debug)]
 pub struct PreparedClientLaneV1 {
     job: Ed25519YaoLaneJobV1,
-    request_json: String,
+}
+
+/// Purpose-separated one-use entropy for the two Deriver input envelopes.
+#[derive(Zeroize, ZeroizeOnDrop)]
+pub struct ClientLaneExecutionEntropyV1 {
+    deriver_a_seal_seed: [u8; 32],
+    deriver_b_seal_seed: [u8; 32],
+}
+
+impl ClientLaneExecutionEntropyV1 {
+    /// Creates two nonzero, distinct HPKE sender seeds.
+    pub fn new(
+        deriver_a_seal_seed: [u8; 32],
+        deriver_b_seal_seed: [u8; 32],
+    ) -> Result<Self, ClientLaneError> {
+        let zero = [0_u8; 32];
+        let valid = !deriver_a_seal_seed.ct_eq(&zero)
+            & !deriver_b_seal_seed.ct_eq(&zero)
+            & !deriver_a_seal_seed.ct_eq(&deriver_b_seal_seed);
+        if !bool::from(valid) {
+            return Err(ClientLaneError::HpkeFailed);
+        }
+        Ok(Self {
+            deriver_a_seal_seed,
+            deriver_b_seal_seed,
+        })
+    }
+}
+
+impl fmt::Debug for ClientLaneExecutionEntropyV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("ClientLaneExecutionEntropyV1([REDACTED])")
+    }
+}
+
+/// Post-prepare command containing only recipient-encrypted Deriver inputs.
+#[derive(Debug)]
+pub struct PreparedClientLaneDispatchV1 {
+    execute_request: RouterAbEd25519YaoLaneExecuteRequestV1,
+    completion: PreparedClientLaneV1,
+}
+
+impl PreparedClientLaneDispatchV1 {
+    /// Returns the exact opaque request accepted by the internal Router adapter.
+    pub const fn execute_request(&self) -> &RouterAbEd25519YaoLaneExecuteRequestV1 {
+        &self.execute_request
+    }
+
+    /// Consumes the dispatch into its opaque request and completion state.
+    pub fn into_parts(self) -> (RouterAbEd25519YaoLaneExecuteRequestV1, PreparedClientLaneV1) {
+        (self.execute_request, self.completion)
+    }
 }
 
 impl PreparedClientLaneV1 {
-    /// Returns the opaque request JSON for the Router lane endpoint.
-    pub fn execute_request_json(&self) -> &str {
-        &self.request_json
-    }
-
     /// Returns the prepared job identity without exposing private material.
     pub const fn job(&self) -> &Ed25519YaoLaneJobV1 {
         &self.job
     }
 }
 
-/// Validates an immutable lane job and builds the opaque client request.
+/// Validates an immutable lane job before resolving its source capability.
 pub fn prepare_client_lane_v1(
     job: Ed25519YaoLaneJobV1,
 ) -> Result<PreparedClientLaneV1, ClientLaneError> {
     job.validate().map_err(|_| ClientLaneError::InvalidJob)?;
-    let request = LaneClientPrepareRequestV1 {
-        kind: "ed25519_yao_lane_client_prepare_v1",
-        job: job.clone(),
+    Ok(PreparedClientLaneV1 { job })
+}
+
+/// Resolves a prepared job against the active source capability and encrypts
+/// one exact input for each Deriver. The Client root and derived contributions
+/// are consumed inside this boundary.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_client_lane_dispatch_with_root_v1(
+    prepared: PreparedClientLaneV1,
+    binding: &Ed25519YaoCeremonyBindingV1,
+    application: &RouterAbEd25519YaoApplicationBindingFactsV1,
+    participant_ids: [u16; 2],
+    root: &Ed25519YaoClientDerivationRootV1,
+    deriver_a_input_public_key: [u8; 32],
+    deriver_b_input_public_key: [u8; 32],
+    mut entropy: ClientLaneExecutionEntropyV1,
+) -> Result<PreparedClientLaneDispatchV1, ClientLaneError> {
+    let job = &prepared.job;
+    job.validate().map_err(|_| ClientLaneError::InvalidJob)?;
+    let context = stable_key_derivation_context_v1(application, participant_ids)
+        .map_err(|_| ClientLaneError::DerivationFailed)?;
+    if binding.operation != job.yao_request_kind.operation()
+        || binding.session_id.into_bytes()
+            != job
+                .session_v1()
+                .map_err(|_| ClientLaneError::BindingMismatch)?
+        || binding.stable_key_context_binding.into_bytes() != context.binding_digest()
+        || context.binding_digest()
+            != job
+                .stable_context_binding_v1()
+                .map_err(|_| ClientLaneError::BindingMismatch)?
+        || binding.material_activation() != &job.source.material_activation
+    {
+        return Err(ClientLaneError::BindingMismatch);
+    }
+    let contributions = derive_ed25519_yao_client_contributions_v1(root, &context)
+        .map_err(|_| ClientLaneError::DerivationFailed)?;
+    let (deriver_a, deriver_b) = contributions.into_parts();
+    let (deriver_a_y, deriver_a_tau) = deriver_a.into_parts();
+    let (deriver_b_y, deriver_b_tau) = deriver_b.into_parts();
+    let recipients = LocalEd25519YaoLaneRecipientsV1 {
+        holder_public_key: decode_key_v1(&job.target_holder.hpke_public_key_b64u)?,
+        signing_worker_public_key: decode_key_v1(&job.target_signing_worker.hpke_public_key_b64u)?,
     };
-    let request_json = serde_json::to_string(&request).map_err(|_| ClientLaneError::InvalidJob)?;
-    Ok(PreparedClientLaneV1 { job, request_json })
+    let request_a = LocalEd25519YaoLaneDeriverARequestV1 {
+        binding: binding.clone(),
+        job: job.clone(),
+        application_binding: application.clone(),
+        participant_ids,
+        client_contribution: LocalEd25519YaoClientContributionV1 {
+            y: deriver_a_y.into_bytes(),
+            tau: deriver_a_tau.into_bytes(),
+        },
+        recipients,
+    };
+    let request_b = LocalEd25519YaoLaneDeriverBRequestV1 {
+        binding: binding.clone(),
+        job: job.clone(),
+        application_binding: application.clone(),
+        participant_ids,
+        client_contribution: LocalEd25519YaoClientContributionV1 {
+            y: deriver_b_y.into_bytes(),
+            tau: deriver_b_tau.into_bytes(),
+        },
+        recipients,
+    };
+    let deriver_a_input = seal_lane_input_v1(
+        Ed25519YaoDeriverRoleV1::DeriverA,
+        deriver_a_input_public_key,
+        &mut entropy.deriver_a_seal_seed,
+        binding,
+        job,
+        &request_a,
+    )?;
+    let deriver_b_input = seal_lane_input_v1(
+        Ed25519YaoDeriverRoleV1::DeriverB,
+        deriver_b_input_public_key,
+        &mut entropy.deriver_b_seal_seed,
+        binding,
+        job,
+        &request_b,
+    )?;
+    let execute_request =
+        RouterAbEd25519YaoLaneExecuteRequestV1::new(job.clone(), deriver_a_input, deriver_b_input)
+            .map_err(|_| ClientLaneError::BindingMismatch)?;
+    Ok(PreparedClientLaneDispatchV1 {
+        execute_request,
+        completion: prepared,
+    })
+}
+
+fn seal_lane_input_v1<Request: Serialize>(
+    deriver: Ed25519YaoDeriverRoleV1,
+    public_key: [u8; 32],
+    seed: &mut [u8; 32],
+    binding: &Ed25519YaoCeremonyBindingV1,
+    job: &Ed25519YaoLaneJobV1,
+    request: &Request,
+) -> Result<Ed25519YaoEncryptedInputV1, ClientLaneError> {
+    let public_key = DhKemX25519HkdfSha256::pk_from_bytes(&public_key)
+        .map_err(|_| ClientLaneError::HpkeFailed)?;
+    let mut plaintext =
+        Zeroizing::new(serde_json::to_vec(request).map_err(|_| ClientLaneError::HpkeFailed)?);
+    let session = job.session_v1().map_err(|_| ClientLaneError::InvalidJob)?;
+    let stable_context_binding = job
+        .stable_context_binding_v1()
+        .map_err(|_| ClientLaneError::InvalidJob)?;
+    let aad = ed25519_yao_lane_input_aad_v1(
+        deriver,
+        binding.operation,
+        session,
+        stable_context_binding,
+        job.transcript_digest_v1()
+            .map_err(|_| ClientLaneError::InvalidJob)?,
+    );
+    let mut rng = ChaCha20Rng::from_seed(*seed);
+    seed.zeroize();
+    let (encapsulated_key, ciphertext) = InputHpkeV1::seal_base(
+        &mut rng,
+        &public_key,
+        ED25519_YAO_LANE_INPUT_HPKE_INFO_V1,
+        &aad,
+        &plaintext,
+    )
+    .map_err(|_| ClientLaneError::HpkeFailed)?;
+    plaintext.zeroize();
+    Ed25519YaoEncryptedInputV1::new(
+        Ed25519YaoInputKindV1::LaneMaterialization,
+        deriver,
+        binding.operation,
+        session,
+        stable_context_binding,
+        encapsulated_key
+            .as_ref()
+            .try_into()
+            .map_err(|_| ClientLaneError::HpkeFailed)?,
+        ciphertext,
+    )
+    .map_err(|_| ClientLaneError::BindingMismatch)
+}
+
+fn decode_key_v1(encoded: &str) -> Result<[u8; 32], ClientLaneError> {
+    let mut bytes = [0_u8; 32];
+    Base64UrlUnpadded::decode(encoded, &mut bytes).map_err(|_| ClientLaneError::BindingMismatch)?;
+    Ok(bytes)
 }
 
 /// Consumes preparation state and builds the immutable protocol commit receipt
@@ -167,7 +374,7 @@ pub fn complete_client_lane_v1(
     }
     let job = prepared.job;
     let target_lane_id = job.target_lane_id().to_owned();
-    let target_lane_share_epoch = job.target_lane_share_epoch();
+    let target_lane_share_epoch = job.target_lane_share_epoch().to_owned();
     let holder_package = Ed25519YaoLaneHolderPackageWireV1::from_result(&response)?;
     let protocol_commit_receipt = Ed25519YaoLaneProtocolCommittedV1::new(
         job.operation_id,

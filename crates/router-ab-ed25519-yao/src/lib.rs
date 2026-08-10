@@ -28,10 +28,11 @@ pub use router_ab_ed25519_yao_protocol::{
     LocalEd25519YaoActivationDeriverARequestV1, LocalEd25519YaoActivationDeriverBRequestV1,
     LocalEd25519YaoActivationRecipientsV1, LocalEd25519YaoClientContributionV1,
     LocalEd25519YaoExportDeriverARequestV1, LocalEd25519YaoExportDeriverBRequestV1,
-    LocalEd25519YaoExportRecipientV1, LocalEd25519YaoRefreshDeriverARequestV1,
-    LocalEd25519YaoRefreshDeriverBRequestV1, ED25519_YAO_INPUT_HPKE_INFO_V1,
-    ED25519_YAO_LANE_INPUT_HPKE_INFO_V1, ED25519_YAO_LANE_RECIPIENT_PACKAGE_HPKE_INFO_V1,
-    ED25519_YAO_RECIPIENT_PACKAGE_HPKE_INFO_V1,
+    LocalEd25519YaoExportRecipientV1, LocalEd25519YaoLaneDeriverARequestV1,
+    LocalEd25519YaoLaneDeriverBRequestV1, LocalEd25519YaoLaneRecipientsV1,
+    LocalEd25519YaoRefreshDeriverARequestV1, LocalEd25519YaoRefreshDeriverBRequestV1,
+    ED25519_YAO_INPUT_HPKE_INFO_V1, ED25519_YAO_LANE_INPUT_HPKE_INFO_V1,
+    ED25519_YAO_LANE_RECIPIENT_PACKAGE_HPKE_INFO_V1, ED25519_YAO_RECIPIENT_PACKAGE_HPKE_INFO_V1,
 };
 use signer_core::ed25519_yao_derivation::{
     Ed25519YaoDeriverAClientContributionV1, Ed25519YaoDeriverAServerContributionV1,

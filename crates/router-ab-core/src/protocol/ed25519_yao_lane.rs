@@ -131,7 +131,7 @@ pub enum Ed25519YaoLaneTargetV1 {
         lane_kind: String,
         /// First share epoch for the target lane.
         #[serde(rename = "laneShareEpoch")]
-        lane_share_epoch: u64,
+        lane_share_epoch: String,
         /// Required target pre-state.
         #[serde(rename = "expectedTargetState")]
         expected_target_state: String,
@@ -146,7 +146,7 @@ pub enum Ed25519YaoLaneTargetV1 {
         lane_kind: String,
         /// Strictly next share epoch.
         #[serde(rename = "laneShareEpoch")]
-        lane_share_epoch: u64,
+        lane_share_epoch: String,
         /// Required target pre-state.
         #[serde(rename = "expectedTargetState")]
         expected_target_state: String,
@@ -168,14 +168,14 @@ impl Ed25519YaoLaneTargetV1 {
     }
 
     /// Returns the target share epoch.
-    pub fn lane_share_epoch(&self) -> u64 {
+    pub fn lane_share_epoch(&self) -> &str {
         match self {
             Self::CreateLane {
                 lane_share_epoch, ..
             }
             | Self::RefreshLane {
                 lane_share_epoch, ..
-            } => *lane_share_epoch,
+            } => lane_share_epoch,
         }
     }
 
@@ -205,7 +205,7 @@ pub struct Ed25519YaoLaneSourceV1 {
     /// Source lane kind.
     pub lane_kind: String,
     /// Source lane share epoch.
-    pub lane_share_epoch: u64,
+    pub lane_share_epoch: String,
     /// Source lane revocation epoch.
     pub revocation_epoch: u64,
     /// Source holder participant identity.
@@ -226,7 +226,7 @@ impl Ed25519YaoLaneSourceV1 {
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         require_text("source.lane_id", &self.lane_id)?;
         require_lane_kind("source.lane_kind", &self.lane_kind)?;
-        require_positive("source.lane_share_epoch", self.lane_share_epoch)?;
+        require_text("source.lane_share_epoch", &self.lane_share_epoch)?;
         require_text("source.holder_participant_id", &self.holder_participant_id)?;
         require_text(
             "source.signing_worker_participant_id",
@@ -252,6 +252,8 @@ pub struct Ed25519YaoLaneTargetHolderV1 {
     pub participant_id: String,
     /// Holder participant-binding digest.
     pub participant_binding_digest_b64u: String,
+    /// Exact custody binding identity receiving the holder package.
+    pub custody_binding_id: String,
     /// Holder custody binding digest.
     pub custody_binding_digest_b64u: String,
     /// Holder HPKE public key.
@@ -268,6 +270,7 @@ impl Ed25519YaoLaneTargetHolderV1 {
             "targetHolder.participantBindingDigestB64u",
             &self.participant_binding_digest_b64u,
         )?;
+        require_text("targetHolder.custodyBindingId", &self.custody_binding_id)?;
         require_digest(
             "targetHolder.custodyBindingDigestB64u",
             &self.custody_binding_digest_b64u,
@@ -437,7 +440,7 @@ impl Ed25519YaoLaneJobV1 {
                         "lane provisioning requires a linked-device absent target",
                     ));
                 }
-                require_positive("target.lane_share_epoch", *lane_share_epoch)?;
+                require_text("target.lane_share_epoch", lane_share_epoch)?;
                 if self.source.lane_id == *lane_id {
                     return Err(invalid_lane(
                         "lane provisioning target must differ from source",
@@ -464,13 +467,14 @@ impl Ed25519YaoLaneJobV1 {
             ) => {
                 require_text("target.lane_id", lane_id)?;
                 require_lane_kind("target.lane_kind", lane_kind)?;
+                require_text("target.lane_share_epoch", lane_share_epoch)?;
                 if expected_target_state != "active_previous_epoch"
                     || *lane_id != self.source.lane_id
-                    || self.source.lane_share_epoch.checked_add(1) != Some(*lane_share_epoch)
+                    || self.source.lane_share_epoch == *lane_share_epoch
                     || prior_material_activation != &self.source.material_activation
                 {
                     return Err(invalid_lane(
-                        "lane refresh must target the exact active source and next epoch",
+                        "lane refresh must target the exact active source and a fresh opaque epoch",
                     ));
                 }
                 prior_material_activation.validate()?;
@@ -503,7 +507,7 @@ impl Ed25519YaoLaneJobV1 {
     }
 
     /// Returns the target share epoch.
-    pub fn target_lane_share_epoch(&self) -> u64 {
+    pub fn target_lane_share_epoch(&self) -> &str {
         self.target.lane_share_epoch()
     }
 
@@ -521,7 +525,7 @@ impl Ed25519YaoLaneJobV1 {
         push_text(&mut bytes, &self.wallet_key_id);
         push_text(&mut bytes, &self.source.lane_id);
         push_text(&mut bytes, &self.source.lane_kind);
-        push_u64(&mut bytes, self.source.lane_share_epoch);
+        push_text(&mut bytes, &self.source.lane_share_epoch);
         push_u64(&mut bytes, self.source.revocation_epoch);
         push_text(&mut bytes, &self.source.holder_participant_id);
         push_text(&mut bytes, &self.source.signing_worker_participant_id);
@@ -551,13 +555,14 @@ impl Ed25519YaoLaneJobV1 {
             }
         }
         push_text(&mut bytes, self.target_lane_id());
-        push_u64(&mut bytes, self.target_lane_share_epoch());
+        push_text(&mut bytes, self.target_lane_share_epoch());
         push_text(&mut bytes, &self.target_material_activation_id);
         push_text(&mut bytes, &self.target_holder.participant_id);
         push_text(
             &mut bytes,
             &self.target_holder.participant_binding_digest_b64u,
         );
+        push_text(&mut bytes, &self.target_holder.custody_binding_id);
         push_text(&mut bytes, &self.target_holder.custody_binding_digest_b64u);
         push_text(&mut bytes, &self.target_holder.hpke_public_key_b64u);
         push_text(&mut bytes, &self.target_holder.hpke_public_key_digest_b64u);
@@ -919,7 +924,7 @@ pub struct Ed25519YaoLaneProtocolCommittedV1 {
     /// Source lane identifier.
     pub source_lane_id: String,
     /// Source lane share epoch.
-    pub source_lane_share_epoch: u64,
+    pub source_lane_share_epoch: String,
     /// Source revocation epoch.
     pub source_revocation_epoch: u64,
     /// Exact source material activation.
@@ -928,7 +933,7 @@ pub struct Ed25519YaoLaneProtocolCommittedV1 {
     /// Target lane identifier.
     pub target_lane_id: String,
     /// Target lane share epoch.
-    pub target_lane_share_epoch: u64,
+    pub target_lane_share_epoch: String,
     /// Fresh target material activation id.
     pub target_material_activation_id: String,
     /// Curve family discriminator.
@@ -962,11 +967,11 @@ impl Ed25519YaoLaneProtocolCommittedV1 {
         wallet_id: impl Into<String>,
         wallet_key_id: impl Into<String>,
         source_lane_id: impl Into<String>,
-        source_lane_share_epoch: u64,
+        source_lane_share_epoch: impl Into<String>,
         source_revocation_epoch: u64,
         source_material_activation: MpcMaterialActivationRefV1,
         target_lane_id: impl Into<String>,
-        target_lane_share_epoch: u64,
+        target_lane_share_epoch: impl Into<String>,
         target_material_activation_id: impl Into<String>,
         key_family: impl Into<String>,
         public_identity_digest_b64u: impl Into<String>,
@@ -986,11 +991,11 @@ impl Ed25519YaoLaneProtocolCommittedV1 {
             wallet_id: wallet_id.into(),
             wallet_key_id: wallet_key_id.into(),
             source_lane_id: source_lane_id.into(),
-            source_lane_share_epoch,
+            source_lane_share_epoch: source_lane_share_epoch.into(),
             source_revocation_epoch,
             source_material_activation,
             target_lane_id: target_lane_id.into(),
-            target_lane_share_epoch,
+            target_lane_share_epoch: target_lane_share_epoch.into(),
             target_material_activation_id: target_material_activation_id.into(),
             key_family: key_family.into(),
             public_identity_digest_b64u: public_identity_digest_b64u.into(),
@@ -1030,8 +1035,8 @@ impl Ed25519YaoLaneProtocolCommittedV1 {
         ] {
             require_text(name, value)?;
         }
-        require_positive("source_lane_share_epoch", self.source_lane_share_epoch)?;
-        require_positive("target_lane_share_epoch", self.target_lane_share_epoch)?;
+        require_text("source_lane_share_epoch", &self.source_lane_share_epoch)?;
+        require_text("target_lane_share_epoch", &self.target_lane_share_epoch)?;
         self.source_material_activation.validate()?;
         if self.key_family != "ed25519" {
             return Err(invalid_lane("lane protocol receipt key family is invalid"));
@@ -1134,6 +1139,146 @@ fn push_activation_ref(out: &mut Vec<u8>, activation: &MpcMaterialActivationRefV
 
 fn push_u64(out: &mut Vec<u8>, value: u64) {
     out.extend_from_slice(&value.to_be_bytes());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DIGEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    fn activation(id: &str) -> MpcMaterialActivationRefV1 {
+        MpcMaterialActivationRefV1::new(
+            id,
+            "capability",
+            "owner",
+            "key-binding",
+            "lifecycle-binding",
+            "worker",
+        )
+        .expect("valid activation")
+    }
+
+    fn create_job() -> Ed25519YaoLaneJobV1 {
+        Ed25519YaoLaneJobV1 {
+            kind: "ed25519_yao_lane_job_v1".to_owned(),
+            key_family: "ed25519".to_owned(),
+            yao_request_kind: Ed25519YaoLaneRequestKindV1::LaneProvisioning,
+            operation_id: "operation".to_owned(),
+            enrollment_id: "enrollment".to_owned(),
+            idempotency_key: "idempotency".to_owned(),
+            wallet_id: "wallet".to_owned(),
+            wallet_key_id: "wallet-key".to_owned(),
+            source: Ed25519YaoLaneSourceV1 {
+                lane_id: "source-lane".to_owned(),
+                lane_kind: "owner_passkey".to_owned(),
+                lane_share_epoch: "epoch-1".to_owned(),
+                revocation_epoch: 0,
+                holder_participant_id: "source-holder".to_owned(),
+                signing_worker_participant_id: "source-worker".to_owned(),
+                signing_worker_recipient_key_id: "source-worker-key".to_owned(),
+                participant_binding_digest_b64u: DIGEST.to_owned(),
+                material_activation: activation("source-activation"),
+            },
+            target: Ed25519YaoLaneTargetV1::CreateLane {
+                lane_id: "target-lane".to_owned(),
+                lane_kind: "linked_device".to_owned(),
+                lane_share_epoch: "epoch-1".to_owned(),
+                expected_target_state: "absent".to_owned(),
+            },
+            authorization: Ed25519YaoLaneAuthorizationV1::LinkedDeviceEnrollment {
+                authorized_operation_id: "operation".to_owned(),
+                linked_device_enrollment_id: "linked-device".to_owned(),
+                linked_device_permission_digest_b64u: DIGEST.to_owned(),
+            },
+            target_material_activation_id: "target-activation".to_owned(),
+            target_holder: Ed25519YaoLaneTargetHolderV1 {
+                participant_id: "target-holder".to_owned(),
+                participant_binding_digest_b64u: DIGEST.to_owned(),
+                custody_binding_id: "custody-binding".to_owned(),
+                custody_binding_digest_b64u: DIGEST.to_owned(),
+                hpke_public_key_b64u: DIGEST.to_owned(),
+                hpke_public_key_digest_b64u: DIGEST.to_owned(),
+            },
+            target_signing_worker: Ed25519YaoLaneTargetSigningWorkerV1 {
+                participant_id: "target-worker".to_owned(),
+                participant_binding_digest_b64u: DIGEST.to_owned(),
+                recipient_key_id: "target-worker-key".to_owned(),
+                hpke_public_key_b64u: DIGEST.to_owned(),
+                hpke_public_key_digest_b64u: DIGEST.to_owned(),
+            },
+            protocol_version: "rotatable_signing_lane_protocol_v1".to_owned(),
+            registered_public_key_b64u: DIGEST.to_owned(),
+            key_creation_signer_slot: 1,
+            stable_context_binding_b64u: DIGEST.to_owned(),
+            near_ed25519_signing_key_id: "near-key".to_owned(),
+            yao_suite_id: "yao-suite".to_owned(),
+            circuit_digest_b64u: DIGEST.to_owned(),
+            expires_at_ms: 1,
+        }
+    }
+
+    #[test]
+    fn create_allows_equal_opaque_epochs_for_distinct_lanes() {
+        let job = create_job();
+        job.validate().expect("distinct lanes may both use epoch-1");
+        Ed25519YaoLaneProtocolCommittedV1::new(
+            "operation",
+            "enrollment",
+            "wallet",
+            "wallet-key",
+            "source-lane",
+            "epoch-1",
+            0,
+            activation("source-activation"),
+            "target-lane",
+            "epoch-1",
+            "target-activation",
+            "ed25519",
+            DIGEST,
+            DIGEST,
+            DIGEST,
+            DIGEST,
+            DIGEST,
+            DIGEST,
+            DIGEST,
+            DIGEST,
+            1,
+        )
+        .expect("receipt preserves branch-valid equal opaque epochs");
+    }
+
+    #[test]
+    fn refresh_rejects_equal_source_and_target_epoch() {
+        let mut job = create_job();
+        job.yao_request_kind = Ed25519YaoLaneRequestKindV1::LaneRefresh;
+        job.target = Ed25519YaoLaneTargetV1::RefreshLane {
+            lane_id: job.source.lane_id.clone(),
+            lane_kind: job.source.lane_kind.clone(),
+            lane_share_epoch: job.source.lane_share_epoch.clone(),
+            expected_target_state: "active_previous_epoch".to_owned(),
+            prior_material_activation: job.source.material_activation.clone(),
+        };
+        job.authorization = Ed25519YaoLaneAuthorizationV1::OwnerLaneRefresh {
+            authorized_operation_id: job.operation_id.clone(),
+            owner_lane_refresh_digest_b64u: DIGEST.to_owned(),
+        };
+        assert!(job.validate().is_err());
+    }
+
+    #[test]
+    fn transcript_binds_custody_binding_identity() {
+        let job = create_job();
+        let digest = job.transcript_digest_v1().expect("original transcript");
+        let mut substituted = job;
+        substituted.target_holder.custody_binding_id = "different-custody-binding".to_owned();
+        assert_ne!(
+            substituted
+                .transcript_digest_v1()
+                .expect("substituted transcript"),
+            digest
+        );
+    }
 }
 
 fn invalid_lane(message: &'static str) -> RouterAbProtocolError {

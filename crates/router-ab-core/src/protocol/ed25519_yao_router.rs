@@ -471,6 +471,36 @@ pub enum RouterEd25519YaoExecuteRequestV1 {
         /// Opaque Deriver B envelope.
         deriver_b_input: Ed25519YaoEncryptedInputV1,
     },
+    /// Creates one new recipient-isolated signing lane.
+    LaneProvisioning {
+        /// Gateway-admitted execution authority.
+        authority: RouterAdmittedExecutionAuthorityV1,
+        /// Admitted lane ceremony binding.
+        binding: Ed25519YaoCeremonyBindingV1,
+        /// Exact A/B ciphertext pair binding.
+        pair_binding: Ed25519YaoInputPairBindingV1,
+        /// Immutable lane job.
+        job: crate::protocol::ed25519_yao_lane::Ed25519YaoLaneJobV1,
+        /// Opaque Deriver A envelope.
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        /// Opaque Deriver B envelope.
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    },
+    /// Replaces one lane with its next share epoch.
+    LaneRefresh {
+        /// Gateway-admitted execution authority.
+        authority: RouterAdmittedExecutionAuthorityV1,
+        /// Admitted lane ceremony binding.
+        binding: Ed25519YaoCeremonyBindingV1,
+        /// Exact A/B ciphertext pair binding.
+        pair_binding: Ed25519YaoInputPairBindingV1,
+        /// Immutable lane job.
+        job: crate::protocol::ed25519_yao_lane::Ed25519YaoLaneJobV1,
+        /// Opaque Deriver A envelope.
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        /// Opaque Deriver B envelope.
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    },
 }
 
 /// Raw Gateway-to-Router request before Router-owned digest construction.
@@ -829,12 +859,72 @@ impl RouterEd25519YaoExecuteRequestV1 {
         })
     }
 
+    /// Builds a lane-provisioning request after exact job and pair validation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn lane_provisioning(
+        authority: RouterAdmittedExecutionAuthorityV1,
+        binding: Ed25519YaoCeremonyBindingV1,
+        pair_binding: Ed25519YaoInputPairBindingV1,
+        job: crate::protocol::ed25519_yao_lane::Ed25519YaoLaneJobV1,
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    ) -> RouterAbProtocolResult<Self> {
+        validate_lane_execute_pair(
+            &binding,
+            Ed25519YaoOperationV1::LaneProvisioning,
+            &pair_binding,
+            &job,
+            &deriver_a_input,
+            &deriver_b_input,
+        )?;
+        validate_authority_digest(&authority, &pair_binding)?;
+        Ok(Self::LaneProvisioning {
+            authority,
+            binding,
+            pair_binding,
+            job,
+            deriver_a_input,
+            deriver_b_input,
+        })
+    }
+
+    /// Builds a lane-refresh request after exact job and pair validation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn lane_refresh(
+        authority: RouterAdmittedExecutionAuthorityV1,
+        binding: Ed25519YaoCeremonyBindingV1,
+        pair_binding: Ed25519YaoInputPairBindingV1,
+        job: crate::protocol::ed25519_yao_lane::Ed25519YaoLaneJobV1,
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    ) -> RouterAbProtocolResult<Self> {
+        validate_lane_execute_pair(
+            &binding,
+            Ed25519YaoOperationV1::LaneRefresh,
+            &pair_binding,
+            &job,
+            &deriver_a_input,
+            &deriver_b_input,
+        )?;
+        validate_authority_digest(&authority, &pair_binding)?;
+        Ok(Self::LaneRefresh {
+            authority,
+            binding,
+            pair_binding,
+            job,
+            deriver_a_input,
+            deriver_b_input,
+        })
+    }
+
     /// Returns the operation branch.
     pub const fn operation(&self) -> Ed25519YaoOperationV1 {
         match self {
             Self::Registration { .. } => Ed25519YaoOperationV1::Registration,
             Self::Recovery { .. } => Ed25519YaoOperationV1::Recovery,
             Self::Export { .. } => Ed25519YaoOperationV1::Export,
+            Self::LaneProvisioning { .. } => Ed25519YaoOperationV1::LaneProvisioning,
+            Self::LaneRefresh { .. } => Ed25519YaoOperationV1::LaneRefresh,
         }
     }
 
@@ -843,7 +933,9 @@ impl RouterEd25519YaoExecuteRequestV1 {
         match self {
             Self::Registration { pair_binding, .. }
             | Self::Recovery { pair_binding, .. }
-            | Self::Export { pair_binding, .. } => pair_binding,
+            | Self::Export { pair_binding, .. }
+            | Self::LaneProvisioning { pair_binding, .. }
+            | Self::LaneRefresh { pair_binding, .. } => pair_binding,
         }
     }
 
@@ -852,9 +944,39 @@ impl RouterEd25519YaoExecuteRequestV1 {
         match self {
             Self::Registration { authority, .. }
             | Self::Recovery { authority, .. }
-            | Self::Export { authority, .. } => authority,
+            | Self::Export { authority, .. }
+            | Self::LaneProvisioning { authority, .. }
+            | Self::LaneRefresh { authority, .. } => authority,
         }
     }
+}
+
+fn validate_lane_execute_pair(
+    binding: &Ed25519YaoCeremonyBindingV1,
+    expected_operation: Ed25519YaoOperationV1,
+    pair_binding: &Ed25519YaoInputPairBindingV1,
+    job: &crate::protocol::ed25519_yao_lane::Ed25519YaoLaneJobV1,
+    deriver_a_input: &Ed25519YaoEncryptedInputV1,
+    deriver_b_input: &Ed25519YaoEncryptedInputV1,
+) -> RouterAbProtocolResult<()> {
+    job.validate()?;
+    if job.yao_request_kind.operation() != expected_operation
+        || binding.operation != expected_operation
+        || binding.session_id.into_bytes() != job.session_v1()?
+        || binding.stable_key_context_binding.into_bytes() != job.stable_context_binding_v1()?
+        || pair_binding.authorization_digest() != PublicDigest32::new(job.transcript_digest_v1()?)
+    {
+        return Err(invalid_router_yao(
+            "Ed25519 Yao lane execute request does not match its admitted job",
+        ));
+    }
+    validate_execute_pair(
+        binding,
+        expected_operation,
+        pair_binding,
+        deriver_a_input,
+        deriver_b_input,
+    )
 }
 
 fn validate_authority_digest(
@@ -890,6 +1012,22 @@ enum RawRouterEd25519YaoExecuteRequestV1 {
         authority: RouterAdmittedExecutionAuthorityV1,
         binding: crate::protocol::ed25519_yao::RouterAbEd25519YaoExportBindingV1,
         pair_binding: Ed25519YaoInputPairBindingV1,
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    },
+    LaneProvisioning {
+        authority: RouterAdmittedExecutionAuthorityV1,
+        binding: Ed25519YaoCeremonyBindingV1,
+        pair_binding: Ed25519YaoInputPairBindingV1,
+        job: crate::protocol::ed25519_yao_lane::Ed25519YaoLaneJobV1,
+        deriver_a_input: Ed25519YaoEncryptedInputV1,
+        deriver_b_input: Ed25519YaoEncryptedInputV1,
+    },
+    LaneRefresh {
+        authority: RouterAdmittedExecutionAuthorityV1,
+        binding: Ed25519YaoCeremonyBindingV1,
+        pair_binding: Ed25519YaoInputPairBindingV1,
+        job: crate::protocol::ed25519_yao_lane::Ed25519YaoLaneJobV1,
         deriver_a_input: Ed25519YaoEncryptedInputV1,
         deriver_b_input: Ed25519YaoEncryptedInputV1,
     },
@@ -938,6 +1076,36 @@ impl<'de> Deserialize<'de> for RouterEd25519YaoExecuteRequestV1 {
                 authority,
                 binding,
                 pair_binding,
+                deriver_a_input,
+                deriver_b_input,
+            ),
+            RawRouterEd25519YaoExecuteRequestV1::LaneProvisioning {
+                authority,
+                binding,
+                pair_binding,
+                job,
+                deriver_a_input,
+                deriver_b_input,
+            } => Self::lane_provisioning(
+                authority,
+                binding,
+                pair_binding,
+                job,
+                deriver_a_input,
+                deriver_b_input,
+            ),
+            RawRouterEd25519YaoExecuteRequestV1::LaneRefresh {
+                authority,
+                binding,
+                pair_binding,
+                job,
+                deriver_a_input,
+                deriver_b_input,
+            } => Self::lane_refresh(
+                authority,
+                binding,
+                pair_binding,
+                job,
                 deriver_a_input,
                 deriver_b_input,
             ),
@@ -990,6 +1158,14 @@ pub enum RouterEd25519YaoExecuteSuccessV1 {
     Export {
         result: crate::protocol::ed25519_yao::RouterAbEd25519YaoExportResultV1,
     },
+    /// New lane output commitment.
+    LaneProvisioning {
+        result: crate::protocol::ed25519_yao_lane::RouterAbEd25519YaoLaneResultV1,
+    },
+    /// Replacement lane-epoch output commitment.
+    LaneRefresh {
+        result: crate::protocol::ed25519_yao_lane::RouterAbEd25519YaoLaneResultV1,
+    },
 }
 
 impl RouterEd25519YaoExecuteSuccessV1 {
@@ -1029,12 +1205,44 @@ impl RouterEd25519YaoExecuteSuccessV1 {
         Ok(Self::Export { result })
     }
 
+    /// Wraps a lane-provisioning result after checking its job branch.
+    pub fn lane_provisioning(
+        result: crate::protocol::ed25519_yao_lane::RouterAbEd25519YaoLaneResultV1,
+    ) -> RouterAbProtocolResult<Self> {
+        result.validate()?;
+        if result.job.yao_request_kind
+            != crate::protocol::ed25519_yao_lane::Ed25519YaoLaneRequestKindV1::LaneProvisioning
+        {
+            return Err(invalid_router_yao(
+                "Ed25519 Yao lane-provisioning result has the wrong operation",
+            ));
+        }
+        Ok(Self::LaneProvisioning { result })
+    }
+
+    /// Wraps a lane-refresh result after checking its job branch.
+    pub fn lane_refresh(
+        result: crate::protocol::ed25519_yao_lane::RouterAbEd25519YaoLaneResultV1,
+    ) -> RouterAbProtocolResult<Self> {
+        result.validate()?;
+        if result.job.yao_request_kind
+            != crate::protocol::ed25519_yao_lane::Ed25519YaoLaneRequestKindV1::LaneRefresh
+        {
+            return Err(invalid_router_yao(
+                "Ed25519 Yao lane-refresh result has the wrong operation",
+            ));
+        }
+        Ok(Self::LaneRefresh { result })
+    }
+
     /// Returns the operation branch.
     pub const fn operation(&self) -> Ed25519YaoOperationV1 {
         match self {
             Self::Registration { .. } => Ed25519YaoOperationV1::Registration,
             Self::Recovery { .. } => Ed25519YaoOperationV1::Recovery,
             Self::Export { .. } => Ed25519YaoOperationV1::Export,
+            Self::LaneProvisioning { .. } => Ed25519YaoOperationV1::LaneProvisioning,
+            Self::LaneRefresh { .. } => Ed25519YaoOperationV1::LaneRefresh,
         }
     }
 }
@@ -1051,6 +1259,12 @@ enum RawRouterEd25519YaoExecuteSuccessV1 {
     Export {
         result: crate::protocol::ed25519_yao::RouterAbEd25519YaoExportResultV1,
     },
+    LaneProvisioning {
+        result: crate::protocol::ed25519_yao_lane::RouterAbEd25519YaoLaneResultV1,
+    },
+    LaneRefresh {
+        result: crate::protocol::ed25519_yao_lane::RouterAbEd25519YaoLaneResultV1,
+    },
 }
 
 impl<'de> Deserialize<'de> for RouterEd25519YaoExecuteSuccessV1 {
@@ -1065,6 +1279,12 @@ impl<'de> Deserialize<'de> for RouterEd25519YaoExecuteSuccessV1 {
             }
             RawRouterEd25519YaoExecuteSuccessV1::Recovery { result } => Self::recovery(result),
             RawRouterEd25519YaoExecuteSuccessV1::Export { result } => Self::export(result),
+            RawRouterEd25519YaoExecuteSuccessV1::LaneProvisioning { result } => {
+                Self::lane_provisioning(result)
+            }
+            RawRouterEd25519YaoExecuteSuccessV1::LaneRefresh { result } => {
+                Self::lane_refresh(result)
+            }
         }
         .map_err(D::Error::custom)
     }
