@@ -307,5 +307,26 @@ function parsedId<T>(
 }
 
 function sameEffect(left: LaneEffectRecordV1, right: LaneEffectRecordV1): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  if (
+    left.kind !== right.kind ||
+    left.effectId !== right.effectId ||
+    left.enrollmentId !== right.enrollmentId ||
+    left.operationId !== right.operationId ||
+    left.walletId !== right.walletId ||
+    left.walletKeyId !== right.walletKeyId ||
+    left.laneId !== right.laneId ||
+    left.laneShareEpoch !== right.laneShareEpoch ||
+    left.effectKind !== right.effectKind ||
+    left.requestDigestB64u !== right.requestDigestB64u ||
+    left.recordedAtMs !== right.recordedAtMs ||
+    left.status !== right.status
+  ) {
+    return false;
+  }
+  if (left.status === 'recorded' && right.status === 'recorded') return true;
+  if (left.status !== 'confirmed' || right.status !== 'confirmed') return false;
+  return (
+    left.responseDigestB64u === right.responseDigestB64u &&
+    left.confirmedAtMs === right.confirmedAtMs
+  );
 }

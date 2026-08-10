@@ -50,6 +50,7 @@ import type {
   WalletKeyId,
 } from '@shared/signing-lanes';
 import type { MpcMaterialActivationRef, WalletId } from '@shared/utils/domainIds';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import type { D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import type {
   LaneAdmissionMutationResult,
@@ -72,6 +73,7 @@ import { d1ChangedRows } from '../../../../storage/d1Sql';
 import {
   assertD1Success,
   digestLaneEnrollmentRevocationCommand,
+  equalLaneRecords,
   firstBatchResult,
   LANE_CAS_GUARD_SQL,
   parseEnrollmentRow,
@@ -168,8 +170,9 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
     if (existing) {
       if (
         existing.commandDigestB64u === input.commandDigestB64u &&
-        JSON.stringify(existing.value.manifest) === JSON.stringify(manifest) &&
-        JSON.stringify(existing.value.lifecycle) === JSON.stringify(input.lifecycle)
+        equalLaneRecords(existing.value.manifest, manifest) &&
+        equalLaneRecords(existing.value.lifecycle, input.lifecycle) &&
+        (await admissionChildrenMatch(this, input.children))
       ) {
         return {
           outcome: 'replayed',
@@ -229,7 +232,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
       if (
         raced &&
         raced.commandDigestB64u === input.commandDigestB64u &&
-        JSON.stringify(raced.value.manifest) === manifestJson
+        equalLaneRecords(raced.value.manifest, manifest)
       ) {
         return {
           outcome: 'replayed',
@@ -277,7 +280,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
     if (existing) {
       if (
         existing.commandDigestB64u === input.commandDigestB64u &&
-        JSON.stringify(existing.value) === JSON.stringify(record)
+        equalLaneRecords(existing.value, record)
       ) {
         return {
           outcome: 'replayed',
@@ -307,7 +310,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
       if (
         raced &&
         raced.commandDigestB64u === input.commandDigestB64u &&
-        JSON.stringify(raced.value) === JSON.stringify(record)
+        equalLaneRecords(raced.value, record)
       ) {
         return {
           outcome: 'replayed',
@@ -350,7 +353,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
     }
     if (
       current.commandDigestB64u === input.commandDigestB64u &&
-      JSON.stringify(current.value.lifecycle) === JSON.stringify(input.lifecycle)
+      equalLaneRecords(current.value.lifecycle, input.lifecycle)
     ) {
       return {
         outcome: 'replayed',
@@ -373,7 +376,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
       }
       if (
         raced.commandDigestB64u === input.commandDigestB64u &&
-        JSON.stringify(raced.value.lifecycle) === JSON.stringify(input.lifecycle)
+        equalLaneRecords(raced.value.lifecycle, input.lifecycle)
       ) {
         return {
           outcome: 'replayed',
@@ -415,7 +418,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
     }
     if (
       current.commandDigestB64u === input.commandDigestB64u &&
-      JSON.stringify(current.value.lifecycle) === JSON.stringify(input.lifecycle)
+      equalLaneRecords(current.value.lifecycle, input.lifecycle)
     ) {
       return {
         outcome: 'replayed',
@@ -438,7 +441,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
       }
       if (
         raced.commandDigestB64u === input.commandDigestB64u &&
-        JSON.stringify(raced.value.lifecycle) === JSON.stringify(input.lifecycle)
+        equalLaneRecords(raced.value.lifecycle, input.lifecycle)
       ) {
         return {
           outcome: 'replayed',
@@ -575,7 +578,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
       if (
         stored &&
         stored.commandDigestB64u === commandDigestB64u &&
-        JSON.stringify(stored.product) === JSON.stringify(productEpoch)
+        equalLaneRecords(stored.product, productEpoch)
       ) {
         return {
           outcome: 'replayed',
@@ -638,7 +641,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
       if (
         raced &&
         raced.commandDigestB64u === commandDigestB64u &&
-        JSON.stringify(raced.product) === JSON.stringify(productEpoch)
+        equalLaneRecords(raced.product, productEpoch)
       ) {
         return {
           outcome: 'replayed',
@@ -702,7 +705,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
   ): Promise<Extract<LaneProductEpochRecordV1, { state: 'active' }> | null> {
     const value = await this.getProductEpoch(lookup);
     if (!value || value.state !== 'active') return null;
-    if (JSON.stringify(value.materialActivation) !== JSON.stringify(lookup.materialActivation))
+    if (!mpcMaterialActivationRefsEqual(value.materialActivation, lookup.materialActivation))
       return null;
     return value;
   }
@@ -1625,7 +1628,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
     if (row) {
       if (
         parseRequiredString(row.receipt_digest_b64u, 'receipt digest') === digest &&
-        JSON.stringify(parseJsonRecord(row.receipt_json, 'receipt')) === JSON.stringify(receipt)
+        equalLaneRecords(parseJsonRecord(row.receipt_json, 'receipt'), receipt)
       )
         return { outcome: 'replayed', version: 1, commandDigestB64u, value: receipt };
       return {
@@ -1702,6 +1705,17 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
         throw new Error(`unknown lane receipt kind ${kind}`);
     }
   }
+}
+
+async function admissionChildrenMatch(
+  store: Pick<LaneLifecycleStore, 'getProtocol'>,
+  children: readonly LaneProtocolRecordV1[],
+): Promise<boolean> {
+  for (const child of children) {
+    const stored = await store.getProtocol(child.job.operationId);
+    if (!stored || !equalLaneRecords(stored.value, child)) return false;
+  }
+  return true;
 }
 
 function validateChildrenAgainstManifest(
@@ -1801,8 +1815,10 @@ function assertProtocolCommitReceiptIdentity(
     String(receipt.sourceLaneId) !== String(job.source.laneId) ||
     String(receipt.sourceLaneShareEpoch) !== String(job.source.laneShareEpoch) ||
     receipt.sourceRevocationEpoch !== job.source.revocationEpoch ||
-    JSON.stringify(receipt.sourceMaterialActivation) !==
-      JSON.stringify(job.source.materialActivation) ||
+    !mpcMaterialActivationRefsEqual(
+      receipt.sourceMaterialActivation,
+      job.source.materialActivation,
+    ) ||
     String(receipt.targetLaneId) !== String(job.target.laneId) ||
     String(receipt.targetLaneShareEpoch) !== String(job.target.laneShareEpoch) ||
     String(receipt.targetMaterialActivationId) !== String(job.targetMaterialActivationId) ||
