@@ -190,10 +190,13 @@ function createPorts(
       async createBootstrapKeyMaterialV1() {
         calls.push('keygen');
         return {
-          handle: { kind: 'device_linking_key_material_handle_v1' },
+          handle: { kind: 'device_linking_key_material_handle_v1', handleId: 'test-key-material' },
           linkPublicKeyB64u: payload.linkPublicKeyB64u,
           devicePublicKeyB64u: payload.devicePublicKeyB64u,
         };
+      },
+      async signDeviceSessionRequestV1() {
+        return { signatureB64u: 'test-signature' };
       },
     },
     ownerAuthorization: {

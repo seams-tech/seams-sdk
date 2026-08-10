@@ -29,6 +29,8 @@ import type {
   DeviceLinkingKeyMaterialPortV1,
   LinkSessionSnapshotV1,
   LinkSessionSubscriptionV1,
+  LinkSessionOwnerTransportPortV1,
+  LinkSessionTransportPortV1,
 } from './deviceLinkingPorts';
 
 export const LINKED_DEVICE_SESSION_HTTP_BASE_PATH_V1 = '/wallet/device-linking/v1/sessions';
@@ -39,6 +41,15 @@ export type DeviceLinkingAuthenticatedSessionTransportOptionsV1 = {
   readonly keyMaterial: DeviceLinkingKeyMaterialPortV1;
   readonly keyMaterialHandle: DeviceLinkingKeyMaterialHandleV1;
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
+  readonly nowMs: () => number;
+  readonly pollIntervalMs: number;
+};
+
+export type DeviceLinkingSessionTransportAssemblyOptionsV1 = {
+  readonly owner: LinkSessionOwnerTransportPortV1;
+  readonly http: HttpTransport;
+  readonly relayerUrl: string;
+  readonly keyMaterial: DeviceLinkingKeyMaterialPortV1;
   readonly nowMs: () => number;
   readonly pollIntervalMs: number;
 };
@@ -123,6 +134,25 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
         baseUrl,
         linkSessionId,
         onEvent,
+      }),
+  };
+}
+
+/** Compose one direct transport port; owner auth remains an injected boundary. */
+export function createDeviceLinkingSessionTransportPortV1(
+  options: DeviceLinkingSessionTransportAssemblyOptionsV1,
+): LinkSessionTransportPortV1 {
+  return {
+    ...options.owner,
+    createAuthenticatedSessionTransportV1: ({ keyMaterial, devicePublicKeyB64u }) =>
+      createDeviceLinkingAuthenticatedSessionTransportV1({
+        http: options.http,
+        relayerUrl: options.relayerUrl,
+        keyMaterial: options.keyMaterial,
+        keyMaterialHandle: keyMaterial,
+        devicePublicKeyB64u,
+        nowMs: options.nowMs,
+        pollIntervalMs: options.pollIntervalMs,
       }),
   };
 }
@@ -226,6 +256,7 @@ async function createPollingSubscriptionV1(input: {
   let closed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let lastRevision: number | null = null;
+  let firstPoll = true;
   const poll = async (): Promise<void> => {
     if (closed) return;
     try {
@@ -241,7 +272,10 @@ async function createPollingSubscriptionV1(input: {
           }),
         );
       }
+    } catch (error: unknown) {
+      if (firstPoll) throw error;
     } finally {
+      firstPoll = false;
       if (!closed) timer = setTimeout(() => void poll(), input.options.pollIntervalMs);
     }
   };
