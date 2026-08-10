@@ -887,21 +887,21 @@ export function useSeamsAuthMenuController(
   const handleLinkDeviceError = props.linkDeviceOptions?.onError ?? fallbackOnError;
   const handleLinkDeviceCancelled = props.linkDeviceOptions?.onCancelled;
 
-  const stopLinkDeviceFlow = React.useCallback(() => {
-    const stopper = runtime.cancelDeviceLinking;
-    if (!stopper) return;
-    void stopper().catch(() => {});
+  const cancelLinkDeviceFlow = React.useCallback(() => {
+    const cancel = runtime.cancelDeviceLinking;
+    if (!cancel) return;
+    void cancel().catch(() => {});
   }, [runtime.cancelDeviceLinking]);
 
   const closeLinkDeviceView = React.useCallback(
     (reason: 'user' | 'flow') => {
-      stopLinkDeviceFlow();
+      cancelLinkDeviceFlow();
       setShowScanDevice(false);
       if (reason === 'user') {
         handleLinkDeviceCancelled?.();
       }
     },
-    [stopLinkDeviceFlow, handleLinkDeviceCancelled],
+    [cancelLinkDeviceFlow, handleLinkDeviceCancelled],
   );
 
   const onResetToStart = React.useCallback(() => {
