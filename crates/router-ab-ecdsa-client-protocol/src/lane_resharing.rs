@@ -30,7 +30,7 @@ pub const ECDSA_ADDITIVE_LANE_ENVELOPE_DOMAIN_V1: &str =
     "seams/rotatable-signing-lanes/ecdsa-material-envelope/v1";
 /// Canonical domain for server retirement receipts.
 pub const ECDSA_SERVER_RETIREMENT_RECEIPT_DOMAIN_V1: &str =
-    "seams/rotatable-signing-lanes/ecdsa-server-retirement-receipt/v1";
+    "seams/rotatable-signing-lanes/ecdsa-retirement-receipt/v1";
 /// Canonical digest domain for the ordered target threshold-session set.
 pub const ECDSA_TARGET_THRESHOLD_SESSION_SET_DOMAIN_V1: &str =
     "seams/rotatable-signing-lanes/ecdsa-target-threshold-sessions/v1";
@@ -616,8 +616,8 @@ pub struct EcdsaServerRetirementReceiptV1 {
     pub lifecycle_id: String,
     /// Digest of the receipt record without this field.
     pub receipt_digest_b64u: String,
-    /// Retirement timestamp.
-    pub retired_at_ms: u64,
+    /// Canonical ISO-8601 retirement timestamp.
+    pub retired_at: String,
 }
 
 impl EcdsaServerRetirementReceiptV1 {
@@ -631,7 +631,8 @@ impl EcdsaServerRetirementReceiptV1 {
         require_non_empty(&self.retirement_correlation_id)?;
         require_non_empty(&self.server_generation)?;
         require_non_empty(&self.lifecycle_id)?;
-        if self.retired_at_ms == 0 || self.manifest.manifest_revision == 0 {
+        require_non_empty(&self.retired_at)?;
+        if self.manifest.manifest_revision == 0 {
             return Err(EcdsaClientProtocolError::InvalidShape);
         }
         if !matches!(
@@ -657,7 +658,7 @@ impl EcdsaServerRetirementReceiptV1 {
         digest_lp(&mut out, &self.retirement_request_digest_b64u)?;
         text(&mut out, &self.server_generation);
         text(&mut out, &self.lifecycle_id);
-        u64_be(&mut out, self.retired_at_ms);
+        text(&mut out, &self.retired_at);
         Ok(out)
     }
 
@@ -1069,7 +1070,12 @@ fn validate_target(
         } => {
             require_exact(lane_kind, "linked_device")?;
             require_exact(expected_target_state, "absent")?;
-            if lane_id == &source.lane_id || lane_share_epoch.is_empty() {
+            if matches!(
+                source.lane_kind.as_str(),
+                "linked_device" | "delegated_execution"
+            ) || lane_id == &source.lane_id
+                || lane_share_epoch.is_empty()
+            {
                 return Err(EcdsaClientProtocolError::InvalidShape);
             }
         }
@@ -1083,6 +1089,7 @@ fn validate_target(
             require_non_empty(lane_kind)?;
             require_exact(expected_target_state, "active_previous_epoch")?;
             if lane_id != &source.lane_id
+                || lane_kind != &source.lane_kind
                 || lane_share_epoch.is_empty()
                 || prior_material_activation != &source.material_activation
             {
@@ -1485,5 +1492,106 @@ mod tests {
         };
         let refresh_hash = job.preamble_hash().expect("refresh hash");
         assert_ne!(create_hash, refresh_hash);
+    }
+
+    #[test]
+    fn creation_requires_owner_source_and_refresh_preserves_lane_kind() {
+        let mut linked_source = job();
+        linked_source.source.lane_kind = "linked_device".to_owned();
+        assert!(linked_source.validate().is_err());
+
+        let mut changed_kind = job();
+        changed_kind.target = EcdsaLaneTargetOperationV1::RefreshLane {
+            lane_id: changed_kind.source.lane_id.clone(),
+            lane_kind: "owner_email_otp".to_owned(),
+            lane_share_epoch: "epoch-2".to_owned(),
+            expected_target_state: "active_previous_epoch".to_owned(),
+            prior_material_activation: changed_kind.source.material_activation.clone(),
+        };
+        changed_kind.authorization = EcdsaLaneAuthorizationBindingV1::OwnerLaneRefresh {
+            authorized_operation_id: changed_kind.operation_id.clone(),
+            owner_lane_refresh_digest_b64u: b64_bytes::<32>(21),
+        };
+        assert!(changed_kind.validate().is_err());
+    }
+
+    #[test]
+    fn retirement_receipt_rejects_activation_and_epoch_substitution() {
+        let manifest = EcdsaLaneManifestIdentityV1 {
+            manifest_id: "manifest-1".to_owned(),
+            manifest_revision: 1,
+        };
+        let material_activation = activation("activation-1");
+        let mut receipt = EcdsaServerRetirementReceiptV1 {
+            kind: "ecdsa_server_retirement_receipt_v1".to_owned(),
+            manifest: manifest.clone(),
+            material_activation: material_activation.clone(),
+            wallet_key_id: "wallet-key-1".to_owned(),
+            lane_id: "owner-lane".to_owned(),
+            lane_share_epoch: "epoch-1".to_owned(),
+            revocation_epoch: 2,
+            retirement_reason: "rotation".to_owned(),
+            retirement_correlation_id: "retirement-1".to_owned(),
+            retirement_request_digest_b64u: b64_bytes::<32>(22),
+            server_generation: "generation-1".to_owned(),
+            lifecycle_id: "lifecycle-1".to_owned(),
+            receipt_digest_b64u: b64_bytes::<32>(0),
+            retired_at: "2026-08-11T00:00:00.000Z".to_owned(),
+        };
+        let canonical_payload = receipt
+            .canonical_bytes_without_digest()
+            .expect("canonical receipt payload");
+        receipt.receipt_digest_b64u = b64(&receipt.digest().expect("receipt digest"));
+        assert_eq!(
+            b64(&canonical_payload),
+            "AAAAOXNlYW1zL3JvdGF0YWJsZS1zaWduaW5nLWxhbmVzL2VjZHNhLXJldGlyZW1lbnQtcmVjZWlwdC92MQAAACJlY2RzYV9zZXJ2ZXJfcmV0aXJlbWVudF9yZWNlaXB0X3YxAAAACm1hbmlmZXN0LTEAAAAAAAAAAQAAAH8AAAAbbXBjX21hdGVyaWFsX2FjdGl2YXRpb25fcmVmAAAADGFjdGl2YXRpb24tMQAAAAxjYXBhYmlsaXR5LTEAAAAId2FsbGV0LTEAAAANa2V5LWJpbmRpbmctMQAAABNsaWZlY3ljbGUtYmluZGluZy0xAAAACHdvcmtlci0xAAAADHdhbGxldC1rZXktMQAAAApvd25lci1sYW5lAAAAB2Vwb2NoLTEAAAAAAAAAAgAAAAhyb3RhdGlvbgAAAAxyZXRpcmVtZW50LTEAAAAgFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYAAAAMZ2VuZXJhdGlvbi0xAAAAC2xpZmVjeWNsZS0xAAAAGDIwMjYtMDgtMTFUMDA6MDA6MDAuMDAwWg"
+        );
+        assert_eq!(
+            receipt.receipt_digest_b64u,
+            "tJ6cqtqwFRbT5OjrT23nQ9RgTdebD9M6p7ALDl8tne8"
+        );
+        verify_ecdsa_server_retirement_receipt_v1(
+            &receipt,
+            &manifest,
+            &material_activation,
+            "wallet-key-1",
+            "owner-lane",
+            "epoch-1",
+            2,
+            "retirement-1",
+            &b64_bytes::<32>(22),
+            "generation-1",
+            "lifecycle-1",
+        )
+        .expect("receipt verifies");
+
+        assert!(verify_ecdsa_server_retirement_receipt_v1(
+            &receipt,
+            &manifest,
+            &activation("activation-substitution"),
+            "wallet-key-1",
+            "owner-lane",
+            "epoch-1",
+            2,
+            "retirement-1",
+            &b64_bytes::<32>(22),
+            "generation-1",
+            "lifecycle-1",
+        )
+        .is_err());
+        assert!(verify_ecdsa_server_retirement_receipt_v1(
+            &receipt,
+            &manifest,
+            &material_activation,
+            "wallet-key-1",
+            "owner-lane",
+            "epoch-1",
+            3,
+            "retirement-1",
+            &b64_bytes::<32>(22),
+            "generation-1",
+            "lifecycle-1",
+        )
+        .is_err());
     }
 }

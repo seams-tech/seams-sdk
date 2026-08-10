@@ -2,6 +2,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use router_ab_core::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use zeroize::{Zeroize, Zeroizing};
 
 const LANE_IDENTITY_DOMAIN_V1: &[u8] = b"seams/signing-worker/lane-material-identity/v1";
 
@@ -183,6 +184,18 @@ pub struct CloudflareSigningWorkerLaneArtifactV1 {
     pub storage_digest_b64u: String,
 }
 
+impl Zeroize for CloudflareSigningWorkerLaneArtifactV1 {
+    fn zeroize(&mut self) {
+        self.payload_b64u.zeroize();
+    }
+}
+
+impl Drop for CloudflareSigningWorkerLaneArtifactV1 {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
 impl CloudflareSigningWorkerLaneArtifactV1 {
     pub fn from_bytes(
         kind: CloudflareSigningWorkerLaneArtifactKindV1,
@@ -211,12 +224,12 @@ impl CloudflareSigningWorkerLaneArtifactV1 {
                 "SigningWorker lane artifact has the wrong semantic kind",
             ));
         }
-        let payload = URL_SAFE_NO_PAD.decode(&self.payload_b64u).map_err(|_| {
+        let payload = Zeroizing::new(URL_SAFE_NO_PAD.decode(&self.payload_b64u).map_err(|_| {
             lane_error(
                 RouterAbProtocolErrorCode::MalformedWirePayload,
                 "SigningWorker lane artifact payload is not unpadded base64url",
             )
-        })?;
+        })?);
         if payload.is_empty() {
             return Err(lane_error(
                 RouterAbProtocolErrorCode::EmptyField,
@@ -224,7 +237,7 @@ impl CloudflareSigningWorkerLaneArtifactV1 {
             ));
         }
         let claimed = decode_digest("artifact.storage_digest_b64u", &self.storage_digest_b64u)?;
-        let computed: [u8; 32] = Sha256::digest(payload).into();
+        let computed: [u8; 32] = Sha256::digest(payload.as_slice()).into();
         if !constant_time_equal(&claimed, &computed) {
             return Err(lane_error(
                 RouterAbProtocolErrorCode::MalformedWirePayload,
@@ -232,6 +245,31 @@ impl CloudflareSigningWorkerLaneArtifactV1 {
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod artifact_tests {
+    use super::{CloudflareSigningWorkerLaneArtifactKindV1, CloudflareSigningWorkerLaneArtifactV1};
+    use zeroize::Zeroize;
+
+    #[test]
+    fn artifact_zeroize_clears_payload_and_retains_public_metadata() {
+        let mut artifact = CloudflareSigningWorkerLaneArtifactV1::from_bytes(
+            CloudflareSigningWorkerLaneArtifactKindV1::ActiveServerMaterial,
+            b"private-share",
+        )
+        .expect("artifact");
+        let digest = artifact.storage_digest_b64u.clone();
+
+        artifact.zeroize();
+
+        assert!(artifact.payload_b64u.is_empty());
+        assert_eq!(
+            artifact.kind,
+            CloudflareSigningWorkerLaneArtifactKindV1::ActiveServerMaterial
+        );
+        assert_eq!(artifact.storage_digest_b64u, digest);
     }
 }
 

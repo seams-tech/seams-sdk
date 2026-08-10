@@ -870,6 +870,71 @@ pub async fn load_cloudflare_signing_worker_active_lane_material_v1(
         .active_server_material()
 }
 
+/// Loads an encrypted lane record by operation before any replayed crypto runs.
+pub async fn load_cloudflare_signing_worker_lane_material_record_by_operation_v1(
+    env: &Env,
+    operation_id: &str,
+) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerLaneMaterialRecordV1>> {
+    require_non_empty("SigningWorker lane replay operation_id", operation_id)?;
+    let database = signing_worker_private_d1_from_env_v1(env)?;
+    let db = database
+        .with_session_constraint(D1SessionConstraint::FirstPrimary)
+        .map_err(|error| map_d1_error("SigningWorker lane primary session failed", error))?;
+    let Some(row) = signing_worker_lane_material_row_v1(&db, operation_id).await? else {
+        return Ok(None);
+    };
+    let cipher = SigningWorkerPrivateD1CipherV1::from_env(env)?;
+    let record = cipher.open::<CloudflareSigningWorkerLaneMaterialRecordV1>(
+        "lane_material",
+        operation_id,
+        &row.record_json,
+    )?;
+    record.validate()?;
+    Ok(Some(record))
+}
+
+/// Resolves one original registration activation into its exact private share.
+pub async fn load_cloudflare_signing_worker_registration_active_material_v1(
+    env: &Env,
+    lookup: &CloudflareActiveSigningWorkerStateLookupV1,
+) -> RouterAbProtocolResult<CloudflareServerOutputMaterialRecordV1> {
+    lookup.validate()?;
+    let database = signing_worker_private_d1_from_env_v1(env)?;
+    let db = database
+        .with_session_constraint(D1SessionConstraint::FirstPrimary)
+        .map_err(|error| map_d1_error("SigningWorker activation primary session failed", error))?;
+    let active_key = format!(
+        "active-signing-worker/{}/{}/{}",
+        lookup.account_id, lookup.material_activation_id, lookup.signing_worker_id
+    );
+    let row = activation_row_by_active_key_v1(&db, &active_key)
+        .await?
+        .ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MissingLocalBinding,
+                "active ECDSA registration source material is missing",
+            )
+        })?;
+    let active_state = decode_json::<ActiveSigningWorkerStateV1>(
+        "SigningWorker active state",
+        &row.active_state_json,
+    )?;
+    lookup.validate_active_state(&active_state)?;
+    let cipher = SigningWorkerPrivateD1CipherV1::from_env(env)?;
+    let record = cipher.open::<CloudflareSigningWorkerOutputActivationRecordV1>(
+        "activation",
+        &active_state.signing_worker_material_handle,
+        &row.record_json,
+    )?;
+    record.validate()?;
+    if record.active_signing_worker_state() != &active_state {
+        return Err(d1_error(
+            "ECDSA registration source material does not match its active state",
+        ));
+    }
+    Ok(record.into_material())
+}
+
 /// Resolves an admitted normal-signing lookup through the active-lane fence.
 pub async fn load_cloudflare_signing_worker_normal_signing_lane_material_v1(
     env: &Env,

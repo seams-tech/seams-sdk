@@ -17,6 +17,8 @@ use signer_core::near_threshold_ed25519::{
 mod private_d1;
 #[cfg(feature = "workers-rs")]
 pub use private_d1::*;
+mod ecdsa_lane;
+pub use ecdsa_lane::*;
 mod lane_private_d1;
 pub use lane_private_d1::*;
 

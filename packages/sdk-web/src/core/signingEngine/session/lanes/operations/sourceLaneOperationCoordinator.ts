@@ -132,6 +132,7 @@ async function commitEcdsaChild(args: {
   const committed = await args.ports.protocolCommitter.executeAndRecordEcdsaAdditiveLaneV1({
     job: args.child,
     holderRound: prepared.holderRound,
+    holderPackage: prepared.holderPackage,
     encryptedDeltaPackageJson: prepared.encryptedDeltaPackageJson,
     expectedVersion: args.expectedVersion,
   });

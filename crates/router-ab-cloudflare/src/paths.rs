@@ -124,6 +124,15 @@ pub const CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH: &str = "/router-ab/sign
 /// Authenticated private SigningWorker lane-material reducer endpoint.
 pub const CLOUDFLARE_SIGNING_WORKER_LANE_MATERIAL_COMMAND_PATH: &str =
     "/router-ab/internal/signing-worker/lane-material/command";
+/// Authenticated private SigningWorker endpoint for ECDSA lane execution.
+pub const CLOUDFLARE_SIGNING_WORKER_ECDSA_LANE_EXECUTE_PATH: &str =
+    "/router-ab/internal/signing-worker/ecdsa-additive-lane/execute";
+/// Authenticated private SigningWorker endpoint for ECDSA lane activation.
+pub const CLOUDFLARE_SIGNING_WORKER_ECDSA_LANE_ACTIVATE_PATH: &str =
+    "/router-ab/internal/signing-worker/ecdsa-additive-lane/activate";
+/// Authenticated private SigningWorker endpoint for exact ECDSA lane retirement.
+pub const CLOUDFLARE_SIGNING_WORKER_ECDSA_LANE_RETIRE_PATH: &str =
+    "/router-ab/internal/signing-worker/ecdsa-additive-lane/retire";
 /// Private SigningWorker endpoint for normal-signing round-1 prepare.
 pub const CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_ROUND1_PREPARE_PATH: &str =
     "/router-ab/signing-worker/sign/prepare";

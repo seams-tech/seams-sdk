@@ -3,6 +3,7 @@ import { parseEcdsaAdditiveLaneHolderRoundV1 } from '../../packages/shared-ts/sr
 import { CloudflareEd25519LaneProtocolTransportV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/signingLanes/cloudflareLaneProtocolCommitter';
 import {
   createCloudflareLaneCurveExecutionPortsV1,
+  LaneLifecycleStoreEcdsaLanePrivateBindingResolverV1,
   type SigningWorkerLaneMaterialReceiptPortV1,
 } from '../../packages/sdk-server-ts/src/router/cloudflare/signingLanes/cloudflareLaneCurveExecution';
 import {
@@ -65,6 +66,10 @@ test('projects only exact public receipts from the private SigningWorker lane jo
   const committed = await execution.ecdsa.executeProtocolCommitV1({
     job,
     holderRound,
+    holderPackage: {
+      kind: 'ecdsa_additive_lane_holder_package_v1',
+      ecdsaEncryptedMaterialEnvelopeJson: '{"opaque":"holder"}',
+    },
     encryptedDeltaPackageJson: '{"opaque":"delta"}',
   });
   const activated = await execution.ecdsa.executeServerActivationV1({
@@ -78,4 +83,42 @@ test('projects only exact public receipts from the private SigningWorker lane jo
   expect(calls).toEqual(['commit.replayed', 'activate.applied']);
   expect(Object.keys(committed)).not.toContain('record');
   expect(Object.keys(activated)).not.toContain('record');
+});
+
+test('linked-device source requires an exact active lane product', async () => {
+  const rawJob = buildR102EcdsaLaneJob('missing-linked-source', {
+    sourceLaneKind: 'linked_device',
+  });
+  if (rawJob.keyFamily !== 'ecdsa_secp256k1') throw new Error('fixture key family changed');
+  const resolver = new LaneLifecycleStoreEcdsaLanePrivateBindingResolverV1({
+    async getProductEpoch() {
+      return null;
+    },
+    getProtocol: unsupported,
+  });
+
+  await expect(resolver.resolveSourceMaterialV1({ job: rawJob })).rejects.toThrow(
+    'lane-backed source product epoch is missing',
+  );
+});
+
+test('target activation binds the admitted target SigningWorker', async () => {
+  const rawJob = buildR102EcdsaLaneJob('target-worker-binding');
+  if (rawJob.keyFamily !== 'ecdsa_secp256k1') throw new Error('fixture key family changed');
+  const resolver = new LaneLifecycleStoreEcdsaLanePrivateBindingResolverV1({
+    getProductEpoch: unsupported,
+    getProtocol: unsupported,
+  });
+
+  const binding = await resolver.resolveActivationBindingV1({
+    job: rawJob,
+    protocolCommitReceipt: buildR102ProtocolCommitReceipt(rawJob),
+  });
+
+  expect(binding.targetMaterialActivation.signingWorker).toBe(
+    rawJob.targetSigningWorker.participantId,
+  );
+  expect(binding.targetMaterialActivation.signingWorker).not.toBe(
+    rawJob.source.materialActivation.signingWorker,
+  );
 });

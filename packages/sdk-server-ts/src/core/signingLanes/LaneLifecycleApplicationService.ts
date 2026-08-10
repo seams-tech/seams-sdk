@@ -12,6 +12,7 @@ import type {
   LaneProtocolCasResultV1,
   LaneProtocolCommitReceiptV1,
   LaneServerActivationReceiptV1,
+  LaneHolderPackageWireV1,
   LaneSigningLaneRevocationResultV1,
   RevokeSigningLaneV1,
 } from '@shared/signing-lanes';
@@ -27,6 +28,10 @@ export type LaneLifecycleProtocolCommitRequestV1 =
       readonly curve: 'ecdsa_additive';
       readonly job: EcdsaAdditiveLaneJobV1;
       readonly holderRound: EcdsaAdditiveLaneHolderRoundV1;
+      readonly holderPackage: Extract<
+        LaneHolderPackageWireV1,
+        { kind: 'ecdsa_additive_lane_holder_package_v1' }
+      >;
       readonly encryptedDeltaPackageJson: string;
       readonly expectedVersion: number;
     };
@@ -123,6 +128,10 @@ export type LaneLifecycleEcdsaExecutionPortV1 = {
   executeProtocolCommitV1(input: {
     readonly job: EcdsaAdditiveLaneJobV1;
     readonly holderRound: EcdsaAdditiveLaneHolderRoundV1;
+    readonly holderPackage: Extract<
+      LaneHolderPackageWireV1,
+      { kind: 'ecdsa_additive_lane_holder_package_v1' }
+    >;
     readonly encryptedDeltaPackageJson: string;
   }): Promise<LaneProtocolCommitReceiptV1>;
   executeServerActivationV1(input: {
@@ -157,6 +166,7 @@ export class LaneLifecycleApplicationService {
         : await this.input.execution.ecdsa.executeProtocolCommitV1({
             job: request.job,
             holderRound: request.holderRound,
+            holderPackage: request.holderPackage,
             encryptedDeltaPackageJson: requireJson(
               request.encryptedDeltaPackageJson,
               'encryptedDeltaPackageJson',

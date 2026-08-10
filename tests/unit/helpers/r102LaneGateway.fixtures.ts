@@ -200,7 +200,43 @@ export function buildR102LaneJob(suffix: string): RotatableSigningLaneJobV1 {
   return parseRotatableSigningLaneJobV1(raw);
 }
 
-export function buildR102EcdsaLaneJob(suffix: string): RotatableSigningLaneJobV1 {
+export function buildR102EcdsaLaneJob(
+  suffix: string,
+  options: { readonly sourceLaneKind: 'owner_passkey' | 'linked_device' } = {
+    sourceLaneKind: 'owner_passkey',
+  },
+): RotatableSigningLaneJobV1 {
+  const sourceMaterialActivation = buildR102MaterialActivation(`source-${suffix}`);
+  const target =
+    options.sourceLaneKind === 'linked_device'
+      ? {
+          operation: 'refresh_lane',
+          laneId: `source-lane-r102-${suffix}`,
+          laneKind: 'linked_device',
+          laneShareEpoch: `target-epoch-r102-${suffix}`,
+          expectedTargetState: 'active_previous_epoch',
+          priorMaterialActivation: sourceMaterialActivation,
+        }
+      : {
+          operation: 'create_lane',
+          laneId: `target-lane-r102-${suffix}`,
+          laneKind: 'linked_device',
+          laneShareEpoch: `target-epoch-r102-${suffix}`,
+          expectedTargetState: 'absent',
+        };
+  const authorization =
+    options.sourceLaneKind === 'linked_device'
+      ? {
+          kind: 'owner_lane_refresh',
+          authorizedOperationId: `authorized-r102-${suffix}`,
+          ownerLaneRefreshDigestB64u: DIGEST_B64U,
+        }
+      : {
+          kind: 'linked_device_enrollment',
+          authorizedOperationId: `authorized-r102-${suffix}`,
+          linkedDeviceEnrollmentId: `linked-device-r102-${suffix}`,
+          linkedDevicePermissionDigestB64u: DIGEST_B64U,
+        };
   return parseRotatableSigningLaneJobV1({
     kind: 'ecdsa_additive_lane_job_v1',
     keyFamily: 'ecdsa_secp256k1',
@@ -211,14 +247,14 @@ export function buildR102EcdsaLaneJob(suffix: string): RotatableSigningLaneJobV1
     walletKeyId: `wallet-key-r102-${suffix}`,
     source: {
       laneId: `source-lane-r102-${suffix}`,
-      laneKind: 'owner_passkey',
+      laneKind: options.sourceLaneKind,
       laneShareEpoch: `source-epoch-r102-${suffix}`,
       revocationEpoch: 0,
       holderParticipantId: `source-holder-r102-${suffix}`,
       signingWorkerParticipantId: `source-worker-r102-${suffix}`,
       signingWorkerRecipientKeyId: `source-worker-key-r102-${suffix}`,
       participantBindingDigestB64u: DIGEST_B64U,
-      materialActivation: buildR102MaterialActivation(`source-${suffix}`),
+      materialActivation: sourceMaterialActivation,
     },
     targetHolder: {
       participantId: `target-holder-r102-${suffix}`,
@@ -238,19 +274,8 @@ export function buildR102EcdsaLaneJob(suffix: string): RotatableSigningLaneJobV1
     targetMaterialActivationId: `target-activation-r102-${suffix}`,
     protocolVersion: 'rotatable_signing_lane_protocol_v1',
     expiresAtMs: 100_000,
-    target: {
-      operation: 'create_lane',
-      laneId: `target-lane-r102-${suffix}`,
-      laneKind: 'linked_device',
-      laneShareEpoch: `target-epoch-r102-${suffix}`,
-      expectedTargetState: 'absent',
-    },
-    authorization: {
-      kind: 'linked_device_enrollment',
-      authorizedOperationId: `authorized-r102-${suffix}`,
-      linkedDeviceEnrollmentId: `linked-device-r102-${suffix}`,
-      linkedDevicePermissionDigestB64u: DIGEST_B64U,
-    },
+    target,
+    authorization,
     evmFamilySigningKeySlotId: 'wallet-key:evm-family:wallet-r102-lifecycle:root-r102:version-1',
     thresholdPublicKey33B64u: SECP256K1_GENERATOR_B64U,
     evmAddress: '0x0000000000000000000000000000000000000001',
