@@ -4,3 +4,4 @@ export * from './d1LaneEffectJournalStore';
 export * from './d1LaneLockStore';
 export * from './d1LaneEnrollmentGateway';
 export * from './d1LaneLifecycleApplicationService';
+export * from './d1LaneProtocolCommitter';

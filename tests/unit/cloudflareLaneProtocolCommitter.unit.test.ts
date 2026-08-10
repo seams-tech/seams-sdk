@@ -3,6 +3,7 @@ import type {
   LaneEnrollmentGatewayV1,
   LaneProtocolCommitReceiptV1,
 } from '../../packages/shared-ts/src/signing-lanes';
+import { parseEcdsaAdditiveLaneHolderRoundV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import type {
   LaneLifecycleAuthorizationPortV1,
   LaneLifecycleCurveExecutionPortsV1,
@@ -14,6 +15,7 @@ import {
   type Ed25519YaoLaneBindingResolverPortV1,
 } from '../../packages/sdk-server-ts/src/router/cloudflare/signingLanes/cloudflareLaneProtocolCommitter';
 import {
+  buildR102EcdsaLaneJob,
   buildR102LaneJob,
   buildR102ProtocolCommitReceipt,
 } from './helpers/r102LaneGateway.fixtures';
@@ -133,11 +135,12 @@ function committer(input: {
   readonly order: string[];
   readonly binding: CloudflareLaneServiceBindingV1;
   readonly received: LaneProtocolCommitReceiptV1[];
+  readonly execution?: LaneLifecycleCurveExecutionPortsV1;
 }): CloudflareLaneProtocolCommitterV1 {
   return new CloudflareLaneProtocolCommitterV1({
     gateway: gateway(input.order, input.received),
     authorization: authorization(input.order),
-    execution: unusedExecution(),
+    execution: input.execution ?? unusedExecution(),
     ed25519Transport: new CloudflareEd25519LaneProtocolTransportV1({
       router: input.binding,
       internalServiceAuth: 'internal-lane-secret',
@@ -249,5 +252,52 @@ test.describe('R102 Cloudflare lane protocol committer', () => {
     ).rejects.toThrow('receipt does not match the committed result');
     expect(received).toEqual([]);
     expect(order).toEqual(['authorize', 'resolve_binding', 'dispatch']);
+  });
+
+  test('records an idempotently replayed ECDSA SigningWorker receipt through the same Gateway CAS', async () => {
+    const rawJob = buildR102EcdsaLaneJob('cloudflare-committer-ecdsa');
+    if (rawJob.keyFamily !== 'ecdsa_secp256k1') throw new Error('fixture key family changed');
+    const job = rawJob;
+    const receipt = buildR102ProtocolCommitReceipt(job);
+    const order: string[] = [];
+    const received: LaneProtocolCommitReceiptV1[] = [];
+    const base = unusedExecution();
+    const execution: LaneLifecycleCurveExecutionPortsV1 = {
+      ed25519: base.ed25519,
+      ecdsa: {
+        async executeProtocolCommitV1() {
+          order.push('ecdsa_effect_replayed');
+          return receipt;
+        },
+        executeServerActivationV1: base.ecdsa.executeServerActivationV1,
+        executeServerRetirementV1: base.ecdsa.executeServerRetirementV1,
+      },
+    };
+    const holderRound = parseEcdsaAdditiveLaneHolderRoundV1({
+      kind: 'ecdsa_additive_lane_holder_round_v1',
+      preambleHashB64u: DIGEST_B64U,
+      targetHolderPublicCommitment33B64u: job.thresholdPublicKey33B64u,
+      encryptedDeltaCiphertextDigestB64u: DIGEST_B64U,
+      sealedTargetHolderMaterialDigestB64u: DIGEST_B64U,
+      holderAttestationB64u: 'holder-attestation-r102',
+      holderCommittedAtMs: 1_500,
+    });
+
+    const result = await committer({
+      order,
+      binding: { fetch: unsupported },
+      received,
+      execution,
+    }).executeAndRecordEcdsaAdditiveLaneV1({
+      job,
+      holderRound,
+      encryptedDeltaPackageJson: '{"opaque":"delta"}',
+      expectedVersion: 1,
+    });
+
+    expect(order).toEqual(['authorize', 'ecdsa_effect_replayed', 'gateway']);
+    expect(received).toEqual([receipt]);
+    expect(result.receipt).toEqual(receipt);
+    expect(result.protocolCasResult.outcome).toBe('conflict');
   });
 });
