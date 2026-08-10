@@ -383,6 +383,8 @@ pub fn ecdsa_lane_public_identity_relation_digest_v1(
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EcdsaAdditiveLaneHolderRoundV1 {
+    /// Wire discriminator.
+    pub kind: String,
     /// Preamble digest.
     pub preamble_hash_b64u: String,
     /// Target holder compressed public commitment.
@@ -422,6 +424,8 @@ impl EcdsaAdditiveLaneHolderRoundV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EcdsaAdditiveLaneServerRoundV1 {
+    /// Wire discriminator.
+    pub kind: String,
     /// Preamble digest.
     pub preamble_hash_b64u: String,
     /// Holder-round digest.
@@ -467,6 +471,8 @@ impl EcdsaAdditiveLaneServerRoundV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EcdsaAdditiveLaneTranscriptV1 {
+    /// Wire discriminator.
+    pub kind: String,
     /// Preamble digest.
     pub preamble_hash_b64u: String,
     /// Holder-round digest.
@@ -478,6 +484,7 @@ pub struct EcdsaAdditiveLaneTranscriptV1 {
 impl EcdsaAdditiveLaneTranscriptV1 {
     /// Returns canonical transcript bytes.
     pub fn canonical_bytes(&self) -> Result<Vec<u8>, EcdsaClientProtocolError> {
+        require_exact(&self.kind, "ecdsa_additive_lane_transcript_v1")?;
         validate_digest_b64(&self.preamble_hash_b64u)?;
         validate_digest_b64(&self.holder_round_hash_b64u)?;
         validate_digest_b64(&self.server_round_hash_b64u)?;
@@ -505,6 +512,7 @@ pub fn prepare_ecdsa_additive_lane_holder_round_v1(
     holder_committed_at_ms: u64,
 ) -> Result<EcdsaAdditiveLaneHolderRoundV1, EcdsaClientProtocolError> {
     let round = EcdsaAdditiveLaneHolderRoundV1 {
+        kind: "ecdsa_additive_lane_holder_round_v1".to_owned(),
         preamble_hash_b64u: b64(&job.preamble_hash()?),
         target_holder_public_commitment33_b64u,
         encrypted_delta_ciphertext_digest_b64u,
@@ -532,6 +540,7 @@ pub fn complete_ecdsa_additive_lane_server_round_v1(
         return Err(EcdsaClientProtocolError::InvalidShape);
     }
     let round = EcdsaAdditiveLaneServerRoundV1 {
+        kind: "ecdsa_additive_lane_server_round_v1".to_owned(),
         preamble_hash_b64u: preamble_hash,
         holder_round_hash_b64u: b64(&holder_round.hash()?),
         target_server_public_commitment33_b64u,
@@ -808,24 +817,38 @@ fn encode_job(
     text(out, &job.idempotency_key);
     text(out, &job.wallet_id);
     text(out, &job.wallet_key_id);
-    encode_source(out, &job.source)?;
-    encode_holder(out, &job.target_holder)?;
-    encode_worker(out, &job.target_signing_worker)?;
+    let mut source = Vec::new();
+    encode_source(&mut source, &job.source)?;
+    lp(out, &source);
+    let mut holder = Vec::new();
+    encode_holder(&mut holder, &job.target_holder)?;
+    lp(out, &holder);
+    let mut worker = Vec::new();
+    encode_worker(&mut worker, &job.target_signing_worker)?;
+    lp(out, &worker);
     text(out, &job.target_material_activation_id);
     text(out, &job.protocol_version);
     u64_be(out, job.expires_at_ms);
-    encode_target(out, &job.target)?;
-    encode_authorization(out, &job.authorization)?;
+    let mut target = Vec::new();
+    encode_target(&mut target, &job.target)?;
+    lp(out, &target);
+    let mut authorization = Vec::new();
+    encode_authorization(&mut authorization, &job.authorization)?;
+    lp(out, &authorization);
     text(out, &job.kind);
     text(out, &job.key_family);
     text(out, &job.evm_family_signing_key_slot_id);
     text(out, &job.threshold_public_key33_b64u);
     text(out, &job.evm_address);
-    encode_source_capability(out, &job.source_capability);
-    encode_target_capability(out, &job.target_capability)?;
+    let mut source_capability = Vec::new();
+    encode_source_capability(&mut source_capability, &job.source_capability);
+    lp(out, &source_capability);
+    let mut target_capability = Vec::new();
+    encode_target_capability(&mut target_capability, &job.target_capability)?;
+    lp(out, &target_capability);
     text(out, &job.source_holder_verifying_share33_b64u);
     text(out, &job.source_server_verifying_share33_b64u);
-    text(out, &job.reshare_channel_binding_digest_b64u);
+    digest_text(out, &job.reshare_channel_binding_digest_b64u)?;
     text(out, &job.transcript_encoding);
     Ok(())
 }
@@ -841,7 +864,7 @@ fn encode_source(
     text(out, &source.holder_participant_id);
     text(out, &source.signing_worker_participant_id);
     text(out, &source.signing_worker_recipient_key_id);
-    text(out, &source.participant_binding_digest_b64u);
+    digest_text(out, &source.participant_binding_digest_b64u)?;
     activation_lp(out, &source.material_activation)
 }
 
@@ -850,7 +873,7 @@ fn encode_holder(
     holder: &EcdsaLaneTargetHolderV1,
 ) -> Result<(), EcdsaClientProtocolError> {
     text(out, &holder.participant_id);
-    text(out, &holder.participant_binding_digest_b64u);
+    digest_text(out, &holder.participant_binding_digest_b64u)?;
     text(out, &holder.custody_binding_id);
     digest_text(out, &holder.custody_binding_digest_b64u)?;
     text(out, &holder.hpke_public_key_b64u);
@@ -862,7 +885,7 @@ fn encode_worker(
     worker: &EcdsaLaneTargetSigningWorkerV1,
 ) -> Result<(), EcdsaClientProtocolError> {
     text(out, &worker.participant_id);
-    text(out, &worker.participant_binding_digest_b64u);
+    digest_text(out, &worker.participant_binding_digest_b64u)?;
     text(out, &worker.recipient_key_id);
     text(out, &worker.hpke_public_key_b64u);
     digest_text(out, &worker.hpke_public_key_digest_b64u)
@@ -947,9 +970,16 @@ fn encode_target_capability(
     text(out, &capability.ecdsa_threshold_key_id);
     nonempty_count(out, capability.ordered_threshold_sessions.len())?;
     for session in &capability.ordered_threshold_sessions {
-        encode_chain_target(out, &session.chain_target)?;
-        text(out, &session.threshold_session_id);
-        digest_text(out, &session.participant_binding_digest_b64u)?;
+        let mut encoded_session = Vec::new();
+        let mut encoded_target = Vec::new();
+        encode_chain_target(&mut encoded_target, &session.chain_target)?;
+        lp(&mut encoded_session, &encoded_target);
+        text(&mut encoded_session, &session.threshold_session_id);
+        digest_text(
+            &mut encoded_session,
+            &session.participant_binding_digest_b64u,
+        )?;
+        lp(out, &encoded_session);
     }
     Ok(())
 }
@@ -1146,6 +1176,7 @@ fn validate_activation(
 fn validate_holder_round(
     round: &EcdsaAdditiveLaneHolderRoundV1,
 ) -> Result<(), EcdsaClientProtocolError> {
+    require_exact(&round.kind, "ecdsa_additive_lane_holder_round_v1")?;
     validate_digest_b64(&round.preamble_hash_b64u)?;
     validate_public_key_b64(&round.target_holder_public_commitment33_b64u)?;
     validate_digest_b64(&round.encrypted_delta_ciphertext_digest_b64u)?;
@@ -1160,6 +1191,7 @@ fn validate_holder_round(
 fn validate_server_round(
     round: &EcdsaAdditiveLaneServerRoundV1,
 ) -> Result<(), EcdsaClientProtocolError> {
+    require_exact(&round.kind, "ecdsa_additive_lane_server_round_v1")?;
     validate_digest_b64(&round.preamble_hash_b64u)?;
     validate_digest_b64(&round.holder_round_hash_b64u)?;
     validate_public_key_b64(&round.target_server_public_commitment33_b64u)?;
@@ -1414,6 +1446,7 @@ mod tests {
         )
         .expect("server round");
         let transcript = EcdsaAdditiveLaneTranscriptV1 {
+            kind: "ecdsa_additive_lane_transcript_v1".to_owned(),
             preamble_hash_b64u: b64(&job.preamble_hash().expect("preamble")),
             holder_round_hash_b64u: b64(&holder.hash().expect("holder hash")),
             server_round_hash_b64u: b64(&server.hash().expect("server hash")),
