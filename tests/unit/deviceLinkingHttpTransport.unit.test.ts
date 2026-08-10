@@ -71,6 +71,9 @@ test.describe('R103 authenticated linked-device browser transport', () => {
           devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
         };
       },
+      async discardKeyMaterialV1() {
+        return;
+      },
       async signDeviceSessionRequestV1(input) {
         signatures.push(input);
         return { signatureB64u: base64UrlEncode(new Uint8Array(64).fill(9)) };
