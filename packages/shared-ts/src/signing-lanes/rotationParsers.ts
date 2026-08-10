@@ -117,6 +117,7 @@ import type {
   LaneEnrollmentManifestChildV1,
   LaneEnrollmentManifestV1,
   LaneHolderDeliveryReceiptV1,
+  LaneHolderPackageWireV1,
   LaneOperationAuthorizationBindingV1,
   LaneProductEpochActiveV1,
   LaneProductEpochPendingVisibilityV1,
@@ -138,6 +139,23 @@ import type {
 import type { DigestB64u } from '../utils/canonicalPrimitives';
 
 type UnknownRecord = Record<string, unknown>;
+
+function opaqueJson(raw: unknown, label: string): string {
+  if (typeof raw !== 'string' || raw.length === 0) {
+    throw new Error(`${label} must be a non-empty JSON string`);
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new Error('top-level value must be an object');
+    }
+  } catch (error) {
+    throw new Error(
+      `${label} must contain valid object JSON: ${error instanceof Error ? error.message : 'invalid JSON'}`,
+    );
+  }
+  return raw;
+}
 
 const NON_EMPTY_FIELDS = {
   authorization: [
@@ -987,6 +1005,45 @@ export function parseRotatableSigningLaneJobV1(
   if (record.kind === 'ed25519_yao_lane_job_v1') return parseEdJob(record, label);
   if (record.kind === 'ecdsa_additive_lane_job_v1') return parseEcdsaJob(record, label);
   throw new Error(`${label}.kind is invalid`);
+}
+
+export function parseLaneHolderPackageWireV1(
+  raw: unknown,
+  label = 'laneHolderPackage',
+): LaneHolderPackageWireV1 {
+  const record = requireRecord(raw, label);
+  switch (record.kind) {
+    case 'ed25519_yao_lane_holder_package_set_v1': {
+      const value = exactRecord(
+        record,
+        ['kind', 'deriverAEncryptedPackageJson', 'deriverBEncryptedPackageJson'],
+        label,
+      );
+      return {
+        kind: 'ed25519_yao_lane_holder_package_set_v1',
+        deriverAEncryptedPackageJson: opaqueJson(
+          value.deriverAEncryptedPackageJson,
+          `${label}.deriverAEncryptedPackageJson`,
+        ),
+        deriverBEncryptedPackageJson: opaqueJson(
+          value.deriverBEncryptedPackageJson,
+          `${label}.deriverBEncryptedPackageJson`,
+        ),
+      };
+    }
+    case 'ecdsa_additive_lane_holder_package_v1': {
+      const value = exactRecord(record, ['kind', 'ecdsaEncryptedMaterialEnvelopeJson'], label);
+      return {
+        kind: 'ecdsa_additive_lane_holder_package_v1',
+        ecdsaEncryptedMaterialEnvelopeJson: opaqueJson(
+          value.ecdsaEncryptedMaterialEnvelopeJson,
+          `${label}.ecdsaEncryptedMaterialEnvelopeJson`,
+        ),
+      };
+    }
+    default:
+      throw new Error(`${label}.kind is invalid`);
+  }
 }
 
 export const parseLaneProtocolJobV1 = parseRotatableSigningLaneJobV1;

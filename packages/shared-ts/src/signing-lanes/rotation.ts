@@ -13,7 +13,7 @@ import type {
   EcdsaLifecycleId,
   EcdsaServerGeneration,
 } from '../utils/ecdsaCapabilityActivation';
-import type { CorrelationId, IsoTimestamp } from '../utils/canonicalPrimitives';
+import type { CorrelationId, DigestB64u, IsoTimestamp } from '../utils/canonicalPrimitives';
 import type { NearEd25519SigningKeyId } from '../utils/registrationIntent';
 import type { EcdsaThresholdKeyId } from '../threshold/ecdsaDerivationRoleLocalBootstrap';
 import type {
@@ -772,9 +772,24 @@ export type LaneHolderRecipientDescriptorV1 = {
   hpkePublicKeyDigestB64u: HpkePublicKeyDigestB64u;
 };
 
+export type LaneHolderPackageWireV1 =
+  | {
+      kind: 'ed25519_yao_lane_holder_package_set_v1';
+      deriverAEncryptedPackageJson: string;
+      deriverBEncryptedPackageJson: string;
+      ecdsaEncryptedMaterialEnvelopeJson?: never;
+    }
+  | {
+      kind: 'ecdsa_additive_lane_holder_package_v1';
+      ecdsaEncryptedMaterialEnvelopeJson: string;
+      deriverAEncryptedPackageJson?: never;
+      deriverBEncryptedPackageJson?: never;
+    };
+
 export type SealedLaneHolderMaterialV1 = {
   sealedHolderMaterialB64u: string;
-  sealedHolderRecordDigestB64u: string;
+  sealedHolderRecordDigestB64u: DigestB64u;
+  verifiedHolderCiphertextDigestSetB64u: DigestB64u;
 };
 
 export type WasmEd25519YaoLaneClientV1 = {
@@ -821,7 +836,7 @@ export type LaneHolderRecipientWorkerV1 = {
   openAndSealLaneHolderPackageV1(input: {
     job: RotatableSigningLaneJobV1;
     protocolCommitReceipt: LaneProtocolCommitReceiptV1;
-    ciphertextB64u: string;
+    holderPackage: LaneHolderPackageWireV1;
     recipientHandle: LaneHolderRecipientHandleV1;
   }): Promise<SealedLaneHolderMaterialV1>;
   discardLaneHolderRecipientV1(input: {
