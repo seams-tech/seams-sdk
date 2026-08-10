@@ -196,8 +196,12 @@ type SigningLaneRecord =
   | BreakGlassSigningLaneRecord;
 ```
 
-Every branch has required holder and server participant bindings. Branches use
-`never` fields to reject identities and policies owned by another branch.
+Owner branches bind the exact durable signer identity, participant tuple,
+SigningWorker identity, custody-manifest digest, and current public capability
+digest already present in canonical signer records. Linked-device and delegated
+branches require the independently provisioned holder and server HPKE participant
+records owned by later refactors. Branches use `never` fields to reject identities
+and policies owned by another branch.
 
 ### Delegated execution lane
 
@@ -694,9 +698,11 @@ behavior failure.
 
 - R101 selects no delegated execution topology. The branch remains typed and
   fail closed until R104 chooses and proves one.
-- Existing `LaneHolderParticipantRecordV1`,
-  `SigningWorkerParticipantRecordV1`, and their canonical participant digest
-  are the R101 participant records. R102 must reuse them.
+- Existing owner signer rows project through
+  `OwnerLaneParticipantContinuityV1`; no HPKE or custody identity is synthesized
+  for those rows. `LaneHolderParticipantRecordV1` and
+  `SigningWorkerParticipantRecordV1` remain required for independently
+  provisioned linked-device and delegated lanes. R102 must reuse them.
 - Mixed-key device authorization and aggregate ordering are R103 decisions.
   R101 models and resolves one exact wallet key per lane.
 - Cryptographic revocation receipt encoding and post-compromise share refresh

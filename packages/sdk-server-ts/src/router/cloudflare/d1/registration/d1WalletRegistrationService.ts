@@ -208,7 +208,10 @@ import {
   type WalletSignerRecord,
 } from '../../../../core/WalletStore';
 import type { D1WalletStore } from '../../../../core/d1WalletStore';
-import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../../../core/ThresholdService/validation';
+import {
+  thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
+  type RouterAbEcdsaDerivationWalletSessionClaims,
+} from '../../../../core/ThresholdService/validation';
 import {
   isEmailOtpWalletAuthAuthority,
   isPasskeyWalletAuthAuthority,
@@ -377,6 +380,24 @@ function reusableWalletSessionPrincipalId(authority: WalletAuthAuthority): Princ
       ? String(authority.factor.providerUserId)
       : String(authority.walletId),
   );
+}
+
+function walletSessionAuthSourceFromAuthority(
+  authority: WalletAuthAuthority,
+): RouterAbEcdsaDerivationWalletSessionClaims['authSource'] {
+  if (authority.factor.kind === 'passkey') {
+    return {
+      kind: 'passkey',
+      credentialIdB64u: authority.factor.credentialIdB64u,
+    };
+  }
+  const providerSubject = parseProviderSubject(authority.factor.providerUserId);
+  if (!providerSubject.ok) throw new Error(providerSubject.error.message);
+  return {
+    kind: 'oidc_provider',
+    providerId: authority.factor.provider === 'google' ? 'google_oidc' : 'oidc',
+    providerSubject: providerSubject.value,
+  };
 }
 
 function registrationEstablishedMintId(
@@ -1371,6 +1392,8 @@ export class CloudflareD1WalletRegistrationService {
     }
     const signed = await signRouterAbEcdsaDerivationWalletSessionJwt({
       session: input.session,
+      walletAuthAuthorityRef: await walletAuthAuthorityRef({ authority: input.authority }),
+      authSource: walletSessionAuthSourceFromAuthority(input.authority),
       userId: bootstrap.walletId,
       relayerKeyId: bootstrap.relayerKeyId,
       fallbackParticipantIds: bootstrap.participantIds,

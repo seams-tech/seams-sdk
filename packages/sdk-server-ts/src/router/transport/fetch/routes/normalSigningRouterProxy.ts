@@ -1,5 +1,10 @@
 import { json } from '../../../framework/http';
 import type { RouterAbNormalSigningRouterProxy } from '../../../framework/routerApi';
+import type { RouterApiWalletRegistrationService } from '../../../framework/authServicePort';
+import type { AuthorizedOperation } from '../../../../authorization/domain';
+import { prepareOwnerWalletExecution } from '../../../domains/signingOperations/walletExecutionAdmission';
+import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   normalizeRouterAbInternalServiceAuthSecret,
   ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
@@ -51,4 +56,69 @@ export async function proxyNormalSigningRequestToMpcRouter(input: {
       { status: 502 },
     );
   }
+}
+
+export async function proxyOwnerLaneAdmittedNormalSigningRequest(input: {
+  readonly request: Request;
+  readonly proxy: RouterAbNormalSigningRouterProxy | null | undefined;
+  readonly body: Record<string, unknown>;
+  readonly authorizedOperation: AuthorizedOperation;
+  readonly walletId: Parameters<
+    RouterApiWalletRegistrationService['resolveActiveOwnerWalletExecutionLane']
+  >[0]['walletId'];
+  readonly expectedMaterialActivation: RouterAbMpcMaterialActivationRefWire;
+  readonly authorization: Parameters<
+    RouterApiWalletRegistrationService['resolveActiveOwnerWalletExecutionLane']
+  >[0]['authorization'];
+  readonly walletRegistration: Pick<
+    RouterApiWalletRegistrationService,
+    'resolveActiveOwnerWalletExecutionLane'
+  >;
+}): Promise<Response> {
+  const expectedMaterialActivation = routerAbMpcMaterialActivationRefFromWire(
+    input.expectedMaterialActivation,
+  );
+  const resolved = await input.walletRegistration.resolveActiveOwnerWalletExecutionLane({
+    walletId: input.walletId,
+    expectedMaterialActivation,
+    authorization: input.authorization,
+  });
+  if (resolved.kind === 'refused') {
+    return json(
+      {
+        ok: false,
+        code: 'wallet_execution_lane_refused',
+        message: `Wallet execution lane is unavailable: ${resolved.reason}`,
+      },
+      { status: 403 },
+    );
+  }
+  const admission = await prepareOwnerWalletExecution({
+    authorizedOperation: input.authorizedOperation,
+    evidence: {
+      walletId: input.walletId,
+      walletKey: resolved.projection.walletKey,
+      lane: resolved.projection.lane,
+      materialActivation: resolved.projection.materialActivation,
+      expectedMaterialActivation,
+      verifiedLaneParticipantBindingDigestB64u:
+        resolved.projection.lane.participantBindingDigestB64u,
+      verifiedActivationReceiptDigestB64u: resolved.projection.verifiedActivationReceiptDigestB64u,
+    },
+  });
+  if (admission.kind === 'refused') {
+    return json(
+      {
+        ok: false,
+        code: 'wallet_execution_lane_refused',
+        message: `Wallet execution lane admission failed: ${admission.reason}`,
+      },
+      { status: 403 },
+    );
+  }
+  return await proxyNormalSigningRequestToMpcRouter({
+    request: input.request,
+    proxy: input.proxy,
+    body: input.body,
+  });
 }

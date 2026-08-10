@@ -50,6 +50,8 @@ import type {
   RouterApiAuthorizationSessionService,
   RouterApiWalletRegistrationService,
 } from '../../framework/authServicePort';
+import type { WalletExecutionLaneAuthSource } from '../../../core/signingLanes/WalletExecutionLaneProjection';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
   buildEvmEcdsaMpcOperationRef,
   buildNearEd25519MpcOperationRef,
@@ -474,6 +476,8 @@ type RouterAbOperationStepUpAppSession = {
   readonly sessionId: SeamsSessionId;
   readonly walletId: string;
   readonly runtimePolicyScope: RuntimePolicyScope;
+  readonly walletAuthAuthorityRef: WalletAuthAuthorityRef;
+  readonly authSource: WalletExecutionLaneAuthSource;
 };
 
 type RouterAbEd25519PrivateSigningAuthorization =
@@ -1621,9 +1625,8 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
       operation: operation.operation,
       digests: { laneDigest, intentDigest, displayDigest },
     });
-    const operationFingerprintDigest = await computeCapabilityOperationFingerprintDigest(
-      operationEnvelope,
-    );
+    const operationFingerprintDigest =
+      await computeCapabilityOperationFingerprintDigest(operationEnvelope);
     const existing = await authenticated.authorizedOperations.readAuthorizedOperation({
       tenantId: authenticated.session.tenantId,
       operationFingerprintDigest,
@@ -1821,6 +1824,8 @@ export async function authenticateRouterAbOperationStepUpAppSessionIdentity(inpu
       sessionId: sessionId.value,
       walletId: claims.walletId,
       runtimePolicyScope: claims.runtimePolicyScope,
+      walletAuthAuthorityRef: claims.walletAuthAuthorityRef,
+      authSource: activeSession.authSource,
     },
     activeSession,
     authorityRef: claims.walletAuthAuthorityRef,
@@ -2356,10 +2361,10 @@ export async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
     RouterApiAuthorizedOperationService,
     'tenantId' | 'admitAuthorizedOperation'
   >;
-  authorizationSessions: Pick<
-    RouterApiAuthorizationSessionService,
-    'tenantId' | 'readActiveSession'
-  > | null | undefined;
+  authorizationSessions:
+    | Pick<RouterApiAuthorizationSessionService, 'tenantId' | 'readActiveSession'>
+    | null
+    | undefined;
   resolveEcdsaMaterialActivation: RouterApiWalletRegistrationService['resolveEcdsaMaterialActivation'];
 }): Promise<
   | {

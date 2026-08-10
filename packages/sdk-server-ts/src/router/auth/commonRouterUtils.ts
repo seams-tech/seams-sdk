@@ -45,7 +45,10 @@ import {
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
 import { base64UrlEncode } from '@shared/utils/encoders';
-import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type {
+  WalletAuthAuthority,
+  WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import {
   parseMpcWalletSigningQuotaId,
   parseSeamsSessionId,
@@ -250,6 +253,8 @@ export type RouterAbEd25519WalletSessionJwtSessionInfo =
 
 export type RouterAbEcdsaDerivationWalletSessionJwtSigningInput =
   RouterAbWalletSessionJwtSigningInput & {
+    walletAuthAuthorityRef: WalletAuthAuthorityRef;
+    authSource: RouterAbEcdsaDerivationWalletSessionClaims['authSource'];
     sessionInfo: RouterAbWalletSessionJwtSigningInput['sessionInfo'] & {
       sessionKind: 'jwt';
       authorizationId: unknown;
@@ -666,6 +671,8 @@ type RouterAbEd25519WalletSessionClaimsBuildInput = {
 
 type RouterAbEcdsaDerivationWalletSessionClaimsBuildInput = {
   base: NormalizedRouterAbWalletSessionSigningBase;
+  walletAuthAuthorityRef: WalletAuthAuthorityRef;
+  authSource: RouterAbEcdsaDerivationWalletSessionClaims['authSource'];
   authorizationSessionId: SeamsSessionId;
   keyHandle: string;
   runtimePolicyScope?: RuntimePolicyScope;
@@ -712,6 +719,8 @@ function buildRouterAbEcdsaDerivationWalletSessionClaims(
     thresholdSessionId: input.base.thresholdSessionId,
     authorizationId: input.base.authorizationId,
     authorizationSessionId: input.authorizationSessionId,
+    walletAuthAuthorityRef: input.walletAuthAuthorityRef,
+    authSource: input.authSource,
     walletSessionId: input.base.walletSessionId,
     quotaId: input.base.quotaId,
     keyScope: 'evm-family',
@@ -827,6 +836,8 @@ export async function signRouterAbEcdsaDerivationWalletSessionJwt(
   }
   const claims = buildRouterAbEcdsaDerivationWalletSessionClaims({
     base: base.value,
+    walletAuthAuthorityRef: args.walletAuthAuthorityRef,
+    authSource: args.authSource,
     authorizationSessionId: authorizationSessionId.value,
     keyHandle,
     runtimePolicyScope: runtimePolicyScope.value,

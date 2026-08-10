@@ -440,6 +440,13 @@ test.describe('Router A/B Wallet Session token claims', () => {
       buildClearCookie: () => 'session=',
       refresh: async () => ({ ok: false }),
     };
+    const ecdsaWalletAuthAuthorityRef = await walletAuthAuthorityRef({
+      authority: passkeyAuthority,
+    });
+    const ecdsaAuthSource = {
+      kind: 'passkey' as const,
+      credentialIdB64u: passkeyAuthority.factor.credentialIdB64u,
+    };
     await expect(
       signRouterAbEd25519WalletSessionJwt({
         session,
@@ -504,6 +511,8 @@ test.describe('Router A/B Wallet Session token claims', () => {
     await expect(
       signRouterAbEcdsaDerivationWalletSessionJwt({
         session,
+        walletAuthAuthorityRef: ecdsaWalletAuthAuthorityRef,
+        authSource: ecdsaAuthSource,
         userId: 'alice.testnet',
         relayerKeyId: ecdsaBootstrap.relayerKeyId,
         sessionInfo: {
@@ -567,6 +576,8 @@ test.describe('Router A/B Wallet Session token claims', () => {
     await expect(
       signRouterAbEcdsaDerivationWalletSessionJwt({
         session,
+        walletAuthAuthorityRef: ecdsaWalletAuthAuthorityRef,
+        authSource: ecdsaAuthSource,
         userId: 'alice.testnet',
         relayerKeyId: 'ecdsa-relayer-key-1',
         sessionInfo: {
@@ -610,6 +621,8 @@ test.describe('Router A/B Wallet Session token claims', () => {
     await expect(
       signRouterAbEcdsaDerivationWalletSessionJwt({
         session,
+        walletAuthAuthorityRef: ecdsaWalletAuthAuthorityRef,
+        authSource: ecdsaAuthSource,
         userId: 'alice.testnet',
         relayerKeyId: ecdsaBootstrap.relayerKeyId,
         sessionInfo: issuerBindingOnlySessionInfo,

@@ -33,10 +33,14 @@ import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSes
 import { parseThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { WalletRegistrationActivateResponseV2 } from '../../../../core/threeRouteRegistrationContracts';
-import {
-  D1WalletAuthMethodStore,
-} from '../../../../core/d1WalletAuthMethodStore';
+import { D1WalletAuthMethodStore } from '../../../../core/d1WalletAuthMethodStore';
 import { D1WalletStore } from '../../../../core/d1WalletStore';
+import {
+  resolveActiveOwnerWalletExecutionLane,
+  resolveWalletAuthMethodIdForAuthority,
+  type WalletExecutionLaneProjectionResult,
+  type WalletExecutionLaneProjectionSource,
+} from '../../../../core/signingLanes/WalletExecutionLaneProjection';
 import { D1IdentityStore } from '../../../../core/d1IdentityStore';
 import { D1EmailRecoveryPreparationStore } from '../../../../core/EmailRecoveryPreparationStore';
 import { D1WebAuthnCredentialBindingStore } from '../../../../core/WebAuthnCredentialBindingStore';
@@ -198,6 +202,7 @@ type CloudflareD1RouterApiAuthAssembly = {
   readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
   readonly walletRegistrations: CloudflareD1WalletRegistrationService;
   readonly walletStore: D1WalletStore;
+  readonly walletAuthMethodStore: D1WalletAuthMethodStore;
   readonly walletAddSigners: CloudflareD1WalletAddSignerService;
   readonly registrationIntents: CloudflareD1RegistrationIntentService;
   readonly signedDelegateExecutor: CloudflareD1SignedDelegateExecutor;
@@ -214,7 +219,11 @@ type CloudflareD1RouterApiAuthAssembly = {
 
 type D1WalletRegistrationRouteServiceAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
-  'emailOtpRecoveryService' | 'registrationIntents' | 'walletRegistrations'
+  | 'emailOtpRecoveryService'
+  | 'registrationIntents'
+  | 'walletAuthMethodStore'
+  | 'walletRegistrations'
+  | 'walletStore'
 >;
 
 type D1WalletAuthMethodRouteServiceAssembly = Pick<
@@ -1324,6 +1333,7 @@ function createCloudflareD1RouterApiAuthAssembly(
   );
   const getWalletAuthMethodStore = getWalletAuthMethodStoreForState.bind(undefined, lazyStores);
   const getWalletStore = getWalletStoreForState.bind(undefined, lazyStores);
+  const walletAuthMethodStore = getWalletAuthMethodStore();
   const walletStore = getWalletStore();
   const createSponsoredNamedNearAccount = createSponsoredNamedNearAccountForOptions.bind(
     undefined,
@@ -1538,6 +1548,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     webAuthnAuthService,
     walletAuthMethods,
     walletRegistrations,
+    walletAuthMethodStore,
     walletStore,
     walletAddSigners,
     registrationIntents,
@@ -1548,10 +1559,72 @@ function createCloudflareD1RouterApiAuthAssembly(
   };
 }
 
+class D1WalletExecutionLaneProjectionSource implements WalletExecutionLaneProjectionSource {
+  constructor(
+    private readonly walletAuthMethodStore: D1WalletAuthMethodStore,
+    private readonly walletStore: D1WalletStore,
+  ) {}
+
+  async listWalletAuthMethods(
+    input: Parameters<WalletExecutionLaneProjectionSource['listWalletAuthMethods']>[0],
+  ) {
+    return await this.walletAuthMethodStore.listForWallet({ walletId: input.walletId });
+  }
+
+  async listWalletSigners(
+    input: Parameters<WalletExecutionLaneProjectionSource['listWalletSigners']>[0],
+  ) {
+    const [ed25519, ecdsa] = await Promise.all([
+      this.walletStore.listEd25519SignersForWallet({ walletId: input.walletId }),
+      this.walletStore.listEcdsaSignersForWallet({ walletId: input.walletId }),
+    ]);
+    return [...ed25519, ...ecdsa];
+  }
+}
+
+async function resolveD1ActiveOwnerWalletExecutionLane(
+  source: WalletExecutionLaneProjectionSource,
+  input: Parameters<
+    RouterApiServiceBag['walletRegistration']['resolveActiveOwnerWalletExecutionLane']
+  >[0],
+): Promise<WalletExecutionLaneProjectionResult> {
+  let walletAuthMethodId;
+  switch (input.authorization.kind) {
+    case 'wallet_auth_method':
+      walletAuthMethodId = input.authorization.walletAuthMethodId;
+      break;
+    case 'authority_ref': {
+      const authMethods = await source.listWalletAuthMethods({ walletId: input.walletId });
+      walletAuthMethodId = await resolveWalletAuthMethodIdForAuthority({
+        walletId: input.walletId,
+        authorityRef: input.authorization.authorityRef,
+        authSource: input.authorization.authSource,
+        authMethods,
+      });
+      if (!walletAuthMethodId) return { kind: 'refused', reason: 'auth_method_missing' };
+      break;
+    }
+  }
+  return await resolveActiveOwnerWalletExecutionLane({
+    source,
+    walletId: input.walletId,
+    walletAuthMethodId,
+    expectedMaterialActivation: input.expectedMaterialActivation,
+  });
+}
+
 function createD1WalletRegistrationRouteService(
   assembly: D1WalletRegistrationRouteServiceAssembly,
 ): RouterApiServiceBag['walletRegistration'] {
+  const laneProjectionSource = new D1WalletExecutionLaneProjectionSource(
+    assembly.walletAuthMethodStore,
+    assembly.walletStore,
+  );
   return {
+    resolveActiveOwnerWalletExecutionLane: resolveD1ActiveOwnerWalletExecutionLane.bind(
+      undefined,
+      laneProjectionSource,
+    ),
     listWalletEcdsaCustodyContinuity:
       assembly.walletRegistrations.listWalletEcdsaCustodyContinuity.bind(
         assembly.walletRegistrations,

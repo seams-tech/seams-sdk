@@ -11,11 +11,25 @@ import type {
   WalletRegistrationSetupInput,
 } from '../domains/walletRegistration/walletRegistrationInputs';
 import type { WalletEmailOtpAction } from '@shared/utils/emailOtpDomain';
-import type { OrgId, ProviderSubject, WalletId, WebAuthnRpId } from '@shared/utils/domainIds';
+import type {
+  MpcMaterialActivationRef,
+  OrgId,
+  ProviderSubject,
+  WalletAuthMethodId,
+  WalletId,
+  WebAuthnRpId,
+} from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
-import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type {
+  EmailOtpWalletAuthAuthority,
+  WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
+import type {
+  WalletExecutionLaneAuthSource,
+  WalletExecutionLaneProjectionResult,
+} from '../../core/signingLanes/WalletExecutionLaneProjection';
 import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   EmailOtpChannel,
@@ -1074,6 +1088,20 @@ export interface RouterApiEmailOtpChallengeService {
 }
 
 export interface RouterApiWalletRegistrationService {
+  resolveActiveOwnerWalletExecutionLane(input: {
+    readonly walletId: WalletId;
+    readonly expectedMaterialActivation: MpcMaterialActivationRef;
+    readonly authorization:
+      | {
+          readonly kind: 'wallet_auth_method';
+          readonly walletAuthMethodId: WalletAuthMethodId;
+        }
+      | {
+          readonly kind: 'authority_ref';
+          readonly authorityRef: WalletAuthAuthorityRef;
+          readonly authSource: WalletExecutionLaneAuthSource;
+        };
+  }): Promise<WalletExecutionLaneProjectionResult>;
   listWalletEcdsaCustodyContinuity(input: {
     readonly walletId: string;
   }): Promise<readonly WalletEcdsaSignerRecord[]>;

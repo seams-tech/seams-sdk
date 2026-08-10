@@ -1,5 +1,11 @@
 import { base64UrlDecode } from '@shared/utils/encoders';
-import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import {
+  parseProviderSubject,
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+  type ProviderSubject,
+  type WebAuthnCredentialIdB64u,
+} from '@shared/utils/domainIds';
 import {
   isEmailOtpWalletAuthAuthority,
   isPasskeyWalletAuthAuthority,
@@ -1528,6 +1534,17 @@ export type EcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionClaim
   thresholdSessionId: string;
   authorizationId: WalletSessionAuthorizationId;
   authorizationSessionId: SeamsSessionId;
+  walletAuthAuthorityRef: WalletAuthAuthorityRef;
+  authSource:
+    | {
+        readonly kind: 'passkey';
+        readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+      }
+    | {
+        readonly kind: 'oidc_provider';
+        readonly providerId: 'google_oidc' | 'oidc';
+        readonly providerSubject: ProviderSubject;
+      };
   walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
   keyScope: 'evm-family';
@@ -1546,6 +1563,26 @@ export type RouterAbEcdsaDerivationWalletSessionClaims = EcdsaWalletSessionClaim
 > & {
   routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
 };
+
+function parseEcdsaWalletSessionAuthSource(
+  raw: unknown,
+): EcdsaWalletSessionClaimsForKind<EcdsaWalletSessionClaimKind>['authSource'] | null {
+  if (!isObject(raw)) return null;
+  if (raw.kind === 'passkey') {
+    const credentialId = parseWebAuthnCredentialIdB64u(raw.credentialIdB64u);
+    return credentialId.ok ? { kind: 'passkey', credentialIdB64u: credentialId.value } : null;
+  }
+  if (raw.kind !== 'oidc_provider') return null;
+  if (raw.providerId !== 'google_oidc' && raw.providerId !== 'oidc') return null;
+  const providerSubject = parseProviderSubject(raw.providerSubject);
+  return providerSubject.ok
+    ? {
+        kind: 'oidc_provider',
+        providerId: raw.providerId,
+        providerSubject: providerSubject.value,
+      }
+    : null;
+}
 
 function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionClaimKind>(
   raw: unknown,
@@ -1567,6 +1604,12 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
   const authorizationSessionId = parseSeamsSessionId(
     (raw as { authorizationSessionId?: unknown }).authorizationSessionId,
   );
+  const walletAuthAuthorityRef = parseWalletAuthAuthorityRef(
+    (raw as { walletAuthAuthorityRef?: unknown }).walletAuthAuthorityRef,
+  );
+  const authSource = parseEcdsaWalletSessionAuthSource(
+    (raw as { authSource?: unknown }).authSource,
+  );
   const walletSessionId = parseWalletSessionId(
     (raw as { walletSessionId?: unknown }).walletSessionId,
   );
@@ -1582,6 +1625,9 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
     !thresholdSessionId ||
     !authorizationId.ok ||
     !authorizationSessionId.ok ||
+    !walletAuthAuthorityRef ||
+    walletAuthAuthorityRef.walletId !== walletId ||
+    !authSource ||
     seamsSessionId.value !== authorizationSessionId.value ||
     !walletSessionId.ok ||
     !quotaId.ok ||
@@ -1604,6 +1650,8 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
     thresholdSessionId,
     authorizationId: authorizationId.value,
     authorizationSessionId: authorizationSessionId.value,
+    walletAuthAuthorityRef,
+    authSource,
     walletSessionId: walletSessionId.value,
     quotaId: quotaId.value,
     keyScope,

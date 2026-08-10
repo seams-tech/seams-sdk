@@ -2,14 +2,20 @@ import { expect, test } from '@playwright/test';
 import {
   projectActiveOwnerWalletExecutionLane,
   resolveActiveOwnerWalletExecutionLane,
+  resolveWalletAuthMethodIdForAuthority,
   type WalletExecutionLaneProjectionSource,
 } from '../../packages/sdk-server-ts/src/core/signingLanes/WalletExecutionLaneProjection';
 import { normalizeWalletAuthMethod } from '../../packages/sdk-server-ts/src/core/d1WalletAuthMethodStore';
 import type { WalletSignerRecord } from '../../packages/sdk-server-ts/src/core/WalletStore';
 import { walletAuthMethodRecordId } from '../../packages/shared-ts/src/utils/registrationIntent';
-import { parseWalletId } from '../../packages/shared-ts/src/utils/domainIds';
+import { parseProviderSubject, parseWalletId } from '../../packages/shared-ts/src/utils/domainIds';
 import { routerAbMpcMaterialActivationRefFromWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import { createWalletEcdsaSignerRecord } from './helpers/walletRegistrationSigner.fixtures';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+} from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 
 function resultValue<T>(
   result:
@@ -147,5 +153,52 @@ test.describe('R101 owner wallet execution lane projection', () => {
       expectedMaterialActivation: materialActivation,
     });
     expect(missingResult).toEqual({ kind: 'refused', reason: 'signer_missing' });
+  });
+
+  test('resolves passkey and Email OTP authority references to one exact active method', async () => {
+    const passkey = passkeyAuthMethod();
+    if (passkey.kind !== 'passkey') throw new Error('passkey fixture is required');
+    const passkeyAuthority = buildPasskeyWalletAuthAuthority({
+      walletId,
+      rpId: passkey.rpId,
+      credentialIdB64u: passkey.credentialIdB64u,
+    });
+    const passkeyId = await resolveWalletAuthMethodIdForAuthority({
+      walletId,
+      authorityRef: await walletAuthAuthorityRef({ authority: passkeyAuthority }),
+      authSource: { kind: 'passkey', credentialIdB64u: passkey.credentialIdB64u },
+      authMethods: [passkey],
+    });
+    expect(passkeyId).toBe(walletAuthMethodRecordId(passkey));
+
+    const email = normalizeWalletAuthMethod({
+      version: 'wallet_auth_method_v1',
+      kind: 'email_otp',
+      status: 'active',
+      walletId,
+      emailHashHex: 'email-hash-r101',
+      registrationAuthorityId: 'registration-authority-r101',
+      createdAtMs: now,
+      updatedAtMs: now,
+    });
+    if (!email || email.kind !== 'email_otp') throw new Error('Email OTP fixture is invalid');
+    const emailAuthority = buildEmailOtpWalletAuthAuthority({
+      walletId,
+      provider: 'google',
+      providerUserId: 'google:provider-user-r101',
+      emailHashHex: email.emailHashHex,
+    });
+    const providerSubject = resultValue(parseProviderSubject('google:provider-user-r101'));
+    const emailId = await resolveWalletAuthMethodIdForAuthority({
+      walletId,
+      authorityRef: await walletAuthAuthorityRef({ authority: emailAuthority }),
+      authSource: {
+        kind: 'oidc_provider',
+        providerId: 'google_oidc',
+        providerSubject,
+      },
+      authMethods: [email],
+    });
+    expect(emailId).toBe(walletAuthMethodRecordId(email));
   });
 });

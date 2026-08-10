@@ -29,10 +29,15 @@ import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type {
   MpcMaterialActivationRef,
+  ProviderSubject,
   WalletAuthMethodId,
   WalletId,
 } from '@shared/utils/domainIds';
-import { parseMpcSigningWorkerRef } from '@shared/utils/domainIds';
+import {
+  parseEmailOtpProviderUserId,
+  parseMpcSigningWorkerRef,
+  parseWebAuthnCredentialIdB64u,
+} from '@shared/utils/domainIds';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import {
   parseNearEd25519SigningKeyId,
@@ -44,6 +49,11 @@ import {
   sameRouterAbMpcMaterialActivationRef,
 } from '@shared/utils/routerAbNormalSigningIdentity';
 import { base58Encode } from '@shared/utils/base58';
+import {
+  walletAuthAuthorityRef,
+  type WalletAuthAuthority,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import type {
   WalletEcdsaSignerRecord,
   WalletEd25519SignerRecord,
@@ -89,6 +99,39 @@ export interface WalletExecutionLaneProjectionSource {
     readonly walletId: WalletId;
   }): Promise<readonly WalletAuthMethodRecord[]>;
   listWalletSigners(input: { readonly walletId: WalletId }): Promise<readonly WalletSignerRecord[]>;
+}
+
+export type WalletExecutionLaneAuthSource =
+  | {
+      readonly kind: 'passkey';
+      readonly credentialIdB64u: string;
+    }
+  | {
+      readonly kind: 'oidc_provider';
+      readonly providerId: 'google_oidc' | 'oidc';
+      readonly providerSubject: ProviderSubject;
+    };
+
+export async function resolveWalletAuthMethodIdForAuthority(input: {
+  readonly walletId: WalletId;
+  readonly authorityRef: WalletAuthAuthorityRef;
+  readonly authSource: WalletExecutionLaneAuthSource;
+  readonly authMethods: readonly WalletAuthMethodRecord[];
+}): Promise<WalletAuthMethodId | null> {
+  const matches: WalletAuthMethodId[] = [];
+  for (const authMethod of input.authMethods) {
+    if (authMethod.walletId !== input.walletId || authMethod.status !== 'active') continue;
+    const authority = walletAuthorityForAuthMethod(authMethod, input.authSource);
+    if (!authority) continue;
+    const candidateRef = await walletAuthAuthorityRef({ authority });
+    if (
+      candidateRef.walletId === input.authorityRef.walletId &&
+      candidateRef.authorityDigest === input.authorityRef.authorityDigest
+    ) {
+      matches.push(walletAuthMethodRecordId(authMethod));
+    }
+  }
+  return matches.length === 1 ? (matches[0] ?? null) : null;
 }
 
 export async function resolveActiveOwnerWalletExecutionLane(input: {
@@ -500,3 +543,42 @@ function refused(
 }
 
 class SignerProjectionConflictError extends Error {}
+
+function walletAuthorityForAuthMethod(
+  authMethod: WalletAuthMethodRecord,
+  authSource: WalletExecutionLaneAuthSource,
+): WalletAuthAuthority | null {
+  const bindingId = walletAuthMethodRecordId(authMethod);
+  if (authMethod.kind === 'passkey') {
+    if (
+      authSource.kind !== 'passkey' ||
+      authSource.credentialIdB64u !== authMethod.credentialIdB64u
+    ) {
+      return null;
+    }
+    const credentialId = parseWebAuthnCredentialIdB64u(authMethod.credentialIdB64u);
+    if (!credentialId.ok) return null;
+    return {
+      walletId: authMethod.walletId,
+      factor: { kind: 'passkey', credentialIdB64u: credentialId.value },
+      verifier: { kind: 'webauthn', rpId: authMethod.rpId },
+      bindingId,
+    };
+  }
+  if (authSource.kind !== 'oidc_provider') return null;
+  const providerUserId = parseEmailOtpProviderUserId(authSource.providerSubject);
+  if (!providerUserId.ok) return null;
+  return {
+    walletId: authMethod.walletId,
+    factor: {
+      kind: 'email_otp',
+      provider: authSource.providerId === 'google_oidc' ? 'google' : 'email',
+      providerUserId: providerUserId.value,
+    },
+    verifier: {
+      kind: 'email_otp_wallet_auth_method',
+      emailHashHex: authMethod.emailHashHex,
+    },
+    bindingId,
+  };
+}

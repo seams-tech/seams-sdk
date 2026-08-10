@@ -1703,6 +1703,7 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
           principalId,
           authorizationSessionId: seamsSessionId,
           authority: passkeyAuthorityRef,
+          authSource,
         },
       });
       recordSessionExchangeTiming(timings, 'ecdsa_activation', ecdsaActivationStartedAt);
