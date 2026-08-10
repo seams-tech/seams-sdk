@@ -1108,6 +1108,9 @@ export interface RouterApiWalletRegistrationService {
   listWalletEcdsaKeyFactsInventory(
     input: RouterApiMethodTypes['listWalletEcdsaKeyFactsInventory']['input'],
   ): Promise<RouterApiMethodTypes['listWalletEcdsaKeyFactsInventory']['result']>;
+  readActiveEmailOtpEnrollment(
+    input: RouterApiMethodTypes['readActiveEmailOtpEnrollment']['input'],
+  ): Promise<RouterApiMethodTypes['readActiveEmailOtpEnrollment']['result']>;
   setupWalletRegistration(
     input: WalletRegistrationSetupInput,
   ): Promise<WalletRegistrationSetupResponseV2>;
@@ -1495,6 +1498,7 @@ export function routerApiWalletRegistrationRouteService(
     ...service.walletAuthMethods,
     getOrCreateAppSessionVersion: service.sessionVersions.getOrCreateAppSessionVersion,
     validateAppSessionVersion: service.sessionVersions.validateAppSessionVersion,
+    readActiveEmailOtpEnrollment: service.emailOtp.readActiveEmailOtpEnrollment,
     verifyWebAuthnAuthenticationLite: service.webAuthn.verifyWebAuthnAuthenticationLite,
     fundImplicitNearAccount: service.nearFunding.fundImplicitNearAccount,
     listWalletEcdsaKeyFactsInventory: service.walletRegistration.listWalletEcdsaKeyFactsInventory,

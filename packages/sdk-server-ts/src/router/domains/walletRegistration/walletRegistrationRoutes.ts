@@ -92,6 +92,7 @@ import {
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
 import type { WalletRegistrationActivateInput } from './walletRegistrationInputs';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { ecdsaClientRootPublicKey33B64uFromString } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { normalizeCorsOrigin } from '../../../core/SessionService';
 import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '@shared/utils/ecdsaKeyFactsInventory';
 import {
@@ -1481,6 +1482,92 @@ function parseWalletRegistrationEcdsaFinalize(
   return { ok: true, value: { expectedKeyHandles: [expectedKeyHandle] } };
 }
 
+type WalletAddSignerNearCustodyKeySet = Extract<
+  WalletAddSignerFinalizeRequest,
+  { kind: 'near_ed25519' }
+>['custodyKeySet'];
+type WalletAddSignerEcdsaCustodyKeySet = Extract<
+  WalletAddSignerFinalizeRequest,
+  { kind: 'evm_family_ecdsa' }
+>['custodyKeySet'];
+
+function parseWalletAddSignerCustodyKeySet(
+  raw: unknown,
+  kind: 'near_ed25519',
+): ParseResult<WalletAddSignerNearCustodyKeySet>;
+function parseWalletAddSignerCustodyKeySet(
+  raw: unknown,
+  kind: 'evm_family_ecdsa',
+): ParseResult<WalletAddSignerEcdsaCustodyKeySet>;
+function parseWalletAddSignerCustodyKeySet(
+  raw: unknown,
+  kind: 'near_ed25519' | 'evm_family_ecdsa',
+): ParseResult<WalletAddSignerNearCustodyKeySet | WalletAddSignerEcdsaCustodyKeySet> {
+  const custodyKeySet = isPlainObject(raw) ? raw : null;
+  if (!custodyKeySet) {
+    return { ok: false, code: 'invalid_body', message: 'custodyKeySet is required' };
+  }
+  const expectedKind =
+    kind === 'near_ed25519' ? 'near_ed25519_v1' : 'evm_family_ecdsa_v1';
+  if (custodyKeySet.kind !== expectedKind) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: `custodyKeySet.kind must be ${expectedKind}`,
+    };
+  }
+  let keyManifestDigestB64u: string;
+  try {
+    keyManifestDigestB64u = parseDigestB64u(custodyKeySet.keyManifestDigestB64u);
+  } catch {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'custodyKeySet.keyManifestDigestB64u is invalid',
+    };
+  }
+  if (kind === 'near_ed25519') {
+    const registeredPublicKeyB64u = trimRequiredString(
+      custodyKeySet,
+      'registeredPublicKeyB64u',
+      'custodyKeySet.registeredPublicKeyB64u is required',
+    );
+    if (!registeredPublicKeyB64u.ok) return registeredPublicKeyB64u;
+    return {
+      ok: true,
+      value: {
+        kind: 'near_ed25519_v1',
+        keyManifestDigestB64u,
+        registeredPublicKeyB64u: registeredPublicKeyB64u.value,
+      },
+    };
+  }
+  const clientRootPublicKeyRaw = trimRequiredString(
+    custodyKeySet,
+    'clientRootPublicKey33B64u',
+    'custodyKeySet.clientRootPublicKey33B64u is required',
+  );
+  if (!clientRootPublicKeyRaw.ok) return clientRootPublicKeyRaw;
+  try {
+    return {
+      ok: true,
+      value: {
+        kind: 'evm_family_ecdsa_v1',
+        keyManifestDigestB64u,
+        clientRootPublicKey33B64u: ecdsaClientRootPublicKey33B64uFromString(
+          clientRootPublicKeyRaw.value,
+        ),
+      },
+    };
+  } catch {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'custodyKeySet.clientRootPublicKey33B64u is invalid',
+    };
+  }
+}
+
 function parseWalletAddSignerEcdsaDerivationRespondRequest(
   body: Record<string, unknown>,
 ): ParseResult<WalletAddSignerEcdsaDerivationRespondRequest> {
@@ -1644,6 +1731,8 @@ function parseWalletAddSignerFinalizeRequest(
     }
     const ed25519 = parseWalletRegistrationEd25519Finalize(body.ed25519);
     if (!ed25519.ok) return ed25519;
+    const custodyKeySet = parseWalletAddSignerCustodyKeySet(body.custodyKeySet, 'near_ed25519');
+    if (!custodyKeySet.ok) return custodyKeySet;
     return {
       ok: true,
       value: {
@@ -1651,6 +1740,7 @@ function parseWalletAddSignerFinalizeRequest(
         idempotencyKey: idempotencyKey.value,
         kind: 'near_ed25519',
         ed25519: ed25519.value,
+        custodyKeySet: custodyKeySet.value,
       },
     };
   }
@@ -1660,6 +1750,11 @@ function parseWalletAddSignerFinalizeRequest(
     }
     const ecdsa = parseWalletRegistrationEcdsaFinalize(body.ecdsa);
     if (!ecdsa.ok) return ecdsa;
+    const custodyKeySet = parseWalletAddSignerCustodyKeySet(
+      body.custodyKeySet,
+      'evm_family_ecdsa',
+    );
+    if (!custodyKeySet.ok) return custodyKeySet;
     return {
       ok: true,
       value: {
@@ -1667,6 +1762,7 @@ function parseWalletAddSignerFinalizeRequest(
         idempotencyKey: idempotencyKey.value,
         kind: 'evm_family_ecdsa',
         ecdsa: ecdsa.value,
+        custodyKeySet: custodyKeySet.value,
       },
     };
   }

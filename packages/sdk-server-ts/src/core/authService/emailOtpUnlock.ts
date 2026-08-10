@@ -49,6 +49,8 @@ export type VerifyEmailOtpUnlockProofResult =
       walletId: string;
       providerUserId: string;
       orgId: string;
+      enrollmentId: string;
+      enrollmentSealKeyVersion: string;
       unlockKeyVersion: string;
     }
   | { ok: false; verified: false; code: string; message: string };

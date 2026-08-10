@@ -17,6 +17,7 @@ import {
   DEFAULT_WALLET_SESSION_REMAINING_USES,
   DEFAULT_WALLET_SESSION_TTL_MS,
 } from '@shared/threshold/sessionPolicy';
+import { ecdsaClientRootPublicKey33B64uFromString } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type {
   WalletAddSignerFinalizeRequest,
@@ -25,6 +26,8 @@ import type {
   WalletAddSignerEcdsaActivationResponse,
   WalletAddSignerEcdsaDerivationRespondRequest,
   WalletAddSignerEcdsaDerivationRespondResponse,
+  WalletAddSignerEcdsaPreparePayload,
+  WalletAddSignerEd25519YaoStart,
   WalletAddSignerStartRequest,
   WalletAddSignerStartResponse,
 } from '../../../../core/registrationContracts';
@@ -124,10 +127,31 @@ type WalletAddSignerStartCoreSuccess = Extract<
   { readonly ok: true }
 >;
 
-type WalletAddSignerStartWebAuthnCoreSuccess = Extract<
-  WalletAddSignerStartCoreSuccess,
-  { readonly authorizationKind: 'webauthn_assertion' }
->;
+type WalletAddSignerStartWebAuthnCoreSuccess =
+  | {
+      readonly ok: true;
+      readonly addSignerCeremonyId: string;
+      readonly intent: AddSignerIntentV1;
+      readonly authorizationKind: 'webauthn_assertion';
+      readonly kind: 'near_ed25519';
+      readonly ed25519: Omit<WalletAddSignerEd25519YaoStart, 'custodyEnvelope'>;
+      readonly ecdsa?: never;
+    }
+  | {
+      readonly ok: true;
+      readonly addSignerCeremonyId: string;
+      readonly intent: AddSignerIntentV1;
+      readonly authorizationKind: 'webauthn_assertion';
+      readonly kind: 'evm_family_ecdsa';
+      readonly ecdsa: Omit<WalletAddSignerEcdsaPreparePayload, 'custodyEnvelope'>;
+      readonly ed25519?: never;
+    };
+
+function isWalletAddSignerStartWebAuthnCoreSuccess(
+  response: WalletAddSignerStartCoreSuccess,
+): response is WalletAddSignerStartWebAuthnCoreSuccess {
+  return response.authorizationKind === 'webauthn_assertion';
+}
 
 type RegistrationCeremonyStoreProvider = () => CloudflareD1RegistrationCeremonyIntentStore;
 type WalletStoreProvider = () => D1WalletStore;
@@ -716,8 +740,32 @@ export class CloudflareD1WalletAddSignerService {
       switch (run.kind) {
         case 'executed':
         case 'exact_replay':
-          if (run.value.response.authorizationKind === 'app_session') {
+          if (run.value.kind === 'd1_wallet_add_signer_start_rejected_v1') {
             return run.value.response;
+          }
+          if (run.value.response.authorizationKind === 'app_session') {
+            if (run.value.response.kind !== 'evm_family_ecdsa') {
+              return {
+                ok: false,
+                code: 'invalid_state',
+                message: 'app-session add-signer authorization branch is invalid',
+              };
+            }
+            return {
+              ok: true,
+              addSignerCeremonyId: run.value.response.addSignerCeremonyId,
+              intent: run.value.response.intent,
+              authorizationKind: 'app_session',
+              kind: 'evm_family_ecdsa',
+              ecdsa: run.value.response.ecdsa,
+            };
+          }
+          if (!isWalletAddSignerStartWebAuthnCoreSuccess(run.value.response)) {
+            return {
+              ok: false,
+              code: 'invalid_state',
+              message: 'add-signer authorization branch is invalid',
+            };
           }
           return await this.attachWalletAddSignerCustodyEnvelope({
             ceremony: run.value.ceremony,
@@ -1814,14 +1862,27 @@ export class CloudflareD1WalletAddSignerService {
     const walletStore = this.getWalletStore();
     const wallet = await walletStore.getWallet({ walletId: ceremony.intent.walletId });
     if (!wallet) return { ok: false, code: 'not_found', message: 'wallet not found' };
+    let custodyClientRootPublicKey33B64u: ReturnType<
+      typeof ecdsaClientRootPublicKey33B64uFromString
+    >;
+    try {
+      custodyClientRootPublicKey33B64u = ecdsaClientRootPublicKey33B64uFromString(
+        finalizeRequest.custodyKeySet.clientRootPublicKey33B64u,
+      );
+    } catch {
+      return {
+        ok: false,
+        code: 'invalid_state',
+        message: 'ECDSA add-signer custody client root public key is invalid',
+      };
+    }
     const walletSigners = buildD1WalletEcdsaSignerRecords({
       walletId: ceremony.intent.walletId,
       walletKeys,
       activationReceipt: ceremony.signerState.activation,
       runtimePolicyScope,
       custodyKeyManifestDigestB64u: finalizeRequest.custodyKeySet.keyManifestDigestB64u,
-      custodyClientRootPublicKey33B64u:
-        finalizeRequest.custodyKeySet.clientRootPublicKey33B64u,
+      custodyClientRootPublicKey33B64u,
       now: signerWriteNow,
     });
     await walletStore.putSigners(walletSigners);

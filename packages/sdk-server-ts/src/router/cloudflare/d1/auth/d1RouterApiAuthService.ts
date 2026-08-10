@@ -214,7 +214,7 @@ type CloudflareD1RouterApiAuthAssembly = {
 
 type D1WalletRegistrationRouteServiceAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
-  'registrationIntents' | 'walletRegistrations'
+  'emailOtpRecoveryService' | 'registrationIntents' | 'walletRegistrations'
 >;
 
 type D1WalletAuthMethodRouteServiceAssembly = Pick<
@@ -1567,6 +1567,10 @@ function createD1WalletRegistrationRouteService(
     listWalletEcdsaKeyFactsInventory:
       assembly.walletRegistrations.listWalletEcdsaKeyFactsInventory.bind(
         assembly.walletRegistrations,
+      ),
+    readActiveEmailOtpEnrollment:
+      assembly.emailOtpRecoveryService.readActiveEmailOtpEnrollment.bind(
+        assembly.emailOtpRecoveryService,
       ),
     setupWalletRegistration: assembly.walletRegistrations.setupWalletRegistration.bind(
       assembly.walletRegistrations,

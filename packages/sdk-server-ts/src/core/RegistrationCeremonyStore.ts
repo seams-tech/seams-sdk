@@ -51,6 +51,8 @@ import type { NormalizedLogger } from './logger';
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT } from './defaultConfigsServer';
 import { base64UrlDecode } from '@shared/utils/encoders';
 import { alphabetizeStringify } from '@shared/utils/digests';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { ecdsaClientRootPublicKey33B64uFromString } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import {
   parseThresholdEd25519AuthorityScope,
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
@@ -1147,14 +1149,32 @@ function parseStoredWalletAddSignerFinalizeRequest(
   const idempotencyKey = trimString(value.idempotencyKey);
   if (!addSignerCeremonyId || !idempotencyKey) return null;
   if (value.kind === 'near_ed25519') {
+    const custodyKeySet = isRecord(value.custodyKeySet) ? value.custodyKeySet : null;
     if (!isRecord(value.activationReference)) return null;
     const lifecycleId = trimString(value.activationReference.lifecycleId);
     const sessionId = parseStoredBytes32(value.activationReference.sessionId);
-    if (!lifecycleId || !sessionId) return null;
+    if (
+      custodyKeySet?.kind !== 'near_ed25519_v1' ||
+      !lifecycleId ||
+      !sessionId
+    ) return null;
+    let keyManifestDigestB64u: string;
+    try {
+      keyManifestDigestB64u = parseDigestB64u(custodyKeySet.keyManifestDigestB64u);
+    } catch {
+      return null;
+    }
+    const registeredPublicKeyB64u = trimString(custodyKeySet.registeredPublicKeyB64u);
+    if (!registeredPublicKeyB64u) return null;
     return {
       kind: 'near_ed25519',
       addSignerCeremonyId,
       idempotencyKey,
+      custodyKeySet: {
+        kind: 'near_ed25519_v1',
+        keyManifestDigestB64u,
+        registeredPublicKeyB64u,
+      },
       activationReference: { lifecycleId, sessionId },
     };
   }
@@ -1166,11 +1186,27 @@ function parseStoredWalletAddSignerFinalizeRequest(
     return null;
   }
   const expectedKeyHandle = trimString(value.expectedKeyHandles[0]);
-  if (!expectedKeyHandle) return null;
+  const custodyKeySet = isRecord(value.custodyKeySet) ? value.custodyKeySet : null;
+  if (!expectedKeyHandle || custodyKeySet?.kind !== 'evm_family_ecdsa_v1') return null;
+  let keyManifestDigestB64u: string;
+  let clientRootPublicKey33B64u: ReturnType<typeof ecdsaClientRootPublicKey33B64uFromString>;
+  try {
+    keyManifestDigestB64u = parseDigestB64u(custodyKeySet.keyManifestDigestB64u);
+    clientRootPublicKey33B64u = ecdsaClientRootPublicKey33B64uFromString(
+      trimString(custodyKeySet.clientRootPublicKey33B64u),
+    );
+  } catch {
+    return null;
+  }
   return {
     kind: 'evm_family_ecdsa',
     addSignerCeremonyId,
     idempotencyKey,
+    custodyKeySet: {
+      kind: 'evm_family_ecdsa_v1',
+      keyManifestDigestB64u,
+      clientRootPublicKey33B64u,
+    },
     expectedKeyHandles: [expectedKeyHandle],
   };
 }

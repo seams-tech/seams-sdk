@@ -1079,7 +1079,6 @@ export class AuthService {
     return {
       createChallengeWithAction: this.createEmailOtpChallengeWithAction.bind(this),
       verifyChallengeCode: this.verifyEmailOtpChallengeCode.bind(this),
-      readActiveEnrollment: this.readActiveEmailOtpEnrollment.bind(this),
       grantStore: this.stores.getEmailOtpGrantStore(),
       resolveConfig: this.resolveEmailOtpConfig.bind(this),
     };

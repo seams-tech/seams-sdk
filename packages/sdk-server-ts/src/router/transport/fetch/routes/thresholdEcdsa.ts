@@ -1585,12 +1585,15 @@ function parseWalletRecoveryEcdsaAuthorizationClaims(
   const keySetId = typeof claims.keySetId === 'string' ? claims.keySetId.trim() : '';
   const lifecycleId = typeof claims.lifecycleId === 'string' ? claims.lifecycleId.trim() : '';
   const expiresAtMs = Number(claims.exp) * 1000;
-  const parsedReservation = parseRecoveryCodeReservationId(reservationId);
+  try {
+    parseRecoveryCodeReservationId(reservationId);
+  } catch {
+    return null;
+  }
   if (
     !walletId ||
     !keySetId ||
     !lifecycleId ||
-    !parsedReservation.ok ||
     !Number.isSafeInteger(expiresAtMs) ||
     expiresAtMs <= Date.now()
   ) {
@@ -1636,8 +1639,8 @@ async function authorizeWalletRecoveryEcdsaPostRegistrationRequest(input: {
   );
   const suppliedDigest =
     input.request.kind === 'refresh'
-      ? request.refresh_authorization_digest_b64u
-      : request.recovery_authorization_digest_b64u;
+      ? input.request.request.refresh_authorization_digest_b64u
+      : input.request.request.recovery_authorization_digest_b64u;
   if (suppliedDigest !== expectedDigest) {
     return {
       ok: false,

@@ -1379,7 +1379,7 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
         expected_origin: expectedOrigin,
       });
       recordSessionExchangeTiming(timings, 'webauthn_verification', webauthnStartedAt);
-      if (!verified.ok || !verified.verified || !verified.userId) {
+      if (!verified.ok) {
         const code = verified.code || 'not_verified';
         const status = code === 'internal' ? 500 : code === 'invalid_body' ? 400 : 401;
         await emitSessionExchangeFailed(ctx, {
@@ -2621,7 +2621,7 @@ async function listWalletRecoveryBootstrapCredentialChoices(
     return credentials.flatMap((credential) => {
       if (
         credential.index.factor.kind !== 'passkey' ||
-        credential.index.lifecycle.kind !== 'active'
+        credential.index.lifecycle.state !== 'active'
       ) {
         return [];
       }
