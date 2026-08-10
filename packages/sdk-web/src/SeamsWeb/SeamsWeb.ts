@@ -97,7 +97,6 @@ import { createPublicApi, type WalletIframeControlCapability } from './publicApi
 import type {
   AuthCapability,
   DevicesCapability,
-  EmailOtpBackedUpEnrollmentResult,
   EmailOtpChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
   EmailOtpEcdsaCapabilityResult,
@@ -1869,7 +1868,7 @@ export class SeamsWeb {
     appSessionJwt?: string;
     clientSecret32?: Uint8Array;
     onEvent?: (event: RegistrationFlowEvent) => void;
-  }): Promise<EnrollEmailOtpInternalResult | EmailOtpBackedUpEnrollmentResult> {
+  }): Promise<EnrollEmailOtpInternalResult> {
     const flowId = this.emailOtpRegistrationFlowId(args.walletId, args.challengeId);
     this.emitEmailOtpRegistrationEvent(args.onEvent, {
       flowId,

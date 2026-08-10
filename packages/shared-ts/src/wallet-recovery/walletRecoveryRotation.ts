@@ -4,7 +4,7 @@ import {
   type WalletRecoveryEnvelopeEntry,
 } from './walletRecoveryEnvelopeSet';
 import { parseWalletId } from '../utils/domainIds';
-import { parseDerivedWalletRecoveryKeyId } from './recoveryCodes';
+import { parseDerivedWalletRecoveryKeyId, WALLET_RECOVERY_CODE_COUNT } from './recoveryCodes';
 import {
   parseDigestField,
   parseEnvelopeCiphertextB64u,
@@ -42,8 +42,13 @@ export function parseWalletRecoverySetRotationWorkerResultV1(
   value: unknown,
 ): WalletRecoverySetRotationWorkerResultV1 {
   const result = rotationRecord(value, 'rotation worker result');
-  if (!Array.isArray(result.recoveryManifestKekWraps) || result.recoveryManifestKekWraps.length !== 10) {
-    throw new Error('rotation worker result must contain exactly ten recovery wraps');
+  if (
+    !Array.isArray(result.recoveryManifestKekWraps) ||
+    result.recoveryManifestKekWraps.length !== WALLET_RECOVERY_CODE_COUNT
+  ) {
+    throw new Error(
+      `rotation worker result must contain exactly ${WALLET_RECOVERY_CODE_COUNT} recovery wraps`,
+    );
   }
   return {
     walletId: rotationString(result.walletId, 'rotation worker walletId'),

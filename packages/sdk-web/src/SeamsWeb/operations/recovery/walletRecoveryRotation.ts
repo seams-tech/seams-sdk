@@ -18,6 +18,7 @@ import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal'
 import { base64UrlDecode } from '@shared/utils/encoders';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
 
 export type WalletRecoveryRotationAuthorization =
   | { readonly kind: 'existing_passkey' }
@@ -145,10 +146,15 @@ async function rotateWithPasskey(args: {
     if (!exchange.success || !exchange.walletCustody) {
       throw new Error(exchange.success ? 'Passkey unlock omitted wallet custody' : exchange.error);
     }
+    const passkeySessionToken = String(exchange.jwt || '').trim();
+    if (!passkeySessionToken) {
+      throw new Error('Passkey unlock omitted its authenticated app session');
+    }
     const envelope = parsePasskeyCustodyEnvelopeRecord(exchange.walletCustody.envelope);
     if (
       envelope.walletId !== args.walletId ||
       envelope.factor.kind !== 'passkey' ||
+      envelope.factor.rpId !== rpId ||
       envelope.factor.credentialIdB64u !== credentialId
     ) {
       throw new Error('Passkey unlock returned a mismatched custody envelope');
@@ -157,7 +163,7 @@ async function rotateWithPasskey(args: {
     return await rotateWalletRecoverySetWithActiveFactorV1({
       relayUrl: args.relayUrl,
       walletId: args.walletId,
-      sessionToken: args.sessionToken,
+      sessionToken: passkeySessionToken,
       custodyEnvelope: envelope,
       factorSecret: factorSecret.buffer,
       worker: {
@@ -185,16 +191,23 @@ async function rotateWithEmailOtp(args: {
   readonly sessionToken: string;
   readonly authorization: Extract<WalletRecoveryRotationAuthorization, { kind: 'email_otp' }>;
 }): Promise<WalletRecoveryRotationOutcome> {
+  const emailOtpSessionToken = await args.context.signingEngine.resolveEmailOtpAppSessionJwt({
+    walletSession: {
+      walletId: walletIdFromString(args.walletId),
+      walletSessionUserId: args.walletId,
+    },
+    relayUrl: args.relayUrl,
+  });
   const worker = args.context.signingEngine.getSignerWorkerContext();
   const routePlan = buildEmailOtpRoutePlan({
     routeFamily: 'login',
-    authLane: { kind: 'app_session', jwt: args.sessionToken },
+    authLane: { kind: 'app_session', jwt: emailOtpSessionToken },
     operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
   });
   return await rotateWalletRecoverySetWithEmailOtpV1({
     relayUrl: args.relayUrl,
     walletId: args.walletId,
-    sessionToken: args.sessionToken,
+    sessionToken: emailOtpSessionToken,
     worker: {
       rotateRecoverySet: async ({ recoveryCodesJson }) =>
         await worker.requestWorkerOperation({

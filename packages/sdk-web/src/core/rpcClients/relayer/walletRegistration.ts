@@ -758,16 +758,6 @@ export type WalletRegistrationEmailOtpEnrollmentMaterial = {
   unlockKeyVersion: string;
 };
 
-export type WalletRegistrationEmailOtpBackupAck = {
-  kind: 'email_otp_recovery_code_backup_ack_v1';
-  offerId?: string;
-  candidateId?: string;
-  recoveryCodesIssuedAtMs: number;
-  backupActionKind: 'download' | 'copy' | 'print' | 'manual';
-  acknowledgedAtMs: number;
-  idempotencyKey: string;
-};
-
 export type AddSignerAppSessionPolicy = {
   permission: 'wallet_signer_provision';
   walletId: WalletId;
@@ -2855,7 +2845,6 @@ type ActivateWalletRegistrationArgsBase = {
   signedSetup: string;
   idempotencyKey: string;
   emailOtpEnrollment?: WalletRegistrationEmailOtpEnrollmentMaterial;
-  emailOtpBackupAck?: WalletRegistrationEmailOtpBackupAck;
   /** The custody ceremony's sealed output for the key set this call activates. */
   walletCustodyCommit?: WalletCustodyCeremonyCommitPayload;
   onServerTiming?: (header: string | null) => void;
@@ -2889,7 +2878,6 @@ function walletRegistrationActivateBody(
   };
   if (args.ecdsa) body.ecdsa = args.ecdsa;
   if (args.emailOtpEnrollment) body.emailOtpEnrollment = args.emailOtpEnrollment;
-  if (args.emailOtpBackupAck) body.emailOtpBackupAck = args.emailOtpBackupAck;
   if (args.walletCustodyCommit) body.walletCustodyCommit = args.walletCustodyCommit;
   return body;
 }
@@ -3027,7 +3015,6 @@ export async function completeWalletRegistrationNearProvisioning(args: {
     | {
         kind: 'email_otp';
         enrollment: WalletRegistrationEmailOtpEnrollmentMaterial;
-        backupAck: WalletRegistrationEmailOtpBackupAck;
       };
   /**
    * The custody ceremony's sealed output. For an Ed25519-only wallet this is
@@ -3045,7 +3032,6 @@ export async function completeWalletRegistrationNearProvisioning(args: {
 
   if (args.auth.kind === 'email_otp') {
     body.emailOtpEnrollment = args.auth.enrollment;
-    body.emailOtpBackupAck = args.auth.backupAck;
   }
   if (args.walletCustodyCommit) body.walletCustodyCommit = args.walletCustodyCommit;
   const response = await postJson<unknown>({
@@ -3064,7 +3050,6 @@ type FinalizeWalletRegistrationBaseArgs = {
   registrationCeremonyId: string;
   idempotencyKey: string;
   emailOtpEnrollment?: WalletRegistrationEmailOtpEnrollmentMaterial;
-  emailOtpBackupAck?: WalletRegistrationEmailOtpBackupAck;
 };
 
 export type FinalizeWalletRegistrationArgs = FinalizeWalletRegistrationBaseArgs &

@@ -18,7 +18,6 @@ import type {
 import type {
   EmailOtpChallengeDelivery,
   EmailOtpEnrollmentResult,
-  EmailOtpRecoveryCodeBackupStatus,
   GoogleEmailOtpSessionExchangeResult,
   DemoEmailOtpCodeResponse,
 } from '@/core/signingEngine/session/emailOtp/publicTypes';
@@ -492,16 +491,11 @@ export type EmailOtpChallengeResult = {
 
 export type {
   EmailOtpEnrollmentResult,
-  EmailOtpRecoveryCodeBackupStatus,
   GoogleEmailOtpSessionExchangeResult,
 };
 
-export type EmailOtpBackedUpEnrollmentResult = Omit<EmailOtpEnrollmentResult, 'recoveryKeys'> & {
-  recoveryCodeBackup: EmailOtpRecoveryCodeBackupStatus;
-};
-
-export type GoogleEmailOtpRegistrationBackedUpEnrollmentResult = Omit<
-  EmailOtpBackedUpEnrollmentResult,
+export type GoogleEmailOtpRegistrationEnrollmentResult = Omit<
+  EmailOtpEnrollmentResult,
   'challengeId'
 > & {
   registrationAuthorityId: string;
@@ -560,26 +554,6 @@ export function registrationFinalizeIdempotencyKeyFromString(
   return normalized as RegistrationFinalizeIdempotencyKey;
 }
 
-export type GoogleEmailOtpRegistrationBackupActionKind = 'download' | 'copy' | 'print' | 'manual';
-
-export type EmailOtpRecoveryCodeBackupAck = {
-  kind: 'email_otp_recovery_code_backup_ack_v1';
-  offerId: GoogleEmailOtpRegistrationOfferId;
-  candidateId: GoogleEmailOtpRegistrationCandidateId;
-  recoveryCodesIssuedAtMs: number;
-  backupActionKind: GoogleEmailOtpRegistrationBackupActionKind;
-  acknowledgedAtMs: number;
-  idempotencyKey: RegistrationFinalizeIdempotencyKey;
-  recoveryKeys?: never;
-  recoveryCodes?: never;
-  appSessionJwt?: never;
-  otpCode?: never;
-  challengeId?: never;
-  walletId?: never;
-  webauthn?: never;
-  passkey?: never;
-};
-
 export type GoogleEmailOtpRegistrationCandidate = {
   candidateId: GoogleEmailOtpRegistrationCandidateId;
   walletId: WalletId;
@@ -607,8 +581,7 @@ export type GoogleEmailOtpRegistrationFinalizeInput = {
   offerId: GoogleEmailOtpRegistrationOfferId;
   candidateId: GoogleEmailOtpRegistrationCandidateId;
   idempotencyKey: RegistrationFinalizeIdempotencyKey;
-  emailOtpEnrollment: GoogleEmailOtpRegistrationBackedUpEnrollmentResult;
-  backupAck: EmailOtpRecoveryCodeBackupAck;
+  emailOtpEnrollment: GoogleEmailOtpRegistrationEnrollmentResult;
   walletId?: never;
   otpCode?: never;
   challengeId?: never;
@@ -822,7 +795,7 @@ export interface RegistrationCapability {
     appSessionJwt?: string;
     clientSecret32?: Uint8Array;
     onEvent?: (event: RegistrationFlowEvent) => void;
-  }): Promise<EmailOtpEnrollmentResult | EmailOtpBackedUpEnrollmentResult>;
+  }): Promise<EmailOtpEnrollmentResult>;
 }
 
 export interface NearSignerCapability {

@@ -4,10 +4,6 @@ import {
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
   type WalletEmailOtpChannel,
 } from '@shared/utils/emailOtpDomain';
-import {
-  buildEmailOtpRecoveryCodeSet,
-  type EmailOtpRecoveryCodeSet,
-} from '@shared/utils/emailOtpRecoveryKey';
 import { requireTrimmedString, toOptionalTrimmedNonEmptyString } from '@shared/utils/validation';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
@@ -35,30 +31,6 @@ function requireObjectJson(value: unknown, label: string): JsonObject {
     throw new Error(`${label} returned invalid JSON`);
   }
   return value as JsonObject;
-}
-
-function requireFiniteTimestampMs(value: unknown, label: string): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`${label} must be a positive timestamp`);
-  }
-  return Math.floor(parsed);
-}
-
-function parseEmailOtpRecoveryCodeMaterial(value: unknown): {
-  recoveryKeys: EmailOtpRecoveryCodeSet;
-  recoveryCodesIssuedAtMs: number;
-} {
-  const response = requireObjectJson(value, 'Email OTP recovery-code material');
-  return {
-    recoveryKeys: buildEmailOtpRecoveryCodeSet(
-      Array.isArray(response.recoveryKeys) ? response.recoveryKeys.map(String) : [],
-    ),
-    recoveryCodesIssuedAtMs: requireFiniteTimestampMs(
-      response.recoveryCodesIssuedAtMs,
-      'recoveryCodesIssuedAtMs',
-    ),
-  };
 }
 
 function readString(value: unknown, label: string): string {
@@ -115,10 +87,7 @@ function buildWorkerEmailOtpRoutePlan(args: {
 
 function parseEmailOtpEnrollmentResult(value: unknown): EmailOtpEnrollmentResult {
   const response = requireObjectJson(value, 'Email OTP enrollment result');
-  const recoveryCodeMaterial = parseEmailOtpRecoveryCodeMaterial(response);
   return {
-    recoveryKeys: recoveryCodeMaterial.recoveryKeys,
-    recoveryCodesIssuedAtMs: recoveryCodeMaterial.recoveryCodesIssuedAtMs,
     challengeId: readString(response.challengeId, 'challengeId'),
     otpChannel: EMAIL_OTP_CHANNEL,
     enrollmentId: readString(response.enrollmentId, 'enrollmentId'),
@@ -274,8 +243,6 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
   clientSecret32?: Uint8Array;
   ecdsaSessionHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleRequest;
 }): Promise<{
-  recoveryKeys: EmailOtpRecoveryCodeSet;
-  recoveryCodesIssuedAtMs: number;
   otpChannel: WalletEmailOtpChannel;
   enrollmentId: string;
   enrollmentSealKeyVersion: string;
@@ -315,11 +282,8 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
         },
       },
     });
-    const recoveryCodeMaterial = parseEmailOtpRecoveryCodeMaterial(result);
     return {
       ...result,
-      recoveryKeys: recoveryCodeMaterial.recoveryKeys,
-      recoveryCodesIssuedAtMs: recoveryCodeMaterial.recoveryCodesIssuedAtMs,
       emailOtpSessionHandle: parseEmailOtpWalletRegistrationEcdsaPrepareHandleResult(
         result.emailOtpSessionHandle,
       ),

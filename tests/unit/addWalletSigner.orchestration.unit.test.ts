@@ -13,7 +13,6 @@ import {
   resetNearProvisioningRegistryForTests,
 } from '@/core/signingEngine/flows/registration/nearProvisioningRegistry';
 import { UserVerificationPolicy } from '../../packages/sdk-web/src/core/types/authenticatorOptions';
-import { emailOtpRecoveryCodeBackupRepository } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups';
 import {
   computeAddSignerNearEd25519SigningKeyId,
   computeAddSignerIntentDigestB64u,
@@ -923,19 +922,6 @@ function emailOtpRegistrationEnrollmentMaterial(args: {
   return {
     thresholdEcdsaClientVerifyingShareB64u: CLIENT_PUBLIC_KEY_B64U,
 
-    recoveryKeys: [
-      '0123456789ABCDEFGHJKMNPQRSTVWXYZ',
-      '123456789ABCDEFGHJKMNPQRSTVWXYZ0',
-      '23456789ABCDEFGHJKMNPQRSTVWXYZ01',
-      '3456789ABCDEFGHJKMNPQRSTVWXYZ012',
-      '456789ABCDEFGHJKMNPQRSTVWXYZ0123',
-      '56789ABCDEFGHJKMNPQRSTVWXYZ01234',
-      '6789ABCDEFGHJKMNPQRSTVWXYZ012345',
-      '789ABCDEFGHJKMNPQRSTVWXYZ0123456',
-      '89ABCDEFGHJKMNPQRSTVWXYZ01234567',
-      '9ABCDEFGHJKMNPQRSTVWXYZ012345678',
-    ],
-    recoveryCodesIssuedAtMs: 1_700_000_000_000,
     otpChannel: 'email_otp',
     enrollmentId: `email-otp-enrollment-${args.walletId}`,
     enrollmentSealKeyVersion: 'email-otp-v1',
@@ -976,11 +962,6 @@ function emailOtpRegistrationEnrollmentMaterial(args: {
         }
       : { kind: 'not_requested' },
     emailOtpEnrollment: {
-      recoveryWrappedEnrollmentEscrows: [
-        {
-          enrollmentId: `email-otp-enrollment-${args.walletId}`,
-        },
-      ],
       enrollmentSealKeyVersion: 'email-otp-v1',
       clientUnlockPublicKeyB64u: 'email-otp-client-unlock-public-key',
       unlockKeyVersion: 'email-otp-unlock-v1',
@@ -1084,51 +1065,6 @@ class EmailOtpEd25519YaoWorkerContextCapture {
       default:
         throw new Error(`unexpected Email OTP Yao worker operation: ${request.type}`);
     }
-  }
-}
-
-class EmailOtpRecoveryCodeBackupCapture {
-  private readonly repository = emailOtpRecoveryCodeBackupRepository as unknown as {
-    write: (input: Record<string, unknown>) => Promise<Record<string, unknown>>;
-    readMatching: (input: Record<string, unknown>) => Promise<Record<string, unknown> | null>;
-  };
-  private readonly originalWrite = this.repository.write;
-  private readonly originalReadMatching = this.repository.readMatching;
-
-  constructor(private readonly captures: Record<string, unknown>) {}
-
-  install(): void {
-    this.repository.write = this.write.bind(this);
-    this.repository.readMatching = this.readMatching.bind(this);
-  }
-
-  restore(): void {
-    this.repository.write = this.originalWrite;
-    this.repository.readMatching = this.originalReadMatching;
-  }
-
-  private async write(input: Record<string, unknown>): Promise<Record<string, unknown>> {
-    this.captures.recoveryCodeBackupWrite = input;
-    const record = {
-      v: 1,
-      secretKind: 'email_otp_recovery_codes_backup',
-      storageScope: input.storageScope,
-      status: 'stored',
-      walletId: input.walletId,
-      enrollmentId: input.enrollmentId,
-      enrollmentSealKeyVersion: input.enrollmentSealKeyVersion,
-      recoveryCodesIssuedAtMs: input.recoveryCodesIssuedAtMs,
-      recoveryKeys: input.recoveryKeys,
-      createdAtMs: 1_700_000_000_100,
-      lastDisplayedAtMs: null,
-      lastDownloadedAtMs: null,
-    };
-    this.captures.recoveryCodeBackupRecord = record;
-    return record;
-  }
-
-  private async readMatching(): Promise<Record<string, unknown> | null> {
-    return (this.captures.recoveryCodeBackupRecord as Record<string, unknown> | undefined) || null;
   }
 }
 
@@ -2167,36 +2103,9 @@ test('registerWallet overlaps Email OTP enrollment material with ECDSA registrat
     enableRegistrationPreparationModalClose: true,
   };
   await withRegisterWalletFetch(captures, async (fetchMock) => {
-    const backupRepository = emailOtpRecoveryCodeBackupRepository as unknown as {
-      write: (input: Record<string, unknown>) => Promise<Record<string, unknown>>;
-      readMatching: (input: Record<string, unknown>) => Promise<Record<string, unknown> | null>;
-    };
-    const originalBackupWrite = backupRepository.write;
-    const originalBackupReadMatching = backupRepository.readMatching;
     const walletId = walletIdFromString('email-otp-ecdsa.testnet');
     const appSessionJwt = emailOtpRegistrationAppSessionJwt(String(walletId));
     try {
-      backupRepository.write = async (input) => {
-        captures.recoveryCodeBackupWrite = input;
-        const record = {
-          v: 1,
-          secretKind: 'email_otp_recovery_codes_backup',
-          storageScope: input.storageScope,
-          status: 'stored',
-          walletId: input.walletId,
-          enrollmentId: input.enrollmentId,
-          enrollmentSealKeyVersion: input.enrollmentSealKeyVersion,
-          recoveryCodesIssuedAtMs: input.recoveryCodesIssuedAtMs,
-          recoveryKeys: input.recoveryKeys,
-          createdAtMs: 1_700_000_000_100,
-          lastDisplayedAtMs: null,
-          lastDownloadedAtMs: null,
-        };
-        captures.recoveryCodeBackupRecord = record;
-        return record;
-      };
-      backupRepository.readMatching = async () =>
-        (captures.recoveryCodeBackupRecord as Record<string, unknown> | undefined) || null;
       const registration = withMockedIndexedDb(() =>
         registerWallet({
           context: createContext(captures),
@@ -2274,15 +2183,6 @@ test('registerWallet overlaps Email OTP enrollment material with ECDSA registrat
           clientUnlockPublicKeyB64u: 'email-otp-client-unlock-public-key',
           thresholdEcdsaClientVerifyingShareB64u: CLIENT_PUBLIC_KEY_B64U,
         },
-        emailOtpBackupAck: {
-          kind: 'email_otp_recovery_code_backup_ack_v1',
-          offerId: 'registration-offer-1',
-          candidateId: 'registration-candidate-1',
-          recoveryCodesIssuedAtMs: 1_700_000_000_000,
-          backupActionKind: 'manual',
-          acknowledgedAtMs: expect.any(Number),
-          idempotencyKey: expect.stringContaining('email-otp-recovery-code-backup-ack'),
-        },
       });
       expect(captures.persistedEcdsaSessions).toMatchObject({
         session: {
@@ -2293,8 +2193,6 @@ test('registerWallet overlaps Email OTP enrollment material with ECDSA registrat
         },
       });
     } finally {
-      backupRepository.write = originalBackupWrite;
-      backupRepository.readMatching = originalBackupReadMatching;
       deferredEmailOtpEnrollmentMaterial.reject(new Error('test cleanup'));
     }
   });
@@ -2309,10 +2207,8 @@ test('registerWallet starts Email OTP Yao and ECDSA registration in parallel', a
     enableRegistrationPreparationModalClose: true,
   };
   await withRegisterWalletFetch(captures, async (fetchMock) => {
-    const backupCapture = new EmailOtpRecoveryCodeBackupCapture(captures);
     const walletId = walletIdFromString('email-otp-mixed.testnet');
     const appSessionJwt = emailOtpRegistrationAppSessionJwt(String(walletId));
-    backupCapture.install();
     try {
       const registration = withMockedIndexedDb(() =>
         registerWallet({
@@ -2382,7 +2278,6 @@ test('registerWallet starts Email OTP Yao and ECDSA registration in parallel', a
       expect(events).not.toContain('emailOtpYaoDisposed');
       expect(captures.finalizeBody).toBeDefined();
     } finally {
-      backupCapture.restore();
       deferredEmailOtpYaoStart.reject(new Error('test cleanup'));
     }
   });
@@ -2434,8 +2329,6 @@ test('registerWallet keeps the ECDSA wallet when the deferred Ed25519 finalize f
     failDeferredEd25519Finalize: true,
   };
   await withRegisterWalletFetch(captures, async (fetchMock) => {
-    const backupCapture = new EmailOtpRecoveryCodeBackupCapture(captures);
-    backupCapture.install();
     try {
       const { result } = await runMixedEmailOtpRegistration(captures);
 
@@ -2467,7 +2360,6 @@ test('registerWallet keeps the ECDSA wallet when the deferred Ed25519 finalize f
           'near_failed_retryable',
       });
     } finally {
-      backupCapture.restore();
     }
   });
 });
@@ -2480,8 +2372,6 @@ test('registerWallet keeps the ECDSA wallet when the deferred Yao seal fails', a
     failEmailOtpYaoSeal: true,
   };
   await withRegisterWalletFetch(captures, async (fetchMock) => {
-    const backupCapture = new EmailOtpRecoveryCodeBackupCapture(captures);
-    backupCapture.install();
     try {
       const { result } = await runMixedEmailOtpRegistration(captures);
 
@@ -2508,7 +2398,6 @@ test('registerWallet keeps the ECDSA wallet when the deferred Yao seal fails', a
         readNearProvisioningState(walletIdFromString('email-otp-mixed.testnet'))?.status,
       ).not.toBe('near_ready');
     } finally {
-      backupCapture.restore();
     }
   });
 });
@@ -2563,8 +2452,6 @@ test('the ECDSA wallet is durable and usable while the Yao ceremony is still blo
     enableRegistrationPreparationModalClose: true,
   };
   await withRegisterWalletFetch(captures, async (fetchMock) => {
-    const backupCapture = new EmailOtpRecoveryCodeBackupCapture(captures);
-    backupCapture.install();
     try {
       const { result } = await runMixedEmailOtpRegistration(captures);
       const walletId = walletIdFromString('email-otp-mixed.testnet');
@@ -2595,7 +2482,6 @@ test('the ECDSA wallet is durable and usable while the Yao ceremony is still blo
       expect(readNearProvisioningState(walletId)?.status).not.toBe('near_ready');
       expect(events).not.toContain('emailOtpYaoCommitCalled');
     } finally {
-      backupCapture.restore();
       deferredEmailOtpYaoStart.reject(new Error('test cleanup'));
     }
   });
@@ -2610,8 +2496,6 @@ test('a failed near_ready write never publishes near_ready', async () => {
     failNearProvisioningWriteForStatus: 'near_ready',
   };
   await withRegisterWalletFetch(captures, async (fetchMock) => {
-    const backupCapture = new EmailOtpRecoveryCodeBackupCapture(captures);
-    backupCapture.install();
     try {
       const { result } = await runMixedEmailOtpRegistration(captures);
       const walletId = walletIdFromString('email-otp-mixed.testnet');
@@ -2645,7 +2529,6 @@ test('a failed near_ready write never publishes near_ready', async () => {
         attempted.indexOf('near_failed_retryable'),
       );
     } finally {
-      backupCapture.restore();
     }
   });
 });
@@ -2658,8 +2541,6 @@ test('sponsored NEAR provisioning keeps the wallet id as the account identity', 
   };
   captures.sponsoredNearAccountId = 'email-otp-mixed.testnet';
   await withRegisterWalletFetch(captures, async (fetchMock) => {
-    const backupCapture = new EmailOtpRecoveryCodeBackupCapture(captures);
-    backupCapture.install();
     try {
       await runMixedEmailOtpRegistration(
         captures,
@@ -2683,7 +2564,6 @@ test('sponsored NEAR provisioning keeps the wallet id as the account identity', 
       ).find((entry) => entry.status === 'near_ready');
       expect(readyWrite?.nearAccountId).toBe(String(walletId));
     } finally {
-      backupCapture.restore();
     }
   });
 });
@@ -2695,8 +2575,6 @@ test('the two registration commits carry distinct idempotency keys', async () =>
     enableRegistrationPreparationModalClose: true,
   };
   await withRegisterWalletFetch(captures, async (fetchMock) => {
-    const backupCapture = new EmailOtpRecoveryCodeBackupCapture(captures);
-    backupCapture.install();
     try {
       await runMixedEmailOtpRegistration(captures);
       await waitForTestCondition({
@@ -2721,7 +2599,6 @@ test('the two registration commits carry distinct idempotency keys', async () =>
       expect(bodies[0].idempotencyKey).toBeTruthy();
       expect(bodies[1].idempotencyKey).toBeTruthy();
     } finally {
-      backupCapture.restore();
     }
   });
 });
@@ -2734,10 +2611,8 @@ test('registerWallet does not start Yao when ECDSA fails before respond', async 
     enableRegistrationPreparationModalClose: true,
   };
   await withRegisterWalletFetch(captures, async (fetchMock) => {
-    const backupCapture = new EmailOtpRecoveryCodeBackupCapture(captures);
     const walletId = walletIdFromString('email-otp-mixed-yao-failure.testnet');
     const appSessionJwt = emailOtpRegistrationAppSessionJwt(String(walletId));
-    backupCapture.install();
     try {
       const registration = withMockedIndexedDb(() =>
         registerWallet({
@@ -2774,7 +2649,6 @@ test('registerWallet does not start Yao when ECDSA fails before respond', async 
       expect(events).not.toContain('emailOtpYaoDisposed');
       expect(captures.finalizeBody).toBeUndefined();
     } finally {
-      backupCapture.restore();
     }
   });
 });
@@ -2789,10 +2663,8 @@ test('registerWallet does not start Yao while ECDSA respond is unresolved', asyn
     enableRegistrationPreparationModalClose: true,
   };
   await withRegisterWalletFetch(captures, async (fetchMock) => {
-    const backupCapture = new EmailOtpRecoveryCodeBackupCapture(captures);
     const walletId = walletIdFromString('email-otp-mixed-ecdsa-failure.testnet');
     const appSessionJwt = emailOtpRegistrationAppSessionJwt(String(walletId));
-    backupCapture.install();
     try {
       const registration = withMockedIndexedDb(() =>
         registerWallet({
@@ -2839,7 +2711,6 @@ test('registerWallet does not start Yao while ECDSA respond is unresolved', asyn
       expect(events).not.toContain('emailOtpYaoDisposed');
       expect(captures.finalizeBody).toBeUndefined();
     } finally {
-      backupCapture.restore();
       deferredEcdsaCeremony.reject(new Error('test cleanup'));
     }
   });
@@ -2850,10 +2721,8 @@ test('registerWallet completes an Email OTP Ed25519-only wallet after Yao', asyn
     emailOtpYaoPrewarmFailure: true,
   };
   await withRegisterWalletFetch(captures, async (fetchMock) => {
-    const backupCapture = new EmailOtpRecoveryCodeBackupCapture(captures);
     const walletId = walletIdFromString('email-otp-ed25519.testnet');
     const appSessionJwt = emailOtpRegistrationAppSessionJwt(String(walletId));
-    backupCapture.install();
     try {
       const result = await withMockedIndexedDb(
         registerWallet.bind(undefined, {
@@ -2932,7 +2801,6 @@ test('registerWallet completes an Email OTP Ed25519-only wallet after Yao', asyn
         emailOtpEnrollment: {
           clientUnlockPublicKeyB64u: 'email-otp-client-unlock-public-key',
         },
-        emailOtpBackupAck: { kind: 'email_otp_recovery_code_backup_ack_v1' },
       });
       expect(captures.finalizeBody).not.toHaveProperty('ecdsa');
       expect(captures.storedEmailOtpEd25519Registration).toMatchObject({
@@ -2952,7 +2820,6 @@ test('registerWallet completes an Email OTP Ed25519-only wallet after Yao', asyn
       });
       expect(captures.emailOtpAppSessionRememberedBeforeAfterCall).toBe(true);
     } finally {
-      backupCapture.restore();
     }
   });
 });
@@ -2962,10 +2829,8 @@ test('Email OTP Ed25519-only registration reports an identity mismatch', async (
     emailOtpEd25519FinalizePublicKey: `ed25519:${base58Encode(new Uint8Array(32).fill(9))}`,
   };
   await withRegisterWalletFetch(captures, async (fetchMock) => {
-    const backupCapture = new EmailOtpRecoveryCodeBackupCapture(captures);
     const walletId = walletIdFromString('email-otp-ed25519-mismatch.testnet');
     const appSessionJwt = emailOtpRegistrationAppSessionJwt(String(walletId));
-    backupCapture.install();
     try {
       const result = await withMockedIndexedDb(
         registerWallet.bind(undefined, {
@@ -3009,7 +2874,6 @@ test('Email OTP Ed25519-only registration reports an identity mismatch', async (
       expect(captures.storedEmailOtpEd25519Registration).toBeUndefined();
       expect(captures.activatedEmailOtpEd25519YaoCapability).toBeUndefined();
     } finally {
-      backupCapture.restore();
     }
   });
 });

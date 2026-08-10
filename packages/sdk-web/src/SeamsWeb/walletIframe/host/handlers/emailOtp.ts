@@ -2,16 +2,12 @@ import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
 import { respondOkResult, withProgress } from './shared';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import type {
-  EmailOtpEnrollmentResult,
   GoogleEmailOtpWalletAuthFlow,
   GoogleEmailOtpWalletAuthRegistrationCompleted,
   GoogleEmailOtpWalletAuthRegistrationFlow,
   GoogleEmailOtpWalletAuthResult,
   GoogleEmailOtpWalletAuthSubmitSuccess,
 } from '@/SeamsWeb/signingSurface/types';
-import {
-  backupEmailOtpRecoveryCodes,
-} from '../../../operations/authMethods/emailOtp/recoveryCodeBackup';
 import type {
   PMGoogleEmailOtpWalletAuthRegistrationWireFlow,
   PMGoogleEmailOtpWalletAuthRegistrationWireResult,
@@ -313,23 +309,6 @@ function parseCompleteWalletRecoveryPayload(
   };
 }
 
-async function storeEmailOtpRecoveryCodeBackupInIframe(input: {
-  pm: ReturnType<HandlerDeps['getSeamsWeb']>;
-  result: EmailOtpEnrollmentResult;
-  walletId: string;
-  relayUrl?: string;
-  appSessionJwt?: string;
-}) {
-  return await backupEmailOtpRecoveryCodes({
-    relayUrl: String(input.relayUrl || '').trim(),
-    walletId: input.walletId,
-    enrollment: input.result,
-    storageScope: 'iframe_origin_indexeddb',
-    ...(input.relayUrl ? { relayUrl: input.relayUrl } : {}),
-    ...(input.appSessionJwt ? { appSessionJwt: input.appSessionJwt } : {}),
-  });
-}
-
 function enableEmailOtpDiagnosticsFromPayload(payload: Record<string, unknown>): void {
   const diagnostics = recordFromPayload(payload.diagnostics);
   Reflect.set(
@@ -517,18 +496,7 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       const result = await pm.registration.enrollEmailOtp(
         payload as Parameters<typeof pm.registration.enrollEmailOtp>[0],
       );
-      if (!('recoveryKeys' in result)) {
-        respondOkResult(deps, req.requestId, result);
-        return;
-      }
-      const backedUpEnrollment = await storeEmailOtpRecoveryCodeBackupInIframe({
-        pm,
-        result,
-        walletId,
-        relayUrl: typeof rawPayload.relayUrl === 'string' ? rawPayload.relayUrl : undefined,
-        ...(appSessionJwt ? { appSessionJwt } : {}),
-      });
-      respondOkResult(deps, req.requestId, backedUpEnrollment);
+      respondOkResult(deps, req.requestId, result);
     },
 
     PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY: async (

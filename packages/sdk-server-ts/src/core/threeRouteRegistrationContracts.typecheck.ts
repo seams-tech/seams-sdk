@@ -31,9 +31,6 @@ declare const activateEcdsa: ActivateEcdsaWorkV2;
 declare const emailOtpEnrollment: NonNullable<
   Extract<WalletRegistrationActivateRequestV2, { authMethod: 'email_otp' }>['emailOtpEnrollment']
 >;
-declare const emailOtpBackupAck: NonNullable<
-  Extract<WalletRegistrationActivateRequestV2, { authMethod: 'email_otp' }>['emailOtpBackupAck']
->;
 
 const RESPOND_BASE = {
   registrationCeremonyId: 'wrc_1',
@@ -66,7 +63,6 @@ const emailOtpEd25519OnlyActivate: WalletRegistrationActivateRequestV2 = {
   ...ACTIVATE_BASE,
   authMethod: 'email_otp',
   emailOtpEnrollment,
-  emailOtpBackupAck,
   /* Enrollment is an auth concern, not an ECDSA one: an Ed25519-only wallet
      registered with Email OTP still enrolls. */
   kind: 'near_ed25519',
