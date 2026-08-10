@@ -385,6 +385,14 @@ impl EcdsaMaterialActivationRefV1 {
         push_bytes(&mut output, self.signing_worker.as_bytes());
         Ok(output)
     }
+
+    pub(crate) fn lane_validate(&self) -> Result<(), EcdsaClientProtocolError> {
+        self.validate()
+    }
+
+    pub(crate) fn lane_canonical_bytes(&self) -> Result<Vec<u8>, EcdsaClientProtocolError> {
+        self.canonical_bytes()
+    }
 }
 
 /// Ceremony-specific authorization, replay nonce, and refresh epochs.
