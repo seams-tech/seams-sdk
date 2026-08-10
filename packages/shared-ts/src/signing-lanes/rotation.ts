@@ -786,10 +786,6 @@ export type EcdsaLaneProtocolWasmV1 = {
   prepareEcdsaAdditiveLaneHolderRoundV1(
     input: EcdsaAdditiveLaneJobV1,
   ): Promise<EcdsaAdditiveLaneHolderRoundV1>;
-  completeEcdsaAdditiveLaneServerRoundV1(input: {
-    job: EcdsaAdditiveLaneJobV1;
-    holderRound: EcdsaAdditiveLaneHolderRoundV1;
-  }): Promise<EcdsaAdditiveLaneServerRoundV1>;
 };
 
 export type { LaneHolderRecipientHandleV1 } from '../utils/domainIds';
@@ -826,7 +822,6 @@ export type VerifiedLaneHolderPackageV1 = {
 
 export type WasmEd25519YaoLaneClientV1 = {
   prepare(input: Ed25519YaoLaneJobV1): Promise<{ requestJson: string }>;
-  executeRequestJson(input: { requestJson: string }): Promise<{ responseJson: string }>;
   complete(input: {
     job: Ed25519YaoLaneJobV1;
     responseJson: string;

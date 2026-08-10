@@ -1,11 +1,11 @@
 import type {
   EcdsaAdditiveLaneJobV1,
   EcdsaAdditiveLaneHolderRoundV1,
-  EcdsaAdditiveLaneServerRoundV1,
   EcdsaLaneProtocolWasmV1,
   Ed25519YaoLaneJobV1,
   LaneEnrollmentGatewayV1,
   LaneHolderRecipientWorkerV1,
+  LaneProtocolCasResultV1,
   LaneProtocolCommitReceiptV1,
   RotatableSigningLaneJobV1,
   WasmEd25519YaoLaneClientV1,
@@ -22,15 +22,25 @@ export type LaneOperationWasmPortsV1 = {
 };
 
 export type LaneProtocolCommitterV1 = {
-  commitEcdsaAdditiveLaneV1(input: {
+  executeAndRecordEcdsaAdditiveLaneV1(input: {
     readonly job: EcdsaAdditiveLaneJobV1;
     readonly holderRound: EcdsaAdditiveLaneHolderRoundV1;
-    readonly serverRound: EcdsaAdditiveLaneServerRoundV1;
-  }): Promise<unknown>;
-  commitEd25519YaoLaneV1(input: {
+    readonly expectedVersion: number;
+  }): Promise<LaneProtocolCommitExecutionResultV1>;
+  executeAndRecordEd25519YaoLaneV1(input: {
     readonly job: Ed25519YaoLaneJobV1;
-    readonly protocolReceipt: LaneProtocolCommitReceiptV1;
-  }): Promise<unknown>;
+    readonly requestJson: string;
+    readonly expectedVersion: number;
+  }): Promise<LaneEd25519ProtocolCommitExecutionResultV1>;
+};
+
+export type LaneProtocolCommitExecutionResultV1 = {
+  readonly receipt: LaneProtocolCommitReceiptV1;
+  readonly protocolCasResult: LaneProtocolCasResultV1;
+};
+
+export type LaneEd25519ProtocolCommitExecutionResultV1 = LaneProtocolCommitExecutionResultV1 & {
+  readonly responseJson: string;
 };
 
 export type LaneOperationGatewayV1 = LaneEnrollmentGatewayV1;
