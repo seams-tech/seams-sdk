@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
+import { createPrivateKey, createPublicKey } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import {
   BACKEND_COMPONENTS,
@@ -562,6 +563,7 @@ function migrateBackend(lane) {
 
 function deployBackend(lane, component) {
   preflightBackend(lane, component);
+  validateDeploymentKeyPairs(component);
   switch (component) {
     case 'signing-worker':
       deploySigningWorker(lane);
@@ -581,6 +583,86 @@ function deployBackend(lane, component) {
     default:
       throw new Error(`Unsupported backend component: ${component}`);
   }
+}
+
+export function validateDeploymentKeyPairs(component, environment = process.env) {
+  switch (component) {
+    case 'deriver-a':
+      assertX25519KeyPair(
+        'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY',
+        'hpke-x25519-private-v1:',
+        'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
+        environment,
+      );
+      assertX25519KeyPair(
+        'DERIVER_A_ROLE_PRIVATE_D1_KEK',
+        'hpke-x25519-role-private-d1-private-v1:',
+        'DERIVER_A_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY',
+        environment,
+      );
+      return;
+    case 'deriver-b':
+      assertX25519KeyPair(
+        'DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY',
+        'hpke-x25519-private-v1:',
+        'DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY',
+        environment,
+      );
+      assertX25519KeyPair(
+        'DERIVER_B_ROLE_PRIVATE_D1_KEK',
+        'hpke-x25519-role-private-d1-private-v1:',
+        'DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY',
+        environment,
+      );
+      return;
+    case 'signing-worker':
+      assertX25519KeyPair(
+        'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY',
+        'hpke-x25519-server-output-private-v1:',
+        'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
+        environment,
+      );
+      assertX25519KeyPair(
+        'SIGNING_WORKER_PRIVATE_D1_KEK',
+        'hpke-x25519-server-output-private-v1:',
+        'SIGNING_WORKER_PRIVATE_D1_KEK_PUBLIC_KEY',
+        environment,
+      );
+      return;
+    case 'gateway':
+    case 'router':
+      return;
+    default:
+      throw new Error(`Unsupported backend component: ${component}`);
+  }
+}
+
+function assertX25519KeyPair(privateName, privatePrefix, publicName, environment) {
+  const privateValue = requireEnvironmentValue(privateName, environment);
+  if (!privateValue.startsWith(privatePrefix)) {
+    throw new Error(`${privateName} must use the ${privatePrefix} format`);
+  }
+  const privateKeyHex = privateValue.slice(privatePrefix.length);
+  if (!/^[0-9a-f]{64}$/u.test(privateKeyHex)) {
+    throw new Error(`${privateName} must contain 32 lowercase hexadecimal bytes`);
+  }
+  const expectedPublicKey = requireEnvironmentValue(publicName, environment);
+  const derivedPublicKey = deriveX25519PublicKey(privateKeyHex);
+  if (derivedPublicKey !== expectedPublicKey) {
+    throw new Error(`${privateName} does not match ${publicName}`);
+  }
+}
+
+function deriveX25519PublicKey(privateKeyHex) {
+  // Node imports a raw X25519 scalar after it is wrapped in the fixed PKCS#8 header.
+  const pkcs8Prefix = Buffer.from('302e020100300506032b656e04220420', 'hex');
+  const privateKey = createPrivateKey({
+    key: Buffer.concat([pkcs8Prefix, Buffer.from(privateKeyHex, 'hex')]),
+    format: 'der',
+    type: 'pkcs8',
+  });
+  const publicKey = createPublicKey(privateKey).export({ format: 'der', type: 'spki' });
+  return `x25519:${publicKey.subarray(-32).toString('hex')}`;
 }
 
 function deploySigningWorker(lane) {
