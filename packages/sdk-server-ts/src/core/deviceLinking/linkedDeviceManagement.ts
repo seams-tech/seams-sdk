@@ -6,17 +6,12 @@ import type {
   LinkedDeviceSummaryV1,
 } from '@shared/device-linking/contracts';
 import { computeAggregateLaneRevocationReceiptDigestV1 } from '@shared/signing-lanes/rotationDigests';
-import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
-import type {
-  LaneProductEpochRecordV1,
-} from '@shared/signing-lanes';
+import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
+import type { LaneProductEpochRecordV1 } from '@shared/signing-lanes';
 import type { LaneEnrollmentAdmissionRecord } from '../signingLanes/LaneLifecycleStore';
 import type { LaneAggregateRevocationRequestV1 } from '../signingLanes/LaneAggregateRevocationApplicationService';
 import type { LinkedDeviceSessionRecordV1 } from './linkedDeviceSession';
-import type {
-  LinkedDeviceEnrollmentId,
-  LinkedDeviceId,
-} from '@shared/signing-lanes/ids';
+import type { LinkedDeviceEnrollmentId, LinkedDeviceId } from '@shared/signing-lanes/ids';
 import type { WalletId } from '@shared/utils/domainIds';
 import type {
   MpcWalletSigningQuotaId,
@@ -111,7 +106,7 @@ export type LinkedDeviceLocalStateInvalidationPortV1 = {
     readonly enrollmentId: LinkedDeviceEnrollmentId;
     readonly deviceId: LinkedDeviceId;
     readonly revocationEpoch: number;
-    readonly aggregateReceiptDigestB64u: string;
+    readonly aggregateReceiptDigestB64u: DigestB64u;
     readonly requestedAtMs: number;
   }): Promise<{ readonly kind: 'applied' | 'replayed' | 'conflict' }>;
 };
@@ -177,10 +172,11 @@ export class LinkedDeviceManagementServiceV1 {
     const aggregateReceiptDigestB64u = parseDigestB64u(
       await computeAggregateLaneRevocationReceiptDigestV1(aggregate.receipt),
     );
-    const walletSession = await this.options.walletSessionRevocation.revokeLinkedDeviceWalletSessionV1({
-      target: prepared.plan.walletSession,
-      requestedAtMs: request.requestedAtMs,
-    });
+    const walletSession =
+      await this.options.walletSessionRevocation.revokeLinkedDeviceWalletSessionV1({
+        target: prepared.plan.walletSession,
+        requestedAtMs: request.requestedAtMs,
+      });
     if (walletSession.kind === 'conflict') return { kind: 'conflict' };
     const local = await this.options.localStateInvalidation.invalidateLinkedDeviceStateV1({
       walletId: request.walletId,
