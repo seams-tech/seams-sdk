@@ -334,28 +334,28 @@
                     "deriver_a": {
                       "role": "signer_a",
                       "key_epoch": "epoch-1",
-                      "public_key": "x25519:4a3f2ddce45595306491573cf9fb7ab8af0d0427d6848af4accd0e492ccc926a"
+                      "public_key": "x25519:e703ece76f443edb85a4d744b5266495b20cd8b9cd545dfdeae8ed1139d3eb5e"
                     },
                     "deriver_b": {
                       "role": "signer_b",
                       "key_epoch": "epoch-1",
-                      "public_key": "x25519:d397cf04e89722380766a800d24aebf5f141e234dd51a329b33eb9d731a10363"
+                      "public_key": "x25519:b1ed805f578b4d83423127c80bd78603f59864fc79a335c8de43a0d3c347e76c"
                     }
                   }
                 },
                 "signer_peer_verifying_keys": {
                   "deriver_a": {
                     "role": "signer_a",
-                    "verifying_key_hex": "8b2d834771d92e26aaf781398a1c0b4f27d26553e416ae34b9432a59a0596029"
+                    "verifying_key_hex": "1874c69c6e4b9db11b1f70019a5ed57e9741fff1fa5cb1ecbaec1080c35cfd7f"
                   },
                   "deriver_b": {
                     "role": "signer_b",
-                    "verifying_key_hex": "c332802dfde530cb295926428f9094b8e92a9a7a74ce93b31d87b64e4a58a3af"
+                    "verifying_key_hex": "d14a74e188311c6088b65be09c719de4f3cf850f58a164930af6e7d60cb9c646"
                   }
                 },
                 "signing_worker_server_output_hpke": {
                   "key_epoch": "epoch-1",
-                  "public_key": "x25519:ad27727fd9a5f007a7356f56ed4881f283b5b6feda31e2ee871dec4718bddd06"
+                  "public_key": "x25519:a150334e6586129db7ad8fc61c5916e9926e56c51404ef93f09fab193a20963e"
                 }
               },
               "registrationTopology": {
@@ -376,25 +376,25 @@
                   "selected_server": {
                     "server_id": "router-ab-signing-worker-testnet",
                     "key_epoch": "epoch-1",
-                    "recipient_encryption_key": "x25519:ad27727fd9a5f007a7356f56ed4881f283b5b6feda31e2ee871dec4718bddd06"
+                    "recipient_encryption_key": "x25519:a150334e6586129db7ad8fc61c5916e9926e56c51404ef93f09fab193a20963e"
                   }
                 },
                 "deriverRecipientKeys": {
                   "deriver_a": {
                     "role": "signer_a",
                     "key_epoch": "epoch-1",
-                    "public_key": "x25519:4a3f2ddce45595306491573cf9fb7ab8af0d0427d6848af4accd0e492ccc926a"
+                    "public_key": "x25519:e703ece76f443edb85a4d744b5266495b20cd8b9cd545dfdeae8ed1139d3eb5e"
                   },
                   "deriver_b": {
                     "role": "signer_b",
                     "key_epoch": "epoch-1",
-                    "public_key": "x25519:d397cf04e89722380766a800d24aebf5f141e234dd51a329b33eb9d731a10363"
+                    "public_key": "x25519:b1ed805f578b4d83423127c80bd78603f59864fc79a335c8de43a0d3c347e76c"
                   }
                 }
               },
-              "deriverAYaoInputPublicKey": "x25519:4a3f2ddce45595306491573cf9fb7ab8af0d0427d6848af4accd0e492ccc926a",
-              "deriverBYaoInputPublicKey": "x25519:d397cf04e89722380766a800d24aebf5f141e234dd51a329b33eb9d731a10363",
-              "signingWorkerOutputPublicKey": "x25519:ad27727fd9a5f007a7356f56ed4881f283b5b6feda31e2ee871dec4718bddd06"
+              "deriverAYaoInputPublicKey": "x25519:e703ece76f443edb85a4d744b5266495b20cd8b9cd545dfdeae8ed1139d3eb5e",
+              "deriverBYaoInputPublicKey": "x25519:b1ed805f578b4d83423127c80bd78603f59864fc79a335c8de43a0d3c347e76c",
+              "signingWorkerOutputPublicKey": "x25519:a150334e6586129db7ad8fc61c5916e9926e56c51404ef93f09fab193a20963e"
             },
             "optional": {
               "nearRelayer": {
