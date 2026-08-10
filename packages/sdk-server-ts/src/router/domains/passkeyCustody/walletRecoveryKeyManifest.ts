@@ -492,7 +492,12 @@ export async function verifyWalletRecoveryKeyActivationsV1(input: {
           currentSigners.some(
             (signer) =>
               !samePublicCapability(signer.walletKey.publicCapability, entry.publicCapability) ||
-              !samePublicValue(signer.activationReceipt, entry.activationReceipt),
+              !samePublicValue(signer.activationReceipt, entry.activationReceipt) ||
+              !ecdsaActivationReceiptMatchesCapability({
+                walletId: input.walletId,
+                activationReceipt: signer.activationReceipt,
+                publicCapability: signer.walletKey.publicCapability,
+              }),
           )
         ) {
           return refused(`wallet recovery ECDSA signer rows changed for ${entry.keySetId}`);
@@ -856,6 +861,23 @@ function samePublicCapability(
   right: RouterAbEcdsaDerivationPublicCapabilityV1,
 ): boolean {
   return samePublicValue(left, right);
+}
+
+function ecdsaActivationReceiptMatchesCapability(input: {
+  readonly walletId: WalletId;
+  readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+  readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+}): boolean {
+  const activation = input.activationReceipt.ecdsa_activation;
+  return (
+    input.publicCapability.client_id === String(input.walletId) &&
+    input.publicCapability.material_activation.material_owner === String(input.walletId) &&
+    activation.activation_epoch === input.publicCapability.activation_epoch &&
+    samePublicValue(activation.context, input.publicCapability.context) &&
+    samePublicValue(activation.public_identity, input.publicCapability.public_identity) &&
+    samePublicValue(activation.signing_worker, input.publicCapability.signer_set.selected_server) &&
+    samePublicValue(activation.material_activation, input.publicCapability.material_activation)
+  );
 }
 
 function samePublicValue(left: unknown, right: unknown): boolean {
