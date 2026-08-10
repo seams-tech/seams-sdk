@@ -70,9 +70,9 @@ export function useSeamsContextValue(args: {
     [seamsWithSdkFlow],
   );
 
-  const stopDevice2LinkingFlow: SeamsContextType['stopDevice2LinkingFlow'] =
+  const cancelDeviceLinking: SeamsContextType['cancelDeviceLinking'] =
     useCallback(async () => {
-      await seams.devices.stopDevice2LinkingFlow();
+      await seams.devices.cancelDeviceLinking();
     }, [seams]);
 
   const unlock: SeamsContextType['unlock'] = useCallback(
@@ -188,13 +188,6 @@ export function useSeamsContextValue(args: {
     return seams.preferences.getConfirmationConfig();
   }, [seams]);
 
-  const viewAccessKeyList: SeamsContextType['viewAccessKeyList'] = useCallback(
-    (args) => {
-      return seams.devices.viewAccessKeyList(args);
-    },
-    [seams],
-  );
-
   return useMemo(
     () => ({
       seams: seamsWithSdkFlow,
@@ -205,7 +198,7 @@ export function useSeamsContextValue(args: {
       unlock,
       lock,
       startDevice2LinkingFlow,
-      stopDevice2LinkingFlow,
+      cancelDeviceLinking,
       executeAction,
       signNEP413Message,
       signDelegateAction,
@@ -219,7 +212,6 @@ export function useSeamsContextValue(args: {
       setConfirmBehavior,
       setConfirmationConfig,
       getConfirmationConfig,
-      viewAccessKeyList,
       themeCapabilities: {
         canSetHostTheme: typeof hostSetTheme === 'function',
       },
@@ -233,7 +225,7 @@ export function useSeamsContextValue(args: {
       unlock,
       lock,
       startDevice2LinkingFlow,
-      stopDevice2LinkingFlow,
+      cancelDeviceLinking,
       executeAction,
       signNEP413Message,
       signDelegateAction,
@@ -247,7 +239,6 @@ export function useSeamsContextValue(args: {
       setConfirmBehavior,
       setConfirmationConfig,
       getConfirmationConfig,
-      viewAccessKeyList,
       hostSetTheme,
     ],
   );

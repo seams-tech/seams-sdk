@@ -24,11 +24,7 @@ import type {
 import type { ProvisionWarmEd25519CapabilityResult } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
-import type {
-  AccessKeyList,
-  NearClient,
-  SignedTransaction,
-} from '@/core/rpcClients/near/NearClient';
+import type { NearClient, SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import type {
   ActionResult,
   DelegateRouterApiResult,
@@ -90,7 +86,6 @@ import type {
   AddPasskeyHooksOptions,
   AddPasskeyResult,
 } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
-import type { WalletRevokeAuthMethodResponse } from '@/core/rpcClients/relayer/walletRegistration';
 import type {
   WalletRecoveryBackupAcknowledgementResult,
   WalletRecoveryCodeStatusResult,
@@ -160,12 +155,16 @@ import type {
   PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult,
 } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import type {
-  DeviceLinkingQRData,
   LinkDeviceResult,
   ScanAndLinkDeviceOptionsDevice1,
   StartDevice2LinkingFlowArgs,
   StartDevice2LinkingFlowResults,
 } from '@/core/types/linkDevice';
+import type {
+  LinkedDeviceListResultV1,
+  LinkedDeviceRevokeResultV1,
+  QrLinkedDeviceSessionPayloadV4,
+} from '@shared/device-linking';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import type {
   WalletEmailOtpChannel,
@@ -197,10 +196,11 @@ import type {
   StoreWalletEmailOtpEcdsaRegistrationInput,
 } from '@/core/signingEngine/flows/registration/accountLifecycle';
 import type { HydrateWarmSigningSessionInput } from '@/core/signingEngine/session/passkey/warmSessionHydration';
-import type {
-  WalletCredentialActivityListResult,
-  WalletCredentialRenameResult,
-} from '@/core/rpcClients/relayer/walletCredentialActivity';
+export type {
+  LinkedDeviceListResultV1,
+  LinkedDeviceRevokeResultV1,
+  LinkedDeviceSummaryV1,
+} from '@shared/device-linking';
 
 type PublicThresholdEcdsaSessionKeyRef = Omit<
   ThresholdEcdsaSessionBootstrapResult['thresholdEcdsaKeyRef'],
@@ -957,38 +957,20 @@ export interface DevicesCapability {
     args: StartDevice2LinkingFlowArgs,
   ): Promise<StartDevice2LinkingFlowResults>;
 
-  stopDevice2LinkingFlow(): Promise<void>;
+  cancelDeviceLinking(): Promise<void>;
 
-  linkDeviceWithScannedQRData(
-    qrData: DeviceLinkingQRData,
+  scanAndLinkDevice(
+    qrData: QrLinkedDeviceSessionPayloadV4,
     options: ScanAndLinkDeviceOptionsDevice1,
   ): Promise<LinkDeviceResult>;
 
-  viewAccessKeyList(args: {
-    walletSession: WalletSessionRef;
-    nearAccount: NearAccountRef;
-  }): Promise<AccessKeyList>;
+  listLinkedDevices(args: { walletId: string }): Promise<LinkedDeviceListResultV1>;
 
-  deleteDeviceKey(args: {
-    walletSession: WalletSessionRef;
-    nearAccount: NearAccountRef;
-    publicKeyToDelete: string;
-    options: ActionHooksOptions;
-  }): Promise<ActionResult>;
-
-  listWalletCredentials(args: { walletId: string }): Promise<WalletCredentialActivityListResult>;
-
-  renameWalletCredential(args: {
+  revokeLinkedDevice(args: {
     walletId: string;
-    envelopeId: string;
-    label?: string;
-  }): Promise<WalletCredentialRenameResult>;
-
-  revokeWalletCredential(args: {
-    walletId: string;
-    rpId: string;
-    credentialIdB64u: string;
-  }): Promise<WalletRevokeAuthMethodResponse>;
+    deviceId: string;
+    requestedAtMs: number;
+  }): Promise<LinkedDeviceRevokeResultV1>;
 }
 
 export type KeyExportUiOptions = SigningEngineExportKeypairWithUIInput['options'];

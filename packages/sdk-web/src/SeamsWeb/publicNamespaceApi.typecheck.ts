@@ -135,27 +135,15 @@ void seams.recovery.setRecoveryEmails({
 void seams.recovery.getWalletRecoveryCodeStatus({ walletId: 'frost-vermillion-k7p9m2' });
 void seams.recovery.acknowledgeWalletRecoveryCodeBackup({ walletId: 'frost-vermillion-k7p9m2' });
 
-void seams.devices.stopDevice2LinkingFlow();
-void seams.devices.deleteDeviceKey({
-  walletSession,
-  nearAccount,
-  publicKeyToDelete: 'ed25519:11111111111111111111111111111111',
-  options: {},
+void seams.devices.cancelDeviceLinking();
+void seams.devices.listLinkedDevices({ walletId: 'frost-vermillion-k7p9m2' });
+void seams.devices.revokeLinkedDevice({
+  walletId: 'frost-vermillion-k7p9m2',
+  deviceId: 'device-1',
+  requestedAtMs: Date.now(),
 });
-void seams.devices.viewAccessKeyList({
-  walletSession,
-  nearAccount,
-});
-// @ts-expect-error listing NEAR access keys requires a wallet-scoped subject and NEAR account ref.
-void seams.devices.viewAccessKeyList('alice.testnet');
-// @ts-expect-error deleting a NEAR access key requires the wallet session subject.
-void seams.devices.deleteDeviceKey({
-  nearAccount,
-  publicKeyToDelete: 'ed25519:11111111111111111111111111111111',
-  options: {},
-});
-// @ts-expect-error deleting a NEAR access key no longer accepts raw account id arguments.
-void seams.devices.deleteDeviceKey('alice.testnet', 'ed25519:11111111111111111111111111111111', {});
+// @ts-expect-error revocation requires the exact requested-at timestamp.
+void seams.devices.revokeLinkedDevice({ walletId: 'frost-vermillion-k7p9m2', deviceId: 'device-1' });
 
 seams.preferences.setConfirmBehavior('requireClick');
 void seams.preferences.getConfirmationConfig();

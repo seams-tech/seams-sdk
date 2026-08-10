@@ -48,6 +48,11 @@ import {
   type LinkedDeviceEnrollmentKeyBindingV1,
   type LinkedDeviceEnrollmentReceiptV1,
   type LinkedDeviceEnrollmentTranscriptV1,
+  type LinkedDeviceListRequestV1,
+  type LinkedDeviceListResultV1,
+  type LinkedDeviceRevokeRequestV1,
+  type LinkedDeviceRevokeResultV1,
+  type LinkedDeviceSummaryV1,
   type LinkedDeviceOwnerAuthorizationSourceV1,
   type LinkedDeviceProtocolVersionV1,
   type LinkedDeviceReceiptAcknowledgementV1,
@@ -158,6 +163,35 @@ const RECEIPT_ACK_FIELDS = [
   'receipt',
   'acknowledgedAtMs',
 ] as const;
+const LINKED_DEVICE_SUMMARY_FIELDS = [
+  'deviceId',
+  'enrollmentId',
+  'walletId',
+  'label',
+  'platform',
+  'permission',
+  'keyManifestDigestB64u',
+  'coveredWalletKeys',
+  'state',
+  'createdAtMs',
+  'lastActivityAtMs',
+  'revocationEpoch',
+] as const;
+const LINKED_DEVICE_LIST_REQUEST_FIELDS = ['kind', 'walletId'] as const;
+const LINKED_DEVICE_LIST_RESULT_FIELDS = ['devices'] as const;
+const LINKED_DEVICE_REVOKE_REQUEST_FIELDS = [
+  'kind',
+  'walletId',
+  'deviceId',
+  'requestedAtMs',
+] as const;
+const LINKED_DEVICE_REVOKE_SUCCESS_FIELDS = [
+  'kind',
+  'enrollmentId',
+  'revocationEpoch',
+  'aggregateReceiptDigestB64u',
+] as const;
+const LINKED_DEVICE_REVOKE_FAILURE_FIELDS = ['kind'] as const;
 
 const SESSION_STATE_FIELDS = {
   displaying_qr: ['state', 'linkSessionId', 'expiresAtMs'],
@@ -365,6 +399,180 @@ function parseWalletAuthorization(raw: unknown, label: string): WalletSessionAut
 }
 function parseEvidenceSet(raw: unknown, label: string): AuthorizationEvidenceSetId {
   return parseId(parseAuthorizationEvidenceSetId, raw, label);
+}
+
+function parseLinkedDeviceSummaryRecord(record: UnknownRecord): LinkedDeviceSummaryV1 {
+  const state = record.state;
+  if (
+    state !== 'provisioning' &&
+    state !== 'active' &&
+    state !== 'suspended' &&
+    state !== 'expired' &&
+    state !== 'revoked'
+  ) {
+    throw new Error('LinkedDeviceSummaryV1.state is invalid');
+  }
+  if (
+    typeof record.label !== 'string' ||
+    record.label.length === 0 ||
+    record.label.trim() !== record.label
+  ) {
+    throw new Error('LinkedDeviceSummaryV1.label is invalid');
+  }
+  if (
+    typeof record.platform !== 'string' ||
+    record.platform.trim() !== record.platform ||
+    record.platform.length === 0
+  ) {
+    throw new Error('LinkedDeviceSummaryV1.platform is invalid');
+  }
+  if (!Array.isArray(record.coveredWalletKeys)) {
+    throw new Error('LinkedDeviceSummaryV1.coveredWalletKeys is invalid');
+  }
+  const coveredWalletKeys = record.coveredWalletKeys.map((value, index) =>
+    parseWalletKey(value, `LinkedDeviceSummaryV1.coveredWalletKeys[${index}]`),
+  );
+  return {
+    deviceId: parseDeviceId(record.deviceId, 'LinkedDeviceSummaryV1.deviceId'),
+    enrollmentId: parseEnrollmentId(record.enrollmentId, 'LinkedDeviceSummaryV1.enrollmentId'),
+    walletId: parseWallet(record.walletId, 'LinkedDeviceSummaryV1.walletId'),
+    label: record.label,
+    platform: record.platform,
+    permission: parsePermission(record.permission, 'LinkedDeviceSummaryV1.permission'),
+    keyManifestDigestB64u: parseDigest(
+      record.keyManifestDigestB64u,
+      'LinkedDeviceSummaryV1.keyManifestDigestB64u',
+    ),
+    coveredWalletKeys,
+    state,
+    createdAtMs: parseUnixTime(record.createdAtMs, 'LinkedDeviceSummaryV1.createdAtMs'),
+    lastActivityAtMs: parseUnixTime(
+      record.lastActivityAtMs,
+      'LinkedDeviceSummaryV1.lastActivityAtMs',
+    ),
+    revocationEpoch: parseNonNegativeSafeInteger(
+      record.revocationEpoch,
+      'LinkedDeviceSummaryV1.revocationEpoch',
+    ),
+  };
+}
+
+export function parseLinkedDeviceSummaryV1(raw: unknown): LinkedDeviceSummaryV1 {
+  return parseLinkedDeviceSummaryRecord(
+    exactRecord(raw, LINKED_DEVICE_SUMMARY_FIELDS, 'LinkedDeviceSummaryV1'),
+  );
+}
+
+export function parseLinkedDeviceListRequestV1(raw: unknown): LinkedDeviceListRequestV1 {
+  const record = exactRecord(raw, LINKED_DEVICE_LIST_REQUEST_FIELDS, 'LinkedDeviceListRequestV1');
+  if (record.kind !== 'linked_device_list_request_v1') {
+    throw new Error('LinkedDeviceListRequestV1.kind is invalid');
+  }
+  return {
+    kind: 'linked_device_list_request_v1',
+    walletId: parseWallet(record.walletId, 'LinkedDeviceListRequestV1.walletId'),
+  };
+}
+
+export function buildLinkedDeviceListRequestV1(args: {
+  readonly walletId: WalletId;
+}): LinkedDeviceListRequestV1 {
+  return {
+    kind: 'linked_device_list_request_v1',
+    walletId: parseWallet(args.walletId, 'LinkedDeviceListRequestV1.walletId'),
+  };
+}
+
+export function parseLinkedDeviceListResultV1(raw: unknown): LinkedDeviceListResultV1 {
+  const record = exactRecord(raw, LINKED_DEVICE_LIST_RESULT_FIELDS, 'LinkedDeviceListResultV1');
+  if (!Array.isArray(record.devices))
+    throw new Error('LinkedDeviceListResultV1.devices is invalid');
+  return { devices: record.devices.map(parseLinkedDeviceSummaryV1) };
+}
+
+export function buildLinkedDeviceListResultV1(args: {
+  readonly devices: readonly LinkedDeviceSummaryV1[];
+}): LinkedDeviceListResultV1 {
+  return parseLinkedDeviceListResultV1({ devices: args.devices });
+}
+
+export function parseLinkedDeviceRevokeRequestV1(raw: unknown): LinkedDeviceRevokeRequestV1 {
+  const record = exactRecord(
+    raw,
+    LINKED_DEVICE_REVOKE_REQUEST_FIELDS,
+    'LinkedDeviceRevokeRequestV1',
+  );
+  if (record.kind !== 'linked_device_revoke_request_v1') {
+    throw new Error('LinkedDeviceRevokeRequestV1.kind is invalid');
+  }
+  return {
+    kind: 'linked_device_revoke_request_v1',
+    walletId: parseWallet(record.walletId, 'LinkedDeviceRevokeRequestV1.walletId'),
+    deviceId: parseDeviceId(record.deviceId, 'LinkedDeviceRevokeRequestV1.deviceId'),
+    requestedAtMs: parseUnixTime(record.requestedAtMs, 'LinkedDeviceRevokeRequestV1.requestedAtMs'),
+  };
+}
+
+export function buildLinkedDeviceRevokeRequestV1(args: {
+  readonly walletId: WalletId;
+  readonly deviceId: LinkedDeviceId;
+  readonly requestedAtMs: number;
+}): LinkedDeviceRevokeRequestV1 {
+  return parseLinkedDeviceRevokeRequestV1({
+    kind: 'linked_device_revoke_request_v1',
+    ...args,
+  });
+}
+
+export function parseLinkedDeviceRevokeResultV1(raw: unknown): LinkedDeviceRevokeResultV1 {
+  const initial = requireRecord(raw, 'LinkedDeviceRevokeResultV1');
+  if (
+    initial.kind === 'not_found' ||
+    initial.kind === 'conflict' ||
+    initial.kind === 'unauthorized'
+  ) {
+    const record = exactRecord(
+      initial,
+      LINKED_DEVICE_REVOKE_FAILURE_FIELDS,
+      'LinkedDeviceRevokeResultV1',
+    );
+    switch (record.kind) {
+      case 'not_found':
+        return { kind: 'not_found' };
+      case 'conflict':
+        return { kind: 'conflict' };
+      case 'unauthorized':
+        return { kind: 'unauthorized' };
+      default:
+        throw new Error('LinkedDeviceRevokeResultV1.kind is invalid');
+    }
+  }
+  const record = exactRecord(
+    initial,
+    LINKED_DEVICE_REVOKE_SUCCESS_FIELDS,
+    'LinkedDeviceRevokeResultV1',
+  );
+  if (record.kind !== 'revoked' && record.kind !== 'replayed') {
+    throw new Error('LinkedDeviceRevokeResultV1.kind is invalid');
+  }
+  return {
+    kind: record.kind,
+    enrollmentId: parseEnrollmentId(record.enrollmentId, 'LinkedDeviceRevokeResultV1.enrollmentId'),
+    revocationEpoch: parseNonNegativeSafeInteger(
+      record.revocationEpoch,
+      'LinkedDeviceRevokeResultV1.revocationEpoch',
+    ),
+    aggregateReceiptDigestB64u: parseDigest(
+      record.aggregateReceiptDigestB64u,
+      'LinkedDeviceRevokeResultV1.aggregateReceiptDigestB64u',
+    ),
+  };
+}
+
+export function buildLinkedDeviceRevokeResultV1(
+  value: LinkedDeviceRevokeResultV1,
+): LinkedDeviceRevokeResultV1 {
+  return parseLinkedDeviceRevokeResultV1(value);
 }
 
 function parseQrPayloadRecord(record: UnknownRecord): QrLinkedDeviceSessionPayloadV4 {

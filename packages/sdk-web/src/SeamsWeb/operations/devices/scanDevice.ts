@@ -1,15 +1,14 @@
-import type {
-  DeviceLinkingQRData,
-  LinkDeviceResult,
-  ScanAndLinkDeviceOptionsDevice1,
-} from '@/core/types/linkDevice';
+import type { LinkDeviceResult, ScanAndLinkDeviceOptionsDevice1 } from '@/core/types/linkDevice';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '@/core/types/linkDevice';
 import {
   buildLinkedDeviceApprovalV1,
   buildLinkedDeviceSessionClaimRequestV1,
   parseQrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking';
-import type { LinkedDeviceOwnerAuthorizationSourceV1 } from '@shared/device-linking';
+import type {
+  LinkedDeviceOwnerAuthorizationSourceV1,
+  QrLinkedDeviceSessionPayloadV4,
+} from '@shared/device-linking';
 import {
   createLinkDeviceFlowEvent,
   LinkDeviceEventPhase,
@@ -25,7 +24,7 @@ type EmitLinkDeviceEventInput = Omit<CreateLinkDeviceFlowEventInput, 'flowId' | 
   readonly accountId?: string;
 };
 
-function createFlowId(qrData: DeviceLinkingQRData | null): string {
+function createFlowId(qrData: QrLinkedDeviceSessionPayloadV4 | null): string {
   return qrData ? String(qrData.linkSessionId) : 'link-device-scan';
 }
 
@@ -43,7 +42,7 @@ function notifyError(callback: ((error: Error) => void) | undefined, error: Erro
 
 function emitScannerEvent(
   onEvent: ScanAndLinkDeviceOptionsDevice1['onEvent'] | undefined,
-  qrData: DeviceLinkingQRData | null,
+  qrData: QrLinkedDeviceSessionPayloadV4 | null,
   event: EmitLinkDeviceEventInput,
 ): void {
   onEvent?.(
@@ -97,8 +96,10 @@ function classifyFailure(error: unknown): DeviceLinkingError {
 }
 
 /** Strictly parse the only QR payload accepted by this browser. */
-export function validateDeviceLinkingQRData(raw: unknown): DeviceLinkingQRData {
-  let parsed: DeviceLinkingQRData;
+export function validateQrLinkedDeviceSessionPayloadV4(
+  raw: unknown,
+): QrLinkedDeviceSessionPayloadV4 {
+  let parsed: QrLinkedDeviceSessionPayloadV4;
   try {
     parsed = parseQrLinkedDeviceSessionPayloadV4(raw);
   } catch (error: unknown) {
@@ -118,13 +119,13 @@ export function validateDeviceLinkingQRData(raw: unknown): DeviceLinkingQRData {
   return parsed;
 }
 
-export async function linkDeviceWithScannedQRData(
+export async function scanAndLinkDevice(
   _context: unknown,
-  qrData: DeviceLinkingQRData,
+  qrData: QrLinkedDeviceSessionPayloadV4,
   options: ScanAndLinkDeviceOptionsDevice1,
   ports: Device1LinkingFlowPortsV1,
 ): Promise<LinkDeviceResult> {
-  let parsedQrData: DeviceLinkingQRData | null = null;
+  let parsedQrData: QrLinkedDeviceSessionPayloadV4 | null = null;
   emitScannerEvent(options.onEvent, parsedQrData, {
     phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
     status: 'started',
@@ -133,7 +134,7 @@ export async function linkDeviceWithScannedQRData(
   });
 
   try {
-    parsedQrData = validateDeviceLinkingQRData(qrData);
+    parsedQrData = validateQrLinkedDeviceSessionPayloadV4(qrData);
     const now = Date.now();
     const owner = await ports.ownerAuthorization.authenticateOwnerForLinkingV1({
       payload: parsedQrData,

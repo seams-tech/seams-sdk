@@ -16,7 +16,6 @@ import { useEffect } from 'react';
  *   - Uses z-indices above the iframe itself (2147483647–2147483648).
  *
  * - Linked Devices modal:
- *   - CSS: `AccountMenuButton/LinkedDevicesModal.css`
  *   - Backdrop: `z-index: calc(--w3a-wallet-overlay-z - 2)`
  *   - Inner content: `z-index: calc(--w3a-wallet-overlay-z - 1)`
  *   - Intentionally below the wallet overlay so the tx confirmer always wins.

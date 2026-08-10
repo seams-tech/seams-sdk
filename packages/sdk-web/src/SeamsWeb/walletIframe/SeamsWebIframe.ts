@@ -28,7 +28,7 @@ import {
   type ThresholdEcdsaChainTarget,
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { SignedTransaction, AccessKeyList } from '@/core/rpcClients/near/NearClient';
+import type { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import type { PreferencesChangedPayload } from './shared/messages';
 import type {
   WalletIframeExactSessionIdentity,
@@ -563,13 +563,13 @@ export class SeamsWebIframe {
         await this.requireRouterReady();
         return await this.router.startDevice2LinkingFlow(args);
       },
-      stopDevice2LinkingFlow: async () => {
+      cancelDeviceLinking: async () => {
         await this.requireRouterReady();
-        await this.router.stopDevice2LinkingFlow();
+        await this.router.cancelDeviceLinking();
       },
-      linkDeviceWithScannedQRData: async (qrData, options) => {
+      scanAndLinkDevice: async (qrData, options) => {
         await this.requireRouterReady();
-        return await this.router.linkDeviceWithScannedQRData({
+        return await this.router.scanAndLinkDevice({
           qrData,
           options: {
             onEvent: options.onEvent,
@@ -580,20 +580,10 @@ export class SeamsWebIframe {
           },
         });
       },
-      listWalletCredentials: async (args) => {
+      listLinkedDevices: async (args) => {
         await this.requireRouterReady();
-        return await this.router.listWalletCredentials({ walletId: args.walletId });
+        return await this.router.listLinkedDevices({ walletId: args.walletId });
       },
-      renameWalletCredential: async (args) => {
-        await this.requireRouterReady();
-        return await this.router.renameWalletCredential(args);
-      },
-      revokeWalletCredential: async (args) => {
-        await this.requireRouterReady();
-        return await this.router.revokeWalletCredential(args);
-      },
-      viewAccessKeyList: async (args) => await this.viewAccessKeyListDomain(args),
-      deleteDeviceKey: async (args) => await this.deleteDeviceKeyDomain(args),
     };
     this.keys = {
       resolveExactKeyExportLane: async (input) => await this.resolveExactKeyExportLaneDomain(input),
@@ -1332,36 +1322,6 @@ export class SeamsWebIframe {
 
   private async hasPasskeyCredentialDomain(walletId: string): Promise<boolean> {
     return this.router.hasPasskeyCredential(walletId);
-  }
-  private async viewAccessKeyListDomain(args: {
-    walletSession: WalletSessionRef;
-    nearAccount: NearAccountRef;
-  }): Promise<AccessKeyList> {
-    return this.router.viewAccessKeyList({
-      walletId: args.walletSession.walletId,
-      nearAccountId: String(args.nearAccount.accountId),
-    });
-  }
-  private async deleteDeviceKeyDomain(
-    args: Parameters<DevicesCapability['deleteDeviceKey']>[0],
-  ): Promise<ActionResult> {
-    try {
-      const res = await this.router.deleteDeviceKey({
-        walletId: String(args.walletSession.walletId),
-        nearAccountId: String(args.nearAccount.accountId),
-        publicKeyToDelete: args.publicKeyToDelete,
-        options: {
-          onEvent: args.options?.onEvent,
-        },
-      });
-      await args.options?.afterCall?.(true, res);
-      return res;
-    } catch (err: unknown) {
-      const e = toError(err);
-      await args.options?.onError?.(e);
-      await args.options?.afterCall?.(false, undefined, e);
-      throw e;
-    }
   }
   private async executeActionDomain(args: {
     walletSession: WalletSessionRef;

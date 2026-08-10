@@ -1,7 +1,6 @@
 import QRCode from 'qrcode';
 import type { DeviceLinkingWebContext } from '@/SeamsWeb/signingSurface/types';
 import type {
-  DeviceLinkingQRData,
   DeviceLinkingSession,
   LinkDeviceResult,
   ScanAndLinkDeviceOptionsDevice1,
@@ -23,12 +22,13 @@ import {
 import type {
   LinkedDeviceSessionState,
   LinkedDeviceSessionTransportEventV1,
+  QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking';
 import { parseLinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import { errorMessage } from '@shared/utils/errors';
 import type { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
-import { linkDeviceWithScannedQRData as linkDeviceWithScannedQRDataDevice1 } from '@/SeamsWeb/operations/devices/scanDevice';
+import { scanAndLinkDevice as scanAndLinkDeviceDevice1 } from '@/SeamsWeb/operations/devices/scanDevice';
 import type {
   Device2LinkingFlowPortsV1,
   DeviceLinkingAuthenticatedTransportPortV1,
@@ -499,22 +499,22 @@ export class DeviceLinkingDomain {
     return await router.startDevice2LinkingFlow(args);
   }
 
-  async stopDevice2LinkingFlow(): Promise<void> {
+  async cancelDeviceLinking(): Promise<void> {
     if (this.deps.kind === 'direct' && !this.deps.walletIframe.shouldUseWalletIframe()) {
       await this.activeDeviceLinkFlow?.cancel();
       this.activeDeviceLinkFlow = null;
       return;
     }
     const router = await this.deps.walletIframe.requireRouter();
-    await router.stopDevice2LinkingFlow();
+    await router.cancelDeviceLinking();
   }
 
-  async linkDeviceWithScannedQRData(
-    qrData: DeviceLinkingQRData,
+  async scanAndLinkDevice(
+    qrData: QrLinkedDeviceSessionPayloadV4,
     options: ScanAndLinkDeviceOptionsDevice1,
   ): Promise<LinkDeviceResult> {
     if (this.deps.kind === 'direct' && !this.deps.walletIframe.shouldUseWalletIframe()) {
-      return await linkDeviceWithScannedQRDataDevice1(
+      return await scanAndLinkDeviceDevice1(
         this.deps.getContext(),
         qrData,
         options,
@@ -522,6 +522,6 @@ export class DeviceLinkingDomain {
       );
     }
     const router = await this.deps.walletIframe.requireRouter();
-    return await router.linkDeviceWithScannedQRData({ qrData, options });
+    return await router.scanAndLinkDevice({ qrData, options });
   }
 }
