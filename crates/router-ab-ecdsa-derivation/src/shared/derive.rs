@@ -222,7 +222,9 @@ pub fn derive_ecdsa_lane_delta_from_source_share32_v1(
     source_client_share32: [u8; 32],
     target_client_share: &EcdsaLaneClientShare,
 ) -> RouterAbEcdsaDerivationResult<EcdsaLaneDelta> {
-    let source_client = parse_nonzero_scalar_32_be(&source_client_share32, "source client share")?;
+    let source_client_share32 = Zeroizing::new(source_client_share32);
+    let source_client =
+        parse_nonzero_scalar_32_be(source_client_share32.as_ref(), "source client share")?;
     let target_client =
         parse_nonzero_scalar_32_be(target_client_share.secret_bytes(), "target client share")?;
     let delta = *source_client.as_ref() - *target_client.as_ref();
@@ -295,6 +297,7 @@ pub fn rebind_ecdsa_lane_relayer_share_bytes_v1(
     delta: &EcdsaLaneDelta,
     target_client_public_key33: [u8; 33],
 ) -> RouterAbEcdsaDerivationResult<EcdsaLaneRelayerRebindV1> {
+    let source_relayer_share32 = Zeroizing::new(source_relayer_share32);
     let source_client_public_key33 = validate_public_key33(
         &source_identity.source_client_public_key33,
         "source client public key",
@@ -328,7 +331,7 @@ pub fn rebind_ecdsa_lane_relayer_share_bytes_v1(
     }
 
     let source_relayer_scalar =
-        parse_nonzero_scalar_32_be(&source_relayer_share32, "source relayer share")?;
+        parse_nonzero_scalar_32_be(source_relayer_share32.as_ref(), "source relayer share")?;
     let source_relayer_public_from_scalar =
         private_key_to_public_key33(&source_relayer_share32, "source relayer public key")?;
     if source_relayer_public_from_scalar != source_relayer_public_key33 {
