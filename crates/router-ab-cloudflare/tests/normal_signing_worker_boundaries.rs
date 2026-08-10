@@ -112,8 +112,43 @@ fn signing_worker_normal_signing_loads_active_material_before_handler() {
     assert!(
         loader.contains("active_signing_worker_state_get_request")
             && loader.contains("signing_worker_output_material_get_request")
-            && loader.contains("CloudflareSigningWorkerNormalSigningMaterialSourceV1::RotatableLane"),
+            && loader
+                .contains("CloudflareSigningWorkerNormalSigningMaterialSourceV1::RotatableLane"),
         "the shared material loader must support registration and admitted lane material"
+    );
+}
+
+#[test]
+fn ecdsa_lane_material_is_loaded_before_pool_or_signature_consumption() {
+    let lib_rs = read_src_file("lib.rs");
+    for function_name in [
+        "handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_presignature_pool_put_private_fetch_v1",
+        "handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_prepare_private_fetch_from_pool_v1",
+        "handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_private_fetch_v1",
+    ] {
+        let body = extract_function_body(&lib_rs, function_name);
+        assert!(
+            body.contains("load_cloudflare_signing_worker_ecdsa_normal_signing_material_v1"),
+            "{function_name} must resolve active ECDSA lane material"
+        );
+        assert!(
+            body.contains("parsed.material_source"),
+            "{function_name} must consume the Gateway-selected material source"
+        );
+    }
+    let finalize = extract_function_body(
+        &lib_rs,
+        "handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_private_fetch_v1",
+    );
+    let loader = finalize
+        .find("load_cloudflare_signing_worker_ecdsa_normal_signing_material_v1")
+        .expect("ECDSA finalize must load lane material");
+    let pool_consume = finalize
+        .find("execute_cloudflare_signing_worker_ecdsa_pool_mutation_v1")
+        .expect("ECDSA finalize must consume one-use pool material");
+    assert!(
+        loader < pool_consume,
+        "ECDSA finalize must reject stale lanes before consuming pool state"
     );
 }
 

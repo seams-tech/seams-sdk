@@ -12,6 +12,7 @@ import type {
   LaneProductEpochRevokedV1,
   LaneProtocolLifecycle,
   RevokeSigningLaneV1,
+  RotatableSigningLaneJobV1,
 } from '@shared/signing-lanes';
 import { encodeLaneProtocolCommitReceiptV1 } from '@shared/signing-lanes/rotationDigests';
 import {
@@ -19,9 +20,10 @@ import {
   parseLaneServerActivationReceiptV1,
   parseRevokeSigningLaneV1,
 } from '@shared/signing-lanes/rotationParsers';
-import { base64UrlEncode } from '@shared/utils/base64';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { sha256Bytes } from '@shared/utils/digests';
+import { base58Encode } from '@shared/utils/base58';
 import { parseEcdsaLifecycleId } from '@shared/utils/ecdsaCapabilityActivation';
 import {
   buildMpcMaterialActivationRef,
@@ -33,7 +35,10 @@ import type {
   LaneLifecycleCurveExecutionPortsV1,
   LaneLifecycleRetirementExecutionV1,
 } from '../../../core/signingLanes/LaneLifecycleApplicationService';
-import type { LaneLifecycleStore } from '../../../core/signingLanes/LaneLifecycleStore';
+import type {
+  LaneLifecycleStore,
+  LaneProductEpochLookup,
+} from '../../../core/signingLanes/LaneLifecycleStore';
 import {
   buildEcdsaServerRetirementRequestV1,
   parseAndVerifyEcdsaServerRetirementEffectV1,
@@ -655,6 +660,135 @@ function requiredTextValue(value: unknown, label: string): string {
   return requiredText(value, label);
 }
 
+export type CloudflareNormalSigningLaneMaterialAdmissionV1 = {
+  readonly product: LaneProductEpochActiveV1;
+  readonly source: {
+    readonly kind: 'rotatable_lane';
+    readonly lookup: {
+      readonly identity: SigningWorkerLaneMaterialIdentityV1;
+      readonly admittedLaneIdentityDigestB64u: DigestB64u;
+    };
+    readonly group_public_key: string;
+  };
+};
+
+/**
+ * Resolves one exact active child product before a normal-signing request is
+ * forwarded to SigningWorker. The resolver deliberately requires immutable
+ * lane coordinates and the full activation reference; activation IDs alone
+ * cannot select a private lane artifact.
+ */
+export class LaneLifecycleStoreNormalSigningLaneMaterialResolverV1 {
+  constructor(
+    private readonly lifecycleStore: Pick<
+      LaneLifecycleStore,
+      'getEnrollment' | 'getProductEpoch' | 'getProtocol'
+    >,
+  ) {}
+
+  async resolveV1(input: {
+    readonly lookup: LaneProductEpochLookup;
+    readonly materialActivation: MpcMaterialActivationRef;
+    readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
+  }): Promise<CloudflareNormalSigningLaneMaterialAdmissionV1> {
+    const product = await this.lifecycleStore.getProductEpoch(input.lookup);
+    if (
+      product === null ||
+      product.state !== 'active' ||
+      product.keyFamily !== input.keyFamily ||
+      !mpcMaterialActivationRefsEqual(product.materialActivation, input.materialActivation) ||
+      product.targetMaterialActivationId !== input.materialActivation.activationId
+    ) {
+      throw new Error('normal-signing lane product is not the exact active child');
+    }
+
+    const enrollment = await this.lifecycleStore.getEnrollment(product.enrollmentId);
+    if (
+      enrollment === null ||
+      enrollment.value.lifecycle.state !== 'active' ||
+      enrollment.value.lifecycle.manifestDigestB64u !== product.aggregateManifestDigestB64u
+    ) {
+      throw new Error('normal-signing lane enrollment is not active for the child product');
+    }
+
+    const protocol = await this.lifecycleStore.getProtocol(product.operationId);
+    if (
+      protocol === null ||
+      protocol.value.lifecycle.state !== 'active' ||
+      protocol.value.job.keyFamily !== product.keyFamily
+    ) {
+      throw new Error('normal-signing lane protocol is not active for the child product');
+    }
+    assertActiveLaneProtocolMatchesProductV1(product, protocol.value.job);
+
+    const identity = signingWorkerIdentityFromActiveProductV1(
+      product,
+      protocol.value.lifecycle,
+    );
+    const admittedLaneIdentityDigestB64u = await digestSigningWorkerLaneIdentityV1(identity);
+    return {
+      product,
+      source: {
+        kind: 'rotatable_lane',
+        lookup: {
+          identity,
+          admittedLaneIdentityDigestB64u,
+        },
+        group_public_key: groupPublicKeyFromLaneJobV1(protocol.value.job),
+      },
+    };
+  }
+}
+
+function assertActiveLaneProtocolMatchesProductV1(
+  product: LaneProductEpochActiveV1,
+  job: RotatableSigningLaneJobV1,
+): void {
+  if (
+    job.operationId !== product.operationId ||
+    job.enrollmentId !== product.enrollmentId ||
+    job.walletId !== product.walletId ||
+    job.walletKeyId !== product.walletKeyId ||
+    job.target.laneId !== product.laneId ||
+    job.target.laneShareEpoch !== product.laneShareEpoch ||
+    job.targetMaterialActivationId !== product.targetMaterialActivationId ||
+    job.target.laneKind !== product.laneKind ||
+    job.keyFamily !== product.keyFamily ||
+    job.targetHolder.participantId !== product.holderParticipant.participantId ||
+    job.targetHolder.participantBindingDigestB64u !==
+      product.holderParticipant.participantBindingDigestB64u ||
+    job.targetHolder.hpkePublicKeyDigestB64u !== product.holderParticipant.hpkePublicKeyDigestB64u ||
+    job.targetSigningWorker.participantId !== product.signingWorkerParticipant.participantId ||
+    job.targetSigningWorker.participantBindingDigestB64u !==
+      product.signingWorkerParticipant.participantBindingDigestB64u ||
+    job.targetSigningWorker.recipientKeyId !== product.signingWorkerParticipant.recipientKeyId ||
+    job.targetSigningWorker.hpkePublicKeyDigestB64u !==
+      product.signingWorkerParticipant.hpkePublicKeyDigestB64u
+  ) {
+    throw new Error('normal-signing lane protocol does not match the active child product');
+  }
+}
+
+function signingWorkerIdentityFromActiveProductV1(
+  product: LaneProductEpochActiveV1,
+  lifecycle: Extract<LaneProtocolLifecycle, { state: 'active' }>,
+): SigningWorkerLaneMaterialIdentityV1 {
+  return product.keyFamily === 'ed25519'
+    ? ed25519IdentityFromActiveProductV1(product, lifecycle)
+    : identityFromActiveProductV1(product, lifecycle);
+}
+
+function groupPublicKeyFromLaneJobV1(job: RotatableSigningLaneJobV1): string {
+  if (job.keyFamily === 'ecdsa_secp256k1') {
+    return requiredText(job.thresholdPublicKey33B64u, 'ECDSA lane threshold public key');
+  }
+  const registeredPublicKey = base64UrlDecode(job.registeredPublicKeyB64u);
+  if (registeredPublicKey.length !== 32) {
+    throw new Error('Ed25519 lane registered public key must be 32 bytes');
+  }
+  return `ed25519:${base58Encode(registeredPublicKey)}`;
+}
+
 function identityFromActiveProductV1(
   product:
     | LaneProductEpochActiveV1
@@ -822,8 +956,8 @@ async function buildEd25519ActivationBindingV1(input: {
   };
 }
 
-async function digestSigningWorkerLaneIdentityV1(
-  identity: EcdsaSigningWorkerLaneMaterialIdentityV1,
+export async function digestSigningWorkerLaneIdentityV1(
+  identity: SigningWorkerLaneMaterialIdentityV1,
 ): Promise<DigestB64u> {
   const encoder = new TextEncoder();
   const chunks: Uint8Array[] = [encoder.encode('seams/signing-worker/lane-material-identity/v1')];

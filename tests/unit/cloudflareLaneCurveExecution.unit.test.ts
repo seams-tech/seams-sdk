@@ -6,6 +6,7 @@ import {
   CloudflareSigningWorkerEcdsaLaneTransportV1,
   CloudflareSigningWorkerEcdsaRetirementTransportV1,
   LaneLifecycleStoreEcdsaLanePrivateBindingResolverV1,
+  LaneLifecycleStoreNormalSigningLaneMaterialResolverV1,
   type SigningWorkerLaneMaterialReceiptPortV1,
 } from '../../packages/sdk-server-ts/src/router/cloudflare/signingLanes/cloudflareLaneCurveExecution';
 import {
@@ -14,12 +15,17 @@ import {
   buildR102HolderDeliveryReceipt,
   buildR102ProtocolCommitReceipt,
   buildR102ServerActivationReceipt,
+  buildR102ActiveProductEpoch,
+  buildR102LaneEnrollmentFixture,
+  buildR102EnrollmentAdmissionRecordFixture,
+  buildR102RevokedProductEpoch,
 } from './helpers/r102LaneGateway.fixtures';
 import { buildRevokeSigningLaneV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import {
   parseCorrelationId,
   parseDigestB64u,
 } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
+import type { LaneProtocolAdmissionRecord } from '../../packages/sdk-server-ts/src/core/signingLanes/LaneLifecycleStore';
 import {
   buildR102Ed25519LaneMaterialIdentityFixture,
   buildR102Ed25519ServerRetirementReceiptFixture,
@@ -112,6 +118,113 @@ test('linked-device source requires an exact active lane product', async () => {
   await expect(resolver.resolveSourceMaterialV1({ job: rawJob })).rejects.toThrow(
     'lane-backed source product epoch is missing',
   );
+});
+
+async function activeLaneResolverFixture(curve: 'ed25519' | 'ecdsa_secp256k1') {
+  const job = curve === 'ed25519' ? buildR102LaneJob('normal-resolver-ed') : buildR102EcdsaLaneJob('normal-resolver-ecdsa');
+  const product = await buildR102ActiveProductEpoch(job);
+  const enrollmentFixture = buildR102LaneEnrollmentFixture();
+  const enrollmentRecord = await buildR102EnrollmentAdmissionRecordFixture(enrollmentFixture);
+  const enrollment = {
+    ...enrollmentRecord,
+    value: {
+      ...enrollmentRecord.value,
+      lifecycle: {
+        ...enrollmentRecord.value.lifecycle,
+        manifestDigestB64u: product.aggregateManifestDigestB64u,
+      },
+    },
+  };
+  const protocol: LaneProtocolAdmissionRecord = {
+    version: 1,
+    commandDigestB64u: DIGEST_B64U,
+    value: {
+      job,
+      lifecycle: {
+        state: 'active',
+        transcriptHashB64u: DIGEST_B64U,
+        protocolCommitReceiptDigestB64u: DIGEST_B64U,
+        holderDeliveryReceiptDigestB64u: DIGEST_B64U,
+        serverActivationReceiptDigestB64u: DIGEST_B64U,
+        aggregateActivationReceiptDigestB64u: DIGEST_B64U,
+        activatedAtMs: 4_000,
+      },
+    },
+  };
+  return { job, product, enrollment, protocol };
+}
+
+for (const curve of ['ed25519', 'ecdsa_secp256k1'] as const) {
+  test(`normal-signing resolver emits exact ${curve} lane source`, async () => {
+    const fixture = await activeLaneResolverFixture(curve);
+    const resolver = new LaneLifecycleStoreNormalSigningLaneMaterialResolverV1({
+      async getProductEpoch() {
+        return fixture.product;
+      },
+      async getEnrollment() {
+        return fixture.enrollment;
+      },
+      async getProtocol() {
+        return fixture.protocol;
+      },
+    });
+    const admission = await resolver.resolveV1({
+      lookup: {
+        walletId: fixture.product.walletId,
+        walletKeyId: fixture.product.walletKeyId,
+        laneId: fixture.product.laneId,
+        laneShareEpoch: fixture.product.laneShareEpoch,
+      },
+      materialActivation: fixture.product.materialActivation,
+      keyFamily: curve,
+    });
+    expect(admission.source.kind).toBe('rotatable_lane');
+    expect(admission.source.lookup.identity.targetLaneId).toBe(fixture.product.laneId);
+    expect(admission.source.lookup.admittedLaneIdentityDigestB64u).toBeTruthy();
+  });
+}
+
+test('normal-signing resolver rejects a revoked lane before protocol lookup', async () => {
+  const active = await buildR102ActiveProductEpoch(buildR102LaneJob('normal-revoked'));
+  const command = buildRevokeSigningLaneV1({
+    walletId: active.walletId,
+    walletKeyId: active.walletKeyId,
+    laneId: active.laneId,
+    laneShareEpoch: active.laneShareEpoch,
+    expectedRevocationEpoch: active.revocationEpoch,
+    reason: 'user_revoked',
+    retirementCorrelationId: parseCorrelationId('normal-revoked'),
+    retirementRequestDigestB64u: parseDigestB64u(DIGEST_B64U),
+    retirementEffectBindingDigestB64u: parseDigestB64u(DIGEST_B64U),
+    requestedAtMs: 8_000,
+  });
+  const revoked = buildR102RevokedProductEpoch(active, command);
+  let protocolLookups = 0;
+  const resolver = new LaneLifecycleStoreNormalSigningLaneMaterialResolverV1({
+    async getProductEpoch() {
+      return revoked;
+    },
+    async getEnrollment() {
+      throw new Error('revoked lane must fail before enrollment lookup');
+    },
+    async getProtocol() {
+      protocolLookups += 1;
+      throw new Error('revoked lane must fail before protocol lookup');
+    },
+  });
+  await expect(
+    resolver.resolveV1({
+      lookup: {
+        walletId: active.walletId,
+        walletKeyId: active.walletKeyId,
+        laneId: active.laneId,
+        laneShareEpoch: active.laneShareEpoch,
+      },
+      materialActivation: active.materialActivation,
+      keyFamily: active.keyFamily,
+    }),
+  ).rejects.toThrow('exact active child');
+  expect(protocolLookups).toBe(0);
 });
 
 test('target activation binds the admitted target SigningWorker', async () => {
