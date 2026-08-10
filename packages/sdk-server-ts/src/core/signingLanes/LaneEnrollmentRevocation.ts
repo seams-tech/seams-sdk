@@ -90,6 +90,7 @@ export class LaneEnrollmentRevocation {
         version: result.version,
         commandDigestB64u,
         productEpoch: result.productEpoch,
+        retirementReceipt: result.retirementReceipt,
       };
     }
     return {
@@ -130,6 +131,7 @@ export class LaneEnrollmentRevocation {
       version: result.version,
       commandDigestB64u: result.commandDigestB64u,
       productEpoch: result.productEpoch,
+      retirementReceipt: result.retirementReceipt,
     };
   }
 

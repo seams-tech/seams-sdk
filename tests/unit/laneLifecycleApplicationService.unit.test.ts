@@ -11,6 +11,7 @@ import type {
   LaneProtocolCasResultV1,
   LaneProtocolCommitReceiptV1,
   LaneServerActivationReceiptV1,
+  LaneServerRetirementReceiptV1,
   LaneSigningLaneRevocationFenceResultV1,
   LaneSigningLaneRevocationResultV1,
   RevokeSigningLaneV1,
@@ -36,6 +37,7 @@ import {
   buildR102ProtocolCommitReceipt,
   buildR102ServerActivationReceipt,
 } from './helpers/r102LaneGateway.fixtures';
+import { buildR102EcdsaServerRetirementReceipt } from './helpers/ecdsaServerRetirement.fixtures';
 
 const DIGEST_B64U = parseDigestB64u(Buffer.alloc(32, 0).toString('base64url'));
 const OTHER_DIGEST_B64U = parseDigestB64u(Buffer.alloc(32, 1).toString('base64url'));
@@ -169,7 +171,7 @@ function laneRevocationFencePending(
 function laneRevocationApplied(
   job: RotatableSigningLaneJobV1,
   command: RevokeSigningLaneV1,
-  receiptDigestB64u = command.retirementEffectBindingDigestB64u,
+  retirementReceipt: LaneServerRetirementReceiptV1,
 ): LaneSigningLaneRevocationResultV1 {
   if (job.target.operation !== 'create_lane') throw new Error('fixture target must be creation');
   const activation = buildR102ServerActivationReceipt(job).targetMaterialActivation;
@@ -207,7 +209,7 @@ function laneRevocationApplied(
     createdAtMs: 1_000,
     revocationReason: command.reason,
     retirementEffectBindingDigestB64u: command.retirementEffectBindingDigestB64u,
-    revocationReceiptDigestB64u: receiptDigestB64u,
+    revocationReceiptDigestB64u: retirementReceipt.receiptDigestB64u,
     revokedAtMs: command.requestedAtMs,
   });
   return {
@@ -219,6 +221,7 @@ function laneRevocationApplied(
     version: 2,
     commandDigestB64u: DIGEST_B64U,
     productEpoch,
+    retirementReceipt,
   };
 }
 
@@ -307,6 +310,12 @@ function applicationCalls(): ApplicationCalls {
   return { protocolCommits: [], activations: [], revocations: [], order: [] };
 }
 
+async function exactRetirementReceipt(suffix: string): Promise<LaneServerRetirementReceiptV1> {
+  const job = buildR102EcdsaLaneJob(`receipt-${suffix}`);
+  if (job.keyFamily !== 'ecdsa_secp256k1') throw new Error('fixture key family changed');
+  return await buildR102EcdsaServerRetirementReceipt(job);
+}
+
 test.describe('R102 server-internal lane lifecycle application service', () => {
   test('authorizes before curve execution and records the exact protocol CAS result', async () => {
     const rawJob = buildR102LaneJob('application');
@@ -325,7 +334,7 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
           kind: 'lane_lifecycle_retirement_execution_v1',
           command: commandFor(job),
           retirementEffectBindingDigestB64u: DIGEST_B64U,
-          retirementReceiptDigestB64u: DIGEST_B64U,
+          retirementReceipt: await exactRetirementReceipt('protocol'),
         },
         calls: calls.order,
       }),
@@ -360,7 +369,7 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
           kind: 'lane_lifecycle_retirement_execution_v1',
           command: commandFor(job),
           retirementEffectBindingDigestB64u: DIGEST_B64U,
-          retirementReceiptDigestB64u: DIGEST_B64U,
+          retirementReceipt: await exactRetirementReceipt('activation'),
         },
         calls: calls.order,
       }),
@@ -389,7 +398,8 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
       gateway: gateway(
         calls,
         (fencedCommand) => laneRevocationFencePending(job, fencedCommand),
-        (completion) => laneRevocationApplied(job, completion.command),
+        (completion) =>
+          laneRevocationApplied(job, completion.command, completion.retirementReceipt),
       ),
       authorization: authorization(calls.order),
       execution: executionPorts({
@@ -399,7 +409,7 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
           kind: 'lane_lifecycle_retirement_execution_v1',
           command: substitutedCommand,
           retirementEffectBindingDigestB64u: DIGEST_B64U,
-          retirementReceiptDigestB64u: DIGEST_B64U,
+          retirementReceipt: await exactRetirementReceipt('substituted-command'),
         },
         calls: calls.order,
       }),
@@ -416,7 +426,7 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
     expect(calls.revocations).toEqual([DIGEST_B64U]);
   });
 
-  test('requires the exact retirement receipt digest after the revocation fence', async () => {
+  test('requires the exact retirement effect binding after the revocation fence', async () => {
     const rawJob = buildR102LaneJob('application-revocation-digest');
     if (rawJob.keyFamily !== 'ed25519') throw new Error('fixture key family changed');
     const job = rawJob;
@@ -426,7 +436,8 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
       gateway: gateway(
         calls,
         (fencedCommand) => laneRevocationFencePending(job, fencedCommand),
-        (completion) => laneRevocationApplied(job, completion.command),
+        (completion) =>
+          laneRevocationApplied(job, completion.command, completion.retirementReceipt),
       ),
       authorization: authorization(calls.order),
       execution: executionPorts({
@@ -436,7 +447,7 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
           kind: 'lane_lifecycle_retirement_execution_v1',
           command,
           retirementEffectBindingDigestB64u: OTHER_DIGEST_B64U,
-          retirementReceiptDigestB64u: OTHER_DIGEST_B64U,
+          retirementReceipt: await exactRetirementReceipt('effect-substitution'),
         },
         calls: calls.order,
       }),
@@ -456,18 +467,15 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
     const rawJob = buildR102EcdsaLaneJob('application-ecdsa-retirement');
     if (rawJob.keyFamily !== 'ecdsa_secp256k1') throw new Error('fixture key family changed');
     const command = commandFor(rawJob);
+    const retirementReceipt = await buildR102EcdsaServerRetirementReceipt(rawJob);
     const calls = applicationCalls();
     const service = new LaneLifecycleApplicationService({
       gateway: gateway(
         calls,
         (fencedCommand) => laneRevocationFencePending(rawJob, fencedCommand),
         (completion) => {
-          expect(completion.retirementReceiptDigestB64u).toBe(OTHER_DIGEST_B64U);
-          return laneRevocationApplied(
-            rawJob,
-            completion.command,
-            completion.retirementReceiptDigestB64u,
-          );
+          expect(completion.retirementReceipt).toEqual(retirementReceipt);
+          return laneRevocationApplied(rawJob, completion.command, completion.retirementReceipt);
         },
       ),
       authorization: authorization(calls.order),
@@ -476,7 +484,7 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
           kind: 'lane_lifecycle_retirement_execution_v1',
           command,
           retirementEffectBindingDigestB64u: DIGEST_B64U,
-          retirementReceiptDigestB64u: OTHER_DIGEST_B64U,
+          retirementReceipt,
         },
         calls: calls.order,
       }),
@@ -497,7 +505,8 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
     const rawJob = buildR102LaneJob('application-completed-replay');
     if (rawJob.keyFamily !== 'ed25519') throw new Error('fixture key family changed');
     const command = commandFor(rawJob);
-    const completed = laneRevocationApplied(rawJob, command);
+    const retirementReceipt = await exactRetirementReceipt('completed-replay');
+    const completed = laneRevocationApplied(rawJob, command, retirementReceipt);
     const calls = applicationCalls();
     const service = new LaneLifecycleApplicationService({
       gateway: gateway(calls, () => ({
@@ -509,6 +518,7 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
         version: completed.version,
         commandDigestB64u: completed.commandDigestB64u,
         productEpoch: completed.productEpoch,
+        retirementReceipt: completed.retirementReceipt,
       })),
       authorization: authorization(calls.order),
       execution: executionPorts({
@@ -518,7 +528,7 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
           kind: 'lane_lifecycle_retirement_execution_v1',
           command,
           retirementEffectBindingDigestB64u: DIGEST_B64U,
-          retirementReceiptDigestB64u: DIGEST_B64U,
+          retirementReceipt,
         },
         calls: calls.order,
       }),
@@ -546,7 +556,7 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
           kind: 'lane_lifecycle_retirement_execution_v1',
           command: commandFor(job),
           retirementEffectBindingDigestB64u: DIGEST_B64U,
-          retirementReceiptDigestB64u: DIGEST_B64U,
+          retirementReceipt: await exactRetirementReceipt('denied'),
         },
         calls: calls.order,
       }),

@@ -13,6 +13,7 @@ import type {
   LaneProtocolCommitReceiptV1,
   LaneHolderDeliveryReceiptV1,
   LaneServerActivationReceiptV1,
+  LaneServerRetirementReceiptV1,
   RevokeSigningLaneV1,
 } from '@shared/signing-lanes';
 import type {
@@ -247,6 +248,7 @@ export type LaneSigningLaneRevocationFenceMutationResult =
       readonly version: number;
       readonly commandDigestB64u: string;
       readonly productEpoch: Extract<LaneProductEpochRecordV1, { state: 'revoked' }>;
+      readonly retirementReceipt: LaneServerRetirementReceiptV1;
     }
   | {
       readonly outcome: 'conflict';
@@ -262,6 +264,7 @@ export type LaneSigningLaneRevocationMutationResult =
       readonly version: number;
       readonly commandDigestB64u: string;
       readonly productEpoch: Extract<LaneProductEpochRecordV1, { state: 'revoked' }>;
+      readonly retirementReceipt: LaneServerRetirementReceiptV1;
     }
   | {
       readonly outcome: 'conflict';

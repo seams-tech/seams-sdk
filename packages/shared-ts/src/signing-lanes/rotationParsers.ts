@@ -134,6 +134,7 @@ import type {
   LaneProtocolRecordV1,
   LaneRefreshTargetV1,
   LaneServerActivationReceiptV1,
+  LaneServerRetirementReceiptV1,
   RevokeLaneEnrollmentV1,
   RevokeSigningLaneV1,
   RotatableSigningLaneJobV1,
@@ -1702,7 +1703,7 @@ export function parseCompleteSigningLaneRevocationV1(
       'command',
       'expectedVersion',
       'commandDigestB64u',
-      'retirementReceiptDigestB64u',
+      'retirementReceipt',
       'revokedAtMs',
     ],
     label,
@@ -1714,9 +1715,9 @@ export function parseCompleteSigningLaneRevocationV1(
     command: parseRevokeSigningLaneV1(record.command, `${label}.command`),
     expectedVersion: requiredInteger(record.expectedVersion, `${label}.expectedVersion`),
     commandDigestB64u: digest(record.commandDigestB64u, `${label}.commandDigestB64u`),
-    retirementReceiptDigestB64u: digest(
-      record.retirementReceiptDigestB64u,
-      `${label}.retirementReceiptDigestB64u`,
+    retirementReceipt: parseLaneServerRetirementReceiptV1(
+      record.retirementReceipt,
+      `${label}.retirementReceipt`,
     ),
     revokedAtMs: requiredInteger(record.revokedAtMs, `${label}.revokedAtMs`),
   };
@@ -2737,4 +2738,17 @@ export function parseEcdsaServerRetirementReceiptV1(
     receiptDigestB64u: digest(record.receiptDigestB64u, `${label}.receiptDigestB64u`),
     retiredAt: parseIso(record.retiredAt, `${label}.retiredAt`),
   };
+}
+
+export function parseLaneServerRetirementReceiptV1(
+  raw: unknown,
+  label = 'laneServerRetirementReceipt',
+): LaneServerRetirementReceiptV1 {
+  const record = requireRecord(raw, label);
+  switch (record.kind) {
+    case 'ecdsa_server_retirement_receipt_v1':
+      return parseEcdsaServerRetirementReceiptV1(record, label);
+    default:
+      throw new Error(`${label}.kind is invalid`);
+  }
 }
