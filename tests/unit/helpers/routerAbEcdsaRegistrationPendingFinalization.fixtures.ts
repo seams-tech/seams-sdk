@@ -4,11 +4,10 @@ import {
   type RouterAbEcdsaRegistrationRequestFactsV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
-  buildRouterAbEcdsaRegistrationPendingFinalizationV1,
+  buildWalletCustodyRouterAbEcdsaRegistrationPendingFinalizationV1,
   encodeRouterAbEcdsaRegistrationPendingFinalizationV1,
   type RouterAbEcdsaRegistrationPendingFinalizationV1,
 } from '@/core/signingEngine/routerAb/ecdsaDerivation/registrationPendingFinalization';
-import type { EcdsaRoleLocalPendingStateBlob } from '@/core/platform/types';
 import { buildFixtureRouterAbEcdsaStrictRegistrationRequest } from '../../helpers/routerAbSigningRuntimeTestUtils';
 
 const APPLICATION_BINDING_DIGEST_B64U = 'VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU';
@@ -77,21 +76,9 @@ function fixtureRegistrationFacts(): RouterAbEcdsaRegistrationRequestFactsV1 {
   });
 }
 
-function fixturePendingStateBlob(): EcdsaRoleLocalPendingStateBlob {
-  return {
-    kind: 'ecdsa_role_local_pending_state_blob_v1',
-    curve: 'secp256k1',
-    encoding: 'base64url',
-    producer: 'signer_core',
-    stateBlobB64u:
-      'UkFFRFAyAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVYGtvbqG1th75M_BZw596y4cRPwCBbmQw3bSA53pbIm3AAAAAHjBxf0UMHDzHuNEGlo5WPFaLFhqHIwP6JxhmfQT6MYYAtwt5jXVelj7TRZgVnmNBX0EQ2GY6bQrhRtfKfqOiuZq',
-  };
-}
-
 export function routerAbEcdsaRegistrationPendingFinalizationFixture(): RouterAbEcdsaRegistrationPendingFinalizationFixture {
   const registrationFacts = fixtureRegistrationFacts();
-  const payload = buildRouterAbEcdsaRegistrationPendingFinalizationV1({
-    pendingStateBlob: fixturePendingStateBlob(),
+  const payload = buildWalletCustodyRouterAbEcdsaRegistrationPendingFinalizationV1({
     runtimePolicyScope: {
       orgId: 'fixture-org',
       projectId: 'fixture',

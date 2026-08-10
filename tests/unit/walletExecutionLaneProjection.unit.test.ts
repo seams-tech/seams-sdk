@@ -7,10 +7,15 @@ import {
 } from '../../packages/sdk-server-ts/src/core/signingLanes/WalletExecutionLaneProjection';
 import { normalizeWalletAuthMethod } from '../../packages/sdk-server-ts/src/core/d1WalletAuthMethodStore';
 import type { WalletSignerRecord } from '../../packages/sdk-server-ts/src/core/WalletStore';
+import {
+  buildYaoEd25519WalletSignerRecord,
+  ed25519NearPublicKeyFromBytes,
+} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
 import { walletAuthMethodRecordId } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseProviderSubject, parseWalletId } from '../../packages/shared-ts/src/utils/domainIds';
 import { routerAbMpcMaterialActivationRefFromWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import { createWalletEcdsaSignerRecord } from './helpers/walletRegistrationSigner.fixtures';
+import { buildRouterAbEd25519YaoCapabilityReplacementFixture } from './helpers/routerAbEd25519YaoRecoveryRequestScoped.fixtures';
 import {
   buildEmailOtpWalletAuthAuthority,
   buildPasskeyWalletAuthAuthority,
@@ -29,12 +34,12 @@ function resultValue<T>(
 const walletId = resultValue(parseWalletId('wallet:r101-projection'));
 const now = 1_900_000_000_000;
 
-function passkeyAuthMethod(status: 'active' | 'revoked' = 'active') {
+function passkeyAuthMethod(status: 'active' | 'revoked' = 'active', methodWalletId = walletId) {
   const record = normalizeWalletAuthMethod({
     version: 'wallet_auth_method_v1',
     kind: 'passkey',
     status,
-    walletId,
+    walletId: methodWalletId,
     rpId: 'wallet.example.test',
     credentialIdB64u: 'credential-r101',
     credentialPublicKeyB64u: 'public-key-r101',
@@ -130,6 +135,61 @@ test.describe('R101 owner wallet execution lane projection', () => {
         expectedMaterialActivation: materialActivation,
       }),
     ).rejects.toThrow();
+  });
+
+  test('projects an exact Ed25519 Yao signer without synthesizing HPKE participants', async () => {
+    const fixture = buildRouterAbEd25519YaoCapabilityReplacementFixture();
+    const edWalletId = resultValue(parseWalletId(fixture.walletId));
+    const capability = fixture.next;
+    const application = capability.admissionRequest.application_binding;
+    const scope = capability.admissionRequest.scope;
+    const signer = buildYaoEd25519WalletSignerRecord({
+      walletId: edWalletId,
+      nearAccountId: fixture.nearAccountId,
+      nearEd25519SigningKeyId: fixture.nearSigningKeyId,
+      thresholdSessionId: scope.threshold_session_id,
+      signerSlot: application.key_creation_signer_slot,
+      publicKey: ed25519NearPublicKeyFromBytes(
+        capability.activationResult.public_receipt.registered_public_key,
+      ),
+      signingWorkerId: fixture.signingWorkerId,
+      keyVersion: 'yao-recovery-key-v1',
+      participantIds: capability.admissionRequest.participant_ids,
+      signingRootId: application.signing_root_id,
+      signingRootVersion: scope.root_share_epoch,
+      runtimePolicyScope: capability.runtimePolicyScope,
+      activeYaoCapability: capability,
+      custodyKeyManifestDigestB64u: Buffer.alloc(32, 21).toString('base64url'),
+      now,
+    });
+    const authMethod = passkeyAuthMethod('active', edWalletId);
+    const materialActivation = routerAbMpcMaterialActivationRefFromWire(
+      capability.activationResult.public_receipt.material_activation,
+    );
+    const result = await resolveActiveOwnerWalletExecutionLane({
+      source: source({ authMethods: [authMethod], signers: [signer] }),
+      walletId: edWalletId,
+      walletAuthMethodId: walletAuthMethodRecordId(authMethod),
+      expectedMaterialActivation: materialActivation,
+    });
+
+    expect(result.kind).toBe('projected');
+    if (result.kind !== 'projected') return;
+    expect(result.projection.walletKey).toMatchObject({
+      keyFamily: 'ed25519',
+      walletId: edWalletId,
+      nearEd25519SigningKeyId: fixture.nearSigningKeyId,
+    });
+    expect(result.projection.lane).toMatchObject({
+      laneKind: 'owner_passkey',
+      ownerParticipantContinuity: {
+        signerId: signer.signerId,
+        participantIds: signer.participantIds,
+        signingWorkerId: fixture.signingWorkerId,
+      },
+    });
+    expect('holderParticipant' in result.projection.lane).toBe(false);
+    expect('serverParticipant' in result.projection.lane).toBe(false);
   });
 
   test('refuses revoked authorization and missing exact material before projection', async () => {

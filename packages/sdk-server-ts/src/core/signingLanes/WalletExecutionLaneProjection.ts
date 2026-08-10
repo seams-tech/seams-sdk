@@ -393,9 +393,12 @@ async function buildOwnerLane(input: {
       activationReceiptDigestB64u: input.activationReceiptDigestB64u,
     }),
   };
-  return input.authMethod.kind === 'passkey'
-    ? buildOwnerPasskeySigningLaneRecord(base)
-    : buildOwnerEmailOtpSigningLaneRecord(base);
+  switch (input.authMethod.kind) {
+    case 'passkey':
+      return buildOwnerPasskeySigningLaneRecord(base);
+    case 'email_otp':
+      return buildOwnerEmailOtpSigningLaneRecord(base);
+  }
 }
 
 async function ownerContinuity(input: {

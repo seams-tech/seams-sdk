@@ -39,7 +39,7 @@ test('rejects missing and extra pending-finalization fields', () => {
   );
 });
 
-test('rejects mutated protocol facts and pending-state metadata', () => {
+test('rejects mutated protocol facts', () => {
   const fixture = routerAbEcdsaRegistrationPendingFinalizationFixture();
   const mismatchedLifecycle = {
     ...fixture.payload,
@@ -51,20 +51,9 @@ test('rejects mutated protocol facts and pending-state metadata', () => {
       },
     },
   };
-  const invalidPendingStateProducer = {
-    ...fixture.payload,
-    pendingStateBlob: {
-      ...fixture.payload.pendingStateBlob,
-      producer: 'main_thread',
-    },
-  };
-
   expect(decodePayload.bind(undefined, encodeRawCanonicalJson(mismatchedLifecycle))).toThrow(
     /facts do not match/,
   );
-  expect(
-    decodePayload.bind(undefined, encodeRawCanonicalJson(invalidPendingStateProducer)),
-  ).toThrow(/invalid metadata/);
 });
 
 test('rejects non-canonical JSON and base64url encodings', () => {
