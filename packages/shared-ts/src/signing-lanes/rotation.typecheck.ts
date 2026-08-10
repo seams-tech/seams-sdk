@@ -3,6 +3,7 @@ import type {
   EcdsaAdditiveLaneJobV1,
   Ed25519YaoLaneCreationJobV1,
   LaneCreationTargetV1,
+  LaneHolderPackageWireV1,
   LaneProductEpochActiveV1,
   LaneProductEpochPendingVisibilityV1,
   LaneRefreshTargetV1,
@@ -59,3 +60,21 @@ void invalidCurveJob;
 void invalidReverseCurveJob;
 void invalidActiveEpoch;
 void invalidPendingEpoch;
+
+// @ts-expect-error Ed25519 holder packages cannot carry ECDSA envelopes
+const invalidEd25519HolderPackage: LaneHolderPackageWireV1 = {
+  kind: 'ed25519_yao_lane_holder_package_set_v1',
+  deriverAEncryptedPackageJson: '{}',
+  deriverBEncryptedPackageJson: '{}',
+  ecdsaEncryptedMaterialEnvelopeJson: '{}',
+};
+
+// @ts-expect-error ECDSA holder packages cannot carry Yao Deriver packages
+const invalidEcdsaHolderPackage: LaneHolderPackageWireV1 = {
+  kind: 'ecdsa_additive_lane_holder_package_v1',
+  ecdsaEncryptedMaterialEnvelopeJson: '{}',
+  deriverAEncryptedPackageJson: '{}',
+};
+
+void invalidEd25519HolderPackage;
+void invalidEcdsaHolderPackage;
