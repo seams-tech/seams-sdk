@@ -9,6 +9,7 @@ import {
   parseRotatableSigningLaneJobV1,
 } from '@shared/signing-lanes/rotationParsers';
 import type { RouterAbEd25519YaoCeremonyBindingV1 } from '@shared/utils/routerAbEd25519Yao';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import {
   LaneLifecycleApplicationService,
   type LaneLifecycleAuthorizationPortV1,
@@ -285,8 +286,7 @@ function assertReceiptMatchesJob(
     receipt.targetLaneShareEpoch !== job.target.laneShareEpoch ||
     receipt.targetMaterialActivationId !== job.targetMaterialActivationId ||
     receipt.keyFamily !== job.keyFamily ||
-    JSON.stringify(receipt.sourceMaterialActivation) !==
-      JSON.stringify(job.source.materialActivation)
+    !mpcMaterialActivationRefsEqual(receipt.sourceMaterialActivation, job.source.materialActivation)
   ) {
     throw new Error('Ed25519 lane protocol receipt does not match the admitted job');
   }
@@ -314,9 +314,124 @@ function assertReceiptMatchesResult(
 }
 
 function assertSameLaneJob(expected: Ed25519YaoLaneJobV1, actual: Ed25519YaoLaneJobV1): void {
-  if (JSON.stringify(expected) !== JSON.stringify(actual)) {
+  if (!ed25519LaneJobsEqual(expected, actual)) {
     throw new Error('Ed25519 lane request changed the admitted job');
   }
+}
+
+function ed25519LaneJobsEqual(
+  left: Ed25519YaoLaneJobV1,
+  right: Ed25519YaoLaneJobV1,
+): boolean {
+  return (
+    left.kind === right.kind &&
+    left.keyFamily === right.keyFamily &&
+    left.operationId === right.operationId &&
+    left.enrollmentId === right.enrollmentId &&
+    left.idempotencyKey === right.idempotencyKey &&
+    left.walletId === right.walletId &&
+    left.walletKeyId === right.walletKeyId &&
+    activeLaneSourcesEqual(left.source, right.source) &&
+    targetHoldersEqual(left.targetHolder, right.targetHolder) &&
+    targetSigningWorkersEqual(left.targetSigningWorker, right.targetSigningWorker) &&
+    left.targetMaterialActivationId === right.targetMaterialActivationId &&
+    left.protocolVersion === right.protocolVersion &&
+    left.expiresAtMs === right.expiresAtMs &&
+    laneTargetsEqual(left.target, right.target) &&
+    laneAuthorizationsEqual(left.authorization, right.authorization) &&
+    left.yaoRequestKind === right.yaoRequestKind &&
+    left.registeredPublicKeyB64u === right.registeredPublicKeyB64u &&
+    left.nearEd25519SigningKeyId === right.nearEd25519SigningKeyId &&
+    left.keyCreationSignerSlot === right.keyCreationSignerSlot &&
+    left.stableContextBindingB64u === right.stableContextBindingB64u &&
+    left.yaoSuiteId === right.yaoSuiteId &&
+    left.circuitDigestB64u === right.circuitDigestB64u
+  );
+}
+
+function activeLaneSourcesEqual(
+  left: Ed25519YaoLaneJobV1['source'],
+  right: Ed25519YaoLaneJobV1['source'],
+): boolean {
+  return (
+    left.laneId === right.laneId &&
+    left.laneKind === right.laneKind &&
+    left.laneShareEpoch === right.laneShareEpoch &&
+    left.revocationEpoch === right.revocationEpoch &&
+    left.holderParticipantId === right.holderParticipantId &&
+    left.signingWorkerParticipantId === right.signingWorkerParticipantId &&
+    left.signingWorkerRecipientKeyId === right.signingWorkerRecipientKeyId &&
+    left.participantBindingDigestB64u === right.participantBindingDigestB64u &&
+    mpcMaterialActivationRefsEqual(left.materialActivation, right.materialActivation)
+  );
+}
+
+function targetHoldersEqual(
+  left: Ed25519YaoLaneJobV1['targetHolder'],
+  right: Ed25519YaoLaneJobV1['targetHolder'],
+): boolean {
+  return (
+    left.participantId === right.participantId &&
+    left.participantBindingDigestB64u === right.participantBindingDigestB64u &&
+    left.custodyBindingId === right.custodyBindingId &&
+    left.custodyBindingDigestB64u === right.custodyBindingDigestB64u &&
+    left.hpkePublicKeyB64u === right.hpkePublicKeyB64u &&
+    left.hpkePublicKeyDigestB64u === right.hpkePublicKeyDigestB64u
+  );
+}
+
+function targetSigningWorkersEqual(
+  left: Ed25519YaoLaneJobV1['targetSigningWorker'],
+  right: Ed25519YaoLaneJobV1['targetSigningWorker'],
+): boolean {
+  return (
+    left.participantId === right.participantId &&
+    left.participantBindingDigestB64u === right.participantBindingDigestB64u &&
+    left.recipientKeyId === right.recipientKeyId &&
+    left.hpkePublicKeyB64u === right.hpkePublicKeyB64u &&
+    left.hpkePublicKeyDigestB64u === right.hpkePublicKeyDigestB64u
+  );
+}
+
+function laneTargetsEqual(
+  left: Ed25519YaoLaneJobV1['target'],
+  right: Ed25519YaoLaneJobV1['target'],
+): boolean {
+  if (
+    left.operation !== right.operation ||
+    left.laneId !== right.laneId ||
+    left.laneKind !== right.laneKind ||
+    left.laneShareEpoch !== right.laneShareEpoch ||
+    left.expectedTargetState !== right.expectedTargetState
+  ) {
+    return false;
+  }
+  if (left.operation === 'create_lane') return true;
+  if (right.operation !== 'refresh_lane') return false;
+  return mpcMaterialActivationRefsEqual(
+    left.priorMaterialActivation,
+    right.priorMaterialActivation,
+  );
+}
+
+function laneAuthorizationsEqual(
+  left: Ed25519YaoLaneJobV1['authorization'],
+  right: Ed25519YaoLaneJobV1['authorization'],
+): boolean {
+  if (left.kind !== right.kind || left.authorizedOperationId !== right.authorizedOperationId) {
+    return false;
+  }
+  if (left.kind === 'linked_device_enrollment') {
+    return (
+      right.kind === 'linked_device_enrollment' &&
+      left.linkedDeviceEnrollmentId === right.linkedDeviceEnrollmentId &&
+      left.linkedDevicePermissionDigestB64u === right.linkedDevicePermissionDigestB64u
+    );
+  }
+  return (
+    right.kind === 'owner_lane_refresh' &&
+    left.ownerLaneRefreshDigestB64u === right.ownerLaneRefreshDigestB64u
+  );
 }
 
 function exactJsonRecord(
