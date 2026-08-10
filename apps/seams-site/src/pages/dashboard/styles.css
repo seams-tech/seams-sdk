@@ -5612,9 +5612,9 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   }
 }
 
-/* Shown instead of the console shell whenever there are no session claims:
-   while the session check is in flight, and after a sign-out until the redirect
-   lands. Same paper canvas as the login page it hands off to. */
+/* Shown while the session or dashboard entry route is resolving, and after a
+   sign-out until the redirect lands. Same paper canvas as the login page it
+   hands off to. */
 .dashboard-session-gate {
   min-height: 100dvh;
   display: grid;
