@@ -47,6 +47,8 @@ import type { RecoverySessionRecord, RecoverySessionStatus } from '../../core/Re
 import type { RouterAbEcdsaPresignRuntime } from '../../core/routerAbSigning/RouterAbEcdsaPresignRuntime';
 import type { DeviceLinkingRouteServiceV1 } from '../transport/fetch/routes/deviceLinking';
 import type { DeviceManagementRouteServiceV1 } from '../transport/fetch/routes/deviceManagement';
+import type { LinkedDeviceLocalPresenceVerifierPortV1 } from '../auth/linkedDeviceLocalPresenceVerifier';
+import type { LinkedDeviceExecutionAdmissionResolverV1 } from '../domains/signingOperations/walletExecutionAdmission';
 import type { WalletEcdsaSignerKey, WalletEcdsaSignerRecord } from '../../core/WalletStore';
 import type {
   FundImplicitNearAccountRequest,
@@ -1444,6 +1446,10 @@ export interface RouterApiServiceBag {
   deviceLinking?: DeviceLinkingRouteServiceV1;
   /** Authenticated R103 linked-device projection and revocation transport. */
   deviceManagement?: DeviceManagementRouteServiceV1;
+  /** Durable active linked-device lane projection used by normal signing admission. */
+  linkedDeviceExecution?: LinkedDeviceExecutionAdmissionResolverV1;
+  /** Device-local user-presence verifier used by linked normal signing admission. */
+  linkedDeviceLocalPresence?: LinkedDeviceLocalPresenceVerifierPortV1;
 }
 
 export interface RouterApiAuthorizedOperationService {

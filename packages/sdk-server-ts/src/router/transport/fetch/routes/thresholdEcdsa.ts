@@ -132,6 +132,7 @@ import {
 } from '@shared/utils/emailOtpDomain';
 import { hashEmailOtpAppSessionClaims } from '../../../domains/emailOtp/emailOtpSessionRouteHelpers';
 import { proxyOwnerLaneAdmittedNormalSigningRequest } from './normalSigningRouterProxy';
+import { handleLinkedDeviceEcdsaNormalSigning } from './linkedDeviceNormalSigning';
 import {
   sameRouterAbMpcMaterialActivationRef,
   type RouterAbMpcMaterialActivationRefWire,
@@ -2671,6 +2672,12 @@ export async function handleThresholdEcdsa(ctx: FetchRouterApiContext): Promise<
       ? (bodyUnknown as Record<string, unknown>)
       : {};
   if (pathname === ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH) {
+    const linked = await handleLinkedDeviceEcdsaNormalSigning({
+      ctx,
+      body,
+      phase: 'prepare',
+    });
+    if (linked) return linked;
     return handleRouterAbEcdsaDerivationNormalSigningRoute({
       ctx,
       body,
@@ -2679,6 +2686,12 @@ export async function handleThresholdEcdsa(ctx: FetchRouterApiContext): Promise<
   }
 
   if (pathname === ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PATH) {
+    const linked = await handleLinkedDeviceEcdsaNormalSigning({
+      ctx,
+      body,
+      phase: 'finalize',
+    });
+    if (linked) return linked;
     return handleRouterAbEcdsaDerivationNormalSigningRoute({
       ctx,
       body,
