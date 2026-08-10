@@ -23,7 +23,6 @@ use crate::{
     handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_finalize_authenticated_public_request_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_prepare_authenticated_public_request_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_explicit_export_authenticated_public_request_v1,
-    handle_cloudflare_router_ab_ecdsa_derivation_recovery_authenticated_public_request_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_registration_bootstrap_authenticated_public_request_v1,
     handle_cloudflare_router_ed25519_yao_execute_private_fetch_v1,
     handle_cloudflare_router_ed25519_yao_recovery_promote_private_fetch_v1,
@@ -42,7 +41,6 @@ use crate::{
     CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_PUBLIC_REQUEST_PATH,
     CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ADD_SIGNER_PUBLIC_REQUEST_PATH,
     CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PUBLIC_REQUEST_PATH,
-    CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PUBLIC_REQUEST_PATH,
     CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PUBLIC_REQUEST_PATH,
     CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PUBLIC_REQUEST_PATH,
     CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PUBLIC_REQUEST_PATH,
@@ -62,13 +60,11 @@ use crate::{
     decrypt_and_handle_cloudflare_mpc_prf_recipient_proof_bundle_signer_private_request_v1,
     decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_activation_refresh_signer_private_request_v1,
     decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_export_signer_private_request_v1,
-    decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_recovery_signer_private_request_v1,
     decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_registration_signer_private_request_v1,
     CloudflareEcdsaBoundaryTimingV1, CloudflarePreloadedSignerHostV1,
     CloudflareRootShareStartupMetadataV1,
     CloudflareRouterAbEcdsaDerivationDeriverActivationRefreshPrivateRequestV1,
     CloudflareRouterAbEcdsaDerivationDeriverExportPrivateRequestV1,
-    CloudflareRouterAbEcdsaDerivationDeriverRecoveryPrivateRequestV1,
     CloudflareRouterAbEcdsaDerivationDeriverRegistrationPrivateRequestV1,
     CloudflareSignerEnvelopeHpkeDecryptKeyBindingSetV1, CloudflareSignerHostPreloadInputV1,
     CloudflareSignerHostPreloadPlanV1, CloudflareSignerPeerSigningKeyBindingV1,
@@ -131,7 +127,6 @@ use crate::{
     CLOUDFLARE_DERIVER_A_ED25519_YAO_READ_PAIR_STATUS_PATH,
     CLOUDFLARE_DERIVER_A_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_PATH,
-    CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PRIVATE_REQUEST_PATH,
 };
@@ -147,7 +142,6 @@ use crate::{
     CLOUDFLARE_DERIVER_B_ED25519_YAO_READ_PAIR_STATUS_PATH,
     CLOUDFLARE_DERIVER_B_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_PATH,
-    CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PRIVATE_REQUEST_PATH,
 };
@@ -159,7 +153,6 @@ use router_ab_core::RouterAbProtocolError;
 use router_ab_core::RouterEd25519YaoExecuteFailureCodeV1;
 #[cfg(feature = "strict-worker-router-entrypoint")]
 use router_ab_core::{
-    parse_router_ab_ecdsa_derivation_recovery_request_v1_json,
     parse_router_ab_ecdsa_derivation_registration_bootstrap_request_v1_json,
     RouterAbEcdsaDerivationRegistrationPurposeV1,
 };
