@@ -31,13 +31,24 @@ pub const ECDSA_ADDITIVE_LANE_ENVELOPE_DOMAIN_V1: &str =
 /// Canonical domain for server retirement receipts.
 pub const ECDSA_SERVER_RETIREMENT_RECEIPT_DOMAIN_V1: &str =
     "seams/rotatable-signing-lanes/ecdsa-server-retirement-receipt/v1";
+/// Canonical digest domain for the ordered target threshold-session set.
+pub const ECDSA_TARGET_THRESHOLD_SESSION_SET_DOMAIN_V1: &str =
+    "seams/rotatable-signing-lanes/ecdsa-target-threshold-sessions/v1";
+/// Canonical digest domain for the checked target public identity relation.
+pub const ECDSA_PUBLIC_IDENTITY_RELATION_DOMAIN_V1: &str =
+    "seams/rotatable-signing-lanes/ecdsa-public-identity-relation/v1";
 
 const ECDSA_ADDITIVE_LANE_ENVELOPE_INFO_V1: &[u8] =
     b"seams/rotatable-signing-lanes/ecdsa-material-envelope/hpke-x25519-hkdf-sha256-aes256gcm/v1";
 
 /// One EVM or Tempo threshold-signing chain bound to a target session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum EcdsaLaneChainTargetV1 {
     /// EIP-155 EVM chain.
     Evm {
@@ -59,7 +70,7 @@ pub enum EcdsaLaneChainTargetV1 {
 
 /// Exact target threshold-session identity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EcdsaTargetThresholdSessionBindingV1 {
     /// Chain selected by the session.
     pub chain_target: EcdsaLaneChainTargetV1,
@@ -71,7 +82,7 @@ pub struct EcdsaTargetThresholdSessionBindingV1 {
 
 /// Source capability manifest identity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EcdsaSourceCapabilityBindingV1 {
     /// Capability manifest id.
     pub manifest_id: String,
@@ -87,7 +98,7 @@ pub struct EcdsaSourceCapabilityBindingV1 {
 
 /// Target capability manifest identity and ordered sessions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EcdsaTargetCapabilityBindingV1 {
     /// Capability manifest id.
     pub manifest_id: String,
@@ -101,7 +112,7 @@ pub struct EcdsaTargetCapabilityBindingV1 {
 
 /// Active source lane pinned at admission.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ActiveEcdsaLaneProtocolSourceV1 {
     /// Source lane id.
     pub lane_id: String,
@@ -125,7 +136,7 @@ pub struct ActiveEcdsaLaneProtocolSourceV1 {
 
 /// Target holder recipient binding.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EcdsaLaneTargetHolderV1 {
     /// Target holder participant id.
     pub participant_id: String,
@@ -143,7 +154,7 @@ pub struct EcdsaLaneTargetHolderV1 {
 
 /// Target SigningWorker recipient binding.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EcdsaLaneTargetSigningWorkerV1 {
     /// Target SigningWorker participant id.
     pub participant_id: String,
@@ -159,7 +170,12 @@ pub struct EcdsaLaneTargetSigningWorkerV1 {
 
 /// Lane creation target branch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(
+    tag = "operation",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum EcdsaLaneTargetOperationV1 {
     /// Create a new linked-device lane.
     CreateLane {
@@ -189,7 +205,12 @@ pub enum EcdsaLaneTargetOperationV1 {
 
 /// Lane authorization branch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum EcdsaLaneAuthorizationBindingV1 {
     /// Linked-device enrollment authority.
     LinkedDeviceEnrollment {
@@ -211,7 +232,7 @@ pub enum EcdsaLaneAuthorizationBindingV1 {
 
 /// Immutable ECDSA additive lane job admitted by the product boundary.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EcdsaAdditiveLaneJobV1 {
     /// Wire kind.
     pub kind: String,
@@ -324,11 +345,43 @@ impl EcdsaAdditiveLaneJobV1 {
     pub fn preamble_hash(&self) -> Result<[u8; 32], EcdsaClientProtocolError> {
         digest32(&self.canonical_preamble_bytes()?)
     }
+
+    /// Returns the canonical digest of the ordered target threshold sessions.
+    pub fn target_threshold_session_set_digest(
+        &self,
+    ) -> Result<[u8; 32], EcdsaClientProtocolError> {
+        self.validate()?;
+        let mut out = Vec::new();
+        text(&mut out, ECDSA_TARGET_THRESHOLD_SESSION_SET_DOMAIN_V1);
+        let mut encoded = Vec::new();
+        encode_target_capability(&mut encoded, &self.target_capability)?;
+        lp(&mut out, &encoded);
+        digest32(&out)
+    }
+}
+
+/// Returns the canonical digest of the verified additive public relation.
+pub fn ecdsa_lane_public_identity_relation_digest_v1(
+    target_holder_public_key33: &[u8; 33],
+    target_server_public_key33: &[u8; 33],
+    threshold_public_key33: &[u8; 33],
+    threshold_ethereum_address20: &[u8; 20],
+) -> Result<[u8; 32], EcdsaClientProtocolError> {
+    validate_public_key_b64(&b64(target_holder_public_key33))?;
+    validate_public_key_b64(&b64(target_server_public_key33))?;
+    validate_public_key_b64(&b64(threshold_public_key33))?;
+    let mut out = Vec::new();
+    text(&mut out, ECDSA_PUBLIC_IDENTITY_RELATION_DOMAIN_V1);
+    lp(&mut out, target_holder_public_key33);
+    lp(&mut out, target_server_public_key33);
+    lp(&mut out, threshold_public_key33);
+    lp(&mut out, threshold_ethereum_address20);
+    digest32(&out)
 }
 
 /// Public holder-round output committed after target share sampling.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EcdsaAdditiveLaneHolderRoundV1 {
     /// Preamble digest.
     pub preamble_hash_b64u: String,
@@ -367,7 +420,7 @@ impl EcdsaAdditiveLaneHolderRoundV1 {
 
 /// Public server-round output committed after delta verification and rebind.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EcdsaAdditiveLaneServerRoundV1 {
     /// Preamble digest.
     pub preamble_hash_b64u: String,
@@ -412,7 +465,7 @@ impl EcdsaAdditiveLaneServerRoundV1 {
 
 /// Complete digest-linked ECDSA additive lane transcript.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EcdsaAdditiveLaneTranscriptV1 {
     /// Preamble digest.
     pub preamble_hash_b64u: String,
@@ -516,7 +569,7 @@ pub fn verify_ecdsa_additive_lane_transcript_v1(
 
 /// Exact ECDSA capability-manifest identity in a server retirement receipt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EcdsaLaneManifestIdentityV1 {
     /// Manifest id.
     pub manifest_id: String,
@@ -526,7 +579,7 @@ pub struct EcdsaLaneManifestIdentityV1 {
 
 /// Exact terminal retirement receipt for one lane activation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EcdsaServerRetirementReceiptV1 {
     /// Receipt kind.
     pub kind: String,
@@ -641,7 +694,7 @@ pub fn verify_ecdsa_server_retirement_receipt_v1(
 
 /// One HPKE envelope used for a target holder or SigningWorker material.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EcdsaLaneEncryptedPayloadV1 {
     /// Wire kind.
     pub kind: String,
