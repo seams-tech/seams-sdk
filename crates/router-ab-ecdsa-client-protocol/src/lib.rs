@@ -37,14 +37,17 @@ pub use export_share::{
     EcdsaSigningWorkerExportShareBindingV1, EcdsaSigningWorkerExportShareEnvelopeV1,
 };
 pub use material_possession::{
-    verify_ecdsa_client_material_possession_proof_v1, EcdsaClientMaterialPossessionChallengeV1,
-    EcdsaClientMaterialPossessionError, EcdsaClientMaterialPossessionProofSchemeV1,
-    EcdsaClientMaterialPossessionProofV1,
+    sign_ecdsa_wallet_recovery_material_possession_proof_v1,
+    verify_ecdsa_client_material_possession_proof_v1,
+    verify_ecdsa_wallet_recovery_material_possession_proof_v1,
+    EcdsaClientMaterialPossessionChallengeV1, EcdsaClientMaterialPossessionError,
+    EcdsaClientMaterialPossessionProofSchemeV1, EcdsaClientMaterialPossessionProofV1,
+    EcdsaWalletRecoveryMaterialPossessionChallengeV1,
 };
 #[cfg(feature = "hpke")]
 pub use post_registration::{
-    build_ecdsa_post_registration_request_v1, EcdsaPostRegistrationCeremonyV1,
-    EcdsaMaterialActivationRefKindV1, EcdsaMaterialActivationRefV1,
+    build_ecdsa_post_registration_request_v1, EcdsaMaterialActivationRefKindV1,
+    EcdsaMaterialActivationRefV1, EcdsaPostRegistrationCeremonyV1,
     EcdsaPostRegistrationHeaderInputV1, EcdsaPostRegistrationHeaderV1,
     EcdsaPostRegistrationLifecycleV1, EcdsaPostRegistrationLifecycleWireV1,
     EcdsaPostRegistrationOperationV1, EcdsaPostRegistrationRecipientV1,
