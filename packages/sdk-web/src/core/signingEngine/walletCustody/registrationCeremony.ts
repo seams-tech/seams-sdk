@@ -408,7 +408,7 @@ export type RecoverEvmFamilyCustodyInput = WalletRecoveryCustodyInput & {
   readonly evmFamilySigningKeySlotId: string;
   readonly applicationBindingDigestB64u: string;
   readonly registeredClientRootPublicKey33B64u: string;
-  readonly runRelayerRecoveryAndRefresh: EstablishEvmFamilyCustodyInput['runRelayerRound'];
+  readonly resolveRelayerPublicIdentity: EstablishEvmFamilyCustodyInput['runRelayerRound'];
 };
 
 export type RecoveredEvmFamilyCustody = RejoinedEvmFamilyCustody & {
@@ -438,7 +438,7 @@ export async function recoverEvmFamilyCustodyV1(
       }),
       evmFamilySigningKeySlotId: input.evmFamilySigningKeySlotId,
       beforeRelayerRound: async () => undefined,
-      runRelayerRound: input.runRelayerRecoveryAndRefresh,
+      runRelayerRound: input.resolveRelayerPublicIdentity,
     },
     recordedKeyManifestDigestB64u: input.recordedKeyManifestDigestB64u,
   });
