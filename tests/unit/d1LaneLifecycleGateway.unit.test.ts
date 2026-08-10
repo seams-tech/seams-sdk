@@ -7,6 +7,7 @@ import {
 } from '../../packages/shared-ts/src/signing-lanes/rotationDigests';
 import { computeLaneParticipantSetBindingDigestV1 } from '../../packages/shared-ts/src/signing-lanes/participantDigest';
 import {
+  buildAggregateLaneActivationChildReceiptV1,
   buildRevokeLaneEnrollmentV1,
   buildRevokeSigningLaneV1,
 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
@@ -19,6 +20,10 @@ import type {
 } from '../../packages/shared-ts/src/signing-lanes/rotation';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { sha256Bytes } from '../../packages/shared-ts/src/utils/digests';
+import {
+  buildMpcMaterialActivationRef,
+  parseCapabilityInstanceRef,
+} from '../../packages/shared-ts/src/utils/domainIds';
 import { CloudflareD1LaneEnrollmentGateway } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/signingLanes/d1LaneEnrollmentGateway';
 import { CloudflareD1LaneLifecycleStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/signingLanes/d1LaneLifecycleStore';
 import {
@@ -68,6 +73,38 @@ test.describe('R102 lane lifecycle D1 gateway', () => {
         orderedChildReceipts.push(await completeChild(gateway, job));
       }
       const manifestDigestB64u = await computeLaneEnrollmentManifestDigestV1(fixture.manifest);
+      const firstChild = orderedChildReceipts[0]!;
+      const substitutedCapability = parseCapabilityInstanceRef('capability:r102-substituted');
+      if (!substitutedCapability.ok) throw new Error(substitutedCapability.error.message);
+      await expect(
+        gateway.commitLaneEnrollmentActivationV1({
+          kind: 'commit_lane_enrollment_activation_v1',
+          enrollmentId: fixture.manifest.enrollmentId,
+          walletId: fixture.manifest.walletId,
+          manifestDigestB64u,
+          orderedChildReceipts: [
+            buildAggregateLaneActivationChildReceiptV1({
+              operationId: firstChild.operationId,
+              walletKeyId: firstChild.walletKeyId,
+              targetLaneId: firstChild.targetLaneId,
+              targetLaneShareEpoch: firstChild.targetLaneShareEpoch,
+              targetMaterialActivation: buildMpcMaterialActivationRef({
+                activationId: firstChild.targetMaterialActivation.activationId,
+                capability: substitutedCapability.value,
+                materialOwner: firstChild.targetMaterialActivation.materialOwner,
+                keyBinding: firstChild.targetMaterialActivation.keyBinding,
+                lifecycleBinding: firstChild.targetMaterialActivation.lifecycleBinding,
+                signingWorker: firstChild.targetMaterialActivation.signingWorker,
+              }),
+              protocolCommitReceiptDigestB64u: firstChild.protocolCommitReceiptDigestB64u,
+              holderDeliveryReceiptDigestB64u: firstChild.holderDeliveryReceiptDigestB64u,
+              serverActivationReceiptDigestB64u: firstChild.serverActivationReceiptDigestB64u,
+            }),
+            orderedChildReceipts[1]!,
+          ],
+          activatedAtMs: 5_000,
+        }),
+      ).rejects.toThrow('product epoch is not pending or differs from aggregate receipt');
       const activated = await gateway.commitLaneEnrollmentActivationV1({
         kind: 'commit_lane_enrollment_activation_v1',
         enrollmentId: fixture.manifest.enrollmentId,
@@ -86,6 +123,7 @@ test.describe('R102 lane lifecycle D1 gateway', () => {
       expect(activated.productEpochs.every((epoch) => epoch.state === 'active')).toBe(true);
       for (const epoch of activated.productEpochs) {
         expect(epoch.revocationEpoch).toBe(0);
+        expect(epoch.aggregateManifestDigestB64u).toBe(manifestDigestB64u);
         expect(epoch.holderParticipant.kind).toBe('lane_holder_participant_v1');
         expect(epoch.signingWorkerParticipant.kind).toBe('signing_worker_participant_v1');
         await expect(

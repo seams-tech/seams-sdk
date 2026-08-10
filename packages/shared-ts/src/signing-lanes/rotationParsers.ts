@@ -1447,6 +1447,12 @@ function parseAggregateActivationChild(
   };
 }
 
+export function buildAggregateLaneActivationChildReceiptV1(
+  input: AggregateLaneActivationChildReceiptV1,
+): AggregateLaneActivationChildReceiptV1 {
+  return parseAggregateActivationChild(input, 'aggregateLaneActivationChildReceipt');
+}
+
 export function parseAggregateLaneActivationReceiptV1(
   raw: unknown,
   label = 'aggregateActivationReceipt',
