@@ -144,6 +144,7 @@ import type {
   ResolveExactKeyExportLaneInput,
   ResolveExactKeyExportLaneResult,
   AddPasskeyResult,
+  WalletRecoveryRotationOutcome,
 } from '@/SeamsWeb/publicApi/types';
 import type {
   BootstrapThresholdEcdsaSessionArgs,
@@ -159,6 +160,7 @@ import type {
   GoogleEmailOtpWalletAuthResult,
   GoogleEmailOtpWalletAuthStartInput,
   GoogleEmailOtpWalletAuthSubmitSuccess,
+  RecoveryCapability,
   RegistrationCapability,
 } from '@/SeamsWeb/signingSurface/types';
 import type {
@@ -394,6 +396,7 @@ function requestSurfaceKindForMessage(
     case 'PM_ADD_WALLET_SIGNER':
     case 'PM_ADD_PASSKEY':
     case 'PM_COMPLETE_WALLET_RECOVERY':
+    case 'PM_ROTATE_WALLET_RECOVERY_CODES':
       return 'registration';
     case 'PM_SIGN_TX_WITH_ACTIONS':
     case 'PM_SIGN_AND_SEND_TX':
@@ -2923,6 +2926,16 @@ export class WalletIframeRouter {
   }): Promise<WalletRecoveryBackupAcknowledgementResult> {
     const res = await this.post<WalletRecoveryBackupAcknowledgementResult>({
       type: 'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP',
+      payload,
+    });
+    return res.result;
+  }
+
+  async rotateWalletRecoveryCodes(
+    payload: Parameters<RecoveryCapability['rotateWalletRecoveryCodes']>[0],
+  ): Promise<WalletRecoveryRotationOutcome> {
+    const res = await this.post<WalletRecoveryRotationOutcome>({
+      type: 'PM_ROTATE_WALLET_RECOVERY_CODES',
       payload,
     });
     return res.result;

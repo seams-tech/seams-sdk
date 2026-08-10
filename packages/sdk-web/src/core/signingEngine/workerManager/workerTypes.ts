@@ -91,6 +91,7 @@ import {
 import type { NearResolvedEd25519SigningSessionState } from '../interfaces/near';
 import type { WalletRegistrationEd25519YaoBootstrapSession } from '@/core/rpcClients/relayer/walletRegistration';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
+import type { WalletRecoverySetRotationWorkerResultV1 } from '@shared/wallet-recovery/walletRecoveryRotation';
 import type {
   RouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
   RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
@@ -687,6 +688,22 @@ export interface EmailOtpWorkerOperationMap {
     payload: { pendingHandleId: string };
     result: { discarded: boolean };
   };
+  rotateEmailOtpWalletRecoverySet: {
+    payload: {
+      relayUrl: string;
+      walletId: string;
+      userId: string;
+      groupId: string;
+      routePlan: EmailOtpRoutePlan;
+      verification: {
+        kind: 'otp';
+        challengeId: string;
+        otpCode: string;
+      };
+      recoveryCodesJson: string;
+    };
+    result: WalletRecoverySetRotationWorkerResultV1;
+  };
   verifyEmailOtpCode: {
     payload: {
       relayUrl: string;
@@ -929,7 +946,8 @@ export type EmailOtpEnrollmentOperationType =
   | 'disposeEmailOtpEd25519YaoActiveClient'
   | 'prepareEmailOtpPasskeyCustodyLink'
   | 'completeEmailOtpPasskeyCustodyLink'
-  | 'discardEmailOtpPasskeyCustodyLink';
+  | 'discardEmailOtpPasskeyCustodyLink'
+  | 'rotateEmailOtpWalletRecoverySet';
 export type EmailOtpWarmSessionOperationType =
   | 'loginWithEmailOtpWallet'
   | 'getEmailOtpWarmSessionStatus'
@@ -1650,6 +1668,14 @@ export interface WalletCustodyCeremonyWorkerOperationMap {
       aadHashB64u: string;
       ciphertextDigestB64u: string;
     };
+  };
+  rotateWalletRecoverySet: {
+    payload: {
+      custodyJson: string;
+      factorSecret: ArrayBuffer;
+      recoveryCodesJson: string;
+    };
+    result: WalletRecoverySetRotationWorkerResultV1;
   };
   discardWalletCustodyCeremony: {
     payload: { ceremonyId: string };

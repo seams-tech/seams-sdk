@@ -85,13 +85,15 @@ type CompleteRequest = WorkerRequest<'completeWalletCustodyKeySetRun'>;
 type FinishRequest = WorkerRequest<'finishWalletCustodyKeySetRun'>;
 type DiscardRequest = WorkerRequest<'discardWalletCustodyCeremony'>;
 type LinkPasskeyRequest = WorkerRequest<'linkWalletCustodyPasskey'>;
+type RotateRecoverySetRequest = WorkerRequest<'rotateWalletRecoverySet'>;
 
 type WalletCustodyCeremonyWorkerRequest =
   | BeginRequest
   | CompleteRequest
   | FinishRequest
   | DiscardRequest
-  | LinkPasskeyRequest;
+  | LinkPasskeyRequest
+  | RotateRecoverySetRequest;
 
 function postToMainThread(message: unknown): void {
   (self as unknown as { postMessage: (message: unknown) => void }).postMessage(message);
@@ -426,6 +428,23 @@ async function linkWalletCustodyPasskey(request: LinkPasskeyRequest): Promise<un
   }
 }
 
+async function rotateWalletRecoverySet(request: RotateRecoverySetRequest): Promise<unknown> {
+  const factorSecret = toBytes(request.payload.factorSecret);
+  let handle: WasmCeremonySeedHeldV1 | null = null;
+  try {
+    handle = wallet_custody_ceremony_join_v1(
+      factorSecret,
+      request.payload.custodyJson,
+    );
+    const resultJson = handle.rotate_recovery_codes(request.payload.recoveryCodesJson);
+    handle = null;
+    return JSON.parse(resultJson) as unknown;
+  } finally {
+    handle?.free();
+    factorSecret.fill(0);
+  }
+}
+
 async function handleRequest(request: WalletCustodyCeremonyWorkerRequest): Promise<void> {
   await initializeWasm();
   switch (request.type) {
@@ -443,6 +462,9 @@ async function handleRequest(request: WalletCustodyCeremonyWorkerRequest): Promi
       return;
     case 'linkWalletCustodyPasskey':
       postSucceeded(request.id, await linkWalletCustodyPasskey(request));
+      return;
+    case 'rotateWalletRecoverySet':
+      postSucceeded(request.id, await rotateWalletRecoverySet(request));
       return;
     default:
       throw new Error(

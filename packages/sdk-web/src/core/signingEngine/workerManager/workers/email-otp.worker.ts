@@ -191,6 +191,7 @@ import initNearSignerRecoveryWasm, {
 import { getPrfFirstB64uFromCredential } from '../../webauthnAuth/credentials/credentialExtensions';
 import { normalizeRegistrationCredential } from '../../webauthnAuth/credentials/helpers';
 import { WorkerControlMessage, type EmailOtpWorkerProgressCode } from '../workerTypes';
+import { parseWalletRecoverySetRotationWorkerResultV1 } from '@shared/wallet-recovery/walletRecoveryRotation';
 import { postEmailOtpJson } from './email-otp/fetch';
 import { getShamir3PassRuntime } from './shamir3pass/runtime';
 import {
@@ -246,7 +247,7 @@ function readAppSessionAuthSubjectIdFromRoutePlan(routePlan: EmailOtpRoutePlan):
   const lane = routePlan.authLane;
   if (lane.kind !== 'app_session') return '';
   const payload = readJwtPayloadObject(lane.jwt);
-  return readOptionalString(payload?.providerSubject) || '';
+  return readOptionalString(payload?.providerSubject) || readOptionalString(payload?.sub) || '';
 }
 
 function resolveEmailOtpAuthSubjectId(args: {
@@ -3303,6 +3304,42 @@ async function prepareEmailOtpPasskeyCustodyLink(args: {
   }
 }
 
+async function rotateEmailOtpWalletRecoverySet(args: {
+  readonly relayUrl: string;
+  readonly walletId: string;
+  readonly userId: string;
+  readonly groupId: string;
+  readonly routePlan: EmailOtpRoutePlan;
+  readonly verification: { readonly kind: 'otp'; readonly challengeId: string; readonly otpCode: string };
+  readonly recoveryCodesJson: string;
+}): Promise<EmailOtpWorkerOperationMap['rotateEmailOtpWalletRecoverySet']['result']> {
+  const recovered = await loginWithEmailOtpAndUnlockWallet({
+    relayUrl: args.relayUrl,
+    walletId: args.walletId,
+    userId: args.userId,
+    groupId: args.groupId,
+    routePlan: args.routePlan,
+    verification: args.verification,
+    material: { kind: 'ed25519_yao_export' },
+  });
+  if (recovered.kind !== 'ed25519_yao_export') {
+    throw new Error('Email OTP recovery rotation did not return wallet custody material');
+  }
+  await ensureWalletCustodyCeremonyWasm();
+  let handle: WasmCeremonySeedHeldV1 | null = null;
+  try {
+    const custody = joinCustodyWireFromEnvelopeRecord(recovered.walletCustodyEnvelope);
+    if (!custody.ok) throw new Error(custody.reason);
+    handle = wallet_custody_ceremony_join_v1(recovered.clientSecret32, custody.custodyJson);
+    const resultJson = handle.rotate_recovery_codes(args.recoveryCodesJson);
+    handle = null;
+    return parseWalletRecoverySetRotationWorkerResultV1(JSON.parse(resultJson));
+  } finally {
+    handle?.free();
+    zeroizeBytes(recovered.clientSecret32);
+  }
+}
+
 function completeEmailOtpPasskeyCustodyLink(args: {
   readonly pendingHandleId: string;
   readonly existingEnvelope: PasskeyCustodyEnvelopeRecord;
@@ -4874,6 +4911,29 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           pendingHandleId: readString(payload.pendingHandleId, 'pendingHandleId'),
         },
       };
+    case 'rotateEmailOtpWalletRecoverySet': {
+      const verification = workerPayloadObject(payload.verification);
+      if (!verification || verification.kind !== 'otp') {
+        throw new Error('Email OTP recovery rotation requires OTP verification');
+      }
+      return {
+        id,
+        type,
+        payload: {
+          relayUrl: readString(payload.relayUrl, 'relayUrl'),
+          walletId: readString(payload.walletId, 'walletId'),
+          userId: readString(payload.userId, 'userId'),
+          groupId: readString(payload.groupId, 'groupId'),
+          routePlan: readRoutePlan(payload.routePlan, type),
+          verification: {
+            kind: 'otp',
+            challengeId: readString(verification.challengeId, 'verification.challengeId'),
+            otpCode: readString(verification.otpCode, 'verification.otpCode'),
+          },
+          recoveryCodesJson: readString(payload.recoveryCodesJson, 'recoveryCodesJson'),
+        },
+      };
+    }
     case 'verifyEmailOtpCode':
       return {
         id,
@@ -5296,6 +5356,11 @@ self.addEventListener('message', async (event: MessageEvent) => {
       case 'discardEmailOtpPasskeyCustodyLink': {
         const discarded = discardEmailOtpPasskeyCustodyLink(msg.payload.pendingHandleId);
         postToMainThread({ id: msg.id, ok: true, result: { discarded } });
+        return;
+      }
+      case 'rotateEmailOtpWalletRecoverySet': {
+        const result = await rotateEmailOtpWalletRecoverySet(msg.payload);
+        postToMainThread({ id: msg.id, ok: true, result });
         return;
       }
       case 'verifyEmailOtpCode': {

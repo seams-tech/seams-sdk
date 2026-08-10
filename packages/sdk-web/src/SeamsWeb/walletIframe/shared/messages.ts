@@ -37,6 +37,7 @@ import type {
   GoogleEmailOtpWalletAuthRequestedMode,
   GoogleEmailOtpWalletAuthSubmitSuccess,
   ResolveExactKeyExportLaneInput,
+  WalletRecoveryRotationAuthorization,
 } from '@/SeamsWeb/publicApi/types';
 import type {
   AddSignerSelection,
@@ -828,6 +829,7 @@ export type ParentToChildType =
   | 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION'
   | 'PM_GET_WALLET_RECOVERY_CODE_STATUS'
   | 'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP'
+  | 'PM_ROTATE_WALLET_RECOVERY_CODES'
   | 'PM_REQUEST_WALLET_RECOVERY_BOOTSTRAP_CHALLENGE'
   | 'PM_VERIFY_WALLET_RECOVERY_BOOTSTRAP'
   | 'PM_PREPARE_WALLET_RECOVERY_WITH_BOOTSTRAP'
@@ -1246,6 +1248,10 @@ export interface PMWalletRecoverySessionPayload {
   walletId: string;
 }
 
+export interface PMRotateWalletRecoveryCodesPayload extends PMWalletRecoverySessionPayload {
+  authorization: WalletRecoveryRotationAuthorization;
+}
+
 export interface PMRequestWalletRecoveryBootstrapChallengePayload {
   walletId: string;
   orgId: string;
@@ -1433,6 +1439,7 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION', PMRefreshEmailOtpSigningSessionPayload>
   | RpcEnvelope<'PM_GET_WALLET_RECOVERY_CODE_STATUS', PMWalletRecoverySessionPayload>
   | RpcEnvelope<'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP', PMWalletRecoverySessionPayload>
+  | RpcEnvelope<'PM_ROTATE_WALLET_RECOVERY_CODES', PMRotateWalletRecoveryCodesPayload>
   | RpcEnvelope<
       'PM_REQUEST_WALLET_RECOVERY_BOOTSTRAP_CHALLENGE',
       PMRequestWalletRecoveryBootstrapChallengePayload
