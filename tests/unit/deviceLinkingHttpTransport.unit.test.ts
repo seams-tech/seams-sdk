@@ -2,15 +2,10 @@ import { expect, test } from '@playwright/test';
 import {
   buildLinkedDeviceSessionClaimV1,
   buildDisplayingQrLinkedDeviceSessionState,
-  encodeLinkedDeviceRequestProofV1,
   parseLinkedDeviceSessionClaimV1,
   parseLinkedDeviceSessionProjectionV1,
 } from '../../packages/shared-ts/src/device-linking';
-import type {
-  LinkedDeviceRequestProofV1,
-  LinkedDeviceSessionProjectionV1,
-} from '../../packages/shared-ts/src/device-linking';
-import { encodeLinkedDeviceRequestProofV1 as encodeServerLinkedDeviceRequestProofV1 } from '../../packages/sdk-server-ts/src/core/deviceLinking/requestProof';
+import type { LinkedDeviceSessionProjectionV1 } from '../../packages/shared-ts/src/device-linking';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { createDeviceLinkingAuthenticatedSessionTransportV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingHttpTransport';
 import type { DeviceLinkingKeyMaterialPortV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingPorts';
@@ -41,7 +36,7 @@ function responseBody(fixture: ReturnType<typeof buildR103DeviceLinkFixture>): {
 }
 
 test.describe('R103 authenticated linked-device browser transport', () => {
-  test('binds each request to the exact server proof bytes and fresh nonce', async () => {
+  test('binds each request to exact canonical proof fields and a fresh nonce', async () => {
     const fixture = buildR103DeviceLinkFixture();
     const calls: Array<{
       readonly method: 'GET' | 'POST';
@@ -110,21 +105,6 @@ test.describe('R103 authenticated linked-device browser transport', () => {
     expect(calls[0]?.proof.requestNonceB64u).not.toBe(calls[1]?.proof.requestNonceB64u);
     for (const call of calls) {
       const proof = call.proof;
-      const normalized: LinkedDeviceRequestProofV1 = {
-        kind: proof.kind,
-        linkSessionId: proof.linkSessionId,
-        devicePublicKeyDigestB64u: proof.devicePublicKeyDigestB64u,
-        requestNonceB64u: proof.requestNonceB64u,
-        method: proof.method,
-        canonicalPath: proof.canonicalPath,
-        bodyDigestB64u: proof.bodyDigestB64u,
-        issuedAtMs: proof.issuedAtMs,
-        expiresAtMs: proof.expiresAtMs,
-        signatureB64u: proof.signatureB64u,
-      };
-      expect(encodeLinkedDeviceRequestProofV1(normalized)).toEqual(
-        encodeServerLinkedDeviceRequestProofV1(normalized),
-      );
       expect(base64UrlDecode(String(proof.requestNonceB64u))).toHaveLength(32);
     }
     expect(signatures[0]?.challengeB64u).toBe(calls[0]?.proof.requestNonceB64u);

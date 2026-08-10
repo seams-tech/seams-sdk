@@ -1,32 +1,26 @@
-import {
-  parseLinkDeviceSessionId,
-  type LinkDeviceSessionId,
-} from '@shared/signing-lanes/ids';
+import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
-import { sha256Bytes } from '@shared/utils/digests';
+import {
+  computeLinkedDevicePublicKeyDigestV1,
+  computeLinkedDeviceRequestProofDigestV1,
+  encodeLinkedDeviceRequestProofV1,
+  LINKED_DEVICE_REQUEST_PROOF_HEADER_V1,
+  LINKED_DEVICE_REQUEST_PROOF_MAX_TTL_MS_V1,
+  LINKED_DEVICE_REQUEST_PROOF_NONCE_BYTES_V1,
+  LINKED_DEVICE_REQUEST_PROOF_SIGNATURE_BYTES_V1,
+  LINK_DEVICE_PUBLIC_KEY_BYTES_V1,
+  type LinkedDeviceRequestProofV1,
+} from '@shared/device-linking/requestProof';
 
-export const LINKED_DEVICE_REQUEST_PROOF_DOMAIN_V1 = 'seams/linked-device/request-proof/v1';
-const REQUEST_PROOF_NONCE_BYTES = 32;
-const ED25519_PUBLIC_KEY_BYTES = 32;
-const ED25519_SIGNATURE_BYTES = 64;
-export const LINKED_DEVICE_REQUEST_PROOF_HEADER_V1 = 'x-seams-linked-device-proof-v1';
-export const LINKED_DEVICE_REQUEST_PROOF_MAX_TTL_MS_V1 = 60_000;
-
-const TEXT_ENCODER = new TextEncoder();
-
-export type LinkedDeviceRequestProofV1 = {
-  readonly kind: 'linked_device_request_proof_v1';
-  readonly linkSessionId: LinkDeviceSessionId;
-  readonly devicePublicKeyDigestB64u: DigestB64u;
-  readonly requestNonceB64u: string;
-  readonly method: 'GET' | 'POST';
-  readonly canonicalPath: string;
-  readonly bodyDigestB64u: DigestB64u;
-  readonly issuedAtMs: number;
-  readonly expiresAtMs: number;
-  readonly signatureB64u: string;
-};
+export {
+  computeLinkedDevicePublicKeyDigestV1,
+  computeLinkedDeviceRequestProofDigestV1,
+  encodeLinkedDeviceRequestProofV1,
+  LINKED_DEVICE_REQUEST_PROOF_HEADER_V1,
+  LINKED_DEVICE_REQUEST_PROOF_MAX_TTL_MS_V1,
+  type LinkedDeviceRequestProofV1,
+} from '@shared/device-linking/requestProof';
 
 export type LinkedDeviceRequestProofVerificationInputV1 = {
   readonly proof: LinkedDeviceRequestProofV1;
@@ -47,10 +41,7 @@ export type LinkedDeviceRequestProofNonceStoreV1 = {
     readonly issuedAtMs: number;
     readonly expiresAtMs: number;
     readonly consumedAtMs: number;
-  }): Promise<
-    | { readonly outcome: 'consumed' }
-    | { readonly outcome: 'already_used' }
-  >;
+  }): Promise<{ readonly outcome: 'consumed' } | { readonly outcome: 'already_used' }>;
 };
 
 export type LinkedDeviceRequestProofVerificationResultV1 =
@@ -67,9 +58,7 @@ export type LinkedDeviceRequestProofVerificationResultV1 =
 export class LinkedDeviceRequestProofVerifierV1 {
   private readonly nonceStore: LinkedDeviceRequestProofNonceStoreV1;
 
-  constructor(input: {
-    readonly nonceStore: LinkedDeviceRequestProofNonceStoreV1;
-  }) {
+  constructor(input: { readonly nonceStore: LinkedDeviceRequestProofNonceStoreV1 }) {
     this.nonceStore = input.nonceStore;
   }
 
@@ -117,7 +106,11 @@ export class LinkedDeviceRequestProofVerifierV1 {
         consumedAtMs: input.nowMs,
       });
       if (consumed.outcome === 'already_used') {
-        return { kind: 'denied', code: 'replayed', message: 'device request proof was already used' };
+        return {
+          kind: 'denied',
+          code: 'replayed',
+          message: 'device request proof was already used',
+        };
       }
       return { kind: 'authorized', proofDigestB64u };
     } catch (error: unknown) {
@@ -128,8 +121,8 @@ export class LinkedDeviceRequestProofVerifierV1 {
           message.includes('expired') ||
           message.includes('not yet valid') ||
           message.includes('lifetime exceeds')
-          ? 'expired'
-          : 'invalid',
+            ? 'expired'
+            : 'invalid',
         message,
       };
     }
@@ -182,7 +175,7 @@ export function parseLinkedDeviceRequestProofV1(raw: unknown): LinkedDeviceReque
   );
   const requestNonceB64u = parseFixedB64u(
     record.requestNonceB64u,
-    REQUEST_PROOF_NONCE_BYTES,
+    LINKED_DEVICE_REQUEST_PROOF_NONCE_BYTES_V1,
     'requestNonceB64u',
   );
   const method = parseMethod(record.method);
@@ -193,7 +186,7 @@ export function parseLinkedDeviceRequestProofV1(raw: unknown): LinkedDeviceReque
   if (expiresAtMs <= issuedAtMs) throw new Error('expiresAtMs must be after issuedAtMs');
   const signatureB64u = parseFixedB64u(
     record.signatureB64u,
-    ED25519_SIGNATURE_BYTES,
+    LINKED_DEVICE_REQUEST_PROOF_SIGNATURE_BYTES_V1,
     'signatureB64u',
   );
   return {
@@ -210,55 +203,17 @@ export function parseLinkedDeviceRequestProofV1(raw: unknown): LinkedDeviceReque
   };
 }
 
-export function encodeLinkedDeviceRequestProofV1(
-  proof: LinkedDeviceRequestProofV1,
-): Uint8Array {
-  validateProofShapeV1(proof);
-  return concat([
-    text(LINKED_DEVICE_REQUEST_PROOF_DOMAIN_V1, 'domain'),
-    text(proof.kind, 'kind'),
-    text(proof.linkSessionId, 'linkSessionId'),
-    rawDigest(proof.devicePublicKeyDigestB64u, 'devicePublicKeyDigestB64u'),
-    lp32(base64UrlDecode(proof.requestNonceB64u), 'requestNonceB64u'),
-    text(proof.method, 'method'),
-    text(proof.canonicalPath, 'canonicalPath'),
-    rawDigest(proof.bodyDigestB64u, 'bodyDigestB64u'),
-    u64(proof.issuedAtMs, 'issuedAtMs'),
-    u64(proof.expiresAtMs, 'expiresAtMs'),
-  ]);
-}
-
-export async function computeLinkedDeviceRequestProofDigestV1(
-  proof: LinkedDeviceRequestProofV1,
-): Promise<DigestB64u> {
-  return parseDigestB64u(base64UrlEncode(await sha256Bytes(encodeLinkedDeviceRequestProofV1(proof))));
-}
-
-export async function computeLinkedDevicePublicKeyDigestV1(
-  publicKeyB64u: string,
-): Promise<DigestB64u> {
-  const publicKeyBytes = parseFixedB64u(
-    publicKeyB64u,
-    ED25519_PUBLIC_KEY_BYTES,
-    'devicePublicKeyB64u',
-  );
-  return parseDigestB64u(base64UrlEncode(await sha256Bytes(base64UrlDecode(publicKeyBytes))));
-}
-
-function validateRequestProofBindingV1(
-  input: LinkedDeviceRequestProofVerificationInputV1,
-): void {
+function validateRequestProofBindingV1(input: LinkedDeviceRequestProofVerificationInputV1): void {
   validateProofShapeV1(input.proof);
   if (input.proof.linkSessionId !== input.expectedLinkSessionId) {
     throw new Error('request proof link session does not match');
   }
-  if (input.proof.method !== input.expectedMethod) throw new Error('request proof method does not match');
+  if (input.proof.method !== input.expectedMethod)
+    throw new Error('request proof method does not match');
   if (input.proof.canonicalPath !== input.expectedCanonicalPath) {
     throw new Error('request proof canonical path does not match');
   }
-  if (
-    !constantTimeEqualDigestV1(input.proof.bodyDigestB64u, input.expectedBodyDigestB64u)
-  ) {
+  if (!constantTimeEqualDigestV1(input.proof.bodyDigestB64u, input.expectedBodyDigestB64u)) {
     throw new Error('request proof body digest does not match');
   }
   if (
@@ -273,7 +228,10 @@ function validateRequestProofBindingV1(
     throw new Error('request proof is not yet valid');
   }
   if (input.nowMs >= input.proof.expiresAtMs) throw new Error('request proof is expired');
-  if (input.proof.expiresAtMs - input.proof.issuedAtMs > LINKED_DEVICE_REQUEST_PROOF_MAX_TTL_MS_V1) {
+  if (
+    input.proof.expiresAtMs - input.proof.issuedAtMs >
+    LINKED_DEVICE_REQUEST_PROOF_MAX_TTL_MS_V1
+  ) {
     throw new Error('request proof lifetime exceeds the maximum');
   }
 }
@@ -283,8 +241,16 @@ async function verifyEd25519SignatureV1(
   signatureB64u: string,
   canonicalPayload: Uint8Array,
 ): Promise<boolean> {
-  const publicKey = parseFixedB64u(publicKeyB64u, ED25519_PUBLIC_KEY_BYTES, 'devicePublicKeyB64u');
-  const signature = parseFixedB64u(signatureB64u, ED25519_SIGNATURE_BYTES, 'signatureB64u');
+  const publicKey = parseFixedB64u(
+    publicKeyB64u,
+    LINK_DEVICE_PUBLIC_KEY_BYTES_V1,
+    'devicePublicKeyB64u',
+  );
+  const signature = parseFixedB64u(
+    signatureB64u,
+    LINKED_DEVICE_REQUEST_PROOF_SIGNATURE_BYTES_V1,
+    'signatureB64u',
+  );
   const key = await crypto.subtle.importKey(
     'raw',
     toArrayBuffer(base64UrlDecode(publicKey)),
@@ -301,11 +267,17 @@ async function verifyEd25519SignatureV1(
 }
 
 function validateProofShapeV1(proof: LinkedDeviceRequestProofV1): void {
-  if (proof.kind !== 'linked_device_request_proof_v1') throw new Error('request proof kind is invalid');
+  if (proof.kind !== 'linked_device_request_proof_v1')
+    throw new Error('request proof kind is invalid');
   parseSessionId(proof.linkSessionId);
   parseDigestField(proof.devicePublicKeyDigestB64u, 'devicePublicKeyDigestB64u');
-  parseFixedB64u(proof.requestNonceB64u, REQUEST_PROOF_NONCE_BYTES, 'requestNonceB64u');
-  if (proof.method !== 'GET' && proof.method !== 'POST') throw new Error('request proof method is invalid');
+  parseFixedB64u(
+    proof.requestNonceB64u,
+    LINKED_DEVICE_REQUEST_PROOF_NONCE_BYTES_V1,
+    'requestNonceB64u',
+  );
+  if (proof.method !== 'GET' && proof.method !== 'POST')
+    throw new Error('request proof method is invalid');
   parseCanonicalPath(proof.canonicalPath);
   parseDigestField(proof.bodyDigestB64u, 'bodyDigestB64u');
   parseTimestamp(proof.issuedAtMs, 'issuedAtMs');
@@ -313,7 +285,11 @@ function validateProofShapeV1(proof: LinkedDeviceRequestProofV1): void {
   if (proof.expiresAtMs <= proof.issuedAtMs) {
     throw new Error('expiresAtMs must be after issuedAtMs');
   }
-  parseFixedB64u(proof.signatureB64u, ED25519_SIGNATURE_BYTES, 'signatureB64u');
+  parseFixedB64u(
+    proof.signatureB64u,
+    LINKED_DEVICE_REQUEST_PROOF_SIGNATURE_BYTES_V1,
+    'signatureB64u',
+  );
 }
 
 function parseSessionId(raw: unknown): LinkDeviceSessionId {
@@ -358,48 +334,6 @@ function parseFixedB64u(raw: unknown, expectedBytes: number, field: string): str
     throw new Error(`${field} is invalid`);
   }
   return raw;
-}
-
-function rawDigest(value: DigestB64u, field: string): Uint8Array {
-  const parsed = parseDigestField(value, field);
-  return lp32(base64UrlDecode(parsed), field);
-}
-
-function text(value: string, field: string): Uint8Array {
-  if (typeof value !== 'string') throw new Error(`${field} must be a string`);
-  return lp32(TEXT_ENCODER.encode(value), field);
-}
-
-function u32(value: number, field: string): Uint8Array {
-  if (!Number.isSafeInteger(value) || value < 0 || value > 0xffffffff) {
-    throw new Error(`${field} must be a u32`);
-  }
-  return Uint8Array.from([(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff]);
-}
-
-function u64(value: number, field: string): Uint8Array {
-  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${field} must be a u64`);
-  let remaining = BigInt(value);
-  const bytes = new Uint8Array(8);
-  for (let index = 7; index >= 0; index -= 1) {
-    bytes[index] = Number(remaining & 0xffn);
-    remaining >>= 8n;
-  }
-  return bytes;
-}
-
-function lp32(value: Uint8Array, field: string): Uint8Array {
-  return concat([u32(value.length, `${field}.length`), value]);
-}
-
-function concat(parts: readonly Uint8Array[]): Uint8Array {
-  const output = new Uint8Array(parts.reduce((length, part) => length + part.length, 0));
-  let offset = 0;
-  for (const part of parts) {
-    output.set(part, offset);
-    offset += part.length;
-  }
-  return output;
 }
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
