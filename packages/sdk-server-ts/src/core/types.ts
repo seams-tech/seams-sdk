@@ -874,6 +874,7 @@ export type RouterAbEcdsaDerivationPoolFillInitResponse = {
   code?: string;
   message?: string;
   presignSessionId?: string;
+  materialExpiresAtMs?: number;
   stage?: 'triples' | 'triples_done' | 'presign' | 'done';
   outgoingMessagesB64u?: string[];
 };
