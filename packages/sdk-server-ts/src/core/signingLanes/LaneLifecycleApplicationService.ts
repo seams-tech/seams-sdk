@@ -1,8 +1,11 @@
 import {
+  buildRevokeSigningLaneV1,
+  parseLaneRefreshPredecessorRetirementV1,
   parseLaneProtocolCommitReceiptV1,
   parseLaneServerActivationReceiptV1,
   parseRevokeSigningLaneV1,
 } from '@shared/signing-lanes/rotationParsers';
+import { encodeLaneProtocolCommitReceiptV1 } from '@shared/signing-lanes/rotationDigests';
 import type {
   EcdsaAdditiveLaneHolderRoundV1,
   EcdsaAdditiveLaneJobV1,
@@ -13,6 +16,7 @@ import type {
   LaneProtocolCommitReceiptV1,
   LaneServerActivationReceiptV1,
   LaneServerRetirementReceiptV1,
+  LaneRefreshPredecessorRetirementV1,
   LaneHolderPackageWireV1,
   LaneProductEpochRevocationPendingV1,
   LaneSigningLaneRevocationFenceResultV1,
@@ -20,6 +24,9 @@ import type {
   RevokeSigningLaneV1,
 } from '@shared/signing-lanes';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import { parseCorrelationId, parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { base64UrlEncode } from '@shared/utils/base64';
+import { sha256Bytes } from '@shared/utils/digests';
 
 export type LaneLifecycleProtocolCommitRequestV1 =
   | {
@@ -60,6 +67,20 @@ export type LaneLifecycleRevocationRequestV1 = {
   readonly curve: 'ed25519_yao' | 'ecdsa_additive';
   readonly command: RevokeSigningLaneV1;
 };
+
+export type LaneLifecycleRefreshPredecessorRetirementRequestV1 =
+  | {
+      readonly curve: 'ed25519_yao';
+      readonly job: Extract<Ed25519YaoLaneJobV1, { target: { operation: 'refresh_lane' } }>;
+      readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
+      readonly requestedAtMs: number;
+    }
+  | {
+      readonly curve: 'ecdsa_additive';
+      readonly job: Extract<EcdsaAdditiveLaneJobV1, { target: { operation: 'refresh_lane' } }>;
+      readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
+      readonly requestedAtMs: number;
+    };
 
 export type LaneLifecycleAuthorizationRequestV1 =
   | {
@@ -231,19 +252,7 @@ export class LaneLifecycleApplicationService {
       request.curve === 'ed25519_yao'
         ? await this.input.execution.ed25519.executeServerRetirementV1({ command })
         : await this.input.execution.ecdsa.executeServerRetirementV1({ command });
-    if (execution.kind !== 'lane_lifecycle_retirement_execution_v1') {
-      throw new Error('lane retirement execution result kind is invalid');
-    }
-    if (
-      execution.retirementEffectBindingDigestB64u !==
-      command.retirementEffectBindingDigestB64u
-    ) {
-      throw new Error(
-        'lane retirement effect binding digest does not match the authorized effect binding',
-      );
-    }
-    const executedCommand = parseRevokeSigningLaneV1(execution.command);
-    assertRevokeSigningLaneCommandEqual(command, executedCommand);
+    assertRetirementExecutionMatchesCommand(execution, command);
     return await this.input.gateway.completeSigningLaneRevocationV1({
       kind: 'complete_signing_lane_revocation_v1',
       command,
@@ -253,6 +262,76 @@ export class LaneLifecycleApplicationService {
       revokedAtMs: command.requestedAtMs,
     });
   }
+
+  async retireLaneRefreshPredecessorV1(
+    request: LaneLifecycleRefreshPredecessorRetirementRequestV1,
+  ): Promise<LaneRefreshPredecessorRetirementV1> {
+    const protocolCommitReceipt = parseLaneProtocolCommitReceiptV1(request.protocolCommitReceipt);
+    assertProtocolReceiptMatchesJob(protocolCommitReceipt, request.job);
+    const retirementRequestDigestB64u = parseDigestB64u(
+      base64UrlEncode(await sha256Bytes(encodeLaneProtocolCommitReceiptV1(protocolCommitReceipt))),
+    );
+    const command = buildRevokeSigningLaneV1({
+      walletId: request.job.walletId,
+      walletKeyId: request.job.walletKeyId,
+      laneId: request.job.source.laneId,
+      laneShareEpoch: request.job.source.laneShareEpoch,
+      expectedRevocationEpoch: request.job.source.revocationEpoch,
+      reason: 'rotation',
+      retirementCorrelationId: parseCorrelationId(request.job.operationId),
+      retirementRequestDigestB64u,
+      retirementEffectBindingDigestB64u: request.job.authorization.ownerLaneRefreshDigestB64u,
+      requestedAtMs: request.requestedAtMs,
+    });
+    await this.input.authorization.authorizeLaneLifecycleV1({
+      kind: 'revoke_signing_lane_v1',
+      curve: request.curve,
+      command,
+    });
+    const fenced = await this.input.gateway.fenceSigningLaneRevocationV1(command);
+    if (fenced.outcome === 'conflict') {
+      throw new Error('lane refresh predecessor revocation fence conflicted');
+    }
+    if (fenced.outcome === 'already_completed') {
+      return parseLaneRefreshPredecessorRetirementV1({
+        refreshOperationId: request.job.operationId,
+        sourceLaneId: request.job.source.laneId,
+        sourceLaneShareEpoch: request.job.source.laneShareEpoch,
+        sourceMaterialActivation: request.job.source.materialActivation,
+        retirementEffectBindingDigestB64u: request.job.authorization.ownerLaneRefreshDigestB64u,
+        retirementReceipt: fenced.retirementReceipt,
+      });
+    }
+    assertRevocationFenceMatchesCommand(fenced.productEpoch, command);
+    const execution =
+      request.curve === 'ed25519_yao'
+        ? await this.input.execution.ed25519.executeServerRetirementV1({ command })
+        : await this.input.execution.ecdsa.executeServerRetirementV1({ command });
+    assertRetirementExecutionMatchesCommand(execution, command);
+    return parseLaneRefreshPredecessorRetirementV1({
+      refreshOperationId: request.job.operationId,
+      sourceLaneId: request.job.source.laneId,
+      sourceLaneShareEpoch: request.job.source.laneShareEpoch,
+      sourceMaterialActivation: request.job.source.materialActivation,
+      retirementEffectBindingDigestB64u: execution.retirementEffectBindingDigestB64u,
+      retirementReceipt: execution.retirementReceipt,
+    });
+  }
+}
+
+function assertRetirementExecutionMatchesCommand(
+  execution: LaneLifecycleRetirementExecutionV1,
+  command: RevokeSigningLaneV1,
+): void {
+  if (execution.kind !== 'lane_lifecycle_retirement_execution_v1') {
+    throw new Error('lane retirement execution result kind is invalid');
+  }
+  if (execution.retirementEffectBindingDigestB64u !== command.retirementEffectBindingDigestB64u) {
+    throw new Error(
+      'lane retirement effect binding digest does not match the authorized effect binding',
+    );
+  }
+  assertRevokeSigningLaneCommandEqual(command, parseRevokeSigningLaneV1(execution.command));
 }
 
 function revocationConflict(

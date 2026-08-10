@@ -6,6 +6,7 @@ import type {
   LaneHolderDeliveryReceiptV1,
   LaneProtocolCommitReceiptV1,
   LaneServerActivationReceiptV1,
+  LaneRefreshPredecessorRetirementV1,
   RotatableSigningLaneJobV1,
 } from '@shared/signing-lanes/rotation';
 import {
@@ -18,12 +19,21 @@ import {
 import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
 
-export type LaneActivationChildInputV1 = {
-  readonly job: RotatableSigningLaneJobV1;
+type LaneActivationChildReceiptsV1 = {
   readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
   readonly holderDeliveryReceipt: LaneHolderDeliveryReceiptV1;
   readonly serverActivationReceipt: LaneServerActivationReceiptV1;
 };
+
+export type LaneActivationChildInputV1 =
+  | (LaneActivationChildReceiptsV1 & {
+      readonly job: Extract<RotatableSigningLaneJobV1, { target: { operation: 'create_lane' } }>;
+      readonly predecessorRetirement?: never;
+    })
+  | (LaneActivationChildReceiptsV1 & {
+      readonly job: Extract<RotatableSigningLaneJobV1, { target: { operation: 'refresh_lane' } }>;
+      readonly predecessorRetirement: LaneRefreshPredecessorRetirementV1;
+    });
 
 export type LaneActivationEffectPlanV1 = {
   readonly manifestDigestB64u: string;
@@ -125,6 +135,7 @@ export async function buildLaneActivationEffectPlanV1(args: {
   }
   const parsedChildren: LaneActivationChildInputV1[] = [];
   const aggregateChildren: AggregateLaneActivationChildReceiptV1[] = [];
+  const predecessorRetirements: LaneRefreshPredecessorRetirementV1[] = [];
   for (const [index, child] of args.children.entries()) {
     const {
       job,
@@ -137,6 +148,18 @@ export async function buildLaneActivationEffectPlanV1(args: {
       throw new Error(`lane activation child ${index} is out of manifest order`);
     }
     assertIdentity(job, protocol, holder, server);
+    if (job.target.operation === 'refresh_lane') {
+      const retirement = child.predecessorRetirement;
+      if (!retirement) throw new Error(`lane refresh predecessor retirement ${index} is required`);
+      if (
+        retirement.refreshOperationId !== job.operationId ||
+        retirement.sourceLaneId !== job.source.laneId ||
+        retirement.sourceLaneShareEpoch !== job.source.laneShareEpoch
+      ) {
+        throw new Error(`lane refresh predecessor retirement ${index} changed source identity`);
+      }
+      predecessorRetirements.push(retirement);
+    }
     parsedChildren.push(child);
     aggregateChildren.push(await aggregateChild({ job, protocol, holder, server }));
   }
@@ -163,6 +186,7 @@ export async function buildLaneActivationEffectPlanV1(args: {
       walletId: manifest.walletId,
       manifestDigestB64u,
       orderedChildReceipts: aggregateActivationReceipt.orderedChildReceipts,
+      orderedPredecessorRetirements: predecessorRetirements,
       activatedAtMs: args.activatedAtMs,
     },
   };

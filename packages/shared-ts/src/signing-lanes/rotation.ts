@@ -421,6 +421,15 @@ export type AggregateLaneActivationReceiptV1 = {
   activatedAtMs: number;
 };
 
+export type LaneRefreshPredecessorRetirementV1 = {
+  refreshOperationId: LaneOperationId;
+  sourceLaneId: SigningLaneId;
+  sourceLaneShareEpoch: LaneShareEpoch;
+  sourceMaterialActivation: MpcMaterialActivationRef;
+  retirementEffectBindingDigestB64u: DigestB64u;
+  retirementReceipt: LaneServerRetirementReceiptV1;
+};
+
 export type CommitLaneEnrollmentActivationV1 = {
   kind: 'commit_lane_enrollment_activation_v1';
   enrollmentId: LaneEnrollmentId;
@@ -430,6 +439,7 @@ export type CommitLaneEnrollmentActivationV1 = {
     AggregateLaneActivationChildReceiptV1,
     ...AggregateLaneActivationChildReceiptV1[],
   ];
+  orderedPredecessorRetirements: readonly LaneRefreshPredecessorRetirementV1[];
   activatedAtMs: number;
 };
 

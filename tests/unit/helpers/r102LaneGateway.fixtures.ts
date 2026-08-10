@@ -135,7 +135,6 @@ export async function buildR102EnrollmentAdmissionRecordFixture(
 export function buildR102ManifestChild(
   job: RotatableSigningLaneJobV1,
 ): LaneEnrollmentManifestChildV1 {
-  if (job.target.operation !== 'create_lane') throw new Error('fixture target must be creation');
   return {
     operationId: job.operationId,
     walletKeyId: job.walletKeyId,
@@ -336,11 +335,91 @@ export function buildR102EcdsaLaneJob(
   });
 }
 
+export function buildR102EcdsaRefreshJob(
+  sourceJob: Extract<RotatableSigningLaneJobV1, { keyFamily: 'ecdsa_secp256k1' }>,
+): Extract<
+  RotatableSigningLaneJobV1,
+  { keyFamily: 'ecdsa_secp256k1'; target: { operation: 'refresh_lane' } }
+> {
+  if (sourceJob.target.operation !== 'create_lane')
+    throw new Error('refresh fixture source must be a created lane');
+  const sourceMaterialActivation =
+    buildR102ServerActivationReceipt(sourceJob).targetMaterialActivation;
+  const parsed = parseRotatableSigningLaneJobV1({
+    kind: 'ecdsa_additive_lane_job_v1',
+    keyFamily: 'ecdsa_secp256k1',
+    operationId: 'operation-r102-ecdsa-refresh',
+    enrollmentId: 'enrollment-r102-refresh',
+    idempotencyKey: 'idempotency-r102-ecdsa-refresh',
+    walletId: sourceJob.walletId,
+    walletKeyId: sourceJob.walletKeyId,
+    source: {
+      laneId: sourceJob.target.laneId,
+      laneKind: sourceJob.target.laneKind,
+      laneShareEpoch: sourceJob.target.laneShareEpoch,
+      revocationEpoch: sourceJob.source.revocationEpoch,
+      holderParticipantId: sourceJob.targetHolder.participantId,
+      signingWorkerParticipantId: sourceJob.targetSigningWorker.participantId,
+      signingWorkerRecipientKeyId: sourceJob.targetSigningWorker.recipientKeyId,
+      participantBindingDigestB64u: sourceJob.targetSigningWorker.participantBindingDigestB64u,
+      materialActivation: sourceMaterialActivation,
+    },
+    targetHolder: {
+      participantId: 'target-holder-r102-ecdsa-refresh',
+      participantBindingDigestB64u: DIGEST_B64U,
+      custodyBindingId: 'target-custody-r102-ecdsa-refresh',
+      custodyBindingDigestB64u: DIGEST_B64U,
+      hpkePublicKeyB64u: HPKE_PUBLIC_KEY_B64U,
+      hpkePublicKeyDigestB64u: DIGEST_B64U,
+    },
+    targetSigningWorker: {
+      participantId: 'target-worker-r102-ecdsa-refresh',
+      participantBindingDigestB64u: DIGEST_B64U,
+      recipientKeyId: 'target-worker-key-r102-ecdsa-refresh',
+      hpkePublicKeyB64u: HPKE_PUBLIC_KEY_B64U,
+      hpkePublicKeyDigestB64u: DIGEST_B64U,
+    },
+    targetMaterialActivationId: 'target-activation-r102-ecdsa-refresh',
+    protocolVersion: 'rotatable_signing_lane_protocol_v1',
+    expiresAtMs: 200_000,
+    target: {
+      operation: 'refresh_lane',
+      laneId: sourceJob.target.laneId,
+      laneKind: sourceJob.target.laneKind,
+      laneShareEpoch: 'target-epoch-r102-ecdsa-refresh',
+      expectedTargetState: 'active_previous_epoch',
+      priorMaterialActivation: sourceMaterialActivation,
+    },
+    authorization: {
+      kind: 'owner_lane_refresh',
+      authorizedOperationId: 'authorized-r102-ecdsa-refresh',
+      ownerLaneRefreshDigestB64u: base64UrlEncode(new Uint8Array(32).fill(13)),
+    },
+    evmFamilySigningKeySlotId: sourceJob.evmFamilySigningKeySlotId,
+    thresholdPublicKey33B64u: sourceJob.thresholdPublicKey33B64u,
+    evmAddress: sourceJob.evmAddress,
+    sourceCapability: {
+      manifestId: sourceJob.targetCapability.manifestId,
+      manifestRevision: sourceJob.targetCapability.manifestRevision,
+      serverGeneration: sourceJob.sourceCapability.serverGeneration,
+      ecdsaThresholdKeyId: sourceJob.targetCapability.ecdsaThresholdKeyId,
+      relayerKeyId: sourceJob.sourceCapability.relayerKeyId,
+    },
+    targetCapability: sourceJob.targetCapability,
+    sourceHolderVerifyingShare33B64u: sourceJob.sourceHolderVerifyingShare33B64u,
+    sourceServerVerifyingShare33B64u: sourceJob.sourceServerVerifyingShare33B64u,
+    reshareChannelBindingDigestB64u: sourceJob.reshareChannelBindingDigestB64u,
+    transcriptEncoding: sourceJob.transcriptEncoding,
+  });
+  if (parsed.keyFamily !== 'ecdsa_secp256k1' || parsed.target.operation !== 'refresh_lane')
+    throw new Error('refresh fixture parser changed its exact branch');
+  return parsed;
+}
+
 export function buildR102ProtocolCommitReceipt(
   job: RotatableSigningLaneJobV1,
   committedAtMs = 2_000,
 ): LaneProtocolCommitReceiptV1 {
-  if (job.target.operation !== 'create_lane') throw new Error('fixture target must be creation');
   const publicCommitmentB64u =
     job.keyFamily === 'ecdsa_secp256k1' ? SECP256K1_GENERATOR_B64U : PUBLIC_KEY_B64U;
   return buildLaneProtocolCommitReceiptV1({
@@ -372,7 +451,6 @@ export function buildR102HolderDeliveryReceipt(
   job: RotatableSigningLaneJobV1,
   acknowledgedAtMs = 3_000,
 ): LaneHolderDeliveryReceiptV1 {
-  if (job.target.operation !== 'create_lane') throw new Error('fixture target must be creation');
   return buildLaneHolderDeliveryReceiptV1({
     operationId: job.operationId,
     enrollmentId: job.enrollmentId,
@@ -392,7 +470,6 @@ export function buildR102ServerActivationReceipt(
   job: RotatableSigningLaneJobV1,
   activatedAtMs = 4_000,
 ): LaneServerActivationReceiptV1 {
-  if (job.target.operation !== 'create_lane') throw new Error('fixture target must be creation');
   return buildLaneServerActivationReceiptV1({
     operationId: job.operationId,
     enrollmentId: job.enrollmentId,
