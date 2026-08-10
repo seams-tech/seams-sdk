@@ -446,12 +446,7 @@ type LaneCreationTargetV1 = {
 type LaneRefreshTargetV1 = {
   operation: 'refresh_lane';
   laneId: SigningLaneId;
-  laneKind:
-    | 'owner_passkey'
-    | 'owner_email_otp'
-    | 'linked_device'
-    | 'recovery'
-    | 'break_glass';
+  laneKind: 'owner_passkey' | 'owner_email_otp' | 'linked_device' | 'recovery' | 'break_glass';
   laneShareEpoch: LaneShareEpoch;
   expectedTargetState: 'active_previous_epoch';
   priorMaterialActivation: MpcMaterialActivationRef;
@@ -742,10 +737,7 @@ type LaneEnrollmentManifestV1 = {
   enrollmentId: LaneEnrollmentId;
   walletId: WalletId;
   authorization: LaneOperationAuthorizationBindingV1;
-  orderedChildren: readonly [
-    LaneEnrollmentManifestChildV1,
-    ...LaneEnrollmentManifestChildV1[],
-  ];
+  orderedChildren: readonly [LaneEnrollmentManifestChildV1, ...LaneEnrollmentManifestChildV1[]];
   createdAtMs: number;
   expiresAtMs: number;
 };
@@ -1108,11 +1100,7 @@ type EcdsaServerRetirementReceipt = {
   laneId: SigningLaneId;
   laneShareEpoch: LaneShareEpoch;
   revocationEpoch: number;
-  retirementReason:
-    | 'lane_revoked'
-    | 'device_compromise'
-    | 'agent_compromise'
-    | 'rotation';
+  retirementReason: 'lane_revoked' | 'device_compromise' | 'agent_compromise' | 'rotation';
   retirementCorrelationId: CorrelationId;
   retirementRequestDigestB64u: string;
   serverGeneration: EcdsaServerGeneration;
@@ -1136,14 +1124,14 @@ revocation operation. Owner lanes and unrelated enrollments remain active.
 
 The compromise response is fixed:
 
-| Evidence | Immediate response | Follow-up |
-| --- | --- | --- |
-| holder-only loss or suspected compromise | revoke that lane and disable its server participant | provision a replacement lane with fresh owner approval |
-| server-only lane-material compromise | revoke that lane and destroy/retire the exact server epoch | refresh or reprovision that lane after server isolation is restored |
-| both participants of one lane may be compromised | revoke every lane for the wallet key and stop signing | wallet rekey; lane refresh cannot restore secrecy of the old key |
-| Yao stable root, ECDSA root custody, or complete wallet key compromise | stop every affected wallet-key operation | wallet rekey under the authoritative root-custody protocol |
-| recipient private key lost after output commitment | finish receipt accounting and revoke the committed target | start a new enrollment with a new recipient key |
-| enrollment authorization or device identity compromised before visibility | fence the parent and revoke all committed targets | new owner-approved enrollment |
+| Evidence                                                                  | Immediate response                                         | Follow-up                                                           |
+| ------------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------- |
+| holder-only loss or suspected compromise                                  | revoke that lane and disable its server participant        | provision a replacement lane with fresh owner approval              |
+| server-only lane-material compromise                                      | revoke that lane and destroy/retire the exact server epoch | refresh or reprovision that lane after server isolation is restored |
+| both participants of one lane may be compromised                          | revoke every lane for the wallet key and stop signing      | wallet rekey; lane refresh cannot restore secrecy of the old key    |
+| Yao stable root, ECDSA root custody, or complete wallet key compromise    | stop every affected wallet-key operation                   | wallet rekey under the authoritative root-custody protocol          |
+| recipient private key lost after output commitment                        | finish receipt accounting and revoke the committed target  | start a new enrollment with a new recipient key                     |
+| enrollment authorization or device identity compromised before visibility | fence the parent and revoke all committed targets          | new owner-approved enrollment                                       |
 
 A replacement lane always requires fresh owner approval. Refresh is appropriate
 only when the wallet key itself and at least one side of the lane remain trusted.
@@ -1166,10 +1154,159 @@ only when the wallet key itself and at least one side of the lane remain trusted
   remain open;
 - Gateway, SigningWorker, and Deriver owner adapters for lane delivery and
   activation remain open;
-- signing admission does not resolve active enrollment and lane records.
+- Refactor 101 owner-lane projection and normal-signing admission are landed;
+  independently provisioned lanes must extend that exact lookup without a
+  parallel admission path.
 
 Replace these scaffolds directly. Do not retain a universal rotation job or
 protocol fallback.
+
+## Parallel Delivery Strategy
+
+R102 starts with one short contract seed owned by the integrator. The seed
+freezes:
+
+- curve-specific lane-create and lane-refresh job unions;
+- canonical transcript, protocol-receipt, activation-receipt, and retirement-
+  receipt encodings;
+- forward-only lifecycle states and legal transitions;
+- fresh target `MpcMaterialActivationId` rules;
+- aggregate child-manifest and enrollment-receipt shapes;
+- exact Rust, WASM, TypeScript, and Gateway port names.
+
+The seed contains types and interfaces only. It does not implement crypto,
+persistence, route behavior, browser orchestration, or compatibility paths.
+After it lands, five disjoint ownership lanes proceed against those frozen
+contracts.
+
+### Agent A: Shared Domain Contracts
+
+Own only `packages/shared-ts/src/signing-lanes/` and dedicated type fixtures.
+
+- replace `ShareRotationJob` with separate Ed25519 and ECDSA create/refresh
+  unions;
+- add forward-only job lifecycle records;
+- add enrollment manifests, aggregate receipts, and activation decisions;
+- add strict boundary parsers and branch-specific builders;
+- prove curve mixing and create-versus-refresh mixing fail statically.
+
+Do not edit Rust, server orchestration, SDK workers, central barrels, or shared
+test helpers.
+
+### Agent B: ECDSA Lane Protocol
+
+Own ECDSA protocol crates, ECDSA client WASM, and new isolated ECDSA adapter
+modules. The integrator owns central Cloudflare dispatch files.
+
+- resolve the exact R101 source lane and R90 capability manifest;
+- sample target holder material and keep the additive delta transient;
+- bind the source lane, target lane, epochs, participants, activation,
+  recipient, server generation, and threshold sessions;
+- verify threshold-public-key and EVM-address continuity;
+- emit exact server activation and retirement receipts;
+- add replay, parity, substitution, tamper, and zeroization vectors.
+
+Expose pure protocol functions and typed ports. Do not add Gateway route
+registration, aggregate enrollment state, or browser APIs.
+
+### Agent C: Ed25519 Streaming Yao Protocol
+
+Own Ed25519-Yao protocol and circuit code, Yao client WASM, and new isolated
+Ed25519 adapter modules. The integrator owns central Cloudflare dispatch files.
+
+- implement `lane_provisioning` and `lane_refresh`;
+- create isolated Client and SigningWorker target packages;
+- preserve registered `A_pub` byte-for-byte;
+- implement output commitment, exact redelivery, and forward-only recovery;
+- preserve zero-Deriver ordinary signing;
+- add recipient-swap, package-substitution, replay, and commitment-recovery
+  vectors.
+
+This lane is the critical path. It starts immediately after the contract seed.
+
+### Agent D: Gateway Persistence And Aggregate Lifecycle
+
+Own `packages/sdk-server-ts/src/core/signingLanes/`, new isolated D1 store
+modules, and their focused tests.
+
+- persist curve-specific job lifecycle records;
+- implement wallet-key and enrollment locks;
+- persist parent enrollment manifests without duplicating curve capability
+  state;
+- commit child-lane visibility atomically;
+- reconcile crashes and exact redelivery;
+- fence revocation ahead of creation, refresh, and queued signing;
+- revoke aggregate enrollments while preserving unrelated owner lanes.
+
+Build against typed fake curve receipts until Agents B and C land. Do not edit
+route definitions, dependency injection, or public SDK files.
+
+### Agent E: Browser And Worker Orchestration
+
+Own SDK worker channels, WASM adapters, lane-operation coordinators, and their
+focused tests.
+
+- generate holder recipient keys inside the worker boundary;
+- invoke the curve-specific WASM operations;
+- seal and persist target holder material;
+- reconcile activation journals before capability hydration;
+- invalidate warm handles after refresh or revocation;
+- exercise the workflow through fake Gateway and WASM ports.
+
+Do not edit public API unions, iframe messages, central worker registration,
+dependency injection, or shared domain contracts.
+
+### Integrator Ownership
+
+Only the integrator edits:
+
+- route definitions and fetch-router registration;
+- server dependency injection and central service barrels;
+- central Cloudflare route dispatch;
+- SDK public APIs and iframe message unions;
+- central worker registration;
+- shared test helpers, source guards, and this plan;
+- cross-curve activation, refresh, and revocation tests.
+
+No agent restores another agent's files, adds compatibility shims around a
+frozen contract, or edits outside its assigned ownership. Each agent commits
+only its owned files.
+
+### Execution Waves
+
+The current execution environment permits the root integrator and three
+subagents concurrently. Schedule the five logical lanes in two waves:
+
+```text
+contract seed — root integrator
+
+wave 1
+  Agent B: ECDSA protocol
+  Agent C: Ed25519 Yao protocol
+  Agent D: Gateway persistence
+  root: shared contracts and integration scaffolding
+
+wave 2
+  Agent E: browser and worker orchestration
+  first available crypto agent: adversarial vectors
+  first available server agent: aggregate and revocation tests
+  root: central wiring and cross-curve integration
+```
+
+Agent E begins against the frozen mock WASM and Gateway ports as soon as one
+Wave 1 slot opens. Aggregate activation uses mock child receipts until both
+curve adapters are available.
+
+### Per-Lane Merge Gates
+
+- shared domain: shared-ts typecheck plus invalid-state fixtures;
+- ECDSA: Rust vectors, WASM checks, public-identity continuity, and zeroization;
+- Ed25519: Yao vectors, circuit checks, redelivery, and `A_pub` continuity;
+- Gateway: D1 CAS, crash reconciliation, fencing, and atomic visibility tests;
+- browser: sdk-web typecheck and worker-boundary tests.
+
+The integrator performs one broad validation wave after the narrow gates pass.
+Subagents do not independently run the full repository suite.
 
 ## Implementation Phases
 
@@ -1298,8 +1435,15 @@ Broad gate:
 - claiming production security from the local passive Yao implementation;
 - retaining old server-custody rotation terminology or compatibility paths.
 
-## Decision Required Before Implementation
+## Decisions Resolved Before Implementation
 
-- Land Refactor 101's exact participant-binding records and confirm their
-  canonical digest encoding matches the job, receipt, and enrollment fields in
-  this plan.
+- Refactor 101 exact wallet-key, owner-lane, participant-continuity, and active
+  admission records are landed.
+- Existing owner records use canonical `OwnerLaneParticipantContinuityV1`;
+  independently provisioned linked-device and delegated lanes use the full
+  holder and SigningWorker participant records.
+- R102 job, receipt, and enrollment encodings consume those canonical digests
+  directly. They do not introduce another participant identity or digest path.
+- Normal signing already fails before private work when owner-lane projection
+  or admission is unavailable. R102 extends the same lookup for independently
+  provisioned lanes.
