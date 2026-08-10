@@ -13,8 +13,8 @@ function consumeHydrationResult(value: WalletExecutionLaneHydrationResult): void
   switch (value.kind) {
     case 'active_wallet_execution_lane_v1':
       value.lane.materialActivation;
-      value.holderParticipant.participantBindingDigestB64u;
-      value.serverParticipant.participantBindingDigestB64u;
+      value.ownerParticipantContinuity.signingWorkerId;
+      value.ownerParticipantContinuity.participantIds;
       value.publicIdentity.keyFamily;
       return;
     case 'wallet_execution_lane_refused_v1':

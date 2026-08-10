@@ -18,10 +18,11 @@ function laneRaw(args: {
   laneShareEpoch?: string;
   activationReceiptDigestB64u: string;
   laneKind?: 'owner_passkey' | 'linked_device';
-  serverParticipantId?: string;
+  ownerParticipantIds?: readonly [number, number];
+  ownerSigningWorkerId?: string;
 }): Record<string, unknown> {
   const laneKind = args.laneKind ?? 'owner_passkey';
-  return {
+  const common = {
     kind: 'signing_lane_reference_v1',
     walletId: args.walletId,
     walletKeyId: args.walletKeyId,
@@ -29,30 +30,47 @@ function laneRaw(args: {
     laneKind,
     laneShareEpoch: args.laneShareEpoch ?? 'epoch:1',
     participantBindingDigestB64u: DIGEST_B64U,
-    holderParticipant: {
-      kind: 'lane_holder_participant_v1',
-      participantId: 'holder:owner',
-      custodyBindingId: 'custody:owner',
-      custodyBindingDigestB64u: DIGEST_B64U,
-      hpkePublicKeyB64u: HPKE_PUBLIC_KEY_B64U,
-      hpkePublicKeyDigestB64u: DIGEST_B64U,
-      participantBindingDigestB64u: DIGEST_B64U,
-    },
-    serverParticipant: {
-      kind: 'signing_worker_participant_v1',
-      participantId: args.serverParticipantId ?? 'worker:owner',
-      recipientKeyId: 'recipient:owner',
-      hpkePublicKeyB64u: HPKE_PUBLIC_KEY_B64U,
-      hpkePublicKeyDigestB64u: DIGEST_B64U,
-      participantBindingDigestB64u: DIGEST_B64U,
-    },
     lifecycle: {
       state: 'active',
       revocationEpoch: 1,
       activatedAtMs: 20,
       activationReceiptDigestB64u: args.activationReceiptDigestB64u,
     },
-    ...(laneKind === 'linked_device' ? { linkedDeviceId: 'device:owner' } : {}),
+  };
+  if (laneKind === 'linked_device') {
+    return {
+      ...common,
+      linkedDeviceId: 'device:owner',
+      holderParticipant: {
+        kind: 'lane_holder_participant_v1',
+        participantId: 'holder:owner',
+        custodyBindingId: 'custody:owner',
+        custodyBindingDigestB64u: DIGEST_B64U,
+        hpkePublicKeyB64u: HPKE_PUBLIC_KEY_B64U,
+        hpkePublicKeyDigestB64u: DIGEST_B64U,
+        participantBindingDigestB64u: DIGEST_B64U,
+      },
+      serverParticipant: {
+        kind: 'signing_worker_participant_v1',
+        participantId: 'worker:owner',
+        recipientKeyId: 'recipient:owner',
+        hpkePublicKeyB64u: HPKE_PUBLIC_KEY_B64U,
+        hpkePublicKeyDigestB64u: DIGEST_B64U,
+        participantBindingDigestB64u: DIGEST_B64U,
+      },
+    };
+  }
+  return {
+    ...common,
+    walletAuthMethodId: 'passkey:wallet.example.test:credential-owner',
+    ownerParticipantContinuity: {
+      kind: 'owner_lane_participant_continuity_v1',
+      signerId: 'signer:owner',
+      participantIds: args.ownerParticipantIds ?? [1, 2],
+      signingWorkerId: args.ownerSigningWorkerId ?? 'worker:owner',
+      custodyKeyManifestDigestB64u: DIGEST_B64U,
+      sourceIdentityDigestB64u: DIGEST_B64U,
+    },
   };
 }
 
@@ -103,7 +121,7 @@ function ed25519Input(): WalletExecutionLaneHydrationInput {
       walletKeyId,
       laneId: 'lane:owner',
       activationReceiptDigestB64u: DIGEST_B64U,
-      serverParticipantId: String(fixture.materialActivation.signingWorker),
+      ownerSigningWorkerId: String(fixture.materialActivation.signingWorker),
     }),
     material: {
       keyFamily: 'ed25519',
@@ -148,7 +166,7 @@ function ecdsaInput(): WalletExecutionLaneHydrationInput {
       activationReceiptDigestB64u: String(
         manifest.activation.serverActivation.serverActivationReceipt.activationDigest,
       ),
-      serverParticipantId: String(manifest.activation.materialActivation.signingWorker),
+      ownerSigningWorkerId: String(manifest.activation.materialActivation.signingWorker),
     }),
     material: {
       keyFamily: 'ecdsa_secp256k1',
@@ -199,12 +217,48 @@ test.describe('R101 browser wallet execution lane hydration', () => {
         walletKeyId: 'wallet-key:ecdsa-owner',
         laneId: 'lane:owner',
         activationReceiptDigestB64u: DIGEST_B64U,
-        serverParticipantId: 'signing-worker-fixture',
+        ownerSigningWorkerId: 'signing-worker-fixture',
       }),
     });
     expect(drifted).toMatchObject({
       kind: 'wallet_execution_lane_refused_v1',
       reason: 'activation_receipt_mismatch',
+    });
+  });
+
+  test('refuses owner lanes when participant continuity drifts or carries HPKE records', () => {
+    const input = ed25519Input();
+    const participantDrift = hydrateWalletExecutionLane({
+      ...input,
+      lane: laneRaw({
+        walletId: 'wallet-near-hydration',
+        walletKeyId: 'wallet-key:near-owner',
+        laneId: 'lane:owner',
+        activationReceiptDigestB64u: DIGEST_B64U,
+        ownerSigningWorkerId: 'worker:near-hydration',
+        ownerParticipantIds: [2, 1],
+      }),
+    });
+    expect(participantDrift).toMatchObject({
+      kind: 'wallet_execution_lane_refused_v1',
+      reason: 'participant_binding_mismatch',
+    });
+
+    const hpkeOwnerLane = {
+      ...(input.lane as Record<string, unknown>),
+      holderParticipant: {
+        kind: 'lane_holder_participant_v1',
+        participantId: 'holder:owner',
+        custodyBindingId: 'custody:owner',
+        custodyBindingDigestB64u: DIGEST_B64U,
+        hpkePublicKeyB64u: HPKE_PUBLIC_KEY_B64U,
+        hpkePublicKeyDigestB64u: DIGEST_B64U,
+        participantBindingDigestB64u: DIGEST_B64U,
+      },
+    };
+    expect(hydrateWalletExecutionLane({ ...input, lane: hpkeOwnerLane })).toMatchObject({
+      kind: 'wallet_execution_lane_refused_v1',
+      reason: 'invalid_boundary_record',
     });
   });
 });
