@@ -4,7 +4,6 @@ import {
   LinkedDeviceRequestProofVerifierV1,
 } from '../../../../core/deviceLinking/requestProof';
 import {
-  LinkedDeviceSessionServiceV1,
   type LinkedDeviceOwnerAuthorizationPortV1,
 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
@@ -12,11 +11,10 @@ import {
   D1LinkedDeviceRequestProofNonceStoreV1,
 } from './d1LinkedDeviceRequestProofNonceStore';
 import {
-  D1LinkedDeviceSessionStoreV1,
   type D1LinkedDeviceSessionScopeV1,
 } from './d1LinkedDeviceSessionStore';
 import { CloudflareD1LaneLifecycleStore } from '../signingLanes/d1LaneLifecycleStore';
-import { D1LinkedDeviceAggregateActivationVerifierV1 } from './d1LinkedDeviceAggregateActivationVerifier';
+import { createD1LinkedDeviceSessionServiceV1 } from './d1LinkedDeviceSessionService';
 import type {
   DeviceLinkingAuthenticatedRequestV1,
   DeviceLinkingAuthDeniedV1,
@@ -42,28 +40,22 @@ export function createD1LinkedDeviceRouteServiceV1(
   options: D1LinkedDeviceRouteServiceOptionsV1,
 ): DeviceLinkingRouteServiceV1 {
   const nowV1 = options.nowV1 ?? Date.now;
-  const sessionStore = new D1LinkedDeviceSessionStoreV1({
-    database: options.database,
-    scope: options.scope,
-    now: nowV1,
-  });
   const proofNonceStore = new D1LinkedDeviceRequestProofNonceStoreV1({
     database: options.database,
     scope: options.scope,
   });
   const proofVerifier = new LinkedDeviceRequestProofVerifierV1({ nonceStore: proofNonceStore });
-  const lifecycleStore = new CloudflareD1LaneLifecycleStore({
+  const laneLifecycle = new CloudflareD1LaneLifecycleStore({
     database: options.database,
     scope: options.scope,
     now: nowV1,
   });
-  const aggregateActivationVerifier = new D1LinkedDeviceAggregateActivationVerifierV1({
-    lifecycleStore,
-  });
-  const sessionService = new LinkedDeviceSessionServiceV1({
-    store: sessionStore,
-    authorization: options.ownerAuthorization,
-    aggregateActivationVerifier,
+  const { sessionService, sessionStore } = createD1LinkedDeviceSessionServiceV1({
+    database: options.database,
+    scope: options.scope,
+    ownerAuthorization: options.ownerAuthorization,
+    laneLifecycle,
+    nowV1,
   });
   const routeSessionService: DeviceLinkingRouteServiceV1['sessionService'] = {
     createUnclaimedSessionV1: sessionService.createUnclaimedSessionV1.bind(sessionService),
