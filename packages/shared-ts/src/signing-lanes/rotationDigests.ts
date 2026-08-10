@@ -640,7 +640,7 @@ export function encodeLaneServerActivationReceiptV1(
   ]);
 }
 
-export function encodeEcdsaServerRetirementReceiptV1(
+export function encodeEcdsaServerRetirementReceiptCanonicalPayloadV1(
   value: EcdsaServerRetirementReceiptV1,
 ): Uint8Array {
   return concat([
@@ -666,7 +666,7 @@ export async function computeEcdsaServerRetirementReceiptDigestV1(
   value: EcdsaServerRetirementReceiptV1,
 ): Promise<DigestB64u> {
   return parseDigestB64u(
-    base64UrlEncode(await sha256Bytes(encodeEcdsaServerRetirementReceiptV1(value))),
+    base64UrlEncode(await sha256Bytes(encodeEcdsaServerRetirementReceiptCanonicalPayloadV1(value))),
   );
 }
 
