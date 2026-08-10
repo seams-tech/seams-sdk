@@ -8,11 +8,6 @@ import type {
   RotatableSigningLaneJobV1,
 } from '@shared/signing-lanes/rotation';
 import {
-  parseLaneHolderPackageWireV1,
-  parseLaneProtocolCommitReceiptV1,
-  parseRotatableSigningLaneJobV1,
-} from '@shared/signing-lanes/rotationParsers';
-import {
   parseHpkePublicKeyB64u,
   parseSigningWorkerRecipientKeyDigestB64u,
 } from '@shared/signing-lanes/participants';
@@ -101,14 +96,6 @@ function safeTimestamp(value: unknown, label: string): number {
   return Number(value);
 }
 
-function parseJob(value: unknown): RotatableSigningLaneJobV1 {
-  return parseRotatableSigningLaneJobV1(value);
-}
-
-function parseCommit(value: unknown): LaneProtocolCommitReceiptV1 {
-  return parseLaneProtocolCommitReceiptV1(value);
-}
-
 function parseHandle(value: unknown): LaneHolderRecipientHandleV1 {
   const result = parseLaneHolderRecipientHandleV1(value);
   if (result.ok) return result.value;
@@ -167,10 +154,6 @@ function assertCreationTargetMatchesJob(
   }
 }
 
-function parseHolderPackage(value: unknown): LaneHolderPackageWireV1 {
-  return parseLaneHolderPackageWireV1(value);
-}
-
 function holderDeliveryReceipt(args: {
   readonly job: RotatableSigningLaneJobV1;
   readonly commit: LaneProtocolCommitReceiptV1;
@@ -216,9 +199,7 @@ export async function prepareLaneHolderRecipientV1(args: {
   const recipientHandle = parseHandle(descriptor.recipientHandle);
   try {
     const hpkePublicKeyB64u = parseHpkePublicKey(descriptor.hpkePublicKeyB64u);
-    const hpkePublicKeyDigestB64u = parseRecipientKeyDigest(
-      descriptor.hpkePublicKeyDigestB64u,
-    );
+    const hpkePublicKeyDigestB64u = parseRecipientKeyDigest(descriptor.hpkePublicKeyDigestB64u);
     return {
       state: 'open',
       operationId: args.input.operationId,
@@ -248,20 +229,20 @@ export const createLaneHolderRecipientV1 = prepareLaneHolderRecipientV1;
 
 export async function sealLaneHolderMaterialV1(args: {
   readonly state: OpenLaneHolderRecipientV1;
-  readonly job: unknown;
-  readonly protocolCommitReceipt: unknown;
-  readonly holderPackage: unknown;
+  readonly job: RotatableSigningLaneJobV1;
+  readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
+  readonly holderPackage: LaneHolderPackageWireV1;
   readonly repository: LaneSealedHolderMaterialRepositoryV1;
   readonly worker: LaneHolderRecipientWorkerV1;
   readonly acknowledgedAtMs: number;
 }): Promise<SealedLaneHolderRecipientV1> {
   let recipientReleased = false;
   try {
-    const job = parseJob(args.job);
-    const commit = parseCommit(args.protocolCommitReceipt);
+    const job = args.job;
+    const commit = args.protocolCommitReceipt;
     assertJobCommitIdentity(job, commit);
     assertCreationTargetMatchesJob(args.state, job);
-    const holderPackage = parseHolderPackage(args.holderPackage);
+    const holderPackage = args.holderPackage;
     const sealed = await args.worker.openAndSealLaneHolderPackageV1({
       job,
       protocolCommitReceipt: commit,

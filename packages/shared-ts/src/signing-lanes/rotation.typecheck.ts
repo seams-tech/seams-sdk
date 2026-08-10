@@ -46,6 +46,18 @@ const invalidActiveEpoch: LaneProductEpochActiveV1 = {
   materialActivation: undefined,
 };
 
+const invalidActiveEpochParticipantSet: LaneProductEpochActiveV1 = {
+  ...activeEpoch,
+  // @ts-expect-error Product epochs require the complete holder participant.
+  holderParticipant: undefined,
+};
+
+const invalidActiveEpochRevocationEpoch: LaneProductEpochActiveV1 = {
+  ...activeEpoch,
+  // @ts-expect-error Every product epoch state carries its revocation epoch.
+  revocationEpoch: undefined,
+};
+
 // Pending visibility also carries the exact private activation reference; it is
 // fenced from active/retired/revoked-only fields.
 const invalidPendingEpoch: LaneProductEpochPendingVisibilityV1 = {
@@ -59,6 +71,8 @@ void invalidRefreshTarget;
 void invalidCurveJob;
 void invalidReverseCurveJob;
 void invalidActiveEpoch;
+void invalidActiveEpochParticipantSet;
+void invalidActiveEpochRevocationEpoch;
 void invalidPendingEpoch;
 
 // @ts-expect-error Ed25519 holder packages cannot carry ECDSA envelopes

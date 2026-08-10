@@ -13,6 +13,12 @@ import {
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 import { base64UrlEncode } from '@shared/utils/base64';
+import {
+  assertLaneHolderParticipantBindingDigestV1,
+  assertSigningWorkerParticipantBindingDigestV1,
+  computeLaneParticipantSetBindingDigestV1,
+} from '@shared/signing-lanes/participantDigest';
+import type { LaneParticipantBindingDigestB64u } from '@shared/signing-lanes/participants';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import {
   resolveNearEd25519YaoCapabilityHydrationV1,
@@ -122,7 +128,7 @@ export type RotatableWalletExecutionLaneHydrationInputV1 = {
   readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
   readonly laneShareEpoch: unknown;
   readonly materialActivation: MpcMaterialActivationRef;
-  readonly participantBindingDigestB64u: string;
+  readonly participantBindingDigestB64u: LaneParticipantBindingDigestB64u;
 };
 
 export type ActiveRotatableWalletExecutionLaneHydrationV1 = {
@@ -133,7 +139,7 @@ export type ActiveRotatableWalletExecutionLaneHydrationV1 = {
   readonly materialActivation: MpcMaterialActivationRef;
   readonly laneShareEpoch: LaneShareEpoch;
   readonly activationReceiptDigestB64u: string;
-  readonly participantBindingDigestB64u: string;
+  readonly participantBindingDigestB64u: LaneParticipantBindingDigestB64u;
   readonly publicIdentity: WalletExecutionLanePublicIdentity;
 };
 
@@ -465,9 +471,9 @@ export function hydrateWalletExecutionLane(
  * continuity is intentionally absent for these rotatable lanes; the caller
  * supplies the already verified material activation and participant digest.
  */
-export function hydrateRotatableWalletExecutionLaneV1(
+export async function hydrateRotatableWalletExecutionLaneV1(
   input: RotatableWalletExecutionLaneHydrationInputV1,
-): RotatableWalletExecutionLaneHydrationResultV1 {
+): Promise<RotatableWalletExecutionLaneHydrationResultV1> {
   let records: ParsedWalletExecutionLaneRecords;
   try {
     records = parseWalletExecutionLaneRecords(input);
@@ -494,12 +500,17 @@ export function hydrateRotatableWalletExecutionLaneV1(
   ) {
     return refusal('participant_binding_mismatch', records);
   }
-  if (
-    String(lane.holderParticipant.participantBindingDigestB64u) !==
-      String(input.participantBindingDigestB64u) ||
-    String(lane.serverParticipant.participantBindingDigestB64u) !==
-      String(input.participantBindingDigestB64u)
-  ) {
+  try {
+    await assertLaneHolderParticipantBindingDigestV1(lane.holderParticipant);
+    await assertSigningWorkerParticipantBindingDigestV1(lane.serverParticipant);
+    const participantSetDigest = await computeLaneParticipantSetBindingDigestV1({
+      holderParticipant: lane.holderParticipant,
+      signingWorkerParticipant: lane.serverParticipant,
+    });
+    if (participantSetDigest !== lane.participantBindingDigestB64u) {
+      return refusal('participant_binding_mismatch', records);
+    }
+  } catch {
     return refusal('participant_binding_mismatch', records);
   }
   return {

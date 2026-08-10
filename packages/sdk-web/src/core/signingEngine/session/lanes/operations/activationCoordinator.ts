@@ -2,18 +2,12 @@ import type {
   AggregateLaneActivationChildReceiptV1,
   AggregateLaneActivationReceiptV1,
   CommitLaneEnrollmentActivationV1,
+  LaneEnrollmentManifestV1,
   LaneHolderDeliveryReceiptV1,
   LaneProtocolCommitReceiptV1,
   LaneServerActivationReceiptV1,
   RotatableSigningLaneJobV1,
 } from '@shared/signing-lanes/rotation';
-import {
-  parseLaneEnrollmentManifestV1,
-  parseLaneHolderDeliveryReceiptV1,
-  parseLaneProtocolCommitReceiptV1,
-  parseLaneServerActivationReceiptV1,
-  parseRotatableSigningLaneJobV1,
-} from '@shared/signing-lanes/rotationParsers';
 import {
   computeAggregateLaneActivationReceiptDigestV1,
   computeLaneEnrollmentManifestDigestV1,
@@ -25,18 +19,15 @@ import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
 
 export type LaneActivationChildInputV1 = {
-  readonly job: unknown;
-  readonly protocolCommitReceipt: unknown;
-  readonly holderDeliveryReceipt: unknown;
-  readonly serverActivationReceipt: unknown;
+  readonly job: RotatableSigningLaneJobV1;
+  readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
+  readonly holderDeliveryReceipt: LaneHolderDeliveryReceiptV1;
+  readonly serverActivationReceipt: LaneServerActivationReceiptV1;
 };
 
 export type LaneActivationEffectPlanV1 = {
   readonly manifestDigestB64u: string;
-  readonly orderedChildren: readonly [
-    LaneActivationChildInputV1,
-    ...LaneActivationChildInputV1[],
-  ];
+  readonly orderedChildren: readonly [LaneActivationChildInputV1, ...LaneActivationChildInputV1[]];
   readonly aggregateActivationReceipt: AggregateLaneActivationReceiptV1;
   readonly aggregateActivationReceiptDigestB64u: string;
   readonly commitCommand: CommitLaneEnrollmentActivationV1;
@@ -44,7 +35,9 @@ export type LaneActivationEffectPlanV1 = {
 
 function nonEmpty<T>(values: readonly T[], label: string): [T, ...T[]] {
   if (!values.length) throw new Error(`${label} must be non-empty`);
-  return values as [T, ...T[]];
+  const [first, ...rest] = values;
+  if (!first) throw new Error(`${label} must be non-empty`);
+  return [first, ...rest];
 }
 
 function assertIdentity(
@@ -76,8 +69,7 @@ function assertIdentity(
       String(job.targetMaterialActivationId) ||
     holder.transcriptHashB64u !== protocol.transcriptHashB64u ||
     server.transcriptHashB64u !== protocol.transcriptHashB64u ||
-    holder.holderParticipantBindingDigestB64u !==
-      job.targetHolder.participantBindingDigestB64u ||
+    holder.holderParticipantBindingDigestB64u !== job.targetHolder.participantBindingDigestB64u ||
     server.signingWorkerParticipantBindingDigestB64u !==
       job.targetSigningWorker.participantBindingDigestB64u
   ) {
@@ -120,11 +112,11 @@ async function aggregateChild(args: {
 }
 
 export async function buildLaneActivationEffectPlanV1(args: {
-  readonly manifest: unknown;
+  readonly manifest: LaneEnrollmentManifestV1;
   readonly children: readonly LaneActivationChildInputV1[];
   readonly activatedAtMs: number;
 }): Promise<LaneActivationEffectPlanV1> {
-  const manifest = parseLaneEnrollmentManifestV1(args.manifest);
+  const manifest = args.manifest;
   if (!Number.isSafeInteger(args.activatedAtMs) || args.activatedAtMs < 0) {
     throw new Error('activatedAtMs must be a non-negative safe integer');
   }
@@ -134,21 +126,18 @@ export async function buildLaneActivationEffectPlanV1(args: {
   const parsedChildren: LaneActivationChildInputV1[] = [];
   const aggregateChildren: AggregateLaneActivationChildReceiptV1[] = [];
   for (const [index, child] of args.children.entries()) {
-    const job = parseRotatableSigningLaneJobV1(child.job);
-    const protocol = parseLaneProtocolCommitReceiptV1(child.protocolCommitReceipt);
-    const holder = parseLaneHolderDeliveryReceiptV1(child.holderDeliveryReceipt);
-    const server = parseLaneServerActivationReceiptV1(child.serverActivationReceipt);
+    const {
+      job,
+      protocolCommitReceipt: protocol,
+      holderDeliveryReceipt: holder,
+      serverActivationReceipt: server,
+    } = child;
     const manifestChild = manifest.orderedChildren[index];
     if (!manifestChild || String(manifestChild.operationId) !== String(job.operationId)) {
       throw new Error(`lane activation child ${index} is out of manifest order`);
     }
     assertIdentity(job, protocol, holder, server);
-    parsedChildren.push({
-      job,
-      protocolCommitReceipt: protocol,
-      holderDeliveryReceipt: holder,
-      serverActivationReceipt: server,
-    });
+    parsedChildren.push(child);
     aggregateChildren.push(await aggregateChild({ job, protocol, holder, server }));
   }
   const manifestDigestB64u = await computeLaneEnrollmentManifestDigestV1(manifest);
@@ -160,8 +149,9 @@ export async function buildLaneActivationEffectPlanV1(args: {
     orderedChildReceipts: nonEmpty(aggregateChildren, 'orderedChildReceipts'),
     activatedAtMs: args.activatedAtMs,
   };
-  const aggregateActivationReceiptDigestB64u =
-    await computeAggregateLaneActivationReceiptDigestV1(aggregateActivationReceipt);
+  const aggregateActivationReceiptDigestB64u = await computeAggregateLaneActivationReceiptDigestV1(
+    aggregateActivationReceipt,
+  );
   return {
     manifestDigestB64u,
     orderedChildren: nonEmpty(parsedChildren, 'orderedChildren'),

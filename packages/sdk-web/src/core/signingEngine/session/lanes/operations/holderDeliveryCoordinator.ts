@@ -6,12 +6,7 @@ import type {
   LaneProtocolCommitReceiptV1,
   RotatableSigningLaneJobV1,
 } from '@shared/signing-lanes/rotation';
-import {
-  parseLaneHolderPackageWireV1,
-  parseLaneHolderDeliveryReceiptV1,
-  parseLaneProtocolCommitReceiptV1,
-  parseRotatableSigningLaneJobV1,
-} from '@shared/signing-lanes/rotationParsers';
+import { parseLaneHolderDeliveryReceiptV1 } from '@shared/signing-lanes/rotationParsers';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { LaneHolderRecipientWorkerV1 } from '@shared/signing-lanes/rotation';
 import type {
@@ -31,19 +26,11 @@ export type LaneHolderDeliveryResultV1 = {
   readonly replayed: boolean;
 };
 
-function timestamp(value: unknown, label: string): number {
+function timestamp(value: number, label: string): number {
   if (!Number.isSafeInteger(value) || Number(value) < 0) {
     throw new Error(`${label} must be a non-negative safe integer`);
   }
   return Number(value);
-}
-
-function parseJob(value: unknown): RotatableSigningLaneJobV1 {
-  return parseRotatableSigningLaneJobV1(value);
-}
-
-function parseCommit(value: unknown): LaneProtocolCommitReceiptV1 {
-  return parseLaneProtocolCommitReceiptV1(value);
 }
 
 function lookupForJob(job: RotatableSigningLaneJobV1): LaneSealedHolderRecordLookupV1 {
@@ -186,9 +173,9 @@ async function replaySealedHolderDelivery(args: {
 }
 
 type LaneHolderDeliveryInputCommonV1 = {
-  readonly job: unknown;
-  readonly protocolCommitReceipt: unknown;
-  readonly holderPackage: unknown;
+  readonly job: RotatableSigningLaneJobV1;
+  readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
+  readonly holderPackage: LaneHolderPackageWireV1;
   readonly expectedVersion: number;
   readonly worker: LaneHolderRecipientWorkerV1;
   readonly gateway: LaneEnrollmentGatewayV1;
@@ -207,10 +194,10 @@ export type LaneHolderDeliveryInputV1 =
 export async function deliverLaneHolderPackageV1(
   args: LaneHolderDeliveryInputV1,
 ): Promise<LaneHolderDeliveryResultV1> {
-  const job = parseJob(args.job);
-  const commit = parseCommit(args.protocolCommitReceipt);
+  const job = args.job;
+  const commit = args.protocolCommitReceipt;
   assertCommitJobIdentity(job, commit);
-  const holderPackage = parseLaneHolderPackageWireV1(args.holderPackage);
+  const holderPackage = args.holderPackage;
   const existing = await args.repository.get(lookupForJob(job));
   if (existing) {
     await assertReplayHolderPackage(existing, job, commit, holderPackage, args.worker);

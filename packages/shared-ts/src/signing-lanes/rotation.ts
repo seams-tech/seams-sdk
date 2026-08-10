@@ -38,6 +38,8 @@ import type {
   LaneHolderCustodyBindingId,
   SigningWorkerParticipantId,
   SigningWorkerRecipientKeyId,
+  LaneHolderParticipantRecordV1,
+  SigningWorkerParticipantRecordV1,
 } from './participants';
 import type { EvmFamilySigningKeySlotId } from './evmFamilySigningKeySlotId';
 import type { SigningLaneKind } from './records';
@@ -495,6 +497,10 @@ export type LaneProductEpochRecordCommonV1 = {
   targetMaterialActivationId: MpcMaterialActivationId;
   materialActivation: MpcMaterialActivationRef;
   publicIdentityDigestB64u: string;
+  holderParticipant: LaneHolderParticipantRecordV1;
+  signingWorkerParticipant: SigningWorkerParticipantRecordV1;
+  participantSetBindingDigestB64u: LaneParticipantBindingDigestB64u;
+  revocationEpoch: number;
   createdAtMs: number;
 };
 
@@ -510,7 +516,6 @@ export type LaneProductEpochPendingVisibilityV1 = LaneProductEpochRecordCommonV1
   retirementReason?: never;
   retirementReceiptDigestB64u?: never;
   revokedAtMs?: never;
-  revocationEpoch?: never;
   revocationReason?: never;
   revocationReceiptDigestB64u?: never;
 };
@@ -528,7 +533,6 @@ export type LaneProductEpochActiveV1 = LaneProductEpochRecordCommonV1 & {
   retirementReason?: never;
   retirementReceiptDigestB64u?: never;
   revokedAtMs?: never;
-  revocationEpoch?: never;
   revocationReason?: never;
   revocationReceiptDigestB64u?: never;
 };
@@ -546,14 +550,12 @@ export type LaneProductEpochRetiredV1 = LaneProductEpochRecordCommonV1 & {
   aggregateActivationReceiptDigestB64u?: never;
   activatedAtMs?: never;
   revokedAtMs?: never;
-  revocationEpoch?: never;
   revocationReason?: never;
   revocationReceiptDigestB64u?: never;
 };
 
 export type LaneProductEpochRevokedV1 = LaneProductEpochRecordCommonV1 & {
   state: 'revoked';
-  revocationEpoch: number;
   revocationReason:
     | 'user_revoked'
     | 'policy_revoked'

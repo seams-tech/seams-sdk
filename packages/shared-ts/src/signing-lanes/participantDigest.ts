@@ -23,6 +23,9 @@ export const LANE_HOLDER_PARTICIPANT_BINDING_DOMAIN_V1 =
   'seams/rotatable-signing-lanes/lane-holder-participant/v1' as const;
 export const SIGNING_WORKER_PARTICIPANT_BINDING_DOMAIN_V1 =
   'seams/rotatable-signing-lanes/signing-worker-participant/v1' as const;
+/** The lane digest binds the fixed holder-then-SigningWorker participant set. */
+export const LANE_PARTICIPANT_SET_BINDING_DOMAIN_V1 =
+  'seams/rotatable-signing-lanes/lane-participant-set/v1' as const;
 
 export type LaneHolderParticipantBindingInputV1 = {
   readonly participantId: LaneHolderParticipantId;
@@ -126,6 +129,36 @@ export function signingWorkerParticipantCanonicalBytesV1(
   ]);
 }
 
+function encodeCanonicalBytes(value: Uint8Array): Uint8Array {
+  return concat([u32(value.length), value]);
+}
+
+/**
+ * Canonical bytes for the lane's complete participant set. The order is part
+ * of the protocol: holder first, SigningWorker second. Individual participant
+ * binding digests are included after their canonical identity bytes so a
+ * verified record cannot be substituted while retaining the same identities.
+ */
+export function laneParticipantSetCanonicalBytesV1(input: {
+  readonly holderParticipant: LaneHolderParticipantRecordV1;
+  readonly signingWorkerParticipant: SigningWorkerParticipantRecordV1;
+}): Uint8Array {
+  const holderParticipant = parseLaneHolderParticipantRecordV1(input.holderParticipant);
+  const signingWorkerParticipant = parseSigningWorkerParticipantRecordV1(
+    input.signingWorkerParticipant,
+  );
+  return concat([
+    encodeLaneCanonicalTextV1(LANE_PARTICIPANT_SET_BINDING_DOMAIN_V1),
+    encodeLaneCanonicalNonEmptyCountV1(2),
+    encodeLaneCanonicalTextV1('holder'),
+    encodeCanonicalBytes(laneHolderParticipantCanonicalBytesV1(holderParticipant)),
+    encodeLaneCanonicalDigestV1(holderParticipant.participantBindingDigestB64u),
+    encodeLaneCanonicalTextV1('signing_worker'),
+    encodeCanonicalBytes(signingWorkerParticipantCanonicalBytesV1(signingWorkerParticipant)),
+    encodeLaneCanonicalDigestV1(signingWorkerParticipant.participantBindingDigestB64u),
+  ]);
+}
+
 async function digestCanonicalBytes(bytes: Uint8Array): Promise<LaneParticipantBindingDigestB64u> {
   const digest = base64UrlEncode(await sha256Bytes(bytes));
   const parsed = parseLaneParticipantBindingDigestB64u(digest);
@@ -157,6 +190,13 @@ export async function computeSigningWorkerParticipantBindingDigestV1(
       }),
     ),
   );
+}
+
+export async function computeLaneParticipantSetBindingDigestV1(input: {
+  readonly holderParticipant: LaneHolderParticipantRecordV1;
+  readonly signingWorkerParticipant: SigningWorkerParticipantRecordV1;
+}): Promise<LaneParticipantBindingDigestB64u> {
+  return await digestCanonicalBytes(laneParticipantSetCanonicalBytesV1(input));
 }
 
 export async function buildLaneHolderParticipantRecordWithDigestV1(

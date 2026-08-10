@@ -1,6 +1,7 @@
 import { base64UrlDecode, base64UrlEncode } from '../utils/base64';
 import { parseDigestB64u } from '../utils/canonicalPrimitives';
 import { sha256Bytes } from '../utils/digests';
+import { laneParticipantSetCanonicalBytesV1 } from './participantDigest';
 import type { MpcMaterialActivationRef } from '../utils/domainIds';
 import type {
   AggregateLaneActivationChildReceiptV1,
@@ -566,7 +567,16 @@ export function encodeLaneProductEpochRecordV1(value: LaneProductEpochRecordV1):
     text(value.operationId, 'operationId'),
     text(value.targetMaterialActivationId, 'targetMaterialActivationId'),
     activationField(value.materialActivation, 'materialActivation'),
+    lp32(
+      laneParticipantSetCanonicalBytesV1({
+        holderParticipant: value.holderParticipant,
+        signingWorkerParticipant: value.signingWorkerParticipant,
+      }),
+      'participantSet',
+    ),
+    digest(value.participantSetBindingDigestB64u, 'participantSetBindingDigestB64u'),
     digest(value.publicIdentityDigestB64u, 'publicIdentityDigestB64u'),
+    u64(value.revocationEpoch, 'revocationEpoch'),
     u64(value.createdAtMs, 'createdAtMs'),
     text(value.state, 'state'),
   ];
