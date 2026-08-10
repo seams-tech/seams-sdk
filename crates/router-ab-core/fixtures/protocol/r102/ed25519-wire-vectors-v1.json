@@ -1,0 +1,159 @@
+{
+  "canonicalJobTranscriptB64u": "AAAALHNlYW1zL3JvdGF0YWJsZS1zaWduaW5nLWxhbmVzL2VkMjU1MTktam9iL3YxAAAAF2VkMjU1MTlfeWFvX2xhbmVfam9iX3YxAAAAEWxhbmVfcHJvdmlzaW9uaW5nAAAAGGxhbmUtb3BlcmF0aW9uOmVkMjU1MTk6QQAAABFsYW5lLWVucm9sbG1lbnQ6QQAAABpsYW5lLWlkZW1wb3RlbmN5OmVkMjU1MTk6QQAAAAh3YWxsZXQtQQAAABR3YWxsZXQta2V5OmVkMjU1MTk6QQAAAAxvd25lci1sYW5lOkEAAAANb3duZXJfcGFzc2tleQAAABdvcGFxdWUvY3JlYXRpb24tZXBvY2g6QQAAAAAAAAAHAAAAE2hvbGRlcjpvd25lci1kZXZpY2UAAAAVc2lnbmluZy13b3JrZXI6c291cmNlAAAAFHJlY2lwaWVudC1rZXk6c291cmNlAAAAK0FRRUJBUUVCQVFFQkFRRUJBUUVCQVFFQkFRRUJBUUVCQVFFQkFRRUJBUUUAAAAbbXBjX21hdGVyaWFsX2FjdGl2YXRpb25fcmVmAAAAEWFjdGl2YXRpb246c291cmNlAAAAH2VkMjU1MTktY2FwYWJpbGl0eTp3YWxsZXQta2V5LUEAAAAId2FsbGV0LUEAAAASbmVhci1lZDI1NTE5LWtleTpBAAAAD3lhby1saWZlY3ljbGU6QQAAABVzaWduaW5nLXdvcmtlcjpzb3VyY2UAAAALY3JlYXRlX2xhbmUAAAANbGlua2VkX2RldmljZQAAAAZhYnNlbnQAAAAUbGlua2VkLWRldmljZS1sYW5lOkEAAAAXb3BhcXVlL2NyZWF0aW9uLWVwb2NoOkEAAAARYWN0aXZhdGlvbjp0YXJnZXQAAAAUaG9sZGVyOmxpbmtlZC1kZXZpY2UAAAArQXdNREF3TURBd01EQXdNREF3TURBd01EQXdNREF3TURBd01EQXdNREF3TQAAAB1jdXN0b2R5LWJpbmRpbmc6bGlua2VkLWRldmljZQAAACtCQVFFQkFRRUJBUUVCQVFFQkFRRUJBUUVCQVFFQkFRRUJBUUVCQVFFQkFRAAAAK0JRVUZCUVVGQlFVRkJRVUZCUVVGQlFVRkJRVUZCUVVGQlFVRkJRVUZCUVUAAAArQmdZR0JnWUdCZ1lHQmdZR0JnWUdCZ1lHQmdZR0JnWUdCZ1lHQmdZR0JnWQAAABVzaWduaW5nLXdvcmtlcjp0YXJnZXQAAAArQndjSEJ3Y0hCd2NIQndjSEJ3Y0hCd2NIQndjSEJ3Y0hCd2NIQndjSEJ3YwAAABRyZWNpcGllbnQta2V5OnRhcmdldAAAACtDQWdJQ0FnSUNBZ0lDQWdJQ0FnSUNBZ0lDQWdJQ0FnSUNBZ0lDQWdJQ0FnAAAAK0NRa0pDUWtKQ1FrSkNRa0pDUWtKQ1FrSkNRa0pDUWtKQ1FrSkNRa0pDUWsAAAAYbGlua2VkX2RldmljZV9lbnJvbGxtZW50AAAAFmF1dGhvcml6ZWQtb3BlcmF0aW9uOkEAAAAabGlua2VkLWRldmljZS1lbnJvbGxtZW50OkEAAAArQWdJQ0FnSUNBZ0lDQWdJQ0FnSUNBZ0lDQWdJQ0FnSUNBZ0lDQWdJQ0FnSQAAACtDZ29LQ2dvS0Nnb0tDZ29LQ2dvS0Nnb0tDZ29LQ2dvS0Nnb0tDZ29LQ2dvAAAAAAAAAAcAAAArQ3dzTEN3c0xDd3NMQ3dzTEN3c0xDd3NMQ3dzTEN3c0xDd3NMQ3dzTEN3cwAAABJuZWFyLWVkMjU1MTkta2V5OkEAAAATZWQyNTUxOS15YW8tc3VpdGU6QQAAACtEQXdNREF3TURBd01EQXdNREF3TURBd01EQXdNREF3TURBd01EQXdNREF3AAAAInJvdGF0YWJsZV9zaWduaW5nX2xhbmVfcHJvdG9jb2xfdjEAAAG6YNM4ew",
+  "canonicalProtocolCommitReceiptB64u": "AAAAOHNlYW1zL3JvdGF0YWJsZS1zaWduaW5nLWxhbmVzL3Byb3RvY29sLWNvbW1pdC1yZWNlaXB0L3YxAAAAGGxhbmUtb3BlcmF0aW9uOmVkMjU1MTk6QQAAABFsYW5lLWVucm9sbG1lbnQ6QQAAAAh3YWxsZXQtQQAAABR3YWxsZXQta2V5OmVkMjU1MTk6QQAAAAxvd25lci1sYW5lOkEAAAAXb3BhcXVlL2NyZWF0aW9uLWVwb2NoOkEAAAAAAAAABwAAAKUAAAAbbXBjX21hdGVyaWFsX2FjdGl2YXRpb25fcmVmAAAAEWFjdGl2YXRpb246c291cmNlAAAAH2VkMjU1MTktY2FwYWJpbGl0eTp3YWxsZXQta2V5LUEAAAAId2FsbGV0LUEAAAASbmVhci1lZDI1NTE5LWtleTpBAAAAD3lhby1saWZlY3ljbGU6QQAAABVzaWduaW5nLXdvcmtlcjpzb3VyY2UAAAAUbGlua2VkLWRldmljZS1sYW5lOkEAAAAXb3BhcXVlL2NyZWF0aW9uLWVwb2NoOkEAAAARYWN0aXZhdGlvbjp0YXJnZXQAAAAHZWQyNTUxOQAAACANDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQAAACtEZzRPRGc0T0RnNE9EZzRPRGc0T0RnNE9EZzRPRGc0T0RnNE9EZzRPRGc0AAAAK0R3OFBEdzhQRHc4UER3OFBEdzhQRHc4UER3OFBEdzhQRHc4UER3OFBEdzgAAAAgEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAAAAAgEREREREREREREREREREREREREREREREREREREREREREAAAAgBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYAAAAgCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkAAAAgE_PCf5PZoVIsF1GBPs1OW3a7AvXo5k8J875T-eANOeYAAAGjGFxRTQ",
+  "fixtureVersion": "r102_ed25519_wire_vectors_v1",
+  "job": {
+    "authorization": {
+      "authorizedOperationId": "authorized-operation:A",
+      "kind": "linked_device_enrollment",
+      "linkedDeviceEnrollmentId": "linked-device-enrollment:A",
+      "linkedDevicePermissionDigestB64u": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI"
+    },
+    "circuitDigestB64u": "DAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw",
+    "enrollmentId": "lane-enrollment:A",
+    "expiresAtMs": 1900000000123,
+    "idempotencyKey": "lane-idempotency:ed25519:A",
+    "keyCreationSignerSlot": 7,
+    "keyFamily": "ed25519",
+    "kind": "ed25519_yao_lane_job_v1",
+    "nearEd25519SigningKeyId": "near-ed25519-key:A",
+    "operationId": "lane-operation:ed25519:A",
+    "protocolVersion": "rotatable_signing_lane_protocol_v1",
+    "registeredPublicKeyB64u": "CgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgo",
+    "source": {
+      "holderParticipantId": "holder:owner-device",
+      "laneId": "owner-lane:A",
+      "laneKind": "owner_passkey",
+      "laneShareEpoch": "opaque/creation-epoch:A",
+      "materialActivation": {
+        "activationId": "activation:source",
+        "capability": "ed25519-capability:wallet-key-A",
+        "keyBinding": "near-ed25519-key:A",
+        "kind": "mpc_material_activation_ref",
+        "lifecycleBinding": "yao-lifecycle:A",
+        "materialOwner": "wallet-A",
+        "signingWorker": "signing-worker:source"
+      },
+      "participantBindingDigestB64u": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+      "revocationEpoch": 7,
+      "signingWorkerParticipantId": "signing-worker:source",
+      "signingWorkerRecipientKeyId": "recipient-key:source"
+    },
+    "stableContextBindingB64u": "CwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCws",
+    "target": {
+      "expectedTargetState": "absent",
+      "laneId": "linked-device-lane:A",
+      "laneKind": "linked_device",
+      "laneShareEpoch": "opaque/creation-epoch:A",
+      "operation": "create_lane"
+    },
+    "targetHolder": {
+      "custodyBindingDigestB64u": "BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ",
+      "custodyBindingId": "custody-binding:linked-device",
+      "hpkePublicKeyB64u": "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU",
+      "hpkePublicKeyDigestB64u": "BgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgY",
+      "participantBindingDigestB64u": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+      "participantId": "holder:linked-device"
+    },
+    "targetMaterialActivationId": "activation:target",
+    "targetSigningWorker": {
+      "hpkePublicKeyB64u": "CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg",
+      "hpkePublicKeyDigestB64u": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk",
+      "participantBindingDigestB64u": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+      "participantId": "signing-worker:target",
+      "recipientKeyId": "recipient-key:target"
+    },
+    "walletId": "wallet-A",
+    "walletKeyId": "wallet-key:ed25519:A",
+    "yaoRequestKind": "lane_provisioning",
+    "yaoSuiteId": "ed25519-yao-suite:A"
+  },
+  "jobSubstitutions": {
+    "holderParticipant": {
+      "jobTranscriptDigestB64u": "ob9O_yMHEr8N3fCcOsGpq-2ibBiElQIsH4aYvbIqrfo",
+      "sessionDigestB64u": "bYLBi3B8a60JPElWPET5UPi-QYiHWC12FJSqIW9tGhA"
+    },
+    "holderParticipantBinding": {
+      "jobTranscriptDigestB64u": "76RnKhCquHx3OeNyfGypZD7Q19-El2IeaMJedbrVCO0",
+      "sessionDigestB64u": "D8QG_pIzscqZSSjU6R908b7ExTJUmksUkt2_CRtJ_LI"
+    },
+    "holderRecipientKey": {
+      "jobTranscriptDigestB64u": "KItho2brxVMd-EPnhYo6TD00UBw3Gv4ZR1AgjRPoBFA",
+      "sessionDigestB64u": "IX6GAIX8_hVv3Hv0u8YdZvGHm3GJXGVx_49lmAtjjR4"
+    },
+    "holderRecipientKeyDigest": {
+      "jobTranscriptDigestB64u": "LqGdM2oue6HBSB5C8RfgDATVqAI9KIh4GKDQzaqVudo",
+      "sessionDigestB64u": "9G4CoRP8ODu8J1_ZxTE_QOF9PPxf83S7kAbHeumIX3M"
+    },
+    "targetCustodyBindingId": {
+      "jobTranscriptDigestB64u": "rVmeJUbjq-3Xhq9bBEJNQoR23oKA-UCthX0ox2yey9c",
+      "sessionDigestB64u": "ScyDbV1BQ76sODnnAbejoyJ4tRbnjCKTWbd_neVFrfQ"
+    },
+    "workerParticipant": {
+      "jobTranscriptDigestB64u": "3utSkdCkKJDI0qdhVj5sgVGCmdZ9TGpqmlv91r760ZU",
+      "sessionDigestB64u": "yNCgFXFtF6x4cjuVhf_gRVFR1ePOUa7Z39hvu-7SQPM"
+    },
+    "workerParticipantBinding": {
+      "jobTranscriptDigestB64u": "5dTSSc2oDyVHnQ6j2uplNFLyohAJEHneJTtJTZQR0QQ",
+      "sessionDigestB64u": "9BtYIX0pW5_BIoeEFGn8t9SF5-KCfKMC5N2ZW3CKEHs"
+    },
+    "workerRecipientKey": {
+      "jobTranscriptDigestB64u": "QqYWLfvXBQZSoqt4paEJheCp6Rh4L6BfR0Aw1GjsGTo",
+      "sessionDigestB64u": "Cw_OsPsB2qmlCYdBe5yh_1oEamcdxG_7Fj6u59gPD70"
+    },
+    "workerRecipientKeyDigest": {
+      "jobTranscriptDigestB64u": "xZOo7D1WdiptrSdFOCzl5uBLWtH4lxwrYjQo1PJf2Ro",
+      "sessionDigestB64u": "HGNGi4YfTuWnY3YeXAWA1QlqRhy-FwRuHhiZUzYOaZM"
+    },
+    "workerRecipientKeyId": {
+      "jobTranscriptDigestB64u": "7iLg8BeQkhIx3SccVDl3rHsehTafYU3lVhIIVEyDDLA",
+      "sessionDigestB64u": "4QLs_XHTcxIfFTarU8sCvzYuMfX2gbkMhmNiOU2VvoI"
+    }
+  },
+  "jobTranscriptDigestB64u": "E_PCf5PZoVIsF1GBPs1OW3a7AvXo5k8J875T-eANOeY",
+  "protocolCommitReceipt": {
+    "committedAtMs": 1800000000333,
+    "enrollmentId": "lane-enrollment:A",
+    "holderRecipientKeyDigestB64u": "BgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgY",
+    "keyFamily": "ed25519",
+    "kind": "lane_protocol_commit_receipt_v1",
+    "operationId": "lane-operation:ed25519:A",
+    "publicIdentityDigestB64u": "DQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0",
+    "serverRecipientKeyDigestB64u": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk",
+    "sourceLaneId": "owner-lane:A",
+    "sourceLaneShareEpoch": "opaque/creation-epoch:A",
+    "sourceMaterialActivation": {
+      "activationId": "activation:source",
+      "capability": "ed25519-capability:wallet-key-A",
+      "keyBinding": "near-ed25519-key:A",
+      "kind": "mpc_material_activation_ref",
+      "lifecycleBinding": "yao-lifecycle:A",
+      "materialOwner": "wallet-A",
+      "signingWorker": "signing-worker:source"
+    },
+    "sourceRevocationEpoch": 7,
+    "targetHolderCiphertextDigestSetB64u": "EBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBA",
+    "targetHolderPublicCommitmentB64u": "Dg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4ODg4",
+    "targetLaneId": "linked-device-lane:A",
+    "targetLaneShareEpoch": "opaque/creation-epoch:A",
+    "targetMaterialActivationId": "activation:target",
+    "targetServerCiphertextDigestSetB64u": "ERERERERERERERERERERERERERERERERERERERERERE",
+    "targetServerPublicCommitmentB64u": "Dw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8",
+    "transcriptHashB64u": "E_PCf5PZoVIsF1GBPs1OW3a7AvXo5k8J875T-eANOeY",
+    "walletId": "wallet-A",
+    "walletKeyId": "wallet-key:ed25519:A"
+  },
+  "protocolCommitReceiptDigestB64u": "ekhqeeA5trPFCH-81cTlrACDl2_ubBOgJHWIaKtlID0",
+  "receiptSubstitutionDigestsB64u": {
+    "holderRecipientKeyDigest": "TobOOTKMd_NHEbU1fGx1yE_E1Rea1XOg5cOK8ezHWXc",
+    "serverRecipientKeyDigest": "BjoBZrJiR0fo7rODs6TyYpCd8FhMAkjp7GEHfahNCSg",
+    "sourceLaneShareEpoch": "gKaXVbXe2mHOTPjKiBY1-cWQIan_TBFC3jj2YhWR6oU",
+    "targetLaneShareEpoch": "p7FgBC1LjfDejblWq0Y8e4g8Ejr1iPy03epwN8HU1YQ",
+    "transcriptHash": "E2gJeVkvPwQPc0NbqskHu6vmW4LFzvcm7-_yr0iLQ8o"
+  },
+  "sessionDigestB64u": "6v5sn_uN94hlmiNR7AduzSe_qB0yQ3JQPFeiEbfGTAc",
+  "tamperedBindings": {
+    "jobTranscriptDigestB64u": "HR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0",
+    "sessionDigestB64u": "Hh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4"
+  }
+}
