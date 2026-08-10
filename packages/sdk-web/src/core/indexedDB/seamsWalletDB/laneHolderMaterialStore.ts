@@ -5,8 +5,19 @@ import type {
   SigningLaneId,
   WalletKeyId,
 } from '@shared/signing-lanes/ids';
-import type { LaneHolderRecipientHandleV1 } from '@shared/signing-lanes/rotation';
-import type { MpcMaterialActivationId, WalletId } from '@shared/utils/domainIds';
+import {
+  parseLaneEnrollmentId,
+  parseLaneOperationId,
+  parseLaneShareEpoch,
+  parseMpcMaterialActivationId,
+  parseSigningLaneId,
+  parseWalletId,
+  parseWalletKeyId,
+  type MpcMaterialActivationId,
+  type WalletId,
+} from '@shared/utils/domainIds';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import {
   signingSessionSealsRepository,
   type SigningSessionSealsRepository,
@@ -22,12 +33,11 @@ export type LaneSealedHolderRecordV1 = {
   readonly laneShareEpoch: LaneShareEpoch;
   readonly targetMaterialActivationId: MpcMaterialActivationId;
   readonly holderParticipantBindingDigestB64u: string;
-  readonly recipientKeyId: LaneHolderRecipientHandleV1;
   readonly holderRecipientKeyDigestB64u: string;
   readonly holderCiphertextDigestSetB64u: string;
   readonly sealedHolderRecordDigestB64u: string;
   readonly transcriptHashB64u: string;
-  readonly holderCiphertextB64u: string;
+  readonly sealedHolderMaterialB64u: string;
   readonly acknowledgedAtMs: number;
   readonly storedAtMs: number;
 };
@@ -55,10 +65,6 @@ function nonEmpty(value: unknown, label: string): string {
   return normalized;
 }
 
-function recipientHandle(value: unknown): LaneHolderRecipientHandleV1 {
-  return nonEmpty(value, 'recipientKeyId') as LaneHolderRecipientHandleV1;
-}
-
 function storeKey(input: LaneSealedHolderRecordLookupV1): string {
   return [
     STORE_KEY_PREFIX,
@@ -77,11 +83,37 @@ function assertSafeTimestamp(value: unknown, label: string): number {
   return Number(value);
 }
 
-function parseRecord(value: unknown): LaneSealedHolderRecordV1 {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error('lane sealed holder record must be an object');
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parsed<T>(result: { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: { readonly message: string } }, label: string): T {
+  if (result.ok) return result.value;
+  throw new Error(`${label} ${result.error.message}`);
+}
+
+function parsedDigest(value: unknown, label: string): string {
+  try {
+    return parseDigestB64u(value);
+  } catch (error) {
+    throw new Error(`${label} ${error instanceof Error ? error.message : 'is invalid'}`);
   }
-  const record = value as Record<string, unknown>;
+}
+
+function parsedOpaqueB64u(value: unknown, label: string): string {
+  const normalized = nonEmpty(value, label);
+  try {
+    const bytes = base64UrlDecode(normalized);
+    if (base64UrlEncode(bytes) !== normalized) throw new Error('must be canonical base64url');
+    return normalized;
+  } catch (error) {
+    throw new Error(`${label} ${error instanceof Error ? error.message : 'is invalid'}`);
+  }
+}
+
+function parseRecord(value: unknown): LaneSealedHolderRecordV1 {
+  if (!isRecord(value)) throw new Error('lane sealed holder record must be an object');
+  const record = value;
   const expectedFields = [
     'kind',
     'operationId',
@@ -92,12 +124,11 @@ function parseRecord(value: unknown): LaneSealedHolderRecordV1 {
     'laneShareEpoch',
     'targetMaterialActivationId',
     'holderParticipantBindingDigestB64u',
-    'recipientKeyId',
     'holderRecipientKeyDigestB64u',
     'holderCiphertextDigestSetB64u',
     'sealedHolderRecordDigestB64u',
     'transcriptHashB64u',
-    'holderCiphertextB64u',
+    'sealedHolderMaterialB64u',
     'acknowledgedAtMs',
     'storedAtMs',
   ] as const;
@@ -113,35 +144,37 @@ function parseRecord(value: unknown): LaneSealedHolderRecordV1 {
   }
   return {
     kind: 'lane_sealed_holder_record_v1',
-    operationId: nonEmpty(record.operationId, 'operationId') as LaneOperationId,
-    enrollmentId: nonEmpty(record.enrollmentId, 'enrollmentId') as LaneEnrollmentId,
-    walletId: nonEmpty(record.walletId, 'walletId') as WalletId,
-    walletKeyId: nonEmpty(record.walletKeyId, 'walletKeyId') as WalletKeyId,
-    laneId: nonEmpty(record.laneId, 'laneId') as SigningLaneId,
-    laneShareEpoch: nonEmpty(record.laneShareEpoch, 'laneShareEpoch') as LaneShareEpoch,
-    targetMaterialActivationId: nonEmpty(
-      record.targetMaterialActivationId,
+    operationId: parsed(parseLaneOperationId(record.operationId), 'operationId'),
+    enrollmentId: parsed(parseLaneEnrollmentId(record.enrollmentId), 'enrollmentId'),
+    walletId: parsed(parseWalletId(record.walletId), 'walletId'),
+    walletKeyId: parsed(parseWalletKeyId(record.walletKeyId), 'walletKeyId'),
+    laneId: parsed(parseSigningLaneId(record.laneId), 'laneId'),
+    laneShareEpoch: parsed(parseLaneShareEpoch(record.laneShareEpoch), 'laneShareEpoch'),
+    targetMaterialActivationId: parsed(
+      parseMpcMaterialActivationId(record.targetMaterialActivationId),
       'targetMaterialActivationId',
-    ) as MpcMaterialActivationId,
-    holderParticipantBindingDigestB64u: nonEmpty(
+    ),
+    holderParticipantBindingDigestB64u: parsedDigest(
       record.holderParticipantBindingDigestB64u,
       'holderParticipantBindingDigestB64u',
     ),
-    recipientKeyId: recipientHandle(record.recipientKeyId),
-    holderRecipientKeyDigestB64u: nonEmpty(
+    holderRecipientKeyDigestB64u: parsedDigest(
       record.holderRecipientKeyDigestB64u,
       'holderRecipientKeyDigestB64u',
     ),
-    holderCiphertextDigestSetB64u: nonEmpty(
+    holderCiphertextDigestSetB64u: parsedDigest(
       record.holderCiphertextDigestSetB64u,
       'holderCiphertextDigestSetB64u',
     ),
-    sealedHolderRecordDigestB64u: nonEmpty(
+    sealedHolderRecordDigestB64u: parsedDigest(
       record.sealedHolderRecordDigestB64u,
       'sealedHolderRecordDigestB64u',
     ),
-    transcriptHashB64u: nonEmpty(record.transcriptHashB64u, 'transcriptHashB64u'),
-    holderCiphertextB64u: nonEmpty(record.holderCiphertextB64u, 'holderCiphertextB64u'),
+    transcriptHashB64u: parsedDigest(record.transcriptHashB64u, 'transcriptHashB64u'),
+    sealedHolderMaterialB64u: parsedOpaqueB64u(
+      record.sealedHolderMaterialB64u,
+      'sealedHolderMaterialB64u',
+    ),
     acknowledgedAtMs: assertSafeTimestamp(record.acknowledgedAtMs, 'acknowledgedAtMs'),
     storedAtMs: assertSafeTimestamp(record.storedAtMs, 'storedAtMs'),
   };
