@@ -7,6 +7,7 @@ export {
 } from './createPublicApi';
 export {
   createDevicesCapability,
+  createWalletIframeLinkedDeviceManagementPortV1,
   parseLinkedDeviceListResultV1,
   parseLinkedDeviceRevokeResultV1,
   parseLinkedDeviceSummaryV1,

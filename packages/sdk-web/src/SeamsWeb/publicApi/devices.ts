@@ -1,4 +1,5 @@
 import { DeviceLinkingDomain } from '@/SeamsWeb/operations/devices/linkDevice';
+import type { DeviceLinkingFlowPortsV1 } from '@/SeamsWeb/operations/devices/deviceLinkingPorts';
 import type { DeviceLinkingWebContext, DevicesCapability } from '@/SeamsWeb/signingSurface/types';
 import type { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
 import { parseLinkedDeviceId, parseWalletId, type WalletId } from '@shared/utils/domainIds';
@@ -36,20 +37,54 @@ export type LinkedDeviceManagementPortV1 = {
   }): Promise<LinkedDeviceRevokeResultV1>;
 };
 
-export type DevicesCapabilityDomainMethods = {
-  readonly linkedDeviceManagement: LinkedDeviceManagementPortV1;
-};
+export type DevicesCapabilityDomainMethods =
+  | {
+      readonly kind: 'iframe';
+      readonly linkedDeviceManagement: LinkedDeviceManagementPortV1;
+    }
+  | {
+      readonly kind: 'direct';
+      readonly linkedDeviceManagement: LinkedDeviceManagementPortV1;
+      readonly deviceLinkingPorts: DeviceLinkingFlowPortsV1;
+    };
+
+export function createWalletIframeLinkedDeviceManagementPortV1(deps: {
+  readonly walletIframe: Pick<WalletIframeCoordinator, 'requireRouter'>;
+}): LinkedDeviceManagementPortV1 {
+  return {
+    listLinkedDevices: async ({ walletId }) => {
+      const router = await deps.walletIframe.requireRouter(walletId);
+      return await router.listLinkedDevices({ walletId: String(walletId) });
+    },
+    revokeLinkedDevice: async ({ walletId, deviceId, requestedAtMs }) => {
+      const router = await deps.walletIframe.requireRouter(walletId);
+      return await router.revokeLinkedDevice({
+        walletId: String(walletId),
+        deviceId: String(deviceId),
+        requestedAtMs,
+      });
+    },
+  };
+}
 
 export function createDevicesCapability(deps: {
   readonly getContext: () => DeviceLinkingWebContext;
   readonly walletIframe: Pick<WalletIframeCoordinator, 'shouldUseWalletIframe' | 'requireRouter'>;
   readonly domain: DevicesCapabilityDomainMethods;
 }): DevicesCapability {
-  const deviceLinking = new DeviceLinkingDomain({
-    kind: 'iframe',
-    getContext: deps.getContext,
-    walletIframe: deps.walletIframe,
-  });
+  const deviceLinking =
+    deps.domain.kind === 'direct'
+      ? new DeviceLinkingDomain({
+          kind: 'direct',
+          getContext: deps.getContext,
+          walletIframe: deps.walletIframe,
+          ports: deps.domain.deviceLinkingPorts,
+        })
+      : new DeviceLinkingDomain({
+          kind: 'iframe',
+          getContext: deps.getContext,
+          walletIframe: deps.walletIframe,
+        });
   return {
     startDevice2LinkingFlow: async (args) => await deviceLinking.startDevice2LinkingFlow(args),
     cancelDeviceLinking: async () => await deviceLinking.cancelDeviceLinking(),

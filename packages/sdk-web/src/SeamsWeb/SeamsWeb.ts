@@ -8,10 +8,7 @@ import {
   WALLET_IFRAME_TRANSPORT_TIMING_LABEL,
 } from '@/SeamsWeb/operations/registration/registration';
 import { addPasskeyWalletAuthMethod } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
-import {
-  MinimalNearClient,
-  type NearClient,
-} from '@/core/rpcClients/near/NearClient';
+import { MinimalNearClient, type NearClient } from '@/core/rpcClients/near/NearClient';
 import type {
   ActionResult,
   GetRecentUnlocksResult,
@@ -60,9 +57,7 @@ import type {
 } from '@/SeamsWeb/walletIframe/shared/messages';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import { isUserCancellationError, toError } from '@shared/utils/errors';
-import {
-  parseMpcMaterialActivationRef,
-} from '@shared/utils/domainIds';
+import { parseMpcMaterialActivationRef } from '@shared/utils/domainIds';
 import { sha256HexUtf8 } from '@shared/utils/digests';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import {
@@ -91,9 +86,11 @@ import {
 } from '@/SeamsWeb/operations/auth/walletAuth';
 import {
   createPublicApi,
+  createWalletIframeLinkedDeviceManagementPortV1,
   type LinkedDeviceManagementPortV1,
   type WalletIframeControlCapability,
 } from './publicApi';
+import type { DeviceLinkingFlowPortsV1 } from './operations/devices/deviceLinkingPorts';
 import type {
   AuthCapability,
   DevicesCapability,
@@ -641,10 +638,15 @@ function resolveRuntimeAppearance(
 }
 
 type SeamsWebRuntimeMode = 'application' | 'wallet_host';
-type SeamsWebInternalOptions = {
-  readonly allowDirectWalletMode?: 'wallet_host';
-  readonly linkedDeviceManagement: LinkedDeviceManagementPortV1;
-};
+export type SeamsWebInternalOptions =
+  | {
+      readonly kind: 'application';
+    }
+  | {
+      readonly kind: 'wallet_host';
+      readonly linkedDeviceManagement: LinkedDeviceManagementPortV1;
+      readonly deviceLinkingPorts: DeviceLinkingFlowPortsV1;
+    };
 
 type SeamsWebLifecycleEventSource =
   | {
@@ -657,9 +659,9 @@ type SeamsWebLifecycleEventSource =
     };
 
 function resolveSeamsWebRuntimeMode(
-  internalOptions: Pick<SeamsWebInternalOptions, 'allowDirectWalletMode'> | undefined,
+  internalOptions: SeamsWebInternalOptions | undefined,
 ): SeamsWebRuntimeMode {
-  if (internalOptions?.allowDirectWalletMode === 'wallet_host') return 'wallet_host';
+  if (internalOptions?.kind === 'wallet_host') return 'wallet_host';
   return 'application';
 }
 
@@ -705,7 +707,6 @@ export class SeamsWeb {
   private appearance: AppearanceConfig;
   theme: ThemeMode;
   private readonly walletIframe: WalletIframeCoordinator;
-  private readonly linkedDeviceManagement: LinkedDeviceManagementPortV1;
   private readonly lifecycleEventSource: SeamsWebLifecycleEventSource;
   readonly recovery: RecoveryCapability;
   readonly devices: DevicesCapability;
@@ -722,14 +723,11 @@ export class SeamsWeb {
 
   constructor(
     configs: SeamsConfigsInput,
-    nearClient: NearClient,
-    internalOptions: SeamsWebInternalOptions,
+    nearClient?: NearClient,
+    internalOptions?: SeamsWebInternalOptions,
   ) {
-    this.linkedDeviceManagement = internalOptions.linkedDeviceManagement;
     this.configs = buildConfigsFromEnv(configs, {
-      ...(internalOptions?.allowDirectWalletMode === 'wallet_host'
-        ? { allowDirectWalletMode: 'wallet_host' }
-        : {}),
+      ...(internalOptions?.kind === 'wallet_host' ? { allowDirectWalletMode: 'wallet_host' } : {}),
     });
     configureBrowserIndexedDB(this.configs);
     // Use provided client or create default one
@@ -760,6 +758,19 @@ export class SeamsWeb {
       userPreferences: userPreferences,
       getAppearance: () => this.appearance,
     });
+    const deviceDomain =
+      internalOptions?.kind === 'wallet_host'
+        ? {
+            kind: 'direct' as const,
+            linkedDeviceManagement: internalOptions.linkedDeviceManagement,
+            deviceLinkingPorts: internalOptions.deviceLinkingPorts,
+          }
+        : {
+            kind: 'iframe' as const,
+            linkedDeviceManagement: createWalletIframeLinkedDeviceManagementPortV1({
+              walletIframe: this.walletIframe,
+            }),
+          };
     this.lifecycleEventSource = resolveSeamsWebLifecycleEventSource({
       mode: resolveSeamsWebRuntimeMode(internalOptions),
       signingEngine: this.signingEngine,
@@ -816,7 +827,7 @@ export class SeamsWeb {
         completeWalletRecovery: async (args) => await this.completeWalletRecoveryDomain(args),
       },
       devices: {
-        linkedDeviceManagement: this.linkedDeviceManagement,
+        ...deviceDomain,
       },
       keys: {
         resolveExactKeyExportLane: async (input) =>
@@ -2501,5 +2512,4 @@ export class SeamsWeb {
 
     await this.signingEngine.exportKeypairWithUI(resolvedInput);
   }
-
 }
