@@ -116,8 +116,32 @@ test('projects the claimed device identity after owner claim', async () => {
   });
   expect(claimed.status).toBe(200);
   const claimedBody = await claimed.json();
-  expect(claimedBody.session.state.state).toBe('claimed_by_owner');
-  expect(claimedBody.session.deviceId).toBe(String(fixture.approval.deviceId));
+  expect(claimedBody.kind).toBe('linked_device_session_claim_v1');
+  expect(claimedBody.linkSessionId).toBe(String(fixture.payload.linkSessionId));
+  expect(claimedBody.deviceId).toBe(String(fixture.approval.deviceId));
+
+  const approval = { ...fixture.approval, expiresAtMs: 9_000 };
+  const approved = await invoke(routeService, {
+    method: 'POST',
+    pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/approval`,
+    body: approval,
+  });
+  expect(approved.status).toBe(200);
+  const approvedBody = await approved.json();
+  expect(approvedBody.outcome).toBe('pending');
+  expect(approvedBody.state.state).toBe('awaiting_target_passkey');
+  expect(approvedBody).not.toHaveProperty('manifestDigestB64u');
+
+  const replayedApproval = await invoke(routeService, {
+    method: 'POST',
+    pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/approval`,
+    body: approval,
+  });
+  expect(replayedApproval.status).toBe(200);
+  const replayedBody = await replayedApproval.json();
+  expect(replayedBody.outcome).toBe('replayed');
+  expect(replayedBody.replay.state).toBe('pending');
+  expect(replayedBody.replay.session.state).toBe('awaiting_target_passkey');
 });
 
 test('authenticates owner before parsing claim and returns no session secrets', async () => {

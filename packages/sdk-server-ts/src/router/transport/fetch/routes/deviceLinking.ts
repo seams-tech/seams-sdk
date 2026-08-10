@@ -1,4 +1,6 @@
 import type {
+  LinkedDeviceEnrollmentReceiptV1,
+  LinkedDeviceSessionClaimV1,
   LinkedDeviceReceiptAcknowledgementV1,
   LinkedDeviceSessionTransportRequestV1,
   LinkedDeviceTargetCredentialRegistrationV1,
@@ -96,6 +98,43 @@ export type DeviceLinkingRouteMutationResultV1 =
       readonly record: LinkedDeviceSessionRecordV1;
     }
   | { readonly outcome: 'invalid_input'; readonly message: string };
+
+type LinkedDevicePendingSessionStateV1 = Extract<
+  LinkedDeviceSessionState,
+  {
+    readonly state:
+      | 'awaiting_target_passkey'
+      | 'provisioning'
+      | 'awaiting_aggregate_receipt'
+      | 'committed_completion_required';
+  }
+>;
+
+type LinkedDeviceApprovalRouteResultV1 =
+  | {
+      readonly outcome: 'pending';
+      readonly state: LinkedDevicePendingSessionStateV1;
+    }
+  | {
+      readonly outcome: 'active';
+      readonly state: Extract<LinkedDeviceSessionState, { readonly state: 'active' }>;
+      readonly manifestDigestB64u: DigestB64u;
+      readonly receipt: LinkedDeviceEnrollmentReceiptV1;
+    }
+  | {
+      readonly outcome: 'replayed';
+      readonly replay:
+        | {
+            readonly state: 'pending';
+            readonly session: LinkedDevicePendingSessionStateV1;
+          }
+        | {
+            readonly state: 'active';
+            readonly session: Extract<LinkedDeviceSessionState, { readonly state: 'active' }>;
+            readonly manifestDigestB64u: DigestB64u;
+            readonly receipt: LinkedDeviceEnrollmentReceiptV1;
+          };
+    };
 
 export type DeviceLinkingRouteServiceV1 = {
   readonly sessionService: Pick<
@@ -238,7 +277,7 @@ async function handleClaim(
   const body = parseBoundary(() => parseClaimRequest(authentication.body));
   const linkSessionId = parseBoundary(() => parseSessionId(rawLinkSessionId));
   if (body.payload.linkSessionId !== linkSessionId) return invalidInputResponse('link session id does not match route');
-  return sessionResultResponse(await service.sessionService.claimSessionV1({ payload: body.payload, nowMs }));
+  return claimResultResponse(await service.sessionService.claimSessionV1({ payload: body.payload, nowMs }));
 }
 
 async function handleApproval(
@@ -255,7 +294,7 @@ async function handleApproval(
   const approval = parseBoundary(() => parseLinkedDeviceApprovalV1(authentication.body));
   const linkSessionId = parseBoundary(() => parseSessionId(rawLinkSessionId));
   if (approval.linkSessionId !== linkSessionId) return invalidInputResponse('link session id does not match route');
-  return sessionResultResponse(await service.sessionService.recordOwnerApprovalV1({ approval, nowMs }));
+  return approvalResultResponse(await service.sessionService.recordOwnerApprovalV1({ approval, nowMs }));
 }
 
 async function handleCredential(
@@ -560,6 +599,81 @@ function requireClaimedDeviceId(record: ClaimedDeviceLinkingSessionRecordV1): Li
 
 function sessionProjectionResponse(record: LinkedDeviceSessionRecordV1, outcome: 'applied' | 'replayed'): Response {
   return json({ ok: true, outcome, session: projectSession(record) }, { status: 200 });
+}
+
+function claimResultResponse(result: LinkedDeviceSessionServiceResultV1): Response {
+  switch (result.outcome) {
+    case 'applied':
+    case 'replayed': {
+      const claim = claimFromRecord(result.record);
+      if (!claim) return invalidStateResponse(result.record);
+      return json(claim, { status: 200 });
+    }
+    default:
+      return sessionResultResponse(result);
+  }
+}
+
+function approvalResultResponse(result: LinkedDeviceSessionServiceResultV1): Response {
+  switch (result.outcome) {
+    case 'applied':
+    case 'replayed': {
+      const approval = approvalResultFromRecord(result.record, result.outcome);
+      if (!approval) return invalidStateResponse(result.record);
+      return json(approval, { status: 200 });
+    }
+    default:
+      return sessionResultResponse(result);
+  }
+}
+
+function claimFromRecord(record: LinkedDeviceSessionRecordV1): LinkedDeviceSessionClaimV1 | null {
+  if (isUnclaimedSessionRecord(record)) return null;
+  return record.claimTranscript.value;
+}
+
+function approvalResultFromRecord(
+  record: LinkedDeviceSessionRecordV1,
+  outcome: 'applied' | 'replayed',
+): LinkedDeviceApprovalRouteResultV1 | null {
+  if (record.state.state === 'active') {
+    if (!record.aggregateReceipt) return null;
+    const active = {
+      state: record.state,
+      manifestDigestB64u: record.aggregateReceipt.manifestDigestB64u,
+      receipt: record.aggregateReceipt,
+    } as const;
+    return outcome === 'replayed'
+      ? { outcome: 'replayed', replay: { state: 'active', session: active.state, manifestDigestB64u: active.manifestDigestB64u, receipt: active.receipt } }
+      : { outcome: 'active', ...active };
+  }
+  if (!isPendingSessionState(record.state)) return null;
+  return outcome === 'replayed'
+    ? { outcome: 'replayed', replay: { state: 'pending', session: record.state } }
+    : { outcome: 'pending', state: record.state };
+}
+
+function isPendingSessionState(
+  state: LinkedDeviceSessionState,
+): state is LinkedDevicePendingSessionStateV1 {
+  return (
+    state.state === 'awaiting_target_passkey' ||
+    state.state === 'provisioning' ||
+    state.state === 'awaiting_aggregate_receipt' ||
+    state.state === 'committed_completion_required'
+  );
+}
+
+function invalidStateResponse(record: LinkedDeviceSessionRecordV1): Response {
+  return json(
+    {
+      ok: false,
+      outcome: 'invalid_state',
+      state: record.state.state,
+      session: projectSession(record),
+    },
+    { status: 409 },
+  );
 }
 
 function sessionResultResponse(result: LinkedDeviceSessionServiceResultV1): Response {
