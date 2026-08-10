@@ -183,6 +183,7 @@ fn establish_commit_payload() -> WalletCustodyCommitPayloadV1 {
             recovery_entry_ciphertext_b64u: entry.ciphertext_b64u(),
             recovery_entry_aad_hash_b64u: entry.aad_hash_b64u(),
         }),
+        recovery_replacement_envelope: None,
         registered_public_key_b64u: None,
         // An EVM run seals no Ed25519 continuity cache.
         ed25519_local_material_b64u: None,
@@ -221,6 +222,7 @@ fn join_commit_payload() -> WalletCustodyCommitPayloadV1 {
         key_set: WalletKeySetKindV1::NearEd25519.as_str().to_string(),
         key_manifest_digest_b64u: manifest.digest_b64u(),
         established_custody: None,
+        recovery_replacement_envelope: None,
         registered_public_key_b64u: Some(b64u(&NEAR_REGISTERED_PUBLIC_KEY)),
         // Deterministic stand-ins: a real seal draws a random nonce, which a
         // byte-compared fixture cannot carry.
