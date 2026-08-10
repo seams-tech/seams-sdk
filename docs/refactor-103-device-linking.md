@@ -4,12 +4,17 @@ Date created: June 15, 2026
 
 Rewritten: July 22, 2026
 
-Last reconciled: August 5, 2026 (post-Refactor 90 implementation checkpoint)
+Last reconciled: August 11, 2026 (R103 implementation checkpoint)
 
-Status: active product plan. A dormant QR v4 parser and public API, React, and
-wallet-iframe UI shells exist. The exported link flow still uses a superseded QR
-shape and fails closed. Device linking, lane provisioning, signing admission,
-and revocation remain disabled.
+Status: active implementation. The strict QR v4 contract, exhaustive session
+state, durable claim and expiry store, authenticated request-proof transport,
+owner approval responses, committed-delivery recovery, aggregate activation
+verification, private Gateway completion API, linked authorization domain, and
+public SDK/iframe/React cutover are implemented. Refactor 102 provides the
+curve-specific target-lane lifecycle. Production composition still requires
+the durable linked-authorization store, worker-owned device key bootstrap,
+Device 2 provisioning invocation, linked normal-signing route branches, and
+authenticated aggregate revocation wiring.
 
 ## Scope And Dependencies
 
@@ -526,21 +531,21 @@ material activation remain intact.
 
 - [ ] Refactor 100 portable owner custody and recovery pass.
 - [ ] Refactor 101 wallet-key and linked-device lane records pass.
-- [ ] Refactor 102 target-lane protocols and aggregate activation pass.
-- [ ] Aggregate receipt, crash-recovery, and revocation stores exist.
+- [x] Refactor 102 target-lane protocols and aggregate activation pass.
+- [x] Aggregate receipt, crash-recovery, and revocation stores exist.
 - [ ] Yao production remains gated exactly as documented.
 
 ### Phase 1: Session And Claim
 
-- [ ] Replace the superseded QR surface with the v4 state machine.
-- [ ] Implement unclaimed sessions, authenticated owner claim, and expiry.
-- [ ] Delete legacy QR types, parsers, diagnostics, and fixtures.
+- [x] Replace the superseded QR surface with the v4 state machine.
+- [x] Implement unclaimed sessions, authenticated owner claim, and expiry.
+- [x] Delete legacy QR types, parsers, diagnostics, and fixtures.
 
 ### Phase 2: Device Credential And Provisioning
 
 - [ ] Create Device 2 passkey only after claim.
 - [ ] Provision exact Ed25519 and ECDSA child lanes.
-- [ ] Require child and aggregate receipts.
+- [x] Require child and aggregate receipts.
 - [ ] Resume committed delivery safely after transport or process failure.
 
 ### Phase 3: Signing And Revocation
