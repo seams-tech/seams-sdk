@@ -87,7 +87,7 @@ export function encodeLaneCanonicalU64V1(value: number): Uint8Array {
     throw new Error('canonical u64 must be a non-negative safe integer');
   }
   const output = new Uint8Array(8);
-  let remaining = BigInt(value);
+  const remaining = BigInt(value);
   for (let shift = 56; shift >= 0; shift -= 8) {
     output[7 - shift / 8] = Number((remaining >> BigInt(shift)) & 0xffn);
   }
