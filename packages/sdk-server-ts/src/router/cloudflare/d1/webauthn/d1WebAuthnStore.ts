@@ -13,7 +13,6 @@ import {
   type D1AuthenticatorRow,
   type D1RecordJsonRow,
   type WebAuthnAuthenticatorRecord,
-  type WebAuthnCredentialBindingRecord,
   type WebAuthnRecoveryRegistrationChallengeRecord,
   type WebAuthnLoginChallengeRecord,
   type WebAuthnSyncChallengeRecord,

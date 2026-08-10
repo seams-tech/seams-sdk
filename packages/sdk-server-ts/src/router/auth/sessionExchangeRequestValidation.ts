@@ -333,13 +333,34 @@ export function parseSessionExchangeRouteCommand(raw: unknown): SessionExchangeR
       sessionKind,
     );
   }
+  if (ecdsaActivation.kind === 'no_ecdsa_activation') {
+    return {
+      ok: true,
+      command: {
+        kind: 'passkey_assertion',
+        sessionKind,
+        challengeId,
+        webauthnAuthentication,
+        ecdsaActivation,
+        ...(expectedOrigin ? { expectedOrigin } : {}),
+        ...(projectEnvironmentId ? { projectEnvironmentId } : {}),
+      },
+    };
+  }
+  if (!walletId) {
+    return invalidSessionExchangeBody(
+      'exchange.wallet_id is required with ECDSA policy',
+      exchangeType,
+      sessionKind,
+    );
+  }
   return {
     ok: true,
     command: {
       kind: 'passkey_assertion',
       sessionKind,
       challengeId,
-      ...(walletId ? { walletId } : {}),
+      walletId,
       webauthnAuthentication,
       ecdsaActivation,
       ...(expectedOrigin ? { expectedOrigin } : {}),

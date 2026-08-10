@@ -305,6 +305,13 @@ export type WalletAddAuthMethodFinalizeRequest =
       custodyEnvelope?: never;
     };
 
+export type WalletAuthMethodStatusAnnotation<
+  Status extends WalletAuthMethodRecord['status'],
+> = {
+  kind: WalletAuthMethodRecord['kind'];
+  status: Status;
+};
+
 export type WalletAddAuthMethodFinalizeResponse =
   | {
       ok: true;

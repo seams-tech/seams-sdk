@@ -4221,17 +4221,28 @@ export class CloudflareD1WalletRegistrationService {
           message: 'ECDSA registration is missing its custody client root public key',
         };
       }
-      const walletSigners: WalletSignerRecord[] = activatedEcdsaBranch
-        ? buildD1WalletEcdsaSignerRecords({
+      const walletSigners: WalletSignerRecord[] = [];
+      if (activatedEcdsaBranch) {
+        const custodyClientRootPublicKey = custodyClientRootPublicKey33B64u;
+        if (!custodyClientRootPublicKey) {
+          return {
+            ok: false,
+            code: 'invalid_state',
+            message: 'ECDSA registration is missing its custody client root public key',
+          };
+        }
+        walletSigners.push(
+          ...buildD1WalletEcdsaSignerRecords({
             walletId: ceremony.intent.walletId,
             walletKeys: ecdsaWalletKeys,
             activationReceipt: activatedEcdsaBranch.activation,
             runtimePolicyScope: activatedEcdsaBranch.prepare.runtimePolicyScope,
             custodyKeyManifestDigestB64u,
-            custodyClientRootPublicKey33B64u,
+            custodyClientRootPublicKey33B64u: custodyClientRootPublicKey,
             now,
-          })
-        : [];
+          }),
+        );
+      }
       if (ed25519SignerRecord) walletSigners.push(ed25519SignerRecord);
       const persistenceTiming = startD1RegistrationRouteTiming('relayPersistenceMs');
       try {

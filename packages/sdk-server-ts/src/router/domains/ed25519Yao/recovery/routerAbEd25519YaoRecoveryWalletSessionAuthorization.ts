@@ -18,6 +18,7 @@ import type {
 import {
   deriveWalletRecoveryKeyLifecycleId,
   parseRecoveryCodeReservationId,
+  type WalletRecoveryKeySetId,
 } from '@shared/wallet-recovery/recoveryCodeReservation';
 
 function authorizationFailure(input: {
@@ -109,7 +110,7 @@ type WalletRecoveryAuthorizationClaims = {
   readonly kind: 'router_ab_ed25519_wallet_recovery_authorization_v1';
   readonly walletId: string;
   readonly reservationId: string;
-  readonly keySetId: string;
+  readonly keySetId: WalletRecoveryKeySetId;
   readonly lifecycleId: string;
   readonly thresholdSessionId: string;
   readonly rootShareEpoch: string;
@@ -119,13 +120,20 @@ type WalletRecoveryAuthorizationClaims = {
   readonly expiresAtMs: number;
 };
 
+function parseWalletRecoveryKeySetId(value: unknown): WalletRecoveryKeySetId | null {
+  if (typeof value !== 'string' || !/^(near_ed25519|evm_family_ecdsa):\S+$/.test(value)) {
+    return null;
+  }
+  return value as WalletRecoveryKeySetId;
+}
+
 function parseWalletRecoveryAuthorizationClaims(
   raw: Record<string, unknown>,
 ): WalletRecoveryAuthorizationClaims | null {
   if (raw.kind !== 'router_ab_ed25519_wallet_recovery_authorization_v1') return null;
   const walletId = String(raw.walletId || '').trim();
   const reservationId = String(raw.reservationId || '').trim();
-  const keySetId = String(raw.keySetId || '').trim();
+  const keySetId = parseWalletRecoveryKeySetId(raw.keySetId);
   const lifecycleId = String(raw.lifecycleId || '').trim();
   const thresholdSessionId = String(raw.thresholdSessionId || '').trim();
   const rootShareEpoch = String(raw.rootShareEpoch || '').trim();

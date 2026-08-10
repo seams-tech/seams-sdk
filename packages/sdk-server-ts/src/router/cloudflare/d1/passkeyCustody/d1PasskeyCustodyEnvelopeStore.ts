@@ -189,6 +189,16 @@ export type WalletCredentialActivityMutationResult =
   | { readonly kind: 'conflict' }
   | { readonly kind: 'invalid_label'; readonly reason: string };
 
+type ActivityMutationResult =
+  | WalletCredentialActivityRecordV1
+  | { readonly ok: false; readonly reason: string };
+
+function isActivityMutationRecord(
+  value: ActivityMutationResult,
+): value is WalletCredentialActivityRecordV1 {
+  return !('ok' in value);
+}
+
 function encodeEnvelope(envelope: PasskeyCustodyEnvelopeRecord): VersionedJsonObject {
   // The record is already a plain JSON-safe object; round-tripping it through
   // the parser on read is what enforces the schema, not this encoder.
@@ -578,7 +588,7 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
     envelope: PasskeyCustodyEnvelopeRecord,
     mutate: (
       record: WalletCredentialActivityRecordV1,
-    ) => WalletCredentialActivityRecordV1 | { readonly ok: false; readonly reason: string },
+    ) => ActivityMutationResult,
   ): Promise<WalletCredentialActivityMutationResult> {
     const walletId = envelope.walletId;
     const key = activityRecordKey(walletId, envelope.envelopeId);
@@ -588,6 +598,9 @@ export class CloudflareD1PasskeyCustodyEnvelopeStore {
     const next = mutate(base);
     if ('ok' in next && next.ok === false) {
       return { kind: 'invalid_label', reason: next.reason };
+    }
+    if (!isActivityMutationRecord(next)) {
+      return { kind: 'invalid_label', reason: 'Invalid credential activity record' };
     }
     const stored = await this.activityRecords.put(
       key,

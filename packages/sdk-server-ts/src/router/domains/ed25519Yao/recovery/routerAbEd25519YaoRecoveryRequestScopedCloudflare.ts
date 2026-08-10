@@ -478,6 +478,17 @@ async function runWarmRecoveryBootstrapRequest(
       { status: authorized.status },
     );
   }
+  if (authorized.claims.kind !== 'wallet_session') {
+    return json(
+      {
+        ok: false,
+        code: 'wallet_session_claims_invalid',
+        message: 'warm recovery requires a Wallet Session',
+      },
+      { status: 401 },
+    );
+  }
+  const claims = authorized.claims.value;
   const activeCapability = await context.input.capabilities.resolveActiveCapability({
     kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
     walletId: request.walletId,
@@ -495,7 +506,7 @@ async function runWarmRecoveryBootstrapRequest(
   if (
     !warmBootstrapCapabilityMatchesStableIdentity({
       request,
-      claims: authorized.claims,
+      claims,
       capability: activeCapability.capability,
     })
   ) {
@@ -508,8 +519,8 @@ async function runWarmRecoveryBootstrapRequest(
       { status: 409 },
     );
   }
-  const firstParticipantId = authorized.claims.participantIds[0];
-  const secondParticipantId = authorized.claims.participantIds[1];
+  const firstParticipantId = claims.participantIds[0];
+  const secondParticipantId = claims.participantIds[1];
   if (firstParticipantId === undefined || secondParticipantId === undefined) {
     return json(
       {
@@ -521,7 +532,7 @@ async function runWarmRecoveryBootstrapRequest(
     );
   }
   const identity = parseWarmRecoveryWalletSessionIdentity({
-    thresholdSessionId: authorized.claims.thresholdSessionId,
+    thresholdSessionId: claims.thresholdSessionId,
   });
   if (!identity) {
     return json(
@@ -535,21 +546,21 @@ async function runWarmRecoveryBootstrapRequest(
   }
   const response: RouterAbEd25519YaoWarmRecoveryBootstrapV1 = {
     kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1',
-    walletId: authorized.claims.walletId,
-    nearAccountId: authorized.claims.nearAccountId,
-    nearEd25519SigningKeyId: authorized.claims.nearEd25519SigningKeyId,
+    walletId: claims.walletId,
+    nearAccountId: claims.nearAccountId,
+    nearEd25519SigningKeyId: claims.nearEd25519SigningKeyId,
     signerSlot: request.signerSlot,
     thresholdSessionId: identity.thresholdSessionId,
-    walletSessionId: authorized.claims.walletSessionId,
-    quotaId: authorized.claims.quotaId,
-    signingWorkerId: authorized.claims.routerAbNormalSigning.signingWorkerId,
-    thresholdExpiresAtMs: authorized.claims.thresholdExpiresAtMs,
+    walletSessionId: claims.walletSessionId,
+    quotaId: claims.quotaId,
+    signingWorkerId: claims.routerAbNormalSigning.signingWorkerId,
+    thresholdExpiresAtMs: claims.thresholdExpiresAtMs,
     participantIds: [firstParticipantId, secondParticipantId],
-    authority: authorized.claims.authority,
-    authorityRef: await walletAuthAuthorityRef({ authority: authorized.claims.authority }),
-    authorityScope: authorized.claims.authorityScope,
-    runtimePolicyScope: authorized.claims.runtimePolicyScope,
-    routerAbNormalSigning: authorized.claims.routerAbNormalSigning,
+    authority: claims.authority,
+    authorityRef: await walletAuthAuthorityRef({ authority: claims.authority }),
+    authorityScope: claims.authorityScope,
+    runtimePolicyScope: claims.runtimePolicyScope,
+    routerAbNormalSigning: claims.routerAbNormalSigning,
     capability: activeCapability.capability,
   };
   return json(response, { status: 200 });
