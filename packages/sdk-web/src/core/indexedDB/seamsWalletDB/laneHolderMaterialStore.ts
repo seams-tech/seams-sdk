@@ -236,7 +236,10 @@ export class LaneSealedHolderMaterialRepository implements LaneSealedHolderMater
     if (current && JSON.stringify(current) !== JSON.stringify(record)) {
       throw new Error('lane sealed holder record conflicts with its exact store key');
     }
-    await this.seals.putSealedRecord(rowForRecord(record));
+    const persisted = await this.seals.putSealedRecord(rowForRecord(record));
+    if (!persisted) {
+      throw new Error('Canonical lane holder material persistence is unavailable');
+    }
     this.volatileRecords.set(key, record);
   }
 
