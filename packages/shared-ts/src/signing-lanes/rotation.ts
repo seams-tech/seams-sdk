@@ -1010,5 +1010,4 @@ export type LaneEnrollmentGatewayV1 = {
   completeSigningLaneRevocationV1(
     input: CompleteSigningLaneRevocationV1,
   ): Promise<LaneSigningLaneRevocationResultV1>;
-  revokeLaneEnrollmentV1(input: RevokeLaneEnrollmentV1): Promise<LaneEnrollmentRevocationResultV1>;
 };
