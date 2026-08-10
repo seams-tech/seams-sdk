@@ -2150,6 +2150,8 @@ function assertServerActivationReceiptIdentity(
     String(receipt.targetLaneShareEpoch) !== String(job.target.laneShareEpoch) ||
     String(receipt.targetMaterialActivation.activationId) !==
       String(job.targetMaterialActivationId) ||
+    String(receipt.targetMaterialActivation.signingWorker) !==
+      String(job.targetSigningWorker.participantId) ||
     receipt.signingWorkerParticipantBindingDigestB64u !==
       job.targetSigningWorker.participantBindingDigestB64u
   ) {
