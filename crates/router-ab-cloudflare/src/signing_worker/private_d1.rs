@@ -62,6 +62,18 @@ CREATE TABLE IF NOT EXISTS signing_worker_secret_states (
   version INTEGER NOT NULL,
   updated_at_ms INTEGER NOT NULL,
   PRIMARY KEY(purpose, record_key)
+);
+CREATE TABLE IF NOT EXISTS signing_worker_lane_material (
+  operation_key TEXT PRIMARY KEY,
+  activation_id TEXT NOT NULL UNIQUE,
+  wallet_key_id TEXT NOT NULL,
+  target_lane_id TEXT NOT NULL,
+  target_lane_share_epoch TEXT NOT NULL,
+  identity_digest_b64u TEXT NOT NULL,
+  record_json TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  UNIQUE(wallet_key_id, target_lane_id, target_lane_share_epoch)
 );"#;
 
 #[derive(Debug, Deserialize)]
@@ -139,13 +151,13 @@ impl SigningWorkerPrivateD1CipherV1 {
                 map_d1_error("SigningWorker private D1 KEK secret is missing", error)
             })?;
         let mut encoded_private_key = secret.to_string();
-        let private_key_bytes =
+        let mut private_key_bytes =
             decode_cloudflare_server_output_hpke_private_key_secret_v1(&encoded_private_key)?;
         encoded_private_key.zeroize();
-        let private_key =
-            CloudflareHpkeKemV1::sk_from_bytes(&private_key_bytes).map_err(|error| {
-                d1_error(format!("SigningWorker private D1 KEK is invalid: {error}"))
-            })?;
+        let private_key_result = CloudflareHpkeKemV1::sk_from_bytes(&private_key_bytes)
+            .map_err(|error| d1_error(format!("SigningWorker private D1 KEK is invalid: {error}")));
+        private_key_bytes.zeroize();
+        let private_key = private_key_result?;
         Ok(Self {
             environment,
             key_version,
@@ -160,17 +172,18 @@ impl SigningWorkerPrivateD1CipherV1 {
         identity: &str,
         value: &T,
     ) -> RouterAbProtocolResult<String> {
-        let plaintext = encode_json("SigningWorker private D1 secret", value)?;
+        let mut plaintext = encode_json("SigningWorker private D1 secret", value)?;
         let aad = self.aad(purpose, identity);
         let mut rng = CloudflareHpkeGetrandomRngV1;
-        let (encapped_key, ciphertext) = CloudflareHpkeSuiteV1::seal_base(
+        let sealed = CloudflareHpkeSuiteV1::seal_base(
             &mut rng,
             &self.public_key,
             SIGNING_WORKER_PRIVATE_D1_HPKE_INFO_V1,
             aad.as_bytes(),
             plaintext.as_bytes(),
-        )
-        .map_err(|error| {
+        );
+        plaintext.zeroize();
+        let (encapped_key, ciphertext) = sealed.map_err(|error| {
             d1_error(format!(
                 "SigningWorker private D1 secret encryption failed: {error}"
             ))
@@ -228,9 +241,11 @@ impl SigningWorkerPrivateD1CipherV1 {
                 "SigningWorker private D1 secret decryption failed: {error}"
             ))
         })?;
-        let plaintext = String::from_utf8(plaintext)
+        let mut plaintext = String::from_utf8(plaintext)
             .map_err(|_| d1_error("SigningWorker private D1 plaintext is not UTF-8"))?;
-        decode_json("SigningWorker private D1 secret", &plaintext)
+        let decoded = decode_json("SigningWorker private D1 secret", &plaintext);
+        plaintext.zeroize();
+        decoded
     }
 
     fn aad(&self, purpose: &'static str, identity: &str) -> String {
@@ -778,6 +793,186 @@ where
         ));
     }
     Ok(())
+}
+
+async fn signing_worker_lane_material_row_v1(
+    db: &D1DatabaseSession,
+    operation_key: &str,
+) -> RouterAbProtocolResult<Option<VersionedJsonRowV1>> {
+    db.prepare(
+        "SELECT record_json, version
+         FROM signing_worker_lane_material
+         WHERE operation_key = ?1",
+    )
+    .bind(&[js_string(operation_key)])
+    .map_err(|error| map_d1_error("SigningWorker lane material query bind failed", error))?
+    .first(None)
+    .await
+    .map_err(|error| map_d1_error("SigningWorker lane material query failed", error))
+}
+
+async fn load_signing_worker_lane_material_record_v1(
+    db: &D1DatabaseSession,
+    cipher: &SigningWorkerPrivateD1CipherV1,
+    identity: &CloudflareSigningWorkerLaneMaterialIdentityV1,
+) -> RouterAbProtocolResult<CloudflareSigningWorkerLaneMaterialRecordV1> {
+    identity.validate()?;
+    let row = signing_worker_lane_material_row_v1(db, &identity.operation_id)
+        .await?
+        .ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MissingLocalBinding,
+                "SigningWorker lane material is missing",
+            )
+        })?;
+    let record = cipher.open::<CloudflareSigningWorkerLaneMaterialRecordV1>(
+        "lane_material",
+        &identity.operation_id,
+        &row.record_json,
+    )?;
+    record.validate()?;
+    if record.identity != *identity {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ReplayedLocalRequest,
+            "SigningWorker lane operation was reused for different identity material",
+        ));
+    }
+    Ok(record)
+}
+
+/// Loads the exact holder-only redelivery payload for an authenticated claim.
+pub async fn load_cloudflare_signing_worker_lane_holder_redelivery_v1(
+    env: &Env,
+    identity: &CloudflareSigningWorkerLaneMaterialIdentityV1,
+) -> RouterAbProtocolResult<CloudflareSigningWorkerLaneHolderRedeliveryV1> {
+    let database = signing_worker_private_d1_from_env_v1(env)?;
+    let db = database
+        .with_session_constraint(D1SessionConstraint::FirstPrimary)
+        .map_err(|error| map_d1_error("SigningWorker lane primary session failed", error))?;
+    let cipher = SigningWorkerPrivateD1CipherV1::from_env(env)?;
+    load_signing_worker_lane_material_record_v1(&db, &cipher, identity)
+        .await?
+        .holder_redelivery()
+}
+
+/// Loads active server material only while the exact lane is active and unretired.
+pub async fn load_cloudflare_signing_worker_active_lane_material_v1(
+    env: &Env,
+    identity: &CloudflareSigningWorkerLaneMaterialIdentityV1,
+) -> RouterAbProtocolResult<CloudflareSigningWorkerLaneArtifactV1> {
+    let database = signing_worker_private_d1_from_env_v1(env)?;
+    let db = database
+        .with_session_constraint(D1SessionConstraint::FirstPrimary)
+        .map_err(|error| map_d1_error("SigningWorker lane primary session failed", error))?;
+    let cipher = SigningWorkerPrivateD1CipherV1::from_env(env)?;
+    load_signing_worker_lane_material_record_v1(&db, &cipher, identity)
+        .await?
+        .active_server_material()
+}
+
+/// Resolves an admitted normal-signing lookup through the active-lane fence.
+pub async fn load_cloudflare_signing_worker_normal_signing_lane_material_v1(
+    env: &Env,
+    lookup: &CloudflareSigningWorkerNormalSigningLaneMaterialLookupV1,
+) -> RouterAbProtocolResult<CloudflareSigningWorkerLaneArtifactV1> {
+    lookup.validate()?;
+    load_cloudflare_signing_worker_active_lane_material_v1(env, &lookup.identity).await
+}
+
+/// Applies one exact lane-material command against SigningWorker-private D1.
+pub async fn execute_cloudflare_signing_worker_lane_material_command_v1(
+    env: &Env,
+    command: &CloudflareSigningWorkerLaneMaterialCommandV1,
+) -> RouterAbProtocolResult<CloudflareSigningWorkerLaneMaterialEffectV1> {
+    command.validate()?;
+    let identity = command.identity();
+    let identity_digest_b64u = identity.digest_b64u()?;
+    let operation_key = identity.operation_id.clone();
+    let database = signing_worker_private_d1_from_env_v1(env)?;
+    let db = database
+        .with_session_constraint(D1SessionConstraint::FirstPrimary)
+        .map_err(|error| map_d1_error("SigningWorker lane primary session failed", error))?;
+    let cipher = SigningWorkerPrivateD1CipherV1::from_env(env)?;
+    for _ in 0..4 {
+        let current = signing_worker_lane_material_row_v1(&db, &operation_key).await?;
+        let current_record = current
+            .as_ref()
+            .map(|row| {
+                cipher.open::<CloudflareSigningWorkerLaneMaterialRecordV1>(
+                    "lane_material",
+                    &operation_key,
+                    &row.record_json,
+                )
+            })
+            .transpose()?;
+        let mutation = apply_cloudflare_signing_worker_lane_material_command_v1(
+            current_record,
+            command.clone(),
+        )?;
+        if !mutation.changed {
+            return project_cloudflare_signing_worker_lane_material_effect_v1(&mutation, command);
+        }
+        let record_json = cipher.seal("lane_material", &operation_key, &mutation.record)?;
+        let write = match current {
+            None => db
+                .prepare(
+                    "INSERT OR IGNORE INTO signing_worker_lane_material
+                     (operation_key, activation_id, wallet_key_id, target_lane_id,
+                      target_lane_share_epoch, identity_digest_b64u, record_json, version,
+                      updated_at_ms)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8)",
+                )
+                .bind(&[
+                    js_string(&operation_key),
+                    js_string(&identity.target_material_activation_id),
+                    js_string(&identity.wallet_key_id),
+                    js_string(&identity.target_lane_id),
+                    js_string(&identity.target_lane_share_epoch),
+                    js_string(&identity_digest_b64u),
+                    js_string(&record_json),
+                    js_u64(
+                        "SigningWorker lane material timestamp",
+                        command.updated_at_ms(),
+                    )?,
+                ]),
+            Some(row) => db
+                .prepare(
+                    "UPDATE signing_worker_lane_material
+                     SET record_json = ?1, version = version + 1, updated_at_ms = ?2
+                     WHERE operation_key = ?3 AND identity_digest_b64u = ?4 AND version = ?5",
+                )
+                .bind(&[
+                    js_string(&record_json),
+                    js_u64(
+                        "SigningWorker lane material timestamp",
+                        command.updated_at_ms(),
+                    )?,
+                    js_string(&operation_key),
+                    js_string(&identity_digest_b64u),
+                    JsValue::from_f64(row.version as f64),
+                ]),
+        }
+        .map_err(|error| map_d1_error("SigningWorker lane material write bind failed", error))?
+        .run()
+        .await
+        .map_err(|error| map_d1_error("SigningWorker lane material write failed", error))?;
+        if d1_changes(&write)? == 1 {
+            return project_cloudflare_signing_worker_lane_material_effect_v1(&mutation, command);
+        }
+        if signing_worker_lane_material_row_v1(&db, &operation_key)
+            .await?
+            .is_none()
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "SigningWorker lane activation or lane epoch is already owned by another operation",
+            ));
+        }
+    }
+    Err(RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::ConflictingPair,
+        "SigningWorker lane material changed concurrently",
+    ))
 }
 
 async fn activation_row_by_material_key_v1(
