@@ -28,7 +28,7 @@ The authoritative protocol and deployment documents are:
 - [R90: modular auth and capabilities](refactor-90-modular-auth-capabilities-plan.md)
 - [R102: rotatable signing lanes](refactor-102-rotatable-signing-lanes.md)
 - [R115: deployment portability](refactor-115-deployment-portability.md)
-- [Self-hosting plan](refactor-120-self-hosting.md)
+- [Self-hosting plan](../examples/self-host-cloudflare-worker/refactor-130-cloudflare-self-hosted-wallets.md)
 
 Those documents own protocol behavior and product sequencing. This document owns the
 operational distinction between deployment-root custody, deployment-root share
@@ -301,7 +301,7 @@ For deployment-root Secret custody, the repository does not currently implement:
 - managed customer-held recovery shares;
 - physically distinct deployment-root pairs per managed tenant;
 - export of managed deployment root material;
-- the separate [self-hosting plan](refactor-120-self-hosting.md)'s production
+- the separate [self-hosting plan](../examples/self-host-cloudflare-worker/refactor-130-cloudflare-self-hosted-wallets.md)'s production
   bootstrap and recovery package.
 
 Documentation and operations must describe these as gaps until executable code,
@@ -490,7 +490,7 @@ deployment-specific manual procedure and may require root replacement.
 - The host becomes responsible for backup, recovery, rotation, and destruction.
 - R115 imports wallet-specific material through role-local handoff capsules and
   verifies that wallet public keys and addresses remain unchanged.
-- The separate [self-hosting plan](refactor-120-self-hosting.md) requires an encrypted
+- The separate [self-hosting plan](../examples/self-host-cloudflare-worker/refactor-130-cloudflare-self-hosted-wallets.md) requires an encrypted
   recovery package for disaster recovery within the same self-hosted trust domain.
 
 Moving a tenant from managed to self-hosted is a deployment migration. It is not a
@@ -639,7 +639,7 @@ Before implementing refresh, the project must decide:
 - This document does not define wallet-level share-refresh cryptography; R102 owns it.
 - It does not define tenant export payloads; R115 owns them.
 - It does not define self-host bootstrap UX or packaging; the separate
-  [self-hosting plan](refactor-120-self-hosting.md) owns them.
+  [self-hosting plan](../examples/self-host-cloudflare-worker/refactor-130-cloudflare-self-hosted-wallets.md) owns them.
 - It does not introduce per-tenant managed root pairs or customer-held third shares.
 - It does not enumerate wallets, migrate client threshold shares, or reactivate wallet
   material during deployment-root refresh.
