@@ -5,7 +5,6 @@ import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimiti
 import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
 import type {
-  LinkedDeviceSessionRecordV1,
   LinkedDeviceSessionServiceResultV1,
   LinkedDeviceSessionServiceV1,
 } from '../../../../core/deviceLinking/linkedDeviceSession';
