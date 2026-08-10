@@ -1,9 +1,11 @@
 mod derivation;
 mod errors;
+mod lane_resharing;
 mod presign;
 
 use wasm_bindgen::prelude::*;
 
+pub use lane_resharing::EcdsaLaneSigningWorkerSessionV1;
 pub use presign::SigningWorkerPresignSession;
 
 #[wasm_bindgen]

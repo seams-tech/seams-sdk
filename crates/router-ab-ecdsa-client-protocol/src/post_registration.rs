@@ -343,7 +343,7 @@ pub enum EcdsaMaterialActivationRefKindV1 {
 
 /// Exact material activation identity carried by an export or activation refresh.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EcdsaMaterialActivationRefV1 {
     /// Wire discriminant.
     pub kind: EcdsaMaterialActivationRefKindV1,

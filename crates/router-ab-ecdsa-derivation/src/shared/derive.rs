@@ -200,6 +200,18 @@ pub fn sample_ecdsa_lane_client_share_v1(
     })
 }
 
+/// Derives the compressed public commitment for one role-local client share.
+///
+/// The scalar is consumed and zeroized so callers can bind an opened ready
+/// state to an immutable lane job without exporting the scalar further.
+pub fn ecdsa_lane_client_public_key_from_share32_v1(
+    client_share32: [u8; 32],
+) -> RouterAbEcdsaDerivationResult<[u8; 33]> {
+    let client_share32 = Zeroizing::new(client_share32);
+    parse_nonzero_scalar_32_be(client_share32.as_ref(), "client share")?;
+    private_key_to_public_key33(&client_share32, "client public key")
+}
+
 /// Compute the transient holder-to-relayer delta for a target client share.
 pub fn derive_ecdsa_lane_delta_v1(
     source_client_share: &ClientRoleShare,
