@@ -391,6 +391,11 @@ impl Ed25519YaoLaneJobV1 {
             "target_material_activation_id",
             &self.target_material_activation_id,
         )?;
+        if self.target_material_activation_id == self.source.material_activation.activation_id {
+            return Err(invalid_lane(
+                "lane target material activation must be fresh",
+            ));
+        }
         self.target_holder.validate()?;
         self.target_signing_worker.validate()?;
         if self.protocol_version != "rotatable_signing_lane_protocol_v1" {
