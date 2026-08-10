@@ -4,6 +4,7 @@ use router_ab_ecdsa_client_protocol::{
     EcdsaAdditiveLaneHolderRoundV1, EcdsaAdditiveLaneJobV1, EcdsaClientProtocolError,
     EcdsaLaneEncryptedPayloadV1,
 };
+use router_ab_ecdsa_derivation::shared::secp256k1::add_secp256k1_public_keys_33;
 use router_ab_ecdsa_derivation::{
     derive_ecdsa_lane_delta_from_source_share32_v1, ecdsa_lane_client_public_key_from_share32_v1,
     sample_ecdsa_lane_client_share_v1, EcdsaLaneClientShare,
@@ -13,7 +14,7 @@ use signer_core::ecdsa_role_local_client::command::{
     extract_client_signing_share32_from_ready_state_blob, EcdsaRoleLocalReadyStateBlob,
 };
 use wasm_bindgen::prelude::*;
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 const HOLDER_PREPARATION_KIND_V1: &str = "ecdsa_additive_lane_holder_preparation_v1";
 const HOLDER_PACKAGE_KIND_V1: &str = "ecdsa_additive_lane_holder_package_v1";
@@ -53,8 +54,15 @@ struct HolderPreparationOutputV1<'a> {
 /// One-use holder-side ECDSA lane session. The source client scalar remains
 /// inside this Rust/WASM object and is consumed by the first preparation.
 #[wasm_bindgen]
+#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct EcdsaLaneHolderSessionV1 {
     ready_state_blob: Option<EcdsaRoleLocalReadyStateBlob>,
+}
+
+impl EcdsaLaneHolderSessionV1 {
+    fn take_ready_state_blob(&mut self) -> Option<EcdsaRoleLocalReadyStateBlob> {
+        self.ready_state_blob.take()
+    }
 }
 
 #[wasm_bindgen]
@@ -79,8 +87,7 @@ impl EcdsaLaneHolderSessionV1 {
             .map_err(|error| js_error(format!("lane holder input is invalid: {error}")))?;
         input.job.validate().map_err(protocol_error)?;
         let ready_state_blob = self
-            .ready_state_blob
-            .take()
+            .take_ready_state_blob()
             .ok_or_else(|| js_error("ECDSA lane holder session was already consumed"))?;
         prepare_holder_artifact(ready_state_blob, input)
     }
@@ -103,6 +110,22 @@ fn prepare_holder_artifact(
     if source_public_key33 != admitted_source_key33 {
         return Err(js_error(
             "ready-state client share does not match the admitted source lane",
+        ));
+    }
+    let admitted_server_key33 = decode_fixed::<33>(
+        &input.job.source_server_verifying_share33_b64u,
+        "job.sourceServerVerifyingShare33B64u",
+    )?;
+    let admitted_threshold_key33 = decode_fixed::<33>(
+        &input.job.threshold_public_key33_b64u,
+        "job.thresholdPublicKey33B64u",
+    )?;
+    let reconstructed_threshold_key33 =
+        add_secp256k1_public_keys_33(&source_public_key33, &admitted_server_key33)
+            .map_err(derivation_error)?;
+    if reconstructed_threshold_key33.as_slice() != admitted_threshold_key33 {
+        return Err(js_error(
+            "admitted source shares do not reconstruct the lane threshold public key",
         ));
     }
 
@@ -201,4 +224,23 @@ fn protocol_error(error: EcdsaClientProtocolError) -> JsValue {
 
 fn derivation_error(error: impl core::fmt::Display) -> JsValue {
     js_error(format!("ECDSA lane derivation failed: {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_zeroize_on_drop<T: ZeroizeOnDrop>() {}
+
+    #[test]
+    fn holder_session_consumes_and_zeroizes_its_ready_state() {
+        assert_zeroize_on_drop::<EcdsaLaneHolderSessionV1>();
+        let mut session = EcdsaLaneHolderSessionV1 {
+            ready_state_blob: Some(EcdsaRoleLocalReadyStateBlob {
+                state_blob: vec![7_u8; 32],
+            }),
+        };
+        assert!(session.take_ready_state_blob().is_some());
+        assert!(session.take_ready_state_blob().is_none());
+    }
 }
