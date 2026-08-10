@@ -144,6 +144,32 @@ function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+/** Compare parsed JSON records without relying on insertion order. */
+export function equalLaneRecords(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (left === null || right === null || typeof left !== typeof right) return false;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+      return false;
+    }
+    for (let index = 0; index < left.length; index += 1) {
+      if (!equalLaneRecords(left[index], right[index])) return false;
+    }
+    return true;
+  }
+  if (isJsonRecord(left) && isJsonRecord(right)) {
+    const leftKeys = Object.keys(left).sort();
+    const rightKeys = Object.keys(right).sort();
+    if (leftKeys.length !== rightKeys.length) return false;
+    for (let index = 0; index < leftKeys.length; index += 1) {
+      const key = leftKeys[index];
+      if (key !== rightKeys[index] || !equalLaneRecords(left[key], right[key])) return false;
+    }
+    return true;
+  }
+  return false;
+}
+
 export function parseEnrollmentRow(row: LaneEnrollmentRow): {
   readonly enrollmentId: string;
   readonly walletId: string;
