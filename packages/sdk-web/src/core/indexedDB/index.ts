@@ -14,6 +14,16 @@ export { upgradeSeamsWalletDBSchema } from './seamsWalletDB/schema';
 export { SeamsWalletDBManager } from './seamsWalletDB/manager';
 export { SeamsWalletRepositories } from './seamsWalletDB/repositories';
 export {
+  LaneSealedHolderMaterialRepository,
+  laneSealedHolderMaterialRepository,
+  laneSealedHolderStoreKeyV1,
+} from './seamsWalletDB/laneHolderMaterialStore';
+export type {
+  LaneSealedHolderMaterialRepositoryV1,
+  LaneSealedHolderRecordV1,
+  LaneSealedHolderRecordLookupV1,
+} from './seamsWalletDB/laneHolderMaterialStore';
+export {
   WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
   WalletSessionAuthorizationRepository,
   buildActiveWalletSessionAuthorizationProjection,
@@ -81,7 +91,6 @@ export type {
   EnqueueSignerOperationInput,
   LocalWalletAuthMethodRecord,
 } from './passkeyClientDB.types';
-
 
 export type {
   KeyMaterialAlgorithm,
