@@ -4,6 +4,8 @@ import type {
   VerifiedWalletSessionAuth,
 } from './verifiedWalletSessionAuth';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import type { RouterAbEcdsaDerivationWalletSessionClaims } from '../../core/ThresholdService/validation';
 import type {
   MpcWalletSigningQuotaId,
   WalletSessionAuthorizationId,
@@ -13,6 +15,8 @@ import type {
 declare const authorizationId: WalletSessionAuthorizationId;
 declare const walletSessionId: WalletSessionId;
 declare const quotaId: MpcWalletSigningQuotaId;
+declare const walletAuthAuthorityRef: WalletAuthAuthorityRef;
+declare const ecdsaAuthSource: RouterAbEcdsaDerivationWalletSessionClaims['authSource'];
 
 const passkeyAuthority = buildPasskeyWalletAuthAuthority({
   walletId: 'wallet-ed25519',
@@ -32,6 +36,8 @@ const ecdsaAuth = {
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
   keyHandle: 'ederivation-key-1',
+  walletAuthAuthorityRef,
+  authSource: ecdsaAuthSource,
 } satisfies VerifiedEcdsaWalletSessionAuth;
 
 const ed25519Auth = {
@@ -73,6 +79,8 @@ const invalidEcdsaWithEd25519OnlyField = {
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
   keyHandle: 'ederivation-key-1',
+  walletAuthAuthorityRef,
+  authSource: ecdsaAuthSource,
   // @ts-expect-error ECDSA auth must not carry Ed25519-only relayer identity.
   ed25519RelayerKeyId: 'ed25519-relayer',
 } satisfies VerifiedEcdsaWalletSessionAuth;
@@ -90,6 +98,8 @@ const invalidEcdsaWithSigningSlot = {
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
   keyHandle: 'ederivation-key-1',
+  walletAuthAuthorityRef,
+  authSource: ecdsaAuthSource,
   // @ts-expect-error Wallet Session authorization must not carry material slot identity.
   evmFamilySigningKeySlotId: 'wallet-key-example-localhost',
 } satisfies VerifiedEcdsaWalletSessionAuth;

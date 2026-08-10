@@ -124,14 +124,14 @@ import {
 } from '../../../../authorization/factorEvidence';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
-import { parseEmailOtpChallengeId } from '@shared/utils/domainIds';
+import { parseEmailOtpChallengeId, parseWalletId } from '@shared/utils/domainIds';
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
   WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
 } from '@shared/utils/emailOtpDomain';
 import { hashEmailOtpAppSessionClaims } from '../../../domains/emailOtp/emailOtpSessionRouteHelpers';
-import { proxyNormalSigningRequestToMpcRouter } from './normalSigningRouterProxy';
+import { proxyOwnerLaneAdmittedNormalSigningRequest } from './normalSigningRouterProxy';
 import {
   sameRouterAbMpcMaterialActivationRef,
   type RouterAbMpcMaterialActivationRefWire,
@@ -403,9 +403,37 @@ async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
       },
     });
   }
-  const upstream = await proxyNormalSigningRequestToMpcRouter({
+  const signingRequest =
+    input.phase === 'prepare'
+      ? parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(input.body)
+      : parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1(input.body);
+  const signingWalletId = parseWalletId(signingRequest.scope.wallet_id);
+  if (!signingWalletId.ok) {
+    return json(
+      { ok: false, code: 'invalid_body', message: 'ECDSA signing wallet is invalid' },
+      { status: 400 },
+    );
+  }
+  const laneAuthorization =
+    authorization.kind === 'operation_step_up'
+      ? {
+          kind: 'authority_ref' as const,
+          authorityRef: authorization.session.walletAuthAuthorityRef,
+          authSource: authorization.session.authSource,
+        }
+      : {
+          kind: 'authority_ref' as const,
+          authorityRef: authorization.validated.walletSessionAuth.walletAuthAuthorityRef,
+          authSource: authorization.validated.walletSessionAuth.authSource,
+        };
+  const upstream = await proxyOwnerLaneAdmittedNormalSigningRequest({
     request: input.ctx.request,
     proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+    authorizedOperation,
+    walletId: signingWalletId.value,
+    expectedMaterialActivation: signingRequest.material_activation,
+    authorization: laneAuthorization,
+    walletRegistration: input.ctx.service.walletRegistration,
     body: {
       ...input.body,
       authorized_operation: authorizedOperationWire,
@@ -2066,6 +2094,8 @@ type StrictEcdsaReusableWalletSessionAuthorization =
       readonly quotaId: MpcWalletSigningQuotaId;
       readonly expiresAtMs: number;
       readonly remainingUses: number;
+      readonly authorityRef: WalletAuthAuthorityRef;
+      readonly authSource: RouterAbEcdsaDerivationWalletSessionClaims['authSource'];
     }
   | {
       readonly ok: false;
@@ -2126,6 +2156,8 @@ async function authorizeStrictEcdsaSessionActivationFromEd25519Claims(input: {
     quotaId: claims.quotaId,
     expiresAtMs: status.expiresAtMs,
     remainingUses: status.remainingUses,
+    authorityRef: await walletAuthAuthorityRef({ authority: claims.authority }),
+    authSource: activeSession.authSource,
   };
 }
 
@@ -2141,6 +2173,7 @@ async function authorizeStrictEcdsaSessionActivation(input: {
       readonly principalId: PrincipalId;
       readonly authorizationSessionId: SeamsSessionId;
       readonly authority: WalletAuthAuthorityRef;
+      readonly authSource: RouterAbEcdsaDerivationWalletSessionClaims['authSource'];
     }
   | StrictEcdsaReusableWalletSessionAuthorization
 > {
@@ -2182,6 +2215,7 @@ async function authorizeStrictEcdsaSessionActivation(input: {
       principalId: principalId.value,
       authorizationSessionId: appSessionClaims.seamsSessionId,
       authority: input.verifiedAuthority,
+      authSource: activeSession.authSource,
     };
   }
   if (ecdsaClaims?.walletId === input.walletId) {
@@ -2227,6 +2261,8 @@ async function authorizeStrictEcdsaSessionActivation(input: {
       quotaId: ecdsaClaims.quotaId,
       expiresAtMs: status.expiresAtMs,
       remainingUses: status.remainingUses,
+      authorityRef: ecdsaClaims.walletAuthAuthorityRef,
+      authSource: ecdsaClaims.authSource,
     };
   }
   if (ed25519Claims) {
@@ -2286,6 +2322,7 @@ async function authorizeStrictEcdsaSessionActivation(input: {
       principalId: principalId.value,
       authorizationSessionId: appSessionClaims.seamsSessionId,
       authority: appSessionClaims.walletAuthAuthorityRef,
+      authSource: activeSession.authSource,
     };
   }
   return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.scopeMismatch);
@@ -2356,6 +2393,7 @@ type StrictEcdsaSessionActivationInput =
         readonly principalId: PrincipalId;
         readonly authorizationSessionId: SeamsSessionId;
         readonly authority: WalletAuthAuthorityRef;
+        readonly authSource: RouterAbEcdsaDerivationWalletSessionClaims['authSource'];
       };
     };
 
@@ -2387,6 +2425,7 @@ export async function handleStrictEcdsaSessionActivation(
             principalId: input.authorization.principalId,
             authorizationSessionId: input.authorization.authorizationSessionId,
             authority: input.authorization.authority,
+            authSource: input.authorization.authSource,
           }
         : {
             ok: false as const,
@@ -2422,6 +2461,8 @@ export async function handleStrictEcdsaSessionActivation(
   let walletSessionId: WalletSessionId;
   let quotaId: MpcWalletSigningQuotaId;
   let authorizationId: WalletSessionAuthorizationId;
+  let walletAuthAuthorityRef: WalletAuthAuthorityRef;
+  let authSource: RouterAbEcdsaDerivationWalletSessionClaims['authSource'];
   let expiresAtMs = activated.session.expiresAtMs;
   let remainingUses = activated.session.remainingUses;
   if (authorized.kind === 'issue_reusable_wallet_session') {
@@ -2449,15 +2490,21 @@ export async function handleStrictEcdsaSessionActivation(
     walletSessionId = issued.quota.walletSessionId;
     quotaId = issued.quota.quotaId;
     authorizationId = issued.session.authorizationId;
+    walletAuthAuthorityRef = authorized.authority;
+    authSource = authorized.authSource;
   } else {
     authorizationId = authorized.authorizationId;
     walletSessionId = authorized.walletSessionId;
     quotaId = authorized.quotaId;
     expiresAtMs = authorized.expiresAtMs;
     remainingUses = authorized.remainingUses;
+    walletAuthAuthorityRef = authorized.authorityRef;
+    authSource = authorized.authSource;
   }
   const signed = await signRouterAbEcdsaDerivationWalletSessionJwt({
     session: input.ctx.opts.session,
+    walletAuthAuthorityRef,
+    authSource,
     userId: walletKey.walletId,
     relayerKeyId: walletKey.relayerKeyId,
     sessionInfo: {

@@ -33,6 +33,15 @@ export function buildRouterAbEcdsaWalletSessionClaimsFixture(
     thresholdSessionId: input.thresholdSessionId ?? 'threshold-session-fixture',
     authorizationId: input.authorizationId ?? 'authorization-grant-ecdsa-fixture',
     authorizationSessionId: input.authorizationSessionId ?? 'authorization-session-fixture',
+    walletAuthAuthorityRef: {
+      kind: 'wallet_auth_authority_ref',
+      walletId: input.walletId,
+      authorityDigest: 'authority-digest-fixture',
+    },
+    authSource: {
+      kind: 'passkey',
+      credentialIdB64u: 'credential-fixture',
+    },
     walletSessionId: input.walletSessionId ?? 'wallet-session-fixture',
     quotaId: input.quotaId ?? 'wallet-quota-fixture',
     keyScope: 'evm-family',

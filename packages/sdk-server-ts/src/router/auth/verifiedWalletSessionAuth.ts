@@ -2,7 +2,10 @@ import type {
   RouterAbEcdsaDerivationWalletSessionClaims,
   RouterAbEd25519WalletSessionClaims,
 } from '../../core/ThresholdService/validation';
-import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type {
+  WalletAuthAuthority,
+  WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import type {
   MpcWalletSigningQuotaId,
   WalletSessionAuthorizationId,
@@ -24,6 +27,8 @@ type BaseVerifiedWalletSessionAuth = {
 
 export type VerifiedEcdsaWalletSessionAuth = BaseVerifiedWalletSessionAuth & {
   curve: 'ecdsa';
+  walletAuthAuthorityRef: WalletAuthAuthorityRef;
+  authSource: RouterAbEcdsaDerivationWalletSessionClaims['authSource'];
   keyHandle: string;
   rpId?: never;
   ed25519RelayerKeyId?: never;
@@ -58,6 +63,8 @@ export function buildVerifiedEcdsaWalletSessionAuth(
     participantIds: claims.participantIds,
     expiresAtMs: Math.floor(Number(claims.thresholdExpiresAtMs) || 0),
     keyHandle: claims.keyHandle,
+    walletAuthAuthorityRef: claims.walletAuthAuthorityRef,
+    authSource: claims.authSource,
   };
 }
 

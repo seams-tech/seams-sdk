@@ -73,8 +73,8 @@ import type {
   RouterAbEd25519YaoOperationStepUpGrantCommandV1,
   RouterAbEd25519YaoSessionRouteCommandV1,
 } from '../../../domains/ed25519Yao/session/routerAbEd25519YaoWalletSession';
-import { proxyNormalSigningRequestToMpcRouter } from './normalSigningRouterProxy';
-import { parseEmailOtpChallengeId } from '@shared/utils/domainIds';
+import { proxyOwnerLaneAdmittedNormalSigningRequest } from './normalSigningRouterProxy';
+import { parseEmailOtpChallengeId, parseWalletId } from '@shared/utils/domainIds';
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
@@ -1574,6 +1574,48 @@ async function issueEd25519OperationStepUpGrant(input: {
   );
 }
 
+type AcceptedEd25519NormalSigningAuthorization = Extract<
+  Awaited<ReturnType<typeof authorizeRouterAbEd25519NormalSigningRoute>>,
+  { readonly ok: true }
+>;
+
+async function proxyEd25519OwnerLaneExecution(input: {
+  readonly ctx: FetchRouterApiContext;
+  readonly body: Record<string, unknown>;
+  readonly authorization: AcceptedEd25519NormalSigningAuthorization;
+  readonly authorizedOperation: AuthorizedOperation;
+}): Promise<Response> {
+  const scope = parseRouterAbEd25519OperationStepUpScope(input.body.scope);
+  const walletId = parseWalletId(scope.account_id);
+  if (!walletId.ok) {
+    return json(
+      { ok: false, code: 'invalid_body', message: 'Ed25519 signing wallet is invalid' },
+      { status: 400 },
+    );
+  }
+  const laneAuthorization =
+    input.authorization.kind === 'operation_step_up'
+      ? {
+          kind: 'authority_ref' as const,
+          authorityRef: input.authorization.session.walletAuthAuthorityRef,
+          authSource: input.authorization.session.authSource,
+        }
+      : {
+          kind: 'wallet_auth_method' as const,
+          walletAuthMethodId: input.authorization.validated.walletSessionAuth.authority.bindingId,
+        };
+  return await proxyOwnerLaneAdmittedNormalSigningRequest({
+    request: input.ctx.request,
+    proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+    body: input.body,
+    authorizedOperation: input.authorizedOperation,
+    walletId: walletId.value,
+    expectedMaterialActivation: scope.material_activation,
+    authorization: laneAuthorization,
+    walletRegistration: input.ctx.service.walletRegistration,
+  });
+}
+
 async function handleRouterAbEd25519NormalSigningRoute(input: {
   ctx: FetchRouterApiContext;
   body: Record<string, unknown>;
@@ -1606,9 +1648,10 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
         operation: authorization.operation,
       });
       if (execution.kind !== 'execute') return execution.response;
-      const upstream = await proxyNormalSigningRequestToMpcRouter({
-        request: input.ctx.request,
-        proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+      const upstream = await proxyEd25519OwnerLaneExecution({
+        ctx: input.ctx,
+        authorization,
+        authorizedOperation: execution.operation,
         body: {
           ...input.body,
           authorized_operation: buildRouterAbEd25519AuthorizedOperationWire({
@@ -1676,9 +1719,10 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
     if (!validatedAuthorization.ok) return validatedAuthorization.response;
     const replay = replayCompletedEd25519Operation(validatedAuthorization.operation);
     if (replay) return replay;
-    const upstream = await proxyNormalSigningRequestToMpcRouter({
-      request: input.ctx.request,
-      proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+    const upstream = await proxyEd25519OwnerLaneExecution({
+      ctx: input.ctx,
+      authorization,
+      authorizedOperation: validatedAuthorization.operation,
       body: {
         ...input.body,
         authorized_operation: buildRouterAbEd25519AuthorizedOperationWire({
@@ -1734,9 +1778,10 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
     if (authorized.admission.kind !== 'claimed') {
       throw new Error('Ed25519 prepare execution claim changed');
     }
-    const upstream = await proxyNormalSigningRequestToMpcRouter({
-      request: input.ctx.request,
-      proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+    const upstream = await proxyEd25519OwnerLaneExecution({
+      ctx: input.ctx,
+      authorization,
+      authorizedOperation: execution.operation,
       body: {
         ...input.body,
         authorized_operation: buildRouterAbEd25519AuthorizedOperationWire({
@@ -1796,9 +1841,10 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
   if (!validatedAuthorization.ok) return validatedAuthorization.response;
   const replay = replayCompletedEd25519Operation(validatedAuthorization.operation);
   if (replay) return replay;
-  const upstream = await proxyNormalSigningRequestToMpcRouter({
-    request: input.ctx.request,
-    proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+  const upstream = await proxyEd25519OwnerLaneExecution({
+    ctx: input.ctx,
+    authorization,
+    authorizedOperation: validatedAuthorization.operation,
     body: {
       ...input.body,
       authorized_operation: buildRouterAbEd25519AuthorizedOperationWire({
