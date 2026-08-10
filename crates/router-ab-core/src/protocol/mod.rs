@@ -6,6 +6,7 @@
 
 mod ecdsa_threshold_prf_request;
 mod ed25519_yao;
+mod ed25519_yao_lane;
 mod ed25519_yao_router;
 mod engine;
 mod envelope;
@@ -44,6 +45,10 @@ pub use self::ed25519_yao::{
     ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
     ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
 };
+pub use self::ed25519_yao_lane::{
+    Ed25519YaoLaneAuthorizationV1, Ed25519YaoLaneJobV1, Ed25519YaoLaneProtocolCommittedV1,
+    Ed25519YaoLaneRequestKindV1, Ed25519YaoLaneSourceV1, Ed25519YaoLaneTargetV1,
+};
 pub use self::ed25519_yao_router::{
     ed25519_yao_encrypted_input_digest_v1, ed25519_yao_input_pair_digest_v1,
     ed25519_yao_recipient_set_digest_v1, Ed25519YaoCeremonyIdentityV1, Ed25519YaoCircuitIdV1,
@@ -54,7 +59,7 @@ pub use self::ed25519_yao_router::{
     RouterEd25519YaoExecuteRequestV1, RouterEd25519YaoExecuteResultV1,
     RouterEd25519YaoExecuteSuccessV1, RouterEd25519YaoGatewayExecuteRequestV1,
     ED25519_YAO_ACTIVATION_CIRCUIT_ID_V1, ED25519_YAO_EXPORT_CIRCUIT_ID_V1,
-    ED25519_YAO_PROTOCOL_ID_V1,
+    ED25519_YAO_LANE_MATERIALIZATION_CIRCUIT_ID_V1, ED25519_YAO_PROTOCOL_ID_V1,
 };
 pub use self::engine::{
     AuditEventV1, AuditSink, Clock, Csprng, DeriverAEngine, DeriverBEngine, PeerTransport,

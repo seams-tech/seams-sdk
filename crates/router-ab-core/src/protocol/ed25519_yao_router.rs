@@ -16,6 +16,9 @@ pub const ED25519_YAO_PROTOCOL_ID_V1: &str = "router_ab_ed25519_yao_v1";
 pub const ED25519_YAO_ACTIVATION_CIRCUIT_ID_V1: &str = "ed25519_yao_activation_v1";
 /// Export circuit identity bound into Refactor 93 ceremony digests.
 pub const ED25519_YAO_EXPORT_CIRCUIT_ID_V1: &str = "ed25519_yao_export_v1";
+/// Lane-materialization circuit identity bound into lane digests.
+pub const ED25519_YAO_LANE_MATERIALIZATION_CIRCUIT_ID_V1: &str =
+    "ed25519_yao_lane_materialization_v1";
 
 const INPUT_DIGEST_DOMAIN_V1: &[u8] = b"router-ab-ed25519-yao/input/v1";
 const PAIR_DIGEST_DOMAIN_V1: &[u8] = b"router-ab-ed25519-yao/input-pair/v1";
@@ -36,6 +39,8 @@ pub enum Ed25519YaoCircuitIdV1 {
     ActivationV1,
     /// Exact-seed export circuit.
     ExportV1,
+    /// Recipient-isolated lane-materialization circuit.
+    LaneMaterializationV1,
 }
 
 impl Ed25519YaoCircuitIdV1 {
@@ -44,6 +49,7 @@ impl Ed25519YaoCircuitIdV1 {
         match self {
             Self::ActivationV1 => ED25519_YAO_ACTIVATION_CIRCUIT_ID_V1,
             Self::ExportV1 => ED25519_YAO_EXPORT_CIRCUIT_ID_V1,
+            Self::LaneMaterializationV1 => ED25519_YAO_LANE_MATERIALIZATION_CIRCUIT_ID_V1,
         }
     }
 
@@ -51,6 +57,7 @@ impl Ed25519YaoCircuitIdV1 {
         match family {
             Ed25519YaoCircuitFamilyV1::Activation => Self::ActivationV1,
             Ed25519YaoCircuitFamilyV1::Export => Self::ExportV1,
+            Ed25519YaoCircuitFamilyV1::LaneMaterialization => Self::LaneMaterializationV1,
         }
     }
 }
@@ -1737,6 +1744,9 @@ fn validate_input_for_ceremony(
         Ed25519YaoCircuitFamilyV1::Export => {
             crate::protocol::ed25519_yao::Ed25519YaoInputKindV1::Export
         }
+        Ed25519YaoCircuitFamilyV1::LaneMaterialization => {
+            crate::protocol::ed25519_yao::Ed25519YaoInputKindV1::LaneMaterialization
+        }
     };
     if input.kind() != expected_kind
         || input.deriver() != expected_role
@@ -1835,6 +1845,8 @@ fn operation_tag(operation: Ed25519YaoOperationV1) -> u8 {
         Ed25519YaoOperationV1::Recovery => 2,
         Ed25519YaoOperationV1::Refresh => 3,
         Ed25519YaoOperationV1::Export => 4,
+        Ed25519YaoOperationV1::LaneProvisioning => 5,
+        Ed25519YaoOperationV1::LaneRefresh => 6,
     }
 }
 
