@@ -236,6 +236,16 @@ test.describe('R102 lane lifecycle D1 gateway', () => {
       await expect(gateway.completeSigningLaneRevocationV1(completion)).resolves.toMatchObject({
         outcome: 'replayed',
       });
+      const substitutedCompletion = buildCompleteSigningLaneRevocationV1({
+        command,
+        expectedVersion: fenced.version,
+        commandDigestB64u: await computeRevokeSigningLaneDigestV1(command),
+        retirementReceiptDigestB64u: base64UrlEncode(new Uint8Array(32).fill(11)),
+        revokedAtMs: 7_000,
+      });
+      await expect(
+        gateway.completeSigningLaneRevocationV1(substitutedCompletion),
+      ).resolves.toMatchObject({ outcome: 'conflict' });
       await expect(gateway.fenceSigningLaneRevocationV1(command)).resolves.toMatchObject({
         outcome: 'already_completed',
       });
