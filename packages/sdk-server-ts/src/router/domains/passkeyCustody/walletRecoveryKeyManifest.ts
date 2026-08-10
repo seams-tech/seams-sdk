@@ -1,5 +1,6 @@
-import { alphabetizeStringify } from '@shared/utils/digests';
-import { base64UrlEncode } from '@shared/utils/encoders';
+import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type { EcdsaClientRootPublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { EcdsaServerGeneration } from '@shared/utils/ecdsaCapabilityActivation';
@@ -32,6 +33,14 @@ import {
   parseRecoveryCodeReservationId,
   type WalletRecoveryKeySetId,
 } from '@shared/wallet-recovery/recoveryCodeReservation';
+import type { WalletRecoveryEcdsaPossessionChallengeV1 } from '@shared/wallet-recovery/walletRecoveryEcdsaPossession';
+import {
+  parseWalletRecoveryEcdsaPossessionChallengeV1,
+  walletRecoveryEcdsaPossessionChallengeDigestB64uV1,
+  type WalletRecoveryEcdsaPossessionProofV1,
+} from '@shared/wallet-recovery/walletRecoveryEcdsaPossession';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import { verifySecp256k1Bip340SignatureAgainstPublicKey33 } from '../../../core/ThresholdService/evmCryptoWasm';
 
 export type { WalletRecoveryKeySetId } from '@shared/wallet-recovery/recoveryCodeReservation';
 
@@ -116,6 +125,7 @@ export type WalletRecoveryPreparationNearRecoveryBasisV1 = {
 
 export type WalletRecoveryPreparationEcdsaRecoveryBasisV1 = {
   readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+  readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
   readonly serverGeneration: EcdsaServerGeneration;
   readonly clientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u;
   readonly chainTargets: readonly ThresholdEcdsaChainTarget[];
@@ -124,6 +134,7 @@ export type WalletRecoveryPreparationEcdsaRecoveryBasisV1 = {
   readonly signingRootVersion: string;
   readonly runtimePolicyScope: RuntimePolicyScope;
   readonly participantIds: readonly [number, number];
+  readonly possessionChallenge: WalletRecoveryEcdsaPossessionChallengeV1;
 };
 
 export type WalletUnlockKeyManifestEntryV1 =
@@ -190,6 +201,16 @@ export type WalletRecoveryEcdsaSignerPromotionV1 = {
   readonly nextActivationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
 };
 
+export type WalletRecoveryEcdsaMaterialPossessionProofInputV1 = {
+  readonly keySetId: string;
+  readonly proof: WalletRecoveryEcdsaPossessionProofV1;
+};
+
+export type WalletRecoveryEcdsaActivationReceiptInputV1 = {
+  readonly keySetId: string;
+  readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+};
+
 type WalletRecoveryRegistry = Pick<
   D1WalletStore,
   | 'listEd25519SignersForWallet'
@@ -227,11 +248,17 @@ export async function resolveWalletRecoveryKeyManifestV1(input: {
 
 export function projectWalletRecoveryPreparationKeyManifestV1(
   manifest: WalletRecoveryKeyManifestV1,
+  possessionChallenges: ReadonlyMap<
+    WalletRecoveryKeySetId,
+    WalletRecoveryEcdsaPossessionChallengeV1
+  >,
 ): WalletRecoveryPreparationKeyManifestV1 {
   return {
     version: 'wallet_recovery_preparation_key_manifest_v1',
     walletId: manifest.walletId,
-    entries: manifest.entries.map(projectWalletRecoveryPreparationEntryV1),
+    entries: manifest.entries.map((entry) =>
+      projectWalletRecoveryPreparationEntryV1(entry, possessionChallenges),
+    ),
   };
 }
 
@@ -278,6 +305,10 @@ function projectWalletUnlockEntryV1(
 
 function projectWalletRecoveryPreparationEntryV1(
   entry: WalletRecoveryKeyManifestEntryV1,
+  possessionChallenges: ReadonlyMap<
+    WalletRecoveryKeySetId,
+    WalletRecoveryEcdsaPossessionChallengeV1
+  >,
 ): WalletRecoveryPreparationKeyManifestEntryV1 {
   switch (entry.kind) {
     case 'near_ed25519':
@@ -305,7 +336,13 @@ function projectWalletRecoveryPreparationEntryV1(
           signingWorkerVerifyingShare: [...entry.recoveryBasis.signingWorkerVerifyingShare],
         },
       };
-    case 'evm_family_ecdsa':
+    case 'evm_family_ecdsa': {
+      const possessionChallenge = possessionChallenges.get(entry.keySetId);
+      if (!possessionChallenge) {
+        throw new Error(
+          `wallet recovery ECDSA possession challenge is missing for ${entry.keySetId}`,
+        );
+      }
       return {
         kind: entry.kind,
         keySetId: entry.keySetId,
@@ -314,6 +351,7 @@ function projectWalletRecoveryPreparationEntryV1(
         recordedKeyManifestDigestB64u: entry.recordedKeyManifestDigestB64u,
         recoveryBasis: {
           publicCapability: entry.publicCapability,
+          activationReceipt: entry.activationReceipt,
           serverGeneration: entry.activationReceipt.server_generation,
           clientRootPublicKey33B64u: entry.clientRootPublicKey33B64u,
           chainTargets: entry.chainTargets.map(projectThresholdEcdsaChainTarget),
@@ -322,8 +360,10 @@ function projectWalletRecoveryPreparationEntryV1(
           signingRootVersion: entry.signingRootVersion,
           runtimePolicyScope: projectRuntimePolicyScope(entry.runtimePolicyScope),
           participantIds: [entry.participantIds[0], entry.participantIds[1]],
+          possessionChallenge,
         },
       };
+    }
   }
 }
 
@@ -385,6 +425,12 @@ export async function verifyWalletRecoveryKeyActivationsV1(input: {
   readonly registry: WalletRecoveryRegistry;
   readonly walletId: WalletId;
   readonly recoveryCorrelationId: string;
+  readonly replacementId: string;
+  readonly authorityRef: WalletAuthAuthorityRef;
+  readonly ecdsaPossessionChallenges: readonly WalletRecoveryEcdsaPossessionChallengeV1[];
+  readonly ecdsaActivationReceipts: readonly WalletRecoveryEcdsaActivationReceiptInputV1[];
+  readonly ecdsaMaterialPossessionProofs: readonly WalletRecoveryEcdsaMaterialPossessionProofInputV1[];
+  readonly nowMs: number;
 }): Promise<WalletRecoveryActivationVerification> {
   let recoveryReservationId;
   try {
@@ -409,6 +455,16 @@ export async function verifyWalletRecoveryKeyActivationsV1(input: {
   } catch (error: unknown) {
     return refused(errorMessage(error, 'wallet recovery ECDSA signer state is unavailable'));
   }
+  const ecdsaEntryCount = manifest.entries.filter(
+    (entry) => entry.kind === 'evm_family_ecdsa',
+  ).length;
+  if (
+    input.ecdsaPossessionChallenges.length !== ecdsaEntryCount ||
+    input.ecdsaActivationReceipts.length !== ecdsaEntryCount ||
+    input.ecdsaMaterialPossessionProofs.length !== ecdsaEntryCount
+  ) {
+    return refused('wallet recovery ECDSA possession set does not match the key manifest');
+  }
   const ecdsaPromotions: WalletRecoveryEcdsaSignerPromotionV1[] = [];
   for (const entry of manifest.entries) {
     const keyLifecycleId = await deriveWalletRecoveryKeyLifecycleId({
@@ -426,16 +482,6 @@ export async function verifyWalletRecoveryKeyActivationsV1(input: {
           walletId: input.walletId,
           lifecycleId: keyLifecycleId,
         });
-        const matching = recordsForPublicCapability(pending, entry.publicCapability);
-        const failure = verifyEcdsaRecoveryActivation({
-          entry,
-          records: matching,
-          keyLifecycleId,
-        });
-        if (failure) return refused(failure);
-        if (matching.length !== pending.length) {
-          return refused(`wallet recovery has extra ECDSA receipts for ${entry.keySetId}`);
-        }
         const currentSigners = ecdsaSigners.filter(
           (signer) => signer.walletKey.keyHandle === entry.keyHandle,
         );
@@ -444,41 +490,30 @@ export async function verifyWalletRecoveryKeyActivationsV1(input: {
         }
         if (
           currentSigners.some(
-            (signer) => !samePublicCapability(signer.walletKey.publicCapability, entry.publicCapability),
+            (signer) =>
+              !samePublicCapability(signer.walletKey.publicCapability, entry.publicCapability) ||
+              !samePublicValue(signer.activationReceipt, entry.activationReceipt),
           )
         ) {
           return refused(`wallet recovery ECDSA signer rows changed for ${entry.keySetId}`);
         }
-        const recovery = matching.find(isEcdsaRecoveryRecord);
-        const refresh = matching.find(isEcdsaRefreshRecord);
-        if (!recovery || !refresh) {
-          return refused(`wallet recovery ECDSA receipt pair is incomplete for ${entry.keySetId}`);
+        if (pending.length > 0) {
+          return refused(
+            `wallet recovery has stale ECDSA activation receipts for ${entry.keySetId}`,
+          );
         }
-        const currentServerGenerations = new Set(
-          currentSigners.map((signer) => signer.activationReceipt.server_generation),
-        );
-        if (currentServerGenerations.size !== 1) {
-          return refused(`wallet recovery ECDSA signer generations conflict for ${entry.keySetId}`);
-        }
-        if (
-          refresh.response.signing_worker_activation.server_generation ===
-          currentSigners[0]?.activationReceipt.server_generation
-        ) {
-          return refused(`wallet recovery ECDSA activation generation is stale for ${entry.keySetId}`);
-        }
-        const nextPublicCapability = deriveEcdsaRecoveryPublicCapability({
-          current: entry.publicCapability,
-          receipt: refresh.response.signing_worker_activation,
+        const failure = await verifyEcdsaMaterialPossessionActivation({
+          entry,
+          walletId: input.walletId,
+          reservationId: recoveryReservationId,
+          replacementId: input.replacementId,
+          authorityRef: input.authorityRef,
+          challenges: input.ecdsaPossessionChallenges,
+          activationReceipts: input.ecdsaActivationReceipts,
+          proofs: input.ecdsaMaterialPossessionProofs,
+          nowMs: input.nowMs,
         });
-        ecdsaPromotions.push({
-          keySetId: entry.keySetId,
-          keyHandle: entry.keyHandle,
-          currentSigners,
-          recovery,
-          refresh,
-          nextPublicCapability,
-          nextActivationReceipt: refresh.response.signing_worker_activation,
-        });
+        if (failure) return refused(failure);
         break;
       }
     }
@@ -637,8 +672,7 @@ function verifyEd25519RecoveryActivation(
     return `wallet recovery Ed25519 activation correlation does not match ${entry.keySetId}`;
   }
   if (
-    recoveryBasis.applicationBinding.near_ed25519_signing_key_id !==
-    entry.nearEd25519SigningKeyId
+    recoveryBasis.applicationBinding.near_ed25519_signing_key_id !== entry.nearEd25519SigningKeyId
   ) {
     return `wallet recovery Ed25519 identity changed for ${entry.keySetId}`;
   }
@@ -707,6 +741,83 @@ function verifyEcdsaRecoveryActivation(input: {
     )
   ) {
     return `wallet recovery ECDSA activation is stale for ${input.entry.keySetId}`;
+  }
+  return null;
+}
+
+async function verifyEcdsaMaterialPossessionActivation(input: {
+  readonly entry: Extract<WalletRecoveryKeyManifestEntryV1, { readonly kind: 'evm_family_ecdsa' }>;
+  readonly walletId: WalletId;
+  readonly reservationId: ReturnType<typeof parseRecoveryCodeReservationId>;
+  readonly replacementId: string;
+  readonly authorityRef: WalletAuthAuthorityRef;
+  readonly challenges: readonly WalletRecoveryEcdsaPossessionChallengeV1[];
+  readonly activationReceipts: readonly WalletRecoveryEcdsaActivationReceiptInputV1[];
+  readonly proofs: readonly WalletRecoveryEcdsaMaterialPossessionProofInputV1[];
+  readonly nowMs: number;
+}): Promise<string | null> {
+  const challenge = input.challenges.find(
+    (candidate) => candidate.keySetId === input.entry.keySetId,
+  );
+  if (
+    !challenge ||
+    input.challenges.filter((candidate) => candidate.keySetId === input.entry.keySetId).length !== 1
+  ) {
+    return `wallet recovery ECDSA possession challenge is missing for ${input.entry.keySetId}`;
+  }
+  if (challenge.expiresAtMs <= input.nowMs) {
+    return `wallet recovery ECDSA possession challenge expired for ${input.entry.keySetId}`;
+  }
+  const proof = input.proofs.find((candidate) => candidate.keySetId === input.entry.keySetId);
+  if (
+    !proof ||
+    input.proofs.filter((candidate) => candidate.keySetId === input.entry.keySetId).length !== 1
+  ) {
+    return `wallet recovery ECDSA possession proof is missing for ${input.entry.keySetId}`;
+  }
+  const activationReceipt = input.activationReceipts.find(
+    (candidate) => candidate.keySetId === input.entry.keySetId,
+  )?.activationReceipt;
+  if (
+    !activationReceipt ||
+    input.activationReceipts.filter((candidate) => candidate.keySetId === input.entry.keySetId)
+      .length !== 1 ||
+    !samePublicValue(activationReceipt, input.entry.activationReceipt)
+  ) {
+    return `wallet recovery ECDSA activation receipt changed for ${input.entry.keySetId}`;
+  }
+  const expectedPublicCapabilityDigestB64u = parseDigestB64u(
+    base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(input.entry.publicCapability))),
+  );
+  const expected = parseWalletRecoveryEcdsaPossessionChallengeV1({
+    ...challenge,
+    walletId: String(input.walletId),
+    reservationId: String(input.reservationId),
+    replacementId: input.replacementId,
+    keySetId: input.entry.keySetId,
+    keyHandle: input.entry.keyHandle,
+    recordedKeyManifestDigestB64u: input.entry.recordedKeyManifestDigestB64u,
+    publicCapabilityDigestB64u: expectedPublicCapabilityDigestB64u,
+    authorityRefDigestB64u: String(input.authorityRef.authorityDigest),
+    derivationClientSharePublicKey33B64u:
+      input.entry.publicCapability.public_identity.derivation_client_share_public_key33_b64u,
+    expectedServerGeneration: input.entry.activationReceipt.server_generation,
+  });
+  if (alphabetizeStringify(expected) !== alphabetizeStringify(challenge)) {
+    return `wallet recovery ECDSA possession challenge changed for ${input.entry.keySetId}`;
+  }
+  const challengeDigest = await walletRecoveryEcdsaPossessionChallengeDigestB64uV1(challenge);
+  try {
+    await verifySecp256k1Bip340SignatureAgainstPublicKey33(
+      base64UrlDecode(challengeDigest),
+      base64UrlDecode(proof.proof.signature64B64u),
+      base64UrlDecode(challenge.derivationClientSharePublicKey33B64u),
+    );
+  } catch {
+    return `wallet recovery ECDSA possession proof is invalid for ${input.entry.keySetId}`;
+  }
+  if (input.proofs.length !== input.challenges.length) {
+    return 'wallet recovery ECDSA possession proof set is incomplete';
   }
   return null;
 }
