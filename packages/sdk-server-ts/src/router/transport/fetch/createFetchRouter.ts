@@ -45,6 +45,7 @@ import { handleWebAuthnAuthenticators } from './routes/webauthnAuthenticators';
 import { handleAuth } from './routes/auth';
 import { handleNearPublicKeys } from './routes/nearPublicKeys';
 import { handleWellKnown } from './routes/wellKnown';
+import { handleDeviceLinking } from './routes/deviceLinking';
 import { validateRouterApiRorOptions } from '../../framework/ror/provider';
 import { handleSigningSessionSealRoutes } from '../../../threshold/session/signingSessionSeal/transport/fetch';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../../framework/routerApi';
@@ -104,6 +105,7 @@ export function createFetchRouter(
   const handlers: Array<(c: FetchRouterApiContext) => Promise<Response | null>> = [
     handleWellKnown,
     handleWalletRegistration,
+    handleDeviceLinking,
     handlePasskeyCustody,
     handleWalletCustodyCredentialsList,
     handleWalletCustodyCredentialLabel,
