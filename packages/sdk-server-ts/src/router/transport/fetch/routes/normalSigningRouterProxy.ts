@@ -146,6 +146,12 @@ export async function proxyLinkedDeviceLaneAdmittedNormalSigningRequest(input: {
   readonly walletId: Parameters<
     LinkedDeviceExecutionAdmissionResolverV1['resolveActiveLinkedDeviceExecutionV1']
   >[0]['walletId'];
+  readonly walletSessionId: Parameters<
+    LinkedDeviceExecutionAdmissionResolverV1['resolveActiveLinkedDeviceExecutionV1']
+  >[0]['walletSessionId'];
+  readonly quotaId: Parameters<
+    LinkedDeviceExecutionAdmissionResolverV1['resolveActiveLinkedDeviceExecutionV1']
+  >[0]['quotaId'];
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
   readonly walletKeyId: WalletKeyId;
@@ -179,6 +185,9 @@ export async function proxyLinkedDeviceLaneAdmittedNormalSigningRequest(input: {
   >;
   try {
     resolved = await input.linkedDeviceExecution.resolveActiveLinkedDeviceExecutionV1({
+      tenantId: input.authorizedOperation.operation.tenantId,
+      walletSessionId: input.walletSessionId,
+      quotaId: input.quotaId,
       walletId: input.walletId,
       enrollmentId: input.enrollmentId,
       deviceId: input.deviceId,
