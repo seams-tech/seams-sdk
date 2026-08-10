@@ -75,7 +75,7 @@ export type PersistWalletCustodyEd25519MaterialInputV1 = {
   readonly sealed: WalletCustodySealedEd25519MaterialV1;
 };
 
-type WalletCustodyEd25519MaterialStorePort = AccountKeyMaterialDeps['clientDB'] &
+export type WalletCustodyEd25519MaterialStorePort = AccountKeyMaterialDeps['clientDB'] &
   AccountKeyMaterialDeps['keyMaterialStore'] & {
     deleteKeyMaterial(
       profileId: string,

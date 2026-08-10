@@ -12,7 +12,6 @@ import type { TempoFeeTokenPreferenceSigningRequest } from '@/core/signingEngine
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import type {
-  AddPasskeyAuthorization,
   EvmEip155ChainTarget,
   NearAccountRef,
   TempoChainTarget,
@@ -36,6 +35,7 @@ import type {
   GoogleEmailOtpWalletAuthResolvedMode,
   GoogleEmailOtpWalletAuthRequestedMode,
   GoogleEmailOtpWalletAuthSubmitSuccess,
+  AddPasskeyAuthorization,
   ResolveExactKeyExportLaneInput,
   WalletRecoveryRotationAuthorization,
 } from '@/SeamsWeb/publicApi/types';

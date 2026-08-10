@@ -61,14 +61,8 @@ export function createBrowserStepUpRuntime(args: {
         {
           queueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
           activationDeps: args.getEnginePorts().walletSessionActivationDeps,
-          sealPersistence: args.passkeyMpcSession,
           persistEcdsaRoleLocalReadyRecord:
             args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
-          resolveSealTransport: ({ lane, authorization }) =>
-            args.getWarmSigning().capabilityReader.resolveEcdsaSealTransportForLane({
-              lane,
-              authorization,
-            }),
         },
         request,
       ),
@@ -77,8 +71,7 @@ export function createBrowserStepUpRuntime(args: {
     loadWalletCustodyEd25519Material: args.loadWalletCustodyEd25519Material,
     restoreWalletCustodyEcdsaContinuity: args.restoreWalletCustodyEcdsaContinuity,
     persistEcdsaRoleLocalReadyRecord: args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
-    listActiveEcdsaCapabilityManifestsForWallet:
-      args.listActiveEcdsaCapabilityManifestsForWallet,
+    listActiveEcdsaCapabilityManifestsForWallet: args.listActiveEcdsaCapabilityManifestsForWallet,
     ensureSealedRefreshStartupParity: args.ensureSealedRefreshStartupParity,
   });
 }

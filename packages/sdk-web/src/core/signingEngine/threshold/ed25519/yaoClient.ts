@@ -12,6 +12,8 @@ import {
   ROUTER_AB_ED25519_YAO_RECOVERY_STATUS_PATH_V1,
   ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
+  ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
+  ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
   parseRouterAbEd25519YaoExportAdmissionReceiptV1,
   parseRouterAbEd25519YaoExportExecuteRequestV1,
   parseRouterAbEd25519YaoExportResultV1,
@@ -64,6 +66,24 @@ export type RouterAbEd25519YaoRegistrationTransportResultV1 =
       serverTiming?: string | null;
     }
   | RouterAbEd25519YaoRegistrationTransportFailureV1;
+
+export type RouterAbEd25519YaoRegistrationAdmissionTransportRequestV1 =
+  | {
+      readonly kind: 'admit';
+      readonly path: typeof ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1;
+      readonly body: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+    }
+  | {
+      readonly kind: 'execute';
+      readonly path: typeof ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1;
+      readonly body: RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
+    };
+
+export interface RouterAbEd25519YaoRegistrationAdmissionTransportV1 {
+  send(
+    request: RouterAbEd25519YaoRegistrationAdmissionTransportRequestV1,
+  ): Promise<RouterAbEd25519YaoRegistrationTransportResultV1>;
+}
 
 export type RouterAbEd25519YaoRecoveryTransportRequestV1 =
   | {
@@ -583,7 +603,7 @@ function serializePerformanceServerTiming(value: unknown): string | null {
 
 export class RouterAbEd25519YaoHttpActivationTransportV1
   implements
-    RouterAbEd25519YaoRegistrationTransportV1,
+    RouterAbEd25519YaoRegistrationAdmissionTransportV1,
     RouterAbEd25519YaoRecoveryTransportV1,
     RouterAbEd25519YaoExportTransportV1
 {
@@ -599,7 +619,7 @@ export class RouterAbEd25519YaoHttpActivationTransportV1
 
   async send(
     request:
-      | RouterAbEd25519YaoRegistrationTransportRequestV1
+      | RouterAbEd25519YaoRegistrationAdmissionTransportRequestV1
       | RouterAbEd25519YaoRecoveryTransportRequestV1
       | RouterAbEd25519YaoExportTransportRequestV1,
   ): Promise<RouterAbEd25519YaoRegistrationTransportResultV1> {

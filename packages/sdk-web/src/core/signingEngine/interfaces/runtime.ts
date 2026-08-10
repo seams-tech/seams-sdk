@@ -19,11 +19,12 @@ import type {
   SignerWorkerOperationType,
 } from '../workerManager/workerTypes';
 import type { Ed25519OperationStepUpProof } from '../threshold/ed25519/walletSession';
+import type { WalletCustodyEd25519MaterialStorePort } from '../walletCustody/ed25519SeedMaterial';
 
 export type NearSigningKeyMaterialStorePort = NearAccountClientDbPort &
   AccountKeyMaterialStorePort & {
     getLastProfileState: () => Promise<LastProfileState | null>;
-  };
+  } & WalletCustodyEd25519MaterialStorePort;
 
 /**
  * Dependencies required by NEAR signing adapters and handlers.

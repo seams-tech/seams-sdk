@@ -19,8 +19,8 @@ use signer_core::near_ed25519_recovery::{
     build_near_ed25519_seed_export_artifact_v1, encode_near_ed25519_public_key_from_seed,
 };
 use signer_core::near_threshold_ed25519::CommitmentsWire;
-use signer_core::passkey_custody::PasskeyCustodyEnvelopeBindingV1;
 use signer_core::passkey_custody::open_wallet_custody_seed_envelope_v1;
+use signer_core::passkey_custody::PasskeyCustodyEnvelopeBindingV1;
 
 /// One-use explicit export session opened from the wallet custody envelope.
 ///
@@ -35,6 +35,7 @@ pub struct WasmCustodyEnvelopeExportSessionV1 {
 
 #[wasm_bindgen]
 impl WasmCustodyEnvelopeExportSessionV1 {
+    /// Opens the custody envelope and prepares a one-use export request.
     #[wasm_bindgen(constructor)]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -104,10 +105,12 @@ impl WasmCustodyEnvelopeExportSessionV1 {
         })
     }
 
+    /// Returns the serialized request to execute through the Router A/B export protocol.
     pub fn execute_request_json(&self) -> String {
         self.execute_request_json.clone()
     }
 
+    /// Consumes the session and returns the verified exported seed.
     pub fn complete(&mut self, result_json: &str) -> Result<WasmExportedEd25519SeedV1, JsValue> {
         let result = serde_json::from_str::<RouterAbEd25519YaoExportResultV1>(result_json)
             .map_err(js_error)?;

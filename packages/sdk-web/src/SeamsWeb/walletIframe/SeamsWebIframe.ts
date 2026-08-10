@@ -779,7 +779,7 @@ export class SeamsWebIframe {
     try {
       await this.requireRouterReady();
       const res = await this.router.addPasskey(args);
-      await args.options?.afterCall?.(true);
+      await args.options?.afterCall?.(true, res);
       return res;
     } catch (err: unknown) {
       const e = toError(err);

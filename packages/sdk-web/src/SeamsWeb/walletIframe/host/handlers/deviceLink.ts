@@ -99,26 +99,32 @@ export function createDeviceLinkWalletIframeHandlers(deps: HandlerDeps): Handler
 
     PM_LIST_WALLET_CREDENTIALS: async (req: Req<'PM_LIST_WALLET_CREDENTIALS'>) => {
       const pm = deps.getSeamsWeb();
-      const result = await pm.devices.listWalletCredentials({ walletId: req.payload.walletId });
+      const payload = req.payload;
+      if (!payload) throw new Error('PM_LIST_WALLET_CREDENTIALS requires a payload');
+      const result = await pm.devices.listWalletCredentials({ walletId: payload.walletId });
       respondOkResult(deps, req.requestId, result);
     },
 
     PM_RENAME_WALLET_CREDENTIAL: async (req: Req<'PM_RENAME_WALLET_CREDENTIAL'>) => {
       const pm = deps.getSeamsWeb();
+      const payload = req.payload;
+      if (!payload) throw new Error('PM_RENAME_WALLET_CREDENTIAL requires a payload');
       const result = await pm.devices.renameWalletCredential({
-        walletId: req.payload.walletId,
-        envelopeId: req.payload.envelopeId,
-        ...(req.payload.label === undefined ? {} : { label: req.payload.label }),
+        walletId: payload.walletId,
+        envelopeId: payload.envelopeId,
+        ...(payload.label === undefined ? {} : { label: payload.label }),
       });
       respondOkResult(deps, req.requestId, result);
     },
 
     PM_REVOKE_WALLET_CREDENTIAL: async (req: Req<'PM_REVOKE_WALLET_CREDENTIAL'>) => {
       const pm = deps.getSeamsWeb();
+      const payload = req.payload;
+      if (!payload) throw new Error('PM_REVOKE_WALLET_CREDENTIAL requires a payload');
       const result = await pm.devices.revokeWalletCredential({
-        walletId: req.payload.walletId,
-        rpId: req.payload.rpId,
-        credentialIdB64u: req.payload.credentialIdB64u,
+        walletId: payload.walletId,
+        rpId: payload.rpId,
+        credentialIdB64u: payload.credentialIdB64u,
       });
       respondOkResult(deps, req.requestId, result);
     },

@@ -88,6 +88,13 @@ type ExpectedPasskeyRegistrationUser = {
   walletId: WalletId;
 };
 
+function requireWalletRegistrationChallenge(args: RegisterCredentialsArgs): string {
+  if (args.kind !== 'wallet_registration') {
+    throw new Error('Wallet registration challenge is unavailable');
+  }
+  return args.challengeB64u;
+}
+
 function requireExpectedPasskeyRegistrationUser(input: {
   walletId: string;
   intendedUserName: string;
@@ -287,8 +294,7 @@ export class TouchIdPrompt {
       walletId: args.walletId,
       intendedUserName: args.intendedUserName,
     });
-    const recoveryRegistration =
-      args.kind === 'wallet_recovery' ? args.recoveryRegistration : null;
+    const recoveryRegistration = args.kind === 'wallet_recovery' ? args.recoveryRegistration : null;
     const addAuthMethodRegistration =
       args.kind === 'wallet_add_auth_method' ? args.registration : null;
     const serverRegistration = recoveryRegistration ?? addAuthMethodRegistration;
@@ -329,15 +335,13 @@ export class TouchIdPrompt {
           })),
         }
       : {
-          challenge: decodeChallengeB64u(args.challengeB64u) as BufferSource,
+          challenge: decodeChallengeB64u(requireWalletRegistrationChallenge(args)) as BufferSource,
           rp: {
             name: 'WebAuthn Passkey',
             id: rpId,
           },
           user: {
-            id: new TextEncoder().encode(
-              generateSignerSlotUserId(args.walletId, args.signerSlot),
-            ),
+            id: new TextEncoder().encode(generateSignerSlotUserId(args.walletId, args.signerSlot)),
             name: expectedUser.walletId,
             displayName: expectedUser.walletId,
           },

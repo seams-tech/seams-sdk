@@ -76,7 +76,6 @@ export class EmailOtpWalletSessionRuntime {
     this.sealedSessionRegistry = new EmailOtpSealedSessionRegistry({
       configs: deps.configs,
       getSignerWorkerContext: deps.getSignerWorkerContext,
-      loadWalletCustodyEd25519Material: deps.loadWalletCustodyEd25519Material,
       commitEvmFamilyThresholdEcdsaSessions: deps.commitEvmFamilyThresholdEcdsaSessions,
       listActiveEcdsaCapabilityManifestsForWallet: deps.listActiveEcdsaCapabilityManifestsForWallet,
       writeExactSealedSession: deps.writeExactSealedSession,
@@ -86,6 +85,7 @@ export class EmailOtpWalletSessionRuntime {
     this.ecdsaLifecycleRuntime = new EmailOtpEcdsaLifecycleRuntime({
       configs: deps.configs,
       getSignerWorkerContext: deps.getSignerWorkerContext,
+      loadWalletCustodyEd25519Material: deps.loadWalletCustodyEd25519Material,
       restoreWalletCustodyEcdsaContinuity: deps.restoreWalletCustodyEcdsaContinuity,
       provisionThresholdEcdsaSession: deps.provisionThresholdEcdsaSession,
       provisionEmailOtpEcdsaExplicitExportSession: deps.provisionEmailOtpEcdsaExplicitExportSession,

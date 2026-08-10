@@ -1,13 +1,11 @@
 import { EmailRecoveryDomain } from '@/SeamsWeb/operations/recovery/emailRecovery';
-import type {
-  EmailRecoveryWebContext,
-  RecoveryCapability,
-} from '@/SeamsWeb/signingSurface/types';
+import type { EmailRecoveryWebContext, RecoveryCapability } from '@/SeamsWeb/signingSurface/types';
 import type { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
 
 export type RecoveryCapabilityDomainMethods = {
   getWalletRecoveryCodeStatus: RecoveryCapability['getWalletRecoveryCodeStatus'];
   acknowledgeWalletRecoveryCodeBackup: RecoveryCapability['acknowledgeWalletRecoveryCodeBackup'];
+  rotateWalletRecoveryCodes: RecoveryCapability['rotateWalletRecoveryCodes'];
   requestWalletRecoveryBootstrapChallenge: RecoveryCapability['requestWalletRecoveryBootstrapChallenge'];
   verifyWalletRecoveryBootstrap: RecoveryCapability['verifyWalletRecoveryBootstrap'];
   prepareWalletRecoveryWithBootstrap: RecoveryCapability['prepareWalletRecoveryWithBootstrap'];
@@ -29,6 +27,7 @@ export function createRecoveryCapability(deps: {
     syncAccount: async (args) => await emailRecovery.syncAccount(args),
     getWalletRecoveryCodeStatus: deps.domain.getWalletRecoveryCodeStatus,
     acknowledgeWalletRecoveryCodeBackup: deps.domain.acknowledgeWalletRecoveryCodeBackup,
+    rotateWalletRecoveryCodes: deps.domain.rotateWalletRecoveryCodes,
     requestWalletRecoveryBootstrapChallenge: deps.domain.requestWalletRecoveryBootstrapChallenge,
     verifyWalletRecoveryBootstrap: deps.domain.verifyWalletRecoveryBootstrap,
     prepareWalletRecoveryWithBootstrap: deps.domain.prepareWalletRecoveryWithBootstrap,

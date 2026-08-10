@@ -11,7 +11,6 @@ import {
   listExactSealedSessionsForWallet,
   listEcdsaSealedSessionsForWallet,
   releaseSigningSessionRestoreLease,
-  readExactEd25519SealedSession,
   readExactSealedSession,
   updateExactSealedSessionPolicy,
   writeExactSealedSession,
@@ -59,7 +58,6 @@ export function createBrowserSigningStores(
     },
     sealedSigningSessionStore: {
       writeExactSealedSession,
-      readExactEd25519SealedSession,
       readExactSealedSession,
       listExactSealedSessionsForWallet,
       listEcdsaSealedSessionsForWallet,
@@ -68,7 +66,8 @@ export function createBrowserSigningStores(
       deleteDurableSealedSessionRecord,
       updateExactSealedSessionPolicy,
     },
-    ed25519YaoPublicCapabilityReferences:
-      new IndexedDbEd25519YaoPublicCapabilityReferenceStore(indexedDB),
+    ed25519YaoPublicCapabilityReferences: new IndexedDbEd25519YaoPublicCapabilityReferenceStore(
+      indexedDB,
+    ),
   };
 }

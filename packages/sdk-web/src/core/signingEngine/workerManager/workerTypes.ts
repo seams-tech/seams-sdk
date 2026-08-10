@@ -36,6 +36,7 @@ import type {
   PasskeyCustodyEnvelopeRecord,
   WalletCustodyCeremonyCommitPayload,
   WalletCustodyEvmFamilyActivationCompletion,
+  WalletCustodyEvmFamilyPublicFacts,
   WalletCustodyKeySetKind,
 } from '@shared/passkey-custody';
 import type {
@@ -955,8 +956,7 @@ export type EmailOtpWarmSessionOperationType =
   | 'sealEmailOtpWarmSessionMaterial'
   | 'rehydrateEmailOtpEcdsaWarmSessionMaterial'
   | 'clearEmailOtpWarmSessionMaterial';
-export type EmailOtpExportOperationType =
-  | 'exportEmailOtpEd25519YaoSeedWithAuthorization';
+export type EmailOtpExportOperationType = 'exportEmailOtpEd25519YaoSeedWithAuthorization';
 export type EmailOtpDomainOperationType =
   | EmailOtpChallengeOperationType
   | EmailOtpEnrollmentOperationType

@@ -14,6 +14,7 @@ import {
   signingRootScopeFromRuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
 import { walletIdFromString, type WalletId } from '@shared/utils/registrationIntent';
+import { base58Encode } from '@shared/utils/base58';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import {
   mpcMaterialActivationRefsEqual,

@@ -826,8 +826,7 @@ export class SeamsWeb {
           await this.getWalletRecoveryCodeStatusDomain(args),
         acknowledgeWalletRecoveryCodeBackup: async (args) =>
           await this.acknowledgeWalletRecoveryCodeBackupDomain(args),
-        rotateWalletRecoveryCodes: async (args) =>
-          await this.rotateWalletRecoveryCodesDomain(args),
+        rotateWalletRecoveryCodes: async (args) => await this.rotateWalletRecoveryCodesDomain(args),
         requestWalletRecoveryBootstrapChallenge: async (args) =>
           await this.requestWalletRecoveryBootstrapChallengeDomain(args),
         verifyWalletRecoveryBootstrap: async (args) =>
@@ -1290,7 +1289,7 @@ export class SeamsWeb {
       try {
         const router = await this.walletIframe.requireRouter(String(args.walletId || ''));
         const result = await router.addPasskey(args);
-        await args.options?.afterCall?.(true);
+        await args.options?.afterCall?.(true, result);
         return result;
       } catch (error: unknown) {
         const normalized = toError(error);
@@ -1976,9 +1975,7 @@ export class SeamsWeb {
     }
   }
 
-  private async getWalletRecoveryCodeStatusDomain(args: {
-    walletId: string;
-  }) {
+  private async getWalletRecoveryCodeStatusDomain(args: { walletId: string }) {
     const relayUrl = String(this.configs.network.relayer.url || '').trim();
     if (this.walletIframe.shouldUseWalletIframe()) {
       const router = await this.walletIframe.requireRouter(args.walletId);
@@ -1994,9 +1991,7 @@ export class SeamsWeb {
     });
   }
 
-  private async acknowledgeWalletRecoveryCodeBackupDomain(args: {
-    walletId: string;
-  }) {
+  private async acknowledgeWalletRecoveryCodeBackupDomain(args: { walletId: string }) {
     const relayUrl = String(this.configs.network.relayer.url || '').trim();
     if (this.walletIframe.shouldUseWalletIframe()) {
       const router = await this.walletIframe.requireRouter(args.walletId);

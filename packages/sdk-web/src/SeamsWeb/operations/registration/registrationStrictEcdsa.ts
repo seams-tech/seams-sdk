@@ -20,9 +20,7 @@ import type {
 import { alphabetizeStringify } from '@shared/utils/digests';
 import type { WalletId } from '@shared/utils/registrationIntent';
 import { base64UrlDecode } from '@shared/utils/base64';
-import {
-  toParticipantId,
-} from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { toParticipantId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   parseEcdsaClientVerifyingPublicKey33B64u,
   parseEcdsaRelayerKeyId,
@@ -135,7 +133,6 @@ export type RegistrationLocalEcdsaWalletKeys = Awaited<
   ReturnType<RegistrationSigningSurface['finalizeWalletRegistrationEcdsaSessions']>
 >;
 
-
 export function assertSharedRegistrationEvmFamilyWalletKeyMaterial(
   walletKeys: readonly WalletRegistrationEcdsaWalletKey[],
 ): void {
@@ -223,13 +220,9 @@ export async function closeStrictEcdsaRegistrationCeremony(args: {
 
 export function buildStrictRegistrationClientBootstrap(args: {
   prepare: WalletRegistrationEcdsaPreparePayload['prepare'];
-  verified: NonNullable<
-    Awaited<
-      ReturnType<
-        RegistrationWebContext['signingEngine']['verifyRouterAbEcdsaRegistrationClientProofs']
-      >
-    >['clientBootstrap']
-  >;
+  verified: Awaited<
+    ReturnType<RegistrationWebContext['signingEngine']['joinWalletCustodyEvmFamilyKeySet']>
+  >['clientBootstrap'];
 }): WalletRegistrationEcdsaClientBootstrap {
   const prepare = args.prepare;
   return {
@@ -405,6 +398,7 @@ export async function runStrictEcdsaFamilyCeremony(args: {
           kind: 'persist_initial_canonical_ecdsa_activation_v1',
           bootstrapOwner: 'wallet_custody',
           ceremonyId,
+          clientActivation: publicFacts,
           planInput: {
             authority: args.authority,
             targetMemberships: [firstChainTarget, ...remainingChainTargets],
@@ -412,12 +406,8 @@ export async function runStrictEcdsaFamilyCeremony(args: {
               args.started.prepare.evmFamilySigningKeySlotId,
               'registration ECDSA signing key slot',
             ),
-            ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(
-              args.started.prepare.ecdsaThresholdKeyId,
-            ),
-            signingRootId: parseSdkEcdsaDerivationSigningRootId(
-              args.started.prepare.signingRootId,
-            ),
+            ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(args.started.prepare.ecdsaThresholdKeyId),
+            signingRootId: parseSdkEcdsaDerivationSigningRootId(args.started.prepare.signingRootId),
             signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion(
               args.started.prepare.signingRootVersion,
             ),

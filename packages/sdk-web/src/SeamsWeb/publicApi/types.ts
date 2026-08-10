@@ -87,6 +87,7 @@ import type {
 } from '@/SeamsWeb/operations/recovery/walletRecovery';
 import type {
   AddPasskeyAuthorization,
+  AddPasskeyHooksOptions,
   AddPasskeyResult,
 } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
 import type { WalletRevokeAuthMethodResponse } from '@/core/rpcClients/relayer/walletRegistration';
@@ -94,9 +95,7 @@ import type {
   WalletRecoveryBackupAcknowledgementResult,
   WalletRecoveryCodeStatusResult,
 } from '@/core/rpcClients/relayer/walletRecoveryRotate';
-import type {
-  WalletRecoveryRotationAuthorization,
-} from '@/SeamsWeb/operations/recovery/walletRecoveryRotation';
+import type { WalletRecoveryRotationAuthorization } from '@/SeamsWeb/operations/recovery/walletRecoveryRotation';
 import type { WalletRecoveryRotationOutcome } from '@/core/signingEngine/walletCustody/walletRecoveryRotation';
 export type {
   CompleteWalletRecoveryResult,
@@ -106,6 +105,7 @@ export type {
 } from '@/SeamsWeb/operations/recovery/walletRecovery';
 export type {
   AddPasskeyAuthorization,
+  AddPasskeyHooksOptions,
   AddPasskeyResult,
 } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
 export type {
@@ -489,10 +489,7 @@ export type EmailOtpChallengeResult = {
   appSessionVersion?: string;
 };
 
-export type {
-  EmailOtpEnrollmentResult,
-  GoogleEmailOtpSessionExchangeResult,
-};
+export type { EmailOtpEnrollmentResult, GoogleEmailOtpSessionExchangeResult };
 
 export type GoogleEmailOtpRegistrationEnrollmentResult = Omit<
   EmailOtpEnrollmentResult,
@@ -765,7 +762,7 @@ export interface RegistrationCapability {
     walletId: WalletId | string;
     rpId: string;
     authorization: AddPasskeyAuthorization;
-    options?: RegistrationHooksOptions;
+    options?: AddPasskeyHooksOptions;
   }): Promise<AddPasskeyResult>;
   registerWallet(args: {
     authMethod: RegistrationAuthMethodInput;
@@ -913,9 +910,7 @@ export interface RecoveryCapability {
     options?: SyncAccountHooksOptions;
   }): Promise<SyncAccountResult>;
 
-  getWalletRecoveryCodeStatus(args: {
-    walletId: string;
-  }): Promise<WalletRecoveryCodeStatusResult>;
+  getWalletRecoveryCodeStatus(args: { walletId: string }): Promise<WalletRecoveryCodeStatusResult>;
 
   acknowledgeWalletRecoveryCodeBackup(args: {
     walletId: string;
@@ -982,9 +977,7 @@ export interface DevicesCapability {
     options: ActionHooksOptions;
   }): Promise<ActionResult>;
 
-  listWalletCredentials(args: {
-    walletId: string;
-  }): Promise<WalletCredentialActivityListResult>;
+  listWalletCredentials(args: { walletId: string }): Promise<WalletCredentialActivityListResult>;
 
   renameWalletCredential(args: {
     walletId: string;

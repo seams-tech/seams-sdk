@@ -1,4 +1,4 @@
-import type { RegistrationHooksOptions } from '@/core/types/sdkSentEvents';
+import type { AfterCall, RegistrationHooksOptions } from '@/core/types/sdkSentEvents';
 import type { RegistrationWebContext } from '@/SeamsWeb/signingSurface/types';
 import {
   createWalletAddAuthMethodIntent,
@@ -13,6 +13,7 @@ import {
 import {
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
+  type WebAuthnRpId,
 } from '@shared/utils/domainIds';
 import { base64UrlDecode } from '@shared/utils/base64';
 import { toError } from '@shared/utils/errors';
@@ -24,9 +25,7 @@ import {
   requirePasskeyPrfFirstB64u,
 } from './ecdsaBootstrap';
 import { redactCredentialExtensionOutputs } from '@/core/signingEngine/webauthnAuth/credentials/credentialExtensions';
-import {
-  linkWalletPasskeyCustody,
-} from '@/core/signingEngine/walletCustody/passkeyLink';
+import { linkWalletPasskeyCustody } from '@/core/signingEngine/walletCustody/passkeyLink';
 import type { WalletCustodyCeremonyTransportPort } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
 import { buildEmailOtpRoutePlan } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
@@ -43,6 +42,10 @@ export type AddPasskeyResult = {
     readonly kind: 'passkey';
     readonly status: 'active';
   };
+};
+
+export type AddPasskeyHooksOptions = Omit<RegistrationHooksOptions, 'afterCall'> & {
+  readonly afterCall?: AfterCall<AddPasskeyResult>;
 };
 
 function localPasskeyAuthMethodFromFinalize(args: {
@@ -131,17 +134,17 @@ function webAuthnTransportsFromRaw(value: unknown): AuthenticatorTransport[] {
 function requireExistingPasskeyCredentials(
   records: readonly { credentialId: string; transports?: unknown }[],
 ): WebAuthnAllowCredential[] {
-  const allowCredentials = records
-    .map((record) => {
-      const id = String(record.credentialId || '').trim();
-      if (!id) return null;
-      return {
+  const allowCredentials: WebAuthnAllowCredential[] = [];
+  for (const record of records) {
+    const id = String(record.credentialId || '').trim();
+    if (id) {
+      allowCredentials.push({
         id,
-        type: 'public-key' as const,
+        type: 'public-key',
         transports: webAuthnTransportsFromRaw(record.transports),
-      };
-    })
-    .filter((record): record is WebAuthnAllowCredential => record !== null);
+      });
+    }
+  }
   if (allowCredentials.length === 0) {
     throw new Error('Wallet add-passkey requires an existing passkey credential');
   }
@@ -164,11 +167,11 @@ function walletCustodyWorkerTransport(
 async function addPasskeyWithEmailOtpAuthorization(args: {
   readonly context: RegistrationWebContext;
   readonly walletId: WalletId;
-  readonly rpId: string;
+  readonly rpId: WebAuthnRpId;
   readonly authorization: Extract<AddPasskeyAuthorization, { kind: 'email_otp' }>;
   readonly intentResponse: Awaited<ReturnType<typeof createWalletAddAuthMethodIntent>>;
   readonly defaultSignerSlot: number;
-  readonly options?: RegistrationHooksOptions;
+  readonly options?: AddPasskeyHooksOptions;
 }): Promise<AddPasskeyResult> {
   const relayerUrl = String(args.context.configs.network.relayer.url || '').trim();
   const appSessionJwt = await args.context.signingEngine.resolveEmailOtpAppSessionJwt({
@@ -176,7 +179,7 @@ async function addPasskeyWithEmailOtpAuthorization(args: {
       walletId: args.walletId,
       walletSessionUserId: String(args.walletId),
     },
-    relayUrl,
+    relayUrl: relayerUrl,
   });
   const worker = args.context.signingEngine.getSignerWorkerContext();
   const routePlan = buildEmailOtpRoutePlan({
@@ -190,7 +193,7 @@ async function addPasskeyWithEmailOtpAuthorization(args: {
       type: 'prepareEmailOtpPasskeyCustodyLink',
       timeoutMs: 60_000,
       payload: {
-        relayUrl,
+        relayUrl: relayerUrl,
         walletId: String(args.walletId),
         userId: String(args.walletId),
         groupId: SIGNING_SESSION_SEAL_GROUP_ID,
@@ -215,7 +218,9 @@ async function addPasskeyWithEmailOtpAuthorization(args: {
       authority: { kind: 'passkey' },
     });
     if (!started.custodyEnvelope || !started.registration) {
-      throw new Error('Email OTP add-passkey start omitted custody envelope or registration options');
+      throw new Error(
+        'Email OTP add-passkey start omitted custody envelope or registration options',
+      );
     }
     if (
       started.custodyEnvelope.walletId !== args.walletId ||
@@ -223,19 +228,19 @@ async function addPasskeyWithEmailOtpAuthorization(args: {
       started.custodyEnvelope.envelopeRevision !== prepared.envelopeRevision ||
       started.custodyEnvelope.factor.kind !== 'email_otp' ||
       started.custodyEnvelope.factor.enrollmentId !== prepared.enrollmentId ||
-      started.custodyEnvelope.factor.enrollmentSealKeyVersion !==
-        prepared.enrollmentSealKeyVersion
+      started.custodyEnvelope.factor.enrollmentSealKeyVersion !== prepared.enrollmentSealKeyVersion
     ) {
       throw new Error('Email OTP add-passkey source custody envelope changed');
     }
-    const confirmation =
-      await args.context.signingEngine.requestRegistrationCredentialConfirmation({
+    const confirmation = await args.context.signingEngine.requestRegistrationCredentialConfirmation(
+      {
         walletId: String(args.walletId),
         signerSlot: args.defaultSignerSlot,
         confirmerText: args.options?.confirmerText,
         confirmationConfigOverride: args.options?.confirmationConfig,
         registrationOptions: started.registration,
-      });
+      },
+    );
     if (!confirmation.confirmed) {
       throw new Error('Wallet add-passkey registration was cancelled');
     }
@@ -287,9 +292,9 @@ async function addPasskeyWithEmailOtpAuthorization(args: {
 async function addPasskeyWalletAuthMethodInternal(args: {
   readonly context: RegistrationWebContext;
   readonly walletId: WalletId;
-  readonly rpId: string;
+  readonly rpId: WebAuthnRpId;
   readonly authorization: AddPasskeyAuthorization;
-  readonly options?: RegistrationHooksOptions;
+  readonly options?: AddPasskeyHooksOptions;
 }): Promise<AddPasskeyResult> {
   const relayerUrl = String(args.context.configs.network.relayer.url || '').trim();
   if (!relayerUrl) throw new Error('registration.addPasskey requires relayer.url');
@@ -406,7 +411,7 @@ export async function addPasskeyWalletAuthMethod(args: {
   readonly walletId: WalletId | string;
   readonly rpId: string;
   readonly authorization: AddPasskeyAuthorization;
-  readonly options?: RegistrationHooksOptions;
+  readonly options?: AddPasskeyHooksOptions;
 }): Promise<AddPasskeyResult> {
   const walletId = walletIdFromString(String(args.walletId || '').trim());
   const parsedRpId = parseWebAuthnRpId(String(args.rpId || '').trim());
@@ -419,7 +424,7 @@ export async function addPasskeyWalletAuthMethod(args: {
       authorization: args.authorization,
       options: args.options,
     });
-    await args.options?.afterCall?.(true);
+    await args.options?.afterCall?.(true, result);
     return result;
   } catch (error: unknown) {
     const normalized = toError(error);
