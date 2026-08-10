@@ -543,7 +543,9 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
       protocolReceipt: commitReceipt,
       holderReceipt,
       serverReceipt: receipt,
-      manifestDigestB64u: enrollment.commandDigestB64u,
+      manifestDigestB64u: await computeLaneEnrollmentManifestDigestV1(
+        enrollment.value.manifest,
+      ),
     });
     const result = await this.putReceipt(
       receipt.operationId,
@@ -855,7 +857,11 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
         String(product.laneId) !== String(child.targetLaneId) ||
         String(product.laneShareEpoch) !== String(child.targetLaneShareEpoch) ||
         String(product.targetMaterialActivationId) !==
-          String(child.targetMaterialActivation.activationId)
+          String(child.targetMaterialActivation.activationId) ||
+        !mpcMaterialActivationRefsEqual(
+          product.materialActivation,
+          child.targetMaterialActivation,
+        )
       )
         throw new Error(
           'lane child product epoch is not pending or differs from aggregate receipt',
