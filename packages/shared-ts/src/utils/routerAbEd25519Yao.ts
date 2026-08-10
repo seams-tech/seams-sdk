@@ -727,6 +727,8 @@ function parseOperation(value: unknown, label: string): RouterAbEd25519YaoOperat
     case 'recovery':
     case 'refresh':
     case 'export':
+    case 'lane_provisioning':
+    case 'lane_refresh':
       return value;
     default:
       throw new Error(`${label} is invalid`);
@@ -1070,6 +1072,8 @@ function requireActivationBinding(
       };
     case 'refresh':
     case 'export':
+    case 'lane_provisioning':
+    case 'lane_refresh':
       throw new Error('activation binding has a non-activation operation');
   }
 }

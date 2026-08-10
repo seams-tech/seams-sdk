@@ -11,6 +11,10 @@ import initNearSigner, {
   passkey_custody_open_wallet_seed_v1,
   passkey_custody_reseal_wallet_seed_v1,
 } from '../../../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
+import initEd25519YaoClient, {
+  WasmEd25519YaoLaneClientV1,
+  WasmEd25519YaoLaneSourceV1,
+} from '../../../../../../../crates/router-ab-ed25519-yao-client/pkg/router_ab_ed25519_yao_client.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { errorLogSummary, safeErrorMessage } from '@shared/utils/errors';
 import type {
@@ -18,7 +22,8 @@ import type {
   WalletCustodyCeremonyCommitPayload,
   WalletCustodyEvmFamilyActivationCompletion,
 } from '@shared/passkey-custody';
-import { base64UrlDecode } from '@shared/utils/encoders';
+import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import type { WalletCustodyCeremonyWorkerOperationMap } from '../workerTypes';
 
 /**
@@ -41,8 +46,13 @@ import type { WalletCustodyCeremonyWorkerOperationMap } from '../workerTypes';
 
 const wasmUrl = resolveWasmUrl('wallet_custody_ceremony_bg.wasm', 'Wallet Custody Ceremony');
 const nearSignerWasmUrl = resolveWasmUrl('wasm_signer_worker_bg.wasm', 'Signer Worker');
+const ed25519YaoClientWasmUrl = resolveWasmUrl(
+  'router_ab_ed25519_yao_client_bg.wasm',
+  'Ed25519 Yao Client',
+);
 let initPromise: Promise<void> | null = null;
 let nearSignerInitPromise: Promise<void> | null = null;
+let ed25519YaoClientInitPromise: Promise<void> | null = null;
 
 /**
  * Ceremonies in flight. Bounded because each holds custody material: a caller
@@ -73,6 +83,12 @@ type CeremonyState =
   | { readonly step: 'near_established'; readonly handle: WasmCeremonyManifestEstablishedV1 };
 
 const ceremonies = new Map<string, CeremonyState>();
+const MAX_ACTIVE_LANE_SOURCES = 8;
+const ed25519YaoLaneSources = new Map<string, WasmEd25519YaoLaneSourceV1>();
+const ed25519YaoLaneSessions = new Map<
+  string,
+  { readonly sourceHandle: string; readonly client: WasmEd25519YaoLaneClientV1 }
+>();
 
 type WorkerRequest<TType extends keyof WalletCustodyCeremonyWorkerOperationMap> = {
   readonly id: string;
@@ -86,6 +102,10 @@ type FinishRequest = WorkerRequest<'finishWalletCustodyKeySetRun'>;
 type DiscardRequest = WorkerRequest<'discardWalletCustodyCeremony'>;
 type LinkPasskeyRequest = WorkerRequest<'linkWalletCustodyPasskey'>;
 type RotateRecoverySetRequest = WorkerRequest<'rotateWalletRecoverySet'>;
+type OpenEd25519YaoLaneSourceRequest = WorkerRequest<'openEd25519YaoLaneSource'>;
+type PrepareEd25519YaoLaneRequest = WorkerRequest<'prepareEd25519YaoLane'>;
+type CompleteEd25519YaoLaneRequest = WorkerRequest<'completeEd25519YaoLane'>;
+type DiscardEd25519YaoLaneSourceRequest = WorkerRequest<'discardEd25519YaoLaneSource'>;
 
 type WalletCustodyCeremonyWorkerRequest =
   | BeginRequest
@@ -93,7 +113,11 @@ type WalletCustodyCeremonyWorkerRequest =
   | FinishRequest
   | DiscardRequest
   | LinkPasskeyRequest
-  | RotateRecoverySetRequest;
+  | RotateRecoverySetRequest
+  | OpenEd25519YaoLaneSourceRequest
+  | PrepareEd25519YaoLaneRequest
+  | CompleteEd25519YaoLaneRequest
+  | DiscardEd25519YaoLaneSourceRequest;
 
 function postToMainThread(message: unknown): void {
   (self as unknown as { postMessage: (message: unknown) => void }).postMessage(message);
@@ -139,6 +163,23 @@ async function initializeNearSignerWasm(): Promise<void> {
   return nearSignerInitPromise;
 }
 
+async function initializeEd25519YaoClientWasm(): Promise<void> {
+  if (!ed25519YaoClientInitPromise) {
+    ed25519YaoClientInitPromise = initEd25519YaoClient({
+      module_or_path: ed25519YaoClientWasmUrl,
+    }).then(
+      () => undefined,
+      (error: unknown) => {
+        ed25519YaoClientInitPromise = null;
+        throw new Error(
+          `Ed25519 Yao client WASM initialization failed: ${safeErrorMessage(error)}`,
+        );
+      },
+    );
+  }
+  return ed25519YaoClientInitPromise;
+}
+
 function toBytes(value: ArrayBuffer | Uint8Array): Uint8Array {
   return value instanceof Uint8Array ? value : new Uint8Array(value);
 }
@@ -147,6 +188,144 @@ function requireCeremonyId(value: unknown): string {
   const ceremonyId = String(value || '').trim();
   if (!ceremonyId) throw new Error('ceremonyId is required');
   return ceremonyId;
+}
+
+function requireOpaqueHandle(value: unknown, label: string): string {
+  const handle = String(value || '').trim();
+  if (!handle || handle.length > 256) throw new Error(`${label} is invalid`);
+  return handle;
+}
+
+function secureOpaqueHandle(prefix: string): string {
+  const random = new Uint8Array(24);
+  crypto.getRandomValues(random);
+  return `${prefix}.${base64UrlEncode(random)}`;
+}
+
+function randomNonzero32(): Uint8Array {
+  const output = new Uint8Array(32);
+  do {
+    crypto.getRandomValues(output);
+  } while (allZero(output));
+  return output;
+}
+
+function allZero(value: Uint8Array): boolean {
+  let aggregate = 0;
+  for (const byte of value) aggregate |= byte;
+  return aggregate === 0;
+}
+
+function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  let difference = left.length ^ right.length;
+  const length = Math.min(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    difference |= left[index] ^ right[index];
+  }
+  return difference === 0;
+}
+
+function distinctLaneSealSeeds(): readonly [Uint8Array, Uint8Array] {
+  const first = randomNonzero32();
+  let second = randomNonzero32();
+  while (bytesEqual(first, second)) {
+    second.fill(0);
+    second = randomNonzero32();
+  }
+  return [first, second];
+}
+
+async function openEd25519YaoLaneSource(
+  request: OpenEd25519YaoLaneSourceRequest,
+): Promise<{ sourceHandle: string }> {
+  await initializeEd25519YaoClientWasm();
+  if (ed25519YaoLaneSources.size >= MAX_ACTIVE_LANE_SOURCES) {
+    throw new Error('Too many Ed25519 Yao lane sources are active');
+  }
+  const envelope = parsePasskeyCustodyEnvelopeRecord(request.payload.envelope);
+  const factorSecret = toBytes(request.payload.factorSecret);
+  try {
+    const source = new WasmEd25519YaoLaneSourceV1(
+      factorSecret,
+      custodyEnvelopeBindingJson(envelope),
+      base64UrlDecode(envelope.nonceB64u),
+      base64UrlDecode(envelope.sealedCustodySecretB64u),
+      base64UrlDecode(envelope.aadHashB64u),
+      base64UrlDecode(envelope.ciphertextDigestB64u),
+      base64UrlDecode(request.payload.applicationBindingDigestB64u),
+    );
+    const sourceHandle = secureOpaqueHandle('ed25519-yao-lane-source-v1');
+    ed25519YaoLaneSources.set(sourceHandle, source);
+    return { sourceHandle };
+  } finally {
+    factorSecret.fill(0);
+  }
+}
+
+async function prepareEd25519YaoLane(
+  request: PrepareEd25519YaoLaneRequest,
+): Promise<{ sessionHandle: string; requestJson: string }> {
+  await initializeEd25519YaoClientWasm();
+  const sourceHandle = requireOpaqueHandle(request.payload.sourceHandle, 'sourceHandle');
+  const source = ed25519YaoLaneSources.get(sourceHandle);
+  if (!source) throw new Error('Ed25519 Yao lane source handle is unknown or discarded');
+  const client = new WasmEd25519YaoLaneClientV1();
+  const [deriverASealSeed, deriverBSealSeed] = distinctLaneSealSeeds();
+  try {
+    const prepared = client.prepare(
+      JSON.stringify(request.payload.job),
+      JSON.stringify(request.payload.ceremonyBinding),
+      JSON.stringify(request.payload.applicationBinding),
+      request.payload.participantIds[0],
+      request.payload.participantIds[1],
+      source,
+      base64UrlDecode(request.payload.deriverAInputPublicKeyB64u),
+      base64UrlDecode(request.payload.deriverBInputPublicKeyB64u),
+      deriverASealSeed,
+      deriverBSealSeed,
+    ) as { requestJson?: unknown };
+    const requestJson = String(prepared.requestJson || '').trim();
+    if (!requestJson) throw new Error('Ed25519 Yao lane preparation returned no request JSON');
+    const sessionHandle = secureOpaqueHandle('ed25519-yao-lane-session-v1');
+    ed25519YaoLaneSessions.set(sessionHandle, { sourceHandle, client });
+    return { sessionHandle, requestJson };
+  } catch (error) {
+    client.free();
+    throw error;
+  } finally {
+    deriverASealSeed.fill(0);
+    deriverBSealSeed.fill(0);
+  }
+}
+
+async function completeEd25519YaoLane(
+  request: CompleteEd25519YaoLaneRequest,
+): Promise<WalletCustodyCeremonyWorkerOperationMap['completeEd25519YaoLane']['result']> {
+  const sessionHandle = requireOpaqueHandle(request.payload.sessionHandle, 'sessionHandle');
+  const session = ed25519YaoLaneSessions.get(sessionHandle);
+  if (!session) throw new Error('Ed25519 Yao lane session handle is unknown or consumed');
+  ed25519YaoLaneSessions.delete(sessionHandle);
+  try {
+    return session.client.complete({ responseJson: request.payload.responseJson });
+  } finally {
+    session.client.free();
+  }
+}
+
+function discardEd25519YaoLaneSource(request: DiscardEd25519YaoLaneSourceRequest): {
+  discarded: boolean;
+} {
+  const sourceHandle = requireOpaqueHandle(request.payload.sourceHandle, 'sourceHandle');
+  for (const [sessionHandle, session] of ed25519YaoLaneSessions) {
+    if (session.sourceHandle !== sourceHandle) continue;
+    session.client.free();
+    ed25519YaoLaneSessions.delete(sessionHandle);
+  }
+  const source = ed25519YaoLaneSources.get(sourceHandle);
+  if (!source) return { discarded: false };
+  ed25519YaoLaneSources.delete(sourceHandle);
+  source.free();
+  return { discarded: true };
 }
 
 type BeginCustody = BeginRequest['payload']['custody'];
@@ -432,10 +611,7 @@ async function rotateWalletRecoverySet(request: RotateRecoverySetRequest): Promi
   const factorSecret = toBytes(request.payload.factorSecret);
   let handle: WasmCeremonySeedHeldV1 | null = null;
   try {
-    handle = wallet_custody_ceremony_join_v1(
-      factorSecret,
-      request.payload.custodyJson,
-    );
+    handle = wallet_custody_ceremony_join_v1(factorSecret, request.payload.custodyJson);
     const resultJson = handle.rotate_recovery_codes(request.payload.recoveryCodesJson);
     handle = null;
     return JSON.parse(resultJson) as unknown;
@@ -448,6 +624,18 @@ async function rotateWalletRecoverySet(request: RotateRecoverySetRequest): Promi
 async function handleRequest(request: WalletCustodyCeremonyWorkerRequest): Promise<void> {
   await initializeWasm();
   switch (request.type) {
+    case 'openEd25519YaoLaneSource':
+      postSucceeded(request.id, await openEd25519YaoLaneSource(request));
+      return;
+    case 'prepareEd25519YaoLane':
+      postSucceeded(request.id, await prepareEd25519YaoLane(request));
+      return;
+    case 'completeEd25519YaoLane':
+      postSucceeded(request.id, await completeEd25519YaoLane(request));
+      return;
+    case 'discardEd25519YaoLaneSource':
+      postSucceeded(request.id, discardEd25519YaoLaneSource(request));
+      return;
     case 'beginWalletCustodyKeySetRun':
       postSucceeded(request.id, beginKeySetRun(request));
       return;
