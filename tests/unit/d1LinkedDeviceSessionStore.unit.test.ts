@@ -4,7 +4,13 @@ import {
   parseLinkedDeviceId,
   parseLinkDeviceSessionId,
 } from '@shared/signing-lanes';
+import {
+  buildAwaitingAggregateReceiptLinkedDeviceSessionState,
+  buildLinkedDeviceEnrollmentReceiptV1,
+} from '@shared/device-linking/parsers';
 import { parseWalletId } from '@shared/utils/domainIds';
+import { base64UrlEncode } from '@shared/utils/base64';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import {
   D1LinkedDeviceSessionStoreV1,
@@ -201,6 +207,105 @@ test('refuses postcommit cancellation, records completion-required state, and re
     nowMs: 3_007,
   });
   expect(postcommitCancel.outcome).toBe('invalid_state');
+});
+
+test('rejects aggregate activation unless the approved manifest and child set match exactly', async () => {
+  temporary = createTemporaryD1Database();
+  await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+  const fixture = buildR103DeviceLinkFixture();
+  const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
+  const service = new LinkedDeviceSessionServiceV1({ store, authorization: ownerAuthForFixture() });
+  await service.createUnclaimedSessionV1({ payload: fixture.payload, nowMs: 3_000 });
+  await service.claimSessionV1({ payload: fixture.payload, nowMs: 3_001 });
+  const approval = { ...fixture.approval, expiresAtMs: 8_000 };
+  const approved = await service.recordOwnerApprovalV1({ approval, nowMs: 3_002 });
+  expect(approved.outcome).toBe('applied');
+  if (approved.outcome !== 'applied') throw new Error('expected approval');
+  const awaitingReceipt = parseLinkedDeviceSessionRecordV1({
+    ...approved.record,
+    state: buildAwaitingAggregateReceiptLinkedDeviceSessionState({
+      linkSessionId: fixture.payload.linkSessionId,
+      walletId: approved.record.state.walletId,
+      enrollmentId: approved.record.state.enrollmentId,
+      keyManifestDigestB64u: fixture.approval.policyDigestB64u,
+    }),
+    revision: approved.record.revision + 1,
+    updatedAtMs: 3_003,
+  });
+  await overwriteRecord(awaitingReceipt);
+
+  const differentManifestDigest = parseDigestB64u(
+    base64UrlEncode(new Uint8Array(32).fill(9)),
+  );
+  const wrongManifest = buildLinkedDeviceEnrollmentReceiptV1({
+    enrollmentId: fixture.receipt.enrollmentId,
+    walletId: fixture.receipt.walletId,
+    deviceId: fixture.receipt.deviceId,
+    manifestDigestB64u: differentManifestDigest,
+    aggregateReceiptDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
+    orderedChildReceipts: fixture.receipt.orderedChildReceipts,
+    activatedAtMs: fixture.receipt.activatedAtMs,
+  });
+  const manifestResult = await service.recordAggregateActivationV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    expectedRevision: awaitingReceipt.revision,
+    receipt: wrongManifest,
+    nowMs: 3_004,
+  });
+  expect(manifestResult).toEqual({
+    outcome: 'invalid_input',
+    message: 'aggregate receipt manifest digest differs from the approved manifest',
+  });
+
+  const child = fixture.receipt.orderedChildReceipts[0];
+  if (!child) throw new Error('fixture child receipt is missing');
+  const wrongFamily = buildLinkedDeviceEnrollmentReceiptV1({
+    enrollmentId: fixture.receipt.enrollmentId,
+    walletId: fixture.receipt.walletId,
+    deviceId: fixture.receipt.deviceId,
+    manifestDigestB64u: fixture.receipt.manifestDigestB64u,
+    aggregateReceiptDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
+    orderedChildReceipts: [
+      {
+        ...child,
+        keyFamily: 'ecdsa_secp256k1',
+      },
+    ],
+    activatedAtMs: fixture.receipt.activatedAtMs,
+  });
+  const familyResult = await service.recordAggregateActivationV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    expectedRevision: awaitingReceipt.revision,
+    receipt: wrongFamily,
+    nowMs: 3_004,
+  });
+  expect(familyResult).toEqual({
+    outcome: 'invalid_input',
+    message: 'aggregate receipt child differs from the approved manifest',
+  });
+
+  const duplicateChildren = buildLinkedDeviceEnrollmentReceiptV1({
+    enrollmentId: fixture.receipt.enrollmentId,
+    walletId: fixture.receipt.walletId,
+    deviceId: fixture.receipt.deviceId,
+    manifestDigestB64u: fixture.receipt.manifestDigestB64u,
+    aggregateReceiptDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
+    orderedChildReceipts: [child, child],
+    activatedAtMs: fixture.receipt.activatedAtMs,
+  });
+  const duplicateResult = await service.recordAggregateActivationV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    expectedRevision: awaitingReceipt.revision,
+    receipt: duplicateChildren,
+    nowMs: 3_004,
+  });
+  expect(duplicateResult).toEqual({
+    outcome: 'invalid_input',
+    message: 'aggregate receipt contains duplicate child coverage',
+  });
+
+  const persisted = await store.getSessionV1(fixture.payload.linkSessionId);
+  expect(persisted?.state.state).toBe('awaiting_aggregate_receipt');
 });
 
 test('rejects tampered durable record and transcript rows', async () => {

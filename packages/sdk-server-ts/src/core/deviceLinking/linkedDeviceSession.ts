@@ -515,6 +515,7 @@ export class LinkedDeviceSessionServiceV1 {
       ) {
         return { outcome: 'invalid_input', message: 'aggregate receipt identity does not match session' };
       }
+      validateAggregateReceiptMatchesApproval(existing, receipt);
       const nextState: LinkedDeviceSessionState = {
         state: 'active',
         linkSessionId: existing.linkSessionId,
@@ -1390,6 +1391,80 @@ function deviceIdFromRecord(record: LinkedDeviceSessionRecordV1): LinkedDeviceId
   const value = record.claimTranscript?.value.deviceId;
   if (!value) throw new Error('session claim transcript is missing device id');
   return value;
+}
+
+function validateAggregateReceiptMatchesApproval(
+  record: LinkedDeviceSessionRecordV1,
+  receipt: LinkedDeviceEnrollmentReceiptV1,
+): void {
+  if (record.state.state !== 'awaiting_aggregate_receipt') {
+    throw new Error('aggregate receipt validation requires an awaiting session');
+  }
+  const approval = record.approvalTranscript?.value;
+  if (!approval) throw new Error('aggregate receipt session is missing owner approval');
+  if (receipt.manifestDigestB64u !== record.state.keyManifestDigestB64u) {
+    throw new Error('aggregate receipt manifest digest differs from the approved manifest');
+  }
+
+  const approvedCoverage = new Set<string>();
+  for (const binding of approval.orderedKeyBindings) {
+    const key = aggregateChildCoverageKey({
+      walletKeyId: binding.walletKeyId,
+      keyFamily: binding.keyFamily,
+      targetLaneId: binding.targetLaneId,
+      targetLaneShareEpoch: binding.targetLaneShareEpoch,
+    });
+    if (approvedCoverage.has(key)) {
+      throw new Error('approved linked-device manifest contains duplicate child coverage');
+    }
+    approvedCoverage.add(key);
+  }
+
+  const receiptCoverage = new Set<string>();
+  const materialActivationIds = new Set<string>();
+  for (const child of receipt.orderedChildReceipts) {
+    const key = aggregateChildCoverageKey(child);
+    if (receiptCoverage.has(key)) {
+      throw new Error('aggregate receipt contains duplicate child coverage');
+    }
+    receiptCoverage.add(key);
+    const activationId = String(child.materialActivation.activationId);
+    if (materialActivationIds.has(activationId)) {
+      throw new Error('aggregate receipt contains duplicate material activation');
+    }
+    materialActivationIds.add(activationId);
+  }
+
+  if (receipt.orderedChildReceipts.length !== approval.orderedKeyBindings.length) {
+    throw new Error('aggregate receipt child count differs from the approved manifest');
+  }
+  for (let index = 0; index < approval.orderedKeyBindings.length; index += 1) {
+    const binding = approval.orderedKeyBindings[index];
+    const child = receipt.orderedChildReceipts[index];
+    if (!binding || !child) throw new Error('aggregate receipt child order is invalid');
+    if (
+      child.walletKeyId !== binding.walletKeyId ||
+      child.keyFamily !== binding.keyFamily ||
+      child.targetLaneId !== binding.targetLaneId ||
+      child.targetLaneShareEpoch !== binding.targetLaneShareEpoch
+    ) {
+      throw new Error('aggregate receipt child differs from the approved manifest');
+    }
+  }
+}
+
+function aggregateChildCoverageKey(input: {
+  readonly walletKeyId: WalletKeyId;
+  readonly keyFamily: LinkedDeviceEnrollmentKeyBindingV1['keyFamily'];
+  readonly targetLaneId: SigningLaneId;
+  readonly targetLaneShareEpoch: LaneShareEpoch;
+}): string {
+  return [
+    String(input.walletKeyId),
+    input.keyFamily,
+    String(input.targetLaneId),
+    String(input.targetLaneShareEpoch),
+  ].join('\u0000');
 }
 
 function invalidStateResult(record: LinkedDeviceSessionRecordV1): LinkedDeviceSessionMutationResultV1 {
