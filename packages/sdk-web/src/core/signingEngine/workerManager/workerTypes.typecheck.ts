@@ -42,10 +42,12 @@ import type {
 import type {
   RouterAbEcdsaDerivationNormalSigningStateV1,
   RouterAbEcdsaRegistrationActivationReceiptV1,
+  RouterAbEcdsaVerifiedClientActivationFactsV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { WalletCustodyEvmFamilyPublicFacts } from '@shared/passkey-custody';
 import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
-import type { RouterAbEcdsaPostRegistrationSessionActivationRequestV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbEcdsaPostRegistrationSessionActivationPolicyV1 } from '@shared/utils/routerAbEcdsaDerivation';
 
 declare const rootShareEpoch: RootShareEpoch;
 declare const chainTarget: ThresholdEcdsaChainTarget;
@@ -58,7 +60,9 @@ declare const initialEcdsaActivationPlanInput: InitialEcdsaCapabilityActivationP
 declare const initialEcdsaActivationPlan: InitialEcdsaCapabilityActivationPlan;
 declare const activationJournalId: CorrelationId;
 declare const activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+declare const clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
 declare const normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+declare const walletCustodyPublicFacts: WalletCustodyEvmFamilyPublicFacts;
 declare const activationCapability: CapabilityInstanceRef;
 declare const activationAuthority: WalletAuthAuthorityRef;
 declare const activationCommand: Extract<
@@ -71,7 +75,7 @@ declare const finalizedAuthority: FinalizeRouterAbEcdsaRegistrationActivationRes
 declare const finalizedPublicFacts: FinalizeRouterAbEcdsaRegistrationActivationResultV1['publicFacts'];
 declare const finalizedPublicCapability: FinalizeRouterAbEcdsaRegistrationActivationResultV1['publicCapability'];
 declare const roleLocalMaterialRef: EcdsaRoleLocalPersistedMaterialRef;
-declare const ecdsaSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
+declare const ecdsaSessionPolicy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1;
 
 const persistInitialCanonicalEcdsaActivationRequest: EcdsaDerivationRoleLocalMaterialOperationRequest<
   typeof EcdsaDerivationClientCustomRequestType.PersistInitialCanonicalEcdsaActivation
@@ -79,18 +83,20 @@ const persistInitialCanonicalEcdsaActivationRequest: EcdsaDerivationRoleLocalMat
   type: EcdsaDerivationClientCustomRequestType.PersistInitialCanonicalEcdsaActivation,
   payload: {
     kind: 'persist_initial_canonical_ecdsa_activation_v1',
-    bootstrapOwner: 'legacy_prf',
+    bootstrapOwner: 'wallet_custody',
     ceremonyId: 'registration-ceremony',
     planInput: initialEcdsaActivationPlanInput,
+    clientActivation,
   },
 };
 void persistInitialCanonicalEcdsaActivationRequest;
 
 const persistInitialActivationWithPendingSecret = {
   kind: 'persist_initial_canonical_ecdsa_activation_v1',
-  bootstrapOwner: 'legacy_prf',
+  bootstrapOwner: 'wallet_custody',
   ceremonyId: 'registration-ceremony',
   planInput: initialEcdsaActivationPlanInput,
+  clientActivation,
   // @ts-expect-error Pending registration secrets stay in live worker ceremony state.
   pendingStateBlob: 'caller-owned-pending-secret',
 } satisfies PersistInitialCanonicalEcdsaActivationRequestV1;
@@ -98,19 +104,22 @@ void persistInitialActivationWithPendingSecret;
 
 const persistInitialActivationWithConstructedPlan = {
   kind: 'persist_initial_canonical_ecdsa_activation_v1',
-  bootstrapOwner: 'legacy_prf',
+  bootstrapOwner: 'wallet_custody',
   ceremonyId: 'registration-ceremony',
   // @ts-expect-error The worker builds fresh proof objects from the narrow planner input.
   planInput: initialEcdsaActivationPlan,
+  clientActivation,
 } satisfies PersistInitialCanonicalEcdsaActivationRequestV1;
 void persistInitialActivationWithConstructedPlan;
 
 const finalizePersistedCanonicalEcdsaActivation = {
   kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
-  bootstrapOwner: 'legacy_prf',
+  bootstrapOwner: 'wallet_custody',
   journalId: activationJournalId,
   activationReceipt,
   routerAbEcdsaDerivationNormalSigning: normalSigning,
+  readyStateBlobB64u: 'ready-state',
+  walletCustodyPublicFacts,
 } satisfies FinalizeRouterAbEcdsaRegistrationActivationRequestV1;
 void finalizePersistedCanonicalEcdsaActivation;
 
@@ -151,10 +160,12 @@ void finalizedCanonicalEcdsaActivationWithoutAuthority;
 
 const finalizeCanonicalEcdsaActivationWithCallerRelayer = {
   kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
-  bootstrapOwner: 'legacy_prf',
+  bootstrapOwner: 'wallet_custody',
   journalId: activationJournalId,
   activationReceipt,
   routerAbEcdsaDerivationNormalSigning: normalSigning,
+  readyStateBlobB64u: 'ready-state',
+  walletCustodyPublicFacts,
   // @ts-expect-error Finalization derives relayer identity from the committed journal.
   relayerKeyId: 'caller-selected-relayer',
 } satisfies FinalizeRouterAbEcdsaRegistrationActivationRequestV1;
@@ -162,10 +173,12 @@ void finalizeCanonicalEcdsaActivationWithCallerRelayer;
 
 const finalizeCanonicalEcdsaActivationWithCeremonyAlias = {
   kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
-  bootstrapOwner: 'legacy_prf',
+  bootstrapOwner: 'wallet_custody',
   journalId: activationJournalId,
   activationReceipt,
   routerAbEcdsaDerivationNormalSigning: normalSigning,
+  readyStateBlobB64u: 'ready-state',
+  walletCustodyPublicFacts,
   // @ts-expect-error Canonical finalization accepts only the persisted journal identity.
   ceremonyId: 'legacy-ceremony-alias',
 } satisfies FinalizeRouterAbEcdsaRegistrationActivationRequestV1;
@@ -238,7 +251,7 @@ type EmailOtpEd25519YaoExportPayload =
 type EmailOtpWalletUnlockPayload = EmailOtpWorkerOperationMap['loginWithEmailOtpWallet']['payload'];
 type EmailOtpEcdsaWalletUnlockMaterial = Extract<
   EmailOtpWalletUnlockPayload['material'],
-  { kind: 'ecdsa'; ecdsaSessionActivation: typeof ecdsaSessionActivation }
+  { kind: 'ecdsa' }
 >;
 type EmailOtpCapabilityWalletUnlockMaterial = Extract<
   EmailOtpWalletUnlockPayload['material'],
@@ -254,7 +267,7 @@ const emailOtpEcdsaExplicitUnlockMaterial: EmailOtpEcdsaWalletUnlockMaterial = {
     chainTarget,
   },
   runtimePolicyScope,
-  ecdsaSessionActivation,
+  ecdsaSessionPolicy,
   walletSessionAuthorization: { kind: 'verified_wallet_unlock' },
 };
 void emailOtpEcdsaExplicitUnlockMaterial;
@@ -264,12 +277,10 @@ const emailOtpSigningStepUpWithActivation: EmailOtpEcdsaWalletUnlockMaterial = {
   ecdsaSessionHandleBinding: {
     keyHandle: 'ecdsa-key-handle',
     authSubjectId: 'provider-subject',
-    // @ts-expect-error signing step-up cannot mint a reusable ECDSA Wallet Session.
     operation: 'sign',
     chainTarget,
   },
   runtimePolicyScope,
-  ecdsaSessionActivation,
 };
 void emailOtpSigningStepUpWithActivation;
 
@@ -322,6 +333,7 @@ const emailOtpEd25519YaoWalletUnlockMaterial: EmailOtpEd25519YaoWalletUnlockMate
   nearAccountId: 'wallet.testnet',
   expectedOperationalPublicKey: 'ed25519:11111111111111111111111111111111',
   expectedThresholdSessionId: 'threshold-session',
+  walletCustodyEd25519Material: { kind: 'absent' },
   ed25519YaoRecovery: {
     kind: 'router_ab_ed25519_yao_email_otp_recovery_v1',
     signerSlot: 1,
@@ -336,7 +348,7 @@ const emailOtpCapabilityWalletUnlockMaterial: EmailOtpCapabilityWalletUnlockMate
   ecdsa: {
     sessionHandleBinding: emailOtpEcdsaExplicitUnlockMaterial.ecdsaSessionHandleBinding,
     runtimePolicyScope,
-    sessionActivation: ecdsaSessionActivation,
+    sessionPolicy: ecdsaSessionPolicy,
   },
   ed25519Yao: {
     recovery: emailOtpEd25519YaoWalletUnlockMaterial.ed25519YaoRecovery,
@@ -345,6 +357,8 @@ const emailOtpCapabilityWalletUnlockMaterial: EmailOtpCapabilityWalletUnlockMate
     expectedOperationalPublicKey:
       emailOtpEd25519YaoWalletUnlockMaterial.expectedOperationalPublicKey,
     expectedThresholdSessionId: emailOtpEd25519YaoWalletUnlockMaterial.expectedThresholdSessionId,
+    walletCustodyEd25519Material:
+      emailOtpEd25519YaoWalletUnlockMaterial.walletCustodyEd25519Material,
   },
 };
 void emailOtpCapabilityWalletUnlockMaterial;
@@ -365,6 +379,7 @@ const emailOtpEd25519YaoWalletUnlockWithoutThresholdIdentity = {
     remainingUses: 3,
     orgId: 'org-test',
   },
+  walletCustodyEd25519Material: { kind: 'absent' },
   // @ts-expect-error Recovery requires its registered threshold lifecycle identity.
 } satisfies EmailOtpEd25519YaoWalletUnlockMaterial;
 void emailOtpEd25519YaoWalletUnlockWithoutThresholdIdentity;
