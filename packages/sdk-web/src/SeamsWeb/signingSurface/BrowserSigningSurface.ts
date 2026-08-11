@@ -323,6 +323,7 @@ import { createBrowserStepUpRuntime } from '../assembly/createBrowserStepUpRunti
 import { createBrowserWarmSessionPublicDeps } from '../assembly/createBrowserWarmSessionPublicDeps';
 import { createWalletHostOwnerAuthoritiesV1 } from '../operations/devices/walletHostOwnerAuthority';
 import type { WalletHostCompositionDependenciesV1 } from '../operations/devices/walletHostComposition';
+import { createWalletHostSourceLanePortsV1 } from '../operations/devices/walletHostSourceLanePorts';
 import type {
   LinkSessionOwnerApprovalUpdatesPortV1,
   LinkSessionOwnerAuthenticatedRequestPortV1,
@@ -336,6 +337,24 @@ import type { LaneOperationSourcePortsV1 } from '@/core/signingEngine/session/la
 import type { LaneSealedHolderMaterialRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
 import type { LinkedDeviceWalletSessionRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
 import type { LinkedDeviceExecutionEvidenceRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
+import type {
+  EcdsaLaneProtocolWasmV1,
+  Ed25519YaoLaneJobV1,
+  WasmEd25519YaoLaneClientV1,
+} from '@shared/signing-lanes/rotation';
+import {
+  createEd25519YaoLaneDerivationWorkerWasmV1,
+  openEd25519YaoLaneWorkerSourceV1,
+} from '@/core/signingEngine/threshold/crypto/ed25519YaoLaneWasm';
+import { createEcdsaLaneDerivationWorkerWasmV1 } from '@/core/signingEngine/threshold/crypto/ecdsaLaneWasm';
+import { reconcileCanonicalEcdsaActivationWasm } from '@/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm';
+import type {
+  RouterAbEd25519YaoApplicationBindingFactsV1,
+  RouterAbEd25519YaoCeremonyBindingV1,
+  RouterAbEd25519YaoActivationKeysetV1,
+} from '@shared/utils/routerAbEd25519Yao';
+import { readPasskeyCustodySessionEnvelope } from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import {
   createBrowserActiveEcdsaWalletSessionAuthorizationResolver,
   createBrowserCanonicalWalletSessionStatusReader,
@@ -532,6 +551,62 @@ function createWalletHostOwnerApprovalTransportV1(
     },
   };
   return { request: ownerRequest, approvalUpdates };
+}
+
+function createDiscardingEd25519LaneClientV1(
+  client: WasmEd25519YaoLaneClientV1,
+  source: { readonly discard: () => Promise<void> },
+): WasmEd25519YaoLaneClientV1 {
+  let discarded = false;
+  const discard = async (): Promise<void> => {
+    if (discarded) return;
+    discarded = true;
+    await source.discard();
+  };
+  return {
+    prepare: async (job) => {
+      try {
+        return await client.prepare(job);
+      } catch (error: unknown) {
+        await discard();
+        throw error;
+      }
+    },
+    complete: async (input) => {
+      try {
+        return await client.complete(input);
+      } finally {
+        await discard();
+      }
+    },
+  };
+}
+
+async function reconcileWalletHostEcdsaActivationJournalV1(args: {
+  readonly store: IndexedDbEcdsaCapabilityManifestStore;
+  readonly workerCtx: WorkerOperationContext;
+  readonly walletId: WalletId;
+}): Promise<void> {
+  const listed = await args.store.listWalletActivationJournalSelectors(args.walletId);
+  if (listed.kind !== 'resolved') {
+    throw new Error(`Wallet-host ECDSA activation journal is ${listed.kind}`);
+  }
+  for (const selector of listed.selectors) {
+    const result = await reconcileCanonicalEcdsaActivationWasm({
+      workerCtx: args.workerCtx,
+      command: {
+        kind: 'reconcile_canonical_ecdsa_activation_v1',
+        capability: selector.capability,
+        authority: selector.authority,
+      },
+    });
+    if (
+      result.kind !== 'canonical_ecdsa_activation_reconciliation_absent_v1' &&
+      result.kind !== 'canonical_ecdsa_activation_reconciliation_finalized_v1'
+    ) {
+      throw new Error(`Wallet-host ECDSA activation reconciliation is ${result.kind}`);
+    }
+  }
 }
 
 export async function ensurePasskeyEd25519WarmSessionForSigning(args: {
@@ -2561,6 +2636,132 @@ export class BrowserSigningSurface {
     return this.enginePorts.walletSessionActivationDeps.getSignerWorkerContext();
   }
 
+  private createWalletHostEcdsaLaneWorkerV1(): EcdsaLaneProtocolWasmV1 {
+    return createEcdsaLaneDerivationWorkerWasmV1({
+      workerCtx: this.getSignerWorkerContext(),
+      nowMs: () => Date.now(),
+    });
+  }
+
+  private async reconcileWalletHostEcdsaActivationJournalV1(
+    _input: Parameters<LaneOperationSourcePortsV1['reconcileEcdsaActivationJournalV1']>[0],
+  ): Promise<void> {
+    if (this.walletAuthenticationState.kind !== 'authenticated') {
+      throw new Error('Wallet-host ECDSA reconciliation requires an authenticated wallet');
+    }
+    await reconcileWalletHostEcdsaActivationJournalV1({
+      store: new IndexedDbEcdsaCapabilityManifestStore(),
+      workerCtx: this.getSignerWorkerContext(),
+      walletId: this.walletAuthenticationState.walletId,
+    });
+  }
+
+  private async createWalletHostEd25519LaneClientV1(args: {
+    readonly job: Ed25519YaoLaneJobV1;
+    readonly ceremonyBinding: RouterAbEd25519YaoCeremonyBindingV1;
+    readonly keyset: RouterAbEd25519YaoActivationKeysetV1;
+  }): Promise<WasmEd25519YaoLaneClientV1> {
+    const available = await this.enginePorts.nearSigningDeps.readAvailableSigningLanesForSigning({
+      walletId: args.job.walletId,
+      curve: 'ed25519',
+    });
+    const matches: ConcreteAvailableEd25519SigningLane[] = [];
+    for (const lane of available.candidates.ed25519.near) {
+      if (!isConcreteAvailableSigningLane(lane) || lane.curve !== 'ed25519') continue;
+      if (
+        String(lane.walletId) !== String(args.job.walletId) ||
+        String(lane.nearEd25519SigningKeyId) !== String(args.job.nearEd25519SigningKeyId) ||
+        !mpcMaterialActivationRefsEqual(lane.materialActivation, args.job.source.materialActivation)
+      ) {
+        continue;
+      }
+      if (
+        lane.auth.kind !== WALLET_AUTH_METHODS.passkey ||
+        lane.authorizationState !== 'authorized'
+      ) {
+        continue;
+      }
+      matches.push(lane);
+    }
+    if (matches.length !== 1) {
+      throw new Error(
+        matches.length === 0
+          ? 'Wallet-host Ed25519 source lane is unavailable'
+          : 'Wallet-host Ed25519 source lane is ambiguous',
+      );
+    }
+    const lane = matches[0];
+    const laneIdentity = exactEd25519LaneIdentityFromAvailableLane(lane);
+    const runtime = await requireExactEd25519SealedRuntimeForLane({
+      walletId: args.job.walletId,
+      laneIdentity,
+    });
+    if (runtime.factor.kind !== WALLET_AUTH_METHODS.passkey) {
+      throw new Error('Wallet-host Ed25519 source lane requires a passkey runtime');
+    }
+    const materialActivation = runtime.sealedRecord.ed25519Restore.materialActivation;
+    const claim = await this.passkeyMpcSession.claimWarmSessionMaterial({
+      thresholdSessionId: runtime.thresholdSessionId,
+      purpose: { curve: 'ed25519', materialActivation },
+      consume: false,
+    });
+    if (!claim.ok) throw new Error(`Wallet-host Ed25519 PRF is unavailable: ${claim.code}`);
+    const envelope = readPasskeyCustodySessionEnvelope({
+      walletId: String(runtime.walletId),
+      credentialIdB64u: runtime.factor.credentialIdB64u,
+    });
+    if (!envelope) throw new Error('Wallet-host Ed25519 custody envelope is unavailable');
+    const material =
+      this.enginePorts.ed25519YaoActiveClients.resolve({
+        walletId: lane.walletId,
+        nearAccountId: lane.nearAccountId,
+        materialActivation,
+      }) ||
+      (await this.ensureNearEd25519YaoCapabilityForSigning({
+        kind: 'exact_lane',
+        walletId: lane.walletId,
+        nearAccountId: lane.nearAccountId,
+        signerSlot: lane.signerSlot,
+        thresholdSessionId: SigningSessionIds.thresholdEd25519Session(lane.thresholdSessionId),
+        laneIdentity,
+      }));
+    const metadata = material.activeClient.metadata();
+    const loaded = await this.loadWalletCustodyEd25519Material({
+      nearAccountId: String(lane.nearAccountId),
+      signerSlot: lane.signerSlot,
+      expectedRegisteredPublicKeyB64u: base64UrlEncode(metadata.registeredPublicKey),
+    });
+    if (loaded.kind !== 'found') {
+      throw new Error('Wallet-host Ed25519 sealed source material is unavailable');
+    }
+    const factorSecretBytes = base64UrlDecode(claim.prfFirstB64u);
+    const source = await openEd25519YaoLaneWorkerSourceV1({
+      workerCtx: this.getSignerWorkerContext(),
+      factorSecret: factorSecretBytes.slice().buffer,
+      envelope,
+      applicationBindingDigestB64u: loaded.material.binding.applicationBindingDigestB64u,
+    });
+    try {
+      const client = createEd25519YaoLaneDerivationWorkerWasmV1({
+        workerCtx: this.getSignerWorkerContext(),
+        source,
+        ceremonyBinding: args.ceremonyBinding,
+        applicationBinding: metadata.applicationBinding,
+        participantIds: metadata.participantIds,
+        deriverAInputPublicKeyB64u: base64UrlEncode(
+          Uint8Array.from(args.keyset.deriver_a_input_public_key),
+        ),
+        deriverBInputPublicKeyB64u: base64UrlEncode(
+          Uint8Array.from(args.keyset.deriver_b_input_public_key),
+        ),
+      });
+      return createDiscardingEd25519LaneClientV1(client, source);
+    } catch (error: unknown) {
+      await source.discard();
+      throw error;
+    }
+  }
+
   createWalletHostCompositionDependenciesV1(args: {
     readonly http: HttpTransport;
     readonly authenticator: AuthenticatorPort;
@@ -2573,7 +2774,6 @@ export class BrowserSigningSurface {
       LinkedDeviceExecutionEvidenceRepositoryV1,
       'putExactProvisionedEvidenceV1' | 'readForEnrollmentV1'
     >;
-    readonly sourceLanePorts: LaneOperationSourcePortsV1;
   }): WalletHostCompositionDependenciesV1 {
     const relayerUrl = String(this.seamsWebConfigs.network.relayer?.url || '').trim();
     const ownerAuthorities = createWalletHostOwnerAuthoritiesV1({
@@ -2583,6 +2783,14 @@ export class BrowserSigningSurface {
       readWalletAuthenticationState: () => this.walletAuthenticationState,
     });
     const ownerTransport = createWalletHostOwnerApprovalTransportV1(ownerAuthorities.ownerRequest);
+    const sourceLanePorts = createWalletHostSourceLanePortsV1({
+      request: ownerAuthorities.managementRequest,
+      ecdsa: this.createWalletHostEcdsaLaneWorkerV1(),
+      createEd25519ClientV1: this.createWalletHostEd25519LaneClientV1.bind(this),
+      reconcileEcdsaActivationJournalV1:
+        this.reconcileWalletHostEcdsaActivationJournalV1.bind(this),
+      nowMs: Date.now,
+    });
     return {
       authenticator: args.authenticator,
       http: args.http,
@@ -2594,7 +2802,7 @@ export class BrowserSigningSurface {
       repository: args.repository,
       walletSessionRepository: args.walletSessionRepository,
       executionEvidenceRepository: args.executionEvidenceRepository,
-      sourceLanePorts: args.sourceLanePorts,
+      sourceLanePorts,
       nowMs: () => Date.now(),
       pollIntervalMs: 250,
     };

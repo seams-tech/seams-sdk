@@ -11,8 +11,6 @@ import type { WalletId } from '@shared/utils/domainIds';
 import { isString } from '@shared/utils/validation';
 import { setEmbeddedBase } from '@/core/walletRuntimePaths';
 import { cloneChainConfig, resolvePrimaryNearRpcUrl } from '@/core/config/chains';
-import type { LinkedDeviceManagementPortV1 } from '@/SeamsWeb/publicApi/devices';
-import type { DeviceLinkingFlowPortsV1 } from '@/SeamsWeb/operations/devices/deviceLinkingPorts';
 import {
   assertWalletHostConfigsNoNestedIframeWallet,
   sanitizeWalletHostConfigs,
@@ -248,22 +246,8 @@ export interface HostContext {
   expiredSessionsByWallet: Map<WalletId, Set<WalletSessionId>>;
   onWindowMessage?: (e: MessageEvent) => void;
   surfaceMeasurementBinding: UiConfirmSurfaceMeasurementBinding;
-  walletHostComposition: WalletHostCompositionV1 | null;
 }
-
-/**
- * Authorities needed by the direct wallet-host SeamsWeb instance. The host
- * cannot infer owner authorization or source-lane custody from config or the
- * MessagePort, so its caller must inject both concrete surfaces at bootstrap.
- */
-export type WalletHostCompositionV1 = {
-  readonly linkedDeviceManagement: LinkedDeviceManagementPortV1;
-  readonly deviceLinkingPorts: DeviceLinkingFlowPortsV1;
-};
-
-export function createHostContext(
-  walletHostComposition: WalletHostCompositionV1 | null = null,
-): HostContext {
+export function createHostContext(): HostContext {
   return {
     parentOrigin: null,
     port: null,
@@ -277,23 +261,12 @@ export function createHostContext(
     expiredSessionsByWallet: new Map(),
     onWindowMessage: undefined,
     surfaceMeasurementBinding: { kind: 'disabled' },
-    walletHostComposition,
   };
 }
 
 export function resolveWalletHostInternalOptionsV1(
-  walletHostComposition: WalletHostCompositionV1 | null,
 ): Extract<SeamsWebInternalOptions, { readonly kind: 'wallet_host' }> {
-  if (!walletHostComposition) {
-    throw new Error(
-      'Wallet-host device authorities are not configured; inject walletHostComposition before bootstrap',
-    );
-  }
-  return {
-    kind: 'wallet_host',
-    linkedDeviceManagement: walletHostComposition.linkedDeviceManagement,
-    deviceLinkingPorts: walletHostComposition.deviceLinkingPorts,
-  };
+  return { kind: 'wallet_host' };
 }
 
 export function ensureSeamsWeb(ctx: HostContext): SeamsWeb {
@@ -301,7 +274,7 @@ export function ensureSeamsWeb(ctx: HostContext): SeamsWeb {
   if (!walletConfigs) {
     throw new Error('Wallet service not configured. Call PM_SET_CONFIG first.');
   }
-  const internalOptions = resolveWalletHostInternalOptionsV1(ctx.walletHostComposition);
+  const internalOptions = resolveWalletHostInternalOptionsV1();
   const nearRpcUrl = resolvePrimaryNearRpcUrl(walletConfigs.chains || []);
   if (!ctx.nearClient) {
     ctx.nearClient = new MinimalNearClient(nearRpcUrl);
