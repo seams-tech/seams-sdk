@@ -14,9 +14,9 @@ import {
 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import {
   parseAuthorizedOperationId,
+  parseLinkedDeviceWalletSessionAuthorizationId,
   parseMpcWalletSigningQuotaId,
   parseTenantId,
-  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import {
@@ -114,7 +114,9 @@ test('refuses a public revoke plan whose lane command does not bind the requeste
           walletSession: {
             tenantId: parseTenantId('tenant:management').value,
             deviceId: target.summary.deviceId,
-            authorizationId: parseWalletSessionAuthorizationId('authorization:management').value,
+            authorizationId: parseLinkedDeviceWalletSessionAuthorizationId(
+              'authorization:management',
+            ).value,
             walletSessionId: parseWalletSessionId('wallet-session:management').value,
             quotaId: parseMpcWalletSigningQuotaId('wallet-quota:management').value,
           },
@@ -191,7 +193,9 @@ test('fences the linked Wallet Session before retiring child lanes', async () =>
           walletSession: {
             tenantId: parseTenantId('tenant:management').value,
             deviceId: target.summary.deviceId,
-            authorizationId: parseWalletSessionAuthorizationId('authorization:management').value,
+            authorizationId: parseLinkedDeviceWalletSessionAuthorizationId(
+              'authorization:management',
+            ).value,
             walletSessionId: parseWalletSessionId('wallet-session:management').value,
             quotaId: parseMpcWalletSigningQuotaId('wallet-quota:management').value,
           },
