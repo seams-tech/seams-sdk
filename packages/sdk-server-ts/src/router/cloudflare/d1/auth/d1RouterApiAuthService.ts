@@ -146,6 +146,7 @@ import {
 import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../../../domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import { createD1LinkedDeviceRouteServiceV1 } from '../deviceLinking/d1LinkedDeviceRouteService';
 import { createD1LinkedDeviceManagementRouteServiceV1 } from '../deviceLinking/d1LinkedDeviceManagementRouteService';
+import { D1LinkedDeviceTargetCredentialMetadataSourceV1 } from '../deviceLinking/d1LinkedDeviceManagementStore';
 import {
   AuthorizationServiceLinkedDeviceWalletSessionRevocationV1,
   D1LinkedDeviceRevocationPreparationV1,
@@ -409,6 +410,10 @@ function createD1LinkedDeviceComposition(input: {
       scope,
     });
     const preparation = new D1LinkedDeviceRevocationPreparationV1(metadataSource);
+    const metadata = new D1LinkedDeviceTargetCredentialMetadataSourceV1({
+      database: input.options.database,
+      scope,
+    });
     const walletSessionRevocation = new AuthorizationServiceLinkedDeviceWalletSessionRevocationV1(
       input.authorizationService,
     );
@@ -416,7 +421,7 @@ function createD1LinkedDeviceComposition(input: {
       database: input.options.database,
       scope,
       sessionService: deviceLinking.sessionService,
-      metadata: config.management.metadata,
+      metadata,
       authorization: config.management.authorization,
       preparation,
       aggregateRevocation: config.management.aggregateRevocation,

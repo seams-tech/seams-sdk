@@ -24,7 +24,6 @@ import type { DeviceLinkingRouteServiceV1 } from '../../../transport/fetch/route
 import type { DeviceLinkingGatewayCompletionServiceV1 } from '../../../transport/fetch/routes/deviceLinkingGateway';
 import type { LinkedDeviceTargetPlannerV1 } from '../deviceLinking/d1LinkedDeviceTargetCredentialProvider';
 import type { LinkedDeviceR102ProvisioningExecutionPortV1 } from '../deviceLinking/d1LinkedDeviceProvisioningProvider';
-import type { D1LinkedDeviceManagementMetadataPortV1 } from '../deviceLinking/d1LinkedDeviceManagementStore';
 import {
   normalizeOidcExchangeConfig,
   type CloudflareD1OidcExchangeConfig,
@@ -81,7 +80,6 @@ export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
 };
 
 export type CloudflareD1LinkedDeviceManagementOptionsV1 = {
-  readonly metadata: D1LinkedDeviceManagementMetadataPortV1;
   readonly authorization: LinkedDeviceManagementAuthorizationPortV1;
   readonly aggregateRevocation: LinkedDeviceAggregateRevocationPortV1;
   readonly localStateInvalidation: LinkedDeviceLocalStateInvalidationPortV1;

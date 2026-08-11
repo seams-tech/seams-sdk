@@ -6,10 +6,7 @@ import type {
 } from '@shared/signing-lanes/ids';
 import { parseLaneEnrollmentId, parseLinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import { computeLaneEnrollmentManifestDigestV1 } from '@shared/signing-lanes/rotationDigests';
-import type {
-  LaneEnrollmentManifestV1,
-  LaneProductEpochRecordV1,
-} from '@shared/signing-lanes';
+import type { LaneEnrollmentManifestV1, LaneProductEpochRecordV1 } from '@shared/signing-lanes';
 import type { WalletId } from '@shared/utils/domainIds';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { queryD1All, queryD1One } from '../../../../storage/d1Sql';
@@ -19,6 +16,7 @@ import type {
   LinkedDeviceManagementTargetV1,
 } from '../../../../core/deviceLinking/linkedDeviceManagement';
 import type { LinkedDeviceSummaryV1 } from '@shared/device-linking/contracts';
+import { parseLinkedDeviceTargetCredentialRegistrationV1 } from '@shared/device-linking/parsers';
 import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
 import type { LinkedDeviceSessionServiceV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
@@ -28,6 +26,7 @@ import type { LaneEnrollmentAdmissionRecord } from '../../../../core/signingLane
 
 const SESSION_TABLE = 'linked_device_sessions';
 const ENROLLMENT_TABLE = 'lane_enrollments';
+const TARGET_CREDENTIAL_TABLE = 'linked_device_target_credentials';
 
 export type D1LinkedDeviceManagementMetadataV1 = {
   readonly label: string;
@@ -42,6 +41,50 @@ export type D1LinkedDeviceManagementMetadataPortV1 = {
   }): Promise<D1LinkedDeviceManagementMetadataV1 | null>;
 };
 
+export class D1LinkedDeviceTargetCredentialMetadataSourceV1 implements D1LinkedDeviceManagementMetadataPortV1 {
+  constructor(
+    private readonly input: {
+      readonly database: D1DatabaseLike;
+      readonly scope: D1LinkedDeviceSessionScopeV1;
+    },
+  ) {}
+
+  async readLinkedDeviceMetadataV1(input: {
+    readonly walletId: WalletId;
+    readonly enrollmentId: LinkedDeviceEnrollmentId;
+    readonly deviceId: LinkedDeviceId;
+  }): Promise<D1LinkedDeviceManagementMetadataV1 | null> {
+    const row = await queryD1One(
+      this.input.database,
+      `SELECT registration_json
+         FROM ${TARGET_CREDENTIAL_TABLE}
+        WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4
+          AND wallet_id = ?5 AND enrollment_id = ?6 AND device_id = ?7
+          AND state = 'registered'
+        LIMIT 1`,
+      [
+        ...scopeValues(normalizeScope(this.input.scope)),
+        String(input.walletId),
+        String(input.enrollmentId),
+        String(input.deviceId),
+      ],
+    );
+    if (!row) return null;
+    const registrationJson = requiredString(field(row, 'registration_json'), 'registration_json');
+    const registration = parseLinkedDeviceTargetCredentialRegistrationV1(
+      JSON.parse(registrationJson),
+    );
+    if (
+      registration.walletId !== input.walletId ||
+      registration.enrollmentId !== input.enrollmentId ||
+      registration.deviceId !== input.deviceId
+    ) {
+      throw new Error('linked-device target credential metadata identity changed');
+    }
+    return metadataFromRegistration(registration.webauthnRegistration);
+  }
+}
+
 export type D1LinkedDeviceManagementStoreOptionsV1 = {
   readonly database: D1DatabaseLike;
   readonly scope: D1LinkedDeviceSessionScopeV1;
@@ -50,9 +93,7 @@ export type D1LinkedDeviceManagementStoreOptionsV1 = {
   readonly metadata: D1LinkedDeviceManagementMetadataPortV1;
 };
 
-export class D1LinkedDeviceManagementStoreV1
-  implements LinkedDeviceManagementProjectionPortV1
-{
+export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementProjectionPortV1 {
   private readonly database: D1DatabaseLike;
   private readonly scope: D1LinkedDeviceSessionScopeV1;
   private readonly sessionService: Pick<LinkedDeviceSessionServiceV1, 'getSessionV1'>;
@@ -206,15 +247,19 @@ export class D1LinkedDeviceManagementStoreV1
           AND enrollment_id = ?5`,
       [...scopeValues(this.scope), String(enrollmentId)],
     );
-    const stored = requiredString(field(row, 'manifest_digest_b64u'), 'lane enrollment manifest_digest_b64u');
-    if (stored !== manifestDigestB64u || String(enrollment.value.manifest.enrollmentId) !== String(enrollmentId)) {
+    const stored = requiredString(
+      field(row, 'manifest_digest_b64u'),
+      'lane enrollment manifest_digest_b64u',
+    );
+    if (
+      stored !== manifestDigestB64u ||
+      String(enrollment.value.manifest.enrollmentId) !== String(enrollmentId)
+    ) {
       throw new Error('lane enrollment manifest digest does not match its columns');
     }
   }
 
-  private async readEnrollmentUpdatedAtMsV1(
-    enrollmentId: LaneEnrollmentId,
-  ): Promise<number> {
+  private async readEnrollmentUpdatedAtMsV1(enrollmentId: LaneEnrollmentId): Promise<number> {
     const row = await queryD1One(
       this.database,
       `SELECT updated_at_ms
@@ -293,6 +338,25 @@ function parseMetadata(
   return metadata;
 }
 
+function metadataFromRegistration(
+  registration: ReturnType<
+    typeof parseLinkedDeviceTargetCredentialRegistrationV1
+  >['webauthnRegistration'],
+): D1LinkedDeviceManagementMetadataV1 {
+  switch (registration.authenticatorAttachment) {
+    case 'platform':
+      return { label: 'Platform passkey', platform: 'platform' };
+    case 'cross-platform':
+      return { label: 'Security key', platform: 'cross-platform' };
+    case null: {
+      const platform = registration.transports.includes('internal')
+        ? 'platform'
+        : (registration.transports[0] ?? 'unspecified');
+      return { label: 'Passkey', platform };
+    }
+  }
+}
+
 function assertManifestMatchesIdentity(
   manifest: LaneEnrollmentManifestV1,
   walletId: WalletId,
@@ -317,7 +381,8 @@ function assertProductsMatchManifest(
     throw new Error('lane enrollment products do not match the manifest count');
   }
   const byOperation = new Map(products.map((product) => [String(product.operationId), product]));
-  if (byOperation.size !== products.length) throw new Error('lane enrollment products are duplicated');
+  if (byOperation.size !== products.length)
+    throw new Error('lane enrollment products are duplicated');
   for (const child of manifest.orderedChildren) {
     const product = byOperation.get(String(child.operationId));
     if (
