@@ -136,7 +136,7 @@ export type DeviceLinkingKeyWorkerScopeV1 = {
 };
 
 export type InstalledDeviceLinkingKeyWorkerV1 = {
-  close(): void;
+  close(): Promise<void>;
 };
 
 export type DeviceLinkingLaneRecipientV1 = {
@@ -922,14 +922,14 @@ export function installDeviceLinkingKeyWorkerV1(
           if (closed) return;
           scope.postMessage({ id, ok: true, result });
         } catch (error) {
-          if (id) scope.postMessage({ id, ok: false, error: workerError(error) });
+          if (!closed && id) scope.postMessage({ id, ok: false, error: workerError(error) });
         }
       });
   };
   scope.addEventListener('message', onMessage);
   return {
-    close(): void {
-      if (closed) return;
+    async close(): Promise<void> {
+      if (closed) return await queue;
       closed = true;
       scope.removeEventListener('message', onMessage);
       queue = queue
@@ -938,6 +938,7 @@ export function installDeviceLinkingKeyWorkerV1(
           for (const slot of keySlots.values()) destroySlot(slot);
           keySlots.clear();
         });
+      await queue;
     },
   };
 }

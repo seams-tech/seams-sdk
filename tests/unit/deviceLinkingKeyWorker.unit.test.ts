@@ -258,7 +258,85 @@ test.describe('device-linking key worker', () => {
     expect(discarded.ok).toBe(false);
     expect(discarded.error).toContain('unknown or discarded');
     expect(recipientsDestroyed).toBe(1);
-    installed.close();
+    await installed.close();
+  });
+
+  test('zeroizes rejected PRF input and awaits in-flight cleanup before closing', async () => {
+    const malformedScope = new FakeWorkerScope();
+    const malformedInstalled = installDeviceLinkingKeyWorkerV1(malformedScope, {
+      createRecipient() {
+        throw new Error('recipient creation must not run for malformed input');
+      },
+      createCustodySeal() {
+        throw new Error('custody creation must not run for malformed input');
+      },
+    });
+    const rejectedFactorSecret = new Uint8Array(32).fill(17).buffer;
+    malformedScope.send({
+      id: 'malformed-prepare',
+      request: {
+        kind: 'device_linking_target_holders_prepare_v1',
+        handleId: '',
+        preparation: targetPreparation(),
+        credentialIdB64u: base64UrlEncode(new Uint8Array(32).fill(8)),
+        factorSecret: rejectedFactorSecret,
+      },
+    });
+    const rejected = await waitForResponse(malformedScope);
+    expect(rejected.ok).toBe(false);
+    expect(new Uint8Array(rejectedFactorSecret)).toEqual(new Uint8Array(32));
+    await malformedInstalled.close();
+
+    const scope = new FakeWorkerScope();
+    let releaseRecipient: (() => void) | undefined;
+    let recipientsDestroyed = 0;
+    const installed = installDeviceLinkingKeyWorkerV1(scope, {
+      async createRecipient() {
+        await new Promise<void>((resolve) => {
+          releaseRecipient = resolve;
+        });
+        return {
+          hpke_public_key_b64u: () => digest(21),
+          hpke_public_key_digest_b64u: () => digest(31),
+          open_and_seal: () => {
+            throw new Error('holder sealing is outside this cleanup test');
+          },
+          destroy: () => {
+            recipientsDestroyed += 1;
+          },
+          free: () => undefined,
+        };
+      },
+      createCustodySeal() {
+        throw new Error('custody creation is outside this cleanup test');
+      },
+    });
+    scope.send({ id: 'create', request: { kind: 'device_linking_key_material_create_v1' } });
+    const created = await waitForResponse(scope);
+    const handleId = (created.result as Record<string, unknown>).handleId;
+    scope.responses.length = 0;
+    const inFlightFactorSecret = new Uint8Array(32).fill(23).buffer;
+    scope.send({
+      id: 'prepare-holders',
+      request: {
+        kind: 'device_linking_target_holders_prepare_v1',
+        handleId,
+        preparation: targetPreparation(),
+        credentialIdB64u: base64UrlEncode(new Uint8Array(32).fill(8)),
+        factorSecret: inFlightFactorSecret,
+      },
+    });
+    for (let attempt = 0; attempt < 100 && !releaseRecipient; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(releaseRecipient).toBeDefined();
+    const closing = installed.close();
+    releaseRecipient?.();
+    await closing;
+
+    expect(new Uint8Array(inFlightFactorSecret)).toEqual(new Uint8Array(32));
+    expect(recipientsDestroyed).toBe(1);
+    expect(scope.responses).toEqual([]);
   });
 
   test('transfers PRF output to the worker and returns an attestation-only projection', async () => {
