@@ -14,7 +14,9 @@ import {
   buildAwaitingTargetPasskeyLinkedDeviceSessionState,
   buildLinkedDeviceHolderDeliveryAcknowledgementV1,
   buildCommittedCompletionRequiredLinkedDeviceSessionState,
+  buildCancelledUnclaimedLinkedDeviceSessionState,
   buildDisplayingQrLinkedDeviceSessionState,
+  buildExpiredUnclaimedLinkedDeviceSessionState,
   buildQrLinkedDeviceSessionPayloadV4,
   parseQrLinkedDeviceSessionPayloadV4,
 } from '../../packages/shared-ts/src/device-linking';
@@ -117,7 +119,11 @@ function createPorts(
           emittedAtMs: now,
         });
       }
-      return { close: () => undefined };
+      return {
+        close: () => {
+          calls.push('close');
+        },
+      };
     },
   };
   const transport: LinkSessionTransportPortV1 = {
@@ -295,6 +301,7 @@ test.describe('linked-device browser orchestration', () => {
       'create',
       'subscribe',
       'cancel',
+      'close',
       'key-discard',
     ]);
   });
@@ -522,9 +529,9 @@ test.describe('linked-device browser orchestration', () => {
     await expect
       .poll(() => calls.slice(-8), { timeout: 5_000 })
       .toEqual([
-        'get',
+        'target-passkey',
+        'credential',
         'worker-install',
-        'get',
         'get-approval',
         'provision-deliveries',
         'prepare-lanes',
@@ -532,6 +539,97 @@ test.describe('linked-device browser orchestration', () => {
         'ack',
       ]);
     expect(aggregateAcknowledgement?.receipt).toEqual(fixture.receipt);
+  });
+
+  test('Device 2 closes polling and discards its worker key for every terminal session', async () => {
+    const fixture = buildR103DeviceLinkFixture();
+    for (const terminalKind of ['expired', 'cancelled', 'active'] as const) {
+      const calls: string[] = [];
+      let emitSessionEvent: ((event: LinkedDeviceSessionTransportEventV1) => void) | undefined;
+      const ports = createPorts(calls, undefined, undefined, undefined, (handler) => {
+        emitSessionEvent = handler;
+      });
+      const flow = new LinkDeviceFlow(undefined, {}, ports);
+      const generated = await flow.generateQR();
+      const terminalState =
+        terminalKind === 'expired'
+          ? buildExpiredUnclaimedLinkedDeviceSessionState({
+              linkSessionId: generated.qrData.linkSessionId,
+              expiredAtMs: Date.now(),
+            })
+          : terminalKind === 'cancelled'
+            ? buildCancelledUnclaimedLinkedDeviceSessionState({
+                linkSessionId: generated.qrData.linkSessionId,
+                cancelledAtMs: Date.now(),
+              })
+            : buildActiveLinkedDeviceSessionState({
+                linkSessionId: generated.qrData.linkSessionId,
+                walletId: fixture.approval.walletId,
+                enrollmentId: fixture.approval.enrollmentId,
+                activatedAtMs: Date.now(),
+              });
+      emitSessionEvent?.({
+        kind: 'linked_device_session_event_v1',
+        linkSessionId: generated.qrData.linkSessionId,
+        state: terminalState,
+        emittedAtMs: Date.now(),
+      });
+      await expect
+        .poll(() => calls.filter((call) => call === 'close' || call === 'key-discard'))
+        .toEqual(['close', 'key-discard']);
+    }
+  });
+
+  test('Device 2 retries worker-key discard after a cleanup failure', async () => {
+    const calls: string[] = [];
+    const ports = createPorts(calls);
+    let discardAttempts = 0;
+    Object.assign(ports.keyMaterial, {
+      discardKeyMaterialV1: async () => {
+        discardAttempts += 1;
+        calls.push('key-discard');
+        if (discardAttempts === 1) throw new Error('worker unavailable');
+      },
+    });
+    const flow = new LinkDeviceFlow(undefined, {}, ports);
+
+    await flow.generateQR();
+    await expect(flow.cancel()).rejects.toThrow('worker unavailable');
+    await expect(flow.cancel()).resolves.toBeUndefined();
+
+    expect(discardAttempts).toBe(2);
+    expect(calls.filter((call) => call === 'close')).toHaveLength(1);
+  });
+
+  test('Device 2 cannot resurrect a cancelled flow after delayed key generation', async () => {
+    const calls: string[] = [];
+    const ports = createPorts(calls);
+    const createKeyMaterial = ports.keyMaterial.createBootstrapKeyMaterialV1.bind(
+      ports.keyMaterial,
+    );
+    let releaseKeyGeneration: (() => void) | undefined;
+    const keyGenerationGate = new Promise<void>((resolve) => {
+      releaseKeyGeneration = resolve;
+    });
+    Object.assign(ports.keyMaterial, {
+      createBootstrapKeyMaterialV1: async () => {
+        calls.push('keygen-delayed');
+        await keyGenerationGate;
+        return await createKeyMaterial();
+      },
+    });
+    const flow = new LinkDeviceFlow(undefined, {}, ports);
+
+    const generation = flow.generateQR();
+    await expect.poll(() => calls).toContain('keygen-delayed');
+    await flow.cancel();
+    releaseKeyGeneration?.();
+    await expect(generation).rejects.toThrow('cancelled or reset');
+
+    expect(calls).not.toContain('bind-transport');
+    expect(calls).not.toContain('create');
+    expect(calls).not.toContain('subscribe');
+    expect(calls.filter((call) => call === 'key-discard')).toHaveLength(1);
   });
 
   test('strict QR validation rejects the superseded shape', () => {
