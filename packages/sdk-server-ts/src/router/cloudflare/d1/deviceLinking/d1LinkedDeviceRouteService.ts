@@ -30,7 +30,9 @@ export type D1LinkedDeviceRouteServiceOptionsV1 = {
   readonly tenantId: TenantId;
   readonly authorizationService: Pick<
     AuthorizationService,
-    'getLinkedDeviceWalletSessionStatus' | 'issueLinkedDeviceWalletSession'
+    | 'getLinkedDeviceWalletSessionStatus'
+    | 'issueLinkedDeviceWalletSession'
+    | 'readLinkedDeviceWalletSessionAuthorization'
   >;
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationPortV1;
   readonly authenticateOwnerRequestV1: (

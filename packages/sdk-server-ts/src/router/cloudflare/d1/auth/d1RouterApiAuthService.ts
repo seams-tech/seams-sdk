@@ -328,6 +328,7 @@ function createD1LinkedDeviceComposition(input: {
     AuthorizationService,
     | 'getLinkedDeviceWalletSessionStatus'
     | 'issueLinkedDeviceWalletSession'
+    | 'readLinkedDeviceWalletSessionAuthorization'
     | 'revokeLinkedDeviceWalletSession'
   >;
 }): D1LinkedDeviceCompositionAssembly {
