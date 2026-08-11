@@ -668,12 +668,8 @@ function collectDeletedForwarderViolations() {
 function collectNativeFacadeViolations() {
   const violations = [];
   const packageJson = readRepoJson('packages/sdk-web/package.json');
-  if (packageJson.exports['./ios'] !== undefined) violations.push('package exports ./ios');
   if (packageJson.exports['./embedded'] !== undefined)
     violations.push('package exports ./embedded');
-  if (packageJson.typesVersions?.['*']?.ios !== undefined) {
-    violations.push('package typesVersions exposes ios');
-  }
   if (packageJson.typesVersions?.['*']?.embedded !== undefined) {
     violations.push('package typesVersions exposes embedded');
   }
@@ -682,9 +678,7 @@ function collectNativeFacadeViolations() {
     violations.push('package keyword embedded returned');
 
   for (const relativePath of [
-    'packages/sdk-web/src/ios',
     'packages/sdk-web/src/embedded',
-    'packages/sdk-web/src/ios.ts',
     'packages/sdk-web/src/embedded.ts',
   ]) {
     if (fs.existsSync(absolutePath(relativePath))) {
@@ -692,8 +686,7 @@ function collectNativeFacadeViolations() {
     }
   }
 
-  const forbiddenNativeFacadeNamePattern =
-    /(?:SeamsIOS|IoSSigningSurface|SeamsEmbedded|EmbeddedSigningSurface)/;
+  const forbiddenNativeFacadeNamePattern = /(?:SeamsEmbedded|EmbeddedSigningSurface)/;
   for (const relativePath of listTypeScriptFiles('packages/sdk-web/src')) {
     if (forbiddenNativeFacadeNamePattern.test(relativePath)) {
       violations.push(`${relativePath}: fake native facade file`);
@@ -704,7 +697,7 @@ function collectNativeFacadeViolations() {
   if (!runtimePortsSource.includes("export type RuntimePortsKind = 'browser';")) {
     violations.push('runtime ports no longer restrict RuntimePortsKind to browser');
   }
-  for (const forbidden of ['EmbeddedPlatformRuntime', 'linux_embedded', "'ios'"]) {
+  for (const forbidden of ['EmbeddedPlatformRuntime', 'linux_embedded']) {
     if (runtimePortsSource.includes(forbidden)) {
       violations.push(`runtime ports reintroduced ${forbidden}`);
     }

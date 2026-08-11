@@ -60,7 +60,6 @@
     "test:signer-parity:rust": "pnpm -C .. build:sdk-full && playwright test ./unit/signerParity.rustPlatforms.unit.test.ts --workers=1 --reporter=line",
     "test:signer-parity:web-wasm-replay": "pnpm -C .. build:sdk-full && playwright test ./unit/signingVectors.webWasmReplay.integration.test.ts --workers=1 --reporter=line",
     "test:signer-parity": "pnpm run test:signer-parity:rust && pnpm run test:signer-parity:web-wasm-replay",
-    "test:signer-parity:swift": "RUN_IOS_SWIFT_REPLAY=1 pnpm run test:signer-parity",
     "test:wallet-iframe": "playwright test ./wallet-iframe --reporter=line",
     "test:lit-components": "playwright test ./lit-components --reporter=line",
     "test:relayer": "playwright test -c playwright.relayer.config.ts --reporter=line",
