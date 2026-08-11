@@ -2191,9 +2191,9 @@ repository evidence.
 
 ### Phase 6: Linked-Lane Integration
 
-- [ ] Accept Ed25519 and ECDSA lane holder material produced by Refactor 102.
-- [ ] Seal linked-device holder material under Device 2's passkey KEK.
-- [ ] Return exact per-key delivery receipts and an aggregate manifest receipt.
+- [x] Accept Ed25519 and ECDSA lane holder material produced by Refactor 102.
+- [x] Seal linked-device holder material under Device 2's passkey KEK.
+- [x] Return exact per-key delivery receipts and an aggregate manifest receipt.
 
 ## Validation
 

@@ -554,7 +554,7 @@ material activation remain intact.
 - [x] Bind each admission to one `AuthorizedOperationId` and exact material
       activation reference.
 - [x] Require local user presence for every signature.
-- [ ] Route each key family through its normal signing path.
+- [x] Route each key family through its normal signing path.
 - [x] Implement immediate aggregate revocation.
 - [ ] Prove owner and unrelated device lanes remain available.
 
