@@ -12,11 +12,11 @@ use crate::{
     handle_cloudflare_router_normal_signing_finalize_internal_step_up_request_v2,
     handle_cloudflare_router_normal_signing_prepare_internal_step_up_request_v2,
     parse_cloudflare_router_authorized_ed25519_prepare_request_v2_json,
+    parse_cloudflare_router_authorized_linked_device_ecdsa_finalize_request_v1_json,
     CloudflareRouterBearerAuthorizationV1, CloudflareRouterEcdsaAcceptedAuthorizedOperationV1,
     CloudflareRouterEcdsaAcceptedCapabilityBindingV1,
     CloudflareRouterEd25519AcceptedAuthorizedOperationV1,
     CloudflareRouterEd25519AcceptedCapabilityBindingV1, CloudflareRouterEd25519JwksJwtVerifierV1,
-    CloudflareSigningWorkerAdmittedLinkedDeviceEcdsaFinalizeRequestV1,
 };
 use router_ab_core::{
     PublicDigest32, RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
@@ -132,24 +132,27 @@ pub(super) async fn handle_strict_router_fetch_v1(
             Ok(runtime) => runtime,
             Err(err) => return cloudflare_protocol_error_response_v1(err),
         };
-        let parsed = match request
-            .json::<CloudflareSigningWorkerAdmittedLinkedDeviceEcdsaFinalizeRequestV1>()
-            .await
-        {
-            Ok(parsed) => parsed,
-            Err(err) => {
-                return Response::error(
-                    format!("linked ECDSA finalize request JSON parse failed: {err}"),
-                    400,
-                )
-            }
-        };
-        let response = execute_cloudflare_signing_worker_linked_device_ecdsa_finalize_service_call_v1(
-            &env,
-            runtime.signing_worker_peer(),
-            parsed,
-        )
-        .await;
+        let request_body =
+            match read_router_public_body_v1(&mut request, &env, "linked ECDSA finalize request")
+                .await?
+            {
+                Ok(bytes) => bytes,
+                Err(response) => return Ok(response),
+            };
+        let parsed =
+            match parse_cloudflare_router_authorized_linked_device_ecdsa_finalize_request_v1_json(
+                &request_body,
+            ) {
+                Ok(parsed) => parsed,
+                Err(err) => return cloudflare_protocol_error_response_v1(err),
+            };
+        let response =
+            execute_cloudflare_signing_worker_linked_device_ecdsa_finalize_service_call_v1(
+                &env,
+                runtime.signing_worker_peer(),
+                parsed,
+            )
+            .await;
         return match response {
             Ok(response) => Response::from_json(&response),
             Err(err) => cloudflare_protocol_error_response_v1(err),
