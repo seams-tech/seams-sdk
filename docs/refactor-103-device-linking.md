@@ -4,17 +4,18 @@ Date created: June 15, 2026
 
 Rewritten: July 22, 2026
 
-Last reconciled: August 11, 2026 (R103 implementation checkpoint)
+Last reconciled: August 12, 2026 (R103 implementation checkpoint)
 
 Status: active implementation. The strict QR v4 contract, exhaustive session
 state, durable claim and expiry store, authenticated request-proof transport,
 owner approval responses, committed-delivery recovery, aggregate activation
 verification, private Gateway completion API, linked authorization domain, and
-public SDK/iframe/React cutover are implemented. Refactor 102 provides the
-curve-specific target-lane lifecycle. Production composition still requires
-the durable linked-authorization store, worker-owned device key bootstrap,
-Device 2 provisioning invocation, linked normal-signing route branches, and
-authenticated aggregate revocation wiring.
+public SDK/iframe/React cutover are implemented. Both key families use their
+linked normal-signing paths, and aggregate revocation is implemented. Refactor
+102 provides the curve-specific target-lane lifecycle. Production composition
+still requires concrete owner metadata and source-fact providers, lane
+lifecycle authorization and curve execution, operator-recovery authorization,
+and management-side local-state invalidation.
 
 ## Scope And Dependencies
 
