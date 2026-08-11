@@ -70,6 +70,7 @@ import {
   buildLaneEnrollmentManifestV1,
   parseRotatableSigningLaneJobV1,
 } from '../../../packages/shared-ts/src/signing-lanes/rotationParsers';
+import { computeLaneEnrollmentManifestDigestV1 } from '../../../packages/shared-ts/src/signing-lanes/rotationDigests';
 
 function required<T>(
   result:
@@ -101,6 +102,13 @@ export type R103ProvisioningFixture = {
   readonly command: LinkedDeviceProvisioningCommandV1;
   readonly deliveries: LinkedDeviceProvisioningDeliveriesV1;
   readonly acknowledgement: LinkedDeviceHolderDeliveryAcknowledgementV1;
+};
+
+export type R103ActiveExecutionFixture = {
+  readonly deviceLink: R103DeviceLinkFixture;
+  readonly targetCredential: R103TargetCredentialFixture;
+  readonly provisioning: R103ProvisioningFixture;
+  readonly walletSession: LinkedDeviceWalletSessionDeliveryV1;
 };
 
 function buildUnsignedJwt(payload: Readonly<Record<string, unknown>>): string {
@@ -207,11 +215,20 @@ export function buildR103ProvisioningFixture(
     },
     expiresAtMs: fixture.approval.expiresAtMs,
   });
+  const manifest = buildLaneEnrollmentManifestV1({
+    enrollmentId: required(parseLaneEnrollmentId(String(fixture.approval.enrollmentId))),
+    walletId: fixture.approval.walletId,
+    authorization: job.authorization,
+    orderedChildren: [buildR102ManifestChild(job)],
+    createdAtMs: fixture.approval.approvedAtMs,
+    expiresAtMs: fixture.approval.expiresAtMs,
+  });
   const deliveries = parseLinkedDeviceProvisioningDeliveriesV1({
     kind: 'linked_device_provisioning_deliveries_v1',
     linkSessionId: fixture.approval.linkSessionId,
     enrollmentId: fixture.approval.enrollmentId,
     deviceId: fixture.approval.deviceId,
+    manifest,
     orderedChildren: [
       {
         kind: 'linked_device_provisioning_child_v1',
@@ -249,14 +266,6 @@ export function buildR103TargetReadySourceFixture(fixture: R103DeviceLinkFixture
 } {
   const deliveries = buildR103ProvisioningFixture(fixture).deliveries;
   const job = deliveries.orderedChildren[0].job;
-  const manifest = buildLaneEnrollmentManifestV1({
-    enrollmentId: required(parseLaneEnrollmentId(String(fixture.approval.enrollmentId))),
-    walletId: fixture.approval.walletId,
-    authorization: job.authorization,
-    orderedChildren: [buildR102ManifestChild(job)],
-    createdAtMs: fixture.approval.approvedAtMs,
-    expiresAtMs: fixture.approval.expiresAtMs,
-  });
   return {
     targetReady: parseLinkedDeviceTargetReadyR102InputV1({
       kind: 'linked_device_target_ready_r102_input_v1',
@@ -264,7 +273,7 @@ export function buildR103TargetReadySourceFixture(fixture: R103DeviceLinkFixture
       walletId: fixture.approval.walletId,
       enrollmentId: fixture.approval.enrollmentId,
       deviceId: fixture.approval.deviceId,
-      manifest,
+      manifest: deliveries.manifest,
       children: [job],
     }),
     deliveries,
@@ -336,6 +345,27 @@ export async function buildR103TargetCredentialFixture(
     registeredAtMs: 3_004,
   });
   return { preparation, registration };
+}
+
+export async function buildR103ActiveExecutionFixture(): Promise<R103ActiveExecutionFixture> {
+  const base = buildR103DeviceLinkFixture();
+  const provisioning = buildR103ProvisioningFixture(base);
+  const manifestDigestB64u = parseDigestB64u(
+    await computeLaneEnrollmentManifestDigestV1(provisioning.deliveries.manifest),
+  );
+  const deviceLink: R103DeviceLinkFixture = {
+    ...base,
+    receipt: buildLinkedDeviceEnrollmentReceiptV1({
+      ...base.receipt,
+      manifestDigestB64u,
+    }),
+  };
+  return {
+    deviceLink,
+    targetCredential: await buildR103TargetCredentialFixture(deviceLink),
+    provisioning,
+    walletSession: buildR103LinkedWalletSessionDeliveryFixture(deviceLink),
+  };
 }
 
 export function buildR103DeviceLinkFixture(

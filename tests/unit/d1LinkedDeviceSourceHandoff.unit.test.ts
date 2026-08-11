@@ -230,6 +230,7 @@ async function buildSourceHandoffFixture(approval: LinkedDeviceApprovalV1) {
     linkSessionId: approval.linkSessionId,
     enrollmentId: approval.enrollmentId,
     deviceId: approval.deviceId,
+    manifest,
     orderedChildren: [
       {
         kind: 'linked_device_provisioning_child_v1',

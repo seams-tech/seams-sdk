@@ -29,6 +29,7 @@ import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtur
 import {
   buildR102HolderDeliveryReceipt,
   buildR102LaneJob,
+  buildR102ManifestChild,
   buildR102ProtocolCommitReceipt,
 } from './helpers/r102LaneGateway.fixtures';
 import { parseRotatableSigningLaneJobV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
@@ -38,6 +39,17 @@ import {
   parseWebAuthnRpId,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { buildR103LinkedWalletSessionDeliveryFixture } from './helpers/deviceLinkContracts.fixtures';
+
+function manifestForJob(job: ReturnType<typeof buildR102LaneJob>) {
+  return buildLaneEnrollmentManifestV1({
+    enrollmentId: job.enrollmentId,
+    walletId: job.walletId,
+    authorization: job.authorization,
+    orderedChildren: [buildR102ManifestChild(job)],
+    createdAtMs: 1_000,
+    expiresAtMs: job.expiresAtMs,
+  });
+}
 
 test.describe('R103 shared linked-device contracts', () => {
   test('round-trips QR, approval, transcript, and receipt projections through strict parsers', async () => {
@@ -157,6 +169,7 @@ test.describe('R103 shared linked-device contracts', () => {
       linkSessionId: fixture.payload.linkSessionId,
       enrollmentId: fixture.approval.enrollmentId,
       deviceId: fixture.approval.deviceId,
+      manifest: manifestForJob(job),
       orderedChildren: [
         {
           kind: 'linked_device_provisioning_child_v1' as const,
@@ -238,6 +251,7 @@ test.describe('R103 shared linked-device contracts', () => {
         linkSessionId: fixture.payload.linkSessionId,
         enrollmentId: fixture.approval.enrollmentId,
         deviceId: fixture.approval.deviceId,
+        manifest: manifestForJob(job),
         orderedChildren: [
           {
             kind: 'linked_device_provisioning_child_v1',
@@ -311,6 +325,7 @@ test.describe('R103 shared linked-device contracts', () => {
       linkSessionId: targetReady.linkSessionId,
       enrollmentId: targetReady.enrollmentId,
       deviceId: targetReady.deviceId,
+      manifest,
       orderedChildren: [
         {
           kind: 'linked_device_provisioning_child_v1',

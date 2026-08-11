@@ -40,9 +40,11 @@ import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import {
   buildR102HolderDeliveryReceipt,
   buildR102LaneJob,
+  buildR102ManifestChild,
   buildR102ProtocolCommitReceipt,
 } from './helpers/r102LaneGateway.fixtures';
 import { computeLaneEnrollmentManifestDigestV1 } from '../../packages/shared-ts/src/signing-lanes/rotationDigests';
+import { buildLaneEnrollmentManifestV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 
 function createPorts(
   calls: string[],
@@ -632,6 +634,14 @@ test.describe('linked-device browser orchestration', () => {
           linkSessionId: fixture.approval.linkSessionId,
           enrollmentId: fixture.approval.enrollmentId,
           deviceId: fixture.approval.deviceId,
+          manifest: buildLaneEnrollmentManifestV1({
+            enrollmentId: job.enrollmentId,
+            walletId: job.walletId,
+            authorization: job.authorization,
+            orderedChildren: [buildR102ManifestChild(job)],
+            createdAtMs: 1_000,
+            expiresAtMs: job.expiresAtMs,
+          }),
           orderedChildren: [
             {
               kind: 'linked_device_provisioning_child_v1' as const,

@@ -6,7 +6,7 @@ import {
   parseLinkedDeviceTargetPreparationV1,
   parseLinkedDeviceWalletSessionDeliveryV1,
 } from '@shared/device-linking';
-import { computeLinkedDeviceTargetPreparationDigestV1 } from '@shared/device-linking/digests';
+import { assertLinkedDeviceTargetCredentialRegistrationMatchesPreparationV1 } from '@shared/device-linking/digests';
 import {
   buildActiveSigningLaneLifecycle,
   buildActiveWalletKeyLifecycle,
@@ -30,12 +30,15 @@ import type {
   Ed25519YaoLaneJobV1,
   LaneProtocolCommitReceiptV1,
 } from '@shared/signing-lanes/rotation';
-import { computeLaneProtocolCommitReceiptDigestV1 } from '@shared/signing-lanes/rotationDigests';
+import {
+  computeLaneEnrollmentManifestDigestV1,
+  computeLaneProtocolCommitReceiptDigestV1,
+} from '@shared/signing-lanes/rotationDigests';
 import {
   parseEd25519PublicKeyB64u,
   parseSecp256k1CompressedPublicKeyB64u,
 } from '@shared/passkey-custody/primitives';
-import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import { alphabetizeStringify } from '@shared/utils/digests';
 
@@ -48,6 +51,7 @@ type ActiveLinkedDeviceExecutionChildCommonV1 = {
   readonly lane: LinkedDeviceSigningLaneRecord;
   readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
   readonly protocolCommitReceiptDigestB64u: DigestB64u;
+  readonly publicIdentityDigestB64u: DigestB64u;
   readonly serverActivationReceiptDigestB64u: DigestB64u;
   readonly holderRecordLookup: {
     readonly operationId: Ed25519YaoLaneJobV1['operationId'];
@@ -79,10 +83,11 @@ export type ActiveLinkedDeviceExecutionBundleV1 = {
   readonly walletId: ReturnType<typeof parseLinkedDeviceApprovalV1>['walletId'];
   readonly enrollmentId: ReturnType<typeof parseLinkedDeviceApprovalV1>['enrollmentId'];
   readonly deviceId: ReturnType<typeof parseLinkedDeviceApprovalV1>['deviceId'];
-  readonly rpId: ReturnType<typeof parseLinkedDeviceTargetPreparationV1>['rpId'];
-  readonly credentialIdB64u: ReturnType<
+  readonly targetPreparation: ReturnType<typeof parseLinkedDeviceTargetPreparationV1>;
+  readonly targetCredentialRegistration: ReturnType<
     typeof parseLinkedDeviceTargetCredentialRegistrationV1
-  >['webauthnRegistration']['credentialIdB64u'];
+  >;
+  readonly manifest: ReturnType<typeof parseLinkedDeviceProvisioningDeliveriesV1>['manifest'];
   readonly authorizationId: ReturnType<
     typeof parseLinkedDeviceWalletSessionDeliveryV1
   >['authorizationId'];
@@ -135,7 +140,17 @@ export async function buildActiveLinkedDeviceExecutionBundleV1(input: {
       const registrationChild = registration.orderedHolderRegistrations[index];
       const receiptChild = receipt.orderedChildReceipts[index];
       const token = walletSession.orderedTokens[index];
-      if (!binding || !preparationChild || !registrationChild || !receiptChild || !token) {
+      const protocolVersion = approval.protocolVersions.find(
+        (candidate) => candidate.keyFamily === deliveryChild.job.keyFamily,
+      );
+      if (
+        !binding ||
+        !preparationChild ||
+        !registrationChild ||
+        !receiptChild ||
+        !token ||
+        !protocolVersion
+      ) {
         throw new Error('linked-device active execution child set is incomplete');
       }
       assertChildIdentity({
@@ -146,6 +161,7 @@ export async function buildActiveLinkedDeviceExecutionBundleV1(input: {
         deliveryChild,
         receiptChild,
         token,
+        protocolVersion,
         walletSessionRevocationEpoch: walletSession.revocationEpoch,
       });
       return await buildActiveExecutionChild({
@@ -169,8 +185,9 @@ export async function buildActiveLinkedDeviceExecutionBundleV1(input: {
     walletId: approval.walletId,
     enrollmentId: approval.enrollmentId,
     deviceId: approval.deviceId,
-    rpId: preparation.rpId,
-    credentialIdB64u: registration.webauthnRegistration.credentialIdB64u,
+    targetPreparation: preparation,
+    targetCredentialRegistration: registration,
+    manifest: deliveries.manifest,
     authorizationId: walletSession.authorizationId,
     walletSessionId: walletSession.walletSessionId,
     quotaId: walletSession.quotaId,
@@ -207,14 +224,22 @@ async function assertBundleIdentity(input: {
     input.preparation.linkSessionId !== input.approval.linkSessionId ||
     input.registration.linkSessionId !== input.approval.linkSessionId ||
     input.receipt.manifestDigestB64u !== input.walletSession.keyManifestDigestB64u ||
+    input.receipt.activatedAtMs !== input.walletSession.issuedAtMs ||
     alphabetizeStringify(input.approval.permission) !==
       alphabetizeStringify(input.walletSession.permission)
   ) {
     throw new Error('linked-device active execution identity does not match');
   }
-  const preparationDigest = await computeLinkedDeviceTargetPreparationDigestV1(input.preparation);
-  if (preparationDigest !== input.registration.targetPreparationDigestB64u) {
-    throw new Error('linked-device target preparation digest does not match registration');
+  await assertLinkedDeviceTargetCredentialRegistrationMatchesPreparationV1({
+    preparation: input.preparation,
+    registration: input.registration,
+  });
+  const manifestDigest = await computeLaneEnrollmentManifestDigestV1(input.deliveries.manifest);
+  if (
+    manifestDigest !== input.receipt.manifestDigestB64u ||
+    manifestDigest !== input.walletSession.keyManifestDigestB64u
+  ) {
+    throw new Error('linked-device R102 manifest digest does not match active authorization');
   }
   const counts = [
     input.approval.orderedKeyBindings.length,
@@ -247,6 +272,9 @@ function assertChildIdentity(input: {
   readonly token: ReturnType<
     typeof parseLinkedDeviceWalletSessionDeliveryV1
   >['orderedTokens'][number];
+  readonly protocolVersion: ReturnType<
+    typeof parseLinkedDeviceApprovalV1
+  >['protocolVersions'][number];
   readonly walletSessionRevocationEpoch: number;
 }): void {
   const job = input.deliveryChild.job;
@@ -261,6 +289,8 @@ function assertChildIdentity(input: {
     String(job.enrollmentId) === String(input.approval.enrollmentId) &&
     job.walletKeyId === input.binding.walletKeyId &&
     job.keyFamily === input.binding.keyFamily &&
+    job.keyFamily === input.protocolVersion.keyFamily &&
+    job.protocolVersion === input.protocolVersion.version &&
     job.source.laneId === input.binding.sourceLaneId &&
     job.source.laneShareEpoch === input.binding.sourceLaneShareEpoch &&
     job.source.revocationEpoch === input.binding.sourceRevocationEpoch &&
@@ -358,6 +388,9 @@ async function buildActiveExecutionChild(input: {
     protocolCommitReceipt: input.deliveryChild.protocolCommitReceipt,
     protocolCommitReceiptDigestB64u: await computeLaneProtocolCommitReceiptDigestV1(
       input.deliveryChild.protocolCommitReceipt,
+    ),
+    publicIdentityDigestB64u: parseDigestB64u(
+      input.deliveryChild.protocolCommitReceipt.publicIdentityDigestB64u,
     ),
     serverActivationReceiptDigestB64u: input.receiptChild.receiptDigestB64u,
     holderRecordLookup: {

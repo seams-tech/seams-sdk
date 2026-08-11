@@ -372,6 +372,14 @@ function provisioningDeliveries(
     linkSessionId: fixture.approval.linkSessionId,
     enrollmentId: fixture.approval.enrollmentId,
     deviceId: fixture.approval.deviceId,
+    manifest: buildLaneEnrollmentManifestV1({
+      enrollmentId: job.enrollmentId,
+      walletId: job.walletId,
+      authorization: job.authorization,
+      orderedChildren: [buildR102ManifestChild(job)],
+      createdAtMs: fixture.approval.approvedAtMs,
+      expiresAtMs: fixture.approval.expiresAtMs,
+    }),
     orderedChildren: [
       {
         kind: 'linked_device_provisioning_child_v1',

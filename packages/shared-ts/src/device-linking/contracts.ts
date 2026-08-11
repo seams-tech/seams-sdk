@@ -242,6 +242,7 @@ export type LinkedDeviceProvisioningDeliveriesV1 = {
   readonly linkSessionId: LinkDeviceSessionId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
+  readonly manifest: LaneEnrollmentManifestV1;
   readonly orderedChildren: readonly [
     LinkedDeviceProvisioningChildV1,
     ...LinkedDeviceProvisioningChildV1[],
