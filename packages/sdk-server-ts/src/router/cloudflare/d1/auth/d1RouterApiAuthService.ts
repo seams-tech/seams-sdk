@@ -326,7 +326,9 @@ function createD1LinkedDeviceComposition(input: {
   >;
   readonly authorizationService: Pick<
     AuthorizationService,
-    'getLinkedDeviceWalletSessionStatus' | 'revokeLinkedDeviceWalletSession'
+    | 'getLinkedDeviceWalletSessionStatus'
+    | 'issueLinkedDeviceWalletSession'
+    | 'revokeLinkedDeviceWalletSession'
   >;
 }): D1LinkedDeviceCompositionAssembly {
   const config = input.options.linkedDevice;
@@ -361,6 +363,12 @@ function createD1LinkedDeviceComposition(input: {
   let deviceLinking: RouterApiServiceBag['deviceLinking'];
   let deviceManagement: RouterApiServiceBag['deviceManagement'];
   if (config.session) {
+    const tenantId = parseTenantId(input.options.orgId);
+    if (!tenantId.ok) {
+      throw new Error(
+        `orgId cannot identify a linked-device authorization tenant: ${tenantId.error.message}`,
+      );
+    }
     const sourceHandoff = new D1LinkedDeviceSourceHandoffProviderV1({
       database: input.options.database,
       scope,
@@ -389,6 +397,8 @@ function createD1LinkedDeviceComposition(input: {
     deviceLinking = createD1LinkedDeviceRouteServiceV1({
       database: input.options.database,
       scope,
+      tenantId: tenantId.value,
+      authorizationService: input.authorizationService,
       ownerAuthorization: config.session.ownerAuthorization,
       authenticateOwnerRequestV1: config.session.authenticateOwnerRequestV1,
       targetCredential,

@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { AuthorizationService } from '../../packages/sdk-server-ts/src/authorization/service';
+import {
+  AuthorizationService,
+  deriveLinkedDeviceWalletSessionIdentityV1,
+} from '../../packages/sdk-server-ts/src/authorization/service';
+import { D1LinkedDeviceWalletSessionIssuerV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceWalletSessionIssuer';
+import { parseLinkedDeviceSessionRecordV1 } from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
 import { CloudflareD1AuthorizationStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
 import { CloudflareD1LaneEnrollmentGateway } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/signingLanes/d1LaneEnrollmentGateway';
 import { CloudflareD1LaneLifecycleStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/signingLanes/d1LaneLifecycleStore';
@@ -48,6 +53,23 @@ import {
 import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { sha256Bytes } from '../../packages/shared-ts/src/utils/digests';
+import {
+  buildLinkedDeviceEnrollmentChildReceiptV1,
+  buildLinkedDeviceEnrollmentReceiptV1,
+  buildLinkedDeviceSessionClaimV1,
+} from '../../packages/shared-ts/src/device-linking/parsers';
+import {
+  computeLinkedDeviceApprovalDigestV1,
+  computeLinkedDeviceSessionClaimDigestV1,
+} from '../../packages/shared-ts/src/device-linking/digests';
+import {
+  buildR103DeviceLinkFixture,
+  buildR103TargetReadySourceFixture,
+} from './helpers/deviceLinkContracts.fixtures';
+import {
+  DEFAULT_WALLET_SESSION_REMAINING_USES,
+  DEFAULT_WALLET_SESSION_TTL_MS,
+} from '../../packages/shared-ts/src/threshold/sessionPolicy';
 
 const signerMigrations = listD1MigrationFiles('d1-signer');
 const scope = {
@@ -58,6 +80,153 @@ const scope = {
 } as const;
 
 test.describe('D1 linked-device authorization', () => {
+  test('issues the active linked enrollment authorization once and replays its identity', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const linked = buildR103DeviceLinkFixture();
+      const { targetReady } = buildR103TargetReadySourceFixture(linked);
+      const lifecycle = new CloudflareD1LaneLifecycleStore({
+        database: temporary.database,
+        scope,
+        now: () => linked.receipt.activatedAtMs,
+      });
+      const gateway = new CloudflareD1LaneEnrollmentGateway({ lifecycleStore: lifecycle });
+      await gateway.prepareLaneEnrollmentV1({
+        manifest: targetReady.manifest,
+        children: targetReady.children,
+      });
+      const child = await completeChild(gateway, targetReady.children[0]);
+      const manifestDigestB64u = parseDigestB64u(
+        await computeLaneEnrollmentManifestDigestV1(targetReady.manifest),
+      );
+      await gateway.commitLaneEnrollmentActivationV1({
+        kind: 'commit_lane_enrollment_activation_v1',
+        enrollmentId: targetReady.manifest.enrollmentId,
+        walletId: targetReady.manifest.walletId,
+        manifestDigestB64u,
+        orderedChildReceipts: [child],
+        orderedPredecessorRetirements: [],
+        activatedAtMs: linked.receipt.activatedAtMs,
+      });
+      const product = (
+        await lifecycle.listEnrollmentProductEpochs(targetReady.manifest.enrollmentId)
+      )[0];
+      if (!product || product.state !== 'active') {
+        throw new Error('linked issuer fixture product is not active');
+      }
+      const receipt = buildLinkedDeviceEnrollmentReceiptV1({
+        enrollmentId: linked.approval.enrollmentId,
+        walletId: linked.approval.walletId,
+        deviceId: linked.approval.deviceId,
+        manifestDigestB64u,
+        aggregateReceiptDigestB64u: product.aggregateActivationReceiptDigestB64u,
+        orderedChildReceipts: [
+          buildLinkedDeviceEnrollmentChildReceiptV1({
+            enrollmentId: linked.approval.enrollmentId,
+            walletId: linked.approval.walletId,
+            walletKeyId: product.walletKeyId,
+            keyFamily: product.keyFamily,
+            targetLaneId: product.laneId,
+            targetLaneShareEpoch: product.laneShareEpoch,
+            materialActivation: product.materialActivation,
+            receiptDigestB64u: child.serverActivationReceiptDigestB64u,
+            transcriptHashB64u: manifestDigestB64u,
+            deliveredAtMs: linked.receipt.activatedAtMs,
+          }),
+        ],
+        activatedAtMs: linked.receipt.activatedAtMs,
+      });
+      const activeSession = await buildActiveLinkedDeviceSession(linked, receipt);
+      const store = new CloudflareD1AuthorizationStore({
+        database: temporary.database,
+        namespace: scope.namespace,
+        walletSignerScope: scope,
+      });
+      const authorization = new AuthorizationService({
+        policy: capabilityPolicyPort,
+        sessions: store,
+        evidence: store,
+        grants: store,
+        authorizedOperations: store,
+        audit: store,
+      });
+      const tenantId = required(parseTenantId, 'tenant-linked-issuer');
+      const issuer = new D1LinkedDeviceWalletSessionIssuerV1({
+        tenantId,
+        authorizationService: authorization,
+        laneLifecycle: lifecycle,
+      });
+      const expiredIssuer = new D1LinkedDeviceWalletSessionIssuerV1({
+        tenantId: required(parseTenantId, 'tenant-linked-issuer-expired'),
+        authorizationService: authorization,
+        laneLifecycle: lifecycle,
+      });
+      await expect(
+        expiredIssuer.issueForActiveSessionV1({
+          session: activeSession,
+          requestedAtMs: linked.receipt.activatedAtMs + DEFAULT_WALLET_SESSION_TTL_MS,
+        }),
+      ).rejects.toThrow('linked-device Wallet Session activation is too old to authorize');
+      await issuer.issueForActiveSessionV1({
+        session: activeSession,
+        requestedAtMs: linked.receipt.activatedAtMs + 1,
+      });
+      const expectedIssuance = {
+        tenantId,
+        deviceId: linked.approval.deviceId,
+        walletId: linked.approval.walletId,
+        enrollmentId: linked.approval.enrollmentId,
+        keyManifestDigestB64u: manifestDigestB64u,
+        permission: linked.approval.permission,
+        revocationEpoch: product.revocationEpoch,
+        remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
+        issuedAtMs: linked.receipt.activatedAtMs,
+        expiresAtMs: linked.receipt.activatedAtMs + DEFAULT_WALLET_SESSION_TTL_MS,
+      } as const;
+      const identity = await deriveLinkedDeviceWalletSessionIdentityV1(expectedIssuance);
+      await expect(
+        authorization.getLinkedDeviceWalletSessionStatus({
+          tenantId,
+          deviceId: linked.approval.deviceId,
+          ...identity,
+          nowMs: linked.receipt.activatedAtMs + 1,
+        }),
+      ).resolves.toMatchObject({
+        kind: 'active',
+        walletId: linked.approval.walletId,
+        enrollmentId: linked.approval.enrollmentId,
+        deviceId: linked.approval.deviceId,
+        keyManifestDigestB64u: manifestDigestB64u,
+        revocationEpoch: product.revocationEpoch,
+        remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
+        expiresAtMs: expectedIssuance.expiresAtMs,
+      });
+      await authorization.revokeLinkedDeviceWalletSession({
+        tenantId,
+        deviceId: linked.approval.deviceId,
+        ...identity,
+        nowMs: linked.receipt.activatedAtMs + 2,
+      });
+      await expect(
+        issuer.issueForActiveSessionV1({
+          session: activeSession,
+          requestedAtMs: linked.receipt.activatedAtMs + DEFAULT_WALLET_SESSION_TTL_MS + 1,
+        }),
+      ).resolves.toBeUndefined();
+      await expect(
+        authorization.getLinkedDeviceWalletSessionStatus({
+          tenantId,
+          deviceId: linked.approval.deviceId,
+          ...identity,
+          nowMs: linked.receipt.activatedAtMs + 3,
+        }),
+      ).resolves.toMatchObject({ kind: 'revoked' });
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
   test('issues an exact linked authorization, consumes its quota, and revokes atomically', async () => {
     const temporary = createTemporaryD1Database();
     try {
@@ -339,6 +508,45 @@ test.describe('D1 linked-device authorization', () => {
     }
   });
 });
+
+async function buildActiveLinkedDeviceSession(
+  fixture: ReturnType<typeof buildR103DeviceLinkFixture>,
+  receipt: ReturnType<typeof buildLinkedDeviceEnrollmentReceiptV1>,
+) {
+  const claim = buildLinkedDeviceSessionClaimV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    walletId: fixture.approval.walletId,
+    enrollmentId: fixture.approval.enrollmentId,
+    deviceId: fixture.approval.deviceId,
+    devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
+    claimedAtMs: 1_500,
+    claimExpiresAtMs: fixture.payload.expiresAtMs,
+  });
+  return parseLinkedDeviceSessionRecordV1({
+    version: 'linked_device_session_v1',
+    linkSessionId: fixture.payload.linkSessionId,
+    qrPayload: fixture.payload,
+    state: {
+      state: 'active',
+      linkSessionId: fixture.payload.linkSessionId,
+      walletId: fixture.approval.walletId,
+      enrollmentId: fixture.approval.enrollmentId,
+      activatedAtMs: receipt.activatedAtMs,
+    },
+    revision: 4,
+    claimTranscript: {
+      digestB64u: await computeLinkedDeviceSessionClaimDigestV1(claim),
+      value: claim,
+    },
+    approvalTranscript: {
+      digestB64u: await computeLinkedDeviceApprovalDigestV1(fixture.approval),
+      value: fixture.approval,
+    },
+    aggregateReceipt: receipt,
+    createdAtMs: fixture.payload.issuedAtMs,
+    updatedAtMs: receipt.activatedAtMs,
+  });
+}
 
 async function activateFixture(
   gateway: CloudflareD1LaneEnrollmentGateway,

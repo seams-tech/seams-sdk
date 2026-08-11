@@ -8,6 +8,13 @@ import { type D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore'
 import { CloudflareD1LaneLifecycleStore } from '../signingLanes/d1LaneLifecycleStore';
 import { createD1LinkedDeviceSessionServiceV1 } from './d1LinkedDeviceSessionService';
 import { D1LinkedDeviceProvisioningVerifierV1 } from './d1LinkedDeviceProvisioningVerifier';
+import {
+  D1LinkedDeviceWalletSessionIssuerV1,
+  type ActiveLinkedDeviceSessionRecordV1,
+} from './d1LinkedDeviceWalletSessionIssuer';
+import type { AuthorizationService } from '../../../../authorization/service';
+import type { TenantId } from '@shared/authorization/capabilityKinds';
+import { alphabetizeStringify } from '@shared/utils/digests';
 import type {
   DeviceLinkingAuthenticatedRequestV1,
   DeviceLinkingAuthDeniedV1,
@@ -20,6 +27,11 @@ import type {
 export type D1LinkedDeviceRouteServiceOptionsV1 = {
   readonly database: D1DatabaseLike;
   readonly scope: D1LinkedDeviceSessionScopeV1;
+  readonly tenantId: TenantId;
+  readonly authorizationService: Pick<
+    AuthorizationService,
+    'getLinkedDeviceWalletSessionStatus' | 'issueLinkedDeviceWalletSession'
+  >;
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationPortV1;
   readonly authenticateOwnerRequestV1: (
     input: DeviceLinkingOwnerRequestInputV1,
@@ -56,6 +68,16 @@ export function createD1LinkedDeviceRouteServiceV1(
   const provisioningVerifier = new D1LinkedDeviceProvisioningVerifierV1({
     lifecycleStore: laneLifecycle,
   });
+  const walletSessionIssuer = new D1LinkedDeviceWalletSessionIssuerV1({
+    tenantId: options.tenantId,
+    authorizationService: options.authorizationService,
+    laneLifecycle,
+  });
+  const acknowledgeReceiptV1 = acknowledgeReceiptAndIssueWalletSessionV1.bind(
+    undefined,
+    options.acknowledgeReceiptV1,
+    walletSessionIssuer,
+  );
   const routeSessionService: DeviceLinkingRouteServiceV1['sessionService'] = {
     createUnclaimedSessionV1: sessionService.createUnclaimedSessionV1.bind(sessionService),
     claimSessionV1: sessionService.claimSessionV1.bind(sessionService),
@@ -107,13 +129,50 @@ export function createD1LinkedDeviceRouteServiceV1(
       } satisfies DeviceLinkingDeviceAuthenticatedRequestV1;
     },
     targetCredential: options.targetCredential,
-    acknowledgeReceiptV1: options.acknowledgeReceiptV1,
+    acknowledgeReceiptV1,
     retryCommittedDeliveryV1: options.retryCommittedDeliveryV1,
     provisioning: options.provisioning,
     provisioningVerifier,
     sourceHandoff: options.sourceHandoff,
   };
 }
+
+async function acknowledgeReceiptAndIssueWalletSessionV1(
+  acknowledgeReceiptV1: DeviceLinkingRouteServiceV1['acknowledgeReceiptV1'],
+  walletSessionIssuer: D1LinkedDeviceWalletSessionIssuerV1,
+  input: Parameters<DeviceLinkingRouteServiceV1['acknowledgeReceiptV1']>[0],
+): ReturnType<DeviceLinkingRouteServiceV1['acknowledgeReceiptV1']> {
+  const result = await acknowledgeReceiptV1(input);
+  if (
+    (result.outcome !== 'applied' && result.outcome !== 'replayed') ||
+    !isActiveLinkedDeviceSessionRecord(result.record)
+  ) {
+    return result;
+  }
+  if (
+    result.record.linkSessionId !== input.acknowledgement.linkSessionId ||
+    alphabetizeStringify(result.record.aggregateReceipt) !==
+      alphabetizeStringify(input.acknowledgement.receipt)
+  ) {
+    throw new Error('linked-device receipt acknowledgement returned a different active session');
+  }
+  await walletSessionIssuer.issueForActiveSessionV1({
+    session: result.record,
+    requestedAtMs: input.requestedAtMs,
+  });
+  return result;
+}
+
+function isActiveLinkedDeviceSessionRecord(
+  record: DeviceLinkingRouteMutationResultV1Record,
+): record is ActiveLinkedDeviceSessionRecordV1 {
+  return record.state.state === 'active';
+}
+
+type DeviceLinkingRouteMutationResultV1Record = Extract<
+  Awaited<ReturnType<DeviceLinkingRouteServiceV1['acknowledgeReceiptV1']>>,
+  { readonly outcome: 'applied' | 'replayed' }
+>['record'];
 
 function parseSessionId(raw: string): LinkDeviceSessionId {
   const result = parseLinkDeviceSessionId(raw);
