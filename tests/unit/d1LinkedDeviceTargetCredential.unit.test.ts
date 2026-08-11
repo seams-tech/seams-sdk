@@ -10,12 +10,14 @@ import {
   type D1LinkedDeviceSessionScopeV1,
 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSessionStore';
 import { D1LinkedDeviceTargetCredentialProviderV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceTargetCredentialProvider';
+import { D1LinkedDeviceProvisioningProviderV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceProvisioningProvider';
 import {
   createD1LinkedDeviceCredentialResolverV1,
   D1LinkedDeviceTargetAuthenticatorStoreV1,
 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceTargetAuthenticatorStore';
 import {
   buildR103DeviceLinkFixture,
+  buildR103ProvisioningFixture,
   buildR103TargetCredentialFixture,
 } from './helpers/deviceLinkContracts.fixtures';
 import {
@@ -124,6 +126,45 @@ test('persists verified attestation and exact public child records before provis
     enrollmentId: fixture.approval.enrollmentId,
     keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
   });
+
+  const provisioningFixture = buildR103ProvisioningFixture(fixture);
+  let prepareCount = 0;
+  let activationCount = 0;
+  const provisioning = new D1LinkedDeviceProvisioningProviderV1({
+    database: temporary.database,
+    scope,
+    execution: {
+      prepareProvisioningDeliveriesV1: async () => {
+        prepareCount += 1;
+        return provisioningFixture.deliveries;
+      },
+      recordHolderDeliveriesAndActivateV1: async () => {
+        activationCount += 1;
+        return fixture.receipt;
+      },
+    },
+  });
+  for (let replay = 0; replay < 2; replay += 1) {
+    expect(
+      await provisioning.provisionLinkedDeviceV1({
+        command: provisioningFixture.command,
+        session: transitioned.record,
+        approval: fixture.approval,
+        requestedAtMs: 3_005 + replay,
+      }),
+    ).toEqual(provisioningFixture.deliveries);
+  }
+  for (let replay = 0; replay < 2; replay += 1) {
+    expect(
+      await provisioning.recordHolderDeliveriesV1({
+        acknowledgement: provisioningFixture.acknowledgement,
+        session: transitioned.record,
+        approval: fixture.approval,
+        requestedAtMs: 3_010 + replay,
+      }),
+    ).toEqual(fixture.receipt);
+  }
+  expect({ prepareCount, activationCount }).toEqual({ prepareCount: 1, activationCount: 1 });
 
   const persisted = await temporary.database
     .prepare(

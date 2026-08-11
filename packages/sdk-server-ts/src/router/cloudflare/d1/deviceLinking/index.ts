@@ -11,3 +11,4 @@ export * from './d1LinkedDeviceExecutionAdmissionResolver';
 export * from './d1LinkedDeviceProvisioningVerifier';
 export * from './d1LinkedDeviceTargetCredentialProvider';
 export * from './d1LinkedDeviceTargetAuthenticatorStore';
+export * from './d1LinkedDeviceProvisioningProvider';
