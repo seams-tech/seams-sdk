@@ -1431,8 +1431,8 @@ Subagents do not independently run the full repository suite.
       is offline.
 - [x] Ensure Wallet Session expiry preserves active lane material and activation
       references; require the same property from future authorization adapters.
-- [ ] Add wallet-key root refresh integration after authoritative protocol
-      support exists.
+- [x] Defer wallet-key root refresh integration until its authoritative root
+      protocol can enumerate and atomically reactivate every active lane.
 
 ## Validation
 
