@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { buildActiveLinkedDeviceExecutionBundleV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/linkedDeviceExecutionBundle';
+import {
+  buildActiveLinkedDeviceExecutionBundleV1,
+  buildLinkedDeviceProvisionedExecutionEvidenceV1,
+} from '../../packages/sdk-web/src/SeamsWeb/operations/devices/linkedDeviceExecutionBundle';
 import { buildR103ActiveExecutionFixture } from './helpers/deviceLinkContracts.fixtures';
 
 test('builds one exact active Device 2 execution projection from R102 evidence', async () => {
@@ -47,7 +50,7 @@ test('builds one exact active Device 2 execution projection from R102 evidence',
   });
 });
 
-test('rejects a Wallet Session that is bound to a different active manifest', async () => {
+test('rejects an enrollment receipt that is bound to a different R102 manifest', async () => {
   const {
     deviceLink: fixture,
     targetCredential: target,
@@ -67,5 +70,35 @@ test('rejects a Wallet Session that is bound to a different active manifest', as
       },
       walletSessionDelivery: walletSession,
     }),
-  ).rejects.toThrow('linked-device active execution identity does not match');
+  ).rejects.toThrow('linked-device R102 manifest digest does not match enrollment receipt');
+});
+
+test('rejects a provisioned job with a different approved replay identity', async () => {
+  const {
+    deviceLink: fixture,
+    targetCredential: target,
+    provisioning,
+  } = await buildR103ActiveExecutionFixture();
+  const child = provisioning.deliveries.orderedChildren[0];
+
+  await expect(
+    buildLinkedDeviceProvisionedExecutionEvidenceV1({
+      approval: fixture.approval,
+      targetPreparation: target.preparation,
+      targetCredentialRegistration: target.registration,
+      provisioningDeliveries: {
+        ...provisioning.deliveries,
+        orderedChildren: [
+          {
+            ...child,
+            job: {
+              ...child.job,
+              idempotencyKey: 'idempotency:r103:substituted',
+            },
+          },
+        ],
+      },
+      enrollmentReceipt: fixture.receipt,
+    }),
+  ).rejects.toThrow('linked-device provisioned execution child identity does not match');
 });

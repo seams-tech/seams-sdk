@@ -108,6 +108,52 @@ export type ActiveLinkedDeviceExecutionBundleV1 = {
   ];
 };
 
+export type LinkedDeviceProvisionedExecutionEvidenceV1 = {
+  readonly kind: 'linked_device_provisioned_execution_evidence_v1';
+  readonly approval: ReturnType<typeof parseLinkedDeviceApprovalV1>;
+  readonly targetPreparation: ReturnType<typeof parseLinkedDeviceTargetPreparationV1>;
+  readonly targetCredentialRegistration: ReturnType<
+    typeof parseLinkedDeviceTargetCredentialRegistrationV1
+  >;
+  readonly provisioningDeliveries: ReturnType<typeof parseLinkedDeviceProvisioningDeliveriesV1>;
+  readonly enrollmentReceipt: ReturnType<typeof parseLinkedDeviceEnrollmentReceiptV1>;
+};
+
+export async function buildLinkedDeviceProvisionedExecutionEvidenceV1(input: {
+  readonly approval: unknown;
+  readonly targetPreparation: unknown;
+  readonly targetCredentialRegistration: unknown;
+  readonly provisioningDeliveries: unknown;
+  readonly enrollmentReceipt: unknown;
+}): Promise<LinkedDeviceProvisionedExecutionEvidenceV1> {
+  const approval = parseLinkedDeviceApprovalV1(input.approval);
+  const targetPreparation = parseLinkedDeviceTargetPreparationV1(input.targetPreparation);
+  const targetCredentialRegistration = parseLinkedDeviceTargetCredentialRegistrationV1(
+    input.targetCredentialRegistration,
+  );
+  const provisioningDeliveries = parseLinkedDeviceProvisioningDeliveriesV1(
+    input.provisioningDeliveries,
+  );
+  const enrollmentReceipt = parseLinkedDeviceEnrollmentReceiptV1(input.enrollmentReceipt);
+
+  await assertProvisionedEvidenceIdentity({
+    approval,
+    preparation: targetPreparation,
+    registration: targetCredentialRegistration,
+    deliveries: provisioningDeliveries,
+    receipt: enrollmentReceipt,
+  });
+
+  return {
+    kind: 'linked_device_provisioned_execution_evidence_v1',
+    approval,
+    targetPreparation,
+    targetCredentialRegistration,
+    provisioningDeliveries,
+    enrollmentReceipt,
+  };
+}
+
 export async function buildActiveLinkedDeviceExecutionBundleV1(input: {
   readonly approval: unknown;
   readonly targetPreparation: unknown;
@@ -116,52 +162,29 @@ export async function buildActiveLinkedDeviceExecutionBundleV1(input: {
   readonly enrollmentReceipt: unknown;
   readonly walletSessionDelivery: unknown;
 }): Promise<ActiveLinkedDeviceExecutionBundleV1> {
-  const approval = parseLinkedDeviceApprovalV1(input.approval);
-  const preparation = parseLinkedDeviceTargetPreparationV1(input.targetPreparation);
-  const registration = parseLinkedDeviceTargetCredentialRegistrationV1(
-    input.targetCredentialRegistration,
-  );
-  const deliveries = parseLinkedDeviceProvisioningDeliveriesV1(input.provisioningDeliveries);
-  const receipt = parseLinkedDeviceEnrollmentReceiptV1(input.enrollmentReceipt);
+  const evidence = await buildLinkedDeviceProvisionedExecutionEvidenceV1(input);
+  const approval = evidence.approval;
+  const preparation = evidence.targetPreparation;
+  const registration = evidence.targetCredentialRegistration;
+  const deliveries = evidence.provisioningDeliveries;
+  const receipt = evidence.enrollmentReceipt;
   const walletSession = parseLinkedDeviceWalletSessionDeliveryV1(input.walletSessionDelivery);
-  await assertBundleIdentity({
+  assertWalletSessionIdentity({
     approval,
-    preparation,
-    registration,
-    deliveries,
     receipt,
     walletSession,
   });
 
   const executions = await Promise.all(
     deliveries.orderedChildren.map(async (deliveryChild, index) => {
-      const binding = approval.orderedKeyBindings[index];
-      const preparationChild = preparation.orderedChildren[index];
-      const registrationChild = registration.orderedHolderRegistrations[index];
       const receiptChild = receipt.orderedChildReceipts[index];
       const token = walletSession.orderedTokens[index];
-      const protocolVersion = approval.protocolVersions.find(
-        (candidate) => candidate.keyFamily === deliveryChild.job.keyFamily,
-      );
-      if (
-        !binding ||
-        !preparationChild ||
-        !registrationChild ||
-        !receiptChild ||
-        !token ||
-        !protocolVersion
-      ) {
+      if (!receiptChild || !token) {
         throw new Error('linked-device active execution child set is incomplete');
       }
       assertChildIdentity({
-        approval,
-        binding,
-        preparationChild,
-        registrationChild,
         deliveryChild,
-        receiptChild,
         token,
-        protocolVersion,
         walletSessionRevocationEpoch: walletSession.revocationEpoch,
       });
       return await buildActiveExecutionChild({
@@ -202,15 +225,14 @@ export async function buildActiveLinkedDeviceExecutionBundleV1(input: {
   };
 }
 
-async function assertBundleIdentity(input: {
+async function assertProvisionedEvidenceIdentity(input: {
   readonly approval: ReturnType<typeof parseLinkedDeviceApprovalV1>;
   readonly preparation: ReturnType<typeof parseLinkedDeviceTargetPreparationV1>;
   readonly registration: ReturnType<typeof parseLinkedDeviceTargetCredentialRegistrationV1>;
   readonly deliveries: ReturnType<typeof parseLinkedDeviceProvisioningDeliveriesV1>;
   readonly receipt: ReturnType<typeof parseLinkedDeviceEnrollmentReceiptV1>;
-  readonly walletSession: ReturnType<typeof parseLinkedDeviceWalletSessionDeliveryV1>;
 }): Promise<void> {
-  const identity = [input.preparation, input.registration, input.receipt, input.walletSession];
+  const identity = [input.preparation, input.registration, input.receipt];
   if (
     identity.some(
       (value) =>
@@ -223,23 +245,18 @@ async function assertBundleIdentity(input: {
     input.deliveries.deviceId !== input.approval.deviceId ||
     input.preparation.linkSessionId !== input.approval.linkSessionId ||
     input.registration.linkSessionId !== input.approval.linkSessionId ||
-    input.receipt.manifestDigestB64u !== input.walletSession.keyManifestDigestB64u ||
-    input.receipt.activatedAtMs !== input.walletSession.issuedAtMs ||
-    alphabetizeStringify(input.approval.permission) !==
-      alphabetizeStringify(input.walletSession.permission)
+    input.deliveries.manifest.walletId !== input.approval.walletId ||
+    String(input.deliveries.manifest.enrollmentId) !== String(input.approval.enrollmentId)
   ) {
-    throw new Error('linked-device active execution identity does not match');
+    throw new Error('linked-device provisioned execution identity does not match');
   }
   await assertLinkedDeviceTargetCredentialRegistrationMatchesPreparationV1({
     preparation: input.preparation,
     registration: input.registration,
   });
   const manifestDigest = await computeLaneEnrollmentManifestDigestV1(input.deliveries.manifest);
-  if (
-    manifestDigest !== input.receipt.manifestDigestB64u ||
-    manifestDigest !== input.walletSession.keyManifestDigestB64u
-  ) {
-    throw new Error('linked-device R102 manifest digest does not match active authorization');
+  if (manifestDigest !== input.receipt.manifestDigestB64u) {
+    throw new Error('linked-device R102 manifest digest does not match enrollment receipt');
   }
   const counts = [
     input.approval.orderedKeyBindings.length,
@@ -247,14 +264,61 @@ async function assertBundleIdentity(input: {
     input.registration.orderedHolderRegistrations.length,
     input.deliveries.orderedChildren.length,
     input.receipt.orderedChildReceipts.length,
-    input.walletSession.orderedTokens.length,
   ];
   if (counts.some((count) => count !== counts[0])) {
-    throw new Error('linked-device active execution child counts do not match');
+    throw new Error('linked-device provisioned execution child counts do not match');
+  }
+  for (let index = 0; index < input.deliveries.orderedChildren.length; index += 1) {
+    const binding = input.approval.orderedKeyBindings[index];
+    const preparationChild = input.preparation.orderedChildren[index];
+    const registrationChild = input.registration.orderedHolderRegistrations[index];
+    const deliveryChild = input.deliveries.orderedChildren[index];
+    const receiptChild = input.receipt.orderedChildReceipts[index];
+    const protocolVersion = input.approval.protocolVersions.find(
+      (candidate) => candidate.keyFamily === deliveryChild?.job.keyFamily,
+    );
+    if (
+      !binding ||
+      !preparationChild ||
+      !registrationChild ||
+      !deliveryChild ||
+      !receiptChild ||
+      !protocolVersion
+    ) {
+      throw new Error('linked-device provisioned execution child set is incomplete');
+    }
+    assertProvisionedChildIdentity({
+      approval: input.approval,
+      binding,
+      preparationChild,
+      registrationChild,
+      deliveryChild,
+      receiptChild,
+      protocolVersion,
+    });
   }
 }
 
-function assertChildIdentity(input: {
+function assertWalletSessionIdentity(input: {
+  readonly approval: ReturnType<typeof parseLinkedDeviceApprovalV1>;
+  readonly receipt: ReturnType<typeof parseLinkedDeviceEnrollmentReceiptV1>;
+  readonly walletSession: ReturnType<typeof parseLinkedDeviceWalletSessionDeliveryV1>;
+}): void {
+  if (
+    input.walletSession.walletId !== input.approval.walletId ||
+    input.walletSession.enrollmentId !== input.approval.enrollmentId ||
+    input.walletSession.deviceId !== input.approval.deviceId ||
+    input.walletSession.keyManifestDigestB64u !== input.receipt.manifestDigestB64u ||
+    input.walletSession.issuedAtMs !== input.receipt.activatedAtMs ||
+    input.walletSession.orderedTokens.length !== input.approval.orderedKeyBindings.length ||
+    alphabetizeStringify(input.walletSession.permission) !==
+      alphabetizeStringify(input.approval.permission)
+  ) {
+    throw new Error('linked-device Wallet Session does not match provisioned execution');
+  }
+}
+
+function assertProvisionedChildIdentity(input: {
   readonly approval: ReturnType<typeof parseLinkedDeviceApprovalV1>;
   readonly binding: ReturnType<typeof parseLinkedDeviceApprovalV1>['orderedKeyBindings'][number];
   readonly preparationChild: ReturnType<
@@ -269,13 +333,9 @@ function assertChildIdentity(input: {
   readonly receiptChild: ReturnType<
     typeof parseLinkedDeviceEnrollmentReceiptV1
   >['orderedChildReceipts'][number];
-  readonly token: ReturnType<
-    typeof parseLinkedDeviceWalletSessionDeliveryV1
-  >['orderedTokens'][number];
   readonly protocolVersion: ReturnType<
     typeof parseLinkedDeviceApprovalV1
   >['protocolVersions'][number];
-  readonly walletSessionRevocationEpoch: number;
 }): void {
   const job = input.deliveryChild.job;
   const same =
@@ -283,6 +343,7 @@ function assertChildIdentity(input: {
     job.target.laneKind === 'linked_device' &&
     job.authorization.kind === 'linked_device_enrollment' &&
     String(job.authorization.authorizedOperationId) === String(input.approval.operationId) &&
+    String(job.idempotencyKey) === String(input.approval.idempotencyKey) &&
     String(job.authorization.linkedDeviceEnrollmentId) === String(input.approval.enrollmentId) &&
     job.authorization.linkedDevicePermissionDigestB64u === input.approval.policyDigestB64u &&
     job.walletId === input.approval.walletId &&
@@ -328,11 +389,27 @@ function assertChildIdentity(input: {
     String(input.receiptChild.materialActivation.signingWorker) ===
       String(job.targetSigningWorker.participantId) &&
     input.receiptChild.transcriptHashB64u ===
-      input.deliveryChild.protocolCommitReceipt.transcriptHashB64u &&
-    input.token.walletKeyId === job.walletKeyId &&
-    input.token.keyFamily === job.keyFamily &&
-    input.walletSessionRevocationEpoch === job.source.revocationEpoch;
-  if (!same) throw new Error('linked-device active execution child identity does not match');
+      input.deliveryChild.protocolCommitReceipt.transcriptHashB64u;
+  if (!same) throw new Error('linked-device provisioned execution child identity does not match');
+}
+
+function assertChildIdentity(input: {
+  readonly deliveryChild: ReturnType<
+    typeof parseLinkedDeviceProvisioningDeliveriesV1
+  >['orderedChildren'][number];
+  readonly token: ReturnType<
+    typeof parseLinkedDeviceWalletSessionDeliveryV1
+  >['orderedTokens'][number];
+  readonly walletSessionRevocationEpoch: number;
+}): void {
+  const job = input.deliveryChild.job;
+  if (
+    input.token.walletKeyId !== job.walletKeyId ||
+    input.token.keyFamily !== job.keyFamily ||
+    input.walletSessionRevocationEpoch !== job.source.revocationEpoch
+  ) {
+    throw new Error('linked-device active execution authorization does not match child');
+  }
 }
 
 async function buildActiveExecutionChild(input: {
