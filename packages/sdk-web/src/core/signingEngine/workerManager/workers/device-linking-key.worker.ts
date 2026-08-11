@@ -781,18 +781,20 @@ async function openAndSealTargetHolder(
     }
     return prepared.output;
   }
-  const custody = await recipientFactory.createCustodySeal({
-    factorSecret: slot.targetMaterial.factorSecret,
-    envelopeBindingJson: envelopeBindingJson(
-      slot.targetMaterial,
-      request.delivery,
-      prepared.holderParticipant,
-    ),
-    custodyBindingId: prepared.holderParticipant.custodyBindingId,
-    custodyBindingDigestB64u: prepared.holderParticipant.custodyBindingDigestB64u,
-  });
-  const nonce = randomBytes(12);
+  let custody: DeviceLinkingLaneCustodySealV1 | undefined;
+  let nonce: Uint8Array | undefined;
   try {
+    custody = await recipientFactory.createCustodySeal({
+      factorSecret: slot.targetMaterial.factorSecret,
+      envelopeBindingJson: envelopeBindingJson(
+        slot.targetMaterial,
+        request.delivery,
+        prepared.holderParticipant,
+      ),
+      custodyBindingId: prepared.holderParticipant.custodyBindingId,
+      custodyBindingDigestB64u: prepared.holderParticipant.custodyBindingDigestB64u,
+    });
+    nonce = randomBytes(12);
     const output = sealedHolderOutput(
       prepared.recipient.open_and_seal(
         custody,
@@ -819,8 +821,8 @@ async function openAndSealTargetHolder(
     if (slot.targetMaterial.recipients.get(key) === prepared && prepared.state === 'open') {
       slot.targetMaterial.recipients.delete(key);
     }
-    nonce.fill(0);
-    custody.free();
+    nonce?.fill(0);
+    custody?.free();
     prepared.recipient.destroy();
     prepared.recipient.free();
   }
