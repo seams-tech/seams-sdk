@@ -15,10 +15,13 @@ import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
 import type { NormalizedLogger } from '../../../../core/logger';
 import type { LinkedDeviceOwnerAuthorizationPortV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type {
-  LinkedDeviceAggregateRevocationPortV1,
   LinkedDeviceLocalStateInvalidationPortV1,
   LinkedDeviceManagementAuthorizationPortV1,
 } from '../../../../core/deviceLinking/linkedDeviceManagement';
+import type {
+  LaneLifecycleAuthorizationPortV1,
+  LaneLifecycleCurveExecutionPortsV1,
+} from '../../../../core/signingLanes/LaneLifecycleApplicationService';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type {
   DeviceLinkingOperatorRecoveryProviderV1,
@@ -26,7 +29,6 @@ import type {
 } from '../../../transport/fetch/routes/deviceLinking';
 import type { DeviceLinkingGatewayCompletionServiceV1 } from '../../../transport/fetch/routes/deviceLinkingGateway';
 import type { LinkedDeviceTargetPlannerV1 } from '../deviceLinking/d1LinkedDeviceTargetCredentialProvider';
-import type { LinkedDeviceR102ProvisioningExecutionPortV1 } from '../deviceLinking/d1LinkedDeviceProvisioningProvider';
 import {
   normalizeOidcExchangeConfig,
   type CloudflareD1OidcExchangeConfig,
@@ -70,14 +72,17 @@ export type CloudflareD1LinkedDeviceExecutionOptionsV1 = {
   readonly logger: NormalizedLogger;
 };
 
+/** Durable lane authority used by linked-device activation and revocation. */
+export type CloudflareD1LinkedDeviceLaneLifecycleOptionsV1 = {
+  readonly authorization: LaneLifecycleAuthorizationPortV1;
+  readonly execution: LaneLifecycleCurveExecutionPortsV1;
+};
+
 export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
+  readonly laneLifecycle: CloudflareD1LinkedDeviceLaneLifecycleOptionsV1;
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationPortV1;
   readonly authenticateOwnerRequestV1: DeviceLinkingRouteServiceV1['authenticateOwnerRequestV1'];
   readonly targetPlanner: LinkedDeviceTargetPlannerV1;
-  readonly provisioningActivation: Pick<
-    LinkedDeviceR102ProvisioningExecutionPortV1,
-    'recordHolderDeliveriesAndActivateV1'
-  >;
   readonly acknowledgeReceiptV1: DeviceLinkingRouteServiceV1['acknowledgeReceiptV1'];
   readonly retryCommittedDeliveryV1: DeviceLinkingRouteServiceV1['retryCommittedDeliveryV1'];
   /** Required whenever the linked-device session surface is enabled. */
@@ -86,7 +91,6 @@ export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
 
 export type CloudflareD1LinkedDeviceManagementOptionsV1 = {
   readonly authorization: LinkedDeviceManagementAuthorizationPortV1;
-  readonly aggregateRevocation: LinkedDeviceAggregateRevocationPortV1;
   readonly localStateInvalidation: LinkedDeviceLocalStateInvalidationPortV1;
 };
 
