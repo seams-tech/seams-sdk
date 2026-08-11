@@ -1,0 +1,414 @@
+import {
+  parseLinkedDeviceApprovalV1,
+  parseLinkedDeviceEnrollmentReceiptV1,
+  parseLinkedDeviceProvisioningDeliveriesV1,
+  parseLinkedDeviceTargetCredentialRegistrationV1,
+  parseLinkedDeviceTargetPreparationV1,
+  parseLinkedDeviceWalletSessionDeliveryV1,
+} from '@shared/device-linking';
+import { computeLinkedDeviceTargetPreparationDigestV1 } from '@shared/device-linking/digests';
+import {
+  buildActiveSigningLaneLifecycle,
+  buildActiveWalletKeyLifecycle,
+  buildEd25519WalletKeyRecord,
+  buildEvmFamilyWalletKeyRecord,
+  buildLinkedDeviceSigningLaneRecord,
+  parseWalletKeyVersion,
+} from '@shared/signing-lanes/recordParsers';
+import type {
+  Ed25519WalletKeyRecord,
+  EvmFamilyWalletKeyRecord,
+  LinkedDeviceSigningLaneRecord,
+} from '@shared/signing-lanes/records';
+import {
+  parseLaneHolderParticipantRecordV1,
+  parseSigningWorkerParticipantRecordV1,
+} from '@shared/signing-lanes/participants';
+import { computeLaneParticipantSetBindingDigestV1 } from '@shared/signing-lanes/participantDigest';
+import type {
+  EcdsaAdditiveLaneJobV1,
+  Ed25519YaoLaneJobV1,
+  LaneProtocolCommitReceiptV1,
+} from '@shared/signing-lanes/rotation';
+import { computeLaneProtocolCommitReceiptDigestV1 } from '@shared/signing-lanes/rotationDigests';
+import {
+  parseEd25519PublicKeyB64u,
+  parseSecp256k1CompressedPublicKeyB64u,
+} from '@shared/passkey-custody/primitives';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import { alphabetizeStringify } from '@shared/utils/digests';
+
+type ActiveLinkedDeviceExecutionChildCommonV1 = {
+  readonly operationId: Ed25519YaoLaneJobV1['operationId'];
+  readonly walletKeyId: Ed25519YaoLaneJobV1['walletKeyId'];
+  readonly laneId: Ed25519YaoLaneJobV1['target']['laneId'];
+  readonly laneShareEpoch: Ed25519YaoLaneJobV1['target']['laneShareEpoch'];
+  readonly materialActivation: MpcMaterialActivationRef;
+  readonly lane: LinkedDeviceSigningLaneRecord;
+  readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
+  readonly protocolCommitReceiptDigestB64u: DigestB64u;
+  readonly serverActivationReceiptDigestB64u: DigestB64u;
+  readonly holderRecordLookup: {
+    readonly operationId: Ed25519YaoLaneJobV1['operationId'];
+    readonly enrollmentId: Ed25519YaoLaneJobV1['enrollmentId'];
+    readonly targetLaneId: Ed25519YaoLaneJobV1['target']['laneId'];
+    readonly targetLaneShareEpoch: Ed25519YaoLaneJobV1['target']['laneShareEpoch'];
+    readonly targetMaterialActivationId: Ed25519YaoLaneJobV1['targetMaterialActivationId'];
+  };
+};
+
+export type ActiveLinkedDeviceExecutionChildV1 =
+  | (ActiveLinkedDeviceExecutionChildCommonV1 & {
+      readonly kind: 'active_linked_device_ed25519_execution_v1';
+      readonly keyFamily: 'ed25519';
+      readonly walletKey: Ed25519WalletKeyRecord;
+      readonly job: Ed25519YaoLaneJobV1;
+    })
+  | (ActiveLinkedDeviceExecutionChildCommonV1 & {
+      readonly kind: 'active_linked_device_ecdsa_execution_v1';
+      readonly keyFamily: 'ecdsa_secp256k1';
+      readonly walletKey: EvmFamilyWalletKeyRecord;
+      readonly job: EcdsaAdditiveLaneJobV1;
+    });
+
+export type ActiveLinkedDeviceExecutionBundleV1 = {
+  readonly kind: 'active_linked_device_execution_bundle_v1';
+  readonly linkSessionId: ReturnType<typeof parseLinkedDeviceApprovalV1>['linkSessionId'];
+  readonly tenantId: ReturnType<typeof parseLinkedDeviceWalletSessionDeliveryV1>['tenantId'];
+  readonly walletId: ReturnType<typeof parseLinkedDeviceApprovalV1>['walletId'];
+  readonly enrollmentId: ReturnType<typeof parseLinkedDeviceApprovalV1>['enrollmentId'];
+  readonly deviceId: ReturnType<typeof parseLinkedDeviceApprovalV1>['deviceId'];
+  readonly rpId: ReturnType<typeof parseLinkedDeviceTargetPreparationV1>['rpId'];
+  readonly credentialIdB64u: ReturnType<
+    typeof parseLinkedDeviceTargetCredentialRegistrationV1
+  >['webauthnRegistration']['credentialIdB64u'];
+  readonly authorizationId: ReturnType<
+    typeof parseLinkedDeviceWalletSessionDeliveryV1
+  >['authorizationId'];
+  readonly walletSessionId: ReturnType<
+    typeof parseLinkedDeviceWalletSessionDeliveryV1
+  >['walletSessionId'];
+  readonly quotaId: ReturnType<typeof parseLinkedDeviceWalletSessionDeliveryV1>['quotaId'];
+  readonly keyManifestDigestB64u: DigestB64u;
+  readonly aggregateReceiptDigestB64u: DigestB64u;
+  readonly permission: ReturnType<typeof parseLinkedDeviceApprovalV1>['permission'];
+  readonly revocationEpoch: number;
+  readonly activatedAtMs: number;
+  readonly issuedAtMs: number;
+  readonly expiresAtMs: number;
+  readonly orderedExecutions: readonly [
+    ActiveLinkedDeviceExecutionChildV1,
+    ...ActiveLinkedDeviceExecutionChildV1[],
+  ];
+};
+
+export async function buildActiveLinkedDeviceExecutionBundleV1(input: {
+  readonly approval: unknown;
+  readonly targetPreparation: unknown;
+  readonly targetCredentialRegistration: unknown;
+  readonly provisioningDeliveries: unknown;
+  readonly enrollmentReceipt: unknown;
+  readonly walletSessionDelivery: unknown;
+}): Promise<ActiveLinkedDeviceExecutionBundleV1> {
+  const approval = parseLinkedDeviceApprovalV1(input.approval);
+  const preparation = parseLinkedDeviceTargetPreparationV1(input.targetPreparation);
+  const registration = parseLinkedDeviceTargetCredentialRegistrationV1(
+    input.targetCredentialRegistration,
+  );
+  const deliveries = parseLinkedDeviceProvisioningDeliveriesV1(input.provisioningDeliveries);
+  const receipt = parseLinkedDeviceEnrollmentReceiptV1(input.enrollmentReceipt);
+  const walletSession = parseLinkedDeviceWalletSessionDeliveryV1(input.walletSessionDelivery);
+  await assertBundleIdentity({
+    approval,
+    preparation,
+    registration,
+    deliveries,
+    receipt,
+    walletSession,
+  });
+
+  const executions = await Promise.all(
+    deliveries.orderedChildren.map(async (deliveryChild, index) => {
+      const binding = approval.orderedKeyBindings[index];
+      const preparationChild = preparation.orderedChildren[index];
+      const registrationChild = registration.orderedHolderRegistrations[index];
+      const receiptChild = receipt.orderedChildReceipts[index];
+      const token = walletSession.orderedTokens[index];
+      if (!binding || !preparationChild || !registrationChild || !receiptChild || !token) {
+        throw new Error('linked-device active execution child set is incomplete');
+      }
+      assertChildIdentity({
+        approval,
+        binding,
+        preparationChild,
+        registrationChild,
+        deliveryChild,
+        receiptChild,
+        token,
+        walletSessionRevocationEpoch: walletSession.revocationEpoch,
+      });
+      return await buildActiveExecutionChild({
+        deviceId: approval.deviceId,
+        activatedAtMs: receipt.activatedAtMs,
+        aggregateReceiptDigestB64u: receipt.aggregateReceiptDigestB64u,
+        deliveryChild,
+        receiptChild,
+        token,
+        revocationEpoch: walletSession.revocationEpoch,
+      });
+    }),
+  );
+  const first = executions[0];
+  if (!first) throw new Error('linked-device active execution child set is empty');
+
+  return {
+    kind: 'active_linked_device_execution_bundle_v1',
+    linkSessionId: approval.linkSessionId,
+    tenantId: walletSession.tenantId,
+    walletId: approval.walletId,
+    enrollmentId: approval.enrollmentId,
+    deviceId: approval.deviceId,
+    rpId: preparation.rpId,
+    credentialIdB64u: registration.webauthnRegistration.credentialIdB64u,
+    authorizationId: walletSession.authorizationId,
+    walletSessionId: walletSession.walletSessionId,
+    quotaId: walletSession.quotaId,
+    keyManifestDigestB64u: walletSession.keyManifestDigestB64u,
+    aggregateReceiptDigestB64u: receipt.aggregateReceiptDigestB64u,
+    permission: walletSession.permission,
+    revocationEpoch: walletSession.revocationEpoch,
+    activatedAtMs: receipt.activatedAtMs,
+    issuedAtMs: walletSession.issuedAtMs,
+    expiresAtMs: walletSession.expiresAtMs,
+    orderedExecutions: [first, ...executions.slice(1)],
+  };
+}
+
+async function assertBundleIdentity(input: {
+  readonly approval: ReturnType<typeof parseLinkedDeviceApprovalV1>;
+  readonly preparation: ReturnType<typeof parseLinkedDeviceTargetPreparationV1>;
+  readonly registration: ReturnType<typeof parseLinkedDeviceTargetCredentialRegistrationV1>;
+  readonly deliveries: ReturnType<typeof parseLinkedDeviceProvisioningDeliveriesV1>;
+  readonly receipt: ReturnType<typeof parseLinkedDeviceEnrollmentReceiptV1>;
+  readonly walletSession: ReturnType<typeof parseLinkedDeviceWalletSessionDeliveryV1>;
+}): Promise<void> {
+  const identity = [input.preparation, input.registration, input.receipt, input.walletSession];
+  if (
+    identity.some(
+      (value) =>
+        value.walletId !== input.approval.walletId ||
+        value.enrollmentId !== input.approval.enrollmentId ||
+        value.deviceId !== input.approval.deviceId,
+    ) ||
+    input.deliveries.linkSessionId !== input.approval.linkSessionId ||
+    input.deliveries.enrollmentId !== input.approval.enrollmentId ||
+    input.deliveries.deviceId !== input.approval.deviceId ||
+    input.preparation.linkSessionId !== input.approval.linkSessionId ||
+    input.registration.linkSessionId !== input.approval.linkSessionId ||
+    input.receipt.manifestDigestB64u !== input.walletSession.keyManifestDigestB64u ||
+    alphabetizeStringify(input.approval.permission) !==
+      alphabetizeStringify(input.walletSession.permission)
+  ) {
+    throw new Error('linked-device active execution identity does not match');
+  }
+  const preparationDigest = await computeLinkedDeviceTargetPreparationDigestV1(input.preparation);
+  if (preparationDigest !== input.registration.targetPreparationDigestB64u) {
+    throw new Error('linked-device target preparation digest does not match registration');
+  }
+  const counts = [
+    input.approval.orderedKeyBindings.length,
+    input.preparation.orderedChildren.length,
+    input.registration.orderedHolderRegistrations.length,
+    input.deliveries.orderedChildren.length,
+    input.receipt.orderedChildReceipts.length,
+    input.walletSession.orderedTokens.length,
+  ];
+  if (counts.some((count) => count !== counts[0])) {
+    throw new Error('linked-device active execution child counts do not match');
+  }
+}
+
+function assertChildIdentity(input: {
+  readonly approval: ReturnType<typeof parseLinkedDeviceApprovalV1>;
+  readonly binding: ReturnType<typeof parseLinkedDeviceApprovalV1>['orderedKeyBindings'][number];
+  readonly preparationChild: ReturnType<
+    typeof parseLinkedDeviceTargetPreparationV1
+  >['orderedChildren'][number];
+  readonly registrationChild: ReturnType<
+    typeof parseLinkedDeviceTargetCredentialRegistrationV1
+  >['orderedHolderRegistrations'][number];
+  readonly deliveryChild: ReturnType<
+    typeof parseLinkedDeviceProvisioningDeliveriesV1
+  >['orderedChildren'][number];
+  readonly receiptChild: ReturnType<
+    typeof parseLinkedDeviceEnrollmentReceiptV1
+  >['orderedChildReceipts'][number];
+  readonly token: ReturnType<
+    typeof parseLinkedDeviceWalletSessionDeliveryV1
+  >['orderedTokens'][number];
+  readonly walletSessionRevocationEpoch: number;
+}): void {
+  const job = input.deliveryChild.job;
+  const same =
+    job.target.operation === 'create_lane' &&
+    job.target.laneKind === 'linked_device' &&
+    job.authorization.kind === 'linked_device_enrollment' &&
+    String(job.authorization.authorizedOperationId) === String(input.approval.operationId) &&
+    String(job.authorization.linkedDeviceEnrollmentId) === String(input.approval.enrollmentId) &&
+    job.authorization.linkedDevicePermissionDigestB64u === input.approval.policyDigestB64u &&
+    job.walletId === input.approval.walletId &&
+    String(job.enrollmentId) === String(input.approval.enrollmentId) &&
+    job.walletKeyId === input.binding.walletKeyId &&
+    job.keyFamily === input.binding.keyFamily &&
+    job.source.laneId === input.binding.sourceLaneId &&
+    job.source.laneShareEpoch === input.binding.sourceLaneShareEpoch &&
+    job.source.revocationEpoch === input.binding.sourceRevocationEpoch &&
+    job.source.holderParticipantId === input.binding.sourceHolderParticipantId &&
+    job.source.signingWorkerParticipantId === input.binding.sourceSigningWorkerParticipantId &&
+    job.target.laneId === input.binding.targetLaneId &&
+    job.target.laneShareEpoch === input.binding.targetLaneShareEpoch &&
+    input.preparationChild.operationId === job.operationId &&
+    input.preparationChild.walletKeyId === job.walletKeyId &&
+    input.preparationChild.keyFamily === job.keyFamily &&
+    input.preparationChild.targetLaneId === job.target.laneId &&
+    input.preparationChild.targetLaneShareEpoch === job.target.laneShareEpoch &&
+    input.preparationChild.targetMaterialActivationId === job.targetMaterialActivationId &&
+    input.preparationChild.targetHolderParticipantId === job.targetHolder.participantId &&
+    input.registrationChild.operationId === job.operationId &&
+    input.registrationChild.walletKeyId === job.walletKeyId &&
+    input.registrationChild.keyFamily === job.keyFamily &&
+    input.registrationChild.targetLaneId === job.target.laneId &&
+    input.registrationChild.targetLaneShareEpoch === job.target.laneShareEpoch &&
+    input.registrationChild.targetMaterialActivationId === job.targetMaterialActivationId &&
+    alphabetizeStringify(input.registrationChild.holderParticipant) ===
+      alphabetizeStringify({ kind: 'lane_holder_participant_v1', ...job.targetHolder }) &&
+    input.receiptChild.walletId === job.walletId &&
+    input.receiptChild.walletKeyId === job.walletKeyId &&
+    input.receiptChild.keyFamily === job.keyFamily &&
+    input.receiptChild.targetLaneId === job.target.laneId &&
+    input.receiptChild.targetLaneShareEpoch === job.target.laneShareEpoch &&
+    input.receiptChild.materialActivation.activationId === job.targetMaterialActivationId &&
+    input.receiptChild.materialActivation.capability === job.source.materialActivation.capability &&
+    input.receiptChild.materialActivation.materialOwner ===
+      job.source.materialActivation.materialOwner &&
+    input.receiptChild.materialActivation.keyBinding === job.source.materialActivation.keyBinding &&
+    input.receiptChild.materialActivation.lifecycleBinding ===
+      job.source.materialActivation.lifecycleBinding &&
+    String(input.receiptChild.materialActivation.signingWorker) ===
+      String(job.targetSigningWorker.participantId) &&
+    input.receiptChild.transcriptHashB64u ===
+      input.deliveryChild.protocolCommitReceipt.transcriptHashB64u &&
+    input.token.walletKeyId === job.walletKeyId &&
+    input.token.keyFamily === job.keyFamily &&
+    input.walletSessionRevocationEpoch === job.source.revocationEpoch;
+  if (!same) throw new Error('linked-device active execution child identity does not match');
+}
+
+async function buildActiveExecutionChild(input: {
+  readonly deviceId: ReturnType<typeof parseLinkedDeviceApprovalV1>['deviceId'];
+  readonly activatedAtMs: number;
+  readonly aggregateReceiptDigestB64u: DigestB64u;
+  readonly deliveryChild: ReturnType<
+    typeof parseLinkedDeviceProvisioningDeliveriesV1
+  >['orderedChildren'][number];
+  readonly receiptChild: ReturnType<
+    typeof parseLinkedDeviceEnrollmentReceiptV1
+  >['orderedChildReceipts'][number];
+  readonly token: ReturnType<
+    typeof parseLinkedDeviceWalletSessionDeliveryV1
+  >['orderedTokens'][number];
+  readonly revocationEpoch: number;
+}): Promise<ActiveLinkedDeviceExecutionChildV1> {
+  const job = input.deliveryChild.job;
+  const holderParticipant = parseLaneHolderParticipantRecordV1({
+    kind: 'lane_holder_participant_v1',
+    ...job.targetHolder,
+  });
+  const serverParticipant = parseSigningWorkerParticipantRecordV1({
+    kind: 'signing_worker_participant_v1',
+    ...job.targetSigningWorker,
+  });
+  const participantBindingDigestB64u = await computeLaneParticipantSetBindingDigestV1({
+    holderParticipant,
+    signingWorkerParticipant: serverParticipant,
+  });
+  const lane = buildLinkedDeviceSigningLaneRecord({
+    walletId: job.walletId,
+    walletKeyId: job.walletKeyId,
+    laneId: job.target.laneId,
+    laneShareEpoch: job.target.laneShareEpoch,
+    participantBindingDigestB64u,
+    holderParticipant,
+    serverParticipant,
+    lifecycle: buildActiveSigningLaneLifecycle({
+      revocationEpoch: input.revocationEpoch,
+      activatedAtMs: input.activatedAtMs,
+      activationReceiptDigestB64u: input.aggregateReceiptDigestB64u,
+    }),
+    linkedDeviceId: input.deviceId,
+  });
+  const common = {
+    operationId: job.operationId,
+    walletKeyId: job.walletKeyId,
+    laneId: job.target.laneId,
+    laneShareEpoch: job.target.laneShareEpoch,
+    materialActivation: input.receiptChild.materialActivation,
+    lane,
+    protocolCommitReceipt: input.deliveryChild.protocolCommitReceipt,
+    protocolCommitReceiptDigestB64u: await computeLaneProtocolCommitReceiptDigestV1(
+      input.deliveryChild.protocolCommitReceipt,
+    ),
+    serverActivationReceiptDigestB64u: input.receiptChild.receiptDigestB64u,
+    holderRecordLookup: {
+      operationId: job.operationId,
+      enrollmentId: job.enrollmentId,
+      targetLaneId: job.target.laneId,
+      targetLaneShareEpoch: job.target.laneShareEpoch,
+      targetMaterialActivationId: job.targetMaterialActivationId,
+    },
+  };
+  const walletKeyVersion = parseWalletKeyVersion(
+    `wallet-key-version:linked-device:${String(job.target.laneShareEpoch)}`,
+  );
+  if (job.keyFamily === 'ed25519') {
+    if (input.token.keyFamily !== 'ed25519') {
+      throw new Error('linked-device Ed25519 execution token curve does not match');
+    }
+    const walletKey = buildEd25519WalletKeyRecord({
+      walletId: job.walletId,
+      walletKeyId: job.walletKeyId,
+      walletKeyVersion,
+      nearEd25519SigningKeyId: job.nearEd25519SigningKeyId,
+      keyCreationSignerSlot: job.keyCreationSignerSlot,
+      registeredPublicKeyB64u: parseEd25519PublicKeyB64u(job.registeredPublicKeyB64u),
+      lifecycle: buildActiveWalletKeyLifecycle({ activatedAtMs: input.activatedAtMs }),
+    });
+    return {
+      kind: 'active_linked_device_ed25519_execution_v1',
+      keyFamily: 'ed25519',
+      walletKey,
+      job,
+      ...common,
+    };
+  }
+  if (input.token.keyFamily !== 'ecdsa_secp256k1') {
+    throw new Error('linked-device ECDSA execution token curve does not match');
+  }
+  const walletKey = buildEvmFamilyWalletKeyRecord({
+    walletId: job.walletId,
+    walletKeyId: job.walletKeyId,
+    walletKeyVersion,
+    evmFamilySigningKeySlotId: job.evmFamilySigningKeySlotId,
+    thresholdPublicKey33B64u: parseSecp256k1CompressedPublicKeyB64u(job.thresholdPublicKey33B64u),
+    evmAddress: job.evmAddress,
+    lifecycle: buildActiveWalletKeyLifecycle({ activatedAtMs: input.activatedAtMs }),
+  });
+  return {
+    kind: 'active_linked_device_ecdsa_execution_v1',
+    keyFamily: 'ecdsa_secp256k1',
+    walletKey,
+    job,
+    ...common,
+  };
+}
