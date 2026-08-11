@@ -107,6 +107,13 @@ export class D1LinkedDeviceCommittedDeliveryRetryV1 {
     ) {
       return { outcome: 'invalid_input', message: 'committed delivery retry identity differs' };
     }
+    if (
+      recovery.continuation.linkSessionId !== input.session.linkSessionId ||
+      recovery.continuation.enrollmentId !== approval.enrollmentId ||
+      recovery.continuation.deviceId !== approval.deviceId
+    ) {
+      return { outcome: 'invalid_input', message: 'committed delivery recovery binding differs' };
+    }
     const deliveries = await this.sourceHandoff.prepareProvisioningDeliveriesV1({
       command: buildLinkedDeviceProvisioningCommandV1({
         linkSessionId: input.session.linkSessionId,
