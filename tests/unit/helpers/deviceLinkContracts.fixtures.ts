@@ -62,8 +62,14 @@ export type R103DeviceLinkFixture = {
   readonly receipt: LinkedDeviceEnrollmentReceiptV1;
 };
 
-export function buildR103DeviceLinkFixture(): R103DeviceLinkFixture {
-  const linkSessionId = required(parseLinkDeviceSessionId('link-session:r103'));
+export function buildR103DeviceLinkFixture(
+  input: {
+    readonly linkSessionId?: string;
+  } = {},
+): R103DeviceLinkFixture {
+  const linkSessionId = required(
+    parseLinkDeviceSessionId(input.linkSessionId ?? 'link-session:r103'),
+  );
   const walletId = required(parseWalletId('wallet:r103'));
   const enrollmentId = required(parseLinkedDeviceEnrollmentId('enrollment:r103'));
   const deviceId = required(parseLinkedDeviceId('device:r103'));

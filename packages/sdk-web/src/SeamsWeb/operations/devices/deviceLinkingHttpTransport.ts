@@ -5,12 +5,14 @@ import type {
   QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking';
 import {
+  parseLinkedDeviceApprovalDeliveryV1,
+  parseLinkedDeviceEnrollmentReceiptV1,
+  parseLinkedDeviceProvisioningDeliveriesV1,
   parseLinkedDeviceSessionProjectionV1,
   parseLinkedDeviceSessionTransportEventV1,
 } from '@shared/device-linking';
 import {
   computeLinkedDevicePublicKeyDigestV1,
-  encodeLinkedDeviceRequestProofV1,
   LINKED_DEVICE_REQUEST_PROOF_HEADER_V1,
   LINKED_DEVICE_REQUEST_PROOF_MAX_TTL_MS_V1,
   LINKED_DEVICE_REQUEST_PROOF_NONCE_BYTES_V1,
@@ -88,6 +90,38 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
     },
     getSessionV1: async ({ linkSessionId }) =>
       await requestSessionV1({ options, baseUrl, linkSessionId }),
+    getApprovalV1: async ({ linkSessionId }) => {
+      const response = await requestDeviceV1({
+        options,
+        baseUrl,
+        method: 'GET',
+        canonicalPath: sessionActionPath(linkSessionId, 'approval'),
+        linkSessionId,
+      });
+      return parseLinkedDeviceApprovalDeliveryV1(response.body).approval;
+    },
+    requestProvisioningDeliveriesV1: async ({ command }) => {
+      const response = await requestDeviceV1({
+        options,
+        baseUrl,
+        method: 'POST',
+        canonicalPath: sessionActionPath(command.linkSessionId, 'provision'),
+        linkSessionId: command.linkSessionId,
+        body: command,
+      });
+      return parseLinkedDeviceProvisioningDeliveriesV1(response.body);
+    },
+    acknowledgeHolderDeliveriesV1: async ({ acknowledgement }) => {
+      const response = await requestDeviceV1({
+        options,
+        baseUrl,
+        method: 'POST',
+        canonicalPath: sessionActionPath(acknowledgement.linkSessionId, 'holder-receipts'),
+        linkSessionId: acknowledgement.linkSessionId,
+        body: acknowledgement,
+      });
+      return parseLinkedDeviceEnrollmentReceiptV1(response.body);
+    },
     registerTargetCredentialV1: async ({ registration }) => {
       await requestMutationV1({
         options,
@@ -341,7 +375,14 @@ function sessionPath(linkSessionId: LinkDeviceSessionId): string {
 
 function sessionActionPath(
   linkSessionId: LinkDeviceSessionId,
-  action: 'credential' | 'receipt' | 'retry' | 'cancel',
+  action:
+    | 'approval'
+    | 'provision'
+    | 'holder-receipts'
+    | 'credential'
+    | 'receipt'
+    | 'retry'
+    | 'cancel',
 ): string {
   return `${sessionPath(linkSessionId)}/${action}`;
 }

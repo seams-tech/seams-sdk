@@ -3,6 +3,9 @@ import type {
   LinkedDeviceApprovalResultV1,
   LinkedDeviceEnrollmentKeyBindingV1,
   LinkedDeviceEnrollmentReceiptV1,
+  LinkedDeviceHolderDeliveryAcknowledgementV1,
+  LinkedDeviceProvisioningCommandV1,
+  LinkedDeviceProvisioningDeliveriesV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
   LinkedDeviceProtocolVersionV1,
   LinkedDeviceReceiptAcknowledgementV1,
@@ -52,6 +55,15 @@ export type DeviceLinkingAuthenticatedTransportPortV1 = {
   getSessionV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
   }): Promise<LinkSessionSnapshotV1>;
+  getApprovalV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+  }): Promise<LinkedDeviceApprovalV1>;
+  requestProvisioningDeliveriesV1(input: {
+    readonly command: LinkedDeviceProvisioningCommandV1;
+  }): Promise<LinkedDeviceProvisioningDeliveriesV1>;
+  acknowledgeHolderDeliveriesV1(input: {
+    readonly acknowledgement: LinkedDeviceHolderDeliveryAcknowledgementV1;
+  }): Promise<LinkedDeviceEnrollmentReceiptV1>;
   registerTargetCredentialV1(input: {
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
   }): Promise<void>;
@@ -126,9 +138,7 @@ export type DeviceLinkingKeyMaterialBundleV1 = {
 export type DeviceLinkingKeyMaterialPortV1 = {
   createBootstrapKeyMaterialV1(): Promise<DeviceLinkingKeyMaterialBundleV1>;
   /** Discards the worker slot and releases all private key references. */
-  discardKeyMaterialV1(input: {
-    readonly handle: DeviceLinkingKeyMaterialHandleV1;
-  }): Promise<void>;
+  discardKeyMaterialV1(input: { readonly handle: DeviceLinkingKeyMaterialHandleV1 }): Promise<void>;
   signDeviceSessionRequestV1(input: {
     readonly handle: DeviceLinkingKeyMaterialHandleV1;
     readonly linkSessionId: LinkDeviceSessionId;
@@ -180,7 +190,11 @@ export type DeviceLinkingTargetCredentialPortV1 = {
 export type DeviceLinkingLaneProvisioningHandoffV1 = {
   readonly kind: 'linked_device_lane_provisioning_handoff_v1';
   readonly approval: LinkedDeviceApprovalV1;
+  readonly deliveries: LinkedDeviceProvisioningDeliveriesV1;
   readonly keyMaterial: DeviceLinkingKeyMaterialHandleV1;
+  readonly acknowledgeHolderDeliveriesV1: (
+    acknowledgement: LinkedDeviceHolderDeliveryAcknowledgementV1,
+  ) => Promise<LinkedDeviceEnrollmentReceiptV1>;
 };
 
 export type DeviceLinkingLaneProvisioningPortV1 = {
@@ -218,11 +232,17 @@ export type DeviceLinkingFlowPortsV1 = Device2LinkingFlowPortsV1 & Device1Linkin
 
 export function createDeviceLinkingLaneProvisioningHandoffV1(input: {
   readonly approval: LinkedDeviceApprovalV1;
+  readonly deliveries: LinkedDeviceProvisioningDeliveriesV1;
   readonly keyMaterial: DeviceLinkingKeyMaterialHandleV1;
+  readonly acknowledgeHolderDeliveriesV1: (
+    acknowledgement: LinkedDeviceHolderDeliveryAcknowledgementV1,
+  ) => Promise<LinkedDeviceEnrollmentReceiptV1>;
 }): DeviceLinkingLaneProvisioningHandoffV1 {
   return {
     kind: 'linked_device_lane_provisioning_handoff_v1',
     approval: input.approval,
+    deliveries: input.deliveries,
     keyMaterial: input.keyMaterial,
+    acknowledgeHolderDeliveriesV1: input.acknowledgeHolderDeliveriesV1,
   };
 }

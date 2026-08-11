@@ -12,6 +12,7 @@ import { DeviceLinkingErrorCode } from '@/core/types/linkDevice';
 import {
   buildActiveLinkedDeviceSessionState,
   buildAwaitingTargetPasskeyLinkedDeviceSessionState,
+  buildLinkedDeviceHolderDeliveryAcknowledgementV1,
   buildCommittedCompletionRequiredLinkedDeviceSessionState,
   buildDisplayingQrLinkedDeviceSessionState,
   buildQrLinkedDeviceSessionPayloadV4,
@@ -25,11 +26,16 @@ import type {
 } from '../../packages/shared-ts/src/device-linking';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import { parseWebAuthnCredentialIdB64u } from '../../packages/shared-ts/src/utils/domainIds';
+import {
+  buildR102HolderDeliveryReceipt,
+  buildR102LaneJob,
+  buildR102ProtocolCommitReceipt,
+} from './helpers/r102LaneGateway.fixtures';
 
 function createPorts(
   calls: string[],
   onApproval?: (approval: LinkedDeviceApprovalV1) => void,
-  onTransportBind?: () => void,
+  onTransportBind?: (transport: DeviceLinkingAuthenticatedTransportPortV1) => void,
   approvalResult?: (state: LinkedDeviceSessionState) => LinkedDeviceApprovalResultV1,
   onSessionEventHandler?: (handler: (event: LinkedDeviceSessionTransportEventV1) => void) => void,
   onReceiptAcknowledgement?: (acknowledgement: LinkedDeviceReceiptAcknowledgementV1) => void,
@@ -47,6 +53,7 @@ function createPorts(
     linkSessionId: payload.linkSessionId,
     expiresAtMs: payload.expiresAtMs,
   });
+  let activeLinkSessionId = payload.linkSessionId;
   const authentication: LinkSessionAuthenticationV1 = {
     kind: 'link_session_authenticated_request_v1',
     source: fixture.approval.ownerAuthorization,
@@ -55,8 +62,9 @@ function createPorts(
   const credentialIdResult = parseWebAuthnCredentialIdB64u('credential:r103');
   if (!credentialIdResult.ok) throw new Error(credentialIdResult.error.message);
   const authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1 = {
-    async createUnclaimedSessionV1() {
+    async createUnclaimedSessionV1(input) {
       calls.push('create');
+      activeLinkSessionId = input.payload.linkSessionId;
     },
     async getSessionV1() {
       calls.push('get');
@@ -71,7 +79,15 @@ function createPorts(
     },
     async getApprovalV1() {
       calls.push('get-approval');
-      return fixture.approval;
+      return buildR103DeviceLinkFixture({
+        linkSessionId: String(activeLinkSessionId),
+      }).approval;
+    },
+    async requestProvisioningDeliveriesV1() {
+      throw new Error('provisioning delivery adapter is not configured for this test');
+    },
+    async acknowledgeHolderDeliveriesV1() {
+      throw new Error('holder delivery adapter is not configured for this test');
     },
     async registerTargetCredentialV1() {
       calls.push('credential');
@@ -180,7 +196,7 @@ function createPorts(
     },
     createAuthenticatedSessionTransportV1() {
       calls.push('bind-transport');
-      onTransportBind?.();
+      onTransportBind?.(authenticatedTransport);
       return authenticatedTransport;
     },
   };
@@ -420,6 +436,102 @@ test.describe('linked-device browser orchestration', () => {
       .poll(() => calls.slice(-3), { timeout: 5_000 })
       .toEqual(['retry', 'resume-delivery', 'ack']);
     expect(acknowledgement?.receipt).toEqual(fixture.receipt);
+  });
+
+  test('Device 2 processes exact encrypted deliveries before aggregate acknowledgement', async () => {
+    const calls: string[] = [];
+    const fixture = buildR103DeviceLinkFixture();
+    const job = buildR102LaneJob('device2-provision');
+    const protocolCommitReceipt = buildR102ProtocolCommitReceipt(job);
+    const holderDeliveryReceipt = buildR102HolderDeliveryReceipt(job);
+    let emitSessionEvent: ((event: LinkedDeviceSessionTransportEventV1) => void) | undefined;
+    let authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1 | undefined;
+    let aggregateAcknowledgement: LinkedDeviceReceiptAcknowledgementV1 | undefined;
+    const ports = createPorts(
+      calls,
+      undefined,
+      (transport) => {
+        authenticatedTransport = transport;
+      },
+      undefined,
+      (handler) => {
+        emitSessionEvent = handler;
+      },
+      (value) => {
+        aggregateAcknowledgement = value;
+      },
+    );
+    const flow = new LinkDeviceFlow(undefined, {}, ports);
+    const generated = await flow.generateQR();
+    if (!authenticatedTransport) throw new Error('authenticated transport was not bound');
+    Object.assign(authenticatedTransport, {
+      requestProvisioningDeliveriesV1: async () => {
+        calls.push('provision-deliveries');
+        return {
+          kind: 'linked_device_provisioning_deliveries_v1' as const,
+          linkSessionId: fixture.approval.linkSessionId,
+          enrollmentId: fixture.approval.enrollmentId,
+          deviceId: fixture.approval.deviceId,
+          orderedChildren: [
+            {
+              kind: 'linked_device_provisioning_child_v1' as const,
+              job,
+              protocolCommitReceipt,
+              holderPackage: {
+                kind: 'ed25519_yao_lane_holder_package_set_v1' as const,
+                deriverAEncryptedPackageJson: '{}',
+                deriverBEncryptedPackageJson: '{}',
+              },
+              expectedVersion: 0,
+            },
+          ] as const,
+        };
+      },
+      acknowledgeHolderDeliveriesV1: async () => {
+        calls.push('holder-receipts');
+        return fixture.receipt;
+      },
+    });
+    Object.assign(ports.laneProvisioning, {
+      prepareLinkedDeviceLanesV1: async (
+        handoff: Parameters<typeof ports.laneProvisioning.prepareLinkedDeviceLanesV1>[0],
+      ) => {
+        calls.push('prepare-lanes');
+        return await handoff.acknowledgeHolderDeliveriesV1(
+          buildLinkedDeviceHolderDeliveryAcknowledgementV1({
+            linkSessionId: handoff.approval.linkSessionId,
+            enrollmentId: job.enrollmentId,
+            deviceId: handoff.approval.deviceId,
+            orderedHolderDeliveryReceipts: [holderDeliveryReceipt],
+            acknowledgedAtMs: Date.now(),
+          }),
+        );
+      },
+    });
+    emitSessionEvent?.({
+      kind: 'linked_device_session_event_v1',
+      linkSessionId: generated.qrData.linkSessionId,
+      state: buildAwaitingTargetPasskeyLinkedDeviceSessionState({
+        linkSessionId: generated.qrData.linkSessionId,
+        walletId: fixture.approval.walletId,
+        enrollmentId: fixture.approval.enrollmentId,
+        credentialDeadlineMs: Date.now() + 30_000,
+      }),
+      emittedAtMs: Date.now(),
+    });
+    await expect
+      .poll(() => calls.slice(-8), { timeout: 5_000 })
+      .toEqual([
+        'get',
+        'worker-install',
+        'get',
+        'get-approval',
+        'provision-deliveries',
+        'prepare-lanes',
+        'holder-receipts',
+        'ack',
+      ]);
+    expect(aggregateAcknowledgement?.receipt).toEqual(fixture.receipt);
   });
 
   test('strict QR validation rejects the superseded shape', () => {

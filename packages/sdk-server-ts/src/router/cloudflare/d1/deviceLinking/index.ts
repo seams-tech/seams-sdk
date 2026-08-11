@@ -8,3 +8,4 @@ export * from './d1LinkedDeviceManagementStore';
 export * from './d1LinkedDeviceManagementRouteService';
 export * from './d1LinkedDeviceGatewayCompletionService';
 export * from './d1LinkedDeviceExecutionAdmissionResolver';
+export * from './d1LinkedDeviceProvisioningVerifier';
