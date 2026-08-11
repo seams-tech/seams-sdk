@@ -41,6 +41,8 @@ const ROUTER_AB_ECDSA_DERIVATION_REFRESH_REQUEST_VERSION_V1: &[u8] =
     b"router-ab-ecdsa-derivation/refresh-request/v1";
 const ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_SCOPE_VERSION_V1: &[u8] =
     b"router-ab-ecdsa-derivation/normal-signing-scope/v1";
+const ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_NORMAL_SIGNING_SCOPE_VERSION_V1: &[u8] =
+    b"router-ab-ecdsa-derivation/linked-device-normal-signing-scope/v1";
 const ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_REQUEST_VERSION_V1: &[u8] =
     b"router-ab-ecdsa-derivation/normal-signing-request/v1";
 const ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_FINALIZE_REQUEST_VERSION_V1: &[u8] =
@@ -1584,6 +1586,643 @@ impl RouterAbEcdsaDerivationNormalSigningScopeV1 {
     }
 }
 
+/// Wire discriminator for a linked-device ECDSA normal-signing scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkedDeviceEcdsaNormalSigningScopeKindV1 {
+    /// The lane-native linked-device scope branch.
+    LinkedDeviceEcdsaNormalSigningScopeV1,
+}
+
+impl LinkedDeviceEcdsaNormalSigningScopeKindV1 {
+    /// Returns the exact shared TypeScript wire discriminator.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::LinkedDeviceEcdsaNormalSigningScopeV1 => {
+                "linked_device_ecdsa_normal_signing_scope_v1"
+            }
+        }
+    }
+}
+
+/// Key-family discriminator for a linked-device ECDSA scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkedDeviceEcdsaKeyFamilyV1 {
+    /// Compressed secp256k1 threshold key.
+    EcdsaSecp256k1,
+}
+
+impl LinkedDeviceEcdsaKeyFamilyV1 {
+    /// Returns the exact shared TypeScript wire discriminator.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::EcdsaSecp256k1 => "ecdsa_secp256k1",
+        }
+    }
+}
+
+/// Lane-kind discriminator for a linked-device scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkedDeviceEcdsaLaneKindV1 {
+    /// A lane held by a linked physical/browser device.
+    LinkedDevice,
+}
+
+impl LinkedDeviceEcdsaLaneKindV1 {
+    /// Returns the exact shared TypeScript wire discriminator.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::LinkedDevice => "linked_device",
+        }
+    }
+}
+
+/// Chain target bound to one target ECDSA threshold session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum EcdsaTargetChainTargetV1 {
+    /// EIP-155 EVM chain.
+    Evm {
+        /// EIP-155 namespace marker.
+        namespace: String,
+        /// Numeric chain id.
+        chain_id: u64,
+        /// Product network slug.
+        network_slug: String,
+    },
+    /// Tempo chain.
+    Tempo {
+        /// Numeric chain id.
+        chain_id: u64,
+        /// Product network slug.
+        network_slug: String,
+    },
+}
+
+impl EcdsaTargetChainTargetV1 {
+    fn validate(&self, field: &str) -> RouterAbProtocolResult<()> {
+        match self {
+            Self::Evm {
+                namespace,
+                chain_id: _,
+                network_slug,
+            } => {
+                if namespace != "eip155" {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MalformedWirePayload,
+                        format!("{field}.namespace must be eip155"),
+                    ));
+                }
+                require_linked_text(&format!("{field}.networkSlug"), network_slug)
+            }
+            Self::Tempo {
+                chain_id: _,
+                network_slug,
+            } => require_linked_text(&format!("{field}.networkSlug"), network_slug),
+        }
+    }
+
+    fn push_canonical(&self, out: &mut Vec<u8>) -> RouterAbProtocolResult<()> {
+        match self {
+            Self::Evm {
+                namespace,
+                chain_id,
+                network_slug,
+            } => {
+                push_len32(out, b"evm");
+                push_len32(out, namespace.as_bytes());
+                push_u64(out, *chain_id);
+                push_len32(out, network_slug.as_bytes());
+            }
+            Self::Tempo {
+                chain_id,
+                network_slug,
+            } => {
+                push_len32(out, b"tempo");
+                push_u64(out, *chain_id);
+                push_len32(out, network_slug.as_bytes());
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Exact target threshold-session binding carried by a linked ECDSA scope.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EcdsaTargetThresholdSessionBindingV1 {
+    /// Chain selected by this target threshold session.
+    pub chain_target: EcdsaTargetChainTargetV1,
+    /// Durable threshold session identity.
+    pub threshold_session_id: String,
+    /// Participant binding digest for the target session.
+    pub participant_binding_digest_b64u: String,
+}
+
+impl EcdsaTargetThresholdSessionBindingV1 {
+    fn validate(&self, index: usize) -> RouterAbProtocolResult<()> {
+        let field = format!("targetCapability.orderedThresholdSessions[{index}]");
+        self.chain_target
+            .validate(&format!("{field}.chainTarget"))?;
+        require_linked_text(
+            &format!("{field}.thresholdSessionId"),
+            &self.threshold_session_id,
+        )?;
+        decode_canonical_base64url_fixed_32(
+            &format!("{field}.participantBindingDigestB64u"),
+            &self.participant_binding_digest_b64u,
+        )?;
+        Ok(())
+    }
+
+    fn push_canonical(&self, out: &mut Vec<u8>) -> RouterAbProtocolResult<()> {
+        self.chain_target.push_canonical(out)?;
+        push_len32(out, self.threshold_session_id.as_bytes());
+        push_len32(out, self.participant_binding_digest_b64u.as_bytes());
+        Ok(())
+    }
+}
+
+/// Exact target capability manifest and ordered threshold sessions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EcdsaTargetCapabilityBindingV1 {
+    /// Capability manifest identity.
+    pub manifest_id: String,
+    /// Positive manifest revision.
+    pub manifest_revision: u64,
+    /// ECDSA threshold key identity.
+    pub ecdsa_threshold_key_id: String,
+    /// Non-empty ordered target threshold sessions.
+    pub ordered_threshold_sessions: Vec<EcdsaTargetThresholdSessionBindingV1>,
+}
+
+impl EcdsaTargetCapabilityBindingV1 {
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_linked_text("targetCapability.manifestId", &self.manifest_id)?;
+        if self.manifest_revision == 0 {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "targetCapability.manifestRevision must be positive",
+            ));
+        }
+        require_linked_text(
+            "targetCapability.ecdsaThresholdKeyId",
+            &self.ecdsa_threshold_key_id,
+        )?;
+        if self.ordered_threshold_sessions.is_empty() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "targetCapability.orderedThresholdSessions must be non-empty",
+            ));
+        }
+        for (index, session) in self.ordered_threshold_sessions.iter().enumerate() {
+            session.validate(index)?;
+        }
+        Ok(())
+    }
+
+    fn push_canonical(&self, out: &mut Vec<u8>) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        push_len32(out, self.manifest_id.as_bytes());
+        push_u64(out, self.manifest_revision);
+        push_len32(out, self.ecdsa_threshold_key_id.as_bytes());
+        push_u32(out, self.ordered_threshold_sessions.len() as u32);
+        for session in &self.ordered_threshold_sessions {
+            session.push_canonical(out)?;
+        }
+        Ok(())
+    }
+}
+
+/// Input to the linked-device scope builder. The discriminators are supplied by
+/// the builder and cannot be replaced by callers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkedDeviceEcdsaNormalSigningScopeInputV1 {
+    /// Wallet identity.
+    pub wallet_id: String,
+    /// Stable wallet-key identity.
+    pub wallet_key_id: String,
+    /// Aggregate linked-device enrollment identity.
+    pub enrollment_id: String,
+    /// Lane operation identity.
+    pub operation_id: String,
+    /// Target linked-device lane identity.
+    pub lane_id: String,
+    /// Target lane share epoch.
+    pub lane_share_epoch: String,
+    /// Aggregate enrollment revocation epoch.
+    pub revocation_epoch: u64,
+    /// Fresh target material activation identity.
+    pub target_material_activation_id: String,
+    /// Exact activated target material reference.
+    pub material_activation: MpcMaterialActivationRefV1,
+    /// Exact target capability/session binding.
+    pub target_capability: EcdsaTargetCapabilityBindingV1,
+    /// Threshold compressed secp256k1 public key.
+    pub threshold_public_key33_b64u: String,
+    /// Canonical EVM address.
+    pub evm_address: String,
+    /// Digest of the target public identity.
+    pub public_identity_digest_b64u: String,
+    /// Target holder public commitment.
+    pub target_holder_public_commitment_b64u: String,
+    /// Target SigningWorker public commitment.
+    pub target_server_public_commitment_b64u: String,
+    /// Target holder participant identity.
+    pub holder_participant_id: String,
+    /// Target SigningWorker participant identity.
+    pub signing_worker_participant_id: String,
+    /// Target holder participant binding digest.
+    pub holder_participant_binding_digest_b64u: String,
+    /// Target SigningWorker participant binding digest.
+    pub signing_worker_participant_binding_digest_b64u: String,
+    /// Target holder recipient-key digest.
+    pub holder_recipient_key_digest_b64u: String,
+    /// Target server recipient-key digest.
+    pub server_recipient_key_digest_b64u: String,
+    /// Target SigningWorker recipient-key identity.
+    pub signing_worker_recipient_key_id: String,
+    /// Complete lane-protocol transcript digest.
+    pub transcript_hash_b64u: String,
+    /// Protocol commit receipt digest.
+    pub protocol_commit_receipt_digest_b64u: String,
+}
+
+/// Lane-native ECDSA normal-signing scope for a linked device.
+///
+/// This branch carries activated target-lane identity only. Owner derivation
+/// roots, owner context/public-identity bags, and runtime authorization policy
+/// are deliberately absent from the type and rejected by the exact wire
+/// parser through `deny_unknown_fields`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1 {
+    /// Exact linked-device scope discriminator.
+    pub kind: LinkedDeviceEcdsaNormalSigningScopeKindV1,
+    /// Exact ECDSA key-family discriminator.
+    pub key_family: LinkedDeviceEcdsaKeyFamilyV1,
+    /// Exact linked-device lane discriminator.
+    pub lane_kind: LinkedDeviceEcdsaLaneKindV1,
+    /// Wallet identity.
+    pub wallet_id: String,
+    /// Stable wallet-key identity.
+    pub wallet_key_id: String,
+    /// Aggregate linked-device enrollment identity.
+    pub enrollment_id: String,
+    /// Lane operation identity.
+    pub operation_id: String,
+    /// Target linked-device lane identity.
+    pub lane_id: String,
+    /// Target lane share epoch.
+    pub lane_share_epoch: String,
+    /// Aggregate enrollment revocation epoch.
+    pub revocation_epoch: u64,
+    /// Fresh target material activation identity.
+    pub target_material_activation_id: String,
+    /// Exact activated target material reference.
+    #[serde(with = "linked_device_material_activation_serde")]
+    pub material_activation: MpcMaterialActivationRefV1,
+    /// Exact target capability/session binding.
+    pub target_capability: EcdsaTargetCapabilityBindingV1,
+    /// Threshold compressed secp256k1 public key.
+    pub threshold_public_key33_b64u: String,
+    /// Canonical EVM address.
+    pub evm_address: String,
+    /// Digest of the target public identity.
+    pub public_identity_digest_b64u: String,
+    /// Target holder public commitment.
+    pub target_holder_public_commitment_b64u: String,
+    /// Target SigningWorker public commitment.
+    pub target_server_public_commitment_b64u: String,
+    /// Target holder participant identity.
+    pub holder_participant_id: String,
+    /// Target SigningWorker participant identity.
+    pub signing_worker_participant_id: String,
+    /// Target holder participant binding digest.
+    pub holder_participant_binding_digest_b64u: String,
+    /// Target SigningWorker participant binding digest.
+    pub signing_worker_participant_binding_digest_b64u: String,
+    /// Target holder recipient-key digest.
+    pub holder_recipient_key_digest_b64u: String,
+    /// Target server recipient-key digest.
+    pub server_recipient_key_digest_b64u: String,
+    /// Target SigningWorker recipient-key identity.
+    pub signing_worker_recipient_key_id: String,
+    /// Complete lane-protocol transcript digest.
+    pub transcript_hash_b64u: String,
+    /// Protocol commit receipt digest.
+    pub protocol_commit_receipt_digest_b64u: String,
+}
+
+impl RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1 {
+    /// Builds and validates the lane-native linked-device scope.
+    pub fn new(input: LinkedDeviceEcdsaNormalSigningScopeInputV1) -> RouterAbProtocolResult<Self> {
+        let scope = Self {
+            kind: LinkedDeviceEcdsaNormalSigningScopeKindV1::LinkedDeviceEcdsaNormalSigningScopeV1,
+            key_family: LinkedDeviceEcdsaKeyFamilyV1::EcdsaSecp256k1,
+            lane_kind: LinkedDeviceEcdsaLaneKindV1::LinkedDevice,
+            wallet_id: input.wallet_id,
+            wallet_key_id: input.wallet_key_id,
+            enrollment_id: input.enrollment_id,
+            operation_id: input.operation_id,
+            lane_id: input.lane_id,
+            lane_share_epoch: input.lane_share_epoch,
+            revocation_epoch: input.revocation_epoch,
+            target_material_activation_id: input.target_material_activation_id,
+            material_activation: input.material_activation,
+            target_capability: input.target_capability,
+            threshold_public_key33_b64u: input.threshold_public_key33_b64u,
+            evm_address: input.evm_address,
+            public_identity_digest_b64u: input.public_identity_digest_b64u,
+            target_holder_public_commitment_b64u: input.target_holder_public_commitment_b64u,
+            target_server_public_commitment_b64u: input.target_server_public_commitment_b64u,
+            holder_participant_id: input.holder_participant_id,
+            signing_worker_participant_id: input.signing_worker_participant_id,
+            holder_participant_binding_digest_b64u: input.holder_participant_binding_digest_b64u,
+            signing_worker_participant_binding_digest_b64u: input
+                .signing_worker_participant_binding_digest_b64u,
+            holder_recipient_key_digest_b64u: input.holder_recipient_key_digest_b64u,
+            server_recipient_key_digest_b64u: input.server_recipient_key_digest_b64u,
+            signing_worker_recipient_key_id: input.signing_worker_recipient_key_id,
+            transcript_hash_b64u: input.transcript_hash_b64u,
+            protocol_commit_receipt_digest_b64u: input.protocol_commit_receipt_digest_b64u,
+        };
+        scope.validate()?;
+        Ok(scope)
+    }
+
+    /// Validates exact linked-device discriminators and all public bindings.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_linked_text("linkedEcdsaScope.walletId", &self.wallet_id)?;
+        require_linked_text("linkedEcdsaScope.walletKeyId", &self.wallet_key_id)?;
+        require_linked_text("linkedEcdsaScope.enrollmentId", &self.enrollment_id)?;
+        require_linked_text("linkedEcdsaScope.operationId", &self.operation_id)?;
+        require_linked_text("linkedEcdsaScope.laneId", &self.lane_id)?;
+        require_linked_text("linkedEcdsaScope.laneShareEpoch", &self.lane_share_epoch)?;
+        if self.revocation_epoch > JS_SAFE_INTEGER_MAX {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "linkedEcdsaScope.revocationEpoch must be a non-negative safe integer",
+            ));
+        }
+        require_linked_text(
+            "linkedEcdsaScope.targetMaterialActivationId",
+            &self.target_material_activation_id,
+        )?;
+        self.material_activation.validate()?;
+        if self.material_activation.activation_id != self.target_material_activation_id {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "linked ECDSA scope activation id does not match material activation",
+            ));
+        }
+        if self.material_activation.material_owner != self.wallet_id {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "linked ECDSA scope material owner does not match wallet",
+            ));
+        }
+        self.target_capability.validate()?;
+        decode_secp256k1_public_key33_b64u(
+            "linkedEcdsaScope.thresholdPublicKey33B64u",
+            &self.threshold_public_key33_b64u,
+        )?;
+        validate_evm_address("linkedEcdsaScope.evmAddress", &self.evm_address)?;
+        for (field, value) in [
+            (
+                "linkedEcdsaScope.publicIdentityDigestB64u",
+                &self.public_identity_digest_b64u,
+            ),
+            (
+                "linkedEcdsaScope.holderParticipantBindingDigestB64u",
+                &self.holder_participant_binding_digest_b64u,
+            ),
+            (
+                "linkedEcdsaScope.signingWorkerParticipantBindingDigestB64u",
+                &self.signing_worker_participant_binding_digest_b64u,
+            ),
+            (
+                "linkedEcdsaScope.holderRecipientKeyDigestB64u",
+                &self.holder_recipient_key_digest_b64u,
+            ),
+            (
+                "linkedEcdsaScope.serverRecipientKeyDigestB64u",
+                &self.server_recipient_key_digest_b64u,
+            ),
+            (
+                "linkedEcdsaScope.transcriptHashB64u",
+                &self.transcript_hash_b64u,
+            ),
+            (
+                "linkedEcdsaScope.protocolCommitReceiptDigestB64u",
+                &self.protocol_commit_receipt_digest_b64u,
+            ),
+        ] {
+            decode_canonical_base64url_fixed_32(field, value)?;
+        }
+        decode_secp256k1_public_key33_b64u(
+            "linkedEcdsaScope.targetHolderPublicCommitmentB64u",
+            &self.target_holder_public_commitment_b64u,
+        )?;
+        decode_secp256k1_public_key33_b64u(
+            "linkedEcdsaScope.targetServerPublicCommitmentB64u",
+            &self.target_server_public_commitment_b64u,
+        )?;
+        require_visible_text(
+            "linkedEcdsaScope.holderParticipantId",
+            &self.holder_participant_id,
+        )?;
+        require_visible_text(
+            "linkedEcdsaScope.signingWorkerParticipantId",
+            &self.signing_worker_participant_id,
+        )?;
+        require_visible_text(
+            "linkedEcdsaScope.signingWorkerRecipientKeyId",
+            &self.signing_worker_recipient_key_id,
+        )?;
+        Ok(())
+    }
+
+    /// Returns canonical linked-device scope bytes for worker binding.
+    pub fn canonical_scope_bytes(&self) -> RouterAbProtocolResult<Vec<u8>> {
+        self.validate()?;
+        let mut out = Vec::new();
+        push_len32(
+            &mut out,
+            ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_NORMAL_SIGNING_SCOPE_VERSION_V1,
+        );
+        push_len32(&mut out, self.kind.kind_bytes());
+        push_len32(&mut out, self.key_family.as_str().as_bytes());
+        push_len32(&mut out, self.lane_kind.as_str().as_bytes());
+        push_len32(&mut out, self.wallet_id.as_bytes());
+        push_len32(&mut out, self.wallet_key_id.as_bytes());
+        push_len32(&mut out, self.enrollment_id.as_bytes());
+        push_len32(&mut out, self.operation_id.as_bytes());
+        push_len32(&mut out, self.lane_id.as_bytes());
+        push_len32(&mut out, self.lane_share_epoch.as_bytes());
+        push_u64(&mut out, self.revocation_epoch);
+        push_len32(&mut out, self.target_material_activation_id.as_bytes());
+        push_linked_device_material_activation(&mut out, &self.material_activation)?;
+        self.target_capability.push_canonical(&mut out)?;
+        push_len32(&mut out, self.threshold_public_key33_b64u.as_bytes());
+        push_len32(&mut out, self.evm_address.as_bytes());
+        push_len32(&mut out, self.public_identity_digest_b64u.as_bytes());
+        push_len32(
+            &mut out,
+            self.target_holder_public_commitment_b64u.as_bytes(),
+        );
+        push_len32(
+            &mut out,
+            self.target_server_public_commitment_b64u.as_bytes(),
+        );
+        push_len32(&mut out, self.holder_participant_id.as_bytes());
+        push_len32(&mut out, self.signing_worker_participant_id.as_bytes());
+        push_len32(
+            &mut out,
+            self.holder_participant_binding_digest_b64u.as_bytes(),
+        );
+        push_len32(
+            &mut out,
+            self.signing_worker_participant_binding_digest_b64u
+                .as_bytes(),
+        );
+        push_len32(&mut out, self.holder_recipient_key_digest_b64u.as_bytes());
+        push_len32(&mut out, self.server_recipient_key_digest_b64u.as_bytes());
+        push_len32(&mut out, self.signing_worker_recipient_key_id.as_bytes());
+        push_len32(&mut out, self.transcript_hash_b64u.as_bytes());
+        push_len32(
+            &mut out,
+            self.protocol_commit_receipt_digest_b64u.as_bytes(),
+        );
+        Ok(out)
+    }
+
+    /// Returns the canonical digest bound to the linked-device scope.
+    pub fn scope_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
+        Ok(public_digest(&self.canonical_scope_bytes()?))
+    }
+
+    /// Returns the exact target material activation id.
+    pub fn material_activation_id(&self) -> RouterAbProtocolResult<String> {
+        self.validate()?;
+        Ok(self.target_material_activation_id.clone())
+    }
+}
+
+impl LinkedDeviceEcdsaNormalSigningScopeKindV1 {
+    fn kind_bytes(self) -> &'static [u8] {
+        self.as_str().as_bytes()
+    }
+}
+
+const JS_SAFE_INTEGER_MAX: u64 = 9_007_199_254_740_991;
+
+/// Parses and validates the exact linked-device ECDSA scope JSON boundary.
+pub fn parse_router_ab_ecdsa_derivation_linked_device_normal_signing_scope_v1_json(
+    bytes: &[u8],
+) -> RouterAbProtocolResult<RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1> {
+    let scope = parse_boundary_json::<RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1>(
+        "Router A/B linked-device ECDSA normal signing scope",
+        bytes,
+    )?;
+    scope.validate()?;
+    Ok(scope)
+}
+
+mod linked_device_material_activation_serde {
+    use super::{MpcMaterialActivationRefV1, RouterAbProtocolError};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct Wire {
+        kind: String,
+        activation_id: String,
+        capability: String,
+        material_owner: String,
+        key_binding: String,
+        lifecycle_binding: String,
+        signing_worker: String,
+    }
+
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct WireRef<'a> {
+        kind: &'static str,
+        activation_id: &'a str,
+        capability: &'a str,
+        material_owner: &'a str,
+        key_binding: &'a str,
+        lifecycle_binding: &'a str,
+        signing_worker: &'a str,
+    }
+
+    pub(super) fn serialize<S>(
+        value: &MpcMaterialActivationRefV1,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        WireRef {
+            kind: "mpc_material_activation_ref",
+            activation_id: &value.activation_id,
+            capability: &value.capability,
+            material_owner: &value.material_owner,
+            key_binding: &value.key_binding,
+            lifecycle_binding: &value.lifecycle_binding,
+            signing_worker: &value.signing_worker,
+        }
+        .serialize(serializer)
+    }
+
+    pub(super) fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<MpcMaterialActivationRefV1, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = Wire::deserialize(deserializer)?;
+        if wire.kind != "mpc_material_activation_ref" {
+            return Err(serde::de::Error::custom(
+                "materialActivation.kind is invalid",
+            ));
+        }
+        MpcMaterialActivationRefV1::new(
+            wire.activation_id,
+            wire.capability,
+            wire.material_owner,
+            wire.key_binding,
+            wire.lifecycle_binding,
+            wire.signing_worker,
+        )
+        .map_err(|error: RouterAbProtocolError| serde::de::Error::custom(error.message()))
+    }
+}
+
+fn push_linked_device_material_activation(
+    out: &mut Vec<u8>,
+    material_activation: &MpcMaterialActivationRefV1,
+) -> RouterAbProtocolResult<()> {
+    material_activation.validate()?;
+    push_len32(out, b"mpc_material_activation_ref");
+    push_len32(out, material_activation.activation_id.as_bytes());
+    push_len32(out, material_activation.capability.as_bytes());
+    push_len32(out, material_activation.material_owner.as_bytes());
+    push_len32(out, material_activation.key_binding.as_bytes());
+    push_len32(out, material_activation.lifecycle_binding.as_bytes());
+    push_len32(out, material_activation.signing_worker.as_bytes());
+    Ok(())
+}
+
 fn validate_ecdsa_normal_signing_material_activation(
     scope: &RouterAbEcdsaDerivationNormalSigningScopeV1,
     material_activation: &MpcMaterialActivationRefV1,
@@ -2372,6 +3011,59 @@ fn push_u32(out: &mut Vec<u8>, value: u32) {
 
 fn push_u64(out: &mut Vec<u8>, value: u64) {
     out.extend_from_slice(&value.to_be_bytes());
+}
+
+fn require_linked_text(field: &str, value: &str) -> RouterAbProtocolResult<()> {
+    if value.is_empty() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::EmptyField,
+            format!("{field} is required"),
+        ));
+    }
+    if value != value.trim()
+        || value
+            .chars()
+            .any(|character| character.is_whitespace() || character.is_control())
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{field} must contain visible non-whitespace text"),
+        ));
+    }
+    Ok(())
+}
+
+fn require_visible_text(field: &str, value: &str) -> RouterAbProtocolResult<()> {
+    require_linked_text(field, value)
+}
+
+fn validate_evm_address(field: &str, value: &str) -> RouterAbProtocolResult<()> {
+    let bytes = value.as_bytes();
+    if bytes.len() != 42
+        || bytes[0] != b'0'
+        || bytes[1] != b'x'
+        || !bytes[2..].iter().all(u8::is_ascii_hexdigit)
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{field} must be a 20-byte hexadecimal EVM address"),
+        ));
+    }
+    Ok(())
+}
+
+fn decode_canonical_base64url_fixed_32(
+    field: &str,
+    value: &str,
+) -> RouterAbProtocolResult<[u8; 32]> {
+    let bytes = decode_base64url_fixed_32(field, value)?;
+    if Base64UrlUnpadded::encode_string(&bytes) != value {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{field} must be canonical unpadded base64url"),
+        ));
+    }
+    Ok(bytes)
 }
 
 fn require_ascii_non_empty(field: &str, value: &str) -> RouterAbProtocolResult<()> {
