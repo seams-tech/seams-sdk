@@ -157,3 +157,36 @@ test.describe('hosted-wallet Seams session exchange request validation', () => {
     ).toMatchObject({ ok: false });
   });
 });
+
+test.describe('GitHub OAuth session exchange request validation', () => {
+  test('accepts a bounded authorization-code exchange', () => {
+    expect(
+      parseSessionExchangeRouteCommand({
+        session_kind: 'cookie',
+        exchange: { type: 'github_oauth_code', code: 'temporary-code' },
+      }),
+    ).toEqual({
+      ok: true,
+      command: {
+        kind: 'github_oauth_code',
+        sessionKind: 'cookie',
+        code: 'temporary-code',
+      },
+    });
+  });
+
+  test('rejects missing codes and provider tokens', () => {
+    expect(
+      parseSessionExchangeRouteCommand({
+        session_kind: 'cookie',
+        exchange: { type: 'github_oauth_code', code: '' },
+      }),
+    ).toMatchObject({ ok: false });
+    expect(
+      parseSessionExchangeRouteCommand({
+        session_kind: 'cookie',
+        exchange: { type: 'github_oauth_code', code: 'temporary-code', access_token: 'secret' },
+      }),
+    ).toMatchObject({ ok: false });
+  });
+});

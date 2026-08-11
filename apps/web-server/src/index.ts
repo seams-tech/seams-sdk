@@ -735,6 +735,11 @@ async function main() {
       GOOGLE_OIDC_CLIENT_IDS: env.GOOGLE_OIDC_CLIENT_IDS,
       GOOGLE_OIDC_HOSTED_DOMAINS: env.GOOGLE_OIDC_HOSTED_DOMAINS,
     },
+    githubOAuth: {
+      GITHUB_OAUTH_CLIENT_ID: env.GITHUB_OAUTH_CLIENT_ID,
+      GITHUB_OAUTH_CLIENT_SECRET: env.GITHUB_OAUTH_CLIENT_SECRET,
+      GITHUB_OAUTH_CALLBACK_URL: env.GITHUB_OAUTH_CALLBACK_URL,
+    },
     oidcExchange: googleClientIds.length
       ? {
           issuers: [

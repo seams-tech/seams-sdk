@@ -1408,6 +1408,7 @@ function createCloudflareD1RouterApiAuthAssembly(
   });
   const oidcVerification = new CloudflareD1OidcVerificationService({
     googleOidcClientId: options.googleOidcClientId,
+    githubOAuth: options.githubOAuth,
     identityStore,
     linkIdentity,
     oidcExchange: options.oidcExchange,
@@ -1760,6 +1761,9 @@ function createD1IdentityRouteService(
     getGoogleOidcPublicConfig: assembly.oidcVerification.getGoogleOidcPublicConfig.bind(
       assembly.oidcVerification,
     ),
+    getGithubOAuthPublicConfig: assembly.oidcVerification.getGithubOAuthPublicConfig.bind(
+      assembly.oidcVerification,
+    ),
     linkIdentity: assembly.identityService.linkIdentity.bind(assembly.identityService),
     listIdentities: assembly.identityService.listIdentities.bind(assembly.identityService),
     resolveGoogleEmailOtpSession: assembly.googleEmailOtpSessions.resolve.bind(
@@ -1770,6 +1774,9 @@ function createD1IdentityRouteService(
     ),
     unlinkIdentity: assembly.identityService.unlinkIdentity.bind(assembly.identityService),
     verifyGoogleLogin: assembly.oidcVerification.verifyGoogleLogin.bind(assembly.oidcVerification),
+    verifyGithubOAuthCode: assembly.oidcVerification.verifyGithubOAuthCode.bind(
+      assembly.oidcVerification,
+    ),
     verifyOidcJwtExchange: assembly.oidcVerification.verifyOidcJwtExchange.bind(
       assembly.oidcVerification,
     ),
