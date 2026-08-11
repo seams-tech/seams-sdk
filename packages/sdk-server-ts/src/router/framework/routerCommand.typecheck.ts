@@ -89,6 +89,7 @@ switch (providerRoute.kind) {
   case 'passkey_verify':
   case 'google_options':
   case 'google_verify':
+  case 'github_options':
     break;
   default:
     assertNeverAuthProviderAction(providerRoute);

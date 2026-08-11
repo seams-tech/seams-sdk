@@ -112,6 +112,9 @@ interface CloudflareD1RouterApiStagingEnv
   readonly ACCOUNT_INITIAL_BALANCE?: string;
   readonly ENABLE_IMPLICIT_NEAR_ACCOUNT_TEST_FUNDING?: string;
   readonly GOOGLE_OIDC_CLIENT_ID?: string;
+  readonly GITHUB_OAUTH_CLIENT_ID?: string;
+  readonly GITHUB_OAUTH_CLIENT_SECRET?: string;
+  readonly GITHUB_OAUTH_CALLBACK_URL?: string;
   readonly SEAMS_OIDC_EXCHANGE_JSON?: string;
   readonly ACCOUNT_ID_DERIVATION_SECRET?: string;
   readonly ROUTER_AB_NORMAL_SIGNING_WORKER_ID?: string;
@@ -314,6 +317,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
       'ENABLE_IMPLICIT_NEAR_ACCOUNT_TEST_FUNDING',
     ),
     googleOidcClientId: readEnvString(env, 'GOOGLE_OIDC_CLIENT_ID'),
+    githubOAuth: stagingGithubOAuthConfig(env),
     oidcExchange: stagingOidcExchangeConfig(env),
     accountIdDerivationSecret: requireEnvString(env, 'ACCOUNT_ID_DERIVATION_SECRET'),
     emailOtpServerSeal: stagingEmailOtpServerSealConfig(env),
@@ -609,6 +613,19 @@ function stagingOidcExchangeConfig(
     issuers,
     ...(clockSkewSec === undefined ? {} : { clockSkewSec }),
   };
+}
+
+function stagingGithubOAuthConfig(env: CloudflareD1RouterApiStagingEnv) {
+  const clientId = readEnvString(env, 'GITHUB_OAUTH_CLIENT_ID');
+  const clientSecret = readEnvString(env, 'GITHUB_OAUTH_CLIENT_SECRET');
+  const callbackUrl = readEnvString(env, 'GITHUB_OAUTH_CALLBACK_URL');
+  if (!clientId && !clientSecret && !callbackUrl) return undefined;
+  if (!clientId || !clientSecret || !callbackUrl) {
+    throw new Error(
+      'GitHub OAuth requires GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, and GITHUB_OAUTH_CALLBACK_URL',
+    );
+  }
+  return { clientId, clientSecret, callbackUrl };
 }
 
 function parseOptionalClockSkewSec(input: unknown): string | number | undefined {

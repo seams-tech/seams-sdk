@@ -105,6 +105,9 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly SEAMS_LOCAL_GOOGLE_OIDC_CLIENT_ID?: string;
   readonly GOOGLE_OIDC_CLIENT_ID?: string;
   readonly GOOGLE_OIDC_CLIENT_IDS?: string;
+  readonly GITHUB_OAUTH_CLIENT_ID?: string;
+  readonly GITHUB_OAUTH_CLIENT_SECRET?: string;
+  readonly GITHUB_OAUTH_CALLBACK_URL?: string;
   readonly SEAMS_LOCAL_OIDC_EXCHANGE_JSON?: string;
   readonly ROUTER_AB_CEREMONY_JWT_ISSUER?: string;
   readonly ROUTER_AB_CEREMONY_JWT_AUDIENCE?: string;
@@ -695,6 +698,19 @@ function localGoogleOidcClientId(env: LocalD1DevEnv): string | undefined {
   );
 }
 
+function localGithubOAuthConfig(env: LocalD1DevEnv) {
+  const clientId = normalizeLocalString(env.GITHUB_OAUTH_CLIENT_ID);
+  const clientSecret = normalizeLocalString(env.GITHUB_OAUTH_CLIENT_SECRET);
+  const callbackUrl = normalizeLocalString(env.GITHUB_OAUTH_CALLBACK_URL);
+  if (!clientId && !clientSecret && !callbackUrl) return undefined;
+  if (!clientId || !clientSecret || !callbackUrl) {
+    throw new Error(
+      'GitHub OAuth requires GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, and GITHUB_OAUTH_CALLBACK_URL',
+    );
+  }
+  return { clientId, clientSecret, callbackUrl };
+}
+
 function localRouterApiSessionCookieName(env: LocalD1DevEnv): string | undefined {
   return normalizeLocalString(env.SESSION_COOKIE_NAME) || undefined;
 }
@@ -1117,6 +1133,7 @@ function localD1RouterApiAuthServiceOptions(
     accountInitialBalance: env.ACCOUNT_INITIAL_BALANCE,
     implicitNearAccountTestFundingEnabled: env.ENABLE_IMPLICIT_NEAR_ACCOUNT_TEST_FUNDING,
     googleOidcClientId: localGoogleOidcClientId(env),
+    githubOAuth: localGithubOAuthConfig(env),
     oidcExchange: localOidcExchangeConfig(env),
     accountIdDerivationSecret: env.ACCOUNT_ID_DERIVATION_SECRET,
     emailOtpServerSeal: localEmailOtpServerSealConfig(env),

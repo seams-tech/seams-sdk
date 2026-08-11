@@ -43,6 +43,10 @@ minimal local Worker from `wrangler.d1-local.toml` with persistent state under
 `.wrangler/state/seams-d1`. It loads local Wrangler secrets from
 `../sdk-server-ts/.dev.vars` and then `.dev.vars` when those files exist. Use
 `dev.vars` in this package as the checked-in template for either secret file.
+To enable GitHub dashboard sign-in, register a GitHub OAuth App with
+`https://localhost/dashboard/login` as its callback URL, then set
+`GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`, and
+`GITHUB_OAUTH_CALLBACK_URL` in `.dev.vars`.
 Set `STRIPE_API_SK` in `packages/console-server-ts/.dev.vars` to make Billing
 create real Stripe Checkout Sessions. Without that server-side key, the local
 billing provider remains an in-process test double and must not be used to

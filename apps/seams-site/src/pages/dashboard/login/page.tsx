@@ -2,13 +2,19 @@ import React from 'react';
 import { BookOpen } from 'lucide-react';
 import { getActiveFrontendDeployment } from '@/context/frontendRuntime';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
-import { DashboardGoogleAuthCard } from '@/shared/auth/DashboardGoogleAuthCard';
+import { DashboardAuthCard, type DashboardAuthProvider } from '@/shared/auth/DashboardAuthCard';
 import SeamsWordmark from '@/components/icons/SeamsWordmark';
 import {
   ensureGoogleIdentityScriptLoaded,
   fetchGoogleAuthOptions,
   requestGoogleIdToken,
 } from '@/shared/auth/googleIdentity';
+import {
+  beginGithubOAuth,
+  consumeGithubOAuthCallback,
+  fetchGithubOAuthOptions,
+  type GithubOAuthOptions,
+} from '@/shared/auth/githubOAuth';
 import { consumeDashboardConsoleSignOut, fetchDashboardConsoleSession } from '../consoleSession';
 import '../styles.css';
 
@@ -18,8 +24,44 @@ function normalizeBaseUrl(input: unknown): string {
     .replace(/\/+$/, '');
 }
 
-async function parseOptionalJson(response: Response): Promise<any> {
-  return response.json().catch(() => null);
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+async function parseOptionalJson(response: Response): Promise<Record<string, unknown> | null> {
+  const value: unknown = await response.json().catch(() => null);
+  return isRecord(value) ? value : null;
+}
+
+async function exchangeDashboardSession(
+  relayerBaseUrl: string,
+  exchange: Record<string, unknown>,
+  providerLabel: string,
+): Promise<void> {
+  const response = await fetch(`${relayerBaseUrl}/session/exchange`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_kind: 'cookie', exchange }),
+  });
+  const body = await parseOptionalJson(response);
+  if (!response.ok || body?.ok !== true) {
+    const message = String(body?.message || '').trim();
+    throw new Error(message || `${providerLabel} session exchange failed (${response.status})`);
+  }
+}
+
+function authConfigurationNote(input: {
+  googleConfigured: boolean;
+  githubConfigured: boolean;
+}): string {
+  if (input.googleConfigured && input.githubConfigured) return '';
+  if (!input.googleConfigured && !input.githubConfigured) {
+    return 'Configure Google OIDC or GitHub OAuth on the relay to enable dashboard sign-in.';
+  }
+  return input.googleConfigured
+    ? 'Configure GitHub OAuth on the relay to enable GitHub sign-in.'
+    : 'Configure Google OIDC on the relay to enable Google sign-in.';
 }
 
 export function DashboardLoginPage(): React.JSX.Element {
@@ -32,8 +74,11 @@ export function DashboardLoginPage(): React.JSX.Element {
     return normalizeBaseUrl(deployment.consoleBaseUrl || deployment.relayerUrl);
   }, []);
   const [googleClientId, setGoogleClientId] = React.useState<string>('');
+  const [githubOptions, setGithubOptions] = React.useState<GithubOAuthOptions>({
+    configured: false,
+  });
   const [initializing, setInitializing] = React.useState<boolean>(true);
-  const [loading, setLoading] = React.useState<boolean>(false);
+  const [loadingProvider, setLoadingProvider] = React.useState<'google' | 'github' | null>(null);
   const [errorMessage, setErrorMessage] = React.useState<string>('');
   const [googleConfigured, setGoogleConfigured] = React.useState<boolean>(false);
   const [signedOut, setSignedOut] = React.useState<boolean>(false);
@@ -69,18 +114,26 @@ export function DashboardLoginPage(): React.JSX.Element {
     let cancelled = false;
     const run = async () => {
       if (!relayerBaseUrl) {
-        if (!cancelled) setGoogleConfigured(false);
+        if (!cancelled) {
+          setGoogleConfigured(false);
+          setGithubOptions({ configured: false });
+        }
         return;
       }
       try {
-        const options = await fetchGoogleAuthOptions(relayerBaseUrl);
+        const [googleOptions, nextGithubOptions] = await Promise.all([
+          fetchGoogleAuthOptions(relayerBaseUrl),
+          fetchGithubOAuthOptions(relayerBaseUrl),
+        ]);
         if (cancelled) return;
-        setGoogleClientId(options.clientId || '');
-        setGoogleConfigured(options.configured);
+        setGoogleClientId(googleOptions.clientId || '');
+        setGoogleConfigured(googleOptions.configured);
+        setGithubOptions(nextGithubOptions);
       } catch {
         if (!cancelled) {
           setGoogleClientId('');
           setGoogleConfigured(false);
+          setGithubOptions({ configured: false });
         }
       }
     };
@@ -90,9 +143,45 @@ export function DashboardLoginPage(): React.JSX.Element {
     };
   }, [relayerBaseUrl]);
 
+  React.useEffect(() => {
+    const callback = consumeGithubOAuthCallback();
+    if (callback.kind === 'none') return;
+    if (callback.kind === 'error') {
+      setErrorMessage(callback.message);
+      return;
+    }
+    if (!relayerBaseUrl) {
+      setErrorMessage('Relayer base URL is not configured');
+      return;
+    }
+    let cancelled = false;
+    setLoadingProvider('github');
+    setErrorMessage('');
+    exchangeDashboardSession(
+      relayerBaseUrl,
+      { type: 'github_oauth_code', code: callback.code },
+      'GitHub',
+    )
+      .then(fetchDashboardConsoleSession)
+      .then(() => {
+        if (!cancelled) go('/dashboard');
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setErrorMessage(error instanceof Error ? error.message : String(error));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingProvider(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [go, relayerBaseUrl]);
+
   const onGoogleSignIn = React.useCallback(async () => {
-    if (loading) return;
-    setLoading(true);
+    if (loadingProvider) return;
+    setLoadingProvider('google');
     setErrorMessage('');
     try {
       if (!relayerBaseUrl) {
@@ -108,40 +197,24 @@ export function DashboardLoginPage(): React.JSX.Element {
       await ensureGoogleIdentityScriptLoaded();
       const idToken = await requestGoogleIdToken(googleClientId);
 
-      const response = await fetch(`${relayerBaseUrl}/session/exchange`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          session_kind: 'cookie',
-          exchange: {
-            type: 'oidc_jwt',
-            provider: 'google',
-            token: idToken,
-          },
-        }),
-      });
-      const body = await parseOptionalJson(response);
-      if (!response.ok || body?.ok !== true) {
-        const message = String(body?.message || '').trim();
-        throw new Error(message || `Google session exchange failed (${response.status})`);
-      }
+      await exchangeDashboardSession(
+        relayerBaseUrl,
+        { type: 'oidc_jwt', provider: 'google', token: idToken },
+        'Google',
+      );
 
       await fetchDashboardConsoleSession();
       go('/dashboard');
     } catch (error: unknown) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
-      setLoading(false);
+      setLoadingProvider(null);
     }
-  }, [go, googleClientId, googleConfigured, loading, relayerBaseUrl]);
+  }, [go, googleClientId, googleConfigured, loadingProvider, relayerBaseUrl]);
 
-  const ctaLabel = initializing
+  const googleLabel = initializing
     ? 'Checking existing session...'
-    : loading
+    : loadingProvider === 'google'
       ? 'Signing in with Google...'
       : !googleClientId
         ? 'Google SSO unavailable'
@@ -149,9 +222,37 @@ export function DashboardLoginPage(): React.JSX.Element {
           ? 'Google SSO not configured'
           : 'Continue with Google';
 
-  const footerNote = googleConfigured
-    ? 'Google signs you into the dashboard first. Wallet passkeys are created later inside the console.'
-    : 'Set GOOGLE_OIDC_CLIENT_ID or GOOGLE_OIDC_CLIENT_IDS on the relay to enable dashboard sign-in.';
+  const onGithubSignIn = React.useCallback(() => {
+    if (loadingProvider || !githubOptions.configured) return;
+    setErrorMessage('');
+    beginGithubOAuth(githubOptions);
+  }, [githubOptions, loadingProvider]);
+
+  const githubLabel =
+    loadingProvider === 'github'
+      ? 'Signing in with GitHub...'
+      : githubOptions.configured
+        ? 'Continue with GitHub'
+        : 'GitHub sign-in unavailable';
+  const authBusy = initializing || loadingProvider !== null;
+  const providers: readonly DashboardAuthProvider[] = [
+    {
+      id: 'google',
+      label: googleLabel,
+      disabled: authBusy || !googleConfigured,
+      onContinue: onGoogleSignIn,
+    },
+    {
+      id: 'github',
+      label: githubLabel,
+      disabled: authBusy || !githubOptions.configured,
+      onContinue: onGithubSignIn,
+    },
+  ];
+  const footerNote = authConfigurationNote({
+    googleConfigured,
+    githubConfigured: githubOptions.configured,
+  });
 
   return (
     <main className="dashboard-login" aria-label="Dashboard login page">
@@ -168,31 +269,26 @@ export function DashboardLoginPage(): React.JSX.Element {
           <span className="dashboard-login__brand-label">Console</span>
         </a>
         <div className="dashboard-login__body">
-          <DashboardGoogleAuthCard
+          <DashboardAuthCard
             classNames={{
               root: 'dashboard-login__form',
               header: 'dashboard-login__form-header',
               heading: 'dashboard-login__form-heading',
-              eyebrow: 'dashboard-login__form-eyebrow',
               copy: 'dashboard-login__form-copy',
-              ctaButton: 'dashboard-login__google-button',
-              ctaIcon: 'dashboard-login__google-button-icon',
+              ctaGroup: 'dashboard-login__provider-buttons',
+              ctaButton: 'dashboard-login__auth-button',
+              ctaIcon: 'dashboard-login__auth-button-icon',
               note: 'dashboard-login__form-note',
               error: 'dashboard-login__form-error',
             }}
             titleId="dashboard-login-title"
-            titleTag="h1"
             title={signedOut ? 'Signed out' : 'Welcome back'}
             description={
               signedOut
                 ? 'You have been signed out of the Seams console.'
                 : 'Sign in to the Seams console'
             }
-            continueLabel={ctaLabel}
-            continueDisabled={initializing || loading || !googleConfigured}
-            onContinue={() => {
-              void onGoogleSignIn();
-            }}
+            providers={providers}
             note={footerNote}
             errorMessage={errorMessage}
           />
@@ -215,7 +311,7 @@ export function DashboardLoginPage(): React.JSX.Element {
           <span>Documentation</span>
         </a>
         <div className="dashboard-login__aside-body">
-          <p className="dashboard-login__statement">Commerce accounts for people and AI agents</p>
+          <p className="dashboard-login__statement">Wallets for people and AI agents</p>
           <p className="dashboard-login__statement-sub">
             Auth, wallets, credentials, and delegated access in one SDK. Policy checks every action
             before it runs.

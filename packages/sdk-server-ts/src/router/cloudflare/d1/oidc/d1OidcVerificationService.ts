@@ -4,6 +4,11 @@ import type {
   RouterApiIdentityService,
 } from '../../../framework/authServicePort';
 import {
+  githubOAuthPublicConfig,
+  verifyGithubOAuthCodeWithIdentityStore,
+} from '../../../../core/authService/githubOAuth';
+import type { GithubOAuthConfig } from '../../../../core/types';
+import {
   CloudflareD1OidcJwksCache,
   parseOidcJwtExchangeUnverifiedClaims,
   parseRs256JwtForVerification,
@@ -22,6 +27,7 @@ type VerifyOidcJwtExchangeResult = Awaited<
   ReturnType<RouterApiIdentityService['verifyOidcJwtExchange']>
 >;
 type GoogleOidcPublicConfig = ReturnType<RouterApiIdentityService['getGoogleOidcPublicConfig']>;
+type GithubOAuthPublicConfig = ReturnType<RouterApiIdentityService['getGithubOAuthPublicConfig']>;
 
 type OidcIdentityLinker = (input: {
   readonly userId: string;
@@ -35,6 +41,7 @@ function errorMessage(error: unknown): string {
 
 export class CloudflareD1OidcVerificationService {
   private readonly googleOidcClientId: string | undefined;
+  private readonly githubOAuth: GithubOAuthConfig | undefined;
   private readonly identityStore: IdentityStore;
   private readonly linkIdentity: OidcIdentityLinker;
   private readonly oidcExchange: NormalizedCloudflareD1OidcExchangeConfig | undefined;
@@ -42,11 +49,13 @@ export class CloudflareD1OidcVerificationService {
 
   constructor(input: {
     readonly googleOidcClientId: string | undefined;
+    readonly githubOAuth: GithubOAuthConfig | undefined;
     readonly identityStore: IdentityStore;
     readonly linkIdentity: OidcIdentityLinker;
     readonly oidcExchange: NormalizedCloudflareD1OidcExchangeConfig | undefined;
   }) {
     this.googleOidcClientId = input.googleOidcClientId;
+    this.githubOAuth = input.githubOAuth;
     this.identityStore = input.identityStore;
     this.linkIdentity = input.linkIdentity;
     this.oidcExchange = input.oidcExchange;
@@ -58,6 +67,20 @@ export class CloudflareD1OidcVerificationService {
       configured: Boolean(clientId),
       ...(clientId ? { clientId } : {}),
     };
+  }
+
+  getGithubOAuthPublicConfig(): GithubOAuthPublicConfig {
+    return githubOAuthPublicConfig(this.githubOAuth);
+  }
+
+  async verifyGithubOAuthCode(
+    input: Parameters<RouterApiIdentityService['verifyGithubOAuthCode']>[0],
+  ): Promise<Awaited<ReturnType<RouterApiIdentityService['verifyGithubOAuthCode']>>> {
+    return await verifyGithubOAuthCodeWithIdentityStore({
+      request: input,
+      config: this.githubOAuth,
+      identityStore: this.identityStore,
+    });
   }
 
   async verifyOidcJwtExchange(

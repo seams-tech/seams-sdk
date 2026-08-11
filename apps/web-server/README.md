@@ -265,6 +265,11 @@ EXPECTED_ORIGIN=http://localhost:3000
 # Optional hosted-domain allowlist for /auth/google/verify
 # GOOGLE_OIDC_HOSTED_DOMAINS=
 
+# GitHub OAuth App for /session/exchange (exchange.type=github_oauth_code)
+# GITHUB_OAUTH_CLIENT_ID=
+# GITHUB_OAUTH_CLIENT_SECRET=
+# GITHUB_OAUTH_CALLBACK_URL=https://localhost/dashboard/login
+
 # Router API runtime key auth on POST /registration/bootstrap
 ROUTER_API_KEY_AUTH_ENABLED=1
 
