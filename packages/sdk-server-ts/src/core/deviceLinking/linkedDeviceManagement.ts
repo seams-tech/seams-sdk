@@ -75,11 +75,7 @@ export type LinkedDeviceRevocationPreparationResultV1 =
   | { readonly kind: 'not_found' }
   | { readonly kind: 'conflict' };
 
-/**
- * This port owns the linked grant/session fence and resolves the exact,
- * manifest-ordered child commands. A caller cannot construct a revoke plan
- * from public wallet/device identifiers.
- */
+/** Resolves the exact manifest-ordered revoke plan from the persisted target. */
 export type LinkedDeviceRevocationPreparationPortV1 = {
   prepareLinkedDeviceRevocationV1(input: {
     readonly target: LinkedDeviceManagementTargetV1;
@@ -164,6 +160,12 @@ export class LinkedDeviceManagementServiceV1 {
     if (prepared.kind === 'not_found' || prepared.kind === 'conflict') return prepared;
     assertRevocationPlanMatchesRequest(prepared.plan, request);
 
+    const walletSession =
+      await this.options.walletSessionRevocation.revokeLinkedDeviceWalletSessionV1({
+        target: prepared.plan.walletSession,
+        requestedAtMs: request.requestedAtMs,
+      });
+    if (walletSession.kind === 'conflict') return { kind: 'conflict' };
     const aggregate = await this.options.aggregateRevocation.revokeLaneEnrollmentV1(
       prepared.plan.aggregate,
     );
@@ -172,12 +174,6 @@ export class LinkedDeviceManagementServiceV1 {
     const aggregateReceiptDigestB64u = parseDigestB64u(
       await computeAggregateLaneRevocationReceiptDigestV1(aggregate.receipt),
     );
-    const walletSession =
-      await this.options.walletSessionRevocation.revokeLinkedDeviceWalletSessionV1({
-        target: prepared.plan.walletSession,
-        requestedAtMs: request.requestedAtMs,
-      });
-    if (walletSession.kind === 'conflict') return { kind: 'conflict' };
     const local = await this.options.localStateInvalidation.invalidateLinkedDeviceStateV1({
       walletId: request.walletId,
       enrollmentId: prepared.plan.target.summary.enrollmentId,
