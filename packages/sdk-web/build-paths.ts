@@ -61,6 +61,7 @@ export const BUILD_PATHS = {
     ECDSA_ONLINE_CLIENT_WORKER: '/sdk/workers/ecdsa-online-client.worker.js',
     EMAIL_OTP_WORKER: '/sdk/workers/email-otp.worker.js',
     WALLET_CUSTODY_CEREMONY_WORKER: '/sdk/workers/wallet-custody-ceremony.worker.js',
+    DEVICE_LINKING_KEY_WORKER: '/sdk/workers/device-linking-key.worker.js',
   },
 
   // Worker file names
@@ -74,6 +75,7 @@ export const BUILD_PATHS = {
     ECDSA_ONLINE_CLIENT: 'ecdsa-online-client.worker.js',
     EMAIL_OTP: 'email-otp.worker.js',
     WALLET_CUSTODY_CEREMONY: 'wallet-custody-ceremony.worker.js',
+    DEVICE_LINKING_KEY: 'device-linking-key.worker.js',
     SHAMIR3PASS: 'shamir3pass.worker.js',
     WASM_SIGNER_JS: 'wasm_signer_worker.js',
     WASM_SIGNER_WASM: 'wasm_signer_worker_bg.wasm',
@@ -103,6 +105,7 @@ export const BUILD_PATHS = {
     ECDSA_ONLINE_CLIENT: '/sdk/workers/ecdsa-online-client.worker.js',
     EMAIL_OTP: '/sdk/workers/email-otp.worker.js',
     WALLET_CUSTODY_CEREMONY: '/sdk/workers/wallet-custody-ceremony.worker.js',
+    DEVICE_LINKING_KEY: '/sdk/workers/device-linking-key.worker.js',
     SHAMIR3PASS: '/sdk/workers/shamir3pass.worker.js',
     WASM_SIGNER_JS: '/sdk/workers/wasm_signer_worker.js',
     WASM_SIGNER_WASM: '/sdk/workers/wasm_signer_worker_bg.wasm',
