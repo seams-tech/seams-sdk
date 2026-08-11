@@ -184,7 +184,15 @@ function parseSite(value, releaseId, branch) {
   const site = requireObject(value, sitePath);
   requireExactKeys(
     site,
-    ['origin', 'googleOidcClientId', 'defaultNetwork', 'availableNetworks', 'pagesProjectEnv'],
+    [
+      'origin',
+      'docsOrigin',
+      'googleOidcClientId',
+      'defaultNetwork',
+      'availableNetworks',
+      'pagesProjectEnv',
+      'docsPagesProjectEnv',
+    ],
     sitePath,
   );
   const availableNetworks = parseNetworkNames(
@@ -202,6 +210,7 @@ function parseSite(value, releaseId, branch) {
     release: releaseId,
     branch,
     origin: requireHttpsOrigin(site.origin, sitePath + '.origin'),
+    docsOrigin: requireHttpsOrigin(site.docsOrigin, sitePath + '.docsOrigin'),
     googleOidcClientId: requirePattern(
       site.googleOidcClientId,
       /^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$/u,
@@ -210,6 +219,10 @@ function parseSite(value, releaseId, branch) {
     defaultNetwork,
     availableNetworks: Object.freeze(availableNetworks),
     pagesProjectEnv: requireEnvironmentName(site.pagesProjectEnv, sitePath + '.pagesProjectEnv'),
+    docsPagesProjectEnv: requireEnvironmentName(
+      site.docsPagesProjectEnv,
+      sitePath + '.docsPagesProjectEnv',
+    ),
   });
 }
 
@@ -357,8 +370,7 @@ function parseEmailOtpDelivery(value, pathName) {
     });
   }
   throw new Error(
-    pathName +
-      '.kind must be demo_code_response, email_provider, or provider_and_demo_code',
+    pathName + '.kind must be demo_code_response, email_provider, or provider_and_demo_code',
   );
 }
 
@@ -469,8 +481,8 @@ function parseRequiredValues(value, pathName) {
 
 function assertUniqueSiteOrigins(sites) {
   assertUnique(
-    sites.map((site) => site.origin),
-    'frontend site origins',
+    sites.flatMap((site) => [site.origin, site.docsOrigin]),
+    'frontend site and docs origins',
   );
 }
 
@@ -478,7 +490,7 @@ function assertUniqueLaneOrigins(lanes) {
   const origins = [];
   for (const lane of lanes) origins.push(lane.gatewayOrigin, lane.walletOrigin);
   assertUnique(origins, 'backend lane origins');
-  const siteOrigins = new Set(lanes.map((lane) => lane.site.origin));
+  const siteOrigins = new Set(lanes.flatMap((lane) => [lane.site.origin, lane.site.docsOrigin]));
   for (const origin of origins) {
     if (siteOrigins.has(origin)) {
       throw new Error('backend origin ' + origin + ' must not equal a frontend site origin');

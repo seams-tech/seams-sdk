@@ -3,10 +3,12 @@
     "branch": "dev",
     "site": {
       "origin": "https://staging.seams.sh",
+      "docsOrigin": "https://staging.docs.seams.sh",
       "googleOidcClientId": "971053349716-2ck8cp6ucohvkd075aebdtv9jskla2b5.apps.googleusercontent.com",
       "defaultNetwork": "testnet",
       "availableNetworks": ["testnet"],
-      "pagesProjectEnv": "CF_PAGES_PROJECT_VITE"
+      "pagesProjectEnv": "CF_PAGES_PROJECT_VITE",
+      "docsPagesProjectEnv": "CF_PAGES_PROJECT_DOCS"
     },
     "lanes": {
       "testnet": {
@@ -208,10 +210,12 @@
     "branch": "main",
     "site": {
       "origin": "https://seams.sh",
+      "docsOrigin": "https://docs.seams.sh",
       "googleOidcClientId": "971053349716-p10qdg7lsjh24lcocbsckt4f85is5igs.apps.googleusercontent.com",
       "defaultNetwork": "testnet",
       "availableNetworks": ["testnet", "mainnet"],
-      "pagesProjectEnv": "CF_PAGES_PROJECT_VITE"
+      "pagesProjectEnv": "CF_PAGES_PROJECT_VITE",
+      "docsPagesProjectEnv": "CF_PAGES_PROJECT_DOCS"
     },
     "lanes": {
       "testnet": {
