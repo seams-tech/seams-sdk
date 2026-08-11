@@ -266,6 +266,12 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
           approval: input.approval,
           requestedAtMs: input.requestedAtMs,
         });
+        await this.finalizeReservationIfPresentV1({
+          linkSessionId: input.session.linkSessionId,
+          registrationDigestB64u: await digestRegistrationV1(registration),
+          keyManifestDigestB64u: persisted.registration.keyManifestDigestB64u,
+          committedAtMs: input.requestedAtMs,
+        });
         return {
           outcome: 'replayed',
           keyManifestDigestB64u: persisted.registration.keyManifestDigestB64u,
@@ -483,6 +489,40 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
     if (alphabetizeStringify(persisted) !== alphabetizeStringify(input.targetReady)) {
       throw new Error('linked-device target-ready persistence changed the committed manifest');
     }
+  }
+
+  private async finalizeReservationIfPresentV1(input: {
+    readonly linkSessionId: string;
+    readonly registrationDigestB64u: DigestB64u;
+    readonly keyManifestDigestB64u: DigestB64u;
+    readonly committedAtMs: number;
+  }): Promise<void> {
+    const reservation = await this.readCommitReservationV1(input.linkSessionId);
+    if (!reservation) return;
+    if (reservation.registrationDigestB64u !== input.registrationDigestB64u) {
+      throw new Error('linked-device target credential reservation differs from its registration');
+    }
+    if (reservation.state === 'reserved') {
+      await this.commitReservationV1(input);
+      return;
+    }
+    const committed = await this.readCommitReservationDigestV1(input.linkSessionId);
+    if (committed !== input.keyManifestDigestB64u) {
+      throw new Error('linked-device target credential reservation manifest digest changed');
+    }
+  }
+
+  private async readCommitReservationDigestV1(linkSessionId: string): Promise<DigestB64u> {
+    const row = await this.database
+      .prepare(
+        `SELECT key_manifest_digest_b64u
+           FROM ${TARGET_COMMIT_RESERVATION_TABLE}
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND link_session_id = ? AND state = 'committed' LIMIT 1`,
+      )
+      .bind(...scopeValues(this.scope), linkSessionId)
+      .first<{ readonly key_manifest_digest_b64u?: unknown }>();
+    return parseDigestB64u(row?.key_manifest_digest_b64u);
   }
 
   private async reserveCommitV1(input: {

@@ -145,6 +145,21 @@ test('persists verified attestation and exact public child records before provis
       String(fixture.approval.linkSessionId),
     )
     .run();
+  await temporary.database
+    .prepare(
+      `UPDATE linked_device_target_commit_reservations
+          SET state = 'reserved', committed_at_ms = NULL, key_manifest_digest_b64u = NULL
+        WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+          AND link_session_id = ?`,
+    )
+    .bind(
+      scope.namespace,
+      scope.orgId,
+      scope.projectId,
+      scope.envId,
+      String(fixture.approval.linkSessionId),
+    )
+    .run();
   await expect(
     provider.registerTargetCredentialV1({
       registration: target.registration,
@@ -154,6 +169,26 @@ test('persists verified attestation and exact public child records before provis
       requestedAtMs: 3_005,
     }),
   ).resolves.toEqual({ outcome: 'replayed', keyManifestDigestB64u });
+  await expect(
+    temporary.database
+      .prepare(
+        `SELECT state, key_manifest_digest_b64u
+           FROM linked_device_target_commit_reservations
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND link_session_id = ?`,
+      )
+      .bind(
+        scope.namespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        String(fixture.approval.linkSessionId),
+      )
+      .first(),
+  ).resolves.toMatchObject({
+    state: 'committed',
+    key_manifest_digest_b64u: keyManifestDigestB64u,
+  });
   const transitioned = await sessionService.recordTargetCredentialV1({
     linkSessionId: fixture.payload.linkSessionId,
     expectedRevision: approvalResult.record.revision,
