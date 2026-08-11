@@ -37,6 +37,11 @@ import type {
   LaneEnrollmentManifestV1,
   RotatableSigningLaneJobV1,
 } from '../signing-lanes/rotation';
+import type { SigningLaneRecord, WalletKeyRecord } from '../signing-lanes/records';
+import type {
+  EcdsaCapabilityManifestId,
+  EcdsaCapabilityManifestRevision,
+} from '../utils/ecdsaCapabilityActivation';
 
 /** Public key bytes carried by the link session, encoded as canonical base64url. */
 export type LinkDevicePublicKeyB64u = string & {
@@ -60,6 +65,35 @@ export type QrLinkedDeviceSessionPayloadV4 = {
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
 };
+
+type LinkedDeviceOwnerSourceLaneBaseV1<TWalletKey extends WalletKeyRecord> = {
+  readonly kind: 'linked_device_owner_source_lane_v1';
+  readonly walletKey: TWalletKey;
+  readonly lane: Extract<
+    SigningLaneRecord,
+    { readonly laneKind: 'owner_passkey' | 'owner_email_otp' }
+  >;
+  readonly materialActivation: MpcMaterialActivationRef;
+  readonly verifiedActivationReceiptDigestB64u: DigestB64u;
+};
+
+/** Public owner-lane identity authenticated by the wallet-host Wallet Session. */
+export type LinkedDeviceOwnerSourceLaneV1 =
+  | (LinkedDeviceOwnerSourceLaneBaseV1<
+      Extract<WalletKeyRecord, { readonly keyFamily: 'ed25519' }>
+    > & {
+      readonly keyFamily: 'ed25519';
+      readonly ecdsaSourceManifest?: never;
+    })
+  | (LinkedDeviceOwnerSourceLaneBaseV1<
+      Extract<WalletKeyRecord, { readonly keyFamily: 'ecdsa_secp256k1' }>
+    > & {
+      readonly keyFamily: 'ecdsa_secp256k1';
+      readonly ecdsaSourceManifest: {
+        readonly manifestId: EcdsaCapabilityManifestId;
+        readonly manifestRevision: EcdsaCapabilityManifestRevision;
+      };
+    });
 
 export type LinkedDeviceLocalPresenceAssertionV1 = {
   readonly kind: 'linked_device_local_presence_assertion_v1';
