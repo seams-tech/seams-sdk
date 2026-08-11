@@ -14,6 +14,7 @@ import {
 import { SeamsAuthMenuSurfaceElement } from '../lit-ui/auth-menu/seams-auth-menu-surface';
 import {
   hostedAuthMenuExternalAuthRequestIdFromBoundary,
+  parseHostedAuthMenuErrorEvent,
   type HostedAuthMenuExternalAuthRequest,
   type HostedAuthMenuExternalAuthResolution,
   type HostedAuthMenuDemoEmailOtpDelivery,
@@ -66,6 +67,11 @@ type HostedPasskeyMenuPrepared = HostedPasskeyRegistrationPrepared | HostedPassk
 type AuthMenuFailure =
   | { readonly kind: 'dismissed' }
   | { readonly kind: 'error'; readonly error: unknown };
+
+type PresentedAuthMenuError = {
+  readonly mode: HostedAuthMenuMode;
+  readonly message: string;
+};
 
 function cancelHostedPasskeyMenuPreparation(prepared: HostedPasskeyMenuPrepared): void {
   if (prepared.kind === 'hosted_passkey_registration_prepared_v1') {
@@ -291,6 +297,27 @@ function errorMessage(error: unknown): string {
   return error instanceof Error && error.message.trim() ? error.message.trim() : String(error);
 }
 
+function presentedAuthMenuError(viewModel: AuthMenuViewModel): PresentedAuthMenuError | null {
+  switch (viewModel.kind) {
+    case 'passkey':
+      return viewModel.status.kind === 'recoverable'
+        ? { mode: viewModel.mode, message: viewModel.status.message }
+        : null;
+    case 'google_otp_login':
+    case 'google_registration':
+      if (viewModel.error) return { mode: viewModel.mode, message: viewModel.error };
+      return viewModel.status.kind === 'recoverable'
+        ? { mode: viewModel.mode, message: viewModel.status.message }
+        : null;
+    case 'link_device':
+      return null;
+    default: {
+      const exhaustive: never = viewModel;
+      throw new Error(`Unknown auth-menu view model: ${JSON.stringify(exhaustive)}`);
+    }
+  }
+}
+
 function linkDeviceViewModel(base: AuthMenuViewModel): AuthMenuLinkDeviceViewModel {
   return {
     kind: 'link_device',
@@ -335,6 +362,7 @@ export class AuthMenuSession {
   private googleGeneration = 0;
   private deviceLinkGeneration = 0;
   private preparationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastReportedError: string | null = null;
 
   constructor(args: {
     request: HostedAuthMenuOpenRequest;
@@ -839,7 +867,28 @@ export class AuthMenuSession {
   }
 
   private updateElement(): void {
-    if (this.element) this.element.viewModel = this.currentViewModel();
+    const viewModel = this.currentViewModel();
+    this.reportPresentedError(viewModel);
+    if (this.element) this.element.viewModel = viewModel;
+  }
+
+  private reportPresentedError(viewModel: AuthMenuViewModel): void {
+    const error = presentedAuthMenuError(viewModel);
+    if (!error) {
+      this.lastReportedError = null;
+      return;
+    }
+    const errorKey = `${error.mode}:${error.message}`;
+    if (errorKey === this.lastReportedError) return;
+    this.lastReportedError = errorKey;
+    const payload = parseHostedAuthMenuErrorEvent({
+      kind: 'hosted_auth_menu_error_v1',
+      authMenuSessionId: this.identity.authMenuSessionId,
+      mode: error.mode,
+      message: error.message,
+    });
+    if (!payload) throw new Error('Unable to emit hosted auth-menu error event');
+    this.sendToParent({ type: 'AUTH_MENU_ERROR', requestId: this.identity.requestId, payload });
   }
 
   private onIntent = (event: Event): void => {
