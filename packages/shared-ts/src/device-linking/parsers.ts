@@ -1,8 +1,14 @@
 import {
   parseAuthorizationEvidenceSetId,
+  parseLinkedDeviceWalletSessionAuthorizationId,
+  parseMpcWalletSigningQuotaId,
+  parseTenantId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type AuthorizationEvidenceSetId,
+  type LinkedDeviceWalletSessionAuthorizationId,
+  type MpcWalletSigningQuotaId,
+  type TenantId,
   type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '../authorization/capabilityKinds';
@@ -58,6 +64,11 @@ import type {
   RotatableSigningLaneJobV1,
 } from '../signing-lanes/rotation';
 import { base64UrlDecode, base64UrlEncode } from '../utils/base64';
+import {
+  decodeJwtPayloadRecord,
+  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
+  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+} from '../utils/sessionTokens';
 import { parseUnixMs, requireRecord, rejectUnknownFields } from '../passkey-custody/primitives';
 import {
   assertNeverLinkedDeviceSessionState,
@@ -78,6 +89,8 @@ import {
   type LinkedDeviceRevokeRequestV1,
   type LinkedDeviceRevokeResultV1,
   type LinkedDeviceSummaryV1,
+  type LinkedDeviceWalletSessionDeliveryV1,
+  type LinkedDeviceWalletSessionTokenV1,
   type LinkedDeviceOwnerAuthorizationSourceV1,
   type LinkedDeviceProtocolVersionV1,
   type LinkedDeviceReceiptAcknowledgementV1,
@@ -110,6 +123,48 @@ const QR_FIELDS = [
   'requestedPermission',
   'issuedAtMs',
   'expiresAtMs',
+] as const;
+const LINKED_WALLET_SESSION_DELIVERY_FIELDS = [
+  'kind',
+  'tenantId',
+  'walletId',
+  'enrollmentId',
+  'deviceId',
+  'authorizationId',
+  'walletSessionId',
+  'quotaId',
+  'keyManifestDigestB64u',
+  'permission',
+  'revocationEpoch',
+  'issuedAtMs',
+  'expiresAtMs',
+  'orderedTokens',
+] as const;
+const LINKED_WALLET_SESSION_TOKEN_FIELDS = [
+  'kind',
+  'walletKeyId',
+  'keyFamily',
+  'walletSessionJwt',
+] as const;
+const LINKED_WALLET_SESSION_JWT_FIELDS = [
+  'kind',
+  'authorizationKind',
+  'sub',
+  'tenantId',
+  'walletId',
+  'enrollmentId',
+  'deviceId',
+  'walletKeyId',
+  'authorizationId',
+  'walletSessionId',
+  'quotaId',
+  'keyManifestDigestB64u',
+  'permission',
+  'revocationEpoch',
+  'issuedAtMs',
+  'expiresAtMs',
+  'iat',
+  'exp',
 ] as const;
 const PERMISSION_FIELDS = ['kind', 'administrationScope', 'localUserPresence'] as const;
 const CLAIM_REQUEST_FIELDS = ['kind', 'payload'] as const;
@@ -718,6 +773,167 @@ export function buildLinkedDeviceRevokeResultV1(
   value: LinkedDeviceRevokeResultV1,
 ): LinkedDeviceRevokeResultV1 {
   return parseLinkedDeviceRevokeResultV1(value);
+}
+
+export function parseLinkedDeviceWalletSessionDeliveryV1(
+  raw: unknown,
+): LinkedDeviceWalletSessionDeliveryV1 {
+  const record = exactRecord(
+    raw,
+    LINKED_WALLET_SESSION_DELIVERY_FIELDS,
+    'LinkedDeviceWalletSessionDeliveryV1',
+  );
+  if (record.kind !== 'linked_device_wallet_session_delivery_v1') {
+    throw new Error('LinkedDeviceWalletSessionDeliveryV1.kind is invalid');
+  }
+  const issuedAtMs = parseUnixTime(
+    record.issuedAtMs,
+    'LinkedDeviceWalletSessionDeliveryV1.issuedAtMs',
+  );
+  const expiresAtMs = parseUnixTime(
+    record.expiresAtMs,
+    'LinkedDeviceWalletSessionDeliveryV1.expiresAtMs',
+  );
+  assertExpiryAfterIssued(issuedAtMs, expiresAtMs, 'LinkedDeviceWalletSessionDeliveryV1');
+  const identity: Omit<LinkedDeviceWalletSessionDeliveryV1, 'kind' | 'orderedTokens'> = {
+    tenantId: parseId(
+      parseTenantId,
+      record.tenantId,
+      'LinkedDeviceWalletSessionDeliveryV1.tenantId',
+    ),
+    walletId: parseWallet(record.walletId, 'LinkedDeviceWalletSessionDeliveryV1.walletId'),
+    enrollmentId: parseEnrollmentId(
+      record.enrollmentId,
+      'LinkedDeviceWalletSessionDeliveryV1.enrollmentId',
+    ),
+    deviceId: parseDeviceId(record.deviceId, 'LinkedDeviceWalletSessionDeliveryV1.deviceId'),
+    authorizationId: parseId(
+      parseLinkedDeviceWalletSessionAuthorizationId,
+      record.authorizationId,
+      'LinkedDeviceWalletSessionDeliveryV1.authorizationId',
+    ),
+    walletSessionId: parseId(
+      parseWalletSessionId,
+      record.walletSessionId,
+      'LinkedDeviceWalletSessionDeliveryV1.walletSessionId',
+    ),
+    quotaId: parseId(
+      parseMpcWalletSigningQuotaId,
+      record.quotaId,
+      'LinkedDeviceWalletSessionDeliveryV1.quotaId',
+    ),
+    keyManifestDigestB64u: parseDigest(
+      record.keyManifestDigestB64u,
+      'LinkedDeviceWalletSessionDeliveryV1.keyManifestDigestB64u',
+    ),
+    permission: parsePermission(
+      record.permission,
+      'LinkedDeviceWalletSessionDeliveryV1.permission',
+    ),
+    revocationEpoch: parseNonNegativeSafeInteger(
+      record.revocationEpoch,
+      'LinkedDeviceWalletSessionDeliveryV1.revocationEpoch',
+    ),
+    issuedAtMs,
+    expiresAtMs,
+  };
+  if (!Array.isArray(record.orderedTokens)) {
+    throw new Error('LinkedDeviceWalletSessionDeliveryV1.orderedTokens must be an array');
+  }
+  const seenWalletKeys = new Set<string>();
+  const orderedTokens = record.orderedTokens.map((token, index) => {
+    const parsed = parseLinkedDeviceWalletSessionTokenV1(token, identity, index);
+    if (seenWalletKeys.has(parsed.walletKeyId)) {
+      throw new Error('LinkedDeviceWalletSessionDeliveryV1 contains a duplicate wallet key');
+    }
+    seenWalletKeys.add(parsed.walletKeyId);
+    return parsed;
+  });
+  return {
+    kind: 'linked_device_wallet_session_delivery_v1',
+    ...identity,
+    orderedTokens: nonEmptyTuple(
+      orderedTokens,
+      'LinkedDeviceWalletSessionDeliveryV1.orderedTokens',
+    ),
+  };
+}
+
+export function buildLinkedDeviceWalletSessionDeliveryV1(
+  value: LinkedDeviceWalletSessionDeliveryV1,
+): LinkedDeviceWalletSessionDeliveryV1 {
+  return parseLinkedDeviceWalletSessionDeliveryV1(value);
+}
+
+function parseLinkedDeviceWalletSessionTokenV1(
+  raw: unknown,
+  expected: Omit<LinkedDeviceWalletSessionDeliveryV1, 'kind' | 'orderedTokens'>,
+  index: number,
+): LinkedDeviceWalletSessionTokenV1 {
+  const label = `LinkedDeviceWalletSessionDeliveryV1.orderedTokens[${index}]`;
+  const record = exactRecord(raw, LINKED_WALLET_SESSION_TOKEN_FIELDS, label);
+  if (record.kind !== 'linked_device_wallet_session_token_v1') {
+    throw new Error(`${label}.kind is invalid`);
+  }
+  const walletKeyId = parseWalletKey(record.walletKeyId, `${label}.walletKeyId`);
+  if (record.keyFamily !== 'ed25519' && record.keyFamily !== 'ecdsa_secp256k1') {
+    throw new Error(`${label}.keyFamily is invalid`);
+  }
+  const keyFamily = record.keyFamily;
+  const walletSessionJwt = parseNonEmptyToken(record.walletSessionJwt, `${label}.walletSessionJwt`);
+  const jwtSegments = walletSessionJwt.split('.');
+  if (
+    jwtSegments.length !== 3 ||
+    jwtSegments.some((segment) => !segment || !/^[A-Za-z0-9_-]+$/.test(segment))
+  ) {
+    throw new Error(`${label}.walletSessionJwt is not a compact JWT`);
+  }
+  const decodedClaims = decodeJwtPayloadRecord(walletSessionJwt);
+  if (!decodedClaims) throw new Error(`${label}.walletSessionJwt payload is invalid`);
+  const claims = exactRecord(
+    decodedClaims,
+    LINKED_WALLET_SESSION_JWT_FIELDS,
+    `${label}.walletSessionJwt payload`,
+  );
+  const expectedKind =
+    keyFamily === 'ed25519'
+      ? ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND
+      : ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND;
+  if (
+    claims.kind !== expectedKind ||
+    claims.authorizationKind !== 'linked_device_wallet_session' ||
+    claims.sub !== `linked-device:${expected.deviceId}` ||
+    claims.tenantId !== expected.tenantId ||
+    claims.walletId !== expected.walletId ||
+    claims.enrollmentId !== expected.enrollmentId ||
+    claims.deviceId !== expected.deviceId ||
+    claims.walletKeyId !== walletKeyId ||
+    claims.authorizationId !== expected.authorizationId ||
+    claims.walletSessionId !== expected.walletSessionId ||
+    claims.quotaId !== expected.quotaId ||
+    claims.keyManifestDigestB64u !== expected.keyManifestDigestB64u ||
+    claims.revocationEpoch !== expected.revocationEpoch ||
+    claims.issuedAtMs !== expected.issuedAtMs ||
+    claims.expiresAtMs !== expected.expiresAtMs ||
+    claims.iat !== Math.floor(expected.issuedAtMs / 1_000) ||
+    claims.exp !== Math.floor(expected.expiresAtMs / 1_000)
+  ) {
+    throw new Error(`${label}.walletSessionJwt identity does not match its delivery`);
+  }
+  const permission = parsePermission(claims.permission, `${label}.walletSessionJwt.permission`);
+  if (
+    permission.kind !== expected.permission.kind ||
+    permission.administrationScope !== expected.permission.administrationScope ||
+    permission.localUserPresence !== expected.permission.localUserPresence
+  ) {
+    throw new Error(`${label}.walletSessionJwt permission does not match its delivery`);
+  }
+  return {
+    kind: 'linked_device_wallet_session_token_v1',
+    walletKeyId,
+    keyFamily,
+    walletSessionJwt,
+  };
 }
 
 function parseQrPayloadRecord(record: UnknownRecord): QrLinkedDeviceSessionPayloadV4 {
@@ -1503,7 +1719,10 @@ function sameTargetReadyJobManifestChild(
     String(job.source.laneId) === String(manifestChild.sourceLaneId) &&
     String(job.source.laneShareEpoch) === String(manifestChild.sourceLaneShareEpoch) &&
     job.source.revocationEpoch === manifestChild.sourceRevocationEpoch &&
-    sameMaterialActivationRef(job.source.materialActivation, manifestChild.sourceMaterialActivation) &&
+    sameMaterialActivationRef(
+      job.source.materialActivation,
+      manifestChild.sourceMaterialActivation,
+    ) &&
     job.target.operation === 'create_lane' &&
     job.target.laneKind === 'linked_device' &&
     String(job.target.laneId) === String(manifestChild.targetLaneId) &&
