@@ -964,29 +964,32 @@ function buildProductionProductEnvironment(input) {
 
 function buildProductionLaneVariables(input, lane) {
   const prefix = `VITE_${lane.network.toUpperCase()}_`;
-  const suppliedValues = input.configuration.suppliedValues;
   const nearNetwork = lane.network;
-  const laneValue = (name, fallback) =>
-    readFirstNonEmptyValue(suppliedValues, [`${prefix}${name}`, name]) || fallback;
   const tempo = nearNetwork === 'testnet';
   return {
     [`${prefix}RELAYER_URL`]: lane.gatewayOrigin,
     [`${prefix}CONSOLE_BASE_URL`]: lane.gatewayOrigin,
-    [`${prefix}SEAMS_PROJECT_ENVIRONMENT_ID`]: laneValue(
-      'SEAMS_PROJECT_ENVIRONMENT_ID',
-      manual(`production-${lane.network}-project-environment-id`),
-    ),
-    [`${prefix}SEAMS_PUBLISHABLE_KEY`]: laneValue(
+    [`${prefix}SEAMS_PROJECT_ENVIRONMENT_ID`]: productionLaneEnvironmentId(lane),
+    [`${prefix}SEAMS_PUBLISHABLE_KEY`]: productionLaneValue(
+      input,
+      lane,
       'SEAMS_PUBLISHABLE_KEY',
+      input.configuration.publishableKey,
       manual(`production-${lane.network}-publishable-key`),
     ),
     [`${prefix}NEAR_NETWORK`]: nearNetwork,
-    [`${prefix}NEAR_RPC_URL`]: laneValue(
+    [`${prefix}NEAR_RPC_URL`]: productionLaneValue(
+      input,
+      lane,
       'NEAR_RPC_URL',
+      input.configuration.nearRpcUrl,
       nearNetwork === 'mainnet' ? 'https://rpc.mainnet.near.org' : 'https://rpc.testnet.near.org',
     ),
-    [`${prefix}NEAR_EXPLORER`]: laneValue(
+    [`${prefix}NEAR_EXPLORER`]: productionLaneValue(
+      input,
+      lane,
       'NEAR_EXPLORER',
+      input.configuration.nearExplorerUrl,
       nearNetwork === 'mainnet' ? 'https://nearblocks.io' : 'https://testnet.nearblocks.io',
     ),
     [`${prefix}WALLET_SERVICE_PATH`]: '/wallet-service',
@@ -995,29 +998,62 @@ function buildProductionLaneVariables(input, lane) {
     [`${prefix}ROUTER_AB_NORMAL_SIGNING_WORKER_ID`]: lane.resources.signingWorker.workerName,
     ...(tempo
       ? {
-          [`${prefix}TEMPO_RPC_URL`]: laneValue(
+          [`${prefix}TEMPO_RPC_URL`]: productionLaneValue(
+            input,
+            lane,
             'TEMPO_RPC_URL',
+            '',
             manual('production-testnet-tempo-rpc-url'),
           ),
-          [`${prefix}TEMPO_EXPLORER`]: laneValue(
+          [`${prefix}TEMPO_EXPLORER`]: productionLaneValue(
+            input,
+            lane,
             'TEMPO_EXPLORER',
+            '',
             manual('production-testnet-tempo-explorer-url'),
           ),
-          [`${prefix}TEMPO_FEE_TOKEN`]: laneValue(
+          [`${prefix}TEMPO_FEE_TOKEN`]: productionLaneValue(
+            input,
+            lane,
             'TEMPO_FEE_TOKEN',
+            '',
             manual('production-testnet-tempo-fee-token'),
           ),
-          [`${prefix}ARC_RPC_URL`]: laneValue(
+          [`${prefix}ARC_RPC_URL`]: productionLaneValue(
+            input,
+            lane,
             'ARC_RPC_URL',
+            '',
             manual('production-testnet-arc-rpc-url'),
           ),
-          [`${prefix}ARC_EXPLORER`]: laneValue(
+          [`${prefix}ARC_EXPLORER`]: productionLaneValue(
+            input,
+            lane,
             'ARC_EXPLORER',
+            '',
             manual('production-testnet-arc-explorer-url'),
           ),
         }
       : {}),
   };
+}
+
+function productionLaneEnvironmentId(lane) {
+  if (lane.provisioning.kind === 'provisioned') {
+    return lane.provisioning.gatewayDeploymentConfig.tenant.environmentId;
+  }
+  return manual(`production-${lane.network}-project-environment-id`);
+}
+
+function productionLaneValue(input, lane, name, generatedLaneValue, fallback) {
+  if (lane.id === input.laneId) {
+    const generated = String(generatedLaneValue || '').trim();
+    if (generated) return generated;
+  }
+  const prefix = `VITE_${lane.network.toUpperCase()}_`;
+  return (
+    readFirstNonEmptyValue(input.configuration.suppliedValues, [`${prefix}${name}`]) || fallback
+  );
 }
 
 function buildGatewayEnvironment(input) {

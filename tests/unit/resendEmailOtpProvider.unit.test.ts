@@ -10,6 +10,7 @@ import {
   createResendEmailOtpMessageProvider,
   parseResendEmailOtpProviderConfig,
 } from '../../packages/console-server-ts/src/email/otp/resendEmailOtpProvider';
+import { createResendConsoleEmailProvider } from '../../packages/console-server-ts/src/email/providers';
 import type { CloudflareD1EmailOtpDeliveryProviderInput } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthConfig';
 
 const DELIVERY_INPUT = {
@@ -38,6 +39,18 @@ class RecordingResendProvider implements ConsoleEmailProvider {
   }
 }
 
+async function receiverSensitiveResendFetch(
+  this: unknown,
+  _input: RequestInfo | URL,
+  _init?: RequestInit,
+): Promise<Response> {
+  if (this !== globalThis) throw new TypeError('Illegal invocation');
+  return new Response(JSON.stringify({ id: 'resend-message-1' }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
 test('Resend Email OTP configuration parses the shared sender and API key', () => {
   expect(
     parseResendEmailOtpProviderConfig({
@@ -59,6 +72,32 @@ test('provider resolver selects Resend for provider delivery', () => {
       RESEND_API_KEY: 're_test',
     }),
   ).toBeDefined();
+});
+
+test('Resend provider binds the runtime fetch receiver', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = receiverSensitiveResendFetch as typeof fetch;
+  try {
+    const provider = createResendConsoleEmailProvider({
+      apiKey: 're_test',
+      from: 'confirm@seams.sh',
+    });
+    await expect(
+      provider.send({
+        outboxId: 'email-otp/challenge-1',
+        recipient: { email: 'alice@example.test', displayName: 'Alice' },
+        subject: 'Your Seams wallet unlock code',
+        text: '123456',
+        html: '<p>123456</p>',
+      }),
+    ).resolves.toEqual({
+      kind: 'SENT',
+      providerMessageId: 'resend-message-1',
+      statusCode: 200,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('Resend adapter sends rendered OTP messages with challenge idempotency', async () => {
