@@ -631,7 +631,7 @@ Implementation status:
 - [x] Admit prepared owner execution only after the claimed operation and exact active lane agree.
 - [x] Wire Gateway projection and server admission into the current owner normal-signing route.
 - [x] Remove duplicate lane-reference and dormant `delegated_agent` core shapes.
-- [ ] Connect the browser owner-lane hydration result to the current owner signing-flow composition.
+- [x] Connect the browser owner-lane hydration result to the current owner signing-flow composition.
 - [ ] Run and repair the full intended-behavior, source-guard, and wallet-iframe integration gates.
 
 R101 is complete when existing owner passkey and Email OTP signer records:
