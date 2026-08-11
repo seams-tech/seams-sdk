@@ -28,8 +28,15 @@ import { computeLaneParticipantSetBindingDigestV1 } from '@shared/signing-lanes/
 import type {
   EcdsaAdditiveLaneJobV1,
   Ed25519YaoLaneJobV1,
+  LaneEnrollmentManifestV1,
   LaneProtocolCommitReceiptV1,
+  RotatableSigningLaneJobV1,
 } from '@shared/signing-lanes/rotation';
+import {
+  parseLaneEnrollmentManifestV1,
+  parseLaneProtocolCommitReceiptV1,
+  parseRotatableSigningLaneJobV1,
+} from '@shared/signing-lanes/rotationParsers';
 import {
   computeLaneEnrollmentManifestDigestV1,
   computeLaneProtocolCommitReceiptDigestV1,
@@ -115,9 +122,136 @@ export type LinkedDeviceProvisionedExecutionEvidenceV1 = {
   readonly targetCredentialRegistration: ReturnType<
     typeof parseLinkedDeviceTargetCredentialRegistrationV1
   >;
-  readonly provisioningDeliveries: ReturnType<typeof parseLinkedDeviceProvisioningDeliveriesV1>;
+  readonly provisioning: LinkedDeviceProvisionedExecutionPublicR102V1;
   readonly enrollmentReceipt: ReturnType<typeof parseLinkedDeviceEnrollmentReceiptV1>;
 };
+
+export type LinkedDeviceProvisionedExecutionChildEvidenceV1 = {
+  readonly kind: 'linked_device_provisioned_execution_child_evidence_v1';
+  readonly job: RotatableSigningLaneJobV1;
+  readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
+};
+
+export type LinkedDeviceProvisionedExecutionPublicR102V1 = {
+  readonly kind: 'linked_device_provisioned_execution_public_r102_v1';
+  readonly manifest: LaneEnrollmentManifestV1;
+  readonly orderedChildren: readonly [
+    LinkedDeviceProvisionedExecutionChildEvidenceV1,
+    ...LinkedDeviceProvisionedExecutionChildEvidenceV1[],
+  ];
+};
+
+const EVIDENCE_FIELDS = [
+  'kind',
+  'approval',
+  'targetPreparation',
+  'targetCredentialRegistration',
+  'provisioning',
+  'enrollmentReceipt',
+] as const;
+const PUBLIC_PROVISIONING_FIELDS = ['kind', 'manifest', 'orderedChildren'] as const;
+const PUBLIC_CHILD_FIELDS = ['kind', 'job', 'protocolCommitReceipt'] as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function exactRecord(
+  raw: unknown,
+  fields: readonly string[],
+  label: string,
+): Record<string, unknown> {
+  if (!isRecord(raw)) throw new Error(`${label} must be an object`);
+  const actual = Object.keys(raw);
+  if (actual.length !== fields.length || actual.some((field) => !fields.includes(field))) {
+    throw new Error(`${label} fields are invalid`);
+  }
+  return raw;
+}
+
+function publicProvisioningChild(
+  child: ReturnType<typeof parseLinkedDeviceProvisioningDeliveriesV1>['orderedChildren'][number],
+): LinkedDeviceProvisionedExecutionChildEvidenceV1 {
+  return {
+    kind: 'linked_device_provisioned_execution_child_evidence_v1',
+    job: child.job,
+    protocolCommitReceipt: child.protocolCommitReceipt,
+  };
+}
+
+function parsePublicProvisioning(raw: unknown): LinkedDeviceProvisionedExecutionPublicR102V1 {
+  const record = exactRecord(
+    raw,
+    PUBLIC_PROVISIONING_FIELDS,
+    'LinkedDeviceProvisionedExecutionPublicR102V1',
+  );
+  if (record.kind !== 'linked_device_provisioned_execution_public_r102_v1') {
+    throw new Error('LinkedDeviceProvisionedExecutionPublicR102V1.kind is invalid');
+  }
+  if (!Array.isArray(record.orderedChildren) || record.orderedChildren.length === 0) {
+    throw new Error('LinkedDeviceProvisionedExecutionPublicR102V1.orderedChildren is empty');
+  }
+  const children = record.orderedChildren.map(parsePublicProvisioningChild);
+  const first = children[0];
+  if (!first) throw new Error('LinkedDeviceProvisionedExecutionPublicR102V1 is empty');
+  return {
+    kind: 'linked_device_provisioned_execution_public_r102_v1',
+    manifest: parseLaneEnrollmentManifestV1(
+      record.manifest,
+      'LinkedDeviceProvisionedExecutionPublicR102V1.manifest',
+    ),
+    orderedChildren: [first, ...children.slice(1)],
+  };
+}
+
+function parsePublicProvisioningChild(
+  raw: unknown,
+  index: number,
+): LinkedDeviceProvisionedExecutionChildEvidenceV1 {
+  const label = `LinkedDeviceProvisionedExecutionPublicR102V1.orderedChildren[${index}]`;
+  const record = exactRecord(raw, PUBLIC_CHILD_FIELDS, label);
+  if (record.kind !== 'linked_device_provisioned_execution_child_evidence_v1') {
+    throw new Error(`${label}.kind is invalid`);
+  }
+  const job = parseRotatableSigningLaneJobV1(record.job, `${label}.job`);
+  const protocolCommitReceipt = parseLaneProtocolCommitReceiptV1(
+    record.protocolCommitReceipt,
+    `${label}.protocolCommitReceipt`,
+  );
+  assertProtocolReceiptMatchesJob({ job, receipt: protocolCommitReceipt, label });
+  return {
+    kind: 'linked_device_provisioned_execution_child_evidence_v1',
+    job,
+    protocolCommitReceipt,
+  };
+}
+
+function assertProtocolReceiptMatchesJob(input: {
+  readonly job: RotatableSigningLaneJobV1;
+  readonly receipt: LaneProtocolCommitReceiptV1;
+  readonly label: string;
+}): void {
+  const { job, receipt } = input;
+  if (
+    String(job.operationId) !== String(receipt.operationId) ||
+    String(job.enrollmentId) !== String(receipt.enrollmentId) ||
+    String(job.walletId) !== String(receipt.walletId) ||
+    String(job.walletKeyId) !== String(receipt.walletKeyId) ||
+    job.keyFamily !== receipt.keyFamily ||
+    String(job.source.laneId) !== String(receipt.sourceLaneId) ||
+    String(job.source.laneShareEpoch) !== String(receipt.sourceLaneShareEpoch) ||
+    String(job.source.revocationEpoch) !== String(receipt.sourceRevocationEpoch) ||
+    alphabetizeStringify(job.source.materialActivation) !==
+      alphabetizeStringify(receipt.sourceMaterialActivation) ||
+    String(job.target.laneId) !== String(receipt.targetLaneId) ||
+    String(job.target.laneShareEpoch) !== String(receipt.targetLaneShareEpoch) ||
+    String(job.targetMaterialActivationId) !== String(receipt.targetMaterialActivationId) ||
+    job.targetHolder.hpkePublicKeyDigestB64u !== receipt.holderRecipientKeyDigestB64u ||
+    job.targetSigningWorker.hpkePublicKeyDigestB64u !== receipt.serverRecipientKeyDigestB64u
+  ) {
+    throw new Error(`${input.label} protocol receipt does not match its job`);
+  }
+}
 
 export async function buildLinkedDeviceProvisionedExecutionEvidenceV1(input: {
   readonly approval: unknown;
@@ -135,12 +269,22 @@ export async function buildLinkedDeviceProvisionedExecutionEvidenceV1(input: {
     input.provisioningDeliveries,
   );
   const enrollmentReceipt = parseLinkedDeviceEnrollmentReceiptV1(input.enrollmentReceipt);
+  const firstDelivery = provisioningDeliveries.orderedChildren[0];
+  if (!firstDelivery) throw new Error('linked-device provisioning evidence is empty');
+  const provisioning: LinkedDeviceProvisionedExecutionPublicR102V1 = {
+    kind: 'linked_device_provisioned_execution_public_r102_v1',
+    manifest: provisioningDeliveries.manifest,
+    orderedChildren: [
+      publicProvisioningChild(firstDelivery),
+      ...provisioningDeliveries.orderedChildren.slice(1).map(publicProvisioningChild),
+    ],
+  };
 
   await assertProvisionedEvidenceIdentity({
     approval,
     preparation: targetPreparation,
     registration: targetCredentialRegistration,
-    deliveries: provisioningDeliveries,
+    provisioning,
     receipt: enrollmentReceipt,
   });
 
@@ -149,9 +293,36 @@ export async function buildLinkedDeviceProvisionedExecutionEvidenceV1(input: {
     approval,
     targetPreparation,
     targetCredentialRegistration,
-    provisioningDeliveries,
+    provisioning,
     enrollmentReceipt,
   };
+}
+
+export async function parseLinkedDeviceProvisionedExecutionEvidenceV1(
+  raw: unknown,
+): Promise<LinkedDeviceProvisionedExecutionEvidenceV1> {
+  const record = exactRecord(raw, EVIDENCE_FIELDS, 'LinkedDeviceProvisionedExecutionEvidenceV1');
+  if (record.kind !== 'linked_device_provisioned_execution_evidence_v1') {
+    throw new Error('LinkedDeviceProvisionedExecutionEvidenceV1.kind is invalid');
+  }
+  const evidence: LinkedDeviceProvisionedExecutionEvidenceV1 = {
+    kind: 'linked_device_provisioned_execution_evidence_v1',
+    approval: parseLinkedDeviceApprovalV1(record.approval),
+    targetPreparation: parseLinkedDeviceTargetPreparationV1(record.targetPreparation),
+    targetCredentialRegistration: parseLinkedDeviceTargetCredentialRegistrationV1(
+      record.targetCredentialRegistration,
+    ),
+    provisioning: parsePublicProvisioning(record.provisioning),
+    enrollmentReceipt: parseLinkedDeviceEnrollmentReceiptV1(record.enrollmentReceipt),
+  };
+  await assertProvisionedEvidenceIdentity({
+    approval: evidence.approval,
+    preparation: evidence.targetPreparation,
+    registration: evidence.targetCredentialRegistration,
+    provisioning: evidence.provisioning,
+    receipt: evidence.enrollmentReceipt,
+  });
+  return evidence;
 }
 
 export async function buildActiveLinkedDeviceExecutionBundleV1(input: {
@@ -163,10 +334,21 @@ export async function buildActiveLinkedDeviceExecutionBundleV1(input: {
   readonly walletSessionDelivery: unknown;
 }): Promise<ActiveLinkedDeviceExecutionBundleV1> {
   const evidence = await buildLinkedDeviceProvisionedExecutionEvidenceV1(input);
+  return await buildActiveLinkedDeviceExecutionBundleFromEvidenceV1({
+    evidence,
+    walletSessionDelivery: input.walletSessionDelivery,
+  });
+}
+
+export async function buildActiveLinkedDeviceExecutionBundleFromEvidenceV1(input: {
+  readonly evidence: unknown;
+  readonly walletSessionDelivery: unknown;
+}): Promise<ActiveLinkedDeviceExecutionBundleV1> {
+  const evidence = await parseLinkedDeviceProvisionedExecutionEvidenceV1(input.evidence);
   const approval = evidence.approval;
   const preparation = evidence.targetPreparation;
   const registration = evidence.targetCredentialRegistration;
-  const deliveries = evidence.provisioningDeliveries;
+  const provisioning = evidence.provisioning;
   const receipt = evidence.enrollmentReceipt;
   const walletSession = parseLinkedDeviceWalletSessionDeliveryV1(input.walletSessionDelivery);
   assertWalletSessionIdentity({
@@ -176,7 +358,7 @@ export async function buildActiveLinkedDeviceExecutionBundleV1(input: {
   });
 
   const executions = await Promise.all(
-    deliveries.orderedChildren.map(async (deliveryChild, index) => {
+    provisioning.orderedChildren.map(async (deliveryChild, index) => {
       const receiptChild = receipt.orderedChildReceipts[index];
       const token = walletSession.orderedTokens[index];
       if (!receiptChild || !token) {
@@ -210,7 +392,7 @@ export async function buildActiveLinkedDeviceExecutionBundleV1(input: {
     deviceId: approval.deviceId,
     targetPreparation: preparation,
     targetCredentialRegistration: registration,
-    manifest: deliveries.manifest,
+    manifest: provisioning.manifest,
     authorizationId: walletSession.authorizationId,
     walletSessionId: walletSession.walletSessionId,
     quotaId: walletSession.quotaId,
@@ -229,7 +411,7 @@ async function assertProvisionedEvidenceIdentity(input: {
   readonly approval: ReturnType<typeof parseLinkedDeviceApprovalV1>;
   readonly preparation: ReturnType<typeof parseLinkedDeviceTargetPreparationV1>;
   readonly registration: ReturnType<typeof parseLinkedDeviceTargetCredentialRegistrationV1>;
-  readonly deliveries: ReturnType<typeof parseLinkedDeviceProvisioningDeliveriesV1>;
+  readonly provisioning: LinkedDeviceProvisionedExecutionPublicR102V1;
   readonly receipt: ReturnType<typeof parseLinkedDeviceEnrollmentReceiptV1>;
 }): Promise<void> {
   const identity = [input.preparation, input.registration, input.receipt];
@@ -240,13 +422,10 @@ async function assertProvisionedEvidenceIdentity(input: {
         value.enrollmentId !== input.approval.enrollmentId ||
         value.deviceId !== input.approval.deviceId,
     ) ||
-    input.deliveries.linkSessionId !== input.approval.linkSessionId ||
-    input.deliveries.enrollmentId !== input.approval.enrollmentId ||
-    input.deliveries.deviceId !== input.approval.deviceId ||
     input.preparation.linkSessionId !== input.approval.linkSessionId ||
     input.registration.linkSessionId !== input.approval.linkSessionId ||
-    input.deliveries.manifest.walletId !== input.approval.walletId ||
-    String(input.deliveries.manifest.enrollmentId) !== String(input.approval.enrollmentId)
+    input.provisioning.manifest.walletId !== input.approval.walletId ||
+    String(input.provisioning.manifest.enrollmentId) !== String(input.approval.enrollmentId)
   ) {
     throw new Error('linked-device provisioned execution identity does not match');
   }
@@ -254,7 +433,7 @@ async function assertProvisionedEvidenceIdentity(input: {
     preparation: input.preparation,
     registration: input.registration,
   });
-  const manifestDigest = await computeLaneEnrollmentManifestDigestV1(input.deliveries.manifest);
+  const manifestDigest = await computeLaneEnrollmentManifestDigestV1(input.provisioning.manifest);
   if (manifestDigest !== input.receipt.manifestDigestB64u) {
     throw new Error('linked-device R102 manifest digest does not match enrollment receipt');
   }
@@ -262,17 +441,17 @@ async function assertProvisionedEvidenceIdentity(input: {
     input.approval.orderedKeyBindings.length,
     input.preparation.orderedChildren.length,
     input.registration.orderedHolderRegistrations.length,
-    input.deliveries.orderedChildren.length,
+    input.provisioning.orderedChildren.length,
     input.receipt.orderedChildReceipts.length,
   ];
   if (counts.some((count) => count !== counts[0])) {
     throw new Error('linked-device provisioned execution child counts do not match');
   }
-  for (let index = 0; index < input.deliveries.orderedChildren.length; index += 1) {
+  for (let index = 0; index < input.provisioning.orderedChildren.length; index += 1) {
     const binding = input.approval.orderedKeyBindings[index];
     const preparationChild = input.preparation.orderedChildren[index];
     const registrationChild = input.registration.orderedHolderRegistrations[index];
-    const deliveryChild = input.deliveries.orderedChildren[index];
+    const deliveryChild = input.provisioning.orderedChildren[index];
     const receiptChild = input.receipt.orderedChildReceipts[index];
     const protocolVersion = input.approval.protocolVersions.find(
       (candidate) => candidate.keyFamily === deliveryChild?.job.keyFamily,
@@ -327,9 +506,7 @@ function assertProvisionedChildIdentity(input: {
   readonly registrationChild: ReturnType<
     typeof parseLinkedDeviceTargetCredentialRegistrationV1
   >['orderedHolderRegistrations'][number];
-  readonly deliveryChild: ReturnType<
-    typeof parseLinkedDeviceProvisioningDeliveriesV1
-  >['orderedChildren'][number];
+  readonly deliveryChild: LinkedDeviceProvisionedExecutionChildEvidenceV1;
   readonly receiptChild: ReturnType<
     typeof parseLinkedDeviceEnrollmentReceiptV1
   >['orderedChildReceipts'][number];
@@ -394,9 +571,7 @@ function assertProvisionedChildIdentity(input: {
 }
 
 function assertChildIdentity(input: {
-  readonly deliveryChild: ReturnType<
-    typeof parseLinkedDeviceProvisioningDeliveriesV1
-  >['orderedChildren'][number];
+  readonly deliveryChild: LinkedDeviceProvisionedExecutionChildEvidenceV1;
   readonly token: ReturnType<
     typeof parseLinkedDeviceWalletSessionDeliveryV1
   >['orderedTokens'][number];
@@ -416,9 +591,7 @@ async function buildActiveExecutionChild(input: {
   readonly deviceId: ReturnType<typeof parseLinkedDeviceApprovalV1>['deviceId'];
   readonly activatedAtMs: number;
   readonly aggregateReceiptDigestB64u: DigestB64u;
-  readonly deliveryChild: ReturnType<
-    typeof parseLinkedDeviceProvisioningDeliveriesV1
-  >['orderedChildren'][number];
+  readonly deliveryChild: LinkedDeviceProvisionedExecutionChildEvidenceV1;
   readonly receiptChild: ReturnType<
     typeof parseLinkedDeviceEnrollmentReceiptV1
   >['orderedChildReceipts'][number];
