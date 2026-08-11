@@ -27,6 +27,7 @@ export interface RouterApiCloudflareConsoleWorkerEnv {
   CONSOLE_EMAIL_FROM?: string;
   CONSOLE_EMAIL_REPLY_TO?: string;
   CONSOLE_EMAIL_CRON_EXPRESSIONS?: string;
+  CONSOLE_DOCS_BASE_URL?: string;
   RESEND_API_KEY?: string;
 }
 

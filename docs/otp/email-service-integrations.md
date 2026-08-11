@@ -20,7 +20,7 @@ Use this split:
 - Cloudflare remains the runtime and edge platform.
 - Cloudflare Email Routing remains the inbound email and email-worker layer we already use for email recovery.
 - Resend is the default outbound transactional email provider for v1.
-- Keep a narrow provider interface so Amazon SES can be added later if volume makes cost optimization worth the extra complexity.
+- Keep Resend and Amazon SES behind the same narrow provider interface.
 
 Do not anchor v1 on Cloudflare-only outbound email.
 
@@ -93,7 +93,7 @@ Best fit:
 
 ### Option C: Amazon SES
 
-Recommended as a future cost-optimization option, not the day-one default.
+Available as a cost-optimization alternative while Resend remains the default.
 
 Why:
 
@@ -114,7 +114,7 @@ For this codebase, the pragmatic answer is:
 - build the email integration around Resend now,
 - keep the provider boundary clean,
 - revisit Cloudflare Email Service if it reaches GA with stable pricing and arbitrary-recipient transactional support,
-- add SES later if volume justifies a cheaper backend.
+- switch to the existing SES adapter if volume justifies a cheaper backend.
 
 ## Proposed Architecture
 

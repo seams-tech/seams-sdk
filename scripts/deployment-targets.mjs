@@ -106,14 +106,32 @@ export function parseDeploymentTargets(value, sourceName = 'deployment targets')
 
 export function gatewaySecretNames(lane) {
   const names = [...GATEWAY_BASE_SECRET_NAMES];
+  if (
+    lane.release === 'production' &&
+    (lane.emailOtpDelivery.kind === 'demo_code_response' ||
+      lane.emailOtpDelivery.provider.kind !== 'resend')
+  ) {
+    names.push('RESEND_API_KEY');
+  }
   if (lane.emailOtpDelivery.kind !== 'demo_code_response') {
-    names.push(...AMAZON_SES_SECRET_NAMES);
+    names.push(...emailOtpProviderSecretNames(lane.emailOtpDelivery.provider));
   }
   for (const capabilityName of CAPABILITY_NAMES) {
     const capability = lane.capabilities[capabilityName];
     if (capability.enabled) names.push(...capability.secrets);
   }
   return unique(names, 'gateway secret requirements');
+}
+
+function emailOtpProviderSecretNames(provider) {
+  switch (provider.kind) {
+    case 'resend':
+      return ['RESEND_API_KEY'];
+    case 'amazon_ses':
+      return AMAZON_SES_SECRET_NAMES;
+    default:
+      throw new Error('Unsupported Email OTP provider: ' + provider.kind);
+  }
 }
 
 export function componentSecretNames(lane, component) {
@@ -354,24 +372,44 @@ function parseEmailOtpDelivery(value, pathName) {
     return Object.freeze({ kind });
   }
   if (kind === 'email_provider' || kind === 'provider_and_demo_code') {
-    requireExactKeys(delivery, ['kind', 'region', 'fromAddress'], pathName);
+    requireExactKeys(delivery, ['kind', 'provider'], pathName);
     return Object.freeze({
       kind,
-      region: requirePattern(
-        delivery.region,
-        /^[a-z]{2}(?:-gov)?-[a-z]+-\d+$/u,
-        pathName + '.region',
-      ),
-      fromAddress: requirePattern(
-        delivery.fromAddress,
-        /^[^\s@]+@[^\s@]+\.[^\s@]+$/u,
-        pathName + '.fromAddress',
-      ),
+      provider: parseEmailOtpProvider(delivery.provider, pathName + '.provider'),
     });
   }
   throw new Error(
     pathName + '.kind must be demo_code_response, email_provider, or provider_and_demo_code',
   );
+}
+
+function parseEmailOtpProvider(value, pathName) {
+  const provider = requireObject(value, pathName);
+  const kind = requireString(provider.kind, pathName + '.kind');
+  if (kind === 'resend') {
+    requireExactKeys(provider, ['kind', 'fromAddress'], pathName);
+    return Object.freeze({
+      kind,
+      fromAddress: requireEmailAddress(provider.fromAddress, pathName + '.fromAddress'),
+    });
+  }
+  if (kind === 'amazon_ses') {
+    requireExactKeys(provider, ['kind', 'region', 'fromAddress'], pathName);
+    return Object.freeze({
+      kind,
+      region: requirePattern(
+        provider.region,
+        /^[a-z]{2}(?:-gov)?-[a-z]+-\d+$/u,
+        pathName + '.region',
+      ),
+      fromAddress: requireEmailAddress(provider.fromAddress, pathName + '.fromAddress'),
+    });
+  }
+  throw new Error(pathName + '.kind must be resend or amazon_ses');
+}
+
+function requireEmailAddress(value, pathName) {
+  return requirePattern(value, /^[^\s@]+@[^\s@]+\.[^\s@]+$/u, pathName);
 }
 
 function parseResources(value, pathName) {
