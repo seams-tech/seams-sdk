@@ -1,20 +1,13 @@
 import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import { readJson } from '../../../../router/framework/http';
-import {
-  LinkedDeviceRequestProofVerifierV1,
-} from '../../../../core/deviceLinking/requestProof';
-import {
-  type LinkedDeviceOwnerAuthorizationPortV1,
-} from '../../../../core/deviceLinking/linkedDeviceSession';
+import { LinkedDeviceRequestProofVerifierV1 } from '../../../../core/deviceLinking/requestProof';
+import { type LinkedDeviceOwnerAuthorizationPortV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
-import {
-  D1LinkedDeviceRequestProofNonceStoreV1,
-} from './d1LinkedDeviceRequestProofNonceStore';
-import {
-  type D1LinkedDeviceSessionScopeV1,
-} from './d1LinkedDeviceSessionStore';
+import { D1LinkedDeviceRequestProofNonceStoreV1 } from './d1LinkedDeviceRequestProofNonceStore';
+import { type D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
 import { CloudflareD1LaneLifecycleStore } from '../signingLanes/d1LaneLifecycleStore';
 import { createD1LinkedDeviceSessionServiceV1 } from './d1LinkedDeviceSessionService';
+import { D1LinkedDeviceProvisioningVerifierV1 } from './d1LinkedDeviceProvisioningVerifier';
 import type {
   DeviceLinkingAuthenticatedRequestV1,
   DeviceLinkingAuthDeniedV1,
@@ -33,6 +26,7 @@ export type D1LinkedDeviceRouteServiceOptionsV1 = {
   readonly registerTargetCredentialV1: DeviceLinkingRouteServiceV1['registerTargetCredentialV1'];
   readonly acknowledgeReceiptV1: DeviceLinkingRouteServiceV1['acknowledgeReceiptV1'];
   readonly retryCommittedDeliveryV1: DeviceLinkingRouteServiceV1['retryCommittedDeliveryV1'];
+  readonly provisioning: DeviceLinkingRouteServiceV1['provisioning'];
   readonly nowV1?: () => number;
 };
 
@@ -56,6 +50,9 @@ export function createD1LinkedDeviceRouteServiceV1(
     ownerAuthorization: options.ownerAuthorization,
     laneLifecycle,
     nowV1,
+  });
+  const provisioningVerifier = new D1LinkedDeviceProvisioningVerifierV1({
+    lifecycleStore: laneLifecycle,
   });
   const routeSessionService: DeviceLinkingRouteServiceV1['sessionService'] = {
     createUnclaimedSessionV1: sessionService.createUnclaimedSessionV1.bind(sessionService),
@@ -109,6 +106,8 @@ export function createD1LinkedDeviceRouteServiceV1(
     registerTargetCredentialV1: options.registerTargetCredentialV1,
     acknowledgeReceiptV1: options.acknowledgeReceiptV1,
     retryCommittedDeliveryV1: options.retryCommittedDeliveryV1,
+    provisioning: options.provisioning,
+    provisioningVerifier,
   };
 }
 
@@ -119,7 +118,10 @@ function parseSessionId(raw: string): LinkDeviceSessionId {
 }
 
 function mapProofDenied(
-  result: Extract<Awaited<ReturnType<LinkedDeviceRequestProofVerifierV1['verifyV1']>>, { readonly kind: 'denied' }>,
+  result: Extract<
+    Awaited<ReturnType<LinkedDeviceRequestProofVerifierV1['verifyV1']>>,
+    { readonly kind: 'denied' }
+  >,
 ): DeviceLinkingAuthDeniedV1 {
   return {
     kind: 'denied',

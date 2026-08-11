@@ -1,12 +1,21 @@
 import type {
+  LinkedDeviceApprovalV1,
   LinkedDeviceEnrollmentReceiptV1,
+  LinkedDeviceHolderDeliveryAcknowledgementV1,
   LinkedDeviceSessionClaimV1,
+  LinkedDeviceProvisioningCommandV1,
+  LinkedDeviceProvisioningDeliveriesV1,
   LinkedDeviceReceiptAcknowledgementV1,
   LinkedDeviceSessionTransportRequestV1,
   LinkedDeviceTargetCredentialRegistrationV1,
   QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking/contracts';
 import {
+  parseLinkedDeviceApprovalDeliveryV1,
+  parseLinkedDeviceEnrollmentReceiptV1,
+  parseLinkedDeviceHolderDeliveryAcknowledgementV1,
+  parseLinkedDeviceProvisioningCommandV1,
+  parseLinkedDeviceProvisioningDeliveriesV1,
   parseLinkedDeviceReceiptAcknowledgementV1,
   parseLinkedDeviceSessionClaimRequestV1,
   parseLinkedDeviceSessionTransportRequestV1,
@@ -136,6 +145,32 @@ type LinkedDeviceApprovalRouteResultV1 =
           };
     };
 
+export type DeviceLinkingProvisioningProviderV1 = {
+  provisionLinkedDeviceV1(input: {
+    readonly command: LinkedDeviceProvisioningCommandV1;
+    readonly session: LinkedDeviceSessionRecordV1;
+    readonly approval: LinkedDeviceApprovalV1;
+    readonly requestedAtMs: number;
+  }): Promise<LinkedDeviceProvisioningDeliveriesV1>;
+  recordHolderDeliveriesV1(input: {
+    readonly acknowledgement: LinkedDeviceHolderDeliveryAcknowledgementV1;
+    readonly session: LinkedDeviceSessionRecordV1;
+    readonly approval: LinkedDeviceApprovalV1;
+    readonly requestedAtMs: number;
+  }): Promise<LinkedDeviceEnrollmentReceiptV1>;
+};
+
+export type DeviceLinkingProvisioningVerifierV1 = {
+  verifyProvisioningDeliveriesV1(input: {
+    readonly deliveries: LinkedDeviceProvisioningDeliveriesV1;
+    readonly approval: LinkedDeviceApprovalV1;
+  }): Promise<void>;
+  verifyHolderDeliveriesV1(input: {
+    readonly acknowledgement: LinkedDeviceHolderDeliveryAcknowledgementV1;
+    readonly approval: LinkedDeviceApprovalV1;
+  }): Promise<void>;
+};
+
 export type DeviceLinkingRouteServiceV1 = {
   readonly sessionService: Pick<
     LinkedDeviceSessionServiceV1,
@@ -155,7 +190,9 @@ export type DeviceLinkingRouteServiceV1 = {
     readonly devicePublicKeyDigestB64u: DigestB64u;
     readonly requestedAtMs: number;
   }): Promise<{ readonly kind: 'authorized' } | DeviceLinkingAuthDeniedV1>;
-  authenticateOwnerRequestV1(input: DeviceLinkingOwnerRequestInputV1): Promise<DeviceLinkingAuthenticatedRequestV1 | DeviceLinkingAuthDeniedV1>;
+  authenticateOwnerRequestV1(
+    input: DeviceLinkingOwnerRequestInputV1,
+  ): Promise<DeviceLinkingAuthenticatedRequestV1 | DeviceLinkingAuthDeniedV1>;
   authenticateDeviceRequestV1(input: {
     readonly request: Request;
     readonly method: string;
@@ -186,6 +223,8 @@ export type DeviceLinkingRouteServiceV1 = {
     readonly session: LinkedDeviceSessionRecordV1;
     readonly requestedAtMs: number;
   }): Promise<DeviceLinkingRouteMutationResultV1>;
+  readonly provisioning: DeviceLinkingProvisioningProviderV1;
+  readonly provisioningVerifier: DeviceLinkingProvisioningVerifierV1;
 };
 
 type DeviceLinkingCreateRequestV1 = {
@@ -196,19 +235,33 @@ type DeviceLinkingCreateRequestV1 = {
 export async function handleDeviceLinking(ctx: FetchRouterApiContext): Promise<Response | null> {
   if (!ctx.pathname.startsWith(`${DEVICE_LINKING_BASE}`)) return null;
   const service = ctx.service.deviceLinking;
-  if (!service) return json({ ok: false, code: 'not_supported', message: 'Device linking is not configured' }, { status: 501 });
+  if (!service)
+    return json(
+      { ok: false, code: 'not_supported', message: 'Device linking is not configured' },
+      { status: 501 },
+    );
   const action = parseRoutePath(ctx.pathname);
   if (!action) return null;
   const nowMs = service.nowV1();
   try {
     if (action.kind === 'create') return await handleCreate(ctx, service, nowMs);
     if (action.kind === 'get') return await handleGet(ctx, service, action.linkSessionId, nowMs);
-    if (action.kind === 'claim') return await handleClaim(ctx, service, action.linkSessionId, nowMs);
-    if (action.kind === 'approval') return await handleApproval(ctx, service, action.linkSessionId, nowMs);
-    if (action.kind === 'credential') return await handleCredential(ctx, service, action.linkSessionId, nowMs);
-    if (action.kind === 'receipt') return await handleReceipt(ctx, service, action.linkSessionId, nowMs);
-    if (action.kind === 'retry') return await handleRetry(ctx, service, action.linkSessionId, nowMs);
-    if (action.kind === 'cancel') return await handleCancel(ctx, service, action.linkSessionId, nowMs);
+    if (action.kind === 'claim')
+      return await handleClaim(ctx, service, action.linkSessionId, nowMs);
+    if (action.kind === 'approval')
+      return await handleApproval(ctx, service, action.linkSessionId, nowMs);
+    if (action.kind === 'provision')
+      return await handleProvision(ctx, service, action.linkSessionId, nowMs);
+    if (action.kind === 'holder-receipts')
+      return await handleHolderReceipts(ctx, service, action.linkSessionId, nowMs);
+    if (action.kind === 'credential')
+      return await handleCredential(ctx, service, action.linkSessionId, nowMs);
+    if (action.kind === 'receipt')
+      return await handleReceipt(ctx, service, action.linkSessionId, nowMs);
+    if (action.kind === 'retry')
+      return await handleRetry(ctx, service, action.linkSessionId, nowMs);
+    if (action.kind === 'cancel')
+      return await handleCancel(ctx, service, action.linkSessionId, nowMs);
     return null;
   } catch (error: unknown) {
     if (error instanceof DeviceLinkingInputError) return invalidInputResponse(error.message);
@@ -225,7 +278,9 @@ async function handleCreate(
   const bodyDigestB64u = await requestBodyDigest(ctx.request);
   const rawBody = await readJson(ctx.request);
   const body = parseBoundary(() => parseCreateRequest(rawBody));
-  const devicePublicKeyDigestB64u = await computeDevicePublicKeyDigestB64u(body.payload.devicePublicKeyB64u);
+  const devicePublicKeyDigestB64u = await computeDevicePublicKeyDigestB64u(
+    body.payload.devicePublicKeyB64u,
+  );
   const requestProof = parseBoundary(() => parseRequestProofHeader(ctx.request));
   validateRequestProof(
     requestProof,
@@ -246,7 +301,10 @@ async function handleCreate(
     requestedAtMs: nowMs,
   });
   if (verification.kind === 'denied') return authDeniedResponse(verification);
-  const result = await service.sessionService.createUnclaimedSessionV1({ payload: body.payload, nowMs });
+  const result = await service.sessionService.createUnclaimedSessionV1({
+    payload: body.payload,
+    nowMs,
+  });
   return sessionResultResponse(result);
 }
 
@@ -270,14 +328,30 @@ async function handleClaim(
   nowMs: number,
 ): Promise<Response> {
   const bodyDigestB64u = await requestBodyDigest(ctx.request);
-  const authentication = await authenticateOwner(service, ctx.request, ctx.method, ctx.pathname, bodyDigestB64u, nowMs);
+  const authentication = await authenticateOwner(
+    service,
+    ctx.request,
+    ctx.method,
+    ctx.pathname,
+    bodyDigestB64u,
+    nowMs,
+  );
   if (authentication.kind === 'denied') return authDeniedResponse(authentication);
-  validateOwnerRequestBinding(authentication.binding, ctx.method, ctx.pathname, bodyDigestB64u, nowMs);
+  validateOwnerRequestBinding(
+    authentication.binding,
+    ctx.method,
+    ctx.pathname,
+    bodyDigestB64u,
+    nowMs,
+  );
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
   const body = parseBoundary(() => parseClaimRequest(authentication.body));
   const linkSessionId = parseBoundary(() => parseSessionId(rawLinkSessionId));
-  if (body.payload.linkSessionId !== linkSessionId) return invalidInputResponse('link session id does not match route');
-  return claimResultResponse(await service.sessionService.claimSessionV1({ payload: body.payload, nowMs }));
+  if (body.payload.linkSessionId !== linkSessionId)
+    return invalidInputResponse('link session id does not match route');
+  return claimResultResponse(
+    await service.sessionService.claimSessionV1({ payload: body.payload, nowMs }),
+  );
 }
 
 async function handleApproval(
@@ -286,15 +360,133 @@ async function handleApproval(
   rawLinkSessionId: string,
   nowMs: number,
 ): Promise<Response> {
+  if (ctx.method === 'GET') {
+    const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
+    if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
+    if (authenticated.kind === 'not_found') return notFoundResponse();
+    const approval = authenticated.session.approvalTranscript?.value;
+    if (!approval) return invalidStateResponse(authenticated.session);
+    assertApprovalMatchesPersistedSession(authenticated.session, approval);
+    return json(
+      parseBoundary(() =>
+        parseLinkedDeviceApprovalDeliveryV1({
+          kind: 'linked_device_approval_delivery_v1',
+          approval,
+        }),
+      ),
+      { status: 200 },
+    );
+  }
   const bodyDigestB64u = await requestBodyDigest(ctx.request);
-  const authentication = await authenticateOwner(service, ctx.request, ctx.method, ctx.pathname, bodyDigestB64u, nowMs);
+  const authentication = await authenticateOwner(
+    service,
+    ctx.request,
+    ctx.method,
+    ctx.pathname,
+    bodyDigestB64u,
+    nowMs,
+  );
   if (authentication.kind === 'denied') return authDeniedResponse(authentication);
-  validateOwnerRequestBinding(authentication.binding, ctx.method, ctx.pathname, bodyDigestB64u, nowMs);
+  validateOwnerRequestBinding(
+    authentication.binding,
+    ctx.method,
+    ctx.pathname,
+    bodyDigestB64u,
+    nowMs,
+  );
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
   const approval = parseBoundary(() => parseLinkedDeviceApprovalV1(authentication.body));
   const linkSessionId = parseBoundary(() => parseSessionId(rawLinkSessionId));
-  if (approval.linkSessionId !== linkSessionId) return invalidInputResponse('link session id does not match route');
-  return approvalResultResponse(await service.sessionService.recordOwnerApprovalV1({ approval, nowMs }));
+  if (approval.linkSessionId !== linkSessionId)
+    return invalidInputResponse('link session id does not match route');
+  return approvalResultResponse(
+    await service.sessionService.recordOwnerApprovalV1({ approval, nowMs }),
+  );
+}
+
+async function handleProvision(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
+  const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
+  if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
+  if (authenticated.kind === 'not_found') return notFoundResponse();
+  if (ctx.method !== 'POST') return methodNotAllowedResponse();
+  const command = parseBoundary(() => parseLinkedDeviceProvisioningCommandV1(authenticated.body));
+  const session = authenticated.session;
+  const approval = requireProvisioningApproval(session);
+  assertProvisioningIdentityMatches({
+    linkSessionId: command.linkSessionId,
+    enrollmentId: command.enrollmentId,
+    deviceId: command.deviceId,
+    session,
+    approval,
+  });
+  const provisioningResult = await service.provisioning.provisionLinkedDeviceV1({
+    command,
+    session,
+    approval,
+    requestedAtMs: nowMs,
+  });
+  const deliveries = parseBoundary(() =>
+    parseLinkedDeviceProvisioningDeliveriesV1(provisioningResult),
+  );
+  assertProvisioningIdentityMatches({
+    linkSessionId: deliveries.linkSessionId,
+    enrollmentId: deliveries.enrollmentId,
+    deviceId: deliveries.deviceId,
+    session,
+    approval,
+  });
+  assertProvisioningChildrenMatchApproval(deliveries, approval);
+  await service.provisioningVerifier.verifyProvisioningDeliveriesV1({
+    deliveries,
+    approval,
+  });
+  return json(deliveries, { status: 200 });
+}
+
+async function handleHolderReceipts(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
+  const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
+  if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
+  if (authenticated.kind === 'not_found') return notFoundResponse();
+  if (ctx.method !== 'POST') return methodNotAllowedResponse();
+  const acknowledgement = parseBoundary(() =>
+    parseLinkedDeviceHolderDeliveryAcknowledgementV1(authenticated.body),
+  );
+  if (acknowledgement.acknowledgedAtMs > nowMs) {
+    return invalidInputResponse('holder delivery acknowledgement is from the future');
+  }
+  const session = authenticated.session;
+  const approval = requireHolderDeliveryApproval(session);
+  assertProvisioningIdentityMatches({
+    linkSessionId: acknowledgement.linkSessionId,
+    enrollmentId: acknowledgement.enrollmentId,
+    deviceId: acknowledgement.deviceId,
+    session,
+    approval,
+  });
+  assertHolderReceiptsMatchApproval(acknowledgement, approval);
+  await service.provisioningVerifier.verifyHolderDeliveriesV1({
+    acknowledgement,
+    approval,
+  });
+  const holderDeliveryResult = await service.provisioning.recordHolderDeliveriesV1({
+    acknowledgement,
+    session,
+    approval,
+    requestedAtMs: nowMs,
+  });
+  const receipt = parseBoundary(() => parseLinkedDeviceEnrollmentReceiptV1(holderDeliveryResult));
+  assertAggregateReceiptMatchesSession(receipt, session, approval);
+  return json(receipt, { status: 200 });
 }
 
 async function handleCredential(
@@ -307,18 +499,25 @@ async function handleCredential(
   if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
   if (authenticated.kind === 'not_found') return notFoundResponse();
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
-  const registration = parseBoundary(() => parseLinkedDeviceTargetCredentialRegistrationV1(authenticated.body));
+  const registration = parseBoundary(() =>
+    parseLinkedDeviceTargetCredentialRegistrationV1(authenticated.body),
+  );
   const linkSessionId = authenticated.linkSessionId;
-  if (registration.linkSessionId !== linkSessionId) return invalidInputResponse('link session id does not match route');
-  if (registration.registeredAtMs > nowMs) return invalidInputResponse('credential registration is from the future');
+  if (registration.linkSessionId !== linkSessionId)
+    return invalidInputResponse('link session id does not match route');
+  if (registration.registeredAtMs > nowMs)
+    return invalidInputResponse('credential registration is from the future');
   const session = authenticated.session;
   if (
     session.state.state !== 'awaiting_target_passkey' ||
     session.state.walletId !== registration.walletId ||
     session.state.enrollmentId !== registration.enrollmentId ||
     session.claimTranscript?.value.deviceId !== registration.deviceId
-  ) return invalidInputResponse('target credential binding does not match session');
-  return mutationResultResponse(await service.registerTargetCredentialV1({ registration, session, requestedAtMs: nowMs }));
+  )
+    return invalidInputResponse('target credential binding does not match session');
+  return mutationResultResponse(
+    await service.registerTargetCredentialV1({ registration, session, requestedAtMs: nowMs }),
+  );
 }
 
 async function handleReceipt(
@@ -331,17 +530,24 @@ async function handleReceipt(
   if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
   if (authenticated.kind === 'not_found') return notFoundResponse();
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
-  const acknowledgement = parseBoundary(() => parseLinkedDeviceReceiptAcknowledgementV1(authenticated.body));
+  const acknowledgement = parseBoundary(() =>
+    parseLinkedDeviceReceiptAcknowledgementV1(authenticated.body),
+  );
   const linkSessionId = authenticated.linkSessionId;
-  if (acknowledgement.linkSessionId !== linkSessionId) return invalidInputResponse('link session id does not match route');
-  if (acknowledgement.acknowledgedAtMs > nowMs) return invalidInputResponse('receipt acknowledgement is from the future');
+  if (acknowledgement.linkSessionId !== linkSessionId)
+    return invalidInputResponse('link session id does not match route');
+  if (acknowledgement.acknowledgedAtMs > nowMs)
+    return invalidInputResponse('receipt acknowledgement is from the future');
   const session = authenticated.session;
   if (
     session.claimTranscript?.value.deviceId !== acknowledgement.deviceId ||
     !('enrollmentId' in session.state) ||
     session.state.enrollmentId !== acknowledgement.enrollmentId
-  ) return invalidInputResponse('receipt acknowledgement binding does not match session');
-  return mutationResultResponse(await service.acknowledgeReceiptV1({ acknowledgement, session, requestedAtMs: nowMs }));
+  )
+    return invalidInputResponse('receipt acknowledgement binding does not match session');
+  return mutationResultResponse(
+    await service.acknowledgeReceiptV1({ acknowledgement, session, requestedAtMs: nowMs }),
+  );
 }
 
 async function handleRetry(
@@ -356,15 +562,20 @@ async function handleRetry(
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
   const request = parseBoundary(() => parseRetryRequest(authenticated.body));
   const linkSessionId = authenticated.linkSessionId;
-  if (request.linkSessionId !== linkSessionId) return invalidInputResponse('link session id does not match route');
-  if (request.requestedAtMs > nowMs) return invalidInputResponse('delivery retry request is from the future');
+  if (request.linkSessionId !== linkSessionId)
+    return invalidInputResponse('link session id does not match route');
+  if (request.requestedAtMs > nowMs)
+    return invalidInputResponse('delivery retry request is from the future');
   const session = authenticated.session;
   if (
     session.state.state !== 'committed_completion_required' ||
     session.state.enrollmentId !== request.enrollmentId ||
     session.claimTranscript?.value.deviceId !== request.deviceId
-  ) return invalidInputResponse('delivery retry binding does not match session');
-  return mutationResultResponse(await service.retryCommittedDeliveryV1({ request, session, requestedAtMs: nowMs }));
+  )
+    return invalidInputResponse('delivery retry binding does not match session');
+  return mutationResultResponse(
+    await service.retryCommittedDeliveryV1({ request, session, requestedAtMs: nowMs }),
+  );
 }
 
 async function handleCancel(
@@ -377,21 +588,27 @@ async function handleCancel(
   if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
   if (authenticated.kind === 'not_found') return notFoundResponse();
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
-  const request = parseBoundary(() => parseLinkedDeviceSessionTransportRequestV1(authenticated.body));
+  const request = parseBoundary(() =>
+    parseLinkedDeviceSessionTransportRequestV1(authenticated.body),
+  );
   const linkSessionId = authenticated.linkSessionId;
   if (
     request.kind !== 'linked_device_session_cancel_unclaimed_request_v1' &&
     request.kind !== 'linked_device_session_cancel_claimed_request_v1'
-  ) return invalidInputResponse('cancel request kind is invalid');
-  if (request.requestedAtMs > nowMs) return invalidInputResponse('cancel request is from the future');
-  if (request.linkSessionId !== linkSessionId) return invalidInputResponse('link session id does not match route');
+  )
+    return invalidInputResponse('cancel request kind is invalid');
+  if (request.requestedAtMs > nowMs)
+    return invalidInputResponse('cancel request is from the future');
+  if (request.linkSessionId !== linkSessionId)
+    return invalidInputResponse('link session id does not match route');
   const session = authenticated.session;
   if (
     request.kind === 'linked_device_session_cancel_claimed_request_v1' &&
     (session.claimTranscript?.value.deviceId !== request.deviceId ||
       !('enrollmentId' in session.state) ||
       session.state.enrollmentId !== request.enrollmentId)
-  ) return invalidInputResponse('cancel binding does not match session');
+  )
+    return invalidInputResponse('cancel binding does not match session');
   const result = await service.sessionService.cancelSessionV1({
     linkSessionId,
     expectedRevision: session.revision,
@@ -408,7 +625,13 @@ async function authenticateOwner(
   bodyDigestB64u: DigestB64u,
   nowMs: number,
 ): Promise<DeviceLinkingAuthenticatedRequestV1 | DeviceLinkingAuthDeniedV1> {
-  return service.authenticateOwnerRequestV1({ request, method, pathname, bodyDigestB64u, requestedAtMs: nowMs });
+  return service.authenticateOwnerRequestV1({
+    request,
+    method,
+    pathname,
+    bodyDigestB64u,
+    requestedAtMs: nowMs,
+  });
 }
 
 type DeviceLinkingDeviceAuthenticatedContextV1 =
@@ -482,10 +705,23 @@ async function authenticateDeviceForSession(
 function parseRoutePath(pathname: string):
   | { readonly kind: 'create' }
   | { readonly kind: 'get'; readonly linkSessionId: string }
-  | { readonly kind: 'claim' | 'approval' | 'credential' | 'receipt' | 'retry' | 'cancel'; readonly linkSessionId: string }
+  | {
+      readonly kind:
+        | 'claim'
+        | 'approval'
+        | 'provision'
+        | 'holder-receipts'
+        | 'credential'
+        | 'receipt'
+        | 'retry'
+        | 'cancel';
+      readonly linkSessionId: string;
+    }
   | null {
   if (pathname === DEVICE_LINKING_BASE) return { kind: 'create' };
-  const suffix = pathname.startsWith(`${DEVICE_LINKING_BASE}/`) ? pathname.slice(DEVICE_LINKING_BASE.length + 1) : '';
+  const suffix = pathname.startsWith(`${DEVICE_LINKING_BASE}/`)
+    ? pathname.slice(DEVICE_LINKING_BASE.length + 1)
+    : '';
   if (!suffix) return null;
   const parts = suffix.split('/');
   if (parts.length === 1 && parts[0]) return { kind: 'get', linkSessionId: parts[0] };
@@ -493,18 +729,189 @@ function parseRoutePath(pathname: string):
   if (
     parts[1] !== 'claim' &&
     parts[1] !== 'approval' &&
+    parts[1] !== 'provision' &&
+    parts[1] !== 'holder-receipts' &&
     parts[1] !== 'credential' &&
     parts[1] !== 'receipt' &&
     parts[1] !== 'retry' &&
     parts[1] !== 'cancel'
-  ) return null;
+  )
+    return null;
   return { kind: parts[1], linkSessionId: parts[0] };
+}
+
+function requireProvisioningApproval(session: LinkedDeviceSessionRecordV1): LinkedDeviceApprovalV1 {
+  const approval = session.approvalTranscript?.value;
+  if (!approval || !isProvisioningSessionState(session.state)) {
+    throw new DeviceLinkingInputError('linked-device session is not ready for provisioning');
+  }
+  assertApprovalMatchesPersistedSession(session, approval);
+  return approval;
+}
+
+function requireHolderDeliveryApproval(
+  session: LinkedDeviceSessionRecordV1,
+): LinkedDeviceApprovalV1 {
+  const approval = session.approvalTranscript?.value;
+  if (
+    !approval ||
+    (!isProvisioningSessionState(session.state) && session.state.state !== 'active')
+  ) {
+    throw new DeviceLinkingInputError('linked-device session cannot accept holder receipts');
+  }
+  assertApprovalMatchesPersistedSession(session, approval);
+  return approval;
+}
+
+function assertApprovalMatchesPersistedSession(
+  session: LinkedDeviceSessionRecordV1,
+  approval: LinkedDeviceApprovalV1,
+): void {
+  if (
+    approval.linkSessionId !== session.linkSessionId ||
+    approval.linkPublicKeyB64u !== session.qrPayload.linkPublicKeyB64u ||
+    approval.devicePublicKeyB64u !== session.qrPayload.devicePublicKeyB64u ||
+    approval.permission.kind !== session.qrPayload.requestedPermission.kind ||
+    approval.permission.administrationScope !==
+      session.qrPayload.requestedPermission.administrationScope ||
+    approval.permission.localUserPresence !==
+      session.qrPayload.requestedPermission.localUserPresence ||
+    session.claimTranscript?.value.deviceId !== approval.deviceId ||
+    !('walletId' in session.state) ||
+    !('enrollmentId' in session.state) ||
+    session.state.walletId !== approval.walletId ||
+    session.state.enrollmentId !== approval.enrollmentId
+  ) {
+    throw new DeviceLinkingInputError('stored approval does not match linked-device session');
+  }
+}
+
+function assertAggregateReceiptMatchesSession(
+  receipt: LinkedDeviceEnrollmentReceiptV1,
+  session: LinkedDeviceSessionRecordV1,
+  approval: LinkedDeviceApprovalV1,
+): void {
+  const expectedManifestDigest = manifestDigestFromSession(session);
+  if (
+    receipt.enrollmentId !== approval.enrollmentId ||
+    receipt.walletId !== approval.walletId ||
+    receipt.deviceId !== approval.deviceId ||
+    receipt.orderedChildReceipts.length !== approval.orderedKeyBindings.length ||
+    (expectedManifestDigest !== null && receipt.manifestDigestB64u !== expectedManifestDigest)
+  ) {
+    throw new DeviceLinkingInputError('aggregate receipt does not match approved enrollment');
+  }
+}
+
+function manifestDigestFromSession(session: LinkedDeviceSessionRecordV1): string | null {
+  switch (session.state.state) {
+    case 'provisioning':
+    case 'awaiting_aggregate_receipt':
+      return session.state.keyManifestDigestB64u;
+    case 'active':
+      if (!session.aggregateReceipt) {
+        throw new DeviceLinkingInputError('active linked-device session has no aggregate receipt');
+      }
+      return session.aggregateReceipt.manifestDigestB64u;
+    case 'displaying_qr':
+    case 'claimed_by_owner':
+    case 'awaiting_target_passkey':
+    case 'expired_unclaimed':
+    case 'expired_claimed':
+    case 'cancelled_unclaimed':
+    case 'cancelled_claimed_precommit':
+    case 'committed_completion_required':
+      return null;
+    default:
+      return assertNever(session.state);
+  }
+}
+
+function isProvisioningSessionState(state: LinkedDeviceSessionState): boolean {
+  return (
+    state.state === 'awaiting_target_passkey' ||
+    state.state === 'provisioning' ||
+    state.state === 'awaiting_aggregate_receipt' ||
+    state.state === 'committed_completion_required'
+  );
+}
+
+function assertProvisioningIdentityMatches(input: {
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly enrollmentId: LinkedDeviceApprovalV1['enrollmentId'];
+  readonly deviceId: LinkedDeviceId;
+  readonly session: LinkedDeviceSessionRecordV1;
+  readonly approval: LinkedDeviceApprovalV1;
+}): void {
+  if (
+    input.linkSessionId !== input.session.linkSessionId ||
+    input.linkSessionId !== input.approval.linkSessionId ||
+    input.enrollmentId !== input.approval.enrollmentId ||
+    input.deviceId !== input.approval.deviceId ||
+    input.session.claimTranscript?.value.deviceId !== input.deviceId
+  ) {
+    throw new DeviceLinkingInputError('provisioning identity does not match approved session');
+  }
+}
+
+function assertProvisioningChildrenMatchApproval(
+  deliveries: LinkedDeviceProvisioningDeliveriesV1,
+  approval: LinkedDeviceApprovalV1,
+): void {
+  if (deliveries.orderedChildren.length !== approval.orderedKeyBindings.length) {
+    throw new DeviceLinkingInputError('provisioning delivery set is incomplete');
+  }
+  deliveries.orderedChildren.forEach((child, index) => {
+    const approved = approval.orderedKeyBindings[index];
+    const job = child.job;
+    if (
+      !approved ||
+      String(job.enrollmentId) !== String(approval.enrollmentId) ||
+      job.walletId !== approval.walletId ||
+      job.walletKeyId !== approved.walletKeyId ||
+      job.keyFamily !== approved.keyFamily ||
+      job.source.laneId !== approved.sourceLaneId ||
+      job.source.laneShareEpoch !== approved.sourceLaneShareEpoch ||
+      job.source.revocationEpoch !== approved.sourceRevocationEpoch ||
+      job.target.operation !== 'create_lane' ||
+      job.target.laneKind !== 'linked_device' ||
+      job.target.laneId !== approved.targetLaneId ||
+      job.target.laneShareEpoch !== approved.targetLaneShareEpoch ||
+      child.protocolCommitReceipt.operationId !== job.operationId ||
+      child.protocolCommitReceipt.walletKeyId !== job.walletKeyId ||
+      child.protocolCommitReceipt.targetLaneId !== job.target.laneId ||
+      child.protocolCommitReceipt.targetLaneShareEpoch !== job.target.laneShareEpoch
+    ) {
+      throw new DeviceLinkingInputError('provisioning child does not match approved key order');
+    }
+  });
+}
+
+function assertHolderReceiptsMatchApproval(
+  acknowledgement: LinkedDeviceHolderDeliveryAcknowledgementV1,
+  approval: LinkedDeviceApprovalV1,
+): void {
+  if (acknowledgement.orderedHolderDeliveryReceipts.length !== approval.orderedKeyBindings.length) {
+    throw new DeviceLinkingInputError('holder receipt set is incomplete');
+  }
+  acknowledgement.orderedHolderDeliveryReceipts.forEach((receipt, index) => {
+    const approved = approval.orderedKeyBindings[index];
+    if (
+      !approved ||
+      String(receipt.enrollmentId) !== String(approval.enrollmentId) ||
+      receipt.targetLaneId !== approved.targetLaneId ||
+      receipt.targetLaneShareEpoch !== approved.targetLaneShareEpoch
+    ) {
+      throw new DeviceLinkingInputError('holder receipt does not match approved key order');
+    }
+  });
 }
 
 function parseCreateRequest(raw: unknown): DeviceLinkingCreateRequestV1 {
   const record = requireRecord(raw, 'device-linking create request');
   requireExactKeys(record, ['kind', 'payload']);
-  if (record.kind !== 'linked_device_session_create_request_v1') throw new Error('device-linking create request kind is invalid');
+  if (record.kind !== 'linked_device_session_create_request_v1')
+    throw new Error('device-linking create request kind is invalid');
   return {
     kind: 'linked_device_session_create_request_v1',
     payload: parseQrLinkedDeviceSessionPayloadV4(record.payload),
@@ -515,18 +922,25 @@ function parseClaimRequest(raw: unknown) {
   return parseLinkedDeviceSessionClaimRequestV1(raw);
 }
 
-function parseRetryRequest(raw: unknown): Extract<
+function parseRetryRequest(
+  raw: unknown,
+): Extract<
   LinkedDeviceSessionTransportRequestV1,
   { readonly kind: 'linked_device_session_retry_committed_delivery_request_v1' }
 > {
   const request = parseLinkedDeviceSessionTransportRequestV1(raw);
-  if (request.kind !== 'linked_device_session_retry_committed_delivery_request_v1') throw new Error('retry request kind is invalid');
+  if (request.kind !== 'linked_device_session_retry_committed_delivery_request_v1')
+    throw new Error('retry request kind is invalid');
   return request;
 }
 
 function parseSessionId(raw: string): LinkDeviceSessionId {
   let decoded = raw;
-  try { decoded = decodeURIComponent(raw); } catch { throw new Error('link session id is invalid'); }
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    throw new Error('link session id is invalid');
+  }
   const parsed = parseLinkDeviceSessionId(decoded);
   if (!parsed.ok) throw new Error(parsed.error.message);
   return parsed.value;
@@ -597,7 +1011,10 @@ function requireClaimedDeviceId(record: ClaimedDeviceLinkingSessionRecordV1): Li
   return record.claimTranscript.value.deviceId;
 }
 
-function sessionProjectionResponse(record: LinkedDeviceSessionRecordV1, outcome: 'applied' | 'replayed'): Response {
+function sessionProjectionResponse(
+  record: LinkedDeviceSessionRecordV1,
+  outcome: 'applied' | 'replayed',
+): Response {
   return json({ ok: true, outcome, session: projectSession(record) }, { status: 200 });
 }
 
@@ -644,7 +1061,15 @@ function approvalResultFromRecord(
       receipt: record.aggregateReceipt,
     } as const;
     return outcome === 'replayed'
-      ? { outcome: 'replayed', replay: { state: 'active', session: active.state, manifestDigestB64u: active.manifestDigestB64u, receipt: active.receipt } }
+      ? {
+          outcome: 'replayed',
+          replay: {
+            state: 'active',
+            session: active.state,
+            manifestDigestB64u: active.manifestDigestB64u,
+            receipt: active.receipt,
+          },
+        }
       : { outcome: 'active', ...active };
   }
   if (!isPendingSessionState(record.state)) return null;
@@ -682,13 +1107,36 @@ function sessionResultResponse(result: LinkedDeviceSessionServiceResultV1): Resp
     case 'replayed':
       return sessionProjectionResponse(result.record, result.outcome);
     case 'conflict':
-      return json({ ok: false, outcome: result.outcome, expectedRevision: result.expectedRevision, actualRevision: result.actualRevision, session: result.record ? projectSession(result.record) : null }, { status: 409 });
+      return json(
+        {
+          ok: false,
+          outcome: result.outcome,
+          expectedRevision: result.expectedRevision,
+          actualRevision: result.actualRevision,
+          session: result.record ? projectSession(result.record) : null,
+        },
+        { status: 409 },
+      );
     case 'expired':
-      return json({ ok: false, outcome: result.outcome, session: projectSession(result.record) }, { status: 410 });
+      return json(
+        { ok: false, outcome: result.outcome, session: projectSession(result.record) },
+        { status: 410 },
+      );
     case 'invalid_state':
-      return json({ ok: false, outcome: result.outcome, state: result.state, session: projectSession(result.record) }, { status: 409 });
+      return json(
+        {
+          ok: false,
+          outcome: result.outcome,
+          state: result.state,
+          session: projectSession(result.record),
+        },
+        { status: 409 },
+      );
     case 'unauthorized':
-      return json({ ok: false, outcome: result.outcome, code: result.code, message: result.message }, { status: 401 });
+      return json(
+        { ok: false, outcome: result.outcome, code: result.code, message: result.message },
+        { status: 401 },
+      );
     case 'invalid_input':
       return invalidInputResponse(result.message);
     default:
@@ -704,37 +1152,75 @@ function mutationResultResponse(result: DeviceLinkingRouteMutationResultV1): Res
     case 'replayed':
       return sessionProjectionResponse(result.record, result.outcome);
     case 'conflict':
-      return json({ ok: false, outcome: result.outcome, expectedRevision: result.expectedRevision, actualRevision: result.actualRevision, session: result.record ? projectSession(result.record) : null }, { status: 409 });
+      return json(
+        {
+          ok: false,
+          outcome: result.outcome,
+          expectedRevision: result.expectedRevision,
+          actualRevision: result.actualRevision,
+          session: result.record ? projectSession(result.record) : null,
+        },
+        { status: 409 },
+      );
     case 'expired':
-      return json({ ok: false, outcome: result.outcome, session: projectSession(result.record) }, { status: 410 });
+      return json(
+        { ok: false, outcome: result.outcome, session: projectSession(result.record) },
+        { status: 410 },
+      );
     case 'invalid_state':
-      return json({ ok: false, outcome: result.outcome, state: result.state, session: projectSession(result.record) }, { status: 409 });
+      return json(
+        {
+          ok: false,
+          outcome: result.outcome,
+          state: result.state,
+          session: projectSession(result.record),
+        },
+        { status: 409 },
+      );
     default:
       return assertNever(result);
   }
 }
 
 function authDeniedResponse(result: DeviceLinkingAuthDeniedV1): Response {
-  return json({ ok: false, outcome: 'unauthorized', code: result.code, message: result.message }, { status: result.code === 'expired' ? 410 : 401 });
+  return json(
+    { ok: false, outcome: 'unauthorized', code: result.code, message: result.message },
+    { status: result.code === 'expired' ? 410 : 401 },
+  );
 }
 
 function invalidInputResponse(message: string): Response {
-  return json({ ok: false, outcome: 'invalid_input', code: 'invalid_input', message }, { status: 400 });
+  return json(
+    { ok: false, outcome: 'invalid_input', code: 'invalid_input', message },
+    { status: 400 },
+  );
 }
 
 function notFoundResponse(): Response {
-  return json({ ok: false, code: 'not_found', message: 'Linked-device session not found' }, { status: 404 });
+  return json(
+    { ok: false, code: 'not_found', message: 'Linked-device session not found' },
+    { status: 404 },
+  );
 }
 
 function methodNotAllowedResponse(): Response {
-  return json({ ok: false, code: 'method_not_allowed', message: 'Method is not allowed' }, { status: 405 });
+  return json(
+    { ok: false, code: 'method_not_allowed', message: 'Method is not allowed' },
+    { status: 405 },
+  );
 }
 
 function parseB64u(raw: unknown, field: string): string {
-  if (typeof raw !== 'string' || !/^[A-Za-z0-9_-]+$/.test(raw)) throw new Error(`${field} is invalid`);
+  if (typeof raw !== 'string' || !/^[A-Za-z0-9_-]+$/.test(raw))
+    throw new Error(`${field} is invalid`);
   let bytes: Uint8Array;
-  try { bytes = base64UrlDecode(raw); } catch { throw new Error(`${field} is invalid`); }
-  if (bytes.length === 0 || base64UrlEncode(bytes) !== raw) throw new Error(`${field} is not canonical base64url`);
+  try {
+    bytes = base64UrlDecode(raw);
+  } catch {
+    throw new Error(`${field} is invalid`);
+  }
+  if (bytes.length === 0 || base64UrlEncode(bytes) !== raw)
+    throw new Error(`${field} is not canonical base64url`);
   return raw;
 }
 
@@ -806,7 +1292,9 @@ function validateOwnerRequestBinding(
     throw new DeviceLinkingInputError('owner request binding does not match method or path');
   }
   if (binding.bodyDigestB64u !== bodyDigestB64u) {
-    throw new DeviceLinkingInputError('owner request body digest does not match authenticated bytes');
+    throw new DeviceLinkingInputError(
+      'owner request body digest does not match authenticated bytes',
+    );
   }
   if (!Number.isSafeInteger(binding.expiresAtMs) || binding.expiresAtMs <= nowMs) {
     throw new DeviceLinkingInputError('owner request proof is expired');
@@ -843,7 +1331,8 @@ function parseB64uBytes(raw: unknown, field: string): Uint8Array {
 function requireExactKeys(record: Record<string, unknown>, expected: readonly string[]): void {
   const actual = Object.keys(record).sort();
   const wanted = [...expected].sort();
-  if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) throw new Error('record contains invalid fields');
+  if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index]))
+    throw new Error('record contains invalid fields');
 }
 
 function errorMessage(error: unknown): string {

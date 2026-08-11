@@ -1,8 +1,5 @@
 import { expect, test } from '@playwright/test';
-import {
-  parseLinkedDeviceEnrollmentId,
-  parseLinkedDeviceId,
-} from '@shared/signing-lanes';
+import { parseLinkedDeviceEnrollmentId, parseLinkedDeviceId } from '@shared/signing-lanes';
 import { parseWalletId } from '@shared/utils/domainIds';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlEncode } from '@shared/utils/base64';
@@ -149,6 +146,15 @@ test('projects the claimed device identity after owner claim', async () => {
   expect(replayedBody.outcome).toBe('replayed');
   expect(replayedBody.replay.state).toBe('pending');
   expect(replayedBody.replay.session.state).toBe('awaiting_target_passkey');
+
+  const deliveredApproval = await invoke(routeService, {
+    method: 'GET',
+    pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/approval`,
+  });
+  expect(deliveredApproval.status).toBe(200);
+  const deliveredApprovalBody = await deliveredApproval.json();
+  expect(deliveredApprovalBody.kind).toBe('linked_device_approval_delivery_v1');
+  expect(deliveredApprovalBody.approval).toEqual(approval);
 });
 
 test('authenticates owner before parsing claim and returns no session secrets', async () => {
@@ -200,9 +206,21 @@ test('rejects a replayed device signature when the authenticated request body ch
     aggregateActivationVerifier,
   });
   let firstProof: DeviceLinkingRequestProofV1 | undefined;
-  const observed: Array<{ method: string; pathname: string; linkSessionId: string; bodyDigestB64u: string }> = [];
+  const observed: Array<{
+    method: string;
+    pathname: string;
+    linkSessionId: string;
+    bodyDigestB64u: string;
+  }> = [];
   const routeService = routeServiceFor(sessionService, 3_000, {
-    authenticateDeviceRequestV1: async ({ request, method, pathname, linkSessionId, bodyDigestB64u, proof }) => {
+    authenticateDeviceRequestV1: async ({
+      request,
+      method,
+      pathname,
+      linkSessionId,
+      bodyDigestB64u,
+      proof,
+    }) => {
       observed.push({ method, pathname, linkSessionId, bodyDigestB64u });
       const verifiedProof = firstProof ?? proof;
       firstProof = verifiedProof;
@@ -292,6 +310,18 @@ function routeServiceFor(
     retryCommittedDeliveryV1: async () => {
       throw new Error('retry adapter not configured for this test');
     },
+    provisioning: {
+      provisionLinkedDeviceV1: async () => {
+        throw new Error('provisioning adapter not configured for this test');
+      },
+      recordHolderDeliveriesV1: async () => {
+        throw new Error('holder delivery adapter not configured for this test');
+      },
+    },
+    provisioningVerifier: {
+      verifyProvisioningDeliveriesV1: async () => undefined,
+      verifyHolderDeliveriesV1: async () => undefined,
+    },
   };
   return { ...defaults, ...overrides };
 }
@@ -317,7 +347,10 @@ async function invoke(
 ): Promise<Response> {
   const bodyText = input.body === undefined ? undefined : JSON.stringify(input.body);
   const headers = new Headers();
-  headers.set(DEVICE_LINKING_REQUEST_PROOF_HEADER_V1, await requestProofHeader(input.method, input.pathname, bodyText));
+  headers.set(
+    DEVICE_LINKING_REQUEST_PROOF_HEADER_V1,
+    await requestProofHeader(input.method, input.pathname, bodyText),
+  );
   if (bodyText !== undefined) headers.set('content-type', 'application/json');
   const request = new Request(`https://example.test${input.pathname}`, {
     method: input.method,
@@ -340,13 +373,15 @@ async function invoke(
   return response;
 }
 
-async function requestProofHeader(method: string, pathname: string, bodyText: string | undefined): Promise<string> {
+async function requestProofHeader(
+  method: string,
+  pathname: string,
+  bodyText: string | undefined,
+): Promise<string> {
   const bodyDigestB64u = base64UrlEncode(
     await sha256Bytes(new TextEncoder().encode(bodyText ?? '')),
   );
-  const devicePublicKeyDigestB64u = base64UrlEncode(
-    await sha256Bytes(new Uint8Array(32).fill(8)),
-  );
+  const devicePublicKeyDigestB64u = base64UrlEncode(await sha256Bytes(new Uint8Array(32).fill(8)));
   const rawLinkSessionId = pathname.startsWith('/wallet/device-linking/v1/sessions/')
     ? pathname.slice('/wallet/device-linking/v1/sessions/'.length).split('/')[0]
     : 'link-session:r103';

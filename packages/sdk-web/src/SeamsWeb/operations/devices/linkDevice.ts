@@ -13,6 +13,7 @@ import {
   buildCancelledUnclaimedLinkedDeviceSessionState,
   buildQrLinkedDeviceSessionPayloadV4,
   buildLinkedDeviceReceiptAcknowledgementV1,
+  buildLinkedDeviceProvisioningCommandV1,
   buildLinkedDeviceSessionCancelClaimedRequestV1,
   buildLinkedDeviceSessionCancelUnclaimedRequestV1,
   buildLinkedDeviceSessionRetryCommittedDeliveryRequestV1,
@@ -23,6 +24,8 @@ import {
 import type {
   LinkedDeviceSessionState,
   LinkedDeviceSessionTransportEventV1,
+  LinkedDeviceHolderDeliveryAcknowledgementV1,
+  LinkedDeviceEnrollmentReceiptV1,
   QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking';
 import { parseLinkDeviceSessionId } from '@shared/signing-lanes/ids';
@@ -37,6 +40,7 @@ import type {
   DeviceLinkingKeyMaterialHandleV1,
   LinkSessionSubscriptionV1,
 } from './deviceLinkingPorts';
+import { createDeviceLinkingLaneProvisioningHandoffV1 } from './deviceLinkingPorts';
 import { LinkDeviceEventPhase, createLinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import type { CreateLinkDeviceFlowEventInput } from '@/core/types/sdkSentEvents';
 
@@ -405,6 +409,61 @@ export class LinkDeviceFlow {
       deviceId: await this.requireDeviceId(state),
       credentialIdB64u: credential.credentialIdB64u,
     });
+    const deviceId = await this.requireDeviceId(state);
+    const approval = await authenticatedTransport.getApprovalV1({
+      linkSessionId: state.linkSessionId,
+    });
+    this.assertProvisioningApprovalMatchesSession({ approval, state, deviceId });
+    const deliveries = await authenticatedTransport.requestProvisioningDeliveriesV1({
+      command: buildLinkedDeviceProvisioningCommandV1({
+        linkSessionId: state.linkSessionId,
+        enrollmentId: state.enrollmentId,
+        deviceId,
+      }),
+    });
+    const receipt = await this.ports.laneProvisioning.prepareLinkedDeviceLanesV1(
+      createDeviceLinkingLaneProvisioningHandoffV1({
+        approval,
+        deliveries,
+        keyMaterial: this.keyMaterialHandle,
+        acknowledgeHolderDeliveriesV1: this.acknowledgeHolderDeliveries.bind(this),
+      }),
+    );
+    await authenticatedTransport.acknowledgeReceiptV1({
+      acknowledgement: buildLinkedDeviceReceiptAcknowledgementV1({
+        linkSessionId: state.linkSessionId,
+        enrollmentId: state.enrollmentId,
+        deviceId,
+        receipt,
+        acknowledgedAtMs: Date.now(),
+      }),
+    });
+  }
+
+  private async acknowledgeHolderDeliveries(
+    acknowledgement: LinkedDeviceHolderDeliveryAcknowledgementV1,
+  ): Promise<LinkedDeviceEnrollmentReceiptV1> {
+    return await this.requireAuthenticatedTransport().acknowledgeHolderDeliveriesV1({
+      acknowledgement,
+    });
+  }
+
+  private assertProvisioningApprovalMatchesSession(input: {
+    readonly approval: import('@shared/device-linking').LinkedDeviceApprovalV1;
+    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_passkey' }>;
+    readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
+  }): void {
+    if (!this.session) throw new Error('device-link session is unavailable');
+    if (
+      input.approval.linkSessionId !== input.state.linkSessionId ||
+      input.approval.walletId !== input.state.walletId ||
+      input.approval.enrollmentId !== input.state.enrollmentId ||
+      input.approval.deviceId !== input.deviceId ||
+      input.approval.linkPublicKeyB64u !== this.session.qrData.linkPublicKeyB64u ||
+      input.approval.devicePublicKeyB64u !== this.session.qrData.devicePublicKeyB64u
+    ) {
+      throw new Error('linked-device approval does not match the claimed session');
+    }
   }
 
   private async resumeCommittedDelivery(
