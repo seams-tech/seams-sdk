@@ -4,6 +4,7 @@ export * from './core/SessionService';
 export * from './core/ThresholdService/evmCryptoWasm';
 export * from './core/d1WalletStore';
 export * from './core/logger';
+export * from './core/signingLanes/LaneLifecycleApplicationService';
 export * from './core/routerAbSigning/RouterAbEcdsaPresignRuntime';
 export * from './core/types';
 export * from './delegateAction';
@@ -47,12 +48,23 @@ export {
   type DeviceLinkingLaneCeremonyBindingRequestV1,
   type DeviceLinkingLaneCeremonyBindingResponseV1,
 } from './router/transport/fetch/routes/deviceLinkingLaneGateway';
+export type {
+  DeviceLinkingAuthDeniedV1,
+  DeviceLinkingOperatorRecoveryProviderV1,
+  DeviceLinkingRouteServiceV1,
+} from './router/transport/fetch/routes/deviceLinking';
 export * from './router/cloudflare/runtime/createCloudflareRouter';
 export * from './router/cloudflare/d1/ed25519Yao/d1Ed25519YaoCapabilityPersistence';
 export * from './router/cloudflare/d1/oidc/d1OidcBoundary';
 export * from './router/cloudflare/d1/auth/d1RouterApiAuthConfig';
 export * from './router/cloudflare/d1/auth/d1RouterApiAuthService';
 export * from './router/cloudflare/d1/signingLanes/d1LinkedDeviceLaneOwnerAuthorization';
+export * from './router/cloudflare/d1/signingLanes/d1LaneEnrollmentGateway';
+export * from './router/cloudflare/d1/signingLanes/d1LaneLifecycleStore';
+export * from './router/cloudflare/d1/deviceLinking/d1LinkedDeviceTargetPlanner';
+export * from './router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerAuthorizationProvider';
+export * from './router/cloudflare/signingLanes/cloudflareLaneCurveExecution';
+export * from './router/cloudflare/signingLanes/cloudflareLaneProtocolCommitter';
 export * from './router/cloudflare/signingLanes/linkedDeviceEd25519CeremonyBinding';
 export * from './router/cloudflare/d1/webauthn/d1WebAuthnAuthService';
 export * from './router/cloudflare/d1/webauthn/d1WebAuthnStore';
@@ -123,7 +135,13 @@ export {
   MAX_WALLET_SESSION_TTL_MS,
 } from '@shared/threshold/sessionPolicy';
 export { ActionType } from '@shared/near/actions';
-export { parseOrgId, parseWalletId, parseWebAuthnRpId, type OrgId } from '@shared/utils/domainIds';
+export {
+  parseOrgId,
+  parseWalletId,
+  parseWebAuthnRpId,
+  type OrgId,
+  type WebAuthnRpId,
+} from '@shared/utils/domainIds';
 export { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 export { keccak256Bytes } from '@shared/utils/keccak';
 export {

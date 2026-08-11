@@ -72,6 +72,7 @@ async function handleList(
   );
   if (authentication.kind === 'denied') return authDeniedResponse(authentication);
   validateOwnerBinding(authentication.binding, ctx.method, canonicalPathname, body.digestB64u, nowMs);
+  if (authentication.owner.walletId !== request.walletId) return unauthorizedResponse();
   if (body.bytes.byteLength !== 0) {
     throw new DeviceManagementInputError('linked-device list request must have an empty body');
   }
@@ -91,6 +92,7 @@ async function handleRevoke(
   if (authentication.kind === 'denied') return authDeniedResponse(authentication);
   validateOwnerBinding(authentication.binding, ctx.method, ctx.pathname, body.digestB64u, nowMs);
   const request = parseBoundary(() => parseLinkedDeviceRevokeRequestV1(authentication.body));
+  if (authentication.owner.walletId !== request.walletId) return unauthorizedResponse();
   const pathDeviceId = parseBoundary(() => parsePathDeviceId(ctx.pathname));
   if (request.deviceId !== pathDeviceId) {
     throw new DeviceManagementInputError('device id does not match the route');
