@@ -21,8 +21,9 @@ use router_ab_ed25519_yao_protocol::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use signer_core::passkey_custody::{
-    seal_passkey_custody_secret_v1, PasskeyCustodyEnvelopeBindingV1, PasskeyCustodySecretBindingV1,
-    WalletCustodyEnvelopeFactorV1, PASSKEY_CUSTODY_NONCE_LEN,
+    open_verified_passkey_custody_secret_v1, seal_passkey_custody_secret_v1,
+    PasskeyCustodyEnvelopeBindingV1, PasskeyCustodySecretBindingV1, WalletCustodyEnvelopeFactorV1,
+    PASSKEY_CUSTODY_NONCE_LEN,
 };
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
@@ -196,6 +197,19 @@ struct LaneHolderSealedRecordV1<'a> {
     ciphertext_digest_b64u: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct OpenableLaneHolderSealedRecordV1 {
+    kind: String,
+    custody_binding_id: String,
+    custody_binding_digest_b64u: String,
+    envelope_binding: PasskeyCustodyEnvelopeBindingV1,
+    nonce_b64u: String,
+    sealed_custody_secret_b64u: String,
+    aad_hash_b64u: String,
+    ciphertext_digest_b64u: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LaneHolderSealedOutputV1 {
@@ -208,6 +222,144 @@ pub(crate) struct LaneHolderSealedOutputV1 {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LaneHolderVerifiedOutputV1 {
     verified_holder_ciphertext_digest_set_b64u: String,
+}
+
+pub(crate) enum LaneHolderSigningMaterialV1 {
+    Ed25519 {
+        share: Zeroizing<[u8; 32]>,
+        registered_public_key: [u8; 32],
+    },
+    Ecdsa {
+        _share: Zeroizing<[u8; 32]>,
+    },
+    Destroyed,
+}
+
+impl LaneHolderSigningMaterialV1 {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn open(
+        factor_secret: &[u8],
+        sealed_holder_material_b64u: &str,
+        expected_record_digest_b64u: &str,
+        expected_holder_ciphertext_digest_set_b64u: &str,
+        job_json: &str,
+        receipt_json: &str,
+    ) -> Result<Self, LaneHolderError> {
+        let (record, share) = open_sealed_holder_secret(
+            factor_secret,
+            sealed_holder_material_b64u,
+            expected_record_digest_b64u,
+        )?;
+        let receipt = parse_receipt(receipt_json)?;
+        require_same_digest(
+            expected_holder_ciphertext_digest_set_b64u,
+            &receipt.target_holder_ciphertext_digest_set_b64u,
+        )?;
+        let factor_kind = record.envelope_binding.factor.kind_str();
+        let factor_secret: [u8; 32] = factor_secret
+            .try_into()
+            .map_err(|_| LaneHolderError::InvalidShape)?;
+        let custody = LaneCustodySealV1::from_factor(
+            factor_kind,
+            factor_secret,
+            record.envelope_binding,
+            record.custody_binding_id,
+            record.custody_binding_digest_b64u,
+        )?;
+        if let Ok(job) = serde_json::from_str::<Ed25519YaoLaneJobV1>(job_json) {
+            job.validate().map_err(|_| LaneHolderError::InvalidShape)?;
+            custody.validate_ed_job(&job)?;
+            validate_ed_receipt(&job, &receipt)?;
+            let scalar_option = Scalar::from_canonical_bytes(*share);
+            let scalar = scalar_option.unwrap_or(Scalar::ZERO);
+            let commitment = (ED25519_BASEPOINT_POINT * scalar).compress().to_bytes();
+            let expected_commitment = decode_32(&receipt.target_holder_public_commitment_b64u)?;
+            let valid = scalar_option.is_some()
+                & !scalar.ct_eq(&Scalar::ZERO)
+                & commitment.ct_eq(&expected_commitment);
+            if !bool::from(valid) {
+                return Err(LaneHolderError::InvalidShare);
+            }
+            return Ok(Self::Ed25519 {
+                share,
+                registered_public_key: decode_32(&job.registered_public_key_b64u)?,
+            });
+        }
+        let job = serde_json::from_str::<EcdsaAdditiveLaneJobV1>(job_json)
+            .map_err(|_| LaneHolderError::InvalidShape)?;
+        job.validate().map_err(|_| LaneHolderError::InvalidShape)?;
+        custody.validate_ecdsa_job(&job)?;
+        validate_ecdsa_receipt(&job, &receipt)?;
+        let secret =
+            SecretKey::from_slice(share.as_ref()).map_err(|_| LaneHolderError::InvalidShare)?;
+        let commitment = secret.public_key().to_encoded_point(true);
+        let expected_commitment = decode_33(&receipt.target_holder_public_commitment_b64u)?;
+        if !bool::from(commitment.as_bytes().ct_eq(&expected_commitment)) {
+            return Err(LaneHolderError::InvalidShare);
+        }
+        Ok(Self::Ecdsa { _share: share })
+    }
+
+    pub(crate) fn kind(&self) -> Result<&'static str, LaneHolderError> {
+        match self {
+            Self::Ed25519 { .. } => Ok("ed25519"),
+            Self::Ecdsa { .. } => Ok("ecdsa_secp256k1"),
+            Self::Destroyed => Err(LaneHolderError::AlreadyConsumed),
+        }
+    }
+
+    pub(crate) fn ed25519_material(&self) -> Result<(&[u8; 32], &[u8; 32]), LaneHolderError> {
+        match self {
+            Self::Ed25519 {
+                share,
+                registered_public_key,
+            } => Ok((share, registered_public_key)),
+            Self::Ecdsa { .. } | Self::Destroyed => Err(LaneHolderError::BindingMismatch),
+        }
+    }
+
+    pub(crate) fn destroy(&mut self) {
+        *self = Self::Destroyed;
+    }
+}
+
+fn open_sealed_holder_secret(
+    factor_secret: &[u8],
+    sealed_holder_material_b64u: &str,
+    expected_record_digest_b64u: &str,
+) -> Result<(OpenableLaneHolderSealedRecordV1, Zeroizing<[u8; 32]>), LaneHolderError> {
+    if factor_secret.len() != 32 {
+        return Err(LaneHolderError::InvalidShape);
+    }
+    let encoded = decode_b64u(sealed_holder_material_b64u)?;
+    require_digest_match(expected_record_digest_b64u, Sha256::digest(&encoded).into())?;
+    let record = serde_json::from_slice::<OpenableLaneHolderSealedRecordV1>(&encoded)
+        .map_err(|_| LaneHolderError::InvalidShape)?;
+    if record.kind != "lane_holder_sealed_custody_envelope_v1"
+        || record.custody_binding_id != record.envelope_binding.envelope_id
+    {
+        return Err(LaneHolderError::BindingMismatch);
+    }
+    decode_32(&record.custody_binding_digest_b64u)?;
+    let nonce = decode_b64u(&record.nonce_b64u)?;
+    let ciphertext = decode_b64u(&record.sealed_custody_secret_b64u)?;
+    let aad_hash = decode_32(&record.aad_hash_b64u)?;
+    let ciphertext_digest = decode_32(&record.ciphertext_digest_b64u)?;
+    let mut opened = open_verified_passkey_custody_secret_v1(
+        factor_secret,
+        &record.envelope_binding,
+        &nonce,
+        &ciphertext,
+        &aad_hash,
+        &ciphertext_digest,
+    )
+    .map_err(|_| LaneHolderError::HpkeFailed)?;
+    let share: [u8; 32] = opened
+        .as_slice()
+        .try_into()
+        .map_err(|_| LaneHolderError::InvalidShare)?;
+    opened.zeroize();
+    Ok((record, Zeroizing::new(share)))
 }
 
 pub(crate) struct LaneHolderRecipientV1 {
@@ -883,6 +1035,18 @@ fn require_digest_match(value: &str, expected: [u8; 32]) -> Result<(), LaneHolde
     }
 }
 
+fn require_same_digest(left: &str, right: &str) -> Result<(), LaneHolderError> {
+    if bool::from(decode_32(left)?.ct_eq(&decode_32(right)?)) {
+        Ok(())
+    } else {
+        Err(LaneHolderError::BindingMismatch)
+    }
+}
+
+fn decode_b64u(value: &str) -> Result<Vec<u8>, LaneHolderError> {
+    Base64UrlUnpadded::decode_vec(value).map_err(|_| LaneHolderError::InvalidShape)
+}
+
 fn decode_32(value: &str) -> Result<[u8; 32], LaneHolderError> {
     Base64UrlUnpadded::decode_vec(value)
         .map_err(|_| LaneHolderError::InvalidShape)?
@@ -930,8 +1094,8 @@ mod tests {
     use sha2::{Digest, Sha256};
 
     use super::{
-        b64, verify_ecdsa_public_identity_facts, verify_ed_public_identity_facts,
-        verify_recipient_digests, LaneCustodySealV1,
+        b64, open_sealed_holder_secret, verify_ecdsa_public_identity_facts,
+        verify_ed_public_identity_facts, verify_recipient_digests, LaneCustodySealV1,
     };
     use signer_core::passkey_custody::{
         PasskeyCustodyEnvelopeBindingV1, PasskeyCustodySecretBindingV1,
@@ -959,6 +1123,65 @@ mod tests {
             binding,
             "custody-1".to_owned(),
             b64([1_u8; 32]),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn sealed_holder_secret_reopens_only_with_exact_record_digest_and_factor() {
+        let factor_secret = [7_u8; 32];
+        let custody_binding_id = "custody-1".to_owned();
+        let custody_binding_digest_b64u = b64([8_u8; 32]);
+        let binding = PasskeyCustodyEnvelopeBindingV1 {
+            wallet_id: "wallet-1".to_owned(),
+            envelope_id: custody_binding_id.clone(),
+            factor: WalletCustodyEnvelopeFactorV1::Passkey {
+                rp_id: "example.test".to_owned(),
+                credential_id_b64u: "credential".to_owned(),
+                kek_version: "passkey_prf_kek_hkdf_sha256_v1".to_owned(),
+            },
+            envelope_revision: 1,
+            binding: PasskeyCustodySecretBindingV1::Ed25519LaneHolderShare {
+                lane: signer_core::passkey_custody::PasskeyCustodyLaneScopeV1 {
+                    wallet_key_id: "wallet-key-1".to_owned(),
+                    lane_id: "lane-1".to_owned(),
+                    lane_share_epoch: "lane-share-epoch-1".to_owned(),
+                },
+                near_ed25519_signing_key_id: "near-key-1".to_owned(),
+                registered_public_key_b64u: b64([9_u8; 32]),
+                participant_binding_digest_b64u: b64([10_u8; 32]),
+            },
+        };
+        let custody = LaneCustodySealV1::from_factor(
+            "passkey",
+            factor_secret,
+            binding,
+            custody_binding_id,
+            custody_binding_digest_b64u,
+        )
+        .expect("valid lane custody");
+        let share = Scalar::from(5_u64).to_bytes();
+        let sealed = custody
+            .seal(&share, &[11_u8; 12], [12_u8; 32])
+            .expect("sealed holder share");
+
+        let (_, opened) = open_sealed_holder_secret(
+            &factor_secret,
+            &sealed.sealed_holder_material_b64u,
+            &sealed.sealed_holder_record_digest_b64u,
+        )
+        .expect("exact holder record reopens");
+        assert_eq!(*opened, share);
+        assert!(open_sealed_holder_secret(
+            &[13_u8; 32],
+            &sealed.sealed_holder_material_b64u,
+            &sealed.sealed_holder_record_digest_b64u,
+        )
+        .is_err());
+        assert!(open_sealed_holder_secret(
+            &factor_secret,
+            &sealed.sealed_holder_material_b64u,
+            &b64([14_u8; 32]),
         )
         .is_err());
     }
