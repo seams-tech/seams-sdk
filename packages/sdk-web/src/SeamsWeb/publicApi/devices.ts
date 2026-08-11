@@ -1,5 +1,6 @@
 import { DeviceLinkingDomain } from '@/SeamsWeb/operations/devices/linkDevice';
 import type { DeviceLinkingFlowPortsV1 } from '@/SeamsWeb/operations/devices/deviceLinkingPorts';
+import type { LinkedDeviceLocalStateInvalidationPortV1 } from '@/SeamsWeb/operations/devices/linkedDeviceLocalStateInvalidation';
 import type { DeviceLinkingWebContext, DevicesCapability } from '@/SeamsWeb/signingSurface/types';
 import type { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
 import { parseLinkedDeviceId, parseWalletId, type WalletId } from '@shared/utils/domainIds';
@@ -46,6 +47,7 @@ export type DevicesCapabilityDomainMethods =
       readonly kind: 'direct';
       readonly linkedDeviceManagement: LinkedDeviceManagementPortV1;
       readonly deviceLinkingPorts: DeviceLinkingFlowPortsV1;
+      readonly localStateInvalidation: LinkedDeviceLocalStateInvalidationPortV1;
     };
 
 export function createWalletIframeLinkedDeviceManagementPortV1(deps: {
@@ -107,12 +109,24 @@ export function createDevicesCapability(deps: {
         deviceId: parseLinkedDeviceIdForPublicCall(args.deviceId),
         requestedAtMs: args.requestedAtMs,
       });
-      const result = await deps.domain.linkedDeviceManagement.revokeLinkedDevice({
+      const rawResult = await deps.domain.linkedDeviceManagement.revokeLinkedDevice({
         walletId: request.walletId,
         deviceId: request.deviceId,
         requestedAtMs: request.requestedAtMs,
       });
-      return parseLinkedDeviceRevokeResultV1(result);
+      const result = parseLinkedDeviceRevokeResultV1(rawResult);
+      if (
+        deps.domain.kind === 'direct' &&
+        (result.kind === 'revoked' || result.kind === 'replayed')
+      ) {
+        await deps.domain.localStateInvalidation.invalidateLinkedDeviceStateV1({
+          walletId: request.walletId,
+          deviceId: request.deviceId,
+          requestedAtMs: request.requestedAtMs,
+          result,
+        });
+      }
+      return result;
     },
   } satisfies DevicesCapability;
 }

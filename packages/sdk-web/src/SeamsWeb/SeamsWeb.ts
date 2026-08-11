@@ -46,6 +46,9 @@ import { readNearProvisioningState } from '@/core/signingEngine/flows/registrati
 import { cloneAuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import { toAccountId } from '@/core/types/accountIds';
 import { IndexedDBManager } from '@/core/indexedDB';
+import { laneSealedHolderMaterialRepository } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
+import { linkedDeviceExecutionEvidence } from '@/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
+import { linkedDeviceWalletSessions } from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
 import type {
   HostedAuthMenuExternalAuthRequest,
   HostedAuthMenuDemoEmailOtpDelivery,
@@ -91,6 +94,7 @@ import {
   type WalletIframeControlCapability,
 } from './publicApi';
 import type { DeviceLinkingFlowPortsV1 } from './operations/devices/deviceLinkingPorts';
+import { createLinkedDeviceLocalStateInvalidationPortV1 } from './operations/devices/linkedDeviceLocalStateInvalidation';
 import type {
   AuthCapability,
   DevicesCapability,
@@ -764,6 +768,11 @@ export class SeamsWeb {
             kind: 'direct' as const,
             linkedDeviceManagement: internalOptions.linkedDeviceManagement,
             deviceLinkingPorts: internalOptions.deviceLinkingPorts,
+            localStateInvalidation: createLinkedDeviceLocalStateInvalidationPortV1({
+              holderRepository: laneSealedHolderMaterialRepository,
+              walletSessionRepository: linkedDeviceWalletSessions,
+              executionEvidenceRepository: linkedDeviceExecutionEvidence,
+            }),
           }
         : {
             kind: 'iframe' as const,
