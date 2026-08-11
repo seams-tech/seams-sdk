@@ -1,17 +1,26 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use router_ab_cloudflare::{
-    CloudflareSigningWorkerLaneKeyFamilyV1, CloudflareSigningWorkerLaneMaterialIdentityV1,
+    CloudflareRouterAuthContextV1, CloudflareRouterNormalSigningTrustedAdmissionV1,
+    CloudflareRouterNormalSigningTrustedMetadataV1, CloudflareSecretMaterial32V1,
+    CloudflareServerOutputMaterialRecordV1,
+    CloudflareSigningWorkerAdmittedLinkedDeviceEcdsaPrepareRequestV1,
+    CloudflareSigningWorkerEcdsaPresignatureRecordV1, CloudflareSigningWorkerLaneKeyFamilyV1,
+    CloudflareSigningWorkerLaneMaterialIdentityV1,
+    CloudflareSigningWorkerLinkedDeviceEcdsaPreparedV1,
+    CloudflareSigningWorkerMaterializedLinkedDeviceEcdsaPrepareRequestV1,
     CloudflareSigningWorkerNormalSigningLaneMaterialLookupV1,
     CloudflareSigningWorkerNormalSigningMaterialSourceV1,
 };
 use router_ab_core::{
     parse_router_ab_ecdsa_derivation_linked_device_normal_signing_scope_v1_json,
-    NormalSigningAuthorizationV1,
+    ActiveSigningWorkerStateV1, ExpensiveWorkGateDecisionV1, NormalSigningAuthorizationV1,
+    OpenedShareKind, PublicDigest32, Role,
     RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningFinalizeRequestV1,
     RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningResponseV1,
     RouterAbEcdsaDerivationOperationDigestsV1, RouterAbEcdsaDerivationSignatureSchemeV1,
-    RouterAbProtocolErrorCode,
+    RouterAbProtocolErrorCode, ServerIdentityV1,
 };
+use router_ab_ecdsa_derivation::ecdsa_lane_client_public_key_from_share32_v1;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
@@ -19,10 +28,13 @@ fn digest(seed: u8) -> String {
     URL_SAFE_NO_PAD.encode(Sha256::digest([seed; 32]))
 }
 
+fn public_digest(seed: u8) -> PublicDigest32 {
+    PublicDigest32::new(Sha256::digest([seed; 32]).into())
+}
+
 fn point() -> String {
-    let mut encoded = [0x11; 33];
-    encoded[0] = 2;
-    URL_SAFE_NO_PAD.encode(encoded)
+    URL_SAFE_NO_PAD
+        .encode(ecdsa_lane_client_public_key_from_share32_v1([1; 32]).expect("valid secp share"))
 }
 
 fn scope() -> router_ab_core::RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1 {
@@ -208,5 +220,124 @@ fn linked_ecdsa_response_binds_the_exact_finalize_request() {
     assert_eq!(
         error.code(),
         RouterAbProtocolErrorCode::InvalidLifecycleState
+    );
+}
+
+#[test]
+fn linked_ecdsa_prepared_bundle_binds_request_and_material() {
+    let scope = scope();
+    let finalize_request = RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningFinalizeRequestV1 {
+        scope: scope.clone(),
+        request_id: "request:r103".to_owned(),
+        operation_id: "operation:r103".to_owned(),
+        operation_digests: RouterAbEcdsaDerivationOperationDigestsV1 {
+            lane_digest_b64u: digest(1),
+            intent_digest_b64u: digest(2),
+            display_digest_b64u: digest(3),
+        },
+        authorization: NormalSigningAuthorizationV1::ReusableWalletSession {
+            wallet_session_id: "wallet-session:r103".to_owned(),
+        },
+        material_activation: scope.material_activation.clone(),
+        expires_at_ms: 2_000,
+        signing_digest_b64u: digest(2),
+        server_presignature_id: "presignature:r103".to_owned(),
+        client_signature_share32_b64u: digest(4),
+        client_rerandomization_contribution32_b64u: digest(5),
+    };
+    let prepare_request = finalize_request.prepare_request().expect("prepare request");
+    let trusted_metadata = CloudflareRouterNormalSigningTrustedMetadataV1::new(
+        "org:r103",
+        "project:r103",
+        "test",
+        scope.wallet_id.clone(),
+        CloudflareRouterAuthContextV1::authenticated_session("subject:r103", "wallet-session:r103")
+            .expect("auth"),
+        public_digest(10),
+        prepare_request.request_digest().expect("request digest"),
+    )
+    .expect("trusted metadata");
+    let trusted_admission = CloudflareRouterNormalSigningTrustedAdmissionV1::new(
+        trusted_metadata,
+        ExpensiveWorkGateDecisionV1::accepted(prepare_request.request_id.clone())
+            .expect("accepted gate decision"),
+    )
+    .expect("trusted admission");
+    let admitted = CloudflareSigningWorkerAdmittedLinkedDeviceEcdsaPrepareRequestV1::new(
+        prepare_request.clone(),
+        trusted_admission,
+        material_source(&scope),
+    )
+    .expect("admitted prepare request");
+    let signing_worker = ServerIdentityV1::new(
+        scope.signing_worker_participant_id.clone(),
+        scope.signing_worker_recipient_key_id.clone(),
+        scope.signing_worker_hpke_public_key_b64u.clone(),
+    )
+    .expect("signing worker");
+    let active_signing_worker = ActiveSigningWorkerStateV1::new(
+        scope.wallet_id.clone(),
+        scope.material_activation.clone(),
+        "account-key:r103",
+        signing_worker,
+        public_digest(7),
+        public_digest(8),
+        "material-handle:r103",
+        1_000,
+    )
+    .expect("active signing worker");
+    let material = CloudflareServerOutputMaterialRecordV1::new(
+        public_digest(7),
+        OpenedShareKind::XServerBase,
+        Role::Server,
+        scope.signing_worker_participant_id.clone(),
+        CloudflareSecretMaterial32V1::new([1; 32]),
+    )
+    .expect("server material");
+    let materialized = CloudflareSigningWorkerMaterializedLinkedDeviceEcdsaPrepareRequestV1::new(
+        admitted,
+        active_signing_worker.clone(),
+        material,
+        1_000,
+    )
+    .expect("materialized prepare request");
+    let response =
+        router_ab_core::RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningPrepareResponseV1 {
+            scope: scope.clone(),
+            request_id: prepare_request.request_id.clone(),
+            request_digest: prepare_request.request_digest().expect("request digest"),
+            signing_digest: prepare_request.signing_digest().expect("signing digest"),
+            server_presignature_id: prepare_request.client_presignature_id.clone(),
+            server_big_r33_b64u: point(),
+            signing_worker_rerandomization_contribution32_b64u: digest(6),
+            signature_scheme: RouterAbEcdsaDerivationSignatureSchemeV1::EcdsaSecp256k1RecoverableV1,
+            prepared_at_ms: 1_000,
+            expires_at_ms: 2_000,
+        };
+    let record = CloudflareSigningWorkerEcdsaPresignatureRecordV1::new(
+        active_signing_worker,
+        prepare_request.client_presignature_id.clone(),
+        prepare_request.request_digest().expect("request digest"),
+        prepare_request.signing_digest().expect("signing digest"),
+        point(),
+        digest(6),
+        digest(8),
+        digest(9),
+        1_000,
+        2_000,
+    )
+    .expect("presignature record");
+    let prepared =
+        CloudflareSigningWorkerLinkedDeviceEcdsaPreparedV1::new(response, record, &materialized)
+            .expect("prepared bundle");
+
+    let mut substituted = prepared;
+    substituted.record.request_digest = public_digest(11);
+    let error = substituted
+        .validate_for_request(&materialized)
+        .expect_err("request digest substitution is rejected");
+    assert_eq!(
+        error.code(),
+        RouterAbProtocolErrorCode::InvalidLocalServiceConfig
     );
 }
