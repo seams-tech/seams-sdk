@@ -35,9 +35,7 @@ const GATEWAY_SECRET_INPUTS = Object.freeze([
   ['CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U', 'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U'],
 ]);
 const GATEWAY_EMAIL_SECRET_INPUTS = Object.freeze([['RESEND_API_KEY', 'RESEND_API_KEY']]);
-const GATEWAY_EMAIL_VARIABLE_INPUTS = Object.freeze([
-  ['CONSOLE_EMAIL_FROM', 'CONSOLE_EMAIL_FROM'],
-]);
+const GATEWAY_EMAIL_VARIABLE_INPUTS = Object.freeze([['CONSOLE_EMAIL_FROM', 'CONSOLE_EMAIL_FROM']]);
 const PRODUCTION_LANE_VARIABLE_SUFFIXES = Object.freeze([
   'SEAMS_PROJECT_ENVIRONMENT_ID',
   'SEAMS_PUBLISHABLE_KEY',
@@ -314,6 +312,7 @@ function buildBasePlan(options, repository, values) {
 function appendProductionProductUpdates(plan, values) {
   appendMappedUpdates(plan.secrets, plan.environmentPrefix, values, CLOUDFLARE_SECRET_INPUTS);
   appendMappedUpdates(plan.secrets, plan.environmentPrefix, values, [
+    ['CF_PAGES_PROJECT_DOCS', 'CF_PAGES_PROJECT_DOCS'],
     ['CF_PAGES_PROJECT_WALLET_TESTNET', 'CF_PAGES_PROJECT_WALLET_TESTNET'],
     ['CF_PAGES_PROJECT_WALLET_MAINNET', 'CF_PAGES_PROJECT_WALLET_MAINNET'],
   ]);
@@ -360,7 +359,6 @@ function appendProductionProductUpdates(plan, values) {
     }
   }
   appendMappedUpdates(plan.variables, plan.environmentPrefix, values, [
-    ['VITE_DOCS_ORIGIN', 'VITE_DOCS_ORIGIN'],
     ['VITE_DASHBOARD_WALLETS_ROUTES_ENABLED', 'VITE_DASHBOARD_WALLETS_ROUTES_ENABLED'],
   ]);
 }
