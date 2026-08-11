@@ -4,11 +4,8 @@ import {
   computeLinkedDeviceApprovalDigestV1,
   computeLinkedDeviceSessionClaimDigestV1,
 } from '@shared/device-linking/digests';
-import type {
-  D1DatabaseLike,
-  D1PreparedStatementLike,
-  D1ResultLike,
-} from '../../../../storage/tenantRoute';
+import type { D1DatabaseLike, D1PreparedStatementLike } from '../../../../storage/tenantRoute';
+import { d1ChangedRows } from '../../../../storage/d1Sql';
 import {
   parseD1LinkedDeviceSessionTranscriptRowV1,
   parseD1LinkedDeviceSessionRowV1,
@@ -78,7 +75,7 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
         )
         .bind(...scopeValues(this.scope), ...sessionColumnValues(normalized))
         .run();
-      if (changedRows(result) === 1) return { outcome: 'applied', record: normalized };
+      if (d1ChangedRows(result) === 1) return { outcome: 'applied', record: normalized };
     } catch (error: unknown) {
       insertFailed = true;
       insertError = error;
@@ -565,11 +562,6 @@ function cancelledAtMs(state: LinkedDeviceSessionState): number | null {
   return state.state === 'cancelled_unclaimed' || state.state === 'cancelled_claimed_precommit'
     ? state.cancelledAtMs
     : null;
-}
-
-function changedRows(result: D1ResultLike): number {
-  const value = result.meta?.changes;
-  return typeof value === 'number' ? value : Number(value || 0);
 }
 
 function isExpirableState(state: LinkedDeviceSessionState): boolean {

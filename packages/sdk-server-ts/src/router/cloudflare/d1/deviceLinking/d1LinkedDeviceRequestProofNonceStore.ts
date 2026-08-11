@@ -2,9 +2,8 @@ import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/sign
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
-import type {
-  LinkedDeviceRequestProofNonceStoreV1,
-} from '../../../../core/deviceLinking/requestProof';
+import { d1ChangedRows } from '../../../../storage/d1Sql';
+import type { LinkedDeviceRequestProofNonceStoreV1 } from '../../../../core/deviceLinking/requestProof';
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
 
 const NONCE_TABLE = 'linked_device_request_proof_nonces';
@@ -32,9 +31,7 @@ export type D1LinkedDeviceRequestProofNonceStoreOptionsV1 = {
   readonly scope: D1LinkedDeviceSessionScopeV1;
 };
 
-export class D1LinkedDeviceRequestProofNonceStoreV1
-  implements LinkedDeviceRequestProofNonceStoreV1
-{
+export class D1LinkedDeviceRequestProofNonceStoreV1 implements LinkedDeviceRequestProofNonceStoreV1 {
   private readonly database: D1DatabaseLike;
   private readonly scope: D1LinkedDeviceSessionScopeV1;
 
@@ -78,11 +75,14 @@ export class D1LinkedDeviceRequestProofNonceStoreV1
           normalized.consumedAtMs,
         )
         .run();
-      if (changedRows(result) === 1) return { outcome: 'consumed' };
+      if (d1ChangedRows(result) === 1) return { outcome: 'consumed' };
       throw new Error('device request proof nonce insert did not persist');
     } catch (error: unknown) {
       if (!isUniqueConstraintError(error)) throw error;
-      const existing = await this.readNonceV1(normalized.linkSessionId, normalized.requestNonceB64u);
+      const existing = await this.readNonceV1(
+        normalized.linkSessionId,
+        normalized.requestNonceB64u,
+      );
       if (!existing) throw error;
       return { outcome: 'already_used' };
     }
@@ -135,7 +135,9 @@ function parseNonceRecord(raw: {
   };
 }
 
-function parseNonceRowV1(row: D1LinkedDeviceRequestProofNonceRowV1): LinkedDeviceRequestProofNonceRecordV1 {
+function parseNonceRowV1(
+  row: D1LinkedDeviceRequestProofNonceRowV1,
+): LinkedDeviceRequestProofNonceRecordV1 {
   return parseNonceRecord({
     linkSessionId: parseSessionId(requireString(row.link_session_id, 'link_session_id')),
     requestNonceB64u: requireString(row.request_nonce_b64u, 'request_nonce_b64u'),
@@ -153,7 +155,8 @@ function parseSessionId(raw: unknown): LinkDeviceSessionId {
 }
 
 function parseFixedB64u(raw: unknown, field: string): string {
-  if (typeof raw !== 'string' || !/^[A-Za-z0-9_-]+$/.test(raw)) throw new Error(`${field} is invalid`);
+  if (typeof raw !== 'string' || !/^[A-Za-z0-9_-]+$/.test(raw))
+    throw new Error(`${field} is invalid`);
   const bytes = base64UrlDecode(raw);
   if (bytes.length !== 32 || base64UrlEncode(bytes) !== raw) throw new Error(`${field} is invalid`);
   return raw;
@@ -168,12 +171,18 @@ function parseDigest(raw: unknown, field: string): DigestB64u {
 }
 
 function requireString(raw: unknown, field: string): string {
-  if (typeof raw !== 'string' || raw.length === 0 || raw.trim() !== raw) throw new Error(`${field} is invalid`);
+  if (typeof raw !== 'string' || raw.length === 0 || raw.trim() !== raw)
+    throw new Error(`${field} is invalid`);
   return raw;
 }
 
 function requirePositiveInteger(raw: unknown, field: string): number {
-  const value = typeof raw === 'number' ? raw : typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+  const value =
+    typeof raw === 'number'
+      ? raw
+      : typeof raw === 'string' && /^\d+$/.test(raw)
+        ? Number(raw)
+        : Number.NaN;
   if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${field} is invalid`);
   return value;
 }
@@ -189,11 +198,6 @@ function normalizeScope(scope: D1LinkedDeviceSessionScopeV1): D1LinkedDeviceSess
 
 function scopeValues(scope: D1LinkedDeviceSessionScopeV1): readonly string[] {
   return [scope.namespace, scope.orgId, scope.projectId, scope.envId];
-}
-
-function changedRows(result: { readonly meta?: { readonly changes?: unknown } }): number {
-  const changes = Number(result.meta?.changes ?? 0);
-  return Number.isSafeInteger(changes) ? changes : 0;
 }
 
 function isUniqueConstraintError(error: unknown): boolean {

@@ -20,7 +20,8 @@ import { parseWebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
 import { computeLaneEnrollmentManifestDigestV1 } from '@shared/signing-lanes/rotationDigests';
-import type { D1DatabaseLike, D1ResultLike } from '../../../../storage/tenantRoute';
+import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
+import { d1ChangedRows } from '../../../../storage/d1Sql';
 import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import { verifyWebAuthnRegistrationCredentialForIntent } from '../../../../core/authService/webauthn';
 import type { DeviceLinkingTargetCredentialProviderV1 } from '../../../../router/transport/fetch/routes/deviceLinking';
@@ -431,7 +432,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
         committedAtMs: input.input.requestedAtMs,
       });
       return {
-        outcome: changedRows(result) === 1 ? 'applied' : 'replayed',
+        outcome: d1ChangedRows(result) === 1 ? 'applied' : 'replayed',
         keyManifestDigestB64u: stored.registration.keyManifestDigestB64u,
       };
     } catch (error: unknown) {
@@ -545,7 +546,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
         input.nowMs,
       )
       .run();
-    if (changedRows(result) === 1) return { outcome: 'acquired' };
+    if (d1ChangedRows(result) === 1) return { outcome: 'acquired' };
     const row = await this.readCommitReservationV1(input.linkSessionId);
     if (!row) return await this.reserveCommitV1(input);
     if (row.registrationDigestB64u !== input.registrationDigestB64u) {
@@ -690,7 +691,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
         input.registrationDigestB64u,
       )
       .run();
-    if (changedRows(result) === 1) return;
+    if (d1ChangedRows(result) === 1) return;
     const row = await this.readCommitReservationV1(input.linkSessionId);
     if (
       !row ||
@@ -881,11 +882,6 @@ function requiredScope(value: string, field: string): string {
 
 function scopeValues(scope: D1LinkedDeviceSessionScopeV1): readonly string[] {
   return [scope.namespace, scope.orgId, scope.projectId, scope.envId];
-}
-
-function changedRows(result: D1ResultLike): number {
-  const value = result.meta?.changes;
-  return typeof value === 'number' ? value : Number(value || 0);
 }
 
 function isCanonicalNonemptyBase64Url(value: string): boolean {

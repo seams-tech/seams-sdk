@@ -5,6 +5,7 @@ import type {
 import { verifyWebAuthnAuthenticationLiteWithStore } from '../../../../core/authService/webauthn';
 import type { NormalizedLogger } from '../../../../core/logger';
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
+import { d1ChangedRows } from '../../../../storage/d1Sql';
 import type { LinkedDeviceLocalPresenceVerifierPortV1 } from '../../../auth/linkedDeviceLocalPresenceVerifier';
 import type { D1LinkedDeviceCredentialResolverV1 } from './d1LinkedDeviceExecutionAdmissionResolver';
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
@@ -121,7 +122,7 @@ export class D1LinkedDeviceTargetAuthenticatorStoreV1
         current.counter,
       )
       .run();
-    if (changedRows(result) !== 1) {
+    if (d1ChangedRows(result) !== 1) {
       throw new Error('linked-device authenticator counter changed concurrently');
     }
   }
@@ -227,8 +228,4 @@ function scopeValues(
   scope: D1LinkedDeviceSessionScopeV1,
 ): readonly [string, string, string, string] {
   return [scope.namespace, scope.orgId, scope.projectId, scope.envId];
-}
-
-function changedRows(result: { readonly meta?: { readonly changes?: number } }): number {
-  return Number(result.meta?.changes ?? 0);
 }
