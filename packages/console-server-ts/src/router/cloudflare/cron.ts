@@ -60,7 +60,7 @@ export interface CloudflareConsoleEmailDispatchCronOptions {
   readonly runtimeProfile: CloudflareConsoleEmailRuntimeProfile;
   readonly database: D1DatabaseLike;
   readonly provider: ConsoleEmailProvider;
-  readonly invitationSecretCipher: ConsoleInvitationSecretCipher;
+  readonly invitationSecretCipher?: ConsoleInvitationSecretCipher;
   readonly namespace: string;
   readonly cronExpressions?: string[];
   readonly ensureSchema?: boolean;
@@ -74,6 +74,7 @@ export interface ResolveCloudflareConsoleEmailDispatchCronOptionsInput {
   readonly namespace: string;
   readonly ensureSchema?: boolean;
   readonly now?: () => Date;
+  readonly invitationDelivery: { readonly kind: 'ENABLED' } | { readonly kind: 'DISABLED' };
 }
 
 export interface CloudflareBillingMonthlyFinalizationCronOptions {
@@ -272,17 +273,30 @@ export function resolveCloudflareConsoleEmailDispatchCronOptions(
     ),
   );
   const provider = resolveConsoleEmailProvider(input.env, runtimeProfile);
-  const invitationSecretCipher = resolveConsoleEmailInvitationSecretCipher(input.env);
+  const invitationSecretCipher = resolveOptionalConsoleEmailInvitationSecretCipher(input);
   return {
     runtimeProfile,
     database: input.database,
     provider,
-    invitationSecretCipher,
+    ...(invitationSecretCipher ? { invitationSecretCipher } : {}),
     namespace: requireConsoleEmailEnv(input.namespace, 'console email namespace'),
     cronExpressions: parseConsoleEmailCommaList(input.env.CONSOLE_EMAIL_CRON_EXPRESSIONS),
     ensureSchema: input.ensureSchema,
     now: input.now,
   };
+}
+
+function resolveOptionalConsoleEmailInvitationSecretCipher(
+  input: ResolveCloudflareConsoleEmailDispatchCronOptionsInput,
+): ConsoleInvitationSecretCipher | null {
+  switch (input.invitationDelivery.kind) {
+    case 'ENABLED':
+      return resolveConsoleEmailInvitationSecretCipher(input.env);
+    case 'DISABLED':
+      return null;
+    default:
+      return assertNeverConsoleInvitationDelivery(input.invitationDelivery);
+  }
 }
 
 function resolveConsoleEmailInvitationSecretCipher(
@@ -384,6 +398,10 @@ function optionalConsoleEmailEnv(value: string | undefined): string {
 
 function assertNeverConsoleEmailRuntimeProfile(value: never): never {
   throw new Error(`Unhandled console email runtime profile: ${String(value)}`);
+}
+
+function assertNeverConsoleInvitationDelivery(value: never): never {
+  throw new Error(`Unhandled console invitation delivery state: ${String(value)}`);
 }
 
 function normalizeCronExpressions(input: unknown): string[] {

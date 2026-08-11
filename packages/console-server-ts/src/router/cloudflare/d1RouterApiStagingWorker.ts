@@ -84,9 +84,9 @@ import {
   ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
   ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
 } from '@seams/sdk-server/cloud-host';
-import { createCloudflareCron } from './cron';
+import { createCloudflareCron, resolveCloudflareConsoleEmailDispatchCronOptions } from './cron';
 import type { RouterApiCloudflareConsoleWorkerEnv } from './cloudflareConsole.types';
-import { resolveAmazonSesEmailOtpDeliveryProviderFromEnv } from '../../email/otp/amazonSesEmailOtpProvider';
+import { resolveEmailOtpDeliveryProviderFromEnv } from '../../email/otp/emailOtpProviders';
 
 interface CloudflareD1RouterApiStagingEnv
   extends
@@ -135,8 +135,10 @@ interface CloudflareD1RouterApiStagingEnv
   readonly SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS?: string;
   readonly EMAIL_OTP_DELIVERY_MODE?: string;
   readonly EMAIL_OTP_RUNTIME_PROFILE?: string;
+  readonly EMAIL_OTP_PROVIDER?: string;
+  readonly EMAIL_OTP_FROM_ADDRESS?: string;
+  readonly RESEND_API_KEY?: string;
   readonly EMAIL_OTP_SES_REGION?: string;
-  readonly EMAIL_OTP_SES_FROM_ADDRESS?: string;
   readonly EMAIL_OTP_SES_ACCESS_KEY_ID?: string;
   readonly EMAIL_OTP_SES_SECRET_ACCESS_KEY?: string;
   readonly EMAIL_OTP_DEMO_ALLOWED_ORIGINS?: string;
@@ -272,6 +274,14 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
       ensureSchema: false,
       billingProviders: requireStripeBillingProviderAdaptersFromEnv(env),
       billingEmailConsoleBaseUrl: requireEnvString(env, 'CONSOLE_BASE_URL'),
+      ...(readEnvString(env, 'CONSOLE_DOCS_BASE_URL')
+        ? {
+            onboardingEmail: {
+              consoleBaseUrl: requireEnvString(env, 'CONSOLE_BASE_URL'),
+              docsBaseUrl: requireEnvString(env, 'CONSOLE_DOCS_BASE_URL'),
+            },
+          }
+        : {}),
       sponsoredEvmCallConfig,
       resolveSponsoredEvmExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
       sponsorshipPricing: resolveSponsoredExecutionPricingFromEnv(env),
@@ -323,7 +333,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     emailOtpServerSeal: stagingEmailOtpServerSealConfig(env),
     emailOtpDeliveryMode: readEnvString(env, 'EMAIL_OTP_DELIVERY_MODE'),
     emailOtpRuntimeProfile: readEnvString(env, 'EMAIL_OTP_RUNTIME_PROFILE'),
-    emailOtpDeliveryProvider: resolveAmazonSesEmailOtpDeliveryProviderFromEnv(env),
+    emailOtpDeliveryProvider: resolveEmailOtpDeliveryProviderFromEnv(env),
     emailOtpDemoAllowedOrigins: readEnvString(env, 'EMAIL_OTP_DEMO_ALLOWED_ORIGINS'),
     emailOtpProduction: readEnvString(env, 'EMAIL_OTP_PRODUCTION'),
     emailOtpDevOutboxEnabled: readEnvString(env, 'EMAIL_OTP_DEV_OUTBOX_ENABLED'),
@@ -368,10 +378,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     sessionCookieName: readEnvString(env, 'SESSION_COOKIE_NAME'),
     routerAbPublicKeyset: requireStagingRouterAbPublicKeyset(env),
     routerAbNormalSigningRouterProxy: {
-      internalServiceAuthSecret: requireEnvString(
-        env,
-        'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
-      ),
+      internalServiceAuthSecret: requireEnvString(env, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET'),
       fetch: (request) => env.MPC_ROUTER.fetch(request),
     },
     routerAbEcdsaStrictPostRegistration: ecdsaStrictPostRegistration,
@@ -728,7 +735,17 @@ async function fetch(
 }
 
 function gatewayScheduledHandler(env: CloudflareD1RouterApiStagingEnv): ScheduledHandler {
-  return createCloudflareCron({});
+  const runtimeProfile = readEnvString(env, 'CONSOLE_EMAIL_RUNTIME_PROFILE');
+  if (!runtimeProfile) return createCloudflareCron({});
+  return createCloudflareCron({
+    consoleEmailDispatch: resolveCloudflareConsoleEmailDispatchCronOptions({
+      env,
+      database: env.CONSOLE_DB,
+      namespace: requireEnvString(env, 'SEAMS_TENANT_STORAGE_NAMESPACE'),
+      ensureSchema: false,
+      invitationDelivery: { kind: 'DISABLED' },
+    }),
+  });
 }
 
 const ROUTER_AB_PREWARM_CRON = '* * * * *';

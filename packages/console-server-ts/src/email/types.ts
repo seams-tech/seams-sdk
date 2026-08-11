@@ -1,6 +1,7 @@
 export type ConsoleEmailTemplateVersion = 1;
 
 export type ConsoleEmailTemplateFamily =
+  | 'ACCOUNT_WELCOME'
   | 'ORGANIZATION_INVITATION'
   | 'OWNER_MEMBERSHIP_CHANGED'
   | 'MEMBERSHIP_ACCESS_CHANGED'
@@ -24,6 +25,16 @@ export interface OrganizationInvitationEmailV1 {
   readonly invitedRole: ConsoleEmailInvitationRole;
   readonly consoleBaseUrl: string;
   readonly expiresAt: string;
+}
+
+export interface AccountWelcomeEmailV1 {
+  readonly family: 'ACCOUNT_WELCOME';
+  readonly version: 1;
+  readonly recipientDisplayName: string;
+  readonly organizationName: string;
+  readonly projectName: string;
+  readonly consoleBaseUrl: string;
+  readonly docsBaseUrl: string;
 }
 
 export type OwnerMembershipChangedEmailV1 =
@@ -111,6 +122,7 @@ export interface LowBalanceWarningEmailV1 {
 }
 
 export type ConsoleEmailTemplateV1 =
+  | AccountWelcomeEmailV1
   | OrganizationInvitationEmailV1
   | OwnerMembershipChangedEmailV1
   | MembershipAccessChangedEmailV1
