@@ -18,6 +18,11 @@ import type {
   DeviceLinkingOwnerRequestAuthenticationV1,
 } from '../../../transport/fetch/routes/deviceLinkingOwnerAuthorization';
 import type { DeviceLinkingOwnerRequestInputV1 } from '../../../transport/fetch/routes/deviceLinking';
+import type {
+  RouterAbEd25519YaoActivationKeysetV1,
+} from '@shared/utils/routerAbEd25519Yao';
+import type { CloudflareD1LaneLifecycleStore } from './d1LaneLifecycleStore';
+import type { Ed25519YaoLaneBindingResolverPortV1 } from '../../signingLanes/cloudflareLaneProtocolCommitter';
 
 export type D1LinkedDeviceLaneProtocolCommitterV1 = {
   executeAndRecordEd25519YaoLaneV1(input: {
@@ -49,6 +54,32 @@ export type D1LinkedDeviceLaneGatewayRouteOptionsV1 = {
     readonly owner: DeviceLinkingOwnerWalletSessionContextV1;
   }): Promise<DeviceLinkingLaneCeremonyBindingResponseV1>;
 };
+
+export type D1LinkedDeviceLaneCeremonyResolverOptionsV1 = {
+  readonly lifecycleStore: Pick<CloudflareD1LaneLifecycleStore, 'getProtocol'>;
+  readonly bindingResolver: Ed25519YaoLaneBindingResolverPortV1;
+  readonly keyset: RouterAbEd25519YaoActivationKeysetV1;
+  readonly ownerProjection: D1LinkedDeviceLaneOwnerProjectionGuardV1;
+};
+
+export function createD1LinkedDeviceLaneCeremonyResolverV1(
+  options: D1LinkedDeviceLaneCeremonyResolverOptionsV1,
+): NonNullable<D1LinkedDeviceLaneGatewayRouteOptionsV1['resolveCeremonyBindingV1']> {
+  return async ({ operationId, owner }) => {
+    const protocol = await options.lifecycleStore.getProtocol(operationId);
+    if (!protocol) throw new Error('lane protocol operation is not found');
+    const job = protocol.value.job;
+    if (job.kind !== 'ed25519_yao_lane_job_v1') {
+      throw new Error('lane protocol operation is not an Ed25519-Yao ceremony');
+    }
+    if (job.walletId !== owner.walletId) {
+      throw new Error('owner Wallet Session walletId does not match lane job');
+    }
+    await options.ownerProjection.assertActiveOwnerSourceLaneV1({ owner, job });
+    const binding = await options.bindingResolver.resolveBindingV1({ job });
+    return { operationId, binding, keyset: options.keyset };
+  };
+}
 
 export function createD1LinkedDeviceLaneGatewayRouteServiceV1(
   options: D1LinkedDeviceLaneGatewayRouteOptionsV1,

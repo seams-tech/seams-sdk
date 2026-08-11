@@ -137,6 +137,7 @@ export function createDeviceLinkingOwnerRequestAuthenticatorV1(input: {
       kind: 'authorized',
       body: authenticated.body,
       binding: authenticated.binding,
+      owner: authenticated.owner,
     };
   };
 }
