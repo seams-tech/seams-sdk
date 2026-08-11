@@ -6,6 +6,7 @@ use super::cors::{
 };
 use super::*;
 use crate::{
+    execute_cloudflare_signing_worker_linked_device_ecdsa_finalize_service_call_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_finalize_internal_step_up_request_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_prepare_internal_step_up_request_v1,
     handle_cloudflare_router_normal_signing_finalize_internal_step_up_request_v2,

@@ -17,6 +17,10 @@ export const CLOUDFLARE_SIGNING_WORKER_ECDSA_PRESIGN_SESSION_INIT_PATH =
   '/router-ab/signing-worker/ecdsa-derivation/presignature-session/init' as const;
 export const CLOUDFLARE_SIGNING_WORKER_ECDSA_PRESIGN_SESSION_STEP_PATH =
   '/router-ab/signing-worker/ecdsa-derivation/presignature-session/step' as const;
+export const CLOUDFLARE_SIGNING_WORKER_ECDSA_LINKED_PRESIGN_SESSION_INIT_PATH =
+  '/router-ab/signing-worker/ecdsa-derivation/linked-device/presignature-session/init' as const;
+export const CLOUDFLARE_SIGNING_WORKER_ECDSA_LINKED_PRESIGN_SESSION_STEP_PATH =
+  '/router-ab/signing-worker/ecdsa-derivation/linked-device/presignature-session/step' as const;
 
 export type RouterAbEcdsaDerivationPresignaturePoolFillInput = {
   scope: RouterAbEcdsaDerivationNormalSigningScopeV1;
@@ -112,6 +116,8 @@ export type RouterAbEcdsaPresignSessionProgress =
       presignSessionId: string;
       serverPresignatureId: string;
       serverBigR33B64u: string;
+      signingWorkerRerandomizationContribution32B64u?: string;
+      linkedPrepareResponse?: Record<string, unknown>;
     };
 
 export type RouterAbEcdsaPresignSessionHttpResult =
@@ -134,11 +140,24 @@ function parseStrictPresignProgress(input: unknown): RouterAbEcdsaPresignSession
     if (!serverPresignatureId || !serverBigR33B64u) {
       throw new Error('SigningWorker ECDSA presign completion is missing public material');
     }
+    const contribution = String(
+      record.signing_worker_rerandomization_contribution32_b64u || '',
+    ).trim();
+    const preparedResponse =
+      record.prepared_response &&
+      typeof record.prepared_response === 'object' &&
+      !Array.isArray(record.prepared_response)
+        ? (record.prepared_response as Record<string, unknown>)
+        : undefined;
     return {
       kind,
       presignSessionId,
       serverPresignatureId,
       serverBigR33B64u,
+      ...(contribution
+        ? { signingWorkerRerandomizationContribution32B64u: contribution }
+        : {}),
+      ...(preparedResponse ? { linkedPrepareResponse: preparedResponse } : {}),
     };
   }
   if (kind !== 'continue') {
@@ -232,6 +251,61 @@ export async function stepRouterAbEcdsaPresignSession(input: {
     path: CLOUDFLARE_SIGNING_WORKER_ECDSA_PRESIGN_SESSION_STEP_PATH,
     body: {
       scope: parseRouterAbEcdsaDerivationNormalSigningScopeV1(input.scope),
+      presign_session_id: input.presignSessionId,
+      requested_stage: input.requestedStage,
+      outgoing_messages_b64u: input.outgoingMessagesB64u,
+      expires_at_ms: input.expiresAtMs,
+    },
+    auth: input.auth,
+    fetchImpl: input.fetchImpl,
+  });
+}
+
+/**
+ * Linked-device presigning is request-bound and always carries the exact
+ * admitted request plus the rotatable lane material source. It deliberately
+ * uses a separate private-worker route from the owner pool-fill protocol.
+ */
+export async function startRouterAbLinkedDeviceEcdsaPresignSession(input: {
+  signingWorkerBaseUrl: string;
+  request: Record<string, unknown>;
+  materialSource: Record<string, unknown>;
+  presignSessionId: string;
+  expiresAtMs: number;
+  auth: RouterAbEcdsaDerivationPresignaturePoolFillAuth;
+  fetchImpl: typeof fetch;
+}): Promise<RouterAbEcdsaPresignSessionHttpResult> {
+  return postStrictPresignSession({
+    signingWorkerBaseUrl: input.signingWorkerBaseUrl,
+    path: CLOUDFLARE_SIGNING_WORKER_ECDSA_LINKED_PRESIGN_SESSION_INIT_PATH,
+    body: {
+      request: input.request,
+      material_source: input.materialSource,
+      presign_session_id: input.presignSessionId,
+      expires_at_ms: input.expiresAtMs,
+    },
+    auth: input.auth,
+    fetchImpl: input.fetchImpl,
+  });
+}
+
+export async function stepRouterAbLinkedDeviceEcdsaPresignSession(input: {
+  signingWorkerBaseUrl: string;
+  request: Record<string, unknown>;
+  materialSource: Record<string, unknown>;
+  presignSessionId: string;
+  requestedStage: 'triples' | 'presign';
+  outgoingMessagesB64u: string[];
+  expiresAtMs: number;
+  auth: RouterAbEcdsaDerivationPresignaturePoolFillAuth;
+  fetchImpl: typeof fetch;
+}): Promise<RouterAbEcdsaPresignSessionHttpResult> {
+  return postStrictPresignSession({
+    signingWorkerBaseUrl: input.signingWorkerBaseUrl,
+    path: CLOUDFLARE_SIGNING_WORKER_ECDSA_LINKED_PRESIGN_SESSION_STEP_PATH,
+    body: {
+      request: input.request,
+      material_source: input.materialSource,
       presign_session_id: input.presignSessionId,
       requested_stage: input.requestedStage,
       outgoing_messages_b64u: input.outgoingMessagesB64u,

@@ -164,6 +164,71 @@ impl CloudflareSigningWorkerEcdsaPresignSessionStepRequestV1 {
     }
 }
 
+/// Private request to create a request-bound linked-device ECDSA presign
+/// session. Linked sessions have their own Durable Object map and never enter
+/// the owner presignature pool.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionInitRequestV1 {
+    pub request: RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningRequestV1,
+    pub material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
+    pub presign_session_id: String,
+    pub expires_at_ms: u64,
+}
+
+impl CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionInitRequestV1 {
+    pub fn validate_at(&self, now_unix_ms: u64) -> RouterAbProtocolResult<()> {
+        self.request.validate_at(now_unix_ms)?;
+        self.material_source
+            .validate_for_linked_ecdsa_scope(&self.request.scope)?;
+        require_non_empty("linked ECDSA presign session id", &self.presign_session_id)?;
+        require_positive_ms("linked ECDSA presign session expires_at_ms", self.expires_at_ms)?;
+        require_positive_ms("linked ECDSA presign session now_unix_ms", now_unix_ms)?;
+        if self.expires_at_ms != self.request.expires_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "linked ECDSA presign session expiry does not match request",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Private request to advance a request-bound linked-device ECDSA presign
+/// session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionStepRequestV1 {
+    pub request: RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningRequestV1,
+    pub material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
+    pub presign_session_id: String,
+    pub requested_stage: CloudflareSigningWorkerEcdsaPresignRequestedStageV1,
+    pub outgoing_messages_b64u: Vec<String>,
+    pub expires_at_ms: u64,
+}
+
+impl CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionStepRequestV1 {
+    pub fn validate_at(&self, now_unix_ms: u64) -> RouterAbProtocolResult<()> {
+        self.request.validate_at(now_unix_ms)?;
+        self.material_source
+            .validate_for_linked_ecdsa_scope(&self.request.scope)?;
+        require_non_empty("linked ECDSA presign session id", &self.presign_session_id)?;
+        require_positive_ms("linked ECDSA presign session expires_at_ms", self.expires_at_ms)?;
+        require_positive_ms("linked ECDSA presign session now_unix_ms", now_unix_ms)?;
+        if self.expires_at_ms != self.request.expires_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "linked ECDSA presign session expiry does not match request",
+            ));
+        }
+        for message in &self.outgoing_messages_b64u {
+            let decoded = decode_base64url_bytes_v1("linked ECDSA presign message", message)?;
+            require_non_empty_vec("linked ECDSA presign message", &decoded)?;
+        }
+        Ok(())
+    }
+}
+
 /// Public progress returned by the SigningWorker-owned ECDSA presign session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -178,6 +243,11 @@ pub enum CloudflareSigningWorkerEcdsaPresignSessionProgressV1 {
         presign_session_id: String,
         server_presignature_id: String,
         server_big_r33_b64u: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        signing_worker_rerandomization_contribution32_b64u: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        prepared_response:
+            Option<RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningPrepareResponseV1>,
     },
 }
 

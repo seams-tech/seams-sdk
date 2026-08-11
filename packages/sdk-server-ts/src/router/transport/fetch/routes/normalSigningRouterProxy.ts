@@ -24,10 +24,14 @@ import {
   ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
 } from '../../../../core/ThresholdService/routerAb/internalServiceHttp';
 
+export const ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_SIGN_PATH =
+  '/router-ab/ecdsa-derivation/linked-device/sign' as const;
+
 export async function proxyNormalSigningRequestToMpcRouter(input: {
   readonly request: Request;
   readonly proxy: RouterAbNormalSigningRouterProxy | null | undefined;
   readonly body?: Record<string, unknown>;
+  readonly targetPath?: string;
 }): Promise<Response> {
   const proxy = input.proxy;
   if (!proxy) {
@@ -47,12 +51,15 @@ export async function proxyNormalSigningRequestToMpcRouter(input: {
       ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
       normalizeRouterAbInternalServiceAuthSecret(proxy.internalServiceAuthSecret),
     );
+    const request = input.targetPath
+      ? new Request(new URL(input.targetPath, input.request.url), input.request)
+      : input.request;
     const upstreamRequest = input.body
-      ? new Request(input.request, {
+      ? new Request(request, {
           body: JSON.stringify(input.body),
           headers,
         })
-      : new Request(input.request, { headers });
+      : new Request(request, { headers });
     if (input.body) upstreamRequest.headers.set('content-type', 'application/json');
     const upstream = await proxy.fetch(upstreamRequest);
     return new Response(upstream.body, {
@@ -160,6 +167,7 @@ export async function proxyLinkedDeviceLaneAdmittedNormalSigningRequest(input: {
   readonly expectedMaterialActivation: RouterAbMpcMaterialActivationRefWire;
   readonly localPresence: LinkedDeviceLocalPresenceEvidenceV1;
   readonly linkedDeviceExecution: LinkedDeviceExecutionAdmissionResolverV1;
+  readonly targetPath?: string;
 }): Promise<Response> {
   if (input.authorizedOperation.lifecycle !== 'claimed') {
     return linkedAdmissionRefused('operation_not_claimed');
@@ -223,6 +231,7 @@ export async function proxyLinkedDeviceLaneAdmittedNormalSigningRequest(input: {
     proxy: input.proxy,
     body: input.body,
     materialSource: resolved.projection.materialSource,
+    targetPath: input.targetPath,
   });
 }
 
@@ -295,6 +304,7 @@ export async function proxyRotatableLaneAdmittedNormalSigningRequest(input: {
     RouterAbNormalSigningMaterialSourceV1,
     { readonly kind: 'rotatable_lane' }
   >;
+  readonly targetPath?: string;
 }): Promise<Response> {
   return await proxyNormalSigningRequestToMpcRouter({
     request: input.request,
@@ -303,5 +313,6 @@ export async function proxyRotatableLaneAdmittedNormalSigningRequest(input: {
       ...input.body,
       material_source: input.materialSource,
     },
+    targetPath: input.targetPath,
   });
 }

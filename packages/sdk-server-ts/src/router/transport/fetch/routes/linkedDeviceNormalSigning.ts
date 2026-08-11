@@ -17,7 +17,10 @@ import {
   stripLinkedDeviceNormalSigningBoundaryFields,
   verifyLinkedDeviceLocalPresenceForOperation,
 } from '../../../domains/signingOperations/linkedDeviceNormalSigning';
-import { proxyLinkedDeviceLaneAdmittedNormalSigningRequest } from './normalSigningRouterProxy';
+import {
+  proxyLinkedDeviceLaneAdmittedNormalSigningRequest,
+  ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_SIGN_PATH,
+} from './normalSigningRouterProxy';
 import {
   buildEvmEcdsaMpcOperationRef,
   buildNearEd25519MpcOperationRef,
@@ -340,6 +343,10 @@ async function executeLinkedDeviceSigning(input: {
       expectedMaterialActivation: input.envelope.materialActivation,
       localPresence: input.localPresence,
       linkedDeviceExecution: input.linkedDeviceExecution,
+      targetPath:
+        input.curve === 'ecdsa' && input.phase === 'finalize'
+          ? ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_SIGN_PATH
+          : undefined,
     });
   } catch (error: unknown) {
     upstream = json(
