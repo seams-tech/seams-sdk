@@ -1254,6 +1254,12 @@ function parseProvisioningChild(raw: unknown, index: number): LinkedDeviceProvis
   };
 }
 
+export function parseLinkedDeviceProvisioningChildV1(
+  raw: unknown,
+): LinkedDeviceProvisioningChildV1 {
+  return parseProvisioningChild(raw, 0);
+}
+
 function sameMaterialActivationRef(
   left: RotatableSigningLaneJobV1['source']['materialActivation'],
   right: LaneProtocolCommitReceiptV1['sourceMaterialActivation'],

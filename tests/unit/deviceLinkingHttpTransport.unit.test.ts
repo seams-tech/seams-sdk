@@ -74,6 +74,9 @@ test.describe('R103 authenticated linked-device browser transport', () => {
       async prepareTargetHolderRegistrationsV1() {
         throw new Error('target holder preparation is outside this transport test');
       },
+      async openAndSealTargetHolderDeliveryV1() {
+        throw new Error('holder delivery is outside this transport test');
+      },
       async discardKeyMaterialV1() {
         return;
       },

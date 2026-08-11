@@ -6,6 +6,12 @@ import { createDeviceLinkingTargetCredentialPortV1 } from '../../packages/sdk-we
 import { toRpId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import type { AuthenticatorPort } from '../../packages/sdk-web/src/core/platform';
 import type { DeviceLinkingKeyMaterialPortV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingPorts';
+import { parseRotatableSigningLaneJobV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
+import { parseLaneHolderParticipantRecordV1 } from '../../packages/shared-ts/src/signing-lanes/participants';
+import {
+  buildR102LaneJob,
+  buildR102ProtocolCommitReceipt,
+} from './helpers/r102LaneGateway.fixtures';
 
 class FakeWorkerScope {
   readonly responses: unknown[] = [];
@@ -76,16 +82,25 @@ test.describe('device-linking key worker', () => {
   test('keeps key material in the worker and signs the canonical request bytes', async () => {
     const scope = new FakeWorkerScope();
     let recipientsDestroyed = 0;
+    let sealedCiphertextDigestB64u = digest(91);
     const installed = installDeviceLinkingKeyWorkerV1(scope, {
       createRecipient() {
         return {
           hpke_public_key_b64u: () => digest(21),
           hpke_public_key_digest_b64u: () => digest(31),
+          open_and_seal: () => ({
+            sealedHolderMaterialB64u: base64UrlEncode(new Uint8Array([1])),
+            sealedHolderRecordDigestB64u: digest(81),
+            verifiedHolderCiphertextDigestSetB64u: sealedCiphertextDigestB64u,
+          }),
           destroy: () => {
             recipientsDestroyed += 1;
           },
           free: () => undefined,
         };
+      },
+      createCustodySeal() {
+        return { free: () => undefined };
       },
     });
     scope.send({ id: 'create', request: { kind: 'device_linking_key_material_create_v1' } });
@@ -103,6 +118,7 @@ test.describe('device-linking key worker', () => {
 
     scope.responses.length = 0;
     const preparation = targetPreparation();
+    const transferredFactorSecret = new Uint8Array(32).fill(11).buffer;
     scope.send({
       id: 'prepare-holders',
       request: {
@@ -110,12 +126,13 @@ test.describe('device-linking key worker', () => {
         handleId: result.handleId,
         preparation,
         credentialIdB64u: base64UrlEncode(new Uint8Array(32).fill(8)),
-        factorSecret: new Uint8Array(32).fill(11).buffer,
+        factorSecret: transferredFactorSecret,
       },
     });
     const holders = await waitForResponse(scope);
     expect(holders.error).toBeUndefined();
     expect(holders).toMatchObject({ ok: true });
+    expect(new Uint8Array(transferredFactorSecret)).toEqual(new Uint8Array(32));
     const holderResult = holders.result as Record<string, unknown>;
     const ordered = holderResult.orderedHolderRegistrations as Record<string, unknown>[];
     expect(ordered).toHaveLength(1);
@@ -130,6 +147,68 @@ test.describe('device-linking key worker', () => {
     });
     expect(ordered[0]).not.toHaveProperty('factorSecret');
     expect(JSON.stringify(holderResult)).not.toContain('prf');
+
+    const sourceJob = buildR102LaneJob('device-linking-worker-seal');
+    const holderParticipant = parseLaneHolderParticipantRecordV1(ordered[0].holderParticipant);
+    const job = parseRotatableSigningLaneJobV1({
+      ...sourceJob,
+      operationId: preparation.orderedChildren[0].operationId,
+      enrollmentId: String(preparation.enrollmentId),
+      walletId: String(preparation.walletId),
+      walletKeyId: preparation.orderedChildren[0].walletKeyId,
+      target: {
+        operation: 'create_lane',
+        laneId: preparation.orderedChildren[0].targetLaneId,
+        laneKind: 'linked_device',
+        laneShareEpoch: preparation.orderedChildren[0].targetLaneShareEpoch,
+        expectedTargetState: 'absent',
+      },
+      targetMaterialActivationId: preparation.orderedChildren[0].targetMaterialActivationId,
+      targetHolder: {
+        participantId: holderParticipant.participantId,
+        participantBindingDigestB64u: holderParticipant.participantBindingDigestB64u,
+        custodyBindingId: holderParticipant.custodyBindingId,
+        custodyBindingDigestB64u: holderParticipant.custodyBindingDigestB64u,
+        hpkePublicKeyB64u: holderParticipant.hpkePublicKeyB64u,
+        hpkePublicKeyDigestB64u: holderParticipant.hpkePublicKeyDigestB64u,
+      },
+      authorization: {
+        kind: 'linked_device_enrollment',
+        authorizedOperationId: String(sourceJob.authorization.authorizedOperationId),
+        linkedDeviceEnrollmentId: String(preparation.enrollmentId),
+        linkedDevicePermissionDigestB64u: digest(101),
+      },
+    });
+    const protocolCommitReceipt = buildR102ProtocolCommitReceipt(job);
+    sealedCiphertextDigestB64u = protocolCommitReceipt.targetHolderCiphertextDigestSetB64u;
+    scope.responses.length = 0;
+    const openRequest = {
+      kind: 'device_linking_target_holder_open_seal_v1',
+      handleId: result.handleId,
+      delivery: {
+        kind: 'linked_device_provisioning_child_v1',
+        job,
+        protocolCommitReceipt,
+        holderPackage: {
+          kind: 'ed25519_yao_lane_holder_package_set_v1',
+          deriverAEncryptedPackageJson: '{}',
+          deriverBEncryptedPackageJson: '{}',
+        },
+        expectedVersion: 0,
+      },
+    };
+    scope.send({ id: 'open-holder', request: openRequest });
+    const sealed = await waitForResponse(scope);
+    expect(sealed.error).toBeUndefined();
+    expect(sealed.result).toMatchObject({
+      verifiedHolderCiphertextDigestSetB64u:
+        protocolCommitReceipt.targetHolderCiphertextDigestSetB64u,
+    });
+    scope.responses.length = 0;
+    scope.send({ id: 'open-holder-replay', request: openRequest });
+    const replayedSealed = await waitForResponse(scope);
+    expect(replayedSealed.error).toBeUndefined();
+    expect(replayedSealed.result).toEqual(sealed.result);
 
     scope.responses.length = 0;
     scope.send({
@@ -243,6 +322,9 @@ test.describe('device-linking key worker', () => {
             },
           ],
         };
+      },
+      async openAndSealTargetHolderDeliveryV1() {
+        throw new Error('holder delivery is outside this attestation test');
       },
       async discardKeyMaterialV1() {},
       async signDeviceSessionRequestV1() {

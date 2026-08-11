@@ -253,6 +253,9 @@ function createPorts(
       async prepareTargetHolderRegistrationsV1() {
         throw new Error('target holder preparation is owned by the target credential fake');
       },
+      async openAndSealTargetHolderDeliveryV1() {
+        throw new Error('holder delivery is owned by the lane provisioning fake');
+      },
       async discardKeyMaterialV1() {
         calls.push('key-discard');
       },

@@ -1,4 +1,5 @@
 import type {
+  LinkedDeviceProvisioningChildV1,
   LinkedDeviceApprovalV1,
   LinkedDeviceApprovalResultV1,
   LinkedDeviceEnrollmentKeyBindingV1,
@@ -22,6 +23,7 @@ import type {
   LinkDevicePublicKeyB64u,
   QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking';
+import type { SealedLaneHolderMaterialV1 } from '@shared/signing-lanes/rotation';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type {
   LaneOperationId,
@@ -154,6 +156,10 @@ export type DeviceLinkingKeyMaterialPortV1 = {
       ...LinkedDeviceTargetHolderRegistrationV1[],
     ];
   }>;
+  openAndSealTargetHolderDeliveryV1(input: {
+    readonly handle: DeviceLinkingKeyMaterialHandleV1;
+    readonly delivery: LinkedDeviceProvisioningChildV1;
+  }): Promise<SealedLaneHolderMaterialV1>;
   /** Discards the worker slot and releases all private key references. */
   discardKeyMaterialV1(input: { readonly handle: DeviceLinkingKeyMaterialHandleV1 }): Promise<void>;
   signDeviceSessionRequestV1(input: {

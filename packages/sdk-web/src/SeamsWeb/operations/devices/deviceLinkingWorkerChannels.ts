@@ -1,12 +1,15 @@
 import {
   encodeLinkedDeviceRequestProofV1,
+  parseLinkedDeviceProvisioningChildV1,
   parseLinkedDeviceTargetPreparationV1,
   parseLinkedDeviceTargetCredentialRegistrationV1,
   parseLinkDevicePublicKeyB64u,
   type LinkedDeviceTargetHolderRegistrationV1,
+  type LinkedDeviceProvisioningChildV1,
   type LinkedDeviceTargetPreparationV1,
   type LinkedDeviceRequestProofV1,
 } from '@shared/device-linking';
+import type { SealedLaneHolderMaterialV1 } from '@shared/signing-lanes/rotation';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
@@ -32,6 +35,11 @@ export type DeviceLinkingWorkerKeyMaterialPortV1 = DeviceLinkingKeyMaterialPortV
 
 type DeviceLinkingWorkerRequestV1 =
   | { readonly kind: 'device_linking_key_material_create_v1' }
+  | {
+      readonly kind: 'device_linking_target_holder_open_seal_v1';
+      readonly handleId: string;
+      readonly delivery: LinkedDeviceProvisioningChildV1;
+    }
   | {
       readonly kind: 'device_linking_target_holders_prepare_v1';
       readonly handleId: string;
@@ -210,6 +218,29 @@ function parseTargetHolderResult(
     }
   }
   return { orderedHolderRegistrations: registration.orderedHolderRegistrations };
+}
+
+function parseSealedHolderResult(value: unknown): SealedLaneHolderMaterialV1 {
+  const record = exactRecord(
+    value,
+    [
+      'sealedHolderMaterialB64u',
+      'sealedHolderRecordDigestB64u',
+      'verifiedHolderCiphertextDigestSetB64u',
+    ],
+    'device-linking sealed holder response',
+  );
+  return {
+    sealedHolderMaterialB64u: nonEmpty(record.sealedHolderMaterialB64u, 'sealedHolderMaterialB64u'),
+    sealedHolderRecordDigestB64u: parseDigest(
+      record.sealedHolderRecordDigestB64u,
+      'sealedHolderRecordDigestB64u',
+    ),
+    verifiedHolderCiphertextDigestSetB64u: parseDigest(
+      record.verifiedHolderCiphertextDigestSetB64u,
+      'verifiedHolderCiphertextDigestSetB64u',
+    ),
+  };
 }
 
 function parseResponseFrame(value: unknown): DeviceLinkingWorkerResponseFrameV1 | null {
@@ -406,6 +437,24 @@ export function createDeviceLinkingKeyMaterialPortV1(
         preparation,
         input.credentialIdB64u,
       );
+    },
+    async openAndSealTargetHolderDeliveryV1(input) {
+      const handle = parseHandle(input.handle);
+      const delivery = parseLinkedDeviceProvisioningChildV1(input.delivery);
+      const output = parseSealedHolderResult(
+        await request({
+          kind: 'device_linking_target_holder_open_seal_v1',
+          handleId: handle.handleId,
+          delivery,
+        }),
+      );
+      if (
+        output.verifiedHolderCiphertextDigestSetB64u !==
+        delivery.protocolCommitReceipt.targetHolderCiphertextDigestSetB64u
+      ) {
+        throw new Error('device-linking worker returned the wrong holder ciphertext digest');
+      }
+      return output;
     },
     async signDeviceSessionRequestV1(input) {
       const requestInput = buildRequest(input);
