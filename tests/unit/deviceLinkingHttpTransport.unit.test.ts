@@ -71,6 +71,9 @@ test.describe('R103 authenticated linked-device browser transport', () => {
           devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
         };
       },
+      async prepareTargetHolderRegistrationsV1() {
+        throw new Error('target holder preparation is outside this transport test');
+      },
       async discardKeyMaterialV1() {
         return;
       },

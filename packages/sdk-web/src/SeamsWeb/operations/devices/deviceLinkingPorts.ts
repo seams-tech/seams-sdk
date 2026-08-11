@@ -143,6 +143,17 @@ export type DeviceLinkingKeyMaterialBundleV1 = {
 
 export type DeviceLinkingKeyMaterialPortV1 = {
   createBootstrapKeyMaterialV1(): Promise<DeviceLinkingKeyMaterialBundleV1>;
+  prepareTargetHolderRegistrationsV1(input: {
+    readonly handle: DeviceLinkingKeyMaterialHandleV1;
+    readonly preparation: LinkedDeviceTargetPreparationV1;
+    readonly credentialIdB64u: LinkedDeviceWebAuthnRegistrationV1['credentialIdB64u'];
+    readonly factorSecret: ArrayBuffer;
+  }): Promise<{
+    readonly orderedHolderRegistrations: readonly [
+      LinkedDeviceTargetHolderRegistrationV1,
+      ...LinkedDeviceTargetHolderRegistrationV1[],
+    ];
+  }>;
   /** Discards the worker slot and releases all private key references. */
   discardKeyMaterialV1(input: { readonly handle: DeviceLinkingKeyMaterialHandleV1 }): Promise<void>;
   signDeviceSessionRequestV1(input: {
