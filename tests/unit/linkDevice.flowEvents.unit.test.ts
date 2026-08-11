@@ -354,6 +354,11 @@ function createPorts(
         return fixture.receipt;
       },
     },
+    walletSessions: {
+      async putExactActiveDeliveryV1() {
+        calls.push('persist-wallet-session');
+      },
+    },
   };
 }
 
@@ -581,8 +586,15 @@ test.describe('linked-device browser orchestration', () => {
       emittedAtMs: Date.now(),
     });
     await expect
-      .poll(() => calls.slice(-3), { timeout: 5_000 })
-      .toEqual(['retry', 'resume-delivery', 'ack']);
+      .poll(() => calls.slice(-6), { timeout: 5_000 })
+      .toEqual([
+        'retry',
+        'resume-delivery',
+        'ack',
+        'get-approval',
+        'get-wallet-session',
+        'persist-wallet-session',
+      ]);
     expect(acknowledgement?.receipt).toEqual(fixture.receipt);
   });
 
@@ -639,6 +651,21 @@ test.describe('linked-device browser orchestration', () => {
         calls.push('holder-receipts');
         return fixture.receipt;
       },
+      getWalletSessionDeliveryV1: async () => {
+        calls.push('get-wallet-session');
+        emitSessionEvent?.({
+          kind: 'linked_device_session_event_v1',
+          linkSessionId: generated.qrData.linkSessionId,
+          state: buildActiveLinkedDeviceSessionState({
+            linkSessionId: generated.qrData.linkSessionId,
+            walletId: fixture.approval.walletId,
+            enrollmentId: fixture.approval.enrollmentId,
+            activatedAtMs: fixture.receipt.activatedAtMs,
+          }),
+          emittedAtMs: Date.now(),
+        });
+        return buildR103LinkedWalletSessionDeliveryFixture(fixture);
+      },
     });
     Object.assign(ports.laneProvisioning, {
       prepareLinkedDeviceLanesV1: async (
@@ -668,7 +695,7 @@ test.describe('linked-device browser orchestration', () => {
       emittedAtMs: Date.now(),
     });
     await expect
-      .poll(() => calls.slice(-8), { timeout: 5_000 })
+      .poll(() => calls.slice(-12), { timeout: 5_000 })
       .toEqual([
         'target-preparation',
         'target-passkey',
@@ -678,6 +705,10 @@ test.describe('linked-device browser orchestration', () => {
         'prepare-lanes',
         'holder-receipts',
         'ack',
+        'get-wallet-session',
+        'persist-wallet-session',
+        'close',
+        'key-discard',
       ]);
     expect(aggregateAcknowledgement?.receipt).toEqual(fixture.receipt);
   });

@@ -7,6 +7,7 @@ import {
   type LinkedDeviceProvisioningDeliveriesV1,
 } from '@shared/device-linking';
 import type { LaneSealedHolderMaterialRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
+import type { LinkedDeviceWalletSessionRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
 import {
   createDeviceLinkingKeyMaterialPortV1,
   type DeviceLinkingWorkerEndpointV1,
@@ -43,6 +44,10 @@ export type DeviceLinkingFlowPortsAssemblyOptionsV1 = {
   readonly ownerApprovalUpdates: LinkSessionOwnerApprovalUpdatesPortV1;
   readonly ownerAuthorization: DeviceLinkingOwnerAuthorizationPortV1;
   readonly repository: LaneSealedHolderMaterialRepositoryV1;
+  readonly walletSessionRepository: Pick<
+    LinkedDeviceWalletSessionRepositoryV1,
+    'putExactActiveDeliveryV1'
+  >;
   readonly sourceLanePorts: LaneOperationSourcePortsV1;
   readonly workerEndpoint?: DeviceLinkingWorkerEndpointV1;
   readonly workerTimeoutMs?: number;
@@ -145,6 +150,11 @@ export function createDeviceLinkingFlowPortsV1(
     keyMaterial,
     targetCredential,
     laneProvisioning,
+    walletSessions: {
+      putExactActiveDeliveryV1: async (delivery) => {
+        await args.walletSessionRepository.putExactActiveDeliveryV1(delivery);
+      },
+    },
     sourcePreparation,
   };
 }

@@ -27,6 +27,8 @@ import type {
   LinkedDeviceSessionTransportEventV1,
   LinkedDeviceHolderDeliveryAcknowledgementV1,
   LinkedDeviceEnrollmentReceiptV1,
+  LinkedDeviceApprovalV1,
+  LinkedDeviceWalletSessionDeliveryV1,
   QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking';
 import { parseLinkDeviceSessionId } from '@shared/signing-lanes/ids';
@@ -115,6 +117,10 @@ export class LinkDeviceFlow {
   private runEpoch = 0;
   private generationInProgress = false;
   private discardInProgress: Promise<void> | null = null;
+  private walletSessionDeliveryInProgress: Promise<void> | null = null;
+  private walletSessionDeliveryPersisted = false;
+  private provisioningApproval: LinkedDeviceApprovalV1 | null = null;
+  private aggregateReceipt: LinkedDeviceEnrollmentReceiptV1 | null = null;
   private readonly handledStates = new Set<LinkedDeviceSessionState['state']>();
 
   constructor(
@@ -333,7 +339,8 @@ export class LinkDeviceFlow {
           | 'claimed_by_owner'
           | 'awaiting_target_passkey'
           | 'provisioning'
-          | 'committed_completion_required';
+          | 'committed_completion_required'
+          | 'active';
       }
     >,
   ): Promise<import('@shared/signing-lanes/ids').LinkedDeviceId> {
@@ -382,6 +389,7 @@ export class LinkDeviceFlow {
         await this.resumeCommittedDelivery(event.state, runEpoch);
         return;
       case 'active':
+        await this.ensureWalletSessionDeliveryPersistedV1({ state: event.state, runEpoch });
         this.emit({
           phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
           status: 'succeeded',
@@ -456,6 +464,7 @@ export class LinkDeviceFlow {
     });
     this.assertCurrentRun(runEpoch);
     this.assertProvisioningApprovalMatchesSession({ approval, state, deviceId });
+    this.provisioningApproval = approval;
     const deliveries = await authenticatedTransport.requestProvisioningDeliveriesV1({
       command: buildLinkedDeviceProvisioningCommandV1({
         linkSessionId: state.linkSessionId,
@@ -473,6 +482,7 @@ export class LinkDeviceFlow {
       }),
     );
     this.assertCurrentRun(runEpoch);
+    this.aggregateReceipt = receipt;
     await authenticatedTransport.acknowledgeReceiptV1({
       acknowledgement: buildLinkedDeviceReceiptAcknowledgementV1({
         linkSessionId: state.linkSessionId,
@@ -483,6 +493,7 @@ export class LinkDeviceFlow {
       }),
     });
     this.assertCurrentRun(runEpoch);
+    await this.ensureWalletSessionDeliveryPersistedV1({ state, runEpoch, deviceId });
   }
 
   private async acknowledgeHolderDeliveries(
@@ -555,6 +566,7 @@ export class LinkDeviceFlow {
         });
         this.assertCurrentRun(runEpoch);
         this.assertCommittedApprovalMatchesSession({ approval, state, deviceId });
+        this.provisioningApproval = approval;
         return approval;
       },
       refetchProvisioningDeliveriesV1: async () => {
@@ -571,6 +583,7 @@ export class LinkDeviceFlow {
       acknowledgeHolderDeliveriesV1: this.acknowledgeHolderDeliveries.bind(this, runEpoch),
     });
     this.assertCurrentRun(runEpoch);
+    this.aggregateReceipt = receipt;
     if (!this.session) return;
     await authenticatedTransport.acknowledgeReceiptV1({
       acknowledgement: buildLinkedDeviceReceiptAcknowledgementV1({
@@ -582,6 +595,105 @@ export class LinkDeviceFlow {
       }),
     });
     this.assertCurrentRun(runEpoch);
+    await this.ensureWalletSessionDeliveryPersistedV1({ state, runEpoch, deviceId });
+  }
+
+  private async ensureWalletSessionDeliveryPersistedV1(input: {
+    readonly state: Extract<
+      LinkedDeviceSessionState,
+      {
+        readonly state: 'awaiting_target_passkey' | 'committed_completion_required' | 'active';
+      }
+    >;
+    readonly runEpoch: number;
+    readonly deviceId?: import('@shared/signing-lanes/ids').LinkedDeviceId;
+  }): Promise<void> {
+    if (this.walletSessionDeliveryPersisted) return;
+    if (this.walletSessionDeliveryInProgress) {
+      await this.walletSessionDeliveryInProgress;
+      return;
+    }
+    const persistence = this.fetchAndPersistWalletSessionDeliveryV1(input);
+    this.walletSessionDeliveryInProgress = persistence;
+    try {
+      await persistence;
+      this.walletSessionDeliveryPersisted = true;
+    } finally {
+      if (this.walletSessionDeliveryInProgress === persistence) {
+        this.walletSessionDeliveryInProgress = null;
+      }
+    }
+  }
+
+  private async fetchAndPersistWalletSessionDeliveryV1(input: {
+    readonly state: Extract<
+      LinkedDeviceSessionState,
+      {
+        readonly state: 'awaiting_target_passkey' | 'committed_completion_required' | 'active';
+      }
+    >;
+    readonly runEpoch: number;
+    readonly deviceId?: import('@shared/signing-lanes/ids').LinkedDeviceId;
+  }): Promise<void> {
+    await Promise.resolve();
+    const transport = this.requireAuthenticatedTransport();
+    const deviceId = input.deviceId ?? (await this.requireDeviceId(input.state));
+    this.assertCurrentRun(input.runEpoch);
+    const approval =
+      this.provisioningApproval ??
+      (await transport.getApprovalV1({ linkSessionId: input.state.linkSessionId }));
+    this.provisioningApproval = approval;
+    const delivery = await transport.getWalletSessionDeliveryV1({
+      linkSessionId: input.state.linkSessionId,
+    });
+    this.assertCurrentRun(input.runEpoch);
+    this.assertWalletSessionDeliveryMatchesV1({
+      delivery,
+      approval,
+      receipt: this.aggregateReceipt,
+      state: input.state,
+      deviceId,
+    });
+    await this.ports.walletSessions.putExactActiveDeliveryV1(delivery);
+    this.assertCurrentRun(input.runEpoch);
+  }
+
+  private assertWalletSessionDeliveryMatchesV1(input: {
+    readonly delivery: LinkedDeviceWalletSessionDeliveryV1;
+    readonly approval: LinkedDeviceApprovalV1;
+    readonly receipt: LinkedDeviceEnrollmentReceiptV1 | null;
+    readonly state: Extract<
+      LinkedDeviceSessionState,
+      {
+        readonly state: 'awaiting_target_passkey' | 'committed_completion_required' | 'active';
+      }
+    >;
+    readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
+  }): void {
+    const { delivery, approval, receipt, state, deviceId } = input;
+    if (
+      delivery.walletId !== state.walletId ||
+      delivery.enrollmentId !== state.enrollmentId ||
+      delivery.deviceId !== deviceId ||
+      approval.walletId !== state.walletId ||
+      approval.enrollmentId !== state.enrollmentId ||
+      approval.deviceId !== deviceId ||
+      delivery.permission.kind !== approval.permission.kind ||
+      delivery.permission.administrationScope !== approval.permission.administrationScope ||
+      delivery.permission.localUserPresence !== approval.permission.localUserPresence ||
+      delivery.orderedTokens.length !== approval.orderedKeyBindings.length ||
+      approval.orderedKeyBindings.some(
+        (binding, index) =>
+          delivery.orderedTokens[index]?.walletKeyId !== binding.walletKeyId ||
+          delivery.orderedTokens[index]?.keyFamily !== binding.keyFamily ||
+          delivery.revocationEpoch !== binding.sourceRevocationEpoch,
+      ) ||
+      (receipt !== null &&
+        (delivery.keyManifestDigestB64u !== receipt.manifestDigestB64u ||
+          delivery.issuedAtMs !== receipt.activatedAtMs))
+    ) {
+      throw new Error('linked-device Wallet Session delivery does not match activation');
+    }
   }
 
   private assertCommittedApprovalMatchesSession(input: {
@@ -618,6 +730,10 @@ export class LinkDeviceFlow {
     this.generationInProgress = true;
     this.cancelled = false;
     this.error = undefined;
+    this.walletSessionDeliveryInProgress = null;
+    this.walletSessionDeliveryPersisted = false;
+    this.provisioningApproval = null;
+    this.aggregateReceipt = null;
     this.handledStates.clear();
     return this.runEpoch;
   }
