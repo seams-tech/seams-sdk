@@ -477,6 +477,12 @@ function assertServerActivationReceiptMatchesJob(
     receipt.targetLaneId !== job.target.laneId ||
     receipt.targetLaneShareEpoch !== job.target.laneShareEpoch ||
     receipt.targetMaterialActivation.activationId !== job.targetMaterialActivationId ||
+    receipt.targetMaterialActivation.capability !== job.source.materialActivation.capability ||
+    receipt.targetMaterialActivation.materialOwner !==
+      job.source.materialActivation.materialOwner ||
+    receipt.targetMaterialActivation.keyBinding !== job.source.materialActivation.keyBinding ||
+    receipt.targetMaterialActivation.lifecycleBinding !==
+      job.source.materialActivation.lifecycleBinding ||
     String(receipt.targetMaterialActivation.signingWorker) !==
       String(job.targetSigningWorker.participantId)
   ) {

@@ -125,8 +125,8 @@ export type R102LaneEnrollmentFixture = {
 export function buildR102LaneEnrollmentFixture(): R102LaneEnrollmentFixture {
   const enrollmentId = requiredId(parseLaneEnrollmentId, 'enrollment-r102-lifecycle');
   const walletId = requiredId(parseWalletId, 'wallet-r102-lifecycle');
-  const children = [buildR102LaneJob('one'), buildR102LaneJob('two')] as const;
-  const first = children[0];
+  const first = buildR102LaneJob('one');
+  const children = [first, bindR102JobAuthorization(buildR102LaneJob('two'), first)] as const;
   const manifest = buildLaneEnrollmentManifestV1({
     enrollmentId,
     walletId,
@@ -179,7 +179,11 @@ export function buildR102ManifestChild(
 export function buildR102MixedLaneEnrollmentFixture(): R102LaneEnrollmentFixture {
   const enrollmentId = requiredId(parseLaneEnrollmentId, 'enrollment-r102-lifecycle');
   const walletId = requiredId(parseWalletId, 'wallet-r102-lifecycle');
-  const children = [buildR102LaneJob('ed25519'), buildR102EcdsaLaneJob('ecdsa')] as const;
+  const first = buildR102LaneJob('ed25519');
+  const children = [
+    first,
+    bindR102JobAuthorization(buildR102EcdsaLaneJob('ecdsa'), first),
+  ] as const;
   const manifest = buildLaneEnrollmentManifestV1({
     enrollmentId,
     walletId,
@@ -189,6 +193,16 @@ export function buildR102MixedLaneEnrollmentFixture(): R102LaneEnrollmentFixture
     expiresAtMs: 100_000,
   });
   return { manifest, children };
+}
+
+function bindR102JobAuthorization(
+  job: RotatableSigningLaneJobV1,
+  authority: RotatableSigningLaneJobV1,
+): RotatableSigningLaneJobV1 {
+  return parseRotatableSigningLaneJobV1({
+    ...job,
+    authorization: authority.authorization,
+  });
 }
 
 export function buildR102LaneJob(suffix: string): RotatableSigningLaneJobV1 {
@@ -495,16 +509,23 @@ export function buildR102ServerActivationReceipt(
   job: RotatableSigningLaneJobV1,
   activatedAtMs = 4_000,
 ): LaneServerActivationReceiptV1 {
+  const signingWorker = requiredId(
+    parseMpcSigningWorkerRef,
+    String(job.targetSigningWorker.participantId),
+  );
   return buildLaneServerActivationReceiptV1({
     operationId: job.operationId,
     enrollmentId: job.enrollmentId,
     targetLaneId: job.target.laneId,
     targetLaneShareEpoch: job.target.laneShareEpoch,
-    targetMaterialActivation: buildR102MaterialActivation(
-      String(job.targetMaterialActivationId),
-      String(job.targetMaterialActivationId),
-      String(job.targetSigningWorker.participantId),
-    ),
+    targetMaterialActivation: buildMpcMaterialActivationRef({
+      activationId: job.targetMaterialActivationId,
+      capability: job.source.materialActivation.capability,
+      materialOwner: job.source.materialActivation.materialOwner,
+      keyBinding: job.source.materialActivation.keyBinding,
+      lifecycleBinding: job.source.materialActivation.lifecycleBinding,
+      signingWorker,
+    }),
     signingWorkerParticipantBindingDigestB64u: job.targetSigningWorker.participantBindingDigestB64u,
     serverCiphertextDigestSetB64u: DIGEST_B64U,
     transcriptHashB64u: DIGEST_B64U,

@@ -2477,19 +2477,33 @@ function validateChildrenAgainstManifest(
   manifest: LaneEnrollmentManifestV1,
   children: readonly LaneProtocolRecordV1[],
 ): void {
-  for (const entry of manifest.orderedChildren) {
-    const child = children.find(
-      (candidate) => String(candidate.job.operationId) === String(entry.operationId),
-    );
-    if (!child) throw new Error(`lane enrollment child ${String(entry.operationId)} is missing`);
+  for (let index = 0; index < manifest.orderedChildren.length; index += 1) {
+    const entry = manifest.orderedChildren[index];
+    const child = children[index];
+    if (!entry || !child) throw new Error(`lane enrollment child ${index} is missing`);
     if (
+      String(child.job.operationId) !== String(entry.operationId) ||
+      String(child.job.enrollmentId) !== String(manifest.enrollmentId) ||
       String(child.job.walletId) !== String(manifest.walletId) ||
       String(child.job.walletKeyId) !== String(entry.walletKeyId) ||
+      child.job.keyFamily !== entry.keyFamily ||
+      !equalLaneRecords(child.job.authorization, manifest.authorization) ||
       String(child.job.source.laneId) !== String(entry.sourceLaneId) ||
+      String(child.job.source.laneShareEpoch) !== String(entry.sourceLaneShareEpoch) ||
+      child.job.source.revocationEpoch !== entry.sourceRevocationEpoch ||
+      !mpcMaterialActivationRefsEqual(
+        child.job.source.materialActivation,
+        entry.sourceMaterialActivation,
+      ) ||
       String(child.job.target.laneId) !== String(entry.targetLaneId) ||
-      String(child.job.targetMaterialActivationId) !== String(entry.targetMaterialActivationId)
+      String(child.job.target.laneShareEpoch) !== String(entry.targetLaneShareEpoch) ||
+      String(child.job.targetMaterialActivationId) !== String(entry.targetMaterialActivationId) ||
+      child.job.targetHolder.participantBindingDigestB64u !==
+        entry.holderParticipantBindingDigestB64u ||
+      child.job.targetSigningWorker.participantBindingDigestB64u !==
+        entry.signingWorkerParticipantBindingDigestB64u
     )
-      throw new Error(`lane enrollment child ${String(entry.operationId)} does not match manifest`);
+      throw new Error(`lane enrollment child ${index} does not match manifest`);
   }
 }
 
@@ -2624,6 +2638,12 @@ function assertServerActivationReceiptIdentity(
     String(receipt.targetLaneShareEpoch) !== String(job.target.laneShareEpoch) ||
     String(receipt.targetMaterialActivation.activationId) !==
       String(job.targetMaterialActivationId) ||
+    receipt.targetMaterialActivation.capability !== job.source.materialActivation.capability ||
+    receipt.targetMaterialActivation.materialOwner !==
+      job.source.materialActivation.materialOwner ||
+    receipt.targetMaterialActivation.keyBinding !== job.source.materialActivation.keyBinding ||
+    receipt.targetMaterialActivation.lifecycleBinding !==
+      job.source.materialActivation.lifecycleBinding ||
     String(receipt.targetMaterialActivation.signingWorker) !==
       String(job.targetSigningWorker.participantId) ||
     receipt.signingWorkerParticipantBindingDigestB64u !==

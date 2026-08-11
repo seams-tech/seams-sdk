@@ -12,8 +12,10 @@ import {
   buildCommitLaneEnrollmentActivationV1,
   buildCompleteSigningLaneRevocationV1,
   buildLaneEnrollmentManifestV1,
+  buildLaneServerActivationReceiptV1,
   buildRevokeSigningLaneV1,
   parseLaneRefreshPredecessorRetirementV1,
+  parseRotatableSigningLaneJobV1,
 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import type {
   AggregateLaneActivationChildReceiptV1,
@@ -60,6 +62,108 @@ const scope = {
 } as const;
 
 test.describe('R102 lane lifecycle D1 gateway', () => {
+  test('rejects enrollment children whose order differs from the manifest', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+      const fixture = buildR102LaneEnrollmentFixture();
+      const store = new CloudflareD1LaneLifecycleStore({
+        database: temporary.database,
+        scope,
+        now: () => 1_000,
+      });
+      const gateway = new CloudflareD1LaneEnrollmentGateway({ lifecycleStore: store });
+
+      await expect(
+        gateway.prepareLaneEnrollmentV1({
+          manifest: fixture.manifest,
+          children: [fixture.children[1], fixture.children[0]],
+        }),
+      ).rejects.toThrow('lane enrollment child 0 does not match manifest');
+      const changedSourceEpoch = parseRotatableSigningLaneJobV1({
+        ...fixture.children[1],
+        source: {
+          ...fixture.children[1].source,
+          revocationEpoch: fixture.children[1].source.revocationEpoch + 1,
+        },
+      });
+      await expect(
+        gateway.prepareLaneEnrollmentV1({
+          manifest: fixture.manifest,
+          children: [fixture.children[0], changedSourceEpoch],
+        }),
+      ).rejects.toThrow('lane enrollment child 1 does not match manifest');
+      await expect(store.getEnrollment(fixture.manifest.enrollmentId)).resolves.toBeNull();
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
+  test('rejects a server activation receipt whose material reference changed', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+      const fixture = buildR102LaneEnrollmentFixture();
+      const store = new CloudflareD1LaneLifecycleStore({
+        database: temporary.database,
+        scope,
+        now: () => 1_000,
+      });
+      const gateway = new CloudflareD1LaneEnrollmentGateway({ lifecycleStore: store });
+      await gateway.prepareLaneEnrollmentV1(fixture);
+      const job = fixture.children[0];
+      const protocol = await gateway.recordLaneProtocolCommitV1({
+        receipt: buildR102ProtocolCommitReceipt(job),
+        expectedVersion: 1,
+      });
+      if (protocol.outcome === 'conflict') throw new Error('fixture protocol commit conflicted');
+      const holder = await gateway.recordLaneHolderDeliveryV1({
+        receipt: buildR102HolderDeliveryReceipt(job),
+        expectedVersion: protocol.version,
+      });
+      if (holder.outcome === 'conflict') throw new Error('fixture holder delivery conflicted');
+      const validReceipt = buildR102ServerActivationReceipt(job);
+      const substitutedCapability = parseCapabilityInstanceRef('capability:r102-substituted');
+      if (!substitutedCapability.ok) throw new Error(substitutedCapability.error.message);
+      const substitutedReceipt = buildLaneServerActivationReceiptV1({
+        operationId: validReceipt.operationId,
+        enrollmentId: validReceipt.enrollmentId,
+        targetLaneId: validReceipt.targetLaneId,
+        targetLaneShareEpoch: validReceipt.targetLaneShareEpoch,
+        targetMaterialActivation: buildMpcMaterialActivationRef({
+          activationId: validReceipt.targetMaterialActivation.activationId,
+          capability: substitutedCapability.value,
+          materialOwner: validReceipt.targetMaterialActivation.materialOwner,
+          keyBinding: validReceipt.targetMaterialActivation.keyBinding,
+          lifecycleBinding: validReceipt.targetMaterialActivation.lifecycleBinding,
+          signingWorker: validReceipt.targetMaterialActivation.signingWorker,
+        }),
+        signingWorkerParticipantBindingDigestB64u:
+          validReceipt.signingWorkerParticipantBindingDigestB64u,
+        serverCiphertextDigestSetB64u: validReceipt.serverCiphertextDigestSetB64u,
+        transcriptHashB64u: validReceipt.transcriptHashB64u,
+        activatedAtMs: validReceipt.activatedAtMs,
+      });
+
+      await expect(
+        gateway.activateLaneServerMaterialV1({
+          receipt: substitutedReceipt,
+          expectedVersion: holder.version,
+        }),
+      ).rejects.toThrow('lane server activation receipt does not match its admitted operation');
+      await expect(
+        store.getProductEpoch({
+          walletId: job.walletId,
+          walletKeyId: job.walletKeyId,
+          laneId: job.target.laneId,
+          laneShareEpoch: job.target.laneShareEpoch,
+        }),
+      ).resolves.toBeNull();
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
   test('prepares mixed children and atomically activates every child epoch', async () => {
     const temporary = createTemporaryD1Database();
     try {
