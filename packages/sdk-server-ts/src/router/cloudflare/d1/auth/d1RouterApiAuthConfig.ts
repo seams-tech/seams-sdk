@@ -120,6 +120,12 @@ export type CloudflareD1LinkedDeviceCompositionOptionsV1 =
   | CloudflareD1LinkedDeviceCompositionWithoutSessionV1
   | CloudflareD1LinkedDeviceCompositionWithSessionV1;
 
+export type CloudflareD1GithubOAuthConfig = {
+  readonly clientId: string;
+  readonly clientSecret: string;
+  readonly callbackUrl: string;
+};
+
 export interface CloudflareD1RouterApiAuthServiceOptions {
   readonly database: D1DatabaseLike;
   readonly namespace: string;
@@ -134,6 +140,7 @@ export interface CloudflareD1RouterApiAuthServiceOptions {
   readonly accountInitialBalance?: string;
   readonly implicitNearAccountTestFundingEnabled?: boolean | string;
   readonly googleOidcClientId?: string;
+  readonly githubOAuth?: CloudflareD1GithubOAuthConfig;
   readonly oidcExchange?: CloudflareD1OidcExchangeConfig;
   readonly accountIdDerivationSecret?: string;
   readonly emailOtpServerSeal?: CloudflareD1EmailOtpServerSealConfig;
@@ -253,6 +260,7 @@ export type NormalizedCloudflareD1RouterApiAuthServiceOptions = Omit<
   readonly accountInitialBalance?: string;
   readonly implicitNearAccountTestFundingEnabled: boolean;
   readonly googleOidcClientId?: string;
+  readonly githubOAuth?: CloudflareD1GithubOAuthConfig;
   readonly oidcExchange?: NormalizedCloudflareD1OidcExchangeConfig;
   readonly accountIdDerivationSecret?: string;
   readonly emailOtp: EmailOtpRuntimeConfig;
@@ -289,6 +297,20 @@ export function parseBooleanFlag(input: unknown, fallback: boolean, field: strin
 export function normalizeD1RouterApiAuthOptions(
   input: CloudflareD1RouterApiAuthServiceOptions,
 ): NormalizedCloudflareD1RouterApiAuthServiceOptions {
+  const githubClientId = toOptionalTrimmedString(input.githubOAuth?.clientId);
+  const githubClientSecret = toOptionalTrimmedString(input.githubOAuth?.clientSecret);
+  const githubCallbackUrl = toOptionalTrimmedString(input.githubOAuth?.callbackUrl);
+  const githubOAuth =
+    githubClientId && githubClientSecret && githubCallbackUrl
+      ? {
+          clientId: githubClientId,
+          clientSecret: githubClientSecret,
+          callbackUrl: githubCallbackUrl,
+        }
+      : undefined;
+  if (input.githubOAuth && !githubOAuth) {
+    throw new Error('githubOAuth requires clientId, clientSecret, and callbackUrl');
+  }
   return {
     database: input.database,
     namespace: requireD1RouterApiAuthScopeString(input.namespace, 'namespace'),
@@ -310,6 +332,7 @@ export function normalizeD1RouterApiAuthOptions(
       'implicitNearAccountTestFundingEnabled',
     ),
     googleOidcClientId: toOptionalTrimmedString(input.googleOidcClientId),
+    githubOAuth,
     oidcExchange: normalizeOidcExchangeConfig(input),
     accountIdDerivationSecret: toOptionalTrimmedString(input.accountIdDerivationSecret),
     emailOtp: normalizeEmailOtpConfig(input),

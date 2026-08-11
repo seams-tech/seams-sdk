@@ -17,23 +17,19 @@ const PASSKEY_ASSERTION = {
   clientExtensionResults: null,
 };
 
-function firstEcdsaSessionActivationRequest() {
+function firstEcdsaSessionActivationPolicy() {
   const bootstrap = createThresholdEcdsaBootstrapFixture({
     nearAccountId: 'alice.testnet',
     chain: 'evm',
   });
-  const binding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
-  if (!binding || binding.materialKind !== 'role_local_worker_handle') {
-    throw new Error('expected passkey ECDSA role-local fixture');
-  }
   if (!bootstrap.session.runtimePolicyScope) {
     throw new Error('expected ECDSA runtime policy scope');
   }
   const mintId = parseReusableWalletSessionMintId('wallet-session-mint-fixture');
   if (!mintId.ok) throw new Error('expected valid Wallet Session mint fixture');
   return {
-    kind: 'router_ab_ecdsa_post_registration_session_activation_v1',
-    public_capability: binding.publicFacts.publicCapability,
+    kind: 'router_ab_ecdsa_post_registration_session_activation_policy_v1' as const,
+    key_handle: bootstrap.thresholdEcdsaKeyRef.keyHandle,
     session_policy: {
       threshold_session_id: bootstrap.session.thresholdSessionId,
       wallet_session_mint_id: mintId.value,
@@ -46,14 +42,15 @@ function firstEcdsaSessionActivationRequest() {
 
 test.describe('passkey session exchange ECDSA activation validation', () => {
   test('accepts exact first-session activation only on passkey exchange', () => {
-    const activation = firstEcdsaSessionActivationRequest();
+    const policy = firstEcdsaSessionActivationPolicy();
     const parsed = parseSessionExchangeRouteCommand({
       sessionKind: 'jwt',
       exchange: {
         type: 'passkey_assertion',
         challengeId: 'challenge-id',
         webauthn_authentication: PASSKEY_ASSERTION,
-        ecdsa_session_activation: activation,
+        wallet_id: 'wallet-fixture',
+        ecdsa_session_policy: policy,
       },
     });
     if (!parsed.ok) throw new Error(parsed.body.message);
@@ -63,14 +60,14 @@ test.describe('passkey session exchange ECDSA activation validation', () => {
         kind: 'passkey_assertion',
         ecdsaActivation: {
           kind: 'activate_first_ecdsa_wallet_session',
-          request: activation,
+          policy,
         },
       },
     });
   });
 
   test('rejects ECDSA activation on OIDC and hosted-wallet exchanges', () => {
-    const activation = firstEcdsaSessionActivationRequest();
+    const policy = firstEcdsaSessionActivationPolicy();
     expect(
       parseSessionExchangeRouteCommand({
         sessionKind: 'jwt',
@@ -78,7 +75,8 @@ test.describe('passkey session exchange ECDSA activation validation', () => {
           type: 'oidc_jwt',
           token: 'oidc-token',
           provider: 'oidc',
-          ecdsa_session_activation: activation,
+          wallet_id: 'wallet-fixture',
+          ecdsa_session_policy: policy,
         },
       }),
     ).toMatchObject({ ok: false });
@@ -88,7 +86,8 @@ test.describe('passkey session exchange ECDSA activation validation', () => {
         exchange: {
           type: 'hosted_wallet_exchange_code',
           wallet_origin: 'https://wallet.example.test',
-          ecdsa_session_activation: activation,
+          wallet_id: 'wallet-fixture',
+          ecdsa_session_policy: policy,
         },
       }),
     ).toMatchObject({ ok: false });
@@ -153,6 +152,39 @@ test.describe('hosted-wallet Seams session exchange request validation', () => {
           nonce: 'exchange-nonce',
           appSessionJwt: 'bearer-must-not-cross-this-boundary',
         },
+      }),
+    ).toMatchObject({ ok: false });
+  });
+});
+
+test.describe('GitHub OAuth session exchange request validation', () => {
+  test('accepts a bounded authorization-code exchange', () => {
+    expect(
+      parseSessionExchangeRouteCommand({
+        session_kind: 'cookie',
+        exchange: { type: 'github_oauth_code', code: 'temporary-code' },
+      }),
+    ).toEqual({
+      ok: true,
+      command: {
+        kind: 'github_oauth_code',
+        sessionKind: 'cookie',
+        code: 'temporary-code',
+      },
+    });
+  });
+
+  test('rejects missing codes and provider tokens', () => {
+    expect(
+      parseSessionExchangeRouteCommand({
+        session_kind: 'cookie',
+        exchange: { type: 'github_oauth_code', code: '' },
+      }),
+    ).toMatchObject({ ok: false });
+    expect(
+      parseSessionExchangeRouteCommand({
+        session_kind: 'cookie',
+        exchange: { type: 'github_oauth_code', code: 'temporary-code', access_token: 'secret' },
       }),
     ).toMatchObject({ ok: false });
   });

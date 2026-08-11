@@ -641,6 +641,16 @@ export type RouterApiMethodTypes = {
     readonly input: never;
     readonly result: { readonly configured: boolean; readonly clientId?: string };
   };
+  getGithubOAuthPublicConfig: {
+    readonly input: never;
+    readonly result:
+      | { readonly configured: false }
+      | {
+          readonly configured: true;
+          readonly clientId: string;
+          readonly callbackUrl: string;
+        };
+  };
   getOrCreateAppSessionVersion: {
     readonly input: { readonly userId: string };
     readonly result:
@@ -959,6 +969,22 @@ export type RouterApiMethodTypes = {
       readonly family_name?: string;
       readonly emailVerified?: boolean;
       readonly hostedDomain?: string;
+      readonly code?: string;
+      readonly message?: string;
+    };
+  };
+  verifyGithubOAuthCode: {
+    readonly input: { readonly code?: unknown };
+    readonly result: {
+      readonly ok: boolean;
+      readonly verified?: boolean;
+      readonly userId?: string;
+      readonly providerSubject?: string;
+      readonly iss?: string;
+      readonly aud?: string[];
+      readonly sub?: string;
+      readonly email?: string;
+      readonly name?: string;
       readonly code?: string;
       readonly message?: string;
     };
@@ -1348,6 +1374,7 @@ export interface RouterApiIdentityService {
     input: RouterApiMethodTypes['consumeGoogleEmailOtpRegistrationAttemptRateLimit']['input'],
   ): Promise<RouterApiMethodTypes['consumeGoogleEmailOtpRegistrationAttemptRateLimit']['result']>;
   getGoogleOidcPublicConfig(): { configured: boolean; clientId?: string };
+  getGithubOAuthPublicConfig(): RouterApiMethodTypes['getGithubOAuthPublicConfig']['result'];
   linkIdentity(
     input: RouterApiMethodTypes['linkIdentity']['input'],
   ): Promise<RouterApiMethodTypes['linkIdentity']['result']>;
@@ -1366,6 +1393,9 @@ export interface RouterApiIdentityService {
   verifyGoogleLogin(
     input: RouterApiMethodTypes['verifyGoogleLogin']['input'],
   ): Promise<RouterApiMethodTypes['verifyGoogleLogin']['result']>;
+  verifyGithubOAuthCode(
+    input: RouterApiMethodTypes['verifyGithubOAuthCode']['input'],
+  ): Promise<RouterApiMethodTypes['verifyGithubOAuthCode']['result']>;
   verifyOidcJwtExchange(
     input: RouterApiMethodTypes['verifyOidcJwtExchange']['input'],
   ): Promise<RouterApiMethodTypes['verifyOidcJwtExchange']['result']>;

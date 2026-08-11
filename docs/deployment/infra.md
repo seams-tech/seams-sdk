@@ -127,6 +127,7 @@ cross-run artifact inputs.
 | `CLOUDFLARE_API_TOKEN`                          | Pages, Router A/B deploy | Frontend environments use Pages-only tokens; backend role environments use Worker-scoped tokens. |
 | `CLOUDFLARE_ACCOUNT_ID`                         | Pages, Router A/B deploy | Cloudflare account id, scoped to the matching authority environment.                             |
 | `CF_PAGES_PROJECT_VITE`                         | Pages deploy             | Cloudflare Pages project for the app/site surface.                                               |
+| `CF_PAGES_PROJECT_DOCS`                         | Pages deploy             | Cloudflare Pages project for the VitePress documentation surface.                                |
 | `CF_PAGES_PROJECT_WALLET`                       | Pages deploy             | Staging wallet Pages project.                                                                    |
 | `CF_PAGES_PROJECT_WALLET_TESTNET`               | Pages deploy             | Production testnet wallet Pages project; pending production-testnet provisioning.                |
 | `CF_PAGES_PROJECT_WALLET_MAINNET`               | Pages deploy             | Production mainnet wallet Pages project; pending production-mainnet provisioning.                |
@@ -172,7 +173,6 @@ cross-run artifact inputs.
 | `VITE_WALLET_SERVICE_PATH`                               | Pages build         | Wallet service path; defaults to `/wallet-service` when unset.                          |
 | `VITE_SDK_BASE_PATH`                                     | Pages build         | SDK asset path; defaults to `/sdk` when unset.                                          |
 | `VITE_RP_ID_BASE`                                        | Pages build         | WebAuthn RP id base.                                                                    |
-| `VITE_DOCS_ORIGIN`                                       | Pages build         | Public docs origin used by site links and local header rules.                           |
 | `VITE_NEAR_NETWORK`                                      | Staging Pages build | `testnet`; production uses `VITE_TESTNET_NEAR_NETWORK` and `VITE_MAINNET_NEAR_NETWORK`. |
 | `VITE_NEAR_RPC_URL`                                      | Staging Pages build | Testnet NEAR RPC URL; production uses exact lane prefixes.                              |
 | `VITE_NEAR_EXPLORER`                                     | Staging Pages build | Testnet explorer base URL; production uses exact lane prefixes.                         |
@@ -229,15 +229,17 @@ Apply mode creates the Pages projects for the selected release when they are
 absent:
 
 - app/site project: stored in `CF_PAGES_PROJECT_VITE`
+- VitePress docs project: stored in `CF_PAGES_PROJECT_DOCS`
 - staging wallet-origin project: stored in `CF_PAGES_PROJECT_WALLET`
 - production testnet wallet-origin project: stored in
   `CF_PAGES_PROJECT_WALLET_TESTNET`
 - production mainnet wallet-origin project: stored in
   `CF_PAGES_PROJECT_WALLET_MAINNET`
 
-The matching frontend workflow builds once and deploys the app and every
-declared wallet Pages project. It deploys branch alias `dev` for staging and
-`main` for production. Production frontend deployment remains gated while
+The matching frontend workflow builds the app and VitePress docs, then deploys
+the app, docs, and every declared wallet Pages project. The docs deploy binds
+`staging.docs.seams.sh` for staging and `docs.seams.sh` for production. It
+deploys branch alias `dev` for staging and `main` for production. Production frontend deployment remains gated while
 either backend lane is pending. The stack workflow has no Pages mutation jobs or
 Pages credentials.
 

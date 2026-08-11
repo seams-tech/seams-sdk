@@ -4,7 +4,8 @@ export type AuthProviderActionRoute =
   | { kind: 'passkey_options' }
   | { kind: 'passkey_verify' }
   | { kind: 'google_options' }
-  | { kind: 'google_verify' };
+  | { kind: 'google_verify' }
+  | { kind: 'github_options' };
 
 export type PasskeyLoginOptionsRequest = {
   user_id: string;
@@ -146,6 +147,7 @@ export function parseAuthProviderAction(input: {
   if (provider === 'passkey' && action === 'verify') return { kind: 'passkey_verify' };
   if (provider === 'google' && action === 'options') return { kind: 'google_options' };
   if (provider === 'google' && action === 'verify') return { kind: 'google_verify' };
+  if (provider === 'github' && action === 'options') return { kind: 'github_options' };
   return null;
 }
 
