@@ -15,6 +15,12 @@ import {
 } from '@shared/authorization/capabilityKinds';
 import { parseWalletId } from '@shared/utils/domainIds';
 import type { WalletId } from '@shared/utils/domainIds';
+import type { ThresholdEd25519AuthorityScope } from '../../../../core/types';
+import type {
+  WalletAuthAuthority,
+  WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
+import type { WalletExecutionLaneAuthSource } from '../../../../core/signingLanes/WalletExecutionLaneProjection';
 import type {
   LaneOperationId,
   LaneOperationIdempotencyKey,
@@ -62,13 +68,29 @@ export type DeviceLinkingOwnerAuthorizationResponseV1 = {
   readonly expiresAtMs: number;
 };
 
-export type DeviceLinkingOwnerWalletSessionContextV1 = {
-  readonly walletId: WalletId;
-  readonly walletSessionId: WalletSessionId;
-  readonly authorizationId: WalletSessionAuthorizationId;
-  readonly expiresAtMs: number;
-  readonly curve: 'ed25519' | 'ecdsa';
-};
+export type DeviceLinkingOwnerWalletSessionContextV1 =
+  | {
+      readonly walletId: WalletId;
+      readonly walletSessionId: WalletSessionId;
+      readonly authorizationId: WalletSessionAuthorizationId;
+      readonly expiresAtMs: number;
+      readonly curve: 'ed25519';
+      readonly authority: WalletAuthAuthority;
+      readonly authorityScope: ThresholdEd25519AuthorityScope;
+      readonly walletAuthAuthorityRef?: never;
+      readonly authSource?: never;
+    }
+  | {
+      readonly walletId: WalletId;
+      readonly walletSessionId: WalletSessionId;
+      readonly authorizationId: WalletSessionAuthorizationId;
+      readonly expiresAtMs: number;
+      readonly curve: 'ecdsa';
+      readonly walletAuthAuthorityRef: WalletAuthAuthorityRef;
+      readonly authSource: WalletExecutionLaneAuthSource;
+      readonly authority?: never;
+      readonly authorityScope?: never;
+    };
 
 export type DeviceLinkingOwnerRequestAuthenticationV1 =
   | {
@@ -269,6 +291,8 @@ async function validateOwnerWalletSessionV1(input: {
         authorizationId,
         expiresAtMs: ed25519.walletSessionAuth.expiresAtMs,
         curve: 'ed25519',
+        authority: ed25519.claims.authority,
+        authorityScope: ed25519.claims.authorityScope,
       },
     };
   }
@@ -296,6 +320,8 @@ async function validateOwnerWalletSessionV1(input: {
         authorizationId,
         expiresAtMs: ecdsa.walletSessionAuth.expiresAtMs,
         curve: 'ecdsa',
+        walletAuthAuthorityRef: ecdsa.claims.walletAuthAuthorityRef,
+        authSource: ecdsa.claims.authSource,
       },
     };
   }
