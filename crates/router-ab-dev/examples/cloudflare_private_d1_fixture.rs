@@ -1,4 +1,6 @@
-use router_ab_cloudflare::CloudflareEd25519YaoPairPrepareRequestV1;
+use router_ab_cloudflare::{
+    CloudflareEd25519YaoPairPrepareRequestV1, CloudflareEd25519YaoPairWorkV1,
+};
 use router_ab_core::{
     ed25519_yao_recipient_set_digest_v1, LocalServiceRoleV1, MpcMaterialActivationRefV1,
     RootShareEpoch, RouterEd25519YaoGatewayExecuteRequestV1,
@@ -213,14 +215,17 @@ fn request_fixture(
         gateway_request,
         prepare_a: CloudflareEd25519YaoPairPrepareRequestV1 {
             pair_binding: execute.pair_binding().clone(),
+            work: CloudflareEd25519YaoPairWorkV1::Ceremony,
             input: input_a,
         },
         prepare_b: CloudflareEd25519YaoPairPrepareRequestV1 {
             pair_binding: execute.pair_binding().clone(),
+            work: CloudflareEd25519YaoPairWorkV1::Ceremony,
             input: input_b,
         },
         conflicting_prepare_a: CloudflareEd25519YaoPairPrepareRequestV1 {
             pair_binding: conflicting_execute.pair_binding().clone(),
+            work: CloudflareEd25519YaoPairWorkV1::Ceremony,
             input: conflicting_input_a,
         },
     })
