@@ -38,6 +38,7 @@ import {
   type RouterAbPublicKeysetV2,
 } from '@seams/sdk-server/cloud-host';
 import { parseWalletId, parseWebAuthnRpId } from '@seams/sdk-server/cloud-host';
+import { normalizeLogger } from '@seams/sdk-server/cloud-host';
 import {
   createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1,
   createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1,
@@ -502,9 +503,7 @@ function localEcdsaCeremonyTokenIssuer(
   });
 }
 
-function requireLocalEcdsaCeremonyPrivateJwk(
-  env: LocalD1DevEnv,
-): RouterAbEcdsaEd25519PrivateJwk {
+function requireLocalEcdsaCeremonyPrivateJwk(env: LocalD1DevEnv): RouterAbEcdsaEd25519PrivateJwk {
   const privateJwkSource = normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK);
   const privateJwk = parseRouterAbEcdsaEd25519PrivateJwk(
     privateJwkSource ? JSON.parse(privateJwkSource) : null,
@@ -1152,7 +1151,21 @@ function localD1RouterApiAuthServiceOptions(
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS,
     routerAbEcdsaPresignRuntime: createLocalEcdsaPresignRuntime(env),
     ecdsaStrictRegistration: localEcdsaStrictPorts(env).registration,
+    linkedDevice: {
+      execution: localLinkedDeviceExecution(),
+    },
     ...(ed25519Yao.kind === 'enabled' ? { ed25519YaoProductRegistration: ed25519Yao.runtime } : {}),
+  };
+}
+
+function localLinkedDeviceExecution() {
+  const rpId = parseWebAuthnRpId('localhost');
+  if (!rpId.ok) throw new Error(rpId.error.message);
+  return {
+    nowV1: Date.now,
+    rpId: rpId.value,
+    expectedOrigin: 'https://localhost',
+    logger: normalizeLogger(),
   };
 }
 

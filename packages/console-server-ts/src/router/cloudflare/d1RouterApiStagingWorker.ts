@@ -60,6 +60,7 @@ import {
   type RouterAbPublicKeysetV2,
 } from '@seams/sdk-server/cloud-host';
 import { parseWalletId } from '@seams/sdk-server/cloud-host';
+import { normalizeLogger, parseWebAuthnRpId } from '@seams/sdk-server/cloud-host';
 import {
   createRouterAbServiceBindingFetch,
   ROUTER_AB_MPC_ROUTER_ORIGIN,
@@ -127,6 +128,8 @@ interface CloudflareD1RouterApiStagingEnv
   readonly ROUTER_AB_CEREMONY_JWT_KEY_ID?: string;
   readonly ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON?: string;
   readonly ROUTER_AB_PUBLIC_KEYSET_JSON?: string;
+  readonly LINKED_DEVICE_WEBAUTHN_RP_ID?: string;
+  readonly LINKED_DEVICE_WEBAUTHN_ORIGIN?: string;
   readonly DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY?: string;
   readonly DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY?: string;
   readonly SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY?: string;
@@ -347,6 +350,9 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     routerAbEcdsaPresignRuntime: createStagingEcdsaPresignRuntime(env),
     ed25519YaoProductRegistration: yaoRuntime,
     ecdsaStrictRegistration,
+    linkedDevice: {
+      execution: stagingLinkedDeviceExecution(env),
+    },
   });
   const routerApiHandler = createCloudflareRouter(service, {
     ...bundle.routerApiRouterOptions,
@@ -358,10 +364,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     sessionCookieName: readEnvString(env, 'SESSION_COOKIE_NAME'),
     routerAbPublicKeyset: requireStagingRouterAbPublicKeyset(env),
     routerAbNormalSigningRouterProxy: {
-      internalServiceAuthSecret: requireEnvString(
-        env,
-        'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
-      ),
+      internalServiceAuthSecret: requireEnvString(env, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET'),
       fetch: (request) => env.MPC_ROUTER.fetch(request),
     },
     routerAbEcdsaStrictPostRegistration: ecdsaStrictPostRegistration,
@@ -394,6 +397,17 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     billingStripeWebhookSigningSecret: readEnvString(env, 'STRIPE_WEBHOOK_SECRET'),
   });
   return dispatchHostedGatewayRequest.bind(null, consoleHandler, routerApiHandler);
+}
+
+function stagingLinkedDeviceExecution(env: CloudflareD1RouterApiStagingEnv) {
+  const rpId = parseWebAuthnRpId(requireEnvString(env, 'LINKED_DEVICE_WEBAUTHN_RP_ID'));
+  if (!rpId.ok) throw new Error(rpId.error.message);
+  return {
+    nowV1: Date.now,
+    rpId: rpId.value,
+    expectedOrigin: requireEnvString(env, 'LINKED_DEVICE_WEBAUTHN_ORIGIN'),
+    logger: normalizeLogger(),
+  };
 }
 
 export async function dispatchHostedGatewayRequest(
