@@ -29,7 +29,23 @@ function validScopeRecord(): Record<string, unknown> {
       lifecycleBinding: 'lifecycle-binding:r102',
       signingWorker: 'signing-worker:r102',
     },
-    ecdsaThresholdKeyId: 'threshold-key-r102',
+    targetCapability: {
+      manifestId: 'manifest-target-r102',
+      manifestRevision: 1,
+      ecdsaThresholdKeyId: 'threshold-key-r102',
+      orderedThresholdSessions: [
+        {
+          chainTarget: {
+            kind: 'evm',
+            namespace: 'eip155',
+            chainId: 1,
+            networkSlug: 'mainnet',
+          },
+          thresholdSessionId: 'threshold-session-r102',
+          participantBindingDigestB64u: digest,
+        },
+      ],
+    },
     thresholdPublicKey33B64u: point,
     evmAddress: '0x0000000000000000000000000000000000000001',
     publicIdentityDigestB64u: digest,

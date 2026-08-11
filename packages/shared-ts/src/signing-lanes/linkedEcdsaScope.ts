@@ -27,9 +27,19 @@ import {
   type Secp256k1CompressedPublicKeyB64u,
 } from '../passkey-custody/primitives';
 import {
-  parseSdkEcdsaDerivationThresholdKeyId,
-  type EcdsaThresholdKeyId,
-} from '../threshold/ecdsaDerivationRoleLocalBootstrap';
+  parseLaneHolderParticipantId,
+  parseLaneParticipantBindingDigestB64u,
+  parseSigningWorkerParticipantId,
+  parseSigningWorkerRecipientKeyDigestB64u,
+  parseSigningWorkerRecipientKeyId,
+  type LaneHolderParticipantId,
+  type LaneParticipantBindingDigestB64u,
+  type SigningWorkerParticipantId,
+  type SigningWorkerRecipientKeyDigestB64u,
+  type SigningWorkerRecipientKeyId,
+} from './participants';
+import type { EcdsaTargetCapabilityBindingV1 } from './rotation';
+import { parseEcdsaTargetCapabilityBindingV1 } from './rotationParsers';
 
 const LINKED_ECDSA_SCOPE_FIELDS = [
   'kind',
@@ -44,7 +54,7 @@ const LINKED_ECDSA_SCOPE_FIELDS = [
   'revocationEpoch',
   'targetMaterialActivationId',
   'materialActivation',
-  'ecdsaThresholdKeyId',
+  'targetCapability',
   'thresholdPublicKey33B64u',
   'evmAddress',
   'publicIdentityDigestB64u',
@@ -95,19 +105,19 @@ export type LinkedDeviceEcdsaNormalSigningScopeV1 = LinkedEcdsaScopeOwnerFieldsF
   readonly revocationEpoch: number;
   readonly targetMaterialActivationId: MpcMaterialActivationId;
   readonly materialActivation: MpcMaterialActivationRef;
-  readonly ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  readonly targetCapability: EcdsaTargetCapabilityBindingV1;
   readonly thresholdPublicKey33B64u: Secp256k1CompressedPublicKeyB64u;
   readonly evmAddress: string;
   readonly publicIdentityDigestB64u: DigestB64u;
   readonly targetHolderPublicCommitmentB64u: Secp256k1CompressedPublicKeyB64u;
   readonly targetServerPublicCommitmentB64u: Secp256k1CompressedPublicKeyB64u;
-  readonly holderParticipantId: string;
-  readonly signingWorkerParticipantId: string;
-  readonly holderParticipantBindingDigestB64u: DigestB64u;
-  readonly signingWorkerParticipantBindingDigestB64u: DigestB64u;
-  readonly holderRecipientKeyDigestB64u: DigestB64u;
-  readonly serverRecipientKeyDigestB64u: DigestB64u;
-  readonly signingWorkerRecipientKeyId: string;
+  readonly holderParticipantId: LaneHolderParticipantId;
+  readonly signingWorkerParticipantId: SigningWorkerParticipantId;
+  readonly holderParticipantBindingDigestB64u: LaneParticipantBindingDigestB64u;
+  readonly signingWorkerParticipantBindingDigestB64u: LaneParticipantBindingDigestB64u;
+  readonly holderRecipientKeyDigestB64u: SigningWorkerRecipientKeyDigestB64u;
+  readonly serverRecipientKeyDigestB64u: SigningWorkerRecipientKeyDigestB64u;
+  readonly signingWorkerRecipientKeyId: SigningWorkerRecipientKeyId;
   readonly transcriptHashB64u: DigestB64u;
   readonly protocolCommitReceiptDigestB64u: DigestB64u;
 };
@@ -133,7 +143,7 @@ export function buildLinkedDeviceEcdsaNormalSigningScopeV1(
     revocationEpoch: input.revocationEpoch,
     targetMaterialActivationId: input.targetMaterialActivationId,
     materialActivation: input.materialActivation,
-    ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
+    targetCapability: input.targetCapability,
     thresholdPublicKey33B64u: input.thresholdPublicKey33B64u,
     evmAddress: input.evmAddress,
     publicIdentityDigestB64u: input.publicIdentityDigestB64u,
@@ -208,7 +218,10 @@ export function parseLinkedDeviceEcdsaNormalSigningScopeV1(
       parseMpcMaterialActivationRef(record.materialActivation),
       `${label}.materialActivation`,
     ),
-    ecdsaThresholdKeyId: parseSdkEcdsaDerivationThresholdKeyId(record.ecdsaThresholdKeyId),
+    targetCapability: parseEcdsaTargetCapabilityBindingV1(
+      record.targetCapability,
+      `${label}.targetCapability`,
+    ),
     thresholdPublicKey33B64u: parseSecp256k1CompressedPublicKeyB64u(
       record.thresholdPublicKey33B64u,
     ),
@@ -220,22 +233,32 @@ export function parseLinkedDeviceEcdsaNormalSigningScopeV1(
     targetServerPublicCommitmentB64u: parseSecp256k1CompressedPublicKeyB64u(
       record.targetServerPublicCommitmentB64u,
     ),
-    holderParticipantId: parseVisibleText(
-      record.holderParticipantId,
+    holderParticipantId: parseDomain(
+      parseLaneHolderParticipantId(record.holderParticipantId),
       `${label}.holderParticipantId`,
     ),
-    signingWorkerParticipantId: parseVisibleText(
-      record.signingWorkerParticipantId,
+    signingWorkerParticipantId: parseDomain(
+      parseSigningWorkerParticipantId(record.signingWorkerParticipantId),
       `${label}.signingWorkerParticipantId`,
     ),
-    holderParticipantBindingDigestB64u: parseDigestB64u(record.holderParticipantBindingDigestB64u),
-    signingWorkerParticipantBindingDigestB64u: parseDigestB64u(
-      record.signingWorkerParticipantBindingDigestB64u,
+    holderParticipantBindingDigestB64u: parseDomain(
+      parseLaneParticipantBindingDigestB64u(record.holderParticipantBindingDigestB64u),
+      `${label}.holderParticipantBindingDigestB64u`,
     ),
-    holderRecipientKeyDigestB64u: parseDigestB64u(record.holderRecipientKeyDigestB64u),
-    serverRecipientKeyDigestB64u: parseDigestB64u(record.serverRecipientKeyDigestB64u),
-    signingWorkerRecipientKeyId: parseVisibleText(
-      record.signingWorkerRecipientKeyId,
+    signingWorkerParticipantBindingDigestB64u: parseDomain(
+      parseLaneParticipantBindingDigestB64u(record.signingWorkerParticipantBindingDigestB64u),
+      `${label}.signingWorkerParticipantBindingDigestB64u`,
+    ),
+    holderRecipientKeyDigestB64u: parseDomain(
+      parseSigningWorkerRecipientKeyDigestB64u(record.holderRecipientKeyDigestB64u),
+      `${label}.holderRecipientKeyDigestB64u`,
+    ),
+    serverRecipientKeyDigestB64u: parseDomain(
+      parseSigningWorkerRecipientKeyDigestB64u(record.serverRecipientKeyDigestB64u),
+      `${label}.serverRecipientKeyDigestB64u`,
+    ),
+    signingWorkerRecipientKeyId: parseDomain(
+      parseSigningWorkerRecipientKeyId(record.signingWorkerRecipientKeyId),
       `${label}.signingWorkerRecipientKeyId`,
     ),
     transcriptHashB64u: parseDigestB64u(record.transcriptHashB64u),
@@ -279,13 +302,6 @@ function parseEvmAddress(value: unknown, label: string): string {
     throw new Error(`${label} must be a 20-byte hexadecimal EVM address`);
   }
   return value;
-}
-
-function parseVisibleText(value: unknown, label: string): string {
-  if (typeof value !== 'string') throw new Error(`${label} must be a string`);
-  const normalized = value.trim();
-  requireVisibleText(normalized, label);
-  return normalized;
 }
 
 function requireVisibleText(value: string, label: string): void {
