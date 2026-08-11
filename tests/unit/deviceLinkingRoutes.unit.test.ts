@@ -5,6 +5,12 @@ import { parseWalletId } from '@shared/utils/domainIds';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
+import { parseLinkedDeviceWalletSessionDeliveryV1 } from '@shared/device-linking/parsers';
+import {
+  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
+  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+  decodeJwtPayloadRecord,
+} from '@shared/utils/sessionTokens';
 import {
   buildR103DeviceLinkFixture,
   buildR103ProvisioningFixture,
@@ -25,7 +31,10 @@ import {
   type DeviceLinkingRequestProofV1,
 } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/deviceLinking';
 import type { FetchRouterApiContext } from '../../packages/sdk-server-ts/src/router/transport/fetch/fetchRouter.types';
-import { buildLaneEnrollmentManifestV1, parseRotatableSigningLaneJobV1 } from '@shared/signing-lanes/rotationParsers';
+import {
+  buildLaneEnrollmentManifestV1,
+  parseRotatableSigningLaneJobV1,
+} from '@shared/signing-lanes/rotationParsers';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -33,6 +42,11 @@ import {
   listD1MigrationFiles,
   type TemporaryD1Database,
 } from '../helpers/sqliteD1';
+import {
+  buildR103ActiveLinkedDeviceSessionRecordV1,
+  buildR103IssuedLinkedDeviceWalletSessionV1,
+  LinkedDeviceJwtSessionAdapterV1,
+} from './helpers/deviceLinkingServer.fixtures';
 
 const scope: D1LinkedDeviceSessionScopeV1 = {
   namespace: 'signer',
@@ -382,6 +396,59 @@ test('rejects a replayed device signature when the authenticated request body ch
   expect(observed[1].bodyDigestB64u).not.toBe(observed[0].bodyDigestB64u);
 });
 
+test('delivers one authenticated linked Wallet Session JWT for each approved key family', async () => {
+  const fixture = buildR103DeviceLinkFixture();
+  for (const keyFamily of ['ed25519', 'ecdsa_secp256k1'] as const) {
+    const active = await buildR103ActiveLinkedDeviceSessionRecordV1(fixture, keyFamily);
+    const issued = await buildR103IssuedLinkedDeviceWalletSessionV1(active);
+    let authorizationReads = 0;
+    const routeService = routeServiceFor(
+      sessionServiceForRecord(active),
+      active.aggregateReceipt.activatedAtMs + 1,
+      {
+        readWalletSessionAuthorizationV1: async () => {
+          authorizationReads += 1;
+          return { kind: 'active' as const, authorization: issued };
+        },
+      },
+    );
+    const response = await invoke(routeService, {
+      method: 'GET',
+      pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/wallet-session`,
+      sessionAdapter: new LinkedDeviceJwtSessionAdapterV1(),
+    });
+
+    expect(response.status).toBe(200);
+    const delivery = parseLinkedDeviceWalletSessionDeliveryV1(await response.json());
+    expect(authorizationReads).toBe(1);
+    expect(delivery.walletId).toBe(active.state.walletId);
+    expect(delivery.enrollmentId).toBe(active.state.enrollmentId);
+    expect(delivery.orderedTokens).toHaveLength(1);
+    expect(delivery.orderedTokens[0]).toMatchObject({
+      walletKeyId: active.approvalTranscript.value.orderedKeyBindings[0].walletKeyId,
+      keyFamily,
+    });
+    const claims = decodeJwtPayloadRecord(delivery.orderedTokens[0].walletSessionJwt);
+    expect(claims?.kind).toBe(
+      keyFamily === 'ed25519'
+        ? ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND
+        : ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
+    );
+    expect(claims?.authorizationKind).toBe('linked_device_wallet_session');
+  }
+
+  const active = await buildR103ActiveLinkedDeviceSessionRecordV1(fixture);
+  const unavailable = await invoke(
+    routeServiceFor(sessionServiceForRecord(active), active.aggregateReceipt.activatedAtMs + 1),
+    {
+      method: 'GET',
+      pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/wallet-session`,
+    },
+  );
+  expect(unavailable.status).toBe(409);
+  expect(await unavailable.json()).toMatchObject({ code: 'authorization_unavailable' });
+});
+
 function routeServiceFor(
   sessionService: DeviceLinkingRouteServiceV1['sessionService'],
   nowMs: number,
@@ -391,6 +458,7 @@ function routeServiceFor(
     createUnclaimedSessionV1: sessionService.createUnclaimedSessionV1.bind(sessionService),
     claimSessionV1: sessionService.claimSessionV1.bind(sessionService),
     recordOwnerApprovalV1: sessionService.recordOwnerApprovalV1.bind(sessionService),
+    recordTargetCredentialV1: sessionService.recordTargetCredentialV1.bind(sessionService),
     cancelSessionV1: sessionService.cancelSessionV1.bind(sessionService),
     getSessionV1: (input) =>
       typeof input === 'string'
@@ -411,8 +479,13 @@ function routeServiceFor(
       body: null,
       proof,
     }),
-    registerTargetCredentialV1: async () => {
-      throw new Error('credential adapter not configured for this test');
+    targetCredential: {
+      getTargetPreparationV1: async () => {
+        throw new Error('target preparation adapter not configured for this test');
+      },
+      registerTargetCredentialV1: async () => {
+        throw new Error('credential adapter not configured for this test');
+      },
     },
     acknowledgeReceiptV1: async () => {
       throw new Error('receipt adapter not configured for this test');
@@ -420,6 +493,7 @@ function routeServiceFor(
     retryCommittedDeliveryV1: async () => {
       throw new Error('retry adapter not configured for this test');
     },
+    readWalletSessionAuthorizationV1: async () => ({ kind: 'unavailable' as const }),
     provisioning: {
       provisionLinkedDeviceV1: async () => {
         throw new Error('provisioning adapter not configured for this test');
@@ -459,7 +533,12 @@ function requestBinding(
 
 async function invoke(
   routeService: DeviceLinkingRouteServiceV1,
-  input: { readonly method: string; readonly pathname: string; readonly body?: unknown },
+  input: {
+    readonly method: string;
+    readonly pathname: string;
+    readonly body?: unknown;
+    readonly sessionAdapter?: LinkedDeviceJwtSessionAdapterV1;
+  },
 ): Promise<Response> {
   const bodyText = input.body === undefined ? undefined : JSON.stringify(input.body);
   const headers = new Headers();
@@ -479,7 +558,7 @@ async function invoke(
     method: input.method,
     runtime: { kind: 'inline' as const },
     service: { deviceLinking: routeService },
-    opts: {},
+    opts: input.sessionAdapter ? { session: input.sessionAdapter } : {},
     logger: {},
     mePath: '/me',
     routeDefinitions: [],
@@ -514,6 +593,29 @@ async function requestProofHeader(
     signatureB64u: base64UrlEncode(new Uint8Array(64).fill(4)),
   };
   return base64UrlEncode(new TextEncoder().encode(JSON.stringify(proof)));
+}
+
+function sessionServiceForRecord(
+  record: Awaited<ReturnType<typeof buildR103ActiveLinkedDeviceSessionRecordV1>>,
+): DeviceLinkingRouteServiceV1['sessionService'] {
+  return {
+    createUnclaimedSessionV1: async () => {
+      throw new Error('session creation is outside the active delivery fixture');
+    },
+    claimSessionV1: async () => {
+      throw new Error('session claim is outside the active delivery fixture');
+    },
+    recordOwnerApprovalV1: async () => {
+      throw new Error('session approval is outside the active delivery fixture');
+    },
+    recordTargetCredentialV1: async () => {
+      throw new Error('target registration is outside the active delivery fixture');
+    },
+    cancelSessionV1: async () => {
+      throw new Error('session cancellation is outside the active delivery fixture');
+    },
+    getSessionV1: async () => record,
+  };
 }
 
 function ownerAuthorization(): LinkedDeviceOwnerAuthorizationPortV1 {
