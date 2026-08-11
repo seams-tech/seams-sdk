@@ -81,6 +81,7 @@ function required<T>(
 }
 
 const DIGEST = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(7)));
+const R102_RECEIPT_DIGEST = parseDigestB64u(base64UrlEncode(new Uint8Array(32)));
 const PUBLIC_KEY = base64UrlEncode(new Uint8Array(32).fill(8));
 
 export type R103DeviceLinkFixture = {
@@ -174,6 +175,22 @@ export function buildR103ProvisioningFixture(
       revocationEpoch: approved.sourceRevocationEpoch,
       holderParticipantId: approved.sourceHolderParticipantId,
       signingWorkerParticipantId: approved.sourceSigningWorkerParticipantId,
+      materialActivation: {
+        ...source.source.materialActivation,
+        capability: fixture.receipt.orderedChildReceipts[0].materialActivation.capability,
+        materialOwner: fixture.receipt.orderedChildReceipts[0].materialActivation.materialOwner,
+        keyBinding: fixture.receipt.orderedChildReceipts[0].materialActivation.keyBinding,
+        lifecycleBinding:
+          fixture.receipt.orderedChildReceipts[0].materialActivation.lifecycleBinding,
+      },
+    },
+    targetSigningWorker: {
+      ...source.targetSigningWorker,
+      participantId: required(
+        parseSigningWorkerParticipantId(
+          String(fixture.receipt.orderedChildReceipts[0].materialActivation.signingWorker),
+        ),
+      ),
     },
     target: {
       ...source.target,
@@ -409,8 +426,8 @@ export function buildR103DeviceLinkFixture(
     targetLaneId,
     targetLaneShareEpoch,
     materialActivation: activation,
-    receiptDigestB64u: DIGEST,
-    transcriptHashB64u: DIGEST,
+    receiptDigestB64u: R102_RECEIPT_DIGEST,
+    transcriptHashB64u: R102_RECEIPT_DIGEST,
     deliveredAtMs: 8_000,
   });
   const receipt = buildLinkedDeviceEnrollmentReceiptV1({
