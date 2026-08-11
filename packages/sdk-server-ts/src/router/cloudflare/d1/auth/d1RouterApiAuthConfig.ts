@@ -23,10 +23,7 @@ import type {
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type { DeviceLinkingRouteServiceV1 } from '../../../transport/fetch/routes/deviceLinking';
 import type { DeviceLinkingGatewayCompletionServiceV1 } from '../../../transport/fetch/routes/deviceLinkingGateway';
-import type {
-  LinkedDeviceTargetPreparationSourceV1,
-  LinkedDeviceVerifiedTargetCommitterV1,
-} from '../deviceLinking/d1LinkedDeviceTargetCredentialProvider';
+import type { LinkedDeviceTargetPlannerV1 } from '../deviceLinking/d1LinkedDeviceTargetCredentialProvider';
 import type { LinkedDeviceR102ProvisioningExecutionPortV1 } from '../deviceLinking/d1LinkedDeviceProvisioningProvider';
 import type { D1LinkedDeviceManagementMetadataPortV1 } from '../deviceLinking/d1LinkedDeviceManagementStore';
 import {
@@ -75,8 +72,7 @@ export type CloudflareD1LinkedDeviceExecutionOptionsV1 = {
 export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationPortV1;
   readonly authenticateOwnerRequestV1: DeviceLinkingRouteServiceV1['authenticateOwnerRequestV1'];
-  readonly targetPreparationSource: LinkedDeviceTargetPreparationSourceV1;
-  readonly targetCommitter: LinkedDeviceVerifiedTargetCommitterV1;
+  readonly targetPlanner: LinkedDeviceTargetPlannerV1;
   readonly provisioningActivation: Pick<
     LinkedDeviceR102ProvisioningExecutionPortV1,
     'recordHolderDeliveriesAndActivateV1'
