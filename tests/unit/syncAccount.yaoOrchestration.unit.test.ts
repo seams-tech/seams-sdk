@@ -8,6 +8,7 @@ import type {
 } from '../../packages/sdk-web/src/core/indexedDB/keyMaterial.types';
 import type { NearEd25519YaoOperationMaterial } from '../../packages/sdk-web/src/core/signingEngine/interfaces/near';
 import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { WorkerOperationContext } from '../../packages/sdk-web/src/core/signingEngine/workerManager/executeWorkerOperation';
 import {
   parseEcdsaRoleLocalBindingDigest,
   parseEcdsaRoleLocalDurableMaterialRef,
@@ -43,6 +44,7 @@ import {
 } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import type { WalletCustodyEvmFamilyPublicFacts } from '../../packages/shared-ts/src/passkey-custody/ceremonyCommitPayload';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { parseRouterAbEcdsaRegistrationActivationReceiptV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import { ecdsaCapabilityActivationFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import { rawPasskeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixtures';
@@ -248,9 +250,6 @@ function createMockActiveClient(scenario: YaoScenario): MockActiveClient {
         nonce: input.nonce.slice(),
         ciphertext: new Uint8Array(48).fill(9),
       };
-    },
-    sealEmailOtpLocalMaterial() {
-      throw new Error('Email OTP sealing is outside the syncAccount fixture');
     },
     status() {
       return { kind: scenario.disposed ? 'disposed' : 'active' };
@@ -577,6 +576,50 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
   failAuthenticatedWalletActivation = false;
   storedUser: ClientUserData | null = null;
 
+  getSignerWorkerContext(): WorkerOperationContext {
+    return {
+      requestWorkerOperation: async () => {
+        throw new Error('worker operations are outside the syncAccount fixture');
+      },
+    };
+  }
+
+  async createWalletRecoveryReplacementCredential(
+    _args: Parameters<AccountSyncSigningSurface['createWalletRecoveryReplacementCredential']>[0],
+  ): Promise<never> {
+    throw new Error('wallet recovery ceremony is outside the syncAccount fixture');
+  }
+
+  async recoverWalletCustodyManifest(
+    _args: Parameters<AccountSyncSigningSurface['recoverWalletCustodyManifest']>[0],
+  ): Promise<never> {
+    throw new Error('wallet recovery ceremony is outside the syncAccount fixture');
+  }
+
+  async establishWalletCustodyNearEd25519KeySet(
+    _args: Parameters<AccountSyncSigningSurface['establishWalletCustodyNearEd25519KeySet']>[0],
+  ): Promise<never> {
+    throw new Error('wallet custody ceremony is outside the syncAccount fixture');
+  }
+
+  async joinWalletCustodyNearEd25519KeySet(
+    _args: Parameters<AccountSyncSigningSurface['joinWalletCustodyNearEd25519KeySet']>[0],
+  ): Promise<never> {
+    throw new Error('wallet custody ceremony is outside the syncAccount fixture');
+  }
+
+  async establishWalletCustodyEvmFamilyKeySet(
+    _args: Parameters<AccountSyncSigningSurface['establishWalletCustodyEvmFamilyKeySet']>[0],
+  ): Promise<never> {
+    throw new Error('wallet custody ceremony is outside the syncAccount fixture');
+  }
+
+  async joinWalletCustodyEvmFamilyKeySet(
+    _args: Parameters<AccountSyncSigningSurface['joinWalletCustodyEvmFamilyKeySet']>[0],
+  ): Promise<never> {
+    throw new Error('wallet custody ceremony is outside the syncAccount fixture');
+  }
+
   getRpId(): string {
     return RP_ID;
   }
@@ -624,6 +667,10 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
     return null;
   }
 
+  async readReusableWalletSessionState(): Promise<never> {
+    throw new Error('reusable wallet session state is outside the syncAccount fixture');
+  }
+
   async listWarmThresholdEcdsaSessionStatuses(): Promise<[]> {
     return [];
   }
@@ -662,7 +709,11 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
   }
 
   async withExactEd25519MaterialOwner<T>(
-    args: Parameters<AccountSyncSigningSurface['withExactEd25519MaterialOwner']>[0],
+    args: {
+      readonly materialActivation: typeof MATERIAL_ACTIVATION;
+      readonly nearAccountId: ReturnType<typeof toAccountId>;
+      readonly task: () => Promise<T>;
+    },
   ): Promise<T> {
     this.queuedActivationIds.push(String(args.materialActivation.activationId));
     if (this.insideMaterialOwnerQueue) {
@@ -685,14 +736,19 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
   }
 
   async hydrateSigningSession(
-    input: Parameters<AccountSyncSigningSurface['hydrateSigningSession']>[0],
+    input: { readonly thresholdSessionId: string },
   ): Promise<void> {
     this.hydratedSessionIds.push(input.thresholdSessionId);
   }
 
   async persistSigningSessionSealForThresholdSession(
-    input: Parameters<AccountSyncSigningSurface['persistSigningSessionSealForThresholdSession']>[0],
-  ): ReturnType<AccountSyncSigningSurface['persistSigningSessionSealForThresholdSession']> {
+    input: { readonly thresholdSessionId: string },
+  ): Promise<{
+    readonly ok: true;
+    readonly sealedSecretB64u: string;
+    readonly remainingUses: number;
+    readonly expiresAtMs: number;
+  }> {
     this.sealedQueueStates.push(this.insideMaterialOwnerQueue);
     this.sealedSessionIds.push(input.thresholdSessionId);
     return {
@@ -796,6 +852,12 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
   }
 
   async persistWalletCustodyEd25519Material(): Promise<void> {}
+
+  async loadWalletCustodyEd25519Material(): Promise<{ readonly kind: 'absent' }> {
+    return { kind: 'absent' };
+  }
+
+  async deleteWalletCustodyEd25519Material(): Promise<void> {}
 }
 
 function createContext(surface: SyncAccountSigningSurfaceFixture): AccountSyncWebContext {
@@ -823,7 +885,9 @@ function mixedWalletEcdsaSyncFixture(walletId: string): {
   });
   const binding = fixture.prepareInput.activationBinding;
   const roleFacts = fixture.sealInput.roleLocalPublicFacts;
-  const receipt = fixture.serverCommit.protocolReceipt;
+  const receipt = parseRouterAbEcdsaRegistrationActivationReceiptV1(
+    fixture.serverCommit.protocolReceipt,
+  );
   const walletKey = {
     walletId,
     keyHandle: String(binding.roleLocalBinding.keyHandle),

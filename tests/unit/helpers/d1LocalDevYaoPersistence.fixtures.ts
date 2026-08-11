@@ -332,6 +332,15 @@ export function buildLocalYaoRegistrationFixture(lifecycleId: string) {
       threshold_session_id: `wallet-session-${lifecycleId}`,
       signer_set_id: 'ed25519:1',
       signing_worker_id: SIGNING_WORKER_ID,
+      material_activation: {
+        kind: 'mpc_material_activation_ref',
+        activation_id: `activation-${lifecycleId}`,
+        capability: `capability-${lifecycleId}`,
+        material_owner: String(walletId),
+        key_binding: `key-${lifecycleId}`,
+        lifecycle_binding: lifecycleId,
+        signing_worker: SIGNING_WORKER_ID,
+      },
     },
     application_binding: {
       wallet_id: walletId,
@@ -703,6 +712,7 @@ async function issueLocalWalletSessionToken(
     secret: LOCAL_SESSION_SECRET,
     issuer: LOCAL_SESSION_ISSUER,
     audience: LOCAL_SESSION_AUDIENCE,
+    ttlSeconds: 120,
   }).signJwt(localWalletId(), claims);
 }
 
