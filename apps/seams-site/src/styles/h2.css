@@ -160,7 +160,7 @@ body:has(.h2-page) {
 
 /* ---------- flat navbar (structural reskin of NavbarStatic on this page) ---------- */
 
-.h2-page .navbar-static {
+.h2-page .navbar-static:not(.navbar-static--compact) {
   top: 0;
   padding: 0;
   /* let the shell's track fill the viewport instead of centering max-content */
@@ -168,8 +168,8 @@ body:has(.h2-page) {
   justify-content: stretch;
 }
 
-.h2-page .navbar-static__shell,
-.h2-page .navbar-static__shell.is-scrolled {
+.h2-page .navbar-static:not(.navbar-static--compact) .navbar-static__shell,
+.h2-page .navbar-static:not(.navbar-static--compact) .navbar-static__shell.is-scrolled {
   width: 100%;
   min-width: 0;
   max-width: 100%;
@@ -184,7 +184,7 @@ body:has(.h2-page) {
   box-shadow: none;
 }
 
-.h2-page .navbar-static__pill {
+.h2-page .navbar-static:not(.navbar-static--compact) .navbar-static__pill {
   border-radius: 9999px;
 }
 

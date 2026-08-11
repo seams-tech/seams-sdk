@@ -283,9 +283,14 @@ async function parseOptionalJson(response: Response): Promise<any> {
 export type NavbarStaticProps = {
   /** 'auto' follows the site theme; 'light' pins the light-page skin (used by /home2). */
   appearance?: 'auto' | 'light';
+  /** Compact keeps the inset shell when a page supplies its own navbar treatment. */
+  layout?: 'page' | 'compact';
 };
 
-export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): React.JSX.Element {
+export function NavbarStatic({
+  appearance = 'auto',
+  layout = 'page',
+}: NavbarStaticProps = {}): React.JSX.Element {
   const OPEN_DELAY_MS = 0;
   const CLOSE_DELAY_MS = 120;
   const SCROLL_THRESHOLD_PX = 8;
@@ -882,7 +887,9 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
   return (
     <nav
       ref={rootRef}
-      className={`navbar-static${appearance === 'light' ? ' navbar-static--light' : ''}`}
+      className={`navbar-static${appearance === 'light' ? ' navbar-static--light' : ''}${
+        layout === 'compact' ? ' navbar-static--compact' : ''
+      }`}
       aria-label="Primary"
     >
       <div className={`navbar-static__shell${hasScrolled ? ' is-scrolled' : ''}`}>
