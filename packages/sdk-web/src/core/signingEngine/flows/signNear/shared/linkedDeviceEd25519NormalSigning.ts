@@ -328,6 +328,11 @@ export async function executeLinkedDeviceEd25519NormalSigningV1(
   const envelope = buildEnvelope(input.bundle, input.child);
   const prepare = await buildPrepare({ scope, request: input.request });
   const intentDigestB64u = digestB64uFromWire(prepare.admissionMaterial.intentDigest);
+  const transport = input.transport ?? defaultTransport;
+  const credential: RouterAbEd25519NormalSigningCredential = {
+    kind: 'wallet_session_jwt',
+    walletSessionJwt: input.walletSession.token.walletSessionJwt,
+  };
   const presenceAndHolder = await authorizeAndOpenLinkedDeviceHolderV1({
     authenticator: input.authenticator,
     holderRepository: input.holderRepository,
@@ -338,23 +343,24 @@ export async function executeLinkedDeviceEd25519NormalSigningV1(
     intentDigestB64u,
     issuedAtMs: input.issuedAtMs,
     expiresAtMs: input.request.expiresAtMs,
+    authorizeBeforeOpen: async (localPresenceAssertion) =>
+      await transport.prepare({
+        relayServerUrl: input.relayServerUrl,
+        credential,
+        request: {
+          ...prepare.request,
+          linkedDeviceExecution: envelope,
+          localPresenceAssertion,
+        },
+      }),
   });
-  const transport = input.transport ?? defaultTransport;
-  const credential: RouterAbEd25519NormalSigningCredential = {
-    kind: 'wallet_session_jwt',
-    walletSessionJwt: input.walletSession.token.walletSessionJwt,
-  };
   try {
     const prepareRequest: LinkedDeviceEd25519NormalSigningPrepareRequestV1 = {
       ...prepare.request,
       linkedDeviceExecution: envelope,
       localPresenceAssertion: presenceAndHolder.localPresenceAssertion,
     };
-    const prepareResponse = await transport.prepare({
-      relayServerUrl: input.relayServerUrl,
-      credential,
-      request: prepareRequest,
-    });
+    const prepareResponse = presenceAndHolder.authorizationResult;
     requireRouterAbNormalSigningPrepareMatchesRequest({
       request: prepareRequest,
       signingPayloadDigest: prepare.admissionMaterial.signingPayloadDigest,

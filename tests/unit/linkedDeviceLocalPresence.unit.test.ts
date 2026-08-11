@@ -29,6 +29,7 @@ test('binds one WebAuthn assertion and PRF-opened holder to the active linked ch
   const holderRecord = buildR103SealedHolderRecord(child.job, child.protocolCommitReceipt);
   let requestedChallengeB64u = '';
   let openedFactor = new Uint8Array();
+  const events: string[] = [];
   const dependencies = {
     authenticator: {
       kind: 'authenticator',
@@ -81,6 +82,7 @@ test('binds one WebAuthn assertion and PRF-opened holder to the active linked ch
     },
     holderMaterial: {
       async openPersistedHolderSigningMaterialV1(input) {
+        events.push('holder-open');
         openedFactor = new Uint8Array(input.factorSecret).slice();
         return {
           kind: 'device_linking_holder_signing_material_handle_v1',
@@ -106,7 +108,13 @@ test('binds one WebAuthn assertion and PRF-opened holder to the active linked ch
     intentDigestB64u,
     issuedAtMs: bundle.issuedAtMs,
     expiresAtMs: bundle.issuedAtMs + 30_000,
+    authorizeBeforeOpen: async () => {
+      events.push('gateway-init-claim');
+      return { kind: 'authorized' as const };
+    },
   });
+  expect(events).toEqual(['gateway-init-claim', 'holder-open']);
+  expect(result.authorizationResult).toEqual({ kind: 'authorized' });
   expect(openedFactor).toEqual(new Uint8Array(32).fill(7));
   expect(result.localPresenceAssertion.challengeDigestB64u).toBe(requestedChallengeB64u);
   expect(result.localPresenceAssertion.assertion.clientExtensionResults).toBeNull();
@@ -115,4 +123,88 @@ test('binds one WebAuthn assertion and PRF-opened holder to the active linked ch
     kind: 'device_linking_holder_signing_material_handle_v1',
     keyFamily: child.keyFamily,
   });
+});
+
+test('zeroizes PRF before holder open when the Gateway claim fails', async () => {
+  const fixture = await buildR103ActiveExecutionFixture();
+  const bundle = await buildActiveLinkedDeviceExecutionBundleV1({
+    approval: fixture.deviceLink.approval,
+    targetPreparation: fixture.targetCredential.preparation,
+    targetCredentialRegistration: fixture.targetCredential.registration,
+    provisioningDeliveries: fixture.provisioning.deliveries,
+    enrollmentReceipt: fixture.deviceLink.receipt,
+    walletSessionDelivery: fixture.walletSession,
+  });
+  const child = bundle.orderedExecutions[0];
+  const credentialIdB64u =
+    bundle.targetCredentialRegistration.webauthnRegistration.credentialIdB64u;
+  const holderRecord = buildR103SealedHolderRecord(child.job, child.protocolCommitReceipt);
+  let holderOpened = false;
+  const authenticator = {
+    kind: 'authenticator' as const,
+    async run(operation: { readonly kind: 'get_passkey'; readonly rpId: string }) {
+      const prfFirstB64u = base64UrlEncode(new Uint8Array(32).fill(7));
+      return {
+        ok: true as const,
+        operation: 'get_passkey' as const,
+        requirePrfFirst: true as const,
+        credential: {
+          id: credentialIdB64u,
+          rawId: credentialIdB64u,
+          type: 'public-key' as const,
+          authenticatorAttachment: 'platform' as const,
+          response: {
+            clientDataJSON: 'AQ',
+            authenticatorData: 'Ag',
+            signature: base64UrlEncode(new Uint8Array(64).fill(3)),
+            userHandle: undefined,
+          },
+          clientExtensionResults: {
+            prf: { enabled: true, results: { first: prfFirstB64u } },
+          },
+        },
+        credentialIdB64u,
+        rawIdB64u: credentialIdB64u,
+        rpId: operation.rpId,
+        prf: { kind: 'required' as const, prfFirstB64u },
+      };
+    },
+  };
+  await expect(
+    authorizeAndOpenLinkedDeviceHolderV1({
+      authenticator,
+      holderRepository: {
+        async get() {
+          return holderRecord;
+        },
+        async put() {},
+        async listForEnrollmentV1() {
+          return [holderRecord];
+        },
+        async delete() {},
+      },
+      holderMaterial: {
+        async openPersistedHolderSigningMaterialV1() {
+          holderOpened = true;
+          throw new Error('holder must remain closed');
+        },
+        async createEd25519HolderSigningShareV1() {
+          throw new Error('holder must remain closed');
+        },
+        async discardHolderSigningMaterialV1() {},
+      },
+      bundle,
+      child,
+      authorizedOperationId: requiredAuthorizedOperationId(
+        'linked-ed25519-authorized-operation:claim-failure',
+      ),
+      intentDigestB64u: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(9))),
+      issuedAtMs: bundle.issuedAtMs,
+      expiresAtMs: bundle.issuedAtMs + 30_000,
+      authorizeBeforeOpen: async () => {
+        throw new Error('Gateway claim failed');
+      },
+    }),
+  ).rejects.toThrow('Gateway claim failed');
+  expect(holderOpened).toBe(false);
 });
