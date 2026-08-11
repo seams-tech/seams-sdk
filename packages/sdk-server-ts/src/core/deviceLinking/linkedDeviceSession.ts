@@ -30,6 +30,7 @@ import {
   type MpcMaterialActivationRef,
   type WalletId,
 } from '@shared/utils/domainIds';
+import { computeLinkedDevicePublicKeyDigestV1 } from '@shared/device-linking/requestProof';
 import type {
   AuthorizationEvidenceSetId,
   WalletSessionAuthorizationId,
@@ -82,6 +83,7 @@ type LinkedDeviceSessionUnclaimedRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
   readonly claimTranscript?: never;
   readonly approvalTranscript?: never;
   readonly aggregateReceipt?: never;
+  readonly recovery?: never;
 };
 
 type LinkedDeviceSessionClaimedRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
@@ -89,22 +91,31 @@ type LinkedDeviceSessionClaimedRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
   readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
   readonly approvalTranscript?: never;
   readonly aggregateReceipt?: never;
+  readonly recovery?: never;
 };
 
 type LinkedDeviceSessionApprovedRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
   readonly state: Extract<
     LinkedDeviceSessionState,
     {
-      readonly state:
-        | 'awaiting_target_passkey'
-        | 'provisioning'
-        | 'awaiting_aggregate_receipt'
-        | 'committed_completion_required';
+      readonly state: 'awaiting_target_passkey' | 'provisioning' | 'awaiting_aggregate_receipt';
     }
   >;
   readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
   readonly approvalTranscript: LinkedDeviceApprovalTranscriptV1;
   readonly aggregateReceipt?: never;
+  readonly recovery?: never;
+};
+
+type LinkedDeviceSessionCommittedRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
+  readonly state: Extract<
+    LinkedDeviceSessionState,
+    { readonly state: 'committed_completion_required' }
+  >;
+  readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
+  readonly approvalTranscript: LinkedDeviceApprovalTranscriptV1;
+  readonly aggregateReceipt?: never;
+  readonly recovery: LinkedDeviceRecoveryBindingV1;
 };
 
 type LinkedDeviceSessionActiveRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
@@ -112,6 +123,7 @@ type LinkedDeviceSessionActiveRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
   readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
   readonly approvalTranscript: LinkedDeviceApprovalTranscriptV1;
   readonly aggregateReceipt: LinkedDeviceEnrollmentReceiptV1;
+  readonly recovery: LinkedDeviceRecoveryBindingV1;
 };
 
 type LinkedDeviceSessionExpiredClaimedRecordV1 =
@@ -120,12 +132,14 @@ type LinkedDeviceSessionExpiredClaimedRecordV1 =
       readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
       readonly approvalTranscript?: never;
       readonly aggregateReceipt?: never;
+      readonly recovery?: never;
     })
   | (LinkedDeviceSessionRecordBaseV1 & {
       readonly state: Extract<LinkedDeviceSessionState, { readonly state: 'expired_claimed' }>;
       readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
       readonly approvalTranscript: LinkedDeviceApprovalTranscriptV1;
       readonly aggregateReceipt?: never;
+      readonly recovery?: never;
     });
 
 type LinkedDeviceSessionCancelledClaimedRecordV1 =
@@ -137,6 +151,7 @@ type LinkedDeviceSessionCancelledClaimedRecordV1 =
       readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
       readonly approvalTranscript?: never;
       readonly aggregateReceipt?: never;
+      readonly recovery?: never;
     })
   | (LinkedDeviceSessionRecordBaseV1 & {
       readonly state: Extract<
@@ -146,12 +161,14 @@ type LinkedDeviceSessionCancelledClaimedRecordV1 =
       readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
       readonly approvalTranscript: LinkedDeviceApprovalTranscriptV1;
       readonly aggregateReceipt?: never;
+      readonly recovery?: never;
     });
 
 export type LinkedDeviceSessionRecordV1 =
   | LinkedDeviceSessionUnclaimedRecordV1
   | LinkedDeviceSessionClaimedRecordV1
   | LinkedDeviceSessionApprovedRecordV1
+  | LinkedDeviceSessionCommittedRecordV1
   | LinkedDeviceSessionActiveRecordV1
   | LinkedDeviceSessionExpiredClaimedRecordV1
   | LinkedDeviceSessionCancelledClaimedRecordV1;
@@ -165,6 +182,23 @@ export type LinkedDeviceApprovalTranscriptV1 = {
   readonly digestB64u: DigestB64u;
   readonly value: LinkedDeviceApprovalV1;
 };
+
+export type LinkedDeviceRecoveryContinuationV1 = {
+  readonly kind: 'linked_device_recovery_continuation_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
+  readonly devicePublicKeyB64u: string;
+  readonly devicePublicKeyDigestB64u: DigestB64u;
+  readonly boundAtMs: number;
+};
+
+export type LinkedDeviceRecoveryBindingV1 =
+  | { readonly kind: 'unbound' }
+  | {
+      readonly kind: 'bound';
+      readonly continuation: LinkedDeviceRecoveryContinuationV1;
+    };
 
 export type LinkedDeviceSessionClaimIdentityV1 = {
   readonly walletId: WalletId;
@@ -238,6 +272,13 @@ export type LinkedDeviceSessionStoreV1 = {
     readonly linkSessionId: LinkDeviceSessionId;
     readonly expectedRevision: number;
     readonly transcriptSetDigestB64u: DigestB64u;
+    readonly nextRecord: LinkedDeviceSessionRecordV1;
+    readonly nowMs: number;
+  }): Promise<LinkedDeviceSessionMutationResultV1>;
+  bindRecoveryContinuationV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly expectedRevision: number;
+    readonly continuation: LinkedDeviceRecoveryContinuationV1;
     readonly nextRecord: LinkedDeviceSessionRecordV1;
     readonly nowMs: number;
   }): Promise<LinkedDeviceSessionMutationResultV1>;
@@ -323,6 +364,13 @@ export type LinkedDeviceSessionCommitInputV1 = {
   readonly linkSessionId: LinkDeviceSessionId;
   readonly expectedRevision: number;
   readonly transcriptSetDigestB64u: DigestB64u;
+  readonly nowMs: number;
+};
+
+export type LinkedDeviceSessionRecoveryRebindInputV1 = {
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly expectedRevision: number;
+  readonly continuation: LinkedDeviceRecoveryContinuationV1;
   readonly nowMs: number;
 };
 
@@ -535,6 +583,88 @@ export class LinkedDeviceSessionServiceV1 {
         linkSessionId: input.linkSessionId,
         expectedRevision: input.expectedRevision,
         transcriptSetDigestB64u: digestB64u,
+        nextRecord,
+        nowMs: input.nowMs,
+      });
+    } catch (error: unknown) {
+      return { outcome: 'invalid_input', message: errorMessage(error) };
+    }
+  }
+
+  async bindRecoveryContinuationV1(
+    input: LinkedDeviceSessionRecoveryRebindInputV1,
+  ): Promise<LinkedDeviceSessionServiceResultV1> {
+    try {
+      requireTimestamp(input.nowMs, 'nowMs');
+      const continuation = input.continuation;
+      if (continuation.linkSessionId !== input.linkSessionId) {
+        return {
+          outcome: 'invalid_input',
+          message: 'recovery continuation session does not match',
+        };
+      }
+      requireTimestamp(continuation.boundAtMs, 'recovery continuation boundAtMs');
+      if (continuation.boundAtMs > input.nowMs) {
+        return { outcome: 'invalid_input', message: 'recovery continuation is from the future' };
+      }
+      const devicePublicKeyDigestB64u = requireDigest(
+        continuation.devicePublicKeyDigestB64u,
+        'recovery continuation devicePublicKeyDigestB64u',
+      );
+      const computedDigestB64u = await computeLinkedDevicePublicKeyDigestV1(
+        continuation.devicePublicKeyB64u,
+      );
+      if (computedDigestB64u !== devicePublicKeyDigestB64u) {
+        return {
+          outcome: 'invalid_input',
+          message: 'recovery continuation key digest does not match public key',
+        };
+      }
+      const existing = await this.requireSession(input.linkSessionId);
+      if (existing.state.state !== 'committed_completion_required') {
+        return invalidStateResult(existing);
+      }
+      const recovery = existing.recovery;
+      if (!recovery) {
+        return {
+          outcome: 'invalid_input',
+          message: 'committed session is missing recovery binding',
+        };
+      }
+      const approval = existing.approvalTranscript?.value;
+      const deviceId = deviceIdFromRecord(existing);
+      if (
+        !approval ||
+        continuation.enrollmentId !== existing.state.enrollmentId ||
+        continuation.enrollmentId !== approval.enrollmentId ||
+        continuation.deviceId !== deviceId ||
+        continuation.devicePublicKeyB64u === approval.devicePublicKeyB64u
+      ) {
+        return {
+          outcome: 'invalid_input',
+          message: 'recovery continuation identity or freshness does not match session',
+        };
+      }
+      if (recovery.kind === 'bound') {
+        return alphabetizeStringify(recovery.continuation) === alphabetizeStringify(continuation)
+          ? { outcome: 'replayed', record: existing }
+          : {
+              outcome: 'conflict',
+              expectedRevision: existing.revision,
+              actualRevision: existing.revision,
+              record: existing,
+            };
+      }
+      const nextRecord = replaceSessionRecordV1(existing, {
+        state: existing.state,
+        revision: existing.revision + 1,
+        recovery: { kind: 'bound', continuation },
+        updatedAtMs: input.nowMs,
+      });
+      return await this.store.bindRecoveryContinuationV1({
+        linkSessionId: input.linkSessionId,
+        expectedRevision: input.expectedRevision,
+        continuation,
         nextRecord,
         nowMs: input.nowMs,
       });
@@ -799,6 +929,7 @@ export function parseLinkedDeviceSessionRecordV1(raw: unknown): LinkedDeviceSess
     'claimTranscript',
     'approvalTranscript',
     'aggregateReceipt',
+    'recovery',
     'createdAtMs',
     'updatedAtMs',
   ]);
@@ -827,6 +958,18 @@ export function parseLinkedDeviceSessionRecordV1(raw: unknown): LinkedDeviceSess
     record.aggregateReceipt === undefined
       ? undefined
       : parseAggregateReceiptV1(record.aggregateReceipt);
+  const parsedRecovery = parseRecoveryBindingV1(record.recovery);
+  const recovery =
+    state.state === 'committed_completion_required' || state.state === 'active'
+      ? parsedRecovery
+      : undefined;
+  if (
+    state.state !== 'committed_completion_required' &&
+    state.state !== 'active' &&
+    record.recovery
+  ) {
+    throw new Error('recovery binding is only valid for committed or active sessions');
+  }
   validateRecordTranscriptState(state, claimTranscript, approvalTranscript, aggregateReceipt);
   return buildSessionRecordV1({
     linkSessionId,
@@ -836,6 +979,7 @@ export function parseLinkedDeviceSessionRecordV1(raw: unknown): LinkedDeviceSess
     claimTranscript,
     approvalTranscript,
     aggregateReceipt,
+    recovery,
     createdAtMs,
     updatedAtMs,
   });
@@ -1071,8 +1215,19 @@ function replaceSessionRecordV1(
     readonly claimTranscript?: LinkedDeviceClaimTranscriptV1;
     readonly approvalTranscript?: LinkedDeviceApprovalTranscriptV1;
     readonly aggregateReceipt?: LinkedDeviceEnrollmentReceiptV1;
+    readonly recovery?: LinkedDeviceRecoveryBindingV1;
   },
 ): LinkedDeviceSessionRecordV1 {
+  const existingRecovery =
+    record.state.state === 'committed_completion_required' || record.state.state === 'active'
+      ? record.recovery
+      : undefined;
+  const nextRecovery =
+    patch.recovery ??
+    existingRecovery ??
+    (patch.state.state === 'committed_completion_required' || patch.state.state === 'active'
+      ? { kind: 'unbound' as const }
+      : undefined);
   return buildSessionRecordV1({
     linkSessionId: record.linkSessionId,
     qrPayload: record.qrPayload,
@@ -1081,6 +1236,7 @@ function replaceSessionRecordV1(
     claimTranscript: patch.claimTranscript || record.claimTranscript,
     approvalTranscript: patch.approvalTranscript || record.approvalTranscript,
     aggregateReceipt: patch.aggregateReceipt || record.aggregateReceipt,
+    recovery: nextRecovery,
     createdAtMs: record.createdAtMs,
     updatedAtMs: patch.updatedAtMs,
   });
@@ -1094,9 +1250,23 @@ function buildSessionRecordV1(input: {
   readonly claimTranscript: LinkedDeviceClaimTranscriptV1 | undefined;
   readonly approvalTranscript: LinkedDeviceApprovalTranscriptV1 | undefined;
   readonly aggregateReceipt: LinkedDeviceEnrollmentReceiptV1 | undefined;
+  readonly recovery: LinkedDeviceRecoveryBindingV1 | undefined;
   readonly createdAtMs: number;
   readonly updatedAtMs: number;
 }): LinkedDeviceSessionRecordV1 {
+  if (
+    input.recovery &&
+    input.state.state !== 'committed_completion_required' &&
+    input.state.state !== 'active'
+  ) {
+    throw new Error('recovery continuation requires committed or active state');
+  }
+  if (
+    !input.recovery &&
+    (input.state.state === 'committed_completion_required' || input.state.state === 'active')
+  ) {
+    throw new Error('committed or active session is missing recovery binding');
+  }
   const base = {
     version: 'linked_device_session_v1' as const,
     linkSessionId: input.linkSessionId,
@@ -1121,7 +1291,6 @@ function buildSessionRecordV1(input: {
     case 'awaiting_target_passkey':
     case 'provisioning':
     case 'awaiting_aggregate_receipt':
-    case 'committed_completion_required':
       if (!input.claimTranscript || !input.approvalTranscript || input.aggregateReceipt) {
         throw new Error('approved session transcript facts are invalid');
       }
@@ -1131,16 +1300,30 @@ function buildSessionRecordV1(input: {
         claimTranscript: input.claimTranscript,
         approvalTranscript: input.approvalTranscript,
       };
+    case 'committed_completion_required':
+      if (!input.claimTranscript || !input.approvalTranscript || input.aggregateReceipt) {
+        throw new Error('approved session transcript facts are invalid');
+      }
+      if (!input.recovery) throw new Error('committed session is missing recovery binding');
+      return {
+        ...base,
+        state: input.state,
+        claimTranscript: input.claimTranscript,
+        approvalTranscript: input.approvalTranscript,
+        recovery: input.recovery,
+      };
     case 'active':
       if (!input.claimTranscript || !input.approvalTranscript || !input.aggregateReceipt) {
         throw new Error('active session transcript facts are incomplete');
       }
+      if (!input.recovery) throw new Error('active session is missing recovery binding');
       return {
         ...base,
         state: input.state,
         claimTranscript: input.claimTranscript,
         approvalTranscript: input.approvalTranscript,
         aggregateReceipt: input.aggregateReceipt,
+        recovery: input.recovery,
       };
     case 'expired_claimed':
       if (!input.claimTranscript || input.aggregateReceipt) {
@@ -1263,6 +1446,59 @@ function parseLinkedDeviceApprovalV1(raw: unknown): LinkedDeviceApprovalV1 {
     approvedAtMs: requireTimestamp(record.approvedAtMs, 'approval.approvedAtMs'),
     expiresAtMs: requireTimestamp(record.expiresAtMs, 'approval.expiresAtMs'),
   };
+}
+
+function parseRecoveryContinuationV1(raw: unknown): LinkedDeviceRecoveryContinuationV1 {
+  const record = requireRecord(raw, 'recovery continuation');
+  requireExactKeys(record, [
+    'kind',
+    'linkSessionId',
+    'enrollmentId',
+    'deviceId',
+    'devicePublicKeyB64u',
+    'devicePublicKeyDigestB64u',
+    'boundAtMs',
+  ]);
+  if (record.kind !== 'linked_device_recovery_continuation_v1') {
+    throw new Error('recovery continuation kind is invalid');
+  }
+  return {
+    kind: 'linked_device_recovery_continuation_v1',
+    linkSessionId: parseId(
+      record.linkSessionId,
+      parseLinkDeviceSessionId,
+      'recovery continuation.linkSessionId',
+    ),
+    enrollmentId: parseId(
+      record.enrollmentId,
+      parseLinkedDeviceEnrollmentId,
+      'recovery continuation.enrollmentId',
+    ),
+    deviceId: parseId(record.deviceId, parseLinkedDeviceId, 'recovery continuation.deviceId'),
+    devicePublicKeyB64u: parsePublicKeyB64u(
+      record.devicePublicKeyB64u,
+      'recovery continuation.devicePublicKeyB64u',
+    ),
+    devicePublicKeyDigestB64u: requireDigest(
+      record.devicePublicKeyDigestB64u,
+      'recovery continuation.devicePublicKeyDigestB64u',
+    ),
+    boundAtMs: requireTimestamp(record.boundAtMs, 'recovery continuation.boundAtMs'),
+  };
+}
+
+function parseRecoveryBindingV1(rawBinding: unknown): LinkedDeviceRecoveryBindingV1 {
+  if (rawBinding === undefined) {
+    return { kind: 'unbound' };
+  }
+  const record = requireRecord(rawBinding, 'recovery binding');
+  if (record.kind === 'unbound') {
+    requireExactKeys(record, ['kind']);
+    return { kind: 'unbound' };
+  }
+  requireExactKeys(record, ['kind', 'continuation']);
+  if (record.kind !== 'bound') throw new Error('recovery binding kind is invalid');
+  return { kind: 'bound', continuation: parseRecoveryContinuationV1(record.continuation) };
 }
 
 function parseClaimTranscriptV1(raw: unknown): LinkedDeviceClaimTranscriptV1 {
