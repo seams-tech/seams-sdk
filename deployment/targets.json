@@ -224,8 +224,10 @@
         "walletPagesProjectEnv": "CF_PAGES_PROJECT_WALLET_TESTNET",
         "emailOtpDelivery": {
           "kind": "provider_and_demo_code",
-          "region": "ap-southeast-2",
-          "fromAddress": "confirm@seams.sh"
+          "provider": {
+            "kind": "resend",
+            "fromAddress": "confirm@seams.sh"
+          }
         },
         "resources": {
           "gateway": {
@@ -419,8 +421,10 @@
         "walletPagesProjectEnv": "CF_PAGES_PROJECT_WALLET_MAINNET",
         "emailOtpDelivery": {
           "kind": "email_provider",
-          "region": "ap-southeast-2",
-          "fromAddress": "confirm@seams.sh"
+          "provider": {
+            "kind": "resend",
+            "fromAddress": "confirm@seams.sh"
+          }
         },
         "resources": {
           "gateway": {

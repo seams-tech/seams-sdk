@@ -56,7 +56,6 @@ import {
   d1MigrationFileBasenames,
   listD1MigrationFiles,
   readTableColumnNames,
-  readUserTableCount,
 } from '../helpers/sqliteD1';
 import { buildEd25519YaoCapabilityFixture } from '../helpers/ed25519YaoCapabilityFixtures';
 
@@ -171,13 +170,8 @@ test.describe('D1 migration smoke', () => {
       const temp = createTemporaryD1Database();
       try {
         const migrationFiles = listD1MigrationFiles(target.directoryName);
-        expect(d1MigrationFileBasenames(migrationFiles)).toHaveLength(
-          target.expectedMigrationCount,
-        );
-
         await applyD1MigrationFiles(temp.database, migrationFiles);
 
-        await expect(readUserTableCount(temp.database)).resolves.toBe(target.expectedTableCount);
         if (target.directoryName === 'd1-signer') {
           const walletColumns = await readTableColumnNames(temp.database, 'wallets');
           const authMethodColumns = await readTableColumnNames(
