@@ -6,6 +6,10 @@ use router_ab_cloudflare::{
 };
 use router_ab_core::{
     parse_router_ab_ecdsa_derivation_linked_device_normal_signing_scope_v1_json,
+    NormalSigningAuthorizationV1,
+    RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningFinalizeRequestV1,
+    RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningResponseV1,
+    RouterAbEcdsaDerivationOperationDigestsV1, RouterAbEcdsaDerivationSignatureSchemeV1,
     RouterAbProtocolErrorCode,
 };
 use serde_json::json;
@@ -158,4 +162,51 @@ fn linked_ecdsa_material_source_rejects_owner_registration_material() {
         .validate_for_linked_ecdsa_scope(&scope)
         .expect_err("owner material is rejected");
     assert_eq!(error.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+}
+
+#[test]
+fn linked_ecdsa_response_binds_the_exact_finalize_request() {
+    let scope = scope();
+    let request = RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningFinalizeRequestV1 {
+        scope: scope.clone(),
+        request_id: "request:r103".to_owned(),
+        operation_id: "operation:r103".to_owned(),
+        operation_digests: RouterAbEcdsaDerivationOperationDigestsV1 {
+            lane_digest_b64u: digest(1),
+            intent_digest_b64u: digest(2),
+            display_digest_b64u: digest(3),
+        },
+        authorization: NormalSigningAuthorizationV1::ReusableWalletSession {
+            wallet_session_id: "wallet-session:r103".to_owned(),
+        },
+        material_activation: scope.material_activation.clone(),
+        expires_at_ms: 2_000,
+        signing_digest_b64u: digest(2),
+        server_presignature_id: "presignature:r103".to_owned(),
+        client_signature_share32_b64u: digest(4),
+        client_rerandomization_contribution32_b64u: digest(5),
+    };
+    let response = RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningResponseV1 {
+        scope,
+        request_id: request.request_id.clone(),
+        request_digest: request.request_digest().expect("request digest"),
+        signing_digest: request.signing_digest().expect("signing digest"),
+        signature_scheme: RouterAbEcdsaDerivationSignatureSchemeV1::EcdsaSecp256k1RecoverableV1,
+        signature65_b64u: URL_SAFE_NO_PAD.encode([0x01; 65]),
+    };
+    response
+        .validate_for_request(&request)
+        .expect("response binds exact request");
+
+    let substituted = RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningResponseV1 {
+        request_id: "request:other".to_owned(),
+        ..response
+    };
+    let error = substituted
+        .validate_for_request(&request)
+        .expect_err("request substitution is rejected");
+    assert_eq!(
+        error.code(),
+        RouterAbProtocolErrorCode::InvalidLifecycleState
+    );
 }

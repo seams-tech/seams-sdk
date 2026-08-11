@@ -3,6 +3,7 @@ use router_ab_core::{
     RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningFinalizeRequestV1,
     RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningRequestV1,
     RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningResponseV1,
+    RouterAbEcdsaDerivationSignatureSchemeV1,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -2195,6 +2196,77 @@ impl CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1
             &request.request.request,
             encode_base64url_bytes_v1(&signature65),
         )
+    }
+}
+
+impl CloudflareSigningWorkerLinkedDeviceEcdsaFinalizeHandlerV1
+    for CloudflareRoleSeparatedRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1
+{
+    fn handle_linked_device_ecdsa_finalize_request_v1(
+        &self,
+        request: CloudflareSigningWorkerMaterializedLinkedDeviceEcdsaFinalizeRequestV1,
+    ) -> RouterAbProtocolResult<RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningResponseV1> {
+        request.validate()?;
+        let finalize_request = &request.request.request;
+        let public_key33 = decode_base64url_fixed_33_v1(
+            "linked ECDSA threshold_public_key33_b64u",
+            &finalize_request.scope.threshold_public_key33_b64u,
+        )?;
+        let server_big_r33 = decode_base64url_fixed_33_v1(
+            "linked ECDSA server_big_r33_b64u",
+            &request.server_presignature.server_big_r33_b64u,
+        )?;
+        let server_k_share32 = decode_base64url_fixed_32_v1(
+            "linked ECDSA server_k_share32_b64u",
+            &request.server_presignature.server_k_share32_b64u,
+        )?;
+        let server_sigma_share32 = decode_base64url_fixed_32_v1(
+            "linked ECDSA server_sigma_share32_b64u",
+            &request.server_presignature.server_sigma_share32_b64u,
+        )?;
+        let signing_worker_rerandomization_contribution32 = decode_base64url_fixed_32_v1(
+            "linked ECDSA signing_worker_rerandomization_contribution32_b64u",
+            &request
+                .server_presignature
+                .signing_worker_rerandomization_contribution32_b64u,
+        )?;
+        let rerandomization_entropy32 = combine_rerandomization_contributions(
+            finalize_request.client_rerandomization_contribution32()?,
+            signing_worker_rerandomization_contribution32,
+        );
+        let client_signature_share32 = finalize_request.client_signature_share32()?;
+        let material = SigningWorkerPresignMaterial::from_bytes(
+            server_big_r33,
+            server_k_share32,
+            server_sigma_share32,
+        )
+        .map_err(map_cloudflare_online_ecdsa_error_v1)?;
+        let input = SigningWorkerOnlineInput::new(
+            public_key33,
+            server_big_r33,
+            *request
+                .server_presignature
+                .admitted_signing_digest
+                .as_bytes(),
+            rerandomization_entropy32,
+        )
+        .map_err(map_cloudflare_online_ecdsa_error_v1)?;
+        let committed = material
+            .reserve()
+            .commit(input)
+            .map_err(map_cloudflare_online_ecdsa_error_v1)?;
+        let signature65 = finalize_signing_worker_signature(committed, client_signature_share32)
+            .map_err(map_cloudflare_online_ecdsa_error_v1)?;
+        let response = RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningResponseV1 {
+            scope: finalize_request.scope.clone(),
+            request_id: finalize_request.request_id.clone(),
+            request_digest: finalize_request.request_digest()?,
+            signing_digest: finalize_request.signing_digest()?,
+            signature_scheme: RouterAbEcdsaDerivationSignatureSchemeV1::EcdsaSecp256k1RecoverableV1,
+            signature65_b64u: encode_base64url_bytes_v1(&signature65),
+        };
+        response.validate_for_request(finalize_request)?;
+        Ok(response)
     }
 }
 
