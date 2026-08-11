@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS linked_device_owner_planning_snapshots (
   protocol_versions_json TEXT NOT NULL,
   expires_at_ms INTEGER NOT NULL,
   source_children_json TEXT NOT NULL,
+  ordered_owner_source_lane_hints_json TEXT NOT NULL,
   snapshot_json TEXT NOT NULL,
   snapshot_digest_b64u TEXT NOT NULL,
   created_at_ms INTEGER NOT NULL,
@@ -32,6 +33,7 @@ CREATE TABLE IF NOT EXISTS linked_device_owner_planning_snapshots (
   CHECK (json_valid(ordered_key_bindings_json)),
   CHECK (json_valid(protocol_versions_json)),
   CHECK (json_valid(source_children_json)),
+  CHECK (json_valid(ordered_owner_source_lane_hints_json)),
   CHECK (json_valid(snapshot_json)),
   CHECK (expires_at_ms > 0),
   CHECK (created_at_ms > 0 AND updated_at_ms >= created_at_ms)
@@ -40,4 +42,9 @@ CREATE TABLE IF NOT EXISTS linked_device_owner_planning_snapshots (
 CREATE INDEX IF NOT EXISTS linked_device_owner_planning_snapshots_wallet_idx
   ON linked_device_owner_planning_snapshots(
     namespace, org_id, project_id, env_id, wallet_id, expires_at_ms
+  );
+
+CREATE UNIQUE INDEX IF NOT EXISTS linked_device_owner_planning_snapshots_operation_idx
+  ON linked_device_owner_planning_snapshots(
+    namespace, org_id, project_id, env_id, operation_id
   );
