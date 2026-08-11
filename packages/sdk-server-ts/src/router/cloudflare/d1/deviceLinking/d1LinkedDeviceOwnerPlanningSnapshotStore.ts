@@ -1,10 +1,12 @@
 import type {
   LinkedDeviceEnrollmentKeyBindingV1,
+  LinkedDeviceOwnerSourceLaneV1,
   LinkedDeviceProtocolVersionV1,
   QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking/contracts';
 import {
   parseLinkedDeviceEnrollmentKeyBindingV1,
+  parseLinkedDeviceOwnerSourceLaneV1,
   parseLinkedDeviceProtocolVersionV1,
   parseQrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking/parsers';
@@ -59,6 +61,11 @@ export type D1LinkedDeviceOwnerPlanningSnapshotV1 = {
   ];
 };
 
+export type D1LinkedDeviceOwnerPlanningSnapshotInputV1 = D1LinkedDeviceOwnerPlanningSnapshotV1 & {
+  /** Browser-projected owner identity; never trusted without D1 registration validation. */
+  readonly ownerSourceLaneHint: LinkedDeviceOwnerSourceLaneV1;
+};
+
 export type D1LinkedDeviceOwnerPlanningSnapshotMutationV1 =
   | { readonly outcome: 'applied'; readonly snapshot: D1LinkedDeviceOwnerPlanningSnapshotV1 }
   | { readonly outcome: 'replayed'; readonly snapshot: D1LinkedDeviceOwnerPlanningSnapshotV1 }
@@ -93,9 +100,9 @@ export class D1LinkedDeviceOwnerPlanningSnapshotStoreV1
   }
 
   async insertOrReplayV1(
-    input: D1LinkedDeviceOwnerPlanningSnapshotV1,
+    input: D1LinkedDeviceOwnerPlanningSnapshotInputV1,
   ): Promise<D1LinkedDeviceOwnerPlanningSnapshotMutationV1> {
-    const normalized = await normalizeSnapshot(input, this.walletRegistration);
+    const normalized = await normalizeSnapshot(input, this.walletRegistration, input.ownerSourceLaneHint);
     const canonical = alphabetizeStringify(normalized);
     const digest = base64UrlEncode(await sha256BytesUtf8(canonical));
     const now = this.nowV1();
@@ -256,6 +263,7 @@ function sourceRequestIdentity(request: LinkedDeviceOwnerSourceChildResolutionRe
 async function normalizeSnapshot(
   raw: D1LinkedDeviceOwnerPlanningSnapshotV1 | unknown,
   walletRegistration: D1LinkedDeviceOwnerPlanningSnapshotStoreOptionsV1['walletRegistration'],
+  ownerSourceLaneHint?: LinkedDeviceOwnerSourceLaneV1,
 ): Promise<D1LinkedDeviceOwnerPlanningSnapshotV1> {
   const record = requireRecord(raw, 'owner planning snapshot');
   if (record.kind !== 'linked_device_owner_planning_snapshot_v1') throw new Error('owner planning snapshot kind is invalid');
@@ -277,6 +285,22 @@ async function normalizeSnapshot(
     assertSourceChildAuthorization(child, metadata);
     await assertSourceChildMatchesRegistration(walletRegistration, owner, child);
   }
+  if (ownerSourceLaneHint !== undefined) {
+    const hint = parseLinkedDeviceOwnerSourceLaneV1(ownerSourceLaneHint, 'ownerSourceLaneHint');
+    await assertOwnerSourceHintMatchesRegistration(walletRegistration, owner, hint);
+    for (const child of sourceChildren) {
+      if (
+        child.keyFamily !== hint.keyFamily ||
+        child.walletKeyId !== hint.walletKey.walletKeyId ||
+        child.source.laneId !== hint.lane.laneId ||
+        child.source.laneShareEpoch !== hint.lane.laneShareEpoch ||
+        child.source.participantBindingDigestB64u !== hint.lane.participantBindingDigestB64u ||
+        String(child.source.materialActivation.activationId) !== String(hint.materialActivation.activationId)
+      ) {
+        throw new Error('owner source lane hint does not match source child plan');
+      }
+    }
+  }
   return {
     kind: 'linked_device_owner_planning_snapshot_v1',
     linkSessionId,
@@ -286,6 +310,31 @@ async function normalizeSnapshot(
     metadata,
     sourceChildren: [sourceChildren[0]!, ...sourceChildren.slice(1)],
   };
+}
+
+async function assertOwnerSourceHintMatchesRegistration(
+  walletRegistration: D1LinkedDeviceOwnerPlanningSnapshotStoreOptionsV1['walletRegistration'],
+  owner: DeviceLinkingOwnerWalletSessionContextV1,
+  hint: LinkedDeviceOwnerSourceLaneV1,
+): Promise<void> {
+  const authorization = owner.curve === 'ed25519'
+    ? { kind: 'wallet_auth_method' as const, walletAuthMethodId: owner.authority.bindingId }
+    : { kind: 'authority_ref' as const, authorityRef: owner.walletAuthAuthorityRef, authSource: owner.authSource };
+  const result = await walletRegistration.resolveActiveOwnerWalletExecutionLane({
+    walletId: owner.walletId,
+    authorization,
+    expectedMaterialActivation: hint.materialActivation,
+  });
+  if (result.kind !== 'projected') throw new Error(`owner source lane hint projection refused: ${result.reason}`);
+  if (
+    result.projection.walletKey.walletKeyId !== hint.walletKey.walletKeyId ||
+    result.projection.walletKey.keyFamily !== hint.keyFamily ||
+    result.projection.lane.laneId !== hint.lane.laneId ||
+    result.projection.lane.laneShareEpoch !== hint.lane.laneShareEpoch ||
+    result.projection.lane.participantBindingDigestB64u !== hint.lane.participantBindingDigestB64u ||
+    String(result.projection.materialActivation.activationId) !== String(hint.materialActivation.activationId) ||
+    result.projection.verifiedActivationReceiptDigestB64u !== hint.verifiedActivationReceiptDigestB64u
+  ) throw new Error('owner source lane hint does not match active wallet registration projection');
 }
 
 function normalizeMetadata(
