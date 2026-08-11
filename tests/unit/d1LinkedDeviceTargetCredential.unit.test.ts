@@ -11,6 +11,7 @@ import {
 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSessionStore';
 import { D1LinkedDeviceTargetCredentialProviderV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceTargetCredentialProvider';
 import { D1LinkedDeviceProvisioningProviderV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceProvisioningProvider';
+import { createLinkedDeviceR102ProvisioningExecutionV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/linkedDeviceR102ProvisioningExecution';
 import {
   createD1LinkedDeviceCredentialResolverV1,
   D1LinkedDeviceTargetAuthenticatorStoreV1,
@@ -20,6 +21,10 @@ import {
   buildR103ProvisioningFixture,
   buildR103TargetCredentialFixture,
 } from './helpers/deviceLinkContracts.fixtures';
+import {
+  buildR102ActiveProductEpoch,
+  buildR102ServerActivationReceipt,
+} from './helpers/r102LaneGateway.fixtures';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -128,21 +133,94 @@ test('persists verified attestation and exact public child records before provis
   });
 
   const provisioningFixture = buildR103ProvisioningFixture(fixture);
+  const delivery = provisioningFixture.deliveries.orderedChildren[0];
+  const activeProduct = await buildR102ActiveProductEpoch(delivery.job);
   let prepareCount = 0;
   let activationCount = 0;
-  const provisioning = new D1LinkedDeviceProvisioningProviderV1({
-    database: temporary.database,
-    scope,
-    execution: {
+  let aggregateCommitCount = 0;
+  const r102Execution = createLinkedDeviceR102ProvisioningExecutionV1({
+    sourcePreparation: {
       prepareProvisioningDeliveriesV1: async () => {
         prepareCount += 1;
         return provisioningFixture.deliveries;
       },
-      recordHolderDeliveriesAndActivateV1: async () => {
+    },
+    products: {
+      getProductEpoch: async () => activeProduct,
+    },
+    lifecycle: {
+      activateLaneServerMaterialV1: async () => {
         activationCount += 1;
-        return fixture.receipt;
+        return {
+          outcome: 'applied',
+          version: 4,
+          commandDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
+          record: {
+            job: delivery.job,
+            lifecycle: {
+              state: 'ready_for_parent_visibility',
+              startedAtMs: 3_000,
+              committedAtMs: 3_001,
+              transcriptHashB64u: delivery.protocolCommitReceipt.transcriptHashB64u,
+              protocolCommitReceiptDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
+              holderDeliveryReceiptDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
+              holderReceiptAtMs: 3_005,
+              serverActivationReceiptDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
+              serverActivatedAtMs: 3_006,
+            },
+          },
+        };
       },
     },
+    gateway: {
+      recordLaneHolderDeliveryV1: async () => ({
+        outcome: 'applied',
+        version: 3,
+        commandDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
+        record: {
+          job: delivery.job,
+          lifecycle: {
+            state: 'awaiting_server_activation',
+            startedAtMs: 3_000,
+            committedAtMs: 3_001,
+            transcriptHashB64u: delivery.protocolCommitReceipt.transcriptHashB64u,
+            protocolCommitReceiptDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
+            holderDeliveryReceiptDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
+            holderReceiptAtMs: 3_005,
+          },
+        },
+      }),
+      commitLaneEnrollmentActivationV1: async (command) => {
+        aggregateCommitCount += 1;
+        return {
+          kind: 'lane_enrollment_activation_result_v1',
+          outcome: 'applied',
+          enrollmentId: command.enrollmentId,
+          version: 5,
+          commandDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
+          receipt: {
+            kind: 'aggregate_lane_activation_receipt_v1',
+            enrollmentId: command.enrollmentId,
+            walletId: command.walletId,
+            manifestDigestB64u: command.manifestDigestB64u,
+            orderedChildReceipts: command.orderedChildReceipts,
+            activatedAtMs: command.activatedAtMs,
+          },
+          lifecycle: {
+            state: 'active',
+            manifestDigestB64u: command.manifestDigestB64u,
+            aggregateReceiptDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
+            activatedAtMs: command.activatedAtMs,
+          },
+          productEpochs: [activeProduct],
+        };
+      },
+    },
+  });
+  const provisioning = new D1LinkedDeviceProvisioningProviderV1({
+    database: temporary.database,
+    scope,
+    execution: r102Execution,
   });
   for (let replay = 0; replay < 2; replay += 1) {
     expect(
@@ -154,17 +232,34 @@ test('persists verified attestation and exact public child records before provis
       }),
     ).toEqual(provisioningFixture.deliveries);
   }
+  let activatedReceipt: Awaited<ReturnType<typeof provisioning.recordHolderDeliveriesV1>> | null =
+    null;
   for (let replay = 0; replay < 2; replay += 1) {
-    expect(
-      await provisioning.recordHolderDeliveriesV1({
-        acknowledgement: provisioningFixture.acknowledgement,
-        session: transitioned.record,
-        approval: fixture.approval,
-        requestedAtMs: 3_010 + replay,
-      }),
-    ).toEqual(fixture.receipt);
+    const current = await provisioning.recordHolderDeliveriesV1({
+      acknowledgement: provisioningFixture.acknowledgement,
+      session: transitioned.record,
+      approval: fixture.approval,
+      requestedAtMs: 3_010 + replay,
+    });
+    activatedReceipt ??= current;
+    expect(current).toEqual(activatedReceipt);
   }
-  expect({ prepareCount, activationCount }).toEqual({ prepareCount: 1, activationCount: 1 });
+  expect(activatedReceipt).toMatchObject({
+    enrollmentId: fixture.approval.enrollmentId,
+    deviceId: fixture.approval.deviceId,
+    orderedChildReceipts: [
+      {
+        walletKeyId: delivery.job.walletKeyId,
+        targetLaneId: delivery.job.target.laneId,
+        materialActivation: buildR102ServerActivationReceipt(delivery.job).targetMaterialActivation,
+      },
+    ],
+  });
+  expect({ prepareCount, activationCount, aggregateCommitCount }).toEqual({
+    prepareCount: 1,
+    activationCount: 1,
+    aggregateCommitCount: 1,
+  });
 
   const persisted = await temporary.database
     .prepare(
