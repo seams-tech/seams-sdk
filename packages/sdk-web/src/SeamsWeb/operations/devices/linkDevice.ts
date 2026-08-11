@@ -94,6 +94,13 @@ function errorForFailure(error: unknown, phase: DeviceLinkingError['phase']): De
   );
 }
 
+class LinkDeviceFlowSupersededError extends Error {
+  constructor() {
+    super('Device-link flow was cancelled or reset');
+    this.name = 'LinkDeviceFlowSupersededError';
+  }
+}
+
 export class LinkDeviceFlow {
   private readonly options: StartDevice2LinkingFlowArgs;
   private readonly ports: Device2LinkingFlowPortsV1;
@@ -104,7 +111,9 @@ export class LinkDeviceFlow {
   private subscription: LinkSessionSubscriptionV1 | null = null;
   private error?: Error;
   private cancelled = false;
-  private keyMaterialDiscarded = false;
+  private runEpoch = 0;
+  private generationInProgress = false;
+  private discardInProgress: Promise<void> | null = null;
   private readonly handledStates = new Set<LinkedDeviceSessionState['state']>();
 
   constructor(
@@ -118,11 +127,16 @@ export class LinkDeviceFlow {
   }
 
   async generateQR(): Promise<StartDevice2LinkingFlowResults> {
-    if (this.session && !this.cancelled) throw new Error('Device-link QR flow is already running');
+    if (
+      this.generationInProgress ||
+      this.keyMaterialHandle ||
+      this.subscription ||
+      (this.session && !this.cancelled)
+    ) {
+      throw new Error('Device-link QR flow is already running');
+    }
+    const runEpoch = this.startRun();
     const ports = this.ports;
-    this.cancelled = false;
-    this.keyMaterialDiscarded = false;
-    this.error = undefined;
     this.emit({
       phase: LinkDeviceEventPhase.STEP_01_QR_PREPARE_STARTED,
       status: 'started',
@@ -133,6 +147,12 @@ export class LinkDeviceFlow {
 
     try {
       const keyMaterial = await ports.keyMaterial.createBootstrapKeyMaterialV1();
+      if (!this.isCurrentRun(runEpoch)) {
+        this.keyMaterialHandle = keyMaterial.handle;
+        await this.discardKeyMaterial();
+        throw new LinkDeviceFlowSupersededError();
+      }
+      this.keyMaterialHandle = keyMaterial.handle;
       const issuedAtMs = Date.now();
       const linkSessionId = createLinkSessionId();
       const qrData = buildQrLinkedDeviceSessionPayloadV4({
@@ -146,7 +166,6 @@ export class LinkDeviceFlow {
         linkSessionId,
         expiresAtMs: qrData.expiresAtMs,
       });
-      this.keyMaterialHandle = keyMaterial.handle;
       const authenticatedTransport = ports.transport.createAuthenticatedSessionTransportV1({
         keyMaterial: keyMaterial.handle,
         devicePublicKeyB64u: keyMaterial.devicePublicKeyB64u,
@@ -157,21 +176,21 @@ export class LinkDeviceFlow {
         payload: qrData,
         state,
       });
-      this.subscription = await authenticatedTransport.subscribeSessionV1({
+      this.assertCurrentRun(runEpoch);
+      const subscription = await authenticatedTransport.subscribeSessionV1({
         linkSessionId,
-        onEvent: (event) => {
-          void this.handleSessionEvent(event).catch((error: unknown) => {
-            const failure = errorForFailure(error, 'registration');
-            this.error = failure;
-            this.emitFailure(failure, 'registration');
-            notifyError(this.options.options?.onError, failure);
-          });
-        },
+        onEvent: this.handleSessionTransportEvent.bind(this),
       });
+      if (!this.isCurrentRun(runEpoch)) {
+        await subscription.close();
+        throw new LinkDeviceFlowSupersededError();
+      }
+      this.subscription = subscription;
       const qrCodeDataURL = await QRCode.toDataURL(JSON.stringify(qrData), {
         errorCorrectionLevel: 'M',
         margin: 2,
       });
+      this.assertCurrentRun(runEpoch);
       const result = { qrData, qrCodeDataURL } satisfies StartDevice2LinkingFlowResults;
       this.emit({
         phase: LinkDeviceEventPhase.STEP_01_QR_PREPARE_STARTED,
@@ -183,13 +202,23 @@ export class LinkDeviceFlow {
       await this.options.options?.afterCall?.(true, result);
       return result;
     } catch (error: unknown) {
-      await this.discardKeyMaterial();
+      try {
+        await this.cleanupLocalResources();
+      } catch {
+        // The retained handle lets cancel/reset retry cleanup.
+      }
+      if (error instanceof LinkDeviceFlowSupersededError) throw error;
+      this.session = null;
+      this.authenticatedTransport = null;
+      this.handledStates.clear();
       const failure = errorForFailure(error, 'generation');
       this.error = failure;
       this.emitFailure(failure, 'generation');
       notifyError(this.options.options?.onError, failure);
       await this.options.options?.afterCall?.(false, undefined, failure);
       throw failure;
+    } finally {
+      this.generationInProgress = false;
     }
   }
 
@@ -210,14 +239,18 @@ export class LinkDeviceFlow {
   }
 
   async cancel(): Promise<void> {
-    if (this.cancelled) return;
+    if (this.cancelled) {
+      await this.cleanupLocalResources();
+      return;
+    }
     this.cancelled = true;
+    this.runEpoch += 1;
     const session = this.session;
     const keyMaterialHandle = this.keyMaterialHandle;
     const authenticatedTransport = this.authenticatedTransport;
-    if (session && keyMaterialHandle && authenticatedTransport) {
-      const now = Date.now();
-      try {
+    try {
+      if (session && keyMaterialHandle && authenticatedTransport) {
+        const now = Date.now();
         switch (session.state.state) {
           case 'displaying_qr':
             await authenticatedTransport.cancelSessionV1({
@@ -269,11 +302,9 @@ export class LinkDeviceFlow {
           default:
             assertNeverLinkedDeviceSessionState(session.state);
         }
-      } finally {
-        await this.subscription?.close();
-        this.subscription = null;
-        await this.discardKeyMaterial();
       }
+    } finally {
+      await this.cleanupLocalResources();
     }
     this.emit({
       phase: LinkDeviceEventPhase.CANCELLED,
@@ -283,13 +314,11 @@ export class LinkDeviceFlow {
     });
   }
 
-  reset(): void {
-    void this.subscription?.close();
-    this.subscription = null;
+  async reset(): Promise<void> {
+    this.runEpoch += 1;
+    this.cancelled = true;
+    await this.cleanupLocalResources();
     this.session = null;
-    void this.discardKeyMaterial();
-    this.keyMaterialHandle = null;
-    this.authenticatedTransport = null;
     this.error = undefined;
     this.cancelled = false;
     this.handledStates.clear();
@@ -326,6 +355,7 @@ export class LinkDeviceFlow {
   private async handleSessionEvent(event: LinkedDeviceSessionTransportEventV1): Promise<void> {
     if (this.cancelled || !this.session || event.linkSessionId !== this.session.linkSessionId)
       return;
+    const runEpoch = this.runEpoch;
     this.session = { ...this.session, state: event.state };
     if (this.handledStates.has(event.state.state)) return;
     this.handledStates.add(event.state.state);
@@ -342,13 +372,13 @@ export class LinkDeviceFlow {
         });
         return;
       case 'awaiting_target_passkey':
-        await this.createTargetCredential(event.state);
+        await this.createTargetCredential(event.state, runEpoch);
         return;
       case 'provisioning':
       case 'awaiting_aggregate_receipt':
         return;
       case 'committed_completion_required':
-        await this.resumeCommittedDelivery(event.state);
+        await this.resumeCommittedDelivery(event.state, runEpoch);
         return;
       case 'active':
         this.emit({
@@ -358,7 +388,8 @@ export class LinkDeviceFlow {
           data: { role: 'display' },
           interaction: { kind: 'qr_display', overlay: 'hide' },
         });
-        await this.discardKeyMaterial();
+        this.runEpoch += 1;
+        await this.cleanupLocalResources();
         return;
       case 'expired_unclaimed':
       case 'expired_claimed': {
@@ -370,11 +401,15 @@ export class LinkDeviceFlow {
         this.error = error;
         this.emitFailure(error, 'registration');
         notifyError(this.options.options?.onError, error);
+        this.runEpoch += 1;
+        await this.cleanupLocalResources();
         return;
       }
       case 'cancelled_unclaimed':
       case 'cancelled_claimed_precommit':
         this.cancelled = true;
+        this.runEpoch += 1;
+        await this.cleanupLocalResources();
         return;
       default:
         return assertNeverLinkedDeviceSessionState(event.state);
@@ -383,36 +418,42 @@ export class LinkDeviceFlow {
 
   private async createTargetCredential(
     state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_passkey' }>,
+    runEpoch: number,
   ): Promise<void> {
     if (!this.keyMaterialHandle || !this.session)
       throw new Error('device-link key material is unavailable');
     const authenticatedTransport = this.requireAuthenticatedTransport();
+    const deviceId = await this.requireDeviceId(state);
+    this.assertCurrentRun(runEpoch);
     const credential = await this.ports.targetCredential.createTargetCredentialV1({
       walletId: state.walletId,
       enrollmentId: state.enrollmentId,
-      deviceId: await this.requireDeviceId(state),
+      deviceId,
       keyMaterial: this.keyMaterialHandle,
     });
+    this.assertCurrentRun(runEpoch);
     await authenticatedTransport.registerTargetCredentialV1({
       registration: buildLinkedDeviceTargetCredentialRegistrationV1({
         linkSessionId: state.linkSessionId,
         walletId: state.walletId,
         enrollmentId: state.enrollmentId,
-        deviceId: await this.requireDeviceId(state),
+        deviceId,
         credentialIdB64u: credential.credentialIdB64u,
         registeredAtMs: Date.now(),
       }),
     });
+    this.assertCurrentRun(runEpoch);
     await this.ports.laneProvisioning.installAuthorizedLaneHolderWorkerV1({
       walletId: state.walletId,
       enrollmentId: state.enrollmentId,
-      deviceId: await this.requireDeviceId(state),
+      deviceId,
       credentialIdB64u: credential.credentialIdB64u,
     });
-    const deviceId = await this.requireDeviceId(state);
+    this.assertCurrentRun(runEpoch);
     const approval = await authenticatedTransport.getApprovalV1({
       linkSessionId: state.linkSessionId,
     });
+    this.assertCurrentRun(runEpoch);
     this.assertProvisioningApprovalMatchesSession({ approval, state, deviceId });
     const deliveries = await authenticatedTransport.requestProvisioningDeliveriesV1({
       command: buildLinkedDeviceProvisioningCommandV1({
@@ -421,14 +462,16 @@ export class LinkDeviceFlow {
         deviceId,
       }),
     });
+    this.assertCurrentRun(runEpoch);
     const receipt = await this.ports.laneProvisioning.prepareLinkedDeviceLanesV1(
       createDeviceLinkingLaneProvisioningHandoffV1({
         approval,
         deliveries,
         keyMaterial: this.keyMaterialHandle,
-        acknowledgeHolderDeliveriesV1: this.acknowledgeHolderDeliveries.bind(this),
+        acknowledgeHolderDeliveriesV1: this.acknowledgeHolderDeliveries.bind(this, runEpoch),
       }),
     );
+    this.assertCurrentRun(runEpoch);
     await authenticatedTransport.acknowledgeReceiptV1({
       acknowledgement: buildLinkedDeviceReceiptAcknowledgementV1({
         linkSessionId: state.linkSessionId,
@@ -438,14 +481,19 @@ export class LinkDeviceFlow {
         acknowledgedAtMs: Date.now(),
       }),
     });
+    this.assertCurrentRun(runEpoch);
   }
 
   private async acknowledgeHolderDeliveries(
+    runEpoch: number,
     acknowledgement: LinkedDeviceHolderDeliveryAcknowledgementV1,
   ): Promise<LinkedDeviceEnrollmentReceiptV1> {
-    return await this.requireAuthenticatedTransport().acknowledgeHolderDeliveriesV1({
+    this.assertCurrentRun(runEpoch);
+    const receipt = await this.requireAuthenticatedTransport().acknowledgeHolderDeliveriesV1({
       acknowledgement,
     });
+    this.assertCurrentRun(runEpoch);
+    return receipt;
   }
 
   private assertProvisioningApprovalMatchesSession(input: {
@@ -468,6 +516,7 @@ export class LinkDeviceFlow {
 
   private async resumeCommittedDelivery(
     state: Extract<LinkedDeviceSessionState, { state: 'committed_completion_required' }>,
+    runEpoch: number,
   ): Promise<void> {
     if (!this.keyMaterialHandle) {
       throw new DeviceLinkingError(
@@ -478,6 +527,7 @@ export class LinkDeviceFlow {
     }
     const authenticatedTransport = this.requireAuthenticatedTransport();
     const deviceId = await this.requireDeviceId(state);
+    this.assertCurrentRun(runEpoch);
     await authenticatedTransport.retryCommittedDeliveryV1({
       request: buildLinkedDeviceSessionRetryCommittedDeliveryRequestV1({
         linkSessionId: state.linkSessionId,
@@ -486,10 +536,12 @@ export class LinkDeviceFlow {
         requestedAtMs: Date.now(),
       }),
     });
+    this.assertCurrentRun(runEpoch);
     const receipt = await this.ports.laneProvisioning.resumeCommittedDeliveryV1({
       state,
       keyMaterial: this.keyMaterialHandle,
     });
+    this.assertCurrentRun(runEpoch);
     if (!receipt || !this.session) return;
     await authenticatedTransport.acknowledgeReceiptV1({
       acknowledgement: buildLinkedDeviceReceiptAcknowledgementV1({
@@ -500,6 +552,7 @@ export class LinkDeviceFlow {
         acknowledgedAtMs: Date.now(),
       }),
     });
+    this.assertCurrentRun(runEpoch);
   }
 
   private requireAuthenticatedTransport(): DeviceLinkingAuthenticatedTransportPortV1 {
@@ -513,11 +566,79 @@ export class LinkDeviceFlow {
     return this.authenticatedTransport;
   }
 
+  private startRun(): number {
+    this.runEpoch += 1;
+    this.generationInProgress = true;
+    this.cancelled = false;
+    this.error = undefined;
+    this.handledStates.clear();
+    return this.runEpoch;
+  }
+
+  private isCurrentRun(runEpoch: number): boolean {
+    return !this.cancelled && this.runEpoch === runEpoch;
+  }
+
+  private assertCurrentRun(runEpoch: number): void {
+    if (!this.isCurrentRun(runEpoch)) throw new LinkDeviceFlowSupersededError();
+  }
+
+  private handleSessionTransportEvent(event: LinkedDeviceSessionTransportEventV1): void {
+    void this.handleSessionEvent(event).catch(this.handleSessionTransportFailure.bind(this, event));
+  }
+
+  private async handleSessionTransportFailure(
+    event: LinkedDeviceSessionTransportEventV1,
+    error: unknown,
+  ): Promise<void> {
+    if (error instanceof LinkDeviceFlowSupersededError) return;
+    this.handledStates.delete(event.state.state);
+    const failure = errorForFailure(error, 'registration');
+    this.error = failure;
+    this.emitFailure(failure, 'registration');
+    notifyError(this.options.options?.onError, failure);
+    this.runEpoch += 1;
+    try {
+      await this.cleanupLocalResources();
+    } catch {
+      // A later cancel/reset retries any retained subscription or key handle.
+    }
+  }
+
+  private async cleanupLocalResources(): Promise<void> {
+    let failure: unknown;
+    const subscription = this.subscription;
+    if (subscription) {
+      try {
+        await subscription.close();
+        if (this.subscription === subscription) this.subscription = null;
+      } catch (error: unknown) {
+        failure = error;
+      }
+    }
+    try {
+      await this.discardKeyMaterial();
+    } catch (error: unknown) {
+      failure ??= error;
+    }
+    if (failure) throw failure;
+  }
+
   private async discardKeyMaterial(): Promise<void> {
     const handle = this.keyMaterialHandle;
-    if (!handle || this.keyMaterialDiscarded) return;
-    this.keyMaterialDiscarded = true;
-    await this.ports.keyMaterial.discardKeyMaterialV1({ handle }).catch(() => undefined);
+    if (!handle) return;
+    if (this.discardInProgress) return await this.discardInProgress;
+    const discard = this.ports.keyMaterial.discardKeyMaterialV1({ handle });
+    this.discardInProgress = discard;
+    try {
+      await discard;
+      if (this.keyMaterialHandle === handle) {
+        this.keyMaterialHandle = null;
+        this.authenticatedTransport = null;
+      }
+    } finally {
+      if (this.discardInProgress === discard) this.discardInProgress = null;
+    }
   }
 
   private emitFailure(error: DeviceLinkingError, phase: DeviceLinkingError['phase']): void {
