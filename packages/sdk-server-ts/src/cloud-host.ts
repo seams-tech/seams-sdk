@@ -58,11 +58,8 @@ export * from './router/cloudflare/d1/ed25519Yao/d1Ed25519YaoCapabilityPersisten
 export * from './router/cloudflare/d1/oidc/d1OidcBoundary';
 export * from './router/cloudflare/d1/auth/d1RouterApiAuthConfig';
 export * from './router/cloudflare/d1/auth/d1RouterApiAuthService';
-export * from './router/cloudflare/d1/signingLanes/d1LinkedDeviceLaneOwnerAuthorization';
-export * from './router/cloudflare/d1/signingLanes/d1LaneEnrollmentGateway';
-export * from './router/cloudflare/d1/signingLanes/d1LaneLifecycleStore';
-export * from './router/cloudflare/d1/deviceLinking/d1LinkedDeviceTargetPlanner';
-export * from './router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerAuthorizationProvider';
+export * from './router/cloudflare/d1/signingLanes';
+export * from './router/cloudflare/d1/deviceLinking';
 export * from './router/cloudflare/signingLanes/cloudflareLaneCurveExecution';
 export * from './router/cloudflare/signingLanes/cloudflareLaneProtocolCommitter';
 export * from './router/cloudflare/signingLanes/linkedDeviceEd25519CeremonyBinding';
