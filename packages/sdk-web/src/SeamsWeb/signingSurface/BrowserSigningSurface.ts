@@ -169,8 +169,17 @@ import {
   nearEd25519YaoMaterialActivationFromMetadata,
   nearEd25519YaoRuntimeRef,
   resolveNearEd25519YaoCapabilityHydrationV1,
+  type NearEd25519YaoCapabilityHydrationInputV1,
   type NearEd25519YaoRuntimeObservationV1,
 } from '@/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
+import {
+  readOwnerWalletExecutionLaneProjectionV1,
+  type OwnerWalletExecutionLaneProjectionV1,
+} from '@/core/rpcClients/relayer/ownerWalletExecutionLanePreflight';
+import {
+  hydrateWalletExecutionLane,
+  type ActiveWalletExecutionLaneHydration,
+} from '@/core/signingEngine/session/lanes/walletExecutionLaneHydration';
 import { IndexedDBManager, walletSessionAuthorizations } from '@/core/indexedDB';
 import {
   mpcMaterialActivationRefsEqual,
@@ -900,6 +909,85 @@ function validateExactNearEd25519YaoOperationMaterial(args: {
     throw new Error('[SigningEngine][near] active Ed25519 Yao capability activation mismatch');
   }
   return args.material;
+}
+
+async function hydrateOwnerNearEd25519ExecutionLane(args: {
+  input: PrepareNearEd25519YaoMaterialBoundaryInput;
+  authorization: ActiveWalletSessionAuthorizationProjection;
+  sealedRuntime: ExactEd25519SealedSessionRuntime;
+  material: NearEd25519YaoOperationMaterial;
+}): Promise<ActiveWalletExecutionLaneHydration> {
+  const walletSessionJwt = walletSessionJwtForCurve(args.authorization, 'ed25519');
+  if (!walletSessionJwt) {
+    throw new Error('Owner Ed25519 execution-lane preflight requires a Wallet Session JWT');
+  }
+  const metadata = args.material.activeClient.metadata();
+  const materialActivation = nearEd25519YaoMaterialActivationFromMetadata(metadata);
+  const exactMaterial = validateExactNearEd25519YaoOperationMaterial({
+    material: args.material,
+    input: args.input,
+    expectedActivation: materialActivation,
+  });
+  const authority = await ed25519SealedRuntimeAuthorityRef(args.sealedRuntime);
+  const runtime = nearEd25519YaoRuntimeObservation(exactMaterial);
+  if (runtime.kind !== 'live') {
+    throw new Error('Owner Ed25519 execution-lane preflight requires active Yao material');
+  }
+  const hydration: NearEd25519YaoCapabilityHydrationInputV1 = {
+    publicLocator: {
+      kind: 'available',
+      walletId: String(exactMaterial.facts.signer.account.wallet.walletId),
+      nearAccountId: String(exactMaterial.facts.signer.account.nearAccountId),
+      signerSlot: exactMaterial.facts.signer.signerSlot,
+      materialActivation,
+      authority,
+    },
+    sealed: { kind: 'missing' },
+    runtime,
+    unlockSource: { kind: 'unavailable' },
+  };
+  const projection = await readOwnerWalletExecutionLaneProjectionV1({
+    relayerUrl: exactMaterial.facts.relayerUrl,
+    walletSessionJwt,
+    curve: 'ed25519',
+    expectedMaterialActivation: materialActivation,
+  });
+  return assertOwnerNearEd25519ExecutionLaneProjection({
+    projection,
+    material: exactMaterial,
+    hydration,
+  });
+}
+
+function assertOwnerNearEd25519ExecutionLaneProjection(args: {
+  projection: OwnerWalletExecutionLaneProjectionV1;
+  material: NearEd25519YaoOperationMaterial;
+  hydration: NearEd25519YaoCapabilityHydrationInputV1;
+}): ActiveWalletExecutionLaneHydration {
+  const hydrated = hydrateWalletExecutionLane({
+    walletKey: args.projection.walletKey,
+    lane: args.projection.lane,
+    material: {
+      keyFamily: 'ed25519',
+      laneShareEpoch: args.projection.lane.laneShareEpoch,
+      metadata: args.material.activeClient.metadata(),
+      hydration: args.hydration,
+    },
+  });
+  if (hydrated.kind !== 'active_wallet_execution_lane_v1') {
+    throw new Error(`Owner Ed25519 execution lane is ${hydrated.reason}`);
+  }
+  if (
+    !mpcMaterialActivationRefsEqual(
+      hydrated.materialActivation,
+      args.projection.materialActivation,
+    ) ||
+    hydrated.activationReceiptDigestB64u !==
+      String(args.projection.verifiedActivationReceiptDigestB64u)
+  ) {
+    throw new Error('Owner Ed25519 execution-lane projection activation changed');
+  }
+  return hydrated;
 }
 
 function requireNearEd25519YaoPreparationActivation(
@@ -2674,6 +2762,17 @@ export class BrowserSigningSurface {
           runtime: nearEd25519YaoRuntimeObservation(activeMaterial),
           unlockSource,
         });
+        if (hydration.kind === 'use_live_runtime') {
+          if (!activeMaterial) {
+            throw new Error('[SigningEngine][near] live Ed25519 material is unavailable');
+          }
+          await hydrateOwnerNearEd25519ExecutionLane({
+            input: args,
+            authorization: authorizationRead.projection,
+            sealedRuntime,
+            material: activeMaterial,
+          });
+        }
         return buildAuthorizedNearEd25519YaoSigningPreparation({
           hydration,
           requirement: args.auth,
@@ -2756,12 +2855,37 @@ export class BrowserSigningSurface {
       }
       case 'rehydrate_material_activation':
         switch (args.auth.kind) {
-          case WALLET_AUTH_METHODS.passkey:
-            return validateExactNearEd25519YaoOperationMaterial({
-              material: await this.rehydrateExactPasskeyEd25519YaoCapabilityForSigning(args),
-              input: args,
-              expectedActivation,
-            });
+          case WALLET_AUTH_METHODS.passkey: {
+            const material = await this.rehydrateExactPasskeyEd25519YaoCapabilityForSigning(args);
+            try {
+              const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(
+                args.walletId,
+              );
+              if (authorizationRead.kind !== 'found') {
+                throw new Error(
+                  `[SigningEngine][near] Wallet Session authorization is ${authorizationRead.kind}`,
+                );
+              }
+              const sealedRuntime = await requireExactEd25519SealedRuntimeForLane({
+                walletId: args.walletId,
+                laneIdentity: args.laneIdentity,
+              });
+              await hydrateOwnerNearEd25519ExecutionLane({
+                input: args,
+                authorization: authorizationRead.projection,
+                sealedRuntime,
+                material,
+              });
+              return validateExactNearEd25519YaoOperationMaterial({
+                material,
+                input: args,
+                expectedActivation,
+              });
+            } catch (error) {
+              material.activeClient.dispose();
+              throw error;
+            }
+          }
           case WALLET_AUTH_METHODS.emailOtp: {
             throw new Error(
               '[SigningEngine][near] Email OTP custody cache is unavailable; link the device before signing',
