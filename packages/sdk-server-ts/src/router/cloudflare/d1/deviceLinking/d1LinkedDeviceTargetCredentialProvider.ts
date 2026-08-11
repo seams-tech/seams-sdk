@@ -16,6 +16,7 @@ import { errorMessage } from '@shared/utils/errors';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { parseWebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
+import { sha256BytesUtf8 } from '@shared/utils/digests';
 import type { D1DatabaseLike, D1ResultLike } from '../../../../storage/tenantRoute';
 import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import { verifyWebAuthnRegistrationCredentialForIntent } from '../../../../core/authService/webauthn';
@@ -106,6 +107,14 @@ type TargetCredentialRowV1 = {
   readonly key_manifest_digest_b64u?: unknown;
 };
 
+type TargetCommitReservationRowV1 = {
+  readonly registration_digest_b64u?: unknown;
+  readonly state?: unknown;
+  readonly reserved_at_ms?: unknown;
+  readonly committed_at_ms?: unknown;
+  readonly key_manifest_digest_b64u?: unknown;
+};
+
 type PersistedTargetCredentialV1 = {
   readonly state: 'prepared' | 'registered';
   readonly preparationDigestB64u: DigestB64u;
@@ -118,6 +127,9 @@ type PersistedTargetCredentialV1 = {
 };
 
 const TARGET_CREDENTIAL_TABLE = 'linked_device_target_credentials';
+const TARGET_COMMIT_RESERVATION_TABLE = 'linked_device_target_commit_reservations';
+const TARGET_COMMIT_WAIT_ATTEMPTS = 25;
+const TARGET_COMMIT_WAIT_MS = 10;
 
 export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTargetCredentialProviderV1 {
   private readonly database: D1DatabaseLike;
@@ -125,6 +137,13 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
   private readonly preparationSource: LinkedDeviceTargetPreparationSourceV1;
   private readonly verifier: LinkedDeviceTargetCredentialVerificationPortV1;
   private readonly committer: LinkedDeviceVerifiedTargetCommitterV1;
+  private readonly inFlightCommits = new Map<
+    string,
+    Promise<
+      | { readonly outcome: 'applied' | 'replayed'; readonly keyManifestDigestB64u: DigestB64u }
+      | { readonly outcome: 'invalid_input'; readonly message: string }
+    >
+  >();
 
   constructor(input: {
     readonly database: D1DatabaseLike;
@@ -224,14 +243,77 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
       if (input.requestedAtMs >= persisted.preparation.expiresAtMs) {
         throw new Error('linked-device target credential registration is expired');
       }
-      const verification = await this.verifier.verifyRegistrationV1({
-        preparation: persisted.preparation,
+      const registrationDigestB64u = await digestRegistrationV1(registration);
+      const commitKey = String(input.session.linkSessionId);
+      const inFlight = this.inFlightCommits.get(commitKey);
+      if (inFlight) return await inFlight;
+      const reservation = await this.reserveCommitV1({
+        linkSessionId: input.session.linkSessionId,
+        registrationDigestB64u,
+        expiresAtMs: persisted.preparation.expiresAtMs,
+        nowMs: input.requestedAtMs,
+      });
+      if (reservation.outcome === 'replayed') {
+        const stored = await this.readV1(input.session.linkSessionId);
+        if (!stored?.registration) {
+          throw new Error(
+            'linked-device target credential reservation is committed without a registration',
+          );
+        }
+        assertRegistrationReplay(stored, registration, stored.registration.keyManifestDigestB64u);
+        return {
+          outcome: 'replayed',
+          keyManifestDigestB64u: stored.registration.keyManifestDigestB64u,
+        };
+      }
+      if (reservation.outcome === 'waiting') {
+        const completed = await this.waitForCommitV1({
+          linkSessionId: input.session.linkSessionId,
+          registration,
+          registrationDigestB64u,
+          expiresAtMs: persisted.preparation.expiresAtMs,
+        });
+        return completed;
+      }
+      const commit = this.commitReservedTargetV1({
+        input,
+        persisted,
         registration,
+        registrationDigestB64u,
+      });
+      this.inFlightCommits.set(commitKey, commit);
+      try {
+        return await commit;
+      } finally {
+        if (this.inFlightCommits.get(commitKey) === commit) this.inFlightCommits.delete(commitKey);
+      }
+    } catch (error: unknown) {
+      return { outcome: 'invalid_input', message: errorMessage(error) };
+    }
+  }
+
+  private async commitReservedTargetV1(input: {
+    readonly input: {
+      readonly session: LinkedDeviceSessionRecordV1;
+      readonly requestedAtMs: number;
+    };
+    readonly persisted: PersistedTargetCredentialV1;
+    readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+    readonly registrationDigestB64u: DigestB64u;
+  }): Promise<
+    | { readonly outcome: 'applied' | 'replayed'; readonly keyManifestDigestB64u: DigestB64u }
+    | { readonly outcome: 'invalid_input'; readonly message: string }
+  > {
+    let externalCommitCompleted = false;
+    try {
+      const verification = await this.verifier.verifyRegistrationV1({
+        preparation: input.persisted.preparation,
+        registration: input.registration,
       });
       if (verification.kind === 'rejected') throw new Error(verification.message);
       const credentialId = parseWebAuthnCredentialIdB64u(verification.credential.credentialIdB64u);
       if (!credentialId.ok) throw new Error(credentialId.error.message);
-      if (credentialId.value !== registration.webauthnRegistration.credentialIdB64u) {
+      if (credentialId.value !== input.registration.webauthnRegistration.credentialIdB64u) {
         throw new Error('verified WebAuthn credential id differs from its registration');
       }
       if (
@@ -242,11 +324,12 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
         throw new Error('verified WebAuthn credential material is invalid');
       }
       const committed = await this.committer.commitVerifiedTargetV1({
-        preparation: persisted.preparation,
-        registration,
+        preparation: input.persisted.preparation,
+        registration: input.registration,
         credential: verification.credential,
-        requestedAtMs: input.requestedAtMs,
+        requestedAtMs: input.input.requestedAtMs,
       });
+      externalCommitCompleted = true;
       const keyManifestDigestB64u = parseDigestB64u(committed.keyManifestDigestB64u);
       const result = await this.database
         .prepare(
@@ -259,27 +342,206 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
               AND preparation_digest_b64u = ?`,
         )
         .bind(
-          JSON.stringify(registration),
+          JSON.stringify(input.registration),
           credentialId.value,
           verification.credential.credentialPublicKeyB64u,
           verification.credential.counter,
           keyManifestDigestB64u,
-          input.requestedAtMs,
+          input.input.requestedAtMs,
           ...scopeValues(this.scope),
-          String(input.session.linkSessionId),
-          persisted.preparationDigestB64u,
+          String(input.input.session.linkSessionId),
+          input.persisted.preparationDigestB64u,
         )
         .run();
-      const stored = await this.readV1(input.session.linkSessionId);
+      const stored = await this.readV1(input.input.session.linkSessionId);
       if (!stored?.registration) throw new Error('linked-device target credential did not persist');
-      assertRegistrationReplay(stored, registration, keyManifestDigestB64u);
+      assertRegistrationReplay(stored, input.registration, keyManifestDigestB64u);
+      await this.commitReservationV1({
+        linkSessionId: input.input.session.linkSessionId,
+        registrationDigestB64u: input.registrationDigestB64u,
+        keyManifestDigestB64u,
+        committedAtMs: input.input.requestedAtMs,
+      });
       return {
         outcome: changedRows(result) === 1 ? 'applied' : 'replayed',
         keyManifestDigestB64u: stored.registration.keyManifestDigestB64u,
       };
     } catch (error: unknown) {
+      if (!externalCommitCompleted) {
+        await this.releaseCommitReservationV1({
+          linkSessionId: input.input.session.linkSessionId,
+          registrationDigestB64u: input.registrationDigestB64u,
+        });
+      }
       return { outcome: 'invalid_input', message: errorMessage(error) };
     }
+  }
+
+  private async reserveCommitV1(input: {
+    readonly linkSessionId: string;
+    readonly registrationDigestB64u: DigestB64u;
+    readonly expiresAtMs: number;
+    readonly nowMs: number;
+  }): Promise<{ readonly outcome: 'acquired' | 'waiting' | 'replayed' }> {
+    const result = await this.database
+      .prepare(
+        `INSERT OR IGNORE INTO ${TARGET_COMMIT_RESERVATION_TABLE} (
+           namespace, org_id, project_id, env_id, link_session_id,
+           registration_digest_b64u, state, reserved_at_ms
+         ) VALUES (?, ?, ?, ?, ?, ?, 'reserved', ?)`,
+      )
+      .bind(
+        ...scopeValues(this.scope),
+        input.linkSessionId,
+        input.registrationDigestB64u,
+        input.nowMs,
+      )
+      .run();
+    if (changedRows(result) === 1) return { outcome: 'acquired' };
+    const row = await this.readCommitReservationV1(input.linkSessionId);
+    if (!row) return await this.reserveCommitV1(input);
+    if (row.registrationDigestB64u !== input.registrationDigestB64u) {
+      throw new Error(
+        'linked-device target credential conflicts with its durable commit reservation',
+      );
+    }
+    if (row.state === 'committed') return { outcome: 'replayed' };
+    if (row.reservedAtMs >= input.expiresAtMs || input.nowMs >= input.expiresAtMs) {
+      await this.database
+        .prepare(
+          `DELETE FROM ${TARGET_COMMIT_RESERVATION_TABLE}
+             WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+               AND link_session_id = ? AND state = 'reserved'`,
+        )
+        .bind(...scopeValues(this.scope), input.linkSessionId)
+        .run();
+      return await this.reserveCommitV1(input);
+    }
+    return { outcome: 'waiting' };
+  }
+
+  private async waitForCommitV1(input: {
+    readonly linkSessionId: string;
+    readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+    readonly registrationDigestB64u: DigestB64u;
+    readonly expiresAtMs: number;
+  }): Promise<
+    | { readonly outcome: 'replayed'; readonly keyManifestDigestB64u: DigestB64u }
+    | { readonly outcome: 'invalid_input'; readonly message: string }
+  > {
+    for (let attempt = 0; attempt < TARGET_COMMIT_WAIT_ATTEMPTS; attempt += 1) {
+      const stored = await this.readV1(input.linkSessionId);
+      if (stored?.registration) {
+        assertRegistrationReplay(
+          stored,
+          input.registration,
+          stored.registration.keyManifestDigestB64u,
+        );
+        return {
+          outcome: 'replayed',
+          keyManifestDigestB64u: stored.registration.keyManifestDigestB64u,
+        };
+      }
+      const reservation = await this.readCommitReservationV1(input.linkSessionId);
+      if (!reservation || reservation.registrationDigestB64u !== input.registrationDigestB64u) {
+        throw new Error('linked-device target credential commit reservation changed during replay');
+      }
+      if (reservation.state === 'committed') {
+        throw new Error(
+          'linked-device target credential reservation is committed without a registration',
+        );
+      }
+      await waitForTargetCommitV1(TARGET_COMMIT_WAIT_MS);
+    }
+    throw new Error('linked-device target credential commit is already in progress');
+  }
+
+  private async readCommitReservationV1(linkSessionId: string): Promise<{
+    readonly registrationDigestB64u: DigestB64u;
+    readonly state: 'reserved' | 'committed';
+    readonly reservedAtMs: number;
+  } | null> {
+    const row = await this.database
+      .prepare(
+        `SELECT registration_digest_b64u, state, reserved_at_ms,
+                committed_at_ms, key_manifest_digest_b64u
+           FROM ${TARGET_COMMIT_RESERVATION_TABLE}
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND link_session_id = ? LIMIT 1`,
+      )
+      .bind(...scopeValues(this.scope), linkSessionId)
+      .first<TargetCommitReservationRowV1>();
+    if (!row) return null;
+    if (typeof row.registration_digest_b64u !== 'string')
+      throw new Error('linked-device target commit reservation digest is invalid');
+    const registrationDigestB64u = parseDigestB64u(row.registration_digest_b64u);
+    if (row.state !== 'reserved' && row.state !== 'committed')
+      throw new Error('linked-device target commit reservation state is invalid');
+    if (!Number.isSafeInteger(row.reserved_at_ms) || Number(row.reserved_at_ms) < 0)
+      throw new Error('linked-device target commit reservation time is invalid');
+    if (row.state === 'committed') {
+      if (
+        !Number.isSafeInteger(row.committed_at_ms) ||
+        Number(row.committed_at_ms) < 0 ||
+        typeof row.key_manifest_digest_b64u !== 'string'
+      ) {
+        throw new Error('linked-device committed target reservation is incomplete');
+      }
+      parseDigestB64u(row.key_manifest_digest_b64u);
+    }
+    return {
+      registrationDigestB64u,
+      state: row.state,
+      reservedAtMs: Number(row.reserved_at_ms),
+    };
+  }
+
+  private async commitReservationV1(input: {
+    readonly linkSessionId: string;
+    readonly registrationDigestB64u: DigestB64u;
+    readonly keyManifestDigestB64u: DigestB64u;
+    readonly committedAtMs: number;
+  }): Promise<void> {
+    const result = await this.database
+      .prepare(
+        `UPDATE ${TARGET_COMMIT_RESERVATION_TABLE}
+            SET state = 'committed', committed_at_ms = ?, key_manifest_digest_b64u = ?
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND link_session_id = ? AND state = 'reserved'
+            AND registration_digest_b64u = ?`,
+      )
+      .bind(
+        input.committedAtMs,
+        input.keyManifestDigestB64u,
+        ...scopeValues(this.scope),
+        input.linkSessionId,
+        input.registrationDigestB64u,
+      )
+      .run();
+    if (changedRows(result) === 1) return;
+    const row = await this.readCommitReservationV1(input.linkSessionId);
+    if (
+      !row ||
+      row.registrationDigestB64u !== input.registrationDigestB64u ||
+      row.state !== 'committed'
+    ) {
+      throw new Error('linked-device target commit reservation did not persist');
+    }
+  }
+
+  private async releaseCommitReservationV1(input: {
+    readonly linkSessionId: string;
+    readonly registrationDigestB64u: DigestB64u;
+  }): Promise<void> {
+    await this.database
+      .prepare(
+        `DELETE FROM ${TARGET_COMMIT_RESERVATION_TABLE}
+           WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+             AND link_session_id = ? AND state = 'reserved'
+             AND registration_digest_b64u = ?`,
+      )
+      .bind(...scopeValues(this.scope), input.linkSessionId, input.registrationDigestB64u)
+      .run();
   }
 
   private async readV1(linkSessionId: string): Promise<PersistedTargetCredentialV1 | null> {
@@ -446,4 +708,20 @@ function isCanonicalNonemptyBase64Url(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+async function digestRegistrationV1(
+  registration: LinkedDeviceTargetCredentialRegistrationV1,
+): Promise<DigestB64u> {
+  return parseDigestB64u(
+    base64UrlEncode(
+      await sha256BytesUtf8(
+        `seams/r103/target-credential/v1\u0000${alphabetizeStringify(registration)}`,
+      ),
+    ),
+  );
+}
+
+async function waitForTargetCommitV1(delayMs: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
 }
