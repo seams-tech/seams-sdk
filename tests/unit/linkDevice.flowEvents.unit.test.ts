@@ -10,6 +10,10 @@ import type {
 } from '@/SeamsWeb/operations/devices/deviceLinkingPorts';
 import { DeviceLinkingErrorCode } from '@/core/types/linkDevice';
 import {
+  buildLinkedDeviceProvisionedExecutionEvidenceV1,
+  type LinkedDeviceProvisionedExecutionEvidenceV1,
+} from '@/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
+import {
   buildActiveLinkedDeviceSessionState,
   buildAwaitingTargetPasskeyLinkedDeviceSessionState,
   buildProvisioningLinkedDeviceSessionState,
@@ -32,19 +36,14 @@ import type {
 } from '../../packages/shared-ts/src/device-linking';
 import {
   buildR103DeviceLinkFixture,
+  buildR103ActiveExecutionFixture,
   buildR103LinkedWalletSessionDeliveryFixture,
+  buildR103ProvisioningFixture,
   buildR103TargetReadySourceFixture,
 } from './helpers/deviceLinkContracts.fixtures';
 import { parseWebAuthnCredentialIdB64u } from '../../packages/shared-ts/src/utils/domainIds';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
-import {
-  buildR102HolderDeliveryReceipt,
-  buildR102LaneJob,
-  buildR102ManifestChild,
-  buildR102ProtocolCommitReceipt,
-} from './helpers/r102LaneGateway.fixtures';
 import { computeLaneEnrollmentManifestDigestV1 } from '../../packages/shared-ts/src/signing-lanes/rotationDigests';
-import { buildLaneEnrollmentManifestV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 
 function createPorts(
   calls: string[],
@@ -82,7 +81,9 @@ function createPorts(
   );
   if (!credentialIdResult.ok) throw new Error(credentialIdResult.error.message);
   const targetBinding = fixture.approval.orderedKeyBindings[0];
-  const targetHolder = buildR102LaneJob('linked-target').targetHolder;
+  const targetHolder =
+    buildR103ProvisioningFixture(fixture).deliveries.orderedChildren[0].job.targetHolder;
+  let storedExecutionEvidence: LinkedDeviceProvisionedExecutionEvidenceV1 | null = null;
   const authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1 = {
     async createUnclaimedSessionV1(input) {
       calls.push('create');
@@ -351,14 +352,29 @@ function createPorts(
         calls.push('prepare-lanes');
         return fixture.receipt;
       },
-      async resumeCommittedDeliveryV1() {
+      async resumeCommittedDeliveryV1(input) {
         calls.push('resume-delivery');
+        await input.refetchApprovalV1();
+        await input.refetchProvisioningDeliveriesV1();
         return fixture.receipt;
       },
     },
     walletSessions: {
       async putExactActiveDeliveryV1() {
         calls.push('persist-wallet-session');
+      },
+    },
+    executionEvidence: {
+      async putExactProvisionedEvidenceV1(evidence) {
+        calls.push('persist-execution-evidence');
+        storedExecutionEvidence = evidence;
+        return evidence;
+      },
+      async readForEnrollmentV1() {
+        calls.push('read-execution-evidence');
+        return storedExecutionEvidence
+          ? { kind: 'found', evidence: storedExecutionEvidence }
+          : { kind: 'missing' };
       },
     },
   };
@@ -562,10 +578,13 @@ test.describe('linked-device browser orchestration', () => {
     const fixture = buildR103DeviceLinkFixture();
     let emitSessionEvent: ((event: LinkedDeviceSessionTransportEventV1) => void) | undefined;
     let acknowledgement: LinkedDeviceReceiptAcknowledgementV1 | undefined;
+    let authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1 | undefined;
     const ports = createPorts(
       calls,
       undefined,
-      undefined,
+      (transport) => {
+        authenticatedTransport = transport;
+      },
       undefined,
       (handler) => {
         emitSessionEvent = handler;
@@ -576,6 +595,43 @@ test.describe('linked-device browser orchestration', () => {
     );
     const flow = new LinkDeviceFlow(undefined, {}, ports);
     const generated = await flow.generateQR();
+    const active = await buildR103ActiveExecutionFixture({
+      linkSessionId: String(generated.qrData.linkSessionId),
+    });
+    const evidence = await buildLinkedDeviceProvisionedExecutionEvidenceV1({
+      approval: active.deviceLink.approval,
+      targetPreparation: active.targetCredential.preparation,
+      targetCredentialRegistration: active.targetCredential.registration,
+      provisioningDeliveries: active.provisioning.deliveries,
+      enrollmentReceipt: active.deviceLink.receipt,
+    });
+    if (!authenticatedTransport) throw new Error('authenticated transport was not bound');
+    Object.assign(authenticatedTransport, {
+      requestProvisioningDeliveriesV1: async () => {
+        calls.push('provision-deliveries');
+        return active.provisioning.deliveries;
+      },
+      getWalletSessionDeliveryV1: async () => {
+        calls.push('get-wallet-session');
+        return active.walletSession;
+      },
+    });
+    Object.assign(ports.executionEvidence, {
+      readForEnrollmentV1: async () => {
+        calls.push('read-execution-evidence');
+        return { kind: 'found', evidence } as const;
+      },
+    });
+    Object.assign(ports.laneProvisioning, {
+      resumeCommittedDeliveryV1: async (
+        input: Parameters<typeof ports.laneProvisioning.resumeCommittedDeliveryV1>[0],
+      ) => {
+        calls.push('resume-delivery');
+        await input.refetchApprovalV1();
+        await input.refetchProvisioningDeliveriesV1();
+        return active.deviceLink.receipt;
+      },
+    });
     emitSessionEvent?.({
       kind: 'linked_device_session_event_v1',
       linkSessionId: generated.qrData.linkSessionId,
@@ -588,24 +644,25 @@ test.describe('linked-device browser orchestration', () => {
       emittedAtMs: Date.now(),
     });
     await expect
-      .poll(() => calls.slice(-6), { timeout: 5_000 })
+      .poll(() => calls.slice(-9), { timeout: 5_000 })
       .toEqual([
         'retry',
         'resume-delivery',
-        'ack',
         'get-approval',
+        'provision-deliveries',
+        'read-execution-evidence',
+        'persist-execution-evidence',
+        'ack',
         'get-wallet-session',
         'persist-wallet-session',
       ]);
-    expect(acknowledgement?.receipt).toEqual(fixture.receipt);
+    expect(acknowledgement?.receipt).toEqual(active.deviceLink.receipt);
   });
 
   test('Device 2 processes exact encrypted deliveries before aggregate acknowledgement', async () => {
     const calls: string[] = [];
     const fixture = buildR103DeviceLinkFixture();
-    const job = buildR102LaneJob('device2-provision');
-    const protocolCommitReceipt = buildR102ProtocolCommitReceipt(job);
-    const holderDeliveryReceipt = buildR102HolderDeliveryReceipt(job);
+    const active = await buildR103ActiveExecutionFixture();
     let emitSessionEvent: ((event: LinkedDeviceSessionTransportEventV1) => void) | undefined;
     let authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1 | undefined;
     let aggregateAcknowledgement: LinkedDeviceReceiptAcknowledgementV1 | undefined;
@@ -629,37 +686,11 @@ test.describe('linked-device browser orchestration', () => {
     Object.assign(authenticatedTransport, {
       requestProvisioningDeliveriesV1: async () => {
         calls.push('provision-deliveries');
-        return {
-          kind: 'linked_device_provisioning_deliveries_v1' as const,
-          linkSessionId: fixture.approval.linkSessionId,
-          enrollmentId: fixture.approval.enrollmentId,
-          deviceId: fixture.approval.deviceId,
-          manifest: buildLaneEnrollmentManifestV1({
-            enrollmentId: job.enrollmentId,
-            walletId: job.walletId,
-            authorization: job.authorization,
-            orderedChildren: [buildR102ManifestChild(job)],
-            createdAtMs: 1_000,
-            expiresAtMs: job.expiresAtMs,
-          }),
-          orderedChildren: [
-            {
-              kind: 'linked_device_provisioning_child_v1' as const,
-              job,
-              protocolCommitReceipt,
-              holderPackage: {
-                kind: 'ed25519_yao_lane_holder_package_set_v1' as const,
-                deriverAEncryptedPackageJson: '{}',
-                deriverBEncryptedPackageJson: '{}',
-              },
-              expectedVersion: 0,
-            },
-          ] as const,
-        };
+        return active.provisioning.deliveries;
       },
       acknowledgeHolderDeliveriesV1: async () => {
         calls.push('holder-receipts');
-        return fixture.receipt;
+        return active.deviceLink.receipt;
       },
       getWalletSessionDeliveryV1: async () => {
         calls.push('get-wallet-session');
@@ -670,11 +701,11 @@ test.describe('linked-device browser orchestration', () => {
             linkSessionId: generated.qrData.linkSessionId,
             walletId: fixture.approval.walletId,
             enrollmentId: fixture.approval.enrollmentId,
-            activatedAtMs: fixture.receipt.activatedAtMs,
+            activatedAtMs: active.deviceLink.receipt.activatedAtMs,
           }),
           emittedAtMs: Date.now(),
         });
-        return buildR103LinkedWalletSessionDeliveryFixture(fixture);
+        return active.walletSession;
       },
     });
     Object.assign(ports.laneProvisioning, {
@@ -685,9 +716,10 @@ test.describe('linked-device browser orchestration', () => {
         return await handoff.acknowledgeHolderDeliveriesV1(
           buildLinkedDeviceHolderDeliveryAcknowledgementV1({
             linkSessionId: handoff.approval.linkSessionId,
-            enrollmentId: job.enrollmentId,
+            enrollmentId: handoff.approval.enrollmentId,
             deviceId: handoff.approval.deviceId,
-            orderedHolderDeliveryReceipts: [holderDeliveryReceipt],
+            orderedHolderDeliveryReceipts:
+              active.provisioning.acknowledgement.orderedHolderDeliveryReceipts,
             acknowledgedAtMs: Date.now(),
           }),
         );
@@ -705,7 +737,7 @@ test.describe('linked-device browser orchestration', () => {
       emittedAtMs: Date.now(),
     });
     await expect
-      .poll(() => calls.slice(-12), { timeout: 5_000 })
+      .poll(() => calls.slice(-13), { timeout: 5_000 })
       .toEqual([
         'target-preparation',
         'target-passkey',
@@ -714,13 +746,14 @@ test.describe('linked-device browser orchestration', () => {
         'provision-deliveries',
         'prepare-lanes',
         'holder-receipts',
+        'persist-execution-evidence',
         'ack',
         'get-wallet-session',
         'persist-wallet-session',
         'close',
         'key-discard',
       ]);
-    expect(aggregateAcknowledgement?.receipt).toEqual(fixture.receipt);
+    expect(aggregateAcknowledgement?.receipt).toEqual(active.deviceLink.receipt);
   });
 
   test('Device 2 closes polling and discards its worker key for every terminal session', async () => {
