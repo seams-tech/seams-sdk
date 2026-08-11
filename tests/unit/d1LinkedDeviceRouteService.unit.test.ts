@@ -31,6 +31,7 @@ import type {
   LaneEnrollmentAdmissionRecord,
   LaneProtocolAdmissionRecord,
 } from '../../packages/sdk-server-ts/src/core/signingLanes/LaneLifecycleStore';
+import { parseTenantId } from '@shared/authorization/capabilityKinds';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -180,15 +181,14 @@ test('composes D1 session and proof stores and authenticates before reading JSON
   const routeService = createD1LinkedDeviceRouteServiceV1({
     database: temporary.database,
     scope,
+    ...linkedAuthorizationNotConfigured(),
     ownerAuthorization: ownerAuthorization(),
     authenticateOwnerRequestV1: async () => ({
       kind: 'denied' as const,
       code: 'unauthorized' as const,
       message: 'owner auth is not used in this test',
     }),
-    registerTargetCredentialV1: async () => {
-      throw new Error('credential adapter not configured');
-    },
+    targetCredential: targetCredentialNotConfigured(),
     acknowledgeReceiptV1: async () => {
       throw new Error('receipt adapter not configured');
     },
@@ -229,15 +229,14 @@ test('forwards authenticated session reads through core expiry projection', asyn
   const routeService = createD1LinkedDeviceRouteServiceV1({
     database: temporary.database,
     scope,
+    ...linkedAuthorizationNotConfigured(),
     ownerAuthorization: ownerAuthorization(),
     authenticateOwnerRequestV1: async () => ({
       kind: 'denied' as const,
       code: 'unauthorized' as const,
       message: 'owner auth is not used in this test',
     }),
-    registerTargetCredentialV1: async () => {
-      throw new Error('credential adapter not configured');
-    },
+    targetCredential: targetCredentialNotConfigured(),
     acknowledgeReceiptV1: async () => {
       throw new Error('receipt adapter not configured');
     },
@@ -274,6 +273,33 @@ function ownerAuthorization(): LinkedDeviceOwnerAuthorizationPortV1 {
       throw new Error('owner claim auth is not used in this test');
     },
     authorizeOwnerApprovalV1: async () => ({ kind: 'authorized' as const }),
+  };
+}
+
+function linkedAuthorizationNotConfigured() {
+  const tenantId = parseTenantId('tenant-route-service-test');
+  if (!tenantId.ok) throw new Error(tenantId.error.message);
+  return {
+    tenantId: tenantId.value,
+    authorizationService: {
+      getLinkedDeviceWalletSessionStatus: async () => {
+        throw new Error('linked authorization adapter not configured');
+      },
+      issueLinkedDeviceWalletSession: async () => {
+        throw new Error('linked authorization adapter not configured');
+      },
+    },
+  };
+}
+
+function targetCredentialNotConfigured() {
+  return {
+    getTargetPreparationV1: async () => {
+      throw new Error('target preparation adapter not configured');
+    },
+    registerTargetCredentialV1: async () => {
+      throw new Error('credential adapter not configured');
+    },
   };
 }
 
