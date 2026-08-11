@@ -17,6 +17,7 @@ export * from './linkedDeviceR102ProvisioningExecution';
 export * from './d1LinkedDeviceSourceHandoffProvider';
 export * from './d1LinkedDeviceOwnerAuthorizationProvider';
 export * from './d1LinkedDeviceOwnerPlanningSnapshotStore';
+export * from './d1LinkedDeviceOwnerPlanningSnapshotWriter';
 export * from './d1LinkedDeviceLaneLifecycleAuthorization';
 export * from './d1LinkedDeviceTargetPlanner';
 export * from './d1LinkedDeviceCompletionAdapters';
