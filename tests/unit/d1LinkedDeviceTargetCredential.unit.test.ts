@@ -10,6 +10,7 @@ import {
   type D1LinkedDeviceSessionScopeV1,
 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSessionStore';
 import { D1LinkedDeviceTargetCredentialProviderV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceTargetCredentialProvider';
+import { D1LinkedDeviceSourceHandoffProviderV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSourceHandoffProvider';
 import { D1LinkedDeviceProvisioningProviderV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceProvisioningProvider';
 import { createLinkedDeviceR102ProvisioningExecutionV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/linkedDeviceR102ProvisioningExecution';
 import {
@@ -20,7 +21,10 @@ import {
   buildR103DeviceLinkFixture,
   buildR103ProvisioningFixture,
   buildR103TargetCredentialFixture,
+  buildR103TargetReadySourceFixture,
 } from './helpers/deviceLinkContracts.fixtures';
+import { computeLaneEnrollmentManifestDigestV1 } from '../../packages/shared-ts/src/signing-lanes/rotationDigests';
+import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import {
   buildR102ActiveProductEpoch,
   buildR102ServerActivationReceipt,
@@ -55,7 +59,13 @@ test('persists verified attestation and exact public child records before provis
   temporary = createTemporaryD1Database();
   await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
   const fixture = buildR103DeviceLinkFixture();
-  const target = await buildR103TargetCredentialFixture(fixture);
+  const approval = { ...fixture.approval, expiresAtMs: 8_000 };
+  const approvedFixture = { ...fixture, approval };
+  const target = await buildR103TargetCredentialFixture(approvedFixture);
+  const handoff = buildR103TargetReadySourceFixture(approvedFixture);
+  const keyManifestDigestB64u = parseDigestB64u(
+    await computeLaneEnrollmentManifestDigestV1(handoff.targetReady.manifest),
+  );
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
   const sessionService = new LinkedDeviceSessionServiceV1({
     store,
@@ -65,7 +75,7 @@ test('persists verified attestation and exact public child records before provis
   await sessionService.createUnclaimedSessionV1({ payload: fixture.payload, nowMs: 3_000 });
   await sessionService.claimSessionV1({ payload: fixture.payload, nowMs: 3_001 });
   const approvalResult = await sessionService.recordOwnerApprovalV1({
-    approval: { ...fixture.approval, expiresAtMs: 8_000 },
+    approval,
     nowMs: 3_002,
   });
   expect(approvalResult.outcome).toBe('applied');
@@ -95,13 +105,17 @@ test('persists verified attestation and exact public child records before provis
     committer: {
       commitVerifiedTargetV1: async () => {
         commitCount += 1;
-        return { keyManifestDigestB64u: fixture.receipt.manifestDigestB64u };
+        return { keyManifestDigestB64u, targetReady: handoff.targetReady };
       },
     },
+    sourceHandoff: new D1LinkedDeviceSourceHandoffProviderV1({
+      database: temporary.database,
+      scope,
+    }),
   });
   const preparation = await provider.getTargetPreparationV1({
     session: approvalResult.record,
-    approval: fixture.approval,
+    approval,
     requestedAtMs: 3_003,
   });
   expect(preparation).toEqual(target.preparation);
@@ -109,13 +123,37 @@ test('persists verified attestation and exact public child records before provis
     registration: target.registration,
     preparation,
     session: approvalResult.record,
+    approval,
     requestedAtMs: 3_004,
   });
   expect(registered).toEqual({
     outcome: 'applied',
-    keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
+    keyManifestDigestB64u,
   });
   if (registered.outcome === 'invalid_input') throw new Error(registered.message);
+  await temporary.database
+    .prepare(
+      `DELETE FROM linked_device_source_handoffs
+         WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+           AND link_session_id = ?`,
+    )
+    .bind(
+      scope.namespace,
+      scope.orgId,
+      scope.projectId,
+      scope.envId,
+      String(fixture.approval.linkSessionId),
+    )
+    .run();
+  await expect(
+    provider.registerTargetCredentialV1({
+      registration: target.registration,
+      preparation,
+      session: approvalResult.record,
+      approval,
+      requestedAtMs: 3_005,
+    }),
+  ).resolves.toEqual({ outcome: 'replayed', keyManifestDigestB64u });
   const transitioned = await sessionService.recordTargetCredentialV1({
     linkSessionId: fixture.payload.linkSessionId,
     expectedRevision: approvalResult.record.revision,
@@ -129,7 +167,7 @@ test('persists verified attestation and exact public child records before provis
     linkSessionId: fixture.payload.linkSessionId,
     walletId: fixture.approval.walletId,
     enrollmentId: fixture.approval.enrollmentId,
-    keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
+    keyManifestDigestB64u,
   });
 
   const provisioningFixture = buildR103ProvisioningFixture(fixture);
@@ -227,7 +265,7 @@ test('persists verified attestation and exact public child records before provis
       await provisioning.provisionLinkedDeviceV1({
         command: provisioningFixture.command,
         session: transitioned.record,
-        approval: fixture.approval,
+        approval,
         requestedAtMs: 3_005 + replay,
       }),
     ).toEqual(provisioningFixture.deliveries);
@@ -238,7 +276,7 @@ test('persists verified attestation and exact public child records before provis
     const current = await provisioning.recordHolderDeliveriesV1({
       acknowledgement: provisioningFixture.acknowledgement,
       session: transitioned.record,
-      approval: fixture.approval,
+      approval,
       requestedAtMs: 3_010 + replay,
     });
     activatedReceipt ??= current;
@@ -331,14 +369,15 @@ test('persists verified attestation and exact public child records before provis
     registration: target.registration,
     preparation,
     session: transitioned.record,
+    approval,
     requestedAtMs: 7_500,
   });
   expect(replayed).toEqual({
     outcome: 'replayed',
-    keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
+    keyManifestDigestB64u,
   });
   expect(verificationCount).toBe(1);
-  expect(commitCount).toBe(1);
+  expect(commitCount).toBe(2);
 
   const conflicting = await provider.registerTargetCredentialV1({
     registration: {
@@ -350,6 +389,7 @@ test('persists verified attestation and exact public child records before provis
     },
     preparation,
     session: transitioned.record,
+    approval,
     requestedAtMs: 7_500,
   });
   expect(conflicting.outcome).toBe('invalid_input');

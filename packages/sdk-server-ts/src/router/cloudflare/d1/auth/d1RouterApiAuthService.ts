@@ -156,6 +156,7 @@ import {
   LinkedDeviceWebAuthnRegistrationVerifierV1,
 } from '../deviceLinking/d1LinkedDeviceTargetCredentialProvider';
 import { D1LinkedDeviceProvisioningProviderV1 } from '../deviceLinking/d1LinkedDeviceProvisioningProvider';
+import { D1LinkedDeviceSourceHandoffProviderV1 } from '../deviceLinking/d1LinkedDeviceSourceHandoffProvider';
 import {
   createD1LinkedDeviceCredentialResolverV1,
   createD1LinkedDeviceLocalPresenceVerifierV1,
@@ -354,6 +355,10 @@ function createD1LinkedDeviceComposition(input: {
   let deviceLinking: RouterApiServiceBag['deviceLinking'];
   let deviceManagement: RouterApiServiceBag['deviceManagement'];
   if (config.session) {
+    const sourceHandoff = new D1LinkedDeviceSourceHandoffProviderV1({
+      database: input.options.database,
+      scope,
+    });
     const targetCredential = new D1LinkedDeviceTargetCredentialProviderV1({
       database: input.options.database,
       scope,
@@ -362,11 +367,19 @@ function createD1LinkedDeviceComposition(input: {
         expectedOrigin: config.execution.expectedOrigin,
       }),
       committer: config.session.targetCommitter,
+      sourceHandoff,
     });
     const provisioning = new D1LinkedDeviceProvisioningProviderV1({
       database: input.options.database,
       scope,
-      execution: config.session.provisioningExecution,
+      execution: {
+        prepareProvisioningDeliveriesV1:
+          sourceHandoff.prepareProvisioningDeliveriesV1.bind(sourceHandoff),
+        recordHolderDeliveriesAndActivateV1:
+          config.session.provisioningActivation.recordHolderDeliveriesAndActivateV1.bind(
+            config.session.provisioningActivation,
+          ),
+      },
     });
     deviceLinking = createD1LinkedDeviceRouteServiceV1({
       database: input.options.database,
@@ -377,6 +390,7 @@ function createD1LinkedDeviceComposition(input: {
       acknowledgeReceiptV1: config.session.acknowledgeReceiptV1,
       retryCommittedDeliveryV1: config.session.retryCommittedDeliveryV1,
       provisioning,
+      sourceHandoff,
       nowV1: config.execution.nowV1,
     });
   }

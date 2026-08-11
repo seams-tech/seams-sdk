@@ -202,6 +202,7 @@ export type DeviceLinkingTargetCredentialProviderV1 = {
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
     readonly preparation: LinkedDeviceTargetPreparationV1;
     readonly session: LinkedDeviceSessionRecordV1;
+    readonly approval: LinkedDeviceApprovalV1;
     readonly requestedAtMs: number;
   }): Promise<
     | {
@@ -678,6 +679,7 @@ async function handleCredential(
     registration,
     preparation,
     session,
+    approval,
     requestedAtMs: nowMs,
   });
   if (registrationResult.outcome === 'invalid_input') {

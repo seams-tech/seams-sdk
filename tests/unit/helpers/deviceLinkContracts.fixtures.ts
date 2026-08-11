@@ -125,12 +125,15 @@ export function buildR103ProvisioningFixture(
       laneId: approved.targetLaneId,
       laneShareEpoch: approved.targetLaneShareEpoch,
     },
+    targetMaterialActivationId:
+      fixture.receipt.orderedChildReceipts[0].materialActivation.activationId,
     authorization: {
       kind: 'linked_device_enrollment',
       authorizedOperationId: fixture.approval.operationId,
       linkedDeviceEnrollmentId: fixture.approval.enrollmentId,
       linkedDevicePermissionDigestB64u: fixture.approval.policyDigestB64u,
     },
+    expiresAtMs: fixture.approval.expiresAtMs,
   });
   const deliveries = parseLinkedDeviceProvisioningDeliveriesV1({
     kind: 'linked_device_provisioning_deliveries_v1',
@@ -200,7 +203,7 @@ export async function buildR103TargetCredentialFixture(
   fixture: R103DeviceLinkFixture,
 ): Promise<R103TargetCredentialFixture> {
   const binding = fixture.approval.orderedKeyBindings[0];
-  const job = buildR102LaneJob('r103-target-credential');
+  const job = buildR103ProvisioningFixture(fixture).deliveries.orderedChildren[0].job;
   const rpId = required(parseWebAuthnRpId('wallet.example.test'));
   const credentialIdB64u = required(
     parseWebAuthnCredentialIdB64u(base64UrlEncode(new Uint8Array(32).fill(6))),
