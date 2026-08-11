@@ -6,7 +6,9 @@ use serde::de::DeserializeOwned;
 use wasm_bindgen::prelude::*;
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::lane_holder::{verify_holder_package, LaneCustodySealV1, LaneHolderRecipientV1};
+use crate::lane_holder::{
+    verify_holder_package, LaneCustodySealV1, LaneHolderRecipientV1, LaneHolderSigningMaterialV1,
+};
 use crate::{
     complete_client_export_v1, create_client_signing_share_v1,
     prepare_client_export_from_custody_seed_v1, ClientActivationEntropyV1, ClientExportStateV1,
@@ -140,6 +142,77 @@ pub fn verify_lane_holder_package_commitment_v1(
     let output =
         verify_holder_package(job_json, receipt_json, holder_package_json).map_err(js_error)?;
     serde_wasm_bindgen::to_value(&output).map_err(js_error)
+}
+
+/// Opaque lane-holder signing material reopened from one exact custody record.
+///
+/// The factor and scalar share remain inside the worker WASM. Ed25519 exposes
+/// only a signature share. ECDSA remains opaque until a dedicated presign
+/// worker bridge consumes it.
+#[wasm_bindgen]
+pub struct WasmLaneHolderSigningMaterialV1 {
+    inner: LaneHolderSigningMaterialV1,
+}
+
+#[wasm_bindgen]
+impl WasmLaneHolderSigningMaterialV1 {
+    /// Opens one digest-verified sealed holder record and binds it to the exact
+    /// persisted R102 job and protocol receipt.
+    #[wasm_bindgen(constructor)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        factor_secret: &[u8],
+        sealed_holder_material_b64u: &str,
+        expected_record_digest_b64u: &str,
+        expected_holder_ciphertext_digest_set_b64u: &str,
+        job_json: &str,
+        receipt_json: &str,
+    ) -> Result<Self, JsValue> {
+        let factor_secret = Zeroizing::new(factor_secret.to_vec());
+        Ok(Self {
+            inner: LaneHolderSigningMaterialV1::open(
+                &factor_secret,
+                sealed_holder_material_b64u,
+                expected_record_digest_b64u,
+                expected_holder_ciphertext_digest_set_b64u,
+                job_json,
+                receipt_json,
+            )
+            .map_err(js_error)?,
+        })
+    }
+
+    /// Returns the public curve discriminator for the retained share.
+    pub fn key_family(&self) -> Result<String, JsValue> {
+        self.inner.kind().map(str::to_owned).map_err(js_error)
+    }
+
+    /// Creates one Ed25519 Client signature share without releasing the scalar.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_ed25519_signing_share(
+        &self,
+        client_participant_id: u16,
+        signing_worker_participant_id: u16,
+        admitted_digest: &[u8],
+        signing_worker_commitments_json: &str,
+        signing_worker_verifying_share: &[u8],
+    ) -> Result<WasmClientSigningShareV1, JsValue> {
+        let (share, registered_public_key) = self.inner.ed25519_material().map_err(js_error)?;
+        build_client_signing_share(
+            share,
+            registered_public_key,
+            client_participant_id,
+            signing_worker_participant_id,
+            admitted_digest,
+            signing_worker_commitments_json,
+            signing_worker_verifying_share,
+        )
+    }
+
+    /// Immediately destroys retained holder material.
+    pub fn destroy(&mut self) {
+        self.inner.destroy();
+    }
 }
 
 /// One-use explicit export session opened from the wallet custody envelope.
