@@ -21,3 +21,5 @@ export * from './d1LinkedDeviceOwnerPlanningSnapshotWriter';
 export * from './d1LinkedDeviceLaneLifecycleAuthorization';
 export * from './d1LinkedDeviceTargetPlanner';
 export * from './d1LinkedDeviceCompletionAdapters';
+export * from './d1LinkedDeviceOperatorRecoveryProvider';
+export * from './d1LinkedDeviceLocalStateInvalidation';
