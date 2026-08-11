@@ -23,6 +23,12 @@ import type {
   WebAuthnCredentialIdB64u,
 } from '../utils/domainIds';
 import type { DigestB64u } from '../utils/canonicalPrimitives';
+import type {
+  LaneHolderDeliveryReceiptV1,
+  LaneHolderPackageWireV1,
+  LaneProtocolCommitReceiptV1,
+  RotatableSigningLaneJobV1,
+} from '../signing-lanes/rotation';
 
 /** Public key bytes carried by the link session, encoded as canonical base64url. */
 export type LinkDevicePublicKeyB64u = string & {
@@ -206,6 +212,51 @@ export type LinkedDeviceApprovalV1 = {
   ];
   readonly approvedAtMs: number;
   readonly expiresAtMs: number;
+};
+
+export type LinkedDeviceProvisioningCommandV1 = {
+  readonly kind: 'linked_device_provisioning_command_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
+};
+
+/** Role-bound ciphertext delivery for one approved R102 child lane. */
+export type LinkedDeviceProvisioningChildV1 = {
+  readonly kind: 'linked_device_provisioning_child_v1';
+  readonly job: RotatableSigningLaneJobV1;
+  readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
+  readonly holderPackage: LaneHolderPackageWireV1;
+  readonly expectedVersion: number;
+};
+
+export type LinkedDeviceProvisioningDeliveriesV1 = {
+  readonly kind: 'linked_device_provisioning_deliveries_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
+  readonly orderedChildren: readonly [
+    LinkedDeviceProvisioningChildV1,
+    ...LinkedDeviceProvisioningChildV1[],
+  ];
+};
+
+export type LinkedDeviceApprovalDeliveryV1 = {
+  readonly kind: 'linked_device_approval_delivery_v1';
+  readonly approval: LinkedDeviceApprovalV1;
+};
+
+/** Device2 returns only the holder receipts it produced for this enrollment. */
+export type LinkedDeviceHolderDeliveryAcknowledgementV1 = {
+  readonly kind: 'linked_device_holder_delivery_acknowledgement_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
+  readonly orderedHolderDeliveryReceipts: readonly [
+    LaneHolderDeliveryReceiptV1,
+    ...LaneHolderDeliveryReceiptV1[],
+  ];
+  readonly acknowledgedAtMs: number;
 };
 
 export type LinkedDeviceEnrollmentTranscriptV1 = {
