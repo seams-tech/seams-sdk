@@ -1,5 +1,6 @@
 import type {
   AuthorizationEvidenceSetId,
+  AuthorizedOperationId,
   LinkedDeviceWalletSessionAuthorizationId,
   MpcWalletSigningQuotaId,
   TenantId,
@@ -58,6 +59,19 @@ export type QrLinkedDeviceSessionPayloadV4 = {
   readonly requestedPermission: QrLinkedDevicePermissionRequest;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
+};
+
+export type LinkedDeviceLocalPresenceAssertionV1 = {
+  readonly kind: 'linked_device_local_presence_assertion_v1';
+  readonly authorizedOperationId: AuthorizedOperationId;
+  readonly deviceId: LinkedDeviceId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+  readonly intentDigestB64u: DigestB64u;
+  readonly challengeDigestB64u: DigestB64u;
+  readonly issuedAtMs: number;
+  readonly expiresAtMs: number;
+  readonly assertion: unknown;
 };
 
 /**

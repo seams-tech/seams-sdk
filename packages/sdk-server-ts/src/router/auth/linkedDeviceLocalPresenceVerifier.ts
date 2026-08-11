@@ -19,19 +19,7 @@ import {
   webAuthnCredentialIdB64uFromCredential,
 } from './webAuthnCredentialCodecs';
 import type { LinkedDeviceLocalPresenceEvidenceV1 } from '../domains/signingOperations/walletExecutionAdmission';
-
-export type LinkedDeviceLocalPresenceAssertionV1 = {
-  readonly kind: 'linked_device_local_presence_assertion_v1';
-  readonly authorizedOperationId: unknown;
-  readonly deviceId: unknown;
-  readonly enrollmentId: unknown;
-  readonly credentialIdB64u: unknown;
-  readonly intentDigestB64u: unknown;
-  readonly challengeDigestB64u: unknown;
-  readonly issuedAtMs: unknown;
-  readonly expiresAtMs: unknown;
-  readonly assertion: unknown;
-};
+import type { LinkedDeviceLocalPresenceAssertionV1 } from '@shared/device-linking';
 
 export type LinkedDeviceLocalPresenceVerificationPortInputV1 = {
   readonly authorizedOperationId: AuthorizedOperationId;

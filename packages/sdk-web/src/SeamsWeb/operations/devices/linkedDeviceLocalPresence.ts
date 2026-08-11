@@ -1,4 +1,5 @@
 import { computeLinkedDeviceLocalPresenceChallengeDigestV1 } from '@shared/device-linking/digests';
+import type { LinkedDeviceLocalPresenceAssertionV1 } from '@shared/device-linking';
 import type { AuthorizedOperationId } from '@shared/authorization/capabilityKinds';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlDecode } from '@shared/utils/base64';
@@ -18,19 +19,6 @@ import type {
   DeviceLinkingHolderSigningMaterialHandleV1,
   DeviceLinkingHolderSigningMaterialPortV1,
 } from './deviceLinkingPorts';
-
-export type LinkedDeviceLocalPresenceAssertionV1 = {
-  readonly kind: 'linked_device_local_presence_assertion_v1';
-  readonly authorizedOperationId: AuthorizedOperationId;
-  readonly deviceId: ActiveLinkedDeviceExecutionBundleV1['deviceId'];
-  readonly enrollmentId: ActiveLinkedDeviceExecutionBundleV1['enrollmentId'];
-  readonly credentialIdB64u: ActiveLinkedDeviceExecutionBundleV1['targetCredentialRegistration']['webauthnRegistration']['credentialIdB64u'];
-  readonly intentDigestB64u: DigestB64u;
-  readonly challengeDigestB64u: DigestB64u;
-  readonly issuedAtMs: number;
-  readonly expiresAtMs: number;
-  readonly assertion: WebAuthnAuthenticationCredential;
-};
 
 export type LinkedDevicePresenceAndHolderV1 = {
   readonly localPresenceAssertion: LinkedDeviceLocalPresenceAssertionV1;
