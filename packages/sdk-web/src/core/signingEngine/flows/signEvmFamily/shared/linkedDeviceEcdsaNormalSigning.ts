@@ -812,7 +812,6 @@ export async function executeLinkedDeviceEcdsaNormalSigningV1(
         });
         pendingClientOutgoing = [];
         pendingServerOutgoing = serverProgress.outgoingMessagesB64u.map(base64UrlDecode);
-        serverStage = serverProgress.stage;
         if (serverProgress.kind === 'complete') {
           serverPresignatureId = serverProgress.serverPresignatureId;
           serverBigR33B64u = serverProgress.serverBigR33B64u;
@@ -821,6 +820,8 @@ export async function executeLinkedDeviceEcdsaNormalSigningV1(
             32,
             'signing worker rerandomization contribution',
           );
+        } else {
+          serverStage = serverProgress.stage;
         }
       }
       if (localHandle && localBigR33 && serverProgress.kind === 'complete') break;
