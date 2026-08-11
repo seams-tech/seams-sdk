@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  buildAccountWelcomeEmailV1,
   buildBillingRefundResultEmailV1,
   buildLowBalanceWarningEmailV1,
   buildMembershipAccessChangedEmailV1,
@@ -26,6 +27,7 @@ import {
   type ConsoleEmailTemplateV1,
   type ConsoleInvitationSecretCipher,
 } from '@seams-internal/console-server/email';
+import { createD1ConsoleOnboardingWelcomeEmail } from '../../packages/console-server-ts/src/onboarding/welcomeEmail';
 import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
 import {
   applyD1MigrationFiles,
@@ -148,12 +150,17 @@ async function createConsoleEmailTestDatabase(): Promise<ConsoleEmailTestDatabas
     );`,
   );
   const migrationFiles = listD1MigrationFiles('d1-console');
-  let emailMigration = '';
+  const emailMigrations: string[] = [];
   for (const file of migrationFiles) {
-    if (file.endsWith('/0022_console_email.sql')) emailMigration = file;
+    if (
+      file.endsWith('/0022_console_email.sql') ||
+      file.endsWith('/0025_console_account_welcome_email.sql')
+    ) {
+      emailMigrations.push(file);
+    }
   }
-  if (!emailMigration) throw new Error('Console email migration is missing');
-  await applyD1MigrationFiles(temporary.database, [emailMigration]);
+  if (emailMigrations.length !== 2) throw new Error('Console email migrations are missing');
+  await applyD1MigrationFiles(temporary.database, emailMigrations);
   await temporary.database
     .prepare('INSERT INTO organizations (namespace, id, name) VALUES (?, ?, ?)')
     .bind(NAMESPACE, ORG_ID, 'Email Test Org')
@@ -276,8 +283,15 @@ function retryableProviderResult(code: string): ConsoleEmailProviderSendResult {
 }
 
 test.describe('console transactional email', () => {
-  test('defines and renders the six closed versioned template families', () => {
+  test('defines and renders the seven closed versioned template families', () => {
     const templates: ConsoleEmailTemplateV1[] = [
+      buildAccountWelcomeEmailV1({
+        recipientDisplayName: 'Ada',
+        organizationName: 'Acme',
+        projectName: 'Checkout',
+        consoleBaseUrl: 'https://console.example.test',
+        docsBaseUrl: 'https://docs.example.test',
+      }),
       buildOrganizationInvitationEmailV1({
         invitationId: 'inv-template',
         organizationName: 'Acme & Partners',
@@ -334,7 +348,7 @@ test.describe('console transactional email', () => {
         expect(rendered.html).toContain('<!doctype html>');
       }
     }
-    expect(families.size).toBe(6);
+    expect(families.size).toBe(7);
     expect(() =>
       parseConsoleEmailTemplate({
         family: 'BILLING_REFUND_RESULT',
@@ -347,6 +361,52 @@ test.describe('console transactional email', () => {
         consoleBaseUrl: 'https://console.example.test',
       }),
     ).toThrow('balanceAfterMinor');
+  });
+
+  test('queues one welcome email when onboarding completion is retried', async () => {
+    const testDb = await createConsoleEmailTestDatabase();
+    const welcomeEmail = createD1ConsoleOnboardingWelcomeEmail({
+      database: testDb.database,
+      namespace: NAMESPACE,
+      consoleBaseUrl: 'https://console.example.test',
+      docsBaseUrl: 'https://docs.example.test',
+      now: fixedNow,
+    });
+    const email = {
+      orgId: ORG_ID,
+      userId: 'user-welcome',
+      recipientEmail: 'ada@example.test',
+      recipientDisplayName: 'Ada',
+      organizationName: 'Acme',
+      projectName: 'Checkout',
+    };
+    try {
+      await welcomeEmail.enqueue(email);
+      await welcomeEmail.enqueue(email);
+      expect(
+        await countRows(
+          testDb.database,
+          'console_email_outbox',
+          'namespace = ? AND org_id = ? AND template_family = ?',
+          [NAMESPACE, ORG_ID, 'ACCOUNT_WELCOME'],
+        ),
+      ).toBe(1);
+      const provider = createCaptureConsoleEmailProvider();
+      const result = await runD1ConsoleEmailDispatcher({
+        database: testDb.database,
+        namespace: NAMESPACE,
+        provider,
+        now: fixedNow,
+      });
+      expect(result.sentCount).toBe(1);
+      expect(provider.listCaptured()[0]).toMatchObject({
+        subject: 'Welcome to Seams',
+        recipient: { email: 'ada@example.test', displayName: 'Ada' },
+      });
+      expect(provider.listCaptured()[0]?.text).toContain('What are you building?');
+    } finally {
+      cleanupTemporaryD1Database(testDb.tempDir);
+    }
   });
 
   test('batches a domain mutation and outbox insert atomically with a statement guard', async () => {
