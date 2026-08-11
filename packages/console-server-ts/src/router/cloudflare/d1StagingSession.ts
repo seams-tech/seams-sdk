@@ -82,6 +82,7 @@ class HmacSessionJwtAdapter {
     readonly payload: Record<string, unknown>;
   }): Promise<string> {
     const nowSeconds = Math.floor(Date.now() / 1000);
+    const timeClaims = sessionJwtTimeClaims(input.payload, nowSeconds, this.ttlSeconds);
     const headerB64u = encodeJsonSegment({
       ...input.header,
       typ: 'JWT',
@@ -89,8 +90,7 @@ class HmacSessionJwtAdapter {
     });
     const payloadB64u = encodeJsonSegment({
       ...input.payload,
-      iat: nowSeconds,
-      exp: nowSeconds + this.ttlSeconds,
+      ...timeClaims,
       ...(this.issuer ? { iss: this.issuer } : {}),
       ...(this.audience ? { aud: this.audience } : {}),
     });
@@ -99,7 +99,9 @@ class HmacSessionJwtAdapter {
     return `${signingInput}.${base64UrlEncode(signature)}`;
   }
 
-  async verifyToken(token: string): Promise<{ readonly valid: boolean; readonly payload?: unknown }> {
+  async verifyToken(
+    token: string,
+  ): Promise<{ readonly valid: boolean; readonly payload?: unknown }> {
     const verified = await this.verify(token);
     if (!verified.valid) return { valid: false };
     return { valid: true, payload: verified.payload };
@@ -176,17 +178,7 @@ class Ed25519SessionJwtAdapter {
     readonly payload: Record<string, unknown>;
   }): Promise<string> {
     const nowSeconds = Math.floor(Date.now() / 1000);
-    /* The adapter TTL is a ceiling, not the expiry. Wallet-session claims
-       carry their own `exp` bound to the threshold session; overriding it
-       here would mint a bearer token that outlives the session it names.
-       A caller-supplied `exp` therefore survives unless it exceeds the
-       configured maximum; only claims without one get the full TTL. */
-    const requestedExpSeconds = Number(input.payload.exp);
-    const maxExpSeconds = nowSeconds + this.ttlSeconds;
-    const expSeconds =
-      Number.isFinite(requestedExpSeconds) && requestedExpSeconds > nowSeconds
-        ? Math.min(Math.floor(requestedExpSeconds), maxExpSeconds)
-        : maxExpSeconds;
+    const timeClaims = sessionJwtTimeClaims(input.payload, nowSeconds, this.ttlSeconds);
     const headerB64u = encodeJsonSegment({
       ...input.header,
       typ: 'JWT',
@@ -196,8 +188,7 @@ class Ed25519SessionJwtAdapter {
     const payloadB64u = encodeJsonSegment({
       ...input.payload,
       ...routerWalletSessionScopeClaims(input.payload),
-      iat: nowSeconds,
-      exp: expSeconds,
+      ...timeClaims,
       iss: this.issuer,
       aud: this.audience,
     });
@@ -210,7 +201,9 @@ class Ed25519SessionJwtAdapter {
     return `${signingInput}.${base64UrlEncode(new Uint8Array(signature))}`;
   }
 
-  async verifyToken(token: string): Promise<{ readonly valid: boolean; readonly payload?: unknown }> {
+  async verifyToken(
+    token: string,
+  ): Promise<{ readonly valid: boolean; readonly payload?: unknown }> {
     const parsed = parseJwt(token);
     if (!parsed.ok) return { valid: false };
     if (
@@ -274,9 +267,7 @@ function payloadMatchesAudience(payload: Record<string, unknown>, audience: stri
   return Array.isArray(value) && value.includes(audience);
 }
 
-function routerWalletSessionScopeClaims(
-  payload: Record<string, unknown>,
-): Record<string, unknown> {
+function routerWalletSessionScopeClaims(payload: Record<string, unknown>): Record<string, unknown> {
   const kind = normalizeString(payload.kind);
   if (
     kind !== 'router_ab_ed25519_wallet_session_v1' &&
@@ -284,6 +275,7 @@ function routerWalletSessionScopeClaims(
   ) {
     return {};
   }
+  if (payload.authorizationKind === 'linked_device_wallet_session') return {};
   const scope =
     payload.runtimePolicyScope &&
     typeof payload.runtimePolicyScope === 'object' &&
@@ -293,7 +285,10 @@ function routerWalletSessionScopeClaims(
   const orgId = requireNormalizedString(scope?.orgId, 'Wallet Session org id');
   const projectId = requireNormalizedString(scope?.projectId, 'Wallet Session project id');
   const environment = requireNormalizedString(scope?.envId, 'Wallet Session environment');
-  const accountId = requireNormalizedString(payload.walletId ?? payload.sub, 'Wallet Session account id');
+  const accountId = requireNormalizedString(
+    payload.walletId ?? payload.sub,
+    'Wallet Session account id',
+  );
   const claims = {
     org_id: orgId,
     project_id: projectId,
@@ -305,6 +300,36 @@ function routerWalletSessionScopeClaims(
     ...claims,
     sid: requireNormalizedString(payload.sid, 'Wallet Session Seams session id'),
   };
+}
+
+function sessionJwtTimeClaims(
+  payload: Record<string, unknown>,
+  nowSeconds: number,
+  ttlSeconds: number,
+): { readonly iat: number; readonly exp: number } {
+  if (!isRouterWalletSessionPayload(payload)) {
+    return { iat: nowSeconds, exp: nowSeconds + ttlSeconds };
+  }
+  const iat = Number(payload.iat);
+  const exp = Number(payload.exp);
+  if (
+    !Number.isSafeInteger(iat) ||
+    iat < 0 ||
+    iat > nowSeconds ||
+    !Number.isSafeInteger(exp) ||
+    exp <= nowSeconds ||
+    exp > nowSeconds + ttlSeconds
+  ) {
+    throw new Error('Wallet Session JWT lifetime exceeds the session signing policy');
+  }
+  return { iat, exp };
+}
+
+function isRouterWalletSessionPayload(payload: Record<string, unknown>): boolean {
+  return (
+    payload.kind === 'router_ab_ed25519_wallet_session_v1' ||
+    payload.kind === 'router_ab_ecdsa_derivation_wallet_session_v1'
+  );
 }
 
 class CrossSiteSessionCookieAdapter {
@@ -406,12 +431,9 @@ class ConsoleSessionAuthAdapter implements ConsoleAuthAdapter {
       authorization.role === 'MEMBER'
         ? resolveMemberProjectId(authorization, claimedProjectId)
         : claimedProjectId;
-    const claimedEnvironmentId =
-      normalizeString(claims.environmentId) || this.defaultEnvironmentId;
+    const claimedEnvironmentId = normalizeString(claims.environmentId) || this.defaultEnvironmentId;
     const environmentId =
-      authorization.role === 'MEMBER' && projectId !== claimedProjectId
-        ? ''
-        : claimedEnvironmentId;
+      authorization.role === 'MEMBER' && projectId !== claimedProjectId ? '' : claimedEnvironmentId;
     const email = normalizeString(claims.email).toLowerCase();
     const identity = {
       userId,
@@ -421,9 +443,7 @@ class ConsoleSessionAuthAdapter implements ConsoleAuthAdapter {
       ...(environmentId ? { environmentId } : {}),
       ...(email ? { email } : {}),
       ...(normalizeString(claims.name) ? { name: normalizeString(claims.name) } : {}),
-      ...(normalizeString(claims.provider)
-        ? { provider: normalizeString(claims.provider) }
-        : {}),
+      ...(normalizeString(claims.provider) ? { provider: normalizeString(claims.provider) } : {}),
     };
     switch (authorization.role) {
       case 'OWNER':
@@ -492,9 +512,7 @@ export function createHmacSessionAdapter(options: HmacSessionAdapterOptions): Se
   });
 }
 
-export function createEd25519SessionAdapter(
-  options: Ed25519SessionAdapterOptions,
-): SessionAdapter {
+export function createEd25519SessionAdapter(options: Ed25519SessionAdapterOptions): SessionAdapter {
   const jwt = new Ed25519SessionJwtAdapter(options);
   const cookieName = normalizeString(options.cookieName) || 'seams-jwt';
   const cookie = new CrossSiteSessionCookieAdapter(
@@ -530,10 +548,7 @@ export function createConsoleSessionAuthAdapter(
   return new ConsoleSessionAuthAdapter(options);
 }
 
-export function requireEnvString(
-  env: Readonly<Record<string, unknown>>,
-  name: string,
-): string {
+export function requireEnvString(env: Readonly<Record<string, unknown>>, name: string): string {
   const value = normalizeString(env[name]);
   if (!value) throw new Error(`${name} is required`);
   return value;

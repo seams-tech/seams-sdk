@@ -166,6 +166,7 @@ const LINKED_WALLET_SESSION_JWT_FIELDS = [
   'iat',
   'exp',
 ] as const;
+const LINKED_WALLET_SESSION_JWT_OPTIONAL_FIELDS = ['iss', 'aud'] as const;
 const PERMISSION_FIELDS = ['kind', 'administrationScope', 'localUserPresence'] as const;
 const CLAIM_REQUEST_FIELDS = ['kind', 'payload'] as const;
 const CLAIM_FIELDS = [
@@ -890,11 +891,7 @@ function parseLinkedDeviceWalletSessionTokenV1(
   }
   const decodedClaims = decodeJwtPayloadRecord(walletSessionJwt);
   if (!decodedClaims) throw new Error(`${label}.walletSessionJwt payload is invalid`);
-  const claims = exactRecord(
-    decodedClaims,
-    LINKED_WALLET_SESSION_JWT_FIELDS,
-    `${label}.walletSessionJwt payload`,
-  );
+  const claims = linkedWalletSessionJwtClaims(decodedClaims, `${label}.walletSessionJwt payload`);
   const expectedKind =
     keyFamily === 'ed25519'
       ? ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND
@@ -934,6 +931,36 @@ function parseLinkedDeviceWalletSessionTokenV1(
     keyFamily,
     walletSessionJwt,
   };
+}
+
+function linkedWalletSessionJwtClaims(raw: unknown, label: string): UnknownRecord {
+  const record = requireRecord(raw, label);
+  rejectUnknownFields(
+    record,
+    [...LINKED_WALLET_SESSION_JWT_FIELDS, ...LINKED_WALLET_SESSION_JWT_OPTIONAL_FIELDS],
+    label,
+  );
+  for (const field of LINKED_WALLET_SESSION_JWT_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(record, field) || record[field] === undefined) {
+      throw new Error(`${label}.${field} is required`);
+    }
+  }
+  if (record.iss !== undefined) parseNonEmptyToken(record.iss, `${label}.iss`);
+  if (record.aud !== undefined) validateJwtAudience(record.aud, `${label}.aud`);
+  return record;
+}
+
+function validateJwtAudience(raw: unknown, label: string): void {
+  if (typeof raw === 'string') {
+    parseNonEmptyToken(raw, label);
+    return;
+  }
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new Error(`${label} must be a non-empty string or string array`);
+  }
+  for (let index = 0; index < raw.length; index += 1) {
+    parseNonEmptyToken(raw[index], `${label}[${index}]`);
+  }
 }
 
 function parseQrPayloadRecord(record: UnknownRecord): QrLinkedDeviceSessionPayloadV4 {
