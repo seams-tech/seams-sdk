@@ -16,17 +16,27 @@ import {
   computeCapabilityOperationFingerprintDigest,
 } from '../../packages/shared-ts/src/authorization/operationFingerprint';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
-import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '../../packages/shared-ts/src/utils/sessionTokens';
+import {
+  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
+  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+} from '../../packages/shared-ts/src/utils/sessionTokens';
 import {
   parseLinkedDeviceEnrollmentId,
   parseLinkedDeviceId,
   parseWebAuthnCredentialIdB64u,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { computeLinkedDeviceLocalPresenceChallengeDigestV1 } from '../../packages/shared-ts/src/device-linking/digests';
-import { handleLinkedDeviceEd25519NormalSigning } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/linkedDeviceNormalSigning';
+import {
+  handleLinkedDeviceEcdsaNormalSigning,
+  handleLinkedDeviceEd25519NormalSigning,
+} from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/linkedDeviceNormalSigning';
 import type { FetchRouterApiContext } from '../../packages/sdk-server-ts/src/router/transport/fetch/fetchRouter.types';
 import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/framework/routerApi';
 import { buildRouterAbEd25519NearTransactionPrepareRequestV2 } from '../../packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning';
+import {
+  buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+  routerAbEcdsaDerivationContextBindingB64uV1,
+} from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 import {
   buildAuthorizedOperation,
   buildLinkedDevicePrincipalId,
@@ -36,6 +46,14 @@ import { buildRouterAbEd25519AcceptedAuthorizedOperationV1 } from '../../package
 
 function digest(fill: number): string {
   return base64UrlEncode(new Uint8Array(32).fill(fill));
+}
+
+function hexB64u(hex: string): string {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+  }
+  return base64UrlEncode(bytes);
 }
 
 function linkedClaims(expiresAtMs: number): Record<string, unknown> {
@@ -62,6 +80,13 @@ function linkedClaims(expiresAtMs: number): Record<string, unknown> {
     quotaId: 'wallet-quota:linked',
     iat: 0,
     exp: Math.floor(expiresAtMs / 1000),
+  };
+}
+
+function linkedEcdsaClaims(expiresAtMs: number): Record<string, unknown> {
+  return {
+    ...linkedClaims(expiresAtMs),
+    kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
   };
 }
 
@@ -108,6 +133,7 @@ function required<T>(
 }
 
 async function localPresenceAssertion(input: {
+  readonly authorizedOperationId?: string;
   readonly intentDigestB64u: string;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
@@ -115,7 +141,9 @@ async function localPresenceAssertion(input: {
   const credentialIdB64u = base64UrlEncode(new TextEncoder().encode('linked-credential'));
   const challengeDigestB64u = await computeLinkedDeviceLocalPresenceChallengeDigestV1({
     authorizedOperationId: required(
-      parseAuthorizedOperationId('linked-ed25519-authorized-operation:linked-request'),
+      parseAuthorizedOperationId(
+        input.authorizedOperationId ?? 'linked-ed25519-authorized-operation:linked-request',
+      ),
     ),
     deviceId: required(parseLinkedDeviceId('device:2')),
     enrollmentId: required(parseLinkedDeviceEnrollmentId('enrollment:2')),
@@ -126,7 +154,8 @@ async function localPresenceAssertion(input: {
   });
   return {
     kind: 'linked_device_local_presence_assertion_v1',
-    authorizedOperationId: 'linked-ed25519-authorized-operation:linked-request',
+    authorizedOperationId:
+      input.authorizedOperationId ?? 'linked-ed25519-authorized-operation:linked-request',
     deviceId: 'device:2',
     enrollmentId: 'enrollment:2',
     credentialIdB64u,
@@ -306,6 +335,91 @@ function configuredService(input: {
   };
 }
 
+async function linkedEcdsaPrepareFixture(nowMs: number) {
+  const expiresAtMs = nowMs + 30_000;
+  const materialActivation = {
+    kind: 'mpc_material_activation_ref' as const,
+    activation_id: 'activation:linked-ecdsa',
+    capability: 'capability:linked-ecdsa',
+    material_owner: 'wallet:1',
+    key_binding: 'key-binding:linked-ecdsa',
+    lifecycle_binding: 'lifecycle:linked-ecdsa',
+    signing_worker: 'worker:linked-ecdsa',
+  };
+  const context = { application_binding_digest_b64u: digest(20) };
+  const requestId = 'linked-ecdsa-request';
+  const intentDigestB64u = digest(22);
+  const request = buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
+    scope: {
+      wallet_id: 'wallet:1',
+      ecdsa_threshold_key_id: 'ecdsa-key:linked',
+      signing_root_id: 'signing-root:linked',
+      signing_root_version: 'signing-root-version:linked',
+      context,
+      public_identity: {
+        context_binding_b64u: await routerAbEcdsaDerivationContextBindingB64uV1(context),
+        derivation_client_share_public_key33_b64u: hexB64u(
+          '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798',
+        ),
+        server_public_key33_b64u: hexB64u(
+          '02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5',
+        ),
+        threshold_public_key33_b64u: hexB64u(
+          '02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9',
+        ),
+        ethereum_address20_b64u: base64UrlEncode(new Uint8Array(20).fill(5)),
+        client_share_retry_counter: 0,
+        server_share_retry_counter: 1,
+      },
+      material_activation: materialActivation,
+      signing_worker: {
+        server_id: 'worker:linked-ecdsa',
+        key_epoch: 'worker-epoch:linked-ecdsa',
+        recipient_encryption_key:
+          'x25519:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      },
+      activation_epoch: 'activation-epoch:linked-ecdsa',
+    },
+    requestId,
+    operationId: 'operation:linked-ecdsa',
+    operationDigests: {
+      lane_digest_b64u: digest(21),
+      intent_digest_b64u: intentDigestB64u,
+      display_digest_b64u: digest(23),
+    },
+    authorization: {
+      kind: 'reusable_wallet_session',
+      wallet_session_id: 'wallet-session:linked',
+    },
+    materialActivation,
+    clientPresignatureId: 'presignature:linked-ecdsa',
+    expiresAtMs,
+    signingDigest32: new Uint8Array(32).fill(22),
+    clientRerandomizationCommitment32: new Uint8Array(32).fill(24),
+  });
+  return {
+    expiresAtMs,
+    body: {
+      ...request,
+      linkedDeviceExecution: {
+        kind: 'linked_device_execution_v1',
+        enrollmentId: 'enrollment:2',
+        deviceId: 'device:2',
+        walletKeyId: 'wallet-key:1',
+        laneId: 'lane:linked-ecdsa',
+        laneShareEpoch: 'lane-share-epoch:linked-ecdsa',
+        materialActivation,
+      },
+      localPresenceAssertion: await localPresenceAssertion({
+        authorizedOperationId: `linked-ecdsa-authorized-operation:${requestId}`,
+        intentDigestB64u,
+        issuedAtMs: nowMs - 1_000,
+        expiresAtMs,
+      }),
+    },
+  };
+}
+
 test('routes a linked session into the linked admission branch', async () => {
   const result = await handleLinkedDeviceEd25519NormalSigning({
     ctx: context(sessionWithClaims(linkedClaims(Date.now() + 60_000))),
@@ -326,6 +440,36 @@ test('does not treat an expired linked session as an owner signing request', asy
     phase: 'prepare',
   });
   expect(result).toBeNull();
+});
+
+test('parses linked ECDSA boundary fields before atomic admission', async () => {
+  const fixture = await linkedEcdsaPrepareFixture(Date.now());
+  let admissionCalls = 0;
+  const result = await handleLinkedDeviceEcdsaNormalSigning({
+    ctx: context(
+      sessionWithClaims(linkedEcdsaClaims(fixture.expiresAtMs + 1_000)),
+      configuredService({
+        readAuthorizedOperation: async () => null,
+        admitAuthorizedOperation: async () => {
+          admissionCalls += 1;
+          return { kind: 'material_mismatch' };
+        },
+      }),
+    ),
+    body: fixture.body,
+    phase: 'prepare',
+  });
+
+  const responseBody = await result?.clone().json();
+  expect({ status: result?.status, responseBody, admissionCalls }).toEqual({
+    status: 403,
+    responseBody: {
+      ok: false,
+      code: 'linked_device_authorization_rejected',
+      message: 'Linked-device authorization was rejected: material_mismatch',
+    },
+    admissionCalls: 1,
+  });
 });
 
 test('does not claim quota when Ed25519 finalize has no prepared operation', async () => {

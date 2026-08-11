@@ -528,10 +528,11 @@ function parseEcdsaOperation(
     { readonly kind: 'linked_device'; readonly curve: 'ecdsa' }
   >['claims'],
 ): ParsedLinkedOperation {
+  const coreRequest = stripLinkedDeviceNormalSigningBoundaryFields(body);
   const request =
     phase === 'prepare'
-      ? parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(body)
-      : parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1(body);
+      ? parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(coreRequest)
+      : parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1(coreRequest);
   if (request.authorization.kind !== 'reusable_wallet_session') {
     throw new Error('linked-device ECDSA signing requires reusable session authorization');
   }
