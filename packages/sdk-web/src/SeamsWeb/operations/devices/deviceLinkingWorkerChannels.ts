@@ -31,6 +31,7 @@ import {
   type LaneSealedHolderRecordV1,
 } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
 import type {
+  DeviceLinkingEd25519SigningShareV1,
   DeviceLinkingHolderSigningMaterialHandleV1,
   DeviceLinkingHolderSigningMaterialPortV1,
   DeviceLinkingKeyMaterialHandleV1,
@@ -77,6 +78,16 @@ type DeviceLinkingWorkerRequestV1 =
   | {
       readonly kind: 'device_linking_holder_signing_material_discard_v1';
       readonly handleId: string;
+    }
+  | {
+      readonly kind: 'device_linking_holder_ed25519_sign_v1';
+      readonly handleId: string;
+      readonly admittedDigestB64u: DigestB64u;
+      readonly signingWorkerCommitments: {
+        readonly hiding: string;
+        readonly binding: string;
+      };
+      readonly signingWorkerVerifyingShareB64u: string;
     }
   | {
       readonly kind: 'device_linking_request_sign_v1';
@@ -221,6 +232,38 @@ function parseHolderSigningMaterialHandleInput(
     handleId: record.handleId,
     keyFamily: record.keyFamily,
   });
+}
+
+function parseCommitments(value: unknown): {
+  readonly hiding: string;
+  readonly binding: string;
+} {
+  const record = exactRecord(value, ['hiding', 'binding'], 'Ed25519 commitments');
+  return {
+    hiding: nonEmpty(record.hiding, 'Ed25519 commitments.hiding'),
+    binding: nonEmpty(record.binding, 'Ed25519 commitments.binding'),
+  };
+}
+
+function parseEd25519SigningShare(value: unknown): DeviceLinkingEd25519SigningShareV1 {
+  const record = exactRecord(
+    value,
+    ['clientCommitments', 'clientVerifyingShareB64u', 'clientSignatureShareB64u'],
+    'device-linking Ed25519 signing share',
+  );
+  return {
+    clientCommitments: parseCommitments(record.clientCommitments),
+    clientVerifyingShareB64u: parseFixedB64u(
+      record.clientVerifyingShareB64u,
+      32,
+      'clientVerifyingShareB64u',
+    ),
+    clientSignatureShareB64u: parseFixedB64u(
+      record.clientSignatureShareB64u,
+      32,
+      'clientSignatureShareB64u',
+    ),
+  };
 }
 
 function parseMaterialActivation(value: unknown): MpcMaterialActivationRef {
@@ -560,6 +603,25 @@ export function createDeviceLinkingKeyMaterialPortV1(
         kind: 'device_linking_holder_signing_material_discard_v1',
         handleId: handle.handleId,
       });
+    },
+    async createEd25519HolderSigningShareV1(input) {
+      const handle = parseHolderSigningMaterialHandleInput(input.handle);
+      if (handle.keyFamily !== 'ed25519') {
+        throw new Error('Ed25519 signing requires an Ed25519 holder handle');
+      }
+      return parseEd25519SigningShare(
+        await request({
+          kind: 'device_linking_holder_ed25519_sign_v1',
+          handleId: handle.handleId,
+          admittedDigestB64u: parseDigest(input.admittedDigestB64u, 'admittedDigestB64u'),
+          signingWorkerCommitments: parseCommitments(input.signingWorkerCommitments),
+          signingWorkerVerifyingShareB64u: parseFixedB64u(
+            input.signingWorkerVerifyingShareB64u,
+            32,
+            'signingWorkerVerifyingShareB64u',
+          ),
+        }),
+      );
     },
     async signDeviceSessionRequestV1(input) {
       const requestInput = buildRequest(input);

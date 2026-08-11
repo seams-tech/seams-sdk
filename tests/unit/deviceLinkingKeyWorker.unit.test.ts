@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
+import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseLinkedDeviceTargetPreparationV1 } from '../../packages/shared-ts/src/device-linking';
 import { installDeviceLinkingKeyWorkerV1 } from '../../packages/sdk-web/src/core/signingEngine/workerManager/workers/device-linking-key.worker';
 import { createDeviceLinkingTargetCredentialPortV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingTargetCredential';
@@ -85,6 +85,7 @@ test.describe('device-linking key worker', () => {
     let recipientsDestroyed = 0;
     let signingMaterialDestroyed = 0;
     let signingMaterialFreed = 0;
+    let signingShareFreed = 0;
     const signingMaterialOpenCalls: unknown[] = [];
     let sealedCiphertextDigestB64u = digest(91);
     const installed = installDeviceLinkingKeyWorkerV1(scope, {
@@ -111,8 +112,19 @@ test.describe('device-linking key worker', () => {
           ...input,
           factorSecret: input.factorSecret.slice(),
         });
+        const persistedReceipt = JSON.parse(input.receiptJson) as Record<string, unknown>;
         return {
           key_family: () => 'ed25519',
+          create_ed25519_signing_share: () => ({
+            client_commitments_json: () =>
+              JSON.stringify({ hiding: 'client-hiding', binding: 'client-binding' }),
+            client_verifying_share: () =>
+              base64UrlDecode(String(persistedReceipt.targetHolderPublicCommitmentB64u)),
+            client_signature_share_b64u: () => digest(121),
+            free: () => {
+              signingShareFreed += 1;
+            },
+          }),
           destroy: () => {
             signingMaterialDestroyed += 1;
           },
@@ -294,6 +306,31 @@ test.describe('device-linking key worker', () => {
     expect(JSON.stringify(openedSigningMaterial)).not.toContain('share');
     expect(new Uint8Array(signingFactor)).toEqual(new Uint8Array(32));
     expect(signingMaterialOpenCalls).toHaveLength(1);
+
+    scope.responses.length = 0;
+    scope.send({
+      id: 'create-ed25519-holder-share',
+      request: {
+        kind: 'device_linking_holder_ed25519_sign_v1',
+        handleId: (openedSigningMaterial.result as Record<string, unknown>).handleId,
+        admittedDigestB64u: digest(111),
+        signingWorkerCommitments: {
+          hiding: 'server-hiding',
+          binding: 'server-binding',
+        },
+        signingWorkerVerifyingShareB64u: protocolCommitReceipt.targetServerPublicCommitmentB64u,
+      },
+    });
+    const holderShare = await waitForResponse(scope);
+    expect(holderShare).toMatchObject({
+      ok: true,
+      result: {
+        clientCommitments: { hiding: 'client-hiding', binding: 'client-binding' },
+        clientVerifyingShareB64u: protocolCommitReceipt.targetHolderPublicCommitmentB64u,
+        clientSignatureShareB64u: digest(121),
+      },
+    });
+    expect(signingShareFreed).toBe(1);
 
     scope.responses.length = 0;
     scope.send({

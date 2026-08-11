@@ -131,6 +131,16 @@ type DeviceLinkingKeyWorkerRequestV1 =
       readonly handleId: string;
     }
   | {
+      readonly kind: 'device_linking_holder_ed25519_sign_v1';
+      readonly handleId: string;
+      readonly admittedDigestB64u: DigestB64u;
+      readonly signingWorkerCommitments: {
+        readonly hiding: string;
+        readonly binding: string;
+      };
+      readonly signingWorkerVerifyingShareB64u: string;
+    }
+  | {
       readonly kind: 'device_linking_key_material_discard_v1';
       readonly handleId: string;
     };
@@ -155,6 +165,14 @@ type DeviceLinkingKeyWorkerResponseV1 =
   | {
       readonly handleId: string;
       readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
+    }
+  | {
+      readonly clientCommitments: {
+        readonly hiding: string;
+        readonly binding: string;
+      };
+      readonly clientVerifyingShareB64u: string;
+      readonly clientSignatureShareB64u: string;
     }
   | { readonly signatureB64u: string };
 
@@ -193,8 +211,27 @@ export type DeviceLinkingLaneCustodySealV1 = {
 
 export type DeviceLinkingLaneSigningMaterialV1 = {
   key_family(): string;
+  create_ed25519_signing_share(
+    admittedDigest: Uint8Array,
+    signingWorkerCommitmentsJson: string,
+    signingWorkerVerifyingShare: Uint8Array,
+  ): DeviceLinkingEd25519SigningShareOutputV1;
   destroy(): void;
   free(): void;
+};
+
+export type DeviceLinkingEd25519SigningShareOutputV1 = {
+  client_commitments_json(): string;
+  client_verifying_share(): Uint8Array;
+  client_signature_share_b64u(): string;
+  free(): void;
+};
+
+type DeviceLinkingHolderSigningMaterialSlotV1 = {
+  readonly material: DeviceLinkingLaneSigningMaterialV1;
+  readonly job: RotatableSigningLaneJobV1;
+  readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
+  readonly materialActivation: MpcMaterialActivationRef;
 };
 
 export type DeviceLinkingLaneRecipientFactoryV1 = {
@@ -219,7 +256,7 @@ export type DeviceLinkingLaneRecipientFactoryV1 = {
 };
 
 const keySlots = new Map<string, DeviceLinkingKeySlotV1>();
-const holderSigningMaterialSlots = new Map<string, DeviceLinkingLaneSigningMaterialV1>();
+const holderSigningMaterialSlots = new Map<string, DeviceLinkingHolderSigningMaterialSlotV1>();
 const laneRecipientWasmUrl = resolveWasmUrl(
   'router_ab_ed25519_yao_client_bg.wasm',
   'Ed25519 Yao Client',
@@ -475,6 +512,17 @@ function parseMaterialActivation(value: unknown): MpcMaterialActivationRef {
   throw new Error(parsed.error.message);
 }
 
+function parseEd25519Commitments(value: unknown): {
+  readonly hiding: string;
+  readonly binding: string;
+} {
+  const record = exactRecord(value, ['hiding', 'binding'], 'Ed25519 commitments');
+  return {
+    hiding: requireNonEmptyString(record.hiding, 'Ed25519 commitments.hiding'),
+    binding: requireNonEmptyString(record.binding, 'Ed25519 commitments.binding'),
+  };
+}
+
 function parseRequest(value: unknown): DeviceLinkingKeyWorkerRequestV1 {
   const record = requireRecord(value, 'device-linking worker request');
   if (record.kind === 'device_linking_key_material_create_v1') {
@@ -497,6 +545,30 @@ function parseRequest(value: unknown): DeviceLinkingKeyWorkerRequestV1 {
     return {
       kind: 'device_linking_holder_signing_material_discard_v1',
       handleId: parseHandleId(parsed.handleId),
+    };
+  }
+  if (record.kind === 'device_linking_holder_ed25519_sign_v1') {
+    const parsed = exactRecord(
+      record,
+      [
+        'kind',
+        'handleId',
+        'admittedDigestB64u',
+        'signingWorkerCommitments',
+        'signingWorkerVerifyingShareB64u',
+      ],
+      'device-linking Ed25519 holder signing request',
+    );
+    return {
+      kind: 'device_linking_holder_ed25519_sign_v1',
+      handleId: parseHandleId(parsed.handleId),
+      admittedDigestB64u: parseDigest(parsed.admittedDigestB64u, 'admittedDigestB64u'),
+      signingWorkerCommitments: parseEd25519Commitments(parsed.signingWorkerCommitments),
+      signingWorkerVerifyingShareB64u: parseFixedBase64Url(
+        parsed.signingWorkerVerifyingShareB64u,
+        32,
+        'signingWorkerVerifyingShareB64u',
+      ),
     };
   }
   if (record.kind === 'device_linking_request_sign_v1') {
@@ -1056,7 +1128,12 @@ async function openPersistedHolderSigningMaterial(
       throw new Error('reopened holder material changed its persisted key family');
     }
     const handleId = createHolderSigningMaterialHandleId();
-    holderSigningMaterialSlots.set(handleId, material);
+    holderSigningMaterialSlots.set(handleId, {
+      material,
+      job: request.job,
+      protocolCommitReceipt: request.protocolCommitReceipt,
+      materialActivation: request.materialActivation,
+    });
     material = undefined;
     return { handleId, keyFamily };
   } finally {
@@ -1067,11 +1144,66 @@ async function openPersistedHolderSigningMaterial(
 }
 
 function discardHolderSigningMaterial(handleId: string): void {
-  const material = holderSigningMaterialSlots.get(handleId);
-  if (!material) return;
+  const slot = holderSigningMaterialSlots.get(handleId);
+  if (!slot) return;
   holderSigningMaterialSlots.delete(handleId);
-  material.destroy();
-  material.free();
+  slot.material.destroy();
+  slot.material.free();
+}
+
+function createEd25519HolderSigningShare(
+  request: Extract<
+    DeviceLinkingKeyWorkerRequestV1,
+    { readonly kind: 'device_linking_holder_ed25519_sign_v1' }
+  >,
+): {
+  readonly clientCommitments: { readonly hiding: string; readonly binding: string };
+  readonly clientVerifyingShareB64u: string;
+  readonly clientSignatureShareB64u: string;
+} {
+  const slot = holderSigningMaterialSlots.get(request.handleId);
+  if (!slot || slot.job.keyFamily !== 'ed25519') {
+    throw new Error('Ed25519 holder signing material is unknown, discarded, or cross-curve');
+  }
+  if (
+    request.signingWorkerVerifyingShareB64u !==
+    slot.protocolCommitReceipt.targetServerPublicCommitmentB64u
+  ) {
+    throw new Error('SigningWorker verifying share does not match the persisted R102 receipt');
+  }
+  const admittedDigest = base64UrlDecode(request.admittedDigestB64u);
+  const signingWorkerVerifyingShare = base64UrlDecode(request.signingWorkerVerifyingShareB64u);
+  let output: DeviceLinkingEd25519SigningShareOutputV1 | undefined;
+  let clientVerifyingShare: Uint8Array | undefined;
+  try {
+    output = slot.material.create_ed25519_signing_share(
+      admittedDigest,
+      JSON.stringify(request.signingWorkerCommitments),
+      signingWorkerVerifyingShare,
+    );
+    clientVerifyingShare = output.client_verifying_share();
+    if (
+      clientVerifyingShare.length !== 32 ||
+      base64UrlEncode(clientVerifyingShare) !==
+        slot.protocolCommitReceipt.targetHolderPublicCommitmentB64u
+    ) {
+      throw new Error('holder verifying share does not match the persisted R102 receipt');
+    }
+    return {
+      clientCommitments: parseEd25519Commitments(JSON.parse(output.client_commitments_json())),
+      clientVerifyingShareB64u: base64UrlEncode(clientVerifyingShare),
+      clientSignatureShareB64u: parseFixedBase64Url(
+        output.client_signature_share_b64u(),
+        32,
+        'clientSignatureShareB64u',
+      ),
+    };
+  } finally {
+    admittedDigest.fill(0);
+    signingWorkerVerifyingShare.fill(0);
+    clientVerifyingShare?.fill(0);
+    output?.free();
+  }
 }
 
 async function signRequest(
@@ -1132,6 +1264,8 @@ async function handleRequest(
       return await openAndSealTargetHolder(request, recipientFactory);
     case 'device_linking_holder_signing_material_open_v1':
       return await openPersistedHolderSigningMaterial(request, recipientFactory);
+    case 'device_linking_holder_ed25519_sign_v1':
+      return createEd25519HolderSigningShare(request);
     case 'device_linking_holder_signing_material_discard_v1':
       discardHolderSigningMaterial(request.handleId);
       return undefined;

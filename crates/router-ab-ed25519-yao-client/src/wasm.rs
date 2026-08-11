@@ -31,6 +31,9 @@ use signer_core::passkey_custody::open_wallet_custody_seed_envelope_v1;
 use signer_core::passkey_custody::PasskeyCustodyEnvelopeBindingV1;
 use signer_core::wallet_seed_derivation::derive_ed25519_yao_client_root_from_seed_v1;
 
+const LANE_HOLDER_FROST_PARTICIPANT_ID_V1: u16 = 1;
+const LANE_SIGNING_WORKER_FROST_PARTICIPANT_ID_V1: u16 = 2;
+
 /// Worker-owned factor context for sealing one target lane share.
 ///
 /// Factor material remains inside Rust memory. The supported branches are the
@@ -191,8 +194,6 @@ impl WasmLaneHolderSigningMaterialV1 {
     #[allow(clippy::too_many_arguments)]
     pub fn create_ed25519_signing_share(
         &self,
-        client_participant_id: u16,
-        signing_worker_participant_id: u16,
         admitted_digest: &[u8],
         signing_worker_commitments_json: &str,
         signing_worker_verifying_share: &[u8],
@@ -201,8 +202,8 @@ impl WasmLaneHolderSigningMaterialV1 {
         build_client_signing_share(
             share,
             registered_public_key,
-            client_participant_id,
-            signing_worker_participant_id,
+            LANE_HOLDER_FROST_PARTICIPANT_ID_V1,
+            LANE_SIGNING_WORKER_FROST_PARTICIPANT_ID_V1,
             admitted_digest,
             signing_worker_commitments_json,
             signing_worker_verifying_share,
