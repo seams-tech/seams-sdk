@@ -3,14 +3,15 @@
 }
 
 .company-hero {
-  padding: 128px 0 80px;
+  padding: 152px 0 104px;
 }
 
 .company-hero__inner {
   display: grid;
-  grid-template-columns: minmax(0, 7fr) minmax(256px, 5fr);
-  gap: 26px 58px;
-  align-items: end;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  gap: 0;
+  text-align: center;
 }
 
 .company-hero .h2-kicker,
@@ -22,99 +23,112 @@
 
 .company-hero__title {
   margin: 0;
-  font-size: clamp(65px, 9vw, 122.5px);
+  font-size: clamp(48px, 5vw, 68px);
   font-weight: 400;
-  line-height: 0.9;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+
+.company-hero .h2-kicker {
+  margin-bottom: 22px;
 }
 
 .company-hero__copy {
-  margin: 16px 0 0;
-  max-width: 560px;
+  margin: 26px 0 0;
+  max-width: 640px;
   color: var(--h2-graphite);
-  font-size: 16px;
-  line-height: 1.6;
+  font-size: 17px;
+  line-height: 1.55;
+  text-wrap: pretty;
 }
 
 .company-hero__ctas {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 11px;
-  margin-top: 28px;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 32px;
 }
 
 .company-statement {
-  padding: 64px 0;
-  background: var(--h2-taupe);
+  margin: 0.5rem;
+  padding: 88px 0;
+  border-radius: var(--h2-radius-card);
+  background: linear-gradient(160deg, #919690 0%, #c7d0cf 100%);
 }
 
 .company-statement p {
-  margin: 0;
-  max-width: 800px;
-  color: var(--h2-ink);
-  font-size: clamp(23.5px, 2.9vw, 38px);
+  margin: 0 auto;
+  max-width: 900px;
+  color: #ffffff;
+  font-size: clamp(25px, 2.4vw, 34px);
   font-weight: 300;
-  line-height: 1.18;
+  line-height: 1.25;
+  text-align: center;
+  text-shadow: 0 1px 2px rgba(10, 10, 10, 0.22);
   text-wrap: balance;
 }
 
 .company-focus,
 .company-principles,
 .company-resources {
-  padding: 80px 0;
+  padding: 96px 0;
 }
 
 .company-section-head {
-  margin-bottom: 44px;
+  margin-bottom: 48px;
 }
 
 .company-focus__grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  border-top: 1px solid var(--h2-stone);
-  border-left: 1px solid var(--h2-stone);
+  gap: 12px;
 }
 
 .company-focus-card {
-  min-height: 208px;
-  padding: 22px;
-  border-right: 1px solid var(--h2-stone);
-  border-bottom: 1px solid var(--h2-stone);
-  background: var(--h2-bg);
+  min-height: 196px;
+  padding: 28px;
+  border: 1px solid var(--h2-stone);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--h2-bg) 68%, var(--h2-taupe) 32%);
 }
 
 .company-focus-card h2 {
   margin: 0;
   color: var(--h2-ink);
-  font-size: 20px;
+  font-size: 21px;
   font-weight: 400;
   line-height: 1.2;
 }
 
 .company-focus-card p {
-  margin: 14px 0 0;
+  margin: 16px 0 0;
+  max-width: 34ch;
   color: var(--h2-smoke);
-  font-size: 14px;
-  line-height: 1.58;
+  font-size: 15px;
+  line-height: 1.55;
 }
 
 .company-principles {
+  margin: 0.5rem;
+  border-radius: var(--h2-radius-card);
   background: var(--h2-taupe);
 }
 
 .company-principles__grid,
 .company-resources__grid {
   display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-  gap: 44px;
+  grid-template-columns: minmax(0, 4fr) minmax(0, 7fr);
+  gap: clamp(48px, 8vw, 112px);
   align-items: start;
 }
 
 .company-principles__grid h2,
 .company-resources__grid h2 {
   margin-top: 11px;
-  max-width: 376px;
-  font-size: clamp(27px, 2.7vw, 38px);
+  max-width: 440px;
+  font-size: clamp(27px, 2.5vw, 36px);
   font-weight: 400;
 }
 
@@ -127,9 +141,9 @@
 
 .company-principle {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr);
-  gap: 18px;
-  padding: 20px 0;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 20px;
+  padding: 24px 0;
   border-bottom: 1px solid var(--h2-stone);
 }
 
@@ -143,15 +157,15 @@
 .company-principle h3 {
   margin: 0;
   color: var(--h2-ink);
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 500;
   line-height: 1.25;
 }
 
 .company-principle p {
-  margin: 7px 0 0;
+  margin: 8px 0 0;
   color: var(--h2-smoke);
-  font-size: 13.5px;
+  font-size: 14.5px;
   line-height: 1.55;
 }
 
@@ -160,7 +174,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 22px;
-  padding: 18px 0;
+  padding: 22px 0;
   border-bottom: 1px solid var(--h2-stone);
   color: var(--h2-graphite);
   transition: color 150ms ease;
@@ -181,20 +195,20 @@
 
 .company-resource strong {
   color: currentColor;
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 500;
 }
 
 .company-resource small {
   margin-top: 5px;
   color: var(--h2-smoke);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.45;
 }
 
 @media (max-width: 980px) {
   .company-hero {
-    padding: 112px 0 64px;
+    padding: 132px 0 88px;
   }
 
   .company-hero__inner,
@@ -202,7 +216,9 @@
   .company-resources__grid {
     grid-template-columns: 1fr;
   }
+}
 
+@media (max-width: 760px) {
   .company-focus__grid {
     grid-template-columns: 1fr;
   }
@@ -214,14 +230,33 @@
 
 @media (max-width: 640px) {
   .company-hero {
-    padding: 96px 0 58px;
+    padding: 112px 0 72px;
+  }
+
+  .company-hero__title {
+    font-size: 44px;
+  }
+
+  .company-hero__copy {
+    margin-top: 22px;
+    font-size: 16px;
   }
 
   .company-statement,
   .company-focus,
   .company-principles,
   .company-resources {
-    padding: 58px 0;
+    padding: 64px 0;
+  }
+
+  .company-statement p {
+    font-size: 24px;
+    text-align: start;
+    text-wrap: pretty;
+  }
+
+  .company-focus-card {
+    padding: 24px;
   }
 
   .company-principle {

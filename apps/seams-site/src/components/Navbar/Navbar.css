@@ -82,8 +82,10 @@
   border: 0;
   background: var(--navbar-access-nav-surface);
   backdrop-filter: blur(4px);
-  /* hairline ring only — the bar carries no drop shadow */
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--navbar-border) 34%, transparent);
+  box-shadow:
+    0 14px 32px -20px color-mix(in srgb, var(--navbar-shadow-color) 48%, transparent),
+    0 3px 10px -6px color-mix(in srgb, var(--navbar-shadow-color) 28%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--navbar-border) 34%, transparent);
   transition:
     background 300ms cubic-bezier(0.22, 1, 0.36, 1),
     backdrop-filter 300ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -93,13 +95,19 @@
 .navbar-static__shell.is-scrolled {
   background: color-mix(in srgb, var(--navbar-surface3) 88%, transparent);
   backdrop-filter: blur(8px);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--navbar-border) 42%, transparent);
+  box-shadow:
+    0 18px 42px -22px color-mix(in srgb, var(--navbar-shadow-color) 58%, transparent),
+    0 4px 12px -7px color-mix(in srgb, var(--navbar-shadow-color) 34%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--navbar-border) 42%, transparent);
 }
 
 html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
   background: var(--navbar-access-nav-surface);
   backdrop-filter: blur(4px);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--navbar-border) 38%, transparent);
+  box-shadow:
+    0 18px 42px -22px color-mix(in srgb, var(--navbar-shadow-color) 52%, transparent),
+    0 4px 12px -7px color-mix(in srgb, var(--navbar-shadow-color) 30%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--navbar-border) 38%, transparent);
 }
 
 .navbar-static__left {
@@ -151,7 +159,7 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
 
 .navbar-static__brand-wordmark {
   display: block;
-  height: 17px;
+  height: 20px;
   width: auto;
 }
 
@@ -336,8 +344,7 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
 
 .navbar-static__menu-kicker {
   margin: 6px 10px 8px;
-  font-family:
-    'SFMono-Regular', ui-monospace, 'Menlo', 'Monaco', 'Cascadia Mono', monospace;
+  font-family: 'SFMono-Regular', ui-monospace, 'Menlo', 'Monaco', 'Cascadia Mono', monospace;
   font-size: 10.5px;
   font-weight: 500;
   letter-spacing: 0.12em;
@@ -399,8 +406,7 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
 
 .navbar-static__menu-row-meta {
   margin-top: 3px;
-  font-family:
-    'SFMono-Regular', ui-monospace, 'Menlo', 'Monaco', 'Cascadia Mono', monospace;
+  font-family: 'SFMono-Regular', ui-monospace, 'Menlo', 'Monaco', 'Cascadia Mono', monospace;
   font-size: 10.5px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
