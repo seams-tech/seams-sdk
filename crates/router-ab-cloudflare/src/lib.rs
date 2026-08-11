@@ -214,7 +214,6 @@ use router_ab_core::{
     RouterAbEcdsaDerivationEvmDigestSigningResponseV1,
     RouterAbEcdsaDerivationExplicitExportRequestV1,
     RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1,
-    RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningResponseV1,
     RouterAbEcdsaDerivationNormalSigningScopeV1, RouterAbEcdsaDerivationPublicIdentityV1,
     RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
     RouterAbEcdsaDerivationStableKeyContextV1, RouterAbEd25519NormalSigningAdmissionMaterialV2,
@@ -225,6 +224,8 @@ use router_ab_core::{
     SignerSetV1, SigningRootShareStore, SigningWorkerActivationContextV1, WireMessageKindV1,
     WireMessageV1, MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN,
 };
+#[cfg(feature = "workers-rs")]
+use router_ab_core::RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningResponseV1;
 #[cfg(feature = "workers-rs")]
 use router_ab_core::{
     MpcPrfOutputRequestV1, RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1,
