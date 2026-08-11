@@ -36,6 +36,7 @@ import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import {
   parseLinkDeviceSessionId,
   parseLinkedDeviceEnrollmentId,
+  parseLinkedDeviceId,
   type LinkedDeviceEnrollmentId,
   type LinkedDeviceId,
   type LinkDeviceSessionId,
@@ -47,6 +48,7 @@ import type {
   LinkedDeviceSessionState,
   LinkedDeviceSessionServiceResultV1,
   LinkedDeviceSessionServiceV1,
+  LinkedDeviceRecoveryContinuationV1,
 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { IssuedLinkedDeviceWalletSession } from '../../../../authorization/service';
 import {
@@ -266,6 +268,7 @@ export type DeviceLinkingRouteServiceV1 = {
     | 'claimSessionV1'
     | 'recordOwnerApprovalV1'
     | 'recordTargetCredentialV1'
+    | 'bindRecoveryContinuationV1'
     | 'cancelSessionV1'
     | 'getSessionV1'
   >;
@@ -1134,6 +1137,42 @@ async function handleOperatorRecovery(
   if (approval.enrollmentId !== request.enrollmentId) {
     return invalidInputResponse('operator recovery enrollment does not match session');
   }
+  if (approval.deviceId !== request.deviceId) {
+    return invalidInputResponse('operator recovery device does not match session');
+  }
+  const requestProofKeyDigestB64u = await computeLinkedDevicePublicKeyDigestV1(
+    request.devicePublicKeyB64u,
+  );
+  if (requestProofKeyDigestB64u !== request.devicePublicKeyDigestB64u) {
+    return invalidInputResponse('operator recovery key digest does not match public key');
+  }
+  if (request.devicePublicKeyB64u === approval.devicePublicKeyB64u) {
+    return invalidInputResponse('operator recovery requires a fresh device request-proof key');
+  }
+  const continuation: LinkedDeviceRecoveryContinuationV1 = {
+    kind: 'linked_device_recovery_continuation_v1',
+    linkSessionId,
+    enrollmentId: request.enrollmentId,
+    deviceId: request.deviceId,
+    devicePublicKeyB64u: request.devicePublicKeyB64u,
+    devicePublicKeyDigestB64u: request.devicePublicKeyDigestB64u,
+    boundAtMs: nowMs,
+  };
+  const bound = await service.sessionService.bindRecoveryContinuationV1({
+    linkSessionId,
+    expectedRevision: session.revision,
+    continuation,
+    nowMs,
+  });
+  if (bound.outcome === 'unauthorized') {
+    return json(
+      { ok: false, outcome: bound.outcome, code: bound.code, message: bound.message },
+      { status: 401 },
+    );
+  }
+  if (bound.outcome !== 'applied' && bound.outcome !== 'replayed') {
+    return mutationResultResponse(bound);
+  }
   const retryRequest = {
     kind: 'linked_device_session_retry_committed_delivery_request_v1' as const,
     linkSessionId,
@@ -1144,7 +1183,7 @@ async function handleOperatorRecovery(
   return mutationResultResponse(
     await service.retryCommittedDeliveryV1({
       request: retryRequest,
-      session,
+      session: bound.record,
       requestedAtMs: nowMs,
     }),
   );
@@ -1229,8 +1268,15 @@ async function authenticateDeviceForSession(
   const rawSession = await service.sessionService.getSessionV1(linkSessionId);
   if (!rawSession) return { kind: 'not_found' };
   const bodyDigestB64u = await requestBodyDigest(ctx.request);
+  const recovery = rawSession.recovery;
+  const expectedDevicePublicKeyB64u =
+    (rawSession.state.state === 'committed_completion_required' ||
+      rawSession.state.state === 'active') &&
+    recovery?.kind === 'bound'
+      ? recovery.continuation.devicePublicKeyB64u
+      : rawSession.qrPayload.devicePublicKeyB64u;
   const devicePublicKeyDigestB64u = await computeDevicePublicKeyDigestB64u(
-    rawSession.qrPayload.devicePublicKeyB64u,
+    expectedDevicePublicKeyB64u,
   );
   const requestProof = parseBoundary(() => parseRequestProofHeader(ctx.request));
   validateRequestProof(
@@ -1248,7 +1294,7 @@ async function authenticateDeviceForSession(
     pathname: ctx.pathname,
     linkSessionId: String(linkSessionId),
     bodyDigestB64u,
-    expectedDevicePublicKeyB64u: rawSession.qrPayload.devicePublicKeyB64u,
+    expectedDevicePublicKeyB64u,
     expectedDevicePublicKeyDigestB64u: devicePublicKeyDigestB64u,
     proof: requestProof,
     requestedAtMs: nowMs,
@@ -1519,13 +1565,25 @@ type DeviceLinkingOperatorRecoveryRequestV1 = {
   readonly kind: 'linked_device_session_operator_recovery_request_v1';
   readonly linkSessionId: LinkDeviceSessionId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
+  readonly devicePublicKeyB64u: string;
+  readonly devicePublicKeyDigestB64u: DigestB64u;
   readonly reason: 'original_link_session_lost';
   readonly requestedAtMs: number;
 };
 
 function parseOperatorRecoveryRequest(raw: unknown): DeviceLinkingOperatorRecoveryRequestV1 {
   const record = requireRecord(raw, 'operator recovery request');
-  requireExactKeys(record, ['kind', 'linkSessionId', 'enrollmentId', 'reason', 'requestedAtMs']);
+  requireExactKeys(record, [
+    'kind',
+    'linkSessionId',
+    'enrollmentId',
+    'deviceId',
+    'devicePublicKeyB64u',
+    'devicePublicKeyDigestB64u',
+    'reason',
+    'requestedAtMs',
+  ]);
   if (record.kind !== 'linked_device_session_operator_recovery_request_v1') {
     throw new Error('operator recovery request kind is invalid');
   }
@@ -1548,13 +1606,36 @@ function parseOperatorRecoveryRequest(raw: unknown): DeviceLinkingOperatorRecove
   const linkSessionId = parseSessionId(record.linkSessionId);
   const enrollmentId = parseLinkedDeviceEnrollmentId(record.enrollmentId);
   if (!enrollmentId.ok) throw new Error(enrollmentId.error.message);
+  const deviceId = parseLinkedDeviceId(record.deviceId);
+  if (!deviceId.ok) throw new Error(deviceId.error.message);
+  const devicePublicKeyB64u = parseOperatorRecoveryPublicKey(record.devicePublicKeyB64u);
+  const devicePublicKeyDigestB64u = parseDigestB64u(record.devicePublicKeyDigestB64u);
   return {
     kind: 'linked_device_session_operator_recovery_request_v1',
     linkSessionId,
     enrollmentId: enrollmentId.value,
+    deviceId: deviceId.value,
+    devicePublicKeyB64u,
+    devicePublicKeyDigestB64u,
     reason: 'original_link_session_lost',
     requestedAtMs: record.requestedAtMs,
   };
+}
+
+function parseOperatorRecoveryPublicKey(raw: unknown): string {
+  if (typeof raw !== 'string' || !/^[A-Za-z0-9_-]+$/.test(raw)) {
+    throw new Error('operator recovery devicePublicKeyB64u is invalid');
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = base64UrlDecode(raw);
+  } catch {
+    throw new Error('operator recovery devicePublicKeyB64u is invalid');
+  }
+  if (bytes.length !== 32 || base64UrlEncode(bytes) !== raw) {
+    throw new Error('operator recovery devicePublicKeyB64u is not canonical');
+  }
+  return raw;
 }
 
 function parseSessionId(raw: string): LinkDeviceSessionId {
