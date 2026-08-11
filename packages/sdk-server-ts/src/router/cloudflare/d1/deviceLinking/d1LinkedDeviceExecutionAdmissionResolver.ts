@@ -18,9 +18,12 @@ import {
   parseWalletKeyVersion,
 } from '@shared/signing-lanes/recordParsers';
 import type {
+  EcdsaAdditiveLaneJobV1,
+  LaneProtocolCommitReceiptV1,
   LaneProductEpochRecordV1,
   LaneProtocolRecordV1,
 } from '@shared/signing-lanes';
+import { buildLinkedDeviceEcdsaNormalSigningScopeV1 } from '@shared/signing-lanes';
 import { computeLaneParticipantSetBindingDigestV1 } from '@shared/signing-lanes/participantDigest';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { parseLaneEnrollmentId, type LaneEnrollmentId } from '@shared/signing-lanes/ids';
@@ -28,7 +31,10 @@ import {
   parseEd25519PublicKeyB64u,
   parseSecp256k1CompressedPublicKeyB64u,
 } from '@shared/passkey-custody/primitives';
-import { parseWebAuthnCredentialIdB64u, type WebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
+import {
+  parseWebAuthnCredentialIdB64u,
+  type WebAuthnCredentialIdB64u,
+} from '@shared/utils/domainIds';
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
 import { CloudflareD1LaneLifecycleStore } from '../signingLanes/d1LaneLifecycleStore';
 import { LaneLifecycleStoreNormalSigningLaneMaterialResolverV1 } from '../../signingLanes/cloudflareLaneCurveExecution';
@@ -59,9 +65,7 @@ export type D1LinkedDeviceExecutionAdmissionResolverOptionsV1 = {
  * record. Every identity used by SigningWorker is selected by the complete
  * wallet/enrollment/lane/material tuple supplied by the claimed operation.
  */
-export class D1LinkedDeviceExecutionAdmissionResolverV1
-  implements LinkedDeviceExecutionAdmissionResolverV1
-{
+export class D1LinkedDeviceExecutionAdmissionResolverV1 implements LinkedDeviceExecutionAdmissionResolverV1 {
   private readonly authorization: D1LinkedDeviceExecutionAdmissionResolverOptionsV1['authorization'];
   private readonly credentials: D1LinkedDeviceCredentialResolverV1;
   private readonly nowV1: () => number;
@@ -121,6 +125,13 @@ export class D1LinkedDeviceExecutionAdmissionResolverV1
       if (!protocol || protocol.value.lifecycle.state !== 'active') {
         return refused('lane_inactive');
       }
+      const protocolCommitReceipt =
+        product.keyFamily === 'ecdsa_secp256k1'
+          ? await this.lanes.getProtocolCommitReceipt(product.operationId)
+          : null;
+      if (product.keyFamily === 'ecdsa_secp256k1' && protocolCommitReceipt === null) {
+        return refused('linked_execution_unavailable');
+      }
       const issued = await this.authorization.readLinkedDeviceWalletSessionAuthorization({
         tenantId: input.tenantId,
         deviceId: input.deviceId,
@@ -135,6 +146,7 @@ export class D1LinkedDeviceExecutionAdmissionResolverV1
         issued,
         product,
         protocol: protocol.value,
+        protocolCommitReceipt,
         material,
         laneEnrollmentId: laneEnrollmentId.value,
       });
@@ -150,10 +162,14 @@ export class D1LinkedDeviceExecutionAdmissionResolverV1
     readonly issued: IssuedLinkedDeviceWalletSession;
     readonly product: Extract<LaneProductEpochRecordV1, { readonly state: 'active' }>;
     readonly protocol: LaneProtocolRecordV1;
-    readonly material: Awaited<ReturnType<LaneLifecycleStoreNormalSigningLaneMaterialResolverV1['resolveV1']>>;
+    readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1 | null;
+    readonly material: Awaited<
+      ReturnType<LaneLifecycleStoreNormalSigningLaneMaterialResolverV1['resolveV1']>
+    >;
     readonly laneEnrollmentId: LaneEnrollmentId;
   }): Promise<LinkedDeviceExecutionProjectionResult> {
-    const { input, issued, product, protocol, material, laneEnrollmentId } = projectionInput;
+    const { input, issued, product, protocol, protocolCommitReceipt, material, laneEnrollmentId } =
+      projectionInput;
     const authorization = issued.authorization;
     const quota = issued.quota;
     if (
@@ -231,11 +247,10 @@ export class D1LinkedDeviceExecutionAdmissionResolverV1
       revocationEpoch: product.revocationEpoch,
       lifecycle: { state: 'active', activatedAtMs: product.activatedAtMs },
     };
-    const projection: ActiveLinkedDeviceExecutionProjectionV1 = {
-      kind: 'active_linked_device_execution_projection_v1',
+    const commonProjection = {
+      kind: 'active_linked_device_execution_projection_v1' as const,
       authorization,
       enrollment,
-      walletKey,
       lane,
       product,
       materialActivation: product.materialActivation,
@@ -243,15 +258,140 @@ export class D1LinkedDeviceExecutionAdmissionResolverV1
       verifiedActivationReceiptDigestB64u: activationReceiptDigestB64u,
       materialSource: material.source,
     };
+    let projection: ActiveLinkedDeviceExecutionProjectionV1;
+    if (product.keyFamily === 'ecdsa_secp256k1') {
+      if (
+        protocol.job.keyFamily !== 'ecdsa_secp256k1' ||
+        walletKey.keyFamily !== 'ecdsa_secp256k1' ||
+        protocolCommitReceipt === null
+      ) {
+        return refused('linked_product_mismatch');
+      }
+      projection = {
+        ...commonProjection,
+        walletKey,
+        ecdsaNormalSigningScope: buildLinkedDeviceEcdsaScope({
+          product,
+          job: protocol.job,
+          lifecycle: protocol.lifecycle,
+          protocolCommitReceipt,
+          materialActivation: product.materialActivation,
+        }),
+      };
+    } else {
+      if (protocol.job.keyFamily !== 'ed25519' || walletKey.keyFamily !== 'ed25519') {
+        return refused('linked_product_mismatch');
+      }
+      projection = { ...commonProjection, walletKey };
+    }
     return { kind: 'projected', projection };
   }
+}
+
+function buildLinkedDeviceEcdsaScope(input: {
+  readonly product: Extract<LaneProductEpochRecordV1, { readonly state: 'active' }>;
+  readonly job: EcdsaAdditiveLaneJobV1;
+  readonly lifecycle: LaneProtocolRecordV1['lifecycle'];
+  readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
+  readonly materialActivation: MpcMaterialActivationRef;
+}) {
+  const { product, job, lifecycle, protocolCommitReceipt, materialActivation } = input;
+  if (lifecycle.state !== 'active') {
+    throw new Error('linked ECDSA protocol lifecycle is not active');
+  }
+  if (
+    product.keyFamily !== 'ecdsa_secp256k1' ||
+    product.laneKind !== 'linked_device' ||
+    job.operationId !== product.operationId ||
+    job.enrollmentId !== product.enrollmentId ||
+    job.walletId !== product.walletId ||
+    job.walletKeyId !== product.walletKeyId ||
+    job.target.laneId !== product.laneId ||
+    job.target.laneShareEpoch !== product.laneShareEpoch ||
+    job.target.laneKind !== product.laneKind ||
+    job.targetMaterialActivationId !== product.targetMaterialActivationId ||
+    job.targetHolder.participantId !== product.holderParticipant.participantId ||
+    job.targetHolder.participantBindingDigestB64u !==
+      product.holderParticipant.participantBindingDigestB64u ||
+    job.targetHolder.custodyBindingId !== product.holderParticipant.custodyBindingId ||
+    job.targetHolder.custodyBindingDigestB64u !==
+      product.holderParticipant.custodyBindingDigestB64u ||
+    job.targetHolder.hpkePublicKeyB64u !== product.holderParticipant.hpkePublicKeyB64u ||
+    job.targetHolder.hpkePublicKeyDigestB64u !==
+      product.holderParticipant.hpkePublicKeyDigestB64u ||
+    job.targetSigningWorker.participantId !== product.signingWorkerParticipant.participantId ||
+    job.targetSigningWorker.participantBindingDigestB64u !==
+      product.signingWorkerParticipant.participantBindingDigestB64u ||
+    job.targetSigningWorker.recipientKeyId !== product.signingWorkerParticipant.recipientKeyId ||
+    job.targetSigningWorker.hpkePublicKeyB64u !==
+      product.signingWorkerParticipant.hpkePublicKeyB64u ||
+    job.targetSigningWorker.hpkePublicKeyDigestB64u !==
+      product.signingWorkerParticipant.hpkePublicKeyDigestB64u ||
+    !sameMaterialActivation(product.materialActivation, materialActivation) ||
+    materialActivation.activationId !== job.targetMaterialActivationId ||
+    String(materialActivation.signingWorker) !==
+      String(product.signingWorkerParticipant.participantId)
+  ) {
+    throw new Error('linked ECDSA active product does not match its admitted lane job');
+  }
+  if (
+    protocolCommitReceipt.keyFamily !== 'ecdsa_secp256k1' ||
+    protocolCommitReceipt.operationId !== product.operationId ||
+    protocolCommitReceipt.enrollmentId !== product.enrollmentId ||
+    protocolCommitReceipt.walletId !== product.walletId ||
+    protocolCommitReceipt.walletKeyId !== product.walletKeyId ||
+    protocolCommitReceipt.targetLaneId !== product.laneId ||
+    protocolCommitReceipt.targetLaneShareEpoch !== product.laneShareEpoch ||
+    protocolCommitReceipt.targetMaterialActivationId !== product.targetMaterialActivationId ||
+    protocolCommitReceipt.publicIdentityDigestB64u !== product.publicIdentityDigestB64u ||
+    protocolCommitReceipt.holderRecipientKeyDigestB64u !==
+      product.holderParticipant.hpkePublicKeyDigestB64u ||
+    protocolCommitReceipt.serverRecipientKeyDigestB64u !==
+      product.signingWorkerParticipant.hpkePublicKeyDigestB64u ||
+    protocolCommitReceipt.transcriptHashB64u !== lifecycle.transcriptHashB64u
+  ) {
+    throw new Error('linked ECDSA protocol receipt does not match its active product');
+  }
+  return buildLinkedDeviceEcdsaNormalSigningScopeV1({
+    walletId: product.walletId,
+    walletKeyId: product.walletKeyId,
+    enrollmentId: product.enrollmentId,
+    operationId: product.operationId,
+    laneId: product.laneId,
+    laneShareEpoch: product.laneShareEpoch,
+    revocationEpoch: product.revocationEpoch,
+    targetMaterialActivationId: product.targetMaterialActivationId,
+    materialActivation,
+    targetCapability: job.targetCapability,
+    thresholdPublicKey33B64u: parseSecp256k1CompressedPublicKeyB64u(job.thresholdPublicKey33B64u),
+    evmAddress: job.evmAddress,
+    publicIdentityDigestB64u: parseDigestB64u(protocolCommitReceipt.publicIdentityDigestB64u),
+    targetHolderPublicCommitmentB64u: parseSecp256k1CompressedPublicKeyB64u(
+      protocolCommitReceipt.targetHolderPublicCommitmentB64u,
+    ),
+    targetServerPublicCommitmentB64u: parseSecp256k1CompressedPublicKeyB64u(
+      protocolCommitReceipt.targetServerPublicCommitmentB64u,
+    ),
+    holderParticipantId: product.holderParticipant.participantId,
+    signingWorkerParticipantId: product.signingWorkerParticipant.participantId,
+    holderParticipantBindingDigestB64u: product.holderParticipant.participantBindingDigestB64u,
+    signingWorkerParticipantBindingDigestB64u:
+      product.signingWorkerParticipant.participantBindingDigestB64u,
+    holderRecipientKeyDigestB64u: product.holderParticipant.hpkePublicKeyDigestB64u,
+    serverRecipientKeyDigestB64u: product.signingWorkerParticipant.hpkePublicKeyDigestB64u,
+    signingWorkerRecipientKeyId: product.signingWorkerParticipant.recipientKeyId,
+    transcriptHashB64u: parseDigestB64u(protocolCommitReceipt.transcriptHashB64u),
+    protocolCommitReceiptDigestB64u: parseDigestB64u(lifecycle.protocolCommitReceiptDigestB64u),
+  });
 }
 
 function buildWalletKey(
   protocol: LaneProtocolRecordV1,
   product: Extract<LaneProductEpochRecordV1, { readonly state: 'active' }>,
 ) {
-  const version = parseWalletKeyVersion(`wallet-key-version:linked-device:${String(product.laneShareEpoch)}`);
+  const version = parseWalletKeyVersion(
+    `wallet-key-version:linked-device:${String(product.laneShareEpoch)}`,
+  );
   if (protocol.job.keyFamily === 'ed25519') {
     return buildEd25519WalletKeyRecord({
       walletId: product.walletId,
@@ -282,7 +422,10 @@ function parseCredentialId(raw: WebAuthnCredentialIdB64u | string): WebAuthnCred
   return parsed.value;
 }
 
-function sameMaterialActivation(left: MpcMaterialActivationRef, right: MpcMaterialActivationRef): boolean {
+function sameMaterialActivation(
+  left: MpcMaterialActivationRef,
+  right: MpcMaterialActivationRef,
+): boolean {
   return (
     left.activationId === right.activationId &&
     left.capability === right.capability &&
