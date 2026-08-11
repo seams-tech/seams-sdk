@@ -185,7 +185,13 @@ export type DeviceLinkingTargetCredentialProviderV1 = {
     readonly preparation: LinkedDeviceTargetPreparationV1;
     readonly session: LinkedDeviceSessionRecordV1;
     readonly requestedAtMs: number;
-  }): Promise<DeviceLinkingRouteMutationResultV1>;
+  }): Promise<
+    | {
+        readonly outcome: 'applied' | 'replayed';
+        readonly keyManifestDigestB64u: DigestB64u;
+      }
+    | { readonly outcome: 'invalid_input'; readonly message: string }
+  >;
 };
 
 export type DeviceLinkingRouteServiceV1 = {
@@ -194,6 +200,7 @@ export type DeviceLinkingRouteServiceV1 = {
     | 'createUnclaimedSessionV1'
     | 'claimSessionV1'
     | 'recordOwnerApprovalV1'
+    | 'recordTargetCredentialV1'
     | 'cancelSessionV1'
     | 'getSessionV1'
   >;
@@ -522,7 +529,7 @@ async function handleCredential(
     return invalidInputResponse('credential registration is from the future');
   const session = authenticated.session;
   if (
-    session.state.state !== 'awaiting_target_passkey' ||
+    (session.state.state !== 'awaiting_target_passkey' && session.state.state !== 'provisioning') ||
     session.state.walletId !== registration.walletId ||
     session.state.enrollmentId !== registration.enrollmentId ||
     session.claimTranscript?.value.deviceId !== registration.deviceId
@@ -536,12 +543,21 @@ async function handleCredential(
     preparation,
     registration,
   });
+  const registrationResult = await service.targetCredential.registerTargetCredentialV1({
+    registration,
+    preparation,
+    session,
+    requestedAtMs: nowMs,
+  });
+  if (registrationResult.outcome === 'invalid_input') {
+    return invalidInputResponse(registrationResult.message);
+  }
   return mutationResultResponse(
-    await service.targetCredential.registerTargetCredentialV1({
-      registration,
-      preparation,
-      session,
-      requestedAtMs: nowMs,
+    await service.sessionService.recordTargetCredentialV1({
+      linkSessionId,
+      expectedRevision: session.revision,
+      keyManifestDigestB64u: registrationResult.keyManifestDigestB64u,
+      nowMs,
     }),
   );
 }
@@ -584,14 +600,14 @@ function assertTargetPreparationMatchesSession(
   nowMs: number,
 ): void {
   if (
-    session.state.state !== 'awaiting_target_passkey' ||
+    (session.state.state !== 'awaiting_target_passkey' && session.state.state !== 'provisioning') ||
     preparation.linkSessionId !== session.linkSessionId ||
     preparation.linkSessionId !== approval.linkSessionId ||
     preparation.walletId !== approval.walletId ||
     preparation.enrollmentId !== approval.enrollmentId ||
     preparation.deviceId !== approval.deviceId ||
     preparation.orderedChildren.length !== approval.orderedKeyBindings.length ||
-    preparation.expiresAtMs <= nowMs
+    (session.state.state === 'awaiting_target_passkey' && preparation.expiresAtMs <= nowMs)
   ) {
     throw new DeviceLinkingInputError(
       'target preparation does not match the approved linked-device session',

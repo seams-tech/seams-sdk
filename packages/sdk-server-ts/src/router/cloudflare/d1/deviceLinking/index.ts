@@ -9,3 +9,4 @@ export * from './d1LinkedDeviceManagementRouteService';
 export * from './d1LinkedDeviceGatewayCompletionService';
 export * from './d1LinkedDeviceExecutionAdmissionResolver';
 export * from './d1LinkedDeviceProvisioningVerifier';
+export * from './d1LinkedDeviceTargetCredentialProvider';

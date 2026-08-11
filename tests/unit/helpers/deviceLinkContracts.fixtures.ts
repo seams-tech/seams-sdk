@@ -3,6 +3,8 @@ import {
   buildLinkedDeviceEnrollmentChildReceiptV1,
   buildLinkedDeviceEnrollmentReceiptV1,
   buildLinkedDeviceEnrollmentTranscriptV1,
+  buildLinkedDeviceTargetCredentialRegistrationV1,
+  buildLinkedDeviceTargetPreparationV1,
   buildQrLinkedDeviceSessionPayloadV4,
   buildStepUpLinkedDeviceOwnerAuthorizationV1,
   parseLinkedDeviceSessionClaimRequestV1,
@@ -13,7 +15,10 @@ import type {
   LinkedDeviceEnrollmentReceiptV1,
   LinkedDeviceEnrollmentTranscriptV1,
   QrLinkedDeviceSessionPayloadV4,
+  LinkedDeviceTargetCredentialRegistrationV1,
+  LinkedDeviceTargetPreparationV1,
 } from '../../../packages/shared-ts/src/device-linking/contracts';
+import { computeLinkedDeviceTargetPreparationDigestV1 } from '../../../packages/shared-ts/src/device-linking/digests';
 import { parseAuthorizationEvidenceSetId } from '../../../packages/shared-ts/src/authorization/capabilityKinds';
 import {
   parseLaneHolderParticipantId,
@@ -38,9 +43,12 @@ import {
   parseMpcMaterialOwnerRef,
   parseMpcSigningWorkerRef,
   parseWalletId,
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
 } from '../../../packages/shared-ts/src/utils/domainIds';
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
+import { buildR102LaneJob } from './r102LaneGateway.fixtures';
 
 function required<T>(
   result:
@@ -61,6 +69,78 @@ export type R103DeviceLinkFixture = {
   readonly transcript: LinkedDeviceEnrollmentTranscriptV1;
   readonly receipt: LinkedDeviceEnrollmentReceiptV1;
 };
+
+export type R103TargetCredentialFixture = {
+  readonly preparation: LinkedDeviceTargetPreparationV1;
+  readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+};
+
+export async function buildR103TargetCredentialFixture(
+  fixture: R103DeviceLinkFixture,
+): Promise<R103TargetCredentialFixture> {
+  const binding = fixture.approval.orderedKeyBindings[0];
+  const job = buildR102LaneJob('r103-target-credential');
+  const rpId = required(parseWebAuthnRpId('wallet.example.test'));
+  const credentialIdB64u = required(
+    parseWebAuthnCredentialIdB64u(base64UrlEncode(new Uint8Array(32).fill(6))),
+  );
+  const preparation = buildLinkedDeviceTargetPreparationV1({
+    linkSessionId: fixture.approval.linkSessionId,
+    walletId: fixture.approval.walletId,
+    enrollmentId: fixture.approval.enrollmentId,
+    deviceId: fixture.approval.deviceId,
+    rpId,
+    userHandleB64u: PUBLIC_KEY,
+    challengeB64u: fixture.approval.policyDigestB64u,
+    orderedChildren: [
+      {
+        kind: 'linked_device_target_preparation_child_v1',
+        operationId: fixture.approval.operationId,
+        walletKeyId: binding.walletKeyId,
+        keyFamily: binding.keyFamily,
+        targetLaneId: binding.targetLaneId,
+        targetLaneShareEpoch: binding.targetLaneShareEpoch,
+        targetMaterialActivationId:
+          fixture.receipt.orderedChildReceipts[0].materialActivation.activationId,
+        targetHolderParticipantId: job.targetHolder.participantId,
+      },
+    ],
+    issuedAtMs: 3_003,
+    expiresAtMs: 7_000,
+  });
+  const registration = buildLinkedDeviceTargetCredentialRegistrationV1({
+    linkSessionId: fixture.approval.linkSessionId,
+    walletId: fixture.approval.walletId,
+    enrollmentId: fixture.approval.enrollmentId,
+    deviceId: fixture.approval.deviceId,
+    targetPreparationDigestB64u: await computeLinkedDeviceTargetPreparationDigestV1(preparation),
+    webauthnRegistration: {
+      kind: 'linked_device_webauthn_registration_v1',
+      credentialIdB64u,
+      authenticatorAttachment: 'platform',
+      clientDataJsonB64u: 'AQID',
+      attestationObjectB64u: 'BAUG',
+      transports: ['internal'],
+    },
+    orderedHolderRegistrations: [
+      {
+        kind: 'linked_device_target_holder_registration_v1',
+        operationId: preparation.orderedChildren[0].operationId,
+        walletKeyId: preparation.orderedChildren[0].walletKeyId,
+        keyFamily: preparation.orderedChildren[0].keyFamily,
+        targetLaneId: preparation.orderedChildren[0].targetLaneId,
+        targetLaneShareEpoch: preparation.orderedChildren[0].targetLaneShareEpoch,
+        targetMaterialActivationId: preparation.orderedChildren[0].targetMaterialActivationId,
+        holderParticipant: {
+          kind: 'lane_holder_participant_v1',
+          ...job.targetHolder,
+        },
+      },
+    ],
+    registeredAtMs: 3_004,
+  });
+  return { preparation, registration };
+}
 
 export function buildR103DeviceLinkFixture(
   input: {
