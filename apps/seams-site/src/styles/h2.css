@@ -181,7 +181,9 @@ body:has(.h2-page) {
   background: color-mix(in srgb, var(--h2-bg) 92%, transparent);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--h2-line);
-  box-shadow: none;
+  box-shadow:
+    0 16px 36px -22px color-mix(in srgb, var(--navbar-shadow-color) 52%, transparent),
+    0 4px 12px -8px color-mix(in srgb, var(--navbar-shadow-color) 34%, transparent);
 }
 
 .h2-page .navbar-static:not(.navbar-static--compact) .navbar-static__pill {
@@ -195,9 +197,9 @@ body:has(.h2-page) {
 .h2-page .navbar-static--compact .navbar-static__shell,
 .h2-page .navbar-static--compact .navbar-static__shell.is-scrolled {
   box-shadow:
-    0 10px 28px -20px color-mix(in srgb, var(--navbar-shadow-color) 32%, transparent),
-    0 2px 8px -6px color-mix(in srgb, var(--navbar-shadow-color) 24%, transparent),
-    0 0 0 1px color-mix(in srgb, var(--navbar-border) 34%, transparent);
+    0 16px 36px -20px color-mix(in srgb, var(--navbar-shadow-color) 56%, transparent),
+    0 4px 12px -7px color-mix(in srgb, var(--navbar-shadow-color) 34%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--navbar-border-hover) 50%, transparent);
 }
 
 /* The dropdown panel is content-width and self-anchored in Navbar.css; the
@@ -408,7 +410,7 @@ body:has(.h2-page) {
 }
 
 .h2-hero-simple.h2-hero-simple--sage {
-  padding-top: 1rem;
+  padding-top: 2rem;
 }
 
 .h2-hero-simple--sage > .h2-shell {
@@ -965,7 +967,6 @@ body:has(.h2-page) {
   font-size: var(--h2-text-lg);
   color: var(--h2-smoke);
 }
-
 
 /* Window anchored to the panel's bottom-right like the reference hero:
    inset from the left and top, bleeding past the column divider and the
@@ -2279,7 +2280,9 @@ body:has(.h2-page) {
   color: var(--h2-ash);
   text-align: left;
   cursor: pointer;
-  transition: color 150ms ease, background-color 150ms ease;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
 }
 
 .h2-pillar:hover {
@@ -2729,19 +2732,30 @@ body:has(.h2-page) {
 /* Each cover crops its fabric differently: full field, zoomed weave, corner
    drift, so the three cards don't read as one repeated treatment. */
 .h2-case__cover--ops {
-  background-image: url('/gradients/web/sky-sand.jpg');
+  background-image:
+    url('/gradients/web/sky-sand.jpg'),
+    linear-gradient(135deg, #247fc4 0%, #67bdd4 42%, #efbd71 72%, #c66c54 100%);
+  background-size: cover, cover;
 }
 
 .h2-case__cover--staff {
-  background-image: url('/gradients/web/cyan-lime.jpg');
-  background-size: 165%;
-  background-position: 22% 38%;
+  background-image:
+    url('/gradients/web/cyan-lime.jpg'),
+    linear-gradient(135deg, #117a96 0%, #298b72 44%, #85b938 72%, #d3e967 100%);
+  background-size: 165%, cover;
+  background-position:
+    22% 38%,
+    center;
 }
 
 .h2-case__cover--checkout {
-  background-image: url('/gradients/web/dusk-blue-mauve.jpg');
-  background-size: 140%;
-  background-position: 85% 82%;
+  background-image:
+    url('/gradients/web/dusk-blue-mauve.jpg'),
+    linear-gradient(135deg, #103e70 0%, #26375b 50%, #796174 74%, #df9870 100%);
+  background-size: 140%, cover;
+  background-position:
+    85% 82%,
+    center;
 }
 
 .h2-case__title {
@@ -3191,7 +3205,6 @@ body:has(.h2-page) {
 .h2-footer__bottom {
   margin-top: 40px;
   padding-top: 18px;
-  border-top: 1px solid var(--h2-stone);
   display: flex;
   align-items: center;
   justify-content: space-between;

@@ -24,7 +24,6 @@ import type {
   OrchestrateSigningConfirmationParams,
   NearTransactionSigningConfirmationResult,
   RequestUserConfirmationBridge,
-  SigningConfirmationChain,
   SigningConfirmationResultIntentDigest,
   SigningConfirmationResultSignatureOnly,
   UiConfirmRequestBridgeContext,
@@ -37,7 +36,6 @@ import {
 import {
   clearConfirmationReadiness,
   registerConfirmationReadiness,
-  type ConfirmationReadiness,
 } from '../confirmationReadinessRegistry';
 import { WalletSessionFailureError } from '../../session/lifecycle/walletSessionFailure';
 
@@ -146,19 +144,6 @@ function normalizeChallengeB64u(value: unknown): string {
   return challenge;
 }
 
-function signingSubjectLabel(subject: SignIntentDigestSubject): string {
-  switch (subject.kind) {
-    case 'near_wallet':
-      return subject.nearAccountId;
-    case 'evm_wallet':
-      return subject.walletId;
-    default: {
-      const exhaustive: never = subject;
-      throw new Error(`Unsupported signing subject: ${String(exhaustive)}`);
-    }
-  }
-}
-
 function requireIntentDigestWebAuthnChallenge(
   value: WebAuthnChallenge | undefined,
 ): WebAuthnChallenge {
@@ -195,30 +180,6 @@ function buildSignIntentDigestPayload(args: {
   };
 }
 
-function buildPendingIntentDisplayModel(args: {
-  chain: SigningConfirmationChain;
-  signerAccountId: string;
-  title?: string;
-  body?: string;
-  intentDigest?: string;
-}): TxDisplayModel {
-  return {
-    chain: args.chain,
-    ...(args.intentDigest ? { intentDigest: args.intentDigest } : {}),
-    signerAccount: args.signerAccountId,
-    ...(args.title != null ? { title: args.title } : {}),
-    ...(args.body != null ? { subtitle: args.body } : {}),
-    operations: [
-      {
-        id: `${args.chain}.pending`,
-        kind: 'raw.fallback',
-        label: 'Loading transaction details...',
-        raw: '',
-      },
-    ],
-  };
-}
-
 function buildNearDisplayModelWithFallback(args: {
   txSigningRequests: TransactionInputWasm[];
   intentDigest?: string;
@@ -235,13 +196,14 @@ function buildNearDisplayModelWithFallback(args: {
       subtitle: args.body,
     });
   } catch {
-    return buildPendingIntentDisplayModel({
+    return {
       chain: 'near',
-      signerAccountId: args.signerAccountId,
-      title: args.title,
-      body: args.body,
-      intentDigest: args.intentDigest,
-    });
+      ...(args.intentDigest ? { intentDigest: args.intentDigest } : {}),
+      signerAccount: args.signerAccountId,
+      ...(args.title != null ? { title: args.title } : {}),
+      ...(args.body != null ? { subtitle: args.body } : {}),
+      operations: [],
+    };
   }
 }
 
@@ -456,16 +418,7 @@ export async function orchestrateSigningConfirmation(
       intentDigest = uiIntentDigest;
       const challengeB64u = normalizeChallengeB64u(params.challengeB64u);
       const signingSubject = params.signingSubject;
-      const signingSubjectDisplayLabel = signingSubjectLabel(signingSubject);
-      const displayModel =
-        params.displayModel ||
-        buildPendingIntentDisplayModel({
-          chain: params.chain,
-          signerAccountId: signingSubjectDisplayLabel,
-          title: params.title,
-          body: params.body,
-          intentDigest: uiIntentDigest || undefined,
-        });
+      const displayModel = params.displayModel;
 
       const summary: TransactionSummary = {
         ...(uiIntentDigest ? { intentDigest: uiIntentDigest } : {}),
