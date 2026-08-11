@@ -1,4 +1,8 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+#[cfg(feature = "workers-rs")]
+use std::cell::RefCell;
+#[cfg(feature = "workers-rs")]
+use std::collections::BTreeMap;
 use router_ab_core::{
     ActiveSigningWorkerStateV1, Ed25519YaoCeremonyBindingV1,
     NormalSigningEd25519TwoPartyFrostCommitmentsV1, NormalSigningScopeV1, PublicDigest32, Role,
@@ -23,13 +27,19 @@ mod ecdsa_presign_live_session;
 mod worker_storage;
 #[cfg(feature = "workers-rs")]
 use ecdsa_presign_live_session::{
+    handle_cloudflare_signing_worker_linked_ecdsa_presign_session_do_fetch_v1,
     handle_cloudflare_signing_worker_ecdsa_presign_session_do_fetch_v1,
     CloudflareSigningWorkerEcdsaPresignLiveSessionsV1,
+    CloudflareSigningWorkerLinkedDeviceEcdsaPresignLiveSessionsV1,
 };
 #[cfg(feature = "workers-rs")]
 pub(crate) use ecdsa_presign_live_session::{
     CloudflareSigningWorkerEcdsaPresignSessionDoInitRequestV1,
     CloudflareSigningWorkerEcdsaPresignSessionDoProgressV1,
+    CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionDoInitRequestV1,
+    CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionDoProgressV1,
+    CloudflareSigningWorkerLinkedDeviceEcdsaPresignatureDoConsumeRequestV1,
+    CloudflareSigningWorkerLinkedDeviceEcdsaPresignatureDoConsumeResponseV1,
 };
 #[cfg(feature = "workers-rs")]
 pub(crate) use worker_storage::execute_cloudflare_durable_object_custom_json_call_v1;
@@ -39,6 +49,9 @@ pub(crate) use worker_storage::execute_cloudflare_durable_object_custom_json_cal
 #[worker::durable_object(fetch)]
 pub struct RouterAbSigningWorkerPresignSessionDurableObject {
     ecdsa_presign_sessions: CloudflareSigningWorkerEcdsaPresignLiveSessionsV1,
+    linked_ecdsa_presign_sessions: CloudflareSigningWorkerLinkedDeviceEcdsaPresignLiveSessionsV1,
+    linked_ecdsa_presignature_records:
+        RefCell<BTreeMap<String, CloudflareSigningWorkerEcdsaPresignatureRecordV1>>,
 }
 
 #[cfg(feature = "workers-rs")]
@@ -46,10 +59,23 @@ impl worker::DurableObject for RouterAbSigningWorkerPresignSessionDurableObject 
     fn new(_state: worker::State, _env: worker::Env) -> Self {
         Self {
             ecdsa_presign_sessions: Default::default(),
+            linked_ecdsa_presign_sessions: Default::default(),
+            linked_ecdsa_presignature_records: Default::default(),
         }
     }
 
     async fn fetch(&self, request: worker::Request) -> worker::Result<worker::Response> {
+        let path = request.path();
+        if path.starts_with("/router-ab/internal/signing-worker/linked-ecdsa-presign-session/")
+            || path == crate::CLOUDFLARE_SIGNING_WORKER_LINKED_ECDSA_PRESIGNATURE_DO_CONSUME_PATH
+        {
+            return handle_cloudflare_signing_worker_linked_ecdsa_presign_session_do_fetch_v1(
+                request,
+                &self.linked_ecdsa_presign_sessions,
+                &self.linked_ecdsa_presignature_records,
+            )
+            .await;
+        }
         handle_cloudflare_signing_worker_ecdsa_presign_session_do_fetch_v1(
             request,
             &self.ecdsa_presign_sessions,

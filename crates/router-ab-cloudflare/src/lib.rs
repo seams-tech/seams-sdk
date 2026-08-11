@@ -118,6 +118,7 @@ use paths::{
     cloudflare_signing_worker_normal_signing_round1_prepare_service_url,
     cloudflare_signing_worker_normal_signing_service_url,
     cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_service_url,
+    cloudflare_signing_worker_linked_device_ecdsa_finalize_service_url,
     cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_prepare_service_url,
 };
 pub use trace_context::CloudflareTraceIdV1;
@@ -213,6 +214,7 @@ use router_ab_core::{
     RouterAbEcdsaDerivationEvmDigestSigningResponseV1,
     RouterAbEcdsaDerivationExplicitExportRequestV1,
     RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1,
+    RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningResponseV1,
     RouterAbEcdsaDerivationNormalSigningScopeV1, RouterAbEcdsaDerivationPublicIdentityV1,
     RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
     RouterAbEcdsaDerivationStableKeyContextV1, RouterAbEd25519NormalSigningAdmissionMaterialV2,
@@ -9953,17 +9955,18 @@ pub async fn handle_cloudflare_signing_worker_ecdsa_presign_session_init_private
         request: parsed,
         relayer_share32_b64u: encode_base64url_bytes_v1(&relayer_share.x_relayer32),
     };
-    let progress = match durable_object::execute_cloudflare_durable_object_custom_json_call_v1(
+    let progress: durable_object::CloudflareSigningWorkerEcdsaPresignSessionDoProgressV1 =
+        match durable_object::execute_cloudflare_durable_object_custom_json_call_v1(
         env,
         &runtime.bindings().presign_session,
         CLOUDFLARE_SIGNING_WORKER_ECDSA_PRESIGN_SESSION_DO_INIT_PATH,
         &do_request,
     )
-    .await
-    {
-        Ok(value) => value,
-        Err(error) => return cloudflare_signing_worker_presign_error_response_v1(error),
-    };
+        .await
+        {
+            Ok(value) => value,
+            Err(error) => return cloudflare_signing_worker_presign_error_response_v1(error),
+        };
     let durable_object::CloudflareSigningWorkerEcdsaPresignSessionDoProgressV1::Continue {
         presign_session_id,
         stage,
@@ -9984,6 +9987,92 @@ pub async fn handle_cloudflare_signing_worker_ecdsa_presign_session_init_private
             outgoing_messages_b64u,
         },
     )
+}
+
+/// Handles SigningWorker's private linked-device ECDSA presign-session init
+/// route. The linked request is admitted by Gateway before this call and is
+/// kept in a dedicated Durable Object session, separate from the owner pool.
+#[cfg(feature = "workers-rs")]
+pub async fn handle_cloudflare_signing_worker_linked_ecdsa_presign_session_init_private_fetch_v1(
+    mut request: worker::Request,
+    env: &worker::Env,
+    runtime: &CloudflareSigningWorkerRuntimeV1,
+    now_unix_ms: u64,
+) -> worker::Result<worker::Response> {
+    if request.method() != worker::Method::Post {
+        return worker::Response::error(
+            "SigningWorker linked ECDSA presign init requires POST",
+            405,
+        );
+    }
+    if request.path()
+        != CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_LINKED_PRESIGNATURE_SESSION_INIT_PATH
+    {
+        return worker::Response::error(
+            "SigningWorker linked ECDSA presign init route not found",
+            404,
+        );
+    }
+    let parsed = match request
+        .json::<CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionInitRequestV1>()
+        .await
+    {
+        Ok(value) => value,
+        Err(error) => {
+            return worker::Response::error(
+                format!("SigningWorker linked ECDSA presign init JSON parse failed: {error}"),
+                400,
+            );
+        }
+    };
+    if let Err(error) = parsed.validate_at(now_unix_ms) {
+        return cloudflare_signing_worker_presign_error_response_v1(error);
+    }
+    let (active_signing_worker, material) = match load_cloudflare_signing_worker_linked_ecdsa_normal_signing_material_v1(
+        env,
+        &parsed.request.scope,
+        &parsed.material_source,
+        now_unix_ms,
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(error) => return cloudflare_signing_worker_presign_error_response_v1(error),
+    };
+    let do_request = durable_object::CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionDoInitRequestV1 {
+        request: parsed,
+        active_signing_worker_state: active_signing_worker,
+        relayer_share32_b64u: encode_base64url_bytes_v1(material.output_material.as_bytes()),
+    };
+    let progress = match durable_object::execute_cloudflare_durable_object_custom_json_call_v1(
+        env,
+        &runtime.bindings().presign_session,
+        CLOUDFLARE_SIGNING_WORKER_LINKED_ECDSA_PRESIGN_SESSION_DO_INIT_PATH,
+        &do_request,
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(error) => return cloudflare_signing_worker_presign_error_response_v1(error),
+    };
+    let durable_object::CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionDoProgressV1::Continue {
+        presign_session_id,
+        stage,
+        event,
+        outgoing_messages_b64u,
+    } = progress
+    else {
+        return worker::Response::error(
+            "SigningWorker linked ECDSA presign init returned terminal state",
+            500,
+        );
+    };
+    worker::Response::from_json(&CloudflareSigningWorkerEcdsaPresignSessionProgressV1::Continue {
+        presign_session_id,
+        stage,
+        event,
+        outgoing_messages_b64u,
+    })
 }
 
 /// Validates active ECDSA export material without releasing a share.
@@ -10190,10 +10279,218 @@ pub async fn handle_cloudflare_signing_worker_ecdsa_presign_session_step_private
                     presign_session_id,
                     server_presignature_id,
                     server_big_r33_b64u,
+                    signing_worker_rerandomization_contribution32_b64u: None,
+                    prepared_response: None,
                 },
             )
         }
     }
+}
+
+/// Handles SigningWorker's private linked-device ECDSA presign-session step
+/// route. Completion is returned directly to Gateway and is never inserted in
+/// the owner presignature pool.
+#[cfg(feature = "workers-rs")]
+pub async fn handle_cloudflare_signing_worker_linked_ecdsa_presign_session_step_private_fetch_v1(
+    mut request: worker::Request,
+    env: &worker::Env,
+    runtime: &CloudflareSigningWorkerRuntimeV1,
+    now_unix_ms: u64,
+) -> worker::Result<worker::Response> {
+    if request.method() != worker::Method::Post {
+        return worker::Response::error(
+            "SigningWorker linked ECDSA presign step requires POST",
+            405,
+        );
+    }
+    if request.path()
+        != CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_LINKED_PRESIGNATURE_SESSION_STEP_PATH
+    {
+        return worker::Response::error(
+            "SigningWorker linked ECDSA presign step route not found",
+            404,
+        );
+    }
+    let parsed = match request
+        .json::<CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionStepRequestV1>()
+        .await
+    {
+        Ok(value) => value,
+        Err(error) => {
+            return worker::Response::error(
+                format!("SigningWorker linked ECDSA presign step JSON parse failed: {error}"),
+                400,
+            );
+        }
+    };
+    if let Err(error) = parsed.validate_at(now_unix_ms) {
+        return cloudflare_signing_worker_presign_error_response_v1(error);
+    }
+    let progress = match durable_object::execute_cloudflare_durable_object_custom_json_call_v1(
+        env,
+        &runtime.bindings().presign_session,
+        CLOUDFLARE_SIGNING_WORKER_LINKED_ECDSA_PRESIGN_SESSION_DO_STEP_PATH,
+        &parsed,
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(error) => return cloudflare_signing_worker_presign_error_response_v1(error),
+    };
+    match progress {
+        durable_object::CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionDoProgressV1::Continue {
+            presign_session_id,
+            stage,
+            event,
+            outgoing_messages_b64u,
+        } => worker::Response::from_json(
+            &CloudflareSigningWorkerEcdsaPresignSessionProgressV1::Continue {
+                presign_session_id,
+                stage,
+                event,
+                outgoing_messages_b64u,
+            },
+        ),
+        durable_object::CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionDoProgressV1::Complete {
+            presign_session_id,
+            server_presignature_id,
+            server_big_r33_b64u,
+            signing_worker_rerandomization_contribution32_b64u,
+            prepared_response,
+        } => worker::Response::from_json(
+            &CloudflareSigningWorkerEcdsaPresignSessionProgressV1::Complete {
+                presign_session_id,
+                server_presignature_id,
+                server_big_r33_b64u,
+                signing_worker_rerandomization_contribution32_b64u:
+                    Some(signing_worker_rerandomization_contribution32_b64u),
+                prepared_response: Some(prepared_response),
+            },
+        ),
+    }
+}
+
+/// Handles one linked-device ECDSA finalize request. The completed presignature
+/// record is consumed inside the SigningWorker boundary and never serialized
+/// into an HTTP response.
+#[cfg(feature = "workers-rs")]
+pub async fn handle_cloudflare_signing_worker_linked_ecdsa_finalize_private_fetch_v1<Handler>(
+    mut request: worker::Request,
+    env: &worker::Env,
+    runtime: &CloudflareSigningWorkerRuntimeV1,
+    handler: &Handler,
+    now_unix_ms: u64,
+) -> worker::Result<worker::Response>
+where
+    Handler: CloudflareSigningWorkerLinkedDeviceEcdsaFinalizeHandlerV1,
+{
+    if request.method() != worker::Method::Post {
+        return worker::Response::error(
+            "SigningWorker linked ECDSA finalize route requires POST",
+            405,
+        );
+    }
+    if request.path()
+        != CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_LINKED_SIGNING_PATH
+    {
+        return worker::Response::error(
+            "SigningWorker linked ECDSA finalize route not found",
+            404,
+        );
+    }
+    let parsed = match request
+        .json::<CloudflareSigningWorkerAdmittedLinkedDeviceEcdsaFinalizeRequestV1>()
+        .await
+    {
+        Ok(value) => value,
+        Err(error) => {
+            return worker::Response::error(
+                format!("SigningWorker linked ECDSA finalize JSON parse failed: {error}"),
+                400,
+            );
+        }
+    };
+    if let Err(error) = parsed.validate() {
+        return cloudflare_signing_worker_presign_error_response_v1(error);
+    }
+    if let Err(error) = parsed.request.validate_at(now_unix_ms) {
+        return cloudflare_signing_worker_presign_error_response_v1(error);
+    }
+    let (active_signing_worker, material) =
+        match load_cloudflare_signing_worker_linked_ecdsa_normal_signing_material_v1(
+            env,
+            &parsed.request.scope,
+            &parsed.material_source,
+            now_unix_ms,
+        )
+        .await
+        {
+            Ok(value) => value,
+            Err(error) => return cloudflare_signing_worker_presign_error_response_v1(error),
+        };
+    let request_digest = match parsed.request.prepare_request_digest() {
+        Ok(value) => value,
+        Err(error) => return cloudflare_signing_worker_presign_error_response_v1(error),
+    };
+    let signing_digest = match parsed.request.signing_digest() {
+        Ok(value) => value,
+        Err(error) => return cloudflare_signing_worker_presign_error_response_v1(error),
+    };
+    let server_presignature =
+        match consume_cloudflare_signing_worker_linked_ecdsa_presignature_v1(
+            env,
+            runtime,
+            parsed.request.server_presignature_id.clone(),
+            request_digest,
+            signing_digest,
+            now_unix_ms,
+        )
+        .await
+        {
+            Ok(value) => value,
+            Err(error) => return cloudflare_signing_worker_presign_error_response_v1(error),
+        };
+    let response = match handle_cloudflare_signing_worker_linked_device_ecdsa_finalize_private_request_v1(
+        handler,
+        now_unix_ms,
+        parsed,
+        active_signing_worker,
+        material,
+        server_presignature,
+    ) {
+        Ok(value) => value,
+        Err(error) => return cloudflare_signing_worker_presign_error_response_v1(error),
+    };
+    worker::Response::from_json(&response)
+}
+
+/// Consumes one completed linked-device presignature inside the SigningWorker
+/// boundary. The record remains private and is passed directly to linked
+/// finalize materialization.
+#[cfg(feature = "workers-rs")]
+pub(crate) async fn consume_cloudflare_signing_worker_linked_ecdsa_presignature_v1(
+    env: &worker::Env,
+    runtime: &CloudflareSigningWorkerRuntimeV1,
+    server_presignature_id: String,
+    request_digest: PublicDigest32,
+    signing_digest: PublicDigest32,
+    now_unix_ms: u64,
+) -> RouterAbProtocolResult<CloudflareSigningWorkerEcdsaPresignatureRecordV1> {
+    let request = durable_object::CloudflareSigningWorkerLinkedDeviceEcdsaPresignatureDoConsumeRequestV1 {
+        server_presignature_id,
+        request_digest,
+        signing_digest,
+        now_unix_ms,
+    };
+    let response: durable_object::CloudflareSigningWorkerLinkedDeviceEcdsaPresignatureDoConsumeResponseV1 =
+        durable_object::execute_cloudflare_durable_object_custom_json_call_v1(
+            env,
+            &runtime.bindings().presign_session,
+            CLOUDFLARE_SIGNING_WORKER_LINKED_ECDSA_PRESIGNATURE_DO_CONSUME_PATH,
+            &request,
+        )
+        .await?;
+    Ok(response.record)
 }
 
 /// Handles SigningWorker's private Router A/B ECDSA derivation presignature pool-fill route.
@@ -11798,6 +12095,33 @@ pub async fn execute_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_di
         request,
     )
     .await
+}
+
+/// Sends one admitted linked-device ECDSA finalize request to SigningWorker.
+#[cfg(feature = "workers-rs")]
+pub async fn execute_cloudflare_signing_worker_linked_device_ecdsa_finalize_service_call_v1(
+    env: &worker::Env,
+    peer: &CloudflarePeerBindingV1,
+    request: CloudflareSigningWorkerAdmittedLinkedDeviceEcdsaFinalizeRequestV1,
+) -> RouterAbProtocolResult<RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningResponseV1> {
+    peer.validate()?;
+    if peer.peer_role != CloudflareWorkerRoleV1::SigningWorker {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "linked ECDSA finalize must target SigningWorker",
+        ));
+    }
+    request.validate()?;
+    let response: RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningResponseV1 = post_service_json(
+        env,
+        &peer.binding_name,
+        cloudflare_signing_worker_linked_device_ecdsa_finalize_service_url(peer)?,
+        "linked ECDSA finalize",
+        &request,
+    )
+    .await?;
+    response.validate_for_request(&request.request)?;
+    Ok(response)
 }
 
 /// Sends one direct A/B peer message over a Cloudflare Service Binding.
