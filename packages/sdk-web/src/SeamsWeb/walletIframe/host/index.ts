@@ -11,6 +11,9 @@ import { isObject } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
 import type { WalletHostRuntimeState } from './runtimeContext';
 import { loadWalletHostRuntime, preloadWalletHostRegistrationSurface } from './runtimeLoader';
+import type { WalletHostCompositionV1 } from './context';
+
+export type { WalletHostCompositionV1 } from './context';
 import {
   type RuntimeWalletHostRoute,
   routeRequiresRuntime,
@@ -32,6 +35,8 @@ export type WalletHostRuntimeKind = RuntimeWalletHostRoute['kind'];
 
 export type WalletHostEntryOptions = {
   supportedRuntimeRouteKinds?: ReadonlySet<WalletHostRuntimeKind>;
+  /** Concrete owner/source authorities for direct wallet-host device flows. */
+  walletHostComposition?: WalletHostCompositionV1;
 };
 
 function routeIsSupported(
@@ -58,6 +63,7 @@ export function initWalletIFrame(options: WalletHostEntryOptions = {}): void {
     parentOrigin: null,
     port: null,
     walletConfigs: null,
+    walletHostComposition: options.walletHostComposition ?? null,
   };
 
   const post = (msg: ChildToParentEnvelope): void => {

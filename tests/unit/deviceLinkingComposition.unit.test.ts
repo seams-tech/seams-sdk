@@ -9,6 +9,12 @@ import {
   createDeviceLinkingFlowPortsV1,
   type DeviceLinkingFlowPortsAssemblyOptionsV1,
 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingComposition';
+import {
+  createHostContext,
+  resolveWalletHostInternalOptionsV1,
+  type WalletHostCompositionV1,
+} from '../../packages/sdk-web/src/SeamsWeb/walletIframe/host/context';
+import type { LinkedDeviceManagementPortV1 } from '../../packages/sdk-web/src/SeamsWeb/publicApi/devices';
 import type { DeviceLinkingOwnerAuthorizationPortV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingPorts';
 import type {
   LinkSessionOwnerApprovalUpdatesPortV1,
@@ -129,4 +135,26 @@ test('composes direct device-linking ports only from explicit trust-boundary pro
   expect(ports.sourcePreparation).toBeDefined();
   expect(JSON.stringify(ports)).not.toContain('privateKey');
   expect(JSON.stringify(ports)).not.toContain('prf');
+});
+
+test('wallet-host bootstrap forwards injected authorities and rejects an absent composition', () => {
+  const ports = createDeviceLinkingFlowPortsV1(assemblyOptions());
+  const management: LinkedDeviceManagementPortV1 = {
+    listLinkedDevices: unsupported,
+    revokeLinkedDevice: unsupported,
+  };
+  const composition: WalletHostCompositionV1 = {
+    linkedDeviceManagement: management,
+    deviceLinkingPorts: ports,
+  };
+  const context = createHostContext(composition);
+
+  expect(resolveWalletHostInternalOptionsV1(context.walletHostComposition)).toEqual({
+    kind: 'wallet_host',
+    linkedDeviceManagement: management,
+    deviceLinkingPorts: ports,
+  });
+  expect(() => resolveWalletHostInternalOptionsV1(null)).toThrow(
+    'inject walletHostComposition before bootstrap',
+  );
 });

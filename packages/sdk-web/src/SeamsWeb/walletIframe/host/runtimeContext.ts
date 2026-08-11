@@ -15,6 +15,7 @@ import {
   ensureSeamsWeb,
   ensureWalletHostLifecycleSubscription,
   setWalletHostLifecycleListener,
+  type WalletHostCompositionV1,
   type HostContext,
 } from './context';
 import type { HandlerDeps, HandlerMap } from './handlers/walletIframeHandler.types';
@@ -29,6 +30,7 @@ export type WalletHostRuntimeState = {
   parentOrigin: string | null;
   port: MessagePort | null;
   walletConfigs: SeamsConfigsInput | null;
+  walletHostComposition: WalletHostCompositionV1 | null;
 };
 
 export type WalletHostRuntimeRequest = {
@@ -157,7 +159,9 @@ function takeForegroundSurfaceBinding(
 
 function syncRuntimeContext(state: WalletHostRuntimeState): HostContext {
   if (!runtimeContext) {
-    runtimeContext = createHostContext();
+    runtimeContext = createHostContext(state.walletHostComposition);
+  } else {
+    runtimeContext.walletHostComposition = state.walletHostComposition;
   }
   runtimeContext.parentOrigin = state.parentOrigin;
   runtimeContext.port = state.port;
