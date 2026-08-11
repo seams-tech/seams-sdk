@@ -12,13 +12,28 @@ import type {
   LinkedDeviceHolderDeliveryAcknowledgementV1,
   LinkedDeviceProvisioningDeliveriesV1,
 } from '../../packages/shared-ts/src/device-linking';
-import { parseRotatableSigningLaneJobV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
+import {
+  buildLaneEnrollmentManifestV1,
+  parseRotatableSigningLaneJobV1,
+} from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import {
   buildR102LaneJob,
+  buildR102ManifestChild,
   buildR102ProtocolCommitReceipt,
 } from './helpers/r102LaneGateway.fixtures';
+
+function manifestForJob(job: ReturnType<typeof buildR102LaneJob>) {
+  return buildLaneEnrollmentManifestV1({
+    enrollmentId: job.enrollmentId,
+    walletId: job.walletId,
+    authorization: job.authorization,
+    orderedChildren: [buildR102ManifestChild(job)],
+    createdAtMs: 1_000,
+    expiresAtMs: job.expiresAtMs,
+  });
+}
 
 class MemoryHolderRepository implements LaneSealedHolderMaterialRepositoryV1 {
   private readonly records = new Map<string, LaneSealedHolderRecordV1>();
@@ -95,6 +110,7 @@ test('seals exact linked-device deliveries once and replays the durable holder r
     linkSessionId: fixture.payload.linkSessionId,
     enrollmentId: fixture.approval.enrollmentId,
     deviceId: fixture.approval.deviceId,
+    manifest: manifestForJob(job),
     orderedChildren: [
       {
         kind: 'linked_device_provisioning_child_v1',
@@ -199,6 +215,7 @@ test('reconciles committed delivery from refetched children and durable records 
     linkSessionId: fixture.payload.linkSessionId,
     enrollmentId: fixture.approval.enrollmentId,
     deviceId: fixture.approval.deviceId,
+    manifest: manifestForJob(job),
     orderedChildren: [
       {
         kind: 'linked_device_provisioning_child_v1',
@@ -313,6 +330,7 @@ test('refuses committed recovery when a durable child is missing or substituted'
       linkSessionId: fixture.payload.linkSessionId,
       enrollmentId: fixture.approval.enrollmentId,
       deviceId: fixture.approval.deviceId,
+      manifest: manifestForJob(job),
       orderedChildren: [
         {
           kind: 'linked_device_provisioning_child_v1',

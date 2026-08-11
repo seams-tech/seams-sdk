@@ -217,6 +217,7 @@ const PROVISIONING_DELIVERIES_FIELDS = [
   'linkSessionId',
   'enrollmentId',
   'deviceId',
+  'manifest',
   'orderedChildren',
 ] as const;
 const PROVISIONING_CHILD_FIELDS = [
@@ -1566,8 +1567,31 @@ export function parseLinkedDeviceProvisioningDeliveriesV1(
     'LinkedDeviceProvisioningDeliveriesV1.enrollmentId',
   );
   const deviceId = parseDeviceId(record.deviceId, 'LinkedDeviceProvisioningDeliveriesV1.deviceId');
+  const manifest = parseLaneEnrollmentManifestV1(
+    record.manifest,
+    'LinkedDeviceProvisioningDeliveriesV1.manifest',
+  );
+  if (
+    String(manifest.enrollmentId) !== String(enrollmentId) ||
+    manifest.authorization.kind !== 'linked_device_enrollment' ||
+    String(manifest.authorization.linkedDeviceEnrollmentId) !== String(enrollmentId) ||
+    manifest.orderedChildren.length !== orderedChildren.length
+  ) {
+    throw new Error('LinkedDeviceProvisioningDeliveriesV1 manifest does not match parent');
+  }
   const targetLanes = new Set<string>();
-  for (const child of orderedChildren) {
+  for (let index = 0; index < orderedChildren.length; index += 1) {
+    const child = orderedChildren[index];
+    const manifestChild = manifest.orderedChildren[index];
+    if (
+      !child ||
+      !manifestChild ||
+      !sameTargetReadyJobManifestChild(child.job, manifest, manifestChild)
+    ) {
+      throw new Error(
+        `LinkedDeviceProvisioningDeliveriesV1 child ${index} differs from its manifest child`,
+      );
+    }
     if (String(child.job.enrollmentId) !== String(enrollmentId)) {
       throw new Error(
         'LinkedDeviceProvisioningDeliveriesV1 child enrollment does not match parent',
@@ -1597,6 +1621,7 @@ export function parseLinkedDeviceProvisioningDeliveriesV1(
     linkSessionId,
     enrollmentId,
     deviceId,
+    manifest,
     orderedChildren,
   };
 }

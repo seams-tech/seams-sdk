@@ -92,6 +92,7 @@ async function prepareTargetReadyDeliveriesV1(args: {
     linkSessionId: args.input.linkSessionId,
     enrollmentId: args.input.enrollmentId,
     deviceId: args.input.deviceId,
+    manifest: prepared.manifest,
     orderedChildren: committedDeliveryChildren(prepared),
   });
 }

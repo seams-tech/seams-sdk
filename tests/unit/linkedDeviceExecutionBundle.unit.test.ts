@@ -1,17 +1,14 @@
 import { expect, test } from '@playwright/test';
 import { buildActiveLinkedDeviceExecutionBundleV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/linkedDeviceExecutionBundle';
-import {
-  buildR103DeviceLinkFixture,
-  buildR103LinkedWalletSessionDeliveryFixture,
-  buildR103ProvisioningFixture,
-  buildR103TargetCredentialFixture,
-} from './helpers/deviceLinkContracts.fixtures';
+import { buildR103ActiveExecutionFixture } from './helpers/deviceLinkContracts.fixtures';
 
 test('builds one exact active Device 2 execution projection from R102 evidence', async () => {
-  const fixture = buildR103DeviceLinkFixture();
-  const target = await buildR103TargetCredentialFixture(fixture);
-  const provisioning = buildR103ProvisioningFixture(fixture);
-  const walletSession = buildR103LinkedWalletSessionDeliveryFixture(fixture);
+  const {
+    deviceLink: fixture,
+    targetCredential: target,
+    provisioning,
+    walletSession,
+  } = await buildR103ActiveExecutionFixture();
 
   const bundle = await buildActiveLinkedDeviceExecutionBundleV1({
     approval: fixture.approval,
@@ -28,8 +25,9 @@ test('builds one exact active Device 2 execution projection from R102 evidence',
     walletId: fixture.approval.walletId,
     enrollmentId: fixture.approval.enrollmentId,
     deviceId: fixture.approval.deviceId,
-    rpId: target.preparation.rpId,
-    credentialIdB64u: target.registration.webauthnRegistration.credentialIdB64u,
+    targetPreparation: target.preparation,
+    targetCredentialRegistration: target.registration,
+    manifest: provisioning.deliveries.manifest,
     keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
     aggregateReceiptDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
   });
@@ -50,10 +48,12 @@ test('builds one exact active Device 2 execution projection from R102 evidence',
 });
 
 test('rejects a Wallet Session that is bound to a different active manifest', async () => {
-  const fixture = buildR103DeviceLinkFixture();
-  const target = await buildR103TargetCredentialFixture(fixture);
-  const provisioning = buildR103ProvisioningFixture(fixture);
-  const walletSession = buildR103LinkedWalletSessionDeliveryFixture(fixture);
+  const {
+    deviceLink: fixture,
+    targetCredential: target,
+    provisioning,
+    walletSession,
+  } = await buildR103ActiveExecutionFixture();
 
   await expect(
     buildActiveLinkedDeviceExecutionBundleV1({
