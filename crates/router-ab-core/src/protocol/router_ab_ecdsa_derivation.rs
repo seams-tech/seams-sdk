@@ -1850,6 +1850,8 @@ pub struct LinkedDeviceEcdsaNormalSigningScopeInputV1 {
     pub server_recipient_key_digest_b64u: String,
     /// Target SigningWorker recipient-key identity.
     pub signing_worker_recipient_key_id: String,
+    /// Target SigningWorker HPKE public key.
+    pub signing_worker_hpke_public_key_b64u: String,
     /// Complete lane-protocol transcript digest.
     pub transcript_hash_b64u: String,
     /// Protocol commit receipt digest.
@@ -1916,6 +1918,8 @@ pub struct RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1 {
     pub server_recipient_key_digest_b64u: String,
     /// Target SigningWorker recipient-key identity.
     pub signing_worker_recipient_key_id: String,
+    /// Target SigningWorker HPKE public key.
+    pub signing_worker_hpke_public_key_b64u: String,
     /// Complete lane-protocol transcript digest.
     pub transcript_hash_b64u: String,
     /// Protocol commit receipt digest.
@@ -1952,6 +1956,7 @@ impl RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1 {
             holder_recipient_key_digest_b64u: input.holder_recipient_key_digest_b64u,
             server_recipient_key_digest_b64u: input.server_recipient_key_digest_b64u,
             signing_worker_recipient_key_id: input.signing_worker_recipient_key_id,
+            signing_worker_hpke_public_key_b64u: input.signing_worker_hpke_public_key_b64u,
             transcript_hash_b64u: input.transcript_hash_b64u,
             protocol_commit_receipt_digest_b64u: input.protocol_commit_receipt_digest_b64u,
         };
@@ -2042,6 +2047,10 @@ impl RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1 {
             "linkedEcdsaScope.signingWorkerRecipientKeyId",
             &self.signing_worker_recipient_key_id,
         )?;
+        decode_canonical_base64url_fixed_32(
+            "linkedEcdsaScope.signingWorkerHpkePublicKeyB64u",
+            &self.signing_worker_hpke_public_key_b64u,
+        )?;
         Ok(())
     }
 
@@ -2091,6 +2100,10 @@ impl RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1 {
         push_len32(&mut out, self.holder_recipient_key_digest_b64u.as_bytes());
         push_len32(&mut out, self.server_recipient_key_digest_b64u.as_bytes());
         push_len32(&mut out, self.signing_worker_recipient_key_id.as_bytes());
+        push_len32(
+            &mut out,
+            self.signing_worker_hpke_public_key_b64u.as_bytes(),
+        );
         push_len32(&mut out, self.transcript_hash_b64u.as_bytes());
         push_len32(
             &mut out,
