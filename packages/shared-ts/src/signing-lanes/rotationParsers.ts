@@ -674,7 +674,10 @@ function parseChainTarget(raw: unknown, label: string): ThresholdEcdsaChainTarge
   throw new Error(`${label}.kind is invalid`);
 }
 
-function parseEcdsaTargetCapability(raw: unknown, label: string): EcdsaTargetCapabilityBindingV1 {
+export function parseEcdsaTargetCapabilityBindingV1(
+  raw: unknown,
+  label: string,
+): EcdsaTargetCapabilityBindingV1 {
   const record = exactRecord(
     raw,
     ['manifestId', 'manifestRevision', 'ecdsaThresholdKeyId', 'orderedThresholdSessions'],
@@ -930,7 +933,7 @@ function parseEcdsaJob(record: UnknownRecord, label: string): EcdsaAdditiveLaneJ
       value.sourceCapability,
       `${label}.sourceCapability`,
     ),
-    targetCapability: parseEcdsaTargetCapability(
+    targetCapability: parseEcdsaTargetCapabilityBindingV1(
       value.targetCapability,
       `${label}.targetCapability`,
     ),
