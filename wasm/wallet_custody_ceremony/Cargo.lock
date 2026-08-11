@@ -460,6 +460,7 @@ dependencies = [
  "elliptic-curve 0.13.8",
  "rfc6979",
  "signature",
+ "spki 0.7.3",
 ]
 
 [[package]]
@@ -530,6 +531,7 @@ dependencies = [
  "generic-array",
  "group 0.13.0",
  "hkdf 0.12.4",
+ "pkcs8 0.10.2",
  "rand_core 0.6.4",
  "sec1 0.7.3",
  "subtle",
@@ -1009,6 +1011,7 @@ dependencies = [
  "cfg-if",
  "ecdsa",
  "elliptic-curve 0.13.8",
+ "once_cell",
  "sha2 0.10.9",
  "signature",
 ]
@@ -1331,6 +1334,7 @@ dependencies = [
  "router-ab-ecdsa-presign",
  "router-ab-ecdsa-wire",
  "router-ab-ed25519-yao",
+ "router-ab-ed25519-yao-protocol",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1459,6 +1463,8 @@ dependencies = [
 name = "router-ab-ed25519-yao"
 version = "0.1.0"
 dependencies = [
+ "base64ct",
+ "curve25519-dalek",
  "ed25519-yao",
  "hpke-ng",
  "rand_core 0.9.5",
@@ -1475,17 +1481,23 @@ dependencies = [
 name = "router-ab-ed25519-yao-client"
 version = "0.1.0"
 dependencies = [
+ "base64ct",
  "chacha20poly1305",
  "curve25519-dalek",
  "frost-ed25519",
  "getrandom 0.2.17",
+ "hex",
  "hkdf 0.12.4",
  "hpke-ng",
+ "js-sys",
+ "k256",
  "rand_chacha",
  "rand_core 0.9.5",
  "router-ab-core",
+ "router-ab-ecdsa-client-protocol",
  "router-ab-ed25519-yao-protocol",
  "serde",
+ "serde-wasm-bindgen",
  "serde_json",
  "sha2 0.10.9",
  "signer-core",
@@ -1550,6 +1562,7 @@ dependencies = [
  "base16ct 0.2.0",
  "der 0.7.10",
  "generic-array",
+ "pkcs8 0.10.2",
  "subtle",
  "zeroize",
 ]
