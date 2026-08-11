@@ -767,3 +767,86 @@ test('Cloudflare D1 R103 composition exposes linked admission and local presence
     cleanupTemporaryD1Database(tempDir);
   }
 });
+
+test('Cloudflare D1 R103 composition owns lane activation and aggregate revocation wiring', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    const rpId = requireParsedDomainId(parseWebAuthnRpId('example.test'));
+    const unreachable = async () => {
+      throw new Error('lane effect is not invoked during composition');
+    };
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+      linkedDevice: {
+        execution: {
+          nowV1: () => 5_000,
+          rpId,
+          expectedOrigin: 'https://example.test',
+          logger: normalizeLogger(),
+        },
+        session: {
+          laneLifecycle: {
+            authorization: { authorizeLaneLifecycleV1: unreachable },
+            execution: {
+              ed25519: {
+                executeProtocolCommitV1: unreachable,
+                executeServerActivationV1: unreachable,
+                executeServerRetirementV1: unreachable,
+              },
+              ecdsa: {
+                executeProtocolCommitV1: unreachable,
+                executeServerActivationV1: unreachable,
+                executeServerRetirementV1: unreachable,
+              },
+            },
+          },
+          ownerAuthorization: {
+            authorizeOwnerClaimV1: async () => ({
+              kind: 'denied',
+              code: 'unauthorized',
+              message: 'test',
+            }),
+            authorizeOwnerApprovalV1: async () => ({
+              kind: 'denied',
+              code: 'unauthorized',
+              message: 'test',
+            }),
+          },
+          authenticateOwnerRequestV1: async () => ({
+            kind: 'denied',
+            code: 'unauthorized',
+            message: 'test',
+          }),
+          targetPlanner: {
+            createTargetPreparationV1: unreachable,
+            commitVerifiedTargetV1: unreachable,
+          },
+          acknowledgeReceiptV1: unreachable,
+          retryCommittedDeliveryV1: unreachable,
+          operatorRecovery: {
+            authenticateOperatorRecoveryRequestV1: async () => ({
+              kind: 'denied',
+              code: 'unauthorized',
+              message: 'test',
+            }),
+          },
+        },
+        management: {
+          authorization: {
+            authorizeLinkedDeviceManagementV1: async () => ({ kind: 'unauthorized' }),
+          },
+          localStateInvalidation: { invalidateLinkedDeviceStateV1: unreachable },
+        },
+      },
+    });
+
+    expect(service.deviceLinking).toBeDefined();
+    expect(service.deviceManagement).toBeDefined();
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});

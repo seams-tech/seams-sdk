@@ -159,11 +159,15 @@ import {
 } from '../deviceLinking/d1LinkedDeviceTargetCredentialProvider';
 import { D1LinkedDeviceProvisioningProviderV1 } from '../deviceLinking/d1LinkedDeviceProvisioningProvider';
 import { D1LinkedDeviceSourceHandoffProviderV1 } from '../deviceLinking/d1LinkedDeviceSourceHandoffProvider';
+import { createLinkedDeviceR102ProvisioningExecutionV1 } from '../deviceLinking/linkedDeviceR102ProvisioningExecution';
 import {
   createD1LinkedDeviceCredentialResolverV1,
   createD1LinkedDeviceLocalPresenceVerifierV1,
 } from '../deviceLinking/d1LinkedDeviceTargetAuthenticatorStore';
 import { D1LinkedDeviceExecutionAdmissionResolverV1 } from '../deviceLinking/d1LinkedDeviceExecutionAdmissionResolver';
+import { CloudflareD1LaneEnrollmentGateway } from '../signingLanes/d1LaneEnrollmentGateway';
+import { createCloudflareD1LaneAggregateRevocationApplicationService } from '../signingLanes/d1LaneAggregateRevocationApplicationService';
+import { createCloudflareD1LaneLifecycleApplicationService } from '../signingLanes/d1LaneLifecycleApplicationService';
 import { CloudflareD1LaneLifecycleStore } from '../signingLanes/d1LaneLifecycleStore';
 
 export type {
@@ -173,6 +177,7 @@ export type {
   CloudflareD1EmailOtpServerSealConfig,
   CloudflareD1LinkedDeviceCompositionOptionsV1,
   CloudflareD1LinkedDeviceExecutionOptionsV1,
+  CloudflareD1LinkedDeviceLaneLifecycleOptionsV1,
   CloudflareD1LinkedDeviceSessionOptionsV1,
   CloudflareD1LinkedDeviceManagementOptionsV1,
   CloudflareD1LinkedDeviceGatewayOptionsV1,
@@ -374,6 +379,18 @@ function createD1LinkedDeviceComposition(input: {
       database: input.options.database,
       scope,
     });
+    const laneLifecycleOptions = {
+      database: input.options.database,
+      scope,
+      now: config.execution.nowV1,
+      authorization: config.session.laneLifecycle.authorization,
+      execution: config.session.laneLifecycle.execution,
+    };
+    const laneLifecycleStore = new CloudflareD1LaneLifecycleStore(laneLifecycleOptions);
+    const laneGateway = new CloudflareD1LaneEnrollmentGateway({
+      lifecycleStore: laneLifecycleStore,
+    });
+    const laneLifecycle = createCloudflareD1LaneLifecycleApplicationService(laneLifecycleOptions);
     const targetCredential = new D1LinkedDeviceTargetCredentialProviderV1({
       database: input.options.database,
       scope,
@@ -386,14 +403,12 @@ function createD1LinkedDeviceComposition(input: {
     const provisioning = new D1LinkedDeviceProvisioningProviderV1({
       database: input.options.database,
       scope,
-      execution: {
-        prepareProvisioningDeliveriesV1:
-          sourceHandoff.prepareProvisioningDeliveriesV1.bind(sourceHandoff),
-        recordHolderDeliveriesAndActivateV1:
-          config.session.provisioningActivation.recordHolderDeliveriesAndActivateV1.bind(
-            config.session.provisioningActivation,
-          ),
-      },
+      execution: createLinkedDeviceR102ProvisioningExecutionV1({
+        sourcePreparation: sourceHandoff,
+        gateway: laneGateway,
+        lifecycle: laneLifecycle,
+        products: laneLifecycleStore,
+      }),
     });
     deviceLinking = createD1LinkedDeviceRouteServiceV1({
       database: input.options.database,
@@ -429,6 +444,13 @@ function createD1LinkedDeviceComposition(input: {
     const walletSessionRevocation = new AuthorizationServiceLinkedDeviceWalletSessionRevocationV1(
       input.authorizationService,
     );
+    const laneLifecycleOptions = {
+      database: input.options.database,
+      scope,
+      now: config.execution.nowV1,
+      authorization: config.session.laneLifecycle.authorization,
+      execution: config.session.laneLifecycle.execution,
+    };
     deviceManagement = createD1LinkedDeviceManagementRouteServiceV1({
       database: input.options.database,
       scope,
@@ -436,7 +458,8 @@ function createD1LinkedDeviceComposition(input: {
       metadata,
       authorization: config.management.authorization,
       preparation,
-      aggregateRevocation: config.management.aggregateRevocation,
+      aggregateRevocation:
+        createCloudflareD1LaneAggregateRevocationApplicationService(laneLifecycleOptions),
       walletSessionRevocation,
       localStateInvalidation: config.management.localStateInvalidation,
       nowV1: config.execution.nowV1,
