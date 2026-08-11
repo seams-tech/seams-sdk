@@ -36,6 +36,7 @@ import type {
   LinkDeviceSessionId,
 } from '@shared/signing-lanes/ids';
 import type { WalletId } from '@shared/utils/domainIds';
+import type { LinkedDeviceExecutionEvidenceRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
 
 /** Authenticated owner request proof produced by the one owner auth source. */
 export type LinkSessionAuthenticationV1 = {
@@ -257,12 +258,18 @@ export type DeviceLinkingWalletSessionStorePortV1 = {
   putExactActiveDeliveryV1(delivery: LinkedDeviceWalletSessionDeliveryV1): Promise<void>;
 };
 
+export type DeviceLinkingExecutionEvidenceStorePortV1 = Pick<
+  LinkedDeviceExecutionEvidenceRepositoryV1,
+  'putExactProvisionedEvidenceV1' | 'readForEnrollmentV1'
+>;
+
 export type Device2LinkingFlowPortsV1 = {
   readonly transport: LinkSessionTransportPortV1;
   readonly keyMaterial: DeviceLinkingKeyMaterialPortV1;
   readonly targetCredential: DeviceLinkingTargetCredentialPortV1;
   readonly laneProvisioning: DeviceLinkingLaneProvisioningPortV1;
   readonly walletSessions: DeviceLinkingWalletSessionStorePortV1;
+  readonly executionEvidence: DeviceLinkingExecutionEvidenceStorePortV1;
 };
 
 export type Device1LinkingFlowPortsV1 = {

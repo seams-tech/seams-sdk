@@ -28,6 +28,9 @@ import type {
   LinkedDeviceHolderDeliveryAcknowledgementV1,
   LinkedDeviceEnrollmentReceiptV1,
   LinkedDeviceApprovalV1,
+  LinkedDeviceProvisioningDeliveriesV1,
+  LinkedDeviceTargetCredentialRegistrationV1,
+  LinkedDeviceTargetPreparationV1,
   LinkedDeviceWalletSessionDeliveryV1,
   QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking';
@@ -46,6 +49,7 @@ import type {
 import { createDeviceLinkingLaneProvisioningHandoffV1 } from './deviceLinkingPorts';
 import { LinkDeviceEventPhase, createLinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import type { CreateLinkDeviceFlowEventInput } from '@/core/types/sdkSentEvents';
+import { buildLinkedDeviceProvisionedExecutionEvidenceV1 } from '@/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
 
 type EmitLinkDeviceEventInput = Omit<CreateLinkDeviceFlowEventInput, 'flowId' | 'accountId'> & {
   readonly accountId?: string;
@@ -446,17 +450,18 @@ export class LinkDeviceFlow {
     this.assertCurrentRun(runEpoch);
     const targetPreparationDigestB64u =
       await computeLinkedDeviceTargetPreparationDigestV1(preparation);
+    const registration = buildLinkedDeviceTargetCredentialRegistrationV1({
+      linkSessionId: state.linkSessionId,
+      walletId: state.walletId,
+      enrollmentId: state.enrollmentId,
+      deviceId,
+      targetPreparationDigestB64u,
+      webauthnRegistration: credential.webauthnRegistration,
+      orderedHolderRegistrations: credential.orderedHolderRegistrations,
+      registeredAtMs: Date.now(),
+    });
     await authenticatedTransport.registerTargetCredentialV1({
-      registration: buildLinkedDeviceTargetCredentialRegistrationV1({
-        linkSessionId: state.linkSessionId,
-        walletId: state.walletId,
-        enrollmentId: state.enrollmentId,
-        deviceId,
-        targetPreparationDigestB64u,
-        webauthnRegistration: credential.webauthnRegistration,
-        orderedHolderRegistrations: credential.orderedHolderRegistrations,
-        registeredAtMs: Date.now(),
-      }),
+      registration,
     });
     this.assertCurrentRun(runEpoch);
     const approval = await authenticatedTransport.getApprovalV1({
@@ -483,6 +488,14 @@ export class LinkDeviceFlow {
     );
     this.assertCurrentRun(runEpoch);
     this.aggregateReceipt = receipt;
+    await this.persistProvisionedExecutionEvidenceV1({
+      approval,
+      preparation,
+      registration,
+      deliveries,
+      receipt,
+      runEpoch,
+    });
     await authenticatedTransport.acknowledgeReceiptV1({
       acknowledgement: buildLinkedDeviceReceiptAcknowledgementV1({
         linkSessionId: state.linkSessionId,
@@ -558,6 +571,8 @@ export class LinkDeviceFlow {
       }),
     });
     this.assertCurrentRun(runEpoch);
+    let replayApproval: LinkedDeviceApprovalV1 | null = null;
+    let replayDeliveries: LinkedDeviceProvisioningDeliveriesV1 | null = null;
     const receipt = await this.ports.laneProvisioning.resumeCommittedDeliveryV1({
       state,
       refetchApprovalV1: async () => {
@@ -567,6 +582,7 @@ export class LinkDeviceFlow {
         this.assertCurrentRun(runEpoch);
         this.assertCommittedApprovalMatchesSession({ approval, state, deviceId });
         this.provisioningApproval = approval;
+        replayApproval = approval;
         return approval;
       },
       refetchProvisioningDeliveriesV1: async () => {
@@ -578,12 +594,23 @@ export class LinkDeviceFlow {
           }),
         });
         this.assertCurrentRun(runEpoch);
+        replayDeliveries = deliveries;
         return deliveries;
       },
       acknowledgeHolderDeliveriesV1: this.acknowledgeHolderDeliveries.bind(this, runEpoch),
     });
     this.assertCurrentRun(runEpoch);
     this.aggregateReceipt = receipt;
+    if (!replayApproval || !replayDeliveries) {
+      throw new Error('committed linked-device delivery did not refetch exact R102 evidence');
+    }
+    await this.revalidatePersistedExecutionEvidenceV1({
+      approval: replayApproval,
+      deliveries: replayDeliveries,
+      receipt,
+      enrollmentId: state.enrollmentId,
+      runEpoch,
+    });
     if (!this.session) return;
     await authenticatedTransport.acknowledgeReceiptV1({
       acknowledgement: buildLinkedDeviceReceiptAcknowledgementV1({
@@ -596,6 +623,48 @@ export class LinkDeviceFlow {
     });
     this.assertCurrentRun(runEpoch);
     await this.ensureWalletSessionDeliveryPersistedV1({ state, runEpoch, deviceId });
+  }
+
+  private async persistProvisionedExecutionEvidenceV1(input: {
+    readonly approval: LinkedDeviceApprovalV1;
+    readonly preparation: LinkedDeviceTargetPreparationV1;
+    readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+    readonly deliveries: LinkedDeviceProvisioningDeliveriesV1;
+    readonly receipt: LinkedDeviceEnrollmentReceiptV1;
+    readonly runEpoch: number;
+  }): Promise<void> {
+    const evidence = await buildLinkedDeviceProvisionedExecutionEvidenceV1({
+      approval: input.approval,
+      targetPreparation: input.preparation,
+      targetCredentialRegistration: input.registration,
+      provisioningDeliveries: input.deliveries,
+      enrollmentReceipt: input.receipt,
+    });
+    this.assertCurrentRun(input.runEpoch);
+    await this.ports.executionEvidence.putExactProvisionedEvidenceV1(evidence);
+    this.assertCurrentRun(input.runEpoch);
+  }
+
+  private async revalidatePersistedExecutionEvidenceV1(input: {
+    readonly approval: LinkedDeviceApprovalV1;
+    readonly deliveries: LinkedDeviceProvisioningDeliveriesV1;
+    readonly receipt: LinkedDeviceEnrollmentReceiptV1;
+    readonly enrollmentId: LinkedDeviceApprovalV1['enrollmentId'];
+    readonly runEpoch: number;
+  }): Promise<void> {
+    const stored = await this.ports.executionEvidence.readForEnrollmentV1(input.enrollmentId);
+    this.assertCurrentRun(input.runEpoch);
+    if (stored.kind !== 'found') {
+      throw new Error(`linked-device execution evidence is ${stored.kind}`);
+    }
+    await this.persistProvisionedExecutionEvidenceV1({
+      approval: input.approval,
+      preparation: stored.evidence.targetPreparation,
+      registration: stored.evidence.targetCredentialRegistration,
+      deliveries: input.deliveries,
+      receipt: input.receipt,
+      runEpoch: input.runEpoch,
+    });
   }
 
   private async ensureWalletSessionDeliveryPersistedV1(input: {
