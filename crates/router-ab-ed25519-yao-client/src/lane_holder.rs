@@ -318,6 +318,13 @@ impl LaneHolderSigningMaterialV1 {
         }
     }
 
+    pub(crate) fn ecdsa_material(&self) -> Result<&[u8; 32], LaneHolderError> {
+        match self {
+            Self::Ecdsa { _share: share } => Ok(share),
+            Self::Ed25519 { .. } | Self::Destroyed => Err(LaneHolderError::BindingMismatch),
+        }
+    }
+
     pub(crate) fn destroy(&mut self) {
         *self = Self::Destroyed;
     }
