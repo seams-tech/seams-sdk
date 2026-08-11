@@ -87,6 +87,7 @@ export const CONSOLE_EMAIL_D1_SCHEMA_SQL = Object.freeze([
       CHECK (
         template_family IN (
           'ORGANIZATION_INVITATION',
+          'ACCOUNT_WELCOME',
           'OWNER_MEMBERSHIP_CHANGED',
           'MEMBERSHIP_ACCESS_CHANGED',
           'PREPAID_TOP_UP_RECEIPT',
@@ -289,6 +290,7 @@ export interface CreateConsoleEmailOutboxInsertStatementOptions {
   readonly email: ConsoleEmailOutboxInsert;
   readonly invitationSecretCipher?: ConsoleInvitationSecretCipher;
   readonly insertGuard?: ConsoleEmailOutboxInsertGuard;
+  readonly conflictPolicy?: 'ERROR' | 'IGNORE_DEDUPE';
 }
 
 export interface CreateConsoleInvitationEmailCancellationStatementOptions {
@@ -303,7 +305,7 @@ export interface CreateConsoleInvitationEmailCancellationStatementOptions {
 export interface D1ConsoleEmailDispatcherOptions {
   readonly database: D1DatabaseLike;
   readonly provider: ConsoleEmailProvider;
-  readonly invitationSecretCipher: ConsoleInvitationSecretCipher;
+  readonly invitationSecretCipher?: ConsoleInvitationSecretCipher;
   readonly namespace?: string;
   readonly ensureSchema?: boolean;
   readonly now?: () => Date;
@@ -347,7 +349,7 @@ export interface ListD1ConsoleEmailDeliveriesOptions {
 interface D1ConsoleEmailDispatcherState {
   readonly database: D1DatabaseLike;
   readonly provider: ConsoleEmailProvider;
-  readonly invitationSecretCipher: ConsoleInvitationSecretCipher;
+  readonly invitationSecretCipher?: ConsoleInvitationSecretCipher;
   readonly namespace: string;
   readonly now: () => Date;
   readonly workerId: string;
@@ -430,6 +432,16 @@ export async function createConsoleEmailOutboxInsertStatement(
     options.insertGuard === 'PREVIOUS_STATEMENT_CHANGED_ONE'
       ? 'SELECT ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 0, 0, ?, NULL, NULL, NULL, ?, ?, NULL, NULL WHERE changes() = 1'
       : 'VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 0, 0, ?, NULL, NULL, NULL, ?, ?, NULL, NULL)';
+  if (
+    options.insertGuard === 'PREVIOUS_STATEMENT_CHANGED_ONE' &&
+    options.conflictPolicy === 'IGNORE_DEDUPE'
+  ) {
+    throw new Error('IGNORE_DEDUPE cannot be combined with an insert guard');
+  }
+  const conflictSql =
+    options.conflictPolicy === 'IGNORE_DEDUPE'
+      ? ' ON CONFLICT(namespace, org_id, dedupe_key) DO NOTHING'
+      : '';
   return options.database
     .prepare(
       `INSERT INTO console_email_outbox
@@ -459,7 +471,7 @@ export async function createConsoleEmailOutboxInsertStatement(
           sent_at_ms,
           canceled_at_ms
         )
-       ${sourceSql}`,
+       ${sourceSql}${conflictSql}`,
     )
     .bind(
       namespace,
@@ -780,7 +792,11 @@ async function renderClaimedConsoleEmail(
 ): Promise<RenderedConsoleEmail> {
   switch (claimed.template.family) {
     case 'ORGANIZATION_INVITATION': {
-      if (!claimed.invitationId || !claimed.sealedInvitationSecret) {
+      if (
+        !claimed.invitationId ||
+        !claimed.sealedInvitationSecret ||
+        !state.invitationSecretCipher
+      ) {
         throw new Error('Invitation email is missing encrypted secret material');
       }
       const invitationSecret = await state.invitationSecretCipher.open({
@@ -793,6 +809,7 @@ async function renderClaimedConsoleEmail(
       return renderOrganizationInvitationEmailV1(claimed.template, invitationSecret);
     }
     case 'OWNER_MEMBERSHIP_CHANGED':
+    case 'ACCOUNT_WELCOME':
     case 'MEMBERSHIP_ACCESS_CHANGED':
     case 'PREPAID_TOP_UP_RECEIPT':
     case 'BILLING_REFUND_RESULT':
@@ -1303,6 +1320,7 @@ function parseProvider(value: unknown): 'capture' | 'resend' {
 
 function parseTemplateFamily(value: unknown): ConsoleEmailTemplateFamily {
   switch (value) {
+    case 'ACCOUNT_WELCOME':
     case 'ORGANIZATION_INVITATION':
     case 'OWNER_MEMBERSHIP_CHANGED':
     case 'MEMBERSHIP_ACCESS_CHANGED':

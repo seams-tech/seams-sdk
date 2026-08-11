@@ -1,4 +1,5 @@
 import type {
+  AccountWelcomeEmailV1,
   BillingRefundResultEmailV1,
   ConsoleEmailInvitationRole,
   ConsoleEmailNonInvitationTemplateV1,
@@ -12,6 +13,14 @@ import type {
 } from './types';
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
+
+export interface AccountWelcomeEmailV1Input {
+  readonly recipientDisplayName: string;
+  readonly organizationName: string;
+  readonly projectName: string;
+  readonly consoleBaseUrl: string;
+  readonly docsBaseUrl: string;
+}
 
 export interface OrganizationInvitationEmailV1Input {
   readonly invitationId: string;
@@ -84,6 +93,20 @@ export interface LowBalanceWarningEmailV1Input {
   readonly balanceMinor: number;
   readonly thresholdMinor: number;
   readonly consoleBaseUrl: string;
+}
+
+export function buildAccountWelcomeEmailV1(
+  input: AccountWelcomeEmailV1Input,
+): AccountWelcomeEmailV1 {
+  return {
+    family: 'ACCOUNT_WELCOME',
+    version: 1,
+    recipientDisplayName: requiredText(input.recipientDisplayName, 'recipientDisplayName'),
+    organizationName: requiredText(input.organizationName, 'organizationName'),
+    projectName: requiredText(input.projectName, 'projectName'),
+    consoleBaseUrl: httpBaseUrl(input.consoleBaseUrl, 'consoleBaseUrl'),
+    docsBaseUrl: httpBaseUrl(input.docsBaseUrl, 'docsBaseUrl'),
+  };
 }
 
 export function buildOrganizationInvitationEmailV1(
@@ -207,6 +230,8 @@ export function parseConsoleEmailTemplate(raw: unknown): ConsoleEmailTemplateV1 
     throw new Error('Unsupported console email template version');
   }
   switch (record.family) {
+    case 'ACCOUNT_WELCOME':
+      return parseAccountWelcome(record);
     case 'ORGANIZATION_INVITATION':
       return parseOrganizationInvitation(record);
     case 'OWNER_MEMBERSHIP_CHANGED':
@@ -258,6 +283,8 @@ export function renderConsoleEmailV1(
   template: ConsoleEmailNonInvitationTemplateV1,
 ): RenderedConsoleEmail {
   switch (template.family) {
+    case 'ACCOUNT_WELCOME':
+      return renderAccountWelcome(template);
     case 'OWNER_MEMBERSHIP_CHANGED':
       return renderOwnerMembershipChanged(template);
     case 'MEMBERSHIP_ACCESS_CHANGED':
@@ -271,6 +298,16 @@ export function renderConsoleEmailV1(
     default:
       return assertNever(template);
   }
+}
+
+function parseAccountWelcome(record: UnknownRecord): AccountWelcomeEmailV1 {
+  return buildAccountWelcomeEmailV1({
+    recipientDisplayName: requiredRawString(record.recipientDisplayName, 'recipientDisplayName'),
+    organizationName: requiredRawString(record.organizationName, 'organizationName'),
+    projectName: requiredRawString(record.projectName, 'projectName'),
+    consoleBaseUrl: requiredRawString(record.consoleBaseUrl, 'consoleBaseUrl'),
+    docsBaseUrl: requiredRawString(record.docsBaseUrl, 'docsBaseUrl'),
+  });
 }
 
 function parseOrganizationInvitation(record: UnknownRecord): OrganizationInvitationEmailV1 {
@@ -389,6 +426,32 @@ function renderOwnerMembershipChanged(
       actionUrl: null,
     }),
   };
+}
+
+function renderAccountWelcome(template: AccountWelcomeEmailV1): RenderedConsoleEmail {
+  const consoleUrl = new URL('/dashboard', template.consoleBaseUrl).toString();
+  const quickstartUrl = new URL('/getting-started/', template.docsBaseUrl).toString();
+  const architectureUrl = new URL('/concepts/architecture', template.docsBaseUrl).toString();
+  const subject = 'Welcome to Seams';
+  const greeting = `Hey ${template.recipientDisplayName},`;
+  const setup = `Your ${template.organizationName} organization and ${template.projectName} project are ready.`;
+  const purpose =
+    'We built Seams to make keys, credentials, and policies easier to ship without giving up control of your infrastructure.';
+  const question = 'P.S. What are you building? Reply and tell us. We read every response.';
+  const text = [
+    greeting,
+    'Welcome to Seams.',
+    setup,
+    purpose,
+    'Here are three good places to start:',
+    `1. Open your console: ${consoleUrl}`,
+    `2. Follow the quickstart: ${quickstartUrl}`,
+    `3. See how Seams works: ${architectureUrl}`,
+    question,
+    'Cheers,\nThe Seams team',
+  ].join('\n\n');
+  const html = `<!doctype html><html><body style="margin:0;background:#ffffff;color:#151515;font-family:Arial,Helvetica,sans-serif"><div style="max-width:600px;margin:0 auto;padding:40px 24px;font-size:17px;line-height:1.6"><p>${escapeHtml(greeting)}</p><p>Welcome to Seams.</p><p>${escapeHtml(setup)}</p><p>${escapeHtml(purpose)}</p><p>Here are three good places to start:</p><ol><li><a href="${escapeHtml(consoleUrl)}">Open your console</a></li><li><a href="${escapeHtml(quickstartUrl)}">Follow the quickstart</a></li><li><a href="${escapeHtml(architectureUrl)}">See how Seams works</a></li></ol><p><strong>${escapeHtml(question)}</strong></p><p>Cheers,<br>The Seams team</p></div></body></html>`;
+  return { subject, text, html };
 }
 
 function renderMembershipAccessChanged(

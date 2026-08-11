@@ -12,6 +12,7 @@ import type { ConsoleOrgProjectEnvService } from '../orgProjectEnv/service';
 import type { ConsoleOrganizationAccessService } from '../teamRbac/service';
 import { isConsoleOrganizationAccessError } from '../teamRbac/errors';
 import { ConsoleOnboardingError } from './errors';
+import type { ConsoleOnboardingWelcomeEmailPort } from './welcomeEmail';
 import type {
   ConsoleOnboardingState,
   ConsoleOnboardingStep,
@@ -59,6 +60,7 @@ export interface InMemoryConsoleOnboardingServiceOptions {
   orgProjectEnv: ConsoleOrgProjectEnvService;
   apiKeys: ConsoleApiKeyService;
   organizationAccess: ConsoleOrganizationAccessService;
+  welcomeEmail?: ConsoleOnboardingWelcomeEmailPort | null;
   billing?: ConsoleBillingService | null;
   logger?: Logger | null;
   telemetry?: {
@@ -355,6 +357,7 @@ export function createInMemoryConsoleOnboardingService(
   const apiKeys = opts.apiKeys;
   const billing = opts.billing ?? null;
   const organizationAccess = opts.organizationAccess;
+  const welcomeEmail = opts.welcomeEmail ?? null;
   const logger = normalizeLogger(opts.logger);
   const telemetryWindowMinutes = coerceIntegerInRange({
     value: opts.telemetry?.windowMinutes,
@@ -881,8 +884,8 @@ export function createInMemoryConsoleOnboardingService(
         ctx,
         operation: 'project',
         run: async () => {
-          const currentState = (await resolveState(ctx)).state;
-          if (!currentState.organizationReady) {
+          const current = await resolveState(ctx);
+          if (!current.organization) {
             throw new ConsoleOnboardingError(
               'organization_required',
               409,
@@ -901,6 +904,17 @@ export function createInMemoryConsoleOnboardingService(
               ...(request.environment?.name ? { name: request.environment.name } : {}),
             },
           );
+          const state = (await resolveState(ctx)).state;
+          if (state.onboardingComplete && welcomeEmail) {
+            await welcomeEmail.enqueue({
+              orgId: ctx.orgId,
+              userId: ctx.actorUserId,
+              recipientEmail: ctx.actorEmail,
+              recipientDisplayName: ctx.actorDisplayName || ctx.actorEmail,
+              organizationName: current.organization.name,
+              projectName: project.name,
+            });
+          }
           return {
             project,
             environment,
@@ -908,7 +922,7 @@ export function createInMemoryConsoleOnboardingService(
               project: createdProject,
               environment: createdEnvironment,
             },
-            state: (await resolveState(ctx)).state,
+            state,
           };
         },
       });

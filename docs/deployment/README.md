@@ -22,8 +22,10 @@ resource provisioning and cutover work.
   reference.
 - [release.md](release.md): SDK release and hosted-surface release runbook.
 - [sdk.md](sdk.md): SDK package and runtime-asset deployment.
-- [aws-ses.md](aws-ses.md): Amazon SES Email OTP delivery, sandbox testing,
-  sender permissions, and monthly cost guardrails.
+- [email-otp-providers.md](email-otp-providers.md): select Resend or Amazon SES for Email OTP
+  delivery and configure provider secrets.
+- [aws-ses.md](aws-ses.md): Amazon SES sender identity, sandbox testing, permissions, and monthly
+  cost guardrails.
 - [deployment-plan-5.md](deployment-plan-5.md): three-backend-lane, two-site
   topology, migration sequence, and provisioning status.
 - [refactor-82-staging-log.md](refactor-82-staging-log.md): generated staging
