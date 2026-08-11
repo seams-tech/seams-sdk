@@ -110,7 +110,7 @@ class ResendConsoleEmailProvider implements ConsoleEmailProvider {
     this.replyTo = optionalText(options.replyTo);
     this.apiUrl = httpUrl(options.apiUrl || DEFAULT_RESEND_API_URL, 'Resend API URL');
     this.timeoutMs = positiveInteger(options.timeoutMs, DEFAULT_RESEND_TIMEOUT_MS);
-    this.fetchImpl = options.fetchImpl || globalThis.fetch;
+    this.fetchImpl = options.fetchImpl || globalThis.fetch.bind(globalThis);
     if (typeof this.fetchImpl !== 'function') {
       throw new Error('Resend email provider requires fetch');
     }
