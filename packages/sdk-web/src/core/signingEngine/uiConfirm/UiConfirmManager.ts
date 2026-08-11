@@ -288,6 +288,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     const handle = await mountConfirmUI({
       ctx: this.getContext(),
       summary: { title: 'Confirm transaction' },
+      model: params.model,
       loading: true,
       theme: this.context.getTheme?.() ?? 'dark',
       uiMode: confirmationConfig.uiMode,

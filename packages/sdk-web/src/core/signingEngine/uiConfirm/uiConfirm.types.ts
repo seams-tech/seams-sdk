@@ -55,6 +55,7 @@ import type { NearOperationStepUpPreparationPort } from '../interfaces/operation
 import type { NearImplicitAccountFundingPort } from '../interfaces/implicitAccountFunding';
 import type { WalletIframeSurfaceMeasurement } from '@/SeamsWeb/walletIframe/shared/messages';
 import type { WalletIframeRequestId } from '@/core/types/walletIframeIdentity';
+import type { TxDisplayModel } from '../interfaces/display';
 
 export type RequestUserConfirmationOptions = {
   onProgress?: (progress: UserConfirmProgressEvent) => void;
@@ -131,6 +132,7 @@ export type OpenRegistrationPreparationModalParams = {
 
 export type OpenTransactionPreparationModalParams = {
   walletLabel: string;
+  model: TxDisplayModel;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
 };
 

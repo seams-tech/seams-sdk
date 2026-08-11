@@ -176,6 +176,10 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     return blockHeight ? `block ${blockHeight}` : '';
   }
 
+  private _rpIdText(): string {
+    return String(this.securityContext?.rpId || '').trim() || 'loading...';
+  }
+
   private _isSecurityDetailsLoading(): boolean {
     const chainId = String(this.model?.chainId || '').trim();
     if (chainId) return false;
@@ -735,9 +739,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
               <div class="rpid">
                 <div class="secure-indicator">
                   <w3a-padlock-icon class="padlock-icon"></w3a-padlock-icon>
-                  ${this.securityContext?.rpId
-                    ? html`<span class="domain-text">${this.securityContext.rpId}</span>`
-                    : ''}
+                  <span class="domain-text">${this._rpIdText()}</span>
                 </div>
                 <span class="security-details">
                   ${securityDetailsLoading

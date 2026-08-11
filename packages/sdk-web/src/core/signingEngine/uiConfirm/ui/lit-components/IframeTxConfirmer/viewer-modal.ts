@@ -188,6 +188,10 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
     return blockHeight ? `block ${blockHeight}` : '';
   }
 
+  private _rpIdText(): string {
+    return String(this.securityContext?.rpId || '').trim() || 'loading...';
+  }
+
   private _isSecurityDetailsLoading(): boolean {
     const chainId = String(this.model?.chainId || '').trim();
     if (chainId) return false;
@@ -693,9 +697,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
                         <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
                         <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                       </svg>
-                      ${this.securityContext?.rpId
-                        ? html`<span class="domain-text">${this.securityContext.rpId}</span>`
-                        : ''}
+                      <span class="domain-text">${this._rpIdText()}</span>
                     </div>
                     <span class="security-details">
                       ${securityDetailsLoading
