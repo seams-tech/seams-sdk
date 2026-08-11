@@ -9,8 +9,11 @@ import {
   buildPreparedLinkedDeviceWalletExecution,
   computeOwnerLaneParticipantBindingDigestV1,
   type ClaimedWalletExecutionAuthorization,
+  type Ed25519WalletKeyRecord,
+  type EvmFamilyWalletKeyRecord,
   type LaneParticipantBindingDigestB64u,
   type LaneProductEpochActiveV1,
+  type LinkedDeviceEcdsaNormalSigningScopeV1,
   type LinkedDeviceSigningLaneRecord,
   type PreparedOwnerWalletExecution,
   type PreparedLinkedDeviceWalletExecution,
@@ -151,11 +154,10 @@ export type LinkedDeviceLocalPresenceEvidenceV1 =
       readonly challengeDigestB64u: DigestB64u;
     };
 
-export type ActiveLinkedDeviceExecutionProjectionV1 = {
+type ActiveLinkedDeviceExecutionProjectionCommonV1 = {
   readonly kind: 'active_linked_device_execution_projection_v1';
   readonly authorization: LinkedDeviceWalletSessionAuthorizationV1;
   readonly enrollment: ActiveLinkedDeviceEnrollmentExecutionRecordV1;
-  readonly walletKey: WalletKeyRecord;
   readonly lane: LinkedDeviceSigningLaneRecord;
   readonly product: LaneProductEpochActiveV1;
   readonly materialActivation: MpcMaterialActivationRef;
@@ -168,6 +170,16 @@ export type ActiveLinkedDeviceExecutionProjectionV1 = {
     }
   >;
 };
+
+export type ActiveLinkedDeviceExecutionProjectionV1 =
+  | (ActiveLinkedDeviceExecutionProjectionCommonV1 & {
+      readonly walletKey: Ed25519WalletKeyRecord;
+      readonly ecdsaNormalSigningScope?: never;
+    })
+  | (ActiveLinkedDeviceExecutionProjectionCommonV1 & {
+      readonly walletKey: EvmFamilyWalletKeyRecord;
+      readonly ecdsaNormalSigningScope: LinkedDeviceEcdsaNormalSigningScopeV1;
+    });
 
 export type LinkedDeviceExecutionProjectionResult =
   | {

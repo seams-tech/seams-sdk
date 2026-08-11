@@ -210,18 +210,8 @@ export async function proxyLinkedDeviceLaneAdmittedNormalSigningRequest(input: {
   const admission = await prepareLinkedDeviceWalletExecution({
     authorizedOperation: input.authorizedOperation,
     evidence: {
-      kind: resolved.projection.kind,
-      authorization: resolved.projection.authorization,
-      enrollment: resolved.projection.enrollment,
-      walletKey: resolved.projection.walletKey,
-      lane: resolved.projection.lane,
-      product: resolved.projection.product,
-      materialActivation: resolved.projection.materialActivation,
+      ...resolved.projection,
       expectedMaterialActivation,
-      verifiedLaneParticipantBindingDigestB64u:
-        resolved.projection.verifiedLaneParticipantBindingDigestB64u,
-      verifiedActivationReceiptDigestB64u: resolved.projection.verifiedActivationReceiptDigestB64u,
-      materialSource: resolved.projection.materialSource,
     },
     localPresence: input.localPresence,
   });

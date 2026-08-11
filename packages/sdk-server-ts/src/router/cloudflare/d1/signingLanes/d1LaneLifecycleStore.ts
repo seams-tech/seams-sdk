@@ -167,6 +167,52 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
     };
   }
 
+  /**
+   * Reads the committed protocol receipt only after verifying its persisted
+   * digest, receipt identity, and active protocol lifecycle binding.
+   */
+  async getProtocolCommitReceipt(
+    operationId: LaneOperationId,
+  ): Promise<LaneProtocolCommitReceiptV1 | null> {
+    const row = await this.database
+      .prepare(
+        `SELECT receipt_id, receipt_digest_b64u, receipt_json
+           FROM ${RECEIPT_TABLE}
+          WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4
+            AND operation_id = ?5 AND receipt_kind = 'lane_protocol_commit'`,
+      )
+      .bind(...scopeValues(this.scope), String(operationId))
+      .first<{
+        readonly receipt_id?: unknown;
+        readonly receipt_digest_b64u?: unknown;
+        readonly receipt_json?: unknown;
+      }>();
+    if (!row) return null;
+
+    const protocol = await this.getProtocol(operationId);
+    if (!protocol || protocol.value.lifecycle.state !== 'active') {
+      throw new Error('lane protocol commit receipt has no active protocol lifecycle');
+    }
+    const receiptId = parseRequiredString(row.receipt_id, 'lane protocol commit receipt id');
+    if (receiptId !== `${String(operationId)}:lane_protocol_commit`) {
+      throw new Error('lane protocol commit receipt id is invalid');
+    }
+    const receipt = parseLaneProtocolCommitReceiptV1(
+      parseJsonRecord(row.receipt_json, 'lane protocol commit receipt'),
+    );
+    assertProtocolCommitReceiptIdentity(protocol.value, receipt);
+    const digest = await exactReceiptDigest('lane_protocol_commit', receipt);
+    if (
+      parseRequiredString(row.receipt_digest_b64u, 'lane protocol commit receipt digest') !== digest
+    ) {
+      throw new Error('lane protocol commit receipt digest is invalid');
+    }
+    if (protocol.value.lifecycle.protocolCommitReceiptDigestB64u !== digest) {
+      throw new Error('lane protocol commit receipt differs from its protocol lifecycle');
+    }
+    return receipt;
+  }
+
   async putEnrollmentAdmission(
     input: LaneEnrollmentAdmissionInput,
   ): Promise<LaneAdmissionMutationResult<LaneEnrollmentAdmissionRecord['value']>> {
