@@ -35,6 +35,8 @@ import { assertLinkedDeviceTargetCredentialRegistrationMatchesPreparationV1 } fr
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import {
   parseLinkDeviceSessionId,
+  parseLinkedDeviceEnrollmentId,
+  type LinkedDeviceEnrollmentId,
   type LinkedDeviceId,
   type LinkDeviceSessionId,
 } from '@shared/signing-lanes/ids';
@@ -95,6 +97,41 @@ export type DeviceLinkingOwnerRequestInputV1 = {
   /** SHA-256 of the exact request body bytes, computed before authentication. */
   readonly bodyDigestB64u: DigestB64u;
   readonly requestedAtMs: number;
+};
+
+export type DeviceLinkingOperatorRequestInputV1 = {
+  readonly request: Request;
+  readonly method: string;
+  readonly pathname: string;
+  /** SHA-256 of the exact request body bytes, computed before authentication. */
+  readonly bodyDigestB64u: DigestB64u;
+  readonly requestedAtMs: number;
+};
+
+export type DeviceLinkingOperatorRequestBindingV1 = {
+  readonly kind: 'linked_device_operator_request_binding_v1';
+  readonly method: 'GET' | 'POST';
+  readonly pathname: string;
+  readonly bodyDigestB64u: DigestB64u;
+  readonly expiresAtMs: number;
+};
+
+export type DeviceLinkingOperatorAuthenticatedRequestV1 = {
+  readonly kind: 'authorized';
+  /** Operator auth owns the request body read and binds it to its authority. */
+  readonly body: unknown;
+  readonly binding: DeviceLinkingOperatorRequestBindingV1;
+};
+
+/**
+ * Operator recovery is intentionally a separate authority boundary from owner
+ * and Device 2 authentication. The existing retry adapter performs the
+ * durable committed-delivery mutation once this authority has authenticated.
+ */
+export type DeviceLinkingOperatorRecoveryProviderV1 = {
+  authenticateOperatorRecoveryRequestV1(
+    input: DeviceLinkingOperatorRequestInputV1,
+  ): Promise<DeviceLinkingOperatorAuthenticatedRequestV1 | DeviceLinkingAuthDeniedV1>;
 };
 
 /** Signed Device2 proof. The verifier must reject a nonce replay durably. */
@@ -271,6 +308,8 @@ export type DeviceLinkingRouteServiceV1 = {
     readonly session: LinkedDeviceSessionRecordV1;
     readonly requestedAtMs: number;
   }): Promise<DeviceLinkingRouteMutationResultV1>;
+  /** Optional only when the operator-recovery route is intentionally disabled. */
+  readonly operatorRecovery?: DeviceLinkingOperatorRecoveryProviderV1;
   readWalletSessionAuthorizationV1(input: {
     readonly session: Extract<
       LinkedDeviceSessionRecordV1,
@@ -331,6 +370,8 @@ export async function handleDeviceLinking(ctx: FetchRouterApiContext): Promise<R
       return await handleWalletSession(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'retry')
       return await handleRetry(ctx, service, action.linkSessionId, nowMs);
+    if (action.kind === 'operator-recovery')
+      return await handleOperatorRecovery(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'cancel')
       return await handleCancel(ctx, service, action.linkSessionId, nowMs);
     return null;
@@ -1042,6 +1083,73 @@ async function handleRetry(
   );
 }
 
+async function handleOperatorRecovery(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
+  const operatorRecovery = service.operatorRecovery;
+  if (!operatorRecovery) {
+    return json(
+      {
+        ok: false,
+        code: 'not_supported',
+        message: 'Operator recovery is not configured',
+      },
+      { status: 501 },
+    );
+  }
+  const bodyDigestB64u = await requestBodyDigest(ctx.request);
+  const authentication = await operatorRecovery.authenticateOperatorRecoveryRequestV1({
+    request: ctx.request,
+    method: ctx.method,
+    pathname: ctx.pathname,
+    bodyDigestB64u,
+    requestedAtMs: nowMs,
+  });
+  if (authentication.kind === 'denied') return authDeniedResponse(authentication);
+  validateOperatorRequestBinding(
+    authentication.binding,
+    ctx.method,
+    ctx.pathname,
+    bodyDigestB64u,
+    nowMs,
+  );
+  if (ctx.method !== 'POST') return methodNotAllowedResponse();
+  const request = parseBoundary(() => parseOperatorRecoveryRequest(authentication.body));
+  const linkSessionId = parseBoundary(() => parseSessionId(rawLinkSessionId));
+  if (request.linkSessionId !== linkSessionId) {
+    return invalidInputResponse('operator recovery link session id does not match route');
+  }
+  if (request.requestedAtMs > nowMs) {
+    return invalidInputResponse('operator recovery request is from the future');
+  }
+  const session = await service.sessionService.getSessionV1({ linkSessionId, nowMs });
+  if (!session) return notFoundResponse();
+  if (session.state.state !== 'committed_completion_required') {
+    return invalidStateResponse(session);
+  }
+  const approval = requireProvisioningApproval(session);
+  if (approval.enrollmentId !== request.enrollmentId) {
+    return invalidInputResponse('operator recovery enrollment does not match session');
+  }
+  const retryRequest = {
+    kind: 'linked_device_session_retry_committed_delivery_request_v1' as const,
+    linkSessionId,
+    enrollmentId: request.enrollmentId,
+    deviceId: approval.deviceId,
+    requestedAtMs: request.requestedAtMs,
+  };
+  return mutationResultResponse(
+    await service.retryCommittedDeliveryV1({
+      request: retryRequest,
+      session,
+      requestedAtMs: nowMs,
+    }),
+  );
+}
+
 async function handleCancel(
   ctx: FetchRouterApiContext,
   service: DeviceLinkingRouteServiceV1,
@@ -1182,6 +1290,7 @@ function parseRoutePath(pathname: string):
         | 'receipt'
         | 'wallet-session'
         | 'retry'
+        | 'operator-recovery'
         | 'cancel';
       readonly linkSessionId: string;
     }
@@ -1206,6 +1315,7 @@ function parseRoutePath(pathname: string):
     parts[1] !== 'receipt' &&
     parts[1] !== 'wallet-session' &&
     parts[1] !== 'retry' &&
+    parts[1] !== 'operator-recovery' &&
     parts[1] !== 'cancel'
   )
     return null;
@@ -1403,6 +1513,48 @@ function parseRetryRequest(
   if (request.kind !== 'linked_device_session_retry_committed_delivery_request_v1')
     throw new Error('retry request kind is invalid');
   return request;
+}
+
+type DeviceLinkingOperatorRecoveryRequestV1 = {
+  readonly kind: 'linked_device_session_operator_recovery_request_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly reason: 'original_link_session_lost';
+  readonly requestedAtMs: number;
+};
+
+function parseOperatorRecoveryRequest(raw: unknown): DeviceLinkingOperatorRecoveryRequestV1 {
+  const record = requireRecord(raw, 'operator recovery request');
+  requireExactKeys(record, ['kind', 'linkSessionId', 'enrollmentId', 'reason', 'requestedAtMs']);
+  if (record.kind !== 'linked_device_session_operator_recovery_request_v1') {
+    throw new Error('operator recovery request kind is invalid');
+  }
+  if (record.reason !== 'original_link_session_lost') {
+    throw new Error('operator recovery reason is invalid');
+  }
+  if (
+    typeof record.requestedAtMs !== 'number' ||
+    !Number.isSafeInteger(record.requestedAtMs) ||
+    record.requestedAtMs < 0
+  ) {
+    throw new Error('operator recovery requestedAtMs is invalid');
+  }
+  if (typeof record.linkSessionId !== 'string') {
+    throw new Error('operator recovery linkSessionId is invalid');
+  }
+  if (typeof record.enrollmentId !== 'string') {
+    throw new Error('operator recovery enrollmentId is invalid');
+  }
+  const linkSessionId = parseSessionId(record.linkSessionId);
+  const enrollmentId = parseLinkedDeviceEnrollmentId(record.enrollmentId);
+  if (!enrollmentId.ok) throw new Error(enrollmentId.error.message);
+  return {
+    kind: 'linked_device_session_operator_recovery_request_v1',
+    linkSessionId,
+    enrollmentId: enrollmentId.value,
+    reason: 'original_link_session_lost',
+    requestedAtMs: record.requestedAtMs,
+  };
 }
 
 function parseSessionId(raw: string): LinkDeviceSessionId {
@@ -1769,6 +1921,29 @@ function validateOwnerRequestBinding(
   }
   if (!Number.isSafeInteger(binding.expiresAtMs) || binding.expiresAtMs <= nowMs) {
     throw new DeviceLinkingInputError('owner request proof is expired');
+  }
+}
+
+function validateOperatorRequestBinding(
+  binding: DeviceLinkingOperatorRequestBindingV1,
+  method: string,
+  pathname: string,
+  bodyDigestB64u: DigestB64u,
+  nowMs: number,
+): void {
+  if (binding.kind !== 'linked_device_operator_request_binding_v1') {
+    throw new DeviceLinkingInputError('operator request binding kind is invalid');
+  }
+  if (binding.method !== method || binding.pathname !== pathname) {
+    throw new DeviceLinkingInputError('operator request binding does not match method or path');
+  }
+  if (binding.bodyDigestB64u !== bodyDigestB64u) {
+    throw new DeviceLinkingInputError(
+      'operator request body digest does not match authenticated bytes',
+    );
+  }
+  if (!Number.isSafeInteger(binding.expiresAtMs) || binding.expiresAtMs <= nowMs) {
+    throw new DeviceLinkingInputError('operator request proof is expired');
   }
 }
 

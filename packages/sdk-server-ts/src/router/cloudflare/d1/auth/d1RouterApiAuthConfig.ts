@@ -20,7 +20,10 @@ import type {
   LinkedDeviceManagementAuthorizationPortV1,
 } from '../../../../core/deviceLinking/linkedDeviceManagement';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
-import type { DeviceLinkingRouteServiceV1 } from '../../../transport/fetch/routes/deviceLinking';
+import type {
+  DeviceLinkingOperatorRecoveryProviderV1,
+  DeviceLinkingRouteServiceV1,
+} from '../../../transport/fetch/routes/deviceLinking';
 import type { DeviceLinkingGatewayCompletionServiceV1 } from '../../../transport/fetch/routes/deviceLinkingGateway';
 import type { LinkedDeviceTargetPlannerV1 } from '../deviceLinking/d1LinkedDeviceTargetCredentialProvider';
 import type { LinkedDeviceR102ProvisioningExecutionPortV1 } from '../deviceLinking/d1LinkedDeviceProvisioningProvider';
@@ -77,6 +80,8 @@ export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
   >;
   readonly acknowledgeReceiptV1: DeviceLinkingRouteServiceV1['acknowledgeReceiptV1'];
   readonly retryCommittedDeliveryV1: DeviceLinkingRouteServiceV1['retryCommittedDeliveryV1'];
+  /** Required whenever the linked-device session surface is enabled. */
+  readonly operatorRecovery: DeviceLinkingOperatorRecoveryProviderV1;
 };
 
 export type CloudflareD1LinkedDeviceManagementOptionsV1 = {
