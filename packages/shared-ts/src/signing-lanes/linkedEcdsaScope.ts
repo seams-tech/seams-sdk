@@ -28,11 +28,13 @@ import {
 } from '../passkey-custody/primitives';
 import {
   parseLaneHolderParticipantId,
+  parseHpkePublicKeyB64u,
   parseLaneParticipantBindingDigestB64u,
   parseSigningWorkerParticipantId,
   parseSigningWorkerRecipientKeyDigestB64u,
   parseSigningWorkerRecipientKeyId,
   type LaneHolderParticipantId,
+  type HpkePublicKeyB64u,
   type LaneParticipantBindingDigestB64u,
   type SigningWorkerParticipantId,
   type SigningWorkerRecipientKeyDigestB64u,
@@ -67,6 +69,7 @@ const LINKED_ECDSA_SCOPE_FIELDS = [
   'holderRecipientKeyDigestB64u',
   'serverRecipientKeyDigestB64u',
   'signingWorkerRecipientKeyId',
+  'signingWorkerHpkePublicKeyB64u',
   'transcriptHashB64u',
   'protocolCommitReceiptDigestB64u',
 ] as const;
@@ -118,6 +121,7 @@ export type LinkedDeviceEcdsaNormalSigningScopeV1 = LinkedEcdsaScopeOwnerFieldsF
   readonly holderRecipientKeyDigestB64u: SigningWorkerRecipientKeyDigestB64u;
   readonly serverRecipientKeyDigestB64u: SigningWorkerRecipientKeyDigestB64u;
   readonly signingWorkerRecipientKeyId: SigningWorkerRecipientKeyId;
+  readonly signingWorkerHpkePublicKeyB64u: HpkePublicKeyB64u;
   readonly transcriptHashB64u: DigestB64u;
   readonly protocolCommitReceiptDigestB64u: DigestB64u;
 };
@@ -156,6 +160,7 @@ export function buildLinkedDeviceEcdsaNormalSigningScopeV1(
     holderRecipientKeyDigestB64u: input.holderRecipientKeyDigestB64u,
     serverRecipientKeyDigestB64u: input.serverRecipientKeyDigestB64u,
     signingWorkerRecipientKeyId: input.signingWorkerRecipientKeyId,
+    signingWorkerHpkePublicKeyB64u: input.signingWorkerHpkePublicKeyB64u,
     transcriptHashB64u: input.transcriptHashB64u,
     protocolCommitReceiptDigestB64u: input.protocolCommitReceiptDigestB64u,
   } satisfies LinkedDeviceEcdsaNormalSigningScopeV1;
@@ -257,6 +262,10 @@ export function parseLinkedDeviceEcdsaNormalSigningScopeV1(
     signingWorkerRecipientKeyId: parseDomain(
       parseSigningWorkerRecipientKeyId(record.signingWorkerRecipientKeyId),
       `${label}.signingWorkerRecipientKeyId`,
+    ),
+    signingWorkerHpkePublicKeyB64u: parseDomain(
+      parseHpkePublicKeyB64u(record.signingWorkerHpkePublicKeyB64u),
+      `${label}.signingWorkerHpkePublicKeyB64u`,
     ),
     transcriptHashB64u: parseDigestB64u(record.transcriptHashB64u),
     protocolCommitReceiptDigestB64u: parseDigestB64u(record.protocolCommitReceiptDigestB64u),
