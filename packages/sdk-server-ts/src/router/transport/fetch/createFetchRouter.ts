@@ -56,6 +56,7 @@ import {
   LINKED_DEVICE_GATEWAY_COMPLETION_BASE_V1,
 } from './routes/deviceLinkingGateway';
 import { handleDeviceLinkingOwnerAuthorization } from './routes/deviceLinkingOwnerAuthorization';
+import { handleDeviceLinkingLaneGateway } from './routes/deviceLinkingLaneGateway';
 import { validateRouterApiRorOptions } from '../../framework/ror/provider';
 import { handleSigningSessionSealRoutes } from '../../../threshold/session/signingSessionSeal/transport/fetch';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../../framework/routerApi';
@@ -135,6 +136,8 @@ export function createFetchRouter(
         context,
         context.service.deviceLinkingOwnerAuthorization,
       ),
+    async (context: FetchRouterApiContext) =>
+      await handleDeviceLinkingLaneGateway(context, context.service.deviceLinkingLaneGateway),
     handleDeviceLinking,
     async (context: FetchRouterApiContext) => {
       if (!context.pathname.startsWith(LINKED_DEVICE_MANAGEMENT_BASE_V1)) return null;
