@@ -88,7 +88,6 @@ function assemblyOptions(): DeviceLinkingFlowPortsAssemblyOptionsV1 {
     ownerAuthorization: ownerAuthorization(),
     repository: repository(),
     sourceLanePorts: sourceLanePorts(),
-    sourceDeliveryPersistence: { persistProvisioningDeliveriesV1: unsupported },
     workerEndpoint: new IdleWorkerEndpoint(),
     nowMs: () => 1,
     pollIntervalMs: 1_000,

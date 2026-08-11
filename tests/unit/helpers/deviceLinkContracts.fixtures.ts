@@ -12,6 +12,7 @@ import {
   parseLinkedDeviceSessionClaimRequestV1,
   parseQrLinkedDeviceSessionPayloadV4,
   parseLinkedDeviceProvisioningDeliveriesV1,
+  parseLinkedDeviceTargetReadyR102InputV1,
 } from '../../../packages/shared-ts/src/device-linking/parsers';
 import type {
   LinkedDeviceApprovalV1,
@@ -23,6 +24,7 @@ import type {
   LinkedDeviceHolderDeliveryAcknowledgementV1,
   LinkedDeviceProvisioningCommandV1,
   LinkedDeviceProvisioningDeliveriesV1,
+  LinkedDeviceTargetReadyR102InputV1,
 } from '../../../packages/shared-ts/src/device-linking/contracts';
 import { computeLinkedDeviceTargetPreparationDigestV1 } from '../../../packages/shared-ts/src/device-linking/digests';
 import { parseAuthorizationEvidenceSetId } from '../../../packages/shared-ts/src/authorization/capabilityKinds';
@@ -33,6 +35,7 @@ import {
 import {
   parseLaneOperationId,
   parseLaneOperationIdempotencyKey,
+  parseLaneEnrollmentId,
   parseLaneShareEpoch,
   parseLinkedDeviceEnrollmentId,
   parseLinkedDeviceId,
@@ -58,8 +61,12 @@ import {
   buildR102HolderDeliveryReceipt,
   buildR102LaneJob,
   buildR102ProtocolCommitReceipt,
+  buildR102ManifestChild,
 } from './r102LaneGateway.fixtures';
-import { parseRotatableSigningLaneJobV1 } from '../../../packages/shared-ts/src/signing-lanes/rotationParsers';
+import {
+  buildLaneEnrollmentManifestV1,
+  parseRotatableSigningLaneJobV1,
+} from '../../../packages/shared-ts/src/signing-lanes/rotationParsers';
 
 function required<T>(
   result:
@@ -120,7 +127,7 @@ export function buildR103ProvisioningFixture(
     },
     authorization: {
       kind: 'linked_device_enrollment',
-      authorizedOperationId: source.authorization.authorizedOperationId,
+      authorizedOperationId: fixture.approval.operationId,
       linkedDeviceEnrollmentId: fixture.approval.enrollmentId,
       linkedDevicePermissionDigestB64u: fixture.approval.policyDigestB64u,
     },
@@ -158,6 +165,34 @@ export function buildR103ProvisioningFixture(
       orderedHolderDeliveryReceipts: [buildR102HolderDeliveryReceipt(job)],
       acknowledgedAtMs: 3_500,
     }),
+  };
+}
+
+export function buildR103TargetReadySourceFixture(fixture: R103DeviceLinkFixture): {
+  readonly targetReady: LinkedDeviceTargetReadyR102InputV1;
+  readonly deliveries: LinkedDeviceProvisioningDeliveriesV1;
+} {
+  const deliveries = buildR103ProvisioningFixture(fixture).deliveries;
+  const job = deliveries.orderedChildren[0].job;
+  const manifest = buildLaneEnrollmentManifestV1({
+    enrollmentId: required(parseLaneEnrollmentId(String(fixture.approval.enrollmentId))),
+    walletId: fixture.approval.walletId,
+    authorization: job.authorization,
+    orderedChildren: [buildR102ManifestChild(job)],
+    createdAtMs: fixture.approval.approvedAtMs,
+    expiresAtMs: fixture.approval.expiresAtMs,
+  });
+  return {
+    targetReady: parseLinkedDeviceTargetReadyR102InputV1({
+      kind: 'linked_device_target_ready_r102_input_v1',
+      linkSessionId: fixture.approval.linkSessionId,
+      walletId: fixture.approval.walletId,
+      enrollmentId: fixture.approval.enrollmentId,
+      deviceId: fixture.approval.deviceId,
+      manifest,
+      children: [job],
+    }),
+    deliveries,
   };
 }
 
