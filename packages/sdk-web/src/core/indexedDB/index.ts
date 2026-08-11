@@ -27,7 +27,10 @@ export {
   LinkedDeviceWalletSessionRepositoryV1,
   linkedDeviceWalletSessions,
 } from './seamsWalletDB/linkedDeviceWalletSessionStore';
-export type { LinkedDeviceWalletSessionReadResultV1 } from './seamsWalletDB/linkedDeviceWalletSessionStore';
+export type {
+  LinkedDeviceWalletSessionReadResultV1,
+  LinkedDeviceWalletSessionTokenReadResultV1,
+} from './seamsWalletDB/linkedDeviceWalletSessionStore';
 export {
   WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
   WalletSessionAuthorizationRepository,

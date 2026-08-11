@@ -1,9 +1,10 @@
 import {
   parseLinkedDeviceWalletSessionDeliveryV1,
   type LinkedDeviceWalletSessionDeliveryV1,
+  type LinkedDeviceWalletSessionTokenV1,
 } from '@shared/device-linking';
 import { alphabetizeStringify } from '@shared/utils/digests';
-import type { LinkedDeviceEnrollmentId } from '@shared/signing-lanes/ids';
+import type { LinkedDeviceEnrollmentId, WalletKeyId } from '@shared/signing-lanes/ids';
 import { SEAMS_WALLET_STORES } from '../schemaNames';
 import { seamsWalletDB } from '../singletons';
 import type { SeamsWalletDBManager } from './manager';
@@ -24,6 +25,18 @@ export type LinkedDeviceWalletSessionReadResultV1 =
   | {
       readonly kind: 'missing' | 'expired' | 'corrupt' | 'persistence_unavailable';
       readonly delivery?: never;
+    };
+
+export type LinkedDeviceWalletSessionTokenReadResultV1 =
+  | {
+      readonly kind: 'found';
+      readonly delivery: LinkedDeviceWalletSessionDeliveryV1;
+      readonly token: LinkedDeviceWalletSessionTokenV1;
+    }
+  | {
+      readonly kind: 'missing' | 'expired' | 'corrupt' | 'persistence_unavailable';
+      readonly delivery?: never;
+      readonly token?: never;
     };
 
 const STORE = SEAMS_WALLET_STORES.linkedDeviceWalletSessions;
@@ -137,6 +150,22 @@ export class LinkedDeviceWalletSessionRepositoryV1 {
   async clearEnrollmentV1(enrollmentId: LinkedDeviceEnrollmentId): Promise<void> {
     const db = await this.manager.getDB();
     await db.delete(STORE, enrollmentId);
+  }
+
+  async readTokenForWalletKeyV1(input: {
+    readonly enrollmentId: LinkedDeviceEnrollmentId;
+    readonly walletKeyId: WalletKeyId;
+    readonly keyFamily: LinkedDeviceWalletSessionTokenV1['keyFamily'];
+    readonly nowMs: number;
+  }): Promise<LinkedDeviceWalletSessionTokenReadResultV1> {
+    const result = await this.readActiveForEnrollmentV1(input);
+    if (result.kind !== 'found') return result;
+    const token = result.delivery.orderedTokens.find(
+      (candidate) =>
+        candidate.walletKeyId === input.walletKeyId && candidate.keyFamily === input.keyFamily,
+    );
+    if (!token) return { kind: 'missing' };
+    return { kind: 'found', delivery: result.delivery, token };
   }
 }
 

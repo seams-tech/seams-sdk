@@ -13,6 +13,7 @@ import {
   parseQrLinkedDeviceSessionPayloadV4,
   parseLinkedDeviceProvisioningDeliveriesV1,
   parseLinkedDeviceTargetReadyR102InputV1,
+  parseLinkedDeviceWalletSessionDeliveryV1,
 } from '../../../packages/shared-ts/src/device-linking/parsers';
 import type {
   LinkedDeviceApprovalV1,
@@ -25,6 +26,7 @@ import type {
   LinkedDeviceProvisioningCommandV1,
   LinkedDeviceProvisioningDeliveriesV1,
   LinkedDeviceTargetReadyR102InputV1,
+  LinkedDeviceWalletSessionDeliveryV1,
 } from '../../../packages/shared-ts/src/device-linking/contracts';
 import { computeLinkedDeviceTargetPreparationDigestV1 } from '../../../packages/shared-ts/src/device-linking/digests';
 import { parseAuthorizationEvidenceSetId } from '../../../packages/shared-ts/src/authorization/capabilityKinds';
@@ -56,6 +58,7 @@ import {
   parseWebAuthnRpId,
 } from '../../../packages/shared-ts/src/utils/domainIds';
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
+import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '../../../packages/shared-ts/src/utils/sessionTokens';
 import { parseDigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
 import {
   buildR102HolderDeliveryReceipt,
@@ -98,6 +101,58 @@ export type R103ProvisioningFixture = {
   readonly deliveries: LinkedDeviceProvisioningDeliveriesV1;
   readonly acknowledgement: LinkedDeviceHolderDeliveryAcknowledgementV1;
 };
+
+function buildUnsignedJwt(payload: Readonly<Record<string, unknown>>): string {
+  const header = base64UrlEncode(
+    new TextEncoder().encode(JSON.stringify({ alg: 'EdDSA', typ: 'JWT' })),
+  );
+  const body = base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
+  return `${header}.${body}.signature`;
+}
+
+export function buildR103LinkedWalletSessionDeliveryFixture(
+  fixture: R103DeviceLinkFixture,
+): LinkedDeviceWalletSessionDeliveryV1 {
+  const binding = fixture.approval.orderedKeyBindings[0];
+  if (!binding) throw new Error('R103 approval fixture has no key binding');
+  const issuedAtMs = fixture.receipt.activatedAtMs;
+  const expiresAtMs = issuedAtMs + 86_400_000;
+  const identity = {
+    tenantId: 'tenant-r103-delivery',
+    walletId: fixture.approval.walletId,
+    enrollmentId: fixture.approval.enrollmentId,
+    deviceId: fixture.approval.deviceId,
+    authorizationId: 'linked-authorization-r103-delivery',
+    walletSessionId: 'linked-wallet-session-r103-delivery',
+    quotaId: 'linked-quota-r103-delivery',
+    keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
+    permission: fixture.approval.permission,
+    revocationEpoch: binding.sourceRevocationEpoch,
+    issuedAtMs,
+    expiresAtMs,
+  };
+  const walletSessionJwt = buildUnsignedJwt({
+    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    authorizationKind: 'linked_device_wallet_session',
+    sub: `linked-device:${fixture.approval.deviceId}`,
+    ...identity,
+    walletKeyId: binding.walletKeyId,
+    iat: Math.floor(issuedAtMs / 1_000),
+    exp: Math.floor(expiresAtMs / 1_000),
+  });
+  return parseLinkedDeviceWalletSessionDeliveryV1({
+    kind: 'linked_device_wallet_session_delivery_v1',
+    ...identity,
+    orderedTokens: [
+      {
+        kind: 'linked_device_wallet_session_token_v1',
+        walletKeyId: binding.walletKeyId,
+        keyFamily: binding.keyFamily,
+        walletSessionJwt,
+      },
+    ],
+  });
+}
 
 export function buildR103ProvisioningFixture(
   fixture: R103DeviceLinkFixture,
