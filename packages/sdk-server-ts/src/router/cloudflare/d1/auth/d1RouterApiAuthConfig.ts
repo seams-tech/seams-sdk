@@ -28,6 +28,8 @@ import type {
   DeviceLinkingRouteServiceV1,
 } from '../../../transport/fetch/routes/deviceLinking';
 import type { DeviceLinkingGatewayCompletionServiceV1 } from '../../../transport/fetch/routes/deviceLinkingGateway';
+import type { DeviceLinkingOwnerAuthorizationRouteServiceV1 } from '../../../transport/fetch/routes/deviceLinkingOwnerAuthorization';
+import type { DeviceLinkingLaneGatewayRouteServiceV1 } from '../../../transport/fetch/routes/deviceLinkingLaneGateway';
 import type { LinkedDeviceTargetPlannerV1 } from '../deviceLinking/d1LinkedDeviceTargetCredentialProvider';
 import {
   normalizeOidcExchangeConfig,
@@ -87,6 +89,10 @@ export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
   readonly retryCommittedDeliveryV1: DeviceLinkingRouteServiceV1['retryCommittedDeliveryV1'];
   /** Required whenever the linked-device session surface is enabled. */
   readonly operatorRecovery: DeviceLinkingOperatorRecoveryProviderV1;
+  /** Request-scoped owner metadata provider used by Device 1 before claim. */
+  readonly ownerAuthorizationRoute?: DeviceLinkingOwnerAuthorizationRouteServiceV1;
+  /** Owner-authenticated Device 1 source preparation/protocol transport. */
+  readonly laneGatewayRoute?: DeviceLinkingLaneGatewayRouteServiceV1;
 };
 
 export type CloudflareD1LinkedDeviceManagementOptionsV1 = {
