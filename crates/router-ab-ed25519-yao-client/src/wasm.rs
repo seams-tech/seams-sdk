@@ -210,6 +210,13 @@ impl WasmLaneHolderSigningMaterialV1 {
         )
     }
 
+    /// Copies the ECDSA additive share for immediate transfer to the dedicated
+    /// Device 2 presign worker. This method is only called inside the holder
+    /// worker; the returned buffer must never cross the UI-thread boundary.
+    pub fn ecdsa_additive_share32(&self) -> Result<Vec<u8>, JsValue> {
+        Ok(self.inner.ecdsa_material().map_err(js_error)?.to_vec())
+    }
+
     /// Immediately destroys retained holder material.
     pub fn destroy(&mut self) {
         self.inner.destroy();
