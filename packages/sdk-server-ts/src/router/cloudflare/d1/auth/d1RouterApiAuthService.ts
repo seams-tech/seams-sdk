@@ -149,7 +149,10 @@ import {
 import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../../../domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import { createD1LinkedDeviceRouteServiceV1 } from '../deviceLinking/d1LinkedDeviceRouteService';
 import { createD1LinkedDeviceManagementRouteServiceV1 } from '../deviceLinking/d1LinkedDeviceManagementRouteService';
-import { D1LinkedDeviceTargetCredentialMetadataSourceV1 } from '../deviceLinking/d1LinkedDeviceManagementStore';
+import {
+  D1LinkedDeviceManagementStoreV1,
+  D1LinkedDeviceTargetCredentialMetadataSourceV1,
+} from '../deviceLinking/d1LinkedDeviceManagementStore';
 import {
   AuthorizationServiceLinkedDeviceWalletSessionRevocationV1,
   D1LinkedDeviceRevocationPreparationV1,
@@ -168,6 +171,8 @@ import {
   createD1LinkedDeviceLocalPresenceVerifierV1,
 } from '../deviceLinking/d1LinkedDeviceTargetAuthenticatorStore';
 import { D1LinkedDeviceExecutionAdmissionResolverV1 } from '../deviceLinking/d1LinkedDeviceExecutionAdmissionResolver';
+import { D1LinkedDeviceLocalStateInvalidationV1 } from '../deviceLinking/d1LinkedDeviceLocalStateInvalidation';
+import { D1LinkedDeviceOperatorRecoveryProviderV1 } from '../deviceLinking/d1LinkedDeviceOperatorRecoveryProvider';
 import { CloudflareD1LaneEnrollmentGateway } from '../signingLanes/d1LaneEnrollmentGateway';
 import { createCloudflareD1LaneAggregateRevocationApplicationService } from '../signingLanes/d1LaneAggregateRevocationApplicationService';
 import { createCloudflareD1LaneLifecycleApplicationService } from '../signingLanes/d1LaneLifecycleApplicationService';
@@ -440,7 +445,9 @@ function createD1LinkedDeviceComposition(input: {
       ownerAuthorization: config.session.ownerAuthorization,
       authenticateOwnerRequestV1: config.session.authenticateOwnerRequestV1,
       targetCredential,
-      operatorRecovery: config.session.operatorRecovery,
+      operatorRecovery: new D1LinkedDeviceOperatorRecoveryProviderV1(
+        config.session.operatorRecovery,
+      ),
       provisioning,
       sourceHandoff,
       nowV1: config.execution.nowV1,
@@ -460,6 +467,13 @@ function createD1LinkedDeviceComposition(input: {
     const metadata = new D1LinkedDeviceTargetCredentialMetadataSourceV1({
       database: input.options.database,
       scope,
+    });
+    const managementProjection = new D1LinkedDeviceManagementStoreV1({
+      database: input.options.database,
+      scope,
+      sessionService: deviceLinking.sessionService,
+      metadata,
+      nowV1: config.execution.nowV1,
     });
     const walletSessionRevocation = new AuthorizationServiceLinkedDeviceWalletSessionRevocationV1(
       input.authorizationService,
@@ -484,7 +498,9 @@ function createD1LinkedDeviceComposition(input: {
         ...laneRuntime.laneLifecycle,
       }),
       walletSessionRevocation,
-      localStateInvalidation: config.management.localStateInvalidation,
+      localStateInvalidation: new D1LinkedDeviceLocalStateInvalidationV1({
+        projection: managementProjection,
+      }),
       nowV1: config.execution.nowV1,
       authenticateOwnerRequestV1: sessionConfig.authenticateOwnerRequestV1,
     });

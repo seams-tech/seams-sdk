@@ -14,21 +14,16 @@ import { parseSigningSessionSealRootConfig } from '../../../../threshold/session
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
 import type { NormalizedLogger } from '../../../../core/logger';
 import type { LinkedDeviceOwnerAuthorizationPortV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
-import type {
-  LinkedDeviceLocalStateInvalidationPortV1,
-  LinkedDeviceManagementAuthorizationPortV1,
-} from '../../../../core/deviceLinking/linkedDeviceManagement';
+import type { LinkedDeviceManagementAuthorizationPortV1 } from '../../../../core/deviceLinking/linkedDeviceManagement';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
-import type {
-  DeviceLinkingOperatorRecoveryProviderV1,
-  DeviceLinkingOwnerRequestInputV1,
-} from '../../../transport/fetch/routes/deviceLinking';
+import type { DeviceLinkingOwnerRequestInputV1 } from '../../../transport/fetch/routes/deviceLinking';
 import type { DeviceLinkingGatewayCompletionServiceV1 } from '../../../transport/fetch/routes/deviceLinkingGateway';
 import type {
   DeviceLinkingOwnerAuthorizationRouteServiceV1,
   DeviceLinkingOwnerRequestAuthenticationV1,
 } from '../../../transport/fetch/routes/deviceLinkingOwnerAuthorization';
 import type { LinkedDeviceTargetPlannerV1 } from '../deviceLinking/d1LinkedDeviceTargetCredentialProvider';
+import type { D1LinkedDeviceOperatorRecoveryProviderOptionsV1 } from '../deviceLinking/d1LinkedDeviceOperatorRecoveryProvider';
 import type { RouterAbEd25519YaoActivationKeysetV1 } from '@shared/utils/routerAbEd25519Yao';
 import type { CloudflareLaneServiceBindingV1 } from '../../signingLanes/cloudflareLaneProtocolCommitter';
 import {
@@ -90,14 +85,13 @@ export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
   ) => Promise<DeviceLinkingOwnerRequestAuthenticationV1>;
   readonly targetPlanner: LinkedDeviceTargetPlannerV1;
   /** Required whenever the linked-device session surface is enabled. */
-  readonly operatorRecovery: DeviceLinkingOperatorRecoveryProviderV1;
+  readonly operatorRecovery: D1LinkedDeviceOperatorRecoveryProviderOptionsV1;
   /** Request-scoped owner metadata provider used by Device 1 before claim. */
   readonly ownerAuthorizationRoute?: DeviceLinkingOwnerAuthorizationRouteServiceV1;
 };
 
 export type CloudflareD1LinkedDeviceManagementOptionsV1 = {
   readonly authorization: LinkedDeviceManagementAuthorizationPortV1;
-  readonly localStateInvalidation: LinkedDeviceLocalStateInvalidationPortV1;
 };
 
 export type CloudflareD1LinkedDeviceGatewayOptionsV1 = {

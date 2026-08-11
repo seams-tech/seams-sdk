@@ -827,18 +827,13 @@ test('Cloudflare D1 R103 composition owns lane activation and aggregate revocati
           acknowledgeReceiptV1: unreachable,
           retryCommittedDeliveryV1: unreachable,
           operatorRecovery: {
-            authenticateOperatorRecoveryRequestV1: async () => ({
-              kind: 'denied',
-              code: 'unauthorized',
-              message: 'test',
-            }),
+            operatorSecret: 'operator-recovery-test-secret',
           },
         },
         management: {
           authorization: {
             authorizeLinkedDeviceManagementV1: async () => ({ kind: 'unauthorized' }),
           },
-          localStateInvalidation: { invalidateLinkedDeviceStateV1: unreachable },
         },
       },
     });
