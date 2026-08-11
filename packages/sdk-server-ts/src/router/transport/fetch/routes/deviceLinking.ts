@@ -50,6 +50,7 @@ import type {
   LinkedDeviceSessionServiceV1,
   LinkedDeviceRecoveryContinuationV1,
 } from '../../../../core/deviceLinking/linkedDeviceSession';
+import type { LinkedDeviceOwnerAuthorizationContextV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { IssuedLinkedDeviceWalletSession } from '../../../../authorization/service';
 import {
   computeLinkedDevicePublicKeyDigestV1,
@@ -80,6 +81,8 @@ export type DeviceLinkingAuthenticatedRequestV1 = {
   readonly kind: 'authorized';
   /** Owner verifier owns the request body read, keeping authentication first. */
   readonly body: unknown;
+  /** Verified owner Wallet Session context retained for claim/approval authorization. */
+  readonly owner: LinkedDeviceOwnerAuthorizationContextV1;
   /** Owner auth binds method/path/body and its authorization expiry. */
   readonly binding: DeviceLinkingRequestBindingV1;
 };
@@ -465,7 +468,7 @@ async function handleClaim(
   if (body.payload.linkSessionId !== linkSessionId)
     return invalidInputResponse('link session id does not match route');
   return claimResultResponse(
-    await service.sessionService.claimSessionV1({ payload: body.payload, nowMs }),
+    await service.sessionService.claimSessionV1({ payload: body.payload, nowMs, owner: authentication.owner }),
   );
 }
 
@@ -515,7 +518,7 @@ async function handleApproval(
   if (approval.linkSessionId !== linkSessionId)
     return invalidInputResponse('link session id does not match route');
   return approvalResultResponse(
-    await service.sessionService.recordOwnerApprovalV1({ approval, nowMs }),
+    await service.sessionService.recordOwnerApprovalV1({ approval, nowMs, owner: authentication.owner }),
   );
 }
 

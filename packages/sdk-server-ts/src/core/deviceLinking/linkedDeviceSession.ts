@@ -213,10 +213,20 @@ export type LinkedDeviceOwnerAuthorizationDeniedV1 = {
   readonly message: string;
 };
 
+/** Request-scoped owner Wallet Session context carried into claim/approval. */
+export type LinkedDeviceOwnerAuthorizationContextV1 = {
+  readonly walletId: WalletId;
+  readonly walletSessionId: WalletSessionId;
+  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly expiresAtMs: number;
+  readonly curve: 'ed25519' | 'ecdsa';
+};
+
 export type LinkedDeviceOwnerAuthorizationPortV1 = {
   authorizeOwnerClaimV1(input: {
     readonly payload: QrLinkedDeviceSessionPayloadV4;
     readonly requestedAtMs: number;
+    readonly owner: LinkedDeviceOwnerAuthorizationContextV1;
   }): Promise<
     | { readonly kind: 'authorized'; readonly identity: LinkedDeviceSessionClaimIdentityV1 }
     | LinkedDeviceOwnerAuthorizationDeniedV1
@@ -225,6 +235,7 @@ export type LinkedDeviceOwnerAuthorizationPortV1 = {
     readonly session: LinkedDeviceSessionRecordV1;
     readonly approval: LinkedDeviceApprovalV1;
     readonly requestedAtMs: number;
+    readonly owner: LinkedDeviceOwnerAuthorizationContextV1;
   }): Promise<{ readonly kind: 'authorized' } | LinkedDeviceOwnerAuthorizationDeniedV1>;
 };
 
@@ -341,11 +352,13 @@ export type LinkedDeviceSessionCreateInputV1 = {
 export type LinkedDeviceSessionClaimInputV1 = {
   readonly payload: QrLinkedDeviceSessionPayloadV4;
   readonly nowMs: number;
+  readonly owner: LinkedDeviceOwnerAuthorizationContextV1;
 };
 
 export type LinkedDeviceSessionApprovalInputV1 = {
   readonly approval: LinkedDeviceApprovalV1;
   readonly nowMs: number;
+  readonly owner: LinkedDeviceOwnerAuthorizationContextV1;
 };
 
 export type LinkedDeviceSessionCancelInputV1 = {
@@ -446,6 +459,7 @@ export class LinkedDeviceSessionServiceV1 {
       const authorization = await this.authorization.authorizeOwnerClaimV1({
         payload,
         requestedAtMs: input.nowMs,
+        owner: input.owner,
       });
       if (authorization.kind === 'denied') {
         return {
@@ -526,6 +540,7 @@ export class LinkedDeviceSessionServiceV1 {
         session: existing,
         approval,
         requestedAtMs: input.nowMs,
+        owner: input.owner,
       });
       if (authorization.kind === 'denied') {
         return {
