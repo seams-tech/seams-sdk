@@ -12,6 +12,23 @@ import type { RouterAbEcdsaStrictRegistrationPort } from '../../../domains/ecdsa
 import type { SigningSessionSealShamir3PassRootConfig } from '../../../../threshold/session/signingSessionSeal/crypto/cipher';
 import { parseSigningSessionSealRootConfig } from '../../../../threshold/session/signingSessionSeal/options';
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
+import type { NormalizedLogger } from '../../../../core/logger';
+import type { LinkedDeviceOwnerAuthorizationPortV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
+import type {
+  LinkedDeviceAggregateRevocationPortV1,
+  LinkedDeviceLocalStateInvalidationPortV1,
+  LinkedDeviceManagementAuthorizationPortV1,
+  LinkedDeviceWalletSessionRevocationPortV1,
+} from '../../../../core/deviceLinking/linkedDeviceManagement';
+import type { WebAuthnRpId } from '@shared/utils/domainIds';
+import type { DeviceLinkingRouteServiceV1 } from '../../../transport/fetch/routes/deviceLinking';
+import type { DeviceLinkingGatewayCompletionServiceV1 } from '../../../transport/fetch/routes/deviceLinkingGateway';
+import type {
+  LinkedDeviceTargetPreparationSourceV1,
+  LinkedDeviceVerifiedTargetCommitterV1,
+} from '../deviceLinking/d1LinkedDeviceTargetCredentialProvider';
+import type { LinkedDeviceR102ProvisioningExecutionPortV1 } from '../deviceLinking/d1LinkedDeviceProvisioningProvider';
+import type { D1LinkedDeviceManagementMetadataPortV1 } from '../deviceLinking/d1LinkedDeviceManagementStore';
 import {
   normalizeOidcExchangeConfig,
   type CloudflareD1OidcExchangeConfig,
@@ -47,6 +64,58 @@ export type CloudflareD1EmailOtpServerSealConfig = {
   readonly currentKeyVersion: string;
   readonly acceptedWarmKeyVersions?: readonly string[];
 };
+
+export type CloudflareD1LinkedDeviceExecutionOptionsV1 = {
+  readonly nowV1: () => number;
+  readonly rpId: WebAuthnRpId;
+  readonly expectedOrigin: string;
+  readonly logger: NormalizedLogger;
+};
+
+export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
+  readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationPortV1;
+  readonly authenticateOwnerRequestV1: DeviceLinkingRouteServiceV1['authenticateOwnerRequestV1'];
+  readonly targetPreparationSource: LinkedDeviceTargetPreparationSourceV1;
+  readonly targetCommitter: LinkedDeviceVerifiedTargetCommitterV1;
+  readonly provisioningExecution: LinkedDeviceR102ProvisioningExecutionPortV1;
+  readonly acknowledgeReceiptV1: DeviceLinkingRouteServiceV1['acknowledgeReceiptV1'];
+  readonly retryCommittedDeliveryV1: DeviceLinkingRouteServiceV1['retryCommittedDeliveryV1'];
+};
+
+export type CloudflareD1LinkedDeviceManagementOptionsV1 = {
+  readonly metadata: D1LinkedDeviceManagementMetadataPortV1;
+  readonly authorization: LinkedDeviceManagementAuthorizationPortV1;
+  readonly aggregateRevocation: LinkedDeviceAggregateRevocationPortV1;
+  readonly walletSessionRevocation: LinkedDeviceWalletSessionRevocationPortV1;
+  readonly localStateInvalidation: LinkedDeviceLocalStateInvalidationPortV1;
+};
+
+export type CloudflareD1LinkedDeviceGatewayOptionsV1 = {
+  readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationPortV1;
+  readonly authenticateGatewayRequestV1: DeviceLinkingGatewayCompletionServiceV1['authenticateGatewayRequestV1'];
+};
+
+type CloudflareD1LinkedDeviceCompositionWithoutSessionV1 = {
+  readonly execution: CloudflareD1LinkedDeviceExecutionOptionsV1;
+  readonly session?: never;
+  readonly management?: never;
+  readonly gateway?: CloudflareD1LinkedDeviceGatewayOptionsV1;
+};
+
+type CloudflareD1LinkedDeviceCompositionWithSessionV1 = {
+  readonly execution: CloudflareD1LinkedDeviceExecutionOptionsV1;
+  readonly session: CloudflareD1LinkedDeviceSessionOptionsV1;
+  readonly management?: CloudflareD1LinkedDeviceManagementOptionsV1;
+  readonly gateway?: CloudflareD1LinkedDeviceGatewayOptionsV1;
+};
+
+/**
+ * Optional R103 composition. Each enabled surface requires its complete
+ * external boundary; omitted surfaces stay fail-closed at their route.
+ */
+export type CloudflareD1LinkedDeviceCompositionOptionsV1 =
+  | CloudflareD1LinkedDeviceCompositionWithoutSessionV1
+  | CloudflareD1LinkedDeviceCompositionWithSessionV1;
 
 export interface CloudflareD1RouterApiAuthServiceOptions {
   readonly database: D1DatabaseLike;
@@ -88,6 +157,7 @@ export interface CloudflareD1RouterApiAuthServiceOptions {
   readonly routerAbEcdsaPresignRuntime?: RouterAbEcdsaPresignRuntime | null;
   readonly ed25519YaoProductRegistration?: RouterAbEd25519YaoProductRegistrationRuntimeV1 | null;
   readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
+  readonly linkedDevice?: CloudflareD1LinkedDeviceCompositionOptionsV1;
 }
 
 export type EmailOtpDeliveryMode =
@@ -244,6 +314,7 @@ export function normalizeD1RouterApiAuthOptions(
     routerAbEcdsaPresignRuntime: input.routerAbEcdsaPresignRuntime,
     ed25519YaoProductRegistration: input.ed25519YaoProductRegistration,
     ecdsaStrictRegistration: input.ecdsaStrictRegistration,
+    linkedDevice: input.linkedDevice,
   };
 }
 
@@ -515,7 +586,8 @@ function normalizeEmailOtpConfig(
 function missingEmailOtpServerSealConfig(): EmailOtpServerSealRuntimeConfig {
   return {
     configured: false,
-    message: 'Email OTP server seal requires emailOtpServerSeal.rootSecretB64u and currentKeyVersion',
+    message:
+      'Email OTP server seal requires emailOtpServerSeal.rootSecretB64u and currentKeyVersion',
   };
 }
 

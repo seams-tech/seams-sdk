@@ -47,6 +47,7 @@ import type { RecoverySessionRecord, RecoverySessionStatus } from '../../core/Re
 import type { RouterAbEcdsaPresignRuntime } from '../../core/routerAbSigning/RouterAbEcdsaPresignRuntime';
 import type { DeviceLinkingRouteServiceV1 } from '../transport/fetch/routes/deviceLinking';
 import type { DeviceManagementRouteServiceV1 } from '../transport/fetch/routes/deviceManagement';
+import type { DeviceLinkingGatewayCompletionServiceV1 } from '../transport/fetch/routes/deviceLinkingGateway';
 import type { LinkedDeviceLocalPresenceVerifierPortV1 } from '../auth/linkedDeviceLocalPresenceVerifier';
 import type { LinkedDeviceExecutionAdmissionResolverV1 } from '../domains/signingOperations/walletExecutionAdmission';
 import type { WalletEcdsaSignerKey, WalletEcdsaSignerRecord } from '../../core/WalletStore';
@@ -1450,6 +1451,8 @@ export interface RouterApiServiceBag {
   linkedDeviceExecution?: LinkedDeviceExecutionAdmissionResolverV1;
   /** Device-local user-presence verifier used by linked normal signing admission. */
   linkedDeviceLocalPresence?: LinkedDeviceLocalPresenceVerifierPortV1;
+  /** Private Gateway completion endpoint for the linked-device activation commit. */
+  deviceLinkingGateway?: DeviceLinkingGatewayCompletionServiceV1;
 }
 
 export interface RouterApiAuthorizedOperationService {
