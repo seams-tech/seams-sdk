@@ -4,7 +4,11 @@ import {
   computeLinkedDeviceApprovalDigestV1,
   computeLinkedDeviceSessionClaimDigestV1,
 } from '@shared/device-linking/digests';
-import type { D1DatabaseLike, D1PreparedStatementLike, D1ResultLike } from '../../../../storage/tenantRoute';
+import type {
+  D1DatabaseLike,
+  D1PreparedStatementLike,
+  D1ResultLike,
+} from '../../../../storage/tenantRoute';
 import {
   parseD1LinkedDeviceSessionTranscriptRowV1,
   parseD1LinkedDeviceSessionRowV1,
@@ -92,7 +96,9 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
     };
   }
 
-  async getSessionV1(linkSessionId: LinkDeviceSessionId): Promise<LinkedDeviceSessionRecordV1 | null> {
+  async getSessionV1(
+    linkSessionId: LinkDeviceSessionId,
+  ): Promise<LinkedDeviceSessionRecordV1 | null> {
     const row = await this.database
       .prepare(
         `SELECT link_session_id, link_public_key_b64u, device_public_key_b64u,
@@ -121,9 +127,11 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
   }): Promise<LinkedDeviceSessionMutationResultV1> {
     const current = await this.getSessionV1(input.linkSessionId);
     if (!current) return conflictResult(input.expectedRevision, null);
-    if (sameClaim(current, input.claimDigestB64u, input.claim)) return { outcome: 'replayed', record: current };
+    if (sameClaim(current, input.claimDigestB64u, input.claim))
+      return { outcome: 'replayed', record: current };
     if (current.state.state !== 'displaying_qr') return invalidStateResult(current);
-    if (input.nowMs >= current.qrPayload.expiresAtMs) return { outcome: 'expired', record: current };
+    if (input.nowMs >= current.qrPayload.expiresAtMs)
+      return { outcome: 'expired', record: current };
     return this.applyTranscriptCas({
       kind: 'claim',
       linkSessionId: input.linkSessionId,
@@ -145,9 +153,11 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
   }): Promise<LinkedDeviceSessionMutationResultV1> {
     const current = await this.getSessionV1(input.linkSessionId);
     if (!current) return conflictResult(input.expectedRevision, null);
-    if (sameApproval(current, input.approvalDigestB64u, input.approval)) return { outcome: 'replayed', record: current };
+    if (sameApproval(current, input.approvalDigestB64u, input.approval))
+      return { outcome: 'replayed', record: current };
     if (current.state.state !== 'claimed_by_owner') return invalidStateResult(current);
-    if (input.nowMs >= current.state.claimExpiresAtMs) return { outcome: 'expired', record: current };
+    if (input.nowMs >= current.state.claimExpiresAtMs)
+      return { outcome: 'expired', record: current };
     return this.applyTranscriptCas({
       kind: 'approval',
       linkSessionId: input.linkSessionId,
@@ -172,7 +182,28 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
       nextRecord: input.nextRecord,
       nowMs: input.nowMs,
       expectedStates: ['provisioning', 'awaiting_aggregate_receipt'],
-      replay: (current) => current.state.state === 'committed_completion_required' && current.state.transcriptSetDigestB64u === input.transcriptSetDigestB64u,
+      replay: (current) =>
+        current.state.state === 'committed_completion_required' &&
+        current.state.transcriptSetDigestB64u === input.transcriptSetDigestB64u,
+    });
+  }
+
+  async recordTargetCredentialV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly expectedRevision: number;
+    readonly keyManifestDigestB64u: DigestB64u;
+    readonly nextRecord: LinkedDeviceSessionRecordV1;
+    readonly nowMs: number;
+  }): Promise<LinkedDeviceSessionMutationResultV1> {
+    return this.applyStateCas({
+      linkSessionId: input.linkSessionId,
+      expectedRevision: input.expectedRevision,
+      nextRecord: input.nextRecord,
+      nowMs: input.nowMs,
+      expectedStates: ['awaiting_target_passkey'],
+      replay: (current) =>
+        current.state.state === 'provisioning' &&
+        current.state.keyManifestDigestB64u === input.keyManifestDigestB64u,
     });
   }
 
@@ -189,7 +220,10 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
       nextRecord: input.nextRecord,
       nowMs: input.nowMs,
       expectedStates: ['awaiting_aggregate_receipt'],
-      replay: (current) => current.state.state === 'active' && Boolean(current.aggregateReceipt) && alphabetizeStringify(current.aggregateReceipt) === alphabetizeStringify(input.receipt),
+      replay: (current) =>
+        current.state.state === 'active' &&
+        Boolean(current.aggregateReceipt) &&
+        alphabetizeStringify(current.aggregateReceipt) === alphabetizeStringify(input.receipt),
     });
   }
 
@@ -206,7 +240,8 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
       nowMs: input.nowMs,
       expectedStates: ['displaying_qr', 'claimed_by_owner', 'awaiting_target_passkey'],
       replay: (current) =>
-        (current.state.state === 'cancelled_unclaimed' || current.state.state === 'cancelled_claimed_precommit') &&
+        (current.state.state === 'cancelled_unclaimed' ||
+          current.state.state === 'cancelled_claimed_precommit') &&
         current.state.cancelledAtMs === cancelledAtMs(input.nextRecord.state),
     });
   }
@@ -219,15 +254,23 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
   }): Promise<LinkedDeviceSessionMutationResultV1> {
     const current = await this.getSessionV1(input.linkSessionId);
     if (!current) return conflictResult(input.expectedRevision, null);
-    if (current.state.state === 'expired_unclaimed' || current.state.state === 'expired_claimed') return { outcome: 'replayed', record: current };
+    if (current.state.state === 'expired_unclaimed' || current.state.state === 'expired_claimed')
+      return { outcome: 'replayed', record: current };
     if (!isExpirableState(current.state)) return invalidStateResult(current);
-    if (input.nowMs < expiryMs(current)) return { outcome: 'invalid_state', state: current.state.state, record: current };
+    if (input.nowMs < expiryMs(current))
+      return { outcome: 'invalid_state', state: current.state.state, record: current };
     return this.applyStateCas({
       linkSessionId: input.linkSessionId,
       expectedRevision: input.expectedRevision,
       nextRecord: input.nextRecord,
       nowMs: input.nowMs,
-      expectedStates: ['displaying_qr', 'claimed_by_owner', 'awaiting_target_passkey', 'provisioning', 'awaiting_aggregate_receipt'],
+      expectedStates: [
+        'displaying_qr',
+        'claimed_by_owner',
+        'awaiting_target_passkey',
+        'provisioning',
+        'awaiting_aggregate_receipt',
+      ],
       replay: (record) => record.state.state === input.nextRecord.state.state,
     });
   }
@@ -249,7 +292,14 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
            transcript_kind, digest_b64u, transcript_json, created_at_ms
          ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE changes() = 1`,
       )
-      .bind(...scopeValues(this.scope), String(input.linkSessionId), input.kind, input.digestB64u, JSON.stringify(input.transcript), input.nowMs);
+      .bind(
+        ...scopeValues(this.scope),
+        String(input.linkSessionId),
+        input.kind,
+        input.digestB64u,
+        JSON.stringify(input.transcript),
+        input.nowMs,
+      );
     let batchFailed = false;
     let batchError: unknown;
     try {
@@ -261,13 +311,19 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
     if (batchFailed) {
       const raced = await this.getSessionV1(input.linkSessionId);
       if (!raced) throw batchError;
-      if (input.kind === 'claim' && sameClaim(raced, input.digestB64u, input.transcript)) return { outcome: 'replayed', record: raced };
-      if (input.kind === 'approval' && sameApproval(raced, input.digestB64u, input.transcript)) return { outcome: 'replayed', record: raced };
+      if (input.kind === 'claim' && sameClaim(raced, input.digestB64u, input.transcript))
+        return { outcome: 'replayed', record: raced };
+      if (input.kind === 'approval' && sameApproval(raced, input.digestB64u, input.transcript))
+        return { outcome: 'replayed', record: raced };
       return conflictResult(input.expectedRevision, raced);
     }
     const persisted = await this.getSessionV1(input.linkSessionId);
     if (!persisted) throw new Error('linked-device session disappeared after CAS');
-    if (persisted.revision === input.nextRecord.revision && alphabetizeStringify(persisted) === alphabetizeStringify(input.nextRecord)) return { outcome: 'applied', record: persisted };
+    if (
+      persisted.revision === input.nextRecord.revision &&
+      alphabetizeStringify(persisted) === alphabetizeStringify(input.nextRecord)
+    )
+      return { outcome: 'applied', record: persisted };
     return resolveMutationRace(input.expectedRevision, persisted);
   }
 
@@ -292,7 +348,11 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
     }).run();
     const persisted = await this.getSessionV1(input.linkSessionId);
     if (!persisted) throw new Error('linked-device session disappeared after state CAS');
-    if (persisted.revision === input.nextRecord.revision && alphabetizeStringify(persisted) === alphabetizeStringify(input.nextRecord)) return { outcome: 'applied', record: persisted };
+    if (
+      persisted.revision === input.nextRecord.revision &&
+      alphabetizeStringify(persisted) === alphabetizeStringify(input.nextRecord)
+    )
+      return { outcome: 'applied', record: persisted };
     return resolveMutationRace(input.expectedRevision, persisted);
   }
 
@@ -338,17 +398,30 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
           ORDER BY transcript_kind ASC`,
       )
       .bind(...scopeValues(this.scope), String(record.linkSessionId))
-      .all<{ transcript_kind?: unknown; digest_b64u?: unknown; transcript_json?: unknown; created_at_ms?: unknown }>();
+      .all<{
+        transcript_kind?: unknown;
+        digest_b64u?: unknown;
+        transcript_json?: unknown;
+        created_at_ms?: unknown;
+      }>();
     const expected = new Map<string, { readonly digestB64u: string; readonly json: string }>();
     if (record.claimTranscript) {
       const digest = await computeLinkedDeviceSessionClaimDigestV1(record.claimTranscript.value);
-      if (digest !== record.claimTranscript.digestB64u) throw new Error('claim transcript digest is invalid');
-      expected.set('claim', { digestB64u: record.claimTranscript.digestB64u, json: alphabetizeStringify(record.claimTranscript.value) });
+      if (digest !== record.claimTranscript.digestB64u)
+        throw new Error('claim transcript digest is invalid');
+      expected.set('claim', {
+        digestB64u: record.claimTranscript.digestB64u,
+        json: alphabetizeStringify(record.claimTranscript.value),
+      });
     }
     if (record.approvalTranscript) {
       const digest = await computeLinkedDeviceApprovalDigestV1(record.approvalTranscript.value);
-      if (digest !== record.approvalTranscript.digestB64u) throw new Error('approval transcript digest is invalid');
-      expected.set('approval', { digestB64u: record.approvalTranscript.digestB64u, json: alphabetizeStringify(record.approvalTranscript.value) });
+      if (digest !== record.approvalTranscript.digestB64u)
+        throw new Error('approval transcript digest is invalid');
+      expected.set('approval', {
+        digestB64u: record.approvalTranscript.digestB64u,
+        json: alphabetizeStringify(record.approvalTranscript.value),
+      });
     }
     const actual = new Map<string, { readonly digestB64u: string; readonly json: string }>();
     for (const row of rows.results || []) {
@@ -359,10 +432,12 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
       if (actual.has(kind)) throw new Error('duplicate linked-device transcript');
       actual.set(kind, { digestB64u: digest, json });
     }
-    if (actual.size !== expected.size) throw new Error('linked-device transcript ledger is incomplete');
+    if (actual.size !== expected.size)
+      throw new Error('linked-device transcript ledger is incomplete');
     for (const [kind, value] of expected) {
       const persisted = actual.get(kind);
-      if (!persisted || persisted.digestB64u !== value.digestB64u || persisted.json !== value.json) throw new Error('linked-device transcript ledger is immutable and mismatched');
+      if (!persisted || persisted.digestB64u !== value.digestB64u || persisted.json !== value.json)
+        throw new Error('linked-device transcript ledger is immutable and mismatched');
     }
   }
 }
@@ -377,7 +452,13 @@ function normalizeScope(scope: D1LinkedDeviceSessionScopeV1): D1LinkedDeviceSess
 }
 
 function requiredScope(value: string, field: string): string {
-  if (typeof value !== 'string' || value.length === 0 || value.trim() !== value || /[\u0000-\u001f\u007f]/.test(value)) throw new Error(`${field} is invalid`);
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.trim() !== value ||
+    /[\u0000-\u001f\u007f]/.test(value)
+  )
+    throw new Error(`${field} is invalid`);
   return value;
 }
 
@@ -386,31 +467,72 @@ function scopeValues(scope: D1LinkedDeviceSessionScopeV1): readonly string[] {
 }
 
 function sessionColumnValues(record: LinkedDeviceSessionRecordV1): readonly unknown[] {
-  return [record.linkSessionId, record.qrPayload.linkPublicKeyB64u, record.qrPayload.devicePublicKeyB64u, record.state.state, JSON.stringify(record), record.revision, record.qrPayload.expiresAtMs, record.claimTranscript?.value.claimExpiresAtMs ?? null, record.claimTranscript?.digestB64u ?? null, record.approvalTranscript?.digestB64u ?? null, record.createdAtMs, record.updatedAtMs];
+  return [
+    record.linkSessionId,
+    record.qrPayload.linkPublicKeyB64u,
+    record.qrPayload.devicePublicKeyB64u,
+    record.state.state,
+    JSON.stringify(record),
+    record.revision,
+    record.qrPayload.expiresAtMs,
+    record.claimTranscript?.value.claimExpiresAtMs ?? null,
+    record.claimTranscript?.digestB64u ?? null,
+    record.approvalTranscript?.digestB64u ?? null,
+    record.createdAtMs,
+    record.updatedAtMs,
+  ];
 }
 
-function sameQrPayload(left: LinkedDeviceSessionRecordV1, right: LinkedDeviceSessionRecordV1): boolean {
+function sameQrPayload(
+  left: LinkedDeviceSessionRecordV1,
+  right: LinkedDeviceSessionRecordV1,
+): boolean {
   return alphabetizeStringify(left.qrPayload) === alphabetizeStringify(right.qrPayload);
 }
 
 function sameClaim(record: LinkedDeviceSessionRecordV1, digest: string, value: unknown): boolean {
-  return Boolean(record.claimTranscript && record.claimTranscript.digestB64u === digest && alphabetizeStringify(record.claimTranscript.value) === alphabetizeStringify(value));
+  return Boolean(
+    record.claimTranscript &&
+    record.claimTranscript.digestB64u === digest &&
+    alphabetizeStringify(record.claimTranscript.value) === alphabetizeStringify(value),
+  );
 }
 
-function sameApproval(record: LinkedDeviceSessionRecordV1, digest: string, value: unknown): boolean {
-  return Boolean(record.approvalTranscript && record.approvalTranscript.digestB64u === digest && alphabetizeStringify(record.approvalTranscript.value) === alphabetizeStringify(value));
+function sameApproval(
+  record: LinkedDeviceSessionRecordV1,
+  digest: string,
+  value: unknown,
+): boolean {
+  return Boolean(
+    record.approvalTranscript &&
+    record.approvalTranscript.digestB64u === digest &&
+    alphabetizeStringify(record.approvalTranscript.value) === alphabetizeStringify(value),
+  );
 }
 
-function resolveMutationRace(expectedRevision: number, record: LinkedDeviceSessionRecordV1): LinkedDeviceSessionMutationResultV1 {
+function resolveMutationRace(
+  expectedRevision: number,
+  record: LinkedDeviceSessionRecordV1,
+): LinkedDeviceSessionMutationResultV1 {
   if (record.revision === expectedRevision) return invalidStateResult(record);
   return conflictResult(expectedRevision, record);
 }
 
-function conflictResult(expectedRevision: number, record: LinkedDeviceSessionRecordV1 | null): LinkedDeviceSessionMutationResultV1 {
-  return { outcome: 'conflict', expectedRevision, actualRevision: record?.revision ?? null, record };
+function conflictResult(
+  expectedRevision: number,
+  record: LinkedDeviceSessionRecordV1 | null,
+): LinkedDeviceSessionMutationResultV1 {
+  return {
+    outcome: 'conflict',
+    expectedRevision,
+    actualRevision: record?.revision ?? null,
+    record,
+  };
 }
 
-function invalidStateResult(record: LinkedDeviceSessionRecordV1): LinkedDeviceSessionMutationResultV1 {
+function invalidStateResult(
+  record: LinkedDeviceSessionRecordV1,
+): LinkedDeviceSessionMutationResultV1 {
   return { outcome: 'invalid_state', state: record.state.state, record };
 }
 
@@ -447,12 +569,17 @@ function isExpirableState(state: LinkedDeviceSessionState): boolean {
 
 function expiryMs(record: LinkedDeviceSessionRecordV1): number {
   switch (record.state.state) {
-    case 'displaying_qr': return record.state.expiresAtMs;
-    case 'claimed_by_owner': return record.state.claimExpiresAtMs;
-    case 'awaiting_target_passkey': return record.state.credentialDeadlineMs;
+    case 'displaying_qr':
+      return record.state.expiresAtMs;
+    case 'claimed_by_owner':
+      return record.state.claimExpiresAtMs;
+    case 'awaiting_target_passkey':
+      return record.state.credentialDeadlineMs;
     case 'provisioning':
-    case 'awaiting_aggregate_receipt': return record.qrPayload.expiresAtMs;
-    default: return Number.POSITIVE_INFINITY;
+    case 'awaiting_aggregate_receipt':
+      return record.qrPayload.expiresAtMs;
+    default:
+      return Number.POSITIVE_INFINITY;
   }
 }
 
