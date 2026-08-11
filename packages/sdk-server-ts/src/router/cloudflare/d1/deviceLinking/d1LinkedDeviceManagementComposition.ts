@@ -5,16 +5,12 @@ import type {
   LinkedDeviceEnrollmentId,
   LaneEnrollmentId,
 } from '@shared/signing-lanes/ids';
-import {
-  parseLaneEnrollmentId,
-  type LaneOperationId,
-} from '@shared/signing-lanes/ids';
+import { parseLaneEnrollmentId, type LaneOperationId } from '@shared/signing-lanes/ids';
 import {
   parseLinkedDeviceWalletSessionAuthorizationId,
   parseMpcWalletSigningQuotaId,
   parsePrincipalId,
   parseTenantId,
-  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type LinkedDeviceWalletSessionAuthorizationId,
   type MpcWalletSigningQuotaId,
@@ -23,10 +19,7 @@ import {
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
-import type {
-  LaneProductEpochRecordV1,
-  RevokeSigningLaneV1,
-} from '@shared/signing-lanes';
+import type { LaneProductEpochRecordV1, RevokeSigningLaneV1 } from '@shared/signing-lanes';
 import {
   buildRevokeLaneEnrollmentV1,
   buildRevokeSigningLaneV1,
@@ -34,7 +27,11 @@ import {
 import { computeLaneEnrollmentManifestDigestV1 } from '@shared/signing-lanes/rotationDigests';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
-import { parseCorrelationId, parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
+import {
+  parseCorrelationId,
+  parseDigestB64u,
+  type DigestB64u,
+} from '@shared/utils/canonicalPrimitives';
 import type {
   LinkedDeviceLocalStateInvalidationPortV1,
   LinkedDeviceManagementAuthorizationPortV1,
@@ -82,9 +79,7 @@ export type D1LinkedDeviceWalletSessionAuthorizationMetadataSourcePortV1 = {
 };
 
 /** Read-only source for the exact linked grant/quota identity. */
-export class D1LinkedDeviceWalletSessionAuthorizationMetadataSourceV1
-  implements D1LinkedDeviceWalletSessionAuthorizationMetadataSourcePortV1
-{
+export class D1LinkedDeviceWalletSessionAuthorizationMetadataSourceV1 implements D1LinkedDeviceWalletSessionAuthorizationMetadataSourcePortV1 {
   private readonly database: D1DatabaseLike;
   private readonly scope: D1WalletStoreScope;
 
@@ -141,9 +136,7 @@ export class D1LinkedDeviceWalletSessionAuthorizationMetadataSourceV1
 }
 
 /** Builds the exact manifest-ordered child commands used by an approved revoker. */
-export class D1LinkedDeviceRevocationPreparationV1
-  implements LinkedDeviceRevocationPreparationPortV1
-{
+export class D1LinkedDeviceRevocationPreparationV1 implements LinkedDeviceRevocationPreparationPortV1 {
   constructor(
     private readonly metadata: D1LinkedDeviceWalletSessionAuthorizationMetadataSourceV1,
   ) {}
@@ -151,7 +144,9 @@ export class D1LinkedDeviceRevocationPreparationV1
   async prepareLinkedDeviceRevocationV1(input: {
     readonly target: LinkedDeviceManagementTargetV1;
     readonly requestedAtMs: number;
-  }): Promise<Awaited<ReturnType<LinkedDeviceRevocationPreparationPortV1['prepareLinkedDeviceRevocationV1']>>> {
+  }): Promise<
+    Awaited<ReturnType<LinkedDeviceRevocationPreparationPortV1['prepareLinkedDeviceRevocationV1']>>
+  > {
     const metadata = await this.metadata.readLinkedDeviceWalletSessionAuthorizationMetadataV1({
       walletId: input.target.summary.walletId,
       enrollmentId: input.target.summary.enrollmentId,
@@ -231,7 +226,9 @@ export class D1LinkedDeviceRevocationPreparationV1
       command,
       orderedChildren: [firstOrderedChild, ...orderedChildren.slice(1)],
     };
-    const authorizationId = parseWalletSessionAuthorizationId(String(metadata.authorizationId));
+    const authorizationId = parseLinkedDeviceWalletSessionAuthorizationId(
+      String(metadata.authorizationId),
+    );
     if (!authorizationId.ok) return { kind: 'conflict' };
     return {
       kind: 'prepared',
@@ -279,10 +276,18 @@ function parseAuthorizationMetadataRow(
   const authorizationId = parseLinkedDeviceWalletSessionAuthorizationId(
     requiredString(row.authorization_id, 'authorization_id'),
   );
-  const walletSessionId = parseWalletSessionId(requiredString(row.wallet_session_id, 'wallet_session_id'));
+  const walletSessionId = parseWalletSessionId(
+    requiredString(row.wallet_session_id, 'wallet_session_id'),
+  );
   const quotaId = parseMpcWalletSigningQuotaId(requiredString(row.quota_id, 'quota_id'));
   const principalId = parsePrincipalId(requiredString(row.principal_id, 'principal_id'));
-  if (!tenantId.ok || !authorizationId.ok || !walletSessionId.ok || !quotaId.ok || !principalId.ok) {
+  if (
+    !tenantId.ok ||
+    !authorizationId.ok ||
+    !walletSessionId.ok ||
+    !quotaId.ok ||
+    !principalId.ok
+  ) {
     throw new Error('linked-device authorization metadata identity is invalid');
   }
   if (principalId.value !== buildLinkedDevicePrincipalId(deviceId)) {
