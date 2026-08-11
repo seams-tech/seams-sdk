@@ -50,6 +50,60 @@ export type D1LinkedDeviceLaneGatewayRouteOptionsV1 = {
   }): Promise<DeviceLinkingLaneCeremonyBindingResponseV1>;
 };
 
+export function createD1LinkedDeviceLaneGatewayRouteServiceV1(
+  options: D1LinkedDeviceLaneGatewayRouteOptionsV1,
+): DeviceLinkingLaneGatewayRouteServiceV1 {
+  return new D1LinkedDeviceLaneGatewayRouteService(options);
+}
+
+class D1LinkedDeviceLaneGatewayRouteService implements DeviceLinkingLaneGatewayRouteServiceV1 {
+  readonly authenticateOwnerRequestV1: D1LinkedDeviceLaneGatewayRouteOptionsV1['authenticateOwnerRequestV1'];
+
+  constructor(private readonly options: D1LinkedDeviceLaneGatewayRouteOptionsV1) {
+    this.authenticateOwnerRequestV1 = options.authenticateOwnerRequestV1;
+  }
+
+  async executeOwnerAuthorizedRequestV1(input: {
+    readonly owner: DeviceLinkingOwnerWalletSessionContextV1;
+    readonly request: DeviceLinkingLaneGatewayRequestV1;
+  }): Promise<DeviceLinkingLaneGatewayResponseV1 | DeviceLinkingLaneProtocolCommitResultV1> {
+    const authorization = createD1LinkedDeviceLaneOwnerAuthorizationV1({
+      projection: this.options.ownerProjection,
+    });
+    switch (input.request.action) {
+      case 'prepare':
+        await authorization.authorizePrepareV1({
+          owner: input.owner,
+          request: input.request.body,
+        });
+        return await this.options.gateway.prepareLaneEnrollmentV1(input.request.body);
+      case 'protocol-commit':
+        await authorization.authorizeProtocolJobV1({
+          owner: input.owner,
+          job: input.request.body.job,
+        });
+        return await executeProtocolCommitV1(this.options.protocolCommitter, input.request.body);
+      case 'ceremony-binding':
+        return await this.options.resolveCeremonyBindingV1({
+          operationId: input.request.body.operationId,
+          owner: input.owner,
+        });
+    }
+  }
+}
+
+async function executeProtocolCommitV1(
+  committer: D1LinkedDeviceLaneProtocolCommitterV1,
+  request: DeviceLinkingLaneProtocolCommitRequestV1,
+): Promise<DeviceLinkingLaneProtocolCommitResultV1> {
+  switch (request.curve) {
+    case 'ed25519_yao':
+      return await committer.executeAndRecordEd25519YaoLaneV1(request);
+    case 'ecdsa_additive':
+      return await committer.executeAndRecordEcdsaAdditiveLaneV1(request);
+  }
+}
+
 /**
  * D1-owned owner/source projection guard shared by the browser lane route and
  * the in-process R102 provisioning path. The guard has no mutation authority;
