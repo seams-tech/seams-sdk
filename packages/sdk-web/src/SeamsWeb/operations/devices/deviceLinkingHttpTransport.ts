@@ -10,6 +10,7 @@ import {
   parseLinkedDeviceProvisioningDeliveriesV1,
   parseLinkedDeviceSessionProjectionV1,
   parseLinkedDeviceSessionTransportEventV1,
+  parseLinkedDeviceTargetPreparationV1,
 } from '@shared/device-linking';
 import {
   computeLinkedDevicePublicKeyDigestV1,
@@ -99,6 +100,16 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
         linkSessionId,
       });
       return parseLinkedDeviceApprovalDeliveryV1(response.body).approval;
+    },
+    getTargetPreparationV1: async ({ linkSessionId }) => {
+      const response = await requestDeviceV1({
+        options,
+        baseUrl,
+        method: 'GET',
+        canonicalPath: sessionActionPath(linkSessionId, 'target-preparation'),
+        linkSessionId,
+      });
+      return parseLinkedDeviceTargetPreparationV1(response.body);
     },
     requestProvisioningDeliveriesV1: async ({ command }) => {
       const response = await requestDeviceV1({
@@ -377,6 +388,7 @@ function sessionActionPath(
   linkSessionId: LinkDeviceSessionId,
   action:
     | 'approval'
+    | 'target-preparation'
     | 'provision'
     | 'holder-receipts'
     | 'credential'

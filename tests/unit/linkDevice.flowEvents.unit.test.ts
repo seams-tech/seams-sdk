@@ -18,6 +18,7 @@ import {
   buildDisplayingQrLinkedDeviceSessionState,
   buildExpiredUnclaimedLinkedDeviceSessionState,
   buildQrLinkedDeviceSessionPayloadV4,
+  buildLinkedDeviceTargetPreparationV1,
   parseQrLinkedDeviceSessionPayloadV4,
 } from '../../packages/shared-ts/src/device-linking';
 import type {
@@ -28,6 +29,7 @@ import type {
 } from '../../packages/shared-ts/src/device-linking';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import { parseWebAuthnCredentialIdB64u } from '../../packages/shared-ts/src/utils/domainIds';
+import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import {
   buildR102HolderDeliveryReceipt,
   buildR102LaneJob,
@@ -61,8 +63,12 @@ function createPorts(
     source: fixture.approval.ownerAuthorization,
     proofDigestB64u: fixture.approval.policyDigestB64u,
   };
-  const credentialIdResult = parseWebAuthnCredentialIdB64u('credential:r103');
+  const credentialIdResult = parseWebAuthnCredentialIdB64u(
+    base64UrlEncode(new Uint8Array(32).fill(6)),
+  );
   if (!credentialIdResult.ok) throw new Error(credentialIdResult.error.message);
+  const targetBinding = fixture.approval.orderedKeyBindings[0];
+  const targetHolder = buildR102LaneJob('linked-target').targetHolder;
   const authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1 = {
     async createUnclaimedSessionV1(input) {
       calls.push('create');
@@ -84,6 +90,33 @@ function createPorts(
       return buildR103DeviceLinkFixture({
         linkSessionId: String(activeLinkSessionId),
       }).approval;
+    },
+    async getTargetPreparationV1() {
+      calls.push('target-preparation');
+      return buildLinkedDeviceTargetPreparationV1({
+        linkSessionId: activeLinkSessionId,
+        walletId: fixture.approval.walletId,
+        enrollmentId: fixture.approval.enrollmentId,
+        deviceId: fixture.approval.deviceId,
+        rpId: 'wallet.example.test',
+        userHandleB64u: fixture.payload.devicePublicKeyB64u,
+        challengeB64u: fixture.approval.policyDigestB64u,
+        orderedChildren: [
+          {
+            kind: 'linked_device_target_preparation_child_v1',
+            operationId: fixture.approval.operationId,
+            walletKeyId: targetBinding.walletKeyId,
+            keyFamily: targetBinding.keyFamily,
+            targetLaneId: targetBinding.targetLaneId,
+            targetLaneShareEpoch: targetBinding.targetLaneShareEpoch,
+            targetMaterialActivationId:
+              fixture.receipt.orderedChildReceipts[0].materialActivation.activationId,
+            targetHolderParticipantId: targetHolder.participantId,
+          },
+        ],
+        issuedAtMs: now - 1_000,
+        expiresAtMs: now + 30_000,
+      });
     },
     async requestProvisioningDeliveriesV1() {
       throw new Error('provisioning delivery adapter is not configured for this test');
@@ -241,15 +274,37 @@ function createPorts(
       },
     },
     targetCredential: {
-      async createTargetCredentialV1() {
+      async createTargetCredentialV1(input) {
         calls.push('target-passkey');
-        return { credentialIdB64u: credentialIdResult.value };
+        return {
+          webauthnRegistration: {
+            kind: 'linked_device_webauthn_registration_v1',
+            credentialIdB64u: credentialIdResult.value,
+            authenticatorAttachment: 'platform',
+            clientDataJsonB64u: fixture.payload.devicePublicKeyB64u,
+            attestationObjectB64u: fixture.payload.devicePublicKeyB64u,
+            transports: ['internal'],
+          },
+          orderedHolderRegistrations: [
+            {
+              kind: 'linked_device_target_holder_registration_v1',
+              operationId: input.preparation.orderedChildren[0].operationId,
+              walletKeyId: input.preparation.orderedChildren[0].walletKeyId,
+              keyFamily: input.preparation.orderedChildren[0].keyFamily,
+              targetLaneId: input.preparation.orderedChildren[0].targetLaneId,
+              targetLaneShareEpoch: input.preparation.orderedChildren[0].targetLaneShareEpoch,
+              targetMaterialActivationId:
+                input.preparation.orderedChildren[0].targetMaterialActivationId,
+              holderParticipant: {
+                kind: 'lane_holder_participant_v1',
+                ...targetHolder,
+              },
+            },
+          ],
+        };
       },
     },
     laneProvisioning: {
-      async installAuthorizedLaneHolderWorkerV1() {
-        calls.push('worker-install');
-      },
       async prepareLinkedDeviceLanesV1() {
         calls.push('prepare-lanes');
         return fixture.receipt;
@@ -529,9 +584,9 @@ test.describe('linked-device browser orchestration', () => {
     await expect
       .poll(() => calls.slice(-8), { timeout: 5_000 })
       .toEqual([
+        'target-preparation',
         'target-passkey',
         'credential',
-        'worker-install',
         'get-approval',
         'provision-deliveries',
         'prepare-lanes',

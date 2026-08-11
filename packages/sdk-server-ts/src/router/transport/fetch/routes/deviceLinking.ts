@@ -8,6 +8,7 @@ import type {
   LinkedDeviceReceiptAcknowledgementV1,
   LinkedDeviceSessionTransportRequestV1,
   LinkedDeviceTargetCredentialRegistrationV1,
+  LinkedDeviceTargetPreparationV1,
   QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking/contracts';
 import {
@@ -20,9 +21,11 @@ import {
   parseLinkedDeviceSessionClaimRequestV1,
   parseLinkedDeviceSessionTransportRequestV1,
   parseLinkedDeviceTargetCredentialRegistrationV1,
+  parseLinkedDeviceTargetPreparationV1,
   parseLinkedDeviceApprovalV1,
   parseQrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking/parsers';
+import { assertLinkedDeviceTargetCredentialRegistrationMatchesPreparationV1 } from '@shared/device-linking/digests';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import {
   parseLinkDeviceSessionId,
@@ -171,6 +174,20 @@ export type DeviceLinkingProvisioningVerifierV1 = {
   }): Promise<void>;
 };
 
+export type DeviceLinkingTargetCredentialProviderV1 = {
+  getTargetPreparationV1(input: {
+    readonly session: LinkedDeviceSessionRecordV1;
+    readonly approval: LinkedDeviceApprovalV1;
+    readonly requestedAtMs: number;
+  }): Promise<LinkedDeviceTargetPreparationV1>;
+  registerTargetCredentialV1(input: {
+    readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+    readonly preparation: LinkedDeviceTargetPreparationV1;
+    readonly session: LinkedDeviceSessionRecordV1;
+    readonly requestedAtMs: number;
+  }): Promise<DeviceLinkingRouteMutationResultV1>;
+};
+
 export type DeviceLinkingRouteServiceV1 = {
   readonly sessionService: Pick<
     LinkedDeviceSessionServiceV1,
@@ -205,11 +222,7 @@ export type DeviceLinkingRouteServiceV1 = {
     readonly proof: DeviceLinkingRequestProofV1;
     readonly requestedAtMs: number;
   }): Promise<DeviceLinkingDeviceAuthenticatedRequestV1 | DeviceLinkingAuthDeniedV1>;
-  registerTargetCredentialV1(input: {
-    readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
-    readonly session: LinkedDeviceSessionRecordV1;
-    readonly requestedAtMs: number;
-  }): Promise<DeviceLinkingRouteMutationResultV1>;
+  readonly targetCredential: DeviceLinkingTargetCredentialProviderV1;
   acknowledgeReceiptV1(input: {
     readonly acknowledgement: LinkedDeviceReceiptAcknowledgementV1;
     readonly session: LinkedDeviceSessionRecordV1;
@@ -254,6 +267,8 @@ export async function handleDeviceLinking(ctx: FetchRouterApiContext): Promise<R
       return await handleProvision(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'holder-receipts')
       return await handleHolderReceipts(ctx, service, action.linkSessionId, nowMs);
+    if (action.kind === 'target-preparation')
+      return await handleTargetPreparation(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'credential')
       return await handleCredential(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'receipt')
@@ -513,9 +528,91 @@ async function handleCredential(
     session.claimTranscript?.value.deviceId !== registration.deviceId
   )
     return invalidInputResponse('target credential binding does not match session');
+  const approval = requireProvisioningApproval(session);
+  const rawPreparation = await awaitTargetPreparation(service, session, approval, nowMs);
+  const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(rawPreparation));
+  assertTargetPreparationMatchesSession(preparation, session, approval, nowMs);
+  await assertLinkedDeviceTargetCredentialRegistrationMatchesPreparationV1({
+    preparation,
+    registration,
+  });
   return mutationResultResponse(
-    await service.registerTargetCredentialV1({ registration, session, requestedAtMs: nowMs }),
+    await service.targetCredential.registerTargetCredentialV1({
+      registration,
+      preparation,
+      session,
+      requestedAtMs: nowMs,
+    }),
   );
+}
+
+async function handleTargetPreparation(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
+  const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
+  if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
+  if (authenticated.kind === 'not_found') return notFoundResponse();
+  if (ctx.method !== 'GET') return methodNotAllowedResponse();
+  const session = authenticated.session;
+  const approval = requireProvisioningApproval(session);
+  const rawPreparation = await awaitTargetPreparation(service, session, approval, nowMs);
+  const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(rawPreparation));
+  assertTargetPreparationMatchesSession(preparation, session, approval, nowMs);
+  return json(preparation, { status: 200 });
+}
+
+function awaitTargetPreparation(
+  service: DeviceLinkingRouteServiceV1,
+  session: LinkedDeviceSessionRecordV1,
+  approval: LinkedDeviceApprovalV1,
+  requestedAtMs: number,
+): Promise<LinkedDeviceTargetPreparationV1> {
+  return service.targetCredential.getTargetPreparationV1({
+    session,
+    approval,
+    requestedAtMs,
+  });
+}
+
+function assertTargetPreparationMatchesSession(
+  preparation: LinkedDeviceTargetPreparationV1,
+  session: LinkedDeviceSessionRecordV1,
+  approval: LinkedDeviceApprovalV1,
+  nowMs: number,
+): void {
+  if (
+    session.state.state !== 'awaiting_target_passkey' ||
+    preparation.linkSessionId !== session.linkSessionId ||
+    preparation.linkSessionId !== approval.linkSessionId ||
+    preparation.walletId !== approval.walletId ||
+    preparation.enrollmentId !== approval.enrollmentId ||
+    preparation.deviceId !== approval.deviceId ||
+    preparation.orderedChildren.length !== approval.orderedKeyBindings.length ||
+    preparation.expiresAtMs <= nowMs
+  ) {
+    throw new DeviceLinkingInputError(
+      'target preparation does not match the approved linked-device session',
+    );
+  }
+  for (let index = 0; index < preparation.orderedChildren.length; index += 1) {
+    const child = preparation.orderedChildren[index];
+    const approved = approval.orderedKeyBindings[index];
+    if (
+      !child ||
+      !approved ||
+      child.walletKeyId !== approved.walletKeyId ||
+      child.keyFamily !== approved.keyFamily ||
+      child.targetLaneId !== approved.targetLaneId ||
+      child.targetLaneShareEpoch !== approved.targetLaneShareEpoch
+    ) {
+      throw new DeviceLinkingInputError(
+        `target preparation child ${index} differs from its approved key binding`,
+      );
+    }
+  }
 }
 
 async function handleReceipt(
@@ -707,6 +804,7 @@ function parseRoutePath(pathname: string):
       readonly kind:
         | 'claim'
         | 'approval'
+        | 'target-preparation'
         | 'provision'
         | 'holder-receipts'
         | 'credential'
@@ -727,6 +825,7 @@ function parseRoutePath(pathname: string):
   if (
     parts[1] !== 'claim' &&
     parts[1] !== 'approval' &&
+    parts[1] !== 'target-preparation' &&
     parts[1] !== 'provision' &&
     parts[1] !== 'holder-receipts' &&
     parts[1] !== 'credential' &&

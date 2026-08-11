@@ -21,6 +21,7 @@ import {
   buildDisplayingQrLinkedDeviceSessionState,
   assertNeverLinkedDeviceSessionState,
 } from '@shared/device-linking';
+import { computeLinkedDeviceTargetPreparationDigestV1 } from '@shared/device-linking';
 import type {
   LinkedDeviceSessionState,
   LinkedDeviceSessionTransportEventV1,
@@ -425,29 +426,29 @@ export class LinkDeviceFlow {
     const authenticatedTransport = this.requireAuthenticatedTransport();
     const deviceId = await this.requireDeviceId(state);
     this.assertCurrentRun(runEpoch);
+    const preparation = await authenticatedTransport.getTargetPreparationV1({
+      linkSessionId: state.linkSessionId,
+    });
+    this.assertCurrentRun(runEpoch);
+    this.assertTargetPreparationMatchesSession({ preparation, state, deviceId });
     const credential = await this.ports.targetCredential.createTargetCredentialV1({
-      walletId: state.walletId,
-      enrollmentId: state.enrollmentId,
-      deviceId,
+      preparation,
       keyMaterial: this.keyMaterialHandle,
     });
     this.assertCurrentRun(runEpoch);
+    const targetPreparationDigestB64u =
+      await computeLinkedDeviceTargetPreparationDigestV1(preparation);
     await authenticatedTransport.registerTargetCredentialV1({
       registration: buildLinkedDeviceTargetCredentialRegistrationV1({
         linkSessionId: state.linkSessionId,
         walletId: state.walletId,
         enrollmentId: state.enrollmentId,
         deviceId,
-        credentialIdB64u: credential.credentialIdB64u,
+        targetPreparationDigestB64u,
+        webauthnRegistration: credential.webauthnRegistration,
+        orderedHolderRegistrations: credential.orderedHolderRegistrations,
         registeredAtMs: Date.now(),
       }),
-    });
-    this.assertCurrentRun(runEpoch);
-    await this.ports.laneProvisioning.installAuthorizedLaneHolderWorkerV1({
-      walletId: state.walletId,
-      enrollmentId: state.enrollmentId,
-      deviceId,
-      credentialIdB64u: credential.credentialIdB64u,
     });
     this.assertCurrentRun(runEpoch);
     const approval = await authenticatedTransport.getApprovalV1({
@@ -511,6 +512,22 @@ export class LinkDeviceFlow {
       input.approval.devicePublicKeyB64u !== this.session.qrData.devicePublicKeyB64u
     ) {
       throw new Error('linked-device approval does not match the claimed session');
+    }
+  }
+
+  private assertTargetPreparationMatchesSession(input: {
+    readonly preparation: import('@shared/device-linking').LinkedDeviceTargetPreparationV1;
+    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_passkey' }>;
+    readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
+  }): void {
+    if (
+      input.preparation.linkSessionId !== input.state.linkSessionId ||
+      input.preparation.walletId !== input.state.walletId ||
+      input.preparation.enrollmentId !== input.state.enrollmentId ||
+      input.preparation.deviceId !== input.deviceId ||
+      input.preparation.expiresAtMs <= Date.now()
+    ) {
+      throw new Error('linked-device target preparation does not match the claimed session');
     }
   }
 
