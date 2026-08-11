@@ -109,6 +109,128 @@ export function routerAbEcdsaAtomicAuthorizationConfigured(
   return typeof runtime.admitAuthorizedOperation === 'function';
 }
 
+type RouterAbAcceptedAuthorizedOperationBindingV1 =
+  | {
+      readonly kind: 'reusable_wallet_session';
+      readonly walletSessionId: string;
+      readonly quotaId: string;
+    }
+  | {
+      readonly kind: 'operation_step_up';
+      readonly authorizationSessionId: string;
+      readonly orgId: string;
+      readonly projectId: string;
+      readonly environment: string;
+      readonly subjectId: string;
+    };
+
+export function buildRouterAbEd25519AcceptedAuthorizedOperationV1(input: {
+  readonly operation: AuthorizedOperation;
+  readonly binding: RouterAbAcceptedAuthorizedOperationBindingV1;
+}) {
+  const operation = input.operation;
+  const operationRef = operation.operation.operation;
+  if (operationRef.capabilityKind !== 'near_ed25519_mpc_signing') {
+    throw new Error('Ed25519 authorized operation capability is invalid');
+  }
+  if (operationRef.operationKind === 'near.export_key') {
+    throw new Error('Ed25519 export cannot use normal-signing admission');
+  }
+  return buildRouterAbAcceptedAuthorizedOperationV1({
+    operation,
+    operationKind: operationRef.operationKind,
+    capabilityKind: 'near_ed25519_mpc_signing',
+    binding: input.binding,
+  });
+}
+
+export function buildRouterAbEcdsaAcceptedAuthorizedOperationV1(input: {
+  readonly operation: AuthorizedOperation;
+  readonly binding: RouterAbAcceptedAuthorizedOperationBindingV1;
+}) {
+  const operation = input.operation;
+  const operationRef = operation.operation.operation;
+  if (
+    operationRef.capabilityKind !== 'evm_ecdsa_mpc_signing' ||
+    operationRef.operationKind !== 'evm.sign_transaction'
+  ) {
+    throw new Error('ECDSA authorized operation capability or operation kind is invalid');
+  }
+  return buildRouterAbAcceptedAuthorizedOperationV1({
+    operation,
+    operationKind: 'evm.sign_transaction',
+    capabilityKind: 'evm_ecdsa_mpc_signing',
+    binding: input.binding,
+  });
+}
+
+function buildRouterAbAcceptedAuthorizedOperationV1(input: {
+  readonly operation: AuthorizedOperation;
+  readonly capabilityKind: 'near_ed25519_mpc_signing' | 'evm_ecdsa_mpc_signing';
+  readonly operationKind:
+    | 'near.sign_transaction'
+    | 'near.sign_delegate_action'
+    | 'near.sign_nep413_message'
+    | 'evm.sign_transaction';
+  readonly binding: RouterAbAcceptedAuthorizedOperationBindingV1;
+}) {
+  const operation = input.operation;
+  const commonAuthorizedOperation = {
+    authorized_operation_id: operation.authorizedOperationId,
+    operation_id: operation.operation.operationId,
+    capability_kind: input.capabilityKind,
+    operation_kind: input.operationKind,
+    lane_digest_b64u: operation.operation.digests.laneDigest,
+    intent_digest_b64u: operation.operation.digests.intentDigest,
+    display_digest_b64u: operation.operation.digests.displayDigest,
+    operation_fingerprint_digest: operation.operationFingerprintDigest,
+  };
+  switch (input.binding.kind) {
+    case 'reusable_wallet_session':
+      if (
+        operation.authorization.kind !== 'authorization_grant' ||
+        operation.quota.kind !== 'consume_reusable_wallet_session'
+      ) {
+        throw new Error('Reusable Wallet Session authorized operation is invalid');
+      }
+      return {
+        binding: {
+          kind: 'reusable_wallet_session' as const,
+          authorization_id: operation.authorization.authorizationGrantRef.authorizationId,
+          wallet_session_id: input.binding.walletSessionId,
+          quota_id: input.binding.quotaId,
+        },
+        authorized_operation: {
+          kind: 'reusable_wallet_session_authorized_operation_v1' as const,
+          ...commonAuthorizedOperation,
+        },
+      };
+    case 'operation_step_up':
+      if (
+        operation.authorization.kind !== 'verified_step_up' ||
+        operation.quota.kind !== 'quota_neutral'
+      ) {
+        throw new Error('Verified step-up authorized operation is invalid');
+      }
+      return {
+        binding: {
+          kind: 'operation_step_up' as const,
+          authorization_session_id: input.binding.authorizationSessionId,
+          org_id: input.binding.orgId,
+          project_id: input.binding.projectId,
+          environment: input.binding.environment,
+          subject_id: input.binding.subjectId,
+        },
+        authorized_operation: {
+          kind: 'verified_step_up_authorized_operation_v1' as const,
+          authorization_session_id: input.binding.authorizationSessionId,
+          evidence_set_digest: operation.authorization.evidenceSetDigest,
+          ...commonAuthorizedOperation,
+        },
+      };
+  }
+}
+
 const PRIVATE_ED25519_SIGNING_PREPARE_PATH = '/router-ab/signing-worker/sign/prepare';
 const PRIVATE_ED25519_SIGNING_FINALIZE_PATH = '/router-ab/signing-worker/sign';
 const PRIVATE_ECDSA_DERIVATION_SIGNING_PREPARE_PATH =
