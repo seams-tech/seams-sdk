@@ -175,9 +175,6 @@ export function validateLinkedDeviceEcdsaNormalSigningScopeV1(
   if (scope.materialActivation.activationId !== scope.targetMaterialActivationId) {
     throw new Error('linked ECDSA scope activation id does not match material activation');
   }
-  if (String(scope.materialActivation.materialOwner) !== String(scope.walletId)) {
-    throw new Error('linked ECDSA scope material owner does not match wallet');
-  }
   if (!Number.isSafeInteger(scope.revocationEpoch) || scope.revocationEpoch < 0) {
     throw new Error('linked ECDSA scope revocation epoch is invalid');
   }
