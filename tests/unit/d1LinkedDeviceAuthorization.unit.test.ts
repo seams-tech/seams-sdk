@@ -4,6 +4,7 @@ import {
   deriveLinkedDeviceWalletSessionIdentityV1,
 } from '../../packages/sdk-server-ts/src/authorization/service';
 import { D1LinkedDeviceWalletSessionIssuerV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceWalletSessionIssuer';
+import { D1LinkedDeviceExecutionAdmissionResolverV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceExecutionAdmissionResolver';
 import { parseLinkedDeviceSessionRecordV1 } from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
 import { CloudflareD1AuthorizationStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
 import { CloudflareD1LaneEnrollmentGateway } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/signingLanes/d1LaneEnrollmentGateway';
@@ -41,6 +42,7 @@ import type {
 import {
   buildR102HolderDeliveryReceipt,
   buildR102LaneEnrollmentFixture,
+  buildR102MixedLaneEnrollmentFixture,
   buildR102ProtocolCommitReceipt,
   buildR102ServerActivationReceipt,
 } from './helpers/r102LaneGateway.fixtures';
@@ -80,6 +82,180 @@ const scope = {
 } as const;
 
 test.describe('D1 linked-device authorization', () => {
+  test('projects the exact active ECDSA lane scope and rejects receipt corruption', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, signerMigrations);
+      const fixture = buildR102MixedLaneEnrollmentFixture();
+      let nowMs = 5_000;
+      const lifecycle = new CloudflareD1LaneLifecycleStore({
+        database: temporary.database,
+        scope,
+        now: () => nowMs,
+      });
+      const gateway = new CloudflareD1LaneEnrollmentGateway({ lifecycleStore: lifecycle });
+      await activateFixture(gateway, fixture);
+      nowMs = 5_002;
+      const store = new CloudflareD1AuthorizationStore({
+        database: temporary.database,
+        namespace: scope.namespace,
+        walletSignerScope: scope,
+      });
+      const authorization = new AuthorizationService({
+        policy: capabilityPolicyPort,
+        sessions: store,
+        evidence: store,
+        grants: store,
+        authorizedOperations: store,
+        audit: store,
+      });
+      const tenantId = required(parseTenantId, 'tenant-linked-scope');
+      const deviceId = required(parseLinkedDeviceId, 'device-linked-scope');
+      const enrollmentId = required(
+        parseLinkedDeviceEnrollmentId,
+        String(fixture.manifest.enrollmentId),
+      );
+      const manifestDigest = parseDigestB64u(
+        await computeLaneEnrollmentManifestDigestV1(fixture.manifest),
+      );
+      const issued = await authorization.issueLinkedDeviceWalletSession({
+        tenantId,
+        deviceId,
+        walletId: fixture.manifest.walletId,
+        enrollmentId,
+        keyManifestDigestB64u: manifestDigest,
+        permission: {
+          kind: 'owner_equivalent_signing',
+          administrationScope: 'signing_only',
+          localUserPresence: 'required',
+        },
+        revocationEpoch: 0,
+        remainingUses: 3,
+        issuedAtMs: 5_001,
+        expiresAtMs: 90_000,
+      });
+      const resolver = new D1LinkedDeviceExecutionAdmissionResolverV1({
+        database: temporary.database,
+        scope,
+        authorization: store,
+        credentials: {
+          readLinkedDeviceCredentialIdV1: async () => base64UrlEncode(new Uint8Array(32).fill(17)),
+        },
+        nowV1: () => 5_002,
+      });
+      const authorizedOperationId = required(parseAuthorizedOperationId, 'authorized-linked-scope');
+      const ecdsaJob = fixture.children.find(
+        (candidate) => candidate.keyFamily === 'ecdsa_secp256k1',
+      );
+      const ed25519Job = fixture.children.find((candidate) => candidate.keyFamily === 'ed25519');
+      if (!ecdsaJob || ecdsaJob.keyFamily !== 'ecdsa_secp256k1' || !ed25519Job) {
+        throw new Error('mixed linked scope fixture is incomplete');
+      }
+      const ecdsaProduct = await lifecycle.getProductEpoch({
+        walletId: ecdsaJob.walletId,
+        walletKeyId: ecdsaJob.walletKeyId,
+        laneId: ecdsaJob.target.laneId,
+        laneShareEpoch: ecdsaJob.target.laneShareEpoch,
+      });
+      const ed25519Product = await lifecycle.getProductEpoch({
+        walletId: ed25519Job.walletId,
+        walletKeyId: ed25519Job.walletKeyId,
+        laneId: ed25519Job.target.laneId,
+        laneShareEpoch: ed25519Job.target.laneShareEpoch,
+      });
+      if (
+        !ecdsaProduct ||
+        ecdsaProduct.state !== 'active' ||
+        !ed25519Product ||
+        ed25519Product.state !== 'active'
+      ) {
+        throw new Error('mixed linked scope products are not active');
+      }
+      await expect(lifecycle.getProtocolCommitReceipt(ecdsaJob.operationId)).resolves.toMatchObject(
+        {
+          operationId: ecdsaJob.operationId,
+          keyFamily: 'ecdsa_secp256k1',
+        },
+      );
+      const common = {
+        tenantId,
+        walletSessionId: issued.authorization.walletSessionId,
+        quotaId: issued.authorization.quotaId,
+        walletId: fixture.manifest.walletId,
+        enrollmentId,
+        deviceId,
+        authorizationId: issued.authorization.authorizationGrantRef.authorizationId,
+        authorizedOperationId,
+      } as const;
+      const ecdsaProjection = await resolver.resolveActiveLinkedDeviceExecutionV1({
+        ...common,
+        walletKeyId: ecdsaProduct.walletKeyId,
+        laneId: ecdsaProduct.laneId,
+        laneShareEpoch: ecdsaProduct.laneShareEpoch,
+        materialActivation: ecdsaProduct.materialActivation,
+      });
+      if (ecdsaProjection.kind !== 'projected') {
+        throw new Error(`ECDSA linked scope projection was refused: ${ecdsaProjection.reason}`);
+      }
+      if (ecdsaProjection.projection.walletKey.keyFamily !== 'ecdsa_secp256k1') {
+        throw new Error('ECDSA linked scope projection returned the wrong key family');
+      }
+      expect(ecdsaProjection.projection.ecdsaNormalSigningScope).toMatchObject({
+        kind: 'linked_device_ecdsa_normal_signing_scope_v1',
+        operationId: ecdsaJob.operationId,
+        walletKeyId: ecdsaJob.walletKeyId,
+        laneId: ecdsaJob.target.laneId,
+        laneShareEpoch: ecdsaJob.target.laneShareEpoch,
+        targetCapability: ecdsaJob.targetCapability,
+        thresholdPublicKey33B64u: ecdsaJob.thresholdPublicKey33B64u,
+        evmAddress: ecdsaJob.evmAddress,
+        holderParticipantId: ecdsaJob.targetHolder.participantId,
+        signingWorkerParticipantId: ecdsaJob.targetSigningWorker.participantId,
+        signingWorkerRecipientKeyId: ecdsaJob.targetSigningWorker.recipientKeyId,
+      });
+      const ed25519Projection = await resolver.resolveActiveLinkedDeviceExecutionV1({
+        ...common,
+        walletKeyId: ed25519Product.walletKeyId,
+        laneId: ed25519Product.laneId,
+        laneShareEpoch: ed25519Product.laneShareEpoch,
+        materialActivation: ed25519Product.materialActivation,
+      });
+      expect(ed25519Projection.kind).toBe('projected');
+      if (ed25519Projection.kind !== 'projected') {
+        throw new Error('Ed25519 linked scope projection was refused');
+      }
+      expect('ecdsaNormalSigningScope' in ed25519Projection.projection).toBe(false);
+
+      const receipt = buildR102ProtocolCommitReceipt(ecdsaJob);
+      await temporary.database
+        .prepare(
+          `UPDATE lane_receipts SET receipt_json = ?1
+            WHERE namespace = ?2 AND org_id = ?3 AND project_id = ?4 AND env_id = ?5
+              AND operation_id = ?6 AND receipt_kind = 'lane_protocol_commit'`,
+        )
+        .bind(
+          JSON.stringify({ ...receipt, transcriptHashB64u: manifestDigest }),
+          scope.namespace,
+          scope.orgId,
+          scope.projectId,
+          scope.envId,
+          String(ecdsaJob.operationId),
+        )
+        .run();
+      await expect(
+        resolver.resolveActiveLinkedDeviceExecutionV1({
+          ...common,
+          walletKeyId: ecdsaProduct.walletKeyId,
+          laneId: ecdsaProduct.laneId,
+          laneShareEpoch: ecdsaProduct.laneShareEpoch,
+          materialActivation: ecdsaProduct.materialActivation,
+        }),
+      ).resolves.toEqual({ kind: 'refused', reason: 'linked_execution_unavailable' });
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
   test('issues the active linked enrollment authorization once and replays its identity', async () => {
     const temporary = createTemporaryD1Database();
     try {
