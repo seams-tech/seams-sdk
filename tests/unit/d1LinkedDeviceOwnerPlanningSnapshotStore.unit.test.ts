@@ -8,6 +8,7 @@ import {
 } from '../helpers/sqliteD1';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import { buildR102LaneJob, buildR102EcdsaLaneJob } from './helpers/r102LaneGateway.fixtures';
+import { parseRotatableSigningLaneJobV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import type { WalletId } from '../../packages/shared-ts/src/utils/domainIds';
 import type { ActiveOwnerWalletExecutionLaneProjection } from '../../packages/sdk-server-ts/src/core/signingLanes/WalletExecutionLaneProjection';
 import {
@@ -50,6 +51,7 @@ import { parseEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/sig
 import { parseLinkedDeviceOwnerSourceLaneV1 } from '../../packages/shared-ts/src/device-linking/parsers';
 import type { D1LinkedDeviceOwnerPlanningSnapshotInputV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerPlanningSnapshotStore';
 import { D1LinkedDeviceOwnerPlanningSnapshotStoreV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerPlanningSnapshotStore';
+import { createD1LinkedDeviceLaneLifecycleAuthorizationV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceLaneLifecycleAuthorization';
 
 const digest = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(9)));
 const walletId = required(parseWalletId('wallet:mixed-planning'));
@@ -342,6 +344,53 @@ async function fixture(): Promise<{
   };
 }
 
+function ed25519JobForSnapshot(snapshot: D1LinkedDeviceOwnerPlanningSnapshotInputV1) {
+  const child = snapshot.sourceChildren[0];
+  const binding = snapshot.metadata.orderedKeyBindings[0];
+  if (!child || child.keyFamily !== 'ed25519' || !binding || binding.keyFamily !== 'ed25519') {
+    throw new Error('mixed planning fixture has no Ed25519 child');
+  }
+  const template = buildR102LaneJob('snapshot-authorization');
+  return parseRotatableSigningLaneJobV1({
+    kind: 'ed25519_yao_lane_job_v1',
+    keyFamily: 'ed25519',
+    operationId: 'operation:snapshot-authorization',
+    enrollmentId: 'enrollment:snapshot-authorization',
+    idempotencyKey: snapshot.metadata.idempotencyKey,
+    walletId: snapshot.walletId,
+    walletKeyId: child.walletKeyId,
+    source: child.source,
+    targetHolder: {
+      ...template.targetHolder,
+      participantId: child.targetHolderParticipantId,
+    },
+    targetSigningWorker: child.targetSigningWorker,
+    targetMaterialActivationId: template.targetMaterialActivationId,
+    protocolVersion: 'rotatable_signing_lane_protocol_v1',
+    expiresAtMs: snapshot.metadata.expiresAtMs,
+    target: {
+      operation: 'create_lane',
+      laneId: binding.targetLaneId,
+      laneKind: 'linked_device',
+      laneShareEpoch: binding.targetLaneShareEpoch,
+      expectedTargetState: 'absent',
+    },
+    authorization: {
+      kind: 'linked_device_enrollment',
+      authorizedOperationId: String(snapshot.metadata.operationId),
+      linkedDeviceEnrollmentId: 'enrollment:snapshot-authorization',
+      linkedDevicePermissionDigestB64u: snapshot.metadata.policyDigestB64u,
+    },
+    registeredPublicKeyB64u: child.registeredPublicKeyB64u,
+    nearEd25519SigningKeyId: child.nearEd25519SigningKeyId,
+    keyCreationSignerSlot: child.keyCreationSignerSlot,
+    stableContextBindingB64u: child.stableContextBindingB64u,
+    yaoSuiteId: child.yaoSuiteId,
+    circuitDigestB64u: child.circuitDigestB64u,
+    yaoRequestKind: 'lane_provisioning',
+  });
+}
+
 test('persists mixed-curve owner planning snapshots with replay/conflict and hint tamper fencing', async () => {
   const value = await fixture();
   try {
@@ -353,6 +402,32 @@ test('persists mixed-curve owner planning snapshots with replay/conflict and hin
       String(value.snapshot.metadata.operationId),
     );
     expect(byOperation?.linkSessionId).toBe(value.snapshot.linkSessionId);
+    const lifecycleAuthorization = createD1LinkedDeviceLaneLifecycleAuthorizationV1({
+      snapshots: value.store,
+      lifecycle: {
+        getProductEpoch: async () => null,
+        getProtocol: async () => null,
+      },
+    });
+    const job = ed25519JobForSnapshot(value.snapshot);
+    await lifecycleAuthorization.authorizeLaneLifecycleV1({
+      kind: 'record_lane_protocol_commit_v1',
+      curve: 'ed25519_yao',
+      job,
+      expectedVersion: 1,
+    });
+    const substitutedJob = parseRotatableSigningLaneJobV1({
+      ...job,
+      registeredPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(8)),
+    });
+    await expect(
+      lifecycleAuthorization.authorizeLaneLifecycleV1({
+        kind: 'record_lane_protocol_commit_v1',
+        curve: 'ed25519_yao',
+        job: substitutedJob,
+        expectedVersion: 1,
+      }),
+    ).rejects.toThrow('Ed25519 lane job differs');
     const conflictPolicy = base64UrlEncode(new Uint8Array(32).fill(2));
     const conflict = await value.store.insertOrReplayV1({
       ...value.snapshot,
