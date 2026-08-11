@@ -582,6 +582,41 @@ test('rejects linked signing when the request names another Wallet Session', asy
   });
 });
 
+test('rejects linked signing when the inner scope substitutes material identity', async () => {
+  const fixture = await linkedEcdsaPrepareFixture(Date.now());
+  let admissionCalls = 0;
+  const result = await handleLinkedDeviceEcdsaNormalSigning({
+    ctx: context(
+      sessionWithClaims(linkedEcdsaClaims(fixture.expiresAtMs + 1_000)),
+      configuredService({
+        readAuthorizedOperation: async () => null,
+        admitAuthorizedOperation: async () => {
+          admissionCalls += 1;
+          return { kind: 'material_mismatch' };
+        },
+      }),
+    ),
+    body: {
+      ...fixture.body,
+      scope: {
+        ...fixture.body.scope,
+        material_activation: {
+          ...fixture.body.scope.material_activation,
+          key_binding: 'key-binding:substituted',
+        },
+      },
+    },
+    phase: 'prepare',
+  });
+
+  expect(result?.status).toBe(400);
+  expect(await result?.json()).toMatchObject({
+    code: 'invalid_body',
+    message: 'linked-device signing scope material activation does not match request',
+  });
+  expect(admissionCalls).toBe(0);
+});
+
 test('rejects a local-presence assertion whose signed challenge does not bind the intent', async () => {
   const nowMs = Date.now();
   const fixture = await linkedEd25519FinalizeFixture(nowMs);

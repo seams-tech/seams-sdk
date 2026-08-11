@@ -598,13 +598,19 @@ function assertLinkedScopeMatches(input: {
     throw new Error('linked-device signing Wallet Session does not match authorization scope');
   }
   const requestMaterial = input.requestMaterialActivation;
+  const requestMaterialValue = routerAbMpcMaterialActivationRefFromWire(requestMaterial);
   if (
-    !mpcMaterialActivationRefsEqual(
-      routerAbMpcMaterialActivationRefFromWire(requestMaterial),
-      input.envelope.materialActivationValue,
-    )
+    !mpcMaterialActivationRefsEqual(requestMaterialValue, input.envelope.materialActivationValue)
   ) {
     throw new Error('linked-device execution material activation does not match signing scope');
+  }
+  if (
+    !mpcMaterialActivationRefsEqual(
+      requestMaterialValue,
+      routerAbMpcMaterialActivationRefFromWire(scopeMaterial),
+    )
+  ) {
+    throw new Error('linked-device signing scope material activation does not match request');
   }
   if (
     String(input.envelope.walletId) !== input.claims.walletId ||
@@ -613,9 +619,6 @@ function assertLinkedScopeMatches(input: {
     String(input.envelope.walletKeyId) !== String(input.claims.walletKeyId)
   ) {
     throw new Error('linked-device execution envelope identity does not match the Wallet Session');
-  }
-  if (input.envelope.materialActivation.capability !== String(scopeMaterial.capability)) {
-    throw new Error('linked-device execution capability does not match signing scope');
   }
 }
 
