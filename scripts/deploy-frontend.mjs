@@ -125,8 +125,8 @@ function formatLaneProvisioning(lanes) {
 }
 
 function buildFrontend(site) {
-  runCommand('pnpm', ['install', '--frozen-lockfile']);
   const buildEnvironment = buildFrontendEnvironment(site);
+  runCommand('pnpm', ['install', '--frozen-lockfile']);
   runCommand('pnpm', ['-C', 'packages/sdk-web', 'run', 'build:prod'], {
     env: buildEnvironment,
   });
@@ -167,9 +167,10 @@ function buildFrontendEnvironment(site) {
     environment[`${prefix}ROUTER_AB_NORMAL_SIGNING_WORKER_ID`] =
       lane.resources.signingWorker.workerName;
     if (site.id === 'staging') {
+      const projectEnvironmentVariable = 'VITE_SEAMS_PROJECT_ENVIRONMENT_ID';
       requireEnvironmentValues(
         [
-          'VITE_SEAMS_PROJECT_ENVIRONMENT_ID',
+          projectEnvironmentVariable,
           'VITE_SEAMS_PUBLISHABLE_KEY',
           'VITE_NEAR_NETWORK',
           'VITE_NEAR_RPC_URL',
@@ -178,11 +179,13 @@ function buildFrontendEnvironment(site) {
         ],
         environment,
       );
+      assertLaneProjectEnvironmentId(lane, projectEnvironmentVariable, environment);
       continue;
     }
+    const projectEnvironmentVariable = `${prefix}SEAMS_PROJECT_ENVIRONMENT_ID`;
     requireEnvironmentValues(
       [
-        `${prefix}SEAMS_PROJECT_ENVIRONMENT_ID`,
+        projectEnvironmentVariable,
         `${prefix}SEAMS_PUBLISHABLE_KEY`,
         `${prefix}NEAR_NETWORK`,
         `${prefix}NEAR_RPC_URL`,
@@ -191,8 +194,22 @@ function buildFrontendEnvironment(site) {
       ],
       environment,
     );
+    assertLaneProjectEnvironmentId(lane, projectEnvironmentVariable, environment);
   }
   return environment;
+}
+
+function assertLaneProjectEnvironmentId(lane, variableName, environment) {
+  if (lane.provisioning.kind !== 'provisioned') {
+    throw new Error(`lane ${lane.id} must be provisioned before frontend configuration validation`);
+  }
+  const expected = lane.provisioning.gatewayDeploymentConfig.tenant.environmentId;
+  const received = String(environment[variableName] || '').trim();
+  if (received !== expected) {
+    throw new Error(
+      `${variableName} must match ${lane.id} tenant environment ${expected}; received ${received}`,
+    );
+  }
 }
 
 function copySdkAssets() {
