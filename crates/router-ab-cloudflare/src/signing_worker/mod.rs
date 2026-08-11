@@ -1847,6 +1847,31 @@ where
     Ok(response)
 }
 
+/// Materializes and handles one Router-admitted linked-device ECDSA finalize request.
+pub fn handle_cloudflare_signing_worker_linked_device_ecdsa_finalize_private_request_v1<Handler>(
+    handler: &Handler,
+    now_unix_ms: u64,
+    request: CloudflareSigningWorkerAdmittedLinkedDeviceEcdsaFinalizeRequestV1,
+    active_signing_worker: ActiveSigningWorkerStateV1,
+    material: CloudflareServerOutputMaterialRecordV1,
+    server_presignature: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+) -> RouterAbProtocolResult<RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningResponseV1>
+where
+    Handler: CloudflareSigningWorkerLinkedDeviceEcdsaFinalizeHandlerV1,
+{
+    let materialized = CloudflareSigningWorkerMaterializedLinkedDeviceEcdsaFinalizeRequestV1::new(
+        request,
+        active_signing_worker,
+        material,
+        server_presignature,
+        now_unix_ms,
+    )?;
+    let finalize_request = materialized.request.request.clone();
+    let response = handler.handle_linked_device_ecdsa_finalize_request_v1(materialized)?;
+    response.validate_for_request(&finalize_request)?;
+    Ok(response)
+}
+
 /// SigningWorker-produced Router A/B ECDSA derivation presignature record plus public prepare response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestPreparedV1 {
