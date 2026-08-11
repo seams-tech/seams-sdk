@@ -18,6 +18,7 @@ import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/session
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { VersionedJsonRecordReadResult } from '../../../packages/sdk-server-ts/src/router/framework/versionedJsonRecordStore';
 import {
+  isRouterAbEd25519OwnerWalletSessionClaims,
   parseRouterAbEd25519WalletSessionClaims,
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
 } from '../../../packages/sdk-server-ts/src/core/ThresholdService/validation';
@@ -238,7 +239,7 @@ class AllowRecoveryAuthorization implements RouterAbEd25519YaoRecoveryAuthorizat
   authorize(
     _input: RouterAbEd25519YaoRecoveryAuthorizationInput,
   ): RouterAbEd25519YaoRecoveryAuthorizationResult {
-    return { ok: true, claims: this.claims };
+    return { ok: true, claims: { kind: 'wallet_session', value: this.claims } };
   }
 }
 
@@ -662,7 +663,9 @@ function recoveryClaims(identity: RecoveryFixtureIdentity) {
       signingWorkerId: identity.signingWorkerId,
     },
   });
-  if (!claims) throw new Error('recovery fixture Wallet Session claims are invalid');
+  if (!claims || !isRouterAbEd25519OwnerWalletSessionClaims(claims)) {
+    throw new Error('recovery fixture Wallet Session claims are invalid');
+  }
   return claims;
 }
 

@@ -107,6 +107,7 @@ export async function createRouterAbEd25519YaoExistingWalletD1Fixture(
         signingRootVersion: input.capability.admissionRequest.scope.root_share_epoch,
         runtimePolicyScope: input.capability.runtimePolicyScope,
         activeYaoCapability: input.capability,
+        custodyKeyManifestDigestB64u: Buffer.alloc(32, 21).toString('base64url'),
         now: 1_900_000_000_000,
       }),
     );

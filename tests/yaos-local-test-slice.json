@@ -11,8 +11,6 @@
     "unit/routerAbEd25519YaoAddSignerIntentAuthorization.unit.test.ts",
     "unit/thresholdEd25519.routeValidation.unit.test.ts",
     "unit/ed25519YaoBudgetRefreshWalletSession.unit.test.ts",
-    "unit/passkeyEd25519YaoRegistration.unit.test.ts",
-    "unit/passkeyEd25519YaoRecovery.unit.test.ts",
     "unit/ed25519YaoExportBoundary.unit.test.ts",
     "unit/exportLaneSelection.unit.test.ts",
     "unit/syncAccount.yaoOrchestration.unit.test.ts",
