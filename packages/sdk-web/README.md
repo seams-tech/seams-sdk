@@ -263,8 +263,6 @@ repo/
 │   ├── sdk-web/                  # Browser SDK package and build output
 │   ├── sdk-server-ts/            # Server library source
 │   └── shared-ts/                # Shared TypeScript utils/types
-├── clients/
-│   └── ios/                      # Swift iOS client package
 ├── crates/
 │   ├── signer-core/              # Shared signer core primitives
 │   └── seams-embedded/           # Embedded Rust SDK facade
