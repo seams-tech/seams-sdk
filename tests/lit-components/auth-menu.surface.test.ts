@@ -407,7 +407,7 @@ test.describe('wallet-host Lit auth menu surface', () => {
     ]);
   });
 
-  test('keeps the primary action live on expired preparation with no separate retry control', async ({
+  test('keeps the primary action live without rendering an expired preparation error', async ({
     page,
   }) => {
     await mountAuthMenu(page, {
@@ -437,7 +437,7 @@ test.describe('wallet-host Lit auth menu surface', () => {
     // The primary button is the retry affordance now, so it must stay usable.
     expect(snapshot.ctaDisabled).toBe(false);
     expect(snapshot.providerDisabled).toBe(false);
-    expect(snapshot.error).toBe('Passkey preparation expired');
+    expect(snapshot.error).toBe('');
     expect(snapshot.retryCount).toBe(0);
     expect(snapshot.modeSwitchEnabled).toBe(true);
 
