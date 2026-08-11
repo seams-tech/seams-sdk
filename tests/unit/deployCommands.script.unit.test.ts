@@ -305,6 +305,24 @@ test('frontend commands reject a site branch mismatch before deployment work', (
   expectFailure(result, /site staging requires branch dev/u);
 });
 
+test('production frontend build rejects a project environment from the wrong lane', () => {
+  const result = runCommand(frontendScript, ['build', '--site', 'production'], {
+    ...environmentWithoutDeploymentSecrets(),
+    GITHUB_REF: 'refs/heads/main',
+    VITE_TESTNET_SEAMS_PROJECT_ENVIRONMENT_ID: 'production',
+    VITE_TESTNET_SEAMS_PUBLISHABLE_KEY: 'pk_testnet',
+    VITE_TESTNET_NEAR_NETWORK: 'testnet',
+    VITE_TESTNET_NEAR_RPC_URL: 'https://rpc.testnet.near.org',
+    VITE_TESTNET_NEAR_EXPLORER: 'https://testnet.nearblocks.io',
+    VITE_TESTNET_SIGNING_SESSION_PERSISTENCE_MODE: 'sealed_refresh_v1',
+  });
+
+  expectFailure(
+    result,
+    /VITE_TESTNET_SEAMS_PROJECT_ENVIRONMENT_ID must match production-testnet tenant environment production-testnet; received production/u,
+  );
+});
+
 test('backend workflows deploy independent workers concurrently before router', () => {
   const workflowOrder = [
     'build',
