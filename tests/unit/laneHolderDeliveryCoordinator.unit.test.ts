@@ -79,9 +79,7 @@ function gateway(calls: { holderDeliveries: number[] }): LaneEnrollmentGatewayV1
 
 test.describe('R102 holder delivery worker boundary', () => {
   test('replays through worker verification and frees the handle on persistence failure', async () => {
-    const job = await bindR102TargetHolderParticipantV1(
-      buildR102LaneJob('holder-delivery'),
-    );
+    const job = await bindR102TargetHolderParticipantV1(buildR102LaneJob('holder-delivery'));
     const commit = buildR102ProtocolCommitReceipt(job);
     const packageWire = holderPackage();
     const recipientHandle = value(parseLaneHolderRecipientHandleV1('recipient-handle:r102'));
@@ -132,6 +130,9 @@ test.describe('R102 holder delivery worker boundary', () => {
       async get(): Promise<null> {
         return null;
       },
+      async listForEnrollmentV1(): Promise<readonly LaneSealedHolderRecordV1[]> {
+        return [];
+      },
       async delete(): Promise<void> {},
     };
     await expect(
@@ -155,6 +156,9 @@ test.describe('R102 holder delivery worker boundary', () => {
       },
       async get(): Promise<LaneSealedHolderRecordV1 | null> {
         return this.record;
+      },
+      async listForEnrollmentV1(): Promise<readonly LaneSealedHolderRecordV1[]> {
+        return this.record ? [this.record] : [];
       },
       async delete(): Promise<void> {},
     };

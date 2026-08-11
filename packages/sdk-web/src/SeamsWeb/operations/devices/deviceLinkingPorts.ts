@@ -231,8 +231,12 @@ export type DeviceLinkingLaneProvisioningPortV1 = {
       LinkedDeviceSessionState,
       { readonly state: 'committed_completion_required' }
     >;
-    readonly keyMaterial: DeviceLinkingKeyMaterialHandleV1;
-  }): Promise<LinkedDeviceEnrollmentReceiptV1 | void>;
+    readonly refetchApprovalV1: () => Promise<LinkedDeviceApprovalV1>;
+    readonly refetchProvisioningDeliveriesV1: () => Promise<LinkedDeviceProvisioningDeliveriesV1>;
+    readonly acknowledgeHolderDeliveriesV1: (
+      acknowledgement: LinkedDeviceHolderDeliveryAcknowledgementV1,
+    ) => Promise<LinkedDeviceEnrollmentReceiptV1>;
+  }): Promise<LinkedDeviceEnrollmentReceiptV1>;
 };
 
 export type Device2LinkingFlowPortsV1 = {
