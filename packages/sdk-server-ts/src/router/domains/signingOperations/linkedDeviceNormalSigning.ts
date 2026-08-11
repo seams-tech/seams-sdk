@@ -63,16 +63,7 @@ import type { AuthorizedOperation, AuthorizedOperationInput } from '../../../aut
 import type { MpcWalletSigningQuotaId } from '@shared/authorization/capabilityKinds';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import { computeLinkedDeviceLocalPresenceChallengeDigestV1 } from '@shared/device-linking/digests';
-
-export type LinkedDeviceExecutionEnvelopeV1 = {
-  readonly kind: 'linked_device_execution_v1';
-  readonly enrollmentId: LinkedDeviceEnrollmentId;
-  readonly deviceId: LinkedDeviceId;
-  readonly walletKeyId: WalletKeyId;
-  readonly laneId: SigningLaneId;
-  readonly laneShareEpoch: LaneShareEpoch;
-  readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
-};
+import type { LinkedDeviceExecutionEnvelopeV1 } from '@shared/signing-lanes/execution';
 
 export type ParsedLinkedDeviceExecutionEnvelopeV1 = LinkedDeviceExecutionEnvelopeV1 & {
   readonly walletId: WalletId;
