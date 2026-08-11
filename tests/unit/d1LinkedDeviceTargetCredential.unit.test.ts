@@ -86,8 +86,12 @@ test('persists verified attestation and exact public child records before provis
   const provider = new D1LinkedDeviceTargetCredentialProviderV1({
     database: temporary.database,
     scope,
-    preparationSource: {
+    planner: {
       createTargetPreparationV1: async () => target.preparation,
+      commitVerifiedTargetV1: async () => {
+        commitCount += 1;
+        return { keyManifestDigestB64u, targetReady: handoff.targetReady };
+      },
     },
     verifier: {
       verifyRegistrationV1: async () => {
@@ -100,12 +104,6 @@ test('persists verified attestation and exact public child records before provis
             counter: 0,
           },
         };
-      },
-    },
-    committer: {
-      commitVerifiedTargetV1: async () => {
-        commitCount += 1;
-        return { keyManifestDigestB64u, targetReady: handoff.targetReady };
       },
     },
     sourceHandoff: new D1LinkedDeviceSourceHandoffProviderV1({

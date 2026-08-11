@@ -82,15 +82,12 @@ export class LinkedDeviceWebAuthnRegistrationVerifierV1 implements LinkedDeviceT
   }
 }
 
-export type LinkedDeviceTargetPreparationSourceV1 = {
+export type LinkedDeviceTargetPlannerV1 = {
   createTargetPreparationV1(input: {
     readonly session: LinkedDeviceSessionRecordV1;
     readonly approval: LinkedDeviceApprovalV1;
     readonly requestedAtMs: number;
   }): Promise<LinkedDeviceTargetPreparationV1>;
-};
-
-export type LinkedDeviceVerifiedTargetCommitterV1 = {
   commitVerifiedTargetV1(input: {
     readonly preparation: LinkedDeviceTargetPreparationV1;
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
@@ -169,9 +166,8 @@ const TARGET_COMMIT_WAIT_MS = 10;
 export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTargetCredentialProviderV1 {
   private readonly database: D1DatabaseLike;
   private readonly scope: D1LinkedDeviceSessionScopeV1;
-  private readonly preparationSource: LinkedDeviceTargetPreparationSourceV1;
   private readonly verifier: LinkedDeviceTargetCredentialVerificationPortV1;
-  private readonly committer: LinkedDeviceVerifiedTargetCommitterV1;
+  private readonly planner: LinkedDeviceTargetPlannerV1;
   private readonly sourceHandoff: LinkedDeviceTargetReadyPersistencePortV1;
   private readonly inFlightCommits = new Map<
     string,
@@ -184,16 +180,14 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
   constructor(input: {
     readonly database: D1DatabaseLike;
     readonly scope: D1LinkedDeviceSessionScopeV1;
-    readonly preparationSource: LinkedDeviceTargetPreparationSourceV1;
     readonly verifier: LinkedDeviceTargetCredentialVerificationPortV1;
-    readonly committer: LinkedDeviceVerifiedTargetCommitterV1;
+    readonly planner: LinkedDeviceTargetPlannerV1;
     readonly sourceHandoff: LinkedDeviceTargetReadyPersistencePortV1;
   }) {
     this.database = input.database;
     this.scope = normalizeScope(input.scope);
-    this.preparationSource = input.preparationSource;
     this.verifier = input.verifier;
-    this.committer = input.committer;
+    this.planner = input.planner;
     this.sourceHandoff = input.sourceHandoff;
   }
 
@@ -211,7 +205,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
       throw new Error('linked-device target preparation is unavailable in this session state');
     }
     const preparation = parseLinkedDeviceTargetPreparationV1(
-      await this.preparationSource.createTargetPreparationV1(input),
+      await this.planner.createTargetPreparationV1(input),
     );
     assertPreparationMatchesSession(preparation, input.session, input.approval);
     if (preparation.expiresAtMs <= input.requestedAtMs) {
@@ -387,7 +381,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
       ) {
         throw new Error('verified WebAuthn credential material is invalid');
       }
-      const committed = await this.committer.commitVerifiedTargetV1({
+      const committed = await this.planner.commitVerifiedTargetV1({
         preparation: input.persisted.preparation,
         registration: input.registration,
         credential: verification.credential,
@@ -474,7 +468,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
       }
       return;
     }
-    const committed = await this.committer.commitVerifiedTargetV1({
+    const committed = await this.planner.commitVerifiedTargetV1({
       preparation: input.persisted.preparation,
       registration: input.persisted.registration.value,
       credential: input.persisted.registration.credential,

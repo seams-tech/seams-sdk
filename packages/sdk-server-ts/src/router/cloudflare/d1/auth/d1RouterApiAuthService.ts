@@ -362,11 +362,10 @@ function createD1LinkedDeviceComposition(input: {
     const targetCredential = new D1LinkedDeviceTargetCredentialProviderV1({
       database: input.options.database,
       scope,
-      preparationSource: config.session.targetPreparationSource,
       verifier: new LinkedDeviceWebAuthnRegistrationVerifierV1({
         expectedOrigin: config.execution.expectedOrigin,
       }),
-      committer: config.session.targetCommitter,
+      planner: config.session.targetPlanner,
       sourceHandoff,
     });
     const provisioning = new D1LinkedDeviceProvisioningProviderV1({
