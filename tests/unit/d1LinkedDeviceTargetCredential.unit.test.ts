@@ -414,6 +414,35 @@ test('persists verified attestation and exact public child records before provis
   expect(verificationCount).toBe(1);
   expect(commitCount).toBe(2);
 
+  await temporary.database
+    .prepare(
+      `UPDATE linked_device_target_commit_reservations
+          SET key_manifest_digest_b64u = ?
+        WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+          AND link_session_id = ? AND state = 'committed'`,
+    )
+    .bind(
+      fixture.receipt.manifestDigestB64u,
+      scope.namespace,
+      scope.orgId,
+      scope.projectId,
+      scope.envId,
+      String(fixture.approval.linkSessionId),
+    )
+    .run();
+  await expect(
+    provider.registerTargetCredentialV1({
+      registration: target.registration,
+      preparation,
+      session: transitioned.record,
+      approval,
+      requestedAtMs: 7_500,
+    }),
+  ).resolves.toMatchObject({
+    outcome: 'invalid_input',
+    message: expect.stringMatching(/reservation manifest digest changed/),
+  });
+
   const conflicting = await provider.registerTargetCredentialV1({
     registration: {
       ...target.registration,
