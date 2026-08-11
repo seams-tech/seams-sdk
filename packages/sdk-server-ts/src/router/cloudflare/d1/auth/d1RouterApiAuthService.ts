@@ -68,7 +68,10 @@ import type {
   FundImplicitNearAccountResult,
 } from '../../../../core/types';
 import { EmailRecoveryAuthOperations } from '../../../../core/authService/emailRecoveryAuthOperations';
-import type { RouterApiServiceBag } from '../../../framework/authServicePort';
+import type {
+  RouterApiServiceBag,
+  RouterApiWalletRegistrationService,
+} from '../../../framework/authServicePort';
 import { AuthorizationService } from '../../../../authorization/service';
 import { capabilityPolicyPort } from '../../../../authorization/capabilityPolicy';
 import { CloudflareD1AuthorizationStore } from '../authorization/d1AuthorizationStore';
@@ -169,6 +172,7 @@ import { CloudflareD1LaneEnrollmentGateway } from '../signingLanes/d1LaneEnrollm
 import { createCloudflareD1LaneAggregateRevocationApplicationService } from '../signingLanes/d1LaneAggregateRevocationApplicationService';
 import { createCloudflareD1LaneLifecycleApplicationService } from '../signingLanes/d1LaneLifecycleApplicationService';
 import { CloudflareD1LaneLifecycleStore } from '../signingLanes/d1LaneLifecycleStore';
+import { createD1LinkedDeviceLaneRuntimeV1 } from '../signingLanes/d1LinkedDeviceLaneRuntime';
 
 export type {
   CloudflareD1EmailOtpDeliveryProvider,
@@ -177,7 +181,7 @@ export type {
   CloudflareD1EmailOtpServerSealConfig,
   CloudflareD1LinkedDeviceCompositionOptionsV1,
   CloudflareD1LinkedDeviceExecutionOptionsV1,
-  CloudflareD1LinkedDeviceLaneLifecycleOptionsV1,
+  CloudflareD1LinkedDeviceLaneRuntimeOptionsV1,
   CloudflareD1LinkedDeviceSessionOptionsV1,
   CloudflareD1LinkedDeviceManagementOptionsV1,
   CloudflareD1LinkedDeviceGatewayOptionsV1,
@@ -329,6 +333,10 @@ type D1LinkedDeviceCompositionAssembly = Pick<
 
 function createD1LinkedDeviceComposition(input: {
   readonly options: NormalizedCloudflareD1RouterApiAuthServiceOptions;
+  readonly walletRegistration: Pick<
+    RouterApiWalletRegistrationService,
+    'resolveActiveOwnerWalletExecutionLane'
+  >;
   readonly authorization: Pick<
     CloudflareD1AuthorizationStore,
     'readLinkedDeviceWalletSessionAuthorization'
@@ -372,6 +380,7 @@ function createD1LinkedDeviceComposition(input: {
 
   let deviceLinking: RouterApiServiceBag['deviceLinking'];
   let deviceManagement: RouterApiServiceBag['deviceManagement'];
+  let laneRuntime: ReturnType<typeof createD1LinkedDeviceLaneRuntimeV1> | undefined;
   if (config.session) {
     const tenantId = parseTenantId(input.options.orgId);
     if (!tenantId.ok) {
@@ -383,18 +392,27 @@ function createD1LinkedDeviceComposition(input: {
       database: input.options.database,
       scope,
     });
-    const laneLifecycleOptions = {
+    laneRuntime = createD1LinkedDeviceLaneRuntimeV1({
+      database: input.options.database,
+      scope,
+      nowV1: config.execution.nowV1,
+      walletRegistration: input.walletRegistration,
+      authenticateOwnerRequestV1: config.session.authenticateOwnerRequestV1,
+      ...config.session.laneRuntime,
+    });
+    const laneStoreOptions = {
       database: input.options.database,
       scope,
       now: config.execution.nowV1,
-      authorization: config.session.laneLifecycle.authorization,
-      execution: config.session.laneLifecycle.execution,
     };
-    const laneLifecycleStore = new CloudflareD1LaneLifecycleStore(laneLifecycleOptions);
+    const laneLifecycleStore = new CloudflareD1LaneLifecycleStore(laneStoreOptions);
     const laneGateway = new CloudflareD1LaneEnrollmentGateway({
       lifecycleStore: laneLifecycleStore,
     });
-    const laneLifecycle = createCloudflareD1LaneLifecycleApplicationService(laneLifecycleOptions);
+    const laneLifecycle = createCloudflareD1LaneLifecycleApplicationService({
+      ...laneStoreOptions,
+      ...laneRuntime.laneLifecycle,
+    });
     const targetCredential = new D1LinkedDeviceTargetCredentialProviderV1({
       database: input.options.database,
       scope,
@@ -446,12 +464,13 @@ function createD1LinkedDeviceComposition(input: {
     const walletSessionRevocation = new AuthorizationServiceLinkedDeviceWalletSessionRevocationV1(
       input.authorizationService,
     );
-    const laneLifecycleOptions = {
+    if (!laneRuntime) {
+      throw new Error('linked-device management requires linked-device lane runtime');
+    }
+    const laneStoreOptions = {
       database: input.options.database,
       scope,
       now: config.execution.nowV1,
-      authorization: config.session.laneLifecycle.authorization,
-      execution: config.session.laneLifecycle.execution,
     };
     deviceManagement = createD1LinkedDeviceManagementRouteServiceV1({
       database: input.options.database,
@@ -460,8 +479,10 @@ function createD1LinkedDeviceComposition(input: {
       metadata,
       authorization: config.management.authorization,
       preparation,
-      aggregateRevocation:
-        createCloudflareD1LaneAggregateRevocationApplicationService(laneLifecycleOptions),
+      aggregateRevocation: createCloudflareD1LaneAggregateRevocationApplicationService({
+        ...laneStoreOptions,
+        ...laneRuntime.laneLifecycle,
+      }),
       walletSessionRevocation,
       localStateInvalidation: config.management.localStateInvalidation,
       nowV1: config.execution.nowV1,
@@ -495,9 +516,9 @@ function createD1LinkedDeviceComposition(input: {
     ...(config.session?.ownerAuthorizationRoute === undefined
       ? {}
       : { deviceLinkingOwnerAuthorization: config.session.ownerAuthorizationRoute }),
-    ...(config.session?.laneGatewayRoute === undefined
+    ...(laneRuntime === undefined
       ? {}
-      : { deviceLinkingLaneGateway: config.session.laneGatewayRoute }),
+      : { deviceLinkingLaneGateway: laneRuntime.laneGatewayRoute }),
   };
 }
 
@@ -1607,8 +1628,18 @@ function createCloudflareD1RouterApiAuthAssembly(
     envId: options.envId,
   });
   const webAuthnAuthService = new CloudflareD1WebAuthnAuthService({ webAuthnStore });
+  const linkedDeviceWalletRegistrationProjection: Pick<
+    RouterApiWalletRegistrationService,
+    'resolveActiveOwnerWalletExecutionLane'
+  > = {
+    resolveActiveOwnerWalletExecutionLane: resolveD1ActiveOwnerWalletExecutionLane.bind(
+      undefined,
+      new D1WalletExecutionLaneProjectionSource(walletAuthMethodStore, walletStore),
+    ),
+  };
   const linkedDeviceComposition = createD1LinkedDeviceComposition({
     options,
+    walletRegistration: linkedDeviceWalletRegistrationProjection,
     authorization: authorizationStore,
     authorizationService,
   });

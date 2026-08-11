@@ -772,6 +772,14 @@ test('Cloudflare D1 R103 composition owns lane activation and aggregate revocati
   const { database, tempDir } = createTemporaryD1Database();
   try {
     const rpId = requireParsedDomainId(parseWebAuthnRpId('example.test'));
+    const inertLaneBinding = {
+      fetch: async () => new Response(null, { status: 503 }),
+    };
+    const inertEd25519YaoKeyset = {
+      deriver_a_input_public_key: new Array<number>(32).fill(0),
+      deriver_b_input_public_key: new Array<number>(32).fill(0),
+      signing_worker_recipient_public_key: new Array<number>(32).fill(0),
+    };
     const unreachable = async () => {
       throw new Error('lane effect is not invoked during composition');
     };
@@ -789,20 +797,11 @@ test('Cloudflare D1 R103 composition owns lane activation and aggregate revocati
           logger: normalizeLogger(),
         },
         session: {
-          laneLifecycle: {
-            authorization: { authorizeLaneLifecycleV1: unreachable },
-            execution: {
-              ed25519: {
-                executeProtocolCommitV1: unreachable,
-                executeServerActivationV1: unreachable,
-                executeServerRetirementV1: unreachable,
-              },
-              ecdsa: {
-                executeProtocolCommitV1: unreachable,
-                executeServerActivationV1: unreachable,
-                executeServerRetirementV1: unreachable,
-              },
-            },
+          laneRuntime: {
+            router: inertLaneBinding,
+            signingWorker: inertLaneBinding,
+            internalServiceAuth: 'test-internal-service-auth',
+            ed25519YaoKeyset: inertEd25519YaoKeyset,
           },
           ownerAuthorization: {
             authorizeOwnerClaimV1: async () => ({
