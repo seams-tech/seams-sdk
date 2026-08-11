@@ -23,10 +23,11 @@ import {
   parseCorrelationId,
   parseDigestB64u,
 } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
+import { parseLaneEnrollmentId } from '../../packages/shared-ts/src/signing-lanes/ids';
 import {
-  parseLaneEnrollmentId,
-} from '../../packages/shared-ts/src/signing-lanes/ids';
-import { parseMpcMaterialActivationId, parseWalletId } from '../../packages/shared-ts/src/utils/domainIds';
+  parseMpcMaterialActivationId,
+  parseWalletId,
+} from '../../packages/shared-ts/src/utils/domainIds';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import type { LaneAggregateRevocationRequestV1 } from '../../packages/sdk-server-ts/src/core/signingLanes/LaneAggregateRevocationApplicationService';
 import {
@@ -140,6 +141,96 @@ test('refuses a public revoke plan whose lane command does not bind the requeste
     }),
   ).rejects.toThrow('linked-device revocation plan does not match its target');
   expect(aggregateCalls).toBe(0);
+});
+
+test('fences the linked Wallet Session before retiring child lanes', async () => {
+  const target = await buildManagementTarget();
+  const walletId = target.summary.walletId;
+  const child = target.enrollment.value.manifest.orderedChildren[0];
+  if (!child) throw new Error('fixture manifest child is missing');
+  const command = buildRevokeLaneEnrollmentV1({
+    enrollmentId: parseLaneEnrollmentId(String(target.summary.enrollmentId)).value,
+    walletId,
+    manifestDigestB64u: target.summary.keyManifestDigestB64u,
+    reason: 'user_revoked',
+    requestedAtMs: 4_000,
+  });
+  const aggregate: LaneAggregateRevocationRequestV1 = {
+    command,
+    orderedChildren: [
+      {
+        curve: child.keyFamily === 'ed25519' ? 'ed25519_yao' : 'ecdsa_additive',
+        command: buildRevokeSigningLaneV1({
+          walletId,
+          walletKeyId: child.walletKeyId,
+          laneId: child.targetLaneId,
+          laneShareEpoch: child.targetLaneShareEpoch,
+          expectedRevocationEpoch: 0,
+          reason: 'user_revoked',
+          retirementCorrelationId: parseCorrelationId('correlation:management-fence'),
+          retirementRequestDigestB64u: DIGEST,
+          retirementEffectBindingDigestB64u: DIGEST,
+          requestedAtMs: 4_000,
+        }),
+      },
+    ],
+  };
+  const order: string[] = [];
+  const service = new LinkedDeviceManagementServiceV1({
+    authorization: authorizedManagement(),
+    projection: {
+      listLinkedDevicesV1: async () => [target.summary],
+      getLinkedDeviceV1: async () => target,
+    },
+    preparation: {
+      prepareLinkedDeviceRevocationV1: async () => ({
+        kind: 'prepared',
+        plan: {
+          target,
+          aggregate,
+          walletSession: {
+            tenantId: parseTenantId('tenant:management').value,
+            deviceId: target.summary.deviceId,
+            authorizationId: parseWalletSessionAuthorizationId('authorization:management').value,
+            walletSessionId: parseWalletSessionId('wallet-session:management').value,
+            quotaId: parseMpcWalletSigningQuotaId('wallet-quota:management').value,
+          },
+          revocationEpoch: 1,
+        },
+      }),
+    },
+    walletSessionRevocation: {
+      revokeLinkedDeviceWalletSessionV1: async () => {
+        order.push('wallet_session');
+        return { kind: 'applied' };
+      },
+    },
+    aggregateRevocation: {
+      revokeLaneEnrollmentV1: async () => {
+        order.push('aggregate');
+        return {
+          kind: 'lane_enrollment_revocation_result_v1',
+          outcome: 'conflict',
+          enrollmentId: command.enrollmentId,
+          expectedVersion: 1,
+          actualVersion: 2,
+          requestedCommandDigestB64u: DIGEST,
+          storedCommandDigestB64u: DIGEST,
+        };
+      },
+    },
+    localStateInvalidation: neverLocalInvalidation(),
+  });
+
+  const result = await service.revokeLinkedDeviceV1({
+    kind: 'linked_device_revoke_request_v1',
+    walletId,
+    deviceId: target.summary.deviceId,
+    requestedAtMs: 4_000,
+  });
+
+  expect(result).toEqual({ kind: 'conflict' });
+  expect(order).toEqual(['wallet_session', 'aggregate']);
 });
 
 function authorizedManagement() {
