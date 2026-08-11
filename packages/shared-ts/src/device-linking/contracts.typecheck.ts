@@ -6,12 +6,18 @@ import type {
   LinkedDeviceRevokeResultV1,
   LinkedDeviceSummaryV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
+  LinkedDeviceOwnerSourceLaneV1,
   LinkedDeviceSessionState,
   LinkedDeviceSessionTransportRequestV1,
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetPreparationV1,
   QrLinkedDeviceSessionPayloadV4,
 } from './contracts';
+import type { SigningLaneRecord, WalletKeyRecord } from '../signing-lanes/records';
+import type {
+  EcdsaCapabilityManifestId,
+  EcdsaCapabilityManifestRevision,
+} from '../utils/ecdsaCapabilityActivation';
 import type {
   WalletSessionAuthorizationId,
   WalletSessionId,
@@ -34,6 +40,7 @@ import type {
 import type { DigestB64u } from '../utils/canonicalPrimitives';
 import type {
   MpcMaterialActivationId,
+  MpcMaterialActivationRef,
   WalletId,
   WebAuthnCredentialIdB64u,
   WebAuthnRpId,
@@ -61,9 +68,59 @@ declare const materialActivationId: MpcMaterialActivationId;
 declare const holderParticipant: LaneHolderParticipantRecordV1;
 declare const rpId: WebAuthnRpId;
 declare const credentialIdB64u: WebAuthnCredentialIdB64u;
+declare const ed25519WalletKey: Extract<WalletKeyRecord, { readonly keyFamily: 'ed25519' }>;
+declare const ecdsaWalletKey: Extract<WalletKeyRecord, { readonly keyFamily: 'ecdsa_secp256k1' }>;
+declare const ownerLane: Extract<
+  SigningLaneRecord,
+  { readonly laneKind: 'owner_passkey' | 'owner_email_otp' }
+>;
+declare const materialActivation: MpcMaterialActivationRef;
+declare const manifestId: EcdsaCapabilityManifestId;
+declare const manifestRevision: EcdsaCapabilityManifestRevision;
 
 declare const payload: QrLinkedDeviceSessionPayloadV4;
 declare const ownerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1;
+
+const ed25519OwnerSource: LinkedDeviceOwnerSourceLaneV1 = {
+  kind: 'linked_device_owner_source_lane_v1',
+  keyFamily: 'ed25519',
+  walletKey: ed25519WalletKey,
+  lane: ownerLane,
+  materialActivation,
+  verifiedActivationReceiptDigestB64u: digest,
+};
+
+const ecdsaOwnerSource: LinkedDeviceOwnerSourceLaneV1 = {
+  kind: 'linked_device_owner_source_lane_v1',
+  keyFamily: 'ecdsa_secp256k1',
+  walletKey: ecdsaWalletKey,
+  lane: ownerLane,
+  materialActivation,
+  verifiedActivationReceiptDigestB64u: digest,
+  ecdsaSourceManifest: { manifestId, manifestRevision },
+};
+
+// @ts-expect-error Ed25519 source projections cannot carry ECDSA manifest identity.
+const invalidEd25519OwnerSource: LinkedDeviceOwnerSourceLaneV1 = {
+  ...ed25519OwnerSource,
+  ecdsaSourceManifest: { manifestId, manifestRevision },
+};
+
+// @ts-expect-error ECDSA source projections require exact active manifest identity.
+const invalidEcdsaOwnerSource: LinkedDeviceOwnerSourceLaneV1 = {
+  kind: 'linked_device_owner_source_lane_v1',
+  keyFamily: 'ecdsa_secp256k1',
+  walletKey: ecdsaWalletKey,
+  lane: ownerLane,
+  materialActivation,
+  verifiedActivationReceiptDigestB64u: digest,
+};
+
+// @ts-expect-error curve discriminator and wallet-key family must agree.
+const invalidCrossCurveOwnerSource: LinkedDeviceOwnerSourceLaneV1 = {
+  ...ed25519OwnerSource,
+  walletKey: ecdsaWalletKey,
+};
 
 const displaying: Extract<LinkedDeviceSessionState, { readonly state: 'displaying_qr' }> = {
   state: 'displaying_qr',
@@ -322,3 +379,8 @@ void invalidSummaryState;
 void invalidRevokeResult;
 void invalidUnclaimedCancel;
 void invalidClaimedCancel;
+void ed25519OwnerSource;
+void ecdsaOwnerSource;
+void invalidEd25519OwnerSource;
+void invalidEcdsaOwnerSource;
+void invalidCrossCurveOwnerSource;

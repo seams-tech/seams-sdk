@@ -58,6 +58,11 @@ import {
   parseRotatableSigningLaneJobV1,
   parseLaneEnrollmentManifestV1,
 } from '../signing-lanes/rotationParsers';
+import { parseSigningLaneRecord, parseWalletKeyRecord } from '../signing-lanes/recordParsers';
+import {
+  parseEcdsaCapabilityManifestId,
+  parseEcdsaCapabilityManifestRevision,
+} from '../utils/ecdsaCapabilityActivation';
 import type {
   LaneEnrollmentManifestV1,
   LaneProtocolCommitReceiptV1,
@@ -92,6 +97,7 @@ import {
   type LinkedDeviceWalletSessionDeliveryV1,
   type LinkedDeviceWalletSessionTokenV1,
   type LinkedDeviceOwnerAuthorizationSourceV1,
+  type LinkedDeviceOwnerSourceLaneV1,
   type LinkedDeviceProtocolVersionV1,
   type LinkedDeviceReceiptAcknowledgementV1,
   type LinkedDeviceSessionClaimRequestV1,
@@ -123,6 +129,14 @@ const QR_FIELDS = [
   'requestedPermission',
   'issuedAtMs',
   'expiresAtMs',
+] as const;
+const OWNER_SOURCE_LANE_COMMON_FIELDS = [
+  'kind',
+  'keyFamily',
+  'walletKey',
+  'lane',
+  'materialActivation',
+  'verifiedActivationReceiptDigestB64u',
 ] as const;
 const LINKED_WALLET_SESSION_DELIVERY_FIELDS = [
   'kind',
@@ -998,6 +1012,68 @@ function parseQrPayloadRecord(record: UnknownRecord): QrLinkedDeviceSessionPaylo
 
 export function parseQrLinkedDeviceSessionPayloadV4(raw: unknown): QrLinkedDeviceSessionPayloadV4 {
   return parseQrPayloadRecord(exactRecord(raw, QR_FIELDS, 'QrLinkedDeviceSessionPayloadV4'));
+}
+
+export function parseLinkedDeviceOwnerSourceLaneV1(
+  raw: unknown,
+  label = 'LinkedDeviceOwnerSourceLaneV1',
+): LinkedDeviceOwnerSourceLaneV1 {
+  const record = requireRecord(raw, label);
+  const keyFamily = record.keyFamily;
+  const fields =
+    keyFamily === 'ecdsa_secp256k1'
+      ? [...OWNER_SOURCE_LANE_COMMON_FIELDS, 'ecdsaSourceManifest']
+      : OWNER_SOURCE_LANE_COMMON_FIELDS;
+  const exact = exactRecord(record, fields, label);
+  if (exact.kind !== 'linked_device_owner_source_lane_v1') {
+    throw new Error(`${label}.kind is invalid`);
+  }
+  const walletKey = parseWalletKeyRecord(exact.walletKey);
+  const lane = parseSigningLaneRecord(exact.lane);
+  const materialActivation = parseMpcMaterialActivationRef(exact.materialActivation);
+  if (!materialActivation.ok) throw new Error(`${label}.${materialActivation.error.message}`);
+  if (
+    lane.walletId !== walletKey.walletId ||
+    lane.walletKeyId !== walletKey.walletKeyId ||
+    (lane.laneKind !== 'owner_passkey' && lane.laneKind !== 'owner_email_otp') ||
+    lane.lifecycle.state !== 'active'
+  ) {
+    throw new Error(`${label} owner lane identity is inconsistent`);
+  }
+  const verifiedActivationReceiptDigestB64u = parseDigestB64u(
+    exact.verifiedActivationReceiptDigestB64u,
+  );
+  if (keyFamily === 'ed25519') {
+    if (walletKey.keyFamily !== 'ed25519') throw new Error(`${label}.keyFamily is inconsistent`);
+    return {
+      kind: 'linked_device_owner_source_lane_v1',
+      keyFamily,
+      walletKey,
+      lane,
+      materialActivation: materialActivation.value,
+      verifiedActivationReceiptDigestB64u,
+    };
+  }
+  if (keyFamily !== 'ecdsa_secp256k1' || walletKey.keyFamily !== 'ecdsa_secp256k1') {
+    throw new Error(`${label}.keyFamily is invalid`);
+  }
+  const manifest = exactRecord(
+    exact.ecdsaSourceManifest,
+    ['manifestId', 'manifestRevision'],
+    `${label}.ecdsaSourceManifest`,
+  );
+  return {
+    kind: 'linked_device_owner_source_lane_v1',
+    keyFamily,
+    walletKey,
+    lane,
+    materialActivation: materialActivation.value,
+    verifiedActivationReceiptDigestB64u,
+    ecdsaSourceManifest: {
+      manifestId: parseEcdsaCapabilityManifestId(manifest.manifestId),
+      manifestRevision: parseEcdsaCapabilityManifestRevision(manifest.manifestRevision),
+    },
+  };
 }
 
 function parseStateRecord(record: UnknownRecord): LinkedDeviceSessionState {
