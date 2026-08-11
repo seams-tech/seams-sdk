@@ -196,6 +196,7 @@ test('composes D1 session and proof stores and authenticates before reading JSON
       throw new Error('retry adapter not configured');
     },
     provisioning: provisioningNotConfigured(),
+    sourceHandoff: sourceHandoffNotConfigured(),
     nowV1: () => nowMs,
   });
   const request = new Request(
@@ -244,6 +245,7 @@ test('forwards authenticated session reads through core expiry projection', asyn
       throw new Error('retry adapter not configured');
     },
     provisioning: provisioningNotConfigured(),
+    sourceHandoff: sourceHandoffNotConfigured(),
     nowV1: () => clockMs,
   });
 
@@ -282,6 +284,15 @@ function provisioningNotConfigured() {
     },
     recordHolderDeliveriesV1: async () => {
       throw new Error('holder delivery adapter not configured');
+    },
+  };
+}
+
+function sourceHandoffNotConfigured() {
+  return {
+    getTargetReadyV1: async () => null,
+    submitPreparedProvisioningDeliveriesV1: async () => {
+      throw new Error('source handoff adapter not configured');
     },
   };
 }

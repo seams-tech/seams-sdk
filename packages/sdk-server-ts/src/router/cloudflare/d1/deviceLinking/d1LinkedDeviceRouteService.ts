@@ -13,6 +13,7 @@ import type {
   DeviceLinkingAuthDeniedV1,
   DeviceLinkingDeviceAuthenticatedRequestV1,
   DeviceLinkingOwnerRequestInputV1,
+  DeviceLinkingOwnerSourceHandoffProviderV1,
   DeviceLinkingRouteServiceV1,
 } from '../../../../router/transport/fetch/routes/deviceLinking';
 
@@ -27,6 +28,7 @@ export type D1LinkedDeviceRouteServiceOptionsV1 = {
   readonly acknowledgeReceiptV1: DeviceLinkingRouteServiceV1['acknowledgeReceiptV1'];
   readonly retryCommittedDeliveryV1: DeviceLinkingRouteServiceV1['retryCommittedDeliveryV1'];
   readonly provisioning: DeviceLinkingRouteServiceV1['provisioning'];
+  readonly sourceHandoff: DeviceLinkingOwnerSourceHandoffProviderV1;
   readonly nowV1?: () => number;
 };
 
@@ -109,6 +111,7 @@ export function createD1LinkedDeviceRouteServiceV1(
     retryCommittedDeliveryV1: options.retryCommittedDeliveryV1,
     provisioning: options.provisioning,
     provisioningVerifier,
+    sourceHandoff: options.sourceHandoff,
   };
 }
 

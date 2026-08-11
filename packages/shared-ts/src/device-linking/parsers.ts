@@ -50,8 +50,10 @@ import {
   parseLaneHolderDeliveryReceiptV1,
   parseLaneProtocolCommitReceiptV1,
   parseRotatableSigningLaneJobV1,
+  parseLaneEnrollmentManifestV1,
 } from '../signing-lanes/rotationParsers';
 import type {
+  LaneEnrollmentManifestV1,
   LaneProtocolCommitReceiptV1,
   RotatableSigningLaneJobV1,
 } from '../signing-lanes/rotation';
@@ -65,6 +67,7 @@ import {
   type LinkedDeviceProvisioningChildV1,
   type LinkedDeviceProvisioningCommandV1,
   type LinkedDeviceProvisioningDeliveriesV1,
+  type LinkedDeviceProvisioningDeliveriesSubmissionV1,
   type LinkedDeviceHolderDeliveryAcknowledgementV1,
   type LinkedDeviceEnrollmentChildReceiptV1,
   type LinkedDeviceEnrollmentKeyBindingV1,
@@ -89,6 +92,7 @@ import {
   type LinkedDeviceTargetHolderRegistrationV1,
   type LinkedDeviceTargetPreparationChildV1,
   type LinkedDeviceTargetPreparationV1,
+  type LinkedDeviceTargetReadyR102InputV1,
   type LinkedDeviceWebAuthnRegistrationV1,
   type LinkDevicePublicKeyB64u,
   type QrLinkedDevicePermissionRequest,
@@ -165,6 +169,24 @@ const PROVISIONING_CHILD_FIELDS = [
   'protocolCommitReceipt',
   'holderPackage',
   'expectedVersion',
+] as const;
+const TARGET_READY_R102_INPUT_FIELDS = [
+  'kind',
+  'linkSessionId',
+  'walletId',
+  'enrollmentId',
+  'deviceId',
+  'manifest',
+  'children',
+] as const;
+const PROVISIONING_DELIVERIES_SUBMISSION_FIELDS = [
+  'kind',
+  'linkSessionId',
+  'walletId',
+  'enrollmentId',
+  'deviceId',
+  'manifestDigestB64u',
+  'deliveries',
 ] as const;
 const APPROVAL_DELIVERY_FIELDS = ['kind', 'approval'] as const;
 const HOLDER_DELIVERY_ACK_FIELDS = [
@@ -1334,6 +1356,170 @@ export function parseLinkedDeviceProvisioningDeliveriesV1(
     deviceId,
     orderedChildren,
   };
+}
+
+/** Parse the owner source handoff and bind every job to the exact manifest child. */
+export function parseLinkedDeviceTargetReadyR102InputV1(
+  raw: unknown,
+): LinkedDeviceTargetReadyR102InputV1 {
+  const record = exactRecord(
+    raw,
+    TARGET_READY_R102_INPUT_FIELDS,
+    'LinkedDeviceTargetReadyR102InputV1',
+  );
+  if (record.kind !== 'linked_device_target_ready_r102_input_v1') {
+    throw new Error('LinkedDeviceTargetReadyR102InputV1.kind is invalid');
+  }
+  if (!Array.isArray(record.children)) {
+    throw new Error('LinkedDeviceTargetReadyR102InputV1.children must be an array');
+  }
+  const children = nonEmptyTuple(
+    record.children.map((entry, index) =>
+      parseRotatableSigningLaneJobV1(
+        entry,
+        `LinkedDeviceTargetReadyR102InputV1.children[${index}]`,
+      ),
+    ),
+    'LinkedDeviceTargetReadyR102InputV1.children',
+  );
+  const manifest = parseLaneEnrollmentManifestV1(
+    record.manifest,
+    'LinkedDeviceTargetReadyR102InputV1.manifest',
+  );
+  const linkSessionId = parseSessionId(
+    record.linkSessionId,
+    'LinkedDeviceTargetReadyR102InputV1.linkSessionId',
+  );
+  const walletId = parseWallet(record.walletId, 'LinkedDeviceTargetReadyR102InputV1.walletId');
+  const enrollmentId = parseEnrollmentId(
+    record.enrollmentId,
+    'LinkedDeviceTargetReadyR102InputV1.enrollmentId',
+  );
+  const deviceId = parseDeviceId(record.deviceId, 'LinkedDeviceTargetReadyR102InputV1.deviceId');
+  const authorization = manifest.authorization;
+  if (
+    manifest.walletId !== walletId ||
+    String(manifest.enrollmentId) !== String(enrollmentId) ||
+    authorization.kind !== 'linked_device_enrollment'
+  ) {
+    throw new Error('LinkedDeviceTargetReadyR102InputV1 manifest is not bound to its enrollment');
+  }
+  if (String(authorization.linkedDeviceEnrollmentId) !== String(enrollmentId)) {
+    throw new Error('LinkedDeviceTargetReadyR102InputV1 manifest enrollment differs from parent');
+  }
+  if (children.length !== manifest.orderedChildren.length) {
+    throw new Error('LinkedDeviceTargetReadyR102InputV1 child coverage differs from manifest');
+  }
+  for (let index = 0; index < children.length; index += 1) {
+    const child = children[index];
+    const manifestChild = manifest.orderedChildren[index];
+    if (
+      !child ||
+      !manifestChild ||
+      !sameTargetReadyJobManifestChild(child, manifest, manifestChild)
+    ) {
+      throw new Error(
+        `LinkedDeviceTargetReadyR102InputV1 child ${index} differs from its manifest child`,
+      );
+    }
+  }
+  return {
+    kind: 'linked_device_target_ready_r102_input_v1',
+    linkSessionId,
+    walletId,
+    enrollmentId,
+    deviceId,
+    manifest,
+    children,
+  };
+}
+
+export function parseLinkedDeviceProvisioningDeliveriesSubmissionV1(
+  raw: unknown,
+): LinkedDeviceProvisioningDeliveriesSubmissionV1 {
+  const record = exactRecord(
+    raw,
+    PROVISIONING_DELIVERIES_SUBMISSION_FIELDS,
+    'LinkedDeviceProvisioningDeliveriesSubmissionV1',
+  );
+  if (record.kind !== 'linked_device_provisioning_deliveries_submission_v1') {
+    throw new Error('LinkedDeviceProvisioningDeliveriesSubmissionV1.kind is invalid');
+  }
+  const linkSessionId = parseSessionId(
+    record.linkSessionId,
+    'LinkedDeviceProvisioningDeliveriesSubmissionV1.linkSessionId',
+  );
+  const walletId = parseWallet(
+    record.walletId,
+    'LinkedDeviceProvisioningDeliveriesSubmissionV1.walletId',
+  );
+  const enrollmentId = parseEnrollmentId(
+    record.enrollmentId,
+    'LinkedDeviceProvisioningDeliveriesSubmissionV1.enrollmentId',
+  );
+  const deviceId = parseDeviceId(
+    record.deviceId,
+    'LinkedDeviceProvisioningDeliveriesSubmissionV1.deviceId',
+  );
+  const manifestDigestB64u = parseDigest(
+    record.manifestDigestB64u,
+    'LinkedDeviceProvisioningDeliveriesSubmissionV1.manifestDigestB64u',
+  );
+  const deliveries = parseLinkedDeviceProvisioningDeliveriesV1(record.deliveries);
+  if (
+    deliveries.linkSessionId !== linkSessionId ||
+    deliveries.enrollmentId !== enrollmentId ||
+    deliveries.deviceId !== deviceId
+  ) {
+    throw new Error(
+      'LinkedDeviceProvisioningDeliveriesSubmissionV1 deliveries identity differs from submission',
+    );
+  }
+  return {
+    kind: 'linked_device_provisioning_deliveries_submission_v1',
+    linkSessionId,
+    walletId,
+    enrollmentId,
+    deviceId,
+    manifestDigestB64u,
+    deliveries,
+  };
+}
+
+function sameTargetReadyJobManifestChild(
+  job: RotatableSigningLaneJobV1,
+  manifest: LaneEnrollmentManifestV1,
+  manifestChild: LaneEnrollmentManifestV1['orderedChildren'][number],
+): boolean {
+  const authorization = manifest.authorization;
+  if (authorization.kind !== 'linked_device_enrollment') return false;
+  if (job.authorization.kind !== 'linked_device_enrollment') return false;
+  return (
+    String(job.operationId) === String(manifestChild.operationId) &&
+    String(job.enrollmentId) === String(manifest.enrollmentId) &&
+    String(job.walletId) === String(manifest.walletId) &&
+    String(job.walletKeyId) === String(manifestChild.walletKeyId) &&
+    job.keyFamily === manifestChild.keyFamily &&
+    String(job.source.laneId) === String(manifestChild.sourceLaneId) &&
+    String(job.source.laneShareEpoch) === String(manifestChild.sourceLaneShareEpoch) &&
+    job.source.revocationEpoch === manifestChild.sourceRevocationEpoch &&
+    sameMaterialActivationRef(job.source.materialActivation, manifestChild.sourceMaterialActivation) &&
+    job.target.operation === 'create_lane' &&
+    job.target.laneKind === 'linked_device' &&
+    String(job.target.laneId) === String(manifestChild.targetLaneId) &&
+    String(job.target.laneShareEpoch) === String(manifestChild.targetLaneShareEpoch) &&
+    String(job.targetMaterialActivationId) === String(manifestChild.targetMaterialActivationId) &&
+    String(job.targetHolder.participantBindingDigestB64u) ===
+      String(manifestChild.holderParticipantBindingDigestB64u) &&
+    String(job.targetSigningWorker.participantBindingDigestB64u) ===
+      String(manifestChild.signingWorkerParticipantBindingDigestB64u) &&
+    String(job.authorization.linkedDeviceEnrollmentId) ===
+      String(authorization.linkedDeviceEnrollmentId) &&
+    String(job.authorization.authorizedOperationId) ===
+      String(authorization.authorizedOperationId) &&
+    String(job.authorization.linkedDevicePermissionDigestB64u) ===
+      String(authorization.linkedDevicePermissionDigestB64u)
+  );
 }
 
 export function parseLinkedDeviceHolderDeliveryAcknowledgementV1(

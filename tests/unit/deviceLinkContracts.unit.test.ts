@@ -16,10 +16,12 @@ import {
   parseLinkedDeviceEnrollmentTranscriptV1,
   parseLinkedDeviceProvisioningCommandV1,
   parseLinkedDeviceProvisioningDeliveriesV1,
+  parseLinkedDeviceProvisioningDeliveriesSubmissionV1,
   parseLinkedDeviceSessionState,
   parseLinkedDeviceSessionTransportRequestV1,
   parseLinkedDeviceTargetCredentialRegistrationV1,
   parseLinkedDeviceTargetPreparationV1,
+  parseLinkedDeviceTargetReadyR102InputV1,
   parseQrLinkedDeviceSessionPayloadV4,
 } from '../../packages/shared-ts/src/device-linking';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
@@ -29,6 +31,7 @@ import {
   buildR102ProtocolCommitReceipt,
 } from './helpers/r102LaneGateway.fixtures';
 import { parseRotatableSigningLaneJobV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
+import { buildLaneEnrollmentManifestV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import {
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
@@ -229,6 +232,91 @@ test.describe('R103 shared linked-device contracts', () => {
         ],
       }),
     ).toThrow(/does not match its job/);
+  });
+
+  test('binds target-ready jobs and prepared deliveries to one exact manifest', () => {
+    const fixture = buildR103DeviceLinkFixture();
+    const sourceJob = buildR102LaneJob('target-ready');
+    const job = parseRotatableSigningLaneJobV1({
+      ...sourceJob,
+      enrollmentId: String(fixture.approval.enrollmentId),
+      walletId: String(fixture.approval.walletId),
+      authorization: {
+        kind: 'linked_device_enrollment',
+        authorizedOperationId: String(sourceJob.authorization.authorizedOperationId),
+        linkedDeviceEnrollmentId: String(fixture.approval.enrollmentId),
+        linkedDevicePermissionDigestB64u: fixture.approval.policyDigestB64u,
+      },
+    });
+    const manifest = buildLaneEnrollmentManifestV1({
+      enrollmentId: job.enrollmentId,
+      walletId: job.walletId,
+      authorization: job.authorization,
+      orderedChildren: [
+        {
+          operationId: job.operationId,
+          walletKeyId: job.walletKeyId,
+          keyFamily: job.keyFamily,
+          sourceLaneId: job.source.laneId,
+          sourceLaneShareEpoch: job.source.laneShareEpoch,
+          sourceRevocationEpoch: job.source.revocationEpoch,
+          sourceMaterialActivation: job.source.materialActivation,
+          targetLaneId: job.target.laneId,
+          targetLaneShareEpoch: job.target.laneShareEpoch,
+          targetMaterialActivationId: job.targetMaterialActivationId,
+          holderParticipantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
+          signingWorkerParticipantBindingDigestB64u:
+            job.targetSigningWorker.participantBindingDigestB64u,
+        },
+      ],
+      createdAtMs: 1_000,
+      expiresAtMs: 9_000,
+    });
+    const targetReady = {
+      kind: 'linked_device_target_ready_r102_input_v1' as const,
+      linkSessionId: fixture.approval.linkSessionId,
+      walletId: fixture.approval.walletId,
+      enrollmentId: fixture.approval.enrollmentId,
+      deviceId: fixture.approval.deviceId,
+      manifest,
+      children: [job] as const,
+    };
+    expect(parseLinkedDeviceTargetReadyR102InputV1(targetReady)).toEqual(targetReady);
+    const deliveries = parseLinkedDeviceProvisioningDeliveriesV1({
+      kind: 'linked_device_provisioning_deliveries_v1',
+      linkSessionId: targetReady.linkSessionId,
+      enrollmentId: targetReady.enrollmentId,
+      deviceId: targetReady.deviceId,
+      orderedChildren: [
+        {
+          kind: 'linked_device_provisioning_child_v1',
+          job,
+          protocolCommitReceipt: buildR102ProtocolCommitReceipt(job),
+          holderPackage: {
+            kind: 'ed25519_yao_lane_holder_package_set_v1',
+            deriverAEncryptedPackageJson: '{}',
+            deriverBEncryptedPackageJson: '{}',
+          },
+          expectedVersion: 0,
+        },
+      ],
+    });
+    const submission = {
+      kind: 'linked_device_provisioning_deliveries_submission_v1' as const,
+      linkSessionId: targetReady.linkSessionId,
+      walletId: targetReady.walletId,
+      enrollmentId: targetReady.enrollmentId,
+      deviceId: targetReady.deviceId,
+      manifestDigestB64u: fixture.approval.policyDigestB64u,
+      deliveries,
+    };
+    expect(parseLinkedDeviceProvisioningDeliveriesSubmissionV1(submission)).toEqual(submission);
+    expect(() =>
+      parseLinkedDeviceTargetReadyR102InputV1({
+        ...targetReady,
+        children: [{ ...job, walletKeyId: 'wallet-key:substituted' }],
+      }),
+    ).toThrow(/differs from its manifest child/);
   });
 
   test('binds verified target attestation and public holder records to one preparation', async () => {

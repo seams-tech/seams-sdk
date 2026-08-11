@@ -1,10 +1,14 @@
 import { expect, test } from '@playwright/test';
 import { parseLinkedDeviceEnrollmentId, parseLinkedDeviceId } from '@shared/signing-lanes';
+import { parseAuthorizedOperationId } from '@shared/authorization/capabilityKinds';
 import { parseWalletId } from '@shared/utils/domainIds';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
-import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
+import {
+  buildR103DeviceLinkFixture,
+  buildR103ProvisioningFixture,
+} from './helpers/deviceLinkContracts.fixtures';
 import {
   LinkedDeviceSessionServiceV1,
   type LinkedDeviceAggregateActivationVerifierV1,
@@ -21,6 +25,7 @@ import {
   type DeviceLinkingRequestProofV1,
 } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/deviceLinking';
 import type { FetchRouterApiContext } from '../../packages/sdk-server-ts/src/router/transport/fetch/fetchRouter.types';
+import { buildLaneEnrollmentManifestV1, parseRotatableSigningLaneJobV1 } from '@shared/signing-lanes/rotationParsers';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -98,7 +103,7 @@ test('projects the claimed device identity after owner claim', async () => {
   const routeService = routeServiceFor(sessionService, 3_000, {
     authenticateOwnerRequestV1: async ({ request, method, pathname, bodyDigestB64u }) => ({
       kind: 'authorized' as const,
-      body: await request.json(),
+      body: method === 'GET' ? null : await request.json(),
       binding: requestBinding(method, pathname, bodyDigestB64u, 3_000),
     }),
   });
@@ -155,6 +160,111 @@ test('projects the claimed device identity after owner claim', async () => {
   const deliveredApprovalBody = await deliveredApproval.json();
   expect(deliveredApprovalBody.kind).toBe('linked_device_approval_delivery_v1');
   expect(deliveredApprovalBody.approval).toEqual(approval);
+});
+
+test('owner target-ready GET authenticates before parsing and returns the exact R102 jobs', async () => {
+  temporary = createTemporaryD1Database();
+  await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+  const fixture = buildR103DeviceLinkFixture();
+  const provisioning = buildR103ProvisioningFixture(fixture);
+  const sourceJob = provisioning.deliveries.orderedChildren[0]?.job;
+  if (!sourceJob) throw new Error('source fixture has no job');
+  const authorizedOperationId = parseAuthorizedOperationId(String(fixture.approval.operationId));
+  if (!authorizedOperationId.ok) throw new Error(authorizedOperationId.error.message);
+  const job = parseRotatableSigningLaneJobV1({
+    ...sourceJob,
+    expiresAtMs: 8_000,
+    authorization: {
+      kind: 'linked_device_enrollment',
+      authorizedOperationId: authorizedOperationId.value,
+      linkedDeviceEnrollmentId: fixture.approval.enrollmentId,
+      linkedDevicePermissionDigestB64u: fixture.approval.policyDigestB64u,
+    },
+  });
+  const manifest = buildLaneEnrollmentManifestV1({
+    enrollmentId: job.enrollmentId,
+    walletId: job.walletId,
+    authorization: job.authorization,
+    orderedChildren: [
+      {
+        operationId: job.operationId,
+        walletKeyId: job.walletKeyId,
+        keyFamily: job.keyFamily,
+        sourceLaneId: job.source.laneId,
+        sourceLaneShareEpoch: job.source.laneShareEpoch,
+        sourceRevocationEpoch: job.source.revocationEpoch,
+        sourceMaterialActivation: job.source.materialActivation,
+        targetLaneId: job.target.laneId,
+        targetLaneShareEpoch: job.target.laneShareEpoch,
+        targetMaterialActivationId: job.targetMaterialActivationId,
+        holderParticipantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
+        signingWorkerParticipantBindingDigestB64u:
+          job.targetSigningWorker.participantBindingDigestB64u,
+      },
+    ],
+    createdAtMs: 1_000,
+    expiresAtMs: 9_000,
+  });
+  const targetReady = {
+    kind: 'linked_device_target_ready_r102_input_v1' as const,
+    linkSessionId: fixture.approval.linkSessionId,
+    walletId: fixture.approval.walletId,
+    enrollmentId: fixture.approval.enrollmentId,
+    deviceId: fixture.approval.deviceId,
+    manifest,
+    children: [job] as const,
+  };
+  let ownerAuthCalls = 0;
+  const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
+  const sessionService = new LinkedDeviceSessionServiceV1({
+    store,
+    authorization: ownerAuthorization(),
+    aggregateActivationVerifier,
+  });
+  const routeService = routeServiceFor(sessionService, 3_000, {
+    authenticateOwnerRequestV1: async ({ request, method, pathname, bodyDigestB64u }) => {
+      ownerAuthCalls += 1;
+      return {
+        kind: 'authorized' as const,
+        body: method === 'GET' ? null : await request.json(),
+        binding: requestBinding(method, pathname, bodyDigestB64u, 3_000),
+      };
+    },
+    sourceHandoff: {
+      getTargetReadyV1: async () => targetReady,
+      submitPreparedProvisioningDeliveriesV1: async () => {
+        throw new Error('prepared delivery submission is not used in this test');
+      },
+    },
+  });
+  const created = await invoke(routeService, {
+    method: 'POST',
+    pathname: '/wallet/device-linking/v1/sessions',
+    body: {
+      kind: 'linked_device_session_create_request_v1',
+      payload: fixture.payload,
+    },
+  });
+  expect(created.status).toBe(200);
+  const claimed = await invoke(routeService, {
+    method: 'POST',
+    pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/claim`,
+    body: fixture.claimRequest,
+  });
+  expect(claimed.status).toBe(200);
+  const approved = await invoke(routeService, {
+    method: 'POST',
+    pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/approval`,
+    body: { ...fixture.approval, expiresAtMs: 9_000 },
+  });
+  expect(approved.status).toBe(200);
+  const response = await invoke(routeService, {
+    method: 'GET',
+    pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/target-ready`,
+  });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual(targetReady);
+  expect(ownerAuthCalls).toBe(3);
 });
 
 test('authenticates owner before parsing claim and returns no session secrets', async () => {
@@ -321,6 +431,12 @@ function routeServiceFor(
     provisioningVerifier: {
       verifyProvisioningDeliveriesV1: async () => undefined,
       verifyHolderDeliveriesV1: async () => undefined,
+    },
+    sourceHandoff: {
+      getTargetReadyV1: async () => null,
+      submitPreparedProvisioningDeliveriesV1: async () => {
+        throw new Error('source handoff adapter not configured for this test');
+      },
     },
   };
   return { ...defaults, ...overrides };

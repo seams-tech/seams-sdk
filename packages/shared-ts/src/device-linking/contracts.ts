@@ -30,6 +30,7 @@ import type {
   LaneHolderDeliveryReceiptV1,
   LaneHolderPackageWireV1,
   LaneProtocolCommitReceiptV1,
+  LaneEnrollmentManifestV1,
   RotatableSigningLaneJobV1,
 } from '../signing-lanes/rotation';
 
@@ -242,6 +243,32 @@ export type LinkedDeviceProvisioningDeliveriesV1 = {
     LinkedDeviceProvisioningChildV1,
     ...LinkedDeviceProvisioningChildV1[],
   ];
+};
+
+/**
+ * Exact owner-authenticated R102 source input. Jobs contain public protocol,
+ * recipient, and participant records; private holder, PRF, and credential
+ * material never crosses this DTO.
+ */
+export type LinkedDeviceTargetReadyR102InputV1 = {
+  readonly kind: 'linked_device_target_ready_r102_input_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly walletId: WalletId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
+  readonly manifest: LaneEnrollmentManifestV1;
+  readonly children: readonly [RotatableSigningLaneJobV1, ...RotatableSigningLaneJobV1[]];
+};
+
+/** Owner-authenticated persistence submission for prepared R102 deliveries. */
+export type LinkedDeviceProvisioningDeliveriesSubmissionV1 = {
+  readonly kind: 'linked_device_provisioning_deliveries_submission_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly walletId: WalletId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
+  readonly manifestDigestB64u: DigestB64u;
+  readonly deliveries: LinkedDeviceProvisioningDeliveriesV1;
 };
 
 export type LinkedDeviceApprovalDeliveryV1 = {

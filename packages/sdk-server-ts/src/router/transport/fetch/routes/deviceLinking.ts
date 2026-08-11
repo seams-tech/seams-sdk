@@ -5,10 +5,12 @@ import type {
   LinkedDeviceSessionClaimV1,
   LinkedDeviceProvisioningCommandV1,
   LinkedDeviceProvisioningDeliveriesV1,
+  LinkedDeviceProvisioningDeliveriesSubmissionV1,
   LinkedDeviceReceiptAcknowledgementV1,
   LinkedDeviceSessionTransportRequestV1,
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetPreparationV1,
+  LinkedDeviceTargetReadyR102InputV1,
   QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking/contracts';
 import {
@@ -17,11 +19,13 @@ import {
   parseLinkedDeviceHolderDeliveryAcknowledgementV1,
   parseLinkedDeviceProvisioningCommandV1,
   parseLinkedDeviceProvisioningDeliveriesV1,
+  parseLinkedDeviceProvisioningDeliveriesSubmissionV1,
   parseLinkedDeviceReceiptAcknowledgementV1,
   parseLinkedDeviceSessionClaimRequestV1,
   parseLinkedDeviceSessionTransportRequestV1,
   parseLinkedDeviceTargetCredentialRegistrationV1,
   parseLinkedDeviceTargetPreparationV1,
+  parseLinkedDeviceTargetReadyR102InputV1,
   parseLinkedDeviceApprovalV1,
   parseQrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking/parsers';
@@ -33,7 +37,7 @@ import {
   type LinkDeviceSessionId,
 } from '@shared/signing-lanes/ids';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
-import { sha256Bytes } from '@shared/utils/digests';
+import { alphabetizeStringify, sha256Bytes } from '@shared/utils/digests';
 import type {
   LinkedDeviceSessionRecordV1,
   LinkedDeviceSessionState,
@@ -174,6 +178,20 @@ export type DeviceLinkingProvisioningVerifierV1 = {
   }): Promise<void>;
 };
 
+export type DeviceLinkingOwnerSourceHandoffProviderV1 = {
+  getTargetReadyV1(input: {
+    readonly session: LinkedDeviceSessionRecordV1;
+    readonly approval: LinkedDeviceApprovalV1;
+    readonly requestedAtMs: number;
+  }): Promise<LinkedDeviceTargetReadyR102InputV1 | null>;
+  submitPreparedProvisioningDeliveriesV1(input: {
+    readonly submission: LinkedDeviceProvisioningDeliveriesSubmissionV1;
+    readonly session: LinkedDeviceSessionRecordV1;
+    readonly approval: LinkedDeviceApprovalV1;
+    readonly requestedAtMs: number;
+  }): Promise<LinkedDeviceProvisioningDeliveriesSubmissionV1>;
+};
+
 export type DeviceLinkingTargetCredentialProviderV1 = {
   getTargetPreparationV1(input: {
     readonly session: LinkedDeviceSessionRecordV1;
@@ -245,6 +263,8 @@ export type DeviceLinkingRouteServiceV1 = {
   }): Promise<DeviceLinkingRouteMutationResultV1>;
   readonly provisioning: DeviceLinkingProvisioningProviderV1;
   readonly provisioningVerifier: DeviceLinkingProvisioningVerifierV1;
+  /** Owner-authenticated R102 source handoff and Device2 refetch source. */
+  readonly sourceHandoff: DeviceLinkingOwnerSourceHandoffProviderV1;
 };
 
 type DeviceLinkingCreateRequestV1 = {
@@ -270,6 +290,10 @@ export async function handleDeviceLinking(ctx: FetchRouterApiContext): Promise<R
       return await handleClaim(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'approval')
       return await handleApproval(ctx, service, action.linkSessionId, nowMs);
+    if (action.kind === 'target-ready')
+      return await handleTargetReady(ctx, service, action.linkSessionId, nowMs);
+    if (action.kind === 'prepared-deliveries')
+      return await handlePreparedDeliveries(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'provision')
       return await handleProvision(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'holder-receipts')
@@ -424,6 +448,113 @@ async function handleApproval(
   return approvalResultResponse(
     await service.sessionService.recordOwnerApprovalV1({ approval, nowMs }),
   );
+}
+
+async function handleTargetReady(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
+  const bodyDigestB64u = await requestBodyDigest(ctx.request);
+  const authentication = await authenticateOwner(
+    service,
+    ctx.request,
+    ctx.method,
+    ctx.pathname,
+    bodyDigestB64u,
+    nowMs,
+  );
+  if (authentication.kind === 'denied') return authDeniedResponse(authentication);
+  validateOwnerRequestBinding(
+    authentication.binding,
+    ctx.method,
+    ctx.pathname,
+    bodyDigestB64u,
+    nowMs,
+  );
+  const sourceHandoff = service.sourceHandoff;
+  const linkSessionId = parseBoundary(() => parseSessionId(rawLinkSessionId));
+  const session = await service.sessionService.getSessionV1({ linkSessionId, nowMs });
+  if (!session) return notFoundResponse();
+  const approval = requireProvisioningApproval(session);
+  if (ctx.method !== 'GET') return methodNotAllowedResponse();
+  const rawTargetReady = await sourceHandoff.getTargetReadyV1({
+    session,
+    approval,
+    requestedAtMs: nowMs,
+  });
+  if (!rawTargetReady) {
+    return json(
+      { ok: false, code: 'not_ready', message: 'R102 target-ready input is not persisted' },
+      { status: 404 },
+    );
+  }
+  const targetReady = parseBoundary(() => parseLinkedDeviceTargetReadyR102InputV1(rawTargetReady));
+  assertTargetReadySourceIdentity(targetReady, session, approval, nowMs);
+  return json(targetReady, { status: 200 });
+}
+
+async function handlePreparedDeliveries(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
+  const bodyDigestB64u = await requestBodyDigest(ctx.request);
+  const authentication = await authenticateOwner(
+    service,
+    ctx.request,
+    ctx.method,
+    ctx.pathname,
+    bodyDigestB64u,
+    nowMs,
+  );
+  if (authentication.kind === 'denied') return authDeniedResponse(authentication);
+  validateOwnerRequestBinding(
+    authentication.binding,
+    ctx.method,
+    ctx.pathname,
+    bodyDigestB64u,
+    nowMs,
+  );
+  const sourceHandoff = service.sourceHandoff;
+  if (ctx.method !== 'POST') return methodNotAllowedResponse();
+  const linkSessionId = parseBoundary(() => parseSessionId(rawLinkSessionId));
+  const session = await service.sessionService.getSessionV1({ linkSessionId, nowMs });
+  if (!session) return notFoundResponse();
+  const approval = requireProvisioningApproval(session);
+  const submission = parseBoundary(() =>
+    parseLinkedDeviceProvisioningDeliveriesSubmissionV1(authentication.body),
+  );
+  if (submission.linkSessionId !== linkSessionId) {
+    return invalidInputResponse('prepared deliveries link session id does not match route');
+  }
+  assertProvisioningIdentityMatches({
+    linkSessionId: submission.linkSessionId,
+    enrollmentId: submission.enrollmentId,
+    deviceId: submission.deviceId,
+    session,
+    approval,
+  });
+  if (submission.walletId !== approval.walletId) {
+    return invalidInputResponse('prepared deliveries wallet identity does not match approval');
+  }
+  const rawPersisted = await sourceHandoff.submitPreparedProvisioningDeliveriesV1({
+    submission,
+    session,
+    approval,
+    requestedAtMs: nowMs,
+  });
+  const persisted = parseBoundary(() =>
+    parseLinkedDeviceProvisioningDeliveriesSubmissionV1(rawPersisted),
+  );
+  if (alphabetizeStringify(persisted) !== alphabetizeStringify(submission)) {
+    throw new DeviceLinkingInputError(
+      'persisted prepared deliveries differ from the authenticated submission',
+    );
+  }
+  return json(persisted, { status: 200 });
 }
 
 async function handleProvision(
@@ -820,6 +951,8 @@ function parseRoutePath(pathname: string):
       readonly kind:
         | 'claim'
         | 'approval'
+        | 'target-ready'
+        | 'prepared-deliveries'
         | 'target-preparation'
         | 'provision'
         | 'holder-receipts'
@@ -841,6 +974,8 @@ function parseRoutePath(pathname: string):
   if (
     parts[1] !== 'claim' &&
     parts[1] !== 'approval' &&
+    parts[1] !== 'target-ready' &&
+    parts[1] !== 'prepared-deliveries' &&
     parts[1] !== 'target-preparation' &&
     parts[1] !== 'provision' &&
     parts[1] !== 'holder-receipts' &&
@@ -964,6 +1099,58 @@ function assertProvisioningIdentityMatches(input: {
     input.session.claimTranscript?.value.deviceId !== input.deviceId
   ) {
     throw new DeviceLinkingInputError('provisioning identity does not match approved session');
+  }
+}
+
+function assertTargetReadySourceIdentity(
+  targetReady: LinkedDeviceTargetReadyR102InputV1,
+  session: LinkedDeviceSessionRecordV1,
+  approval: LinkedDeviceApprovalV1,
+  requestedAtMs: number,
+): void {
+  const authorization = targetReady.manifest.authorization;
+  if (
+    targetReady.linkSessionId !== session.linkSessionId ||
+    targetReady.linkSessionId !== approval.linkSessionId ||
+    targetReady.walletId !== approval.walletId ||
+    targetReady.enrollmentId !== approval.enrollmentId ||
+    targetReady.deviceId !== approval.deviceId ||
+    targetReady.manifest.walletId !== approval.walletId ||
+    String(targetReady.manifest.enrollmentId) !== String(approval.enrollmentId) ||
+    authorization.kind !== 'linked_device_enrollment' ||
+    targetReady.manifest.orderedChildren.length !== approval.orderedKeyBindings.length ||
+    targetReady.children.length !== approval.orderedKeyBindings.length ||
+    targetReady.manifest.expiresAtMs > approval.expiresAtMs ||
+    (session.state.state !== 'committed_completion_required' &&
+      targetReady.manifest.expiresAtMs <= requestedAtMs) ||
+    session.claimTranscript?.value.deviceId !== targetReady.deviceId
+  ) {
+    throw new DeviceLinkingInputError('R102 target-ready input does not match approved session');
+  }
+  if (
+    authorization.linkedDeviceEnrollmentId !== approval.enrollmentId ||
+    authorization.linkedDevicePermissionDigestB64u !== approval.policyDigestB64u ||
+    String(authorization.authorizedOperationId) !== String(approval.operationId)
+  ) {
+    throw new DeviceLinkingInputError('R102 target-ready authorization differs from approval');
+  }
+  for (let index = 0; index < targetReady.children.length; index += 1) {
+    const job = targetReady.children[index];
+    const child = targetReady.manifest.orderedChildren[index];
+    const approved = approval.orderedKeyBindings[index];
+    if (
+      !job ||
+      !child ||
+      !approved ||
+      child.targetLaneId !== approved.targetLaneId ||
+      child.targetLaneShareEpoch !== approved.targetLaneShareEpoch ||
+      job.target.laneId !== approved.targetLaneId ||
+      job.target.laneShareEpoch !== approved.targetLaneShareEpoch ||
+      job.expiresAtMs > approval.expiresAtMs ||
+      job.expiresAtMs <= requestedAtMs
+    ) {
+      throw new DeviceLinkingInputError('R102 target-ready child differs from approval');
+    }
   }
 }
 
