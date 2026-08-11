@@ -718,7 +718,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
                 const fallback = this._isEmailOtpMode()
                   ? 'Enter email code to sign'
                   : this._isWarmSessionMode()
-                    ? 'Review transaction'
+                    ? 'Confirm transaction'
                     : isRegistration
                       ? 'Register with Passkey'
                       : 'Confirm with Passkey';
