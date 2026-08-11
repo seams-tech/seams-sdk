@@ -2,7 +2,7 @@
 
 Date created: June 15, 2026
 
-Last reconciled: August 11, 2026
+Last reconciled: August 12, 2026
 
 Status: implemented for the authenticated internal R102 lifecycle. Ed25519 Yao
 and ECDSA additive lanes support creation, refresh, activation, normal signing,
@@ -10,6 +10,10 @@ exact retirement, aggregate revocation, and crash-safe replay. Refactor 103
 owns public device-link and target-device bootstrap, Refactor 104 owns delegated
 execution, and wallet-key root refresh remains deferred to its authoritative
 root protocol.
+
+Checklist reconciliation: 32/32 internal R102 lifecycle items have concrete
+implementation and focused-test evidence. Public device-link bootstrap remains
+an R103 boundary, and wallet-key root refresh remains intentionally deferred.
 
 ## Dependencies And Authority
 
@@ -1420,7 +1424,8 @@ Subagents do not independently run the full repository suite.
 
 ### Phase 5: Refresh And Revocation
 
-- [x] Add owner and linked-device lane refresh. Refactor 104 owns any later
+- [x] Add owner-authorized refresh for owner and linked-device lanes. Refactor
+      103 owns public device-link bootstrap; Refactor 104 owns any later
       delegated-execution adapter.
 - [x] Add immediate ECDSA lane revocation with exact material-owner receipts.
 - [x] Add immediate Ed25519 lane revocation with exact material-owner receipts.
