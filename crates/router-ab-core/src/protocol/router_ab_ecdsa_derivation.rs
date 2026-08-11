@@ -1984,12 +1984,6 @@ impl RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1 {
                 "linked ECDSA scope activation id does not match material activation",
             ));
         }
-        if self.material_activation.material_owner != self.wallet_id {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLifecycleState,
-                "linked ECDSA scope material owner does not match wallet",
-            ));
-        }
         self.target_capability.validate()?;
         decode_secp256k1_public_key33_b64u(
             "linkedEcdsaScope.thresholdPublicKey33B64u",

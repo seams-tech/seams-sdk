@@ -40,7 +40,7 @@ fn valid_scope_json() -> Value {
             "kind": "mpc_material_activation_ref",
             "activationId": "target-activation:r103",
             "capability": "capability:r103",
-            "materialOwner": "wallet:r103",
+            "materialOwner": "material-owner:r103",
             "keyBinding": "key-binding:r103",
             "lifecycleBinding": "lifecycle-binding:r103",
             "signingWorker": "signing-worker:r103"
@@ -142,17 +142,6 @@ fn linked_ecdsa_scope_rejects_binding_substitution() {
         error.code(),
         RouterAbProtocolErrorCode::InvalidLifecycleState
     );
-
-    let mut value = valid_scope_json();
-    value["materialActivation"]["materialOwner"] = json!("wallet:other");
-    let error = parse_router_ab_ecdsa_derivation_linked_device_normal_signing_scope_v1_json(
-        &serde_json::to_vec(&value).expect("scope JSON"),
-    )
-    .expect_err("material owner substitution must be rejected");
-    assert_eq!(
-        error.code(),
-        RouterAbProtocolErrorCode::InvalidLifecycleState
-    );
 }
 
 #[test]
@@ -185,4 +174,15 @@ fn linked_ecdsa_scope_digest_binds_transcript_and_lane_fields() {
     .expect("changed digest");
     assert_ne!(changed_lane, original);
     assert_ne!(changed_lane, PublicDigest32::new([0; 32]));
+
+    value["laneId"] = json!("lane:r103");
+    value["materialActivation"]["materialOwner"] = json!("material-owner:r103:other");
+    let changed_material_owner =
+        parse_router_ab_ecdsa_derivation_linked_device_normal_signing_scope_v1_json(
+            &serde_json::to_vec(&value).expect("scope JSON"),
+        )
+        .expect("changed material owner parses")
+        .scope_digest()
+        .expect("changed digest");
+    assert_ne!(changed_material_owner, original);
 }
