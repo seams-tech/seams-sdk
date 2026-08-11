@@ -170,7 +170,10 @@ fn accepted_operation(
         },
         authorized_operation:
             CloudflareRouterEcdsaAuthorizedOperationV1::ReusableWalletSessionAuthorizedOperationV1 {
-                authorized_operation_id: "authorized-operation:r103".to_owned(),
+                authorized_operation_id: format!(
+                    "linked-ecdsa-authorized-operation:{}",
+                    request.request_id
+                ),
                 operation_id: request.operation_id.clone(),
                 capability_kind: CloudflareRouterEcdsaCapabilityKindV1::EvmEcdsaMpcSigning,
                 operation_kind: CloudflareRouterEcdsaOperationKindV1::SignTransaction,

@@ -5917,11 +5917,13 @@ impl CloudflareRouterEcdsaAcceptedAuthorizedOperationV1 {
         request.validate()?;
         let (
             authorized_operation_id,
+            operation_id,
             authorized_operation_intent,
             authorized_operation_lane,
             authorized_operation_display,
         ) = match &self.authorized_operation {
             CloudflareRouterEcdsaAuthorizedOperationV1::ReusableWalletSessionAuthorizedOperationV1 {
+                authorized_operation_id,
                 operation_id,
                 intent_digest_b64u,
                 lane_digest_b64u,
@@ -5929,19 +5931,23 @@ impl CloudflareRouterEcdsaAcceptedAuthorizedOperationV1 {
                 ..
             }
             | CloudflareRouterEcdsaAuthorizedOperationV1::VerifiedStepUpAuthorizedOperationV1 {
+                authorized_operation_id,
                 operation_id,
                 intent_digest_b64u,
                 lane_digest_b64u,
                 display_digest_b64u,
                 ..
             } => (
+                authorized_operation_id,
                 operation_id,
                 intent_digest_b64u,
                 lane_digest_b64u,
                 display_digest_b64u,
             ),
         };
-        if authorized_operation_id != &request.operation_id
+        if authorized_operation_id
+            != &format!("linked-ecdsa-authorized-operation:{}", request.request_id)
+            || operation_id != &request.operation_id
             || authorized_operation_intent != &request.operation_digests.intent_digest_b64u
             || authorized_operation_lane != &request.operation_digests.lane_digest_b64u
             || authorized_operation_display != &request.operation_digests.display_digest_b64u
