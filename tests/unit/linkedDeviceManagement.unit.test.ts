@@ -111,15 +111,17 @@ test('refuses a public revoke plan whose lane command does not bind the requeste
         plan: {
           target,
           aggregate,
-          walletSession: {
-            tenantId: parseTenantId('tenant:management').value,
-            deviceId: target.summary.deviceId,
-            authorizationId: parseLinkedDeviceWalletSessionAuthorizationId(
-              'authorization:management',
-            ).value,
-            walletSessionId: parseWalletSessionId('wallet-session:management').value,
-            quotaId: parseMpcWalletSigningQuotaId('wallet-quota:management').value,
-          },
+          walletSessions: [
+            {
+              tenantId: parseTenantId('tenant:management').value,
+              deviceId: target.summary.deviceId,
+              authorizationId: parseLinkedDeviceWalletSessionAuthorizationId(
+                'authorization:management',
+              ).value,
+              walletSessionId: parseWalletSessionId('wallet-session:management').value,
+              quotaId: parseMpcWalletSigningQuotaId('wallet-quota:management').value,
+            },
+          ],
           revocationEpoch: 1,
         },
       }),
@@ -145,7 +147,7 @@ test('refuses a public revoke plan whose lane command does not bind the requeste
   expect(aggregateCalls).toBe(0);
 });
 
-test('fences the linked Wallet Session before retiring child lanes', async () => {
+test('fences every linked Wallet Session before retiring child lanes', async () => {
   const target = await buildManagementTarget();
   const walletId = target.summary.walletId;
   const child = target.enrollment.value.manifest.orderedChildren[0];
@@ -178,6 +180,7 @@ test('fences the linked Wallet Session before retiring child lanes', async () =>
     ],
   };
   const order: string[] = [];
+  const revokedAuthorizationIds: string[] = [];
   const service = new LinkedDeviceManagementServiceV1({
     authorization: authorizedManagement(),
     projection: {
@@ -190,22 +193,34 @@ test('fences the linked Wallet Session before retiring child lanes', async () =>
         plan: {
           target,
           aggregate,
-          walletSession: {
-            tenantId: parseTenantId('tenant:management').value,
-            deviceId: target.summary.deviceId,
-            authorizationId: parseLinkedDeviceWalletSessionAuthorizationId(
-              'authorization:management',
-            ).value,
-            walletSessionId: parseWalletSessionId('wallet-session:management').value,
-            quotaId: parseMpcWalletSigningQuotaId('wallet-quota:management').value,
-          },
+          walletSessions: [
+            {
+              tenantId: parseTenantId('tenant:management').value,
+              deviceId: target.summary.deviceId,
+              authorizationId: parseLinkedDeviceWalletSessionAuthorizationId(
+                'authorization:management:first',
+              ).value,
+              walletSessionId: parseWalletSessionId('wallet-session:management:first').value,
+              quotaId: parseMpcWalletSigningQuotaId('wallet-quota:management:first').value,
+            },
+            {
+              tenantId: parseTenantId('tenant:management').value,
+              deviceId: target.summary.deviceId,
+              authorizationId: parseLinkedDeviceWalletSessionAuthorizationId(
+                'authorization:management:renewed',
+              ).value,
+              walletSessionId: parseWalletSessionId('wallet-session:management:renewed').value,
+              quotaId: parseMpcWalletSigningQuotaId('wallet-quota:management:renewed').value,
+            },
+          ],
           revocationEpoch: 1,
         },
       }),
     },
     walletSessionRevocation: {
-      revokeLinkedDeviceWalletSessionV1: async () => {
+      revokeLinkedDeviceWalletSessionV1: async ({ target: walletSession }) => {
         order.push('wallet_session');
+        revokedAuthorizationIds.push(String(walletSession.authorizationId));
         return { kind: 'applied' };
       },
     },
@@ -234,7 +249,11 @@ test('fences the linked Wallet Session before retiring child lanes', async () =>
   });
 
   expect(result).toEqual({ kind: 'conflict' });
-  expect(order).toEqual(['wallet_session', 'aggregate']);
+  expect(order).toEqual(['wallet_session', 'wallet_session', 'aggregate']);
+  expect(revokedAuthorizationIds).toEqual([
+    'authorization:management:first',
+    'authorization:management:renewed',
+  ]);
 });
 
 function authorizedManagement() {

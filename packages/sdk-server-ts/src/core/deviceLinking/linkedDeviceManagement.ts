@@ -66,7 +66,10 @@ export type LinkedDeviceWalletSessionRevocationTargetV1 = {
 export type LinkedDeviceRevocationPlanV1 = {
   readonly target: LinkedDeviceManagementTargetV1;
   readonly aggregate: LaneAggregateRevocationRequestV1;
-  readonly walletSession: LinkedDeviceWalletSessionRevocationTargetV1;
+  readonly walletSessions: readonly [
+    LinkedDeviceWalletSessionRevocationTargetV1,
+    ...LinkedDeviceWalletSessionRevocationTargetV1[],
+  ];
   readonly revocationEpoch: number;
 };
 
@@ -160,12 +163,14 @@ export class LinkedDeviceManagementServiceV1 {
     if (prepared.kind === 'not_found' || prepared.kind === 'conflict') return prepared;
     assertRevocationPlanMatchesRequest(prepared.plan, request);
 
-    const walletSession =
-      await this.options.walletSessionRevocation.revokeLinkedDeviceWalletSessionV1({
-        target: prepared.plan.walletSession,
-        requestedAtMs: request.requestedAtMs,
-      });
-    if (walletSession.kind === 'conflict') return { kind: 'conflict' };
+    for (const target of prepared.plan.walletSessions) {
+      const walletSession =
+        await this.options.walletSessionRevocation.revokeLinkedDeviceWalletSessionV1({
+          target,
+          requestedAtMs: request.requestedAtMs,
+        });
+      if (walletSession.kind === 'conflict') return { kind: 'conflict' };
+    }
     const aggregate = await this.options.aggregateRevocation.revokeLaneEnrollmentV1(
       prepared.plan.aggregate,
     );
@@ -202,6 +207,8 @@ function assertRevocationPlanMatchesRequest(
     plan.aggregate.command.walletId !== request.walletId ||
     String(plan.aggregate.command.enrollmentId) !== String(plan.target.summary.enrollmentId) ||
     plan.aggregate.command.requestedAtMs !== request.requestedAtMs ||
+    plan.walletSessions.length === 0 ||
+    plan.walletSessions.some((session) => session.deviceId !== request.deviceId) ||
     plan.revocationEpoch < 1
   ) {
     throw new Error('linked-device revocation plan does not match its target');

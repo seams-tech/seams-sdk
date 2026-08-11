@@ -56,7 +56,7 @@ test.afterEach(() => {
   temporary = undefined;
 });
 
-test('reads one exact linked authorization and quota identity from D1', async () => {
+test('reads every exact linked authorization and quota identity from D1', async () => {
   temporary = createTemporaryD1Database();
   await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
   const fixture = buildR103DeviceLinkFixture();
@@ -67,11 +67,83 @@ test('reads one exact linked authorization and quota identity from D1', async ()
     envId: 'env_management_composition',
   } as const;
   const tenantId = 'tenant:management-composition';
-  const authorizationId = 'authorization:management-composition';
-  const walletSessionId = 'wallet-session:management-composition';
-  const quotaId = 'wallet-quota:management-composition';
   const principalId = buildLinkedDevicePrincipalId(fixture.approval.deviceId);
-  await temporary.database
+  await insertLinkedAuthorizationFixtureV1({
+    database: temporary.database,
+    scope,
+    tenantId,
+    authorizationId: 'authorization:management-composition:first',
+    walletSessionId: 'wallet-session:management-composition:first',
+    quotaId: 'wallet-quota:management-composition:first',
+    principalId,
+    walletId: fixture.approval.walletId,
+    enrollmentId: fixture.approval.enrollmentId,
+    deviceId: fixture.approval.deviceId,
+    issuedAtMs: 1_000,
+  });
+  await insertLinkedAuthorizationFixtureV1({
+    database: temporary.database,
+    scope,
+    tenantId,
+    authorizationId: 'authorization:management-composition:renewed',
+    walletSessionId: 'wallet-session:management-composition:renewed',
+    quotaId: 'wallet-quota:management-composition:renewed',
+    principalId,
+    walletId: fixture.approval.walletId,
+    enrollmentId: fixture.approval.enrollmentId,
+    deviceId: fixture.approval.deviceId,
+    issuedAtMs: 2_000,
+  });
+
+  const source = new D1LinkedDeviceWalletSessionAuthorizationMetadataSourceV1({
+    database: temporary.database,
+    scope,
+  });
+  await expect(
+    source.listLinkedDeviceWalletSessionAuthorizationMetadataV1({
+      walletId: fixture.approval.walletId,
+      enrollmentId: fixture.approval.enrollmentId,
+      deviceId: fixture.approval.deviceId,
+    }),
+  ).resolves.toMatchObject([
+    {
+      tenantId,
+      authorizationId: 'authorization:management-composition:renewed',
+      walletSessionId: 'wallet-session:management-composition:renewed',
+      quotaId: 'wallet-quota:management-composition:renewed',
+      principalId,
+      lifecycleKind: 'active',
+    },
+    {
+      tenantId,
+      authorizationId: 'authorization:management-composition:first',
+      walletSessionId: 'wallet-session:management-composition:first',
+      quotaId: 'wallet-quota:management-composition:first',
+      principalId,
+      lifecycleKind: 'active',
+    },
+  ]);
+});
+
+async function insertLinkedAuthorizationFixtureV1(input: {
+  readonly database: TemporaryD1Database['database'];
+  readonly scope: {
+    readonly namespace: string;
+    readonly orgId: string;
+    readonly projectId: string;
+    readonly envId: string;
+  };
+  readonly tenantId: string;
+  readonly authorizationId: string;
+  readonly walletSessionId: string;
+  readonly quotaId: string;
+  readonly principalId: string;
+  readonly walletId: string;
+  readonly enrollmentId: string;
+  readonly deviceId: string;
+  readonly issuedAtMs: number;
+}): Promise<void> {
+  const authorization = input.database
     .prepare(
       `INSERT INTO linked_device_wallet_session_authorizations (
          namespace, org_id, project_id, env_id, tenant_id, authorization_id,
@@ -81,18 +153,18 @@ test('reads one exact linked authorization and quota identity from D1', async ()
        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, NULL)`,
     )
     .bind(
-      scope.namespace,
-      scope.orgId,
-      scope.projectId,
-      scope.envId,
-      tenantId,
-      authorizationId,
-      principalId,
-      fixture.approval.walletId,
-      fixture.approval.enrollmentId,
-      fixture.approval.deviceId,
-      walletSessionId,
-      quotaId,
+      input.scope.namespace,
+      input.scope.orgId,
+      input.scope.projectId,
+      input.scope.envId,
+      input.tenantId,
+      input.authorizationId,
+      input.principalId,
+      input.walletId,
+      input.enrollmentId,
+      input.deviceId,
+      input.walletSessionId,
+      input.quotaId,
       base64UrlEncode(new Uint8Array(32).fill(7)),
       JSON.stringify({
         kind: 'owner_equivalent_signing',
@@ -100,11 +172,10 @@ test('reads one exact linked authorization and quota identity from D1', async ()
         localUserPresence: 'required',
       }),
       0,
-      1_000,
+      input.issuedAtMs,
       100_000,
-    )
-    .run();
-  await temporary.database
+    );
+  const quota = input.database
     .prepare(
       `INSERT INTO linked_device_wallet_session_quotas (
          namespace, org_id, project_id, env_id, tenant_id, quota_id,
@@ -113,38 +184,19 @@ test('reads one exact linked authorization and quota identity from D1', async ()
        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active', ?)`,
     )
     .bind(
-      scope.namespace,
-      scope.orgId,
-      scope.projectId,
-      scope.envId,
-      tenantId,
-      quotaId,
-      authorizationId,
-      walletSessionId,
-      principalId,
+      input.scope.namespace,
+      input.scope.orgId,
+      input.scope.projectId,
+      input.scope.envId,
+      input.tenantId,
+      input.quotaId,
+      input.authorizationId,
+      input.walletSessionId,
+      input.principalId,
       100_000,
-    )
-    .run();
-
-  const source = new D1LinkedDeviceWalletSessionAuthorizationMetadataSourceV1({
-    database: temporary.database,
-    scope,
-  });
-  await expect(
-    source.readLinkedDeviceWalletSessionAuthorizationMetadataV1({
-      walletId: fixture.approval.walletId,
-      enrollmentId: fixture.approval.enrollmentId,
-      deviceId: fixture.approval.deviceId,
-    }),
-  ).resolves.toMatchObject({
-    tenantId,
-    authorizationId,
-    walletSessionId,
-    quotaId,
-    principalId,
-    lifecycleKind: 'active',
-  });
-});
+    );
+  await input.database.batch([authorization, quota]);
+}
 
 test('authorization-service revocation adapter fences active sessions and replays revoked ones', async () => {
   const fixture = buildR103DeviceLinkFixture();
