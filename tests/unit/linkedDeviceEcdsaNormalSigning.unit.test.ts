@@ -131,6 +131,7 @@ test('claims before holder open, completes linked presign, finalizes once, and d
         stage: 'presign',
         event: 'none',
         outgoingMessagesB64u: [],
+        materialExpiresAtMs: request.expires_at_ms,
       };
     },
     presignStep: async ({ request }) => {

@@ -102,11 +102,13 @@ type LinkedDeviceEcdsaBoundaryV1 = {
 
 type LinkedDeviceEcdsaPresignInitBodyV1 = LinkedDeviceEcdsaPrepareRequestWireV1 &
   LinkedDeviceEcdsaBoundaryV1 & {
+    readonly lane_operation_id: string;
     readonly presign_session_id?: string;
   };
 
 type LinkedDeviceEcdsaPresignStepBodyV1 = LinkedDeviceEcdsaPrepareRequestWireV1 &
   LinkedDeviceEcdsaBoundaryV1 & {
+    readonly lane_operation_id: string;
     readonly presign_session_id: string;
     readonly requested_stage: 'triples' | 'presign';
     readonly outgoing_messages_b64u: readonly string[];
@@ -131,6 +133,13 @@ type LinkedDeviceEcdsaPresignProgressV1 =
       readonly signingWorkerRerandomizationContribution32B64u: string;
     };
 
+type LinkedDeviceEcdsaPresignInitProgressV1 = Extract<
+  LinkedDeviceEcdsaPresignProgressV1,
+  { readonly kind: 'continue' }
+> & {
+  readonly materialExpiresAtMs: number;
+};
+
 type LinkedDeviceEcdsaSigningResponseV1 = {
   readonly scope: LinkedDeviceEcdsaScopeWireV1;
   readonly request_id: string;
@@ -145,7 +154,7 @@ export type LinkedDeviceEcdsaNormalSigningTransportV1 = {
     readonly relayServerUrl: string;
     readonly credential: RouterAbEd25519NormalSigningCredential;
     readonly request: LinkedDeviceEcdsaPresignInitBodyV1;
-  }) => Promise<LinkedDeviceEcdsaPresignProgressV1>;
+  }) => Promise<LinkedDeviceEcdsaPresignInitProgressV1>;
   readonly presignStep: (input: {
     readonly relayServerUrl: string;
     readonly credential: RouterAbEd25519NormalSigningCredential;
@@ -366,6 +375,22 @@ function parseMessages(value: unknown, label: string): string[] {
   return value.map((entry) => requireText(entry, `${label}[]`));
 }
 
+function parsePresignInitProgress(value: unknown): LinkedDeviceEcdsaPresignInitProgressV1 {
+  const record = requireResponseOk(value, 'linked ECDSA presign init response');
+  const stage = requireText(record.stage, 'stage');
+  if (stage !== 'triples' && stage !== 'triples_done' && stage !== 'presign') {
+    throw new Error('linked ECDSA presign init response stage is invalid');
+  }
+  return {
+    kind: 'continue',
+    presignSessionId: requireText(record.presign_session_id, 'presign_session_id'),
+    stage,
+    event: 'none',
+    outgoingMessagesB64u: parseMessages(record.outgoing_messages_b64u, 'outgoing_messages_b64u'),
+    materialExpiresAtMs: requireExpiry(record.material_expires_at_ms, 'material_expires_at_ms'),
+  };
+}
+
 function parsePresignProgress(value: unknown): LinkedDeviceEcdsaPresignProgressV1 {
   const record = requireResponseOk(value, 'linked ECDSA presign response');
   const presignSessionId = requireText(record.presign_session_id, 'presign_session_id');
@@ -504,6 +529,19 @@ function assertPresignCompletionMatches(
   );
 }
 
+function assertPresignInitMatches(
+  request: LinkedDeviceEcdsaPresignInitBodyV1,
+  response: LinkedDeviceEcdsaPresignInitProgressV1,
+  expiresAtMs: number,
+): void {
+  if (
+    response.presignSessionId !== requireText(request.presign_session_id, 'presign_session_id') ||
+    response.materialExpiresAtMs > expiresAtMs
+  ) {
+    throw new Error('linked ECDSA presign init does not match request lifetime');
+  }
+}
+
 function assertSigningResponseMatches(
   request: LinkedDeviceEcdsaFinalizeRequestWireV1,
   response: LinkedDeviceEcdsaSigningResponseV1,
@@ -555,7 +593,7 @@ async function postLinkedJson(
 
 const defaultTransport: LinkedDeviceEcdsaNormalSigningTransportV1 = {
   presignInit: async ({ relayServerUrl, credential, request }) =>
-    parsePresignProgress(
+    parsePresignInitProgress(
       await postLinkedJson(relayServerUrl, LINKED_ECDSA_PRESIGN_INIT_PATH, credential, request),
     ),
   presignStep: async ({ relayServerUrl, credential, request }) =>
@@ -589,6 +627,7 @@ export function buildLinkedDeviceEcdsaPresignInitRequestV1(input: {
   return {
     scope: input.scope,
     request_id: input.requestId,
+    lane_operation_id: input.scope.operationId,
     operation_id: input.operationId,
     operation_digests: operationDigestsToWire(input.operationDigests),
     authorization: input.authorization,
@@ -669,26 +708,30 @@ export async function executeLinkedDeviceEcdsaNormalSigningV1(
     intentDigestB64u: input.request.operationDigests.intentDigest,
     issuedAtMs: input.issuedAtMs,
     expiresAtMs,
-    authorizeBeforeOpen: async (localPresenceAssertion) =>
-      await transport.presignInit({
+    authorizeBeforeOpen: async (localPresenceAssertion) => {
+      const initRequest = buildLinkedDeviceEcdsaPresignInitRequestV1({
+        scope: scopeWire,
+        requestId,
+        operationId,
+        operationDigests: input.request.operationDigests,
+        authorization,
+        materialActivation,
+        clientPresignatureId,
+        expiresAtMs,
+        signingDigest32: input.request.signingDigest32,
+        clientRerandomizationCommitment32: commitment32,
+        linkedDeviceExecution: envelope,
+        localPresenceAssertion,
+        presignSessionId,
+      });
+      const initResponse = await transport.presignInit({
         relayServerUrl: input.relayServerUrl,
         credential,
-        request: buildLinkedDeviceEcdsaPresignInitRequestV1({
-          scope: scopeWire,
-          requestId,
-          operationId,
-          operationDigests: input.request.operationDigests,
-          authorization,
-          materialActivation,
-          clientPresignatureId,
-          expiresAtMs,
-          signingDigest32: input.request.signingDigest32,
-          clientRerandomizationCommitment32: commitment32,
-          linkedDeviceExecution: envelope,
-          localPresenceAssertion,
-          presignSessionId,
-        }),
-      }),
+        request: initRequest,
+      });
+      assertPresignInitMatches(initRequest, initResponse, expiresAtMs);
+      return initResponse;
+    },
   });
   if (presenceAndHolder.holderMaterial.keyFamily !== 'ecdsa_secp256k1') {
     throw new Error('linked ECDSA holder material changed its active curve');

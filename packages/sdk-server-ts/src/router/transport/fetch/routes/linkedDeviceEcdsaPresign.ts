@@ -221,7 +221,10 @@ export async function handleLinkedDeviceEcdsaPresign(
     if (!projection.projection.ecdsaNormalSigningScope) {
       throw new Error('active linked execution projection is missing the ECDSA scope');
     }
-    if (alphabetizeStringify(projection.projection.ecdsaNormalSigningScope) !== alphabetizeStringify(operation.scope)) {
+    if (
+      alphabetizeStringify(projection.projection.ecdsaNormalSigningScope) !==
+      alphabetizeStringify(operation.scope)
+    ) {
       throw new Error('active linked ECDSA scope changed after operation admission');
     }
     if (String(projection.projection.product.operationId) !== String(operation.scope.operationId)) {
@@ -362,7 +365,12 @@ function assertLinkedPrepareResponse(
     32,
   );
   const preparedAtMs = response.prepared_at_ms;
-  if (typeof preparedAtMs !== 'number' || !Number.isSafeInteger(preparedAtMs) || preparedAtMs <= 0 || preparedAtMs >= operation.expiresAtMs) {
+  if (
+    typeof preparedAtMs !== 'number' ||
+    !Number.isSafeInteger(preparedAtMs) ||
+    preparedAtMs <= 0 ||
+    preparedAtMs >= operation.expiresAtMs
+  ) {
     throw new Error('linked ECDSA presign completion timestamp is invalid');
   }
 }
@@ -381,33 +389,41 @@ function requirePublicDigestBytes(value: unknown, label: string): Uint8Array {
   return Uint8Array.from(bytes);
 }
 
-function parseLinkedEcdsaPresignRequest(
-  body: Record<string, unknown>,
-): LinkedEcdsaPresignRequest {
+function parseLinkedEcdsaPresignRequest(body: Record<string, unknown>): LinkedEcdsaPresignRequest {
   const scope = parseLinkedDeviceEcdsaNormalSigningScopeV1(body.scope);
   const requestId = requireText(body.request_id, 'request_id');
   const operationId = requireOperationId(body.operation_id);
   const operationDigests = requireRecord(body.operation_digests, 'operation_digests');
   const digests = {
     laneDigest: parseDigestB64u(requireText(operationDigests.lane_digest_b64u, 'lane_digest_b64u')),
-    intentDigest: parseDigestB64u(requireText(operationDigests.intent_digest_b64u, 'intent_digest_b64u')),
-    displayDigest: parseDigestB64u(requireText(operationDigests.display_digest_b64u, 'display_digest_b64u')),
+    intentDigest: parseDigestB64u(
+      requireText(operationDigests.intent_digest_b64u, 'intent_digest_b64u'),
+    ),
+    displayDigest: parseDigestB64u(
+      requireText(operationDigests.display_digest_b64u, 'display_digest_b64u'),
+    ),
   } satisfies OperationDigestSet;
   const materialActivation = requireMaterialActivation(body.material_activation);
   const materialActivationValue = routerAbMpcMaterialActivationRefFromWire(materialActivation);
   if (!mpcMaterialActivationRefsEqual(materialActivationValue, scope.materialActivation)) {
     throw new Error('linked ECDSA material activation does not match scope');
   }
-  const signingDigest = parseDigestB64u(requireText(body.signing_digest_b64u, 'signing_digest_b64u'));
-  const commitment = requireFixedBase64Url(body.client_rerandomization_commitment32_b64u, 'client_rerandomization_commitment32_b64u', 32);
+  const signingDigest = parseDigestB64u(
+    requireText(body.signing_digest_b64u, 'signing_digest_b64u'),
+  );
+  const commitment = requireFixedBase64Url(
+    body.client_rerandomization_commitment32_b64u,
+    'client_rerandomization_commitment32_b64u',
+    32,
+  );
   const clientPresignatureId = requireText(body.client_presignature_id, 'client_presignature_id');
   const expiresAtMs = requirePositiveMs(body.expires_at_ms, 'expires_at_ms');
   const authorization = requireRecord(body.authorization, 'authorization');
   if (authorization.kind !== 'reusable_wallet_session') {
     throw new Error('linked ECDSA presign requires reusable Wallet Session authorization');
   }
-  if (String(scope.operationId) !== String(operationId)) {
-    throw new Error('linked ECDSA scope operation does not match request');
+  if (String(scope.operationId) !== requireText(body.lane_operation_id, 'lane_operation_id')) {
+    throw new Error('linked ECDSA scope lane operation does not match request');
   }
   const operation = buildEvmEcdsaMpcOperationRef('evm.sign_transaction');
   return {
@@ -415,7 +431,9 @@ function parseLinkedEcdsaPresignRequest(
     requestId,
     operationId,
     capabilityId: requireCapabilityId(materialActivation.capability),
-    authorizedOperationId: requireAuthorizedOperationId(`linked-ecdsa-authorized-operation:${requestId}`),
+    authorizedOperationId: requireAuthorizedOperationId(
+      `linked-ecdsa-authorized-operation:${requestId}`,
+    ),
     auditEventId: requireAuditEventId(`linked-ecdsa-audit:${requestId}`),
     materialActivation,
     materialActivationValue,
@@ -469,7 +487,11 @@ async function resolveLinkedProjection(input: {
   readonly envelope: ReturnType<typeof parseLinkedDeviceExecutionEnvelopeV1>;
   readonly authorizedOperation: AuthorizedOperation;
   readonly linkedDeviceExecution: LinkedDeviceExecutionAdmissionResolverV1;
-}): Promise<Awaited<ReturnType<LinkedDeviceExecutionAdmissionResolverV1['resolveActiveLinkedDeviceExecutionV1']>>> {
+}): Promise<
+  Awaited<
+    ReturnType<LinkedDeviceExecutionAdmissionResolverV1['resolveActiveLinkedDeviceExecutionV1']>
+  >
+> {
   const authorization = input.authorizedOperation.authorization;
   if (
     authorization.kind !== 'authorization_grant' ||
@@ -494,7 +516,10 @@ async function resolveLinkedProjection(input: {
 }
 
 async function readClaimedOperation(input: {
-  readonly authorizedOperations: Pick<FetchRouterApiContext['service']['authorizedOperations'], 'readAuthorizedOperation'>;
+  readonly authorizedOperations: Pick<
+    FetchRouterApiContext['service']['authorizedOperations'],
+    'readAuthorizedOperation'
+  >;
   readonly tenantId: Parameters<typeof buildCapabilityOperationEnvelope>[0]['tenantId'];
   readonly principalId: Parameters<typeof buildCapabilityOperationEnvelope>[0]['principalId'];
   readonly capabilityId: ReturnType<typeof requireCapabilityId>;
@@ -525,7 +550,8 @@ async function readClaimedOperation(input: {
     existing.auditEventId !== input.auditEventId ||
     existing.operationFingerprintDigest !== fingerprint ||
     existing.authorization.kind !== 'authorization_grant' ||
-    existing.authorization.authorizationGrantRef.kind !== 'linked_device_wallet_session_authorization_v1' ||
+    existing.authorization.authorizationGrantRef.kind !==
+      'linked_device_wallet_session_authorization_v1' ||
     existing.authorization.authorizationGrantRef.authorizationId !== input.authorizationId ||
     existing.quota.kind !== 'consume_reusable_wallet_session' ||
     existing.quota.quotaId !== input.quotaId
@@ -568,13 +594,19 @@ function assertLinkedPresignScopeMatches(input: {
     String(input.envelope.deviceId) !== String(claims.deviceId) ||
     String(input.envelope.enrollmentId) !== String(claims.enrollmentId) ||
     String(input.envelope.walletKeyId) !== String(claims.walletKeyId) ||
-    !mpcMaterialActivationRefsEqual(input.materialActivation, input.envelope.materialActivationValue)
+    !mpcMaterialActivationRefsEqual(
+      input.materialActivation,
+      input.envelope.materialActivationValue,
+    )
   ) {
     throw new Error('linked-device ECDSA execution identity does not match the Wallet Session');
   }
 }
 
-function assertRequestLifetime(input: { readonly expiresAtMs: number; readonly walletSessionExpiresAtMs: number }): void {
+function assertRequestLifetime(input: {
+  readonly expiresAtMs: number;
+  readonly walletSessionExpiresAtMs: number;
+}): void {
   if (input.expiresAtMs <= Date.now() || input.expiresAtMs > input.walletSessionExpiresAtMs) {
     throw new Error('linked-device ECDSA presign request expiry is outside the Wallet Session');
   }
@@ -586,7 +618,8 @@ async function readJsonRecord(request: Request): Promise<Record<string, unknown>
 }
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be an object`);
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new Error(`${label} must be an object`);
   return value as Record<string, unknown>;
 }
 
@@ -596,7 +629,8 @@ function requireText(value: unknown, label: string): string {
 }
 
 function requirePositiveMs(value: unknown, label: string): number {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) throw new Error(`${label} must be a positive safe integer`);
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0)
+    throw new Error(`${label} must be a positive safe integer`);
   return value;
 }
 
@@ -617,6 +651,7 @@ function stripGatewayBoundaryFields(body: Record<string, unknown>): Record<strin
   const {
     linkedDeviceExecution: _linkedDeviceExecution,
     localPresenceAssertion: _localPresenceAssertion,
+    lane_operation_id: _laneOperationId,
     presign_session_id: _presignSessionId,
     requested_stage: _requestedStage,
     outgoing_messages_b64u: _outgoingMessages,
@@ -631,7 +666,10 @@ function requireMaterialActivation(value: unknown): RouterAbMpcMaterialActivatio
   const capability = requireText(record.capability, 'material_activation.capability');
   const materialOwner = requireText(record.material_owner, 'material_activation.material_owner');
   const keyBinding = requireText(record.key_binding, 'material_activation.key_binding');
-  const lifecycleBinding = requireText(record.lifecycle_binding, 'material_activation.lifecycle_binding');
+  const lifecycleBinding = requireText(
+    record.lifecycle_binding,
+    'material_activation.lifecycle_binding',
+  );
   const signingWorker = requireText(record.signing_worker, 'material_activation.signing_worker');
   return {
     kind: 'mpc_material_activation_ref',
@@ -681,7 +719,8 @@ function requirePresignSessionId(value: unknown, phase: LinkedPresignPhase): str
 }
 
 function requireRequestedStage(value: unknown): 'triples' | 'presign' {
-  if (value !== 'triples' && value !== 'presign') throw new Error('requested_stage must be triples or presign');
+  if (value !== 'triples' && value !== 'presign')
+    throw new Error('requested_stage must be triples or presign');
   return value;
 }
 
@@ -692,7 +731,12 @@ function requireMessages(value: unknown): string[] {
 
 function replayAuthorizedOperation(operation: AuthorizedOperation): Response {
   if (operation.lifecycle !== 'completed') {
-    return json({ ok: false, code: 'operation_in_progress', message: 'Operation is already in progress' }, { status: 409 });
+    return json(
+      { ok: false, code: 'operation_in_progress', message: 'Operation is already in progress' },
+      { status: 409 },
+    );
   }
-  return json(operation.response.bodyText ? JSON.parse(operation.response.bodyText) : {}, { status: operation.response.status });
+  return json(operation.response.bodyText ? JSON.parse(operation.response.bodyText) : {}, {
+    status: operation.response.status,
+  });
 }
