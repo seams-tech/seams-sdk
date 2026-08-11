@@ -223,7 +223,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
   private _authHeadingFallback(): string {
     if (this._passkeyRegistrationDisplay()) return 'Create your passkey';
     if (this._isEmailOtpMode()) return 'Enter email code to sign';
-    if (this._isWarmSessionMode()) return 'Review transaction';
+    if (this._isWarmSessionMode()) return 'Confirm transaction';
     const operationCount = Array.isArray(this.model?.operations) ? this.model.operations.length : 0;
     const isRegistration = operationCount === 0;
     return isRegistration ? 'Register with Passkey' : 'Confirm with Passkey';
