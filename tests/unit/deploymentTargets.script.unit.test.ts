@@ -46,8 +46,13 @@ type BackendLane = {
     | { readonly kind: 'demo_code_response' }
     | {
         readonly kind: 'email_provider' | 'provider_and_demo_code';
-        readonly region: string;
-        readonly fromAddress: string;
+        readonly provider:
+          | { readonly kind: 'resend'; readonly fromAddress: string }
+          | {
+              readonly kind: 'amazon_ses';
+              readonly region: string;
+              readonly fromAddress: string;
+            };
       };
   readonly resources: BackendResources;
   readonly capabilities: Readonly<Record<string, Capability>>;
@@ -308,19 +313,18 @@ test('required secrets are derived from enabled capabilities', async () => {
   ]);
 
   const mainnet = targets.backendLanes['production-mainnet'];
-  expect(module.componentSecretNames(mainnet, 'gateway')).toContain('EMAIL_OTP_SES_ACCESS_KEY_ID');
-  expect(module.componentSecretNames(mainnet, 'gateway')).toContain(
-    'EMAIL_OTP_SES_SECRET_ACCESS_KEY',
+  expect(mainnet.emailOtpDelivery).toMatchObject({ provider: { kind: 'resend' } });
+  expect(module.componentSecretNames(mainnet, 'gateway')).toContain('RESEND_API_KEY');
+  expect(module.componentSecretNames(mainnet, 'gateway')).not.toContain(
+    'EMAIL_OTP_SES_ACCESS_KEY_ID',
   );
 
   const productionTestnet = targets.backendLanes['production-testnet'];
   expect(productionTestnet.emailOtpDelivery.kind).toBe('provider_and_demo_code');
-  expect(module.componentSecretNames(productionTestnet, 'gateway')).toContain(
-    'EMAIL_OTP_SES_ACCESS_KEY_ID',
-  );
+  expect(module.componentSecretNames(productionTestnet, 'gateway')).toContain('RESEND_API_KEY');
 });
 
-test('email provider delivery requires a valid AWS region and sender address', async () => {
+test('email provider delivery validates provider-specific configuration', async () => {
   const module = await deploymentTargetsModule;
   const targets = validTargets();
   const production = targets.production as Record<string, unknown>;
@@ -334,21 +338,45 @@ test('email provider delivery requires a valid AWS region and sender address', a
           ...mainnet,
           emailOtpDelivery: {
             kind: 'email_provider',
-            region: 'Sydney',
-            fromAddress: 'confirm.seams.sh',
+            provider: {
+              kind: 'resend',
+              fromAddress: 'confirm.seams.sh',
+            },
           },
         },
       }),
     ),
-  ).toThrow(/emailOtpDelivery\.region/u);
+  ).toThrow(/emailOtpDelivery\.provider\.fromAddress/u);
+
+  const sesTargets = module.parseDeploymentTargets(
+    withProduction(targets, {
+      mainnet: {
+        ...mainnet,
+        emailOtpDelivery: {
+          kind: 'email_provider',
+          provider: {
+            kind: 'amazon_ses',
+            region: 'ap-southeast-2',
+            fromAddress: 'confirm@seams.sh',
+          },
+        },
+      },
+    }),
+  );
+  expect(
+    module.componentSecretNames(sesTargets.backendLanes['production-mainnet'], 'gateway'),
+  ).toEqual(
+    expect.arrayContaining(['EMAIL_OTP_SES_ACCESS_KEY_ID', 'EMAIL_OTP_SES_SECRET_ACCESS_KEY']),
+  );
 });
 
-test('production workflows supply SES credentials as protected secrets', () => {
+test('production workflows supply selectable provider credentials as protected secrets', () => {
   for (const workflowName of [
     'deploy-production-testnet-backend.yml',
     'deploy-production-mainnet-backend.yml',
   ]) {
     const workflow = readFileSync(path.join(repoRoot, '.github/workflows', workflowName), 'utf8');
+    expect(workflow).toContain('RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}');
     expect(workflow).toContain(
       'EMAIL_OTP_SES_ACCESS_KEY_ID: ${{ secrets.EMAIL_OTP_SES_ACCESS_KEY_ID }}',
     );
