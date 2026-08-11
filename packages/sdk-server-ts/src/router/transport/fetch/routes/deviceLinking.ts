@@ -440,7 +440,6 @@ async function handleProvision(
     session,
     approval,
   });
-  assertProvisioningChildrenMatchApproval(deliveries, approval);
   await service.provisioningVerifier.verifyProvisioningDeliveriesV1({
     deliveries,
     approval,
@@ -473,7 +472,6 @@ async function handleHolderReceipts(
     session,
     approval,
   });
-  assertHolderReceiptsMatchApproval(acknowledgement, approval);
   await service.provisioningVerifier.verifyHolderDeliveriesV1({
     acknowledgement,
     approval,
@@ -852,59 +850,6 @@ function assertProvisioningIdentityMatches(input: {
   ) {
     throw new DeviceLinkingInputError('provisioning identity does not match approved session');
   }
-}
-
-function assertProvisioningChildrenMatchApproval(
-  deliveries: LinkedDeviceProvisioningDeliveriesV1,
-  approval: LinkedDeviceApprovalV1,
-): void {
-  if (deliveries.orderedChildren.length !== approval.orderedKeyBindings.length) {
-    throw new DeviceLinkingInputError('provisioning delivery set is incomplete');
-  }
-  deliveries.orderedChildren.forEach((child, index) => {
-    const approved = approval.orderedKeyBindings[index];
-    const job = child.job;
-    if (
-      !approved ||
-      String(job.enrollmentId) !== String(approval.enrollmentId) ||
-      job.walletId !== approval.walletId ||
-      job.walletKeyId !== approved.walletKeyId ||
-      job.keyFamily !== approved.keyFamily ||
-      job.source.laneId !== approved.sourceLaneId ||
-      job.source.laneShareEpoch !== approved.sourceLaneShareEpoch ||
-      job.source.revocationEpoch !== approved.sourceRevocationEpoch ||
-      job.target.operation !== 'create_lane' ||
-      job.target.laneKind !== 'linked_device' ||
-      job.target.laneId !== approved.targetLaneId ||
-      job.target.laneShareEpoch !== approved.targetLaneShareEpoch ||
-      child.protocolCommitReceipt.operationId !== job.operationId ||
-      child.protocolCommitReceipt.walletKeyId !== job.walletKeyId ||
-      child.protocolCommitReceipt.targetLaneId !== job.target.laneId ||
-      child.protocolCommitReceipt.targetLaneShareEpoch !== job.target.laneShareEpoch
-    ) {
-      throw new DeviceLinkingInputError('provisioning child does not match approved key order');
-    }
-  });
-}
-
-function assertHolderReceiptsMatchApproval(
-  acknowledgement: LinkedDeviceHolderDeliveryAcknowledgementV1,
-  approval: LinkedDeviceApprovalV1,
-): void {
-  if (acknowledgement.orderedHolderDeliveryReceipts.length !== approval.orderedKeyBindings.length) {
-    throw new DeviceLinkingInputError('holder receipt set is incomplete');
-  }
-  acknowledgement.orderedHolderDeliveryReceipts.forEach((receipt, index) => {
-    const approved = approval.orderedKeyBindings[index];
-    if (
-      !approved ||
-      String(receipt.enrollmentId) !== String(approval.enrollmentId) ||
-      receipt.targetLaneId !== approved.targetLaneId ||
-      receipt.targetLaneShareEpoch !== approved.targetLaneShareEpoch
-    ) {
-      throw new DeviceLinkingInputError('holder receipt does not match approved key order');
-    }
-  });
 }
 
 function parseCreateRequest(raw: unknown): DeviceLinkingCreateRequestV1 {

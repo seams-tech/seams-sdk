@@ -149,6 +149,19 @@ test('binds deliveries and holder receipts to the persisted child operation', as
       approval: fixture.approval,
     }),
   ).rejects.toThrow('delivery job differs from its persisted job');
+  await expect(
+    verifier.verifyHolderDeliveriesV1({
+      acknowledgement: {
+        kind: 'linked_device_holder_delivery_acknowledgement_v1',
+        linkSessionId: fixture.approval.linkSessionId,
+        enrollmentId: fixture.approval.enrollmentId,
+        deviceId: fixture.approval.deviceId,
+        orderedHolderDeliveryReceipts: [buildR102HolderDeliveryReceipt(substitutedJob)],
+        acknowledgedAtMs: 3_000,
+      },
+      approval: fixture.approval,
+    }),
+  ).rejects.toThrow('holder receipt differs from its persisted child operation');
 });
 
 test('composes D1 session and proof stores and authenticates before reading JSON', async () => {
