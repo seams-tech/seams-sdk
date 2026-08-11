@@ -711,6 +711,42 @@ export async function thresholdEcdsaEmailOtpPresignSessionInitWasm(input: {
   };
 }
 
+export async function thresholdEcdsaLinkedHolderPresignSessionInitWasm(input: {
+  holderHandleId: string;
+  sessionId: string;
+  groupPublicKey33: Uint8Array;
+  materialExpiresAtMs: number;
+  poolIdentity: EcdsaClientPresignPoolIdentity;
+  workerCtx: WorkerOperationContext;
+}): Promise<EcdsaDerivationClientThresholdEcdsaPresignProgress> {
+  const groupPublicKey33 = input.groupPublicKey33.slice();
+  const response = await requestEcdsaPresignOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaPresignClientRequestType.SessionInit,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: {
+        authority: {
+          kind: 'linked_holder_signing_material',
+          holderHandleId: input.holderHandleId,
+        },
+        sessionId: input.sessionId,
+        groupPublicKey33: groupPublicKey33.buffer,
+        materialExpiresAtMs: input.materialExpiresAtMs,
+        poolIdentity: input.poolIdentity,
+      },
+      transfer: [groupPublicKey33.buffer],
+    },
+  });
+  if (response.type !== EcdsaPresignClientResponseType.SessionInitSuccess) {
+    throw new Error('Linked holder ECDSA presign initialization failed');
+  }
+  if (response.payload.authority.kind !== 'linked_holder_signing_material') {
+    throw new Error('Linked holder ECDSA presign returned a different authority');
+  }
+  return asEcdsaDerivationPresignProgress(response.payload.progress);
+}
+
 export async function thresholdEcdsaRoleLocalPresignSessionStepWasm(input: {
   sessionId: string;
   stage: 'triples' | 'presign';

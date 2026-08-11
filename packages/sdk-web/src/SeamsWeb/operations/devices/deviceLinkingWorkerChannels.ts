@@ -38,6 +38,7 @@ import type {
   DeviceLinkingKeyMaterialPortV1,
   DeviceLinkingKeyMaterialBundleV1,
 } from './deviceLinkingPorts';
+import { EcdsaClientWorkerControlKind } from '@/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
 
 export type DeviceLinkingWorkerEndpointV1 = {
   postMessage(message: unknown, transfer?: Transferable[]): void;
@@ -525,6 +526,16 @@ export function createDeviceLinkingKeyMaterialPortV1(
 
   return {
     close,
+    attachEcdsaPresignPortV1(port) {
+      if (closed) throw new Error('device-linking worker transport is closed');
+      endpoint.postMessage(
+        {
+          kind: EcdsaClientWorkerControlKind.AttachLinkedHolderToPresign,
+          port,
+        },
+        [port],
+      );
+    },
     async createBootstrapKeyMaterialV1() {
       return parseCreateResult(await request({ kind: 'device_linking_key_material_create_v1' }));
     },
