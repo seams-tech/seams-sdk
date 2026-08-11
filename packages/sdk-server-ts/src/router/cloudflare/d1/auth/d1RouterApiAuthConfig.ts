@@ -85,8 +85,6 @@ export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationPortV1;
   readonly authenticateOwnerRequestV1: DeviceLinkingRouteServiceV1['authenticateOwnerRequestV1'];
   readonly targetPlanner: LinkedDeviceTargetPlannerV1;
-  readonly acknowledgeReceiptV1: DeviceLinkingRouteServiceV1['acknowledgeReceiptV1'];
-  readonly retryCommittedDeliveryV1: DeviceLinkingRouteServiceV1['retryCommittedDeliveryV1'];
   /** Required whenever the linked-device session surface is enabled. */
   readonly operatorRecovery: DeviceLinkingOperatorRecoveryProviderV1;
   /** Request-scoped owner metadata provider used by Device 1 before claim. */

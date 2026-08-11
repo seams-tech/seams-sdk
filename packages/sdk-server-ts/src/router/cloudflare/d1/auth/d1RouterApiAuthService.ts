@@ -422,8 +422,6 @@ function createD1LinkedDeviceComposition(input: {
       ownerAuthorization: config.session.ownerAuthorization,
       authenticateOwnerRequestV1: config.session.authenticateOwnerRequestV1,
       targetCredential,
-      acknowledgeReceiptV1: config.session.acknowledgeReceiptV1,
-      retryCommittedDeliveryV1: config.session.retryCommittedDeliveryV1,
       operatorRecovery: config.session.operatorRecovery,
       provisioning,
       sourceHandoff,
