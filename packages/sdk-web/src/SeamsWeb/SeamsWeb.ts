@@ -46,7 +46,6 @@ import { readNearProvisioningState } from '@/core/signingEngine/flows/registrati
 import { cloneAuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import { toAccountId } from '@/core/types/accountIds';
 import { IndexedDBManager } from '@/core/indexedDB';
-import { createBrowserPlatformRuntime } from '@/core/platform';
 import { laneSealedHolderMaterialRepository } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
 import { linkedDeviceExecutionEvidence } from '@/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
 import { linkedDeviceWalletSessions } from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
@@ -81,7 +80,10 @@ import {
 } from '@/SeamsWeb/walletIframe/shared/exactSessionState';
 import { resolveBrowserWorkerWarmupPolicy } from './assembly/browserWorkerWarmupPolicy';
 import { configureBrowserIndexedDB } from './assembly/configureBrowserIndexedDB';
-import { createBrowserSigningRuntime } from './assembly/createBrowserSigningRuntime';
+import {
+  createBrowserHostPlatformRuntime,
+  createBrowserSigningRuntime,
+} from './assembly/createBrowserSigningRuntime';
 import { createBrowserSigningStores } from './assembly/createBrowserSigningStores';
 import { initializeBrowserSigningRuntime } from './assembly/initializeBrowserSigningRuntime';
 import {
@@ -750,10 +752,7 @@ export class SeamsWeb {
     this.signingEngine = browserSigningSurface;
     const walletHostPlatformRuntime =
       internalOptions?.kind === 'wallet_host'
-        ? createBrowserPlatformRuntime({
-            indexedDB: IndexedDBManager,
-            workerCtx: browserSigningSurface.getSignerWorkerContext(),
-          })
+        ? createBrowserHostPlatformRuntime(browserSigningSurface.getSignerWorkerContext())
         : null;
 
     this.appearance = this.configs.ui.appearance;

@@ -37,8 +37,8 @@ import type { RouterAbEd25519NormalSigningCredential } from '@/core/rpcClients/r
 import type {
   DeviceLinkingHolderSigningMaterialPortV1,
   DeviceLinkingHolderSigningMaterialHandleV1,
-} from '@/SeamsWeb/operations/devices/deviceLinkingPorts';
-import { authorizeAndOpenLinkedDeviceHolderV1 } from '@/SeamsWeb/operations/devices/linkedDeviceLocalPresence';
+} from '@/core/signingEngine/session/lanes/linkedDevicePorts';
+import { authorizeAndOpenLinkedDeviceHolderV1 } from '@/core/signingEngine/session/lanes/linkedDeviceLocalPresence';
 import { LinkedDeviceEcdsaSigningMaterialSourceV1 } from '../signers/linkedDeviceEcdsaSigningMaterialSource';
 import { verifySecp256k1RecoverableSignatureAgainstPublicKey33Wasm } from '@/core/signingEngine/chains/evm/evmCryptoWasm';
 
