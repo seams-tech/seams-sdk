@@ -31,6 +31,7 @@ test.describe('registration-established Wallet Session projection', () => {
           createSeamsTestWalletDbName,
           SeamsWalletDBManager,
           WalletSessionAuthorizationRepository,
+          buildActiveWalletSessionAuthorizationProjection,
         } = await import(indexedDbPath);
         const {
           persistActiveWalletSessionAuthorizationFromEcdsaBootstrap,
@@ -56,9 +57,13 @@ test.describe('registration-established Wallet Session projection', () => {
             expiresAtMs: number;
           },
           iat?: number,
+          authorizationKind:
+            | 'owner_wallet_session'
+            | 'linked_device_wallet_session' = 'owner_wallet_session',
         ): string => {
           const payload = {
             kind,
+            authorizationKind,
             walletId: identity.walletId,
             authorizationId: identity.authorizationId,
             walletSessionId: identity.walletSessionId,
@@ -204,6 +209,29 @@ test.describe('registration-established Wallet Session projection', () => {
           const edOnlyKind =
             edOnly.kind === 'found' ? edOnly.projection.walletSessionTokens.kind : 'missing';
 
+          let linkedTokenMessage = '';
+          try {
+            const linkedIdentity = identity('registration-linked-token-wallet');
+            buildActiveWalletSessionAuthorizationProjection({
+              ...linkedIdentity,
+              authMethod: 'passkey',
+              authority: passkeyAuthority(linkedIdentity.walletId, 'BA'),
+              walletSessionTokens: {
+                kind: 'near_ed25519',
+                ed25519: {
+                  walletSessionJwt: walletSessionJwt(
+                    'router_ab_ed25519_wallet_session_v1',
+                    linkedIdentity,
+                    undefined,
+                    'linked_device_wallet_session',
+                  ),
+                },
+              },
+            });
+          } catch (error: unknown) {
+            linkedTokenMessage = error instanceof Error ? error.message : String(error);
+          }
+
           let invalidRestoreMessage = '';
           try {
             await persistActiveWalletSessionAuthorizationFromEcdsaBootstrap(repository, {
@@ -226,6 +254,7 @@ test.describe('registration-established Wallet Session projection', () => {
             mismatchMessage,
             afterMismatchKind,
             edOnlyKind,
+            linkedTokenMessage,
             invalidRestoreMessage,
             invalidRestoreProjection: afterInvalidRestore.kind,
           };
@@ -248,6 +277,7 @@ test.describe('registration-established Wallet Session projection', () => {
       mismatchMessage: 'Wallet Session authorization identity does not match the active projection',
       afterMismatchKind: 'near_ed25519_and_evm_family_ecdsa',
       edOnlyKind: 'near_ed25519',
+      linkedTokenMessage: 'Wallet Session authorization projection is invalid',
       invalidRestoreMessage: 'Wallet Session JWT identity does not match the activated session',
       invalidRestoreProjection: 'missing',
     });
