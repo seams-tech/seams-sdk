@@ -12,6 +12,7 @@ import {
 import { D1LinkedDeviceTargetCredentialProviderV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceTargetCredentialProvider';
 import { D1LinkedDeviceSourceHandoffProviderV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSourceHandoffProvider';
 import { D1LinkedDeviceProvisioningProviderV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceProvisioningProvider';
+import { D1LinkedDeviceTargetCredentialMetadataSourceV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceManagementStore';
 import { createLinkedDeviceR102ProvisioningExecutionV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/linkedDeviceR102ProvisioningExecution';
 import {
   createD1LinkedDeviceCredentialResolverV1,
@@ -346,6 +347,16 @@ test('persists verified attestation and exact public child records before provis
   expect(String(persisted?.registration_json)).not.toContain('clientExtensionResults');
   expect(String(persisted?.registration_json)).not.toContain('prf');
   expect(persisted?.credential_public_key_b64u).toBeTruthy();
+
+  const metadata = await new D1LinkedDeviceTargetCredentialMetadataSourceV1({
+    database: temporary.database,
+    scope,
+  }).readLinkedDeviceMetadataV1({
+    walletId: fixture.approval.walletId,
+    enrollmentId: fixture.approval.enrollmentId,
+    deviceId: fixture.approval.deviceId,
+  });
+  expect(metadata).toEqual({ label: 'Platform passkey', platform: 'platform' });
 
   const authenticatorStore = new D1LinkedDeviceTargetAuthenticatorStoreV1({
     database: temporary.database,
