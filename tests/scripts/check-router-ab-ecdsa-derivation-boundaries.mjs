@@ -53,6 +53,12 @@ const allowedEcdsaClientCeremonyWasmExports = new Set([
   'routerabecdsaclientceremonyv1_verify_encrypted_proof_bundles',
 ]);
 
+const allowedEcdsaLaneHolderWasmExports = new Set([
+  '__wbg_ecdsalaneholdersessionv1_free',
+  'ecdsalaneholdersessionv1_new',
+  'ecdsalaneholdersessionv1_prepare',
+]);
+
 const requiredEcdsaClientCeremonyTypeMethods = [
   'free',
   'public_key',
@@ -884,6 +890,7 @@ function checkGeneratedEcdsaDerivationClientArtifactSurface() {
     if (
       !allowedEcdsaDerivationClientExports.has(entry.name) &&
       !allowedEcdsaClientCeremonyWasmExports.has(entry.name) &&
+      !allowedEcdsaLaneHolderWasmExports.has(entry.name) &&
       !isAllowedWasmBindgenRuntimeExport(entry.name)
     ) {
       unexpectedExports.push(`${entry.name}:${entry.kind}`);
@@ -900,6 +907,12 @@ function checkGeneratedEcdsaDerivationClientArtifactSurface() {
     );
   }
   for (const requiredExport of allowedEcdsaClientCeremonyWasmExports) {
+    assert.ok(
+      namedWasmExports.includes(requiredExport),
+      `generated ECDSA derivation client WASM is missing ${requiredExport}`,
+    );
+  }
+  for (const requiredExport of allowedEcdsaLaneHolderWasmExports) {
     assert.ok(
       namedWasmExports.includes(requiredExport),
       `generated ECDSA derivation client WASM is missing ${requiredExport}`,
@@ -928,6 +941,10 @@ function checkGeneratedEcdsaDerivationClientArtifactSurface() {
   assert.ok(
     generatedTypes.includes('export class RouterAbEcdsaClientCeremonyV1 {'),
     'generated ECDSA derivation client TypeScript is missing the opaque ceremony class',
+  );
+  assert.ok(
+    generatedTypes.includes('export class EcdsaLaneHolderSessionV1 {'),
+    'generated ECDSA derivation client TypeScript is missing the lane holder session class',
   );
   for (const methodName of requiredEcdsaClientCeremonyTypeMethods) {
     assert.ok(

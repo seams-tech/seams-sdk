@@ -41,10 +41,7 @@ const publicSdkSourceRoots = [
   'packages/shared-ts/src',
 ];
 
-const publicSdkArtifactRoots = [
-  'packages/sdk-web/dist',
-  'packages/sdk-server-ts/dist',
-];
+const publicSdkArtifactRoots = ['packages/sdk-web/dist', 'packages/sdk-server-ts/dist'];
 
 const forbiddenPublicConceptPatterns = [
   {
@@ -53,7 +50,8 @@ const forbiddenPublicConceptPatterns = [
   },
   {
     label: 'console route or server contract',
-    pattern: /\/console(?:\/|['"`])|\bConsole(?:Auth|Principal|Route|Router|Tenant|Organization|Billing|TeamRbac)\b/,
+    pattern:
+      /\/console(?:\/|['"`])|\bConsole(?:Auth|Principal|Route|Router|Tenant|Organization|Billing|TeamRbac)\b/,
   },
   {
     label: 'dashboard implementation',
