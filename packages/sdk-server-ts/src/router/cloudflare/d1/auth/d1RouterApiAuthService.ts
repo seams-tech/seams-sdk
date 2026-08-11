@@ -147,6 +147,7 @@ import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../../../do
 import { createD1LinkedDeviceRouteServiceV1 } from '../deviceLinking/d1LinkedDeviceRouteService';
 import { createD1LinkedDeviceManagementRouteServiceV1 } from '../deviceLinking/d1LinkedDeviceManagementRouteService';
 import {
+  AuthorizationServiceLinkedDeviceWalletSessionRevocationV1,
   D1LinkedDeviceRevocationPreparationV1,
   D1LinkedDeviceWalletSessionAuthorizationMetadataSourceV1,
 } from '../deviceLinking/d1LinkedDeviceManagementComposition';
@@ -322,6 +323,10 @@ function createD1LinkedDeviceComposition(input: {
     CloudflareD1AuthorizationStore,
     'readLinkedDeviceWalletSessionAuthorization'
   >;
+  readonly authorizationService: Pick<
+    AuthorizationService,
+    'getLinkedDeviceWalletSessionStatus' | 'revokeLinkedDeviceWalletSession'
+  >;
 }): D1LinkedDeviceCompositionAssembly {
   const config = input.options.linkedDevice;
   if (!config) return {};
@@ -404,6 +409,9 @@ function createD1LinkedDeviceComposition(input: {
       scope,
     });
     const preparation = new D1LinkedDeviceRevocationPreparationV1(metadataSource);
+    const walletSessionRevocation = new AuthorizationServiceLinkedDeviceWalletSessionRevocationV1(
+      input.authorizationService,
+    );
     deviceManagement = createD1LinkedDeviceManagementRouteServiceV1({
       database: input.options.database,
       scope,
@@ -412,7 +420,7 @@ function createD1LinkedDeviceComposition(input: {
       authorization: config.management.authorization,
       preparation,
       aggregateRevocation: config.management.aggregateRevocation,
-      walletSessionRevocation: config.management.walletSessionRevocation,
+      walletSessionRevocation,
       localStateInvalidation: config.management.localStateInvalidation,
       nowV1: config.execution.nowV1,
       authenticateOwnerRequestV1: sessionConfig.authenticateOwnerRequestV1,
@@ -1554,6 +1562,7 @@ function createCloudflareD1RouterApiAuthAssembly(
   const linkedDeviceComposition = createD1LinkedDeviceComposition({
     options,
     authorization: authorizationStore,
+    authorizationService,
   });
   const emailOtpChallenges = new CloudflareD1EmailOtpChallengeStore({
     database: options.database,
