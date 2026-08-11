@@ -1496,7 +1496,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
     });
   });
 
-  test('host modal: transaction tree renders only after transaction data is ready', async ({
+  test('host modal: transaction tree is open on first paint and stays stable', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -1511,18 +1511,6 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           },
           surfaceMeasurementBinding: { kind: 'disabled' },
         };
-
-        const handle = await mountConfirmUI({
-          ctx,
-          summary: { title: 'Confirm transaction' } as any,
-          loading: true,
-          theme: 'light',
-          uiMode: 'modal',
-          nearAccountIdOverride: 'alice.testnet',
-        });
-
-        const hasLoadingTree = !!document.querySelector('w3a-tx-tree');
-
         const waitFor = async (predicate: () => boolean, timeoutMs = 5000): Promise<void> => {
           const start = Date.now();
           while (!predicate()) {
@@ -1531,33 +1519,54 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           }
         };
 
-        handle.update({
-          model: {
-            chain: 'evm',
-            operations: [
-              {
-                id: 'evm.eip1559',
-                kind: 'generic.contractCall',
-                label: 'Contract call',
-                to: `0x${'11'.repeat(20)}`,
-                fields: [
-                  { label: 'To', value: `0x${'11'.repeat(20)}` },
-                  { label: 'Selector', value: '0xa9059cbb' },
-                ],
-              },
-            ],
-          },
-          loading: false,
+        const model = {
+          chain: 'evm' as const,
+          operations: [
+            {
+              id: 'evm.eip1559',
+              kind: 'generic.contractCall',
+              label: 'Contract call',
+              to: `0x${'11'.repeat(20)}`,
+              fields: [
+                { label: 'To', value: `0x${'11'.repeat(20)}` },
+                { label: 'Selector', value: '0xa9059cbb' },
+              ],
+            },
+          ],
+        };
+        const handle = await mountConfirmUI({
+          ctx,
+          summary: { title: 'Confirm transaction' } as any,
+          model,
+          loading: true,
+          theme: 'light',
+          uiMode: 'modal',
+          nearAccountIdOverride: 'alice.testnet',
         });
 
         await waitFor(
-          () =>
-            !!document.querySelector('w3a-tx-tree details[data-node-id="evm.eip1559"]'),
+          () => !!document.querySelector('w3a-tx-tree details[data-node-id="evm.eip1559"]'),
         );
+        const initialTree = document.querySelector('w3a-tx-tree') as HTMLElement | null;
+        const initialOperation = initialTree?.querySelector(
+          'details[data-node-id="evm.eip1559"]',
+        ) as HTMLDetailsElement | null;
+        const initialModalHeight = handle.element.getBoundingClientRect().height;
+
+        handle.update({
+          model: { ...model, intentDigest: 'prepared-intent-digest' },
+          loading: false,
+        });
+
+        await waitFor(() => {
+          const content = document.querySelector('w3a-tx-confirm-content') as any;
+          return content?.model?.intentDigest === 'prepared-intent-digest';
+        });
         const tree = document.querySelector('w3a-tx-tree') as HTMLElement | null;
         const hydratedOperation = tree?.querySelector(
           'details[data-node-id="evm.eip1559"]',
         ) as HTMLDetailsElement | null;
+        const hydratedModalHeight = handle.element.getBoundingClientRect().height;
         const loadingCopy = String(tree?.textContent || '').includes('Loading transaction details');
         const hasIndicatorArrow = !!hydratedOperation?.querySelector(':scope > summary .chevron');
         const openedAfterHydration = hydratedOperation?.open === true;
@@ -1567,8 +1576,11 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
 
         handle.close(true);
         return {
-          hasLoadingTree,
+          hasInitialTree: !!initialTree,
+          initialOperationOpen: initialOperation?.open === true,
+          preservedOperation: initialOperation === hydratedOperation,
           hasHydratedOperation: !!hydratedOperation,
+          modalHeightShift: Math.abs(hydratedModalHeight - initialModalHeight),
           hasIndicatorArrow,
           loadingCopy,
           openedAfterHydration,
@@ -1578,8 +1590,11 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.hasLoadingTree).toBe(false);
+    expect(result.hasInitialTree).toBe(true);
+    expect(result.initialOperationOpen).toBe(true);
+    expect(result.preservedOperation).toBe(true);
     expect(result.hasHydratedOperation).toBe(true);
+    expect(result.modalHeightShift).toBeLessThan(1);
     expect(result.hasIndicatorArrow).toBe(false);
     expect(result.loadingCopy).toBe(false);
     expect(result.openedAfterHydration).toBe(true);

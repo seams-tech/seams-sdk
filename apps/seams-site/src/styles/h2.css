@@ -2732,19 +2732,30 @@ body:has(.h2-page) {
 /* Each cover crops its fabric differently: full field, zoomed weave, corner
    drift, so the three cards don't read as one repeated treatment. */
 .h2-case__cover--ops {
-  background-image: url('/gradients/web/sky-sand.jpg');
+  background-image:
+    url('/gradients/web/sky-sand.jpg'),
+    linear-gradient(135deg, #247fc4 0%, #67bdd4 42%, #efbd71 72%, #c66c54 100%);
+  background-size: cover, cover;
 }
 
 .h2-case__cover--staff {
-  background-image: url('/gradients/web/cyan-lime.jpg');
-  background-size: 165%;
-  background-position: 22% 38%;
+  background-image:
+    url('/gradients/web/cyan-lime.jpg'),
+    linear-gradient(135deg, #117a96 0%, #298b72 44%, #85b938 72%, #d3e967 100%);
+  background-size: 165%, cover;
+  background-position:
+    22% 38%,
+    center;
 }
 
 .h2-case__cover--checkout {
-  background-image: url('/gradients/web/dusk-blue-mauve.jpg');
-  background-size: 140%;
-  background-position: 85% 82%;
+  background-image:
+    url('/gradients/web/dusk-blue-mauve.jpg'),
+    linear-gradient(135deg, #103e70 0%, #26375b 50%, #796174 74%, #df9870 100%);
+  background-size: 140%, cover;
+  background-position:
+    85% 82%,
+    center;
 }
 
 .h2-case__title {

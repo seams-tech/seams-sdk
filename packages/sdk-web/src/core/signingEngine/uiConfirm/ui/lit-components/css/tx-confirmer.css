@@ -226,6 +226,9 @@ w3a-tx-confirm-content {
   cursor: progress;
   opacity: 0.9;
 }
+.confirm.loading .loading-indicator {
+  margin-right: 0;
+}
 .cancel:hover {
   background: var(--w3a-colors-hover);
   border: 1px solid var(--w3a-colors-borderHover);
