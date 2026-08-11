@@ -2556,6 +2556,7 @@ mod tests {
         let pair_digest = pair_binding.pair_digest().bytes;
         let request = CloudflareEd25519YaoPairPrepareRequestV1 {
             pair_binding,
+            work: router_ab_cloudflare::CloudflareEd25519YaoPairWorkV1::Ceremony,
             input: input_b,
         };
         let mut state = LocalEd25519YaoWorkerStateV1::default();
