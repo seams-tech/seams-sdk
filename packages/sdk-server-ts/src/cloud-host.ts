@@ -26,6 +26,27 @@ export type {
   FetchRouterHandler,
   FetchRouterRuntime,
 } from './router/transport/fetch/fetchRouter.types';
+export {
+  LINKED_DEVICE_OWNER_AUTHORIZATION_PATH_V1,
+  authenticateDeviceLinkingOwnerWalletSessionRequestV1,
+  createDeviceLinkingOwnerRequestAuthenticatorV1,
+  type DeviceLinkingOwnerAuthorizationAuthenticationV1,
+  type DeviceLinkingOwnerAuthorizationResponseV1,
+  type DeviceLinkingOwnerAuthorizationRouteServiceV1,
+  type DeviceLinkingOwnerWalletSessionContextV1,
+} from './router/transport/fetch/routes/deviceLinkingOwnerAuthorization';
+export {
+  LINKED_DEVICE_GATEWAY_LANE_BASE_V1,
+  LINKED_DEVICE_GATEWAY_LANE_PATHS_V1,
+  type DeviceLinkingLaneGatewayPortV1,
+  type DeviceLinkingLaneGatewayRequestV1,
+  type DeviceLinkingLaneGatewayResponseV1,
+  type DeviceLinkingLaneGatewayRouteServiceV1,
+  type DeviceLinkingLaneProtocolCommitRequestV1,
+  type DeviceLinkingLaneProtocolCommitResultV1,
+  type DeviceLinkingLaneCeremonyBindingRequestV1,
+  type DeviceLinkingLaneCeremonyBindingResponseV1,
+} from './router/transport/fetch/routes/deviceLinkingLaneGateway';
 export * from './router/cloudflare/runtime/createCloudflareRouter';
 export * from './router/cloudflare/d1/ed25519Yao/d1Ed25519YaoCapabilityPersistence';
 export * from './router/cloudflare/d1/oidc/d1OidcBoundary';

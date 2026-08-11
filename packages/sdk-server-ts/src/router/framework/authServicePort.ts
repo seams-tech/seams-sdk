@@ -48,6 +48,8 @@ import type { RouterAbEcdsaPresignRuntime } from '../../core/routerAbSigning/Rou
 import type { DeviceLinkingRouteServiceV1 } from '../transport/fetch/routes/deviceLinking';
 import type { DeviceManagementRouteServiceV1 } from '../transport/fetch/routes/deviceManagement';
 import type { DeviceLinkingGatewayCompletionServiceV1 } from '../transport/fetch/routes/deviceLinkingGateway';
+import type { DeviceLinkingOwnerAuthorizationRouteServiceV1 } from '../transport/fetch/routes/deviceLinkingOwnerAuthorization';
+import type { DeviceLinkingLaneGatewayRouteServiceV1 } from '../transport/fetch/routes/deviceLinkingLaneGateway';
 import type { LinkedDeviceLocalPresenceVerifierPortV1 } from '../auth/linkedDeviceLocalPresenceVerifier';
 import type { LinkedDeviceExecutionAdmissionResolverV1 } from '../domains/signingOperations/walletExecutionAdmission';
 import type { WalletEcdsaSignerKey, WalletEcdsaSignerRecord } from '../../core/WalletStore';
@@ -1483,6 +1485,10 @@ export interface RouterApiServiceBag {
   linkedDeviceLocalPresence?: LinkedDeviceLocalPresenceVerifierPortV1;
   /** Private Gateway completion endpoint for the linked-device activation commit. */
   deviceLinkingGateway?: DeviceLinkingGatewayCompletionServiceV1;
+  /** Request-scoped owner Wallet Session metadata for Device 1 approval. */
+  deviceLinkingOwnerAuthorization?: DeviceLinkingOwnerAuthorizationRouteServiceV1;
+  /** Owner-authenticated Device 1 source preparation and protocol commit transport. */
+  deviceLinkingLaneGateway?: DeviceLinkingLaneGatewayRouteServiceV1;
 }
 
 export interface RouterApiAuthorizedOperationService {

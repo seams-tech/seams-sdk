@@ -251,6 +251,8 @@ type CloudflareD1RouterApiAuthAssembly = {
   readonly linkedDeviceExecution?: RouterApiServiceBag['linkedDeviceExecution'];
   readonly linkedDeviceLocalPresence?: RouterApiServiceBag['linkedDeviceLocalPresence'];
   readonly deviceLinkingGateway?: RouterApiServiceBag['deviceLinkingGateway'];
+  readonly deviceLinkingOwnerAuthorization?: RouterApiServiceBag['deviceLinkingOwnerAuthorization'];
+  readonly deviceLinkingLaneGateway?: RouterApiServiceBag['deviceLinkingLaneGateway'];
 };
 
 type D1WalletRegistrationRouteServiceAssembly = Pick<
@@ -321,6 +323,8 @@ type D1LinkedDeviceCompositionAssembly = Pick<
   | 'linkedDeviceExecution'
   | 'linkedDeviceLocalPresence'
   | 'deviceLinkingGateway'
+  | 'deviceLinkingOwnerAuthorization'
+  | 'deviceLinkingLaneGateway'
 >;
 
 function createD1LinkedDeviceComposition(input: {
@@ -490,6 +494,12 @@ function createD1LinkedDeviceComposition(input: {
     ...(deviceLinking === undefined ? {} : { deviceLinking }),
     ...(deviceManagement === undefined ? {} : { deviceManagement }),
     ...(deviceLinkingGateway === undefined ? {} : { deviceLinkingGateway }),
+    ...(config.session?.ownerAuthorizationRoute === undefined
+      ? {}
+      : { deviceLinkingOwnerAuthorization: config.session.ownerAuthorizationRoute }),
+    ...(config.session?.laneGatewayRoute === undefined
+      ? {}
+      : { deviceLinkingLaneGateway: config.session.laneGatewayRoute }),
   };
 }
 
