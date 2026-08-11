@@ -1,4 +1,5 @@
-import type { DurableRecordStore, RuntimePorts } from '@/core/platform';
+import type { AuthenticatorPort, DurableRecordStore, RuntimePorts } from '@/core/platform';
+import type { HttpTransport } from '@/core/platform/http';
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
@@ -320,6 +321,21 @@ import type {
 import { createBrowserRecoveryPublicDeps } from '../assembly/createBrowserRecoveryPublicDeps';
 import { createBrowserStepUpRuntime } from '../assembly/createBrowserStepUpRuntime';
 import { createBrowserWarmSessionPublicDeps } from '../assembly/createBrowserWarmSessionPublicDeps';
+import { createWalletHostOwnerAuthoritiesV1 } from '../operations/devices/walletHostOwnerAuthority';
+import type { WalletHostCompositionDependenciesV1 } from '../operations/devices/walletHostComposition';
+import type {
+  LinkSessionOwnerApprovalUpdatesPortV1,
+  LinkSessionOwnerAuthenticatedRequestPortV1,
+} from '../operations/devices/deviceLinkingOwnerTransport';
+import type { LinkedDeviceApprovalV1 } from '@shared/device-linking';
+import {
+  parseLinkedDeviceApprovalResultV1,
+  parseLinkedDeviceApprovalV1,
+} from '@shared/device-linking';
+import type { LaneOperationSourcePortsV1 } from '@/core/signingEngine/session/lanes/operations/ports';
+import type { LaneSealedHolderMaterialRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
+import type { LinkedDeviceWalletSessionRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
+import type { LinkedDeviceExecutionEvidenceRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
 import {
   createBrowserActiveEcdsaWalletSessionAuthorizationResolver,
   createBrowserCanonicalWalletSessionStatusReader,
@@ -459,6 +475,63 @@ function currentNearEd25519CapabilityRehydrationSubject(args: {
 
 function assertNeverNearEd25519CapabilityRehydrationSubject(value: never): never {
   throw new Error(`Unknown Ed25519 capability rehydration subject: ${String(value)}`);
+}
+
+type WalletHostOwnerApprovalTransportV1 = {
+  readonly request: LinkSessionOwnerAuthenticatedRequestPortV1;
+  readonly approvalUpdates: LinkSessionOwnerApprovalUpdatesPortV1;
+};
+
+function createWalletHostOwnerApprovalTransportV1(
+  request: LinkSessionOwnerAuthenticatedRequestPortV1,
+): WalletHostOwnerApprovalTransportV1 {
+  const approvals = new Map<string, LinkedDeviceApprovalV1>();
+  const ownerRequest: LinkSessionOwnerAuthenticatedRequestPortV1 = {
+    requestOwnerV1: async (input) => {
+      if (input.method === 'POST' && input.canonicalPath.endsWith('/approval')) {
+        const approval = parseLinkedDeviceApprovalV1(input.body);
+        approvals.set(String(approval.linkSessionId), approval);
+      }
+      return await request.requestOwnerV1(input);
+    },
+  };
+  const approvalUpdates: LinkSessionOwnerApprovalUpdatesPortV1 = {
+    getApprovalV1: async (input) => {
+      const approval = approvals.get(String(input.linkSessionId));
+      if (!approval) throw new Error('Owner approval is unavailable for polling');
+      const response = await ownerRequest.requestOwnerV1({
+        method: 'POST',
+        canonicalPath: `/wallet/device-linking/v1/sessions/${String(input.linkSessionId)}/approval`,
+        body: approval,
+        authentication: input.authentication,
+      });
+      if (response.status < 200 || response.status >= 300) {
+        throw new Error(`Owner approval polling failed with HTTP ${response.status}`);
+      }
+      return parseLinkedDeviceApprovalResultV1(response.body);
+    },
+    subscribeApprovalV1: async (input) => {
+      let closed = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const poll = async (): Promise<void> => {
+        if (closed) return;
+        const result = await approvalUpdates.getApprovalV1(input);
+        if (closed) return;
+        input.onResult(result);
+        if (result.outcome === 'pending') {
+          timer = setTimeout(() => void poll(), 250);
+        }
+      };
+      void poll();
+      return {
+        close: () => {
+          closed = true;
+          if (timer !== null) clearTimeout(timer);
+        },
+      };
+    },
+  };
+  return { request: ownerRequest, approvalUpdates };
 }
 
 export async function ensurePasskeyEd25519WarmSessionForSigning(args: {
@@ -2486,6 +2559,45 @@ export class BrowserSigningSurface {
 
   getSignerWorkerContext(): WorkerOperationContext {
     return this.enginePorts.walletSessionActivationDeps.getSignerWorkerContext();
+  }
+
+  createWalletHostCompositionDependenciesV1(args: {
+    readonly http: HttpTransport;
+    readonly authenticator: AuthenticatorPort;
+    readonly repository: LaneSealedHolderMaterialRepositoryV1;
+    readonly walletSessionRepository: Pick<
+      LinkedDeviceWalletSessionRepositoryV1,
+      'putExactActiveDeliveryV1'
+    >;
+    readonly executionEvidenceRepository: Pick<
+      LinkedDeviceExecutionEvidenceRepositoryV1,
+      'putExactProvisionedEvidenceV1' | 'readForEnrollmentV1'
+    >;
+    readonly sourceLanePorts: LaneOperationSourcePortsV1;
+  }): WalletHostCompositionDependenciesV1 {
+    const relayerUrl = String(this.seamsWebConfigs.network.relayer?.url || '').trim();
+    const ownerAuthorities = createWalletHostOwnerAuthoritiesV1({
+      http: args.http,
+      relayerUrl,
+      walletSessions: walletSessionAuthorizations,
+      readWalletAuthenticationState: () => this.walletAuthenticationState,
+    });
+    const ownerTransport = createWalletHostOwnerApprovalTransportV1(ownerAuthorities.ownerRequest);
+    return {
+      authenticator: args.authenticator,
+      http: args.http,
+      relayerUrl,
+      ownerRequest: ownerTransport.request,
+      ownerApprovalUpdates: ownerTransport.approvalUpdates,
+      ownerAuthorization: ownerAuthorities.ownerAuthorization,
+      managementRequest: ownerAuthorities.managementRequest,
+      repository: args.repository,
+      walletSessionRepository: args.walletSessionRepository,
+      executionEvidenceRepository: args.executionEvidenceRepository,
+      sourceLanePorts: args.sourceLanePorts,
+      nowMs: () => Date.now(),
+      pollIntervalMs: 250,
+    };
   }
 
   getNonceCoordinator(): NonceCoordinator {
