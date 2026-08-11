@@ -613,6 +613,8 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       case 'email_otp_worker_session':
         this.connectEmailOtpPresignChannel(presignWorker);
         return;
+      case 'linked_holder_signing_material':
+        return;
       default:
         authorityKind satisfies never;
     }
@@ -620,17 +622,34 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
 
   private parsePresignAuthorityKind(
     payload: unknown,
-  ): 'role_local_derivation_handle' | 'email_otp_worker_session' {
+  ):
+    | 'role_local_derivation_handle'
+    | 'email_otp_worker_session'
+    | 'linked_holder_signing_material' {
     if (!isObject(payload) || !isObject(payload.authority)) {
       throw new Error('ECDSA presign init authority is required');
     }
     switch (payload.authority.kind) {
       case 'role_local_derivation_handle':
       case 'email_otp_worker_session':
+      case 'linked_holder_signing_material':
         return payload.authority.kind;
       default:
         throw new Error('ECDSA presign init authority kind is invalid');
     }
+  }
+
+  createLinkedHolderPresignAuthorityPortV1(): MessagePort {
+    const presignWorker = this.getOrCreateWorker('ecdsaPresignClient');
+    const channel = new MessageChannel();
+    presignWorker.postMessage(
+      {
+        kind: EcdsaClientWorkerControlKind.AttachLinkedHolderToPresign,
+        port: channel.port1,
+      },
+      [channel.port1],
+    );
+    return channel.port2;
   }
 
   private connectDerivationPresignChannel(presignWorker: Worker): void {

@@ -1158,6 +1158,15 @@ export type EcdsaPresignClientSessionInitRequest = EcdsaPresignClientSessionPara
           material?: never;
         };
       }
+    | {
+        authority: {
+          kind: 'linked_holder_signing_material';
+          holderHandleId: string;
+          materialHandle?: never;
+          material?: never;
+          thresholdSessionId?: never;
+        };
+      }
   );
 
 export type EcdsaPresignClientSessionInitResult =
@@ -1171,6 +1180,10 @@ export type EcdsaPresignClientSessionInitResult =
         remainingUses: number;
         expiresAtMs: number;
       };
+      progress: ThresholdEcdsaPresignProgressResult;
+    }
+  | {
+      authority: { kind: 'linked_holder_signing_material' };
       progress: ThresholdEcdsaPresignProgressResult;
     };
 
