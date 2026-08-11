@@ -16,6 +16,9 @@ import type {
   LinkedDeviceSessionTransportEventV1,
   LinkedDeviceSessionTransportRequestV1,
   LinkedDeviceTargetCredentialRegistrationV1,
+  LinkedDeviceTargetHolderRegistrationV1,
+  LinkedDeviceTargetPreparationV1,
+  LinkedDeviceWebAuthnRegistrationV1,
   LinkDevicePublicKeyB64u,
   QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking';
@@ -27,7 +30,7 @@ import type {
   LinkedDeviceId,
   LinkDeviceSessionId,
 } from '@shared/signing-lanes/ids';
-import type { WalletId, WebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
+import type { WalletId } from '@shared/utils/domainIds';
 
 /** Authenticated owner request proof produced by the one owner auth source. */
 export type LinkSessionAuthenticationV1 = {
@@ -58,6 +61,9 @@ export type DeviceLinkingAuthenticatedTransportPortV1 = {
   getApprovalV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
   }): Promise<LinkedDeviceApprovalV1>;
+  getTargetPreparationV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+  }): Promise<LinkedDeviceTargetPreparationV1>;
   requestProvisioningDeliveriesV1(input: {
     readonly command: LinkedDeviceProvisioningCommandV1;
   }): Promise<LinkedDeviceProvisioningDeliveriesV1>;
@@ -177,12 +183,14 @@ export type DeviceLinkingOwnerAuthorizationPortV1 = {
 
 export type DeviceLinkingTargetCredentialPortV1 = {
   createTargetCredentialV1(input: {
-    readonly walletId: WalletId;
-    readonly enrollmentId: LinkedDeviceEnrollmentId;
-    readonly deviceId: LinkedDeviceId;
+    readonly preparation: LinkedDeviceTargetPreparationV1;
     readonly keyMaterial: DeviceLinkingKeyMaterialHandleV1;
   }): Promise<{
-    readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+    readonly webauthnRegistration: LinkedDeviceWebAuthnRegistrationV1;
+    readonly orderedHolderRegistrations: readonly [
+      LinkedDeviceTargetHolderRegistrationV1,
+      ...LinkedDeviceTargetHolderRegistrationV1[],
+    ];
   }>;
 };
 
@@ -198,12 +206,6 @@ export type DeviceLinkingLaneProvisioningHandoffV1 = {
 };
 
 export type DeviceLinkingLaneProvisioningPortV1 = {
-  installAuthorizedLaneHolderWorkerV1(input: {
-    readonly walletId: WalletId;
-    readonly enrollmentId: LinkedDeviceEnrollmentId;
-    readonly deviceId: LinkedDeviceId;
-    readonly credentialIdB64u: WebAuthnCredentialIdB64u;
-  }): Promise<void>;
   prepareLinkedDeviceLanesV1(
     input: DeviceLinkingLaneProvisioningHandoffV1,
   ): Promise<LinkedDeviceEnrollmentReceiptV1>;

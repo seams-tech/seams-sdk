@@ -23,7 +23,7 @@ export type D1LinkedDeviceRouteServiceOptionsV1 = {
   readonly authenticateOwnerRequestV1: (
     input: DeviceLinkingOwnerRequestInputV1,
   ) => Promise<DeviceLinkingAuthenticatedRequestV1 | DeviceLinkingAuthDeniedV1>;
-  readonly registerTargetCredentialV1: DeviceLinkingRouteServiceV1['registerTargetCredentialV1'];
+  readonly targetCredential: DeviceLinkingRouteServiceV1['targetCredential'];
   readonly acknowledgeReceiptV1: DeviceLinkingRouteServiceV1['acknowledgeReceiptV1'];
   readonly retryCommittedDeliveryV1: DeviceLinkingRouteServiceV1['retryCommittedDeliveryV1'];
   readonly provisioning: DeviceLinkingRouteServiceV1['provisioning'];
@@ -103,7 +103,7 @@ export function createD1LinkedDeviceRouteServiceV1(
         proof: input.proof,
       } satisfies DeviceLinkingDeviceAuthenticatedRequestV1;
     },
-    registerTargetCredentialV1: options.registerTargetCredentialV1,
+    targetCredential: options.targetCredential,
     acknowledgeReceiptV1: options.acknowledgeReceiptV1,
     retryCommittedDeliveryV1: options.retryCommittedDeliveryV1,
     provisioning: options.provisioning,
