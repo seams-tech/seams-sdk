@@ -23,7 +23,7 @@ export async function signEvmFamilyWithUiConfirmForTempo(
         explicitAuthErrorLabel: 'Tempo',
         nonceErrorLabel: 'Tempo',
         title: 'Sign Tempo Transaction',
-        body: 'Review and approve signing the transaction hash.',
+        body: '',
         buildIntent: async ({ workerCtx, request }) =>
           await new EvmAdapter(workerCtx).buildIntent(request),
         buildDisplayModel: buildEvmDisplayModel,
@@ -41,7 +41,7 @@ export async function signEvmFamilyWithUiConfirmForTempo(
       explicitAuthErrorLabel: 'Tempo',
       nonceErrorLabel: 'Tempo',
       title: 'Sign Tempo Transaction',
-      body: 'Review and approve signing the Tempo sender hash.',
+      body: '',
       buildIntent: async ({ workerCtx, request }) =>
         await new TempoAdapter(workerCtx).buildIntent(request),
       buildDisplayModel: buildTempoDisplayModel,

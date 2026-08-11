@@ -164,7 +164,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     kind: 'closed',
     generation: 0,
   };
-
   constructor(
     config: UiConfirmManagerConfig,
     context: UiConfirmContext,
@@ -288,22 +287,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     this.transactionPreparationModalState = { kind: 'opening', generation };
     const handle = await mountConfirmUI({
       ctx: this.getContext(),
-      summary: {
-        title: 'Confirm transaction',
-        body: 'Preparing transaction details…',
-      },
-      model: {
-        chain: params.chain,
-        signerAccount: walletLabel,
-        operations: [
-          {
-            id: `${params.chain}.pending`,
-            kind: 'raw.fallback',
-            label: 'Loading transaction details...',
-            raw: '',
-          },
-        ],
-      },
+      summary: { title: 'Confirm transaction' },
       loading: true,
       theme: this.context.getTheme?.() ?? 'dark',
       uiMode: confirmationConfig.uiMode,

@@ -131,7 +131,6 @@ export type OpenRegistrationPreparationModalParams = {
 
 export type OpenTransactionPreparationModalParams = {
   walletLabel: string;
-  chain: 'evm' | 'tempo';
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
 };
 
