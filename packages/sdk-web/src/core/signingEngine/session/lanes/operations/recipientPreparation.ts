@@ -10,7 +10,10 @@ import type {
 import {
   parseHpkePublicKeyB64u,
   parseSigningWorkerRecipientKeyDigestB64u,
+  type HpkePublicKeyB64u,
+  type SigningWorkerRecipientKeyDigestB64u,
 } from '@shared/signing-lanes/participants';
+import { computeLaneHolderParticipantBindingDigestV1 } from '@shared/signing-lanes/participantDigest';
 import { parseLaneHolderRecipientHandleV1 } from '@shared/utils/domainIds';
 import type {
   LaneEnrollmentId,
@@ -19,7 +22,10 @@ import type {
   SigningLaneId,
 } from '@shared/signing-lanes/ids';
 import type { MpcMaterialActivationId, WalletId, WalletKeyId } from '@shared/utils/domainIds';
-import type { LaneHolderCustodyBindingId } from '@shared/signing-lanes/participants';
+import type {
+  LaneHolderCustodyBindingId,
+  LaneParticipantBindingDigestB64u,
+} from '@shared/signing-lanes/participants';
 import type {
   LaneSealedHolderMaterialRepositoryV1,
   LaneSealedHolderRecordV1,
@@ -37,7 +43,7 @@ export type OpenLaneHolderRecipientV1 = {
   readonly targetLaneId: SigningLaneId;
   readonly targetLaneShareEpoch: LaneShareEpoch;
   readonly targetMaterialActivationId: MpcMaterialActivationId;
-  readonly holderParticipantBindingDigestB64u: string;
+  readonly holderParticipantBindingDigestB64u: LaneParticipantBindingDigestB64u;
   readonly custodyBindingId: LaneHolderCustodyBindingId;
   readonly custodyBindingDigestB64u: string;
   readonly recipientHandle: LaneHolderRecipientHandleV1;
@@ -104,13 +110,13 @@ function parseHandle(value: unknown): LaneHolderRecipientHandleV1 {
   throw new Error(result.error.message);
 }
 
-function parseHpkePublicKey(value: unknown): string {
+function parseHpkePublicKey(value: unknown): HpkePublicKeyB64u {
   const result = parseHpkePublicKeyB64u(value);
   if (result.ok) return result.value;
   throw new Error(result.error.message);
 }
 
-function parseRecipientKeyDigest(value: unknown): string {
+function parseRecipientKeyDigest(value: unknown): SigningWorkerRecipientKeyDigestB64u {
   const result = parseSigningWorkerRecipientKeyDigestB64u(value);
   if (result.ok) return result.value;
   throw new Error(result.error.message);
@@ -204,6 +210,17 @@ export async function prepareLaneHolderRecipientV1(args: {
   try {
     const hpkePublicKeyB64u = parseHpkePublicKey(descriptor.hpkePublicKeyB64u);
     const hpkePublicKeyDigestB64u = parseRecipientKeyDigest(descriptor.hpkePublicKeyDigestB64u);
+    const holderParticipantBindingDigestB64u =
+      await computeLaneHolderParticipantBindingDigestV1({
+        participantId: args.input.targetHolderParticipantId,
+        custody: {
+          kind: 'lane_holder_custody_identity_v1',
+          custodyBindingId: args.input.custodyBindingId,
+          custodyBindingDigestB64u: args.input.custodyBindingDigestB64u,
+        },
+        hpkePublicKeyB64u,
+        hpkePublicKeyDigestB64u,
+      });
     return {
       state: 'open',
       operationId: args.input.operationId,
@@ -212,7 +229,7 @@ export async function prepareLaneHolderRecipientV1(args: {
       targetLaneId: args.input.targetLaneId,
       targetLaneShareEpoch: args.input.targetLaneShareEpoch,
       targetMaterialActivationId: args.input.targetMaterialActivationId,
-      holderParticipantBindingDigestB64u: args.input.targetHolderParticipantBindingDigestB64u,
+      holderParticipantBindingDigestB64u,
       custodyBindingId: args.input.custodyBindingId,
       custodyBindingDigestB64u: args.input.custodyBindingDigestB64u,
       recipientHandle,

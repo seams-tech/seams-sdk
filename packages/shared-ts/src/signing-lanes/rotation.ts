@@ -1006,7 +1006,6 @@ export type LaneHolderRecipientWorkerV1 = {
     targetLaneShareEpoch: LaneShareEpoch;
     targetMaterialActivationId: MpcMaterialActivationId;
     targetHolderParticipantId: LaneHolderParticipantId;
-    targetHolderParticipantBindingDigestB64u: LaneParticipantBindingDigestB64u;
     custodyBindingId: LaneHolderCustodyBindingId;
     custodyBindingDigestB64u: LaneCustodyBindingDigestB64u;
   }): Promise<LaneHolderRecipientDescriptorV1>;

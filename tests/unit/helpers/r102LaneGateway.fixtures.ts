@@ -22,7 +22,10 @@ import {
   parseLaneHolderParticipantRecordV1,
   parseSigningWorkerParticipantRecordV1,
 } from '../../../packages/shared-ts/src/signing-lanes/participants';
-import { computeLaneParticipantSetBindingDigestV1 } from '../../../packages/shared-ts/src/signing-lanes/participantDigest';
+import {
+  buildLaneHolderParticipantRecordWithDigestV1,
+  computeLaneParticipantSetBindingDigestV1,
+} from '../../../packages/shared-ts/src/signing-lanes/participantDigest';
 import { computeLaneEnrollmentManifestDigestV1 } from '../../../packages/shared-ts/src/signing-lanes/rotationDigests';
 import {
   buildMpcMaterialActivationRef,
@@ -71,6 +74,28 @@ export function buildR102LaneEffectRecordFixture(): LaneEffectRecordV1 {
     status: 'recorded',
     recordedAtMs: 1_000,
   };
+}
+
+export async function bindR102TargetHolderParticipantV1(
+  job: RotatableSigningLaneJobV1,
+): Promise<RotatableSigningLaneJobV1> {
+  const targetHolder = await buildLaneHolderParticipantRecordWithDigestV1({
+    participantId: job.targetHolder.participantId,
+    custody: {
+      kind: 'lane_holder_custody_identity_v1',
+      custodyBindingId: job.targetHolder.custodyBindingId,
+      custodyBindingDigestB64u: job.targetHolder.custodyBindingDigestB64u,
+    },
+    hpkePublicKeyB64u: job.targetHolder.hpkePublicKeyB64u,
+    hpkePublicKeyDigestB64u: job.targetHolder.hpkePublicKeyDigestB64u,
+  });
+  return parseRotatableSigningLaneJobV1({
+    ...job,
+    targetHolder: {
+      ...job.targetHolder,
+      participantBindingDigestB64u: targetHolder.participantBindingDigestB64u,
+    },
+  });
 }
 
 export function buildR102LaneLockIdentitiesFixture(): {

@@ -16,6 +16,7 @@ import { SigningSessionSealsRepository } from '../../packages/sdk-web/src/core/i
 import { parseLaneHolderPackageWireV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import { parseLaneHolderRecipientHandleV1 } from '../../packages/shared-ts/src/utils/domainIds';
 import {
+  bindR102TargetHolderParticipantV1,
   buildR102LaneJob,
   buildR102ProtocolCommitReceipt,
 } from './helpers/r102LaneGateway.fixtures';
@@ -78,7 +79,9 @@ function gateway(calls: { holderDeliveries: number[] }): LaneEnrollmentGatewayV1
 
 test.describe('R102 holder delivery worker boundary', () => {
   test('replays through worker verification and frees the handle on persistence failure', async () => {
-    const job = buildR102LaneJob('holder-delivery');
+    const job = await bindR102TargetHolderParticipantV1(
+      buildR102LaneJob('holder-delivery'),
+    );
     const commit = buildR102ProtocolCommitReceipt(job);
     const packageWire = holderPackage();
     const recipientHandle = value(parseLaneHolderRecipientHandleV1('recipient-handle:r102'));
@@ -117,7 +120,6 @@ test.describe('R102 holder delivery worker boundary', () => {
         targetLaneShareEpoch: job.target.laneShareEpoch,
         targetMaterialActivationId: job.targetMaterialActivationId,
         targetHolderParticipantId: job.targetHolder.participantId,
-        targetHolderParticipantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
         custodyBindingId: job.targetHolder.custodyBindingId,
         custodyBindingDigestB64u: job.targetHolder.custodyBindingDigestB64u,
       },
@@ -165,7 +167,6 @@ test.describe('R102 holder delivery worker boundary', () => {
         targetLaneShareEpoch: job.target.laneShareEpoch,
         targetMaterialActivationId: job.targetMaterialActivationId,
         targetHolderParticipantId: job.targetHolder.participantId,
-        targetHolderParticipantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
         custodyBindingId: job.targetHolder.custodyBindingId,
         custodyBindingDigestB64u: job.targetHolder.custodyBindingDigestB64u,
       },
