@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   buildActiveLinkedDeviceExecutionBundleV1,
   buildLinkedDeviceProvisionedExecutionEvidenceV1,
-} from '../../packages/sdk-web/src/SeamsWeb/operations/devices/linkedDeviceExecutionBundle';
+} from '../../packages/sdk-web/src/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
 import { buildR103ActiveExecutionFixture } from './helpers/deviceLinkContracts.fixtures';
 
 test('builds one exact active Device 2 execution projection from R102 evidence', async () => {
