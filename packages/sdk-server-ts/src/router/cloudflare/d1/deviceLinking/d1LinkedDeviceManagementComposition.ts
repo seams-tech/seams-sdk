@@ -73,11 +73,11 @@ export type D1LinkedDeviceWalletSessionAuthorizationMetadataV1 = {
 };
 
 export type D1LinkedDeviceWalletSessionAuthorizationMetadataSourcePortV1 = {
-  readLinkedDeviceWalletSessionAuthorizationMetadataV1(input: {
+  listLinkedDeviceWalletSessionAuthorizationMetadataV1(input: {
     readonly walletId: LinkedDeviceManagementTargetV1['summary']['walletId'];
     readonly enrollmentId: LinkedDeviceEnrollmentId;
     readonly deviceId: LinkedDeviceId;
-  }): Promise<D1LinkedDeviceWalletSessionAuthorizationMetadataV1 | null>;
+  }): Promise<readonly D1LinkedDeviceWalletSessionAuthorizationMetadataV1[]>;
 };
 
 /** Read-only source for the exact linked grant/quota identity. */
@@ -93,11 +93,11 @@ export class D1LinkedDeviceWalletSessionAuthorizationMetadataSourceV1 implements
     this.scope = normalizeScope(input.scope);
   }
 
-  async readLinkedDeviceWalletSessionAuthorizationMetadataV1(input: {
+  async listLinkedDeviceWalletSessionAuthorizationMetadataV1(input: {
     readonly walletId: LinkedDeviceManagementTargetV1['summary']['walletId'];
     readonly enrollmentId: LinkedDeviceEnrollmentId;
     readonly deviceId: LinkedDeviceId;
-  }): Promise<D1LinkedDeviceWalletSessionAuthorizationMetadataV1 | null> {
+  }): Promise<readonly D1LinkedDeviceWalletSessionAuthorizationMetadataV1[]> {
     const result = await this.database
       .prepare(
         `SELECT authorization.tenant_id, authorization.authorization_id,
@@ -120,8 +120,7 @@ export class D1LinkedDeviceWalletSessionAuthorizationMetadataSourceV1 implements
             AND authorization.wallet_id = ?
             AND authorization.enrollment_id = ?
             AND authorization.device_id = ?
-          ORDER BY authorization.issued_at_ms DESC
-          LIMIT 2`,
+          ORDER BY authorization.issued_at_ms DESC, authorization.authorization_id ASC`,
       )
       .bind(
         ...scopeValues(this.scope),
@@ -131,9 +130,9 @@ export class D1LinkedDeviceWalletSessionAuthorizationMetadataSourceV1 implements
       )
       .all<AuthorizationMetadataRowV1>();
     const rows = result.results ?? [];
-    if (rows.length === 0) return null;
-    if (rows.length !== 1) throw new Error('linked-device authorization metadata is duplicated');
-    return parseAuthorizationMetadataRow(rows[0], input.deviceId);
+    const metadata: D1LinkedDeviceWalletSessionAuthorizationMetadataV1[] = [];
+    for (const row of rows) metadata.push(parseAuthorizationMetadataRow(row, input.deviceId));
+    return metadata;
   }
 }
 
@@ -149,12 +148,13 @@ export class D1LinkedDeviceRevocationPreparationV1 implements LinkedDeviceRevoca
   }): Promise<
     Awaited<ReturnType<LinkedDeviceRevocationPreparationPortV1['prepareLinkedDeviceRevocationV1']>>
   > {
-    const metadata = await this.metadata.readLinkedDeviceWalletSessionAuthorizationMetadataV1({
-      walletId: input.target.summary.walletId,
-      enrollmentId: input.target.summary.enrollmentId,
-      deviceId: input.target.summary.deviceId,
-    });
-    if (!metadata) return { kind: 'not_found' };
+    const authorizationMetadata =
+      await this.metadata.listLinkedDeviceWalletSessionAuthorizationMetadataV1({
+        walletId: input.target.summary.walletId,
+        enrollmentId: input.target.summary.enrollmentId,
+        deviceId: input.target.summary.deviceId,
+      });
+    if (authorizationMetadata.length === 0) return { kind: 'not_found' };
     const parsedEnrollmentId = parseLaneEnrollmentId(String(input.target.summary.enrollmentId));
     if (!parsedEnrollmentId.ok) return { kind: 'conflict' };
     const manifest = input.target.enrollment.value.manifest;
@@ -228,26 +228,53 @@ export class D1LinkedDeviceRevocationPreparationV1 implements LinkedDeviceRevoca
       command,
       orderedChildren: [firstOrderedChild, ...orderedChildren.slice(1)],
     };
-    const authorizationId = parseLinkedDeviceWalletSessionAuthorizationId(
-      String(metadata.authorizationId),
+    const walletSessions = buildWalletSessionRevocationTargets(
+      authorizationMetadata,
+      input.target.summary.deviceId,
     );
-    if (!authorizationId.ok) return { kind: 'conflict' };
     return {
       kind: 'prepared',
       plan: {
         target: input.target,
         aggregate,
-        walletSession: {
-          tenantId: metadata.tenantId,
-          deviceId: input.target.summary.deviceId,
-          authorizationId: authorizationId.value,
-          walletSessionId: metadata.walletSessionId,
-          quotaId: metadata.quotaId,
-        },
+        walletSessions,
         revocationEpoch: expectedEpoch + 1,
       },
     } satisfies { kind: 'prepared'; plan: LinkedDeviceRevocationPlanV1 };
   }
+}
+
+function buildWalletSessionRevocationTargets(
+  metadata: readonly D1LinkedDeviceWalletSessionAuthorizationMetadataV1[],
+  deviceId: LinkedDeviceId,
+): readonly [
+  LinkedDeviceWalletSessionRevocationTargetV1,
+  ...LinkedDeviceWalletSessionRevocationTargetV1[],
+] {
+  const targets: LinkedDeviceWalletSessionRevocationTargetV1[] = [];
+  const identities = new Set<string>();
+  for (const session of metadata) {
+    const identity = [
+      session.tenantId,
+      session.authorizationId,
+      session.walletSessionId,
+      session.quotaId,
+    ].join('\u0000');
+    if (identities.has(identity)) {
+      throw new Error('linked-device authorization metadata identity is duplicated');
+    }
+    identities.add(identity);
+    targets.push({
+      tenantId: session.tenantId,
+      deviceId,
+      authorizationId: session.authorizationId,
+      walletSessionId: session.walletSessionId,
+      quotaId: session.quotaId,
+    });
+  }
+  const first = targets[0];
+  if (!first) throw new Error('linked-device revocation requires a Wallet Session');
+  return [first, ...targets.slice(1)];
 }
 
 export class AuthorizationServiceLinkedDeviceWalletSessionRevocationV1 implements LinkedDeviceWalletSessionRevocationPortV1 {
