@@ -281,7 +281,6 @@ export async function signEvmFamily(
   };
   await deps.touchConfirm.openTransactionPreparationModal({
     walletLabel: String(args.walletSession.walletId),
-    chain: args.chainTarget.kind,
     confirmationConfigOverride: args.confirmationConfigOverride,
   });
   try {

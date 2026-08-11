@@ -44,9 +44,6 @@ export type {
   MountedConfirmUIHandle,
 } from './confirm-ui-types';
 
-const CONFIRM_STACK_CSS_VAR = '--w3a-confirm-stack-index';
-const MAX_STACK_DEPTH = 4;
-
 function roundConfirmUiDurationMs(startedAt: number): number {
   return Math.max(0, Math.round(performance.now() - startedAt));
 }
@@ -213,45 +210,33 @@ async function checkIntentDigestGuard(
 }
 
 function updateConfirmPortalState(portal: HTMLElement): void {
-  const children = Array.from(portal.children) as HTMLElement[];
-  const total = children.length;
-
-  // Topmost (last child) is depth=0; older/pending confirmers are offset progressively.
-  for (let i = 0; i < total; i++) {
-    const child = children[i];
-    const depth = Math.min(total - 1 - i, MAX_STACK_DEPTH);
-    try {
-      child.style.setProperty(CONFIRM_STACK_CSS_VAR, String(depth));
-    } catch {}
-  }
-
-  if (total > 0) {
+  if (portal.childElementCount > 0) {
     portal.classList.add('w3a-portal--visible');
   } else {
     portal.classList.remove('w3a-portal--visible');
   }
 }
 
-function cleanupExistingConfirmers(): void {
-  const portal = document.getElementById(W3A_CONFIRM_PORTAL_ID);
-  if (portal) {
-    // Concurrent requests intentionally stack confirmers in the same portal.
-    // Avoid auto-cancelling in-flight confirm UIs here.
-    return;
+function mountedConfirmerHosts(): HTMLElement[] {
+  const selector = CONFIRM_UI_ELEMENT_SELECTORS.join(',');
+  const hosts: HTMLElement[] = [];
+  for (const candidate of document.querySelectorAll<HTMLElement>(selector)) {
+    if (candidate.parentElement?.closest(selector)) continue;
+    hosts.push(candidate);
   }
+  return hosts;
+}
 
-  const selectors = CONFIRM_UI_ELEMENT_SELECTORS as readonly string[];
-  const elements = selectors.flatMap(
-    (selector) => Array.from(document.querySelectorAll(selector)) as HTMLElement[],
-  );
-
-  for (const element of elements) {
+function cleanupExistingConfirmers(): void {
+  for (const element of mountedConfirmerHosts()) {
     disconnectConfirmSurfaceMeasurementReporter(element);
     element.dispatchEvent(
       new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, { bubbles: true, composed: true }),
     );
     element.remove();
   }
+  const portal = document.getElementById(W3A_CONFIRM_PORTAL_ID) as HTMLElement | null;
+  if (portal) updateConfirmPortalState(portal);
 }
 
 function ensureConfirmPortal(): HTMLElement {
@@ -271,6 +256,12 @@ function removeHostConfirmerElement(element: HTMLElement): void {
   element.remove();
   const portal = document.getElementById(W3A_CONFIRM_PORTAL_ID) as HTMLElement | null;
   if (portal) updateConfirmPortalState(portal);
+}
+
+function postWalletUiClosedIfPortalEmpty(): void {
+  const portal = document.getElementById(W3A_CONFIRM_PORTAL_ID);
+  if ((portal?.childElementCount ?? 0) > 0) return;
+  postWalletUiMessage('WALLET_UI_CLOSED');
 }
 
 const DRAWER_CLOSE_FALLBACK_MS = 250;
@@ -950,24 +941,19 @@ function mountHostElement({
   applyConfirmSurfaceMode(element, ctx.surfaceMeasurementBinding);
 
   const portal = ensureConfirmPortal();
-  const wasEmpty = portal.childElementCount === 0;
-  portal.appendChild(element);
+  portal.replaceChildren(element);
   updateConfirmPortalState(portal);
 
   bindConfirmSurfaceMeasurementReporter(element, ctx.surfaceMeasurementBinding);
 
-  if (wasEmpty) {
-    portal.classList.remove('w3a-portal--visible');
-    requestAnimationFrame(() => {
-      portal.classList.add('w3a-portal--visible');
-    });
-  }
+  portal.classList.remove('w3a-portal--visible');
+  requestAnimationFrame(() => {
+    portal.classList.add('w3a-portal--visible');
+  });
 
   postWalletUiMessage('WALLET_UI_OPENED');
 
-  const handle = createHostConfirmHandle(ctx, element, () =>
-    postWalletUiMessage('WALLET_UI_CLOSED'),
-  );
+  const handle = createHostConfirmHandle(ctx, element, postWalletUiClosedIfPortalEmpty);
 
   return { el: element, handle };
 }
