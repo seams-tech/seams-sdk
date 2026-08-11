@@ -347,8 +347,10 @@ export async function buildR103TargetCredentialFixture(
   return { preparation, registration };
 }
 
-export async function buildR103ActiveExecutionFixture(): Promise<R103ActiveExecutionFixture> {
-  const base = buildR103DeviceLinkFixture();
+export async function buildR103ActiveExecutionFixture(
+  input: { readonly linkSessionId?: string } = {},
+): Promise<R103ActiveExecutionFixture> {
+  const base = buildR103DeviceLinkFixture(input);
   const provisioning = buildR103ProvisioningFixture(base);
   const manifestDigestB64u = parseDigestB64u(
     await computeLaneEnrollmentManifestDigestV1(provisioning.deliveries.manifest),
