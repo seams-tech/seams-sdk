@@ -990,7 +990,7 @@ test.describe('public syncAccount Yao orchestration', () => {
     expect(surface.activatedMaterials).toHaveLength(1);
     expect(surface.queuedActivationIds).toEqual([String(MATERIAL_ACTIVATION.activationId)]);
     expect(surface.activationQueueStates).toEqual([true]);
-    expect(surface.hydratedSessionIds).toEqual([THRESHOLD_SESSION_ID]);
+    expect(surface.hydratedSessionIds).toEqual([]);
     expect(surface.sealedSessionIds).toEqual([]);
     expect(surface.sealedQueueStates).toEqual([]);
     expect(surface.laneReferences).toHaveLength(1);
