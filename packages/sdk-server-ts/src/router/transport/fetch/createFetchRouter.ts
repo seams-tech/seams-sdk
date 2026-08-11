@@ -50,6 +50,10 @@ import {
   handleDeviceManagement,
   LINKED_DEVICE_MANAGEMENT_BASE_V1,
 } from './routes/deviceManagement';
+import {
+  handleDeviceLinkingGatewayCompletion,
+  LINKED_DEVICE_GATEWAY_COMPLETION_BASE_V1,
+} from './routes/deviceLinkingGateway';
 import { validateRouterApiRorOptions } from '../../framework/ror/provider';
 import { handleSigningSessionSealRoutes } from '../../../threshold/session/signingSessionSeal/transport/fetch';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../../framework/routerApi';
@@ -109,6 +113,21 @@ export function createFetchRouter(
   const handlers: Array<(c: FetchRouterApiContext) => Promise<Response | null>> = [
     handleWellKnown,
     handleWalletRegistration,
+    async (context: FetchRouterApiContext) => {
+      if (!context.pathname.startsWith(LINKED_DEVICE_GATEWAY_COMPLETION_BASE_V1)) return null;
+      const service = context.service.deviceLinkingGateway;
+      if (!service) {
+        return json(
+          {
+            ok: false,
+            code: 'not_supported',
+            message: 'Linked-device Gateway completion is not configured',
+          },
+          { status: 501 },
+        );
+      }
+      return await handleDeviceLinkingGatewayCompletion(context, service);
+    },
     handleDeviceLinking,
     async (context: FetchRouterApiContext) => {
       if (!context.pathname.startsWith(LINKED_DEVICE_MANAGEMENT_BASE_V1)) return null;

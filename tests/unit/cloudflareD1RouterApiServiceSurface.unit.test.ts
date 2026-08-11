@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
 import {
   parseOrgId,
   parseProviderSubject,
@@ -722,6 +723,36 @@ test('Cloudflare D1 Router API auth service has no Gateway-owned signing runtime
       relayerPublicKey: 'relay-public-key',
     });
     expect(withoutThreshold.thresholdRuntime.getRouterAbEcdsaPresignRuntime()).toBeNull();
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 R103 composition exposes linked admission and local presence ports', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    const rpId = requireParsedDomainId(parseWebAuthnRpId('example.test'));
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+      linkedDevice: {
+        execution: {
+          nowV1: () => 5_000,
+          rpId,
+          expectedOrigin: 'https://example.test',
+          logger: normalizeLogger(),
+        },
+      },
+    });
+
+    expect(service.linkedDeviceExecution).toBeDefined();
+    expect(service.linkedDeviceLocalPresence).toBeDefined();
+    expect(service.deviceLinking).toBeUndefined();
+    expect(service.deviceManagement).toBeUndefined();
+    expect(service.deviceLinkingGateway).toBeUndefined();
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

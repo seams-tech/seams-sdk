@@ -11,6 +11,8 @@ import {
 } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/deviceLinkingGateway';
 import { parseLinkedDeviceSessionRecordV1 } from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
 import type { FetchRouterApiContext } from '../../packages/sdk-server-ts/src/router/transport/fetch/fetchRouter.types';
+import type { RouterApiServiceBag } from '../../packages/sdk-server-ts/src/router/framework/authServicePort';
+import { createFetchRouter } from '../../packages/sdk-server-ts/src/router/transport/fetch/createFetchRouter';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 
 test('authenticates the Gateway before parsing completion JSON', async () => {
@@ -33,6 +35,31 @@ test('authenticates the Gateway before parsing completion JSON', async () => {
   expect(parsedBody).toBe(false);
 });
 
+test('mounts the private Gateway route and fails closed when it is omitted', async () => {
+  const path = `${LINKED_DEVICE_GATEWAY_COMPLETION_BASE_V1}/link-session:r103/commit`;
+  const request = new Request(`https://example.test${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{malformed',
+  });
+  const authDeniedService = completionService({
+    authenticateGatewayRequestV1: async () => ({
+      kind: 'denied' as const,
+      code: 'unauthorized' as const,
+      message: 'Gateway authentication is required',
+    }),
+  });
+  const configured = createFetchRouter(
+    { deviceLinkingGateway: authDeniedService } as unknown as RouterApiServiceBag,
+    {},
+    { kind: 'inline' },
+  );
+  await expect(configured(request)).resolves.toHaveProperty('status', 401);
+
+  const omitted = createFetchRouter({} as RouterApiServiceBag, {}, { kind: 'inline' });
+  await expect(omitted(request.clone())).resolves.toHaveProperty('status', 501);
+});
+
 test('replays committed completion without invoking a public device route', async () => {
   const fixture = buildR103DeviceLinkFixture();
   const records = await buildCompletionRecords(fixture);
@@ -42,7 +69,10 @@ test('replays committed completion without invoking a public device route', asyn
     sessionService: {
       markCommittedCompletionRequiredV1: async () => {
         calls += 1;
-        return { outcome: calls === 1 ? 'applied' as const : 'replayed' as const, record: records.committed };
+        return {
+          outcome: calls === 1 ? ('applied' as const) : ('replayed' as const),
+          record: records.committed,
+        };
       },
     },
   });
@@ -58,13 +88,21 @@ test('replays committed completion without invoking a public device route', asyn
     bodyText: body,
   });
   expect(first.status).toBe(200);
-  expect(await first.json()).toMatchObject({ ok: true, outcome: 'applied', state: { state: 'committed_completion_required' } });
+  expect(await first.json()).toMatchObject({
+    ok: true,
+    outcome: 'applied',
+    state: { state: 'committed_completion_required' },
+  });
   const replay = await invoke(service, {
     pathname: `${LINKED_DEVICE_GATEWAY_COMPLETION_BASE_V1}/${fixture.payload.linkSessionId}/commit`,
     bodyText: body,
   });
   expect(replay.status).toBe(200);
-  expect(await replay.json()).toMatchObject({ ok: true, outcome: 'replayed', state: { state: 'committed_completion_required' } });
+  expect(await replay.json()).toMatchObject({
+    ok: true,
+    outcome: 'replayed',
+    state: { state: 'committed_completion_required' },
+  });
   expect(calls).toBe(2);
 });
 
@@ -78,8 +116,12 @@ test('returns the exact aggregate receipt for activation and replay', async () =
     sessionService: {
       recordAggregateActivationV1: async ({ receipt }) => {
         calls += 1;
-        observedReceipt = receipt.orderedChildReceipts.length === fixture.receipt.orderedChildReceipts.length;
-        return { outcome: calls === 1 ? 'applied' as const : 'replayed' as const, record: records.active };
+        observedReceipt =
+          receipt.orderedChildReceipts.length === fixture.receipt.orderedChildReceipts.length;
+        return {
+          outcome: calls === 1 ? ('applied' as const) : ('replayed' as const),
+          record: records.active,
+        };
       },
     },
   });
@@ -126,7 +168,9 @@ function completionService(
     nowV1: () => 5_000,
     authenticateGatewayRequestV1: async ({ request, bodyDigestB64u, method, pathname }) => ({
       kind: 'authorized' as const,
-      body: parseBody ? (parseBody(), JSON.parse(await request.text())) : JSON.parse(await request.text()),
+      body: parseBody
+        ? (parseBody(), JSON.parse(await request.text()))
+        : JSON.parse(await request.text()),
       binding: {
         kind: 'linked_device_gateway_request_binding_v1' as const,
         method: method as 'POST',

@@ -144,12 +144,35 @@ import {
   type NormalizedCloudflareD1RouterApiAuthServiceOptions,
 } from './d1RouterApiAuthConfig';
 import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../../../domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
+import { createD1LinkedDeviceRouteServiceV1 } from '../deviceLinking/d1LinkedDeviceRouteService';
+import { createD1LinkedDeviceManagementRouteServiceV1 } from '../deviceLinking/d1LinkedDeviceManagementRouteService';
+import {
+  D1LinkedDeviceRevocationPreparationV1,
+  D1LinkedDeviceWalletSessionAuthorizationMetadataSourceV1,
+} from '../deviceLinking/d1LinkedDeviceManagementComposition';
+import { createD1LinkedDeviceGatewayCompletionServiceV1 } from '../deviceLinking/d1LinkedDeviceGatewayCompletionService';
+import {
+  D1LinkedDeviceTargetCredentialProviderV1,
+  LinkedDeviceWebAuthnRegistrationVerifierV1,
+} from '../deviceLinking/d1LinkedDeviceTargetCredentialProvider';
+import { D1LinkedDeviceProvisioningProviderV1 } from '../deviceLinking/d1LinkedDeviceProvisioningProvider';
+import {
+  createD1LinkedDeviceCredentialResolverV1,
+  createD1LinkedDeviceLocalPresenceVerifierV1,
+} from '../deviceLinking/d1LinkedDeviceTargetAuthenticatorStore';
+import { D1LinkedDeviceExecutionAdmissionResolverV1 } from '../deviceLinking/d1LinkedDeviceExecutionAdmissionResolver';
+import { CloudflareD1LaneLifecycleStore } from '../signingLanes/d1LaneLifecycleStore';
 
 export type {
   CloudflareD1EmailOtpDeliveryProvider,
   CloudflareD1EmailOtpDeliveryProviderInput,
   CloudflareD1EmailOtpDeliveryProviderResult,
   CloudflareD1EmailOtpServerSealConfig,
+  CloudflareD1LinkedDeviceCompositionOptionsV1,
+  CloudflareD1LinkedDeviceExecutionOptionsV1,
+  CloudflareD1LinkedDeviceSessionOptionsV1,
+  CloudflareD1LinkedDeviceManagementOptionsV1,
+  CloudflareD1LinkedDeviceGatewayOptionsV1,
   CloudflareD1RouterApiAuthServiceOptions,
 } from './d1RouterApiAuthConfig';
 
@@ -215,6 +238,11 @@ type CloudflareD1RouterApiAuthAssembly = {
      authenticators WebAuthn registration wrote. A second store here would let
      a credential be active for one and unknown to the other. */
   readonly webAuthnStore: CloudflareD1WebAuthnStore;
+  readonly deviceLinking?: RouterApiServiceBag['deviceLinking'];
+  readonly deviceManagement?: RouterApiServiceBag['deviceManagement'];
+  readonly linkedDeviceExecution?: RouterApiServiceBag['linkedDeviceExecution'];
+  readonly linkedDeviceLocalPresence?: RouterApiServiceBag['linkedDeviceLocalPresence'];
+  readonly deviceLinkingGateway?: RouterApiServiceBag['deviceLinkingGateway'];
 };
 
 type D1WalletRegistrationRouteServiceAssembly = Pick<
@@ -277,6 +305,132 @@ type D1RecoveryRouteServiceAssembly = Pick<CloudflareD1RouterApiAuthAssembly, 's
 type D1EmailRecoveryAuthServiceAssembly = Pick<CloudflareD1RouterApiAuthAssembly, 'options'>;
 
 type D1RouterAccountRouteServiceAssembly = Pick<CloudflareD1RouterApiAuthAssembly, 'options'>;
+
+type D1LinkedDeviceCompositionAssembly = Pick<
+  CloudflareD1RouterApiAuthAssembly,
+  | 'deviceLinking'
+  | 'deviceManagement'
+  | 'linkedDeviceExecution'
+  | 'linkedDeviceLocalPresence'
+  | 'deviceLinkingGateway'
+>;
+
+function createD1LinkedDeviceComposition(input: {
+  readonly options: NormalizedCloudflareD1RouterApiAuthServiceOptions;
+  readonly authorization: Pick<
+    CloudflareD1AuthorizationStore,
+    'readLinkedDeviceWalletSessionAuthorization'
+  >;
+}): D1LinkedDeviceCompositionAssembly {
+  const config = input.options.linkedDevice;
+  if (!config) return {};
+
+  const scope = {
+    namespace: input.options.namespace,
+    orgId: input.options.orgId,
+    projectId: input.options.projectId,
+    envId: input.options.envId,
+  };
+  const credentials = createD1LinkedDeviceCredentialResolverV1({
+    database: input.options.database,
+    scope,
+  });
+  const linkedDeviceExecution = new D1LinkedDeviceExecutionAdmissionResolverV1({
+    database: input.options.database,
+    scope,
+    authorization: input.authorization,
+    credentials,
+    nowV1: config.execution.nowV1,
+  });
+  const linkedDeviceLocalPresence = createD1LinkedDeviceLocalPresenceVerifierV1({
+    database: input.options.database,
+    scope,
+    rpId: config.execution.rpId,
+    expectedOrigin: config.execution.expectedOrigin,
+    logger: config.execution.logger,
+    nowMs: config.execution.nowV1,
+  });
+
+  let deviceLinking: RouterApiServiceBag['deviceLinking'];
+  let deviceManagement: RouterApiServiceBag['deviceManagement'];
+  if (config.session) {
+    const targetCredential = new D1LinkedDeviceTargetCredentialProviderV1({
+      database: input.options.database,
+      scope,
+      preparationSource: config.session.targetPreparationSource,
+      verifier: new LinkedDeviceWebAuthnRegistrationVerifierV1({
+        expectedOrigin: config.execution.expectedOrigin,
+      }),
+      committer: config.session.targetCommitter,
+    });
+    const provisioning = new D1LinkedDeviceProvisioningProviderV1({
+      database: input.options.database,
+      scope,
+      execution: config.session.provisioningExecution,
+    });
+    deviceLinking = createD1LinkedDeviceRouteServiceV1({
+      database: input.options.database,
+      scope,
+      ownerAuthorization: config.session.ownerAuthorization,
+      authenticateOwnerRequestV1: config.session.authenticateOwnerRequestV1,
+      targetCredential,
+      acknowledgeReceiptV1: config.session.acknowledgeReceiptV1,
+      retryCommittedDeliveryV1: config.session.retryCommittedDeliveryV1,
+      provisioning,
+      nowV1: config.execution.nowV1,
+    });
+  }
+
+  if (config.management) {
+    const sessionConfig = config.session;
+    if (!deviceLinking || !sessionConfig) {
+      throw new Error('linked-device management requires linked-device session composition');
+    }
+    const metadataSource = new D1LinkedDeviceWalletSessionAuthorizationMetadataSourceV1({
+      database: input.options.database,
+      scope,
+    });
+    const preparation = new D1LinkedDeviceRevocationPreparationV1(metadataSource);
+    deviceManagement = createD1LinkedDeviceManagementRouteServiceV1({
+      database: input.options.database,
+      scope,
+      sessionService: deviceLinking.sessionService,
+      metadata: config.management.metadata,
+      authorization: config.management.authorization,
+      preparation,
+      aggregateRevocation: config.management.aggregateRevocation,
+      walletSessionRevocation: config.management.walletSessionRevocation,
+      localStateInvalidation: config.management.localStateInvalidation,
+      nowV1: config.execution.nowV1,
+      authenticateOwnerRequestV1: sessionConfig.authenticateOwnerRequestV1,
+    });
+  }
+
+  let deviceLinkingGateway: RouterApiServiceBag['deviceLinkingGateway'];
+  if (config.gateway) {
+    const laneLifecycle = new CloudflareD1LaneLifecycleStore({
+      database: input.options.database,
+      scope,
+      now: config.execution.nowV1,
+    });
+    deviceLinkingGateway = createD1LinkedDeviceGatewayCompletionServiceV1({
+      database: input.options.database,
+      scope,
+      ownerAuthorization: config.gateway.ownerAuthorization,
+      laneLifecycle,
+      nowV1: config.execution.nowV1,
+      authenticateGatewayRequestV1: config.gateway.authenticateGatewayRequestV1,
+    });
+  }
+
+  return {
+    linkedDeviceExecution,
+    linkedDeviceLocalPresence,
+    ...(deviceLinking === undefined ? {} : { deviceLinking }),
+    ...(deviceManagement === undefined ? {} : { deviceManagement }),
+    ...(deviceLinkingGateway === undefined ? {} : { deviceLinkingGateway }),
+  };
+}
 
 class CloudflareD1SignedDelegateExecutor {
   private signerWasmState: SignerWasmRuntimeState = { signerWasmReady: false };
@@ -1384,6 +1538,10 @@ function createCloudflareD1RouterApiAuthAssembly(
     envId: options.envId,
   });
   const webAuthnAuthService = new CloudflareD1WebAuthnAuthService({ webAuthnStore });
+  const linkedDeviceComposition = createD1LinkedDeviceComposition({
+    options,
+    authorization: authorizationStore,
+  });
   const emailOtpChallenges = new CloudflareD1EmailOtpChallengeStore({
     database: options.database,
     namespace: options.namespace,
@@ -1556,6 +1714,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     passkeyCustodyEnvelopes,
     walletCustodyCommitStore,
     webAuthnStore,
+    ...linkedDeviceComposition,
   };
 }
 
@@ -2027,6 +2186,19 @@ export function createCloudflareD1RouterApiAuthService(
     executeSignedDelegate: assembly.signedDelegateExecutor.execute.bind(
       assembly.signedDelegateExecutor,
     ),
+    ...(assembly.deviceLinking === undefined ? {} : { deviceLinking: assembly.deviceLinking }),
+    ...(assembly.deviceManagement === undefined
+      ? {}
+      : { deviceManagement: assembly.deviceManagement }),
+    ...(assembly.linkedDeviceExecution === undefined
+      ? {}
+      : { linkedDeviceExecution: assembly.linkedDeviceExecution }),
+    ...(assembly.linkedDeviceLocalPresence === undefined
+      ? {}
+      : { linkedDeviceLocalPresence: assembly.linkedDeviceLocalPresence }),
+    ...(assembly.deviceLinkingGateway === undefined
+      ? {}
+      : { deviceLinkingGateway: assembly.deviceLinkingGateway }),
   };
 }
 
