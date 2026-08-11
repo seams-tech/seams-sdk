@@ -533,7 +533,7 @@ material activation remain intact.
 - [ ] Refactor 101 wallet-key and linked-device lane records pass.
 - [x] Refactor 102 target-lane protocols and aggregate activation pass.
 - [x] Aggregate receipt, crash-recovery, and revocation stores exist.
-- [ ] Yao production remains gated exactly as documented.
+- [x] Yao production remains gated exactly as documented.
 
 ### Phase 1: Session And Claim
 
@@ -543,24 +543,24 @@ material activation remain intact.
 
 ### Phase 2: Device Credential And Provisioning
 
-- [ ] Create Device 2 passkey only after claim.
-- [ ] Provision exact Ed25519 and ECDSA child lanes.
+- [x] Create Device 2 passkey only after claim.
+- [x] Provision exact Ed25519 and ECDSA child lanes.
 - [x] Require child and aggregate receipts.
-- [ ] Resume committed delivery safely after transport or process failure.
+- [x] Resume committed delivery safely after transport or process failure.
 
 ### Phase 3: Signing And Revocation
 
-- [ ] Mint linked-device Wallet Session authorizations and their quotas.
-- [ ] Bind each admission to one `AuthorizedOperationId` and exact material
+- [x] Mint linked-device Wallet Session authorizations and their quotas.
+- [x] Bind each admission to one `AuthorizedOperationId` and exact material
       activation reference.
-- [ ] Require local user presence for every signature.
+- [x] Require local user presence for every signature.
 - [ ] Route each key family through its normal signing path.
-- [ ] Implement immediate aggregate revocation.
+- [x] Implement immediate aggregate revocation.
 - [ ] Prove owner and unrelated device lanes remain available.
 
 ### Phase 4: Product Completion
 
-- [ ] Add device management and activity views.
+- [x] Add device management and activity summary views.
 - [ ] Add refresh and compromise cleanup flows.
 - [ ] Add operator recovery for committed delivery that cannot complete on the
       original link session.
