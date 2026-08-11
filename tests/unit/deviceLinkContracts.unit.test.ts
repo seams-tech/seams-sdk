@@ -37,60 +37,7 @@ import {
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
 } from '../../packages/shared-ts/src/utils/domainIds';
-import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
-import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '../../packages/shared-ts/src/utils/sessionTokens';
-
-function buildUnsignedJwt(payload: Readonly<Record<string, unknown>>): string {
-  const header = base64UrlEncode(
-    new TextEncoder().encode(JSON.stringify({ alg: 'EdDSA', typ: 'JWT' })),
-  );
-  const body = base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
-  return `${header}.${body}.signature`;
-}
-
-function buildLinkedWalletSessionDeliveryFixture(
-  fixture: ReturnType<typeof buildR103DeviceLinkFixture>,
-) {
-  const binding = fixture.approval.orderedKeyBindings[0];
-  if (!binding) throw new Error('R103 approval fixture has no key binding');
-  const issuedAtMs = fixture.receipt.activatedAtMs;
-  const expiresAtMs = issuedAtMs + 86_400_000;
-  const identity = {
-    tenantId: 'tenant-r103-delivery',
-    walletId: fixture.approval.walletId,
-    enrollmentId: fixture.approval.enrollmentId,
-    deviceId: fixture.approval.deviceId,
-    authorizationId: 'linked-authorization-r103-delivery',
-    walletSessionId: 'linked-wallet-session-r103-delivery',
-    quotaId: 'linked-quota-r103-delivery',
-    keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
-    permission: fixture.approval.permission,
-    revocationEpoch: binding.sourceRevocationEpoch,
-    issuedAtMs,
-    expiresAtMs,
-  };
-  const walletSessionJwt = buildUnsignedJwt({
-    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-    authorizationKind: 'linked_device_wallet_session',
-    sub: `linked-device:${fixture.approval.deviceId}`,
-    ...identity,
-    walletKeyId: binding.walletKeyId,
-    iat: Math.floor(issuedAtMs / 1_000),
-    exp: Math.floor(expiresAtMs / 1_000),
-  });
-  return {
-    kind: 'linked_device_wallet_session_delivery_v1',
-    ...identity,
-    orderedTokens: [
-      {
-        kind: 'linked_device_wallet_session_token_v1',
-        walletKeyId: binding.walletKeyId,
-        keyFamily: binding.keyFamily,
-        walletSessionJwt,
-      },
-    ],
-  };
-}
+import { buildR103LinkedWalletSessionDeliveryFixture } from './helpers/deviceLinkContracts.fixtures';
 
 test.describe('R103 shared linked-device contracts', () => {
   test('round-trips QR, approval, transcript, and receipt projections through strict parsers', async () => {
@@ -241,7 +188,7 @@ test.describe('R103 shared linked-device contracts', () => {
 
   test('binds each delivered Wallet Session JWT to the linked device and approved key', () => {
     const fixture = buildR103DeviceLinkFixture();
-    const delivery = buildLinkedWalletSessionDeliveryFixture(fixture);
+    const delivery = buildR103LinkedWalletSessionDeliveryFixture(fixture);
 
     expect(parseLinkedDeviceWalletSessionDeliveryV1(delivery)).toEqual(delivery);
     expect(() =>
