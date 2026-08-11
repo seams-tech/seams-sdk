@@ -253,11 +253,16 @@ export type DeviceLinkingLaneProvisioningPortV1 = {
   }): Promise<LinkedDeviceEnrollmentReceiptV1>;
 };
 
+export type DeviceLinkingWalletSessionStorePortV1 = {
+  putExactActiveDeliveryV1(delivery: LinkedDeviceWalletSessionDeliveryV1): Promise<void>;
+};
+
 export type Device2LinkingFlowPortsV1 = {
   readonly transport: LinkSessionTransportPortV1;
   readonly keyMaterial: DeviceLinkingKeyMaterialPortV1;
   readonly targetCredential: DeviceLinkingTargetCredentialPortV1;
   readonly laneProvisioning: DeviceLinkingLaneProvisioningPortV1;
+  readonly walletSessions: DeviceLinkingWalletSessionStorePortV1;
 };
 
 export type Device1LinkingFlowPortsV1 = {

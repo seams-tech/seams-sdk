@@ -3,6 +3,7 @@ import type { AuthenticatorPort } from '../../packages/sdk-web/src/core/platform
 import type { HttpTransport } from '../../packages/sdk-web/src/core/platform/http';
 import type { LaneOperationSourcePortsV1 } from '../../packages/sdk-web/src/core/signingEngine/session/lanes/operations/ports';
 import type { LaneSealedHolderMaterialRepositoryV1 } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
+import type { LinkedDeviceWalletSessionRepositoryV1 } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
 import {
   createDeviceLinkingFlowPortsV1,
   type DeviceLinkingFlowPortsAssemblyOptionsV1,
@@ -58,6 +59,15 @@ function repository(): LaneSealedHolderMaterialRepositoryV1 {
   };
 }
 
+function walletSessionRepository(): Pick<
+  LinkedDeviceWalletSessionRepositoryV1,
+  'putExactActiveDeliveryV1'
+> {
+  return {
+    putExactActiveDeliveryV1: unsupported,
+  };
+}
+
 function ownerAuthorization(): DeviceLinkingOwnerAuthorizationPortV1 {
   return { authenticateOwnerForLinkingV1: unsupported };
 }
@@ -87,6 +97,7 @@ function assemblyOptions(): DeviceLinkingFlowPortsAssemblyOptionsV1 {
     ownerApprovalUpdates: approvalUpdates(),
     ownerAuthorization: ownerAuthorization(),
     repository: repository(),
+    walletSessionRepository: walletSessionRepository(),
     sourceLanePorts: sourceLanePorts(),
     workerEndpoint: new IdleWorkerEndpoint(),
     nowMs: () => 1,
@@ -101,6 +112,7 @@ test('composes direct device-linking ports only from explicit trust-boundary pro
   expect(ports.keyMaterial).toBeDefined();
   expect(ports.targetCredential).toBeDefined();
   expect(ports.laneProvisioning).toBeDefined();
+  expect(ports.walletSessions).toBeDefined();
   expect(ports.sourcePreparation).toBeDefined();
   expect(JSON.stringify(ports)).not.toContain('privateKey');
   expect(JSON.stringify(ports)).not.toContain('prf');
