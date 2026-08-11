@@ -24,7 +24,12 @@ function main() {
   const lane = readBackendLane(options.lane);
   const deployment = requireProvisionedGatewayDeploymentConfig(options.lane, lane.provisioning);
   assertNearRelayerSecretConsistency(deployment.optional.nearRelayer);
-  const config = buildConfig(deployment, lane.emailOtpDelivery, process.cwd());
+  const config = buildConfig(
+    deployment,
+    lane.emailOtpDelivery,
+    lane.site.docsOrigin,
+    process.cwd(),
+  );
   writePrivateJson(options.output, config);
   process.stdout.write(`${path.resolve(process.cwd(), options.output)}\n`);
 }
@@ -76,12 +81,12 @@ function writePrivateJson(relativePath, value) {
   fs.writeFileSync(outputPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
 }
 
-function buildConfig(deployment, emailOtpDelivery, packageRoot) {
+function buildConfig(deployment, emailOtpDelivery, docsOrigin, packageRoot) {
   const resources = deployment.resources;
   if (resources.consoleD1.id === resources.signerD1.id) {
     throw new Error('resources.consoleD1.id and resources.signerD1.id must be different');
   }
-  const vars = buildWorkerVars(deployment, emailOtpDelivery);
+  const vars = buildWorkerVars(deployment, emailOtpDelivery, docsOrigin);
   return {
     name: resources.workerName,
     main: path.join(packageRoot, 'src/router/cloudflare/d1RouterApiWorker.ts'),
@@ -134,7 +139,7 @@ function buildConfig(deployment, emailOtpDelivery, packageRoot) {
   };
 }
 
-function buildWorkerVars(deployment, emailOtpDelivery) {
+function buildWorkerVars(deployment, emailOtpDelivery, docsOrigin) {
   const production = deployment.lane !== 'staging-testnet';
   const implicitNearTestFunding =
     deployment.runtimeProfile.nearFunding.kind === 'implicit_account_relayer';
@@ -191,12 +196,25 @@ function buildWorkerVars(deployment, emailOtpDelivery) {
       buildStaticSponsoredExecutionPricingConfig(deployment.runtimeProfile),
     ),
   };
+  if (production) {
+    if (emailOtpDelivery.kind === 'demo_code_response') {
+      throw new Error('Production transactional email requires a configured email provider');
+    }
+    vars.CONSOLE_DOCS_BASE_URL = docsOrigin;
+    vars.CONSOLE_EMAIL_RUNTIME_PROFILE = 'PRODUCTION';
+    vars.CONSOLE_EMAIL_PROVIDER = 'RESEND';
+    vars.CONSOLE_EMAIL_FROM = `Seams <${emailOtpDelivery.provider.fromAddress}>`;
+    vars.CONSOLE_EMAIL_CRON_EXPRESSIONS = '* * * * *';
+  }
   if (demoEmailOtpDelivery) {
     vars.EMAIL_OTP_DEMO_ALLOWED_ORIGINS = deployment.origins.allowedCors.join(',');
   }
   if (emailOtpDelivery.kind !== 'demo_code_response') {
-    vars.EMAIL_OTP_SES_REGION = emailOtpDelivery.region;
-    vars.EMAIL_OTP_SES_FROM_ADDRESS = emailOtpDelivery.fromAddress;
+    vars.EMAIL_OTP_PROVIDER = emailOtpDelivery.provider.kind;
+    vars.EMAIL_OTP_FROM_ADDRESS = emailOtpDelivery.provider.fromAddress;
+    if (emailOtpDelivery.provider.kind === 'amazon_ses') {
+      vars.EMAIL_OTP_SES_REGION = emailOtpDelivery.provider.region;
+    }
   }
   addNearRelayerVars(vars, deployment.optional.nearRelayer);
   addOptionalStringVar(vars, 'GOOGLE_OIDC_CLIENT_ID', deployment.optional.googleOidcClientId);

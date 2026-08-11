@@ -1,4 +1,5 @@
 export type {
+  AccountWelcomeEmailV1,
   BillingRefundResultEmailV1,
   CapturedConsoleEmail,
   CaptureConsoleEmailProvider,
@@ -28,6 +29,7 @@ export type {
 } from './types';
 
 export type {
+  AccountWelcomeEmailV1Input,
   BillingRefundResultEmailV1Input,
   LowBalanceWarningEmailV1Input,
   MembershipAccessChangedEmailV1Input,
@@ -36,6 +38,7 @@ export type {
   PrepaidTopUpReceiptEmailV1Input,
 } from './templates';
 export {
+  buildAccountWelcomeEmailV1,
   buildBillingRefundResultEmailV1,
   buildLowBalanceWarningEmailV1,
   buildMembershipAccessChangedEmailV1,

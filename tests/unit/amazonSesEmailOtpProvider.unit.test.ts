@@ -4,10 +4,10 @@ import type { CloudflareD1EmailOtpDeliveryProviderInput } from '../../packages/s
 import {
   createAmazonSesEmailOtpDeliveryProvider,
   parseAmazonSesEmailOtpProviderConfig,
-  renderEmailOtpMessage,
-  resolveAmazonSesEmailOtpDeliveryProviderFromEnv,
   type AmazonSesEmailOtpClient,
 } from '../../packages/console-server-ts/src/email/otp/amazonSesEmailOtpProvider';
+import { renderEmailOtpMessage } from '../../packages/console-server-ts/src/email/otp/emailOtpDeliveryAdapter';
+import { resolveEmailOtpDeliveryProviderFromEnv } from '../../packages/console-server-ts/src/email/otp/emailOtpProviders';
 
 const SES_CONFIG = {
   region: 'ap-southeast-2',
@@ -55,7 +55,7 @@ test('Amazon SES Email OTP configuration parses required Worker environment valu
   expect(
     parseAmazonSesEmailOtpProviderConfig({
       EMAIL_OTP_SES_REGION: ' ap-southeast-2 ',
-      EMAIL_OTP_SES_FROM_ADDRESS: ' CONFIRM@SEAMS.SH ',
+      EMAIL_OTP_FROM_ADDRESS: ' CONFIRM@SEAMS.SH ',
       EMAIL_OTP_SES_ACCESS_KEY_ID: ' access-key ',
       EMAIL_OTP_SES_SECRET_ACCESS_KEY: ' secret-key ',
     }),
@@ -67,16 +67,17 @@ test('Amazon SES Email OTP configuration parses required Worker environment valu
   });
 });
 
-test('Amazon SES Email OTP provider is required only by provider delivery modes', () => {
+test('Email OTP provider selection is required only by provider delivery modes', () => {
   expect(
-    resolveAmazonSesEmailOtpDeliveryProviderFromEnv({
+    resolveEmailOtpDeliveryProviderFromEnv({
       EMAIL_OTP_DELIVERY_MODE: 'demo_code_response',
     }),
   ).toBeUndefined();
 
   expect(() =>
-    resolveAmazonSesEmailOtpDeliveryProviderFromEnv({
+    resolveEmailOtpDeliveryProviderFromEnv({
       EMAIL_OTP_DELIVERY_MODE: 'email_provider',
+      EMAIL_OTP_PROVIDER: 'amazon_ses',
     }),
   ).toThrow('EMAIL_OTP_SES_REGION is required for Amazon SES Email OTP delivery');
 });
