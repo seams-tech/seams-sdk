@@ -39,12 +39,27 @@ import {
   type WebAuthnCredentialIdB64u,
 } from '../utils/domainIds';
 import { parseDigestB64u, type DigestB64u } from '../utils/canonicalPrimitives';
+import {
+  parseLaneHolderPackageWireV1,
+  parseLaneHolderDeliveryReceiptV1,
+  parseLaneProtocolCommitReceiptV1,
+  parseRotatableSigningLaneJobV1,
+} from '../signing-lanes/rotationParsers';
+import type {
+  LaneProtocolCommitReceiptV1,
+  RotatableSigningLaneJobV1,
+} from '../signing-lanes/rotation';
 import { base64UrlDecode, base64UrlEncode } from '../utils/base64';
 import { parseUnixMs, requireRecord, rejectUnknownFields } from '../passkey-custody/primitives';
 import {
   assertNeverLinkedDeviceSessionState,
   type LinkedDeviceApprovalV1,
+  type LinkedDeviceApprovalDeliveryV1,
   type LinkedDeviceApprovalResultV1,
+  type LinkedDeviceProvisioningChildV1,
+  type LinkedDeviceProvisioningCommandV1,
+  type LinkedDeviceProvisioningDeliveriesV1,
+  type LinkedDeviceHolderDeliveryAcknowledgementV1,
   type LinkedDeviceEnrollmentChildReceiptV1,
   type LinkedDeviceEnrollmentKeyBindingV1,
   type LinkedDeviceEnrollmentReceiptV1,
@@ -125,6 +140,30 @@ const ENROLLMENT_FIELDS = [
   'protocolVersions',
   'approvedAtMs',
   'expiresAtMs',
+] as const;
+const PROVISIONING_COMMAND_FIELDS = ['kind', 'linkSessionId', 'enrollmentId', 'deviceId'] as const;
+const PROVISIONING_DELIVERIES_FIELDS = [
+  'kind',
+  'linkSessionId',
+  'enrollmentId',
+  'deviceId',
+  'orderedChildren',
+] as const;
+const PROVISIONING_CHILD_FIELDS = [
+  'kind',
+  'job',
+  'protocolCommitReceipt',
+  'holderPackage',
+  'expectedVersion',
+] as const;
+const APPROVAL_DELIVERY_FIELDS = ['kind', 'approval'] as const;
+const HOLDER_DELIVERY_ACK_FIELDS = [
+  'kind',
+  'linkSessionId',
+  'enrollmentId',
+  'deviceId',
+  'orderedHolderDeliveryReceipts',
+  'acknowledgedAtMs',
 ] as const;
 const CHILD_RECEIPT_FIELDS = [
   'kind',
@@ -1054,6 +1093,252 @@ export function parseLinkedDeviceApprovalV1(raw: unknown): LinkedDeviceApprovalV
   };
 }
 
+export function parseLinkedDeviceApprovalDeliveryV1(raw: unknown): LinkedDeviceApprovalDeliveryV1 {
+  const record = exactRecord(raw, APPROVAL_DELIVERY_FIELDS, 'LinkedDeviceApprovalDeliveryV1');
+  if (record.kind !== 'linked_device_approval_delivery_v1') {
+    throw new Error('LinkedDeviceApprovalDeliveryV1.kind is invalid');
+  }
+  return {
+    kind: 'linked_device_approval_delivery_v1',
+    approval: parseLinkedDeviceApprovalV1(record.approval),
+  };
+}
+
+export function parseLinkedDeviceProvisioningCommandV1(
+  raw: unknown,
+): LinkedDeviceProvisioningCommandV1 {
+  const record = exactRecord(raw, PROVISIONING_COMMAND_FIELDS, 'LinkedDeviceProvisioningCommandV1');
+  if (record.kind !== 'linked_device_provisioning_command_v1') {
+    throw new Error('LinkedDeviceProvisioningCommandV1.kind is invalid');
+  }
+  return {
+    kind: 'linked_device_provisioning_command_v1',
+    linkSessionId: parseSessionId(
+      record.linkSessionId,
+      'LinkedDeviceProvisioningCommandV1.linkSessionId',
+    ),
+    enrollmentId: parseEnrollmentId(
+      record.enrollmentId,
+      'LinkedDeviceProvisioningCommandV1.enrollmentId',
+    ),
+    deviceId: parseDeviceId(record.deviceId, 'LinkedDeviceProvisioningCommandV1.deviceId'),
+  };
+}
+
+export function buildLinkedDeviceProvisioningCommandV1(args: {
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
+}): LinkedDeviceProvisioningCommandV1 {
+  return {
+    kind: 'linked_device_provisioning_command_v1',
+    linkSessionId: args.linkSessionId,
+    enrollmentId: args.enrollmentId,
+    deviceId: args.deviceId,
+  };
+}
+
+function parseProvisioningChild(raw: unknown, index: number): LinkedDeviceProvisioningChildV1 {
+  const label = `LinkedDeviceProvisioningDeliveriesV1.orderedChildren[${index}]`;
+  const record = exactRecord(raw, PROVISIONING_CHILD_FIELDS, label);
+  if (record.kind !== 'linked_device_provisioning_child_v1') {
+    throw new Error(`${label}.kind is invalid`);
+  }
+  if (!Number.isSafeInteger(record.expectedVersion) || Number(record.expectedVersion) < 0) {
+    throw new Error(`${label}.expectedVersion must be a non-negative safe integer`);
+  }
+  const job = parseRotatableSigningLaneJobV1(record.job, `${label}.job`);
+  const protocolCommitReceipt = parseLaneProtocolCommitReceiptV1(
+    record.protocolCommitReceipt,
+    `${label}.protocolCommitReceipt`,
+  );
+  if (
+    String(job.operationId) !== String(protocolCommitReceipt.operationId) ||
+    String(job.enrollmentId) !== String(protocolCommitReceipt.enrollmentId) ||
+    String(job.walletId) !== String(protocolCommitReceipt.walletId) ||
+    String(job.walletKeyId) !== String(protocolCommitReceipt.walletKeyId) ||
+    String(job.source.laneId) !== String(protocolCommitReceipt.sourceLaneId) ||
+    String(job.source.laneShareEpoch) !== String(protocolCommitReceipt.sourceLaneShareEpoch) ||
+    String(job.source.revocationEpoch) !== String(protocolCommitReceipt.sourceRevocationEpoch) ||
+    !sameMaterialActivationRef(
+      job.source.materialActivation,
+      protocolCommitReceipt.sourceMaterialActivation,
+    ) ||
+    String(job.target.laneId) !== String(protocolCommitReceipt.targetLaneId) ||
+    String(job.target.laneShareEpoch) !== String(protocolCommitReceipt.targetLaneShareEpoch) ||
+    String(job.targetMaterialActivationId) !==
+      String(protocolCommitReceipt.targetMaterialActivationId) ||
+    String(job.targetHolder.hpkePublicKeyDigestB64u) !==
+      String(protocolCommitReceipt.holderRecipientKeyDigestB64u) ||
+    String(job.targetSigningWorker.hpkePublicKeyDigestB64u) !==
+      String(protocolCommitReceipt.serverRecipientKeyDigestB64u) ||
+    job.keyFamily !== protocolCommitReceipt.keyFamily
+  ) {
+    throw new Error(`${label} protocol receipt does not match its job`);
+  }
+  const holderPackage = parseLaneHolderPackageWireV1(
+    record.holderPackage,
+    `${label}.holderPackage`,
+  );
+  if (
+    (job.keyFamily === 'ed25519' &&
+      holderPackage.kind !== 'ed25519_yao_lane_holder_package_set_v1') ||
+    (job.keyFamily === 'ecdsa_secp256k1' &&
+      holderPackage.kind !== 'ecdsa_additive_lane_holder_package_v1')
+  ) {
+    throw new Error(`${label} holder package curve does not match its job`);
+  }
+  return {
+    kind: 'linked_device_provisioning_child_v1',
+    job,
+    protocolCommitReceipt,
+    holderPackage,
+    expectedVersion: Number(record.expectedVersion),
+  };
+}
+
+function sameMaterialActivationRef(
+  left: RotatableSigningLaneJobV1['source']['materialActivation'],
+  right: LaneProtocolCommitReceiptV1['sourceMaterialActivation'],
+): boolean {
+  return (
+    String(left.activationId) === String(right.activationId) &&
+    String(left.capability) === String(right.capability) &&
+    String(left.materialOwner) === String(right.materialOwner) &&
+    String(left.keyBinding) === String(right.keyBinding) &&
+    String(left.lifecycleBinding) === String(right.lifecycleBinding) &&
+    String(left.signingWorker) === String(right.signingWorker)
+  );
+}
+
+export function parseLinkedDeviceProvisioningDeliveriesV1(
+  raw: unknown,
+): LinkedDeviceProvisioningDeliveriesV1 {
+  const record = exactRecord(
+    raw,
+    PROVISIONING_DELIVERIES_FIELDS,
+    'LinkedDeviceProvisioningDeliveriesV1',
+  );
+  if (record.kind !== 'linked_device_provisioning_deliveries_v1') {
+    throw new Error('LinkedDeviceProvisioningDeliveriesV1.kind is invalid');
+  }
+  if (!Array.isArray(record.orderedChildren)) {
+    throw new Error('LinkedDeviceProvisioningDeliveriesV1.orderedChildren must be an array');
+  }
+  const orderedChildren = nonEmptyTuple(
+    record.orderedChildren.map((entry, index) => parseProvisioningChild(entry, index)),
+    'LinkedDeviceProvisioningDeliveriesV1.orderedChildren',
+  );
+  const linkSessionId = parseSessionId(
+    record.linkSessionId,
+    'LinkedDeviceProvisioningDeliveriesV1.linkSessionId',
+  );
+  const enrollmentId = parseEnrollmentId(
+    record.enrollmentId,
+    'LinkedDeviceProvisioningDeliveriesV1.enrollmentId',
+  );
+  const deviceId = parseDeviceId(record.deviceId, 'LinkedDeviceProvisioningDeliveriesV1.deviceId');
+  const targetLanes = new Set<string>();
+  for (const child of orderedChildren) {
+    if (String(child.job.enrollmentId) !== String(enrollmentId)) {
+      throw new Error(
+        'LinkedDeviceProvisioningDeliveriesV1 child enrollment does not match parent',
+      );
+    }
+    if (child.job.target.laneKind !== 'linked_device') {
+      throw new Error(
+        'LinkedDeviceProvisioningDeliveriesV1 child target lane is not linked-device',
+      );
+    }
+    if (
+      child.job.authorization.kind !== 'linked_device_enrollment' ||
+      String(child.job.authorization.linkedDeviceEnrollmentId) !== String(enrollmentId)
+    ) {
+      throw new Error(
+        'LinkedDeviceProvisioningDeliveriesV1 child authorization does not match parent',
+      );
+    }
+    const targetKey = String(child.job.target.laneId);
+    if (targetLanes.has(targetKey)) {
+      throw new Error('LinkedDeviceProvisioningDeliveriesV1 contains duplicate target lane');
+    }
+    targetLanes.add(targetKey);
+  }
+  return {
+    kind: 'linked_device_provisioning_deliveries_v1',
+    linkSessionId,
+    enrollmentId,
+    deviceId,
+    orderedChildren,
+  };
+}
+
+export function parseLinkedDeviceHolderDeliveryAcknowledgementV1(
+  raw: unknown,
+): LinkedDeviceHolderDeliveryAcknowledgementV1 {
+  const record = exactRecord(
+    raw,
+    HOLDER_DELIVERY_ACK_FIELDS,
+    'LinkedDeviceHolderDeliveryAcknowledgementV1',
+  );
+  if (record.kind !== 'linked_device_holder_delivery_acknowledgement_v1') {
+    throw new Error('LinkedDeviceHolderDeliveryAcknowledgementV1.kind is invalid');
+  }
+  if (!Array.isArray(record.orderedHolderDeliveryReceipts)) {
+    throw new Error(
+      'LinkedDeviceHolderDeliveryAcknowledgementV1.orderedHolderDeliveryReceipts must be an array',
+    );
+  }
+  const receipts = nonEmptyTuple(
+    record.orderedHolderDeliveryReceipts.map((entry, index) =>
+      parseLaneHolderDeliveryReceiptV1(
+        entry,
+        `LinkedDeviceHolderDeliveryAcknowledgementV1.orderedHolderDeliveryReceipts[${index}]`,
+      ),
+    ),
+    'LinkedDeviceHolderDeliveryAcknowledgementV1.orderedHolderDeliveryReceipts',
+  );
+  const linkSessionId = parseSessionId(
+    record.linkSessionId,
+    'LinkedDeviceHolderDeliveryAcknowledgementV1.linkSessionId',
+  );
+  const enrollmentId = parseEnrollmentId(
+    record.enrollmentId,
+    'LinkedDeviceHolderDeliveryAcknowledgementV1.enrollmentId',
+  );
+  const deviceId = parseDeviceId(
+    record.deviceId,
+    'LinkedDeviceHolderDeliveryAcknowledgementV1.deviceId',
+  );
+  const acknowledgedAtMs = parseUnixMs(
+    record.acknowledgedAtMs,
+    'LinkedDeviceHolderDeliveryAcknowledgementV1.acknowledgedAtMs',
+  );
+  const targetLanes = new Set<string>();
+  for (const receipt of receipts) {
+    if (String(receipt.enrollmentId) !== String(enrollmentId)) {
+      throw new Error(
+        'LinkedDeviceHolderDeliveryAcknowledgementV1 receipt enrollment does not match parent',
+      );
+    }
+    const targetKey = String(receipt.targetLaneId);
+    if (targetLanes.has(targetKey)) {
+      throw new Error(
+        'LinkedDeviceHolderDeliveryAcknowledgementV1 contains duplicate target lane',
+      );
+    }
+    targetLanes.add(targetKey);
+  }
+  return {
+    kind: 'linked_device_holder_delivery_acknowledgement_v1',
+    linkSessionId,
+    enrollmentId,
+    deviceId,
+    orderedHolderDeliveryReceipts: receipts,
+    acknowledgedAtMs,
+  };
+}
+
 export function parseLinkedDeviceEnrollmentTranscriptV1(
   raw: unknown,
 ): LinkedDeviceEnrollmentTranscriptV1 {
@@ -1506,6 +1791,39 @@ export function buildLinkedDeviceReceiptAcknowledgementV1(
     acknowledgedAtMs: parseUnixTime(
       args.acknowledgedAtMs,
       'LinkedDeviceReceiptAcknowledgementV1.acknowledgedAtMs',
+    ),
+  };
+}
+
+export function buildLinkedDeviceHolderDeliveryAcknowledgementV1(
+  args: Omit<LinkedDeviceHolderDeliveryAcknowledgementV1, 'kind'>,
+): LinkedDeviceHolderDeliveryAcknowledgementV1 {
+  const orderedHolderDeliveryReceipts = nonEmptyTuple(
+    args.orderedHolderDeliveryReceipts,
+    'LinkedDeviceHolderDeliveryAcknowledgementV1.orderedHolderDeliveryReceipts',
+  );
+  const targetLanes = new Set<string>();
+  for (const receipt of orderedHolderDeliveryReceipts) {
+    if (String(receipt.enrollmentId) !== String(args.enrollmentId)) {
+      throw new Error(
+        'LinkedDeviceHolderDeliveryAcknowledgementV1 receipt enrollment does not match parent',
+      );
+    }
+    const targetKey = String(receipt.targetLaneId);
+    if (targetLanes.has(targetKey)) {
+      throw new Error(
+        'LinkedDeviceHolderDeliveryAcknowledgementV1 contains duplicate target lane',
+      );
+    }
+    targetLanes.add(targetKey);
+  }
+  return {
+    kind: 'linked_device_holder_delivery_acknowledgement_v1',
+    ...args,
+    orderedHolderDeliveryReceipts,
+    acknowledgedAtMs: parseUnixTime(
+      args.acknowledgedAtMs,
+      'LinkedDeviceHolderDeliveryAcknowledgementV1.acknowledgedAtMs',
     ),
   };
 }

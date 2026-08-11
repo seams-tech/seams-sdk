@@ -4,14 +4,25 @@ import {
   buildCancelledUnclaimedLinkedDeviceSessionState,
   computeLinkedDeviceApprovalDigestV1,
   computeLinkedDeviceSessionClaimDigestV1,
+  buildLinkedDeviceHolderDeliveryAcknowledgementV1,
+  buildLinkedDeviceProvisioningCommandV1,
   parseLinkedDeviceApprovalV1,
+  parseLinkedDeviceHolderDeliveryAcknowledgementV1,
   parseLinkedDeviceEnrollmentReceiptV1,
   parseLinkedDeviceEnrollmentTranscriptV1,
+  parseLinkedDeviceProvisioningCommandV1,
+  parseLinkedDeviceProvisioningDeliveriesV1,
   parseLinkedDeviceSessionState,
   parseLinkedDeviceSessionTransportRequestV1,
   parseQrLinkedDeviceSessionPayloadV4,
 } from '../../packages/shared-ts/src/device-linking';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
+import {
+  buildR102HolderDeliveryReceipt,
+  buildR102LaneJob,
+  buildR102ProtocolCommitReceipt,
+} from './helpers/r102LaneGateway.fixtures';
+import { parseRotatableSigningLaneJobV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 
 test.describe('R103 shared linked-device contracts', () => {
   test('round-trips QR, approval, transcript, and receipt projections through strict parsers', async () => {
@@ -102,5 +113,111 @@ test.describe('R103 shared linked-device contracts', () => {
         deviceId: fixture.approval.deviceId,
       }),
     ).toThrow(/deviceId/);
+  });
+
+  test('round-trips role-bound provisioning and holder receipt DTOs', () => {
+    const fixture = buildR103DeviceLinkFixture();
+    const command = buildLinkedDeviceProvisioningCommandV1({
+      linkSessionId: fixture.payload.linkSessionId,
+      enrollmentId: fixture.approval.enrollmentId,
+      deviceId: fixture.approval.deviceId,
+    });
+    expect(parseLinkedDeviceProvisioningCommandV1(command)).toEqual(command);
+
+    const sourceJob = buildR102LaneJob('linked-device');
+    const job = parseRotatableSigningLaneJobV1({
+      ...sourceJob,
+      enrollmentId: String(fixture.approval.enrollmentId),
+      walletId: String(fixture.approval.walletId),
+      authorization: {
+        kind: 'linked_device_enrollment',
+        authorizedOperationId: String(sourceJob.authorization.authorizedOperationId),
+        linkedDeviceEnrollmentId: String(fixture.approval.enrollmentId),
+        linkedDevicePermissionDigestB64u: fixture.approval.policyDigestB64u,
+      },
+    });
+    const protocolCommitReceipt = buildR102ProtocolCommitReceipt(job);
+    const deliveries = {
+      kind: 'linked_device_provisioning_deliveries_v1' as const,
+      linkSessionId: fixture.payload.linkSessionId,
+      enrollmentId: fixture.approval.enrollmentId,
+      deviceId: fixture.approval.deviceId,
+      orderedChildren: [
+        {
+          kind: 'linked_device_provisioning_child_v1' as const,
+          job,
+          protocolCommitReceipt,
+          holderPackage: {
+            kind: 'ed25519_yao_lane_holder_package_set_v1' as const,
+            deriverAEncryptedPackageJson: '{}',
+            deriverBEncryptedPackageJson: '{}',
+          },
+          expectedVersion: 0,
+        },
+      ],
+    };
+    expect(parseLinkedDeviceProvisioningDeliveriesV1(deliveries)).toEqual(deliveries);
+
+    const holderReceipt = buildR102HolderDeliveryReceipt(job);
+    const acknowledgement = buildLinkedDeviceHolderDeliveryAcknowledgementV1({
+      linkSessionId: fixture.payload.linkSessionId,
+      enrollmentId: fixture.approval.enrollmentId,
+      deviceId: fixture.approval.deviceId,
+      orderedHolderDeliveryReceipts: [holderReceipt],
+      acknowledgedAtMs: 4_000,
+    });
+    expect(parseLinkedDeviceHolderDeliveryAcknowledgementV1(acknowledgement)).toEqual(
+      acknowledgement,
+    );
+  });
+
+  test('rejects provisioning identity substitution and unknown DTO fields', () => {
+    const fixture = buildR103DeviceLinkFixture();
+    const command = buildLinkedDeviceProvisioningCommandV1({
+      linkSessionId: fixture.payload.linkSessionId,
+      enrollmentId: fixture.approval.enrollmentId,
+      deviceId: fixture.approval.deviceId,
+    });
+    expect(() => parseLinkedDeviceProvisioningCommandV1({ ...command, extra: true })).toThrow(
+      /not part/,
+    );
+
+    const sourceJob = buildR102LaneJob('substitution');
+    const job = parseRotatableSigningLaneJobV1({
+      ...sourceJob,
+      enrollmentId: String(fixture.approval.enrollmentId),
+      walletId: String(fixture.approval.walletId),
+      authorization: {
+        kind: 'linked_device_enrollment',
+        authorizedOperationId: String(sourceJob.authorization.authorizedOperationId),
+        linkedDeviceEnrollmentId: String(fixture.approval.enrollmentId),
+        linkedDevicePermissionDigestB64u: fixture.approval.policyDigestB64u,
+      },
+    });
+    const commit = buildR102ProtocolCommitReceipt(job);
+    expect(() =>
+      parseLinkedDeviceProvisioningDeliveriesV1({
+        kind: 'linked_device_provisioning_deliveries_v1',
+        linkSessionId: fixture.payload.linkSessionId,
+        enrollmentId: fixture.approval.enrollmentId,
+        deviceId: fixture.approval.deviceId,
+        orderedChildren: [
+          {
+            kind: 'linked_device_provisioning_child_v1',
+            job,
+            protocolCommitReceipt: {
+              ...commit,
+              sourceRevocationEpoch: commit.sourceRevocationEpoch + 1,
+            },
+            holderPackage: {
+              kind: 'ed25519_yao_lane_holder_package_set_v1',
+              deriverAEncryptedPackageJson: '{}',
+              deriverBEncryptedPackageJson: '{}',
+            },
+            expectedVersion: 0,
+          },
+        ],
+      }),
+    ).toThrow(/does not match its job/);
   });
 });
