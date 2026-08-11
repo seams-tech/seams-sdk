@@ -39,6 +39,7 @@ import type {
   DeviceLinkingKeyMaterialBundleV1,
 } from './deviceLinkingPorts';
 import { EcdsaClientWorkerControlKind } from '@/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
+import { getWorkerTransport } from '@/core/signingEngine/workerManager/workerTransport';
 
 export type DeviceLinkingWorkerEndpointV1 = {
   postMessage(message: unknown, transfer?: Transferable[]): void;
@@ -487,6 +488,16 @@ export function createDeviceLinkingKeyMaterialPortV1(
   };
   endpoint.addEventListener('message', onMessage);
   endpoint.addEventListener('error', onError);
+  if (!args.endpoint) {
+    const presignPort = getWorkerTransport().createLinkedHolderPresignAuthorityPortV1();
+    endpoint.postMessage(
+      {
+        kind: EcdsaClientWorkerControlKind.AttachLinkedHolderToPresign,
+        port: presignPort,
+      },
+      [presignPort],
+    );
+  }
 
   const close = (): void => {
     if (closed) return;
@@ -526,16 +537,6 @@ export function createDeviceLinkingKeyMaterialPortV1(
 
   return {
     close,
-    attachEcdsaPresignPortV1(port) {
-      if (closed) throw new Error('device-linking worker transport is closed');
-      endpoint.postMessage(
-        {
-          kind: EcdsaClientWorkerControlKind.AttachLinkedHolderToPresign,
-          port,
-        },
-        [port],
-      );
-    },
     async createBootstrapKeyMaterialV1() {
       return parseCreateResult(await request({ kind: 'device_linking_key_material_create_v1' }));
     },
