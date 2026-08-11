@@ -9,6 +9,7 @@ import type {
   LaneHolderRecipientWorkerV1,
 } from '../../packages/shared-ts/src/signing-lanes/rotation';
 import {
+  bindR102TargetHolderParticipantV1,
   buildR102LaneJob,
   buildR102ProtocolCommitReceipt,
   buildR102ServerActivationReceipt,
@@ -99,7 +100,6 @@ function recipientCreateRequest(job: ReturnType<typeof buildR102LaneJob>) {
       targetLaneShareEpoch: job.target.laneShareEpoch,
       targetMaterialActivationId: job.targetMaterialActivationId,
       targetHolderParticipantId: job.targetHolder.participantId,
-      targetHolderParticipantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
       custodyBindingId: job.targetHolder.custodyBindingId,
       custodyBindingDigestB64u: job.targetHolder.custodyBindingDigestB64u,
     },
@@ -157,7 +157,9 @@ test.describe('R102 lane holder worker transport', () => {
   test('carries only request frames and resolves the exact response id', async () => {
     const endpoint = new FakeLaneHolderWorkerEndpoint();
     const transport = createLaneHolderWorkerTransportV1({ endpoint, timeoutMs: 500 });
-    const job = buildR102LaneJob('worker-transport');
+    const job = await bindR102TargetHolderParticipantV1(
+      buildR102LaneJob('worker-transport'),
+    );
     const response = transport.request({
       kind: 'lane_holder_recipient_create_v1',
       input: {
@@ -168,7 +170,6 @@ test.describe('R102 lane holder worker transport', () => {
         targetLaneShareEpoch: job.target.laneShareEpoch,
         targetMaterialActivationId: job.targetMaterialActivationId,
         targetHolderParticipantId: job.targetHolder.participantId,
-        targetHolderParticipantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
         custodyBindingId: job.targetHolder.custodyBindingId,
         custodyBindingDigestB64u: job.targetHolder.custodyBindingDigestB64u,
       },
@@ -181,7 +182,7 @@ test.describe('R102 lane holder worker transport', () => {
   test('rejects pending requests when the transport closes', async () => {
     const endpoint = new FakeLaneHolderWorkerEndpoint();
     const transport = createLaneHolderWorkerTransportV1({ endpoint, timeoutMs: 500 });
-    const job = buildR102LaneJob('worker-close');
+    const job = await bindR102TargetHolderParticipantV1(buildR102LaneJob('worker-close'));
     const response = transport.request({
       kind: 'lane_holder_recipient_create_v1',
       input: {
@@ -192,7 +193,6 @@ test.describe('R102 lane holder worker transport', () => {
         targetLaneShareEpoch: job.target.laneShareEpoch,
         targetMaterialActivationId: job.targetMaterialActivationId,
         targetHolderParticipantId: job.targetHolder.participantId,
-        targetHolderParticipantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
         custodyBindingId: job.targetHolder.custodyBindingId,
         custodyBindingDigestB64u: job.targetHolder.custodyBindingDigestB64u,
       },
@@ -204,7 +204,9 @@ test.describe('R102 lane holder worker transport', () => {
 
 test.describe('R102 authorized lane holder worker request handler', () => {
   test('enforces open, sealing, sealed, and discarded recipient states', async () => {
-    const job = buildR102LaneJob('worker-handler-states');
+    const job = await bindR102TargetHolderParticipantV1(
+      buildR102LaneJob('worker-handler-states'),
+    );
     const commit = buildR102ProtocolCommitReceipt(job);
     const calls = backendCalls();
     const handler = createAuthorizedLaneHolderWorkerRequestHandlerV1(authorizedBackend(job, calls));
@@ -234,7 +236,9 @@ test.describe('R102 authorized lane holder worker request handler', () => {
   });
 
   test('rejects receipt substitution before crypto and discards the recipient', async () => {
-    const job = buildR102LaneJob('worker-handler-substitution');
+    const job = await bindR102TargetHolderParticipantV1(
+      buildR102LaneJob('worker-handler-substitution'),
+    );
     const commit = buildR102ProtocolCommitReceipt(job);
     const substitutedCommit = parseLaneProtocolCommitReceiptV1({
       ...commit,
@@ -269,7 +273,9 @@ test.describe('R102 authorized lane holder worker request handler', () => {
   });
 
   test('rejects a backend digest that is outside the committed transcript', async () => {
-    const job = buildR102LaneJob('worker-handler-digest');
+    const job = await bindR102TargetHolderParticipantV1(
+      buildR102LaneJob('worker-handler-digest'),
+    );
     const calls = backendCalls();
     const backend = authorizedBackend(job, calls);
     const substitutedDigest = Buffer.alloc(32, 1).toString('base64url');
@@ -289,8 +295,12 @@ test.describe('R102 authorized lane holder worker request handler', () => {
   });
 
   test('invalidates the exact material and releases matching open recipients', async () => {
-    const job = buildR102LaneJob('worker-handler-invalidate');
-    const unrelatedJob = buildR102LaneJob('worker-handler-unrelated');
+    const job = await bindR102TargetHolderParticipantV1(
+      buildR102LaneJob('worker-handler-invalidate'),
+    );
+    const unrelatedJob = await bindR102TargetHolderParticipantV1(
+      buildR102LaneJob('worker-handler-unrelated'),
+    );
     const calls = backendCalls();
     const handler = createAuthorizedLaneHolderWorkerRequestHandlerV1(authorizedBackend(job, calls));
     const descriptor = (await handler.request(recipientCreateRequest(job))) as {
@@ -327,7 +337,9 @@ test.describe('R102 authorized lane holder worker request handler', () => {
   });
 
   test('fails closed on unknown fields and releases open recipients at shutdown', async () => {
-    const job = buildR102LaneJob('worker-handler-close');
+    const job = await bindR102TargetHolderParticipantV1(
+      buildR102LaneJob('worker-handler-close'),
+    );
     const calls = backendCalls();
     const handler = createAuthorizedLaneHolderWorkerRequestHandlerV1(authorizedBackend(job, calls));
     await expect(

@@ -155,7 +155,6 @@ function createInput(job: Ed25519YaoLaneJobV1) {
     targetLaneShareEpoch: job.target.laneShareEpoch,
     targetMaterialActivationId: job.targetMaterialActivationId,
     targetHolderParticipantId: job.targetHolder.participantId,
-    targetHolderParticipantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
     custodyBindingId: job.targetHolder.custodyBindingId,
     custodyBindingDigestB64u: job.targetHolder.custodyBindingDigestB64u,
   };

@@ -22,11 +22,11 @@ import {
   parseLaneCustodyBindingDigestB64u,
   parseLaneHolderCustodyBindingId,
   parseLaneHolderParticipantId,
-  parseLaneParticipantBindingDigestB64u,
   parseSigningWorkerRecipientKeyDigestB64u,
   type HpkePublicKeyB64u,
   type SigningWorkerRecipientKeyDigestB64u,
 } from '@shared/signing-lanes/participants';
+import { computeLaneHolderParticipantBindingDigestV1 } from '@shared/signing-lanes/participantDigest';
 import {
   parseLaneEnrollmentId,
   parseLaneShareEpoch,
@@ -177,7 +177,6 @@ function parseCreateRecipientInput(value: unknown): CreateRecipientInputV1 {
       'targetLaneShareEpoch',
       'targetMaterialActivationId',
       'targetHolderParticipantId',
-      'targetHolderParticipantBindingDigestB64u',
       'custodyBindingId',
       'custodyBindingDigestB64u',
     ],
@@ -208,10 +207,6 @@ function parseCreateRecipientInput(value: unknown): CreateRecipientInputV1 {
     targetHolderParticipantId: parsedDomainValue(
       parseLaneHolderParticipantId(input.targetHolderParticipantId),
       'lane recipient-create targetHolderParticipantId',
-    ),
-    targetHolderParticipantBindingDigestB64u: parsedDomainValue(
-      parseLaneParticipantBindingDigestB64u(input.targetHolderParticipantBindingDigestB64u),
-      'lane recipient-create targetHolderParticipantBindingDigestB64u',
     ),
     custodyBindingId: parsedDomainValue(
       parseLaneHolderCustodyBindingId(input.custodyBindingId),
@@ -672,12 +667,22 @@ function assertNeverLaneJob(value: never): never {
   throw new Error(`unsupported lane holder job: ${String(value)}`);
 }
 
-function assertRecipientSessionMatchesJob(
+async function assertRecipientSessionMatchesJob(
   session: LaneHolderRecipientSessionV1,
   job: RotatableSigningLaneJobV1,
-): void {
+): Promise<void> {
   const input = session.input;
   const descriptor = session.descriptor;
+  const participantBindingDigestB64u = await computeLaneHolderParticipantBindingDigestV1({
+    participantId: input.targetHolderParticipantId,
+    custody: {
+      kind: 'lane_holder_custody_identity_v1',
+      custodyBindingId: input.custodyBindingId,
+      custodyBindingDigestB64u: input.custodyBindingDigestB64u,
+    },
+    hpkePublicKeyB64u: descriptor.hpkePublicKeyB64u,
+    hpkePublicKeyDigestB64u: descriptor.hpkePublicKeyDigestB64u,
+  });
   if (
     String(input.operationId) !== String(job.operationId) ||
     String(input.enrollmentId) !== String(job.enrollmentId) ||
@@ -686,8 +691,7 @@ function assertRecipientSessionMatchesJob(
     String(input.targetLaneShareEpoch) !== String(job.target.laneShareEpoch) ||
     String(input.targetMaterialActivationId) !== String(job.targetMaterialActivationId) ||
     String(input.targetHolderParticipantId) !== String(job.targetHolder.participantId) ||
-    input.targetHolderParticipantBindingDigestB64u !==
-      job.targetHolder.participantBindingDigestB64u ||
+    participantBindingDigestB64u !== job.targetHolder.participantBindingDigestB64u ||
     input.custodyBindingId !== job.targetHolder.custodyBindingId ||
     input.custodyBindingDigestB64u !== job.targetHolder.custodyBindingDigestB64u ||
     descriptor.hpkePublicKeyB64u !== job.targetHolder.hpkePublicKeyB64u ||
@@ -791,7 +795,7 @@ class AuthorizedLaneHolderWorkerRequestHandler implements AuthorizedLaneHolderWo
     try {
       assertProtocolCommitMatchesExactJob(request.job, request.protocolCommitReceipt);
       assertHolderPackageFamily(request.job, request.holderPackage);
-      assertRecipientSessionMatchesJob(session, request.job);
+      await assertRecipientSessionMatchesJob(session, request.job);
       const sealed = parseSealResponse(
         await this.#backend.openAndSealLaneHolderPackageV1({
           job: request.job,
