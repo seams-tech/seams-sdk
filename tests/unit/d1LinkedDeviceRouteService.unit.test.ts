@@ -288,6 +288,9 @@ function linkedAuthorizationNotConfigured() {
       issueLinkedDeviceWalletSession: async () => {
         throw new Error('linked authorization adapter not configured');
       },
+      readLinkedDeviceWalletSessionAuthorization: async () => {
+        throw new Error('linked authorization adapter not configured');
+      },
     },
   };
 }
