@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { AuthMenuMode, SeamsAuthMenuSkeletonInner } from '@seams/sdk/react';
 import { DEMO_THEME_PRESETS } from '@/context/app-themes';
-import NavbarStatic from '@/components/Navbar/NavbarStatic';
+import NavbarCompact from '@/components/Navbar/NavbarCompact';
 import SeamsWordmark from '@/components/icons/SeamsWordmark';
 import { NETWORK_MARKS, NetworkMarkLockup } from '@/components/icons/NetworkMarks';
 import { ArrowRightAnim } from '@/components/ArrowRightAnim';
@@ -726,7 +726,7 @@ type HomeFrameProps = {
 function HomeFrame({ hero }: HomeFrameProps): React.JSX.Element {
   return (
     <div className="h2-page">
-      <NavbarStatic appearance="light" />
+      <NavbarCompact appearance="light" />
       <div className="h2-col">
         {hero}
         <HomeTrusted />
