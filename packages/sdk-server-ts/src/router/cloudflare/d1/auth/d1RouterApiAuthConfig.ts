@@ -77,7 +77,10 @@ export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
   readonly authenticateOwnerRequestV1: DeviceLinkingRouteServiceV1['authenticateOwnerRequestV1'];
   readonly targetPreparationSource: LinkedDeviceTargetPreparationSourceV1;
   readonly targetCommitter: LinkedDeviceVerifiedTargetCommitterV1;
-  readonly provisioningExecution: LinkedDeviceR102ProvisioningExecutionPortV1;
+  readonly provisioningActivation: Pick<
+    LinkedDeviceR102ProvisioningExecutionPortV1,
+    'recordHolderDeliveriesAndActivateV1'
+  >;
   readonly acknowledgeReceiptV1: DeviceLinkingRouteServiceV1['acknowledgeReceiptV1'];
   readonly retryCommittedDeliveryV1: DeviceLinkingRouteServiceV1['retryCommittedDeliveryV1'];
 };
