@@ -1283,7 +1283,7 @@ export function parseLinkedDeviceSessionClaimV1(raw: unknown): LinkedDeviceSessi
   };
 }
 
-function parseOwnerAuthorization(
+export function parseLinkedDeviceOwnerAuthorizationSourceV1(
   raw: unknown,
   label = 'ownerAuthorization',
 ): LinkedDeviceOwnerAuthorizationSourceV1 {
@@ -1306,7 +1306,10 @@ function parseOwnerAuthorization(
   throw new Error(`${label}.kind is unsupported`);
 }
 
-function parseKeyBinding(raw: unknown, label: string): LinkedDeviceEnrollmentKeyBindingV1 {
+export function parseLinkedDeviceEnrollmentKeyBindingV1(
+  raw: unknown,
+  label: string,
+): LinkedDeviceEnrollmentKeyBindingV1 {
   const record = exactRecord(raw, KEY_BINDING_FIELDS, label);
   return {
     walletKeyId: parseWalletKey(record.walletKeyId, `${label}.walletKeyId`),
@@ -1341,7 +1344,9 @@ function parseKeyBindings(
   label: string,
 ): readonly [LinkedDeviceEnrollmentKeyBindingV1, ...LinkedDeviceEnrollmentKeyBindingV1[]] {
   if (!Array.isArray(raw)) throw new Error(`${label} must be an array`);
-  const values = raw.map((entry, index) => parseKeyBinding(entry, `${label}[${index}]`));
+  const values = raw.map((entry, index) =>
+    parseLinkedDeviceEnrollmentKeyBindingV1(entry, `${label}[${index}]`),
+  );
   const walletKeys = new Set<string>();
   const targetLanes = new Set<string>();
   for (const value of values) {
@@ -1355,7 +1360,10 @@ function parseKeyBindings(
   return nonEmptyTuple(values, label);
 }
 
-function parseProtocolVersion(raw: unknown, label: string): LinkedDeviceProtocolVersionV1 {
+export function parseLinkedDeviceProtocolVersionV1(
+  raw: unknown,
+  label: string,
+): LinkedDeviceProtocolVersionV1 {
   const record = exactRecord(raw, PROTOCOL_VERSION_FIELDS, label);
   const version = parseNonEmptyToken(record.version, `${label}.version`);
   return {
@@ -1369,7 +1377,9 @@ function parseProtocolVersions(
   label: string,
 ): readonly [LinkedDeviceProtocolVersionV1, ...LinkedDeviceProtocolVersionV1[]] {
   if (!Array.isArray(raw)) throw new Error(`${label} must be an array`);
-  const values = raw.map((entry, index) => parseProtocolVersion(entry, `${label}[${index}]`));
+  const values = raw.map((entry, index) =>
+    parseLinkedDeviceProtocolVersionV1(entry, `${label}[${index}]`),
+  );
   const families = new Set<string>();
   for (const value of values) {
     if (families.has(value.keyFamily)) throw new Error(`${label} contains duplicate keyFamily`);
@@ -1392,7 +1402,7 @@ function parseEnrollmentCore(record: UnknownRecord, label: string): EnrollmentCo
     linkPublicKeyB64u: parsePublicKey(record.linkPublicKeyB64u, `${label}.linkPublicKeyB64u`),
     devicePublicKeyB64u: parsePublicKey(record.devicePublicKeyB64u, `${label}.devicePublicKeyB64u`),
     permission: parsePermission(record.permission, `${label}.permission`),
-    ownerAuthorization: parseOwnerAuthorization(
+    ownerAuthorization: parseLinkedDeviceOwnerAuthorizationSourceV1(
       record.ownerAuthorization,
       `${label}.ownerAuthorization`,
     ),

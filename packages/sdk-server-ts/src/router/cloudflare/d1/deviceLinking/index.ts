@@ -15,3 +15,4 @@ export * from './d1LinkedDeviceManagementComposition';
 export * from './d1LinkedDeviceProvisioningProvider';
 export * from './linkedDeviceR102ProvisioningExecution';
 export * from './d1LinkedDeviceSourceHandoffProvider';
+export * from './d1LinkedDeviceOwnerAuthorizationProvider';

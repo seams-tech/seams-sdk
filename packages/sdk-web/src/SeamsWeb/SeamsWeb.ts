@@ -46,6 +46,7 @@ import { readNearProvisioningState } from '@/core/signingEngine/flows/registrati
 import { cloneAuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import { toAccountId } from '@/core/types/accountIds';
 import { IndexedDBManager } from '@/core/indexedDB';
+import { createBrowserPlatformRuntime } from '@/core/platform';
 import { laneSealedHolderMaterialRepository } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
 import { linkedDeviceExecutionEvidence } from '@/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
 import { linkedDeviceWalletSessions } from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
@@ -93,7 +94,7 @@ import {
   type LinkedDeviceManagementPortV1,
   type WalletIframeControlCapability,
 } from './publicApi';
-import type { DeviceLinkingFlowPortsV1 } from './operations/devices/deviceLinkingPorts';
+import { createWalletHostCompositionV1 } from './operations/devices/walletHostComposition';
 import { createLinkedDeviceLocalStateInvalidationPortV1 } from './operations/devices/linkedDeviceLocalStateInvalidation';
 import type {
   AuthCapability,
@@ -648,8 +649,6 @@ export type SeamsWebInternalOptions =
     }
   | {
       readonly kind: 'wallet_host';
-      readonly linkedDeviceManagement: LinkedDeviceManagementPortV1;
-      readonly deviceLinkingPorts: DeviceLinkingFlowPortsV1;
     };
 
 type SeamsWebLifecycleEventSource =
@@ -738,7 +737,7 @@ export class SeamsWeb {
     this.nearClient =
       nearClient || new MinimalNearClient(resolvePrimaryNearRpcUrl(this.configs.network.chains));
     const browserSigningStores = createBrowserSigningStores(IndexedDBManager);
-    this.signingEngine = new BrowserSigningSurface(this.configs, this.nearClient, {
+    const browserSigningSurface = new BrowserSigningSurface(this.configs, this.nearClient, {
       managerStores: browserSigningStores.managerStores,
       signingEngineStores: browserSigningStores.signingEngineStores,
       sealedSigningSessionStore: browserSigningStores.sealedSigningSessionStore,
@@ -748,6 +747,14 @@ export class SeamsWeb {
       initializeRuntime: initializeBrowserSigningRuntime,
       workerWarmupPolicy: resolveBrowserWorkerWarmupPolicy(this.configs),
     });
+    this.signingEngine = browserSigningSurface;
+    const walletHostPlatformRuntime =
+      internalOptions?.kind === 'wallet_host'
+        ? createBrowserPlatformRuntime({
+            indexedDB: IndexedDBManager,
+            workerCtx: browserSigningSurface.getSignerWorkerContext(),
+          })
+        : null;
 
     this.appearance = this.configs.ui.appearance;
     this.theme = this.appearance.theme.mode;
@@ -762,12 +769,27 @@ export class SeamsWeb {
       userPreferences: userPreferences,
       getAppearance: () => this.appearance,
     });
+    let walletHostComposition: ReturnType<typeof createWalletHostCompositionV1> | null = null;
+    if (internalOptions?.kind === 'wallet_host') {
+      if (!walletHostPlatformRuntime) {
+        throw new Error('Wallet host platform runtime is unavailable');
+      }
+      walletHostComposition = createWalletHostCompositionV1(
+        browserSigningSurface.createWalletHostCompositionDependenciesV1({
+          http: walletHostPlatformRuntime.http,
+          authenticator: walletHostPlatformRuntime.authenticator,
+          repository: laneSealedHolderMaterialRepository,
+          walletSessionRepository: linkedDeviceWalletSessions,
+          executionEvidenceRepository: linkedDeviceExecutionEvidence,
+        }),
+      );
+    }
     const deviceDomain =
-      internalOptions?.kind === 'wallet_host'
+      internalOptions?.kind === 'wallet_host' && walletHostComposition
         ? {
             kind: 'direct' as const,
-            linkedDeviceManagement: internalOptions.linkedDeviceManagement,
-            deviceLinkingPorts: internalOptions.deviceLinkingPorts,
+            linkedDeviceManagement: walletHostComposition.linkedDeviceManagement,
+            deviceLinkingPorts: walletHostComposition.deviceLinkingPorts,
             localStateInvalidation: createLinkedDeviceLocalStateInvalidationPortV1({
               holderRepository: laneSealedHolderMaterialRepository,
               walletSessionRepository: linkedDeviceWalletSessions,

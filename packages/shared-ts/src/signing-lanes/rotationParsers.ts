@@ -118,6 +118,7 @@ import type {
   Ed25519YaoLaneRefreshJobV1,
   LaneCreationTargetV1,
   LaneEnrollmentLifecycleV1,
+  LaneEnrollmentPreparationResultV1,
   LaneEnrollmentManifestChildV1,
   LaneEnrollmentManifestV1,
   LaneHolderDeliveryReceiptV1,
@@ -131,6 +132,7 @@ import type {
   LaneProductEpochRetiredV1,
   LaneProductEpochRevokedV1,
   LaneProtocolCommitReceiptV1,
+  LaneProtocolCasResultV1,
   LaneProtocolLifecycle,
   LaneProtocolRecordV1,
   LaneRefreshTargetV1,
@@ -2453,6 +2455,137 @@ export function parseLaneProtocolRecordV1(
   return {
     job: parseRotatableSigningLaneJobV1(record.job, `${label}.job`),
     lifecycle: parseLaneProtocolLifecycleV1(record.lifecycle, `${label}.lifecycle`),
+  };
+}
+
+export function parseLaneProtocolCasResultV1(
+  raw: unknown,
+  label = 'laneProtocolCasResult',
+): LaneProtocolCasResultV1 {
+  const record = requireRecord(raw, label);
+  if (record.outcome === 'applied' || record.outcome === 'replayed') {
+    const value = exactRecord(record, ['outcome', 'version', 'record', 'commandDigestB64u'], label);
+    return {
+      outcome: record.outcome,
+      version: requiredInteger(value.version, `${label}.version`),
+      record: parseLaneProtocolRecordV1(value.record, `${label}.record`),
+      commandDigestB64u: digest(value.commandDigestB64u, `${label}.commandDigestB64u`),
+    };
+  }
+  if (record.outcome === 'conflict') {
+    const value = exactRecord(
+      record,
+      [
+        'outcome',
+        'expectedVersion',
+        'actualVersion',
+        'requestedCommandDigestB64u',
+        'storedCommandDigestB64u',
+      ],
+      label,
+    );
+    return {
+      outcome: 'conflict',
+      expectedVersion: requiredInteger(value.expectedVersion, `${label}.expectedVersion`),
+      actualVersion: requiredInteger(value.actualVersion, `${label}.actualVersion`),
+      requestedCommandDigestB64u: digest(
+        value.requestedCommandDigestB64u,
+        `${label}.requestedCommandDigestB64u`,
+      ),
+      storedCommandDigestB64u: digest(
+        value.storedCommandDigestB64u,
+        `${label}.storedCommandDigestB64u`,
+      ),
+    };
+  }
+  throw new Error(`${label}.outcome is invalid`);
+}
+
+export function parseLaneEnrollmentPreparationResultV1(
+  raw: unknown,
+  label = 'laneEnrollmentPreparationResult',
+): LaneEnrollmentPreparationResultV1 {
+  const record = requireRecord(raw, label);
+  if (record.kind !== 'lane_enrollment_preparation_result_v1') {
+    throw new Error(`${label}.kind is invalid`);
+  }
+  if (record.outcome === 'conflict') {
+    const value = exactRecord(
+      record,
+      [
+        'kind',
+        'outcome',
+        'enrollmentId',
+        'expectedVersion',
+        'actualVersion',
+        'requestedCommandDigestB64u',
+        'storedCommandDigestB64u',
+      ],
+      label,
+    );
+    return {
+      kind: 'lane_enrollment_preparation_result_v1',
+      outcome: 'conflict',
+      enrollmentId: parseEnrollmentId(value.enrollmentId, `${label}.enrollmentId`),
+      expectedVersion:
+        value.expectedVersion === null
+          ? null
+          : requiredInteger(value.expectedVersion, `${label}.expectedVersion`),
+      actualVersion: requiredInteger(value.actualVersion, `${label}.actualVersion`),
+      requestedCommandDigestB64u: digest(
+        value.requestedCommandDigestB64u,
+        `${label}.requestedCommandDigestB64u`,
+      ),
+      storedCommandDigestB64u: digest(
+        value.storedCommandDigestB64u,
+        `${label}.storedCommandDigestB64u`,
+      ),
+    };
+  }
+  if (record.outcome !== 'applied' && record.outcome !== 'replayed') {
+    throw new Error(`${label}.outcome is invalid`);
+  }
+  const value = exactRecord(
+    record,
+    [
+      'kind',
+      'outcome',
+      'enrollmentId',
+      'version',
+      'commandDigestB64u',
+      'lifecycle',
+      'orderedProtocols',
+    ],
+    label,
+  );
+  const protocols = requiredArray(value.orderedProtocols, `${label}.orderedProtocols`).map(
+    (entry, index) => {
+      const prepared = exactRecord(
+        entry,
+        ['version', 'commandDigestB64u', 'record'],
+        `${label}.orderedProtocols[${index}]`,
+      );
+      return {
+        version: requiredInteger(prepared.version, `${label}.orderedProtocols[${index}].version`),
+        commandDigestB64u: digest(
+          prepared.commandDigestB64u,
+          `${label}.orderedProtocols[${index}].commandDigestB64u`,
+        ),
+        record: parseLaneProtocolRecordV1(
+          prepared.record,
+          `${label}.orderedProtocols[${index}].record`,
+        ),
+      };
+    },
+  );
+  return {
+    kind: 'lane_enrollment_preparation_result_v1',
+    outcome: record.outcome,
+    enrollmentId: parseEnrollmentId(value.enrollmentId, `${label}.enrollmentId`),
+    version: requiredInteger(value.version, `${label}.version`),
+    commandDigestB64u: digest(value.commandDigestB64u, `${label}.commandDigestB64u`),
+    lifecycle: parseLaneEnrollmentLifecycleV1(value.lifecycle, `${label}.lifecycle`),
+    orderedProtocols: nonEmptyTuple(protocols, `${label}.orderedProtocols`),
   };
 }
 

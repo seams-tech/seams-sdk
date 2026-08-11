@@ -49,7 +49,9 @@ export type LaneEd25519ProtocolCommitExecutionResultV1 = LaneProtocolCommitExecu
   readonly responseJson: string;
 };
 
-export type LaneOperationGatewayV1 = LaneEnrollmentGatewayV1;
+/** Source preparation only needs the enrollment admission boundary. Holder
+ * delivery, activation, and revocation use their dedicated Router services. */
+export type LaneOperationGatewayV1 = Pick<LaneEnrollmentGatewayV1, 'prepareLaneEnrollmentV1'>;
 export type LaneOperationRecipientWorkerV1 = LaneHolderRecipientWorkerV1;
 
 export type LaneOperationClockV1 = {
