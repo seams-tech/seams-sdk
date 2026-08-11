@@ -18,7 +18,6 @@
     "unit/syncAccount.yaoOrchestration.unit.test.ts",
     "unit/syncAccountYaoEnrichment.domain.guard.unit.test.ts",
     "unit/addWalletSigner.orchestration.unit.test.ts",
-    "unit/emailOtpEd25519YaoCapabilityRecovery.unit.test.ts",
     "unit/googleEmailOtpWalletAuthFlow.unit.test.ts",
     "unit/registrationWalletPersistence.unit.test.ts",
     "unit/d1LocalDevYaoPersistenceParity.unit.test.ts",
