@@ -8,6 +8,8 @@ import type {
   LinkedDeviceOwnerAuthorizationSourceV1,
   LinkedDeviceSessionState,
   LinkedDeviceSessionTransportRequestV1,
+  LinkedDeviceTargetCredentialRegistrationV1,
+  LinkedDeviceTargetPreparationV1,
   QrLinkedDeviceSessionPayloadV4,
 } from './contracts';
 import type {
@@ -25,11 +27,17 @@ import type {
   WalletKeyId,
 } from '../signing-lanes/ids';
 import type {
+  LaneHolderParticipantRecordV1,
   LaneHolderParticipantId,
   SigningWorkerParticipantId,
 } from '../signing-lanes/participants';
 import type { DigestB64u } from '../utils/canonicalPrimitives';
-import type { WalletId } from '../utils/domainIds';
+import type {
+  MpcMaterialActivationId,
+  WalletId,
+  WebAuthnCredentialIdB64u,
+  WebAuthnRpId,
+} from '../utils/domainIds';
 
 declare const linkSessionId: LinkDeviceSessionId;
 declare const walletId: WalletId;
@@ -49,6 +57,10 @@ declare const enrollmentReceipt: LinkedDeviceEnrollmentReceiptV1;
 declare const enrollmentChildReceipt: LinkedDeviceEnrollmentChildReceiptV1;
 declare const walletSessionId: WalletSessionId;
 declare const authorizationId: WalletSessionAuthorizationId;
+declare const materialActivationId: MpcMaterialActivationId;
+declare const holderParticipant: LaneHolderParticipantRecordV1;
+declare const rpId: WebAuthnRpId;
+declare const credentialIdB64u: WebAuthnCredentialIdB64u;
 
 declare const payload: QrLinkedDeviceSessionPayloadV4;
 declare const ownerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1;
@@ -202,6 +214,78 @@ const invalidEmptyApprovalManifest: LinkedDeviceApprovalV1 = {
   orderedKeyBindings: [],
 };
 
+const targetPreparation: LinkedDeviceTargetPreparationV1 = {
+  kind: 'linked_device_target_preparation_v1',
+  linkSessionId,
+  walletId,
+  enrollmentId,
+  deviceId,
+  rpId,
+  userHandleB64u: 'AQ',
+  challengeB64u: digest,
+  orderedChildren: [
+    {
+      kind: 'linked_device_target_preparation_child_v1',
+      operationId,
+      walletKeyId,
+      keyFamily: 'ed25519',
+      targetLaneId,
+      targetLaneShareEpoch: targetEpoch,
+      targetMaterialActivationId: materialActivationId,
+      targetHolderParticipantId: holderParticipantId,
+    },
+  ],
+  issuedAtMs: 1,
+  expiresAtMs: 2,
+};
+
+const invalidEmptyTargetPreparation: LinkedDeviceTargetPreparationV1 = {
+  ...targetPreparation,
+  // @ts-expect-error a target preparation requires at least one R102 child
+  orderedChildren: [],
+};
+
+const credentialRegistration: LinkedDeviceTargetCredentialRegistrationV1 = {
+  kind: 'linked_device_target_credential_registration_v1',
+  linkSessionId,
+  walletId,
+  enrollmentId,
+  deviceId,
+  targetPreparationDigestB64u: digest,
+  webauthnRegistration: {
+    kind: 'linked_device_webauthn_registration_v1',
+    credentialIdB64u,
+    authenticatorAttachment: 'platform',
+    clientDataJsonB64u: 'AQ',
+    attestationObjectB64u: 'Ag',
+    transports: ['internal'],
+  },
+  orderedHolderRegistrations: [
+    {
+      kind: 'linked_device_target_holder_registration_v1',
+      operationId,
+      walletKeyId,
+      keyFamily: 'ed25519',
+      targetLaneId,
+      targetLaneShareEpoch: targetEpoch,
+      targetMaterialActivationId: materialActivationId,
+      holderParticipant,
+    },
+  ],
+  registeredAtMs: 3,
+};
+
+const invalidIdOnlyCredentialRegistration: LinkedDeviceTargetCredentialRegistrationV1 = {
+  kind: 'linked_device_target_credential_registration_v1',
+  linkSessionId,
+  walletId,
+  enrollmentId,
+  deviceId,
+  // @ts-expect-error an ID cannot replace verified attestation and holder registrations
+  credentialIdB64u: 'AQ',
+  registeredAtMs: 3,
+};
+
 // Unclaimed cancellation cannot carry target identity; claimed cancellation requires it.
 const invalidUnclaimedCancel: LinkedDeviceSessionTransportRequestV1 = {
   kind: 'linked_device_session_cancel_unclaimed_request_v1',
@@ -228,6 +312,9 @@ void invalidPermissionPayload;
 void invalidPermissionPresence;
 void invalidOwnerAuthorization;
 void invalidEmptyApprovalManifest;
+void invalidEmptyTargetPreparation;
+void credentialRegistration;
+void invalidIdOnlyCredentialRegistration;
 void summary;
 void validReceiptAcknowledgement;
 void invalidChildReceiptAcknowledgement;

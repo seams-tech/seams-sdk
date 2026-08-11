@@ -7,10 +7,14 @@ import type {
   LinkedDeviceOwnerAuthorizationSourceV1,
   LinkedDeviceProtocolVersionV1,
   LinkedDeviceSessionClaimV1,
+  LinkedDeviceTargetCredentialRegistrationV1,
+  LinkedDeviceTargetPreparationChildV1,
+  LinkedDeviceTargetPreparationV1,
 } from './contracts';
 
 const CLAIM_DOMAIN = 'seams/linked-device/session-claim/v1';
 const APPROVAL_DOMAIN = 'seams/linked-device/owner-approval/v1';
+const TARGET_PREPARATION_DOMAIN = 'seams/linked-device/target-preparation/v1';
 const TEXT_ENCODER = new TextEncoder();
 
 function concat(parts: readonly Uint8Array[]): Uint8Array {
@@ -116,6 +120,19 @@ function encodeProtocolVersion(value: LinkedDeviceProtocolVersionV1): Uint8Array
   ]);
 }
 
+function encodeTargetPreparationChild(value: LinkedDeviceTargetPreparationChildV1): Uint8Array {
+  return concat([
+    text(value.kind, 'targetPreparationChild.kind'),
+    text(value.operationId, 'targetPreparationChild.operationId'),
+    text(value.walletKeyId, 'targetPreparationChild.walletKeyId'),
+    text(value.keyFamily, 'targetPreparationChild.keyFamily'),
+    text(value.targetLaneId, 'targetPreparationChild.targetLaneId'),
+    text(value.targetLaneShareEpoch, 'targetPreparationChild.targetLaneShareEpoch'),
+    text(value.targetMaterialActivationId, 'targetPreparationChild.targetMaterialActivationId'),
+    text(value.targetHolderParticipantId, 'targetPreparationChild.targetHolderParticipantId'),
+  ]);
+}
+
 export function encodeLinkedDeviceSessionClaimV1(value: LinkedDeviceSessionClaimV1): Uint8Array {
   return concat([
     text(CLAIM_DOMAIN, 'domain'),
@@ -170,4 +187,68 @@ export async function computeLinkedDeviceApprovalDigestV1(
   value: LinkedDeviceApprovalV1,
 ): Promise<DigestB64u> {
   return parseDigestB64u(base64UrlEncode(await sha256Bytes(encodeLinkedDeviceApprovalV1(value))));
+}
+
+export function encodeLinkedDeviceTargetPreparationV1(
+  value: LinkedDeviceTargetPreparationV1,
+): Uint8Array {
+  const children = value.orderedChildren.map(encodeTargetPreparationChild);
+  return concat([
+    text(TARGET_PREPARATION_DOMAIN, 'domain'),
+    text(value.kind, 'kind'),
+    text(value.linkSessionId, 'linkSessionId'),
+    text(value.walletId, 'walletId'),
+    text(value.enrollmentId, 'enrollmentId'),
+    text(value.deviceId, 'deviceId'),
+    text(value.rpId, 'rpId'),
+    lp32(rawPublicKey(value.userHandleB64u, 'userHandleB64u'), 'userHandleB64u'),
+    rawDigest(value.challengeB64u, 'challengeB64u'),
+    u32(children.length, 'orderedChildren'),
+    ...children.map((entry) => lp32(entry, 'orderedChildren.item')),
+    u64(value.issuedAtMs, 'issuedAtMs'),
+    u64(value.expiresAtMs, 'expiresAtMs'),
+  ]);
+}
+
+export async function computeLinkedDeviceTargetPreparationDigestV1(
+  value: LinkedDeviceTargetPreparationV1,
+): Promise<DigestB64u> {
+  return parseDigestB64u(
+    base64UrlEncode(await sha256Bytes(encodeLinkedDeviceTargetPreparationV1(value))),
+  );
+}
+
+export async function assertLinkedDeviceTargetCredentialRegistrationMatchesPreparationV1(input: {
+  readonly preparation: LinkedDeviceTargetPreparationV1;
+  readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+}): Promise<void> {
+  const { preparation, registration } = input;
+  if (
+    registration.linkSessionId !== preparation.linkSessionId ||
+    registration.walletId !== preparation.walletId ||
+    registration.enrollmentId !== preparation.enrollmentId ||
+    registration.deviceId !== preparation.deviceId ||
+    registration.targetPreparationDigestB64u !==
+      (await computeLinkedDeviceTargetPreparationDigestV1(preparation)) ||
+    registration.orderedHolderRegistrations.length !== preparation.orderedChildren.length
+  ) {
+    throw new Error('linked-device target registration differs from its preparation');
+  }
+  for (let index = 0; index < preparation.orderedChildren.length; index += 1) {
+    const expected = preparation.orderedChildren[index];
+    const actual = registration.orderedHolderRegistrations[index];
+    if (
+      !expected ||
+      !actual ||
+      actual.operationId !== expected.operationId ||
+      actual.walletKeyId !== expected.walletKeyId ||
+      actual.keyFamily !== expected.keyFamily ||
+      actual.targetLaneId !== expected.targetLaneId ||
+      actual.targetLaneShareEpoch !== expected.targetLaneShareEpoch ||
+      actual.targetMaterialActivationId !== expected.targetMaterialActivationId ||
+      actual.holderParticipant.participantId !== expected.targetHolderParticipantId
+    ) {
+      throw new Error(`linked-device holder registration ${index} differs from its R102 child`);
+    }
+  }
 }
