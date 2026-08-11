@@ -185,6 +185,7 @@ export type DeviceLinkingEd25519SigningShareV1 = {
 };
 
 export type DeviceLinkingHolderSigningMaterialPortV1 = {
+  attachEcdsaPresignPortV1(port: MessagePort): void;
   openPersistedHolderSigningMaterialV1(input: {
     readonly factorSecret: ArrayBuffer;
     readonly job: RotatableSigningLaneJobV1;
