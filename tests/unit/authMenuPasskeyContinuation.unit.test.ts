@@ -288,6 +288,37 @@ test.describe('hosted auth-menu passkey continuation', () => {
     session.cleanup();
   });
 
+  test('keeps Google OTP start failures visible until the user retries', async () => {
+    const messages: unknown[] = [];
+    const session = authMenuSession({
+      providers: ['google'],
+      beginGoogleEmailOtp: async () => {
+        throw new Error('Email delivery failed');
+      },
+      sendToParent: messages.push.bind(messages),
+    });
+    const externalRequest = session.requestExternalAuth('google');
+    if (!externalRequest) throw new Error('external auth request fixture is invalid');
+    const resolution = buildHostedAuthMenuExternalAuthResolution({
+      authMenuSessionId: externalRequest.authMenuSessionId,
+      externalAuthRequestId: externalRequest.externalAuthRequestId,
+      requestId: session.identity.requestId,
+      evidence: { kind: 'google_id_token', idToken: 'failing-token' },
+    });
+
+    expect(session.acceptExternalAuthResolution(resolution)).toBe(true);
+    await expect.poll(() => session.state.kind).toBe('preparing');
+    if (session.state.kind === 'preparing') {
+      expect(session.state.viewModel.status).toEqual({
+        kind: 'recoverable',
+        reason: 'error',
+        message: 'Email delivery failed',
+      });
+    }
+    expect(messages).toHaveLength(1);
+    session.cleanup();
+  });
+
   test('marks idle prepared passkey state expired without starting a replacement preparation', async () => {
     const originalFetch = globalThis.fetch;
     const originalSetTimeout = globalThis.setTimeout;
