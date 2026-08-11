@@ -41,6 +41,7 @@ import {
 import { handleSyncAccount } from './routes/syncAccount';
 import { handleThresholdEd25519 } from './routes/thresholdEd25519';
 import { handleThresholdEcdsa } from './routes/thresholdEcdsa';
+import { handleOwnerWalletExecutionLanePreflight } from './routes/walletExecutionLanePreflight';
 import { handleWebAuthnAuthenticators } from './routes/webauthnAuthenticators';
 import { handleAuth } from './routes/auth';
 import { handleNearPublicKeys } from './routes/nearPublicKeys';
@@ -156,6 +157,7 @@ export function createFetchRouter(
     handleAuth,
     handleSyncAccount,
     ...(emailRecoveryPrepareRoutesEnabled ? [handleEmailRecoveryPrepare] : []),
+    handleOwnerWalletExecutionLanePreflight,
     handleThresholdEd25519,
     handleThresholdEcdsa,
     async (c: FetchRouterApiContext) =>
