@@ -2,13 +2,15 @@
 
 Date created: June 15, 2026
 
-Last reconciled: August 7, 2026 (single-seed revision; scope/locator review applied)
+Last reconciled: August 12, 2026 (implementation checklist audit)
 
 Status: active design plan. Same-device passkey Ed25519 sealing and rehydration,
 durable ECDSA material identity, and the current Email OTP wallet lifecycle have
 landed as groundwork. Portable server-held wrapped custody, random-root
-registration, mixed-wallet recovery envelopes, and recovery-code unwrap remain
-pending. Ed25519 lifecycle behavior must preserve the architecture and
+registration, mixed-wallet recovery envelopes, and recovery-code unwrap are
+implemented. Final runtime verification, the development OTP data reset,
+zero-Deriver ordinary-signing evidence, and compromise-triggered lane refresh
+escalation remain pending. Ed25519 lifecycle behavior must preserve the architecture and
 production gates in [router-ab/ed25519-yao/implementation-plan.md](./router-ab/ed25519-yao/implementation-plan.md).
 
 ## Dependencies And Authority
@@ -644,7 +646,12 @@ and product behavior.
   lane envelopes remain active.
 - Credential replacement and device revocation are separate user operations.
 
-## Where This Stands (2026-08-10)
+## Where This Stands (2026-08-12)
+
+The implementation checklist is 68 of 71 boxes complete. The three unchecked
+items are deliberately evidence-gated or operational: wiping development OTP
+wallets, proving zero-Deriver ordinary Ed25519 signing against a live stack,
+and adding lane-refresh escalation after suspected holder-secret exposure.
 
 The Refactor-100 production paths are implemented on the isolated
 `refactor-100-passkey-custody` branch. Registration, ordinary cold unlock,
@@ -653,10 +660,9 @@ passkey addition, and credential list/rename/revoke have direct and iframe
 orchestration. Email OTP's separate device-escrow recovery system and the
 factor-derived Ed25519 root APIs are deleted.
 
-Runtime verification is intentionally pending. No tests, typechecks, proofs,
-or live-stack checks were run during the final integration pass; the manual
-verification matrix must complete before merging. Refactor-102 lane refresh
-and Refactor-103 linked-device work remain separate follow-on refactors.
+Runtime verification is intentionally pending. The linked-lane integration
+boxes are complete, while the broader manual verification matrix and the
+remaining three checklist items must complete before merging.
 
 **Cold unlock (2026-08-09).** Every piece now exists, is tested, and is
 reachable from JavaScript: the store has a DI site and a service-bag port, the
