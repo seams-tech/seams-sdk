@@ -4,9 +4,8 @@ use router_ab_cloudflare::{
     CloudflareRouterNormalSigningTrustedMetadataV1, CloudflareSecretMaterial32V1,
     CloudflareServerOutputMaterialRecordV1,
     CloudflareSigningWorkerAdmittedLinkedDeviceEcdsaPrepareRequestV1,
-    CloudflareSigningWorkerEcdsaPresignatureRecordV1, CloudflareSigningWorkerLaneKeyFamilyV1,
-    CloudflareSigningWorkerLaneMaterialIdentityV1,
-    CloudflareSigningWorkerLinkedDeviceEcdsaPreparedV1,
+    CloudflareSigningWorkerLaneKeyFamilyV1, CloudflareSigningWorkerLaneMaterialIdentityV1,
+    CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionBindingV1,
     CloudflareSigningWorkerMaterializedLinkedDeviceEcdsaPrepareRequestV1,
     CloudflareSigningWorkerNormalSigningLaneMaterialLookupV1,
     CloudflareSigningWorkerNormalSigningMaterialSourceV1,
@@ -301,41 +300,40 @@ fn linked_ecdsa_prepared_bundle_binds_request_and_material() {
         1_000,
     )
     .expect("materialized prepare request");
-    let response =
-        router_ab_core::RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningPrepareResponseV1 {
-            scope: scope.clone(),
-            request_id: prepare_request.request_id.clone(),
-            request_digest: prepare_request.request_digest().expect("request digest"),
-            signing_digest: prepare_request.signing_digest().expect("signing digest"),
-            server_presignature_id: prepare_request.client_presignature_id.clone(),
-            server_big_r33_b64u: point(),
-            signing_worker_rerandomization_contribution32_b64u: digest(6),
-            signature_scheme: RouterAbEcdsaDerivationSignatureSchemeV1::EcdsaSecp256k1RecoverableV1,
-            prepared_at_ms: 1_000,
-            expires_at_ms: 2_000,
-        };
-    let record = CloudflareSigningWorkerEcdsaPresignatureRecordV1::new(
-        active_signing_worker,
-        prepare_request.client_presignature_id.clone(),
-        prepare_request.request_digest().expect("request digest"),
-        prepare_request.signing_digest().expect("signing digest"),
-        point(),
-        digest(6),
-        digest(8),
-        digest(9),
-        1_000,
-        2_000,
+    let mut presignature97 = URL_SAFE_NO_PAD.decode(point()).expect("R point");
+    presignature97.extend([8; 32]);
+    presignature97.extend([9; 32]);
+    let binding = CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionBindingV1::new(
+        &materialized,
+        "presign-session:r103",
     )
-    .expect("presignature record");
-    let prepared =
-        CloudflareSigningWorkerLinkedDeviceEcdsaPreparedV1::new(response, record, &materialized)
-            .expect("prepared bundle");
+    .expect("presign session binding");
+    let prepared = binding
+        .complete_from_presignature_output(&materialized, &presignature97, digest(6), 1_500)
+        .expect("prepared bundle");
+
+    assert_eq!(prepared.response.request_id, prepare_request.request_id);
+    assert_eq!(
+        prepared.response.request_digest,
+        prepare_request.request_digest().expect("request digest")
+    );
+    assert_eq!(prepared.record.created_at_ms, 1_500);
 
     let mut substituted = prepared;
     substituted.record.request_digest = public_digest(11);
     let error = substituted
         .validate_for_request(&materialized)
         .expect_err("request digest substitution is rejected");
+    assert_eq!(
+        error.code(),
+        RouterAbProtocolErrorCode::InvalidLocalServiceConfig
+    );
+
+    let mut substituted_binding = binding;
+    substituted_binding.operation_id = "operation:other".to_owned();
+    let error = substituted_binding
+        .complete_from_presignature_output(&materialized, &presignature97, digest(6), 1_500)
+        .expect_err("operation substitution is rejected");
     assert_eq!(
         error.code(),
         RouterAbProtocolErrorCode::InvalidLocalServiceConfig
