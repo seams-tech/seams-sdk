@@ -6,6 +6,10 @@ import {
   computeLinkedDeviceSessionClaimDigestV1,
   buildLinkedDeviceHolderDeliveryAcknowledgementV1,
   buildLinkedDeviceProvisioningCommandV1,
+  buildLinkedDeviceTargetCredentialRegistrationV1,
+  buildLinkedDeviceTargetPreparationV1,
+  assertLinkedDeviceTargetCredentialRegistrationMatchesPreparationV1,
+  computeLinkedDeviceTargetPreparationDigestV1,
   parseLinkedDeviceApprovalV1,
   parseLinkedDeviceHolderDeliveryAcknowledgementV1,
   parseLinkedDeviceEnrollmentReceiptV1,
@@ -14,6 +18,8 @@ import {
   parseLinkedDeviceProvisioningDeliveriesV1,
   parseLinkedDeviceSessionState,
   parseLinkedDeviceSessionTransportRequestV1,
+  parseLinkedDeviceTargetCredentialRegistrationV1,
+  parseLinkedDeviceTargetPreparationV1,
   parseQrLinkedDeviceSessionPayloadV4,
 } from '../../packages/shared-ts/src/device-linking';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
@@ -23,6 +29,10 @@ import {
   buildR102ProtocolCommitReceipt,
 } from './helpers/r102LaneGateway.fixtures';
 import { parseRotatableSigningLaneJobV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
+import {
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+} from '../../packages/shared-ts/src/utils/domainIds';
 
 test.describe('R103 shared linked-device contracts', () => {
   test('round-trips QR, approval, transcript, and receipt projections through strict parsers', async () => {
@@ -219,5 +229,107 @@ test.describe('R103 shared linked-device contracts', () => {
         ],
       }),
     ).toThrow(/does not match its job/);
+  });
+
+  test('binds verified target attestation and public holder records to one preparation', async () => {
+    const fixture = buildR103DeviceLinkFixture();
+    const job = buildR102LaneJob('target-preparation');
+    const rpId = parseWebAuthnRpId('wallet.example.test');
+    const credentialId = parseWebAuthnCredentialIdB64u('AQID');
+    if (!rpId.ok) throw new Error(rpId.error.message);
+    if (!credentialId.ok) throw new Error(credentialId.error.message);
+    const preparation = buildLinkedDeviceTargetPreparationV1({
+      linkSessionId: fixture.approval.linkSessionId,
+      walletId: fixture.approval.walletId,
+      enrollmentId: fixture.approval.enrollmentId,
+      deviceId: fixture.approval.deviceId,
+      rpId: rpId.value,
+      userHandleB64u: 'AQID',
+      challengeB64u: fixture.approval.policyDigestB64u,
+      orderedChildren: [
+        {
+          kind: 'linked_device_target_preparation_child_v1',
+          operationId: job.operationId,
+          walletKeyId: job.walletKeyId,
+          keyFamily: job.keyFamily,
+          targetLaneId: job.target.laneId,
+          targetLaneShareEpoch: job.target.laneShareEpoch,
+          targetMaterialActivationId: job.targetMaterialActivationId,
+          targetHolderParticipantId: job.targetHolder.participantId,
+        },
+      ],
+      issuedAtMs: 1_000,
+      expiresAtMs: 2_000,
+    });
+    expect(parseLinkedDeviceTargetPreparationV1(preparation)).toEqual(preparation);
+    const targetPreparationDigestB64u =
+      await computeLinkedDeviceTargetPreparationDigestV1(preparation);
+    const registration = buildLinkedDeviceTargetCredentialRegistrationV1({
+      linkSessionId: fixture.approval.linkSessionId,
+      walletId: fixture.approval.walletId,
+      enrollmentId: fixture.approval.enrollmentId,
+      deviceId: fixture.approval.deviceId,
+      targetPreparationDigestB64u,
+      webauthnRegistration: {
+        kind: 'linked_device_webauthn_registration_v1',
+        credentialIdB64u: credentialId.value,
+        authenticatorAttachment: 'platform',
+        clientDataJsonB64u: 'AQID',
+        attestationObjectB64u: 'BAUG',
+        transports: ['internal'],
+      },
+      orderedHolderRegistrations: [
+        {
+          kind: 'linked_device_target_holder_registration_v1',
+          operationId: job.operationId,
+          walletKeyId: job.walletKeyId,
+          keyFamily: job.keyFamily,
+          targetLaneId: job.target.laneId,
+          targetLaneShareEpoch: job.target.laneShareEpoch,
+          targetMaterialActivationId: job.targetMaterialActivationId,
+          holderParticipant: {
+            kind: 'lane_holder_participant_v1',
+            participantId: job.targetHolder.participantId,
+            custodyBindingId: job.targetHolder.custodyBindingId,
+            custodyBindingDigestB64u: job.targetHolder.custodyBindingDigestB64u,
+            hpkePublicKeyB64u: job.targetHolder.hpkePublicKeyB64u,
+            hpkePublicKeyDigestB64u: job.targetHolder.hpkePublicKeyDigestB64u,
+            participantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
+          },
+        },
+      ],
+      registeredAtMs: 1_500,
+    });
+    expect(parseLinkedDeviceTargetCredentialRegistrationV1(registration)).toEqual(registration);
+    await expect(
+      assertLinkedDeviceTargetCredentialRegistrationMatchesPreparationV1({
+        preparation,
+        registration,
+      }),
+    ).resolves.toBeUndefined();
+    const substitutedRegistration = parseLinkedDeviceTargetCredentialRegistrationV1({
+      ...registration,
+      orderedHolderRegistrations: [
+        {
+          ...registration.orderedHolderRegistrations[0],
+          operationId: 'operation:substituted',
+        },
+      ],
+    });
+    await expect(
+      assertLinkedDeviceTargetCredentialRegistrationMatchesPreparationV1({
+        preparation,
+        registration: substitutedRegistration,
+      }),
+    ).rejects.toThrow(/R102 child/);
+    expect(() =>
+      parseLinkedDeviceTargetCredentialRegistrationV1({
+        ...registration,
+        webauthnRegistration: {
+          ...registration.webauthnRegistration,
+          clientExtensionResults: { prf: { results: { first: 'secret' } } },
+        },
+      }),
+    ).toThrow(/clientExtensionResults/);
   });
 });

@@ -4,6 +4,7 @@ import type {
   WalletSessionId,
 } from '../authorization/capabilityKinds';
 import type {
+  LaneHolderParticipantRecordV1,
   LaneHolderParticipantId,
   SigningWorkerParticipantId,
 } from '../signing-lanes/participants';
@@ -18,9 +19,11 @@ import type {
   WalletKeyId,
 } from '../signing-lanes/ids';
 import type {
+  MpcMaterialActivationId,
   MpcMaterialActivationRef,
   WalletId,
   WebAuthnCredentialIdB64u,
+  WebAuthnRpId,
 } from '../utils/domainIds';
 import type { DigestB64u } from '../utils/canonicalPrimitives';
 import type {
@@ -314,13 +317,76 @@ export type LinkedDeviceEnrollmentReceiptV1 = {
   readonly activatedAtMs: number;
 };
 
+export type LinkedDeviceTargetPreparationChildV1 = {
+  readonly kind: 'linked_device_target_preparation_child_v1';
+  readonly operationId: LaneOperationId;
+  readonly walletKeyId: WalletKeyId;
+  readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
+  readonly targetLaneId: SigningLaneId;
+  readonly targetLaneShareEpoch: LaneShareEpoch;
+  readonly targetMaterialActivationId: MpcMaterialActivationId;
+  readonly targetHolderParticipantId: LaneHolderParticipantId;
+};
+
+/** Server-owned challenge and exact R102 child identities required before Device 2 creates keys. */
+export type LinkedDeviceTargetPreparationV1 = {
+  readonly kind: 'linked_device_target_preparation_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly walletId: WalletId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
+  readonly rpId: WebAuthnRpId;
+  readonly userHandleB64u: string;
+  readonly challengeB64u: DigestB64u;
+  readonly orderedChildren: readonly [
+    LinkedDeviceTargetPreparationChildV1,
+    ...LinkedDeviceTargetPreparationChildV1[],
+  ];
+  readonly issuedAtMs: number;
+  readonly expiresAtMs: number;
+};
+
+/** Verification-safe WebAuthn registration projection. PRF outputs stay on Device 2. */
+export type LinkedDeviceWebAuthnRegistrationV1 = {
+  readonly kind: 'linked_device_webauthn_registration_v1';
+  readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+  readonly authenticatorAttachment: 'platform' | 'cross-platform' | null;
+  readonly clientDataJsonB64u: string;
+  readonly attestationObjectB64u: string;
+  readonly transports: readonly (
+    | 'ble'
+    | 'cable'
+    | 'hybrid'
+    | 'internal'
+    | 'nfc'
+    | 'smart-card'
+    | 'usb'
+  )[];
+};
+
+export type LinkedDeviceTargetHolderRegistrationV1 = {
+  readonly kind: 'linked_device_target_holder_registration_v1';
+  readonly operationId: LaneOperationId;
+  readonly walletKeyId: WalletKeyId;
+  readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
+  readonly targetLaneId: SigningLaneId;
+  readonly targetLaneShareEpoch: LaneShareEpoch;
+  readonly targetMaterialActivationId: MpcMaterialActivationId;
+  readonly holderParticipant: LaneHolderParticipantRecordV1;
+};
+
 export type LinkedDeviceTargetCredentialRegistrationV1 = {
   readonly kind: 'linked_device_target_credential_registration_v1';
   readonly linkSessionId: LinkDeviceSessionId;
   readonly walletId: WalletId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
-  readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+  readonly targetPreparationDigestB64u: DigestB64u;
+  readonly webauthnRegistration: LinkedDeviceWebAuthnRegistrationV1;
+  readonly orderedHolderRegistrations: readonly [
+    LinkedDeviceTargetHolderRegistrationV1,
+    ...LinkedDeviceTargetHolderRegistrationV1[],
+  ];
   readonly registeredAtMs: number;
 };
 
