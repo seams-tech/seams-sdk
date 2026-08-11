@@ -19,6 +19,7 @@ import {
   type AuthorizedOperation,
 } from '../../../packages/sdk-server-ts/src/authorization/domain';
 import { buildLinkedDeviceSigningLaneRecord } from '../../../packages/shared-ts/src/signing-lanes/recordParsers';
+import { parseLinkedDeviceEcdsaNormalSigningScopeV1 } from '../../../packages/shared-ts/src/signing-lanes/linkedEcdsaScope';
 import { buildLaneProductEpochActiveV1 } from '../../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import type { LaneProductEpochActiveV1 } from '../../../packages/shared-ts/src/signing-lanes/rotation';
 import {
@@ -216,6 +217,7 @@ export async function buildLinkedDeviceWalletExecutionFixture(): Promise<LinkedD
     revocationEpoch: 0,
     lifecycle: { state: 'active', activatedAtMs: FIXTURE_NOW_MS },
   };
+  const walletKey = buildWalletKeyFixture(walletId, walletKeyId);
   const materialSource: Extract<
     RouterAbNormalSigningMaterialSourceV1,
     { readonly kind: 'rotatable_lane' }
@@ -241,8 +243,54 @@ export async function buildLinkedDeviceWalletExecutionFixture(): Promise<LinkedD
       },
       admittedLaneIdentityDigestB64u: DIGEST,
     },
-    group_public_key: String(buildWalletKeyFixture(walletId, walletKeyId).thresholdPublicKey33B64u),
+    group_public_key: String(walletKey.thresholdPublicKey33B64u),
   };
+  const ecdsaNormalSigningScope = parseLinkedDeviceEcdsaNormalSigningScopeV1({
+    kind: 'linked_device_ecdsa_normal_signing_scope_v1',
+    keyFamily: 'ecdsa_secp256k1',
+    laneKind: 'linked_device',
+    walletId,
+    walletKeyId,
+    enrollmentId: laneEnrollmentId,
+    operationId,
+    laneId,
+    laneShareEpoch,
+    revocationEpoch: 0,
+    targetMaterialActivationId: materialActivation.activationId,
+    materialActivation,
+    targetCapability: {
+      manifestId: 'manifest:linked-admission',
+      manifestRevision: 1,
+      ecdsaThresholdKeyId: 'threshold-key:linked-admission',
+      orderedThresholdSessions: [
+        {
+          chainTarget: {
+            kind: 'evm',
+            namespace: 'eip155',
+            chainId: 1,
+            networkSlug: 'mainnet',
+          },
+          thresholdSessionId: 'threshold-session:linked-admission',
+          participantBindingDigestB64u: DIGEST,
+        },
+      ],
+    },
+    thresholdPublicKey33B64u: walletKey.thresholdPublicKey33B64u,
+    evmAddress: walletKey.evmAddress,
+    publicIdentityDigestB64u: DIGEST,
+    targetHolderPublicCommitmentB64u: walletKey.thresholdPublicKey33B64u,
+    targetServerPublicCommitmentB64u: walletKey.thresholdPublicKey33B64u,
+    holderParticipantId: holderParticipant.participantId,
+    signingWorkerParticipantId: signingWorkerParticipant.participantId,
+    holderParticipantBindingDigestB64u: holderParticipant.participantBindingDigestB64u,
+    signingWorkerParticipantBindingDigestB64u:
+      signingWorkerParticipant.participantBindingDigestB64u,
+    holderRecipientKeyDigestB64u: holderParticipant.hpkePublicKeyDigestB64u,
+    serverRecipientKeyDigestB64u: signingWorkerParticipant.hpkePublicKeyDigestB64u,
+    signingWorkerRecipientKeyId: signingWorkerParticipant.recipientKeyId,
+    transcriptHashB64u: DIGEST,
+    protocolCommitReceiptDigestB64u: DIGEST,
+  });
   return {
     authorizedOperation,
     authorization,
@@ -250,13 +298,14 @@ export async function buildLinkedDeviceWalletExecutionFixture(): Promise<LinkedD
       kind: 'active_linked_device_execution_projection_v1',
       authorization,
       enrollment,
-      walletKey: buildWalletKeyFixture(walletId, walletKeyId),
+      walletKey,
       lane,
       product,
       materialActivation,
       verifiedLaneParticipantBindingDigestB64u: participantBindingDigestB64u,
       verifiedActivationReceiptDigestB64u: DIGEST,
       materialSource,
+      ecdsaNormalSigningScope,
     },
     localPresence: {
       kind: 'linked_device_local_presence_evidence_v1',
