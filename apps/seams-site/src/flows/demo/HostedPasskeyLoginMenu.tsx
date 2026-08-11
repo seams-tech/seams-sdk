@@ -24,6 +24,14 @@ type HostedPasskeyLoginMenuProps = {
   defaultModeWhenNoDetectedAccount?: AuthMenuMode;
 };
 
+const HOSTED_AUTH_MENU_ERROR_EVENT = 'seams:hosted-auth-menu-error';
+
+type HostedAuthMenuErrorEventDetail = {
+  readonly kind: 'hosted_auth_menu_error_v1';
+  readonly mode: 'login' | 'register';
+  readonly message: string;
+};
+
 function hostedModeFromReactMode(mode: AuthMenuMode | undefined): HostedAuthMenuMode {
   return mode === AuthMenuMode.Register ? 'register' : 'login';
 }
@@ -57,6 +65,42 @@ function formatGoogleBrokerError(error: unknown): string {
   if (error instanceof Error && error.message.trim()) return error.message.trim();
   if (typeof error === 'string' && error.trim()) return error.trim();
   return 'Google SSO is unavailable. Please retry.';
+}
+
+function parseHostedAuthMenuErrorEvent(event: Event): HostedAuthMenuErrorEventDetail | null {
+  if (!(event instanceof CustomEvent) || !isRecord(event.detail)) return null;
+  const detail = event.detail;
+  if (
+    detail.kind !== 'hosted_auth_menu_error_v1' ||
+    (detail.mode !== 'login' && detail.mode !== 'register') ||
+    typeof detail.message !== 'string' ||
+    !detail.message.trim()
+  ) {
+    return null;
+  }
+  return { kind: detail.kind, mode: detail.mode, message: detail.message.trim() };
+}
+
+function handleHostedAuthMenuError(event: Event): void {
+  const error = parseHostedAuthMenuErrorEvent(event);
+  if (!error) return;
+  console.error(`[SeamsAuthMenu:${error.mode}]`, new Error(error.message));
+  toast.error(error.message, { id: error.mode === 'register' ? 'registration' : 'login' });
+}
+
+function noop(): void {}
+
+function subscribeToHostedAuthMenuErrors(
+  containerRef: React.RefObject<HTMLDivElement | null>,
+): () => void {
+  const container = containerRef.current;
+  if (!container) return noop;
+  container.addEventListener(HOSTED_AUTH_MENU_ERROR_EVENT, handleHostedAuthMenuError);
+  return container.removeEventListener.bind(
+    container,
+    HOSTED_AUTH_MENU_ERROR_EVENT,
+    handleHostedAuthMenuError,
+  );
 }
 
 function requirePreparedGoogleSsoClientId(readiness: GoogleSsoReadiness): string {
@@ -113,6 +157,7 @@ function handleHostedAuthMenuOutcome(
       toast.info('Wallet authentication cancelled', { id: 'login' });
       return;
     case 'failed':
+      console.error('[SeamsAuthMenu]', new Error(outcomeMessage(outcome)));
       toast.error(outcomeMessage(outcome), { id: 'login' });
       return;
     default: {
@@ -139,6 +184,8 @@ function showHostedDemoEmailOtp(delivery: { otpCode: string }): void {
 }
 
 export function HostedPasskeyLoginMenu(props: HostedPasskeyLoginMenuProps) {
+  const authMenuContainerRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(subscribeToHostedAuthMenuErrors.bind(null, authMenuContainerRef), []);
   const relayerBaseUrl = React.useMemo(
     () => normalizeBaseUrl(FRONTEND_CONFIG.relayerUrl || FRONTEND_CONFIG.consoleBaseUrl),
     [],
@@ -208,7 +255,7 @@ export function HostedPasskeyLoginMenu(props: HostedPasskeyLoginMenuProps) {
 
   if (existingAccountDetected === null && authMenuControl.defaultModeOverride === undefined) {
     return (
-      <div className="passkey-login-container-root">
+      <div ref={authMenuContainerRef} className="passkey-login-container-root">
         <div className="passkey-login-menu-placeholder" aria-hidden="true" />
       </div>
     );
@@ -220,7 +267,7 @@ export function HostedPasskeyLoginMenu(props: HostedPasskeyLoginMenuProps) {
   );
 
   return (
-    <div className="passkey-login-container-root">
+    <div ref={authMenuContainerRef} className="passkey-login-container-root">
       <HostedSeamsAuthMenu
         key={`seams-auth-menu-${resolvedInitialMode ?? 'login'}-${authMenuControl.remountKey}`}
         initialMode={resolvedInitialMode}

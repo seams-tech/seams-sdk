@@ -148,6 +148,15 @@ export type HostedAuthMenuDemoEmailOtpDelivery = {
   delivery: Extract<GoogleEmailOtpWalletAuthDelivery, { otpCode: string }>;
 };
 
+export const HOSTED_AUTH_MENU_ERROR_EVENT = 'seams:hosted-auth-menu-error' as const;
+
+export type HostedAuthMenuErrorEvent = {
+  kind: 'hosted_auth_menu_error_v1';
+  authMenuSessionId: HostedAuthMenuSessionId;
+  mode: HostedAuthMenuMode;
+  message: string;
+};
+
 export type HostedAuthMenuExternalAuthFailureCode =
   | 'provider_unavailable'
   | 'provider_error'
@@ -636,6 +645,24 @@ export function parseHostedAuthMenuDemoEmailOtpDelivery(
   };
 }
 
+export function parseHostedAuthMenuErrorEvent(value: unknown): HostedAuthMenuErrorEvent | null {
+  const record = recordFromBoundary(value);
+  if (
+    !record ||
+    !isWireSerializable(record) ||
+    record.kind !== 'hosted_auth_menu_error_v1' ||
+    !hasOnlyKeys(record, ['kind', 'authMenuSessionId', 'mode', 'message'])
+  ) {
+    return null;
+  }
+  const authMenuSessionId = hostedAuthMenuSessionIdFromBoundary(record.authMenuSessionId);
+  const mode = parseAuthMenuMode(record.mode);
+  const message = boundaryString(record.message, 'message');
+  return authMenuSessionId && mode && message
+    ? { kind: record.kind, authMenuSessionId, mode, message }
+    : null;
+}
+
 function parseExternalAuthEvidence(value: unknown): HostedAuthMenuExternalAuthEvidence | null {
   const record = recordFromBoundary(value);
   if (!record || !isWireSerializable(record)) return null;
@@ -865,6 +892,7 @@ export type ChildToParentType =
   | 'SDK_LIFECYCLE_EVENT'
   | 'PREFERENCES_CHANGED'
   | 'AUTH_MENU_EXTERNAL_AUTH_REQUEST'
+  | 'AUTH_MENU_ERROR'
   | 'SURFACE_MEASUREMENT'
   | 'PM_RESULT'
   | 'ERROR';
@@ -1447,6 +1475,7 @@ export type ChildToParentEnvelope =
   | RpcEnvelope<'SDK_LIFECYCLE_EVENT', SdkLifecycleEvent>
   | RpcEnvelope<'PREFERENCES_CHANGED', PreferencesChangedPayload>
   | RpcEnvelope<'AUTH_MENU_EXTERNAL_AUTH_REQUEST', HostedAuthMenuExternalAuthRequest>
+  | RpcEnvelope<'AUTH_MENU_ERROR', HostedAuthMenuErrorEvent>
   | RpcEnvelope<'AUTH_MENU_DEMO_EMAIL_OTP_DELIVERY', HostedAuthMenuDemoEmailOtpDelivery>
   | RpcEnvelope<'SURFACE_MEASUREMENT', WalletIframeSurfaceMeasurement>
   | RpcEnvelope<'PM_RESULT', PMResultPayload>
