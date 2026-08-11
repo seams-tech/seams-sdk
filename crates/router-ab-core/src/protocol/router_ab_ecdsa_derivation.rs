@@ -1989,6 +1989,12 @@ impl RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1 {
                 "linked ECDSA scope activation id does not match material activation",
             ));
         }
+        if self.material_activation.signing_worker != self.signing_worker_participant_id {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "linked ECDSA scope SigningWorker does not match material activation",
+            ));
+        }
         self.target_capability.validate()?;
         decode_secp256k1_public_key33_b64u(
             "linkedEcdsaScope.thresholdPublicKey33B64u",

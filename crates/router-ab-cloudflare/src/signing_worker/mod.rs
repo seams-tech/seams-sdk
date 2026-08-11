@@ -400,6 +400,50 @@ impl CloudflareSigningWorkerNormalSigningMaterialSourceV1 {
             "ECDSA normal-signing material source does not match scope",
         ))
     }
+
+    pub fn validate_for_linked_ecdsa_scope(
+        &self,
+        scope: &RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1,
+    ) -> RouterAbProtocolResult<()> {
+        scope.validate()?;
+        let Self::RotatableLane {
+            lookup,
+            group_public_key,
+        } = self
+        else {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "linked ECDSA signing requires rotatable lane material",
+            ));
+        };
+        lookup.validate()?;
+        let identity = &lookup.identity;
+        if identity.operation_id == scope.operation_id
+            && identity.enrollment_id == scope.enrollment_id
+            && identity.wallet_id == scope.wallet_id
+            && identity.wallet_key_id == scope.wallet_key_id
+            && identity.target_lane_id == scope.lane_id
+            && identity.target_lane_share_epoch == scope.lane_share_epoch
+            && identity.target_material_activation_id == scope.target_material_activation_id
+            && identity.key_family == CloudflareSigningWorkerLaneKeyFamilyV1::EcdsaSecp256k1
+            && identity.holder_participant_binding_digest_b64u
+                == scope.holder_participant_binding_digest_b64u
+            && identity.signing_worker_participant_binding_digest_b64u
+                == scope.signing_worker_participant_binding_digest_b64u
+            && identity.holder_recipient_key_digest_b64u == scope.holder_recipient_key_digest_b64u
+            && identity.server_recipient_key_digest_b64u == scope.server_recipient_key_digest_b64u
+            && identity.transcript_hash_b64u == scope.transcript_hash_b64u
+            && identity.protocol_commit_receipt_digest_b64u
+                == scope.protocol_commit_receipt_digest_b64u
+            && group_public_key == &scope.threshold_public_key33_b64u
+        {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidGateDecision,
+            "linked ECDSA lane material does not match authoritative scope",
+        ))
+    }
 }
 
 /// Router-admitted v2 prepare request sent to SigningWorker.

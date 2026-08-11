@@ -43,7 +43,7 @@ fn valid_scope_json() -> Value {
             "materialOwner": "material-owner:r103",
             "keyBinding": "key-binding:r103",
             "lifecycleBinding": "lifecycle-binding:r103",
-            "signingWorker": "signing-worker:r103"
+            "signingWorker": "worker-r103"
         },
         "targetCapability": {
             "manifestId": "manifest-target-r103",
@@ -139,6 +139,17 @@ fn linked_ecdsa_scope_rejects_binding_substitution() {
         &serde_json::to_vec(&value).expect("scope JSON"),
     )
     .expect_err("activation substitution must be rejected");
+    assert_eq!(
+        error.code(),
+        RouterAbProtocolErrorCode::InvalidLifecycleState
+    );
+
+    let mut value = valid_scope_json();
+    value["signingWorkerParticipantId"] = json!("worker-r103:other");
+    let error = parse_router_ab_ecdsa_derivation_linked_device_normal_signing_scope_v1_json(
+        &serde_json::to_vec(&value).expect("scope JSON"),
+    )
+    .expect_err("SigningWorker substitution must be rejected");
     assert_eq!(
         error.code(),
         RouterAbProtocolErrorCode::InvalidLifecycleState
