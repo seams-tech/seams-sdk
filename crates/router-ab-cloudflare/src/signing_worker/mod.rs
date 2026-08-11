@@ -1,6 +1,7 @@
 use crate::*;
 use router_ab_core::{
     RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningFinalizeRequestV1,
+    RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningPrepareResponseV1,
     RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningRequestV1,
     RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningResponseV1,
     RouterAbEcdsaDerivationSignatureSchemeV1,
@@ -1925,6 +1926,63 @@ impl CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestPreparedV1 {
         Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
             "SigningWorker Router A/B ECDSA derivation prepared record does not match response",
+        ))
+    }
+}
+
+/// SigningWorker-produced linked-device ECDSA presignature material plus public prepare response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareSigningWorkerLinkedDeviceEcdsaPreparedV1 {
+    /// Public response returned to the client through Router.
+    pub response: RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningPrepareResponseV1,
+    /// Private presignature record persisted by SigningWorker-private D1.
+    pub record: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+}
+
+impl CloudflareSigningWorkerLinkedDeviceEcdsaPreparedV1 {
+    /// Creates a validated linked-device ECDSA prepared bundle.
+    pub fn new(
+        response: RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningPrepareResponseV1,
+        record: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+        request: &CloudflareSigningWorkerMaterializedLinkedDeviceEcdsaPrepareRequestV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let prepared = Self { response, record };
+        prepared.validate_for_request(request)?;
+        Ok(prepared)
+    }
+
+    /// Validates the public response and private record bind to a materialized request.
+    pub fn validate_for_request(
+        &self,
+        request: &CloudflareSigningWorkerMaterializedLinkedDeviceEcdsaPrepareRequestV1,
+    ) -> RouterAbProtocolResult<()> {
+        request.validate()?;
+        self.response
+            .validate_for_request(&request.request.request)?;
+        self.record.validate()?;
+        let request_digest = request.request.request.request_digest()?;
+        let signing_digest = request.request.request.signing_digest()?;
+        if self.response.prepared_at_ms == request.materialized_at_ms
+            && self.response.expires_at_ms == request.request.request.expires_at_ms
+            && self.record.active_signing_worker_state == request.active_signing_worker
+            && self.record.server_presignature_id == self.response.server_presignature_id
+            && self.record.request_digest == request_digest
+            && self.record.admitted_signing_digest == signing_digest
+            && self.record.server_big_r33_b64u == self.response.server_big_r33_b64u
+            && self
+                .record
+                .signing_worker_rerandomization_contribution32_b64u
+                == self
+                    .response
+                    .signing_worker_rerandomization_contribution32_b64u
+            && self.record.created_at_ms == request.materialized_at_ms
+            && self.record.expires_at_ms == request.request.request.expires_at_ms
+        {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "SigningWorker linked-device ECDSA prepared record does not match response",
         ))
     }
 }
