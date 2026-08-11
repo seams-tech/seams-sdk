@@ -909,13 +909,13 @@ function buildGeneralEnvironment(input) {
         VITE_ARC_EXPLORER: manual(`${input.environmentPrefix}-arc-explorer-url`),
         VITE_WALLET_SERVICE_PATH: '/wallet-service',
         VITE_SDK_BASE_PATH: '/sdk',
-        VITE_DOCS_ORIGIN: configuration.appOrigin,
         VITE_DASHBOARD_WALLETS_ROUTES_ENABLED: 'true',
       },
       secrets: {
         CLOUDFLARE_API_TOKEN: manual(`${environmentName}-cloudflare-pages-api-token`),
         CLOUDFLARE_ACCOUNT_ID: manual(`${input.environmentPrefix}-cloudflare-account-id`),
         CF_PAGES_PROJECT_VITE: manual(`${environmentName}-cloudflare-pages-app-project`),
+        CF_PAGES_PROJECT_DOCS: manual(`${environmentName}-cloudflare-pages-docs-project`),
         CF_PAGES_PROJECT_WALLET: manual(`${environmentName}-cloudflare-pages-wallet-project`),
       },
     },
@@ -925,7 +925,6 @@ function buildGeneralEnvironment(input) {
 function buildProductionProductEnvironment(input) {
   const variables = {};
   const optionalVariables = {
-    VITE_DOCS_ORIGIN: input.configuration.appOrigin,
     VITE_DASHBOARD_WALLETS_ROUTES_ENABLED: 'true',
   };
   for (const lane of input.siteLanes) {
@@ -939,6 +938,7 @@ function buildProductionProductEnvironment(input) {
       CLOUDFLARE_API_TOKEN: manual(`${input.environmentPrefix}-cloudflare-pages-api-token`),
       CLOUDFLARE_ACCOUNT_ID: manual(`${input.environmentPrefix}-cloudflare-account-id`),
       CF_PAGES_PROJECT_VITE: manual(`${input.environmentPrefix}-cloudflare-pages-app-project`),
+      CF_PAGES_PROJECT_DOCS: manual(`${input.environmentPrefix}-cloudflare-pages-docs-project`),
       CF_PAGES_PROJECT_WALLET_TESTNET: manual(
         `${input.environmentPrefix}-cloudflare-pages-wallet-testnet-project`,
       ),
@@ -1661,15 +1661,26 @@ function ensurePagesProjects(site, environmentPrefix, suppliedValues, progressLo
     site.id === 'production' && names.has('seams-site') ? 'seams-site' : `seams-site-${site.id}`;
   const resolvedAppProject = appProject || defaultAppProject;
   ensurePagesProject(resolvedAppProject, names, site.branch, progressLogger);
-  suppliedValues.CF_PAGES_PROJECT_VITE = resolvedAppProject;
+  suppliedValues[site.pagesProjectEnv] = resolvedAppProject;
+  const suppliedDocsProject = readSuppliedValue(
+    suppliedValues,
+    environmentPrefix,
+    environmentPrefix,
+    site.docsPagesProjectEnv,
+  );
+  const resolvedDocsProject =
+    suppliedDocsProject || (site.id === 'production' ? 'seams-docs' : 'seams-docs-staging');
+  ensurePagesProject(resolvedDocsProject, names, site.branch, progressLogger);
+  suppliedValues[site.docsPagesProjectEnv] = resolvedDocsProject;
   const resolvedWalletProjects = site.lanes.map((lane) =>
     resolveLanePagesProject(lane, site, environmentPrefix, suppliedValues, names),
   );
   if (new Set(resolvedWalletProjects).size !== resolvedWalletProjects.length) {
     throw new Error(`Pages wallet projects must be unique for ${site.id}`);
   }
-  if (resolvedWalletProjects.includes(resolvedAppProject)) {
-    throw new Error(`Pages app and wallet projects must be distinct for ${site.id}`);
+  const allProjects = [resolvedAppProject, resolvedDocsProject, ...resolvedWalletProjects];
+  if (new Set(allProjects).size !== allProjects.length) {
+    throw new Error(`Pages app, docs, and wallet projects must be distinct for ${site.id}`);
   }
   for (const projectName of resolvedWalletProjects) {
     ensurePagesProject(projectName, names, site.branch, progressLogger);
@@ -1677,9 +1688,7 @@ function ensurePagesProjects(site, environmentPrefix, suppliedValues, progressLo
   suppliedValues.VITE_APP_ORIGIN =
     readSuppliedValue(suppliedValues, environmentPrefix, environmentPrefix, 'VITE_APP_ORIGIN') ||
     site.origin;
-  progressLogger.detail(
-    `Resolved Pages projects ${[resolvedAppProject, ...resolvedWalletProjects].join(', ')}`,
-  );
+  progressLogger.detail(`Resolved Pages projects ${allProjects.join(', ')}`);
 }
 
 function ensurePagesProject(projectName, existingNames, branch, progressLogger) {

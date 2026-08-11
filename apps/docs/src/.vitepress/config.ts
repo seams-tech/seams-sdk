@@ -31,7 +31,7 @@ export default defineConfig({
   },
   themeConfig: {
     siteTitle: 'Seams.xyz',
-    logoLink: 'https://localhost',
+    logoLink: process.env.VITE_SITE_ORIGIN || 'https://localhost',
     outline: [2, 3],
     search: { provider: 'local' },
     nav: [

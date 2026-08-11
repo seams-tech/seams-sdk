@@ -13,10 +13,12 @@ const REPOSITORY_ROOT = path.resolve(SCRIPT_DIRECTORY, '..');
 const ROUTER_ROOT = path.join(REPOSITORY_ROOT, 'crates', 'router-ab-cloudflare');
 const SITE_ROOT = path.join(REPOSITORY_ROOT, 'apps', 'seams-site');
 const SITE_OUTPUT = path.join(SITE_ROOT, 'dist');
+const DOCS_ROOT = path.join(REPOSITORY_ROOT, 'apps', 'docs');
+const DOCS_OUTPUT = path.join(DOCS_ROOT, 'dist');
 const SDK_OUTPUT = path.join(REPOSITORY_ROOT, 'packages', 'sdk-web', 'dist');
-const DEFAULT_DOCS_ORIGIN = 'https://docs.localhost';
 const FRONTEND_SMOKE_PATHS = Object.freeze({
   site: ['/', '/sdk/workers/near-signer.worker.js'],
+  docs: ['/', '/concepts/', '/concepts/auth-methods/', '/concepts/policy/mandates'],
   wallet: [
     '/',
     '/wallet-service/index.html',
@@ -42,7 +44,7 @@ async function main(args) {
       buildFrontend(site);
       return;
     case 'deploy':
-      deployFrontend(site);
+      await deployFrontend(site);
       return;
     case 'smoke':
       await smokeFrontend(site);
@@ -86,9 +88,11 @@ function printPlan(site) {
     `Frontend deployment plan: ${site.id}`,
     `Branch: ${site.branch}`,
     `Site: ${site.origin}`,
+    `Docs: ${site.docsOrigin}`,
     `Default network: ${site.defaultNetwork}`,
     `Available networks: ${site.availableNetworks.join(', ')}`,
     `Pages project environment: ${site.pagesProjectEnv}`,
+    `Docs Pages project environment: ${site.docsPagesProjectEnv}`,
     ...site.lanes.flatMap((lane) => [
       `Gateway (${lane.network}): ${lane.gatewayOrigin}`,
       `Wallet (${lane.network}): ${lane.walletOrigin}`,
@@ -97,10 +101,11 @@ function printPlan(site) {
     ...formatLaneProvisioning(site.lanes),
     '',
     'Order:',
-    '  1. build production SDK and Pages output once',
+    '  1. build the production SDK, app Pages output, and VitePress docs output',
     '  2. deploy the app Pages project',
-    '  3. deploy one wallet Pages project for every declared network',
-    '  4. smoke app, SDK, and every wallet origin',
+    '  3. deploy the docs Pages project and bind its custom domain',
+    '  4. deploy one wallet Pages project for every declared network',
+    '  5. smoke app, docs, SDK, and every wallet origin',
   ];
   process.stdout.write(`${lines.join('\n')}\n`);
 }
@@ -128,9 +133,22 @@ function buildFrontend(site) {
   runCommand('pnpm', ['-C', 'apps/seams-site', 'exec', 'vite', 'build'], {
     env: buildEnvironment,
   });
+  runCommand('pnpm', ['-C', 'apps/docs', 'run', 'build'], {
+    env: buildEnvironment,
+  });
   copySdkAssets();
   assertDirectory(SITE_OUTPUT, 'Pages build output');
   assertFile(path.join(SITE_OUTPUT, 'wallet-service', 'index.html'), 'wallet-service entry');
+  assertDirectory(DOCS_OUTPUT, 'VitePress Pages build output');
+  assertFile(path.join(DOCS_OUTPUT, 'concepts', 'index.html'), 'concepts docs entry');
+  assertFile(
+    path.join(DOCS_OUTPUT, 'concepts', 'auth-methods', 'index.html'),
+    'auth methods docs entry',
+  );
+  assertFile(
+    path.join(DOCS_OUTPUT, 'concepts', 'policy', 'mandates.html'),
+    'policy mandates docs entry',
+  );
 }
 
 function buildFrontendEnvironment(site) {
@@ -138,7 +156,7 @@ function buildFrontendEnvironment(site) {
     ...process.env,
     VITE_SITE_ID: site.id,
     VITE_SITE_ORIGIN: site.origin,
-    VITE_DOCS_ORIGIN: String(process.env.VITE_DOCS_ORIGIN || '').trim() || DEFAULT_DOCS_ORIGIN,
+    VITE_DOCS_ORIGIN: site.docsOrigin,
   };
   for (const lane of site.lanes) {
     const prefix = site.id === 'production' ? `VITE_${lane.network.toUpperCase()}_` : 'VITE_';
@@ -194,34 +212,71 @@ function copyDirectory(source, destination) {
   runCommand('rsync', ['-a', '--delete', `${source}${path.sep}`, `${destination}${path.sep}`]);
 }
 
-function deployFrontend(site) {
+async function deployFrontend(site) {
   requireEnvironmentValues(['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID'], process.env);
   const walletProjectEnvironments = site.lanes.map((lane) => lane.walletPagesProjectEnv);
   requireEnvironmentValues(
-    [site.pagesProjectEnv, ...new Set(walletProjectEnvironments)],
+    [site.pagesProjectEnv, site.docsPagesProjectEnv, ...new Set(walletProjectEnvironments)],
     process.env,
   );
   assertDirectory(SITE_OUTPUT, 'Pages build output');
-  const commonArguments = [
-    'pages',
-    'deploy',
-    path.relative(ROUTER_ROOT, SITE_OUTPUT),
-    '--branch',
-    site.branch,
-    '--commit-dirty=false',
-  ];
-  const sourceSha = String(process.env.DEPLOY_SHA || '').trim();
-  if (sourceSha) commonArguments.push('--commit-hash', sourceSha);
-  deployPagesProject(commonArguments, process.env[site.pagesProjectEnv]);
+  assertDirectory(DOCS_OUTPUT, 'VitePress Pages build output');
+  deployPagesProject(SITE_OUTPUT, site, process.env[site.pagesProjectEnv]);
+  const docsProject = process.env[site.docsPagesProjectEnv];
+  deployPagesProject(DOCS_OUTPUT, site, docsProject);
+  await ensurePagesCustomDomain(site, docsProject);
   for (const lane of site.lanes) {
-    deployPagesProject(commonArguments, process.env[lane.walletPagesProjectEnv]);
+    deployPagesProject(SITE_OUTPUT, site, process.env[lane.walletPagesProjectEnv]);
   }
   process.stdout.write(`Frontend deploy completed: ${site.id}\n`);
 }
 
-function deployPagesProject(commonArguments, projectName) {
-  const args = ['exec', 'wrangler', ...commonArguments, '--project-name', projectName];
+function deployPagesProject(outputDirectory, site, projectName) {
+  const args = [
+    'exec',
+    'wrangler',
+    'pages',
+    'deploy',
+    path.relative(ROUTER_ROOT, outputDirectory),
+    '--branch',
+    site.branch,
+    '--commit-dirty=false',
+    '--project-name',
+    projectName,
+  ];
+  const sourceSha = String(process.env.DEPLOY_SHA || '').trim();
+  if (sourceSha) args.push('--commit-hash', sourceSha);
   runCommand('pnpm', args, { cwd: ROUTER_ROOT });
+}
+
+async function ensurePagesCustomDomain(site, projectName) {
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+  const hostname = new URL(site.docsOrigin).hostname;
+  const projectPath = `/accounts/${encodeURIComponent(accountId)}/pages/projects/${encodeURIComponent(projectName)}`;
+  const domainPath = `${projectPath}/domains/${encodeURIComponent(hostname)}`;
+  const existing = await requestCloudflareApi(domainPath, apiToken, 'GET', [200, 404]);
+  if (existing.status === 200) return;
+  await requestCloudflareApi(`${projectPath}/domains`, apiToken, 'POST', [200], {
+    name: hostname,
+  });
+  process.stdout.write(`Bound Pages custom domain: ${hostname}\n`);
+}
+
+async function requestCloudflareApi(apiPath, apiToken, method, expectedStatuses, body) {
+  const response = await fetch(`https://api.cloudflare.com/client/v4${apiPath}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${apiToken}`,
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  if (expectedStatuses.includes(response.status)) return response;
+  const responseText = await response.text();
+  throw new Error(
+    `Cloudflare Pages custom-domain request failed (${method} ${apiPath}): ${response.status} ${responseText}`,
+  );
 }
 
 async function smokeFrontend(site) {
@@ -237,6 +292,7 @@ async function smokeFrontend(site) {
 function buildSmokeChecks(site) {
   const checks = [];
   addSmokeChecks(checks, 'site', site.origin, FRONTEND_SMOKE_PATHS.site);
+  addSmokeChecks(checks, 'docs', site.docsOrigin, FRONTEND_SMOKE_PATHS.docs);
   for (const lane of site.lanes) {
     addSmokeChecks(
       checks,
