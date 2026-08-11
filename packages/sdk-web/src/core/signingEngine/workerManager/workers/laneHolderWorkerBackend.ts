@@ -5,7 +5,10 @@ import type {
   SealedLaneHolderMaterialV1,
   VerifiedLaneHolderPackageV1,
 } from '@shared/signing-lanes/rotation';
-import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import type {
+  PasskeyCustodyEnvelopeRecord,
+  WalletCustodyFactorKind,
+} from '@shared/passkey-custody';
 import {
   parseHpkePublicKeyB64u,
   parseSigningWorkerRecipientKeyDigestB64u,
@@ -53,7 +56,7 @@ type LaneCustodySealWasmV1 = {
 
 export type LaneHolderWasmFactoryV1 = {
   loadCustodySeal(input: {
-    readonly factorKind: 'passkey' | 'email_otp';
+    readonly factorKind: WalletCustodyFactorKind;
     readonly factorSecret: Uint8Array;
     readonly envelopeBindingJson: string;
     readonly custodyBindingId: string;
