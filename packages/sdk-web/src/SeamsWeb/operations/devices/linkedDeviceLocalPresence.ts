@@ -1,0 +1,188 @@
+import { computeLinkedDeviceLocalPresenceChallengeDigestV1 } from '@shared/device-linking/digests';
+import type { AuthorizedOperationId } from '@shared/authorization/capabilityKinds';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import { base64UrlDecode } from '@shared/utils/base64';
+import type { WebAuthnAuthenticationCredential } from '@/core/types';
+import type { AuthenticatorPort } from '@/core/platform';
+import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { redactCredentialExtensionOutputs } from '@/core/signingEngine/webauthnAuth/credentials/credentialExtensions';
+import type {
+  LaneSealedHolderMaterialRepositoryV1,
+  LaneSealedHolderRecordV1,
+} from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
+import type {
+  ActiveLinkedDeviceExecutionBundleV1,
+  ActiveLinkedDeviceExecutionChildV1,
+} from '@/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
+import type {
+  DeviceLinkingHolderSigningMaterialHandleV1,
+  DeviceLinkingHolderSigningMaterialPortV1,
+} from './deviceLinkingPorts';
+
+export type LinkedDeviceLocalPresenceAssertionV1 = {
+  readonly kind: 'linked_device_local_presence_assertion_v1';
+  readonly authorizedOperationId: AuthorizedOperationId;
+  readonly deviceId: ActiveLinkedDeviceExecutionBundleV1['deviceId'];
+  readonly enrollmentId: ActiveLinkedDeviceExecutionBundleV1['enrollmentId'];
+  readonly credentialIdB64u: ActiveLinkedDeviceExecutionBundleV1['targetCredentialRegistration']['webauthnRegistration']['credentialIdB64u'];
+  readonly intentDigestB64u: DigestB64u;
+  readonly challengeDigestB64u: DigestB64u;
+  readonly issuedAtMs: number;
+  readonly expiresAtMs: number;
+  readonly assertion: WebAuthnAuthenticationCredential;
+};
+
+export type LinkedDevicePresenceAndHolderV1 = {
+  readonly localPresenceAssertion: LinkedDeviceLocalPresenceAssertionV1;
+  readonly holderMaterial: DeviceLinkingHolderSigningMaterialHandleV1;
+};
+
+function assertPresenceLifetime(input: {
+  readonly issuedAtMs: number;
+  readonly expiresAtMs: number;
+  readonly walletSessionExpiresAtMs: number;
+}): void {
+  if (
+    !Number.isSafeInteger(input.issuedAtMs) ||
+    !Number.isSafeInteger(input.expiresAtMs) ||
+    input.issuedAtMs < 0 ||
+    input.issuedAtMs >= input.expiresAtMs ||
+    input.expiresAtMs > input.walletSessionExpiresAtMs
+  ) {
+    throw new Error('linked-device local presence lifetime is invalid');
+  }
+}
+
+function requireExactCredential(input: {
+  readonly credential: WebAuthnAuthenticationCredential;
+  readonly returnedCredentialIdB64u: string;
+  readonly expectedCredentialIdB64u: string;
+  readonly returnedRpId: string;
+  readonly expectedRpId: string;
+}): WebAuthnAuthenticationCredential {
+  if (
+    input.returnedCredentialIdB64u !== input.expectedCredentialIdB64u ||
+    input.credential.id !== input.expectedCredentialIdB64u ||
+    input.credential.rawId !== input.expectedCredentialIdB64u ||
+    input.returnedRpId !== input.expectedRpId
+  ) {
+    throw new Error('linked-device local presence credential binding changed');
+  }
+  return redactCredentialExtensionOutputs(input.credential);
+}
+
+async function requireHolderRecord(input: {
+  readonly repository: LaneSealedHolderMaterialRepositoryV1;
+  readonly child: ActiveLinkedDeviceExecutionChildV1;
+}): Promise<LaneSealedHolderRecordV1> {
+  const record = await input.repository.get(input.child.holderRecordLookup);
+  if (!record) throw new Error('linked-device sealed holder material is unavailable');
+  return record;
+}
+
+export function createLinkedDeviceLocalPresencePortV1(input: {
+  readonly authenticator: AuthenticatorPort;
+  readonly holderRepository: LaneSealedHolderMaterialRepositoryV1;
+  readonly holderMaterial: DeviceLinkingHolderSigningMaterialPortV1;
+}): {
+  authorizeAndOpenHolderV1(args: {
+    readonly bundle: ActiveLinkedDeviceExecutionBundleV1;
+    readonly child: ActiveLinkedDeviceExecutionChildV1;
+    readonly authorizedOperationId: AuthorizedOperationId;
+    readonly intentDigestB64u: DigestB64u;
+    readonly issuedAtMs: number;
+    readonly expiresAtMs: number;
+  }): Promise<LinkedDevicePresenceAndHolderV1>;
+} {
+  return {
+    async authorizeAndOpenHolderV1(args) {
+      assertPresenceLifetime({
+        issuedAtMs: args.issuedAtMs,
+        expiresAtMs: args.expiresAtMs,
+        walletSessionExpiresAtMs: args.bundle.expiresAtMs,
+      });
+      if (
+        String(args.child.job.enrollmentId) !== String(args.bundle.enrollmentId) ||
+        String(args.child.job.walletId) !== String(args.bundle.walletId)
+      ) {
+        throw new Error('linked-device execution child changed its active parent');
+      }
+      const credentialIdB64u =
+        args.bundle.targetCredentialRegistration.webauthnRegistration.credentialIdB64u;
+      const holderRecord = await requireHolderRecord({
+        repository: input.holderRepository,
+        child: args.child,
+      });
+      const challengeDigestB64u = await computeLinkedDeviceLocalPresenceChallengeDigestV1({
+        authorizedOperationId: args.authorizedOperationId,
+        deviceId: args.bundle.deviceId,
+        enrollmentId: args.bundle.enrollmentId,
+        credentialIdB64u,
+        intentDigestB64u: args.intentDigestB64u,
+        issuedAtMs: args.issuedAtMs,
+        expiresAtMs: args.expiresAtMs,
+      });
+      const authentication = await input.authenticator.run({
+        kind: 'get_passkey',
+        rpId: toRpId(args.bundle.targetPreparation.rpId),
+        credentialIdB64u,
+        challengeB64u: challengeDigestB64u,
+        requirePrfFirst: true,
+      });
+      if (
+        !authentication.ok ||
+        authentication.operation !== 'get_passkey' ||
+        authentication.requirePrfFirst !== true
+      ) {
+        throw new Error(
+          authentication.ok
+            ? 'linked-device local presence returned the wrong authenticator operation'
+            : authentication.message,
+        );
+      }
+      const assertion = requireExactCredential({
+        credential: authentication.credential,
+        returnedCredentialIdB64u: authentication.credentialIdB64u,
+        expectedCredentialIdB64u: credentialIdB64u,
+        returnedRpId: authentication.rpId,
+        expectedRpId: args.bundle.targetPreparation.rpId,
+      });
+      const factorSecret = base64UrlDecode(authentication.prf.prfFirstB64u);
+      if (factorSecret.length !== 32) {
+        factorSecret.fill(0);
+        throw new Error('linked-device local presence PRF output must be 32 bytes');
+      }
+      let holderMaterial: DeviceLinkingHolderSigningMaterialHandleV1;
+      try {
+        holderMaterial = await input.holderMaterial.openPersistedHolderSigningMaterialV1({
+          factorSecret: factorSecret.buffer,
+          job: args.child.job,
+          protocolCommitReceipt: args.child.protocolCommitReceipt,
+          materialActivation: args.child.materialActivation,
+          holderRecord,
+        });
+      } finally {
+        if (factorSecret.byteLength > 0) factorSecret.fill(0);
+      }
+      if (holderMaterial.keyFamily !== args.child.keyFamily) {
+        await input.holderMaterial.discardHolderSigningMaterialV1({ handle: holderMaterial });
+        throw new Error('linked-device holder material changed its active curve');
+      }
+      return {
+        holderMaterial,
+        localPresenceAssertion: {
+          kind: 'linked_device_local_presence_assertion_v1',
+          authorizedOperationId: args.authorizedOperationId,
+          deviceId: args.bundle.deviceId,
+          enrollmentId: args.bundle.enrollmentId,
+          credentialIdB64u,
+          intentDigestB64u: args.intentDigestB64u,
+          challengeDigestB64u,
+          issuedAtMs: args.issuedAtMs,
+          expiresAtMs: args.expiresAtMs,
+          assertion,
+        },
+      };
+    },
+  };
+}
