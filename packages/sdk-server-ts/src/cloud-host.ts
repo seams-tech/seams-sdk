@@ -52,6 +52,7 @@ export * from './router/cloudflare/d1/ed25519Yao/d1Ed25519YaoCapabilityPersisten
 export * from './router/cloudflare/d1/oidc/d1OidcBoundary';
 export * from './router/cloudflare/d1/auth/d1RouterApiAuthConfig';
 export * from './router/cloudflare/d1/auth/d1RouterApiAuthService';
+export * from './router/cloudflare/d1/signingLanes/d1LinkedDeviceLaneOwnerAuthorization';
 export * from './router/cloudflare/d1/webauthn/d1WebAuthnAuthService';
 export * from './router/cloudflare/d1/webauthn/d1WebAuthnStore';
 export * from './router/cloudflare/durableObjects/thresholdStore';
