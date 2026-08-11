@@ -11,6 +11,7 @@ import {
   parseLinkedDeviceSessionProjectionV1,
   parseLinkedDeviceSessionTransportEventV1,
   parseLinkedDeviceTargetPreparationV1,
+  parseLinkedDeviceWalletSessionDeliveryV1,
 } from '@shared/device-linking';
 import {
   computeLinkedDevicePublicKeyDigestV1,
@@ -100,6 +101,16 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
         linkSessionId,
       });
       return parseLinkedDeviceApprovalDeliveryV1(response.body).approval;
+    },
+    getWalletSessionDeliveryV1: async ({ linkSessionId }) => {
+      const response = await requestDeviceV1({
+        options,
+        baseUrl,
+        method: 'GET',
+        canonicalPath: sessionActionPath(linkSessionId, 'wallet-session'),
+        linkSessionId,
+      });
+      return parseLinkedDeviceWalletSessionDeliveryV1(response.body);
     },
     getTargetPreparationV1: async ({ linkSessionId }) => {
       const response = await requestDeviceV1({
@@ -388,6 +399,7 @@ function sessionActionPath(
   linkSessionId: LinkDeviceSessionId,
   action:
     | 'approval'
+    | 'wallet-session'
     | 'target-preparation'
     | 'provision'
     | 'holder-receipts'

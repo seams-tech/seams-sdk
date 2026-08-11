@@ -10,7 +10,10 @@ import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/u
 import { createDeviceLinkingAuthenticatedSessionTransportV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingHttpTransport';
 import type { DeviceLinkingKeyMaterialPortV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingPorts';
 import type { HttpTransport } from '../../packages/sdk-web/src/core/platform/http';
-import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
+import {
+  buildR103DeviceLinkFixture,
+  buildR103LinkedWalletSessionDeliveryFixture,
+} from './helpers/deviceLinkContracts.fixtures';
 
 function responseBody(fixture: ReturnType<typeof buildR103DeviceLinkFixture>): {
   readonly ok: true;
@@ -137,5 +140,52 @@ test.describe('R103 authenticated linked-device browser transport', () => {
     );
     expect(claim.deviceId).toBe(fixture.approval.deviceId);
     expect(JSON.stringify(projection)).not.toContain('private');
+  });
+
+  test('retrieves Wallet Session delivery through the Device2 proof boundary', async () => {
+    const fixture = buildR103DeviceLinkFixture();
+    const delivery = buildR103LinkedWalletSessionDeliveryFixture(fixture);
+    let requestedPath = '';
+    const http: HttpTransport = {
+      kind: 'http_transport',
+      async request(input) {
+        requestedPath = new URL(input.url).pathname;
+        return { ok: true, value: { status: 200, body: delivery } };
+      },
+    };
+    const keyMaterial: DeviceLinkingKeyMaterialPortV1 = {
+      async createBootstrapKeyMaterialV1() {
+        throw new Error('bootstrap is outside this transport test');
+      },
+      async prepareTargetHolderRegistrationsV1() {
+        throw new Error('target holder preparation is outside this transport test');
+      },
+      async openAndSealTargetHolderDeliveryV1() {
+        throw new Error('holder delivery is outside this transport test');
+      },
+      async discardKeyMaterialV1() {},
+      async signDeviceSessionRequestV1() {
+        return { signatureB64u: base64UrlEncode(new Uint8Array(64).fill(9)) };
+      },
+    };
+    const transport = createDeviceLinkingAuthenticatedSessionTransportV1({
+      http,
+      relayerUrl: 'https://relay.example.test',
+      keyMaterial,
+      keyMaterialHandle: {
+        kind: 'device_linking_key_material_handle_v1',
+        handleId: 'worker-slot-r103',
+      },
+      devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
+      nowMs: () => 2_000,
+      pollIntervalMs: 10_000,
+    });
+
+    await expect(
+      transport.getWalletSessionDeliveryV1({ linkSessionId: fixture.payload.linkSessionId }),
+    ).resolves.toEqual(delivery);
+    expect(requestedPath).toBe(
+      `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/wallet-session`,
+    );
   });
 });

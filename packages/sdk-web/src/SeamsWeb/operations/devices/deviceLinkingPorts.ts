@@ -22,6 +22,7 @@ import type {
   LinkedDeviceTargetPreparationV1,
   LinkedDeviceTargetReadyR102InputV1,
   LinkedDeviceWebAuthnRegistrationV1,
+  LinkedDeviceWalletSessionDeliveryV1,
   LinkDevicePublicKeyB64u,
   QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking';
@@ -65,6 +66,9 @@ export type DeviceLinkingAuthenticatedTransportPortV1 = {
   getApprovalV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
   }): Promise<LinkedDeviceApprovalV1>;
+  getWalletSessionDeliveryV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+  }): Promise<LinkedDeviceWalletSessionDeliveryV1>;
   getTargetPreparationV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
   }): Promise<LinkedDeviceTargetPreparationV1>;
