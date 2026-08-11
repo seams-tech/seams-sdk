@@ -58,6 +58,9 @@ export type LaneSealedHolderRecordLookupV1 = {
 export type LaneSealedHolderMaterialRepositoryV1 = {
   put(record: LaneSealedHolderRecordV1): Promise<void>;
   get(input: LaneSealedHolderRecordLookupV1): Promise<LaneSealedHolderRecordV1 | null>;
+  listForEnrollmentV1(input: {
+    readonly enrollmentId: LaneEnrollmentId;
+  }): Promise<readonly LaneSealedHolderRecordV1[]>;
   delete(input: LaneSealedHolderRecordLookupV1): Promise<void>;
 };
 
@@ -92,7 +95,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function parsed<T>(result: { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: { readonly message: string } }, label: string): T {
+function parsed<T>(
+  result:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error: { readonly message: string } },
+  label: string,
+): T {
   if (result.ok) return result.value;
   throw new Error(`${label} ${result.error.message}`);
 }
@@ -258,6 +266,57 @@ export class LaneSealedHolderMaterialRepository implements LaneSealedHolderMater
       return parsed;
     }
     return null;
+  }
+
+  async listForEnrollmentV1(input: {
+    readonly enrollmentId: LaneEnrollmentId;
+  }): Promise<readonly LaneSealedHolderRecordV1[]> {
+    const enrollmentId = parsed(parseLaneEnrollmentId(input.enrollmentId), 'enrollmentId');
+    const records = new Map<string, LaneSealedHolderRecordV1>();
+    for (const [key, record] of this.volatileRecords) {
+      if (record.enrollmentId === enrollmentId) records.set(key, record);
+    }
+    const entries = await this.seals.collectAllRawSealedRecordEntries();
+    for (const entry of entries) {
+      if (!isRecord(entry.value) || entry.value.kind !== 'lane_sealed_holder_record_v1') {
+        continue;
+      }
+      if (typeof entry.primaryKey !== 'string') {
+        throw new Error('lane sealed holder record store key is invalid');
+      }
+      const record = parseRecord(entry.value);
+      const key = storeKey({
+        operationId: record.operationId,
+        enrollmentId: record.enrollmentId,
+        targetLaneId: record.laneId,
+        targetLaneShareEpoch: record.laneShareEpoch,
+        targetMaterialActivationId: record.targetMaterialActivationId,
+      });
+      if (key !== entry.primaryKey) {
+        throw new Error('lane sealed holder record key does not match its content');
+      }
+      if (record.enrollmentId === enrollmentId) {
+        records.set(key, record);
+        this.volatileRecords.set(key, record);
+      }
+    }
+    return [...records.values()].sort((left, right) =>
+      storeKey({
+        operationId: left.operationId,
+        enrollmentId: left.enrollmentId,
+        targetLaneId: left.laneId,
+        targetLaneShareEpoch: left.laneShareEpoch,
+        targetMaterialActivationId: left.targetMaterialActivationId,
+      }).localeCompare(
+        storeKey({
+          operationId: right.operationId,
+          enrollmentId: right.enrollmentId,
+          targetLaneId: right.laneId,
+          targetLaneShareEpoch: right.laneShareEpoch,
+          targetMaterialActivationId: right.targetMaterialActivationId,
+        }),
+      ),
+    );
   }
 
   async delete(input: LaneSealedHolderRecordLookupV1): Promise<void> {

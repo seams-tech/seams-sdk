@@ -535,13 +535,6 @@ export class LinkDeviceFlow {
     state: Extract<LinkedDeviceSessionState, { state: 'committed_completion_required' }>,
     runEpoch: number,
   ): Promise<void> {
-    if (!this.keyMaterialHandle) {
-      throw new DeviceLinkingError(
-        'Lane provisioning port is not configured',
-        DeviceLinkingErrorCode.UNSUPPORTED,
-        'registration',
-      );
-    }
     const authenticatedTransport = this.requireAuthenticatedTransport();
     const deviceId = await this.requireDeviceId(state);
     this.assertCurrentRun(runEpoch);
@@ -556,10 +549,29 @@ export class LinkDeviceFlow {
     this.assertCurrentRun(runEpoch);
     const receipt = await this.ports.laneProvisioning.resumeCommittedDeliveryV1({
       state,
-      keyMaterial: this.keyMaterialHandle,
+      refetchApprovalV1: async () => {
+        const approval = await authenticatedTransport.getApprovalV1({
+          linkSessionId: state.linkSessionId,
+        });
+        this.assertCurrentRun(runEpoch);
+        this.assertCommittedApprovalMatchesSession({ approval, state, deviceId });
+        return approval;
+      },
+      refetchProvisioningDeliveriesV1: async () => {
+        const deliveries = await authenticatedTransport.requestProvisioningDeliveriesV1({
+          command: buildLinkedDeviceProvisioningCommandV1({
+            linkSessionId: state.linkSessionId,
+            enrollmentId: state.enrollmentId,
+            deviceId,
+          }),
+        });
+        this.assertCurrentRun(runEpoch);
+        return deliveries;
+      },
+      acknowledgeHolderDeliveriesV1: this.acknowledgeHolderDeliveries.bind(this, runEpoch),
     });
     this.assertCurrentRun(runEpoch);
-    if (!receipt || !this.session) return;
+    if (!this.session) return;
     await authenticatedTransport.acknowledgeReceiptV1({
       acknowledgement: buildLinkedDeviceReceiptAcknowledgementV1({
         linkSessionId: state.linkSessionId,
@@ -570,6 +582,24 @@ export class LinkDeviceFlow {
       }),
     });
     this.assertCurrentRun(runEpoch);
+  }
+
+  private assertCommittedApprovalMatchesSession(input: {
+    readonly approval: import('@shared/device-linking').LinkedDeviceApprovalV1;
+    readonly state: Extract<LinkedDeviceSessionState, { state: 'committed_completion_required' }>;
+    readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
+  }): void {
+    if (!this.session) throw new Error('device-link session is unavailable');
+    if (
+      input.approval.linkSessionId !== input.state.linkSessionId ||
+      input.approval.walletId !== input.state.walletId ||
+      input.approval.enrollmentId !== input.state.enrollmentId ||
+      input.approval.deviceId !== input.deviceId ||
+      input.approval.linkPublicKeyB64u !== this.session.qrData.linkPublicKeyB64u ||
+      input.approval.devicePublicKeyB64u !== this.session.qrData.devicePublicKeyB64u
+    ) {
+      throw new Error('refetched linked-device approval does not match its committed session');
+    }
   }
 
   private requireAuthenticatedTransport(): DeviceLinkingAuthenticatedTransportPortV1 {
