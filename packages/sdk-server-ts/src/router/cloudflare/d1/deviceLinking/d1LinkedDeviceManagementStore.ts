@@ -27,6 +27,7 @@ import type { LaneEnrollmentAdmissionRecord } from '../../../../core/signingLane
 const SESSION_TABLE = 'linked_device_sessions';
 const ENROLLMENT_TABLE = 'lane_enrollments';
 const TARGET_CREDENTIAL_TABLE = 'linked_device_target_credentials';
+const AUTHORIZATION_AUDIT_TABLE = 'authorized_operation_audit_events';
 
 export type D1LinkedDeviceManagementMetadataV1 = {
   readonly label: string;
@@ -85,6 +86,49 @@ export class D1LinkedDeviceTargetCredentialMetadataSourceV1 implements D1LinkedD
   }
 }
 
+export class D1LinkedDeviceSigningActivitySourceV1 {
+  private readonly scope: D1LinkedDeviceSessionScopeV1;
+
+  constructor(
+    private readonly input: {
+      readonly database: D1DatabaseLike;
+      readonly scope: D1LinkedDeviceSessionScopeV1;
+    },
+  ) {
+    this.scope = normalizeScope(input.scope);
+  }
+
+  async readLastSigningActivityAtMsV1(input: {
+    readonly walletId: WalletId;
+    readonly enrollmentId: LinkedDeviceEnrollmentId;
+    readonly deviceId: LinkedDeviceId;
+  }): Promise<number | null> {
+    const row = await queryD1One(
+      this.input.database,
+      `SELECT MAX(COALESCE(completed_at_ms, claimed_at_ms)) AS last_activity_at_ms
+         FROM ${AUTHORIZATION_AUDIT_TABLE}
+        WHERE namespace = ?1
+          AND authorization_grant_kind = 'linked_device_wallet_session_authorization_v1'
+          AND linked_scope_org_id = ?2
+          AND linked_scope_project_id = ?3
+          AND linked_scope_env_id = ?4
+          AND linked_wallet_id = ?5
+          AND linked_enrollment_id = ?6
+          AND linked_device_id = ?7`,
+      [
+        ...scopeValues(this.scope),
+        String(input.walletId),
+        String(input.enrollmentId),
+        String(input.deviceId),
+      ],
+    );
+    if (!row) return null;
+    const timestamp = field(row, 'last_activity_at_ms');
+    if (timestamp === null || timestamp === undefined) return null;
+    return requiredTimestamp(timestamp, 'linked-device signing last activity');
+  }
+}
+
 export type D1LinkedDeviceManagementStoreOptionsV1 = {
   readonly database: D1DatabaseLike;
   readonly scope: D1LinkedDeviceSessionScopeV1;
@@ -100,6 +144,7 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
   private readonly nowV1: () => number;
   private readonly metadata: D1LinkedDeviceManagementMetadataPortV1;
   private readonly lanes: CloudflareD1LaneLifecycleStore;
+  private readonly signingActivity: D1LinkedDeviceSigningActivitySourceV1;
 
   constructor(options: D1LinkedDeviceManagementStoreOptionsV1) {
     this.database = options.database;
@@ -116,6 +161,10 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
     this.lanes = new CloudflareD1LaneLifecycleStore({
       database: this.database,
       scope: laneScope,
+    });
+    this.signingActivity = new D1LinkedDeviceSigningActivitySourceV1({
+      database: this.database,
+      scope: this.scope,
     });
   }
 
@@ -207,9 +256,15 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
     if (!metadata) return null;
     const normalizedMetadata = parseMetadata(metadata);
     const enrollmentUpdatedAtMs = await this.readEnrollmentUpdatedAtMsV1(laneEnrollmentId);
+    const signingActivityAtMs = await this.signingActivity.readLastSigningActivityAtMsV1({
+      walletId: claim.walletId,
+      enrollmentId: claim.enrollmentId,
+      deviceId: claim.deviceId,
+    });
     const lastActivityAtMs = Math.max(
       session.updatedAtMs,
       enrollmentUpdatedAtMs,
+      signingActivityAtMs ?? 0,
       ...products.map(productActivityAtMs),
     );
     const summary: LinkedDeviceSummaryV1 = {
