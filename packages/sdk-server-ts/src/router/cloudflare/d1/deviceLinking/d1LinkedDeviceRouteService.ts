@@ -9,6 +9,10 @@ import { CloudflareD1LaneLifecycleStore } from '../signingLanes/d1LaneLifecycleS
 import { createD1LinkedDeviceSessionServiceV1 } from './d1LinkedDeviceSessionService';
 import { D1LinkedDeviceProvisioningVerifierV1 } from './d1LinkedDeviceProvisioningVerifier';
 import {
+  createD1LinkedDeviceCompletionAdaptersV1,
+  D1LinkedDeviceCommittedDeliveryRetryV1,
+} from './d1LinkedDeviceCompletionAdapters';
+import {
   D1LinkedDeviceWalletSessionIssuerV1,
   type ActiveLinkedDeviceSessionRecordV1,
 } from './d1LinkedDeviceWalletSessionIssuer';
@@ -40,11 +44,9 @@ export type D1LinkedDeviceRouteServiceOptionsV1 = {
     input: DeviceLinkingOwnerRequestInputV1,
   ) => Promise<DeviceLinkingAuthenticatedRequestV1 | DeviceLinkingAuthDeniedV1>;
   readonly targetCredential: DeviceLinkingRouteServiceV1['targetCredential'];
-  readonly acknowledgeReceiptV1: DeviceLinkingRouteServiceV1['acknowledgeReceiptV1'];
-  readonly retryCommittedDeliveryV1: DeviceLinkingRouteServiceV1['retryCommittedDeliveryV1'];
   readonly operatorRecovery?: DeviceLinkingOperatorRecoveryProviderV1;
   readonly provisioning: DeviceLinkingRouteServiceV1['provisioning'];
-  readonly sourceHandoff: DeviceLinkingOwnerSourceHandoffProviderV1;
+  readonly sourceHandoff: ConstructorParameters<typeof D1LinkedDeviceCommittedDeliveryRetryV1>[0];
   readonly nowV1?: () => number;
 };
 
@@ -77,9 +79,13 @@ export function createD1LinkedDeviceRouteServiceV1(
     authorizationService: options.authorizationService,
     laneLifecycle,
   });
+  const completion = createD1LinkedDeviceCompletionAdaptersV1({
+    sessionService,
+    sourceHandoff: options.sourceHandoff,
+  });
   const acknowledgeReceiptV1 = acknowledgeReceiptAndIssueWalletSessionV1.bind(
     undefined,
-    options.acknowledgeReceiptV1,
+    completion.acknowledgement.acknowledgeReceiptV1.bind(completion.acknowledgement),
     walletSessionIssuer,
   );
   const readWalletSessionAuthorizationV1: DeviceLinkingRouteServiceV1['readWalletSessionAuthorizationV1'] =
@@ -138,7 +144,7 @@ export function createD1LinkedDeviceRouteServiceV1(
     targetCredential: options.targetCredential,
     acknowledgeReceiptV1,
     readWalletSessionAuthorizationV1,
-    retryCommittedDeliveryV1: options.retryCommittedDeliveryV1,
+    retryCommittedDeliveryV1: completion.retry.retryCommittedDeliveryV1.bind(completion.retry),
     operatorRecovery: options.operatorRecovery,
     provisioning: options.provisioning,
     provisioningVerifier,

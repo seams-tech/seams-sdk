@@ -189,12 +189,6 @@ test('composes D1 session and proof stores and authenticates before reading JSON
       message: 'owner auth is not used in this test',
     }),
     targetCredential: targetCredentialNotConfigured(),
-    acknowledgeReceiptV1: async () => {
-      throw new Error('receipt adapter not configured');
-    },
-    retryCommittedDeliveryV1: async () => {
-      throw new Error('retry adapter not configured');
-    },
     provisioning: provisioningNotConfigured(),
     sourceHandoff: sourceHandoffNotConfigured(),
     nowV1: () => nowMs,
@@ -237,12 +231,6 @@ test('forwards authenticated session reads through core expiry projection', asyn
       message: 'owner auth is not used in this test',
     }),
     targetCredential: targetCredentialNotConfigured(),
-    acknowledgeReceiptV1: async () => {
-      throw new Error('receipt adapter not configured');
-    },
-    retryCommittedDeliveryV1: async () => {
-      throw new Error('retry adapter not configured');
-    },
     provisioning: provisioningNotConfigured(),
     sourceHandoff: sourceHandoffNotConfigured(),
     nowV1: () => clockMs,
@@ -320,6 +308,9 @@ function provisioningNotConfigured() {
 function sourceHandoffNotConfigured() {
   return {
     getTargetReadyV1: async () => null,
+    prepareProvisioningDeliveriesV1: async () => {
+      throw new Error('source handoff adapter not configured');
+    },
     submitPreparedProvisioningDeliveriesV1: async () => {
       throw new Error('source handoff adapter not configured');
     },
