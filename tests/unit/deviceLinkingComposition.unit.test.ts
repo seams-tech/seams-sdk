@@ -4,6 +4,7 @@ import type { HttpTransport } from '../../packages/sdk-web/src/core/platform/htt
 import type { LaneOperationSourcePortsV1 } from '../../packages/sdk-web/src/core/signingEngine/session/lanes/operations/ports';
 import type { LaneSealedHolderMaterialRepositoryV1 } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
 import type { LinkedDeviceWalletSessionRepositoryV1 } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
+import type { LinkedDeviceExecutionEvidenceRepositoryV1 } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
 import {
   createDeviceLinkingFlowPortsV1,
   type DeviceLinkingFlowPortsAssemblyOptionsV1,
@@ -68,6 +69,16 @@ function walletSessionRepository(): Pick<
   };
 }
 
+function executionEvidenceRepository(): Pick<
+  LinkedDeviceExecutionEvidenceRepositoryV1,
+  'putExactProvisionedEvidenceV1' | 'readForEnrollmentV1'
+> {
+  return {
+    putExactProvisionedEvidenceV1: unsupported,
+    readForEnrollmentV1: unsupported,
+  };
+}
+
 function ownerAuthorization(): DeviceLinkingOwnerAuthorizationPortV1 {
   return { authenticateOwnerForLinkingV1: unsupported };
 }
@@ -98,6 +109,7 @@ function assemblyOptions(): DeviceLinkingFlowPortsAssemblyOptionsV1 {
     ownerAuthorization: ownerAuthorization(),
     repository: repository(),
     walletSessionRepository: walletSessionRepository(),
+    executionEvidenceRepository: executionEvidenceRepository(),
     sourceLanePorts: sourceLanePorts(),
     workerEndpoint: new IdleWorkerEndpoint(),
     nowMs: () => 1,
@@ -113,6 +125,7 @@ test('composes direct device-linking ports only from explicit trust-boundary pro
   expect(ports.targetCredential).toBeDefined();
   expect(ports.laneProvisioning).toBeDefined();
   expect(ports.walletSessions).toBeDefined();
+  expect(ports.executionEvidence).toBeDefined();
   expect(ports.sourcePreparation).toBeDefined();
   expect(JSON.stringify(ports)).not.toContain('privateKey');
   expect(JSON.stringify(ports)).not.toContain('prf');
