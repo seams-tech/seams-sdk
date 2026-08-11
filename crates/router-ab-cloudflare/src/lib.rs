@@ -10436,11 +10436,16 @@ where
         Ok(value) => value,
         Err(error) => return cloudflare_signing_worker_presign_error_response_v1(error),
     };
+    let scope_digest = match parsed.request.scope.scope_digest() {
+        Ok(value) => value,
+        Err(error) => return cloudflare_signing_worker_presign_error_response_v1(error),
+    };
     let server_presignature =
         match consume_cloudflare_signing_worker_linked_ecdsa_presignature_v1(
             env,
             runtime,
             parsed.request.server_presignature_id.clone(),
+            scope_digest,
             request_digest,
             signing_digest,
             now_unix_ms,
@@ -10472,12 +10477,14 @@ pub(crate) async fn consume_cloudflare_signing_worker_linked_ecdsa_presignature_
     env: &worker::Env,
     runtime: &CloudflareSigningWorkerRuntimeV1,
     server_presignature_id: String,
+    scope_digest: PublicDigest32,
     request_digest: PublicDigest32,
     signing_digest: PublicDigest32,
     now_unix_ms: u64,
 ) -> RouterAbProtocolResult<CloudflareSigningWorkerEcdsaPresignatureRecordV1> {
     let request = durable_object::CloudflareSigningWorkerLinkedDeviceEcdsaPresignatureDoConsumeRequestV1 {
         server_presignature_id,
+        scope_digest,
         request_digest,
         signing_digest,
         now_unix_ms,

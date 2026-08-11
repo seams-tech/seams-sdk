@@ -50,8 +50,12 @@ pub(crate) use worker_storage::execute_cloudflare_durable_object_custom_json_cal
 pub struct RouterAbSigningWorkerPresignSessionDurableObject {
     ecdsa_presign_sessions: CloudflareSigningWorkerEcdsaPresignLiveSessionsV1,
     linked_ecdsa_presign_sessions: CloudflareSigningWorkerLinkedDeviceEcdsaPresignLiveSessionsV1,
-    linked_ecdsa_presignature_records:
-        RefCell<BTreeMap<String, CloudflareSigningWorkerEcdsaPresignatureRecordV1>>,
+    linked_ecdsa_presignature_records: RefCell<
+        BTreeMap<
+            String,
+            ecdsa_presign_live_session::CloudflareSigningWorkerLinkedDeviceEcdsaCompletedPresignatureRecordV1,
+        >,
+    >,
 }
 
 #[cfg(feature = "workers-rs")]
