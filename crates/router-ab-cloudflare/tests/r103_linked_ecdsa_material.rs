@@ -1,6 +1,10 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use router_ab_cloudflare::{
-    CloudflareRouterAuthContextV1, CloudflareRouterNormalSigningTrustedAdmissionV1,
+    parse_cloudflare_router_authorized_linked_device_ecdsa_finalize_request_v1_json,
+    CloudflareRouterAuthContextV1, CloudflareRouterEcdsaAcceptedAuthorizedOperationV1,
+    CloudflareRouterEcdsaAcceptedCapabilityBindingV1, CloudflareRouterEcdsaAuthorizedOperationV1,
+    CloudflareRouterEcdsaCapabilityKindV1, CloudflareRouterEcdsaOperationKindV1,
+    CloudflareRouterNormalSigningTrustedAdmissionV1,
     CloudflareRouterNormalSigningTrustedMetadataV1, CloudflareSecretMaterial32V1,
     CloudflareServerOutputMaterialRecordV1,
     CloudflareSigningWorkerAdmittedLinkedDeviceEcdsaPrepareRequestV1,
@@ -128,6 +132,96 @@ fn material_source(
         },
         group_public_key: scope.threshold_public_key33_b64u.clone(),
     }
+}
+
+fn finalize_request(
+    scope: router_ab_core::RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1,
+) -> RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningFinalizeRequestV1 {
+    let material_activation = scope.material_activation.clone();
+    RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningFinalizeRequestV1 {
+        scope,
+        request_id: "request:r103".to_owned(),
+        operation_id: "signing-operation:r103".to_owned(),
+        operation_digests: RouterAbEcdsaDerivationOperationDigestsV1 {
+            lane_digest_b64u: digest(1),
+            intent_digest_b64u: digest(2),
+            display_digest_b64u: digest(3),
+        },
+        authorization: NormalSigningAuthorizationV1::ReusableWalletSession {
+            wallet_session_id: "wallet-session:r103".to_owned(),
+        },
+        material_activation,
+        expires_at_ms: 2_000,
+        signing_digest_b64u: digest(2),
+        server_presignature_id: "presignature:r103".to_owned(),
+        client_signature_share32_b64u: digest(4),
+        client_rerandomization_contribution32_b64u: digest(5),
+    }
+}
+
+fn accepted_operation(
+    request: &RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningFinalizeRequestV1,
+) -> CloudflareRouterEcdsaAcceptedAuthorizedOperationV1 {
+    CloudflareRouterEcdsaAcceptedAuthorizedOperationV1 {
+        binding: CloudflareRouterEcdsaAcceptedCapabilityBindingV1::ReusableWalletSession {
+            authorization_id: "authorization:r103".to_owned(),
+            wallet_session_id: "wallet-session:r103".to_owned(),
+            quota_id: "quota:r103".to_owned(),
+        },
+        authorized_operation:
+            CloudflareRouterEcdsaAuthorizedOperationV1::ReusableWalletSessionAuthorizedOperationV1 {
+                authorized_operation_id: "authorized-operation:r103".to_owned(),
+                operation_id: request.operation_id.clone(),
+                capability_kind: CloudflareRouterEcdsaCapabilityKindV1::EvmEcdsaMpcSigning,
+                operation_kind: CloudflareRouterEcdsaOperationKindV1::SignTransaction,
+                lane_digest_b64u: request.operation_digests.lane_digest_b64u.clone(),
+                intent_digest_b64u: request.operation_digests.intent_digest_b64u.clone(),
+                display_digest_b64u: request.operation_digests.display_digest_b64u.clone(),
+                operation_fingerprint_digest: digest(12),
+            },
+    }
+}
+
+#[test]
+fn router_adapts_the_flat_gateway_finalize_without_owner_policy_claims() {
+    let scope = scope();
+    let request = finalize_request(scope.clone());
+    let mut value = serde_json::to_value(&request)
+        .expect("request JSON")
+        .as_object()
+        .expect("request object")
+        .clone();
+    value.insert(
+        "authorized_operation".to_owned(),
+        serde_json::to_value(accepted_operation(&request)).expect("authorized operation JSON"),
+    );
+    value.insert(
+        "material_source".to_owned(),
+        serde_json::to_value(material_source(&scope)).expect("material source JSON"),
+    );
+    let admitted = parse_cloudflare_router_authorized_linked_device_ecdsa_finalize_request_v1_json(
+        &serde_json::to_vec(&value).expect("flat Gateway JSON"),
+    )
+    .expect("flat Gateway finalize adapts");
+    admitted.validate().expect("admitted finalize validates");
+    assert_eq!(admitted.request, request);
+
+    value.insert(
+        "authorized_operation".to_owned(),
+        serde_json::to_value(CloudflareRouterEcdsaAcceptedAuthorizedOperationV1 {
+            binding: CloudflareRouterEcdsaAcceptedCapabilityBindingV1::ReusableWalletSession {
+                authorization_id: "authorization:r103".to_owned(),
+                wallet_session_id: "wallet-session:other".to_owned(),
+                quota_id: "quota:r103".to_owned(),
+            },
+            ..accepted_operation(&request)
+        })
+        .expect("substituted authorized operation JSON"),
+    );
+    parse_cloudflare_router_authorized_linked_device_ecdsa_finalize_request_v1_json(
+        &serde_json::to_vec(&value).expect("substituted Gateway JSON"),
+    )
+    .expect_err("Wallet Session substitution is rejected");
 }
 
 #[test]
