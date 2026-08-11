@@ -99,6 +99,11 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       relayerAccount: 'relay.local',
       relayerPublicKey: 'relay-public-key',
       googleOidcClientId: 'google-client',
+      githubOAuth: {
+        clientId: 'github-client',
+        clientSecret: 'github-secret',
+        callbackUrl: 'https://example.localhost/dashboard/login',
+      },
       accountIdDerivationSecret: 'test-account-id-derivation-secret',
     });
 
@@ -575,6 +580,11 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
     expect(service.identity.getGoogleOidcPublicConfig()).toEqual({
       configured: true,
       clientId: 'google-client',
+    });
+    expect(service.identity.getGithubOAuthPublicConfig()).toEqual({
+      configured: true,
+      clientId: 'github-client',
+      callbackUrl: 'https://example.localhost/dashboard/login',
     });
   } finally {
     cleanupTemporaryD1Database(tempDir);

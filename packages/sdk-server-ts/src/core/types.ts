@@ -263,6 +263,10 @@ export interface AuthServiceConfig {
    */
   googleOidc?: GoogleOidcConfig;
   /**
+   * Optional GitHub OAuth configuration for exchanging authorization codes.
+   */
+  githubOAuth?: GithubOAuthConfig;
+  /**
    * Optional generic OIDC JWT exchange configuration for `POST /session/exchange`.
    */
   oidcExchange?: OidcExchangeConfig;
@@ -285,6 +289,20 @@ export interface GoogleOidcConfigEnvInput {
 }
 
 export type GoogleOidcConfigInput = GoogleOidcConfig | GoogleOidcConfigEnvInput;
+
+export type GithubOAuthConfig = {
+  clientId: string;
+  clientSecret: string;
+  callbackUrl: string;
+};
+
+export interface GithubOAuthConfigEnvInput {
+  GITHUB_OAUTH_CLIENT_ID?: string;
+  GITHUB_OAUTH_CLIENT_SECRET?: string;
+  GITHUB_OAUTH_CALLBACK_URL?: string;
+}
+
+export type GithubOAuthConfigInput = GithubOAuthConfig | GithubOAuthConfigEnvInput;
 
 export type OidcExchangeIssuerConfig = {
   /** Exact issuer (`iss`) value to trust. */
@@ -324,6 +342,7 @@ export type AuthServiceConfigInput = Omit<
   | 'createAccountAndRegisterGas'
   | 'thresholdStore'
   | 'googleOidc'
+  | 'githubOAuth'
   | 'oidcExchange'
 > & {
   nearRpcUrl?: string;
@@ -332,6 +351,7 @@ export type AuthServiceConfigInput = Omit<
   createAccountAndRegisterGas?: string;
   thresholdStore?: ThresholdStoreConfigInput;
   googleOidc?: GoogleOidcConfigInput;
+  githubOAuth?: GithubOAuthConfigInput;
   oidcExchange?: OidcExchangeConfigInput;
 };
 

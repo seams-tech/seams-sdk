@@ -1130,13 +1130,15 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
       };
     };
 
-    if (command.kind === 'oidc_jwt') {
-      oidcProvider = command.provider;
-      oidcAccountMode = command.accountMode;
-      oidcRestartRegistrationOffer = command.restartRegistrationOffer;
+    if (command.kind === 'oidc_jwt' || command.kind === 'github_oauth_code') {
+      const isGithubOAuthCode = command.kind === 'github_oauth_code';
+      oidcProvider = isGithubOAuthCode ? 'github' : command.provider;
+      oidcAccountMode = isGithubOAuthCode ? undefined : command.accountMode;
+      oidcRestartRegistrationOffer = isGithubOAuthCode ? false : command.restartRegistrationOffer;
       isGoogleEmailOtpExchange = oidcProvider === 'google' && Boolean(oidcAccountMode);
-      const verified =
-        oidcProvider === 'google'
+      const verified = isGithubOAuthCode
+        ? await ctx.service.identity.verifyGithubOAuthCode({ code: command.code })
+        : oidcProvider === 'google'
           ? await ctx.service.identity.verifyGoogleLogin({ idToken: command.token })
           : await ctx.service.identity.verifyOidcJwtExchange({ token: command.token });
       if (!verified.ok) {
@@ -1318,7 +1320,7 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
                 }
               : {}),
           };
-        } else if (oidcProvider !== 'google') {
+        } else if (!isGithubOAuthCode && oidcProvider !== 'google') {
           const scoped = await requireRuntimePolicyScopeForOidcWallet();
           if (!scoped.ok) return scoped.response;
           walletId = await ctx.service.identity.resolveOidcWalletId({

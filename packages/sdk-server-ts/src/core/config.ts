@@ -1,6 +1,7 @@
 import type {
   AuthServiceConfig,
   AuthServiceConfigInput,
+  GithubOAuthConfigEnvInput,
   GoogleOidcConfigEnvInput,
   OidcExchangeConfig,
   OidcExchangeIssuerConfig,
@@ -93,6 +94,31 @@ function normalizeGoogleOidcConfig(
     clientIds,
     ...(hostedDomains.length ? { hostedDomains } : {}),
   };
+}
+
+function normalizeGithubOAuthConfig(
+  input: AuthServiceConfigInput['githubOAuth'],
+): AuthServiceConfig['githubOAuth'] | undefined {
+  if (!input) return undefined;
+  const candidate = input as Partial<AuthServiceConfig['githubOAuth'] & GithubOAuthConfigEnvInput>;
+  const clientId = toOptionalTrimmedString(candidate.clientId ?? candidate.GITHUB_OAUTH_CLIENT_ID);
+  const clientSecret = toOptionalTrimmedString(
+    candidate.clientSecret ?? candidate.GITHUB_OAUTH_CLIENT_SECRET,
+  );
+  const callbackUrl = toOptionalTrimmedString(
+    candidate.callbackUrl ?? candidate.GITHUB_OAUTH_CALLBACK_URL,
+  );
+  if (!clientId && !clientSecret && !callbackUrl) return undefined;
+  if (!clientId || !clientSecret || !callbackUrl) {
+    throw new Error('githubOAuth requires clientId, clientSecret, and callbackUrl');
+  }
+  const parsedCallbackUrl = new URL(callbackUrl);
+  const localCallbackHost =
+    parsedCallbackUrl.hostname === 'localhost' || parsedCallbackUrl.hostname.endsWith('.localhost');
+  if (parsedCallbackUrl.protocol !== 'https:' && !localCallbackHost) {
+    throw new Error('githubOAuth.callbackUrl must use HTTPS outside localhost');
+  }
+  return { clientId, clientSecret, callbackUrl: parsedCallbackUrl.toString() };
 }
 
 function normalizeOidcExchangeConfig(
@@ -223,6 +249,7 @@ export function createAuthServiceConfig(input: AuthServiceConfigInput): AuthServ
     thresholdStore: normalizeThresholdStoreConfig(input.thresholdStore),
     logger: input.logger,
     googleOidc: normalizeGoogleOidcConfig(input.googleOidc),
+    githubOAuth: normalizeGithubOAuthConfig(input.githubOAuth),
     oidcExchange: normalizeOidcExchangeConfig(input.oidcExchange),
   };
 

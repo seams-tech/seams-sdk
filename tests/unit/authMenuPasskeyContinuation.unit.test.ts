@@ -292,6 +292,7 @@ test.describe('hosted auth-menu passkey continuation', () => {
     const originalFetch = globalThis.fetch;
     const originalSetTimeout = globalThis.setTimeout;
     const originalClearTimeout = globalThis.clearTimeout;
+    const messages: unknown[] = [];
     let expiryCallback: (() => void) | null = null;
     let preparationCount = 0;
     globalThis.fetch = async () =>
@@ -315,7 +316,7 @@ test.describe('hosted auth-menu passkey continuation', () => {
       if (handle !== 1) originalClearTimeout(handle);
     }) as typeof clearTimeout;
     try {
-      const session = authMenuSession();
+      const session = authMenuSession({ sendToParent: messages.push.bind(messages) });
       session.setLoginPreparation({
         accountOptions: [],
         selectedWalletId: null,
@@ -342,6 +343,16 @@ test.describe('hosted auth-menu passkey continuation', () => {
           message: 'Passkey preparation expired. Retry to continue.',
         });
       }
+      expect(messages).toContainEqual({
+        type: 'AUTH_MENU_ERROR',
+        requestId: session.identity.requestId,
+        payload: {
+          kind: 'hosted_auth_menu_error_v1',
+          authMenuSessionId: session.identity.authMenuSessionId,
+          mode: 'login',
+          message: 'Passkey preparation expired. Retry to continue.',
+        },
+      });
       session.cleanup();
     } finally {
       globalThis.fetch = originalFetch;

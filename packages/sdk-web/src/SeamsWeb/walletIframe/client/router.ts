@@ -49,7 +49,9 @@ import {
   type PreferencesChangedPayload,
   type PMExportKeypairUiPayload,
   type PMRegistrationAuthMethodInput,
+  HOSTED_AUTH_MENU_ERROR_EVENT,
   parseWalletIframeSurfaceMeasurement,
+  parseHostedAuthMenuErrorEvent,
   isRegistrationTimingSpanV1,
 } from '../shared/messages';
 import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
@@ -559,6 +561,19 @@ function shouldHideWalletIframeSurface(payload: ProgressPayload): boolean {
   if (payload.interaction?.overlay !== 'hide') return false;
   if (payload.flow !== 'key_export') return true;
   return isTerminalStickyWalletFlowProgress(payload);
+}
+
+function dispatchHostedAuthMenuError(
+  anchorElement: HTMLElement,
+  error: NonNullable<ReturnType<typeof parseHostedAuthMenuErrorEvent>>,
+): void {
+  anchorElement.dispatchEvent(
+    new CustomEvent(HOSTED_AUTH_MENU_ERROR_EVENT, {
+      bubbles: true,
+      composed: true,
+      detail: error,
+    }),
+  );
 }
 
 const WALLET_IFRAME_PROGRESS_TIMEOUT_EXTENSION_FACTOR = 4;
@@ -3736,6 +3751,22 @@ export class WalletIframeRouter {
           listener(payload);
         } catch {}
       }
+      return;
+    }
+    if (msg.type === 'AUTH_MENU_ERROR') {
+      const payload = parseHostedAuthMenuErrorEvent(msg.payload);
+      if (!payload) return;
+      const activeRequestId = this.hostedAuthMenuRequestIds.get(payload.authMenuSessionId);
+      const anchorElement = this.hostedAuthMenuAnchors.get(payload.authMenuSessionId);
+      if (
+        !activeRequestId ||
+        !anchorElement ||
+        typeof msg.requestId !== 'string' ||
+        msg.requestId !== activeRequestId
+      ) {
+        return;
+      }
+      dispatchHostedAuthMenuError(anchorElement, payload);
       return;
     }
     if (msg.type === 'SURFACE_MEASUREMENT') {

@@ -168,6 +168,8 @@ test('frontend plan runs without deployment secrets', () => {
   );
 
   expect(result.status).toBe(0);
+  expect(result.stdout).toContain('Docs: https://staging.docs.seams.sh');
+  expect(result.stdout).toContain('Docs Pages project environment: CF_PAGES_PROJECT_DOCS');
   expectOrdered(result.stdout, ['build', 'deploy', 'smoke']);
 });
 
@@ -408,6 +410,8 @@ test('frontend workflows contain one environment-bound deployment job', () => {
     expect(workflow.jobs.deploy.environment).toBe(site);
     expect(workflow.env?.DEPLOY_SITE).toBe(site);
     expect(workflowSource).toContain('--site "$DEPLOY_SITE"');
+    expect(workflowSource).toContain('CF_PAGES_PROJECT_DOCS:');
+    expect(workflowSource).not.toContain('VITE_DOCS_ORIGIN:');
     expect(workflowSource).not.toContain('--target');
     if (site === 'staging') {
       expect(workflowSource).toContain('CF_PAGES_PROJECT_WALLET:');

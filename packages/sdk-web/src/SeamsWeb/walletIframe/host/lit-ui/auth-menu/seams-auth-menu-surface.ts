@@ -526,7 +526,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     return html`
       ${this.renderHeader(viewModel)} ${this.renderPasskeyInput(viewModel)}
       ${this.renderAuthMethods(viewModel)} ${this.renderOtherOptions(viewModel)}
-      ${this.renderIntentSwitch(viewModel)} ${this.renderStatusError(viewModel)}
+      ${this.renderIntentSwitch(viewModel)}
     `;
   }
 
@@ -849,9 +849,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
             )}
           </div>
         </div>
-        ${viewModel.error
-          ? html`<p class="w3a-otp-error" role="alert">${viewModel.error}</p>`
-          : html`<p class="w3a-otp-helper">${viewModel.prompt.helperText ?? ''}</p>`}
+        <p class="w3a-otp-helper">${viewModel.prompt.helperText ?? ''}</p>
         <button
           class="w3a-auth-method-btn w3a-auth-method-btn-primary"
           type="button"
@@ -894,9 +892,6 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
             ${viewModel.rerollBusy ? 'Generating…' : 'Generate another name'}
           </button>
         </div>
-        ${viewModel.error
-          ? html`<p class="w3a-otp-error" role="alert">${viewModel.error}</p>`
-          : null}
         <button
           class="w3a-auth-method-btn w3a-auth-method-btn-primary"
           type="button"
@@ -908,14 +903,6 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
         </button>
       </div>
     `;
-  }
-
-  private renderStatusError(viewModel: AuthMenuViewModel): TemplateResult {
-    if (viewModel.status.kind !== 'recoverable') return html``;
-    // No separate retry control: the primary action stays enabled in these
-    // states and re-prepares on click, so a second affordance would be dead
-    // weight next to the button the user already reached for.
-    return html`<p class="w3a-method-error" role="alert">${viewModel.status.message}</p>`;
   }
 }
 
