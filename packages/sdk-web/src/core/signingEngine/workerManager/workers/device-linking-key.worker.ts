@@ -49,6 +49,12 @@ import {
   parseLaneSealedHolderRecordV1,
   type LaneSealedHolderRecordV1,
 } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
+import {
+  isAttachLinkedHolderToPresignPort,
+  type LinkedHolderEcdsaAdditiveShareRequest,
+  type LinkedHolderEcdsaAdditiveShareResponse,
+} from '../ecdsaClientWorkerChannels';
+import { parseEcdsaClientPresignPoolIdentity } from '../ecdsaPresignPoolIdentity';
 import initEd25519YaoClient, {
   WasmLaneCustodySealV1,
   WasmLaneHolderRecipientV1,
@@ -216,6 +222,7 @@ export type DeviceLinkingLaneSigningMaterialV1 = {
     signingWorkerCommitmentsJson: string,
     signingWorkerVerifyingShare: Uint8Array,
   ): DeviceLinkingEd25519SigningShareOutputV1;
+  ecdsa_additive_share32(): Uint8Array;
   destroy(): void;
   free(): void;
 };
@@ -257,6 +264,7 @@ export type DeviceLinkingLaneRecipientFactoryV1 = {
 
 const keySlots = new Map<string, DeviceLinkingKeySlotV1>();
 const holderSigningMaterialSlots = new Map<string, DeviceLinkingHolderSigningMaterialSlotV1>();
+let linkedHolderPresignPort: MessagePort | null = null;
 const laneRecipientWasmUrl = resolveWasmUrl(
   'router_ab_ed25519_yao_client_bg.wasm',
   'Ed25519 Yao Client',
@@ -1206,6 +1214,116 @@ function createEd25519HolderSigningShare(
   }
 }
 
+function linkedHolderShareError(
+  requestId: string,
+  error: unknown,
+): LinkedHolderEcdsaAdditiveShareResponse {
+  return {
+    kind: 'linked_holder_ecdsa_additive_share_result_v1',
+    requestId,
+    ok: false,
+    error: workerError(error),
+  };
+}
+
+function requireLinkedHolderShareRequest(value: unknown): LinkedHolderEcdsaAdditiveShareRequest {
+  const record = exactRecord(
+    value,
+    ['kind', 'requestId', 'holderHandleId', 'poolIdentity', 'groupPublicKey33'],
+    'linked holder ECDSA share request',
+  );
+  if (record.kind !== 'linked_holder_ecdsa_additive_share_request_v1') {
+    throw new Error('linked holder ECDSA share request kind is invalid');
+  }
+  if (typeof record.requestId !== 'string' || !record.requestId.trim()) {
+    throw new Error('linked holder ECDSA share requestId is required');
+  }
+  if (typeof record.holderHandleId !== 'string' || !record.holderHandleId.trim()) {
+    throw new Error('linked holder ECDSA holderHandleId is required');
+  }
+  if (
+    !(record.groupPublicKey33 instanceof ArrayBuffer) ||
+    record.groupPublicKey33.byteLength !== 33
+  ) {
+    throw new Error('linked holder ECDSA groupPublicKey33 must be 33 bytes');
+  }
+  return {
+    kind: 'linked_holder_ecdsa_additive_share_request_v1',
+    requestId: record.requestId,
+    holderHandleId: record.holderHandleId,
+    poolIdentity: parseEcdsaClientPresignPoolIdentity(record.poolIdentity),
+    groupPublicKey33: record.groupPublicKey33,
+  };
+}
+
+function createLinkedHolderEcdsaShare(request: LinkedHolderEcdsaAdditiveShareRequest): Uint8Array {
+  const slot = holderSigningMaterialSlots.get(request.holderHandleId);
+  if (!slot || slot.job.keyFamily !== 'ecdsa_secp256k1') {
+    throw new Error('ECDSA holder signing material is unknown, discarded, or cross-curve');
+  }
+  const pool = request.poolIdentity;
+  if (
+    pool.walletId !== slot.job.walletId ||
+    pool.materialActivationId !== slot.materialActivation.activationId ||
+    pool.capability !== slot.materialActivation.capability ||
+    pool.keyBinding !== slot.materialActivation.keyBinding ||
+    String(slot.materialActivation.signingWorker) !==
+      String(slot.job.targetSigningWorker.participantId)
+  ) {
+    throw new Error('ECDSA presign pool changed the linked holder activation identity');
+  }
+  const requestedGroupKey = new Uint8Array(request.groupPublicKey33);
+  const persistedGroupKey = base64UrlDecode(slot.job.thresholdPublicKey33B64u);
+  try {
+    if (
+      persistedGroupKey.length !== 33 ||
+      requestedGroupKey.length !== 33 ||
+      !requestedGroupKey.every((byte, index) => byte === persistedGroupKey[index])
+    ) {
+      throw new Error('ECDSA presign group key changed the persisted R102 child');
+    }
+    const share = slot.material.ecdsa_additive_share32();
+    if (share.length !== 32) {
+      share.fill(0);
+      throw new Error('ECDSA linked holder additive share must be 32 bytes');
+    }
+    return share;
+  } finally {
+    requestedGroupKey.fill(0);
+    persistedGroupKey.fill(0);
+  }
+}
+
+function attachLinkedHolderPresignPort(port: MessagePort): void {
+  linkedHolderPresignPort?.close();
+  linkedHolderPresignPort = port;
+  port.onmessage = (event: MessageEvent): void => {
+    let requestId = '';
+    try {
+      const request = requireLinkedHolderShareRequest(event.data);
+      requestId = request.requestId;
+      const additiveShare = createLinkedHolderEcdsaShare(request);
+      try {
+        port.postMessage(
+          {
+            kind: 'linked_holder_ecdsa_additive_share_result_v1',
+            requestId,
+            ok: true,
+            additiveShare32: additiveShare.buffer,
+          } satisfies LinkedHolderEcdsaAdditiveShareResponse,
+          [additiveShare.buffer],
+        );
+      } catch (error) {
+        additiveShare.fill(0);
+        throw error;
+      }
+    } catch (error) {
+      if (requestId) port.postMessage(linkedHolderShareError(requestId, error));
+    }
+  };
+  port.start();
+}
+
 async function signRequest(
   request: Extract<
     DeviceLinkingKeyWorkerRequestV1,
@@ -1295,6 +1413,10 @@ export function installDeviceLinkingKeyWorkerV1(
   let closed = false;
   let queue: Promise<void> = Promise.resolve();
   const onMessage = (event: MessageEvent): void => {
+    if (isAttachLinkedHolderToPresignPort(event.data)) {
+      attachLinkedHolderPresignPort(event.data.port);
+      return;
+    }
     queue = queue
       .catch(() => undefined)
       .then(async () => {
@@ -1320,6 +1442,8 @@ export function installDeviceLinkingKeyWorkerV1(
       queue = queue
         .catch(() => undefined)
         .then(() => {
+          linkedHolderPresignPort?.close();
+          linkedHolderPresignPort = null;
           for (const slot of keySlots.values()) destroySlot(slot);
           keySlots.clear();
           for (const handleId of holderSigningMaterialSlots.keys()) {

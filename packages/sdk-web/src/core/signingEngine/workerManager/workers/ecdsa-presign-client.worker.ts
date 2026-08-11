@@ -15,9 +15,11 @@ import {
 import {
   isAttachEcdsaDerivationToPresignPort,
   isAttachEmailOtpToPresignPort,
+  isAttachLinkedHolderToPresignPort,
   type EcdsaDerivationAdditiveShareRequest,
   type EcdsaDerivationAdditiveShareResponse,
   type EmailOtpEcdsaSigningShareResponse,
+  type LinkedHolderEcdsaAdditiveShareResponse,
 } from '../ecdsaClientWorkerChannels';
 import {
   IndexedDbClientPresignMaterialStore,
@@ -86,8 +88,10 @@ const sessionMaterialBindings = new Map<string, SessionMaterialBinding>();
 const materialStore = new IndexedDbClientPresignMaterialStore();
 const pendingAdditiveShares = new Map<string, PendingAdditiveShare>();
 const pendingEmailOtpSigningShares = new Map<string, PendingEmailOtpSigningShare>();
+const pendingLinkedHolderShares = new Map<string, PendingAdditiveShare>();
 let derivationPort: MessagePort | null = null;
 let emailOtpPort: MessagePort | null = null;
+let linkedHolderPort: MessagePort | null = null;
 let wasmInitPromise: Promise<void> | null = null;
 let messageQueue: Promise<void> = Promise.resolve();
 
@@ -227,7 +231,20 @@ function handleDerivationResponse(event: MessageEvent<EcdsaDerivationAdditiveSha
     pending.reject(new Error(response.error));
     return;
   }
-  pending.resolve(new Uint8Array(response.additiveShare32));
+  const additiveShare32 = new Uint8Array(response.additiveShare32);
+  if (additiveShare32.length !== 32) {
+    additiveShare32.fill(0);
+    pending.reject(new Error('Linked holder ECDSA additive share must be 32 bytes'));
+    return;
+  }
+  pending.resolve(additiveShare32);
+}
+
+function rejectPendingLinkedHolderShares(message: string): void {
+  for (const [requestId, pending] of pendingLinkedHolderShares) {
+    pendingLinkedHolderShares.delete(requestId);
+    pending.reject(new Error(message));
+  }
 }
 
 function handleEmailOtpResponse(event: MessageEvent<EmailOtpEcdsaSigningShareResponse>): void {
@@ -245,6 +262,21 @@ function handleEmailOtpResponse(event: MessageEvent<EmailOtpEcdsaSigningShareRes
     remainingUses: response.remainingUses,
     expiresAtMs: response.expiresAtMs,
   });
+}
+
+function handleLinkedHolderResponse(
+  event: MessageEvent<LinkedHolderEcdsaAdditiveShareResponse>,
+): void {
+  const response = event.data;
+  if (response.kind !== 'linked_holder_ecdsa_additive_share_result_v1') return;
+  const pending = pendingLinkedHolderShares.get(response.requestId);
+  if (!pending) return;
+  pendingLinkedHolderShares.delete(response.requestId);
+  if (!response.ok) {
+    pending.reject(new Error(response.error));
+    return;
+  }
+  pending.resolve(new Uint8Array(response.additiveShare32));
 }
 
 function requestAdditiveShare(args: {
@@ -283,6 +315,37 @@ function requestEmailOtpSigningShare(thresholdSessionId: string): Promise<EmailO
   return deferred.promise;
 }
 
+function requestLinkedHolderShare(input: {
+  readonly holderHandleId: string;
+  readonly poolIdentity: EcdsaClientPresignPoolIdentity;
+  readonly groupPublicKey33: Uint8Array;
+}): Promise<Uint8Array> {
+  if (!linkedHolderPort) {
+    throw new Error('ECDSA presign client has no linked holder material channel');
+  }
+  const requestId = randomHandle('linked-holder-ecdsa-share');
+  const deferred = new WorkerDeferred<Uint8Array>();
+  const groupPublicKey33 = input.groupPublicKey33.slice();
+  pendingLinkedHolderShares.set(requestId, deferred);
+  try {
+    linkedHolderPort.postMessage(
+      {
+        kind: 'linked_holder_ecdsa_additive_share_request_v1',
+        requestId,
+        holderHandleId: input.holderHandleId,
+        poolIdentity: input.poolIdentity,
+        groupPublicKey33: groupPublicKey33.buffer,
+      },
+      [groupPublicKey33.buffer],
+    );
+  } catch (error) {
+    pendingLinkedHolderShares.delete(requestId);
+    groupPublicKey33.fill(0);
+    deferred.reject(error instanceof Error ? error : new Error(String(error)));
+  }
+  return deferred.promise;
+}
+
 async function initializeSession(
   payload: EcdsaPresignClientOperationMap[typeof EcdsaPresignClientRequestType.SessionInit]['payload'],
 ): Promise<
@@ -292,6 +355,8 @@ async function initializeSession(
   const sessionId = requireString(payload.sessionId, 'sessionId');
   freeSession(sessionId);
   const poolIdentity = parseEcdsaClientPresignPoolIdentity(payload.poolIdentity);
+  const groupPublicKey33 = toBytes(payload.groupPublicKey33, 'groupPublicKey33');
+  if (groupPublicKey33.length !== 33) throw new Error('groupPublicKey33 must be 33 bytes');
   let additiveShare32: Uint8Array;
   let emailOtpAuthority: { remainingUses: number; expiresAtMs: number } | null = null;
   switch (payload.authority.kind) {
@@ -313,12 +378,17 @@ async function initializeSession(
       };
       break;
     }
+    case 'linked_holder_signing_material':
+      additiveShare32 = await requestLinkedHolderShare({
+        holderHandleId: requireString(payload.authority.holderHandleId, 'holderHandleId'),
+        poolIdentity,
+        groupPublicKey33,
+      });
+      break;
     default:
       payload.authority satisfies never;
       throw new Error('Unsupported ECDSA presign authority');
   }
-  const groupPublicKey33 = toBytes(payload.groupPublicKey33, 'groupPublicKey33');
-  if (groupPublicKey33.length !== 33) throw new Error('groupPublicKey33 must be 33 bytes');
   const materialExpiresAtMs = requireFutureTimestamp(
     payload.materialExpiresAtMs,
     'materialExpiresAtMs',
@@ -339,6 +409,12 @@ async function initializeSession(
           remainingUses: emailOtpAuthority.remainingUses,
           expiresAtMs: emailOtpAuthority.expiresAtMs,
         },
+        progress,
+      };
+    }
+    if (payload.authority.kind === 'linked_holder_signing_material') {
+      return {
+        authority: { kind: 'linked_holder_signing_material' },
         progress,
       };
     }
@@ -481,6 +557,17 @@ function attachControlChannel(value: unknown): boolean {
     emailOtpPort = value.port;
     emailOtpPort.onmessage = handleEmailOtpResponse;
     emailOtpPort.start();
+    return true;
+  }
+  if (isAttachLinkedHolderToPresignPort(value)) {
+    rejectPendingLinkedHolderShares('Linked holder ECDSA material channel was replaced');
+    linkedHolderPort?.close();
+    linkedHolderPort = value.port;
+    linkedHolderPort.onmessage = handleLinkedHolderResponse;
+    linkedHolderPort.onmessageerror = () => {
+      rejectPendingLinkedHolderShares('Linked holder ECDSA material channel failed');
+    };
+    linkedHolderPort.start();
     return true;
   }
   return false;

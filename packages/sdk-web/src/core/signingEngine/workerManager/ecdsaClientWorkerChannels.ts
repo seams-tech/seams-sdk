@@ -35,6 +35,7 @@ import { parseRotatableSigningLaneJobV1 } from '@shared/signing-lanes/rotationPa
 export const EcdsaClientWorkerControlKind = {
   AttachDerivationToPresign: 'attach_ecdsa_derivation_to_presign_v1',
   AttachEmailOtpToPresign: 'attach_email_otp_to_ecdsa_presign_v1',
+  AttachLinkedHolderToPresign: 'attach_linked_holder_to_ecdsa_presign_v1',
 } as const;
 
 export type AttachEcdsaDerivationToPresignPort = {
@@ -46,6 +47,35 @@ export type AttachEmailOtpToPresignPort = {
   readonly kind: typeof EcdsaClientWorkerControlKind.AttachEmailOtpToPresign;
   readonly port: MessagePort;
 };
+
+export type AttachLinkedHolderToPresignPort = {
+  readonly kind: typeof EcdsaClientWorkerControlKind.AttachLinkedHolderToPresign;
+  readonly port: MessagePort;
+};
+
+export type LinkedHolderEcdsaAdditiveShareRequest = {
+  readonly kind: 'linked_holder_ecdsa_additive_share_request_v1';
+  readonly requestId: string;
+  readonly holderHandleId: string;
+  readonly poolIdentity: EcdsaClientPresignPoolIdentity;
+  readonly groupPublicKey33: ArrayBuffer;
+};
+
+export type LinkedHolderEcdsaAdditiveShareResponse =
+  | {
+      readonly kind: 'linked_holder_ecdsa_additive_share_result_v1';
+      readonly requestId: string;
+      readonly ok: true;
+      readonly additiveShare32: ArrayBuffer;
+      readonly error?: never;
+    }
+  | {
+      readonly kind: 'linked_holder_ecdsa_additive_share_result_v1';
+      readonly requestId: string;
+      readonly ok: false;
+      readonly additiveShare32?: never;
+      readonly error: string;
+    };
 
 export type EcdsaDerivationAdditiveShareRequest = {
   readonly kind: 'ecdsa_derivation_additive_share_request_v1';
@@ -413,6 +443,16 @@ export function isAttachEmailOtpToPresignPort(
   const parsed = parseWorkerChannelControl(value);
   return (
     parsed?.kind === EcdsaClientWorkerControlKind.AttachEmailOtpToPresign &&
+    parsed.port instanceof MessagePort
+  );
+}
+
+export function isAttachLinkedHolderToPresignPort(
+  value: unknown,
+): value is AttachLinkedHolderToPresignPort {
+  const parsed = parseWorkerChannelControl(value);
+  return (
+    parsed?.kind === EcdsaClientWorkerControlKind.AttachLinkedHolderToPresign &&
     parsed.port instanceof MessagePort
   );
 }
