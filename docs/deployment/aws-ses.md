@@ -38,12 +38,13 @@ Gateway GitHub Environment; never commit their values.
 
 Required Gateway values:
 
-| Name                              | Storage              | Value or purpose           |
-| --------------------------------- | -------------------- | -------------------------- |
-| `EMAIL_OTP_SES_REGION`            | Environment variable | `ap-southeast-2`           |
-| `EMAIL_OTP_SES_FROM`              | Environment variable | `Seams <confirm@seams.sh>` |
-| `EMAIL_OTP_SES_ACCESS_KEY_ID`     | Environment secret   | IAM access-key ID          |
-| `EMAIL_OTP_SES_SECRET_ACCESS_KEY` | Environment secret   | IAM secret access key      |
+| Name                              | Storage              | Value or purpose      |
+| --------------------------------- | -------------------- | --------------------- |
+| `EMAIL_OTP_PROVIDER`              | Environment variable | `amazon_ses`          |
+| `EMAIL_OTP_FROM_ADDRESS`          | Environment variable | `confirm@seams.sh`    |
+| `EMAIL_OTP_SES_REGION`            | Environment variable | `ap-southeast-2`      |
+| `EMAIL_OTP_SES_ACCESS_KEY_ID`     | Environment secret   | IAM access-key ID     |
+| `EMAIL_OTP_SES_SECRET_ACCESS_KEY` | Environment secret   | IAM secret access key |
 
 Production mainnet uses `EMAIL_OTP_DELIVERY_MODE=email_provider` and
 `EMAIL_OTP_RUNTIME_PROFILE=mainnet_service`. Production testnet uses

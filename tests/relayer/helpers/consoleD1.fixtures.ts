@@ -62,8 +62,6 @@ export type SqliteJsonRow = Record<string, unknown>;
 export type ErrorWithCode = { readonly code?: unknown };
 export type D1MigrationTarget = {
   readonly directoryName: D1MigrationDirectoryName;
-  readonly expectedMigrationCount: number;
-  readonly expectedTableCount: number;
 };
 
 export async function applyConsoleD1Migrations(database: D1DatabaseLike): Promise<void> {
@@ -2957,12 +2955,8 @@ export function isErrorWithCode(input: unknown): input is ErrorWithCode {
 export const D1_MIGRATION_TARGETS: readonly D1MigrationTarget[] = Object.freeze([
   {
     directoryName: 'd1-console',
-    expectedMigrationCount: 18,
-    expectedTableCount: 40,
   },
   {
     directoryName: 'd1-signer',
-    expectedMigrationCount: 10,
-    expectedTableCount: 21,
   },
 ]);

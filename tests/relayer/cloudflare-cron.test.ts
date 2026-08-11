@@ -354,6 +354,7 @@ test.describe('cloudflare cron console email dispatch', () => {
       database: fakeD1Database,
       namespace: 'email-dev',
       ensureSchema: false,
+      invitationDelivery: { kind: 'ENABLED' },
     });
 
     expect(resolved.runtimeProfile).toBe('DEVELOPMENT');
@@ -389,6 +390,7 @@ test.describe('cloudflare cron console email dispatch', () => {
         },
         database: fakeD1Database,
         namespace: 'email-production',
+        invitationDelivery: { kind: 'ENABLED' },
       }),
     ).toThrow('Production console email requires CONSOLE_EMAIL_PROVIDER=RESEND');
 
@@ -403,6 +405,7 @@ test.describe('cloudflare cron console email dispatch', () => {
         },
         database: fakeD1Database,
         namespace: 'email-production',
+        invitationDelivery: { kind: 'ENABLED' },
       }),
     ).toThrow('RESEND_API_KEY is required');
 
@@ -418,6 +421,7 @@ test.describe('cloudflare cron console email dispatch', () => {
       },
       database: fakeD1Database,
       namespace: 'email-production',
+      invitationDelivery: { kind: 'ENABLED' },
     });
     expect(resolved.runtimeProfile).toBe('PRODUCTION');
     expect(resolved.provider.provider).toBe('resend');

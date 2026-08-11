@@ -42,6 +42,7 @@ import {
   createInMemoryConsoleOnboardingService,
   type ConsoleOnboardingService,
 } from '@seams-internal/console-server/onboarding/service';
+import { createD1ConsoleOnboardingWelcomeEmail } from '@seams-internal/console-server/onboarding/welcomeEmail';
 import { createD1ConsolePolicyService } from '@seams-internal/console-server/policies/d1';
 import type { ConsolePolicyService } from '@seams-internal/console-server/policies/service';
 import { createD1ConsoleSponsoredCallService } from '@seams-internal/console-server/sponsoredCalls/d1';
@@ -147,6 +148,10 @@ export interface CloudflareD1ConsoleAdapterOptions {
   readonly organizationEmail?: D1ConsoleOrganizationEmailOptions;
   readonly billingProviders?: Partial<BillingProviderAdapters>;
   readonly billingEmailConsoleBaseUrl?: string;
+  readonly onboardingEmail?: {
+    readonly consoleBaseUrl: string;
+    readonly docsBaseUrl: string;
+  };
   readonly defaultPrepaidReservationTtlMs?: number;
   readonly webhookSecretCipher?: ConsoleWebhookSecretCipher;
   readonly webhookDispatcher?: WebhookDispatchAdapter;
@@ -283,6 +288,10 @@ interface NormalizedCloudflareD1ConsoleCommonOptions {
   readonly organizationEmail?: D1ConsoleOrganizationEmailOptions;
   readonly billingProviders?: Partial<BillingProviderAdapters>;
   readonly billingEmailConsoleBaseUrl?: string;
+  readonly onboardingEmail?: {
+    readonly consoleBaseUrl: string;
+    readonly docsBaseUrl: string;
+  };
   readonly defaultPrepaidReservationTtlMs?: number;
   readonly webhookSecretCipher?: ConsoleWebhookSecretCipher;
   readonly webhookDispatcher?: WebhookDispatchAdapter;
@@ -555,6 +564,7 @@ function normalizeCloudflareD1ConsoleServiceBundleOptions(
     organizationEmail: options.adapters?.organizationEmail,
     billingProviders: options.adapters?.billingProviders,
     billingEmailConsoleBaseUrl: options.adapters?.billingEmailConsoleBaseUrl,
+    onboardingEmail: options.adapters?.onboardingEmail,
     defaultPrepaidReservationTtlMs: options.adapters?.defaultPrepaidReservationTtlMs,
     webhookSecretCipher: options.adapters?.webhookSecretCipher,
     webhookDispatcher: options.adapters?.webhookDispatcher,
@@ -585,6 +595,7 @@ function normalizeCloudflareD1ConsoleOnlyServiceBundleOptions(
     organizationEmail: options.adapters?.organizationEmail,
     billingProviders: options.adapters?.billingProviders,
     billingEmailConsoleBaseUrl: options.adapters?.billingEmailConsoleBaseUrl,
+    onboardingEmail: options.adapters?.onboardingEmail,
     defaultPrepaidReservationTtlMs: options.adapters?.defaultPrepaidReservationTtlMs,
     webhookSecretCipher: options.adapters?.webhookSecretCipher,
     webhookDispatcher: options.adapters?.webhookDispatcher,
@@ -787,11 +798,21 @@ function createCloudflareD1Onboarding(input: {
   readonly billing: ConsoleBillingService;
   readonly organizationAccess: ConsoleOrganizationAccessService;
 }): ConsoleOnboardingService {
+  const welcomeEmail = input.options.onboardingEmail
+    ? createD1ConsoleOnboardingWelcomeEmail({
+        database: input.options.consoleDatabase,
+        namespace: input.options.namespace,
+        consoleBaseUrl: input.options.onboardingEmail.consoleBaseUrl,
+        docsBaseUrl: input.options.onboardingEmail.docsBaseUrl,
+        now: input.options.now,
+      })
+    : null;
   return createInMemoryConsoleOnboardingService({
     orgProjectEnv: input.orgProjectEnv,
     apiKeys: input.apiKeys,
     billing: input.billing,
     organizationAccess: input.organizationAccess,
+    welcomeEmail,
     logger: input.options.logger,
   });
 }

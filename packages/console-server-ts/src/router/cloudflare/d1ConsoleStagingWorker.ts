@@ -67,7 +67,12 @@ async function createConsoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise
     database: env.CONSOLE_DB,
     namespace,
     ensureSchema: false,
+    invitationDelivery: { kind: 'ENABLED' },
   });
+  const invitationSecretCipher = emailDispatch.invitationSecretCipher;
+  if (!invitationSecretCipher) {
+    throw new Error('Console invitation email cipher was not configured');
+  }
   const bundle = await createCloudflareD1ConsoleOnlyServiceBundle({
     bindings: {
       consoleDatabase: env.CONSOLE_DB,
@@ -80,7 +85,7 @@ async function createConsoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise
       billingProviders: requireStripeBillingProviderAdaptersFromEnv(env),
       billingEmailConsoleBaseUrl: requireEnvString(env, 'CONSOLE_BASE_URL'),
       organizationEmail: {
-        invitationSecretCipher: emailDispatch.invitationSecretCipher,
+        invitationSecretCipher,
         consoleBaseUrl: requireEnvString(env, 'CONSOLE_BASE_URL'),
       },
     },
@@ -180,6 +185,7 @@ function consoleScheduledHandler(env: CloudflareD1ConsoleStagingEnv): ScheduledH
       database: env.CONSOLE_DB,
       namespace,
       ensureSchema: false,
+      invitationDelivery: { kind: 'ENABLED' },
     }),
   });
 }
