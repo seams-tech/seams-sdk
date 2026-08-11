@@ -26,7 +26,11 @@ import type {
   LinkDevicePublicKeyB64u,
   QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking';
-import type { SealedLaneHolderMaterialV1 } from '@shared/signing-lanes/rotation';
+import type {
+  LaneProtocolCommitReceiptV1,
+  RotatableSigningLaneJobV1,
+  SealedLaneHolderMaterialV1,
+} from '@shared/signing-lanes/rotation';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type {
   LaneOperationId,
@@ -35,8 +39,9 @@ import type {
   LinkedDeviceId,
   LinkDeviceSessionId,
 } from '@shared/signing-lanes/ids';
-import type { WalletId } from '@shared/utils/domainIds';
+import type { MpcMaterialActivationRef, WalletId } from '@shared/utils/domainIds';
 import type { LinkedDeviceExecutionEvidenceRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
+import type { LaneSealedHolderRecordV1 } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
 
 /** Authenticated owner request proof produced by the one owner auth source. */
 export type LinkSessionAuthenticationV1 = {
@@ -156,6 +161,25 @@ export type DeviceLinkingKeyMaterialBundleV1 = {
   readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
   /** Ed25519 device identity public key; the private key remains in the worker. */
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
+};
+
+export type DeviceLinkingHolderSigningMaterialHandleV1 = {
+  readonly kind: 'device_linking_holder_signing_material_handle_v1';
+  readonly handleId: string;
+  readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
+};
+
+export type DeviceLinkingHolderSigningMaterialPortV1 = {
+  openPersistedHolderSigningMaterialV1(input: {
+    readonly factorSecret: ArrayBuffer;
+    readonly job: RotatableSigningLaneJobV1;
+    readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
+    readonly materialActivation: MpcMaterialActivationRef;
+    readonly holderRecord: LaneSealedHolderRecordV1;
+  }): Promise<DeviceLinkingHolderSigningMaterialHandleV1>;
+  discardHolderSigningMaterialV1(input: {
+    readonly handle: DeviceLinkingHolderSigningMaterialHandleV1;
+  }): Promise<void>;
 };
 
 export type DeviceLinkingKeyMaterialPortV1 = {

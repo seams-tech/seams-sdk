@@ -30,11 +30,29 @@ import {
 } from '@shared/signing-lanes/participants';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
-import { parseWebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
+import {
+  mpcMaterialActivationRefsEqual,
+  parseMpcMaterialActivationRef,
+  parseWebAuthnCredentialIdB64u,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
 import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
+import type {
+  LaneProtocolCommitReceiptV1,
+  RotatableSigningLaneJobV1,
+} from '@shared/signing-lanes/rotation';
+import {
+  parseLaneProtocolCommitReceiptV1,
+  parseRotatableSigningLaneJobV1,
+} from '@shared/signing-lanes/rotationParsers';
+import {
+  parseLaneSealedHolderRecordV1,
+  type LaneSealedHolderRecordV1,
+} from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
 import initEd25519YaoClient, {
   WasmLaneCustodySealV1,
   WasmLaneHolderRecipientV1,
+  WasmLaneHolderSigningMaterialV1,
 } from '../../../../../../../crates/router-ab-ed25519-yao-client/pkg/router_ab_ed25519_yao_client.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 
@@ -101,6 +119,18 @@ type DeviceLinkingKeyWorkerRequestV1 =
       readonly factorSecret: ArrayBuffer;
     }
   | {
+      readonly kind: 'device_linking_holder_signing_material_open_v1';
+      readonly factorSecret: ArrayBuffer;
+      readonly job: RotatableSigningLaneJobV1;
+      readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
+      readonly materialActivation: MpcMaterialActivationRef;
+      readonly holderRecord: LaneSealedHolderRecordV1;
+    }
+  | {
+      readonly kind: 'device_linking_holder_signing_material_discard_v1';
+      readonly handleId: string;
+    }
+  | {
       readonly kind: 'device_linking_key_material_discard_v1';
       readonly handleId: string;
     };
@@ -121,6 +151,10 @@ type DeviceLinkingKeyWorkerResponseV1 =
         LinkedDeviceTargetHolderRegistrationV1,
         ...LinkedDeviceTargetHolderRegistrationV1[],
       ];
+    }
+  | {
+      readonly handleId: string;
+      readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
     }
   | { readonly signatureB64u: string };
 
@@ -157,6 +191,12 @@ export type DeviceLinkingLaneCustodySealV1 = {
   free(): void;
 };
 
+export type DeviceLinkingLaneSigningMaterialV1 = {
+  key_family(): string;
+  destroy(): void;
+  free(): void;
+};
+
 export type DeviceLinkingLaneRecipientFactoryV1 = {
   createRecipient(input: {
     readonly operationId: string;
@@ -168,9 +208,18 @@ export type DeviceLinkingLaneRecipientFactoryV1 = {
     readonly custodyBindingId: string;
     readonly custodyBindingDigestB64u: string;
   }): DeviceLinkingLaneCustodySealV1 | Promise<DeviceLinkingLaneCustodySealV1>;
+  openSigningMaterial(input: {
+    readonly factorSecret: Uint8Array;
+    readonly sealedHolderMaterialB64u: string;
+    readonly expectedRecordDigestB64u: string;
+    readonly expectedHolderCiphertextDigestSetB64u: string;
+    readonly jobJson: string;
+    readonly receiptJson: string;
+  }): DeviceLinkingLaneSigningMaterialV1 | Promise<DeviceLinkingLaneSigningMaterialV1>;
 };
 
 const keySlots = new Map<string, DeviceLinkingKeySlotV1>();
+const holderSigningMaterialSlots = new Map<string, DeviceLinkingLaneSigningMaterialV1>();
 const laneRecipientWasmUrl = resolveWasmUrl(
   'router_ab_ed25519_yao_client_bg.wasm',
   'Ed25519 Yao Client',
@@ -205,6 +254,17 @@ const productionLaneRecipientFactory: DeviceLinkingLaneRecipientFactoryV1 = {
       input.envelopeBindingJson,
       input.custodyBindingId,
       input.custodyBindingDigestB64u,
+    );
+  },
+  async openSigningMaterial(input) {
+    await initializeLaneRecipientWasm();
+    return new WasmLaneHolderSigningMaterialV1(
+      input.factorSecret,
+      input.sealedHolderMaterialB64u,
+      input.expectedRecordDigestB64u,
+      input.expectedHolderCiphertextDigestSetB64u,
+      input.jobJson,
+      input.receiptJson,
     );
   },
 };
@@ -253,6 +313,16 @@ function createHandleId(): string {
   }
   const bytes = globalThis.crypto.getRandomValues(new Uint8Array(24));
   const handleId = `device-linking-key-${base64UrlEncode(bytes)}`;
+  bytes.fill(0);
+  return handleId;
+}
+
+function createHolderSigningMaterialHandleId(): string {
+  if (!globalThis.crypto || typeof globalThis.crypto.getRandomValues !== 'function') {
+    throw new Error('secure randomness is unavailable for linked holder material');
+  }
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(24));
+  const handleId = `linked-holder-signing-${base64UrlEncode(bytes)}`;
   bytes.fill(0);
   return handleId;
 }
@@ -399,6 +469,12 @@ function parseFrame(value: unknown): DeviceLinkingKeyWorkerFrameV1 {
   };
 }
 
+function parseMaterialActivation(value: unknown): MpcMaterialActivationRef {
+  const parsed = parseMpcMaterialActivationRef(value);
+  if (parsed.ok) return parsed.value;
+  throw new Error(parsed.error.message);
+}
+
 function parseRequest(value: unknown): DeviceLinkingKeyWorkerRequestV1 {
   const record = requireRecord(value, 'device-linking worker request');
   if (record.kind === 'device_linking_key_material_create_v1') {
@@ -409,6 +485,17 @@ function parseRequest(value: unknown): DeviceLinkingKeyWorkerRequestV1 {
     const parsed = exactRecord(record, ['kind', 'handleId'], 'device-linking discard request');
     return {
       kind: 'device_linking_key_material_discard_v1',
+      handleId: parseHandleId(parsed.handleId),
+    };
+  }
+  if (record.kind === 'device_linking_holder_signing_material_discard_v1') {
+    const parsed = exactRecord(
+      record,
+      ['kind', 'handleId'],
+      'device-linking holder signing material discard request',
+    );
+    return {
+      kind: 'device_linking_holder_signing_material_discard_v1',
       handleId: parseHandleId(parsed.handleId),
     };
   }
@@ -436,6 +523,44 @@ function parseRequest(value: unknown): DeviceLinkingKeyWorkerRequestV1 {
         preparation: parseLinkedDeviceTargetPreparationV1(parsed.preparation),
         credentialIdB64u: credentialId.value,
         factorSecret: parsed.factorSecret,
+      };
+    } catch (error) {
+      transferredSecret?.fill(0);
+      throw error;
+    }
+  }
+  if (record.kind === 'device_linking_holder_signing_material_open_v1') {
+    const transferredSecret =
+      record.factorSecret instanceof ArrayBuffer ? new Uint8Array(record.factorSecret) : null;
+    try {
+      const parsed = exactRecord(
+        record,
+        [
+          'kind',
+          'factorSecret',
+          'job',
+          'protocolCommitReceipt',
+          'materialActivation',
+          'holderRecord',
+        ],
+        'device-linking holder signing material open request',
+      );
+      if (!(parsed.factorSecret instanceof ArrayBuffer) || parsed.factorSecret.byteLength !== 32) {
+        throw new Error('device-linking holder signing material factorSecret must be 32 bytes');
+      }
+      return {
+        kind: 'device_linking_holder_signing_material_open_v1',
+        factorSecret: parsed.factorSecret,
+        job: parseRotatableSigningLaneJobV1(
+          parsed.job,
+          'device-linking holder signing material job',
+        ),
+        protocolCommitReceipt: parseLaneProtocolCommitReceiptV1(
+          parsed.protocolCommitReceipt,
+          'device-linking holder signing material protocol receipt',
+        ),
+        materialActivation: parseMaterialActivation(parsed.materialActivation),
+        holderRecord: parseLaneSealedHolderRecordV1(parsed.holderRecord),
       };
     } catch (error) {
       transferredSecret?.fill(0);
@@ -828,6 +953,127 @@ async function openAndSealTargetHolder(
   }
 }
 
+function assertProtocolReceiptMatchesJob(
+  job: RotatableSigningLaneJobV1,
+  receipt: LaneProtocolCommitReceiptV1,
+): void {
+  if (
+    String(receipt.operationId) !== String(job.operationId) ||
+    String(receipt.enrollmentId) !== String(job.enrollmentId) ||
+    String(receipt.walletId) !== String(job.walletId) ||
+    String(receipt.walletKeyId) !== String(job.walletKeyId) ||
+    receipt.keyFamily !== job.keyFamily ||
+    String(receipt.sourceLaneId) !== String(job.source.laneId) ||
+    String(receipt.sourceLaneShareEpoch) !== String(job.source.laneShareEpoch) ||
+    receipt.sourceRevocationEpoch !== job.source.revocationEpoch ||
+    !mpcMaterialActivationRefsEqual(
+      receipt.sourceMaterialActivation,
+      job.source.materialActivation,
+    ) ||
+    String(receipt.targetLaneId) !== String(job.target.laneId) ||
+    String(receipt.targetLaneShareEpoch) !== String(job.target.laneShareEpoch) ||
+    String(receipt.targetMaterialActivationId) !== String(job.targetMaterialActivationId) ||
+    receipt.holderRecipientKeyDigestB64u !== job.targetHolder.hpkePublicKeyDigestB64u ||
+    receipt.serverRecipientKeyDigestB64u !== job.targetSigningWorker.hpkePublicKeyDigestB64u
+  ) {
+    throw new Error('linked holder protocol receipt does not match its persisted R102 job');
+  }
+}
+
+function assertTargetMaterialActivationMatchesJob(
+  job: RotatableSigningLaneJobV1,
+  materialActivation: MpcMaterialActivationRef,
+): void {
+  const source = job.source.materialActivation;
+  if (
+    String(materialActivation.activationId) !== String(job.targetMaterialActivationId) ||
+    materialActivation.capability !== source.capability ||
+    materialActivation.materialOwner !== source.materialOwner ||
+    materialActivation.keyBinding !== source.keyBinding ||
+    materialActivation.lifecycleBinding !== source.lifecycleBinding ||
+    String(materialActivation.signingWorker) !== String(job.targetSigningWorker.participantId)
+  ) {
+    throw new Error('linked holder material activation does not match its persisted R102 job');
+  }
+}
+
+function assertHolderRecordMatchesPersistedJob(input: {
+  readonly job: RotatableSigningLaneJobV1;
+  readonly receipt: LaneProtocolCommitReceiptV1;
+  readonly materialActivation: MpcMaterialActivationRef;
+  readonly record: LaneSealedHolderRecordV1;
+}): void {
+  const { job, receipt, record } = input;
+  assertProtocolReceiptMatchesJob(job, receipt);
+  assertTargetMaterialActivationMatchesJob(job, input.materialActivation);
+  if (
+    String(record.operationId) !== String(job.operationId) ||
+    String(record.enrollmentId) !== String(job.enrollmentId) ||
+    String(record.walletId) !== String(job.walletId) ||
+    String(record.walletKeyId) !== String(job.walletKeyId) ||
+    String(record.laneId) !== String(job.target.laneId) ||
+    String(record.laneShareEpoch) !== String(job.target.laneShareEpoch) ||
+    String(record.targetMaterialActivationId) !== String(job.targetMaterialActivationId) ||
+    record.holderParticipantBindingDigestB64u !== job.targetHolder.participantBindingDigestB64u ||
+    String(record.custodyBindingId) !== String(job.targetHolder.custodyBindingId) ||
+    record.holderRecipientKeyDigestB64u !== receipt.holderRecipientKeyDigestB64u ||
+    record.holderCiphertextDigestSetB64u !== receipt.targetHolderCiphertextDigestSetB64u ||
+    record.transcriptHashB64u !== receipt.transcriptHashB64u
+  ) {
+    throw new Error('sealed holder record does not match its persisted R102 child');
+  }
+}
+
+async function openPersistedHolderSigningMaterial(
+  request: Extract<
+    DeviceLinkingKeyWorkerRequestV1,
+    { readonly kind: 'device_linking_holder_signing_material_open_v1' }
+  >,
+  recipientFactory: DeviceLinkingLaneRecipientFactoryV1,
+): Promise<{
+  readonly handleId: string;
+  readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
+}> {
+  const factorSecret = new Uint8Array(request.factorSecret);
+  let material: DeviceLinkingLaneSigningMaterialV1 | undefined;
+  try {
+    assertHolderRecordMatchesPersistedJob({
+      job: request.job,
+      receipt: request.protocolCommitReceipt,
+      materialActivation: request.materialActivation,
+      record: request.holderRecord,
+    });
+    material = await recipientFactory.openSigningMaterial({
+      factorSecret,
+      sealedHolderMaterialB64u: request.holderRecord.sealedHolderMaterialB64u,
+      expectedRecordDigestB64u: request.holderRecord.sealedHolderRecordDigestB64u,
+      expectedHolderCiphertextDigestSetB64u: request.holderRecord.holderCiphertextDigestSetB64u,
+      jobJson: JSON.stringify(request.job),
+      receiptJson: JSON.stringify(request.protocolCommitReceipt),
+    });
+    const keyFamily = material.key_family();
+    if (keyFamily !== request.job.keyFamily) {
+      throw new Error('reopened holder material changed its persisted key family');
+    }
+    const handleId = createHolderSigningMaterialHandleId();
+    holderSigningMaterialSlots.set(handleId, material);
+    material = undefined;
+    return { handleId, keyFamily };
+  } finally {
+    factorSecret.fill(0);
+    material?.destroy();
+    material?.free();
+  }
+}
+
+function discardHolderSigningMaterial(handleId: string): void {
+  const material = holderSigningMaterialSlots.get(handleId);
+  if (!material) return;
+  holderSigningMaterialSlots.delete(handleId);
+  material.destroy();
+  material.free();
+}
+
 async function signRequest(
   request: Extract<
     DeviceLinkingKeyWorkerRequestV1,
@@ -884,6 +1130,11 @@ async function handleRequest(
       return await prepareTargetHolders(request, recipientFactory);
     case 'device_linking_target_holder_open_seal_v1':
       return await openAndSealTargetHolder(request, recipientFactory);
+    case 'device_linking_holder_signing_material_open_v1':
+      return await openPersistedHolderSigningMaterial(request, recipientFactory);
+    case 'device_linking_holder_signing_material_discard_v1':
+      discardHolderSigningMaterial(request.handleId);
+      return undefined;
     case 'device_linking_key_material_discard_v1':
       {
         const slot = keySlots.get(request.handleId);
@@ -937,6 +1188,9 @@ export function installDeviceLinkingKeyWorkerV1(
         .then(() => {
           for (const slot of keySlots.values()) destroySlot(slot);
           keySlots.clear();
+          for (const handleId of holderSigningMaterialSlots.keys()) {
+            discardHolderSigningMaterial(handleId);
+          }
         });
       await queue;
     },

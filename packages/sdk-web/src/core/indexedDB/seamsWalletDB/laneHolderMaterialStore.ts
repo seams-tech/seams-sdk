@@ -124,7 +124,7 @@ function parsedOpaqueB64u(value: unknown, label: string): string {
   }
 }
 
-function parseRecord(value: unknown): LaneSealedHolderRecordV1 {
+export function parseLaneSealedHolderRecordV1(value: unknown): LaneSealedHolderRecordV1 {
   if (!isRecord(value)) throw new Error('lane sealed holder record must be an object');
   const record = value;
   const expectedFields = [
@@ -232,7 +232,7 @@ export class LaneSealedHolderMaterialRepository implements LaneSealedHolderMater
   ) {}
 
   async put(recordInput: LaneSealedHolderRecordV1): Promise<void> {
-    const record = parseRecord(recordInput);
+    const record = parseLaneSealedHolderRecordV1(recordInput);
     const key = storeKey({
       operationId: record.operationId,
       enrollmentId: record.enrollmentId,
@@ -258,7 +258,7 @@ export class LaneSealedHolderMaterialRepository implements LaneSealedHolderMater
     const entries = await this.seals.collectAllRawSealedRecordEntries();
     for (const entry of entries) {
       if (String(entry.primaryKey) !== key) continue;
-      const parsed = parseRecord(entry.value);
+      const parsed = parseLaneSealedHolderRecordV1(entry.value);
       if (!lookupMatches(parsed, input)) {
         throw new Error('lane sealed holder record key does not match its content');
       }
@@ -284,7 +284,7 @@ export class LaneSealedHolderMaterialRepository implements LaneSealedHolderMater
       if (typeof entry.primaryKey !== 'string') {
         throw new Error('lane sealed holder record store key is invalid');
       }
-      const record = parseRecord(entry.value);
+      const record = parseLaneSealedHolderRecordV1(entry.value);
       const key = storeKey({
         operationId: record.operationId,
         enrollmentId: record.enrollmentId,
