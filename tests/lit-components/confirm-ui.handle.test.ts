@@ -1416,6 +1416,176 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
     expect(result.afterClose.childCount).toBe(0);
   });
 
+  test('host modal: a new confirmation cancels and replaces the active modal', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.confirmUi);
+        const { awaitConfirmUIDecision, mountConfirmUI } =
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
+
+        const ctx: any = {
+          userPreferencesManager: {
+            getCurrentWalletId: () => 'alice.testnet',
+          },
+          surfaceMeasurementBinding: { kind: 'disabled' },
+        };
+        const waitFor = async (predicate: () => boolean, timeoutMs = 5000): Promise<void> => {
+          const start = Date.now();
+          while (!predicate()) {
+            if (Date.now() - start > timeoutMs) {
+              throw new Error('Timed out waiting for single-modal replacement');
+            }
+            await new Promise((resolve) => setTimeout(resolve, 16));
+          }
+        };
+
+        const firstDecisionPromise = awaitConfirmUIDecision({
+          ctx,
+          summary: { title: 'First confirmation' } as any,
+          txSigningRequests: [],
+          loading: false,
+          theme: 'light',
+          uiMode: 'modal',
+          nearAccountIdOverride: 'alice.testnet',
+          surface: { kind: 'mount_new' },
+        });
+
+        await waitFor(() => document.getElementById('w3a-confirm-portal')?.childElementCount === 1);
+        const portal = document.getElementById('w3a-confirm-portal') as HTMLElement;
+        const firstElement = portal.firstElementChild as HTMLElement;
+
+        const secondHandle = await mountConfirmUI({
+          ctx,
+          summary: { title: 'Second confirmation' } as any,
+          txSigningRequests: [],
+          loading: false,
+          theme: 'light',
+          uiMode: 'modal',
+          nearAccountIdOverride: 'alice.testnet',
+        });
+        const firstDecision = await firstDecisionPromise;
+        const secondElement = secondHandle.element;
+        const stateAfterReplacement = {
+          firstCancelled: firstDecision.confirmed === false,
+          firstRemoved: !firstElement.isConnected,
+          onePortalChild: portal.childElementCount === 1,
+          secondIsOnlyChild: portal.firstElementChild === secondElement,
+        };
+
+        firstDecision.handle.close(false);
+        const secondSurvivedOldHandleClose =
+          portal.childElementCount === 1 && portal.firstElementChild === secondElement;
+        secondHandle.close(true);
+
+        return {
+          ...stateAfterReplacement,
+          secondSurvivedOldHandleClose,
+          portalEmptyAfterClose: portal.childElementCount === 0,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result).toEqual({
+      firstCancelled: true,
+      firstRemoved: true,
+      onePortalChild: true,
+      portalEmptyAfterClose: true,
+      secondIsOnlyChild: true,
+      secondSurvivedOldHandleClose: true,
+    });
+  });
+
+  test('host modal: transaction tree renders only after transaction data is ready', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.confirmUi);
+        const { mountConfirmUI } =
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
+
+        const ctx: any = {
+          userPreferencesManager: {
+            getCurrentWalletId: () => 'alice.testnet',
+          },
+          surfaceMeasurementBinding: { kind: 'disabled' },
+        };
+
+        const handle = await mountConfirmUI({
+          ctx,
+          summary: { title: 'Confirm transaction' } as any,
+          loading: true,
+          theme: 'light',
+          uiMode: 'modal',
+          nearAccountIdOverride: 'alice.testnet',
+        });
+
+        const hasLoadingTree = !!document.querySelector('w3a-tx-tree');
+
+        const waitFor = async (predicate: () => boolean, timeoutMs = 5000): Promise<void> => {
+          const start = Date.now();
+          while (!predicate()) {
+            if (Date.now() - start > timeoutMs) throw new Error('Timed out waiting for tx-tree');
+            await new Promise((resolve) => setTimeout(resolve, 16));
+          }
+        };
+
+        handle.update({
+          model: {
+            chain: 'evm',
+            operations: [
+              {
+                id: 'evm.eip1559',
+                kind: 'generic.contractCall',
+                label: 'Contract call',
+                to: `0x${'11'.repeat(20)}`,
+                fields: [
+                  { label: 'To', value: `0x${'11'.repeat(20)}` },
+                  { label: 'Selector', value: '0xa9059cbb' },
+                ],
+              },
+            ],
+          },
+          loading: false,
+        });
+
+        await waitFor(
+          () =>
+            !!document.querySelector('w3a-tx-tree details[data-node-id="evm.eip1559"]'),
+        );
+        const tree = document.querySelector('w3a-tx-tree') as HTMLElement | null;
+        const hydratedOperation = tree?.querySelector(
+          'details[data-node-id="evm.eip1559"]',
+        ) as HTMLDetailsElement | null;
+        const loadingCopy = String(tree?.textContent || '').includes('Loading transaction details');
+        const hasIndicatorArrow = !!hydratedOperation?.querySelector(':scope > summary .chevron');
+        const openedAfterHydration = hydratedOperation?.open === true;
+        const usedOpeningAnimation = !!hydratedOperation
+          ?.querySelector(':scope > .folder-children')
+          ?.classList.contains('anim-h');
+
+        handle.close(true);
+        return {
+          hasLoadingTree,
+          hasHydratedOperation: !!hydratedOperation,
+          hasIndicatorArrow,
+          loadingCopy,
+          openedAfterHydration,
+          usedOpeningAnimation,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.hasLoadingTree).toBe(false);
+    expect(result.hasHydratedOperation).toBe(true);
+    expect(result.hasIndicatorArrow).toBe(false);
+    expect(result.loadingCopy).toBe(false);
+    expect(result.openedAfterHydration).toBe(true);
+    expect(result.usedOpeningAnimation).toBe(false);
+  });
+
   test('host modal: passkey registration renders identity details without transaction tree', async ({
     page,
   }) => {
