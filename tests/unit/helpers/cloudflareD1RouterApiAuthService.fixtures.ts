@@ -1423,6 +1423,45 @@ export async function insertEmailOtpRecoveryEscrow(input: {
     .run();
 }
 
+function emailOtpRecoveryEscrowRecord(input: {
+  readonly orgId: string;
+  readonly recoveryKeyId: string;
+  readonly recoveryKeyStatus: 'active' | 'consumed' | 'revoked';
+  readonly issuedAtMs: number;
+  readonly updatedAtMs: number;
+}) {
+  const walletId = 'email-wallet.testnet';
+  const timestamps =
+    input.recoveryKeyStatus === 'consumed'
+      ? { consumedAtMs: input.updatedAtMs }
+      : input.recoveryKeyStatus === 'revoked'
+        ? { revokedAtMs: input.updatedAtMs }
+        : {};
+  return {
+    version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
+    alg: 'chacha20poly1305-hkdf-sha256-v1',
+    secretKind: 'email_otp_device_enrollment_escrow',
+    escrowKind: 'recovery_wrapped_enrollment_escrow',
+    walletId,
+    userId: 'google:email-user',
+    authSubjectId: 'google:email-user',
+    authMethod: 'google_sso_email_otp',
+    enrollmentId: 'enrollment-a',
+    enrollmentVersion: 'enrollment-v1',
+    enrollmentSealKeyVersion: 'seal-v1',
+    signingRootId: 'project-a:env-a',
+    signingRootVersion: 'root-v1',
+    recoveryKeyId: input.recoveryKeyId,
+    recoveryKeyStatus: input.recoveryKeyStatus,
+    nonceB64u: 'nonce-email-otp-recovery',
+    wrappedDeviceEnrollmentEscrowB64u: 'wrapped-email-otp-recovery',
+    aadHashB64u: 'hash-email-otp-recovery',
+    issuedAtMs: input.issuedAtMs,
+    updatedAtMs: input.updatedAtMs,
+    ...timestamps,
+  };
+}
+
 export async function insertEmailOtpGrant(input: {
   readonly database: D1DatabaseLike;
   readonly namespace: string;

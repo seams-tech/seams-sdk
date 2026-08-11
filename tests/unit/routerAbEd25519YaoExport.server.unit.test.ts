@@ -60,6 +60,14 @@ import type {
   RouterAbEd25519YaoProductRegistrationPartitionedStateV1,
 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 import type {
+  RouterAbEd25519YaoActivationConsumptionRequestV1,
+  RouterAbEd25519YaoActivationConsumptionResultV1,
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistration';
+import type {
+  RouterAbEd25519YaoRegistrationExecutionClaimResultV1,
+  RouterAbEd25519YaoRegistrationExecutionCommitResultV1,
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+import type {
   RouterAbEd25519YaoActiveCapabilityLookupV1,
   RouterAbEd25519YaoActiveCapabilityLookupResultV1,
   RouterAbEd25519YaoActiveCapabilityResolverV1,
@@ -436,6 +444,7 @@ class ActiveCapabilityFixture implements RouterAbEd25519YaoActiveCapabilityResol
           signingWorkerId: SIGNING_WORKER_ID,
         },
         stateEpoch: this.substitution === 'epoch' ? 8 : 7,
+        registrationContinuity: { kind: 'recovery' },
       },
     };
   }
@@ -450,6 +459,10 @@ class SessionFixture implements SessionAdapter {
 
   async signJwt(): Promise<string> {
     throw new Error('signJwt is outside the export authorization test boundary');
+  }
+
+  async verifyJwt(): Promise<{ readonly valid: false }> {
+    return { valid: false };
   }
 
   async parse(): Promise<
@@ -495,11 +508,11 @@ class AuthorizationFixture implements RouterAbEd25519YaoExportAuthorizationAdapt
 
   authorize(input: RouterAbEd25519YaoExportAuthorizationInput) {
     this.inputs.push(input);
-    return { ok: true, authorizationIdentity: exportAuthorizationIdentity() };
+    return { ok: true as const, authorizationIdentity: exportAuthorizationIdentity() };
   }
 
   resolveAuthorizationIdentity() {
-    return { ok: true, authorizationIdentity: exportAuthorizationIdentity() };
+    return { ok: true as const, authorizationIdentity: exportAuthorizationIdentity() };
   }
 }
 
@@ -513,11 +526,11 @@ class RequestScopedAuthorizationFixture implements RouterAbEd25519YaoExportAutho
     if (this.throwOnAdmission && input.kind === 'admit') {
       throw new Error('WebAuthn counter update outcome was lost');
     }
-    return { ok: true, authorizationIdentity: exportAuthorizationIdentity() };
+    return { ok: true as const, authorizationIdentity: exportAuthorizationIdentity() };
   }
 
   resolveAuthorizationIdentity() {
-    return { ok: true, authorizationIdentity: exportAuthorizationIdentity() };
+    return { ok: true as const, authorizationIdentity: exportAuthorizationIdentity() };
   }
 }
 
@@ -568,6 +581,7 @@ class RequestScopedStateStore implements RouterAbEd25519YaoProductRegistrationPa
   private state = createRouterAbEd25519YaoProductRegistrationStateV1();
   private sharedVersion: string | null = null;
   private ceremonyVersion: string | null = null;
+  private executionVersion: string | null = null;
   private commitSequence = 0;
 
   constructor(private readonly conflictAtCommit: number | null = null) {}
@@ -583,6 +597,8 @@ class RequestScopedStateStore implements RouterAbEd25519YaoProductRegistrationPa
       sharedState: structuredClone(partition.shared),
       sharedVersion: this.sharedVersion,
       ceremonyVersion: this.ceremonyVersion,
+      execution: null,
+      executionVersion: this.executionVersion,
     };
   }
 
@@ -606,7 +622,26 @@ class RequestScopedStateStore implements RouterAbEd25519YaoProductRegistrationPa
       kind: 'stored',
       sharedVersion: this.sharedVersion,
       ceremonyVersion: this.ceremonyVersion,
+      executionVersion: this.executionVersion,
     };
+  }
+
+  async claimRegistrationExecution(
+    _input: Parameters<RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1['claimRegistrationExecution']>[0],
+  ): Promise<RouterAbEd25519YaoRegistrationExecutionClaimResultV1> {
+    throw new Error('registration execution is outside the export test boundary');
+  }
+
+  async commitRegistrationExecution(
+    _input: Parameters<RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1['commitRegistrationExecution']>[0],
+  ): Promise<RouterAbEd25519YaoRegistrationExecutionCommitResultV1> {
+    throw new Error('registration execution is outside the export test boundary');
+  }
+
+  async consumeRegistrationExecution(
+    _input: RouterAbEd25519YaoActivationConsumptionRequestV1,
+  ): Promise<RouterAbEd25519YaoActivationConsumptionResultV1> {
+    throw new Error('registration execution is outside the export test boundary');
   }
 
   async sharedState(

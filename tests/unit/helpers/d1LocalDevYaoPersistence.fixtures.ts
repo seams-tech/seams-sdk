@@ -660,6 +660,7 @@ async function persistLocalCapability(
       signingRootVersion: capability.admissionRequest.scope.root_share_epoch,
       runtimePolicyScope: capability.runtimePolicyScope,
       activeYaoCapability: capability,
+      custodyKeyManifestDigestB64u: Buffer.alloc(32, 21).toString('base64url'),
       now: Date.now() - 10_000,
     }),
   );

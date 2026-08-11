@@ -388,7 +388,6 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
       relayerVerifyingShareB64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
     },
-    passkeyCredentialIdB64u,
     session: {
       ok: true,
       thresholdSessionId: sessionId,

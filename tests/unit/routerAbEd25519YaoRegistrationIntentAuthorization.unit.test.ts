@@ -36,6 +36,18 @@ function bytes(seed: number): number[] {
   return new Array<number>(32).fill(seed);
 }
 
+function materialActivation() {
+  return {
+    kind: 'mpc_material_activation_ref' as const,
+    activation_id: 'registration-material-activation-1',
+    capability: 'registration-capability-1',
+    material_owner: 'account-1',
+    key_binding: 'registration-key-1',
+    lifecycle_binding: 'registration-lifecycle-1',
+    signing_worker: 'signing-worker-1',
+  };
+}
+
 function registrationIntent(input: {
   walletId: string;
   firstParticipantId: number;
@@ -81,6 +93,7 @@ function admissionRequest(input: {
       threshold_session_id: 'wallet-session-1',
       signer_set_id: 'signer-set-1',
       signing_worker_id: 'signing-worker-1',
+      material_activation: materialActivation(),
     },
     application_binding: {
       wallet_id: input.walletId,
@@ -134,11 +147,12 @@ async function registrationBinding(
       selected_server_id: request.scope.signing_worker_id,
     },
     operation: 'registration',
-    session_id: bytes(7),
-    stable_key_context_binding: await deriveRouterAbEd25519YaoStableContextBindingV1(
-      request.application_binding,
-      request.participant_ids,
-    ),
+      session_id: bytes(7),
+      stable_key_context_binding: await deriveRouterAbEd25519YaoStableContextBindingV1(
+        request.application_binding,
+        request.participant_ids,
+      ),
+      material_activation: request.scope.material_activation,
   };
 }
 
@@ -445,6 +459,7 @@ test.describe('Router A/B Ed25519 Yao registration-intent authorization', () => 
       operation: 'registration',
       session_id: binding.session_id,
       stable_key_context_binding: bytes(29),
+      material_activation: binding.material_activation,
     };
     await expect(
       adapter.authorize(
