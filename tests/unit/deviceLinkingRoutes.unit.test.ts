@@ -449,6 +449,60 @@ test('delivers one authenticated linked Wallet Session JWT for each approved key
   expect(await unavailable.json()).toMatchObject({ code: 'authorization_unavailable' });
 });
 
+test('operator recovery is a separate authority and stays fail-closed without it', async () => {
+  const fixture = buildR103DeviceLinkFixture();
+  const active = await buildR103ActiveLinkedDeviceSessionRecordV1(fixture);
+  const recoveryRequest = {
+    kind: 'linked_device_session_operator_recovery_request_v1' as const,
+    linkSessionId: fixture.payload.linkSessionId,
+    enrollmentId: fixture.approval.enrollmentId,
+    reason: 'original_link_session_lost' as const,
+    requestedAtMs: 4_000,
+  };
+  const pathname = `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/operator-recovery`;
+  const unavailable = await invoke(routeServiceFor(sessionServiceForRecord(active), 4_000), {
+    method: 'POST',
+    pathname,
+    body: recoveryRequest,
+  });
+  expect(unavailable.status).toBe(501);
+  expect(await unavailable.json()).toMatchObject({ code: 'not_supported' });
+
+  let operatorAuthCalls = 0;
+  const configured = await invoke(
+    routeServiceFor(sessionServiceForRecord(active), 4_000, {
+      operatorRecovery: {
+        authenticateOperatorRecoveryRequestV1: async ({
+          request,
+          method,
+          pathname: requestPath,
+          bodyDigestB64u,
+        }) => {
+          operatorAuthCalls += 1;
+          return {
+            kind: 'authorized' as const,
+            body: await request.json(),
+            binding: {
+              kind: 'linked_device_operator_request_binding_v1' as const,
+              method: method as 'POST',
+              pathname: requestPath,
+              bodyDigestB64u,
+              expiresAtMs: 5_000,
+            },
+          };
+        },
+      },
+    }),
+    { method: 'POST', pathname, body: recoveryRequest },
+  );
+  expect(configured.status).toBe(409);
+  expect(await configured.json()).toMatchObject({
+    outcome: 'invalid_state',
+    state: 'active',
+  });
+  expect(operatorAuthCalls).toBe(1);
+});
+
 function routeServiceFor(
   sessionService: DeviceLinkingRouteServiceV1['sessionService'],
   nowMs: number,

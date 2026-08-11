@@ -405,6 +405,7 @@ function createD1LinkedDeviceComposition(input: {
       targetCredential,
       acknowledgeReceiptV1: config.session.acknowledgeReceiptV1,
       retryCommittedDeliveryV1: config.session.retryCommittedDeliveryV1,
+      operatorRecovery: config.session.operatorRecovery,
       provisioning,
       sourceHandoff,
       nowV1: config.execution.nowV1,
