@@ -522,9 +522,7 @@ seams-auth-menu-surface {
 }
 
 .w3a-otp-description,
-.w3a-otp-helper,
-.w3a-otp-error,
-.w3a-method-error {
+.w3a-otp-helper {
   margin: 0;
   color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 25%);
   font-size: 0.9rem;
@@ -545,11 +543,6 @@ seams-auth-menu-surface {
     opacity: 1;
     filter: blur(0);
   }
-}
-
-.w3a-otp-error,
-.w3a-method-error {
-  color: var(--w3a-colors-error);
 }
 
 .w3a-otp-account {
@@ -617,8 +610,7 @@ seams-auth-menu-surface {
   font-weight: 600;
 }
 .w3a-signup-menu-root[data-registration-prompt='true'] .w3a-otp-description,
-.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-otp-helper,
-.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-otp-error {
+.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-otp-helper {
   text-align: left;
 }
 .w3a-signup-menu-root[data-registration-prompt='true'] .w3a-otp-account {
