@@ -1,13 +1,65 @@
 use base64ct::{Base64UrlUnpadded, Encoding};
 use router_ab_core::{
-    parse_router_ab_ecdsa_derivation_linked_device_normal_signing_scope_v1_json, PublicDigest32,
-    RouterAbProtocolErrorCode,
+    parse_router_ab_ecdsa_derivation_linked_device_normal_signing_scope_v1_json,
+    NormalSigningAuthorizationV1, PublicDigest32,
+    RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningFinalizeRequestV1,
+    RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningRequestV1,
+    RouterAbEcdsaDerivationOperationDigestsV1, RouterAbProtocolErrorCode,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 fn b64(bytes: &[u8]) -> String {
     Base64UrlUnpadded::encode_string(bytes)
+}
+
+#[test]
+fn linked_ecdsa_prepare_and_finalize_bind_the_lane_scope() {
+    let scope = parse_router_ab_ecdsa_derivation_linked_device_normal_signing_scope_v1_json(
+        &serde_json::to_vec(&valid_scope_json()).expect("scope JSON"),
+    )
+    .expect("scope parses");
+    let signing_digest = digest(9);
+    let operation_digests = RouterAbEcdsaDerivationOperationDigestsV1 {
+        lane_digest_b64u: digest(8),
+        intent_digest_b64u: signing_digest.clone(),
+        display_digest_b64u: digest(10),
+    };
+    let authorization = NormalSigningAuthorizationV1::ReusableWalletSession {
+        wallet_session_id: "wallet-session:r103".to_owned(),
+    };
+    let prepare = RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningRequestV1 {
+        scope: scope.clone(),
+        request_id: "request:r103".to_owned(),
+        operation_id: "signing-operation:r103".to_owned(),
+        operation_digests: operation_digests.clone(),
+        authorization: authorization.clone(),
+        material_activation: scope.material_activation.clone(),
+        client_presignature_id: "presignature:r103".to_owned(),
+        expires_at_ms: 20_000,
+        signing_digest_b64u: signing_digest.clone(),
+        client_rerandomization_commitment32_b64u: digest(11),
+    };
+    prepare.validate_at(10_000).expect("prepare validates");
+
+    let finalize = RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningFinalizeRequestV1 {
+        scope,
+        request_id: prepare.request_id.clone(),
+        operation_id: prepare.operation_id.clone(),
+        operation_digests,
+        authorization,
+        material_activation: prepare.material_activation.clone(),
+        expires_at_ms: prepare.expires_at_ms,
+        signing_digest_b64u: signing_digest,
+        server_presignature_id: prepare.client_presignature_id.clone(),
+        client_signature_share32_b64u: digest(12),
+        client_rerandomization_contribution32_b64u: digest(13),
+    };
+    finalize.validate_at(10_000).expect("finalize validates");
+    assert_ne!(
+        prepare.request_digest().expect("prepare digest"),
+        finalize.request_digest().expect("finalize digest")
+    );
 }
 
 fn digest(seed: u8) -> String {
