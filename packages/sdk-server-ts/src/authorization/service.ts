@@ -240,6 +240,12 @@ export type IssueLinkedDeviceWalletSessionInput = {
   readonly expiresAtMs: number;
 };
 
+export type LinkedDeviceWalletSessionIdentityV1 = {
+  readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+};
+
 export class AuthorizationService {
   constructor(private readonly ports: AuthorizationServicePorts) {}
 
@@ -447,18 +453,8 @@ export class AuthorizationService {
   async issueLinkedDeviceWalletSession(
     input: IssueLinkedDeviceWalletSessionInput,
   ): Promise<IssuedLinkedDeviceWalletSession> {
-    const authorizationId = parseRequired(
-      await deriveLinkedDeviceWalletSessionId(input, 'authorization'),
-      parseLinkedDeviceWalletSessionAuthorizationId,
-    );
-    const walletSessionId = parseRequired(
-      await deriveLinkedDeviceWalletSessionId(input, 'wallet_session'),
-      parseWalletSessionId,
-    );
-    const quotaId = parseRequired(
-      await deriveLinkedDeviceWalletSessionId(input, 'quota'),
-      parseMpcWalletSigningQuotaId,
-    );
+    const { authorizationId, walletSessionId, quotaId } =
+      await deriveLinkedDeviceWalletSessionIdentityV1(input);
     const authorization = buildLinkedDeviceWalletSessionAuthorization({
       tenantId: input.tenantId,
       authorizationGrantRef: buildLinkedDeviceWalletSessionAuthorizationRef(authorizationId),
@@ -560,6 +556,25 @@ async function deriveReusableWalletSessionId(
   );
   const prefix = kind === 'authorization' ? 'wlt' : kind === 'wallet_session' ? 'wls' : 'wsq';
   return `${prefix}_${digest}`;
+}
+
+export async function deriveLinkedDeviceWalletSessionIdentityV1(
+  input: IssueLinkedDeviceWalletSessionInput,
+): Promise<LinkedDeviceWalletSessionIdentityV1> {
+  return {
+    authorizationId: parseRequired(
+      await deriveLinkedDeviceWalletSessionId(input, 'authorization'),
+      parseLinkedDeviceWalletSessionAuthorizationId,
+    ),
+    walletSessionId: parseRequired(
+      await deriveLinkedDeviceWalletSessionId(input, 'wallet_session'),
+      parseWalletSessionId,
+    ),
+    quotaId: parseRequired(
+      await deriveLinkedDeviceWalletSessionId(input, 'quota'),
+      parseMpcWalletSigningQuotaId,
+    ),
+  };
 }
 
 async function deriveLinkedDeviceWalletSessionId(
