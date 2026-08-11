@@ -11,6 +11,10 @@ import {
 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSessionStore';
 import { D1LinkedDeviceTargetCredentialProviderV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceTargetCredentialProvider';
 import {
+  createD1LinkedDeviceCredentialResolverV1,
+  D1LinkedDeviceTargetAuthenticatorStoreV1,
+} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceTargetAuthenticatorStore';
+import {
   buildR103DeviceLinkFixture,
   buildR103TargetCredentialFixture,
 } from './helpers/deviceLinkContracts.fixtures';
@@ -135,6 +139,57 @@ test('persists verified attestation and exact public child records before provis
   expect(String(persisted?.registration_json)).not.toContain('clientExtensionResults');
   expect(String(persisted?.registration_json)).not.toContain('prf');
   expect(persisted?.credential_public_key_b64u).toBeTruthy();
+
+  const authenticatorStore = new D1LinkedDeviceTargetAuthenticatorStoreV1({
+    database: temporary.database,
+    scope,
+    enrollmentId: fixture.approval.enrollmentId,
+    deviceId: fixture.approval.deviceId,
+  });
+  const credentialId = await authenticatorStore.readLinkedDeviceCredentialIdV1({
+    walletId: fixture.approval.walletId,
+    enrollmentId: fixture.approval.enrollmentId,
+    deviceId: fixture.approval.deviceId,
+  });
+  expect(credentialId).toBe(target.registration.webauthnRegistration.credentialIdB64u);
+  const authenticator = await authenticatorStore.get(
+    `linked-device:${fixture.approval.deviceId}`,
+    target.registration.webauthnRegistration.credentialIdB64u,
+  );
+  expect(authenticator).toMatchObject({
+    version: 'webauthn_authenticator_v1',
+    credentialIdB64u: target.registration.webauthnRegistration.credentialIdB64u,
+    counter: 0,
+  });
+  if (!authenticator) throw new Error('expected persisted linked-device authenticator');
+  await authenticatorStore.put(`linked-device:${fixture.approval.deviceId}`, {
+    ...authenticator,
+    counter: 1,
+    updatedAtMs: 3_005,
+  });
+  expect(
+    await authenticatorStore.get(
+      `linked-device:${fixture.approval.deviceId}`,
+      target.registration.webauthnRegistration.credentialIdB64u,
+    ),
+  ).toMatchObject({ counter: 1 });
+  expect(
+    await authenticatorStore.readLinkedDeviceCredentialIdV1({
+      walletId: fixture.approval.walletId,
+      enrollmentId: fixture.approval.enrollmentId,
+      deviceId: 'device:unrelated',
+    }),
+  ).toBeNull();
+  expect(
+    await createD1LinkedDeviceCredentialResolverV1({
+      database: temporary.database,
+      scope,
+    }).readLinkedDeviceCredentialIdV1({
+      walletId: fixture.approval.walletId,
+      enrollmentId: fixture.approval.enrollmentId,
+      deviceId: fixture.approval.deviceId,
+    }),
+  ).toBe(target.registration.webauthnRegistration.credentialIdB64u);
 
   const replayed = await provider.registerTargetCredentialV1({
     registration: target.registration,
