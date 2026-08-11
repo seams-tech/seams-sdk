@@ -72,6 +72,7 @@ fn valid_scope_json() -> Value {
         "holderRecipientKeyDigestB64u": digest,
         "serverRecipientKeyDigestB64u": digest,
         "signingWorkerRecipientKeyId": "worker-key-r103",
+        "signingWorkerHpkePublicKeyB64u": digest,
         "transcriptHashB64u": digest,
         "protocolCommitReceiptDigestB64u": digest
     })
