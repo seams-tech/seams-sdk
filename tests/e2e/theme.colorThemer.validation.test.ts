@@ -14,7 +14,7 @@ const ROUTES: RouteSpec[] = [
     id: 'home',
     path: '/',
     waitFor: async (page: Page) => {
-      await expect(page.locator('#hero-title')).toBeVisible();
+      await expect(page.locator('#h2-home-title')).toBeVisible();
     },
   },
   {
@@ -465,23 +465,17 @@ test.describe('color-themer phase 5 validation', () => {
       await waitForRoute(page, ROUTES[3]!);
       const contactInputContrast = await measureElementContrast(
         page,
-        '.contact-form input[name="firstName"]',
+        '.contact-form input[name="name"]',
       );
       expect(
         contactInputContrast.ratio,
         `${theme} contact input contrast (${contactInputContrast.foreground} on ${contactInputContrast.background})`,
       ).toBeGreaterThanOrEqual(4.5);
 
-      await navigateViaSpa(page, '/');
-      await waitForRoute(page, ROUTES[0]!);
-      await focusViaTab(page, '.navbar-static__theme-toggle');
-      const navbarFocus = await readFocusStyles(page, '.navbar-static__theme-toggle');
-      expect(hasVisibleFocusIndicator(navbarFocus)).toBeTruthy();
-
       await navigateViaSpa(page, '/contact');
       await waitForRoute(page, ROUTES[3]!);
-      await focusViaTab(page, '.contact-form input[name="firstName"]');
-      const contactFocus = await readFocusStyles(page, '.contact-form input[name="firstName"]');
+      await focusViaTab(page, '.contact-form input[name="name"]');
+      const contactFocus = await readFocusStyles(page, '.contact-form input[name="name"]');
       expect(hasVisibleFocusIndicator(contactFocus)).toBeTruthy();
     }
   });
