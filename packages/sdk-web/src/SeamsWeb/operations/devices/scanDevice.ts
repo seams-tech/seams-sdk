@@ -3,6 +3,7 @@ import { DeviceLinkingError, DeviceLinkingErrorCode } from '@/core/types/linkDev
 import {
   buildLinkedDeviceApprovalV1,
   buildLinkedDeviceSessionClaimRequestV1,
+  parseLinkedDeviceProvisioningDeliveriesSubmissionV1,
   parseQrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking';
 import type {
@@ -16,11 +17,14 @@ import {
 } from '@/core/types/sdkSentEvents';
 import type {
   Device1LinkingFlowPortsV1,
+  Device1TargetReadySourceInputV1,
   LinkedDeviceApprovalResultV1,
   LinkSessionOwnerTransportPortV1,
   LinkSessionSubscriptionV1,
 } from './deviceLinkingPorts';
 import { errorMessage } from '@shared/utils/errors';
+import { computeLaneEnrollmentManifestDigestV1 } from '@shared/signing-lanes/rotationDigests';
+import { alphabetizeStringify } from '@shared/utils/digests';
 
 const QR_CLOCK_SKEW_MS = 60 * 1000;
 
@@ -184,6 +188,10 @@ export async function scanAndLinkDevice(
       linkSessionId: claim.linkSessionId,
       authentication: owner.authentication,
       expiresAtMs: Math.min(owner.expiresAtMs, claim.claimExpiresAtMs),
+      walletId: claim.walletId,
+      enrollmentId: claim.enrollmentId,
+      deviceId: claim.deviceId,
+      sourcePreparation: ports.sourcePreparation,
     });
     const result: LinkDeviceResult = {
       success: true,
@@ -258,25 +266,17 @@ async function awaitActiveApprovalResult(input: {
     LinkSessionOwnerTransportPortV1['getApprovalV1']
   >[0]['authentication'];
   readonly expiresAtMs: number;
+  readonly walletId: Device1TargetReadySourceInputV1['walletId'];
+  readonly enrollmentId: Device1TargetReadySourceInputV1['enrollmentId'];
+  readonly deviceId: Device1TargetReadySourceInputV1['deviceId'];
+  readonly sourcePreparation: Device1LinkingFlowPortsV1['sourcePreparation'];
 }): Promise<ActiveApprovalResult> {
   const immediate = activeApprovalFromResult(input.result);
   if (immediate) return immediate;
-
-  let resolveActive!: (result: ActiveApprovalResult) => void;
-  let rejectPending!: (error: Error) => void;
-  let settled = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const activeResult = new Promise<ActiveApprovalResult>((resolve, reject) => {
-    resolveActive = resolve;
-    rejectPending = reject;
-  });
+  let latestResult: LinkedDeviceApprovalResultV1 | null = input.result;
+  let sourceHandoffComplete = false;
   const onApprovalResult = (result: LinkedDeviceApprovalResultV1): void => {
-    if (settled) return;
-    const active = activeApprovalFromResult(result);
-    if (active) {
-      settled = true;
-      resolveActive(active);
-    }
+    latestResult = result;
   };
   let subscription: LinkSessionSubscriptionV1 | null = null;
   try {
@@ -285,26 +285,87 @@ async function awaitActiveApprovalResult(input: {
       authentication: input.authentication,
       onResult: onApprovalResult,
     });
-    if (settled) return await activeResult;
-    const polled = await input.transport.getApprovalV1({
-      linkSessionId: input.linkSessionId,
-      authentication: input.authentication,
-    });
-    const polledActive = activeApprovalFromResult(polled);
-    if (polledActive) return polledActive;
-    const timeoutMs = input.expiresAtMs - Date.now();
-    if (timeoutMs <= 0) throw approvalWaitExpired();
-    timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      rejectPending(approvalWaitExpired());
-    }, timeoutMs);
-    return await activeResult;
+    while (Date.now() < input.expiresAtMs) {
+      const observed =
+        latestResult ??
+        (await input.transport.getApprovalV1({
+          linkSessionId: input.linkSessionId,
+          authentication: input.authentication,
+        }));
+      latestResult = null;
+      const active = activeApprovalFromResult(observed);
+      if (active) return active;
+      if (!sourceHandoffComplete) {
+        sourceHandoffComplete = await preparePendingSourceHandoffV1(input, observed);
+      }
+      await waitForApprovalPollV1();
+    }
+    throw approvalWaitExpired();
   } finally {
-    settled = true;
-    if (timer !== undefined) clearTimeout(timer);
     await subscription?.close();
   }
+}
+
+async function preparePendingSourceHandoffV1(
+  input: Parameters<typeof awaitActiveApprovalResult>[0],
+  result: LinkedDeviceApprovalResultV1,
+): Promise<boolean> {
+  const state = pendingApprovalStateV1(result);
+  if (!state || state === 'awaiting_target_passkey') return false;
+  const targetReady = await input.transport.getTargetReadyV1({
+    linkSessionId: input.linkSessionId,
+    authentication: input.authentication,
+  });
+  if (!targetReady) return false;
+  if (
+    targetReady.linkSessionId !== input.linkSessionId ||
+    targetReady.walletId !== input.walletId ||
+    targetReady.enrollmentId !== input.enrollmentId ||
+    targetReady.deviceId !== input.deviceId
+  ) {
+    throw new Error('R102 target-ready input differs from the approved linked-device session');
+  }
+  const deliveries = await input.sourcePreparation.prepareTargetReadyDeliveriesV1(targetReady);
+  const submission = parseLinkedDeviceProvisioningDeliveriesSubmissionV1({
+    kind: 'linked_device_provisioning_deliveries_submission_v1',
+    linkSessionId: targetReady.linkSessionId,
+    walletId: targetReady.walletId,
+    enrollmentId: targetReady.enrollmentId,
+    deviceId: targetReady.deviceId,
+    manifestDigestB64u: await computeLaneEnrollmentManifestDigestV1(targetReady.manifest),
+    deliveries,
+  });
+  const persisted = await input.transport.submitPreparedProvisioningDeliveriesV1({
+    submission,
+    authentication: input.authentication,
+  });
+  if (alphabetizeStringify(persisted) !== alphabetizeStringify(submission)) {
+    throw new Error('persisted R102 deliveries differ from the prepared source handoff');
+  }
+  return true;
+}
+
+function pendingApprovalStateV1(
+  result: LinkedDeviceApprovalResultV1,
+):
+  | 'awaiting_target_passkey'
+  | 'provisioning'
+  | 'awaiting_aggregate_receipt'
+  | 'committed_completion_required'
+  | null {
+  if (result.outcome === 'pending') return result.state.state;
+  if (result.outcome === 'replayed' && result.replay.state === 'pending') {
+    return result.replay.session.state;
+  }
+  return null;
+}
+
+function resolveApprovalPollV1(resolve: () => void): void {
+  setTimeout(resolve, 250);
+}
+
+async function waitForApprovalPollV1(): Promise<void> {
+  await new Promise<void>(resolveApprovalPollV1);
 }
 
 function approvalWaitExpired(): DeviceLinkingError {

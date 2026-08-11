@@ -7,6 +7,7 @@ import type {
   LinkedDeviceHolderDeliveryAcknowledgementV1,
   LinkedDeviceProvisioningCommandV1,
   LinkedDeviceProvisioningDeliveriesV1,
+  LinkedDeviceProvisioningDeliveriesSubmissionV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
   LinkedDeviceProtocolVersionV1,
   LinkedDeviceReceiptAcknowledgementV1,
@@ -19,6 +20,7 @@ import type {
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetHolderRegistrationV1,
   LinkedDeviceTargetPreparationV1,
+  LinkedDeviceTargetReadyR102InputV1,
   LinkedDeviceWebAuthnRegistrationV1,
   LinkDevicePublicKeyB64u,
   QrLinkedDeviceSessionPayloadV4,
@@ -114,6 +116,14 @@ export type LinkSessionOwnerTransportPortV1 = {
     readonly linkSessionId: LinkDeviceSessionId;
     readonly authentication: LinkSessionAuthenticationV1;
   }): Promise<LinkedDeviceApprovalResultV1>;
+  getTargetReadyV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly authentication: LinkSessionAuthenticationV1;
+  }): Promise<LinkedDeviceTargetReadyR102InputV1 | null>;
+  submitPreparedProvisioningDeliveriesV1(input: {
+    readonly submission: LinkedDeviceProvisioningDeliveriesSubmissionV1;
+    readonly authentication: LinkSessionAuthenticationV1;
+  }): Promise<LinkedDeviceProvisioningDeliveriesSubmissionV1>;
   subscribeApprovalV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
     readonly authentication: LinkSessionAuthenticationV1;
@@ -249,6 +259,15 @@ export type Device2LinkingFlowPortsV1 = {
 export type Device1LinkingFlowPortsV1 = {
   readonly transport: LinkSessionOwnerTransportPortV1;
   readonly ownerAuthorization: DeviceLinkingOwnerAuthorizationPortV1;
+  readonly sourcePreparation: Device1SourcePreparationPortV1;
+};
+
+export type Device1TargetReadySourceInputV1 = LinkedDeviceTargetReadyR102InputV1;
+
+export type Device1SourcePreparationPortV1 = {
+  prepareTargetReadyDeliveriesV1(
+    input: Device1TargetReadySourceInputV1,
+  ): Promise<LinkedDeviceProvisioningDeliveriesV1>;
 };
 
 export type DeviceLinkingFlowPortsV1 = Device2LinkingFlowPortsV1 & Device1LinkingFlowPortsV1;

@@ -12,6 +12,7 @@ import { DeviceLinkingErrorCode } from '@/core/types/linkDevice';
 import {
   buildActiveLinkedDeviceSessionState,
   buildAwaitingTargetPasskeyLinkedDeviceSessionState,
+  buildProvisioningLinkedDeviceSessionState,
   buildLinkedDeviceHolderDeliveryAcknowledgementV1,
   buildCommittedCompletionRequiredLinkedDeviceSessionState,
   buildCancelledUnclaimedLinkedDeviceSessionState,
@@ -23,11 +24,16 @@ import {
 } from '../../packages/shared-ts/src/device-linking';
 import type {
   LinkedDeviceApprovalV1,
+  LinkedDeviceProvisioningDeliveriesSubmissionV1,
+  LinkedDeviceTargetReadyR102InputV1,
   LinkedDeviceReceiptAcknowledgementV1,
   LinkedDeviceSessionState,
   LinkedDeviceSessionTransportEventV1,
 } from '../../packages/shared-ts/src/device-linking';
-import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
+import {
+  buildR103DeviceLinkFixture,
+  buildR103TargetReadySourceFixture,
+} from './helpers/deviceLinkContracts.fixtures';
 import { parseWebAuthnCredentialIdB64u } from '../../packages/shared-ts/src/utils/domainIds';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import {
@@ -35,6 +41,7 @@ import {
   buildR102LaneJob,
   buildR102ProtocolCommitReceipt,
 } from './helpers/r102LaneGateway.fixtures';
+import { computeLaneEnrollmentManifestDigestV1 } from '../../packages/shared-ts/src/signing-lanes/rotationDigests';
 
 function createPorts(
   calls: string[],
@@ -43,6 +50,10 @@ function createPorts(
   approvalResult?: (state: LinkedDeviceSessionState) => LinkedDeviceApprovalResultV1,
   onSessionEventHandler?: (handler: (event: LinkedDeviceSessionTransportEventV1) => void) => void,
   onReceiptAcknowledgement?: (acknowledgement: LinkedDeviceReceiptAcknowledgementV1) => void,
+  sourceHandoff?: {
+    readonly targetReady: LinkedDeviceTargetReadyR102InputV1;
+    readonly onSubmission: (submission: LinkedDeviceProvisioningDeliveriesSubmissionV1) => void;
+  },
 ): DeviceLinkingFlowPortsV1 {
   const fixture = buildR103DeviceLinkFixture();
   const now = Date.now();
@@ -215,6 +226,15 @@ function createPorts(
         receipt: fixture.receipt,
       };
     },
+    async getTargetReadyV1() {
+      calls.push('get-target-ready');
+      return sourceHandoff?.targetReady ?? null;
+    },
+    async submitPreparedProvisioningDeliveriesV1(input) {
+      calls.push('submit-prepared-deliveries');
+      sourceHandoff?.onSubmission(input.submission);
+      return input.submission;
+    },
     async subscribeApprovalV1(input) {
       calls.push('subscribe-approval');
       const subscribedResult = approvalResult?.(state);
@@ -277,6 +297,13 @@ function createPorts(
           protocolVersions: fixture.approval.protocolVersions,
           expiresAtMs: now + 30_000,
         };
+      },
+    },
+    sourcePreparation: {
+      async prepareTargetReadyDeliveriesV1() {
+        calls.push('prepare-source-deliveries');
+        if (!sourceHandoff) throw new Error('source handoff is not configured for this test');
+        return buildR103TargetReadySourceFixture(fixture).deliveries;
       },
     },
     targetCredential: {
@@ -433,6 +460,52 @@ test.describe('linked-device browser orchestration', () => {
       'subscribe-approval',
       'get-approval-owner',
     ]);
+  });
+
+  test('Device 1 prepares and persists exact R102 deliveries once the target is ready', async () => {
+    const calls: string[] = [];
+    const fixture = buildR103DeviceLinkFixture();
+    const source = buildR103TargetReadySourceFixture(fixture);
+    let submitted: LinkedDeviceProvisioningDeliveriesSubmissionV1 | null = null;
+    const ports = createPorts(
+      calls,
+      undefined,
+      undefined,
+      () => ({
+        outcome: 'pending',
+        state: buildProvisioningLinkedDeviceSessionState({
+          linkSessionId: fixture.approval.linkSessionId,
+          walletId: fixture.approval.walletId,
+          enrollmentId: fixture.approval.enrollmentId,
+          keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
+        }),
+      }),
+      undefined,
+      undefined,
+      {
+        targetReady: source.targetReady,
+        onSubmission: (value) => {
+          submitted = value;
+        },
+      },
+    );
+    const qrData = buildQrLinkedDeviceSessionPayloadV4({
+      linkSessionId: fixture.payload.linkSessionId,
+      linkPublicKeyB64u: fixture.payload.linkPublicKeyB64u,
+      devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
+      issuedAtMs: Date.now() - 1_000,
+      expiresAtMs: Date.now() + 60_000,
+    });
+
+    await scanAndLinkDevice(undefined, qrData, {}, ports);
+
+    expect(calls).toContain('get-target-ready');
+    expect(calls).toContain('prepare-source-deliveries');
+    expect(calls).toContain('submit-prepared-deliveries');
+    expect(submitted?.deliveries).toEqual(source.deliveries);
+    expect(submitted?.manifestDigestB64u).toBe(
+      await computeLaneEnrollmentManifestDigestV1(source.targetReady.manifest),
+    );
   });
 
   test('Device 1 accepts a committed approval replay only with its receipt', async () => {

@@ -1,8 +1,14 @@
 import {
   parseLinkedDeviceApprovalResultV1,
+  parseLinkedDeviceProvisioningDeliveriesSubmissionV1,
   parseLinkedDeviceSessionClaimV1,
+  parseLinkedDeviceTargetReadyR102InputV1,
 } from '@shared/device-linking';
-import type { LinkedDeviceApprovalResultV1 } from '@shared/device-linking';
+import type {
+  LinkedDeviceApprovalResultV1,
+  LinkedDeviceProvisioningDeliveriesSubmissionV1,
+  LinkedDeviceTargetReadyR102InputV1,
+} from '@shared/device-linking';
 import type { LinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import type {
   LinkSessionAuthenticationV1,
@@ -17,9 +23,9 @@ import { LINKED_DEVICE_SESSION_HTTP_BASE_PATH_V1 } from './deviceLinkingHttpTran
  */
 export type LinkSessionOwnerAuthenticatedRequestPortV1 = {
   requestOwnerV1(input: {
-    readonly method: 'POST';
+    readonly method: 'GET' | 'POST';
     readonly canonicalPath: string;
-    readonly body: unknown;
+    readonly body?: unknown;
     readonly authentication: LinkSessionAuthenticationV1;
   }): Promise<{ readonly status: number; readonly body: unknown }>;
 };
@@ -65,6 +71,24 @@ export function createDeviceLinkingOwnerTransportV1(
       return parseOwnerResponseV1(response, parseLinkedDeviceApprovalResultV1);
     },
     getApprovalV1: options.approvalUpdates.getApprovalV1,
+    getTargetReadyV1: async (input) => {
+      const response = await options.request.requestOwnerV1({
+        method: 'GET',
+        canonicalPath: `${sessionPath(input.linkSessionId)}/target-ready`,
+        authentication: input.authentication,
+      });
+      if (response.status === 404) return null;
+      return parseOwnerResponseV1(response, parseLinkedDeviceTargetReadyR102InputV1);
+    },
+    submitPreparedProvisioningDeliveriesV1: async (input) => {
+      const response = await options.request.requestOwnerV1({
+        method: 'POST',
+        canonicalPath: `${sessionPath(input.submission.linkSessionId)}/prepared-deliveries`,
+        body: input.submission,
+        authentication: input.authentication,
+      });
+      return parseOwnerResponseV1(response, parseLinkedDeviceProvisioningDeliveriesSubmissionV1);
+    },
     subscribeApprovalV1: options.approvalUpdates.subscribeApprovalV1,
   };
 }
