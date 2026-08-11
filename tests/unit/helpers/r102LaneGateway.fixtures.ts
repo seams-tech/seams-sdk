@@ -49,6 +49,10 @@ import type {
 } from '../../../packages/shared-ts/src/signing-lanes/ids';
 import type { LaneEffectRecordV1 } from '../../../packages/sdk-server-ts/src/core/signingLanes/LaneEffectJournalStore';
 import type { LaneEnrollmentAdmissionRecord } from '../../../packages/sdk-server-ts/src/core/signingLanes/LaneLifecycleStore';
+import {
+  parseLaneSealedHolderRecordV1,
+  type LaneSealedHolderRecordV1,
+} from '../../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
 
 function requiredId<T>(
   parser: (raw: unknown) => { ok: true; value: T } | { ok: false; error: { message: string } },
@@ -483,6 +487,31 @@ export function buildR102ProtocolCommitReceipt(
     serverRecipientKeyDigestB64u: job.targetSigningWorker.hpkePublicKeyDigestB64u,
     transcriptHashB64u: DIGEST_B64U,
     committedAtMs,
+  });
+}
+
+export function buildR103SealedHolderRecord(
+  job: RotatableSigningLaneJobV1,
+  receipt: LaneProtocolCommitReceiptV1,
+): LaneSealedHolderRecordV1 {
+  return parseLaneSealedHolderRecordV1({
+    kind: 'lane_sealed_holder_record_v1',
+    operationId: job.operationId,
+    enrollmentId: job.enrollmentId,
+    walletId: job.walletId,
+    walletKeyId: job.walletKeyId,
+    laneId: job.target.laneId,
+    laneShareEpoch: job.target.laneShareEpoch,
+    targetMaterialActivationId: job.targetMaterialActivationId,
+    holderParticipantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
+    custodyBindingId: job.targetHolder.custodyBindingId,
+    holderRecipientKeyDigestB64u: receipt.holderRecipientKeyDigestB64u,
+    holderCiphertextDigestSetB64u: receipt.targetHolderCiphertextDigestSetB64u,
+    sealedHolderRecordDigestB64u: DIGEST_B64U,
+    transcriptHashB64u: receipt.transcriptHashB64u,
+    sealedHolderMaterialB64u: base64UrlEncode(new Uint8Array([1])),
+    acknowledgedAtMs: 4_000,
+    storedAtMs: 4_000,
   });
 }
 
