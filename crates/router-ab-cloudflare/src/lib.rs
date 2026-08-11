@@ -211,8 +211,10 @@ use router_ab_core::{
     RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
     RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningResponseV1,
-    RouterAbEcdsaDerivationExplicitExportRequestV1, RouterAbEcdsaDerivationNormalSigningScopeV1,
-    RouterAbEcdsaDerivationPublicIdentityV1, RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
+    RouterAbEcdsaDerivationExplicitExportRequestV1,
+    RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1,
+    RouterAbEcdsaDerivationNormalSigningScopeV1, RouterAbEcdsaDerivationPublicIdentityV1,
+    RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
     RouterAbEcdsaDerivationStableKeyContextV1, RouterAbEd25519NormalSigningAdmissionMaterialV2,
     RouterAbEd25519NormalSigningFinalizeProtocolV2, RouterAbEd25519NormalSigningFinalizeRequestV2,
     RouterAbEd25519NormalSigningPrepareRequestV2, RouterAbLifecycleStateV1,
@@ -233,7 +235,8 @@ use std::collections::BTreeMap;
 use zeroize::Zeroize;
 
 use router_ab_ecdsa_derivation::{
-    derive_relayer_share_for_client_public, RouterAbEcdsaDerivationStableKeyContext,
+    derive_relayer_share_for_client_public, ecdsa_lane_client_public_key_from_share32_v1,
+    RouterAbEcdsaDerivationStableKeyContext,
 };
 use sha2::{Digest as Sha2Digest, Sha256};
 
@@ -3622,6 +3625,48 @@ pub fn validate_cloudflare_router_ab_ecdsa_derivation_normal_signing_active_mate
     Err(RouterAbProtocolError::new(
         RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
         "Router A/B ECDSA derivation normal-signing active material does not match public identity",
+    ))
+}
+
+/// Validates direct active lane material against the authoritative linked-device scope.
+pub fn validate_cloudflare_linked_device_ecdsa_normal_signing_active_material_v1(
+    scope: &RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1,
+    active_signing_worker: &ActiveSigningWorkerStateV1,
+    material: &CloudflareServerOutputMaterialRecordV1,
+) -> RouterAbProtocolResult<()> {
+    scope.validate()?;
+    active_signing_worker.validate()?;
+    material.validate()?;
+    let signing_worker = ServerIdentityV1::new(
+        scope.signing_worker_participant_id.clone(),
+        scope.signing_worker_recipient_key_id.clone(),
+        scope.signing_worker_hpke_public_key_b64u.clone(),
+    )?;
+    let transcript = PublicDigest32::new(decode_base64url_fixed_32_v1(
+        "linked ECDSA transcript_hash_b64u",
+        &scope.transcript_hash_b64u,
+    )?);
+    if active_signing_worker.account_id != scope.wallet_id
+        || active_signing_worker.material_activation != scope.material_activation
+        || active_signing_worker.signing_worker != signing_worker
+        || active_signing_worker.activation_transcript_digest != transcript
+        || material.transcript_digest != transcript
+        || material.recipient_identity != scope.signing_worker_participant_id
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "linked ECDSA active lane material does not match authoritative scope",
+        ));
+    }
+    let server_public =
+        ecdsa_lane_client_public_key_from_share32_v1(*material.output_material.as_bytes())
+            .map_err(map_router_ab_ecdsa_derivation_error_v1)?;
+    if encode_base64url_bytes_v1(&server_public) == scope.target_server_public_commitment_b64u {
+        return Ok(());
+    }
+    Err(RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+        "linked ECDSA server share does not match committed public identity",
     ))
 }
 
@@ -9694,6 +9739,81 @@ fn cloudflare_signing_worker_lane_active_ecdsa_state_v1(
         format!("lane-material/{}", identity.target_material_activation_id),
         now_unix_ms,
     )
+}
+
+#[cfg(feature = "workers-rs")]
+fn cloudflare_signing_worker_lane_active_linked_ecdsa_state_v1(
+    scope: &RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1,
+    identity: &CloudflareSigningWorkerLaneMaterialIdentityV1,
+    now_unix_ms: u64,
+) -> RouterAbProtocolResult<ActiveSigningWorkerStateV1> {
+    let identity_digest =
+        decode_base64url_fixed_32_v1("lane material identity digest", &identity.digest_b64u()?)?;
+    ActiveSigningWorkerStateV1::new(
+        scope.wallet_id.clone(),
+        scope.material_activation.clone(),
+        "lane-material",
+        ServerIdentityV1::new(
+            scope.signing_worker_participant_id.clone(),
+            scope.signing_worker_recipient_key_id.clone(),
+            scope.signing_worker_hpke_public_key_b64u.clone(),
+        )?,
+        PublicDigest32::new(decode_base64url_fixed_32_v1(
+            "lane material identity transcript_hash_b64u",
+            &identity.transcript_hash_b64u,
+        )?),
+        PublicDigest32::new(identity_digest),
+        format!("lane-material/{}", identity.target_material_activation_id),
+        now_unix_ms,
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+async fn load_cloudflare_signing_worker_linked_ecdsa_normal_signing_material_v1(
+    env: &worker::Env,
+    scope: &RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1,
+    source: &CloudflareSigningWorkerNormalSigningMaterialSourceV1,
+    now_unix_ms: u64,
+) -> RouterAbProtocolResult<(
+    ActiveSigningWorkerStateV1,
+    CloudflareServerOutputMaterialRecordV1,
+)> {
+    source.validate_for_linked_ecdsa_scope(scope)?;
+    let CloudflareSigningWorkerNormalSigningMaterialSourceV1::RotatableLane { lookup, .. } = source
+    else {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidGateDecision,
+            "linked ECDSA signing requires rotatable lane material",
+        ));
+    };
+    let artifact =
+        load_cloudflare_signing_worker_normal_signing_lane_material_v1(env, lookup).await?;
+    artifact.validate_kind(CloudflareSigningWorkerLaneArtifactKindV1::ActiveServerMaterial)?;
+    let bytes = decode_base64url_bytes_v1(
+        "linked ECDSA lane active server material artifact",
+        &artifact.payload_b64u,
+    )?;
+    let parsed: CloudflareEcdsaLaneActiveServerMaterialV1 = serde_json::from_slice(&bytes)
+        .map_err(|_| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "linked ECDSA lane active server material is invalid",
+            )
+        })?;
+    let active = cloudflare_signing_worker_lane_active_linked_ecdsa_state_v1(
+        scope,
+        &lookup.identity,
+        now_unix_ms,
+    )?;
+    let material = cloudflare_signing_worker_lane_material_record_v1(
+        &lookup.identity,
+        &active.signing_worker,
+        parsed.share32()?,
+    )?;
+    validate_cloudflare_linked_device_ecdsa_normal_signing_active_material_v1(
+        scope, &active, &material,
+    )?;
+    Ok((active, material))
 }
 
 #[cfg(feature = "workers-rs")]
