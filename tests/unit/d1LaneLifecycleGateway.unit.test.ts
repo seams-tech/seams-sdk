@@ -123,6 +123,24 @@ test.describe('R102 lane lifecycle D1 gateway', () => {
       });
       if (holder.outcome === 'conflict') throw new Error('fixture holder delivery conflicted');
       const validReceipt = buildR102ServerActivationReceipt(job);
+      await expect(
+        gateway.activateLaneServerMaterialV1({
+          receipt: {
+            ...validReceipt,
+            serverCiphertextDigestSetB64u: base64UrlEncode(new Uint8Array(32).fill(14)),
+          },
+          expectedVersion: holder.version,
+        }),
+      ).rejects.toThrow('lane server activation receipt does not match its admitted operation');
+      await expect(
+        gateway.activateLaneServerMaterialV1({
+          receipt: {
+            ...validReceipt,
+            activatedAtMs: buildR102HolderDeliveryReceipt(job).acknowledgedAtMs - 1,
+          },
+          expectedVersion: holder.version,
+        }),
+      ).rejects.toThrow('lane server activation receipt does not match its admitted operation');
       const substitutedCapability = parseCapabilityInstanceRef('capability:r102-substituted');
       if (!substitutedCapability.ok) throw new Error(substitutedCapability.error.message);
       const substitutedReceipt = buildLaneServerActivationReceiptV1({
@@ -159,6 +177,72 @@ test.describe('R102 lane lifecycle D1 gateway', () => {
           laneShareEpoch: job.target.laneShareEpoch,
         }),
       ).resolves.toBeNull();
+    } finally {
+      cleanupTemporaryD1Database(temporary.tempDir);
+    }
+  });
+
+  test('rejects protocol recipients and holder delivery that differ from the committed job', async () => {
+    const temporary = createTemporaryD1Database();
+    try {
+      await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+      const fixture = buildR102LaneEnrollmentFixture();
+      const store = new CloudflareD1LaneLifecycleStore({
+        database: temporary.database,
+        scope,
+        now: () => 1_000,
+      });
+      const gateway = new CloudflareD1LaneEnrollmentGateway({ lifecycleStore: store });
+      await gateway.prepareLaneEnrollmentV1(fixture);
+      const job = fixture.children[0];
+      const protocolReceipt = buildR102ProtocolCommitReceipt(job);
+      await expect(
+        gateway.recordLaneProtocolCommitV1({
+          receipt: {
+            ...protocolReceipt,
+            committedAtMs: 999,
+          },
+          expectedVersion: 1,
+        }),
+      ).rejects.toThrow('lane protocol commit receipt predates its admitted operation');
+      await expect(
+        gateway.recordLaneProtocolCommitV1({
+          receipt: {
+            ...protocolReceipt,
+            holderRecipientKeyDigestB64u: base64UrlEncode(new Uint8Array(32).fill(12)),
+          },
+          expectedVersion: 1,
+        }),
+      ).rejects.toThrow('lane protocol commit receipt does not match its admitted operation');
+      const protocol = await gateway.recordLaneProtocolCommitV1({
+        receipt: protocolReceipt,
+        expectedVersion: 1,
+      });
+      if (protocol.outcome === 'conflict') throw new Error('fixture protocol commit conflicted');
+      const validHolderReceipt = buildR102HolderDeliveryReceipt(job);
+
+      await expect(
+        gateway.recordLaneHolderDeliveryV1({
+          receipt: {
+            ...validHolderReceipt,
+            holderCiphertextDigestSetB64u: base64UrlEncode(new Uint8Array(32).fill(13)),
+          },
+          expectedVersion: protocol.version,
+        }),
+      ).rejects.toThrow('lane holder delivery receipt differs from its committed ciphertext');
+      await expect(
+        gateway.recordLaneHolderDeliveryV1({
+          receipt: {
+            ...validHolderReceipt,
+            acknowledgedAtMs: protocolReceipt.committedAtMs - 1,
+          },
+          expectedVersion: protocol.version,
+        }),
+      ).rejects.toThrow('lane holder delivery receipt differs from its committed ciphertext');
+      await expect(store.getProtocol(job.operationId)).resolves.toMatchObject({
+        version: protocol.version,
+        value: { lifecycle: { state: 'committed_awaiting_holder_delivery' } },
+      });
     } finally {
       cleanupTemporaryD1Database(temporary.tempDir);
     }

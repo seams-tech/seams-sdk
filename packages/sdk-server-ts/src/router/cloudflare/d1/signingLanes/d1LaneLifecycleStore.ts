@@ -509,7 +509,11 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
   ): Promise<LaneAdmissionMutationResult<LaneHolderDeliveryReceiptV1>> {
     const protocol = await this.getProtocol(receipt.operationId);
     if (!protocol) throw new Error('holder delivery receipt names an unknown operation');
-    assertHolderDeliveryReceiptIdentity(protocol.value, receipt);
+    const commitReceipt = await this.readReceipt(receipt.operationId, 'lane_protocol_commit');
+    if (commitReceipt?.kind !== 'lane_protocol_commit_receipt_v1') {
+      throw new Error('holder delivery requires its committed protocol receipt');
+    }
+    assertHolderDeliveryReceiptIdentity(protocol.value, receipt, commitReceipt);
     return await this.putReceipt(
       receipt.operationId,
       receipt.enrollmentId,
@@ -525,7 +529,6 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
   ): Promise<LaneAdmissionMutationResult<LaneServerActivationReceiptV1>> {
     const protocol = await this.getProtocol(receipt.operationId);
     if (!protocol) throw new Error('server activation receipt names an unknown operation');
-    assertServerActivationReceiptIdentity(protocol.value, receipt);
     const commitReceipt = await this.readReceipt(receipt.operationId, 'lane_protocol_commit');
     const holderReceipt = await this.readReceipt(receipt.operationId, 'lane_holder_delivery');
     if (
@@ -534,6 +537,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
     ) {
       throw new Error('server activation requires protocol and holder receipts');
     }
+    assertServerActivationReceiptIdentity(protocol.value, receipt, commitReceipt, holderReceipt);
     const commitReceiptDigest = await exactReceiptDigest('lane_protocol_commit', commitReceipt);
     const holderReceiptDigest = await exactReceiptDigest('lane_holder_delivery', holderReceipt);
     if (
@@ -2578,6 +2582,12 @@ function assertProtocolCommitReceiptIdentity(
 ): void {
   const job = protocol.job;
   if (
+    protocol.lifecycle.state !== 'active' &&
+    receipt.committedAtMs < protocol.lifecycle.startedAtMs
+  ) {
+    throw new Error('lane protocol commit receipt predates its admitted operation');
+  }
+  if (
     String(receipt.enrollmentId) !== String(job.enrollmentId) ||
     String(receipt.walletId) !== String(job.walletId) ||
     String(receipt.walletKeyId) !== String(job.walletKeyId) ||
@@ -2591,7 +2601,9 @@ function assertProtocolCommitReceiptIdentity(
     String(receipt.targetLaneId) !== String(job.target.laneId) ||
     String(receipt.targetLaneShareEpoch) !== String(job.target.laneShareEpoch) ||
     String(receipt.targetMaterialActivationId) !== String(job.targetMaterialActivationId) ||
-    receipt.keyFamily !== job.keyFamily
+    receipt.keyFamily !== job.keyFamily ||
+    receipt.holderRecipientKeyDigestB64u !== job.targetHolder.hpkePublicKeyDigestB64u ||
+    receipt.serverRecipientKeyDigestB64u !== job.targetSigningWorker.hpkePublicKeyDigestB64u
   ) {
     throw new Error('lane protocol commit receipt does not match its admitted operation');
   }
@@ -2600,6 +2612,7 @@ function assertProtocolCommitReceiptIdentity(
 function assertHolderDeliveryReceiptIdentity(
   protocol: LaneProtocolRecordV1,
   receipt: LaneHolderDeliveryReceiptV1,
+  commitReceipt: LaneProtocolCommitReceiptV1,
 ): void {
   const job = protocol.job;
   if (
@@ -2625,11 +2638,19 @@ function assertHolderDeliveryReceiptIdentity(
       'lane holder delivery receipt transcript differs from the committed transcript',
     );
   }
+  if (
+    receipt.holderCiphertextDigestSetB64u !== commitReceipt.targetHolderCiphertextDigestSetB64u ||
+    receipt.acknowledgedAtMs < commitReceipt.committedAtMs
+  ) {
+    throw new Error('lane holder delivery receipt differs from its committed ciphertext');
+  }
 }
 
 function assertServerActivationReceiptIdentity(
   protocol: LaneProtocolRecordV1,
   receipt: LaneServerActivationReceiptV1,
+  commitReceipt: LaneProtocolCommitReceiptV1,
+  holderReceipt: LaneHolderDeliveryReceiptV1,
 ): void {
   const job = protocol.job;
   if (
@@ -2646,6 +2667,8 @@ function assertServerActivationReceiptIdentity(
       job.source.materialActivation.lifecycleBinding ||
     String(receipt.targetMaterialActivation.signingWorker) !==
       String(job.targetSigningWorker.participantId) ||
+    receipt.serverCiphertextDigestSetB64u !== commitReceipt.targetServerCiphertextDigestSetB64u ||
+    receipt.activatedAtMs < holderReceipt.acknowledgedAtMs ||
     receipt.signingWorkerParticipantBindingDigestB64u !==
       job.targetSigningWorker.participantBindingDigestB64u
   ) {

@@ -378,6 +378,20 @@ test.describe('R102 server-internal lane lifecycle application service', () => {
       }),
     });
 
+    await expect(
+      service.activateLaneServerMaterialV1({
+        curve: 'ed25519_yao',
+        job,
+        protocolCommitReceipt: protocolReceipt,
+        holderDeliveryReceipt: {
+          ...holderReceipt,
+          holderCiphertextDigestSetB64u: base64UrlEncode(new Uint8Array(32).fill(13)),
+        },
+        expectedVersion: 2,
+      }),
+    ).rejects.toThrow('lane holder delivery receipt does not match the admitted job');
+    expect(calls.order).toEqual([]);
+
     const result = await service.activateLaneServerMaterialV1({
       curve: 'ed25519_yao',
       job,

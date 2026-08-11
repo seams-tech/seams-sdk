@@ -210,7 +210,11 @@ export class LaneLifecycleApplicationService {
     request: LaneLifecycleServerActivationRequestV1,
   ): Promise<LaneProtocolCasResultV1> {
     assertProtocolReceiptMatchesJob(request.protocolCommitReceipt, request.job);
-    assertHolderDeliveryReceiptMatchesJob(request.holderDeliveryReceipt, request.job);
+    assertHolderDeliveryReceiptMatchesJob(
+      request.holderDeliveryReceipt,
+      request.protocolCommitReceipt,
+      request.job,
+    );
     await authorizeServerActivation(this.input.authorization, request);
 
     const receipt =
@@ -226,7 +230,12 @@ export class LaneLifecycleApplicationService {
             holderDeliveryReceipt: request.holderDeliveryReceipt,
           });
     const parsedReceipt = parseLaneServerActivationReceiptV1(receipt);
-    assertServerActivationReceiptMatchesJob(parsedReceipt, request.job);
+    assertServerActivationReceiptMatchesJob(
+      parsedReceipt,
+      request.protocolCommitReceipt,
+      request.holderDeliveryReceipt,
+      request.job,
+    );
     return await this.input.gateway.activateLaneServerMaterialV1({
       receipt: parsedReceipt,
       expectedVersion: request.expectedVersion,
@@ -446,7 +455,9 @@ function assertProtocolReceiptMatchesJob(
     receipt.targetLaneId !== job.target.laneId ||
     receipt.targetLaneShareEpoch !== job.target.laneShareEpoch ||
     receipt.targetMaterialActivationId !== job.targetMaterialActivationId ||
-    receipt.keyFamily !== job.keyFamily
+    receipt.keyFamily !== job.keyFamily ||
+    receipt.holderRecipientKeyDigestB64u !== job.targetHolder.hpkePublicKeyDigestB64u ||
+    receipt.serverRecipientKeyDigestB64u !== job.targetSigningWorker.hpkePublicKeyDigestB64u
   ) {
     throw new Error('lane protocol commit receipt does not match the admitted job');
   }
@@ -454,6 +465,7 @@ function assertProtocolReceiptMatchesJob(
 
 function assertHolderDeliveryReceiptMatchesJob(
   receipt: LaneHolderDeliveryReceiptV1,
+  protocolReceipt: LaneProtocolCommitReceiptV1,
   job: Ed25519YaoLaneJobV1 | EcdsaAdditiveLaneJobV1,
 ): void {
   if (
@@ -461,7 +473,9 @@ function assertHolderDeliveryReceiptMatchesJob(
     receipt.enrollmentId !== job.enrollmentId ||
     receipt.targetLaneId !== job.target.laneId ||
     receipt.targetLaneShareEpoch !== job.target.laneShareEpoch ||
-    receipt.targetMaterialActivationId !== job.targetMaterialActivationId
+    receipt.targetMaterialActivationId !== job.targetMaterialActivationId ||
+    receipt.holderCiphertextDigestSetB64u !== protocolReceipt.targetHolderCiphertextDigestSetB64u ||
+    receipt.acknowledgedAtMs < protocolReceipt.committedAtMs
   ) {
     throw new Error('lane holder delivery receipt does not match the admitted job');
   }
@@ -469,6 +483,8 @@ function assertHolderDeliveryReceiptMatchesJob(
 
 function assertServerActivationReceiptMatchesJob(
   receipt: LaneServerActivationReceiptV1,
+  protocolReceipt: LaneProtocolCommitReceiptV1,
+  holderReceipt: LaneHolderDeliveryReceiptV1,
   job: Ed25519YaoLaneJobV1 | EcdsaAdditiveLaneJobV1,
 ): void {
   if (
@@ -484,7 +500,9 @@ function assertServerActivationReceiptMatchesJob(
     receipt.targetMaterialActivation.lifecycleBinding !==
       job.source.materialActivation.lifecycleBinding ||
     String(receipt.targetMaterialActivation.signingWorker) !==
-      String(job.targetSigningWorker.participantId)
+      String(job.targetSigningWorker.participantId) ||
+    receipt.serverCiphertextDigestSetB64u !== protocolReceipt.targetServerCiphertextDigestSetB64u ||
+    receipt.activatedAtMs < holderReceipt.acknowledgedAtMs
   ) {
     throw new Error('lane server activation receipt does not match the admitted job');
   }
