@@ -18,19 +18,19 @@ import type {
   LinkedDeviceLocalStateInvalidationPortV1,
   LinkedDeviceManagementAuthorizationPortV1,
 } from '../../../../core/deviceLinking/linkedDeviceManagement';
-import type {
-  LaneLifecycleAuthorizationPortV1,
-  LaneLifecycleCurveExecutionPortsV1,
-} from '../../../../core/signingLanes/LaneLifecycleApplicationService';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type {
   DeviceLinkingOperatorRecoveryProviderV1,
-  DeviceLinkingRouteServiceV1,
+  DeviceLinkingOwnerRequestInputV1,
 } from '../../../transport/fetch/routes/deviceLinking';
 import type { DeviceLinkingGatewayCompletionServiceV1 } from '../../../transport/fetch/routes/deviceLinkingGateway';
-import type { DeviceLinkingOwnerAuthorizationRouteServiceV1 } from '../../../transport/fetch/routes/deviceLinkingOwnerAuthorization';
-import type { DeviceLinkingLaneGatewayRouteServiceV1 } from '../../../transport/fetch/routes/deviceLinkingLaneGateway';
+import type {
+  DeviceLinkingOwnerAuthorizationRouteServiceV1,
+  DeviceLinkingOwnerRequestAuthenticationV1,
+} from '../../../transport/fetch/routes/deviceLinkingOwnerAuthorization';
 import type { LinkedDeviceTargetPlannerV1 } from '../deviceLinking/d1LinkedDeviceTargetCredentialProvider';
+import type { RouterAbEd25519YaoActivationKeysetV1 } from '@shared/utils/routerAbEd25519Yao';
+import type { CloudflareLaneServiceBindingV1 } from '../../signingLanes/cloudflareLaneProtocolCommitter';
 import {
   normalizeOidcExchangeConfig,
   type CloudflareD1OidcExchangeConfig,
@@ -74,23 +74,25 @@ export type CloudflareD1LinkedDeviceExecutionOptionsV1 = {
   readonly logger: NormalizedLogger;
 };
 
-/** Durable lane authority used by linked-device activation and revocation. */
-export type CloudflareD1LinkedDeviceLaneLifecycleOptionsV1 = {
-  readonly authorization: LaneLifecycleAuthorizationPortV1;
-  readonly execution: LaneLifecycleCurveExecutionPortsV1;
+/** Service bindings and admission material for the D1-owned lane runtime. */
+export type CloudflareD1LinkedDeviceLaneRuntimeOptionsV1 = {
+  readonly router: CloudflareLaneServiceBindingV1;
+  readonly signingWorker: CloudflareLaneServiceBindingV1;
+  readonly internalServiceAuth: string;
+  readonly ed25519YaoKeyset: RouterAbEd25519YaoActivationKeysetV1;
 };
 
 export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
-  readonly laneLifecycle: CloudflareD1LinkedDeviceLaneLifecycleOptionsV1;
+  readonly laneRuntime: CloudflareD1LinkedDeviceLaneRuntimeOptionsV1;
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationPortV1;
-  readonly authenticateOwnerRequestV1: DeviceLinkingRouteServiceV1['authenticateOwnerRequestV1'];
+  readonly authenticateOwnerRequestV1: (
+    input: DeviceLinkingOwnerRequestInputV1,
+  ) => Promise<DeviceLinkingOwnerRequestAuthenticationV1>;
   readonly targetPlanner: LinkedDeviceTargetPlannerV1;
   /** Required whenever the linked-device session surface is enabled. */
   readonly operatorRecovery: DeviceLinkingOperatorRecoveryProviderV1;
   /** Request-scoped owner metadata provider used by Device 1 before claim. */
   readonly ownerAuthorizationRoute?: DeviceLinkingOwnerAuthorizationRouteServiceV1;
-  /** Owner-authenticated Device 1 source preparation/protocol transport. */
-  readonly laneGatewayRoute?: DeviceLinkingLaneGatewayRouteServiceV1;
 };
 
 export type CloudflareD1LinkedDeviceManagementOptionsV1 = {
