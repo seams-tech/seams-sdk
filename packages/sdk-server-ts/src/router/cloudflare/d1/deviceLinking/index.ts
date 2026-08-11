@@ -14,3 +14,4 @@ export * from './d1LinkedDeviceTargetAuthenticatorStore';
 export * from './d1LinkedDeviceManagementComposition';
 export * from './d1LinkedDeviceProvisioningProvider';
 export * from './linkedDeviceR102ProvisioningExecution';
+export * from './d1LinkedDeviceSourceHandoffProvider';
