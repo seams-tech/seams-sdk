@@ -86,7 +86,6 @@ test.describe('package export contracts', () => {
     expect(exportsMap['./server/router/ror']).toBeUndefined();
     expect(exportsMap['./server/storage/postgres']).toBeUndefined();
     expect(exportsMap['./server/wasm/signer']).toBeUndefined();
-    expect(exportsMap['./ios']).toBeUndefined();
     expect(exportsMap['./embedded']).toBeUndefined();
   });
 
@@ -260,7 +259,6 @@ test.describe('package export contracts', () => {
       }
     }
     expect(violations, violations.join('\n')).toEqual([]);
-    expect(fs.existsSync(path.join(repoRoot, 'packages/sdk-web/src/ios.ts'))).toBe(false);
     expect(fs.existsSync(path.join(repoRoot, 'packages/sdk-web/src/embedded.ts'))).toBe(false);
   });
 

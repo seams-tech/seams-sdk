@@ -19,10 +19,8 @@ UI helpers, and web asset helpers. `core/**` must not import this directory.
 Move shared result types, config types, and browser bridge constants into core
 when core logic needs them.
 
-iOS and embedded SDK implementations live outside this TypeScript package: iOS
-ships as a Swift package, and embedded ships as a Rust crate. Do not add
-`SeamsIOS`, `SeamsEmbedded`, or native signing-surface scaffolds under
-`client/src`.
+The embedded SDK implementation lives outside this TypeScript package as a Rust
+crate. Keep native signing-surface scaffolds out of `packages/sdk-web/src`.
 
 ## Layout
 

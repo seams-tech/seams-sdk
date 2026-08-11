@@ -110,12 +110,9 @@ const walletIframeCoreImportAllowList = guardBoundaryEntries([
   },
 ]);
 
-const nativeAndEmbeddedRoots = [
-  'packages/sdk-web/src/core/platform/ios',
-  'packages/sdk-web/src/core/platform/embedded',
-];
+const embeddedRoots = ['packages/sdk-web/src/core/platform/embedded'];
 
-const nativeAndEmbeddedForbiddenPatterns = [
+const embeddedForbiddenPatterns = [
   /\bWalletIframe\b/,
   /core\/WalletIframe/,
   /from\s+['"][^'"]*react[^'"]*['"]/,
@@ -137,9 +134,7 @@ const useCaseIndexedDBForbiddenPatterns = [
 ];
 
 const forbiddenNativeFacadePaths = [
-  'packages/sdk-web/src/ios',
   'packages/sdk-web/src/embedded',
-  'packages/sdk-web/src/ios.ts',
   'packages/sdk-web/src/embedded.ts',
 ];
 
@@ -336,11 +331,11 @@ function collectBrowserRuntimeConstructionViolations() {
   return violations;
 }
 
-function collectNativeAndEmbeddedViolations() {
+function collectEmbeddedViolations() {
   return collectPatternViolations(
-    listTypeScriptFilesInRoots(nativeAndEmbeddedRoots),
-    nativeAndEmbeddedForbiddenPatterns,
-    'native or embedded SDK imports browser surface',
+    listTypeScriptFilesInRoots(embeddedRoots),
+    embeddedForbiddenPatterns,
+    'embedded SDK imports browser surface',
   );
 }
 
@@ -352,7 +347,7 @@ function collectNativeFacadeViolations() {
     }
   }
 
-  const forbiddenNamePattern = /(?:SeamsIOS|IoSSigningSurface|SeamsEmbedded|EmbeddedSigningSurface)/;
+  const forbiddenNamePattern = /(?:SeamsEmbedded|EmbeddedSigningSurface)/;
   const files = listTypeScriptFilesInRoots(['packages/sdk-web/src']);
   for (const file of files) {
     if (forbiddenNamePattern.test(file)) {
@@ -408,7 +403,7 @@ function main() {
     ...collectUseCaseIndexedDBViolations(),
     ...collectBrowserIndexedDBAccessorViolations(),
     ...collectBrowserRuntimeConstructionViolations(),
-    ...collectNativeAndEmbeddedViolations(),
+    ...collectEmbeddedViolations(),
     ...collectNativeFacadeViolations(),
     ...collectWalletIframeCoreImportViolations(),
     ...collectChainSignerRoutingViolations(),

@@ -27,7 +27,7 @@ const removedWorkspacePackages = [
 
 const deletedImplementationRoots = ['client', 'sdk', 'server', 'shared'];
 const deployableAppRoots = ['apps/seams-site', 'apps/web-server'];
-const nativeRoots = ['clients/ios', 'crates/seams-embedded'];
+const nativeRoots = ['crates/seams-embedded'];
 
 function absolutePath(relativePath) {
   return path.join(repoRoot, relativePath);
