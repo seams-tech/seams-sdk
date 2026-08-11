@@ -202,6 +202,19 @@ test.describe('D1 linked-device authorization', () => {
         remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
         expiresAtMs: expectedIssuance.expiresAtMs,
       });
+      await expect(
+        issuer.readActiveForSessionV1({
+          session: activeSession,
+          requestedAtMs: linked.receipt.activatedAtMs + 1,
+        }),
+      ).resolves.toMatchObject({
+        authorization: {
+          walletId: linked.approval.walletId,
+          enrollmentId: linked.approval.enrollmentId,
+          deviceId: linked.approval.deviceId,
+        },
+        quota: { remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES },
+      });
       await authorization.revokeLinkedDeviceWalletSession({
         tenantId,
         deviceId: linked.approval.deviceId,
@@ -222,6 +235,12 @@ test.describe('D1 linked-device authorization', () => {
           nowMs: linked.receipt.activatedAtMs + 3,
         }),
       ).resolves.toMatchObject({ kind: 'revoked' });
+      await expect(
+        issuer.readActiveForSessionV1({
+          session: activeSession,
+          requestedAtMs: linked.receipt.activatedAtMs + 3,
+        }),
+      ).rejects.toThrow('linked-device Wallet Session authorization is no longer active');
     } finally {
       cleanupTemporaryD1Database(temporary.tempDir);
     }

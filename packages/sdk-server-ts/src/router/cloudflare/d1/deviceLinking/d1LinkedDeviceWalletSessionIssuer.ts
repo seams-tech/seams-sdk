@@ -10,6 +10,7 @@ import type { TenantId } from '@shared/authorization/capabilityKinds';
 import type {
   AuthorizationService,
   IssueLinkedDeviceWalletSessionInput,
+  IssuedLinkedDeviceWalletSession,
 } from '../../../../authorization/service';
 import { deriveLinkedDeviceWalletSessionIdentityV1 } from '../../../../authorization/service';
 import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
@@ -24,7 +25,9 @@ export type D1LinkedDeviceWalletSessionIssuerOptionsV1 = {
   readonly tenantId: TenantId;
   readonly authorizationService: Pick<
     AuthorizationService,
-    'getLinkedDeviceWalletSessionStatus' | 'issueLinkedDeviceWalletSession'
+    | 'getLinkedDeviceWalletSessionStatus'
+    | 'issueLinkedDeviceWalletSession'
+    | 'readLinkedDeviceWalletSessionAuthorization'
   >;
   readonly laneLifecycle: Pick<
     CloudflareD1LaneLifecycleStore,
@@ -39,6 +42,56 @@ export class D1LinkedDeviceWalletSessionIssuerV1 {
     readonly session: ActiveLinkedDeviceSessionRecordV1;
     readonly requestedAtMs: number;
   }): Promise<void> {
+    const issueInput = await this.buildIssueInputV1(input);
+    const identity = await deriveLinkedDeviceWalletSessionIdentityV1(issueInput);
+    const status = await this.options.authorizationService.getLinkedDeviceWalletSessionStatus({
+      tenantId: issueInput.tenantId,
+      deviceId: issueInput.deviceId,
+      ...identity,
+      nowMs: input.requestedAtMs,
+    });
+    switch (status.kind) {
+      case 'missing':
+        if (input.requestedAtMs >= issueInput.expiresAtMs) {
+          throw new Error('linked-device Wallet Session activation is too old to authorize');
+        }
+        await this.options.authorizationService.issueLinkedDeviceWalletSession(issueInput);
+        return;
+      case 'active':
+      case 'exhausted':
+      case 'expired':
+      case 'revoked':
+        requireExistingAuthorizationMatches(status, issueInput);
+        return;
+      case 'invalid':
+        throw new Error('linked-device Wallet Session persisted identity is invalid');
+      default:
+        return assertNeverLinkedDeviceWalletSessionStatus(status);
+    }
+  }
+
+  async readActiveForSessionV1(input: {
+    readonly session: ActiveLinkedDeviceSessionRecordV1;
+    readonly requestedAtMs: number;
+  }): Promise<IssuedLinkedDeviceWalletSession> {
+    const issueInput = await this.buildIssueInputV1(input);
+    const identity = await deriveLinkedDeviceWalletSessionIdentityV1(issueInput);
+    const issued =
+      await this.options.authorizationService.readLinkedDeviceWalletSessionAuthorization({
+        tenantId: issueInput.tenantId,
+        deviceId: issueInput.deviceId,
+        ...identity,
+        nowMs: input.requestedAtMs,
+      });
+    if (!issued) throw new Error('linked-device Wallet Session authorization is missing');
+    requireIssuedAuthorizationMatches(issued, issueInput);
+    return issued;
+  }
+
+  private async buildIssueInputV1(input: {
+    readonly session: ActiveLinkedDeviceSessionRecordV1;
+    readonly requestedAtMs: number;
+  }): Promise<IssueLinkedDeviceWalletSessionInput> {
     const { session, requestedAtMs } = input;
     const approval = session.approvalTranscript.value;
     const receipt = session.aggregateReceipt;
@@ -77,7 +130,7 @@ export class D1LinkedDeviceWalletSessionIssuerV1 {
     if (!Number.isSafeInteger(expiresAtMs)) {
       throw new Error('linked-device Wallet Session expiry is invalid');
     }
-    const issueInput: IssueLinkedDeviceWalletSessionInput = {
+    return {
       tenantId: this.options.tenantId,
       deviceId: approval.deviceId,
       walletId: approval.walletId,
@@ -89,31 +142,33 @@ export class D1LinkedDeviceWalletSessionIssuerV1 {
       issuedAtMs,
       expiresAtMs,
     };
-    const identity = await deriveLinkedDeviceWalletSessionIdentityV1(issueInput);
-    const status = await this.options.authorizationService.getLinkedDeviceWalletSessionStatus({
-      tenantId: issueInput.tenantId,
-      deviceId: issueInput.deviceId,
-      ...identity,
-      nowMs: requestedAtMs,
-    });
-    switch (status.kind) {
-      case 'missing':
-        if (requestedAtMs >= expiresAtMs) {
-          throw new Error('linked-device Wallet Session activation is too old to authorize');
-        }
-        await this.options.authorizationService.issueLinkedDeviceWalletSession(issueInput);
-        return;
-      case 'active':
-      case 'exhausted':
-      case 'expired':
-      case 'revoked':
-        requireExistingAuthorizationMatches(status, issueInput);
-        return;
-      case 'invalid':
-        throw new Error('linked-device Wallet Session persisted identity is invalid');
-      default:
-        return assertNeverLinkedDeviceWalletSessionStatus(status);
-    }
+  }
+}
+
+function requireIssuedAuthorizationMatches(
+  issued: IssuedLinkedDeviceWalletSession,
+  expected: IssueLinkedDeviceWalletSessionInput,
+): void {
+  const authorization = issued.authorization;
+  if (
+    authorization.tenantId !== expected.tenantId ||
+    authorization.walletId !== expected.walletId ||
+    authorization.enrollmentId !== expected.enrollmentId ||
+    authorization.deviceId !== expected.deviceId ||
+    authorization.keyManifestDigestB64u !== expected.keyManifestDigestB64u ||
+    authorization.permission.kind !== expected.permission.kind ||
+    authorization.permission.administrationScope !== expected.permission.administrationScope ||
+    authorization.permission.localUserPresence !== expected.permission.localUserPresence ||
+    authorization.revocationEpoch !== expected.revocationEpoch ||
+    authorization.issuedAtMs !== expected.issuedAtMs ||
+    authorization.expiresAtMs !== expected.expiresAtMs ||
+    issued.quota.tenantId !== expected.tenantId ||
+    issued.quota.principalId !== authorization.principalId ||
+    issued.quota.walletSessionId !== authorization.walletSessionId ||
+    issued.quota.quotaId !== authorization.quotaId ||
+    issued.quota.expiresAtMs !== expected.expiresAtMs
+  ) {
+    throw new Error('linked-device Wallet Session active authorization differs');
   }
 }
 

@@ -510,6 +510,17 @@ export class AuthorizationService {
     });
   }
 
+  async readLinkedDeviceWalletSessionAuthorization(input: {
+    readonly tenantId: TenantId;
+    readonly deviceId: LinkedDeviceId;
+    readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+    readonly walletSessionId: WalletSessionId;
+    readonly quotaId: MpcWalletSigningQuotaId;
+    readonly nowMs: number;
+  }): Promise<IssuedLinkedDeviceWalletSession | null> {
+    return await this.ports.grants.readLinkedDeviceWalletSessionAuthorization(input);
+  }
+
   async revokeLinkedDeviceWalletSession(input: {
     readonly tenantId: TenantId;
     readonly deviceId: LinkedDeviceId;
