@@ -123,8 +123,8 @@ function depsFor(lanes: ConcreteAvailableEcdsaSigningLane[]): ExportLaneSelectio
 }
 
 function ed25519Lane(
-  overrides: Partial<ConcreteAvailableEd25519SigningLane> = {},
-): ConcreteAvailableEd25519SigningLane {
+  overrides: Partial<Extract<ConcreteAvailableEd25519SigningLane, { authorizationState: 'authorized' }>> = {},
+): Extract<ConcreteAvailableEd25519SigningLane, { authorizationState: 'authorized' }> {
   return {
     auth: passkeySigningAuth(),
     curve: 'ed25519',
@@ -143,6 +143,26 @@ function ed25519Lane(
     authorizationState: 'authorized',
     authorization: ED25519_AUTHORIZATION,
     ...overrides,
+  };
+}
+
+function deferredEd25519Lane(): Extract<
+  ConcreteAvailableEd25519SigningLane,
+  { authorizationState: 'authorization_required' }
+> {
+  return {
+    auth: passkeySigningAuth(),
+    curve: 'ed25519',
+    chain: 'near',
+    materialActivation: ED25519_MATERIAL_ACTIVATION,
+    walletId: toWalletId(WALLET_ID),
+    nearAccountId: NEAR_ACCOUNT.accountId,
+    nearEd25519SigningKeyId: NEAR_ED25519_SIGNING_KEY_ID,
+    signerSlot: 1,
+    state: 'deferred',
+    thresholdSessionId: 'threshold-session-ed25519-export',
+    source: 'durable_sealed_record',
+    authorizationState: 'authorization_required',
   };
 }
 
@@ -324,14 +344,7 @@ test.describe('Ed25519 export lane selection', () => {
   });
 
   test('selects deferred durable material without reusable authorization', async () => {
-    const lane = ed25519Lane({
-      state: 'deferred',
-      source: 'durable_sealed_record',
-      authorizationState: 'authorization_required',
-      authorization: undefined,
-      remainingUses: undefined,
-      expiresAtMs: undefined,
-    });
+    const lane = deferredEd25519Lane();
 
     await expect(
       resolveExactKeyExportLane(depsForEd25519([lane]), {

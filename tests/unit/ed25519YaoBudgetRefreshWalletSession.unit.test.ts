@@ -291,7 +291,7 @@ test('Ed25519 session connection rejects success without a runtime policy scope'
       nearAccountId: 'refresh.testnet',
       nearEd25519SigningKeyId: 'refresh.testnet',
       authority: {
-        kind: 'passkey_ed25519_session_policy_authority',
+        kind: 'wallet_auth_authority',
         authority,
       },
       participantIds: [1, 2],
@@ -300,7 +300,7 @@ test('Ed25519 session connection rejects success without a runtime policy scope'
         signingWorkerId: 'local-signing-worker',
       },
       auth: {
-        kind: 'router_ab_ed25519_yao_budget_refresh_v1',
+        kind: 'threshold_session_policy_webauthn',
         policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
           credential: refreshCredentialFixture(),
           rpId: 'localhost',

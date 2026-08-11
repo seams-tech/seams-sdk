@@ -72,6 +72,15 @@ function activeCapabilityFixture(
 ): RouterAbEd25519YaoActiveCapabilityDescriptorV1 {
   return {
     kind: 'router_ab_ed25519_yao_active_capability_v1',
+    materialActivation: {
+      kind: 'mpc_material_activation_ref',
+      activation_id: 'sync-account-material-activation-1',
+      capability: 'sync-account-capability-1',
+      material_owner: WALLET_ID,
+      key_binding: 'sync-account-key-1',
+      lifecycle_binding: 'sync-account-lifecycle-1',
+      signing_worker: SIGNING_WORKER_ID,
+    },
     activeCapabilityBinding: bytes32(41),
     registeredPublicKey: bytes32(42),
     nearAccountId,
@@ -185,6 +194,10 @@ class ThrowingUnexpectedSessionAdapter implements SessionAdapter {
   async signJwt(): Promise<string> {
     this.signJwtCalls += 1;
     throw new Error('sync-account Yao enrichment must use the product runtime session');
+  }
+
+  async verifyJwt(): Promise<{ readonly valid: false }> {
+    return { valid: false };
   }
 
   async parse(): Promise<{ ok: false; reason: 'missing' }> {
