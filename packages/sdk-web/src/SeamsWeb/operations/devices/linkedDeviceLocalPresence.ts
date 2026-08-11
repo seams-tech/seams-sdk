@@ -80,109 +80,102 @@ async function requireHolderRecord(input: {
   return record;
 }
 
-export function createLinkedDeviceLocalPresencePortV1(input: {
+export async function authorizeAndOpenLinkedDeviceHolderV1(input: {
   readonly authenticator: AuthenticatorPort;
   readonly holderRepository: LaneSealedHolderMaterialRepositoryV1;
   readonly holderMaterial: DeviceLinkingHolderSigningMaterialPortV1;
-}): {
-  authorizeAndOpenHolderV1(args: {
-    readonly bundle: ActiveLinkedDeviceExecutionBundleV1;
-    readonly child: ActiveLinkedDeviceExecutionChildV1;
-    readonly authorizedOperationId: AuthorizedOperationId;
-    readonly intentDigestB64u: DigestB64u;
-    readonly issuedAtMs: number;
-    readonly expiresAtMs: number;
-  }): Promise<LinkedDevicePresenceAndHolderV1>;
-} {
+  readonly bundle: ActiveLinkedDeviceExecutionBundleV1;
+  readonly child: ActiveLinkedDeviceExecutionChildV1;
+  readonly authorizedOperationId: AuthorizedOperationId;
+  readonly intentDigestB64u: DigestB64u;
+  readonly issuedAtMs: number;
+  readonly expiresAtMs: number;
+}): Promise<LinkedDevicePresenceAndHolderV1> {
+  assertPresenceLifetime({
+    issuedAtMs: input.issuedAtMs,
+    expiresAtMs: input.expiresAtMs,
+    walletSessionExpiresAtMs: input.bundle.expiresAtMs,
+  });
+  if (
+    String(input.child.job.enrollmentId) !== String(input.bundle.enrollmentId) ||
+    String(input.child.job.walletId) !== String(input.bundle.walletId)
+  ) {
+    throw new Error('linked-device execution child changed its active parent');
+  }
+  const credentialIdB64u =
+    input.bundle.targetCredentialRegistration.webauthnRegistration.credentialIdB64u;
+  const holderRecord = await requireHolderRecord({
+    repository: input.holderRepository,
+    child: input.child,
+  });
+  const challengeDigestB64u = await computeLinkedDeviceLocalPresenceChallengeDigestV1({
+    authorizedOperationId: input.authorizedOperationId,
+    deviceId: input.bundle.deviceId,
+    enrollmentId: input.bundle.enrollmentId,
+    credentialIdB64u,
+    intentDigestB64u: input.intentDigestB64u,
+    issuedAtMs: input.issuedAtMs,
+    expiresAtMs: input.expiresAtMs,
+  });
+  const authentication = await input.authenticator.run({
+    kind: 'get_passkey',
+    rpId: toRpId(input.bundle.targetPreparation.rpId),
+    credentialIdB64u,
+    challengeB64u: challengeDigestB64u,
+    requirePrfFirst: true,
+  });
+  if (
+    !authentication.ok ||
+    authentication.operation !== 'get_passkey' ||
+    authentication.requirePrfFirst !== true
+  ) {
+    throw new Error(
+      authentication.ok
+        ? 'linked-device local presence returned the wrong authenticator operation'
+        : authentication.message,
+    );
+  }
+  const assertion = requireExactCredential({
+    credential: authentication.credential,
+    returnedCredentialIdB64u: authentication.credentialIdB64u,
+    expectedCredentialIdB64u: credentialIdB64u,
+    returnedRpId: authentication.rpId,
+    expectedRpId: input.bundle.targetPreparation.rpId,
+  });
+  const factorSecret = base64UrlDecode(authentication.prf.prfFirstB64u);
+  if (factorSecret.length !== 32) {
+    factorSecret.fill(0);
+    throw new Error('linked-device local presence PRF output must be 32 bytes');
+  }
+  let holderMaterial: DeviceLinkingHolderSigningMaterialHandleV1;
+  try {
+    holderMaterial = await input.holderMaterial.openPersistedHolderSigningMaterialV1({
+      factorSecret: factorSecret.buffer,
+      job: input.child.job,
+      protocolCommitReceipt: input.child.protocolCommitReceipt,
+      materialActivation: input.child.materialActivation,
+      holderRecord,
+    });
+  } finally {
+    if (factorSecret.byteLength > 0) factorSecret.fill(0);
+  }
+  if (holderMaterial.keyFamily !== input.child.keyFamily) {
+    await input.holderMaterial.discardHolderSigningMaterialV1({ handle: holderMaterial });
+    throw new Error('linked-device holder material changed its active curve');
+  }
   return {
-    async authorizeAndOpenHolderV1(args) {
-      assertPresenceLifetime({
-        issuedAtMs: args.issuedAtMs,
-        expiresAtMs: args.expiresAtMs,
-        walletSessionExpiresAtMs: args.bundle.expiresAtMs,
-      });
-      if (
-        String(args.child.job.enrollmentId) !== String(args.bundle.enrollmentId) ||
-        String(args.child.job.walletId) !== String(args.bundle.walletId)
-      ) {
-        throw new Error('linked-device execution child changed its active parent');
-      }
-      const credentialIdB64u =
-        args.bundle.targetCredentialRegistration.webauthnRegistration.credentialIdB64u;
-      const holderRecord = await requireHolderRecord({
-        repository: input.holderRepository,
-        child: args.child,
-      });
-      const challengeDigestB64u = await computeLinkedDeviceLocalPresenceChallengeDigestV1({
-        authorizedOperationId: args.authorizedOperationId,
-        deviceId: args.bundle.deviceId,
-        enrollmentId: args.bundle.enrollmentId,
-        credentialIdB64u,
-        intentDigestB64u: args.intentDigestB64u,
-        issuedAtMs: args.issuedAtMs,
-        expiresAtMs: args.expiresAtMs,
-      });
-      const authentication = await input.authenticator.run({
-        kind: 'get_passkey',
-        rpId: toRpId(args.bundle.targetPreparation.rpId),
-        credentialIdB64u,
-        challengeB64u: challengeDigestB64u,
-        requirePrfFirst: true,
-      });
-      if (
-        !authentication.ok ||
-        authentication.operation !== 'get_passkey' ||
-        authentication.requirePrfFirst !== true
-      ) {
-        throw new Error(
-          authentication.ok
-            ? 'linked-device local presence returned the wrong authenticator operation'
-            : authentication.message,
-        );
-      }
-      const assertion = requireExactCredential({
-        credential: authentication.credential,
-        returnedCredentialIdB64u: authentication.credentialIdB64u,
-        expectedCredentialIdB64u: credentialIdB64u,
-        returnedRpId: authentication.rpId,
-        expectedRpId: args.bundle.targetPreparation.rpId,
-      });
-      const factorSecret = base64UrlDecode(authentication.prf.prfFirstB64u);
-      if (factorSecret.length !== 32) {
-        factorSecret.fill(0);
-        throw new Error('linked-device local presence PRF output must be 32 bytes');
-      }
-      let holderMaterial: DeviceLinkingHolderSigningMaterialHandleV1;
-      try {
-        holderMaterial = await input.holderMaterial.openPersistedHolderSigningMaterialV1({
-          factorSecret: factorSecret.buffer,
-          job: args.child.job,
-          protocolCommitReceipt: args.child.protocolCommitReceipt,
-          materialActivation: args.child.materialActivation,
-          holderRecord,
-        });
-      } finally {
-        if (factorSecret.byteLength > 0) factorSecret.fill(0);
-      }
-      if (holderMaterial.keyFamily !== args.child.keyFamily) {
-        await input.holderMaterial.discardHolderSigningMaterialV1({ handle: holderMaterial });
-        throw new Error('linked-device holder material changed its active curve');
-      }
-      return {
-        holderMaterial,
-        localPresenceAssertion: {
-          kind: 'linked_device_local_presence_assertion_v1',
-          authorizedOperationId: args.authorizedOperationId,
-          deviceId: args.bundle.deviceId,
-          enrollmentId: args.bundle.enrollmentId,
-          credentialIdB64u,
-          intentDigestB64u: args.intentDigestB64u,
-          challengeDigestB64u,
-          issuedAtMs: args.issuedAtMs,
-          expiresAtMs: args.expiresAtMs,
-          assertion,
-        },
-      };
+    holderMaterial,
+    localPresenceAssertion: {
+      kind: 'linked_device_local_presence_assertion_v1',
+      authorizedOperationId: input.authorizedOperationId,
+      deviceId: input.bundle.deviceId,
+      enrollmentId: input.bundle.enrollmentId,
+      credentialIdB64u,
+      intentDigestB64u: input.intentDigestB64u,
+      challengeDigestB64u,
+      issuedAtMs: input.issuedAtMs,
+      expiresAtMs: input.expiresAtMs,
+      assertion,
     },
   };
 }

@@ -3,7 +3,7 @@ import { parseAuthorizedOperationId } from '../../packages/shared-ts/src/authori
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { buildActiveLinkedDeviceExecutionBundleV1 } from '../../packages/sdk-web/src/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
-import { createLinkedDeviceLocalPresencePortV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/linkedDeviceLocalPresence';
+import { authorizeAndOpenLinkedDeviceHolderV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/linkedDeviceLocalPresence';
 import { buildR103ActiveExecutionFixture } from './helpers/deviceLinkContracts.fixtures';
 import { buildR103SealedHolderRecord } from './helpers/r102LaneGateway.fixtures';
 
@@ -29,7 +29,7 @@ test('binds one WebAuthn assertion and PRF-opened holder to the active linked ch
   const holderRecord = buildR103SealedHolderRecord(child.job, child.protocolCommitReceipt);
   let requestedChallengeB64u = '';
   let openedFactor = new Uint8Array();
-  const port = createLinkedDeviceLocalPresencePortV1({
+  const dependencies = {
     authenticator: {
       kind: 'authenticator',
       async run(operation) {
@@ -93,12 +93,13 @@ test('binds one WebAuthn assertion and PRF-opened holder to the active linked ch
       },
       async discardHolderSigningMaterialV1() {},
     },
-  });
+  };
   const authorizedOperationId = requiredAuthorizedOperationId(
     'linked-ed25519-authorized-operation:request-1',
   );
   const intentDigestB64u = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(9)));
-  const result = await port.authorizeAndOpenHolderV1({
+  const result = await authorizeAndOpenLinkedDeviceHolderV1({
+    ...dependencies,
     bundle,
     child,
     authorizedOperationId,
