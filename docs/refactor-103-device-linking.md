@@ -17,6 +17,12 @@ still requires concrete owner metadata and source-fact providers, lane
 lifecycle authorization and curve execution, operator-recovery authorization,
 and management-side local-state invalidation.
 
+Implementation checklist: 16/21 complete (76.2%). The remaining readiness
+dependencies are Refactor 100's live custody verification and Refactor 101's
+broad integration gate. Product completion still needs an owner/unrelated-lane
+availability proof, refresh and compromise cleanup, and a concrete production
+operator-recovery authenticator.
+
 ## Scope And Dependencies
 
 This plan owns physical and browser device linking. A linked device becomes a
@@ -557,14 +563,19 @@ material activation remain intact.
 - [x] Require local user presence for every signature.
 - [x] Route each key family through its normal signing path.
 - [x] Implement immediate aggregate revocation.
-- [ ] Prove owner and unrelated device lanes remain available.
+- [ ] Prove owner and unrelated device lanes remain available. Aggregate
+      revocation is scoped to the linked enrollment, but the exact
+      post-revocation owner/unrelated-lane availability contract is not yet
+      covered.
 
 ### Phase 4: Product Completion
 
 - [x] Add device management and activity summary views.
 - [ ] Add refresh and compromise cleanup flows.
 - [ ] Add operator recovery for committed delivery that cannot complete on the
-      original link session.
+      original link session. The route and fresh Device 2 continuation-key
+      rebinding are implemented; production composition still needs a concrete
+      operator-recovery authenticator.
 
 ## Validation
 
@@ -591,7 +602,8 @@ Focused tests prove:
 - substituted or partial holder delivery fails before persistence;
 - mixed wallets remain inactive until all receipts verify;
 - each supported chain signs with local presence;
-- revocation disables every child lane and preserves owner signing;
+- revocation fences every linked Wallet Session before aggregate child-lane
+  retirement;
 - export and recovery requests from linked-device lanes fail.
 
 Lifecycle tests prove:
