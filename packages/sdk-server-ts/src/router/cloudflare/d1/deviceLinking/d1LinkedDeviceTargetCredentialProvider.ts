@@ -147,6 +147,20 @@ type PersistedTargetCredentialV1 = {
   } | null;
 };
 
+type PersistedTargetCommitReservationV1 =
+  | {
+      readonly state: 'reserved';
+      readonly registrationDigestB64u: DigestB64u;
+      readonly reservedAtMs: number;
+    }
+  | {
+      readonly state: 'committed';
+      readonly registrationDigestB64u: DigestB64u;
+      readonly reservedAtMs: number;
+      readonly committedAtMs: number;
+      readonly keyManifestDigestB64u: DigestB64u;
+    };
+
 const TARGET_CREDENTIAL_TABLE = 'linked_device_target_credentials';
 const TARGET_COMMIT_RESERVATION_TABLE = 'linked_device_target_commit_reservations';
 const TARGET_COMMIT_WAIT_ATTEMPTS = 25;
@@ -298,6 +312,9 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
           );
         }
         assertRegistrationReplay(stored, registration, stored.registration.keyManifestDigestB64u);
+        if (reservation.keyManifestDigestB64u !== stored.registration.keyManifestDigestB64u) {
+          throw new Error('linked-device target commit reservation manifest digest changed');
+        }
         await this.persistTargetReadyForReplayV1({
           persisted: stored,
           session: input.session,
@@ -506,23 +523,9 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
       await this.commitReservationV1(input);
       return;
     }
-    const committed = await this.readCommitReservationDigestV1(input.linkSessionId);
-    if (committed !== input.keyManifestDigestB64u) {
+    if (reservation.keyManifestDigestB64u !== input.keyManifestDigestB64u) {
       throw new Error('linked-device target credential reservation manifest digest changed');
     }
-  }
-
-  private async readCommitReservationDigestV1(linkSessionId: string): Promise<DigestB64u> {
-    const row = await this.database
-      .prepare(
-        `SELECT key_manifest_digest_b64u
-           FROM ${TARGET_COMMIT_RESERVATION_TABLE}
-          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
-            AND link_session_id = ? AND state = 'committed' LIMIT 1`,
-      )
-      .bind(...scopeValues(this.scope), linkSessionId)
-      .first<{ readonly key_manifest_digest_b64u?: unknown }>();
-    return parseDigestB64u(row?.key_manifest_digest_b64u);
   }
 
   private async reserveCommitV1(input: {
@@ -530,7 +533,10 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
     readonly registrationDigestB64u: DigestB64u;
     readonly expiresAtMs: number;
     readonly nowMs: number;
-  }): Promise<{ readonly outcome: 'acquired' | 'waiting' | 'replayed' }> {
+  }): Promise<
+    | { readonly outcome: 'acquired' | 'waiting' }
+    | { readonly outcome: 'replayed'; readonly keyManifestDigestB64u: DigestB64u }
+  > {
     const result = await this.database
       .prepare(
         `INSERT OR IGNORE INTO ${TARGET_COMMIT_RESERVATION_TABLE} (
@@ -553,7 +559,9 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
         'linked-device target credential conflicts with its durable commit reservation',
       );
     }
-    if (row.state === 'committed') return { outcome: 'replayed' };
+    if (row.state === 'committed') {
+      return { outcome: 'replayed', keyManifestDigestB64u: row.keyManifestDigestB64u };
+    }
     if (row.reservedAtMs >= input.expiresAtMs || input.nowMs >= input.expiresAtMs) {
       await this.database
         .prepare(
@@ -613,11 +621,9 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
     throw new Error('linked-device target credential commit is already in progress');
   }
 
-  private async readCommitReservationV1(linkSessionId: string): Promise<{
-    readonly registrationDigestB64u: DigestB64u;
-    readonly state: 'reserved' | 'committed';
-    readonly reservedAtMs: number;
-  } | null> {
+  private async readCommitReservationV1(
+    linkSessionId: string,
+  ): Promise<PersistedTargetCommitReservationV1 | null> {
     const row = await this.database
       .prepare(
         `SELECT registration_digest_b64u, state, reserved_at_ms,
@@ -636,6 +642,19 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
       throw new Error('linked-device target commit reservation state is invalid');
     if (!Number.isSafeInteger(row.reserved_at_ms) || Number(row.reserved_at_ms) < 0)
       throw new Error('linked-device target commit reservation time is invalid');
+    if (row.state === 'reserved') {
+      if (
+        (row.committed_at_ms !== null && row.committed_at_ms !== undefined) ||
+        (row.key_manifest_digest_b64u !== null && row.key_manifest_digest_b64u !== undefined)
+      ) {
+        throw new Error('linked-device reserved target reservation contains commit data');
+      }
+      return {
+        state: 'reserved',
+        registrationDigestB64u,
+        reservedAtMs: Number(row.reserved_at_ms),
+      };
+    }
     if (row.state === 'committed') {
       if (
         !Number.isSafeInteger(row.committed_at_ms) ||
@@ -644,13 +663,15 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
       ) {
         throw new Error('linked-device committed target reservation is incomplete');
       }
-      parseDigestB64u(row.key_manifest_digest_b64u);
+      return {
+        state: 'committed',
+        registrationDigestB64u,
+        reservedAtMs: Number(row.reserved_at_ms),
+        committedAtMs: Number(row.committed_at_ms),
+        keyManifestDigestB64u: parseDigestB64u(row.key_manifest_digest_b64u),
+      };
     }
-    return {
-      registrationDigestB64u,
-      state: row.state,
-      reservedAtMs: Number(row.reserved_at_ms),
-    };
+    throw new Error('linked-device target commit reservation state is invalid');
   }
 
   private async commitReservationV1(input: {
@@ -680,7 +701,8 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
     if (
       !row ||
       row.registrationDigestB64u !== input.registrationDigestB64u ||
-      row.state !== 'committed'
+      row.state !== 'committed' ||
+      row.keyManifestDigestB64u !== input.keyManifestDigestB64u
     ) {
       throw new Error('linked-device target commit reservation did not persist');
     }
