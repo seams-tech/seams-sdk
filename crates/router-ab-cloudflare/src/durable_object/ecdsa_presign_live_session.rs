@@ -83,6 +83,11 @@ pub(super) struct CloudflareSigningWorkerLinkedDeviceEcdsaPresignLiveSessionV1 {
 pub(super) type CloudflareSigningWorkerLinkedDeviceEcdsaPresignLiveSessionsV1 =
     RefCell<BTreeMap<String, CloudflareSigningWorkerLinkedDeviceEcdsaPresignLiveSessionV1>>;
 
+pub(super) struct CloudflareSigningWorkerLinkedDeviceEcdsaCompletedPresignatureRecordV1 {
+    scope_digest: router_ab_core::PublicDigest32,
+    record: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionDoInitRequestV1 {
@@ -95,6 +100,7 @@ pub(crate) struct CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionDoInitRe
 #[serde(deny_unknown_fields)]
 pub(crate) struct CloudflareSigningWorkerLinkedDeviceEcdsaPresignatureDoConsumeRequestV1 {
     pub(crate) server_presignature_id: String,
+    pub(crate) scope_digest: router_ab_core::PublicDigest32,
     pub(crate) request_digest: router_ab_core::PublicDigest32,
     pub(crate) signing_digest: router_ab_core::PublicDigest32,
     pub(crate) now_unix_ms: u64,
@@ -371,7 +377,7 @@ pub(super) async fn handle_cloudflare_signing_worker_linked_ecdsa_presign_sessio
     mut request: worker::Request,
     sessions: &CloudflareSigningWorkerLinkedDeviceEcdsaPresignLiveSessionsV1,
     completed_records: &std::cell::RefCell<
-        BTreeMap<String, CloudflareSigningWorkerEcdsaPresignatureRecordV1>,
+        BTreeMap<String, CloudflareSigningWorkerLinkedDeviceEcdsaCompletedPresignatureRecordV1>,
     >,
 ) -> worker::Result<worker::Response> {
     if request.method() != worker::Method::Post {
@@ -505,7 +511,7 @@ fn step_linked_presign_session(
     input: CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionStepRequestV1,
     sessions: &CloudflareSigningWorkerLinkedDeviceEcdsaPresignLiveSessionsV1,
     completed_records: &std::cell::RefCell<
-        BTreeMap<String, CloudflareSigningWorkerEcdsaPresignatureRecordV1>,
+        BTreeMap<String, CloudflareSigningWorkerLinkedDeviceEcdsaCompletedPresignatureRecordV1>,
     >,
     now_unix_ms: u64,
 ) -> RouterAbProtocolResult<CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionDoProgressV1> {
@@ -624,14 +630,20 @@ fn step_linked_presign_session(
             entry.expires_at_ms,
         )?;
         let mut completed_records = completed_records.borrow_mut();
-        completed_records.retain(|_, record| record.expires_at_ms > now_unix_ms);
+        completed_records.retain(|_, record| record.record.expires_at_ms > now_unix_ms);
         if completed_records.contains_key(&server_presignature_id) {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::ReplayedLocalRequest,
                 "linked ECDSA server presignature id already exists",
             ));
         }
-        completed_records.insert(server_presignature_id.clone(), record);
+        completed_records.insert(
+            server_presignature_id.clone(),
+            CloudflareSigningWorkerLinkedDeviceEcdsaCompletedPresignatureRecordV1 {
+                scope_digest: entry.scope.scope_digest()?,
+                record,
+            },
+        );
         let prepared_response =
             RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningPrepareResponseV1 {
                 scope: entry.scope.clone(),
@@ -683,22 +695,28 @@ fn linked_continue_progress(
 fn consume_linked_presignature(
     input: CloudflareSigningWorkerLinkedDeviceEcdsaPresignatureDoConsumeRequestV1,
     completed_records: &std::cell::RefCell<
-        BTreeMap<String, CloudflareSigningWorkerEcdsaPresignatureRecordV1>,
+        BTreeMap<String, CloudflareSigningWorkerLinkedDeviceEcdsaCompletedPresignatureRecordV1>,
     >,
 ) -> RouterAbProtocolResult<CloudflareSigningWorkerLinkedDeviceEcdsaPresignatureDoConsumeResponseV1>
 {
     require_non_empty("linked ECDSA server presignature id", &input.server_presignature_id)?;
     require_positive_ms("linked ECDSA presignature consume now_unix_ms", input.now_unix_ms)?;
     let mut records = completed_records.borrow_mut();
-    records.retain(|_, record| record.expires_at_ms > input.now_unix_ms);
+    records.retain(|_, record| record.record.expires_at_ms > input.now_unix_ms);
     let candidate = records.get(&input.server_presignature_id).ok_or_else(|| {
             RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::ExpiredLocalRequest,
                 "linked ECDSA presignature record is missing or already consumed",
             )
         })?;
-    candidate.validate_for_request(
-        &candidate.active_signing_worker_state,
+    if candidate.scope_digest != input.scope_digest {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidGateDecision,
+            "linked ECDSA presignature scope digest does not match finalize request",
+        ));
+    }
+    candidate.record.validate_for_request(
+        &candidate.record.active_signing_worker_state,
         &input.server_presignature_id,
         input.request_digest,
         input.signing_digest,
@@ -707,7 +725,9 @@ fn consume_linked_presignature(
     let record = records
         .remove(&input.server_presignature_id)
         .expect("validated linked ECDSA presignature record disappeared");
-    Ok(CloudflareSigningWorkerLinkedDeviceEcdsaPresignatureDoConsumeResponseV1 { record })
+    Ok(CloudflareSigningWorkerLinkedDeviceEcdsaPresignatureDoConsumeResponseV1 {
+        record: record.record,
+    })
 }
 
 fn presign_protocol_error(error: impl std::fmt::Display) -> RouterAbProtocolError {
