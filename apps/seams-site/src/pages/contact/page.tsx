@@ -1,145 +1,87 @@
 import React from 'react';
 import { H2Footer } from '@/components/h2/sections';
-import NavbarStatic from '@/components/Navbar/NavbarStatic';
+import NavbarCompact from '@/components/Navbar/NavbarCompact';
 import '@/styles/h2.css';
 import './styles.css';
+
+const SALES_EMAIL_ADDRESS = 'sales@seams.sh';
+
+function readFormValue(formData: FormData, name: string): string {
+  const value = formData.get(name);
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function handleContactSubmit(event: React.FormEvent<HTMLFormElement>): void {
+  event.preventDefault();
+
+  const formData = new FormData(event.currentTarget);
+  const name = readFormValue(formData, 'name');
+  const email = readFormValue(formData, 'email');
+  const company = readFormValue(formData, 'company');
+  const details = readFormValue(formData, 'details');
+  const subject = `Sales inquiry from ${name} at ${company}`;
+  const body = [`Name: ${name}`, `Work email: ${email}`, `Company: ${company}`, '', details].join(
+    '\n',
+  );
+
+  window.location.assign(
+    `mailto:${SALES_EMAIL_ADDRESS}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`,
+  );
+}
 
 export function ContactPage(): React.JSX.Element {
   return (
     <div className="h2-page">
-      <NavbarStatic appearance="light" />
+      <NavbarCompact appearance="light" />
       <div className="h2-col">
-        <main className="contact-page" aria-labelledby="contact-page-title">
-          <section className="contact-page__grid">
+        <main className="contact-page h2-rule" aria-labelledby="contact-page-title">
+          <section className="contact-page__panel">
             <header className="contact-page__intro">
-              <h1 id="contact-page-title">Talk to us.</h1>
+              <p className="contact-page__kicker">Contact sales</p>
+              <h1 id="contact-page-title">Tell us what you&apos;re building.</h1>
               <p>
-                Tell us what you&apos;re building. We&apos;ll show you how to bring it onchain with
-                secure, compliant wallet infrastructure.
+                Share a little context and we&apos;ll help you plan secure wallets, agent access,
+                and policy controls for your product.
               </p>
             </header>
 
             <form
               className="contact-form"
               aria-label="Contact sales form"
-              onSubmit={(e) => e.preventDefault()}
+              onSubmit={handleContactSubmit}
             >
               <div className="contact-form__row contact-form__row--two">
                 <label className="contact-form__field">
-                  <span className="contact-form__label">
-                    First Name
-                    <span className="contact-form__required" aria-hidden>
-                      *
-                    </span>
-                  </span>
-                  <input type="text" name="firstName" required />
+                  <span className="contact-form__label">Name</span>
+                  <input type="text" name="name" autoComplete="name" required />
                 </label>
                 <label className="contact-form__field">
-                  <span className="contact-form__label">
-                    Last Name
-                    <span className="contact-form__required" aria-hidden>
-                      *
-                    </span>
-                  </span>
-                  <input type="text" name="lastName" required />
+                  <span className="contact-form__label">Work email</span>
+                  <input type="email" name="email" autoComplete="email" required />
                 </label>
               </div>
 
               <label className="contact-form__field">
-                <span className="contact-form__label">
-                  Email
-                  <span className="contact-form__required" aria-hidden>
-                    *
-                  </span>
-                </span>
-                <input type="email" name="email" required />
+                <span className="contact-form__label">Company</span>
+                <input type="text" name="company" autoComplete="organization" required />
               </label>
 
               <label className="contact-form__field">
-                <span className="contact-form__label">
-                  Company name
-                  <span className="contact-form__required" aria-hidden>
-                    *
-                  </span>
-                </span>
-                <input type="text" name="company" required />
-              </label>
-
-              <label className="contact-form__field">
-                <span className="contact-form__label">
-                  Company website (or link to account on X or LinkedIn)
-                  <span className="contact-form__required" aria-hidden>
-                    *
-                  </span>
-                </span>
-                <input type="url" name="website" required />
-              </label>
-
-              <label className="contact-form__field">
-                <span className="contact-form__label">
-                  What best describes the industry your company is in?
-                  <span className="contact-form__required" aria-hidden>
-                    *
-                  </span>
-                </span>
-                <span className="contact-form__select-wrap">
-                  <select name="industry" required defaultValue="">
-                    <option value="" disabled>
-                      Select an industry
-                    </option>
-                    <option value="defi">DeFi</option>
-                    <option value="payments">Payments</option>
-                    <option value="consumer">Consumer app</option>
-                    <option value="enterprise">Enterprise software</option>
-                    <option value="other">Other</option>
-                  </select>
-                </span>
-              </label>
-
-              <label className="contact-form__field">
-                <span className="contact-form__label">
-                  Tell us what you&apos;d like to discuss.
-                  <span className="contact-form__required" aria-hidden>
-                    *
-                  </span>
-                </span>
+                <span className="contact-form__label">Project details</span>
                 <textarea
                   name="details"
                   required
-                  rows={3}
-                  placeholder="Let us know how we can help! The more details you provide, the better we will be able to serve you."
+                  rows={5}
+                  placeholder="What are you building, and where can Seams help?"
                 />
               </label>
 
-              <label className="contact-form__field">
-                <span className="contact-form__label">
-                  Where did you first hear about Seams?
-                  <span className="contact-form__required" aria-hidden>
-                    *
-                  </span>
-                </span>
-                <span className="contact-form__select-wrap">
-                  <select name="source" required defaultValue="">
-                    <option value="" disabled>
-                      Select where you heard about Seams
-                    </option>
-                    <option value="x">X / Twitter</option>
-                    <option value="linkedin">LinkedIn</option>
-                    <option value="search">Search</option>
-                    <option value="friend">Friend or colleague</option>
-                    <option value="event">Conference or event</option>
-                  </select>
-                </span>
-              </label>
-
-              <div className="contact-form__captcha" aria-hidden="true">
-                <span>protected by reCAPTCHA</span>
-                <small>Privacy - Terms</small>
+              <div className="contact-form__actions">
+                <button type="submit" className="contact-form__submit">
+                  Email sales
+                </button>
+                <span>Opens your default email app</span>
               </div>
-
-              <button type="submit" className="contact-form__submit">
-                Submit
-              </button>
             </form>
           </section>
         </main>

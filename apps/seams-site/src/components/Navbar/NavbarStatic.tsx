@@ -716,7 +716,7 @@ export function NavbarStatic({
           >
             <SeamsWordmark
               className="navbar-static__brand-wordmark"
-              height={17}
+              height={20}
               theme={appearance === 'light' ? 'light' : undefined}
             />
           </a>

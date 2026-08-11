@@ -38,8 +38,9 @@
   --site-font-display:
     'Hanken Grotesk', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
     Roboto, Helvetica, Arial, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', sans-serif;
-  --site-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
-    'Courier New', monospace;
+  --site-font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
 }
 
 /* Ensure app variables derive from SDK tokens at the theme boundary inside ShadowRoot */
@@ -182,31 +183,6 @@ h3 {
   color: var(--site-text-primary);
   line-height: 1.1;
   font-family: var(--site-font-display);
-}
-
-body:has(.pricing-page) .navbar-static {
-  top: 0;
-  padding: 0;
-  grid-template-columns: 1fr;
-  justify-content: stretch;
-}
-
-body:has(.pricing-page) .navbar-static__shell,
-body:has(.pricing-page) .navbar-static__shell.is-scrolled {
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
-  border-radius: 0;
-  justify-content: space-between;
-  padding: 8px max(24px, calc((100vw - 1120px) / 2 + 40px));
-  background: color-mix(in srgb, #ffffff 92%, transparent);
-  backdrop-filter: blur(8px);
-  border-bottom: 1px solid #ebe8e4;
-  box-shadow: none;
-}
-
-body:has(.pricing-page) .navbar-static__pill {
-  border-radius: 9999px;
 }
 
 /* Explicit classes used around the homepage for titles/subtitles */
