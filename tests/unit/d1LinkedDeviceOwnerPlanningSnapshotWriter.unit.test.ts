@@ -308,7 +308,6 @@ test('projects mixed owner hints through D1 facts before writing the snapshot', 
           'ed25519',
           'ecdsa_secp256k1',
         ]);
-        expect(input.orderedOwnerSourceLaneHints).toHaveLength(2);
         return deploymentPlan;
       },
     },

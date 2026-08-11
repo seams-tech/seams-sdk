@@ -70,8 +70,6 @@ export type D1LinkedDeviceOwnerPlanningDeploymentPortV1 = {
   planOwnerPlanningV1(input: {
     readonly owner: DeviceLinkingOwnerWalletSessionContextV1;
     readonly payload: QrLinkedDeviceSessionPayloadV4;
-    /** Public browser projection; the writer never treats it as authoritative. */
-    readonly orderedOwnerSourceLaneHints: NonEmpty<LinkedDeviceOwnerSourceLaneV1>;
     /** Every projection was resolved from the D1 wallet signer/auth records. */
     readonly projections: NonEmpty<ActiveOwnerWalletExecutionLaneProjection>;
   }): Promise<D1LinkedDeviceOwnerPlanningDeploymentPlanV1>;
@@ -108,7 +106,6 @@ export class D1LinkedDeviceOwnerPlanningSnapshotWriterV1 {
     const deploymentPlan = await this.deployment.planOwnerPlanningV1({
       owner: input.owner,
       payload,
-      orderedOwnerSourceLaneHints: hints,
       projections,
     });
     const snapshot = buildSnapshotInput({
