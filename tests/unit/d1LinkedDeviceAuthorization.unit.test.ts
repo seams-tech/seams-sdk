@@ -10,10 +10,7 @@ import {
   parseAuthorizedOperationId,
   parseCapabilityId,
   parseCapabilityOperationId,
-  parseLinkedDeviceWalletSessionAuthorizationId,
-  parseMpcWalletSigningQuotaId,
   parseTenantId,
-  parseWalletSessionId,
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import { buildCapabilityOperationEnvelope } from '../../packages/shared-ts/src/authorization/operationFingerprint';
 import { buildNearEd25519MpcOperationRef } from '../../packages/shared-ts/src/authorization/capabilityKinds';
@@ -92,12 +89,6 @@ test.describe('D1 linked-device authorization', () => {
         parseLinkedDeviceEnrollmentId,
         String(fixture.manifest.enrollmentId),
       );
-      const authorizationId = required(
-        parseLinkedDeviceWalletSessionAuthorizationId,
-        'linked-authorization-auth-test',
-      );
-      const walletSessionId = required(parseWalletSessionId, 'linked-wallet-session-auth-test');
-      const quotaId = required(parseMpcWalletSigningQuotaId, 'linked-quota-auth-test');
       const manifestDigest = parseDigestB64u(
         await computeLaneEnrollmentManifestDigestV1(fixture.manifest),
       );
@@ -106,9 +97,6 @@ test.describe('D1 linked-device authorization', () => {
         deviceId,
         walletId: fixture.manifest.walletId,
         enrollmentId,
-        authorizationId,
-        walletSessionId,
-        quotaId,
         keyManifestDigestB64u: manifestDigest,
         permission: {
           kind: 'owner_equivalent_signing',
@@ -120,6 +108,23 @@ test.describe('D1 linked-device authorization', () => {
         issuedAtMs: 5_001,
         expiresAtMs: 90_000,
       });
+      const authorizationId = issued.authorization.authorizationGrantRef.authorizationId;
+      const walletSessionId = issued.authorization.walletSessionId;
+      const quotaId = issued.authorization.quotaId;
+      await expect(
+        service.issueLinkedDeviceWalletSession({
+          tenantId,
+          deviceId,
+          walletId: fixture.manifest.walletId,
+          enrollmentId,
+          keyManifestDigestB64u: manifestDigest,
+          permission: issued.authorization.permission,
+          revocationEpoch: 0,
+          remainingUses: 2,
+          issuedAtMs: 5_001,
+          expiresAtMs: 90_000,
+        }),
+      ).resolves.toEqual(issued);
       const product = (
         await lifecycle.listEnrollmentProductEpochs(fixture.manifest.enrollmentId)
       )[0];

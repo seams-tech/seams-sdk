@@ -32,6 +32,7 @@ import {
 import {
   buildLinkedDeviceWalletSessionAuthorizationRef,
   parseHostedWalletSessionExchangeCodeId,
+  parseLinkedDeviceWalletSessionAuthorizationId,
   parseSeamsSessionId,
   parseWalletSessionAuthorizationId,
   type MpcWalletSigningQuotaId,
@@ -231,9 +232,6 @@ export type IssueLinkedDeviceWalletSessionInput = {
   readonly deviceId: LinkedDeviceId;
   readonly walletId: WalletId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
-  readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
-  readonly walletSessionId: WalletSessionId;
-  readonly quotaId: MpcWalletSigningQuotaId;
   readonly keyManifestDigestB64u: DigestB64u;
   readonly permission: LinkedDeviceWalletSessionAuthorization['permission'];
   readonly revocationEpoch: number;
@@ -449,14 +447,26 @@ export class AuthorizationService {
   async issueLinkedDeviceWalletSession(
     input: IssueLinkedDeviceWalletSessionInput,
   ): Promise<IssuedLinkedDeviceWalletSession> {
+    const authorizationId = parseRequired(
+      await deriveLinkedDeviceWalletSessionId(input, 'authorization'),
+      parseLinkedDeviceWalletSessionAuthorizationId,
+    );
+    const walletSessionId = parseRequired(
+      await deriveLinkedDeviceWalletSessionId(input, 'wallet_session'),
+      parseWalletSessionId,
+    );
+    const quotaId = parseRequired(
+      await deriveLinkedDeviceWalletSessionId(input, 'quota'),
+      parseMpcWalletSigningQuotaId,
+    );
     const authorization = buildLinkedDeviceWalletSessionAuthorization({
       tenantId: input.tenantId,
-      authorizationGrantRef: buildLinkedDeviceWalletSessionAuthorizationRef(input.authorizationId),
+      authorizationGrantRef: buildLinkedDeviceWalletSessionAuthorizationRef(authorizationId),
       walletId: input.walletId,
       enrollmentId: input.enrollmentId,
       deviceId: input.deviceId,
-      walletSessionId: input.walletSessionId,
-      quotaId: input.quotaId,
+      walletSessionId,
+      quotaId,
       keyManifestDigestB64u: input.keyManifestDigestB64u,
       permission: input.permission,
       revocationEpoch: input.revocationEpoch,
@@ -549,6 +559,34 @@ async function deriveReusableWalletSessionId(
     ),
   );
   const prefix = kind === 'authorization' ? 'wlt' : kind === 'wallet_session' ? 'wls' : 'wsq';
+  return `${prefix}_${digest}`;
+}
+
+async function deriveLinkedDeviceWalletSessionId(
+  input: IssueLinkedDeviceWalletSessionInput,
+  kind: 'authorization' | 'wallet_session' | 'quota',
+): Promise<string> {
+  const digest = base64UrlEncode(
+    await sha256BytesUtf8(
+      [
+        'seams:linked-device-wallet-session-issuance:v1',
+        kind,
+        input.tenantId,
+        input.walletId,
+        input.enrollmentId,
+        input.deviceId,
+        input.keyManifestDigestB64u,
+        String(input.revocationEpoch),
+        input.permission.kind,
+        input.permission.administrationScope,
+        input.permission.localUserPresence,
+        String(input.remainingUses),
+        String(input.issuedAtMs),
+        String(input.expiresAtMs),
+      ].join('\0'),
+    ),
+  );
+  const prefix = kind === 'authorization' ? 'lda' : kind === 'wallet_session' ? 'ldw' : 'ldq';
   return `${prefix}_${digest}`;
 }
 
