@@ -37,13 +37,13 @@ Each deployment targets one complete lane. Backend and frontend lanes are
 independent and use the currently deployed version of the other lane during
 smoke checks.
 
-| Workflow                                                  | Manual ref  | Automatic trigger | Scope                            |
-| --------------------------------------------------------- | ----------- | ----------------- | -------------------------------- |
-| `.github/workflows/deploy-staging-backend.yml`            | `dev` only  | None              | Staging testnet backend lane     |
-| `.github/workflows/deploy-production-testnet-backend.yml` | `main` only | None              | Production testnet backend lane  |
-| `.github/workflows/deploy-production-mainnet-backend.yml` | `main` only | None              | Production mainnet backend lane  |
-| `.github/workflows/deploy-staging-frontend.yml`           | `dev` only  | None              | Staging site and wallet Pages    |
-| `.github/workflows/deploy-production-frontend.yml`        | `main` only | None              | Production site and wallet Pages |
+| Workflow                                                  | Manual ref  | Automatic trigger | Scope                                   |
+| --------------------------------------------------------- | ----------- | ----------------- | --------------------------------------- |
+| `.github/workflows/deploy-staging-backend.yml`            | `dev` only  | None              | Staging testnet backend lane            |
+| `.github/workflows/deploy-production-testnet-backend.yml` | `main` only | None              | Production testnet backend lane         |
+| `.github/workflows/deploy-production-mainnet-backend.yml` | `main` only | None              | Production mainnet backend lane         |
+| `.github/workflows/deploy-staging-frontend.yml`           | `dev` only  | None              | Staging site, docs, and wallet Pages    |
+| `.github/workflows/deploy-production-frontend.yml`        | `main` only | None              | Production site, docs, and wallet Pages |
 
 The repository validation workflows remain separate. The deployment workflows
 use no `workflow_run` trigger and accept no arbitrary revision input. Every job
