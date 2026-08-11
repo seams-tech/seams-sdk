@@ -16,6 +16,7 @@ use crate::{
     CloudflareRouterEcdsaAcceptedCapabilityBindingV1,
     CloudflareRouterEd25519AcceptedAuthorizedOperationV1,
     CloudflareRouterEd25519AcceptedCapabilityBindingV1, CloudflareRouterEd25519JwksJwtVerifierV1,
+    CloudflareSigningWorkerAdmittedLinkedDeviceEcdsaFinalizeRequestV1,
 };
 use router_ab_core::{
     PublicDigest32, RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
@@ -122,6 +123,37 @@ pub(super) async fn handle_strict_router_fetch_v1(
 
     if request.method() != Method::Post {
         return Response::error("Router A/B strict public route requires POST", 405);
+    }
+    if path == CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_LINKED_SIGNING_PRIVATE_REQUEST_PATH {
+        if let Err(err) = require_cloudflare_internal_service_auth_request_v1(&request, &env) {
+            return cloudflare_private_service_auth_error_response_v1(err);
+        }
+        let runtime = match CloudflareRouterWorkerRuntimeV1::from_worker_env(&env) {
+            Ok(runtime) => runtime,
+            Err(err) => return cloudflare_protocol_error_response_v1(err),
+        };
+        let parsed = match request
+            .json::<CloudflareSigningWorkerAdmittedLinkedDeviceEcdsaFinalizeRequestV1>()
+            .await
+        {
+            Ok(parsed) => parsed,
+            Err(err) => {
+                return Response::error(
+                    format!("linked ECDSA finalize request JSON parse failed: {err}"),
+                    400,
+                )
+            }
+        };
+        let response = execute_cloudflare_signing_worker_linked_device_ecdsa_finalize_service_call_v1(
+            &env,
+            runtime.signing_worker_peer(),
+            parsed,
+        )
+        .await;
+        return match response {
+            Ok(response) => Response::from_json(&response),
+            Err(err) => cloudflare_protocol_error_response_v1(err),
+        };
     }
     if path == CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH
         || path == CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH
