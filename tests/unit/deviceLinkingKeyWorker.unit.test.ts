@@ -11,6 +11,7 @@ import { parseLaneHolderParticipantRecordV1 } from '../../packages/shared-ts/src
 import {
   buildR102LaneJob,
   buildR102ProtocolCommitReceipt,
+  buildR102ServerActivationReceipt,
 } from './helpers/r102LaneGateway.fixtures';
 
 class FakeWorkerScope {
@@ -82,6 +83,9 @@ test.describe('device-linking key worker', () => {
   test('keeps key material in the worker and signs the canonical request bytes', async () => {
     const scope = new FakeWorkerScope();
     let recipientsDestroyed = 0;
+    let signingMaterialDestroyed = 0;
+    let signingMaterialFreed = 0;
+    const signingMaterialOpenCalls: unknown[] = [];
     let sealedCiphertextDigestB64u = digest(91);
     const installed = installDeviceLinkingKeyWorkerV1(scope, {
       createRecipient() {
@@ -101,6 +105,21 @@ test.describe('device-linking key worker', () => {
       },
       createCustodySeal() {
         return { free: () => undefined };
+      },
+      openSigningMaterial(input) {
+        signingMaterialOpenCalls.push({
+          ...input,
+          factorSecret: input.factorSecret.slice(),
+        });
+        return {
+          key_family: () => 'ed25519',
+          destroy: () => {
+            signingMaterialDestroyed += 1;
+          },
+          free: () => {
+            signingMaterialFreed += 1;
+          },
+        };
       },
     });
     scope.send({ id: 'create', request: { kind: 'device_linking_key_material_create_v1' } });
@@ -210,6 +229,85 @@ test.describe('device-linking key worker', () => {
     expect(replayedSealed.error).toBeUndefined();
     expect(replayedSealed.result).toEqual(sealed.result);
 
+    const holderRecord = {
+      kind: 'lane_sealed_holder_record_v1',
+      operationId: job.operationId,
+      enrollmentId: job.enrollmentId,
+      walletId: job.walletId,
+      walletKeyId: job.walletKeyId,
+      laneId: job.target.laneId,
+      laneShareEpoch: job.target.laneShareEpoch,
+      targetMaterialActivationId: job.targetMaterialActivationId,
+      holderParticipantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
+      custodyBindingId: job.targetHolder.custodyBindingId,
+      holderRecipientKeyDigestB64u: protocolCommitReceipt.holderRecipientKeyDigestB64u,
+      holderCiphertextDigestSetB64u: protocolCommitReceipt.targetHolderCiphertextDigestSetB64u,
+      sealedHolderRecordDigestB64u: digest(81),
+      transcriptHashB64u: protocolCommitReceipt.transcriptHashB64u,
+      sealedHolderMaterialB64u: base64UrlEncode(new Uint8Array([1])),
+      acknowledgedAtMs: 4_000,
+      storedAtMs: 4_000,
+    };
+    const materialActivation = buildR102ServerActivationReceipt(job).targetMaterialActivation;
+    scope.responses.length = 0;
+    const rejectedFactor = new Uint8Array(32).fill(27).buffer;
+    scope.send({
+      id: 'open-signing-material-wrong-record',
+      request: {
+        kind: 'device_linking_holder_signing_material_open_v1',
+        factorSecret: rejectedFactor,
+        job,
+        protocolCommitReceipt,
+        materialActivation,
+        holderRecord: { ...holderRecord, walletKeyId: 'wallet-key-substituted' },
+      },
+    });
+    const rejectedSigningMaterial = await waitForResponse(scope);
+    expect(rejectedSigningMaterial.ok).toBe(false);
+    expect(rejectedSigningMaterial.error).toContain('persisted R102 child');
+    expect(new Uint8Array(rejectedFactor)).toEqual(new Uint8Array(32));
+    expect(signingMaterialOpenCalls).toHaveLength(0);
+
+    scope.responses.length = 0;
+    const signingFactor = new Uint8Array(32).fill(29).buffer;
+    scope.send({
+      id: 'open-signing-material',
+      request: {
+        kind: 'device_linking_holder_signing_material_open_v1',
+        factorSecret: signingFactor,
+        job,
+        protocolCommitReceipt,
+        materialActivation,
+        holderRecord,
+      },
+    });
+    const openedSigningMaterial = await waitForResponse(scope);
+    expect(openedSigningMaterial).toMatchObject({
+      ok: true,
+      result: { keyFamily: 'ed25519' },
+    });
+    expect(Object.keys(openedSigningMaterial.result as Record<string, unknown>).sort()).toEqual([
+      'handleId',
+      'keyFamily',
+    ]);
+    expect(JSON.stringify(openedSigningMaterial)).not.toContain('factorSecret');
+    expect(JSON.stringify(openedSigningMaterial)).not.toContain('share');
+    expect(new Uint8Array(signingFactor)).toEqual(new Uint8Array(32));
+    expect(signingMaterialOpenCalls).toHaveLength(1);
+
+    scope.responses.length = 0;
+    scope.send({
+      id: 'discard-signing-material',
+      request: {
+        kind: 'device_linking_holder_signing_material_discard_v1',
+        handleId: (openedSigningMaterial.result as Record<string, unknown>).handleId,
+      },
+    });
+    const discardedSigningMaterial = await waitForResponse(scope);
+    expect(discardedSigningMaterial.ok).toBe(true);
+    expect(signingMaterialDestroyed).toBe(1);
+    expect(signingMaterialFreed).toBe(1);
+
     scope.responses.length = 0;
     scope.send({
       id: 'sign',
@@ -270,6 +368,9 @@ test.describe('device-linking key worker', () => {
       createCustodySeal() {
         throw new Error('custody creation must not run for malformed input');
       },
+      openSigningMaterial() {
+        throw new Error('signing material must not open for malformed input');
+      },
     });
     const rejectedFactorSecret = new Uint8Array(32).fill(17).buffer;
     malformedScope.send({
@@ -309,6 +410,9 @@ test.describe('device-linking key worker', () => {
       },
       createCustodySeal() {
         throw new Error('custody creation is outside this cleanup test');
+      },
+      openSigningMaterial() {
+        throw new Error('signing material is outside this cleanup test');
       },
     });
     scope.send({ id: 'create', request: { kind: 'device_linking_key_material_create_v1' } });

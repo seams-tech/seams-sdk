@@ -9,12 +9,30 @@ import {
   type LinkedDeviceTargetPreparationV1,
   type LinkedDeviceRequestProofV1,
 } from '@shared/device-linking';
-import type { SealedLaneHolderMaterialV1 } from '@shared/signing-lanes/rotation';
+import type {
+  LaneProtocolCommitReceiptV1,
+  RotatableSigningLaneJobV1,
+  SealedLaneHolderMaterialV1,
+} from '@shared/signing-lanes/rotation';
+import {
+  parseLaneProtocolCommitReceiptV1,
+  parseRotatableSigningLaneJobV1,
+} from '@shared/signing-lanes/rotationParsers';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
+import {
+  parseMpcMaterialActivationRef,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
 import { resolveWorkerUrl } from '@/core/walletRuntimePaths';
+import {
+  parseLaneSealedHolderRecordV1,
+  type LaneSealedHolderRecordV1,
+} from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
 import type {
+  DeviceLinkingHolderSigningMaterialHandleV1,
+  DeviceLinkingHolderSigningMaterialPortV1,
   DeviceLinkingKeyMaterialHandleV1,
   DeviceLinkingKeyMaterialPortV1,
   DeviceLinkingKeyMaterialBundleV1,
@@ -29,9 +47,10 @@ export type DeviceLinkingWorkerEndpointV1 = {
   terminate(): void;
 };
 
-export type DeviceLinkingWorkerKeyMaterialPortV1 = DeviceLinkingKeyMaterialPortV1 & {
-  close(): void;
-};
+export type DeviceLinkingWorkerKeyMaterialPortV1 = DeviceLinkingKeyMaterialPortV1 &
+  DeviceLinkingHolderSigningMaterialPortV1 & {
+    close(): void;
+  };
 
 type DeviceLinkingWorkerRequestV1 =
   | { readonly kind: 'device_linking_key_material_create_v1' }
@@ -46,6 +65,18 @@ type DeviceLinkingWorkerRequestV1 =
       readonly preparation: LinkedDeviceTargetPreparationV1;
       readonly credentialIdB64u: string;
       readonly factorSecret: ArrayBuffer;
+    }
+  | {
+      readonly kind: 'device_linking_holder_signing_material_open_v1';
+      readonly factorSecret: ArrayBuffer;
+      readonly job: RotatableSigningLaneJobV1;
+      readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
+      readonly materialActivation: MpcMaterialActivationRef;
+      readonly holderRecord: LaneSealedHolderRecordV1;
+    }
+  | {
+      readonly kind: 'device_linking_holder_signing_material_discard_v1';
+      readonly handleId: string;
     }
   | {
       readonly kind: 'device_linking_request_sign_v1';
@@ -155,6 +186,47 @@ function parseCreateResult(value: unknown): DeviceLinkingKeyMaterialBundleV1 {
     linkPublicKeyB64u: parseLinkDevicePublicKeyB64u(record.linkPublicKeyB64u),
     devicePublicKeyB64u: parseLinkDevicePublicKeyB64u(record.devicePublicKeyB64u),
   };
+}
+
+function parseHolderSigningMaterialHandle(
+  value: unknown,
+): DeviceLinkingHolderSigningMaterialHandleV1 {
+  const record = exactRecord(
+    value,
+    ['handleId', 'keyFamily'],
+    'device-linking holder signing material response',
+  );
+  if (record.keyFamily !== 'ed25519' && record.keyFamily !== 'ecdsa_secp256k1') {
+    throw new Error('device-linking holder signing material keyFamily is invalid');
+  }
+  return {
+    kind: 'device_linking_holder_signing_material_handle_v1',
+    handleId: nonEmpty(record.handleId, 'device-linking holder signing material handleId'),
+    keyFamily: record.keyFamily,
+  };
+}
+
+function parseHolderSigningMaterialHandleInput(
+  value: unknown,
+): DeviceLinkingHolderSigningMaterialHandleV1 {
+  const record = exactRecord(
+    value,
+    ['kind', 'handleId', 'keyFamily'],
+    'device-linking holder signing material handle',
+  );
+  if (record.kind !== 'device_linking_holder_signing_material_handle_v1') {
+    throw new Error('device-linking holder signing material handle kind is invalid');
+  }
+  return parseHolderSigningMaterialHandle({
+    handleId: record.handleId,
+    keyFamily: record.keyFamily,
+  });
+}
+
+function parseMaterialActivation(value: unknown): MpcMaterialActivationRef {
+  const parsed = parseMpcMaterialActivationRef(value);
+  if (parsed.ok) return parsed.value;
+  throw new Error(parsed.error.message);
 }
 
 function parseSignatureResult(value: unknown): { readonly signatureB64u: string } {
@@ -455,6 +527,39 @@ export function createDeviceLinkingKeyMaterialPortV1(
         throw new Error('device-linking worker returned the wrong holder ciphertext digest');
       }
       return output;
+    },
+    async openPersistedHolderSigningMaterialV1(input) {
+      if (!(input.factorSecret instanceof ArrayBuffer) || input.factorSecret.byteLength !== 32) {
+        throw new Error('device-linking holder signing factorSecret must be 32 bytes');
+      }
+      const job = parseRotatableSigningLaneJobV1(
+        input.job,
+        'device-linking holder signing material job',
+      );
+      const protocolCommitReceipt = parseLaneProtocolCommitReceiptV1(
+        input.protocolCommitReceipt,
+        'device-linking holder signing material protocol receipt',
+      );
+      return parseHolderSigningMaterialHandle(
+        await request(
+          {
+            kind: 'device_linking_holder_signing_material_open_v1',
+            factorSecret: input.factorSecret,
+            job,
+            protocolCommitReceipt,
+            materialActivation: parseMaterialActivation(input.materialActivation),
+            holderRecord: parseLaneSealedHolderRecordV1(input.holderRecord),
+          },
+          [input.factorSecret],
+        ),
+      );
+    },
+    async discardHolderSigningMaterialV1(input) {
+      const handle = parseHolderSigningMaterialHandleInput(input.handle);
+      await request({
+        kind: 'device_linking_holder_signing_material_discard_v1',
+        handleId: handle.handleId,
+      });
     },
     async signDeviceSessionRequestV1(input) {
       const requestInput = buildRequest(input);
