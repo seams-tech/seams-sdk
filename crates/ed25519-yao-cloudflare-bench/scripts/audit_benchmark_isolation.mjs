@@ -10,7 +10,6 @@ const BENCH_MANIFEST = "crates/ed25519-yao-cloudflare-bench/Cargo.toml";
 const BENCH_SOURCE = "crates/ed25519-yao-cloudflare-bench/src/lib.rs";
 const PRODUCT_ROOTS = Object.freeze([
   "apps",
-  "clients",
   "examples",
   "packages",
   "tests",
