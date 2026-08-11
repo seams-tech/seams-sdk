@@ -1,7 +1,7 @@
 import type {
   DeviceLinkingHolderSigningMaterialHandleV1,
   DeviceLinkingHolderSigningMaterialPortV1,
-} from '@/SeamsWeb/operations/devices/deviceLinkingPorts';
+} from '@/core/signingEngine/session/lanes/linkedDevicePorts';
 import type { WorkerOperationContext } from '../../../workerManager/executeWorkerOperation';
 import type { RouterAbEcdsaDerivationClientSigningMaterialSource } from '../../../routerAb/ecdsaDerivation/presignaturePool';
 import {

@@ -28,8 +28,8 @@ import type {
 import type {
   DeviceLinkingHolderSigningMaterialPortV1,
   DeviceLinkingEd25519SigningShareV1,
-} from '@/SeamsWeb/operations/devices/deviceLinkingPorts';
-import { authorizeAndOpenLinkedDeviceHolderV1 } from '@/SeamsWeb/operations/devices/linkedDeviceLocalPresence';
+} from '@/core/signingEngine/session/lanes/linkedDevicePorts';
+import { authorizeAndOpenLinkedDeviceHolderV1 } from '@/core/signingEngine/session/lanes/linkedDeviceLocalPresence';
 import {
   buildRouterAbEd25519Nep413PrepareRequestV2,
   buildRouterAbEd25519NormalSigningFinalizeRequestV2,
