@@ -1,9 +1,12 @@
 import { expect, test } from '@playwright/test';
 import { buildLinkedDevicePrincipalId } from '../../packages/sdk-server-ts/src/authorization/domain';
 import {
+  AuthorizationServiceLinkedDeviceWalletSessionRevocationV1,
   createCloudflareD1LinkedDeviceManagementCompositionV1,
   D1LinkedDeviceWalletSessionAuthorizationMetadataSourceV1,
 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceManagementComposition';
+import type { AuthorizationService } from '../../packages/sdk-server-ts/src/authorization/service';
+import type { LinkedDeviceWalletSessionStatus } from '../../packages/sdk-server-ts/src/authorization/domain';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import {
   applyD1MigrationFiles,
@@ -13,6 +16,38 @@ import {
   type TemporaryD1Database,
 } from '../helpers/sqliteD1';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
+import {
+  parseLinkedDeviceWalletSessionAuthorizationId,
+  parseMpcWalletSigningQuotaId,
+  parseTenantId,
+  parseWalletSessionId,
+} from '../../packages/shared-ts/src/authorization/capabilityKinds';
+import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
+
+type LinkedDeviceStatusInput = Parameters<
+  AuthorizationService['getLinkedDeviceWalletSessionStatus']
+>[0];
+type LinkedDeviceRevokeInput = Parameters<
+  AuthorizationService['revokeLinkedDeviceWalletSession']
+>[0];
+
+class FakeLinkedDeviceAuthorizationServiceV1 {
+  readonly statusInputs: LinkedDeviceStatusInput[] = [];
+  readonly revokeInputs: LinkedDeviceRevokeInput[] = [];
+
+  constructor(public status: LinkedDeviceWalletSessionStatus) {}
+
+  async getLinkedDeviceWalletSessionStatus(
+    input: LinkedDeviceStatusInput,
+  ): Promise<LinkedDeviceWalletSessionStatus> {
+    this.statusInputs.push(input);
+    return this.status;
+  }
+
+  async revokeLinkedDeviceWalletSession(input: LinkedDeviceRevokeInput): Promise<void> {
+    this.revokeInputs.push(input);
+  }
+}
 
 let temporary: TemporaryD1Database | undefined;
 
@@ -109,6 +144,57 @@ test('reads one exact linked authorization and quota identity from D1', async ()
     principalId,
     lifecycleKind: 'active',
   });
+});
+
+test('authorization-service revocation adapter fences active sessions and replays revoked ones', async () => {
+  const fixture = buildR103DeviceLinkFixture();
+  const tenantId = parseTenantId('tenant:management-revocation');
+  const authorizationId = parseLinkedDeviceWalletSessionAuthorizationId(
+    'authorization:management-revocation',
+  );
+  const walletSessionId = parseWalletSessionId('wallet-session:management-revocation');
+  const quotaId = parseMpcWalletSigningQuotaId('quota:management-revocation');
+  if (!tenantId.ok || !authorizationId.ok || !walletSessionId.ok || !quotaId.ok) {
+    throw new Error('linked-device revocation fixture identity is invalid');
+  }
+  const target = {
+    tenantId: tenantId.value,
+    deviceId: fixture.approval.deviceId,
+    authorizationId: authorizationId.value,
+    walletSessionId: walletSessionId.value,
+    quotaId: quotaId.value,
+  };
+  const statusIdentity = {
+    ...target,
+    principalId: buildLinkedDevicePrincipalId(target.deviceId),
+    walletId: fixture.approval.walletId,
+    enrollmentId: fixture.approval.enrollmentId,
+    keyManifestDigestB64u: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(9))),
+    revocationEpoch: 0,
+  };
+  const authorization = new FakeLinkedDeviceAuthorizationServiceV1({
+    ...statusIdentity,
+    kind: 'active',
+    remainingUses: 3,
+    expiresAtMs: 10_000,
+  });
+  const adapter = new AuthorizationServiceLinkedDeviceWalletSessionRevocationV1(authorization);
+
+  await expect(
+    adapter.revokeLinkedDeviceWalletSessionV1({ target, requestedAtMs: 2_000 }),
+  ).resolves.toEqual({ kind: 'applied' });
+  expect(authorization.revokeInputs).toEqual([{ ...target, nowMs: 2_000 }]);
+
+  authorization.status = {
+    ...statusIdentity,
+    kind: 'revoked',
+    revokedAtMs: 2_000,
+    expiresAtMs: 10_000,
+  };
+  await expect(
+    adapter.revokeLinkedDeviceWalletSessionV1({ target, requestedAtMs: 2_001 }),
+  ).resolves.toEqual({ kind: 'replayed' });
+  expect(authorization.revokeInputs).toHaveLength(1);
 });
 
 test('management composition keeps owner auth and mutation ports explicit', async () => {

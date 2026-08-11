@@ -18,7 +18,6 @@ import type {
   LinkedDeviceAggregateRevocationPortV1,
   LinkedDeviceLocalStateInvalidationPortV1,
   LinkedDeviceManagementAuthorizationPortV1,
-  LinkedDeviceWalletSessionRevocationPortV1,
 } from '../../../../core/deviceLinking/linkedDeviceManagement';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type { DeviceLinkingRouteServiceV1 } from '../../../transport/fetch/routes/deviceLinking';
@@ -85,7 +84,6 @@ export type CloudflareD1LinkedDeviceManagementOptionsV1 = {
   readonly metadata: D1LinkedDeviceManagementMetadataPortV1;
   readonly authorization: LinkedDeviceManagementAuthorizationPortV1;
   readonly aggregateRevocation: LinkedDeviceAggregateRevocationPortV1;
-  readonly walletSessionRevocation: LinkedDeviceWalletSessionRevocationPortV1;
   readonly localStateInvalidation: LinkedDeviceLocalStateInvalidationPortV1;
 };
 

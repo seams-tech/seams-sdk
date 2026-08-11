@@ -38,8 +38,10 @@ import type {
   LinkedDeviceManagementTargetV1,
   LinkedDeviceRevocationPlanV1,
   LinkedDeviceRevocationPreparationPortV1,
+  LinkedDeviceWalletSessionRevocationTargetV1,
   LinkedDeviceWalletSessionRevocationPortV1,
 } from '../../../../core/deviceLinking/linkedDeviceManagement';
+import type { AuthorizationService } from '../../../../authorization/service';
 import type { DeviceLinkingRouteServiceV1 } from '../../../transport/fetch/routes/deviceLinking';
 import type { DeviceManagementRouteServiceV1 } from '../../../transport/fetch/routes/deviceManagement';
 import type { LaneAggregateRevocationRequestV1 } from '../../../../core/signingLanes/LaneAggregateRevocationApplicationService';
@@ -248,6 +250,42 @@ export class D1LinkedDeviceRevocationPreparationV1 implements LinkedDeviceRevoca
   }
 }
 
+export class AuthorizationServiceLinkedDeviceWalletSessionRevocationV1 implements LinkedDeviceWalletSessionRevocationPortV1 {
+  constructor(
+    private readonly authorization: Pick<
+      AuthorizationService,
+      'getLinkedDeviceWalletSessionStatus' | 'revokeLinkedDeviceWalletSession'
+    >,
+  ) {}
+
+  async revokeLinkedDeviceWalletSessionV1(input: {
+    readonly target: LinkedDeviceWalletSessionRevocationTargetV1;
+    readonly requestedAtMs: number;
+  }): Promise<{ readonly kind: 'applied' | 'replayed' | 'conflict' }> {
+    const status = await this.authorization.getLinkedDeviceWalletSessionStatus({
+      ...input.target,
+      nowMs: input.requestedAtMs,
+    });
+    switch (status.kind) {
+      case 'revoked':
+        return { kind: 'replayed' };
+      case 'missing':
+      case 'invalid':
+        return { kind: 'conflict' };
+      case 'active':
+      case 'exhausted':
+      case 'expired':
+        await this.authorization.revokeLinkedDeviceWalletSession({
+          ...input.target,
+          nowMs: input.requestedAtMs,
+        });
+        return { kind: 'applied' };
+      default:
+        return assertNeverLinkedDeviceWalletSessionStatus(status);
+    }
+  }
+}
+
 /**
  * Safe composition boundary: all mutation ports are supplied by the caller
  * after its owner-auth and platform policy checks. This factory owns only the
@@ -304,6 +342,10 @@ function parseAuthorizationMetadataRow(
     principalId: principalId.value,
     lifecycleKind: row.lifecycle_kind,
   };
+}
+
+function assertNeverLinkedDeviceWalletSessionStatus(value: never): never {
+  throw new Error(`unsupported linked-device Wallet Session status: ${String(value)}`);
 }
 
 function indexProducts(
