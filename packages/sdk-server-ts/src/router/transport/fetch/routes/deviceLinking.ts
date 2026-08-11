@@ -11,9 +11,11 @@ import type {
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetPreparationV1,
   LinkedDeviceTargetReadyR102InputV1,
+  LinkedDeviceWalletSessionTokenV1,
   QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking/contracts';
 import {
+  buildLinkedDeviceWalletSessionDeliveryV1,
   parseLinkedDeviceApprovalDeliveryV1,
   parseLinkedDeviceEnrollmentReceiptV1,
   parseLinkedDeviceHolderDeliveryAcknowledgementV1,
@@ -44,6 +46,7 @@ import type {
   LinkedDeviceSessionServiceResultV1,
   LinkedDeviceSessionServiceV1,
 } from '../../../../core/deviceLinking/linkedDeviceSession';
+import type { IssuedLinkedDeviceWalletSession } from '../../../../authorization/service';
 import {
   computeLinkedDevicePublicKeyDigestV1,
   LINKED_DEVICE_REQUEST_PROOF_HEADER_V1,
@@ -53,6 +56,12 @@ import {
 } from '../../../../core/deviceLinking/requestProof';
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import { json, readJson } from '../../../framework/http';
+import type { SessionAdapter } from '../../../framework/routerApi';
+import {
+  signRouterAbEcdsaDerivationWalletSessionJwt,
+  signRouterAbEd25519WalletSessionJwt,
+  type RouterAbEd25519LinkedDeviceWalletSessionJwtSigningInput,
+} from '../../../auth/commonRouterUtils';
 
 const DEVICE_LINKING_BASE = '/wallet/device-linking/v1/sessions';
 export const DEVICE_LINKING_REQUEST_PROOF_HEADER_V1 = LINKED_DEVICE_REQUEST_PROOF_HEADER_V1;
@@ -262,6 +271,19 @@ export type DeviceLinkingRouteServiceV1 = {
     readonly session: LinkedDeviceSessionRecordV1;
     readonly requestedAtMs: number;
   }): Promise<DeviceLinkingRouteMutationResultV1>;
+  readWalletSessionAuthorizationV1(input: {
+    readonly session: Extract<
+      LinkedDeviceSessionRecordV1,
+      { readonly state: { readonly state: 'active' } }
+    >;
+    readonly requestedAtMs: number;
+  }): Promise<
+    | {
+        readonly kind: 'active';
+        readonly authorization: IssuedLinkedDeviceWalletSession;
+      }
+    | { readonly kind: 'unavailable' }
+  >;
   readonly provisioning: DeviceLinkingProvisioningProviderV1;
   readonly provisioningVerifier: DeviceLinkingProvisioningVerifierV1;
   /** Owner-authenticated R102 source handoff and Device2 refetch source. */
@@ -305,6 +327,8 @@ export async function handleDeviceLinking(ctx: FetchRouterApiContext): Promise<R
       return await handleCredential(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'receipt')
       return await handleReceipt(ctx, service, action.linkSessionId, nowMs);
+    if (action.kind === 'wallet-session')
+      return await handleWalletSession(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'retry')
       return await handleRetry(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'cancel')
@@ -794,6 +818,202 @@ async function handleReceipt(
   );
 }
 
+async function handleWalletSession(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
+  const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
+  if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
+  if (authenticated.kind === 'not_found') return notFoundResponse();
+  if (ctx.method !== 'GET') return methodNotAllowedResponse();
+  if (!isActiveLinkedDeviceSessionRecord(authenticated.session)) {
+    return invalidStateResponse(authenticated.session);
+  }
+  const session = authenticated.session;
+  const approval = session.approvalTranscript.value;
+  assertApprovalMatchesPersistedSession(session, approval);
+  const resolution = await service.readWalletSessionAuthorizationV1({
+    session,
+    requestedAtMs: nowMs,
+  });
+  if (resolution.kind === 'unavailable') {
+    return json(
+      {
+        ok: false,
+        code: 'authorization_unavailable',
+        message: 'Linked-device Wallet Session authorization is unavailable',
+      },
+      { status: 409 },
+    );
+  }
+  assertIssuedAuthorizationMatchesSession(resolution.authorization, session, nowMs);
+  const signed = await signLinkedDeviceWalletSessionTokens({
+    sessionAdapter: ctx.opts.session,
+    authorization: resolution.authorization,
+    approval,
+  });
+  if (signed.kind === 'failed') {
+    return json(
+      { ok: false, code: signed.code, message: signed.message },
+      { status: signed.status },
+    );
+  }
+  const authorization = resolution.authorization.authorization;
+  return json(
+    buildLinkedDeviceWalletSessionDeliveryV1({
+      kind: 'linked_device_wallet_session_delivery_v1',
+      tenantId: authorization.tenantId,
+      walletId: authorization.walletId,
+      enrollmentId: authorization.enrollmentId,
+      deviceId: authorization.deviceId,
+      authorizationId: authorization.authorizationGrantRef.authorizationId,
+      walletSessionId: authorization.walletSessionId,
+      quotaId: authorization.quotaId,
+      keyManifestDigestB64u: authorization.keyManifestDigestB64u,
+      permission: authorization.permission,
+      revocationEpoch: authorization.revocationEpoch,
+      issuedAtMs: authorization.issuedAtMs,
+      expiresAtMs: authorization.expiresAtMs,
+      orderedTokens: signed.orderedTokens,
+    }),
+    { status: 200 },
+  );
+}
+
+function isActiveLinkedDeviceSessionRecord(
+  session: LinkedDeviceSessionRecordV1,
+): session is Extract<
+  LinkedDeviceSessionRecordV1,
+  { readonly state: { readonly state: 'active' } }
+> {
+  return session.state.state === 'active';
+}
+
+type LinkedDeviceWalletSessionTokenSigningResultV1 =
+  | {
+      readonly kind: 'signed';
+      readonly orderedTokens: readonly [
+        LinkedDeviceWalletSessionTokenV1,
+        ...LinkedDeviceWalletSessionTokenV1[],
+      ];
+    }
+  | {
+      readonly kind: 'failed';
+      readonly status: 400 | 500;
+      readonly code: 'sessions_disabled' | 'invalid_body' | 'internal';
+      readonly message: string;
+    };
+
+async function signLinkedDeviceWalletSessionTokens(input: {
+  readonly sessionAdapter: SessionAdapter | null | undefined;
+  readonly authorization: IssuedLinkedDeviceWalletSession;
+  readonly approval: LinkedDeviceApprovalV1;
+}): Promise<LinkedDeviceWalletSessionTokenSigningResultV1> {
+  const authorization = input.authorization.authorization;
+  const sessionInfoBase = {
+    sessionKind: 'jwt' as const,
+    authorizationKind: 'linked_device_wallet_session' as const,
+    walletId: authorization.walletId,
+    tenantId: authorization.tenantId,
+    deviceId: authorization.deviceId,
+    enrollmentId: authorization.enrollmentId,
+    keyManifestDigestB64u: authorization.keyManifestDigestB64u,
+    revocationEpoch: authorization.revocationEpoch,
+    permission: authorization.permission,
+    issuedAtMs: authorization.issuedAtMs,
+    authorizationId: authorization.authorizationGrantRef.authorizationId,
+    walletSessionId: authorization.walletSessionId,
+    quotaId: authorization.quotaId,
+    expiresAtMs: authorization.expiresAtMs,
+  };
+  const orderedTokens: LinkedDeviceWalletSessionTokenV1[] = [];
+  for (const binding of input.approval.orderedKeyBindings) {
+    const signingInput = {
+      session: input.sessionAdapter,
+      userId: authorization.walletId,
+      sessionInfo: {
+        ...sessionInfoBase,
+        walletKeyId: binding.walletKeyId,
+      },
+      requireJwtErrorMessage: 'Linked-device Wallet Session JWT is required',
+      invalidPayloadErrorMessage: 'Linked-device Wallet Session claims are invalid',
+      sessionsDisabledMessage: 'Linked-device Wallet Session signing is unavailable',
+    };
+    const signed = await signLinkedDeviceWalletSessionTokenForFamily(
+      binding.keyFamily,
+      signingInput,
+    );
+    if (!signed.ok) {
+      return {
+        kind: 'failed',
+        status: signed.status,
+        code: signed.code,
+        message: signed.message,
+      };
+    }
+    if (signed.authorizationKind !== 'linked_device_wallet_session') {
+      throw new Error('linked-device Wallet Session signer returned owner claims');
+    }
+    orderedTokens.push({
+      kind: 'linked_device_wallet_session_token_v1',
+      walletKeyId: binding.walletKeyId,
+      keyFamily: binding.keyFamily,
+      walletSessionJwt: signed.jwt,
+    });
+  }
+  const [first, ...remaining] = orderedTokens;
+  if (!first) throw new Error('linked-device approval has no Wallet Session key binding');
+  return { kind: 'signed', orderedTokens: [first, ...remaining] };
+}
+
+async function signLinkedDeviceWalletSessionTokenForFamily(
+  keyFamily: LinkedDeviceApprovalV1['orderedKeyBindings'][number]['keyFamily'],
+  input: RouterAbEd25519LinkedDeviceWalletSessionJwtSigningInput,
+) {
+  switch (keyFamily) {
+    case 'ed25519':
+      return await signRouterAbEd25519WalletSessionJwt(input);
+    case 'ecdsa_secp256k1':
+      return await signRouterAbEcdsaDerivationWalletSessionJwt(input);
+    default:
+      return assertNever(keyFamily);
+  }
+}
+
+function assertIssuedAuthorizationMatchesSession(
+  issued: IssuedLinkedDeviceWalletSession,
+  session: Extract<LinkedDeviceSessionRecordV1, { readonly state: { readonly state: 'active' } }>,
+  nowMs: number,
+): void {
+  const authorization = issued.authorization;
+  const quota = issued.quota;
+  const approval = session.approvalTranscript.value;
+  const receipt = session.aggregateReceipt;
+  if (
+    authorization.walletId !== approval.walletId ||
+    authorization.enrollmentId !== approval.enrollmentId ||
+    authorization.deviceId !== approval.deviceId ||
+    authorization.keyManifestDigestB64u !== receipt.manifestDigestB64u ||
+    authorization.permission.kind !== approval.permission.kind ||
+    authorization.permission.administrationScope !== approval.permission.administrationScope ||
+    authorization.permission.localUserPresence !== approval.permission.localUserPresence ||
+    authorization.issuedAtMs !== receipt.activatedAtMs ||
+    authorization.expiresAtMs <= nowMs ||
+    quota.tenantId !== authorization.tenantId ||
+    quota.principalId !== authorization.principalId ||
+    quota.walletSessionId !== authorization.walletSessionId ||
+    quota.quotaId !== authorization.quotaId ||
+    quota.expiresAtMs !== authorization.expiresAtMs ||
+    quota.remainingUses <= 0
+  ) {
+    throw new DeviceLinkingInputError(
+      'linked-device Wallet Session authorization does not match the active session',
+    );
+  }
+}
+
 async function handleRetry(
   ctx: FetchRouterApiContext,
   service: DeviceLinkingRouteServiceV1,
@@ -960,6 +1180,7 @@ function parseRoutePath(pathname: string):
         | 'holder-receipts'
         | 'credential'
         | 'receipt'
+        | 'wallet-session'
         | 'retry'
         | 'cancel';
       readonly linkSessionId: string;
@@ -983,6 +1204,7 @@ function parseRoutePath(pathname: string):
     parts[1] !== 'holder-receipts' &&
     parts[1] !== 'credential' &&
     parts[1] !== 'receipt' &&
+    parts[1] !== 'wallet-session' &&
     parts[1] !== 'retry' &&
     parts[1] !== 'cancel'
   )

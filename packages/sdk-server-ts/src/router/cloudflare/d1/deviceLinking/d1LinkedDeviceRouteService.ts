@@ -80,6 +80,8 @@ export function createD1LinkedDeviceRouteServiceV1(
     options.acknowledgeReceiptV1,
     walletSessionIssuer,
   );
+  const readWalletSessionAuthorizationV1: DeviceLinkingRouteServiceV1['readWalletSessionAuthorizationV1'] =
+    async (input) => await walletSessionIssuer.resolveActiveForSessionV1(input);
   const routeSessionService: DeviceLinkingRouteServiceV1['sessionService'] = {
     createUnclaimedSessionV1: sessionService.createUnclaimedSessionV1.bind(sessionService),
     claimSessionV1: sessionService.claimSessionV1.bind(sessionService),
@@ -132,6 +134,7 @@ export function createD1LinkedDeviceRouteServiceV1(
     },
     targetCredential: options.targetCredential,
     acknowledgeReceiptV1,
+    readWalletSessionAuthorizationV1,
     retryCommittedDeliveryV1: options.retryCommittedDeliveryV1,
     provisioning: options.provisioning,
     provisioningVerifier,

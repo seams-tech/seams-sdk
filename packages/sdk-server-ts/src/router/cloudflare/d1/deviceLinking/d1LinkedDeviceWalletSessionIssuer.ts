@@ -35,6 +35,13 @@ export type D1LinkedDeviceWalletSessionIssuerOptionsV1 = {
   >;
 };
 
+export type ActiveLinkedDeviceWalletSessionResolutionV1 =
+  | {
+      readonly kind: 'active';
+      readonly authorization: IssuedLinkedDeviceWalletSession;
+    }
+  | { readonly kind: 'unavailable' };
+
 export class D1LinkedDeviceWalletSessionIssuerV1 {
   constructor(private readonly options: D1LinkedDeviceWalletSessionIssuerOptionsV1) {}
 
@@ -74,6 +81,15 @@ export class D1LinkedDeviceWalletSessionIssuerV1 {
     readonly session: ActiveLinkedDeviceSessionRecordV1;
     readonly requestedAtMs: number;
   }): Promise<IssuedLinkedDeviceWalletSession> {
+    const resolution = await this.resolveActiveForSessionV1(input);
+    if (resolution.kind === 'active') return resolution.authorization;
+    throw new Error('linked-device Wallet Session authorization is missing');
+  }
+
+  async resolveActiveForSessionV1(input: {
+    readonly session: ActiveLinkedDeviceSessionRecordV1;
+    readonly requestedAtMs: number;
+  }): Promise<ActiveLinkedDeviceWalletSessionResolutionV1> {
     const issueInput = await this.buildIssueInputV1(input);
     const identity = await deriveLinkedDeviceWalletSessionIdentityV1(issueInput);
     const issued =
@@ -83,9 +99,9 @@ export class D1LinkedDeviceWalletSessionIssuerV1 {
         ...identity,
         nowMs: input.requestedAtMs,
       });
-    if (!issued) throw new Error('linked-device Wallet Session authorization is missing');
+    if (!issued) return { kind: 'unavailable' };
     requireIssuedAuthorizationMatches(issued, issueInput);
-    return issued;
+    return { kind: 'active', authorization: issued };
   }
 
   private async buildIssueInputV1(input: {
