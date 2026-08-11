@@ -1,6 +1,10 @@
 import {
   encodeLinkedDeviceRequestProofV1,
+  parseLinkedDeviceTargetPreparationV1,
+  parseLinkedDeviceTargetCredentialRegistrationV1,
   parseLinkDevicePublicKeyB64u,
+  type LinkedDeviceTargetHolderRegistrationV1,
+  type LinkedDeviceTargetPreparationV1,
   type LinkedDeviceRequestProofV1,
 } from '@shared/device-linking';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
@@ -14,7 +18,7 @@ import type {
 } from './deviceLinkingPorts';
 
 export type DeviceLinkingWorkerEndpointV1 = {
-  postMessage(message: unknown): void;
+  postMessage(message: unknown, transfer?: Transferable[]): void;
   addEventListener(type: 'message', listener: (event: MessageEvent) => void): void;
   addEventListener(type: 'error', listener: (event: ErrorEvent) => void): void;
   removeEventListener(type: 'message', listener: (event: MessageEvent) => void): void;
@@ -28,6 +32,13 @@ export type DeviceLinkingWorkerKeyMaterialPortV1 = DeviceLinkingKeyMaterialPortV
 
 type DeviceLinkingWorkerRequestV1 =
   | { readonly kind: 'device_linking_key_material_create_v1' }
+  | {
+      readonly kind: 'device_linking_target_holders_prepare_v1';
+      readonly handleId: string;
+      readonly preparation: LinkedDeviceTargetPreparationV1;
+      readonly credentialIdB64u: string;
+      readonly factorSecret: ArrayBuffer;
+    }
   | {
       readonly kind: 'device_linking_request_sign_v1';
       readonly handleId: string;
@@ -145,6 +156,62 @@ function parseSignatureResult(value: unknown): { readonly signatureB64u: string 
   };
 }
 
+function parseTargetHolderResult(
+  value: unknown,
+  preparation: LinkedDeviceTargetPreparationV1,
+  credentialIdB64u: string,
+): {
+  readonly orderedHolderRegistrations: readonly [
+    LinkedDeviceTargetHolderRegistrationV1,
+    ...LinkedDeviceTargetHolderRegistrationV1[],
+  ];
+} {
+  const record = exactRecord(
+    value,
+    ['orderedHolderRegistrations'],
+    'device-linking target holder response',
+  );
+  const registration = parseLinkedDeviceTargetCredentialRegistrationV1({
+    kind: 'linked_device_target_credential_registration_v1',
+    linkSessionId: preparation.linkSessionId,
+    walletId: preparation.walletId,
+    enrollmentId: preparation.enrollmentId,
+    deviceId: preparation.deviceId,
+    targetPreparationDigestB64u: base64UrlEncode(new Uint8Array(32)),
+    webauthnRegistration: {
+      kind: 'linked_device_webauthn_registration_v1',
+      credentialIdB64u,
+      authenticatorAttachment: null,
+      clientDataJsonB64u: base64UrlEncode(new Uint8Array([1])),
+      attestationObjectB64u: base64UrlEncode(new Uint8Array([1])),
+      transports: [],
+    },
+    orderedHolderRegistrations: record.orderedHolderRegistrations,
+    registeredAtMs: 1,
+  });
+  if (registration.orderedHolderRegistrations.length !== preparation.orderedChildren.length) {
+    throw new Error('device-linking worker returned the wrong holder child count');
+  }
+  for (let index = 0; index < preparation.orderedChildren.length; index += 1) {
+    const child = preparation.orderedChildren[index];
+    const holder = registration.orderedHolderRegistrations[index];
+    if (
+      !child ||
+      !holder ||
+      holder.operationId !== child.operationId ||
+      holder.walletKeyId !== child.walletKeyId ||
+      holder.keyFamily !== child.keyFamily ||
+      holder.targetLaneId !== child.targetLaneId ||
+      holder.targetLaneShareEpoch !== child.targetLaneShareEpoch ||
+      holder.targetMaterialActivationId !== child.targetMaterialActivationId ||
+      holder.holderParticipant.participantId !== child.targetHolderParticipantId
+    ) {
+      throw new Error('device-linking worker changed an admitted holder child');
+    }
+  }
+  return { orderedHolderRegistrations: registration.orderedHolderRegistrations };
+}
+
 function parseResponseFrame(value: unknown): DeviceLinkingWorkerResponseFrameV1 | null {
   if (!isRecord(value)) return null;
   const id = value.id;
@@ -186,14 +253,21 @@ function workerError(value: unknown): Error {
 
 function createDefaultEndpoint(): DeviceLinkingWorkerEndpointV1 {
   if (typeof Worker === 'undefined') {
-    throw new Error('device-linking worker is unavailable; provide an authenticated worker endpoint');
+    throw new Error(
+      'device-linking worker is unavailable; provide an authenticated worker endpoint',
+    );
   }
   const url = resolveWorkerUrl(undefined, { worker: 'deviceLinking' });
   return new Worker(url, { type: 'module' });
 }
 
 function assertCanonicalPath(value: string): string {
-  if (!value.startsWith('/') || value.includes('?') || value.includes('#') || value.trim() !== value) {
+  if (
+    !value.startsWith('/') ||
+    value.includes('?') ||
+    value.includes('#') ||
+    value.trim() !== value
+  ) {
     throw new Error('canonicalPath is invalid');
   }
   return value;
@@ -204,7 +278,9 @@ function assertTimestamp(value: number, label: string): number {
   return value;
 }
 
-function buildRequest(input: Parameters<DeviceLinkingKeyMaterialPortV1['signDeviceSessionRequestV1']>[0]): DeviceLinkingWorkerRequestV1 {
+function buildRequest(
+  input: Parameters<DeviceLinkingKeyMaterialPortV1['signDeviceSessionRequestV1']>[0],
+): DeviceLinkingWorkerRequestV1 {
   const parsedSession = parseLinkDeviceSessionId(input.linkSessionId);
   if (!parsedSession.ok) throw new Error(parsedSession.error.message);
   if (input.method !== 'GET' && input.method !== 'POST') throw new Error('method is invalid');
@@ -279,7 +355,10 @@ export function createDeviceLinkingKeyMaterialPortV1(
     endpoint.terminate();
   };
 
-  const request = (input: DeviceLinkingWorkerRequestV1): Promise<unknown> => {
+  const request = (
+    input: DeviceLinkingWorkerRequestV1,
+    transfer?: Transferable[],
+  ): Promise<unknown> => {
     if (closed) return Promise.reject(new Error('device-linking worker transport is closed'));
     const id = requestId();
     return new Promise<unknown>((resolve, reject) => {
@@ -289,7 +368,7 @@ export function createDeviceLinkingKeyMaterialPortV1(
       }, timeoutMs);
       pending.set(id, { resolve, reject, timeoutId });
       try {
-        endpoint.postMessage({ id, request: input });
+        endpoint.postMessage({ id, request: input }, transfer);
       } catch (error) {
         clearTimeout(timeoutId);
         pending.delete(id);
@@ -306,6 +385,27 @@ export function createDeviceLinkingKeyMaterialPortV1(
     async discardKeyMaterialV1(input) {
       const handle = parseHandle(input.handle);
       await request({ kind: 'device_linking_key_material_discard_v1', handleId: handle.handleId });
+    },
+    async prepareTargetHolderRegistrationsV1(input) {
+      const handle = parseHandle(input.handle);
+      const preparation = parseLinkedDeviceTargetPreparationV1(input.preparation);
+      if (!(input.factorSecret instanceof ArrayBuffer) || input.factorSecret.byteLength !== 32) {
+        throw new Error('device-linking target holder factorSecret must be 32 bytes');
+      }
+      return parseTargetHolderResult(
+        await request(
+          {
+            kind: 'device_linking_target_holders_prepare_v1',
+            handleId: handle.handleId,
+            preparation,
+            credentialIdB64u: input.credentialIdB64u,
+            factorSecret: input.factorSecret,
+          },
+          [input.factorSecret],
+        ),
+        preparation,
+        input.credentialIdB64u,
+      );
     },
     async signDeviceSessionRequestV1(input) {
       const requestInput = buildRequest(input);

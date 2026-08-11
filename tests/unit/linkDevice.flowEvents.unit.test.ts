@@ -250,6 +250,9 @@ function createPorts(
           devicePublicKeyB64u: payload.devicePublicKeyB64u,
         };
       },
+      async prepareTargetHolderRegistrationsV1() {
+        throw new Error('target holder preparation is owned by the target credential fake');
+      },
       async discardKeyMaterialV1() {
         calls.push('key-discard');
       },
