@@ -160,7 +160,7 @@ body:has(.h2-page) {
 
 /* ---------- flat navbar (structural reskin of NavbarStatic on this page) ---------- */
 
-.h2-page .navbar-static {
+.h2-page .navbar-static:not(.navbar-static--compact) {
   top: 0;
   padding: 0;
   /* let the shell's track fill the viewport instead of centering max-content */
@@ -168,8 +168,8 @@ body:has(.h2-page) {
   justify-content: stretch;
 }
 
-.h2-page .navbar-static__shell,
-.h2-page .navbar-static__shell.is-scrolled {
+.h2-page .navbar-static:not(.navbar-static--compact) .navbar-static__shell,
+.h2-page .navbar-static:not(.navbar-static--compact) .navbar-static__shell.is-scrolled {
   width: 100%;
   min-width: 0;
   max-width: 100%;
@@ -184,8 +184,20 @@ body:has(.h2-page) {
   box-shadow: none;
 }
 
-.h2-page .navbar-static__pill {
+.h2-page .navbar-static:not(.navbar-static--compact) .navbar-static__pill {
   border-radius: 9999px;
+}
+
+.h2-page .navbar-static--compact {
+  top: 0.5rem;
+}
+
+.h2-page .navbar-static--compact .navbar-static__shell,
+.h2-page .navbar-static--compact .navbar-static__shell.is-scrolled {
+  box-shadow:
+    0 10px 28px -20px color-mix(in srgb, var(--navbar-shadow-color) 32%, transparent),
+    0 2px 8px -6px color-mix(in srgb, var(--navbar-shadow-color) 24%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--navbar-border) 34%, transparent);
 }
 
 /* The dropdown panel is content-width and self-anchored in Navbar.css; the
@@ -392,13 +404,17 @@ body:has(.h2-page) {
 /* Sage variant: the hero content sits on a rounded panel carrying an
    Andon-style sage gradient with light ink on top. */
 .h2-hero-simple--sage {
-  padding: 68px 0 16px;
+  padding: 2rem 0 1rem;
+}
+
+.h2-hero-simple.h2-hero-simple--sage {
+  padding-top: 1rem;
 }
 
 .h2-hero-simple--sage > .h2-shell {
   background: linear-gradient(160deg, #919690 0%, #c7d0cf 100%);
   border-radius: var(--h2-radius-card);
-  padding: 104px 56px 72px;
+  padding: 10rem 56px 72px;
 }
 
 .h2-hero-simple--sage .h2-hero-simple__title {

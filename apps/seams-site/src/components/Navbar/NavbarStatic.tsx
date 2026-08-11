@@ -65,10 +65,8 @@ type DropdownTriggerConfig = {
 type DropdownFocusTarget = 'first' | 'last';
 const DASHBOARD_AUTH_OPEN_EVENT = 'seams:dashboard-auth-open';
 
-/* The 'documentation' pane id historically maps to the "Products" trigger and
-   vice versa; ids are kept stable so aria wiring and pane ordering don't churn. */
-const documentationDropdownPane: DropdownPane = {
-  id: 'documentation',
+const productsDropdownPane: DropdownPane = {
+  id: 'products',
   label: 'Products',
   kicker: 'Products',
   rows: [
@@ -100,8 +98,8 @@ const documentationDropdownPane: DropdownPane = {
   footerLinks: [{ label: 'Plan pricing', to: '/pricing/' }],
 };
 
-const productsDropdownPane: DropdownPane = {
-  id: 'products',
+const documentationDropdownPane: DropdownPane = {
+  id: 'documentation',
   label: 'Documentation',
   kicker: 'Documentation',
   rows: [
@@ -209,7 +207,7 @@ const dropdownPanes: DropdownPane[] = [
 /* Visual left-to-right order of the dropdown triggers in the bar; drives which
    side inactive panes park on so a menu switch slides content in from the
    direction of travel (restores the pre-refresh pane slide). */
-const DROPDOWN_VISUAL_ORDER: DropdownId[] = ['documentation', 'products', 'pricing', 'about'];
+const DROPDOWN_VISUAL_ORDER: DropdownId[] = ['products', 'documentation', 'pricing', 'about'];
 
 function paneOrderIndex(id: DropdownId): number {
   return DROPDOWN_VISUAL_ORDER.indexOf(id);
@@ -223,11 +221,11 @@ function paneVisualClass(paneId: DropdownId, activeId: DropdownId | null): strin
 
 const primaryDropdownTriggers: DropdownTriggerConfig[] = [
   {
-    id: 'documentation',
+    id: 'products',
     label: 'Products',
   },
   {
-    id: 'products',
+    id: 'documentation',
     label: 'Documentation',
   },
 ];
@@ -256,9 +254,14 @@ function getMenuItems(panel: HTMLDivElement | null, id: DropdownId | null): HTML
 export type NavbarStaticProps = {
   /** 'auto' follows the site theme; 'light' pins the light-page skin (used by /home2). */
   appearance?: 'auto' | 'light';
+  /** Compact keeps the inset shell when a page supplies its own navbar treatment. */
+  layout?: 'page' | 'compact';
 };
 
-export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): React.JSX.Element {
+export function NavbarStatic({
+  appearance = 'auto',
+  layout = 'page',
+}: NavbarStaticProps = {}): React.JSX.Element {
   const OPEN_DELAY_MS = 0;
   const CLOSE_DELAY_MS = 120;
   const SCROLL_THRESHOLD_PX = 8;
@@ -698,7 +701,9 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
   return (
     <nav
       ref={rootRef}
-      className={`navbar-static${appearance === 'light' ? ' navbar-static--light' : ''}`}
+      className={`navbar-static${appearance === 'light' ? ' navbar-static--light' : ''}${
+        layout === 'compact' ? ' navbar-static--compact' : ''
+      }`}
       aria-label="Primary"
     >
       <div className={`navbar-static__shell${hasScrolled ? ' is-scrolled' : ''}`}>
@@ -816,7 +821,7 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
         <div className={`navbar-static__mobile-submenu${isMobileProductsOpen ? ' is-open' : ''}`}>
           <section className="navbar-static__mobile-section">
             <h3 className="navbar-static__mobile-section-title">Products</h3>
-            {documentationDropdownPane.rows.map((row) => {
+            {productsDropdownPane.rows.map((row) => {
               const rowProps = getNavLinkProps(row.to);
               return (
                 <a
@@ -855,7 +860,7 @@ export function NavbarStatic({ appearance = 'auto' }: NavbarStaticProps = {}): R
         >
           <section className="navbar-static__mobile-section">
             <h3 className="navbar-static__mobile-section-title">Documentation</h3>
-            {productsDropdownPane.rows.map((row) => {
+            {documentationDropdownPane.rows.map((row) => {
               const rowProps = getNavLinkProps(row.to);
               return (
                 <a
