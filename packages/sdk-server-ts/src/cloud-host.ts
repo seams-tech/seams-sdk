@@ -53,6 +53,7 @@ export * from './router/cloudflare/d1/oidc/d1OidcBoundary';
 export * from './router/cloudflare/d1/auth/d1RouterApiAuthConfig';
 export * from './router/cloudflare/d1/auth/d1RouterApiAuthService';
 export * from './router/cloudflare/d1/signingLanes/d1LinkedDeviceLaneOwnerAuthorization';
+export * from './router/cloudflare/signingLanes/linkedDeviceEd25519CeremonyBinding';
 export * from './router/cloudflare/d1/webauthn/d1WebAuthnAuthService';
 export * from './router/cloudflare/d1/webauthn/d1WebAuthnStore';
 export * from './router/cloudflare/durableObjects/thresholdStore';
@@ -122,12 +123,7 @@ export {
   MAX_WALLET_SESSION_TTL_MS,
 } from '@shared/threshold/sessionPolicy';
 export { ActionType } from '@shared/near/actions';
-export {
-  parseOrgId,
-  parseWalletId,
-  parseWebAuthnRpId,
-  type OrgId,
-} from '@shared/utils/domainIds';
+export { parseOrgId, parseWalletId, parseWebAuthnRpId, type OrgId } from '@shared/utils/domainIds';
 export { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 export { keccak256Bytes } from '@shared/utils/keccak';
 export {
