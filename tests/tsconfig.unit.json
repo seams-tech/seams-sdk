@@ -7,7 +7,6 @@
     "unit/helpers/**/*.ts",
     "types/**/*.d.ts",
     "unit/activateSigningSessionUseCase.unit.test.ts",
-    "unit/addWalletSigner.orchestration.unit.test.ts",
     "unit/authorizationOperationFingerprint.unit.test.ts",
     "unit/browserCapabilitySelection.unit.test.ts",
     "unit/capabilityPolicy.unit.test.ts",
