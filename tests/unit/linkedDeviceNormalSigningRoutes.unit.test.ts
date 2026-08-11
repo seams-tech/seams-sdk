@@ -17,7 +17,12 @@ import {
 } from '../../packages/shared-ts/src/authorization/operationFingerprint';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '../../packages/shared-ts/src/utils/sessionTokens';
-import { parseLinkedDeviceId } from '../../packages/shared-ts/src/utils/domainIds';
+import {
+  parseLinkedDeviceEnrollmentId,
+  parseLinkedDeviceId,
+  parseWebAuthnCredentialIdB64u,
+} from '../../packages/shared-ts/src/utils/domainIds';
+import { computeLinkedDeviceLocalPresenceChallengeDigestV1 } from '../../packages/shared-ts/src/device-linking/digests';
 import { handleLinkedDeviceEd25519NormalSigning } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/linkedDeviceNormalSigning';
 import type { FetchRouterApiContext } from '../../packages/sdk-server-ts/src/router/transport/fetch/fetchRouter.types';
 import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/framework/routerApi';
@@ -102,13 +107,23 @@ function required<T>(
   throw new Error(result.error.message);
 }
 
-function localPresenceAssertion(input: {
+async function localPresenceAssertion(input: {
   readonly intentDigestB64u: string;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
 }) {
   const credentialIdB64u = base64UrlEncode(new TextEncoder().encode('linked-credential'));
-  const challengeDigestB64u = digest(12);
+  const challengeDigestB64u = await computeLinkedDeviceLocalPresenceChallengeDigestV1({
+    authorizedOperationId: required(
+      parseAuthorizedOperationId('linked-ed25519-authorized-operation:linked-request'),
+    ),
+    deviceId: required(parseLinkedDeviceId('device:2')),
+    enrollmentId: required(parseLinkedDeviceEnrollmentId('enrollment:2')),
+    credentialIdB64u: required(parseWebAuthnCredentialIdB64u(credentialIdB64u)),
+    intentDigestB64u: parseDigestB64u(input.intentDigestB64u),
+    issuedAtMs: input.issuedAtMs,
+    expiresAtMs: input.expiresAtMs,
+  });
   return {
     kind: 'linked_device_local_presence_assertion_v1',
     authorizedOperationId: 'linked-ed25519-authorized-operation:linked-request',
@@ -225,7 +240,7 @@ async function linkedEd25519FinalizeFixture(nowMs: number) {
       laneShareEpoch: 'lane-share-epoch:linked-ed25519',
       materialActivation,
     },
-    localPresenceAssertion: localPresenceAssertion({
+    localPresenceAssertion: await localPresenceAssertion({
       intentDigestB64u,
       issuedAtMs: nowMs - 1_000,
       expiresAtMs,
@@ -421,4 +436,34 @@ test('rejects linked signing when the request names another Wallet Session', asy
     code: 'invalid_body',
     message: 'linked-device signing Wallet Session does not match authorization scope',
   });
+});
+
+test('rejects a local-presence assertion whose signed challenge does not bind the intent', async () => {
+  const nowMs = Date.now();
+  const fixture = await linkedEd25519FinalizeFixture(nowMs);
+  let admissionCalls = 0;
+  const result = await handleLinkedDeviceEd25519NormalSigning({
+    ctx: context(
+      sessionWithClaims(linkedClaims(fixture.expiresAtMs + 1_000)),
+      configuredService({
+        readAuthorizedOperation: async () => null,
+        admitAuthorizedOperation: async () => {
+          admissionCalls += 1;
+          return { kind: 'claimed' };
+        },
+      }),
+    ),
+    body: {
+      ...fixture.body,
+      localPresenceAssertion: {
+        ...fixture.body.localPresenceAssertion,
+        challengeDigestB64u: digest(12),
+      },
+    },
+    phase: 'finalize',
+  });
+
+  expect(result?.status).toBe(403);
+  expect(await result?.json()).toMatchObject({ code: 'local_presence_required' });
+  expect(admissionCalls).toBe(0);
 });

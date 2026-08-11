@@ -11,10 +11,14 @@ import type {
   LinkedDeviceTargetPreparationChildV1,
   LinkedDeviceTargetPreparationV1,
 } from './contracts';
+import type { AuthorizedOperationId } from '../authorization/capabilityKinds';
+import type { LinkedDeviceEnrollmentId, LinkedDeviceId } from '../signing-lanes/ids';
+import type { WebAuthnCredentialIdB64u } from '../utils/domainIds';
 
 const CLAIM_DOMAIN = 'seams/linked-device/session-claim/v1';
 const APPROVAL_DOMAIN = 'seams/linked-device/owner-approval/v1';
 const TARGET_PREPARATION_DOMAIN = 'seams/linked-device/target-preparation/v1';
+const LOCAL_PRESENCE_DOMAIN = 'seams/linked-device/local-presence/v1';
 const TEXT_ENCODER = new TextEncoder();
 
 function concat(parts: readonly Uint8Array[]): Uint8Array {
@@ -215,6 +219,42 @@ export async function computeLinkedDeviceTargetPreparationDigestV1(
 ): Promise<DigestB64u> {
   return parseDigestB64u(
     base64UrlEncode(await sha256Bytes(encodeLinkedDeviceTargetPreparationV1(value))),
+  );
+}
+
+export type LinkedDeviceLocalPresenceChallengeV1 = {
+  readonly authorizedOperationId: AuthorizedOperationId;
+  readonly deviceId: LinkedDeviceId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+  readonly intentDigestB64u: DigestB64u;
+  readonly issuedAtMs: number;
+  readonly expiresAtMs: number;
+};
+
+export function encodeLinkedDeviceLocalPresenceChallengeV1(
+  value: LinkedDeviceLocalPresenceChallengeV1,
+): Uint8Array {
+  if (value.issuedAtMs >= value.expiresAtMs) {
+    throw new Error('linked-device local presence must expire after issuance');
+  }
+  return concat([
+    text(LOCAL_PRESENCE_DOMAIN, 'domain'),
+    text(value.authorizedOperationId, 'authorizedOperationId'),
+    text(value.deviceId, 'deviceId'),
+    text(value.enrollmentId, 'enrollmentId'),
+    lp32(rawPublicKey(value.credentialIdB64u, 'credentialIdB64u'), 'credentialIdB64u'),
+    rawDigest(value.intentDigestB64u, 'intentDigestB64u'),
+    u64(value.issuedAtMs, 'issuedAtMs'),
+    u64(value.expiresAtMs, 'expiresAtMs'),
+  ]);
+}
+
+export async function computeLinkedDeviceLocalPresenceChallengeDigestV1(
+  value: LinkedDeviceLocalPresenceChallengeV1,
+): Promise<DigestB64u> {
+  return parseDigestB64u(
+    base64UrlEncode(await sha256Bytes(encodeLinkedDeviceLocalPresenceChallengeV1(value))),
   );
 }
 

@@ -62,6 +62,7 @@ import {
 import type { AuthorizedOperation, AuthorizedOperationInput } from '../../../authorization/domain';
 import type { MpcWalletSigningQuotaId } from '@shared/authorization/capabilityKinds';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
+import { computeLinkedDeviceLocalPresenceChallengeDigestV1 } from '@shared/device-linking/digests';
 
 export type LinkedDeviceExecutionEnvelopeV1 = {
   readonly kind: 'linked_device_execution_v1';
@@ -350,6 +351,18 @@ export async function verifyLinkedDeviceLocalPresenceForOperation(input: {
     parsed.enrollmentId !== input.enrollmentId ||
     String(parsed.intentDigestB64u) !== String(input.intentDigestB64u)
   ) {
+    return { kind: 'refused', reason: 'local_presence_mismatch' };
+  }
+  const expectedChallengeDigestB64u = await computeLinkedDeviceLocalPresenceChallengeDigestV1({
+    authorizedOperationId: parsed.authorizedOperationId,
+    deviceId: parsed.deviceId,
+    enrollmentId: parsed.enrollmentId,
+    credentialIdB64u: parsed.credentialIdB64u,
+    intentDigestB64u: parsed.intentDigestB64u,
+    issuedAtMs: parsed.issuedAtMs,
+    expiresAtMs: parsed.expiresAtMs,
+  });
+  if (expectedChallengeDigestB64u !== parsed.challengeDigestB64u) {
     return { kind: 'refused', reason: 'local_presence_mismatch' };
   }
   const verified = await verifyLinkedDeviceLocalPresenceV1({
