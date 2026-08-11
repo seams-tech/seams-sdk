@@ -380,6 +380,7 @@ function buildLinkedDeviceEcdsaScope(input: {
     holderRecipientKeyDigestB64u: product.holderParticipant.hpkePublicKeyDigestB64u,
     serverRecipientKeyDigestB64u: product.signingWorkerParticipant.hpkePublicKeyDigestB64u,
     signingWorkerRecipientKeyId: product.signingWorkerParticipant.recipientKeyId,
+    signingWorkerHpkePublicKeyB64u: product.signingWorkerParticipant.hpkePublicKeyB64u,
     transcriptHashB64u: parseDigestB64u(protocolCommitReceipt.transcriptHashB64u),
     protocolCommitReceiptDigestB64u: parseDigestB64u(lifecycle.protocolCommitReceiptDigestB64u),
   });

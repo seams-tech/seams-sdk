@@ -288,6 +288,7 @@ export async function buildLinkedDeviceWalletExecutionFixture(): Promise<LinkedD
     holderRecipientKeyDigestB64u: holderParticipant.hpkePublicKeyDigestB64u,
     serverRecipientKeyDigestB64u: signingWorkerParticipant.hpkePublicKeyDigestB64u,
     signingWorkerRecipientKeyId: signingWorkerParticipant.recipientKeyId,
+    signingWorkerHpkePublicKeyB64u: signingWorkerParticipant.hpkePublicKeyB64u,
     transcriptHashB64u: DIGEST,
     protocolCommitReceiptDigestB64u: DIGEST,
   });

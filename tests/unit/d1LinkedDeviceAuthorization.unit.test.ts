@@ -212,6 +212,7 @@ test.describe('D1 linked-device authorization', () => {
         holderParticipantId: ecdsaJob.targetHolder.participantId,
         signingWorkerParticipantId: ecdsaJob.targetSigningWorker.participantId,
         signingWorkerRecipientKeyId: ecdsaJob.targetSigningWorker.recipientKeyId,
+        signingWorkerHpkePublicKeyB64u: ecdsaJob.targetSigningWorker.hpkePublicKeyB64u,
       });
       const ed25519Projection = await resolver.resolveActiveLinkedDeviceExecutionV1({
         ...common,

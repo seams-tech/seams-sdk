@@ -58,6 +58,7 @@ function validScopeRecord(): Record<string, unknown> {
     holderRecipientKeyDigestB64u: digest,
     serverRecipientKeyDigestB64u: digest,
     signingWorkerRecipientKeyId: 'worker-key-r102',
+    signingWorkerHpkePublicKeyB64u: digest,
     transcriptHashB64u: digest,
     protocolCommitReceiptDigestB64u: digest,
   };
