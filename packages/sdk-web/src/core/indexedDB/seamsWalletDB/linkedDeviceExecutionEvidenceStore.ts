@@ -1,12 +1,15 @@
 import { alphabetizeStringify } from '@shared/utils/digests';
 import type { LinkedDeviceEnrollmentId } from '@shared/signing-lanes/ids';
 import {
+  buildActiveLinkedDeviceExecutionBundleFromEvidenceV1,
   parseLinkedDeviceProvisionedExecutionEvidenceV1,
+  type ActiveLinkedDeviceExecutionBundleV1,
   type LinkedDeviceProvisionedExecutionEvidenceV1,
 } from '../../signingEngine/session/lanes/linkedDeviceExecutionBundle';
 import { SEAMS_WALLET_STORES } from '../schemaNames';
 import { seamsWalletDB } from '../singletons';
 import type { SeamsWalletDBManager } from './manager';
+import type { LinkedDeviceWalletSessionRepositoryV1 } from './linkedDeviceWalletSessionStore';
 
 type StoredLinkedDeviceExecutionEvidenceRowV1 = {
   readonly enrollment_id: string;
@@ -24,6 +27,16 @@ export type LinkedDeviceExecutionEvidenceReadResultV1 =
   | {
       readonly kind: 'missing' | 'corrupt' | 'persistence_unavailable';
       readonly evidence?: never;
+    };
+
+export type ActiveLinkedDeviceExecutionBundleReadResultV1 =
+  | {
+      readonly kind: 'found';
+      readonly bundle: ActiveLinkedDeviceExecutionBundleV1;
+    }
+  | {
+      readonly kind: 'missing' | 'expired' | 'corrupt' | 'persistence_unavailable';
+      readonly bundle?: never;
     };
 
 const STORE = SEAMS_WALLET_STORES.linkedDeviceExecutionEvidence;
@@ -145,3 +158,37 @@ export class LinkedDeviceExecutionEvidenceRepositoryV1 {
 }
 
 export const linkedDeviceExecutionEvidence = new LinkedDeviceExecutionEvidenceRepositoryV1();
+
+export async function resolveActiveLinkedDeviceExecutionBundleV1(input: {
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly nowMs: number;
+  readonly evidenceRepository: Pick<
+    LinkedDeviceExecutionEvidenceRepositoryV1,
+    'readForEnrollmentV1'
+  >;
+  readonly walletSessionRepository: Pick<
+    LinkedDeviceWalletSessionRepositoryV1,
+    'readActiveForEnrollmentV1'
+  >;
+}): Promise<ActiveLinkedDeviceExecutionBundleReadResultV1> {
+  const [evidenceResult, walletSessionResult] = await Promise.all([
+    input.evidenceRepository.readForEnrollmentV1(input.enrollmentId),
+    input.walletSessionRepository.readActiveForEnrollmentV1({
+      enrollmentId: input.enrollmentId,
+      nowMs: input.nowMs,
+    }),
+  ]);
+  if (evidenceResult.kind !== 'found') return evidenceResult;
+  if (walletSessionResult.kind !== 'found') return walletSessionResult;
+  try {
+    return {
+      kind: 'found',
+      bundle: await buildActiveLinkedDeviceExecutionBundleFromEvidenceV1({
+        evidence: evidenceResult.evidence,
+        walletSessionDelivery: walletSessionResult.delivery,
+      }),
+    };
+  } catch {
+    return { kind: 'corrupt' };
+  }
+}

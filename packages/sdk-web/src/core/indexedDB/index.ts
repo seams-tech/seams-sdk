@@ -34,8 +34,12 @@ export type {
 export {
   LinkedDeviceExecutionEvidenceRepositoryV1,
   linkedDeviceExecutionEvidence,
+  resolveActiveLinkedDeviceExecutionBundleV1,
 } from './seamsWalletDB/linkedDeviceExecutionEvidenceStore';
-export type { LinkedDeviceExecutionEvidenceReadResultV1 } from './seamsWalletDB/linkedDeviceExecutionEvidenceStore';
+export type {
+  ActiveLinkedDeviceExecutionBundleReadResultV1,
+  LinkedDeviceExecutionEvidenceReadResultV1,
+} from './seamsWalletDB/linkedDeviceExecutionEvidenceStore';
 export {
   WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
   WalletSessionAuthorizationRepository,
