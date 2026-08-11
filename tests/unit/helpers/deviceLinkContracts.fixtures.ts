@@ -5,10 +5,13 @@ import {
   buildLinkedDeviceEnrollmentTranscriptV1,
   buildLinkedDeviceTargetCredentialRegistrationV1,
   buildLinkedDeviceTargetPreparationV1,
+  buildLinkedDeviceHolderDeliveryAcknowledgementV1,
+  buildLinkedDeviceProvisioningCommandV1,
   buildQrLinkedDeviceSessionPayloadV4,
   buildStepUpLinkedDeviceOwnerAuthorizationV1,
   parseLinkedDeviceSessionClaimRequestV1,
   parseQrLinkedDeviceSessionPayloadV4,
+  parseLinkedDeviceProvisioningDeliveriesV1,
 } from '../../../packages/shared-ts/src/device-linking/parsers';
 import type {
   LinkedDeviceApprovalV1,
@@ -17,6 +20,9 @@ import type {
   QrLinkedDeviceSessionPayloadV4,
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetPreparationV1,
+  LinkedDeviceHolderDeliveryAcknowledgementV1,
+  LinkedDeviceProvisioningCommandV1,
+  LinkedDeviceProvisioningDeliveriesV1,
 } from '../../../packages/shared-ts/src/device-linking/contracts';
 import { computeLinkedDeviceTargetPreparationDigestV1 } from '../../../packages/shared-ts/src/device-linking/digests';
 import { parseAuthorizationEvidenceSetId } from '../../../packages/shared-ts/src/authorization/capabilityKinds';
@@ -48,7 +54,12 @@ import {
 } from '../../../packages/shared-ts/src/utils/domainIds';
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
-import { buildR102LaneJob } from './r102LaneGateway.fixtures';
+import {
+  buildR102HolderDeliveryReceipt,
+  buildR102LaneJob,
+  buildR102ProtocolCommitReceipt,
+} from './r102LaneGateway.fixtures';
+import { parseRotatableSigningLaneJobV1 } from '../../../packages/shared-ts/src/signing-lanes/rotationParsers';
 
 function required<T>(
   result:
@@ -74,6 +85,81 @@ export type R103TargetCredentialFixture = {
   readonly preparation: LinkedDeviceTargetPreparationV1;
   readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
 };
+
+export type R103ProvisioningFixture = {
+  readonly command: LinkedDeviceProvisioningCommandV1;
+  readonly deliveries: LinkedDeviceProvisioningDeliveriesV1;
+  readonly acknowledgement: LinkedDeviceHolderDeliveryAcknowledgementV1;
+};
+
+export function buildR103ProvisioningFixture(
+  fixture: R103DeviceLinkFixture,
+): R103ProvisioningFixture {
+  const approved = fixture.approval.orderedKeyBindings[0];
+  if (!approved) throw new Error('R103 approval fixture has no child');
+  const source = buildR102LaneJob('r103-provisioning');
+  const job = parseRotatableSigningLaneJobV1({
+    ...source,
+    operationId: fixture.approval.operationId,
+    enrollmentId: fixture.approval.enrollmentId,
+    idempotencyKey: fixture.approval.idempotencyKey,
+    walletId: fixture.approval.walletId,
+    walletKeyId: approved.walletKeyId,
+    source: {
+      ...source.source,
+      laneId: approved.sourceLaneId,
+      laneShareEpoch: approved.sourceLaneShareEpoch,
+      revocationEpoch: approved.sourceRevocationEpoch,
+      holderParticipantId: approved.sourceHolderParticipantId,
+      signingWorkerParticipantId: approved.sourceSigningWorkerParticipantId,
+    },
+    target: {
+      ...source.target,
+      laneId: approved.targetLaneId,
+      laneShareEpoch: approved.targetLaneShareEpoch,
+    },
+    authorization: {
+      kind: 'linked_device_enrollment',
+      authorizedOperationId: source.authorization.authorizedOperationId,
+      linkedDeviceEnrollmentId: fixture.approval.enrollmentId,
+      linkedDevicePermissionDigestB64u: fixture.approval.policyDigestB64u,
+    },
+  });
+  const deliveries = parseLinkedDeviceProvisioningDeliveriesV1({
+    kind: 'linked_device_provisioning_deliveries_v1',
+    linkSessionId: fixture.approval.linkSessionId,
+    enrollmentId: fixture.approval.enrollmentId,
+    deviceId: fixture.approval.deviceId,
+    orderedChildren: [
+      {
+        kind: 'linked_device_provisioning_child_v1',
+        job,
+        protocolCommitReceipt: buildR102ProtocolCommitReceipt(job),
+        holderPackage: {
+          kind: 'ed25519_yao_lane_holder_package_set_v1',
+          deriverAEncryptedPackageJson: '{}',
+          deriverBEncryptedPackageJson: '{}',
+        },
+        expectedVersion: 2,
+      },
+    ],
+  });
+  return {
+    command: buildLinkedDeviceProvisioningCommandV1({
+      linkSessionId: fixture.approval.linkSessionId,
+      enrollmentId: fixture.approval.enrollmentId,
+      deviceId: fixture.approval.deviceId,
+    }),
+    deliveries,
+    acknowledgement: buildLinkedDeviceHolderDeliveryAcknowledgementV1({
+      linkSessionId: fixture.approval.linkSessionId,
+      enrollmentId: fixture.approval.enrollmentId,
+      deviceId: fixture.approval.deviceId,
+      orderedHolderDeliveryReceipts: [buildR102HolderDeliveryReceipt(job)],
+      acknowledgedAtMs: 3_500,
+    }),
+  };
+}
 
 export async function buildR103TargetCredentialFixture(
   fixture: R103DeviceLinkFixture,
