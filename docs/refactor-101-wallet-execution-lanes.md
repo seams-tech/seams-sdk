@@ -11,6 +11,11 @@ at a working owner-lane resolution and admission boundary. Lane creation and
 refresh remain R102 work; device linking remains R103 work; delegated spending
 remains R104 work.
 
+Implementation checklist: 7/8 complete (87.5%). The remaining item is the
+full intended-behavior, source-guard, and wallet-iframe integration gate; the
+focused owner projection, hydration, preflight, admission, and type-boundary
+contracts pass.
+
 ## Authority And Dependencies
 
 This plan owns stable wallet-key identity and share-bearing execution lanes.
