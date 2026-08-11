@@ -9,10 +9,13 @@ import type { DeviceLinkingKeyMaterialPortV1 } from '../../packages/sdk-web/src/
 import { parseRotatableSigningLaneJobV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import { parseLaneHolderParticipantRecordV1 } from '../../packages/shared-ts/src/signing-lanes/participants';
 import {
+  buildR102EcdsaLaneJob,
   buildR102LaneJob,
   buildR102ProtocolCommitReceipt,
   buildR102ServerActivationReceipt,
+  buildR103SealedHolderRecord,
 } from './helpers/r102LaneGateway.fixtures';
+import { EcdsaClientWorkerControlKind } from '../../packages/sdk-web/src/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
 
 class FakeWorkerScope {
   readonly responses: unknown[] = [];
@@ -125,6 +128,9 @@ test.describe('device-linking key worker', () => {
               signingShareFreed += 1;
             },
           }),
+          ecdsa_additive_share32: () => {
+            throw new Error('ECDSA material is outside this Ed25519 test');
+          },
           destroy: () => {
             signingMaterialDestroyed += 1;
           },
@@ -393,6 +399,101 @@ test.describe('device-linking key worker', () => {
     expect(discarded.ok).toBe(false);
     expect(discarded.error).toContain('unknown or discarded');
     expect(recipientsDestroyed).toBe(1);
+    await installed.close();
+  });
+
+  test('transfers an exact linked ECDSA holder share only over the presign worker channel', async () => {
+    const scope = new FakeWorkerScope();
+    const additiveShare = new Uint8Array(32).fill(37);
+    let additiveShareReads = 0;
+    const installed = installDeviceLinkingKeyWorkerV1(scope, {
+      createRecipient() {
+        throw new Error('recipient creation is outside this ECDSA reopen test');
+      },
+      createCustodySeal() {
+        throw new Error('custody creation is outside this ECDSA reopen test');
+      },
+      openSigningMaterial() {
+        return {
+          key_family: () => 'ecdsa_secp256k1',
+          create_ed25519_signing_share: () => {
+            throw new Error('Ed25519 signing is outside this ECDSA test');
+          },
+          ecdsa_additive_share32: () => {
+            additiveShareReads += 1;
+            return additiveShare.slice();
+          },
+          destroy: () => undefined,
+          free: () => undefined,
+        };
+      },
+    });
+    const job = buildR102EcdsaLaneJob('device-linking-holder-presign');
+    if (job.keyFamily !== 'ecdsa_secp256k1') throw new Error('ECDSA fixture changed branch');
+    const protocolCommitReceipt = buildR102ProtocolCommitReceipt(job);
+    const materialActivation = buildR102ServerActivationReceipt(job).targetMaterialActivation;
+    const holderRecord = buildR103SealedHolderRecord(job, protocolCommitReceipt);
+    const factorSecret = new Uint8Array(32).fill(29).buffer;
+    scope.send({
+      id: 'open-ecdsa-signing-material',
+      request: {
+        kind: 'device_linking_holder_signing_material_open_v1',
+        factorSecret,
+        job,
+        protocolCommitReceipt,
+        materialActivation,
+        holderRecord,
+      },
+    });
+    const opened = await waitForResponse(scope);
+    expect(opened).toMatchObject({
+      ok: true,
+      result: { keyFamily: 'ecdsa_secp256k1' },
+    });
+    expect(new Uint8Array(factorSecret)).toEqual(new Uint8Array(32));
+    const holderHandleId = String((opened.result as Record<string, unknown>).handleId);
+
+    const channel = new MessageChannel();
+    scope.send({
+      kind: EcdsaClientWorkerControlKind.AttachLinkedHolderToPresign,
+      port: channel.port1,
+    });
+    const response = new Promise<Record<string, unknown>>((resolve) => {
+      channel.port2.onmessage = (event) => resolve(event.data as Record<string, unknown>);
+      channel.port2.start();
+    });
+    const groupPublicKey33 = base64UrlDecode(job.thresholdPublicKey33B64u);
+    channel.port2.postMessage(
+      {
+        kind: 'linked_holder_ecdsa_additive_share_request_v1',
+        requestId: 'linked-share-1',
+        holderHandleId,
+        poolIdentity: {
+          poolKey: 'linked-holder-pool',
+          materialActivationId: materialActivation.activationId,
+          capability: materialActivation.capability,
+          keyBinding: materialActivation.keyBinding,
+          walletId: job.walletId,
+          signingScopeB64u: digest(42),
+          pairRole: 'client',
+          keyEpoch: 'linked-holder-key-epoch-1',
+          activationEpoch: 'linked-holder-activation-epoch-1',
+          protocolId: 'seams/router-ab-ecdsa-presign/fixed-2of2/v1',
+        },
+        groupPublicKey33: groupPublicKey33.buffer,
+      },
+      [groupPublicKey33.buffer],
+    );
+    const transferred = await response;
+    expect(transferred).toMatchObject({
+      kind: 'linked_holder_ecdsa_additive_share_result_v1',
+      requestId: 'linked-share-1',
+      ok: true,
+    });
+    expect(new Uint8Array(transferred.additiveShare32 as ArrayBuffer)).toEqual(additiveShare);
+    expect(additiveShareReads).toBe(1);
+    expect(scope.responses).toHaveLength(1);
+    channel.port2.close();
     await installed.close();
   });
 

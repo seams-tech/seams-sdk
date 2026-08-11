@@ -449,6 +449,27 @@ const ecdsaPresignInitRequest: EcdsaPresignClientSessionInitRequest = {
 };
 void ecdsaPresignInitRequest;
 
+const linkedHolderEcdsaPresignInitRequest: EcdsaPresignClientSessionInitRequest = {
+  ...ecdsaPresignInitRequest,
+  authority: {
+    kind: 'linked_holder_signing_material',
+    holderHandleId: 'linked-holder-handle',
+  },
+};
+void linkedHolderEcdsaPresignInitRequest;
+
+const invalidLinkedHolderPresignAuthorityWithRoleLocalMaterial: EcdsaPresignClientSessionInitRequest =
+  {
+    ...ecdsaPresignInitRequest,
+    // @ts-expect-error Linked holder authority cannot carry owner role-local material.
+    authority: {
+      kind: 'linked_holder_signing_material',
+      holderHandleId: 'linked-holder-handle',
+      materialHandle: 'ecdsa-material-handle',
+    },
+  };
+void invalidLinkedHolderPresignAuthorityWithRoleLocalMaterial;
+
 // @ts-expect-error presign persistence requires an explicit material expiry.
 const ecdsaPresignInitWithoutMaterialExpiry: EcdsaPresignClientSessionInitRequest = {
   authority: {
