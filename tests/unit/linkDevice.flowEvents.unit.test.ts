@@ -32,6 +32,7 @@ import type {
 } from '../../packages/shared-ts/src/device-linking';
 import {
   buildR103DeviceLinkFixture,
+  buildR103LinkedWalletSessionDeliveryFixture,
   buildR103TargetReadySourceFixture,
 } from './helpers/deviceLinkContracts.fixtures';
 import { parseWebAuthnCredentialIdB64u } from '../../packages/shared-ts/src/utils/domainIds';
@@ -101,6 +102,12 @@ function createPorts(
       return buildR103DeviceLinkFixture({
         linkSessionId: String(activeLinkSessionId),
       }).approval;
+    },
+    async getWalletSessionDeliveryV1() {
+      calls.push('get-wallet-session');
+      return buildR103LinkedWalletSessionDeliveryFixture(
+        buildR103DeviceLinkFixture({ linkSessionId: String(activeLinkSessionId) }),
+      );
     },
     async getTargetPreparationV1() {
       calls.push('target-preparation');
