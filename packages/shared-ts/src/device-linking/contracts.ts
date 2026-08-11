@@ -1,5 +1,8 @@
 import type {
   AuthorizationEvidenceSetId,
+  LinkedDeviceWalletSessionAuthorizationId,
+  MpcWalletSigningQuotaId,
+  TenantId,
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '../authorization/capabilityKinds';
@@ -562,6 +565,34 @@ export type LinkedDeviceRevokeResultV1 =
 export type LinkedDeviceManagementRequestV1 =
   | LinkedDeviceListRequestV1
   | LinkedDeviceRevokeRequestV1;
+
+export type LinkedDeviceWalletSessionTokenV1 = {
+  readonly kind: 'linked_device_wallet_session_token_v1';
+  readonly walletKeyId: WalletKeyId;
+  readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
+  readonly walletSessionJwt: string;
+};
+
+/** Device2-only response from the authenticated post-activation boundary. */
+export type LinkedDeviceWalletSessionDeliveryV1 = {
+  readonly kind: 'linked_device_wallet_session_delivery_v1';
+  readonly tenantId: TenantId;
+  readonly walletId: WalletId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
+  readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+  readonly keyManifestDigestB64u: DigestB64u;
+  readonly permission: QrLinkedDevicePermissionRequest;
+  readonly revocationEpoch: number;
+  readonly issuedAtMs: number;
+  readonly expiresAtMs: number;
+  readonly orderedTokens: readonly [
+    LinkedDeviceWalletSessionTokenV1,
+    ...LinkedDeviceWalletSessionTokenV1[],
+  ];
+};
 
 export function assertNeverLinkedDeviceSessionState(value: never): never {
   throw new Error(`[LinkedDeviceSessionState] unsupported state: ${String(value)}`);
