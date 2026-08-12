@@ -173,6 +173,37 @@ async function acceptsEmailOtpOperationStepUpWithoutMaterialRecovery(): Promise<
   expect(parsed.request.materialRecovery).toEqual({ kind: 'not_requested' });
 }
 
+async function acceptsEmailOtpOperationStepUpWithFactorReleaseMaterialRecovery(): Promise<void> {
+  const authority = buildEmailOtpWalletAuthAuthority({
+    walletId: 'frost-vermillion-k7p9m2',
+    provider: 'email',
+    providerUserId: 'email-user-route-validation',
+    emailHashHex: 'email-hash-route-validation',
+  });
+  const authorityRef = await walletAuthAuthorityRef({ authority });
+  const parsed = parseThresholdEd25519OperationStepUpGrantRequest(
+    validOperationStepUpBody(
+      {
+        kind: 'email_otp',
+        authority_ref: authorityRef,
+        provider_subject_id: 'email-user-route-validation',
+        challenge_id: 'challenge-route-validation',
+        otp_code: '123456',
+      },
+      {
+        kind: 'email_otp_factor_release_v1',
+        worker_ephemeral_public_key_65_b64u: 'worker-ephemeral-public-key',
+      },
+    ),
+  );
+  expect(parsed.ok).toBe(true);
+  if (!parsed.ok) throw new Error(parsed.body.message);
+  expect(parsed.request.materialRecovery).toEqual({
+    kind: 'email_otp_factor_release_v1',
+    workerEphemeralPublicKey65B64u: 'worker-ephemeral-public-key',
+  });
+}
+
 async function rejectsMixedOperationStepUpProofFields(): Promise<void> {
   const authority = buildEmailOtpWalletAuthAuthority({
     walletId: 'frost-vermillion-k7p9m2',
@@ -418,6 +449,10 @@ test(
 test(
   'threshold-ed25519 operation step-up permits an active Email OTP client without material recovery',
   acceptsEmailOtpOperationStepUpWithoutMaterialRecovery,
+);
+test(
+  'threshold-ed25519 operation step-up accepts Email OTP factor-release material recovery',
+  acceptsEmailOtpOperationStepUpWithFactorReleaseMaterialRecovery,
 );
 test(
   'threshold-ed25519 operation step-up rejects mixed factor proof fields',
