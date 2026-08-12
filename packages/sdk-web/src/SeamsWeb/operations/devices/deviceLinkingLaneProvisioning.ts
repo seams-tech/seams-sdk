@@ -1,4 +1,5 @@
 import { buildLinkedDeviceHolderDeliveryAcknowledgementV1 } from '@shared/device-linking';
+import { linkedDeviceEnrollmentBindingMatchesSourceV1 } from '@shared/device-linking/contracts';
 import { parseLaneHolderDeliveryReceiptV1 } from '@shared/signing-lanes/rotationParsers';
 import { parseLaneEnrollmentId, type LaneEnrollmentId } from '@shared/signing-lanes/ids';
 import type {
@@ -122,8 +123,7 @@ function assertDeliveryMatchesApproval(
     job.source.laneId !== binding.sourceLaneId ||
     job.source.laneShareEpoch !== binding.sourceLaneShareEpoch ||
     job.source.revocationEpoch !== binding.sourceRevocationEpoch ||
-    job.source.holderParticipantId !== binding.sourceHolderParticipantId ||
-    job.source.signingWorkerParticipantId !== binding.sourceSigningWorkerParticipantId ||
+    !linkedDeviceEnrollmentBindingMatchesSourceV1(binding, job.source) ||
     job.target.operation !== 'create_lane' ||
     job.target.laneKind !== 'linked_device' ||
     job.target.laneId !== binding.targetLaneId ||

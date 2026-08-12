@@ -68,6 +68,7 @@ import type {
   LaneProtocolCommitReceiptV1,
   RotatableSigningLaneJobV1,
 } from '../signing-lanes/rotation';
+import { parseOwnerLaneParticipantContinuityV1 } from '../signing-lanes/ownerContinuity';
 import { base64UrlDecode, base64UrlEncode } from '../utils/base64';
 import {
   decodeJwtPayloadRecord,
@@ -201,16 +202,25 @@ const CLAIM_FIELDS = [
 ] as const;
 const OWNER_AUTH_WALLET_SESSION_FIELDS = ['kind', 'walletSessionId', 'authorizationId'] as const;
 const OWNER_AUTH_STEP_UP_FIELDS = ['kind', 'evidenceSetId'] as const;
-const KEY_BINDING_FIELDS = [
+const KEY_BINDING_BASE_FIELDS = [
   'walletKeyId',
   'keyFamily',
   'sourceLaneId',
+  'sourceLaneKind',
+  'sourceKind',
   'sourceLaneShareEpoch',
   'sourceRevocationEpoch',
-  'sourceHolderParticipantId',
-  'sourceSigningWorkerParticipantId',
   'targetLaneId',
   'targetLaneShareEpoch',
+] as const;
+const OWNER_KEY_BINDING_FIELDS = [
+  ...KEY_BINDING_BASE_FIELDS,
+  'ownerParticipantContinuity',
+] as const;
+const PROVISIONED_KEY_BINDING_FIELDS = [
+  ...KEY_BINDING_BASE_FIELDS,
+  'sourceHolderParticipantId',
+  'sourceSigningWorkerParticipantId',
 ] as const;
 const PROTOCOL_VERSION_FIELDS = ['keyFamily', 'version'] as const;
 const ENROLLMENT_FIELDS = [
@@ -539,6 +549,29 @@ function parseKeyFamily(raw: unknown, label: string): 'ed25519' | 'ecdsa_secp256
     throw new Error(`${label} must identify a supported key family`);
   }
   return raw;
+}
+
+function parseSigningLaneKind(
+  raw: unknown,
+  label: string,
+):
+  | 'owner_passkey'
+  | 'owner_email_otp'
+  | 'linked_device'
+  | 'delegated_execution'
+  | 'recovery'
+  | 'break_glass' {
+  switch (raw) {
+    case 'owner_passkey':
+    case 'owner_email_otp':
+    case 'linked_device':
+    case 'delegated_execution':
+    case 'recovery':
+    case 'break_glass':
+      return raw;
+    default:
+      throw new Error(`${label} must identify a supported signing lane kind`);
+  }
 }
 
 function parseNonNegativeSafeInteger(raw: unknown, label: string): number {
@@ -1433,11 +1466,55 @@ export function parseLinkedDeviceEnrollmentKeyBindingV1(
   raw: unknown,
   label: string,
 ): LinkedDeviceEnrollmentKeyBindingV1 {
-  const record = exactRecord(raw, KEY_BINDING_FIELDS, label);
+  const baseRecord = requireRecord(raw, label);
+  const sourceLaneKind = parseSigningLaneKind(baseRecord.sourceLaneKind, `${label}.sourceLaneKind`);
+  const sourceKind = baseRecord.sourceKind;
+  if (sourceKind !== 'owner_registration' && sourceKind !== 'provisioned_lane') {
+    throw new Error(`${label}.sourceKind must identify a supported source branch`);
+  }
+  const record = exactRecord(
+    baseRecord,
+    sourceKind === 'owner_registration' ? OWNER_KEY_BINDING_FIELDS : PROVISIONED_KEY_BINDING_FIELDS,
+    label,
+  );
+  if (sourceKind === 'owner_registration') {
+    if (sourceLaneKind !== 'owner_passkey' && sourceLaneKind !== 'owner_email_otp') {
+      throw new Error(`${label}.sourceLaneKind must be an owner lane for owner_registration`);
+    }
+    return {
+      walletKeyId: parseWalletKey(record.walletKeyId, `${label}.walletKeyId`),
+      keyFamily: parseKeyFamily(record.keyFamily, `${label}.keyFamily`),
+      sourceLaneId: parseLaneId(record.sourceLaneId, `${label}.sourceLaneId`),
+      sourceLaneKind,
+      sourceKind,
+      sourceLaneShareEpoch: parseLaneEpoch(
+        record.sourceLaneShareEpoch,
+        `${label}.sourceLaneShareEpoch`,
+      ),
+      sourceRevocationEpoch: parseNonNegativeSafeInteger(
+        record.sourceRevocationEpoch,
+        `${label}.sourceRevocationEpoch`,
+      ),
+      ownerParticipantContinuity: parseOwnerLaneParticipantContinuityV1(
+        record.ownerParticipantContinuity,
+        `${label}.ownerParticipantContinuity`,
+      ),
+      targetLaneId: parseLaneId(record.targetLaneId, `${label}.targetLaneId`),
+      targetLaneShareEpoch: parseLaneEpoch(
+        record.targetLaneShareEpoch,
+        `${label}.targetLaneShareEpoch`,
+      ),
+    };
+  }
+  if (sourceLaneKind === 'owner_passkey' || sourceLaneKind === 'owner_email_otp') {
+    throw new Error(`${label}.sourceLaneKind must be provisioned for provisioned_lane`);
+  }
   return {
     walletKeyId: parseWalletKey(record.walletKeyId, `${label}.walletKeyId`),
     keyFamily: parseKeyFamily(record.keyFamily, `${label}.keyFamily`),
     sourceLaneId: parseLaneId(record.sourceLaneId, `${label}.sourceLaneId`),
+    sourceLaneKind,
+    sourceKind,
     sourceLaneShareEpoch: parseLaneEpoch(
       record.sourceLaneShareEpoch,
       `${label}.sourceLaneShareEpoch`,

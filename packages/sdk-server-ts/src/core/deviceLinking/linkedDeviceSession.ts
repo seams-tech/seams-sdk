@@ -51,6 +51,8 @@ import type {
   LinkedDeviceEnrollmentReceiptV1,
   LinkedDeviceEnrollmentChildReceiptV1,
   LinkedDeviceEnrollmentKeyBindingV1,
+  LinkedDeviceOwnerEnrollmentKeyBindingV1,
+  LinkedDeviceProvisionedEnrollmentKeyBindingV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
   LinkedDeviceProtocolVersionV1,
   LinkedDeviceSessionState,
@@ -58,6 +60,8 @@ import type {
   QrLinkedDevicePermissionRequest,
   QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking/contracts';
+import { parseOwnerLaneParticipantContinuityV1 } from '@shared/signing-lanes/ownerContinuity';
+import type { SigningLaneKind } from '@shared/signing-lanes/records';
 
 type LinkedDeviceClaimV1 = LinkedDeviceSessionClaimV1;
 
@@ -1628,23 +1632,17 @@ function parseKeyBindingsV1(
 
 function parseKeyBindingV1(raw: unknown): LinkedDeviceEnrollmentKeyBindingV1 {
   const record = requireRecord(raw, 'key binding');
-  requireExactKeys(record, [
-    'walletKeyId',
-    'keyFamily',
-    'sourceLaneId',
-    'sourceLaneShareEpoch',
-    'sourceRevocationEpoch',
-    'sourceHolderParticipantId',
-    'sourceSigningWorkerParticipantId',
-    'targetLaneId',
-    'targetLaneShareEpoch',
-  ]);
   if (record.keyFamily !== 'ed25519' && record.keyFamily !== 'ecdsa_secp256k1')
     throw new Error('key binding family is invalid');
-  return {
+  const keyFamily: 'ed25519' | 'ecdsa_secp256k1' = record.keyFamily;
+  const sourceLaneKind = parseSigningLaneKindV1(record.sourceLaneKind);
+  const sourceKind = parseSourceKindV1(record.sourceKind);
+  const common = {
     walletKeyId: parseId(record.walletKeyId, parseWalletKeyId, 'key binding.walletKeyId'),
-    keyFamily: record.keyFamily,
+    keyFamily,
     sourceLaneId: parseId(record.sourceLaneId, parseSigningLaneId, 'key binding.sourceLaneId'),
+    sourceLaneKind,
+    sourceKind,
     sourceLaneShareEpoch: parseId(
       record.sourceLaneShareEpoch,
       parseLaneShareEpoch,
@@ -1654,6 +1652,58 @@ function parseKeyBindingV1(raw: unknown): LinkedDeviceEnrollmentKeyBindingV1 {
       record.sourceRevocationEpoch,
       'key binding.sourceRevocationEpoch',
     ),
+    targetLaneId: parseId(record.targetLaneId, parseSigningLaneId, 'key binding.targetLaneId'),
+    targetLaneShareEpoch: parseId(
+      record.targetLaneShareEpoch,
+      parseLaneShareEpoch,
+      'key binding.targetLaneShareEpoch',
+    ),
+  };
+  if (sourceKind === 'owner_registration') {
+    if (sourceLaneKind !== 'owner_passkey' && sourceLaneKind !== 'owner_email_otp')
+      throw new Error('key binding source lane kind must be owner');
+    requireExactKeys(record, [
+      'walletKeyId',
+      'keyFamily',
+      'sourceLaneId',
+      'sourceLaneKind',
+      'sourceKind',
+      'sourceLaneShareEpoch',
+      'sourceRevocationEpoch',
+      'ownerParticipantContinuity',
+      'targetLaneId',
+      'targetLaneShareEpoch',
+    ]);
+    const ownerBinding = {
+      ...common,
+      sourceKind: 'owner_registration',
+      sourceLaneKind,
+      ownerParticipantContinuity: parseOwnerLaneParticipantContinuityV1(
+        record.ownerParticipantContinuity,
+        'key binding.ownerParticipantContinuity',
+      ),
+    } satisfies LinkedDeviceOwnerEnrollmentKeyBindingV1;
+    return ownerBinding;
+  }
+  if (sourceLaneKind === 'owner_passkey' || sourceLaneKind === 'owner_email_otp')
+    throw new Error('key binding source lane kind must be provisioned');
+  requireExactKeys(record, [
+    'walletKeyId',
+    'keyFamily',
+    'sourceLaneId',
+    'sourceLaneKind',
+    'sourceKind',
+    'sourceLaneShareEpoch',
+    'sourceRevocationEpoch',
+    'sourceHolderParticipantId',
+    'sourceSigningWorkerParticipantId',
+    'targetLaneId',
+    'targetLaneShareEpoch',
+  ]);
+  const provisionedBinding = {
+    ...common,
+    sourceKind: 'provisioned_lane',
+    sourceLaneKind,
     sourceHolderParticipantId: parseIdentityString(
       record.sourceHolderParticipantId,
       'key binding.sourceHolderParticipantId',
@@ -1662,13 +1712,27 @@ function parseKeyBindingV1(raw: unknown): LinkedDeviceEnrollmentKeyBindingV1 {
       record.sourceSigningWorkerParticipantId,
       'key binding.sourceSigningWorkerParticipantId',
     ) as SigningWorkerParticipantId,
-    targetLaneId: parseId(record.targetLaneId, parseSigningLaneId, 'key binding.targetLaneId'),
-    targetLaneShareEpoch: parseId(
-      record.targetLaneShareEpoch,
-      parseLaneShareEpoch,
-      'key binding.targetLaneShareEpoch',
-    ),
-  };
+  } satisfies LinkedDeviceProvisionedEnrollmentKeyBindingV1;
+  return provisionedBinding;
+}
+
+function parseSigningLaneKindV1(raw: unknown): SigningLaneKind {
+  switch (raw) {
+    case 'owner_passkey':
+    case 'owner_email_otp':
+    case 'linked_device':
+    case 'delegated_execution':
+    case 'recovery':
+    case 'break_glass':
+      return raw;
+    default:
+      throw new Error('key binding source lane kind is invalid');
+  }
+}
+
+function parseSourceKindV1(raw: unknown): 'owner_registration' | 'provisioned_lane' {
+  if (raw === 'owner_registration' || raw === 'provisioned_lane') return raw;
+  throw new Error('key binding source kind is invalid');
 }
 
 function parseProtocolVersionsV1(

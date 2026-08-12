@@ -5,6 +5,7 @@ import {
   parseLinkedDeviceTargetPreparationV1,
   parseLinkedDeviceTargetReadyR102InputV1,
 } from '@shared/device-linking/parsers';
+import { linkedDeviceEnrollmentBindingMatchesSourceV1 } from '@shared/device-linking/contracts';
 import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceProvisioningCommandV1,
@@ -488,8 +489,7 @@ function assertTargetReadyIdentity(
       job.source.laneId !== approvedChild.sourceLaneId ||
       job.source.laneShareEpoch !== approvedChild.sourceLaneShareEpoch ||
       job.source.revocationEpoch !== approvedChild.sourceRevocationEpoch ||
-      job.source.holderParticipantId !== approvedChild.sourceHolderParticipantId ||
-      job.source.signingWorkerParticipantId !== approvedChild.sourceSigningWorkerParticipantId ||
+      !linkedDeviceEnrollmentBindingMatchesSourceV1(approvedChild, job.source) ||
       job.target.operation !== 'create_lane' ||
       job.target.laneKind !== 'linked_device' ||
       job.target.laneId !== approvedChild.targetLaneId ||

@@ -1,3 +1,4 @@
+import { linkedDeviceEnrollmentBindingMatchesSourceV1 } from '@shared/device-linking/contracts';
 import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceHolderDeliveryAcknowledgementV1,
@@ -181,8 +182,7 @@ function assertJobMatchesManifest(
     job.source.laneId !== manifestChild.sourceLaneId ||
     job.source.laneShareEpoch !== manifestChild.sourceLaneShareEpoch ||
     job.source.revocationEpoch !== manifestChild.sourceRevocationEpoch ||
-    job.source.holderParticipantId !== approvedChild.sourceHolderParticipantId ||
-    job.source.signingWorkerParticipantId !== approvedChild.sourceSigningWorkerParticipantId ||
+    !linkedDeviceEnrollmentBindingMatchesSourceV1(approvedChild, job.source) ||
     !equalLaneRecords(job.source.materialActivation, manifestChild.sourceMaterialActivation) ||
     job.target.operation !== 'create_lane' ||
     job.target.laneKind !== 'linked_device' ||

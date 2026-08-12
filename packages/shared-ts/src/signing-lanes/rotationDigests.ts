@@ -24,6 +24,8 @@ import type {
   RotatableSigningLaneJobV1,
   SigningWorkerLaneMaterialIdentityV1,
 } from './rotation';
+import { isProvisionedLaneProtocolSourceV1 } from './rotation';
+import { ownerLaneParticipantContinuityCanonicalBytesV1 } from './ownerContinuity';
 
 const ENROLLMENT_MANIFEST_DOMAIN = 'seams/rotatable-signing-lanes/enrollment-manifest/v1';
 const AGGREGATE_ACTIVATION_DOMAIN = 'seams/rotatable-signing-lanes/aggregate-activation-receipt/v1';
@@ -137,11 +139,26 @@ function encodeAuthorization(value: LaneOperationAuthorizationBindingV1): Uint8A
 }
 
 function encodeSource(value: RotatableSigningLaneJobV1['source']): Uint8Array {
-  return concat([
+  const common = [
     text(value.laneId, 'source.laneId'),
     text(value.laneKind, 'source.laneKind'),
     text(value.laneShareEpoch, 'source.laneShareEpoch'),
     u64(value.revocationEpoch, 'source.revocationEpoch'),
+    text(value.sourceKind, 'source.sourceKind'),
+  ] as const;
+  if (value.ownerParticipantContinuity !== undefined) {
+    return concat([
+      ...common,
+      ownerLaneParticipantContinuityCanonicalBytesV1(value.ownerParticipantContinuity),
+      digest(value.participantBindingDigestB64u, 'source.participantBindingDigestB64u'),
+      activationField(value.materialActivation, 'source.materialActivation'),
+    ]);
+  }
+  if (!isProvisionedLaneProtocolSourceV1(value)) {
+    throw new Error('provisioned lane source participant identities are required');
+  }
+  return concat([
+    ...common,
     text(value.holderParticipantId, 'source.holderParticipantId'),
     text(value.signingWorkerParticipantId, 'source.signingWorkerParticipantId'),
     text(value.signingWorkerRecipientKeyId, 'source.signingWorkerRecipientKeyId'),
@@ -316,15 +333,7 @@ export function encodeEd25519YaoLaneJobTranscriptV1(value: Ed25519YaoLaneJobV1):
     text(value.idempotencyKey, 'idempotencyKey'),
     text(value.walletId, 'walletId'),
     text(value.walletKeyId, 'walletKeyId'),
-    text(value.source.laneId, 'source.laneId'),
-    text(value.source.laneKind, 'source.laneKind'),
-    text(value.source.laneShareEpoch, 'source.laneShareEpoch'),
-    u64(value.source.revocationEpoch, 'source.revocationEpoch'),
-    text(value.source.holderParticipantId, 'source.holderParticipantId'),
-    text(value.source.signingWorkerParticipantId, 'source.signingWorkerParticipantId'),
-    text(value.source.signingWorkerRecipientKeyId, 'source.signingWorkerRecipientKeyId'),
-    text(value.source.participantBindingDigestB64u, 'source.participantBindingDigestB64u'),
-    activation(value.source.materialActivation),
+    encodeSource(value.source),
     target,
     text(value.target.laneId, 'target.laneId'),
     text(value.target.laneShareEpoch, 'target.laneShareEpoch'),

@@ -38,6 +38,7 @@ import {
   parseEcdsaServerGeneration,
 } from '@shared/utils/ecdsaCapabilityActivation';
 import { parseSdkEcdsaDerivationThresholdKeyId } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import { parseOwnerLaneParticipantContinuityV1 } from '@shared/signing-lanes/ownerContinuity';
 
 export function parseLinkedDeviceOwnerSourceChildResolutionV1(
   raw: unknown,
@@ -283,33 +284,83 @@ function parseSource(
   raw: unknown,
   label: string,
 ): LinkedDeviceOwnerSourceChildResolutionV1['source'] {
+  const baseRecord = requireRecord(raw, label);
+  const sourceKind = baseRecord.sourceKind;
+  if (sourceKind !== 'owner_registration' && sourceKind !== 'provisioned_lane') {
+    throw new Error(`${label}.sourceKind is invalid`);
+  }
   const record = exactRecord(
-    raw,
-    [
-      'laneId',
-      'laneKind',
-      'laneShareEpoch',
-      'revocationEpoch',
-      'holderParticipantId',
-      'signingWorkerParticipantId',
-      'signingWorkerRecipientKeyId',
-      'participantBindingDigestB64u',
-      'materialActivation',
-    ],
+    baseRecord,
+    sourceKind === 'owner_registration'
+      ? ([
+          'laneId',
+          'laneKind',
+          'laneShareEpoch',
+          'revocationEpoch',
+          'sourceKind',
+          'participantBindingDigestB64u',
+          'materialActivation',
+          'ownerParticipantContinuity',
+        ] as const)
+      : ([
+          'laneId',
+          'laneKind',
+          'laneShareEpoch',
+          'revocationEpoch',
+          'sourceKind',
+          'participantBindingDigestB64u',
+          'materialActivation',
+          'holderParticipantId',
+          'signingWorkerParticipantId',
+          'signingWorkerRecipientKeyId',
+        ] as const),
     label,
   );
   const laneKind = record.laneKind;
-  if (laneKind !== 'owner_passkey' && laneKind !== 'owner_email_otp')
+  if (
+    laneKind !== 'owner_passkey' &&
+    laneKind !== 'owner_email_otp' &&
+    laneKind !== 'linked_device' &&
+    laneKind !== 'delegated_execution' &&
+    laneKind !== 'recovery' &&
+    laneKind !== 'break_glass'
+  )
     throw new Error(`${label}.laneKind is invalid`);
   const materialActivation = parseMpcMaterialActivationRef(record.materialActivation);
-  return {
+  const common = {
     laneId: parseRequired(parseSigningLaneId(record.laneId), `${label}.laneId`),
-    laneKind,
     laneShareEpoch: parseRequired(
       parseLaneShareEpoch(record.laneShareEpoch),
       `${label}.laneShareEpoch`,
     ),
     revocationEpoch: requiredNonNegativeInteger(record.revocationEpoch, `${label}.revocationEpoch`),
+    participantBindingDigestB64u: parseRequired(
+      parseLaneParticipantBindingDigestB64u(record.participantBindingDigestB64u),
+      `${label}.participantBindingDigestB64u`,
+    ),
+    materialActivation: parseRequired(materialActivation, `${label}.materialActivation`),
+  };
+  if (sourceKind === 'owner_registration') {
+    if (laneKind !== 'owner_passkey' && laneKind !== 'owner_email_otp') {
+      throw new Error(`${label}.laneKind must be owner for owner_registration`);
+    }
+    return {
+      ...common,
+      sourceKind: 'owner_registration',
+      laneKind,
+      ownerParticipantContinuity: parseOwnerLaneParticipantContinuityV1(
+        record.ownerParticipantContinuity,
+        `${label}.ownerParticipantContinuity`,
+      ),
+    };
+  }
+  if (laneKind === 'owner_passkey' || laneKind === 'owner_email_otp') {
+    throw new Error(`${label}.laneKind must be provisioned for provisioned_lane`);
+  }
+  return {
+    ...common,
+    sourceKind: 'provisioned_lane',
+    laneKind,
     holderParticipantId: parseRequired(
       parseLaneHolderParticipantId(record.holderParticipantId),
       `${label}.holderParticipantId`,
@@ -322,11 +373,6 @@ function parseSource(
       parseSigningWorkerRecipientKeyId(record.signingWorkerRecipientKeyId),
       `${label}.signingWorkerRecipientKeyId`,
     ),
-    participantBindingDigestB64u: parseRequired(
-      parseLaneParticipantBindingDigestB64u(record.participantBindingDigestB64u),
-      `${label}.participantBindingDigestB64u`,
-    ),
-    materialActivation: parseRequired(materialActivation, `${label}.materialActivation`),
   };
 }
 

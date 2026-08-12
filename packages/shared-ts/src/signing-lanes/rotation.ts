@@ -43,6 +43,7 @@ import type {
 } from './participants';
 import type { EvmFamilySigningKeySlotId } from './evmFamilySigningKeySlotId';
 import type { SigningLaneKind } from './records';
+import type { OwnerLaneParticipantContinuityV1 } from './ownerContinuity';
 
 export type LinkedDeviceLaneAuthorizationBindingV1 = {
   kind: 'linked_device_enrollment';
@@ -63,17 +64,43 @@ export type LaneOperationAuthorizationBindingV1 =
   | LinkedDeviceLaneAuthorizationBindingV1
   | OwnerLaneRefreshAuthorizationBindingV1;
 
-export type ActiveLaneProtocolSourceV1 = {
+type ActiveLaneProtocolSourceBaseV1 = {
   laneId: SigningLaneId;
-  laneKind: SigningLaneKind;
   laneShareEpoch: LaneShareEpoch;
   revocationEpoch: number;
-  holderParticipantId: LaneHolderParticipantId;
-  signingWorkerParticipantId: SigningWorkerParticipantId;
-  signingWorkerRecipientKeyId: SigningWorkerRecipientKeyId;
   participantBindingDigestB64u: string;
   materialActivation: MpcMaterialActivationRef;
 };
+
+/** Existing owner signer rows expose continuity, without linked-lane HPKE identities. */
+export type OwnerLaneProtocolSourceV1 = ActiveLaneProtocolSourceBaseV1 & {
+  sourceKind: 'owner_registration';
+  laneKind: 'owner_passkey' | 'owner_email_otp';
+  ownerParticipantContinuity: OwnerLaneParticipantContinuityV1;
+  holderParticipantId?: never;
+  signingWorkerParticipantId?: never;
+  signingWorkerRecipientKeyId?: never;
+};
+
+/** Independently provisioned lanes carry their durable holder/worker identities. */
+export type ProvisionedLaneProtocolSourceV1 = ActiveLaneProtocolSourceBaseV1 & {
+  sourceKind: 'provisioned_lane';
+  laneKind: Exclude<SigningLaneKind, 'owner_passkey' | 'owner_email_otp'>;
+  holderParticipantId: LaneHolderParticipantId;
+  signingWorkerParticipantId: SigningWorkerParticipantId;
+  signingWorkerRecipientKeyId: SigningWorkerRecipientKeyId;
+  ownerParticipantContinuity?: never;
+};
+
+export type ActiveLaneProtocolSourceV1 =
+  | OwnerLaneProtocolSourceV1
+  | ProvisionedLaneProtocolSourceV1;
+
+export function isProvisionedLaneProtocolSourceV1(
+  source: ActiveLaneProtocolSourceV1,
+): source is ProvisionedLaneProtocolSourceV1 {
+  return source.sourceKind === 'provisioned_lane';
+}
 
 export type LaneTargetHolderV1 = {
   participantId: LaneHolderParticipantId;

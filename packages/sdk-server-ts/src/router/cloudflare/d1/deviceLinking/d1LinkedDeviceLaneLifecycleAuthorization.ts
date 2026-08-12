@@ -1,3 +1,4 @@
+import { linkedDeviceEnrollmentBindingMatchesSourceV1 } from '@shared/device-linking/contracts';
 import type {
   EcdsaAdditiveLaneJobV1,
   Ed25519YaoLaneJobV1,
@@ -98,8 +99,7 @@ function assertCommonJobMatchesPlanV1(
     binding.sourceLaneId !== job.source.laneId ||
     binding.sourceLaneShareEpoch !== job.source.laneShareEpoch ||
     binding.sourceRevocationEpoch !== job.source.revocationEpoch ||
-    binding.sourceHolderParticipantId !== job.source.holderParticipantId ||
-    binding.sourceSigningWorkerParticipantId !== job.source.signingWorkerParticipantId ||
+    !linkedDeviceEnrollmentBindingMatchesSourceV1(binding, job.source) ||
     binding.targetLaneId !== job.target.laneId ||
     binding.targetLaneShareEpoch !== job.target.laneShareEpoch ||
     !mpcMaterialActivationRefsEqual(child.source.materialActivation, job.source.materialActivation)
