@@ -530,7 +530,7 @@ async function stagingLinkedDeviceTargetSigningWorker(env: CloudflareD1RouterApi
   const hpkePublicKeyB64u = base64UrlEncode(hpkePublicKey);
   const parsedParticipantId = parseSigningWorkerParticipantId(participantId);
   if (!parsedParticipantId.ok) throw new Error(parsedParticipantId.error.message);
-  const recipientKeyId = `${participantId}:server-output`;
+  const recipientKeyId = requireEnvString(env, 'SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH');
   const parsedRecipientKeyId = parseSigningWorkerRecipientKeyId(recipientKeyId);
   if (!parsedRecipientKeyId.ok) throw new Error(parsedRecipientKeyId.error.message);
   const parsedHpkePublicKeyB64u = parseHpkePublicKeyB64u(hpkePublicKeyB64u);

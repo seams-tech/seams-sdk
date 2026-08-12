@@ -1268,7 +1268,10 @@ async function localLinkedDeviceTargetSigningWorker(env: LocalD1DevEnv) {
   const hpkePublicKeyB64u = base64UrlEncode(hpkePublicKey);
   const parsedParticipantId = parseSigningWorkerParticipantId(signingWorkerId);
   if (!parsedParticipantId.ok) throw new Error(parsedParticipantId.error.message);
-  const recipientKeyId = `${signingWorkerId}:server-output`;
+  const recipientKeyId = requireLocalEnvString(
+    env.SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH,
+    'SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH',
+  );
   const parsedRecipientKeyId = parseSigningWorkerRecipientKeyId(recipientKeyId);
   if (!parsedRecipientKeyId.ok) throw new Error(parsedRecipientKeyId.error.message);
   const parsedHpkePublicKeyB64u = parseHpkePublicKeyB64u(hpkePublicKeyB64u);
