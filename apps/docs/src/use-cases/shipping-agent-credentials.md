@@ -1,8 +1,9 @@
 ---
-title: Shipping Agent Credentials
+title: Shipping agent credentials
+description: Scope shipping-agent authority to a shipment, allowed actions, risk rules, expiry, and revocation.
 ---
 
-# Shipping Agent Credentials
+# Shipping agent credentials
 
 Shipping agents need narrow authority. A credential should prove which agent is
 acting, what shipment or order they may touch, and which actions are allowed
@@ -14,7 +15,7 @@ right now.
 shipper mandate -> agent credential -> shipment intent -> policy -> execution
 ```
 
-## Example Authority
+## Example authority
 
 ```text
 This shipping agent may update delivery status, request pickup confirmation,
@@ -34,23 +35,23 @@ flowchart TD
   Adapter --> Audit["Credential and action audit"]
 ```
 
-## Policy Checks
+## Policy checks
 
-| Check | Purpose |
-| --- | --- |
-| Subject | Confirms the agent, role, or carrier identity. |
-| Shipment scope | Limits authority to one order, route, warehouse, region, or customer. |
-| Action scope | Allows status updates, pickup proof, label creation, or exception handling. |
-| Risk rules | Escalates refunds, address changes, high-value items, or suspicious substitutions. |
-| Expiry and revocation | Stops stale credentials and revoked agent authority. |
+| Check                 | Purpose                                                                            |
+| --------------------- | ---------------------------------------------------------------------------------- |
+| Subject               | Confirms the agent, role, or carrier identity.                                     |
+| Shipment scope        | Limits authority to one order, route, warehouse, region, or customer.              |
+| Action scope          | Allows status updates, pickup proof, label creation, or exception handling.        |
+| Risk rules            | Escalates refunds, address changes, high-value items, or suspicious substitutions. |
+| Expiry and revocation | Stops stale credentials and revoked agent authority.                               |
 
 The credential should authorize the shipping action rather than expose a broad
 merchant API key. When a shipping action needs payment, refund, or wallet
 execution, route it through the wallet signing path.
 
-## Application-Side Shape
+## Application-side shape
 
-```ts
+```ts [Application pseudocode]
 type ShippingIntent = {
   kind: 'shipping_agent.update_status';
   orderId: string;

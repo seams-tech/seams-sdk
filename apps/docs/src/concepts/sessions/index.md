@@ -1,5 +1,6 @@
 ---
 title: Sessions
+description: Model runtime signing authority through wallet sessions, capability readiness, lane selection, and quotas.
 ---
 
 # Sessions
@@ -11,6 +12,6 @@ safe to use.
 Read next:
 
 - [Signing Lanes](/concepts/sessions/signing-lanes)
-- [Wallet Sessions](/concepts/sessions/wallet-sessions)
+- [Wallet sessions](/concepts/sessions/wallet-sessions)
 - [Sealed Refresh](/concepts/sessions/sealed-refresh)
 - [Nonce Lanes](/concepts/sessions/nonce-lanes)

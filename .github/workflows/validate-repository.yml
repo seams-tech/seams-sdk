@@ -6,8 +6,6 @@ on:
       - dev
       - main
     paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
       - 'tests/**'
   pull_request:
   merge_group:
@@ -131,15 +129,23 @@ jobs:
         run: |
           pnpm lint
           pnpm type-check
+          pnpm check:docs-links
+          pnpm check:docs-fences
           pnpm format:rust:check
           pnpm lint:rust
           pnpm check:signing-architecture
+
+      - name: Build documentation
+        run: pnpm docs:build
 
       - name: Setup Bun (for worker bundling)
         uses: oven-sh/setup-bun@v2
 
       - name: Install Playwright (Chromium + system deps)
         run: pnpm -C tests exec playwright install --with-deps chromium
+
+      - name: Run documentation browser smoke
+        run: pnpm docs:test
 
       - name: Build SDK (production)
         env:

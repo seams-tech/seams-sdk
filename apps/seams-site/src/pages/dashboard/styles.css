@@ -1,7 +1,5 @@
 .dashboard-shell {
-  /* Paper palette, pinned to match the marketing frontpage (src/styles/h2.css).
-     Hardcoded and theme-independent so the console stays light like the
-     frontpage even when the SDK theme is dark. */
+  /* Paper palette shared with the marketing site. */
   --dashboard-bg: #ffffff;
   --dashboard-surface: #ffffff;
   --dashboard-surface-soft: #f5f3f1; /* h2-taupe: quiet fills */
@@ -87,9 +85,7 @@
   box-sizing: border-box;
 }
 
-/* Pin heading color to the paper ink. A bare global `h2 { color:
-   var(--site-text-primary) }` (theme-following, light in dark mode) otherwise
-   wins over the shell's inherited color and washes headings out. */
+/* Pin headings to the dashboard's Paper ink. */
 .dashboard-shell :is(h1, h2, h3, h4, h5, h6) {
   color: var(--dashboard-ink);
 }
@@ -3511,10 +3507,10 @@
   color: var(--dashboard-warning);
 }
 
-.dashboard-hero__card-icon--violet {
-  border-color: color-mix(in srgb, #7c5f96 24%, var(--dashboard-border));
-  background: #ede2f4;
-  color: #6d5386;
+.dashboard-hero__card-icon--blue {
+  border-color: color-mix(in srgb, #4a6fa5 24%, var(--dashboard-border));
+  background: #edf3fa;
+  color: #4a6fa5;
 }
 
 /* Promo band: the one colorful surface per page, using the Seams v9 brand
@@ -4472,15 +4468,6 @@ select.dashboard-input {
 
 .dashboard-select--audit option {
   color: var(--dashboard-ink);
-}
-
-html[data-w3a-theme='dark'] .dashboard-input--audit,
-html[data-w3a-theme='dark'] .dashboard-input--audit:hover,
-html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
-.w3a-theme-provider[data-w3a-theme='dark'] .dashboard-input--audit,
-.w3a-theme-provider[data-w3a-theme='dark'] .dashboard-input--audit:hover,
-.w3a-theme-provider[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible {
-  box-shadow: none;
 }
 
 .dashboard-textarea {
@@ -5629,10 +5616,7 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   font-size: 0.9rem;
 }
 
-/* The login page is the door to the console, so it wears the same pinned paper
-   palette as .dashboard-shell (hardcoded, theme-independent) rather than the
-   theme-following site canvas — otherwise the sign-in column goes dark while
-   the console behind it stays paper. */
+/* The login page uses the same Paper palette as the console. */
 .dashboard-login {
   min-height: 100dvh;
   display: grid;

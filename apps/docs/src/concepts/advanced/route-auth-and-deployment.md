@@ -1,32 +1,33 @@
 ---
-title: Route Auth And Deployment
+title: Route auth and deployment
+description: Protect Router, worker, wallet-session, and deployment routes with exact identity and request authentication.
 ---
 
-# Route Auth And Deployment
+# Route auth and deployment
 
 Router routes, private worker routes, wallet-session routes, and deployment
 roles use separate auth boundaries.
 
-## Public Router Boundary
+## Public Router boundary
 
 Public signing routes should require Wallet Session bearer authority, strict
 request-body parsing, origin policy, replay checks, quota checks, and signing
 budget admission before private worker fanout.
 
-## Private Worker Boundary
+## Private Worker boundary
 
 Deriver and SigningWorker private routes should be reachable only through
 approved service bindings or private service auth. They should not expose public
 browser CORS or parse Wallet Session credentials directly.
 
-## Deployment Roles
+## Deployment roles
 
 Both supported Cloudflare profiles keep Router, Deriver A, Deriver B, and
 SigningWorker as distinct runtime roles:
 
-| Profile | Use | A/B transport | Security boundary |
-| --- | --- | --- | --- |
-| Same account | Development, staging, and latency benchmarks | Service Bindings | Separate Worker runtimes under one shared account control plane. |
+| Profile           | Use                                          | A/B transport               | Security boundary                                                                         |
+| ----------------- | -------------------------------------------- | --------------------------- | ----------------------------------------------------------------------------------------- |
+| Same account      | Development, staging, and latency benchmarks | Service Bindings            | Separate Worker runtimes under one shared account control plane.                          |
 | Separate accounts | Production and production-parity development | Authenticated, pinned HTTPS | Independent A and B administration, credentials, storage, logs, and deployment authority. |
 
 The deployment profile is selected before startup. Client requests cannot
