@@ -477,7 +477,7 @@ export class CloudflareSigningWorkerEcdsaLaneTransportV1 implements SigningWorke
         holderRound: input.holderRound,
         holderPackage,
         encryptedDelta,
-        sourceMaterial,
+        sourceMaterial: sourceMaterialWireV1(sourceMaterial),
       },
     });
     const effect = exactRecord(response, ['outcome', 'receipt'], 'ecdsaLaneExecuteEffect');
@@ -551,6 +551,24 @@ export class CloudflareSigningWorkerEcdsaLaneTransportV1 implements SigningWorke
     readonly command: RevokeSigningLaneV1;
   }): Promise<SigningWorkerLaneRetirementProjectionV1> {
     return await this.options.retirementTransport.retireServerMaterialV1(input);
+  }
+}
+
+function sourceMaterialWireV1(
+  source: CloudflareEcdsaLaneSourceMaterialV1,
+): Record<string, unknown> {
+  switch (source.kind) {
+    case 'lane_material':
+      return source;
+    case 'registration_activation':
+      return {
+        kind: source.kind,
+        lookup: {
+          account_id: source.lookup.accountId,
+          material_activation_id: source.lookup.materialActivationId,
+          signing_worker_id: source.lookup.signingWorkerId,
+        },
+      };
   }
 }
 
