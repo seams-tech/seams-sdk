@@ -68,6 +68,11 @@ import type {
   PrepareEcdsaAdditiveLaneHolderResultV1,
 } from '@/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
 import type {
+  Ed25519OperationStepUpCredential,
+  Ed25519OperationStepUpProof,
+  IssuedEd25519OperationStepUpAuthorization,
+} from '../threshold/ed25519/walletSession';
+import type {
   CloseRouterAbEcdsaRegistrationCeremonyRequestV1,
   CloseRouterAbEcdsaRegistrationCeremonyResultV1,
   CreateRouterAbEcdsaRegistrationCeremonyRequestV1,
@@ -110,6 +115,7 @@ import type {
   RouterAbEcdsaRegistrationActivationReceiptV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { LoadedWalletCustodyEd25519MaterialV1 } from '../walletCustody/ed25519SeedMaterial';
+import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 
 export type EmailOtpEd25519YaoRecoveryAugmentationV1 = {
   readonly kind: typeof ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1;
@@ -561,6 +567,24 @@ export type EmailOtpWarmMaterialTarget =
       readonly materialActivation: MpcMaterialActivationRef;
     };
 
+export type EmailOtpEd25519YaoOperationMaterialRequest = {
+  readonly relayUrl: string;
+  readonly walletId: string;
+  readonly orgId: string;
+  readonly providerSubjectId: string;
+  readonly nearAccountId: string;
+  readonly signerSlot: number;
+  readonly expectedOperationalPublicKey: string;
+  readonly expectedThresholdSessionId: ThresholdEd25519SessionId;
+  readonly expectedMaterialActivation: MpcMaterialActivationRef;
+  readonly ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryAugmentationV1;
+  readonly walletCustodyEd25519Material: EmailOtpWalletCustodyEd25519MaterialRequest;
+  readonly normalSigningRequest: RouterAbNormalSigningPrepareRequestV2Wire;
+  readonly displayDigest: string;
+  readonly proof: Extract<Ed25519OperationStepUpProof, { kind: 'email_otp' }>;
+  readonly credential: Ed25519OperationStepUpCredential;
+};
+
 export interface EmailOtpWorkerOperationMap {
   prewarmEmailOtpRegistrationCrypto: {
     payload: Record<string, never>;
@@ -839,6 +863,16 @@ export interface EmailOtpWorkerOperationMap {
         }
       | { ok: false; code: string; message: string };
   };
+  rehydrateEmailOtpEd25519YaoOperationMaterial: {
+    payload: EmailOtpEd25519YaoOperationMaterialRequest;
+    result: {
+      activeClientHandle: string;
+      metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+      bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+      walletCustodyEd25519Material?: LoadedWalletCustodyEd25519MaterialV1;
+      issuedAuthorization: IssuedEd25519OperationStepUpAuthorization;
+    };
+  };
   clearEmailOtpWarmSessionMaterial: {
     payload: {
       target: EmailOtpWarmMaterialTarget;
@@ -968,6 +1002,7 @@ export type EmailOtpWarmSessionOperationType =
   | 'consumeEmailOtpWarmSessionUses'
   | 'sealEmailOtpWarmSessionMaterial'
   | 'rehydrateEmailOtpEcdsaWarmSessionMaterial'
+  | 'rehydrateEmailOtpEd25519YaoOperationMaterial'
   | 'clearEmailOtpWarmSessionMaterial';
 export type EmailOtpExportOperationType = 'exportEmailOtpEd25519YaoSeedWithAuthorization';
 export type EmailOtpDomainOperationType =

@@ -158,6 +158,21 @@ import {
   type RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
+  issueEd25519OperationStepUpAuthorization,
+  type Ed25519OperationStepUpCredential,
+  type Ed25519OperationStepUpProof,
+  type IssuedEd25519OperationStepUpAuthorization,
+} from '../../threshold/ed25519/walletSession';
+import type {
+  RouterAbEd25519NormalSigningIntentV2Wire,
+  RouterAbEd25519SigningPayloadV2Wire,
+  RouterAbNormalSigningPrepareRequestV2Wire,
+  RouterAbNormalSigningScopeV2Wire,
+  RouterAbNearDelegateActionIntentV1Wire,
+  RouterAbNearTransactionIntentV1Wire,
+  RouterAbNearNetworkIdV2Wire,
+} from '@/core/rpcClients/relayer/routerAbNormalSigning';
+import {
   thresholdEcdsaChainTargetFromRequest,
   thresholdEcdsaChainTargetsEqual,
   toWalletId,
@@ -1778,6 +1793,87 @@ async function addClientSealFromBytes(args: {
 
 const EMAIL_OTP_FACTOR_RELEASE_AAD_PREFIX = 'seams/email-otp/factor-release/v1';
 
+async function decryptEmailOtpFactorReleaseEnvelope(args: {
+  walletId: string;
+  challengeId: string;
+  workerPrivateKey: CryptoKey;
+  materialRecovery: Extract<
+    IssuedEd25519OperationStepUpAuthorization['materialRecovery'],
+    { kind: 'email_otp_factor_release_v1' }
+  >;
+}): Promise<{
+  challengeId: string;
+  enrollmentId: string;
+  enrollmentSealKeyVersion: string;
+  factorSecret32: Uint8Array;
+}> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) throw new Error('Email OTP factor release requires WebCrypto');
+  const released = args.materialRecovery;
+  if (released.challengeId !== args.challengeId) {
+    throw new Error('Email OTP factor release challenge binding changed');
+  }
+  let serverPublicKey: Uint8Array | null = null;
+  let nonce: Uint8Array | null = null;
+  let ciphertext: Uint8Array | null = null;
+  let sharedSecret: Uint8Array | null = null;
+  let aad: Uint8Array | null = null;
+  let factorSecret32: Uint8Array | null = null;
+  try {
+    serverPublicKey = base64UrlDecode(released.serverEphemeralPublicKey65B64u);
+    if (serverPublicKey.length !== 65 || serverPublicKey[0] !== 4) {
+      throw new Error('Email OTP factor release returned an invalid server public key');
+    }
+    nonce = base64UrlDecode(released.nonce12B64u);
+    if (nonce.length !== 12) throw new Error('Email OTP factor release returned an invalid nonce');
+    ciphertext = base64UrlDecode(released.ciphertextB64u);
+    if (ciphertext.length < 16) {
+      throw new Error('Email OTP factor release returned an invalid ciphertext');
+    }
+    const serverKey = await subtle.importKey(
+      'raw',
+      serverPublicKey,
+      { name: 'ECDH', namedCurve: 'P-256' },
+      false,
+      [],
+    );
+    sharedSecret = new Uint8Array(
+      await subtle.deriveBits({ name: 'ECDH', public: serverKey }, args.workerPrivateKey, 256),
+    );
+    const aesKey = await subtle.importKey('raw', sharedSecret, { name: 'AES-GCM' }, false, [
+      'decrypt',
+    ]);
+    aad = new TextEncoder().encode(
+      `${EMAIL_OTP_FACTOR_RELEASE_AAD_PREFIX}\0${args.walletId}\0${released.enrollmentId}\0${released.enrollmentSealKeyVersion}\0${released.challengeId}`,
+    );
+    factorSecret32 = new Uint8Array(
+      await subtle.decrypt(
+        { name: 'AES-GCM', iv: nonce, additionalData: aad, tagLength: 128 },
+        aesKey,
+        ciphertext,
+      ),
+    );
+    if (factorSecret32.length !== 32) {
+      throw new Error('Email OTP factor release plaintext must contain exactly 32 bytes');
+    }
+    const ownedFactorSecret32 = factorSecret32;
+    factorSecret32 = null;
+    return {
+      challengeId: released.challengeId,
+      enrollmentId: released.enrollmentId,
+      enrollmentSealKeyVersion: released.enrollmentSealKeyVersion,
+      factorSecret32: ownedFactorSecret32,
+    };
+  } finally {
+    zeroizeBytes(serverPublicKey);
+    zeroizeBytes(nonce);
+    zeroizeBytes(ciphertext);
+    zeroizeBytes(sharedSecret);
+    zeroizeBytes(aad);
+    zeroizeBytes(factorSecret32);
+  }
+}
+
 async function releaseEmailOtpFactorSecret(args: {
   relayUrl: string;
   walletId: string;
@@ -1891,6 +1987,163 @@ async function releaseEmailOtpFactorSecret(args: {
     zeroizeBytes(ciphertext);
     zeroizeBytes(sharedSecret);
     zeroizeBytes(aad);
+    zeroizeBytes(factorSecret32);
+  }
+}
+
+function assertEmailOtpEd25519OperationMaterialContinuity(args: {
+  walletId: string;
+  nearAccountId: string;
+  signerSlot: number;
+  expectedOperationalPublicKey: string;
+  expectedThresholdSessionId: ThresholdEd25519SessionId;
+  expectedMaterialActivation: MpcMaterialActivationRef;
+  metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+  bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+}): void {
+  const metadataActivation = args.metadata.materialActivation;
+  const capability = args.bootstrap.capability;
+  if (
+    !mpcMaterialActivationRefsEqual(metadataActivation, args.expectedMaterialActivation) ||
+    !mpcMaterialActivationRefsEqual(
+      capability.materialActivation,
+      args.expectedMaterialActivation,
+    ) ||
+    capability.nearAccountId !== args.nearAccountId ||
+    capability.applicationBinding.wallet_id !== args.walletId ||
+    capability.applicationBinding.key_creation_signer_slot !== args.signerSlot ||
+    capability.lifecycle.thresholdSessionId !== args.expectedThresholdSessionId ||
+    `ed25519:${base58Encode(args.metadata.registeredPublicKey)}` !==
+      args.expectedOperationalPublicKey
+  ) {
+    throw new Error('Email OTP operation recovery activated different signing material');
+  }
+}
+
+async function rehydrateEmailOtpEd25519YaoOperationMaterial(
+  args: EmailOtpWorkerOperationMap['rehydrateEmailOtpEd25519YaoOperationMaterial']['payload'],
+): Promise<EmailOtpWorkerOperationMap['rehydrateEmailOtpEd25519YaoOperationMaterial']['result']> {
+  const relayUrl = readString(args.relayUrl, 'relayUrl');
+  const walletId = readString(args.walletId, 'walletId');
+  const providerSubjectId = readString(args.providerSubjectId, 'providerSubjectId');
+  const nearAccountId = readString(args.nearAccountId, 'nearAccountId');
+  const signerSlot = normalizePositiveInteger(args.signerSlot);
+  if (signerSlot === null) throw new Error('signerSlot must be a positive safe integer');
+  const expectedThresholdSessionId = readThresholdEd25519SessionId(
+    args.expectedThresholdSessionId,
+    'expectedThresholdSessionId',
+  );
+  const expectedOperationalPublicKey = readString(
+    args.expectedOperationalPublicKey,
+    'expectedOperationalPublicKey',
+  );
+  const expectedMaterialActivation = args.expectedMaterialActivation;
+  if (String(expectedMaterialActivation.materialOwner) !== walletId) {
+    throw new Error('Email OTP operation material activation belongs to another wallet');
+  }
+  if (args.ed25519YaoRecovery.orgId !== String(args.orgId).trim()) {
+    throw new Error('Email OTP operation material organization binding changed');
+  }
+  if (args.ed25519YaoRecovery.signerSlot !== signerSlot) {
+    throw new Error('Email OTP operation material signer slot binding changed');
+  }
+  if (args.proof.providerSubjectId !== providerSubjectId) {
+    throw new Error('Email OTP operation material provider binding changed');
+  }
+  if (String(args.proof.authorityRef.walletId) !== walletId) {
+    throw new Error('Email OTP operation material authority wallet binding changed');
+  }
+  const credential = args.credential;
+  if (credential.kind !== 'app_session_jwt') {
+    throw new Error('Email OTP operation material requires an app-session JWT credential');
+  }
+  const material: Extract<EmailOtpWalletUnlockMaterialRequest, { kind: 'ed25519_yao_recovery' }> = {
+    kind: 'ed25519_yao_recovery',
+    ed25519YaoRecovery: args.ed25519YaoRecovery,
+    providerSubject: providerSubjectId,
+    nearAccountId,
+    expectedOperationalPublicKey,
+    expectedThresholdSessionId: String(expectedThresholdSessionId),
+    walletCustodyEd25519Material: args.walletCustodyEd25519Material,
+  };
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) throw new Error('Email OTP operation material requires WebCrypto');
+  const generated = await subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, [
+    'deriveBits',
+  ]);
+  if (!('privateKey' in generated) || !('publicKey' in generated)) {
+    throw new Error('Email OTP operation material generated an invalid ECDH key pair');
+  }
+  let workerPublicKey: Uint8Array | null = new Uint8Array(
+    await subtle.exportKey('raw', generated.publicKey),
+  );
+  let factorSecret32: Uint8Array | null = null;
+  let activeClientHandle: string | null = null;
+  try {
+    if (workerPublicKey.length !== 65 || workerPublicKey[0] !== 4) {
+      throw new Error('Email OTP operation material generated an invalid public key');
+    }
+    const issuedAuthorization = await issueEd25519OperationStepUpAuthorization({
+      relayerUrl: relayUrl,
+      normalSigningRequest: args.normalSigningRequest,
+      displayDigest: readString(args.displayDigest, 'displayDigest'),
+      proof: args.proof,
+      credential,
+      materialRecovery: {
+        kind: 'email_otp_factor_release_v1',
+        workerEphemeralPublicKey65B64u: base64UrlEncode(workerPublicKey),
+      },
+    });
+    if (issuedAuthorization.materialRecovery.kind !== 'email_otp_factor_release_v1') {
+      throw new Error('Email OTP operation step-up did not return factor-release material');
+    }
+    const released = await decryptEmailOtpFactorReleaseEnvelope({
+      walletId,
+      challengeId: args.proof.challengeId,
+      workerPrivateKey: generated.privateKey,
+      materialRecovery: issuedAuthorization.materialRecovery,
+    });
+    factorSecret32 = released.factorSecret32;
+    const unlocked = await completeEmailOtpUnlockFromSecret32({
+      relayUrl,
+      walletId,
+      orgId: args.orgId,
+      userId: providerSubjectId,
+      enrollmentSealKeyVersion: released.enrollmentSealKeyVersion,
+      clientSecret32: factorSecret32,
+      material,
+      sessionAuth: { kind: 'app_session', jwt: credential.appSessionJwt },
+    });
+    if (unlocked.kind !== 'ed25519_yao_capability') {
+      throw new Error('Email OTP operation material did not activate an Ed25519 capability');
+    }
+    activeClientHandle = unlocked.activeClientHandle;
+    assertEmailOtpEd25519OperationMaterialContinuity({
+      walletId,
+      nearAccountId,
+      signerSlot,
+      expectedOperationalPublicKey,
+      expectedThresholdSessionId,
+      expectedMaterialActivation,
+      metadata: unlocked.metadata,
+      bootstrap: unlocked.ed25519YaoCapability,
+    });
+    const ownedActiveClientHandle = activeClientHandle;
+    activeClientHandle = null;
+    return {
+      activeClientHandle: ownedActiveClientHandle,
+      metadata: unlocked.metadata,
+      bootstrap: unlocked.ed25519YaoCapability,
+      ...(unlocked.walletCustodyEd25519Material
+        ? { walletCustodyEd25519Material: unlocked.walletCustodyEd25519Material }
+        : {}),
+      issuedAuthorization,
+    };
+  } catch (error) {
+    if (activeClientHandle) removeEmailOtpEd25519YaoActiveClient(activeClientHandle);
+    throw error;
+  } finally {
+    zeroizeBytes(workerPublicKey);
     zeroizeBytes(factorSecret32);
   }
 }
@@ -4720,6 +4973,319 @@ function parseRequiredWorkerSealTransport(value: unknown): {
   };
 }
 
+function parseEmailOtpOperationDigest(value: unknown, label: string): { bytes: readonly number[] } {
+  const record = workerPayloadObject(value);
+  if (!record) throw new Error(`${label} must be an object`);
+  rejectUnknownEmailOtpYaoFields(record, ['bytes'], label);
+  if (!Array.isArray(record.bytes) || record.bytes.length !== 32) {
+    throw new Error(`${label}.bytes must contain exactly 32 bytes`);
+  }
+  const bytes = record.bytes.map((byte, index) => {
+    if (!Number.isSafeInteger(byte) || Number(byte) < 0 || Number(byte) > 255) {
+      throw new Error(`${label}.bytes[${index}] is invalid`);
+    }
+    return Number(byte);
+  });
+  return { bytes };
+}
+
+function parseEmailOtpOperationNetworkId(
+  value: unknown,
+  label: string,
+): RouterAbNearNetworkIdV2Wire {
+  const networkId = readString(value, label);
+  if (networkId !== 'testnet' && networkId !== 'mainnet') {
+    throw new Error(`${label} is invalid`);
+  }
+  return networkId;
+}
+
+function parseEmailOtpOperationTransactionIntent(
+  value: unknown,
+): RouterAbNearTransactionIntentV1Wire {
+  const record = workerPayloadObject(value);
+  if (!record) throw new Error('normalSigningRequest.intent.transactions entry is invalid');
+  rejectUnknownEmailOtpYaoFields(record, ['receiver_id', 'action_fingerprint'], 'transaction');
+  return {
+    receiver_id: readString(record.receiver_id, 'transaction.receiver_id'),
+    action_fingerprint: readString(record.action_fingerprint, 'transaction.action_fingerprint'),
+  };
+}
+
+function parseEmailOtpOperationDelegateIntent(
+  value: unknown,
+): RouterAbNearDelegateActionIntentV1Wire {
+  const record = workerPayloadObject(value);
+  if (!record) throw new Error('normalSigningRequest.intent.delegate is invalid');
+  rejectUnknownEmailOtpYaoFields(
+    record,
+    [
+      'sender_id',
+      'receiver_id',
+      'public_key',
+      'nonce',
+      'max_block_height',
+      'action_fingerprint',
+      'canonical_delegate_borsh_b64u',
+    ],
+    'delegate',
+  );
+  return {
+    sender_id: readString(record.sender_id, 'delegate.sender_id'),
+    receiver_id: readString(record.receiver_id, 'delegate.receiver_id'),
+    public_key: readString(record.public_key, 'delegate.public_key'),
+    nonce: readString(record.nonce, 'delegate.nonce'),
+    max_block_height: readString(record.max_block_height, 'delegate.max_block_height'),
+    action_fingerprint: readString(record.action_fingerprint, 'delegate.action_fingerprint'),
+    canonical_delegate_borsh_b64u: readString(
+      record.canonical_delegate_borsh_b64u,
+      'delegate.canonical_delegate_borsh_b64u',
+    ),
+  };
+}
+
+function parseEmailOtpOperationIntent(value: unknown): RouterAbEd25519NormalSigningIntentV2Wire {
+  const record = workerPayloadObject(value);
+  if (!record) throw new Error('normalSigningRequest.intent is invalid');
+  const kind = readString(record.kind, 'normalSigningRequest.intent.kind');
+  switch (kind) {
+    case 'near_transaction_v1': {
+      rejectUnknownEmailOtpYaoFields(
+        record,
+        [
+          'kind',
+          'operation_id',
+          'operation_fingerprint',
+          'near_account_id',
+          'near_network_id',
+          'transactions',
+          'unsigned_transaction_borsh_b64u',
+        ],
+        'normalSigningRequest.intent',
+      );
+      if (!Array.isArray(record.transactions) || record.transactions.length === 0) {
+        throw new Error('normalSigningRequest.intent.transactions is invalid');
+      }
+      return {
+        kind,
+        operation_id: readString(record.operation_id, 'intent.operation_id'),
+        operation_fingerprint: readString(
+          record.operation_fingerprint,
+          'intent.operation_fingerprint',
+        ),
+        near_account_id: readString(record.near_account_id, 'intent.near_account_id'),
+        near_network_id: parseEmailOtpOperationNetworkId(
+          record.near_network_id,
+          'intent.near_network_id',
+        ),
+        transactions: record.transactions.map(parseEmailOtpOperationTransactionIntent),
+        unsigned_transaction_borsh_b64u: readString(
+          record.unsigned_transaction_borsh_b64u,
+          'intent.unsigned_transaction_borsh_b64u',
+        ),
+      };
+    }
+    case 'nep413_v1': {
+      rejectUnknownEmailOtpYaoFields(
+        record,
+        [
+          'kind',
+          'operation_id',
+          'operation_fingerprint',
+          'near_account_id',
+          'near_network_id',
+          'recipient',
+          'message',
+          'nonce_b64u',
+          'callback_url',
+        ],
+        'normalSigningRequest.intent',
+      );
+      const callbackUrl = optionalWorkerString(record.callback_url);
+      return {
+        kind,
+        operation_id: readString(record.operation_id, 'intent.operation_id'),
+        operation_fingerprint: readString(
+          record.operation_fingerprint,
+          'intent.operation_fingerprint',
+        ),
+        near_account_id: readString(record.near_account_id, 'intent.near_account_id'),
+        near_network_id: parseEmailOtpOperationNetworkId(
+          record.near_network_id,
+          'intent.near_network_id',
+        ),
+        recipient: readString(record.recipient, 'intent.recipient'),
+        message: readString(record.message, 'intent.message'),
+        nonce_b64u: readString(record.nonce_b64u, 'intent.nonce_b64u'),
+        ...(callbackUrl ? { callback_url: callbackUrl } : {}),
+      };
+    }
+    case 'near_delegate_action_v1': {
+      rejectUnknownEmailOtpYaoFields(
+        record,
+        [
+          'kind',
+          'operation_id',
+          'operation_fingerprint',
+          'near_account_id',
+          'near_network_id',
+          'delegate',
+        ],
+        'normalSigningRequest.intent',
+      );
+      return {
+        kind,
+        operation_id: readString(record.operation_id, 'intent.operation_id'),
+        operation_fingerprint: readString(
+          record.operation_fingerprint,
+          'intent.operation_fingerprint',
+        ),
+        near_account_id: readString(record.near_account_id, 'intent.near_account_id'),
+        near_network_id: parseEmailOtpOperationNetworkId(
+          record.near_network_id,
+          'intent.near_network_id',
+        ),
+        delegate: parseEmailOtpOperationDelegateIntent(record.delegate),
+      };
+    }
+    default:
+      throw new Error(`Unsupported normalSigningRequest.intent.kind: ${kind}`);
+  }
+}
+
+function parseEmailOtpOperationSigningPayload(value: unknown): RouterAbEd25519SigningPayloadV2Wire {
+  const record = workerPayloadObject(value);
+  if (!record) throw new Error('normalSigningRequest.signing_payload is invalid');
+  const kind = readString(record.kind, 'normalSigningRequest.signing_payload.kind');
+  switch (kind) {
+    case 'near_unsigned_transaction_borsh_v1':
+    case 'nep413_message_v1':
+    case 'near_delegate_action_v1':
+      rejectUnknownEmailOtpYaoFields(
+        record,
+        [
+          kind === 'near_unsigned_transaction_borsh_v1' ? 'kind' : 'kind',
+          'canonical_message_b64u',
+          'canonical_delegate_borsh_b64u',
+          'unsigned_transaction_borsh_b64u',
+          'expected_signing_digest_b64u',
+        ],
+        'normalSigningRequest.signing_payload',
+      );
+      if (kind === 'near_unsigned_transaction_borsh_v1') {
+        return {
+          kind,
+          unsigned_transaction_borsh_b64u: readString(
+            record.unsigned_transaction_borsh_b64u,
+            'signing_payload.unsigned_transaction_borsh_b64u',
+          ),
+          expected_signing_digest_b64u: readString(
+            record.expected_signing_digest_b64u,
+            'signing_payload.expected_signing_digest_b64u',
+          ),
+        };
+      }
+      if (kind === 'nep413_message_v1') {
+        return {
+          kind,
+          canonical_message_b64u: readString(
+            record.canonical_message_b64u,
+            'signing_payload.canonical_message_b64u',
+          ),
+          expected_signing_digest_b64u: readString(
+            record.expected_signing_digest_b64u,
+            'signing_payload.expected_signing_digest_b64u',
+          ),
+        };
+      }
+      return {
+        kind,
+        canonical_delegate_borsh_b64u: readString(
+          record.canonical_delegate_borsh_b64u,
+          'signing_payload.canonical_delegate_borsh_b64u',
+        ),
+        expected_signing_digest_b64u: readString(
+          record.expected_signing_digest_b64u,
+          'signing_payload.expected_signing_digest_b64u',
+        ),
+      };
+    default:
+      throw new Error(`Unsupported normalSigningRequest.signing_payload.kind: ${kind}`);
+  }
+}
+
+function parseEmailOtpOperationNormalSigningRequest(
+  value: unknown,
+): RouterAbNormalSigningPrepareRequestV2Wire {
+  const record = workerPayloadObject(value);
+  if (!record) throw new Error('normalSigningRequest is required');
+  rejectUnknownEmailOtpYaoFields(
+    record,
+    ['scope', 'expires_at_ms', 'display_digest', 'intent', 'signing_payload'],
+    'normalSigningRequest',
+  );
+  const scope = workerPayloadObject(record.scope);
+  if (!scope) throw new Error('normalSigningRequest.scope is invalid');
+  rejectUnknownEmailOtpYaoFields(
+    scope,
+    ['request_id', 'account_id', 'authorization', 'material_activation', 'signing_worker_id'],
+    'normalSigningRequest.scope',
+  );
+  return {
+    scope: {
+      request_id: readString(scope.request_id, 'scope.request_id'),
+      account_id: readString(scope.account_id, 'scope.account_id'),
+      authorization: parseRouterAbNormalSigningAuthorization(scope.authorization),
+      material_activation: parseRouterAbMpcMaterialActivationRef(scope.material_activation),
+      signing_worker_id: readString(scope.signing_worker_id, 'scope.signing_worker_id'),
+    } satisfies RouterAbNormalSigningScopeV2Wire,
+    expires_at_ms: readNumber(record.expires_at_ms, 'normalSigningRequest.expires_at_ms'),
+    display_digest: parseEmailOtpOperationDigest(
+      record.display_digest,
+      'normalSigningRequest.display_digest',
+    ),
+    intent: parseEmailOtpOperationIntent(record.intent),
+    signing_payload: parseEmailOtpOperationSigningPayload(record.signing_payload),
+  };
+}
+
+function parseEmailOtpOperationStepUpProof(
+  value: unknown,
+): Extract<Ed25519OperationStepUpProof, { kind: 'email_otp' }> {
+  const record = workerPayloadObject(value);
+  if (!record) throw new Error('operation step-up proof is required');
+  rejectUnknownEmailOtpYaoFields(
+    record,
+    ['kind', 'authorityRef', 'providerSubjectId', 'challengeId', 'otpCode'],
+    'operation step-up proof',
+  );
+  const authorityRef = parseWalletAuthAuthorityRef(record.authorityRef);
+  if (!authorityRef) throw new Error('operation step-up proof authorityRef is invalid');
+  if (readString(record.kind, 'operation step-up proof.kind') !== 'email_otp') {
+    throw new Error('operation step-up proof must use Email OTP');
+  }
+  return {
+    kind: 'email_otp',
+    authorityRef,
+    providerSubjectId: readString(record.providerSubjectId, 'proof.providerSubjectId'),
+    challengeId: readString(record.challengeId, 'proof.challengeId'),
+    otpCode: readString(record.otpCode, 'proof.otpCode'),
+  };
+}
+
+function parseEmailOtpOperationCredential(value: unknown): Ed25519OperationStepUpCredential {
+  const record = workerPayloadObject(value);
+  if (!record) throw new Error('operation step-up credential is required');
+  rejectUnknownEmailOtpYaoFields(record, ['kind', 'appSessionJwt'], 'operation step-up credential');
+  if (readString(record.kind, 'credential.kind') !== 'app_session_jwt') {
+    throw new Error('Email OTP operation material requires an app-session JWT credential');
+  }
+  return {
+    kind: 'app_session_jwt',
+    appSessionJwt: readString(record.appSessionJwt, 'credential.appSessionJwt'),
+  };
+}
+
 function readRegistrationRoutePlan(value: unknown, label: string): EmailOtpRoutePlan {
   const routePlan = readRoutePlan(value, label);
   if (routePlan.routeFamily !== 'registration') {
@@ -5056,6 +5622,67 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
             chainTarget: parseWorkerChainTarget(restore.chainTarget),
             authSubjectId: readString(restore.authSubjectId, 'restore.authSubjectId'),
           },
+        },
+      };
+    }
+    case 'rehydrateEmailOtpEd25519YaoOperationMaterial': {
+      rejectUnknownEmailOtpYaoFields(
+        payload,
+        [
+          'relayUrl',
+          'walletId',
+          'orgId',
+          'providerSubjectId',
+          'nearAccountId',
+          'signerSlot',
+          'expectedOperationalPublicKey',
+          'expectedThresholdSessionId',
+          'expectedMaterialActivation',
+          'ed25519YaoRecovery',
+          'walletCustodyEd25519Material',
+          'normalSigningRequest',
+          'displayDigest',
+          'proof',
+          'credential',
+        ],
+        type,
+      );
+      const activation = parseMpcMaterialActivationRef(payload.expectedMaterialActivation);
+      if (!activation.ok) throw new Error(activation.error.message);
+      const recovery = parseEmailOtpEd25519YaoRecoveryAugmentation(payload.ed25519YaoRecovery);
+      const orgId = readString(payload.orgId, 'orgId');
+      if (recovery.orgId !== orgId) {
+        throw new Error('Email OTP operation material orgId does not match recovery facts');
+      }
+      return {
+        id,
+        type,
+        payload: {
+          relayUrl: readString(payload.relayUrl, 'relayUrl'),
+          walletId: readString(payload.walletId, 'walletId'),
+          orgId,
+          providerSubjectId: readString(payload.providerSubjectId, 'providerSubjectId'),
+          nearAccountId: readString(payload.nearAccountId, 'nearAccountId'),
+          signerSlot: normalizePositiveInteger(payload.signerSlot) || 0,
+          expectedOperationalPublicKey: readString(
+            payload.expectedOperationalPublicKey,
+            'expectedOperationalPublicKey',
+          ),
+          expectedThresholdSessionId: readThresholdEd25519SessionId(
+            payload.expectedThresholdSessionId,
+            'expectedThresholdSessionId',
+          ),
+          expectedMaterialActivation: activation.value,
+          ed25519YaoRecovery: recovery,
+          walletCustodyEd25519Material: parseWalletCustodyEd25519MaterialRequest(
+            payload.walletCustodyEd25519Material,
+          ),
+          normalSigningRequest: parseEmailOtpOperationNormalSigningRequest(
+            payload.normalSigningRequest,
+          ),
+          displayDigest: readString(payload.displayDigest, 'displayDigest'),
+          proof: parseEmailOtpOperationStepUpProof(payload.proof),
+          credential: parseEmailOtpOperationCredential(payload.credential),
         },
       };
     }
@@ -5623,6 +6250,11 @@ self.addEventListener('message', async (event: MessageEvent) => {
           ok: true,
           result,
         });
+        return;
+      }
+      case 'rehydrateEmailOtpEd25519YaoOperationMaterial': {
+        const result = await rehydrateEmailOtpEd25519YaoOperationMaterial(msg.payload);
+        postToMainThread({ id: msg.id, ok: true, result });
         return;
       }
       case 'clearEmailOtpWarmSessionMaterial': {
