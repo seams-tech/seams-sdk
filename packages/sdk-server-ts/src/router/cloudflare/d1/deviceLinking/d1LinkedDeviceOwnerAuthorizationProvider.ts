@@ -24,10 +24,7 @@ import {
   parseLinkedDeviceEnrollmentId,
   parseLinkedDeviceId,
 } from '@shared/signing-lanes/ids';
-import type {
-  LaneOperationId,
-  LaneOperationIdempotencyKey,
-} from '@shared/signing-lanes/ids';
+import type { LaneOperationId, LaneOperationIdempotencyKey } from '@shared/signing-lanes/ids';
 import type { WalletId } from '@shared/utils/domainIds';
 import type {
   ActiveOwnerWalletExecutionLaneProjection,
@@ -51,10 +48,9 @@ import type {
   D1LinkedDeviceTargetPlannerOptionsV1,
   D1LinkedDeviceTargetPlannerV1,
 } from './d1LinkedDeviceTargetPlanner';
+import type { D1LinkedDeviceOwnerPlanningSnapshotWriterV1 } from './d1LinkedDeviceOwnerPlanningSnapshotWriter';
 import { D1LinkedDeviceTargetPlannerV1 as TargetPlanner } from './d1LinkedDeviceTargetPlanner';
-import {
-  computeLinkedDevicePublicKeyDigestV1,
-} from '../../../../core/deviceLinking/requestProof';
+import { computeLinkedDevicePublicKeyDigestV1 } from '../../../../core/deviceLinking/requestProof';
 
 const ENROLLMENT_ID_DOMAIN_V1 = 'seams/linked-device/enrollment-identity/v1';
 
@@ -104,6 +100,7 @@ export type D1LinkedDeviceOwnerAuthorizationProviderOptionsV1 = {
     D1LinkedDeviceTargetPlannerOptionsV1,
     'rpId' | 'preparationTtlMs' | 'targetDeploymentDescriptorProvider'
   >;
+  readonly planningWriter?: Pick<D1LinkedDeviceOwnerPlanningSnapshotWriterV1, 'writeV1'>;
   readonly nowV1?: () => number;
 };
 
@@ -134,6 +131,7 @@ export function createD1LinkedDeviceOwnerAuthorizationProviderV1(
     ownerAuthorization,
     ownerAuthorizationRoute: createOwnerAuthorizationRouteV1({
       metadata: options.metadata,
+      planningWriter: options.planningWriter,
       nowV1,
     }),
     ownerSourceResolver,
@@ -217,6 +215,7 @@ function createOwnerAuthorizationPortV1(nowV1: () => number): LinkedDeviceOwnerA
 
 function createOwnerAuthorizationRouteV1(input: {
   readonly metadata: D1LinkedDeviceOwnerAuthorizationMetadataSourceV1;
+  readonly planningWriter?: Pick<D1LinkedDeviceOwnerPlanningSnapshotWriterV1, 'writeV1'>;
   readonly nowV1: () => number;
 }): DeviceLinkingOwnerAuthorizationRouteServiceV1 {
   return {
@@ -224,6 +223,13 @@ function createOwnerAuthorizationRouteV1(input: {
       const ownerError = validateOwnerContext(request.owner, request.requestedAtMs, input.nowV1);
       if (ownerError) throw new Error(ownerError.message);
       const payload = parseQrLinkedDeviceSessionPayloadV4(request.payload);
+      if (input.planningWriter) {
+        await input.planningWriter.writeV1({
+          owner: request.owner,
+          payload,
+          orderedOwnerSourceLaneHints: request.orderedOwnerSourceLaneHints,
+        });
+      }
       const metadata = await input.metadata.readOwnerAuthorizationMetadataV1({
         owner: request.owner,
         payload,
@@ -302,10 +308,17 @@ function assertApprovedOwnerContext(
   nowMs: number,
 ): void {
   const identity = sourceRequestIdentity(request);
-  if (owner.walletId !== identity.walletId || !Number.isSafeInteger(nowMs) || nowMs >= owner.expiresAtMs) {
+  if (
+    owner.walletId !== identity.walletId ||
+    !Number.isSafeInteger(nowMs) ||
+    nowMs >= owner.expiresAtMs
+  ) {
     throw new Error('approved owner Wallet Session context is expired or mismatched');
   }
-  if (request.kind === 'preparation' && !ownerAuthorizationSourceMatchesContext(request.approval.ownerAuthorization, owner)) {
+  if (
+    request.kind === 'preparation' &&
+    !ownerAuthorizationSourceMatchesContext(request.approval.ownerAuthorization, owner)
+  ) {
     throw new Error('approved owner Wallet Session source does not match the approval');
   }
 }
@@ -318,13 +331,14 @@ async function projectOwnerLaneV1(
   owner: DeviceLinkingOwnerWalletSessionContextV1,
   resolution: LinkedDeviceOwnerSourceChildResolutionV1,
 ): Promise<ActiveOwnerWalletExecutionLaneProjection> {
-  const authorization = owner.curve === 'ed25519'
-    ? { kind: 'wallet_auth_method' as const, walletAuthMethodId: owner.authority.bindingId }
-    : {
-        kind: 'authority_ref' as const,
-        authorityRef: owner.walletAuthAuthorityRef,
-        authSource: owner.authSource,
-      };
+  const authorization =
+    owner.curve === 'ed25519'
+      ? { kind: 'wallet_auth_method' as const, walletAuthMethodId: owner.authority.bindingId }
+      : {
+          kind: 'authority_ref' as const,
+          authorityRef: owner.walletAuthAuthorityRef,
+          authSource: owner.authSource,
+        };
   const result: WalletExecutionLaneProjectionResult =
     await walletRegistration.resolveActiveOwnerWalletExecutionLane({
       walletId: owner.walletId,
@@ -429,10 +443,17 @@ function ownerAuthorizationSourceMatchesContext(
 }
 
 function validateOwnerContext(
-  owner: Pick<LinkedDeviceOwnerAuthorizationContextV1, 'walletId' | 'walletSessionId' | 'authorizationId' | 'expiresAtMs'>,
+  owner: Pick<
+    LinkedDeviceOwnerAuthorizationContextV1,
+    'walletId' | 'walletSessionId' | 'authorizationId' | 'expiresAtMs'
+  >,
   requestedAtMs: number,
   nowV1: () => number,
-): { readonly kind: 'denied'; readonly code: 'unauthorized' | 'expired' | 'invalid'; readonly message: string } | null {
+): {
+  readonly kind: 'denied';
+  readonly code: 'unauthorized' | 'expired' | 'invalid';
+  readonly message: string;
+} | null {
   if (
     !owner.walletId ||
     !parseWalletSessionId(owner.walletSessionId).ok ||
@@ -451,13 +472,20 @@ function validateOwnerContext(
 function denied(
   code: 'unauthorized' | 'expired' | 'invalid',
   message: string,
-): { readonly kind: 'denied'; readonly code: 'unauthorized' | 'expired' | 'invalid'; readonly message: string } {
+): {
+  readonly kind: 'denied';
+  readonly code: 'unauthorized' | 'expired' | 'invalid';
+  readonly message: string;
+} {
   return { kind: 'denied', code, message };
 }
 
 function isApprovalSession(
   session: LinkedDeviceSessionRecordV1,
-): session is Extract<LinkedDeviceSessionRecordV1, { readonly state: { readonly state: 'claimed_by_owner' } }> {
+): session is Extract<
+  LinkedDeviceSessionRecordV1,
+  { readonly state: { readonly state: 'claimed_by_owner' } }
+> {
   return session.state.state === 'claimed_by_owner' && session.claimTranscript !== undefined;
 }
 
@@ -468,7 +496,9 @@ function requireNonEmpty<T>(values: readonly T[], label: string): readonly [T, .
 }
 
 function parseRequired<T>(
-  result: { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: { readonly message: string } },
+  result:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error: { readonly message: string } },
   label: string,
 ): T {
   if (result.ok) return result.value;
