@@ -40,19 +40,19 @@ pub use export_share::{
 };
 #[cfg(feature = "hpke")]
 pub use lane_resharing::{
-    complete_ecdsa_additive_lane_server_round_v1, prepare_ecdsa_additive_lane_holder_round_v1,
-    ecdsa_lane_public_identity_relation_digest_v1,
-    verify_ecdsa_additive_lane_transcript_v1, verify_ecdsa_server_retirement_receipt_v1,
-    ActiveEcdsaLaneProtocolSourceV1, EcdsaAdditiveLaneHolderRoundV1, EcdsaAdditiveLaneJobV1,
-    EcdsaAdditiveLaneServerRoundV1, EcdsaAdditiveLaneTranscriptV1, EcdsaLaneAuthorizationBindingV1,
-    EcdsaLaneChainTargetV1, EcdsaLaneEncryptedPayloadV1, EcdsaLaneManifestIdentityV1,
+    complete_ecdsa_additive_lane_server_round_v1, ecdsa_lane_public_identity_relation_digest_v1,
+    prepare_ecdsa_additive_lane_holder_round_v1, verify_ecdsa_additive_lane_transcript_v1,
+    verify_ecdsa_server_retirement_receipt_v1, ActiveEcdsaLaneProtocolSourceV1,
+    EcdsaAdditiveLaneHolderRoundV1, EcdsaAdditiveLaneJobV1, EcdsaAdditiveLaneServerRoundV1,
+    EcdsaAdditiveLaneTranscriptV1, EcdsaLaneAuthorizationBindingV1, EcdsaLaneChainTargetV1,
+    EcdsaLaneEncryptedPayloadV1, EcdsaLaneManifestIdentityV1, EcdsaLaneSourceKindV1,
     EcdsaLaneTargetHolderV1, EcdsaLaneTargetOperationV1, EcdsaLaneTargetSigningWorkerV1,
     EcdsaServerRetirementReceiptV1, EcdsaSourceCapabilityBindingV1, EcdsaTargetCapabilityBindingV1,
-    EcdsaTargetThresholdSessionBindingV1, ECDSA_ADDITIVE_LANE_ENVELOPE_DOMAIN_V1,
-    ECDSA_ADDITIVE_LANE_HOLDER_ROUND_DOMAIN_V1, ECDSA_ADDITIVE_LANE_PREAMBLE_DOMAIN_V1,
-    ECDSA_ADDITIVE_LANE_SERVER_ROUND_DOMAIN_V1, ECDSA_ADDITIVE_LANE_TRANSCRIPT_DOMAIN_V1,
-    ECDSA_PUBLIC_IDENTITY_RELATION_DOMAIN_V1, ECDSA_SERVER_RETIREMENT_RECEIPT_DOMAIN_V1,
-    ECDSA_TARGET_THRESHOLD_SESSION_SET_DOMAIN_V1,
+    EcdsaTargetThresholdSessionBindingV1, OwnerLaneParticipantContinuityV1,
+    ECDSA_ADDITIVE_LANE_ENVELOPE_DOMAIN_V1, ECDSA_ADDITIVE_LANE_HOLDER_ROUND_DOMAIN_V1,
+    ECDSA_ADDITIVE_LANE_PREAMBLE_DOMAIN_V1, ECDSA_ADDITIVE_LANE_SERVER_ROUND_DOMAIN_V1,
+    ECDSA_ADDITIVE_LANE_TRANSCRIPT_DOMAIN_V1, ECDSA_PUBLIC_IDENTITY_RELATION_DOMAIN_V1,
+    ECDSA_SERVER_RETIREMENT_RECEIPT_DOMAIN_V1, ECDSA_TARGET_THRESHOLD_SESSION_SET_DOMAIN_V1,
 };
 #[cfg(feature = "hpke")]
 pub use lane_resharing::{open_ecdsa_lane_payload_v1, seal_ecdsa_lane_payload_v1};

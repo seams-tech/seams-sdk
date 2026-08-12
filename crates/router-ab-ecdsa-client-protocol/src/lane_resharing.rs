@@ -8,7 +8,7 @@
 use base64ct::{Base64UrlUnpadded, Encoding};
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::PublicKey;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{EcdsaClientProtocolError, EcdsaMaterialActivationRefV1};
@@ -110,8 +110,81 @@ pub struct EcdsaTargetCapabilityBindingV1 {
     pub ordered_threshold_sessions: Vec<EcdsaTargetThresholdSessionBindingV1>,
 }
 
-/// Active source lane pinned at admission.
+/// Durable owner signer continuity inherited by registration-backed lanes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OwnerLaneParticipantContinuityV1 {
+    /// Wire discriminator.
+    pub kind: String,
+    /// Stable wallet signer identity.
+    pub signer_id: String,
+    /// The owner and SigningWorker participant ids used by registration.
+    pub participant_ids: [u64; 2],
+    /// The authoritative SigningWorker identity.
+    pub signing_worker_id: String,
+    /// Digest of the custody key manifest.
+    pub custody_key_manifest_digest_b64u: String,
+    /// Digest of the source identity projection.
+    pub source_identity_digest_b64u: String,
+}
+
+impl OwnerLaneParticipantContinuityV1 {
+    fn validate(&self) -> Result<(), EcdsaClientProtocolError> {
+        require_exact(&self.kind, "owner_lane_participant_continuity_v1")?;
+        for value in [&self.signer_id, &self.signing_worker_id] {
+            require_non_empty(value)?;
+        }
+        if self.participant_ids[0] == 0
+            || self.participant_ids[1] == 0
+            || self.participant_ids[0] == self.participant_ids[1]
+        {
+            return Err(EcdsaClientProtocolError::InvalidShape);
+        }
+        validate_digest_b64(&self.custody_key_manifest_digest_b64u)?;
+        validate_digest_b64(&self.source_identity_digest_b64u)
+    }
+
+    fn canonical_bytes_v1(&self, out: &mut Vec<u8>) {
+        text(
+            out,
+            "seams/rotatable-signing-lanes/owner-lane-participant-continuity/v1",
+        );
+        text(out, &self.signer_id);
+        u64_be(out, self.participant_ids[0]);
+        u64_be(out, self.participant_ids[1]);
+        text(out, &self.signing_worker_id);
+        digest_text_unchecked(out, &self.custody_key_manifest_digest_b64u);
+        digest_text_unchecked(out, &self.source_identity_digest_b64u);
+    }
+}
+
+/// Branch-specific source participant identities.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "sourceKind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum EcdsaLaneSourceKindV1 {
+    /// Registration-backed owner source with durable continuity only.
+    OwnerRegistration {
+        /// Registration signer continuity.
+        owner_participant_continuity: OwnerLaneParticipantContinuityV1,
+    },
+    /// Independently provisioned lane with HPKE participant identities.
+    ProvisionedLane {
+        /// Source holder participant id.
+        holder_participant_id: String,
+        /// Source SigningWorker participant id.
+        signing_worker_participant_id: String,
+        /// Source SigningWorker recipient key id.
+        signing_worker_recipient_key_id: String,
+    },
+}
+
+/// Active source lane pinned at admission.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ActiveEcdsaLaneProtocolSourceV1 {
     /// Source lane id.
@@ -122,16 +195,163 @@ pub struct ActiveEcdsaLaneProtocolSourceV1 {
     pub lane_share_epoch: String,
     /// Source revocation epoch.
     pub revocation_epoch: u64,
-    /// Holder participant id.
-    pub holder_participant_id: String,
-    /// SigningWorker participant id.
-    pub signing_worker_participant_id: String,
-    /// SigningWorker recipient key id.
-    pub signing_worker_recipient_key_id: String,
+    /// Source branch participant identities.
+    #[serde(flatten)]
+    pub source_kind: EcdsaLaneSourceKindV1,
     /// Source participant binding digest.
     pub participant_binding_digest_b64u: String,
     /// Exact source material activation.
     pub material_activation: EcdsaMaterialActivationRefV1,
+}
+
+impl<'de> Deserialize<'de> for ActiveEcdsaLaneProtocolSourceV1 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct Raw {
+            lane_id: String,
+            lane_kind: String,
+            lane_share_epoch: String,
+            revocation_epoch: u64,
+            source_kind: String,
+            owner_participant_continuity: Option<OwnerLaneParticipantContinuityV1>,
+            holder_participant_id: Option<String>,
+            signing_worker_participant_id: Option<String>,
+            signing_worker_recipient_key_id: Option<String>,
+            participant_binding_digest_b64u: String,
+            material_activation: EcdsaMaterialActivationRefV1,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        let source_kind = match raw.source_kind.as_str() {
+            "owner_registration" => {
+                let continuity = raw.owner_participant_continuity.ok_or_else(|| {
+                    serde::de::Error::custom("owner source requires ownerParticipantContinuity")
+                })?;
+                if raw.holder_participant_id.is_some()
+                    || raw.signing_worker_participant_id.is_some()
+                    || raw.signing_worker_recipient_key_id.is_some()
+                {
+                    return Err(serde::de::Error::custom(
+                        "owner source cannot carry provisioned participant fields",
+                    ));
+                }
+                EcdsaLaneSourceKindV1::OwnerRegistration {
+                    owner_participant_continuity: continuity,
+                }
+            }
+            "provisioned_lane" => {
+                let holder = raw.holder_participant_id.ok_or_else(|| {
+                    serde::de::Error::custom("provisioned source requires holderParticipantId")
+                })?;
+                let worker = raw.signing_worker_participant_id.ok_or_else(|| {
+                    serde::de::Error::custom(
+                        "provisioned source requires signingWorkerParticipantId",
+                    )
+                })?;
+                let recipient = raw.signing_worker_recipient_key_id.ok_or_else(|| {
+                    serde::de::Error::custom(
+                        "provisioned source requires signingWorkerRecipientKeyId",
+                    )
+                })?;
+                if raw.owner_participant_continuity.is_some() {
+                    return Err(serde::de::Error::custom(
+                        "provisioned source cannot carry ownerParticipantContinuity",
+                    ));
+                }
+                EcdsaLaneSourceKindV1::ProvisionedLane {
+                    holder_participant_id: holder,
+                    signing_worker_participant_id: worker,
+                    signing_worker_recipient_key_id: recipient,
+                }
+            }
+            _ => return Err(serde::de::Error::custom("sourceKind is invalid")),
+        };
+        Ok(Self {
+            lane_id: raw.lane_id,
+            lane_kind: raw.lane_kind,
+            lane_share_epoch: raw.lane_share_epoch,
+            revocation_epoch: raw.revocation_epoch,
+            source_kind,
+            participant_binding_digest_b64u: raw.participant_binding_digest_b64u,
+            material_activation: raw.material_activation,
+        })
+    }
+}
+
+impl ActiveEcdsaLaneProtocolSourceV1 {
+    /// Returns source lane id.
+    pub fn lane_id(&self) -> &str {
+        &self.lane_id
+    }
+    /// Returns source lane kind.
+    pub fn lane_kind(&self) -> &str {
+        &self.lane_kind
+    }
+    /// Returns source lane share epoch.
+    pub fn lane_share_epoch(&self) -> &str {
+        &self.lane_share_epoch
+    }
+    /// Returns source revocation epoch.
+    pub fn revocation_epoch(&self) -> u64 {
+        self.revocation_epoch
+    }
+    /// Returns source material activation.
+    pub fn material_activation(&self) -> &EcdsaMaterialActivationRefV1 {
+        &self.material_activation
+    }
+    /// Returns source participant binding digest.
+    pub fn participant_binding_digest_b64u(&self) -> &str {
+        &self.participant_binding_digest_b64u
+    }
+    /// Returns authoritative SigningWorker identity.
+    pub fn signing_worker_id(&self) -> &str {
+        match &self.source_kind {
+            EcdsaLaneSourceKindV1::OwnerRegistration {
+                owner_participant_continuity,
+            } => &owner_participant_continuity.signing_worker_id,
+            EcdsaLaneSourceKindV1::ProvisionedLane {
+                signing_worker_participant_id,
+                ..
+            } => signing_worker_participant_id,
+        }
+    }
+    /// Validates source identity.
+    pub fn validate(&self) -> Result<(), EcdsaClientProtocolError> {
+        for value in [&self.lane_id, &self.lane_kind, &self.lane_share_epoch] {
+            require_non_empty(value)?;
+        }
+        match &self.source_kind {
+            EcdsaLaneSourceKindV1::OwnerRegistration {
+                owner_participant_continuity,
+            } => {
+                if !matches!(self.lane_kind.as_str(), "owner_passkey" | "owner_email_otp") {
+                    return Err(EcdsaClientProtocolError::InvalidShape);
+                }
+                owner_participant_continuity.validate()?;
+            }
+            EcdsaLaneSourceKindV1::ProvisionedLane {
+                holder_participant_id,
+                signing_worker_participant_id,
+                signing_worker_recipient_key_id,
+            } => {
+                if matches!(self.lane_kind.as_str(), "owner_passkey" | "owner_email_otp") {
+                    return Err(EcdsaClientProtocolError::InvalidShape);
+                }
+                for value in [
+                    holder_participant_id,
+                    signing_worker_participant_id,
+                    signing_worker_recipient_key_id,
+                ] {
+                    require_non_empty(value)?;
+                }
+            }
+        }
+        validate_digest_b64(&self.participant_binding_digest_b64u)?;
+        validate_activation(&self.material_activation)
+    }
 }
 
 /// Target holder recipient binding.
@@ -316,11 +536,11 @@ impl EcdsaAdditiveLaneJobV1 {
         validate_worker(&self.target_signing_worker)?;
         validate_target(&self.target, &self.source)?;
         validate_authorization(&self.authorization, &self.target)?;
-        validate_activation(&self.source.material_activation)?;
+        validate_activation(self.source.material_activation())?;
         validate_public_key_b64(&self.threshold_public_key33_b64u)?;
         validate_public_key_b64(&self.source_holder_verifying_share33_b64u)?;
         validate_public_key_b64(&self.source_server_verifying_share33_b64u)?;
-        validate_digest_b64(&self.source.participant_binding_digest_b64u)?;
+        validate_digest_b64(self.source.participant_binding_digest_b64u())?;
         validate_digest_b64(&self.target_holder.participant_binding_digest_b64u)?;
         validate_digest_b64(&self.target_holder.custody_binding_digest_b64u)?;
         validate_digest_b64(&self.target_holder.hpke_public_key_digest_b64u)?;
@@ -858,15 +1078,30 @@ fn encode_source(
     out: &mut Vec<u8>,
     source: &ActiveEcdsaLaneProtocolSourceV1,
 ) -> Result<(), EcdsaClientProtocolError> {
-    text(out, &source.lane_id);
-    text(out, &source.lane_kind);
-    text(out, &source.lane_share_epoch);
-    u64_be(out, source.revocation_epoch);
-    text(out, &source.holder_participant_id);
-    text(out, &source.signing_worker_participant_id);
-    text(out, &source.signing_worker_recipient_key_id);
-    digest_text(out, &source.participant_binding_digest_b64u)?;
-    activation_lp(out, &source.material_activation)
+    text(out, source.lane_id());
+    text(out, source.lane_kind());
+    text(out, source.lane_share_epoch());
+    u64_be(out, source.revocation_epoch());
+    match &source.source_kind {
+        EcdsaLaneSourceKindV1::OwnerRegistration {
+            owner_participant_continuity,
+        } => {
+            text(out, "owner_registration");
+            owner_participant_continuity.canonical_bytes_v1(out);
+        }
+        EcdsaLaneSourceKindV1::ProvisionedLane {
+            holder_participant_id,
+            signing_worker_participant_id,
+            signing_worker_recipient_key_id,
+        } => {
+            text(out, "provisioned_lane");
+            text(out, holder_participant_id);
+            text(out, signing_worker_participant_id);
+            text(out, signing_worker_recipient_key_id);
+        }
+    }
+    digest_text(out, source.participant_binding_digest_b64u())?;
+    activation_lp(out, source.material_activation())
 }
 
 fn encode_holder(
@@ -1015,17 +1250,7 @@ fn encode_chain_target(
 fn validate_source(
     source: &ActiveEcdsaLaneProtocolSourceV1,
 ) -> Result<(), EcdsaClientProtocolError> {
-    for value in [
-        &source.lane_id,
-        &source.lane_kind,
-        &source.lane_share_epoch,
-        &source.holder_participant_id,
-        &source.signing_worker_participant_id,
-        &source.signing_worker_recipient_key_id,
-    ] {
-        require_non_empty(value)?;
-    }
-    validate_digest_b64(&source.participant_binding_digest_b64u)
+    source.validate()
 }
 
 fn validate_holder(holder: &EcdsaLaneTargetHolderV1) -> Result<(), EcdsaClientProtocolError> {
@@ -1070,10 +1295,8 @@ fn validate_target(
         } => {
             require_exact(lane_kind, "linked_device")?;
             require_exact(expected_target_state, "absent")?;
-            if matches!(
-                source.lane_kind.as_str(),
-                "linked_device" | "delegated_execution"
-            ) || lane_id == &source.lane_id
+            if matches!(source.lane_kind(), "linked_device" | "delegated_execution")
+                || lane_id == source.lane_id()
                 || lane_share_epoch.is_empty()
             {
                 return Err(EcdsaClientProtocolError::InvalidShape);
@@ -1088,10 +1311,10 @@ fn validate_target(
         } => {
             require_non_empty(lane_kind)?;
             require_exact(expected_target_state, "active_previous_epoch")?;
-            if lane_id != &source.lane_id
-                || lane_kind != &source.lane_kind
+            if lane_id != source.lane_id()
+                || lane_kind != source.lane_kind()
                 || lane_share_epoch.is_empty()
-                || prior_material_activation != &source.material_activation
+                || prior_material_activation != source.material_activation()
             {
                 return Err(EcdsaClientProtocolError::InvalidShape);
             }
@@ -1227,6 +1450,11 @@ fn digest_text(out: &mut Vec<u8>, value: &str) -> Result<(), EcdsaClientProtocol
     Ok(())
 }
 
+fn digest_text_unchecked(out: &mut Vec<u8>, value: &str) {
+    let bytes = decode_fixed_digest(value).expect("validated digest");
+    lp(out, &bytes);
+}
+
 fn digest_lp(out: &mut Vec<u8>, value: &str) -> Result<(), EcdsaClientProtocolError> {
     digest_text(out, value)
 }
@@ -1358,9 +1586,16 @@ mod tests {
                 lane_kind: "owner_passkey".to_owned(),
                 lane_share_epoch: "epoch-1".to_owned(),
                 revocation_epoch: 0,
-                holder_participant_id: "holder-1".to_owned(),
-                signing_worker_participant_id: "worker-1".to_owned(),
-                signing_worker_recipient_key_id: "recipient-1".to_owned(),
+                source_kind: EcdsaLaneSourceKindV1::OwnerRegistration {
+                    owner_participant_continuity: OwnerLaneParticipantContinuityV1 {
+                        kind: "owner_lane_participant_continuity_v1".to_owned(),
+                        signer_id: "signer-1".to_owned(),
+                        participant_ids: [1, 2],
+                        signing_worker_id: "worker-1".to_owned(),
+                        custody_key_manifest_digest_b64u: b64_bytes::<32>(10),
+                        source_identity_digest_b64u: b64_bytes::<32>(11),
+                    },
+                },
                 participant_binding_digest_b64u: b64_bytes::<32>(1),
                 material_activation: activation("activation-1"),
             },
@@ -1502,11 +1737,11 @@ mod tests {
 
         let mut changed_kind = job();
         changed_kind.target = EcdsaLaneTargetOperationV1::RefreshLane {
-            lane_id: changed_kind.source.lane_id.clone(),
+            lane_id: changed_kind.source.lane_id().to_owned(),
             lane_kind: "owner_email_otp".to_owned(),
             lane_share_epoch: "epoch-2".to_owned(),
             expected_target_state: "active_previous_epoch".to_owned(),
-            prior_material_activation: changed_kind.source.material_activation.clone(),
+            prior_material_activation: changed_kind.source.material_activation().clone(),
         };
         changed_kind.authorization = EcdsaLaneAuthorizationBindingV1::OwnerLaneRefresh {
             authorized_operation_id: changed_kind.operation_id.clone(),

@@ -775,15 +775,15 @@ fn validate_ed_receipt(
     job: &Ed25519YaoLaneJobV1,
     receipt: &LaneProtocolCommitReceiptWireV1,
 ) -> Result<(), LaneHolderError> {
-    let source_activation = serde_json::to_value(&job.source.material_activation)
+    let source_activation = serde_json::to_value(&job.source.material_activation())
         .map_err(|_| LaneHolderError::InvalidShape)?;
     let valid = receipt.operation_id == job.operation_id
         && receipt.enrollment_id == job.enrollment_id
         && receipt.wallet_id == job.wallet_id
         && receipt.wallet_key_id == job.wallet_key_id
-        && receipt.source_lane_id == job.source.lane_id
-        && receipt.source_lane_share_epoch == job.source.lane_share_epoch
-        && receipt.source_revocation_epoch == job.source.revocation_epoch
+        && receipt.source_lane_id == job.source.lane_id()
+        && receipt.source_lane_share_epoch == job.source.lane_share_epoch()
+        && receipt.source_revocation_epoch == job.source.revocation_epoch()
         && receipt.source_material_activation == source_activation
         && receipt.target_lane_id == job.target_lane_id()
         && receipt.target_lane_share_epoch == job.target_lane_share_epoch()
@@ -807,15 +807,15 @@ fn validate_ecdsa_receipt(
     job: &EcdsaAdditiveLaneJobV1,
     receipt: &LaneProtocolCommitReceiptWireV1,
 ) -> Result<(), LaneHolderError> {
-    let source_activation = serde_json::to_value(&job.source.material_activation)
+    let source_activation = serde_json::to_value(&job.source.material_activation())
         .map_err(|_| LaneHolderError::InvalidShape)?;
     let valid = receipt.operation_id == job.operation_id
         && receipt.enrollment_id == job.enrollment_id
         && receipt.wallet_id == job.wallet_id
         && receipt.wallet_key_id == job.wallet_key_id
-        && receipt.source_lane_id == job.source.lane_id
-        && receipt.source_lane_share_epoch == job.source.lane_share_epoch
-        && receipt.source_revocation_epoch == job.source.revocation_epoch
+        && receipt.source_lane_id == job.source.lane_id()
+        && receipt.source_lane_share_epoch == job.source.lane_share_epoch()
+        && receipt.source_revocation_epoch == job.source.revocation_epoch()
         && receipt.source_material_activation == source_activation
         && receipt.target_lane_id == ecdsa_target_lane_id(job)
         && receipt.target_lane_share_epoch == ecdsa_target_lane_share_epoch(job)

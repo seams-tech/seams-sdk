@@ -14,9 +14,10 @@ use router_ab_ecdsa_client_protocol::{
     verify_ecdsa_additive_lane_transcript_v1, ActiveEcdsaLaneProtocolSourceV1,
     EcdsaAdditiveLaneHolderRoundV1, EcdsaAdditiveLaneJobV1, EcdsaAdditiveLaneServerRoundV1,
     EcdsaAdditiveLaneTranscriptV1, EcdsaLaneAuthorizationBindingV1, EcdsaLaneChainTargetV1,
-    EcdsaLaneTargetHolderV1, EcdsaLaneTargetOperationV1, EcdsaLaneTargetSigningWorkerV1,
-    EcdsaMaterialActivationRefKindV1, EcdsaMaterialActivationRefV1, EcdsaSourceCapabilityBindingV1,
-    EcdsaTargetCapabilityBindingV1, EcdsaTargetThresholdSessionBindingV1,
+    EcdsaLaneSourceKindV1, EcdsaLaneTargetHolderV1, EcdsaLaneTargetOperationV1,
+    EcdsaLaneTargetSigningWorkerV1, EcdsaMaterialActivationRefKindV1, EcdsaMaterialActivationRefV1,
+    EcdsaSourceCapabilityBindingV1, EcdsaTargetCapabilityBindingV1,
+    EcdsaTargetThresholdSessionBindingV1, OwnerLaneParticipantContinuityV1,
 };
 use serde_json::{json, Value};
 
@@ -71,9 +72,16 @@ fn job() -> EcdsaAdditiveLaneJobV1 {
             lane_kind: "owner_passkey".to_owned(),
             lane_share_epoch: "opaque/source-epoch:A".to_owned(),
             revocation_epoch: 7,
-            holder_participant_id: "holder:owner-device".to_owned(),
-            signing_worker_participant_id: "signing-worker:source".to_owned(),
-            signing_worker_recipient_key_id: "recipient-key:source".to_owned(),
+            source_kind: EcdsaLaneSourceKindV1::OwnerRegistration {
+                owner_participant_continuity: OwnerLaneParticipantContinuityV1 {
+                    kind: "owner_lane_participant_continuity_v1".to_owned(),
+                    signer_id: "signer:owner".to_owned(),
+                    participant_ids: [1, 2],
+                    signing_worker_id: "signing-worker:source".to_owned(),
+                    custody_key_manifest_digest_b64u: digest(18),
+                    source_identity_digest_b64u: digest(19),
+                },
+            },
             participant_binding_digest_b64u: digest(1),
             material_activation: activation("activation:source"),
         },

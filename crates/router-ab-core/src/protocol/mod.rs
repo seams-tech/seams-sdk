@@ -48,9 +48,10 @@ pub use self::ed25519_yao::{
 };
 pub use self::ed25519_yao_lane::{
     Ed25519YaoLaneAuthorizationV1, Ed25519YaoLaneJobV1, Ed25519YaoLaneProtocolCommittedV1,
-    Ed25519YaoLaneRequestKindV1, Ed25519YaoLaneSourceV1, Ed25519YaoLaneTargetHolderV1,
-    Ed25519YaoLaneTargetSigningWorkerV1, Ed25519YaoLaneTargetV1,
-    RouterAbEd25519YaoLaneExecuteRequestV1, RouterAbEd25519YaoLaneResultV1,
+    Ed25519YaoLaneRequestKindV1, Ed25519YaoLaneSourceKindV1, Ed25519YaoLaneSourceV1,
+    Ed25519YaoLaneTargetHolderV1, Ed25519YaoLaneTargetSigningWorkerV1, Ed25519YaoLaneTargetV1,
+    OwnerLaneParticipantContinuityV1, RouterAbEd25519YaoLaneExecuteRequestV1,
+    RouterAbEd25519YaoLaneResultV1,
 };
 pub use self::ed25519_yao_lane_dispatch::{
     RouterAbEd25519YaoLaneDispatchRequestV1, RouterAbEd25519YaoLaneDispatchResponseV1,

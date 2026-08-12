@@ -5,7 +5,7 @@
 //! random lane offset are owned by the Yao adapter.
 
 use base64ct::{Base64UrlUnpadded, Encoding};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::ed25519_yao::{
@@ -196,9 +196,100 @@ impl Ed25519YaoLaneTargetV1 {
     }
 }
 
-/// Public source-lane identity pinned before any Yao work starts.
+/// Durable owner signer continuity inherited by registration-backed lanes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OwnerLaneParticipantContinuityV1 {
+    /// Wire discriminator.
+    pub kind: String,
+    /// Stable wallet signer identity.
+    pub signer_id: String,
+    /// The owner and SigningWorker participant ids used by registration.
+    pub participant_ids: [u64; 2],
+    /// The authoritative SigningWorker identity.
+    pub signing_worker_id: String,
+    /// Digest of the custody key manifest.
+    pub custody_key_manifest_digest_b64u: String,
+    /// Digest of the source identity projection.
+    pub source_identity_digest_b64u: String,
+}
+
+impl OwnerLaneParticipantContinuityV1 {
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        if self.kind != "owner_lane_participant_continuity_v1" {
+            return Err(invalid_lane("owner continuity kind is invalid"));
+        }
+        require_text(
+            "source.ownerParticipantContinuity.signerId",
+            &self.signer_id,
+        )?;
+        require_positive(
+            "source.ownerParticipantContinuity.participantIds[0]",
+            self.participant_ids[0],
+        )?;
+        require_positive(
+            "source.ownerParticipantContinuity.participantIds[1]",
+            self.participant_ids[1],
+        )?;
+        if self.participant_ids[0] == self.participant_ids[1] {
+            return Err(invalid_lane("owner participant ids must be distinct"));
+        }
+        require_text(
+            "source.ownerParticipantContinuity.signingWorkerId",
+            &self.signing_worker_id,
+        )?;
+        require_digest(
+            "source.ownerParticipantContinuity.custodyKeyManifestDigestB64u",
+            &self.custody_key_manifest_digest_b64u,
+        )?;
+        require_digest(
+            "source.ownerParticipantContinuity.sourceIdentityDigestB64u",
+            &self.source_identity_digest_b64u,
+        )
+    }
+
+    fn canonical_bytes_v1(&self, out: &mut Vec<u8>) {
+        push_text(
+            out,
+            "seams/rotatable-signing-lanes/owner-lane-participant-continuity/v1",
+        );
+        push_text(out, &self.signer_id);
+        push_u64(out, self.participant_ids[0]);
+        push_u64(out, self.participant_ids[1]);
+        push_text(out, &self.signing_worker_id);
+        push_text(out, &self.custody_key_manifest_digest_b64u);
+        push_text(out, &self.source_identity_digest_b64u);
+    }
+}
+
+/// Branch-specific source participant identities.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "sourceKind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum Ed25519YaoLaneSourceKindV1 {
+    /// Registration-backed owner source with durable continuity only.
+    OwnerRegistration {
+        /// Registration signer continuity.
+        owner_participant_continuity: OwnerLaneParticipantContinuityV1,
+    },
+    /// Independently provisioned lane with HPKE participant identities.
+    ProvisionedLane {
+        /// Source holder participant identity.
+        holder_participant_id: String,
+        /// Source SigningWorker participant identity.
+        signing_worker_participant_id: String,
+        /// Source SigningWorker recipient key identifier.
+        signing_worker_recipient_key_id: String,
+    },
+}
+
+/// Public source-lane identity pinned before any Yao work starts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Ed25519YaoLaneSourceV1 {
     /// Source lane identifier.
     pub lane_id: String,
@@ -208,12 +299,9 @@ pub struct Ed25519YaoLaneSourceV1 {
     pub lane_share_epoch: String,
     /// Source lane revocation epoch.
     pub revocation_epoch: u64,
-    /// Source holder participant identity.
-    pub holder_participant_id: String,
-    /// Source SigningWorker participant identity.
-    pub signing_worker_participant_id: String,
-    /// Source SigningWorker recipient key identifier.
-    pub signing_worker_recipient_key_id: String,
+    /// Source branch participant identities.
+    #[serde(flatten)]
+    pub source_kind: Ed25519YaoLaneSourceKindV1,
     /// Source participant-binding digest.
     pub participant_binding_digest_b64u: String,
     /// Exact source material activation.
@@ -221,21 +309,157 @@ pub struct Ed25519YaoLaneSourceV1 {
     pub material_activation: MpcMaterialActivationRefV1,
 }
 
+impl<'de> Deserialize<'de> for Ed25519YaoLaneSourceV1 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct Raw {
+            lane_id: String,
+            lane_kind: String,
+            lane_share_epoch: String,
+            revocation_epoch: u64,
+            source_kind: String,
+            owner_participant_continuity: Option<OwnerLaneParticipantContinuityV1>,
+            holder_participant_id: Option<String>,
+            signing_worker_participant_id: Option<String>,
+            signing_worker_recipient_key_id: Option<String>,
+            participant_binding_digest_b64u: String,
+            #[serde(with = "lane_material_activation_serde")]
+            material_activation: MpcMaterialActivationRefV1,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        let source_kind = match raw.source_kind.as_str() {
+            "owner_registration" => {
+                let continuity = raw.owner_participant_continuity.ok_or_else(|| {
+                    serde::de::Error::custom("owner source requires ownerParticipantContinuity")
+                })?;
+                if raw.holder_participant_id.is_some()
+                    || raw.signing_worker_participant_id.is_some()
+                    || raw.signing_worker_recipient_key_id.is_some()
+                {
+                    return Err(serde::de::Error::custom(
+                        "owner source cannot carry provisioned participant fields",
+                    ));
+                }
+                Ed25519YaoLaneSourceKindV1::OwnerRegistration {
+                    owner_participant_continuity: continuity,
+                }
+            }
+            "provisioned_lane" => {
+                let holder = raw.holder_participant_id.ok_or_else(|| {
+                    serde::de::Error::custom("provisioned source requires holderParticipantId")
+                })?;
+                let worker = raw.signing_worker_participant_id.ok_or_else(|| {
+                    serde::de::Error::custom(
+                        "provisioned source requires signingWorkerParticipantId",
+                    )
+                })?;
+                let recipient = raw.signing_worker_recipient_key_id.ok_or_else(|| {
+                    serde::de::Error::custom(
+                        "provisioned source requires signingWorkerRecipientKeyId",
+                    )
+                })?;
+                if raw.owner_participant_continuity.is_some() {
+                    return Err(serde::de::Error::custom(
+                        "provisioned source cannot carry ownerParticipantContinuity",
+                    ));
+                }
+                Ed25519YaoLaneSourceKindV1::ProvisionedLane {
+                    holder_participant_id: holder,
+                    signing_worker_participant_id: worker,
+                    signing_worker_recipient_key_id: recipient,
+                }
+            }
+            _ => return Err(serde::de::Error::custom("sourceKind is invalid")),
+        };
+        Ok(Self {
+            lane_id: raw.lane_id,
+            lane_kind: raw.lane_kind,
+            lane_share_epoch: raw.lane_share_epoch,
+            revocation_epoch: raw.revocation_epoch,
+            source_kind,
+            participant_binding_digest_b64u: raw.participant_binding_digest_b64u,
+            material_activation: raw.material_activation,
+        })
+    }
+}
+
 impl Ed25519YaoLaneSourceV1 {
+    /// Returns the source lane identifier.
+    pub fn lane_id(&self) -> &str {
+        &self.lane_id
+    }
+    /// Returns the source lane kind.
+    pub fn lane_kind(&self) -> &str {
+        &self.lane_kind
+    }
+    /// Returns the source lane share epoch.
+    pub fn lane_share_epoch(&self) -> &str {
+        &self.lane_share_epoch
+    }
+    /// Returns the source revocation epoch.
+    pub fn revocation_epoch(&self) -> u64 {
+        self.revocation_epoch
+    }
+    /// Returns the source material activation.
+    pub fn material_activation(&self) -> &MpcMaterialActivationRefV1 {
+        &self.material_activation
+    }
+    /// Returns the source participant-binding digest.
+    pub fn participant_binding_digest_b64u(&self) -> &str {
+        &self.participant_binding_digest_b64u
+    }
+    /// Returns the authoritative SigningWorker identity.
+    pub fn signing_worker_id(&self) -> &str {
+        match &self.source_kind {
+            Ed25519YaoLaneSourceKindV1::OwnerRegistration {
+                owner_participant_continuity,
+            } => &owner_participant_continuity.signing_worker_id,
+            Ed25519YaoLaneSourceKindV1::ProvisionedLane {
+                signing_worker_participant_id,
+                ..
+            } => signing_worker_participant_id,
+        }
+    }
+
     /// Validates the source lane identity.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         require_text("source.lane_id", &self.lane_id)?;
         require_lane_kind("source.lane_kind", &self.lane_kind)?;
         require_text("source.lane_share_epoch", &self.lane_share_epoch)?;
-        require_text("source.holder_participant_id", &self.holder_participant_id)?;
-        require_text(
-            "source.signing_worker_participant_id",
-            &self.signing_worker_participant_id,
-        )?;
-        require_text(
-            "source.signing_worker_recipient_key_id",
-            &self.signing_worker_recipient_key_id,
-        )?;
+        match &self.source_kind {
+            Ed25519YaoLaneSourceKindV1::OwnerRegistration {
+                owner_participant_continuity,
+            } => {
+                if !matches!(self.lane_kind.as_str(), "owner_passkey" | "owner_email_otp") {
+                    return Err(invalid_lane("owner source requires an owner lane kind"));
+                }
+                owner_participant_continuity.validate()?;
+            }
+            Ed25519YaoLaneSourceKindV1::ProvisionedLane {
+                holder_participant_id,
+                signing_worker_participant_id,
+                signing_worker_recipient_key_id,
+            } => {
+                if matches!(self.lane_kind.as_str(), "owner_passkey" | "owner_email_otp") {
+                    return Err(invalid_lane(
+                        "provisioned source cannot use an owner lane kind",
+                    ));
+                }
+                require_text("source.holder_participant_id", holder_participant_id)?;
+                require_text(
+                    "source.signing_worker_participant_id",
+                    signing_worker_participant_id,
+                )?;
+                require_text(
+                    "source.signing_worker_recipient_key_id",
+                    signing_worker_recipient_key_id,
+                )?;
+            }
+        }
         require_digest(
             "source.participant_binding_digest_b64u",
             &self.participant_binding_digest_b64u,
@@ -394,7 +618,7 @@ impl Ed25519YaoLaneJobV1 {
             "target_material_activation_id",
             &self.target_material_activation_id,
         )?;
-        if self.target_material_activation_id == self.source.material_activation.activation_id {
+        if self.target_material_activation_id == self.source.material_activation().activation_id {
             return Err(invalid_lane(
                 "lane target material activation must be fresh",
             ));
@@ -442,9 +666,9 @@ impl Ed25519YaoLaneJobV1 {
                 }
                 require_text("target.lane_share_epoch", lane_share_epoch)?;
                 if matches!(
-                    self.source.lane_kind.as_str(),
+                    self.source.lane_kind(),
                     "linked_device" | "delegated_execution"
-                ) || self.source.lane_id == *lane_id
+                ) || self.source.lane_id() == *lane_id
                 {
                     return Err(invalid_lane(
                         "lane provisioning requires an owner-controlled source and a distinct target",
@@ -473,10 +697,10 @@ impl Ed25519YaoLaneJobV1 {
                 require_lane_kind("target.lane_kind", lane_kind)?;
                 require_text("target.lane_share_epoch", lane_share_epoch)?;
                 if expected_target_state != "active_previous_epoch"
-                    || *lane_id != self.source.lane_id
-                    || *lane_kind != self.source.lane_kind
-                    || self.source.lane_share_epoch == *lane_share_epoch
-                    || prior_material_activation != &self.source.material_activation
+                    || *lane_id != self.source.lane_id()
+                    || *lane_kind != self.source.lane_kind()
+                    || self.source.lane_share_epoch() == *lane_share_epoch
+                    || prior_material_activation != self.source.material_activation()
                 {
                     return Err(invalid_lane(
                         "lane refresh must target the exact active source and a fresh opaque epoch",
@@ -528,15 +752,30 @@ impl Ed25519YaoLaneJobV1 {
         push_text(&mut bytes, &self.idempotency_key);
         push_text(&mut bytes, &self.wallet_id);
         push_text(&mut bytes, &self.wallet_key_id);
-        push_text(&mut bytes, &self.source.lane_id);
-        push_text(&mut bytes, &self.source.lane_kind);
-        push_text(&mut bytes, &self.source.lane_share_epoch);
-        push_u64(&mut bytes, self.source.revocation_epoch);
-        push_text(&mut bytes, &self.source.holder_participant_id);
-        push_text(&mut bytes, &self.source.signing_worker_participant_id);
-        push_text(&mut bytes, &self.source.signing_worker_recipient_key_id);
-        push_text(&mut bytes, &self.source.participant_binding_digest_b64u);
-        push_activation_ref(&mut bytes, &self.source.material_activation);
+        push_text(&mut bytes, self.source.lane_id());
+        push_text(&mut bytes, self.source.lane_kind());
+        push_text(&mut bytes, self.source.lane_share_epoch());
+        push_u64(&mut bytes, self.source.revocation_epoch());
+        match &self.source.source_kind {
+            Ed25519YaoLaneSourceKindV1::OwnerRegistration {
+                owner_participant_continuity,
+            } => {
+                push_text(&mut bytes, "owner_registration");
+                owner_participant_continuity.canonical_bytes_v1(&mut bytes);
+            }
+            Ed25519YaoLaneSourceKindV1::ProvisionedLane {
+                holder_participant_id,
+                signing_worker_participant_id,
+                signing_worker_recipient_key_id,
+            } => {
+                push_text(&mut bytes, "provisioned_lane");
+                push_text(&mut bytes, holder_participant_id);
+                push_text(&mut bytes, signing_worker_participant_id);
+                push_text(&mut bytes, signing_worker_recipient_key_id);
+            }
+        }
+        push_text(&mut bytes, self.source.participant_binding_digest_b64u());
+        push_activation_ref(&mut bytes, self.source.material_activation());
         match &self.target {
             Ed25519YaoLaneTargetV1::CreateLane {
                 lane_kind,
@@ -1142,7 +1381,12 @@ fn require_lane_kind(field: &str, value: &str) -> RouterAbProtocolResult<()> {
     require_text(field, value)?;
     if !matches!(
         value,
-        "owner_passkey" | "owner_email_otp" | "linked_device" | "recovery" | "break_glass"
+        "owner_passkey"
+            | "owner_email_otp"
+            | "linked_device"
+            | "delegated_execution"
+            | "recovery"
+            | "break_glass"
     ) {
         return Err(invalid_lane("Ed25519 lane kind is invalid"));
     }
@@ -1231,9 +1475,16 @@ mod tests {
                 lane_kind: "owner_passkey".to_owned(),
                 lane_share_epoch: "epoch-1".to_owned(),
                 revocation_epoch: 0,
-                holder_participant_id: "source-holder".to_owned(),
-                signing_worker_participant_id: "source-worker".to_owned(),
-                signing_worker_recipient_key_id: "source-worker-key".to_owned(),
+                source_kind: Ed25519YaoLaneSourceKindV1::OwnerRegistration {
+                    owner_participant_continuity: OwnerLaneParticipantContinuityV1 {
+                        kind: "owner_lane_participant_continuity_v1".to_owned(),
+                        signer_id: "source-signer".to_owned(),
+                        participant_ids: [1, 2],
+                        signing_worker_id: "source-worker".to_owned(),
+                        custody_key_manifest_digest_b64u: DIGEST.to_owned(),
+                        source_identity_digest_b64u: DIGEST.to_owned(),
+                    },
+                },
                 participant_binding_digest_b64u: DIGEST.to_owned(),
                 material_activation: activation("source-activation"),
             },
@@ -1310,11 +1561,11 @@ mod tests {
         let mut job = create_job();
         job.yao_request_kind = Ed25519YaoLaneRequestKindV1::LaneRefresh;
         job.target = Ed25519YaoLaneTargetV1::RefreshLane {
-            lane_id: job.source.lane_id.clone(),
-            lane_kind: job.source.lane_kind.clone(),
-            lane_share_epoch: job.source.lane_share_epoch.clone(),
+            lane_id: job.source.lane_id().to_owned(),
+            lane_kind: job.source.lane_kind().to_owned(),
+            lane_share_epoch: job.source.lane_share_epoch().to_owned(),
             expected_target_state: "active_previous_epoch".to_owned(),
-            prior_material_activation: job.source.material_activation.clone(),
+            prior_material_activation: job.source.material_activation().clone(),
         };
         job.authorization = Ed25519YaoLaneAuthorizationV1::OwnerLaneRefresh {
             authorized_operation_id: job.operation_id.clone(),
@@ -1326,17 +1577,54 @@ mod tests {
     #[test]
     fn creation_requires_owner_source_and_refresh_preserves_lane_kind() {
         let mut linked_source = create_job();
-        linked_source.source.lane_kind = "linked_device".to_owned();
+        linked_source.source = match linked_source.source.source_kind {
+            Ed25519YaoLaneSourceKindV1::OwnerRegistration {
+                owner_participant_continuity,
+            } => Ed25519YaoLaneSourceV1 {
+                lane_id: linked_source.source.lane_id().to_owned(),
+                lane_kind: "linked_device".to_owned(),
+                lane_share_epoch: linked_source.source.lane_share_epoch().to_owned(),
+                revocation_epoch: linked_source.source.revocation_epoch(),
+                source_kind: Ed25519YaoLaneSourceKindV1::OwnerRegistration {
+                    owner_participant_continuity,
+                },
+                participant_binding_digest_b64u: linked_source
+                    .source
+                    .participant_binding_digest_b64u()
+                    .to_owned(),
+                material_activation: linked_source.source.material_activation().clone(),
+            },
+            Ed25519YaoLaneSourceKindV1::ProvisionedLane {
+                holder_participant_id,
+                signing_worker_participant_id,
+                signing_worker_recipient_key_id,
+            } => Ed25519YaoLaneSourceV1 {
+                lane_id: linked_source.source.lane_id().to_owned(),
+                lane_kind: "linked_device".to_owned(),
+                lane_share_epoch: linked_source.source.lane_share_epoch().to_owned(),
+                revocation_epoch: linked_source.source.revocation_epoch(),
+                source_kind: Ed25519YaoLaneSourceKindV1::ProvisionedLane {
+                    holder_participant_id,
+                    signing_worker_participant_id,
+                    signing_worker_recipient_key_id,
+                },
+                participant_binding_digest_b64u: linked_source
+                    .source
+                    .participant_binding_digest_b64u()
+                    .to_owned(),
+                material_activation: linked_source.source.material_activation().clone(),
+            },
+        };
         assert!(linked_source.validate().is_err());
 
         let mut changed_kind = create_job();
         changed_kind.yao_request_kind = Ed25519YaoLaneRequestKindV1::LaneRefresh;
         changed_kind.target = Ed25519YaoLaneTargetV1::RefreshLane {
-            lane_id: changed_kind.source.lane_id.clone(),
+            lane_id: changed_kind.source.lane_id().to_owned(),
             lane_kind: "owner_email_otp".to_owned(),
             lane_share_epoch: "epoch-2".to_owned(),
             expected_target_state: "active_previous_epoch".to_owned(),
-            prior_material_activation: changed_kind.source.material_activation.clone(),
+            prior_material_activation: changed_kind.source.material_activation().clone(),
         };
         changed_kind.authorization = Ed25519YaoLaneAuthorizationV1::OwnerLaneRefresh {
             authorized_operation_id: changed_kind.operation_id.clone(),

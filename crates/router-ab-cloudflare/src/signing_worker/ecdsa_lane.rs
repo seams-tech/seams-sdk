@@ -81,10 +81,10 @@ impl CloudflareEcdsaLaneSourceMaterialLookupV1 {
                     != super::CloudflareSigningWorkerLaneKeyFamilyV1::EcdsaSecp256k1
                     || identity.wallet_id != job.wallet_id
                     || identity.wallet_key_id != job.wallet_key_id
-                    || identity.target_lane_id != job.source.lane_id
-                    || identity.target_lane_share_epoch != job.source.lane_share_epoch
+                    || identity.target_lane_id != job.source.lane_id()
+                    || identity.target_lane_share_epoch != job.source.lane_share_epoch()
                     || identity.target_material_activation_id
-                        != job.source.material_activation.activation_id
+                        != job.source.material_activation().activation_id
                 {
                     return Err(invalid("ECDSA lane source identity does not match the job"));
                 }
@@ -92,8 +92,9 @@ impl CloudflareEcdsaLaneSourceMaterialLookupV1 {
             Self::RegistrationActivation { lookup } => {
                 lookup.validate()?;
                 if lookup.account_id != job.wallet_id
-                    || lookup.material_activation_id != job.source.material_activation.activation_id
-                    || lookup.signing_worker_id != job.source.signing_worker_participant_id
+                    || lookup.material_activation_id
+                        != job.source.material_activation().activation_id
+                    || lookup.signing_worker_id != job.source.signing_worker_id()
                 {
                     return Err(invalid(
                         "ECDSA registration source activation does not match the job",
@@ -192,10 +193,10 @@ impl CloudflareEcdsaLaneProtocolCommitReceiptV1 {
             || self.enrollment_id != job.enrollment_id
             || self.wallet_id != job.wallet_id
             || self.wallet_key_id != job.wallet_key_id
-            || self.source_lane_id != job.source.lane_id
-            || self.source_lane_share_epoch != job.source.lane_share_epoch
-            || self.source_revocation_epoch != job.source.revocation_epoch
-            || self.source_material_activation != job.source.material_activation
+            || self.source_lane_id != job.source.lane_id()
+            || self.source_lane_share_epoch != job.source.lane_share_epoch()
+            || self.source_revocation_epoch != job.source.revocation_epoch()
+            || self.source_material_activation != *job.source.material_activation()
             || self.target_lane_id != target_lane_id
             || self.target_lane_share_epoch != target_lane_share_epoch
             || self.target_material_activation_id != job.target_material_activation_id
@@ -519,10 +520,10 @@ pub(crate) fn build_receipt_v1(
         enrollment_id: job.enrollment_id.clone(),
         wallet_id: job.wallet_id.clone(),
         wallet_key_id: job.wallet_key_id.clone(),
-        source_lane_id: job.source.lane_id.clone(),
-        source_lane_share_epoch: job.source.lane_share_epoch.clone(),
-        source_revocation_epoch: job.source.revocation_epoch,
-        source_material_activation: job.source.material_activation.clone(),
+        source_lane_id: job.source.lane_id().to_owned(),
+        source_lane_share_epoch: job.source.lane_share_epoch().to_owned(),
+        source_revocation_epoch: job.source.revocation_epoch(),
+        source_material_activation: job.source.material_activation().clone(),
         target_lane_id: target_lane_id.to_owned(),
         target_lane_share_epoch: target_lane_share_epoch.to_owned(),
         target_material_activation_id: job.target_material_activation_id.clone(),
@@ -1456,9 +1457,18 @@ mod tests {
                 lane_kind: "owner_passkey".to_owned(),
                 lane_share_epoch: "epoch-1".to_owned(),
                 revocation_epoch: 0,
-                holder_participant_id: "holder-1".to_owned(),
-                signing_worker_participant_id: "worker-1".to_owned(),
-                signing_worker_recipient_key_id: "recipient-1".to_owned(),
+                source_kind:
+                    router_ab_ecdsa_client_protocol::EcdsaLaneSourceKindV1::OwnerRegistration {
+                        owner_participant_continuity:
+                            router_ab_ecdsa_client_protocol::OwnerLaneParticipantContinuityV1 {
+                                kind: "owner_lane_participant_continuity_v1".to_owned(),
+                                signer_id: "signer-1".to_owned(),
+                                participant_ids: [1, 2],
+                                signing_worker_id: "worker-1".to_owned(),
+                                custody_key_manifest_digest_b64u: b64(&[1; 32]),
+                                source_identity_digest_b64u: b64(&[2; 32]),
+                            },
+                    },
                 participant_binding_digest_b64u: bytes::<32>(1),
                 material_activation: activation("activation-1"),
             },
@@ -1597,10 +1607,10 @@ mod tests {
             enrollment_id: job.enrollment_id.clone(),
             wallet_id: job.wallet_id.clone(),
             wallet_key_id: job.wallet_key_id.clone(),
-            source_lane_id: job.source.lane_id.clone(),
-            source_lane_share_epoch: job.source.lane_share_epoch.clone(),
-            source_revocation_epoch: job.source.revocation_epoch,
-            source_material_activation: job.source.material_activation.clone(),
+            source_lane_id: job.source.lane_id().to_owned(),
+            source_lane_share_epoch: job.source.lane_share_epoch().to_owned(),
+            source_revocation_epoch: job.source.revocation_epoch(),
+            source_material_activation: job.source.material_activation().clone(),
             target_lane_id: "linked-lane".to_owned(),
             target_lane_share_epoch: "epoch-1".to_owned(),
             target_material_activation_id: job.target_material_activation_id.clone(),
