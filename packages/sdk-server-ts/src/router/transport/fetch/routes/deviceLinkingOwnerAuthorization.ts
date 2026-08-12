@@ -1,10 +1,14 @@
 import type {
+  LinkedDeviceOwnerAuthorizationRequestV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
   LinkedDeviceEnrollmentKeyBindingV1,
   LinkedDeviceProtocolVersionV1,
   QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking';
-import { parseQrLinkedDeviceSessionPayloadV4 } from '@shared/device-linking/parsers';
+import {
+  parseQrLinkedDeviceSessionPayloadV4,
+  parseLinkedDeviceOwnerAuthorizationRequestV1,
+} from '@shared/device-linking/parsers';
 import type {
   WalletSessionAuthorizationId,
   WalletSessionId,
@@ -109,6 +113,7 @@ export type DeviceLinkingOwnerRequestAuthenticationV1 =
 export type DeviceLinkingOwnerAuthorizationRouteServiceV1 = {
   authorizeOwnerForLinkingV1(input: {
     readonly payload: QrLinkedDeviceSessionPayloadV4;
+    readonly orderedOwnerSourceLaneHints: LinkedDeviceOwnerAuthorizationRequestV1['orderedOwnerSourceLaneHints'];
     readonly requestedAtMs: number;
     readonly bodyDigestB64u: DigestB64u;
     readonly owner: DeviceLinkingOwnerWalletSessionContextV1;
@@ -200,14 +205,14 @@ export async function handleDeviceLinkingOwnerAuthorization(
     );
   }
   const nowV1 = Date.now;
-  let body: OwnerAuthorizationRequestV1;
+  let body: LinkedDeviceOwnerAuthorizationRequestV1;
   let rawBody: unknown;
   let bodyDigestB64u: DigestB64u;
   try {
     bodyDigestB64u = await requestBodyDigest(ctx.request);
     // Keep the original body untouched for the request-scoped verifier.
     rawBody = await readJson(ctx.request.clone());
-    body = parseOwnerAuthorizationRequest(rawBody);
+    body = parseLinkedDeviceOwnerAuthorizationRequestV1(rawBody);
   } catch (error: unknown) {
     return json(
       {
@@ -231,6 +236,7 @@ export async function handleDeviceLinkingOwnerAuthorization(
   try {
     const response = await service.authorizeOwnerForLinkingV1({
       payload: body.payload,
+      orderedOwnerSourceLaneHints: body.orderedOwnerSourceLaneHints,
       requestedAtMs: body.requestedAtMs,
       bodyDigestB64u,
       owner: validated.owner,
@@ -247,11 +253,6 @@ export async function handleDeviceLinkingOwnerAuthorization(
     );
   }
 }
-
-type OwnerAuthorizationRequestV1 = {
-  readonly payload: QrLinkedDeviceSessionPayloadV4;
-  readonly requestedAtMs: number;
-};
 
 type OwnerValidationResultV1 =
   | {
@@ -337,19 +338,6 @@ async function validateOwnerWalletSessionV1(input: {
   return denied(code, 'An active owner Wallet Session is required');
 }
 
-function parseOwnerAuthorizationRequest(raw: unknown): OwnerAuthorizationRequestV1 {
-  if (!isRecord(raw)) throw new Error('owner authorization body must be an object');
-  const keys = Object.keys(raw);
-  if (keys.length !== 2 || !keys.includes('payload') || !keys.includes('requestedAtMs')) {
-    throw new Error('owner authorization body has unexpected fields');
-  }
-  const payload = parseQrLinkedDeviceSessionPayloadV4(raw.payload);
-  if (!Number.isSafeInteger(raw.requestedAtMs) || Number(raw.requestedAtMs) <= 0) {
-    throw new Error('requestedAtMs must be a positive safe integer');
-  }
-  return { payload, requestedAtMs: Number(raw.requestedAtMs) };
-}
-
 async function readClonedJson(request: Request): Promise<unknown> {
   if (request.method === 'GET') return {};
   try {
@@ -384,10 +372,6 @@ function denied(
   message: string,
 ): Extract<OwnerValidationResultV1, { readonly kind: 'denied' }> {
   return { kind: 'denied', code, message };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function methodNotAllowedResponse(): Response {
