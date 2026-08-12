@@ -1830,23 +1830,8 @@ export class BrowserSigningSurface {
       passkeyMpcSession: this.passkeyMpcSession,
       emailOtpSessions: this.emailOtpSessions,
       ed25519YaoPublicCapabilityLanes: deps.ed25519YaoPublicCapabilityReferences,
-      isEd25519YaoPublicCapabilityActive: (reference) => {
-        switch (reference.auth.kind) {
-          case WALLET_AUTH_METHODS.emailOtp:
-            return true;
-          case WALLET_AUTH_METHODS.passkey:
-            return (
-              this.enginePorts.ed25519YaoActiveClients.resolve({
-                walletId: reference.walletId,
-                nearAccountId: reference.nearAccountId,
-                materialActivation: reference.materialActivation,
-              }) !== null
-            );
-          default:
-            reference.auth satisfies never;
-            throw new Error('Unsupported Ed25519 public capability auth method');
-        }
-      },
+      isEd25519YaoPublicCapabilityActive:
+        this.isEd25519YaoPublicCapabilityActive.bind(this),
       readActiveWalletSessionAuthorization: resolveActiveEd25519WalletSessionAuthorization,
       listEcdsaSigningCapabilitiesForWallet: (input) =>
         listBrowserEcdsaSigningCapabilitiesForWallet(
@@ -1898,6 +1883,9 @@ export class BrowserSigningSurface {
         this.resolveEmailOtpEd25519YaoExportContext.bind(this),
       getSigningSessionCoordinator: () => this.enginePorts.signingSessionCoordinator,
       getTheme: () => this.appearance.theme.mode,
+      ed25519YaoPublicCapabilityLanes: deps.ed25519YaoPublicCapabilityReferences,
+      isEd25519YaoPublicCapabilityActive:
+        this.isEd25519YaoPublicCapabilityActive.bind(this),
       readActiveWalletSessionAuthorization: resolveActiveEd25519WalletSessionAuthorization,
       listEcdsaSigningCapabilitiesForWallet: (input) =>
         listBrowserEcdsaSigningCapabilitiesForWallet(
@@ -2422,6 +2410,26 @@ export class BrowserSigningSurface {
     args: DiscoverPersistedSessionsForWalletInput,
   ): Promise<DiscoverPersistedSessionsForWalletResult> {
     return await sessionPublic.discoverPersistedSessionsForWallet(this.sessionPublicDeps, args);
+  }
+
+  private isEd25519YaoPublicCapabilityActive(
+    reference: Ed25519YaoPublicCapabilityLaneReferenceV1,
+  ): boolean {
+    switch (reference.auth.kind) {
+      case WALLET_AUTH_METHODS.emailOtp:
+        return true;
+      case WALLET_AUTH_METHODS.passkey:
+        return (
+          this.enginePorts.ed25519YaoActiveClients.resolve({
+            walletId: reference.walletId,
+            nearAccountId: reference.nearAccountId,
+            materialActivation: reference.materialActivation,
+          }) !== null
+        );
+      default:
+        reference.auth satisfies never;
+        throw new Error('Unsupported Ed25519 public capability auth method');
+    }
   }
 
   async readPersistedAvailableSigningLanes(
