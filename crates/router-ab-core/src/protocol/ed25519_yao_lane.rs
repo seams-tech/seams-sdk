@@ -248,7 +248,7 @@ impl OwnerLaneParticipantContinuityV1 {
         )
     }
 
-    fn canonical_bytes_v1(&self, out: &mut Vec<u8>) {
+    fn canonical_bytes_v1(&self, out: &mut Vec<u8>) -> RouterAbProtocolResult<()> {
         push_text(
             out,
             "seams/rotatable-signing-lanes/owner-lane-participant-continuity/v1",
@@ -257,8 +257,9 @@ impl OwnerLaneParticipantContinuityV1 {
         push_u64(out, self.participant_ids[0]);
         push_u64(out, self.participant_ids[1]);
         push_text(out, &self.signing_worker_id);
-        push_text(out, &self.custody_key_manifest_digest_b64u);
-        push_text(out, &self.source_identity_digest_b64u);
+        push_digest(out, &self.custody_key_manifest_digest_b64u)?;
+        push_digest(out, &self.source_identity_digest_b64u)?;
+        Ok(())
     }
 }
 
@@ -761,7 +762,7 @@ impl Ed25519YaoLaneJobV1 {
                 owner_participant_continuity,
             } => {
                 push_text(&mut bytes, "owner_registration");
-                owner_participant_continuity.canonical_bytes_v1(&mut bytes);
+                owner_participant_continuity.canonical_bytes_v1(&mut bytes)?;
             }
             Ed25519YaoLaneSourceKindV1::ProvisionedLane {
                 holder_participant_id,
@@ -774,8 +775,8 @@ impl Ed25519YaoLaneJobV1 {
                 push_text(&mut bytes, signing_worker_recipient_key_id);
             }
         }
-        push_text(&mut bytes, self.source.participant_binding_digest_b64u());
-        push_activation_ref(&mut bytes, self.source.material_activation());
+        push_digest(&mut bytes, self.source.participant_binding_digest_b64u())?;
+        push_activation_ref_field(&mut bytes, self.source.material_activation());
         match &self.target {
             Ed25519YaoLaneTargetV1::CreateLane {
                 lane_kind,
@@ -1436,6 +1437,12 @@ fn push_activation_ref(out: &mut Vec<u8>, activation: &MpcMaterialActivationRefV
     push_text(out, &activation.key_binding);
     push_text(out, &activation.lifecycle_binding);
     push_text(out, &activation.signing_worker);
+}
+
+fn push_activation_ref_field(out: &mut Vec<u8>, activation: &MpcMaterialActivationRefV1) {
+    let mut activation_bytes = Vec::new();
+    push_activation_ref(&mut activation_bytes, activation);
+    push_bytes(out, &activation_bytes);
 }
 
 fn push_u64(out: &mut Vec<u8>, value: u64) {

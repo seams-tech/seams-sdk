@@ -195,7 +195,13 @@ test('frozen custody, participant, recipient, session, job-digest, and receipt s
 test('lane creation requires an owner source and refresh preserves the lane kind', () => {
   const vector = fixture();
   const linkedSource = structuredClone(record(vector.job, 'job'));
-  nested(linkedSource, 'source').laneKind = 'linked_device';
+  const linkedSourceRecord = nested(linkedSource, 'source');
+  linkedSourceRecord.laneKind = 'linked_device';
+  linkedSourceRecord.sourceKind = 'provisioned_lane';
+  delete linkedSourceRecord.ownerParticipantContinuity;
+  linkedSourceRecord.holderParticipantId = 'holder:source';
+  linkedSourceRecord.signingWorkerParticipantId = 'signing-worker:source';
+  linkedSourceRecord.signingWorkerRecipientKeyId = 'recipient-key:source';
   expect(() => parseRotatableSigningLaneJobV1(linkedSource)).toThrow(
     'creation requires an owner-controlled source lane',
   );
