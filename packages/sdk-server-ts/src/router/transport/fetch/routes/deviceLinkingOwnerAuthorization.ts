@@ -33,7 +33,6 @@ import type { FetchRouterApiContext } from '../createFetchRouter';
 import type {
   DeviceLinkingAuthDeniedV1,
   DeviceLinkingOwnerRequestInputV1,
-  DeviceLinkingRouteServiceV1,
 } from './deviceLinking';
 import { json, readJson } from '../../../framework/http';
 import {
@@ -124,7 +123,9 @@ export type DeviceLinkingOwnerAuthorizationRouteServiceV1 = {
 export function createDeviceLinkingOwnerRequestAuthenticatorV1(input: {
   readonly session: SessionAdapter;
   readonly nowV1?: () => number;
-}): DeviceLinkingRouteServiceV1['authenticateOwnerRequestV1'] {
+}): (
+  input: DeviceLinkingOwnerRequestInputV1,
+) => Promise<DeviceLinkingOwnerRequestAuthenticationV1> {
   const nowV1 = input.nowV1 ?? Date.now;
   return async (requestInput) => {
     const authenticated = await authenticateDeviceLinkingOwnerWalletSessionRequestV1({

@@ -249,7 +249,7 @@ test('authorization-service revocation adapter fences active sessions and replay
   expect(authorization.revokeInputs).toHaveLength(1);
 });
 
-test('management composition keeps owner auth and mutation ports explicit', async () => {
+test('management composition uses the authenticated owner context', async () => {
   temporary = createTemporaryD1Database();
   await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
   const fixture = buildR103DeviceLinkFixture();
@@ -265,9 +265,6 @@ test('management composition keeps owner auth and mutation ports explicit', asyn
     sessionService: { getSessionV1: async () => null },
     metadata: {
       readLinkedDeviceMetadataV1: async () => ({ label: 'Device', platform: 'test' }),
-    },
-    authorization: {
-      authorizeLinkedDeviceManagementV1: async () => ({ kind: 'unauthorized' as const }),
     },
     preparation: {
       prepareLinkedDeviceRevocationV1: async () => ({ kind: 'conflict' as const }),
@@ -292,7 +289,8 @@ test('management composition keeps owner auth and mutation ports explicit', asyn
   });
   const result = await service.management.listLinkedDevicesV1(
     { kind: 'linked_device_list_request_v1', walletId: fixture.approval.walletId },
+    { walletId: fixture.approval.walletId, expiresAtMs: 3_000 },
     2_000,
   );
-  expect(result).toEqual({ kind: 'unauthorized' });
+  expect(result).toEqual({ devices: [] });
 });

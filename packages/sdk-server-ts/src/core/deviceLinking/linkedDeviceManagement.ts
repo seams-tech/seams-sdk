@@ -10,7 +10,10 @@ import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimiti
 import type { LaneProductEpochRecordV1 } from '@shared/signing-lanes';
 import type { LaneEnrollmentAdmissionRecord } from '../signingLanes/LaneLifecycleStore';
 import type { LaneAggregateRevocationRequestV1 } from '../signingLanes/LaneAggregateRevocationApplicationService';
-import type { LinkedDeviceSessionRecordV1 } from './linkedDeviceSession';
+import type {
+  LinkedDeviceOwnerAuthorizationContextV1,
+  LinkedDeviceSessionRecordV1,
+} from './linkedDeviceSession';
 import type { LinkedDeviceEnrollmentId, LinkedDeviceId } from '@shared/signing-lanes/ids';
 import type { WalletId } from '@shared/utils/domainIds';
 import type {
@@ -28,24 +31,15 @@ export type LinkedDeviceManagementTargetV1 = {
   readonly products: readonly LaneProductEpochRecordV1[];
 };
 
-export type LinkedDeviceManagementAuthorizationInputV1 =
-  | {
-      readonly operation: 'list';
-      readonly walletId: WalletId;
-      readonly requestedAtMs: number;
-    }
-  | {
-      readonly operation: 'revoke';
-      readonly walletId: WalletId;
-      readonly deviceId: LinkedDeviceId;
-      readonly requestedAtMs: number;
-    };
-
-export type LinkedDeviceManagementAuthorizationPortV1 = {
-  authorizeLinkedDeviceManagementV1(
-    input: LinkedDeviceManagementAuthorizationInputV1,
-  ): Promise<{ readonly kind: 'authorized' } | { readonly kind: 'unauthorized' }>;
-};
+/**
+ * Owner Wallet Session authentication has already verified the bearer token at
+ * the HTTP boundary. Management receives that exact context so it can bind
+ * the mutation to the authenticated wallet without a second D1 lookup.
+ */
+export type LinkedDeviceManagementOwnerV1 = Pick<
+  LinkedDeviceOwnerAuthorizationContextV1,
+  'walletId' | 'expiresAtMs'
+>;
 
 export type LinkedDeviceManagementProjectionPortV1 = {
   listLinkedDevicesV1(walletId: WalletId): Promise<readonly LinkedDeviceSummaryV1[]>;
@@ -111,7 +105,6 @@ export type LinkedDeviceLocalStateInvalidationPortV1 = {
 };
 
 export type LinkedDeviceManagementServiceOptionsV1 = {
-  readonly authorization: LinkedDeviceManagementAuthorizationPortV1;
   readonly projection: LinkedDeviceManagementProjectionPortV1;
   readonly preparation: LinkedDeviceRevocationPreparationPortV1;
   readonly aggregateRevocation: LinkedDeviceAggregateRevocationPortV1;
@@ -128,28 +121,23 @@ export class LinkedDeviceManagementServiceV1 {
 
   async listLinkedDevicesV1(
     request: LinkedDeviceListRequestV1,
+    owner: LinkedDeviceManagementOwnerV1,
     requestedAtMs: number,
   ): Promise<LinkedDeviceManagementListResultV1> {
-    const authorization = await this.options.authorization.authorizeLinkedDeviceManagementV1({
-      operation: 'list',
-      walletId: request.walletId,
-      requestedAtMs,
-    });
-    if (authorization.kind === 'unauthorized') return authorization;
+    if (!ownerAuthorizesWalletV1(owner, request.walletId, requestedAtMs)) {
+      return { kind: 'unauthorized' };
+    }
     const devices = await this.options.projection.listLinkedDevicesV1(request.walletId);
     return { devices };
   }
 
   async revokeLinkedDeviceV1(
     request: LinkedDeviceRevokeRequestV1,
+    owner: LinkedDeviceManagementOwnerV1,
   ): Promise<LinkedDeviceRevokeResultV1> {
-    const authorization = await this.options.authorization.authorizeLinkedDeviceManagementV1({
-      operation: 'revoke',
-      walletId: request.walletId,
-      deviceId: request.deviceId,
-      requestedAtMs: request.requestedAtMs,
-    });
-    if (authorization.kind === 'unauthorized') return authorization;
+    if (!ownerAuthorizesWalletV1(owner, request.walletId, request.requestedAtMs)) {
+      return { kind: 'unauthorized' };
+    }
 
     const target = await this.options.projection.getLinkedDeviceV1({
       walletId: request.walletId,
@@ -195,6 +183,14 @@ export class LinkedDeviceManagementServiceV1 {
       aggregateReceiptDigestB64u,
     };
   }
+}
+
+function ownerAuthorizesWalletV1(
+  owner: LinkedDeviceManagementOwnerV1,
+  walletId: WalletId,
+  requestedAtMs: number,
+): boolean {
+  return owner.walletId === walletId && owner.expiresAtMs > requestedAtMs;
 }
 
 function assertRevocationPlanMatchesRequest(
