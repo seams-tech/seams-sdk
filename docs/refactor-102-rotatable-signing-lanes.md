@@ -2,7 +2,7 @@
 
 Date created: June 15, 2026
 
-Last reconciled: August 12, 2026
+Last reconciled: August 13, 2026
 
 Status: implemented for the authenticated internal R102 lifecycle. Ed25519 Yao
 and ECDSA additive lanes support creation, refresh, activation, normal signing,
@@ -11,9 +11,12 @@ owns public device-link and target-device bootstrap, Refactor 104 owns delegated
 execution, and wallet-key root refresh remains deferred to its authoritative
 root protocol.
 
-Checklist reconciliation: 32/32 internal R102 lifecycle items have concrete
-implementation and focused-test evidence. Public device-link bootstrap remains
-an R103 boundary, and wallet-key root refresh remains intentionally deferred.
+Checklist reconciliation: 32/32 internal R102 lifecycle items have direct
+implementation evidence. The current TypeScript cross-language Ed25519 vector
+assertions expose owner-source continuity drift after the R101 schema change;
+fixture/encoder reconciliation remains a validation blocker. Public device-link
+bootstrap remains an R103 boundary, and wallet-key root refresh remains
+intentionally deferred.
 
 ## Dependencies And Authority
 
