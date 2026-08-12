@@ -72,6 +72,12 @@ import type {
   CloudflareD1LinkedDeviceCompositionOptionsV1,
   CloudflareD1LinkedDeviceSessionOptionsV1,
 } from '@seams/sdk-server/cloud-host';
+import { createD1LinkedDeviceTargetDeploymentDescriptorRuntimeV1 } from '@seams/sdk-server/cloud-host';
+import {
+  base64UrlEncode,
+  sha256Bytes,
+  buildSigningWorkerParticipantRecordWithDigestV1,
+} from '@seams/sdk-server/cloud-host';
 import { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
 import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
 import { handleRouterAbEd25519YaoExportRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
@@ -124,6 +130,7 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly LINKED_DEVICE_WEBAUTHN_RP_ID?: string;
   readonly LINKED_DEVICE_WEBAUTHN_ORIGIN?: string;
   readonly LINKED_DEVICE_OPERATOR_RECOVERY_SECRET?: string;
+  readonly LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET?: string;
   readonly RELAY_SESSION_HMAC_SECRET?: string;
   readonly SESSION_COOKIE_NAME?: string;
   readonly RELAY_SESSION_ISSUER?: string;
@@ -188,6 +195,8 @@ const DEFAULT_LOCAL_CONSOLE_ENVIRONMENT_ID = 'local';
 const DEFAULT_LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET = 'dev-router-ab-internal-service-auth';
 const DEFAULT_LOCAL_LINKED_DEVICE_OPERATOR_RECOVERY_SECRET =
   'dev-linked-device-operator-recovery-secret';
+const DEFAULT_LOCAL_LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET =
+  'dev-linked-device-target-descriptor-hmac-secret-v1-32-bytes';
 const DEFAULT_LOCAL_ROUTER_AB_ROUTER_URL = 'http://127.0.0.1:9090';
 const LOCAL_ROUTER_AB_CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json';
 const LOCAL_INTENDED_YAO_FAULT_HEADER_V1 = 'x-seams-intended-yao-fault-v1';
@@ -634,6 +643,7 @@ const SIGNER_READY_TABLES = Object.freeze([
   'linked_device_provisioning_records',
   'linked_device_source_handoffs',
   'linked_device_owner_planning_snapshots',
+  'linked_device_target_deployment_descriptors',
 ]);
 
 function jsonResponse(body: Record<string, unknown>, init?: ResponseInit): Response {
@@ -1002,7 +1012,13 @@ async function createLocalRouterApiHandler(
   });
   const ed25519Yao = await createLocalEd25519YaoProductComposition(env, session, routerFetch);
   const ecdsaStrictPorts = localEcdsaStrictPorts(env);
-  const routerApiService = createLocalD1RouterApiAuthService(env, ed25519Yao, session);
+  const linkedDevice = await localLinkedDeviceComposition(env, session);
+  const routerApiService = createLocalD1RouterApiAuthService(
+    env,
+    ed25519Yao,
+    session,
+    linkedDevice,
+  );
   const emailRecoveryAuthService = createLocalD1EmailRecoveryAuthService(env);
   const baseHandler = createCloudflareRouter(routerApiService, {
     ...bundle.routerApiRouterOptions,
@@ -1139,6 +1155,7 @@ function localD1RouterApiAuthServiceOptions(
   env: LocalD1DevEnv,
   ed25519Yao: LocalEd25519YaoProductCompositionState = { kind: 'disabled' },
   session?: SessionAdapter,
+  linkedDevice?: CloudflareD1LinkedDeviceCompositionOptionsV1,
 ): CloudflareD1RouterApiAuthServiceOptions {
   const relayerPrivateKey = env.RELAYER_PRIVATE_KEY || env.SEAMS_LOCAL_RELAYER_PRIVATE_KEY;
   const relayerPublicKey =
@@ -1179,18 +1196,44 @@ function localD1RouterApiAuthServiceOptions(
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS,
     routerAbEcdsaPresignRuntime: createLocalEcdsaPresignRuntime(env),
     ecdsaStrictRegistration: localEcdsaStrictPorts(env).registration,
-    linkedDevice: localLinkedDeviceComposition(env, session),
+    linkedDevice:
+      linkedDevice ?? (session ? { execution: localLinkedDeviceExecution(env) } : undefined),
     ...(ed25519Yao.kind === 'enabled' ? { ed25519YaoProductRegistration: ed25519Yao.runtime } : {}),
   };
 }
 
-function localLinkedDeviceComposition(
+async function localLinkedDeviceComposition(
   env: LocalD1DevEnv,
   session: SessionAdapter | undefined,
-): CloudflareD1LinkedDeviceCompositionOptionsV1 {
+): Promise<CloudflareD1LinkedDeviceCompositionOptionsV1> {
   const execution = localLinkedDeviceExecution(env);
   if (!session) return { execution };
   const internalServiceAuth = localRouterAbInternalServiceAuthSecret(env);
+  const operatorRecoverySecret = localLinkedDeviceOperatorRecoverySecret(env, internalServiceAuth);
+  const descriptorHmacSecret = localLinkedDeviceTargetDescriptorHmacSecret(env);
+  if (
+    descriptorHmacSecret === internalServiceAuth ||
+    descriptorHmacSecret === operatorRecoverySecret
+  ) {
+    throw new Error(
+      'LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET must differ from Router internal auth and operator recovery',
+    );
+  }
+  const runtime = await createD1LinkedDeviceTargetDeploymentDescriptorRuntimeV1({
+    database: env.SIGNER_DB,
+    scope: {
+      namespace: localTenantStorageNamespace(env),
+      orgId: localConsoleOrgId(env),
+      projectId: localConsoleProjectId(env),
+      envId: localConsoleEnvironmentId(env),
+    },
+    targetSigningWorker: await localLinkedDeviceTargetSigningWorker(env),
+    descriptorHmacSecret,
+    ed25519: {
+      yaoSuiteId: 'ed25519-yao-suite:A',
+      circuitDigestB64u: 'uojcq1xwowjW5QC2ZkQk0aevJmiiHYdJh41CtSpIaRk',
+    },
+  });
   return {
     execution,
     session: {
@@ -1202,11 +1245,45 @@ function localLinkedDeviceComposition(
         ed25519YaoKeyset: localLinkedDeviceYaoKeyset(env),
       },
       operatorRecovery: {
-        operatorSecret: localLinkedDeviceOperatorRecoverySecret(env, internalServiceAuth),
+        operatorSecret: operatorRecoverySecret,
       },
+      targetDeploymentDescriptorProvider: runtime.provider,
     } satisfies CloudflareD1LinkedDeviceSessionOptionsV1,
     management: {},
   };
+}
+
+async function localLinkedDeviceTargetSigningWorker(env: LocalD1DevEnv) {
+  const signingWorkerId =
+    normalizeLocalString(env.SIGNING_WORKER_ID) ||
+    normalizeLocalString(env.ROUTER_AB_NORMAL_SIGNING_WORKER_ID);
+  if (!signingWorkerId) throw new Error('SIGNING_WORKER_ID is required for linked-device targets');
+  const keyset = localLinkedDeviceYaoKeyset(env);
+  const hpkePublicKey = new Uint8Array(keyset.signing_worker_recipient_public_key);
+  const hpkePublicKeyB64u = base64UrlEncode(hpkePublicKey);
+  const participant = await buildSigningWorkerParticipantRecordWithDigestV1({
+    participantId: signingWorkerId,
+    recipient: {
+      kind: 'signing_worker_recipient_identity_v1',
+      recipientKeyId: `${signingWorkerId}:server-output`,
+      hpkePublicKeyB64u,
+      hpkePublicKeyDigestB64u: base64UrlEncode(await sha256Bytes(hpkePublicKey)),
+    },
+  });
+  return {
+    participantId: participant.participantId,
+    participantBindingDigestB64u: participant.participantBindingDigestB64u,
+    recipientKeyId: participant.recipientKeyId,
+    hpkePublicKeyB64u: participant.hpkePublicKeyB64u,
+    hpkePublicKeyDigestB64u: participant.hpkePublicKeyDigestB64u,
+  };
+}
+
+function localLinkedDeviceTargetDescriptorHmacSecret(env: LocalD1DevEnv): string {
+  return (
+    normalizeLocalString(env.LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET) ||
+    DEFAULT_LOCAL_LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET
+  );
 }
 
 function localLinkedDeviceYaoKeyset(env: LocalD1DevEnv) {
@@ -1358,9 +1435,10 @@ function createLocalD1RouterApiAuthService(
   env: LocalD1DevEnv,
   ed25519Yao: LocalEd25519YaoProductCompositionState = { kind: 'disabled' },
   session?: SessionAdapter,
+  linkedDevice?: CloudflareD1LinkedDeviceCompositionOptionsV1,
 ) {
   return createCloudflareD1RouterApiAuthService({
-    ...localD1RouterApiAuthServiceOptions(env, ed25519Yao, session),
+    ...localD1RouterApiAuthServiceOptions(env, ed25519Yao, session, linkedDevice),
     signerWasmModuleOrPath: loadCloudflareSignerWasmModule,
   });
 }

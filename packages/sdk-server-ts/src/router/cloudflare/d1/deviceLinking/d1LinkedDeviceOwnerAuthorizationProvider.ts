@@ -100,7 +100,10 @@ export type D1LinkedDeviceOwnerAuthorizationProviderOptionsV1 = {
     'resolveActiveOwnerWalletExecutionLane'
   >;
   readonly metadata: D1LinkedDeviceOwnerAuthorizationMetadataSourceV1;
-  readonly targetPlanner: Pick<D1LinkedDeviceTargetPlannerOptionsV1, 'rpId' | 'preparationTtlMs'>;
+  readonly targetPlanner: Pick<
+    D1LinkedDeviceTargetPlannerOptionsV1,
+    'rpId' | 'preparationTtlMs' | 'targetDeploymentDescriptorProvider'
+  >;
   readonly nowV1?: () => number;
 };
 
@@ -124,6 +127,7 @@ export function createD1LinkedDeviceOwnerAuthorizationProviderV1(
   const targetPlanner = new TargetPlanner({
     rpId: options.targetPlanner.rpId,
     preparationTtlMs: options.targetPlanner.preparationTtlMs,
+    targetDeploymentDescriptorProvider: options.targetPlanner.targetDeploymentDescriptorProvider,
     resolveOwnerSourceChildV1: ownerSourceResolver.resolveOwnerSourceChildV1,
   });
   return {
