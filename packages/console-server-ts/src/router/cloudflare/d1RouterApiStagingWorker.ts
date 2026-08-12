@@ -31,6 +31,7 @@ import type {
 } from '@seams/sdk-server/cloud-host';
 import {
   createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
+  parseRouterAbEd25519YaoActivationKeysetFromEnvV1,
   type RouterAbEd25519YaoGatewaySpanV1,
 } from '@seams/sdk-server/cloud-host';
 import { type RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '@seams/sdk-server/cloud-host';
@@ -130,6 +131,7 @@ interface CloudflareD1RouterApiStagingEnv
   readonly ROUTER_AB_PUBLIC_KEYSET_JSON?: string;
   readonly LINKED_DEVICE_WEBAUTHN_RP_ID?: string;
   readonly LINKED_DEVICE_WEBAUTHN_ORIGIN?: string;
+  readonly LINKED_DEVICE_OPERATOR_RECOVERY_SECRET?: string;
   readonly DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY?: string;
   readonly DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY?: string;
   readonly SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY?: string;
@@ -216,6 +218,23 @@ const RELAY_SIGNER_READY_TABLES = Object.freeze([
   'router_ab_normal_signing_admission_records',
   'registration_ceremony_records',
   'registration_ceremony_cas_guard',
+  'lane_enrollments',
+  'lane_protocol_operations',
+  'lane_product_epochs',
+  'lane_receipts',
+  'lane_effect_journal',
+  'lane_locks',
+  'lane_cas_guard',
+  'linked_device_wallet_session_authorizations',
+  'linked_device_wallet_session_quotas',
+  'linked_device_sessions',
+  'linked_device_session_transcripts',
+  'linked_device_request_proof_nonces',
+  'linked_device_target_credentials',
+  'linked_device_target_commit_reservations',
+  'linked_device_provisioning_records',
+  'linked_device_source_handoffs',
+  'linked_device_owner_planning_snapshots',
 ]);
 
 const ROUTER_AB_CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json';
@@ -360,9 +379,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     routerAbEcdsaPresignRuntime: createStagingEcdsaPresignRuntime(env),
     ed25519YaoProductRegistration: yaoRuntime,
     ecdsaStrictRegistration,
-    linkedDevice: {
-      execution: stagingLinkedDeviceExecution(env),
-    },
+    linkedDevice: stagingLinkedDeviceComposition(env, session),
   });
   const routerApiHandler = createCloudflareRouter(service, {
     ...bundle.routerApiRouterOptions,
@@ -418,6 +435,53 @@ function stagingLinkedDeviceExecution(env: CloudflareD1RouterApiStagingEnv) {
     expectedOrigin: requireEnvString(env, 'LINKED_DEVICE_WEBAUTHN_ORIGIN'),
     logger: normalizeLogger(),
   };
+}
+
+function stagingLinkedDeviceComposition(
+  env: CloudflareD1RouterApiStagingEnv,
+  session: SessionAdapter,
+) {
+  const internalServiceAuth = requireEnvString(env, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET');
+  return {
+    execution: stagingLinkedDeviceExecution(env),
+    session: {
+      session,
+      laneRuntime: {
+        router: env.MPC_ROUTER,
+        signingWorker: env.SIGNING_WORKER,
+        internalServiceAuth,
+        ed25519YaoKeyset: parseRouterAbEd25519YaoActivationKeysetFromEnvV1({
+          DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: requireEnvString(
+            env,
+            'DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY',
+          ),
+          DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY: requireEnvString(
+            env,
+            'DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY',
+          ),
+          SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: requireEnvString(
+            env,
+            'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
+          ),
+        }),
+      },
+      operatorRecovery: {
+        operatorSecret: stagingLinkedDeviceOperatorRecoverySecret(env, internalServiceAuth),
+      },
+    },
+    management: {},
+  };
+}
+
+function stagingLinkedDeviceOperatorRecoverySecret(
+  env: CloudflareD1RouterApiStagingEnv,
+  internalServiceAuth: string,
+): string {
+  const secret = requireEnvString(env, 'LINKED_DEVICE_OPERATOR_RECOVERY_SECRET');
+  if (secret === internalServiceAuth) {
+    throw new Error('LINKED_DEVICE_OPERATOR_RECOVERY_SECRET must differ from Router internal auth');
+  }
+  return secret;
 }
 
 export async function dispatchHostedGatewayRequest(

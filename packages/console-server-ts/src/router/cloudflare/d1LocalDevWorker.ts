@@ -42,6 +42,7 @@ import { normalizeLogger } from '@seams/sdk-server/cloud-host';
 import {
   createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1,
   createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1,
+  parseRouterAbEd25519YaoActivationKeysetFromEnvV1,
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
 } from '@seams/sdk-server/cloud-host';
 import type { SessionAdapter } from '@seams/sdk-server/cloud-host';
@@ -67,6 +68,10 @@ import { createRouterAbEd25519YaoHttpRegistrationBackendFromEnv } from '@seams/s
 import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '@seams/sdk-server/cloud-host';
 import { CloudflareD1WebAuthnAuthService } from '@seams/sdk-server/cloud-host';
 import { CloudflareD1WebAuthnStore } from '@seams/sdk-server/cloud-host';
+import type {
+  CloudflareD1LinkedDeviceCompositionOptionsV1,
+  CloudflareD1LinkedDeviceSessionOptionsV1,
+} from '@seams/sdk-server/cloud-host';
 import { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
 import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
 import { handleRouterAbEd25519YaoExportRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
@@ -118,6 +123,7 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET?: string;
   readonly LINKED_DEVICE_WEBAUTHN_RP_ID?: string;
   readonly LINKED_DEVICE_WEBAUTHN_ORIGIN?: string;
+  readonly LINKED_DEVICE_OPERATOR_RECOVERY_SECRET?: string;
   readonly RELAY_SESSION_HMAC_SECRET?: string;
   readonly SESSION_COOKIE_NAME?: string;
   readonly RELAY_SESSION_ISSUER?: string;
@@ -180,6 +186,8 @@ const DEFAULT_LOCAL_CONSOLE_USER_ID = 'local-console-user';
 const DEFAULT_LOCAL_CONSOLE_PROJECT_ID = 'local-smoke-project';
 const DEFAULT_LOCAL_CONSOLE_ENVIRONMENT_ID = 'local';
 const DEFAULT_LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET = 'dev-router-ab-internal-service-auth';
+const DEFAULT_LOCAL_LINKED_DEVICE_OPERATOR_RECOVERY_SECRET =
+  'dev-linked-device-operator-recovery-secret';
 const DEFAULT_LOCAL_ROUTER_AB_ROUTER_URL = 'http://127.0.0.1:9090';
 const LOCAL_ROUTER_AB_CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json';
 const LOCAL_INTENDED_YAO_FAULT_HEADER_V1 = 'x-seams-intended-yao-fault-v1';
@@ -609,6 +617,23 @@ const SIGNER_READY_TABLES = Object.freeze([
   'router_ab_normal_signing_admission_records',
   'registration_ceremony_records',
   'registration_ceremony_cas_guard',
+  'lane_enrollments',
+  'lane_protocol_operations',
+  'lane_product_epochs',
+  'lane_receipts',
+  'lane_effect_journal',
+  'lane_locks',
+  'lane_cas_guard',
+  'linked_device_wallet_session_authorizations',
+  'linked_device_wallet_session_quotas',
+  'linked_device_sessions',
+  'linked_device_session_transcripts',
+  'linked_device_request_proof_nonces',
+  'linked_device_target_credentials',
+  'linked_device_target_commit_reservations',
+  'linked_device_provisioning_records',
+  'linked_device_source_handoffs',
+  'linked_device_owner_planning_snapshots',
 ]);
 
 function jsonResponse(body: Record<string, unknown>, init?: ResponseInit): Response {
@@ -977,7 +1002,7 @@ async function createLocalRouterApiHandler(
   });
   const ed25519Yao = await createLocalEd25519YaoProductComposition(env, session, routerFetch);
   const ecdsaStrictPorts = localEcdsaStrictPorts(env);
-  const routerApiService = createLocalD1RouterApiAuthService(env, ed25519Yao);
+  const routerApiService = createLocalD1RouterApiAuthService(env, ed25519Yao, session);
   const emailRecoveryAuthService = createLocalD1EmailRecoveryAuthService(env);
   const baseHandler = createCloudflareRouter(routerApiService, {
     ...bundle.routerApiRouterOptions,
@@ -1113,6 +1138,7 @@ async function readyLocalEcdsaPresignRuntime(): Promise<void> {}
 function localD1RouterApiAuthServiceOptions(
   env: LocalD1DevEnv,
   ed25519Yao: LocalEd25519YaoProductCompositionState = { kind: 'disabled' },
+  session?: SessionAdapter,
 ): CloudflareD1RouterApiAuthServiceOptions {
   const relayerPrivateKey = env.RELAYER_PRIVATE_KEY || env.SEAMS_LOCAL_RELAYER_PRIVATE_KEY;
   const relayerPublicKey =
@@ -1153,11 +1179,60 @@ function localD1RouterApiAuthServiceOptions(
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS,
     routerAbEcdsaPresignRuntime: createLocalEcdsaPresignRuntime(env),
     ecdsaStrictRegistration: localEcdsaStrictPorts(env).registration,
-    linkedDevice: {
-      execution: localLinkedDeviceExecution(env),
-    },
+    linkedDevice: localLinkedDeviceComposition(env, session),
     ...(ed25519Yao.kind === 'enabled' ? { ed25519YaoProductRegistration: ed25519Yao.runtime } : {}),
   };
+}
+
+function localLinkedDeviceComposition(
+  env: LocalD1DevEnv,
+  session: SessionAdapter | undefined,
+): CloudflareD1LinkedDeviceCompositionOptionsV1 {
+  const execution = localLinkedDeviceExecution(env);
+  if (!session) return { execution };
+  const internalServiceAuth = localRouterAbInternalServiceAuthSecret(env);
+  return {
+    execution,
+    session: {
+      session,
+      laneRuntime: {
+        router: env.MPC_ROUTER,
+        signingWorker: env.SIGNING_WORKER,
+        internalServiceAuth,
+        ed25519YaoKeyset: localLinkedDeviceYaoKeyset(env),
+      },
+      operatorRecovery: {
+        operatorSecret: localLinkedDeviceOperatorRecoverySecret(env, internalServiceAuth),
+      },
+    } satisfies CloudflareD1LinkedDeviceSessionOptionsV1,
+    management: {},
+  };
+}
+
+function localLinkedDeviceYaoKeyset(env: LocalD1DevEnv) {
+  return parseRouterAbEd25519YaoActivationKeysetFromEnvV1({
+    DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: normalizeLocalString(
+      env.DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY,
+    ),
+    DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY: normalizeLocalString(
+      env.DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY,
+    ),
+    SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: normalizeLocalString(
+      env.SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
+    ),
+  });
+}
+
+function localLinkedDeviceOperatorRecoverySecret(
+  env: LocalD1DevEnv,
+  internalServiceAuth: string,
+): string {
+  const configured = normalizeLocalString(env.LINKED_DEVICE_OPERATOR_RECOVERY_SECRET);
+  const secret = configured || DEFAULT_LOCAL_LINKED_DEVICE_OPERATOR_RECOVERY_SECRET;
+  if (secret === internalServiceAuth) {
+    throw new Error('LINKED_DEVICE_OPERATOR_RECOVERY_SECRET must differ from Router internal auth');
+  }
+  return secret;
 }
 
 function localLinkedDeviceExecution(env: LocalD1DevEnv) {
@@ -1282,9 +1357,10 @@ async function createLocalEd25519YaoProductComposition(
 function createLocalD1RouterApiAuthService(
   env: LocalD1DevEnv,
   ed25519Yao: LocalEd25519YaoProductCompositionState = { kind: 'disabled' },
+  session?: SessionAdapter,
 ) {
   return createCloudflareD1RouterApiAuthService({
-    ...localD1RouterApiAuthServiceOptions(env, ed25519Yao),
+    ...localD1RouterApiAuthServiceOptions(env, ed25519Yao, session),
     signerWasmModuleOrPath: loadCloudflareSignerWasmModule,
   });
 }

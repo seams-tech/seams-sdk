@@ -54,6 +54,7 @@ const requiredSecretVarsByProfile = Object.freeze({
     'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK',
     'ACCOUNT_ID_DERIVATION_SECRET',
     'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
+    'LINKED_DEVICE_OPERATOR_RECOVERY_SECRET',
     'SPONSORED_EVM_EXECUTORS_JSON',
     'STRIPE_API_SK',
   ]),
@@ -104,11 +105,9 @@ const forbiddenPlaintextVars = Object.freeze([
   'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U',
   'ACCOUNT_ID_DERIVATION_SECRET',
   'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK',
+  'LINKED_DEVICE_OPERATOR_RECOVERY_SECRET',
 ]);
-const forbiddenConsoleProfileTokens = Object.freeze([
-  'SIGNER_DB',
-  'THRESHOLD_STORE',
-]);
+const forbiddenConsoleProfileTokens = Object.freeze(['SIGNER_DB', 'THRESHOLD_STORE']);
 
 export function checkD1StagingReadiness(input = {}) {
   const profile = normalizeProfile(input.profile);
