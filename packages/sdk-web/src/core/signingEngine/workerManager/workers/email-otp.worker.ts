@@ -96,6 +96,7 @@ import {
   openWalletCustodyEd25519ActiveClientV1,
   walletCustodyCacheEnvelopeFromRecordV1,
   type WalletCustodyActivationFactsV1,
+  type WalletCustodyCacheEnvelopeV1,
 } from '@/core/signingEngine/walletCustody/openCustodyCache';
 import {
   WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
@@ -3893,6 +3894,29 @@ function parseWalletCustodyEd25519MaterialRequest(
   return { kind: 'found', material: parsed };
 }
 
+function parseWalletCustodyCacheEnvelope(value: unknown): WalletCustodyCacheEnvelopeV1 {
+  const envelope = workerPayloadObject(value);
+  if (!envelope) throw new Error('Wallet custody cache envelope is required');
+  rejectUnknownEmailOtpYaoFields(
+    envelope,
+    ['bindingJson', 'nonceB64u', 'ciphertextB64u', 'aadHashB64u', 'ciphertextDigestB64u'],
+    'walletCustodyCacheEnvelope',
+  );
+  return {
+    bindingJson: readString(envelope.bindingJson, 'walletCustodyCacheEnvelope.bindingJson'),
+    nonceB64u: readString(envelope.nonceB64u, 'walletCustodyCacheEnvelope.nonceB64u'),
+    ciphertextB64u: readString(
+      envelope.ciphertextB64u,
+      'walletCustodyCacheEnvelope.ciphertextB64u',
+    ),
+    aadHashB64u: readString(envelope.aadHashB64u, 'walletCustodyCacheEnvelope.aadHashB64u'),
+    ciphertextDigestB64u: readString(
+      envelope.ciphertextDigestB64u,
+      'walletCustodyCacheEnvelope.ciphertextDigestB64u',
+    ),
+  };
+}
+
 function rejectUnknownEmailOtpYaoFields(
   obj: Record<string, unknown>,
   allowed: readonly string[],
@@ -5818,6 +5842,30 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         },
       };
     }
+    case 'activateEmailOtpEd25519YaoRegistrationMaterial': {
+      rejectUnknownEmailOtpYaoFields(
+        payload,
+        ['material', 'bootstrap', 'envelope', 'factorSecret32'],
+        type,
+      );
+      const material = parseWalletCustodyEd25519MaterialRequest({
+        kind: 'found',
+        material: payload.material,
+      });
+      if (material.kind !== 'found') {
+        throw new Error('Registration activation requires wallet custody Ed25519 material');
+      }
+      return {
+        id,
+        type,
+        payload: {
+          material: material.material,
+          bootstrap: parseEmailOtpEd25519YaoWorkerRecoveryBootstrap(payload.bootstrap),
+          envelope: parseWalletCustodyCacheEnvelope(payload.envelope),
+          factorSecret32: requireFixed32ArrayBuffer(payload.factorSecret32, 'factorSecret32'),
+        },
+      };
+    }
     case 'exportEmailOtpEd25519YaoSeedWithAuthorization': {
       rejectUnknownEmailOtpYaoFields(
         payload,
@@ -6380,6 +6428,52 @@ self.addEventListener('message', async (event: MessageEvent) => {
       case 'rehydrateEmailOtpEd25519YaoOperationMaterial': {
         const result = await rehydrateEmailOtpEd25519YaoOperationMaterial(msg.payload);
         postToMainThread({ id: msg.id, ok: true, result });
+        return;
+      }
+      case 'activateEmailOtpEd25519YaoRegistrationMaterial': {
+        const material = msg.payload.material;
+        const bootstrap = msg.payload.bootstrap;
+        const capability = bootstrap.capability;
+        if (
+          material.binding.walletId !== capability.applicationBinding.wallet_id ||
+          material.binding.nearAccountId !== capability.nearAccountId ||
+          material.binding.nearEd25519SigningKeyId !==
+            capability.applicationBinding.near_ed25519_signing_key_id ||
+          material.binding.signerSlot !== capability.applicationBinding.key_creation_signer_slot ||
+          material.binding.signingWorkerId !== capability.lifecycle.signingWorkerId ||
+          material.binding.registeredPublicKeyB64u !==
+            base64UrlEncode(Uint8Array.from(capability.registeredPublicKey))
+        ) {
+          throw new Error('Registration custody material changed the exact Ed25519 lane');
+        }
+        const factorSecret32 = new Uint8Array(msg.payload.factorSecret32);
+        let activeClientHandle: string | null = null;
+        try {
+          const activeClient = await openWalletCustodyEd25519ActiveClientV1({
+            material,
+            activation: walletCustodyActivationFactsFromEmailOtpBootstrap(bootstrap),
+            envelope: msg.payload.envelope,
+            ownedFactorSecret: factorSecret32.slice(),
+          });
+          let transferred = false;
+          try {
+            const stored = storeEmailOtpEd25519YaoActiveClient(activeClient);
+            transferred = true;
+            activeClientHandle = stored.activeClientHandle;
+            bindEmailOtpEd25519YaoCapabilityWarmFactor({
+              bootstrap,
+              factorSecret32,
+              materialActivation: capability.materialActivation,
+            });
+            postToMainThread({ id: msg.id, ok: true, result: stored });
+            activeClientHandle = null;
+          } finally {
+            if (!transferred) activeClient.dispose();
+          }
+        } finally {
+          if (activeClientHandle) removeEmailOtpEd25519YaoActiveClient(activeClientHandle);
+          zeroizeBytes(factorSecret32);
+        }
         return;
       }
       case 'clearEmailOtpWarmSessionMaterial': {

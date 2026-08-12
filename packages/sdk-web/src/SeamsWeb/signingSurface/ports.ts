@@ -119,15 +119,15 @@ import type {
 } from '@/core/rpcClients/relayer/walletRecoveryPrepare';
 import type { WalletAddAuthMethodRegistrationOptions } from '@/core/rpcClients/relayer/walletRegistration';
 import type { WalletRecoveryReplacementCredential } from '@/core/signingEngine/walletCustody/walletRecoveryCredential';
-import type {
-  RecoveredWalletCustodyManifestV1,
-} from '@/core/signingEngine/walletCustody/walletRecoveryManifest';
+import type { RecoveredWalletCustodyManifestV1 } from '@/core/signingEngine/walletCustody/walletRecoveryManifest';
 import type { WebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
 import type {
+  LoadedWalletCustodyEd25519MaterialV1,
   LoadWalletCustodyEd25519MaterialResultV1,
   WalletCustodyEd25519MaterialBindingV1,
   WalletCustodySealedEd25519MaterialV1,
 } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
+import type { WalletCustodyCacheEnvelopeV1 } from '@/core/signingEngine/walletCustody/openCustodyCache';
 import type { EmailOtpAppSessionBinding } from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
 import type { WalletCustodyEd25519Projection } from '@/core/signingEngine/walletCustody/ed25519Projection';
 import type {
@@ -417,6 +417,19 @@ export interface WalletCustodyCeremonySurface {
     routerOrigin: string;
     walletSessionJwt: string;
   }): Promise<JoinedWalletCustodyNearEd25519KeySetV1>;
+
+  activateEmailOtpEd25519RegistrationMaterialInternal(args: {
+    walletSession: WalletSessionRef;
+    providerSubject: string;
+    emailHashHex: string;
+    signerSlot: number;
+    expectedOperationalPublicKey: string;
+    expectedThresholdSessionId: string;
+    bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+    material: LoadedWalletCustodyEd25519MaterialV1;
+    envelope: WalletCustodyCacheEnvelopeV1;
+    factorSecret32: ArrayBuffer;
+  }): Promise<NearEd25519SignerBinding>;
 
   establishWalletCustodyEvmFamilyKeySet(args: {
     walletId: string;
