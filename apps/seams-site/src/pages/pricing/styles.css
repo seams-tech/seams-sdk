@@ -221,7 +221,7 @@ body:has(.pricing-page) {
   padding: 24px;
   border: 0;
   border-radius: 14px;
-  background: linear-gradient(160deg, #919690 0%, #c7d0cf 100%);
+  background: var(--h2-gradient-sage);
   box-shadow: var(--pricing-shadow);
   display: flex;
   flex-direction: column;
