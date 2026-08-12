@@ -33,7 +33,10 @@ export type LinkedDeviceTargetEcdsaCapabilityAllocatorV1 = {
     >;
     readonly issuedAtMs: number;
     readonly expiresAtMs: number;
-  }): Promise<EcdsaTargetCapabilityBindingV1>;
+  }): Promise<{
+    readonly targetCapability: EcdsaTargetCapabilityBindingV1;
+    readonly reshareChannelBindingDigestB64u: DigestB64u;
+  }>;
 };
 
 export type D1LinkedDeviceTargetDeploymentDescriptorProviderOptionsV1 = {
@@ -150,11 +153,11 @@ export class D1LinkedDeviceTargetDeploymentDescriptorProviderV1
         : {
             ...common,
             keyFamily: 'ecdsa_secp256k1',
-            targetCapability: await this.ecdsaCapabilityAllocator.allocateEcdsaTargetCapabilityV1({
+            ...(await this.ecdsaCapabilityAllocator.allocateEcdsaTargetCapabilityV1({
               request: input.request,
               issuedAtMs: input.issuedAtMs,
               expiresAtMs: input.expiresAtMs,
-            }),
+            })),
           };
     const unsigned = parseLinkedDeviceTargetDeploymentDescriptorUnsignedV1(
       unsignedRaw,

@@ -40,5 +40,15 @@ const invalidEcdsaYaoFacts: Extract<
   circuitDigestB64u,
 };
 
+const invalidEcdsaReshareBinding: Extract<
+  LinkedDeviceTargetDeploymentDescriptorUnsignedV1,
+  { readonly keyFamily: 'ecdsa_secp256k1' }
+> = {
+  ...ecdsaDescriptor,
+  // @ts-expect-error ECDSA descriptors require an authenticated reshare binding.
+  reshareChannelBindingDigestB64u: undefined,
+};
+
 void invalidEd25519Capability;
 void invalidEcdsaYaoFacts;
+void invalidEcdsaReshareBinding;

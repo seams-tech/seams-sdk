@@ -181,7 +181,12 @@ test('allocates ECDSA capability and rejects a tampered persisted signature', as
     ecdsaCapabilityAllocator: {
       async allocateEcdsaTargetCapabilityV1() {
         allocateCount += 1;
-        return ecdsaJob.targetCapability;
+        return {
+          targetCapability: ecdsaJob.targetCapability,
+          reshareChannelBindingDigestB64u: parseDigestB64u(
+            base64UrlEncode(new Uint8Array(32).fill(12)),
+          ),
+        };
       },
     },
     ed25519: {
@@ -196,6 +201,9 @@ test('allocates ECDSA capability and rejects a tampered persisted signature', as
   });
   expect(descriptor.keyFamily).toBe('ecdsa_secp256k1');
   expect(descriptor.targetCapability).toEqual(ecdsaJob.targetCapability);
+  expect(descriptor.reshareChannelBindingDigestB64u).toBe(
+    base64UrlEncode(new Uint8Array(32).fill(12)),
+  );
   expect(allocateCount).toBe(1);
   await temporary.database
     .prepare(

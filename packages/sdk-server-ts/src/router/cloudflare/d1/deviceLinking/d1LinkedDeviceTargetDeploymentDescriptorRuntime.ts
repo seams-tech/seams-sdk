@@ -28,7 +28,7 @@ import { parseThresholdEcdsaSessionId } from '@shared/utils/domainIds';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
-import { sha256Bytes } from '@shared/utils/digests';
+import { alphabetizeStringify, sha256Bytes } from '@shared/utils/digests';
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
 import {
@@ -163,7 +163,10 @@ export class D1LinkedDeviceEcdsaTargetCapabilityAllocatorV1 implements LinkedDev
     >;
     readonly issuedAtMs: number;
     readonly expiresAtMs: number;
-  }): Promise<EcdsaTargetCapabilityBindingV1> {
+  }): Promise<{
+    readonly targetCapability: EcdsaTargetCapabilityBindingV1;
+    readonly reshareChannelBindingDigestB64u: DigestB64u;
+  }> {
     const sourceSigners = await this.source.listEcdsaSignersForWallet({
       walletId: String(input.request.walletId),
     });
@@ -208,7 +211,17 @@ export class D1LinkedDeviceEcdsaTargetCapabilityAllocatorV1 implements LinkedDev
       },
       'target ECDSA capability',
     );
-    return capability;
+    const reshareChannelBindingDigestB64u = await deriveReshareChannelBindingDigestV1({
+      secret: this.descriptorHmacSecret,
+      request: input.request,
+      source,
+      targetSigningWorker: this.targetSigningWorker,
+      targetCapability: capability,
+    });
+    return {
+      targetCapability: capability,
+      reshareChannelBindingDigestB64u,
+    };
   }
 }
 
@@ -435,6 +448,44 @@ async function deriveTargetThresholdSessionV1(input: {
     thresholdSessionId,
     participantBindingDigestB64u: parseDigestB64u(input.targetParticipantBindingDigestB64u),
   };
+}
+
+/**
+ * Binds the ECDSA reshare channel to the exact authenticated request, the
+ * durable source capability projection, and the allocated target identities.
+ * The descriptor signature covers this digest after it is added to the
+ * unsigned payload.
+ */
+export async function deriveReshareChannelBindingDigestV1(input: {
+  readonly secret: string;
+  readonly request: Extract<
+    LinkedDeviceTargetDeploymentDescriptorRequestV1,
+    { readonly keyFamily: 'ecdsa_secp256k1' }
+  >;
+  readonly source: WalletEcdsaSignerRecord;
+  readonly targetSigningWorker: LaneTargetSigningWorkerV1;
+  readonly targetCapability: EcdsaTargetCapabilityBindingV1;
+}): Promise<DigestB64u> {
+  const sourceFacts = {
+    publicCapability: input.source.walletKey.publicCapability,
+    serverGeneration: input.source.activationReceipt.server_generation,
+    ecdsaThresholdKeyId: input.source.walletKey.ecdsaThresholdKeyId,
+    relayerKeyId: input.source.walletKey.relayerKeyId,
+    sourceHolderVerifyingShare33B64u:
+      input.source.walletKey.derivationClientSharePublicKey33B64u,
+    sourceServerVerifyingShare33B64u: input.source.walletKey.relayerVerifyingShareB64u,
+  };
+  const payload = alphabetizeStringify({
+    kind: 'linked_device_ecdsa_reshare_channel_binding_v1',
+    request: input.request,
+    source: sourceFacts,
+    target: {
+      capability: input.targetCapability,
+      signingWorker: input.targetSigningWorker,
+    },
+  });
+  const digest = await hmacSha512Bytes(input.secret, new TextEncoder().encode(payload));
+  return parseDigestB64u(base64UrlEncode(digest.slice(0, 32)));
 }
 
 async function assertDescriptorPayloadDigestV1(
