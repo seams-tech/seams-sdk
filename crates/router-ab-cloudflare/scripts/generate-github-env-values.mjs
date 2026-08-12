@@ -13,7 +13,11 @@ import {
   gatewayRuntimeProfileNearNetwork,
   parseGatewayDeploymentConfig as parseStrictGatewayDeploymentConfig,
 } from '../../../packages/console-server-ts/scripts/gateway-deployment-config.mjs';
-import { readBackendLane, readFrontendSite } from '../../../scripts/deployment-targets.mjs';
+import {
+  gatewaySecretNames,
+  readBackendLane,
+  readFrontendSite,
+} from '../../../scripts/deployment-targets.mjs';
 
 const VALID_DEPLOYMENT_COMPONENTS = new Set(['wallet-core', 'product']);
 const githubCli = process.env.GITHUB_CLI_BIN || 'gh';
@@ -259,6 +263,10 @@ if (prepare) {
 
 function validateOptionalIntegrationInputs(targetName, suppliedValues) {
   const gatewayEnvironment = `${targetName}-gateway`;
+  const configuredRuntimeProfile =
+    deploymentIdentity.lane.provisioning.kind === 'provisioned'
+      ? deploymentIdentity.lane.provisioning.gatewayDeploymentConfig.runtimeProfile
+      : undefined;
   const runtimeProfileKind = readSuppliedValue(
     suppliedValues,
     targetName,
@@ -272,8 +280,10 @@ function validateOptionalIntegrationInputs(targetName, suppliedValues) {
     'EMAIL_OTP_DELIVERY_MODE',
   );
   const runtimeProfile = buildGatewayRuntimeProfile(
-    runtimeProfileKind || GATEWAY_RUNTIME_PROFILE_KINDS.testnetLiveDemo,
-    emailOtpDeliveryKind,
+    runtimeProfileKind ||
+      configuredRuntimeProfile?.kind ||
+      GATEWAY_RUNTIME_PROFILE_KINDS.testnetLiveDemo,
+    emailOtpDeliveryKind || configuredRuntimeProfile?.emailOtpDelivery.kind,
   );
   const relayerAccountId = readSuppliedValue(
     suppliedValues,
@@ -547,7 +557,10 @@ function buildTargetConfiguration(targetName, suppliedValues) {
     gatewayEnvironment,
     'EMAIL_OTP_DELIVERY_MODE',
   );
-  const runtimeProfile = buildGatewayRuntimeProfile(runtimeProfileKind, emailOtpDeliveryKind);
+  const runtimeProfile = buildGatewayRuntimeProfile(
+    runtimeProfileKind,
+    emailOtpDeliveryKind || checkedInRuntimeProfile?.emailOtpDelivery.kind,
+  );
   const nearNetwork = gatewayRuntimeProfileNearNetwork(runtimeProfile);
   const gatewayOrigin =
     readOption('--gateway-origin') ||
@@ -1047,6 +1060,21 @@ function buildGatewayEnvironment(input) {
   const environmentName = `${input.environmentPrefix}-gateway`;
   const consoleEmailEnabled =
     input.configuration.runtimeProfile.kind !== GATEWAY_RUNTIME_PROFILE_KINDS.mainnetService;
+  const secrets = {
+    CLOUDFLARE_API_TOKEN: manual(`${environmentName}-cloudflare-worker-api-token`),
+    CLOUDFLARE_ACCOUNT_ID: manual(`${input.environmentPrefix}-cloudflare-account-id`),
+    RELAY_SESSION_HMAC_SECRET: input.generatedSecrets.relaySessionHmac,
+    ACCOUNT_ID_DERIVATION_SECRET: input.generatedSecrets.accountIdDerivation,
+    ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: input.generatedSecrets.internalServiceAuth,
+    ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: input.generatedSecrets.ceremonyPrivateJwk,
+    RELAYER_PRIVATE_KEY: manual(`${input.environmentPrefix}-near-relayer-private-key`),
+    SPONSORED_EVM_EXECUTORS_JSON: manual(`${input.environmentPrefix}-sponsored-evm-executors-json`),
+    STRIPE_API_SK: manual(`${input.environmentPrefix}-stripe-secret-key`),
+    STRIPE_WEBHOOK_SECRET: manual(`${input.environmentPrefix}-stripe-webhook-signing-secret`),
+    CONSOLE_INITIAL_OWNER_EMAIL: manual(`${input.environmentPrefix}-console-initial-owner-email`),
+    SIGNING_SESSION_SEAL_ROOT_SECRET_B64U: input.generatedSecrets.signingSession.rootSecretB64u,
+  };
+  addMissingGatewaySecrets(secrets, deploymentIdentity.lane, input.environmentPrefix);
   return [
     environmentName,
     {
@@ -1055,26 +1083,17 @@ function buildGatewayEnvironment(input) {
         ? { CONSOLE_EMAIL_FROM: manual(`${input.environmentPrefix}-console-email-from`) }
         : {},
       optionalVariables: {},
-      secrets: {
-        CLOUDFLARE_API_TOKEN: manual(`${environmentName}-cloudflare-worker-api-token`),
-        CLOUDFLARE_ACCOUNT_ID: manual(`${input.environmentPrefix}-cloudflare-account-id`),
-        RELAY_SESSION_HMAC_SECRET: input.generatedSecrets.relaySessionHmac,
-        ACCOUNT_ID_DERIVATION_SECRET: input.generatedSecrets.accountIdDerivation,
-        ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: input.generatedSecrets.internalServiceAuth,
-        ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: input.generatedSecrets.ceremonyPrivateJwk,
-        RELAYER_PRIVATE_KEY: manual(`${input.environmentPrefix}-near-relayer-private-key`),
-        SPONSORED_EVM_EXECUTORS_JSON: manual(
-          `${input.environmentPrefix}-sponsored-evm-executors-json`,
-        ),
-        STRIPE_API_SK: manual(`${input.environmentPrefix}-stripe-secret-key`),
-        STRIPE_WEBHOOK_SECRET: manual(`${input.environmentPrefix}-stripe-webhook-signing-secret`),
-        CONSOLE_INITIAL_OWNER_EMAIL: manual(
-          `${input.environmentPrefix}-console-initial-owner-email`,
-        ),
-        SIGNING_SESSION_SEAL_ROOT_SECRET_B64U: input.generatedSecrets.signingSession.rootSecretB64u,
-      },
+      secrets,
     },
   ];
+}
+
+function addMissingGatewaySecrets(secrets, lane, environmentPrefix) {
+  for (const name of gatewaySecretNames(lane)) {
+    if (!(name in secrets)) {
+      secrets[name] = manual(`${environmentPrefix}-${name.toLowerCase().replaceAll('_', '-')}`);
+    }
+  }
 }
 
 function buildGatewayDeploymentConfig(input) {
@@ -1134,6 +1153,7 @@ function buildGatewayOptionalDeploymentConfig(input) {
     deploymentIdentity.lane.provisioning.kind === 'provisioned'
       ? deploymentIdentity.lane.provisioning.gatewayDeploymentConfig
       : undefined;
+  const checkedInOptional = checkedInGatewayConfig?.optional;
   const checkedInNearRelayer = checkedInGatewayConfig?.optional.nearRelayer;
   const relayerAccountId =
     readSuppliedValue(
@@ -1158,12 +1178,13 @@ function buildGatewayOptionalDeploymentConfig(input) {
     ) ||
     checkedInNearRelayer?.initialBalanceYocto ||
     DEFAULT_NEAR_INITIAL_BALANCE_YOCTO;
-  const googleOidcClientId = readSuppliedValue(
-    suppliedValues,
-    input.target,
-    `${input.environmentPrefix}-gateway`,
-    'GOOGLE_OIDC_CLIENT_ID',
-  );
+  const googleOidcClientId =
+    readSuppliedValue(
+      suppliedValues,
+      input.target,
+      `${input.environmentPrefix}-gateway`,
+      'GOOGLE_OIDC_CLIENT_ID',
+    ) || checkedInOptional?.googleOidcClientId;
   const oidcExchangeJson = readSuppliedValue(
     suppliedValues,
     input.target,
@@ -1182,7 +1203,7 @@ function buildGatewayOptionalDeploymentConfig(input) {
     googleOidcClientId: googleOidcClientId || null,
     oidcExchange: oidcExchangeJson
       ? parseSuppliedJsonObject('SEAMS_OIDC_EXCHANGE_JSON', oidcExchangeJson)
-      : null,
+      : checkedInOptional?.oidcExchange || null,
   };
 }
 
@@ -1793,6 +1814,10 @@ async function discoverWorkersDevOrigin(
     'GATEWAY_ORIGIN',
   );
   if (existing || !accountId) {
+    return;
+  }
+  if (lane.provisioning.kind === 'provisioned') {
+    suppliedValues.GATEWAY_ORIGIN = lane.provisioning.gatewayDeploymentConfig.origins.gateway;
     return;
   }
   const apiToken = readSuppliedValue(

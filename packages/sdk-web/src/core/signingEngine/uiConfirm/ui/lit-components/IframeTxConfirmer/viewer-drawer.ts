@@ -181,11 +181,12 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
   }
 
   private _isSecurityDetailsLoading(): boolean {
+    if (this.loading) return true;
     const chainId = String(this.model?.chainId || '').trim();
     if (chainId) return false;
     const blockHeight = String(this.securityContext?.blockHeight || '').trim();
     const submittingTransaction = isNearSigningProgressNotice(String(this.body || ''));
-    return (this.loading || submittingTransaction) && !blockHeight;
+    return submittingTransaction && !blockHeight;
   }
 
   private _isEmailOtpMode(): boolean {
@@ -718,7 +719,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
                 const fallback = this._isEmailOtpMode()
                   ? 'Enter email code to sign'
                   : this._isWarmSessionMode()
-                    ? 'Confirm transaction'
+                    ? 'Review transaction'
                     : isRegistration
                       ? 'Register with Passkey'
                       : 'Confirm with Passkey';
@@ -739,17 +740,26 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
               <div class="rpid">
                 <div class="secure-indicator">
                   <w3a-padlock-icon class="padlock-icon"></w3a-padlock-icon>
-                  <span class="domain-text">${this._rpIdText()}</span>
+                  ${this.loading
+                    ? html`
+                        <span class="loading-ellipsis" aria-hidden="true">
+                          <span class="loading-ellipsis__dot">.</span>
+                          <span class="loading-ellipsis__dot">.</span>
+                          <span class="loading-ellipsis__dot">.</span>
+                        </span>
+                        <span class="sr-only" role="status">Loading website</span>
+                      `
+                    : html`<span class="domain-text">${this._rpIdText()}</span>`}
                 </div>
                 <span class="security-details">
                   ${securityDetailsLoading
                     ? html`
-                        <span
-                          class="loading-indicator security-loading-indicator"
-                          role="progressbar"
-                          aria-label="Loading block height"
-                        ></span>
-                        <span>Loading block...</span>
+                        <span class="loading-ellipsis" aria-hidden="true">
+                          <span class="loading-ellipsis__dot">.</span>
+                          <span class="loading-ellipsis__dot">.</span>
+                          <span class="loading-ellipsis__dot">.</span>
+                        </span>
+                        <span class="sr-only" role="status">Loading chain details</span>
                       `
                     : html`
                         <svg

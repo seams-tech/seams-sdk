@@ -94,7 +94,7 @@ export class CloudflareD1EmailOtpDeliveryRuntime {
         message: 'Email OTP email_provider delivery is not configured',
       };
     }
-    return provider.deliver({
+    const result = await provider.deliver({
       challengeId: record.challengeId,
       walletId: record.walletId,
       userId: record.challengeSubjectId,
@@ -107,6 +107,13 @@ export class CloudflareD1EmailOtpDeliveryRuntime {
       operation: record.operation,
       expiresAtMs: record.expiresAtMs,
     });
+    if (!result.ok) {
+      console.error('[email-otp] provider delivery failed', {
+        code: result.code,
+        message: result.message,
+      });
+    }
+    return result;
   }
 
   private resolveDelivery(
