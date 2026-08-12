@@ -87,6 +87,8 @@ struct RoleSpanEventV1 {
     outcome: &'static str,
     duration_ms: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
+    error_code: Option<RouterAbProtocolErrorCode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     trace_id: Option<String>,
 }
 
@@ -98,6 +100,72 @@ fn emit_role_span_v1(
     started_at_ms: u64,
     outcome: &'static str,
 ) {
+    emit_role_span_with_error_code_v1(
+        trace_id,
+        span,
+        role,
+        operation,
+        started_at_ms,
+        outcome,
+        None,
+    );
+}
+
+fn emit_role_span_error_v1(
+    trace_id: RoleTraceContextV1,
+    span: &'static str,
+    role: &'static str,
+    operation: &'static str,
+    started_at_ms: u64,
+    error: &RouterAbProtocolError,
+) {
+    emit_role_span_with_error_code_v1(
+        trace_id,
+        span,
+        role,
+        operation,
+        started_at_ms,
+        "failure",
+        Some(error.code()),
+    );
+}
+
+fn emit_role_stage_result_v1<T>(
+    trace_id: RoleTraceContextV1,
+    span: &'static str,
+    operation: &'static str,
+    started_at_ms: u64,
+    result: &RouterAbProtocolResult<T>,
+) {
+    match result {
+        Ok(_) => emit_role_span_v1(
+            trace_id,
+            span,
+            "deriver_b",
+            operation,
+            started_at_ms,
+            "success",
+        ),
+        Err(error) => emit_role_span_error_v1(
+            trace_id,
+            span,
+            "deriver_b",
+            operation,
+            started_at_ms,
+            error,
+        ),
+    }
+}
+
+fn emit_role_span_with_error_code_v1(
+    trace_id: RoleTraceContextV1,
+    span: &'static str,
+    role: &'static str,
+    operation: &'static str,
+    started_at_ms: u64,
+    outcome: &'static str,
+    error_code: Option<RouterAbProtocolErrorCode>,
+) {
     let ended_at_ms = cloudflare_yao_now_unix_ms().unwrap_or(started_at_ms);
     let event = RoleSpanEventV1 {
         event: ROLE_SPAN_EVENT_V1,
@@ -106,6 +174,7 @@ fn emit_role_span_v1(
         operation,
         outcome,
         duration_ms: ended_at_ms.saturating_sub(started_at_ms),
+        error_code,
         trace_id: trace_id.map(CloudflareTraceIdV1::as_hex),
     };
     if let Ok(serialized) = serde_json::to_string(&event) {
@@ -3039,14 +3108,24 @@ async fn handle_pair_bound_deriver_b_websocket(
             work,
         )
         .await;
-        emit_role_span_v1(
-            trace_id,
-            "deriver_b.role_execution",
-            "deriver_b",
-            "yao",
-            role_started_at_ms,
-            if result.is_ok() { "success" } else { "failure" },
-        );
+        match &result {
+            Ok(_) => emit_role_span_v1(
+                trace_id,
+                "deriver_b.role_execution",
+                "deriver_b",
+                "yao",
+                role_started_at_ms,
+                "success",
+            ),
+            Err(error) => emit_role_span_error_v1(
+                trace_id,
+                "deriver_b.role_execution",
+                "deriver_b",
+                "yao",
+                role_started_at_ms,
+                error,
+            ),
+        }
         if result.is_err() {
             let _ignored = execute_deriver_b_session_command(
                 &env,
@@ -3073,11 +3152,29 @@ async fn execute_deriver_b_role(
     pair_digest: [u8; 32],
     work: crate::CloudflareEd25519YaoPairWorkV1,
 ) -> RouterAbProtocolResult<()> {
-    let private_key =
-        load_deriver_input_private_key(env, &runtime.envelope_decrypt_key().current.binding_name)?;
+    let private_key_started_at_ms = role_span_started_at_ms();
+    let private_key_result =
+        load_deriver_input_private_key(env, &runtime.envelope_decrypt_key().current.binding_name);
+    emit_role_stage_result_v1(
+        trace_id,
+        "deriver_b.input_private_key",
+        "yao",
+        private_key_started_at_ms,
+        &private_key_result,
+    );
+    let private_key = private_key_result?;
     let session = input.session();
-    let transport = CloudflareEd25519YaoWebSocketTransportV1::deriver_b(&socket, session)
-        .map_err(map_websocket_error)?;
+    let transport_started_at_ms = role_span_started_at_ms();
+    let transport_result = CloudflareEd25519YaoWebSocketTransportV1::deriver_b(&socket, session)
+        .map_err(map_websocket_error);
+    emit_role_stage_result_v1(
+        trace_id,
+        "deriver_b.transport",
+        "yao",
+        transport_started_at_ms,
+        &transport_result,
+    );
+    let transport = transport_result?;
     let (execution, transport) = match input.kind() {
         Ed25519YaoInputKindV1::Activation => {
             let role_request =
@@ -3170,8 +3267,17 @@ async fn execute_deriver_b_role(
                     "Deriver B lane input is missing its admitted job",
                 ));
             };
-            let role_request =
-                open_ed25519_yao_lane_deriver_b_input_v1(&input, expected_job, &private_key)?;
+            let input_open_started_at_ms = role_span_started_at_ms();
+            let role_request_result =
+                open_ed25519_yao_lane_deriver_b_input_v1(&input, expected_job, &private_key);
+            emit_role_stage_result_v1(
+                trace_id,
+                "deriver_b.input_open",
+                "lane_materialization",
+                input_open_started_at_ms,
+                &role_request_result,
+            );
+            let role_request = role_request_result?;
             let lifecycle = role_request.binding.lifecycle.clone();
             let (root, root_metadata_digest) =
                 load_deriver_b_yao_root_with_metadata_digest(env, runtime, &lifecycle, trace_id)
@@ -3180,17 +3286,36 @@ async fn execute_deriver_b_role(
                 expected_root_metadata_digest,
                 root_metadata_digest,
             )?;
-            let (binding, job, role) = build_product_lane_deriver_b_v1(
+            let role_build_started_at_ms = role_span_started_at_ms();
+            let role_build_result = build_product_lane_deriver_b_v1(
                 root,
                 role_request,
                 &mut CloudflareHpkeGetrandomRngV1,
             )
-            .map_err(map_adapter)?;
-            if binding.session_id.into_bytes() != session {
-                return Err(invalid_lifecycle(
+            .map_err(map_adapter);
+            emit_role_stage_result_v1(
+                trace_id,
+                "deriver_b.role_build",
+                "lane_materialization",
+                role_build_started_at_ms,
+                &role_build_result,
+            );
+            let (binding, job, role) = role_build_result?;
+            let session_check_result = if binding.session_id.into_bytes() == session {
+                Ok(())
+            } else {
+                Err(invalid_lifecycle(
                     "Deriver B lane input does not match the pair session",
-                ));
-            }
+                ))
+            };
+            emit_role_stage_result_v1(
+                trace_id,
+                "deriver_b.session_check",
+                "lane_materialization",
+                role_build_started_at_ms,
+                &session_check_result,
+            );
+            session_check_result?;
             let protocol_started_at_ms = role_span_started_at_ms();
             let completion_result =
                 with_yao_ceremony_timeout(run_lane_materialization_deriver_b_open(role, transport))
