@@ -5,11 +5,10 @@ use serde::{Deserialize, Serialize};
 use crate::derivation::PublicDigest32;
 
 use super::{
-    Ed25519YaoCeremonyBindingV1, Ed25519YaoInputPairBindingV1,
-    Ed25519YaoLaneProtocolCommittedV1, Ed25519YaoLaneRequestKindV1,
-    RouterAbEd25519YaoLaneExecuteRequestV1, RouterAbEd25519YaoLaneResultV1, RouterAbProtocolError,
-    RouterAbProtocolErrorCode, RouterAbProtocolResult, RouterAdmittedExecutionAuthorityV1,
-    RouterEd25519YaoExecuteRequestV1,
+    Ed25519YaoCeremonyBindingV1, Ed25519YaoInputPairBindingV1, Ed25519YaoLaneProtocolCommittedV1,
+    Ed25519YaoLaneRequestKindV1, RouterAbEd25519YaoLaneExecuteRequestV1,
+    RouterAbEd25519YaoLaneResultV1, RouterAbProtocolError, RouterAbProtocolErrorCode,
+    RouterAbProtocolResult, RouterAdmittedExecutionAuthorityV1, RouterEd25519YaoExecuteRequestV1,
 };
 
 /// Authenticated server-to-Router command for one already-admitted lane job.
@@ -42,10 +41,10 @@ impl RouterAbEd25519YaoLaneDispatchRequestV1 {
             || self.binding.session_id.into_bytes() != job.session_v1()?
             || self.binding.stable_key_context_binding.into_bytes()
                 != job.stable_context_binding_v1()?
-            || self.binding.material_activation() != &job.source.material_activation
+            || self.binding.material_activation() != job.source.material_activation()
             || self.binding.lifecycle.lifecycle_id != job.operation_id
             || self.binding.lifecycle.account_id != job.wallet_id
-            || self.binding.lifecycle.selected_server_id != job.source.signing_worker_participant_id
+            || self.binding.lifecycle.selected_server_id != job.source.signing_worker_id()
         {
             return Err(invalid_lane_dispatch(
                 "Ed25519 lane dispatch binding does not match the admitted job",
@@ -124,10 +123,10 @@ impl RouterAbEd25519YaoLaneDispatchResponseV1 {
             || receipt.enrollment_id != job.enrollment_id
             || receipt.wallet_id != job.wallet_id
             || receipt.wallet_key_id != job.wallet_key_id
-            || receipt.source_lane_id != job.source.lane_id
-            || receipt.source_lane_share_epoch != job.source.lane_share_epoch
-            || receipt.source_revocation_epoch != job.source.revocation_epoch
-            || receipt.source_material_activation != job.source.material_activation
+            || receipt.source_lane_id != job.source.lane_id()
+            || receipt.source_lane_share_epoch != job.source.lane_share_epoch()
+            || receipt.source_revocation_epoch != job.source.revocation_epoch()
+            || receipt.source_material_activation != *job.source.material_activation()
             || receipt.target_lane_id != job.target_lane_id()
             || receipt.target_lane_share_epoch != job.target_lane_share_epoch()
             || receipt.target_material_activation_id != job.target_material_activation_id
@@ -141,10 +140,8 @@ impl RouterAbEd25519YaoLaneDispatchResponseV1 {
                 != result.target_holder_ciphertext_digest_set_b64u
             || receipt.target_server_ciphertext_digest_set_b64u
                 != result.target_server_ciphertext_digest_set_b64u
-            || receipt.holder_recipient_key_digest_b64u
-                != result.holder_recipient_key_digest_b64u
-            || receipt.server_recipient_key_digest_b64u
-                != result.server_recipient_key_digest_b64u
+            || receipt.holder_recipient_key_digest_b64u != result.holder_recipient_key_digest_b64u
+            || receipt.server_recipient_key_digest_b64u != result.server_recipient_key_digest_b64u
             || receipt.transcript_hash_b64u != result.transcript_hash_b64u
             || receipt.committed_at_ms != result.committed_at_ms
         {

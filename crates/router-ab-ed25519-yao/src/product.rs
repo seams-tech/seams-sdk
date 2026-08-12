@@ -212,7 +212,7 @@ fn validate_lane_product_binding(
             != job
                 .stable_context_binding_v1()
                 .map_err(|_| AdapterError::InvalidDerivationContext)?
-        || binding.material_activation() != &job.source.material_activation
+        || binding.material_activation() != job.source.material_activation()
         || recipients.holder_public_key
             != decode_lane_recipient_key_v1(&job.target_holder.hpke_public_key_b64u)?
         || recipients.signing_worker_public_key

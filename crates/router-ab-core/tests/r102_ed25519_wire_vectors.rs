@@ -10,8 +10,9 @@ use std::path::PathBuf;
 use base64ct::{Base64UrlUnpadded, Encoding};
 use router_ab_core::protocol::{
     Ed25519YaoLaneAuthorizationV1, Ed25519YaoLaneJobV1, Ed25519YaoLaneProtocolCommittedV1,
-    Ed25519YaoLaneRequestKindV1, Ed25519YaoLaneSourceV1, Ed25519YaoLaneTargetHolderV1,
-    Ed25519YaoLaneTargetSigningWorkerV1, Ed25519YaoLaneTargetV1, MpcMaterialActivationRefV1,
+    Ed25519YaoLaneRequestKindV1, Ed25519YaoLaneSourceKindV1, Ed25519YaoLaneSourceV1,
+    Ed25519YaoLaneTargetHolderV1, Ed25519YaoLaneTargetSigningWorkerV1, Ed25519YaoLaneTargetV1,
+    MpcMaterialActivationRefV1,
 };
 use serde_json::{json, Value};
 
@@ -61,9 +62,17 @@ fn job() -> Ed25519YaoLaneJobV1 {
             lane_kind: "owner_passkey".to_owned(),
             lane_share_epoch: "opaque/creation-epoch:A".to_owned(),
             revocation_epoch: 7,
-            holder_participant_id: "holder:owner-device".to_owned(),
-            signing_worker_participant_id: "signing-worker:source".to_owned(),
-            signing_worker_recipient_key_id: "recipient-key:source".to_owned(),
+            source_kind: Ed25519YaoLaneSourceKindV1::OwnerRegistration {
+                owner_participant_continuity:
+                    router_ab_core::protocol::OwnerLaneParticipantContinuityV1 {
+                        kind: "owner_lane_participant_continuity_v1".to_owned(),
+                        signer_id: "signer:owner".to_owned(),
+                        participant_ids: [1, 2],
+                        signing_worker_id: "signing-worker:source".to_owned(),
+                        custody_key_manifest_digest_b64u: digest(18),
+                        source_identity_digest_b64u: digest(19),
+                    },
+            },
             participant_binding_digest_b64u: digest(1),
             material_activation: activation("activation:source"),
         },

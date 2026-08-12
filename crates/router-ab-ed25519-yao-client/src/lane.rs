@@ -242,7 +242,7 @@ pub fn prepare_client_lane_dispatch_with_root_v1(
             != job
                 .stable_context_binding_v1()
                 .map_err(|_| ClientLaneError::BindingMismatch)?
-        || binding.material_activation() != &job.source.material_activation
+        || binding.material_activation() != job.source.material_activation()
     {
         return Err(ClientLaneError::BindingMismatch);
     }
@@ -381,10 +381,10 @@ pub fn complete_client_lane_v1(
         job.enrollment_id,
         job.wallet_id,
         job.wallet_key_id,
-        job.source.lane_id,
-        job.source.lane_share_epoch,
-        job.source.revocation_epoch,
-        job.source.material_activation,
+        job.source.lane_id(),
+        job.source.lane_share_epoch(),
+        job.source.revocation_epoch(),
+        job.source.material_activation().clone(),
         target_lane_id,
         target_lane_share_epoch,
         job.target_material_activation_id,
