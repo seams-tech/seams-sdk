@@ -1,9 +1,9 @@
 import { openDB, type IDBPDatabase } from 'idb';
 import {
   SEAMS_WALLET_DB_CONFIG,
-  applySeamsWalletDBSchemaUpgrade,
+  SEAMS_WALLET_SCHEMA_VERSION,
+  initializeSeamsWalletDBSchema,
   type SeamsWalletDBConfig,
-  type SeamsWalletSchemaPolicy,
 } from './schema';
 import { SEAMS_WALLET_DB_NAME, type SeamsWalletStoreName } from '../schemaNames';
 
@@ -27,19 +27,6 @@ function seamsWalletDbOpenBlockedError(dbName: string): Error {
 
 function indexedDbTimeoutError(message: string): Error {
   return new Error(message);
-}
-
-function requestedSchemaVersion(policy: SeamsWalletSchemaPolicy): number | undefined {
-  switch (policy.kind) {
-    case 'development':
-      return undefined;
-    case 'production':
-      return policy.version;
-    default: {
-      const invalidPolicy: never = policy;
-      throw new Error(`Unsupported IndexedDB schema policy: ${String(invalidPolicy)}`);
-    }
-  }
 }
 
 async function withTimeout<T>(
@@ -115,15 +102,14 @@ export class SeamsWalletDBManager {
     }
     if (!this.dbPromise) {
       const dbName = this.config.dbName;
-      const schemaVersion = requestedSchemaVersion(this.config.schemaPolicy);
       let blockedTimer: ReturnType<typeof setTimeout> | null = null;
       let rejectBlockedOpen: ((error: Error) => void) | null = null;
       const blockedOpen = new Promise<IDBPDatabase>((_resolve, reject) => {
         rejectBlockedOpen = reject;
       });
-      const openPromise = openDB(dbName, schemaVersion, {
-        upgrade(db, oldVersion) {
-          applySeamsWalletDBSchemaUpgrade(db, oldVersion);
+      const openPromise = openDB(dbName, SEAMS_WALLET_SCHEMA_VERSION, {
+        upgrade(db) {
+          initializeSeamsWalletDBSchema(db);
         },
         blocked() {
           console.warn('[SeamsWalletDBManager] IndexedDB open is blocked.', { dbName });
