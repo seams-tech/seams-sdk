@@ -33,6 +33,7 @@ export type SessionExchangeRouteCommand =
       token: string;
       provider: string;
       accountMode?: 'register' | 'login';
+      idempotencyKey?: string;
       restartRegistrationOffer: boolean;
       projectEnvironmentId?: string;
     }
@@ -82,7 +83,14 @@ const SESSION_EXCHANGE_KEYS = [
   'exchange',
   'projectEnvironmentId',
 ] as const;
-const OIDC_EXCHANGE_KEYS = ['type', 'token', 'provider', 'account_mode', 'accountMode'] as const;
+const OIDC_EXCHANGE_KEYS = [
+  'type',
+  'token',
+  'provider',
+  'account_mode',
+  'accountMode',
+  'idempotencyKey',
+] as const;
 const GITHUB_OAUTH_CODE_EXCHANGE_KEYS = ['type', 'code'] as const;
 const PASSKEY_EXCHANGE_KEYS = [
   'type',
@@ -163,6 +171,22 @@ export function parseSessionExchangeRouteCommand(raw: unknown): SessionExchangeR
         sessionKind,
       );
     }
+    const idempotencyKey = toOptionalTrimmedString(exchange.idempotencyKey) || undefined;
+    const isGoogleEmailOtpLogin = provider === 'google' && accountMode === 'login';
+    if (isGoogleEmailOtpLogin && !idempotencyKey) {
+      return invalidSessionExchangeBody(
+        'exchange.idempotencyKey is required for Google Email OTP login',
+        exchangeType,
+        sessionKind,
+      );
+    }
+    if (idempotencyKey && !isGoogleEmailOtpLogin) {
+      return invalidSessionExchangeBody(
+        'exchange.idempotencyKey is only supported for Google Email OTP login',
+        exchangeType,
+        sessionKind,
+      );
+    }
     return {
       ok: true,
       command: {
@@ -171,6 +195,7 @@ export function parseSessionExchangeRouteCommand(raw: unknown): SessionExchangeR
         token,
         provider,
         ...(accountMode ? { accountMode } : {}),
+        ...(idempotencyKey ? { idempotencyKey } : {}),
         restartRegistrationOffer: accountMode === 'register',
         ...(projectEnvironmentId ? { projectEnvironmentId } : {}),
       },
