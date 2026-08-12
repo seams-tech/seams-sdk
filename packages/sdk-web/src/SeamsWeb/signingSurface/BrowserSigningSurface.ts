@@ -270,6 +270,7 @@ import { resolveEmailOtpAuthLane } from '@/core/signingEngine/stepUpConfirmation
 import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
 import { activateWalletCustodyEd25519CapabilityV1 } from '@/core/signingEngine/walletCustody/activateEd25519Capability';
 import { disposeWalletCustodyEd25519ActiveClientV1 } from '@/core/signingEngine/walletCustody/ed25519ActiveClient';
+import type { WalletCustodyCacheEnvelopeV1 } from '@/core/signingEngine/walletCustody/openCustodyCache';
 import {
   resolveWalletCustodyEd25519ProjectionV1,
   type WalletCustodyEd25519Projection,
@@ -310,7 +311,10 @@ import {
   type EmailOtpAppSessionBinding,
   type EmailOtpAppSessionSource,
 } from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
-import { requestRehydrateEmailOtpEd25519YaoOperationMaterial } from '@/core/signingEngine/session/emailOtp/workerRequests';
+import {
+  requestClearEmailOtpWarmSessionMaterial,
+  requestRehydrateEmailOtpEd25519YaoOperationMaterial,
+} from '@/core/signingEngine/session/emailOtp/workerRequests';
 import type { EmailOtpBootstrapRecovery } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/bootstrapRecovery';
 import type {
   DiscoverPersistedSessionsForWalletInput,
@@ -4805,6 +4809,72 @@ export class BrowserSigningSurface {
       },
       args.walletSession,
     );
+  }
+
+  async activateEmailOtpEd25519RegistrationMaterialInternal(args: {
+    walletSession: WalletSessionRef;
+    providerSubject: string;
+    emailHashHex: string;
+    signerSlot: number;
+    expectedOperationalPublicKey: string;
+    expectedThresholdSessionId: string;
+    bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+    material: LoadedWalletCustodyEd25519MaterialV1;
+    envelope: WalletCustodyCacheEnvelopeV1;
+    factorSecret32: ArrayBuffer;
+  }): Promise<NearEd25519SignerBinding> {
+    const activated = await this.signerWorkerManager.requestWorkerOperation({
+      kind: 'emailOtp',
+      request: {
+        type: 'activateEmailOtpEd25519YaoRegistrationMaterial',
+        payload: {
+          material: args.material,
+          bootstrap: args.bootstrap,
+          envelope: args.envelope,
+          factorSecret32: args.factorSecret32,
+        },
+        transfer: [args.factorSecret32],
+      },
+    });
+    try {
+      return await this.activateEmailOtpEd25519CustodyCapabilityInternal({
+        commitQueue: 'acquire',
+        walletSession: args.walletSession,
+        providerSubject: args.providerSubject,
+        emailHashHex: args.emailHashHex,
+        signerSlot: args.signerSlot,
+        expectedOperationalPublicKey: args.expectedOperationalPublicKey,
+        expectedThresholdSessionId: args.expectedThresholdSessionId,
+        bootstrap: args.bootstrap,
+        activeClientHandle: activated.activeClientHandle,
+        metadata: activated.metadata,
+      });
+    } catch (error) {
+      try {
+        await this.enginePorts.ed25519YaoActiveClients.rollbackActivation({
+          walletId: args.walletSession.walletId,
+          nearAccountId: toAccountId(args.bootstrap.session.nearAccountId),
+          materialActivation: activated.metadata.materialActivation,
+        });
+      } catch {}
+      try {
+        await requestClearEmailOtpWarmSessionMaterial({
+          worker: this.signerWorkerManager.getContext(),
+          target: {
+            kind: 'ed25519_yao',
+            thresholdSessionId: args.bootstrap.session.thresholdSessionId,
+            materialActivation: activated.metadata.materialActivation,
+          },
+        });
+      } catch {}
+      try {
+        await disposeWalletCustodyEd25519ActiveClientV1({
+          workerContext: this.signerWorkerManager.getContext(),
+          activeClientHandle: activated.activeClientHandle,
+        });
+      } catch {}
+      throw error;
+    }
   }
 
   async activateEmailOtpEd25519CustodyCapabilityInternal(args: {

@@ -115,6 +115,7 @@ import type {
   RouterAbEcdsaRegistrationActivationReceiptV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { LoadedWalletCustodyEd25519MaterialV1 } from '../walletCustody/ed25519SeedMaterial';
+import type { WalletCustodyCacheEnvelopeV1 } from '../walletCustody/openCustodyCache';
 import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 
 export type EmailOtpEd25519YaoRecoveryAugmentationV1 = {
@@ -892,6 +893,18 @@ export interface EmailOtpWorkerOperationMap {
       issuedAuthorization: IssuedEd25519OperationStepUpAuthorization;
     };
   };
+  activateEmailOtpEd25519YaoRegistrationMaterial: {
+    payload: {
+      readonly material: LoadedWalletCustodyEd25519MaterialV1;
+      readonly bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+      readonly envelope: WalletCustodyCacheEnvelopeV1;
+      readonly factorSecret32: ArrayBuffer;
+    };
+    result: {
+      readonly activeClientHandle: string;
+      readonly metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+    };
+  };
   clearEmailOtpWarmSessionMaterial: {
     payload: {
       target: EmailOtpWarmMaterialTarget;
@@ -1030,6 +1043,7 @@ export type EmailOtpWarmSessionOperationType =
   | 'sealEmailOtpWarmSessionMaterial'
   | 'rehydrateEmailOtpEcdsaWarmSessionMaterial'
   | 'rehydrateEmailOtpEd25519YaoOperationMaterial'
+  | 'activateEmailOtpEd25519YaoRegistrationMaterial'
   | 'clearEmailOtpWarmSessionMaterial';
 export type EmailOtpExportOperationType = 'exportEmailOtpEd25519YaoSeedWithAuthorization';
 export type EmailOtpDomainOperationType =
