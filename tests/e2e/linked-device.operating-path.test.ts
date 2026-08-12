@@ -118,8 +118,29 @@ async function linkedSigning(page: Page): Promise<void> {
   const primary = page.locator('button[data-auth-menu-primary]');
   if (await primary.isVisible().catch(() => false)) await primary.click();
   await page.locator('.demo-page').waitFor({ state: 'visible', timeout: 120_000 });
+
+  const tempoTab = page.getByRole('tab', { name: 'Tempo', exact: true });
+  await tempoTab.click();
+  const tempoFunding = page.getByRole('button', {
+    name: /^(Fund Tempo Account|Tempo Account Funded)$/,
+    exact: true,
+  });
+  await tempoFunding.waitFor({ state: 'visible', timeout: 60_000 });
+  if ((await tempoFunding.textContent())?.trim() === 'Fund Tempo Account') {
+    await expect(tempoFunding).toBeEnabled({ timeout: 120_000 });
+    await tempoFunding.click();
+    await expect(tempoFunding).toHaveText('Tempo Account Funded', { timeout: 180_000 });
+  }
+  const tempoSign = page.getByRole('button', { name: 'Sign on Tempo', exact: true });
+  await tempoSign.waitFor({ state: 'visible', timeout: 60_000 });
+  await expect(tempoSign).toBeEnabled({ timeout: 120_000 });
+  await tempoSign.click();
+  await expect(
+    page.getByText(/Tempo EIP-2718 transaction (complete|finalized)/i).first(),
+  ).toBeVisible({ timeout: 180_000 });
+
   const nearTab = page.getByRole('tab', { name: 'NEAR', exact: true });
-  if (await nearTab.isVisible().catch(() => false)) await nearTab.click();
+  await nearTab.click();
   const sign = page.getByRole('button', { name: 'Sign on NEAR', exact: true });
   await sign.waitFor({ state: 'visible', timeout: 60_000 });
   await expect(sign).toBeEnabled();
