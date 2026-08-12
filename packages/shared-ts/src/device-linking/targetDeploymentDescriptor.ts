@@ -110,6 +110,12 @@ export type LinkedDeviceTargetDeploymentDescriptorUnsignedV1 =
     > & {
       readonly keyFamily: 'ecdsa_secp256k1';
       readonly targetCapability: EcdsaTargetCapabilityBindingV1;
+      /**
+       * Authenticated source/target channel binding for the ECDSA reshare.
+       * This digest is derived from the exact request and both public
+       * capability projections before the descriptor is signed.
+       */
+      readonly reshareChannelBindingDigestB64u: DigestB64u;
       readonly yaoSuiteId?: never;
       readonly circuitDigestB64u?: never;
     });
@@ -188,6 +194,7 @@ const UNSIGNED_FIELDS = [
   'yaoSuiteId',
   'circuitDigestB64u',
   'targetCapability',
+  'reshareChannelBindingDigestB64u',
 ] as const;
 const SIGNED_FIELDS = [...UNSIGNED_FIELDS, 'descriptorDigestB64u', 'signatureB64u'] as const;
 
@@ -417,6 +424,8 @@ function normalizeUnsigned(
   if (keyFamily === 'ed25519' && request.keyFamily === 'ed25519') {
     if (record.targetCapability !== undefined)
       throw new Error(`${label}.targetCapability is not supported for Ed25519`);
+    if (record.reshareChannelBindingDigestB64u !== undefined)
+      throw new Error(`${label}.reshareChannelBindingDigestB64u is not supported for Ed25519`);
     if (record.yaoSuiteId === undefined || record.circuitDigestB64u === undefined) {
       throw new Error(`${label}.yaoSuiteId and circuitDigestB64u are required for Ed25519`);
     }
@@ -437,6 +446,9 @@ function normalizeUnsigned(
   if (record.yaoSuiteId !== undefined || record.circuitDigestB64u !== undefined) {
     throw new Error(`${label}.yaoSuiteId and circuitDigestB64u are not supported for ECDSA`);
   }
+  if (record.reshareChannelBindingDigestB64u === undefined) {
+    throw new Error(`${label}.reshareChannelBindingDigestB64u is required for ECDSA`);
+  }
   return {
     ...common,
     keyFamily: 'ecdsa_secp256k1',
@@ -444,6 +456,10 @@ function normalizeUnsigned(
     targetCapability: parseEcdsaTargetCapabilityBindingV1(
       record.targetCapability,
       `${label}.targetCapability`,
+    ),
+    reshareChannelBindingDigestB64u: parseDescriptorDigest(
+      record.reshareChannelBindingDigestB64u,
+      `${label}.reshareChannelBindingDigestB64u`,
     ),
   };
 }
