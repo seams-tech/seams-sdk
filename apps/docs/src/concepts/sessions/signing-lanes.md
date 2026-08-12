@@ -1,8 +1,9 @@
 ---
-title: Signing Lanes
+title: Signing lanes
+description: Select the exact custody, capability, policy, and nonce lane required for one signing operation.
 ---
 
-# Signing Lanes
+# Signing lanes
 
 A signing lane is the exact signing capability selected for one operation.
 
@@ -28,7 +29,7 @@ Which threshold session and key material must be used?
 Snapshot reads should not restore, prompt, consume quota, delete records, or
 choose a fallback auth method.
 
-## Sign-Ready Lane
+## Sign-ready lane
 
 A lane is sign-ready only after auth and material are both ready for the same
 identity:
@@ -46,7 +47,7 @@ sign-ready =
 
 Other states are useful for planning, but they must not enter final signing:
 
-```ts
+```ts [Protocol sketch]
 switch (state.kind) {
   case 'runtime_validated':
     // The only sign-ready state: authorization, operation, threshold identity, quota,
@@ -78,5 +79,4 @@ step-up happen in explicit planning phases before final signing.
 
 Refactor 90 lanes cover NEAR Ed25519 transactions, ECDSA Tempo signing, ECDSA
 EVM signing, passkey accounts, Email OTP accounts, and VoiceID-gated intents.
-Linked-device and delegated-agent lanes are follow-on work in Refactors 103 and
-104.
+Linked-device and delegated-agent lanes are follow-on work in Refactors 103 and 104.

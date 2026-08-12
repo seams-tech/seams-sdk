@@ -252,16 +252,11 @@ function getMenuItems(panel: HTMLDivElement | null, id: DropdownId | null): HTML
 }
 
 export type NavbarStaticProps = {
-  /** 'auto' follows the site theme; 'light' pins the light-page skin (used by /home2). */
-  appearance?: 'auto' | 'light';
   /** Compact keeps the inset shell when a page supplies its own navbar treatment. */
   layout?: 'page' | 'compact';
 };
 
-export function NavbarStatic({
-  appearance = 'auto',
-  layout = 'page',
-}: NavbarStaticProps = {}): React.JSX.Element {
+export function NavbarStatic({ layout = 'page' }: NavbarStaticProps = {}): React.JSX.Element {
   const OPEN_DELAY_MS = 0;
   const CLOSE_DELAY_MS = 120;
   const SCROLL_THRESHOLD_PX = 8;
@@ -701,9 +696,7 @@ export function NavbarStatic({
   return (
     <nav
       ref={rootRef}
-      className={`navbar-static${appearance === 'light' ? ' navbar-static--light' : ''}${
-        layout === 'compact' ? ' navbar-static--compact' : ''
-      }`}
+      className={`navbar-static${layout === 'compact' ? ' navbar-static--compact' : ''}`}
       aria-label="Primary"
     >
       <div className={`navbar-static__shell${hasScrolled ? ' is-scrolled' : ''}`}>
@@ -714,11 +707,7 @@ export function NavbarStatic({
             onClick={homeProps.onClick}
             aria-label="Seams home"
           >
-            <SeamsWordmark
-              className="navbar-static__brand-wordmark"
-              height={20}
-              theme={appearance === 'light' ? 'light' : undefined}
-            />
+            <SeamsWordmark className="navbar-static__brand-wordmark" height={20} />
           </a>
         </div>
 

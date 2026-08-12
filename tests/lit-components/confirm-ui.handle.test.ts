@@ -1521,6 +1521,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
 
         const model = {
           chain: 'evm' as const,
+          chainId: 42431,
           operations: [
             {
               id: 'evm.eip1559',
@@ -1538,6 +1539,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           ctx,
           summary: { title: 'Confirm transaction' } as any,
           model,
+          securityContext: { rpId: 'staging.sign.seams.sh' } as any,
           loading: true,
           theme: 'light',
           uiMode: 'modal',
@@ -1551,6 +1553,14 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
         const initialOperation = initialTree?.querySelector(
           'details[data-node-id="evm.eip1559"]',
         ) as HTMLDetailsElement | null;
+        const initialMetadataText = String(
+          document.querySelector('.rpid-wrapper')?.textContent || '',
+        );
+        const initialLoadingEllipses = document.querySelectorAll('.loading-ellipsis').length;
+        const initialBlockIcon = !!document.querySelector('.security-details .block-height-icon');
+        const initialEllipsisAnimation = getComputedStyle(
+          document.querySelector('.loading-ellipsis__dot') as HTMLElement,
+        ).animationName;
         const initialModalHeight = handle.element.getBoundingClientRect().height;
 
         handle.update({
@@ -1567,6 +1577,12 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           'details[data-node-id="evm.eip1559"]',
         ) as HTMLDetailsElement | null;
         const hydratedModalHeight = handle.element.getBoundingClientRect().height;
+        const hydratedMetadataText = String(
+          document.querySelector('.rpid-wrapper')?.textContent || '',
+        )
+          .replace(/\s+/g, ' ')
+          .trim();
+        const hydratedLoadingEllipses = document.querySelectorAll('.loading-ellipsis').length;
         const loadingCopy = String(tree?.textContent || '').includes('Loading transaction details');
         const hasIndicatorArrow = !!hydratedOperation?.querySelector(':scope > summary .chevron');
         const openedAfterHydration = hydratedOperation?.open === true;
@@ -1578,8 +1594,14 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
         return {
           hasInitialTree: !!initialTree,
           initialOperationOpen: initialOperation?.open === true,
+          initialMetadataText,
+          initialLoadingEllipses,
+          initialBlockIcon,
+          initialEllipsisAnimation,
           preservedOperation: initialOperation === hydratedOperation,
           hasHydratedOperation: !!hydratedOperation,
+          hydratedMetadataText,
+          hydratedLoadingEllipses,
           modalHeightShift: Math.abs(hydratedModalHeight - initialModalHeight),
           hasIndicatorArrow,
           loadingCopy,
@@ -1592,8 +1614,16 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
 
     expect(result.hasInitialTree).toBe(true);
     expect(result.initialOperationOpen).toBe(true);
+    expect(result.initialMetadataText).not.toContain('staging.sign.seams.sh');
+    expect(result.initialMetadataText).not.toContain('EVM | ChainID: 42431');
+    expect(result.initialLoadingEllipses).toBe(2);
+    expect(result.initialBlockIcon).toBe(true);
+    expect(result.initialEllipsisAnimation).toBe('loading-ellipsis-pulse');
     expect(result.preservedOperation).toBe(true);
     expect(result.hasHydratedOperation).toBe(true);
+    expect(result.hydratedMetadataText).toContain('staging.sign.seams.sh');
+    expect(result.hydratedMetadataText).toContain('EVM | ChainID: 42431');
+    expect(result.hydratedLoadingEllipses).toBe(0);
     expect(result.modalHeightShift).toBeLessThan(1);
     expect(result.hasIndicatorArrow).toBe(false);
     expect(result.loadingCopy).toBe(false);

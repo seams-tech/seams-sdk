@@ -1,20 +1,13 @@
 import React from 'react';
-import { useSiteTheme } from '@/shared/hooks/useSiteTheme';
 
 export type SeamsWordmarkProps = {
   /** Rendered height in px; type and mark scale proportionally. */
   height?: number;
   className?: string;
   style?: React.CSSProperties;
-  /** Pin to a specific theme instead of following the site theme. */
-  theme?: 'light' | 'dark';
 };
 
-/* Monochrome lockup: the mark matches the text ink. */
-const WORDMARK_COLORS: Record<'light' | 'dark', { text: string; mark: string }> = {
-  light: { text: '#0a0a0a', mark: '#0a0a0a' },
-  dark: { text: '#f4f4f5', mark: '#f4f4f5' },
-};
+const WORDMARK_COLOR = '#0a0a0a';
 
 /**
  * Live-type wordmark: "Seams" set in the site's own face (Hanken Grotesk 700,
@@ -24,16 +17,7 @@ const WORDMARK_COLORS: Record<'light' | 'dark', { text: string; mark: string }> 
  * static SVGs under public/seams-v9 remain for standalone contexts
  * (favicons, og-images).
  */
-const SeamsWordmark: React.FC<SeamsWordmarkProps> = ({
-  height = 28,
-  className,
-  style,
-  theme: themeOverride,
-}) => {
-  const { theme: siteTheme } = useSiteTheme();
-  const theme = themeOverride ?? siteTheme;
-  const colors = WORDMARK_COLORS[theme] ?? WORDMARK_COLORS.light;
-
+const SeamsWordmark: React.FC<SeamsWordmarkProps> = ({ height = 28, className, style }) => {
   // font-size equals the lockup height: 28px in the navbar (height=28)
   const fontSize = height;
   const markSize = height * 0.68;
@@ -51,7 +35,7 @@ const SeamsWordmark: React.FC<SeamsWordmarkProps> = ({
         fontSize,
         lineHeight: 1,
         letterSpacing: '-0.02em',
-        color: colors.text,
+        color: WORDMARK_COLOR,
         whiteSpace: 'nowrap',
         userSelect: 'none',
         ...style,
@@ -72,8 +56,8 @@ const SeamsWordmark: React.FC<SeamsWordmarkProps> = ({
       >
         <g transform="translate(32 32) rotate(45) scale(1.55) translate(-9.549 -9.5495)">
           <path
-            fill={colors.mark}
-            stroke={colors.mark}
+            fill={WORDMARK_COLOR}
+            stroke={WORDMARK_COLOR}
             strokeWidth={0.25}
             strokeLinejoin="round"
             fillRule="nonzero"

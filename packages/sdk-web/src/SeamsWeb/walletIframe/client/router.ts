@@ -271,11 +271,9 @@ import {
   parseWalletIframeExactSessionLockResult,
   parseWalletIframeExactSessionState,
   parseWalletSessionFromBoundary,
-  WalletIframeSessionExpiredRequestError,
   type WalletIframeExactSessionIdentity,
   type WalletIframeExactSessionLockResult,
   type WalletIframeExactSessionState,
-  type WalletIframePendingSessionBinding,
 } from '../shared/exactSessionState';
 
 // Simple, framework-agnostic service iframe client.
@@ -352,7 +350,6 @@ type Pending = {
   onProgress?: (payload: ProgressPayload) => void;
   requestType: ParentToChildEnvelope['type'];
   onTimeout: () => Error;
-  sessionBinding: WalletIframePendingSessionBinding;
 };
 
 type WalletIframePostOptionsBase = {
@@ -371,16 +368,6 @@ type WalletIframePostOptions =
       timeoutMs?: never;
       progressTimeoutExtensionFactor?: never;
     });
-
-type WalletIframeRequestAdmission =
-  | {
-      readonly kind: 'admitted';
-      readonly binding: WalletIframePendingSessionBinding;
-    }
-  | {
-      readonly kind: 'expired';
-      readonly identity: WalletIframeExactSessionIdentity;
-    };
 
 function requestSurfaceKindForMessage(
   type: ParentToChildEnvelope['type'],

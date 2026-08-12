@@ -1,8 +1,9 @@
 ---
-title: Embedded Device Credentials
+title: Embedded device credentials
+description: Give embedded devices narrow, rotatable credentials for typed commands, policy checks, and audit.
 ---
 
-# Embedded Device Credentials
+# Embedded device credentials
 
 Embedded devices need credentials with narrow authority, rotation, and
 revocation. The device should prove its identity, bind that proof to a typed
@@ -14,7 +15,7 @@ operation, and execute only when policy allows it.
 device credential -> typed device intent -> policy -> device or service action
 ```
 
-## Device Examples
+## Device examples
 
 - point-of-sale terminal;
 - vending machine;
@@ -38,21 +39,21 @@ flowchart TD
 
 ## Boundaries
 
-| Boundary | Why it matters |
-| --- | --- |
-| Device identity | Distinguishes one physical device from a model, fleet, or tenant. |
-| Operation intent | Prevents a generic device token from becoming broad API authority. |
-| Policy epoch | Lets operators revoke or update device authority quickly. |
-| Rotation | Replaces credentials after compromise, repair, transfer, or firmware events. |
-| Audit | Records which device acted, what it requested, and why it was allowed. |
+| Boundary         | Why it matters                                                               |
+| ---------------- | ---------------------------------------------------------------------------- |
+| Device identity  | Distinguishes one physical device from a model, fleet, or tenant.            |
+| Operation intent | Prevents a generic device token from becoming broad API authority.           |
+| Policy epoch     | Lets operators revoke or update device authority quickly.                    |
+| Rotation         | Replaces credentials after compromise, repair, transfer, or firmware events. |
+| Audit            | Records which device acted, what it requested, and why it was allowed.       |
 
 For high-value devices, use delegated lanes or split signing authority so the
 device alone cannot execute sensitive actions. For low-risk telemetry, the
 credential can be a scoped proof that feeds the same policy engine.
 
-## Application-Side Shape
+## Application-side shape
 
-```ts
+```ts [Application pseudocode]
 type DeviceIntent = {
   kind: 'embedded_device.command';
   deviceId: string;

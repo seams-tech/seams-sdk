@@ -221,9 +221,7 @@ body:has(.pricing-page) {
   padding: 24px;
   border: 0;
   border-radius: 14px;
-  background:
-    linear-gradient(rgb(255 255 255 / 0.58), rgb(255 255 255 / 0.74)),
-    url('/gradients/web/blue-green.jpg') center / cover no-repeat;
+  background: var(--h2-gradient-sage);
   box-shadow: var(--pricing-shadow);
   display: flex;
   flex-direction: column;
@@ -232,10 +230,9 @@ body:has(.pricing-page) {
   overflow: hidden;
 }
 
-.pricing-card--enterprise .pricing-card-spotlight {
-  background:
-    linear-gradient(rgb(255 255 255 / 0.66), rgb(255 255 255 / 0.78)),
-    url('/gradients/web/cobalt-gold-ember.jpg') center / cover no-repeat;
+.pricing-card-spotlight
+  :is(.pricing-card-label, h2, .pricing-card-summary, .pricing-price, .pricing-price span) {
+  color: #ffffff;
 }
 
 .pricing-card-label {

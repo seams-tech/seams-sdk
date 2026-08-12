@@ -1,10 +1,8 @@
 import React from 'react';
-import { useTheme } from '@seams/sdk/react';
 import DashboardSidebar from './layout/DashboardSidebar';
 import DashboardTopbar from './layout/DashboardTopbar';
 import {
   DASHBOARD_ACCOUNT_SETTINGS_ACCOUNT_OPTION,
-  DASHBOARD_ACCOUNT_SETTINGS_THEME_TOGGLE_OPTION,
   DASHBOARD_ACCOUNT_SETTINGS_SIGN_OUT_OPTION,
   DASHBOARD_ACCOUNT_SETTINGS_OPTIONS,
   DASHBOARD_PRODUCTS,
@@ -147,7 +145,6 @@ function buildOrglessOnboardingState(): DashboardOnboardingState {
 }
 
 function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): React.JSX.Element {
-  const { theme, setTheme } = useTheme();
   const frontendRuntime = useFrontendRuntime();
   const { go, linkProps } = useSiteRouter();
   const homeProps = linkProps('/');
@@ -188,7 +185,6 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
       : onboardingState.onboardingComplete
     : false;
   const hasExistingOrganization = onboardingState?.hasOrganization === true;
-  const resolvedTheme: 'light' | 'dark' = theme === 'light' ? 'light' : 'dark';
   const sessionForbidden =
     !consoleSession.loading &&
     !consoleSession.claims &&
@@ -729,11 +725,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
                 : []),
             ]),
       ),
-      /* Theme toggle is hidden while the console ships light-only; the
-         handler and option constant stay for when dark mode lands. */
-      accountSettings: DASHBOARD_ACCOUNT_SETTINGS_OPTIONS.filter(
-        (entry) => entry !== DASHBOARD_ACCOUNT_SETTINGS_THEME_TOGGLE_OPTION,
-      ).map(
+      accountSettings: DASHBOARD_ACCOUNT_SETTINGS_OPTIONS.map(
         (entry): TopbarOption => ({
           value: entry,
           label: entry,
@@ -880,12 +872,6 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
         go(DASHBOARD_ACCOUNT_SETTINGS_ROUTE);
         return;
       }
-      if (menu === 'accountSettings' && value === DASHBOARD_ACCOUNT_SETTINGS_THEME_TOGGLE_OPTION) {
-        if (typeof setTheme === 'function') {
-          setTheme(resolvedTheme === 'dark' ? 'light' : 'dark');
-        }
-        return;
-      }
       if (menu === 'accountSettings' && value === DASHBOARD_ACCOUNT_SETTINGS_SIGN_OUT_OPTION) {
         if (logoutPending) return;
         setLogoutPending(true);
@@ -927,8 +913,6 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
       go,
       logoutPending,
       onSelectContextRaw,
-      resolvedTheme,
-      setTheme,
       switchOrganizationContext,
     ],
   );

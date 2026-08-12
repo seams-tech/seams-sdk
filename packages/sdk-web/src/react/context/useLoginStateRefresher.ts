@@ -52,12 +52,12 @@ export function useLoginStateRefresher(args: {
             const state = await seams.getWalletIframeExactSessionState();
             switch (state.kind) {
               case 'active_session':
+              case 'expired_session':
               case 'wallet_authenticated_identity_unresolvable':
               case 'wallet_unlocked_without_signing_session':
                 exactWalletId = state.walletId;
                 break;
               case 'wallet_locked':
-              case 'expired_session':
                 setLoginState(buildReactLoggedOutLoginState());
                 return;
               default:

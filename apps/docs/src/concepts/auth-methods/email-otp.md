@@ -1,12 +1,13 @@
 ---
 title: Email OTP
+description: Use email OTP as a server-verified challenge while keeping recovery and signing secrets on the wallet boundary.
 ---
 
 # Email OTP
 
 Email OTP is a server-verified channel challenge and worker-owned secret flow.
 
-## Role In The Model
+## Role in the model
 
 Email OTP can:
 

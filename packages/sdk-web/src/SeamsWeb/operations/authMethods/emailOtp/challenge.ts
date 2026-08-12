@@ -150,6 +150,54 @@ function buildAuthHeaders(args: { appSessionJwt?: string; publishableKey?: strin
   return headers;
 }
 
+export function createGoogleEmailOtpSessionExchangeIdempotencyKey(): string {
+  const cryptoApi = globalThis.crypto;
+  if (cryptoApi && typeof cryptoApi.randomUUID === 'function') {
+    return `google-email-otp-session-exchange:${cryptoApi.randomUUID()}`;
+  }
+  if (!cryptoApi || typeof cryptoApi.getRandomValues !== 'function') {
+    throw new Error('Secure randomness is required for Google Email OTP session exchange');
+  }
+  const bytes = new Uint8Array(16);
+  cryptoApi.getRandomValues(bytes);
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `google-email-otp-session-exchange:${hex}`;
+}
+
+function isRetryableSessionExchangeStorageError(error: unknown): boolean {
+  return (
+    error instanceof EmailOtpRouteError &&
+    error.status === 503 &&
+    error.code === 'storage_temporarily_unavailable'
+  );
+}
+
+function scheduleStorageRetry(resolve: () => void): void {
+  globalThis.setTimeout(resolve, 250);
+}
+
+async function waitForStorageRetry(): Promise<void> {
+  await new Promise<void>(scheduleStorageRetry);
+}
+
+async function postGoogleEmailOtpSessionExchange(input: {
+  readonly url: string;
+  readonly body: JsonObject;
+  readonly publishableKey?: string;
+  readonly fetchImpl?: FetchLike;
+  readonly retryStorageFailure: boolean;
+}): Promise<JsonObject> {
+  try {
+    return await postJson(input);
+  } catch (error: unknown) {
+    if (!input.retryStorageFailure || !isRetryableSessionExchangeStorageError(error)) {
+      throw error;
+    }
+    await waitForStorageRetry();
+    return await postJson(input);
+  }
+}
+
 export function buildWorkerEmailOtpRoutePlan(args: {
   routeFamily: Extract<EmailOtpRouteFamily, 'login' | 'registration'>;
   appSessionJwt?: string;
@@ -448,10 +496,13 @@ export async function exchangeGoogleEmailOtpSession(args: {
   const sessionKind = args.sessionKind === 'jwt' ? 'jwt' : 'cookie';
   const accountMode = args.accountMode === 'register' ? 'register' : 'login';
   const projectEnvironmentId = String(args.projectEnvironmentId || '').trim();
-  const response = await postJson({
+  const idempotencyKey =
+    accountMode === 'login' ? createGoogleEmailOtpSessionExchangeIdempotencyKey() : undefined;
+  const response = await postGoogleEmailOtpSessionExchange({
     url: joinNormalizedUrl(args.relayUrl, '/session/exchange'),
     fetchImpl: args.fetchImpl,
     publishableKey: args.publishableKey,
+    retryStorageFailure: accountMode === 'login',
     body: {
       session_kind: sessionKind,
       ...(projectEnvironmentId ? { projectEnvironmentId } : {}),
@@ -459,6 +510,7 @@ export async function exchangeGoogleEmailOtpSession(args: {
         type: 'oidc_jwt',
         provider: 'google',
         account_mode: accountMode,
+        ...(idempotencyKey ? { idempotencyKey } : {}),
         token: readString(args.idToken, 'idToken'),
       },
     },

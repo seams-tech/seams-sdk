@@ -1,8 +1,9 @@
 ---
-title: Linked Devices
+title: Linked devices
+description: Create a distinct device credential and signing lane through short-lived linking and explicit approval.
 ---
 
-# Linked Devices
+# Linked devices
 
 Device linking creates a distinct signing lane for another user-controlled
 device.
