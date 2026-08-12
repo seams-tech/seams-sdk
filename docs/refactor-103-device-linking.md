@@ -4,7 +4,7 @@ Date created: June 15, 2026
 
 Rewritten: July 22, 2026
 
-Last reconciled: August 12, 2026 (R103 implementation checkpoint)
+Last reconciled: August 13, 2026 (R103 implementation checkpoint)
 
 Status: active implementation. The strict QR v4 contract, exhaustive session
 state, durable claim and expiry store, authenticated request-proof transport,
@@ -20,8 +20,10 @@ planning plus management authorization.
 
 Implementation checklist: 17/21 complete (81.0%). The remaining readiness
 dependencies are Refactor 100's live custody verification and Refactor 101's
-broad integration gate. Product completion still needs an owner/unrelated-lane
-availability proof plus refresh and compromise cleanup.
+broad integration gate. Fresh target metadata enrichment and the env-gated
+two-device live E2E remain blocked or unverified. Product completion still
+needs an owner/unrelated-lane availability proof plus refresh and compromise
+cleanup.
 
 ## Scope And Dependencies
 

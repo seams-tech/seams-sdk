@@ -2,7 +2,7 @@
 
 Date created: June 15, 2026
 
-Reconciled: August 10, 2026
+Reconciled: August 13, 2026
 
 Status: active foundation plan, rewritten for four-agent parallel delivery.
 Curve-specific key identity, participant bindings, local capability material,
