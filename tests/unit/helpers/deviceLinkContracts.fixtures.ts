@@ -34,9 +34,9 @@ import type {
 import { computeLinkedDeviceTargetPreparationDigestV1 } from '../../../packages/shared-ts/src/device-linking/digests';
 import { parseAuthorizationEvidenceSetId } from '../../../packages/shared-ts/src/authorization/capabilityKinds';
 import {
-  parseLaneHolderParticipantId,
   parseSigningWorkerParticipantId,
 } from '../../../packages/shared-ts/src/signing-lanes/participants';
+import { buildOwnerLaneParticipantContinuityV1, parseWalletSignerId } from '../../../packages/shared-ts/src/signing-lanes/ownerContinuity';
 import {
   parseLaneOperationId,
   parseLaneOperationIdempotencyKey,
@@ -74,7 +74,10 @@ import {
   buildLaneEnrollmentManifestV1,
   parseRotatableSigningLaneJobV1,
 } from '../../../packages/shared-ts/src/signing-lanes/rotationParsers';
-import type { RotatableSigningLaneJobV1 } from '../../../packages/shared-ts/src/signing-lanes/rotation';
+import type {
+  ActiveLaneProtocolSourceV1,
+  RotatableSigningLaneJobV1,
+} from '../../../packages/shared-ts/src/signing-lanes/rotation';
 import { computeLaneEnrollmentManifestDigestV1 } from '../../../packages/shared-ts/src/signing-lanes/rotationDigests';
 import { parseLaneHolderParticipantRecordV1 } from '../../../packages/shared-ts/src/signing-lanes/participants';
 
@@ -218,16 +221,65 @@ export async function buildR103MixedPlannerFixture(): Promise<R103MixedPlannerFi
 function buildMixedApprovalBinding(
   job: RotatableSigningLaneJobV1,
 ): LinkedDeviceEnrollmentKeyBindingV1 {
-  return {
+  const common = {
     walletKeyId: job.walletKeyId,
     keyFamily: job.keyFamily,
     sourceLaneId: job.source.laneId,
     sourceLaneShareEpoch: job.source.laneShareEpoch,
     sourceRevocationEpoch: job.source.revocationEpoch,
-    sourceHolderParticipantId: job.source.holderParticipantId,
-    sourceSigningWorkerParticipantId: job.source.signingWorkerParticipantId,
     targetLaneId: job.target.laneId,
     targetLaneShareEpoch: job.target.laneShareEpoch,
+  };
+  if (job.source.sourceKind === 'owner_registration') {
+    return {
+      ...common,
+      sourceKind: 'owner_registration',
+      sourceLaneKind: job.source.laneKind,
+      ownerParticipantContinuity: job.source.ownerParticipantContinuity,
+    };
+  }
+  return {
+    ...common,
+    sourceKind: 'provisioned_lane',
+    sourceLaneKind: job.source.laneKind,
+    sourceHolderParticipantId: job.source.holderParticipantId,
+    sourceSigningWorkerParticipantId: job.source.signingWorkerParticipantId,
+  };
+}
+
+function buildR103SourceForBinding(
+  source: ActiveLaneProtocolSourceV1,
+  binding: LinkedDeviceEnrollmentKeyBindingV1,
+  materialActivation: ActiveLaneProtocolSourceV1['materialActivation'],
+): ActiveLaneProtocolSourceV1 {
+  const common = {
+    laneId: binding.sourceLaneId,
+    laneShareEpoch: binding.sourceLaneShareEpoch,
+    revocationEpoch: binding.sourceRevocationEpoch,
+    participantBindingDigestB64u: source.participantBindingDigestB64u,
+    materialActivation,
+  };
+  if (binding.sourceKind === 'owner_registration') {
+    if (source.sourceKind !== 'owner_registration') {
+      throw new Error('R103 owner fixture binding source kind mismatch');
+    }
+    return {
+      ...common,
+      sourceKind: 'owner_registration',
+      laneKind: binding.sourceLaneKind,
+      ownerParticipantContinuity: binding.ownerParticipantContinuity,
+    };
+  }
+  if (source.sourceKind !== 'provisioned_lane') {
+    throw new Error('R103 provisioned fixture binding source kind mismatch');
+  }
+  return {
+    ...common,
+    sourceKind: 'provisioned_lane',
+    laneKind: binding.sourceLaneKind,
+    holderParticipantId: binding.sourceHolderParticipantId,
+    signingWorkerParticipantId: binding.sourceSigningWorkerParticipantId,
+    signingWorkerRecipientKeyId: source.signingWorkerRecipientKeyId,
   };
 }
 
@@ -334,14 +386,10 @@ export function buildR103ProvisioningFixture(
     idempotencyKey: fixture.approval.idempotencyKey,
     walletId: fixture.approval.walletId,
     walletKeyId: approved.walletKeyId,
-    source: {
-      ...source.source,
-      laneId: approved.sourceLaneId,
-      laneShareEpoch: approved.sourceLaneShareEpoch,
-      revocationEpoch: approved.sourceRevocationEpoch,
-      holderParticipantId: approved.sourceHolderParticipantId,
-      signingWorkerParticipantId: approved.sourceSigningWorkerParticipantId,
-      materialActivation: {
+    source: buildR103SourceForBinding(
+      source.source,
+      approved,
+      {
         ...source.source.materialActivation,
         capability: fixture.receipt.orderedChildReceipts[0].materialActivation.capability,
         materialOwner: fixture.receipt.orderedChildReceipts[0].materialActivation.materialOwner,
@@ -349,7 +397,7 @@ export function buildR103ProvisioningFixture(
         lifecycleBinding:
           fixture.receipt.orderedChildReceipts[0].materialActivation.lifecycleBinding,
       },
-    },
+    ),
     targetSigningWorker: {
       ...source.targetSigningWorker,
       participantId: required(
@@ -546,10 +594,13 @@ export function buildR103DeviceLinkFixture(
   const targetLaneShareEpoch = required(parseLaneShareEpoch('epoch:device:r103'));
   const operationId = required(parseLaneOperationId('operation:r103'));
   const idempotencyKey = required(parseLaneOperationIdempotencyKey('idempotency:r103'));
-  const sourceHolderParticipantId = required(parseLaneHolderParticipantId('holder:owner:r103'));
-  const sourceSigningWorkerParticipantId = required(
-    parseSigningWorkerParticipantId('worker:owner:r103'),
-  );
+  const ownerParticipantContinuity = buildOwnerLaneParticipantContinuityV1({
+    signerId: parseWalletSignerId('owner-signer:r103'),
+    participantIds: [1, 2],
+    signingWorkerId: required(parseMpcSigningWorkerRef('worker:owner:r103')),
+    custodyKeyManifestDigestB64u: DIGEST,
+    sourceIdentityDigestB64u: DIGEST,
+  });
   const payload = parseQrLinkedDeviceSessionPayloadV4({
     version: 'v4',
     purpose: 'linked_device_lane_creation',
@@ -592,10 +643,11 @@ export function buildR103DeviceLinkFixture(
         walletKeyId,
         keyFamily: 'ed25519' as const,
         sourceLaneId,
+        sourceLaneKind: 'owner_passkey' as const,
+        sourceKind: 'owner_registration' as const,
         sourceLaneShareEpoch,
         sourceRevocationEpoch: 0,
-        sourceHolderParticipantId,
-        sourceSigningWorkerParticipantId,
+        ownerParticipantContinuity,
         targetLaneId,
         targetLaneShareEpoch,
       },
