@@ -1881,8 +1881,7 @@ export class BrowserSigningSurface {
       passkeyMpcSession: this.passkeyMpcSession,
       emailOtpSessions: this.emailOtpSessions,
       ed25519YaoPublicCapabilityLanes: deps.ed25519YaoPublicCapabilityReferences,
-      isEd25519YaoPublicCapabilityActive:
-        this.isEd25519YaoPublicCapabilityActive.bind(this),
+      isEd25519YaoPublicCapabilityActive: this.isEd25519YaoPublicCapabilityActive.bind(this),
       readActiveWalletSessionAuthorization: resolveActiveEd25519WalletSessionAuthorization,
       listEcdsaSigningCapabilitiesForWallet: (input) =>
         listBrowserEcdsaSigningCapabilitiesForWallet(
@@ -1935,8 +1934,7 @@ export class BrowserSigningSurface {
       getSigningSessionCoordinator: () => this.enginePorts.signingSessionCoordinator,
       getTheme: () => this.appearance.theme.mode,
       ed25519YaoPublicCapabilityLanes: deps.ed25519YaoPublicCapabilityReferences,
-      isEd25519YaoPublicCapabilityActive:
-        this.isEd25519YaoPublicCapabilityActive.bind(this),
+      isEd25519YaoPublicCapabilityActive: this.isEd25519YaoPublicCapabilityActive.bind(this),
       readActiveWalletSessionAuthorization: resolveActiveEd25519WalletSessionAuthorization,
       listEcdsaSigningCapabilitiesForWallet: (input) =>
         listBrowserEcdsaSigningCapabilitiesForWallet(
@@ -3851,6 +3849,7 @@ export class BrowserSigningSurface {
       }
     }
     await this.activateEmailOtpEd25519CustodyCapabilityInternal({
+      commitQueue: 'already_acquired',
       walletSession: {
         walletId: args.walletId,
         walletSessionUserId: args.auth.providerSubjectId,
@@ -4137,6 +4136,32 @@ export class BrowserSigningSurface {
           nearAccountId: toAccountId(nearAccountId),
           materialActivation,
         }),
+      loadWalletCustodyMaterial: () =>
+        this.loadEmailOtpWalletCustodyEd25519Material({
+          nearAccountId: String(args.laneIdentity.signer.account.nearAccountId),
+          signerSlot: args.laneIdentity.signer.signerSlot,
+        }),
+      readReusableWalletSessionState: () =>
+        this.readReusableWalletSessionState(args.laneIdentity.signer.account.wallet.walletId),
+      relayerUrl: this.seamsWebConfigs.network.relayer?.url || '',
+      fetch: fetchWithGlobalThis,
+      activateRecoveredCapability: async (result) => {
+        await this.activateEmailOtpEd25519CustodyCapabilityInternal({
+          commitQueue: 'acquire',
+          walletSession: {
+            walletId: args.laneIdentity.signer.account.wallet.walletId,
+            walletSessionUserId: args.laneIdentity.auth.providerSubjectId,
+          },
+          providerSubject: args.laneIdentity.auth.providerSubjectId,
+          emailHashHex: result.emailHashHex,
+          signerSlot: args.laneIdentity.signer.signerSlot,
+          expectedOperationalPublicKey: `ed25519:${base58Encode(result.metadata.registeredPublicKey)}`,
+          expectedThresholdSessionId: String(args.laneIdentity.thresholdSessionId),
+          bootstrap: result.bootstrap,
+          activeClientHandle: result.activeClientHandle,
+          metadata: result.metadata,
+        });
+      },
     });
   }
 
@@ -4783,6 +4808,7 @@ export class BrowserSigningSurface {
   }
 
   async activateEmailOtpEd25519CustodyCapabilityInternal(args: {
+    commitQueue: 'acquire' | 'already_acquired';
     walletSession: WalletSessionRef;
     providerSubject: string;
     emailHashHex: string;
@@ -4799,7 +4825,7 @@ export class BrowserSigningSurface {
         materialActivation: args.metadata.materialActivation,
       }),
       nearAccountId: toAccountId(args.bootstrap.session.nearAccountId),
-      enabled: true,
+      enabled: args.commitQueue === 'acquire',
       task: async () => {
         const activated = await activateWalletCustodyEd25519CapabilityV1({
           walletSession: args.walletSession,
@@ -4898,6 +4924,7 @@ export class BrowserSigningSurface {
       }
     }
     return await this.activateEmailOtpEd25519CustodyCapabilityInternal({
+      commitQueue: 'acquire',
       walletSession: args.walletSession,
       providerSubject: projection.providerSubject,
       emailHashHex: args.emailHashHex,

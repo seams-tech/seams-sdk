@@ -152,6 +152,25 @@ export type EmailOtpEd25519YaoActiveCapabilityDescriptorV1 = {
     | { readonly kind: 'recovery' };
 };
 
+export type EmailOtpEd25519YaoExportMaterialV1 =
+  | {
+      readonly kind: 'active_capability';
+      readonly materialActivation: MpcMaterialActivationRef;
+      readonly capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
+    }
+  | {
+      readonly kind: 'sealed_custody';
+      readonly materialActivation: MpcMaterialActivationRef;
+      readonly walletCustodyEd25519Material: LoadedWalletCustodyEd25519MaterialV1;
+      readonly bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+    };
+
+export type EmailOtpEd25519YaoWorkerActivationResult = {
+  readonly activeClientHandle: string;
+  readonly metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+  readonly bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+};
+
 export type EmailOtpWalletCustodyEd25519MaterialRequest =
   | { readonly kind: 'found'; readonly material: LoadedWalletCustodyEd25519MaterialV1 }
   | { readonly kind: 'absent' };
@@ -899,16 +918,24 @@ export interface EmailOtpWorkerOperationMap {
       authorization: {
         walletSessionJwt: string;
       };
-      material: {
-        materialActivation: MpcMaterialActivationRef;
-        capability: EmailOtpEd25519YaoActiveCapabilityDescriptorV1;
-      };
+      material: EmailOtpEd25519YaoExportMaterialV1;
     };
-    result: {
-      artifactKind: 'near-ed25519-seed-v1';
-      publicKey: string;
-      privateKey: string;
-    };
+    result:
+      | {
+          kind: 'exported';
+          artifactKind: 'near-ed25519-seed-v1';
+          publicKey: string;
+          privateKey: string;
+        }
+      | {
+          kind: 'exported_and_rehydrated';
+          artifactKind: 'near-ed25519-seed-v1';
+          publicKey: string;
+          privateKey: string;
+          activeClientHandle: string;
+          metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+          bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+        };
   };
 }
 

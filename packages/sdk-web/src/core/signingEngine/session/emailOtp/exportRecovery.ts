@@ -39,6 +39,8 @@ import type { EmailOtpChallengeDelivery, EmailOtpTransactionSigningChallenge } f
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import type { EcdsaExplicitExportOperationAuthorization } from '../../threshold/ecdsa/activation';
 import { walletSessionJwtForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { disposeWalletCustodyEd25519ActiveClientV1 } from '../../walletCustody/ed25519ActiveClient';
+import type { EmailOtpEd25519YaoExportMaterialV1 } from '../../workerManager/workerTypes';
 
 type EmailOtpEcdsaRouteChain = ThresholdEcdsaChainTarget['kind'];
 type EmailOtpRouteChain = 'near' | EmailOtpEcdsaRouteChain;
@@ -241,6 +243,25 @@ function buildEcdsaExportVerificationRoutePlan(
   });
 }
 
+function emailOtpEd25519WorkerExportMaterial(
+  context: ResolvedWalletCustodyEd25519ExportV1,
+): EmailOtpEd25519YaoExportMaterialV1 {
+  switch (context.material.kind) {
+    case 'active_capability':
+      return context.material;
+    case 'sealed_custody':
+      return {
+        kind: 'sealed_custody',
+        materialActivation: context.material.materialActivation,
+        walletCustodyEd25519Material: context.material.walletCustodyEd25519Material,
+        bootstrap: context.material.bootstrap,
+      };
+    default:
+      context.material satisfies never;
+      throw new Error('Email OTP Ed25519 export material is invalid');
+  }
+}
+
 export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
   ports: Pick<
     EmailOtpWorkerPorts,
@@ -273,7 +294,7 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
       '[SigningEngine][ed25519-export] active Wallet Session authorization is unavailable',
     );
   }
-  return await workerCtx.requestWorkerOperation({
+  const result = await workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
     request: {
       type: 'exportEmailOtpEd25519YaoSeedWithAuthorization',
@@ -294,10 +315,39 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
         authorization: {
           walletSessionJwt,
         },
-        material: args.exportContext.material,
+        material: emailOtpEd25519WorkerExportMaterial(args.exportContext),
       },
     },
   });
+  switch (result.kind) {
+    case 'exported':
+      return result;
+    case 'exported_and_rehydrated':
+      if (args.exportContext.material.kind !== 'sealed_custody') {
+        await disposeWalletCustodyEd25519ActiveClientV1({
+          workerContext: workerCtx,
+          activeClientHandle: result.activeClientHandle,
+        }).catch(() => undefined);
+        throw new Error('Email OTP Ed25519 export returned unexpected recovered material');
+      }
+      try {
+        await args.exportContext.material.activateRecoveredCapability({
+          activeClientHandle: result.activeClientHandle,
+          metadata: result.metadata,
+          bootstrap: result.bootstrap,
+        });
+      } catch (error) {
+        await disposeWalletCustodyEd25519ActiveClientV1({
+          workerContext: workerCtx,
+          activeClientHandle: result.activeClientHandle,
+        }).catch(() => undefined);
+        throw error;
+      }
+      return result;
+    default:
+      result satisfies never;
+      throw new Error('Email OTP Ed25519 export returned an invalid result');
+  }
 }
 
 export async function exportEcdsaKeyWithDurableAuthorization(
