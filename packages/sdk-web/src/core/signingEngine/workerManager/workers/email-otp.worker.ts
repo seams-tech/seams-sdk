@@ -4080,6 +4080,7 @@ function parseEmailOtpWalletUnlockMaterialRequest(
           'nearAccountId',
           'expectedOperationalPublicKey',
           'expectedThresholdSessionId',
+          'walletCustodyEd25519Material',
         ],
         'material.ed25519Yao',
       );
