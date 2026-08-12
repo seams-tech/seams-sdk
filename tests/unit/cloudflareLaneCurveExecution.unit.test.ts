@@ -291,6 +291,90 @@ test('composite SigningWorker transport routes Ed25519 activation to its private
   expect(body.identity.keyFamily).toBe('ed25519');
 });
 
+test('ECDSA lane transport serializes registration source lookups for the Rust worker wire', async () => {
+  const rawJob = buildR102EcdsaLaneJob('registration-source-wire');
+  if (rawJob.keyFamily !== 'ecdsa_secp256k1') throw new Error('fixture key family changed');
+  if (rawJob.source.sourceKind !== 'owner_registration') {
+    throw new Error('fixture source kind changed');
+  }
+  const protocolReceipt = buildR102ProtocolCommitReceipt(rawJob);
+  let request: Request | undefined;
+  const transport = new CloudflareSigningWorkerEcdsaLaneTransportV1({
+    signingWorker: {
+      async fetch(input) {
+        request = input;
+        return new Response(JSON.stringify({ outcome: 'replayed', receipt: protocolReceipt }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      },
+    },
+    internalServiceAuth: 'ecdsa-source-wire-secret',
+    bindingResolver: {
+      async resolveSourceMaterialV1() {
+        return {
+          kind: 'registration_activation' as const,
+          lookup: {
+            accountId: rawJob.walletId,
+            materialActivationId: rawJob.source.materialActivation.activationId,
+            signingWorkerId: rawJob.source.ownerParticipantContinuity.signingWorkerId,
+          },
+        };
+      },
+      resolveActivationBindingV1: unsupported,
+      resolveRetirementBindingV1: unsupported,
+    },
+    retirementTransport: { retireServerMaterialV1: unsupported },
+  });
+  const holderRound = parseEcdsaAdditiveLaneHolderRoundV1({
+    kind: 'ecdsa_additive_lane_holder_round_v1',
+    preambleHashB64u: DIGEST_B64U,
+    targetHolderPublicCommitment33B64u: rawJob.thresholdPublicKey33B64u,
+    encryptedDeltaCiphertextDigestB64u: DIGEST_B64U,
+    sealedTargetHolderMaterialDigestB64u: DIGEST_B64U,
+    holderAttestationB64u: 'holder-attestation-source-wire',
+    holderCommittedAtMs: 1_500,
+  });
+
+  await transport.commitEcdsaProtocolV1({
+    job: rawJob,
+    holderRound,
+    holderPackage: {
+      kind: 'ecdsa_additive_lane_holder_package_v1',
+      ecdsaEncryptedMaterialEnvelopeJson: JSON.stringify({
+        kind: 'ecdsa_additive_lane_encrypted_payload_v1',
+        recipientPublicKeyB64u: DIGEST_B64U,
+        aadDigestB64u: DIGEST_B64U,
+        encappedKeyB64u: DIGEST_B64U,
+        ciphertextB64u: DIGEST_B64U,
+      }),
+    },
+    encryptedDeltaPackageJson: JSON.stringify({
+      kind: 'ecdsa_additive_lane_encrypted_payload_v1',
+      recipientPublicKeyB64u: DIGEST_B64U,
+      aadDigestB64u: DIGEST_B64U,
+      encappedKeyB64u: DIGEST_B64U,
+      ciphertextB64u: DIGEST_B64U,
+    }),
+  });
+
+  expect(request).toBeDefined();
+  const body = JSON.parse(await request!.text()) as {
+    readonly sourceMaterial: {
+      readonly kind: string;
+      readonly lookup: Record<string, unknown>;
+    };
+  };
+  expect(body.sourceMaterial).toEqual({
+    kind: 'registration_activation',
+    lookup: {
+      account_id: rawJob.walletId,
+      material_activation_id: rawJob.source.materialActivation.activationId,
+      signing_worker_id: rawJob.source.ownerParticipantContinuity.signingWorkerId,
+    },
+  });
+});
+
 test('routes Ed25519 retirement and returns only the verified exact receipt', async () => {
   const identity = await buildR102Ed25519LaneMaterialIdentityFixture();
   const command = buildRevokeSigningLaneV1({
