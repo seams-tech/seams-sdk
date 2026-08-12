@@ -26,6 +26,7 @@ import {
 import {
   parseMpcMaterialActivationId,
   parseWebAuthnRpId,
+  parseWebAuthnCredentialIdB64u,
   type MpcMaterialActivationId,
   type WebAuthnRpId,
 } from '@shared/utils/domainIds';
@@ -36,6 +37,10 @@ import type {
   LaneTargetSigningWorkerV1,
   RotatableSigningLaneJobV1,
 } from '@shared/signing-lanes/rotation';
+import {
+  buildLinkedDeviceTargetDeploymentDescriptorRequestV1,
+  type LinkedDeviceTargetDeploymentDescriptorV1,
+} from '@shared/device-linking/targetDeploymentDescriptor';
 import {
   buildLaneEnrollmentManifestV1,
   buildRotatableSigningLaneJobV1,
@@ -55,6 +60,7 @@ import type {
   LinkedDeviceTargetPlannerV1,
   VerifiedLinkedDeviceWebAuthnCredentialV1,
 } from './d1LinkedDeviceTargetCredentialProvider';
+import type { LinkedDeviceTargetDeploymentDescriptorProviderV1 } from './d1LinkedDeviceTargetDeploymentDescriptorProvider';
 
 const DEFAULT_TARGET_PREPARATION_TTL_MS = 5 * 60 * 1_000;
 
@@ -111,8 +117,7 @@ export type LinkedDeviceTargetEnrichedChildResolutionV1 =
       readonly targetCapability: EcdsaTargetCapabilityBindingV1;
     });
 
-export type LinkedDeviceTargetPreparationResolutionV1 =
-  LinkedDeviceOwnerSourceChildResolutionV1;
+export type LinkedDeviceTargetPreparationResolutionV1 = LinkedDeviceOwnerSourceChildResolutionV1;
 
 export type LinkedDeviceOwnerSourceChildResolutionRequestV1 =
   | {
@@ -133,15 +138,13 @@ export type LinkedDeviceOwnerSourceChildResolutionRequestV1 =
 export type LinkedDeviceOwnerSourceChildResolverV1 = {
   resolveOwnerSourceChildV1(
     input: LinkedDeviceOwnerSourceChildResolutionRequestV1,
-  ): Promise<
-    | LinkedDeviceTargetPreparationResolutionV1
-    | LinkedDeviceTargetEnrichedChildResolutionV1
-  >;
+  ): Promise<LinkedDeviceTargetPreparationResolutionV1>;
 };
 
 export type D1LinkedDeviceTargetPlannerOptionsV1 = {
   readonly rpId: WebAuthnRpId;
   readonly resolveOwnerSourceChildV1: LinkedDeviceOwnerSourceChildResolverV1['resolveOwnerSourceChildV1'];
+  readonly targetDeploymentDescriptorProvider: LinkedDeviceTargetDeploymentDescriptorProviderV1;
   readonly preparationTtlMs?: number;
 };
 
@@ -152,11 +155,13 @@ export type D1LinkedDeviceTargetPlannerOptionsV1 = {
 export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV1 {
   private readonly rpId: WebAuthnRpId;
   private readonly resolveOwnerSourceChildV1: LinkedDeviceOwnerSourceChildResolverV1['resolveOwnerSourceChildV1'];
+  private readonly targetDeploymentDescriptorProvider: LinkedDeviceTargetDeploymentDescriptorProviderV1;
   private readonly preparationTtlMs: number;
 
   constructor(input: D1LinkedDeviceTargetPlannerOptionsV1) {
     this.rpId = parseRequired(parseWebAuthnRpId(input.rpId), 'rpId');
     this.resolveOwnerSourceChildV1 = input.resolveOwnerSourceChildV1;
+    this.targetDeploymentDescriptorProvider = input.targetDeploymentDescriptorProvider;
     const ttlMs = input.preparationTtlMs ?? DEFAULT_TARGET_PREPARATION_TTL_MS;
     if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0) {
       throw new Error('linked-device target preparation TTL must be a positive safe integer');
@@ -230,11 +235,13 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
     readonly preparation: LinkedDeviceTargetPreparationV1;
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
     readonly credential: VerifiedLinkedDeviceWebAuthnCredentialV1;
+    readonly registrationDigestB64u: DigestB64u;
     readonly requestedAtMs: number;
   }): Promise<{
     readonly keyManifestDigestB64u: DigestB64u;
     readonly targetReady: LinkedDeviceTargetReadyR102InputV1;
   }> {
+    const registrationDigestB64u = parseDigestB64u(input.registrationDigestB64u);
     if (input.requestedAtMs >= input.preparation.expiresAtMs) {
       throw new Error('linked-device target preparation is expired');
     }
@@ -277,17 +284,48 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
         throw new Error(`linked-device target registration child ${childIndex} is missing`);
       }
       assertHolderRegistrationMatchesPreparation(preparationChild, holderRegistration, childIndex);
-      const resolution = await this.resolveOwnerSourceChildV1({
+      const sourceResolution = await this.resolveOwnerSourceChildV1({
         kind: 'commit',
         preparation: input.preparation,
         registration: input.registration,
         credential: input.credential,
         childIndex,
       });
-      if (!isTargetEnrichedResolution(resolution)) {
-        throw new Error(`linked-device target resolution ${childIndex} is not enriched`);
-      }
-      assertResolutionMatchesPreparation(resolution, preparationChild, childIndex);
+      assertResolutionMatchesPreparation(sourceResolution, preparationChild, childIndex);
+      const descriptor =
+        await this.targetDeploymentDescriptorProvider.resolveTargetDeploymentDescriptorV1({
+          request: buildLinkedDeviceTargetDeploymentDescriptorRequestV1({
+            kind: 'linked_device_target_deployment_descriptor_request_v1',
+            linkSessionId: input.preparation.linkSessionId,
+            walletId: input.preparation.walletId,
+            walletKeyId: preparationChild.walletKeyId,
+            enrollmentId: input.preparation.enrollmentId,
+            deviceId: input.preparation.deviceId,
+            operationId: preparationChild.operationId,
+            childIndex,
+            keyFamily: preparationChild.keyFamily,
+            targetLaneId: preparationChild.targetLaneId,
+            targetLaneShareEpoch: preparationChild.targetLaneShareEpoch,
+            targetMaterialActivationId: preparationChild.targetMaterialActivationId,
+            targetHolderParticipantId: preparationChild.targetHolderParticipantId,
+            targetPreparationDigestB64u: preparationDigestB64u,
+            registrationDigestB64u,
+            credentialIdB64u: parseRequired(
+              parseWebAuthnCredentialIdB64u(input.credential.credentialIdB64u),
+              'target descriptor credentialIdB64u',
+            ),
+          }),
+          issuedAtMs: input.preparation.issuedAtMs,
+          expiresAtMs: input.preparation.expiresAtMs,
+        });
+      assertDescriptorMatchesRegistration(
+        descriptor,
+        input,
+        registrationDigestB64u,
+        preparationChild,
+        childIndex,
+      );
+      const resolution = enrichSourceResolution(sourceResolution, descriptor, childIndex);
       resolutions.push(resolution);
       jobs.push(
         buildTargetJob({
@@ -389,29 +427,93 @@ function assertResolutionAuthorizationMatchesApproval(
 }
 
 function assertResolutionMatchesPreparation(
-  resolution: LinkedDeviceTargetEnrichedChildResolutionV1,
+  resolution: LinkedDeviceOwnerSourceChildResolutionV1,
   child: LinkedDeviceTargetPreparationChildV1,
   childIndex: number,
 ): void {
-  if (
-    resolution.walletKeyId !== child.walletKeyId ||
-    resolution.keyFamily !== child.keyFamily ||
-    resolution.targetHolderParticipantId !== child.targetHolderParticipantId
-  ) {
+  if (resolution.walletKeyId !== child.walletKeyId || resolution.keyFamily !== child.keyFamily) {
     throw new Error(`linked-device source resolution ${childIndex} differs from preparation`);
   }
 }
 
-function isTargetEnrichedResolution(
-  resolution:
-    | LinkedDeviceTargetPreparationResolutionV1
-    | LinkedDeviceTargetEnrichedChildResolutionV1,
-): resolution is LinkedDeviceTargetEnrichedChildResolutionV1 {
-  return (
-    'targetHolderParticipantId' in resolution &&
-    'targetSigningWorker' in resolution &&
-    (resolution.keyFamily === 'ed25519' || 'targetCapability' in resolution)
-  );
+function assertDescriptorMatchesRegistration(
+  descriptor: LinkedDeviceTargetDeploymentDescriptorV1,
+  input: {
+    readonly preparation: LinkedDeviceTargetPreparationV1;
+    readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+    readonly credential: VerifiedLinkedDeviceWebAuthnCredentialV1;
+    readonly requestedAtMs: number;
+  },
+  registrationDigestB64u: DigestB64u,
+  preparationChild: LinkedDeviceTargetPreparationChildV1,
+  childIndex: number,
+): void {
+  const request = descriptor.request;
+  const registration = input.registration.orderedHolderRegistrations[childIndex];
+  if (!registration)
+    throw new Error(`linked-device target registration child ${childIndex} is missing`);
+  if (
+    descriptor.keyFamily !== preparationChild.keyFamily ||
+    request.keyFamily !== preparationChild.keyFamily ||
+    request.linkSessionId !== input.preparation.linkSessionId ||
+    request.walletId !== input.preparation.walletId ||
+    request.walletKeyId !== preparationChild.walletKeyId ||
+    request.enrollmentId !== input.preparation.enrollmentId ||
+    request.deviceId !== input.preparation.deviceId ||
+    request.operationId !== preparationChild.operationId ||
+    request.childIndex !== childIndex ||
+    request.targetLaneId !== preparationChild.targetLaneId ||
+    request.targetLaneShareEpoch !== preparationChild.targetLaneShareEpoch ||
+    request.targetMaterialActivationId !== preparationChild.targetMaterialActivationId ||
+    request.targetHolderParticipantId !== preparationChild.targetHolderParticipantId ||
+    request.targetPreparationDigestB64u !== input.registration.targetPreparationDigestB64u ||
+    request.registrationDigestB64u !== registrationDigestB64u ||
+    request.credentialIdB64u !== input.credential.credentialIdB64u ||
+    descriptor.targetHolderParticipantId !== preparationChild.targetHolderParticipantId ||
+    registration.holderParticipant.participantId !== descriptor.targetHolderParticipantId ||
+    descriptor.issuedAtMs !== input.preparation.issuedAtMs ||
+    descriptor.expiresAtMs !== input.preparation.expiresAtMs ||
+    input.requestedAtMs < descriptor.issuedAtMs ||
+    input.requestedAtMs >= descriptor.expiresAtMs
+  ) {
+    throw new Error(
+      `linked-device target deployment descriptor ${childIndex} differs from registration`,
+    );
+  }
+}
+
+function enrichSourceResolution(
+  source: LinkedDeviceOwnerSourceChildResolutionV1,
+  descriptor: LinkedDeviceTargetDeploymentDescriptorV1,
+  childIndex: number,
+): LinkedDeviceTargetEnrichedChildResolutionV1 {
+  if (source.keyFamily !== descriptor.keyFamily) {
+    throw new Error(
+      `linked-device target deployment descriptor ${childIndex} has the wrong key family`,
+    );
+  }
+  if (source.keyFamily === 'ed25519' && descriptor.keyFamily === 'ed25519') {
+    return {
+      ...source,
+      keyFamily: 'ed25519',
+      targetHolderParticipantId: descriptor.targetHolderParticipantId,
+      targetSigningWorker: descriptor.targetSigningWorker,
+      yaoSuiteId: descriptor.yaoSuiteId,
+      circuitDigestB64u: descriptor.circuitDigestB64u,
+    };
+  }
+  if (source.keyFamily !== 'ecdsa_secp256k1' || descriptor.keyFamily !== 'ecdsa_secp256k1') {
+    throw new Error(
+      `linked-device target deployment descriptor ${childIndex} has the wrong key family`,
+    );
+  }
+  return {
+    ...source,
+    keyFamily: 'ecdsa_secp256k1',
+    targetHolderParticipantId: descriptor.targetHolderParticipantId,
+    targetSigningWorker: descriptor.targetSigningWorker,
+    targetCapability: descriptor.targetCapability,
+  };
 }
 
 function assertHolderRegistrationMatchesPreparation(
