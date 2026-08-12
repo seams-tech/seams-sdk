@@ -1724,6 +1724,24 @@ export class BrowserSigningSurface {
       touchConfirm: this.touchConfirm,
       passkeyMpcSession: this.passkeyMpcSession,
       emailOtpSessions: this.emailOtpSessions,
+      ed25519YaoPublicCapabilityLanes: deps.ed25519YaoPublicCapabilityReferences,
+      isEd25519YaoPublicCapabilityActive: (reference) => {
+        switch (reference.auth.kind) {
+          case WALLET_AUTH_METHODS.emailOtp:
+            return true;
+          case WALLET_AUTH_METHODS.passkey:
+            return (
+              this.enginePorts.ed25519YaoActiveClients.resolve({
+                walletId: reference.walletId,
+                nearAccountId: reference.nearAccountId,
+                materialActivation: reference.materialActivation,
+              }) !== null
+            );
+          default:
+            reference.auth satisfies never;
+            throw new Error('Unsupported Ed25519 public capability auth method');
+        }
+      },
       readActiveWalletSessionAuthorization: resolveActiveEd25519WalletSessionAuthorization,
       listEcdsaSigningCapabilitiesForWallet: (input) =>
         listBrowserEcdsaSigningCapabilitiesForWallet(
