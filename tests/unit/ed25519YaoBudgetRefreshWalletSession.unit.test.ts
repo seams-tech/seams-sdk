@@ -386,6 +386,141 @@ test('Email OTP Ed25519 step-up sends exact operation proof without material rec
   }
 });
 
+test('Email OTP Ed25519 step-up serializes and parses factor-release material recovery', async () => {
+  const originalFetch = globalThis.fetch;
+  const capture: RefreshFetchCapture = {
+    authorization: '',
+    body: '',
+    credentials: undefined,
+  };
+  activeOperationStepUpFetchCapture = capture;
+  activeOperationStepUpResponseBody = {
+    ok: true,
+    kind: 'verified_step_up',
+    authorization: {
+      kind: 'operation_step_up',
+      evidence_set_digest: OPERATION_STEP_UP_EVIDENCE_SET_DIGEST,
+    },
+    expiresAtMs: Date.now() + 60_000,
+    materialRecovery: {
+      kind: 'email_otp_factor_release_v1',
+      challengeId: 'email-otp-challenge',
+      enrollmentId: 'enrollment-1',
+      enrollmentSealKeyVersion: 'seal-v1',
+      serverEphemeralPublicKey65B64u: 'server-public-key',
+      nonce12B64u: 'nonce',
+      ciphertextB64u: 'ciphertext',
+    },
+  };
+  globalThis.fetch = operationStepUpFetch;
+
+  try {
+    const authority = buildEmailOtpWalletAuthAuthority({
+      walletId: 'frost-vermillion-k7p9m2',
+      provider: 'email',
+      providerUserId: 'email-user-operation-step-up',
+      emailHashHex: 'email-hash-operation-step-up',
+    });
+    const authorityRef = await walletAuthAuthorityRef({ authority });
+    const result = await issueEd25519OperationStepUpAuthorization({
+      relayerUrl: 'https://relay.example.test',
+      credential: { kind: 'app_session_cookie' },
+      normalSigningRequest: await operationStepUpPrepareRequest(),
+      displayDigest: base64UrlEncode(new Uint8Array(32).fill(7)),
+      proof: {
+        kind: 'email_otp',
+        authorityRef,
+        providerSubjectId: authority.factor.providerUserId,
+        challengeId: 'email-otp-challenge',
+        otpCode: '123456',
+      },
+      materialRecovery: {
+        kind: 'email_otp_factor_release_v1',
+        workerEphemeralPublicKey65B64u: 'worker-public-key',
+      },
+    });
+
+    expect(JSON.parse(capture.body)).toMatchObject({
+      materialRecovery: {
+        kind: 'email_otp_factor_release_v1',
+        worker_ephemeral_public_key_65_b64u: 'worker-public-key',
+      },
+    });
+    expect(result.materialRecovery).toEqual({
+      kind: 'email_otp_factor_release_v1',
+      challengeId: 'email-otp-challenge',
+      enrollmentId: 'enrollment-1',
+      enrollmentSealKeyVersion: 'seal-v1',
+      serverEphemeralPublicKey65B64u: 'server-public-key',
+      nonce12B64u: 'nonce',
+      ciphertextB64u: 'ciphertext',
+    });
+  } finally {
+    activeOperationStepUpFetchCapture = null;
+    activeOperationStepUpResponseBody = null;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Ed25519 operation step-up rejects a factor-release response for a request without material recovery', async () => {
+  const originalFetch = globalThis.fetch;
+  const capture: RefreshFetchCapture = {
+    authorization: '',
+    body: '',
+    credentials: undefined,
+  };
+  activeOperationStepUpFetchCapture = capture;
+  activeOperationStepUpResponseBody = {
+    ok: true,
+    kind: 'verified_step_up',
+    authorization: {
+      kind: 'operation_step_up',
+      evidence_set_digest: OPERATION_STEP_UP_EVIDENCE_SET_DIGEST,
+    },
+    expiresAtMs: Date.now() + 60_000,
+    materialRecovery: {
+      kind: 'email_otp_factor_release_v1',
+      challengeId: 'email-otp-challenge',
+      enrollmentId: 'enrollment-1',
+      enrollmentSealKeyVersion: 'seal-v1',
+      serverEphemeralPublicKey65B64u: 'server-public-key',
+      nonce12B64u: 'nonce',
+      ciphertextB64u: 'ciphertext',
+    },
+  };
+  globalThis.fetch = operationStepUpFetch;
+
+  try {
+    const authority = buildEmailOtpWalletAuthAuthority({
+      walletId: 'frost-vermillion-k7p9m2',
+      provider: 'email',
+      providerUserId: 'email-user-operation-step-up',
+      emailHashHex: 'email-hash-operation-step-up',
+    });
+    const authorityRef = await walletAuthAuthorityRef({ authority });
+    await expect(
+      issueEd25519OperationStepUpAuthorization({
+        relayerUrl: 'https://relay.example.test',
+        credential: { kind: 'app_session_cookie' },
+        normalSigningRequest: await operationStepUpPrepareRequest(),
+        displayDigest: base64UrlEncode(new Uint8Array(32).fill(7)),
+        proof: {
+          kind: 'email_otp',
+          authorityRef,
+          providerSubjectId: authority.factor.providerUserId,
+          challengeId: 'email-otp-challenge',
+          otpCode: '123456',
+        },
+        materialRecovery: { kind: 'not_requested' },
+      }),
+    ).rejects.toThrow('operation step-up material recovery response does not match the request');
+  } finally {
+    activeOperationStepUpFetchCapture = null;
+    activeOperationStepUpResponseBody = null;
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('Ed25519 operation step-up rejects unexpected success-response fields', async () => {
   const originalFetch = globalThis.fetch;
   const capture: RefreshFetchCapture = {
