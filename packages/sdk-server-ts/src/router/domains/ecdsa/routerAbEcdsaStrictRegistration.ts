@@ -3,7 +3,7 @@ import {
   parseRouterAbEcdsaDerivationActivationPrepareResultV1,
   parseRouterAbEcdsaDerivationExplicitExportRequestV1,
   projectRouterAbEcdsaDerivationExplicitExportRequestToProtocolV1,
-  parseRouterAbEcdsaExplicitExportForwardedResponseV1,
+  parseRouterAbEcdsaExplicitExportProtocolForwardedResponseV1,
   parseRouterAbEcdsaDerivationActivationRefreshCommitRequestV1,
   parseRouterAbEcdsaDerivationActivationRefreshResponseV1,
   parseRouterAbEcdsaRegistrationActivationReceiptV1,
@@ -455,7 +455,7 @@ class StrictPostRegistrationForwarder implements RouterAbEcdsaStrictPostRegistra
     try {
       return {
         ok: true,
-        value: parseRouterAbEcdsaExplicitExportForwardedResponseV1(forwarded.value),
+        value: parseRouterAbEcdsaExplicitExportProtocolForwardedResponseV1(forwarded.value),
       };
     } catch (error: unknown) {
       return {
