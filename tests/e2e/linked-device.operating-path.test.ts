@@ -1,9 +1,24 @@
-import { expect, test, type Frame, type Page } from '@playwright/test';
+import {
+  expect,
+  test,
+  type BrowserContext,
+  type ConsoleMessage,
+  type Frame,
+  type Page,
+} from '@playwright/test';
 
 const enabled = process.env.SEAMS_LINKED_DEVICE_E2E === '1';
 const appOrigin = String(process.env.SEAMS_LINKED_DEVICE_E2E_APP_URL || 'https://localhost')
   .trim()
   .replace(/\/+$/, '');
+
+function linkedDeviceConsoleDiagnostic(message: ConsoleMessage): string | null {
+  const text = message.text().replace(/\s+/g, ' ').trim().slice(0, 400);
+  if (message.type() === 'error' || /camera|device linking|linked-device|qr|r102/i.test(text)) {
+    return `[owner:${message.type()}] ${text}`;
+  }
+  return null;
+}
 
 test.skip(!enabled, 'Set SEAMS_LINKED_DEVICE_E2E=1 with a composed linked-device backend');
 test.setTimeout(420_000);
@@ -55,41 +70,94 @@ async function registerOwner(page: Page): Promise<void> {
     .waitFor({ state: 'visible', timeout: 120_000 });
 }
 
-async function installQrCamera(wallet: Frame, qrDataUrl: string): Promise<void> {
-  await wallet.evaluate(async (dataUrl) => {
-    const mediaDevices = navigator.mediaDevices;
-    if (!mediaDevices) throw new Error('Device linking requires navigator.mediaDevices');
-    Object.defineProperty(mediaDevices, 'enumerateDevices', {
-      configurable: true,
-      value: async () => [
-        {
-          deviceId: 'seams-linked-device-camera',
-          groupId: 'seams-linked-device-camera',
-          kind: 'videoinput',
-          label: 'Seams linked-device camera',
-          toJSON() {
-            return this;
-          },
-        },
-      ],
-    });
-    Object.defineProperty(mediaDevices, 'getUserMedia', {
-      configurable: true,
-      value: async () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 1024;
-        canvas.height = 1024;
-        const context = canvas.getContext('2d');
-        if (!context) throw new Error('Unable to create linked-device QR camera canvas');
-        context.fillStyle = '#fff';
-        context.fillRect(0, 0, canvas.width, canvas.height);
-        const image = new Image();
-        image.onload = () => context.drawImage(image, 0, 0, canvas.width, canvas.height);
-        image.src = dataUrl;
-        return canvas.captureStream(30);
-      },
-    });
-  }, qrDataUrl);
+type QrCameraFrame = {
+  readonly data: readonly number[];
+  readonly height: number;
+  readonly width: number;
+};
+
+async function decodeQrDataUrlInBrowser(dataUrl: string): Promise<QrCameraFrame> {
+  const image = new Image();
+  image.src = dataUrl;
+  await image.decode();
+
+  const canvas = document.createElement('canvas');
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) throw new Error('Unable to decode linked-device QR image');
+  context.drawImage(image, 0, 0);
+  const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+  return {
+    data: [...pixels],
+    height: canvas.height,
+    width: canvas.width,
+  };
+}
+
+async function installQrCameraRuntime(frame: QrCameraFrame): Promise<void> {
+  const nativePlay = HTMLMediaElement.prototype.play;
+  HTMLMediaElement.prototype.play = async function playStableMedia(): Promise<void> {
+    try {
+      await nativePlay.call(this);
+    } catch (error) {
+      if (!(error instanceof DOMException) || error.name !== 'AbortError') throw error;
+    }
+  };
+  Object.defineProperty(HTMLMediaElement.prototype, 'readyState', {
+    configurable: true,
+    value: HTMLMediaElement.HAVE_ENOUGH_DATA,
+  });
+  Object.defineProperty(HTMLVideoElement.prototype, 'videoWidth', {
+    configurable: true,
+    value: frame.width,
+  });
+  Object.defineProperty(HTMLVideoElement.prototype, 'videoHeight', {
+    configurable: true,
+    value: frame.height,
+  });
+
+  const mediaDevices = navigator.mediaDevices;
+  if (!mediaDevices) throw new Error('Device linking requires navigator.mediaDevices');
+  Object.defineProperty(mediaDevices, 'enumerateDevices', {
+    configurable: true,
+    value: async () => [],
+  });
+  Object.defineProperty(mediaDevices, 'getUserMedia', {
+    configurable: true,
+    value: async () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = frame.width;
+      canvas.height = frame.height;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Unable to create linked-device QR camera canvas');
+      context.imageSmoothingEnabled = false;
+      context.putImageData(
+        new ImageData(new Uint8ClampedArray(frame.data), frame.width, frame.height),
+        0,
+        0,
+      );
+      const qrFrame = context.getImageData(0, 0, canvas.width, canvas.height);
+      function readQrFrame(): ImageData {
+        return qrFrame;
+      }
+      Object.defineProperty(CanvasRenderingContext2D.prototype, 'getImageData', {
+        configurable: true,
+        value: readQrFrame,
+      });
+      Object.defineProperty(CanvasRenderingContext2D.prototype, 'drawImage', {
+        configurable: true,
+        value: context.clearRect.bind(context, 0, 0, 0, 0),
+      });
+      const stream = canvas.captureStream(4);
+      return stream;
+    },
+  });
+}
+
+async function installQrCamera(page: Page, qrDataUrl: string): Promise<void> {
+  const frame = await page.evaluate(decodeQrDataUrlInBrowser, qrDataUrl);
+  await page.evaluate(installQrCameraRuntime, frame);
 }
 
 async function openDevice2Qr(page: Page): Promise<string> {
@@ -98,7 +166,14 @@ async function openDevice2Qr(page: Page): Promise<string> {
   await linkButton.waitFor({ state: 'visible', timeout: 30_000 });
   await linkButton.click();
   const qr = wallet.locator('img[alt="Device Linking QR Code"]');
-  await qr.waitFor({ state: 'visible', timeout: 60_000 });
+  try {
+    await qr.waitFor({ state: 'visible', timeout: 60_000 });
+  } catch (error) {
+    const walletText = (await wallet.locator('body').innerText()).trim();
+    throw new Error(`Device 2 QR did not become ready. Wallet state: ${walletText}`, {
+      cause: error,
+    });
+  }
   const src = await qr.getAttribute('src');
   if (!src?.startsWith('data:image/')) throw new Error('Device 2 did not expose a QR data URL');
   return src;
@@ -109,7 +184,7 @@ async function openOwnerScanner(page: Page, qrDataUrl: string): Promise<void> {
   const profile = page.locator('.w3a-profile-button-morphable').getByRole('button').first();
   await profile.click();
   const menu = page.locator('.w3a-profile-dropdown-morphed[data-state="open"]');
-  await menu.getByRole('button', { name: 'Scan and Link Device', exact: true }).click();
+  await menu.getByRole('button', { name: /^Scan and Link Device/ }).click();
   await page.locator('.qr-scanner-video').waitFor({ state: 'visible', timeout: 30_000 });
 }
 
@@ -150,6 +225,20 @@ async function linkedSigning(page: Page): Promise<void> {
   });
 }
 
+function resolveContextCloseTimeout(resolve: () => void): void {
+  globalThis.setTimeout(resolve, 5_000);
+}
+
+async function closeBrowserContexts(
+  ownerContext: BrowserContext,
+  device2Context: BrowserContext,
+): Promise<void> {
+  await Promise.race([
+    Promise.allSettled([ownerContext.close(), device2Context.close()]),
+    new Promise<void>(resolveContextCloseTimeout),
+  ]);
+}
+
 test('Device 2 QR → Device 1 scan → Wallet Session → linked signing → revocation', async ({
   browser,
 }) => {
@@ -157,7 +246,12 @@ test('Device 2 QR → Device 1 scan → Wallet Session → linked signing → re
   const device2Context = await browser.newContext({ ignoreHTTPSErrors: true });
   const ownerPage = await ownerContext.newPage();
   const device2Page = await device2Context.newPage();
+  const ownerDiagnostics: string[] = [];
   try {
+    ownerPage.on('console', (message) => {
+      const diagnostic = linkedDeviceConsoleDiagnostic(message);
+      if (diagnostic) ownerDiagnostics.push(diagnostic);
+    });
     await addVirtualAuthenticator(ownerPage);
     await addVirtualAuthenticator(device2Page);
     await registerOwner(ownerPage);
@@ -171,23 +265,49 @@ test('Device 2 QR → Device 1 scan → Wallet Session → linked signing → re
     );
     const qrDataUrl = await openDevice2Qr(device2Page);
     await created;
-    const activeWalletSession = device2Page.waitForResponse(
-      (response) =>
-        response.url().includes('/wallet/device-linking/v1/sessions/') &&
-        response.url().endsWith('/wallet-session') &&
-        response.status() === 200,
-      { timeout: 180_000 },
-    );
-    const claimed = ownerPage.waitForResponse(
-      (response) =>
-        response.url().includes('/wallet/device-linking/v1/sessions/') &&
-        response.url().endsWith('/claim') &&
-        response.request().method() === 'POST',
-      { timeout: 120_000 },
-    );
+    const activeWalletSession = device2Page
+      .waitForResponse(
+        (response) =>
+          response.url().includes('/wallet/device-linking/v1/sessions/') &&
+          response.url().endsWith('/wallet-session') &&
+          response.status() === 200,
+        { timeout: 90_000 },
+      )
+      .then(
+        (response) => ({ kind: 'active' as const, response }),
+        (error: unknown) => ({ error, kind: 'timeout' as const }),
+      );
+    const claimed = ownerPage
+      .waitForResponse(
+        (response) =>
+          response.url().includes('/wallet/device-linking/v1/sessions/') &&
+          response.url().endsWith('/claim') &&
+          response.request().method() === 'POST',
+        { timeout: 75_000 },
+      )
+      .then(
+        (response) => ({ kind: 'claimed' as const, response }),
+        (error: unknown) => ({ error, kind: 'timeout' as const }),
+      );
     await openOwnerScanner(ownerPage, qrDataUrl);
-    await claimed;
-    await activeWalletSession;
+    const claimResult = await claimed;
+    if (claimResult.kind === 'timeout') {
+      throw new Error(`Device 1 did not claim the linked session. ${ownerDiagnostics.join('\n')}`, {
+        cause: claimResult.error,
+      });
+    }
+    if (!claimResult.response.ok()) {
+      throw new Error(`Device 1 claim failed (${claimResult.response.status()})`);
+    }
+    const walletSessionResult = await activeWalletSession;
+    if (walletSessionResult.kind === 'timeout') {
+      const device2Wallet = await walletFrame(device2Page);
+      const walletState = (await device2Wallet.locator('body').innerText()).trim();
+      throw new Error(
+        `Device 2 did not receive an active Wallet Session. Wallet state: ${walletState}\n${ownerDiagnostics.join('\n')}`,
+        { cause: walletSessionResult.error },
+      );
+    }
     const device2Wallet = await walletFrame(device2Page);
     await device2Wallet.getByText('Linked device active', { exact: true }).waitFor({
       state: 'visible',
@@ -198,7 +318,7 @@ test('Device 2 QR → Device 1 scan → Wallet Session → linked signing → re
 
     await ownerPage.locator('.w3a-profile-button-morphable').getByRole('button').first().click();
     const profileMenu = ownerPage.locator('.w3a-profile-dropdown-morphed[data-state="open"]');
-    await profileMenu.getByRole('button', { name: 'Linked Devices', exact: true }).click();
+    await profileMenu.getByRole('button', { name: /^Linked Devices/ }).click();
     await ownerPage
       .locator('.w3a-linked-devices-row')
       .waitFor({ state: 'visible', timeout: 60_000 });
@@ -208,7 +328,6 @@ test('Device 2 QR → Device 1 scan → Wallet Session → linked signing → re
       timeout: 60_000,
     });
   } finally {
-    await ownerContext.close();
-    await device2Context.close();
+    await closeBrowserContexts(ownerContext, device2Context);
   }
 });
