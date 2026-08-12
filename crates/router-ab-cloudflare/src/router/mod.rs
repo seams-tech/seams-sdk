@@ -1480,6 +1480,8 @@ impl CloudflareRouterCompactJwtV1 {
 #[serde(deny_unknown_fields)]
 struct CloudflareRouterJwtClaimsPayloadV1 {
     kind: Option<String>,
+    #[serde(rename = "authorizationKind", default)]
+    authorization_kind: Option<String>,
     iss: String,
     sub: String,
     aud: CloudflareRouterJwtAudienceV1,
@@ -1503,6 +1505,10 @@ struct CloudflareRouterJwtClaimsPayloadV1 {
     authorization_id: Option<String>,
     #[serde(rename = "authorizationSessionId", default)]
     authorization_session_id: Option<String>,
+    #[serde(rename = "walletAuthAuthorityRef", default)]
+    wallet_auth_authority_ref: Option<CloudflareRouterJwtWalletAuthAuthorityRefV1>,
+    #[serde(rename = "authSource", default)]
+    auth_source: Option<CloudflareRouterJwtWalletAuthSourceV1>,
     #[serde(rename = "walletSessionId")]
     wallet_session_id: Option<String>,
     #[serde(rename = "quotaId")]
@@ -1530,6 +1536,33 @@ struct CloudflareRouterJwtClaimsPayloadV1 {
     #[serde(rename = "routerAbEcdsaDerivationNormalSigning", default)]
     router_ab_ecdsa_derivation_normal_signing:
         Option<CloudflareRouterJwtEcdsaDerivationNormalSigningClaimsV1>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CloudflareRouterJwtWalletAuthAuthorityRefV1 {
+    kind: String,
+    #[serde(rename = "walletId")]
+    wallet_id: String,
+    #[serde(rename = "authorityDigest")]
+    authority_digest: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", deny_unknown_fields)]
+enum CloudflareRouterJwtWalletAuthSourceV1 {
+    #[serde(rename = "passkey")]
+    Passkey {
+        #[serde(rename = "credentialIdB64u")]
+        credential_id_b64u: String,
+    },
+    #[serde(rename = "oidc_provider")]
+    OidcProvider {
+        #[serde(rename = "providerId")]
+        provider_id: String,
+        #[serde(rename = "providerSubject")]
+        provider_subject: String,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -1628,6 +1661,89 @@ fn require_wallet_session_authority_scope(
             RouterAbProtocolErrorCode::MalformedWirePayload,
             "Router Wallet Session requires authorityScope",
         ));
+    }
+    Ok(())
+}
+
+fn require_ecdsa_owner_wallet_session_claims(
+    authorization_kind: Option<&str>,
+    wallet_auth_authority_ref: Option<&CloudflareRouterJwtWalletAuthAuthorityRefV1>,
+    auth_source: Option<&CloudflareRouterJwtWalletAuthSourceV1>,
+    wallet_id: &str,
+) -> RouterAbProtocolResult<()> {
+    if authorization_kind != Some("owner_wallet_session") {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "Router Wallet Session authorizationKind must be owner_wallet_session",
+        ));
+    }
+    let authority_ref = wallet_auth_authority_ref.ok_or_else(|| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "Router ECDSA Wallet Session requires walletAuthAuthorityRef",
+        )
+    })?;
+    if authority_ref.kind != "wallet_auth_authority_ref" {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "Router ECDSA Wallet Session walletAuthAuthorityRef kind is unsupported",
+        ));
+    }
+    require_non_empty(
+        "Router ECDSA Wallet Session walletAuthAuthorityRef.walletId",
+        &authority_ref.wallet_id,
+    )?;
+    require_no_ascii_whitespace(
+        "Router ECDSA Wallet Session walletAuthAuthorityRef.walletId",
+        &authority_ref.wallet_id,
+    )?;
+    if authority_ref.wallet_id != wallet_id {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "Router ECDSA Wallet Session walletAuthAuthorityRef wallet id does not match walletId",
+        ));
+    }
+    decode_base64url_fixed_32_v1(
+        "Router ECDSA Wallet Session walletAuthAuthorityRef.authorityDigest",
+        &authority_ref.authority_digest,
+    )?;
+
+    let auth_source = auth_source.ok_or_else(|| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "Router ECDSA Wallet Session requires authSource",
+        )
+    })?;
+    match auth_source {
+        CloudflareRouterJwtWalletAuthSourceV1::Passkey { credential_id_b64u } => {
+            require_non_empty(
+                "Router ECDSA Wallet Session authSource.credentialIdB64u",
+                credential_id_b64u,
+            )?;
+            require_no_ascii_whitespace(
+                "Router ECDSA Wallet Session authSource.credentialIdB64u",
+                credential_id_b64u,
+            )?;
+        }
+        CloudflareRouterJwtWalletAuthSourceV1::OidcProvider {
+            provider_id,
+            provider_subject,
+        } => {
+            if provider_id != "google_oidc" && provider_id != "oidc" {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MalformedWirePayload,
+                    "Router ECDSA Wallet Session authSource providerId is unsupported",
+                ));
+            }
+            require_non_empty(
+                "Router ECDSA Wallet Session authSource.providerSubject",
+                provider_subject,
+            )?;
+            require_no_ascii_whitespace(
+                "Router ECDSA Wallet Session authSource.providerSubject",
+                provider_subject,
+            )?;
+        }
     }
     Ok(())
 }
@@ -1802,6 +1918,25 @@ impl CloudflareRouterJwtClaimsPayloadV1 {
                 "Router Wallet Session kind is unsupported",
             ));
         }
+        if is_ed25519 {
+            if self.authorization_kind.as_deref() != Some("owner_wallet_session") {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MalformedWirePayload,
+                    "Router Wallet Session authorizationKind must be owner_wallet_session",
+                ));
+            }
+            if self.authorization_session_id.is_some()
+                || self.wallet_auth_authority_ref.is_some()
+                || self.auth_source.is_some()
+                || self.key_scope.is_some()
+                || self.key_handle.is_some()
+            {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MalformedWirePayload,
+                    "Router Ed25519 Wallet Session contains ECDSA-only claims",
+                ));
+            }
+        }
         if let Some(runtime_policy_scope) = self.runtime_policy_scope.as_ref() {
             runtime_policy_scope.validate_for_claims(
                 &self.org_id,
@@ -1844,6 +1979,12 @@ impl CloudflareRouterJwtClaimsPayloadV1 {
             require_wallet_session_authority_scope(self.authority_scope.as_ref())?;
         }
         if is_ecdsa {
+            require_ecdsa_owner_wallet_session_claims(
+                self.authorization_kind.as_deref(),
+                self.wallet_auth_authority_ref.as_ref(),
+                self.auth_source.as_ref(),
+                wallet_id,
+            )?;
             if self.account_id != wallet_id {
                 return Err(RouterAbProtocolError::new(
                     RouterAbProtocolErrorCode::MalformedWirePayload,
