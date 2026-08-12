@@ -1503,9 +1503,7 @@ function parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1(
   if (!Array.isArray(record.ciphertext_and_tag) || record.ciphertext_and_tag.length <= 48) {
     throw new Error(`${label}.ciphertext_and_tag is invalid`);
   }
-  const materialActivation = parseRouterAbEcdsaClientProtocolMaterialActivationRef(
-    binding.material_activation,
-  );
+  const materialActivation = parseRouterAbMpcMaterialActivationRef(binding.material_activation);
   if (
     materialActivation.material_owner !== binding.wallet_id ||
     materialActivation.signing_worker !== binding.signing_worker_id
@@ -1588,30 +1586,6 @@ function parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1(
       requireByte(entry, `${label}.ciphertext_and_tag[${index}]`),
     ),
   };
-}
-
-function parseRouterAbEcdsaClientProtocolMaterialActivationRef(
-  value: unknown,
-): RouterAbMpcMaterialActivationRefWire {
-  const record = requireRecord(value, 'material_activation');
-  requireExactKeys(record, 'material_activation', [
-    'kind',
-    'activationId',
-    'capability',
-    'materialOwner',
-    'keyBinding',
-    'lifecycleBinding',
-    'signingWorker',
-  ]);
-  return parseRouterAbMpcMaterialActivationRef({
-    kind: record.kind,
-    activation_id: record.activationId,
-    capability: record.capability,
-    material_owner: record.materialOwner,
-    key_binding: record.keyBinding,
-    lifecycle_binding: record.lifecycleBinding,
-    signing_worker: record.signingWorker,
-  });
 }
 
 function parseRouterAbEcdsaStrictProofResponseV1(

@@ -237,15 +237,6 @@ test.describe('ECDSA operation step-up challenge binding', () => {
   });
 
   test('SigningWorker export binding preserves the verified step-up protocol label', () => {
-    const protocolMaterialActivation = {
-      kind: 'mpc_material_activation_ref' as const,
-      activationId: normalSigningScope.material_activation.activation_id,
-      capability: normalSigningScope.material_activation.capability,
-      materialOwner: normalSigningScope.material_activation.material_owner,
-      keyBinding: normalSigningScope.material_activation.key_binding,
-      lifecycleBinding: normalSigningScope.material_activation.lifecycle_binding,
-      signingWorker: normalSigningScope.material_activation.signing_worker,
-    };
     const binding = {
       wallet_id: WALLET_ID,
       key_handle: 'key-handle-1',
@@ -261,7 +252,7 @@ test.describe('ECDSA operation step-up challenge binding', () => {
       export_nonce: 'export-nonce-1',
       authorization_kind: 'verified_step_up',
       authorization_id: b64u(33, 32),
-      material_activation: protocolMaterialActivation,
+      material_activation: normalSigningScope.material_activation,
       lifecycle_id: 'export-lifecycle-1',
       recipient_identity: WALLET_ID,
       recipient_public_key: `x25519:${'a'.repeat(64)}`,
@@ -302,11 +293,19 @@ test.describe('ECDSA operation step-up challenge binding', () => {
           ...responseBody.signing_worker_export,
           binding: {
             ...binding,
-            material_activation: normalSigningScope.material_activation,
+            material_activation: {
+              kind: 'mpc_material_activation_ref',
+              activationId: normalSigningScope.material_activation.activation_id,
+              capability: normalSigningScope.material_activation.capability,
+              materialOwner: normalSigningScope.material_activation.material_owner,
+              keyBinding: normalSigningScope.material_activation.key_binding,
+              lifecycleBinding: normalSigningScope.material_activation.lifecycle_binding,
+              signingWorker: normalSigningScope.material_activation.signing_worker,
+            },
           },
         },
       }),
-    ).toThrow(/material_activation\.activation_id is not a supported field/);
+    ).toThrow(/material_activation has invalid fields/);
     expect(() =>
       parseRouterAbEcdsaExplicitExportForwardedResponseV1({
         ...responseBody,
