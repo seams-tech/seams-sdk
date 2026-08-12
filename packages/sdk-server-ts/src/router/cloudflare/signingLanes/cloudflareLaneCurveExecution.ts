@@ -1107,11 +1107,24 @@ async function postSigningWorkerJsonV1(input: {
   );
   const body = await response.text();
   if (!response.ok) {
-    throw new Error(`SigningWorker lane endpoint returned HTTP ${response.status}`);
+    const detail = boundedSigningWorkerErrorBodyV1(body);
+    throw new Error(
+      detail
+        ? `SigningWorker lane endpoint returned HTTP ${response.status}: ${detail}`
+        : `SigningWorker lane endpoint returned HTTP ${response.status}`,
+    );
   }
   try {
     return body.length === 0 ? null : JSON.parse(body);
   } catch {
     throw new Error('SigningWorker lane endpoint returned invalid JSON');
   }
+}
+
+const SIGNING_WORKER_ERROR_BODY_LIMIT_V1 = 512;
+
+function boundedSigningWorkerErrorBodyV1(body: string): string {
+  const normalized = body.trim().replace(/\s+/g, ' ');
+  if (normalized.length <= SIGNING_WORKER_ERROR_BODY_LIMIT_V1) return normalized;
+  return `${normalized.slice(0, SIGNING_WORKER_ERROR_BODY_LIMIT_V1 - 1)}…`;
 }

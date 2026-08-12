@@ -291,6 +291,50 @@ test('composite SigningWorker transport routes Ed25519 activation to its private
   expect(body.identity.keyFamily).toBe('ed25519');
 });
 
+test('composite SigningWorker transport surfaces a bounded private protocol error body', async () => {
+  const job = buildR102LaneJob('ed25519-activation-error-detail');
+  const protocolReceipt = buildR102ProtocolCommitReceipt(job);
+  const holderDeliveryReceipt = buildR102HolderDeliveryReceipt(job);
+  const privateProtocolError = `  MalformedWirePayload: ${'x'.repeat(700)}\n`;
+  const transport = new CloudflareSigningWorkerEcdsaLaneTransportV1({
+    signingWorker: {
+      async fetch() {
+        return new Response(privateProtocolError, { status: 500 });
+      },
+    },
+    internalServiceAuth: 'ed25519-activation-error-detail-secret',
+    bindingResolver: {
+      resolveSourceMaterialV1: unsupported,
+      resolveActivationBindingV1: unsupported,
+      resolveRetirementBindingV1: unsupported,
+    },
+    retirementTransport: { retireServerMaterialV1: unsupported },
+  });
+
+  const error = await transport
+    .activateServerMaterialV1({
+      curve: 'ed25519_yao',
+      job,
+      protocolCommitReceipt: protocolReceipt,
+      holderDeliveryReceipt,
+    })
+    .then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+
+  expect(error).toBeInstanceOf(Error);
+  const message = error instanceof Error ? error.message : '';
+  expect(message).toContain(
+    'SigningWorker lane endpoint returned HTTP 500: MalformedWirePayload:',
+  );
+  expect(message).toHaveLength(
+    'SigningWorker lane endpoint returned HTTP 500: '.length + 512,
+  );
+  expect(message.endsWith('…')).toBe(true);
+  expect(message).not.toContain('x'.repeat(513));
+});
+
 test('ECDSA lane transport serializes registration source lookups for the Rust worker wire', async () => {
   const rawJob = buildR102EcdsaLaneJob('registration-source-wire');
   if (rawJob.keyFamily !== 'ecdsa_secp256k1') throw new Error('fixture key family changed');
