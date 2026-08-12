@@ -1,8 +1,9 @@
 ---
-title: Custody Model
+title: Custody model
+description: Understand why isolated wallet and split-server infrastructure cannot produce a wallet signature alone.
 ---
 
-# Custody Model
+# Custody model
 
 Seams is non-custodial because hosted infrastructure cannot produce wallet
 signatures or export wallet keys by itself. Signing requires holder-side
@@ -13,20 +14,20 @@ selected lane.
 Export uses a separate, freshly authorized flow. Ordinary signing consumes
 shares and presignature state; it does not reconstruct the full private key.
 
-## Who Holds What
+## Who holds what
 
-| Location | May hold | Must never hold |
-| --- | --- | --- |
-| App origin | Public wallet ids, request intents, non-secret SDK state. | Holder shares, server shares, PRF outputs, Email OTP secret material, VoiceID templates, root shares. |
-| Wallet iframe | Wallet UI state, encrypted IndexedDB records, session markers. | Server root shares, Deriver A/B plaintext, unrelated wallet-origin records. |
-| Browser signing workers | Hot holder material, compact lifecycle inputs, operation-local secrets. | Deriver A/B root shares, joined server contribution. |
-| Email OTP worker | Email OTP factor-derived secret material and hot signing handles. | Plaintext export output outside the authorized export flow. |
-| Router | Public routing metadata, policy decisions, Wallet Session admission, replay state. | Plaintext holder shares, root shares, joined wallet private keys. |
-| Deriver A | A-side sealed root share and A-side protocol state. | B-side root share, joined root, joined wallet key. |
-| Deriver B | B-side sealed root share and B-side protocol state. | A-side root share, joined root, joined wallet key. |
-| SigningWorker | Activated server signing material and one-use presignature state. | Client holder share, exported wallet key, Deriver A/B root custody shares. |
+| Location                | May hold                                                                           | Must never hold                                                                                       |
+| ----------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| App origin              | Public wallet ids, request intents, non-secret SDK state.                          | Holder shares, server shares, PRF outputs, Email OTP secret material, VoiceID templates, root shares. |
+| Wallet iframe           | Wallet UI state, encrypted IndexedDB records, session markers.                     | Server root shares, Deriver A/B plaintext, unrelated wallet-origin records.                           |
+| Browser signing workers | Hot holder material, compact lifecycle inputs, operation-local secrets.            | Deriver A/B root shares, joined server contribution.                                                  |
+| Email OTP worker        | Email OTP factor-derived secret material and hot signing handles.                  | Plaintext export output outside the authorized export flow.                                           |
+| Router                  | Public routing metadata, policy decisions, Wallet Session admission, replay state. | Plaintext holder shares, root shares, joined wallet private keys.                                     |
+| Deriver A               | A-side sealed root share and A-side protocol state.                                | B-side root share, joined root, joined wallet key.                                                    |
+| Deriver B               | B-side sealed root share and B-side protocol state.                                | A-side root share, joined root, joined wallet key.                                                    |
+| SigningWorker           | Activated server signing material and one-use presignature state.                  | Client holder share, exported wallet key, Deriver A/B root custody shares.                            |
 
-## Custody Invariants
+## Custody invariants
 
 1. Router cannot sign by itself.
 2. A single Deriver cannot derive the full server contribution by itself.
@@ -35,7 +36,7 @@ shares and presignature state; it does not reconstruct the full private key.
 5. Agents and linked devices receive lane-scoped authority.
 6. Revocation, expiry, and budget exhaustion are checked before signing work.
 
-## Recovery And Portability
+## Recovery and portability
 
 Users can recover through the auth methods and recovery material configured for
 their wallet. Export is a sensitive operation with fresh authorization, route

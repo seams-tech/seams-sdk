@@ -504,62 +504,15 @@ body {
   /* GitHub light-ish orange */
 }
 
-[data-w3a-theme='dark'] .code-block .code-kw-seams-provider,
-[data-w3a-theme='dark'] .shiki .code-kw-seams-provider {
-  color: #ffa657;
-  /* GitHub dark orange */
-}
-
-/* Home hero install command: token-driven snippet colors */
-.install-body .code-block--dark .code-kw-pm {
-  color: var(--w3a-colors-primary, #1f6feb);
-}
-
-.install-body .code-block--dark .code-kw-pkg {
-  color: var(--w3a-colors-secondary, #8250df);
-}
-
-/* Explicit purple for install snippet package names */
 .code-block .code-kw-pkg-install,
 .shiki .code-kw-pkg-install {
-  color: #8250df;
-  /* GitHub light purple */
-}
-
-[data-w3a-theme='dark'] .code-block .code-kw-pkg-install,
-[data-w3a-theme='dark'] .shiki .code-kw-pkg-install {
-  color: #d2a8ff;
-  /* GitHub dark purple */
+  color: #4a6fa5;
 }
 
 /* Light mode overrides (VitePress + SDK synced) */
 [data-w3a-theme='light'] .code-block,
 [data-w3a-theme='light'] .shiki {
   background: var(--w3a-colors-surface);
-}
-
-/* Theme-aware install command block surface (light + dark) */
-.code-block.code-block--dark {
-  background: color-mix(
-    in srgb,
-    var(--w3a-colors-surface3) 88%,
-    var(--w3a-colors-colorBackground) 12%
-  );
-  border-top: 1px solid color-mix(in srgb, var(--w3a-colors-borderPrimary) 60%, transparent);
-}
-
-[data-w3a-theme='light'] .code-block.code-block--dark {
-  background: color-mix(in srgb, var(--w3a-colors-surface2) 90%, var(--w3a-colors-surface3) 10%);
-  border-top-color: color-mix(in srgb, var(--w3a-colors-borderPrimary) 68%, transparent);
-}
-
-[data-w3a-theme='dark'] .code-block.code-block--dark {
-  background: color-mix(
-    in srgb,
-    var(--w3a-colors-surface3) 88%,
-    var(--w3a-colors-colorBackground) 12%
-  );
-  border-top-color: color-mix(in srgb, var(--w3a-colors-borderPrimary) 56%, transparent);
 }
 
 /* Homepage marketing system */
@@ -736,40 +689,7 @@ body {
   );
 }
 
-html[data-w3a-theme='dark'] .marketing-stack {
-  --marketing-focus-ring: color-mix(in srgb, #c4a7e7 36%, transparent);
-  --marketing-panel-surface:
-    radial-gradient(
-      130% 170% at 94% -10%,
-      color-mix(in srgb, #eb6f92 14%, var(--site-surface-strong) 86%) 0%,
-      transparent 52%
-    ),
-    linear-gradient(
-      154deg,
-      color-mix(in srgb, var(--site-surface-strong) 94%, #000 6%) 0%,
-      color-mix(in srgb, var(--site-surface-muted) 96%, #000 4%) 100%
-    );
-  --marketing-panel-highlight: linear-gradient(
-    118deg,
-    color-mix(in srgb, #c4a7e7 24%, transparent) 0%,
-    transparent 45%
-  );
-  --marketing-panel-highlight-opacity: 0.34;
-  --marketing-trust-icon: color-mix(in srgb, var(--site-text-secondary) 74%, #c4a7e7 26%);
-  --marketing-item-surface: linear-gradient(
-    124deg,
-    color-mix(in srgb, var(--site-surface-strong) 94%, #000 6%) 0%,
-    color-mix(in srgb, var(--site-surface-muted) 96%, #000 4%) 100%
-  );
-  --marketing-final-cta-surface: linear-gradient(
-    24deg,
-    color-mix(in srgb, #c4a7e7 18%, var(--site-surface-strong) 82%) 0%,
-    color-mix(in srgb, var(--site-surface-muted) 96%, #000 4%) 44%,
-    color-mix(in srgb, var(--site-canvas) 97%, #000 3%) 100%
-  );
-}
-
-html[data-w3a-theme='light'] .marketing-stack {
+.marketing-stack {
   --marketing-focus-ring: color-mix(in srgb, #89a7c6 32%, transparent);
   --marketing-panel-surface:
     radial-gradient(

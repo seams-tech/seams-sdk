@@ -1,14 +1,12 @@
 import React from 'react';
 import { Toaster } from 'sonner';
-import { useTheme } from '@seams/sdk/react';
 import './Toaster.css';
 
 export const ToasterThemed: React.FC = () => {
-  const { isDark } = useTheme();
   return (
     <Toaster
       position="bottom-right"
-      theme={isDark ? 'dark' : 'light'}
+      theme="light"
       closeButton
       toastOptions={{
         duration: 3500,

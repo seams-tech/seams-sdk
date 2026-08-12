@@ -19,7 +19,7 @@ export function PricingPage(): React.JSX.Element {
 
   return (
     <div className="h2-page">
-      <NavbarCompact appearance="light" />
+      <NavbarCompact />
       <div className="h2-col">
         <main className="pricing-page" aria-labelledby="pricing-page-title">
           <div className="pricing-wrap">

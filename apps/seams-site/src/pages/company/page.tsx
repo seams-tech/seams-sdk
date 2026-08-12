@@ -149,7 +149,7 @@ function renderResource(resource: CompanyResource): React.JSX.Element {
 export function CompanyPage(): React.JSX.Element {
   return (
     <div className="h2-page company-page">
-      <NavbarCompact appearance="light" />
+      <NavbarCompact />
       <div className="h2-col">
         <main className="company-main" aria-labelledby="company-page-title">
           <header className="company-hero h2-rule">

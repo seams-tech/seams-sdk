@@ -51,7 +51,9 @@ const DocumentThemeTokenBridge: React.FC = () => {
   React.useEffect(() => {
     if (typeof document === 'undefined') return;
     const root = document.documentElement;
+    root.classList.remove('dark');
     root.setAttribute('data-w3a-theme', theme);
+    document.body.setAttribute('data-w3a-theme', theme);
     Object.entries(vars).forEach(([name, value]) => {
       root.style.setProperty(name, value);
     });
@@ -89,7 +91,7 @@ export const App: React.FC = () => {
 };
 
 const AppRuntimeBoundary: React.FC = () => {
-  const { theme, setTheme } = useSiteTheme();
+  const { theme } = useSiteTheme();
   const pathname = usePathname();
   const runtime = useFrontendRuntime();
 
@@ -152,7 +154,7 @@ const AppRuntimeBoundary: React.FC = () => {
       eager
       network={sdkNetwork}
       appearance={SITE_APPEARANCE}
-      theme={{ theme, setTheme, tokens: SITE_THEME_TOKEN_OVERRIDES }}
+      theme={{ theme, tokens: SITE_THEME_TOKEN_OVERRIDES }}
     >
       <DocumentThemeTokenBridge />
       {page}

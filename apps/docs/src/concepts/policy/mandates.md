@@ -1,5 +1,6 @@
 ---
 title: Mandates
+description: Represent delegated authority with a scoped, expiring, revocable mandate and auditable decision trail.
 ---
 
 # Mandates
@@ -14,16 +15,16 @@ expiry, within this budget, against this exact intent shape.
 Mandates are the bridge between user approval and agent execution. They should
 be scoped, typed, revocable, and auditable.
 
-## Core Fields
+## Core fields
 
-| Field | Role |
-| --- | --- |
-| Subject | User, org role, wallet, device, agent, or service. |
-| Intent shape | The typed action family the mandate may authorize. |
-| Constraints | Budget, merchant, recipient, chain, marketplace, geography, time, and risk rules. |
-| Policy epoch | Versioned policy state for revocation-sensitive decisions. |
-| Expiry | Hard lifetime for the delegated authority. |
-| Audit facts | Evidence needed to explain what was allowed or denied. |
+| Field        | Role                                                                              |
+| ------------ | --------------------------------------------------------------------------------- |
+| Subject      | User, org role, wallet, device, agent, or service.                                |
+| Intent shape | The typed action family the mandate may authorize.                                |
+| Constraints  | Budget, merchant, recipient, chain, marketplace, geography, time, and risk rules. |
+| Policy epoch | Versioned policy state for revocation-sensitive decisions.                        |
+| Expiry       | Hard lifetime for the delegated authority.                                        |
+| Audit facts  | Evidence needed to explain what was allowed or denied.                            |
 
 ## Examples
 

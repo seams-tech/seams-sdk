@@ -265,7 +265,7 @@ export function DashboardLoginPage(): React.JSX.Element {
           onClick={homeProps.onClick}
           aria-label="Seams home"
         >
-          <SeamsWordmark height={24} theme="light" />
+          <SeamsWordmark height={24} />
           <span className="dashboard-login__brand-label">Console</span>
         </a>
         <div className="dashboard-login__body">
@@ -317,7 +317,7 @@ export function DashboardLoginPage(): React.JSX.Element {
             before it runs.
           </p>
           <span className="dashboard-login__aside-mark">
-            <SeamsWordmark height={20} theme="light" />
+            <SeamsWordmark height={20} />
           </span>
         </div>
       </aside>

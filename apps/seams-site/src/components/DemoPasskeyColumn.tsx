@@ -42,10 +42,7 @@ const DEMO_TOAST_THEME_VARS = [
   '--site-toast-shadow',
 ] as const;
 
-function demoToastThemeVars(
-  theme: 'light' | 'dark',
-  tokens: DemoThemeTokens,
-): Record<DemoToastThemeVar, string> {
+function demoToastThemeVars(tokens: DemoThemeTokens): Record<DemoToastThemeVar, string> {
   const colors = tokens.colors;
   return {
     '--site-toast-background': colors.surface,
@@ -60,18 +57,15 @@ function demoToastThemeVars(
     '--site-toast-error': colors.error,
     '--site-toast-close-bg': colors.surface2,
     '--site-toast-close-hover-bg': colors.surface3,
-    '--site-toast-shadow':
-      theme === 'dark'
-        ? '0 16px 40px -24px rgba(0, 0, 0, 0.88)'
-        : '0 16px 40px -24px rgba(15, 23, 42, 0.28)',
+    '--site-toast-shadow': '0 16px 40px -24px rgba(15, 23, 42, 0.28)',
   };
 }
 
-function applyDemoToastTheme(theme: 'light' | 'dark', tokens: DemoThemeTokens): void {
+function applyDemoToastTheme(tokens: DemoThemeTokens): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
-  const vars = demoToastThemeVars(theme, tokens);
-  root.setAttribute(DEMO_TOAST_THEME_ATTR, theme);
+  const vars = demoToastThemeVars(tokens);
+  root.setAttribute(DEMO_TOAST_THEME_ATTR, 'light');
   DEMO_TOAST_THEME_VARS.forEach((name) => {
     root.style.setProperty(name, vars[name]);
   });
@@ -87,11 +81,11 @@ function clearDemoToastTheme(): void {
 }
 
 function DemoToastThemeBridge(): null {
-  const { theme, tokens } = useTheme();
+  const { tokens } = useTheme();
   React.useEffect(() => {
-    applyDemoToastTheme(theme, tokens);
+    applyDemoToastTheme(tokens);
     return clearDemoToastTheme;
-  }, [theme, tokens]);
+  }, [tokens]);
   return null;
 }
 
@@ -109,8 +103,7 @@ export function DemoPasskeyColumn({
 }: DemoPasskeyColumnProps = {}) {
   const { loginState } = useSeams();
   const walletSessionLifecycle = useDemoWalletSessionLifecycle();
-  const isDemoUnlocked =
-    walletSessionLifecycle.kind === 'ready' && loginState?.isLoggedIn === true;
+  const isDemoUnlocked = walletSessionLifecycle.kind === 'ready' && loginState?.isLoggedIn === true;
   const [internalPage, setInternalPage] = React.useState(0);
   const currentPage = controlledPage ?? internalPage;
   const setCurrentPage = React.useCallback(
@@ -133,11 +126,15 @@ export function DemoPasskeyColumn({
       void import('@/flows/demo/DemoPage').catch(() => {});
       void import('@/flows/demo/SyncAccount').catch(() => {});
     };
-    const ric = (window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number })
-      .requestIdleCallback;
+    const ric = (
+      window as Window & {
+        requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      }
+    ).requestIdleCallback;
     if (typeof ric === 'function') {
       const id = ric(warm, { timeout: 2000 });
-      return () => (window as Window & { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback?.(id);
+      return () =>
+        (window as Window & { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback?.(id);
     }
     const t = window.setTimeout(warm, 300);
     return () => window.clearTimeout(t);
@@ -196,9 +193,7 @@ export function DemoPasskeyColumn({
   return (
     <ProfileMenuControlProvider>
       <DemoToastThemeBridge />
-      <div
-        className={`passkey-demo${isDemoUnlocked ? ' passkey-demo--with-profile' : ''}`}
-      >
+      <div className={`passkey-demo${isDemoUnlocked ? ' passkey-demo--with-profile' : ''}`}>
         {isDemoUnlocked ? <NavbarProfileOverlay /> : null}
         <AuthMenuControlProvider>
           {/* Fixed-width so switching pages never resizes/re-centers the card;

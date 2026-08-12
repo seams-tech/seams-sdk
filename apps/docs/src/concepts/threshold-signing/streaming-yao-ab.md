@@ -1,5 +1,6 @@
 ---
 title: Streaming Yao A/B
+description: Understand the approved Streaming Yao lifecycle for split-role Ed25519 derivation and signing.
 ---
 
 # Streaming Yao A/B
@@ -15,27 +16,27 @@ consistency, authenticated private outputs, separate-account deployment,
 constant-time review, and independent security review. The passive
 free-XOR/half-gates circuit is a benchmark artifact only.
 
-## When Yao Runs
+## When Yao runs
 
 Yao runs during infrequent lifecycle ceremonies that create, reproduce,
 redistribute, or export Ed25519 material:
 
-| Operation | Uses Yao? | Reason |
-| --- | --- | --- |
-| Registration and initial activation | Yes | Creates client and SigningWorker shares for the canonical Ed25519 identity. |
-| Recovery onto a new device or credential | Yes | Recreates recipient shares while preserving the registered public key. |
-| Signing-share or SigningWorker refresh | Yes | Produces fresh recipient shares under a new activation epoch. |
-| Explicit key export | Yes | Releases masked seed shares after fresh export authorization. |
-| Device linking that provisions a new signing lane | Yes | Creates signing shares for the new recipient. |
-| Device linking that only authorizes existing sealed material | No | No derivation or redistribution occurs. |
-| Signing a transaction, message, or delegate action | No | Uses already-activated threshold shares. |
-| ECDSA lifecycle or signing | No | Uses the separate strict Router A/B threshold-PRF and additive-share protocol. |
+| Operation                                                    | Uses Yao? | Reason                                                                         |
+| ------------------------------------------------------------ | --------- | ------------------------------------------------------------------------------ |
+| Registration and initial activation                          | Yes       | Creates client and SigningWorker shares for the canonical Ed25519 identity.    |
+| Recovery onto a new device or credential                     | Yes       | Recreates recipient shares while preserving the registered public key.         |
+| Signing-share or SigningWorker refresh                       | Yes       | Produces fresh recipient shares under a new activation epoch.                  |
+| Explicit key export                                          | Yes       | Releases masked seed shares after fresh export authorization.                  |
+| Device linking that provisions a new signing lane            | Yes       | Creates signing shares for the new recipient.                                  |
+| Device linking that only authorizes existing sealed material | No        | No derivation or redistribution occurs.                                        |
+| Signing a transaction, message, or delegate action           | No        | Uses already-activated threshold shares.                                       |
+| ECDSA lifecycle or signing                                   | No        | Uses the separate strict Router A/B threshold-PRF and additive-share protocol. |
 
 A delegation action is an ordinary signature. Provisioning a new delegated
 signing lane is a lifecycle ceremony. This distinction determines whether Yao
 runs.
 
-## Lifecycle Flow
+## Lifecycle flow
 
 ```mermaid
 flowchart TD
@@ -65,7 +66,7 @@ The large garbled-circuit stream travels directly between A and B. The client
 and Router exchange compact requests and encrypted output packages measured in
 KiB rather than MiB.
 
-## Server-Side Sequence
+## Server-side sequence
 
 ```mermaid
 sequenceDiagram
@@ -112,7 +113,7 @@ client-to-Router request and response. An asynchronous deployment can return a
 ceremony handle and use authenticated polling. A complete product operation may
 also include separate authentication, recovery, or activation steps.
 
-## Normal Signing Flow
+## Normal signing flow
 
 Normal Ed25519 signing performs zero Yao work and makes zero Deriver calls.
 
@@ -139,14 +140,14 @@ sequenceDiagram
   end
 ```
 
-| Flow | Client to Router | Router to SigningWorker | A/B | Yao |
-| --- | ---: | ---: | ---: | ---: |
+| Flow                       |            Client to Router |      Router to SigningWorker |                    A/B | Yao |
+| -------------------------- | --------------------------: | ---------------------------: | ---------------------: | --: |
 | Ed25519 lifecycle ceremony | 1 request/response normally | 1 for activation when needed | Target 1, accepted 2-4 | Yes |
-| Ed25519 sign, pool hit | 1 request/response | 1 request/response | 0 | No |
-| Ed25519 sign, pool miss | 2 request/response pairs | 2 request/response pairs | 0 | No |
-| Background presign refill | No user-facing round trip | Background work | 0 | No |
+| Ed25519 sign, pool hit     |          1 request/response |           1 request/response |                      0 |  No |
+| Ed25519 sign, pool miss    |    2 request/response pairs |     2 request/response pairs |                      0 |  No |
+| Background presign refill  |   No user-facing round trip |              Background work |                      0 |  No |
 
-## Compute And Embedded Clients
+## Compute and embedded clients
 
 Streaming Yao is compute-intensive on A and B. Its dominant operations are
 symmetric-key hashes, XORs, OT, transcript authentication, and active-security
@@ -171,7 +172,7 @@ evaluation. Devices still need a secure random number generator, protected key
 storage, ordinary curve and AEAD support, and network access to Router. Normal
 signing uses the device's threshold-signing share and stays independent of Yao.
 
-## Payload And Latency
+## Payload and latency
 
 The initial passive fixed-circuit estimate is `1.65-2.10 MiB` from A to B.
 Garbled tables are pseudorandom, so compression is ineffective. The production
@@ -181,27 +182,27 @@ scheme are selected and measured.
 For a `2 MiB` stream, serialization alone takes approximately:
 
 | Effective throughput | Payload time |
-| ---: | ---: |
-| `50 Mbps` | `336 ms` |
-| `100 Mbps` | `168 ms` |
-| `250 Mbps` | `67 ms` |
-| `500 Mbps` | `34 ms` |
-| `1 Gbps` | `17 ms` |
+| -------------------: | -----------: |
+|            `50 Mbps` |     `336 ms` |
+|           `100 Mbps` |     `168 ms` |
+|           `250 Mbps` |      `67 ms` |
+|           `500 Mbps` |      `34 ms` |
+|             `1 Gbps` |      `17 ms` |
 
 Routing, connection setup, RTT, authentication, cold starts, and tail latency
 add to these floors. Streaming overlaps transfer with compute. Prepositioning a
 one-use circuit can move the large stream out of the online ceremony after the
 just-in-time protocol is correct and reviewed.
 
-## Cloudflare Deployment
+## Cloudflare deployment
 
 The client protocol is identical for both supported deployment profiles. The
 profile is selected before startup and cannot be selected by a request.
 
-| Profile | Intended use | A/B transport | Security property |
-| --- | --- | --- | --- |
-| One Cloudflare account | Local development, staging, and optimistic latency/cost benchmarks | Service Bindings | Separate Worker runtime and storage bindings while the shared control plane remains honest. |
-| Two independent Cloudflare accounts | Production and production-parity development | Authenticated, pinned cross-account HTTPS | Independent administrators, deployment credentials, secrets, storage, logs, backups, and incident authority. |
+| Profile                             | Intended use                                                       | A/B transport                             | Security property                                                                                            |
+| ----------------------------------- | ------------------------------------------------------------------ | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| One Cloudflare account              | Local development, staging, and optimistic latency/cost benchmarks | Service Bindings                          | Separate Worker runtime and storage bindings while the shared control plane remains honest.                  |
+| Two independent Cloudflare accounts | Production and production-parity development                       | Authenticated, pinned cross-account HTTPS | Independent administrators, deployment credentials, secrets, storage, logs, backups, and incident authority. |
 
 Same-account deployment contains a compromise confined to one Worker runtime
 while the account administration and deployment control plane remain honest.
@@ -209,7 +210,7 @@ An account administrator or shared deployment credential can replace both
 Workers and create effective A+B collusion. It therefore cannot support the
 strict production claim.
 
-## Security Properties
+## Security properties
 
 With the production gates complete and A and B in independent administrative
 domains, the target provides privacy and correctness-with-abort against Router
@@ -230,7 +231,7 @@ plus at most one malicious Deriver:
 The claim excludes A+B collusion, Cloudflare platform-wide compromise,
 fairness, guaranteed output delivery, and availability when a Deriver aborts.
 
-## Cost Model
+## Cost model
 
 The July 10, 2026 planning snapshot for Cloudflare Workers Standard assumes a
 `$5` monthly minimum per paid account, included request and CPU allowances,
@@ -247,12 +248,12 @@ For one million successful ceremonies, equal CPU on A and B, dedicated accounts,
 and request counts within the included allowance:
 
 | CPU per Deriver per ceremony | Two-account monthly total |
-| ---: | ---: |
-| `30 ms` | `$10.00` |
-| `50 ms` | `$10.80` |
-| `100 ms` | `$12.80` |
-| `500 ms` | `$28.80` |
-| `1 second` | `$48.80` |
+| ---------------------------: | ------------------------: |
+|                      `30 ms` |                  `$10.00` |
+|                      `50 ms` |                  `$10.80` |
+|                     `100 ms` |                  `$12.80` |
+|                     `500 ms` |                  `$28.80` |
+|                   `1 second` |                  `$48.80` |
 
 A same-account development deployment has a `$5` base under the same planning
 assumptions and shares one CPU allowance. Service Binding calls do not add
@@ -265,4 +266,3 @@ a genuine succinct-HSS construction. The closed succinct-HSS analysis predicted
 group-heavy computation and left amplification, active security, and complete
 wire volume unresolved. Streaming Yao is the selected Ed25519 path; deployed
 active-Yao measurements determine its final latency and cost.
-

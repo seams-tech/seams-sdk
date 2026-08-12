@@ -329,8 +329,7 @@
   margin-bottom: 0.5rem;
   padding: 3px;
   border-radius: 9999px;
-  /* a few % of the theme's ink separates the track from the card bg:
-     darkens in light themes, lifts in dark themes */
+  /* A small amount of ink separates the track from the white card. */
   background: color-mix(
     in srgb,
     var(--w3a-colors-surface2),
