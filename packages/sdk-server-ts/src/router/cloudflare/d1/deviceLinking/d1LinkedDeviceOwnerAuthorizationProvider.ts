@@ -100,7 +100,11 @@ export type D1LinkedDeviceOwnerAuthorizationProviderOptionsV1 = {
     D1LinkedDeviceTargetPlannerOptionsV1,
     'rpId' | 'preparationTtlMs' | 'targetDeploymentDescriptorProvider'
   >;
-  readonly planningWriter?: Pick<D1LinkedDeviceOwnerPlanningSnapshotWriterV1, 'writeV1'>;
+  readonly planningWriter: {
+    writeV1(
+      input: Parameters<D1LinkedDeviceOwnerPlanningSnapshotWriterV1['writeV1']>[0],
+    ): Promise<unknown>;
+  };
   readonly nowV1?: () => number;
 };
 
@@ -215,7 +219,11 @@ function createOwnerAuthorizationPortV1(nowV1: () => number): LinkedDeviceOwnerA
 
 function createOwnerAuthorizationRouteV1(input: {
   readonly metadata: D1LinkedDeviceOwnerAuthorizationMetadataSourceV1;
-  readonly planningWriter?: Pick<D1LinkedDeviceOwnerPlanningSnapshotWriterV1, 'writeV1'>;
+  readonly planningWriter: {
+    writeV1(
+      input: Parameters<D1LinkedDeviceOwnerPlanningSnapshotWriterV1['writeV1']>[0],
+    ): Promise<unknown>;
+  };
   readonly nowV1: () => number;
 }): DeviceLinkingOwnerAuthorizationRouteServiceV1 {
   return {
@@ -223,13 +231,11 @@ function createOwnerAuthorizationRouteV1(input: {
       const ownerError = validateOwnerContext(request.owner, request.requestedAtMs, input.nowV1);
       if (ownerError) throw new Error(ownerError.message);
       const payload = parseQrLinkedDeviceSessionPayloadV4(request.payload);
-      if (input.planningWriter) {
-        await input.planningWriter.writeV1({
-          owner: request.owner,
-          payload,
-          orderedOwnerSourceLaneHints: request.orderedOwnerSourceLaneHints,
-        });
-      }
+      await input.planningWriter.writeV1({
+        owner: request.owner,
+        payload,
+        orderedOwnerSourceLaneHints: request.orderedOwnerSourceLaneHints,
+      });
       const metadata = await input.metadata.readOwnerAuthorizationMetadataV1({
         owner: request.owner,
         payload,

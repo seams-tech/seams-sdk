@@ -164,6 +164,8 @@ import {
   LinkedDeviceWebAuthnRegistrationVerifierV1,
 } from '../deviceLinking/d1LinkedDeviceTargetCredentialProvider';
 import { D1LinkedDeviceOwnerPlanningSnapshotStoreV1 } from '../deviceLinking/d1LinkedDeviceOwnerPlanningSnapshotStore';
+import { D1LinkedDeviceOwnerPlanningSnapshotWriterV1 } from '../deviceLinking/d1LinkedDeviceOwnerPlanningSnapshotWriter';
+import { D1LinkedDeviceOwnerPlanningDeploymentV1 } from '../deviceLinking/d1LinkedDeviceOwnerPlanningDeployment';
 import { createD1LinkedDeviceOwnerAuthorizationProviderV1 } from '../deviceLinking/d1LinkedDeviceOwnerAuthorizationProvider';
 import { D1LinkedDeviceProvisioningProviderV1 } from '../deviceLinking/d1LinkedDeviceProvisioningProvider';
 import { D1LinkedDeviceSourceHandoffProviderV1 } from '../deviceLinking/d1LinkedDeviceSourceHandoffProvider';
@@ -341,6 +343,7 @@ type D1LinkedDeviceCompositionAssembly = Pick<
 
 function createD1LinkedDeviceComposition(input: {
   readonly options: NormalizedCloudflareD1RouterApiAuthServiceOptions;
+  readonly walletStore: D1WalletStore;
   readonly walletRegistration: Pick<
     RouterApiWalletRegistrationService,
     'resolveActiveOwnerWalletExecutionLane'
@@ -406,14 +409,21 @@ function createD1LinkedDeviceComposition(input: {
       walletRegistration: input.walletRegistration,
       nowV1: config.execution.nowV1,
     });
+    const ownerPlanningWriter = new D1LinkedDeviceOwnerPlanningSnapshotWriterV1({
+      snapshotStore: ownerMetadata,
+      walletRegistration: input.walletRegistration,
+      deployment: new D1LinkedDeviceOwnerPlanningDeploymentV1({
+        walletSource: input.walletStore,
+      }),
+    });
     const ownerAuthorizationProvider = createD1LinkedDeviceOwnerAuthorizationProviderV1({
       walletRegistration: input.walletRegistration,
       metadata: ownerMetadata,
       targetPlanner: {
         rpId: config.execution.rpId,
-        targetDeploymentDescriptorProvider:
-          config.session.targetDeploymentDescriptorProvider,
+        targetDeploymentDescriptorProvider: config.session.targetDeploymentDescriptorProvider,
       },
+      planningWriter: ownerPlanningWriter,
       nowV1: config.execution.nowV1,
     });
     ownerRequestAuthenticator = createDeviceLinkingOwnerRequestAuthenticatorV1({
@@ -566,9 +576,7 @@ function createD1LinkedDeviceComposition(input: {
 }
 
 function requireOwnerRequestAuthenticator(
-  authenticator:
-    | ReturnType<typeof createDeviceLinkingOwnerRequestAuthenticatorV1>
-    | undefined,
+  authenticator: ReturnType<typeof createDeviceLinkingOwnerRequestAuthenticatorV1> | undefined,
 ): ReturnType<typeof createDeviceLinkingOwnerRequestAuthenticatorV1> {
   if (!authenticator) {
     throw new Error('linked-device owner request authentication is not configured');
@@ -1693,6 +1701,7 @@ function createCloudflareD1RouterApiAuthAssembly(
   };
   const linkedDeviceComposition = createD1LinkedDeviceComposition({
     options,
+    walletStore,
     walletRegistration: linkedDeviceWalletRegistrationProjection,
     authorization: authorizationStore,
     authorizationService,

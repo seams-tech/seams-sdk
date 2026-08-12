@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { parseWalletSessionAuthorizationId, parseWalletSessionId } from '@shared/authorization/capabilityKinds';
+import {
+  parseWalletSessionAuthorizationId,
+  parseWalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import {
   parseWalletAuthMethodId,
   parseWebAuthnCredentialIdB64u,
@@ -72,6 +75,14 @@ test('binds claims deterministically and returns only authoritative owner metada
     },
     targetPlanner: {
       rpId: required(parseWebAuthnRpId('wallet.example.test')),
+      targetDeploymentDescriptorProvider: {
+        resolveTargetDeploymentDescriptorV1: async () => {
+          throw new Error('target descriptor is outside this owner-authorization test');
+        },
+      },
+    },
+    planningWriter: {
+      writeV1: async () => undefined,
     },
     nowV1: () => 2_000,
   });
@@ -130,6 +141,14 @@ test('fails closed when authoritative source projection is unavailable', async (
     },
     targetPlanner: {
       rpId: required(parseWebAuthnRpId('wallet.example.test')),
+      targetDeploymentDescriptorProvider: {
+        resolveTargetDeploymentDescriptorV1: async () => {
+          throw new Error('target descriptor is outside this owner-source test');
+        },
+      },
+    },
+    planningWriter: {
+      writeV1: async () => undefined,
     },
     nowV1: () => 2_000,
   });
