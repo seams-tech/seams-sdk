@@ -8,7 +8,7 @@ import type {
   EmailOtpEd25519YaoWorkerActivationResult,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { LoadedWalletCustodyEd25519MaterialV1 } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
-import { parseEd25519YaoRecoveryCapabilityV1 } from '@/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery';
+import { parseEd25519YaoRecoveryCapabilityV1 } from '@/core/signingEngine/session/passkey/ed25519YaoRecoveryCapability';
 import { parseRouterAbEd25519WalletSessionIdentityClaims } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type { ReusableWalletSessionState } from '@/core/types/seams';
 import type { AccountId } from '@/core/types/accountIds';
