@@ -85,10 +85,12 @@ import {
   emailOtpStatusCode,
   hashEmailOtpAppSessionClaims,
 } from '../../../domains/emailOtp/emailOtpSessionRouteHelpers';
+import { sealEmailOtpFactorSecretForWorker } from '../../../domains/emailOtp/emailOtpRouteHandlers';
 import type {
   RouterAbEd25519YaoOperationStepUpMaterialRecoveryRequest,
   RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse,
 } from '../../../domains/ed25519Yao/session/routerAbEd25519YaoWalletSession';
+import type { RouterApiEmailOtpRouteService } from '../../../framework/authServicePort';
 import {
   parseEd25519ReusableAuthorizedOperationReceipt,
   requireAuthorizedOperationReceiptString,
@@ -246,6 +248,68 @@ function buildRouterAbEd25519AuthorizedOperationWire(
         },
       };
   }
+}
+
+type EmailOtpFactorReleaseEnrollment = {
+  readonly enrollmentId: string;
+  readonly enrollmentSealKeyVersion: string;
+  readonly serverSealedFactorCiphertextB64u: string;
+};
+
+type EmailOtpFactorReleaseRequest = {
+  readonly enrollment: EmailOtpFactorReleaseEnrollment;
+  readonly workerEphemeralPublicKey65B64u: string;
+};
+
+type EmailOtpFactorReleaseResponse = Extract<
+  RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse,
+  { readonly kind: 'email_otp_factor_release_v1' }
+>;
+
+async function releaseEmailOtpFactorForWorker(input: {
+  readonly emailOtp: Pick<RouterApiEmailOtpRouteService, 'removeEmailOtpServerSeal'>;
+  readonly request: EmailOtpFactorReleaseRequest;
+  readonly walletId: string;
+  readonly challengeId: string;
+}): Promise<
+  | { readonly ok: true; readonly recovery: EmailOtpFactorReleaseResponse }
+  | { readonly ok: false; readonly code: string; readonly message: string }
+> {
+  const unsealed = await input.emailOtp.removeEmailOtpServerSeal({
+    wrappedCiphertext: input.request.enrollment.serverSealedFactorCiphertextB64u,
+  });
+  if (!unsealed.ok) return unsealed;
+  if (
+    unsealed.enrollmentSealKeyVersion !==
+    input.request.enrollment.enrollmentSealKeyVersion
+  ) {
+    return {
+      ok: false,
+      code: 'scope_mismatch',
+      message: 'Email OTP factor release seal key version changed',
+    };
+  }
+  const sealed = await sealEmailOtpFactorSecretForWorker({
+    factorSecret32B64u: unsealed.ciphertext,
+    workerEphemeralPublicKey65B64u: input.request.workerEphemeralPublicKey65B64u,
+    walletId: input.walletId,
+    enrollmentId: input.request.enrollment.enrollmentId,
+    enrollmentSealKeyVersion: input.request.enrollment.enrollmentSealKeyVersion,
+    challengeId: input.challengeId,
+  });
+  if (!sealed.ok) return sealed;
+  return {
+    ok: true,
+    recovery: {
+      kind: 'email_otp_factor_release_v1',
+      challengeId: input.challengeId,
+      enrollmentId: input.request.enrollment.enrollmentId,
+      enrollmentSealKeyVersion: input.request.enrollment.enrollmentSealKeyVersion,
+      serverEphemeralPublicKey65B64u: sealed.serverEphemeralPublicKey65B64u,
+      nonce12B64u: sealed.nonce12B64u,
+      ciphertextB64u: sealed.ciphertextB64u,
+    },
+  };
 }
 
 type PasskeyEd25519AuthorizationResult =
@@ -1303,7 +1367,11 @@ async function issueEd25519OperationStepUpGrant(input: {
     parseAuthorizationEvidenceSetId(`evidence-set:${requestId}`),
   );
   let factor: VerifiedAuthorizationFactorResult;
-  let materialRecovery: RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse;
+  let materialRecovery: RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse = {
+    kind: 'not_requested',
+  };
+  let pendingFactorRelease: EmailOtpFactorReleaseRequest | null = null;
+  let factorReleaseChallengeId: string | null = null;
   switch (proof.kind) {
     case 'passkey': {
       if (
@@ -1389,6 +1457,26 @@ async function issueEd25519OperationStepUpGrant(input: {
       if (!verified.ok) {
         return json(verified, { status: verified.code === 'invalid_body' ? 400 : 401 });
       }
+      if (input.request.materialRecovery.kind === 'email_otp_factor_release_v1') {
+        const enrollment = await input.ctx.service.emailOtp.readActiveEmailOtpEnrollment({
+          walletId: authenticated.session.walletId,
+          orgId: authenticated.session.tenantId,
+          providerUserId: proof.providerSubjectId,
+        });
+        if (!enrollment.ok) {
+          return json(enrollment, { status: emailOtpStatusCode(enrollment.code) });
+        }
+        pendingFactorRelease = {
+          enrollment: {
+            enrollmentId: enrollment.enrollment.enrollmentId,
+            enrollmentSealKeyVersion: enrollment.enrollment.enrollmentSealKeyVersion,
+            serverSealedFactorCiphertextB64u:
+              enrollment.enrollment.serverSealedFactorCiphertextB64u,
+          },
+          workerEphemeralPublicKey65B64u:
+            input.request.materialRecovery.workerEphemeralPublicKey65B64u,
+        };
+      }
       const consumed = await input.ctx.service.emailOtp.consumeEmailOtpGrant({
         subject: {
           kind: 'authorization_session',
@@ -1402,7 +1490,7 @@ async function issueEd25519OperationStepUpGrant(input: {
       if (!consumed.ok) {
         return json(consumed, { status: consumed.code === 'invalid_body' ? 400 : 401 });
       }
-      materialRecovery = { kind: 'not_requested' };
+      factorReleaseChallengeId = consumed.challengeId;
       factor = buildVerifiedEmailOtpFactorResult({
         tenantId: authenticated.session.tenantId,
         principalId: authenticated.session.principalId,
@@ -1484,6 +1572,45 @@ async function issueEd25519OperationStepUpGrant(input: {
         },
         { status: 409 },
       );
+  }
+  if (pendingFactorRelease) {
+    if (!factorReleaseChallengeId) {
+      throw new Error('Email OTP factor release challenge is missing after grant consumption');
+    }
+    const currentEnrollment = await input.ctx.service.emailOtp.readActiveEmailOtpEnrollment({
+      walletId: authenticated.session.walletId,
+      orgId: authenticated.session.tenantId,
+      providerUserId: proof.kind === 'email_otp' ? proof.providerSubjectId : undefined,
+    });
+    if (!currentEnrollment.ok) {
+      return json(currentEnrollment, { status: emailOtpStatusCode(currentEnrollment.code) });
+    }
+    if (
+      currentEnrollment.enrollment.enrollmentId !== pendingFactorRelease.enrollment.enrollmentId ||
+      currentEnrollment.enrollment.enrollmentSealKeyVersion !==
+        pendingFactorRelease.enrollment.enrollmentSealKeyVersion ||
+      currentEnrollment.enrollment.serverSealedFactorCiphertextB64u !==
+        pendingFactorRelease.enrollment.serverSealedFactorCiphertextB64u
+    ) {
+      return json(
+        {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'Email OTP enrollment changed before factor release',
+        },
+        { status: 409 },
+      );
+    }
+    const released = await releaseEmailOtpFactorForWorker({
+      emailOtp: input.ctx.service.emailOtp,
+      request: pendingFactorRelease,
+      walletId: authenticated.session.walletId,
+      challengeId: factorReleaseChallengeId,
+    });
+    if (!released.ok) {
+      return json(released, { status: emailOtpStatusCode(released.code) });
+    }
+    materialRecovery = released.recovery;
   }
   return json(
     {
