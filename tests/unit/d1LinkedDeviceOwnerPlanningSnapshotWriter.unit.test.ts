@@ -184,15 +184,11 @@ function deploymentChild(
   const sourceSigningWorkerRecipientKeyId = required(
     parseSigningWorkerRecipientKeyId(`worker-key:source:writer:${label}`),
   );
-  const targetHolderParticipantId = targetJob.targetHolder.participantId;
-  const targetSigningWorker = targetJob.targetSigningWorker;
   const common = {
     keyFamily,
     sourceHolderParticipantId,
     sourceSigningWorkerParticipantId,
     sourceSigningWorkerRecipientKeyId,
-    targetHolderParticipantId,
-    targetSigningWorker,
   } as const;
   if (keyFamily === 'ed25519' && targetJob.keyFamily === 'ed25519') {
     return {
@@ -208,7 +204,6 @@ function deploymentChild(
       ...common,
       keyFamily,
       sourceCapability: targetJob.sourceCapability,
-      targetCapability: targetJob.targetCapability,
       sourceHolderVerifyingShare33B64u: targetJob.sourceHolderVerifyingShare33B64u,
       sourceServerVerifyingShare33B64u: targetJob.sourceServerVerifyingShare33B64u,
       reshareChannelBindingDigestB64u: targetJob.reshareChannelBindingDigestB64u,
