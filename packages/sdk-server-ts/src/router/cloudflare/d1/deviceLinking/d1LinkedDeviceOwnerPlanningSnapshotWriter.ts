@@ -10,8 +10,6 @@ import { parseAuthorizedOperationId } from '@shared/authorization/capabilityKind
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type {
   EcdsaSourceCapabilityBindingV1,
-  EcdsaTargetCapabilityBindingV1,
-  LaneTargetSigningWorkerV1,
 } from '@shared/signing-lanes/rotation';
 import type {
   LaneHolderParticipantId,
@@ -41,8 +39,6 @@ type DeploymentChildBaseV1 = {
   readonly sourceHolderParticipantId: LaneHolderParticipantId;
   readonly sourceSigningWorkerParticipantId: SigningWorkerParticipantId;
   readonly sourceSigningWorkerRecipientKeyId: SigningWorkerRecipientKeyId;
-  readonly targetHolderParticipantId: LaneHolderParticipantId;
-  readonly targetSigningWorker: LaneTargetSigningWorkerV1;
 };
 
 export type D1LinkedDeviceOwnerPlanningDeploymentChildV1 =
@@ -55,7 +51,6 @@ export type D1LinkedDeviceOwnerPlanningDeploymentChildV1 =
   | (DeploymentChildBaseV1 & {
       readonly keyFamily: 'ecdsa_secp256k1';
       readonly sourceCapability: EcdsaSourceCapabilityBindingV1;
-      readonly targetCapability: EcdsaTargetCapabilityBindingV1;
       readonly sourceHolderVerifyingShare33B64u: string;
       readonly sourceServerVerifyingShare33B64u: string;
       readonly reshareChannelBindingDigestB64u: DigestB64u;
