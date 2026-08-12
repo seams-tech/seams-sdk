@@ -2435,13 +2435,6 @@ export function emitRegistrationTimingSpan(input: {
   }
 }
 
-function logRegistrationProgress(stage: string, details?: Record<string, unknown>): void {
-  console.info('[Registration] progress', {
-    stage,
-    ...(details || {}),
-  });
-}
-
 function registrationRouteHeaders(
   traceContext?: RouterAbTraceContextV1,
 ): Record<string, string> | undefined {
@@ -5643,10 +5636,6 @@ async function registerEcdsaOrMixedWallet(
         throw new Error('Finalized Email OTP app session belongs to a different provider');
       }
     }
-    logRegistrationProgress('finalize_response_received', {
-      walletId: finalized.walletId,
-      ecdsaWalletKeyCount: finalized.ecdsa.walletKeys.length,
-    });
     registrationTiming.captureRouteDiagnostics(finalized.registrationDiagnostics);
     const walletKeys = finalized.ecdsa.walletKeys;
     if (walletKeys.length === 0) {
