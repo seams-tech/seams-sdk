@@ -1,6 +1,6 @@
 import React from 'react';
 import { ArrowRightAnim } from '@/components/ArrowRightAnim';
-import NavbarStatic from '@/components/Navbar/NavbarStatic';
+import NavbarCompact from '@/components/Navbar/NavbarCompact';
 import { H2Footer } from '@/components/h2/sections';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import '@/styles/h2.css';
@@ -149,7 +149,7 @@ function renderResource(resource: CompanyResource): React.JSX.Element {
 export function CompanyPage(): React.JSX.Element {
   return (
     <div className="h2-page company-page">
-      <NavbarStatic appearance="light" />
+      <NavbarCompact />
       <div className="h2-col">
         <main className="company-main" aria-labelledby="company-page-title">
           <header className="company-hero h2-rule">
@@ -173,7 +173,7 @@ export function CompanyPage(): React.JSX.Element {
             </div>
           </header>
 
-          <section className="company-statement h2-rule">
+          <section className="company-statement">
             <div className="h2-shell">
               <p>
                 Seams is for teams that need account actions to be accountable: every sign-in,
@@ -199,10 +199,7 @@ export function CompanyPage(): React.JSX.Element {
             </div>
           </section>
 
-          <section
-            className="company-principles h2-rule"
-            aria-labelledby="company-principles-title"
-          >
+          <section className="company-principles" aria-labelledby="company-principles-title">
             <div className="h2-shell company-principles__grid">
               <div>
                 <p className="h2-kicker">Operating principles</p>

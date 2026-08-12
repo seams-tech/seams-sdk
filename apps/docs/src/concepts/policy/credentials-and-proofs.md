@@ -1,14 +1,15 @@
 ---
-title: Credentials And Proofs
+title: Credentials and proofs
+description: Bind credential proofs to exact actors, operations, targets, freshness, and policy decisions.
 ---
 
-# Credentials And Proofs
+# Credentials and proofs
 
 Proof inputs support exact authorization. They answer who is acting, what
 authority they have, which intent they approved, and whether that authority is
 still usable.
 
-## Proof Inputs
+## Proof inputs
 
 Seams can use proof signals such as:
 
@@ -20,7 +21,7 @@ Seams can use proof signals such as:
 6. Org role proof.
 7. External identity, biometric, or credential proof where configured.
 
-## Authorization Questions
+## Authorization questions
 
 ```text
 Who is acting?

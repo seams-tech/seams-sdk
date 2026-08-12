@@ -11,9 +11,8 @@ DOM globals, or IndexedDB implementations. Browser assembly constructs the
 browser `RuntimePorts` outside this directory, then passes the finished ports
 into `createSigningRuntime(...)`.
 
-The iOS SDK is a separate Swift package and the embedded SDK is a separate Rust
-crate. They bind to Rust signer-core directly instead of importing this
-TypeScript runtime directory.
+The embedded SDK is a separate Rust crate. It binds to Rust signer-core directly
+instead of importing this TypeScript runtime directory.
 
 ## Current Services
 

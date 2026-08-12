@@ -1,8 +1,9 @@
 ---
-title: Sealed Refresh
+title: Sealed refresh
+description: Restore sealed signing material after interruption without weakening wallet-session or custody boundaries.
 ---
 
-# Sealed Refresh
+# Sealed refresh
 
 Sealed refresh restores sealed signing material after accidental
 iframe or page reload, while keeping signing material out of browser storage in

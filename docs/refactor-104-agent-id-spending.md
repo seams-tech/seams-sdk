@@ -2,7 +2,7 @@
 
 Date created: July 22, 2026
 
-Last reconciled: August 5, 2026 (post-Refactor 90 implementation checkpoint)
+Last reconciled: August 12, 2026 (existing-signer simplification)
 
 Status: active product and security plan. Independent agent identities,
 owner-signed delegated-spend authorizations, agent-signed spend requests, and
@@ -49,9 +49,7 @@ This plan consumes:
   threshold-wallet adapter provisions an authorization-bound agent runtime
   lane;
 - `crates/router-ab-ecdsa-derivation` and the Ed25519 Yao implementation for
-  wallet execution under exact active capabilities;
-- [refactor-10X-p256.md](./refactor-10X-p256.md) for AP2 P-256 agent keys and
-  user-signed-open/agent-signed-closed mandate interoperability.
+  agent request signing and wallet execution under exact active capabilities.
 
 This plan owns:
 
@@ -85,13 +83,13 @@ Refactor 103 owns physical device linking and contains no agent types.
 8. Delegated authorization lifecycle and delegated budget lifecycle are
    independent. Budget exhaustion denies new spends without moving the signed
    authorization to an `exhausted` state.
-9. Revocation and expiry fail before wallet share, presignature, credential, or
-   payment-token work.
-10. On-chain or payment execution spends from the owner's wallet or payment
-   instrument. The agent needs no prefunded account.
+9. Revocation and expiry fail before wallet share, presignature, or execution
+   work.
+10. On-chain execution spends from the owner's wallet. The agent needs no
+    prefunded account.
 11. Agent authorship remains available in durable audit evidence even when the
     chain exposes only the owner's wallet signature.
-12. Raw agent, tool, quote, checkout, transaction, oracle, and persistence
+12. Raw agent, tool, quote, transaction, oracle, and persistence
     shapes are parsed once at their boundaries.
 13. Old lane-owned mandate types and tests are deleted at cutover. No legacy
     `delegated_agent` compatibility branch enters core logic.
@@ -146,8 +144,9 @@ Refactor 103 owns physical device linking and contains no agent types.
 
 ## Agent Identity
 
-An identity is a stable agent record with one or more protocol-specific signing
-keys. Each authorization names one exact key.
+An identity is a stable agent record with one or more independent keys using the
+signer families already supported by Seams. Each authorization names one exact
+key.
 
 ```ts
 type AgentIdentityRecord = {
@@ -163,44 +162,46 @@ type AgentIdentityRecord = {
 type AgentIdentityKeyRecord =
   | {
       kind: 'agent_identity_key_v1';
-      algorithm: 'secp256k1_schnorr_bip340';
+      algorithm: 'ed25519';
       agentIdentityKeyId: AgentIdentityKeyId;
-      publicKeyXOnlyB64u: string;
-      publicJwk?: never;
+      publicKeyB64u: string;
+      publicKeyCompressedB64u?: never;
       lifecycle: AgentIdentityKeyLifecycle;
     }
   | {
       kind: 'agent_identity_key_v1';
-      algorithm: 'p256_ecdsa_es256';
+      algorithm: 'secp256k1_ecdsa';
       agentIdentityKeyId: AgentIdentityKeyId;
-      publicJwk: P256PublicJwk;
-      publicKeyXOnlyB64u?: never;
+      publicKeyCompressedB64u: string;
+      publicKeyB64u?: never;
       lifecycle: AgentIdentityKeyLifecycle;
     };
 ```
 
-The BIP-340 branch can represent the same agent identity used by Nostr/Buzz.
-The P-256 branch supports AP2 closed mandates. A future algorithm requires a
-new union branch, canonical verifier, test vectors, and custody policy.
+The Ed25519 branch reuses the existing Ed25519 signing and verification stack.
+The secp256k1 branch reuses the existing ECDSA stack. Agent keys use independent
+key material and distinct domain-separated request messages; they never reuse or
+derive from an owner's wallet key.
+
+A future algorithm requires a new union branch, canonical verifier, test
+vectors, and custody policy. Refactor 104 adds no signature algorithm or signing
+protocol.
 
 Keys are never silently rotated in place. Rotation creates a new key record and
 requires fresh owner authorization. Existing authorizations remain bound to the
 old key and follow their own expiry or revocation lifecycle.
 
-### BIP-340 signing boundary
+### Existing signer boundary
 
-The BIP-340 profile is a distinct agent-key signing protocol. It provisions an
-independent agent key and defines x-only public-key normalization, tagged
-hashing, nonce handling, participant binding, output encoding, and test vectors
-explicitly. Existing threshold ECDSA wallet shares, presignatures, and signing
-rounds are unavailable to this profile.
+Agent request signing uses existing Ed25519 Yao or secp256k1 ECDSA signer
+capabilities. Provisioning creates independent agent material through the same
+reviewed capability and lane lifecycle used for other Seams keys. Verification
+uses the corresponding existing public-key verifier over the canonical agent
+request digest.
 
-A threshold BIP-340 implementation may reuse reviewed secp256k1 scalar and
-point primitives, authenticated transport, lifecycle machinery, and custody
-interfaces. Phase 0 must select and review a BIP-340-compatible threshold
-protocol before the threshold branch can ship. A single-signer HSM, TEE, or
-customer-runtime branch remains explicit and produces the same ordinary
-BIP-340 verification result.
+This reuse is limited to signer machinery. Agent identity, authorization,
+budget, replay, and revocation remain separate domains from Wallet Sessions and
+owner wallet keys.
 
 ## Agent Custody Binding
 
@@ -240,8 +241,8 @@ type DelegatedSpendAuthorizationV1 = {
   agentId: AgentId;
   agentIdentityKeyId: AgentIdentityKeyId;
   agentIdentityKeyAlgorithm:
-    | 'secp256k1_schnorr_bip340'
-    | 'p256_ecdsa_es256';
+    | 'ed25519'
+    | 'secp256k1_ecdsa';
   agentPublicKeyDigestB64u: string;
   custodyBindingId: AgentCustodyBindingId;
   scope: DelegatedSpendScopeV1;
@@ -283,11 +284,6 @@ type SignedDelegatedSpendAuthorizationV1 = {
 
 The proof set must match the wallet-key manifest exactly. Missing, duplicate,
 extra, wrong-family, wrong-public-key, or differently digested proofs fail.
-
-An AP2 open mandate is an adapter-specific owner authorization envelope. Its
-verified disclosures normalize into the same core claims, while its original
-signed bytes remain attached as external evidence. Core policy never accepts
-raw SD-JWT claims.
 
 ### Delegated Authorization Source
 
@@ -486,8 +482,7 @@ type PreparedDelegatedWalletExecution = {
 
 `materialActivation` identifies the exact activated MPC material instance. It
 remains independent from the delegated authorization, budget claim, Wallet
-Session, quota, and operation identities. AP2 and chain-native adapters carry
-their own execution references and do not fabricate an MPC activation.
+Session, quota, and operation identities.
 
 ## Authorization Lifecycle
 
@@ -565,12 +560,9 @@ Execute checks in this order:
     definitive pre-execution failure; retain unknown outcomes for
     reconciliation.
 
-Policy denial performs no share, presignature, credential, or payment-token
-work.
+Policy denial performs no share, presignature, or wallet execution work.
 
-## Execution Adapters
-
-### Direct threshold-wallet execution
+## Execution Adapter
 
 The transaction is signed under the owner's existing wallet key. Funds leave
 that wallet directly. The chain generally exposes the wallet signature while
@@ -584,19 +576,8 @@ no authority without a verified active delegated authorization and signed
 request. Wallet Session and delegated authorization identities remain separate,
 and revoking the delegated source never replaces unrelated owner material.
 
-### AP2 credential release
-
-The user-signed open mandate binds the agent P-256 key and constraints. The
-agent signs the closed Checkout and Payment Mandates. The Credential Provider
-verifies both before releasing a scoped credential or payment token. Refactor
-10X owns wire compatibility and P-256 signing.
-
-### Chain-native delegated account
-
-A future smart-account adapter may register the agent public key and scope
-on-chain. Its contract, revocation transaction, nonce model, and policy proof
-are chain-specific. Core authorization still retains the owner and agent proof
-chain.
+Refactor 104 ships this direct threshold-wallet adapter only. Additional payment
+protocol or chain-specific delegation adapters require separate plans.
 
 ## Revocation
 
@@ -612,7 +593,6 @@ Revocation is one fenced operation:
 5. Terminate agent sessions and invalidate warm custody handles.
 6. Mark in-flight ambiguous operations `outcome_unknown` for reconciliation.
 7. Emit an authorization revocation receipt and affected-operation inventory.
-8. Submit chain-native revocation when the selected adapter requires it.
 
 Owner lanes, wallet keys, funds, and unrelated authorizations remain active.
 Previously completed transactions remain valid.
@@ -627,7 +607,7 @@ One delegated execution audit chain retains:
 - policy version and decision;
 - replay and budget claim IDs and transitions;
 - wallet key, optional execution lane, participants, and epochs;
-- wallet signature or credential-release receipt;
+- wallet signature and execution receipt;
 - chain, merchant, or payment receipt;
 - denial, revocation, and reconciliation evidence.
 
@@ -675,11 +655,12 @@ signed authorization and request boundaries.
 
 ## Implementation Phases
 
-### Phase 0: Freeze Protocol
+### Phase 0: Freeze Existing Signer Profiles
 
-- [ ] Freeze identity-key algorithms and canonical CBOR encoding.
-- [ ] Select the BIP-340 signing profiles and, if threshold signing is used,
-      its protocol, participant topology, nonce rules, and independent vectors.
+- [ ] Freeze the existing Ed25519 and secp256k1 ECDSA agent-key profiles and
+      canonical CBOR encoding.
+- [ ] Reuse the existing signer protocols, participant topology, nonce rules,
+      capability lifecycle, and vectors without adding another signing scheme.
 - [ ] Freeze direct-wallet owner proof encoding for Ed25519 and secp256k1.
 - [ ] Freeze the stablecoin-only MVP scope, budget, fee, and quote policy.
 - [ ] Freeze request signature, replay, expiry, and revocation semantics.
@@ -695,7 +676,8 @@ signed authorization and request boundaries.
 
 ### Phase 2: Agent Requests And Policy
 
-- [ ] Add algorithm-specific agent request verifiers.
+- [ ] Add Ed25519 and secp256k1 ECDSA agent request verifiers using existing
+      verification primitives.
 - [ ] Add one specific-purchase intent and merchant-signed quote parser.
 - [ ] Verify final unsigned transaction independently.
 - [ ] Add authorization scope, expiry, fee, and counterparty admission.
@@ -728,12 +710,6 @@ signed authorization and request boundaries.
 - [ ] Add management UI, notifications, and audit export.
 - [ ] Add agent-key rotation through fresh authorization.
 
-### Phase 6: Protocol Adapters
-
-- [ ] Integrate AP2 open and closed mandate verification.
-- [ ] Add chain-native delegated-account adapters only after their on-chain
-      policy and revocation models are separately specified.
-
 ## Validation
 
 Static fixtures prove:
@@ -744,7 +720,7 @@ Static fixtures prove:
   consume `MpcWalletSigningQuota` as their authorization source;
 - direct-wallet proof sets cannot omit or add wallet keys;
 - signed claims cannot be mutated into lifecycle state;
-- P-256 and BIP-340 signatures cannot cross algorithm branches;
+- Ed25519 and secp256k1 ECDSA signatures cannot cross algorithm branches;
 - prepared execution cannot carry unverified raw requests;
 - direct wallet preparation requires an independent
   `MpcMaterialActivationRef` and `AuthorizedOperationId`;
@@ -754,8 +730,8 @@ Cryptographic tests prove:
 
 - owner proofs verify only over the canonical authorization digest;
 - agent signatures verify only over the canonical request digest;
-- BIP-340 keys and signing state are independent from wallet ECDSA shares and
-  presignatures;
+- agent keys and signing state are independent from owner Wallet keys, shares,
+  and presignatures;
 - wrong agent key, owner key, algorithm, domain separator, or encoding fails;
 - modified amount, destination, quote, transaction, expiry, or nonce fails;
 - rotating authorization, quota, session, and runtime identities do not alter
@@ -793,13 +769,12 @@ Execution tests prove:
 - generic fiat valuation without an explicit oracle policy;
 - silent scope expansion, budget top-up, or expiry extension;
 - granting export, recovery, membership, or account administration;
-- using NIP-OA alone as a spending mandate;
-- requiring one execution adapter across all chains and payment rails.
+- adding another signature scheme or external payment protocol;
+- adding chain-native delegated accounts;
+- supporting more than the direct threshold-wallet adapter in this refactor.
 
 ## Decisions Required Before Implementation
 
-- Select the MVP agent identity algorithm: BIP-340 for Buzz/Nostr alignment,
-  P-256 ES256 for AP2, or two explicit protocol keys under one agent identity.
 - Select the owner-proof format for each supported wallet key family.
 - Select the direct threshold execution topology and agent custody requirements.
 - Freeze the first supported stablecoin, networks, merchant quote format, and

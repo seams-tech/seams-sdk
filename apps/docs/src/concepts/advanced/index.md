@@ -1,5 +1,6 @@
 ---
 title: Advanced
+description: Explore protocol, deployment, route authentication, and rotation ceremony details for advanced Seams integrations.
 ---
 
 # Advanced

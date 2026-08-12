@@ -20,7 +20,7 @@ export async function signEvmWithUiConfirm(
       explicitAuthErrorLabel: 'EVM',
       nonceErrorLabel: 'EVM',
       title: 'Sign EVM Transaction',
-      body: 'Review and approve signing the transaction hash.',
+      body: '',
       buildIntent: async ({ workerCtx, request }) =>
         await new EvmAdapter(workerCtx).buildIntent(request),
       buildDisplayModel: buildEvmDisplayModel,

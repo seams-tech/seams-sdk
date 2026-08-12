@@ -15,7 +15,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { AuthMenuMode, SeamsAuthMenuSkeletonInner } from '@seams/sdk/react';
-import { DEMO_THEME_PRESETS } from '@/context/app-themes';
+import { PAPER_LIGHT_COLORS } from '@/context/app-themes';
 import NavbarCompact from '@/components/Navbar/NavbarCompact';
 import SeamsWordmark from '@/components/icons/SeamsWordmark';
 import { NETWORK_MARKS, NetworkMarkLockup } from '@/components/icons/NetworkMarks';
@@ -169,9 +169,8 @@ function IntegrationsWindow(): React.JSX.Element {
    reads no theme context; the Paper palette is pinned as CSS variables on the
    wrapper so the card can't inherit the site theme (which may be dark or
    Rosé Pine). pointer-events off so clicks fall through to the panel link. */
-const paperPreset = DEMO_THEME_PRESETS.find((t) => t.id === 'paper') ?? DEMO_THEME_PRESETS[0];
 const paperShellVars = Object.fromEntries(
-  Object.entries(paperPreset.colors).map(([key, value]) => [`--w3a-colors-${key}`, value]),
+  Object.entries(PAPER_LIGHT_COLORS).map(([key, value]) => [`--w3a-colors-${key}`, value]),
 ) as React.CSSProperties;
 
 function WalletShellCard(): React.JSX.Element {

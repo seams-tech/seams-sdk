@@ -8,7 +8,6 @@ import {
 } from '@shared/utils/signingSessionSeal';
 import {
   SEAMS_WALLET_DB_NAME,
-  SEAMS_WALLET_DB_VERSION,
   SEAMS_WALLET_INDEXES,
   SEAMS_WALLET_STORES,
 } from '../schemaNames';
@@ -18,7 +17,6 @@ import type { SeamsWalletDBManager } from './manager';
 export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_RECORD_VERSION =
   SIGNING_SESSION_SEALED_RECORD_VERSION;
 export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_DB_NAME = SEAMS_WALLET_DB_NAME;
-export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_DB_VERSION = SEAMS_WALLET_DB_VERSION;
 export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORE_NAME =
   SEAMS_WALLET_STORES.emailOtpDeviceEnrollmentEscrows;
 export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORAGE_SCOPE = 'iframe_origin_indexeddb' as const;

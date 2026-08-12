@@ -1,8 +1,9 @@
 ---
-title: Threshold Signing
+title: Threshold signing
+description: Split wallet signing authority across holder and service roles while preserving verifiable public identity.
 ---
 
-# Threshold Signing
+# Threshold signing
 
 Threshold signing lets Seams split signing authority across holder-side and
 server-side material. A valid signature requires the selected holder lane and
@@ -11,7 +12,7 @@ admitted server participation.
 Normal signing uses signing shares produced by earlier derivation or activation
 steps. The wallet key is not reconstructed for ordinary signatures.
 
-## Mental Model
+## Mental model
 
 ```text
 holder-side share + admitted server-side share -> signature
@@ -22,21 +23,21 @@ participates only after Router admission. Ed25519 Streaming Yao and ECDSA
 threshold-PRF derivation appear in lifecycle ceremonies; normal signing spends
 the already-derived shares and presignature state.
 
-## Session Identity Versus Signing Authority
+## Session identity versus signing authority
 
 Threshold signing tracks independent lifecycle identities:
 
-| Identity | Purpose |
-| --- | --- |
-| `thresholdSessionId` | Identifies the threshold protocol session and its signing material. Protocol state, restored holder material, and server material must all refer to this id. |
-| `AuthorizationGrantRef` | Identifies the reusable Wallet Session authorization. |
-| `walletSessionId` + `quotaId` | Identify the Wallet Session and its server-owned remaining uses. |
-| `AuthorizedOperationId` | Identifies one exact authorized operation for reusable or verified-step-up admission. |
+| Identity                      | Purpose                                                                                                                                                      |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `thresholdSessionId`          | Identifies the threshold protocol session and its signing material. Protocol state, restored holder material, and server material must all refer to this id. |
+| `AuthorizationGrantRef`       | Identifies the reusable Wallet Session authorization.                                                                                                        |
+| `walletSessionId` + `quotaId` | Identify the Wallet Session and its server-owned remaining uses.                                                                                             |
+| `AuthorizedOperationId`       | Identifies one exact authorized operation for reusable or verified-step-up admission.                                                                        |
 
 The protocol session selects threshold material. Wallet Session quota or an
 authorized operation determines whether the operation may execute.
 
-## Material Readiness
+## Material readiness
 
 Worker-owned material is not sign-ready just because a persisted record mentions
 it. Browser workers are runtime-local, so material must be loaded and validated
@@ -45,12 +46,12 @@ session, signing root, Router A/B scope, and worker identity.
 
 The practical states are:
 
-| State | Meaning |
-| --- | --- |
-| Auth-ready | Wallet Session auth and quota exist. |
-| Restore-ready | Durable sealed material exists and can be restored before signing. |
+| State            | Meaning                                                              |
+| ---------------- | -------------------------------------------------------------------- |
+| Auth-ready       | Wallet Session auth and quota exist.                                 |
+| Restore-ready    | Durable sealed material exists and can be restored before signing.   |
 | Material pending | The record has a material hint, but the worker has not validated it. |
-| Sign-ready | The worker has validated the material for the exact current binding. |
+| Sign-ready       | The worker has validated the material for the exact current binding. |
 
 Normal signing starts only from sign-ready state. Restore and step-up are
 separate phases that must complete before final signing.

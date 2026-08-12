@@ -2,7 +2,7 @@
 name = "signer-core"
 version = "0.1.0"
 edition = "2021"
-description = "Shared signer core primitives for web and iOS bindings"
+description = "Shared signer core primitives for web and embedded bindings"
 license = "Apache-2.0"
 
 [lib]

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 test.describe('pricing onboarding CTA wiring', () => {
-  test('hero Get started CTA opens dashboard auth modal and does not call Stripe checkout', async ({
+  test('hero Get started CTA opens dashboard login and does not call Stripe checkout', async ({
     page,
     baseURL,
   }) => {
@@ -22,11 +22,9 @@ test.describe('pricing onboarding CTA wiring', () => {
     await expect(heroCta).toHaveText('Get started');
     await heroCta.click();
 
-    await expect(page.locator('#navbar-dashboard-auth-title')).toHaveText(
-      /Sign In To Open Dashboard/i,
-    );
+    await expect(page.locator('#dashboard-login-title')).toHaveText('Welcome back');
     await expect.poll(() => stripeCheckoutCalls).toBe(0);
-    await expect.poll(() => new URL(page.url()).pathname).toBe('/pricing');
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/login');
   });
 
   test('self-serve card CTA is labeled Get started', async ({ page }) => {

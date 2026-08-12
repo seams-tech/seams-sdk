@@ -14,6 +14,7 @@ import {
 } from '@/SeamsWeb/operations/authMethods/emailOtp/deviceEscrow';
 import { collectEmailOtpRegistrationAuthority } from '@/SeamsWeb/operations/authMethods/emailOtp/registrationAuthority';
 import { enrollEmailOtpWallet } from '@/core/signingEngine/session/emailOtp/workerEnrollment';
+import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 
 function jwtWithPayload(payload: Record<string, unknown>): string {
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
@@ -132,7 +133,7 @@ test.describe('SeamsWeb Email OTP runtime', () => {
           routePlan: {
             routeFamily: 'registration',
             authLane: { kind: 'app_session', jwt: 'app-session-jwt' },
-            operation: 'wallet_unlock',
+            operation: 'registration',
           },
           otpChannel: 'email_otp',
         },
@@ -319,7 +320,7 @@ test.describe('SeamsWeb Email OTP runtime', () => {
       'https://relay.example/wallet/email-otp/login/verify',
       'https://relay.example/session/exchange',
     ]);
-    expect(fetchCalls[4]?.body).toEqual({
+    expect(fetchCalls[4]?.body).toMatchObject({
       session_kind: 'cookie',
       projectEnvironmentId: 'env_test',
       exchange: {
@@ -329,21 +330,26 @@ test.describe('SeamsWeb Email OTP runtime', () => {
         token: 'google-id-token-1',
       },
     });
+    expect(
+      (fetchCalls[4]?.body.exchange as Record<string, unknown>).idempotencyKey,
+    ).toBeUndefined();
   });
 
   test('Google Email OTP session exchange preserves registration offer metadata', async () => {
     const fetchImpl: typeof fetch = async (input, init) => {
       expect(String(input)).toBe('https://relay.example/session/exchange');
-      expect(JSON.parse(String(init?.body || '{}'))).toEqual({
+      const body = JSON.parse(String(init?.body || '{}')) as Record<string, any>;
+      expect(body).toMatchObject({
         session_kind: 'jwt',
         projectEnvironmentId: 'env_test',
         exchange: {
-        type: 'oidc_jwt',
-        provider: 'google',
-        account_mode: 'register',
-        token: 'google-id-token-1',
-      },
-    });
+          type: 'oidc_jwt',
+          provider: 'google',
+          account_mode: 'register',
+          token: 'google-id-token-1',
+        },
+      });
+      expect(body.exchange.idempotencyKey).toBeUndefined();
       return new Response(
         JSON.stringify({
           ok: true,
@@ -462,6 +468,57 @@ test.describe('SeamsWeb Email OTP runtime', () => {
         },
       },
     });
+  });
+
+  test('Google Email OTP unlock retries one transient storage reset with the same operation key', async () => {
+    const idempotencyKeys: string[] = [];
+    let attempts = 0;
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      attempts += 1;
+      const body = JSON.parse(String(init?.body || '{}')) as {
+        exchange: { idempotencyKey: string };
+      };
+      idempotencyKeys.push(body.exchange.idempotencyKey);
+      if (attempts === 1) {
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            code: 'storage_temporarily_unavailable',
+            message: 'Session exchange storage is temporarily unavailable',
+            retryAfterMs: 250,
+          }),
+          { status: 503, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          jwt: 'app-session-jwt-1',
+          session: {
+            userId: 'google:subject-1',
+            walletId: 'alice.testnet',
+            googleEmailOtpResolution: { mode: 'existing_wallet' },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    };
+
+    await expect(
+      exchangeGoogleEmailOtpSession({
+        relayUrl: 'https://relay.example',
+        idToken: 'google-id-token-1',
+        accountMode: 'login',
+        sessionKind: 'jwt',
+        projectEnvironmentId: 'env_test',
+        fetchImpl,
+      }),
+    ).resolves.toMatchObject({
+      jwt: 'app-session-jwt-1',
+      session: { walletId: 'alice.testnet' },
+    });
+    expect(attempts).toBe(2);
+    expect(idempotencyKeys[0]).toBe(idempotencyKeys[1]);
   });
 
   test('Email OTP registration authority adapter builds a digest-bound proof', async () => {
@@ -647,7 +704,7 @@ test.describe('SeamsWeb Email OTP runtime', () => {
       userId: 'alice.testnet',
       challengeId: 'enroll-1',
       otpCode: '123456',
-      shamirPrimeB64u: 'prime-b64u',
+      groupId: SIGNING_SESSION_SEAL_GROUP_ID,
       appSessionJwt: 'app-session-jwt',
       clientSecret32,
       workerCtx: {
@@ -696,11 +753,11 @@ test.describe('SeamsWeb Email OTP runtime', () => {
         userId: 'alice.testnet',
         challengeId: 'enroll-1',
         otpCode: '123456',
-        shamirPrimeB64u: 'prime-b64u',
+        groupId: SIGNING_SESSION_SEAL_GROUP_ID,
         routePlan: {
           routeFamily: 'registration',
           authLane: { kind: 'app_session', jwt: 'app-session-jwt' },
-          operation: 'wallet_unlock',
+          operation: 'registration',
         },
         otpChannel: 'email_otp',
       },
@@ -716,7 +773,7 @@ test.describe('SeamsWeb Email OTP runtime', () => {
       challengeId: 'recovery-1',
       otpCode: '123456',
       recoveryKey: 'J7KD-9VQF-2MHT-R6ZX-NP4C-8Y12-ABCD-EFGH',
-      shamirPrimeB64u: 'prime-b64u',
+      groupId: SIGNING_SESSION_SEAL_GROUP_ID,
       appSessionJwt: 'app-session-jwt',
       workerCtx: {
         requestWorkerOperation: async ({ kind, request }: any) => {
@@ -753,7 +810,7 @@ test.describe('SeamsWeb Email OTP runtime', () => {
         challengeId: 'recovery-1',
         otpCode: '123456',
         recoveryKey: 'J7KD-9VQF-2MHT-R6ZX-NP4C-8Y12-ABCD-EFGH',
-        shamirPrimeB64u: 'prime-b64u',
+        groupId: SIGNING_SESSION_SEAL_GROUP_ID,
         routePlan: {
           routeFamily: 'login',
           authLane: { kind: 'app_session', jwt: 'app-session-jwt' },

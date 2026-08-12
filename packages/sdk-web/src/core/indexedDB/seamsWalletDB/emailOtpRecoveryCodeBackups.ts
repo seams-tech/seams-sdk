@@ -2,7 +2,6 @@ import { buildEmailOtpRecoveryCodeSet, type EmailOtpRecoveryCodeSet } from '@sha
 import { normalizeInteger, normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
 import {
   SEAMS_WALLET_DB_NAME,
-  SEAMS_WALLET_DB_VERSION,
   SEAMS_WALLET_INDEXES,
   SEAMS_WALLET_STORES,
 } from '../schemaNames';
@@ -11,7 +10,6 @@ import type { SeamsWalletDBManager } from './manager';
 
 export const EMAIL_OTP_RECOVERY_CODE_BACKUP_RECORD_VERSION = 1 as const;
 export const EMAIL_OTP_RECOVERY_CODE_BACKUP_DB_NAME = SEAMS_WALLET_DB_NAME;
-export const EMAIL_OTP_RECOVERY_CODE_BACKUP_DB_VERSION = SEAMS_WALLET_DB_VERSION;
 export const EMAIL_OTP_RECOVERY_CODE_BACKUP_STORE_NAME =
   SEAMS_WALLET_STORES.emailOtpRecoveryCodeBackups;
 export const EMAIL_OTP_RECOVERY_CODE_BACKUP_SECRET_KIND =

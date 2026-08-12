@@ -1,14 +1,15 @@
 ---
-title: Nonce Lanes
+title: Nonce lanes
+description: Prevent EVM-family transaction conflicts with explicit nonce ownership, reconciliation, and replacement state.
 ---
 
-# Nonce Lanes
+# Nonce lanes
 
 Nonce lanes prevent EVM-family transaction conflicts. They track which nonces
 are available, in flight, finalized, dropped, or replaced for a concrete chain
 target and signing lane.
 
-## Default Rule
+## Default rule
 
 Application code should not fetch or assign nonces for default Tempo/EVM
 signing flows. The signing engine owns nonce preparation, broadcast reporting,

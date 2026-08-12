@@ -166,7 +166,7 @@ test.describe('dashboard console config page api wiring', () => {
     await page.goto('/dashboard');
 
     await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/login');
-    await expect(page.locator('h1')).toHaveText(/sign in with google/i);
+    await expect(page.locator('h1')).toHaveText(/welcome back/i);
     await expect(page.locator('main[aria-label="Dashboard login page"]')).toBeVisible();
   });
 
@@ -202,7 +202,7 @@ test.describe('dashboard console config page api wiring', () => {
 
     await page.goto('/dashboard/wallets-list');
     await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/login');
-    await expect(page.locator('h1')).toHaveText(/sign in with google/i);
+    await expect(page.locator('h1')).toHaveText(/welcome back/i);
     await expect(page.locator('main[aria-label="Dashboard login page"]')).toBeVisible();
   });
 
@@ -243,7 +243,7 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(page.locator('p[role="alert"]')).toContainText(
       /access to this dashboard is forbidden/i,
     );
-    await expect(page.locator('h1')).not.toHaveText(/sign in with google/i);
+    await expect(page.locator('h1')).not.toHaveText(/welcome back/i);
   });
 
   test('login page remains available when console session check fails at network layer', async ({
@@ -257,7 +257,7 @@ test.describe('dashboard console config page api wiring', () => {
     });
 
     await page.goto('/dashboard/login');
-    await expect(page.locator('h1')).toHaveText(/sign in with google/i);
+    await expect(page.locator('h1')).toHaveText(/welcome back/i);
     await expect(page.locator('main[aria-label="Dashboard login page"]')).toBeVisible();
   });
 
@@ -475,7 +475,7 @@ test.describe('dashboard console config page api wiring', () => {
     });
 
     await page.goto('/dashboard/login');
-    await expect(page.locator('h1')).toHaveText(/sign in with google/i);
+    await expect(page.locator('h1')).toHaveText(/welcome back/i);
 
     const continueButton = page.getByRole('button', { name: /continue with google/i });
     await expect(continueButton).toBeEnabled();
@@ -488,6 +488,91 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(exchangeSessionKind).toBe('cookie');
     await expect(optionsRequestUsedLegacyAuthHeaders).toBe(false);
     await expect(exchangeRequestUsedLegacyAuthHeaders).toBe(false);
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/onboarding');
+  });
+
+  test('dashboard login offers GitHub and exchanges the callback authorization code', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    let sessionEstablished = false;
+    let exchangeCode = '';
+    let exchangeType = '';
+
+    await page.addInitScript(() => {
+      window.sessionStorage.setItem('seams.dashboard.github.oauth.state', 'github-test-state');
+    });
+    await page.route(`${consoleOrigin}/auth/google/options`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, configured: true, clientId: 'google-client-id' }),
+      });
+    });
+    await page.route(`${consoleOrigin}/auth/github/options`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          configured: true,
+          clientId: 'github-client-id',
+          callbackUrl: `${consoleOrigin}/dashboard/login`,
+        }),
+      });
+    });
+    await page.route(`${consoleOrigin}/session/exchange`, async (route) => {
+      const body = parseJsonBody(route.request().postData());
+      const exchange = (body.exchange || {}) as Record<string, unknown>;
+      exchangeType = String(exchange.type || '');
+      exchangeCode = String(exchange.code || '');
+      sessionEstablished = true;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, session: { kind: 'app_session_v1' } }),
+      });
+    });
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const pathname = new URL(route.request().url()).pathname;
+      if (pathname === '/console/session' && sessionEstablished) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'github:42',
+              orgId: 'org-github-login-test',
+              ...mockOwnerSessionAccess(),
+            },
+          }),
+        });
+        return;
+      }
+      if (pathname === '/console/session') {
+        await route.fulfill({
+          status: 401,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: false, code: 'unauthorized' }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: false, code: 'not_stubbed' }),
+      });
+    });
+
+    await page.goto('/dashboard/login');
+    await expect(page.getByRole('button', { name: /continue with google/i })).toBeEnabled();
+    await expect(page.getByRole('button', { name: /continue with github/i })).toBeEnabled();
+    await page.goto('/dashboard/login?code=github-temporary-code&state=github-test-state');
+
+    await expect.poll(() => exchangeType).toBe('github_oauth_code');
+    await expect.poll(() => exchangeCode).toBe('github-temporary-code');
     await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/onboarding');
   });
 
@@ -1408,7 +1493,7 @@ test.describe('dashboard console config page api wiring', () => {
 
     await expect.poll(() => sessionRevokeCalls).toBe(1);
     await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/login');
-    await expect(page.locator('h1')).toHaveText(/sign in with google/i);
+    await expect(page.locator('h1')).toHaveText(/signed out/i);
     await expect
       .poll(() => page.evaluate(() => window.localStorage.getItem('seams-dashboard-ui-state-v1')))
       .toBeNull();
@@ -9179,7 +9264,9 @@ test.describe('dashboard console config page api wiring', () => {
       .selectOption('ERROR');
     await expect.poll(() => lastEventsLevel).toBe('ERROR');
 
-    await page.locator('input[aria-label="Filter observability events by service"]').fill('billing');
+    await page
+      .locator('input[aria-label="Filter observability events by service"]')
+      .fill('billing');
     await expect.poll(() => lastEventsService).toBe('billing');
 
     await page

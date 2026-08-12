@@ -1,8 +1,9 @@
 ---
-title: Sign With Policy
+title: Sign with policy
+description: Sign a NEAR transaction or NEP-413 message with an exact wallet session, account reference, and typed intent.
 ---
 
-# Sign With Policy
+# Sign with policy
 
 Wallet signing starts with a typed intent. The intent is normalized, checked
 against policy, admitted through the correct auth planes, and executed through
@@ -23,22 +24,22 @@ flowchart TD
   Signature --> Audit["Audit trail"]
 ```
 
-## Admission Checks
+## Admission checks
 
-| Check | Purpose |
-| --- | --- |
-| Wallet Session | Confirms the wallet-user operation is admitted. |
-| Signing lane | Selects the exact wallet capability for the operation. |
-| Wallet Session quota | Enforces TTL and remaining uses for reusable signing. |
-| Capability claim | Binds one operation to its exact capability and material. |
-| Policy | Checks mandate, constraints, revocation state, and risk rules. |
-| Replay and idempotency | Prevents request reuse and ambiguous execution. |
+| Check                  | Purpose                                                        |
+| ---------------------- | -------------------------------------------------------------- |
+| Wallet Session         | Confirms the wallet-user operation is admitted.                |
+| Signing lane           | Selects the exact wallet capability for the operation.         |
+| Wallet Session quota   | Enforces TTL and remaining uses for reusable signing.          |
+| Capability claim       | Binds one operation to its exact capability and material.      |
+| Policy                 | Checks mandate, constraints, revocation state, and risk rules. |
+| Replay and idempotency | Prevents request reuse and ambiguous execution.                |
 
 Normal signing uses the signing shares produced during registration, refresh, or
 activation. Ed25519 Streaming Yao and ECDSA threshold-PRF derivation stay
 outside this normal-signing path.
 
-## Wallet Examples
+## Wallet examples
 
 - Sign a NEAR transaction.
 - Sign a NEP-413 message.
@@ -46,108 +47,34 @@ outside this normal-signing path.
 - Sign an EVM transaction from the wallet's threshold ECDSA address.
 - Sign a typed payment or checkout intent.
 
-## NEAR Transaction Example
+## Unlock before signing
 
-```tsx
-import {
-  ActionType,
-  TxExecutionStatus,
-  useSeams,
-  type FunctionCallAction,
-} from '@seams/sdk/react';
-import { nearAccountRefFromAccountId } from '@seams/sdk/advanced';
+Unlock creates the wallet session used by the signing capabilities. Handle its
+NEAR and EVM-family success branches explicitly.
 
-export function SetGreetingButton() {
-  const { seams, loginState } = useSeams();
+<<< ../examples/unlock.ts
 
-  async function sign() {
-    if (!loginState.nearAccountId) {
-      throw new Error('Wallet is not unlocked');
-    }
+## NEAR transaction example
 
-    const action: FunctionCallAction = {
-      type: ActionType.FunctionCall,
-      methodName: 'set_greeting',
-      args: { greeting: 'Hello from Seams' },
-      gas: '30000000000000',
-      deposit: '0',
-    };
+<<< ../examples/near-signing.tsx
 
-    await seams.near.signAndSendTransaction({
-      nearAccount: nearAccountRefFromAccountId(loginState.nearAccountId),
-      receiverId: 'guest-book.testnet',
-      actions: [action],
-      options: {
-        waitUntil: TxExecutionStatus.EXECUTED_OPTIMISTIC,
-        onEvent: (event) => {
-          console.log(event.phase, event.status, event.message);
-        },
-      },
-    });
-  }
+## NEP-413 message example
 
-  return <button onClick={sign}>Sign transaction</button>;
-}
-```
+<<< ../examples/nep413-signing.ts
 
-## NEP-413 Message Example
-
-```ts
-import { nearAccountRefFromAccountId } from '@seams/sdk/advanced';
-
-const signed = await seams.near.signNEP413Message({
-  nearAccount: nearAccountRefFromAccountId('alice.testnet'),
-  params: {
-    message: 'Approve checkout quote #quote_123',
-    recipient: 'merchant.example',
-    state: 'quote_123',
-  },
-  options: {
-    onEvent: (event) => console.log(event.phase, event.status),
-  },
-});
-
-if (!signed.success) {
-  throw new Error(signed.error || 'Message signing failed');
-}
-```
-
-## EVM-Family Transaction Example
+## EVM-family transaction example
 
 Build the chain-specific transaction with your app's EVM utilities, then pass
 the typed request through Seams.
 
-```ts
-import {
-  thresholdEcdsaChainTargetFromConfig,
-  walletSessionRefFromSession,
-} from '@seams/sdk/advanced';
+<<< ../examples/evm-signing.ts
 
-const walletSession = walletSessionRefFromSession({
-  walletId: 'alice.testnet',
-  userId: 'alice.testnet',
-});
+## Expected result and recovery
 
-const execution = await seams.tempo.executeEvmFamilyTransaction({
-  walletSession,
-  chainTarget: thresholdEcdsaChainTargetFromConfig({
-    network: 'tempo-testnet',
-    rpcUrl: 'https://rpc.moderato.tempo.xyz',
-    explorerUrl: 'https://explore.testnet.tempo.xyz',
-    chainId: 42431,
-  }),
-  // Build this with your app's EVM transaction utilities.
-  request: buildEip1559TransactionRequest({
-    to: '0x1234567890abcdef1234567890abcdef12345678',
-    data: '0x',
-    value: '0',
-  }),
-  options: {
-    onEvent: (event) => console.log(event.phase, event.status),
-  },
-});
-
-console.log('tx hash', execution.txHash);
-```
+Successful results expose the signed or submitted operation identity for the
+selected chain. Treat cancellation and policy denial as final for the current
+request. Refresh an expired or depleted wallet session before retrying. When
+broadcast status is uncertain, reconcile the transaction or nonce lane before
+submitting another operation.
 
 Read next: [Delegate Or Rotate](/getting-started/delegate-or-rotate).

@@ -280,6 +280,7 @@ function replaceWebAuthnService(
     webAuthn,
     identity: service.identity,
     sessionVersions: service.sessionVersions,
+    sessionExchanges: service.sessionExchanges,
     authorizationSessions: service.authorizationSessions,
     thresholdRuntime: service.thresholdRuntime,
     nearFunding: service.nearFunding,

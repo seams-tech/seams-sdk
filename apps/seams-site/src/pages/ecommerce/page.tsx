@@ -1,5 +1,5 @@
 import React from 'react';
-import NavbarStatic from '@/components/Navbar/NavbarStatic';
+import NavbarCompact from '@/components/Navbar/NavbarCompact';
 import { ArrowRightAnim } from '@/components/ArrowRightAnim';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import { H2Bento, H2Cases, H2Footer } from '@/components/h2/sections';
@@ -59,7 +59,7 @@ function EcommerceHero(): React.JSX.Element {
 export function EcommercePage(): React.JSX.Element {
   return (
     <div className="h2-page">
-      <NavbarStatic appearance="light" />
+      <NavbarCompact />
       <div className="h2-col">
         <EcommerceHero />
         <H2Cases />

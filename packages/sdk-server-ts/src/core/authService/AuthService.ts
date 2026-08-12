@@ -182,6 +182,12 @@ import {
   type GoogleLoginFacadeResult,
   type OidcJwtExchangeFacadeResult,
 } from './oidcVerification';
+import {
+  githubOAuthPublicConfig,
+  verifyGithubOAuthCodeWithIdentityStore,
+  type GithubOAuthCodeFacadeResult,
+  type GithubOAuthPublicConfig,
+} from './githubOAuth';
 import type {
   AppSessionVersionMutationResult,
   AppSessionVersionValidationResult,
@@ -328,6 +334,7 @@ export class AuthService {
         ? `• googleOidc: ${this.config.googleOidc.clientIds.length} clientId(s)`
         : `• googleOidc: not configured`
     }
+    • githubOAuth: ${this.config.githubOAuth ? 'configured' : 'not configured'}
     ${
       this.config.oidcExchange?.issuers?.length
         ? `• oidcExchange: ${this.config.oidcExchange.issuers.length} issuer(s)`
@@ -362,6 +369,10 @@ export class AuthService {
       configured: Boolean(clientId),
       ...(clientId ? { clientId } : {}),
     };
+  }
+
+  getGithubOAuthPublicConfig(): GithubOAuthPublicConfig {
+    return githubOAuthPublicConfig(this.config.githubOAuth);
   }
 
   private async consumeGoogleEmailOtpRegistrationRateLimitScope(input: {
@@ -1524,6 +1535,14 @@ export class AuthService {
       request,
       config: this.config.oidcExchange,
       jwksState: this.oidcJwksState,
+      identityStore: this.stores.getIdentityStore(),
+    });
+  }
+
+  async verifyGithubOAuthCode(request: { code?: unknown }): Promise<GithubOAuthCodeFacadeResult> {
+    return await verifyGithubOAuthCodeWithIdentityStore({
+      request,
+      config: this.config.githubOAuth,
       identityStore: this.stores.getIdentityStore(),
     });
   }

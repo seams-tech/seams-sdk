@@ -362,6 +362,10 @@ export async function handleAuth(ctx: FetchRouterApiContext): Promise<Response |
       const publicConfig = ctx.service.identity.getGoogleOidcPublicConfig();
       return json({ ok: true, ...publicConfig }, { status: 200 });
     }
+    case 'github_options': {
+      const publicConfig = ctx.service.identity.getGithubOAuthPublicConfig();
+      return json({ ok: true, ...publicConfig }, { status: 200 });
+    }
     case 'google_verify': {
       const parsed = parseGoogleLoginVerifyRequest(await readJson(ctx.request));
       if (!parsed.ok) return json(parsed.body, { status: parsed.status });

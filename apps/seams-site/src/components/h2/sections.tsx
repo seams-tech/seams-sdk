@@ -19,12 +19,7 @@ import { EcosystemLattice } from '@/components/h2/EcosystemLattice';
 import { NETWORK_MARKS, NetworkMarkLockup } from '@/components/icons/NetworkMarks';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import { useRevealOnIdle } from '@/shared/hooks/useRevealOnIdle';
-import {
-  DEMO_THEME_PRESETS,
-  demoIframeAppearance,
-  demoReactTokens,
-  type DemoThemeId,
-} from '@/context/app-themes';
+import { paperIframeAppearance, paperReactTokens } from '@/context/app-themes';
 import '@/styles/h2.css';
 
 /* Shared section library for the h2 marketing pages (/, /wallet, /ecommerce).
@@ -65,9 +60,9 @@ export function H2DemoHero({
   ),
   sub = (
     <>
-      One SDK for authentication, wallets, credentials, and delegated access, wherever
-      people and AI agents act on your store. Register with a passkey right here and you have a
-      working account: wallet included, recovery built in, every action signed.
+      One SDK for authentication, wallets, credentials, and delegated access, wherever people and AI
+      agents act on your store. Register with a passkey right here and you have a working account:
+      wallet included, recovery built in, every action signed.
     </>
   ),
   authDefaultModeWhenNoDetectedAccount,
@@ -76,21 +71,16 @@ export function H2DemoHero({
   const { linkProps } = useSiteRouter();
   const { seams, loginState } = useSeams();
   const [demoPage, setDemoPage] = React.useState(0);
-  const [demoTheme, setDemoTheme] = React.useState<DemoThemeId>('paper');
-  // corner shape is orthogonal to the color theme: any palette, sharp or rounded
   const [demoShape, setDemoShape] = React.useState<WalletShapeId>('square');
-  const activePreset = DEMO_THEME_PRESETS.find((t) => t.id === demoTheme) ?? DEMO_THEME_PRESETS[0];
   const activeWalletId = loginState?.isLoggedIn ? loginState.walletId || '' : '';
   const startProps = linkProps('/docs/concepts/');
   const authProps = linkProps('/docs/concepts/auth-methods/');
 
-  // Push the selected theme's tokens to the wallet iframe so embedded SDK
-  // components (tx confirmer, etc.) re-theme to match the React auth card.
   React.useEffect(() => {
     try {
-      seams.setAppearance(demoIframeAppearance(activePreset, demoShape));
+      seams.setAppearance(paperIframeAppearance(demoShape));
     } catch {}
-  }, [seams, activePreset, demoShape, loginState?.isLoggedIn, activeWalletId]);
+  }, [seams, demoShape, loginState?.isLoggedIn, activeWalletId]);
 
   // The Transactions / Account recovery screens need an unlocked wallet,
   // mirroring the carousel's own page gating.
@@ -138,10 +128,9 @@ export function H2DemoHero({
 
         <div className="h2-hero__demo">
           <p className="h2-demo-label">Live Demo</p>
-          {/* Feed the selected preset to the auth menu via the SDK theme context */}
           <Theme
-            theme={activePreset.mode}
-            tokens={demoReactTokens(activePreset, demoShape)}
+            theme="light"
+            tokens={paperReactTokens(demoShape)}
             tag="div"
             className="h2-demo-theme-root"
             style={{ display: 'contents' }}
@@ -162,26 +151,8 @@ export function H2DemoHero({
               )}
             </div>
           </Theme>
-          <div className="h2-themeswitch" role="group" aria-label="Preview theme">
-            {DEMO_THEME_PRESETS.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                className={`h2-themeswitch__btn${demoTheme === t.id ? ' is-active' : ''}`}
-                aria-pressed={demoTheme === t.id}
-                onClick={() => setDemoTheme(t.id)}
-              >
-                <span className="h2-themeswitch__swatch" style={{ background: t.swatch }} />
-                {t.label}
-              </button>
-            ))}
-          </div>
-          <div
-            className="h2-themeswitch h2-themeswitch--shape"
-            role="group"
-            aria-label="Corner shape"
-          >
-            <span className="h2-themeswitch__label">Corners</span>
+          <div className="h2-shapeswitch" role="group" aria-label="Corner shape">
+            <span className="h2-shapeswitch__label">Corners</span>
             {(
               [
                 { id: 'square', label: 'Sharp' },
@@ -191,7 +162,7 @@ export function H2DemoHero({
               <button
                 key={s.id}
                 type="button"
-                className={`h2-themeswitch__btn${demoShape === s.id ? ' is-active' : ''}`}
+                className={`h2-shapeswitch__btn${demoShape === s.id ? ' is-active' : ''}`}
                 aria-pressed={demoShape === s.id}
                 onClick={() => setDemoShape(s.id)}
               >
@@ -238,7 +209,6 @@ export function H2DemoHero({
 
 /* ---------- ecosystem (commerce-stack lattice + networks) ---------- */
 
-
 export function H2Ecosystem(): React.JSX.Element {
   const { linkProps } = useSiteRouter();
   const docsProps = linkProps('/docs/concepts/');
@@ -255,8 +225,8 @@ export function H2Ecosystem(): React.JSX.Element {
               Plugs into the tools stores already run
             </h2>
             <p className="h2-eco__copy">
-              Storefronts, payments, messaging, and support, connected through scoped
-              credentials, so every action stays inside policy.
+              Storefronts, payments, messaging, and support, connected through scoped credentials,
+              so every action stays inside policy.
             </p>
           </div>
           <a className="h2-btn h2-btn--outline" href={docsProps.href} onClick={docsProps.onClick}>
@@ -663,8 +633,8 @@ export function H2Bento(): React.JSX.Element {
             <div>
               <h3 className="h2-bento__title">Audit trail</h3>
               <p className="h2-bento__copy">
-                Every decision, allowed, held, or blocked, lands in an evidence trail
-                you can export.
+                Every decision, allowed, held, or blocked, lands in an evidence trail you can
+                export.
               </p>
             </div>
           </div>
@@ -675,8 +645,7 @@ export function H2Bento(): React.JSX.Element {
             <div>
               <h3 className="h2-bento__title">Recovery built in</h3>
               <p className="h2-bento__copy">
-                Accounts recover through email and linked devices: no seed phrases, no
-                lockouts.
+                Accounts recover through email and linked devices: no seed phrases, no lockouts.
               </p>
             </div>
           </div>
@@ -777,8 +746,8 @@ export function H2Cases(): React.JSX.Element {
           </h2>
           <p className="h2-split-head__copy">
             The Seams harness turns commerce events into policy-checked actions: agents watch the
-            store, prepare responses, and act inside the limits you set, with human approval
-            where it matters.
+            store, prepare responses, and act inside the limits you set, with human approval where
+            it matters.
           </p>
         </div>
 
@@ -848,8 +817,8 @@ export function H2Security(): React.JSX.Element {
                 Evidence for every decision
               </h3>
               <p>
-                Allowed, held, or blocked: each decision is attributed to a verified identity
-                and retained in the audit trail.
+                Allowed, held, or blocked: each decision is attributed to a verified identity and
+                retained in the audit trail.
               </p>
             </div>
           </div>
@@ -952,8 +921,8 @@ export function H2Start(): React.JSX.Element {
           <div className="h2-startrow__text">
             <h3>Merchant dashboard</h3>
             <p>
-              Create a store account, set policy, and invite staff and agents, no code
-              required. Planning a marketplace or fleet rollout? We&rsquo;ll help.
+              Create a store account, set policy, and invite staff and agents, no code required.
+              Planning a marketplace or fleet rollout? We&rsquo;ll help.
             </p>
             <div className="h2-startrow__ctas">
               <a
@@ -1187,8 +1156,7 @@ export function H2Footer(): React.JSX.Element {
         <div className="h2-footer__grid">
           <div className="h2-footer__brand">
             <a href={homeProps.href} onClick={homeProps.onClick} aria-label="Seams home">
-              {/* the page is always light; pin the light wordmark */}
-              <SeamsWordmark height={20} theme="light" />
+              <SeamsWordmark height={20} />
             </a>
           </div>
           {footerGroups.map((group) => (

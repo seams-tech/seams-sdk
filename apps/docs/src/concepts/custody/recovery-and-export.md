@@ -1,13 +1,14 @@
 ---
-title: Recovery And Export
+title: Recovery and export
+description: Compare recovery, key export, and the fresh authorization each high-impact operation requires.
 ---
 
-# Recovery And Export
+# Recovery and export
 
 Recovery and export prove that the user can regain control or leave the system
 while ordinary signing remains share-based.
 
-## Sealed Refresh
+## Sealed refresh
 
 Sealed refresh restores sealed signing material after accidental
 iframe or page reload. It stores sealed session material in wallet-origin

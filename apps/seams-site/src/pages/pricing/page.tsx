@@ -1,6 +1,6 @@
 import React from 'react';
 import { H2Footer } from '@/components/h2/sections';
-import NavbarStatic from '@/components/Navbar/NavbarStatic';
+import NavbarCompact from '@/components/Navbar/NavbarCompact';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import '@/styles/h2.css';
 import './styles.css';
@@ -19,11 +19,11 @@ export function PricingPage(): React.JSX.Element {
 
   return (
     <div className="h2-page">
-      <NavbarStatic appearance="light" />
+      <NavbarCompact />
       <div className="h2-col">
         <main className="pricing-page" aria-labelledby="pricing-page-title">
           <div className="pricing-wrap">
-            <section className="pricing-hero">
+            <section className="pricing-hero h2-rule">
               <p className="pricing-kicker">Pricing</p>
               <h1 id="pricing-page-title">
                 Simple key and credential infrastructure pricing that scales with your app
@@ -32,37 +32,38 @@ export function PricingPage(): React.JSX.Element {
                 Start in self-serve mode, then move to enterprise controls when you need stricter
                 policy workflows, compliance, and operational guarantees.
               </p>
-              <div className="pricing-hero-actions">
+              <div className="pricing-hero-tools">
+                <nav className="pricing-plan-picker" aria-label="Jump to a pricing plan">
+                  <a href="#starter">Self-serve</a>
+                  <a href="#enterprise">Enterprise</a>
+                </nav>
+                <p className="pricing-billing-note">Usage-based billing</p>
+              </div>
+            </section>
+
+            <section className="pricing-cards h2-rule" aria-label="Plans">
+              <article id="starter" className="pricing-card pricing-card--self-serve">
+                <div className="pricing-card-spotlight">
+                  <div>
+                    <p className="pricing-card-label">Self-serve</p>
+                    <h2>Build and launch fast</h2>
+                    <p className="pricing-card-summary">
+                      Ideal for teams shipping policy-bound keys for the first time.
+                    </p>
+                  </div>
+                  <div className="pricing-price">
+                    <strong>$0</strong>
+                    <span>base / month</span>
+                  </div>
+                </div>
                 <a
-                  className="pricing-button pricing-button--solid"
+                  className="pricing-button pricing-button--solid pricing-button--full"
                   href={dashboardProps.href}
                   onClick={handleGetStarted}
                 >
                   Get started
                 </a>
-                <a
-                  className="pricing-button pricing-button--ghost"
-                  href={dashboardProps.href}
-                  onClick={dashboardProps.onClick}
-                >
-                  Talk to sales
-                </a>
-              </div>
-            </section>
-
-            <section className="pricing-cards" aria-label="Plans">
-              <article className="pricing-card pricing-card--self-serve">
-                <div className="pricing-card-header">
-                  <div>
-                    <p className="pricing-card-label">Self-serve</p>
-                    <h2>Build and launch fast</h2>
-                    <p>Ideal for teams shipping policy-bound keys for the first time.</p>
-                  </div>
-                  <div className="pricing-price-pill">
-                    <strong>$0</strong>
-                    <span>base / month</span>
-                  </div>
-                </div>
+                <p className="pricing-feature-intro">Everything you need to launch</p>
                 <ul className="pricing-feature-list">
                   <li>Passkey, Email OTP, and embedded wallet SDK</li>
                   <li>Wallet list + wallet search controls</li>
@@ -86,40 +87,45 @@ export function PricingPage(): React.JSX.Element {
                     <p>Volume discounts</p>
                   </div>
                 </div>
+              </article>
+
+              <article id="enterprise" className="pricing-card pricing-card--enterprise">
+                <div className="pricing-card-spotlight">
+                  <div>
+                    <p className="pricing-card-label">Enterprise</p>
+                    <h2>Advanced controls and support</h2>
+                    <p className="pricing-card-summary">
+                      For teams that need approval workflows, dedicated environments, and
+                      compliance-oriented operations.
+                    </p>
+                  </div>
+                  <div className="pricing-price pricing-price--custom">
+                    <strong>Custom</strong>
+                    <span>tailored to your usage</span>
+                  </div>
+                </div>
                 <a
                   className="pricing-button pricing-button--solid pricing-button--full"
                   href={dashboardProps.href}
-                  onClick={handleGetStarted}
+                  onClick={dashboardProps.onClick}
                 >
-                  Get started
+                  Contact sales
                 </a>
-              </article>
-
-              <article className="pricing-card pricing-card--enterprise">
-                <p className="pricing-card-label">Enterprise</p>
-                <h2>Advanced controls and support</h2>
-                <p className="pricing-enterprise-copy">
-                  For teams that need approval workflows, dedicated environments, and
-                  compliance-oriented operations.
-                </p>
+                <p className="pricing-feature-intro">Everything in self-serve, plus</p>
                 <ul className="pricing-feature-list">
                   <li>Custom policy engine with staged rollouts</li>
                   <li>Gas sponsorship controls</li>
                   <li>Dedicated SLA, onboarding, and architecture reviews</li>
                   <li>Advanced RBAC, audit logs, and export controls</li>
                 </ul>
-                <a
-                  className="pricing-button pricing-button--ghost pricing-button--full"
-                  href={dashboardProps.href}
-                  onClick={dashboardProps.onClick}
-                >
-                  Contact sales
-                </a>
               </article>
             </section>
 
-            <section className="pricing-includes" aria-label="Included with all plans">
-              <h3>Included with every plan</h3>
+            <section className="pricing-includes h2-rule" aria-label="Included with all plans">
+              <div className="pricing-section-heading">
+                <p className="pricing-kicker">Core platform</p>
+                <h3>Included with every plan</h3>
+              </div>
               <div className="pricing-includes-grid">
                 <article className="pricing-include-card">
                   <strong>Wallets and keys</strong>
@@ -148,8 +154,11 @@ export function PricingPage(): React.JSX.Element {
               </div>
             </section>
 
-            <section className="pricing-compare" aria-label="Comparison">
-              <h3>Compare plans</h3>
+            <section className="pricing-compare h2-rule" aria-label="Comparison">
+              <div className="pricing-section-heading">
+                <p className="pricing-kicker">Plan details</p>
+                <h3>Compare plans</h3>
+              </div>
               <table>
                 <thead>
                   <tr>
@@ -188,8 +197,11 @@ export function PricingPage(): React.JSX.Element {
               </table>
             </section>
 
-            <section className="pricing-faq" aria-label="FAQ">
-              <h3>FAQ</h3>
+            <section className="pricing-faq h2-rule" aria-label="FAQ">
+              <div className="pricing-section-heading">
+                <p className="pricing-kicker">Questions</p>
+                <h3>FAQ</h3>
+              </div>
               <details open>
                 <summary>When do I move from self-serve to enterprise?</summary>
                 <p>
@@ -213,7 +225,7 @@ export function PricingPage(): React.JSX.Element {
               </details>
             </section>
 
-            <section className="pricing-cta">
+            <section className="pricing-cta h2-rule">
               <div>
                 <h3>Want a realistic control-plane walkthrough?</h3>
                 <p>

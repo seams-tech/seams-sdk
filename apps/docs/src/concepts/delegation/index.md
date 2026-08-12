@@ -1,5 +1,6 @@
 ---
 title: Delegation
+description: Add a device, agent, or service through an independently revocable and policy-bound signing lane.
 ---
 
 # Delegation

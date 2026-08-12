@@ -1,5 +1,6 @@
 ---
 title: Architecture
+description: See how Seams connects applications, wallet isolation, policy, sessions, Router A/B, and signing runtimes.
 ---
 
 # Architecture
@@ -15,7 +16,7 @@ The architecture has three jobs:
 2. keep policy decisions in front of execution;
 3. keep recovery, export, delegation, and rotation explicit.
 
-## Component Map
+## Component map
 
 ```mermaid
 flowchart LR
@@ -41,7 +42,7 @@ flowchart LR
   Router --> ClientWorker
 ```
 
-## Runtime Roles And Boundaries
+## Runtime roles and boundaries
 
 | Role                    | Responsibility                                                                                             |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -57,7 +58,7 @@ The app origin does not receive holder shares, PRF outputs, Email OTP secret
 material, VoiceID templates, server shares, root shares, or exported keys unless
 the user completes an explicit export flow.
 
-## Product Layers
+## Product layers
 
 | Layer                    | Responsibility                                                                                                |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------- |
@@ -67,7 +68,7 @@ the user completes an explicit export flow.
 | Enforcement gateway      | Allows, denies, escalates, or requires human approval before money, authority, inventory, or API state moves. |
 | Execution adapters       | Wallet signatures, payments, merchant APIs, marketplaces, agent tools, and future device actions.             |
 
-## Router A/B Architecture
+## Router A/B architecture
 
 Router A/B is the split-server boundary behind key derivation and signing
 admission.
@@ -93,7 +94,7 @@ envelopes. Deriver A and Deriver B receive role-specific material. SigningWorker
 receives activated server signing material for the selected signing root, key
 version, lane, and session.
 
-## Ed25519 And ECDSA Derivation
+## Ed25519 and ECDSA derivation
 
 Ed25519 uses an actively secure, fixed-circuit Streaming Yao ceremony between
 Deriver A and Deriver B. The circuit preserves the standard export-compatible
@@ -113,7 +114,7 @@ does not use the Ed25519 Yao circuit.
 Normal Ed25519 and ECDSA signing consume already-activated shares and
 presignature state. Neither flow invokes the Derivers during ordinary signing.
 
-## Custody Model
+## Custody model
 
 Seams is non-custodial because hosted infrastructure cannot sign or export a
 user wallet key by itself. Valid signing requires all of these conditions:
@@ -128,7 +129,7 @@ Export requires a separate, freshly authorized flow. Key rotation and lane
 delegation create or transform bounded signing capabilities without handing the
 wallet private key to an app, agent, or hosted Router.
 
-## Rotation And Delegation
+## Rotation and delegation
 
 Rotation covers several operations with different security effects:
 
@@ -145,7 +146,7 @@ receive the wallet private key, recovery authority, export authority, or broad
 account control. Revocation is enforced through lane status, policy epoch,
 budget, expiry, and replay checks.
 
-## Diagram Sources
+## Diagram sources
 
 Architecture diagrams are rendered in docs with Mermaid code blocks. Source
 copies live under `/diagrams/` for reuse:

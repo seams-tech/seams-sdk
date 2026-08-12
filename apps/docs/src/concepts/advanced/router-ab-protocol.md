@@ -1,8 +1,9 @@
 ---
-title: Router A/B Protocol
+title: Router A/B protocol
+description: Follow Router A/B transcript binding, role separation, derivation, signing, and verification invariants.
 ---
 
-# Router A/B Protocol
+# Router A/B protocol
 
 Router A/B protocol details include transcript binding, role-specific
 envelopes, replay digests, Deriver identity, SigningWorker identity, output
@@ -16,7 +17,7 @@ Keep the architecture page focused on roles, material boundaries, and operation
 paths. Put transcript fields, envelope formats, activation receipts, and
 deployment assertions here.
 
-## Protocol Invariants
+## Protocol invariants
 
 1. Router request context is bound before role envelopes are decrypted.
 2. Deriver A and Deriver B receive role-specific encrypted envelopes.
