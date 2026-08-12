@@ -42,6 +42,11 @@ import {
   parseWalletId,
   parseWalletKeyId,
 } from '../../../packages/shared-ts/src/utils/domainIds';
+import {
+  buildOwnerLaneParticipantContinuityV1,
+  parseWalletSignerId,
+} from '../../../packages/shared-ts/src/signing-lanes/ownerContinuity';
+import { parseDigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
 import type {
   LaneEnrollmentId,
@@ -120,6 +125,47 @@ const SECP256K1_GENERATOR_B64U = base64UrlEncode(
     Buffer.from('0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798', 'hex'),
   ),
 );
+
+function buildR102OwnerParticipantContinuity(suffix: string) {
+  return buildOwnerLaneParticipantContinuityV1({
+    signerId: parseWalletSignerId(`owner-signer-r102-${suffix}`),
+    participantIds: [1, 2],
+    signingWorkerId: requiredId(parseMpcSigningWorkerRef, `worker:owner-r102-${suffix}`),
+    custodyKeyManifestDigestB64u: parseDigestB64u(DIGEST_B64U),
+    sourceIdentityDigestB64u: parseDigestB64u(DIGEST_B64U),
+  });
+}
+
+function buildR102Source(
+  suffix: string,
+  laneKind: 'owner_passkey' | 'linked_device',
+  materialActivation: ReturnType<typeof buildR102MaterialActivation>,
+) {
+  if (laneKind === 'owner_passkey') {
+    return {
+      laneId: `source-lane-r102-${suffix}`,
+      laneKind: 'owner_passkey' as const,
+      laneShareEpoch: `source-epoch-r102-${suffix}`,
+      revocationEpoch: 0,
+      participantBindingDigestB64u: DIGEST_B64U,
+      materialActivation,
+      sourceKind: 'owner_registration' as const,
+      ownerParticipantContinuity: buildR102OwnerParticipantContinuity(suffix),
+    };
+  }
+  return {
+    laneId: `source-lane-r102-${suffix}`,
+    laneKind: 'linked_device' as const,
+    laneShareEpoch: `source-epoch-r102-${suffix}`,
+    revocationEpoch: 0,
+    participantBindingDigestB64u: DIGEST_B64U,
+    materialActivation,
+    sourceKind: 'provisioned_lane' as const,
+    holderParticipantId: `source-holder-r102-${suffix}`,
+    signingWorkerParticipantId: `source-worker-r102-${suffix}`,
+    signingWorkerRecipientKeyId: `source-worker-key-r102-${suffix}`,
+  };
+}
 
 export type R102LaneEnrollmentFixture = {
   readonly manifest: LaneEnrollmentManifestV1;
@@ -220,17 +266,11 @@ export function buildR102LaneJob(suffix: string): RotatableSigningLaneJobV1 {
     idempotencyKey: `idempotency-r102-${suffix}`,
     walletId,
     walletKeyId: `wallet-key-r102-${suffix}`,
-    source: {
-      laneId: `source-lane-r102-${suffix}`,
-      laneKind: 'owner_passkey',
-      laneShareEpoch: `source-epoch-r102-${suffix}`,
-      revocationEpoch: 0,
-      holderParticipantId: `source-holder-r102-${suffix}`,
-      signingWorkerParticipantId: `source-worker-r102-${suffix}`,
-      signingWorkerRecipientKeyId: `source-worker-key-r102-${suffix}`,
-      participantBindingDigestB64u: DIGEST_B64U,
-      materialActivation: buildR102MaterialActivation(`source-${suffix}`),
-    },
+    source: buildR102Source(
+      suffix,
+      'owner_passkey',
+      buildR102MaterialActivation(`source-${suffix}`),
+    ),
     targetHolder: {
       participantId: `target-holder-r102-${suffix}`,
       participantBindingDigestB64u: DIGEST_B64U,
@@ -318,17 +358,7 @@ export function buildR102EcdsaLaneJob(
     idempotencyKey: `idempotency-r102-${suffix}`,
     walletId: 'wallet-r102-lifecycle',
     walletKeyId: `wallet-key-r102-${suffix}`,
-    source: {
-      laneId: `source-lane-r102-${suffix}`,
-      laneKind: options.sourceLaneKind,
-      laneShareEpoch: `source-epoch-r102-${suffix}`,
-      revocationEpoch: 0,
-      holderParticipantId: `source-holder-r102-${suffix}`,
-      signingWorkerParticipantId: `source-worker-r102-${suffix}`,
-      signingWorkerRecipientKeyId: `source-worker-key-r102-${suffix}`,
-      participantBindingDigestB64u: DIGEST_B64U,
-      materialActivation: sourceMaterialActivation,
-    },
+    source: buildR102Source(suffix, options.sourceLaneKind, sourceMaterialActivation),
     targetHolder: {
       participantId: `target-holder-r102-${suffix}`,
       participantBindingDigestB64u: DIGEST_B64U,
@@ -397,6 +427,7 @@ export function buildR102EcdsaRefreshJob(
     walletId: sourceJob.walletId,
     walletKeyId: sourceJob.walletKeyId,
     source: {
+      sourceKind: 'provisioned_lane',
       laneId: sourceJob.target.laneId,
       laneKind: sourceJob.target.laneKind,
       laneShareEpoch: sourceJob.target.laneShareEpoch,
@@ -454,9 +485,18 @@ export function buildR102EcdsaRefreshJob(
     reshareChannelBindingDigestB64u: sourceJob.reshareChannelBindingDigestB64u,
     transcriptEncoding: sourceJob.transcriptEncoding,
   });
-  if (parsed.keyFamily !== 'ecdsa_secp256k1' || parsed.target.operation !== 'refresh_lane')
+  if (!isEcdsaRefreshJob(parsed))
     throw new Error('refresh fixture parser changed its exact branch');
   return parsed;
+}
+
+function isEcdsaRefreshJob(
+  job: RotatableSigningLaneJobV1,
+): job is Extract<
+  RotatableSigningLaneJobV1,
+  { keyFamily: 'ecdsa_secp256k1'; target: { operation: 'refresh_lane' } }
+> {
+  return job.keyFamily === 'ecdsa_secp256k1' && job.target.operation === 'refresh_lane';
 }
 
 export function buildR102ProtocolCommitReceipt(
