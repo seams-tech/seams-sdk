@@ -183,6 +183,82 @@ test('persists exact target-ready input, accepts one delivery submission, and re
   ).resolves.toEqual(handoff.deliveries);
 });
 
+test('waits for deliveries submitted after provisioning preparation starts', async () => {
+  temporary = createTemporaryD1Database();
+  await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+  const fixture = buildR103DeviceLinkFixture();
+  const approval = { ...fixture.approval, expiresAtMs: 9_000 };
+  const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
+  const service = new LinkedDeviceSessionServiceV1({
+    store,
+    authorization: ownerAuthorization(),
+    aggregateActivationVerifier: {
+      verifyAggregateActivationV1: async () => ({ kind: 'verified' as const }),
+    },
+  });
+  expect(
+    (await service.createUnclaimedSessionV1({ payload: fixture.payload, nowMs: 3_000 })).outcome,
+  ).toBe('applied');
+  expect(
+    (await service.claimSessionV1({ payload: fixture.claimRequest.payload, nowMs: 3_000 })).outcome,
+  ).toBe('applied');
+  expect((await service.recordOwnerApprovalV1({ approval, nowMs: 3_000 })).outcome).toBe('applied');
+  const session = await service.getSessionV1({
+    linkSessionId: fixture.approval.linkSessionId,
+    nowMs: 3_000,
+  });
+  if (!session || session.state.state !== 'awaiting_target_passkey') {
+    throw new Error('source handoff fixture session is not awaiting a target passkey');
+  }
+  const handoff = await buildSourceHandoffFixture(approval);
+  await persistRegisteredTargetCredential(temporary.database, handoff);
+  const provider = new D1LinkedDeviceSourceHandoffProviderV1({
+    database: temporary.database,
+    scope,
+  });
+  await provider.persistTargetReadyV1({
+    targetReady: handoff.targetReady,
+    session,
+    approval,
+    requestedAtMs: 3_000,
+  });
+  const command: LinkedDeviceProvisioningCommandV1 = {
+    kind: 'linked_device_provisioning_command_v1',
+    linkSessionId: approval.linkSessionId,
+    enrollmentId: approval.enrollmentId,
+    deviceId: approval.deviceId,
+  };
+  const preparing = provider.prepareProvisioningDeliveriesV1({
+    command,
+    session,
+    approval,
+    requestedAtMs: 3_004,
+  });
+  await waitForTestDelay(40);
+  const submission = {
+    kind: 'linked_device_provisioning_deliveries_submission_v1' as const,
+    linkSessionId: approval.linkSessionId,
+    walletId: approval.walletId,
+    enrollmentId: approval.enrollmentId,
+    deviceId: approval.deviceId,
+    manifestDigestB64u: handoff.manifestDigestB64u,
+    deliveries: handoff.deliveries,
+  };
+  await expect(
+    provider.submitPreparedProvisioningDeliveriesV1({
+      submission,
+      session,
+      approval,
+      requestedAtMs: 3_005,
+    }),
+  ).resolves.toEqual(submission);
+  await expect(preparing).resolves.toEqual(handoff.deliveries);
+});
+
+async function waitForTestDelay(delayMs: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+}
+
 async function buildSourceHandoffFixture(approval: LinkedDeviceApprovalV1) {
   const source = buildR103ProvisioningFixture({
     ...buildR103DeviceLinkFixture(),
