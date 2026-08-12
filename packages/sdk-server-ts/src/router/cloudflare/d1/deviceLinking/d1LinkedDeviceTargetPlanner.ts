@@ -19,6 +19,7 @@ import {
   parseLaneEnrollmentId,
   parseLaneOperationId,
   parseSigningLaneId,
+  type LinkedDeviceEnrollmentId,
   type LaneOperationId,
   type LaneOperationIdempotencyKey,
 } from '@shared/signing-lanes/ids';
@@ -44,6 +45,7 @@ import type {
   LaneHolderParticipantId,
   LaneHolderParticipantRecordV1,
 } from '@shared/signing-lanes/participants';
+import { parseLaneHolderParticipantId } from '@shared/signing-lanes/participants';
 import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes/evmFamilySigningKeySlotId';
 import type { KeyCreationSignerSlot } from '@shared/passkey-custody/primitives';
 import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
@@ -69,11 +71,12 @@ export type LinkedDeviceTargetAuthorizationFactsV1 = {
 type LinkedDeviceOwnerSourceChildResolutionBaseV1 = {
   readonly walletKeyId: LinkedDeviceEnrollmentKeyBindingV1['walletKeyId'];
   readonly source: ActiveLaneProtocolSourceV1;
-  readonly targetHolderParticipantId: LaneHolderParticipantId;
-  readonly targetSigningWorker: LaneTargetSigningWorkerV1;
   readonly authorization: LinkedDeviceTargetAuthorizationFactsV1;
 };
 
+/** Facts authenticated from Device 1's owner lane projection. Target
+ * participant and capability material is intentionally absent until Device 2
+ * returns its credential and holder registration. */
 export type LinkedDeviceOwnerSourceChildResolutionV1 =
   | (LinkedDeviceOwnerSourceChildResolutionBaseV1 & {
       readonly keyFamily: 'ed25519';
@@ -90,11 +93,26 @@ export type LinkedDeviceOwnerSourceChildResolutionV1 =
       readonly thresholdPublicKey33B64u: string;
       readonly evmAddress: string;
       readonly sourceCapability: EcdsaSourceCapabilityBindingV1;
-      readonly targetCapability: EcdsaTargetCapabilityBindingV1;
       readonly sourceHolderVerifyingShare33B64u: string;
       readonly sourceServerVerifyingShare33B64u: string;
       readonly reshareChannelBindingDigestB64u: string;
     });
+
+export type LinkedDeviceTargetEnrichedChildResolutionV1 =
+  | (LinkedDeviceOwnerSourceChildResolutionV1 & {
+      readonly keyFamily: 'ed25519';
+      readonly targetHolderParticipantId: LaneHolderParticipantId;
+      readonly targetSigningWorker: LaneTargetSigningWorkerV1;
+    })
+  | (LinkedDeviceOwnerSourceChildResolutionV1 & {
+      readonly keyFamily: 'ecdsa_secp256k1';
+      readonly targetHolderParticipantId: LaneHolderParticipantId;
+      readonly targetSigningWorker: LaneTargetSigningWorkerV1;
+      readonly targetCapability: EcdsaTargetCapabilityBindingV1;
+    });
+
+export type LinkedDeviceTargetPreparationResolutionV1 =
+  LinkedDeviceOwnerSourceChildResolutionV1;
 
 export type LinkedDeviceOwnerSourceChildResolutionRequestV1 =
   | {
@@ -115,7 +133,10 @@ export type LinkedDeviceOwnerSourceChildResolutionRequestV1 =
 export type LinkedDeviceOwnerSourceChildResolverV1 = {
   resolveOwnerSourceChildV1(
     input: LinkedDeviceOwnerSourceChildResolutionRequestV1,
-  ): Promise<LinkedDeviceOwnerSourceChildResolutionV1>;
+  ): Promise<
+    | LinkedDeviceTargetPreparationResolutionV1
+    | LinkedDeviceTargetEnrichedChildResolutionV1
+  >;
 };
 
 export type D1LinkedDeviceTargetPlannerOptionsV1 = {
@@ -182,7 +203,10 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
         targetLaneId: binding.targetLaneId,
         targetLaneShareEpoch: binding.targetLaneShareEpoch,
         targetMaterialActivationId: createTargetMaterialActivationId(childIndex),
-        targetHolderParticipantId: resolution.targetHolderParticipantId,
+        targetHolderParticipantId: createTargetHolderParticipantId(
+          input.approval.enrollmentId,
+          childIndex,
+        ),
       });
     }
 
@@ -240,7 +264,7 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
       throw new Error('linked-device target registration preparation digest differs');
     }
 
-    const resolutions: LinkedDeviceOwnerSourceChildResolutionV1[] = [];
+    const resolutions: LinkedDeviceTargetEnrichedChildResolutionV1[] = [];
     const jobs: RotatableSigningLaneJobV1[] = [];
     for (
       let childIndex = 0;
@@ -260,6 +284,9 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
         credential: input.credential,
         childIndex,
       });
+      if (!isTargetEnrichedResolution(resolution)) {
+        throw new Error(`linked-device target resolution ${childIndex} is not enriched`);
+      }
       assertResolutionMatchesPreparation(resolution, preparationChild, childIndex);
       resolutions.push(resolution);
       jobs.push(
@@ -362,7 +389,7 @@ function assertResolutionAuthorizationMatchesApproval(
 }
 
 function assertResolutionMatchesPreparation(
-  resolution: LinkedDeviceOwnerSourceChildResolutionV1,
+  resolution: LinkedDeviceTargetEnrichedChildResolutionV1,
   child: LinkedDeviceTargetPreparationChildV1,
   childIndex: number,
 ): void {
@@ -373,6 +400,18 @@ function assertResolutionMatchesPreparation(
   ) {
     throw new Error(`linked-device source resolution ${childIndex} differs from preparation`);
   }
+}
+
+function isTargetEnrichedResolution(
+  resolution:
+    | LinkedDeviceTargetPreparationResolutionV1
+    | LinkedDeviceTargetEnrichedChildResolutionV1,
+): resolution is LinkedDeviceTargetEnrichedChildResolutionV1 {
+  return (
+    'targetHolderParticipantId' in resolution &&
+    'targetSigningWorker' in resolution &&
+    (resolution.keyFamily === 'ed25519' || 'targetCapability' in resolution)
+  );
 }
 
 function assertHolderRegistrationMatchesPreparation(
@@ -410,7 +449,7 @@ function buildTargetJob(input: {
   readonly preparation: LinkedDeviceTargetPreparationV1;
   readonly preparationChild: LinkedDeviceTargetPreparationChildV1;
   readonly holderParticipant: LaneHolderParticipantRecordV1;
-  readonly resolution: LinkedDeviceOwnerSourceChildResolutionV1;
+  readonly resolution: LinkedDeviceTargetEnrichedChildResolutionV1;
 }): RotatableSigningLaneJobV1 {
   const enrollmentId = parseRequired(
     parseLaneEnrollmentId(String(input.preparation.enrollmentId)),
@@ -512,6 +551,16 @@ function createTargetMaterialActivationId(childIndex: number): MpcMaterialActiva
       `linked-device-target-material:${childIndex}:${secureRandomBase36(20)}`,
     ),
     'target material activation id',
+  );
+}
+
+function createTargetHolderParticipantId(
+  enrollmentId: LinkedDeviceEnrollmentId,
+  childIndex: number,
+): LaneHolderParticipantId {
+  return parseRequired(
+    parseLaneHolderParticipantId(`holder:linked-device:${String(enrollmentId)}:${childIndex}`),
+    'target holder participant id',
   );
 }
 

@@ -223,8 +223,6 @@ function buildSnapshotInput(input: {
     const common = {
       walletKeyId: projection.walletKey.walletKeyId,
       source,
-      targetHolderParticipantId: deploymentChild.targetHolderParticipantId,
-      targetSigningWorker: deploymentChild.targetSigningWorker,
       authorization,
     } as const;
     if (deploymentChild.keyFamily === 'ed25519') {
@@ -252,7 +250,6 @@ function buildSnapshotInput(input: {
       thresholdPublicKey33B64u: projection.walletKey.thresholdPublicKey33B64u,
       evmAddress: projection.walletKey.evmAddress,
       sourceCapability: deploymentChild.sourceCapability,
-      targetCapability: deploymentChild.targetCapability,
       sourceHolderVerifyingShare33B64u: deploymentChild.sourceHolderVerifyingShare33B64u,
       sourceServerVerifyingShare33B64u: deploymentChild.sourceServerVerifyingShare33B64u,
       reshareChannelBindingDigestB64u: deploymentChild.reshareChannelBindingDigestB64u,
