@@ -15,13 +15,19 @@ import {
   Wallet,
 } from 'lucide-react';
 import { AuthMenuMode, SeamsAuthMenuSkeletonInner } from '@seams/sdk/react';
-import { PAPER_LIGHT_COLORS } from '@/context/app-themes';
+import { DEMO_THEME_PRESETS } from '@/context/app-themes';
 import NavbarCompact from '@/components/Navbar/NavbarCompact';
 import SeamsWordmark from '@/components/icons/SeamsWordmark';
 import { NETWORK_MARKS, NetworkMarkLockup } from '@/components/icons/NetworkMarks';
 import { ArrowRightAnim } from '@/components/ArrowRightAnim';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
-import { H2Ecosystem, H2Faq, H2Footer, H2Pillars, MpcSplitDiagram } from '@/components/h2/sections';
+import {
+  H2Ecosystem,
+  H2Faq,
+  H2Footer,
+  H2Pillars,
+  MpcSplitDiagram,
+} from '@/components/h2/sections';
 import '@/styles/h2.css';
 
 /* Umbrella front page: a simple headline, then a paged two-panel scene band
@@ -36,7 +42,7 @@ function DashboardWindow(): React.JSX.Element {
     <div className="h2-window" role="img" aria-label="Seams merchant dashboard overview">
       <div className="h2-window__side">
         <div className="h2-window__brand">
-          <SeamsWordmark height={14} />
+          <SeamsWordmark height={14} theme="light" />
         </div>
         <div className="h2-window__navitem is-active">
           <Home aria-hidden /> Home
@@ -137,8 +143,8 @@ function IntegrationsWindow(): React.JSX.Element {
         <div className="h2-chat">
           <div className="h2-chat__bubble">
             <small>Seams Harness · APP · 09:14</small>
-            Held for approval: support agent wants to send a 12% discount for cart #8841 (¥12,400).
-            Policy: discounts over 10% need an owner.
+            Held for approval: support agent wants to send a 12% discount for cart #8841
+            (¥12,400). Policy: discounts over 10% need an owner.
           </div>
           <div className="h2-chat__bubble">
             <small>Seams Harness · APP · 09:14</small>
@@ -158,14 +164,24 @@ function IntegrationsWindow(): React.JSX.Element {
   );
 }
 
-/* The SDK skeleton is pinned to the same Paper colors as the complete site. */
+/* The real SeamsAuthMenu shell, inert: the SDK's skeleton renders identical
+   markup/CSS with all controls disabled and no wallet logic. The Inner export
+   reads no theme context; the Paper palette is pinned as CSS variables on the
+   wrapper so the card can't inherit the site theme (which may be dark or
+   Rosé Pine). pointer-events off so clicks fall through to the panel link. */
+const paperPreset = DEMO_THEME_PRESETS.find((t) => t.id === 'paper') ?? DEMO_THEME_PRESETS[0];
 const paperShellVars = Object.fromEntries(
-  Object.entries(PAPER_LIGHT_COLORS).map(([key, value]) => [`--w3a-colors-${key}`, value]),
+  Object.entries(paperPreset.colors).map(([key, value]) => [`--w3a-colors-${key}`, value]),
 ) as React.CSSProperties;
 
 function WalletShellCard(): React.JSX.Element {
   return (
-    <div className="h2-heroscene__shell" aria-hidden data-w3a-theme="light" style={paperShellVars}>
+    <div
+      className="h2-heroscene__shell"
+      aria-hidden
+      data-w3a-theme="light"
+      style={paperShellVars}
+    >
       {/* Login mode shows the full method stack (passkey, SSO, other options) */}
       <SeamsAuthMenuSkeletonInner defaultMode={AuthMenuMode.Login} />
     </div>
@@ -224,7 +240,9 @@ function WalletTransactionPreview(): React.JSX.Element {
           </p>
           <p className="h2-txmock__step">
             Calling <strong>swapUsdcToJpyc()</strong>
-            <span className="h2-txmock__args">{'{ "rate": "155.2", "maxSlippage": "0.5%" }'}</span>
+            <span className="h2-txmock__args">
+              {'{ "rate": "155.2", "maxSlippage": "0.5%" }'}
+            </span>
           </p>
           <p className="h2-txmock__step">
             Calling <strong>releaseEscrow()</strong>
@@ -345,10 +363,7 @@ function HomeHeroCurrent(): React.JSX.Element {
                 <p className="h2-heroscene__intro-sub">{scene.sub}</p>
               </div>
             </div>
-            <div
-              className="h2-heroscene__frame h2-fadein h2-fadein--late"
-              key={`frame-${scene.id}`}
-            >
+            <div className="h2-heroscene__frame h2-fadein h2-fadein--late" key={`frame-${scene.id}`}>
               {scene.left}
             </div>
           </a>
@@ -540,7 +555,10 @@ function HomeHeroMedia(): React.JSX.Element {
         <div className="h2-shell h2-hero-media__split">
           <div className="h2-hero-media__main">
             <p className="h2-hero-media__product">
-              <img src="/seams-v9/png/gradient-fabric/seams-mark-gradient-fabric-256.png" alt="" />
+              <img
+                src="/seams-v9/png/gradient-fabric/seams-mark-gradient-fabric-256.png"
+                alt=""
+              />
               <span>Seams Agents</span>
             </p>
             <h1 id="h2-home2-title" className="h2-display h2-hero-media__title">
@@ -565,8 +583,8 @@ function HomeHeroMedia(): React.JSX.Element {
           </div>
           <aside className="h2-hero-media__copy" aria-label="Seams agent account summary">
             <p>
-              Configure, deploy, and monitor AI agents for store operations. Seams gives every agent
-              scoped credentials, spending limits, owner approvals, and an audit trail.
+              Configure, deploy, and monitor AI agents for store operations. Seams gives every
+              agent scoped credentials, spending limits, owner approvals, and an audit trail.
             </p>
           </aside>
         </div>
@@ -622,8 +640,8 @@ function HomeTrusted(): React.JSX.Element {
             Built on the rails merchants settle on
           </h2>
           <p className="h2-logos__copy">
-            Seams gives stores and platforms secure accounts, scoped credentials, and wallet access,
-            with approval rules and an audit trail for every action.
+            Seams gives stores and platforms secure accounts, scoped credentials, and wallet
+            access, with approval rules and an audit trail for every action.
           </p>
         </div>
       </div>
@@ -657,8 +675,8 @@ function HomeDuo(): React.JSX.Element {
               Embedded Wallet
             </h3>
             <p className="h2-duo__panel-copy">
-              Passkey-secured, non-custodial wallets for your users: recovery built in, every action
-              signed, keys split so neither side can sign alone.
+              Passkey-secured, non-custodial wallets for your users: recovery built in, every
+              action signed, keys split so neither side can sign alone.
             </p>
             {/* MPC diagram instead of a second auth card: the hero already
                 shows the real wallet shell */}
@@ -676,8 +694,8 @@ function HomeDuo(): React.JSX.Element {
               Ecommerce Agents
             </h3>
             <p className="h2-duo__panel-copy">
-              Give AI agents and staff scoped credentials to run your store: limits, approvals, and
-              an audit trail on every action.
+              Give AI agents and staff scoped credentials to run your store: limits, approvals,
+              and an audit trail on every action.
             </p>
             <div className="h2-duo__visual">
               <div className="h2-chat" style={{ maxWidth: 324 }}>
@@ -708,7 +726,7 @@ type HomeFrameProps = {
 function HomeFrame({ hero }: HomeFrameProps): React.JSX.Element {
   return (
     <div className="h2-page">
-      <NavbarCompact />
+      <NavbarCompact appearance="light" />
       <div className="h2-col">
         {hero}
         <HomeTrusted />

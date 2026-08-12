@@ -18,7 +18,14 @@ import {
 } from 'lucide-react';
 import { ArrowRightAnim } from '../ArrowRightAnim';
 import SeamsWordmark from '../icons/SeamsWordmark';
+import { DashboardGoogleAuthCard } from '@/shared/auth/DashboardGoogleAuthCard';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
+import { getActiveFrontendDeployment } from '@/context/frontendRuntime';
+import {
+  ensureGoogleIdentityScriptLoaded,
+  fetchGoogleAuthOptions,
+  requestGoogleIdToken,
+} from '@/shared/auth/googleIdentity';
 import './Navbar.css';
 
 type DropdownId = 'products' | 'documentation' | 'about' | 'pricing';
@@ -65,8 +72,10 @@ type DropdownTriggerConfig = {
 type DropdownFocusTarget = 'first' | 'last';
 const DASHBOARD_AUTH_OPEN_EVENT = 'seams:dashboard-auth-open';
 
-const productsDropdownPane: DropdownPane = {
-  id: 'products',
+/* The 'documentation' pane id historically maps to the "Products" trigger and
+   vice versa; ids are kept stable so aria wiring and pane ordering don't churn. */
+const documentationDropdownPane: DropdownPane = {
+  id: 'documentation',
   label: 'Products',
   kicker: 'Products',
   rows: [
@@ -98,8 +107,8 @@ const productsDropdownPane: DropdownPane = {
   footerLinks: [{ label: 'Plan pricing', to: '/pricing/' }],
 };
 
-const documentationDropdownPane: DropdownPane = {
-  id: 'documentation',
+const productsDropdownPane: DropdownPane = {
+  id: 'products',
   label: 'Documentation',
   kicker: 'Documentation',
   rows: [
@@ -207,7 +216,7 @@ const dropdownPanes: DropdownPane[] = [
 /* Visual left-to-right order of the dropdown triggers in the bar; drives which
    side inactive panes park on so a menu switch slides content in from the
    direction of travel (restores the pre-refresh pane slide). */
-const DROPDOWN_VISUAL_ORDER: DropdownId[] = ['products', 'documentation', 'pricing', 'about'];
+const DROPDOWN_VISUAL_ORDER: DropdownId[] = ['documentation', 'products', 'pricing', 'about'];
 
 function paneOrderIndex(id: DropdownId): number {
   return DROPDOWN_VISUAL_ORDER.indexOf(id);
@@ -221,11 +230,11 @@ function paneVisualClass(paneId: DropdownId, activeId: DropdownId | null): strin
 
 const primaryDropdownTriggers: DropdownTriggerConfig[] = [
   {
-    id: 'products',
+    id: 'documentation',
     label: 'Products',
   },
   {
-    id: 'documentation',
+    id: 'products',
     label: 'Documentation',
   },
 ];
@@ -251,17 +260,47 @@ function getMenuItems(panel: HTMLDivElement | null, id: DropdownId | null): HTML
   );
 }
 
+interface RelaySessionStateResponse {
+  authenticated?: boolean;
+  claims?: {
+    sub?: string;
+    userId?: string;
+    provider?: string;
+  };
+  message?: string;
+}
+
+function normalizeBaseUrl(input: unknown): string {
+  return String(input || '')
+    .trim()
+    .replace(/\/+$/, '');
+}
+
+async function parseOptionalJson(response: Response): Promise<any> {
+  return response.json().catch(() => null);
+}
+
 export type NavbarStaticProps = {
+  /** 'auto' follows the site theme; 'light' pins the light-page skin (used by /home2). */
+  appearance?: 'auto' | 'light';
   /** Compact keeps the inset shell when a page supplies its own navbar treatment. */
   layout?: 'page' | 'compact';
 };
 
-export function NavbarStatic({ layout = 'page' }: NavbarStaticProps = {}): React.JSX.Element {
+export function NavbarStatic({
+  appearance = 'auto',
+  layout = 'page',
+}: NavbarStaticProps = {}): React.JSX.Element {
   const OPEN_DELAY_MS = 0;
   const CLOSE_DELAY_MS = 120;
   const SCROLL_THRESHOLD_PX = 8;
 
   const { go, linkProps } = useSiteRouter();
+  const relayerBaseUrl = React.useMemo(() => {
+    const deployment = getActiveFrontendDeployment();
+    return normalizeBaseUrl(deployment.relayerUrl || deployment.consoleBaseUrl);
+  }, []);
+  const [googleClientId, setGoogleClientId] = React.useState<string>('');
   const rootRef = React.useRef<HTMLElement | null>(null);
   const dropdownButtonRefs = React.useRef<Record<DropdownId, HTMLButtonElement | null>>({
     products: null,
@@ -294,6 +333,65 @@ export function NavbarStatic({ layout = 'page' }: NavbarStaticProps = {}): React
   const [isMobileDocumentationOpen, setIsMobileDocumentationOpen] = React.useState<boolean>(false);
   const [isMobilePricingOpen, setIsMobilePricingOpen] = React.useState<boolean>(false);
   const [isMobileAboutOpen, setIsMobileAboutOpen] = React.useState<boolean>(false);
+  const [isDashboardAuthOpen, setIsDashboardAuthOpen] = React.useState<boolean>(false);
+  const [dashboardAuthError, setDashboardAuthError] = React.useState<string>('');
+  const [relaySessionLoading, setRelaySessionLoading] = React.useState<boolean>(false);
+  const [relaySessionAuthenticated, setRelaySessionAuthenticated] = React.useState<boolean>(false);
+  const [googleConfigChecked, setGoogleConfigChecked] = React.useState<boolean>(false);
+  const [googleConfigured, setGoogleConfigured] = React.useState<boolean>(false);
+  const [googleSigningIn, setGoogleSigningIn] = React.useState<boolean>(false);
+
+  const refreshRelaySessionState = React.useCallback(async (): Promise<boolean> => {
+    if (!relayerBaseUrl) {
+      setRelaySessionAuthenticated(false);
+      return false;
+    }
+    setRelaySessionLoading(true);
+    try {
+      const response = await fetch(`${relayerBaseUrl}/session/state`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json',
+        },
+        cache: 'no-store',
+      });
+      const body = (await parseOptionalJson(response)) as RelaySessionStateResponse | null;
+      const authenticated = response.ok && body?.authenticated === true;
+      setRelaySessionAuthenticated(authenticated);
+      return authenticated;
+    } catch {
+      setRelaySessionAuthenticated(false);
+      return false;
+    } finally {
+      setRelaySessionLoading(false);
+    }
+  }, [relayerBaseUrl]);
+
+  const refreshGoogleConfigured = React.useCallback(async (): Promise<boolean> => {
+    if (!relayerBaseUrl) {
+      setGoogleClientId('');
+      setGoogleConfigured(false);
+      setGoogleConfigChecked(true);
+      return false;
+    }
+    try {
+      const options = await fetchGoogleAuthOptions(relayerBaseUrl);
+      setGoogleClientId(options.clientId || '');
+      setGoogleConfigured(options.configured);
+      setGoogleConfigChecked(true);
+      return options.configured;
+    } catch {
+      setGoogleClientId('');
+      setGoogleConfigured(false);
+      setGoogleConfigChecked(true);
+      return false;
+    }
+  }, [relayerBaseUrl]);
+
+  React.useEffect(() => {
+    void refreshRelaySessionState();
+  }, [refreshRelaySessionState]);
 
   // Measure the active pane (panes are absolutely positioned at max-content,
   // so offset sizes are their natural dimensions even while hidden) and morph
@@ -530,15 +628,108 @@ export function NavbarStatic({ layout = 'page' }: NavbarStaticProps = {}): React
     };
   }, [closeMenus, isMobileMenuOpen, openDropdown]);
 
+  React.useEffect(() => {
+    if (!isDashboardAuthOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setIsDashboardAuthOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isDashboardAuthOpen]);
+
   const homeProps = getNavLinkProps('/');
   const aboutRootProps = getNavLinkProps('/company/');
   const contactSalesProps = getNavLinkProps('/contact/');
   const getStartedProps = getNavLinkProps('/dashboard');
+  const dashboardEntryAuthenticated = relaySessionAuthenticated;
+
+  const openDashboardAuthModal = React.useCallback(() => {
+    closeMenus();
+    setDashboardAuthError('');
+    setIsDashboardAuthOpen(true);
+    void refreshRelaySessionState();
+    if (!googleConfigChecked) {
+      void refreshGoogleConfigured();
+    }
+  }, [closeMenus, googleConfigChecked, refreshGoogleConfigured, refreshRelaySessionState]);
+
+  const continueToDashboard = React.useCallback(() => {
+    setDashboardAuthError('');
+    setIsDashboardAuthOpen(false);
+    go('/dashboard');
+  }, [go]);
+
+  const onGoogleSignIn = React.useCallback(async () => {
+    if (googleSigningIn) return;
+    setDashboardAuthError('');
+    setGoogleSigningIn(true);
+    try {
+      if (!googleClientId) {
+        throw new Error('Google client ID is not configured on the Router API server');
+      }
+      const configured = googleConfigChecked ? googleConfigured : await refreshGoogleConfigured();
+      if (!configured) {
+        throw new Error('Google OIDC is not configured on the Router API server');
+      }
+      if (!relayerBaseUrl) {
+        throw new Error('Relayer base URL is not configured');
+      }
+
+      await ensureGoogleIdentityScriptLoaded();
+      const idToken = await requestGoogleIdToken(googleClientId);
+
+      const response = await fetch(`${relayerBaseUrl}/session/exchange`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_kind: 'cookie',
+          exchange: {
+            type: 'oidc_jwt',
+            provider: 'google',
+            token: idToken,
+          },
+        }),
+      });
+      const body = await parseOptionalJson(response);
+      if (!response.ok || body?.ok !== true) {
+        const message = String(body?.message || '').trim();
+        throw new Error(message || `Google session exchange failed (${response.status})`);
+      }
+      const authenticated = await refreshRelaySessionState();
+      if (!authenticated) {
+        throw new Error('Google session was issued but could not be validated');
+      }
+      continueToDashboard();
+    } catch (error: unknown) {
+      setDashboardAuthError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setGoogleSigningIn(false);
+    }
+  }, [
+    continueToDashboard,
+    googleClientId,
+    googleConfigChecked,
+    googleConfigured,
+    googleSigningIn,
+    refreshGoogleConfigured,
+    refreshRelaySessionState,
+    relayerBaseUrl,
+  ]);
 
   const openDashboardEntry = React.useCallback(() => {
-    closeMenus();
-    go('/dashboard');
-  }, [closeMenus, go]);
+    if (dashboardEntryAuthenticated) {
+      go('/dashboard');
+      return;
+    }
+    openDashboardAuthModal();
+  }, [dashboardEntryAuthenticated, go, openDashboardAuthModal]);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -696,7 +887,9 @@ export function NavbarStatic({ layout = 'page' }: NavbarStaticProps = {}): React
   return (
     <nav
       ref={rootRef}
-      className={`navbar-static${layout === 'compact' ? ' navbar-static--compact' : ''}`}
+      className={`navbar-static${appearance === 'light' ? ' navbar-static--light' : ''}${
+        layout === 'compact' ? ' navbar-static--compact' : ''
+      }`}
       aria-label="Primary"
     >
       <div className={`navbar-static__shell${hasScrolled ? ' is-scrolled' : ''}`}>
@@ -707,7 +900,11 @@ export function NavbarStatic({ layout = 'page' }: NavbarStaticProps = {}): React
             onClick={homeProps.onClick}
             aria-label="Seams home"
           >
-            <SeamsWordmark className="navbar-static__brand-wordmark" height={20} />
+            <SeamsWordmark
+              className="navbar-static__brand-wordmark"
+              height={17}
+              theme={appearance === 'light' ? 'light' : undefined}
+            />
           </a>
         </div>
 
@@ -788,6 +985,73 @@ export function NavbarStatic({ layout = 'page' }: NavbarStaticProps = {}): React
         </div>
       </div>
 
+      {isDashboardAuthOpen ? (
+        <div
+          className="navbar-static__auth-overlay"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target !== event.currentTarget) return;
+            setIsDashboardAuthOpen(false);
+          }}
+        >
+          <DashboardGoogleAuthCard
+            classNames={{
+              root: 'navbar-static__auth-modal',
+              header: 'navbar-static__auth-header',
+              heading: 'navbar-static__auth-heading',
+              eyebrow: 'navbar-static__auth-eyebrow',
+              copy: 'navbar-static__auth-copy',
+              ctaButton: 'navbar-static__auth-google-button',
+              ctaIcon: 'navbar-static__auth-google-button-icon',
+              note: 'navbar-static__auth-note',
+              error: 'navbar-static__auth-error',
+            }}
+            rootAttributes={{
+              role: 'dialog',
+              'aria-modal': true,
+              'aria-labelledby': 'navbar-dashboard-auth-title',
+              onMouseDown: (event) => event.stopPropagation(),
+            }}
+            titleId="navbar-dashboard-auth-title"
+            title="Sign in"
+            description="Use Google SSO to open the console."
+            continueLabel={
+              googleSigningIn
+                ? 'Signing in with Google...'
+                : !googleClientId
+                  ? 'Google SSO unavailable'
+                  : !googleConfigChecked
+                    ? 'Checking Google SSO...'
+                    : !googleConfigured
+                      ? 'Google SSO not configured'
+                      : 'Continue with Google'
+            }
+            continueDisabled={googleSigningIn || relaySessionLoading || !googleConfigured}
+            onContinue={() => {
+              void onGoogleSignIn();
+            }}
+            /* Only the misconfiguration hint earns a footnote; the happy path
+               needs no explanation beyond the button. */
+            note={
+              googleConfigChecked && googleConfigured
+                ? ''
+                : 'Set GOOGLE_OIDC_CLIENT_ID or GOOGLE_OIDC_CLIENT_IDS on the relay to enable dashboard sign-in.'
+            }
+            errorMessage={dashboardAuthError}
+            closeControl={
+              <button
+                type="button"
+                className="navbar-static__auth-close"
+                onClick={() => setIsDashboardAuthOpen(false)}
+                aria-label="Close dashboard sign-in"
+              >
+                <X size={18} aria-hidden />
+              </button>
+            }
+          />
+        </div>
+      ) : null}
+
       <div className={`navbar-static__mobile-menu${isMobileMenuOpen ? ' is-open' : ''}`}>
         <button
           type="button"
@@ -810,7 +1074,7 @@ export function NavbarStatic({ layout = 'page' }: NavbarStaticProps = {}): React
         <div className={`navbar-static__mobile-submenu${isMobileProductsOpen ? ' is-open' : ''}`}>
           <section className="navbar-static__mobile-section">
             <h3 className="navbar-static__mobile-section-title">Products</h3>
-            {productsDropdownPane.rows.map((row) => {
+            {documentationDropdownPane.rows.map((row) => {
               const rowProps = getNavLinkProps(row.to);
               return (
                 <a
@@ -849,7 +1113,7 @@ export function NavbarStatic({ layout = 'page' }: NavbarStaticProps = {}): React
         >
           <section className="navbar-static__mobile-section">
             <h3 className="navbar-static__mobile-section-title">Documentation</h3>
-            {documentationDropdownPane.rows.map((row) => {
+            {productsDropdownPane.rows.map((row) => {
               const rowProps = getNavLinkProps(row.to);
               return (
                 <a
