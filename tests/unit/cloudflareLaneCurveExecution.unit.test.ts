@@ -429,7 +429,7 @@ test('ECDSA lane transport serializes registration source lookups for the Rust w
       material_activation_id: rawJob.source.materialActivation.activationId,
       signing_worker_id: rawJob.source.ownerParticipantContinuity.signingWorkerId,
     },
-    source_derivation: {
+    sourceDerivation: {
       application_binding_digest_b64u: DIGEST_B64U,
       client_share_retry_counter: 0,
     },
