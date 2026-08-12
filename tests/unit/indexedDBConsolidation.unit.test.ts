@@ -26,7 +26,7 @@ const ECDSA_MATERIAL_STORE_SOURCES = [
 
 test.describe('IndexedDB consolidation', () => {
   test('canonical wallet schema names use one Seams-prefixed DB and unprefixed snake_case stores', () => {
-    expect(SEAMS_WALLET_DB_NAME).toBe('seams_wallet_v17');
+    expect(SEAMS_WALLET_DB_NAME).toBe('seams_wallet');
     expect(Object.values(SEAMS_WALLET_STORES).every((name) => !name.startsWith('seams_'))).toBe(
       true,
     );
