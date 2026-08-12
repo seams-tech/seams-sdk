@@ -529,7 +529,6 @@ export class IndexedDbClientPresignMaterialStore {
     this.manager = dbName
       ? new SeamsWalletDBManager({
           dbName,
-          schemaPolicy: { kind: 'development' },
         })
       : seamsWalletDB;
   }
