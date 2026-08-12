@@ -21,6 +21,10 @@ import { deriveRouterAbEd25519YaoStableContextBindingV1 } from '@shared/utils/ro
 import { parseSdkEcdsaDerivationThresholdKeyId } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import { parseEcdsaRelayerKeyId } from '@shared/signing-lanes/ids';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes/evmFamilySigningKeySlotId';
+import {
+  routerAbMpcMaterialActivationRefToWire,
+  sameRouterAbMpcMaterialActivationRef,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   WalletEcdsaSignerRecord,
   WalletEd25519SignerRecord,
@@ -182,6 +186,21 @@ export class D1LinkedDeviceOwnerPlanningDeploymentV1 implements D1LinkedDeviceOw
         );
       }
       const signer = matches[0]!;
+      if (
+        signer.nearEd25519SigningKeyId !== input.projection.walletKey.nearEd25519SigningKeyId ||
+        signer.signerSlot !== input.projection.walletKey.keyCreationSignerSlot ||
+        base64UrlEncode(
+          Uint8Array.from(
+            signer.activeYaoCapability.activationResult.public_receipt.registered_public_key,
+          ),
+        ) !== String(input.projection.walletKey.registeredPublicKeyB64u) ||
+        !materialActivationMatchesProjection(
+          input.projection,
+          signer.activeYaoCapability.activationResult.public_receipt.material_activation,
+        )
+      ) {
+        throw new Error(`authoritative Ed25519 signer for owner source ${input.index} changed`);
+      }
       const stableContextBindingB64u = base64UrlEncode(
         Uint8Array.from(
           await deriveRouterAbEd25519YaoStableContextBindingV1(
@@ -206,6 +225,17 @@ export class D1LinkedDeviceOwnerPlanningDeploymentV1 implements D1LinkedDeviceOw
       throw new Error(`authoritative ECDSA signer for owner source ${input.index} is unavailable`);
     }
     const signer = requireConsistentEcdsaSigner(matches, input.index);
+    if (
+      signer.walletKey.thresholdEcdsaPublicKeyB64u !==
+        String(input.projection.walletKey.thresholdPublicKey33B64u) ||
+      signer.walletKey.thresholdOwnerAddress !== input.projection.walletKey.evmAddress ||
+      !materialActivationMatchesProjection(
+        input.projection,
+        signer.walletKey.publicCapability.material_activation,
+      )
+    ) {
+      throw new Error(`authoritative ECDSA signer for owner source ${input.index} changed`);
+    }
     const sourceManifest = input.hint.ecdsaSourceManifest;
     if (!sourceManifest)
       throw new Error(`ECDSA owner source ${input.index} has no manifest identity`);
@@ -258,6 +288,16 @@ function requireConsistentEcdsaSigner(
     }
   }
   return first;
+}
+
+function materialActivationMatchesProjection(
+  projection: ActiveOwnerWalletExecutionLaneProjection,
+  wire: Parameters<typeof sameRouterAbMpcMaterialActivationRef>[1],
+): boolean {
+  return sameRouterAbMpcMaterialActivationRef(
+    routerAbMpcMaterialActivationRefToWire(projection.materialActivation),
+    wire,
+  );
 }
 
 async function targetIdentityV1(input: {
