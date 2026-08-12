@@ -1478,9 +1478,7 @@ function parseRouterAbEcdsaExplicitExportForwardedResponseWithV1(
   return {
     result: 'forwarded',
     response: parseRouterAbEcdsaStrictProofResponseV1(record.response, `${label}.response`),
-    signing_worker_export: parseRouterAbEcdsaSigningWorkerExportShareEnvelopeV1(
-      record.signing_worker_export,
-    ),
+    signing_worker_export: parseEnvelope(record.signing_worker_export),
   };
 }
 
