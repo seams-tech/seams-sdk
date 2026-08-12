@@ -88,6 +88,7 @@ import {
   buildEmailOtpEnvelopeFactor,
   buildPasskeyEnvelopeFactor,
   walletCustodyCommitPayloadWithRecoveryBackupAcknowledgement,
+  type PasskeyCustodyEnvelopeRecord,
   type WalletCustodyCeremonyCommitPayload,
 } from '@shared/passkey-custody';
 import {
@@ -99,6 +100,8 @@ import {
   openWalletCustodyEd25519ActiveClientV1,
   type WalletCustodyActivationFactsV1,
 } from '@/core/signingEngine/walletCustody/openCustodyCache';
+import { buildRecoveredPasskeyCustodyEnvelopeRecord } from '@/core/signingEngine/walletCustody/recoveryReplacementEnvelope';
+import { rememberPasskeyCustodySessionEnvelope } from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
 import { nearEd25519SignerBindingFromBoundaryFields } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import {
   toParticipantId,
@@ -319,6 +322,38 @@ function walletCustodyCacheEnvelopeFromRegistrationCommit(
     aadHashB64u: established.envelopeAadHashB64u,
     ciphertextDigestB64u: established.envelopeCiphertextDigestB64u,
   };
+}
+
+function passkeyCustodyEnvelopeFromRegistrationCommit(args: {
+  readonly commit: WalletCustodyCeremonyCommitPayload;
+  readonly walletId: string;
+  readonly activatedAtMs: number;
+}): PasskeyCustodyEnvelopeRecord {
+  const established = args.commit.establishedCustody;
+  if (!established) {
+    throw new Error('Passkey registration custody commit is missing its established envelope');
+  }
+  return buildRecoveredPasskeyCustodyEnvelopeRecord({
+    expectedWalletId: args.walletId,
+    replacement: established,
+    activatedAtMs: args.activatedAtMs,
+  });
+}
+
+function rememberPasskeyRegistrationCustodyEnvelope(args: {
+  readonly commit: WalletCustodyCeremonyCommitPayload;
+  readonly walletId: string;
+  readonly activatedAtMs: number;
+}): void {
+  const envelope = passkeyCustodyEnvelopeFromRegistrationCommit(args);
+  if (envelope.factor.kind !== 'passkey') {
+    throw new Error('Passkey registration custody commit has a non-passkey factor');
+  }
+  rememberPasskeyCustodySessionEnvelope({
+    walletId: args.walletId,
+    credentialIdB64u: envelope.factor.credentialIdB64u,
+    envelope,
+  });
 }
 
 function buildRegistrationEmailOtpEd25519RecoveryBootstrap(args: {
@@ -2029,6 +2064,7 @@ type DeferredRegistrationFinalizeAuthMaterial =
 type DeferredNearCustodyWork = {
   readonly joined: JoinedWalletCustodyNearEd25519KeySetV1;
   readonly envelope: WalletCustodyCacheEnvelopeV1;
+  readonly commitPayload: WalletCustodyCeremonyCommitPayload;
   readonly factorSecret32: ArrayBuffer;
 };
 
@@ -2119,6 +2155,7 @@ async function startDeferredNearWalletCustody(
     return {
       joined,
       envelope: walletCustodyCacheEnvelopeFromRegistrationCommit(input.establishedEvmCustodyCommit),
+      commitPayload: input.establishedEvmCustodyCommit,
       factorSecret32: factorSecret,
     };
   } catch (error) {
@@ -2407,6 +2444,13 @@ async function commitDeferredEd25519Registration(args: {
         throw error;
       }
       retainedFactorSecret32 = null;
+    }
+    if (args.authMaterial.kind === 'passkey') {
+      rememberPasskeyRegistrationCustodyEnvelope({
+        commit: nearCustody.commitPayload,
+        walletId: String(args.walletId),
+        activatedAtMs: Date.now(),
+      });
     }
     /* Durable first: finalize, capability persistence, and the Yao seal have
        all succeeded by here, and the record is authoritative. If this write
@@ -3588,6 +3632,11 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
         ciphertextB64u: established.localMaterial.b64u,
         nonceB64u: established.localMaterial.nonceB64u,
       },
+    });
+    rememberPasskeyRegistrationCustodyEnvelope({
+      commit: established.commitPayload,
+      walletId: String(finalized.walletId),
+      activatedAtMs: Date.now(),
     });
     await context.signingEngine.upsertEd25519YaoPublicCapabilityLaneReference({
       walletId: finalized.walletId,
