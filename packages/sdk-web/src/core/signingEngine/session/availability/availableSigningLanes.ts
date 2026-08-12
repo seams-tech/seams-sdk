@@ -365,6 +365,15 @@ function recordToEd25519Lane(
   }
 }
 
+function isEmailOtpPublicCapabilityLaneReference(
+  reference: Ed25519YaoPublicCapabilityLaneReferenceV1,
+): reference is Extract<
+  Ed25519YaoPublicCapabilityLaneReferenceV1,
+  { auth: { kind: 'email_otp' } }
+> {
+  return reference.auth.kind === 'email_otp';
+}
+
 function publicCapabilityReferenceToEd25519Lane(
   reference: Ed25519YaoPublicCapabilityLaneReferenceV1,
   activeAuthorization: ActiveWalletSessionAuthorizationProjection | null,
@@ -413,7 +422,13 @@ function publicCapabilityReferenceToEd25519Lane(
     if (!authorization) {
       return { ...base, state: 'deferred', authorizationState: 'authorization_required' };
     }
-    const expiresAtMs = Math.floor(Number(authorization.expiresAtMs) || 0);
+    const authorizationExpiresAtMs = Math.floor(Number(authorization.expiresAtMs) || 0);
+    const emailOtpReference = isEmailOtpPublicCapabilityLaneReference(reference)
+      ? reference
+      : null;
+    const expiresAtMs = emailOtpReference
+      ? Math.min(emailOtpReference.expiresAtMs, authorizationExpiresAtMs)
+      : authorizationExpiresAtMs;
     const state: AvailableSigningLaneState =
       expiresAtMs > 0 && expiresAtMs <= Date.now() ? 'expired' : 'ready';
     return {
@@ -421,6 +436,7 @@ function publicCapabilityReferenceToEd25519Lane(
       state,
       authorizationState: 'authorized',
       authorization,
+      ...(emailOtpReference ? { remainingUses: emailOtpReference.remainingUses } : {}),
       ...(expiresAtMs > 0 ? { expiresAtMs } : {}),
     };
   } catch {

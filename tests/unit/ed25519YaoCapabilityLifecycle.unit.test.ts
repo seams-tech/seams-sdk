@@ -140,6 +140,8 @@ test.describe('Ed25519 Yao public capability lifecycle', () => {
       },
       nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString('scope-yao-lifecycle'),
       signerSlot: 1,
+      remainingUses: 3,
+      expiresAtMs: 1_900_000_000_000,
     };
     const user: ClientUserData = {
       walletId: String(identity.walletId),

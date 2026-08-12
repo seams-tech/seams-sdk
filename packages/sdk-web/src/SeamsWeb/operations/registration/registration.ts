@@ -1270,21 +1270,28 @@ function registrationThreeRouteAuthorityPayload(authority: RegistrationThreeRout
   }
 }
 
-function registrationEd25519LaneAuth(
+function registrationEd25519LaneAuthorization(
   auth: RegistrationPersistenceAuth,
   passkeyCredentialIdB64u: string,
+  session: { remainingUses: number; expiresAtMs: number },
 ) {
   switch (auth.kind) {
     case 'passkey':
       return {
-        kind: 'passkey' as const,
-        rpId: toRpId(auth.rpId),
-        credentialIdB64u: passkeyCredentialIdB64u,
+        auth: {
+          kind: 'passkey' as const,
+          rpId: toRpId(auth.rpId),
+          credentialIdB64u: passkeyCredentialIdB64u,
+        },
       };
     case 'email_otp':
       return {
-        kind: 'email_otp' as const,
-        providerSubjectId: emailOtpAuthContextProviderUserId(auth.emailOtpAuthContext),
+        auth: {
+          kind: 'email_otp' as const,
+          providerSubjectId: emailOtpAuthContextProviderUserId(auth.emailOtpAuthContext),
+        },
+        remainingUses: session.remainingUses,
+        expiresAtMs: session.expiresAtMs,
       };
     default:
       return assertNever(auth);
@@ -2128,7 +2135,11 @@ async function commitDeferredEd25519Registration(args: {
       thresholdSessionId: materialFacts.identity.thresholdSessionId,
       runtimePolicyScope: materialFacts.stableServerScope.runtimePolicyScope,
       materialActivation: nearEd25519YaoMaterialActivationFromMetadata(metadata),
-      auth: registrationEd25519LaneAuth(auth, passkeyCredentialIdB64u),
+      ...registrationEd25519LaneAuthorization(
+        auth,
+        passkeyCredentialIdB64u,
+        finalized.registrationEstablishedSession,
+      ),
       nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(
         finalized.ed25519.nearEd25519SigningKeyId,
       ),
@@ -2978,6 +2989,8 @@ async function registerEmailOtpEd25519YaoWalletOnly(
         finalized.ed25519.nearEd25519SigningKeyId,
       ),
       signerSlot: finalized.ed25519.signerSlot,
+      remainingUses: finalized.registrationEstablishedSession.remainingUses,
+      expiresAtMs: finalized.registrationEstablishedSession.expiresAtMs,
     });
     await persistActiveWalletSessionAuthorizationFromRegistration(walletSessionAuthorizations, {
       authority: await walletAuthAuthorityRef({

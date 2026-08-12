@@ -847,6 +847,8 @@ function emailOtpEd25519YaoLaneReferenceFromRecovery(args: {
     },
     nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
     signerSlot: signer.signerSlot,
+    remainingUses: args.walletSessionState.signingWalletSession.remainingUses,
+    expiresAtMs: args.walletSessionState.signingWalletSession.expiresAtMs,
   };
 }
 
