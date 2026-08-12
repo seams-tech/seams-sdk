@@ -42,7 +42,7 @@ async function registerOwner(page: Page): Promise<void> {
   const primary = wallet.locator('button[data-auth-menu-primary]');
   await primary.waitFor({ state: 'visible', timeout: 30_000 });
   await primary.click();
-  await wallet
+  await page
     .locator('.w3a-profile-button-morphable')
     .waitFor({ state: 'visible', timeout: 120_000 });
 }
@@ -97,27 +97,26 @@ async function openDevice2Qr(page: Page): Promise<string> {
 }
 
 async function openOwnerScanner(page: Page, qrDataUrl: string): Promise<void> {
-  const wallet = await walletFrame(page);
-  await installQrCamera(wallet, qrDataUrl);
-  const profile = wallet.locator('.w3a-profile-button-morphable').getByRole('button').first();
+  await installQrCamera(page, qrDataUrl);
+  const profile = page.locator('.w3a-profile-button-morphable').getByRole('button').first();
   await profile.click();
-  const menu = wallet.locator('.w3a-profile-dropdown-morphed[data-state="open"]');
+  const menu = page.locator('.w3a-profile-dropdown-morphed[data-state="open"]');
   await menu.getByRole('button', { name: 'Scan and Link Device', exact: true }).click();
-  await wallet.locator('.qr-scanner-video').waitFor({ state: 'visible', timeout: 30_000 });
+  await page.locator('.qr-scanner-video').waitFor({ state: 'visible', timeout: 30_000 });
 }
 
 async function linkedSigning(page: Page): Promise<void> {
-  const wallet = await openWallet(page);
-  const primary = wallet.locator('button[data-auth-menu-primary]');
+  await openWallet(page);
+  const primary = page.locator('button[data-auth-menu-primary]');
   if (await primary.isVisible().catch(() => false)) await primary.click();
-  await wallet.locator('.demo-page').waitFor({ state: 'visible', timeout: 120_000 });
-  const nearTab = wallet.getByRole('tab', { name: 'NEAR', exact: true });
+  await page.locator('.demo-page').waitFor({ state: 'visible', timeout: 120_000 });
+  const nearTab = page.getByRole('tab', { name: 'NEAR', exact: true });
   if (await nearTab.isVisible().catch(() => false)) await nearTab.click();
-  const sign = wallet.getByRole('button', { name: 'Sign on NEAR', exact: true });
+  const sign = page.getByRole('button', { name: 'Sign on NEAR', exact: true });
   await sign.waitFor({ state: 'visible', timeout: 60_000 });
   await expect(sign).toBeEnabled();
   await sign.click();
-  await expect(wallet.getByText(/transaction (complete|finalized)/i).first()).toBeVisible({
+  await expect(page.getByText(/transaction (complete|finalized)/i).first()).toBeVisible({
     timeout: 120_000,
   });
 }
@@ -168,20 +167,19 @@ test('Device 2 QR → Device 1 scan → Wallet Session → linked signing → re
 
     await linkedSigning(device2Page);
 
-    const ownerWallet = await walletFrame(ownerPage);
-    await ownerWallet
+    await ownerPage
       .locator('.w3a-profile-button-morphable')
       .getByRole('button')
       .first()
       .click();
-    const profileMenu = ownerWallet.locator('.w3a-profile-dropdown-morphed[data-state="open"]');
+    const profileMenu = ownerPage.locator('.w3a-profile-dropdown-morphed[data-state="open"]');
     await profileMenu.getByRole('button', { name: 'Linked Devices', exact: true }).click();
-    await ownerWallet
+    await ownerPage
       .locator('.w3a-linked-devices-row')
       .waitFor({ state: 'visible', timeout: 60_000 });
     ownerPage.once('dialog', (dialog) => void dialog.accept());
-    await ownerWallet.getByRole('button', { name: 'Revoke device', exact: true }).click();
-    await expect(ownerWallet.getByRole('button', { name: 'Revoked', exact: true })).toBeVisible({
+    await ownerPage.getByRole('button', { name: 'Revoke device', exact: true }).click();
+    await expect(ownerPage.getByRole('button', { name: 'Revoked', exact: true })).toBeVisible({
       timeout: 60_000,
     });
   } finally {
