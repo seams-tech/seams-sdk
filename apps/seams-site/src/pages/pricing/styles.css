@@ -230,6 +230,11 @@ body:has(.pricing-page) {
   overflow: hidden;
 }
 
+.pricing-card-spotlight
+  :is(.pricing-card-label, h2, .pricing-card-summary, .pricing-price, .pricing-price span) {
+  color: #ffffff;
+}
+
 .pricing-card-label {
   margin: 0;
   font-family: var(--h2-mono, var(--site-font-mono));
