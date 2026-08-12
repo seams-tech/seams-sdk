@@ -97,6 +97,7 @@ import {
   type LinkedDeviceWalletSessionDeliveryV1,
   type LinkedDeviceWalletSessionTokenV1,
   type LinkedDeviceOwnerAuthorizationSourceV1,
+  type LinkedDeviceOwnerAuthorizationRequestV1,
   type LinkedDeviceOwnerSourceLaneV1,
   type LinkedDeviceProtocolVersionV1,
   type LinkedDeviceReceiptAcknowledgementV1,
@@ -129,6 +130,11 @@ const QR_FIELDS = [
   'requestedPermission',
   'issuedAtMs',
   'expiresAtMs',
+] as const;
+const OWNER_AUTHORIZATION_REQUEST_FIELDS = [
+  'payload',
+  'requestedAtMs',
+  'orderedOwnerSourceLaneHints',
 ] as const;
 const OWNER_SOURCE_LANE_COMMON_FIELDS = [
   'kind',
@@ -1012,6 +1018,47 @@ function parseQrPayloadRecord(record: UnknownRecord): QrLinkedDeviceSessionPaylo
 
 export function parseQrLinkedDeviceSessionPayloadV4(raw: unknown): QrLinkedDeviceSessionPayloadV4 {
   return parseQrPayloadRecord(exactRecord(raw, QR_FIELDS, 'QrLinkedDeviceSessionPayloadV4'));
+}
+
+export function parseLinkedDeviceOwnerAuthorizationRequestV1(
+  raw: unknown,
+): LinkedDeviceOwnerAuthorizationRequestV1 {
+  const record = exactRecord(
+    raw,
+    OWNER_AUTHORIZATION_REQUEST_FIELDS,
+    'LinkedDeviceOwnerAuthorizationRequestV1',
+  );
+  const requestedAtMs = parseUnixTime(
+    record.requestedAtMs,
+    'LinkedDeviceOwnerAuthorizationRequestV1.requestedAtMs',
+  );
+  const payload = parseQrLinkedDeviceSessionPayloadV4(record.payload);
+  if (!Array.isArray(record.orderedOwnerSourceLaneHints)) {
+    throw new Error(
+      'LinkedDeviceOwnerAuthorizationRequestV1.orderedOwnerSourceLaneHints must be an array',
+    );
+  }
+  if (record.orderedOwnerSourceLaneHints.length === 0) {
+    throw new Error(
+      'LinkedDeviceOwnerAuthorizationRequestV1.orderedOwnerSourceLaneHints must not be empty',
+    );
+  }
+  const hints = record.orderedOwnerSourceLaneHints.map((value, index) =>
+    parseLinkedDeviceOwnerSourceLaneV1(
+      value,
+      `LinkedDeviceOwnerAuthorizationRequestV1.orderedOwnerSourceLaneHints[${index}]`,
+    ),
+  );
+  const walletId = hints[0]?.walletKey.walletId;
+  if (!walletId) throw new Error('owner source lane hint wallet identity is missing');
+  if (hints.some((hint) => hint.walletKey.walletId !== walletId)) {
+    throw new Error('owner source lane hints must use one wallet identity');
+  }
+  return {
+    payload,
+    requestedAtMs,
+    orderedOwnerSourceLaneHints: [hints[0]!, ...hints.slice(1)],
+  };
 }
 
 export function parseLinkedDeviceOwnerSourceLaneV1(

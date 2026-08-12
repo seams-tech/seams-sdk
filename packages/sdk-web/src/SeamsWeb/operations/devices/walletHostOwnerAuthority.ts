@@ -9,6 +9,11 @@ import type {
   DeviceLinkingOwnerAuthorizationPortV1,
   LinkSessionAuthenticationV1,
 } from './deviceLinkingPorts';
+import type {
+  LinkedDeviceOwnerAuthorizationRequestV1,
+  LinkedDeviceOwnerSourceLaneV1,
+} from '@shared/device-linking';
+import { parseLinkedDeviceOwnerAuthorizationRequestV1 } from '@shared/device-linking/parsers';
 import type { LinkSessionOwnerAuthenticatedRequestPortV1 } from './deviceLinkingOwnerTransport';
 import {
   parseLinkedDeviceEnrollmentKeyBindingV1,
@@ -17,10 +22,7 @@ import {
 } from '@shared/device-linking/parsers';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
-import {
-  parseLaneOperationId,
-  parseLaneOperationIdempotencyKey,
-} from '@shared/signing-lanes/ids';
+import { parseLaneOperationId, parseLaneOperationIdempotencyKey } from '@shared/signing-lanes/ids';
 
 const OWNER_AUTHORIZATION_PATH = '/wallet/device-linking/v1/owner-authorization';
 
@@ -32,6 +34,10 @@ export type WalletHostManagementRequestV1 = {
     readonly body?: unknown;
   }): Promise<{ readonly status: number; readonly body: unknown }>;
 };
+
+export type WalletHostOwnerSourceLaneHintsReaderV1 = (input: {
+  readonly projection: ActiveWalletSessionAuthorizationProjection;
+}) => Promise<readonly [LinkedDeviceOwnerSourceLaneV1, ...LinkedDeviceOwnerSourceLaneV1[]]>;
 
 export type WalletHostOwnerAuthoritiesV1 = {
   readonly ownerAuthorization: DeviceLinkingOwnerAuthorizationPortV1;
@@ -47,6 +53,7 @@ export function createWalletHostOwnerAuthoritiesV1(input: {
     'read' | 'readActiveForWallet'
   >;
   readonly readWalletAuthenticationState: () => WalletAuthenticationState;
+  readonly readOwnerSourceLaneHintsV1: WalletHostOwnerSourceLaneHintsReaderV1;
 }): WalletHostOwnerAuthoritiesV1 {
   const context = normalizeContext(input);
   return {
@@ -71,6 +78,7 @@ type WalletHostOwnerAuthorityContextV1 = {
     'read' | 'readActiveForWallet'
   >;
   readonly readWalletAuthenticationState: () => WalletAuthenticationState;
+  readonly readOwnerSourceLaneHintsV1: WalletHostOwnerSourceLaneHintsReaderV1;
 };
 
 function normalizeContext(input: {
@@ -81,8 +89,11 @@ function normalizeContext(input: {
     'read' | 'readActiveForWallet'
   >;
   readonly readWalletAuthenticationState: () => WalletAuthenticationState;
+  readonly readOwnerSourceLaneHintsV1: WalletHostOwnerSourceLaneHintsReaderV1;
 }): WalletHostOwnerAuthorityContextV1 {
-  const baseUrl = String(input.relayerUrl || '').trim().replace(/\/+$/, '');
+  const baseUrl = String(input.relayerUrl || '')
+    .trim()
+    .replace(/\/+$/, '');
   if (!baseUrl) throw new Error('Wallet-host device linking requires a Router URL');
   return { ...input, baseUrl };
 }
@@ -96,10 +107,19 @@ async function authorizeOwnerForLinkingV1(
     throw new Error('Device linking requires an authenticated owner wallet');
   }
   const projection = await requireActiveWalletSessionForWalletV1(context, state.walletId);
+  const orderedOwnerSourceLaneHints = await context.readOwnerSourceLaneHintsV1({
+    projection,
+  });
+  const body: LinkedDeviceOwnerAuthorizationRequestV1 =
+    parseLinkedDeviceOwnerAuthorizationRequestV1({
+      payload: input.payload,
+      requestedAtMs: input.requestedAtMs,
+      orderedOwnerSourceLaneHints,
+    });
   const response = await requestWithProjectionV1(context, projection, {
     method: 'POST',
     canonicalPath: OWNER_AUTHORIZATION_PATH,
-    body: input,
+    body,
   });
   if (response.status < 200 || response.status >= 300) {
     throw new Error(ownerRequestFailureMessage(response));
