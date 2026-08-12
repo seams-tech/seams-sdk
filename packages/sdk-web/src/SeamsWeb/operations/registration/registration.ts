@@ -35,7 +35,10 @@ import {
 } from '@/core/types/authenticatorOptions';
 import { createRegistrationFlowEvent, RegistrationEventPhase } from '@/core/types/sdkSentEvents';
 import type { RegistrationWebContext } from '@/SeamsWeb/signingSurface/types';
-import type { JoinedWalletCustodyNearEd25519KeySetV1 } from '@/SeamsWeb/signingSurface/ports';
+import type {
+  EstablishedWalletCustodyNearEd25519KeySetV1,
+  JoinedWalletCustodyNearEd25519KeySetV1,
+} from '@/SeamsWeb/signingSurface/ports';
 import type { WorkerResourceWarmupDiagnostics } from '@/core/signingEngine/assembly/warmup';
 import type { EmailOtpYaoPrewarmOutcome } from '@/core/signingEngine/workerManager/workerTypes';
 import { type ConfirmationConfig } from '@/core/types/signer-worker';
@@ -83,7 +86,15 @@ import {
   buildPasskeyEnvelopeFactor,
   walletCustodyCommitPayloadWithRecoveryBackupAcknowledgement,
 } from '@shared/passkey-custody';
-import { WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
+import {
+  WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
+  type LoadedWalletCustodyEd25519MaterialV1,
+} from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
+import {
+  openWalletCustodyEd25519ActiveClientV1,
+  type WalletCustodyActivationFactsV1,
+  type WalletCustodyCacheEnvelopeV1,
+} from '@/core/signingEngine/walletCustody/openCustodyCache';
 import { joinCustodyJsonFromEstablishedCommitPayload } from '@/core/signingEngine/walletCustody/registrationCeremony';
 import {
   toParticipantId,
@@ -257,6 +268,68 @@ async function confirmWalletRecoveryCodesBackedUp(
 
 function zeroizeArrayBuffer(buffer: ArrayBuffer): void {
   if (buffer.byteLength > 0) new Uint8Array(buffer).fill(0);
+}
+
+function walletCustodyRegistrationCacheEnvelope(
+  established: EstablishedWalletCustodyNearEd25519KeySetV1,
+): WalletCustodyCacheEnvelopeV1 {
+  const envelope = established.commitPayload.establishedCustody;
+  if (!envelope) {
+    throw new Error('wallet custody registration produced no established envelope');
+  }
+  return {
+    bindingJson: envelope.envelopeBindingJson,
+    nonceB64u: envelope.envelopeNonceB64u,
+    ciphertextB64u: envelope.sealedCustodySecretB64u,
+    aadHashB64u: envelope.envelopeAadHashB64u,
+    ciphertextDigestB64u: envelope.envelopeCiphertextDigestB64u,
+  };
+}
+
+function walletCustodyRegistrationActivationFacts(
+  metadata: EstablishedWalletCustodyNearEd25519KeySetV1['metadata'],
+): WalletCustodyActivationFactsV1 {
+  return {
+    materialActivation: nearEd25519YaoMaterialActivationFromMetadata(metadata),
+    lifecycleId: metadata.scope.lifecycle_id,
+    signingRootVersion: metadata.scope.root_share_epoch,
+    signingRootId: metadata.applicationBinding.signing_root_id,
+    signerSetId: metadata.scope.signer_set_id,
+    thresholdSessionId: metadata.scope.threshold_session_id,
+    activationTranscriptB64u: base64UrlEncode(Uint8Array.from(metadata.transcript)),
+    activationCapabilityBindingB64u: base64UrlEncode(
+      Uint8Array.from(metadata.activeCapabilityBinding),
+    ),
+  };
+}
+
+function walletCustodyRegistrationMaterial(args: {
+  established: EstablishedWalletCustodyNearEd25519KeySetV1;
+  walletId: string;
+  nearAccountId: string;
+  nearEd25519SigningKeyId: string;
+  signerSlot: number;
+}): LoadedWalletCustodyEd25519MaterialV1 {
+  const metadata = args.established.metadata;
+  return {
+    binding: {
+      kind: WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
+      applicationBindingDigestB64u: args.established.localMaterial.applicationBindingDigestB64u,
+      registeredPublicKeyB64u: base64UrlEncode(metadata.registeredPublicKey),
+      participantIds: metadata.participantIds,
+      stateEpoch: String(metadata.stateEpoch),
+      walletId: args.walletId,
+      nearAccountId: args.nearAccountId,
+      nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
+      signerSlot: args.signerSlot,
+      signingWorkerId: metadata.scope.signing_worker_id,
+      signingWorkerVerifyingShareB64u: base64UrlEncode(metadata.signingWorkerVerifyingShare),
+    },
+    sealed: {
+      ciphertextB64u: args.established.localMaterial.b64u,
+      nonceB64u: args.established.localMaterial.nonceB64u,
+    },
+  };
 }
 
 type EmitRegistrationEventInput = Omit<
@@ -2696,6 +2769,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
     args.wallet.kind === 'provided' ? String(args.wallet.walletId) : 'wallet-registration',
   );
   const registrationTiming = new RegistrationTimingRecorder(performance.now());
+  let emailOtpWalletCustodyActivationSecret: Uint8Array | null = null;
   emitRegistrationEvent(options.onEvent, initialEventAccountId, {
     authMethod: 'email_otp',
     phase: RegistrationEventPhase.STEP_01_STARTED,
@@ -2732,6 +2806,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
     );
     const emailOtpEnrollmentSecret = crypto.getRandomValues(new Uint8Array(32));
     const emailOtpWalletCustodyFactorSecret = emailOtpEnrollmentSecret.slice().buffer;
+    emailOtpWalletCustodyActivationSecret = emailOtpEnrollmentSecret.slice();
     const enrollmentMaterial = startEmailOtpRegistrationEnrollmentMaterial({
       recorder: registrationTiming,
       context,
@@ -2920,24 +2995,16 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       nearClient: context.nearClient,
     });
     const metadata = established.metadata;
+    const custodyMaterial = walletCustodyRegistrationMaterial({
+      established,
+      walletId: String(finalized.walletId),
+      nearAccountId: String(finalized.ed25519.nearAccountId),
+      nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
+      signerSlot: finalized.ed25519.signerSlot,
+    });
     await context.signingEngine.persistWalletCustodyEd25519Material({
-      binding: {
-        kind: WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
-        applicationBindingDigestB64u: established.localMaterial.applicationBindingDigestB64u,
-        registeredPublicKeyB64u: base64UrlEncode(metadata.registeredPublicKey),
-        participantIds: metadata.participantIds,
-        stateEpoch: String(metadata.stateEpoch),
-        walletId: String(finalized.walletId),
-        nearAccountId: String(finalized.ed25519.nearAccountId),
-        nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
-        signerSlot: finalized.ed25519.signerSlot,
-        signingWorkerId: metadata.scope.signing_worker_id,
-        signingWorkerVerifyingShareB64u: base64UrlEncode(metadata.signingWorkerVerifyingShare),
-      },
-      sealed: {
-        ciphertextB64u: established.localMaterial.b64u,
-        nonceB64u: established.localMaterial.nonceB64u,
-      },
+      binding: custodyMaterial.binding,
+      sealed: custodyMaterial.sealed,
     });
     await context.signingEngine.upsertEd25519YaoPublicCapabilityLaneReference({
       walletId: finalized.walletId,
@@ -2966,6 +3033,39 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       authMethod: 'email_otp',
       session: finalized.registrationEstablishedSession,
     });
+    if (!emailOtpWalletCustodyActivationSecret) {
+      throw new Error('Email OTP registration lost its custody activation secret');
+    }
+    const walletSessionState = await buildRegistrationEmailOtpEd25519SessionState({
+      registrationEstablishedSession: finalized.registrationEstablishedSession,
+      walletId: toWalletId(finalized.walletId),
+      nearAccountId: finalized.ed25519.nearAccountId,
+      nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
+      thresholdSessionId: materialFacts.identity.thresholdSessionId,
+      runtimePolicyScope: materialFacts.stableServerScope.runtimePolicyScope,
+      signerSlot: finalized.ed25519.signerSlot,
+      relayerUrl,
+      emailOtpAuthContext: persistenceAuth.emailOtpAuthContext,
+    });
+    let activeClient: Awaited<ReturnType<typeof openWalletCustodyEd25519ActiveClientV1>> | null =
+      null;
+    try {
+      activeClient = await openWalletCustodyEd25519ActiveClientV1({
+        material: custodyMaterial,
+        activation: walletCustodyRegistrationActivationFacts(metadata),
+        envelope: walletCustodyRegistrationCacheEnvelope(established),
+        ownedFactorSecret: emailOtpWalletCustodyActivationSecret,
+      });
+      await context.signingEngine.activateVerifiedNearEd25519YaoMaterial({
+        activeClient,
+        facts: nearEd25519YaoOperationMaterialFacts(walletSessionState),
+      });
+      activeClient = null;
+    } finally {
+      activeClient?.dispose();
+      emailOtpWalletCustodyActivationSecret.fill(0);
+      emailOtpWalletCustodyActivationSecret = null;
+    }
     rememberEmailOtpAppSessionForRegisteredWallet({
       context,
       binding: finalizedEmailOtpAppSessionBinding,
@@ -3012,6 +3112,8 @@ async function registerEmailOtpEd25519YaoWalletOnly(
     options.afterCall?.(true, result);
     return result;
   } catch (error: unknown) {
+    emailOtpWalletCustodyActivationSecret?.fill(0);
+    emailOtpWalletCustodyActivationSecret = null;
     const errorCode = registrationErrorCodeFromUnknown(error);
     const message = getUserFriendlyErrorMessage(error, 'registration', initialEventAccountId);
     options.onError?.(registrationErrorWithCode(message, errorCode));
