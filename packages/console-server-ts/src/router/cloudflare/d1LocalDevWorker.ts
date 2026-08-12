@@ -77,6 +77,10 @@ import {
   base64UrlEncode,
   sha256Bytes,
   buildSigningWorkerParticipantRecordWithDigestV1,
+  parseHpkePublicKeyB64u,
+  parseSigningWorkerParticipantId,
+  parseSigningWorkerRecipientKeyDigestB64u,
+  parseSigningWorkerRecipientKeyId,
 } from '@seams/sdk-server/cloud-host';
 import { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
 import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
@@ -1261,13 +1265,29 @@ async function localLinkedDeviceTargetSigningWorker(env: LocalD1DevEnv) {
   const keyset = localLinkedDeviceYaoKeyset(env);
   const hpkePublicKey = new Uint8Array(keyset.signing_worker_recipient_public_key);
   const hpkePublicKeyB64u = base64UrlEncode(hpkePublicKey);
+  const parsedParticipantId = parseSigningWorkerParticipantId(signingWorkerId);
+  if (!parsedParticipantId.ok) throw new Error(parsedParticipantId.error.message);
+  const recipientKeyId = `${signingWorkerId}:server-output`;
+  const parsedRecipientKeyId = parseSigningWorkerRecipientKeyId(recipientKeyId);
+  if (!parsedRecipientKeyId.ok) throw new Error(parsedRecipientKeyId.error.message);
+  const parsedHpkePublicKeyB64u = parseHpkePublicKeyB64u(hpkePublicKeyB64u);
+  if (!parsedHpkePublicKeyB64u.ok) {
+    throw new Error(parsedHpkePublicKeyB64u.error.message);
+  }
+  const hpkePublicKeyDigestB64u = base64UrlEncode(await sha256Bytes(hpkePublicKey));
+  const parsedHpkePublicKeyDigestB64u = parseSigningWorkerRecipientKeyDigestB64u(
+    hpkePublicKeyDigestB64u,
+  );
+  if (!parsedHpkePublicKeyDigestB64u.ok) {
+    throw new Error(parsedHpkePublicKeyDigestB64u.error.message);
+  }
   const participant = await buildSigningWorkerParticipantRecordWithDigestV1({
-    participantId: signingWorkerId,
+    participantId: parsedParticipantId.value,
     recipient: {
       kind: 'signing_worker_recipient_identity_v1',
-      recipientKeyId: `${signingWorkerId}:server-output`,
-      hpkePublicKeyB64u,
-      hpkePublicKeyDigestB64u: base64UrlEncode(await sha256Bytes(hpkePublicKey)),
+      recipientKeyId: parsedRecipientKeyId.value,
+      hpkePublicKeyB64u: parsedHpkePublicKeyB64u.value,
+      hpkePublicKeyDigestB64u: parsedHpkePublicKeyDigestB64u.value,
     },
   });
   return {
