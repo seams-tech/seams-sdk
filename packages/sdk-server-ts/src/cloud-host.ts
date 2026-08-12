@@ -142,6 +142,12 @@ export {
 export { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 export { sha256Bytes } from '@shared/utils/digests';
 export { buildSigningWorkerParticipantRecordWithDigestV1 } from '@shared/signing-lanes/participantDigest';
+export {
+  parseHpkePublicKeyB64u,
+  parseSigningWorkerParticipantId,
+  parseSigningWorkerRecipientKeyDigestB64u,
+  parseSigningWorkerRecipientKeyId,
+} from '@shared/signing-lanes/participants';
 export { keccak256Bytes } from '@shared/utils/keccak';
 export {
   normalizeBoundedPositiveInteger,
