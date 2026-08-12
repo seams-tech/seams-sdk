@@ -93,6 +93,7 @@ export type LinkedDeviceTargetPlannerV1 = {
     readonly preparation: LinkedDeviceTargetPreparationV1;
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
     readonly credential: VerifiedLinkedDeviceWebAuthnCredentialV1;
+    readonly registrationDigestB64u: DigestB64u;
     readonly requestedAtMs: number;
   }): Promise<{
     readonly keyManifestDigestB64u: DigestB64u;
@@ -386,6 +387,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
         preparation: input.persisted.preparation,
         registration: input.registration,
         credential: verification.credential,
+        registrationDigestB64u: input.registrationDigestB64u,
         requestedAtMs: input.input.requestedAtMs,
       });
       externalCommitCompleted = true;
@@ -473,6 +475,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
       preparation: input.persisted.preparation,
       registration: input.persisted.registration.value,
       credential: input.persisted.registration.credential,
+      registrationDigestB64u: await digestRegistrationV1(input.persisted.registration.value),
       requestedAtMs: input.requestedAtMs,
     });
     const keyManifestDigestB64u = parseDigestB64u(committed.keyManifestDigestB64u);
