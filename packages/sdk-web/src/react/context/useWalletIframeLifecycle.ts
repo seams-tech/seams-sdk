@@ -33,11 +33,11 @@ async function applyExactWalletIframeSessionState(args: {
 }): Promise<void> {
   switch (args.state.kind) {
     case 'active_session':
+    case 'expired_session':
     case 'wallet_authenticated_identity_unresolvable':
     case 'wallet_unlocked_without_signing_session':
       break;
     case 'wallet_locked':
-    case 'expired_session':
       setReactLoggedOutIfCurrent(args);
       return;
     default:
