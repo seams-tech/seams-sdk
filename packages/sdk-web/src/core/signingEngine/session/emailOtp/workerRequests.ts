@@ -3,6 +3,7 @@ import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
   EmailOtpWarmMaterialTarget,
+  EmailOtpEd25519YaoOperationMaterialRequest,
   SignerWorkerOperationResult,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { SigningSessionSealKeyVersion } from '../keyMaterialBrands';
@@ -110,6 +111,22 @@ export async function requestRehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
         transport: args.transport,
         restore: args.restore,
       },
+    },
+  });
+}
+
+export async function requestRehydrateEmailOtpEd25519YaoOperationMaterial(args: {
+  workerCtx: WorkerOperationContext;
+  payload: EmailOtpEd25519YaoOperationMaterialRequest;
+}): Promise<
+  SignerWorkerOperationResult<'emailOtp', 'rehydrateEmailOtpEd25519YaoOperationMaterial'>
+> {
+  return await args.workerCtx.requestWorkerOperation({
+    kind: 'emailOtp',
+    request: {
+      type: 'rehydrateEmailOtpEd25519YaoOperationMaterial',
+      timeoutMs: 120_000,
+      payload: args.payload,
     },
   });
 }
