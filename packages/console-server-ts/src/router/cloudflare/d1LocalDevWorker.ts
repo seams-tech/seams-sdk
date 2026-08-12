@@ -933,6 +933,7 @@ function isRouterApiPath(pathname: string): boolean {
     pathname === '/signed-delegate' ||
     pathname.startsWith('/sponsorships/') ||
     pathname.startsWith('/sync-account/') ||
+    pathname.startsWith('/internal/gateway/') ||
     pathname.startsWith('/v1/') ||
     pathname.startsWith('/wallet/') ||
     pathname.startsWith('/wallet-session/') ||
