@@ -38,7 +38,7 @@ export type D1LinkedDeviceLaneRuntimeOptionsV1 = {
   readonly nowV1: () => number;
   readonly walletRegistration: Pick<
     RouterApiWalletRegistrationService,
-    'resolveActiveOwnerWalletExecutionLane'
+    'resolveActiveOwnerWalletExecutionLane' | 'listWalletEcdsaCustodyContinuity'
   >;
   readonly authenticateOwnerRequestV1: (
     input: DeviceLinkingOwnerRequestInputV1,
@@ -82,7 +82,10 @@ export function createD1LinkedDeviceLaneRuntimeV1(
     internalServiceAuth: options.internalServiceAuth,
     bindingResolver: ceremonyBinding,
   });
-  const ecdsaBinding = new LaneLifecycleStoreEcdsaLanePrivateBindingResolverV1(lifecycleStore);
+  const ecdsaBinding = new LaneLifecycleStoreEcdsaLanePrivateBindingResolverV1(
+    lifecycleStore,
+    options.walletRegistration,
+  );
   const retirement = new CloudflareSigningWorkerEcdsaRetirementTransportV1({
     signingWorker: options.signingWorker,
     internalServiceAuth: options.internalServiceAuth,

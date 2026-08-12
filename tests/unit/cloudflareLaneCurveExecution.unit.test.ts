@@ -108,12 +108,17 @@ test('linked-device source requires an exact active lane product', async () => {
     sourceLaneKind: 'linked_device',
   });
   if (rawJob.keyFamily !== 'ecdsa_secp256k1') throw new Error('fixture key family changed');
-  const resolver = new LaneLifecycleStoreEcdsaLanePrivateBindingResolverV1({
-    async getProductEpoch() {
-      return null;
+  const resolver = new LaneLifecycleStoreEcdsaLanePrivateBindingResolverV1(
+    {
+      async getProductEpoch() {
+        return null;
+      },
+      getProtocol: unsupported,
     },
-    getProtocol: unsupported,
-  });
+    {
+      listWalletEcdsaCustodyContinuity: unsupported,
+    },
+  );
 
   await expect(resolver.resolveSourceMaterialV1({ job: rawJob })).rejects.toThrow(
     'lane-backed source product epoch is missing',
@@ -121,7 +126,10 @@ test('linked-device source requires an exact active lane product', async () => {
 });
 
 async function activeLaneResolverFixture(curve: 'ed25519' | 'ecdsa_secp256k1') {
-  const job = curve === 'ed25519' ? buildR102LaneJob('normal-resolver-ed') : buildR102EcdsaLaneJob('normal-resolver-ecdsa');
+  const job =
+    curve === 'ed25519'
+      ? buildR102LaneJob('normal-resolver-ed')
+      : buildR102EcdsaLaneJob('normal-resolver-ecdsa');
   const product = await buildR102ActiveProductEpoch(job);
   const enrollmentFixture = buildR102LaneEnrollmentFixture();
   const enrollmentRecord = await buildR102EnrollmentAdmissionRecordFixture(enrollmentFixture);
@@ -230,10 +238,15 @@ test('normal-signing resolver rejects a revoked lane before protocol lookup', as
 test('target activation binds the admitted target SigningWorker', async () => {
   const rawJob = buildR102EcdsaLaneJob('target-worker-binding');
   if (rawJob.keyFamily !== 'ecdsa_secp256k1') throw new Error('fixture key family changed');
-  const resolver = new LaneLifecycleStoreEcdsaLanePrivateBindingResolverV1({
-    getProductEpoch: unsupported,
-    getProtocol: unsupported,
-  });
+  const resolver = new LaneLifecycleStoreEcdsaLanePrivateBindingResolverV1(
+    {
+      getProductEpoch: unsupported,
+      getProtocol: unsupported,
+    },
+    {
+      listWalletEcdsaCustodyContinuity: unsupported,
+    },
+  );
 
   const binding = await resolver.resolveActivationBindingV1({
     job: rawJob,
@@ -325,12 +338,8 @@ test('composite SigningWorker transport surfaces a bounded private protocol erro
 
   expect(error).toBeInstanceOf(Error);
   const message = error instanceof Error ? error.message : '';
-  expect(message).toContain(
-    'SigningWorker lane endpoint returned HTTP 500: MalformedWirePayload:',
-  );
-  expect(message).toHaveLength(
-    'SigningWorker lane endpoint returned HTTP 500: '.length + 512,
-  );
+  expect(message).toContain('SigningWorker lane endpoint returned HTTP 500: MalformedWirePayload:');
+  expect(message).toHaveLength('SigningWorker lane endpoint returned HTTP 500: '.length + 512);
   expect(message.endsWith('…')).toBe(true);
   expect(message).not.toContain('x'.repeat(513));
 });
@@ -362,6 +371,10 @@ test('ECDSA lane transport serializes registration source lookups for the Rust w
             accountId: rawJob.walletId,
             materialActivationId: rawJob.source.materialActivation.activationId,
             signingWorkerId: rawJob.source.ownerParticipantContinuity.signingWorkerId,
+          },
+          sourceDerivation: {
+            applicationBindingDigestB64u: DIGEST_B64U,
+            clientShareRetryCounter: 0,
           },
         };
       },
@@ -415,6 +428,10 @@ test('ECDSA lane transport serializes registration source lookups for the Rust w
       account_id: rawJob.walletId,
       material_activation_id: rawJob.source.materialActivation.activationId,
       signing_worker_id: rawJob.source.ownerParticipantContinuity.signingWorkerId,
+    },
+    source_derivation: {
+      application_binding_digest_b64u: DIGEST_B64U,
+      client_share_retry_counter: 0,
     },
   });
 });

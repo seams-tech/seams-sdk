@@ -31,6 +31,10 @@ import {
   parseMpcSigningWorkerRef,
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
+import {
+  routerAbMpcMaterialActivationRefToWire,
+  sameRouterAbMpcMaterialActivationRef,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   LaneLifecycleCurveExecutionPortsV1,
   LaneLifecycleRetirementExecutionV1,
@@ -39,6 +43,7 @@ import type {
   LaneLifecycleStore,
   LaneProductEpochLookup,
 } from '../../../core/signingLanes/LaneLifecycleStore';
+import type { WalletEcdsaSignerRecord } from '../../../core/WalletStore';
 import {
   buildEcdsaServerRetirementRequestV1,
   parseAndVerifyEcdsaServerRetirementEffectV1,
@@ -198,11 +203,22 @@ export type CloudflareEcdsaLaneSourceMaterialV1 =
         readonly materialActivationId: EcdsaAdditiveLaneJobV1['source']['materialActivation']['activationId'];
         readonly signingWorkerId: string;
       };
+      readonly sourceDerivation: {
+        readonly applicationBindingDigestB64u: string;
+        readonly clientShareRetryCounter: number;
+      };
     };
+
+export interface EcdsaOwnerSourceSignerContinuityPortV1 {
+  listWalletEcdsaCustodyContinuity(input: {
+    readonly walletId: string;
+  }): Promise<readonly WalletEcdsaSignerRecord[]>;
+}
 
 export class LaneLifecycleStoreEcdsaLanePrivateBindingResolverV1 implements EcdsaLanePrivateBindingResolverPortV1 {
   constructor(
     private readonly lifecycleStore: Pick<LaneLifecycleStore, 'getProductEpoch' | 'getProtocol'>,
+    private readonly walletRegistration: EcdsaOwnerSourceSignerContinuityPortV1,
   ) {}
 
   async resolveSourceMaterialV1(input: {
@@ -218,12 +234,22 @@ export class LaneLifecycleStoreEcdsaLanePrivateBindingResolverV1 implements Ecds
       if (product !== null) {
         throw new Error('ECDSA registration-backed source conflicts with a lane product epoch');
       }
+      const signer = await resolveOwnerEcdsaSourceSignerV1({
+        walletRegistration: this.walletRegistration,
+        job: input.job,
+      });
       return {
         kind: 'registration_activation',
         lookup: {
           accountId: input.job.walletId,
           materialActivationId: input.job.source.materialActivation.activationId,
           signingWorkerId: String(input.job.source.ownerParticipantContinuity.signingWorkerId),
+        },
+        sourceDerivation: {
+          applicationBindingDigestB64u:
+            signer.walletKey.publicCapability.context.application_binding_digest_b64u,
+          clientShareRetryCounter:
+            signer.walletKey.publicCapability.public_identity.client_share_retry_counter,
         },
       };
     }
@@ -345,6 +371,49 @@ function isRegistrationBackedSourceLane(
     case 'delegated_execution':
       return false;
   }
+}
+
+async function resolveOwnerEcdsaSourceSignerV1(input: {
+  readonly walletRegistration: EcdsaOwnerSourceSignerContinuityPortV1;
+  readonly job: EcdsaAdditiveLaneJobV1;
+}): Promise<WalletEcdsaSignerRecord> {
+  const signers = await input.walletRegistration.listWalletEcdsaCustodyContinuity({
+    walletId: input.job.walletId,
+  });
+  const expectedMaterialActivation = routerAbMpcMaterialActivationRefToWire(
+    input.job.source.materialActivation,
+  );
+  const matching = signers.filter(
+    (signer) =>
+      signer.walletId === input.job.walletId &&
+      signer.walletKey.ecdsaThresholdKeyId ===
+        String(input.job.sourceCapability.ecdsaThresholdKeyId) &&
+      signer.walletKey.relayerKeyId === String(input.job.sourceCapability.relayerKeyId) &&
+      signer.walletKey.derivationClientSharePublicKey33B64u ===
+        input.job.sourceHolderVerifyingShare33B64u &&
+      signer.walletKey.relayerVerifyingShareB64u === input.job.sourceServerVerifyingShare33B64u &&
+      sameRouterAbMpcMaterialActivationRef(
+        signer.walletKey.publicCapability.material_activation,
+        expectedMaterialActivation,
+      ),
+  );
+  const first = matching[0];
+  if (!first) {
+    throw new Error('authoritative ECDSA registration source signer is unavailable');
+  }
+  const firstContext = first.walletKey.publicCapability.context.application_binding_digest_b64u;
+  const firstClientRetry =
+    first.walletKey.publicCapability.public_identity.client_share_retry_counter;
+  for (const signer of matching.slice(1)) {
+    if (
+      signer.walletKey.publicCapability.context.application_binding_digest_b64u !== firstContext ||
+      signer.walletKey.publicCapability.public_identity.client_share_retry_counter !==
+        firstClientRetry
+    ) {
+      throw new Error('authoritative ECDSA registration source signer records conflict');
+    }
+  }
+  return first;
 }
 
 export type CloudflareSigningWorkerEcdsaLaneTransportOptionsV1 = {
@@ -567,6 +636,10 @@ function sourceMaterialWireV1(
           account_id: source.lookup.accountId,
           material_activation_id: source.lookup.materialActivationId,
           signing_worker_id: source.lookup.signingWorkerId,
+        },
+        source_derivation: {
+          application_binding_digest_b64u: source.sourceDerivation.applicationBindingDigestB64u,
+          client_share_retry_counter: source.sourceDerivation.clientShareRetryCounter,
         },
       };
   }
