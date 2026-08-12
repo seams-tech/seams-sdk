@@ -3,13 +3,16 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 import {
   SEAMS_WALLET_DB_NAME,
-  SEAMS_WALLET_DB_VERSION,
   SEAMS_WALLET_INDEXES,
   SEAMS_WALLET_SCHEMA_MANIFEST,
   SEAMS_WALLET_STORES,
   assertCanonicalIndexedDBName,
   createSeamsTestWalletDbName,
 } from '../../packages/sdk-web/src/core/indexedDB/schemaNames';
+import {
+  PRODUCTION_SEAMS_WALLET_SCHEMA_VERSION,
+  resolveSeamsWalletSchemaPolicy,
+} from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/schema';
 
 const CANONICAL_NAME_PATTERN = /^seams_[a-z0-9]+(?:_[a-z0-9]+)*$/;
 const SNAKE_CASE_PATTERN = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
@@ -27,7 +30,6 @@ const ECDSA_MATERIAL_STORE_SOURCES = [
 test.describe('IndexedDB consolidation', () => {
   test('canonical wallet schema names use one Seams-prefixed DB and unprefixed snake_case stores', () => {
     expect(SEAMS_WALLET_DB_NAME).toBe('seams_wallet');
-    expect(SEAMS_WALLET_DB_VERSION).toBe(14);
     expect(Object.values(SEAMS_WALLET_STORES).every((name) => !name.startsWith('seams_'))).toBe(
       true,
     );
@@ -49,6 +51,17 @@ test.describe('IndexedDB consolidation', () => {
     expect(() => createSeamsTestWalletDbName('---')).toThrow(
       'Test wallet IndexedDB name suffix is required',
     );
+  });
+
+  test('schema policy is versionless locally and starts production at v1', () => {
+    expect(resolveSeamsWalletSchemaPolicy('wallet.example.localhost')).toEqual({
+      kind: 'development',
+    });
+    expect(resolveSeamsWalletSchemaPolicy('wallet.example.com')).toEqual({
+      kind: 'production',
+      version: PRODUCTION_SEAMS_WALLET_SCHEMA_VERSION,
+    });
+    expect(PRODUCTION_SEAMS_WALLET_SCHEMA_VERSION).toBe(1);
   });
 
   test('schema manifest defines every canonical store exactly once', () => {
@@ -77,6 +90,7 @@ test.describe('IndexedDB consolidation', () => {
     const result = await page.evaluate(async () => {
       const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
       const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+      const schemaModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/schema.js');
       const manifest = schemaNames.SEAMS_WALLET_SCHEMA_MANIFEST as Array<{
         store: string;
         keyPath: string | string[];
@@ -95,8 +109,13 @@ test.describe('IndexedDB consolidation', () => {
         request.onblocked = () => resolve();
       });
 
-      const manager = new managerModule.SeamsWalletDBManager();
-      manager.setDbName(dbName);
+      const manager = new managerModule.SeamsWalletDBManager({
+        dbName,
+        schemaPolicy: {
+          kind: 'production',
+          version: schemaModule.PRODUCTION_SEAMS_WALLET_SCHEMA_VERSION,
+        },
+      });
       const db = await manager.getDB();
       const observed = manifest.map((definition) => {
         const storeNames = Array.from(db.objectStoreNames);

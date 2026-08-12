@@ -1,8 +1,9 @@
 import { openDB, type IDBPDatabase } from 'idb';
 import {
   SEAMS_WALLET_DB_CONFIG,
-  upgradeSeamsWalletDBSchema,
+  applySeamsWalletDBSchemaUpgrade,
   type SeamsWalletDBConfig,
+  type SeamsWalletSchemaPolicy,
 } from './schema';
 import { SEAMS_WALLET_DB_NAME, type SeamsWalletStoreName } from '../schemaNames';
 
@@ -26,6 +27,19 @@ function seamsWalletDbOpenBlockedError(dbName: string): Error {
 
 function indexedDbTimeoutError(message: string): Error {
   return new Error(message);
+}
+
+function requestedSchemaVersion(policy: SeamsWalletSchemaPolicy): number | undefined {
+  switch (policy.kind) {
+    case 'development':
+      return undefined;
+    case 'production':
+      return policy.version;
+    default: {
+      const invalidPolicy: never = policy;
+      throw new Error(`Unsupported IndexedDB schema policy: ${String(invalidPolicy)}`);
+    }
+  }
 }
 
 async function withTimeout<T>(
@@ -101,21 +115,18 @@ export class SeamsWalletDBManager {
     }
     if (!this.dbPromise) {
       const dbName = this.config.dbName;
-      const dbVersion = this.config.dbVersion;
+      const schemaVersion = requestedSchemaVersion(this.config.schemaPolicy);
       let blockedTimer: ReturnType<typeof setTimeout> | null = null;
       let rejectBlockedOpen: ((error: Error) => void) | null = null;
       const blockedOpen = new Promise<IDBPDatabase>((_resolve, reject) => {
         rejectBlockedOpen = reject;
       });
-      const openPromise = openDB(dbName, dbVersion, {
-        upgrade(db, _oldVersion, _newVersion, tx) {
-          upgradeSeamsWalletDBSchema(db, tx);
+      const openPromise = openDB(dbName, schemaVersion, {
+        upgrade(db, oldVersion) {
+          applySeamsWalletDBSchemaUpgrade(db, oldVersion);
         },
         blocked() {
-          console.warn('[SeamsWalletDBManager] IndexedDB open is blocked.', {
-            dbName,
-            dbVersion,
-          });
+          console.warn('[SeamsWalletDBManager] IndexedDB open is blocked.', { dbName });
           blockedTimer = setTimeout(() => {
             rejectBlockedOpen?.(seamsWalletDbOpenBlockedError(dbName));
           }, INDEXED_DB_BLOCKED_OPEN_TIMEOUT_MS);
@@ -123,13 +134,11 @@ export class SeamsWalletDBManager {
         blocking() {
           console.warn('[SeamsWalletDBManager] IndexedDB connection is blocking an upgrade.', {
             dbName,
-            dbVersion,
           });
         },
         terminated() {
           console.warn('[SeamsWalletDBManager] IndexedDB connection has been terminated.', {
             dbName,
-            dbVersion,
           });
         },
       });
