@@ -1167,6 +1167,27 @@ function issueEmailOtpEcdsaSessionHandle(args: {
   };
 }
 
+function bindEmailOtpEcdsaWarmSessionFactor(args: {
+  session: RouterAbEcdsaPostRegistrationSessionActivationResponseV1['session'];
+  factorSecret32: Uint8Array;
+}): void {
+  const thresholdSessionId = readString(args.session.threshold_session_id, 'thresholdSessionId');
+  if (args.factorSecret32.length !== 32) {
+    throw new Error('Email OTP ECDSA warm factor must contain 32 bytes');
+  }
+  const remainingUses = normalizePositiveInteger(args.session.remaining_uses);
+  const expiresAtMs = normalizePositiveInteger(args.session.expires_at_ms);
+  if (!remainingUses || !expiresAtMs || expiresAtMs <= Date.now()) {
+    throw new Error('Email OTP ECDSA warm factor requires an active session policy');
+  }
+  deleteEmailOtpWarmSession(thresholdSessionId);
+  emailOtpWarmSessions.set(thresholdSessionId, {
+    signingSessionSecret32: Uint8Array.from(args.factorSecret32),
+    remainingUses,
+    expiresAtMs,
+  });
+}
+
 function emailOtpWalletRegistrationEcdsaHandleResult(
   request: EmailOtpWalletRegistrationEcdsaPrepareHandleRequest,
 ): EmailOtpWalletRegistrationEcdsaPrepareHandleResult {
@@ -1541,6 +1562,16 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
           chainTarget: restore.chainTarget,
         },
       });
+      if (!signingSessionSecret32) {
+        throw new Error('Email OTP signing-session seal returned no local material');
+      }
+      deleteEmailOtpWarmSession(thresholdSessionId);
+      emailOtpWarmSessions.set(thresholdSessionId, {
+        signingSessionSecret32,
+        remainingUses: policy.remainingUses,
+        expiresAtMs: policy.expiresAtMs,
+      });
+      signingSessionSecret32 = null;
       return {
         ok: true,
         emailOtpSessionHandle,
@@ -2964,6 +2995,12 @@ async function completeEmailOtpUnlockFromSecret32(args: {
         : args.material.kind === 'ecdsa' || args.material.kind === 'wallet_unlock_capabilities'
           ? parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(verified.ecdsaSession)
           : undefined;
+    if (ecdsaSession) {
+      bindEmailOtpEcdsaWarmSessionFactor({
+        session: ecdsaSession.session,
+        factorSecret32: args.clientSecret32,
+      });
+    }
     const commonResult = {
       unlockChallengeId,
       unlockChallengeB64u,
