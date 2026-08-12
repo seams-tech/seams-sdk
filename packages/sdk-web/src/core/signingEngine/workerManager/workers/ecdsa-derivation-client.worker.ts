@@ -1481,9 +1481,9 @@ async function openEcdsaRoleLocalSigningMaterial(
     throw new Error(materialActivationResult.error.message);
   }
   const materialActivation = materialActivationResult.value;
-  const lookup = await ecdsaCapabilityManifestStore.lookup({
-    capability: materialActivation.capability,
-    authority,
+  const lookup = await ecdsaCapabilityManifestStore.lookupByMaterialActivation({
+    walletId: authority.walletId,
+    materialActivation,
   });
   if (lookup.kind === 'persistence_unavailable') {
     throw new Error('Canonical ECDSA role-local material persistence is unavailable');
@@ -1493,6 +1493,13 @@ async function openEcdsaRoleLocalSigningMaterial(
       kind: 'ecdsa_role_local_signing_material_unavailable_v1',
       ok: false,
       reason: restoreFailureReasonFromManifestObservation(lookup.kind),
+    };
+  }
+  if (lookup.manifest.signer.authority.authorityDigest !== authority.authorityDigest) {
+    return {
+      kind: 'ecdsa_role_local_signing_material_unavailable_v1',
+      ok: false,
+      reason: 'binding_mismatch',
     };
   }
   if (

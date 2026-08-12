@@ -89,7 +89,6 @@ function activePlanFromLookup(input: {
       materialActivation,
       input.lookup.material.binding.materialActivation,
     ) ||
-    input.lookup.manifest.signer.capability !== materialActivation.capability ||
     input.lookup.manifest.signer.materialOwner !== materialActivation.materialOwner
   ) {
     return buildBlockedMpcCapabilityHydrationPlan({
