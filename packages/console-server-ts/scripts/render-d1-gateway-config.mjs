@@ -26,6 +26,7 @@ function main() {
   assertNearRelayerSecretConsistency(deployment.optional.nearRelayer);
   const config = buildConfig(
     deployment,
+    lane.walletOrigin,
     lane.emailOtpDelivery,
     lane.site.docsOrigin,
     process.cwd(),
@@ -81,12 +82,12 @@ function writePrivateJson(relativePath, value) {
   fs.writeFileSync(outputPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
 }
 
-function buildConfig(deployment, emailOtpDelivery, docsOrigin, packageRoot) {
+function buildConfig(deployment, walletOrigin, emailOtpDelivery, docsOrigin, packageRoot) {
   const resources = deployment.resources;
   if (resources.consoleD1.id === resources.signerD1.id) {
     throw new Error('resources.consoleD1.id and resources.signerD1.id must be different');
   }
-  const vars = buildWorkerVars(deployment, emailOtpDelivery, docsOrigin);
+  const vars = buildWorkerVars(deployment, walletOrigin, emailOtpDelivery, docsOrigin);
   return {
     name: resources.workerName,
     main: path.join(packageRoot, 'src/router/cloudflare/d1RouterApiWorker.ts'),
@@ -139,7 +140,7 @@ function buildConfig(deployment, emailOtpDelivery, docsOrigin, packageRoot) {
   };
 }
 
-function buildWorkerVars(deployment, emailOtpDelivery, docsOrigin) {
+function buildWorkerVars(deployment, walletOrigin, emailOtpDelivery, docsOrigin) {
   const production = deployment.lane !== 'staging-testnet';
   const implicitNearTestFunding =
     deployment.runtimeProfile.nearFunding.kind === 'implicit_account_relayer';
@@ -157,6 +158,8 @@ function buildWorkerVars(deployment, emailOtpDelivery, docsOrigin) {
     ROUTER_AB_CEREMONY_JWT_ISSUER: deployment.origins.gateway,
     ROUTER_AB_CEREMONY_JWT_AUDIENCE: deployment.routerAb.ceremonyJwtAudience,
     ROUTER_AB_CEREMONY_JWT_KEY_ID: deployment.routerAb.ceremonyJwtKeyId,
+    LINKED_DEVICE_WEBAUTHN_RP_ID: new URL(walletOrigin).hostname,
+    LINKED_DEVICE_WEBAUTHN_ORIGIN: walletOrigin,
     ROUTER_AB_PUBLIC_KEYSET_JSON: JSON.stringify(deployment.routerAb.publicKeyset),
     ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON: JSON.stringify(
       deployment.routerAb.registrationTopology,
