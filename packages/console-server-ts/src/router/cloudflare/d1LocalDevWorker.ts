@@ -116,6 +116,8 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK?: string;
   readonly ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON?: string;
   readonly ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET?: string;
+  readonly LINKED_DEVICE_WEBAUTHN_RP_ID?: string;
+  readonly LINKED_DEVICE_WEBAUTHN_ORIGIN?: string;
   readonly RELAY_SESSION_HMAC_SECRET?: string;
   readonly SESSION_COOKIE_NAME?: string;
   readonly RELAY_SESSION_ISSUER?: string;
@@ -1152,19 +1154,23 @@ function localD1RouterApiAuthServiceOptions(
     routerAbEcdsaPresignRuntime: createLocalEcdsaPresignRuntime(env),
     ecdsaStrictRegistration: localEcdsaStrictPorts(env).registration,
     linkedDevice: {
-      execution: localLinkedDeviceExecution(),
+      execution: localLinkedDeviceExecution(env),
     },
     ...(ed25519Yao.kind === 'enabled' ? { ed25519YaoProductRegistration: ed25519Yao.runtime } : {}),
   };
 }
 
-function localLinkedDeviceExecution() {
-  const rpId = parseWebAuthnRpId('localhost');
+function localLinkedDeviceExecution(env: LocalD1DevEnv) {
+  const rpId = parseWebAuthnRpId(
+    normalizeLocalString(env.LINKED_DEVICE_WEBAUTHN_RP_ID) || 'localhost',
+  );
   if (!rpId.ok) throw new Error(rpId.error.message);
+  const expectedOrigin =
+    normalizeLocalString(env.LINKED_DEVICE_WEBAUTHN_ORIGIN) || 'https://localhost';
   return {
     nowV1: Date.now,
     rpId: rpId.value,
-    expectedOrigin: 'https://localhost',
+    expectedOrigin,
     logger: normalizeLogger(),
   };
 }
