@@ -145,8 +145,11 @@ import type {
   RotatableSigningLaneJobV1,
   OwnerLaneRefreshAuthorizationBindingV1,
   LinkedDeviceLaneAuthorizationBindingV1,
+  OwnerLaneProtocolSourceV1,
+  ProvisionedLaneProtocolSourceV1,
 } from './rotation';
 import type { DigestB64u } from '../utils/canonicalPrimitives';
+import { parseOwnerLaneParticipantContinuityV1 } from './ownerContinuity';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -175,9 +178,20 @@ const NON_EMPTY_FIELDS = {
     'linkedDevicePermissionDigestB64u',
   ] as const,
   refreshAuthorization: ['kind', 'authorizedOperationId', 'ownerLaneRefreshDigestB64u'] as const,
-  source: [
+  ownerSource: [
     'laneId',
     'laneKind',
+    'sourceKind',
+    'laneShareEpoch',
+    'revocationEpoch',
+    'ownerParticipantContinuity',
+    'participantBindingDigestB64u',
+    'materialActivation',
+  ] as const,
+  provisionedSource: [
+    'laneId',
+    'laneKind',
+    'sourceKind',
     'laneShareEpoch',
     'revocationEpoch',
     'holderParticipantId',
@@ -356,10 +370,41 @@ function parseAuthorization(
 }
 
 function parseSource(raw: unknown, label = 'source'): ActiveLaneProtocolSourceV1 {
-  const record = exactRecord(raw, NON_EMPTY_FIELDS.source, label);
+  const baseRecord = requireRecord(raw, label);
+  const laneKind = parseLaneKind(baseRecord.laneKind, `${label}.laneKind`);
+  if (laneKind === 'owner_passkey' || laneKind === 'owner_email_otp') {
+    const record = exactRecord(baseRecord, NON_EMPTY_FIELDS.ownerSource, label);
+    if (record.sourceKind !== 'owner_registration') {
+      throw new Error(`${label}.sourceKind must be owner_registration`);
+    }
+    return {
+      sourceKind: 'owner_registration',
+      laneId: parseLaneId(record.laneId, `${label}.laneId`),
+      laneKind,
+      laneShareEpoch: parseShareEpoch(record.laneShareEpoch, `${label}.laneShareEpoch`),
+      revocationEpoch: requiredInteger(record.revocationEpoch, `${label}.revocationEpoch`),
+      ownerParticipantContinuity: parseOwnerLaneParticipantContinuityV1(
+        record.ownerParticipantContinuity,
+        `${label}.ownerParticipantContinuity`,
+      ),
+      participantBindingDigestB64u: resultValue(
+        parseLaneParticipantBindingDigestB64u(record.participantBindingDigestB64u),
+        `${label}.participantBindingDigestB64u`,
+      ),
+      materialActivation: parseMpcActivation(
+        record.materialActivation,
+        `${label}.materialActivation`,
+      ),
+    } satisfies OwnerLaneProtocolSourceV1;
+  }
+  const record = exactRecord(baseRecord, NON_EMPTY_FIELDS.provisionedSource, label);
+  if (record.sourceKind !== 'provisioned_lane') {
+    throw new Error(`${label}.sourceKind must be provisioned_lane`);
+  }
   return {
+    sourceKind: 'provisioned_lane',
     laneId: parseLaneId(record.laneId, `${label}.laneId`),
-    laneKind: parseLaneKind(record.laneKind, `${label}.laneKind`),
+    laneKind,
     laneShareEpoch: parseShareEpoch(record.laneShareEpoch, `${label}.laneShareEpoch`),
     revocationEpoch: requiredInteger(record.revocationEpoch, `${label}.revocationEpoch`),
     holderParticipantId: resultValue(
@@ -382,7 +427,7 @@ function parseSource(raw: unknown, label = 'source'): ActiveLaneProtocolSourceV1
       record.materialActivation,
       `${label}.materialActivation`,
     ),
-  };
+  } satisfies ProvisionedLaneProtocolSourceV1;
 }
 
 function parseTargetHolder(raw: unknown, label = 'targetHolder') {

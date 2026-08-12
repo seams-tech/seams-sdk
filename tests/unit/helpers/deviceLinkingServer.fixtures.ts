@@ -56,15 +56,8 @@ export async function buildR103ActiveLinkedDeviceSessionRecordV1(
     idempotencyKey: fixture.approval.idempotencyKey,
     orderedKeyBindings: [
       {
-        walletKeyId: sourceBinding.walletKeyId,
+        ...sourceBinding,
         keyFamily,
-        sourceLaneId: sourceBinding.sourceLaneId,
-        sourceLaneShareEpoch: sourceBinding.sourceLaneShareEpoch,
-        sourceRevocationEpoch: sourceBinding.sourceRevocationEpoch,
-        sourceHolderParticipantId: sourceBinding.sourceHolderParticipantId,
-        sourceSigningWorkerParticipantId: sourceBinding.sourceSigningWorkerParticipantId,
-        targetLaneId: sourceBinding.targetLaneId,
-        targetLaneShareEpoch: sourceBinding.targetLaneShareEpoch,
       },
     ],
     protocolVersions: [{ keyFamily, version: protocolVersion.version }],

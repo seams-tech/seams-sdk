@@ -196,7 +196,7 @@ export type CloudflareEcdsaLaneSourceMaterialV1 =
       readonly lookup: {
         readonly accountId: EcdsaAdditiveLaneJobV1['walletId'];
         readonly materialActivationId: EcdsaAdditiveLaneJobV1['source']['materialActivation']['activationId'];
-        readonly signingWorkerId: EcdsaAdditiveLaneJobV1['source']['signingWorkerParticipantId'];
+        readonly signingWorkerId: string;
       };
     };
 
@@ -214,7 +214,7 @@ export class LaneLifecycleStoreEcdsaLanePrivateBindingResolverV1 implements Ecds
       laneId: input.job.source.laneId,
       laneShareEpoch: input.job.source.laneShareEpoch,
     });
-    if (isRegistrationBackedSourceLane(input.job.source.laneKind)) {
+    if (input.job.source.sourceKind === 'owner_registration') {
       if (product !== null) {
         throw new Error('ECDSA registration-backed source conflicts with a lane product epoch');
       }
@@ -223,7 +223,7 @@ export class LaneLifecycleStoreEcdsaLanePrivateBindingResolverV1 implements Ecds
         lookup: {
           accountId: input.job.walletId,
           materialActivationId: input.job.source.materialActivation.activationId,
-          signingWorkerId: input.job.source.signingWorkerParticipantId,
+          signingWorkerId: String(input.job.source.ownerParticipantContinuity.signingWorkerId),
         },
       };
     }
@@ -721,10 +721,7 @@ export class LaneLifecycleStoreNormalSigningLaneMaterialResolverV1 {
     }
     assertActiveLaneProtocolMatchesProductV1(product, protocol.value.job);
 
-    const identity = signingWorkerIdentityFromActiveProductV1(
-      product,
-      protocol.value.lifecycle,
-    );
+    const identity = signingWorkerIdentityFromActiveProductV1(product, protocol.value.lifecycle);
     const admittedLaneIdentityDigestB64u = await digestSigningWorkerLaneIdentityV1(identity);
     return {
       product,
@@ -757,7 +754,8 @@ function assertActiveLaneProtocolMatchesProductV1(
     job.targetHolder.participantId !== product.holderParticipant.participantId ||
     job.targetHolder.participantBindingDigestB64u !==
       product.holderParticipant.participantBindingDigestB64u ||
-    job.targetHolder.hpkePublicKeyDigestB64u !== product.holderParticipant.hpkePublicKeyDigestB64u ||
+    job.targetHolder.hpkePublicKeyDigestB64u !==
+      product.holderParticipant.hpkePublicKeyDigestB64u ||
     job.targetSigningWorker.participantId !== product.signingWorkerParticipant.participantId ||
     job.targetSigningWorker.participantBindingDigestB64u !==
       product.signingWorkerParticipant.participantBindingDigestB64u ||

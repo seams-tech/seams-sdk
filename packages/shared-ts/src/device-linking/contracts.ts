@@ -22,6 +22,8 @@ import type {
   SigningLaneId,
   WalletKeyId,
 } from '../signing-lanes/ids';
+import type { SigningLaneKind } from '../signing-lanes/records';
+import type { OwnerLaneParticipantContinuityV1 } from '../signing-lanes/ownerContinuity';
 import type {
   MpcMaterialActivationId,
   MpcMaterialActivationRef,
@@ -36,6 +38,7 @@ import type {
   LaneProtocolCommitReceiptV1,
   LaneEnrollmentManifestV1,
   RotatableSigningLaneJobV1,
+  ActiveLaneProtocolSourceV1,
 } from '../signing-lanes/rotation';
 import type { SigningLaneRecord, WalletKeyRecord } from '../signing-lanes/records';
 import type {
@@ -241,17 +244,74 @@ export type LinkedDeviceOwnerAuthorizationSourceV1 =
       readonly authorizationId?: never;
     };
 
-export type LinkedDeviceEnrollmentKeyBindingV1 = {
+type LinkedDeviceEnrollmentKeyBindingBaseV1 = {
   readonly walletKeyId: WalletKeyId;
   readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
   readonly sourceLaneId: SigningLaneId;
+  readonly sourceLaneKind: SigningLaneKind;
+  readonly sourceKind: 'owner_registration' | 'provisioned_lane';
   readonly sourceLaneShareEpoch: LaneShareEpoch;
   readonly sourceRevocationEpoch: number;
-  readonly sourceHolderParticipantId: LaneHolderParticipantId;
-  readonly sourceSigningWorkerParticipantId: SigningWorkerParticipantId;
   readonly targetLaneId: SigningLaneId;
   readonly targetLaneShareEpoch: LaneShareEpoch;
 };
+
+export type LinkedDeviceOwnerEnrollmentKeyBindingV1 = LinkedDeviceEnrollmentKeyBindingBaseV1 & {
+  readonly sourceKind: 'owner_registration';
+  readonly sourceLaneKind: 'owner_passkey' | 'owner_email_otp';
+  readonly ownerParticipantContinuity: OwnerLaneParticipantContinuityV1;
+  readonly sourceHolderParticipantId?: never;
+  readonly sourceSigningWorkerParticipantId?: never;
+};
+
+export type LinkedDeviceProvisionedEnrollmentKeyBindingV1 =
+  LinkedDeviceEnrollmentKeyBindingBaseV1 & {
+    readonly sourceKind: 'provisioned_lane';
+    readonly sourceLaneKind: Exclude<SigningLaneKind, 'owner_passkey' | 'owner_email_otp'>;
+    readonly sourceHolderParticipantId: LaneHolderParticipantId;
+    readonly sourceSigningWorkerParticipantId: SigningWorkerParticipantId;
+    readonly ownerParticipantContinuity?: never;
+  };
+
+export type LinkedDeviceEnrollmentKeyBindingV1 =
+  | LinkedDeviceOwnerEnrollmentKeyBindingV1
+  | LinkedDeviceProvisionedEnrollmentKeyBindingV1;
+
+export function linkedDeviceEnrollmentBindingMatchesSourceV1(
+  binding: LinkedDeviceEnrollmentKeyBindingV1,
+  source: ActiveLaneProtocolSourceV1,
+): boolean {
+  if (
+    binding.sourceKind !== source.sourceKind ||
+    binding.sourceLaneKind !== source.laneKind ||
+    binding.sourceLaneId !== source.laneId ||
+    binding.sourceLaneShareEpoch !== source.laneShareEpoch ||
+    binding.sourceRevocationEpoch !== source.revocationEpoch
+  ) {
+    return false;
+  }
+  if (source.sourceKind === 'owner_registration') {
+    if (binding.sourceKind !== 'owner_registration') return false;
+    return (
+      binding.ownerParticipantContinuity.signerId === source.ownerParticipantContinuity.signerId &&
+      binding.ownerParticipantContinuity.signingWorkerId ===
+        source.ownerParticipantContinuity.signingWorkerId &&
+      binding.ownerParticipantContinuity.custodyKeyManifestDigestB64u ===
+        source.ownerParticipantContinuity.custodyKeyManifestDigestB64u &&
+      binding.ownerParticipantContinuity.sourceIdentityDigestB64u ===
+        source.ownerParticipantContinuity.sourceIdentityDigestB64u &&
+      binding.ownerParticipantContinuity.participantIds[0] ===
+        source.ownerParticipantContinuity.participantIds[0] &&
+      binding.ownerParticipantContinuity.participantIds[1] ===
+        source.ownerParticipantContinuity.participantIds[1]
+    );
+  }
+  if (binding.sourceKind !== 'provisioned_lane') return false;
+  return (
+    binding.sourceHolderParticipantId === source.holderParticipantId &&
+    binding.sourceSigningWorkerParticipantId === source.signingWorkerParticipantId
+  );
+}
 
 export type LinkedDeviceProtocolVersionV1 = {
   readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';

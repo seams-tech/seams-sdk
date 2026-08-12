@@ -6,6 +6,7 @@ import {
   parseLinkedDeviceTargetPreparationV1,
   parseLinkedDeviceWalletSessionDeliveryV1,
 } from '@shared/device-linking';
+import { linkedDeviceEnrollmentBindingMatchesSourceV1 } from '@shared/device-linking/contracts';
 import { assertLinkedDeviceTargetCredentialRegistrationMatchesPreparationV1 } from '@shared/device-linking/digests';
 import {
   buildActiveSigningLaneLifecycle,
@@ -532,8 +533,7 @@ function assertProvisionedChildIdentity(input: {
     job.source.laneId === input.binding.sourceLaneId &&
     job.source.laneShareEpoch === input.binding.sourceLaneShareEpoch &&
     job.source.revocationEpoch === input.binding.sourceRevocationEpoch &&
-    job.source.holderParticipantId === input.binding.sourceHolderParticipantId &&
-    job.source.signingWorkerParticipantId === input.binding.sourceSigningWorkerParticipantId &&
+    linkedDeviceEnrollmentBindingMatchesSourceV1(input.binding, job.source) &&
     job.target.laneId === input.binding.targetLaneId &&
     job.target.laneShareEpoch === input.binding.targetLaneShareEpoch &&
     input.preparationChild.operationId === job.operationId &&

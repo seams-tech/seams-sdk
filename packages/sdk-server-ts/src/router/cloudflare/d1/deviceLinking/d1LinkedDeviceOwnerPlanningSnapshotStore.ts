@@ -1,3 +1,4 @@
+import { linkedDeviceEnrollmentBindingMatchesSourceV1 } from '@shared/device-linking/contracts';
 import type {
   LinkedDeviceEnrollmentKeyBindingV1,
   LinkedDeviceOwnerSourceLaneV1,
@@ -598,8 +599,7 @@ function assertSourceChildMatchesBinding(
     child.source.laneId !== binding.sourceLaneId ||
     child.source.laneShareEpoch !== binding.sourceLaneShareEpoch ||
     child.source.revocationEpoch !== binding.sourceRevocationEpoch ||
-    child.source.holderParticipantId !== binding.sourceHolderParticipantId ||
-    child.source.signingWorkerParticipantId !== binding.sourceSigningWorkerParticipantId
+    !linkedDeviceEnrollmentBindingMatchesSourceV1(binding, child.source)
   )
     throw new Error(`owner source child ${index} differs from metadata binding`);
 }

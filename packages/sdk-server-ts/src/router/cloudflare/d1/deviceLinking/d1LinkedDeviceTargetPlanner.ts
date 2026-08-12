@@ -1,4 +1,5 @@
 import type { AuthorizedOperationId } from '@shared/authorization/capabilityKinds';
+import { linkedDeviceEnrollmentBindingMatchesSourceV1 } from '@shared/device-linking/contracts';
 import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceEnrollmentKeyBindingV1,
@@ -406,8 +407,7 @@ function assertResolutionMatchesBinding(
     resolution.source.laneId !== binding.sourceLaneId ||
     resolution.source.laneShareEpoch !== binding.sourceLaneShareEpoch ||
     resolution.source.revocationEpoch !== binding.sourceRevocationEpoch ||
-    resolution.source.holderParticipantId !== binding.sourceHolderParticipantId ||
-    resolution.source.signingWorkerParticipantId !== binding.sourceSigningWorkerParticipantId
+    !linkedDeviceEnrollmentBindingMatchesSourceV1(binding, resolution.source)
   ) {
     throw new Error(`linked-device source resolution ${childIndex} differs from approval`);
   }

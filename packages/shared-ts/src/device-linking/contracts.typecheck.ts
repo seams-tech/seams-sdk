@@ -38,6 +38,7 @@ import type {
   SigningWorkerParticipantId,
 } from '../signing-lanes/participants';
 import type { DigestB64u } from '../utils/canonicalPrimitives';
+import type { OwnerLaneParticipantContinuityV1 } from '../signing-lanes/ownerContinuity';
 import type {
   MpcMaterialActivationId,
   MpcMaterialActivationRef,
@@ -75,6 +76,7 @@ declare const ownerLane: Extract<
   { readonly laneKind: 'owner_passkey' | 'owner_email_otp' }
 >;
 declare const materialActivation: MpcMaterialActivationRef;
+declare const ownerParticipantContinuity: OwnerLaneParticipantContinuityV1;
 declare const manifestId: EcdsaCapabilityManifestId;
 declare const manifestRevision: EcdsaCapabilityManifestRevision;
 
@@ -206,6 +208,8 @@ const approval: LinkedDeviceApprovalV1 = {
       walletKeyId,
       keyFamily: 'ed25519',
       sourceLaneId,
+      sourceLaneKind: 'linked_device',
+      sourceKind: 'provisioned_lane',
       sourceLaneShareEpoch: sourceEpoch,
       sourceRevocationEpoch: 0,
       sourceHolderParticipantId: holderParticipantId,
@@ -217,6 +221,25 @@ const approval: LinkedDeviceApprovalV1 = {
   protocolVersions: [{ keyFamily: 'ed25519', version: 'rotatable_signing_lane_protocol_v1' }],
   approvedAtMs: 1,
   expiresAtMs: 2,
+};
+
+const ownerApprovalBinding: LinkedDeviceApprovalV1['orderedKeyBindings'][number] = {
+  walletKeyId,
+  keyFamily: 'ed25519',
+  sourceLaneId,
+  sourceLaneKind: 'owner_passkey',
+  sourceKind: 'owner_registration',
+  sourceLaneShareEpoch: sourceEpoch,
+  sourceRevocationEpoch: 0,
+  ownerParticipantContinuity,
+  targetLaneId,
+  targetLaneShareEpoch: targetEpoch,
+};
+
+// @ts-expect-error owner bindings cannot carry provisioned holder identity.
+const invalidMixedOwnerApprovalBinding: LinkedDeviceApprovalV1['orderedKeyBindings'][number] = {
+  ...ownerApprovalBinding,
+  sourceHolderParticipantId: holderParticipantId,
 };
 
 const summary: LinkedDeviceSummaryV1 = {

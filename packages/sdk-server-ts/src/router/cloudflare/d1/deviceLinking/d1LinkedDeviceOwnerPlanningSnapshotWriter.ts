@@ -10,12 +10,8 @@ import { parseAuthorizedOperationId } from '@shared/authorization/capabilityKind
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type {
   EcdsaSourceCapabilityBindingV1,
+  OwnerLaneProtocolSourceV1,
 } from '@shared/signing-lanes/rotation';
-import type {
-  LaneHolderParticipantId,
-  SigningWorkerParticipantId,
-  SigningWorkerRecipientKeyId,
-} from '@shared/signing-lanes/participants';
 import type { Ed25519YaoSuiteId } from '@shared/signing-lanes/ids';
 import type { WalletId } from '@shared/utils/domainIds';
 import type {
@@ -36,9 +32,6 @@ type NonEmpty<T> = readonly [T, ...T[]];
 
 type DeploymentChildBaseV1 = {
   readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
-  readonly sourceHolderParticipantId: LaneHolderParticipantId;
-  readonly sourceSigningWorkerParticipantId: SigningWorkerParticipantId;
-  readonly sourceSigningWorkerRecipientKeyId: SigningWorkerRecipientKeyId;
 };
 
 export type D1LinkedDeviceOwnerPlanningDeploymentChildV1 =
@@ -205,16 +198,15 @@ function buildSnapshotInput(input: {
       linkedDevicePermissionDigestB64u: metadata.policyDigestB64u,
     } as const;
     const source = {
+      sourceKind: 'owner_registration' as const,
       laneId: projection.lane.laneId,
       laneKind: projection.lane.laneKind,
       laneShareEpoch: projection.lane.laneShareEpoch,
       revocationEpoch: projection.lane.lifecycle.revocationEpoch,
-      holderParticipantId: deploymentChild.sourceHolderParticipantId,
-      signingWorkerParticipantId: deploymentChild.sourceSigningWorkerParticipantId,
-      signingWorkerRecipientKeyId: deploymentChild.sourceSigningWorkerRecipientKeyId,
+      ownerParticipantContinuity: projection.lane.ownerParticipantContinuity,
       participantBindingDigestB64u: projection.lane.participantBindingDigestB64u,
       materialActivation: projection.materialActivation,
-    } as const;
+    } satisfies OwnerLaneProtocolSourceV1;
     const common = {
       walletKeyId: projection.walletKey.walletKeyId,
       source,
@@ -281,8 +273,12 @@ function assertBindingMatchesProjection(
     binding.walletKeyId !== projection.walletKey.walletKeyId ||
     binding.keyFamily !== projection.walletKey.keyFamily ||
     binding.sourceLaneId !== projection.lane.laneId ||
+    binding.sourceLaneKind !== projection.lane.laneKind ||
+    binding.sourceKind !== 'owner_registration' ||
     binding.sourceLaneShareEpoch !== projection.lane.laneShareEpoch ||
-    binding.sourceRevocationEpoch !== projection.lane.lifecycle.revocationEpoch
+    binding.sourceRevocationEpoch !== projection.lane.lifecycle.revocationEpoch ||
+    binding.ownerParticipantContinuity.sourceIdentityDigestB64u !==
+      projection.lane.ownerParticipantContinuity.sourceIdentityDigestB64u
   ) {
     throw new Error(`owner planning key binding ${index} differs from D1 wallet projection`);
   }
@@ -296,8 +292,10 @@ function assertDeploymentChildIdentity(
 ): void {
   if (
     child.keyFamily !== projection.walletKey.keyFamily ||
-    child.sourceHolderParticipantId !== binding.sourceHolderParticipantId ||
-    child.sourceSigningWorkerParticipantId !== binding.sourceSigningWorkerParticipantId
+    binding.sourceKind !== 'owner_registration' ||
+    binding.sourceLaneKind !== projection.lane.laneKind ||
+    binding.ownerParticipantContinuity.sourceIdentityDigestB64u !==
+      projection.lane.ownerParticipantContinuity.sourceIdentityDigestB64u
   ) {
     throw new Error(`owner planning deployment child ${index} has invalid participant identity`);
   }

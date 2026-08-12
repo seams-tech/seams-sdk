@@ -33,10 +33,11 @@ import type {
 } from '../../../packages/shared-ts/src/device-linking/contracts';
 import { computeLinkedDeviceTargetPreparationDigestV1 } from '../../../packages/shared-ts/src/device-linking/digests';
 import { parseAuthorizationEvidenceSetId } from '../../../packages/shared-ts/src/authorization/capabilityKinds';
+import { parseSigningWorkerParticipantId } from '../../../packages/shared-ts/src/signing-lanes/participants';
 import {
-  parseSigningWorkerParticipantId,
-} from '../../../packages/shared-ts/src/signing-lanes/participants';
-import { buildOwnerLaneParticipantContinuityV1, parseWalletSignerId } from '../../../packages/shared-ts/src/signing-lanes/ownerContinuity';
+  buildOwnerLaneParticipantContinuityV1,
+  parseWalletSignerId,
+} from '../../../packages/shared-ts/src/signing-lanes/ownerContinuity';
 import {
   parseLaneOperationId,
   parseLaneOperationIdempotencyKey,
@@ -386,18 +387,13 @@ export function buildR103ProvisioningFixture(
     idempotencyKey: fixture.approval.idempotencyKey,
     walletId: fixture.approval.walletId,
     walletKeyId: approved.walletKeyId,
-    source: buildR103SourceForBinding(
-      source.source,
-      approved,
-      {
-        ...source.source.materialActivation,
-        capability: fixture.receipt.orderedChildReceipts[0].materialActivation.capability,
-        materialOwner: fixture.receipt.orderedChildReceipts[0].materialActivation.materialOwner,
-        keyBinding: fixture.receipt.orderedChildReceipts[0].materialActivation.keyBinding,
-        lifecycleBinding:
-          fixture.receipt.orderedChildReceipts[0].materialActivation.lifecycleBinding,
-      },
-    ),
+    source: buildR103SourceForBinding(source.source, approved, {
+      ...source.source.materialActivation,
+      capability: fixture.receipt.orderedChildReceipts[0].materialActivation.capability,
+      materialOwner: fixture.receipt.orderedChildReceipts[0].materialActivation.materialOwner,
+      keyBinding: fixture.receipt.orderedChildReceipts[0].materialActivation.keyBinding,
+      lifecycleBinding: fixture.receipt.orderedChildReceipts[0].materialActivation.lifecycleBinding,
+    }),
     targetSigningWorker: {
       ...source.targetSigningWorker,
       participantId: required(

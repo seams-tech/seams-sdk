@@ -14,6 +14,7 @@ import type {
 import type { AuthorizedOperationId } from '../authorization/capabilityKinds';
 import type { LinkedDeviceEnrollmentId, LinkedDeviceId } from '../signing-lanes/ids';
 import type { WebAuthnCredentialIdB64u } from '../utils/domainIds';
+import { ownerLaneParticipantContinuityCanonicalBytesV1 } from '../signing-lanes/ownerContinuity';
 
 const CLAIM_DOMAIN = 'seams/linked-device/session-claim/v1';
 const APPROVAL_DOMAIN = 'seams/linked-device/owner-approval/v1';
@@ -104,16 +105,27 @@ function encodeOwnerAuthorization(value: LinkedDeviceOwnerAuthorizationSourceV1)
 }
 
 function encodeKeyBinding(value: LinkedDeviceEnrollmentKeyBindingV1): Uint8Array {
-  return concat([
+  const common = [
     text(value.walletKeyId, 'keyBinding.walletKeyId'),
     text(value.keyFamily, 'keyBinding.keyFamily'),
     text(value.sourceLaneId, 'keyBinding.sourceLaneId'),
+    text(value.sourceLaneKind, 'keyBinding.sourceLaneKind'),
+    text(value.sourceKind, 'keyBinding.sourceKind'),
     text(value.sourceLaneShareEpoch, 'keyBinding.sourceLaneShareEpoch'),
     u64(value.sourceRevocationEpoch, 'keyBinding.sourceRevocationEpoch'),
-    text(value.sourceHolderParticipantId, 'keyBinding.sourceHolderParticipantId'),
-    text(value.sourceSigningWorkerParticipantId, 'keyBinding.sourceSigningWorkerParticipantId'),
     text(value.targetLaneId, 'keyBinding.targetLaneId'),
     text(value.targetLaneShareEpoch, 'keyBinding.targetLaneShareEpoch'),
+  ] as const;
+  if (value.ownerParticipantContinuity !== undefined) {
+    return concat([
+      ...common,
+      ownerLaneParticipantContinuityCanonicalBytesV1(value.ownerParticipantContinuity),
+    ]);
+  }
+  return concat([
+    ...common,
+    text(value.sourceHolderParticipantId, 'keyBinding.sourceHolderParticipantId'),
+    text(value.sourceSigningWorkerParticipantId, 'keyBinding.sourceSigningWorkerParticipantId'),
   ]);
 }
 
