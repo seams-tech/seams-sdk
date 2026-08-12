@@ -655,7 +655,7 @@ function sourceMaterialWireV1(
           material_activation_id: source.lookup.materialActivationId,
           signing_worker_id: source.lookup.signingWorkerId,
         },
-        source_derivation: {
+        sourceDerivation: {
           application_binding_digest_b64u: source.sourceDerivation.applicationBindingDigestB64u,
           client_share_retry_counter: source.sourceDerivation.clientShareRetryCounter,
         },

@@ -87,7 +87,6 @@ pub enum CloudflareEcdsaLaneSourceMaterialLookupV1 {
     },
     RegistrationActivation {
         lookup: CloudflareActiveSigningWorkerStateLookupV1,
-        #[serde(rename = "source_derivation")]
         source_derivation: CloudflareEcdsaRegistrationSourceDerivationV1,
     },
 }
@@ -1679,7 +1678,7 @@ mod tests {
         let value = serde_json::to_value(&source_material).expect("source material JSON");
         assert_eq!(
             value
-                .get("source_derivation")
+                .get("sourceDerivation")
                 .and_then(|entry| entry.get("application_binding_digest_b64u")),
             Some(&serde_json::Value::String(bytes::<32>(12))),
         );
