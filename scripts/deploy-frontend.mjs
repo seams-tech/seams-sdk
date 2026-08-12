@@ -22,6 +22,8 @@ const FRONTEND_SMOKE_PATHS = Object.freeze({
   wallet: [
     '/',
     '/wallet-service/index.html',
+    { path: '/wallet-assets.manifest.json', isReady: jsonManifestIsReady },
+    { path: '/headers.manifest.json', isReady: jsonManifestIsReady },
     '/sdk/workers/near-signer.worker.js',
     '/sdk/workers/router_ab_ed25519_yao_client_bg.wasm',
   ],
@@ -215,12 +217,18 @@ function assertLaneProjectEnvironmentId(lane, variableName, environment) {
 function copySdkAssets() {
   const sdkEsm = path.join(SDK_OUTPUT, 'esm', 'sdk');
   const sdkWorkers = path.join(SDK_OUTPUT, 'workers');
+  const walletAssetsManifest = path.join(SDK_OUTPUT, 'public', 'wallet-assets.manifest.json');
+  const walletHeadersManifest = path.join(SDK_OUTPUT, 'public', 'headers.manifest.json');
   const walletService = path.join(SDK_OUTPUT, 'public', 'wallet-service');
   assertDirectory(sdkEsm, 'SDK ESM output');
+  assertFile(walletAssetsManifest, 'SDK wallet assets manifest');
+  assertFile(walletHeadersManifest, 'SDK wallet headers manifest');
   assertFile(path.join(walletService, 'index.html'), 'SDK wallet-service output');
   copyDirectory(sdkEsm, path.join(SITE_OUTPUT, 'sdk'));
   if (fs.existsSync(sdkWorkers))
     copyDirectory(sdkWorkers, path.join(SITE_OUTPUT, 'sdk', 'workers'));
+  fs.copyFileSync(walletAssetsManifest, path.join(SITE_OUTPUT, 'wallet-assets.manifest.json'));
+  fs.copyFileSync(walletHeadersManifest, path.join(SITE_OUTPUT, 'headers.manifest.json'));
   copyDirectory(walletService, path.join(SITE_OUTPUT, 'wallet-service'));
 }
 
@@ -357,12 +365,24 @@ function resolveDeploymentRef() {
 }
 
 function addSmokeChecks(checks, surface, origin, requestPaths) {
-  for (const requestPath of requestPaths) {
+  for (const request of requestPaths) {
+    const requestPath = typeof request === 'string' ? request : request.path;
     checks.push({
       name: `${surface}${requestPath}`,
       url: new URL(requestPath, origin).toString(),
+      ...(typeof request === 'string' ? {} : { isReady: request.isReady }),
     });
   }
+}
+
+function jsonManifestIsReady(response) {
+  return (
+    response.status >= 200 &&
+    response.status < 400 &&
+    String(response.headers.get('content-type') || '')
+      .toLowerCase()
+      .startsWith('application/json')
+  );
 }
 
 function requireEnvironmentValues(names, environment) {

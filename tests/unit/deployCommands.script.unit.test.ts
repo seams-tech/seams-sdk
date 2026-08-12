@@ -19,6 +19,7 @@ type CommandResult = {
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const backendScript = path.join(repoRoot, 'scripts/deploy-backend.mjs');
 const frontendScript = path.join(repoRoot, 'scripts/deploy-frontend.mjs');
+const frontendHeaders = path.join(repoRoot, 'apps/seams-site/src/public/_headers');
 const environmentGeneratorScript = path.join(
   repoRoot,
   'crates/router-ab-cloudflare/scripts/generate-github-env-values.mjs',
@@ -171,6 +172,21 @@ test('frontend plan runs without deployment secrets', () => {
   expect(result.stdout).toContain('Docs: https://staging.docs.seams.sh');
   expect(result.stdout).toContain('Docs Pages project environment: CF_PAGES_PROJECT_DOCS');
   expectOrdered(result.stdout, ['build', 'deploy', 'smoke']);
+});
+
+test('frontend Pages headers align with hosted wallet asset policies', () => {
+  const source = readFileSync(frontendHeaders, 'utf8');
+
+  expect(source).toContain(
+    '/sdk/*\n  Cache-Control: public, max-age=300, must-revalidate\n  Access-Control-Allow-Origin: *',
+  );
+  expect(source).toContain('/wallet-service\n  Cache-Control: no-store');
+  expect(source).toContain('/wallet-service/*\n  Cache-Control: no-store');
+  for (const manifest of ['wallet-assets.manifest.json', 'headers.manifest.json']) {
+    expect(source).toContain(
+      `/${manifest}\n  Content-Type: application/json; charset=utf-8\n  Cache-Control: no-store`,
+    );
+  }
 });
 
 test('backend commands reject missing, unknown, and misplaced arguments', () => {

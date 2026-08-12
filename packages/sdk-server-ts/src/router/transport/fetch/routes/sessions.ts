@@ -27,6 +27,8 @@ import {
 import {
   routerApiEmailOtpRouteService,
   type EmailOtpChallengeDelivery,
+  type RouterApiSessionExchangeJournal,
+  type RouterApiSessionExchangeMutationResult,
 } from '../../../framework/authServicePort';
 import {
   handleEmailOtpDevCleanupGoogleRegistrationRoute,
@@ -99,8 +101,99 @@ import {
   type DomainIdParseResult,
 } from '@shared/utils/domainIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
+import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
+import { base64UrlEncode } from '@shared/utils/encoders';
 
 const HOSTED_WALLET_SESSION_EXCHANGE_TTL_MS = 60_000;
+const GOOGLE_EMAIL_OTP_SESSION_EXCHANGE_REPLAY_TTL_MS = 15 * 60_000;
+
+type GoogleEmailOtpSessionExchangeCommand = Extract<
+  SessionExchangeRouteCommand,
+  { readonly kind: 'oidc_jwt' }
+> & {
+  readonly provider: 'google';
+  readonly accountMode: 'login';
+  readonly idempotencyKey: string;
+};
+
+function isGoogleEmailOtpSessionExchangeCommand(
+  command: SessionExchangeRouteCommand,
+): command is GoogleEmailOtpSessionExchangeCommand {
+  return (
+    command.kind === 'oidc_jwt' &&
+    command.provider === 'google' &&
+    command.accountMode === 'login' &&
+    typeof command.idempotencyKey === 'string' &&
+    command.idempotencyKey.length > 0
+  );
+}
+
+async function googleEmailOtpSessionExchangeRequestFingerprint(input: {
+  readonly command: GoogleEmailOtpSessionExchangeCommand;
+  readonly origin: string | null;
+}): Promise<string> {
+  const tokenDigest = base64UrlEncode(await sha256BytesUtf8(input.command.token));
+  return base64UrlEncode(
+    await sha256BytesUtf8(
+      alphabetizeStringify({
+        kind: input.command.kind,
+        provider: input.command.provider,
+        accountMode: input.command.accountMode,
+        sessionKind: input.command.sessionKind,
+        projectEnvironmentId: input.command.projectEnvironmentId || null,
+        origin: input.origin || null,
+        tokenDigest,
+      }),
+    ),
+  );
+}
+
+function replayGoogleEmailOtpSessionExchange(journal: RouterApiSessionExchangeJournal): Response {
+  const response = journal.response;
+  if (!response) throw new Error('Completed session exchange is missing its replay response');
+  const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8' });
+  if (response.setCookie) headers.set('Set-Cookie', response.setCookie);
+  return new Response(response.bodyText, { status: response.status, headers });
+}
+
+function sessionExchangeMutationFailureResponse(
+  result: Exclude<
+    RouterApiSessionExchangeMutationResult,
+    { readonly kind: 'stored' } | { readonly kind: 'replayed' }
+  >,
+): Response {
+  if (result.kind === 'in_progress') {
+    return json(
+      {
+        ok: false,
+        code: 'session_exchange_in_progress',
+        message: 'Session exchange is already in progress',
+        retryAfterMs: result.retryAfterMs,
+      },
+      { status: 409 },
+    );
+  }
+  if (result.kind === 'conflict') {
+    return json({ ok: false, code: result.code, message: result.message }, { status: 409 });
+  }
+  return json(
+    {
+      ok: false,
+      code: 'storage_temporarily_unavailable',
+      message: 'Session exchange storage is temporarily unavailable',
+      retryAfterMs: 250,
+    },
+    { status: 503 },
+  );
+}
+
+function isTransientD1StorageReset(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes('D1_ERROR: D1 DB storage operation exceeded timeout') ||
+    message.includes('D1 DB storage operation exceeded timeout which caused object to be reset')
+  );
+}
 
 type SessionExchangeTimingPhase =
   | 'request_validation'
@@ -886,6 +979,8 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
       return await handleHostedWalletExchangeCodeRedeem(ctx, command);
     }
 
+    let googleEmailOtpSessionExchangeJournal: RouterApiSessionExchangeJournal | undefined;
+
     let userId = '';
     let provider: 'oidc' | 'passkey' = 'oidc';
     let providerSubject: string | undefined;
@@ -1110,6 +1205,37 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
         providerSubject = googleProviderSubject.value;
         oidcEmail = verifiedGoogleEmail.value;
       }
+      if (isGoogleEmailOtpSessionExchangeCommand(command)) {
+        const claim = await ctx.service.sessionExchanges.claimGoogleEmailOtp({
+          idempotencyKey: command.idempotencyKey,
+          requestFingerprint: await googleEmailOtpSessionExchangeRequestFingerprint({
+            command,
+            origin: ctx.request.headers.get('origin'),
+          }),
+          accountMode: command.accountMode,
+          nowMs: Date.now(),
+        });
+        switch (claim.kind) {
+          case 'claimed':
+          case 'resume':
+            googleEmailOtpSessionExchangeJournal = claim.journal;
+            break;
+          case 'replayed':
+            return replayGoogleEmailOtpSessionExchange(claim.journal);
+          case 'conflict':
+            return json({ ok: false, code: claim.code, message: claim.message }, { status: 409 });
+          case 'uncertain':
+            return json(
+              {
+                ok: false,
+                code: 'storage_temporarily_unavailable',
+                message: 'Session exchange storage is temporarily unavailable',
+                retryAfterMs: 250,
+              },
+              { status: 503 },
+            );
+        }
+      }
       try {
         if (isGoogleEmailOtpExchange) {
           const scoped = await requireRuntimePolicyScopeForOidcWallet();
@@ -1202,16 +1328,24 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
           });
         }
       } catch (e: any) {
-        const code = typeof e?.code === 'string' && e.code ? e.code : 'internal';
-        const status =
-          code === 'not_found'
+        const transientD1Reset = isTransientD1StorageReset(e);
+        const code = transientD1Reset
+          ? 'storage_temporarily_unavailable'
+          : typeof e?.code === 'string' && e.code
+            ? e.code
+            : 'internal';
+        const status = transientD1Reset
+          ? 503
+          : code === 'not_found'
             ? 404
             : code === 'invalid_body'
               ? 400
               : code === 'already_linked' || code === 'stale_identity_mapping'
                 ? 409
                 : 500;
-        const message = e?.message || 'Failed to resolve OIDC wallet id';
+        const message = transientD1Reset
+          ? 'Session exchange storage is temporarily unavailable'
+          : e?.message || 'Failed to resolve OIDC wallet id';
         await emitSessionExchangeFailed(ctx, {
           status,
           code,
@@ -1220,7 +1354,15 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
           sessionKind,
           userId,
         });
-        return json({ ok: false, code, message }, { status });
+        return json(
+          {
+            ok: false,
+            code,
+            message,
+            ...(transientD1Reset ? { retryAfterMs: 250 } : {}),
+          },
+          { status },
+        );
       }
       if (isGoogleEmailOtpExchange && oidcAccountMode === 'login') {
         const enrollment = await ctx.service.emailOtp.readEmailOtpEnrollment({
@@ -1375,10 +1517,16 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
     try {
       principalId = requiredAuthorizationValue(parsePrincipalId(userId));
       seamsSessionId = requiredAuthorizationValue(
-        parseSeamsSessionId(`ses_${secureRandomBase64Url(24, 'Seams Sessions')}`),
+        parseSeamsSessionId(
+          googleEmailOtpSessionExchangeJournal?.prepared.seamsSessionId ||
+            `ses_${secureRandomBase64Url(24, 'Seams Sessions')}`,
+        ),
       );
       deviceId = requiredAuthorizationValue(
-        parseDeviceId(`dev_${secureRandomBase64Url(18, 'session devices')}`),
+        parseDeviceId(
+          googleEmailOtpSessionExchangeJournal?.prepared.deviceId ||
+            `dev_${secureRandomBase64Url(18, 'session devices')}`,
+        ),
       );
       normalizedAppSessionVersion = requiredAuthorizationValue(
         parseAppSessionVersion(appSessionVersion),
@@ -1452,11 +1600,37 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
     if (emailOtpAuthorityRef) {
       sessionClaims.walletAuthAuthorityRef = emailOtpAuthorityRef;
     }
-    const jwtSigningStartedAt = performance.now();
-    const jwt = await session.signJwt(userId, sessionClaims);
-    recordSessionExchangeTiming(timings, 'jwt_signing', jwtSigningStartedAt);
+    let jwt = '';
+    let sessionExpiresAtMs = Number.NaN;
+    const persistedJwt = googleEmailOtpSessionExchangeJournal?.phaseData.jwt;
+    const persistedExpiresAtMs = googleEmailOtpSessionExchangeJournal?.phaseData.sessionExpiresAtMs;
+    if (typeof persistedJwt === 'string' && Number.isSafeInteger(persistedExpiresAtMs)) {
+      jwt = persistedJwt;
+      sessionExpiresAtMs = Number(persistedExpiresAtMs);
+    } else {
+      const jwtSigningStartedAt = performance.now();
+      jwt = await session.signJwt(userId, sessionClaims);
+      recordSessionExchangeTiming(timings, 'jwt_signing', jwtSigningStartedAt);
+      const signedSessionExpiresAt = deriveJwtExpiresAtIso(jwt);
+      sessionExpiresAtMs = signedSessionExpiresAt ? Date.parse(signedSessionExpiresAt) : Number.NaN;
+      if (googleEmailOtpSessionExchangeJournal) {
+        const checkpoint = await ctx.service.sessionExchanges.checkpoint({
+          key: googleEmailOtpSessionExchangeJournal.idempotencyKey,
+          expectedVersion: googleEmailOtpSessionExchangeJournal.version,
+          phase: 'session_prepared',
+          data: { jwt, sessionExpiresAtMs },
+        });
+        if (checkpoint.kind === 'stored' || checkpoint.kind === 'replayed') {
+          googleEmailOtpSessionExchangeJournal = checkpoint.journal;
+          if (checkpoint.kind === 'replayed') {
+            return replayGoogleEmailOtpSessionExchange(checkpoint.journal);
+          }
+        } else {
+          return sessionExchangeMutationFailureResponse(checkpoint);
+        }
+      }
+    }
     const sessionExpiresAt = deriveJwtExpiresAtIso(jwt);
-    const sessionExpiresAtMs = sessionExpiresAt ? Date.parse(sessionExpiresAt) : Number.NaN;
     if (!Number.isSafeInteger(sessionExpiresAtMs)) {
       throw new Error('signed app session did not contain a valid expiry');
     }
@@ -1474,7 +1648,7 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
         },
         appSessionVersion: normalizedAppSessionVersion,
         assurance: 'session',
-        createdAtMs: Date.now(),
+        createdAtMs: googleEmailOtpSessionExchangeJournal?.prepared.createdAtMs || Date.now(),
         lifecycle: {
           kind: 'active',
           expiresAtMs: sessionExpiresAtMs,
@@ -1634,13 +1808,6 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
         ...(oidcName ? { name: oidcName } : {}),
       },
     };
-    await dispatchSessionExchangeSucceeded(ctx, {
-      provider,
-      sessionKind,
-      appSessionVersion,
-      userId,
-      ...(passkeyChallengeId ? { passkeyChallengeId } : {}),
-    });
     recordSessionExchangeTiming(timings, 'total', exchangeStartedAt);
     ctx.logger.debug('[router-api][session-exchange] timing', {
       provider,
@@ -1649,6 +1816,39 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
       timings,
     });
     const serverTiming = sessionExchangeServerTiming(timings);
+    const terminalResponseBody = sessionKind === 'cookie' ? responseBody : { ...responseBody, jwt };
+    if (googleEmailOtpSessionExchangeJournal) {
+      const setCookie = sessionKind === 'cookie' ? session.buildSetCookie(jwt) : undefined;
+      const completed = await ctx.service.sessionExchanges.complete({
+        key: googleEmailOtpSessionExchangeJournal.idempotencyKey,
+        expectedVersion: googleEmailOtpSessionExchangeJournal.version,
+        response: {
+          status: 200,
+          bodyText: JSON.stringify(terminalResponseBody),
+          ...(setCookie ? { setCookie } : {}),
+        },
+        expiresAtMs: Date.now() + GOOGLE_EMAIL_OTP_SESSION_EXCHANGE_REPLAY_TTL_MS,
+      });
+      if (completed.kind === 'stored' || completed.kind === 'replayed') {
+        if (completed.kind === 'stored') {
+          await dispatchSessionExchangeSucceeded(ctx, {
+            provider,
+            sessionKind,
+            appSessionVersion,
+            userId,
+          });
+        }
+        return replayGoogleEmailOtpSessionExchange(completed.journal);
+      }
+      return sessionExchangeMutationFailureResponse(completed);
+    }
+    await dispatchSessionExchangeSucceeded(ctx, {
+      provider,
+      sessionKind,
+      appSessionVersion,
+      userId,
+      ...(passkeyChallengeId ? { passkeyChallengeId } : {}),
+    });
     if (sessionKind === 'cookie') {
       return json(responseBody, {
         status: 200,
@@ -1658,16 +1858,25 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
         },
       });
     }
-    return json(
-      { ...responseBody, jwt },
-      { status: 200, headers: { 'Server-Timing': serverTiming } },
-    );
+    return json(terminalResponseBody, { status: 200, headers: { 'Server-Timing': serverTiming } });
   } catch (error: unknown) {
+    const transientD1Reset = isTransientD1StorageReset(error);
     await emitSessionExchangeFailed(ctx, {
-      status: 500,
-      code: 'internal',
+      status: transientD1Reset ? 503 : 500,
+      code: transientD1Reset ? 'storage_temporarily_unavailable' : 'internal',
       message: error instanceof Error ? error.message : String(error),
     });
+    if (transientD1Reset) {
+      return json(
+        {
+          ok: false,
+          code: 'storage_temporarily_unavailable',
+          message: 'Session exchange storage is temporarily unavailable',
+          retryAfterMs: 250,
+        },
+        { status: 503 },
+      );
+    }
     return json(
       {
         ok: false,
