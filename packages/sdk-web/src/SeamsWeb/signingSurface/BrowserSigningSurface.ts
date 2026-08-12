@@ -146,9 +146,11 @@ import {
 import { resolvePasskeyEd25519YaoExportContextV1 } from '@/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
 import {
   nearEd25519YaoOperationMaterialFacts,
+  buildEmailOtpRouterAbEd25519WalletSessionState,
   rebindRouterAbEd25519WalletSessionStateFromExactRuntime,
   type ResolvedRouterAbEd25519WalletSessionState,
 } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
+import { buildRouterAbEd25519SigningWalletSession } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import {
   hydratePasskeyEd25519YaoLocalMaterialV1,
   preparePasskeyEd25519YaoLocalMaterialRehydrationV1,
@@ -1079,6 +1081,55 @@ function authNeutralNearEd25519BoundaryInput(
     nearAccountId: input.nearAccountId,
     materialIdentity: nearEd25519MaterialIdentityFromBoundaryInput(input),
   };
+}
+
+function emailOtpWalletSessionStateFromPublicLane(args: {
+  reference: Ed25519YaoPublicCapabilityLaneReferenceV1;
+  material: NearEd25519YaoOperationMaterial;
+  authorization: ActiveWalletSessionAuthorizationProjection;
+  remainingUses: number;
+  expiresAtMs: number;
+  relayerUrl: string;
+}): ResolvedRouterAbEd25519WalletSessionState {
+  if (args.reference.auth.kind !== WALLET_AUTH_METHODS.emailOtp) {
+    throw new Error('[SigningEngine][near] Email OTP public lane authority is required');
+  }
+  const walletSessionJwt = walletSessionJwtForCurve(args.authorization, 'ed25519');
+  if (!walletSessionJwt) {
+    throw new Error('[SigningEngine][near] Email OTP Ed25519 Wallet Session JWT is unavailable');
+  }
+  const facts = args.material.facts;
+  const signingWalletSession = buildRouterAbEd25519SigningWalletSession({
+    walletId: String(args.reference.walletId),
+    nearAccountId: String(args.reference.nearAccountId),
+    nearEd25519SigningKeyId: String(args.reference.nearEd25519SigningKeyId),
+    walletSessionId: args.authorization.walletSessionId,
+    quotaId: args.authorization.quotaId,
+    thresholdSessionId: args.reference.thresholdSessionId,
+    remainingUses: args.remainingUses,
+    expiresAtMs: args.expiresAtMs,
+    runtimePolicyScope: facts.runtimePolicyScope,
+    signingRootId: facts.signingRootId,
+    signingRootVersion: facts.signingRootVersion,
+    routerAbNormalSigning: facts.routerAbNormalSigning,
+    walletSessionJwt,
+    nowMs: Date.now(),
+  });
+  if (!signingWalletSession.ok) {
+    throw new Error(
+      `[SigningEngine][near] Email OTP Wallet Session is unusable (${signingWalletSession.reason})`,
+    );
+  }
+  return buildEmailOtpRouterAbEd25519WalletSessionState({
+    walletId: args.reference.walletId,
+    nearAccountId: args.reference.nearAccountId,
+    nearEd25519SigningKeyId: args.reference.nearEd25519SigningKeyId,
+    providerSubjectId: args.reference.auth.providerSubjectId,
+    signerSlot: args.reference.signerSlot,
+    relayerUrl: args.relayerUrl,
+    authority: args.authorization.authority,
+    signingWalletSession: signingWalletSession.value,
+  });
 }
 
 function nearEd25519AuthBindingsEqual(
@@ -3324,9 +3375,36 @@ export class BrowserSigningSurface {
     args: PrepareNearEd25519YaoMaterialBoundaryInput,
   ): Promise<NearEd25519YaoSigningPreparation> {
     if (args.laneIdentity !== undefined && args.auth?.kind === WALLET_AUTH_METHODS.emailOtp) {
-      return await this.prepareMaterialIdentityNearEd25519YaoSigning(
+      const preparation = await this.prepareMaterialIdentityNearEd25519YaoSigning(
         authNeutralNearEd25519BoundaryInput(args),
       );
+      if (preparation.hydration.kind !== 'use_live_runtime') return preparation;
+      const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(
+        args.walletId,
+      );
+      if (authorizationRead.kind !== 'found') return preparation;
+      const reusableSession = await this.readReusableWalletSessionState(args.walletId);
+      if (
+        reusableSession.kind !== 'active' ||
+        reusableSession.walletSessionId !== authorizationRead.projection.walletSessionId ||
+        reusableSession.authMethod !== authorizationRead.projection.authMethod
+      ) {
+        return preparation;
+      }
+      return buildAuthorizedNearEd25519YaoSigningPreparation({
+        hydration: preparation.hydration,
+        requirement: args.auth,
+        authorization: buildActiveNearEd25519WalletSessionAuthorization({
+          projection: authorizationRead.projection,
+          status: {
+            status: 'active',
+            walletSessionId: authorizationRead.projection.walletSessionId,
+            quotaId: authorizationRead.projection.quotaId,
+            remainingUses: reusableSession.remainingUses,
+            expiresAtMs: reusableSession.expiresAtMs,
+          },
+        }),
+      });
     }
     if (args.laneIdentity === undefined) {
       return await this.prepareMaterialIdentityNearEd25519YaoSigning(args);
@@ -3534,6 +3612,52 @@ export class BrowserSigningSurface {
     context: PreparedNearEd25519YaoMaterialContext,
   ): Promise<ResolvedRouterAbEd25519WalletSessionState> {
     const args = requireAuthorizedNearEd25519BoundaryInput(context.input);
+    if (args.auth.kind === WALLET_AUTH_METHODS.emailOtp) {
+      if (!context.materialActivation) {
+        throw new Error('[SigningEngine][near] prepared material has no activation');
+      }
+      const publicLane = await resolveExactEmailOtpPublicLaneReference({
+        store: this.ed25519YaoPublicCapabilityReferences,
+        laneIdentity: args.laneIdentity,
+        materialActivation: context.materialActivation,
+      });
+      const material = this.enginePorts.ed25519YaoActiveClients.resolve({
+        walletId: args.walletId,
+        nearAccountId: args.nearAccountId,
+        materialActivation: context.materialActivation,
+      });
+      if (!material) {
+        throw new Error('[SigningEngine][near] active Email OTP Ed25519 material is unavailable');
+      }
+      const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(
+        args.walletId,
+      );
+      if (authorizationRead.kind !== 'found') {
+        throw new Error(
+          `[SigningEngine][near] Wallet Session authorization is ${authorizationRead.kind}`,
+        );
+      }
+      const reusableSession = await this.readReusableWalletSessionState(args.walletId);
+      if (
+        reusableSession.kind !== 'active' ||
+        reusableSession.walletSessionId !== authorizationRead.projection.walletSessionId ||
+        reusableSession.authMethod !== WALLET_AUTH_METHODS.emailOtp
+      ) {
+        throw new Error('[SigningEngine][near] Email OTP Wallet Session is unavailable');
+      }
+      return emailOtpWalletSessionStateFromPublicLane({
+        reference: publicLane,
+        material: validateExactNearEd25519YaoOperationMaterial({
+          material,
+          input: args,
+          expectedActivation: context.materialActivation,
+        }),
+        authorization: authorizationRead.projection,
+        remainingUses: reusableSession.remainingUses,
+        expiresAtMs: reusableSession.expiresAtMs,
+        relayerUrl: String(this.seamsWebConfigs.network.relayer?.url || '').trim(),
+      });
+    }
     const runtime = await requireExactEd25519SealedRuntimeForLane({
       walletId: args.walletId,
       laneIdentity: args.laneIdentity,
