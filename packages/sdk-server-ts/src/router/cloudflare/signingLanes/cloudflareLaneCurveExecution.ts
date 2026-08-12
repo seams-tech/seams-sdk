@@ -383,20 +383,11 @@ async function resolveOwnerEcdsaSourceSignerV1(input: {
   const expectedMaterialActivation = routerAbMpcMaterialActivationRefToWire(
     input.job.source.materialActivation,
   );
-  const matching = signers.filter(
-    (signer) =>
-      signer.walletId === input.job.walletId &&
-      signer.walletKey.ecdsaThresholdKeyId ===
-        String(input.job.sourceCapability.ecdsaThresholdKeyId) &&
-      signer.walletKey.relayerKeyId === String(input.job.sourceCapability.relayerKeyId) &&
-      signer.walletKey.derivationClientSharePublicKey33B64u ===
-        input.job.sourceHolderVerifyingShare33B64u &&
-      signer.walletKey.relayerVerifyingShareB64u === input.job.sourceServerVerifyingShare33B64u &&
-      sameRouterAbMpcMaterialActivationRef(
-        signer.walletKey.publicCapability.material_activation,
-        expectedMaterialActivation,
-      ),
-  );
+  const matching = matchingOwnerEcdsaSourceSignersV1({
+    signers,
+    job: input.job,
+    expectedMaterialActivation,
+  });
   const first = matching[0];
   if (!first) {
     throw new Error('authoritative ECDSA registration source signer is unavailable');
@@ -414,6 +405,33 @@ async function resolveOwnerEcdsaSourceSignerV1(input: {
     }
   }
   return first;
+}
+
+function matchingOwnerEcdsaSourceSignersV1(input: {
+  readonly signers: readonly WalletEcdsaSignerRecord[];
+  readonly job: EcdsaAdditiveLaneJobV1;
+  readonly expectedMaterialActivation: ReturnType<typeof routerAbMpcMaterialActivationRefToWire>;
+}): WalletEcdsaSignerRecord[] {
+  const matching: WalletEcdsaSignerRecord[] = [];
+  for (const signer of input.signers) {
+    if (
+      signer.walletId !== input.job.walletId ||
+      signer.walletKey.ecdsaThresholdKeyId !==
+        String(input.job.sourceCapability.ecdsaThresholdKeyId) ||
+      signer.walletKey.relayerKeyId !== String(input.job.sourceCapability.relayerKeyId) ||
+      signer.walletKey.derivationClientSharePublicKey33B64u !==
+        input.job.sourceHolderVerifyingShare33B64u ||
+      signer.walletKey.relayerVerifyingShareB64u !== input.job.sourceServerVerifyingShare33B64u ||
+      !sameRouterAbMpcMaterialActivationRef(
+        signer.walletKey.publicCapability.material_activation,
+        input.expectedMaterialActivation,
+      )
+    ) {
+      continue;
+    }
+    matching.push(signer);
+  }
+  return matching;
 }
 
 export type CloudflareSigningWorkerEcdsaLaneTransportOptionsV1 = {
