@@ -12,16 +12,16 @@ owner approval responses, committed-delivery recovery, aggregate activation
 verification, private Gateway completion API, linked authorization domain, and
 public SDK/iframe/React cutover are implemented. Both key families use their
 linked normal-signing paths, and aggregate revocation is implemented. Refactor
-102 provides the curve-specific target-lane lifecycle. Production composition
-still requires concrete owner metadata and source-fact providers, lane
-lifecycle authorization and curve execution, operator-recovery authorization,
-and management-side local-state invalidation.
+102 provides the curve-specific target-lane lifecycle. The D1 composition now
+owns lane authorization and curve execution, operator-recovery authentication,
+and management-side local-state invalidation. Enabling the production and local
+session surfaces still requires concrete owner metadata and source-fact
+planning plus management authorization.
 
-Implementation checklist: 16/21 complete (76.2%). The remaining readiness
+Implementation checklist: 17/21 complete (81.0%). The remaining readiness
 dependencies are Refactor 100's live custody verification and Refactor 101's
 broad integration gate. Product completion still needs an owner/unrelated-lane
-availability proof, refresh and compromise cleanup, and a concrete production
-operator-recovery authenticator.
+availability proof plus refresh and compromise cleanup.
 
 ## Scope And Dependencies
 
@@ -572,10 +572,10 @@ material activation remain intact.
 
 - [x] Add device management and activity summary views.
 - [ ] Add refresh and compromise cleanup flows.
-- [ ] Add operator recovery for committed delivery that cannot complete on the
-      original link session. The route and fresh Device 2 continuation-key
-      rebinding are implemented; production composition still needs a concrete
-      operator-recovery authenticator.
+- [x] Add operator recovery for committed delivery that cannot complete on the
+      original link session. The route binds a fresh Device 2 continuation key,
+      and the D1 composition constructs a separate constant-time operator
+      authenticator rather than reusing Router internal-service credentials.
 
 ## Validation
 
