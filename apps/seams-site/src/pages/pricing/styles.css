@@ -223,19 +223,13 @@ body:has(.pricing-page) {
   border-radius: 14px;
   background:
     linear-gradient(rgb(255 255 255 / 0.58), rgb(255 255 255 / 0.74)),
-    url('/gradients/web/blue-green.jpg') center / cover no-repeat;
+    url('/gradients/web/sage-charcoal.jpg') center / cover no-repeat;
   box-shadow: var(--pricing-shadow);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   gap: 32px;
   overflow: hidden;
-}
-
-.pricing-card--enterprise .pricing-card-spotlight {
-  background:
-    linear-gradient(rgb(255 255 255 / 0.66), rgb(255 255 255 / 0.78)),
-    url('/gradients/web/cobalt-gold-ember.jpg') center / cover no-repeat;
 }
 
 .pricing-card-label {

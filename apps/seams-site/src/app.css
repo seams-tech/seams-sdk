@@ -58,6 +58,8 @@
   --site-focus: var(--w3a-colors-focus);
   --site-brand: var(--w3a-colors-primary);
   --site-brand-hover: var(--w3a-colors-primaryHover);
+  --site-action: var(--w3a-colors-buttonBackground);
+  --site-action-hover: var(--w3a-colors-buttonHoverBackground);
   --site-accent: var(--w3a-colors-secondary);
   --site-accent-hover: var(--w3a-colors-secondaryHover);
   --site-danger: var(--w3a-colors-error);

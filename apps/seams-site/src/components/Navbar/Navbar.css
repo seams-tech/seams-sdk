@@ -7,8 +7,8 @@
   --navbar-border: var(--site-border, var(--vp-c-border));
   --navbar-border-hover: var(--site-border-strong, var(--vp-c-border));
   --navbar-shadow-color: rgba(4, 3, 14, 0.68);
-  --navbar-primary: var(--site-brand, oklch(0.52 0.138 255));
-  --navbar-primary-hover: var(--site-brand-hover, oklch(0.56 0.158 255));
+  --navbar-primary: var(--site-action, #000000);
+  --navbar-primary-hover: var(--site-action-hover, #262626);
   --navbar-text-button: var(--site-text-button, #ffffff);
   --navbar-focus: var(--site-focus, #66a3ff);
   --navbar-access-nav-surface: color-mix(in srgb, var(--navbar-surface3) 82%, transparent);
