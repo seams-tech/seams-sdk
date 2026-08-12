@@ -28,6 +28,8 @@ import type { LinkedDeviceR102SourcePreparationPortV1 } from './linkedDeviceR102
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
 
 const SOURCE_HANDOFF_TABLE = 'linked_device_source_handoffs';
+const PREPARED_DELIVERY_WAIT_ATTEMPTS = 200;
+const PREPARED_DELIVERY_WAIT_MS = 25;
 
 type SourceHandoffRowV1 = {
   readonly enrollment_id?: unknown;
@@ -264,7 +266,15 @@ export class D1LinkedDeviceSourceHandoffProviderV1
     readonly approval: LinkedDeviceApprovalV1;
     readonly requestedAtMs: number;
   }): Promise<LinkedDeviceProvisioningDeliveriesV1> {
-    const persisted = await this.readV1(input.session.linkSessionId);
+    let persisted = await this.readV1(input.session.linkSessionId);
+    for (
+      let attempt = 0;
+      !persisted?.deliveries && attempt < PREPARED_DELIVERY_WAIT_ATTEMPTS;
+      attempt += 1
+    ) {
+      await waitForPreparedDeliveriesV1(PREPARED_DELIVERY_WAIT_MS);
+      persisted = await this.readV1(input.session.linkSessionId);
+    }
     if (!persisted?.deliveries) {
       throw new Error('linked-device prepared deliveries are missing');
     }
@@ -655,6 +665,10 @@ async function deliveriesDigestV1(
   deliveries: LinkedDeviceProvisioningDeliveriesV1,
 ): Promise<DigestB64u> {
   return parseDigestB64u(base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(deliveries))));
+}
+
+async function waitForPreparedDeliveriesV1(delayMs: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
 }
 
 function scopeValues(
