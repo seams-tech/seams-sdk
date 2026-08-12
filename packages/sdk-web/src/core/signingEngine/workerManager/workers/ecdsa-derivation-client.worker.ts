@@ -23,6 +23,7 @@ import {
 } from '@shared/utils/domainIds';
 import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { parseRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
+import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import { errorLogSummary, safeErrorMessage } from '@shared/utils/errors';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import {
@@ -91,6 +92,7 @@ import {
   type RouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaVerifiedClientActivationFactsV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbEcdsaSigningWorkerExportShareEnvelopeV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapResult } from '@/core/types/signer-worker';
 import {
   parseEcdsaRoleLocalBindingDigest,
@@ -1055,6 +1057,34 @@ function closeRouterAbEcdsaPostRegistrationCeremonyState(
   routerAbEcdsaPostRegistrationCeremonies.delete(ceremonyId);
 }
 
+function projectMaterialActivationForEcdsaClientProtocol(
+  activation: RouterAbMpcMaterialActivationRefWire,
+) {
+  return {
+    kind: activation.kind,
+    activationId: activation.activation_id,
+    capability: activation.capability,
+    materialOwner: activation.material_owner,
+    keyBinding: activation.key_binding,
+    lifecycleBinding: activation.lifecycle_binding,
+    signingWorker: activation.signing_worker,
+  };
+}
+
+function projectExportEnvelopeForEcdsaClientProtocol(
+  envelope: RouterAbEcdsaSigningWorkerExportShareEnvelopeV1,
+) {
+  return {
+    ...envelope,
+    binding: {
+      ...envelope.binding,
+      material_activation: projectMaterialActivationForEcdsaClientProtocol(
+        envelope.binding.material_activation,
+      ),
+    },
+  };
+}
+
 async function finalizeRouterAbEcdsaExplicitExport(
   request: FinalizeRouterAbEcdsaExplicitExportRequestV1,
 ): Promise<FinalizeRouterAbEcdsaExplicitExportResultV1> {
@@ -1080,7 +1110,9 @@ async function finalizeRouterAbEcdsaExplicitExport(
       export_nonce: active.request.export_nonce,
       authorization_kind: request.authorizationKind,
       authorization_id: request.authorizationId,
-      material_activation: request.materialActivation,
+      material_activation: projectMaterialActivationForEcdsaClientProtocol(
+        request.materialActivation,
+      ),
       lifecycle_id: active.request.lifecycle.lifecycle_id,
       recipient_identity: active.request.client_id,
       recipient_public_key: active.request.client_ephemeral_public_key,
@@ -1089,7 +1121,7 @@ async function finalizeRouterAbEcdsaExplicitExport(
     const openedShare = requireRecordPayload(
       JSON.parse(
         active.ceremony.open_signing_worker_export_share(
-          JSON.stringify(request.signingWorkerExport),
+          JSON.stringify(projectExportEnvelopeForEcdsaClientProtocol(request.signingWorkerExport)),
           JSON.stringify(exportBinding),
         ),
       ),
