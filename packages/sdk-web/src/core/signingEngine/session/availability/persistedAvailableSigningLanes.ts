@@ -182,7 +182,9 @@ function filterEmailOtpCompanionEcdsaRecords(
   for (const record of records) {
     if ('recordKind' in record) continue;
     if (!sealedRecordHasEd25519ThresholdSession(record)) continue;
-    if (!sealedEcdsaRecordMatchesAnyChainTarget(record, chainTargets)) continue;
+    if (chainTargets.length > 0 && !sealedEcdsaRecordMatchesAnyChainTarget(record, chainTargets)) {
+      continue;
+    }
     matchingRecords.push(record);
   }
   return matchingRecords;
