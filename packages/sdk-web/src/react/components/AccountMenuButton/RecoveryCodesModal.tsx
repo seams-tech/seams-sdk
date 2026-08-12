@@ -16,6 +16,10 @@ type RecoveryCodesLoadState =
   | { kind: 'loaded'; status: WalletRecoveryCodeStatusResult }
   | { kind: 'error'; message: string };
 
+function resetRecoveryCodesLoadState(state: RecoveryCodesLoadState): RecoveryCodesLoadState {
+  return state.kind === 'idle' ? state : { kind: 'idle' };
+}
+
 function statusLabel(status: WalletRecoveryCodeStatusResult): string {
   switch (status.kind) {
     case 'ready':
@@ -77,7 +81,7 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
   useEffect(() => {
     if (!isOpen) {
       loadStatusSeq.current += 1;
-      setLoadState({ kind: 'idle' });
+      setLoadState(resetRecoveryCodesLoadState);
       return;
     }
     void loadRecoveryCodeStatus();
