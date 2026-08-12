@@ -37,11 +37,19 @@ async function openWallet(page: Page): Promise<Frame> {
   return walletFrame(page);
 }
 
+async function acknowledgeRecoveryCodeBackup(wallet: Frame): Promise<void> {
+  const acknowledgement = wallet.locator('[data-w3a-wallet-recovery-backup-acknowledgement]');
+  await acknowledgement.waitFor({ state: 'visible', timeout: 120_000 });
+  await acknowledgement.check();
+  await wallet.getByRole('button', { name: 'Finish backup', exact: true }).click();
+}
+
 async function registerOwner(page: Page): Promise<void> {
   const wallet = await openWallet(page);
   const primary = wallet.locator('button[data-auth-menu-primary]');
   await primary.waitFor({ state: 'visible', timeout: 30_000 });
   await primary.click();
+  await acknowledgeRecoveryCodeBackup(wallet);
   await page
     .locator('.w3a-profile-button-morphable')
     .waitFor({ state: 'visible', timeout: 120_000 });
@@ -167,11 +175,7 @@ test('Device 2 QR → Device 1 scan → Wallet Session → linked signing → re
 
     await linkedSigning(device2Page);
 
-    await ownerPage
-      .locator('.w3a-profile-button-morphable')
-      .getByRole('button')
-      .first()
-      .click();
+    await ownerPage.locator('.w3a-profile-button-morphable').getByRole('button').first().click();
     const profileMenu = ownerPage.locator('.w3a-profile-dropdown-morphed[data-state="open"]');
     await profileMenu.getByRole('button', { name: 'Linked Devices', exact: true }).click();
     await ownerPage
