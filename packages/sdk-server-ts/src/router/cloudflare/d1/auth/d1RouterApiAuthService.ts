@@ -2357,6 +2357,12 @@ export function createCloudflareD1RouterApiAuthService(
     ...(assembly.deviceLinkingGateway === undefined
       ? {}
       : { deviceLinkingGateway: assembly.deviceLinkingGateway }),
+    ...(assembly.deviceLinkingOwnerAuthorization === undefined
+      ? {}
+      : { deviceLinkingOwnerAuthorization: assembly.deviceLinkingOwnerAuthorization }),
+    ...(assembly.deviceLinkingLaneGateway === undefined
+      ? {}
+      : { deviceLinkingLaneGateway: assembly.deviceLinkingLaneGateway }),
   };
 }
 

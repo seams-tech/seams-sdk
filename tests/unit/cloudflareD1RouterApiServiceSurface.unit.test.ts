@@ -30,6 +30,7 @@ import {
   insertEmailOtpRecoveryEscrow,
   insertEmailOtpGrant,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
+import { UnusedSessionAdapter } from './helpers/routerAbEd25519YaoRegistrationBridge.fixtures';
 
 test('Cloudflare D1 Router API auth service reads signer metadata with tenant scope', async () => {
   const { database, tempDir } = createTemporaryD1Database();
@@ -780,9 +781,6 @@ test('Cloudflare D1 R103 composition owns lane activation and aggregate revocati
       deriver_b_input_public_key: new Array<number>(32).fill(0),
       signing_worker_recipient_public_key: new Array<number>(32).fill(0),
     };
-    const unreachable = async () => {
-      throw new Error('lane effect is not invoked during composition');
-    };
     const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: 'seams-local-test',
@@ -797,49 +795,25 @@ test('Cloudflare D1 R103 composition owns lane activation and aggregate revocati
           logger: normalizeLogger(),
         },
         session: {
+          session: new UnusedSessionAdapter(),
           laneRuntime: {
             router: inertLaneBinding,
             signingWorker: inertLaneBinding,
             internalServiceAuth: 'test-internal-service-auth',
             ed25519YaoKeyset: inertEd25519YaoKeyset,
           },
-          ownerAuthorization: {
-            authorizeOwnerClaimV1: async () => ({
-              kind: 'denied',
-              code: 'unauthorized',
-              message: 'test',
-            }),
-            authorizeOwnerApprovalV1: async () => ({
-              kind: 'denied',
-              code: 'unauthorized',
-              message: 'test',
-            }),
-          },
-          authenticateOwnerRequestV1: async () => ({
-            kind: 'denied',
-            code: 'unauthorized',
-            message: 'test',
-          }),
-          targetPlanner: {
-            createTargetPreparationV1: unreachable,
-            commitVerifiedTargetV1: unreachable,
-          },
-          acknowledgeReceiptV1: unreachable,
-          retryCommittedDeliveryV1: unreachable,
           operatorRecovery: {
             operatorSecret: 'operator-recovery-test-secret',
           },
         },
-        management: {
-          authorization: {
-            authorizeLinkedDeviceManagementV1: async () => ({ kind: 'unauthorized' }),
-          },
-        },
+        management: {},
       },
     });
 
     expect(service.deviceLinking).toBeDefined();
     expect(service.deviceManagement).toBeDefined();
+    expect(service.deviceLinkingOwnerAuthorization).toBeDefined();
+    expect(service.deviceLinkingLaneGateway).toBeDefined();
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
