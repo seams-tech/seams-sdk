@@ -137,6 +137,7 @@ import {
   isConcreteAvailableSigningLane,
   type AvailableEd25519SigningLane,
   type ConcreteAvailableEd25519SigningLane,
+  type ConcreteAvailableEcdsaSigningLane,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
 import { resolvePasskeyEd25519YaoExportContextV1 } from '@/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
 import {
@@ -329,6 +330,7 @@ import type {
   LinkSessionOwnerAuthenticatedRequestPortV1,
 } from '../operations/devices/deviceLinkingOwnerTransport';
 import type { LinkedDeviceApprovalV1 } from '@shared/device-linking';
+import type { LinkedDeviceOwnerSourceLaneV1 } from '@shared/device-linking';
 import {
   parseLinkedDeviceApprovalResultV1,
   parseLinkedDeviceApprovalV1,
@@ -431,6 +433,66 @@ type NearEd25519CapabilityRehydrationSubject =
 
 function fetchWithGlobalThis(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   return globalThis.fetch(input, init);
+}
+
+type WalletHostOwnerSourceLaneCandidateV1 =
+  | {
+      readonly curve: 'ed25519';
+      readonly materialActivation: MpcMaterialActivationRef;
+    }
+  | {
+      readonly curve: 'ecdsa_secp256k1';
+      readonly materialActivation: MpcMaterialActivationRef;
+      readonly manifestId: ConcreteAvailableEcdsaSigningLane['capability']['manifest']['identity']['manifestId'];
+      readonly manifestRevision: ConcreteAvailableEcdsaSigningLane['capability']['manifest']['identity']['manifestRevision'];
+    };
+
+function ownerSourceLaneCandidates(
+  available: AvailableSigningLanes,
+): readonly WalletHostOwnerSourceLaneCandidateV1[] {
+  const candidates: WalletHostOwnerSourceLaneCandidateV1[] = [];
+  const seen = new Set<string>();
+  const add = (candidate: WalletHostOwnerSourceLaneCandidateV1): void => {
+    const key =
+      candidate.curve === 'ed25519'
+        ? `ed25519:${materialActivationKey(candidate.materialActivation)}`
+        : `ecdsa:${materialActivationKey(candidate.materialActivation)}:${String(candidate.manifestId)}:${String(candidate.manifestRevision)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    candidates.push(candidate);
+  };
+  const ed25519Lanes = [...available.candidates.ed25519.near, available.lanes.ed25519.near];
+  for (const lane of ed25519Lanes) {
+    if (!isConcreteAvailableSigningLane(lane) || lane.curve !== 'ed25519') continue;
+    add({ curve: 'ed25519', materialActivation: lane.materialActivation });
+  }
+  const ecdsaLanes = [
+    ...Object.values(available.ecdsa.candidatesByTarget).flat(),
+    ...Object.values(available.ecdsa.lanesByTarget),
+  ];
+  for (const lane of ecdsaLanes) {
+    if (!isConcreteAvailableSigningLane(lane) || lane.curve !== 'ecdsa') continue;
+    add({
+      curve: 'ecdsa_secp256k1',
+      materialActivation: lane.materialActivation,
+      manifestId: lane.capability.manifest.identity.manifestId,
+      manifestRevision: lane.capability.manifest.identity.manifestRevision,
+    });
+  }
+  return candidates;
+}
+
+function compareOwnerSourceLaneHintsV1(
+  left: LinkedDeviceOwnerSourceLaneV1,
+  right: LinkedDeviceOwnerSourceLaneV1,
+): number {
+  const walletKeyOrder = String(left.walletKey.walletKeyId).localeCompare(
+    String(right.walletKey.walletKeyId),
+  );
+  if (walletKeyOrder !== 0) return walletKeyOrder;
+  const laneOrder = String(left.lane.laneId).localeCompare(String(right.lane.laneId));
+  if (laneOrder !== 0) return laneOrder;
+  return left.keyFamily.localeCompare(right.keyFamily);
 }
 
 function nearEd25519LaneMatchesCapabilityRehydrationSubject(
@@ -2781,6 +2843,7 @@ export class BrowserSigningSurface {
       relayerUrl,
       walletSessions: walletSessionAuthorizations,
       readWalletAuthenticationState: () => this.walletAuthenticationState,
+      readOwnerSourceLaneHintsV1: this.readWalletHostOwnerSourceLaneHintsV1.bind(this),
     });
     const ownerTransport = createWalletHostOwnerApprovalTransportV1(ownerAuthorities.ownerRequest);
     const sourceLanePorts = createWalletHostSourceLanePortsV1({
@@ -2806,6 +2869,71 @@ export class BrowserSigningSurface {
       nowMs: () => Date.now(),
       pollIntervalMs: 250,
     };
+  }
+
+  private async readWalletHostOwnerSourceLaneHintsV1(input: {
+    readonly projection: ActiveWalletSessionAuthorizationProjection;
+  }): Promise<readonly [LinkedDeviceOwnerSourceLaneV1, ...LinkedDeviceOwnerSourceLaneV1[]]> {
+    const available = await this.readPersistedAvailableSigningLanes({
+      walletId: input.projection.walletId,
+    });
+    const candidates = ownerSourceLaneCandidates(available);
+    const hintsByIdentity = new Map<string, LinkedDeviceOwnerSourceLaneV1>();
+    for (const candidate of candidates) {
+      const walletSessionJwt = walletSessionJwtForCurve(
+        input.projection,
+        candidate.curve === 'ecdsa_secp256k1' ? 'ecdsa' : 'ed25519',
+      );
+      if (!walletSessionJwt) {
+        throw new Error(`Owner ${candidate.curve} source lane requires a Wallet Session JWT`);
+      }
+      const projection = await readOwnerWalletExecutionLaneProjectionV1({
+        relayerUrl: String(this.seamsWebConfigs.network.relayer?.url || '').trim(),
+        walletSessionJwt,
+        curve: candidate.curve,
+        expectedMaterialActivation: candidate.materialActivation,
+      });
+      if (projection.walletKey.walletId !== input.projection.walletId) {
+        throw new Error('Owner source lane projection wallet identity changed');
+      }
+      let hint: LinkedDeviceOwnerSourceLaneV1;
+      if (candidate.curve === 'ecdsa_secp256k1') {
+        if (projection.walletKey.keyFamily !== 'ecdsa_secp256k1') {
+          throw new Error('Owner ECDSA source lane projection key family changed');
+        }
+        hint = {
+          kind: 'linked_device_owner_source_lane_v1',
+          keyFamily: 'ecdsa_secp256k1',
+          walletKey: projection.walletKey,
+          lane: projection.lane,
+          materialActivation: projection.materialActivation,
+          verifiedActivationReceiptDigestB64u: projection.verifiedActivationReceiptDigestB64u,
+          ecdsaSourceManifest: {
+            manifestId: candidate.manifestId,
+            manifestRevision: candidate.manifestRevision,
+          },
+        };
+      } else {
+        if (projection.walletKey.keyFamily !== 'ed25519') {
+          throw new Error('Owner Ed25519 source lane projection key family changed');
+        }
+        hint = {
+          kind: 'linked_device_owner_source_lane_v1',
+          keyFamily: 'ed25519',
+          walletKey: projection.walletKey,
+          lane: projection.lane,
+          materialActivation: projection.materialActivation,
+          verifiedActivationReceiptDigestB64u: projection.verifiedActivationReceiptDigestB64u,
+        };
+      }
+      const hintIdentity = `${String(hint.walletKey.walletKeyId)}:${materialActivationKey(hint.materialActivation)}`;
+      if (!hintsByIdentity.has(hintIdentity)) hintsByIdentity.set(hintIdentity, hint);
+    }
+    const hints = Array.from(hintsByIdentity.values());
+    hints.sort(compareOwnerSourceLaneHintsV1);
+    const [first, ...rest] = hints;
+    if (!first) throw new Error('Owner source lane projection is unavailable');
+    return [first, ...rest];
   }
 
   getNonceCoordinator(): NonceCoordinator {

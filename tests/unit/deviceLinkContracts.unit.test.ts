@@ -23,9 +23,15 @@ import {
   parseLinkedDeviceTargetPreparationV1,
   parseLinkedDeviceTargetReadyR102InputV1,
   parseLinkedDeviceWalletSessionDeliveryV1,
+  parseLinkedDeviceOwnerAuthorizationRequestV1,
+  parseLinkedDeviceOwnerSourceLaneV1,
   parseQrLinkedDeviceSessionPayloadV4,
 } from '../../packages/shared-ts/src/device-linking';
+import type { HttpTransport } from '../../packages/sdk-web/src/core/platform/http';
+import { createWalletHostOwnerAuthoritiesV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/walletHostOwnerAuthority';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
+import { buildOwnerWalletExecutionEvidenceFixture } from './helpers/walletExecutionLane.fixtures';
+import { availableLaneEd25519Authorization } from './helpers/availableSigningLanes.fixtures';
 import {
   buildR102HolderDeliveryReceipt,
   buildR102LaneJob,
@@ -52,6 +58,70 @@ function manifestForJob(job: ReturnType<typeof buildR102LaneJob>) {
 }
 
 test.describe('R103 shared linked-device contracts', () => {
+  test('wallet-host owner authorization sends only authenticated public source projections', async () => {
+    const deviceLink = buildR103DeviceLinkFixture();
+    const owner = await buildOwnerWalletExecutionEvidenceFixture();
+    const sourceHint = parseLinkedDeviceOwnerSourceLaneV1({
+      kind: 'linked_device_owner_source_lane_v1',
+      keyFamily: 'ecdsa_secp256k1',
+      walletKey: owner.walletKey,
+      lane: owner.lane,
+      materialActivation: owner.materialActivation,
+      verifiedActivationReceiptDigestB64u: owner.verifiedActivationReceiptDigestB64u,
+      ecdsaSourceManifest: {
+        manifestId: 'ecdsa-manifest-fixture',
+        manifestRevision: 1,
+      },
+    });
+    const projection = availableLaneEd25519Authorization({
+      walletId: String(owner.walletId),
+      identitySeed: 'owner-authorization',
+      authMethod: 'passkey',
+    });
+    let captured: Parameters<HttpTransport['request']>[0] | null = null;
+    const http: HttpTransport = {
+      kind: 'http_transport',
+      request: async (input) => {
+        captured = input;
+        return {
+          ok: true,
+          value: { status: 400, body: { message: 'stop after capture' } },
+        };
+      },
+    };
+    const authorities = createWalletHostOwnerAuthoritiesV1({
+      http,
+      relayerUrl: 'https://relay.example.test',
+      walletSessions: {
+        read: async () => ({ kind: 'missing' as const }),
+        readActiveForWallet: async () => ({ kind: 'found' as const, projection }),
+      },
+      readWalletAuthenticationState: () => ({
+        kind: 'authenticated',
+        walletId: projection.walletId,
+        authMethod: projection.authMethod,
+      }),
+      readOwnerSourceLaneHintsV1: async () => [sourceHint],
+    });
+
+    await expect(
+      authorities.ownerAuthorization.authenticateOwnerForLinkingV1({
+        payload: deviceLink.payload,
+        requestedAtMs: 2_000,
+      }),
+    ).rejects.toThrow('Owner authorization failed');
+    expect(captured?.headers?.authorization).toBe(
+      'Bearer fixture-wallet-session-jwt:owner-authorization',
+    );
+    expect(captured?.url).toBe(
+      'https://relay.example.test/wallet/device-linking/v1/owner-authorization',
+    );
+    const body = parseLinkedDeviceOwnerAuthorizationRequestV1(captured?.body);
+    expect(body.orderedOwnerSourceLaneHints).toEqual([sourceHint]);
+    expect(JSON.stringify(captured?.body)).not.toContain('walletSessionJwt');
+    expect(JSON.stringify(captured?.body)).not.toContain('privateKey');
+  });
+
   test('round-trips QR, approval, transcript, and receipt projections through strict parsers', async () => {
     const fixture = buildR103DeviceLinkFixture();
 

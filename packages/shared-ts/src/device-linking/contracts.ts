@@ -95,6 +95,20 @@ export type LinkedDeviceOwnerSourceLaneV1 =
       };
     });
 
+/**
+ * Authenticated Device 1 owner-authorization request. Source-lane hints carry
+ * public wallet/lane identity and activation receipts only; Router re-resolves
+ * every hint against its durable wallet projection.
+ */
+export type LinkedDeviceOwnerAuthorizationRequestV1 = {
+  readonly payload: QrLinkedDeviceSessionPayloadV4;
+  readonly requestedAtMs: number;
+  readonly orderedOwnerSourceLaneHints: readonly [
+    LinkedDeviceOwnerSourceLaneV1,
+    ...LinkedDeviceOwnerSourceLaneV1[],
+  ];
+};
+
 export type LinkedDeviceLocalPresenceAssertionV1 = {
   readonly kind: 'linked_device_local_presence_assertion_v1';
   readonly authorizedOperationId: AuthorizedOperationId;
