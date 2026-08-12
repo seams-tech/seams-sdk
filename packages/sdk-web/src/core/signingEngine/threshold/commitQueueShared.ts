@@ -98,6 +98,8 @@ async function drainQueueForKey(
     state.running = false;
     if (state.items.length === 0 && queueByKey.get(queueKey) === state) {
       queueByKey.delete(queueKey);
+    } else if (state.items.length > 0) {
+      void drainQueueForKey(queueByKey, queueKey);
     }
   }
 }

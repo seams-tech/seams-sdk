@@ -583,7 +583,11 @@ const emailOtpEd25519YaoExportPayload: EmailOtpEd25519YaoExportPayload = {
     signerSlot: 1,
   },
   authorization: { walletSessionJwt: 'wallet-session-jwt' },
-  material: { materialActivation, capability: emailOtpEd25519YaoActiveCapability },
+  material: {
+    kind: 'active_capability',
+    materialActivation,
+    capability: emailOtpEd25519YaoActiveCapability,
+  },
 };
 void emailOtpEd25519YaoExportPayload;
 

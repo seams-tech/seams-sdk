@@ -504,7 +504,7 @@ async function exportEd25519YaoKeyWithFreshEmailOtp(
         materialActivation: emailOtpEd25519ExportMaterialActivation(resolved.context),
       }),
       nearAccountId: args.nearAccountId,
-      enabled: true,
+      enabled: resolved.context.material.kind === 'active_capability',
       task: () =>
         deps.emailOtp.exportSeedWithFreshAuthorization({
           challengeId: authorization.challengeId,
