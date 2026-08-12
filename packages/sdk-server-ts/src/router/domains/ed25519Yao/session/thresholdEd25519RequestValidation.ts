@@ -42,6 +42,10 @@ const OPERATION_STEP_UP_EMAIL_OTP_PROOF_KEYS = [
   'otp_code',
 ] as const;
 const OPERATION_STEP_UP_NO_MATERIAL_RECOVERY_KEYS = ['kind'] as const;
+const OPERATION_STEP_UP_EMAIL_OTP_MATERIAL_RECOVERY_KEYS = [
+  'kind',
+  'worker_ephemeral_public_key_65_b64u',
+] as const;
 import {
   findUnexpectedRouteKey,
   optionalRouteTrimmedString,
@@ -355,6 +359,27 @@ export function parseThresholdEd25519OperationStepUpGrantRequest(
             );
           }
           parsedMaterialRecovery = { kind: 'not_requested' };
+          break;
+        }
+        case 'email_otp_factor_release_v1': {
+          const unsupportedMaterialRecoveryKey = findUnexpectedRouteKey(
+            materialRecovery,
+            OPERATION_STEP_UP_EMAIL_OTP_MATERIAL_RECOVERY_KEYS,
+          );
+          if (unsupportedMaterialRecoveryKey) {
+            return invalidThresholdEd25519Body(
+              `Unsupported Email OTP operation step-up material recovery field: ${unsupportedMaterialRecoveryKey}`,
+            );
+          }
+          const workerEphemeralPublicKey65B64u = requiredStringField(
+            materialRecovery,
+            'worker_ephemeral_public_key_65_b64u',
+          );
+          if (!workerEphemeralPublicKey65B64u.ok) return workerEphemeralPublicKey65B64u;
+          parsedMaterialRecovery = {
+            kind: 'email_otp_factor_release_v1',
+            workerEphemeralPublicKey65B64u: workerEphemeralPublicKey65B64u.request,
+          };
           break;
         }
         default:

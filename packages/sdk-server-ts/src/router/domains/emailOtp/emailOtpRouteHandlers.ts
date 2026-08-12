@@ -64,7 +64,7 @@ function emailOtpFactorReleaseAad(input: {
   );
 }
 
-async function sealEmailOtpFactorSecretForWorker(input: {
+export async function sealEmailOtpFactorSecretForWorker(input: {
   readonly factorSecret32B64u: string;
   readonly workerEphemeralPublicKey65B64u: string;
   readonly walletId: string;
