@@ -10,7 +10,7 @@
     "generate:signer-core-types": "UPDATE_SIGNER_CORE_TYPES=1 cargo test --manifest-path crates/signer-core/Cargo.toml --features ecdsa-role-local-client,typescript-bindings --test export_typescript_schemas -- --nocapture",
     "generate:router-ab-ed25519-yao-types": "UPDATE_ROUTER_AB_ED25519_YAO_TYPES=1 cargo test --manifest-path crates/router-ab-core/Cargo.toml --features typescript-bindings --test export_typescript_bindings -- --nocapture",
     "build:wasm": "pnpm -C packages/sdk-web run build:wasm",
-    "build:sdk": "pnpm -C packages/sdk-web run build:sdk && pnpm router:build",
+    "build:sdk": "pnpm -C packages/sdk-web run build:sdk",
     "build:sdk-dev": "pnpm -C packages/sdk-web run build:sdk-full && ROUTER_AB_WORKER_BUILD_PROFILE=dev pnpm router:build",
     "build:sdk-full": "pnpm -C packages/sdk-web run build:sdk-full && pnpm router:build",
     "build:sdk-prod": "pnpm -C packages/sdk-web run build:prod && ROUTER_AB_WORKER_BUILD_PROFILE=release pnpm router:build",
