@@ -24,6 +24,7 @@ import type {
 } from '@shared/passkey-custody';
 import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import { assertEd25519YaoLaneCeremonyBindingParityV1 } from '@/core/signingEngine/threshold/crypto/ed25519YaoLaneWasm';
 import type { WalletCustodyCeremonyWorkerOperationMap } from '../workerTypes';
 
 /**
@@ -272,6 +273,12 @@ async function prepareEd25519YaoLane(
   const client = new WasmEd25519YaoLaneClientV1();
   const [deriverASealSeed, deriverBSealSeed] = distinctLaneSealSeeds();
   try {
+    await assertEd25519YaoLaneCeremonyBindingParityV1({
+      job: request.payload.job,
+      ceremonyBinding: request.payload.ceremonyBinding,
+      applicationBinding: request.payload.applicationBinding,
+      participantIds: request.payload.participantIds,
+    });
     const prepared = client.prepare(
       JSON.stringify(request.payload.job),
       JSON.stringify(request.payload.ceremonyBinding),

@@ -362,6 +362,7 @@ import type {
   WasmEd25519YaoLaneClientV1,
 } from '@shared/signing-lanes/rotation';
 import {
+  assertEd25519YaoLaneCeremonyBindingParityV1,
   createEd25519YaoLaneDerivationWorkerWasmV1,
   openEd25519YaoLaneWorkerSourceV1,
 } from '@/core/signingEngine/threshold/crypto/ed25519YaoLaneWasm';
@@ -2988,6 +2989,13 @@ export class BrowserSigningSurface {
     if (loaded.kind !== 'found') {
       throw new Error('Wallet-host Ed25519 sealed source material is unavailable');
     }
+    await assertEd25519YaoLaneCeremonyBindingParityV1({
+      job: args.job,
+      ceremonyBinding: args.ceremonyBinding,
+      applicationBinding: metadata.applicationBinding,
+      participantIds: metadata.participantIds,
+      applicationBindingDigestB64u: loaded.material.binding.applicationBindingDigestB64u,
+    });
     const factorSecretBytes = base64UrlDecode(claim.prfFirstB64u);
     const source = await openEd25519YaoLaneWorkerSourceV1({
       workerCtx: this.getSignerWorkerContext(),
