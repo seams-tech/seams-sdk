@@ -4,6 +4,7 @@ import type { LaneEnrollmentRevocationResultV1 } from '../../packages/shared-ts/
 import {
   buildRevokeLaneEnrollmentV1,
   buildRevokeSigningLaneV1,
+  parseRotatableSigningLaneJobV1,
 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import {
   parseCorrelationId,
@@ -12,9 +13,15 @@ import {
 import {
   buildR102ActiveProductEpoch,
   buildR102EnrollmentAdmissionRecordFixture,
+  buildR102LaneJob,
   buildR102MixedLaneEnrollmentFixture,
   buildR102RevokedProductEpoch,
 } from './helpers/r102LaneGateway.fixtures';
+import { resolveActiveOwnerWalletExecutionLane } from '../../packages/sdk-server-ts/src/core/signingLanes/WalletExecutionLaneProjection';
+import { normalizeWalletAuthMethod } from '../../packages/sdk-server-ts/src/core/d1WalletAuthMethodStore';
+import { createWalletEcdsaSignerRecord } from './helpers/walletRegistrationSigner.fixtures';
+import { walletAuthMethodRecordId } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { routerAbMpcMaterialActivationRefFromWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 
 const REQUEST_DIGEST = parseDigestB64u(Buffer.alloc(32, 2).toString('base64url'));
 const EFFECT_DIGEST = parseDigestB64u(Buffer.alloc(32, 3).toString('base64url'));
@@ -150,6 +157,102 @@ test('aggregate revocation fails closed on a substituted child before retirement
     }),
   ).rejects.toThrow('changed its authorized effect binding');
   expect(calls).toBe(1);
+});
+
+test('aggregate revocation leaves unrelated linked enrollment active and owner lane projected', async () => {
+  const fixture = buildR102MixedLaneEnrollmentFixture();
+  const admission = await buildR102EnrollmentAdmissionRecordFixture(fixture);
+  const command = buildRevokeLaneEnrollmentV1({
+    enrollmentId: fixture.manifest.enrollmentId,
+    walletId: fixture.manifest.walletId,
+    manifestDigestB64u: admission.value.lifecycle.manifestDigestB64u,
+    reason: 'device_compromise',
+    requestedAtMs: 9_000,
+  });
+  const activeProducts = await Promise.all([
+    buildR102ActiveProductEpoch(fixture.children[0]),
+    buildR102ActiveProductEpoch(fixture.children[1]),
+  ]);
+  const unrelatedJob = parseRotatableSigningLaneJobV1({
+    ...buildR102LaneJob('unrelated'),
+    enrollmentId: 'enrollment-r102-unrelated',
+  });
+  const unrelatedProduct = await buildR102ActiveProductEpoch(unrelatedJob);
+  let targetProducts = activeProducts;
+  const listCalls: string[] = [];
+  const childRequests = [
+    {
+      curve: 'ed25519_yao' as const,
+      command: buildChildCommand(fixture.children[0], command, 'scope-one'),
+    },
+    {
+      curve: 'ecdsa_additive' as const,
+      command: buildChildCommand(fixture.children[1], command, 'scope-two'),
+    },
+  ] as const;
+  const service = new LaneAggregateRevocationApplicationService({
+    lifecycleStore: {
+      getEnrollment: async () => admission,
+      fenceEnrollmentRevocation: async () => ({
+        outcome: 'applied',
+        version: 2,
+        commandDigestB64u: REQUEST_DIGEST,
+        value: admission.value,
+      }),
+      listEnrollmentProductEpochs: async (enrollmentId) => {
+        listCalls.push(String(enrollmentId));
+        return String(enrollmentId) === String(fixture.manifest.enrollmentId)
+          ? targetProducts
+          : [unrelatedProduct];
+      },
+    },
+    laneLifecycle: {
+      revokeSigningLaneV1: async (request) => {
+        targetProducts = replaceRevokedProduct(targetProducts, request.command);
+        return { outcome: 'applied' };
+      },
+    },
+    enrollmentRevocation: {
+      completeLaneEnrollmentRevocationV1: async () => aggregateConflict(command),
+    },
+  });
+
+  await expect(
+    service.revokeLaneEnrollmentV1({ command, orderedChildren: childRequests }),
+  ).resolves.toMatchObject({ outcome: 'conflict' });
+  expect(listCalls).toEqual([String(fixture.manifest.enrollmentId)]);
+  expect(targetProducts.every((product) => product.state === 'revoked')).toBe(true);
+  expect(unrelatedProduct.state).toBe('active');
+
+  const ownerSigner = createWalletEcdsaSignerRecord({
+    walletId: fixture.manifest.walletId,
+    now: 9_000,
+  });
+  const ownerAuthMethod = normalizeWalletAuthMethod({
+    version: 'wallet_auth_method_v1',
+    kind: 'passkey',
+    status: 'active',
+    walletId: fixture.manifest.walletId,
+    rpId: 'wallet.example.test',
+    credentialIdB64u: 'credential-r103-owner',
+    credentialPublicKeyB64u: 'public-key-r103-owner',
+    counter: 0,
+    createdAtMs: 9_000,
+    updatedAtMs: 9_000,
+  });
+  if (!ownerAuthMethod) throw new Error('owner auth fixture is invalid');
+  const ownerProjection = await resolveActiveOwnerWalletExecutionLane({
+    source: {
+      listWalletAuthMethods: async () => [ownerAuthMethod],
+      listWalletSigners: async () => [ownerSigner],
+    },
+    walletId: fixture.manifest.walletId,
+    walletAuthMethodId: walletAuthMethodRecordId(ownerAuthMethod),
+    expectedMaterialActivation: routerAbMpcMaterialActivationRefFromWire(
+      ownerSigner.walletKey.publicCapability.material_activation,
+    ),
+  });
+  expect(ownerProjection.kind).toBe('projected');
 });
 
 function buildChildCommand(
