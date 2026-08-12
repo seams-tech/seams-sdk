@@ -1,4 +1,7 @@
-import type { LinkedDeviceOwnerSourceChildResolutionV1 } from './d1LinkedDeviceTargetPlanner';
+import type {
+  LinkedDeviceOwnerSourceChildResolutionV1,
+  LinkedDeviceTargetEnrichedChildResolutionV1,
+} from './d1LinkedDeviceTargetPlanner';
 import type { EcdsaSourceCapabilityBindingV1 } from '@shared/signing-lanes/rotation';
 import { parseEcdsaTargetCapabilityBindingV1 } from '@shared/signing-lanes/rotationParsers';
 import {
@@ -41,30 +44,21 @@ export function parseLinkedDeviceOwnerSourceChildResolutionV1(
   label = 'sourceChild',
 ): LinkedDeviceOwnerSourceChildResolutionV1 {
   const record = requireRecord(raw, label);
-  const keyFamily = record.keyFamily;
+  const sourceRecord = stripPersistedTargetFacts(record);
+  const keyFamily = sourceRecord.keyFamily;
   if (keyFamily !== 'ed25519' && keyFamily !== 'ecdsa_secp256k1')
     throw new Error(`${label}.keyFamily is invalid`);
   const common = {
-    walletKeyId: parseRequired(parseWalletKeyId(record.walletKeyId), `${label}.walletKeyId`),
-    source: parseSource(record.source, `${label}.source`),
-    targetHolderParticipantId: parseRequired(
-      parseLaneHolderParticipantId(record.targetHolderParticipantId),
-      `${label}.targetHolderParticipantId`,
-    ),
-    targetSigningWorker: parseTargetSigningWorker(
-      record.targetSigningWorker,
-      `${label}.targetSigningWorker`,
-    ),
-    authorization: parseAuthorization(record.authorization, `${label}.authorization`),
+    walletKeyId: parseRequired(parseWalletKeyId(sourceRecord.walletKeyId), `${label}.walletKeyId`),
+    source: parseSource(sourceRecord.source, `${label}.source`),
+    authorization: parseAuthorization(sourceRecord.authorization, `${label}.authorization`),
   };
   if (keyFamily === 'ed25519') {
     const value = exactRecord(
-      record,
+      sourceRecord,
       [
         'walletKeyId',
         'source',
-        'targetHolderParticipantId',
-        'targetSigningWorker',
         'authorization',
         'keyFamily',
         'registeredPublicKeyB64u',
@@ -91,19 +85,16 @@ export function parseLinkedDeviceOwnerSourceChildResolutionV1(
     };
   }
   const value = exactRecord(
-    record,
+    sourceRecord,
     [
       'walletKeyId',
       'source',
-      'targetHolderParticipantId',
-      'targetSigningWorker',
       'authorization',
       'keyFamily',
       'evmFamilySigningKeySlotId',
       'thresholdPublicKey33B64u',
       'evmAddress',
       'sourceCapability',
-      'targetCapability',
       'sourceHolderVerifyingShare33B64u',
       'sourceServerVerifyingShare33B64u',
       'reshareChannelBindingDigestB64u',
@@ -120,10 +111,6 @@ export function parseLinkedDeviceOwnerSourceChildResolutionV1(
     thresholdPublicKey33B64u: parseSecp256k1CompressedPublicKeyB64u(value.thresholdPublicKey33B64u),
     evmAddress: parseRequiredString(value.evmAddress, `${label}.evmAddress`),
     sourceCapability: parseSourceCapability(value.sourceCapability, `${label}.sourceCapability`),
-    targetCapability: parseEcdsaTargetCapabilityBindingV1(
-      value.targetCapability,
-      `${label}.targetCapability`,
-    ),
     sourceHolderVerifyingShare33B64u: parseSecp256k1CompressedPublicKeyB64u(
       value.sourceHolderVerifyingShare33B64u,
     ),
@@ -133,6 +120,161 @@ export function parseLinkedDeviceOwnerSourceChildResolutionV1(
     reshareChannelBindingDigestB64u: parseDigest(
       value.reshareChannelBindingDigestB64u,
       `${label}.reshareChannelBindingDigestB64u`,
+    ),
+  };
+}
+
+function stripPersistedTargetFacts(record: Record<string, unknown>): Record<string, unknown> {
+  const {
+    targetHolderParticipantId: _targetHolderParticipantId,
+    targetSigningWorker: _targetSigningWorker,
+    targetCapability: _targetCapability,
+    ...sourceRecord
+  } = record;
+  return sourceRecord;
+}
+
+export function parseLinkedDeviceTargetEnrichedChildResolutionV1(
+  raw: unknown,
+  label = 'targetChild',
+): LinkedDeviceTargetEnrichedChildResolutionV1 {
+  const record = requireRecord(raw, label);
+  const source = parseLinkedDeviceOwnerSourceChildResolutionV1(
+    sourceRecordForTargetEnrichment(record),
+    `${label}.source`,
+  );
+  const targetHolderParticipantId = parseRequired(
+    parseLaneHolderParticipantId(record.targetHolderParticipantId),
+    `${label}.targetHolderParticipantId`,
+  );
+  const targetSigningWorker = parseTargetSigningWorker(
+    record.targetSigningWorker,
+    `${label}.targetSigningWorker`,
+  );
+  if (source.keyFamily === 'ed25519') {
+    exactRecord(
+      record,
+      [
+        'walletKeyId',
+        'source',
+        'authorization',
+        'keyFamily',
+        'registeredPublicKeyB64u',
+        'nearEd25519SigningKeyId',
+        'keyCreationSignerSlot',
+        'stableContextBindingB64u',
+        'yaoSuiteId',
+        'circuitDigestB64u',
+        'targetHolderParticipantId',
+        'targetSigningWorker',
+      ],
+      label,
+    );
+    return {
+      ...source,
+      keyFamily: 'ed25519',
+      targetHolderParticipantId,
+      targetSigningWorker,
+    };
+  }
+  const value = exactRecord(
+    record,
+    [
+      'walletKeyId',
+      'source',
+      'authorization',
+      'keyFamily',
+      'evmFamilySigningKeySlotId',
+      'thresholdPublicKey33B64u',
+      'evmAddress',
+      'sourceCapability',
+      'sourceHolderVerifyingShare33B64u',
+      'sourceServerVerifyingShare33B64u',
+      'reshareChannelBindingDigestB64u',
+      'targetHolderParticipantId',
+      'targetSigningWorker',
+      'targetCapability',
+    ],
+    label,
+  );
+  return {
+    ...source,
+    keyFamily: 'ecdsa_secp256k1',
+    targetHolderParticipantId,
+    targetSigningWorker,
+    targetCapability: parseEcdsaTargetCapabilityBindingV1(
+      value.targetCapability,
+      `${label}.targetCapability`,
+    ),
+  };
+}
+
+function sourceRecordForTargetEnrichment(record: Record<string, unknown>): Record<string, unknown> {
+  const keyFamily = record.keyFamily;
+  if (keyFamily === 'ed25519') {
+    return {
+      walletKeyId: record.walletKeyId,
+      source: record.source,
+      authorization: record.authorization,
+      keyFamily,
+      registeredPublicKeyB64u: record.registeredPublicKeyB64u,
+      nearEd25519SigningKeyId: record.nearEd25519SigningKeyId,
+      keyCreationSignerSlot: record.keyCreationSignerSlot,
+      stableContextBindingB64u: record.stableContextBindingB64u,
+      yaoSuiteId: record.yaoSuiteId,
+      circuitDigestB64u: record.circuitDigestB64u,
+    };
+  }
+  return {
+    walletKeyId: record.walletKeyId,
+    source: record.source,
+    authorization: record.authorization,
+    keyFamily,
+    evmFamilySigningKeySlotId: record.evmFamilySigningKeySlotId,
+    thresholdPublicKey33B64u: record.thresholdPublicKey33B64u,
+    evmAddress: record.evmAddress,
+    sourceCapability: record.sourceCapability,
+    sourceHolderVerifyingShare33B64u: record.sourceHolderVerifyingShare33B64u,
+    sourceServerVerifyingShare33B64u: record.sourceServerVerifyingShare33B64u,
+    reshareChannelBindingDigestB64u: record.reshareChannelBindingDigestB64u,
+  };
+}
+
+function parseTargetSigningWorker(
+  raw: unknown,
+  label: string,
+): LinkedDeviceTargetEnrichedChildResolutionV1['targetSigningWorker'] {
+  const record = exactRecord(
+    raw,
+    [
+      'participantId',
+      'participantBindingDigestB64u',
+      'recipientKeyId',
+      'hpkePublicKeyB64u',
+      'hpkePublicKeyDigestB64u',
+    ],
+    label,
+  );
+  return {
+    participantId: parseRequired(
+      parseSigningWorkerParticipantId(record.participantId),
+      `${label}.participantId`,
+    ),
+    participantBindingDigestB64u: parseRequired(
+      parseLaneParticipantBindingDigestB64u(record.participantBindingDigestB64u),
+      `${label}.participantBindingDigestB64u`,
+    ),
+    recipientKeyId: parseRequired(
+      parseSigningWorkerRecipientKeyId(record.recipientKeyId),
+      `${label}.recipientKeyId`,
+    ),
+    hpkePublicKeyB64u: parseRequired(
+      parseHpkePublicKeyB64u(record.hpkePublicKeyB64u),
+      `${label}.hpkePublicKeyB64u`,
+    ),
+    hpkePublicKeyDigestB64u: parseRequired(
+      parseSigningWorkerRecipientKeyDigestB64u(record.hpkePublicKeyDigestB64u),
+      `${label}.hpkePublicKeyDigestB64u`,
     ),
   };
 }
@@ -185,45 +327,6 @@ function parseSource(
       `${label}.participantBindingDigestB64u`,
     ),
     materialActivation: parseRequired(materialActivation, `${label}.materialActivation`),
-  };
-}
-
-function parseTargetSigningWorker(
-  raw: unknown,
-  label: string,
-): LinkedDeviceOwnerSourceChildResolutionV1['targetSigningWorker'] {
-  const record = exactRecord(
-    raw,
-    [
-      'participantId',
-      'participantBindingDigestB64u',
-      'recipientKeyId',
-      'hpkePublicKeyB64u',
-      'hpkePublicKeyDigestB64u',
-    ],
-    label,
-  );
-  return {
-    participantId: parseRequired(
-      parseSigningWorkerParticipantId(record.participantId),
-      `${label}.participantId`,
-    ),
-    participantBindingDigestB64u: parseRequired(
-      parseLaneParticipantBindingDigestB64u(record.participantBindingDigestB64u),
-      `${label}.participantBindingDigestB64u`,
-    ),
-    recipientKeyId: parseRequired(
-      parseSigningWorkerRecipientKeyId(record.recipientKeyId),
-      `${label}.recipientKeyId`,
-    ),
-    hpkePublicKeyB64u: parseRequired(
-      parseHpkePublicKeyB64u(record.hpkePublicKeyB64u),
-      `${label}.hpkePublicKeyB64u`,
-    ),
-    hpkePublicKeyDigestB64u: parseRequired(
-      parseSigningWorkerRecipientKeyDigestB64u(record.hpkePublicKeyDigestB64u),
-      `${label}.hpkePublicKeyDigestB64u`,
-    ),
   };
 }
 

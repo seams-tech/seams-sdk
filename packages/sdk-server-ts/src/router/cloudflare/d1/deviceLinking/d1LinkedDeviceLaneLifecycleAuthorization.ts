@@ -102,10 +102,6 @@ function assertCommonJobMatchesPlanV1(
     binding.sourceSigningWorkerParticipantId !== job.source.signingWorkerParticipantId ||
     binding.targetLaneId !== job.target.laneId ||
     binding.targetLaneShareEpoch !== job.target.laneShareEpoch ||
-    child.targetHolderParticipantId !== job.targetHolder.participantId ||
-    child.targetSigningWorker.participantId !== job.targetSigningWorker.participantId ||
-    alphabetizeStringify(child.targetSigningWorker) !==
-      alphabetizeStringify(job.targetSigningWorker) ||
     !mpcMaterialActivationRefsEqual(child.source.materialActivation, job.source.materialActivation)
   ) {
     throw new Error('linked-device lane job differs from the persisted owner plan');
@@ -153,7 +149,6 @@ function assertEcdsaJobMatchesPlanV1(
     child.thresholdPublicKey33B64u !== job.thresholdPublicKey33B64u ||
     child.evmAddress !== job.evmAddress ||
     alphabetizeStringify(child.sourceCapability) !== alphabetizeStringify(job.sourceCapability) ||
-    alphabetizeStringify(child.targetCapability) !== alphabetizeStringify(job.targetCapability) ||
     child.sourceHolderVerifyingShare33B64u !== job.sourceHolderVerifyingShare33B64u ||
     child.sourceServerVerifyingShare33B64u !== job.sourceServerVerifyingShare33B64u ||
     child.reshareChannelBindingDigestB64u !== job.reshareChannelBindingDigestB64u
