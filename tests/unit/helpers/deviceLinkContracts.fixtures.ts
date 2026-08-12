@@ -17,11 +17,14 @@ import {
 } from '../../../packages/shared-ts/src/device-linking/parsers';
 import type {
   LinkedDeviceApprovalV1,
+  LinkedDeviceEnrollmentKeyBindingV1,
   LinkedDeviceEnrollmentReceiptV1,
   LinkedDeviceEnrollmentTranscriptV1,
   QrLinkedDeviceSessionPayloadV4,
   LinkedDeviceTargetCredentialRegistrationV1,
+  LinkedDeviceTargetPreparationChildV1,
   LinkedDeviceTargetPreparationV1,
+  LinkedDeviceTargetHolderRegistrationV1,
   LinkedDeviceHolderDeliveryAcknowledgementV1,
   LinkedDeviceProvisioningCommandV1,
   LinkedDeviceProvisioningDeliveriesV1,
@@ -63,6 +66,7 @@ import { parseDigestB64u } from '../../../packages/shared-ts/src/utils/canonical
 import {
   buildR102HolderDeliveryReceipt,
   buildR102LaneJob,
+  buildR102EcdsaLaneJob,
   buildR102ProtocolCommitReceipt,
   buildR102ManifestChild,
 } from './r102LaneGateway.fixtures';
@@ -70,7 +74,9 @@ import {
   buildLaneEnrollmentManifestV1,
   parseRotatableSigningLaneJobV1,
 } from '../../../packages/shared-ts/src/signing-lanes/rotationParsers';
+import type { RotatableSigningLaneJobV1 } from '../../../packages/shared-ts/src/signing-lanes/rotation';
 import { computeLaneEnrollmentManifestDigestV1 } from '../../../packages/shared-ts/src/signing-lanes/rotationDigests';
+import { parseLaneHolderParticipantRecordV1 } from '../../../packages/shared-ts/src/signing-lanes/participants';
 
 function required<T>(
   result:
@@ -110,6 +116,158 @@ export type R103ActiveExecutionFixture = {
   readonly provisioning: R103ProvisioningFixture;
   readonly walletSession: LinkedDeviceWalletSessionDeliveryV1;
 };
+
+export type R103MixedPlannerFixture = {
+  readonly deviceLink: R103DeviceLinkFixture;
+  readonly targetCredential: R103TargetCredentialFixture;
+  readonly sourceJobs: readonly [RotatableSigningLaneJobV1, RotatableSigningLaneJobV1];
+};
+
+/** Mixed-curve owner source and target registration facts for R103 planner tests. */
+export async function buildR103MixedPlannerFixture(): Promise<R103MixedPlannerFixture> {
+  const base = buildR103DeviceLinkFixture({ linkSessionId: 'link-session:r103-mixed' });
+  const ed25519 = buildR102LaneJob('r103-mixed-ed25519');
+  const ecdsa = buildR102EcdsaLaneJob('r103-mixed-ecdsa');
+  const sourceJobs = [ed25519, ecdsa] as const;
+  const orderedKeyBindings = [
+    buildMixedApprovalBinding(ed25519),
+    buildMixedApprovalBinding(ecdsa),
+  ] as const;
+  const approval = buildLinkedDeviceApprovalV1({
+    linkSessionId: base.approval.linkSessionId,
+    walletId: base.approval.walletId,
+    enrollmentId: base.approval.enrollmentId,
+    deviceId: base.approval.deviceId,
+    linkPublicKeyB64u: base.approval.linkPublicKeyB64u,
+    devicePublicKeyB64u: base.approval.devicePublicKeyB64u,
+    permission: base.approval.permission,
+    ownerAuthorization: base.approval.ownerAuthorization,
+    policyDigestB64u: base.approval.policyDigestB64u,
+    operationId: base.approval.operationId,
+    idempotencyKey: base.approval.idempotencyKey,
+    orderedKeyBindings,
+    protocolVersions: [
+      { keyFamily: 'ed25519', version: 'rotatable_signing_lane_protocol_v1' },
+      { keyFamily: 'ecdsa_secp256k1', version: 'rotatable_signing_lane_protocol_v1' },
+    ],
+    approvedAtMs: base.approval.approvedAtMs,
+    expiresAtMs: base.approval.expiresAtMs,
+  });
+  const transcript = buildLinkedDeviceEnrollmentTranscriptV1({
+    linkSessionId: approval.linkSessionId,
+    walletId: approval.walletId,
+    enrollmentId: approval.enrollmentId,
+    deviceId: approval.deviceId,
+    linkPublicKeyB64u: approval.linkPublicKeyB64u,
+    devicePublicKeyB64u: approval.devicePublicKeyB64u,
+    permission: approval.permission,
+    ownerAuthorization: approval.ownerAuthorization,
+    policyDigestB64u: approval.policyDigestB64u,
+    operationId: approval.operationId,
+    idempotencyKey: approval.idempotencyKey,
+    orderedKeyBindings: approval.orderedKeyBindings,
+    protocolVersions: approval.protocolVersions,
+    approvedAtMs: approval.approvedAtMs,
+    expiresAtMs: approval.expiresAtMs,
+  });
+  const deviceLink = { ...base, approval, transcript };
+  const rpId = required(parseWebAuthnRpId('wallet.example.test'));
+  const credentialIdB64u = required(
+    parseWebAuthnCredentialIdB64u(base64UrlEncode(new Uint8Array(32).fill(9))),
+  );
+  const preparation = buildLinkedDeviceTargetPreparationV1({
+    linkSessionId: approval.linkSessionId,
+    walletId: approval.walletId,
+    enrollmentId: approval.enrollmentId,
+    deviceId: approval.deviceId,
+    rpId,
+    userHandleB64u: base64UrlEncode(new Uint8Array(32).fill(10)),
+    challengeB64u: approval.policyDigestB64u,
+    orderedChildren: [
+      buildMixedPreparationChild(ed25519),
+      buildMixedPreparationChild(ecdsa),
+    ] as const,
+    issuedAtMs: 3_003,
+    expiresAtMs: 7_000,
+  });
+  const targetPreparationDigestB64u =
+    await computeLinkedDeviceTargetPreparationDigestV1(preparation);
+  const registration = buildLinkedDeviceTargetCredentialRegistrationV1({
+    linkSessionId: approval.linkSessionId,
+    walletId: approval.walletId,
+    enrollmentId: approval.enrollmentId,
+    deviceId: approval.deviceId,
+    targetPreparationDigestB64u,
+    webauthnRegistration: {
+      kind: 'linked_device_webauthn_registration_v1',
+      credentialIdB64u,
+      authenticatorAttachment: 'platform',
+      clientDataJsonB64u: 'AQID',
+      attestationObjectB64u: 'BAUG',
+      transports: ['internal'],
+    },
+    orderedHolderRegistrations: [
+      buildMixedHolderRegistration(ed25519),
+      buildMixedHolderRegistration(ecdsa),
+    ] as const,
+    registeredAtMs: 3_004,
+  });
+  return { deviceLink, targetCredential: { preparation, registration }, sourceJobs };
+}
+
+function buildMixedApprovalBinding(
+  job: RotatableSigningLaneJobV1,
+): LinkedDeviceEnrollmentKeyBindingV1 {
+  return {
+    walletKeyId: job.walletKeyId,
+    keyFamily: job.keyFamily,
+    sourceLaneId: job.source.laneId,
+    sourceLaneShareEpoch: job.source.laneShareEpoch,
+    sourceRevocationEpoch: job.source.revocationEpoch,
+    sourceHolderParticipantId: job.source.holderParticipantId,
+    sourceSigningWorkerParticipantId: job.source.signingWorkerParticipantId,
+    targetLaneId: job.target.laneId,
+    targetLaneShareEpoch: job.target.laneShareEpoch,
+  };
+}
+
+function buildMixedPreparationChild(
+  job: RotatableSigningLaneJobV1,
+): LinkedDeviceTargetPreparationChildV1 {
+  return {
+    kind: 'linked_device_target_preparation_child_v1',
+    operationId: job.operationId,
+    walletKeyId: job.walletKeyId,
+    keyFamily: job.keyFamily,
+    targetLaneId: job.target.laneId,
+    targetLaneShareEpoch: job.target.laneShareEpoch,
+    targetMaterialActivationId: job.targetMaterialActivationId,
+    targetHolderParticipantId: job.targetHolder.participantId,
+  };
+}
+
+function buildMixedHolderRegistration(
+  job: RotatableSigningLaneJobV1,
+): LinkedDeviceTargetHolderRegistrationV1 {
+  return {
+    kind: 'linked_device_target_holder_registration_v1',
+    operationId: job.operationId,
+    walletKeyId: job.walletKeyId,
+    keyFamily: job.keyFamily,
+    targetLaneId: job.target.laneId,
+    targetLaneShareEpoch: job.target.laneShareEpoch,
+    targetMaterialActivationId: job.targetMaterialActivationId,
+    holderParticipant: parseLaneHolderParticipantRecordV1({
+      kind: 'lane_holder_participant_v1',
+      participantId: job.targetHolder.participantId,
+      custodyBindingId: job.targetHolder.custodyBindingId,
+      custodyBindingDigestB64u: job.targetHolder.custodyBindingDigestB64u,
+      hpkePublicKeyB64u: job.targetHolder.hpkePublicKeyB64u,
+      hpkePublicKeyDigestB64u: job.targetHolder.hpkePublicKeyDigestB64u,
+      participantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
+    }),
+  };
+}
 
 function buildUnsignedJwt(payload: Readonly<Record<string, unknown>>): string {
   const header = base64UrlEncode(
