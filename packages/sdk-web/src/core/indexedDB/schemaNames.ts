@@ -1,4 +1,4 @@
-export const SEAMS_WALLET_DB_NAME = 'seams_wallet_v17' as const;
+export const SEAMS_WALLET_DB_NAME = 'seams_wallet' as const;
 
 export const SEAMS_WALLET_STORES = {
   appState: 'app_state',
