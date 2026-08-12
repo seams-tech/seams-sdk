@@ -764,6 +764,21 @@ export function createBrowserSigningSurfaceEnginePorts(
     readAvailableSigningLanesForSigning: (readArgs) =>
       readPersistedAvailableSigningLanesForSigningOperation(
         {
+          ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityReferences,
+          isEd25519YaoPublicCapabilityActive: (reference) => {
+            switch (reference.auth.kind) {
+              case 'email_otp':
+                return true;
+              case 'passkey':
+                return (
+                  args.getEnginePorts().ed25519YaoActiveClients.resolve({
+                    walletId: reference.walletId,
+                    nearAccountId: reference.nearAccountId,
+                    materialActivation: reference.materialActivation,
+                  }) !== null
+                );
+            }
+          },
           readActiveWalletSessionAuthorization: async (walletId) => {
             const read = await walletSessionAuthorizations.readActiveForWallet(
               toWalletId(walletId),

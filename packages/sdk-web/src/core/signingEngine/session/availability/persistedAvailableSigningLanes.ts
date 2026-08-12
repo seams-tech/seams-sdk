@@ -23,6 +23,10 @@ import {
   type ConcreteAvailableEcdsaSigningLane,
 } from './availableSigningLanes';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type {
+  Ed25519YaoPublicCapabilityLaneReferenceStorePort,
+  Ed25519YaoPublicCapabilityLaneReferenceV1,
+} from '../../threshold/ed25519/yaoPublicCapabilityReferences';
 import type { EvmFamilyEcdsaSigningCapabilityAvailability } from '../material/ecdsaSigningCapability';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
@@ -36,6 +40,10 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 
 export type PersistedAvailableSigningLanesDeps = {
+  ed25519YaoPublicCapabilityLanes?: Ed25519YaoPublicCapabilityLaneReferenceStorePort;
+  isEd25519YaoPublicCapabilityActive?: (
+    reference: Ed25519YaoPublicCapabilityLaneReferenceV1,
+  ) => boolean;
   readActiveWalletSessionAuthorization?: (
     walletId: WalletId,
   ) => Promise<ActiveWalletSessionAuthorizationProjection | null>;
@@ -204,6 +212,12 @@ export async function readPersistedAvailableSigningLanesForTargets(
       ecdsaChainTargets: args.ecdsaChainTargets,
     },
     {
+      listPublicCapabilityReferences: deps.ed25519YaoPublicCapabilityLanes
+        ? deps.ed25519YaoPublicCapabilityLanes.listLanes.bind(
+            deps.ed25519YaoPublicCapabilityLanes,
+          )
+        : undefined,
+      isPublicCapabilityActive: deps.isEd25519YaoPublicCapabilityActive,
       readActiveWalletSessionAuthorization: deps.readActiveWalletSessionAuthorization,
       listSealedRecordsForWallet: async ({ walletId: recordWalletId, filter }) => {
         const listByAuthMethod = async (
