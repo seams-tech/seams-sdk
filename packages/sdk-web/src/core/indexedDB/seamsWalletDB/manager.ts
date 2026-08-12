@@ -2,7 +2,7 @@ import { openDB, type IDBPDatabase } from 'idb';
 import {
   SEAMS_WALLET_DB_CONFIG,
   SEAMS_WALLET_SCHEMA_VERSION,
-  initializeSeamsWalletDBSchema,
+  installSeamsWalletDBSchema,
   type SeamsWalletDBConfig,
 } from './schema';
 import { SEAMS_WALLET_DB_NAME, type SeamsWalletStoreName } from '../schemaNames';
@@ -18,6 +18,22 @@ export type SeamsWalletTransactionContext = {
 const INDEXED_DB_BLOCKED_OPEN_TIMEOUT_MS = 3_000;
 const INDEXED_DB_OPEN_TIMEOUT_MS = 8_000;
 const INDEXED_DB_TRANSACTION_TIMEOUT_MS = 8_000;
+const RETIRED_VERSIONED_WALLET_DB_NAME = 'seams_wallet_v17';
+
+function warnRetiredWalletDbDeletionBlocked(): void {
+  console.warn('[SeamsWalletDBManager] Retired versioned wallet database deletion is blocked.');
+}
+
+function warnRetiredWalletDbDeletionFailed(): void {
+  console.warn('[SeamsWalletDBManager] Retired versioned wallet database deletion failed.');
+}
+
+function deleteRetiredVersionedWalletDatabase(): void {
+  if (typeof indexedDB === 'undefined') return;
+  const request = indexedDB.deleteDatabase(RETIRED_VERSIONED_WALLET_DB_NAME);
+  request.onblocked = warnRetiredWalletDbDeletionBlocked;
+  request.onerror = warnRetiredWalletDbDeletionFailed;
+}
 
 function seamsWalletDbOpenBlockedError(dbName: string): Error {
   return new Error(
@@ -101,6 +117,7 @@ export class SeamsWalletDBManager {
       throw new Error('[SeamsWalletDBManager] IndexedDB is disabled in this environment.');
     }
     if (!this.dbPromise) {
+      deleteRetiredVersionedWalletDatabase();
       const dbName = this.config.dbName;
       let blockedTimer: ReturnType<typeof setTimeout> | null = null;
       let rejectBlockedOpen: ((error: Error) => void) | null = null;
@@ -109,7 +126,7 @@ export class SeamsWalletDBManager {
       });
       const openPromise = openDB(dbName, SEAMS_WALLET_SCHEMA_VERSION, {
         upgrade(db) {
-          initializeSeamsWalletDBSchema(db);
+          installSeamsWalletDBSchema(db);
         },
         blocked() {
           console.warn('[SeamsWalletDBManager] IndexedDB open is blocked.', { dbName });

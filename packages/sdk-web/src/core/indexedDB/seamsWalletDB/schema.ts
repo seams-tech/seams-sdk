@@ -33,7 +33,10 @@ function createStore(
   }
 }
 
-export function initializeSeamsWalletDBSchema(db: IDBPDatabase | IDBDatabase): void {
+export function installSeamsWalletDBSchema(db: IDBPDatabase | IDBDatabase): void {
+  for (const storeName of Array.from(db.objectStoreNames)) {
+    db.deleteObjectStore(storeName);
+  }
   for (const definition of SEAMS_WALLET_SCHEMA_MANIFEST) {
     createStore(db, definition);
   }
