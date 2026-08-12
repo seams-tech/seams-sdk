@@ -61,6 +61,63 @@ and the workflow branch guard both restrict deployments to `main`.
 branch. A production deployment promotes a reviewed `dev` change into `main`,
 then rebuilds the merged `main` revision from source.
 
+### Staging branch parity invariant
+
+Every staging deployment starts from the complete `dev` integration branch.
+Before dispatching either staging workflow:
+
+1. Commit every change intended for staging and leave the `dev` worktree clean.
+2. Integrate the latest `origin/dev` into local `dev` according to repository
+   policy.
+3. Push the complete local branch with `git push origin dev:dev`.
+4. Fetch `origin/dev` again and require the local and upstream `dev` SHAs to
+   match exactly.
+
+Abort the deployment when the worktree is dirty, the push is rejected, or the
+SHAs differ. Deployment-only branches, isolated worktrees, partial
+cherry-picks, and selected-commit pushes are outside the staging release path.
+The workflow event SHA must equal both verified `dev` SHAs.
+
+```bash
+git switch dev
+git status --short # must print nothing
+git fetch origin dev
+# Integrate origin/dev here when it differs from local dev.
+git push origin dev:dev
+git fetch origin dev
+staging_local_sha="$(git rev-parse dev)"
+staging_upstream_sha="$(git rev-parse origin/dev)"
+test "$staging_local_sha" = "$staging_upstream_sha"
+```
+
+### Production branch parity invariant
+
+Every production deployment starts from the complete protected `main` branch.
+Promote the full staging-tested `dev` integration through the repository's
+protected pull-request flow. After the promotion merges:
+
+1. Leave the local worktree clean.
+2. Fetch `origin/main` and fast-forward local `main` to the merged upstream
+   branch.
+3. Require the local and upstream `main` SHAs to match exactly.
+4. Dispatch every production workflow from that verified `main` SHA.
+
+Abort the deployment when the promotion is incomplete, the worktree is dirty,
+the fast-forward fails, or the SHAs differ. Partial promotions, isolated
+release branches, partial cherry-picks, selected-commit pushes, and mixed-SHA
+production deployments are outside the release path. Every production
+workflow event SHA must equal both verified `main` SHAs.
+
+```bash
+git switch main
+git status --short # must print nothing
+git fetch origin main
+git merge --ff-only origin/main
+production_local_sha="$(git rev-parse main)"
+production_upstream_sha="$(git rev-parse origin/main)"
+test "$production_local_sha" = "$production_upstream_sha"
+```
+
 1. Push the candidate commit to `dev`. The staging workflows accept `dev` only.
    The `dev` branch is currently the integration branch, so feature work may
    arrive through a PR or an integration push according to the repository's
@@ -81,15 +138,15 @@ then rebuilds the merged `main` revision from source.
 The command sequence is:
 
 ```bash
-# Staging remains an explicit deployment
+# Run the staging branch parity check above first.
 gh workflow run deploy-staging-backend.yml --ref dev
 gh workflow run deploy-staging-frontend.yml --ref dev
 
 # Open and merge the promotion PR through GitHub's protected-main flow.
 gh pr create --base main --head dev --title "Promote dev to main"
 
-# After the PR is merged, dispatch the independent backend lane workflows and
-# the shared frontend workflow from main.
+# After the PR is merged, run the production branch parity check above, then
+# dispatch the independent backend lane workflows and shared frontend workflow.
 gh workflow run deploy-production-testnet-backend.yml --ref main
 gh workflow run deploy-production-mainnet-backend.yml --ref main
 gh workflow run deploy-production-frontend.yml --ref main

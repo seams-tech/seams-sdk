@@ -1,8 +1,9 @@
 ---
-title: iPhone Access Passes
+title: iPhone access passes
+description: Model mobile access passes with device proof, expiry, revocation, step-up policy, and audit.
 ---
 
-# iPhone Access Passes
+# iPhone access passes
 
 Access passes use the same custody and policy model as wallets, with a
 different execution adapter. Instead of signing a transaction, the credential
@@ -15,7 +16,7 @@ specific right.
 credential holder -> device proof -> policy -> access decision -> audit
 ```
 
-## What The Pass Represents
+## What the pass represents
 
 An iPhone access pass can represent:
 
@@ -38,27 +39,27 @@ flowchart TD
   Decision --> Audit["Access audit trail"]
 ```
 
-## What Changes From Wallets
+## What changes from wallets
 
-| Wallet flow | Access-pass flow |
-| --- | --- |
-| Wallet id and public address | Pass id and issuer-scoped subject |
-| Transaction or message intent | Access or redemption intent |
-| Signing lane | Credential presentation lane |
-| Signature execution | Access decision or proof presentation |
-| Wallet recovery | Pass recovery or reissuance policy |
+| Wallet flow                   | Access-pass flow                      |
+| ----------------------------- | ------------------------------------- |
+| Wallet id and public address  | Pass id and issuer-scoped subject     |
+| Transaction or message intent | Access or redemption intent           |
+| Signing lane                  | Credential presentation lane          |
+| Signature execution           | Access decision or proof presentation |
+| Wallet recovery               | Pass recovery or reissuance policy    |
 
 The pass should still bind proof, intent, policy epoch, expiry, revocation, and
 audit facts. Sensitive pass actions can require passkey, VoiceID, device
 presence, or another step-up method.
 
-## Application-Side Shape
+## Application-side shape
 
 Access-pass APIs are app-specific. The important part is the same authority
 shape: prove the holder, bind the access intent, check policy, and write an
 audit record.
 
-```ts
+```ts [Application pseudocode]
 type AccessPassIntent = {
   kind: 'access_pass.present';
   passId: string;

@@ -1371,6 +1371,102 @@ export interface RouterApiSessionVersionService {
   ): Promise<RouterApiMethodTypes['validateAppSessionVersion']['result']>;
 }
 
+export type RouterApiSessionExchangePhase = 'claimed' | 'session_prepared' | 'completed';
+
+export type RouterApiSessionExchangeAccountMode = 'login';
+
+export type RouterApiSessionExchangePrepared = {
+  readonly seamsSessionId: string;
+  readonly deviceId: string;
+  readonly createdAtMs: number;
+};
+
+export type RouterApiSessionExchangeResponse = {
+  readonly status: number;
+  readonly bodyText: string;
+  readonly setCookie?: string;
+};
+
+type RouterApiSessionExchangeJournalBase = {
+  readonly kind: 'google_email_otp_session_exchange_journal_v1';
+  readonly idempotencyKey: string;
+  readonly requestFingerprint: string;
+  readonly accountMode: RouterApiSessionExchangeAccountMode;
+  readonly version: number;
+  readonly phaseData: Readonly<Record<string, unknown>>;
+  readonly prepared: RouterApiSessionExchangePrepared;
+  readonly createdAtMs: number;
+  readonly updatedAtMs: number;
+  readonly expiresAtMs: number;
+};
+
+export type RouterApiSessionExchangeJournal =
+  | (RouterApiSessionExchangeJournalBase & {
+      readonly lifecycle: 'in_progress';
+      readonly phase: Exclude<RouterApiSessionExchangePhase, 'completed'>;
+      readonly response?: never;
+    })
+  | (RouterApiSessionExchangeJournalBase & {
+      readonly lifecycle: 'completed';
+      readonly phase: 'completed';
+      readonly response: RouterApiSessionExchangeResponse;
+    });
+
+export type RouterApiCompletedSessionExchangeJournal = Extract<
+  RouterApiSessionExchangeJournal,
+  { readonly lifecycle: 'completed' }
+>;
+
+export type RouterApiSessionExchangeClaimResult =
+  | { readonly kind: 'claimed'; readonly journal: RouterApiSessionExchangeJournal }
+  | { readonly kind: 'resume'; readonly journal: RouterApiSessionExchangeJournal }
+  | { readonly kind: 'replayed'; readonly journal: RouterApiCompletedSessionExchangeJournal }
+  | {
+      readonly kind: 'conflict';
+      readonly code: 'idempotency_conflict';
+      readonly journal: RouterApiSessionExchangeJournal;
+      readonly message: string;
+    }
+  | { readonly kind: 'uncertain'; readonly message: string };
+
+export type RouterApiSessionExchangeMutationResult =
+  | { readonly kind: 'stored'; readonly journal: RouterApiSessionExchangeJournal }
+  | { readonly kind: 'replayed'; readonly journal: RouterApiSessionExchangeJournal }
+  | {
+      readonly kind: 'conflict';
+      readonly code: 'version_conflict' | 'response_conflict' | 'request_conflict';
+      readonly journal?: RouterApiSessionExchangeJournal;
+      readonly message: string;
+    }
+  | {
+      readonly kind: 'in_progress';
+      readonly journal: RouterApiSessionExchangeJournal;
+      readonly retryAfterMs: number;
+    }
+  | { readonly kind: 'uncertain'; readonly message: string };
+
+export interface RouterApiSessionExchangeService {
+  claimGoogleEmailOtp(input: {
+    readonly idempotencyKey: string;
+    readonly requestFingerprint: string;
+    readonly accountMode: RouterApiSessionExchangeAccountMode;
+    readonly nowMs: number;
+  }): Promise<RouterApiSessionExchangeClaimResult>;
+  read(idempotencyKey: string): Promise<RouterApiSessionExchangeJournal | null>;
+  checkpoint(input: {
+    readonly key: string;
+    readonly expectedVersion: number;
+    readonly phase: Exclude<RouterApiSessionExchangePhase, 'claimed' | 'completed'>;
+    readonly data: Readonly<Record<string, unknown>>;
+  }): Promise<RouterApiSessionExchangeMutationResult>;
+  complete(input: {
+    readonly key: string;
+    readonly expectedVersion: number;
+    readonly response: RouterApiSessionExchangeResponse;
+    readonly expiresAtMs: number;
+  }): Promise<RouterApiSessionExchangeMutationResult>;
+}
+
 export interface RouterApiIdentityService {
   consumeGoogleEmailOtpRegistrationAttemptRateLimit(
     input: RouterApiMethodTypes['consumeGoogleEmailOtpRegistrationAttemptRateLimit']['input'],
@@ -1461,6 +1557,7 @@ export interface RouterApiServiceBag {
   webAuthn: RouterApiWebAuthnService;
   identity: RouterApiIdentityService;
   sessionVersions: RouterApiSessionVersionService;
+  sessionExchanges: RouterApiSessionExchangeService;
   authorizationSessions: RouterApiAuthorizationSessionService;
   authorizedOperations: RouterApiAuthorizedOperationService;
   thresholdRuntime: RouterAbSigningRuntimeService;

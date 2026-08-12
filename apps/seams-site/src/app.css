@@ -1,6 +1,5 @@
 @import './layout.css';
 @import './components/Carousel/CarouselStyles.css';
-@import './styles/gradient-utilities.css';
 
 :root,
 :host {
@@ -59,6 +58,8 @@
   --site-focus: var(--w3a-colors-focus);
   --site-brand: var(--w3a-colors-primary);
   --site-brand-hover: var(--w3a-colors-primaryHover);
+  --site-action: var(--w3a-colors-buttonBackground);
+  --site-action-hover: var(--w3a-colors-buttonHoverBackground);
   --site-accent: var(--w3a-colors-secondary);
   --site-accent-hover: var(--w3a-colors-secondaryHover);
   --site-danger: var(--w3a-colors-error);
@@ -68,16 +69,11 @@
   --site-shadow-md: var(--w3a-shadows-md);
 
   /* Site semantic aliases (component domains) */
-  --site-navbar-surface: var(--site-surface-strong);
+  --site-navbar-surface: var(--site-surface);
   --site-footer-surface: var(--site-surface-muted);
   --site-marketing-surface: var(--site-surface);
   --site-form-surface: var(--site-surface-muted);
   --site-carousel-surface: var(--site-surface);
-}
-
-html[data-w3a-theme='dark'],
-.w3a-theme-provider[data-w3a-theme='dark'] {
-  --site-canvas: color-mix(in srgb, var(--w3a-colors-colorBackground) 72%, #090714 28%);
 }
 
 html[data-w3a-theme='light'],
@@ -114,43 +110,9 @@ textarea {
   font-family: inherit;
 }
 
-/* App background: fully token-driven so custom theme palettes apply on the frontpage. */
 html[data-w3a-theme] {
-  background-color: var(--site-canvas, var(--w3a-colors-colorBackground));
-  background-image:
-    radial-gradient(
-      120% 120% at 50% -20%,
-      color-mix(
-          in srgb,
-          var(--site-surface-muted, var(--w3a-colors-surface2)) 92%,
-          var(--site-brand, var(--w3a-colors-primary)) 8%
-        )
-        0%,
-      transparent 56%
-    ),
-    var(
-      --w3a-colors-gradientTertiary,
-      linear-gradient(
-        180deg,
-        var(--site-surface-strong, var(--w3a-colors-surface3)) 0%,
-        var(--site-canvas, var(--w3a-colors-colorBackground)) 100%
-      )
-    ),
-    linear-gradient(
-      180deg,
-      color-mix(
-          in srgb,
-          var(--site-surface, var(--w3a-colors-surface)) 92%,
-          var(--site-surface-strong, var(--w3a-colors-surface3)) 8%
-        )
-        0%,
-      color-mix(
-          in srgb,
-          var(--site-canvas, var(--w3a-colors-colorBackground)) 92%,
-          var(--site-surface-muted, var(--w3a-colors-surface2)) 8%
-        )
-        100%
-    );
+  color-scheme: light;
+  background: #ffffff;
 }
 
 a {

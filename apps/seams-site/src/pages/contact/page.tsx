@@ -32,7 +32,7 @@ function handleContactSubmit(event: React.FormEvent<HTMLFormElement>): void {
 export function ContactPage(): React.JSX.Element {
   return (
     <div className="h2-page">
-      <NavbarCompact appearance="light" />
+      <NavbarCompact />
       <div className="h2-col">
         <main className="contact-page h2-rule" aria-labelledby="contact-page-title">
           <section className="contact-page__panel">

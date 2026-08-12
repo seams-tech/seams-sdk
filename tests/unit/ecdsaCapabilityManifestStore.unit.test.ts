@@ -905,23 +905,6 @@ test.describe('canonical ECDSA capability manifest store', () => {
           request.onerror = () => resolve();
           request.onblocked = () => resolve();
         });
-        await new Promise<void>((resolve, reject) => {
-          const request = indexedDB.open('seams_wallet', 9);
-          request.onupgradeneeded = () => {
-            const db = request.result;
-            db.createObjectStore('ecdsa_role_local_active_material', {
-              keyPath: 'durableMaterialRef',
-            }).put({
-              durableMaterialRef: 'pre-v10-material',
-              marker: 'preserved',
-            });
-          };
-          request.onsuccess = () => {
-            request.result.close();
-            resolve();
-          };
-          request.onerror = () => reject(request.error);
-        });
         const module = await import(storeModule);
         const store = new module.IndexedDbEcdsaCapabilityManifestStore();
         const preparedWrite = await store.prepareActivation(fixture.prepareInput);
@@ -1017,16 +1000,6 @@ test.describe('canonical ECDSA capability manifest store', () => {
           bindingDigest: 'different-binding-digest',
           materialActivation,
         });
-        const legacyStorePresent = await new Promise<boolean>((resolve, reject) => {
-          const request = indexedDB.open('seams_wallet');
-          request.onsuccess = () => {
-            const db = request.result;
-            const present = db.objectStoreNames.contains('ecdsa_role_local_active_material');
-            db.close();
-            resolve(present);
-          };
-          request.onerror = () => reject(request.error);
-        });
         return {
           preparedWriteKind: preparedWrite.kind,
           preparedJournalSelectors,
@@ -1050,7 +1023,6 @@ test.describe('canonical ECDSA capability manifest store', () => {
           materialRefStateBlobB64u:
             openedByMaterialRef.kind === 'active' ? openedByMaterialRef.readyStateBlobB64u : null,
           mismatchedMaterialRefKind: mismatchedMaterialRef.kind,
-          legacyStorePresent,
         };
       },
       {
@@ -1100,7 +1072,6 @@ test.describe('canonical ECDSA capability manifest store', () => {
       activationMismatchKind: 'exact_binding_mismatch',
       materialRefStateBlobB64u: fixture.sealInput.readyStateBlobB64u,
       mismatchedMaterialRefKind: 'binding_mismatch',
-      legacyStorePresent: false,
     });
   });
 

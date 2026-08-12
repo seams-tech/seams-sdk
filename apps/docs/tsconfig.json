@@ -4,9 +4,20 @@
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
     "strict": true,
     "skipLibCheck": true,
-    "types": ["vite/client"]
+    "types": ["vite/client", "react", "react-dom"],
+    "baseUrl": ".",
+    "paths": {
+      "@seams/sdk": ["../../packages/sdk-web/dist/types/sdk-web/src/index.d.ts"],
+      "@seams/sdk/*": ["../../packages/sdk-web/dist/types/sdk-web/src/*"]
+    }
   },
-  "include": ["src/.vitepress/**/*.ts", "vite-env.d.ts"]
+  "include": [
+    "src/.vitepress/**/*.ts",
+    "src/examples/**/*.ts",
+    "src/examples/**/*.tsx",
+    "vite-env.d.ts"
+  ]
 }

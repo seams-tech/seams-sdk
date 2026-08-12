@@ -1,0 +1,17 @@
+/sdk/*
+  Cache-Control: public, max-age=300, must-revalidate
+  Access-Control-Allow-Origin: *
+
+/wallet-service
+  Cache-Control: no-store
+
+/wallet-service/*
+  Cache-Control: no-store
+
+/wallet-assets.manifest.json
+  Content-Type: application/json; charset=utf-8
+  Cache-Control: no-store
+
+/headers.manifest.json
+  Content-Type: application/json; charset=utf-8
+  Cache-Control: no-store

@@ -1,5 +1,6 @@
 ---
 title: Passkeys
+description: Understand WebAuthn user presence, PRF-derived material, RP ID scope, and passkey recovery boundaries.
 ---
 
 # Passkeys
@@ -7,7 +8,7 @@ title: Passkeys
 Passkeys provide WebAuthn user presence and, where available, PRF-derived
 holder-side material.
 
-## Role In The Model
+## Role in the model
 
 Passkeys can:
 

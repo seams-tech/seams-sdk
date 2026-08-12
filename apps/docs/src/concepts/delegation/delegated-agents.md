@@ -1,8 +1,9 @@
 ---
-title: Delegated Agents
+title: Delegated agents
+description: Give agents bounded signing lanes tied to explicit mandates, expiry, budgets, and revocation.
 ---
 
-# Delegated Agents
+# Delegated agents
 
 Delegated agents receive bounded signing lanes. The lane is tied to mandate
 policy, typed intent checks, budget, expiry, revocation state, and audit

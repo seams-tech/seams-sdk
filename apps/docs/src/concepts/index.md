@@ -1,5 +1,6 @@
 ---
 title: Concepts
+description: Learn the architecture, custody, authentication, policy, session, delegation, and threshold concepts behind Seams.
 ---
 
 # Concepts
@@ -21,17 +22,17 @@ actions.
 For wallet teams, Seams provides self-hostable threshold embedded wallets that
 deploy to Cloudflare.
 
-## System Layers
+## System layers
 
-| Layer | Role |
-| --- | --- |
-| Proof layer | Passkeys, Email OTP, VoiceID, device proof, org proof, wallet proof, and configured external credentials. |
-| Policy and mandate layer | Signed mandates, typed intent digests, policy epochs, budgets, expiry, revocation, and audit state. |
-| Key infrastructure | Holder shares, server shares, Router A/B, SigningWorker, export, recovery, delegation, and rotation. |
-| Enforcement gateway | Allows, denies, escalates, or requires human approval before money, authority, inventory, or API state moves. |
-| Execution adapters | Wallet signatures, payments, merchant APIs, marketplaces, agent tools, and future device actions. |
+| Layer                    | Role                                                                                                          |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| Proof layer              | Passkeys, Email OTP, VoiceID, device proof, org proof, wallet proof, and configured external credentials.     |
+| Policy and mandate layer | Signed mandates, typed intent digests, policy epochs, budgets, expiry, revocation, and audit state.           |
+| Key infrastructure       | Holder shares, server shares, Router A/B, SigningWorker, export, recovery, delegation, and rotation.          |
+| Enforcement gateway      | Allows, denies, escalates, or requires human approval before money, authority, inventory, or API state moves. |
+| Execution adapters       | Wallet signatures, payments, merchant APIs, marketplaces, agent tools, and future device actions.             |
 
-## Reading Order
+## Reading order
 
 1. [Architecture](/concepts/architecture) for the source-of-truth component map.
 2. [Wallet Infrastructure Comparison](/concepts/wallet-infrastructure-comparison) for deployment and cost tradeoffs.
@@ -43,7 +44,7 @@ deploy to Cloudflare.
 8. [Delegation](/concepts/delegation/) for linked devices, agents, and rotation.
 9. [Advanced](/concepts/advanced/) for protocol, ceremony, and deployment details.
 
-## Short Version
+## Short version
 
 Give agents permission to act without giving them unlimited authority.
 

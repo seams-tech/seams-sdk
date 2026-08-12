@@ -1,21 +1,5 @@
 .app-footer {
-  --frontpage-footer-border-color: color-mix(
-    in srgb,
-    var(--w3a-colors-borderPrimary) 72%,
-    transparent
-  );
-  --frontpage-footer-surface-gradient:
-    radial-gradient(
-      125% 140% at 10% -30%,
-      color-mix(in srgb, var(--w3a-colors-primary) 10%, transparent) 0%,
-      transparent 50%
-    ),
-    linear-gradient(
-      154deg,
-      color-mix(in srgb, var(--w3a-colors-surface2) 86%, var(--w3a-colors-surface) 14%) 0%,
-      color-mix(in srgb, var(--w3a-colors-surface2) 90%, var(--w3a-colors-surface3) 10%) 58%,
-      color-mix(in srgb, var(--w3a-colors-surface3) 84%, var(--w3a-colors-surface2) 16%) 100%
-    );
+  --frontpage-footer-border-color: var(--site-border);
   --frontpage-footer-copy-color: color-mix(
     in srgb,
     var(--site-text-primary) 90%,
@@ -43,105 +27,11 @@
   padding: 3.15rem 0 2.1rem;
   color: var(--frontpage-footer-copy-color);
   border-top: 1px solid var(--frontpage-footer-border-color);
-  background: var(--frontpage-footer-surface-gradient);
-}
-
-html[data-w3a-theme='light'] .app-footer {
-  --frontpage-footer-border-color: color-mix(
-    in srgb,
-    var(--site-border) 84%,
-    var(--site-brand) 16%
-  );
-  --frontpage-footer-surface-gradient:
-    radial-gradient(
-      130% 146% at 12% -26%,
-      color-mix(in srgb, var(--site-brand) 8%, transparent) 0%,
-      transparent 52%
-    ),
-    linear-gradient(
-      154deg,
-      color-mix(in srgb, var(--site-surface) 96%, var(--site-brand) 4%) 0%,
-      color-mix(in srgb, var(--site-surface-muted) 94%, var(--site-brand) 6%) 56%,
-      color-mix(in srgb, var(--site-surface-strong) 90%, var(--site-surface) 10%) 100%
-    );
-}
-
-html[data-w3a-theme='light'] .app-footer::before,
-html[data-w3a-theme='light'] .app-footer::after {
-  content: '';
-  position: absolute;
-  width: 88px;
-  height: 88px;
-  pointer-events: none;
-  opacity: 0.24;
-  background:
-    linear-gradient(
-      45deg,
-      transparent 48%,
-      color-mix(in srgb, var(--site-brand) 26%, transparent) 50%,
-      transparent 52%
-    ),
-    linear-gradient(
-      -45deg,
-      transparent 48%,
-      color-mix(in srgb, var(--site-border) 34%, transparent) 50%,
-      transparent 52%
-    );
-  background-size: 14px 14px;
-}
-
-html[data-w3a-theme='light'] .app-footer::before {
-  top: -10px;
-  left: -10px;
-}
-
-html[data-w3a-theme='light'] .app-footer::after {
-  top: -10px;
-  right: -10px;
-}
-
-html[data-w3a-theme='dark'] .app-footer {
-  --frontpage-footer-border-color: color-mix(
-    in srgb,
-    #524f67 58%,
-    var(--w3a-colors-borderPrimary) 42%
-  );
-  --frontpage-footer-surface-gradient:
-    radial-gradient(
-      132% 148% at 12% -26%,
-      color-mix(in srgb, #c4a7e7 18%, transparent) 0%,
-      transparent 52%
-    ),
-    linear-gradient(154deg, #1f1d2e 0%, #26233a 56%, #191724 100%);
-  --frontpage-footer-copy-color: color-mix(
-    in srgb,
-    var(--site-text-primary) 94%,
-    var(--site-text-secondary) 6%
-  );
-  --frontpage-footer-heading-color: color-mix(
-    in srgb,
-    var(--site-text-secondary) 88%,
-    var(--site-text-primary) 12%
-  );
-  --frontpage-footer-subtle-color: color-mix(
-    in srgb,
-    var(--site-text-secondary) 86%,
-    var(--site-text-primary) 14%
-  );
-  --frontpage-footer-near-color: color-mix(
-    in srgb,
-    var(--site-text-secondary) 88%,
-    var(--site-text-primary) 12%
-  );
-  --frontpage-footer-bottom-border-color: color-mix(in srgb, var(--site-border) 62%, transparent);
-}
-
-html[data-w3a-theme='light'] .app-footer__bg-glow,
-html[data-w3a-theme='dark'] .app-footer__bg-glow {
-  display: none;
+  background: var(--site-surface-muted);
 }
 
 .app-footer__bg-glow {
+  display: none;
   position: absolute;
   width: min(32vw, 410px);
   height: min(32vw, 410px);

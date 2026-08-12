@@ -10,7 +10,7 @@ import '@/styles/h2.css';
 export function WalletPage(): React.JSX.Element {
   return (
     <div className="h2-page h2-page--wallet">
-      <NavbarCompact appearance="light" />
+      <NavbarCompact />
       <div className="h2-col">
         <H2DemoHero
           authDefaultModeWhenNoDetectedAccount={AuthMenuMode.Register}

@@ -7,8 +7,8 @@
   --navbar-border: var(--site-border, var(--vp-c-border));
   --navbar-border-hover: var(--site-border-strong, var(--vp-c-border));
   --navbar-shadow-color: rgba(4, 3, 14, 0.68);
-  --navbar-primary: var(--site-brand, oklch(0.52 0.138 255));
-  --navbar-primary-hover: var(--site-brand-hover, oklch(0.56 0.158 255));
+  --navbar-primary: var(--site-action, #000000);
+  --navbar-primary-hover: var(--site-action-hover, #262626);
   --navbar-text-button: var(--site-text-button, #ffffff);
   --navbar-focus: var(--site-focus, #66a3ff);
   --navbar-access-nav-surface: color-mix(in srgb, var(--navbar-surface3) 82%, transparent);
@@ -503,8 +503,7 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
   background: var(--navbar-access-trigger-active);
 }
 
-html[data-w3a-theme='light'] .navbar-static,
-.navbar-static.navbar-static--light {
+html[data-w3a-theme='light'] .navbar-static {
   --navbar-shadow-color: rgba(15, 23, 42, 0.34);
   --navbar-access-nav-surface: color-mix(in srgb, var(--navbar-surface) 90%, transparent);
   --navbar-access-trigger-active: color-mix(
@@ -517,22 +516,6 @@ html[data-w3a-theme='light'] .navbar-static,
   --navbar-access-muted: color-mix(in srgb, var(--site-text-secondary) 92%, var(--navbar-text) 8%);
 }
 
-/* Pinned light skin (appearance="light"): resolves the navbar's site-token
-   inputs to the front-page white palette so it ignores the global theme. */
-.navbar-static.navbar-static--light {
-  --site-canvas: #ffffff;
-  --site-surface: #ffffff;
-  --site-surface-muted: #f5f3f1;
-  --site-surface-strong: #f5f3f1;
-  --site-text-primary: #0a0a0a;
-  --site-text-secondary: #777169;
-  --site-border: #ebe8e4;
-  --site-border-strong: #d6d1cb;
-  --site-brand: #000000;
-  --site-brand-hover: #262626;
-  --site-text-button: #ffffff;
-  --site-focus: #157f5f;
-}
 
 .navbar-static__actions {
   display: flex;

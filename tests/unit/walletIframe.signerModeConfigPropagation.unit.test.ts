@@ -26,9 +26,6 @@ const WALLET_STUB_CAPTURE_SCRIPT = String.raw`
           window.__capturedSigningSessionDefaults = (data.payload && typeof data.payload === 'object')
             ? data.payload.signingSessionDefaults
             : undefined;
-          window.__capturedSigningSessionSeal = (data.payload && typeof data.payload === 'object')
-            ? data.payload.signingSessionSeal
-            : undefined;
           window.__capturedRouterAbEcdsaDerivationPresignaturePool = (data.payload && typeof data.payload === 'object')
             ? data.payload.routerAbEcdsaDerivationPresignaturePool
             : undefined;
@@ -100,7 +97,7 @@ test.describe('Wallet iframe config propagation', () => {
     await page.unroute(WALLET_SERVICE_ROUTE.replace('wallet-service', 'service')).catch(() => {});
   });
 
-  test('forwards signing-session config in PM_SET_CONFIG', async ({ page }) => {
+  test('forwards signing-session policy in PM_SET_CONFIG', async ({ page }) => {
     await page.evaluate(
       async ({ walletOrigin }) => {
         const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
@@ -113,10 +110,6 @@ test.describe('Wallet iframe config propagation', () => {
             remainingUses: 67,
           },
           signingSessionPersistenceMode: 'sealed_refresh_v1',
-          signingSessionSeal: {
-            keyVersion: 'signing-session-seal-kek-2026-02-r1',
-            shamirPrimeB64u: '_____________________________________v___C8',
-          },
           routerAbEcdsaDerivationPresignaturePool: {
             enabled: false,
             targetDepth: 5,
@@ -168,9 +161,6 @@ test.describe('Wallet iframe config propagation', () => {
     const capturedSigningSessionDefaults = await walletFrame!.evaluate(() => {
       return (window as any).__capturedSigningSessionDefaults ?? null;
     });
-    const capturedSigningSessionSeal = await walletFrame!.evaluate(() => {
-      return (window as any).__capturedSigningSessionSeal ?? null;
-    });
     const capturedRouterAbEcdsaDerivationPresignaturePool = await walletFrame!.evaluate(() => {
       return (window as any).__capturedRouterAbEcdsaDerivationPresignaturePool ?? null;
     });
@@ -181,10 +171,6 @@ test.describe('Wallet iframe config propagation', () => {
     expect(capturedSigningSessionDefaults).toEqual({
       ttlMs: 12_345,
       remainingUses: 67,
-    });
-    expect(capturedSigningSessionSeal).toEqual({
-      keyVersion: 'signing-session-seal-kek-2026-02-r1',
-      shamirPrimeB64u: '_____________________________________v___C8',
     });
     expect(capturedRouterAbEcdsaDerivationPresignaturePool).toEqual({
       enabled: false,
@@ -215,9 +201,7 @@ test.describe('Wallet iframe config propagation', () => {
     });
   });
 
-  test('does not forward signingSessionSeal when sealed refresh mode is disabled', async ({
-    page,
-  }) => {
+  test('forwards disabled signing-session persistence mode', async ({ page }) => {
     await page.evaluate(
       async ({ walletOrigin }) => {
         const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
@@ -226,10 +210,6 @@ test.describe('Wallet iframe config propagation', () => {
         const pm = new SeamsWeb({
           relayer: { url: 'http://localhost:3000' },
           signingSessionPersistenceMode: 'none',
-          signingSessionSeal: {
-            keyVersion: 'should-not-forward',
-            shamirPrimeB64u: '_____________________________________v___C8',
-          },
           iframeWallet: {
             walletOrigin,
             walletServicePath: '/wallet-service',
@@ -251,11 +231,7 @@ test.describe('Wallet iframe config propagation', () => {
     const capturedSigningSessionPersistenceMode = await walletFrame!.evaluate(() => {
       return (window as any).__capturedSigningSessionPersistenceMode ?? null;
     });
-    const capturedSigningSessionSeal = await walletFrame!.evaluate(() => {
-      return (window as any).__capturedSigningSessionSeal ?? null;
-    });
     expect(capturedSigningSessionPersistenceMode).toBe('none');
-    expect(capturedSigningSessionSeal).toBe(null);
   });
 
   test('forwards managed registration config in PM_SET_CONFIG', async ({ page }) => {
@@ -299,34 +275,6 @@ test.describe('Wallet iframe config propagation', () => {
       paymentMode: 'disabled',
       nearAccountProvisioning: { kind: 'implicit_account' },
     });
-  });
-
-  test('fails fast when sealed refresh is enabled without shamirPrimeB64u', async ({ page }) => {
-    const result = await page.evaluate(async () => {
-      try {
-        const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
-        const { SeamsWeb } = mod as any;
-        new SeamsWeb({
-          relayer: { url: 'http://localhost:3000' },
-          signingSessionPersistenceMode: 'sealed_refresh_v1',
-          signingSessionSeal: {
-            keyVersion: 'signing-session-seal-kek-2026-02-r1',
-          },
-        });
-        return { ok: true, error: '' };
-      } catch (error: unknown) {
-        return {
-          ok: false,
-          error: String(
-            error && typeof error === 'object' && 'message' in error
-              ? (error as { message?: unknown }).message
-              : error || 'unknown error',
-          ),
-        };
-      }
-    });
-    expect(result.ok).toBe(false);
-    expect(result.error).toContain('signingSessionSeal.shamirPrimeB64u');
   });
 
   test('forwards resolved appearance in PM_SET_CONFIG for Lit confirmer theming', async ({

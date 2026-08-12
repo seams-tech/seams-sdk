@@ -1,21 +1,22 @@
 ---
-title: Key Rotation
+title: Key rotation
+description: Distinguish signer rotation, custody-share refresh, envelope rewrap, and wallet rekey operations.
 ---
 
-# Key Rotation
+# Key rotation
 
 Rotation covers several different operations. They should not be collapsed into
 one vague "rotate keys" action.
 
 ## Taxonomy
 
-| Operation | What changes | Address changes |
-| --- | --- | --- |
-| Envelope rewrap | Encryption around the same plaintext share. | No |
-| Server internal custody rotation | How the same effective server share is protected. | No |
-| Lane share refresh | Holder share and server share for one lane. | No |
-| Delegated lane revocation | Lane status and server-share admission. | No |
-| Wallet rekey | Wallet key material. | Usually yes |
+| Operation                        | What changes                                      | Address changes |
+| -------------------------------- | ------------------------------------------------- | --------------- |
+| Envelope rewrap                  | Encryption around the same plaintext share.       | No              |
+| Server internal custody rotation | How the same effective server share is protected. | No              |
+| Lane share refresh               | Holder share and server share for one lane.       | No              |
+| Delegated lane revocation        | Lane status and server-share admission.           | No              |
+| Wallet rekey                     | Wallet key material.                              | Usually yes     |
 
 Ed25519 Streaming Yao participates when a lifecycle operation provisions or
 refreshes signing shares, activates SigningWorker material, or performs an
@@ -23,7 +24,7 @@ authorized export. Envelope rewrap stays at the storage layer when the
 underlying share is unchanged. ECDSA follows its separate strict Router A/B
 threshold-PRF path.
 
-## Address-Preserving Refresh
+## Address-preserving refresh
 
 For a two-party additive lane:
 

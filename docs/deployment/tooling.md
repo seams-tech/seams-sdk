@@ -385,6 +385,22 @@ production deployment or rollback path.
 
 The normal deployment path is explicit workflow dispatch:
 
+Before either staging dispatch, complete and push the full local `dev` branch
+to `origin/dev`, fetch it again, and verify that `git rev-parse dev` equals
+`git rev-parse origin/dev`. The worktree must be clean. Stop when those
+conditions are unmet. Staging does not use partial cherry-picks, selected
+commits, isolated deployment branches, or an unpushed local `dev`. See the
+[staging branch parity invariant](README.md#staging-branch-parity-invariant).
+
+Before any production dispatch, merge the complete staging-tested promotion
+into protected `main`, fetch `origin/main`, fast-forward local `main`, and
+verify that `git rev-parse main` equals `git rev-parse origin/main`. The
+worktree must be clean. Stop when those conditions are unmet. Production uses
+one verified `main` SHA across its frontend and backend workflows. Partial
+promotions, selected commits, isolated release branches, and mixed-SHA
+deployments are outside the release path. See the
+[production branch parity invariant](README.md#production-branch-parity-invariant).
+
 ```bash
 gh workflow run deploy-staging-backend.yml --ref dev
 gh workflow run deploy-staging-frontend.yml --ref dev

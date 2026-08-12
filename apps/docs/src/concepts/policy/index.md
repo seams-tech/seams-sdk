@@ -1,5 +1,6 @@
 ---
 title: Policy
+description: Decide whether a proved actor may perform a specific typed intent under current scope and risk rules.
 ---
 
 # Policy

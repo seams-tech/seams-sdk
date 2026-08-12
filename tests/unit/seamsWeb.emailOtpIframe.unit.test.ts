@@ -1,14 +1,34 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Route } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 import { buildWalletServiceHtml, registerWalletServiceRoute } from '../wallet-iframe/harness';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
+const HOSTED_SESSION_EXCHANGE_ROUTE = 'https://relay.example/session/exchange';
+const APP_SESSION_JWT =
+  'eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJraW5kIjoiYXBwX3Nlc3Npb25fdjEiLCJzdWIiOiJhbGljZS50ZXN0bmV0In0.fixture';
+
+async function fulfillHostedWalletSessionExchange(route: Route): Promise<void> {
+  const appOrigin = String(route.request().headers().origin || '').trim();
+  await route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      ok: true,
+      delivery: {
+        kind: 'hosted_wallet_session_exchange_delivery',
+        appOrigin,
+        walletOrigin: WALLET_ORIGIN,
+        exchangeCode: 'hosted-wallet-exchange-code-1',
+        nonce: 'hosted-wallet-exchange-nonce-1',
+        expiresAtMs: Date.now() + 60_000,
+      },
+    }),
+  });
+}
 
 const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
   window.__emailOtpMessages = [];
-  const walletMetadataKey = 'test-email-otp-wallet-id';
-  const nearMetadataKey = 'test-email-otp-near-account-id';
   const warmCapabilityKey = 'test-email-otp-warm-capability-active';
   let warmCapabilityActive = (() => {
     try {
@@ -34,66 +54,11 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
     return out;
   };
 
-  const rememberWallet = (walletId) => {
-    if (!walletId) return;
-    try {
-      localStorage.setItem(walletMetadataKey, walletId);
-    } catch {}
-  };
-
-  const rememberNearAccount = (nearAccountId) => {
-    if (!nearAccountId) return;
-    try {
-      localStorage.setItem(nearMetadataKey, nearAccountId);
-    } catch {}
-  };
-
   const setWarmCapabilityActive = (active) => {
     warmCapabilityActive = active === true;
     try {
       localStorage.setItem(warmCapabilityKey, warmCapabilityActive ? '1' : '0');
     } catch {}
-  };
-
-  const activeSessionFor = (walletId) => {
-    const selectedWalletId = walletId || (() => {
-      try {
-        return localStorage.getItem(walletMetadataKey) || '';
-      } catch {
-        return '';
-      }
-    })();
-    const selectedNearAccountId = (() => {
-      try {
-        return localStorage.getItem(nearMetadataKey) || 'alice.testnet';
-      } catch {
-        return 'alice.testnet';
-      }
-    })();
-    return {
-      login: {
-        isLoggedIn: !!selectedWalletId,
-        walletId: selectedWalletId || null,
-        nearAccountId: selectedWalletId ? selectedNearAccountId : null,
-        publicKey: null,
-        userData: null,
-        authMethod: selectedWalletId && warmCapabilityActive ? 'email_otp' : null,
-      },
-      signingSession: selectedWalletId && warmCapabilityActive
-        ? {
-          status: 'active',
-          sessionId: 'email-otp-session-1',
-          authMethod: 'email_otp',
-          retention: 'session',
-          thresholdEcdsa: {
-            evm: { state: 'ready', sessionId: 'email-otp-session-1' },
-            tempo: { state: 'ready', sessionId: 'email-otp-session-1' },
-          },
-        }
-        : null,
-      authMethod: selectedWalletId && warmCapabilityActive ? 'email_otp' : null,
-      retention: selectedWalletId && warmCapabilityActive ? 'session' : null,
-    };
   };
 
   const secretSentinel = 'email-otp-secret-must-not-cross-app-origin';
@@ -181,14 +146,17 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
       if (data.type === 'PM_SET_CONFIG') {
         respond(null);
       }
+      if (data.type === 'PM_REDEEM_HOSTED_WALLET_SEAMS_SESSION') {
+        respond({
+          kind: 'redeemed_hosted_wallet_seams_session',
+          expiresAtMs: Date.now() + 60_000,
+        });
+      }
       if (data.type === 'PM_PREFETCH_BLOCKHEIGHT') {
         respond(null);
       }
       if (data.type === 'PM_GET_CONFIRMATION_CONFIG') {
         respond({ behavior: 'requireClick', uiMode: 'modal' });
-      }
-      if (data.type === 'PM_GET_WALLET_SESSION') {
-        respond(activeSessionFor(data.payload?.walletId || data.payload?.nearAccountId || null));
       }
       if (data.type === 'PM_GET_RECENT_UNLOCKS') {
         respond({ walletIds: [], accountIds: [], accounts: [], lastUsedAccount: null });
@@ -247,8 +215,6 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
         });
       }
       if (data.type === 'PM_ENROLL_EMAIL_OTP') {
-        rememberWallet(data.payload?.walletId || data.payload?.nearAccountId || '');
-        rememberNearAccount(data.payload?.nearAccountId || 'alice.testnet');
         respond({
           challengeId: 'enrollment-challenge-1',
           otpChannel: 'email_otp',
@@ -265,14 +231,10 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
           reject('invalid_email_otp', 'Invalid Email OTP code');
           return;
         }
-        rememberWallet(data.payload?.walletSession?.walletId || '');
-        rememberNearAccount(data.payload?.nearAccountId || 'alice.testnet');
         setWarmCapabilityActive(true);
         respond({ recovery: loginRecovery, bootstrap: bootstrapResult, warmCapability });
       }
       if (data.type === 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION') {
-        rememberWallet(data.payload?.walletSession?.walletId || '');
-        rememberNearAccount(data.payload?.nearAccountId || 'alice.testnet');
         setWarmCapabilityActive(true);
         respond({ recovery: loginRecovery, bootstrap: bootstrapResult, warmCapability });
       }
@@ -288,18 +250,6 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
           rawTxHex: data.payload?.request?.chain === 'tempo' ? '0x76' : '0x02',
         });
       }
-      if (data.type === 'PM_SIGN_TX_WITH_ACTIONS') {
-        if (!warmCapabilityActive) {
-          reject('threshold_ed25519_session_not_ready', 'Fresh Email OTP verification required');
-          return;
-        }
-        respond([
-          {
-            nearAccountId: data.payload?.nearAccountId || 'alice.testnet',
-            logs: ['signed-by-wallet-origin-email-otp'],
-          },
-        ]);
-      }
     };
   };
 `;
@@ -307,6 +257,7 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
 test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+    await page.route(HOSTED_SESSION_EXCHANGE_ROUTE, fulfillHostedWalletSessionExchange);
     await registerWalletServiceRoute(
       page,
       buildWalletServiceHtml({ extraScript: WALLET_STUB_EMAIL_OTP_SCRIPT }),
@@ -315,6 +266,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
   });
 
   test.afterEach(async ({ page }) => {
+    await page.unroute(HOSTED_SESSION_EXCHANGE_ROUTE).catch(() => {});
     await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
     await page.unroute(WALLET_SERVICE_ROUTE.replace('wallet-service', 'service')).catch(() => {});
   });
@@ -323,18 +275,13 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
     page,
   }) => {
     const result = await page.evaluate(
-      async ({ walletOrigin }) => {
+      async ({ walletOrigin, appSessionJwt }) => {
         Reflect.set(globalThis, '__SEAMS_REGISTRATION_BENCHMARK_DIAGNOSTICS', true);
         const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
         const { SeamsWeb } = mod as any;
         const walletId = 'frost-vermillion-k7p9m2';
-        const nearAccountId = 'alice.testnet';
         const pm = new SeamsWeb({
           relayer: { url: 'https://relay.example' },
-          signingSessionSeal: {
-            keyVersion: 'email-otp-test-seal',
-            shamirPrimeB64u: '_____________________________________v___C8',
-          },
           iframeWallet: {
             walletOrigin,
             walletServicePath: '/wallet-service',
@@ -362,7 +309,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
 
         const challenge = await pm.auth.requestEmailOtpChallenge({
           walletId,
-          appSessionJwt: 'app-session-jwt',
+          appSessionJwt,
           onEvent: captureEvent(unlockEvents),
         });
         const walletSessionRef = {
@@ -377,7 +324,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
         };
         const enrollmentChallenge = await pm.registration.requestEmailOtpEnrollmentChallenge({
           walletId,
-          appSessionJwt: 'app-session-jwt',
+          appSessionJwt,
           onEvent: captureEvent(registrationEvents),
         });
         const sessionExchange = await pm.auth.exchangeGoogleEmailOtpSession({
@@ -400,7 +347,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           walletId,
           challengeId: enrollmentChallenge.challengeId,
           otpCode: '123456',
-          appSessionJwt: 'app-session-jwt',
+          appSessionJwt,
           onEvent: captureEvent(registrationEvents),
         });
         const login = await pm.auth.loginWithEmailOtpEcdsaCapability({
@@ -409,7 +356,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           emailOtpAuthPolicy: 'session',
           challengeId: challenge.challengeId,
           otpCode: '123456',
-          appSessionJwt: 'app-session-jwt',
+          appSessionJwt,
           onEvent: captureEvent(unlockEvents),
         });
         const perOperationLogin = await pm.auth.loginWithEmailOtpEcdsaCapability({
@@ -418,7 +365,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           emailOtpAuthPolicy: 'per_operation',
           challengeId: challenge.challengeId,
           otpCode: '123456',
-          appSessionJwt: 'app-session-jwt',
+          appSessionJwt,
           onEvent: captureEvent(perOperationUnlockEvents),
         });
         const failedUnlockMessage = await pm.auth
@@ -428,7 +375,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
             emailOtpAuthPolicy: 'session',
             challengeId: challenge.challengeId,
             otpCode: '000000',
-            appSessionJwt: 'app-session-jwt',
+            appSessionJwt,
             onEvent: captureEvent(failedUnlockEvents),
           })
           .then(() => null)
@@ -465,16 +412,6 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           request: signRequest,
           options: { confirmationConfig: { uiMode: 'modal' } },
         });
-        const nearSigned = await pm.near.signTransactionWithActions({
-          walletSession: walletSessionRef,
-          nearAccount: { accountId: nearAccountId, kind: 'near_account' },
-          transaction: {
-            receiverId: nearAccountId,
-            actions: [{ action_type: 'Transfer', deposit: '1' }],
-          },
-          options: { confirmationConfig: { uiMode: 'modal' } },
-        });
-        const walletSession = await pm.auth.getWalletSession(walletId);
         const perOperationSigned = await pm.evm.signTransaction({
           walletSession: walletSessionRef,
           chainTarget,
@@ -547,7 +484,6 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           login,
           perOperationLogin,
           sessionSigned,
-          nearSigned,
           perOperationSigned,
           tempoSigned,
         });
@@ -563,18 +499,9 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           enrollmentKeyVersion: enrollment.enrollmentSealKeyVersion,
           appOriginSecretRejection,
           sessionSignedKind: sessionSigned.kind,
-          nearSignedCount: Array.isArray(nearSigned) ? nearSigned.length : 0,
-          nearSignedNearAccountId: nearSigned?.[0]?.nearAccountId || null,
           perOperationSignedKind: perOperationSigned.kind,
           tempoSignedKind: tempoSigned.kind,
           tempoSignedChain: tempoSigned.chain,
-          walletSessionWalletId: walletSession.login.walletId,
-          walletSessionNearAccountId: walletSession.login.nearAccountId,
-          walletSessionAuthMethod: walletSession.authMethod,
-          walletSessionRetention: walletSession.retention,
-          loginAuthMethod: walletSession.login.authMethod,
-          signingSessionAuthMethod: walletSession.signingSession?.authMethod || null,
-          signingSessionRetention: walletSession.signingSession?.retention || null,
           registrationEventPhases: registrationEvents.map((event) => event.phase),
           registrationEventSteps: registrationEvents.map((event) => event.step),
           registrationEventFlows: [...new Set(registrationEvents.map((event) => event.flow))],
@@ -606,7 +533,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           seamsWalletDbDisabled: seamsWalletDB.isDisabled(),
         };
       },
-      { walletOrigin: WALLET_ORIGIN },
+      { walletOrigin: WALLET_ORIGIN, appSessionJwt: APP_SESSION_JWT },
     );
 
     expect(result).toEqual({
@@ -637,18 +564,9 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
       appOriginSecretRejection:
         '[SeamsWeb] Wallet iframe Email OTP enrollment owns client secret generation; clientSecret32 is not accepted from the app origin.',
       sessionSignedKind: 'eip1559',
-      nearSignedCount: 1,
-      nearSignedNearAccountId: 'alice.testnet',
       perOperationSignedKind: 'eip1559',
       tempoSignedKind: 'tempoTransaction',
       tempoSignedChain: 'tempo',
-      walletSessionWalletId: 'frost-vermillion-k7p9m2',
-      walletSessionNearAccountId: 'alice.testnet',
-      walletSessionAuthMethod: 'email_otp',
-      walletSessionRetention: 'session',
-      loginAuthMethod: 'email_otp',
-      signingSessionAuthMethod: 'email_otp',
-      signingSessionRetention: 'session',
       registrationEventPhases: [
         'registration.otp.challenge.started',
         'registration.otp.challenge.sent',
@@ -812,17 +730,6 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           `${message.payload.request.chain}:${message.payload.request.kind}`,
       ),
     ).toEqual(['evm:eip1559', 'evm:eip1559', 'tempo:tempoTransaction']);
-    const nearSignMessages = messages.filter(
-      (message: { type: string }) => message.type === 'PM_SIGN_TX_WITH_ACTIONS',
-    );
-    expect(nearSignMessages).toHaveLength(1);
-    expect(nearSignMessages[0]?.payload).toMatchObject({
-      nearAccountId: 'alice.testnet',
-      transaction: {
-        receiverId: 'alice.testnet',
-        actions: [{ action_type: 'Transfer', deposit: '1' }],
-      },
-    });
   });
 
   test('routes Email OTP signing-session refresh with explicit ECDSA subject', async ({ page }) => {
@@ -891,143 +798,6 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
         walletSessionUserId: 'frost-refresh-k7p9m2',
       },
       challengeId: 'signing-session-challenge-1',
-    });
-  });
-
-  test('reload restores nonsecret account metadata and sealed signing session for signing', async ({
-    page,
-  }) => {
-    const firstLoad = await page.evaluate(
-      async ({ walletOrigin }) => {
-        const { SeamsWeb } = (await import('/_test-sdk/esm/SeamsWeb/index.js')) as any;
-        const walletId = 'frost-reload-k7p9m2';
-        const nearAccountId = 'alice.testnet';
-        const walletSessionRef = {
-          walletId,
-          walletSessionUserId: walletId,
-        };
-        const pm = new SeamsWeb({
-          relayer: { url: 'https://relay.example' },
-          signingSessionSeal: {
-            keyVersion: 'email-otp-test-seal',
-            shamirPrimeB64u: '_____________________________________v___C8',
-          },
-          iframeWallet: {
-            walletOrigin,
-            walletServicePath: '/wallet-service',
-            sdkBasePath: '/sdk',
-          },
-        });
-
-        await pm.auth.loginWithEmailOtpEcdsaCapability({
-          walletSession: walletSessionRef,
-          chainTarget: {
-            kind: 'evm',
-            namespace: 'eip155',
-            chainId: 5042002,
-            networkSlug: 'arc-testnet',
-          },
-          emailOtpAuthPolicy: 'session',
-          challengeId: 'challenge-1',
-          otpCode: '123456',
-          appSessionJwt: 'app-session-jwt',
-        });
-        const session = await pm.auth.getWalletSession(walletId);
-        return {
-          loggedIn: !!session.login?.isLoggedIn,
-          walletId: session.login?.walletId || null,
-          nearAccountId: session.login?.nearAccountId || null,
-          signingStatus: session.signingSession?.status || null,
-        };
-      },
-      { walletOrigin: WALLET_ORIGIN },
-    );
-
-    expect(firstLoad).toEqual({
-      loggedIn: true,
-      walletId: 'frost-reload-k7p9m2',
-      nearAccountId: 'alice.testnet',
-      signingStatus: 'active',
-    });
-
-    await page.reload({ waitUntil: 'domcontentloaded' });
-
-    const afterReload = await page.evaluate(
-      async ({ walletOrigin }) => {
-        const { SeamsWeb } = (await import('/_test-sdk/esm/SeamsWeb/index.js')) as any;
-        const walletId = 'frost-reload-k7p9m2';
-        const walletSession = {
-          walletId,
-          walletSessionUserId: walletId,
-        };
-        const pm = new SeamsWeb({
-          relayer: { url: 'https://relay.example' },
-          signingSessionSeal: {
-            keyVersion: 'email-otp-test-seal',
-            shamirPrimeB64u: '_____________________________________v___C8',
-          },
-          iframeWallet: {
-            walletOrigin,
-            walletServicePath: '/wallet-service',
-            sdkBasePath: '/sdk',
-          },
-        });
-        const session = await pm.auth.getWalletSession(walletId);
-        const signRequest = {
-          chain: 'evm',
-          kind: 'eip1559',
-          senderSignatureAlgorithm: 'secp256k1',
-          tx: {
-            chainId: 11155111,
-            nonce: 0n,
-            maxPriorityFeePerGas: 1n,
-            maxFeePerGas: 2n,
-            gasLimit: 21_000n,
-            to: '0x' + '11'.repeat(20),
-            value: 0n,
-            data: '0x',
-            accessList: [],
-          },
-        };
-        const signResult = await pm.evm
-          .signTransaction({
-            walletSession,
-            chainTarget: {
-              kind: 'evm',
-              namespace: 'eip155',
-              chainId: 5042002,
-              networkSlug: 'arc-testnet',
-            },
-            request: signRequest,
-            options: { confirmationConfig: { uiMode: 'modal' } },
-          })
-          .then((result: unknown) => ({
-            ok: true,
-            chain: String((result as { chain?: unknown })?.chain || ''),
-            kind: String((result as { kind?: unknown })?.kind || ''),
-          }))
-          .catch((error: unknown) => ({
-            ok: false,
-            code: String((error as { code?: unknown })?.code || ''),
-            message: String((error as Error)?.message || error),
-          }));
-        return {
-          loggedIn: !!session.login?.isLoggedIn,
-          nearAccountId: session.login?.nearAccountId || null,
-          signingSession: session.signingSession || null,
-          signResult,
-        };
-      },
-      { walletOrigin: WALLET_ORIGIN },
-    );
-
-    expect(afterReload.loggedIn).toBe(true);
-    expect(afterReload.nearAccountId).toBe('alice.testnet');
-    expect(afterReload.signingSession?.status).toBe('active');
-    expect(afterReload.signResult).toMatchObject({
-      ok: true,
-      chain: 'evm',
-      kind: 'eip1559',
     });
   });
 });

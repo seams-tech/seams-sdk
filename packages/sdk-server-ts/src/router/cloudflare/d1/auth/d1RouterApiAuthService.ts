@@ -96,6 +96,7 @@ import { CloudflareD1GoogleEmailOtpRegistrationAttemptStore } from '../emailOtp/
 import { CloudflareD1GoogleEmailOtpSessionResolver } from '../emailOtp/d1GoogleEmailOtpSessionResolver';
 import { CloudflareD1SessionStore } from '../session/d1SessionStore';
 import { CloudflareD1SessionService } from '../session/d1SessionService';
+import { CloudflareD1GoogleEmailOtpSessionExchangeStore } from '../session/d1GoogleEmailOtpSessionExchangeStore';
 import { CloudflareD1IdentityService } from '../identity/d1IdentityService';
 import { CloudflareD1OidcVerificationService } from '../oidc/d1OidcVerificationService';
 import { CloudflareD1WebAuthnAuthService } from '../webauthn/d1WebAuthnAuthService';
@@ -240,6 +241,7 @@ type CloudflareD1RouterApiAuthAssembly = {
   readonly identityService: CloudflareD1IdentityService;
   readonly oidcVerification: CloudflareD1OidcVerificationService;
   readonly sessionService: CloudflareD1SessionService;
+  readonly sessionExchanges: CloudflareD1GoogleEmailOtpSessionExchangeStore;
   readonly authorizationService: AuthorizationService;
   readonly googleEmailOtpSessions: CloudflareD1GoogleEmailOtpSessionResolver;
   readonly nearPublicKeys: CloudflareD1NearPublicKeyStore;
@@ -1657,6 +1659,7 @@ function createCloudflareD1RouterApiAuthAssembly(
   const linkIdentity = linkD1Identity.bind(undefined, identityStore);
   const sessionStore = new CloudflareD1SessionStore({ prepare });
   const sessionService = new CloudflareD1SessionService({ sessionStore });
+  const sessionExchanges = new CloudflareD1GoogleEmailOtpSessionExchangeStore({ prepare });
   const authorizationStore = new CloudflareD1AuthorizationStore({
     database: options.database,
     namespace: options.namespace,
@@ -1865,6 +1868,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     identityService,
     oidcVerification,
     sessionService,
+    sessionExchanges,
     authorizationService,
     googleEmailOtpSessions,
     nearPublicKeys,
@@ -2341,6 +2345,7 @@ export function createCloudflareD1RouterApiAuthService(
     webAuthn: createD1WebAuthnRouteService(assembly),
     identity: createD1IdentityRouteService(assembly),
     sessionVersions: createD1SessionVersionRouteService(assembly),
+    sessionExchanges: assembly.sessionExchanges,
     authorizationSessions: createD1AuthorizationSessionRouteService(assembly),
     authorizedOperations: createD1AuthorizedOperationRouteService(assembly),
     thresholdRuntime: createD1ThresholdRuntimeRouteService(assembly),

@@ -23,7 +23,7 @@ function requireAppSessionJwt(sessionId: string) {
   return parsed.value;
 }
 
-test('hosted-wallet exchange is repeated when the source App Session or relayer changes', async () => {
+test('hosted-wallet exchange uses the router relayer configuration', async () => {
   const originalFetch = globalThis.fetch;
   const originalWindow = Reflect.get(globalThis, 'window');
   const fetchUrls: string[] = [];
@@ -55,18 +55,40 @@ test('hosted-wallet exchange is repeated when the source App Session or relayer 
     const router = new WalletIframeRouter({
       walletOrigin: 'https://wallet.example.test',
       servicePath: '/wallet-service',
+      relayer: { url: 'https://relay-configured.example.test' },
       testOptions: { autoMount: false },
     });
-    Reflect.set(router, 'post', async (envelope: { payload: { relayUrl: string } }) => {
-      postedRelays.push(envelope.payload.relayUrl);
-      return {
-        ok: true,
-        result: {
-          kind: 'redeemed_hosted_wallet_seams_session',
-          expiresAtMs: Date.now() + 60_000,
-        },
-      };
-    });
+    Reflect.set(
+      router,
+      'post',
+      async (envelope: { type: string; payload?: { relayUrl?: string } }) => {
+        if (envelope.type === 'PM_REDEEM_HOSTED_WALLET_SEAMS_SESSION') {
+          postedRelays.push(String(envelope.payload?.relayUrl || ''));
+          return {
+            ok: true,
+            result: {
+              kind: 'redeemed_hosted_wallet_seams_session',
+              expiresAtMs: Date.now() + 60_000,
+            },
+          };
+        }
+        if (envelope.type === 'PM_REQUEST_EMAIL_OTP_CHALLENGE') {
+          return {
+            ok: true,
+            result: {
+              challengeId: 'challenge-configured-relayer',
+              otpChannel: 'email_otp',
+              delivery: {
+                kind: 'provider',
+                status: 'sent',
+                emailHint: 'a***@example.test',
+              },
+            },
+          };
+        }
+        throw new Error(`Unexpected wallet iframe request: ${envelope.type}`);
+      },
+    );
 
     const ensure = Reflect.get(router, 'ensureHostedWalletSeamsSession');
     if (typeof ensure !== 'function')
@@ -86,16 +108,22 @@ test('hosted-wallet exchange is repeated when the source App Session or relayer 
       relayUrl: 'https://relay-b.example.test',
       appSessionJwt: requireAppSessionJwt('session-b'),
     });
+    await router.requestEmailOtpChallenge({
+      walletId: 'alice.testnet',
+      appSessionJwt: requireAppSessionJwt('session-configured-relayer'),
+    });
 
     expect(fetchUrls).toEqual([
       'https://relay-a.example.test/session/exchange',
       'https://relay-a.example.test/session/exchange',
       'https://relay-b.example.test/session/exchange',
+      'https://relay-configured.example.test/session/exchange',
     ]);
     expect(postedRelays).toEqual([
       'https://relay-a.example.test',
       'https://relay-a.example.test',
       'https://relay-b.example.test',
+      'https://relay-configured.example.test',
     ]);
   } finally {
     globalThis.fetch = originalFetch;

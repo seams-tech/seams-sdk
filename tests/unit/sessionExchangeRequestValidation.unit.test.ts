@@ -94,6 +94,90 @@ test.describe('passkey session exchange ECDSA activation validation', () => {
   });
 });
 
+test.describe('Google Email OTP session exchange idempotency validation', () => {
+  test('requires and exposes the exchange idempotency key for login', () => {
+    expect(
+      parseSessionExchangeRouteCommand({
+        sessionKind: 'jwt',
+        exchange: {
+          type: 'oidc_jwt',
+          provider: 'google',
+          account_mode: 'login',
+          idempotencyKey: 'google-session-exchange-1',
+          token: 'google-id-token',
+        },
+      }),
+    ).toEqual({
+      ok: true,
+      command: {
+        kind: 'oidc_jwt',
+        sessionKind: 'jwt',
+        provider: 'google',
+        accountMode: 'login',
+        idempotencyKey: 'google-session-exchange-1',
+        restartRegistrationOffer: false,
+        token: 'google-id-token',
+      },
+    });
+
+    expect(
+      parseSessionExchangeRouteCommand({
+        sessionKind: 'jwt',
+        exchange: {
+          type: 'oidc_jwt',
+          provider: 'google',
+          account_mode: 'register',
+          token: 'google-id-token',
+        },
+      }),
+    ).toEqual({
+      ok: true,
+      command: {
+        kind: 'oidc_jwt',
+        sessionKind: 'jwt',
+        provider: 'google',
+        accountMode: 'register',
+        restartRegistrationOffer: true,
+        token: 'google-id-token',
+      },
+    });
+
+    expect(
+      parseSessionExchangeRouteCommand({
+        sessionKind: 'jwt',
+        exchange: {
+          type: 'oidc_jwt',
+          provider: 'google',
+          account_mode: 'login',
+          token: 'google-id-token',
+        },
+      }),
+    ).toMatchObject({
+      ok: false,
+      body: { message: 'exchange.idempotencyKey is required for Google Email OTP login' },
+    });
+  });
+
+  test('rejects an idempotency key outside Google Email OTP login', () => {
+    expect(
+      parseSessionExchangeRouteCommand({
+        sessionKind: 'jwt',
+        exchange: {
+          type: 'oidc_jwt',
+          provider: 'oidc',
+          idempotencyKey: 'google-session-exchange-1',
+          token: 'oidc-token',
+        },
+      }),
+    ).toMatchObject({
+      ok: false,
+      body: {
+        message: 'exchange.idempotencyKey is only supported for Google Email OTP login',
+      },
+    });
+  });
+});
+
 test.describe('hosted-wallet Seams session exchange request validation', () => {
   test('parses code issuance and redemption as exact JWT exchanges', () => {
     expect(
