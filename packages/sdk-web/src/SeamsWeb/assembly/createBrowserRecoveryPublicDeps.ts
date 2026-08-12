@@ -83,6 +83,8 @@ export function createBrowserRecoveryPublicDeps(args: {
   getSigningSessionCoordinator: () => SigningSessionCoordinator;
   getTheme: () => ThemeMode;
   readActiveWalletSessionAuthorization: PersistedAvailableSigningLanesDeps['readActiveWalletSessionAuthorization'];
+  ed25519YaoPublicCapabilityLanes: PersistedAvailableSigningLanesDeps['ed25519YaoPublicCapabilityLanes'];
+  isEd25519YaoPublicCapabilityActive: PersistedAvailableSigningLanesDeps['isEd25519YaoPublicCapabilityActive'];
   listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
 }): RecoveryPublicDeps {
   const readCanonicalWalletSessionStatus = createCanonicalWalletSessionStatusReader({
@@ -109,6 +111,8 @@ export function createBrowserRecoveryPublicDeps(args: {
     ecdsaSessions: args.warmSigning.ecdsaSessions,
     relayerUrl: String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
     readActiveWalletSessionAuthorization: args.readActiveWalletSessionAuthorization,
+    ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityLanes,
+    isEd25519YaoPublicCapabilityActive: args.isEd25519YaoPublicCapabilityActive,
     listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
     touchConfirm: args.touchConfirm,
     passkeyMpcSession: args.passkeyMpcSession,
