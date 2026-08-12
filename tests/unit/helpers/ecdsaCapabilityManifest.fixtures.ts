@@ -183,6 +183,7 @@ export function ecdsaCapabilityActivationFixture(args?: {
   signingRootVersion?: string;
   ecdsaThresholdKeyId?: string;
   thresholdOwnerAddress?: string;
+  materialActivationCapability?: string;
 }): EcdsaCapabilityActivationFixture {
   const walletId = args?.walletId ?? walletIdFromString('ecdsa-manifest-fixture-wallet');
   const authority: WalletAuthAuthorityRef = args?.authority ?? {
@@ -263,7 +264,7 @@ export function ecdsaCapabilityActivationFixture(args?: {
       material_activation: {
         kind: 'mpc_material_activation_ref',
         activation_id: 'ecdsa-activation-fixture',
-        capability: 'ecdsa-capability-fixture',
+        capability: args?.materialActivationCapability ?? 'ecdsa-capability-fixture',
         material_owner: String(walletId),
         key_binding: CONTEXT_BINDING_B64U,
         lifecycle_binding: 'ecdsa-lifecycle-fixture',
@@ -407,6 +408,7 @@ export function ecdsaCapabilityActivationLookupFixture(args?: {
   signingRootVersion?: string;
   ecdsaThresholdKeyId?: string;
   thresholdOwnerAddress?: string;
+  materialActivationCapability?: string;
 }): Extract<EcdsaCapabilityManifestLookup, { readonly kind: 'active' }> {
   return activeLookupFromFixture(ecdsaCapabilityActivationFixture(args));
 }

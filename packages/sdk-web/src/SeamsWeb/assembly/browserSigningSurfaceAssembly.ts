@@ -335,6 +335,9 @@ async function activeEcdsaReplacementManifestForTarget(args: {
 }): Promise<ActiveEcdsaCapabilityManifest | null> {
   for (const subject of args.subjects) {
     const lookup = await ecdsaCapabilityManifestStore.lookup(subject);
+    if (lookup.kind === 'persistence_unavailable') {
+      throw new Error('ECDSA capability persistence is unavailable');
+    }
     if (lookup.kind !== 'active') continue;
     const manifest = lookup.manifest;
     if (manifest.signer.walletId !== args.walletId) continue;
@@ -389,25 +392,21 @@ async function resolveBrowserCanonicalEcdsaSigningCapability(
     }
     return fallback();
   };
-  const matches = subjects.subjects.filter(
-    (subject) => subject.capability === input.materialActivation.capability,
-  );
-  if (matches.length !== 1) {
-    if (matches.length === 0) {
-      await throwSupersededByReplacement(() => {
-        throw new Error('ECDSA capability manifest is missing');
-      });
-    }
-    throw new Error('ECDSA capability manifest is ambiguous');
-  }
-  const manifestLookup = await ecdsaCapabilityManifestStore.lookup(matches[0]);
-  if (manifestLookup.kind === 'retired') {
-    await throwSupersededByReplacement(() => {
-      throw new Error('ECDSA capability manifest is retired');
-    });
+  const manifestLookup = await ecdsaCapabilityManifestStore.lookupByMaterialActivation({
+    walletId,
+    materialActivation: input.materialActivation,
+  });
+  if (
+    manifestLookup.kind === 'persistence_unavailable' ||
+    manifestLookup.kind === 'exact_record_conflict' ||
+    manifestLookup.kind === 'corrupt'
+  ) {
+    throw new Error(`ECDSA material activation is ${manifestLookup.kind}`);
   }
   if (manifestLookup.kind !== 'active') {
-    throw new Error(`ECDSA capability manifest is ${manifestLookup.kind}`);
+    return await throwSupersededByReplacement(() => {
+      throw new Error('ECDSA capability manifest is missing');
+    });
   }
   const manifest = manifestLookup.manifest;
   if (
