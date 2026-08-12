@@ -31,6 +31,17 @@ fn map_protocol_error(label: &'static str, error: impl core::fmt::Debug) -> Rout
     invalid(format!("{label}: {error:?}"))
 }
 
+#[cfg(feature = "workers-rs")]
+fn bounded_json_parse_error(error: &impl core::fmt::Display) -> String {
+    const MAX_DETAIL_CHARS: usize = 256;
+    let detail = error.to_string();
+    let mut bounded = detail.chars().take(MAX_DETAIL_CHARS).collect::<String>();
+    if detail.chars().count() > MAX_DETAIL_CHARS {
+        bounded.push('…');
+    }
+    bounded
+}
+
 fn decode_b64<const N: usize>(label: &'static str, value: &str) -> RouterAbProtocolResult<[u8; N]> {
     URL_SAFE_NO_PAD
         .decode(value)
@@ -1417,7 +1428,15 @@ mod worker_execution {
             .await
         {
             Ok(input) => input,
-            Err(_) => return Response::error("invalid ECDSA lane request", 400),
+            Err(error) => {
+                return Response::error(
+                    format!(
+                        "invalid ECDSA lane request: {}",
+                        bounded_json_parse_error(&error)
+                    ),
+                    400,
+                )
+            }
         };
         let now = match cloudflare_now_unix_ms_v1() {
             Ok(now) => now,
