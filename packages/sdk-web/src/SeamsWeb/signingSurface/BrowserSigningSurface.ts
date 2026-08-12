@@ -791,6 +791,29 @@ export function nearEd25519PublicLocatorObservation(args: {
   };
 }
 
+async function resolveNearEd25519PublicCapabilityMaterialActivation(args: {
+  store: Pick<
+    BrowserSigningSurfaceConstructorDeps['ed25519YaoPublicCapabilityReferences'],
+    'listLanes'
+  >;
+  identity: NearEd25519MaterialIdentity;
+}): Promise<MpcMaterialActivationRef | null> {
+  const signer = args.identity.signer;
+  const matches = (await args.store.listLanes()).filter(
+    (reference) =>
+      String(reference.walletId) === String(signer.account.wallet.walletId) &&
+      String(reference.nearAccountId) === String(signer.account.nearAccountId) &&
+      String(reference.nearEd25519SigningKeyId) === String(signer.nearEd25519SigningKeyId) &&
+      reference.signerSlot === signer.signerSlot &&
+      String(reference.thresholdSessionId) === String(args.identity.thresholdSessionId) &&
+      nearEd25519AuthBindingsEqual(reference.auth, args.identity.auth),
+  );
+  if (matches.length > 1) {
+    throw new Error('[SigningEngine][near] public Ed25519 capability lane is conflicting');
+  }
+  return matches[0]?.materialActivation ?? null;
+}
+
 function emailOtpEd25519YaoLaneReferenceFromRecovery(args: {
   walletSessionState: NearResolvedEd25519SigningSessionState;
   materialActivation: MpcMaterialActivationRef;
@@ -3053,11 +3076,17 @@ export class BrowserSigningSurface {
       walletId: identity.signer.account.wallet.walletId,
       nearAccountId: identity.signer.account.nearAccountId,
     });
+    const publicCapabilityMaterialActivation = await resolveNearEd25519PublicCapabilityMaterialActivation(
+      {
+        store: this.ed25519YaoPublicCapabilityReferences,
+        identity,
+      },
+    );
     const materialActivation =
       sealedRuntime?.sealedRecord.ed25519Restore.materialActivation ??
       (activeForAccount
         ? nearEd25519YaoMaterialActivationFromMetadata(activeForAccount.activeClient.metadata())
-        : null);
+        : publicCapabilityMaterialActivation);
     if (!materialActivation) {
       throw new Error('[SigningEngine][near] Ed25519 material activation is unavailable');
     }
