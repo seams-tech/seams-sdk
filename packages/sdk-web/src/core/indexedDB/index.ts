@@ -3,14 +3,19 @@ export { createIndexedDBNonceLaneCoordinationStore } from './nonceLaneCoordinati
 export { seamsWalletDB } from './singletons';
 export {
   SEAMS_WALLET_DB_NAME,
-  SEAMS_WALLET_DB_VERSION,
   SEAMS_WALLET_INDEXES,
   SEAMS_WALLET_SCHEMA_MANIFEST,
   SEAMS_WALLET_STORES,
   assertCanonicalIndexedDBName,
   createSeamsTestWalletDbName,
 } from './schemaNames';
-export { upgradeSeamsWalletDBSchema } from './seamsWalletDB/schema';
+export {
+  PRODUCTION_SEAMS_WALLET_SCHEMA_VERSION,
+  applySeamsWalletDBSchemaUpgrade,
+  initializeSeamsWalletDBSchema,
+  resolveSeamsWalletSchemaPolicy,
+} from './seamsWalletDB/schema';
+export type { SeamsWalletDBConfig, SeamsWalletSchemaPolicy } from './seamsWalletDB/schema';
 export { SeamsWalletDBManager } from './seamsWalletDB/manager';
 export { SeamsWalletRepositories } from './seamsWalletDB/repositories';
 export {

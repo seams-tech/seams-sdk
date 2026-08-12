@@ -1,6 +1,6 @@
 import { unwrap } from 'idb';
 import { seamsWalletDB } from '../singletons';
-import { SEAMS_WALLET_DB_VERSION, SEAMS_WALLET_STORES } from '../schemaNames';
+import { SEAMS_WALLET_STORES } from '../schemaNames';
 import { SeamsWalletDBManager } from './manager';
 import {
   equalEcdsaClientPresignPoolIdentity,
@@ -529,7 +529,7 @@ export class IndexedDbClientPresignMaterialStore {
     this.manager = dbName
       ? new SeamsWalletDBManager({
           dbName,
-          dbVersion: SEAMS_WALLET_DB_VERSION,
+          schemaPolicy: { kind: 'development' },
         })
       : seamsWalletDB;
   }

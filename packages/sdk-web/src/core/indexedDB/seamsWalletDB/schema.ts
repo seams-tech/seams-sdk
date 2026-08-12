@@ -1,47 +1,78 @@
 import type { IDBPDatabase } from 'idb';
 import {
   SEAMS_WALLET_DB_NAME,
-  SEAMS_WALLET_DB_VERSION,
   SEAMS_WALLET_SCHEMA_MANIFEST,
   type SeamsWalletStoreDefinition,
 } from '../schemaNames';
 
+export const PRODUCTION_SEAMS_WALLET_SCHEMA_VERSION = 1 as const;
+
+export type SeamsWalletSchemaPolicy =
+  | {
+      kind: 'development';
+      version?: never;
+    }
+  | {
+      kind: 'production';
+      version: typeof PRODUCTION_SEAMS_WALLET_SCHEMA_VERSION;
+    };
+
 export type SeamsWalletDBConfig = {
   dbName: string;
-  dbVersion: number;
+  schemaPolicy: SeamsWalletSchemaPolicy;
 };
+
+function runtimeHostname(): string {
+  return typeof location === 'undefined' ? '' : location.hostname;
+}
+
+export function resolveSeamsWalletSchemaPolicy(hostname: string): SeamsWalletSchemaPolicy {
+  if (
+    /localhost|127\.(?:0|[1-9]\d?)\.(?:0|[1-9]\d?)\.(?:0|[1-9]\d?)|\.local(?:host)?$/i.test(
+      hostname,
+    )
+  ) {
+    return { kind: 'development' };
+  }
+  return { kind: 'production', version: PRODUCTION_SEAMS_WALLET_SCHEMA_VERSION };
+}
 
 export const SEAMS_WALLET_DB_CONFIG: SeamsWalletDBConfig = {
   dbName: SEAMS_WALLET_DB_NAME,
-  dbVersion: SEAMS_WALLET_DB_VERSION,
+  schemaPolicy: resolveSeamsWalletSchemaPolicy(runtimeHostname()),
 } as const;
 
 function keyPathForIndexedDB(keyPath: string | readonly string[]): string | string[] {
   return typeof keyPath === 'string' ? keyPath : [...keyPath];
 }
 
-function createOrUpdateStore(
+function createStore(
   db: IDBPDatabase | IDBDatabase,
-  transaction: { objectStore(name: string): any } | null | undefined,
   definition: SeamsWalletStoreDefinition,
 ): void {
-  const store = !db.objectStoreNames.contains(definition.store)
-    ? db.createObjectStore(definition.store, { keyPath: keyPathForIndexedDB(definition.keyPath) })
-    : transaction?.objectStore(definition.store);
-  if (!store) return;
+  const store = db.createObjectStore(definition.store, {
+    keyPath: keyPathForIndexedDB(definition.keyPath),
+  });
 
   for (const index of definition.indexes) {
     const keyPath = keyPathForIndexedDB(index.keyPath);
-    if (store.indexNames.contains(index.name)) continue;
     store.createIndex(index.name, keyPath, { unique: index.unique });
   }
 }
 
-export function upgradeSeamsWalletDBSchema(
-  db: IDBPDatabase | IDBDatabase,
-  transaction?: { objectStore(name: string): any } | null,
-): void {
+export function initializeSeamsWalletDBSchema(db: IDBPDatabase | IDBDatabase): void {
   for (const definition of SEAMS_WALLET_SCHEMA_MANIFEST) {
-    createOrUpdateStore(db, transaction, definition);
+    createStore(db, definition);
   }
+}
+
+export function applySeamsWalletDBSchemaUpgrade(
+  db: IDBPDatabase | IDBDatabase,
+  oldVersion: number,
+): void {
+  if (oldVersion === 0) {
+    initializeSeamsWalletDBSchema(db);
+    return;
+  }
+  throw new Error(`No IndexedDB schema migration is registered from production v${oldVersion}`);
 }
