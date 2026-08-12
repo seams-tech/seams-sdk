@@ -3,7 +3,6 @@ import {
   LinkedDeviceManagementServiceV1,
   type LinkedDeviceAggregateRevocationPortV1,
   type LinkedDeviceLocalStateInvalidationPortV1,
-  type LinkedDeviceManagementAuthorizationPortV1,
   type LinkedDeviceRevocationPreparationPortV1,
   type LinkedDeviceWalletSessionRevocationPortV1,
 } from '../../../../core/deviceLinking/linkedDeviceManagement';
@@ -21,7 +20,6 @@ export type D1LinkedDeviceManagementRouteServiceOptionsV1 = {
   readonly scope: D1LinkedDeviceSessionScopeV1;
   readonly sessionService: Pick<LinkedDeviceSessionServiceV1, 'getSessionV1'>;
   readonly metadata: D1LinkedDeviceManagementMetadataPortV1;
-  readonly authorization: LinkedDeviceManagementAuthorizationPortV1;
   readonly preparation: LinkedDeviceRevocationPreparationPortV1;
   readonly aggregateRevocation: LinkedDeviceAggregateRevocationPortV1;
   readonly walletSessionRevocation: LinkedDeviceWalletSessionRevocationPortV1;
@@ -41,7 +39,6 @@ export function createD1LinkedDeviceManagementRouteServiceV1(
     metadata: options.metadata,
   });
   const management = new LinkedDeviceManagementServiceV1({
-    authorization: options.authorization,
     projection,
     preparation: options.preparation,
     aggregateRevocation: options.aggregateRevocation,

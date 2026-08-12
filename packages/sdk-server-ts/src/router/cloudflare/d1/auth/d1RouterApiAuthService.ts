@@ -163,6 +163,8 @@ import {
   D1LinkedDeviceTargetCredentialProviderV1,
   LinkedDeviceWebAuthnRegistrationVerifierV1,
 } from '../deviceLinking/d1LinkedDeviceTargetCredentialProvider';
+import { D1LinkedDeviceOwnerPlanningSnapshotStoreV1 } from '../deviceLinking/d1LinkedDeviceOwnerPlanningSnapshotStore';
+import { createD1LinkedDeviceOwnerAuthorizationProviderV1 } from '../deviceLinking/d1LinkedDeviceOwnerAuthorizationProvider';
 import { D1LinkedDeviceProvisioningProviderV1 } from '../deviceLinking/d1LinkedDeviceProvisioningProvider';
 import { D1LinkedDeviceSourceHandoffProviderV1 } from '../deviceLinking/d1LinkedDeviceSourceHandoffProvider';
 import { createLinkedDeviceR102ProvisioningExecutionV1 } from '../deviceLinking/linkedDeviceR102ProvisioningExecution';
@@ -178,6 +180,7 @@ import { createCloudflareD1LaneAggregateRevocationApplicationService } from '../
 import { createCloudflareD1LaneLifecycleApplicationService } from '../signingLanes/d1LaneLifecycleApplicationService';
 import { CloudflareD1LaneLifecycleStore } from '../signingLanes/d1LaneLifecycleStore';
 import { createD1LinkedDeviceLaneRuntimeV1 } from '../signingLanes/d1LinkedDeviceLaneRuntime';
+import { createDeviceLinkingOwnerRequestAuthenticatorV1 } from '../../../transport/fetch/routes/deviceLinkingOwnerAuthorization';
 
 export type {
   CloudflareD1EmailOtpDeliveryProvider,
@@ -386,6 +389,10 @@ function createD1LinkedDeviceComposition(input: {
   let deviceLinking: RouterApiServiceBag['deviceLinking'];
   let deviceManagement: RouterApiServiceBag['deviceManagement'];
   let laneRuntime: ReturnType<typeof createD1LinkedDeviceLaneRuntimeV1> | undefined;
+  let ownerAuthorizationRoute: RouterApiServiceBag['deviceLinkingOwnerAuthorization'];
+  let ownerRequestAuthenticator:
+    | ReturnType<typeof createDeviceLinkingOwnerRequestAuthenticatorV1>
+    | undefined;
   if (config.session) {
     const tenantId = parseTenantId(input.options.orgId);
     if (!tenantId.ok) {
@@ -393,6 +400,23 @@ function createD1LinkedDeviceComposition(input: {
         `orgId cannot identify a linked-device authorization tenant: ${tenantId.error.message}`,
       );
     }
+    const ownerMetadata = new D1LinkedDeviceOwnerPlanningSnapshotStoreV1({
+      database: input.options.database,
+      scope,
+      walletRegistration: input.walletRegistration,
+      nowV1: config.execution.nowV1,
+    });
+    const ownerAuthorizationProvider = createD1LinkedDeviceOwnerAuthorizationProviderV1({
+      walletRegistration: input.walletRegistration,
+      metadata: ownerMetadata,
+      targetPlanner: { rpId: config.execution.rpId },
+      nowV1: config.execution.nowV1,
+    });
+    ownerRequestAuthenticator = createDeviceLinkingOwnerRequestAuthenticatorV1({
+      session: config.session.session,
+      nowV1: config.execution.nowV1,
+    });
+    ownerAuthorizationRoute = ownerAuthorizationProvider.ownerAuthorizationRoute;
     const sourceHandoff = new D1LinkedDeviceSourceHandoffProviderV1({
       database: input.options.database,
       scope,
@@ -402,7 +426,7 @@ function createD1LinkedDeviceComposition(input: {
       scope,
       nowV1: config.execution.nowV1,
       walletRegistration: input.walletRegistration,
-      authenticateOwnerRequestV1: config.session.authenticateOwnerRequestV1,
+      authenticateOwnerRequestV1: ownerRequestAuthenticator,
       ...config.session.laneRuntime,
     });
     const laneStoreOptions = {
@@ -424,7 +448,7 @@ function createD1LinkedDeviceComposition(input: {
       verifier: new LinkedDeviceWebAuthnRegistrationVerifierV1({
         expectedOrigin: config.execution.expectedOrigin,
       }),
-      planner: config.session.targetPlanner,
+      planner: ownerAuthorizationProvider.targetPlanner,
       sourceHandoff,
     });
     const provisioning = new D1LinkedDeviceProvisioningProviderV1({
@@ -442,8 +466,8 @@ function createD1LinkedDeviceComposition(input: {
       scope,
       tenantId: tenantId.value,
       authorizationService: input.authorizationService,
-      ownerAuthorization: config.session.ownerAuthorization,
-      authenticateOwnerRequestV1: config.session.authenticateOwnerRequestV1,
+      ownerAuthorization: ownerAuthorizationProvider.ownerAuthorization,
+      authenticateOwnerRequestV1: ownerRequestAuthenticator,
       targetCredential,
       operatorRecovery: new D1LinkedDeviceOperatorRecoveryProviderV1(
         config.session.operatorRecovery,
@@ -491,7 +515,6 @@ function createD1LinkedDeviceComposition(input: {
       scope,
       sessionService: deviceLinking.sessionService,
       metadata,
-      authorization: config.management.authorization,
       preparation,
       aggregateRevocation: createCloudflareD1LaneAggregateRevocationApplicationService({
         ...laneStoreOptions,
@@ -502,7 +525,7 @@ function createD1LinkedDeviceComposition(input: {
         projection: managementProjection,
       }),
       nowV1: config.execution.nowV1,
-      authenticateOwnerRequestV1: sessionConfig.authenticateOwnerRequestV1,
+      authenticateOwnerRequestV1: requireOwnerRequestAuthenticator(ownerRequestAuthenticator),
     });
   }
 
@@ -529,13 +552,24 @@ function createD1LinkedDeviceComposition(input: {
     ...(deviceLinking === undefined ? {} : { deviceLinking }),
     ...(deviceManagement === undefined ? {} : { deviceManagement }),
     ...(deviceLinkingGateway === undefined ? {} : { deviceLinkingGateway }),
-    ...(config.session?.ownerAuthorizationRoute === undefined
+    ...(ownerAuthorizationRoute === undefined
       ? {}
-      : { deviceLinkingOwnerAuthorization: config.session.ownerAuthorizationRoute }),
+      : { deviceLinkingOwnerAuthorization: ownerAuthorizationRoute }),
     ...(laneRuntime === undefined
       ? {}
       : { deviceLinkingLaneGateway: laneRuntime.laneGatewayRoute }),
   };
+}
+
+function requireOwnerRequestAuthenticator(
+  authenticator:
+    | ReturnType<typeof createDeviceLinkingOwnerRequestAuthenticatorV1>
+    | undefined,
+): ReturnType<typeof createDeviceLinkingOwnerRequestAuthenticatorV1> {
+  if (!authenticator) {
+    throw new Error('linked-device owner request authentication is not configured');
+  }
+  return authenticator;
 }
 
 class CloudflareD1SignedDelegateExecutor {

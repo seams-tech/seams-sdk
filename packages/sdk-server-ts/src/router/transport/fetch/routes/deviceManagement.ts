@@ -76,7 +76,11 @@ async function handleList(
   if (body.bytes.byteLength !== 0) {
     throw new DeviceManagementInputError('linked-device list request must have an empty body');
   }
-  const result = await service.management.listLinkedDevicesV1(request, nowMs);
+  const result = await service.management.listLinkedDevicesV1(
+    request,
+    authentication.owner,
+    nowMs,
+  );
   if ('kind' in result) return unauthorizedResponse();
   return json({ ok: true, devices: result.devices }, { status: 200 });
 }
@@ -100,7 +104,7 @@ async function handleRevoke(
   if (request.requestedAtMs > nowMs) {
     throw new DeviceManagementInputError('revoke request is from the future');
   }
-  const result = await service.management.revokeLinkedDeviceV1(request);
+  const result = await service.management.revokeLinkedDeviceV1(request, authentication.owner);
   switch (result.kind) {
     case 'revoked':
     case 'replayed':

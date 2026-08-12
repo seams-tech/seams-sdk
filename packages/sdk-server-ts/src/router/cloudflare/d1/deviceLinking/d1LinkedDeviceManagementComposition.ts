@@ -34,7 +34,6 @@ import {
 } from '@shared/utils/canonicalPrimitives';
 import type {
   LinkedDeviceLocalStateInvalidationPortV1,
-  LinkedDeviceManagementAuthorizationPortV1,
   LinkedDeviceManagementTargetV1,
   LinkedDeviceRevocationPlanV1,
   LinkedDeviceRevocationPreparationPortV1,
@@ -320,7 +319,6 @@ export class AuthorizationServiceLinkedDeviceWalletSessionRevocationV1 implement
  */
 export type CloudflareD1LinkedDeviceManagementCompositionOptionsV1 =
   D1LinkedDeviceManagementRouteServiceOptionsV1 & {
-    readonly authorization: LinkedDeviceManagementAuthorizationPortV1;
     readonly preparation: LinkedDeviceRevocationPreparationPortV1;
     readonly localStateInvalidation: LinkedDeviceLocalStateInvalidationPortV1;
     readonly walletSessionRevocation: LinkedDeviceWalletSessionRevocationPortV1;

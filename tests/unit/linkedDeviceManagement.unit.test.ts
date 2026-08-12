@@ -41,14 +41,7 @@ const DIGEST = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(7)));
 
 test('lists wallet-scoped linked devices only after owner authorization', async () => {
   const target = await buildManagementTarget();
-  const calls: string[] = [];
   const service = new LinkedDeviceManagementServiceV1({
-    authorization: {
-      authorizeLinkedDeviceManagementV1: async (input) => {
-        calls.push(input.operation);
-        return { kind: 'authorized' };
-      },
-    },
     projection: {
       listLinkedDevicesV1: async (walletId) =>
         walletId === target.summary.walletId ? [target.summary] : [],
@@ -62,10 +55,10 @@ test('lists wallet-scoped linked devices only after owner authorization', async 
 
   const result = await service.listLinkedDevicesV1(
     { kind: 'linked_device_list_request_v1', walletId: target.summary.walletId },
+    ownerForWallet(target.summary.walletId),
     4_000,
   );
   expect(result).toEqual({ devices: [target.summary] });
-  expect(calls).toEqual(['list']);
 });
 
 test('refuses a public revoke plan whose lane command does not bind the requested wallet', async () => {
@@ -100,7 +93,6 @@ test('refuses a public revoke plan whose lane command does not bind the requeste
   };
   let aggregateCalls = 0;
   const service = new LinkedDeviceManagementServiceV1({
-    authorization: authorizedManagement(),
     projection: {
       listLinkedDevicesV1: async () => [target.summary],
       getLinkedDeviceV1: async () => target,
@@ -142,7 +134,7 @@ test('refuses a public revoke plan whose lane command does not bind the requeste
       walletId,
       deviceId: target.summary.deviceId,
       requestedAtMs: 4_000,
-    }),
+    }, ownerForWallet(walletId)),
   ).rejects.toThrow('linked-device revocation plan does not match its target');
   expect(aggregateCalls).toBe(0);
 });
@@ -182,7 +174,6 @@ test('fences every linked Wallet Session before retiring child lanes', async () 
   const order: string[] = [];
   const revokedAuthorizationIds: string[] = [];
   const service = new LinkedDeviceManagementServiceV1({
-    authorization: authorizedManagement(),
     projection: {
       listLinkedDevicesV1: async () => [target.summary],
       getLinkedDeviceV1: async () => target,
@@ -246,7 +237,7 @@ test('fences every linked Wallet Session before retiring child lanes', async () 
     walletId,
     deviceId: target.summary.deviceId,
     requestedAtMs: 4_000,
-  });
+  }, ownerForWallet(walletId));
 
   expect(result).toEqual({ kind: 'conflict' });
   expect(order).toEqual(['wallet_session', 'wallet_session', 'aggregate']);
@@ -256,10 +247,8 @@ test('fences every linked Wallet Session before retiring child lanes', async () 
   ]);
 });
 
-function authorizedManagement() {
-  return {
-    authorizeLinkedDeviceManagementV1: async () => ({ kind: 'authorized' as const }),
-  };
+function ownerForWallet(walletId: ReturnType<typeof parseWalletId>['value']) {
+  return { walletId, expiresAtMs: 10_000 };
 }
 
 function neverPreparation() {
