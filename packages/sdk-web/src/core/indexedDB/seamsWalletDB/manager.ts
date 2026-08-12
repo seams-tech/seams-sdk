@@ -122,8 +122,8 @@ export class SeamsWalletDBManager {
         rejectBlockedOpen = reject;
       });
       const openPromise = openDB(dbName, schemaVersion, {
-        upgrade(db, oldVersion) {
-          applySeamsWalletDBSchemaUpgrade(db, oldVersion);
+        upgrade(db, oldVersion, _newVersion, transaction) {
+          applySeamsWalletDBSchemaUpgrade(db, oldVersion, transaction);
         },
         blocked() {
           console.warn('[SeamsWalletDBManager] IndexedDB open is blocked.', { dbName });
