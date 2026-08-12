@@ -645,6 +645,30 @@ test('local D1 Worker routes smoke requests through the Router API handler', asy
   });
 });
 
+test('local D1 Worker routes internal Gateway requests through the Router API handler', async () => {
+  const database = new FakeD1Database();
+  const response = await localD1DevWorker.fetch(
+    new Request('http://127.0.0.1:8787/internal/gateway/device-linking/v1/lanes/prepare', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }),
+    {
+      ...LOCAL_D1_DEV_ROUTER_AB_ENV,
+      CONSOLE_DB: database,
+      SIGNER_DB: database,
+      SEAMS_TENANT_STORAGE_NAMESPACE: 'seams-local-test',
+    },
+    createFakeExecutionContext(),
+  );
+
+  expect(response.status).toBe(400);
+  await expect(response.json()).resolves.toMatchObject({
+    ok: false,
+    code: 'invalid_body',
+  });
+});
+
 test('local D1 Worker mounts direct sponsored EVM Router API route when local executor config is present', async () => {
   const database = new FakeD1Database();
   const response = await localD1DevWorker.fetch(
