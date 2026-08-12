@@ -140,6 +140,8 @@ export {
   type WebAuthnRpId,
 } from '@shared/utils/domainIds';
 export { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+export { sha256Bytes } from '@shared/utils/digests';
+export { buildSigningWorkerParticipantRecordWithDigestV1 } from '@shared/signing-lanes/participantDigest';
 export { keccak256Bytes } from '@shared/utils/keccak';
 export {
   normalizeBoundedPositiveInteger,

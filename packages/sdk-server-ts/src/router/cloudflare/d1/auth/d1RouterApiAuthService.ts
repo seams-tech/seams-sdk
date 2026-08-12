@@ -409,7 +409,11 @@ function createD1LinkedDeviceComposition(input: {
     const ownerAuthorizationProvider = createD1LinkedDeviceOwnerAuthorizationProviderV1({
       walletRegistration: input.walletRegistration,
       metadata: ownerMetadata,
-      targetPlanner: { rpId: config.execution.rpId },
+      targetPlanner: {
+        rpId: config.execution.rpId,
+        targetDeploymentDescriptorProvider:
+          config.session.targetDeploymentDescriptorProvider,
+      },
       nowV1: config.execution.nowV1,
     });
     ownerRequestAuthenticator = createDeviceLinkingOwnerRequestAuthenticatorV1({
