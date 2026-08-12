@@ -54,6 +54,25 @@ fn ct_eq(left: &[u8], right: &[u8]) -> bool {
     difference == 0
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareEcdsaRegistrationSourceDerivationV1 {
+    #[serde(rename = "application_binding_digest_b64u")]
+    pub application_binding_digest_b64u: String,
+    #[serde(rename = "client_share_retry_counter")]
+    pub client_share_retry_counter: u32,
+}
+
+impl CloudflareEcdsaRegistrationSourceDerivationV1 {
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        decode_b64::<32>(
+            "ECDSA registration source application binding digest",
+            &self.application_binding_digest_b64u,
+        )?;
+        Ok(())
+    }
+}
+
 /// Persistence-boundary selector for one exact active ECDSA source share.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
@@ -68,6 +87,8 @@ pub enum CloudflareEcdsaLaneSourceMaterialLookupV1 {
     },
     RegistrationActivation {
         lookup: CloudflareActiveSigningWorkerStateLookupV1,
+        #[serde(rename = "source_derivation")]
+        source_derivation: CloudflareEcdsaRegistrationSourceDerivationV1,
     },
 }
 
@@ -89,8 +110,12 @@ impl CloudflareEcdsaLaneSourceMaterialLookupV1 {
                     return Err(invalid("ECDSA lane source identity does not match the job"));
                 }
             }
-            Self::RegistrationActivation { lookup } => {
+            Self::RegistrationActivation {
+                lookup,
+                source_derivation,
+            } => {
                 lookup.validate()?;
+                source_derivation.validate()?;
                 if lookup.account_id != job.wallet_id
                     || lookup.material_activation_id
                         != job.source.material_activation().activation_id
@@ -624,7 +649,8 @@ mod worker_execution {
         verify_ecdsa_server_retirement_receipt_v1,
     };
     use router_ab_ecdsa_derivation::{
-        rebind_ecdsa_lane_relayer_share_bytes_v1, EcdsaLaneDelta, EcdsaLanePublicIdentityBindingV1,
+        derive_relayer_share_for_client_public, rebind_ecdsa_lane_relayer_share_bytes_v1,
+        EcdsaLaneDelta, EcdsaLanePublicIdentityBindingV1, RouterAbEcdsaDerivationStableKeyContext,
     };
     use worker::{Env, Method, Request, Response};
     use zeroize::Zeroizing;
@@ -762,6 +788,7 @@ mod worker_execution {
     async fn source_share32(
         env: &Env,
         source: &CloudflareEcdsaLaneSourceMaterialLookupV1,
+        job: &EcdsaAdditiveLaneJobV1,
     ) -> RouterAbProtocolResult<Zeroizing<[u8; 32]>> {
         let share = match source {
             CloudflareEcdsaLaneSourceMaterialLookupV1::LaneMaterial { lookup } => {
@@ -774,11 +801,51 @@ mod worker_execution {
                 )?;
                 material.share32()?
             }
-            CloudflareEcdsaLaneSourceMaterialLookupV1::RegistrationActivation { lookup } => {
-                *load_cloudflare_signing_worker_registration_active_material_v1(env, lookup)
-                    .await?
-                    .output_material
-                    .as_bytes()
+            CloudflareEcdsaLaneSourceMaterialLookupV1::RegistrationActivation {
+                lookup,
+                source_derivation,
+            } => {
+                let material =
+                    load_cloudflare_signing_worker_registration_active_material_v1(env, lookup)
+                        .await?;
+                let application_binding_digest = decode_b64::<32>(
+                    "ECDSA registration source application binding digest",
+                    &source_derivation.application_binding_digest_b64u,
+                )?;
+                let source_client_public = decode_public33(
+                    "ECDSA source holder verifying share",
+                    &job.source_holder_verifying_share33_b64u,
+                )?;
+                let context =
+                    RouterAbEcdsaDerivationStableKeyContext::new(application_binding_digest);
+                let (relayer_share, public_identity) = derive_relayer_share_for_client_public(
+                    &context,
+                    *material.output_material.as_bytes(),
+                    &source_client_public,
+                    source_derivation.client_share_retry_counter,
+                )
+                .map_err(|error| {
+                    map_protocol_error("ECDSA registration source share derivation failed", error)
+                })?;
+                if b64(&public_identity.context_binding32)
+                    != job.source.material_activation().key_binding
+                {
+                    return Err(invalid(
+                        "ECDSA registration source context binding is inconsistent",
+                    ));
+                }
+                if !ct_eq(
+                    &public_identity.relayer_public_key33,
+                    &decode_public33(
+                        "ECDSA source server verifying share",
+                        &job.source_server_verifying_share33_b64u,
+                    )?,
+                ) {
+                    return Err(invalid(
+                        "ECDSA registration source relayer public key is inconsistent",
+                    ));
+                }
+                relayer_share.x_relayer32
             }
         };
         Ok(Zeroizing::new(share))
@@ -841,7 +908,7 @@ mod worker_execution {
             .map_err(|_| invalid("ECDSA lane delta must contain 32 bytes"))?;
         let delta = EcdsaLaneDelta::from_bytes(delta_bytes)
             .map_err(|error| map_protocol_error("ECDSA lane delta is invalid", error))?;
-        let source_share = source_share32(env, &request.source_material).await?;
+        let source_share = source_share32(env, &request.source_material, &request.job).await?;
         let holder_key = decode_public33(
             "ECDSA target holder public commitment",
             &request.holder_round.target_holder_public_commitment33_b64u,
@@ -1571,6 +1638,10 @@ mod tests {
                     material_activation_id: "activation-1".to_owned(),
                     signing_worker_id: "worker-1".to_owned(),
                 },
+                source_derivation: CloudflareEcdsaRegistrationSourceDerivationV1 {
+                    application_binding_digest_b64u: bytes::<32>(12),
+                    client_share_retry_counter: 0,
+                },
             },
         }
     }
@@ -1594,8 +1665,25 @@ mod tests {
                     material_activation_id: "activation-substitution".to_owned(),
                     signing_worker_id: "worker-1".to_owned(),
                 },
+                source_derivation: CloudflareEcdsaRegistrationSourceDerivationV1 {
+                    application_binding_digest_b64u: bytes::<32>(12),
+                    client_share_retry_counter: 0,
+                },
             };
         assert!(request.validate().is_err());
+    }
+
+    #[test]
+    fn registration_source_derivation_uses_snake_case_wire_fields() {
+        let source_material = request().source_material;
+        let value = serde_json::to_value(&source_material).expect("source material JSON");
+        assert_eq!(
+            value
+                .get("source_derivation")
+                .and_then(|entry| entry.get("application_binding_digest_b64u")),
+            Some(&serde_json::Value::String(bytes::<32>(12))),
+        );
+        assert!(serde_json::from_value::<CloudflareEcdsaLaneSourceMaterialLookupV1>(value).is_ok());
     }
 
     #[test]

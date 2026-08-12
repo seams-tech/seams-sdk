@@ -348,7 +348,7 @@ function createD1LinkedDeviceComposition(input: {
   readonly walletStore: D1WalletStore;
   readonly walletRegistration: Pick<
     RouterApiWalletRegistrationService,
-    'resolveActiveOwnerWalletExecutionLane'
+    'resolveActiveOwnerWalletExecutionLane' | 'listWalletEcdsaCustodyContinuity'
   >;
   readonly authorization: Pick<
     CloudflareD1AuthorizationStore,
@@ -1695,12 +1695,13 @@ function createCloudflareD1RouterApiAuthAssembly(
   const webAuthnAuthService = new CloudflareD1WebAuthnAuthService({ webAuthnStore });
   const linkedDeviceWalletRegistrationProjection: Pick<
     RouterApiWalletRegistrationService,
-    'resolveActiveOwnerWalletExecutionLane'
+    'resolveActiveOwnerWalletExecutionLane' | 'listWalletEcdsaCustodyContinuity'
   > = {
     resolveActiveOwnerWalletExecutionLane: resolveD1ActiveOwnerWalletExecutionLane.bind(
       undefined,
       new D1WalletExecutionLaneProjectionSource(walletAuthMethodStore, walletStore),
     ),
+    listWalletEcdsaCustodyContinuity: walletStore.listEcdsaSignersForWallet.bind(walletStore),
   };
   const linkedDeviceComposition = createD1LinkedDeviceComposition({
     options,
