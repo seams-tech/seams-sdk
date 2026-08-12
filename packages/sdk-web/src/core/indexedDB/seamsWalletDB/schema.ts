@@ -5,59 +5,19 @@ import {
   type SeamsWalletStoreDefinition,
 } from '../schemaNames';
 
-export const PRODUCTION_SEAMS_WALLET_SCHEMA_VERSION = 17 as const;
-
-export type SeamsWalletSchemaPolicy =
-  | {
-      kind: 'development';
-      version?: never;
-    }
-  | {
-      kind: 'production';
-      version: typeof PRODUCTION_SEAMS_WALLET_SCHEMA_VERSION;
-    };
+export const SEAMS_WALLET_SCHEMA_VERSION = 17 as const;
 
 export type SeamsWalletDBConfig = {
   dbName: string;
-  schemaPolicy: SeamsWalletSchemaPolicy;
 };
-
-function runtimeHostname(): string {
-  return typeof location === 'undefined' ? '' : location.hostname;
-}
-
-export function resolveSeamsWalletSchemaPolicy(hostname: string): SeamsWalletSchemaPolicy {
-  if (
-    /localhost|127\.(?:0|[1-9]\d?)\.(?:0|[1-9]\d?)\.(?:0|[1-9]\d?)|\.local(?:host)?$/i.test(
-      hostname,
-    )
-  ) {
-    return { kind: 'development' };
-  }
-  return { kind: 'production', version: PRODUCTION_SEAMS_WALLET_SCHEMA_VERSION };
-}
 
 export const SEAMS_WALLET_DB_CONFIG: SeamsWalletDBConfig = {
   dbName: SEAMS_WALLET_DB_NAME,
-  schemaPolicy: resolveSeamsWalletSchemaPolicy(runtimeHostname()),
 } as const;
 
 function keyPathForIndexedDB(keyPath: string | readonly string[]): string | string[] {
   return typeof keyPath === 'string' ? keyPath : [...keyPath];
 }
-
-type SeamsWalletSchemaUpgradeStore = {
-  readonly indexNames: { contains(name: string): boolean };
-  createIndex(
-    name: string,
-    keyPath: string | string[],
-    options?: IDBIndexParameters,
-  ): unknown;
-};
-
-type SeamsWalletSchemaUpgradeTransaction = {
-  objectStore(name: string): SeamsWalletSchemaUpgradeStore;
-};
 
 function createStore(
   db: IDBPDatabase | IDBDatabase,
@@ -73,41 +33,8 @@ function createStore(
   }
 }
 
-function createOrUpdateStore(
-  db: IDBPDatabase | IDBDatabase,
-  transaction: SeamsWalletSchemaUpgradeTransaction,
-  definition: SeamsWalletStoreDefinition,
-): void {
-  const store = db.objectStoreNames.contains(definition.store)
-    ? transaction.objectStore(definition.store)
-    : db.createObjectStore(definition.store, {
-        keyPath: keyPathForIndexedDB(definition.keyPath),
-      });
-
-  for (const index of definition.indexes) {
-    if (store.indexNames.contains(index.name)) continue;
-    store.createIndex(index.name, keyPathForIndexedDB(index.keyPath), {
-      unique: index.unique,
-    });
-  }
-}
-
 export function initializeSeamsWalletDBSchema(db: IDBPDatabase | IDBDatabase): void {
   for (const definition of SEAMS_WALLET_SCHEMA_MANIFEST) {
     createStore(db, definition);
-  }
-}
-
-export function applySeamsWalletDBSchemaUpgrade(
-  db: IDBPDatabase | IDBDatabase,
-  oldVersion: number,
-  transaction: SeamsWalletSchemaUpgradeTransaction,
-): void {
-  if (oldVersion === 0) {
-    initializeSeamsWalletDBSchema(db);
-    return;
-  }
-  for (const definition of SEAMS_WALLET_SCHEMA_MANIFEST) {
-    createOrUpdateStore(db, transaction, definition);
   }
 }

@@ -9,10 +9,7 @@ import {
   assertCanonicalIndexedDBName,
   createSeamsTestWalletDbName,
 } from '../../packages/sdk-web/src/core/indexedDB/schemaNames';
-import {
-  PRODUCTION_SEAMS_WALLET_SCHEMA_VERSION,
-  resolveSeamsWalletSchemaPolicy,
-} from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/schema';
+import { SEAMS_WALLET_SCHEMA_VERSION } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/schema';
 
 const CANONICAL_NAME_PATTERN = /^seams_[a-z0-9]+(?:_[a-z0-9]+)*$/;
 const SNAKE_CASE_PATTERN = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
@@ -29,7 +26,7 @@ const ECDSA_MATERIAL_STORE_SOURCES = [
 
 test.describe('IndexedDB consolidation', () => {
   test('canonical wallet schema names use one Seams-prefixed DB and unprefixed snake_case stores', () => {
-    expect(SEAMS_WALLET_DB_NAME).toBe('seams_wallet');
+    expect(SEAMS_WALLET_DB_NAME).toBe('seams_wallet_v17');
     expect(Object.values(SEAMS_WALLET_STORES).every((name) => !name.startsWith('seams_'))).toBe(
       true,
     );
@@ -53,15 +50,8 @@ test.describe('IndexedDB consolidation', () => {
     );
   });
 
-  test('schema policy is versionless locally and uses production v17', () => {
-    expect(resolveSeamsWalletSchemaPolicy('wallet.example.localhost')).toEqual({
-      kind: 'development',
-    });
-    expect(resolveSeamsWalletSchemaPolicy('wallet.example.com')).toEqual({
-      kind: 'production',
-      version: PRODUCTION_SEAMS_WALLET_SCHEMA_VERSION,
-    });
-    expect(PRODUCTION_SEAMS_WALLET_SCHEMA_VERSION).toBe(17);
+  test('wallet schema is v17', () => {
+    expect(SEAMS_WALLET_SCHEMA_VERSION).toBe(17);
   });
 
   test('schema manifest defines every canonical store exactly once', () => {
@@ -90,7 +80,6 @@ test.describe('IndexedDB consolidation', () => {
     const result = await page.evaluate(async () => {
       const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
       const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
-      const schemaModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/schema.js');
       const manifest = schemaNames.SEAMS_WALLET_SCHEMA_MANIFEST as Array<{
         store: string;
         keyPath: string | string[];
@@ -109,13 +98,7 @@ test.describe('IndexedDB consolidation', () => {
         request.onblocked = () => resolve();
       });
 
-      const manager = new managerModule.SeamsWalletDBManager({
-        dbName,
-        schemaPolicy: {
-          kind: 'production',
-          version: schemaModule.PRODUCTION_SEAMS_WALLET_SCHEMA_VERSION,
-        },
-      });
+      const manager = new managerModule.SeamsWalletDBManager({ dbName });
       const db = await manager.getDB();
       const observed = manifest.map((definition) => {
         const storeNames = Array.from(db.objectStoreNames);
@@ -166,65 +149,6 @@ test.describe('IndexedDB consolidation', () => {
         })),
       );
     }
-  });
-
-  test('production v17 upgrades the previous wallet schema in place', async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
-    const result = await page.evaluate(async () => {
-      const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
-      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
-      const schemaModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/schema.js');
-      const dbName = schemaNames.createSeamsTestWalletDbName(`upgrade_${crypto.randomUUID()}`);
-      const previousManifest = schemaNames.SEAMS_WALLET_SCHEMA_MANIFEST.filter(
-        (definition) =>
-          definition.store !== schemaNames.SEAMS_WALLET_STORES.emailOtpDeviceEnrollmentEscrows,
-      );
-
-      await new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open(dbName, 16);
-        request.onupgradeneeded = () => {
-          const db = request.result;
-          for (const definition of previousManifest) {
-            const store = db.createObjectStore(definition.store, {
-              keyPath: definition.keyPath,
-            });
-            for (const index of definition.indexes) {
-              store.createIndex(index.name, index.keyPath, { unique: index.unique });
-            }
-          }
-        };
-        request.onsuccess = () => {
-          request.result.close();
-          resolve();
-        };
-        request.onerror = () => reject(request.error);
-      });
-
-      const manager = new managerModule.SeamsWalletDBManager({
-        dbName,
-        schemaPolicy: {
-          kind: 'production',
-          version: schemaModule.PRODUCTION_SEAMS_WALLET_SCHEMA_VERSION,
-        },
-      });
-      const db = await manager.getDB();
-      const upgraded = {
-        version: db.version,
-        hasEscrowStore: db.objectStoreNames.contains(
-          schemaNames.SEAMS_WALLET_STORES.emailOtpDeviceEnrollmentEscrows,
-        ),
-      };
-      manager.close();
-      await new Promise<void>((resolve) => {
-        const request = indexedDB.deleteDatabase(dbName);
-        request.onsuccess = () => resolve();
-        request.onerror = () => resolve();
-        request.onblocked = () => resolve();
-      });
-      return upgraded;
-    });
-
-    expect(result).toEqual({ version: 17, hasEscrowStore: true });
   });
 
   test('unified repositories persist profile, chain account, app state, and recovery email records', async ({
