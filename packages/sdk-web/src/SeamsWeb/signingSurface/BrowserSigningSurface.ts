@@ -174,7 +174,7 @@ import {
   buildUseLiveRuntimeHydrationPlan,
   type MpcCapabilityHydrationPlan,
 } from '@/core/signingEngine/session/material/mpcCapabilityHydration';
-import { buildRestorableMpcMaterialRefInternal } from '@/core/signingEngine/session/material/restorableMpcMaterialRef.internal';
+import { buildRestorableMpcMaterialRefForHydration } from '@/core/signingEngine/session/material/ecdsaCapabilityHydration';
 import {
   nearEd25519YaoMaterialActivationFromMetadata,
   nearEd25519YaoRuntimeRef,
@@ -3356,7 +3356,7 @@ export class BrowserSigningSurface {
         return buildRehydrateMaterialActivationHydrationPlan({
           authority: authorization.projection.authority,
           materialActivation: args.materialActivation,
-          sealedMaterial: buildRestorableMpcMaterialRefInternal(
+          sealedMaterial: buildRestorableMpcMaterialRefForHydration(
             JSON.stringify([
               loaded.material.binding.walletId,
               loaded.material.binding.nearAccountId,
