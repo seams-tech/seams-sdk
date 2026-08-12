@@ -452,19 +452,13 @@ function ownerSourceLaneCandidates(
 ): readonly WalletHostOwnerSourceLaneCandidateV1[] {
   const candidates: WalletHostOwnerSourceLaneCandidateV1[] = [];
   const seen = new Set<string>();
-  const add = (candidate: WalletHostOwnerSourceLaneCandidateV1): void => {
-    const key =
-      candidate.curve === 'ed25519'
-        ? `ed25519:${materialActivationKey(candidate.materialActivation)}`
-        : `ecdsa:${materialActivationKey(candidate.materialActivation)}:${String(candidate.manifestId)}:${String(candidate.manifestRevision)}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    candidates.push(candidate);
-  };
   const ed25519Lanes = [...available.candidates.ed25519.near, available.lanes.ed25519.near];
   for (const lane of ed25519Lanes) {
     if (!isConcreteAvailableSigningLane(lane) || lane.curve !== 'ed25519') continue;
-    add({ curve: 'ed25519', materialActivation: lane.materialActivation });
+    appendOwnerSourceLaneCandidate(candidates, seen, {
+      curve: 'ed25519',
+      materialActivation: lane.materialActivation,
+    });
   }
   const ecdsaLanes = [
     ...Object.values(available.ecdsa.candidatesByTarget).flat(),
@@ -472,7 +466,7 @@ function ownerSourceLaneCandidates(
   ];
   for (const lane of ecdsaLanes) {
     if (!isConcreteAvailableSigningLane(lane) || lane.curve !== 'ecdsa') continue;
-    add({
+    appendOwnerSourceLaneCandidate(candidates, seen, {
       curve: 'ecdsa_secp256k1',
       materialActivation: lane.materialActivation,
       manifestId: lane.capability.manifest.identity.manifestId,
@@ -480,6 +474,20 @@ function ownerSourceLaneCandidates(
     });
   }
   return candidates;
+}
+
+function appendOwnerSourceLaneCandidate(
+  candidates: WalletHostOwnerSourceLaneCandidateV1[],
+  seen: Set<string>,
+  candidate: WalletHostOwnerSourceLaneCandidateV1,
+): void {
+  const key =
+    candidate.curve === 'ed25519'
+      ? `ed25519:${materialActivationKey(candidate.materialActivation)}`
+      : `ecdsa:${materialActivationKey(candidate.materialActivation)}:${String(candidate.manifestId)}:${String(candidate.manifestRevision)}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  candidates.push(candidate);
 }
 
 function compareOwnerSourceLaneHintsV1(
