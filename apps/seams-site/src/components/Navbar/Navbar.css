@@ -7,8 +7,8 @@
   --navbar-border: var(--site-border, var(--vp-c-border));
   --navbar-border-hover: var(--site-border-strong, var(--vp-c-border));
   --navbar-shadow-color: rgba(4, 3, 14, 0.68);
-  --navbar-primary: var(--site-brand, oklch(0.52 0.138 255));
-  --navbar-primary-hover: var(--site-brand-hover, oklch(0.56 0.158 255));
+  --navbar-primary: var(--site-action, #000000);
+  --navbar-primary-hover: var(--site-action-hover, #262626);
   --navbar-text-button: var(--site-text-button, #ffffff);
   --navbar-focus: var(--site-focus, #66a3ff);
   --navbar-access-nav-surface: color-mix(in srgb, var(--navbar-surface3) 82%, transparent);
@@ -82,8 +82,10 @@
   border: 0;
   background: var(--navbar-access-nav-surface);
   backdrop-filter: blur(4px);
-  /* hairline ring only — the bar carries no drop shadow */
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--navbar-border) 34%, transparent);
+  box-shadow:
+    0 14px 32px -20px color-mix(in srgb, var(--navbar-shadow-color) 48%, transparent),
+    0 3px 10px -6px color-mix(in srgb, var(--navbar-shadow-color) 28%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--navbar-border) 34%, transparent);
   transition:
     background 300ms cubic-bezier(0.22, 1, 0.36, 1),
     backdrop-filter 300ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -93,13 +95,19 @@
 .navbar-static__shell.is-scrolled {
   background: color-mix(in srgb, var(--navbar-surface3) 88%, transparent);
   backdrop-filter: blur(8px);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--navbar-border) 42%, transparent);
+  box-shadow:
+    0 18px 42px -22px color-mix(in srgb, var(--navbar-shadow-color) 58%, transparent),
+    0 4px 12px -7px color-mix(in srgb, var(--navbar-shadow-color) 34%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--navbar-border) 42%, transparent);
 }
 
 html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
   background: var(--navbar-access-nav-surface);
   backdrop-filter: blur(4px);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--navbar-border) 38%, transparent);
+  box-shadow:
+    0 18px 42px -22px color-mix(in srgb, var(--navbar-shadow-color) 52%, transparent),
+    0 4px 12px -7px color-mix(in srgb, var(--navbar-shadow-color) 30%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--navbar-border) 38%, transparent);
 }
 
 .navbar-static__left {
@@ -151,7 +159,7 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
 
 .navbar-static__brand-wordmark {
   display: block;
-  height: 17px;
+  height: 20px;
   width: auto;
 }
 
@@ -336,8 +344,7 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
 
 .navbar-static__menu-kicker {
   margin: 6px 10px 8px;
-  font-family:
-    'SFMono-Regular', ui-monospace, 'Menlo', 'Monaco', 'Cascadia Mono', monospace;
+  font-family: 'SFMono-Regular', ui-monospace, 'Menlo', 'Monaco', 'Cascadia Mono', monospace;
   font-size: 10.5px;
   font-weight: 500;
   letter-spacing: 0.12em;
@@ -399,8 +406,7 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
 
 .navbar-static__menu-row-meta {
   margin-top: 3px;
-  font-family:
-    'SFMono-Regular', ui-monospace, 'Menlo', 'Monaco', 'Cascadia Mono', monospace;
+  font-family: 'SFMono-Regular', ui-monospace, 'Menlo', 'Monaco', 'Cascadia Mono', monospace;
   font-size: 10.5px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -497,8 +503,7 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
   background: var(--navbar-access-trigger-active);
 }
 
-html[data-w3a-theme='light'] .navbar-static,
-.navbar-static.navbar-static--light {
+html[data-w3a-theme='light'] .navbar-static {
   --navbar-shadow-color: rgba(15, 23, 42, 0.34);
   --navbar-access-nav-surface: color-mix(in srgb, var(--navbar-surface) 90%, transparent);
   --navbar-access-trigger-active: color-mix(
@@ -511,22 +516,6 @@ html[data-w3a-theme='light'] .navbar-static,
   --navbar-access-muted: color-mix(in srgb, var(--site-text-secondary) 92%, var(--navbar-text) 8%);
 }
 
-/* Pinned light skin (appearance="light"): resolves the navbar's site-token
-   inputs to the front-page white palette so it ignores the global theme. */
-.navbar-static.navbar-static--light {
-  --site-canvas: #ffffff;
-  --site-surface: #ffffff;
-  --site-surface-muted: #f5f3f1;
-  --site-surface-strong: #f5f3f1;
-  --site-text-primary: #0a0a0a;
-  --site-text-secondary: #777169;
-  --site-border: #ebe8e4;
-  --site-border-strong: #d6d1cb;
-  --site-brand: #000000;
-  --site-brand-hover: #262626;
-  --site-text-button: #ffffff;
-  --site-focus: #157f5f;
-}
 
 .navbar-static__actions {
   display: flex;
@@ -616,151 +605,6 @@ html[data-w3a-theme='light'] .navbar-static,
 
 .navbar-static__mobile-menu {
   display: none;
-}
-
-.navbar-static__auth-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1300;
-  background: color-mix(in srgb, #ffffff 72%, rgba(10, 10, 10, 0.42));
-  backdrop-filter: blur(8px);
-  display: grid;
-  place-items: center;
-  padding: 1rem;
-}
-
-.navbar-static__auth-modal {
-  position: relative;
-  isolation: isolate;
-  width: min(400px, 100%);
-  max-height: min(92vh, 720px);
-  overflow: auto;
-  border-radius: 12px;
-  border: 1px solid #ebe8e4;
-  background: #ffffff;
-  box-shadow: 0 28px 70px -52px rgba(10, 10, 10, 0.42);
-  padding: 1.5rem;
-  display: grid;
-  gap: 1.15rem;
-}
-
-.navbar-static__auth-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.navbar-static__auth-heading {
-  display: grid;
-  gap: 0.3rem;
-}
-
-.navbar-static__auth-eyebrow {
-  margin: 0;
-  font-size: 0.72rem;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  font-weight: 500;
-  color: #a59f97;
-}
-
-.navbar-static__auth-header h2 {
-  margin: 0;
-  color: #0a0a0a;
-  font-size: 1.6rem;
-  font-weight: 400;
-  line-height: 1.15;
-  letter-spacing: -0.01em;
-}
-
-.navbar-static__auth-close {
-  appearance: none;
-  width: 30px;
-  height: 30px;
-  border-radius: 9999px;
-  border: 1px solid #ebe8e4;
-  background: #ffffff;
-  color: #44403b;
-  display: inline-grid;
-  place-content: center;
-  cursor: pointer;
-}
-
-.navbar-static__auth-close:hover {
-  border-color: #a59f97;
-  color: #0a0a0a;
-}
-
-.navbar-static__auth-copy {
-  margin: 0;
-  color: #777169;
-  font-size: 0.9rem;
-  line-height: 1.5;
-}
-
-.navbar-static__auth-google-button-icon svg {
-  width: 1.05rem;
-  height: 1.05rem;
-  display: block;
-}
-
-.navbar-static__auth-google-button {
-  appearance: none;
-  width: 100%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.6rem;
-  border-radius: 8px;
-  border: 1px solid #0a0a0a;
-  background: #0a0a0a;
-  color: #ffffff;
-  min-height: 2.75rem;
-  padding: 0.6rem 1rem;
-  font-size: 0.95rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background 160ms ease,
-    border-color 160ms ease,
-    opacity 160ms ease;
-}
-
-.navbar-static__auth-google-button:hover:enabled {
-  border-color: #262626;
-  background: #262626;
-}
-
-.navbar-static__auth-google-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.navbar-static__auth-note {
-  margin: 0;
-  color: #a59f97;
-  font-size: 0.8rem;
-  line-height: 1.5;
-}
-
-.navbar-static__auth-error {
-  margin: 0;
-  padding: 0.65rem 0.8rem;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, #b91c1c 22%, #f8e7e7);
-  background: #f8e7e7;
-  color: #b91c1c;
-  font-size: 0.85rem;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-
-@media (max-width: 640px) {
-  .navbar-static__auth-modal {
-    padding: 1.25rem;
-    gap: 1rem;
-  }
 }
 
 .navbar-static__link:focus-visible,

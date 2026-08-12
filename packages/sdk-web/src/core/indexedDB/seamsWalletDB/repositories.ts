@@ -432,7 +432,7 @@ function walletSignerScalarMirrors(record: AccountSignerRecord): WalletSignerSca
     const keyHandle = toTrimmedString(metadata.keyHandle || '');
     const ecdsaThresholdKeyId = toTrimmedString(metadata.ecdsaThresholdKeyId || '');
     const thresholdOwnerAddress = normalizeIndexedDbAccountAddress(
-      metadata.thresholdOwnerAddress || metadata.ownerAddress || '',
+      metadata.thresholdOwnerAddress || '',
     );
     const chainTargetKey = normalizeEcdsaChainTargetKey(metadata.chainTarget);
     if (!keyHandle || !ecdsaThresholdKeyId || !thresholdOwnerAddress || !chainTargetKey) {

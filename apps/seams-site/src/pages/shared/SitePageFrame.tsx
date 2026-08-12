@@ -1,6 +1,6 @@
 import React from 'react';
 import { Footer } from '@/components/Footer';
-import NavbarStatic from '@/components/Navbar/NavbarStatic';
+import NavbarCompact from '@/components/Navbar/NavbarCompact';
 import './styles.css';
 
 type SitePageFrameProps = {
@@ -12,7 +12,7 @@ type SitePageFrameProps = {
 export function SitePageFrame(props: SitePageFrameProps): React.JSX.Element {
   return (
     <>
-      <NavbarStatic />
+      <NavbarCompact />
       <main className="site-page" aria-labelledby="site-page-title">
         <section className="site-page__hero">
           <p className="site-page__kicker">Seams</p>

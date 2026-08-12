@@ -5,8 +5,11 @@ import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accoun
 import type { NonceCoordinator, PreparedNonceOperationContext } from '../../nonce/NonceCoordinator';
 import type { EvmSigningRequest } from '../../chains/evm/evmSigning.types';
 import type { EvmSignedResult } from '../../chains/evm/evmAdapter';
+import { buildEvmDisplayModel } from '../../chains/evm/display/evmTx';
 import type { TempoSigningRequest } from '../../chains/tempo/tempoSigning.types';
 import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
+import { buildTempoDisplayModel } from '../../chains/tempo/display';
+import type { TxDisplayModel } from '../../interfaces/display';
 import type {
   ReadAvailableSigningLanesForSigningInput,
   AvailableSigningLanes,
@@ -213,6 +216,22 @@ type SignEvmFamilyAttemptOptions = {
   reResolvedAfterSupersession?: boolean;
 };
 
+function buildEvmFamilyPreparationDisplayModel(args: SignEvmFamilyArgs): TxDisplayModel {
+  const title =
+    args.chainTarget.kind === 'tempo' ? 'Sign Tempo Transaction' : 'Sign EVM Transaction';
+  const displayArgs = {
+    request: args.request,
+    signerAccount: String(args.walletSession.walletId),
+    title,
+    subtitle: '',
+  };
+
+  if (args.request.kind === 'eip1559') {
+    return buildEvmDisplayModel({ ...displayArgs, request: args.request });
+  }
+  return buildTempoDisplayModel({ ...displayArgs, request: args.request });
+}
+
 async function executeEvmFamilyFreshAuthRetry(args: {
   deps: EvmFamilySigningDeps;
   signingArgs: SignEvmFamilyArgs;
@@ -281,7 +300,7 @@ export async function signEvmFamily(
   };
   await deps.touchConfirm.openTransactionPreparationModal({
     walletLabel: String(args.walletSession.walletId),
-    chain: args.chainTarget.kind,
+    model: buildEvmFamilyPreparationDisplayModel(args),
     confirmationConfigOverride: args.confirmationConfigOverride,
   });
   try {

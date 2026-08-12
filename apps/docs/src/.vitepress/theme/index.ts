@@ -1,53 +1,63 @@
-import DefaultTheme from 'vitepress/theme';
+import DefaultTheme from 'vitepress/theme-without-fonts';
 import type { Theme } from 'vitepress';
+import type { Mermaid, MermaidConfig } from 'mermaid';
+import { h } from 'vue';
+import SeamsFooter from './SeamsFooter.vue';
 import './custom.css';
 
-function isServerRender(): boolean {
-  return !!(import.meta as any)?.env?.SSR;
-}
-
-function readIsDark(): boolean {
-  return document.documentElement.classList.contains('dark');
-}
+import '@fontsource/hanken-grotesk/latin-400.css';
+import '@fontsource/hanken-grotesk/latin-500.css';
+import '@fontsource/hanken-grotesk/latin-600.css';
+import '@fontsource/hanken-grotesk/latin-700.css';
+import '@fontsource/hanken-grotesk/latin-400-italic.css';
 
 function createMermaidRenderer() {
-  let mermaidRef: any = null;
+  let mermaidRef: Mermaid | null = null;
+
+  const themeVariables = (): MermaidConfig['themeVariables'] => ({
+    primaryColor: '#edf3fa',
+    primaryTextColor: '#0a0a0a',
+    primaryBorderColor: '#4a6fa5',
+    secondaryColor: '#f5f3f1',
+    secondaryTextColor: '#44403b',
+    secondaryBorderColor: '#a59f97',
+    tertiaryColor: '#e4f0eb',
+    tertiaryTextColor: '#0a0a0a',
+    tertiaryBorderColor: '#157f5f',
+    lineColor: '#777169',
+    textColor: '#0a0a0a',
+    actorTextColor: '#0a0a0a',
+    labelTextColor: '#0a0a0a',
+    noteTextColor: '#44403b',
+    actorBkg: '#edf3fa',
+    actorBorder: '#4a6fa5',
+    noteBkgColor: '#f7ecdd',
+    noteBorderColor: '#b45309',
+    clusterBkg: '#f8f8f7',
+    clusterBorder: '#d6d1cb',
+    edgeLabelBackground: '#ffffff',
+    fontFamily: "'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif",
+  });
 
   const configure = async () => {
     if (!mermaidRef) {
       const mod = await import('mermaid').catch(() => null);
-      mermaidRef = mod?.default;
+      mermaidRef = mod?.default ?? null;
     }
     if (!mermaidRef) return false;
 
-    const isDark = readIsDark();
-    mermaidRef.initialize({
+    const config: MermaidConfig = {
       startOnLoad: false,
       theme: 'base',
-      themeVariables: {
-        primaryColor: '#f0f9ff',
-        primaryBorderColor: '#60a5fa',
-        lineColor: '#94a3b8',
-        fontSize: '16px',
-        primaryTextColor: isDark ? '#e2e8f0' : '#1e293b',
-        secondaryTextColor: isDark ? '#cbd5e1' : '#334155',
-        tertiaryTextColor: isDark ? '#94a3b8' : '#64748b',
-        textColor: isDark ? '#e2e8f0' : '#1e293b',
-        actorTextColor: isDark ? '#e2e8f0' : '#1e293b',
-        labelTextColor: isDark ? '#e2e8f0' : '#1e293b',
-        noteTextColor: isDark ? '#e2e8f0' : '#1e293b',
-        actorBkg: isDark ? '#2c6cbc' : '#f0f9ff',
-        actorBorder: isDark ? '#5896d9' : '#60a5fa',
-        noteBkgColor: isDark ? '#b46e3c' : '#fef3c7',
-        noteBorderColor: isDark ? '#c88755' : '#f59e0b',
-      },
-    });
+      themeVariables: themeVariables(),
+    };
+    mermaidRef.initialize(config);
     return true;
   };
 
   const restoreCodeBlocks = () => {
-    document.querySelectorAll('.mermaid[data-mermaid-source]').forEach((el) => {
-      const source = el.getAttribute('data-mermaid-source');
+    document.querySelectorAll('.mermaid-figure[data-mermaid-source]').forEach((figure) => {
+      const source = figure.getAttribute('data-mermaid-source');
       if (!source) return;
       const wrapper = document.createElement('div');
       wrapper.className = 'language-mermaid';
@@ -56,8 +66,60 @@ function createMermaidRenderer() {
       code.textContent = source;
       pre.appendChild(code);
       wrapper.appendChild(pre);
-      el.replaceWith(wrapper);
+      figure.replaceWith(wrapper);
     });
+  };
+
+  const diagramLabel = (block: Element): string => {
+    let sibling = block.previousElementSibling;
+    while (sibling) {
+      if (/^H[1-6]$/.test(sibling.tagName) && sibling.textContent?.trim()) {
+        return `${sibling.textContent.trim()} diagram`;
+      }
+      sibling = sibling.previousElementSibling;
+    }
+    const pageTitle = document.querySelector('main h1')?.textContent?.trim();
+    return pageTitle ? `${pageTitle} diagram` : 'Architecture diagram';
+  };
+
+  const diagramSummary = (source: string): string => {
+    const labels = [...source.matchAll(/(?:\[|\(|\{)["']?([^\]})"']{2,80})["']?(?:\]|\)|\})/g)]
+      .map((match) => match[1]?.replace(/<br\s*\/?\s*>/gi, ', ').trim())
+      .filter((label): label is string => Boolean(label));
+    const uniqueLabels = [...new Set(labels)].slice(0, 8);
+    return uniqueLabels.length > 0
+      ? `The diagram connects ${uniqueLabels.join(', ')}.`
+      : 'The diagram presents the flow described in the surrounding section.';
+  };
+
+  const createDiagramFigure = (source: string, svg: string, label: string): HTMLElement => {
+    const figure = document.createElement('figure');
+    figure.className = 'mermaid-figure';
+    figure.setAttribute('data-mermaid-source', source);
+
+    const container = document.createElement('div');
+    container.className = 'mermaid';
+    container.setAttribute('role', 'img');
+    container.setAttribute('aria-label', label);
+    container.innerHTML = svg;
+
+    const caption = document.createElement('figcaption');
+    const captionTitle = document.createElement('strong');
+    captionTitle.textContent = label;
+    const captionSummary = document.createElement('span');
+    captionSummary.textContent = ` ${diagramSummary(source)}`;
+    caption.append(captionTitle, captionSummary);
+
+    const details = document.createElement('details');
+    const summary = document.createElement('summary');
+    summary.textContent = 'View diagram source';
+    const pre = document.createElement('pre');
+    const code = document.createElement('code');
+    code.textContent = source;
+    pre.appendChild(code);
+    details.append(summary, pre);
+    figure.append(container, caption, details);
+    return figure;
   };
 
   const render = async () => {
@@ -71,14 +133,11 @@ function createMermaidRenderer() {
       const source = code.textContent || '';
       if (!source.trim()) continue;
       const id = `mermaid-${Math.random().toString(36).slice(2)}`;
+      const label = diagramLabel(block);
 
       try {
         const { svg } = await mermaidRef.render(id, source);
-        const container = document.createElement('div');
-        container.className = 'mermaid';
-        container.setAttribute('data-mermaid-source', source);
-        container.innerHTML = svg;
-        block.replaceWith(container);
+        block.replaceWith(createDiagramFigure(source, svg, label));
       } catch (error) {
         console.error('[docs] Mermaid render failed:', error);
       }
@@ -95,9 +154,13 @@ function createMermaidRenderer() {
 
 const theme: Theme = {
   ...DefaultTheme,
+  Layout: () =>
+    h(DefaultTheme.Layout, null, {
+      'layout-bottom': () => h(SeamsFooter),
+    }),
   enhanceApp: async (ctx) => {
-    await (DefaultTheme as any).enhanceApp?.(ctx);
-    if (isServerRender() || typeof window === 'undefined') return;
+    await DefaultTheme.enhanceApp?.(ctx);
+    if (import.meta.env.SSR || typeof window === 'undefined') return;
 
     const { rerender } = createMermaidRenderer();
     await rerender();
@@ -107,25 +170,6 @@ const theme: Theme = {
         void rerender();
       }, 0);
     };
-
-    const themeObserver = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
-          void rerender();
-          break;
-        }
-      }
-    });
-    themeObserver.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class'],
-    });
-
-    if ((import.meta as any).hot) {
-      (import.meta as any).hot.dispose(() => {
-        themeObserver.disconnect();
-      });
-    }
   },
 };
 

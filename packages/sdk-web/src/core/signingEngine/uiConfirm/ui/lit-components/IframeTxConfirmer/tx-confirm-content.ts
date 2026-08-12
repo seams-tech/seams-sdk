@@ -341,7 +341,7 @@ export class TxConfirmContentElement extends LitElementWithProps {
           >
             ${this.loading
               ? html`<span class="loading-indicator" role="progressbar" aria-label="Loading"></span
-                  ><span class="sr-only">Loading</span>`
+                  ><span>Loading...</span>`
               : html`${this.confirmText}`}
           </button>
         </div>

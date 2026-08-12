@@ -302,8 +302,8 @@ type TempoAccessKeyRecord =
 
 The default interactive access key is a non-extractable WebCrypto P-256 key.
 The SDK stores only its handle and public material. Agent runtimes may register
-an externally held supported public key through Refactor 104's chain-native
-adapter after owner authorization.
+an externally held supported public key through the Tempo-owned access-key
+adapter after Refactor 104 owner authorization and request admission.
 
 ## Required Invariants
 
@@ -686,7 +686,7 @@ Refactor 109 is complete when:
   transactions;
 - a device-bound access key can be authorized once, sign in the background,
   enforce policy, and be revoked;
-- a Refactor 104 agent can use the same chain-native adapter only after owner
+- a Refactor 104 agent can use the Tempo access-key adapter only after owner
   authorization and per-request admission;
 - native sponsorship, fee-token selection, batching, concurrency, and durable
   scheduling each work end to end;

@@ -10,7 +10,6 @@
   --near-login-soft: rgba(247, 247, 242, 0.46);
   --near-login-green: #00ec97;
   --near-login-green-strong: #36f2ad;
-  --near-login-purple: #6f5cff;
   min-height: 100dvh;
   color: var(--near-login-text);
   background:

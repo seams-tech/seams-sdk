@@ -40,7 +40,9 @@ function formatTimestamp(value: string | null | undefined): string {
 }
 
 function formatApprovalLabel(value: string | null | undefined): string {
-  const normalized = String(value || '').trim().toUpperCase();
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase();
   if (normalized === 'KEY_EXPORT') return 'Key export';
   if (normalized === 'POLICY_PUBLISH') return 'Policy publish';
   if (!normalized) return 'Approval';
@@ -87,7 +89,7 @@ const OVERVIEW_HERO_ACTIONS = [
     description: 'Add prepaid balance for sponsored usage.',
     path: '/dashboard/billing/account',
     icon: CreditCardIcon,
-    tone: 'violet',
+    tone: 'blue',
   },
 ] as const;
 
@@ -428,10 +430,7 @@ export function OpsCockpitPage(): React.JSX.Element {
         ) : null}
       </section>
 
-      <section
-        className="dashboard-view__section"
-        aria-label="Pending approvals summary"
-      >
+      <section className="dashboard-view__section" aria-label="Pending approvals summary">
         <h2>Pending approvals</h2>
         {approvalMutationNotice ? (
           <p className="dashboard-pagination-note">{approvalMutationNotice}</p>
@@ -472,9 +471,7 @@ export function OpsCockpitPage(): React.JSX.Element {
                         type="button"
                         className="dashboard-inline-link"
                         onClick={() => onApprovePendingApproval(row)}
-                        disabled={
-                          approvingApprovalId === row.id || rejectingApprovalId === row.id
-                        }
+                        disabled={approvingApprovalId === row.id || rejectingApprovalId === row.id}
                       >
                         {approvingApprovalId === row.id ? 'Approving...' : 'Approve'}
                       </button>{' '}
@@ -497,63 +494,63 @@ export function OpsCockpitPage(): React.JSX.Element {
 
       <div className="dashboard-ops-cockpit-grid" aria-label="Ops cockpit queues">
         {showWebhookQueue ? (
-        <OpsCockpitQueuePanel
-          ariaLabel="Failed webhook summary"
-          title="Failed webhooks (dead letters)"
-          badge={`${failedWebhooks.length}`}
-        >
-          {mutationNotice ? <p className="dashboard-pagination-note">{mutationNotice}</p> : null}
-          {mutationErrorMessage ? (
-            <p className="dashboard-pagination-note">{mutationErrorMessage}</p>
-          ) : null}
-          {failedWebhooks.length === 0 ? (
-            <p className="dashboard-pagination-note">No unresolved webhook dead letters.</p>
-          ) : (
-            <ul className="dashboard-view-list">
-              {failedWebhooks.slice(0, 8).map((entry) => (
-                <li key={entry.deadLetter.id}>
-                  Endpoint <code>{entry.endpointId}</code> event{' '}
-                  <code>{entry.deadLetter.eventType || entry.deadLetter.eventId}</code> failed{' '}
-                  <strong>{entry.deadLetter.failedAttempts}</strong> attempts; last error:{' '}
-                  {entry.deadLetter.lastErrorMessage || 'n/a'} (
-                  {formatTimestamp(entry.deadLetter.movedToDlqAt)}){' '}
-                  <button
-                    type="button"
-                    className="dashboard-inline-link"
-                    onClick={() => onReplayDeadLetter(entry)}
-                    disabled={
-                      replayingDeadLetterId === entry.deadLetter.id ||
-                      !String(entry.deadLetter.deliveryId || '').trim()
-                    }
-                  >
-                    {replayingDeadLetterId === entry.deadLetter.id ? 'Replaying...' : 'Replay'}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </OpsCockpitQueuePanel>
+          <OpsCockpitQueuePanel
+            ariaLabel="Failed webhook summary"
+            title="Failed webhooks (dead letters)"
+            badge={`${failedWebhooks.length}`}
+          >
+            {mutationNotice ? <p className="dashboard-pagination-note">{mutationNotice}</p> : null}
+            {mutationErrorMessage ? (
+              <p className="dashboard-pagination-note">{mutationErrorMessage}</p>
+            ) : null}
+            {failedWebhooks.length === 0 ? (
+              <p className="dashboard-pagination-note">No unresolved webhook dead letters.</p>
+            ) : (
+              <ul className="dashboard-view-list">
+                {failedWebhooks.slice(0, 8).map((entry) => (
+                  <li key={entry.deadLetter.id}>
+                    Endpoint <code>{entry.endpointId}</code> event{' '}
+                    <code>{entry.deadLetter.eventType || entry.deadLetter.eventId}</code> failed{' '}
+                    <strong>{entry.deadLetter.failedAttempts}</strong> attempts; last error:{' '}
+                    {entry.deadLetter.lastErrorMessage || 'n/a'} (
+                    {formatTimestamp(entry.deadLetter.movedToDlqAt)}){' '}
+                    <button
+                      type="button"
+                      className="dashboard-inline-link"
+                      onClick={() => onReplayDeadLetter(entry)}
+                      disabled={
+                        replayingDeadLetterId === entry.deadLetter.id ||
+                        !String(entry.deadLetter.deliveryId || '').trim()
+                      }
+                    >
+                      {replayingDeadLetterId === entry.deadLetter.id ? 'Replaying...' : 'Replay'}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </OpsCockpitQueuePanel>
         ) : null}
 
         {showBillingQueue ? (
-        <OpsCockpitQueuePanel
-          ariaLabel="Billing failure summary"
-          title="Failed or overdue invoices"
-          badge={`${failedInvoices.length}`}
-        >
-          {failedInvoices.length === 0 ? (
-            <p className="dashboard-pagination-note">No failed or overdue invoices.</p>
-          ) : (
-            <ul className="dashboard-view-list">
-              {failedInvoices.slice(0, 6).map((row) => (
-                <li key={row.id}>
-                  Invoice <code>{row.id}</code> is <strong>{row.status}</strong> with due date{' '}
-                  {formatTimestamp(row.dueAt)}.
-                </li>
-              ))}
-            </ul>
-          )}
-        </OpsCockpitQueuePanel>
+          <OpsCockpitQueuePanel
+            ariaLabel="Billing failure summary"
+            title="Failed or overdue invoices"
+            badge={`${failedInvoices.length}`}
+          >
+            {failedInvoices.length === 0 ? (
+              <p className="dashboard-pagination-note">No failed or overdue invoices.</p>
+            ) : (
+              <ul className="dashboard-view-list">
+                {failedInvoices.slice(0, 6).map((row) => (
+                  <li key={row.id}>
+                    Invoice <code>{row.id}</code> is <strong>{row.status}</strong> with due date{' '}
+                    {formatTimestamp(row.dueAt)}.
+                  </li>
+                ))}
+              </ul>
+            )}
+          </OpsCockpitQueuePanel>
         ) : null}
 
         {showAuditExportQueue ? (

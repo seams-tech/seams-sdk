@@ -1416,6 +1416,218 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
     expect(result.afterClose.childCount).toBe(0);
   });
 
+  test('host modal: a new confirmation cancels and replaces the active modal', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.confirmUi);
+        const { awaitConfirmUIDecision, mountConfirmUI } =
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
+
+        const ctx: any = {
+          userPreferencesManager: {
+            getCurrentWalletId: () => 'alice.testnet',
+          },
+          surfaceMeasurementBinding: { kind: 'disabled' },
+        };
+        const waitFor = async (predicate: () => boolean, timeoutMs = 5000): Promise<void> => {
+          const start = Date.now();
+          while (!predicate()) {
+            if (Date.now() - start > timeoutMs) {
+              throw new Error('Timed out waiting for single-modal replacement');
+            }
+            await new Promise((resolve) => setTimeout(resolve, 16));
+          }
+        };
+
+        const firstDecisionPromise = awaitConfirmUIDecision({
+          ctx,
+          summary: { title: 'First confirmation' } as any,
+          txSigningRequests: [],
+          loading: false,
+          theme: 'light',
+          uiMode: 'modal',
+          nearAccountIdOverride: 'alice.testnet',
+          surface: { kind: 'mount_new' },
+        });
+
+        await waitFor(() => document.getElementById('w3a-confirm-portal')?.childElementCount === 1);
+        const portal = document.getElementById('w3a-confirm-portal') as HTMLElement;
+        const firstElement = portal.firstElementChild as HTMLElement;
+
+        const secondHandle = await mountConfirmUI({
+          ctx,
+          summary: { title: 'Second confirmation' } as any,
+          txSigningRequests: [],
+          loading: false,
+          theme: 'light',
+          uiMode: 'modal',
+          nearAccountIdOverride: 'alice.testnet',
+        });
+        const firstDecision = await firstDecisionPromise;
+        const secondElement = secondHandle.element;
+        const stateAfterReplacement = {
+          firstCancelled: firstDecision.confirmed === false,
+          firstRemoved: !firstElement.isConnected,
+          onePortalChild: portal.childElementCount === 1,
+          secondIsOnlyChild: portal.firstElementChild === secondElement,
+        };
+
+        firstDecision.handle.close(false);
+        const secondSurvivedOldHandleClose =
+          portal.childElementCount === 1 && portal.firstElementChild === secondElement;
+        secondHandle.close(true);
+
+        return {
+          ...stateAfterReplacement,
+          secondSurvivedOldHandleClose,
+          portalEmptyAfterClose: portal.childElementCount === 0,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result).toEqual({
+      firstCancelled: true,
+      firstRemoved: true,
+      onePortalChild: true,
+      portalEmptyAfterClose: true,
+      secondIsOnlyChild: true,
+      secondSurvivedOldHandleClose: true,
+    });
+  });
+
+  test('host modal: transaction tree is open on first paint and stays stable', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.confirmUi);
+        const { mountConfirmUI } =
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
+
+        const ctx: any = {
+          userPreferencesManager: {
+            getCurrentWalletId: () => 'alice.testnet',
+          },
+          surfaceMeasurementBinding: { kind: 'disabled' },
+        };
+        const waitFor = async (predicate: () => boolean, timeoutMs = 5000): Promise<void> => {
+          const start = Date.now();
+          while (!predicate()) {
+            if (Date.now() - start > timeoutMs) throw new Error('Timed out waiting for tx-tree');
+            await new Promise((resolve) => setTimeout(resolve, 16));
+          }
+        };
+
+        const model = {
+          chain: 'evm' as const,
+          chainId: 42431,
+          operations: [
+            {
+              id: 'evm.eip1559',
+              kind: 'generic.contractCall',
+              label: 'Contract call',
+              to: `0x${'11'.repeat(20)}`,
+              fields: [
+                { label: 'To', value: `0x${'11'.repeat(20)}` },
+                { label: 'Selector', value: '0xa9059cbb' },
+              ],
+            },
+          ],
+        };
+        const handle = await mountConfirmUI({
+          ctx,
+          summary: { title: 'Confirm transaction' } as any,
+          model,
+          securityContext: { rpId: 'staging.sign.seams.sh' } as any,
+          loading: true,
+          theme: 'light',
+          uiMode: 'modal',
+          nearAccountIdOverride: 'alice.testnet',
+        });
+
+        await waitFor(
+          () => !!document.querySelector('w3a-tx-tree details[data-node-id="evm.eip1559"]'),
+        );
+        const initialTree = document.querySelector('w3a-tx-tree') as HTMLElement | null;
+        const initialOperation = initialTree?.querySelector(
+          'details[data-node-id="evm.eip1559"]',
+        ) as HTMLDetailsElement | null;
+        const initialMetadataText = String(
+          document.querySelector('.rpid-wrapper')?.textContent || '',
+        );
+        const initialLoadingEllipses = document.querySelectorAll('.loading-ellipsis').length;
+        const initialEllipsisAnimation = getComputedStyle(
+          document.querySelector('.loading-ellipsis__dot') as HTMLElement,
+        ).animationName;
+        const initialModalHeight = handle.element.getBoundingClientRect().height;
+
+        handle.update({
+          model: { ...model, intentDigest: 'prepared-intent-digest' },
+          loading: false,
+        });
+
+        await waitFor(() => {
+          const content = document.querySelector('w3a-tx-confirm-content') as any;
+          return content?.model?.intentDigest === 'prepared-intent-digest';
+        });
+        const tree = document.querySelector('w3a-tx-tree') as HTMLElement | null;
+        const hydratedOperation = tree?.querySelector(
+          'details[data-node-id="evm.eip1559"]',
+        ) as HTMLDetailsElement | null;
+        const hydratedModalHeight = handle.element.getBoundingClientRect().height;
+        const hydratedMetadataText = String(
+          document.querySelector('.rpid-wrapper')?.textContent || '',
+        )
+          .replace(/\s+/g, ' ')
+          .trim();
+        const hydratedLoadingEllipses = document.querySelectorAll('.loading-ellipsis').length;
+        const loadingCopy = String(tree?.textContent || '').includes('Loading transaction details');
+        const hasIndicatorArrow = !!hydratedOperation?.querySelector(':scope > summary .chevron');
+        const openedAfterHydration = hydratedOperation?.open === true;
+        const usedOpeningAnimation = !!hydratedOperation
+          ?.querySelector(':scope > .folder-children')
+          ?.classList.contains('anim-h');
+
+        handle.close(true);
+        return {
+          hasInitialTree: !!initialTree,
+          initialOperationOpen: initialOperation?.open === true,
+          initialMetadataText,
+          initialLoadingEllipses,
+          initialEllipsisAnimation,
+          preservedOperation: initialOperation === hydratedOperation,
+          hasHydratedOperation: !!hydratedOperation,
+          hydratedMetadataText,
+          hydratedLoadingEllipses,
+          modalHeightShift: Math.abs(hydratedModalHeight - initialModalHeight),
+          hasIndicatorArrow,
+          loadingCopy,
+          openedAfterHydration,
+          usedOpeningAnimation,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.hasInitialTree).toBe(true);
+    expect(result.initialOperationOpen).toBe(true);
+    expect(result.initialMetadataText).not.toContain('staging.sign.seams.sh');
+    expect(result.initialMetadataText).not.toContain('EVM | ChainID: 42431');
+    expect(result.initialLoadingEllipses).toBe(2);
+    expect(result.initialEllipsisAnimation).toBe('loading-ellipsis-pulse');
+    expect(result.preservedOperation).toBe(true);
+    expect(result.hasHydratedOperation).toBe(true);
+    expect(result.hydratedMetadataText).toContain('staging.sign.seams.sh');
+    expect(result.hydratedMetadataText).toContain('EVM | ChainID: 42431');
+    expect(result.hydratedLoadingEllipses).toBe(0);
+    expect(result.modalHeightShift).toBeLessThan(1);
+    expect(result.hasIndicatorArrow).toBe(false);
+    expect(result.loadingCopy).toBe(false);
+    expect(result.openedAfterHydration).toBe(true);
+    expect(result.usedOpeningAnimation).toBe(false);
+  });
+
   test('host modal: passkey registration renders identity details without transaction tree', async ({
     page,
   }) => {

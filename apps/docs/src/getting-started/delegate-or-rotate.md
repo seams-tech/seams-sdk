@@ -1,24 +1,25 @@
 ---
-title: Delegate Or Rotate
+title: Delegate or rotate
+description: Add devices or agents, export a key, refresh custody shares, or rotate a wallet under explicit policy.
 ---
 
-# Delegate Or Rotate
+# Delegate or rotate
 
 Wallet delegation and rotation change who can participate in signing, how
 shares are protected, or which key version is active.
 
-## Common Operations
+## Common operations
 
-| Operation | Result |
-| --- | --- |
-| Linked device | Adds a user-controlled device with its own wallet lane and audit history. |
-| Delegated agent | Issues a policy-bound wallet lane for an agent or service. |
-| Lane share refresh | Changes holder and server lane shares while preserving the wallet address. |
-| Server custody rotation | Moves server-side custody to a new envelope or role configuration. |
-| Export | Releases key material through a freshly authorized export flow. |
-| Wallet rekey | Creates a new wallet key version and usually a new address. |
+| Operation               | Result                                                                     |
+| ----------------------- | -------------------------------------------------------------------------- |
+| Linked device           | Adds a user-controlled device with its own wallet lane and audit history.  |
+| Delegated agent         | Issues a policy-bound wallet lane for an agent or service.                 |
+| Lane share refresh      | Changes holder and server lane shares while preserving the wallet address. |
+| Server custody rotation | Moves server-side custody to a new envelope or role configuration.         |
+| Export                  | Releases key material through a freshly authorized export flow.            |
+| Wallet rekey            | Creates a new wallet key version and usually a new address.                |
 
-## Flow Shape
+## Flow shape
 
 ```mermaid
 flowchart TD
@@ -33,109 +34,47 @@ flowchart TD
 Delegated lanes and refreshed lanes must pass the same Router admission checks
 as normal signing. Revoked lanes fail before SigningWorker participation.
 
-## Wallet-First Rule
+## Wallet-first rule
 
 Treat wallet delegation as the first advanced capability. Once linked-device
 and delegated-agent wallet lanes are understood, the same model can express
 access passes and non-wallet credentials.
 
-## Link A Device
+## Link a device
 
 Device 2 starts the link session and displays the QR code.
 
-```tsx
-import * as React from 'react';
-import { useSeams } from '@seams/sdk/react';
-
-export function NewDeviceLinkCode() {
-  const { startDevice2LinkingFlow, stopDevice2LinkingFlow } = useSeams();
-  const [qrCodeDataURL, setQrCodeDataURL] = React.useState<string | null>(null);
-
-  async function start() {
-    const link = await startDevice2LinkingFlow();
-    setQrCodeDataURL(link.qrCodeDataURL);
-  }
-
-  React.useEffect(() => {
-    return () => {
-      void stopDevice2LinkingFlow();
-    };
-  }, [stopDevice2LinkingFlow]);
-
-  return (
-    <>
-      <button onClick={start}>Show link code</button>
-      {qrCodeDataURL ? <img src={qrCodeDataURL} alt="Device link QR code" /> : null}
-    </>
-  );
-}
-```
+<<< ../examples/device-linking.tsx
 
 Device 1 scans the QR code and approves the new lane.
 
-```tsx
-import { QRScanMode, useDeviceLinking } from '@seams/sdk/react';
-import type { DeviceLinkingQRData } from '@seams/sdk/react';
+The same source includes the Device 1 scanner action. The linking hook reports
+errors through `onError`; it does not expose an `onDeviceLinked` callback.
 
-export function ApproveLinkedDevice(props: { qrData: DeviceLinkingQRData }) {
-  const { linkDevice } = useDeviceLinking({
-    onDeviceLinked: (result) => console.log('linked device', result),
-    onEvent: (event) => console.log(event.phase, event.status),
-  });
-
-  return (
-    <button onClick={() => linkDevice(props.qrData, QRScanMode.CAMERA)}>
-      Approve device
-    </button>
-  );
-}
-```
-
-## Export A Wallet Key
+## Export a wallet key
 
 Export is intentionally separate from normal signing. Use a fresh user action.
 
-```ts
-import { nearAccountRefFromAccountId } from '@seams/sdk/advanced';
+<<< ../examples/export-wallet.ts
 
-await seams.keys.exportKeypairWithUI({
-  kind: 'near',
-  nearAccount: nearAccountRefFromAccountId('alice.testnet'),
-  options: {
-    chain: 'near',
-    variant: 'drawer',
-    onEvent: (event) => console.log(event.phase, event.status),
-  },
-});
-```
+The export example resolves the exact lane before opening the viewer. Both
+curves use the wallet session, and Ed25519 additionally requires the NEAR
+account and material activation returned by lane resolution.
 
-For an EVM-family export, bind the request to the exact wallet session and
-chain target.
+## Recover a wallet account
 
-```ts
-import {
-  thresholdEcdsaChainTargetFromConfig,
-  walletSessionRefFromSession,
-} from '@seams/sdk/advanced';
+Recovery synchronization is wallet-scoped. The result exposes the wallet and
+resolved NEAR identity only on its successful branch.
 
-await seams.keys.exportKeypairWithUI({
-  kind: 'ecdsa',
-  walletSession: walletSessionRefFromSession({
-    walletId: 'alice.testnet',
-    userId: 'alice.testnet',
-  }),
-  chainTarget: thresholdEcdsaChainTargetFromConfig({
-    network: 'tempo-testnet',
-    rpcUrl: 'https://rpc.moderato.tempo.xyz',
-    explorerUrl: 'https://explore.testnet.tempo.xyz',
-    chainId: 42431,
-  }),
-  options: {
-    variant: 'drawer',
-    onEvent: (event) => console.log(event.phase, event.status),
-  },
-});
-```
+<<< ../examples/recovery.ts
+
+## Expected result and recovery
+
+Device linking creates a distinct, revocable credential. Export opens a fresh
+wallet-origin disclosure flow. Recovery synchronization returns the restored
+wallet and account identity only from its successful branch. Expire abandoned
+link sessions, request fresh authorization after cancellation, and never retry
+an export or rotation through an older session.
 
 Read next: [Delegation](/concepts/delegation/) and
 [Key Rotation](/concepts/delegation/key-rotation).

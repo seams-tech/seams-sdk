@@ -1,5 +1,6 @@
 ---
 title: VoiceID
+description: Treat VoiceID as a consented owner-presence signal within threshold signing and policy enforcement.
 ---
 
 # VoiceID
@@ -27,7 +28,7 @@ SDK transaction request
   -> normal Router A/B signing continuation
 ```
 
-## Policy Modes
+## Policy modes
 
 Direct capability grants are appropriate only for low-risk, one-use, intent-bound
 actions.

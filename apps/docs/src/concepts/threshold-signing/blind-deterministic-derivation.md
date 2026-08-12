@@ -1,8 +1,9 @@
 ---
-title: Blind Deterministic Key Derivation
+title: Blind deterministic key derivation
+description: Derive stable wallet identity through blind Router A/B ceremonies without exposing complete key material.
 ---
 
-# Blind Deterministic Key Derivation
+# Blind deterministic key derivation
 
 Router A/B with Streaming Yao is a key-ceremony architecture: a blind,
 deterministic, two-party key-derivation ceremony that feeds a threshold wallet.
@@ -18,17 +19,17 @@ One sentence version:
 > holds the joined seed or private key, while the key stays exportable and
 > recoverable from durable roots.
 
-## The Layered Model
+## The layered model
 
 The architecture is three cryptographic layers plus one crypto-free
 orchestration layer:
 
-| Layer | Mechanism | Role |
-| --- | --- | --- |
-| Custody | Additive secret sharing | The seed is defined as the sum of client and server contributions derived from durable roots. It is never assembled. Linear operations — share addition, blinding, refresh deltas — happen locally on shares with no interaction. |
-| Derivation | Fixed-function Yao 2PC | The single non-linear step (`SHA-512 -> clamp -> mod l`) is evaluated jointly by Deriver A and Deriver B on their shares. This step is forced by RFC 8032 export parity; it is the only reason a garbled circuit exists. |
-| Signing | 2-of-2 threshold signing | Outputs land as blinded scalar shares held by the client and the SigningWorker. All normal signing is client plus SigningWorker; Derivers never appear in the hot path. |
-| Orchestration | Router | Admission, authorization, replay protection, and envelope relay. Router carries only ciphertext, public metadata, and signed receipts. |
+| Layer         | Mechanism                | Role                                                                                                                                                                                                                              |
+| ------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Custody       | Additive secret sharing  | The seed is defined as the sum of client and server contributions derived from durable roots. It is never assembled. Linear operations — share addition, blinding, refresh deltas — happen locally on shares with no interaction. |
+| Derivation    | Fixed-function Yao 2PC   | The single non-linear step (`SHA-512 -> clamp -> mod l`) is evaluated jointly by Deriver A and Deriver B on their shares. This step is forced by RFC 8032 export parity; it is the only reason a garbled circuit exists.          |
+| Signing       | 2-of-2 threshold signing | Outputs land as blinded scalar shares held by the client and the SigningWorker. All normal signing is client plus SigningWorker; Derivers never appear in the hot path.                                                           |
+| Orchestration | Router                   | Admission, authorization, replay protection, and envelope relay. Router carries only ciphertext, public metadata, and signed receipts.                                                                                            |
 
 The distinctive structural move: the parties that compute the key (Derivers A
 and B) are disjoint from the parties that hold the key (client and
@@ -36,7 +37,7 @@ SigningWorker). The compute parties are ephemeral and blind — protocol-generat
 random output sharing means even the machines that evaluate the derivation
 never see what they derived.
 
-## How This Differs From Conventional Threshold Signers
+## How this differs from conventional threshold signers
 
 Ordinary threshold-wallet key generation runs an interactive DKG between the
 eventual key holders and samples a random, unrecoverable key. This architecture
@@ -79,7 +80,7 @@ administrative separation and release controls. TEEs remain available as
 optional defense-in-depth around the same protocol shape, not as a
 prerequisite.
 
-## Trust Boundaries
+## Trust boundaries
 
 The production target is privacy and correctness-with-abort against the Router
 plus at most one malicious Deriver:

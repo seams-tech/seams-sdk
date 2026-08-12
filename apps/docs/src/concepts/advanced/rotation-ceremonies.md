@@ -1,8 +1,9 @@
 ---
-title: Rotation Ceremonies
+title: Rotation ceremonies
+description: Understand envelope rewrap, custody-share refresh, signer rotation, and wallet rekey ceremonies.
 ---
 
-# Rotation Ceremonies
+# Rotation ceremonies
 
 Rotation ceremonies cover the protocol details behind envelope rewrap, custody
 rotation, lane share refresh, delegated lane revocation, and wallet rekey.

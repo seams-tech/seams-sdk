@@ -1,15 +1,16 @@
 ---
-title: Serverless Threshold Signing
+title: Serverless threshold signing
+description: Deploy self-hostable threshold wallet roles to serverless infrastructure with explicit operational boundaries.
 ---
 
-# Serverless Threshold Signing
+# Serverless threshold signing
 
 Seams provides self-hostable threshold embedded wallets that deploy to
 Cloudflare. It uses threshold signing and hidden-share derivation. Normal
 signing produces signature shares; no single runtime needs to assemble the
 canonical private key.
 
-## Signing Boundary
+## Signing boundary
 
 The ordinary signing path is share-based:
 
@@ -25,7 +26,7 @@ The canonical private key is not reconstructed in the wallet iframe, Router, or
 SigningWorker during normal signing. Export is a separate operation with fresh
 authorization, audit capture, and public-key parity checks.
 
-## Split-Role Derivation
+## Split-role derivation
 
 Ed25519 material is produced by Streaming Yao between Deriver A and Deriver B.
 ECDSA material uses strict threshold-PRF derivation and additive scalar shares.
@@ -42,7 +43,7 @@ underlying root material in one process. Deployments that need a stronger
 server runtime boundary can place sensitive roles inside TEEs while preserving
 the same threshold-signing model.
 
-## Cloudflare-Native Self-Hosting
+## Cloudflare-native self-hosting
 
 Seams is self-hostable and serverless-friendly. Teams can run split roles on
 Cloudflare Workers and Durable Objects with near-zero initial hosting cost and

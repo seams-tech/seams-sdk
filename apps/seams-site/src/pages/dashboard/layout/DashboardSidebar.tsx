@@ -384,7 +384,7 @@ export function DashboardSidebar({
               onClick={homeProps.onClick}
               aria-label="Seams home"
             >
-              <SeamsWordmark height={24} theme="light" />
+              <SeamsWordmark height={24} />
             </a>
           ) : null}
           {product ? <SidebarProductSwitcher {...product} /> : null}

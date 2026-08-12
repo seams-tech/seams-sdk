@@ -181,11 +181,25 @@ body:has(.h2-page) {
   background: color-mix(in srgb, var(--h2-bg) 92%, transparent);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--h2-line);
-  box-shadow: none;
+  box-shadow:
+    0 16px 36px -22px color-mix(in srgb, var(--navbar-shadow-color) 52%, transparent),
+    0 4px 12px -8px color-mix(in srgb, var(--navbar-shadow-color) 34%, transparent);
 }
 
 .h2-page .navbar-static:not(.navbar-static--compact) .navbar-static__pill {
   border-radius: 9999px;
+}
+
+.h2-page .navbar-static--compact {
+  top: 0.5rem;
+}
+
+.h2-page .navbar-static--compact .navbar-static__shell,
+.h2-page .navbar-static--compact .navbar-static__shell.is-scrolled {
+  box-shadow:
+    0 16px 36px -20px color-mix(in srgb, var(--navbar-shadow-color) 56%, transparent),
+    0 4px 12px -7px color-mix(in srgb, var(--navbar-shadow-color) 34%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--navbar-border-hover) 50%, transparent);
 }
 
 /* The dropdown panel is content-width and self-anchored in Navbar.css; the
@@ -392,13 +406,17 @@ body:has(.h2-page) {
 /* Sage variant: the hero content sits on a rounded panel carrying an
    Andon-style sage gradient with light ink on top. */
 .h2-hero-simple--sage {
-  padding: 68px 0 16px;
+  padding: 2rem 0 1rem;
+}
+
+.h2-hero-simple.h2-hero-simple--sage {
+  padding-top: 2rem;
 }
 
 .h2-hero-simple--sage > .h2-shell {
   background: linear-gradient(160deg, #919690 0%, #c7d0cf 100%);
   border-radius: var(--h2-radius-card);
-  padding: 104px 56px 72px;
+  padding: 10rem 56px 72px;
 }
 
 .h2-hero-simple--sage .h2-hero-simple__title {
@@ -949,7 +967,6 @@ body:has(.h2-page) {
   font-size: var(--h2-text-lg);
   color: var(--h2-smoke);
 }
-
 
 /* Window anchored to the panel's bottom-right like the reference hero:
    inset from the left and top, bleeding past the column divider and the
@@ -1846,19 +1863,9 @@ body:has(.h2-page) {
   height: var(--h2-demo-fixed-height);
 }
 
-.h2-hero__demo .h2-themeswitch {
+.h2-hero__demo .h2-shapeswitch {
   justify-content: center;
   margin-top: 14px;
-}
-
-/* corners toggle: rides directly under the theme pills */
-.h2-hero__demo .h2-themeswitch--shape {
-  margin-top: 9px;
-}
-
-/* no swatch in these pills, so even out the swatch-side padding */
-.h2-themeswitch--shape .h2-themeswitch__btn {
-  padding: 5px 13px;
 }
 
 .h2-page--wallet .passkey-demo {
@@ -1899,8 +1906,7 @@ body:has(.h2-page) {
   align-items: center;
 }
 
-/* demo theme switcher (light / dark / solarized) */
-.h2-themeswitch {
+.h2-shapeswitch {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -1908,7 +1914,7 @@ body:has(.h2-page) {
   margin-top: 26px;
 }
 
-.h2-themeswitch__label {
+.h2-shapeswitch__label {
   margin-right: 4px;
   font-family: var(--h2-mono);
   font-size: var(--h2-text-xs);
@@ -1918,11 +1924,11 @@ body:has(.h2-page) {
   color: var(--h2-ash);
 }
 
-.h2-themeswitch__btn {
+.h2-shapeswitch__btn {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 5px 13px 5px 7px;
+  padding: 5px 13px;
   border-radius: 9999px;
   border: 1px solid var(--h2-stone);
   background: var(--h2-bg);
@@ -1937,23 +1943,15 @@ body:has(.h2-page) {
     background-color 150ms ease;
 }
 
-.h2-themeswitch__btn:hover {
+.h2-shapeswitch__btn:hover {
   color: var(--h2-ink);
   border-color: var(--h2-ash);
 }
 
-.h2-themeswitch__btn.is-active {
+.h2-shapeswitch__btn.is-active {
   color: var(--h2-ink);
   border-color: var(--h2-ink);
   background: var(--h2-taupe);
-}
-
-.h2-themeswitch__swatch {
-  width: 14px;
-  height: 14px;
-  border-radius: 9999px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.6);
 }
 
 /* Carousel pager: chevron circles flanking a dot pill. Positioned at the split
@@ -2263,7 +2261,9 @@ body:has(.h2-page) {
   color: var(--h2-ash);
   text-align: left;
   cursor: pointer;
-  transition: color 150ms ease, background-color 150ms ease;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
 }
 
 .h2-pillar:hover {
@@ -2713,19 +2713,30 @@ body:has(.h2-page) {
 /* Each cover crops its fabric differently: full field, zoomed weave, corner
    drift, so the three cards don't read as one repeated treatment. */
 .h2-case__cover--ops {
-  background-image: url('/gradients/web/sky-sand.jpg');
+  background-image:
+    url('/gradients/web/sky-sand.jpg'),
+    linear-gradient(135deg, #247fc4 0%, #67bdd4 42%, #efbd71 72%, #c66c54 100%);
+  background-size: cover, cover;
 }
 
 .h2-case__cover--staff {
-  background-image: url('/gradients/web/cyan-lime.jpg');
-  background-size: 165%;
-  background-position: 22% 38%;
+  background-image:
+    url('/gradients/web/cyan-lime.jpg'),
+    linear-gradient(135deg, #117a96 0%, #298b72 44%, #85b938 72%, #d3e967 100%);
+  background-size: 165%, cover;
+  background-position:
+    22% 38%,
+    center;
 }
 
 .h2-case__cover--checkout {
-  background-image: url('/gradients/web/dusk-blue-mauve.jpg');
-  background-size: 140%;
-  background-position: 85% 82%;
+  background-image:
+    url('/gradients/web/dusk-blue-mauve.jpg'),
+    linear-gradient(135deg, #103e70 0%, #26375b 50%, #796174 74%, #df9870 100%);
+  background-size: 140%, cover;
+  background-position:
+    85% 82%,
+    center;
 }
 
 .h2-case__title {
@@ -3175,7 +3186,6 @@ body:has(.h2-page) {
 .h2-footer__bottom {
   margin-top: 40px;
   padding-top: 18px;
-  border-top: 1px solid var(--h2-stone);
   display: flex;
   align-items: center;
   justify-content: space-between;

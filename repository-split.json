@@ -15,7 +15,6 @@
         ".cargo",
         "apps/docs",
         "benchmarks",
-        "clients",
         "crates",
         "examples/self-host-cloudflare-worker",
         "justfile",

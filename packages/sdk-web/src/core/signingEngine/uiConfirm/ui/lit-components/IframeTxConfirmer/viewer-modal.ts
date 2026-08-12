@@ -188,12 +188,17 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
     return blockHeight ? `block ${blockHeight}` : '';
   }
 
+  private _rpIdText(): string {
+    return String(this.securityContext?.rpId || '').trim() || 'loading...';
+  }
+
   private _isSecurityDetailsLoading(): boolean {
+    if (this.loading) return true;
     const chainId = String(this.model?.chainId || '').trim();
     if (chainId) return false;
     const blockHeight = String(this.securityContext?.blockHeight || '').trim();
     const submittingTransaction = isNearSigningProgressNotice(String(this.body || ''));
-    return (this.loading || submittingTransaction) && !blockHeight;
+    return submittingTransaction && !blockHeight;
   }
 
   private _isEmailOtpMode(): boolean {
@@ -693,19 +698,26 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
                         <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
                         <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                       </svg>
-                      ${this.securityContext?.rpId
-                        ? html`<span class="domain-text">${this.securityContext.rpId}</span>`
-                        : ''}
+                      ${this.loading
+                        ? html`
+                            <span class="loading-ellipsis" aria-hidden="true">
+                              <span class="loading-ellipsis__dot">.</span>
+                              <span class="loading-ellipsis__dot">.</span>
+                              <span class="loading-ellipsis__dot">.</span>
+                            </span>
+                            <span class="sr-only" role="status">Loading website</span>
+                          `
+                        : html`<span class="domain-text">${this._rpIdText()}</span>`}
                     </div>
                     <span class="security-details">
                       ${securityDetailsLoading
                         ? html`
-                            <span
-                              class="loading-indicator security-loading-indicator"
-                              role="progressbar"
-                              aria-label="Loading block height"
-                            ></span>
-                            <span>Loading block...</span>
+                            <span class="loading-ellipsis" aria-hidden="true">
+                              <span class="loading-ellipsis__dot">.</span>
+                              <span class="loading-ellipsis__dot">.</span>
+                              <span class="loading-ellipsis__dot">.</span>
+                            </span>
+                            <span class="sr-only" role="status">Loading chain details</span>
                           `
                         : html`
                             <svg

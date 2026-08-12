@@ -1,8 +1,9 @@
 ---
-title: Wallet Infrastructure Comparison
+title: Wallet infrastructure comparison
+description: Compare wallet infrastructure by control, custody, cost, deployment, recovery, and operational responsibility.
 ---
 
-# Wallet Infrastructure Comparison
+# Wallet infrastructure comparison
 
 Wallet infrastructure choices differ on control, cost shape, deployment
 burden, and security boundary. Seams provides self-hostable threshold embedded
@@ -12,13 +13,13 @@ user experience while keeping the wallet infrastructure self-hostable.
 
 ## Comparison
 
-| Model | Best fit | Main tradeoff |
-| --- | --- | --- |
-| Hosted wallet SaaS | Teams that want provider-operated wallet infrastructure and accept provider dependency. | The wallet stack, pricing model, and roadmap stay tied to the vendor. |
-| Self-hosted TEE wallet stack | Teams that can operate confidential-compute infrastructure correctly. | Security depends on enclave image, attestation, KMS, rollout, and regional availability operations. |
-| Seams SDK | Teams that want self-hostable threshold embedded wallets with a low-friction Cloudflare deployment path. | Normal signing uses MPC/threshold flows, so latency is higher than single-runtime signing. |
+| Model                        | Best fit                                                                                                 | Main tradeoff                                                                                       |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Hosted wallet SaaS           | Teams that want provider-operated wallet infrastructure and accept provider dependency.                  | The wallet stack, pricing model, and roadmap stay tied to the vendor.                               |
+| Self-hosted TEE wallet stack | Teams that can operate confidential-compute infrastructure correctly.                                    | Security depends on enclave image, attestation, KMS, rollout, and regional availability operations. |
+| Seams SDK                    | Teams that want self-hostable threshold embedded wallets with a low-friction Cloudflare deployment path. | Normal signing uses MPC/threshold flows, so latency is higher than single-runtime signing.          |
 
-## Hosted Wallet Clouds
+## Hosted wallet clouds
 
 Hosted wallet providers such as
 [Privy](https://www.privy.io/pricing) and
@@ -35,7 +36,7 @@ That is a real product advantage. It also means:
 Choose this model when vendor operation matters more than infrastructure
 control.
 
-## Self-Hosted TEE Stacks
+## Self-hosted TEE stacks
 
 TEE-based wallets can provide a strong server-side isolation story. The cost is
 operational complexity.
@@ -53,7 +54,7 @@ That can be appropriate for teams with mature infrastructure and security
 operations. It is easy to underestimate the work required to keep the security
 claim true after deployment.
 
-## Seams Model
+## Seams model
 
 Seams uses threshold signing and hidden-share derivation. Normal signing
 produces signature shares; no single runtime needs to assemble the canonical
@@ -68,7 +69,7 @@ Seams is self-hostable and serverless-friendly:
 - scale by sharding wallets, sessions, signing roots, and worker roles;
 - preserve the same wallet architecture as deployments harden.
 
-## Hardening Path
+## Hardening path
 
 The default path is intentionally simple:
 
