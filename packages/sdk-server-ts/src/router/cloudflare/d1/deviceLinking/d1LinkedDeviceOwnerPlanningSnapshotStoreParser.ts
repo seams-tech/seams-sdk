@@ -66,8 +66,6 @@ export function parseLinkedDeviceOwnerSourceChildResolutionV1(
         'nearEd25519SigningKeyId',
         'keyCreationSignerSlot',
         'stableContextBindingB64u',
-        'yaoSuiteId',
-        'circuitDigestB64u',
       ],
       label,
     );
@@ -81,8 +79,6 @@ export function parseLinkedDeviceOwnerSourceChildResolutionV1(
         value.stableContextBindingB64u,
         `${label}.stableContextBindingB64u`,
       ),
-      yaoSuiteId: parseRequired(parseEd25519YaoSuiteId(value.yaoSuiteId), `${label}.yaoSuiteId`),
-      circuitDigestB64u: parseDigest(value.circuitDigestB64u, `${label}.circuitDigestB64u`),
     };
   }
   const value = exactRecord(
@@ -98,7 +94,6 @@ export function parseLinkedDeviceOwnerSourceChildResolutionV1(
       'sourceCapability',
       'sourceHolderVerifyingShare33B64u',
       'sourceServerVerifyingShare33B64u',
-      'reshareChannelBindingDigestB64u',
     ],
     label,
   );
@@ -117,10 +112,6 @@ export function parseLinkedDeviceOwnerSourceChildResolutionV1(
     ),
     sourceServerVerifyingShare33B64u: parseSecp256k1CompressedPublicKeyB64u(
       value.sourceServerVerifyingShare33B64u,
-    ),
-    reshareChannelBindingDigestB64u: parseDigest(
-      value.reshareChannelBindingDigestB64u,
-      `${label}.reshareChannelBindingDigestB64u`,
     ),
   };
 }
@@ -176,6 +167,8 @@ export function parseLinkedDeviceTargetEnrichedChildResolutionV1(
       keyFamily: 'ed25519',
       targetHolderParticipantId,
       targetSigningWorker,
+      yaoSuiteId: parseRequired(parseEd25519YaoSuiteId(record.yaoSuiteId), `${label}.yaoSuiteId`),
+      circuitDigestB64u: parseDigest(record.circuitDigestB64u, `${label}.circuitDigestB64u`),
     };
   }
   const value = exactRecord(
@@ -207,6 +200,10 @@ export function parseLinkedDeviceTargetEnrichedChildResolutionV1(
       value.targetCapability,
       `${label}.targetCapability`,
     ),
+    reshareChannelBindingDigestB64u: parseDigest(
+      value.reshareChannelBindingDigestB64u,
+      `${label}.reshareChannelBindingDigestB64u`,
+    ),
   };
 }
 
@@ -222,8 +219,6 @@ function sourceRecordForTargetEnrichment(record: Record<string, unknown>): Recor
       nearEd25519SigningKeyId: record.nearEd25519SigningKeyId,
       keyCreationSignerSlot: record.keyCreationSignerSlot,
       stableContextBindingB64u: record.stableContextBindingB64u,
-      yaoSuiteId: record.yaoSuiteId,
-      circuitDigestB64u: record.circuitDigestB64u,
     };
   }
   return {
@@ -237,7 +232,6 @@ function sourceRecordForTargetEnrichment(record: Record<string, unknown>): Recor
     sourceCapability: record.sourceCapability,
     sourceHolderVerifyingShare33B64u: record.sourceHolderVerifyingShare33B64u,
     sourceServerVerifyingShare33B64u: record.sourceServerVerifyingShare33B64u,
-    reshareChannelBindingDigestB64u: record.reshareChannelBindingDigestB64u,
   };
 }
 

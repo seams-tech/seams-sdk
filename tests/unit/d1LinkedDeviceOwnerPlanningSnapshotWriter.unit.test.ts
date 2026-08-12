@@ -178,8 +178,6 @@ function deploymentChild(
       ...common,
       keyFamily,
       stableContextBindingB64u: String(digest),
-      yaoSuiteId: targetJob.yaoSuiteId,
-      circuitDigestB64u: digest,
     };
   }
   if (keyFamily === 'ecdsa_secp256k1' && targetJob.keyFamily === 'ecdsa_secp256k1') {
@@ -189,7 +187,6 @@ function deploymentChild(
       sourceCapability: targetJob.sourceCapability,
       sourceHolderVerifyingShare33B64u: targetJob.sourceHolderVerifyingShare33B64u,
       sourceServerVerifyingShare33B64u: targetJob.sourceServerVerifyingShare33B64u,
-      reshareChannelBindingDigestB64u: targetJob.reshareChannelBindingDigestB64u,
     };
   }
   throw new Error('deployment child fixture family mismatch');

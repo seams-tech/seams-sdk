@@ -132,9 +132,7 @@ function assertEd25519JobMatchesPlanV1(
     child.registeredPublicKeyB64u !== job.registeredPublicKeyB64u ||
     child.nearEd25519SigningKeyId !== job.nearEd25519SigningKeyId ||
     child.keyCreationSignerSlot !== job.keyCreationSignerSlot ||
-    child.stableContextBindingB64u !== job.stableContextBindingB64u ||
-    child.yaoSuiteId !== job.yaoSuiteId ||
-    child.circuitDigestB64u !== job.circuitDigestB64u
+    child.stableContextBindingB64u !== job.stableContextBindingB64u
   ) {
     throw new Error('linked-device Ed25519 lane job differs from the persisted owner plan');
   }
@@ -150,8 +148,7 @@ function assertEcdsaJobMatchesPlanV1(
     child.evmAddress !== job.evmAddress ||
     alphabetizeStringify(child.sourceCapability) !== alphabetizeStringify(job.sourceCapability) ||
     child.sourceHolderVerifyingShare33B64u !== job.sourceHolderVerifyingShare33B64u ||
-    child.sourceServerVerifyingShare33B64u !== job.sourceServerVerifyingShare33B64u ||
-    child.reshareChannelBindingDigestB64u !== job.reshareChannelBindingDigestB64u
+    child.sourceServerVerifyingShare33B64u !== job.sourceServerVerifyingShare33B64u
   ) {
     throw new Error('linked-device ECDSA lane job differs from the persisted owner plan');
   }

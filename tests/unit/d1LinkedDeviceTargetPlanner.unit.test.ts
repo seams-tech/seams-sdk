@@ -75,6 +75,7 @@ async function targetDescriptorProviderV1(sourceJobs: readonly RotatableSigningL
               issuedAtMs: input.issuedAtMs,
               expiresAtMs: input.expiresAtMs,
               targetCapability: sourceJob.targetCapability,
+              reshareChannelBindingDigestB64u: sourceJob.reshareChannelBindingDigestB64u,
             };
       return buildLinkedDeviceTargetDeploymentDescriptorV1({
         ...unsigned,
@@ -108,8 +109,6 @@ test('creates exact R102 target jobs from owner source resolution', async () => 
       nearEd25519SigningKeyId: sourceJob.nearEd25519SigningKeyId,
       keyCreationSignerSlot: sourceJob.keyCreationSignerSlot,
       stableContextBindingB64u: sourceJob.stableContextBindingB64u,
-      yaoSuiteId: sourceJob.yaoSuiteId,
-      circuitDigestB64u: sourceJob.circuitDigestB64u,
     }),
   });
   const credential: VerifiedLinkedDeviceWebAuthnCredentialV1 = {
@@ -162,8 +161,6 @@ test('rejects target commit when the authenticated descriptor is missing', async
       nearEd25519SigningKeyId: sourceJob.nearEd25519SigningKeyId,
       keyCreationSignerSlot: sourceJob.keyCreationSignerSlot,
       stableContextBindingB64u: sourceJob.stableContextBindingB64u,
-      yaoSuiteId: sourceJob.yaoSuiteId,
-      circuitDigestB64u: sourceJob.circuitDigestB64u,
     }),
   });
   const credential: VerifiedLinkedDeviceWebAuthnCredentialV1 = {
@@ -214,15 +211,12 @@ test('creates exact mixed Ed25519 and ECDSA target jobs from source-only owner f
           nearEd25519SigningKeyId: sourceJob.nearEd25519SigningKeyId,
           keyCreationSignerSlot: sourceJob.keyCreationSignerSlot,
           stableContextBindingB64u: sourceJob.stableContextBindingB64u,
-          yaoSuiteId: sourceJob.yaoSuiteId,
-          circuitDigestB64u: sourceJob.circuitDigestB64u,
         };
       }
       return {
         keyFamily: 'ecdsa_secp256k1' as const,
         walletKeyId: sourceJob.walletKeyId,
         source: sourceJob.source,
-        targetCapability: sourceJob.targetCapability,
         authorization,
         evmFamilySigningKeySlotId: sourceJob.evmFamilySigningKeySlotId,
         thresholdPublicKey33B64u: sourceJob.thresholdPublicKey33B64u,
@@ -230,7 +224,6 @@ test('creates exact mixed Ed25519 and ECDSA target jobs from source-only owner f
         sourceCapability: sourceJob.sourceCapability,
         sourceHolderVerifyingShare33B64u: sourceJob.sourceHolderVerifyingShare33B64u,
         sourceServerVerifyingShare33B64u: sourceJob.sourceServerVerifyingShare33B64u,
-        reshareChannelBindingDigestB64u: sourceJob.reshareChannelBindingDigestB64u,
       };
     },
   });
