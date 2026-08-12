@@ -7,12 +7,7 @@ import {
   parseQrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking/parsers';
 import { parseAuthorizedOperationId } from '@shared/authorization/capabilityKinds';
-import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
-import type {
-  EcdsaSourceCapabilityBindingV1,
-  OwnerLaneProtocolSourceV1,
-} from '@shared/signing-lanes/rotation';
-import type { Ed25519YaoSuiteId } from '@shared/signing-lanes/ids';
+import type { EcdsaSourceCapabilityBindingV1 } from '@shared/signing-lanes/rotation';
 import type { WalletId } from '@shared/utils/domainIds';
 import type {
   ActiveOwnerWalletExecutionLaneProjection,
@@ -38,15 +33,12 @@ export type D1LinkedDeviceOwnerPlanningDeploymentChildV1 =
   | (DeploymentChildBaseV1 & {
       readonly keyFamily: 'ed25519';
       readonly stableContextBindingB64u: string;
-      readonly yaoSuiteId: Ed25519YaoSuiteId;
-      readonly circuitDigestB64u: DigestB64u;
     })
   | (DeploymentChildBaseV1 & {
       readonly keyFamily: 'ecdsa_secp256k1';
       readonly sourceCapability: EcdsaSourceCapabilityBindingV1;
       readonly sourceHolderVerifyingShare33B64u: string;
       readonly sourceServerVerifyingShare33B64u: string;
-      readonly reshareChannelBindingDigestB64u: DigestB64u;
     });
 
 export type D1LinkedDeviceOwnerPlanningDeploymentPlanV1 = {
@@ -209,7 +201,7 @@ function buildSnapshotInput(input: {
       ownerParticipantContinuity: projection.lane.ownerParticipantContinuity,
       participantBindingDigestB64u: projection.lane.participantBindingDigestB64u,
       materialActivation: projection.materialActivation,
-    } satisfies OwnerLaneProtocolSourceV1;
+    };
     const common = {
       walletKeyId: projection.walletKey.walletKeyId,
       source,
@@ -226,8 +218,6 @@ function buildSnapshotInput(input: {
         nearEd25519SigningKeyId: projection.walletKey.nearEd25519SigningKeyId,
         keyCreationSignerSlot: projection.walletKey.keyCreationSignerSlot,
         stableContextBindingB64u: deploymentChild.stableContextBindingB64u,
-        yaoSuiteId: deploymentChild.yaoSuiteId,
-        circuitDigestB64u: deploymentChild.circuitDigestB64u,
       } satisfies Extract<LinkedDeviceOwnerSourceChildResolutionV1, { keyFamily: 'ed25519' }>;
     }
     if (projection.walletKey.keyFamily !== 'ecdsa_secp256k1') {
@@ -242,7 +232,6 @@ function buildSnapshotInput(input: {
       sourceCapability: deploymentChild.sourceCapability,
       sourceHolderVerifyingShare33B64u: deploymentChild.sourceHolderVerifyingShare33B64u,
       sourceServerVerifyingShare33B64u: deploymentChild.sourceServerVerifyingShare33B64u,
-      reshareChannelBindingDigestB64u: deploymentChild.reshareChannelBindingDigestB64u,
     } satisfies Extract<LinkedDeviceOwnerSourceChildResolutionV1, { keyFamily: 'ecdsa_secp256k1' }>;
   });
   return {

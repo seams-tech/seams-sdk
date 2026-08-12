@@ -84,38 +84,42 @@ type LinkedDeviceOwnerSourceChildResolutionBaseV1 = {
 /** Facts authenticated from Device 1's owner lane projection. Target
  * participant and capability material is intentionally absent until Device 2
  * returns its credential and holder registration. */
+type LinkedDeviceOwnerEd25519SourceChildResolutionV1 =
+  LinkedDeviceOwnerSourceChildResolutionBaseV1 & {
+    readonly keyFamily: 'ed25519';
+    readonly registeredPublicKeyB64u: string;
+    readonly nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+    readonly keyCreationSignerSlot: KeyCreationSignerSlot;
+    readonly stableContextBindingB64u: string;
+  };
+
+type LinkedDeviceOwnerEcdsaSourceChildResolutionV1 =
+  LinkedDeviceOwnerSourceChildResolutionBaseV1 & {
+    readonly keyFamily: 'ecdsa_secp256k1';
+    readonly evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
+    readonly thresholdPublicKey33B64u: string;
+    readonly evmAddress: string;
+    readonly sourceCapability: EcdsaSourceCapabilityBindingV1;
+    readonly sourceHolderVerifyingShare33B64u: string;
+    readonly sourceServerVerifyingShare33B64u: string;
+  };
+
 export type LinkedDeviceOwnerSourceChildResolutionV1 =
-  | (LinkedDeviceOwnerSourceChildResolutionBaseV1 & {
-      readonly keyFamily: 'ed25519';
-      readonly registeredPublicKeyB64u: string;
-      readonly nearEd25519SigningKeyId: NearEd25519SigningKeyId;
-      readonly keyCreationSignerSlot: KeyCreationSignerSlot;
-      readonly stableContextBindingB64u: string;
+  | LinkedDeviceOwnerEd25519SourceChildResolutionV1
+  | LinkedDeviceOwnerEcdsaSourceChildResolutionV1;
+
+export type LinkedDeviceTargetEnrichedChildResolutionV1 =
+  | (LinkedDeviceOwnerEd25519SourceChildResolutionV1 & {
+      readonly targetHolderParticipantId: LaneHolderParticipantId;
+      readonly targetSigningWorker: LaneTargetSigningWorkerV1;
       readonly yaoSuiteId: Ed25519YaoSuiteId;
       readonly circuitDigestB64u: string;
     })
-  | (LinkedDeviceOwnerSourceChildResolutionBaseV1 & {
-      readonly keyFamily: 'ecdsa_secp256k1';
-      readonly evmFamilySigningKeySlotId: EvmFamilySigningKeySlotId;
-      readonly thresholdPublicKey33B64u: string;
-      readonly evmAddress: string;
-      readonly sourceCapability: EcdsaSourceCapabilityBindingV1;
-      readonly sourceHolderVerifyingShare33B64u: string;
-      readonly sourceServerVerifyingShare33B64u: string;
-      readonly reshareChannelBindingDigestB64u: string;
-    });
-
-export type LinkedDeviceTargetEnrichedChildResolutionV1 =
-  | (LinkedDeviceOwnerSourceChildResolutionV1 & {
-      readonly keyFamily: 'ed25519';
-      readonly targetHolderParticipantId: LaneHolderParticipantId;
-      readonly targetSigningWorker: LaneTargetSigningWorkerV1;
-    })
-  | (LinkedDeviceOwnerSourceChildResolutionV1 & {
-      readonly keyFamily: 'ecdsa_secp256k1';
+  | (LinkedDeviceOwnerEcdsaSourceChildResolutionV1 & {
       readonly targetHolderParticipantId: LaneHolderParticipantId;
       readonly targetSigningWorker: LaneTargetSigningWorkerV1;
       readonly targetCapability: EcdsaTargetCapabilityBindingV1;
+      readonly reshareChannelBindingDigestB64u: string;
     });
 
 export type LinkedDeviceTargetPreparationResolutionV1 = LinkedDeviceOwnerSourceChildResolutionV1;
@@ -513,6 +517,7 @@ function enrichSourceResolution(
     targetHolderParticipantId: descriptor.targetHolderParticipantId,
     targetSigningWorker: descriptor.targetSigningWorker,
     targetCapability: descriptor.targetCapability,
+    reshareChannelBindingDigestB64u: descriptor.reshareChannelBindingDigestB64u,
   };
 }
 

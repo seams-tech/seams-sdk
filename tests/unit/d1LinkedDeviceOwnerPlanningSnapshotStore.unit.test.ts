@@ -181,18 +181,15 @@ function sourceChild(
   const common = {
     walletKeyId: projectionValue.walletKey.walletKeyId,
     source: {
+      sourceKind: 'owner_registration',
       laneId: projectionValue.lane.laneId,
       laneKind: projectionValue.lane.laneKind,
       laneShareEpoch: projectionValue.lane.laneShareEpoch,
       revocationEpoch: projectionValue.lane.lifecycle.revocationEpoch,
-      holderParticipantId: `holder:source:${label}`,
-      signingWorkerParticipantId: `worker:source:${label}`,
-      signingWorkerRecipientKeyId: `worker-key:source:${label}`,
+      ownerParticipantContinuity: projectionValue.lane.ownerParticipantContinuity,
       participantBindingDigestB64u: projectionValue.lane.participantBindingDigestB64u,
       materialActivation: projectionValue.materialActivation,
     },
-    targetHolderParticipantId: targetJob.targetHolder.participantId,
-    targetSigningWorker: targetJob.targetSigningWorker,
     authorization: {
       authorizedOperationId: operationId,
       idempotencyKey,
@@ -207,8 +204,6 @@ function sourceChild(
       nearEd25519SigningKeyId: projectionValue.walletKey.nearEd25519SigningKeyId,
       keyCreationSignerSlot: projectionValue.walletKey.keyCreationSignerSlot,
       stableContextBindingB64u: digest,
-      yaoSuiteId: targetJob.yaoSuiteId,
-      circuitDigestB64u: digest,
     };
   if (
     keyFamily === 'ecdsa_secp256k1' &&
@@ -222,10 +217,8 @@ function sourceChild(
       thresholdPublicKey33B64u: projectionValue.walletKey.thresholdPublicKey33B64u,
       evmAddress: projectionValue.walletKey.evmAddress,
       sourceCapability: targetJob.sourceCapability,
-      targetCapability: targetJob.targetCapability,
       sourceHolderVerifyingShare33B64u: targetJob.sourceHolderVerifyingShare33B64u,
       sourceServerVerifyingShare33B64u: targetJob.sourceServerVerifyingShare33B64u,
-      reshareChannelBindingDigestB64u: targetJob.reshareChannelBindingDigestB64u,
     };
   throw new Error('source child family mismatch');
 }
@@ -261,10 +254,11 @@ async function fixture(): Promise<{
         walletKeyId: ed.walletKey.walletKeyId,
         keyFamily: 'ed25519',
         sourceLaneId: ed.lane.laneId,
+        sourceLaneKind: ed.lane.laneKind,
+        sourceKind: 'owner_registration',
         sourceLaneShareEpoch: ed.lane.laneShareEpoch,
         sourceRevocationEpoch: 0,
-        sourceHolderParticipantId: edChild.source.holderParticipantId,
-        sourceSigningWorkerParticipantId: edChild.source.signingWorkerParticipantId,
+        ownerParticipantContinuity: edChild.source.ownerParticipantContinuity,
         targetLaneId: required(parseSigningLaneId(`lane:target:${'ed'}`)),
         targetLaneShareEpoch: required(parseLaneShareEpoch('epoch:target-ed')),
       },
@@ -272,10 +266,11 @@ async function fixture(): Promise<{
         walletKeyId: ecdsa.walletKey.walletKeyId,
         keyFamily: 'ecdsa_secp256k1',
         sourceLaneId: ecdsa.lane.laneId,
+        sourceLaneKind: ecdsa.lane.laneKind,
+        sourceKind: 'owner_registration',
         sourceLaneShareEpoch: ecdsa.lane.laneShareEpoch,
         sourceRevocationEpoch: 0,
-        sourceHolderParticipantId: ecdsaChild.source.holderParticipantId,
-        sourceSigningWorkerParticipantId: ecdsaChild.source.signingWorkerParticipantId,
+        ownerParticipantContinuity: ecdsaChild.source.ownerParticipantContinuity,
         targetLaneId: required(parseSigningLaneId('lane:target:ecdsa')),
         targetLaneShareEpoch: required(parseLaneShareEpoch('epoch:target-ecdsa')),
       },
@@ -362,9 +357,8 @@ function ed25519JobForSnapshot(snapshot: D1LinkedDeviceOwnerPlanningSnapshotInpu
     source: child.source,
     targetHolder: {
       ...template.targetHolder,
-      participantId: child.targetHolderParticipantId,
     },
-    targetSigningWorker: child.targetSigningWorker,
+    targetSigningWorker: template.targetSigningWorker,
     targetMaterialActivationId: template.targetMaterialActivationId,
     protocolVersion: 'rotatable_signing_lane_protocol_v1',
     expiresAtMs: snapshot.metadata.expiresAtMs,
@@ -385,8 +379,8 @@ function ed25519JobForSnapshot(snapshot: D1LinkedDeviceOwnerPlanningSnapshotInpu
     nearEd25519SigningKeyId: child.nearEd25519SigningKeyId,
     keyCreationSignerSlot: child.keyCreationSignerSlot,
     stableContextBindingB64u: child.stableContextBindingB64u,
-    yaoSuiteId: child.yaoSuiteId,
-    circuitDigestB64u: child.circuitDigestB64u,
+    yaoSuiteId: template.yaoSuiteId,
+    circuitDigestB64u: template.circuitDigestB64u,
     yaoRequestKind: 'lane_provisioning',
   });
 }
