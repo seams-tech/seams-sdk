@@ -39,11 +39,6 @@ import {
   parseWebAuthnRpId,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import {
-  parseLaneHolderParticipantId,
-  parseSigningWorkerParticipantId,
-  parseSigningWorkerRecipientKeyId,
-} from '../../packages/shared-ts/src/signing-lanes/participants';
-import {
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
@@ -175,20 +170,8 @@ function deploymentChild(
     keyFamily === 'ed25519'
       ? buildR102LaneJob(`writer-${label}`)
       : buildR102EcdsaLaneJob(`writer-${label}`);
-  const sourceHolderParticipantId = required(
-    parseLaneHolderParticipantId(`holder:source:writer:${label}`),
-  );
-  const sourceSigningWorkerParticipantId = required(
-    parseSigningWorkerParticipantId(`worker:source:writer:${label}`),
-  );
-  const sourceSigningWorkerRecipientKeyId = required(
-    parseSigningWorkerRecipientKeyId(`worker-key:source:writer:${label}`),
-  );
   const common = {
     keyFamily,
-    sourceHolderParticipantId,
-    sourceSigningWorkerParticipantId,
-    sourceSigningWorkerRecipientKeyId,
   } as const;
   if (keyFamily === 'ed25519' && targetJob.keyFamily === 'ed25519') {
     return {
@@ -225,30 +208,24 @@ test('projects mixed owner hints through D1 facts before writing the snapshot', 
       {
         walletKeyId: ed.walletKey.walletKeyId,
         keyFamily: 'ed25519' as const,
+        sourceKind: 'owner_registration' as const,
+        sourceLaneKind: ed.lane.laneKind,
         sourceLaneId: ed.lane.laneId,
         sourceLaneShareEpoch: ed.lane.laneShareEpoch,
         sourceRevocationEpoch: 0,
-        sourceHolderParticipantId: required(
-          parseLaneHolderParticipantId('holder:source:writer:ed'),
-        ),
-        sourceSigningWorkerParticipantId: required(
-          parseSigningWorkerParticipantId('worker:source:writer:ed'),
-        ),
+        ownerParticipantContinuity: ed.lane.ownerParticipantContinuity,
         targetLaneId: required(parseSigningLaneId('lane:target:writer:ed')),
         targetLaneShareEpoch: required(parseLaneShareEpoch('epoch:target:writer:ed')),
       },
       {
         walletKeyId: ecdsa.walletKey.walletKeyId,
         keyFamily: 'ecdsa_secp256k1' as const,
+        sourceKind: 'owner_registration' as const,
+        sourceLaneKind: ecdsa.lane.laneKind,
         sourceLaneId: ecdsa.lane.laneId,
         sourceLaneShareEpoch: ecdsa.lane.laneShareEpoch,
         sourceRevocationEpoch: 0,
-        sourceHolderParticipantId: required(
-          parseLaneHolderParticipantId('holder:source:writer:ecdsa'),
-        ),
-        sourceSigningWorkerParticipantId: required(
-          parseSigningWorkerParticipantId('worker:source:writer:ecdsa'),
-        ),
+        ownerParticipantContinuity: ecdsa.lane.ownerParticipantContinuity,
         targetLaneId: required(parseSigningLaneId('lane:target:writer:ecdsa')),
         targetLaneShareEpoch: required(parseLaneShareEpoch('epoch:target:writer:ecdsa')),
       },
