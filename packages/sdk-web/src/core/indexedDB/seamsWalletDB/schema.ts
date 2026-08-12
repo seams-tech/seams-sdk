@@ -5,7 +5,7 @@ import {
   type SeamsWalletStoreDefinition,
 } from '../schemaNames';
 
-export const PRODUCTION_SEAMS_WALLET_SCHEMA_VERSION = 1 as const;
+export const PRODUCTION_SEAMS_WALLET_SCHEMA_VERSION = 17 as const;
 
 export type SeamsWalletSchemaPolicy =
   | {
@@ -46,6 +46,19 @@ function keyPathForIndexedDB(keyPath: string | readonly string[]): string | stri
   return typeof keyPath === 'string' ? keyPath : [...keyPath];
 }
 
+type SeamsWalletSchemaUpgradeStore = {
+  readonly indexNames: { contains(name: string): boolean };
+  createIndex(
+    name: string,
+    keyPath: string | string[],
+    options?: IDBIndexParameters,
+  ): unknown;
+};
+
+type SeamsWalletSchemaUpgradeTransaction = {
+  objectStore(name: string): SeamsWalletSchemaUpgradeStore;
+};
+
 function createStore(
   db: IDBPDatabase | IDBDatabase,
   definition: SeamsWalletStoreDefinition,
@@ -60,6 +73,25 @@ function createStore(
   }
 }
 
+function createOrUpdateStore(
+  db: IDBPDatabase | IDBDatabase,
+  transaction: SeamsWalletSchemaUpgradeTransaction,
+  definition: SeamsWalletStoreDefinition,
+): void {
+  const store = db.objectStoreNames.contains(definition.store)
+    ? transaction.objectStore(definition.store)
+    : db.createObjectStore(definition.store, {
+        keyPath: keyPathForIndexedDB(definition.keyPath),
+      });
+
+  for (const index of definition.indexes) {
+    if (store.indexNames.contains(index.name)) continue;
+    store.createIndex(index.name, keyPathForIndexedDB(index.keyPath), {
+      unique: index.unique,
+    });
+  }
+}
+
 export function initializeSeamsWalletDBSchema(db: IDBPDatabase | IDBDatabase): void {
   for (const definition of SEAMS_WALLET_SCHEMA_MANIFEST) {
     createStore(db, definition);
@@ -69,10 +101,13 @@ export function initializeSeamsWalletDBSchema(db: IDBPDatabase | IDBDatabase): v
 export function applySeamsWalletDBSchemaUpgrade(
   db: IDBPDatabase | IDBDatabase,
   oldVersion: number,
+  transaction: SeamsWalletSchemaUpgradeTransaction,
 ): void {
   if (oldVersion === 0) {
     initializeSeamsWalletDBSchema(db);
     return;
   }
-  throw new Error(`No IndexedDB schema migration is registered from production v${oldVersion}`);
+  for (const definition of SEAMS_WALLET_SCHEMA_MANIFEST) {
+    createOrUpdateStore(db, transaction, definition);
+  }
 }
