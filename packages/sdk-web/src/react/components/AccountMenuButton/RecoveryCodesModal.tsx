@@ -23,7 +23,7 @@ function resetRecoveryCodesLoadState(state: RecoveryCodesLoadState): RecoveryCod
 function statusLabel(status: WalletRecoveryCodeStatusResult): string {
   switch (status.kind) {
     case 'ready':
-      return status.backupOutstanding ? 'Backup confirmation needed' : 'Backed up';
+      return status.pendingLocalBackup || status.backupOutstanding ? 'Backup needed' : 'Backed up';
     case 'no_recovery_set':
       return 'No recovery set';
     case 'unauthorized':
@@ -40,6 +40,9 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
 }) => {
   const { seams } = useSeams();
   const [loadState, setLoadState] = React.useState<RecoveryCodesLoadState>({ kind: 'idle' });
+  const [backupState, setBackupState] = React.useState<
+    { kind: 'idle' } | { kind: 'working' } | { kind: 'error'; message: string }
+  >({ kind: 'idle' });
   const loadStatusSeq = React.useRef(0);
   const { theme, tokens } = useTheme();
   const scopedTokens = React.useMemo(
@@ -82,10 +85,35 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
     if (!isOpen) {
       loadStatusSeq.current += 1;
       setLoadState(resetRecoveryCodesLoadState);
+      setBackupState({ kind: 'idle' });
       return;
     }
     void loadRecoveryCodeStatus();
   }, [isOpen, loadRecoveryCodeStatus]);
+
+  const finishPendingBackup = React.useCallback(async () => {
+    if (backupState.kind === 'working') return;
+    setBackupState({ kind: 'working' });
+    try {
+      const result = await seams.recovery.acknowledgeWalletRecoveryCodeBackup({ walletId });
+      switch (result.kind) {
+        case 'acknowledged':
+          setBackupState({ kind: 'idle' });
+          await loadRecoveryCodeStatus();
+          return;
+        case 'no_recovery_set':
+        case 'unauthorized':
+        case 'transport_failed':
+          setBackupState({ kind: 'error', message: result.message });
+          return;
+      }
+    } catch (error: unknown) {
+      setBackupState({
+        kind: 'error',
+        message: error instanceof Error ? error.message : 'Could not complete recovery-code backup',
+      });
+    }
+  }, [backupState.kind, loadRecoveryCodeStatus, seams.recovery, walletId]);
 
   if (!isOpen) return null;
   const status = loadState.kind === 'loaded' ? loadState.status : null;
@@ -126,7 +154,11 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
             <div className="w3a-recovery-codes-status-row">
               <span className="w3a-recovery-codes-status-label">Status</span>
               <span className="w3a-recovery-codes-status-value">
-                {status ? statusLabel(status) : loadState.kind === 'error' ? 'Could not load' : 'Loading'}
+                {status
+                  ? statusLabel(status)
+                  : loadState.kind === 'error'
+                    ? 'Could not load'
+                    : 'Loading'}
               </span>
             </div>
             {status?.kind === 'ready' ? (
@@ -137,12 +169,30 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
                     {status.activeCodeCount} / {status.totalCodeCount}
                   </span>
                 </div>
-                {status.backupOutstanding ? (
-                  <p className="w3a-recovery-codes-note">
-                    Confirm the backup only while the recovery codes are visible during issuance.
-                  </p>
+                {status.pendingLocalBackup ? (
+                  <>
+                    <p className="w3a-recovery-codes-note">
+                      Your recovery codes are waiting in this wallet. Back them up somewhere
+                      private.
+                    </p>
+                    <button
+                      type="button"
+                      className="w3a-recovery-codes-primary-action"
+                      disabled={backupState.kind === 'working'}
+                      onClick={finishPendingBackup}
+                    >
+                      {backupState.kind === 'working'
+                        ? 'Opening recovery codes…'
+                        : 'Back up recovery codes'}
+                    </button>
+                  </>
                 ) : null}
               </>
+            ) : null}
+            {backupState.kind === 'error' ? (
+              <div className="w3a-recovery-codes-inline-error" role="alert">
+                {backupState.message}
+              </div>
             ) : null}
             {loadState.kind === 'error' ? (
               <div className="w3a-recovery-codes-inline-error" role="alert">

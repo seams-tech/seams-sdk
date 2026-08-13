@@ -14,7 +14,7 @@ export const SEAMS_WALLET_STORES = {
   keyMaterial: 'key_material',
   signingSessionSeals: 'signing_session_seals',
   signingSessionRestoreLeases: 'signing_session_restore_leases',
-  emailOtpRecoveryCodeBackups: 'email_otp_pending_recovery_code_backups',
+  pendingWalletRecoveryCodeBackups: 'email_otp_pending_recovery_code_backups',
   walletSessionAuthorizations: 'wallet_session_authorizations',
   linkedDeviceWalletSessions: 'linked_device_wallet_sessions',
   linkedDeviceExecutionEvidence: 'linked_device_execution_evidence',
@@ -310,7 +310,7 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
     ],
   },
   {
-    store: SEAMS_WALLET_STORES.emailOtpRecoveryCodeBackups,
+    store: SEAMS_WALLET_STORES.pendingWalletRecoveryCodeBackups,
     keyPath: ['wallet_id', 'enrollment_id'],
     indexes: [
       { name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false },

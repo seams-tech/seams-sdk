@@ -3301,6 +3301,10 @@ export class BrowserSigningSurface {
     this.touchConfirm.getContext().surfaceMeasurementBinding = binding;
   }
 
+  getWalletIframeSurfaceMeasurementBinding(): UiConfirmSurfaceMeasurementBinding {
+    return this.touchConfirm.getContext().surfaceMeasurementBinding;
+  }
+
   getUserPreferences(): UserPreferencesManager {
     return this.userPreferencesManager;
   }

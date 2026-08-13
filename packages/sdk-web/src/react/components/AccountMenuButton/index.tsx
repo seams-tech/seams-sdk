@@ -25,7 +25,6 @@ import {
   toWalletId,
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { NearProvisioningState } from '@/core/types/seams';
 
 function formatExportKeyErrorMessage(error: unknown): string {
@@ -147,10 +146,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
 
   // Read current theme from Theme context (falls back to system preference)
   const { theme } = useTheme();
-  const canShowRecoveryCodes =
-    loginState.isLoggedIn &&
-    Boolean(walletId) &&
-    loginState.authMethods.some((authMethod) => authMethod.kind === SIGNER_AUTH_METHODS.emailOtp);
+  const canShowRecoveryCodes = loginState.isLoggedIn && Boolean(walletId);
 
   useEffect(() => {
     if (!canShowRecoveryCodes) {
@@ -365,7 +361,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         id: PROFILE_MENU_ITEM_IDS.RECOVERY_CODES,
         icon: <RecoveryCodesIcon />,
         label: 'Recovery Codes',
-        description: 'Email OTP backup codes',
+        description: 'Back up wallet recovery codes',
         disabled: false,
         onClick: () => setShowRecoveryCodes(true),
         keepOpenOnClick: true,

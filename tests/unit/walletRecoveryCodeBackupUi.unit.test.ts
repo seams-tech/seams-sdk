@@ -6,10 +6,13 @@ const MODULE_URL = `/@fs${resolve(
   '../packages/sdk-web/src/SeamsWeb/operations/recovery/walletRecoveryCodeBackup.ts',
 )}`;
 
-function request() {
+function request(
+  continuation: 'registration_may_defer' | 'pending_backup_must_finish' = 'registration_may_defer',
+) {
   return {
     kind: 'wallet_recovery_code_backup_request_v1' as const,
     walletId: 'alice.testnet',
+    continuation,
     recoveryCodes: Array.from(
       { length: 10 },
       (_, index) => `AAAAA-BBBBB-CCCCC-DDD${String(index).padStart(2, '0')}`,
@@ -17,7 +20,10 @@ function request() {
   };
 }
 
-async function openDialog(page: Page): Promise<void> {
+async function openDialog(
+  page: Page,
+  continuation: 'registration_may_defer' | 'pending_backup_must_finish' = 'registration_may_defer',
+): Promise<void> {
   await page.goto('/');
   await page.evaluate(
     async ({ moduleUrl, backupRequest }) => {
@@ -27,7 +33,7 @@ async function openDialog(page: Page): Promise<void> {
         window as unknown as { walletRecoveryBackupResult: Promise<unknown> }
       ).walletRecoveryBackupResult = result;
     },
-    { moduleUrl: MODULE_URL, backupRequest: request() },
+    { moduleUrl: MODULE_URL, backupRequest: request(continuation) },
   );
 }
 
@@ -75,6 +81,30 @@ test('wallet recovery backup starts on the acknowledgement and is keyboard compl
   await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');
   await page.keyboard.press('Enter');
+  await expect(readResult(page)).resolves.toEqual({ kind: 'wallet_recovery_codes_backed_up_v1' });
+});
+
+test('wallet recovery backup can be deferred to the account menu', async ({ page }) => {
+  await openDialog(page);
+  await page.getByRole('button', { name: 'Back up later' }).click();
+  await expect(readResult(page)).resolves.toEqual({
+    kind: 'wallet_recovery_code_backup_deferred_v1',
+  });
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('account-menu recovery backup must be completed or closed', async ({ page }) => {
+  await openDialog(page, 'pending_backup_must_finish');
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('button', { name: 'Back up later' })).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Finish backup' }).click();
+  await expect(dialog.getByRole('status')).toHaveText(
+    'Confirm that you saved the recovery codes before continuing.',
+  );
+  await dialog
+    .getByRole('checkbox', { name: 'I saved these recovery codes somewhere private.' })
+    .check();
+  await dialog.getByRole('button', { name: 'Finish backup' }).click();
   await expect(readResult(page)).resolves.toEqual({ kind: 'wallet_recovery_codes_backed_up_v1' });
 });
 

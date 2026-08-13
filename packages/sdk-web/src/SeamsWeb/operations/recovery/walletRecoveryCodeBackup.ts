@@ -2,6 +2,11 @@ import type {
   WalletRecoveryCodeBackupAcknowledgementV1,
   WalletRecoveryCodeBackupRequestV1,
 } from '@/core/types/sdkSentEvents';
+import type { UiConfirmSurfaceMeasurementBinding } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
+import {
+  createWalletIframeSurfaceMeasurementReporter,
+  type WalletIframeSurfaceMeasurementReporter,
+} from '../../walletIframe/host/lit-ui/surface-measurement-reporter';
 
 function safeWalletId(value: string): string {
   return value.trim().replace(/[^A-Za-z0-9_.-]/g, '_') || 'wallet';
@@ -46,8 +51,12 @@ class WalletRecoveryCodeBackupDialog {
   private resolveResult!: (value: WalletRecoveryCodeBackupAcknowledgementV1) => void;
   private rejectResult!: (error: Error) => void;
   private settled = false;
+  private measurementReporter: WalletIframeSurfaceMeasurementReporter | null = null;
 
-  constructor(private readonly request: WalletRecoveryCodeBackupRequestV1) {
+  constructor(
+    private readonly request: WalletRecoveryCodeBackupRequestV1,
+    private readonly measurementBinding: UiConfirmSurfaceMeasurementBinding,
+  ) {
     this.result = new Promise((resolve, reject) => {
       this.resolveResult = resolve;
       this.rejectResult = reject;
@@ -57,6 +66,7 @@ class WalletRecoveryCodeBackupDialog {
 
   async show(): Promise<WalletRecoveryCodeBackupAcknowledgementV1> {
     document.body.appendChild(this.dialog);
+    this.measurementReporter = this.createMeasurementReporter();
     this.dialog.showModal();
     this.acknowledgement.focus();
     return await this.result;
@@ -68,7 +78,7 @@ class WalletRecoveryCodeBackupDialog {
     this.dialog.setAttribute('data-w3a-wallet-recovery-backup-dialog', '');
     this.dialog.className = 'w3a-host-themed-dialog';
     this.dialog.style.cssText = [
-      'width:min(30rem,calc(100vw - 1.5rem))',
+      'width:min(44rem,calc(100vw - 1.5rem))',
       'max-height:calc(100vh - 1.5rem)',
       'overflow:auto',
       'box-sizing:border-box',
@@ -91,13 +101,16 @@ class WalletRecoveryCodeBackupDialog {
     const description = document.createElement('p');
     description.id = 'w3a-wallet-recovery-backup-description';
     description.textContent =
-      'These ten single-use codes recover every signing key in this wallet. Save them somewhere private before you finish registration.';
+      this.request.continuation === 'registration_may_defer'
+        ? 'These ten single-use codes recover every signing key in this wallet. Save them now, or back them up later from Recovery Codes in the account menu.'
+        : 'These ten single-use codes recover every signing key in this wallet. Save them somewhere private.';
     description.style.cssText =
       'margin:0 0 1rem;color:var(--w3a-colors-textSecondary,#565177);line-height:1.5';
     this.dialog.appendChild(description);
 
     const list = document.createElement('ol');
-    list.style.cssText = 'display:grid;gap:.5rem;margin:0 0 1rem;padding:0;list-style:none';
+    list.style.cssText =
+      'display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:.5rem;margin:0 0 1rem;padding:0;list-style:none';
     for (const [index, code] of this.request.recoveryCodes.entries()) {
       const item = document.createElement('li');
       item.textContent = `${index + 1}. ${code}`;
@@ -138,7 +151,15 @@ class WalletRecoveryCodeBackupDialog {
 
     const finalActions = document.createElement('div');
     finalActions.style.cssText = 'display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.5rem';
-    finalActions.appendChild(this.button('Cancel registration', this.cancel.bind(this), false));
+    if (this.request.continuation === 'registration_may_defer') {
+      const deferButton = this.button('Back up later', this.defer.bind(this), false);
+      deferButton.setAttribute('data-w3a-wallet-recovery-backup-close', '');
+      finalActions.appendChild(deferButton);
+    } else {
+      const closeButton = this.button('Close', this.cancel.bind(this), false);
+      closeButton.setAttribute('data-w3a-wallet-recovery-backup-close', '');
+      finalActions.appendChild(closeButton);
+    }
     finalActions.appendChild(this.button('Finish backup', this.finish.bind(this), true));
     this.dialog.appendChild(finalActions);
 
@@ -193,6 +214,13 @@ class WalletRecoveryCodeBackupDialog {
     this.resolveResult({ kind: 'wallet_recovery_codes_backed_up_v1' });
   }
 
+  private defer(): void {
+    if (this.settled || this.request.continuation !== 'registration_may_defer') return;
+    this.settled = true;
+    this.close();
+    this.resolveResult({ kind: 'wallet_recovery_code_backup_deferred_v1' });
+  }
+
   private cancel(): void {
     if (this.settled) return;
     this.settled = true;
@@ -206,17 +234,34 @@ class WalletRecoveryCodeBackupDialog {
   }
 
   private close(): void {
+    this.measurementReporter?.disconnect();
+    this.measurementReporter = null;
     this.dialog.close();
     this.dialog.remove();
     this.previousFocus?.focus();
+  }
+
+  private createMeasurementReporter(): WalletIframeSurfaceMeasurementReporter | null {
+    switch (this.measurementBinding.kind) {
+      case 'disabled':
+        return null;
+      case 'wallet_iframe':
+        return createWalletIframeSurfaceMeasurementReporter({
+          kind: 'request_scroll_surface',
+          requestId: this.measurementBinding.requestId,
+          element: this.dialog,
+          postMeasurement: this.measurementBinding.postMeasurement,
+        });
+    }
   }
 }
 
 export async function showWalletRecoveryCodeBackupUi(
   request: WalletRecoveryCodeBackupRequestV1,
+  measurementBinding: UiConfirmSurfaceMeasurementBinding = { kind: 'disabled' },
 ): Promise<WalletRecoveryCodeBackupAcknowledgementV1> {
   if (typeof document === 'undefined') {
     throw new Error('Wallet recovery-code backup requires a browser or a backup handler');
   }
-  return await new WalletRecoveryCodeBackupDialog(request).show();
+  return await new WalletRecoveryCodeBackupDialog(request, measurementBinding).show();
 }

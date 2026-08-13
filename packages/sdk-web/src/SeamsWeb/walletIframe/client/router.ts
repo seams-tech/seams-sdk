@@ -337,6 +337,7 @@ type WalletIframeRequestSurfaceKind =
   | 'key_export_near'
   | 'key_export_threshold'
   | 'unlock'
+  | 'recovery_codes'
   | 'device_link'
   | 'device_link_qr';
 
@@ -402,6 +403,8 @@ function requestSurfaceKindForMessage(
     case 'PM_COMPLETE_WALLET_RECOVERY':
     case 'PM_ROTATE_WALLET_RECOVERY_CODES':
       return 'registration';
+    case 'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP':
+      return 'recovery_codes';
     case 'PM_SIGN_TX_WITH_ACTIONS':
     case 'PM_SIGN_AND_SEND_TX':
     case 'PM_EXECUTE_ACTION':
@@ -525,6 +528,8 @@ function requestSurfacePresentationFor(
       return confirmationUiModeForRequest('PM_UNLOCK', payload, fallbackUiMode) === 'drawer'
         ? drawerWalletIframeSurfacePresentation('Unlock wallet')
         : modalWalletIframeSurfacePresentation('Unlock wallet');
+    case 'recovery_codes':
+      return modalWalletIframeSurfacePresentation('Back up recovery codes');
     case 'device_link':
     case 'device_link_qr':
       return modalWalletIframeSurfacePresentation('Link a device');
@@ -1776,6 +1781,15 @@ export class WalletIframeRouter {
           unlockKind: 'passkey',
         });
         break;
+      case 'recovery_codes':
+        result = this.transitionWalletIframeSurface({
+          kind: 'recovery_codes_modal_request_started',
+          connectionId,
+          identity,
+          presentation: requestSurfacePresentationFor('recovery_codes', args.payload),
+          operation: 'show',
+        });
+        break;
       case 'device_link':
         result = this.transitionWalletIframeSurface({
           kind: 'unlock_modal_request_started',
@@ -2951,10 +2965,13 @@ export class WalletIframeRouter {
   async acknowledgeWalletRecoveryCodeBackup(payload: {
     walletId: string;
   }): Promise<WalletRecoveryBackupAcknowledgementResult> {
-    const res = await this.post<WalletRecoveryBackupAcknowledgementResult>({
-      type: 'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP',
-      payload,
-    });
+    const res = await this.post<WalletRecoveryBackupAcknowledgementResult>(
+      {
+        type: 'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP',
+        payload,
+      },
+      { timeout: 'interactive' },
+    );
     return res.result;
   }
 

@@ -26,6 +26,7 @@ import type {
   UserProfileStoreSurface,
   WarmSessionStatusSurface,
   WalletIframeWarmupSurface,
+  WalletIframeSurfaceMeasurementSurface,
   WalletAuthenticationSurface,
   WebAuthnRegistrationConfirmationSurface,
 } from './ports';
@@ -93,6 +94,7 @@ export interface SeamsWebSigningSurface
     RpIdSurface,
     NonceCoordinatorSurface,
     WalletIframeWarmupSurface,
+    WalletIframeSurfaceMeasurementSurface,
     WalletAuthenticationSurface,
     RuntimeStartupSurface,
     SigningEngineLifecycleEventSurface,
