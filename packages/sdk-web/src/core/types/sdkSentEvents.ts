@@ -833,11 +833,12 @@ export type WalletRecoveryCodeBackupRequestV1 = {
   readonly kind: 'wallet_recovery_code_backup_request_v1';
   readonly walletId: string;
   readonly recoveryCodes: readonly string[];
+  readonly continuation: 'registration_may_defer' | 'pending_backup_must_finish';
 };
 
-export type WalletRecoveryCodeBackupAcknowledgementV1 = {
-  readonly kind: 'wallet_recovery_codes_backed_up_v1';
-};
+export type WalletRecoveryCodeBackupAcknowledgementV1 =
+  | { readonly kind: 'wallet_recovery_codes_backed_up_v1' }
+  | { readonly kind: 'wallet_recovery_code_backup_deferred_v1' };
 
 export type WalletRecoveryCodeBackupHandlerV1 = (
   request: WalletRecoveryCodeBackupRequestV1,
@@ -854,8 +855,8 @@ export interface RegistrationHooksOptions {
   afterCall?: AfterCall<RegistrationResult>;
   /**
    * Receives the wallet-scoped recovery codes before custody is committed.
-   * Resolve only after the person registering the wallet has saved the set.
-   * When omitted, the SDK presents its built-in backup dialog.
+   * Resolve after the person either saves the set or explicitly defers backup.
+   * When omitted, the SDK presents its built-in backup dialog with both choices.
    */
   backupWalletRecoveryCodes?: WalletRecoveryCodeBackupHandlerV1;
   /** Optional sink for sanitized Refactor 93 registration timing spans. */

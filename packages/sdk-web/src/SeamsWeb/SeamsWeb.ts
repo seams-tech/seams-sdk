@@ -159,6 +159,8 @@ import {
 } from '@/SeamsWeb/operations/authMethods/emailOtp/challenge';
 import { WalletRecoveryCoordinator } from '@/SeamsWeb/operations/recovery/walletRecovery';
 import { rotateWalletRecoveryCodes } from '@/SeamsWeb/operations/recovery/walletRecoveryRotation';
+import { showWalletRecoveryCodeBackupUi } from '@/SeamsWeb/operations/recovery/walletRecoveryCodeBackup';
+import { pendingWalletRecoveryCodeBackupRepository } from '@/core/indexedDB/seamsWalletDB/pendingWalletRecoveryCodeBackup';
 import { beginGoogleEmailOtpWalletAuth } from '@/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow';
 import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
 import {
@@ -1921,11 +1923,17 @@ export class SeamsWeb {
       });
     }
     const appSessionJwt = this.requireActiveWalletAppSessionJwt(relayUrl, args.walletId);
-    return await readWalletRecoveryCodeStatus({
+    const status = await readWalletRecoveryCodeStatus({
       relayUrl,
       walletId: args.walletId,
       sessionToken: appSessionJwt,
     });
+    return status.kind === 'ready'
+      ? {
+          ...status,
+          pendingLocalBackup: await pendingWalletRecoveryCodeBackupRepository.has(args.walletId),
+        }
+      : status;
   }
 
   private async acknowledgeWalletRecoveryCodeBackupDomain(args: { walletId: string }) {
@@ -1935,6 +1943,22 @@ export class SeamsWeb {
       return await router.acknowledgeWalletRecoveryCodeBackup({
         walletId: args.walletId,
       });
+    }
+    const pending = await pendingWalletRecoveryCodeBackupRepository.read(args.walletId);
+    if (pending) {
+      const acknowledgement = await showWalletRecoveryCodeBackupUi(
+        {
+          kind: 'wallet_recovery_code_backup_request_v1',
+          walletId: pending.walletId,
+          recoveryCodes: pending.recoveryCodes,
+          continuation: 'pending_backup_must_finish',
+        },
+        this.signingEngine.getWalletIframeSurfaceMeasurementBinding(),
+      );
+      if (acknowledgement.kind !== 'wallet_recovery_codes_backed_up_v1') {
+        throw new Error('Pending wallet recovery-code backup was not completed');
+      }
+      await pendingWalletRecoveryCodeBackupRepository.delete(args.walletId);
     }
     const appSessionJwt = this.requireActiveWalletAppSessionJwt(relayUrl, args.walletId);
     return await acknowledgeWalletRecoveryBackup({

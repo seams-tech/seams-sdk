@@ -26,6 +26,7 @@ const CONFIRM_UI_SELECTORS = [
   'w3a-tx-confirmer',
   'w3a-export-key-viewer',
   '[data-w3a-email-otp-recovery-code-dialog]',
+  '[data-w3a-wallet-recovery-backup-dialog]',
 ] as const;
 
 export type WalletHostRuntimeKind = RuntimeWalletHostRoute['kind'];
@@ -121,7 +122,7 @@ export function initWalletIFrame(options: WalletHostEntryOptions = {}): void {
         }
       } catch {}
       const recoveryCodeCloseButton = el.querySelector<HTMLButtonElement>(
-        '[data-w3a-email-otp-recovery-code-dialog-close]',
+        '[data-w3a-email-otp-recovery-code-dialog-close], [data-w3a-wallet-recovery-backup-close]',
       );
       recoveryCodeCloseButton?.click();
     }

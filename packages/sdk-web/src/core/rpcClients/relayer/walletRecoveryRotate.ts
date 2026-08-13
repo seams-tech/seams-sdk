@@ -22,6 +22,7 @@ export type WalletRecoveryCodeStatusResult =
       readonly totalCodeCount: number;
       readonly issuedAtMs: number;
       readonly backupOutstanding: boolean;
+      readonly pendingLocalBackup: boolean;
     }
   | { readonly kind: 'no_recovery_set'; readonly message: string }
   | { readonly kind: 'unauthorized'; readonly message: string }
@@ -91,6 +92,7 @@ export async function readWalletRecoveryCodeStatus(args: {
     totalCodeCount,
     issuedAtMs,
     backupOutstanding: body.backupOutstanding,
+    pendingLocalBackup: false,
   };
 }
 

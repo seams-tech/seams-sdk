@@ -1,4 +1,5 @@
 import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
+import type { UiConfirmSurfaceMeasurementBinding } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type {
   NearProvisioningState,
   NearProvisioningWriteV1,
@@ -204,6 +205,10 @@ export interface WalletIframeWarmupSurface {
   warmCriticalResources(
     accountContext?: WorkerResourceWarmupAccountContext,
   ): Promise<WorkerResourceWarmupDiagnostics>;
+}
+
+export interface WalletIframeSurfaceMeasurementSurface {
+  getWalletIframeSurfaceMeasurementBinding(): UiConfirmSurfaceMeasurementBinding;
 }
 
 export interface RegistrationResourceWarmupSurface {
@@ -780,6 +785,7 @@ export interface EmailOtpRegistrationEnrollmentSurface {
 }
 
 export type RegistrationSigningSurface = RpIdSurface &
+  WalletIframeSurfaceMeasurementSurface &
   Ed25519YaoCapabilityActivationSurface &
   WalletCustodyCeremonySurface &
   Pick<WalletIframeWarmupSurface, 'warmCriticalResources'> &

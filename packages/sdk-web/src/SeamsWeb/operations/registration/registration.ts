@@ -151,6 +151,7 @@ import {
   collectPasskeyRegistrationAuthorityFromCredential,
 } from '@/SeamsWeb/operations/authMethods/passkey/registrationAuthority';
 import { showWalletRecoveryCodeBackupUi } from '@/SeamsWeb/operations/recovery/walletRecoveryCodeBackup';
+import { pendingWalletRecoveryCodeBackupRepository } from '@/core/indexedDB/seamsWalletDB/pendingWalletRecoveryCodeBackup';
 import type { RegistrationFinalizeIdempotencyKey } from '@/SeamsWeb/publicApi/types';
 import { registrationFinalizeIdempotencyKeyFromString } from '@/SeamsWeb/publicApi/types';
 import { collectEmailOtpRegistrationAuthority } from '@/SeamsWeb/operations/authMethods/emailOtp/registrationAuthority';
@@ -255,6 +256,7 @@ function requireWebAuthnRpId(value: string): WebAuthnRpId {
 }
 
 async function confirmWalletRecoveryCodesBackedUp(
+  context: RegistrationWebContext,
   walletId: string,
   handler: WalletRecoveryCodeBackupHandlerV1 | undefined,
   recoveryCodes: readonly string[],
@@ -266,12 +268,22 @@ async function confirmWalletRecoveryCodesBackedUp(
     kind: 'wallet_recovery_code_backup_request_v1' as const,
     walletId,
     recoveryCodes,
+    continuation: 'registration_may_defer' as const,
   };
   const acknowledgement = handler
     ? await handler(request)
-    : await showWalletRecoveryCodeBackupUi(request);
-  if (acknowledgement?.kind !== 'wallet_recovery_codes_backed_up_v1') {
-    throw new Error('Wallet recovery-code backup was not acknowledged');
+    : await showWalletRecoveryCodeBackupUi(
+        request,
+        context.signingEngine.getWalletIframeSurfaceMeasurementBinding(),
+      );
+  switch (acknowledgement?.kind) {
+    case 'wallet_recovery_codes_backed_up_v1':
+      return;
+    case 'wallet_recovery_code_backup_deferred_v1':
+      await pendingWalletRecoveryCodeBackupRepository.write({ walletId, recoveryCodes });
+      return;
+    default:
+      throw new Error('Wallet recovery-code backup result is invalid');
   }
 }
 
@@ -2222,9 +2234,7 @@ async function commitDeferredEd25519Registration(args: {
     }
     const nearAccountId = toAccountId(finalized.ed25519.nearAccountId);
     const passkeyCredentialIdB64u =
-      args.authMaterial.kind === 'passkey'
-        ? args.authMaterial.credentialIdB64u
-        : '';
+      args.authMaterial.kind === 'passkey' ? args.authMaterial.credentialIdB64u : '';
     if (auth.kind === 'passkey') {
       requireEd25519YaoRegistrationPublicResultMatches({
         clientPublicKey,
@@ -2751,6 +2761,7 @@ async function registerEcdsaOrMixedWallet(
           registrationTiming,
           confirmRecoveryCodesBackedUp: confirmWalletRecoveryCodesBackedUp.bind(
             undefined,
+            context,
             String(walletId),
             options.backupWalletRecoveryCodes,
           ),
@@ -3130,6 +3141,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       zeroizeArrayBuffer(emailOtpWalletCustodyFactorSecret);
     }
     await confirmWalletRecoveryCodesBackedUp(
+      context,
       String(walletId),
       options.backupWalletRecoveryCodes,
       established.recoveryCodes,
@@ -3493,6 +3505,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
       zeroizeArrayBuffer(walletCustodyFactorSecret);
     }
     await confirmWalletRecoveryCodesBackedUp(
+      context,
       String(intent.walletId),
       options.backupWalletRecoveryCodes,
       established.recoveryCodes,
