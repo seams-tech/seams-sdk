@@ -64,6 +64,10 @@ function localSiteEnvironment(environment) {
       environment.VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID,
       'local-signing-worker',
     ]),
+    VITE_SIGNING_SESSION_PERSISTENCE_MODE: firstNonEmptyString([
+      environment.VITE_SIGNING_SESSION_PERSISTENCE_MODE,
+      'sealed_refresh_v1',
+    ]),
     VITE_SEAMS_PROJECT_ENVIRONMENT_ID: projectEnvironmentId,
     VITE_SEAMS_PUBLISHABLE_KEY: publishableKey,
   };
